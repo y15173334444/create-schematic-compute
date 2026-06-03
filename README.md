@@ -1,5 +1,10 @@
 # Create: Schematic Compute
 
+[![GitHub](https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue)](https://github.com/y15173334444/create-schematic-compute)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange)](https://neoforged.net/)
+[![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen)](https://www.curseforge.com/minecraft/mc-mods/create)
+
 一个机械动力（Create）附属模组，添加三种可编程计算机：**蓝图计算机**、**转速代理控制器**、**编程计算机**。
 
 ---
@@ -19,12 +24,11 @@
 
 ### 3. 编程计算机 (Program Computer)
 通过节点图编程实现**时序逻辑**，通过机械动力红石链接网络 I/O。
-- 周期运行模式：每 tick 采样输入 → 运算 → 输出
 - 专用时序节点（延时、锁存器、T 触发器、脉冲延长、循环、保险）
 
 ---
 
-## 🔷 节点参考
+## 🔷 节点参考（24 种）
 
 ### 数值 (Values)
 | 节点 | 输入 | 输出 | 参数 | 说明 |
@@ -40,6 +44,9 @@
 | SUB | A, B | float | A - B |
 | MUL | A, B | float | A × B |
 | DIV | A, B | float | A ÷ B（B=0 时返回 0） |
+| MOD | A, B | float | A % B（取模） |
+| CEIL | in | int | 向上取整 |
+| FLOOR | in | int | 向下取整 |
 
 ### 逻辑 (Logic)
 | 节点 | 输入 | 输出 | 说明 |
@@ -51,7 +58,7 @@
 ### 控制 (Control)
 | 节点 | 输入 | 输出 | 参数 | 说明 |
 |------|------|------|------|------|
-| PID | SP, PV | ctrl | kp, ki, kd, scale | PID 控制器，输出 0~16 |
+| PID | SP, PV | ctrl | kp, ki, kd, scale | PID 控制器，输出 0~16，误差归零时 I 项复位 |
 | PID_POWER | SP, PV, base | power | kp, ki, kd | 带初始动力的 PID，输出 0~16 |
 | CLAMP | In, Min, Max | float | - | 限幅 |
 | MAP | In, InMin, InMax, OutMin, OutMax | float | - | 映射范围 |
@@ -101,7 +108,7 @@
 | 操作 | 功能 |
 |------|------|
 | **左键节点** | 打开编辑面板（参数/频率/通道名） |
-| **右键空白** | 打开添加节点菜单 |
+| **右键空白** | 打开添加节点菜单（分类折叠） |
 | **左键拖拽连线端口** | 连接节点 |
 | **右键节点/连线** | 删除 |
 | **Ctrl+D** | 复制选中节点 |
@@ -109,3 +116,11 @@
 | **右键拖拽** | 平移画布 |
 | **Compile** | 编译保存图形 |
 | **Run / Stop** | 启动/停止运行 |
+
+---
+
+## 📄 许可
+
+MIT License © 2026 y15173334444
+
+GitHub: https://github.com/y15173334444/create-schematic-compute
