@@ -183,6 +183,8 @@ public class GraphEvaluator {
             case MUL -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a * b; }
             case DIV -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = b != 0 ? a / b : 0; }
             case MOD -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = b != 0 ? a % b : 0; }
+            case CEIL -> o[0] = (float) Math.ceil(graph.getInputValue(node.id, 0, outputs));
+            case FLOOR -> o[0] = (float) Math.floor(graph.getInputValue(node.id, 0, outputs));
             case GT -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a > b ? 1 : 0; }
             case LT -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a < b ? 1 : 0; }
             case EQ -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = Math.abs(a - b) < 0.01f ? 1 : 0; }
@@ -197,14 +199,14 @@ public class GraphEvaluator {
                 int ik = node.id, dk = -(node.id + 1);
                 float integral = pidState.getOrDefault(ik, 0f);
                 float prevPv = pidState.getOrDefault(dk, pv);
-                if (Math.abs(sp) > 0.001f || Math.abs(pv) > 0.001f) integral += err * dt;
+                if (Math.abs(err) > 0.001f) integral += err * dt;
                 else integral = 0;
                 if (integral > 50) integral = 50; if (integral < -50) integral = -50;
                 pidState.put(ik, integral);
                 float dPv = pv - prevPv;
                 float deriv = (dt > 0.001f) ? -dPv / dt : 0;
                 pidState.put(dk, pv);
-                o[0] = Math.max(0, Math.min(16, (kp * err + ki * integral + kd * deriv) * s + 8));
+                o[0] = Math.max(0, Math.min(16, (kp * err + ki * integral + kd * deriv) * s));
             }
             case PID_POWER -> {
                 float sp = Math.max(0, Math.min(15, graph.getInputValue(node.id, 0, outputs)));
@@ -218,7 +220,7 @@ public class GraphEvaluator {
                 int ik = node.id, dk = -(node.id + 1);
                 float integral = pidState.getOrDefault(ik, 0f);
                 float prevPv = pidState.getOrDefault(dk, pv);
-                if (Math.abs(sp) > 0.001f || Math.abs(pv) > 0.001f) integral += err * dt;
+                if (Math.abs(err) > 0.001f) integral += err * dt;
                 else integral = 0;
                 if (integral > 50) integral = 50; if (integral < -50) integral = -50;
                 pidState.put(ik, integral);

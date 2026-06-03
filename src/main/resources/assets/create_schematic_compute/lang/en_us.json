@@ -14,6 +14,8 @@
   "node.create_schematic_compute.mul": "Multiply",
   "node.create_schematic_compute.div": "Divide",
   "node.create_schematic_compute.mod": "Modulo",
+  "node.create_schematic_compute.ceil": "Ceil",
+  "node.create_schematic_compute.floor": "Floor",
   "node.create_schematic_compute.gt": "Greater Than",
   "node.create_schematic_compute.lt": "Less Than",
   "node.create_schematic_compute.eq": "Equals",

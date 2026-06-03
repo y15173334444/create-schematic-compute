@@ -11,6 +11,8 @@ public enum NodeType {
     MUL("node.create_schematic_compute.mul", 2, 1, ""),
     DIV("node.create_schematic_compute.div", 2, 1, ""),
     MOD("node.create_schematic_compute.mod", 2, 1, ""),
+    CEIL("node.create_schematic_compute.ceil", 1, 1, ""),
+    FLOOR("node.create_schematic_compute.floor", 1, 1, ""),
     GT("node.create_schematic_compute.gt", 2, 1, ""),
     LT("node.create_schematic_compute.lt", 2, 1, ""),
     EQ("node.create_schematic_compute.eq", 2, 1, ""),
@@ -43,6 +45,7 @@ public enum NodeType {
         case PID_POWER -> i==0?"SP":i==1?"PV":"base";
         case CLAMP -> i==0?"In":i==1?"Min":"Max";
         case MAP -> i==0?"In":i==1?"InMin":i==2?"InMax":i==3?"OutMin":"OutMax";
+        case CEIL, FLOOR -> "in";
         case REDSTONE_OUT -> "In";
         case PRIVATE_OUT -> "val";
         case LATCH -> i==0?"S":"R";
@@ -57,6 +60,7 @@ public enum NodeType {
         case PID -> "ctrl";
         case PID_POWER -> "power";
         case CLAMP,MAP -> "float";
+        case CEIL, FLOOR -> "int";
         case DELAY -> "out";
         case LATCH -> "q";
         case T_FLIPFLOP -> "tog";
