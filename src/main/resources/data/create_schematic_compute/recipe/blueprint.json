@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "LML",
+    "GRG",
+    "BCB"
+  ],
+  "key": {
+    "L": { "item": "create:redstone_link" },
+    "M": { "item": "create:precision_mechanism" },
+    "G": { "item": "minecraft:glass_pane" },
+    "R": { "item": "minecraft:repeater" },
+    "C": { "item": "minecraft:comparator" },
+    "B": { "item": "create:brass_casing" }
+  },
+  "result": {
+    "id": "create_schematic_compute:blueprint"
+  }
+}

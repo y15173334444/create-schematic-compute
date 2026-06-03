@@ -1,0 +1,21 @@
+# Gradle
+.gradle/
+build/
+*.jar
+!build/libs/*.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Minecraft dev
+runs/
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

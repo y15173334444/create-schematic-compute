@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "create_schematic_compute:block/pid_side",
+    "north": "create_schematic_compute:block/pid_front_on",
+    "south": "create_schematic_compute:block/pid_back",
+    "east": "create_schematic_compute:block/pid_side",
+    "west": "create_schematic_compute:block/pid_side",
+    "up": "create_schematic_compute:block/pid_top",
+    "down": "create_schematic_compute:block/pid_bottom"
+  }
+}

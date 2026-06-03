@@ -1,0 +1,46 @@
+{
+  "itemGroup.create_schematic_compute": "Create: Schematic Compute",
+
+  "block.create_schematic_compute.blueprint": "Blueprint Computer",
+  "container.create_schematic_compute.blueprint": "Blueprint Editor",
+
+  "gui.create_schematic_compute.blueprint.add_node": "Add Node",
+
+  "node.create_schematic_compute.const": "Constant",
+  "node.create_schematic_compute.redstone_in": "Redstone Input",
+  "node.create_schematic_compute.redstone_out": "Redstone Output",
+  "node.create_schematic_compute.add": "Add",
+  "node.create_schematic_compute.sub": "Subtract",
+  "node.create_schematic_compute.mul": "Multiply",
+  "node.create_schematic_compute.div": "Divide",
+  "node.create_schematic_compute.mod": "Modulo",
+  "node.create_schematic_compute.gt": "Greater Than",
+  "node.create_schematic_compute.lt": "Less Than",
+  "node.create_schematic_compute.eq": "Equals",
+  "node.create_schematic_compute.pid": "PID Controller",
+  "node.create_schematic_compute.pid_power": "Power PID",
+  "node.create_schematic_compute.clamp": "Clamp",
+  "node.create_schematic_compute.map": "Map Range",
+  "node.create_schematic_compute.speed_ctrl": "Speed Control",
+  "node.create_schematic_compute.private_in": "Private Signal Input",
+  "node.create_schematic_compute.private_out": "Private Signal Output",
+  "node.create_schematic_compute.delay": "Delay",
+  "node.create_schematic_compute.latch": "Latch",
+  "node.create_schematic_compute.t_flipflop": "T Flip-Flop",
+  "node.create_schematic_compute.pulse_extend": "Pulse Extender",
+  "node.create_schematic_compute.loop": "Loop",
+  "node.create_schematic_compute.fuse": "Safety Timer",
+
+  "block.create_schematic_compute.speed_proxy": "Speed Proxy Controller",
+  "container.create_schematic_compute.speed_proxy": "Speed Proxy Controller",
+
+  "block.create_schematic_compute.program_computer": "Program Computer",
+  "container.create_schematic_compute.program_computer": "Program Computer Editor",
+
+  "category.create_schematic_compute.values": "Values",
+  "category.create_schematic_compute.math": "Math",
+  "category.create_schematic_compute.logic": "Logic",
+  "category.create_schematic_compute.control": "Control",
+  "category.create_schematic_compute.output": "Output",
+  "category.create_schematic_compute.sequential": "Sequential"
+}

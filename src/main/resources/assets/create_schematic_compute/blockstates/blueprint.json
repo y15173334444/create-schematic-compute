@@ -1,0 +1,12 @@
+{
+  "variants": {
+    "facing=north,lit=false": { "model": "create_schematic_compute:block/blueprint", "y": 0 },
+    "facing=east,lit=false": { "model": "create_schematic_compute:block/blueprint", "y": 90 },
+    "facing=south,lit=false": { "model": "create_schematic_compute:block/blueprint", "y": 180 },
+    "facing=west,lit=false": { "model": "create_schematic_compute:block/blueprint", "y": 270 },
+    "facing=north,lit=true": { "model": "create_schematic_compute:block/blueprint_on", "y": 0 },
+    "facing=east,lit=true": { "model": "create_schematic_compute:block/blueprint_on", "y": 90 },
+    "facing=south,lit=true": { "model": "create_schematic_compute:block/blueprint_on", "y": 180 },
+    "facing=west,lit=true": { "model": "create_schematic_compute:block/blueprint_on", "y": 270 }
+  }
+}

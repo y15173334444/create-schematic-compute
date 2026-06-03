@@ -1,0 +1,76 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.gradle.userdev' version '7.0.181'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+base {
+    archivesName = 'create-schematic-compute'
+}
+
+group = 'com.example'
+version = '1.0.0'
+
+runs {
+    configureEach {
+        systemProperty 'forge.logging.console.level', 'debug'
+        modSource sourceSets.main
+    }
+
+    client {
+        systemProperty 'forge.enabledGameTestNamespaces', project.group
+    }
+
+    server {
+        systemProperty 'forge.enabledGameTestNamespaces', project.group
+        arguments '--nogui'
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.blamejared.com' }           // Create
+    maven { url = 'https://maven.tterrag.com' }              // Registrate, Flywheel
+    maven { url = 'https://maven.moddinginquisition.org/releases' }
+    flatDir {
+        dirs 'libs'
+    }
+}
+
+dependencies {
+    implementation "net.neoforged:neoforge:${neo_version}"
+
+    // Local JAR dependencies (needed at compile time)
+    compileOnly fileTree(dir: 'libs', include: '*.jar')
+    runtimeOnly fileTree(dir: 'libs', include: '*.jar')
+}
+
+tasks.withType(ProcessResources).configureEach {
+    var replaceProperties = [
+            minecraft_version       : minecraft_version,
+            minecraft_version_range : minecraft_version_range,
+            neo_version             : neo_version,
+            neo_version_range       : neo_version_range,
+            loader_version_range    : loader_version_range,
+            mod_id                  : mod_id,
+            mod_name                : mod_name,
+            mod_license             : mod_license,
+            mod_version             : mod_version,
+            mod_authors             : mod_authors,
+            mod_description         : mod_description,
+    ]
+    inputs.properties replaceProperties
+
+    filesMatching(['META-INF/neoforge.mods.toml']) {
+        expand replaceProperties
+    }
+}
+
+java {
+    withSourcesJar()
+}

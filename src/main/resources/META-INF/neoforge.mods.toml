@@ -1,0 +1,31 @@
+modLoader = "javafml"
+loaderVersion = "${loader_version_range}"
+license = "${mod_license}"
+
+[[mods]]
+modId = "${mod_id}"
+version = "${mod_version}"
+displayName = "${mod_name}"
+description = "${mod_description}"
+authors = "${mod_authors}"
+
+    [[mods.dependencies]]
+    modId = "minecraft"
+    versionRange = "${minecraft_version_range}"
+    ordering = "NONE"
+    side = "BOTH"
+    mandatory = true
+
+    [[mods.dependencies]]
+    modId = "neoforge"
+    versionRange = "${neo_version_range}"
+    ordering = "NONE"
+    side = "BOTH"
+    mandatory = true
+
+    [[mods.dependencies]]
+    modId = "create"
+    versionRange = "[6.0.10,)"
+    ordering = "NONE"
+    side = "BOTH"
+    mandatory = true

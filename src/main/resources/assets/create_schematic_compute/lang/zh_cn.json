@@ -1,0 +1,47 @@
+{
+  "itemGroup.create_schematic_compute": "Create: Schematic Compute",
+
+  "block.create_schematic_compute.blueprint": "蓝图计算机",
+  "container.create_schematic_compute.blueprint": "蓝图编辑器",
+
+  "gui.create_schematic_compute.blueprint.add_node": "添加节点",
+
+  "node.create_schematic_compute.const": "常量",
+  "node.create_schematic_compute.redstone_in": "红石输入",
+  "node.create_schematic_compute.redstone_out": "红石输出",
+  "node.create_schematic_compute.add": "加法",
+  "node.create_schematic_compute.sub": "减法",
+  "node.create_schematic_compute.mul": "乘法",
+  "node.create_schematic_compute.div": "除法",
+  "node.create_schematic_compute.mod": "模运算",
+  "node.create_schematic_compute.gt": "大于",
+  "node.create_schematic_compute.lt": "小于",
+  "node.create_schematic_compute.eq": "等于",
+  "node.create_schematic_compute.pid": "PID 控制器",
+  "node.create_schematic_compute.pid_power": "动力 PID",
+  "node.create_schematic_compute.clamp": "限制",
+  "node.create_schematic_compute.map": "映射范围",
+  "node.create_schematic_compute.speed_ctrl": "转速控制",
+  "node.create_schematic_compute.private_in": "私有信号输入",
+  "node.create_schematic_compute.private_out": "私有信号输出",
+
+  "block.create_schematic_compute.speed_proxy": "转速代理控制器",
+  "container.create_schematic_compute.speed_proxy": "转速代理控制器",
+
+  "block.create_schematic_compute.program_computer": "编程计算机",
+  "container.create_schematic_compute.program_computer": "编程计算机编辑器",
+
+  "category.create_schematic_compute.values": "数值",
+  "category.create_schematic_compute.math": "运算",
+  "category.create_schematic_compute.logic": "逻辑",
+  "category.create_schematic_compute.control": "控制",
+  "category.create_schematic_compute.output": "输出",
+  "category.create_schematic_compute.sequential": "时序",
+
+  "node.create_schematic_compute.delay": "延时",
+  "node.create_schematic_compute.latch": "锁存器",
+  "node.create_schematic_compute.t_flipflop": "T 触发器",
+  "node.create_schematic_compute.pulse_extend": "脉冲延长",
+  "node.create_schematic_compute.loop": "循环",
+  "node.create_schematic_compute.fuse": "保险"
+}
