@@ -40,7 +40,7 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 
 ---
 
-### Node Reference (28 Types)
+### Node Reference (31 Types)
 
 | Category | Nodes |
 |----------|-------|
@@ -157,7 +157,7 @@ MIT License © 2026 y15173334444
 
 ---
 
-### 节点参考（28 种）
+### 节点参考（31 种）
 
 | 分类 | 节点 |
 |------|------|
