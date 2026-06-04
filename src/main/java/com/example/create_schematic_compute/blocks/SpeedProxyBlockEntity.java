@@ -119,7 +119,7 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
         // 冷却期跳过扫描（仅在没有缓存时生效）
         if (scanCooldown > 0) { scanCooldown--; return; }
 
-        // 仅在 6 个相邻面查找转速控制器
+        // 在 6 个相邻面查找转速控制器
         for (var dir : net.minecraft.core.Direction.values()) {
             BlockPos p = worldPosition.relative(dir);
             if (trySetSpeed(level.getBlockEntity(p), targetRpm)) {

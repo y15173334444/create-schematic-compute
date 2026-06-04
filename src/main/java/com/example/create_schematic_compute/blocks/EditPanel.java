@@ -31,6 +31,8 @@ public class EditPanel {
         editFields.clear();
         editParamKeys = node.type.paramNames.clone();
         for(int i=0; i<node.params.length; i++) {
+            // BOOL 节点的 inverted 参数由按钮控制，不需要文本编辑框
+            if (node.type == NodeType.BOOL) continue;
             int idx = i;
             var b = new EditBox(Minecraft.getInstance().font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
@@ -88,6 +90,15 @@ public class EditPanel {
                 (selectedNode.type==NodeType.PRIVATE_IN||selectedNode.type==NodeType.PRIVATE_OUT ? "channel:" : "");
             g.drawString(Minecraft.getInstance().font, label, px+10, py+18+i*18-10, 0xFF888888, false);
         }
+        // BOOL 节点的反转按钮
+        if (selectedNode.type == NodeType.BOOL && selectedNode.params.length > 0) {
+            boolean inverted = selectedNode.params[0] > 0.5f;
+            int bx = px + 50, by = py + 18;
+            int bw = pw - 65, bh = 16;
+            g.fill(bx, by, bx+bw, by+bh, inverted ? 0xFF44AA44 : 0xFF444444);
+            g.renderOutline(bx, by, bw, bh, 0xFF888888);
+            g.drawString(Minecraft.getInstance().font, inverted ? "§a✔ Inverted" : "       Not Inverted", bx+4, by+2, 0xFFFFFFFF, false);
+        }
         // 频率槽位
         if(selectedNode.type == NodeType.REDSTONE_IN || selectedNode.type == NodeType.REDSTONE_OUT)
             renderFreqSlots(g, px, py, mouseX, mouseY);
@@ -122,11 +133,20 @@ public class EditPanel {
     public boolean mouseClicked(double mx, double my, int btn) {
         if(btn!=0 || selectedNode==null) return false;
         // 点击编辑面板外部关闭
-        int pw = Math.min(260, screen.width-8), px = screen.width-pw-4;
+        int pw = Math.min(260, screen.width-8), px = screen.width-pw-4, py = 35;
         int ph = panelHeight();
-        if(mx<px || mx>px+pw || my<35 || my>35+ph) {
+        if(mx<px || mx>px+pw || my<py || my>py+ph) {
             close();
             return true;
+        }
+        // BOOL 反转按钮点击
+        if (selectedNode.type == NodeType.BOOL && selectedNode.params.length > 0) {
+            int bx = px + 50, by = py + 18;
+            int bw = pw - 65, bh = 16;
+            if (mx >= bx && mx <= bx+bw && my >= by && my <= by+bh) {
+                selectedNode.params[0] = selectedNode.params[0] > 0.5f ? 0 : 1;
+                return true;
+            }
         }
         // 编辑框
         for(var b : editFields) {

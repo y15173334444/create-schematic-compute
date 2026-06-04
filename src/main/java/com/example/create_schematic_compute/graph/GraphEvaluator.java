@@ -183,6 +183,11 @@ public class GraphEvaluator {
             case MOD -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = b != 0 ? a % b : 0; }
             case CEIL -> o[0] = (float) Math.ceil(graph.getInputValue(node.id, 0, outputs));
             case FLOOR -> o[0] = (float) Math.floor(graph.getInputValue(node.id, 0, outputs));
+            case BOOL -> {
+                float vin = graph.getInputValue(node.id, 0, outputs);
+                o[0] = vin > 0 ? 1 : 0;
+                if (node.params.length > 0 && node.params[0] > 0.5f) o[0] = 1 - o[0];
+            }
             case GT -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a > b ? 1 : 0; }
             case LT -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a < b ? 1 : 0; }
             case EQ -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = Math.abs(a - b) < 0.01f ? 1 : 0; }
@@ -229,7 +234,11 @@ public class GraphEvaluator {
             }
             case CLAMP -> { float v = graph.getInputValue(node.id, 0, outputs); float mn = graph.getInputValue(node.id, 1, outputs); float mx = graph.getInputValue(node.id, 2, outputs); o[0] = Math.max(mn, Math.min(mx, v)); }
             case MAP -> { float v = graph.getInputValue(node.id, 0, outputs); float imn = graph.getInputValue(node.id, 1, outputs); float imx = graph.getInputValue(node.id, 2, outputs); float omn = graph.getInputValue(node.id, 3, outputs); float omx = graph.getInputValue(node.id, 4, outputs); float r = imx - imn; o[0] = r == 0 ? omn : omn + (v - imn) / r * (omx - omn); }
-            case SPEED_CTRL -> { o[0] = graph.getInputValue(node.id, 0, outputs); }
+            case SPEED_CTRL -> {
+                float speed = graph.getInputValue(node.id, 0, outputs);
+                float dir = graph.getInputValue(node.id, 1, outputs);
+                o[0] = dir > 0.5 ? -speed : speed;
+            }
             case PRIVATE_IN -> o[0] = SignalBus.get(node.signalName);
             case PRIVATE_OUT -> SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
         }

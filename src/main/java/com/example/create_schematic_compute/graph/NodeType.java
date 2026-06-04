@@ -20,7 +20,8 @@ public enum NodeType {
     PID_POWER("node.create_schematic_compute.pid_power", 3, 1, "kp,ki,kd"),
     CLAMP("node.create_schematic_compute.clamp", 3, 1, ""),
     MAP("node.create_schematic_compute.map", 5, 1, ""),
-    SPEED_CTRL("node.create_schematic_compute.speed_ctrl", 1, 1, ""),
+    SPEED_CTRL("node.create_schematic_compute.speed_ctrl", 2, 1, ""),
+    BOOL("node.create_schematic_compute.bool", 1, 1, "inverted"),
     PRIVATE_IN("node.create_schematic_compute.private_in", 0, 1, ""),
     PRIVATE_OUT("node.create_schematic_compute.private_out", 1, 0, ""),
     DELAY("node.create_schematic_compute.delay", 1, 1, "ticks"),
@@ -45,10 +46,11 @@ public enum NodeType {
         case PID_POWER -> i==0?"SP":i==1?"PV":"base";
         case CLAMP -> i==0?"In":i==1?"Min":"Max";
         case MAP -> i==0?"In":i==1?"InMin":i==2?"InMax":i==3?"OutMin":"OutMax";
-        case CEIL, FLOOR -> "in";
+        case CEIL, FLOOR, BOOL -> "in";
         case REDSTONE_OUT -> "In";
         case PRIVATE_OUT -> "val";
         case LATCH -> i==0?"S":"R";
+        case SPEED_CTRL -> i==0?"speed":"dir";
         case PULSE_EXTEND, T_FLIPFLOP, DELAY, LOOP, FUSE -> "in";
         default -> "in";
     };}
@@ -56,7 +58,7 @@ public enum NodeType {
         case CONST -> "float";
         case REDSTONE_IN -> "signal";
         case ADD,SUB,MUL,DIV,MOD -> "float";
-        case GT,LT,EQ -> "bool";
+        case GT,LT,EQ, BOOL -> "bool";
         case PID -> "ctrl";
         case PID_POWER -> "power";
         case CLAMP,MAP -> "float";

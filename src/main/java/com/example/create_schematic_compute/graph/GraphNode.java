@@ -41,6 +41,7 @@ public class GraphNode {
         if (type == NodeType.PULSE_EXTEND) this.params[0] = 10f;
         if (type == NodeType.LOOP) { this.params[0] = 5f; this.params[1] = 10f; }
         if (type == NodeType.FUSE) this.params[0] = 40f; // cooldown=40 ticks
+        if (type == NodeType.BOOL) this.params[0] = 0f;  // inverted=0 (默认不反转)
         this.outputValues = new float[type.outputs];
     }
 

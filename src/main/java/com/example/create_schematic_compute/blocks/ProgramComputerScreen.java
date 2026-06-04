@@ -30,7 +30,8 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
             || nt == com.example.create_schematic_compute.graph.NodeType.T_FLIPFLOP
             || nt == com.example.create_schematic_compute.graph.NodeType.PULSE_EXTEND
             || nt == com.example.create_schematic_compute.graph.NodeType.LOOP
-            || nt == com.example.create_schematic_compute.graph.NodeType.FUSE);
+            || nt == com.example.create_schematic_compute.graph.NodeType.FUSE
+            || nt == com.example.create_schematic_compute.graph.NodeType.BOOL);
     }
 
     @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }

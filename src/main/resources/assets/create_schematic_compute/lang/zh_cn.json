@@ -45,5 +45,6 @@
   "node.create_schematic_compute.t_flipflop": "T 触发器",
   "node.create_schematic_compute.pulse_extend": "脉冲延长",
   "node.create_schematic_compute.loop": "循环",
-  "node.create_schematic_compute.fuse": "保险"
+  "node.create_schematic_compute.fuse": "保险",
+  "node.create_schematic_compute.bool": "布尔（反转）"
 }
