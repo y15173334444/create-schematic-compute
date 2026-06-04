@@ -117,33 +117,7 @@ public class NodeGraph {
     }
 
     public boolean hasCycles() {
-        // 用缓存检测：如果拓扑序长度不够说明有环
-        if (topoOrder != null) return topoOrder.size() < nodes.size();
-        // 用 DFS 检测环
-        Map<Integer, Integer> state = new HashMap<>();
-        for (var n : nodes) state.put(n.id, 0);
-        Map<Integer, List<Integer>> adj = new HashMap<>();
-        for (var n : nodes) adj.put(n.id, new ArrayList<>());
-        for (var c : connections) adj.get(c.fromId).add(c.toId);
-        Deque<Integer> stack = new ArrayDeque<>();
-        for (var n : nodes) {
-            if (state.get(n.id) != 0) continue;
-            stack.push(n.id);
-            while (!stack.isEmpty()) {
-                int id = stack.peek();
-                if (state.get(id) == 0) {
-                    state.put(id, 1);
-                    for (int next : adj.get(id)) {
-                        if (state.get(next) == 1) return true;
-                        if (state.get(next) == 0) stack.push(next);
-                    }
-                } else {
-                    state.put(id, 2);
-                    stack.pop();
-                }
-            }
-        }
-        return false;
+        return getTopoOrder().size() < nodes.size();
     }
 
     public CompoundTag save(HolderLookup.Provider registries) {

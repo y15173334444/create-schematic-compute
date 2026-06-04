@@ -1,5 +1,7 @@
 package com.example.create_schematic_compute.graph;
 
+import com.example.create_schematic_compute.ModUtils;
+import com.example.create_schematic_compute.network.SignalBus;
 import net.minecraft.world.item.ItemStack;
 import java.util.*;
 
@@ -21,19 +23,13 @@ public class GraphEvaluator {
         for (GraphNode n : graph.nodes) {
             if (n.type == NodeType.REDSTONE_OUT) {
                 float v = graph.getInputValue(n.id, 0, outputs);
-                ItemStack f = effectiveFreq(n.itemParams);
-                if (!f.isEmpty()) res.add(new OutputResult(f, Math.round(v)));
+                res.add(new OutputResult(
+                    n.itemParams.length > 0 ? n.itemParams[0] : ItemStack.EMPTY,
+                    n.itemParams.length > 1 ? n.itemParams[1] : ItemStack.EMPTY,
+                    Math.round(v)));
             }
         }
         return res;
-    }
-
-    /** 获取有效的频率物品：优先槽位#1，回退到槽位#2 */
-    private static ItemStack effectiveFreq(ItemStack[] itemParams) {
-        if (itemParams == null) return ItemStack.EMPTY;
-        if (itemParams.length > 0 && !itemParams[0].isEmpty()) return itemParams[0];
-        if (itemParams.length > 1 && !itemParams[1].isEmpty()) return itemParams[1];
-        return ItemStack.EMPTY;
     }
 
     /** 读取任意节点某引脚的计算结果（供外部查询） */
@@ -62,8 +58,10 @@ public class GraphEvaluator {
         for (GraphNode n : graph.nodes) {
             if (n.type == NodeType.REDSTONE_OUT) {
                 float v = graph.getInputValue(n.id, 0, outputs);
-                ItemStack f = effectiveFreq(n.itemParams);
-                if (!f.isEmpty()) res.add(new OutputResult(f, Math.round(v)));
+                res.add(new OutputResult(
+                    n.itemParams.length > 0 ? n.itemParams[0] : ItemStack.EMPTY,
+                    n.itemParams.length > 1 ? n.itemParams[1] : ItemStack.EMPTY,
+                    Math.round(v)));
             }
         }
         return res;
@@ -172,9 +170,9 @@ public class GraphEvaluator {
         switch (node.type) {
             case CONST -> o[0] = node.params.length > 0 ? node.params[0] : 0;
             case REDSTONE_IN -> {
-                ItemStack f = effectiveFreq(node.itemParams);
+                long nodeKey = ModUtils.freqKey(node.itemParams);
                 int sig = 0;
-                for (InputSource s : inputs) if (s.freqEquals(f)) { sig = s.signal; break; }
+                for (InputSource s : inputs) if (s.freqKey == nodeKey) { sig = s.signal; break; }
                 o[0] = sig;
             }
             case REDSTONE_OUT -> { }
@@ -227,20 +225,17 @@ public class GraphEvaluator {
                 float dPv = pv - prevPv;
                 float deriv = (dt > 0.001f) ? -dPv / dt : 0;
                 float pidOut = kp * err + ki * integral + kd * deriv;
-                // 输出 = 初始动力 + PID 调整，上限不超过 16，下限不低于 0
-                float maxUp = 16 - base;
-                float maxDown = base;
                 o[0] = Math.max(0, Math.min(16, base + pidOut));
             }
             case CLAMP -> { float v = graph.getInputValue(node.id, 0, outputs); float mn = graph.getInputValue(node.id, 1, outputs); float mx = graph.getInputValue(node.id, 2, outputs); o[0] = Math.max(mn, Math.min(mx, v)); }
             case MAP -> { float v = graph.getInputValue(node.id, 0, outputs); float imn = graph.getInputValue(node.id, 1, outputs); float imx = graph.getInputValue(node.id, 2, outputs); float omn = graph.getInputValue(node.id, 3, outputs); float omx = graph.getInputValue(node.id, 4, outputs); float r = imx - imn; o[0] = r == 0 ? omn : omn + (v - imn) / r * (omx - omn); }
             case SPEED_CTRL -> { o[0] = graph.getInputValue(node.id, 0, outputs); }
-            case PRIVATE_IN -> o[0] = com.example.create_schematic_compute.network.SignalBus.get(node.signalName);
-            case PRIVATE_OUT -> com.example.create_schematic_compute.network.SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
+            case PRIVATE_IN -> o[0] = SignalBus.get(node.signalName);
+            case PRIVATE_OUT -> SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
         }
         outputs.put(node.id, o.clone());
     }
 
-    public record InputSource(ItemStack freq, int signal) { public boolean freqEquals(ItemStack o) { return ItemStack.isSameItem(freq, o); } }
-    public record OutputResult(ItemStack freq, int signal) {}
+    public record InputSource(long freqKey, int signal) {}
+    public record OutputResult(ItemStack freq1, ItemStack freq2, int signal) {}
 }

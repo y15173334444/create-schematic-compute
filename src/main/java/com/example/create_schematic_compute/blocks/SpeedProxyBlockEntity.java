@@ -22,13 +22,12 @@ import net.minecraft.world.level.block.state.BlockState;
 import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.lang.reflect.Field;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider {
-    private static final Map<Integer, Float> EMPTY_PID = new HashMap<>();
+    private static final Map<Integer, Float> EMPTY_PID = Collections.emptyMap();
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
     private GraphEvaluator evaluator = null;
@@ -39,6 +38,11 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider {
     private static Field targetSpeedField = null;
     private static Class<?> scrollValueClass = null;
     private static java.lang.reflect.Method setValueMethod = null;
+
+    // 缓存的转速控制器位置（避免每 tick 扫描）
+    private BlockPos cachedControllerPos = null;
+    // 未找到控制器时的扫描冷却（tick）
+    private int scanCooldown = 0;
 
     public SpeedProxyBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.SPEED_PROXY_BE.get(), pos, s); }
 
@@ -72,7 +76,8 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider {
         if (speedControllerClass == null) {
             try {
                 speedControllerClass = Class.forName("com.simibubi.create.content.kinetics.speedController.SpeedControllerBlockEntity");
-                targetSpeedField = speedControllerClass.getField("targetSpeed");
+                targetSpeedField = speedControllerClass.getDeclaredField("targetSpeed");
+                targetSpeedField.setAccessible(true);
                 scrollValueClass = Class.forName("com.simibubi.create.foundation.blockEntity.behaviour.scrollValue.ScrollValueBehaviour");
                 setValueMethod = scrollValueClass.getMethod("setValue", int.class);
             } catch (Exception e) {
@@ -81,6 +86,20 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider {
                 return;
             }
         }
+
+        // 冷却期跳过扫描
+        if (scanCooldown > 0) { scanCooldown--; return; }
+
+        // 先尝试缓存的控制器位置
+        if (cachedControllerPos != null) {
+            BlockEntity be = level.getBlockEntity(cachedControllerPos);
+            if (be != null && speedControllerClass.isInstance(be)) {
+                setControllerSpeed(be, targetRpm);
+                return;
+            }
+            cachedControllerPos = null; // 缓存失效，重新扫描
+        }
+
         // 在 6 格范围内查找
         for (int dx = -6; dx <= 6; dx++) {
             for (int dy = -3; dy <= 3; dy++) {
@@ -88,24 +107,31 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider {
                     BlockPos p = worldPosition.offset(dx, dy, dz);
                     BlockEntity be = level.getBlockEntity(p);
                     if (be != null && speedControllerClass.isInstance(be)) {
-                        try {
-                            Object targetSpeed = targetSpeedField.get(be);
-                            setValueMethod.invoke(targetSpeed, targetRpm);
-                            be.setChanged();
-                            SchematicCompute.LOGGER.info("SpeedController at {} set to {} RPM", p.toShortString(), targetRpm);
-                        } catch (Exception e) {
-                            SchematicCompute.LOGGER.error("Failed to set SpeedController speed", e);
-                        }
+                        cachedControllerPos = p;
+                        setControllerSpeed(be, targetRpm);
                         return;
                     }
                 }
             }
         }
+        // 未找到，冷却 20 tick 后重试
+        scanCooldown = 20;
+    }
+
+    private void setControllerSpeed(BlockEntity be, int targetRpm) {
+        try {
+            Object targetSpeed = targetSpeedField.get(be);
+            setValueMethod.invoke(targetSpeed, targetRpm);
+            be.setChanged();
+        } catch (Exception e) {
+            SchematicCompute.LOGGER.error("Failed to set SpeedController speed at {}", be.getBlockPos(), e);
+            cachedControllerPos = null;
+        }
     }
 
     public void loadGraphFromBytes(byte[] data) {
         try {
-            var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.unlimitedHeap());
+            var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) {
                 graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
             }

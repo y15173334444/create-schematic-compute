@@ -35,7 +35,11 @@ public class EditPanel {
             var b = new EditBox(Minecraft.getInstance().font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
             b.setValue(String.format("%.3f", node.params[i]));
-            b.setResponder(s -> { try { node.params[idx] = Float.parseFloat(s.trim()); } catch(Exception ex) {} });
+            float oldVal = node.params[idx];
+            b.setResponder(s -> {
+                try { node.params[idx] = Float.parseFloat(s.trim()); }
+                catch(Exception ex) { node.params[idx] = oldVal; }
+            });
             editFields.add(b);
         }
         if((node.type==NodeType.REDSTONE_IN||node.type==NodeType.REDSTONE_OUT) && node.itemParams.length<2)

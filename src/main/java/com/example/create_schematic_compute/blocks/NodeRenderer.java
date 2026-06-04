@@ -103,29 +103,29 @@ public class NodeRenderer {
         pose.pushPose();
         pose.translate(sx,sy,0);
         pose.scale(zoom,zoom,1);
-        drw(g, I18n.get(n.type.getTitle()), 4, 4, CT);
+        drawStr(g, I18n.get(n.type.getTitle()), 4, 4, CT);
         // 输入端
         for(int i=0; i<n.type.inputs; i++) {
             float py = HH+PH*i+PH/2f;
             g.fill(-PR,(int)(py-PR),PR,(int)(py+PR),CPI);
-            drw(g, n.type.inputLabel(i), 10, py-3, CD);
+            drawStr(g, n.type.inputLabel(i), 10, py-3, CD);
         }
         // 输出端（SPEED_CTRL 内部使用，不显示引脚）
         for(int i=0; i<n.type.outputs && n.type != NodeType.SPEED_CTRL; i++) {
             float py = HH+PH*(n.type.inputs+i)+PH/2f;
             g.fill((int)(NW-PR),(int)(py-PR),(int)(NW+PR),(int)(py+PR),CPO);
-            drw(g, n.type.outputLabel(i), NW-30, py-3, CD);
+            drawStr(g, n.type.outputLabel(i), NW-30, py-3, CD);
         }
         // 参数
         for(int pi=0; pi<n.type.paramNames.length; pi++) {
             float pv = pi < n.params.length ? n.params[pi] : 0;
-            drw(g, "§7"+n.type.paramNames[pi]+"="+String.format("%.2f",pv),
+            drawStr(g, "§7"+n.type.paramNames[pi]+"="+String.format("%.2f",pv),
                 4, HH+PH*(n.type.inputs+n.type.outputs)+4+pi*10, CD);
         }
         // 信号名
         if(n.type==NodeType.PRIVATE_IN||n.type==NodeType.PRIVATE_OUT) {
             String label = "§7channel=" + (n.signalName.isEmpty() ? "§o<set>" : n.signalName);
-            drw(g, label, 4, HH+PH*(n.type.inputs+n.type.outputs)+4, CD);
+            drawStr(g, label, 4, HH+PH*(n.type.inputs+n.type.outputs)+4, CD);
         }
         // 频率槽位
         if(n.type==NodeType.REDSTONE_IN||n.type==NodeType.REDSTONE_OUT) {
@@ -136,7 +136,7 @@ public class NodeRenderer {
                 if(n.itemParams!=null && fi<n.itemParams.length && !n.itemParams[fi].isEmpty())
                     t += n.itemParams[fi].getHoverName().getString();
                 else t += "§o<empty>";
-                drw(g, t, 4, fy+fi*10, CD);
+                drawStr(g, t, 4, fy+fi*10, CD);
             }
         }
         pose.popPose();
@@ -169,7 +169,7 @@ public class NodeRenderer {
         menuRY = Math.max(0, Math.min(menuY, screen.height-totalH));
         g.fill((int)menuRX,(int)menuRY,(int)(menuRX+mw),(int)(menuRY+totalH),0xFF2A2A30);
         g.renderOutline((int)menuRX,(int)menuRY,mw,totalH,0xFF666666);
-        drw(g, "§lNodes", menuRX+4, menuRY+4, CT);
+        drawStr(g, "§lNodes", menuRX+4, menuRY+4, CT);
 
         NodeType hovered = null;
         int cy = (int)menuRY + 18;
@@ -181,7 +181,7 @@ public class NodeRenderer {
             String title = (exp ? "§7▼ " : "§7▶ ") + net.minecraft.client.resources.language.I18n.get(cat.langKey);
             boolean titleHover = mx>=menuRX+2 && mx<=menuRX+mw-2 && my>=cy && my<cy+ch;
             if (titleHover) g.fill((int)menuRX+2, cy, (int)(menuRX+mw-2), (int)(cy+ch), 0xFF3A3A44);
-            drw(g, title, menuRX+6, cy+2, titleHover ? CT : 0xFFCCCCCC);
+            drawStr(g, title, menuRX+6, cy+2, titleHover ? CT : 0xFFCCCCCC);
             cy += ch;
             if (!exp) continue;
             // 子节点
@@ -189,7 +189,7 @@ public class NodeRenderer {
                 if (filter != null && !filter.test(nt)) continue;
                 boolean h = mx>=menuRX+2 && mx<=menuRX+mw-2 && my>=cy && my<cy+ih;
                 if (h) { g.fill((int)menuRX+12, cy, (int)(menuRX+mw-2), (int)(cy+ih), 0xFF3A3A44); hovered = nt; }
-                drw(g, I18n.get(nt.displayName), menuRX+16, cy+2, h ? CT : CD);
+                drawStr(g, I18n.get(nt.displayName), menuRX+16, cy+2, h ? CT : CD);
                 cy += ih;
             }
         }
@@ -220,26 +220,26 @@ public class NodeRenderer {
         // Compile 按钮
         g.fill(4,4,56,20, fb ? 0xFF44AA44 : 0xFF3A3A44);
         g.renderOutline(4,4,52,16,0xFF666666);
-        drw(g, fb ? "Compiled!" : "Compile", 8, 6, CT);
+        drawStr(g, fb ? "Compiled!" : "Compile", 8, 6, CT);
         // 关闭按钮
         g.fill(60,4,78,20,0xFF4A3030);
         g.renderOutline(60,4,18,16,0xFF666666);
-        drw(g, "X", 64, 6, CT);
+        drawStr(g, "X", 64, 6, CT);
         // Run/Stop 按钮
         g.fill(82,4,130,20, running ? 0xFF44AA44 : 0xFF444444);
         g.renderOutline(82,4,48,16,0xFF666666);
-        drw(g, running ? "[Stop]" : "[Run]", 84, 6, CT);
+        drawStr(g, running ? "[Stop]" : "[Run]", 84, 6, CT);
         // 环警告
         if(cycleWarning != null) {
             int ww = Minecraft.getInstance().font.width(cycleWarning)+20;
             int cx = width/2;
             g.fill(cx-ww/2,28,cx+ww/2,50,0xCC442222);
             g.renderOutline(cx-ww/2,28,ww,22,0xFFFF4444);
-            drw(g, cycleWarning, cx-ww/2+10, 33, 0xFFFFFFFF);
+            drawStr(g, cycleWarning, cx-ww/2+10, 33, 0xFFFFFFFF);
         }
     }
 
-    void drw(GuiGraphics g, String t, float x, float y, int c) {
+    void drawStr(GuiGraphics g, String t, float x, float y, int c) {
         g.drawString(Minecraft.getInstance().font, t, (int)x, (int)y, c, false);
     }
 
