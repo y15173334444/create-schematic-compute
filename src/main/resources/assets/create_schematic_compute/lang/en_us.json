@@ -34,6 +34,8 @@
   "node.create_schematic_compute.pulse_extend": "Pulse Extender",
   "node.create_schematic_compute.loop": "Loop",
   "node.create_schematic_compute.fuse": "Safety Timer",
+  "node.create_schematic_compute.abs": "Absolute Value",
+  "node.create_schematic_compute.interp": "Interpolation (|A-B|)",
   "node.create_schematic_compute.bool": "Bool (Toggle)",
 
   "block.create_schematic_compute.speed_proxy": "Speed Proxy Controller",

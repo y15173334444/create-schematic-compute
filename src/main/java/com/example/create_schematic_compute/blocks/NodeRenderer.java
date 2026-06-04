@@ -35,7 +35,7 @@ public class NodeRenderer {
     private record NodeCategory(String langKey, NodeType[] types) {}
     private static final NodeCategory[] CATEGORIES = {
         new NodeCategory("category.create_schematic_compute.values", new NodeType[]{NodeType.CONST, NodeType.REDSTONE_IN, NodeType.PRIVATE_IN}),
-        new NodeCategory("category.create_schematic_compute.math", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.POW, NodeType.ROOT, NodeType.CEIL, NodeType.FLOOR}),
+        new NodeCategory("category.create_schematic_compute.math", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.POW, NodeType.ROOT, NodeType.ABS, NodeType.INTERP, NodeType.CEIL, NodeType.FLOOR}),
         new NodeCategory("category.create_schematic_compute.logic", new NodeType[]{NodeType.GT, NodeType.LT, NodeType.EQ, NodeType.BOOL}),
         new NodeCategory("category.create_schematic_compute.control", new NodeType[]{NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP}),
         new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL}),

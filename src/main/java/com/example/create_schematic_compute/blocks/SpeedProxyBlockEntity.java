@@ -22,12 +22,12 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
-    private static final Map<Integer, Float> EMPTY_PID = Collections.emptyMap();
+    // 用 HashMap 而非 emptyMap()，防止 PID 节点写入时报 UnsupportedOperationException
+    private static final Map<Integer, Float> EMPTY_PID = new java.util.HashMap<>();
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
     private GraphEvaluator evaluator = null;

@@ -13,13 +13,15 @@ public enum NodeType {
     MOD("node.create_schematic_compute.mod", 2, 1, ""),
     POW("node.create_schematic_compute.pow", 2, 1, ""),
     ROOT("node.create_schematic_compute.root", 2, 1, ""),
+    ABS("node.create_schematic_compute.abs", 1, 1, ""),
+    INTERP("node.create_schematic_compute.interp", 2, 2, ""),
     CEIL("node.create_schematic_compute.ceil", 1, 1, ""),
     FLOOR("node.create_schematic_compute.floor", 1, 1, ""),
     GT("node.create_schematic_compute.gt", 2, 1, ""),
     LT("node.create_schematic_compute.lt", 2, 1, ""),
     EQ("node.create_schematic_compute.eq", 2, 1, ""),
-    PID("node.create_schematic_compute.pid", 2, 1, "kp,ki,kd,scale"),
-    PID_POWER("node.create_schematic_compute.pid_power", 3, 1, "kp,ki,kd"),
+    PID("node.create_schematic_compute.pid", 1, 1, "kp,ki,kd,scale"),
+    PID_POWER("node.create_schematic_compute.pid_power", 2, 1, "kp,ki,kd"),
     CLAMP("node.create_schematic_compute.clamp", 3, 1, ""),
     MAP("node.create_schematic_compute.map", 5, 1, ""),
     SPEED_CTRL("node.create_schematic_compute.speed_ctrl", 2, 1, ""),
@@ -44,11 +46,11 @@ public enum NodeType {
     public String inputLabel(int i) { return switch(this){
         case ADD,SUB,MUL,DIV,MOD,POW,ROOT -> i==0?"A":"B";
         case GT,LT,EQ -> i==0?"A":"B";
-        case PID -> i==0?"SP":"PV";
-        case PID_POWER -> i==0?"SP":i==1?"PV":"base";
+        case PID -> "SP";
+        case PID_POWER -> i==0?"SP":"base";
         case CLAMP -> i==0?"In":i==1?"Min":"Max";
         case MAP -> i==0?"In":i==1?"InMin":i==2?"InMax":i==3?"OutMin":"OutMax";
-        case CEIL, FLOOR, BOOL -> "in";
+        case CEIL, FLOOR, BOOL, ABS -> "in";
         case REDSTONE_OUT -> "In";
         case PRIVATE_OUT -> "val";
         case LATCH -> i==0?"S":"R";
@@ -59,7 +61,8 @@ public enum NodeType {
     public String outputLabel(int i) { return switch(this){
         case CONST -> "float";
         case REDSTONE_IN -> "signal";
-        case ADD,SUB,MUL,DIV,MOD,POW,ROOT -> "float";
+        case ADD,SUB,MUL,DIV,MOD,POW,ROOT,ABS -> "float";
+        case INTERP -> i==0?"A":"B";
         case GT,LT,EQ, BOOL -> "bool";
         case PID -> "ctrl";
         case PID_POWER -> "power";
