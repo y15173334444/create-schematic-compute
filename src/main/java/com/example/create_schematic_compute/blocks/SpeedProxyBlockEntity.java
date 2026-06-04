@@ -22,7 +22,6 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
-import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -34,11 +33,9 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
     private GraphEvaluator evaluator = null;
     private NodeGraph lastEvaluatedGraph = null;
 
-    // 缓存的反射字段
+    // 反射缓存：SpeedControllerBlockEntity 的 targetSpeed 字段
     private static Class<?> speedControllerClass = null;
-    private static Field targetSpeedField = null;
-    private static Class<?> scrollValueClass = null;
-    private static java.lang.reflect.Method setValueMethod = null;
+    private static java.lang.reflect.Field targetSpeedField = null;
 
     // 缓存的转速控制器位置（避免每 tick 扫描）
     private BlockPos cachedControllerPos = null;
@@ -79,64 +76,59 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
         }
     }
 
+    /** 初始化反射（第一次使用时延迟加载） */
+    private static boolean initReflection() {
+        if (speedControllerClass != null) return true;
+        try {
+            speedControllerClass = Class.forName("com.simibubi.create.content.kinetics.speedController.SpeedControllerBlockEntity");
+            targetSpeedField = speedControllerClass.getField("targetSpeed"); // public 字段，无需 setAccessible
+            return true;
+        } catch (Exception e) {
+            SchematicCompute.LOGGER.error("Failed to init SpeedController reflection", e);
+            return false;
+        }
+    }
+
+    /** 判断方块实体是否为转速控制器并设置转速 */
+    private static boolean trySetSpeed(BlockEntity be, int rpm) {
+        if (!initReflection() || be == null) return false;
+        if (!speedControllerClass.isInstance(be)) return false;
+        try {
+            Object scrollValue = targetSpeedField.get(be);
+            // ScrollValueBehaviour.setValue(int) 是 public 方法
+            scrollValue.getClass().getMethod("setValue", int.class).invoke(scrollValue, rpm);
+            be.setChanged();
+            return true;
+        } catch (Exception e) {
+            SchematicCompute.LOGGER.error("Failed to set SpeedController speed", e);
+            return false;
+        }
+    }
+
     private void applySpeed(int targetRpm) {
-        if (level == null) return;
+        if (level == null || !initReflection()) return;
         targetRpm = Math.max(-256, Math.min(256, targetRpm));
-        // 延迟初始化反射
-        if (speedControllerClass == null) {
-            try {
-                speedControllerClass = Class.forName("com.simibubi.create.content.kinetics.speedController.SpeedControllerBlockEntity");
-                targetSpeedField = speedControllerClass.getDeclaredField("targetSpeed");
-                targetSpeedField.setAccessible(true);
-                scrollValueClass = Class.forName("com.simibubi.create.foundation.blockEntity.behaviour.scrollValue.ScrollValueBehaviour");
-                setValueMethod = scrollValueClass.getMethod("setValue", int.class);
-            } catch (Exception e) {
-                SchematicCompute.LOGGER.error("Failed to init SpeedController reflection", e);
-                speedControllerClass = null;
+
+        // 先尝试缓存的控制器位置（不受冷却影响）
+        if (cachedControllerPos != null) {
+            if (trySetSpeed(level.getBlockEntity(cachedControllerPos), targetRpm))
                 return;
-            }
+            cachedControllerPos = null; // 缓存失效，继续扫描
         }
 
-        // 冷却期跳过扫描
+        // 冷却期跳过扫描（仅在没有缓存时生效）
         if (scanCooldown > 0) { scanCooldown--; return; }
 
-        // 先尝试缓存的控制器位置
-        if (cachedControllerPos != null) {
-            BlockEntity be = level.getBlockEntity(cachedControllerPos);
-            if (be != null && speedControllerClass.isInstance(be)) {
-                setControllerSpeed(be, targetRpm);
+        // 仅在 6 个相邻面查找转速控制器
+        for (var dir : net.minecraft.core.Direction.values()) {
+            BlockPos p = worldPosition.relative(dir);
+            if (trySetSpeed(level.getBlockEntity(p), targetRpm)) {
+                cachedControllerPos = p;
                 return;
-            }
-            cachedControllerPos = null; // 缓存失效，重新扫描
-        }
-
-        // 在 6 格范围内查找
-        for (int dx = -6; dx <= 6; dx++) {
-            for (int dy = -3; dy <= 3; dy++) {
-                for (int dz = -6; dz <= 6; dz++) {
-                    BlockPos p = worldPosition.offset(dx, dy, dz);
-                    BlockEntity be = level.getBlockEntity(p);
-                    if (be != null && speedControllerClass.isInstance(be)) {
-                        cachedControllerPos = p;
-                        setControllerSpeed(be, targetRpm);
-                        return;
-                    }
-                }
             }
         }
         // 未找到，冷却 20 tick 后重试
         scanCooldown = 20;
-    }
-
-    private void setControllerSpeed(BlockEntity be, int targetRpm) {
-        try {
-            Object targetSpeed = targetSpeedField.get(be);
-            setValueMethod.invoke(targetSpeed, targetRpm);
-            be.setChanged();
-        } catch (Exception e) {
-            SchematicCompute.LOGGER.error("Failed to set SpeedController speed at {}", be.getBlockPos(), e);
-            cachedControllerPos = null;
-        }
     }
 
     public void loadGraphFromBytes(byte[] data) {

@@ -27,7 +27,7 @@ Control Create's **Redstone Link network** through visual programming.
 - **Private Signal Output** — Transmits float values across named channels to other computers
 
 #### ⚡ Speed Proxy Controller
-Directly control the target RPM of Create's **Speed Controller** blocks within a 6-block range.
+Directly control the target RPM of Create's **Speed Controller** blocks on adjacent faces.
 
 - **Speed Control** — Sets the RPM of nearby Speed Controllers
 - **Private Signal Input** — Reads float values from named channels
@@ -140,7 +140,7 @@ MIT License © 2026 y15173334444
 - **私有信号输出** — 通过命名通道将浮点数传输到其他计算机
 
 #### ⚡ 转速代理控制器
-直接控制 6 格范围内机械动力**转速控制器**的目标 RPM。
+直接控制相邻 6 个面上机械动力**转速控制器**的目标 RPM。
 
 - **转速控制** — 设置附近转速控制器的转速
 - **私有信号输入** — 从命名通道读取浮点数
