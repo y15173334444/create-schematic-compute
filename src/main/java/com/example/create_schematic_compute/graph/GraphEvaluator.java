@@ -181,6 +181,8 @@ public class GraphEvaluator {
             case MUL -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a * b; }
             case DIV -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = b != 0 ? a / b : 0; }
             case MOD -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = b != 0 ? a % b : 0; }
+            case POW -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = (float) Math.pow(a, b); }
+            case ROOT -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = b != 0 ? (float) Math.pow(a, 1.0 / b) : 0; }
             case CEIL -> o[0] = (float) Math.ceil(graph.getInputValue(node.id, 0, outputs));
             case FLOOR -> o[0] = (float) Math.floor(graph.getInputValue(node.id, 0, outputs));
             case BOOL -> {

@@ -11,6 +11,8 @@ public enum NodeType {
     MUL("node.create_schematic_compute.mul", 2, 1, ""),
     DIV("node.create_schematic_compute.div", 2, 1, ""),
     MOD("node.create_schematic_compute.mod", 2, 1, ""),
+    POW("node.create_schematic_compute.pow", 2, 1, ""),
+    ROOT("node.create_schematic_compute.root", 2, 1, ""),
     CEIL("node.create_schematic_compute.ceil", 1, 1, ""),
     FLOOR("node.create_schematic_compute.floor", 1, 1, ""),
     GT("node.create_schematic_compute.gt", 2, 1, ""),
@@ -40,7 +42,7 @@ public enum NodeType {
     public String getTitle() { return displayName; }
     public Component title() { return Component.translatable(displayName); }
     public String inputLabel(int i) { return switch(this){
-        case ADD,SUB,MUL,DIV,MOD -> i==0?"A":"B";
+        case ADD,SUB,MUL,DIV,MOD,POW,ROOT -> i==0?"A":"B";
         case GT,LT,EQ -> i==0?"A":"B";
         case PID -> i==0?"SP":"PV";
         case PID_POWER -> i==0?"SP":i==1?"PV":"base";
@@ -57,7 +59,7 @@ public enum NodeType {
     public String outputLabel(int i) { return switch(this){
         case CONST -> "float";
         case REDSTONE_IN -> "signal";
-        case ADD,SUB,MUL,DIV,MOD -> "float";
+        case ADD,SUB,MUL,DIV,MOD,POW,ROOT -> "float";
         case GT,LT,EQ, BOOL -> "bool";
         case PID -> "ctrl";
         case PID_POWER -> "power";

@@ -40,13 +40,13 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 
 ---
 
-### Node Reference (24 Types)
+### Node Reference (28 Types)
 
 | Category | Nodes |
 |----------|-------|
 | **Values** | CONST, Redstone Input, Private Signal Input |
-| **Math** | Add, Subtract, Multiply, Divide, Modulo, Ceil, Floor |
-| **Logic** | Greater Than, Less Than, Equals |
+| **Math** | Add, Subtract, Multiply, Divide, Modulo, Power (A^B), Root (B-th Root), Ceil, Floor |
+| **Logic** | Greater Than, Less Than, Equals, Bool (Toggle) |
 | **Control** | PID Controller (I-term resets on zero error), Power PID, Clamp, Map Range |
 | **Output** | Redstone Output, Private Signal Output, Speed Control |
 | **Sequential** | Delay, Latch, T Flip-Flop, Pulse Extender, Loop, Safety Timer |
@@ -70,7 +70,11 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 | Edit node parameters | Left-click on node |
 | Connect nodes | Drag from output pin to input pin |
 | Delete node/connection | Right-click on it |
-| Duplicate node | Ctrl + D |
+| Box select nodes | TAB + Left-click drag |
+| Toggle node selection | TAB + Left-click on node |
+| Move selected nodes | TAB + Left-click drag on selected node |
+| Duplicate node(s) | Ctrl + D |
+| Delete selected node(s) | Delete / Backspace |
 | Zoom in/out | Scroll wheel |
 | Pan canvas | Right-click drag |
 
@@ -158,8 +162,8 @@ MIT License © 2026 y15173334444
 | 分类 | 节点 |
 |------|------|
 | **数值** | 常量、红石输入、私有信号输入 |
-| **运算** | 加、减、乘、除、模运算、向上取整、向下取整 |
-| **逻辑** | 大于、小于、等于 |
+| **运算** | 加、减、乘、除、模运算、次幂、次方根、向上取整、向下取整 |
+| **逻辑** | 大于、小于、等于、布尔（反转） |
 | **控制** | PID 控制器（误差归零时 I 项复位）、动力 PID、限幅、映射范围 |
 | **输出** | 红石输出、私有信号输出、转速控制 |
 | **时序** | 延时、锁存器、T 触发器、脉冲延长、循环、保险 |
@@ -181,15 +185,18 @@ MIT License © 2026 y15173334444
 | MUL | A, B | float | A × B |
 | DIV | A, B | float | A ÷ B（B=0 时返回 0） |
 | MOD | A, B | float | A % B（取模） |
+| POW | A, B | float | A 的 B 次幂 |
+| ROOT | A, B | float | A 的 B 次方根（B=0 时返回 0） |
 | CEIL | in | int | 向上取整 |
 | FLOOR | in | int | 向下取整 |
 
 ##### 逻辑 (Logic)
-| 节点 | 输入 | 输出 | 说明 |
-|------|------|------|------|
-| GT | A, B | bool | A > B → 1 |
-| LT | A, B | bool | A < B → 1 |
-| EQ | A, B | bool | A = B → 1 |
+| 节点 | 输入 | 输出 | 参数 | 说明 |
+|------|------|------|------|------|
+| GT | A, B | bool | - | A > B → 1 |
+| LT | A, B | bool | - | A < B → 1 |
+| EQ | A, B | bool | - | A = B → 1 |
+| BOOL | in | bool | inverted | 输入 > 0 → 1, ≤ 0 → 0; inverted=1 时反转 |
 
 ##### 控制 (Control)
 | 节点 | 输入 | 输出 | 参数 | 说明 |
@@ -204,7 +211,7 @@ MIT License © 2026 y15173334444
 |------|------|------|------|------|
 | REDSTONE_OUT | In | - | 频率物品×2 | 将信号写入机械动力红石链接 |
 | PRIVATE_OUT | val | - | channel | 将浮点数写入命名通道 |
-| SPEED_CTRL | speed | - | - | 设置附近转速控制器的 RPM |
+| SPEED_CTRL | speed, dir | rpm | - | 设置转速控制器的 RPM; dir>0.5 时反转方向 |
 
 ##### 时序 (Sequential) — 仅编程计算机
 | 节点 | 输入 | 输出 | 参数 | 说明 |
@@ -234,8 +241,12 @@ MIT License © 2026 y15173334444
 | 打开节点菜单 | 右键空白处 |
 | 编辑参数 | 左键节点 |
 | 连接节点 | 从输出端口拖到输入端口 |
-| 删除 | 右键节点或连线 |
+| 删除节点/连线 | 右键节点或连线 |
+| 框选节点 | TAB + 左键拖拽 |
+| 切换选中 | TAB + 左键点击节点 |
+| 拖拽移动选中 | TAB + 左键拖拽已选中节点 |
 | 复制节点 | Ctrl + D |
+| 删除选中节点 | Delete / Backspace |
 | 缩放 | 滚轮 |
 | 平移画布 | 右键拖拽 |
 
@@ -297,3 +308,7 @@ MIT License © 2026 y15173334444
 - Fix: Client-server synchronization of block entity data
 - Add: Create `IMergeableBE` interface for reliable data restoration
 - Add: `SafeNbtWriter` registration for Create schematic compatibility
+- Add: POW (A^B) and ROOT (B-th Root of A) math nodes
+- Add: BOOL node with invert toggle for logic control
+- Add: SPEED_CTRL direction control (2nd input pin `dir`)
+- Add: TAB + box select, multi-drag, multi-copy, multi-delete

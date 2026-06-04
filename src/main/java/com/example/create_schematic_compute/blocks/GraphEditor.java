@@ -6,6 +6,9 @@ import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
@@ -29,6 +32,7 @@ public class GraphEditor {
     // 编辑状态
     public float camX=0, camY=0, zoom=1f;
     public GraphNode draggingNode=null, selectedNode=null;
+    public final Set<GraphNode> selectedNodes = new HashSet<>();
     public float dragOffX, dragOffY;
     public boolean panning=false;
     public float panLastX, panLastY;
@@ -40,6 +44,14 @@ public class GraphEditor {
     public NodeType selectedMenuType=null;
     public long saveFeedbackUntil=0;
     public String cycleWarning=null;
+    // 框选 + 多选拖拽状态
+    private boolean tabHeld = false;
+    private boolean boxSelecting = false;
+    private float boxSX, boxSY, boxEX, boxEY;
+    private boolean multiDragging = false;
+    private GraphNode multiClickedNode = null;
+    private float multiCenterX, multiCenterY;
+    private final java.util.Map<GraphNode, float[]> multiDragOrigins = new java.util.HashMap<>();
 
     public GraphEditor(Host host, Screen screen) {
         this.host = host;
@@ -60,10 +72,17 @@ public class GraphEditor {
         renderer.renderGrid(g, camX, camY, zoom, host.asScreen().width, host.asScreen().height);
         renderer.renderConnections(g, graph, camX, camY, zoom);
         if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
-        renderer.renderNodes(g, graph.nodes, selectedNode, camX, camY, zoom, mx, my);
+        renderer.renderNodes(g, graph.nodes, selectedNodes, selectedNode, camX, camY, zoom, mx, my);
         renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, host.asScreen().width);
         if(showMenu) { selectedMenuType = renderer.renderAddNodeMenu(g, menuX, menuY, mx, my, nodeFilter); }
         if(editPanel.isOpen()) editPanel.render(g, host.asScreen().width, host.asScreen().height, mx, my);
+        // 框选矩形
+        if (boxSelecting) {
+            float x1 = Math.min(boxSX, boxEX), y1 = Math.min(boxSY, boxEY);
+            float x2 = Math.max(boxSX, boxEX), y2 = Math.max(boxSY, boxEY);
+            g.fill((int)x1, (int)y1, (int)x2, (int)y2, 0x224499FF);
+            g.renderOutline((int)x1, (int)y1, (int)(x2-x1), (int)(y2-y1), 0xFF4499FF);
+        }
     }
 
     public boolean mouseClicked(double mx, double my, int btn) {
@@ -93,9 +112,39 @@ public class GraphEditor {
         }
         if(btn==0){
             showMenu=false;
+            // TAB+左键 → 多选拖拽 / 切换选中 / 框选
+            if (tabHeld) {
+                var hit = hitNode(mx, my);
+                if (hit != null && selectedNodes.contains(hit)) {
+                    // 点击已选中节点：开始多选拖拽（以选中节点重心为基准）
+                    multiDragging = true;
+                    multiClickedNode = hit;
+                    multiDragOrigins.clear();
+                    multiCenterX = 0; multiCenterY = 0;
+                    for (var sn : selectedNodes) { multiCenterX += sn.x; multiCenterY += sn.y; }
+                    multiCenterX /= selectedNodes.size(); multiCenterY /= selectedNodes.size();
+                    for (var sn : selectedNodes) {
+                        multiDragOrigins.put(sn, new float[]{sn.x, sn.y});
+                    }
+                    dragOffX = s2cX(mx) - multiCenterX;
+                    dragOffY = s2cY(my) - multiCenterY;
+                    return true;
+                }
+                if (hit != null) {
+                    // 点击未选中节点：加入选中
+                    selectedNodes.add(hit);
+                    selectedNode = hit;
+                    return true;
+                }
+                // 点击空白处：开始框选
+                boxSelecting = true;
+                boxSX = boxEX = (float)mx;
+                boxSY = boxEY = (float)my;
+                return true;
+            }
             for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.type.outputs;i++){float py=sy+HH*zoom+PH*zoom*(node.type.inputs+i)+PH*zoom/2f;if(Math.abs(mx-(sx+NW*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
-            var hit=hitNode(mx,my);if(hit!=null){float sy=c2sY(hit.y);if(my>=sy&&my<=sy+HH*zoom+4){draggingNode=hit;dragOffX=hit.x-s2cX(mx);dragOffY=hit.y-s2cY(my);}selectedNode=hit;if(shouldOpenPanel(hit))editPanel.open(hit);return true;}
-            selectedNode=null; editPanel.close(); panning=true; panLastX=(float)mx; panLastY=(float)my;
+            var hit=hitNode(mx,my);if(hit!=null){float sy=c2sY(hit.y);if(my>=sy&&my<=sy+HH*zoom+4){draggingNode=hit;dragOffX=hit.x-s2cX(mx);dragOffY=hit.y-s2cY(my);}selectedNode=hit;selectedNodes.clear();selectedNodes.add(hit);if(shouldOpenPanel(hit))editPanel.open(hit);return true;}
+            selectedNodes.clear(); selectedNode=null; editPanel.close(); panning=true; panLastX=(float)mx; panLastY=(float)my;
         }
         return false;
     }
@@ -109,10 +158,53 @@ public class GraphEditor {
 
     public void mouseReleased(double mx, double my, int btn) {
         var graph = host.getGraph();
+        if(btn==0&&multiDragging){
+            multiDragging = false;
+            // 如果几乎没拖动，视为点击切换选中
+            if (multiClickedNode != null) {
+                float[] orig = multiDragOrigins.get(multiClickedNode);
+                if (orig != null && Math.abs(multiClickedNode.x - orig[0]) < 2
+                    && Math.abs(multiClickedNode.y - orig[1]) < 2) {
+                    selectedNodes.remove(multiClickedNode);
+                    selectedNode = selectedNodes.isEmpty() ? null : selectedNodes.iterator().next();
+                }
+            }
+            multiClickedNode = null;
+            multiDragOrigins.clear();
+            return;
+        }
+        if(btn==0&&boxSelecting){
+            boxSelecting=false;
+            if (!tabHeld) selectedNodes.clear();
+            float x1 = Math.min(boxSX, boxEX), x2 = Math.max(boxSX, boxEX);
+            float y1 = Math.min(boxSY, boxEY), y2 = Math.max(boxSY, boxEY);
+            for(var n : graph.nodes) {
+                float nx = c2sX(n.x), ny = c2sY(n.y);
+                float nw = NW*zoom, nh = (HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
+                if(nx < x2 && nx+nw > x1 && ny < y2 && ny+nh > y1) {
+                    // TAB按住时框选切换选中状态
+                    if (tabHeld && selectedNodes.contains(n)) selectedNodes.remove(n);
+                    else selectedNodes.add(n);
+                }
+            }
+            if(!selectedNodes.isEmpty()) selectedNode = selectedNodes.iterator().next();
+            else selectedNode = null;
+            return;
+        }
         if(btn==0&&draggingWire){for(var node:graph.nodes){float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.type.inputs;i++){float py=sy+HH*zoom+PH*zoom*i+PH*zoom/2f;if(Math.abs(mx-sx)<8&&Math.abs(my-py)<PH*zoom/2f+2&&wireFromNode!=node.id)graph.addConnection(wireFromNode,wireFromPin,node.id,i);}}draggingWire=false;}
         if(btn==0&&draggingNode!=null)draggingNode=null;if(btn==0&&panning)panning=false;
     }
     public void mouseMoved(double mx, double my) {
+        if(boxSelecting){boxEX=(float)mx;boxEY=(float)my;return;}
+        if(multiDragging){
+            float dx = (s2cX(mx) - dragOffX) - multiCenterX;
+            float dy = (s2cY(my) - dragOffY) - multiCenterY;
+            for (var sn : selectedNodes) {
+                float[] orig = multiDragOrigins.get(sn);
+                if (orig != null) { sn.x = orig[0] + dx; sn.y = orig[1] + dy; }
+            }
+            return;
+        }
         if(panning){camX+=(float)(mx-panLastX)/zoom;camY+=(float)(my-panLastY)/zoom;panLastX=(float)mx;panLastY=(float)my;}
         if(draggingNode!=null){draggingNode.x=s2cX(mx)+dragOffX;draggingNode.y=s2cY(my)+dragOffY;}if(draggingWire){wireEndX=s2cX(mx);wireEndY=s2cY(my);}
     }
@@ -122,14 +214,48 @@ public class GraphEditor {
     }
     public boolean keyPressed(int key, int sc, int mod) {
         var graph = host.getGraph();
+        if (key == 258) { tabHeld = true; return true; } // TAB
         if(editPanel.keyPressed(key,sc,mod)) return true;
-        if(key==68&&net.minecraft.client.gui.screens.Screen.hasControlDown()&&selectedNode!=null){
-            var dup=graph.addNode(selectedNode.type,selectedNode.x+30,selectedNode.y+30);
-            System.arraycopy(selectedNode.params,0,dup.params,0,Math.min(selectedNode.params.length,dup.params.length));
-            if(selectedNode.itemParams!=null)dup.itemParams=selectedNode.itemParams.clone();
-            if(selectedNode.signalName!=null)dup.signalName=selectedNode.signalName;
+        // Ctrl+D 复制（支持多选）
+        if(key==68&&net.minecraft.client.gui.screens.Screen.hasControlDown()&&!selectedNodes.isEmpty()){
+            var idMap = new java.util.HashMap<Integer, Integer>();
+            var newNodes = new java.util.ArrayList<GraphNode>();
+            float ofs = 30;
+            // 克隆所有选中节点
+            for (var n : selectedNodes) {
+                var dup = graph.addNode(n.type, n.x + ofs, n.y + ofs);
+                System.arraycopy(n.params, 0, dup.params, 0, Math.min(n.params.length, dup.params.length));
+                if (n.itemParams != null) dup.itemParams = n.itemParams.clone();
+                if (n.signalName != null) dup.signalName = n.signalName;
+                idMap.put(n.id, dup.id);
+                newNodes.add(dup);
+            }
+            // 复制选中节点之间的连接
+            for (var c : List.copyOf(graph.connections)) {
+                if (idMap.containsKey(c.fromId) && idMap.containsKey(c.toId)) {
+                    graph.addConnection(idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin);
+                }
+            }
+            // 更新选中为新节点
+            selectedNodes.clear();
+            selectedNodes.addAll(newNodes);
+            selectedNode = newNodes.isEmpty() ? null : newNodes.get(0);
             return true;
         }
+        // Delete 删除选中节点
+        if ((key == 259 || key == 261) && !selectedNodes.isEmpty()) {
+            for (var n : List.copyOf(selectedNodes)) {
+                graph.removeNode(n.id);
+            }
+            selectedNodes.clear();
+            selectedNode = null;
+            editPanel.close();
+            return true;
+        }
+        return false;
+    }
+    public boolean keyReleased(int key, int sc, int mod) {
+        if (key == 258) { tabHeld = false; return true; }
         return false;
     }
     public boolean charTyped(char ch, int mod) { return editPanel.charTyped(ch, mod); }

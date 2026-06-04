@@ -11,6 +11,7 @@ import net.minecraft.client.resources.language.I18n;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * 节点图渲染器 — 处理网格、节点、连线的绘制逻辑
@@ -34,7 +35,7 @@ public class NodeRenderer {
     private record NodeCategory(String langKey, NodeType[] types) {}
     private static final NodeCategory[] CATEGORIES = {
         new NodeCategory("category.create_schematic_compute.values", new NodeType[]{NodeType.CONST, NodeType.REDSTONE_IN, NodeType.PRIVATE_IN}),
-        new NodeCategory("category.create_schematic_compute.math", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.CEIL, NodeType.FLOOR}),
+        new NodeCategory("category.create_schematic_compute.math", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.POW, NodeType.ROOT, NodeType.CEIL, NodeType.FLOOR}),
         new NodeCategory("category.create_schematic_compute.logic", new NodeType[]{NodeType.GT, NodeType.LT, NodeType.EQ, NodeType.BOOL}),
         new NodeCategory("category.create_schematic_compute.control", new NodeType[]{NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP}),
         new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL}),
@@ -78,26 +79,27 @@ public class NodeRenderer {
         bezier(g, x1, y1, x2, y2, CWD);
     }
 
-    public void renderNodes(GuiGraphics g, List<GraphNode> nodes, GraphNode selectedNode,
-                             float camX, float camY, float zoom, int mx, int my) {
+    public void renderNodes(GuiGraphics g, List<GraphNode> nodes, Set<GraphNode> selectedNodes,
+                             GraphNode primaryNode, float camX, float camY, float zoom, int mx, int my) {
         int w = screen.width, h = screen.height;
-        float margin = 50; // 视口外扩余量
+        float margin = 50;
         for(var n : nodes) {
             float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
             float sw = NW*zoom, nh = (HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
-            // 跳过屏幕外的节点（带余量避免连线突然消失）
             if (sx + sw < -margin || sx > w + margin || sy + nh < -margin || sy > h + margin)
                 continue;
-            drawNode(g, n, n==selectedNode, camX, camY, zoom, mx, my);
+            drawNode(g, n, selectedNodes.contains(n), n == primaryNode, camX, camY, zoom, mx, my);
         }
     }
 
-    private void drawNode(GuiGraphics g, GraphNode n, boolean selected,
+    private void drawNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary,
                            float camX, float camY, float zoom, int mx, int my) {
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
         float sw = NW*zoom, nh = (HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
         g.fill((int)sx,(int)sy,(int)(sx+sw),(int)(sy+nh),CN);
-        g.renderOutline((int)sx,(int)sy,(int)sw,(int)nh, selected ? CSN : CB);
+        // 框选区域内的节点用橙色边框，主选中节点用更亮的颜色
+        int borderColor = isPrimary ? 0xFFFFAA00 : selected ? 0xFFFF6600 : CB;
+        g.renderOutline((int)sx,(int)sy,(int)sw,(int)nh, borderColor);
         g.fill((int)sx+1,(int)sy+1,(int)(sx+sw-1),(int)(sy+HH*zoom),CH);
         var pose = g.pose();
         pose.pushPose();

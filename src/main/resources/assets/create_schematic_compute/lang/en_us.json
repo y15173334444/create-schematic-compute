@@ -16,6 +16,8 @@
   "node.create_schematic_compute.mod": "Modulo",
   "node.create_schematic_compute.ceil": "Ceil",
   "node.create_schematic_compute.floor": "Floor",
+  "node.create_schematic_compute.pow": "Power (A^B)",
+  "node.create_schematic_compute.root": "Root (B-th Root of A)",
   "node.create_schematic_compute.gt": "Greater Than",
   "node.create_schematic_compute.lt": "Less Than",
   "node.create_schematic_compute.eq": "Equals",

@@ -16,6 +16,8 @@
   "node.create_schematic_compute.mod": "模运算",
   "node.create_schematic_compute.ceil": "向上取整",
   "node.create_schematic_compute.floor": "向下取整",
+  "node.create_schematic_compute.pow": "次幂 (A^B)",
+  "node.create_schematic_compute.root": "次方根 (A的B次方根)",
   "node.create_schematic_compute.gt": "大于",
   "node.create_schematic_compute.lt": "小于",
   "node.create_schematic_compute.eq": "等于",

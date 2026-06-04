@@ -67,5 +67,6 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
         if(key==256){onClose();return true;}
         return editor.keyPressed(key, sc, mod) || super.keyPressed(key, sc, mod);
     }
+    @Override public boolean keyReleased(int key, int sc, int mod) { return editor.keyReleased(key, sc, mod) || super.keyReleased(key, sc, mod); }
     @Override public boolean charTyped(char ch, int mod) { return editor.charTyped(ch, mod) || super.charTyped(ch, mod); }
 }
