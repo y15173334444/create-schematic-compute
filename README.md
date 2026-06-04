@@ -314,3 +314,6 @@ MIT License © 2026 y15173334444
 - Add: BOOL node with invert toggle for logic control
 - Add: SPEED_CTRL direction control (2nd input pin `dir`)
 - Add: TAB + box select, multi-drag, multi-copy, multi-delete
+- Add: ABS (Absolute Value) and Comparison Router (|A-B|) nodes
+- Change: Remove PV input from PID and PID_POWER nodes
+- Change: Rename Interpolation → Comparison Router
