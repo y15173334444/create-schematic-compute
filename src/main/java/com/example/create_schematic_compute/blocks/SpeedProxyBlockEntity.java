@@ -4,6 +4,7 @@ import com.example.create_schematic_compute.SchematicCompute;
 import com.example.create_schematic_compute.graph.GraphEvaluator;
 import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
+import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -26,7 +27,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
-public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider {
+public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
     private static final Map<Integer, Float> EMPTY_PID = Collections.emptyMap();
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
@@ -45,6 +46,15 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider {
     private int scanCooldown = 0;
 
     public SpeedProxyBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.SPEED_PROXY_BE.get(), pos, s); }
+
+    @Override public void accept(net.minecraft.world.level.block.entity.BlockEntity other) {
+        if(other instanceof SpeedProxyBlockEntity src) {
+            this.graph = src.graph;
+            this.running = src.running;
+            setChanged();
+            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+    }
 
     @Override public void onLoad() { super.onLoad(); }
 
@@ -143,8 +153,20 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider {
         }
     }
 
-    @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) { super.saveAdditional(t,r); t.put("graph",graph.save(r)); t.putBoolean("running",running); }
-    @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) { super.loadAdditional(t,r); if(t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),r); } if(t.contains("running"))running=t.getBoolean("running"); }
+    @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) {
+        super.saveAdditional(t,r);
+        t.put("graph", graph.save(r));
+        t.putBoolean("running", running);
+    }
+    @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
+        super.loadAdditional(t,r);
+        if (t.contains("graph")) {
+            graph = NodeGraph.load(t.getCompound("graph"), r);
+        }
+        if (t.contains("running")) running = t.getBoolean("running");
+        setChanged();
+        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+    }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
     @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) { var t=new CompoundTag(); saveAdditional(t,r); return t; }
     @Override public Component getDisplayName() { return Component.translatable("container."+SchematicCompute.MOD_ID+".speed_proxy"); }

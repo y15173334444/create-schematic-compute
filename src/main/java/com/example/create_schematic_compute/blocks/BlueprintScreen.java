@@ -16,13 +16,11 @@ import java.io.ByteArrayOutputStream;
 
 public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> implements GraphEditor.Host {
     private final BlueprintBlockEntity blockEntity;
-    private final NodeGraph graph;
     private final GraphEditor editor;
 
     public BlueprintScreen(BlueprintMenu m, Inventory inv, Component t) {
         super(m, inv, t);
         this.blockEntity = m.blockEntity;
-        this.graph = m.blockEntity != null ? m.blockEntity.graph : new NodeGraph();
         this.imageWidth = 9999;
         this.editor = new GraphEditor(this, this);
         editor.setNodeFilter(nt -> nt != com.example.create_schematic_compute.graph.NodeType.SPEED_CTRL
@@ -35,7 +33,7 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
             && nt != com.example.create_schematic_compute.graph.NodeType.FUSE);
     }
 
-    @Override public NodeGraph getGraph() { return graph; }
+    @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
     @Override public boolean isRunning() { return blockEntity != null && blockEntity.running; }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
 
@@ -47,7 +45,7 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
                 if(minecraft.level.getBlockEntity(menu.blockPos) instanceof BlueprintBlockEntity found) be=found;
             if(be==null||be.getLevel()==null) return;
             var tag = new CompoundTag();
-            tag.put("graph", graph.save(be.getLevel().registryAccess()));
+            tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
             var baos = new ByteArrayOutputStream();
             NbtIo.writeCompressed(tag, baos);
             PacketDistributor.sendToServer(new BlueprintSavePacket(be.getBlockPos(), baos.toByteArray()));

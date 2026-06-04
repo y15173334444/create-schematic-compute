@@ -15,13 +15,11 @@ import java.io.ByteArrayOutputStream;
 
 public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComputerMenu> implements GraphEditor.Host {
     private final ProgramComputerBlockEntity blockEntity;
-    private final NodeGraph graph;
     private final GraphEditor editor;
 
     public ProgramComputerScreen(ProgramComputerMenu m, Inventory inv, Component t) {
         super(m, inv, t);
         this.blockEntity = m.blockEntity;
-        this.graph = m.blockEntity != null ? m.blockEntity.graph : new NodeGraph();
         this.imageWidth = 9999;
         this.editor = new GraphEditor(this, this);
         editor.setNodeFilter(nt -> nt == com.example.create_schematic_compute.graph.NodeType.CONST
@@ -35,7 +33,7 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
             || nt == com.example.create_schematic_compute.graph.NodeType.FUSE);
     }
 
-    @Override public NodeGraph getGraph() { return graph; }
+    @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
     @Override public boolean isRunning() { return blockEntity != null && blockEntity.running; }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
 
@@ -46,7 +44,7 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
             if(be==null&&menu.blockPos!=null&&minecraft!=null&&minecraft.level!=null)
                 if(minecraft.level.getBlockEntity(menu.blockPos) instanceof ProgramComputerBlockEntity found) be=found;
             if(be==null||be.getLevel()==null) return;
-            var tag = new CompoundTag(); tag.put("graph", graph.save(be.getLevel().registryAccess()));
+            var tag = new CompoundTag(); tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
             var baos = new ByteArrayOutputStream(); NbtIo.writeCompressed(tag, baos);
             PacketDistributor.sendToServer(new BlueprintSavePacket(be.getBlockPos(), baos.toByteArray()));
             editor.saveFeedbackUntil = System.currentTimeMillis() + 1500;

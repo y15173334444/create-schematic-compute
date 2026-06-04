@@ -10,6 +10,8 @@ import com.example.create_schematic_compute.blocks.ProgramComputerBlock;
 import com.example.create_schematic_compute.blocks.ProgramComputerBlockEntity;
 import com.example.create_schematic_compute.blocks.ProgramComputerMenu;
 import com.example.create_schematic_compute.client.ClientSetup;
+import com.simibubi.create.api.schematic.nbt.SafeNbtWriterRegistry;
+import com.simibubi.create.api.schematic.nbt.SafeNbtWriterRegistry.SafeNbtWriter;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.inventory.MenuType;
@@ -87,6 +89,29 @@ public class SchematicCompute {
                     output.accept(PROGRAM_ITEM.get());
                 }).build());
 
+        // 在注册事件完成后再注册 SafeNbtWriter
+        modEventBus.addListener(net.neoforged.neoforge.registries.RegisterEvent.class, event -> {
+            if (event.getRegistryKey().equals(Registries.BLOCK_ENTITY_TYPE)) {
+                registerSafeNbtWriters();
+            }
+        });
+
         LOGGER.info("{} loaded!", MOD_ID);
+    }
+
+    /** 注册 SafeNbtWriter — 让 Create 蓝图系统能保存我们的方块实体 NBT */
+    private static void registerSafeNbtWriters() {
+        SafeNbtWriter writer = (be, tag, registries) -> {
+            var full = be.saveWithFullMetadata(registries);
+            for (var key : full.getAllKeys()) {
+                if (!key.equals("id") && !key.equals("x") && !key.equals("y") && !key.equals("z")) {
+                    tag.put(key, full.get(key));
+                }
+            }
+        };
+        SafeNbtWriterRegistry.REGISTRY.register(BLUEPRINT_BE.get(), writer);
+        SafeNbtWriterRegistry.REGISTRY.register(SPEED_PROXY_BE.get(), writer);
+        SafeNbtWriterRegistry.REGISTRY.register(PROGRAM_BE.get(), writer);
+        LOGGER.info("Registered SafeNbtWriters for all computers");
     }
 }

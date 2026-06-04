@@ -8,6 +8,7 @@ import com.example.create_schematic_compute.graph.NodeType;
 import com.simibubi.create.Create;
 import com.simibubi.create.content.redstone.link.IRedstoneLinkable;
 import com.simibubi.create.content.redstone.link.RedstoneLinkNetworkHandler;
+import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.createmod.catnip.data.Couple;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -29,7 +30,7 @@ import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.util.*;
 
-public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvider {
+public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
     private static final Map<Integer, Float> EMPTY_PID = Collections.emptyMap();
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
@@ -47,6 +48,15 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
     private record FreqLink(long freqKey, IRedstoneLinkable linkable) {}
 
     public ProgramComputerBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.PROGRAM_BE.get(), pos, s); }
+
+    @Override public void accept(net.minecraft.world.level.block.entity.BlockEntity other) {
+        if(other instanceof ProgramComputerBlockEntity src) {
+            this.graph = src.graph;
+            this.running = src.running;
+            setChanged();
+            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+    }
 
     @Override public void onLoad() { super.onLoad(); registerLinks(); }
     @Override public void onChunkUnloaded() { super.onChunkUnloaded(); unregisterLinks(); }
@@ -148,8 +158,21 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
         } catch(Exception e) { SchematicCompute.LOGGER.error("Failed to load program", e); graph=new NodeGraph(); setChanged(); }
     }
 
-    @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) { super.saveAdditional(t,r); t.put("graph",graph.save(r)); t.putBoolean("running",running); }
-    @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) { super.loadAdditional(t,r); if(t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),r); registerLinks(); } if(t.contains("running"))running=t.getBoolean("running"); }
+    @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) {
+        super.saveAdditional(t,r);
+        t.put("graph", graph.save(r));
+        t.putBoolean("running", running);
+    }
+    @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
+        super.loadAdditional(t,r);
+        if (t.contains("graph")) {
+            graph = NodeGraph.load(t.getCompound("graph"), r);
+            registerLinks();
+        }
+        if (t.contains("running")) running = t.getBoolean("running");
+        setChanged();
+        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+    }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
     @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) { var t=new CompoundTag(); saveAdditional(t,r); return t; }
     @Override public Component getDisplayName() { return Component.translatable("container."+SchematicCompute.MOD_ID+".program"); }

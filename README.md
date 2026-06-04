@@ -270,3 +270,10 @@ MIT License © 2026 y15173334444
 - 24 node types across 6 categories
 - 3 programmable computers (Blueprint, Speed Proxy, Program)
 - Visual node-based graph editor
+
+**Post-release fixes:**
+- Fix: Block entity data (node graph + running state) now properly preserved with Create's Schematicannon
+- Fix: GUI no longer shows stale empty graph after schematic placement  
+- Fix: Client-server synchronization of block entity data
+- Add: Create `IMergeableBE` interface for reliable data restoration
+- Add: `SafeNbtWriter` registration for Create schematic compatibility
