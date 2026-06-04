@@ -76,6 +76,16 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 
 ---
 
+### Schematic Support
+All three computers fully support **Create's Schematicannon**. Your node graphs, parameters, and running state are preserved when saving and loading schematics — no data loss.
+
+This means you can:
+- **Build complex logic** in creative mode, then **print it in survival** with the Schematicannon
+- **Copy and paste** computer configurations across your world
+- **Share your creations** as schematic files with other players
+
+---
+
 ### Recipes
 
 | Block | Materials |
@@ -228,6 +238,16 @@ MIT License © 2026 y15173334444
 | 复制节点 | Ctrl + D |
 | 缩放 | 滚轮 |
 | 平移画布 | 右键拖拽 |
+
+### 蓝图兼容
+三台计算机完全支持**机械动力的蓝图大炮（Schematicannon）**。节点图、参数和运行状态在保存和放置蓝图时都会完整保留，不会丢失数据。
+
+这意味着你可以：
+- **在创造模式搭建复杂逻辑**，然后在**生存模式用蓝图大炮打印出来**
+- 在世界中**复制粘贴**计算机配置
+- 将你的创作**分享为蓝图文件**给其他玩家
+
+---
 
 ### 合成配方
 
