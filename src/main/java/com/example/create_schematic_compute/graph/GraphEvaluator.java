@@ -187,7 +187,7 @@ public class GraphEvaluator {
             case INTERP -> {
                 float a = graph.getInputValue(node.id, 0, outputs);
                 float b = graph.getInputValue(node.id, 1, outputs);
-                if (a > b) { o[0] = a - b; o[1] = 0; }
+                if (a >= b) { o[0] = a - b; o[1] = 0; }
                 else { o[0] = 0; o[1] = Math.abs(b - a); }
             }
             case CEIL -> o[0] = (float) Math.ceil(graph.getInputValue(node.id, 0, outputs));

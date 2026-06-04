@@ -45,7 +45,7 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 | Category | Nodes |
 |----------|-------|
 | **Values** | CONST, Redstone Input, Private Signal Input |
-| **Math** | Add, Subtract, Multiply, Divide, Modulo, Power (A^B), Root (B-th Root), Absolute Value, Interpolation (\|A-B\|), Ceil, Floor |
+| **Math** | Add, Subtract, Multiply, Divide, Modulo, Power (A^B), Root (B-th Root), Absolute Value, Comparison Router (\|A-B\|), Ceil, Floor |
 | **Logic** | Greater Than, Less Than, Equals, Bool (Toggle) |
 | **Control** | PID Controller (I-term resets on zero error), Power PID, Clamp, Map Range |
 | **Output** | Redstone Output, Private Signal Output, Speed Control |
@@ -162,7 +162,7 @@ MIT License © 2026 y15173334444
 | 分类 | 节点 |
 |------|------|
 | **数值** | 常量、红石输入、私有信号输入 |
-| **运算** | 加、减、乘、除、模运算、次幂、次方根、绝对值、插值、向上取整、向下取整 |
+| **运算** | 加、减、乘、除、模运算、次幂、次方根、绝对值、比较路由、向上取整、向下取整 |
 | **逻辑** | 大于、小于、等于、布尔（反转） |
 | **控制** | PID 控制器（误差归零时 I 项复位）、动力 PID、限幅、映射范围 |
 | **输出** | 红石输出、私有信号输出、转速控制 |
@@ -188,7 +188,7 @@ MIT License © 2026 y15173334444
 | POW | A, B | float | A 的 B 次幂 |
 | ROOT | A, B | float | A 的 B 次方根（B=0 时返回 0） |
 | ABS | in | float | 输入值的绝对值 |
-| INTERP | A, B | A, B | A>B 时 A 口输出 A-B，否则 B 口输出 \|B-A\| |
+| Comparison Router | A, B | A, B | A>=B 时 A 口输出 A-B，否则 B 口输出 \|B-A\| |
 | CEIL | in | int | 向上取整 |
 | FLOOR | in | int | 向下取整 |
 

@@ -49,6 +49,6 @@
   "node.create_schematic_compute.loop": "循环",
   "node.create_schematic_compute.fuse": "保险",
   "node.create_schematic_compute.abs": "绝对值",
-  "node.create_schematic_compute.interp": "插值 (|A-B|)",
+  "node.create_schematic_compute.interp": "比较路由 (|A-B|)",
   "node.create_schematic_compute.bool": "布尔（反转）"
 }
