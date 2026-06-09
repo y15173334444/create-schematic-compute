@@ -37,6 +37,7 @@
   "node.create_schematic_compute.abs": "Absolute Value",
   "node.create_schematic_compute.interp": "Comparison Router (|A-B|)",
   "node.create_schematic_compute.bool": "Bool (Toggle)",
+  "node.create_schematic_compute.formula": "Formula",
 
   "block.create_schematic_compute.speed_proxy": "Speed Proxy Controller",
   "container.create_schematic_compute.speed_proxy": "Speed Proxy Controller",

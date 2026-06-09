@@ -241,6 +241,14 @@ public class GraphEvaluator {
             }
             case PRIVATE_IN -> o[0] = SignalBus.get(node.signalName);
             case PRIVATE_OUT -> SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
+            case FORMULA -> {
+                if (node.formula.isEmpty()) { o[0] = 0; break; }
+                var vars = new java.util.HashMap<String, Double>();
+                var varNames = FormulaParser.extractVariables(node.formula);
+                for (int vi = 0; vi < varNames.size(); vi++)
+                    vars.put(varNames.get(vi), (double)graph.getInputValue(node.id, vi, outputs));
+                o[0] = FormulaParser.eval(node.formula, vars);
+            }
         }
         outputs.put(node.id, o.clone());
     }

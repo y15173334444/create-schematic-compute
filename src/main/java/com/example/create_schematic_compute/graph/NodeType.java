@@ -33,7 +33,8 @@ public enum NodeType {
     T_FLIPFLOP("node.create_schematic_compute.t_flipflop", 1, 1, ""),
     PULSE_EXTEND("node.create_schematic_compute.pulse_extend", 1, 1, "ticks"),
     LOOP("node.create_schematic_compute.loop", 1, 1, "count,interval"),
-    FUSE("node.create_schematic_compute.fuse", 1, 1, "cooldown");
+    FUSE("node.create_schematic_compute.fuse", 1, 1, "cooldown"),
+    FORMULA("node.create_schematic_compute.formula", 0, 1, "formula");
 
     public final String displayName;
     public final int inputs;
@@ -43,7 +44,9 @@ public enum NodeType {
     NodeType(String n, int in, int out, String params) { displayName=n; inputs=in; outputs=out; paramNames=params.isEmpty()?new String[0]:params.split(","); }
     public String getTitle() { return displayName; }
     public Component title() { return Component.translatable(displayName); }
-    public String inputLabel(int i) { return switch(this){
+    public String inputLabel(int i) {
+        if (this == FORMULA) return "" + (char)('A' + i);
+        return switch(this){
         case ADD,SUB,MUL,DIV,MOD,POW,ROOT -> i==0?"A":"B";
         case GT,LT,EQ -> i==0?"A":"B";
         case PID -> "SP";

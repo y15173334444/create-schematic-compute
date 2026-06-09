@@ -49,6 +49,7 @@
   "node.create_schematic_compute.abs": "绝对值",
   "node.create_schematic_compute.interp": "比较路由 (|A-B|)",
   "node.create_schematic_compute.bool": "布尔（反转）",
+  "node.create_schematic_compute.formula": "公式",
   "node.create_schematic_compute.ceil": "向上取整",
   "node.create_schematic_compute.floor": "向下取整",
 

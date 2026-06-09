@@ -129,7 +129,7 @@ public class NodeRenderer {
     private record NodeCategory(String langKey, NodeType[] types) {}
     private static final NodeCategory[] CATEGORIES = {
         new NodeCategory("category.create_schematic_compute.values", new NodeType[]{NodeType.CONST, NodeType.REDSTONE_IN, NodeType.PRIVATE_IN}),
-        new NodeCategory("category.create_schematic_compute.math", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.POW, NodeType.ROOT, NodeType.ABS, NodeType.INTERP, NodeType.CEIL, NodeType.FLOOR}),
+        new NodeCategory("category.create_schematic_compute.math", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.POW, NodeType.ROOT, NodeType.ABS, NodeType.INTERP, NodeType.CEIL, NodeType.FLOOR, NodeType.FORMULA}),
         new NodeCategory("category.create_schematic_compute.logic", new NodeType[]{NodeType.GT, NodeType.LT, NodeType.EQ, NodeType.BOOL}),
         new NodeCategory("category.create_schematic_compute.control", new NodeType[]{NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP}),
         new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL}),
@@ -158,7 +158,7 @@ public class NodeRenderer {
             GraphNode fn = graph.findNode(c.fromId);
             GraphNode tn = graph.findNode(c.toId);
             if(fn==null||tn==null) continue;
-            float x1 = c2sX.apply(fn.x+NW), y1 = c2sY.apply(fn.y+HH+PH*(fn.type.inputs+c.fromPin)+PH/2f);
+            float x1 = c2sX.apply(fn.x+NW), y1 = c2sY.apply(fn.y+HH+PH*(fn.inputs()+c.fromPin)+PH/2f);
             float x2 = c2sX.apply(tn.x), y2 = c2sY.apply(tn.y+HH+PH*c.toPin+PH/2f);
             bezier(g, x1, y1, x2, y2, CW);
         }
@@ -168,7 +168,7 @@ public class NodeRenderer {
                                     float wireEndX, float wireEndY, float camX, float camY, float zoom) {
         var fn = graph.findNode(wireFromNode);
         if(fn==null) return;
-        float x1 = c2sX.apply(fn.x+NW), y1 = c2sY.apply(fn.y+HH+PH*(fn.type.inputs+wireFromPin)+PH/2f);
+        float x1 = c2sX.apply(fn.x+NW), y1 = c2sY.apply(fn.y+HH+PH*(fn.inputs()+wireFromPin)+PH/2f);
         float x2 = c2sX.apply(wireEndX), y2 = c2sY.apply(wireEndY);
         bezier(g, x1, y1, x2, y2, CWD);
     }
@@ -176,6 +176,7 @@ public class NodeRenderer {
     // 编辑区高度（像素，本地坐标空间）
     public java.util.Set<Integer> expandedNodeIds = java.util.Collections.emptySet();
     public java.util.Map<Integer, com.example.create_schematic_compute.blocks.GraphEditor.EditState> nodeEditStatesById = java.util.Collections.emptyMap();
+    public boolean suppressControls = false; // 覆盖层打开时禁止渲染编辑控件（仅保留背景）
 
     public void renderNodes(GuiGraphics g, List<GraphNode> nodes, Set<GraphNode> selectedNodes,
                              GraphNode primaryNode, java.util.Set<Integer> editNodeIds,
@@ -187,7 +188,7 @@ public class NodeRenderer {
         float margin = 50;
         for(var n : nodes) {
             float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
-            float sw = NW*zoom, nh = (HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
+            float sw = NW*zoom, nh = (HH+PH*(n.inputs()+n.outputs()))*zoom+4;
             if (sx + sw < -margin || sx > w + margin || sy + nh < -margin || sy > h + margin)
                 continue;
             drawNode(g, n, selectedNodes.contains(n), n == primaryNode, expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my);
@@ -198,7 +199,7 @@ public class NodeRenderer {
                            float camX, float camY, float zoom, int mx, int my) {
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
         float sw = NW*zoom;
-        float contentH = (HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
+        float contentH = (HH+PH*(n.inputs()+n.outputs()))*zoom+4;
         // 编辑模式：各节点独立计算高度
         float extraH = editing ? com.example.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom) * zoom : 0;
         float nh = contentH + extraH;
@@ -217,35 +218,39 @@ public class NodeRenderer {
         pose.scale(zoom,zoom,1);
         drawStr(g, I18n.get(n.type.getTitle()), 4, 4, CNT);
         // 输入端
-        for(int i=0; i<n.type.inputs; i++) {
+        for(int i=0; i<n.inputs(); i++) {
             float py = HH+PH*i+PH/2f;
             int r = PR;
             g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1), CPIB);
             g.fill(-r, (int)(py - r), r, (int)(py + r), CPI);
-            drawStr(g, n.type.inputLabel(i), 10, py-3, CD);
+            drawStr(g, n.inputLabel(i), 10, py-3, CD);
         }
         // 输出端
-        for(int i=0; i<n.type.outputs && n.type != NodeType.SPEED_CTRL; i++) {
-            float py = HH+PH*(n.type.inputs+i)+PH/2f;
+        for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL; i++) {
+            float py = HH+PH*(n.inputs()+i)+PH/2f;
             int r = PR;
             g.fill(NW - r - 1, (int)(py - r - 1), NW + r + 1, (int)(py + r + 1), CPOB);
             g.fill(NW - r, (int)(py - r), NW + r, (int)(py + r), CPO);
             drawStr(g, n.type.outputLabel(i), NW-30, py-3, CD);
         }
+        // 公式文本显示（FORMULA 节点）
+        if (n.type == NodeType.FORMULA) {
+            drawStr(g, "§7" + (n.formula.isEmpty() ? "A+B" : n.formula), 4, HH+PH*(n.inputs()+n.outputs())+4, CD);
+        }
         // 展开指示器（可编辑节点在标题右侧显示 ▶/▼）
-        if (n.type.paramNames.length > 0 || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT
+        if (n.type == NodeType.FORMULA || n.type.paramNames.length > 0
+            || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT
             || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) {
             drawStr(g, editing ? "§6▼" : "§7▶", NW - 14, 4, CT);
         }
-        // 编辑区背景（在 pose 变换内渲染）
+        // 编辑区（pose 内渲染保证缩放同步，覆盖层在 renderBg 中更高优先级）
         if (editing) {
-            // 与节点内容底部精确对齐：局部 y = HH+PH(I+O)+4/zoom 对应屏幕 contentH
-            int editLocalY = (int)(HH + PH*(n.type.inputs + n.type.outputs) + 4/zoom);
+            int editLocalY = (int)(HH + PH*(n.inputs() + n.outputs()) + 4/zoom);
             int editLocalH = com.example.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom);
             g.fill(2, editLocalY - 2, NW - 2, editLocalY, 0xFF5A4D3A);
             g.fill(2, editLocalY, NW - 2, editLocalY + editLocalH, 0xFF2A2822);
             var editSt = nodeEditStatesById.get(n.id);
-            if (editSt != null) {
+            if (editSt != null && !suppressControls) {
                 com.example.create_schematic_compute.blocks.EditPanel.renderAt(g, 0, editLocalY, NW, n, editSt, zoom, mx, my);
             }
         }
@@ -355,7 +360,7 @@ public class NodeRenderer {
         // 网格吸附按钮
         int cX4 = 134, cW4 = 58;
         g.fill(cX4, btnY, cX4+cW4, btnY+btnH, gridSnap ? 0xFF3A5A2A : 0xFF3A3428);
-        g.renderOutline(cX4, btnY, cW4, btnH, gridSnap ? 0xFF5A8A3A : CSB);
+        g.renderOutline(cX4, btnY, cW4, btnH, CSB);
         g.renderOutline(cX4+1, btnY+1, cW4-2, btnH-2, 0xFF2A2822);
         drawStr(g, (gridSnap ? "§a" : "§7") + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.grid"), cX4+6, btnY+4, CT);
         // 颜色配置按钮

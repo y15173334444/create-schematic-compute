@@ -13,6 +13,19 @@ public class GraphNode {
     public float[] params;           // numeric parameters (const value, kp, ki, etc.)
     public ItemStack[] itemParams;   // item parameters (frequency stacks)
     public String signalName = "";   // channel name for PRIVATE_IN/OUT nodes
+    public String formula = "";      // formula expression for FORMULA node
+    public int dynamicInputCount = 0; // dynamic inputs for FORMULA node
+    /** 有效输入引脚数（FORMULA 用 dynamicInputCount，其他用 type.inputs） */
+    public int inputs() { return type == NodeType.FORMULA ? Math.max(1, Math.min(dynamicInputCount, 26)) : type.inputs; }
+    public int outputs() { return type.outputs; }
+    /** 输入引脚标签（FORMULA 用公式中的变量名，其他用 type 的默认） */
+    public String inputLabel(int i) {
+        if (type == NodeType.FORMULA && !formula.isEmpty()) {
+            var vars = FormulaParser.extractVariables(formula);
+            if (i < vars.size()) return vars.get(i);
+        }
+        return type.inputLabel(i);
+    }
 
     // Runtime computed values (filled by evaluator)
     public float[] outputValues;
@@ -59,6 +72,8 @@ public class GraphNode {
         for (int i = 0; i < itemParams.length; i++)
             tag.put("i" + i, itemParams[i].saveOptional(registries));
         if (!signalName.isEmpty()) tag.putString("sig", signalName);
+        if (!formula.isEmpty()) tag.putString("formula", formula);
+        if (dynamicInputCount > 0) tag.putInt("din", dynamicInputCount);
         return tag;
     }
 
@@ -77,6 +92,8 @@ public class GraphNode {
                 node.itemParams[i] = ItemStack.EMPTY;
         }
         if (tag.contains("sig")) node.signalName = tag.getString("sig");
+        if (tag.contains("formula")) node.formula = tag.getString("formula");
+        if (tag.contains("din")) node.dynamicInputCount = tag.getInt("din");
         return node;
     }
 }

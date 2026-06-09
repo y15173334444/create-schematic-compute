@@ -19,10 +19,11 @@ public class EditPanel {
         if (n.type == NodeType.BOOL && n.params.length > 0) h += 16;
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
         if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) h += 22;
+        if (n.type == NodeType.FORMULA) h += 22;
         return h;
     }
 
-    /** 在局部坐标中渲染编辑控件（由 drawNode 在 pose 变换内调用） */
+    /** 在局部坐标中渲染编辑控件（由 drawNode 在 pose 内调用，自动随缩放） */
     public static void renderAt(GuiGraphics g, int px, int py, int pw, GraphNode node,
                                  com.example.create_schematic_compute.blocks.GraphEditor.EditState st,
                                  float zoom, int mx, int my) {

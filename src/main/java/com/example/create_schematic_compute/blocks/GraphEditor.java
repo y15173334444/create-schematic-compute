@@ -94,6 +94,17 @@ public class GraphEditor {
             sb.setResponder(t -> node.signalName = t);
             s.fields.add(sb);
         }
+        if (node.type == NodeType.FORMULA) {
+            var fb = new EditBox(mc.font, 0, 0, 140, 16, Component.literal(""));
+            fb.setMaxLength(64); fb.setValue(node.formula.isEmpty() ? "A+B" : node.formula);
+            fb.setResponder(t -> {
+                String clean = t.replaceAll("[^a-zA-Z0-9+\\-*/%^(). ]", "");
+                if (!clean.equals(t)) fb.setValue(clean);
+                node.formula = clean;
+                node.dynamicInputCount = com.example.create_schematic_compute.graph.FormulaParser.extractVariables(clean).size();
+            });
+            s.fields.add(fb);
+        }
         return s;
     }
 
@@ -133,11 +144,21 @@ public class GraphEditor {
     public float s2cX(double sx) { Screen s = host.asScreen(); return(float)((sx-s.width/2f)/zoom-camX); }
     public float s2cY(double sy) { Screen s = host.asScreen(); return(float)((sy-s.height/2f)/zoom-camY); }
 
+    // 渲染优先级（低→高，高的覆盖低的）
+    //  0: 网格
+    //  1: 连线
+    //  2: 节点主体 + 展开编辑区（背景，pose内渲染）
+    //    编辑控件（EditBox/物品图标）仅在无覆盖层时渲染，避免穿透
+    //  3: 按钮栏
+    //  4: 热栏弹出
+    //  5: 颜色设置面板 / Nodes菜单
+    //  6: 框选矩形
     public void renderBg(GuiGraphics g, int mx, int my) {
         var graph = host.getGraph();
         renderer.renderGrid(g, camX, camY, zoom, host.asScreen().width, host.asScreen().height);
         renderer.renderConnections(g, graph, camX, camY, zoom);
         if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
+        renderer.suppressControls = showColorConfig || showMenu;
         renderer.renderNodes(g, graph.nodes, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
             camX, camY, zoom, mx, my);
         renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width);
@@ -146,10 +167,10 @@ public class GraphEditor {
             var mc = Minecraft.getInstance();
             if (mc.player != null) {
                 float nsx = c2sX(hotbarNode.x), nsy = c2sY(hotbarNode.y);
-                float nch = (HH + PH*(hotbarNode.type.inputs+hotbarNode.type.outputs))*zoom+4;
+                float nch = (HH + PH*(hotbarNode.inputs()+hotbarNode.outputs()))*zoom+4;
                 var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
                 int numRows = st != null ? st.fields.size() : 0;
-                int editLocalY = (int)(HH + PH*(hotbarNode.type.inputs+hotbarNode.type.outputs) + 4/zoom);
+                int editLocalY = (int)(HH + PH*(hotbarNode.inputs()+hotbarNode.outputs()) + 4/zoom);
                 int freqLocalY = editLocalY + 4 + numRows * 18;
                 float popupY = nsy + nch + (freqLocalY - editLocalY + 20 + 4) * zoom;
                 int pw = 196, ph = 36;
@@ -218,9 +239,9 @@ public class GraphEditor {
             var mc2 = Minecraft.getInstance();
             var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
             float nsx2 = c2sX(hotbarNode.x), nsy2 = c2sY(hotbarNode.y);
-            float nch2 = (HH + PH*(hotbarNode.type.inputs+hotbarNode.type.outputs))*zoom+4;
+            float nch2 = (HH + PH*(hotbarNode.inputs()+hotbarNode.outputs()))*zoom+4;
             int numRows2 = st != null ? st.fields.size() : 0;
-            int editLocalY2 = (int)(HH + PH*(hotbarNode.type.inputs+hotbarNode.type.outputs) + 4/zoom);
+            int editLocalY2 = (int)(HH + PH*(hotbarNode.inputs()+hotbarNode.outputs()) + 4/zoom);
             int freqLocalY2 = editLocalY2 + 4 + numRows2 * 18;
             float popupY2 = nsy2 + nch2 + (freqLocalY2 - editLocalY2 + 20 + 4) * zoom;
             int pw2 = 196, ph2 = 36;
@@ -284,7 +305,7 @@ public class GraphEditor {
                 if (st == null) continue;
                 float nsx = c2sX(en.x), nsy = c2sY(en.y);
                 int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
-                int editLocalY = (int)(HH + PH*(en.type.inputs+en.type.outputs) + 4/zoom);
+                int editLocalY = (int)(HH + PH*(en.inputs()+en.outputs()) + 4/zoom);
                 int numRows = st.fields.size();
                 int freqLocalY = editLocalY + 8 + numRows * 18;
                 for (int fi = 0; fi < 2; fi++) {
@@ -325,7 +346,7 @@ public class GraphEditor {
             var expandHit = hitExpandIndicator(mx, my, graph);
             if (expandHit != null) { toggleExpand(expandHit); return true; }
             // 拖拽连线
-            for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.type.outputs;i++){float py=sy+HH*zoom+PH*zoom*(node.type.inputs+i)+PH*zoom/2f;if(Math.abs(mx-(sx+NW*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
+            for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.type.outputs;i++){float py=sy+HH*zoom+PH*zoom*(node.inputs()+i)+PH*zoom/2f;if(Math.abs(mx-(sx+NW*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
             // 点击节点（不含 ▶/▼ 区域）
             var hit=hitNode(mx,my);
             if(hit!=null){
@@ -349,7 +370,8 @@ public class GraphEditor {
     protected boolean shouldOpenPanel(GraphNode node) {
         return node.type.paramNames.length > 0 || node.type == NodeType.REDSTONE_IN
             || node.type == NodeType.REDSTONE_OUT || node.type == NodeType.PRIVATE_IN
-            || node.type == NodeType.PRIVATE_OUT || node.type == NodeType.PID_POWER;
+            || node.type == NodeType.PRIVATE_OUT || node.type == NodeType.PID_POWER
+            || node.type == NodeType.FORMULA;
     }
 
     public void mouseReleased(double mx, double my, int btn) {
@@ -375,7 +397,7 @@ public class GraphEditor {
             float y1 = Math.min(boxSY, boxEY), y2 = Math.max(boxSY, boxEY);
             for(var n : graph.nodes) {
                 float nx = c2sX(n.x), ny = c2sY(n.y);
-                float nw = NW*zoom, nh = (HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
+                float nw = NW*zoom, nh = (HH+PH*(n.inputs()+n.outputs()))*zoom+4;
                 if(nx < x2 && nx+nw > x1 && ny < y2 && ny+nh > y1) {
                     // TAB按住时框选切换选中状态
                     if (tabHeld && selectedNodes.contains(n)) selectedNodes.remove(n);
@@ -386,7 +408,7 @@ public class GraphEditor {
             else selectedNode = null;
             return;
         }
-        if(btn==0&&draggingWire){for(var node:graph.nodes){float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.type.inputs;i++){float py=sy+HH*zoom+PH*zoom*i+PH*zoom/2f;if(Math.abs(mx-sx)<8&&Math.abs(my-py)<PH*zoom/2f+2&&wireFromNode!=node.id)graph.addConnection(wireFromNode,wireFromPin,node.id,i);}}draggingWire=false;}
+        if(btn==0&&draggingWire){for(var node:graph.nodes){float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.inputs();i++){float py=sy+HH*zoom+PH*zoom*i+PH*zoom/2f;if(Math.abs(mx-sx)<8&&Math.abs(my-py)<PH*zoom/2f+2&&wireFromNode!=node.id)graph.addConnection(wireFromNode,wireFromPin,node.id,i);}}draggingWire=false;}
         if(btn==0&&draggingNode!=null)draggingNode=null;if(btn==0&&panning)panning=false;
     }
     public void mouseMoved(double mx, double my) {
@@ -522,7 +544,7 @@ public class GraphEditor {
         for (int i = graph.nodes.size() - 1; i >= 0; i--) {
             var n = graph.nodes.get(i);
             if (n.type.paramNames.length == 0 && n.type != NodeType.REDSTONE_IN && n.type != NodeType.REDSTONE_OUT
-                && n.type != NodeType.PRIVATE_IN && n.type != NodeType.PRIVATE_OUT) continue;
+                && n.type != NodeType.PRIVATE_IN && n.type != NodeType.PRIVATE_OUT && n.type != NodeType.FORMULA) continue;
             float sx = c2sX(n.x), sy = c2sY(n.y);
             float ix = sx + (NW - 22) * zoom;
             float iy = sy + 2 * zoom;
@@ -537,7 +559,7 @@ public class GraphEditor {
         for(int i=graph.nodes.size()-1;i>=0;i--){
             var n=graph.nodes.get(i);
             float sx=c2sX(n.x), sy=c2sY(n.y), sw=NW*zoom;
-            float nh = (HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
+            float nh = (HH+PH*(n.inputs()+n.outputs()))*zoom+4;
             if (expandedNodeIds.contains(n.id))
                 nh += EditPanel.calcRenderHeight(n, zoom) * zoom;
             if(mx>=sx&&mx<=sx+sw&&my>=sy&&my<=sy+nh) return n;
@@ -549,7 +571,7 @@ public class GraphEditor {
         for(NodeConnection c:graph.connections){
             GraphNode fn=graph.findNode(c.fromId), tn=graph.findNode(c.toId);
             if(fn==null||tn==null)continue;
-            float fx=c2sX(fn.x+NW), fy=c2sY(fn.y+HH+PH*(fn.type.inputs+c.fromPin)+PH/2f);
+            float fx=c2sX(fn.x+NW), fy=c2sY(fn.y+HH+PH*(fn.inputs()+c.fromPin)+PH/2f);
             float tx=c2sX(tn.x), ty=c2sY(tn.y+HH+PH*c.toPin+PH/2f);
             float dx=Math.abs(tx-fx)*0.4f, dist=(float)Math.sqrt((tx-fx)*(tx-fx)+(ty-fy)*(ty-fy));
             int steps=Math.max(10,(int)(dist*0.3f));
