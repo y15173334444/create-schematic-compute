@@ -40,12 +40,12 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 
 ---
 
-### Node Reference (31 Types)
+### Node Reference (32 Types)
 
 | Category | Nodes |
 |----------|-------|
 | **Values** | CONST, Redstone Input, Private Signal Input |
-| **Math** | Add, Subtract, Multiply, Divide, Modulo, Power (A^B), Root (B-th Root), Absolute Value, Comparison Router (\|A-B\|), Ceil, Floor |
+| **Math** | Add, Subtract, Multiply, Divide, Modulo, Power (A^B), Root (B-th Root), Absolute Value, Comparison Router (\|A-B\|), Ceil, Floor, **Formula** |
 | **Logic** | Greater Than, Less Than, Equals, Bool (Toggle) |
 | **Control** | PID Controller (I-term resets on zero error), Power PID, Clamp, Map Range |
 | **Output** | Redstone Output, Private Signal Output, Speed Control |
@@ -67,7 +67,7 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 | Action | Input |
 |--------|-------|
 | Open add-node menu | Right-click on empty space |
-| Edit node parameters | Left-click on node |
+| Edit node parameters | Left-click node, then click ▶ |
 | Connect nodes | Drag from output pin to input pin |
 | Delete node/connection | Right-click on it |
 | Box select nodes | TAB + Left-click drag |
@@ -75,8 +75,11 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 | Move selected nodes | TAB + Left-click drag on selected node |
 | Duplicate node(s) | Ctrl + D |
 | Delete selected node(s) | Delete / Backspace |
+| Expand/collapse edit area | Click ▶ / ▼ on node header |
 | Zoom in/out | Scroll wheel |
 | Pan canvas | Right-click drag |
+| Toggle grid snap | Click **Grid** button |
+| Color customization | Click **Style** button |
 
 ---
 
@@ -157,12 +160,12 @@ MIT License © 2026 y15173334444
 
 ---
 
-### 节点参考（31 种）
+### 节点参考（32 种）
 
 | 分类 | 节点 |
 |------|------|
 | **数值** | 常量、红石输入、私有信号输入 |
-| **运算** | 加、减、乘、除、模运算、次幂、次方根、绝对值、比较路由、向上取整、向下取整 |
+| **运算** | 加、减、乘、除、模运算、次幂、次方根、绝对值、比较路由、向上取整、向下取整、**公式** |
 | **逻辑** | 大于、小于、等于、布尔（反转） |
 | **控制** | PID 控制器（误差归零时 I 项复位）、动力 PID、限幅、映射范围 |
 | **输出** | 红石输出、私有信号输出、转速控制 |
@@ -191,6 +194,7 @@ MIT License © 2026 y15173334444
 | Comparison Router | A, B | A, B | A>=B 时 A 口输出 A-B，否则 B 口输出 \|B-A\| |
 | CEIL | in | int | 向上取整 |
 | FLOOR | in | int | 向下取整 |
+| FORMULA | 变量名(A-Z) | float | formula | 自定义数学公式，自动根据变量名创建输入引脚 |
 
 ##### 逻辑 (Logic)
 | 节点 | 输入 | 输出 | 参数 | 说明 |
@@ -241,7 +245,7 @@ MIT License © 2026 y15173334444
 | 操作 | 方法 |
 |------|------|
 | 打开节点菜单 | 右键空白处 |
-| 编辑参数 | 左键节点 |
+| 编辑参数 | 左键节点，再点击 ▶ |
 | 连接节点 | 从输出端口拖到输入端口 |
 | 删除节点/连线 | 右键节点或连线 |
 | 框选节点 | TAB + 左键拖拽 |
@@ -249,8 +253,11 @@ MIT License © 2026 y15173334444
 | 拖拽移动选中 | TAB + 左键拖拽已选中节点 |
 | 复制节点 | Ctrl + D |
 | 删除选中节点 | Delete / Backspace |
+| 展开/折叠编辑区 | 点击节点标题的 ▶ / ▼ |
 | 缩放 | 滚轮 |
 | 平移画布 | 右键拖拽 |
+| 网格吸附开关 | 点击 **Grid** 按钮 |
+| 颜色自定义 | 点击 **Style** 按钮 |
 
 ### 蓝图兼容
 三台计算机完全支持**机械动力的蓝图大炮（Schematicannon）**。节点图、参数和运行状态在保存和放置蓝图时都会完整保留，不会丢失数据。
@@ -297,6 +304,27 @@ MIT License © 2026 y15173334444
 ---
 
 ## 📝 Changelog
+
+### v1.0.1
+- Add: FORMULA node with custom math expressions (e.g. `ABD+Speed`)
+- Add: Multi-letter variable names, auto-created input pins per variable
+- Add: Color customization (16-color theming with System/Input/Output borders)
+- Add: Inline node editing via ▶/▼ expand with zoom-synced controls
+- Add: Multi-node simultaneous expand (independent per-node edit state)
+- Add: Hotbar popup for frequency slot item selection
+- Add: Grid snap toggle with config persistence
+- Add: Render priority system (overlays properly cover edit areas)
+- Add: Blueprint Computer now supports Private Signal Input node
+- Add: i18n for all GUI buttons and color names (EN/ZH)
+- Change: Create-style warm metallic GUI palette (brass/copper/steel)
+- Change: Node edit panel moved inside node (no floating side panel)
+- Change: Manual expand/collapse only via ▶/▼ (no auto-collapse)
+- Change: Redstone output clamped to 0-15
+- Fix: SignalBus cross-computer pollution (remove destructive clear())
+- Fix: SpeedProxy shared static PID map → per-instance
+- Fix: Node expand state survives server sync (tracked by node ID)
+- Fix: Compile/Run buttons no longer collapse edit areas
+- Cleanup: EditPanel stripped from 285 to 64 lines (dead code removal)
 
 ### v1.0.0
 - Initial release
