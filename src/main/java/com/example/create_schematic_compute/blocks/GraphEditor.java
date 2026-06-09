@@ -44,6 +44,7 @@ public class GraphEditor {
     public NodeType selectedMenuType=null;
     public long saveFeedbackUntil=0;
     public String cycleWarning=null;
+    public boolean nodeExpanded = false; // 手动展开编辑区
     // 框选 + 多选拖拽状态
     private boolean tabHeld = false;
     private boolean boxSelecting = false;
@@ -72,16 +73,23 @@ public class GraphEditor {
         renderer.renderGrid(g, camX, camY, zoom, host.asScreen().width, host.asScreen().height);
         renderer.renderConnections(g, graph, camX, camY, zoom);
         if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
-        renderer.renderNodes(g, graph.nodes, selectedNodes, selectedNode, camX, camY, zoom, mx, my);
+        int editH = nodeExpanded && selectedNode != null
+            ? NodeRenderer.calcEditHeight(selectedNode) : 0;
+        renderer.renderNodes(g, graph.nodes, selectedNodes, selectedNode, editH,
+            camX, camY, zoom, mx, my);
+        // 编辑控件绘制在展开的节点内部区域
+        if (editH > 0 && selectedNode != null) {
+            editPanel.renderInline(g, renderer.editScreenX, renderer.editScreenY,
+                renderer.editScreenW, renderer.editScreenH, zoom, mx, my);
+        }
         renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, host.asScreen().width);
         if(showMenu) { selectedMenuType = renderer.renderAddNodeMenu(g, menuX, menuY, mx, my, nodeFilter); }
-        if(editPanel.isOpen()) editPanel.render(g, host.asScreen().width, host.asScreen().height, mx, my);
         // 框选矩形
         if (boxSelecting) {
             float x1 = Math.min(boxSX, boxEX), y1 = Math.min(boxSY, boxEY);
             float x2 = Math.max(boxSX, boxEX), y2 = Math.max(boxSY, boxEY);
-            g.fill((int)x1, (int)y1, (int)x2, (int)y2, 0x224499FF);
-            g.renderOutline((int)x1, (int)y1, (int)(x2-x1), (int)(y2-y1), 0xFF4499FF);
+            g.fill((int)x1, (int)y1, (int)x2, (int)y2, 0x22D4A017);
+            g.renderOutline((int)x1, (int)y1, (int)(x2-x1), (int)(y2-y1), 0xFFD4A017);
         }
     }
 
@@ -99,9 +107,6 @@ public class GraphEditor {
                 return true;
             }
         }
-        if(editPanel.handleFreqSlotClick(mx, my)) return true;
-        if(editPanel.handleHotbarClick(mx, my)) return true;
-        if(editPanel.mouseClicked(mx, my, btn)) return true;
         if(showMenu&&btn==0){
             if(renderer.handleCategoryClick((int)mx, (int)my)) return true;
             if(selectedMenuType!=null)graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));showMenu=false;return true;}
@@ -112,39 +117,62 @@ public class GraphEditor {
         }
         if(btn==0){
             showMenu=false;
-            // TAB+左键 → 多选拖拽 / 切换选中 / 框选
+            // 内联编辑区交互（节点展开区域内的控件）
+            if (editPanel.isOpen() && selectedNode != null) {
+                if (editPanel.handleFreqSlotClick(mx, my)) return true;
+                if (editPanel.handleHotbarClick(mx, my)) return true;
+                if (editPanel.mouseClickedInline(mx, my, btn, renderer.editScreenX, renderer.editScreenY,
+                    renderer.editScreenW, renderer.editScreenH)) return true;
+            }
+            // TAB+左键 → 多选 / 框选
             if (tabHeld) {
                 var hit = hitNode(mx, my);
                 if (hit != null && selectedNodes.contains(hit)) {
-                    // 点击已选中节点：开始多选拖拽（以选中节点重心为基准）
-                    multiDragging = true;
-                    multiClickedNode = hit;
-                    multiDragOrigins.clear();
+                    multiDragging = true; multiClickedNode = hit; multiDragOrigins.clear();
                     multiCenterX = 0; multiCenterY = 0;
                     for (var sn : selectedNodes) { multiCenterX += sn.x; multiCenterY += sn.y; }
                     multiCenterX /= selectedNodes.size(); multiCenterY /= selectedNodes.size();
-                    for (var sn : selectedNodes) {
-                        multiDragOrigins.put(sn, new float[]{sn.x, sn.y});
-                    }
-                    dragOffX = s2cX(mx) - multiCenterX;
-                    dragOffY = s2cY(my) - multiCenterY;
+                    for (var sn : selectedNodes) multiDragOrigins.put(sn, new float[]{sn.x, sn.y});
+                    dragOffX = s2cX(mx) - multiCenterX; dragOffY = s2cY(my) - multiCenterY;
                     return true;
                 }
-                if (hit != null) {
-                    // 点击未选中节点：加入选中
-                    selectedNodes.add(hit);
-                    selectedNode = hit;
-                    return true;
-                }
-                // 点击空白处：开始框选
-                boxSelecting = true;
-                boxSX = boxEX = (float)mx;
-                boxSY = boxEY = (float)my;
+                if (hit != null) { selectedNodes.add(hit); selectedNode = hit; return true; }
+                boxSelecting = true; boxSX = boxEX = (float)mx; boxSY = boxEY = (float)my;
                 return true;
             }
+            // ▶/▼ 折叠展开按钮（优先检测，不依赖选中状态）
+            var expandHit = hitExpandIndicator(mx, my, graph);
+            if (expandHit != null) {
+                if (shouldOpenPanel(expandHit)) {
+                    // 确保该节点被选中
+                    selectedNode = expandHit; selectedNodes.clear(); selectedNodes.add(expandHit);
+                    nodeExpanded = !nodeExpanded;
+                    if (nodeExpanded) editPanel.open(expandHit);
+                    else editPanel.close();
+                }
+                return true;
+            }
+            // 拖拽连线
             for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.type.outputs;i++){float py=sy+HH*zoom+PH*zoom*(node.type.inputs+i)+PH*zoom/2f;if(Math.abs(mx-(sx+NW*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
-            var hit=hitNode(mx,my);if(hit!=null){float sy=c2sY(hit.y);if(my>=sy&&my<=sy+HH*zoom+4){draggingNode=hit;dragOffX=hit.x-s2cX(mx);dragOffY=hit.y-s2cY(my);}selectedNode=hit;selectedNodes.clear();selectedNodes.add(hit);if(shouldOpenPanel(hit))editPanel.open(hit);return true;}
-            selectedNodes.clear(); selectedNode=null; editPanel.close(); panning=true; panLastX=(float)mx; panLastY=(float)my;
+            // 点击节点（不含 ▶/▼ 区域）
+            var hit=hitNode(mx,my);
+            if(hit!=null){
+                // 仅在非 ▶/▼ 区域允许拖拽
+                float sy=c2sY(hit.y);
+                boolean inHeader = my>=sy && my<=sy+HH*zoom+4;
+                if (inHeader) { draggingNode=hit; dragOffX=hit.x-s2cX(mx); dragOffY=hit.y-s2cY(my); }
+                if (selectedNode != hit) {
+                    // 点击不同节点 → 选中
+                    if (nodeExpanded) { nodeExpanded = false; editPanel.close(); }
+                    selectedNode=hit; selectedNodes.clear(); selectedNodes.add(hit);
+                }
+                return true;
+            }
+            // 点击空白区域 → 取消选中并折叠
+            nodeExpanded = false;
+            if (editPanel.isOpen()) editPanel.close();
+            selectedNodes.clear(); selectedNode=null;
+            panning=true; panLastX=(float)mx; panLastY=(float)my;
         }
         return false;
     }
@@ -263,6 +291,22 @@ public class GraphEditor {
     private void recompile(NodeGraph graph) {
         cycleWarning=null; host.saveGraph();
         host.toggleRunning(false);
+    }
+
+    /** 检测 ▶/▼ 展开按钮点击 */
+    private GraphNode hitExpandIndicator(double mx, double my, NodeGraph graph) {
+        float indicatorSize = 10 * zoom;
+        for (int i = graph.nodes.size() - 1; i >= 0; i--) {
+            var n = graph.nodes.get(i);
+            if (n.type.paramNames.length == 0 && n.type != NodeType.REDSTONE_IN && n.type != NodeType.REDSTONE_OUT
+                && n.type != NodeType.PRIVATE_IN && n.type != NodeType.PRIVATE_OUT) continue;
+            float sx = c2sX(n.x), sy = c2sY(n.y);
+            float ix = sx + (NW - 16) * zoom;
+            float iy = sy + 3 * zoom;
+            if (mx >= ix && mx <= ix + indicatorSize && my >= iy && my <= iy + indicatorSize + 2)
+                return n;
+        }
+        return null;
     }
 
     private GraphNode hitNode(double mx, double my) {

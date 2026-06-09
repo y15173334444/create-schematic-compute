@@ -17,11 +17,11 @@ import java.util.Set;
  * 节点图渲染器 — 处理网格、节点、连线的绘制逻辑
  */
 public class NodeRenderer {
-    // 颜色常量
-    static final int CG=0xFF1E1E24, CGL=0xFF282830, CN=0xFF3C3C44, CH=0xFF4A4A54;
-    static final int CB=0xFF5A5A64, CPI=0xFF4499FF, CPO=0xFFFF8844;
-    static final int CW=0xFFAAAAAA, CWD=0xFFFFFF88, CT=0xFFFFFFFF, CD=0xFF888888;
-    static final int CSN=0xFFFF6600;
+    // Create 风格颜色常量（暖金属色系：黄铜/铜/钢）
+    static final int CG=0xFF1F1E1A, CGL=0xFF2C2A24, CN=0xFF3A3832, CH=0xFF4A3F28;
+    static final int CB=0xFF5A4D3A, CPI=0xFFD4A017, CPO=0xFFB87333;
+    static final int CW=0xFFC5962B, CWD=0xFFFFDD55, CT=0xFFFFFFFF, CD=0xFF888888;
+    static final int CSN=0xFFFFAA00;
 
     // 尺寸常量
     static final int NW=140, HH=18, PH=16, PR=4, GS=30;
@@ -79,8 +79,25 @@ public class NodeRenderer {
         bezier(g, x1, y1, x2, y2, CWD);
     }
 
+    // 编辑区高度（像素，本地坐标空间）
+    private int editExtraHeight = 0;
+    // 编辑区屏幕边界（供 EditPanel 定位控件）
+    public float editScreenX, editScreenY, editScreenW, editScreenH;
+
+    /** 计算节点编辑区高度 */
+    public static int calcEditHeight(GraphNode n) {
+        if (n == null) return 0;
+        int h = 0;
+        if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL) h += n.params.length * 18 + 4;
+        if (n.type == NodeType.BOOL && n.params.length > 0) h += 20;
+        if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 46;
+        return h > 0 ? h + 10 : 0;
+    }
+
     public void renderNodes(GuiGraphics g, List<GraphNode> nodes, Set<GraphNode> selectedNodes,
-                             GraphNode primaryNode, float camX, float camY, float zoom, int mx, int my) {
+                             GraphNode primaryNode, int editExtra,
+                             float camX, float camY, float zoom, int mx, int my) {
+        editExtraHeight = editExtra;
         int w = screen.width, h = screen.height;
         float margin = 50;
         for(var n : nodes) {
@@ -95,51 +112,56 @@ public class NodeRenderer {
     private void drawNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary,
                            float camX, float camY, float zoom, int mx, int my) {
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
-        float sw = NW*zoom, nh = (HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
+        float sw = NW*zoom;
+        float contentH = (HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
+        // 编辑模式：节点向下展开（与节点共用缩放）
+        boolean editing = isPrimary && editExtraHeight > 0;
+        float extraH = editing ? editExtraHeight * zoom : 0;
+        float nh = contentH + extraH;
+        // 保存编辑区屏幕坐标
+        if (editing) {
+            editScreenX = sx + 2; editScreenY = sy + contentH + 1;
+            editScreenW = sw - 4; editScreenH = extraH - 1;
+        }
+        // 节点体（暖钢色）
         g.fill((int)sx,(int)sy,(int)(sx+sw),(int)(sy+nh),CN);
-        // 框选区域内的节点用橙色边框，主选中节点用更亮的颜色
-        int borderColor = isPrimary ? 0xFFFFAA00 : selected ? 0xFFFF6600 : CB;
+        // Create 风格双层边框
+        int borderColor = isPrimary ? 0xFFFFAA00 : selected ? 0xFFD4A017 : CB;
         g.renderOutline((int)sx,(int)sy,(int)sw,(int)nh, borderColor);
-        g.fill((int)sx+1,(int)sy+1,(int)(sx+sw-1),(int)(sy+HH*zoom),CH);
+        g.renderOutline((int)sx+1,(int)sy+1,(int)sw-2,(int)nh-2, 0xFF2A2822);
+        // 节点头部
+        g.fill((int)sx+2,(int)sy+2,(int)(sx+sw-2),(int)(sy+HH*zoom),CH);
+        // 编辑区背景 + 分隔线
+        if (editing) {
+            int sepY = (int)(sy + contentH);
+            g.fill((int)sx+2, sepY, (int)(sx+sw-2), sepY + 1, 0xFF5A4D3A);
+            g.fill((int)sx+2, sepY + 1, (int)(sx+sw-2), (int)(sy+nh-1), 0xFF2A2822);
+        }
         var pose = g.pose();
         pose.pushPose();
         pose.translate(sx,sy,0);
         pose.scale(zoom,zoom,1);
-        drawStr(g, I18n.get(n.type.getTitle()), 4, 4, CT);
+        drawStr(g, "§6" + I18n.get(n.type.getTitle()), 4, 4, CT);
         // 输入端
         for(int i=0; i<n.type.inputs; i++) {
             float py = HH+PH*i+PH/2f;
-            g.fill(-PR,(int)(py-PR),PR,(int)(py+PR),CPI);
+            int r = PR;
+            g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1), 0xFF8B6914);
+            g.fill(-r, (int)(py - r), r, (int)(py + r), CPI);
             drawStr(g, n.type.inputLabel(i), 10, py-3, CD);
         }
-        // 输出端（SPEED_CTRL 内部使用，不显示引脚）
+        // 输出端
         for(int i=0; i<n.type.outputs && n.type != NodeType.SPEED_CTRL; i++) {
             float py = HH+PH*(n.type.inputs+i)+PH/2f;
-            g.fill((int)(NW-PR),(int)(py-PR),(int)(NW+PR),(int)(py+PR),CPO);
+            int r = PR;
+            g.fill(NW - r - 1, (int)(py - r - 1), NW + r + 1, (int)(py + r + 1), 0xFF8A4A22);
+            g.fill(NW - r, (int)(py - r), NW + r, (int)(py + r), CPO);
             drawStr(g, n.type.outputLabel(i), NW-30, py-3, CD);
         }
-        // 参数
-        for(int pi=0; pi<n.type.paramNames.length; pi++) {
-            float pv = pi < n.params.length ? n.params[pi] : 0;
-            drawStr(g, "§7"+n.type.paramNames[pi]+"="+String.format("%.2f",pv),
-                4, HH+PH*(n.type.inputs+n.type.outputs)+4+pi*10, CD);
-        }
-        // 信号名
-        if(n.type==NodeType.PRIVATE_IN||n.type==NodeType.PRIVATE_OUT) {
-            String label = "§7channel=" + (n.signalName.isEmpty() ? "§o<set>" : n.signalName);
-            drawStr(g, label, 4, HH+PH*(n.type.inputs+n.type.outputs)+4, CD);
-        }
-        // 频率槽位
-        if(n.type==NodeType.REDSTONE_IN||n.type==NodeType.REDSTONE_OUT) {
-            float fy = HH+PH*(n.type.inputs+n.type.outputs)+4;
-            if(n.type.paramNames.length>0) fy += 10*n.type.paramNames.length;
-            for(int fi=0; fi<2; fi++) {
-                String t = fi==0 ? "§7#1:" : "§7#2:";
-                if(n.itemParams!=null && fi<n.itemParams.length && !n.itemParams[fi].isEmpty())
-                    t += n.itemParams[fi].getHoverName().getString();
-                else t += "§o<empty>";
-                drawStr(g, t, 4, fy+fi*10, CD);
-            }
+        // 展开指示器（可编辑节点在标题右侧显示 ▶/▼）
+        if (n.type.paramNames.length > 0 || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT
+            || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) {
+            drawStr(g, editing ? "§6▼" : "§7▶", NW - 14, 4, CT);
         }
         pose.popPose();
     }
@@ -169,9 +191,10 @@ public class NodeRenderer {
         }
         menuRX = Math.max(0, Math.min(menuX, screen.width-mw));
         menuRY = Math.max(0, Math.min(menuY, screen.height-totalH));
-        g.fill((int)menuRX,(int)menuRY,(int)(menuRX+mw),(int)(menuRY+totalH),0xFF2A2A30);
-        g.renderOutline((int)menuRX,(int)menuRY,mw,totalH,0xFF666666);
-        drawStr(g, "§lNodes", menuRX+4, menuRY+4, CT);
+        g.fill((int)menuRX,(int)menuRY,(int)(menuRX+mw),(int)(menuRY+totalH),0xFF2A2822);
+        g.renderOutline((int)menuRX,(int)menuRY,mw,totalH,0xFF8B7533);
+        g.renderOutline((int)menuRX+1,(int)menuRY+1,mw-2,totalH-2,0xFF1A1814);
+        drawStr(g, "§6§lNodes", menuRX+6, menuRY+4, CT);
 
         NodeType hovered = null;
         int cy = (int)menuRY + 18;
@@ -180,18 +203,18 @@ public class NodeRenderer {
             if (visibleCount(cat, filter) == 0) continue;
             boolean exp = catExpanded.getOrDefault(ci, false);
             // 分类标题
-            String title = (exp ? "§7▼ " : "§7▶ ") + net.minecraft.client.resources.language.I18n.get(cat.langKey);
+            String title = (exp ? "§6▼ " : "§6▶ ") + net.minecraft.client.resources.language.I18n.get(cat.langKey);
             boolean titleHover = mx>=menuRX+2 && mx<=menuRX+mw-2 && my>=cy && my<cy+ch;
-            if (titleHover) g.fill((int)menuRX+2, cy, (int)(menuRX+mw-2), (int)(cy+ch), 0xFF3A3A44);
-            drawStr(g, title, menuRX+6, cy+2, titleHover ? CT : 0xFFCCCCCC);
+            if (titleHover) g.fill((int)menuRX+2, cy, (int)(menuRX+mw-2), (int)(cy+ch), 0xFF3A3428);
+            drawStr(g, title, menuRX+6, cy+2, titleHover ? 0xFFFFDD77 : 0xFFCCCCCC);
             cy += ch;
             if (!exp) continue;
             // 子节点
             for (var nt : cat.types) {
                 if (filter != null && !filter.test(nt)) continue;
                 boolean h = mx>=menuRX+2 && mx<=menuRX+mw-2 && my>=cy && my<cy+ih;
-                if (h) { g.fill((int)menuRX+12, cy, (int)(menuRX+mw-2), (int)(cy+ih), 0xFF3A3A44); hovered = nt; }
-                drawStr(g, I18n.get(nt.displayName), menuRX+16, cy+2, h ? CT : CD);
+                if (h) { g.fill((int)menuRX+12, cy, (int)(menuRX+mw-2), (int)(cy+ih), 0xFF3A3428); hovered = nt; }
+                drawStr(g, "§7" + I18n.get(nt.displayName), menuRX+16, cy+2, h ? 0xFFFFDD77 : CD);
                 cy += ih;
             }
         }
@@ -219,25 +242,33 @@ public class NodeRenderer {
                                long saveFeedbackUntil, int width) {
         long now = System.currentTimeMillis();
         boolean fb = now < saveFeedbackUntil;
+        // Create 风格按钮 — 双层边框（青铜外框 + 暗色内框）
+        int btnY = 4, btnH = 18;
         // Compile 按钮
-        g.fill(4,4,56,20, fb ? 0xFF44AA44 : 0xFF3A3A44);
-        g.renderOutline(4,4,52,16,0xFF666666);
-        drawStr(g, fb ? "Compiled!" : "Compile", 8, 6, CT);
+        int cX = 4, cW = 52;
+        g.fill(cX, btnY, cX+cW, btnY+btnH, fb ? 0xFF3A5A2A : 0xFF3A3832);
+        g.renderOutline(cX, btnY, cW, btnH, 0xFF8B7533);
+        g.renderOutline(cX+1, btnY+1, cW-2, btnH-2, 0xFF2A2822);
+        drawStr(g, fb ? "§aCompiled!" : "§eCompile", cX+4, btnY+4, CT);
         // 关闭按钮
-        g.fill(60,4,78,20,0xFF4A3030);
-        g.renderOutline(60,4,18,16,0xFF666666);
-        drawStr(g, "X", 64, 6, CT);
+        int cX2 = 60, cW2 = 18;
+        g.fill(cX2, btnY, cX2+cW2, btnY+btnH, 0xFF4A3028);
+        g.renderOutline(cX2, btnY, cW2, btnH, 0xFF8B5333);
+        g.renderOutline(cX2+1, btnY+1, cW2-2, btnH-2, 0xFF2A2822);
+        drawStr(g, "§cX", cX2+4, btnY+4, CT);
         // Run/Stop 按钮
-        g.fill(82,4,130,20, running ? 0xFF44AA44 : 0xFF444444);
-        g.renderOutline(82,4,48,16,0xFF666666);
-        drawStr(g, running ? "[Stop]" : "[Run]", 84, 6, CT);
+        int cX3 = 82, cW3 = 48;
+        g.fill(cX3, btnY, cX3+cW3, btnY+btnH, running ? 0xFF3A5A2A : 0xFF3A3832);
+        g.renderOutline(cX3, btnY, cW3, btnH, running ? 0xFF5A8A3A : 0xFF8B7533);
+        g.renderOutline(cX3+1, btnY+1, cW3-2, btnH-2, 0xFF2A2822);
+        drawStr(g, running ? "§a[Stop]" : "§e[Run]", cX3+4, btnY+4, CT);
         // 环警告
         if(cycleWarning != null) {
             int ww = Minecraft.getInstance().font.width(cycleWarning)+20;
             int cx = width/2;
-            g.fill(cx-ww/2,28,cx+ww/2,50,0xCC442222);
-            g.renderOutline(cx-ww/2,28,ww,22,0xFFFF4444);
-            drawStr(g, cycleWarning, cx-ww/2+10, 33, 0xFFFFFFFF);
+            g.fill(cx-ww/2,28,cx+ww/2,50,0xCC4A2820);
+            g.renderOutline(cx-ww/2,28,ww,22,0xFFFF5533);
+            drawStr(g, "§c" + cycleWarning, cx-ww/2+10, 33, 0xFFFFFFFF);
         }
     }
 

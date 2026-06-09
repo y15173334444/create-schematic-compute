@@ -22,6 +22,9 @@ public class EditPanel {
     private String[] editParamKeys;
     public int freqSlotSelected = 0;
 
+    private float boolBtnX, boolBtnY, boolBtnW, boolBtnH;
+    private float freqSlotX, freqSlotY, hotbarY;
+
     public EditPanel(net.minecraft.client.gui.screens.Screen screen) {
         this.screen = screen;
     }
@@ -31,7 +34,6 @@ public class EditPanel {
         editFields.clear();
         editParamKeys = node.type.paramNames.clone();
         for(int i=0; i<node.params.length; i++) {
-            // BOOL 节点的 inverted 参数由按钮控制，不需要文本编辑框
             if (node.type == NodeType.BOOL) continue;
             int idx = i;
             var b = new EditBox(Minecraft.getInstance().font, 0, 0, 60, 16, Component.literal(""));
@@ -46,12 +48,10 @@ public class EditPanel {
         }
         if((node.type==NodeType.REDSTONE_IN||node.type==NodeType.REDSTONE_OUT) && node.itemParams.length<2)
             node.itemParams = new ItemStack[]{ItemStack.EMPTY, ItemStack.EMPTY};
-        // 信号名编辑框
         if (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT) {
             var sb = new EditBox(Minecraft.getInstance().font, 0, 0, 120, 16, Component.literal(""));
             sb.setMaxLength(32);
             sb.setValue(node.signalName);
-            int idx = editFields.size();
             sb.setResponder(s -> node.signalName = s);
             editFields.add(sb);
         }
@@ -63,127 +63,112 @@ public class EditPanel {
     }
 
     public boolean isOpen() { return selectedNode != null; }
-
     public GraphNode getNode() { return selectedNode; }
 
-    /** 计算面板高度（含频率槽位区域） */
-    private int panelHeight() {
-        int h = 28 + editFields.size() * 18 + 10;
-        if (selectedNode != null && (selectedNode.type == NodeType.REDSTONE_IN || selectedNode.type == NodeType.REDSTONE_OUT))
-            h += 68; // 频率槽位 + 快捷栏
-        return h;
-    }
-
-    public void render(GuiGraphics g, int width, int height, int mouseX, int mouseY) {
-        if(selectedNode == null) return;
-        int pw=Math.min(260, width-8), px=width-pw-4, py=35, ph=panelHeight();
-        g.fill(px,py,px+pw,py+ph,0xFF2A2A30);
-        g.renderOutline(px,py,pw,ph,0xFF666666);
-        g.drawString(Minecraft.getInstance().font, "§l"+I18n.get(selectedNode.type.getTitle()), px+4, py+4, 0xFFFFFFFF, false);
-        for(int i=0; i<editFields.size(); i++) {
+    /** 内联渲染 — 在节点展开区域内绘制编辑控件 */
+    public void renderInline(GuiGraphics g, float ex, float ey, float ew, float eh, float zoom, int mx, int my) {
+        if (selectedNode == null) return;
+        int px = (int)ex, py = (int)ey, pw = (int)ew, ph = (int)eh;
+        int rowH = Math.max(12, (int)(18 * zoom));
+        int row = 0;
+        for (int i = 0; i < editFields.size(); i++) {
             var b = editFields.get(i);
-            b.setX(px+50);
-            b.setY(py+18+i*18);
-            b.setWidth(pw - 65);
-            b.render(g, mouseX, mouseY, 0);
-            String label = i < editParamKeys.length ? editParamKeys[i]+":" :
+            String label = i < editParamKeys.length ? editParamKeys[i] + ":" :
                 (selectedNode.type==NodeType.PRIVATE_IN||selectedNode.type==NodeType.PRIVATE_OUT ? "channel:" : "");
-            g.drawString(Minecraft.getInstance().font, label, px+10, py+18+i*18-10, 0xFF888888, false);
+            g.drawString(Minecraft.getInstance().font, label, px + 4, py + 4 + row * rowH, 0xFF888888, false);
+            int lw = Minecraft.getInstance().font.width(label) + 6;
+            b.setX(px + 4 + lw);
+            b.setY(py + 4 + row * rowH);
+            b.setWidth(pw - lw - 8);
+            b.render(g, mx, my, 0);
+            row++;
         }
-        // BOOL 节点的反转按钮
+        boolBtnX = boolBtnY = boolBtnW = boolBtnH = 0;
         if (selectedNode.type == NodeType.BOOL && selectedNode.params.length > 0) {
             boolean inverted = selectedNode.params[0] > 0.5f;
-            int bx = px + 50, by = py + 18;
-            int bw = pw - 65, bh = 16;
-            g.fill(bx, by, bx+bw, by+bh, inverted ? 0xFF44AA44 : 0xFF444444);
-            g.renderOutline(bx, by, bw, bh, 0xFF888888);
-            g.drawString(Minecraft.getInstance().font, inverted ? "§a✔ Inverted" : "       Not Inverted", bx+4, by+2, 0xFFFFFFFF, false);
+            int bx = px + 4, by = py + 4 + row * rowH;
+            int bw = pw - 8, bh = Math.max(12, (int)(16 * zoom));
+            g.fill(bx, by, bx + bw, by + bh, inverted ? 0xFF3A5A2A : 0xFF3A3428);
+            g.renderOutline(bx, by, bw, bh, 0xFF8B7533);
+            g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
+            g.drawString(Minecraft.getInstance().font, inverted ? "§a✔ Inverted" : "§7Not Inverted", bx+4, by+2, 0xFFFFFFFF, false);
+            boolBtnX = bx; boolBtnY = by; boolBtnW = bw; boolBtnH = bh;
+            row++;
         }
-        // 频率槽位
-        if(selectedNode.type == NodeType.REDSTONE_IN || selectedNode.type == NodeType.REDSTONE_OUT)
-            renderFreqSlots(g, px, py, mouseX, mouseY);
+        if (selectedNode.type == NodeType.REDSTONE_IN || selectedNode.type == NodeType.REDSTONE_OUT)
+            renderInlineFreqSlots(g, px, py + 4 + row * rowH, pw, zoom, mx, my);
     }
 
-    private void renderFreqSlots(GuiGraphics g, int px, int py, int mx, int my) {
-        int sx = px+80, sy = py+4;
-        for(int i=0; i<2; i++) {
-            int bx = sx+i*24, by = sy;
-            g.fill(bx, by, bx+20, by+20, 0xFF1A1A1A);
-            g.renderOutline(bx, by, 20, 20, i == freqSlotSelected ? 0xFFFFAA44 : 0xFF666666);
-            if(selectedNode.itemParams != null && i < selectedNode.itemParams.length && !selectedNode.itemParams[i].isEmpty())
-                g.renderItem(selectedNode.itemParams[i], bx+2, by+2);
+    private void renderInlineFreqSlots(GuiGraphics g, int px, int py, int pw, float zoom, int mx, int my) {
+        int slot = (int)(20 * zoom), gap = (int)(4 * zoom), step = slot + gap;
+        freqSlotX = px + 4; freqSlotY = py;
+        for (int i = 0; i < 2; i++) {
+            int bx = (int)freqSlotX + i * step, by = (int)freqSlotY;
+            g.fill(bx, by, bx + slot, by + slot, 0xFF1A1814);
+            g.renderOutline(bx, by, slot, slot, i == freqSlotSelected ? 0xFFFFAA44 : 0xFF8B7533);
+            if (selectedNode.itemParams != null && i < selectedNode.itemParams.length && !selectedNode.itemParams[i].isEmpty())
+                g.renderItem(selectedNode.itemParams[i], bx + 2, by + 2);
             else
-                g.drawString(Minecraft.getInstance().font, i==0 ? "#1" : "#2", bx+5, by+5, 0xFF888888, false);
+                g.drawString(Minecraft.getInstance().font, i == 0 ? "§8#1" : "§8#2", bx + 5, by + 5, 0xFF888888, false);
         }
-        // 快捷栏
-        int hy = sy+24;
-        g.drawString(Minecraft.getInstance().font, "§lHotbar:", px+4, hy, 0xFFFFFFFF, false);
+        hotbarY = py + slot + gap;
+        g.drawString(Minecraft.getInstance().font, "§6§lHotbar:", px + 4, (int)hotbarY, 0xFFFFFFFF, false);
         var mc = Minecraft.getInstance();
-        if(mc.player != null) {
-            for(int i=0; i<9; i++) {
-                int hx = px+4 + i*20;
-                g.fill(hx, hy+12, hx+18, hy+30, 0xFF1A1A1A);
-                g.renderOutline(hx, hy+12, 18, 18, 0xFF555555);
+        if (mc.player != null) {
+            int hSlot = (int)(18 * zoom), hGap = (int)(2 * zoom);
+            for (int i = 0; i < 9; i++) {
+                int hx = px + 8 + i * (hSlot + hGap);
+                g.fill(hx, (int)hotbarY + 12, hx + hSlot, (int)hotbarY + 12 + hSlot, 0xFF1A1814);
+                g.renderOutline(hx, (int)hotbarY + 12, hSlot, hSlot, 0xFF5A4D3A);
                 var st = mc.player.getInventory().items.get(i);
-                if(!st.isEmpty()) g.renderItem(st, hx+1, hy+13);
+                if (!st.isEmpty()) g.renderItem(st, hx + 1, (int)hotbarY + 13);
             }
         }
     }
 
-    public boolean mouseClicked(double mx, double my, int btn) {
-        if(btn!=0 || selectedNode==null) return false;
-        // 点击编辑面板外部关闭
-        int pw = Math.min(260, screen.width-8), px = screen.width-pw-4, py = 35;
-        int ph = panelHeight();
-        if(mx<px || mx>px+pw || my<py || my>py+ph) {
-            close();
+
+    /** 点击检测（内联版）— 接收编辑区屏幕坐标 */
+    public boolean mouseClickedInline(double mx, double my, int btn, float ex, float ey, float ew, float eh) {
+        if (btn != 0 || selectedNode == null) return false;
+        // 点击不在编辑区内则不消费
+        if (mx < ex || mx > ex + ew || my < ey || my > ey + eh) return false;
+
+        // BOOL 按钮
+        if (boolBtnH > 0 && mx >= boolBtnX && mx <= boolBtnX + boolBtnW && my >= boolBtnY && my <= boolBtnY + boolBtnH) {
+            selectedNode.params[0] = selectedNode.params[0] > 0.5f ? 0 : 1;
             return true;
         }
-        // BOOL 反转按钮点击
-        if (selectedNode.type == NodeType.BOOL && selectedNode.params.length > 0) {
-            int bx = px + 50, by = py + 18;
-            int bw = pw - 65, bh = 16;
-            if (mx >= bx && mx <= bx+bw && my >= by && my <= by+bh) {
-                selectedNode.params[0] = selectedNode.params[0] > 0.5f ? 0 : 1;
-                return true;
-            }
-        }
         // 编辑框
-        for(var b : editFields) {
-            b.mouseClicked(mx, my, btn);
+        for (var b : editFields) {
+            b.mouseClicked(mx, my, 0);
             b.setFocused(b.isMouseOver(mx, my));
         }
         return true;
     }
+    /** 旧版接口保留（不再使用，由 GraphEditor 直接调用 inline 版） */
+    public boolean mouseClicked(double mx, double my, int btn) { return false; }
 
     public boolean handleFreqSlotClick(double mx, double my) {
-        if(selectedNode==null) return false;
-        if(selectedNode.type != NodeType.REDSTONE_IN && selectedNode.type != NodeType.REDSTONE_OUT) return false;
-        // 面板在右上方：pw=min(260, w-8), px=w-pw-4, py=35
-        int pw = Math.min(260, screen.width-8), px = screen.width-pw-4, py = 35;
-        int sx = px+80, sy = py+4;
-        for(int i=0; i<2; i++) {
-            int bx = sx + i*24;
-            if(mx>=bx && mx<=bx+20 && my>=sy && my<=sy+20) { freqSlotSelected = i; return true; }
+        if (selectedNode == null || selectedNode.type != NodeType.REDSTONE_IN && selectedNode.type != NodeType.REDSTONE_OUT) return false;
+        for (int i = 0; i < 2; i++) {
+            int bx = (int)freqSlotX + i * 24;
+            if (mx >= bx && mx <= bx + 20 && my >= freqSlotY && my <= freqSlotY + 20) { freqSlotSelected = i; return true; }
         }
         return false;
     }
 
     public boolean handleHotbarClick(double mx, double my) {
-        if(selectedNode==null) return false;
-        if(selectedNode.type != NodeType.REDSTONE_IN && selectedNode.type != NodeType.REDSTONE_OUT) return false;
-        int pw = Math.min(260, screen.width-8), px = screen.width-pw-4, py = 35;
-        int hy = py + 4 + 24 + 12;
-        if(my>=hy && my<=hy+18) {
+        if (selectedNode == null || selectedNode.type != NodeType.REDSTONE_IN && selectedNode.type != NodeType.REDSTONE_OUT) return false;
+        if (my >= hotbarY + 12 && my <= hotbarY + 30) {
             var mc = Minecraft.getInstance();
-            if(mc.player == null) return false;
-            int slot = (int)((mx - (px + 4)) / 20);
-            if(slot >= 0 && slot < 9) {
+            if (mc.player == null) return false;
+            int slot = (int)((mx - ((int)freqSlotX)) / 20);
+            if (slot >= 0 && slot < 9) {
                 var st = mc.player.getInventory().items.get(slot).copy();
-                if(!st.isEmpty() && selectedNode.itemParams != null && freqSlotSelected < selectedNode.itemParams.length) {
+                if (!st.isEmpty() && selectedNode.itemParams != null && freqSlotSelected < selectedNode.itemParams.length) {
                     selectedNode.itemParams[freqSlotSelected] = st;
                     selectedNode.itemParams[freqSlotSelected].setCount(1);
-                } else if(selectedNode.itemParams != null && freqSlotSelected < selectedNode.itemParams.length) {
+                } else if (selectedNode.itemParams != null && freqSlotSelected < selectedNode.itemParams.length) {
                     selectedNode.itemParams[freqSlotSelected] = ItemStack.EMPTY;
                 }
                 return true;
