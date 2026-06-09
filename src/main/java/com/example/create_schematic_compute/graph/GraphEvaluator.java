@@ -26,7 +26,8 @@ public class GraphEvaluator {
                 res.add(new OutputResult(
                     n.itemParams.length > 0 ? n.itemParams[0] : ItemStack.EMPTY,
                     n.itemParams.length > 1 ? n.itemParams[1] : ItemStack.EMPTY,
-                    Math.round(v)));
+                    Math.max(0, Math.min(15, Math.round(v)))));
+
             }
         }
         return res;
@@ -61,7 +62,8 @@ public class GraphEvaluator {
                 res.add(new OutputResult(
                     n.itemParams.length > 0 ? n.itemParams[0] : ItemStack.EMPTY,
                     n.itemParams.length > 1 ? n.itemParams[1] : ItemStack.EMPTY,
-                    Math.round(v)));
+                    Math.max(0, Math.min(15, Math.round(v)))));
+
             }
         }
         return res;

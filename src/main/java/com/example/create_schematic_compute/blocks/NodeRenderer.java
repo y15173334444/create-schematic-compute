@@ -6,7 +6,7 @@ import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.EditBox;
+
 import net.minecraft.client.resources.language.I18n;
 import net.minecraft.world.item.ItemStack;
 
@@ -17,11 +17,105 @@ import java.util.Set;
  * 节点图渲染器 — 处理网格、节点、连线的绘制逻辑
  */
 public class NodeRenderer {
-    // Create 风格颜色常量（暖金属色系：黄铜/铜/钢）
-    static final int CG=0xFF1F1E1A, CGL=0xFF2C2A24, CN=0xFF3A3832, CH=0xFF4A3F28;
-    static final int CB=0xFF5A4D3A, CPI=0xFFD4A017, CPO=0xFFB87333;
-    static final int CW=0xFFC5962B, CWD=0xFFFFDD55, CT=0xFFFFFFFF, CD=0xFF888888;
-    static final int CSN=0xFFFFAA00;
+    // 颜色常量（可配置，通过主题切换）
+    static int CG=0xFF1F1E1A, CGL=0xFF2C2A24, CN=0xFF3A3832, CH=0xFF4A3F28;
+    static int CB=0xFF5A4D3A, CPI=0xFFD4A017, CPO=0xFFB87333;
+    static int CW=0xFFC5962B, CWD=0xFFFFDD55, CT=0xFFFFFFFF, CD=0xFF888888;
+    static int CSN=0xFFFFAA00;
+    static int CMN=0xFF888888, CMH=0xFFFFDD77;
+    static int CNT=0xFFFFAA00, CCT=0xFFFFAA00, CSB=0xFF8B7533;
+    static int CPIB=0xFF8B6914, CPOB=0xFF8A4A22; // 引脚边框
+
+    static final int _NUM_COLORS = 16;
+
+    static final int[][] THEMES = {
+        // 16色: CG,CGL,CN,CH,CB,CPI,CPO,CW,CWD,CMN,CMH,CNT,CCT,CSB,CPIB,CPOB
+        {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,CSB,0xFF8B6914,0xFF8A4A22},
+        {0xFF0A1020,0xFF152040,0xFF1A2A4A,0xFF2A3A5A,0xFF3A5A7A,0xFF44AAFF,0xFFFFAA44,0xFF66BBFF,0xFFFFFF88,0xFF88AACC,0xFFFFDD77,0xFFFFDD77,0xFF88AACC,0xFF6688AA,0xFF2266AA,0xFFAA6622},
+        {0xFF0A0A0A,0xFF1A1A1A,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF00FF88,0xFFFF4466,0xFF888888,0xFFFFFF88,0xFFAAAAAA,0xFFCCCCCC,0xFFCCCCCC,0xFF888888,0xFF666666,0xFF444444,0xFF444444},
+        {0xFF1E1410,0xFF2A1C14,0xFF3A2820,0xFF4A3428,0xFF5A4438,0xFFFF8844,0xFFAA6633,0xFFDD8844,0xFFFFCC66,0xFFAA8866,0xFFFFCC77,0xFFFFCC77,0xFFAA8866,0xFF8B6B53,0xFF6B4A33,0xFF6B3A23},
+    };
+    static int currentTheme = 0;
+
+    static void applyTheme(int index) {
+        if (index < 0 || index >= THEMES.length) index = 0;
+        currentTheme = index;
+        int[] t = THEMES[index];
+        CG=t[0];CGL=t[1];CN=t[2];CH=t[3];CB=t[4];CPI=t[5];CPO=t[6];
+        CW=t[7];CWD=t[8];CMN=t[9];CMH=t[10];CNT=t[11];CCT=t[12];CSB=t[13];CPIB=t[14];CPOB=t[15];
+    }
+
+    static int[] currentColors() { return new int[]{CG,CGL,CN,CH,CB,CPI,CPO,CW,CWD,CMN,CMH,CNT,CCT,CSB,CPIB,CPOB}; }
+    static final int[] DEFAULT_COLORS = {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,CSB,0xFF8B6914,0xFF8A4A22};
+    static final String[] COLOR_KEYS = {"bg","grid","node","header","border","input","output","wire","drag","menu_text","menu_hover","node_title","cat_text","sys_border","input_border","output_border"};
+    static final String[] COLOR_NAMES = {"Background","Grid","Node Body","Node Title BG","Border","Input Pin","Output Pin","Wire","Drag Wire","Menu Text","Menu Hover","Node Title","Category Text","System Border","Input Pin Border","Output Pin Border"};
+
+    static int[] stagingColors = DEFAULT_COLORS.clone();
+    static void initStaging() { stagingColors = currentColors(); }
+
+    static void setColors(int[] c) {
+        if (c.length < _NUM_COLORS) return;
+        CG=c[0];CGL=c[1];CN=c[2];CH=c[3];CB=c[4];CPI=c[5];CPO=c[6];
+        CW=c[7];CWD=c[8];CMN=c[9];CMH=c[10];CNT=c[11];CCT=c[12];CSB=c[13];CPIB=c[14];CPOB=c[15];
+    }
+
+    /** 从配置文件加载颜色 */
+    static void loadColorConfig() {
+        try {
+            var path = java.nio.file.Path.of("config", "create_schematic_compute-client.properties");
+            if (java.nio.file.Files.exists(path)) {
+                var props = new java.util.Properties();
+                try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
+                int[] c = DEFAULT_COLORS.clone();
+                for (int i = 0; i < _NUM_COLORS; i++) {
+                    String v = props.getProperty("color." + COLOR_KEYS[i]);
+                    if (v != null && v.length() == 8) try { c[i] = (int)(Long.parseLong(v, 16) & 0xFFFFFFFFL); } catch (Exception ignored) {}
+                }
+                setColors(c);
+            } else if (currentTheme > 0) {
+                applyTheme(currentTheme);
+            }
+        } catch (Exception e) { /* 默认 */ }
+    }
+
+    /** 保存颜色到配置文件 */
+    static void saveColorConfig() {
+        try {
+            var path = java.nio.file.Path.of("config", "create_schematic_compute-client.properties");
+            java.nio.file.Files.createDirectories(path.getParent());
+            var props = new java.util.Properties();
+            int[] c = currentColors();
+            for (int i = 0; i < _NUM_COLORS; i++) props.setProperty("color." + COLOR_KEYS[i], String.format("%08X", c[i]));
+            try (var os = java.nio.file.Files.newOutputStream(path)) { props.store(os, "Create: Schematic Compute Theme"); }
+        } catch (Exception e) { /* 忽略 */ }
+    }
+
+    static { loadColorConfig(); }
+
+    /** 保存网格吸附状态 */
+    static void saveGridSnap(boolean on) {
+        try {
+            var path = java.nio.file.Path.of("config", "create_schematic_compute-client.properties");
+            var props = new java.util.Properties();
+            if (java.nio.file.Files.exists(path))
+                try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
+            props.setProperty("grid_snap", String.valueOf(on));
+            try (var os = java.nio.file.Files.newOutputStream(path)) { props.store(os, null); }
+        } catch (Exception e) { /* 忽略 */ }
+    }
+
+    /** 加载网格吸附状态 */
+    static boolean loadGridSnap() {
+        try {
+            var path = java.nio.file.Path.of("config", "create_schematic_compute-client.properties");
+            if (java.nio.file.Files.exists(path)) {
+                var props = new java.util.Properties();
+                try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
+                return Boolean.parseBoolean(props.getProperty("grid_snap", "true"));
+            }
+        } catch (Exception e) { /* 忽略 */ }
+        return true;
+    }
 
     // 尺寸常量
     static final int NW=140, HH=18, PH=16, PR=4, GS=30;
@@ -80,24 +174,15 @@ public class NodeRenderer {
     }
 
     // 编辑区高度（像素，本地坐标空间）
-    private int editExtraHeight = 0;
-    // 编辑区屏幕边界（供 EditPanel 定位控件）
-    public float editScreenX, editScreenY, editScreenW, editScreenH;
-
-    /** 计算节点编辑区高度 */
-    public static int calcEditHeight(GraphNode n) {
-        if (n == null) return 0;
-        int h = 0;
-        if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL) h += n.params.length * 18 + 4;
-        if (n.type == NodeType.BOOL && n.params.length > 0) h += 20;
-        if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 46;
-        return h > 0 ? h + 10 : 0;
-    }
+    public java.util.Set<Integer> expandedNodeIds = java.util.Collections.emptySet();
+    public java.util.Map<Integer, com.example.create_schematic_compute.blocks.GraphEditor.EditState> nodeEditStatesById = java.util.Collections.emptyMap();
 
     public void renderNodes(GuiGraphics g, List<GraphNode> nodes, Set<GraphNode> selectedNodes,
-                             GraphNode primaryNode, int editExtra,
+                             GraphNode primaryNode, java.util.Set<Integer> editNodeIds,
+                             java.util.Map<Integer, com.example.create_schematic_compute.blocks.GraphEditor.EditState> editStates,
                              float camX, float camY, float zoom, int mx, int my) {
-        editExtraHeight = editExtra;
+        expandedNodeIds = editNodeIds != null ? editNodeIds : java.util.Collections.emptySet();
+        nodeEditStatesById = editStates != null ? editStates : java.util.Collections.emptyMap();
         int w = screen.width, h = screen.height;
         float margin = 50;
         for(var n : nodes) {
@@ -105,48 +190,37 @@ public class NodeRenderer {
             float sw = NW*zoom, nh = (HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
             if (sx + sw < -margin || sx > w + margin || sy + nh < -margin || sy > h + margin)
                 continue;
-            drawNode(g, n, selectedNodes.contains(n), n == primaryNode, camX, camY, zoom, mx, my);
+            drawNode(g, n, selectedNodes.contains(n), n == primaryNode, expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my);
         }
     }
 
-    private void drawNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary,
+    private void drawNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary, boolean editing,
                            float camX, float camY, float zoom, int mx, int my) {
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
         float sw = NW*zoom;
         float contentH = (HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
-        // 编辑模式：节点向下展开（与节点共用缩放）
-        boolean editing = isPrimary && editExtraHeight > 0;
-        float extraH = editing ? editExtraHeight * zoom : 0;
+        // 编辑模式：各节点独立计算高度
+        float extraH = editing ? com.example.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom) * zoom : 0;
         float nh = contentH + extraH;
-        // 保存编辑区屏幕坐标
-        if (editing) {
-            editScreenX = sx + 2; editScreenY = sy + contentH + 1;
-            editScreenW = sw - 4; editScreenH = extraH - 1;
-        }
         // 节点体（暖钢色）
+        // 节点体在编辑区背景
         g.fill((int)sx,(int)sy,(int)(sx+sw),(int)(sy+nh),CN);
-        // Create 风格双层边框
         int borderColor = isPrimary ? 0xFFFFAA00 : selected ? 0xFFD4A017 : CB;
+        // 第一遍边框
         g.renderOutline((int)sx,(int)sy,(int)sw,(int)nh, borderColor);
         g.renderOutline((int)sx+1,(int)sy+1,(int)sw-2,(int)nh-2, 0xFF2A2822);
         // 节点头部
         g.fill((int)sx+2,(int)sy+2,(int)(sx+sw-2),(int)(sy+HH*zoom),CH);
-        // 编辑区背景 + 分隔线
-        if (editing) {
-            int sepY = (int)(sy + contentH);
-            g.fill((int)sx+2, sepY, (int)(sx+sw-2), sepY + 1, 0xFF5A4D3A);
-            g.fill((int)sx+2, sepY + 1, (int)(sx+sw-2), (int)(sy+nh-1), 0xFF2A2822);
-        }
         var pose = g.pose();
         pose.pushPose();
         pose.translate(sx,sy,0);
         pose.scale(zoom,zoom,1);
-        drawStr(g, "§6" + I18n.get(n.type.getTitle()), 4, 4, CT);
+        drawStr(g, I18n.get(n.type.getTitle()), 4, 4, CNT);
         // 输入端
         for(int i=0; i<n.type.inputs; i++) {
             float py = HH+PH*i+PH/2f;
             int r = PR;
-            g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1), 0xFF8B6914);
+            g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1), CPIB);
             g.fill(-r, (int)(py - r), r, (int)(py + r), CPI);
             drawStr(g, n.type.inputLabel(i), 10, py-3, CD);
         }
@@ -154,7 +228,7 @@ public class NodeRenderer {
         for(int i=0; i<n.type.outputs && n.type != NodeType.SPEED_CTRL; i++) {
             float py = HH+PH*(n.type.inputs+i)+PH/2f;
             int r = PR;
-            g.fill(NW - r - 1, (int)(py - r - 1), NW + r + 1, (int)(py + r + 1), 0xFF8A4A22);
+            g.fill(NW - r - 1, (int)(py - r - 1), NW + r + 1, (int)(py + r + 1), CPOB);
             g.fill(NW - r, (int)(py - r), NW + r, (int)(py + r), CPO);
             drawStr(g, n.type.outputLabel(i), NW-30, py-3, CD);
         }
@@ -163,7 +237,24 @@ public class NodeRenderer {
             || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) {
             drawStr(g, editing ? "§6▼" : "§7▶", NW - 14, 4, CT);
         }
+        // 编辑区背景（在 pose 变换内渲染）
+        if (editing) {
+            // 与节点内容底部精确对齐：局部 y = HH+PH(I+O)+4/zoom 对应屏幕 contentH
+            int editLocalY = (int)(HH + PH*(n.type.inputs + n.type.outputs) + 4/zoom);
+            int editLocalH = com.example.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom);
+            g.fill(2, editLocalY - 2, NW - 2, editLocalY, 0xFF5A4D3A);
+            g.fill(2, editLocalY, NW - 2, editLocalY + editLocalH, 0xFF2A2822);
+            var editSt = nodeEditStatesById.get(n.id);
+            if (editSt != null) {
+                com.example.create_schematic_compute.blocks.EditPanel.renderAt(g, 0, editLocalY, NW, n, editSt, zoom, mx, my);
+            }
+        }
         pose.popPose();
+        // 底部边框重绘（仅编辑区所在边，不覆盖左右连接的连线）
+        if (editing) {
+            g.fill((int)sx, (int)(sy+nh-1), (int)(sx+sw), (int)(sy+nh), borderColor);
+            g.fill((int)sx+1, (int)(sy+nh-2), (int)(sx+sw-1), (int)(sy+nh-1), 0xFF2A2822);
+        }
     }
 
     public NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my) {
@@ -192,9 +283,9 @@ public class NodeRenderer {
         menuRX = Math.max(0, Math.min(menuX, screen.width-mw));
         menuRY = Math.max(0, Math.min(menuY, screen.height-totalH));
         g.fill((int)menuRX,(int)menuRY,(int)(menuRX+mw),(int)(menuRY+totalH),0xFF2A2822);
-        g.renderOutline((int)menuRX,(int)menuRY,mw,totalH,0xFF8B7533);
+        g.renderOutline((int)menuRX,(int)menuRY,mw,totalH,CSB);
         g.renderOutline((int)menuRX+1,(int)menuRY+1,mw-2,totalH-2,0xFF1A1814);
-        drawStr(g, "§6§lNodes", menuRX+6, menuRY+4, CT);
+        drawStr(g, "§lNodes", menuRX+6, menuRY+4, CCT);
 
         NodeType hovered = null;
         int cy = (int)menuRY + 18;
@@ -203,10 +294,10 @@ public class NodeRenderer {
             if (visibleCount(cat, filter) == 0) continue;
             boolean exp = catExpanded.getOrDefault(ci, false);
             // 分类标题
-            String title = (exp ? "§6▼ " : "§6▶ ") + net.minecraft.client.resources.language.I18n.get(cat.langKey);
+            String title = (exp ? "▼ " : "▶ ") + net.minecraft.client.resources.language.I18n.get(cat.langKey);
             boolean titleHover = mx>=menuRX+2 && mx<=menuRX+mw-2 && my>=cy && my<cy+ch;
             if (titleHover) g.fill((int)menuRX+2, cy, (int)(menuRX+mw-2), (int)(cy+ch), 0xFF3A3428);
-            drawStr(g, title, menuRX+6, cy+2, titleHover ? 0xFFFFDD77 : 0xFFCCCCCC);
+            drawStr(g, title, menuRX+6, cy+2, titleHover ? CMH : CCT);
             cy += ch;
             if (!exp) continue;
             // 子节点
@@ -214,7 +305,7 @@ public class NodeRenderer {
                 if (filter != null && !filter.test(nt)) continue;
                 boolean h = mx>=menuRX+2 && mx<=menuRX+mw-2 && my>=cy && my<cy+ih;
                 if (h) { g.fill((int)menuRX+12, cy, (int)(menuRX+mw-2), (int)(cy+ih), 0xFF3A3428); hovered = nt; }
-                drawStr(g, "§7" + I18n.get(nt.displayName), menuRX+16, cy+2, h ? 0xFFFFDD77 : CD);
+                drawStr(g, I18n.get(nt.displayName), menuRX+16, cy+2, h ? CMH : CMN);
                 cy += ih;
             }
         }
@@ -239,29 +330,40 @@ public class NodeRenderer {
     }
 
     public void renderButtons(GuiGraphics g, boolean compiled, boolean running, String cycleWarning,
-                               long saveFeedbackUntil, int width) {
+                               long saveFeedbackUntil, boolean gridSnap, int themeIdx, int width) {
         long now = System.currentTimeMillis();
         boolean fb = now < saveFeedbackUntil;
-        // Create 风格按钮 — 双层边框（青铜外框 + 暗色内框）
         int btnY = 4, btnH = 18;
-        // Compile 按钮
-        int cX = 4, cW = 52;
-        g.fill(cX, btnY, cX+cW, btnY+btnH, fb ? 0xFF3A5A2A : 0xFF3A3832);
-        g.renderOutline(cX, btnY, cW, btnH, 0xFF8B7533);
+        // 关闭按钮（最左）
+        int cX = 4, cW = 18;
+        g.fill(cX, btnY, cX+cW, btnY+btnH, 0xFF4A3028);
+        g.renderOutline(cX, btnY, cW, btnH, 0xFF8B5333);
         g.renderOutline(cX+1, btnY+1, cW-2, btnH-2, 0xFF2A2822);
-        drawStr(g, fb ? "§aCompiled!" : "§eCompile", cX+4, btnY+4, CT);
-        // 关闭按钮
-        int cX2 = 60, cW2 = 18;
-        g.fill(cX2, btnY, cX2+cW2, btnY+btnH, 0xFF4A3028);
-        g.renderOutline(cX2, btnY, cW2, btnH, 0xFF8B5333);
+        drawStr(g, "§cX", cX+4, btnY+4, CT);
+        // Compile 按钮
+        int cX2 = 26, cW2 = 52;
+        g.fill(cX2, btnY, cX2+cW2, btnY+btnH, fb ? 0xFF3A5A2A : 0xFF3A3832);
+        g.renderOutline(cX2, btnY, cW2, btnH, CSB);
         g.renderOutline(cX2+1, btnY+1, cW2-2, btnH-2, 0xFF2A2822);
-        drawStr(g, "§cX", cX2+4, btnY+4, CT);
+        drawStr(g, fb ? "§aCompiled!" : "§eCompile", cX2+4, btnY+4, CT);
         // Run/Stop 按钮
         int cX3 = 82, cW3 = 48;
         g.fill(cX3, btnY, cX3+cW3, btnY+btnH, running ? 0xFF3A5A2A : 0xFF3A3832);
-        g.renderOutline(cX3, btnY, cW3, btnH, running ? 0xFF5A8A3A : 0xFF8B7533);
+        g.renderOutline(cX3, btnY, cW3, btnH, CSB);
         g.renderOutline(cX3+1, btnY+1, cW3-2, btnH-2, 0xFF2A2822);
         drawStr(g, running ? "§a[Stop]" : "§e[Run]", cX3+4, btnY+4, CT);
+        // 网格吸附按钮
+        int cX4 = 134, cW4 = 58;
+        g.fill(cX4, btnY, cX4+cW4, btnY+btnH, gridSnap ? 0xFF3A5A2A : 0xFF3A3428);
+        g.renderOutline(cX4, btnY, cW4, btnH, gridSnap ? 0xFF5A8A3A : CSB);
+        g.renderOutline(cX4+1, btnY+1, cW4-2, btnH-2, 0xFF2A2822);
+        drawStr(g, (gridSnap ? "§a" : "§7") + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.grid"), cX4+6, btnY+4, CT);
+        // 颜色配置按钮
+        int cX5 = 196, cW5 = 54;
+        g.fill(cX5, btnY, cX5+cW5, btnY+btnH, 0xFF3A3832);
+        g.renderOutline(cX5, btnY, cW5, btnH, CSB);
+        g.renderOutline(cX5+1, btnY+1, cW5-2, btnH-2, 0xFF2A2822);
+        drawStr(g, "§7" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.style"), cX5+8, btnY+4, CT);
         // 环警告
         if(cycleWarning != null) {
             int ww = Minecraft.getInstance().font.width(cycleWarning)+20;

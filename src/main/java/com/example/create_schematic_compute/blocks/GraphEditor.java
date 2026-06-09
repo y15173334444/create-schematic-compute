@@ -4,8 +4,12 @@ import com.example.create_schematic_compute.graph.GraphNode;
 import com.example.create_schematic_compute.graph.NodeConnection;
 import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.item.ItemStack;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -26,7 +30,6 @@ public class GraphEditor {
 
     private final Host host;
     public final NodeRenderer renderer;
-    public final EditPanel editPanel;
     private Predicate<NodeType> nodeFilter;
 
     // 编辑状态
@@ -44,7 +47,21 @@ public class GraphEditor {
     public NodeType selectedMenuType=null;
     public long saveFeedbackUntil=0;
     public String cycleWarning=null;
-    public boolean nodeExpanded = false; // 手动展开编辑区
+    public boolean gridSnapEnabled = NodeRenderer.loadGridSnap();
+    public GraphNode hotbarNode = null; // 当前显示热栏的节点（点击频率槽时弹出）
+    // 多节点展开：Set + 每节点独立编辑状态
+    public final java.util.Set<Integer> expandedNodeIds = new java.util.HashSet<>();
+    public static class EditState {
+        public final java.util.List<net.minecraft.client.gui.components.EditBox> fields = new java.util.ArrayList<>();
+        public String[] paramKeys;
+        public int freqSlotSelected = 0;
+        public float boolBtnX, boolBtnY, boolBtnW, boolBtnH;
+        public float freqSlotX, freqSlotY;
+    }
+    public final java.util.Map<Integer, EditState> nodeEditStatesById = new java.util.HashMap<>();
+    // 颜色配置面板
+    public boolean showColorConfig = false;
+    public final net.minecraft.client.gui.components.EditBox[] colorFields = new net.minecraft.client.gui.components.EditBox[NodeRenderer._NUM_COLORS];
     // 框选 + 多选拖拽状态
     private boolean tabHeld = false;
     private boolean boxSelecting = false;
@@ -54,10 +71,58 @@ public class GraphEditor {
     private float multiCenterX, multiCenterY;
     private final java.util.Map<GraphNode, float[]> multiDragOrigins = new java.util.HashMap<>();
 
+    /** 创建节点的编辑状态 */
+    private EditState createEditState(GraphNode node) {
+        var s = new EditState();
+        s.paramKeys = node.type.paramNames.clone();
+        var mc = Minecraft.getInstance();
+        for (int i = 0; i < node.params.length; i++) {
+            if (node.type == NodeType.BOOL) continue;
+            int idx = i;
+            var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
+            b.setMaxLength(12);
+            b.setValue(String.format("%.3f", node.params[i]));
+            float oldVal = node.params[idx];
+            b.setResponder(t -> { try { node.params[idx] = Float.parseFloat(t.trim()); } catch (Exception e) { node.params[idx] = oldVal; } });
+            s.fields.add(b);
+        }
+        if ((node.type == NodeType.REDSTONE_IN || node.type == NodeType.REDSTONE_OUT) && node.itemParams.length < 2)
+            node.itemParams = new ItemStack[]{ItemStack.EMPTY, ItemStack.EMPTY};
+        if (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT) {
+            var sb = new EditBox(mc.font, 0, 0, 120, 16, Component.literal(""));
+            sb.setMaxLength(32); sb.setValue(node.signalName);
+            sb.setResponder(t -> node.signalName = t);
+            s.fields.add(sb);
+        }
+        return s;
+    }
+
+    /** 切换节点展开/折叠（按节点 ID 追踪，与对象引用解耦） */
+    private void toggleExpand(GraphNode node) {
+        if (!shouldOpenPanel(node)) return;
+        if (expandedNodeIds.contains(node.id)) {
+            expandedNodeIds.remove(node.id); nodeEditStatesById.remove(node.id);
+        } else {
+            expandedNodeIds.add(node.id); nodeEditStatesById.put(node.id, createEditState(node));
+        }
+    }
+
     public GraphEditor(Host host, Screen screen) {
         this.host = host;
         this.renderer = new NodeRenderer(this::c2sX, this::c2sY, screen);
-        this.editPanel = new EditPanel(screen);
+        var mc = net.minecraft.client.Minecraft.getInstance();
+        for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) {
+            int idx = i;
+            colorFields[i] = new net.minecraft.client.gui.components.EditBox(mc.font, 0, 0, 80, 14, net.minecraft.network.chat.Component.literal(""));
+            colorFields[i].setMaxLength(8);
+            int[] cur = NodeRenderer.currentColors();
+            colorFields[i].setValue(String.format("%08X", cur[i]));
+            colorFields[i].setResponder(s -> {
+                if (s.length() == 8) try {
+                    NodeRenderer.stagingColors[idx] = (int)(Long.parseLong(s, 16) & 0xFFFFFFFFL);
+                } catch (Exception ignored) {}
+            });
+        }
     }
 
     public void setNodeFilter(Predicate<NodeType> filter) { this.nodeFilter = filter; }
@@ -73,16 +138,37 @@ public class GraphEditor {
         renderer.renderGrid(g, camX, camY, zoom, host.asScreen().width, host.asScreen().height);
         renderer.renderConnections(g, graph, camX, camY, zoom);
         if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
-        int editH = nodeExpanded && selectedNode != null
-            ? NodeRenderer.calcEditHeight(selectedNode) : 0;
-        renderer.renderNodes(g, graph.nodes, selectedNodes, selectedNode, editH,
+        renderer.renderNodes(g, graph.nodes, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
             camX, camY, zoom, mx, my);
-        // 编辑控件绘制在展开的节点内部区域
-        if (editH > 0 && selectedNode != null) {
-            editPanel.renderInline(g, renderer.editScreenX, renderer.editScreenY,
-                renderer.editScreenW, renderer.editScreenH, zoom, mx, my);
+        renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width);
+        // 热栏弹出（点击频率槽后在节点下方显示）
+        if (hotbarNode != null) {
+            var mc = Minecraft.getInstance();
+            if (mc.player != null) {
+                float nsx = c2sX(hotbarNode.x), nsy = c2sY(hotbarNode.y);
+                float nch = (HH + PH*(hotbarNode.type.inputs+hotbarNode.type.outputs))*zoom+4;
+                var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
+                int numRows = st != null ? st.fields.size() : 0;
+                int editLocalY = (int)(HH + PH*(hotbarNode.type.inputs+hotbarNode.type.outputs) + 4/zoom);
+                int freqLocalY = editLocalY + 4 + numRows * 18;
+                float popupY = nsy + nch + (freqLocalY - editLocalY + 20 + 4) * zoom;
+                int pw = 196, ph = 36;
+                int px = (int)(nsx + NW*zoom/2 - pw/2);
+                int py = (int)popupY;
+                g.fill(px, py, px+pw, py+ph, 0xFF2A2822);
+                g.renderOutline(px, py, pw, ph, NodeRenderer.CSB);
+                g.drawString(mc.font, "§6§l" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.hotbar.select"), px + 4, py + 2, 0xFFFFFFFF, false);
+                for (int i = 0; i < 9; i++) {
+                    int hx = px + 4 + i * 20;
+                    g.fill(hx, py + 16, hx + 18, py + 34, 0xFF1A1814);
+                    g.renderOutline(hx, py + 16, 18, 18, 0xFF5A4D3A);
+                    var item = mc.player.getInventory().items.get(i);
+                    if (!item.isEmpty()) g.renderItem(item, hx + 1, py + 17);
+                }
+            }
         }
-        renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, host.asScreen().width);
+        // 颜色配置面板
+        if (showColorConfig) renderColorPanel(g, mx, my);
         if(showMenu) { selectedMenuType = renderer.renderAddNodeMenu(g, menuX, menuY, mx, my, nodeFilter); }
         // 框选矩形
         if (boxSelecting) {
@@ -96,8 +182,8 @@ public class GraphEditor {
     public boolean mouseClicked(double mx, double my, int btn) {
         var graph = host.getGraph();
         if(btn==0){
-            if(mx>=4&&mx<=56&&my>=4&&my<=20){recompile(graph);return true;}
-            if(mx>=60&&mx<=78&&my>=4&&my<=20){host.asScreen().onClose();return true;}
+            if(mx>=4&&mx<=22&&my>=4&&my<=20){host.asScreen().onClose();return true;}
+            if(mx>=26&&mx<=78&&my>=4&&my<=20){recompile(graph);return true;}
             if(mx>=82&&mx<=130&&my>=4&&my<=20){
                 boolean ws=!host.isRunning();
                 if(ws && graph.hasCycles()){cycleWarning="! Cycle detected!";return true;}
@@ -106,23 +192,118 @@ public class GraphEditor {
                 host.toggleRunning(ws);
                 return true;
             }
+            if(mx>=134&&mx<=192&&my>=4&&my<=20){gridSnapEnabled=!gridSnapEnabled;NodeRenderer.saveGridSnap(gridSnapEnabled);return true;}
+            if(mx>=196&&mx<=250&&my>=4&&my<=20){
+                showMenu = false; // 关闭 nodes 菜单
+                showColorConfig = !showColorConfig;
+                if (showColorConfig) {
+                    NodeRenderer.initStaging();
+                    for (int i = 0; i < NodeRenderer._NUM_COLORS; i++)
+                        colorFields[i].setValue(String.format("%08X", NodeRenderer.stagingColors[i]));
+                }
+                return true;
+            }
         }
         if(showMenu&&btn==0){
             if(renderer.handleCategoryClick((int)mx, (int)my)) return true;
             if(selectedMenuType!=null)graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));showMenu=false;return true;}
         if(btn==1){
-            var h=hitNode(mx,my);if(h!=null){graph.removeNode(h.id);selectedNode=null;editPanel.close();return true;}
+            if (showColorConfig) return true; // 颜色面板打开时禁止操作
+            var h=hitNode(mx,my);if(h!=null){graph.removeNode(h.id);selectedNode=null;expandedNodeIds.remove(h.id);nodeEditStatesById.remove(h.id);return true;}
             var hc=hitConn(mx,my);if(hc!=null){graph.removeConnection(hc.fromId,hc.fromPin,hc.toId,hc.toPin);return true;}
             menuX=(float)mx; menuY=(float)my; showMenu=true; return true;
         }
+        // 热栏弹出交互
+        if (hotbarNode != null && btn == 0) {
+            var mc2 = Minecraft.getInstance();
+            var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
+            float nsx2 = c2sX(hotbarNode.x), nsy2 = c2sY(hotbarNode.y);
+            float nch2 = (HH + PH*(hotbarNode.type.inputs+hotbarNode.type.outputs))*zoom+4;
+            int numRows2 = st != null ? st.fields.size() : 0;
+            int editLocalY2 = (int)(HH + PH*(hotbarNode.type.inputs+hotbarNode.type.outputs) + 4/zoom);
+            int freqLocalY2 = editLocalY2 + 4 + numRows2 * 18;
+            float popupY2 = nsy2 + nch2 + (freqLocalY2 - editLocalY2 + 20 + 4) * zoom;
+            int pw2 = 196, ph2 = 36;
+            int px2 = (int)(nsx2 + NW*zoom/2 - pw2/2);
+            int py2 = (int)popupY2;
+            // 点击热栏面板内部
+            if (mx >= px2 && mx <= px2 + pw2 && my >= py2 && my <= py2 + ph2) {
+                int si = (int)((mx - px2 - 4) / 20);
+                if (si >= 0 && si < 9 && mc2.player != null && hotbarNode.itemParams != null && st != null
+                    && st.freqSlotSelected < hotbarNode.itemParams.length) {
+                    var inv = mc2.player.getInventory().items.get(si);
+                    hotbarNode.itemParams[st.freqSlotSelected] = inv.isEmpty() ? ItemStack.EMPTY : inv.copy();
+                    if (!inv.isEmpty()) hotbarNode.itemParams[st.freqSlotSelected].setCount(1);
+                }
+                hotbarNode = null; // 点击面板内始终关闭
+                return true;
+            }
+            hotbarNode = null; // 点击面板外部 → 关闭
+        }
+        // 颜色配置面板打开时阻止所有画布交互
+        if (showColorConfig && btn == 0) {
+            var mc = Minecraft.getInstance();
+            int colW = 185, pw = colW * 2 + 30, ph = 36 + 8 * 18 + 24;
+            int px = (host.asScreen().width - pw) / 2, py = (host.asScreen().height - ph) / 2;
+            // 点击面板外部 → 关闭
+            if (mx < px || mx > px + pw || my < py || my > py + ph) { showColorConfig = false; return true; }
+            // 关闭按钮
+            if (mx >= px + pw - 18 && mx <= px + pw - 2 && my >= py + 2 && my <= py + 18) { showColorConfig = false; return true; }
+            // Defaults
+            if (mx >= px + 8 && mx <= px + 72 && my >= py + ph - 22 && my <= py + ph - 6) {
+                NodeRenderer.setColors(NodeRenderer.DEFAULT_COLORS.clone());
+                for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) colorFields[i].setValue(String.format("%08X", NodeRenderer.DEFAULT_COLORS[i]));
+                return true;
+            }
+            // Apply
+            if (mx >= px + pw - 72 && mx <= px + pw - 8 && my >= py + ph - 22 && my <= py + ph - 6) {
+                NodeRenderer.setColors(NodeRenderer.stagingColors.clone());
+                NodeRenderer.saveColorConfig();
+                showColorConfig = false;
+                return true;
+            }
+            // 颜色字段焦点（先全部清除再设置单个，避免多个光标）
+            for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) colorFields[i].setFocused(false);
+            for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) {
+                if (mx >= colorFields[i].getX() && mx <= colorFields[i].getX() + 80
+                    && my >= colorFields[i].getY() && my <= colorFields[i].getY() + 14) {
+                    colorFields[i].setFocused(true);
+                    colorFields[i].mouseClicked(mx, my, btn);
+                    break;
+                }
+            }
+            return true;
+        }
+        // 旧的颜色配置面板交互（隔离用，新逻辑在上面）
         if(btn==0){
             showMenu=false;
-            // 内联编辑区交互（节点展开区域内的控件）
-            if (editPanel.isOpen() && selectedNode != null) {
-                if (editPanel.handleFreqSlotClick(mx, my)) return true;
-                if (editPanel.handleHotbarClick(mx, my)) return true;
-                if (editPanel.mouseClickedInline(mx, my, btn, renderer.editScreenX, renderer.editScreenY,
-                    renderer.editScreenW, renderer.editScreenH)) return true;
+            // 内联编辑区交互（局部坐标，与 pose 内渲染一致）
+            for (var en : host.getGraph().nodes) {
+                if (!expandedNodeIds.contains(en.id)) continue;
+                var st = nodeEditStatesById.get(en.id);
+                if (st == null) continue;
+                float nsx = c2sX(en.x), nsy = c2sY(en.y);
+                int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
+                int editLocalY = (int)(HH + PH*(en.type.inputs+en.type.outputs) + 4/zoom);
+                int numRows = st.fields.size();
+                int freqLocalY = editLocalY + 8 + numRows * 18;
+                for (int fi = 0; fi < 2; fi++) {
+                    int bx = 4 + fi * 24;
+                    if (lmx >= bx && lmx <= bx + 20 && lmy >= freqLocalY && lmy <= freqLocalY + 20)
+                    { st.freqSlotSelected = fi; hotbarNode = (hotbarNode == en) ? null : en; return true; }
+                }
+                if (en.type == NodeType.BOOL && en.params.length > 0) {
+                    int boolLocalY = editLocalY + 4 + numRows * 18;
+                    if (lmx >= 4 && lmx <= NW - 4 && lmy >= boolLocalY && lmy <= boolLocalY + 16)
+                    { en.params[0] = en.params[0] > 0.5f ? 0 : 1; return true; }
+                }
+                for (int fi = 0; fi < st.fields.size(); fi++) {
+                    var b = st.fields.get(fi);
+                    int fy = editLocalY + 4 + fi * 18;
+                    if (lmx >= 0 && lmx <= NW && lmy >= fy && lmy <= fy + 18)
+                    { b.setFocused(true); b.mouseClicked(lmx, lmy, 0); }
+                    else b.setFocused(false);
+                }
             }
             // TAB+左键 → 多选 / 框选
             if (tabHeld) {
@@ -142,16 +323,7 @@ public class GraphEditor {
             }
             // ▶/▼ 折叠展开按钮（优先检测，不依赖选中状态）
             var expandHit = hitExpandIndicator(mx, my, graph);
-            if (expandHit != null) {
-                if (shouldOpenPanel(expandHit)) {
-                    // 确保该节点被选中
-                    selectedNode = expandHit; selectedNodes.clear(); selectedNodes.add(expandHit);
-                    nodeExpanded = !nodeExpanded;
-                    if (nodeExpanded) editPanel.open(expandHit);
-                    else editPanel.close();
-                }
-                return true;
-            }
+            if (expandHit != null) { toggleExpand(expandHit); return true; }
             // 拖拽连线
             for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.type.outputs;i++){float py=sy+HH*zoom+PH*zoom*(node.type.inputs+i)+PH*zoom/2f;if(Math.abs(mx-(sx+NW*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
             // 点击节点（不含 ▶/▼ 区域）
@@ -162,15 +334,11 @@ public class GraphEditor {
                 boolean inHeader = my>=sy && my<=sy+HH*zoom+4;
                 if (inHeader) { draggingNode=hit; dragOffX=hit.x-s2cX(mx); dragOffY=hit.y-s2cY(my); }
                 if (selectedNode != hit) {
-                    // 点击不同节点 → 选中
-                    if (nodeExpanded) { nodeExpanded = false; editPanel.close(); }
                     selectedNode=hit; selectedNodes.clear(); selectedNodes.add(hit);
                 }
                 return true;
             }
-            // 点击空白区域 → 取消选中并折叠
-            nodeExpanded = false;
-            if (editPanel.isOpen()) editPanel.close();
+            // 点击空白区域 → 取消选中（不折叠编辑区）
             selectedNodes.clear(); selectedNode=null;
             panning=true; panLastX=(float)mx; panLastY=(float)my;
         }
@@ -188,7 +356,6 @@ public class GraphEditor {
         var graph = host.getGraph();
         if(btn==0&&multiDragging){
             multiDragging = false;
-            // 如果几乎没拖动，视为点击切换选中
             if (multiClickedNode != null) {
                 float[] orig = multiDragOrigins.get(multiClickedNode);
                 if (orig != null && Math.abs(multiClickedNode.x - orig[0]) < 2
@@ -229,21 +396,34 @@ public class GraphEditor {
             float dy = (s2cY(my) - dragOffY) - multiCenterY;
             for (var sn : selectedNodes) {
                 float[] orig = multiDragOrigins.get(sn);
-                if (orig != null) { sn.x = orig[0] + dx; sn.y = orig[1] + dy; }
+                if (orig != null) {
+                    float nx = orig[0] + dx, ny = orig[1] + dy;
+                    if(gridSnapEnabled){nx=Math.round(nx/NodeRenderer.GS)*NodeRenderer.GS;ny=Math.round(ny/NodeRenderer.GS)*NodeRenderer.GS;}
+                    sn.x=nx; sn.y=ny;
+                }
             }
             return;
         }
         if(panning){camX+=(float)(mx-panLastX)/zoom;camY+=(float)(my-panLastY)/zoom;panLastX=(float)mx;panLastY=(float)my;}
-        if(draggingNode!=null){draggingNode.x=s2cX(mx)+dragOffX;draggingNode.y=s2cY(my)+dragOffY;}if(draggingWire){wireEndX=s2cX(mx);wireEndY=s2cY(my);}
+        if(draggingNode!=null){
+            float nx=s2cX(mx)+dragOffX, ny=s2cY(my)+dragOffY;
+            if(gridSnapEnabled){nx=Math.round(nx/NodeRenderer.GS)*NodeRenderer.GS;ny=Math.round(ny/NodeRenderer.GS)*NodeRenderer.GS;}
+            draggingNode.x=nx;draggingNode.y=ny;
+        }if(draggingWire){wireEndX=s2cX(mx);wireEndY=s2cY(my);}
     }
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+        if (showColorConfig) return true; // 颜色面板打开时禁止缩放
         float oz=zoom; zoom*=(sy>0)?1.12f:(1f/1.12f); zoom=Math.max(0.25f,Math.min(4f,zoom));
         camX+=(mx-host.asScreen().width/2f)*(1f/zoom-1f/oz); camY+=(my-host.asScreen().height/2f)*(1f/zoom-1f/oz); return true;
     }
     public boolean keyPressed(int key, int sc, int mod) {
         var graph = host.getGraph();
+        if (showColorConfig) {
+            for (var f : colorFields) if (f.isFocused()) { return f.keyPressed(key, sc, mod); }
+            if (key == 256) { showColorConfig = false; return true; }
+        }
         if (key == 258) { tabHeld = true; return true; } // TAB
-        if(editPanel.keyPressed(key,sc,mod)) return true;
+        for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.keyPressed(key, sc, mod);
         // Ctrl+D 复制（支持多选）
         if(key==68&&net.minecraft.client.gui.screens.Screen.hasControlDown()&&!selectedNodes.isEmpty()){
             var idMap = new java.util.HashMap<Integer, Integer>();
@@ -275,9 +455,10 @@ public class GraphEditor {
             for (var n : List.copyOf(selectedNodes)) {
                 graph.removeNode(n.id);
             }
+            expandedNodeIds.remove(selectedNode != null ? selectedNode.id : 0);
+            nodeEditStatesById.remove(selectedNode != null ? selectedNode.id : 0);
             selectedNodes.clear();
             selectedNode = null;
-            editPanel.close();
             return true;
         }
         return false;
@@ -286,7 +467,49 @@ public class GraphEditor {
         if (key == 258) { tabHeld = false; return true; }
         return false;
     }
-    public boolean charTyped(char ch, int mod) { return editPanel.charTyped(ch, mod); }
+    public boolean charTyped(char ch, int mod) {
+        if (showColorConfig) for (var f : colorFields) if (f.isFocused()) return f.charTyped(ch, mod);
+        for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.charTyped(ch, mod);
+        return false;
+    }
+
+    /** 颜色配置面板（双列布局） */
+    private void renderColorPanel(GuiGraphics g, int mx, int my) {
+        var mc = net.minecraft.client.Minecraft.getInstance();
+        int itemsPerCol = 8, numRows = 8; // 16色分 8+8 两列
+        int colW = 185, pw = colW * 2 + 30, ph = 36 + numRows * 18 + 24;
+        int px = (host.asScreen().width - pw) / 2, py = (host.asScreen().height - ph) / 2;
+        g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
+        g.renderOutline(px, py, pw, ph, NodeRenderer.CSB);
+        g.fill(px + 2, py + 2, px + pw - 2, py + 18, 0xFF4A3F28);
+        g.drawString(mc.font, "§6§l" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.color.title"), px + 6, py + 5, 0xFFFFFFFF, false);
+        g.fill(px + pw - 18, py + 2, px + pw - 2, py + 18, 0xFF4A3028);
+        g.renderOutline(px + pw - 18, py + 2, 16, 16, 0xFF8B5333);
+        g.drawString(mc.font, "§cX", px + pw - 14, py + 5, 0xFFFFFFFF, false);
+        for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) {
+            int col = i < itemsPerCol ? 0 : 1;
+            int row = i < itemsPerCol ? i : i - itemsPerCol;
+            int cx = px + 8 + col * (colW + 14);
+            int ry = py + 24 + row * 18;
+            // 色块（预览暂存颜色）
+            g.fill(cx + 2, ry + 2, cx + 18, ry + 14, NodeRenderer.stagingColors[i]);
+            g.renderOutline(cx + 2, ry + 2, 16, 12, 0xFF666666);
+            // 名称
+            g.drawString(mc.font, net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.color." + NodeRenderer.COLOR_KEYS[i]), cx + 22, ry + 2, 0xFFCCCCCC, false);
+            // HEX 输入框
+            var f = colorFields[i];
+            f.setX(cx + colW - 90);
+            f.setY(ry + 1);
+            f.render(g, mx, my, 0);
+        }
+        int by = py + ph - 22;
+        g.fill(px + 8, by, px + 72, by + 16, 0xFF3A3428);
+        g.renderOutline(px + 8, by, 64, 16, NodeRenderer.CSB);
+        g.drawString(mc.font, "§7" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.color.defaults"), px + 14, by + 3, 0xFFFFFFFF, false);
+        g.fill(px + pw - 72, by, px + pw - 8, by + 16, 0xFF3A5A2A);
+        g.renderOutline(px + pw - 72, by, 64, 16, 0xFF5A8A3A);
+        g.drawString(mc.font, "§a" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.color.apply"), px + pw - 62, by + 3, 0xFFFFFFFF, false);
+    }
 
     private void recompile(NodeGraph graph) {
         cycleWarning=null; host.saveGraph();
@@ -295,15 +518,15 @@ public class GraphEditor {
 
     /** 检测 ▶/▼ 展开按钮点击 */
     private GraphNode hitExpandIndicator(double mx, double my, NodeGraph graph) {
-        float indicatorSize = 10 * zoom;
+        float indicatorSize = 12 * zoom;
         for (int i = graph.nodes.size() - 1; i >= 0; i--) {
             var n = graph.nodes.get(i);
             if (n.type.paramNames.length == 0 && n.type != NodeType.REDSTONE_IN && n.type != NodeType.REDSTONE_OUT
                 && n.type != NodeType.PRIVATE_IN && n.type != NodeType.PRIVATE_OUT) continue;
             float sx = c2sX(n.x), sy = c2sY(n.y);
-            float ix = sx + (NW - 16) * zoom;
-            float iy = sy + 3 * zoom;
-            if (mx >= ix && mx <= ix + indicatorSize && my >= iy && my <= iy + indicatorSize + 2)
+            float ix = sx + (NW - 22) * zoom;
+            float iy = sy + 2 * zoom;
+            if (mx >= ix && mx <= ix + indicatorSize && my >= iy && my <= iy + indicatorSize)
                 return n;
         }
         return null;
@@ -313,7 +536,10 @@ public class GraphEditor {
         var graph = host.getGraph();
         for(int i=graph.nodes.size()-1;i>=0;i--){
             var n=graph.nodes.get(i);
-            float sx=c2sX(n.x), sy=c2sY(n.y), sw=NW*zoom, nh=(HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
+            float sx=c2sX(n.x), sy=c2sY(n.y), sw=NW*zoom;
+            float nh = (HH+PH*(n.type.inputs+n.type.outputs))*zoom+4;
+            if (expandedNodeIds.contains(n.id))
+                nh += EditPanel.calcRenderHeight(n, zoom) * zoom;
             if(mx>=sx&&mx<=sx+sw&&my>=sy&&my<=sy+nh) return n;
         }
         return null;

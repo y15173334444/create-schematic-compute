@@ -24,7 +24,6 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
         this.imageWidth = 9999;
         this.editor = new GraphEditor(this, this);
         editor.setNodeFilter(nt -> nt != com.example.create_schematic_compute.graph.NodeType.SPEED_CTRL
-            && nt != com.example.create_schematic_compute.graph.NodeType.PRIVATE_IN
             && nt != com.example.create_schematic_compute.graph.NodeType.DELAY
             && nt != com.example.create_schematic_compute.graph.NodeType.LATCH
             && nt != com.example.create_schematic_compute.graph.NodeType.T_FLIPFLOP
