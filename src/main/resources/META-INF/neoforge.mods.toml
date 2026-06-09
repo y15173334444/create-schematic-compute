@@ -25,7 +25,7 @@ authors = "${mod_authors}"
 
     [[mods.dependencies]]
     modId = "create"
-    versionRange = "[6.0.10,)"
+    versionRange = "${create_version_range}"
     ordering = "NONE"
     side = "BOTH"
     mandatory = true

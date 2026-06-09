@@ -2,7 +2,7 @@ package com.example.create_schematic_compute.blocks;
 
 import com.example.create_schematic_compute.ModUtils;
 import com.example.create_schematic_compute.SchematicCompute;
-import com.example.create_schematic_compute.network.SignalBus;
+
 import com.example.create_schematic_compute.graph.GraphEvaluator;
 import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
@@ -114,12 +114,11 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
         if(currentState.getValue(BlueprintBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(BlueprintBlock.LIT, shouldBeLit), 3);
         if(!running) return;
-        // 重用 GraphEvaluator，图对象变化时重建（同时清零 PID 积分和信号总线）
+        // 重用 GraphEvaluator，图对象变化时重建（同时清零 PID 积分）
         if (evaluator == null || lastEvaluatedGraph != graph) {
             evaluator = new GraphEvaluator(graph);
             lastEvaluatedGraph = graph;
             pidState.clear();
-            SignalBus.clear();
         }
         var in = new ArrayList<GraphEvaluator.InputSource>();
         for(var n : graph.nodes) {

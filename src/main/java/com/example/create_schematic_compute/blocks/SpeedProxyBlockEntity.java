@@ -26,8 +26,8 @@ import java.util.List;
 import java.util.Map;
 
 public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
-    // 用 HashMap 而非 emptyMap()，防止 PID 节点写入时报 UnsupportedOperationException
-    private static final Map<Integer, Float> EMPTY_PID = new java.util.HashMap<>();
+    // PID 积分状态（实例级，避免 static 共享导致状态污染）
+    public final Map<Integer, Float> pidState = new java.util.HashMap<>();
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
     private GraphEvaluator evaluator = null;
@@ -66,7 +66,7 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
             evaluator = new GraphEvaluator(graph);
             lastEvaluatedGraph = graph;
         }
-        var results = evaluator.evaluate(List.of(), EMPTY_PID, 0.05f);
+        var results = evaluator.evaluate(List.of(), pidState, 0.05f);
         for (var n : graph.nodes) {
             if (n.type == NodeType.SPEED_CTRL) {
                 float speed = evaluator.getNodeOutput(n.id, 0);
