@@ -15,5 +15,4 @@ public class SignalBus {
         return SIGNALS.getOrDefault(channel, 0f);
     }
 
-    public static void clear() { SIGNALS.clear(); }
 }

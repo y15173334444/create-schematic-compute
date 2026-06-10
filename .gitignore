@@ -17,6 +17,10 @@ out/
 .DS_Store
 Thumbs.db
 
+# Reference
+texture_reference/
+
+
 # Logs
 *.log
 *.hprof

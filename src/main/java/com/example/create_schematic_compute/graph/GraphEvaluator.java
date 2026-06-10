@@ -208,29 +208,33 @@ public class GraphEvaluator {
                 float ki = node.params.length > 1 ? node.params[1] : 0.1f;
                 float kd = node.params.length > 2 ? node.params[2] : 0.05f;
                 float s = node.params.length > 3 ? node.params[3] : 1.0f;
+                float ilimit = node.params.length > 4 ? node.params[4] : 3.0f;
                 float err = sp;
                 int ik = node.id;
                 float integral = pidState.getOrDefault(ik, 0f);
                 if (Math.abs(err) > 0.001f) integral += err * dt;
                 else integral = 0;
-                if (integral > 50) integral = 50; if (integral < -50) integral = -50;
+                if (integral > ilimit) integral = ilimit;
+                if (integral < -ilimit) integral = -ilimit;
                 pidState.put(ik, integral);
-                o[0] = Math.max(0, Math.min(16, (kp * err + ki * integral) * s));
+                o[0] = Math.max(0, (kp * err + ki * integral) * s);
             }
             case PID_POWER -> {
                 float sp = Math.max(0, Math.min(15, graph.getInputValue(node.id, 0, outputs)));
                 float base = Math.max(0, Math.min(15, graph.getInputValue(node.id, 1, outputs)));
                 float kp = node.params.length > 0 ? node.params[0] : 1.0f;
                 float ki = node.params.length > 1 ? node.params[1] : 0.1f;
+                float ilimit = node.params.length > 2 ? node.params[2] : 3.0f;
                 base = Float.isNaN(base) ? 0 : base;
                 float err = sp;
                 int ik = node.id;
                 float integral = pidState.getOrDefault(ik, 0f);
                 if (Math.abs(err) > 0.001f) integral += err * dt;
                 else integral = 0;
-                if (integral > 50) integral = 50; if (integral < -50) integral = -50;
+                if (integral > ilimit) integral = ilimit;
+                if (integral < -ilimit) integral = -ilimit;
                 pidState.put(ik, integral);
-                o[0] = Math.max(0, Math.min(16, base + kp * err + ki * integral));
+                o[0] = Math.max(0, base + kp * err + ki * integral);
             }
             case CLAMP -> { float v = graph.getInputValue(node.id, 0, outputs); float mn = graph.getInputValue(node.id, 1, outputs); float mx = graph.getInputValue(node.id, 2, outputs); o[0] = Math.max(mn, Math.min(mx, v)); }
             case MAP -> { float v = graph.getInputValue(node.id, 0, outputs); float imn = graph.getInputValue(node.id, 1, outputs); float imx = graph.getInputValue(node.id, 2, outputs); float omn = graph.getInputValue(node.id, 3, outputs); float omx = graph.getInputValue(node.id, 4, outputs); float r = imx - imn; o[0] = r == 0 ? omn : omn + (v - imn) / r * (omx - omn); }

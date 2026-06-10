@@ -44,11 +44,12 @@ public class GraphNode {
             this.params[1] = 0.1f;   // ki
             this.params[2] = 0.05f;  // kd
             this.params[3] = 1.0f;   // scale
+            this.params[4] = 3.0f;   // ilimit
         }
         if (type == NodeType.PID_POWER) {
             this.params[0] = 2.0f;   // kp
             this.params[1] = 0.05f;  // ki
-            this.params[2] = 0.02f;  // kd
+            this.params[2] = 3.0f;   // ilimit
         }
         if (type == NodeType.DELAY) this.params[0] = 10f;     // 10 ticks
         if (type == NodeType.PULSE_EXTEND) this.params[0] = 10f;

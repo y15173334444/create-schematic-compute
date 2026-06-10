@@ -70,6 +70,8 @@ public class GraphEditor {
     private GraphNode multiClickedNode = null;
     private float multiCenterX, multiCenterY;
     private final java.util.Map<GraphNode, float[]> multiDragOrigins = new java.util.HashMap<>();
+    // 鼠标坐标缓存（供 X 键删除用）
+    private double lastMouseX, lastMouseY;
 
     /** 创建节点的编辑状态 */
     private EditState createEditState(GraphNode node) {
@@ -230,8 +232,6 @@ public class GraphEditor {
             if(selectedMenuType!=null)graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));showMenu=false;return true;}
         if(btn==1){
             if (showColorConfig) return true; // 颜色面板打开时禁止操作
-            var h=hitNode(mx,my);if(h!=null){graph.removeNode(h.id);selectedNode=null;expandedNodeIds.remove(h.id);nodeEditStatesById.remove(h.id);return true;}
-            var hc=hitConn(mx,my);if(hc!=null){graph.removeConnection(hc.fromId,hc.fromPin,hc.toId,hc.toPin);return true;}
             menuX=(float)mx; menuY=(float)my; showMenu=true; return true;
         }
         // 热栏弹出交互
@@ -326,8 +326,10 @@ public class GraphEditor {
                     else b.setFocused(false);
                 }
             }
-            // TAB+左键 → 多选 / 框选
+            // TAB+左键 → 连线删除 / 多选 / 框选
             if (tabHeld) {
+                var hc = hitConn(mx, my);
+                if (hc != null) { graph.removeConnection(hc.fromId, hc.fromPin, hc.toId, hc.toPin); return true; }
                 var hit = hitNode(mx, my);
                 if (hit != null && selectedNodes.contains(hit)) {
                     multiDragging = true; multiClickedNode = hit; multiDragOrigins.clear();
@@ -412,6 +414,7 @@ public class GraphEditor {
         if(btn==0&&draggingNode!=null)draggingNode=null;if(btn==0&&panning)panning=false;
     }
     public void mouseMoved(double mx, double my) {
+        lastMouseX = mx; lastMouseY = my;
         if(boxSelecting){boxEX=(float)mx;boxEY=(float)my;return;}
         if(multiDragging){
             float dx = (s2cX(mx) - dragOffX) - multiCenterX;
@@ -446,6 +449,19 @@ public class GraphEditor {
         }
         if (key == 258) { tabHeld = true; return true; } // TAB
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.keyPressed(key, sc, mod);
+        // X 键删除悬停节点（替代右键删除防误触）
+        if (key == 88) { // GLFW_KEY_X
+            var g2 = host.getGraph();
+            var hit = hitNode(lastMouseX, lastMouseY);
+            if (hit != null) {
+                g2.removeNode(hit.id);
+                expandedNodeIds.remove(hit.id);
+                nodeEditStatesById.remove(hit.id);
+                selectedNodes.remove(hit);
+                if (selectedNode == hit) selectedNode = null;
+                return true;
+            }
+        }
         // Ctrl+D 复制（支持多选）
         if(key==68&&net.minecraft.client.gui.screens.Screen.hasControlDown()&&!selectedNodes.isEmpty()){
             var idMap = new java.util.HashMap<Integer, Integer>();
