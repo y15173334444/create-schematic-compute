@@ -34,7 +34,7 @@ public enum NodeType {
     PULSE_EXTEND("node.create_schematic_compute.pulse_extend", 1, 1, "ticks"),
     LOOP("node.create_schematic_compute.loop", 1, 1, "count,interval"),
     FUSE("node.create_schematic_compute.fuse", 1, 1, "cooldown"),
-    FORMULA("node.create_schematic_compute.formula", 0, 1, "formula");
+    FORMULA("node.create_schematic_compute.formula", 0, 1, "");
 
     public final String displayName;
     public final int inputs;
