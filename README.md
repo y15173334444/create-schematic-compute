@@ -140,7 +140,7 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 3. **Right-click empty space** to open the add-node menu (categorized & collapsible)
 4. **Left-click a node** to edit its parameters
 5. **Drag from output pins** to **input pins** to connect nodes
-6. **Right-click** a node or connection to delete it
+6. **Press `X`** to delete a node (hover over it), or **`TAB` + Left-click** a connection to delete it
 7. Press **Compile**, then **Run**
 
 **Controls:**
@@ -149,12 +149,13 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 | Open add-node menu | Right-click on empty space |
 | Edit node parameters | Left-click node, then click ▶ |
 | Connect nodes | Drag from output pin to input pin |
-| Delete node/connection | Right-click on it |
+| Delete node | Press **X** while hovering over it |
+| Delete connection | **TAB** + Left-click on connection |
+| Delete selected node(s) | Delete / Backspace |
 | Box select nodes | TAB + Left-click drag |
 | Toggle node selection | TAB + Left-click on node |
 | Move selected nodes | TAB + Left-click drag on selected node |
 | Duplicate node(s) | Ctrl + D |
-| Delete selected node(s) | Delete / Backspace |
 | Expand/collapse edit area | Click ▶ / ▼ on node header |
 | Color customization | Click **Style** button |
 | Toggle grid snap | Click **Grid** button |
@@ -371,7 +372,7 @@ MIT License © 2026 StarryNight_Luo
 3. **右键空白处**打开添加节点菜单（支持分类折叠）
 4. **左键节点**编辑参数
 5. **从输出端口拖拽到输入端口**连接节点
-6. **右键节点或连线**删除
+6. **按 X 键**删除节点（悬停其上），或 **TAB + 左键**点击连线删除
 7. 点击 **Compile** 编译，然后点击 **Run** 运行
 
 **操作指南：**
@@ -380,12 +381,13 @@ MIT License © 2026 StarryNight_Luo
 | 打开节点菜单 | 右键空白处 |
 | 编辑参数 | 左键节点，再点击 ▶ |
 | 连接节点 | 从输出端口拖到输入端口 |
-| 删除节点/连线 | 右键节点或连线 |
+| 删除节点 | **X 键**（悬停节点上） |
+| 删除连线 | **TAB + 左键**点击连线 |
+| 删除选中节点 | Delete / Backspace |
 | 框选节点 | TAB + 左键拖拽 |
 | 切换选中 | TAB + 左键点击节点 |
 | 拖拽移动选中 | TAB + 左键拖拽已选中节点 |
 | 复制节点 | Ctrl + D |
-| 删除选中节点 | Delete / Backspace |
 | 展开/折叠编辑区 | 点击节点标题的 ▶ / ▼ |
 | 颜色自定义 | 点击 **Style** 按钮 |
 | 网格吸附开关 | 点击 **Grid** 按钮 |
