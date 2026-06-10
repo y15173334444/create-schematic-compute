@@ -9,7 +9,8 @@
 
 <p align="center">
   <b>🎮 Three Programmable Computers with a Visual Node-Based Programming System</b><br>
-  <i>Drag, connect, and build logic — just like Unreal Engine Blueprints or Blender Geometry Nodes!</i>
+  <i>Drag, connect, and build logic — just like Unreal Engine Blueprints or Blender Geometry Nodes!</i><br>
+  <i>Created by <b>StarryNight_Luo</b> (y15173334444)</i>
 </p>
 
 ---
@@ -489,15 +490,19 @@ MIT License © 2026 StarryNight_Luo
 - Add: Render priority system (overlays properly cover edit areas)
 - Add: Blueprint Computer now supports Private Signal Input node
 - Add: i18n for all GUI buttons and color names (EN/ZH)
+- Add: New textures for all three computers (Blueprint, Program, Speed Proxy)
+- Add: Unified 5-face texture (sp_5) for Speed Proxy Controller
 - Change: Create-style warm metallic GUI palette (brass/copper/steel)
 - Change: Node edit panel moved inside node (no floating side panel)
 - Change: Manual expand/collapse only via ▶/▼ (no auto-collapse)
 - Change: Redstone output clamped to 0-15
+- Change: Speed Proxy Controller side/back texture assignment corrected
 - Fix: SignalBus cross-computer pollution (remove destructive clear())
 - Fix: SpeedProxy shared static PID map → per-instance
 - Fix: Node expand state survives server sync (tracked by node ID)
 - Fix: Compile/Run buttons no longer collapse edit areas
 - Cleanup: EditPanel stripped from 285 to 64 lines (dead code removal)
+- Cleanup: Removed obsolete per-face textures (sp_side, sp_back, sp_top, sp_bottom)
 
 ### v1.0.0
 - Initial release
