@@ -56,9 +56,15 @@ public class ProgramComputerBlock extends BaseEntityBlock implements IWrenchable
     @Override protected VoxelShape getShape(BlockState s, BlockGetter l, BlockPos p, CollisionContext c) { return SHAPE; }
     @Override
     protected InteractionResult useWithoutItem(BlockState s, Level l, BlockPos p, Player pl, BlockHitResult h) {
+        if (!l.isClientSide() && isHoldingWrench(pl)) return InteractionResult.SUCCESS;
         if(!l.isClientSide()&&pl instanceof ServerPlayer sp)
             if(l.getBlockEntity(p) instanceof ProgramComputerBlockEntity be) sp.openMenu(be, buf->buf.writeBlockPos(p));
         return InteractionResult.SUCCESS;
+    }
+
+    private static boolean isHoldingWrench(Player pl) {
+        return pl.getMainHandItem().getItem() instanceof com.simibubi.create.content.equipment.wrench.WrenchItem
+            || pl.getOffhandItem().getItem() instanceof com.simibubi.create.content.equipment.wrench.WrenchItem;
     }
 
     // ══ 扳手交互 ══

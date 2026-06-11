@@ -69,6 +69,8 @@ public class ControlSeatBlock extends BaseEntityBlock implements IWrenchable {
     @Override
     protected InteractionResult useWithoutItem(BlockState s, Level l, BlockPos p, Player pl, BlockHitResult h) {
         if (l.isClientSide()) return InteractionResult.SUCCESS;
+        // 手持扳手时不打开GUI/不乘坐（由 IWrenchable 处理旋转/收回）
+        if (isHoldingWrench(pl)) return InteractionResult.SUCCESS;
 
         // Shift+右键 → 打开编辑 GUI
         if (pl.isShiftKeyDown()) {
@@ -108,6 +110,11 @@ public class ControlSeatBlock extends BaseEntityBlock implements IWrenchable {
             pl.startRiding(seat);
         }
         return InteractionResult.SUCCESS;
+    }
+
+    private static boolean isHoldingWrench(Player pl) {
+        return pl.getMainHandItem().getItem() instanceof com.simibubi.create.content.equipment.wrench.WrenchItem
+            || pl.getOffhandItem().getItem() instanceof com.simibubi.create.content.equipment.wrench.WrenchItem;
     }
 
     // ══ 扳手交互 ══
