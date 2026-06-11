@@ -163,6 +163,7 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
         setChanged();
     }
     public void loadGraphFromBytes(byte[] data) {
+        if (level == null) return;
         try { var t=NbtIo.readCompressed(new ByteArrayInputStream(data),NbtAccounter.create(2*1024*1024));
             if(t!=null&&t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),level.registryAccess()); registerLinks(); }
             setChanged();

@@ -61,7 +61,7 @@ public class ControlSeatInputHandler {
     @SubscribeEvent
     public static void onClientTickPre(ClientTickEvent.Pre event) {
         var mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null) return;
+        if (mc.player == null || mc.level == null || mc.getWindow() == null) return;
 
         long window = mc.getWindow().getWindow();
         var vehicle = mc.player.getVehicle();
@@ -150,7 +150,7 @@ public class ControlSeatInputHandler {
     @SubscribeEvent
     public static void onClientTickPost(ClientTickEvent.Post event) {
         var mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null) return;
+        if (mc.player == null || mc.level == null || mc.getWindow() == null) return;
 
         var vehicle = mc.player.getVehicle();
         boolean seated = vehicle instanceof ControlSeatEntity;

@@ -6,7 +6,6 @@ import com.example.create_schematic_compute.blocks.ControlSeatBlockEntity;
 import com.example.create_schematic_compute.blocks.ProgramComputerBlockEntity;
 import com.example.create_schematic_compute.blocks.SensorBlockEntity;
 import com.example.create_schematic_compute.blocks.SpeedProxyBlockEntity;
-import com.example.create_schematic_compute.graph.NodeGraph;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -14,7 +13,6 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
-import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
 public record BlueprintSavePacket(BlockPos pos, byte[] nbtData) implements CustomPacketPayload {
 
