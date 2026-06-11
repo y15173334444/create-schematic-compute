@@ -67,6 +67,18 @@ public class ControlSeatBlock extends BaseEntityBlock implements IWrenchable {
     }
 
     @Override
+    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
+        Level level = context.getLevel();
+        BlockPos pos = context.getClickedPos();
+        BlockState rotated = getRotatedBlockState(state, context.getClickedFace());
+        if (!rotated.canSurvive(level, pos)) return InteractionResult.PASS;
+        level.setBlock(pos, rotated, 3);
+        IWrenchable.playRotateSound(level, pos);
+        return InteractionResult.SUCCESS;
+    }
+
+
+    @Override
     protected InteractionResult useWithoutItem(BlockState s, Level l, BlockPos p, Player pl, BlockHitResult h) {
         if (l.isClientSide()) return InteractionResult.SUCCESS;
         // 手持扳手时不打开GUI/不乘坐（由 IWrenchable 处理旋转/收回）

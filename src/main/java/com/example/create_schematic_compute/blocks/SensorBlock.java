@@ -54,6 +54,18 @@ public class SensorBlock extends BaseEntityBlock implements IWrenchable {
     public BlockState getRotatedBlockState(BlockState state, net.minecraft.core.Direction direction) {
         return state.cycle(FACING);
     }
+
+    @Override
+    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
+        Level level = context.getLevel();
+        BlockPos pos = context.getClickedPos();
+        BlockState rotated = getRotatedBlockState(state, context.getClickedFace());
+        if (!rotated.canSurvive(level, pos)) return InteractionResult.PASS;
+        level.setBlock(pos, rotated, 3);
+        IWrenchable.playRotateSound(level, pos);
+        return InteractionResult.SUCCESS;
+    }
+
     @Override
     protected InteractionResult useWithoutItem(BlockState s, Level l, BlockPos p, Player pl, BlockHitResult h) {
         if (!l.isClientSide() && isHoldingWrench(pl)) return InteractionResult.SUCCESS;

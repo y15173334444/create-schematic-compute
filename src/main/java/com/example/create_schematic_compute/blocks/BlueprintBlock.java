@@ -105,4 +105,16 @@ public class BlueprintBlock extends BaseEntityBlock implements IWrenchable {
     public BlockState getRotatedBlockState(BlockState state, Direction direction) {
         return state.cycle(FACING);
     }
+
+    @Override
+    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
+        Level level = context.getLevel();
+        BlockPos pos = context.getClickedPos();
+        BlockState rotated = getRotatedBlockState(state, context.getClickedFace());
+        if (!rotated.canSurvive(level, pos)) return InteractionResult.PASS;
+        level.setBlock(pos, rotated, 3);
+        IWrenchable.playRotateSound(level, pos);
+        return InteractionResult.SUCCESS;
+    }
+
 }
