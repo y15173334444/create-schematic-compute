@@ -52,6 +52,7 @@ public class ControlSeatInputHandler {
     // Pre 事件中计算的摇杆值
     private static float joystickX = 0, joystickY = 0;
     private static boolean wantDismount = false;
+    private static boolean wasGuiOpen = false;
 
 
     // ═══════════════════════════════════════
@@ -100,7 +101,16 @@ public class ControlSeatInputHandler {
         wasSeatedLastTick = seated;
 
         if (!seated) { wasTab = false; cursorInit = false; return; }
-        GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
+        // GUI 打开时不锁定光标（ESC 打开菜单后能正常使用鼠标）
+        if (!guiOpen) {
+            GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
+        }
+
+        // ── 从 GUI 回到游戏时重置光标位置 ──
+        if (wasGuiOpen && !guiOpen) {
+            cursorInit = false;
+        }
+        wasGuiOpen = guiOpen;
 
         boolean tab = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_TAB) == GLFW.GLFW_PRESS;
         if (tab && !wasTab) { inputMode = (inputMode + 1) % 2; cursorInit = false; }
@@ -221,7 +231,7 @@ public class ControlSeatInputHandler {
         if (inputMode == 0) {
             mc.player.setXRot(0);
             mc.player.xRotO = 0;
-            // 实体 yaw 已由服务端设为 FACING+180，直接使用即可
+            // 实体 yaw 已由服务端设为 FACING，直接使用即可
             var vehicle = mc.player.getVehicle();
             if (vehicle != null) {
                 float vy = vehicle.getYRot();

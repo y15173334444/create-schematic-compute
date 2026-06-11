@@ -39,7 +39,7 @@ public class SchematicCompute {
     public static final DeferredRegister<CreativeModeTab> TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MOD_ID);
 
     public static final DeferredHolder<Block, BlueprintBlock> BLUEPRINT_BLOCK =
-            BLOCKS.register("blueprint", () -> new BlueprintBlock(BlockBehaviour.Properties.of().strength(3,6).requiresCorrectToolForDrops().noOcclusion()));
+            BLOCKS.register("blueprint", () -> new BlueprintBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
     public static final DeferredHolder<Item, BlockItem> BLUEPRINT_ITEM =
             ITEMS.register("blueprint", () -> new BlockItem(BLUEPRINT_BLOCK.get(), new Item.Properties()));
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<BlueprintBlockEntity>> BLUEPRINT_BE =
@@ -49,7 +49,7 @@ public class SchematicCompute {
 
     // 转速代理控制器
     public static final DeferredHolder<Block, SpeedProxyBlock> SPEED_PROXY_BLOCK =
-            BLOCKS.register("speed_proxy", () -> new SpeedProxyBlock(BlockBehaviour.Properties.of().strength(3,6).requiresCorrectToolForDrops().noOcclusion()));
+            BLOCKS.register("speed_proxy", () -> new SpeedProxyBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
     public static final DeferredHolder<Item, BlockItem> SPEED_PROXY_ITEM =
             ITEMS.register("speed_proxy", () -> new BlockItem(SPEED_PROXY_BLOCK.get(), new Item.Properties()));
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<SpeedProxyBlockEntity>> SPEED_PROXY_BE =
@@ -59,7 +59,7 @@ public class SchematicCompute {
 
     // 编程计算机
     public static final DeferredHolder<Block, ProgramComputerBlock> PROGRAM_BLOCK =
-            BLOCKS.register("program_computer", () -> new ProgramComputerBlock(BlockBehaviour.Properties.of().strength(3,6).requiresCorrectToolForDrops()));
+            BLOCKS.register("program_computer", () -> new ProgramComputerBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
     public static final DeferredHolder<Item, BlockItem> PROGRAM_ITEM =
             ITEMS.register("program_computer", () -> new BlockItem(PROGRAM_BLOCK.get(), new Item.Properties()));
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<ProgramComputerBlockEntity>> PROGRAM_BE =
