@@ -47,9 +47,26 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 - **Redstone I/O** — Communicates through Create's Redstone Link network
 - **Dedicated sequential nodes**: Delay, Latch, T Flip-Flop, Pulse Extender, Loop, Safety Timer
 
+#### 🪑 Control Seat
+A **sit-able controller seat** with real-time keyboard, mouse, and gamepad input capture.
+
+- **58 assignable keys** — Bind any key via click-to-bind UI
+- **Two input modes**: Joystick (mouse delta) and View Angle (player rotation difference)
+- **Gamepad support** — Dual-stick, 15 buttons via GLFW gamepad API
+- **Sable physics compatible** — Entity yaw syncs with sable sublevel rotation
+- **Press `~` to dismount**, **`TAB` to switch input mode**, **`ESC` for pause menu**
+
+#### 📐 Attitude Sensor
+Reads the orientation of sable physics structures through a node-based graph.
+
+- **ATTITUDE node** — Outputs pitch and roll from the sublevel's logical pose
+- **FORWARD node** — Outputs the world-space forward yaw/pitch of the structure
+- **WORLD_VIEW node** — Reads the player's absolute view direction when seated
+- **POSE_CONVERT node** — Converts pitch/yaw/roll between coordinate conventions
+
 ---
 
-### Node Reference (32 Types)
+### Node Reference (43 Types)
 
 | Category | Nodes |
 |----------|-------|
@@ -59,6 +76,8 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 | **Control** | PID Controller (I-term resets on zero error), Power PID, Clamp, Map Range |
 | **Output** | Redstone Output, Private Signal Output, Speed Control |
 | **Sequential** | Delay, Latch, T Flip-Flop, Pulse Extender, Loop, Safety Timer |
+| **Input Ctrl** | KEYBOARD (58 keys), Mouse Joystick (X/Y), View Angle, Mouse Button (L/R), Gamepad Joystick (LX/LY/RX/RY), Gamepad Button (15 buttons) |
+| **Sensor** | World View (yaw/pitch), Attitude (pitch/roll), Forward (yaw/pitch), Pose Convert (3-in 2-out), Split |
 
 #### Detailed Node Table
 
@@ -118,6 +137,25 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 | LOOP | in | clk | count, interval | Fires pulse every interval tick, repeats count times |
 | FUSE | in | pulse | cooldown | Trigger → 2-tick pulse → cooldown N ticks |
 
+##### Input Ctrl (Control Seat only)
+| Node | Inputs | Output | Params | Description |
+|------|--------|--------|--------|-------------|
+| KEYBOARD | - | 1/0 | key | Bindable keyboard key (58 keys), outputs 1 when pressed |
+| MOUSE_JOYSTICK | - | X, Y | - | Mouse delta output -1~1 (joystick mode) |
+| VIEW_ANGLE | - | pitch, yaw | - | Player view angle delta (view angle mode) |
+| MOUSE_BUTTON | - | L, R | - | Left/right mouse button state |
+| GAMEPAD_JOYSTICK | - | LX, LY, RX, RY | - | Dual-stick gamepad axes -1~1 |
+| GAMEPAD_BUTTON | - | 1/0 | button | Gamepad button (15 buttons) |
+
+##### Sensor (Attitude Sensor only)
+| Node | Inputs | Output | Params | Description |
+|------|--------|--------|--------|-------------|
+| WORLD_VIEW | - | yaw, pitch | - | Player absolute world view direction |
+| ATTITUDE | - | pitch, roll | - | Sublevel attitude (pitch/roll) |
+| FORWARD | - | yaw, pitch | - | Sublevel forward direction in world space |
+| POSE_CONVERT | pitch_a, yaw_a, roll | pitch_b, yaw_b | - | Pose conversion (3-in 2-out) |
+| SPLIT | in | +out, -out | - | Split positive/negative: positive→+out, negative→\|-out\|
+
 ---
 
 ### Featured Algorithm Nodes
@@ -161,6 +199,11 @@ A **sequential logic computer** for timing, counting, and pulse control applicat
 | Toggle grid snap | Click **Grid** button |
 | Zoom in/out | Scroll wheel |
 | Pan canvas | Right-click drag |
+| **Control Seat — Sit down** | Right-click on seat (empty hand) |
+| **Control Seat — Open editor** | Shift + Right-click on seat |
+| **Control Seat — Dismount** | Press **`~`** |
+| **Control Seat — Switch mode** | Press **`TAB`** |
+| **Control Seat — Pause / release mouse** | Press **`ESC`** |
 
 ---
 
@@ -176,6 +219,19 @@ This means you can:
 
 ---
 
+### Block Properties
+
+All five blocks share consistent properties:
+
+| Property | Value |
+|----------|-------|
+| **Hardness** | 1.0 (breakable by hand, no tool required) |
+| **Hand break** | Drops block item **without** NBT (fresh block) |
+| **Wrench (right-click)** | Rotates block (cycles FACING direction) |
+| **Wrench (shift + right-click)** | Picks up block **with** full NBT preservation (graph, running state, pid values) |
+
+---
+
 ### Technical Highlights
 
 | Feature | Description |
@@ -186,6 +242,8 @@ This means you can:
 | 🎯 **Reflection-based speed control** | Directly sets `SpeedControllerBlockEntity.targetSpeed` field |
 | 🧹 **PID anti-windup** | I-term auto-resets when error reaches zero |
 | 🛡️ **Cycle detection** | Blocks execution if circular dependencies are detected in the graph |
+| 🎮 **GLFW raw input** | Control Seat reads keyboard/mouse/gamepad at the GLFW level, not through Minecraft's keybinding system |
+| 🔄 **Sable physics integration** | Control Seat and Attitude Sensor implement `BlockEntitySubLevelActor` for sublevel pose reading |
 
 ---
 
@@ -196,6 +254,8 @@ This means you can:
 | **Blueprint Computer** | 2× Redstone Link, 1× Precision Mechanism, 2× Glass Pane, 1× Repeater, 1× Comparator, 2× Brass Casing |
 | **Speed Proxy Controller** | 4× Brass Ingot, 1× Cogwheel, 2× Glass Pane, 1× Comparator, 1× Andesite Casing |
 | **Program Computer** | 4× Andesite Casing, 1× Repeater, 2× Glass Pane, 1× Comparator, 1× Andesite Alloy |
+| **Control Seat** | 1× Heavy Weighted Pressure Plate, 2× Iron Ingot, 1× Brass Casing, 1× Redstone, 4× Redstone Link |
+| **Attitude Sensor** | 6× Iron Ingot, 1× Repeater, 1× Comparator, 2× Brass Casing |
 
 *(Requires JEI to view in-game)*
 
@@ -292,9 +352,26 @@ MIT License © 2026 StarryNight_Luo
 - **红石 I/O** — 通过机械动力的红石链接网络通信
 - **专用时序节点**：延时、锁存器、T 触发器、脉冲延长、循环、保险
 
+#### 🪑 控制座椅
+一个**可乘坐的控制座椅**，支持实时键盘、鼠标和手柄输入捕获。
+
+- **58 个可绑定按键** — 通过点击绑定 UI 分配按键
+- **两种输入模式**：摇杆（鼠标增量）和视角差（玩家旋转差）
+- **手柄支持** — 双摇杆、15 个按钮（通过 GLFW 手柄 API）
+- **Sable 物理兼容** — 实体 yaw 与子世界旋转同步
+- **按 `~` 下马**、**`TAB` 切换模式**、**`ESC` 打开菜单释放鼠标**
+
+#### 📐 姿态传感器
+通过节点图读取 sable 物理结构的姿态。
+
+- **姿态节点** — 输出子世界的俯仰（pitch）和横滚（roll）
+- **前方朝向节点** — 输出结构的全局朝向偏航/俯仰
+- **世界视角节点** — 读取玩家在座椅上的绝对视角方向
+- **姿态换算节点** — 在不同坐标系间转换 pitch/yaw/roll
+
 ---
 
-### 节点参考（32 种）
+### 节点参考（43 种）
 
 | 分类 | 节点 |
 |------|------|
@@ -304,6 +381,8 @@ MIT License © 2026 StarryNight_Luo
 | **控制** | PID 控制器（误差归零时 I 项复位）、动力 PID、限幅、映射范围 |
 | **输出** | 红石输出、私有信号输出、转速控制 |
 | **时序** | 延时、锁存器、T 触发器、脉冲延长、循环、保险 |
+| **操作输入** | 键盘按键（58键）、鼠标摇杆（X/Y）、视角差、鼠标按键（左/右）、手柄摇杆（LX/LY/RX/RY）、手柄按键（15键） |
+| **传感器** | 世界视角（偏航/俯仰）、姿态（俯仰/横滚）、前方朝向（偏航/俯仰）、姿态换算（3入2出）、分割 |
 
 #### 详细节点表
 
@@ -363,6 +442,25 @@ MIT License © 2026 StarryNight_Luo
 | LOOP | in | clk | count, interval | 收到触发后每 interval tick 输出脉冲，重复 count 次 |
 | FUSE | in | pulse | cooldown | 收到信号→2 tick 脉冲→冷却 N tick |
 
+##### 操作输入（控制座椅专用）
+| 节点 | 输入 | 输出 | 参数 | 说明 |
+|------|------|------|------|------|
+| KEYBOARD | - | 1/0 | key | 绑定键盘按键（58键），按下输出 1 |
+| MOUSE_JOYSTICK | - | X, Y | - | 鼠标增量输出 -1~1（摇杆模式） |
+| VIEW_ANGLE | - | pitch, yaw | - | 玩家视角差（视角差模式） |
+| MOUSE_BUTTON | - | L, R | - | 鼠标左/右键状态 |
+| GAMEPAD_JOYSTICK | - | LX, LY, RX, RY | - | 手柄双摇杆 -1~1 |
+| GAMEPAD_BUTTON | - | 1/0 | button | 手柄按键（15键） |
+
+##### 传感器（姿态传感器专用）
+| 节点 | 输入 | 输出 | 参数 | 说明 |
+|------|------|------|------|------|
+| WORLD_VIEW | - | yaw, pitch | - | 玩家世界视角方向 |
+| ATTITUDE | - | pitch, roll | - | 子世界姿态（俯仰/横滚） |
+| FORWARD | - | yaw, pitch | - | 子世界前方朝向 |
+| POSE_CONVERT | pitch_a, yaw_a, roll | pitch_b, yaw_b | - | 姿态换算（3入2出） |
+| SPLIT | in | +out, -out | - | 正负分离：正数输出+，负数绝对值输出- |
+
 ---
 
 ### 使用方法
@@ -393,6 +491,11 @@ MIT License © 2026 StarryNight_Luo
 | 网格吸附开关 | 点击 **Grid** 按钮 |
 | 缩放 | 滚轮 |
 | 平移画布 | 右键拖拽 |
+| **控制座椅 — 乘坐** | 右键点击座椅（空手） |
+| **控制座椅 — 打开编辑器** | Shift + 右键点击座椅 |
+| **控制座椅 — 下马** | 按 **`~`** 键 |
+| **控制座椅 — 切换模式** | 按 **`TAB`** 键 |
+| **控制座椅 — 暂停/释放鼠标** | 按 **`ESC`** 键 |
 
 ---
 
@@ -413,6 +516,20 @@ MIT License © 2026 StarryNight_Luo
 | 🎯 **精准反射** | 通过反射直接设置转速控制器的内部字段 |
 | 🧹 **积分防饱和** | PID 控制器误差归零时自动复位积分项 |
 | 🛡️ **环检测** | 编译时自动检测循环引用并阻止运行 |
+| 🎮 **GLFW 原始输入** | 控制座椅通过 GLFW 直接读取键盘/鼠标/手柄，绕过 Minecraft 按键绑定系统 |
+| 🔄 **Sable 物理集成** | 控制座椅和姿态传感器实现 `BlockEntitySubLevelActor` 接口读取子世界姿态 |
+
+---
+
+### 方块属性
+所有 5 个方块共享一致的属性：
+
+| 属性 | 值 |
+|------|-----|
+| **硬度** | 1.0（空手可破坏，无需工具） |
+| **空手破坏** | 掉落方块物品**不含 NBT**（全新方块） |
+| **扳手（右键）** | 旋转方块（循环 FACING 方向） |
+| **扳手（Shift + 右键）** | 收回方块**保留完整 NBT**（节点图、运行状态、PID 参数） |
 
 ---
 
@@ -423,6 +540,8 @@ MIT License © 2026 StarryNight_Luo
 | **蓝图计算机** | 无线红石信号终端 ×2 + 精密构件 + 玻璃板 ×2 + 中继器 + 比较器 + 黄铜外壳 ×2 |
 | **转速代理控制器** | 黄铜锭 ×4 + 齿轮 + 玻璃板 ×2 + 比较器 + 安山岩外壳 |
 | **编程计算机** | 安山岩外壳 ×4 + 中继器 + 玻璃板 ×2 + 比较器 + 安山合金 |
+| **控制座椅** | 重质测重压力板 ×1 + 铁锭 ×2 + 黄铜机壳 ×1 + 红石 ×1 + 遥控器 ×4 |
+| **姿态传感器** | 铁锭 ×6 + 中继器 ×1 + 比较器 ×1 + 黄铜机壳 ×2 |
 
 *(需要 JEI 模组在游戏中查看)*
 
@@ -494,11 +613,20 @@ MIT License © 2026 StarryNight_Luo
 - Add: i18n for all GUI buttons and color names (EN/ZH)
 - Add: New textures for all three computers (Blueprint, Program, Speed Proxy)
 - Add: Unified 5-face texture (sp_5) for Speed Proxy Controller
+- **Add: Control Seat block** — sit-able controller with keyboard/mouse/gamepad input, 58 assignable keys, dual input modes, sable physics integration
+- **Add: Attitude Sensor block** — reads sublevel orientation via ATTITUDE/FORWARD/WORLD_VIEW nodes
+- **Add: 11 new node types** — KEYBOARD, MOUSE_JOYSTICK, VIEW_ANGLE, MOUSE_BUTTON, GAMEPAD_JOYSTICK, GAMEPAD_BUTTON, WORLD_VIEW, ATTITUDE, FORWARD, SPLIT, POSE_CONVERT
+- **Add: Input Ctrl category** — nodes for Control Seat input capture
+- **Add: Sensor category** — nodes for Attitude Sensor orientation reading
+- **Add: IWrenchable support** — all 5 blocks support wrench rotation and shift+wrench NBT pick-up
+- **Add: Unified block properties** — hardness 1.0, breakable by hand for all blocks
+- **Add: ESC mouse release** — seated ESC opens pause menu with cursor released
 - Change: Create-style warm metallic GUI palette (brass/copper/steel)
 - Change: Node edit panel moved inside node (no floating side panel)
 - Change: Manual expand/collapse only via ▶/▼ (no auto-collapse)
 - Change: Redstone output clamped to 0-15
 - Change: Speed Proxy Controller side/back texture assignment corrected
+- Change: Block placement facing — blocks now place with **back towards player**
 - Fix: SignalBus cross-computer pollution (remove destructive clear())
 - Fix: SpeedProxy shared static PID map → per-instance
 - Fix: Node expand state survives server sync (tracked by node ID)
