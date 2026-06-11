@@ -75,5 +75,28 @@
   "gui.create_schematic_compute.color.sys_border": "系统边框",
   "gui.create_schematic_compute.color.input_border": "输入引脚边框",
   "gui.create_schematic_compute.color.output_border": "输出引脚边框",
-  "gui.create_schematic_compute.hotbar.select": "选择物品"
+  "gui.create_schematic_compute.hotbar.select": "选择物品",
+
+  "block.create_schematic_compute.control_seat": "控制座椅",
+  "container.create_schematic_compute.control_seat": "控制座椅编辑器",
+
+  "node.create_schematic_compute.keyboard": "键盘按键",
+  "node.create_schematic_compute.mouse_joystick": "鼠标摇杆（X/Y）",
+  "node.create_schematic_compute.view_angle": "视角差",
+  "node.create_schematic_compute.mouse_button": "鼠标按键",
+  "node.create_schematic_compute.gamepad_joystick": "手柄摇杆",
+  "node.create_schematic_compute.gamepad_button": "手柄按键",
+  "node.create_schematic_compute.world_view": "世界视角",
+  "node.create_schematic_compute.attitude": "姿态",
+  "node.create_schematic_compute.forward": "前方朝向（世界X/Y）",
+  "node.create_schematic_compute.pose_convert": "姿态换算",
+  "node.create_schematic_compute.split": "分割",
+
+  "block.create_schematic_compute.sensor": "姿态传感器",
+  "container.create_schematic_compute.sensor": "姿态传感器编辑器",
+
+  "category.create_schematic_compute.math_basic": "基础运算",
+  "category.create_schematic_compute.math_advanced": "高级运算",
+  "category.create_schematic_compute.input_ctrl": "操作输入",
+  "category.create_schematic_compute.input_sensor": "传感器"
 }

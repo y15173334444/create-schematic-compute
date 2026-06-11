@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "IRI",
+    "BAB",
+    "III"
+  ],
+  "key": {
+    "I": { "item": "minecraft:iron_ingot" },
+    "B": { "item": "create:brass_casing" },
+    "R": { "item": "minecraft:repeater" },
+    "A": { "item": "minecraft:comparator" }
+  },
+  "result": {
+    "id": "create_schematic_compute:sensor"
+  }
+}

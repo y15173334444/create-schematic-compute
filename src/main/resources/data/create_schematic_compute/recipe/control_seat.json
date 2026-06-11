@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "LPL",
+    "IBI",
+    "LRL"
+  ],
+  "key": {
+    "P": { "item": "minecraft:heavy_weighted_pressure_plate" },
+    "I": { "item": "minecraft:iron_ingot" },
+    "B": { "item": "create:brass_casing" },
+    "R": { "item": "minecraft:redstone" },
+    "L": { "item": "create:redstone_link" }
+  },
+  "result": {
+    "id": "create_schematic_compute:control_seat"
+  }
+}

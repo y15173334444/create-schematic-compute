@@ -1,0 +1,301 @@
+package com.example.create_schematic_compute.blocks;
+
+import com.example.create_schematic_compute.ModUtils;
+import com.example.create_schematic_compute.SchematicCompute;
+import com.example.create_schematic_compute.graph.GraphEvaluator;
+import com.example.create_schematic_compute.graph.NodeGraph;
+import com.example.create_schematic_compute.graph.NodeType;
+import com.simibubi.create.Create;
+import com.simibubi.create.content.redstone.link.IRedstoneLinkable;
+import com.simibubi.create.content.redstone.link.RedstoneLinkNetworkHandler;
+import com.simibubi.create.foundation.blockEntity.IMergeableBE;
+import net.createmod.catnip.data.Couple;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtAccounter;
+import net.minecraft.nbt.NbtIo;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.game.ClientGamePacketListener;
+import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
+import net.minecraft.world.MenuProvider;
+import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.state.BlockState;
+import javax.annotation.Nullable;
+import java.io.ByteArrayInputStream;
+import java.util.*;
+
+public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
+    public NodeGraph graph = new NodeGraph();
+
+    // ══ 全局输入缓存（按玩家 UUID） ══
+    public record InputState(long keyBits, float mouseX, float mouseY, float yaw, float pitch, int mode,
+        int mouseButtons, float gpadLX, float gpadLY, float gpadRX, float gpadRY, long gpadButtons) {}
+    private static final Map<java.util.UUID, InputState> PLAYER_INPUTS = new java.util.HashMap<>();
+
+    public static void storeInput(java.util.UUID playerUuid, long keyBits, float mouseX, float mouseY,
+        float yaw, float pitch, int mode, int mouseButtons,
+        float gpadLX, float gpadLY, float gpadRX, float gpadRY, long gpadButtons) {
+        synchronized (PLAYER_INPUTS) {
+            PLAYER_INPUTS.put(playerUuid, new InputState(keyBits, mouseX, mouseY, yaw, pitch, mode,
+                mouseButtons, gpadLX, gpadLY, gpadRX, gpadRY, gpadButtons));
+        }
+    }
+
+    public static int pendingInputSize() {
+        synchronized (PLAYER_INPUTS) { return PLAYER_INPUTS.size(); }
+    }
+
+    /** 查找骑乘本座椅的玩家并消费其输入 */
+    protected void consumeInput() {
+        if (level == null) return;
+        var seats = level.getEntitiesOfClass(
+            com.example.create_schematic_compute.entity.ControlSeatEntity.class,
+            new net.minecraft.world.phys.AABB(worldPosition).inflate(50));
+        for (var seat : seats) {
+            for (var passenger : seat.getPassengers()) {
+                if (passenger instanceof Player pl) {
+                    consumeInputByPlayer(pl.getUUID());
+                    return;
+                }
+            }
+        }
+        // 无人骑乘 → 清零输入，保留视角值（世界视角节点继续输出最后朝向）
+        keyBits = 0; inputMode = 0;
+        mouseJoystickX = 0; mouseJoystickY = 0;
+    }
+
+    /** 按玩家 UUID 直接消费输入（不依赖实体位置） */
+    protected void consumeInputByPlayer(java.util.UUID playerUuid) {
+        InputState s;
+        synchronized (PLAYER_INPUTS) {
+            s = PLAYER_INPUTS.remove(playerUuid);
+        }
+        if (s != null) {
+            this.keyBits = s.keyBits;
+            this.mouseJoystickX = s.mouseX;
+            this.mouseJoystickY = s.mouseY;
+            this.viewYaw = s.yaw;
+            this.viewPitch = s.pitch;
+            this.inputMode = s.mode;
+            this.mouseButtons = s.mouseButtons;
+            this.gpadLX = s.gpadLX; this.gpadLY = s.gpadLY;
+            this.gpadRX = s.gpadRX; this.gpadRY = s.gpadRY;
+            this.gpadButtons = s.gpadButtons;
+        }
+    }
+
+    /** 工厂方法：Sable 存在时创建兼容子类，否则创建基础类 */
+    public static ControlSeatBlockEntity create(BlockPos pos, BlockState state) {
+        try {
+            if (net.neoforged.fml.ModList.get().isLoaded("sable")) {
+                Class<?> cls = Class.forName("com.example.create_schematic_compute.compat.ControlSeatBlockEntitySable");
+                return (ControlSeatBlockEntity) cls.getConstructor(BlockPos.class, BlockState.class).newInstance(pos, state);
+            }
+        } catch (Exception ignored) {}
+        return new ControlSeatBlockEntity(pos, state);
+    }
+    public boolean running = false;
+    public final Map<Integer, Float> pidState = new HashMap<>();
+
+    // 控制座椅输入状态（由客户端包更新）
+    public long keyBits = 0;          // bit 0-25: A-Z, 26-35: 0-9, 58=LMB, 59=RMB
+    public float mouseJoystickX = 0;  // -1 ~ 1
+    public float mouseJoystickY = 0;  // -1 ~ 1
+    public float viewYaw = 0;         // 视角差YAW（度）
+    public float viewPitch = 0;       // 视角差PITCH（度）
+    public int inputMode = 0;         // 0=摇杆, 1=视角差
+    public int mouseButtons = 0;      // bit 0=LMB, 1=RMB
+    public float gpadLX = 0, gpadLY = 0, gpadRX = 0, gpadRY = 0;
+    public long gpadButtons = 0;
+
+    /** 世界视角缓存：仅视角差模式更新，摇杆模式/下马后冻结 */
+    private float savedWorldYaw = 0, savedWorldPitch = 0;
+
+    /** 子类（Sable compat）访问 */
+    protected GraphEvaluator evaluator = null;
+    protected NodeGraph lastEvaluatedGraph = null;
+    protected final List<FreqLink> freqLinks = new ArrayList<>();
+    protected final Map<Long, Integer> lastInputs = new HashMap<>();
+    protected final Map<Long, Integer> lastOutputs = new HashMap<>();
+    /** 姿态/前方朝向（由子类 sable$physicsTick 更新） */
+    protected float attitudeYaw = 0, attitudePitch = 0, attitudeRoll = 0;
+    protected float forwardYaw = 0, forwardPitch = 0;
+    protected float blockYaw = 0;
+
+    protected record FreqLink(long freqKey, IRedstoneLinkable linkable) {}
+
+    public ControlSeatBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.CONTROL_SEAT_BE.get(), pos, s); }
+
+    @Override public void accept(net.minecraft.world.level.block.entity.BlockEntity other) {
+        if(other instanceof ControlSeatBlockEntity src) {
+            this.graph = src.graph;
+            this.running = src.running;
+            setChanged();
+            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+    }
+
+    @Override public void onLoad() { super.onLoad(); registerLinks(); }
+    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); unregisterLinks(); }
+    @Override public void setRemoved() { unregisterLinks(); super.setRemoved(); }
+
+    private void registerLinks() {
+        if(level==null||level.isClientSide()) return;
+        unregisterLinks();
+        var EMPTY = RedstoneLinkNetworkHandler.Frequency.EMPTY;
+        for(var n : graph.nodes) {
+            if(n.type==NodeType.REDSTONE_IN||n.type==NodeType.REDSTONE_OUT) {
+                var item1 = n.itemParams!=null&&n.itemParams.length>0 ? n.itemParams[0] : ItemStack.EMPTY;
+                var item2 = n.itemParams!=null&&n.itemParams.length>1 ? n.itemParams[1] : ItemStack.EMPTY;
+                var f1 = !item1.isEmpty() ? RedstoneLinkNetworkHandler.Frequency.of(item1) : EMPTY;
+                var f2 = !item2.isEmpty() ? RedstoneLinkNetworkHandler.Frequency.of(item2) : EMPTY;
+                var freqKey = ModUtils.freqKey(item1, item2);
+                var isIn = n.type==NodeType.REDSTONE_IN;
+                addLink(isIn, freqKey, f1, f2);
+            }
+        }
+        for(var fl : freqLinks) {
+            var net = Create.REDSTONE_LINK_NETWORK_HANDLER.getNetworkOf(level, fl.linkable);
+            if(net!=null) for(var l : net) if(l!=fl.linkable&&l.isAlive()) {
+                int sig = l.getTransmittedStrength();
+                if(sig>0) { lastInputs.put(fl.freqKey, sig); break; }
+            }
+        }
+    }
+
+    private void addLink(boolean isIn, long freqKey, RedstoneLinkNetworkHandler.Frequency f1, RedstoneLinkNetworkHandler.Frequency f2) {
+        var link = new IRedstoneLinkable() {
+            public int getTransmittedStrength() { return isIn?0:lastOutputs.getOrDefault(freqKey,0); }
+            public void setReceivedStrength(int s) { if(isIn) lastInputs.put(freqKey,s); }
+            public boolean isListening() { return isIn; }
+            public boolean isAlive() { return true; }
+            public Couple<RedstoneLinkNetworkHandler.Frequency> getNetworkKey() { return Couple.create(f1,f2); }
+            public BlockPos getLocation() { return worldPosition; }
+        };
+        Create.REDSTONE_LINK_NETWORK_HANDLER.addToNetwork(level, link);
+        freqLinks.add(new FreqLink(freqKey, link));
+    }
+
+    private void unregisterLinks() {
+        for(var fl : freqLinks) Create.REDSTONE_LINK_NETWORK_HANDLER.removeFromNetwork(level, fl.linkable);
+        freqLinks.clear();
+    }
+
+    /** 子类（Sable）覆盖使用 */
+    protected com.example.create_schematic_compute.entity.ControlSeatEntity mySeatEntity = null;
+    public void setSeatEntity(com.example.create_schematic_compute.entity.ControlSeatEntity e) { mySeatEntity = e; }
+
+    /** 子类可重写。客户端发送的是 playerYaw - vehicleYaw，服务端不需额外调整 */
+    protected void adjustViewAngle() {
+        // 客户端已发差值，不做额外调整
+    }
+
+    /** 更新姿态/前方朝向。子类（Sable）可覆盖以从子世界读取。 */
+    protected void updateAttitude() {
+        if (getBlockState().hasProperty(ControlSeatBlock.FACING)) {
+            blockYaw = getBlockState().getValue(ControlSeatBlock.FACING).toYRot();
+            attitudeYaw = blockYaw;
+            forwardYaw = blockYaw;
+        }
+        // 无子世界时 attitudePitch/attitudeRoll/forwardPitch 保持 0
+    }
+
+    public void tick() {
+        if(level==null||level.isClientSide()) return;
+        consumeInput();
+        adjustViewAngle();
+        boolean shouldBeLit = running && !graph.nodes.isEmpty();
+        var currentState = getBlockState();
+        if(currentState.getValue(ControlSeatBlock.LIT)!=shouldBeLit)
+            level.setBlock(worldPosition, currentState.setValue(ControlSeatBlock.LIT, shouldBeLit), 3);
+        if(!running) return;
+
+        if (evaluator == null || lastEvaluatedGraph != graph) {
+            evaluator = new GraphEvaluator(graph);
+            lastEvaluatedGraph = graph;
+            pidState.clear();
+        }
+
+        var in = new ArrayList<GraphEvaluator.InputSource>();
+        for(var n : graph.nodes) {
+            if(n.type==NodeType.REDSTONE_IN) {
+                long fk = ModUtils.freqKey(n.itemParams);
+                in.add(new GraphEvaluator.InputSource(fk, lastInputs.getOrDefault(fk, 0)));
+            }
+        }
+
+        // 计算世界视角（仅视角差模式更新，摇杆模式下冻结）
+        if (inputMode == 1) {
+            var seatEntities = level.getEntitiesOfClass(
+                com.example.create_schematic_compute.entity.ControlSeatEntity.class,
+                new net.minecraft.world.phys.AABB(worldPosition).inflate(50));
+            if (!seatEntities.isEmpty()) {
+                float entityYaw = seatEntities.get(0).getYRot();
+                savedWorldYaw = viewYaw + entityYaw;
+                while (savedWorldYaw > 180) savedWorldYaw -= 360;
+                while (savedWorldYaw < -180) savedWorldYaw += 360;
+                savedWorldPitch = viewPitch;
+            }
+        }
+        // 更新姿态/前方朝向（子类在 sable$physicsTick 中覆盖）
+        updateAttitude();
+        var seatInput = new GraphEvaluator.SeatInputState(keyBits, mouseJoystickX, mouseJoystickY, viewYaw, viewPitch,
+            savedWorldYaw, savedWorldPitch, mouseButtons, gpadLX, gpadLY, gpadRX, gpadRY, gpadButtons,
+            blockYaw, attitudeYaw, attitudePitch, attitudeRoll, forwardYaw, forwardPitch);
+
+        float dt = 0.05f;
+        var results = evaluator.evaluate(in, pidState, dt, seatInput);
+
+        // REDSTONE_OUT 写入机械动力红石网络
+        lastOutputs.clear();
+        for(var r : results) {
+            long freqKey = ModUtils.freqKey(r.freq1(), r.freq2());
+            lastOutputs.put(freqKey, r.signal());
+            for(var fl : freqLinks) if(fl.freqKey() == freqKey)
+                Create.REDSTONE_LINK_NETWORK_HANDLER.updateNetworkOf(level, fl.linkable);
+        }
+        setChanged();
+    }
+
+    public void loadGraphFromBytes(byte[] data) {
+        try {
+            var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
+            if (t != null && t.contains("graph")) {
+                graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
+                registerLinks();
+            }
+            setChanged();
+        } catch (Exception e) {
+            SchematicCompute.LOGGER.error("Failed to load control seat graph, resetting", e);
+            graph = new NodeGraph();
+            registerLinks();
+            setChanged();
+        }
+    }
+
+    @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) {
+        super.saveAdditional(t,r);
+        t.put("graph", graph.save(r));
+        t.putBoolean("running", running);
+    }
+    @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
+        super.loadAdditional(t,r);
+        if (t.contains("graph")) {
+            graph = NodeGraph.load(t.getCompound("graph"), r);
+            registerLinks();
+        }
+        if (t.contains("running")) running = t.getBoolean("running");
+        setChanged();
+        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+    }
+    @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
+    @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) { var t=new CompoundTag(); saveAdditional(t,r); return t; }
+    @Override public Component getDisplayName() { return Component.translatable("container."+SchematicCompute.MOD_ID+".control_seat"); }
+    @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new ControlSeatMenu(id, this); }
+}

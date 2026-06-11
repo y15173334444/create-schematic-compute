@@ -2,7 +2,9 @@ package com.example.create_schematic_compute.network;
 
 import com.example.create_schematic_compute.SchematicCompute;
 import com.example.create_schematic_compute.blocks.BlueprintBlockEntity;
+import com.example.create_schematic_compute.blocks.ControlSeatBlockEntity;
 import com.example.create_schematic_compute.blocks.ProgramComputerBlockEntity;
+import com.example.create_schematic_compute.blocks.SensorBlockEntity;
 import com.example.create_schematic_compute.blocks.SpeedProxyBlockEntity;
 import com.example.create_schematic_compute.graph.NodeGraph;
 import io.netty.buffer.ByteBuf;
@@ -47,6 +49,10 @@ public record BlueprintSavePacket(BlockPos pos, byte[] nbtData) implements Custo
                 spe.loadGraphFromBytes(nbtData);
             } else if (be instanceof ProgramComputerBlockEntity pbe) {
                 pbe.loadGraphFromBytes(nbtData);
+            } else if (be instanceof ControlSeatBlockEntity cbe) {
+                cbe.loadGraphFromBytes(nbtData);
+            } else if (be instanceof SensorBlockEntity sbe) {
+                sbe.loadGraphFromBytes(nbtData);
             }
         });
     }

@@ -34,7 +34,19 @@ public enum NodeType {
     PULSE_EXTEND("node.create_schematic_compute.pulse_extend", 1, 1, "ticks"),
     LOOP("node.create_schematic_compute.loop", 1, 1, "count,interval"),
     FUSE("node.create_schematic_compute.fuse", 1, 1, "cooldown"),
-    FORMULA("node.create_schematic_compute.formula", 0, 1, "");
+    FORMULA("node.create_schematic_compute.formula", 0, 1, ""),
+    POSE_CONVERT("node.create_schematic_compute.pose_convert", 3, 2, ""),
+    // Control Seat input nodes
+    KEYBOARD("node.create_schematic_compute.keyboard", 0, 1, "key"),
+    MOUSE_JOYSTICK("node.create_schematic_compute.mouse_joystick", 0, 2, ""),
+    VIEW_ANGLE("node.create_schematic_compute.view_angle", 0, 2, ""),
+    MOUSE_BUTTON("node.create_schematic_compute.mouse_button", 0, 2, ""),
+    GAMEPAD_JOYSTICK("node.create_schematic_compute.gamepad_joystick", 0, 4, ""),
+    GAMEPAD_BUTTON("node.create_schematic_compute.gamepad_button", 0, 1, "button"),
+    WORLD_VIEW("node.create_schematic_compute.world_view", 0, 2, ""),
+    ATTITUDE("node.create_schematic_compute.attitude", 0, 2, ""),
+    FORWARD("node.create_schematic_compute.forward", 0, 2, ""),
+    SPLIT("node.create_schematic_compute.split", 1, 2, "");
 
     public final String displayName;
     public final int inputs;
@@ -59,6 +71,8 @@ public enum NodeType {
         case LATCH -> i==0?"S":"R";
         case SPEED_CTRL -> i==0?"speed":"dir";
         case PULSE_EXTEND, T_FLIPFLOP, DELAY, LOOP, FUSE -> "in";
+        case KEYBOARD -> "value";
+        case POSE_CONVERT -> i == 0 ? "pitch_a" : i == 1 ? "yaw_a" : "roll";
         default -> "in";
     };}
     public String outputLabel(int i) { return switch(this){
@@ -79,6 +93,17 @@ public enum NodeType {
         case FUSE -> "pulse";
         case PRIVATE_IN -> "val";
         case SPEED_CTRL -> "rpm";
+        case MOUSE_JOYSTICK -> i == 0 ? "X" : "Y";
+        case KEYBOARD -> "1/0";
+        case VIEW_ANGLE -> i == 0 ? "pitch" : "yaw";
+        case MOUSE_BUTTON -> i == 0 ? "L" : "R";
+        case GAMEPAD_JOYSTICK -> switch (i) { case 0 -> "LX"; case 1 -> "LY"; case 2 -> "RX"; default -> "RY"; };
+        case GAMEPAD_BUTTON -> "1/0";
+        case WORLD_VIEW -> i == 0 ? "yaw" : "pitch";
+        case ATTITUDE -> i == 0 ? "pitch" : "roll";
+        case FORWARD -> i == 0 ? "yaw" : "pitch";
+        case SPLIT -> i == 0 ? "+out" : "-out";
+        case POSE_CONVERT -> i == 0 ? "pitch_b" : "yaw_b";
         default -> "";
     };}
 }

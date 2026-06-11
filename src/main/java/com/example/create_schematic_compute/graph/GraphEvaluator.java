@@ -11,13 +11,27 @@ public class GraphEvaluator {
 
     public GraphEvaluator(NodeGraph graph) { this.graph = graph; }
 
+    /** 控制座椅输入状态 */
+    public record SeatInputState(long keyBits, float mouseX, float mouseY, float yaw, float pitch,
+        float worldYaw, float worldPitch,
+        int mouseButtons, float gpadLX, float gpadLY, float gpadRX, float gpadRY, long gpadButtons,
+        float blockYaw, float attitudeYaw, float attitudePitch, float attitudeRoll, float forwardYaw, float forwardPitch) {
+        public SeatInputState(long keyBits, float mouseX, float mouseY, float yaw, float pitch) {
+            this(keyBits, mouseX, mouseY, yaw, pitch, yaw, pitch, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+        }
+    }
+
     public List<OutputResult> evaluate(List<InputSource> inputs, Map<Integer, Float> pidState, float dt) {
+        return evaluate(inputs, pidState, dt, new SeatInputState(0, 0, 0, 0, 0));
+    }
+
+    public List<OutputResult> evaluate(List<InputSource> inputs, Map<Integer, Float> pidState, float dt, SeatInputState seat) {
         outputs.clear();
         // 使用缓存的拓扑排序
         List<Integer> sorted = graph.getTopoOrder();
         for (int id : sorted) {
             GraphNode n = graph.findNode(id);
-            if (n != null) eval(n, inputs, pidState, dt);
+            if (n != null) eval(n, inputs, pidState, dt, seat);
         }
         List<OutputResult> res = new ArrayList<>();
         for (GraphNode n : graph.nodes) {
@@ -49,11 +63,19 @@ public class GraphEvaluator {
                                         Map<Integer, java.util.ArrayDeque<Float>> delayQueues,
                                         Map<Integer, Boolean> flipflopStates,
                                         Map<Integer, Integer> pulseTimers) {
+        return evaluate(inputs, pidState, dt, new SeatInputState(0, 0, 0, 0, 0), delayQueues, flipflopStates, pulseTimers);
+    }
+
+    public List<OutputResult> evaluate(List<InputSource> inputs, Map<Integer, Float> pidState, float dt,
+                                        SeatInputState seat,
+                                        Map<Integer, java.util.ArrayDeque<Float>> delayQueues,
+                                        Map<Integer, Boolean> flipflopStates,
+                                        Map<Integer, Integer> pulseTimers) {
         outputs.clear();
         List<Integer> sorted = graph.getTopoOrder();
         for (int id : sorted) {
             GraphNode n = graph.findNode(id);
-            if (n != null) evalExt(n, inputs, pidState, dt, delayQueues, flipflopStates, pulseTimers);
+            if (n != null) evalExt(n, inputs, pidState, dt, seat, delayQueues, flipflopStates, pulseTimers);
         }
         List<OutputResult> res = new ArrayList<>();
         for (GraphNode n : graph.nodes) {
@@ -70,6 +92,7 @@ public class GraphEvaluator {
     }
 
     private void evalExt(GraphNode node, List<InputSource> inputs, Map<Integer, Float> pidState, float dt,
+                         SeatInputState seat,
                          Map<Integer, java.util.ArrayDeque<Float>> delayQueues,
                          Map<Integer, Boolean> flipflopStates,
                          Map<Integer, Integer> pulseTimers) {
@@ -162,14 +185,43 @@ public class GraphEvaluator {
                 }
                 pulseTimers.put(node.id, timer);
             }
-            default -> { eval(node, inputs, pidState, dt); return; }
+            default -> { eval(node, inputs, pidState, dt, seat); return; }
         }
         outputs.put(node.id, o.clone());
     }
 
-    private void eval(GraphNode node, List<InputSource> inputs, Map<Integer, Float> pidState, float dt) {
+    private void eval(GraphNode node, List<InputSource> inputs, Map<Integer, Float> pidState, float dt, SeatInputState seat) {
         float[] o = node.outputValues;
         switch (node.type) {
+            case KEYBOARD -> {
+                int keyIndex = node.params.length > 0 ? (int)node.params[0] : 0;
+                keyIndex = Math.max(0, Math.min(35, keyIndex));
+                o[0] = ((seat.keyBits >> keyIndex) & 1L) != 0 ? 1f : 0f;
+            }
+            case MOUSE_JOYSTICK -> { o[0] = seat.mouseX(); o[1] = seat.mouseY(); }
+            case VIEW_ANGLE -> { o[0] = seat.pitch(); o[1] = seat.yaw(); }
+            case MOUSE_BUTTON -> { o[0] = (seat.mouseButtons() & 1) != 0 ? 1 : 0; o[1] = (seat.mouseButtons() & 2) != 0 ? 1 : 0; }
+            case GAMEPAD_JOYSTICK -> { o[0] = seat.gpadLX(); o[1] = seat.gpadLY(); o[2] = seat.gpadRX(); o[3] = seat.gpadRY(); }
+            case GAMEPAD_BUTTON -> {
+                int bi = node.params.length > 0 ? (int)node.params[0] : 0;
+                o[0] = bi >= 0 && bi < 64 && ((seat.gpadButtons() >> bi) & 1L) != 0 ? 1 : 0;
+            }
+            case WORLD_VIEW -> { o[0] = seat.worldYaw(); o[1] = seat.worldPitch(); }
+            case ATTITUDE -> { o[0] = seat.attitudePitch(); o[1] = seat.attitudeRoll(); }
+            case FORWARD -> { o[0] = seat.forwardYaw(); o[1] = seat.forwardPitch(); }
+            case SPLIT -> {
+                float v = graph.getInputValue(node.id, 0, outputs);
+                o[0] = Math.max(0, v); o[1] = Math.max(0, -v);
+            }
+            case POSE_CONVERT -> {
+                float pa = graph.getInputValue(node.id, 0, outputs);
+                float ya = graph.getInputValue(node.id, 1, outputs);
+                float roll = graph.getInputValue(node.id, 2, outputs);
+                double r = Math.toRadians(roll);
+                double sr = Math.sin(r), cr = Math.cos(r);
+                o[0] = (float)(sr * pa + cr * ya);
+                o[1] = (float)(cr * pa - sr * ya);
+            }
             case CONST -> o[0] = node.params.length > 0 ? node.params[0] : 0;
             case REDSTONE_IN -> {
                 long nodeKey = ModUtils.freqKey(node.itemParams);

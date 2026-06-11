@@ -57,6 +57,8 @@ public class GraphEditor {
         public int freqSlotSelected = 0;
         public float boolBtnX, boolBtnY, boolBtnW, boolBtnH;
         public float freqSlotX, freqSlotY;
+        // KEYBOARD 节点：按键绑定状态
+        public boolean listeningForKey = false;
     }
     public final java.util.Map<Integer, EditState> nodeEditStatesById = new java.util.HashMap<>();
     // 颜色配置面板
@@ -79,7 +81,7 @@ public class GraphEditor {
         s.paramKeys = node.type.paramNames.clone();
         var mc = Minecraft.getInstance();
         for (int i = 0; i < node.params.length; i++) {
-            if (node.type == NodeType.BOOL) continue;
+            if (node.type == NodeType.BOOL || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON) continue;
             int idx = i;
             var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
@@ -261,6 +263,27 @@ public class GraphEditor {
             }
             hotbarNode = null; // 点击面板外部 → 关闭
         }
+        // KEYBOARD 绑定监听中 → 点击任何地方取消绑定（点击绑定区域本身除外，那里由 edit 区处理）
+        if (btn == 0 && !nodeEditStatesById.isEmpty()) {
+            boolean anyListening = false;
+            for (var st : nodeEditStatesById.values()) if (st.listeningForKey) { anyListening = true; break; }
+            if (anyListening) {
+                // 检查是否点击了 KEYBOARD 编辑区域的内联范围
+                // 如果不是，取消所有监听
+                for (var en : host.getGraph().nodes) {
+                    if (!expandedNodeIds.contains(en.id)) continue;
+                    var st = nodeEditStatesById.get(en.id);
+                    if (st == null || !st.listeningForKey) continue;
+                    float nsx = c2sX(en.x), nsy = c2sY(en.y);
+                    int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
+                    int editLocalY = (int)(HH + PH*(en.inputs()+en.outputs()) + 4/zoom);
+                    int kbLocalY = editLocalY + 4;
+                    if (!(lmx >= 4 && lmx <= NW && lmy >= kbLocalY && lmy <= kbLocalY + 18)) {
+                        st.listeningForKey = false;
+                    }
+                }
+            }
+        }
         // 颜色配置面板打开时阻止所有画布交互
         if (showColorConfig && btn == 0) {
             var mc = Minecraft.getInstance();
@@ -318,6 +341,10 @@ public class GraphEditor {
                     if (lmx >= 4 && lmx <= NW - 4 && lmy >= boolLocalY && lmy <= boolLocalY + 16)
                     { en.params[0] = en.params[0] > 0.5f ? 0 : 1; return true; }
                 }
+                if (en.type == NodeType.KEYBOARD || en.type == NodeType.GAMEPAD_BUTTON) {
+                    int kbLocalY = editLocalY + 4;
+                    if (EditPanel.handleKeyboardClick(en, st, lmx, lmy - kbLocalY, NW)) return true;
+                }
                 for (int fi = 0; fi < st.fields.size(); fi++) {
                     var b = st.fields.get(fi);
                     int fy = editLocalY + 4 + fi * 18;
@@ -373,7 +400,8 @@ public class GraphEditor {
         return node.type.paramNames.length > 0 || node.type == NodeType.REDSTONE_IN
             || node.type == NodeType.REDSTONE_OUT || node.type == NodeType.PRIVATE_IN
             || node.type == NodeType.PRIVATE_OUT || node.type == NodeType.PID_POWER
-            || node.type == NodeType.FORMULA;
+            || node.type == NodeType.FORMULA || node.type == NodeType.KEYBOARD
+            || node.type == NodeType.GAMEPAD_BUTTON;
     }
 
     public void mouseReleased(double mx, double my, int btn) {
@@ -448,6 +476,52 @@ public class GraphEditor {
             if (key == 256) { showColorConfig = false; return true; }
         }
         if (key == 258) { tabHeld = true; return true; } // TAB
+        // KEYBOARD / GAMEPAD_BUTTON 按键绑定捕获
+        if (!nodeEditStatesById.isEmpty()) {
+            for (var st : nodeEditStatesById.values()) {
+                if (st.listeningForKey) {
+                    // 判断是键盘还是手柄
+                    boolean isGpad = false;
+                    for (var en : host.getGraph().nodes) {
+                        var es = nodeEditStatesById.get(en.id);
+                        if (es == st && en.type == NodeType.GAMEPAD_BUTTON) { isGpad = true; break; }
+                    }
+                    if (!isGpad) {
+                        // 键盘绑定
+                        if (key == 256) { st.listeningForKey = false; return true; }
+                        int idx = com.example.create_schematic_compute.blocks.EditPanel.glfwKeyToIndex(key);
+                        if (idx >= 0) {
+                            for (var en : host.getGraph().nodes) {
+                                var es = nodeEditStatesById.get(en.id);
+                                if (es == st && en.params.length > 0) { en.params[0] = idx; break; }
+                            }
+                            st.listeningForKey = false;
+                        }
+                    } else {
+                        // 手柄绑定：扫描已连接的手柄
+                        if (key == 256) { st.listeningForKey = false; return true; }
+                        try {
+                            var gState = org.lwjgl.glfw.GLFWGamepadState.malloc();
+                            if (org.lwjgl.glfw.GLFW.glfwGetGamepadState(org.lwjgl.glfw.GLFW.GLFW_JOYSTICK_1, gState)) {
+                                var btns = gState.buttons();
+                                for (int bi = 0; bi < 15 && bi < btns.capacity(); bi++) {
+                                    if (btns.get(bi) == 1) {
+                                        for (var en : host.getGraph().nodes) {
+                                            var es = nodeEditStatesById.get(en.id);
+                                            if (es == st && en.params.length > 0) { en.params[0] = bi; break; }
+                                        }
+                                        st.listeningForKey = false;
+                                        break;
+                                    }
+                                }
+                            }
+                            gState.free();
+                        } catch (Exception ignored) {}
+                    }
+                    return true;
+                }
+            }
+        }
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.keyPressed(key, sc, mod);
         // X 键删除悬停节点（替代右键删除防误触）
         if (key == 88) { // GLFW_KEY_X
@@ -560,7 +634,8 @@ public class GraphEditor {
         for (int i = graph.nodes.size() - 1; i >= 0; i--) {
             var n = graph.nodes.get(i);
             if (n.type.paramNames.length == 0 && n.type != NodeType.REDSTONE_IN && n.type != NodeType.REDSTONE_OUT
-                && n.type != NodeType.PRIVATE_IN && n.type != NodeType.PRIVATE_OUT && n.type != NodeType.FORMULA) continue;
+                && n.type != NodeType.PRIVATE_IN && n.type != NodeType.PRIVATE_OUT && n.type != NodeType.FORMULA
+                && n.type != NodeType.KEYBOARD && n.type != NodeType.GAMEPAD_BUTTON) continue;
             float sx = c2sX(n.x), sy = c2sY(n.y);
             float ix = sx + (NW - 22) * zoom;
             float iy = sy + 2 * zoom;

@@ -1,23 +1,17 @@
 package com.example.create_schematic_compute;
 
-import com.example.create_schematic_compute.blocks.BlueprintBlock;
-import com.example.create_schematic_compute.blocks.BlueprintBlockEntity;
-import com.example.create_schematic_compute.blocks.BlueprintMenu;
-import com.example.create_schematic_compute.blocks.SpeedProxyBlock;
-import com.example.create_schematic_compute.blocks.SpeedProxyBlockEntity;
-import com.example.create_schematic_compute.blocks.SpeedProxyMenu;
-import com.example.create_schematic_compute.blocks.ProgramComputerBlock;
-import com.example.create_schematic_compute.blocks.ProgramComputerBlockEntity;
-import com.example.create_schematic_compute.blocks.ProgramComputerMenu;
+import com.example.create_schematic_compute.blocks.*;
 import com.example.create_schematic_compute.client.ClientSetup;
+import com.example.create_schematic_compute.entity.ControlSeatEntity;
 import com.simibubi.create.api.schematic.nbt.SafeNbtWriterRegistry;
 import com.simibubi.create.api.schematic.nbt.SafeNbtWriterRegistry.SafeNbtWriter;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.CreativeModeTab;
-import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.Block;
@@ -41,6 +35,7 @@ public class SchematicCompute {
     public static final DeferredRegister<Item> ITEMS = DeferredRegister.create(Registries.ITEM, MOD_ID);
     public static final DeferredRegister<BlockEntityType<?>> BLOCK_ENTITIES = DeferredRegister.create(Registries.BLOCK_ENTITY_TYPE, MOD_ID);
     public static final DeferredRegister<MenuType<?>> MENUS = DeferredRegister.create(Registries.MENU, MOD_ID);
+    public static final DeferredRegister<EntityType<?>> ENTITIES = DeferredRegister.create(Registries.ENTITY_TYPE, MOD_ID);
     public static final DeferredRegister<CreativeModeTab> TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, MOD_ID);
 
     public static final DeferredHolder<Block, BlueprintBlock> BLUEPRINT_BLOCK =
@@ -72,12 +67,36 @@ public class SchematicCompute {
     public static final DeferredHolder<MenuType<?>, MenuType<ProgramComputerMenu>> PROGRAM_MENU =
             MENUS.register("program_computer", () -> IMenuTypeExtension.create((id, inv, buf) -> new ProgramComputerMenu(id, inv, buf)));
 
+    // 姿态传感器
+    public static final DeferredHolder<Block, SensorBlock> SENSOR_BLOCK =
+            BLOCKS.register("sensor", () -> new SensorBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
+    public static final DeferredHolder<Item, BlockItem> SENSOR_ITEM =
+            ITEMS.register("sensor", () -> new BlockItem(SENSOR_BLOCK.get(), new Item.Properties()));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<SensorBlockEntity>> SENSOR_BE =
+            BLOCK_ENTITIES.register("sensor", () -> BlockEntityType.Builder.of(SensorBlockEntity::create, SENSOR_BLOCK.get()).build(null));
+    public static final DeferredHolder<MenuType<?>, MenuType<SensorMenu>> SENSOR_MENU =
+            MENUS.register("sensor", () -> IMenuTypeExtension.create((id, inv, buf) -> new SensorMenu(id, inv, buf)));
+
+    // 控制座椅
+    public static final DeferredHolder<Block, ControlSeatBlock> CONTROL_SEAT_BLOCK =
+            BLOCKS.register("control_seat", () -> new ControlSeatBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
+    public static final DeferredHolder<Item, BlockItem> CONTROL_SEAT_ITEM =
+            ITEMS.register("control_seat", () -> new BlockItem(CONTROL_SEAT_BLOCK.get(), new Item.Properties()));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<ControlSeatBlockEntity>> CONTROL_SEAT_BE =
+            BLOCK_ENTITIES.register("control_seat", () -> BlockEntityType.Builder.of(ControlSeatBlockEntity::create, CONTROL_SEAT_BLOCK.get()).build(null));
+    public static final DeferredHolder<MenuType<?>, MenuType<ControlSeatMenu>> CONTROL_SEAT_MENU =
+            MENUS.register("control_seat", () -> IMenuTypeExtension.create((id, inv, buf) -> new ControlSeatMenu(id, inv, buf)));
+    public static final DeferredHolder<EntityType<?>, EntityType<ControlSeatEntity>> CONTROL_SEAT_ENTITY =
+            ENTITIES.register("control_seat", () -> EntityType.Builder.of(ControlSeatEntity::new, MobCategory.MISC)
+                    .sized(0.001f, 0.001f).noSummon().noSave().build("control_seat"));
+
     public SchematicCompute(IEventBus modEventBus) {
         LOGGER.info("{} initializing...", MOD_ID);
         BLOCKS.register(modEventBus);
         ITEMS.register(modEventBus);
         BLOCK_ENTITIES.register(modEventBus);
         MENUS.register(modEventBus);
+        ENTITIES.register(modEventBus);
         TABS.register(modEventBus);
 
         TABS.register("main", () -> CreativeModeTab.builder()
@@ -87,6 +106,8 @@ public class SchematicCompute {
                     output.accept(BLUEPRINT_ITEM.get());
                     output.accept(SPEED_PROXY_ITEM.get());
                     output.accept(PROGRAM_ITEM.get());
+                    output.accept(CONTROL_SEAT_ITEM.get());
+                    output.accept(SENSOR_ITEM.get());
                 }).build());
 
         // 在注册事件完成后再注册 SafeNbtWriter
@@ -112,6 +133,8 @@ public class SchematicCompute {
         SafeNbtWriterRegistry.REGISTRY.register(BLUEPRINT_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(SPEED_PROXY_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(PROGRAM_BE.get(), writer);
+        SafeNbtWriterRegistry.REGISTRY.register(CONTROL_SEAT_BE.get(), writer);
+        SafeNbtWriterRegistry.REGISTRY.register(SENSOR_BE.get(), writer);
         LOGGER.info("Registered SafeNbtWriters for all computers");
     }
 }

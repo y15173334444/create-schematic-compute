@@ -12,6 +12,8 @@ build/
 # Minecraft dev
 runs/
 out/
+/assets/
+/META-INF/
 
 # OS
 .DS_Store

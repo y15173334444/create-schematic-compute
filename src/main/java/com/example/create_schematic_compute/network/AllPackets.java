@@ -20,5 +20,10 @@ public class AllPackets {
                 BlueprintTogglePacket.CODEC,
                 BlueprintTogglePacket::handle
         );
+        registrar.playToServer(
+                ControlSeatInputPacket.TYPE,
+                ControlSeatInputPacket.CODEC,
+                ControlSeatInputPacket::handle
+        );
     }
 }

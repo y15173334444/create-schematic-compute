@@ -2,10 +2,10 @@ package com.example.create_schematic_compute.blocks;
 
 import com.example.create_schematic_compute.SchematicCompute;
 import com.example.create_schematic_compute.graph.NodeGraph;
+import com.example.create_schematic_compute.graph.NodeType;
 import com.example.create_schematic_compute.network.BlueprintSavePacket;
 import com.example.create_schematic_compute.network.BlueprintTogglePacket;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
@@ -14,31 +14,32 @@ import net.minecraft.world.entity.player.Inventory;
 import net.neoforged.neoforge.network.PacketDistributor;
 import java.io.ByteArrayOutputStream;
 
-public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> implements GraphEditor.Host {
-    private final BlueprintBlockEntity blockEntity;
+public class ControlSeatScreen extends AbstractContainerScreen<ControlSeatMenu> implements GraphEditor.Host {
+    private final ControlSeatBlockEntity blockEntity;
     private final GraphEditor editor;
 
-    public BlueprintScreen(BlueprintMenu m, Inventory inv, Component t) {
+    /** 控制座椅允许的节点类型 */
+    private static boolean isAllowedNode(NodeType nt) {
+        return nt == NodeType.KEYBOARD
+            || nt == NodeType.MOUSE_JOYSTICK
+            || nt == NodeType.VIEW_ANGLE
+            || nt == NodeType.MOUSE_BUTTON
+            || nt == NodeType.GAMEPAD_JOYSTICK
+            || nt == NodeType.GAMEPAD_BUTTON
+            || nt == NodeType.WORLD_VIEW
+            || nt == NodeType.ATTITUDE
+            || nt == NodeType.POSE_CONVERT
+            || nt == NodeType.SPLIT
+            || nt == NodeType.REDSTONE_OUT
+            || nt == NodeType.PRIVATE_OUT;
+    }
+
+    public ControlSeatScreen(ControlSeatMenu m, Inventory inv, Component t) {
         super(m, inv, t);
         this.blockEntity = m.blockEntity;
         this.imageWidth = 9999;
         this.editor = new GraphEditor(this, this);
-        editor.setNodeFilter(nt -> nt != com.example.create_schematic_compute.graph.NodeType.SPEED_CTRL
-            && nt != com.example.create_schematic_compute.graph.NodeType.DELAY
-            && nt != com.example.create_schematic_compute.graph.NodeType.LATCH
-            && nt != com.example.create_schematic_compute.graph.NodeType.T_FLIPFLOP
-            && nt != com.example.create_schematic_compute.graph.NodeType.PULSE_EXTEND
-            && nt != com.example.create_schematic_compute.graph.NodeType.LOOP
-            && nt != com.example.create_schematic_compute.graph.NodeType.FUSE
-            && nt != com.example.create_schematic_compute.graph.NodeType.KEYBOARD
-            && nt != com.example.create_schematic_compute.graph.NodeType.MOUSE_JOYSTICK
-            && nt != com.example.create_schematic_compute.graph.NodeType.MOUSE_BUTTON
-            && nt != com.example.create_schematic_compute.graph.NodeType.GAMEPAD_JOYSTICK
-            && nt != com.example.create_schematic_compute.graph.NodeType.GAMEPAD_BUTTON
-            && nt != com.example.create_schematic_compute.graph.NodeType.VIEW_ANGLE
-            && nt != com.example.create_schematic_compute.graph.NodeType.WORLD_VIEW
-            && nt != com.example.create_schematic_compute.graph.NodeType.ATTITUDE
-            && nt != com.example.create_schematic_compute.graph.NodeType.FORWARD);
+        editor.setNodeFilter(ControlSeatScreen::isAllowedNode);
     }
 
     @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
@@ -48,14 +49,12 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
     @Override
     public void saveGraph() {
         try {
-            BlueprintBlockEntity be = blockEntity;
+            ControlSeatBlockEntity be = blockEntity;
             if(be==null&&menu.blockPos!=null&&minecraft!=null&&minecraft.level!=null)
-                if(minecraft.level.getBlockEntity(menu.blockPos) instanceof BlueprintBlockEntity found) be=found;
+                if(minecraft.level.getBlockEntity(menu.blockPos) instanceof ControlSeatBlockEntity found) be=found;
             if(be==null||be.getLevel()==null) return;
-            var tag = new CompoundTag();
-            tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
-            var baos = new ByteArrayOutputStream();
-            NbtIo.writeCompressed(tag, baos);
+            var tag = new CompoundTag(); tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
+            var baos = new ByteArrayOutputStream(); NbtIo.writeCompressed(tag, baos);
             PacketDistributor.sendToServer(new BlueprintSavePacket(be.getBlockPos(), baos.toByteArray()));
             editor.saveFeedbackUntil = System.currentTimeMillis() + 1500;
         } catch(Exception e) { SchematicCompute.LOGGER.error("Save", e); }
@@ -68,7 +67,6 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
     }
 
     @Override protected void renderBg(GuiGraphics g, float pt, int mx, int my) { editor.renderBg(g, mx, my); }
-
     @Override public boolean mouseClicked(double mx, double my, int btn) { return editor.mouseClicked(mx, my, btn) || super.mouseClicked(mx, my, btn); }
     @Override public boolean mouseReleased(double mx, double my, int btn) { editor.mouseReleased(mx, my, btn); return super.mouseReleased(mx, my, btn); }
     @Override public void mouseMoved(double mx, double my) { editor.mouseMoved(mx, my); }

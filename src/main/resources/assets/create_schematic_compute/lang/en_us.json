@@ -1,11 +1,8 @@
 {
   "itemGroup.create_schematic_compute": "Create: Schematic Compute",
-
   "block.create_schematic_compute.blueprint": "Blueprint Computer",
   "container.create_schematic_compute.blueprint": "Blueprint Editor",
-
   "gui.create_schematic_compute.blueprint.add_node": "Add Node",
-
   "node.create_schematic_compute.const": "Constant",
   "node.create_schematic_compute.redstone_in": "Redstone Input",
   "node.create_schematic_compute.redstone_out": "Redstone Output",
@@ -38,20 +35,17 @@
   "node.create_schematic_compute.interp": "Comparison Router (|A-B|)",
   "node.create_schematic_compute.bool": "Bool (Toggle)",
   "node.create_schematic_compute.formula": "Formula",
-
   "block.create_schematic_compute.speed_proxy": "Speed Proxy Controller",
   "container.create_schematic_compute.speed_proxy": "Speed Proxy Controller",
-
   "block.create_schematic_compute.program_computer": "Program Computer",
   "container.create_schematic_compute.program_computer": "Program Computer Editor",
-
   "category.create_schematic_compute.values": "Values",
-  "category.create_schematic_compute.math": "Math",
+  "category.create_schematic_compute.math_basic": "Basic Math",
+  "category.create_schematic_compute.math_advanced": "Advanced Math",
   "category.create_schematic_compute.logic": "Logic",
   "category.create_schematic_compute.control": "Control",
   "category.create_schematic_compute.output": "Output",
   "category.create_schematic_compute.sequential": "Sequential",
-
   "gui.create_schematic_compute.grid": "Grid",
   "gui.create_schematic_compute.grid_on": "Grid",
   "gui.create_schematic_compute.style": "Style",
@@ -74,5 +68,22 @@
   "gui.create_schematic_compute.hotbar.select": "Select Item",
   "gui.create_schematic_compute.color.sys_border": "System Border",
   "gui.create_schematic_compute.color.input_border": "Input Pin Border",
-  "gui.create_schematic_compute.color.output_border": "Output Pin Border"
+  "gui.create_schematic_compute.color.output_border": "Output Pin Border",
+  "block.create_schematic_compute.control_seat": "Control Seat",
+  "container.create_schematic_compute.control_seat": "Control Seat Editor",
+  "node.create_schematic_compute.keyboard": "Keyboard Key",
+  "node.create_schematic_compute.mouse_joystick": "Mouse Joystick",
+  "node.create_schematic_compute.view_angle": "View Angle",
+  "node.create_schematic_compute.mouse_button": "Mouse Button",
+  "node.create_schematic_compute.gamepad_joystick": "Gamepad Joystick",
+  "node.create_schematic_compute.gamepad_button": "Gamepad Button",
+  "node.create_schematic_compute.world_view": "World View",
+  "node.create_schematic_compute.attitude": "Attitude",
+  "node.create_schematic_compute.forward": "Forward (World XY)",
+  "node.create_schematic_compute.pose_convert": "Pose Convert",
+  "node.create_schematic_compute.split": "Split",
+  "block.create_schematic_compute.sensor": "Attitude Sensor",
+  "container.create_schematic_compute.sensor": "Attitude Sensor Editor",
+  "category.create_schematic_compute.input_ctrl": "Controls",
+  "category.create_schematic_compute.input_sensor": "Sensors"
 }
