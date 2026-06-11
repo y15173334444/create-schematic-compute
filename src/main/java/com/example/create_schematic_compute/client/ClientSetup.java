@@ -35,5 +35,7 @@ public class ClientSetup {
     public static class NoRenderEntityRenderer extends EntityRenderer<ControlSeatEntity> {
         public NoRenderEntityRenderer(EntityRendererProvider.Context ctx) { super(ctx); }
         @Override public ResourceLocation getTextureLocation(ControlSeatEntity entity) { return null; }
+        @Override
+        public void render(ControlSeatEntity entity, float yaw, float partialTick, com.mojang.blaze3d.vertex.PoseStack poseStack, net.minecraft.client.renderer.MultiBufferSource buffer, int light) {}
     }
 }

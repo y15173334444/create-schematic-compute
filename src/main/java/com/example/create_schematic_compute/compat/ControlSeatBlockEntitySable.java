@@ -19,11 +19,11 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
 
     private Level savedLevel;
     private java.util.UUID riderUUID = null;
-    private float cachedSubYaw = 0, cachedSubPitch = 0, cachedSubRoll = 0;
-    private float cachedBlockFacingYaw = 0;
+    private volatile float cachedSubYaw = 0, cachedSubPitch = 0, cachedSubRoll = 0;
+    private volatile float cachedBlockFacingYaw = 0;
     /** 子世界初始 yaw（用于计算相对旋转，消除初始偏移） */
-    private float initialSubYaw = Float.NaN;
-    private boolean hasSubPose = false;
+    private volatile float initialSubYaw = Float.NaN;
+    private volatile boolean hasSubPose = false;
 
     public ControlSeatBlockEntitySable(BlockPos pos, BlockState state) {
         super(pos, state);
@@ -41,25 +41,6 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
         savedLevel = level;
     }
 
-    private static float[] getSubPose(ServerSubLevel subLevel) {
-        float[] r = new float[3];
-        try {
-            var pose = subLevel.logicalPose();
-            if (pose != null) {
-                var oq = pose.orientation();
-                if (oq != null) {
-                    // 使用 JOML 的 getEulerAnglesYXZ，与基类 updateAttitude 一致
-                    org.joml.Quaterniond q = new org.joml.Quaterniond(oq.x(), oq.y(), oq.z(), oq.w());
-                    org.joml.Vector3d euler = new org.joml.Vector3d();
-                    q.getEulerAnglesYXZ(euler);
-                    r[0] = (float) Math.toDegrees(euler.y); // yaw
-                    r[1] = (float) Math.toDegrees(euler.x); // pitch
-                    r[2] = (float) Math.toDegrees(euler.z); // roll
-                }
-            }
-        } catch (Exception ignored) {}
-        return r;
-    }
 
     @Override
     public void sable$physicsTick(ServerSubLevel subLevel, RigidBodyHandle handle, double deltaTime) {
@@ -67,7 +48,7 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
         if (this.level == null || this.level.isClientSide()) return;
 
         // ── 先缓存子世界 pose（无论是否有骑手） ──
-        float[] pose = getSubPose(subLevel);
+        float[] pose = SablePoseHelper.getSubPose(subLevel);
         cachedSubYaw = pose[0];
         cachedSubPitch = pose[1];
         cachedSubRoll = pose[2];

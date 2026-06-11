@@ -85,6 +85,14 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
                 freqLinks.add(new FreqLink(freqKey, link));
             }
         }
+        // 第二轮询：从已有网络中读取初始信号
+        for(var fl : freqLinks) {
+            var net = Create.REDSTONE_LINK_NETWORK_HANDLER.getNetworkOf(level, fl.linkable);
+            if(net!=null) for(var l : net) if(l!=fl.linkable&&l.isAlive()) {
+                int sig = l.getTransmittedStrength();
+                if(sig>0) { lastInputs.put(fl.freqKey, sig); break; }
+            }
+        }
     }
     private void unregisterLinks() { for(var fl : freqLinks) Create.REDSTONE_LINK_NETWORK_HANDLER.removeFromNetwork(level, fl.linkable); freqLinks.clear(); }
 

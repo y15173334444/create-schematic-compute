@@ -188,7 +188,7 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     }
 
     /** 子类（Sable）覆盖使用 */
-    protected com.example.create_schematic_compute.entity.ControlSeatEntity mySeatEntity = null;
+    protected volatile com.example.create_schematic_compute.entity.ControlSeatEntity mySeatEntity = null;
     public void setSeatEntity(com.example.create_schematic_compute.entity.ControlSeatEntity e) { mySeatEntity = e; }
 
     /** 子类可重写。客户端发送的是 playerYaw - vehicleYaw，服务端不需额外调整 */

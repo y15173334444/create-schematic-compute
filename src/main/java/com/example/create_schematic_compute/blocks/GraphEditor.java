@@ -568,8 +568,10 @@ public class GraphEditor {
             for (var n : List.copyOf(selectedNodes)) {
                 graph.removeNode(n.id);
             }
-            expandedNodeIds.remove(selectedNode != null ? selectedNode.id : 0);
-            nodeEditStatesById.remove(selectedNode != null ? selectedNode.id : 0);
+            if (selectedNode != null) {
+                expandedNodeIds.remove(selectedNode.id);
+                nodeEditStatesById.remove(selectedNode.id);
+            }
             selectedNodes.clear();
             selectedNode = null;
             return true;

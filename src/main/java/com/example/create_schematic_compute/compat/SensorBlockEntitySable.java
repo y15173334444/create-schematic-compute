@@ -15,9 +15,9 @@ import net.minecraft.world.level.block.state.BlockState;
  */
 public class SensorBlockEntitySable extends SensorBlockEntity implements BlockEntitySubLevelActor {
 
-    private float cachedSubYaw = 0, cachedSubPitch = 0, cachedSubRoll = 0;
-    private float cachedBlockFacingYaw = 0;
-    private boolean hasSubPose = false;
+    private volatile float cachedSubYaw = 0, cachedSubPitch = 0, cachedSubRoll = 0;
+    private volatile float cachedBlockFacingYaw = 0;
+    private volatile boolean hasSubPose = false;
 
     public SensorBlockEntitySable(BlockPos pos, BlockState state) {
         super(pos, state);
@@ -28,7 +28,7 @@ public class SensorBlockEntitySable extends SensorBlockEntity implements BlockEn
         if (level == null || level.isClientSide()) return;
 
         // ── 读取子世界姿态 ──
-        float[] pose = getSubPose(subLevel);
+        float[] pose = SablePoseHelper.getSubPose(subLevel);
         cachedSubYaw = pose[0];
         cachedSubPitch = pose[1];
         cachedSubRoll = pose[2];
@@ -72,25 +72,6 @@ public class SensorBlockEntitySable extends SensorBlockEntity implements BlockEn
         while (forwardYaw < -180) forwardYaw += 360;
     }
 
-    private static float[] getSubPose(ServerSubLevel subLevel) {
-        float[] r = new float[3];
-        try {
-            var pose = subLevel.logicalPose();
-            if (pose != null) {
-                var oq = pose.orientation();
-                if (oq != null) {
-                    // 使用 JOML 的 getEulerAnglesYXZ，与基类 SensorBlockEntity.updateAttitude() 一致
-                    org.joml.Quaterniond q = new org.joml.Quaterniond(oq.x(), oq.y(), oq.z(), oq.w());
-                    org.joml.Vector3d euler = new org.joml.Vector3d();
-                    q.getEulerAnglesYXZ(euler);
-                    r[0] = (float) Math.toDegrees(euler.y); // yaw
-                    r[1] = (float) Math.toDegrees(euler.x); // pitch
-                    r[2] = (float) Math.toDegrees(euler.z); // roll
-                }
-            }
-        } catch (Exception ignored) {}
-        return r;
-    }
 
     @Override
     public Iterable<dev.ryanhcode.sable.sublevel.SubLevel> sable$getLoadingDependencies() {

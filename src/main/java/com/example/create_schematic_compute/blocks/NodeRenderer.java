@@ -21,7 +21,6 @@ public class NodeRenderer {
     static int CG=0xFF1F1E1A, CGL=0xFF2C2A24, CN=0xFF3A3832, CH=0xFF4A3F28;
     static int CB=0xFF5A4D3A, CPI=0xFFD4A017, CPO=0xFFB87333;
     static int CW=0xFFC5962B, CWD=0xFFFFDD55, CT=0xFFFFFFFF, CD=0xFF888888;
-    static int CSN=0xFFFFAA00;
     static int CMN=0xFF888888, CMH=0xFFFFDD77;
     static int CNT=0xFFFFAA00, CCT=0xFFFFAA00, CSB=0xFF8B7533;
     static int CPIB=0xFF8B6914, CPOB=0xFF8A4A22; // 引脚边框
@@ -390,15 +389,11 @@ public class NodeRenderer {
         float dx = Math.abs(x2-x1)*0.4f;
         float dist = (float)Math.sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
         int steps = Math.max(20, (int)(dist*0.5f));
-        float px=x1, py=y1;
-        for(int i=1; i<=steps; i++) {
+        for(int i=0; i<=steps; i++) {
             float t = i/(float)steps, inv = 1-t;
             float nx = inv*inv*inv*x1 + 3*inv*inv*t*(x1+dx) + 3*inv*t*t*(x2-dx) + t*t*t*x2;
             float ny = inv*inv*inv*y1 + 3*inv*inv*t*y1 + 3*inv*t*t*y2 + t*t*t*y2;
-            int minX = (int)Math.min(px,nx), minY = (int)Math.min(py,ny);
-            int maxX = (int)Math.max(px,nx), maxY = (int)Math.max(py,ny);
-            g.fill(minX,minY,maxX+1,maxY+1,c);
-            px=nx; py=ny;
+            g.fill((int)nx, (int)ny, (int)nx+1, (int)ny+1, c);
         }
     }
 }

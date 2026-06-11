@@ -82,6 +82,7 @@ public class ControlSeatInputHandler {
         if (seated && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_GRAVE_ACCENT) == GLFW.GLFW_PRESS) {
             wantDismount = true;
             wasTab = false; cursorInit = false; inputMode = 0;
+            joystickX = 0; joystickY = 0;
             wasSeatedLastTick = false;
             return;
         }

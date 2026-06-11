@@ -125,6 +125,8 @@ public class EditPanel {
             return 26 + (glfwKey - org.lwjgl.glfw.GLFW.GLFW_KEY_0);
         return switch (glfwKey) {
             case org.lwjgl.glfw.GLFW.GLFW_KEY_SPACE -> K_SPACE;
+            case org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_SHIFT -> K_LSHIFT;
+            case org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT_SHIFT -> K_RSHIFT;
             case org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_CONTROL -> K_LCTRL;
             case org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT_CONTROL -> K_RCTRL;
             case org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_ALT -> K_LALT;
