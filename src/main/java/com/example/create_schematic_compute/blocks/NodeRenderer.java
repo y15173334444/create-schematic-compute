@@ -389,11 +389,19 @@ public class NodeRenderer {
         float dx = Math.abs(x2-x1)*0.4f;
         float dist = (float)Math.sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
         int steps = Math.max(20, (int)(dist*0.5f));
-        for(int i=0; i<=steps; i++) {
+        float px=x1, py=y1;
+        for(int i=1; i<=steps; i++) {
             float t = i/(float)steps, inv = 1-t;
             float nx = inv*inv*inv*x1 + 3*inv*inv*t*(x1+dx) + 3*inv*t*t*(x2-dx) + t*t*t*x2;
             float ny = inv*inv*inv*y1 + 3*inv*inv*t*y1 + 3*inv*t*t*y2 + t*t*t*y2;
-            g.fill((int)nx, (int)ny, (int)nx+1, (int)ny+1, c);
+            int sx = (int)px, sy = (int)py, ex = (int)nx, ey = (int)ny;
+            int segSteps = Math.max(Math.abs(ex-sx), Math.abs(ey-sy));
+            for (int j = 0; j <= segSteps; j++) {
+                int x = sx + (ex - sx) * j / Math.max(segSteps, 1);
+                int y = sy + (ey - sy) * j / Math.max(segSteps, 1);
+                g.fill(x, y, x+1, y+1, c);
+            }
+            px=nx; py=ny;
         }
     }
 }

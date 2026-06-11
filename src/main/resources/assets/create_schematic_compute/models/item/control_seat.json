@@ -1,9 +1,6 @@
 {
   "parent": "create_schematic_compute:block/control_seat",
   "display": {
-    "gui": {
-      "rotation": [0, 180, 0]
-    },
     "ground": {
       "rotation": [0, 180, 0]
     },
