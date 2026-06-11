@@ -230,6 +230,52 @@ All five blocks share consistent properties:
 | **Wrench (right-click)** | Rotates block (cycles FACING direction) |
 | **Wrench (shift + right-click)** | Picks up block **with** full NBT preservation (graph, running state, pid values) |
 
+
+
+### Sable Physics Integration
+
+This mod has **deep integration** with the **Sable physics engine** for Minecraft. The Control Seat and Attitude Sensor are designed to work on rotating physics structures.
+
+#### How it works
+
+Both blocks implement `BlockEntitySubLevelActor` — Sable's interface for block entities that participate in subworld physics simulation. When a block is placed inside a sable sublevel:
+
+1. **`sable$physicsTick()`** fires every physics tick (concurrent with the server tick)
+2. The sublevel's **logical pose** (orientation quaternion) is read via `subLevel.logicalPose()`
+3. Euler angles are extracted using JOML's `getEulerAnglesYXZ()` — matching Minecraft's YXZ rotation convention
+4. Yaw is converted from JOML's CCW-positive convention to Minecraft's CW-positive convention
+5. A **relative rotation** is computed (subtracting the initial sublevel offset) so that at-rest structures read as 0° deviation
+
+#### Thread safety
+
+The sable physics thread and the Minecraft server thread run concurrently. Shared fields (`cachedSubYaw`, `cachedSubPitch`, `cachedSubRoll`, `hasSubPose`, `cachedBlockFacingYaw`, `initialSubYaw`) are all marked **`volatile`** to ensure cross-thread visibility.
+
+#### Control Seat + Sable
+
+| Feature | Description |
+|---------|-------------|
+| **Entity yaw sync** | The ControlSeatEntity's yaw tracks the sublevel rotation (`blockFacing - relativeYaw`), so the player's camera follows the structure |
+| **Joystick mode** | Player view locks to entity yaw, automatically rotating with the physics structure |
+| **View angle mode** | Client sends `playerYaw - vehicleYaw` delta; server reconstructs absolute world yaw using entity yaw |
+| **Relative rotation tracking** | Initial sublevel yaw recorded on first physics tick; subsequent rotations measured as offsets from initial |
+
+#### Attitude Sensor + Sable
+
+| Node | Source | Convention |
+|------|--------|------------|
+| **ATTITUDE** | `subLevel.logicalPose().orientation()` → `getEulerAnglesYXZ()` | Output: pitch (X), roll (Z) |
+| **FORWARD** | Block facing vector rotated by sublevel quaternion | Output: world-space yaw/pitch |
+| **WORLD_VIEW** | Player absolute yaw (view angle diff + entity yaw) | Updates in view angle mode only |
+
+#### Without Sable
+
+**Sable is optional.** When sable is not installed:
+
+| Component | Behavior |
+|-----------|----------|
+| Control Seat | Fully functional — keyboard/mouse/gamepad input, key binding, two input modes, ESC menu |
+| Attitude Sensor | Graph editor, math/logic/output nodes, redstone I/O work. ATTITUDE/FORWARD/WORLD_VIEW output 0 |
+
 ---
 
 ### Technical Highlights
@@ -530,6 +576,52 @@ MIT License © 2026 StarryNight_Luo
 | **空手破坏** | 掉落方块物品**不含 NBT**（全新方块） |
 | **扳手（右键）** | 旋转方块（循环 FACING 方向） |
 | **扳手（Shift + 右键）** | 收回方块**保留完整 NBT**（节点图、运行状态、PID 参数） |
+
+
+
+### Sable 物理集成
+
+本模组与 **Sable 物理引擎** 深度集成。控制座椅和姿态传感器专为在旋转的物理结构上工作而设计。
+
+#### 工作原理
+
+两个方块都实现了 `BlockEntitySubLevelActor` — Sable 用于参与子世界物理模拟的方块实体接口。当方块放置在 sable 子世界中时：
+
+1. **`sable$physicsTick()`** 每个物理 tick 触发（与服务端 tick 并发运行）
+2. 子世界的 **逻辑姿态**（方向四元数）通过 `subLevel.logicalPose()` 读取
+3. 使用 JOML 的 `getEulerAnglesYXZ()` 提取欧拉角（匹配 Minecraft 的 YXZ 旋转约定）
+4. 偏航角从 JOML 的逆时针正方向转换为 Minecraft 的顺时针正方向
+5. 计算**相对旋转**（减去初始子世界偏移），使静止结构读取为 0° 偏差
+
+#### 线程安全
+
+Sable 物理线程和 Minecraft 服务端线程并发运行。共享字段（`cachedSubYaw`、`cachedSubPitch`、`cachedSubRoll`、`hasSubPose`、`cachedBlockFacingYaw`、`initialSubYaw`）都标记为 **`volatile`** 确保跨线程可见性。
+
+#### 控制座椅 + Sable
+
+| 特性 | 说明 |
+|------|------|
+| **实体 yaw 同步** | 座椅实体 yaw 追踪子世界旋转（`blockFacing - relativeYaw`），玩家视角随结构转动 |
+| **摇杆模式** | 玩家视角锁定到实体 yaw，自动跟随物理结构旋转 |
+| **视角差模式** | 客户端发送 `playerYaw - vehicleYaw` 差值，服务端用实体 yaw 重建绝对世界偏航 |
+| **相对旋转追踪** | 首次 physics tick 记录初始子世界 yaw，后续旋转测量为与初始值的偏移 |
+
+#### 姿态传感器 + Sable
+
+| 节点 | 数据来源 | 说明 |
+|------|----------|------|
+| **ATTITUDE** | `subLevel.logicalPose().orientation()` → `getEulerAnglesYXZ()` | 输出俯仰 pitch（X）和横滚 roll（Z） |
+| **FORWARD** | 方块朝向向量经子世界四元数旋转 | 输出结构在世界空间中的前方偏航/俯仰 |
+| **WORLD_VIEW** | 玩家绝对偏航（视角差 + 实体 yaw） | 仅在视角差模式更新，摇杆模式冻结 |
+
+#### 无 Sable 时
+
+**Sable 是可选的。** 未安装 sable 时：
+
+| 组件 | 行为 |
+|------|------|
+| 控制座椅 | **完全可用** — 键盘/鼠标/手柄输入、按键绑定、两种输入模式、ESC 菜单 |
+| 姿态传感器 | **部分可用** — 节点编辑器、所有数学/逻辑/输出节点、红石 I/O 正常工作。ATTITUDE/FORWARD/WORLD_VIEW 节点输出 **0**（无子世界姿态数据） |
 
 ---
 
