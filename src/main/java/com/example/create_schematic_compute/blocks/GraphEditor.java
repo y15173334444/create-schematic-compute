@@ -500,8 +500,8 @@ public class GraphEditor {
                     } else {
                         // 手柄绑定：扫描已连接的手柄
                         if (key == 256) { st.listeningForKey = false; return true; }
+                        var gState = org.lwjgl.glfw.GLFWGamepadState.malloc();
                         try {
-                            var gState = org.lwjgl.glfw.GLFWGamepadState.malloc();
                             if (org.lwjgl.glfw.GLFW.glfwGetGamepadState(org.lwjgl.glfw.GLFW.GLFW_JOYSTICK_1, gState)) {
                                 var btns = gState.buttons();
                                 for (int bi = 0; bi < 15 && bi < btns.capacity(); bi++) {
@@ -515,8 +515,9 @@ public class GraphEditor {
                                     }
                                 }
                             }
+                        } finally {
                             gState.free();
-                        } catch (Exception ignored) {}
+                        }
                     }
                     return true;
                 }

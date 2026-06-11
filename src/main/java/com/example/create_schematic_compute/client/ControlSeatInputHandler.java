@@ -175,16 +175,19 @@ public class ControlSeatInputHandler {
         long gBtns = 0;
         if (GLFW.glfwJoystickPresent(GLFW.GLFW_JOYSTICK_1)) {
             var state = org.lwjgl.glfw.GLFWGamepadState.malloc();
-            if (GLFW.glfwGetGamepadState(GLFW.GLFW_JOYSTICK_1, state)) {
-                gLX = state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_LEFT_X);
-                gLY = state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_LEFT_Y);
-                gRX = state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_RIGHT_X);
-                gRY = state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_RIGHT_Y);
-                var btns = state.buttons();
-                for (int i = 0; i < 15 && i < btns.capacity(); i++)
-                    if (btns.get(i) == 1) gBtns |= (1L << i);
+            try {
+                if (GLFW.glfwGetGamepadState(GLFW.GLFW_JOYSTICK_1, state)) {
+                    gLX = state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_LEFT_X);
+                    gLY = state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_LEFT_Y);
+                    gRX = state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_RIGHT_X);
+                    gRY = state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_RIGHT_Y);
+                    var btns = state.buttons();
+                    for (int i = 0; i < 15 && i < btns.capacity(); i++)
+                        if (btns.get(i) == 1) gBtns |= (1L << i);
+                }
+            } finally {
+                state.free();
             }
-            state.free();
         }
 
         float mx = 0, my = 0, vy = 0, vp = 0;
