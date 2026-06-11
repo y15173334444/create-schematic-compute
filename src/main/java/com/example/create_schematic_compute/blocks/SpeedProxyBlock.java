@@ -100,16 +100,22 @@ public class SpeedProxyBlock extends BaseEntityBlock implements IWrenchable {
 
     @Override
     public BlockState getRotatedBlockState(BlockState state, Direction direction) {
-        return state.cycle(FACING);
+        return state.setValue(FACING, state.getValue(FACING).getClockWise());
     }
 
     @Override
     public InteractionResult onWrenched(BlockState state, UseOnContext context) {
         Level level = context.getLevel();
+        if (level.isClientSide()) return InteractionResult.SUCCESS;
         BlockPos pos = context.getClickedPos();
         BlockState rotated = getRotatedBlockState(state, context.getClickedFace());
         if (!rotated.canSurvive(level, pos)) return InteractionResult.PASS;
         level.setBlock(pos, rotated, 3);
+        // 通知 block entity 状态变更
+        if (level.getBlockEntity(pos) instanceof net.minecraft.world.level.block.entity.BlockEntity be) {
+            be.setChanged();
+            level.sendBlockUpdated(pos, state, rotated, 3);
+        }
         IWrenchable.playRotateSound(level, pos);
         return InteractionResult.SUCCESS;
     }
