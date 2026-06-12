@@ -538,8 +538,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                          0xFFFF0000, 0xFFCC0000, 0xFFFF8800, 0xFF8B4513, 0xFFFFFF00,
                          0xFF88FF00, 0xFF00FF00, 0xFF008800, 0xFF00FFFF, 0xFF008888,
                          0xFF88CCFF, 0xFF0000FF, 0xFF000088, 0xFF8800FF, 0xFFFF00FF,
-                         0xFFFF88CC, 0xFF880044, 0x00000000, 0};
-        for (int i = 0; i < palette.length && palette[i] != 0; i++) {
+                         0xFFFF88CC, 0xFF880044, 0x00000000};
+        for (int i = 0; i < palette.length; i++) {
             int col = i % PAL_COLS, row = i / PAL_COLS;
             int px = PAL_LEFT + col * (PAL_CELL + PAL_GAP);
             int py = palStartY + row * (PAL_CELL + PAL_GAP);
@@ -740,11 +740,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     public void mouseMoved(double mx, double my) {
         if (pixelEdit != null && pixelEdit.open) {
             if (pixelEdit.painting) {
-                // Recalculate grid (same as render)
-                final int PAL_CELL = 18, PAL_GAP = 2, PAL_LEFT = 8, PAL_COLS = 2;
+                // Recalculate grid (same as renderPixelEditor)
+                final int PAL_CELL = 16, PAL_GAP = 2, PAL_LEFT = 8, PAL_COLS = 2;
                 int palW2 = PAL_CELL * PAL_COLS + PAL_GAP * (PAL_COLS - 1);
                 int palAreaW = PAL_LEFT + palW2 + 12;
-                int cs = Math.max(8, (int)(Math.min((width - palAreaW) * 0.65f, height * 0.72f)) / 16);
+                int cs = Math.max(6, (int)(Math.min((width - palAreaW) * 0.65f, (height - 40) * 0.72f)) / 16);
                 int gp = cs * 16;
                 int ox = palAreaW + (width - palAreaW - gp) / 2, oy = (height - gp) / 2;
                 if (mx >= ox && mx < ox + gp && my >= oy && my < oy + gp) {
@@ -846,9 +846,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                          0xFFFF0000, 0xFFCC0000, 0xFFFF8800, 0xFF8B4513, 0xFFFFFF00,
                          0xFF88FF00, 0xFF00FF00, 0xFF008800, 0xFF00FFFF, 0xFF008888,
                          0xFF88CCFF, 0xFF0000FF, 0xFF000088, 0xFF8800FF, 0xFFFF00FF,
-                         0xFFFF88CC, 0xFF880044, 0x00000000, 0};
+                         0xFFFF88CC, 0xFF880044, 0x00000000};
         int palColsC = 2;
-        for (int i = 0; i < palette.length && palette[i] != 0; i++) {
+        for (int i = 0; i < palette.length; i++) {
             int col = i % palColsC, row = i / palColsC;
             int px = PAL_LEFT + col * (PAL_CELL + PAL_GAP);
             int py = palStartY + row * (PAL_CELL + PAL_GAP);
