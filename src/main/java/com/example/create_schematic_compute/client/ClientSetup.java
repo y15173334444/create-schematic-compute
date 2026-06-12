@@ -36,7 +36,7 @@ public class ClientSetup {
     /** 不渲染任何东西的实体渲染器 */
     public static class NoRenderEntityRenderer extends EntityRenderer<ControlSeatEntity> {
         public NoRenderEntityRenderer(EntityRendererProvider.Context ctx) { super(ctx); }
-        @Override public ResourceLocation getTextureLocation(ControlSeatEntity entity) { return null; }
+        @Override public ResourceLocation getTextureLocation(ControlSeatEntity entity) { return ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "textures/entity/control_seat.png"); }
         @Override
         public void render(ControlSeatEntity entity, float yaw, float partialTick, com.mojang.blaze3d.vertex.PoseStack poseStack, net.minecraft.client.renderer.MultiBufferSource buffer, int light) {}
     }

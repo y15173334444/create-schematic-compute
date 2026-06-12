@@ -58,8 +58,8 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
         }
     }
 
-    @Override public void onLoad() { super.onLoad(); registerLinks(); }
-    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); unregisterLinks(); }
+    @Override public void onLoad() { super.onLoad(); registerLinks(); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); unregisterLinks(); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override public void setRemoved() { unregisterLinks(); super.setRemoved(); }
 
     private void registerLinks() {
@@ -154,7 +154,7 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
         if (level == null) return;
         try {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
-            if(t!=null&&t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),level.registryAccess()); registerLinks(); }
+            if(t!=null&&t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),level.registryAccess()); registerLinks(); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
             setChanged();
         } catch(Exception e) { SchematicCompute.LOGGER.error("Failed to load program", e); graph=new NodeGraph(); setChanged(); }
     }

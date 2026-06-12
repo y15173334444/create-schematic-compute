@@ -14,4 +14,8 @@ public class SignalBus {
         return SIGNALS.getOrDefault(channel, 0f);
     }
 
+    /** 清除所有信号（在重新编译或切换图时调用，防止内存泄漏） */
+    public static void clear() {
+        SIGNALS.clear();
+    }
 }

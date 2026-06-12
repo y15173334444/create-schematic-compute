@@ -49,7 +49,6 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
             this.graph = src.graph;
             this.running = src.running;
             setChanged();
-            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
     }
 
@@ -158,7 +157,6 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
         }
         if (t.contains("running")) running = t.getBoolean("running");
         setChanged();
-        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
     @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) { var t=new CompoundTag(); saveAdditional(t,r); return t; }

@@ -58,8 +58,8 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
         if(other instanceof SensorBlockEntity src) { this.graph = src.graph; this.running = src.running; setChanged();
             if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     }
-    @Override public void onLoad() { super.onLoad(); registerLinks(); }
-    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); unregisterLinks(); }
+    @Override public void onLoad() { super.onLoad(); registerLinks(); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); unregisterLinks(); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override public void setRemoved() { unregisterLinks(); super.setRemoved(); }
     private void registerLinks() {
         if(level==null||level.isClientSide()) return;
@@ -165,14 +165,14 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
     public void loadGraphFromBytes(byte[] data) {
         if (level == null) return;
         try { var t=NbtIo.readCompressed(new ByteArrayInputStream(data),NbtAccounter.create(2*1024*1024));
-            if(t!=null&&t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),level.registryAccess()); registerLinks(); }
+            if(t!=null&&t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),level.registryAccess()); registerLinks(); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
             setChanged();
         } catch(Exception e){ SchematicCompute.LOGGER.error("Failed to load sensor graph",e); graph=new NodeGraph(); setChanged(); }
     }
     @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) { super.saveAdditional(t,r); t.put("graph",graph.save(r)); t.putBoolean("running",running); }
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t,r);
-        if(t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),r); registerLinks(); }
+        if(t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),r); registerLinks(); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
         if(t.contains("running")) running=t.getBoolean("running");
         setChanged(); if(level!=null) level.sendBlockUpdated(worldPosition,getBlockState(),getBlockState(),3);
     }

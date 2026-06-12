@@ -355,11 +355,14 @@ public class GraphEditor {
                 int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
                 int editLocalY = (int)(HH + PH*(en.inputs()+en.outputs()) + 4/zoom);
                 int numRows = st.fields.size();
-                int freqLocalY = editLocalY + 8 + numRows * 18;
-                for (int fi = 0; fi < 2; fi++) {
-                    int bx = 4 + fi * 24;
-                    if (lmx >= bx && lmx <= bx + 20 && lmy >= freqLocalY && lmy <= freqLocalY + 20)
-                    { st.freqSlotSelected = fi; hotbarNode = (hotbarNode == en) ? null : en; return true; }
+                // Frequency slots only exist for REDSTONE_IN/OUT nodes
+                if (en.type == NodeType.REDSTONE_IN || en.type == NodeType.REDSTONE_OUT) {
+                    int freqLocalY = editLocalY + 8 + numRows * 18;
+                    for (int fi = 0; fi < 2; fi++) {
+                        int bx = 4 + fi * 24;
+                        if (lmx >= bx && lmx <= bx + 20 && lmy >= freqLocalY && lmy <= freqLocalY + 20)
+                        { st.freqSlotSelected = fi; hotbarNode = (hotbarNode == en) ? null : en; return true; }
+                    }
                 }
                 if (en.type == NodeType.BOOL && en.params.length > 0) {
                     int boolLocalY = editLocalY + 4 + numRows * 18;

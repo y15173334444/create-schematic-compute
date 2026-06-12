@@ -359,7 +359,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             var pkt = new com.example.create_schematic_compute.network.MonitorSettingsPacket(
                 blockEntity.getBlockPos(), w, l, x, y, z, r, p, yw);
             PacketDistributor.sendToServer(pkt);
-        } catch (Exception ignored) {}
+        } catch (Exception e) { SchematicCompute.LOGGER.warn("Failed to parse monitor settings", e); }
         showSettings = false; settingsInited = false;
     }
 
@@ -598,6 +598,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 java.util.Arrays.fill(frame, 0x00000000);
                 node.imageSequenceFrames.add(frame);
             }
+            // Link imagePixels to frame 0 so painting targets the correct array
+            node.imagePixels = node.imageSequenceFrames.get(0);
         }
         pixelEdit = state;
     }
@@ -873,7 +875,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             int okX = trX + Minecraft.getInstance().font.width(hx) + 8;
             if (mx >= okX && mx <= okX + 30 && my >= hexTopY - 1 && my <= hexTopY + 11) {
                 try { pixelEdit.selectedColor = (int)(Long.parseLong(pixelEdit.hexInput, 16) & 0xFFFFFFFFL); }
-                catch (Exception e) {}
+                catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
                 pixelEdit.editingHex = false;
                 return true;
             }
@@ -956,7 +958,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 if (key == 256) { pixelEdit.editingHex = false; return true; } // ESC cancel
                 if (key == 257 || key == 335) { // Enter → apply hex
                     try { pixelEdit.selectedColor = (int)(Long.parseLong(pixelEdit.hexInput, 16) & 0xFFFFFFFFL); }
-                    catch (Exception e) {}
+                    catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
                     pixelEdit.editingHex = false;
                     return true;
                 }
@@ -977,7 +979,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 if (key == 256) { editingS = false; return true; }
                 if (key == 257 || key == 335) {
                     try { selectedDisplayNode.displayScale = Math.max(0.01f, Float.parseFloat(editSBuf)); }
-                    catch (Exception e) {}
+                    catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
                     editingS = false; return true;
                 }
                 if (key == 259 && editSBuf.length() > 0) { editSBuf = editSBuf.substring(0, editSBuf.length() - 1); return true; }
@@ -987,7 +989,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 if (key == 256) { editingR = false; return true; }
                 if (key == 257 || key == 335) {
                     try { selectedDisplayNode.displayRotation = Float.parseFloat(editRBuf) % 360f; }
-                    catch (Exception e) {}
+                    catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
                     editingR = false; return true;
                 }
                 if (key == 259 && editRBuf.length() > 0) { editRBuf = editRBuf.substring(0, editRBuf.length() - 1); return true; }

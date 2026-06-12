@@ -41,8 +41,7 @@ public class NodeGraph {
     }
 
     public boolean addConnection(int fromId, int fromPin, int toId, int toPin) {
-        for (NodeConnection c : connections)
-            if (c.toId == toId && c.toPin == toPin) return false;
+        if (inputCache.containsKey(key(toId, toPin))) return false;
         if (fromId == toId) return false;
         connections.add(new NodeConnection(fromId, fromPin, toId, toPin));
         invalidateTopo();

@@ -20,8 +20,8 @@ public class GraphNode {
     // Display node fields (Monitor block)
     public String displayText = "";               // TEXT node content
     public int textColor = 0;                      // ARGB text color (0 = use type default)
-    public int[] imagePixels = new int[256];      // IMAGE node: 16×16 ARGB pixels
-    public java.util.List<int[]> imageSequenceFrames = new java.util.ArrayList<>(); // IMAGE_SEQUENCE frames
+    public int[] imagePixels;                      // IMAGE node: 16×16 ARGB pixels (lazy)
+    public java.util.List<int[]> imageSequenceFrames; // IMAGE_SEQUENCE frames (lazy)
     public float layoutX = 0.5f, layoutY = 0.5f;  // normalized [0,1] position in display area
     public float displayScale = 1.0f;              // size multiplier
     public float displayRotation = 0f;             // rotation (degrees)
@@ -70,8 +70,9 @@ public class GraphNode {
         if (type == NodeType.BOOL) this.params[0] = 0f;  // inverted=0 (默认不反转)
         if (type == NodeType.KEYBOARD) this.params[0] = 0f; // 默认 A
         if (type == NodeType.GAMEPAD_BUTTON) this.params[0] = 0f; // 默认 A
-        // IMAGE/IMAGE_SEQUENCE: init pixels to transparent
+        // IMAGE/IMAGE_SEQUENCE: lazy-allocate pixel array (saves memory for other node types)
         if (type == NodeType.IMAGE || type == NodeType.IMAGE_SEQUENCE) {
+            this.imagePixels = new int[256];
             java.util.Arrays.fill(this.imagePixels, 0x00000000);
         }
         this.outputValues = new float[type.outputs];
