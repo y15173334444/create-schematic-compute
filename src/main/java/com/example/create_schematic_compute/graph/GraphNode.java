@@ -63,6 +63,7 @@ public class GraphNode {
             this.params[1] = 0.05f;  // ki
             this.params[2] = 3.0f;   // ilimit
         }
+        if (type == NodeType.ACCUMULATOR) this.params[0] = 1f; // step=1
         if (type == NodeType.DELAY) this.params[0] = 10f;     // 10 ticks
         if (type == NodeType.PULSE_EXTEND) this.params[0] = 10f;
         if (type == NodeType.LOOP) { this.params[0] = 5f; this.params[1] = 10f; }

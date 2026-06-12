@@ -34,6 +34,7 @@ public enum NodeType {
     PULSE_EXTEND("node.create_schematic_compute.pulse_extend", 1, 1, "ticks"),
     LOOP("node.create_schematic_compute.loop", 1, 1, "count,interval"),
     FUSE("node.create_schematic_compute.fuse", 1, 1, "cooldown"),
+    ACCUMULATOR("node.create_schematic_compute.accumulator", 2, 1, "step"),
     FORMULA("node.create_schematic_compute.formula", 0, 1, ""),
     POSE_CONVERT("node.create_schematic_compute.pose_convert", 3, 2, ""),
     // Control Seat input nodes
@@ -75,6 +76,7 @@ public enum NodeType {
         case LATCH -> i==0?"S":"R";
         case SPEED_CTRL -> i==0?"speed":"dir";
         case PULSE_EXTEND, T_FLIPFLOP, DELAY, LOOP, FUSE -> "in";
+        case ACCUMULATOR -> i == 0 ? "+" : "-";
         case KEYBOARD -> "value";
         case POSE_CONVERT -> i == 0 ? "pitch_a" : i == 1 ? "yaw_a" : "roll";
         case DATA -> "val";
@@ -109,6 +111,7 @@ public enum NodeType {
         case ATTITUDE -> i == 0 ? "pitch" : "roll";
         case FORWARD -> i == 0 ? "yaw" : "pitch";
         case SPLIT -> i == 0 ? "+out" : "-out";
+        case ACCUMULATOR -> "val";
         case POSE_CONVERT -> i == 0 ? "pitch_b" : "yaw_b";
         default -> "";
     };}

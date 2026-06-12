@@ -300,6 +300,21 @@ public class GraphEvaluator {
             }
             case PRIVATE_IN -> o[0] = SignalBus.get(node.signalName);
             case PRIVATE_OUT -> SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
+            case ACCUMULATOR -> {
+                float inPlus = graph.getInputValue(node.id, 0, outputs);
+                float inMinus = graph.getInputValue(node.id, 1, outputs);
+                float step = node.params.length > 0 ? node.params[0] : 1f;
+                int prevPKey = node.id + 100000, prevMKey = node.id + 200000;
+                float cur = pidState.getOrDefault(node.id, 0f);
+                float prevP = pidState.getOrDefault(prevPKey, 0f);
+                float prevM = pidState.getOrDefault(prevMKey, 0f);
+                if (inPlus > 0.5f && prevP <= 0.5f) cur += step;   // + 上升沿
+                if (inMinus > 0.5f && prevM <= 0.5f) cur -= step;  // - 上升沿
+                pidState.put(node.id, cur);
+                pidState.put(prevPKey, inPlus);
+                pidState.put(prevMKey, inMinus);
+                o[0] = cur;
+            }
             case FORMULA -> {
                 if (node.formula.isEmpty()) { o[0] = 0; break; }
                 var vars = new java.util.HashMap<String, Double>();
