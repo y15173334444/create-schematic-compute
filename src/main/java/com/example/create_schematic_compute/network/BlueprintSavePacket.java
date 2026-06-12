@@ -6,6 +6,7 @@ import com.example.create_schematic_compute.blocks.ControlSeatBlockEntity;
 import com.example.create_schematic_compute.blocks.ProgramComputerBlockEntity;
 import com.example.create_schematic_compute.blocks.SensorBlockEntity;
 import com.example.create_schematic_compute.blocks.SpeedProxyBlockEntity;
+import com.example.create_schematic_compute.blocks.MonitorBlockEntity;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -51,6 +52,8 @@ public record BlueprintSavePacket(BlockPos pos, byte[] nbtData) implements Custo
                 cbe.loadGraphFromBytes(nbtData);
             } else if (be instanceof SensorBlockEntity sbe) {
                 sbe.loadGraphFromBytes(nbtData);
+            } else if (be instanceof MonitorBlockEntity mbe) {
+                mbe.loadGraphFromBytes(nbtData);
             }
         });
     }

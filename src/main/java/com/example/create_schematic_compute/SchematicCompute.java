@@ -90,6 +90,16 @@ public class SchematicCompute {
             ENTITIES.register("control_seat", () -> EntityType.Builder.of(ControlSeatEntity::new, MobCategory.MISC)
                     .sized(0.001f, 0.001f).noSummon().noSave().build("control_seat"));
 
+    // 显示器
+    public static final DeferredHolder<Block, MonitorBlock> MONITOR_BLOCK =
+            BLOCKS.register("monitor", () -> new MonitorBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
+    public static final DeferredHolder<Item, BlockItem> MONITOR_ITEM =
+            ITEMS.register("monitor", () -> new BlockItem(MONITOR_BLOCK.get(), new Item.Properties()));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<MonitorBlockEntity>> MONITOR_BE =
+            BLOCK_ENTITIES.register("monitor", () -> BlockEntityType.Builder.of(MonitorBlockEntity::new, MONITOR_BLOCK.get()).build(null));
+    public static final DeferredHolder<MenuType<?>, MenuType<MonitorMenu>> MONITOR_MENU =
+            MENUS.register("monitor", () -> IMenuTypeExtension.create((id, inv, buf) -> new MonitorMenu(id, inv, buf)));
+
     public SchematicCompute(IEventBus modEventBus) {
         LOGGER.info("{} initializing...", MOD_ID);
         BLOCKS.register(modEventBus);
@@ -108,6 +118,7 @@ public class SchematicCompute {
                     output.accept(PROGRAM_ITEM.get());
                     output.accept(CONTROL_SEAT_ITEM.get());
                     output.accept(SENSOR_ITEM.get());
+                    output.accept(MONITOR_ITEM.get());
                 }).build());
 
         // 在注册事件完成后再注册 SafeNbtWriter
@@ -115,6 +126,16 @@ public class SchematicCompute {
             if (event.getRegistryKey().equals(Registries.BLOCK_ENTITY_TYPE)) {
                 registerSafeNbtWriters();
             }
+        });
+
+        // 注册方块实体渲染器 (仅客户端)
+        modEventBus.addListener(net.neoforged.fml.event.lifecycle.FMLClientSetupEvent.class, event -> {
+            event.enqueueWork(() ->
+                net.minecraft.client.renderer.blockentity.BlockEntityRenderers.register(
+                    MONITOR_BE.get(),
+                    com.example.create_schematic_compute.client.renderer.MonitorBlockEntityRenderer::new
+                )
+            );
         });
 
         LOGGER.info("{} loaded!", MOD_ID);
@@ -135,6 +156,7 @@ public class SchematicCompute {
         SafeNbtWriterRegistry.REGISTRY.register(PROGRAM_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(CONTROL_SEAT_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(SENSOR_BE.get(), writer);
+        SafeNbtWriterRegistry.REGISTRY.register(MONITOR_BE.get(), writer);
         LOGGER.info("Registered SafeNbtWriters for all computers");
     }
 }

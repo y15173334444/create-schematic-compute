@@ -98,6 +98,31 @@ public class GraphEditor {
             sb.setResponder(t -> node.signalName = t);
             s.fields.add(sb);
         }
+        if (node.type == NodeType.TEXT) {
+            var tb = new EditBox(mc.font, 0, 0, 120, 16, Component.literal(""));
+            tb.setMaxLength(256); tb.setValue(node.displayText);
+            tb.setResponder(t -> node.displayText = t);
+            s.fields.add(tb);
+            var cb = new EditBox(mc.font, 0, 0, 70, 16, Component.literal(""));
+            cb.setMaxLength(8); cb.setValue(String.format("%08X", node.textColor != 0 ? node.textColor : 0xFFCCCCCC));
+            cb.setResponder(t -> { try { node.textColor = (int)(Long.parseLong(t.trim(), 16) & 0xFFFFFFFFL); } catch (Exception e) {} });
+            s.fields.add(cb);
+            s.paramKeys = new String[]{"text", "color"};
+        }
+        if (node.type == NodeType.DATA) {
+            var cb = new EditBox(mc.font, 0, 0, 70, 16, Component.literal(""));
+            cb.setMaxLength(8); cb.setValue(String.format("%08X", node.textColor != 0 ? node.textColor : 0xFF88FF88));
+            cb.setResponder(t -> { try { node.textColor = (int)(Long.parseLong(t.trim(), 16) & 0xFFFFFFFFL); } catch (Exception e) {} });
+            s.fields.add(cb);
+            s.paramKeys = new String[]{"color"};
+        }
+        if (node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) {
+            var mb = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
+            mb.setMaxLength(8); mb.setValue(String.format("%.3f", node.moveScale));
+            mb.setResponder(t -> { try { node.moveScale = Float.parseFloat(t.trim()); } catch (Exception e) {} });
+            s.fields.add(mb);
+            s.paramKeys = new String[]{"move"};
+        }
         if (node.type == NodeType.FORMULA) {
             var fb = new EditBox(mc.font, 0, 0, 140, 16, Component.literal(""));
             fb.setMaxLength(64); fb.setValue(node.formula.isEmpty() ? "A+B" : node.formula);
@@ -401,7 +426,9 @@ public class GraphEditor {
             || node.type == NodeType.REDSTONE_OUT || node.type == NodeType.PRIVATE_IN
             || node.type == NodeType.PRIVATE_OUT || node.type == NodeType.PID_POWER
             || node.type == NodeType.FORMULA || node.type == NodeType.KEYBOARD
-            || node.type == NodeType.GAMEPAD_BUTTON;
+            || node.type == NodeType.GAMEPAD_BUTTON
+            || node.type == NodeType.TEXT || node.type == NodeType.IMAGE
+            || node.type == NodeType.IMAGE_SEQUENCE || node.type == NodeType.DATA;
     }
 
     public void mouseReleased(double mx, double my, int btn) {
@@ -638,7 +665,8 @@ public class GraphEditor {
             var n = graph.nodes.get(i);
             if (n.type.paramNames.length == 0 && n.type != NodeType.REDSTONE_IN && n.type != NodeType.REDSTONE_OUT
                 && n.type != NodeType.PRIVATE_IN && n.type != NodeType.PRIVATE_OUT && n.type != NodeType.FORMULA
-                && n.type != NodeType.KEYBOARD && n.type != NodeType.GAMEPAD_BUTTON) continue;
+                && n.type != NodeType.KEYBOARD && n.type != NodeType.GAMEPAD_BUTTON
+                && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE && n.type != NodeType.TEXT && n.type != NodeType.DATA) continue;
             float sx = c2sX(n.x), sy = c2sY(n.y);
             float ix = sx + (NW - 22) * zoom;
             float iy = sy + 2 * zoom;

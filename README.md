@@ -27,6 +27,17 @@ Each computer has its own internal node graph that runs at **20Hz (every game ti
 
 ### Blocks
 
+#### 🖥️ Holographic Monitor
+A **3D floating display block** that renders node graph output as a virtual screen in the world.
+
+- **Display Nodes** — TEXT, DATA, IMAGE, IMAGE_SEQUENCE for visual output
+- **16×16 Pixel Editor** — Built-in pixel art editor with multi-frame animation support
+- **3D Positioning** — Freely position and rotate the floating screen in world space (X/Y/Z + Roll/Pitch/Yaw)
+- **Signal-Driven Movement** — Drive IMAGE/IMAGE_SEQUENCE position via X/Y input signals with configurable move scale
+- **Redstone I/O** — Read from / write to Create's Redstone Link network
+- **Real-time Preview** — GUI display mode with WYSIWYG editing of layout, scale, and rotation
+- **Custom Model** — Full Blockbench custom model support
+
 #### 🖥️ Blueprint Computer
 Control Create's **Redstone Link network** through visual programming.
 
@@ -66,7 +77,7 @@ Reads the orientation of sable physics structures through a node-based graph.
 
 ---
 
-### Node Reference (43 Types)
+### Node Reference (47 Types)
 
 | Category | Nodes |
 |----------|-------|
@@ -302,6 +313,7 @@ The sable physics thread and the Minecraft server thread run concurrently. Share
 | **Program Computer** | 4× Andesite Casing, 1× Repeater, 2× Glass Pane, 1× Comparator, 1× Andesite Alloy |
 | **Control Seat** | 1× Heavy Weighted Pressure Plate, 2× Iron Ingot, 1× Brass Casing, 1× Redstone, 4× Redstone Link |
 | **Attitude Sensor** | 6× Iron Ingot, 1× Repeater, 1× Comparator, 2× Brass Casing |
+| **Holographic Monitor** | 2× Redstone Link, 1× Precision Mechanism, 2× Glass Pane, 1× Brass Casing, 2× Glowstone Dust |
 
 *(Requires JEI to view in-game)*
 
@@ -691,6 +703,20 @@ MIT License © 2026 StarryNight_Luo
 ---
 
 ## 📝 Changelog
+
+### v1.1.0
+- **Add: Holographic Monitor block** — floating 3D display screen with pixel editor
+- **Add: 4 new Display nodes** — TEXT, DATA, IMAGE, IMAGE_SEQUENCE
+- **Add: Pixel editor** — 16×16 grid with 2-column palette, HEX input, frame animation support
+- **Add: Signal-driven movement** — IMAGE nodes move via X/Y inputs with configurable move scale
+- **Add: Display mode** — WYSIWYG preview with drag, scale, rotation editing
+- **Add: Text color** — Customizable ARGB color for TEXT/DATA nodes
+- **Add: Multilingual support** — Full EN/ZH localization for Monitor UI
+- **Add: Custom Blockbench model** — Replaceable 3D model with lit/unlit states
+- **Change: Recipes updated** — Monitor crafting recipe added
+- **Fix: Depth testing** — Custom RenderType with POSITION_COLOR shader for pixel quads
+- **Fix: World culling** — Proper render bounding box for off-screen display areas
+- **Fix: Screen rotation** — Yaw/Pitch/Roll correctly oriented in world space
 
 ### v1.0.1
 - Add: FORMULA node with custom math expressions (e.g. `ABD+Speed`)

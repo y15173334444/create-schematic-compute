@@ -136,6 +136,7 @@ public class NodeRenderer {
         new NodeCategory("category.create_schematic_compute.sequential", new NodeType[]{NodeType.DELAY, NodeType.LATCH, NodeType.T_FLIPFLOP, NodeType.PULSE_EXTEND, NodeType.LOOP, NodeType.FUSE}),
         new NodeCategory("category.create_schematic_compute.input_ctrl", new NodeType[]{NodeType.KEYBOARD, NodeType.MOUSE_BUTTON, NodeType.MOUSE_JOYSTICK, NodeType.GAMEPAD_JOYSTICK, NodeType.GAMEPAD_BUTTON}),
         new NodeCategory("category.create_schematic_compute.input_sensor", new NodeType[]{NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD}),
+        new NodeCategory("category.create_schematic_compute.display", new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE}),
     };
     private final java.util.Map<Integer, Boolean> catExpanded = new java.util.HashMap<>();
     private float menuRX, menuRY;
@@ -242,7 +243,7 @@ public class NodeRenderer {
         // 展开指示器（可编辑节点在标题右侧显示 ▶/▼）
         if (n.type == NodeType.FORMULA || n.type.paramNames.length > 0
             || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT
-            || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) {
+            || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT || n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE || n.type == NodeType.TEXT || n.type == NodeType.DATA) {
             drawStr(g, editing ? "§6▼" : "§7▶", NW - 14, 4, CT);
         }
         // 编辑区（pose 内渲染保证缩放同步，覆盖层在 renderBg 中更高优先级）

@@ -23,13 +23,17 @@ public class EditPanel {
         if (n == null) return 0;
         int h = 6;
         if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL) {
-            if (n.type == NodeType.KEYBOARD || n.type == NodeType.GAMEPAD_BUTTON) { h += 24; }
-            else h += n.params.length * 18;
+            if (n.type == NodeType.KEYBOARD || n.type == NodeType.GAMEPAD_BUTTON) {
+                h += 24; // KEYBOARD/GAMEPAD_BUTTON 已有自己的绑定UI
+            } else h += n.params.length * 18;
         }
         if (n.type == NodeType.BOOL && n.params.length > 0) h += 16;
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
         if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) h += 22;
         if (n.type == NodeType.FORMULA) h += 22;
+        if (n.type == NodeType.TEXT) h += 22;
+        if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) h += 22;
+        if (n.type == NodeType.TEXT || n.type == NodeType.DATA) h += 22;
         return h;
     }
 

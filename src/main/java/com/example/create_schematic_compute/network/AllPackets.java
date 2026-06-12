@@ -25,5 +25,10 @@ public class AllPackets {
                 ControlSeatInputPacket.CODEC,
                 ControlSeatInputPacket::handle
         );
+        registrar.playToServer(
+                MonitorSettingsPacket.TYPE,
+                MonitorSettingsPacket.CODEC,
+                MonitorSettingsPacket::handle
+        );
     }
 }

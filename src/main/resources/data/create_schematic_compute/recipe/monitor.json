@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "LML",
+    "GCG",
+    "BGB"
+  ],
+  "key": {
+    "L": { "item": "create:redstone_link" },
+    "M": { "item": "create:precision_mechanism" },
+    "G": { "item": "minecraft:glass_pane" },
+    "C": { "item": "create:brass_casing" },
+    "B": { "item": "minecraft:glowstone_dust" }
+  },
+  "result": { "id": "create_schematic_compute:monitor" }
+}

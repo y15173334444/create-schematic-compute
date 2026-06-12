@@ -6,6 +6,7 @@ import com.example.create_schematic_compute.blocks.ControlSeatBlockEntity;
 import com.example.create_schematic_compute.blocks.ProgramComputerBlockEntity;
 import com.example.create_schematic_compute.blocks.SensorBlockEntity;
 import com.example.create_schematic_compute.blocks.SpeedProxyBlockEntity;
+import com.example.create_schematic_compute.blocks.MonitorBlockEntity;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -50,6 +51,10 @@ public record BlueprintTogglePacket(BlockPos pos, boolean start) implements Cust
                 sbe.running = start;
                 sbe.setChanged();
                 sbe.getLevel().sendBlockUpdated(sbe.getBlockPos(), sbe.getBlockState(), sbe.getBlockState(), 3);
+            } else if (be instanceof MonitorBlockEntity mbe) {
+                mbe.running = start;
+                mbe.setChanged();
+                mbe.getLevel().sendBlockUpdated(mbe.getBlockPos(), mbe.getBlockState(), mbe.getBlockState(), 3);
             }
         });
     }

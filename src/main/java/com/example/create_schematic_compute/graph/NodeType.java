@@ -46,7 +46,11 @@ public enum NodeType {
     WORLD_VIEW("node.create_schematic_compute.world_view", 0, 2, ""),
     ATTITUDE("node.create_schematic_compute.attitude", 0, 2, ""),
     FORWARD("node.create_schematic_compute.forward", 0, 2, ""),
-    SPLIT("node.create_schematic_compute.split", 1, 2, "");
+    SPLIT("node.create_schematic_compute.split", 1, 2, ""),
+    TEXT("node.create_schematic_compute.text", 0, 0, ""),
+    DATA("node.create_schematic_compute.data", 1, 0, ""),
+    IMAGE("node.create_schematic_compute.image", 2, 0, ""),
+    IMAGE_SEQUENCE("node.create_schematic_compute.image_sequence", 3, 0, "");
 
     public final String displayName;
     public final int inputs;
@@ -73,6 +77,8 @@ public enum NodeType {
         case PULSE_EXTEND, T_FLIPFLOP, DELAY, LOOP, FUSE -> "in";
         case KEYBOARD -> "value";
         case POSE_CONVERT -> i == 0 ? "pitch_a" : i == 1 ? "yaw_a" : "roll";
+        case DATA -> "val";
+        case IMAGE, IMAGE_SEQUENCE -> i == 0 ? "X" : i == 1 ? "Y" : "frame";
         default -> "in";
     };}
     public String outputLabel(int i) { return switch(this){

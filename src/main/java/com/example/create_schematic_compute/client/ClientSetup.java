@@ -3,6 +3,7 @@ package com.example.create_schematic_compute.client;
 import com.example.create_schematic_compute.SchematicCompute;
 import com.example.create_schematic_compute.blocks.BlueprintScreen;
 import com.example.create_schematic_compute.blocks.ControlSeatScreen;
+import com.example.create_schematic_compute.blocks.MonitorScreen;
 import com.example.create_schematic_compute.blocks.ProgramComputerScreen;
 import com.example.create_schematic_compute.blocks.SensorScreen;
 import com.example.create_schematic_compute.blocks.SpeedProxyScreen;
@@ -24,6 +25,7 @@ public class ClientSetup {
         event.register(SchematicCompute.PROGRAM_MENU.get(), ProgramComputerScreen::new);
         event.register(SchematicCompute.CONTROL_SEAT_MENU.get(), ControlSeatScreen::new);
         event.register(SchematicCompute.SENSOR_MENU.get(), SensorScreen::new);
+        event.register(SchematicCompute.MONITOR_MENU.get(), MonitorScreen::new);
     }
 
     @net.neoforged.bus.api.SubscribeEvent

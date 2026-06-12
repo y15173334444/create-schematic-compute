@@ -47,6 +47,9 @@ public class GraphEvaluator {
         return res;
     }
 
+    /** 获取当前输出映射表（供显示区域等外部查询输入值） */
+    public Map<Integer, float[]> getCurrentOutputs() { return outputs; }
+
     /** 读取任意节点某引脚的计算结果（供外部查询） */
     public float getNodeOutput(int nodeId, int pinIndex) {
         float[] out = outputs.get(nodeId);
@@ -305,6 +308,8 @@ public class GraphEvaluator {
                     vars.put(varNames.get(vi), (double)graph.getInputValue(node.id, vi, outputs));
                 o[0] = FormulaParser.eval(node.formula, vars);
             }
+            // Display nodes — no float output; data read from GraphNode fields by renderer
+            case TEXT, DATA, IMAGE, IMAGE_SEQUENCE -> {}
         }
         outputs.put(node.id, o.clone());
     }
