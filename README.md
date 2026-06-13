@@ -79,7 +79,7 @@ Reads the orientation of sable physics structures through a node-based graph.
 
 ---
 
-### Node Reference (47 Types)
+### Node Reference (49 Types)
 
 | Category | Nodes |
 |----------|-------|
@@ -706,64 +706,42 @@ MIT License © 2026 StarryNight_Luo
 
 ## 📝 Changelog
 
-### v1.1.0
-- **Add: Holographic Monitor block** — floating 3D display screen with pixel editor
-- **Add: 4 new Display nodes** — TEXT, DATA, IMAGE, IMAGE_SEQUENCE
-- **Add: Pixel editor** — 16×16 grid with 2-column palette, HEX input, frame animation support
-- **Add: Signal-driven movement** — IMAGE nodes move via X/Y inputs with configurable move scale
-- **Add: Display mode** — WYSIWYG preview with drag, scale, rotation editing
-- **Add: Text color** — Customizable ARGB color for TEXT/DATA nodes
-- **Add: Multilingual support** — Full EN/ZH localization for Monitor UI
-- **Add: Custom Blockbench model** — Replaceable 3D model with lit/unlit states
-- **Change: Recipes updated** — Monitor crafting recipe added
-- **Fix: Depth testing** — Custom RenderType with POSITION_COLOR shader for pixel quads
-- **Fix: World culling** — Proper render bounding box for off-screen display areas
-- **Fix: Screen rotation** — Yaw/Pitch/Roll correctly oriented in world space
+### v1.1.1
+- **Add: Encapsulation node** — nest sub-graphs inside a single node, double-click to expand, 48→49 types
+- **Add: Monitor Redstone Input** — Holographic Monitor now reads Redstone Link network signals via REDSTONE_IN node
+- **Fix: Control Seat view jump** — smooth transition between Joystick and View Angle modes (Mixin-based raw mouse delta capture)
+- **Fix: Monitor redstone registration** — late-registered listeners now receive initial signal state via force-resend
+- **Fix: Monitor 3D renderer** — correctly evaluates REDSTONE_IN nodes, evaluator caching for 60+ FPS performance
+- **Perf: Code audit** — NaN guards on all arithmetic nodes (ADD/SUB/MUL/MAP/INTERP), FORMULA compilation cache, Sensor reflection cache, volatile thread safety
+- **Refactor: RedstoneLinkHelper** — ~400 lines of duplicated redstone link code deduplicated across Blueprint, ProgramComputer, ControlSeat, and Sensor
+- **Refactor: GraphBlockEntity interface** — replaces 6-branch instanceof chains in BlueprintSavePacket and BlueprintTogglePacket
+- **Mixin infrastructure** — added Mixin AP for Entity.turn() interception in Control Seat
 
-### v1.0.1
-- Add: FORMULA node with custom math expressions (e.g. `ABD+Speed`)
-- Add: Multi-letter variable names, auto-created input pins per variable
-- Add: Color customization (16-color theming with System/Input/Output borders)
-- Add: Inline node editing via ▶/▼ expand with zoom-synced controls
-- Add: Multi-node simultaneous expand (independent per-node edit state)
-- Add: Hotbar popup for frequency slot item selection
-- Add: Grid snap toggle with config persistence
-- Add: Render priority system (overlays properly cover edit areas)
-- Add: Blueprint Computer now supports Private Signal Input node
-- Add: i18n for all GUI buttons and color names (EN/ZH)
-- Add: New textures for all three computers (Blueprint, Program, Speed Proxy)
-- Add: Unified 5-face texture (sp_5) for Speed Proxy Controller
-- **Add: Control Seat block** — sit-able controller with keyboard/mouse/gamepad input, 58 assignable keys, dual input modes, sable physics integration
-- **Add: Attitude Sensor block** — reads sublevel orientation via ATTITUDE/FORWARD/WORLD_VIEW nodes
-- **Add: 11 new node types** — KEYBOARD, MOUSE_JOYSTICK, VIEW_ANGLE, MOUSE_BUTTON, GAMEPAD_JOYSTICK, GAMEPAD_BUTTON, WORLD_VIEW, ATTITUDE, FORWARD, SPLIT, POSE_CONVERT
-- **Add: Input Ctrl category** — nodes for Control Seat input capture
-- **Add: Sensor category** — nodes for Attitude Sensor orientation reading
-- **Add: IWrenchable support** — all 5 blocks support wrench rotation and shift+wrench NBT pick-up
-- **Add: Unified block properties** — hardness 1.0, breakable by hand for all blocks
-- **Add: ESC mouse release** — seated ESC opens pause menu with cursor released
-- Change: Create-style warm metallic GUI palette (brass/copper/steel)
-- Change: Node edit panel moved inside node (no floating side panel)
-- Change: Manual expand/collapse only via ▶/▼ (no auto-collapse)
-- Change: Redstone output clamped to 0-15
-- Change: Speed Proxy Controller side/back texture assignment corrected
-- Change: Block placement facing — blocks now place with **back towards player**
-- Fix: SignalBus cross-computer pollution (remove destructive clear())
-- Fix: SpeedProxy shared static PID map → per-instance
-- Fix: Node expand state survives server sync (tracked by node ID)
-- Fix: Compile/Run buttons no longer collapse edit areas
-- Cleanup: EditPanel stripped from 285 to 64 lines (dead code removal)
-- Cleanup: Removed obsolete per-face textures (sp_side, sp_back, sp_top, sp_bottom)
+### v1.1.0
+- **Add: Holographic Monitor block** — floating 3D display screen with pixel editor, display mode, signal-driven movement
+- **Add: Control Seat block** — sit-able controller with keyboard/mouse/gamepad input, 58 assignable keys, dual input modes (Joystick / View Angle), Sable physics compatibility
+- **Add: Attitude Sensor block** — reads Sable physics structure orientation via ATTITUDE/FORWARD/WORLD_VIEW nodes
+- **Add: 14 new node types** — 4 Display (TEXT, DATA, IMAGE, IMAGE_SEQUENCE), 10 Input/Sensor (KEYBOARD, MOUSE_JOYSTICK, VIEW_ANGLE, MOUSE_BUTTON, GAMEPAD_JOYSTICK, GAMEPAD_BUTTON, WORLD_VIEW, ATTITUDE, FORWARD, SPLIT, POSE_CONVERT), bringing total from 24→48
+- **Add: FORMULA node** — custom math expressions with multi-letter variable names, auto-created input pins
+- **Add: Accumulator node** — +/- dual-input rising-edge counter
+- **Add: Pixel editor** — 16×16 grid with 2-column palette, HEX input, multi-frame animation
+- **Add: Color customization** — 16-color theming, ARGB text color for TEXT/DATA nodes
+- **Add: IWrenchable support** — wrench rotation and shift+wrench NBT pick-up for all 6 blocks
+- **Add: Multilingual support** — full EN/ZH localization for Monitor and all GUIs
+- **Change: Create-style warm metallic GUI palette** (brass/copper/steel)
+- **Change: Redstone output clamped to 0-15**
+- **Fix: World reload bug** — all blocks work correctly after save/quit/reload
+- **Fix: SignalBus cross-world pollution** — static state properly cleared on server stop
+- **Fix: NaN propagation** — guarded POW, ROOT, PID against NaN/Infinity
+- **Fix: SpeedProxy shared static PID map → per-instance**
 
 ### v1.0.0
-- Initial release
-- 24 node types across 6 categories
-- 3 programmable computers (Blueprint, Speed Proxy, Program)
-- Visual node-based graph editor
-
-**Post-release fixes:**
-- Fix: Block entity data (node graph + running state) now properly preserved with Create's Schematicannon
-- Fix: GUI no longer shows stale empty graph after schematic placement
-- Fix: Client-server synchronization of block entity data
+- **Initial release**: 3 programmable computers (Blueprint, Speed Proxy, Program)
+- 24 node types across 6 categories (Values, Math, Logic, Control, Output, Sequential)
+- Visual node-based graph editor with drag-connect workflow
+- Create Redstone Link network integration
+- Private Signal Bus for cross-computer communication
+- Schematicannon compatibility via IMergeableBE + SafeNbtWriter
 - Add: Create `IMergeableBE` interface for reliable data restoration
 - Add: `SafeNbtWriter` registration for Create schematic compatibility
 - Add: POW (A^B) and ROOT (B-th Root of A) math nodes
