@@ -5,10 +5,8 @@ import com.example.create_schematic_compute.SchematicCompute;
 import com.example.create_schematic_compute.graph.GraphEvaluator;
 import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
-import com.simibubi.create.Create;
-import com.simibubi.create.content.redstone.link.IRedstoneLinkable;
-import com.simibubi.create.content.redstone.link.RedstoneLinkNetworkHandler;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
+
 import net.createmod.catnip.data.Couple;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -132,15 +130,11 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     /** 子类（Sable compat）访问 */
     protected GraphEvaluator evaluator = null;
     protected NodeGraph lastEvaluatedGraph = null;
-    protected final List<FreqLink> freqLinks = new ArrayList<>();
-    protected final Map<Long, Integer> lastInputs = new HashMap<>();
-    protected final Map<Long, Integer> lastOutputs = new HashMap<>();
+    protected final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
     /** 姿态/前方朝向（由子类 sable$physicsTick 更新） */
     protected float attitudeYaw = 0, attitudePitch = 0, attitudeRoll = 0;
     protected float forwardYaw = 0, forwardPitch = 0;
     protected float blockYaw = 0;
-
-    protected record FreqLink(long freqKey, IRedstoneLinkable linkable) {}
 
     public ControlSeatBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.CONTROL_SEAT_BE.get(), pos, s); }
     @Override public boolean isRunning() { return running; }
@@ -157,51 +151,9 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
         }
     }
 
-    @Override public void onLoad() { super.onLoad(); registerLinks(); }
-    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); unregisterLinks(); }
-    @Override public void setRemoved() { unregisterLinks(); super.setRemoved(); }
-
-    private void registerLinks() {
-        if(level==null||level.isClientSide()) return;
-        unregisterLinks();
-        var EMPTY = RedstoneLinkNetworkHandler.Frequency.EMPTY;
-        for(var n : graph.nodes) {
-            if(n.type==NodeType.REDSTONE_IN||n.type==NodeType.REDSTONE_OUT) {
-                var item1 = n.itemParams!=null&&n.itemParams.length>0 ? n.itemParams[0] : ItemStack.EMPTY;
-                var item2 = n.itemParams!=null&&n.itemParams.length>1 ? n.itemParams[1] : ItemStack.EMPTY;
-                var f1 = !item1.isEmpty() ? RedstoneLinkNetworkHandler.Frequency.of(item1) : EMPTY;
-                var f2 = !item2.isEmpty() ? RedstoneLinkNetworkHandler.Frequency.of(item2) : EMPTY;
-                var freqKey = ModUtils.freqKey(item1, item2);
-                var isIn = n.type==NodeType.REDSTONE_IN;
-                addLink(isIn, freqKey, f1, f2);
-            }
-        }
-        for(var fl : freqLinks) {
-            var net = Create.REDSTONE_LINK_NETWORK_HANDLER.getNetworkOf(level, fl.linkable);
-            if(net!=null) for(var l : net) if(l!=fl.linkable&&l.isAlive()) {
-                int sig = l.getTransmittedStrength();
-                if(sig>0) { lastInputs.put(fl.freqKey, sig); break; }
-            }
-        }
-    }
-
-    private void addLink(boolean isIn, long freqKey, RedstoneLinkNetworkHandler.Frequency f1, RedstoneLinkNetworkHandler.Frequency f2) {
-        var link = new IRedstoneLinkable() {
-            public int getTransmittedStrength() { return isIn?0:lastOutputs.getOrDefault(freqKey,0); }
-            public void setReceivedStrength(int s) { if(isIn) lastInputs.put(freqKey,s); }
-            public boolean isListening() { return isIn; }
-            public boolean isAlive() { return true; }
-            public Couple<RedstoneLinkNetworkHandler.Frequency> getNetworkKey() { return Couple.create(f1,f2); }
-            public BlockPos getLocation() { return worldPosition; }
-        };
-        Create.REDSTONE_LINK_NETWORK_HANDLER.addToNetwork(level, link);
-        freqLinks.add(new FreqLink(freqKey, link));
-    }
-
-    private void unregisterLinks() {
-        for(var fl : freqLinks) Create.REDSTONE_LINK_NETWORK_HANDLER.removeFromNetwork(level, fl.linkable);
-        freqLinks.clear();
-    }
+    @Override public void onLoad() { super.onLoad(); rs.onLoad(graph); }
+    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); rs.onChunkUnloaded(); }
+    @Override public void setRemoved() { rs.setRemoved(); super.setRemoved(); }
 
     /** 子类（Sable）覆盖使用 */
     protected volatile com.example.create_schematic_compute.entity.ControlSeatEntity mySeatEntity = null;
@@ -239,13 +191,8 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
             pidState.clear();
         }
 
-        var in = new ArrayList<GraphEvaluator.InputSource>();
-        for(var n : graph.nodes) {
-            if(n.type==NodeType.REDSTONE_IN) {
-                long fk = ModUtils.freqKey(n.itemParams);
-                in.add(new GraphEvaluator.InputSource(fk, lastInputs.getOrDefault(fk, 0)));
-            }
-        }
+        rs.refreshInputs();
+        var in = rs.buildInputs(graph);
 
         // 计算世界视角（仅视角差模式更新，摇杆模式下冻结）
         if (inputMode == 1) {
@@ -269,14 +216,7 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
         float dt = 0.05f;
         var results = evaluator.evaluate(in, pidState, dt, seatInput);
 
-        // REDSTONE_OUT 写入机械动力红石网络
-        lastOutputs.clear();
-        for(var r : results) {
-            long freqKey = ModUtils.freqKey(r.freq1(), r.freq2());
-            lastOutputs.put(freqKey, r.signal());
-            for(var fl : freqLinks) if(fl.freqKey() == freqKey)
-                Create.REDSTONE_LINK_NETWORK_HANDLER.updateNetworkOf(level, fl.linkable);
-        }
+        rs.writeOutputs(results);
         setChanged();
     }
 
@@ -286,13 +226,13 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) {
                 graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
-                registerLinks();
+                rs.onLoad(graph);
             }
             setChanged();
         } catch (Exception e) {
             SchematicCompute.LOGGER.error("Failed to load control seat graph, resetting", e);
             graph = new NodeGraph();
-            registerLinks();
+            rs.onLoad(graph);
             setChanged();
         }
     }
@@ -306,7 +246,7 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
         super.loadAdditional(t,r);
         if (t.contains("graph")) {
             graph = NodeGraph.load(t.getCompound("graph"), r);
-            registerLinks();
+            rs.onLoad(graph);
         }
         if (t.contains("running")) running = t.getBoolean("running");
         setChanged();
