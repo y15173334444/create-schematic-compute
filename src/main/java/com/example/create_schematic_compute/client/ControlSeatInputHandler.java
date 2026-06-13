@@ -114,7 +114,19 @@ public class ControlSeatInputHandler {
         wasGuiOpen = guiOpen;
 
         boolean tab = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_TAB) == GLFW.GLFW_PRESS;
-        if (tab && !wasTab) { inputMode = (inputMode + 1) % 2; cursorInit = false; }
+        if (tab && !wasTab) {
+            int oldMode = inputMode;
+            inputMode = (inputMode + 1) % 2;
+            cursorInit = false;
+            // 从摇杆模式切换到视角差模式时，立即将视角锁定到座椅方向，
+            // 避免切换后到下一个 Post tick 之间鼠标移动造成 diff 跳变
+            if (oldMode == 0 && inputMode == 1 && vehicle != null) {
+                float vy = vehicle.getYRot();
+                mc.player.setYRot(vy); mc.player.yRotO = vy;
+                mc.player.setXRot(0); mc.player.xRotO = 0;
+                mc.player.yHeadRot = vy; mc.player.yBodyRot = vy;
+            }
+        }
         wasTab = tab;
 
         if (guiOpen || inputMode == 1) return;
