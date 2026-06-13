@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github)](https://github.com/y15173334444/create-schematic-compute)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.1.0-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
+[![Version](https://img.shields.io/badge/Version-1.1.1-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
 
@@ -35,7 +35,7 @@ A **3D floating display block** that renders node graph output as a virtual scre
 - **16×16 Pixel Editor** — Built-in pixel art editor with multi-frame animation support
 - **3D Positioning** — Freely position and rotate the floating screen in world space (X/Y/Z + Roll/Pitch/Yaw)
 - **Signal-Driven Movement** — Drive IMAGE/IMAGE_SEQUENCE position via X/Y input signals with configurable move scale
-- **Redstone I/O** — Read from / write to Create's Redstone Link network
+- **Redstone Input** — Read signals from Create's Redstone Link network (shared frequency)
 - **Real-time Preview** — GUI display mode with WYSIWYG editing of layout, scale, and rotation
 - **Custom Model** — Full Blockbench custom model support
 
@@ -66,6 +66,7 @@ A **sit-able controller seat** with real-time keyboard, mouse, and gamepad input
 - **Two input modes**: Joystick (mouse delta) and View Angle (player rotation difference)
 - **Gamepad support** — Dual-stick, 15 buttons via GLFW gamepad API
 - **Sable physics compatible** — Entity yaw syncs with sable sublevel rotation
+- **Smooth mode transitions** — No view jump when switching between Joystick and View Angle modes
 - **Press `~` to dismount**, **`TAB` to switch input mode**, **`ESC` for pause menu**
 
 #### 📐 Attitude Sensor
