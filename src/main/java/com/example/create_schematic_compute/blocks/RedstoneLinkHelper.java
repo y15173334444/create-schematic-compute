@@ -111,7 +111,7 @@ public class RedstoneLinkHelper {
 
     // ── Per-tick refresh ──
 
-    /** Refresh redstone inputs from network. Call every tick before evaluation. */
+    /** Passive refresh: rely on setReceivedStrength() callback, just init missing keys. */
     public void refreshInputs() {
         Level level = owner.getLevel();
         if (level == null) return;
@@ -119,6 +119,24 @@ public class RedstoneLinkHelper {
             var net = Create.REDSTONE_LINK_NETWORK_HANDLER.getNetworkOf(level, fl.linkable);
             if (net == null) lastInputs.remove(fl.freqKey);
             else if (!lastInputs.containsKey(fl.freqKey)) lastInputs.put(fl.freqKey, 0);
+        }
+    }
+
+    /** Active refresh: scan all linkables for max signal per frequency. */
+    public void refreshInputsActive() {
+        Level level = owner.getLevel();
+        if (level == null) return;
+        for (var fl : freqLinks) {
+            var net = Create.REDSTONE_LINK_NETWORK_HANDLER.getNetworkOf(level, fl.linkable);
+            if (net != null) {
+                int maxSig = 0;
+                for (var l : net)
+                    if (l != fl.linkable && l.isAlive())
+                        maxSig = Math.max(maxSig, l.getTransmittedStrength());
+                lastInputs.put(fl.freqKey, maxSig);
+            } else {
+                lastInputs.remove(fl.freqKey);
+            }
         }
     }
 
