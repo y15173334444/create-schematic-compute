@@ -60,8 +60,8 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
     }
     public void toggleRunning() { running=!running; setChanged(); if(level!=null)level.sendBlockUpdated(worldPosition,getBlockState(),getBlockState(),3); }
 
-    @Override public void onLoad() { super.onLoad(); registerLinks(); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
-    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); unregisterLinks(); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public void onLoad() { super.onLoad(); registerLinks(); }
+    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); unregisterLinks(); }
     @Override public void setRemoved() { unregisterLinks(); super.setRemoved(); }
 
     private void registerLinks() {
