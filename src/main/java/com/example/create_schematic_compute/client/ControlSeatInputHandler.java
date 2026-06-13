@@ -14,10 +14,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * 客户端处理器
- *
- * 两种模式都保持 CURSOR_DISABLED。
- * RenderFrameEvent.Pre 中读取 sable 子世界渲染姿态，让玩家视角随结构旋转。
+ * 客户端处理器 — 摇杆模式使用 Mixin 导出的原始鼠标增量，不再触碰 GLFW 光标，
+ * 彻底消除 glfwSetCursorPos 注入的虚假鼠标位移。
  */
 @EventBusSubscriber(modid = SchematicCompute.MOD_ID, value = Dist.CLIENT)
 public class ControlSeatInputHandler {
@@ -40,24 +38,27 @@ public class ControlSeatInputHandler {
         GLFW.GLFW_KEY_COMMA, GLFW.GLFW_KEY_PERIOD, GLFW.GLFW_KEY_SLASH,
         GLFW.GLFW_KEY_BACKSLASH, GLFW.GLFW_KEY_GRAVE_ACCENT
     };
-    private static final int TOTAL_KEYS = KEY_INDEX_TO_GLFW.length; // 58
+    private static final int TOTAL_KEYS = KEY_INDEX_TO_GLFW.length;
 
-    // 摇杆增量追踪
-    private static double prevCursorX, prevCursorY;
-    private static boolean cursorInit = false;
-    private static int inputMode = 0;
+    // 视角差模式 diff 的比例系数（~3°/tick = 满摇杆，匹配旧 dx*0.05 手感）
+    private static final float JOYSTICK_SCALE = 1.0f / 3.0f;
+
+    private static boolean suppressMouseTurn = false;
+    public static boolean isSuppressingMouseTurn() { return suppressMouseTurn; }
+
+    // 由 Mixin 写入上一帧 turn() 的原始鼠标增量（替代 glfwGetCursorPos）
+    private static volatile double rawMouseDYaw, rawMouseDPitch;
+    public static void onRawMouseDelta(double yaw, double pitch) { rawMouseDYaw = yaw; rawMouseDPitch = pitch; }
+
+    private static int inputMode = 0; // 默认摇杆模式
     private static boolean wasTab = false;
     private static boolean wasSeatedLastTick = false;
-
-    // Pre 事件中计算的摇杆值
     private static float joystickX = 0, joystickY = 0;
     private static boolean wantDismount = false;
     private static boolean wasGuiOpen = false;
-    private static Float transitionYaw = null, transitionPitch = null;
-
 
     // ═══════════════════════════════════════
-    //  Pre — 读鼠标增量
+    //  Pre — 摇杆值来自 Mixin 导出的原始 delta
     // ═══════════════════════════════════════
     @SubscribeEvent
     public static void onClientTickPre(ClientTickEvent.Pre event) {
@@ -69,7 +70,6 @@ public class ControlSeatInputHandler {
         boolean seated = vehicle instanceof ControlSeatEntity;
         boolean guiOpen = mc.screen != null;
 
-        // ── 坐下时阻止游戏操作按键和鼠标交互 ──
         if (seated) {
             mc.options.keyInventory.consumeClick();
             mc.options.keyDrop.consumeClick();
@@ -77,84 +77,52 @@ public class ControlSeatInputHandler {
             mc.options.keyChat.consumeClick();
             mc.options.keyCommand.consumeClick();
             mc.options.keyAdvancements.consumeClick();
-            // 屏蔽鼠标左右键：不破坏方块、不攻击实体，按键状态由包发送到服务端处理
             mc.options.keyAttack.consumeClick();
             mc.options.keyUse.consumeClick();
         }
 
-        // ── ~ 键离开座椅（标记下马，通过数据包发送到服务端） ──
         if (seated && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_GRAVE_ACCENT) == GLFW.GLFW_PRESS) {
             wantDismount = true;
-            wasTab = false; cursorInit = false; inputMode = 0;
+            wasTab = false; inputMode = 0; suppressMouseTurn = false; // will be set true below if re-seated
             joystickX = 0; joystickY = 0;
             wasSeatedLastTick = false;
             return;
         }
 
-        // ── 坐下时阻止 Shift 下马 ──
         if (seated) {
             mc.options.keyShift.setDown(false);
         }
 
-        // ── 坐下时显示提示 + 默认为摇杆模式 ──
         if (seated && !wasSeatedLastTick) {
             inputMode = 0;
+            suppressMouseTurn = true;
             mc.player.displayClientMessage(
-                net.minecraft.network.chat.Component.literal("§e按 ~ 离开  按 Tab 切换视角模式"),
-                true);
+                net.minecraft.network.chat.Component.literal("§e按 ~ 离开  按 Tab 切换视角模式"), true);
         }
         wasSeatedLastTick = seated;
+        if (!seated) { wasTab = false; suppressMouseTurn = false; return; }
 
-        if (!seated) { wasTab = false; cursorInit = false; return; }
-        // GUI 打开时不锁定光标（ESC 打开菜单后能正常使用鼠标）
         if (!guiOpen) {
             GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
         }
-
-        // ── 从 GUI 回到游戏时重置光标位置 ──
         if (wasGuiOpen && !guiOpen) {
-            cursorInit = false;
+            joystickX = 0; joystickY = 0;
         }
         wasGuiOpen = guiOpen;
 
+        // ── TAB 切换模式 ──
         boolean tab = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_TAB) == GLFW.GLFW_PRESS;
         if (tab && !wasTab) {
-            int oldMode = inputMode;
             inputMode = (inputMode + 1) % 2;
-            cursorInit = false;
-            if (oldMode == 0 && inputMode == 1 && mc.player != null) {
-                // 保存当前视角，Post 中恢复以消除 MC 累积鼠标 delta 产生的跳变
-                transitionYaw = mc.player.getYRot();
-                transitionPitch = mc.player.getXRot();
-            }
+            suppressMouseTurn = (inputMode == 0);
         }
         wasTab = tab;
 
         if (guiOpen || inputMode == 1) return;
 
-        // 摇杆
-        double[] xp = new double[1], yp = new double[1];
-        GLFW.glfwGetCursorPos(window, xp, yp);
-
-        if (!cursorInit) {
-            int cw = mc.getWindow().getScreenWidth();
-            int ch = mc.getWindow().getScreenHeight();
-            GLFW.glfwSetCursorPos(window, cw / 2.0, ch / 2.0);
-            prevCursorX = cw / 2.0; prevCursorY = ch / 2.0;
-            cursorInit = true;
-            joystickX = 0; joystickY = 0;
-            return;
-        }
-
-        double dx = xp[0] - prevCursorX;
-        double dy = yp[0] - prevCursorY;
-        int cw = mc.getWindow().getScreenWidth();
-        int ch = mc.getWindow().getScreenHeight();
-        GLFW.glfwSetCursorPos(window, cw / 2.0, ch / 2.0);
-        prevCursorX = cw / 2.0; prevCursorY = ch / 2.0;
-
-        joystickX = (float) Math.max(-1.0, Math.min(1.0, dx * 0.05));
-        joystickY = (float) Math.max(-1.0, Math.min(1.0, dy * 0.05));
+        // ══════════ 摇杆模式：从 Mixin 获取原始鼠标增量 ══════════
+        joystickX = (float) Math.max(-1.0, Math.min(1.0, rawMouseDYaw * JOYSTICK_SCALE));
+        joystickY = (float) Math.max(-1.0, Math.min(1.0, rawMouseDPitch * JOYSTICK_SCALE));
     }
 
     // ═══════════════════════════════════════
@@ -167,7 +135,7 @@ public class ControlSeatInputHandler {
 
         var vehicle = mc.player.getVehicle();
         boolean seated = vehicle instanceof ControlSeatEntity;
-        if (!seated) { wasTab = false; cursorInit = false; return; }
+        if (!seated) { wasTab = false; suppressMouseTurn = false; return; }
 
         BlockPos seatPos = vehicle.blockPosition();
         float seatYaw = vehicle.getYRot();
@@ -179,12 +147,10 @@ public class ControlSeatInputHandler {
                 keyBits |= (1L << i);
         }
 
-        // ── 鼠标按键 ──
         int mouseBtns = 0;
         if (GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS) mouseBtns |= 1;
         if (GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_RIGHT) == GLFW.GLFW_PRESS) mouseBtns |= 2;
 
-        // ── 手柄输入 ──
         float gLX = 0, gLY = 0, gRX = 0, gRY = 0;
         long gBtns = 0;
         if (GLFW.glfwJoystickPresent(GLFW.GLFW_JOYSTICK_1)) {
@@ -199,29 +165,19 @@ public class ControlSeatInputHandler {
                     for (int i = 0; i < 15 && i < btns.capacity(); i++)
                         if (btns.get(i) == 1) gBtns |= (1L << i);
                 }
-            } finally {
-                state.free();
-            }
+            } finally { state.free(); }
         }
 
         float mx = 0, my = 0, vy = 0, vp = 0;
 
         if (inputMode == 0) {
-            transitionYaw = null; transitionPitch = null;
             mx = joystickX;
             my = joystickY;
-            mc.player.yRotO = seatYaw;
-            mc.player.setYRot(seatYaw);
-            mc.player.xRotO = 0;
-            mc.player.setXRot(0);
-            mc.player.yHeadRot = seatYaw;
-            mc.player.yBodyRot = seatYaw;
+            mc.player.yRotO = seatYaw;     mc.player.setYRot(seatYaw);
+            mc.player.xRotO = 0;             mc.player.setXRot(0);
+            mc.player.yHeadRot = seatYaw;    mc.player.yHeadRotO = seatYaw;
+            mc.player.yBodyRot = seatYaw;    mc.player.yBodyRotO = seatYaw;
         } else {
-            if (transitionYaw != null) {
-                mc.player.setYRot(transitionYaw); mc.player.yRotO = transitionYaw;
-                mc.player.setXRot(transitionPitch); mc.player.xRotO = transitionPitch;
-                transitionYaw = null; transitionPitch = null;
-            }
             float diff = mc.player.getYRot() - seatYaw;
             while (diff > 180) diff -= 360;
             while (diff < -180) diff += 360;
@@ -229,9 +185,7 @@ public class ControlSeatInputHandler {
             vp = mc.player.getXRot();
         }
 
-        // 把 mouse/gamepad 数据附加到 keyBits 的高位
         long extKeyBits = keyBits | ((long)(mouseBtns & 3) << 58);
-
         PacketDistributor.sendToServer(new ControlSeatInputPacket(
             seatPos, extKeyBits, mx, my, vy, vp, inputMode,
             mouseBtns, gLX, gLY, gRX, gRY, gBtns, wantDismount
@@ -240,7 +194,7 @@ public class ControlSeatInputHandler {
     }
 
     // ═══════════════════════════════════════
-    //  每渲染帧 — 摇杆模式强制 pitch=0；阻止下蹲动画
+    //  渲染帧 — 摇杆模式强制 pitch=0
     // ═══════════════════════════════════════
     @SubscribeEvent
     public static void onRenderFramePre(RenderFrameEvent.Pre event) {
@@ -250,19 +204,15 @@ public class ControlSeatInputHandler {
         if (mc.screen != null) return;
 
         if (inputMode == 0) {
-            mc.player.setXRot(0);
-            mc.player.xRotO = 0;
+            mc.player.setXRot(0);            mc.player.xRotO = 0;
             var vehicle = mc.player.getVehicle();
             if (vehicle != null) {
                 float vy = vehicle.getYRot();
-                mc.player.setYRot(vy); mc.player.yRotO = vy;
-                mc.player.yHeadRot = vy; mc.player.yBodyRot = vy;
+                mc.player.setYRot(vy);        mc.player.yRotO = vy;
+                mc.player.yHeadRot = vy;       mc.player.yHeadRotO = vy;
+                mc.player.yBodyRot = vy;       mc.player.yBodyRotO = vy;
             }
         }
-
-        // 渲染层阻止下蹲（同时防止 Shift 下马）
-        if (mc.player.isShiftKeyDown()) {
-            mc.player.setShiftKeyDown(false);
-        }
+        if (mc.player.isShiftKeyDown()) mc.player.setShiftKeyDown(false);
     }
 }

@@ -14,7 +14,7 @@ base {
 }
 
 group = 'com.example'
-version = '1.1.0'
+version = '1.1.1'
 
 runs {
     configureEach {
@@ -48,6 +48,9 @@ dependencies {
     // Local JAR dependencies (needed at compile time)
     compileOnly fileTree(dir: 'libs', include: '*.jar')
     runtimeOnly fileTree(dir: 'libs', include: '*.jar')
+
+    // Mixin AP for processing @Mixin annotations
+    annotationProcessor 'org.spongepowered:mixin:0.8.7:processor'
 }
 
 tasks.withType(ProcessResources).configureEach {
