@@ -139,11 +139,12 @@ public class SchematicCompute {
         });
 
         // 服务器停止时清理全局状态（防止跨世界污染）
-        modEventBus.addListener(net.neoforged.neoforge.event.server.ServerStoppingEvent.class, event -> {
-            ControlSeatBlockEntity.clearAllInputs();
-            com.example.create_schematic_compute.network.SignalBus.clear();
-            LOGGER.info("{} cleared static state for server shutdown", MOD_ID);
-        });
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+            net.neoforged.neoforge.event.server.ServerStoppingEvent.class, event -> {
+                ControlSeatBlockEntity.clearAllInputs();
+                com.example.create_schematic_compute.network.SignalBus.clear();
+                LOGGER.info("{} cleared static state for server shutdown", MOD_ID);
+            });
 
         LOGGER.info("{} loaded!", MOD_ID);
     }
