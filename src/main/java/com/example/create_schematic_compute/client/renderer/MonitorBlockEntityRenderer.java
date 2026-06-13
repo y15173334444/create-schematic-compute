@@ -88,8 +88,8 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         float cx = -hw + margin, cy = hh - margin;
         float cw = be.screenWidth - 2 * margin, ch = be.screenLength - 2 * margin;
 
-        // ── Border + IMAGE pixels use POSITION_COLOR shader (no lightmap, avoids
-        //     optimization-mod culling like Flywheel/Sodium interfering with custom types) ──
+        // ── Border + IMAGE pixels use POSITION_COLOR with POSITION_COLOR_SHADER
+        //     (rendertype_position_color = F3 debug shader — Iris preserves it; NO_CULL ensures all-angle visibility) ──
         var sceneBuf = buffer.getBuffer(MonitorRenderTypes.SCREEN_PIXEL);
         drawBorderFace(sceneBuf, m, l, r, t, b, bw, 1);
         drawBorderFace(sceneBuf, m, l, r, t, b, bw, -1);
