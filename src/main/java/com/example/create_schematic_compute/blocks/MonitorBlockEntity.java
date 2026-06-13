@@ -1,10 +1,20 @@
 package com.example.create_schematic_compute.blocks;
 
+import com.example.create_schematic_compute.ModUtils;
 import com.example.create_schematic_compute.SchematicCompute;
 import com.example.create_schematic_compute.graph.GraphEvaluator;
 import com.example.create_schematic_compute.graph.NodeGraph;
+import com.example.create_schematic_compute.graph.NodeType;
+import com.simibubi.create.Create;
+import com.simibubi.create.content.redstone.link.IRedstoneLinkable;
+import com.simibubi.create.content.redstone.link.RedstoneLinkNetworkHandler;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
+import com.example.create_schematic_compute.network.MonitorRedstoneSyncPacket;
+import net.createmod.catnip.data.Couple;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.ChunkPos;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
@@ -17,20 +27,28 @@ import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-/** Monitor block entity — evaluates node graphs for display output.
- *  Uses PRIVATE_IN/OUT (SignalBus) for communication; REDSTONE_IN/OUT are not supported. */
 public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
     public final Map<Integer, Float> pidState = new HashMap<>();
+
+    // ── Redstone Link network integration ──
+    final List<FreqLink> freqLinks = new ArrayList<>();
+    final Map<Long, Integer> lastInputs = new HashMap<>();
+    public void putRedstoneInput(long freqKey, int signal) { lastInputs.put(freqKey, signal); }
+    public int getRedstoneInput(long freqKey) { return lastInputs.getOrDefault(freqKey, 0); }
+    private final Map<Long, Integer> lastOutputs = new HashMap<>();
+    private record FreqLink(long freqKey, IRedstoneLinkable linkable) {}
 
     // Display settings (units in blocks)
     public float screenWidth = 1.5f;
@@ -44,6 +62,7 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
 
     private GraphEvaluator evaluator = null;
     private NodeGraph lastEvaluatedGraph = null;
+    private NodeGraph lastLinkedGraph = null;
 
     public MonitorBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.MONITOR_BE.get(), pos, s); }
 
@@ -58,6 +77,62 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
             if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
     }
+
+    // ── Redstone link lifecycle ──
+    @Override public void onLoad() { super.onLoad(); registerLinks(); }
+    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); unregisterLinks(); }
+    @Override public void setRemoved() { unregisterLinks(); super.setRemoved(); }
+
+    private void registerLinks() {
+        if(level==null||level.isClientSide()) return;
+        unregisterLinks();
+        var EMPTY = RedstoneLinkNetworkHandler.Frequency.EMPTY;
+        for(var n : graph.nodes) {
+            if(n.type==NodeType.REDSTONE_IN||n.type==NodeType.REDSTONE_OUT) {
+                var item1 = n.itemParams!=null&&n.itemParams.length>0 ? n.itemParams[0] : ItemStack.EMPTY;
+                var item2 = n.itemParams!=null&&n.itemParams.length>1 ? n.itemParams[1] : ItemStack.EMPTY;
+                var f1 = !item1.isEmpty() ? RedstoneLinkNetworkHandler.Frequency.of(item1) : EMPTY;
+                var f2 = !item2.isEmpty() ? RedstoneLinkNetworkHandler.Frequency.of(item2) : EMPTY;
+                var freqKey = ModUtils.freqKey(item1, item2);
+                var isIn = n.type==NodeType.REDSTONE_IN;
+                addLink(isIn, freqKey, f1, f2);
+            }
+        }
+        // 强制网络中所有发射端重发信号（Monitor 可能后注册，错过了之前的推送）
+        for(var fl : freqLinks) {
+            var net = Create.REDSTONE_LINK_NETWORK_HANDLER.getNetworkOf(level, fl.linkable);
+            if(net!=null) for(var l : net) if(l!=fl.linkable&&l.isAlive()&&!l.isListening()) {
+                Create.REDSTONE_LINK_NETWORK_HANDLER.updateNetworkOf(level, l);
+            }
+        }
+    }
+
+    private void addLink(boolean isIn, long freqKey, RedstoneLinkNetworkHandler.Frequency f1, RedstoneLinkNetworkHandler.Frequency f2) {
+        var link = new IRedstoneLinkable() {
+            public int getTransmittedStrength() { return isIn?0:lastOutputs.getOrDefault(freqKey,0); }
+            public void setReceivedStrength(int s) {
+                if(isIn) {
+                    lastInputs.put(freqKey,s);
+                    setChanged();
+                    if(level instanceof ServerLevel sl)
+                        PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(worldPosition),
+                            new MonitorRedstoneSyncPacket(worldPosition, freqKey, s));
+                }
+            }
+            public boolean isListening() { return isIn; }
+            public boolean isAlive() { return true; }
+            public Couple<RedstoneLinkNetworkHandler.Frequency> getNetworkKey() { return Couple.create(f1,f2); }
+            public BlockPos getLocation() { return worldPosition; }
+        };
+        Create.REDSTONE_LINK_NETWORK_HANDLER.addToNetwork(level, link);
+        freqLinks.add(new FreqLink(freqKey, link));
+    }
+
+    private void unregisterLinks() {
+        for(var fl : freqLinks) Create.REDSTONE_LINK_NETWORK_HANDLER.removeFromNetwork(level, fl.linkable);
+        freqLinks.clear();
+    }
+
     public void toggleRunning() { running = !running; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
 
     public void tick() {
@@ -67,13 +142,35 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
         if (!currentState.hasProperty(MonitorBlock.LIT)) return;
         if(currentState.getValue(MonitorBlock.LIT) != shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(MonitorBlock.LIT, shouldBeLit), 3);
+        if(lastLinkedGraph != graph) { registerLinks(); lastLinkedGraph = graph; }
         if(!running) return;
         if(evaluator == null || lastEvaluatedGraph != graph) {
             evaluator = new GraphEvaluator(graph);
             lastEvaluatedGraph = graph;
             pidState.clear();
         }
-        evaluator.evaluate(new ArrayList<>(), pidState, 0.05f);
+        // Refresh redstone inputs: 只接受通过 setReceivedStrength() 回调推送的信号
+        for(var fl : freqLinks) {
+            var net = Create.REDSTONE_LINK_NETWORK_HANDLER.getNetworkOf(level, fl.linkable);
+            if(net == null) lastInputs.remove(fl.freqKey);
+            else if(!lastInputs.containsKey(fl.freqKey)) lastInputs.put(fl.freqKey, 0);
+        }
+        var in = new ArrayList<GraphEvaluator.InputSource>();
+        for(var n : graph.nodes) {
+            if(n.type==NodeType.REDSTONE_IN) {
+                long fk = ModUtils.freqKey(n.itemParams);
+                int sig = lastInputs.getOrDefault(fk, 0);
+                in.add(new GraphEvaluator.InputSource(fk, sig));
+            }
+        }
+        float dt = 0.05f;
+        var results = evaluator.evaluate(in, pidState, dt);
+        lastOutputs.clear();
+        for(var r : results) {
+            long freqKey = ModUtils.freqKey(r.freq1(), r.freq2());
+            lastOutputs.put(freqKey, r.signal());
+            for(var fl : freqLinks) if(fl.freqKey() == freqKey) Create.REDSTONE_LINK_NETWORK_HANDLER.updateNetworkOf(level, fl.linkable);
+        }
         setChanged();
     }
 
@@ -83,10 +180,12 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
             if (t != null) loadSettings(t);
+            registerLinks();
             setChanged();
         } catch (Exception e) {
             SchematicCompute.LOGGER.error("Failed to load monitor graph, resetting", e);
             graph = new NodeGraph();
+            registerLinks();
             setChanged();
         }
     }
@@ -107,6 +206,10 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
         t.put("graph", graph.save(r));
         t.putBoolean("running", running);
         saveSettings(t);
+        // Sync redstone inputs to client for display mode rendering
+        var inputs = new CompoundTag();
+        for(var e : lastInputs.entrySet()) inputs.putInt(String.valueOf(e.getKey()), e.getValue());
+        t.put("rs_in", inputs);
     }
 
     private void saveSettings(CompoundTag t) {
@@ -133,9 +236,16 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
 
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t, r);
-        if (t.contains("graph")) graph = NodeGraph.load(t.getCompound("graph"), r);
+        if (t.contains("graph")) { graph = NodeGraph.load(t.getCompound("graph"), r); registerLinks(); }
         if (t.contains("running")) running = t.getBoolean("running");
         loadSettings(t);
+        // Load synced redstone inputs for client-side display rendering
+        if (t.contains("rs_in")) {
+            lastInputs.clear();
+            var inputs = t.getCompound("rs_in");
+            for(var k : inputs.getAllKeys())
+                lastInputs.put(Long.parseLong(k), inputs.getInt(k));
+        }
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }

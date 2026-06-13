@@ -48,7 +48,16 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
 
         var evaluator = new GraphEvaluator(be.graph);
         var pidState = new java.util.HashMap<Integer, Float>();
-        evaluator.evaluate(new ArrayList<>(), pidState, 0.05f);
+        // Build InputSource from synced redstone inputs
+        var inputs = new ArrayList<GraphEvaluator.InputSource>();
+        for (var n : be.graph.nodes) {
+            if (n.type == NodeType.REDSTONE_IN) {
+                long fk = com.example.create_schematic_compute.ModUtils.freqKey(n.itemParams);
+                int sig = be.getRedstoneInput(fk);
+                inputs.add(new GraphEvaluator.InputSource(fk, sig));
+            }
+        }
+        evaluator.evaluate(inputs, pidState, 0.05f);
 
         boolean hasContent = false;
         for (var n : be.graph.nodes)

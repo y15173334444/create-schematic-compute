@@ -90,6 +90,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
         // node filter: only input and display nodes
         editor.setNodeFilter(nt -> nt == NodeType.CONST
+            || nt == NodeType.REDSTONE_IN || nt == NodeType.REDSTONE_OUT
             || nt == NodeType.PRIVATE_IN
             || nt == NodeType.TEXT || nt == NodeType.DATA
             || nt == NodeType.IMAGE || nt == NodeType.IMAGE_SEQUENCE);
@@ -159,14 +160,22 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     }
 
     private GraphEvaluator getCachedEvaluator(NodeGraph graph) {
-        if (cachedEval != null && lastEvalGraph == graph) return cachedEval;
-        lastEvalGraph = graph;
-        cachedEval = new GraphEvaluator(graph);
-        if (cachedPidState == null) cachedPidState = new java.util.HashMap<>();
-        cachedPidState.clear();
-        if (cachedEmptyInputs == null) cachedEmptyInputs = new ArrayList<>();
-        // cachedEmptyInputs stays empty — it's always empty for display mode
-        cachedEval.evaluate(cachedEmptyInputs, cachedPidState, 0.05f);
+        if (cachedEval == null || lastEvalGraph != graph) {
+            lastEvalGraph = graph;
+            cachedEval = new GraphEvaluator(graph);
+            if (cachedPidState == null) cachedPidState = new java.util.HashMap<>();
+            cachedPidState.clear();
+        }
+        // Build InputSource list from synced redstone inputs for REDSTONE_IN nodes
+        var inputs = new ArrayList<GraphEvaluator.InputSource>();
+        for (var n : graph.nodes) {
+            if (n.type == NodeType.REDSTONE_IN) {
+                long fk = com.example.create_schematic_compute.ModUtils.freqKey(n.itemParams);
+                int sig = blockEntity != null ? blockEntity.getRedstoneInput(fk) : 0;
+                inputs.add(new GraphEvaluator.InputSource(fk, sig));
+            }
+        }
+        cachedEval.evaluate(inputs, cachedPidState, 0.05f);
         return cachedEval;
     }
 
