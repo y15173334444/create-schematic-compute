@@ -28,7 +28,12 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
     public NodeGraph graph = new NodeGraph();

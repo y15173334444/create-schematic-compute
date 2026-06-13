@@ -3,7 +3,11 @@ package com.example.create_schematic_compute.graph;
 import com.example.create_schematic_compute.ModUtils;
 import com.example.create_schematic_compute.network.SignalBus;
 import net.minecraft.world.item.ItemStack;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 public class GraphEvaluator {
     private final NodeGraph graph;
