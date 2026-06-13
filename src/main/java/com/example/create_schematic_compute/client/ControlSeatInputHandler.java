@@ -48,8 +48,6 @@ public class ControlSeatInputHandler {
     private static int inputMode = 0;
     private static boolean wasTab = false;
     private static boolean wasSeatedLastTick = false;
-    /** 模式刚切换到视角差模式，下一帧 diff 强制为 0 防止视角跳变 */
-    private static boolean viewModeJustSwitched = false;
 
     // Pre 事件中计算的摇杆值
     private static float joystickX = 0, joystickY = 0;
@@ -119,16 +117,7 @@ public class ControlSeatInputHandler {
         wasGuiOpen = guiOpen;
 
         boolean tab = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_TAB) == GLFW.GLFW_PRESS;
-        if (tab && !wasTab) {
-            int oldMode = inputMode;
-            inputMode = (inputMode + 1) % 2;
-            cursorInit = false;
-            // 从摇杆模式切换到视角差模式：标记切换帧，
-            // 让 Post 事件在下一帧强制 diff=0 防止视角跳变
-            if (oldMode == 0 && inputMode == 1) {
-                viewModeJustSwitched = true;
-            }
-        }
+        if (tab && !wasTab) { inputMode = (inputMode + 1) % 2; cursorInit = false; }
         wasTab = tab;
 
         if (guiOpen || inputMode == 1) return;
@@ -217,14 +206,8 @@ public class ControlSeatInputHandler {
             mc.player.yHeadRot = seatYaw;
             mc.player.yBodyRot = seatYaw;
         } else {
-            // 刚从摇杆模式切换过来时强制 diff=0，防止 Pre→Post 之间
-            // 渲染帧中鼠标移动导致视角跳变
-            if (viewModeJustSwitched) {
-                mc.player.setYRot(seatYaw); mc.player.yRotO = seatYaw;
-                mc.player.setXRot(0); mc.player.xRotO = 0;
-                viewModeJustSwitched = false;
-            }
-            // 发送差值并归一化到 -180~180
+            // 发送原始玩家旋转（服务端结合子世界 pose 计算差值）
+            // 发差值并归一化到 -180~180
             float diff = mc.player.getYRot() - seatYaw;
             while (diff > 180) diff -= 360;
             while (diff < -180) diff += 360;
