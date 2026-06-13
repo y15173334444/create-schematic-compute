@@ -90,24 +90,8 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
 
         // ── Border (uses LIGHTMAP so it responds to ambient light) ──
         var borderBuf = buffer.getBuffer(MonitorRenderTypes.SCREEN_BORDER);
-
-        // Border frame
-        borderBuf.addVertex(m, l - bw, t - bw, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, r + bw, t - bw, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, r + bw, t, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, l - bw, t, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, l - bw, b, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, r + bw, b, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, r + bw, b + bw, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, l - bw, b + bw, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, l - bw, t, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, l, t, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, l, b, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, l - bw, b, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, r, t, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, r + bw, t, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, r + bw, b, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
-        borderBuf.addVertex(m, r, b, 0).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, 1);
+        drawBorderFace(borderBuf, m, l, r, t, b, bw, 1);  // front (+Z)
+        drawBorderFace(borderBuf, m, l, r, t, b, bw, -1); // back (-Z) — 防止旋转后背面不可见
 
         // ── IMAGE pixels (uses POSITION_COLOR shader — no lightmap, colors render directly) ──
         var pixelBuf = buffer.getBuffer(MonitorRenderTypes.SCREEN_PIXEL);
@@ -288,6 +272,28 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         }
 
         return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    /** Draw one side of the border frame. dir=1 for front (+Z normal), dir=-1 for back (-Z normal). */
+    private void drawBorderFace(VertexConsumer buf, org.joml.Matrix4f m,
+                                 float l, float r, float t, float b, float bw, int dir) {
+        float z = 0.001f * dir; // slight offset to avoid z-fighting between front/back
+        buf.addVertex(m, l - bw, t - bw, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, r + bw, t - bw, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, r + bw, t, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, l - bw, t, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, l - bw, b, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, r + bw, b, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, r + bw, b + bw, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, l - bw, b + bw, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, l - bw, t, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, l, t, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, l, b, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, l - bw, b, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, r, t, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, r + bw, t, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, r + bw, b, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        buf.addVertex(m, r, b, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
     }
 
     @Override public boolean shouldRenderOffScreen(MonitorBlockEntity be) { return true; }
