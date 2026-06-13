@@ -124,5 +124,11 @@
   "gui.create_schematic_compute.monitor.pixel_new": "+新建",
   "gui.create_schematic_compute.monitor.pixel_blank": "空白",
   "gui.create_schematic_compute.monitor.pixel_from_current": "从当前新建",
-  "gui.create_schematic_compute.monitor.pixel_close_hint": "点击外部 | ESC 关闭"
+  "gui.create_schematic_compute.monitor.pixel_close_hint": "点击外部 | ESC 关闭",
+  "category.create_schematic_compute.structure": "封装",
+  "category.create_schematic_compute.encap_io": "封装 I/O",
+  "node.create_schematic_compute.encapsulation": "封装",
+  "node.create_schematic_compute.encap_input": "封装输入",
+  "node.create_schematic_compute.encap_output": "封装输出",
+  "gui.create_schematic_compute.encap_mode": "封装编辑模式"
 }

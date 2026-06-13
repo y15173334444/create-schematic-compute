@@ -198,7 +198,7 @@ public class GraphEvaluator {
         switch (node.type) {
             case KEYBOARD -> {
                 int keyIndex = node.params.length > 0 ? (int)node.params[0] : 0;
-                keyIndex = Math.max(0, Math.min(35, keyIndex));
+                keyIndex = Math.max(0, Math.min(57, keyIndex)); // 58 keys: A-Z, 0-9, Space, Shift, Ctrl, etc.
                 o[0] = ((seat.keyBits >> keyIndex) & 1L) != 0 ? 1f : 0f;
             }
             case MOUSE_JOYSTICK -> { o[0] = seat.mouseX(); o[1] = seat.mouseY(); }
@@ -331,6 +331,39 @@ public class GraphEvaluator {
             }
             // Display nodes — no float output; data read from GraphNode fields by renderer
             case TEXT, DATA, IMAGE, IMAGE_SEQUENCE -> {}
+            case ENCAPSULATION -> {
+                if (node.subGraph == null) break;
+                var inpNodes = node.getSubNodes(NodeType.ENCAP_INPUT);
+                var outNodes = node.getSubNodes(NodeType.ENCAP_OUTPUT);
+                int nOut = outNodes.size();
+                o = new float[nOut];
+                node.outputValues = o;
+                // Inject outer inputs into ENCAP_INPUT nodes
+                var subEval = new GraphEvaluator(node.subGraph);
+                for (int i = 0; i < inpNodes.size(); i++) {
+                    float val = graph.getInputValue(node.id, i, outputs);
+                    // Write directly into subEval's outputs so ENCAP_INPUT acts like CONST
+                    subEval.outputs.put(inpNodes.get(i).id, new float[]{val});
+                }
+                // Evaluate sub-graph (ENCAP_INPUT nodes already have injected values, skip them).
+                // Use a fresh pidState to isolate inner PID/ACCUMULATOR state from the outer graph.
+                var subPidState = new java.util.HashMap<Integer, Float>();
+                var topo = node.subGraph.getTopoOrder();
+                for (int nid : topo) {
+                    var subNode = node.subGraph.findNode(nid);
+                    if (subNode == null || subNode.type == NodeType.ENCAP_INPUT) continue;
+                    if (subNode.type == NodeType.ENCAP_OUTPUT) {
+                        float val = node.subGraph.getInputValue(nid, 0, subEval.outputs);
+                        subEval.outputs.put(nid, new float[]{val});
+                    } else {
+                        subEval.eval(subNode, inputs, subPidState, dt, seat);
+                    }
+                }
+                // Collect ENCAP_OUTPUT values
+                for (int i = 0; i < outNodes.size(); i++) {
+                    o[i] = node.subGraph.getInputValue(outNodes.get(i).id, 0, subEval.outputs);
+                }
+            }
         }
         outputs.put(node.id, o.clone());
     }

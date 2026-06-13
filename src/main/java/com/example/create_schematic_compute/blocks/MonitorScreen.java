@@ -43,6 +43,12 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     private boolean editingS = false, editingR = false;
     private String editSBuf = "", editRBuf = "";
 
+    // ── Evaluator cache (reused across display-mode frames) ──
+    private NodeGraph lastEvalGraph = null;
+    private GraphEvaluator cachedEval = null;
+    private java.util.HashMap<Integer, Float> cachedPidState = null;
+    private ArrayList<GraphEvaluator.InputSource> cachedEmptyInputs = null;
+
     // ── Settings panel state ──
     private boolean showSettings = false;
     private boolean settingsInited = false;
@@ -84,7 +90,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
         // node filter: only input and display nodes
         editor.setNodeFilter(nt -> nt == NodeType.CONST
-            || nt == NodeType.REDSTONE_IN || nt == NodeType.PRIVATE_IN
+            || nt == NodeType.PRIVATE_IN
             || nt == NodeType.TEXT || nt == NodeType.DATA
             || nt == NodeType.IMAGE || nt == NodeType.IMAGE_SEQUENCE);
     }
@@ -152,6 +158,18 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         return new DisplayArea((width - dw) / 2, (height - dh) / 2 + topOffset / 2, dw, dh);
     }
 
+    private GraphEvaluator getCachedEvaluator(NodeGraph graph) {
+        if (cachedEval != null && lastEvalGraph == graph) return cachedEval;
+        lastEvalGraph = graph;
+        cachedEval = new GraphEvaluator(graph);
+        if (cachedPidState == null) cachedPidState = new java.util.HashMap<>();
+        cachedPidState.clear();
+        if (cachedEmptyInputs == null) cachedEmptyInputs = new ArrayList<>();
+        // cachedEmptyInputs stays empty — it's always empty for display mode
+        cachedEval.evaluate(cachedEmptyInputs, cachedPidState, 0.05f);
+        return cachedEval;
+    }
+
     private void renderDisplayArea(GuiGraphics g, int mx, int my) {
         var da = computeDisplayArea();
         int w = width, h = height;
@@ -165,12 +183,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             g.fill(da.x, gy, da.x + da.w, gy + 1, 0xFF2C2A24);
         g.renderOutline(da.x, da.y, da.w, da.h, 0xFF3A3A3A);
 
-        // Local evaluation to get display values
+        // Local evaluation to get display values (cached across frames)
         var graph = blockEntity != null ? blockEntity.graph : new NodeGraph();
-        var localEval = new GraphEvaluator(graph);
-        var pidState = new java.util.HashMap<Integer, Float>();
-        var emptyInputs = new ArrayList<GraphEvaluator.InputSource>();
-        localEval.evaluate(emptyInputs, pidState, 0.05f);
+        var localEval = getCachedEvaluator(graph);
 
         // Collect and render display elements (clipped to display area)
         var elements = collectDisplayElements(graph, localEval);
@@ -685,9 +700,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
             // Check for display element hits (scaled to rendered size)
             var graph = blockEntity != null ? blockEntity.graph : new NodeGraph();
-            var localEval = new GraphEvaluator(graph);
-            var pidState = new java.util.HashMap<Integer, Float>();
-            localEval.evaluate(new ArrayList<>(), pidState, 0.05f);
+            var localEval = getCachedEvaluator(graph);
             var elements = collectDisplayElements(graph, localEval);
             float cw2 = (blockEntity != null && blockEntity.screenLength > 0.001f)
                 ? blockEntity.screenWidth - 0.08f : 1.5f - 0.08f;

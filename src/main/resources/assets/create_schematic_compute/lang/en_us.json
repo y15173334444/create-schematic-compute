@@ -111,6 +111,12 @@
   "gui.create_schematic_compute.monitor.scr_yaw": "Yaw",
   "gui.create_schematic_compute.monitor.pixel_new": "+New",
   "gui.create_schematic_compute.monitor.pixel_blank": "Blank",
+  "category.create_schematic_compute.structure": "Structure",
+  "category.create_schematic_compute.encap_io": "Encapsulation I/O",
+  "node.create_schematic_compute.encapsulation": "Encapsulation",
+  "node.create_schematic_compute.encap_input": "Input",
+  "node.create_schematic_compute.encap_output": "Output",
+  "gui.create_schematic_compute.encap_mode": "Encapsulation Edit Mode",
   "gui.create_schematic_compute.monitor.pixel_from_current": "From current",
   "gui.create_schematic_compute.monitor.pixel_close_hint": "Click outside | ESC to close"
 }

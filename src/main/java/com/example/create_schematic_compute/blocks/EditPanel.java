@@ -34,6 +34,7 @@ public class EditPanel {
         if (n.type == NodeType.TEXT) h += 22;
         if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) h += 22;
         if (n.type == NodeType.TEXT || n.type == NodeType.DATA) h += 22;
+        if (n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT) h += 22;
         return h;
     }
 

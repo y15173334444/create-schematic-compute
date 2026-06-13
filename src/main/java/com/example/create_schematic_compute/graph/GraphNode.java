@@ -27,16 +27,56 @@ public class GraphNode {
     public float displayRotation = 0f;             // rotation (degrees)
     /** 每单位信号移动量（归一化坐标），默认每1信号移动1%宽度 */
     public float moveScale = 0.01f;
-    /** 有效输入引脚数（FORMULA 用 dynamicInputCount，其他用 type.inputs） */
-    public int inputs() { return type == NodeType.FORMULA ? Math.max(1, Math.min(dynamicInputCount, 26)) : type.inputs; }
-    public int outputs() { return type.outputs; }
-    /** 输入引脚标签（FORMULA 用公式中的变量名，其他用 type 的默认） */
+    /** Encapsulation node's nested sub-graph (null for other types) */
+    public NodeGraph subGraph;
+
+    /** 有效输入引脚数（FORMULA/ENCAPSULATION 动态决定） */
+    public int inputs() {
+        if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicInputCount, 26));
+        if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_INPUT);
+        return type.inputs;
+    }
+    public int outputs() {
+        if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_OUTPUT);
+        return type.outputs;
+    }
+    private int countSubNodes(NodeType t) {
+        int n = 0;
+        for (var node : subGraph.nodes) if (node.type == t) n++;
+        return n;
+    }
+    /** Get internal ENCAP_INPUT/OUTPUT nodes sorted by ID */
+    public java.util.List<GraphNode> getSubNodes(NodeType t) {
+        var list = new java.util.ArrayList<GraphNode>();
+        if (subGraph != null) for (var n : subGraph.nodes) if (n.type == t) list.add(n);
+        list.sort(java.util.Comparator.comparingInt(n -> n.id));
+        return list;
+    }
+    /** 输入引脚标签（FORMULA 用变量名，ENCAPSULATION 用内部节点名） */
     public String inputLabel(int i) {
         if (type == NodeType.FORMULA && !formula.isEmpty()) {
             var vars = FormulaParser.extractVariables(formula);
             if (i < vars.size()) return vars.get(i);
         }
+        if (type == NodeType.ENCAPSULATION) {
+            var ins = getSubNodes(NodeType.ENCAP_INPUT);
+            if (i < ins.size()) {
+                String name = ins.get(i).displayText;
+                return name.isEmpty() ? "in" + (i + 1) : name;
+            }
+        }
         return type.inputLabel(i);
+    }
+    /** 输出引脚标签（ENCAPSULATION 用内部节点名） */
+    public String outputLabel(int i) {
+        if (type == NodeType.ENCAPSULATION) {
+            var outs = getSubNodes(NodeType.ENCAP_OUTPUT);
+            if (i < outs.size()) {
+                String name = outs.get(i).displayText;
+                return name.isEmpty() ? "out" + (i + 1) : name;
+            }
+        }
+        return type.outputLabel(i);
     }
 
     // Runtime computed values (filled by evaluator)
@@ -47,7 +87,9 @@ public class GraphNode {
         this.type = type;
         this.x = x;
         this.y = y;
-        this.params = new float[type.paramNames.length];
+        // ENCAP_INPUT/OUTPUT 的 name 存在 displayText 中，无需 params
+        this.params = (type == NodeType.ENCAP_INPUT || type == NodeType.ENCAP_OUTPUT)
+            ? new float[0] : new float[type.paramNames.length];
         this.itemParams = new ItemStack[0];
         // Set defaults for param-based nodes
         if (type == NodeType.CONST) this.params[0] = 1.0f;
@@ -76,7 +118,8 @@ public class GraphNode {
             this.imagePixels = new int[256];
             java.util.Arrays.fill(this.imagePixels, 0x00000000);
         }
-        this.outputValues = new float[type.outputs];
+        // ENCAPSULATION: outputValues resized dynamically during eval based on subGraph
+        this.outputValues = new float[type == NodeType.ENCAPSULATION ? 0 : type.outputs];
     }
 
     // Save to NBT
@@ -112,6 +155,7 @@ public class GraphNode {
         tag.putFloat("ds", displayScale);
         tag.putFloat("dr", displayRotation);
         if (moveScale != 0.01f) tag.putFloat("ms", moveScale);
+        if (subGraph != null) tag.put("subGraph", subGraph.save(registries));
         return tag;
     }
 
@@ -147,6 +191,7 @@ public class GraphNode {
         if (tag.contains("ds")) node.displayScale = tag.getFloat("ds");
         if (tag.contains("dr")) node.displayRotation = tag.getFloat("dr");
         if (tag.contains("ms")) node.moveScale = tag.getFloat("ms");
+        if (tag.contains("subGraph")) node.subGraph = NodeGraph.load(tag.getCompound("subGraph"), registries);
         return node;
     }
 }

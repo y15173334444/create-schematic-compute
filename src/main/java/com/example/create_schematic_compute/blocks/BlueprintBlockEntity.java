@@ -45,6 +45,7 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
     // 重用评估器，减少每 tick 的 GC 压力
     private GraphEvaluator evaluator = null;
     private NodeGraph lastEvaluatedGraph = null;
+    private NodeGraph lastLinkedGraph = null;
 
     private record FreqLink(long freqKey, IRedstoneLinkable linkable) {}
 
@@ -112,12 +113,27 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
         if (!currentState.hasProperty(BlueprintBlock.LIT)) return;
         if(currentState.getValue(BlueprintBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(BlueprintBlock.LIT, shouldBeLit), 3);
+        if(lastLinkedGraph != graph) { registerLinks(); lastLinkedGraph = graph; }
         if(!running) return;
         // 重用 GraphEvaluator，图对象变化时重建（同时清零 PID 积分）
         if (evaluator == null || lastEvaluatedGraph != graph) {
             evaluator = new GraphEvaluator(graph);
             lastEvaluatedGraph = graph;
             pidState.clear();
+        }
+        // Refresh redstone inputs from network every tick (pick max signal per frequency)
+        for(var fl : freqLinks) {
+            var net = com.simibubi.create.Create.REDSTONE_LINK_NETWORK_HANDLER.getNetworkOf(level, fl.linkable);
+            if(net != null) {
+                int maxSig = 0;
+                for(var l : net) {
+                    if(l != fl.linkable && l.isAlive())
+                        maxSig = Math.max(maxSig, l.getTransmittedStrength());
+                }
+                lastInputs.put(fl.freqKey, maxSig);
+            } else {
+                lastInputs.remove(fl.freqKey);
+            }
         }
         var in = new ArrayList<GraphEvaluator.InputSource>();
         for(var n : graph.nodes) {

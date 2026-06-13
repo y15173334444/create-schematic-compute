@@ -135,6 +135,8 @@ public class NodeRenderer {
         new NodeCategory("category.create_schematic_compute.input_ctrl", new NodeType[]{NodeType.KEYBOARD, NodeType.MOUSE_BUTTON, NodeType.MOUSE_JOYSTICK, NodeType.GAMEPAD_JOYSTICK, NodeType.GAMEPAD_BUTTON}),
         new NodeCategory("category.create_schematic_compute.input_sensor", new NodeType[]{NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD}),
         new NodeCategory("category.create_schematic_compute.display", new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE}),
+        new NodeCategory("category.create_schematic_compute.structure", new NodeType[]{NodeType.ENCAPSULATION}),
+        new NodeCategory("category.create_schematic_compute.encap_io", new NodeType[]{NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT}),
     };
     private final java.util.Map<Integer, Boolean> catExpanded = new java.util.HashMap<>();
     private float menuRX, menuRY;
@@ -155,12 +157,22 @@ public class NodeRenderer {
     }
 
     public void renderConnections(GuiGraphics g, NodeGraph graph, float camX, float camY, float zoom) {
+        int sw = screen.width, sh = screen.height;
+        // viewport in world coords (with generous margin for bezier curves that extend beyond endpoints)
+        float vpLeft = -camX - 100 / zoom, vpRight = sw / zoom - camX + 100 / zoom;
+        float vpTop = -camY - 100 / zoom, vpBottom = sh / zoom - camY + 100 / zoom;
         for(NodeConnection c : graph.connections) {
             GraphNode fn = graph.findNode(c.fromId);
             GraphNode tn = graph.findNode(c.toId);
             if(fn==null||tn==null) continue;
-            float x1 = c2sX.apply(fn.x+NW), y1 = c2sY.apply(fn.y+HH+PH*(fn.inputs()+c.fromPin)+PH/2f);
-            float x2 = c2sX.apply(tn.x), y2 = c2sY.apply(tn.y+HH+PH*c.toPin+PH/2f);
+            // cull: both endpoints outside viewport edge (conservative — bezier stays near endpoints)
+            float wx1 = fn.x + NW, wx2 = tn.x;
+            if ((wx1 < vpLeft && wx2 < vpLeft) || (wx1 > vpRight && wx2 > vpRight)) continue;
+            float wy1 = fn.y + HH + PH*(fn.inputs()+c.fromPin) + PH/2f;
+            float wy2 = tn.y + HH + PH*c.toPin + PH/2f;
+            if ((wy1 < vpTop && wy2 < vpTop) || (wy1 > vpBottom && wy2 > vpBottom)) continue;
+            float x1 = c2sX.apply(wx1), y1 = c2sY.apply(wy1);
+            float x2 = c2sX.apply(wx2), y2 = c2sY.apply(wy2);
             bezier(g, x1, y1, x2, y2, CW);
         }
     }
@@ -232,7 +244,7 @@ public class NodeRenderer {
             int r = PR;
             g.fill(NW - r - 1, (int)(py - r - 1), NW + r + 1, (int)(py + r + 1), CPOB);
             g.fill(NW - r, (int)(py - r), NW + r, (int)(py + r), CPO);
-            drawStr(g, n.type.outputLabel(i), NW-30, py-3, CD);
+            drawStr(g, n.outputLabel(i), NW-30, py-3, CD);
         }
         // 公式文本显示（FORMULA 节点）
         if (n.type == NodeType.FORMULA) {
@@ -241,8 +253,16 @@ public class NodeRenderer {
         // 展开指示器（可编辑节点在标题右侧显示 ▶/▼）
         if (n.type == NodeType.FORMULA || n.type.paramNames.length > 0
             || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT
-            || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT || n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE || n.type == NodeType.TEXT || n.type == NodeType.DATA) {
-            drawStr(g, editing ? "§6▼" : "§7▶", NW - 14, 4, CT);
+            || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT
+            || n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE
+            || n.type == NodeType.TEXT || n.type == NodeType.DATA
+            || n.type == NodeType.ENCAPSULATION || n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT) {
+            drawStr(g, editing ? (n.type == NodeType.ENCAPSULATION ? "§b▶▶" : "§6▼") : (n.type == NodeType.ENCAPSULATION ? "§b▶" : "§7▶"), NW - 18, 4, CT);
+        }
+        // 封装节点体部摘要
+        if (n.type == NodeType.ENCAPSULATION && !editing) {
+            String summary = n.inputs() + " in / " + n.outputs() + " out";
+            drawStr(g, "§8" + summary, 4, HH + PH * Math.max(n.inputs(), n.outputs()) + 4, CD);
         }
         // 编辑区（pose 内渲染保证缩放同步，覆盖层在 renderBg 中更高优先级）
         if (editing) {
@@ -387,18 +407,31 @@ public class NodeRenderer {
     private void bezier(GuiGraphics g, float x1, float y1, float x2, float y2, int c) {
         float dx = Math.abs(x2-x1)*0.4f;
         float dist = (float)Math.sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
-        int steps = Math.max(20, (int)(dist*0.5f));
+        int steps = Math.max(10, (int)(dist*0.15f));
         float px=x1, py=y1;
         for(int i=1; i<=steps; i++) {
             float t = i/(float)steps, inv = 1-t;
             float nx = inv*inv*inv*x1 + 3*inv*inv*t*(x1+dx) + 3*inv*t*t*(x2-dx) + t*t*t*x2;
             float ny = inv*inv*inv*y1 + 3*inv*inv*t*y1 + 3*inv*t*t*y2 + t*t*t*y2;
             int sx = (int)px, sy = (int)py, ex = (int)nx, ey = (int)ny;
-            int segSteps = Math.max(Math.abs(ex-sx), Math.abs(ey-sy));
-            for (int j = 0; j <= segSteps; j++) {
-                int x = sx + (ex - sx) * j / Math.max(segSteps, 1);
-                int y = sy + (ey - sy) * j / Math.max(segSteps, 1);
-                g.fill(x, y, x+1, y+1, c);
+            int sdx = ex - sx, sdy = ey - sy;
+            int segLen = Math.max(Math.abs(sdx), Math.abs(sdy));
+            if (segLen == 0) {
+                g.fill(sx, sy, sx + 1, sy + 1, c);
+            } else {
+                // batch same-row pixels into horizontal runs → 1-pixel-thick line at any slope
+                int runStart = sx, runY = sy;
+                for (int j = 1; j <= segLen; j++) {
+                    int cx = sx + sdx * j / segLen;
+                    int cy = sy + sdy * j / segLen;
+                    if (cy != runY || j == segLen) {
+                        int endX = (j == segLen) ? ex : (sx + sdx * (j - 1) / segLen);
+                        int x1_ = Math.min(runStart, endX), x2_ = Math.max(runStart, endX);
+                        g.fill(x1_, runY, x2_ + 1, runY + 1, c);
+                        runStart = cx;
+                        runY = cy;
+                    }
+                }
             }
             px=nx; py=ny;
         }

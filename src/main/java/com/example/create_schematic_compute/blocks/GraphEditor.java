@@ -75,13 +75,66 @@ public class GraphEditor {
     // 鼠标坐标缓存（供 X 键删除用）
     private double lastMouseX, lastMouseY;
 
+    // ── 子图编辑栈（封装节点） ──
+    private record GraphEditState(GraphNode parentNode, Predicate<NodeType> parentFilter,
+                                   float camX, float camY, float zoom) {}
+    private final java.util.Deque<GraphEditState> graphStack = new java.util.ArrayDeque<>();
+    private GraphNode encapsulationParent; // 当前正在编辑的封装节点（null = 编辑主图）
+    private Predicate<NodeType> mainNodeFilter; // 进入子图前保存的主图过滤器
+
+    public boolean isInSubGraph() { return encapsulationParent != null; }
+    public GraphNode getEncapsulationParent() { return encapsulationParent; }
+
+    /** 进入封装节点的子图编辑 */
+    public void enterSubGraph(GraphNode encapNode) {
+        if (encapNode.type != NodeType.ENCAPSULATION) return;
+        if (encapNode.subGraph == null) encapNode.subGraph = new NodeGraph();
+        var parentFilter = mainNodeFilter != null ? mainNodeFilter : nodeFilter;
+        graphStack.push(new GraphEditState(encapNode, parentFilter, camX, camY, zoom));
+        encapsulationParent = encapNode;
+        camX = 0; camY = 0; zoom = 1f;
+        expandedNodeIds.clear(); nodeEditStatesById.clear();
+        selectedNode = null; selectedNodes.clear();
+        // 子图过滤器：允许 ENCAP_INPUT, ENCAP_OUTPUT 及所有非 I/O 节点
+        nodeFilter = nt -> nt == NodeType.ENCAP_INPUT || nt == NodeType.ENCAP_OUTPUT
+            || (nt != NodeType.REDSTONE_IN && nt != NodeType.REDSTONE_OUT
+                && nt != NodeType.PRIVATE_IN && nt != NodeType.PRIVATE_OUT
+                && nt != NodeType.ENCAPSULATION
+                && nt != NodeType.TEXT && nt != NodeType.DATA
+                && nt != NodeType.IMAGE && nt != NodeType.IMAGE_SEQUENCE
+                && parentFilter != null && parentFilter.test(nt));
+        mainNodeFilter = parentFilter;
+    }
+
+    /** 退出子图，返回父图 */
+    public void exitSubGraph() {
+        if (graphStack.isEmpty()) return;
+        var state = graphStack.pop();
+        encapsulationParent = graphStack.isEmpty() ? null : graphStack.peek().parentNode();
+        camX = state.camX(); camY = state.camY(); zoom = state.zoom();
+        expandedNodeIds.clear(); nodeEditStatesById.clear();
+        selectedNode = null; selectedNodes.clear();
+        nodeFilter = state.parentFilter();
+        mainNodeFilter = state.parentFilter();
+        host.saveGraph(); // 保存以便子图变更持久化
+    }
+
+    public NodeGraph getGraph() {
+        return isInSubGraph() ? encapsulationParent.subGraph : host.getGraph();
+    }
+
+    public void saveGraph() {
+        host.saveGraph();
+    }
+
     /** 创建节点的编辑状态 */
     private EditState createEditState(GraphNode node) {
         var s = new EditState();
         s.paramKeys = node.type.paramNames.clone();
         var mc = Minecraft.getInstance();
         for (int i = 0; i < node.params.length; i++) {
-            if (node.type == NodeType.BOOL || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON) continue;
+            if (node.type == NodeType.BOOL || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON
+                || node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT) continue;
             int idx = i;
             var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
@@ -134,11 +187,22 @@ public class GraphEditor {
             });
             s.fields.add(fb);
         }
+        if (node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT) {
+            var nb = new EditBox(mc.font, 0, 0, 100, 16, Component.literal(""));
+            nb.setMaxLength(32); nb.setValue(node.displayText);
+            nb.setResponder(t -> node.displayText = t);
+            s.fields.add(nb);
+            s.paramKeys = new String[]{"name"};
+        }
         return s;
     }
 
-    /** 切换节点展开/折叠（按节点 ID 追踪，与对象引用解耦） */
+    /** 切换节点展开/折叠（封装节点双击进入子图编辑，其余节点内联展开） */
     private void toggleExpand(GraphNode node) {
+        if (node.type == NodeType.ENCAPSULATION) {
+            enterSubGraph(node);
+            return;
+        }
         if (!shouldOpenPanel(node)) return;
         if (expandedNodeIds.contains(node.id)) {
             expandedNodeIds.remove(node.id); nodeEditStatesById.remove(node.id);
@@ -165,7 +229,7 @@ public class GraphEditor {
         }
     }
 
-    public void setNodeFilter(Predicate<NodeType> filter) { this.nodeFilter = filter; }
+    public void setNodeFilter(Predicate<NodeType> filter) { this.nodeFilter = filter; this.mainNodeFilter = filter; }
 
     // 坐标转换
     public float c2sX(float cx) { Screen s = host.asScreen(); return s.width/2f+(cx+camX)*zoom; }
@@ -183,14 +247,35 @@ public class GraphEditor {
     //  5: 颜色设置面板 / Nodes菜单
     //  6: 框选矩形
     public void renderBg(GuiGraphics g, int mx, int my) {
-        var graph = host.getGraph();
+        var graph = getGraph();
         renderer.renderGrid(g, camX, camY, zoom, host.asScreen().width, host.asScreen().height);
+
+        // ── 子图 Back 按钮 ──
+        if (isInSubGraph()) {
+            int bw = 60, bh = 16;
+            int bx = host.asScreen().width - bw - 8, by = 4;
+            g.fill(bx - 1, by - 1, bx + bw + 1, by + bh + 1, 0xFF3A3A3A);
+            g.fill(bx, by, bx + bw, by + bh, 0xFF2A2822);
+            var mc = Minecraft.getInstance();
+            int tw = mc.font.width("← Back");
+            g.drawString(mc.font, "← Back", bx + (bw - tw) / 2, by + 4, 0xFFCCCCCC);
+        }
+
         renderer.renderConnections(g, graph, camX, camY, zoom);
         if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
         renderer.suppressControls = showColorConfig || showMenu;
         renderer.renderNodes(g, graph.nodes, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
             camX, camY, zoom, mx, my);
-        renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width);
+        if (!isInSubGraph()) {
+            renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width);
+        } else {
+            // 封装模式标识 (替换按钮栏)
+            var mc2 = Minecraft.getInstance();
+            g.fill(2, 2, host.asScreen().width - 2, 22, 0xFF3A2A1A);
+            String modeText = "◈ " + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.encap_mode") + " ◈";
+            int mtw = mc2.font.width(modeText);
+            g.drawString(mc2.font, modeText, (host.asScreen().width - mtw) / 2, 6, 0xFFFFCC88);
+        }
         // 热栏弹出（点击频率槽后在节点下方显示）
         if (hotbarNode != null) {
             var mc = Minecraft.getInstance();
@@ -230,28 +315,39 @@ public class GraphEditor {
     }
 
     public boolean mouseClicked(double mx, double my, int btn) {
-        var graph = host.getGraph();
+        var graph = getGraph();
         if(btn==0){
-            if(mx>=4&&mx<=22&&my>=4&&my<=20){host.asScreen().onClose();return true;}
-            if(mx>=26&&mx<=78&&my>=4&&my<=20){recompile(graph);return true;}
-            if(mx>=82&&mx<=130&&my>=4&&my<=20){
-                boolean ws=!host.isRunning();
-                if(ws && graph.hasCycles()){cycleWarning="! Cycle detected!";return true;}
-                cycleWarning=null;
-                host.saveGraph();
-                host.toggleRunning(ws);
-                return true;
-            }
-            if(mx>=134&&mx<=192&&my>=4&&my<=20){gridSnapEnabled=!gridSnapEnabled;NodeRenderer.saveGridSnap(gridSnapEnabled);return true;}
-            if(mx>=196&&mx<=250&&my>=4&&my<=20){
-                showMenu = false; // 关闭 nodes 菜单
-                showColorConfig = !showColorConfig;
-                if (showColorConfig) {
-                    NodeRenderer.initStaging();
-                    for (int i = 0; i < NodeRenderer._NUM_COLORS; i++)
-                        colorFields[i].setValue(String.format("%08X", NodeRenderer.stagingColors[i]));
+            // ── 子图 Back 按钮 ──
+            if (isInSubGraph()) {
+                int bw = 60, bh = 16;
+                int bx = host.asScreen().width - bw - 8, by = 4;
+                if (mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) {
+                    exitSubGraph(); return true;
                 }
-                return true;
+            }
+            // 工具栏按钮（子图模式下隐藏）
+            if (!isInSubGraph()) {
+                if(mx>=4&&mx<=22&&my>=4&&my<=20){host.asScreen().onClose();return true;}
+                if(mx>=26&&mx<=78&&my>=4&&my<=20){recompile(graph);return true;}
+                if(mx>=82&&mx<=130&&my>=4&&my<=20){
+                    boolean ws=!host.isRunning();
+                    if(ws && graph.hasCycles()){cycleWarning="! Cycle detected!";return true;}
+                    cycleWarning=null;
+                    saveGraph();
+                    host.toggleRunning(ws);
+                    return true;
+                }
+                if(mx>=134&&mx<=192&&my>=4&&my<=20){gridSnapEnabled=!gridSnapEnabled;NodeRenderer.saveGridSnap(gridSnapEnabled);return true;}
+                if(mx>=196&&mx<=250&&my>=4&&my<=20){
+                    showMenu = false; // 关闭 nodes 菜单
+                    showColorConfig = !showColorConfig;
+                    if (showColorConfig) {
+                        NodeRenderer.initStaging();
+                        for (int i = 0; i < NodeRenderer._NUM_COLORS; i++)
+                            colorFields[i].setValue(String.format("%08X", NodeRenderer.stagingColors[i]));
+                    }
+                    return true;
+                }
             }
         }
         if(showMenu&&btn==0){
@@ -295,7 +391,7 @@ public class GraphEditor {
             if (anyListening) {
                 // 检查是否点击了 KEYBOARD 编辑区域的内联范围
                 // 如果不是，取消所有监听
-                for (var en : host.getGraph().nodes) {
+                for (var en : getGraph().nodes) {
                     if (!expandedNodeIds.contains(en.id)) continue;
                     var st = nodeEditStatesById.get(en.id);
                     if (st == null || !st.listeningForKey) continue;
@@ -347,7 +443,7 @@ public class GraphEditor {
         if(btn==0){
             showMenu=false;
             // 内联编辑区交互（局部坐标，与 pose 内渲染一致）
-            for (var en : host.getGraph().nodes) {
+            for (var en : getGraph().nodes) {
                 if (!expandedNodeIds.contains(en.id)) continue;
                 var st = nodeEditStatesById.get(en.id);
                 if (st == null) continue;
@@ -403,7 +499,7 @@ public class GraphEditor {
             var expandHit = hitExpandIndicator(mx, my, graph);
             if (expandHit != null) { toggleExpand(expandHit); return true; }
             // 拖拽连线
-            for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.type.outputs;i++){float py=sy+HH*zoom+PH*zoom*(node.inputs()+i)+PH*zoom/2f;if(Math.abs(mx-(sx+NW*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
+            for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.outputs();i++){float py=sy+HH*zoom+PH*zoom*(node.inputs()+i)+PH*zoom/2f;if(Math.abs(mx-(sx+NW*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
             // 点击节点（不含 ▶/▼ 区域）
             var hit=hitNode(mx,my);
             if(hit!=null){
@@ -431,11 +527,13 @@ public class GraphEditor {
             || node.type == NodeType.FORMULA || node.type == NodeType.KEYBOARD
             || node.type == NodeType.GAMEPAD_BUTTON
             || node.type == NodeType.TEXT || node.type == NodeType.IMAGE
-            || node.type == NodeType.IMAGE_SEQUENCE || node.type == NodeType.DATA;
+            || node.type == NodeType.IMAGE_SEQUENCE || node.type == NodeType.DATA
+            || node.type == NodeType.ENCAPSULATION || node.type == NodeType.ENCAP_INPUT
+            || node.type == NodeType.ENCAP_OUTPUT;
     }
 
     public void mouseReleased(double mx, double my, int btn) {
-        var graph = host.getGraph();
+        var graph = getGraph();
         if(btn==0&&multiDragging){
             multiDragging = false;
             if (multiClickedNode != null) {
@@ -500,7 +598,7 @@ public class GraphEditor {
         camX+=(mx-host.asScreen().width/2f)*(1f/zoom-1f/oz); camY+=(my-host.asScreen().height/2f)*(1f/zoom-1f/oz); return true;
     }
     public boolean keyPressed(int key, int sc, int mod) {
-        var graph = host.getGraph();
+        var graph = getGraph();
         if (showColorConfig) {
             for (var f : colorFields) if (f.isFocused()) { return f.keyPressed(key, sc, mod); }
             if (key == 256) { showColorConfig = false; return true; }
@@ -512,7 +610,7 @@ public class GraphEditor {
                 if (st.listeningForKey) {
                     // 判断是键盘还是手柄
                     boolean isGpad = false;
-                    for (var en : host.getGraph().nodes) {
+                    for (var en : getGraph().nodes) {
                         var es = nodeEditStatesById.get(en.id);
                         if (es == st && en.type == NodeType.GAMEPAD_BUTTON) { isGpad = true; break; }
                     }
@@ -521,7 +619,7 @@ public class GraphEditor {
                         if (key == 256) { st.listeningForKey = false; return true; }
                         int idx = com.example.create_schematic_compute.blocks.EditPanel.glfwKeyToIndex(key);
                         if (idx >= 0) {
-                            for (var en : host.getGraph().nodes) {
+                            for (var en : getGraph().nodes) {
                                 var es = nodeEditStatesById.get(en.id);
                                 if (es == st && en.params.length > 0) { en.params[0] = idx; break; }
                             }
@@ -536,7 +634,7 @@ public class GraphEditor {
                                 var btns = gState.buttons();
                                 for (int bi = 0; bi < 15 && bi < btns.capacity(); bi++) {
                                     if (btns.get(bi) == 1) {
-                                        for (var en : host.getGraph().nodes) {
+                                        for (var en : getGraph().nodes) {
                                             var es = nodeEditStatesById.get(en.id);
                                             if (es == st && en.params.length > 0) { en.params[0] = bi; break; }
                                         }
@@ -556,7 +654,7 @@ public class GraphEditor {
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.keyPressed(key, sc, mod);
         // X 键删除悬停节点（替代右键删除防误触）
         if (key == 88) { // GLFW_KEY_X
-            var g2 = host.getGraph();
+            var g2 = getGraph();
             var hit = hitNode(lastMouseX, lastMouseY);
             if (hit != null) {
                 g2.removeNode(hit.id);
@@ -657,7 +755,7 @@ public class GraphEditor {
     }
 
     private void recompile(NodeGraph graph) {
-        cycleWarning=null; host.saveGraph();
+        cycleWarning=null; saveGraph();
         host.toggleRunning(false);
     }
 
@@ -669,7 +767,8 @@ public class GraphEditor {
             if (n.type.paramNames.length == 0 && n.type != NodeType.REDSTONE_IN && n.type != NodeType.REDSTONE_OUT
                 && n.type != NodeType.PRIVATE_IN && n.type != NodeType.PRIVATE_OUT && n.type != NodeType.FORMULA
                 && n.type != NodeType.KEYBOARD && n.type != NodeType.GAMEPAD_BUTTON
-                && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE && n.type != NodeType.TEXT && n.type != NodeType.DATA) continue;
+                && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE && n.type != NodeType.TEXT && n.type != NodeType.DATA
+                && n.type != NodeType.ENCAPSULATION && n.type != NodeType.ENCAP_INPUT && n.type != NodeType.ENCAP_OUTPUT) continue;
             float sx = c2sX(n.x), sy = c2sY(n.y);
             float ix = sx + (NW - 22) * zoom;
             float iy = sy + 2 * zoom;
@@ -680,7 +779,7 @@ public class GraphEditor {
     }
 
     private GraphNode hitNode(double mx, double my) {
-        var graph = host.getGraph();
+        var graph = getGraph();
         for(int i=graph.nodes.size()-1;i>=0;i--){
             var n=graph.nodes.get(i);
             float sx=c2sX(n.x), sy=c2sY(n.y), sw=NW*zoom;
@@ -692,7 +791,7 @@ public class GraphEditor {
         return null;
     }
     private NodeConnection hitConn(double mx, double my) {
-        var graph = host.getGraph();
+        var graph = getGraph();
         for(NodeConnection c:graph.connections){
             GraphNode fn=graph.findNode(c.fromId), tn=graph.findNode(c.toId);
             if(fn==null||tn==null)continue;

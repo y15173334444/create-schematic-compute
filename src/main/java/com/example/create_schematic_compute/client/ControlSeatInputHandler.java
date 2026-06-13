@@ -53,6 +53,7 @@ public class ControlSeatInputHandler {
     private static float joystickX = 0, joystickY = 0;
     private static boolean wantDismount = false;
     private static boolean wasGuiOpen = false;
+    private static Float transitionYaw = null, transitionPitch = null;
 
 
     // ═══════════════════════════════════════
@@ -117,7 +118,16 @@ public class ControlSeatInputHandler {
         wasGuiOpen = guiOpen;
 
         boolean tab = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_TAB) == GLFW.GLFW_PRESS;
-        if (tab && !wasTab) { inputMode = (inputMode + 1) % 2; cursorInit = false; }
+        if (tab && !wasTab) {
+            int oldMode = inputMode;
+            inputMode = (inputMode + 1) % 2;
+            cursorInit = false;
+            if (oldMode == 0 && inputMode == 1 && mc.player != null) {
+                // 保存当前视角，Post 中恢复以消除 MC 累积鼠标 delta 产生的跳变
+                transitionYaw = mc.player.getYRot();
+                transitionPitch = mc.player.getXRot();
+            }
+        }
         wasTab = tab;
 
         if (guiOpen || inputMode == 1) return;
@@ -197,6 +207,7 @@ public class ControlSeatInputHandler {
         float mx = 0, my = 0, vy = 0, vp = 0;
 
         if (inputMode == 0) {
+            transitionYaw = null; transitionPitch = null;
             mx = joystickX;
             my = joystickY;
             mc.player.yRotO = seatYaw;
@@ -206,8 +217,11 @@ public class ControlSeatInputHandler {
             mc.player.yHeadRot = seatYaw;
             mc.player.yBodyRot = seatYaw;
         } else {
-            // 发送原始玩家旋转（服务端结合子世界 pose 计算差值）
-            // 发差值并归一化到 -180~180
+            if (transitionYaw != null) {
+                mc.player.setYRot(transitionYaw); mc.player.yRotO = transitionYaw;
+                mc.player.setXRot(transitionPitch); mc.player.xRotO = transitionPitch;
+                transitionYaw = null; transitionPitch = null;
+            }
             float diff = mc.player.getYRot() - seatYaw;
             while (diff > 180) diff -= 360;
             while (diff < -180) diff += 360;
@@ -238,7 +252,6 @@ public class ControlSeatInputHandler {
         if (inputMode == 0) {
             mc.player.setXRot(0);
             mc.player.xRotO = 0;
-            // 实体 yaw 已由服务端设为 FACING，直接使用即可
             var vehicle = mc.player.getVehicle();
             if (vehicle != null) {
                 float vy = vehicle.getYRot();

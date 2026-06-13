@@ -35,6 +35,7 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
     public boolean running = false;
     private GraphEvaluator evaluator = null;
     private NodeGraph lastEvaluatedGraph = null;
+    private NodeGraph lastLinkedGraph = null;
     private final List<FreqLink> freqLinks = new ArrayList<>();
     private final Map<Long, Integer> lastInputs = new HashMap<>();
     private final Map<Long, Integer> lastOutputs = new HashMap<>();
@@ -110,6 +111,7 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
         boolean shouldBeLit = running && !graph.nodes.isEmpty();
         if(state.getValue(ProgramComputerBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, state.setValue(ProgramComputerBlock.LIT, shouldBeLit), 3);
+        if(lastLinkedGraph != graph) { registerLinks(); lastLinkedGraph = graph; }
         if(!running) return;
 
         if(evaluator==null||lastEvaluatedGraph!=graph) {
@@ -117,6 +119,20 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
             lastEvaluatedGraph = graph;
         }
 
+        // Refresh redstone inputs from network every tick (pick max signal per frequency)
+        for(var fl : freqLinks) {
+            var net = com.simibubi.create.Create.REDSTONE_LINK_NETWORK_HANDLER.getNetworkOf(level, fl.linkable);
+            if(net != null) {
+                int maxSig = 0;
+                for(var l : net) {
+                    if(l != fl.linkable && l.isAlive())
+                        maxSig = Math.max(maxSig, l.getTransmittedStrength());
+                }
+                lastInputs.put(fl.freqKey, maxSig);
+            } else {
+                lastInputs.remove(fl.freqKey);
+            }
+        }
         // 构建输入源：REDSTONE_IN 从机械动力红石网络读取
         var in = new ArrayList<GraphEvaluator.InputSource>();
         for(var n : graph.nodes) {

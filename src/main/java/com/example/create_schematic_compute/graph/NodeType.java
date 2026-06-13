@@ -51,7 +51,10 @@ public enum NodeType {
     TEXT("node.create_schematic_compute.text", 0, 0, ""),
     DATA("node.create_schematic_compute.data", 1, 0, ""),
     IMAGE("node.create_schematic_compute.image", 2, 0, ""),
-    IMAGE_SEQUENCE("node.create_schematic_compute.image_sequence", 3, 0, "");
+    IMAGE_SEQUENCE("node.create_schematic_compute.image_sequence", 3, 0, ""),
+    ENCAPSULATION("node.create_schematic_compute.encapsulation", 0, 0, ""),
+    ENCAP_INPUT("node.create_schematic_compute.encap_input", 0, 1, "name"),
+    ENCAP_OUTPUT("node.create_schematic_compute.encap_output", 1, 0, "name");
 
     public final String displayName;
     public final int inputs;
@@ -81,6 +84,8 @@ public enum NodeType {
         case POSE_CONVERT -> i == 0 ? "pitch_a" : i == 1 ? "yaw_a" : "roll";
         case DATA -> "val";
         case IMAGE, IMAGE_SEQUENCE -> i == 0 ? "X" : i == 1 ? "Y" : "frame";
+        case ENCAPSULATION -> "in"; // dynamic label from sub-graph ENCAP_INPUT name
+        case ENCAP_OUTPUT -> "val";
         default -> "in";
     };}
     public String outputLabel(int i) { return switch(this){
@@ -113,6 +118,8 @@ public enum NodeType {
         case SPLIT -> i == 0 ? "+out" : "-out";
         case ACCUMULATOR -> "val";
         case POSE_CONVERT -> i == 0 ? "pitch_b" : "yaw_b";
+        case ENCAPSULATION -> "out"; // dynamic label from sub-graph ENCAP_OUTPUT name
+        case ENCAP_INPUT -> "val";
         default -> "";
     };}
 }
