@@ -38,7 +38,11 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
             && nt != com.example.create_schematic_compute.graph.NodeType.VIEW_ANGLE
             && nt != com.example.create_schematic_compute.graph.NodeType.WORLD_VIEW
             && nt != com.example.create_schematic_compute.graph.NodeType.ATTITUDE
-            && nt != com.example.create_schematic_compute.graph.NodeType.FORWARD);
+            && nt != com.example.create_schematic_compute.graph.NodeType.FORWARD
+            && nt != com.example.create_schematic_compute.graph.NodeType.TEXT
+            && nt != com.example.create_schematic_compute.graph.NodeType.DATA
+            && nt != com.example.create_schematic_compute.graph.NodeType.IMAGE
+            && nt != com.example.create_schematic_compute.graph.NodeType.IMAGE_SEQUENCE);
     }
 
     @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
