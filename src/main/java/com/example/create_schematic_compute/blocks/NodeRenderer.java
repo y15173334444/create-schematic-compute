@@ -114,6 +114,37 @@ public class NodeRenderer {
         return true;
     }
 
+    /** 工具栏位置持久化 */
+    private static boolean toolbarBottom = false;
+    static { toolbarBottom = loadToolbarBottom(); }
+    public static boolean isToolbarBottom() { return toolbarBottom; }
+
+    public static void toggleToolbarBottom() { toolbarBottom = !toolbarBottom; saveToolbarBottom(); }
+
+    static void saveToolbarBottom() {
+        try {
+            var path = java.nio.file.Path.of("config", "create_schematic_compute-client.properties");
+            var props = new java.util.Properties();
+            if (java.nio.file.Files.exists(path))
+                try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
+            props.setProperty("toolbar_bottom", String.valueOf(toolbarBottom));
+            java.nio.file.Files.createDirectories(path.getParent());
+            try (var os = java.nio.file.Files.newOutputStream(path)) { props.store(os, null); }
+        } catch (Exception e) { /* 忽略 */ }
+    }
+
+    static boolean loadToolbarBottom() {
+        try {
+            var path = java.nio.file.Path.of("config", "create_schematic_compute-client.properties");
+            if (java.nio.file.Files.exists(path)) {
+                var props = new java.util.Properties();
+                try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
+                return Boolean.parseBoolean(props.getProperty("toolbar_bottom", "false"));
+            }
+        } catch (Exception e) { /* 忽略 */ }
+        return false;
+    }
+
     // 尺寸常量
     static final int NW=140, HH=18, PH=16, PR=4, GS=30;
 
@@ -356,10 +387,12 @@ public class NodeRenderer {
     }
 
     public void renderButtons(GuiGraphics g, boolean compiled, boolean running, String cycleWarning,
-                               long saveFeedbackUntil, boolean gridSnap, int themeIdx, int width) {
+                               long saveFeedbackUntil, boolean gridSnap, int themeIdx, int width, int height) {
         long now = System.currentTimeMillis();
         boolean fb = now < saveFeedbackUntil;
-        int btnY = 4, btnH = 18;
+        int btnH = 18;
+        // 工具栏位置：顶部(默认)或底部
+        int btnY = toolbarBottom ? height - btnH - 4 : 4;
         // 关闭按钮（最左）
         int cX = 4, cW = 18;
         g.fill(cX, btnY, cX+cW, btnY+btnH, 0xFF4A3028);
@@ -390,13 +423,21 @@ public class NodeRenderer {
         g.renderOutline(cX5, btnY, cW5, btnH, CSB);
         g.renderOutline(cX5+1, btnY+1, cW5-2, btnH-2, 0xFF2A2822);
         drawStr(g, "§7" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.style"), cX5+8, btnY+4, CT);
+
+        // 右下角工具栏位置切换按钮
+        int tX = width - 22, tY = height - 22, tW = 18, tH = 18;
+        g.fill(tX, tY, tX+tW, tY+tH, 0xFF3A3832);
+        g.renderOutline(tX, tY, tW, tH, CSB);
+        drawStr(g, toolbarBottom ? "§7▲" : "§7▼", tX+5, tY+3, CT);
+
         // 环警告
+        int warnY = toolbarBottom ? btnY - 24 : btnY + btnH + 6;
         if(cycleWarning != null) {
             int ww = Minecraft.getInstance().font.width(cycleWarning)+20;
             int cx = width/2;
-            g.fill(cx-ww/2,28,cx+ww/2,50,0xCC4A2820);
-            g.renderOutline(cx-ww/2,28,ww,22,0xFFFF5533);
-            drawStr(g, "§c" + cycleWarning, cx-ww/2+10, 33, 0xFFFFFFFF);
+            g.fill(cx-ww/2, warnY, cx+ww/2, warnY+22, 0xCC4A2820);
+            g.renderOutline(cx-ww/2, warnY, ww, 22, 0xFFFF5533);
+            drawStr(g, "§c" + cycleWarning, cx-ww/2+10, warnY+4, 0xFFFFFFFF);
         }
     }
 

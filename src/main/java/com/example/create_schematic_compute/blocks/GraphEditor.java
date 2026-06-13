@@ -267,7 +267,7 @@ public class GraphEditor {
         renderer.renderNodes(g, graph.nodes, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
             camX, camY, zoom, mx, my);
         if (!isInSubGraph()) {
-            renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width);
+            renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width, host.asScreen().height);
         } else {
             // 封装模式标识 (替换按钮栏)
             var mc2 = Minecraft.getInstance();
@@ -327,9 +327,10 @@ public class GraphEditor {
             }
             // 工具栏按钮（子图模式下隐藏）
             if (!isInSubGraph()) {
-                if(mx>=4&&mx<=22&&my>=4&&my<=20){host.asScreen().onClose();return true;}
-                if(mx>=26&&mx<=78&&my>=4&&my<=20){recompile(graph);return true;}
-                if(mx>=82&&mx<=130&&my>=4&&my<=20){
+                int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : 4;
+                if(mx>=4&&mx<=22&&my>=btnY&&my<=btnY+18){host.asScreen().onClose();return true;}
+                if(mx>=26&&mx<=78&&my>=btnY&&my<=btnY+18){recompile(graph);return true;}
+                if(mx>=82&&mx<=130&&my>=btnY&&my<=btnY+18){
                     boolean ws=!host.isRunning();
                     if(ws && graph.hasCycles()){cycleWarning="! Cycle detected!";return true;}
                     cycleWarning=null;
@@ -337,9 +338,9 @@ public class GraphEditor {
                     host.toggleRunning(ws);
                     return true;
                 }
-                if(mx>=134&&mx<=192&&my>=4&&my<=20){gridSnapEnabled=!gridSnapEnabled;NodeRenderer.saveGridSnap(gridSnapEnabled);return true;}
-                if(mx>=196&&mx<=250&&my>=4&&my<=20){
-                    showMenu = false; // 关闭 nodes 菜单
+                if(mx>=134&&mx<=192&&my>=btnY&&my<=btnY+18){gridSnapEnabled=!gridSnapEnabled;NodeRenderer.saveGridSnap(gridSnapEnabled);return true;}
+                if(mx>=196&&mx<=250&&my>=btnY&&my<=btnY+18){
+                    showMenu = false;
                     showColorConfig = !showColorConfig;
                     if (showColorConfig) {
                         NodeRenderer.initStaging();
@@ -349,6 +350,9 @@ public class GraphEditor {
                     return true;
                 }
             }
+            // 右下角工具栏位置切换按钮（始终可见）
+            { int w = host.asScreen().width, h = host.asScreen().height;
+              if(mx>=w-22&&mx<=w-4&&my>=h-22&&my<=h-4){NodeRenderer.toggleToolbarBottom();return true;} }
         }
         if(showMenu&&btn==0){
             if(renderer.handleCategoryClick((int)mx, (int)my)) return true;
