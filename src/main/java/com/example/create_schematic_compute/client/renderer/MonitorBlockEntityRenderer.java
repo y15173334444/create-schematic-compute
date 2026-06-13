@@ -88,13 +88,11 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         float cx = -hw + margin, cy = hh - margin;
         float cw = be.screenWidth - 2 * margin, ch = be.screenLength - 2 * margin;
 
-        // ── Border (uses LIGHTMAP so it responds to ambient light) ──
-        var borderBuf = buffer.getBuffer(MonitorRenderTypes.SCREEN_BORDER);
-        drawBorderFace(borderBuf, m, l, r, t, b, bw, 1);  // front (+Z)
-        drawBorderFace(borderBuf, m, l, r, t, b, bw, -1); // back (-Z) — 防止旋转后背面不可见
-
-        // ── IMAGE pixels (uses POSITION_COLOR shader — no lightmap, colors render directly) ──
-        var pixelBuf = buffer.getBuffer(MonitorRenderTypes.SCREEN_PIXEL);
+        // ── Border + IMAGE pixels use POSITION_COLOR shader (no lightmap, avoids
+        //     optimization-mod culling like Flywheel/Sodium interfering with custom types) ──
+        var sceneBuf = buffer.getBuffer(MonitorRenderTypes.SCREEN_PIXEL);
+        drawBorderFace(sceneBuf, m, l, r, t, b, bw, 1);
+        drawBorderFace(sceneBuf, m, l, r, t, b, bw, -1);
         for (var n : be.graph.nodes) {
             if (n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE) continue;
             if (n.imagePixels == null || n.imagePixels.length != 256) continue;
@@ -127,10 +125,10 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                     if (a == 0) continue;
                     float x0 = px * cell, x1 = x0 + cell;
                     float y0 = -py * cell, y1 = y0 - cell;
-                    pixelBuf.addVertex(m2, x0, y0, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
-                    pixelBuf.addVertex(m2, x1, y0, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
-                    pixelBuf.addVertex(m2, x1, y1, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
-                    pixelBuf.addVertex(m2, x0, y1, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
+                    sceneBuf.addVertex(m2, x0, y0, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
+                    sceneBuf.addVertex(m2, x1, y0, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
+                    sceneBuf.addVertex(m2, x1, y1, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
+                    sceneBuf.addVertex(m2, x0, y1, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
                 }
             }
             poseStack.popPose();
@@ -274,26 +272,30 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
     }
 
-    /** Draw one side of the border frame. dir=1 for front (+Z normal), dir=-1 for back (-Z normal). */
+    private static final float BR = 48f / 255f; // border gray
+    private static final float BG = 48f / 255f;
+    private static final float BB = 48f / 255f;
+
+    /** Draw one side of the border frame. dir=1 for front (+Z), dir=-1 for back (-Z). */
     private void drawBorderFace(VertexConsumer buf, org.joml.Matrix4f m,
                                  float l, float r, float t, float b, float bw, int dir) {
-        float z = 0.001f * dir; // slight offset to avoid z-fighting between front/back
-        buf.addVertex(m, l - bw, t - bw, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, r + bw, t - bw, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, r + bw, t, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, l - bw, t, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, l - bw, b, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, r + bw, b, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, r + bw, b + bw, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, l - bw, b + bw, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, l - bw, t, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, l, t, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, l, b, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, l - bw, b, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, r, t, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, r + bw, t, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, r + bw, b, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
-        buf.addVertex(m, r, b, z).setColor(48, 48, 48, 255).setLight(0xF000F0).setNormal(0, 0, dir);
+        float z = 0.001f * dir;
+        buf.addVertex(m, l - bw, t - bw, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, r + bw, t - bw, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, r + bw, t, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, l - bw, t, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, l - bw, b, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, r + bw, b, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, r + bw, b + bw, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, l - bw, b + bw, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, l - bw, t, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, l, t, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, l, b, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, l - bw, b, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, r, t, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, r + bw, t, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, r + bw, b, z).setColor(BR, BG, BB, 1f);
+        buf.addVertex(m, r, b, z).setColor(BR, BG, BB, 1f);
     }
 
     @Override public boolean shouldRenderOffScreen(MonitorBlockEntity be) { return true; }
