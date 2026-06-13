@@ -90,7 +90,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
         // node filter: only input and display nodes
         editor.setNodeFilter(nt -> nt == NodeType.CONST
-            || nt == NodeType.REDSTONE_IN || nt == NodeType.REDSTONE_OUT
+            || nt == NodeType.REDSTONE_IN
             || nt == NodeType.PRIVATE_IN
             || nt == NodeType.TEXT || nt == NodeType.DATA
             || nt == NodeType.IMAGE || nt == NodeType.IMAGE_SEQUENCE);
