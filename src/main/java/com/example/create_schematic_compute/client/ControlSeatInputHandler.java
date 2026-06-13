@@ -43,19 +43,19 @@ public class ControlSeatInputHandler {
     // 视角差模式 diff 的比例系数（~3°/tick = 满摇杆，匹配旧 dx*0.05 手感）
     private static final float JOYSTICK_SCALE = 1.0f / 3.0f;
 
-    private static boolean suppressMouseTurn = false;
+    private static volatile boolean suppressMouseTurn = false;
     public static boolean isSuppressingMouseTurn() { return suppressMouseTurn; }
 
     // 由 Mixin 写入上一帧 turn() 的原始鼠标增量（替代 glfwGetCursorPos）
     private static volatile double rawMouseDYaw, rawMouseDPitch;
     public static void onRawMouseDelta(double yaw, double pitch) { rawMouseDYaw = yaw; rawMouseDPitch = pitch; }
 
-    private static int inputMode = 0; // 默认摇杆模式
-    private static boolean wasTab = false;
-    private static boolean wasSeatedLastTick = false;
-    private static float joystickX = 0, joystickY = 0;
-    private static boolean wantDismount = false;
-    private static boolean wasGuiOpen = false;
+    private static volatile int inputMode = 0; // 默认摇杆模式
+    private static volatile boolean wasTab = false;
+    private static volatile boolean wasSeatedLastTick = false;
+    private static volatile float joystickX = 0, joystickY = 0;
+    private static volatile boolean wantDismount = false;
+    private static volatile boolean wasGuiOpen = false;
 
     // ═══════════════════════════════════════
     //  Pre — 摇杆值来自 Mixin 导出的原始 delta

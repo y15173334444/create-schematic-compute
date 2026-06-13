@@ -8,6 +8,8 @@ import java.util.*;
 public class GraphEvaluator {
     private final NodeGraph graph;
     private final Map<Integer, float[]> outputs = new HashMap<>();
+    // FORMULA compilation cache — formula string → compiled RPN tokens (avoids recompile per tick)
+    private final Map<String, java.util.List<Object>> formulaCache = new HashMap<>();
 
     public GraphEvaluator(NodeGraph graph) { this.graph = graph; }
 
@@ -233,9 +235,9 @@ public class GraphEvaluator {
                 o[0] = sig;
             }
             case REDSTONE_OUT -> { }
-            case ADD -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a + b; }
-            case SUB -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a - b; }
-            case MUL -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a * b; }
+            case ADD -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = Float.isFinite(a) && Float.isFinite(b) ? a + b : 0; }
+            case SUB -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = Float.isFinite(a) && Float.isFinite(b) ? a - b : 0; }
+            case MUL -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = Float.isFinite(a) && Float.isFinite(b) ? a * b : 0; }
             case DIV -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = (b != 0 && Float.isFinite(a) && Float.isFinite(b)) ? a / b : 0; }
             case MOD -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = (b != 0 && Float.isFinite(a) && Float.isFinite(b)) ? a % b : 0; }
             case POW -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); float r = (float) Math.pow(Math.abs(a), b); o[0] = Float.isFinite(r) ? r : 0; }
@@ -244,7 +246,8 @@ public class GraphEvaluator {
             case INTERP -> {
                 float a = graph.getInputValue(node.id, 0, outputs);
                 float b = graph.getInputValue(node.id, 1, outputs);
-                if (a >= b) { o[0] = a - b; o[1] = 0; }
+                if (!Float.isFinite(a) || !Float.isFinite(b)) { o[0] = 0; o[1] = 0; }
+                else if (a >= b) { o[0] = a - b; o[1] = 0; }
                 else { o[0] = 0; o[1] = Math.abs(b - a); }
             }
             case CEIL -> o[0] = (float) Math.ceil(graph.getInputValue(node.id, 0, outputs));
@@ -298,7 +301,7 @@ public class GraphEvaluator {
                 o[0] = Math.max(0, base + kp * err + ki * integral);
             }
             case CLAMP -> { float v = graph.getInputValue(node.id, 0, outputs); if (Float.isNaN(v) || !Float.isFinite(v)) v = 0; float mn = graph.getInputValue(node.id, 1, outputs); float mx = graph.getInputValue(node.id, 2, outputs); o[0] = Math.max(mn, Math.min(mx, v)); }
-            case MAP -> { float v = graph.getInputValue(node.id, 0, outputs); float imn = graph.getInputValue(node.id, 1, outputs); float imx = graph.getInputValue(node.id, 2, outputs); float omn = graph.getInputValue(node.id, 3, outputs); float omx = graph.getInputValue(node.id, 4, outputs); float r = imx - imn; o[0] = r == 0 ? omn : omn + (v - imn) / r * (omx - omn); }
+            case MAP -> { float v = graph.getInputValue(node.id, 0, outputs); float imn = graph.getInputValue(node.id, 1, outputs); float imx = graph.getInputValue(node.id, 2, outputs); float omn = graph.getInputValue(node.id, 3, outputs); float omx = graph.getInputValue(node.id, 4, outputs); if (!Float.isFinite(v) || !Float.isFinite(imn) || !Float.isFinite(imx) || !Float.isFinite(omn) || !Float.isFinite(omx)) { o[0] = 0; } else { float r = imx - imn; o[0] = r == 0 ? omn : omn + (v - imn) / r * (omx - omn); } }
             case SPEED_CTRL -> {
                 float speed = graph.getInputValue(node.id, 0, outputs);
                 float dir = graph.getInputValue(node.id, 1, outputs);
@@ -327,7 +330,7 @@ public class GraphEvaluator {
                 var varNames = FormulaParser.extractVariables(node.formula);
                 for (int vi = 0; vi < varNames.size(); vi++)
                     vars.put(varNames.get(vi), (double)graph.getInputValue(node.id, vi, outputs));
-                o[0] = FormulaParser.eval(node.formula, vars);
+                o[0] = FormulaParser.evalCached(node.formula, vars, formulaCache);
             }
             // Display nodes — no float output; data read from GraphNode fields by renderer
             case TEXT, DATA, IMAGE, IMAGE_SEQUENCE -> {}

@@ -4,6 +4,7 @@ import com.example.create_schematic_compute.SchematicCompute;
 import com.example.create_schematic_compute.blocks.MonitorBlock;
 import com.example.create_schematic_compute.blocks.MonitorBlockEntity;
 import com.example.create_schematic_compute.graph.GraphEvaluator;
+import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
@@ -40,15 +41,26 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
 
     public MonitorBlockEntityRenderer(BlockEntityRendererProvider.Context ctx) {}
 
+    // Cached evaluator (reused across frames until graph changes)
+    private NodeGraph cachedEvalGraph;
+    private GraphEvaluator cachedEvaluator;
+    private final java.util.HashMap<Integer, Float> cachedPidState = new java.util.HashMap<>();
+
     @Override
     public void render(MonitorBlockEntity be, float partialTick, PoseStack poseStack,
                        MultiBufferSource buffer, int packedLight, int packedOverlay) {
         if (be == null || !be.running) return;
         if (be.graph == null || be.graph.nodes.isEmpty()) return;
 
-        var evaluator = new GraphEvaluator(be.graph);
-        var pidState = new java.util.HashMap<Integer, Float>();
-        // Build InputSource from synced redstone inputs
+        // Reuse evaluator across frames until graph changes
+        if (cachedEvaluator == null || cachedEvalGraph != be.graph) {
+            cachedEvalGraph = be.graph;
+            cachedEvaluator = new GraphEvaluator(be.graph);
+            cachedPidState.clear();
+        }
+        var evaluator = cachedEvaluator;
+        var pidState = cachedPidState;
+        // Build InputSource from synced redstone inputs (lightweight, every frame)
         var inputs = new ArrayList<GraphEvaluator.InputSource>();
         for (var n : be.graph.nodes) {
             if (n.type == NodeType.REDSTONE_IN) {
@@ -188,6 +200,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 type.setupRenderState();
                 RenderSystem.disableCull();
                 BufferUploader.drawWithShader(data);
+                RenderSystem.enableCull();
                 type.clearRenderState();
                 it.remove();
                 if (LAST_SHARED_TYPE != null) {
