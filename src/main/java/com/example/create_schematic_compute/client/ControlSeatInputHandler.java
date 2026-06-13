@@ -48,6 +48,8 @@ public class ControlSeatInputHandler {
     private static int inputMode = 0;
     private static boolean wasTab = false;
     private static boolean wasSeatedLastTick = false;
+    /** 模式刚切换到视角差模式，下一帧 diff 强制为 0 防止视角跳变 */
+    private static boolean viewModeJustSwitched = false;
 
     // Pre 事件中计算的摇杆值
     private static float joystickX = 0, joystickY = 0;
@@ -68,7 +70,7 @@ public class ControlSeatInputHandler {
         boolean seated = vehicle instanceof ControlSeatEntity;
         boolean guiOpen = mc.screen != null;
 
-        // ── 坐下时阻止游戏操作按键（保留 F5/F2/F11 等功能键）──
+        // ── 坐下时阻止游戏操作按键和鼠标交互 ──
         if (seated) {
             mc.options.keyInventory.consumeClick();
             mc.options.keyDrop.consumeClick();
@@ -76,6 +78,9 @@ public class ControlSeatInputHandler {
             mc.options.keyChat.consumeClick();
             mc.options.keyCommand.consumeClick();
             mc.options.keyAdvancements.consumeClick();
+            // 屏蔽鼠标左右键：不破坏方块、不攻击实体，按键状态由包发送到服务端处理
+            mc.options.keyAttack.consumeClick();
+            mc.options.keyUse.consumeClick();
         }
 
         // ── ~ 键离开座椅（标记下马，通过数据包发送到服务端） ──
@@ -118,13 +123,10 @@ public class ControlSeatInputHandler {
             int oldMode = inputMode;
             inputMode = (inputMode + 1) % 2;
             cursorInit = false;
-            // 从摇杆模式切换到视角差模式时，立即将视角锁定到座椅方向，
-            // 避免切换后到下一个 Post tick 之间鼠标移动造成 diff 跳变
-            if (oldMode == 0 && inputMode == 1 && vehicle != null) {
-                float vy = vehicle.getYRot();
-                mc.player.setYRot(vy); mc.player.yRotO = vy;
-                mc.player.setXRot(0); mc.player.xRotO = 0;
-                mc.player.yHeadRot = vy; mc.player.yBodyRot = vy;
+            // 从摇杆模式切换到视角差模式：标记切换帧，
+            // 让 Post 事件在下一帧强制 diff=0 防止视角跳变
+            if (oldMode == 0 && inputMode == 1) {
+                viewModeJustSwitched = true;
             }
         }
         wasTab = tab;
@@ -215,8 +217,14 @@ public class ControlSeatInputHandler {
             mc.player.yHeadRot = seatYaw;
             mc.player.yBodyRot = seatYaw;
         } else {
-            // 发送原始玩家旋转（服务端结合子世界 pose 计算差值）
-            // 发差值并归一化到 -180~180
+            // 刚从摇杆模式切换过来时强制 diff=0，防止 Pre→Post 之间
+            // 渲染帧中鼠标移动导致视角跳变
+            if (viewModeJustSwitched) {
+                mc.player.setYRot(seatYaw); mc.player.yRotO = seatYaw;
+                mc.player.setXRot(0); mc.player.xRotO = 0;
+                viewModeJustSwitched = false;
+            }
+            // 发送差值并归一化到 -180~180
             float diff = mc.player.getYRot() - seatYaw;
             while (diff > 180) diff -= 360;
             while (diff < -180) diff += 360;
