@@ -1,1 +1,11 @@
-{"type":"minecraft:block","pools":[{"rolls":1,"entries":[{"type":"minecraft:item","name":"create_schematic_compute:sensor"}],"conditions":[{"condition":"minecraft:survives_explosion"}]}]}
+{
+  "type": "minecraft:block",
+  "pools": [{
+    "rolls": 1,
+    "entries": [{
+      "type": "minecraft:item",
+      "name": "create_schematic_compute:sensor"
+    }],
+    "conditions": [{"condition": "minecraft:survives_explosion"}]
+  }]
+}

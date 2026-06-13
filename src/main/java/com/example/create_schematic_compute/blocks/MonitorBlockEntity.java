@@ -121,6 +121,7 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
         if(level == null || level.isClientSide()) return;
         boolean shouldBeLit = running && !graph.nodes.isEmpty();
         var currentState = getBlockState();
+        if (!currentState.hasProperty(MonitorBlock.LIT)) return;
         if(currentState.getValue(MonitorBlock.LIT) != shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(MonitorBlock.LIT, shouldBeLit), 3);
         if(!running) return;

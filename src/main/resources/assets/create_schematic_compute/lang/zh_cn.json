@@ -34,7 +34,6 @@
   "container.create_schematic_compute.program_computer": "编程计算机编辑器",
 
   "category.create_schematic_compute.values": "数值",
-  "category.create_schematic_compute.math": "运算",
   "category.create_schematic_compute.logic": "逻辑",
   "category.create_schematic_compute.control": "控制",
   "category.create_schematic_compute.output": "输出",

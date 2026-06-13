@@ -51,6 +51,11 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
         synchronized (PLAYER_INPUTS) { return PLAYER_INPUTS.size(); }
     }
 
+    /** 清除所有玩家的输入缓存（服务器关闭时调用，防止跨世界污染） */
+    public static void clearAllInputs() {
+        synchronized (PLAYER_INPUTS) { PLAYER_INPUTS.clear(); }
+    }
+
     /** 查找骑乘本座椅的玩家并消费其输入 */
     protected void consumeInput() {
         if (level == null) return;
@@ -212,6 +217,7 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
         adjustViewAngle();
         boolean shouldBeLit = running && !graph.nodes.isEmpty();
         var currentState = getBlockState();
+        if (!currentState.hasProperty(ControlSeatBlock.LIT)) return;
         if(currentState.getValue(ControlSeatBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(ControlSeatBlock.LIT, shouldBeLit), 3);
         if(!running) return;

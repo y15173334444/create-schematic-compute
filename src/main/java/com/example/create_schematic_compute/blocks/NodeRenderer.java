@@ -47,8 +47,6 @@ public class NodeRenderer {
     static int[] currentColors() { return new int[]{CG,CGL,CN,CH,CB,CPI,CPO,CW,CWD,CMN,CMH,CNT,CCT,CSB,CPIB,CPOB}; }
     static final int[] DEFAULT_COLORS = {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,CSB,0xFF8B6914,0xFF8A4A22};
     static final String[] COLOR_KEYS = {"bg","grid","node","header","border","input","output","wire","drag","menu_text","menu_hover","node_title","cat_text","sys_border","input_border","output_border"};
-    static final String[] COLOR_NAMES = {"Background","Grid","Node Body","Node Title BG","Border","Input Pin","Output Pin","Wire","Drag Wire","Menu Text","Menu Hover","Node Title","Category Text","System Border","Input Pin Border","Output Pin Border"};
-
     static int[] stagingColors = DEFAULT_COLORS.clone();
     static void initStaging() { stagingColors = currentColors(); }
 

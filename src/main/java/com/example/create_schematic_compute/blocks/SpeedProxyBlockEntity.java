@@ -58,6 +58,7 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
         if (level == null || level.isClientSide()) return;
         boolean shouldBeLit = running && !graph.nodes.isEmpty();
         var state = getBlockState();
+        if (!state.hasProperty(SpeedProxyBlock.LIT)) return;
         if (state.getValue(SpeedProxyBlock.LIT) != shouldBeLit)
             level.setBlock(worldPosition, state.setValue(SpeedProxyBlock.LIT, shouldBeLit), 3);
         if (!running) return;

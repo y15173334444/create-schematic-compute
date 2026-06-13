@@ -147,6 +147,7 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
         updateAttitude();
         boolean shouldBeLit = running && !graph.nodes.isEmpty();
         var s = getBlockState();
+        if (!s.hasProperty(SensorBlock.LIT)) return;
         if(s.getValue(SensorBlock.LIT)!=shouldBeLit) level.setBlock(worldPosition, s.setValue(SensorBlock.LIT, shouldBeLit), 3);
         if(!running) return;
         if(evaluator==null||lastEvaluatedGraph!=graph){ evaluator=new GraphEvaluator(graph); lastEvaluatedGraph=graph; pidState.clear(); }

@@ -31,7 +31,6 @@ import java.io.ByteArrayInputStream;
 import java.util.*;
 
 public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
-    private static final Map<Integer, Float> EMPTY_PID = Collections.emptyMap();
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
     private GraphEvaluator evaluator = null;
@@ -107,6 +106,7 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
     public void tick() {
         if(level==null||level.isClientSide()) return;
         var state = getBlockState();
+        if (!state.hasProperty(ProgramComputerBlock.LIT)) return;
         boolean shouldBeLit = running && !graph.nodes.isEmpty();
         if(state.getValue(ProgramComputerBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, state.setValue(ProgramComputerBlock.LIT, shouldBeLit), 3);
@@ -127,7 +127,7 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
         }
 
         // 评估
-        var results = evaluator.evaluate(in, EMPTY_PID, 0.05f, delayQueues, flipflopStates, pulseTimers);
+        var results = evaluator.evaluate(in, Collections.emptyMap(), 0.05f, delayQueues, flipflopStates, pulseTimers);
 
         // DELAY 入队
         for(var n : graph.nodes) {

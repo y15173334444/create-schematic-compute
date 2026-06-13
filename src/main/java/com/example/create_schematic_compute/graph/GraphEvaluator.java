@@ -236,10 +236,10 @@ public class GraphEvaluator {
             case ADD -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a + b; }
             case SUB -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a - b; }
             case MUL -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a * b; }
-            case DIV -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = b != 0 ? a / b : 0; }
-            case MOD -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = b != 0 ? a % b : 0; }
-            case POW -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = (float) Math.pow(a, b); }
-            case ROOT -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = b != 0 ? (float) Math.pow(a, 1.0 / b) : 0; }
+            case DIV -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = (b != 0 && Float.isFinite(a) && Float.isFinite(b)) ? a / b : 0; }
+            case MOD -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = (b != 0 && Float.isFinite(a) && Float.isFinite(b)) ? a % b : 0; }
+            case POW -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); float r = (float) Math.pow(Math.abs(a), b); o[0] = Float.isFinite(r) ? r : 0; }
+            case ROOT -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = (b != 0 && a >= 0) ? (float) Math.pow(a, 1.0 / b) : 0; }
             case ABS -> o[0] = Math.abs(graph.getInputValue(node.id, 0, outputs));
             case INTERP -> {
                 float a = graph.getInputValue(node.id, 0, outputs);
@@ -258,7 +258,9 @@ public class GraphEvaluator {
             case LT -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a < b ? 1 : 0; }
             case EQ -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = Math.abs(a - b) < 0.01f ? 1 : 0; }
             case PID -> {
-                float sp = Math.max(0, Math.min(15, graph.getInputValue(node.id, 0, outputs)));
+                float sp = graph.getInputValue(node.id, 0, outputs);
+                if (Float.isNaN(sp) || !Float.isFinite(sp)) sp = 0;
+                sp = Math.max(0, Math.min(15, sp));
                 float kp = node.params.length > 0 ? node.params[0] : 1.0f;
                 float ki = node.params.length > 1 ? node.params[1] : 0.1f;
                 float kd = node.params.length > 2 ? node.params[2] : 0.05f;
@@ -275,8 +277,12 @@ public class GraphEvaluator {
                 o[0] = Math.max(0, (kp * err + ki * integral) * s);
             }
             case PID_POWER -> {
-                float sp = Math.max(0, Math.min(15, graph.getInputValue(node.id, 0, outputs)));
-                float base = Math.max(0, Math.min(15, graph.getInputValue(node.id, 1, outputs)));
+                float sp = graph.getInputValue(node.id, 0, outputs);
+                if (Float.isNaN(sp) || !Float.isFinite(sp)) sp = 0;
+                sp = Math.max(0, Math.min(15, sp));
+                float base = graph.getInputValue(node.id, 1, outputs);
+                if (Float.isNaN(base) || !Float.isFinite(base)) base = 0;
+                base = Math.max(0, Math.min(15, base));
                 float kp = node.params.length > 0 ? node.params[0] : 1.0f;
                 float ki = node.params.length > 1 ? node.params[1] : 0.1f;
                 float ilimit = node.params.length > 2 ? node.params[2] : 3.0f;
@@ -291,7 +297,7 @@ public class GraphEvaluator {
                 pidState.put(ik, integral);
                 o[0] = Math.max(0, base + kp * err + ki * integral);
             }
-            case CLAMP -> { float v = graph.getInputValue(node.id, 0, outputs); float mn = graph.getInputValue(node.id, 1, outputs); float mx = graph.getInputValue(node.id, 2, outputs); o[0] = Math.max(mn, Math.min(mx, v)); }
+            case CLAMP -> { float v = graph.getInputValue(node.id, 0, outputs); if (Float.isNaN(v) || !Float.isFinite(v)) v = 0; float mn = graph.getInputValue(node.id, 1, outputs); float mx = graph.getInputValue(node.id, 2, outputs); o[0] = Math.max(mn, Math.min(mx, v)); }
             case MAP -> { float v = graph.getInputValue(node.id, 0, outputs); float imn = graph.getInputValue(node.id, 1, outputs); float imx = graph.getInputValue(node.id, 2, outputs); float omn = graph.getInputValue(node.id, 3, outputs); float omx = graph.getInputValue(node.id, 4, outputs); float r = imx - imn; o[0] = r == 0 ? omn : omn + (v - imn) / r * (omx - omn); }
             case SPEED_CTRL -> {
                 float speed = graph.getInputValue(node.id, 0, outputs);

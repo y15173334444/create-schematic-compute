@@ -58,7 +58,6 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
             if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
     }
-    public void toggleRunning() { running=!running; setChanged(); if(level!=null)level.sendBlockUpdated(worldPosition,getBlockState(),getBlockState(),3); }
 
     @Override public void onLoad() { super.onLoad(); registerLinks(); }
     @Override public void onChunkUnloaded() { super.onChunkUnloaded(); unregisterLinks(); }
@@ -108,9 +107,9 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
 
     public void tick() {
         if(level==null||level.isClientSide()) return;
-        // 无论 running 与否都更新 LIT 状态（停机时熄灭）
         boolean shouldBeLit = running && !graph.nodes.isEmpty();
         var currentState = getBlockState();
+        if (!currentState.hasProperty(BlueprintBlock.LIT)) return;
         if(currentState.getValue(BlueprintBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(BlueprintBlock.LIT, shouldBeLit), 3);
         if(!running) return;

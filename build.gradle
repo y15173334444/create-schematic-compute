@@ -18,7 +18,7 @@ version = '1.1.0'
 
 runs {
     configureEach {
-        systemProperty 'forge.logging.console.level', 'debug'
+        systemProperty 'forge.logging.console.level', 'info'
         modSource sourceSets.main
     }
 
