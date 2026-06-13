@@ -25,7 +25,7 @@ import java.io.ByteArrayInputStream;
 import java.util.List;
 import java.util.Map;
 
-public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
+public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
     // PID 积分状态（实例级，避免 static 共享导致状态污染）
     public final Map<Integer, Float> pidState = new java.util.HashMap<>();
     public NodeGraph graph = new NodeGraph();
@@ -43,6 +43,10 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
     private int scanCooldown = 0;
 
     public SpeedProxyBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.SPEED_PROXY_BE.get(), pos, s); }
+    @Override public boolean isRunning() { return running; }
+    @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public boolean graphHasCycles() { return graph.hasCycles(); }
+    @Override public void clearPidState() { pidState.clear(); }
 
     @Override public void accept(net.minecraft.world.level.block.entity.BlockEntity other) {
         if(other instanceof SpeedProxyBlockEntity src) {

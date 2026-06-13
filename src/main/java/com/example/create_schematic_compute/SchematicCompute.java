@@ -145,6 +145,11 @@ public class SchematicCompute {
                 com.example.create_schematic_compute.network.SignalBus.clear();
                 LOGGER.info("{} cleared static state for server shutdown", MOD_ID);
             });
+        // 玩家断开时清理其残留输入（防止下次重连时泄漏）
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+            net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent.class, event -> {
+                ControlSeatBlockEntity.clearPlayerInput(event.getEntity().getUUID());
+            });
 
         LOGGER.info("{} loaded!", MOD_ID);
     }

@@ -1,12 +1,7 @@
 package com.example.create_schematic_compute.network;
 
 import com.example.create_schematic_compute.SchematicCompute;
-import com.example.create_schematic_compute.blocks.BlueprintBlockEntity;
-import com.example.create_schematic_compute.blocks.ControlSeatBlockEntity;
-import com.example.create_schematic_compute.blocks.ProgramComputerBlockEntity;
-import com.example.create_schematic_compute.blocks.SensorBlockEntity;
-import com.example.create_schematic_compute.blocks.SpeedProxyBlockEntity;
-import com.example.create_schematic_compute.blocks.MonitorBlockEntity;
+import com.example.create_schematic_compute.blocks.GraphBlockEntity;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -36,24 +31,13 @@ public record BlueprintSavePacket(BlockPos pos, byte[] nbtData) implements Custo
                 SchematicCompute.LOGGER.warn("Rejected oversized blueprint data ({} bytes) from {}", nbtData.length, ctx.player().getName().getString());
                 return;
             }
-            var be = ctx.player().level().getBlockEntity(pos);
-            if (be instanceof BlueprintBlockEntity bbe) {
-                bbe.loadGraphFromBytes(nbtData);
-                if (bbe.graph.hasCycles() && bbe.running) {
-                    bbe.running = false;
+            if (ctx.player().level().getBlockEntity(pos) instanceof GraphBlockEntity gbe) {
+                gbe.loadGraphFromBytes(nbtData);
+                if (gbe.graphHasCycles() && gbe.isRunning()) {
+                    gbe.setRunning(false);
                     ctx.player().sendSystemMessage(
-                            net.minecraft.network.chat.Component.literal("§e⚠ Cycle detected! Blueprint stopped. Remove the loop and try again."));
+                            net.minecraft.network.chat.Component.literal("§e⚠ Cycle detected! Graph stopped. Remove the loop and try again."));
                 }
-            } else if (be instanceof SpeedProxyBlockEntity spe) {
-                spe.loadGraphFromBytes(nbtData);
-            } else if (be instanceof ProgramComputerBlockEntity pbe) {
-                pbe.loadGraphFromBytes(nbtData);
-            } else if (be instanceof ControlSeatBlockEntity cbe) {
-                cbe.loadGraphFromBytes(nbtData);
-            } else if (be instanceof SensorBlockEntity sbe) {
-                sbe.loadGraphFromBytes(nbtData);
-            } else if (be instanceof MonitorBlockEntity mbe) {
-                mbe.loadGraphFromBytes(nbtData);
             }
         });
     }

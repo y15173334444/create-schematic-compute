@@ -34,7 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
+public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
     public final Map<Integer, Float> pidState = new HashMap<>();
@@ -50,6 +50,10 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
     private record FreqLink(long freqKey, IRedstoneLinkable linkable) {}
 
     public BlueprintBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.BLUEPRINT_BE.get(), pos, s); }
+    @Override public boolean isRunning() { return running; }
+    @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public boolean graphHasCycles() { return graph.hasCycles(); }
+    @Override public void clearPidState() { pidState.clear(); }
     /** Create 蓝图系统通过 IMergeableBE 接口恢复方块实体数据 */
     @Override public void accept(net.minecraft.world.level.block.entity.BlockEntity other) {
         if(other instanceof BlueprintBlockEntity src) {

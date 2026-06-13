@@ -1,12 +1,7 @@
 package com.example.create_schematic_compute.network;
 
 import com.example.create_schematic_compute.SchematicCompute;
-import com.example.create_schematic_compute.blocks.BlueprintBlockEntity;
-import com.example.create_schematic_compute.blocks.ControlSeatBlockEntity;
-import com.example.create_schematic_compute.blocks.ProgramComputerBlockEntity;
-import com.example.create_schematic_compute.blocks.SensorBlockEntity;
-import com.example.create_schematic_compute.blocks.SpeedProxyBlockEntity;
-import com.example.create_schematic_compute.blocks.MonitorBlockEntity;
+import com.example.create_schematic_compute.blocks.GraphBlockEntity;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -24,37 +19,14 @@ public record BlueprintTogglePacket(BlockPos pos, boolean start) implements Cust
     @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
     public void handle(IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
-            var be = ctx.player().level().getBlockEntity(pos);
-            if (be instanceof BlueprintBlockEntity bbe) {
-                if (start && bbe.graph.hasCycles()) {
+            if (ctx.player().level().getBlockEntity(pos) instanceof GraphBlockEntity gbe) {
+                if (start && gbe.graphHasCycles()) {
                     ctx.player().sendSystemMessage(
                             net.minecraft.network.chat.Component.literal("§c⚠ Cycle detected! Cannot start: the graph contains a feedback loop."));
                     return;
                 }
-                if (!start) bbe.pidState.clear();  // 停机时清零 PID 积分
-                bbe.running = start;
-                bbe.setChanged();
-                bbe.getLevel().sendBlockUpdated(bbe.getBlockPos(), bbe.getBlockState(), bbe.getBlockState(), 3);
-            } else if (be instanceof SpeedProxyBlockEntity spe) {
-                spe.running = start;
-                spe.setChanged();
-                spe.getLevel().sendBlockUpdated(spe.getBlockPos(), spe.getBlockState(), spe.getBlockState(), 3);
-            } else if (be instanceof ProgramComputerBlockEntity pbe) {
-                pbe.running = start;
-                pbe.setChanged();
-                pbe.getLevel().sendBlockUpdated(pbe.getBlockPos(), pbe.getBlockState(), pbe.getBlockState(), 3);
-            } else if (be instanceof ControlSeatBlockEntity cbe) {
-                cbe.running = start;
-                cbe.setChanged();
-                cbe.getLevel().sendBlockUpdated(cbe.getBlockPos(), cbe.getBlockState(), cbe.getBlockState(), 3);
-            } else if (be instanceof SensorBlockEntity sbe) {
-                sbe.running = start;
-                sbe.setChanged();
-                sbe.getLevel().sendBlockUpdated(sbe.getBlockPos(), sbe.getBlockState(), sbe.getBlockState(), 3);
-            } else if (be instanceof MonitorBlockEntity mbe) {
-                mbe.running = start;
-                mbe.setChanged();
-                mbe.getLevel().sendBlockUpdated(mbe.getBlockPos(), mbe.getBlockState(), mbe.getBlockState(), 3);
+                if (!start) gbe.clearPidState();
+                gbe.setRunning(start);
             }
         });
     }

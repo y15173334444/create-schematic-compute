@@ -30,7 +30,7 @@ import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.util.*;
 
-public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
+public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
     public final Map<Integer, Float> pidState = new HashMap<>();
@@ -43,6 +43,10 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
     private final Map<Long, Integer> lastOutputs = new HashMap<>();
     private record FreqLink(long freqKey, IRedstoneLinkable linkable) {}
     public SensorBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.SENSOR_BE.get(), pos, s); }
+    @Override public boolean isRunning() { return running; }
+    @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public boolean graphHasCycles() { return graph.hasCycles(); }
+    @Override public void clearPidState() { pidState.clear(); }
 
     /** 工厂方法：Sable 存在时创建兼容子类，否则创建基础类 */
     public static SensorBlockEntity create(BlockPos pos, BlockState state) {
@@ -123,15 +127,34 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
         while (forwardYaw > 180) forwardYaw -= 360; while (forwardYaw < -180) forwardYaw += 360;
     }
 
-    /** 反射获取子世界四元数 */
+    /** 反射获取子世界四元数 — 方法引用缓存 */
+    private static Class<?> subLevelContainerClass;
+    private static java.lang.reflect.Method getContainerMethod, getAllSubLevelsMethod, logicalPoseMethod;
+    private static volatile boolean sableReflectionInit;
+
+    private static void initSableReflection() {
+        if (sableReflectionInit) return;
+        try {
+            subLevelContainerClass = Class.forName("dev.ryanhcode.sable.api.sublevel.SubLevelContainer");
+            getContainerMethod = subLevelContainerClass.getMethod("getContainer", net.minecraft.world.level.Level.class);
+            // The container class — found from the return type of getContainer
+            getAllSubLevelsMethod = getContainerMethod.getReturnType().getMethod("getAllSubLevels");
+            // The sub level class — found from the list element type
+            var subLevelClass = Class.forName("dev.ryanhcode.sable.api.sublevel.SubLevel");
+            logicalPoseMethod = subLevelClass.getMethod("logicalPose");
+        } catch (Exception ignored) {}
+        sableReflectionInit = true;
+    }
+
     private static org.joml.Quaterniond getSublevelOrientation(net.minecraft.world.level.Level level) {
         try {
-            var subClass = Class.forName("dev.ryanhcode.sable.api.sublevel.SubLevelContainer");
-            var cnt = subClass.getMethod("getContainer", net.minecraft.world.level.Level.class).invoke(null, level);
+            initSableReflection();
+            if (getContainerMethod == null) return null;
+            var cnt = getContainerMethod.invoke(null, level);
             if (cnt != null) {
-                var allSubs = (java.util.List<?>)cnt.getClass().getMethod("getAllSubLevels").invoke(cnt);
+                var allSubs = (java.util.List<?>)getAllSubLevelsMethod.invoke(cnt);
                 if (!allSubs.isEmpty()) {
-                    var pose = (dev.ryanhcode.sable.companion.math.Pose3dc)allSubs.get(0).getClass().getMethod("logicalPose").invoke(allSubs.get(0));
+                    var pose = (dev.ryanhcode.sable.companion.math.Pose3dc)logicalPoseMethod.invoke(allSubs.get(0));
                     if (pose != null) {
                         var oq = pose.orientation();
                         return new org.joml.Quaterniond(oq.x(), oq.y(), oq.z(), oq.w());

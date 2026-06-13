@@ -30,7 +30,7 @@ import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.util.*;
 
-public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
+public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
     public NodeGraph graph = new NodeGraph();
 
     // ══ 全局输入缓存（按玩家 UUID） ══
@@ -55,13 +55,16 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     public static void clearAllInputs() {
         synchronized (PLAYER_INPUTS) { PLAYER_INPUTS.clear(); }
     }
+    public static void clearPlayerInput(java.util.UUID uuid) {
+        synchronized (PLAYER_INPUTS) { PLAYER_INPUTS.remove(uuid); }
+    }
 
     /** 查找骑乘本座椅的玩家并消费其输入 */
     protected void consumeInput() {
         if (level == null) return;
         var seats = level.getEntitiesOfClass(
             com.example.create_schematic_compute.entity.ControlSeatEntity.class,
-            new net.minecraft.world.phys.AABB(worldPosition).inflate(50));
+            new net.minecraft.world.phys.AABB(worldPosition).inflate(2)); // seat is always at block pos
         for (var seat : seats) {
             for (var passenger : seat.getPassengers()) {
                 if (passenger instanceof Player pl) {
@@ -136,6 +139,10 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     protected record FreqLink(long freqKey, IRedstoneLinkable linkable) {}
 
     public ControlSeatBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.CONTROL_SEAT_BE.get(), pos, s); }
+    @Override public boolean isRunning() { return running; }
+    @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public boolean graphHasCycles() { return graph.hasCycles(); }
+    @Override public void clearPidState() { pidState.clear(); }
 
     @Override public void accept(net.minecraft.world.level.block.entity.BlockEntity other) {
         if(other instanceof ControlSeatBlockEntity src) {

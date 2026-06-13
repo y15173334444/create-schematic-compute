@@ -30,7 +30,7 @@ import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.util.*;
 
-public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
+public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
     private GraphEvaluator evaluator = null;
@@ -48,6 +48,10 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
     private record FreqLink(long freqKey, IRedstoneLinkable linkable) {}
 
     public ProgramComputerBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.PROGRAM_BE.get(), pos, s); }
+    @Override public boolean isRunning() { return running; }
+    @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public boolean graphHasCycles() { return graph.hasCycles(); }
+    @Override public void clearPidState() {} // no PID state
 
     @Override public void accept(net.minecraft.world.level.block.entity.BlockEntity other) {
         if(other instanceof ProgramComputerBlockEntity src) {

@@ -37,7 +37,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE {
+public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
     public final Map<Integer, Float> pidState = new HashMap<>();
@@ -134,6 +134,10 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
     }
 
     public void toggleRunning() { running = !running; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public boolean isRunning() { return running; }
+    @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public boolean graphHasCycles() { return graph.hasCycles(); }
+    @Override public void clearPidState() { pidState.clear(); }
 
     public void tick() {
         if(level == null || level.isClientSide()) return;
