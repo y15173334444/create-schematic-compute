@@ -2,13 +2,14 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github)](https://github.com/y15173334444/create-schematic-compute)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
+[![Version](https://img.shields.io/badge/Version-1.1.0-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
 
 ---
 
 <p align="center">
-  <b>🎮 Three Programmable Computers with a Visual Node-Based Programming System</b><br>
+  <b>🎮 Six Programmable Blocks with a Visual Node-Based Programming System</b><br>
   <i>Drag, connect, and build logic — just like Unreal Engine Blueprints or Blender Geometry Nodes!</i><br>
   <i>Created by <b>StarryNight_Luo</b> (y15173334444)</i>
 </p>
@@ -19,7 +20,7 @@
 
 ### What is Create: Schematic Compute?
 
-**Create: Schematic Compute** is a **Create mod addon** that introduces **three programmable computers** with a **visual node-based programming system**. Instead of writing complex redstone circuits or struggling with command blocks, you simply drag and connect nodes to build logic — just like in Unreal Engine's Blueprint system or Blender's Geometry Nodes.
+**Create: Schematic Compute** is a **Create mod addon** that introduces **six programmable blocks** with a **visual node-based programming system**. Instead of writing complex redstone circuits or struggling with command blocks, you simply drag and connect nodes to build logic — just like in Unreal Engine's Blueprint system or Blender's Geometry Nodes.
 
 Each computer has its own internal node graph that runs at **20Hz (every game tick)**, making it suitable for real-time control applications.
 
