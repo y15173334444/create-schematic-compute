@@ -2,8 +2,6 @@ package com.example.create_schematic_compute.entity;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.syncher.EntityDataAccessor;
-import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -12,31 +10,18 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 
 public class ControlSeatEntity extends Entity {
-    private static final EntityDataAccessor<Float> DATA_SABLE_RELATIVE_YAW =
-        SynchedEntityData.defineId(ControlSeatEntity.class, EntityDataSerializers.FLOAT);
-    private static final EntityDataAccessor<Float> DATA_SABLE_RELATIVE_PITCH =
-        SynchedEntityData.defineId(ControlSeatEntity.class, EntityDataSerializers.FLOAT);
-
     public ControlSeatEntity(EntityType<?> type, Level level) {
         super(type, level);
         this.noPhysics = true;
     }
 
-    public float getSableRelativeYaw() { return entityData.get(DATA_SABLE_RELATIVE_YAW); }
-    public void setSableRelativeYaw(float v) { entityData.set(DATA_SABLE_RELATIVE_YAW, v); }
-    public float getSableRelativePitch() { return entityData.get(DATA_SABLE_RELATIVE_PITCH); }
-    public void setSableRelativePitch(float v) { entityData.set(DATA_SABLE_RELATIVE_PITCH, v); }
-
     @Override
     protected Vec3 getPassengerAttachmentPoint(Entity passenger, net.minecraft.world.entity.EntityDimensions dimensions, float partialTick) {
-        return new Vec3(0.0, 0.3125, 0.0);
+        return new Vec3(0.0, 0.3125, 0.0); // 5/16 坐上座椅面
     }
 
     @Override
-    protected void defineSynchedData(SynchedEntityData.Builder builder) {
-        builder.define(DATA_SABLE_RELATIVE_YAW, 0f);
-        builder.define(DATA_SABLE_RELATIVE_PITCH, 0f);
-    }
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {}
 
     @Override
     protected void readAdditionalSaveData(CompoundTag tag) {}
@@ -61,13 +46,6 @@ public class ControlSeatEntity extends Entity {
             BlockPos pos = blockPosition();
             setPos(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
         }
-    }
-
-    @Override
-    protected void positionRider(Entity passenger, MoveFunction callback) {
-        float sy = passenger.getYRot();
-        super.positionRider(passenger, callback);
-        passenger.setYRot(sy);
     }
 
     @Override
