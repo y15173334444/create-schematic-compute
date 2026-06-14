@@ -57,7 +57,7 @@ public class ControlSeatInputHandler {
     private static volatile float joystickX = 0, joystickY = 0;
     private static volatile boolean wantDismount = false;
     private static volatile boolean wasGuiOpen = false;
-    private static float lastSableYaw = Float.NaN;
+    private static float viewAngleOffset = 0; // captures player-seat offset at mode switch
 
     // ═══════════════════════════════════════
     //  Pre — 摇杆值来自 Mixin 导出的原始 delta
@@ -85,9 +85,8 @@ public class ControlSeatInputHandler {
 
         if (seated && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_GRAVE_ACCENT) == GLFW.GLFW_PRESS) {
             wantDismount = true;
-            wasTab = false; inputMode = 0; suppressMouseTurn = false; // will be set true below if re-seated
-            joystickX = 0; joystickY = 0;
-            wasSeatedLastTick = false;
+            wasTab = false; inputMode = 0; suppressMouseTurn = false;
+            joystickX = 0; joystickY = 0; viewAngleOffset = 0; wasSeatedLastTick = false;
             return;
         }
 
@@ -115,8 +114,17 @@ public class ControlSeatInputHandler {
         // ── TAB 切换模式 ──
         boolean tab = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_TAB) == GLFW.GLFW_PRESS;
         if (tab && !wasTab) {
+            int prev = inputMode;
             inputMode = (inputMode + 1) % 2;
             suppressMouseTurn = (inputMode == 0);
+            // Capture zero-point when entering View Angle mode
+            if (prev == 0 && inputMode == 1 && mc.player.getVehicle() != null) {
+                float seatY = mc.player.getVehicle().getYRot();
+                float diff = mc.player.getYRot() - seatY;
+                while (diff > 180) diff -= 360;
+                while (diff < -180) diff += 360;
+                viewAngleOffset = diff;
+            }
         }
         wasTab = tab;
 
@@ -183,7 +191,9 @@ public class ControlSeatInputHandler {
             float diff = mc.player.getYRot() - seatYaw;
             while (diff > 180) diff -= 360;
             while (diff < -180) diff += 360;
-            vy = diff;
+            vy = diff - viewAngleOffset;
+            while (vy > 180) vy -= 360;
+            while (vy < -180) vy += 360;
             vp = mc.player.getXRot();
         }
 

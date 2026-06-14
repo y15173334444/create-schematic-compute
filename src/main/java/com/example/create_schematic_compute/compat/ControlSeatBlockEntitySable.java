@@ -75,10 +75,10 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
         if (entity != null) {
             // Sync relativeYaw to client via SynchedEntityData (needed for View Angle compensation)
             entity.setSableRelativeYaw(relativeYaw);
-            if (inputMode == 0) {
-                entity.yRotO = cachedBlockFacingYaw - relativeYaw;
-                entity.setYHeadRot(cachedBlockFacingYaw - relativeYaw);
-            }
+            // Entity yaw always follows structure — needed for viewYaw = playerYaw - entityYaw
+            // Player's view vector is independently protected by EntitySubLevelUtilMixin
+            entity.yRotO = cachedBlockFacingYaw - relativeYaw;
+            entity.setYHeadRot(cachedBlockFacingYaw - relativeYaw);
         }
     }
 
