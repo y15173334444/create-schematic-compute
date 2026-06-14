@@ -22,12 +22,12 @@ public class EditPanel {
     public static int calcRenderHeight(GraphNode n, float zoom) {
         if (n == null) return 0;
         int h = 6;
-        if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL) {
+        if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL && n.type != NodeType.GATE) {
             if (n.type == NodeType.KEYBOARD || n.type == NodeType.GAMEPAD_BUTTON) {
                 h += 24; // KEYBOARD/GAMEPAD_BUTTON 已有自己的绑定UI
             } else h += n.params.length * 18;
         }
-        if (n.type == NodeType.BOOL && n.params.length > 0) h += 16;
+        if ((n.type == NodeType.BOOL || n.type == NodeType.GATE) && n.params.length > 0) h += 16;
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
         if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) h += 22;
         if (n.type == NodeType.FORMULA) h += 22;
@@ -80,6 +80,16 @@ public class EditPanel {
             g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
             g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
             g.drawString(Minecraft.getInstance().font, inverted ? "§a✔ Inverted" : "§7Not Inverted", bx+4, by+2, 0xFFFFFFFF, false);
+            row++;
+        }
+        if (node.type == NodeType.GATE && node.params.length > 0) {
+            boolean defOpen = node.params[0] > 0.5f;
+            int bx = px + 4, by = py + 4 + row * 18;
+            int bw = pw - 8, bh = 16;
+            g.fill(bx, by, bx + bw, by + bh, defOpen ? 0xFF3A5A2A : 0xFF3A3428);
+            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
+            g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
+            g.drawString(Minecraft.getInstance().font, defOpen ? "§a✔ Default: Open" : "§7Default: Closed", bx+4, by+2, 0xFFFFFFFF, false);
             row++;
         }
         if (node.type == NodeType.REDSTONE_IN || node.type == NodeType.REDSTONE_OUT) {

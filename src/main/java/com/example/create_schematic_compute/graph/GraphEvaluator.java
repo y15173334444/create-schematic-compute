@@ -122,6 +122,28 @@ public class GraphEvaluator {
                 flipflopStates.put(node.id, cur);
                 o[0] = cur ? 1 : 0;
             }
+            case GATE -> {
+                // Read persisted state (params[1]) or default (params[0]) on first tick
+                boolean cur = flipflopStates.getOrDefault(node.id,
+                    (node.params.length > 1 && node.params[1] > 0.5f)
+                    || (node.params.length > 0 && node.params[0] > 0.5f));
+                float val = graph.getInputValue(node.id, 0, outputs);
+                float open = graph.getInputValue(node.id, 1, outputs);
+                float close = graph.getInputValue(node.id, 2, outputs);
+                float toggle = graph.getInputValue(node.id, 3, outputs);
+                // Rising-edge detection for toggle
+                boolean prevTog = flipflopStates.getOrDefault(-(node.id+1), false);
+                boolean togEdge = toggle > 0.5f && !prevTog;
+                flipflopStates.put(-(node.id+1), toggle > 0.5f);
+                // Open has priority, then Close, then Toggle edge
+                if (open > 0.5f) cur = true;
+                else if (close > 0.5f) cur = false;
+                else if (togEdge) cur = !cur;
+                flipflopStates.put(node.id, cur);
+                // Persist state to params for NBT save
+                if (node.params.length > 1) node.params[1] = cur ? 1 : 0;
+                o[0] = cur ? val : 0;
+            }
             case T_FLIPFLOP -> {
                 float in = graph.getInputValue(node.id, 0, outputs);
                 boolean cur = flipflopStates.getOrDefault(node.id, false);

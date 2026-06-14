@@ -26,6 +26,7 @@ public enum NodeType {
     MAP("node.create_schematic_compute.map", 5, 1, ""),
     SPEED_CTRL("node.create_schematic_compute.speed_ctrl", 2, 1, ""),
     BOOL("node.create_schematic_compute.bool", 1, 1, "inverted"),
+    GATE("node.create_schematic_compute.gate", 4, 1, "default"),
     PRIVATE_IN("node.create_schematic_compute.private_in", 0, 1, ""),
     PRIVATE_OUT("node.create_schematic_compute.private_out", 1, 0, ""),
     DELAY("node.create_schematic_compute.delay", 1, 1, "ticks"),
@@ -77,6 +78,7 @@ public enum NodeType {
         case REDSTONE_OUT -> "In";
         case PRIVATE_OUT -> "val";
         case LATCH -> i==0?"S":"R";
+        case GATE -> i==0?"val":i==1?"Open":i==2?"Close":"Tog";
         case SPEED_CTRL -> i==0?"speed":"dir";
         case PULSE_EXTEND, T_FLIPFLOP, DELAY, LOOP, FUSE -> "in";
         case ACCUMULATOR -> i == 0 ? "+" : "-";
@@ -99,7 +101,7 @@ public enum NodeType {
         case CLAMP,MAP -> "float";
         case CEIL, FLOOR -> "int";
         case DELAY -> "out";
-        case LATCH -> "q";
+        case LATCH, GATE -> "out";
         case T_FLIPFLOP -> "tog";
         case PULSE_EXTEND -> "pulse";
         case LOOP -> "clk";

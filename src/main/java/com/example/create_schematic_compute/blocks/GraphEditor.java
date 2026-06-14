@@ -133,7 +133,7 @@ public class GraphEditor {
         s.paramKeys = node.type.paramNames.clone();
         var mc = Minecraft.getInstance();
         for (int i = 0; i < node.params.length; i++) {
-            if (node.type == NodeType.BOOL || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON
+            if (node.type == NodeType.BOOL || node.type == NodeType.GATE || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON
                 || node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT) continue;
             int idx = i;
             var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
@@ -467,6 +467,11 @@ public class GraphEditor {
                 if (en.type == NodeType.BOOL && en.params.length > 0) {
                     int boolLocalY = editLocalY + 4 + numRows * 18;
                     if (lmx >= 4 && lmx <= NW - 4 && lmy >= boolLocalY && lmy <= boolLocalY + 16)
+                    { en.params[0] = en.params[0] > 0.5f ? 0 : 1; return true; }
+                }
+                if (en.type == NodeType.GATE && en.params.length > 0) {
+                    int gateLocalY = editLocalY + 4 + numRows * 18;
+                    if (lmx >= 4 && lmx <= NW - 4 && lmy >= gateLocalY && lmy <= gateLocalY + 16)
                     { en.params[0] = en.params[0] > 0.5f ? 0 : 1; return true; }
                 }
                 if (en.type == NodeType.KEYBOARD || en.type == NodeType.GAMEPAD_BUTTON) {

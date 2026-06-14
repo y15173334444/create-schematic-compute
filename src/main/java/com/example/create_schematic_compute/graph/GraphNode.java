@@ -111,6 +111,7 @@ public class GraphNode {
         if (type == NodeType.LOOP) { this.params[0] = 5f; this.params[1] = 10f; }
         if (type == NodeType.FUSE) this.params[0] = 40f; // cooldown=40 ticks
         if (type == NodeType.BOOL) this.params[0] = 0f;  // inverted=0 (默认不反转)
+        if (type == NodeType.GATE) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // default closed, current state closed
         if (type == NodeType.KEYBOARD) this.params[0] = 0f; // 默认 A
         if (type == NodeType.GAMEPAD_BUTTON) this.params[0] = 0f; // 默认 A
         // IMAGE/IMAGE_SEQUENCE: lazy-allocate pixel array (saves memory for other node types)

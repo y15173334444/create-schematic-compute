@@ -85,7 +85,8 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
         updateAttitude();
 
         // 更新实体 yaw → 使用相对旋转（减去初始偏移），保持 getYRot() 与初始朝向一致
-        if (entity != null) {
+        // 仅在摇杆模式下跟随sable结构旋转；视角差模式下玩家视角独立于结构（类似坦克炮塔）
+        if (entity != null && inputMode == 0) {
             float relativeYaw = cachedSubYaw - initialSubYaw;
             entity.yRotO = cachedBlockFacingYaw - relativeYaw;
             entity.setYHeadRot(cachedBlockFacingYaw - relativeYaw);
