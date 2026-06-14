@@ -243,8 +243,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             float ey = contentY + elem.y * contentH;
             float ew = elemW * s, eh = elemH * s;
             float[] bb = elemRotAABB(ex, ey, ew, eh, elem.rotation);
-            // Display area outer bounds for clamping (keep elements inside visible area)
-            float dl = da.x, dr = da.x + da.w, dt = da.y, db = da.y + da.h;
+            // Clamp to content area (matching 3D renderer's cx/cw bounds), not display area
+            float dl = contentX, dr = contentX + contentW, dt = contentY, db = contentY + contentH;
             if (bb[2] > dr) ex -= (bb[2] - dr);
             if (bb[3] > db) ey -= (bb[3] - db);
             if (bb[0] < dl) ex += (dl - bb[0]);
@@ -332,7 +332,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 float ey = contentY + elem.y * contentH;
                 float ew = hitW * s, eh = hitH * s;
                 float[] bb = elemRotAABB(ex, ey, ew, eh, elem.rotation);
-                float dl = da.x, dr = da.x + da.w, dt = da.y, db = da.y + da.h;
+                float dl = contentX, dr = contentX + contentW, dt = contentY, db = contentY + contentH;
                 if (bb[2] > dr) ex -= (bb[2] - dr);
                 if (bb[3] > db) ey -= (bb[3] - db);
                 if (bb[0] < dl) ex += (dl - bb[0]);
@@ -783,7 +783,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 float ey = contentY + elem.y * contentH;
                 float ew = hitW * s, eh = hitH * s;
                 float[] bb = elemRotAABB(ex, ey, ew, eh, elem.rotation);
-                float dl = da.x, dr = da.x + da.w, dt = da.y, db = da.y + da.h;
+                float dl = contentX, dr = contentX + contentW, dt = contentY, db = contentY + contentH;
                 if (bb[2] > dr) ex -= (bb[2] - dr);
                 if (bb[3] > db) ey -= (bb[3] - db);
                 if (bb[0] < dl) ex += (dl - bb[0]);
@@ -850,11 +850,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 float exD = cXD + Math.max(0, Math.min(1, rawX)) * cWD;
                 float eyD = cYD + Math.max(0, Math.min(1, rawY)) * cHD;
                 float[] bbD = elemRotAABB(exD, eyD, eW * sD, eH * sD, draggedDisplayNode.displayRotation);
-                float drD = da.x + da.w, dbD = da.y + da.h;
+                int drD = cXD + cWD, dbD = cYD + cHD;
                 if (bbD[2] > drD) exD -= (bbD[2] - drD);
                 if (bbD[3] > dbD) eyD -= (bbD[3] - dbD);
-                if (bbD[0] < da.x) exD += (da.x - bbD[0]);
-                if (bbD[1] < da.y) eyD += (da.y - bbD[1]);
+                if (bbD[0] < cXD) exD += (cXD - bbD[0]);
+                if (bbD[1] < cYD) eyD += (cYD - bbD[1]);
                 draggedDisplayNode.layoutX = Math.max(0, Math.min(1, (exD - cXD) / cWD));
                 draggedDisplayNode.layoutY = Math.max(0, Math.min(1, (eyD - cYD) / cHD));
             }
