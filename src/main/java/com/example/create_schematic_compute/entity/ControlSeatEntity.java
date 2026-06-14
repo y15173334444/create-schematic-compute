@@ -48,6 +48,15 @@ public class ControlSeatEntity extends Entity {
         }
     }
 
+    /** Prevent vanilla from syncing passenger yaw to vehicle yaw.
+     *  The ControlSeatInputHandler manages player rotation per input mode. */
+    @Override
+    protected void positionRider(Entity passenger, MoveFunction callback) {
+        float sy = passenger.getYRot();
+        super.positionRider(passenger, callback);
+        passenger.setYRot(sy);
+    }
+
     @Override
     public boolean isPushable() { return false; }
 }
