@@ -20,7 +20,8 @@ public class EntitySubLevelUtilMixin {
 
     @Inject(method = "getEntityOrientation", at = @At("HEAD"), cancellable = true, remap = false)
     private static void onGetEntityOrientation(Entity entity,
-            java.util.function.Function<?, ?> poseProvider, float partialTicks, Object type,
+            java.util.function.Function<?, ?> poseProvider, float partialTicks,
+            dev.ryanhcode.sable.mixinhelpers.camera.camera_rotation.EntitySubLevelRotationHelper.Type type,
             CallbackInfoReturnable<?> cir) {
         if (!(entity instanceof Player player)) return;
         if (!(player.getVehicle() instanceof ControlSeatEntity)) return;
