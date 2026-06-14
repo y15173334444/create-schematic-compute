@@ -49,7 +49,11 @@ public class ControlSeatInputHandler {
 
     // 由 Mixin 写入上一帧 turn() 的原始鼠标增量（替代 glfwGetCursorPos）
     private static volatile double rawMouseDYaw, rawMouseDPitch;
-    public static void onRawMouseDelta(double yaw, double pitch) { rawMouseDYaw = yaw; rawMouseDPitch = pitch; }
+    private static volatile double viewAngleAccumYaw; // accumulated mouse yaw in View Angle mode
+    public static void onRawMouseDelta(double yaw, double pitch) {
+        rawMouseDYaw = yaw; rawMouseDPitch = pitch;
+        if (inputMode == 1) viewAngleAccumYaw += yaw; // track total mouse rotation
+    }
 
     private static volatile int inputMode = 0; // 默认摇杆模式
     private static volatile boolean wasTab = false;
@@ -57,8 +61,7 @@ public class ControlSeatInputHandler {
     private static volatile float joystickX = 0, joystickY = 0;
     private static volatile boolean wantDismount = false;
     private static volatile boolean wasGuiOpen = false;
-    private static float lastVehicleYaw = Float.NaN;
-    private static net.minecraft.world.phys.Vec3 viewAngleRefPos = null; // stabilize camera position
+    private static float viewAngleRefYaw = Float.NaN; // player yaw when View Angle mode entered
 
     // ═══════════════════════════════════════
     //  Pre — 摇杆值来自 Mixin 导出的原始 delta
@@ -207,6 +210,7 @@ public class ControlSeatInputHandler {
         if (mc.screen != null) return;
 
         if (inputMode == 0) {
+            // Joystick mode: lock player to vehicle
             mc.player.setXRot(0);            mc.player.xRotO = 0;
             var vehicle = mc.player.getVehicle();
             if (vehicle != null) {
@@ -215,36 +219,19 @@ public class ControlSeatInputHandler {
                 mc.player.yHeadRot = vy;       mc.player.yHeadRotO = vy;
                 mc.player.yBodyRot = vy;       mc.player.yBodyRotO = vy;
             }
-            lastVehicleYaw = Float.NaN; viewAngleRefPos = null;
+            viewAngleRefYaw = Float.NaN; viewAngleAccumYaw = 0;
         } else {
-            // View Angle mode: compensate both vehicle rotation AND position
-            // Sable sublevel transforms entity world position — camera follows → must cancel
-            var vehicle = mc.player.getVehicle();
-            if (vehicle != null) {
-                // ── Rotation compensation ──
-                float cv = vehicle.getYRot();
-                if (!Float.isNaN(lastVehicleYaw)) {
-                    float vDelta = cv - lastVehicleYaw;
-                    if (Math.abs(vDelta) > 0.001f) {
-                        mc.player.setYRot(mc.player.getYRot() - vDelta);
-                        mc.player.yRotO -= vDelta;
-                        mc.player.yHeadRot -= vDelta;
-                        mc.player.yHeadRotO -= vDelta;
-                        mc.player.yBodyRot -= vDelta;
-                        mc.player.yBodyRotO -= vDelta;
-                    }
-                }
-                lastVehicleYaw = cv;
-                // ── Position compensation: cancel sable sublevel transform ──
-                var cp = vehicle.position();
-                if (viewAngleRefPos == null) viewAngleRefPos = cp;
-                double dx = viewAngleRefPos.x - cp.x;
-                double dy = viewAngleRefPos.y - cp.y;
-                double dz = viewAngleRefPos.z - cp.z;
-                if (Math.abs(dx) > 0.0001 || Math.abs(dy) > 0.0001 || Math.abs(dz) > 0.0001) {
-                    mc.player.setPos(mc.player.getX() + dx, mc.player.getY() + dy, mc.player.getZ() + dz);
-                }
+            // View Angle mode: stabilize player yaw using absolute mouse tracking
+            // Player's world yaw = refYaw (captured on mode entry) + accumYaw (mouse only)
+            // This ignores any rotation applied by sable/vanilla to the entity
+            if (Float.isNaN(viewAngleRefYaw)) {
+                viewAngleRefYaw = mc.player.getYHeadRot();
+                viewAngleAccumYaw = 0;
             }
+            float desired = viewAngleRefYaw + (float)viewAngleAccumYaw;
+            mc.player.setYRot(desired);       mc.player.yRotO = desired;
+            mc.player.yHeadRot = desired;      mc.player.yHeadRotO = desired;
+            mc.player.yBodyRot = desired;      mc.player.yBodyRotO = desired;
         }
         if (mc.player.isShiftKeyDown()) mc.player.setShiftKeyDown(false);
     }
