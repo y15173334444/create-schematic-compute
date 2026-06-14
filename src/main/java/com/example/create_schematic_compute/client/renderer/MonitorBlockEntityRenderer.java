@@ -168,7 +168,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             float s = 0.015f * n.displayScale;
             poseStack.pushPose();
             poseStack.translate(nx, ny, 0);
-            poseStack.mulPose(Axis.ZP.rotationDegrees(-n.displayRotation));
+            poseStack.mulPose(Axis.ZP.rotationDegrees(n.displayRotation));
             poseStack.scale(s, -s, s);
             font.drawInBatch(str, 0, 0, color, false,
                 poseStack.last().pose(), buffer, Font.DisplayMode.NORMAL, 0, 0xF000F0);

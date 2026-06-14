@@ -53,6 +53,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     private boolean showSettings = false;
     private boolean settingsInited = false;
     private net.minecraft.client.gui.components.EditBox[] settingFields;
+    // Live preview overrides for screen settings (negative = not previewing)
+    private float previewScreenW = -1, previewScreenL = -1;
     private static final String[] SETTING_KEYS = {
         "gui.create_schematic_compute.monitor.scr_w",
         "gui.create_schematic_compute.monitor.scr_l",
@@ -159,6 +161,25 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         return new DisplayArea((width - dw) / 2, (height - dh) / 2 + topOffset / 2, dw, dh);
     }
 
+    /** Get effective screen dimensions, using preview overrides when settings panel is open */
+    private float getEffectiveScreenW() { return previewScreenW >= 0 ? previewScreenW : (blockEntity != null ? blockEntity.screenWidth : 1.5f); }
+    private float getEffectiveScreenL() { return previewScreenL >= 0 ? previewScreenL : (blockEntity != null ? blockEntity.screenLength : 1.2f); }
+
+    /** Compute content area insets matching the 3D renderer's 0.04-block bezel margin.
+     *  Returns {contentX, contentY, contentW, contentH} within the given DisplayArea. */
+    private int[] getContentArea(DisplayArea da) {
+        float sw = getEffectiveScreenW();
+        float sl = getEffectiveScreenL();
+        float mfX = 0.04f / Math.max(sw, 0.01f);
+        float mfY = 0.04f / Math.max(sl, 0.01f);
+        int ix = Math.round(da.w * mfX);
+        int iy = Math.round(da.h * mfY);
+        return new int[]{da.x + ix, da.y + iy, da.w - 2 * ix, da.h - 2 * iy};
+    }
+
+    /** Get the world-space content width (screenWidth - 2*margin) for guiScale computation */
+    private float getContentWorldW() { return Math.max(getEffectiveScreenW() - 0.08f, 0.01f); }
+
     private GraphEvaluator getCachedEvaluator(NodeGraph graph) {
         if (cachedEval == null || lastEvalGraph != graph) {
             lastEvalGraph = graph;
@@ -201,9 +222,10 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         // Dynamic guiScale: match world proportions
         // World: 1 font-pixel = 0.015 blocks. GUI: da.w pixels maps to cw = screenWidth-0.08 blocks.
         // So: guiScale = 0.015 * da.w / cw  (font-px → screen-px matching world scale)
-        float cw = (blockEntity != null && blockEntity.screenLength > 0.001f)
-            ? blockEntity.screenWidth - 0.08f : 1.5f - 0.08f;
+        float cw = getContentWorldW();
         float guiScale = da.w * 0.015f / Math.max(cw, 0.01f);
+        var ci = getContentArea(da);
+        int contentX = ci[0], contentY = ci[1], contentW = ci[2], contentH = ci[3];
         var mc = Minecraft.getInstance();
         for (var elem : elements) {
             float s = guiScale * elem.scale;
@@ -217,10 +239,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     elem.type == NodeType.DATA ? String.format("%.1f", elem.value) : elem.text);
             float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? 16 * 2 : 10;
             // Clamp using same rotated-AABB calculation as the yellow selection outline
-            float ex = da.x + elem.x * da.w;
-            float ey = da.y + elem.y * da.h;
+            float ex = contentX + elem.x * contentW;
+            float ey = contentY + elem.y * contentH;
             float ew = elemW * s, eh = elemH * s;
             float[] bb = elemRotAABB(ex, ey, ew, eh, elem.rotation);
+            // Display area outer bounds for clamping (keep elements inside visible area)
             float dl = da.x, dr = da.x + da.w, dt = da.y, db = da.y + da.h;
             if (bb[2] > dr) ex -= (bb[2] - dr);
             if (bb[3] > db) ey -= (bb[3] - db);
@@ -305,8 +328,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     hitW = font2.width(displayStr);
                     hitH = 10;
                 }
-                float ex = da.x + elem.x * da.w;
-                float ey = da.y + elem.y * da.h;
+                float ex = contentX + elem.x * contentW;
+                float ey = contentY + elem.y * contentH;
                 float ew = hitW * s, eh = hitH * s;
                 float[] bb = elemRotAABB(ex, ey, ew, eh, elem.rotation);
                 float dl = da.x, dr = da.x + da.w, dt = da.y, db = da.y + da.h;
@@ -361,6 +384,12 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             ey += 20;
         }
 
+        // Live preview: parse current field values into overrides so the display area updates in real-time
+        try {
+            previewScreenW = Float.parseFloat(settingFields[0].getValue().trim());
+            previewScreenL = Float.parseFloat(settingFields[1].getValue().trim());
+        } catch (Exception e) { previewScreenW = -1; previewScreenL = -1; }
+
         // Save button
         int svX = px + 10, svY = ey + 8;
         g.fill(svX, svY, svX + 200, svY + 18, 0xFF3A5A2A);
@@ -380,10 +409,12 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             float r = Float.parseFloat(settingFields[5].getValue().trim());
             float p = Float.parseFloat(settingFields[6].getValue().trim());
             float yw = Float.parseFloat(settingFields[7].getValue().trim());
+            saveGraph(); // sync graph to server before settings trigger a block update
             var pkt = new com.example.create_schematic_compute.network.MonitorSettingsPacket(
                 blockEntity.getBlockPos(), w, l, x, y, z, r, p, yw);
             PacketDistributor.sendToServer(pkt);
         } catch (Exception e) { SchematicCompute.LOGGER.warn("Failed to parse monitor settings", e); }
+        previewScreenW = -1; previewScreenL = -1;
         showSettings = false; settingsInited = false;
     }
 
@@ -393,6 +424,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         int px = (width - pw) / 2, py = (height - ph) / 2;
         // Close button
         if (mx >= px + pw - 18 && mx <= px + pw - 2 && my >= py + 2 && my <= py + 18) {
+            previewScreenW = -1; previewScreenL = -1;
             showSettings = false; settingsInited = false; return true;
         }
         // Save button
@@ -433,9 +465,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 case IMAGE -> {
                     float ox = graph.getInputValue(n.id, 0, eval.getCurrentOutputs());
                     float oy = graph.getInputValue(n.id, 1, eval.getCurrentOutputs());
-                    float px = Math.max(0, Math.min(1, n.layoutX + ox * n.moveScale));
-                    float py = Math.max(0, Math.min(1, n.layoutY + oy * n.moveScale));
-                    list.add(new DisplayElement(n.id, n.type, "", 0, n.imagePixels, "", px, py, n.displayScale, n.displayRotation, 0));
+                    float[] cp = clampImageNorm(n, n.layoutX + ox * n.moveScale, n.layoutY + oy * n.moveScale);
+                    list.add(new DisplayElement(n.id, n.type, "", 0, n.imagePixels, "", cp[0], cp[1], n.displayScale, n.displayRotation, 0));
                 }
                 case IMAGE_SEQUENCE -> {
                     float ox = graph.getInputValue(n.id, 0, eval.getCurrentOutputs());
@@ -446,13 +477,30 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                         frameIdx = Math.max(0, Math.min(frameIdx, n.imageSequenceFrames.size() - 1));
                         pixels = n.imageSequenceFrames.get(frameIdx);
                     }
-                    float px = Math.max(0, Math.min(1, n.layoutX + ox * n.moveScale));
-                    float py = Math.max(0, Math.min(1, n.layoutY + oy * n.moveScale));
-                    list.add(new DisplayElement(n.id, n.type, "", 0, pixels, "", px, py, n.displayScale, n.displayRotation, 0));
+                    float[] cp = clampImageNorm(n, n.layoutX + ox * n.moveScale, n.layoutY + oy * n.moveScale);
+                    list.add(new DisplayElement(n.id, n.type, "", 0, pixels, "", cp[0], cp[1], n.displayScale, n.displayRotation, 0));
                 }
             }
         }
         return list;
+    }
+
+    /** Clamp IMAGE normalized position using rotated-AABB-aware bounds,
+     *  matching MonitorBlockEntityRenderer's clamping (lines 124-133). */
+    private float[] clampImageNorm(GraphNode n, float rawX, float rawY) {
+        float sw = getEffectiveScreenW();
+        float sl = getEffectiveScreenL();
+        float cww = Math.max(sw - 0.08f, 0.01f); // content world width
+        float cwl = Math.max(sl - 0.08f, 0.01f); // content world length
+        float hw = 8f * 0.03f * n.displayScale; // half image width in blocks
+        float hh = 8f * 0.03f * n.displayScale; // half image height in blocks
+        float rA = (float)Math.abs(Math.cos(Math.toRadians(n.displayRotation)));
+        float rB = (float)Math.abs(Math.sin(Math.toRadians(n.displayRotation)));
+        float bbHalfW = (hw * rA + hh * rB) / cww;
+        float bbHalfH = (hw * rB + hh * rA) / cwl;
+        float px = Math.max(0, Math.min(1 - bbHalfW, rawX));
+        float py = Math.max(0, Math.min(1 - bbHalfH, rawY));
+        return new float[]{px, py};
     }
 
     /** Compute rotated AABB: returns [minX, minY, maxX, maxY] (center-based rotation) */
@@ -711,9 +759,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             var graph = blockEntity != null ? blockEntity.graph : new NodeGraph();
             var localEval = getCachedEvaluator(graph);
             var elements = collectDisplayElements(graph, localEval);
-            float cw2 = (blockEntity != null && blockEntity.screenLength > 0.001f)
-                ? blockEntity.screenWidth - 0.08f : 1.5f - 0.08f;
-            float guiScale2 = da.w * 0.015f / Math.max(cw2, 0.01f);
+            float guiScale2 = da.w * 0.015f / Math.max(getContentWorldW(), 0.01f);
+            var ci = getContentArea(da);
+            int contentX = ci[0], contentY = ci[1], contentW = ci[2], contentH = ci[3];
 
             for (int i = elements.size() - 1; i >= 0; i--) {
                 var elem = elements.get(i);
@@ -731,8 +779,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     hitH = 10;
                 }
                 // Clamp so full element stays in display area, then do hit test
-                float ex = da.x + elem.x * da.w;
-                float ey = da.y + elem.y * da.h;
+                float ex = contentX + elem.x * contentW;
+                float ey = contentY + elem.y * contentH;
                 float ew = hitW * s, eh = hitH * s;
                 float[] bb = elemRotAABB(ex, ey, ew, eh, elem.rotation);
                 float dl = da.x, dr = da.x + da.w, dt = da.y, db = da.y + da.h;
@@ -784,9 +832,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         if (displayMode) {
             if (draggedDisplayNode != null) {
                 var da = computeDisplayArea();
-                float cwD = (blockEntity != null && blockEntity.screenLength > 0.001f)
-                    ? blockEntity.screenWidth - 0.08f : 1.5f - 0.08f;
-                float gsD = da.w * 0.015f / Math.max(cwD, 0.01f);
+                float gsD = da.w * 0.015f / Math.max(getContentWorldW(), 0.01f);
                 float sD = gsD * draggedDisplayNode.displayScale;
                 float eW, eH;
                 if (draggedDisplayNode.type == NodeType.IMAGE || draggedDisplayNode.type == NodeType.IMAGE_SEQUENCE) {
@@ -797,18 +843,20 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                         : (draggedDisplayNode.displayText.isEmpty() ? " " : draggedDisplayNode.displayText);
                     eW = Minecraft.getInstance().font.width(ts); eH = 10;
                 }
-                float rawX = (float)(mx - da.x - dragOffX) / da.w;
-                float rawY = (float)(my - da.y - dragOffY) / da.h;
-                float exD = da.x + rawX * da.w;
-                float eyD = da.y + rawY * da.h;
+                var ciD = getContentArea(da);
+                int cXD = ciD[0], cYD = ciD[1], cWD = ciD[2], cHD = ciD[3];
+                float rawX = (float)(mx - cXD - dragOffX) / cWD;
+                float rawY = (float)(my - cYD - dragOffY) / cHD;
+                float exD = cXD + Math.max(0, Math.min(1, rawX)) * cWD;
+                float eyD = cYD + Math.max(0, Math.min(1, rawY)) * cHD;
                 float[] bbD = elemRotAABB(exD, eyD, eW * sD, eH * sD, draggedDisplayNode.displayRotation);
                 float drD = da.x + da.w, dbD = da.y + da.h;
                 if (bbD[2] > drD) exD -= (bbD[2] - drD);
                 if (bbD[3] > dbD) eyD -= (bbD[3] - dbD);
                 if (bbD[0] < da.x) exD += (da.x - bbD[0]);
                 if (bbD[1] < da.y) eyD += (da.y - bbD[1]);
-                draggedDisplayNode.layoutX = (exD - da.x) / da.w;
-                draggedDisplayNode.layoutY = (eyD - da.y) / da.h;
+                draggedDisplayNode.layoutX = Math.max(0, Math.min(1, (exD - cXD) / cWD));
+                draggedDisplayNode.layoutY = Math.max(0, Math.min(1, (eyD - cYD) / cHD));
             }
             return;
         }
@@ -973,7 +1021,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 if ((key == 257 || key == 335) && blockEntity != null) { saveAllSettings(); return true; } // Enter saves
                 return f.keyPressed(key, sc, mod);
             }
-            if (key == 256) { showSettings = false; return true; }
+            if (key == 256) { previewScreenW = -1; previewScreenL = -1; showSettings = false; settingsInited = false; return true; }
         }
         if (pixelEdit != null && pixelEdit.open) {
             if (pixelEdit.editingHex) {

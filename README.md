@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github)](https://github.com/y15173334444/create-schematic-compute)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.1.1-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
+[![Version](https://img.shields.io/badge/Version-1.1.2-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
 
@@ -705,6 +705,9 @@ MIT License © 2026 StarryNight_Luo
 ---
 
 ## 📝 Changelog
+
+### v1.1.2
+- **Fix: Node connection culling** — connections on the left/top side of the GUI are no longer incorrectly culled
 
 ### v1.1.1
 - **Add: Encapsulation node** — nest sub-graphs inside a single node, double-click to expand, 48→49 types

@@ -190,8 +190,8 @@ public class NodeRenderer {
     public void renderConnections(GuiGraphics g, NodeGraph graph, float camX, float camY, float zoom) {
         int sw = screen.width, sh = screen.height;
         // viewport in world coords (with generous margin for bezier curves that extend beyond endpoints)
-        float vpLeft = -camX - 100 / zoom, vpRight = sw / zoom - camX + 100 / zoom;
-        float vpTop = -camY - 100 / zoom, vpBottom = sh / zoom - camY + 100 / zoom;
+        float vpLeft = -sw / (2f * zoom) - camX - 100 / zoom, vpRight = sw / (2f * zoom) - camX + 100 / zoom;
+        float vpTop = -sh / (2f * zoom) - camY - 100 / zoom, vpBottom = sh / (2f * zoom) - camY + 100 / zoom;
         for(NodeConnection c : graph.connections) {
             GraphNode fn = graph.findNode(c.fromId);
             GraphNode tn = graph.findNode(c.toId);
