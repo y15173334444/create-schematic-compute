@@ -10,24 +10,21 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
- * Intercept sable's hasCustomEntityOrientation() to disable sublevel view-vector
- * rotation when riding a ControlSeatEntity in View Angle mode.
- * <p>
- * Sable has two rotation mechanisms:
- * 1. entities_turn_with_sub_levels — subtracts sublevel yaw from player fields (skipped when has vehicle)
- * 2. camera_rotation.EntityMixin — rotates view vector by sublevel quaternion (ALWAYS active)
- * <p>
- * This Mixin makes mechanism 2 skip our seat by reporting "has custom orientation".
+ * Intercept sable's view-vector rotation at the source.
+ * Sable's camera_rotation.EntityMixin transforms the player's view vector by the
+ * sublevel quaternion via EntitySubLevelRotationHelper.getEntityOrientation().
+ * Return null to skip the rotation when riding a ControlSeatEntity in View Angle mode.
  */
-@Mixin(targets = "dev.ryanhcode.sable.api.entity.EntitySubLevelUtil", remap = false)
+@Mixin(targets = "dev.ryanhcode.sable.mixinhelpers.camera.camera_rotation.EntitySubLevelRotationHelper", remap = false)
 public class EntitySubLevelUtilMixin {
 
-    @Inject(method = "hasCustomEntityOrientation", at = @At("RETURN"), cancellable = true, remap = false)
-    private static void onHasCustomEntityOrientation(Entity entity, CallbackInfoReturnable<Boolean> cir) {
-        if (cir.getReturnValue()) return;
+    @Inject(method = "getEntityOrientation", at = @At("HEAD"), cancellable = true, remap = false)
+    private static void onGetEntityOrientation(Entity entity,
+            java.util.function.Function<?, ?> poseProvider, float partialTicks, Object type,
+            CallbackInfoReturnable<?> cir) {
         if (!(entity instanceof Player player)) return;
         if (!(player.getVehicle() instanceof ControlSeatEntity)) return;
         if (ControlSeatInputHandler.getInputMode() != 1) return;
-        cir.setReturnValue(true);
+        cir.setReturnValue(null); // return null → skip sublevel view rotation
     }
 }
