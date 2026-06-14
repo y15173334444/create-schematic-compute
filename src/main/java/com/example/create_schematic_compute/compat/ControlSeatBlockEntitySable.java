@@ -81,6 +81,8 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
             entity.setYRot(sableAdjustedYaw);
             entity.yRotO = sableAdjustedYaw;
             entity.setYHeadRot(sableAdjustedYaw);
+            // Sync sable relative pitch to client for viewPitch = playerPitch - seatPitch
+            entity.setSableRelativePitch(cachedSubPitch);
         }
     }
 

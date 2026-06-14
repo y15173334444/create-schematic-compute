@@ -14,16 +14,18 @@ import net.minecraft.world.phys.Vec3;
 public class ControlSeatEntity extends Entity {
     private static final EntityDataAccessor<Float> DATA_SABLE_RELATIVE_YAW =
         SynchedEntityData.defineId(ControlSeatEntity.class, EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Float> DATA_SABLE_RELATIVE_PITCH =
+        SynchedEntityData.defineId(ControlSeatEntity.class, EntityDataSerializers.FLOAT);
 
     public ControlSeatEntity(EntityType<?> type, Level level) {
         super(type, level);
         this.noPhysics = true;
     }
 
-    /** Read sable relative yaw synced from server (degrees). Used by client for View Angle compensation. */
     public float getSableRelativeYaw() { return entityData.get(DATA_SABLE_RELATIVE_YAW); }
-    /** Set sable relative yaw on server. Synced to client automatically. */
     public void setSableRelativeYaw(float v) { entityData.set(DATA_SABLE_RELATIVE_YAW, v); }
+    public float getSableRelativePitch() { return entityData.get(DATA_SABLE_RELATIVE_PITCH); }
+    public void setSableRelativePitch(float v) { entityData.set(DATA_SABLE_RELATIVE_PITCH, v); }
 
     @Override
     protected Vec3 getPassengerAttachmentPoint(Entity passenger, net.minecraft.world.entity.EntityDimensions dimensions, float partialTick) {
@@ -33,6 +35,7 @@ public class ControlSeatEntity extends Entity {
     @Override
     protected void defineSynchedData(SynchedEntityData.Builder builder) {
         builder.define(DATA_SABLE_RELATIVE_YAW, 0f);
+        builder.define(DATA_SABLE_RELATIVE_PITCH, 0f);
     }
 
     @Override

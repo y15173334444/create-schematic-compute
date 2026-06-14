@@ -194,7 +194,8 @@ public class ControlSeatInputHandler {
             vy = diff - viewAngleOffset;
             while (vy > 180) vy -= 360;
             while (vy < -180) vy += 360;
-            vp = mc.player.getXRot();
+            float seatPitch = (vehicle instanceof ControlSeatEntity cs) ? cs.getSableRelativePitch() : 0;
+            vp = mc.player.getXRot() - seatPitch;
         }
 
         long extKeyBits = keyBits | ((long)(mouseBtns & 3) << 58);
