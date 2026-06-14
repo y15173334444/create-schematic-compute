@@ -57,7 +57,7 @@ public class ControlSeatInputHandler {
     private static volatile float joystickX = 0, joystickY = 0;
     private static volatile boolean wantDismount = false;
     private static volatile boolean wasGuiOpen = false;
-    private static float lastSableYaw = Float.NaN; // previous frame's sable relativeYaw for delta compensation
+    private static float lastSableYaw = Float.NaN;
 
     // ═══════════════════════════════════════
     //  Pre — 摇杆值来自 Mixin 导出的原始 delta
@@ -215,23 +215,8 @@ public class ControlSeatInputHandler {
                 mc.player.yHeadRot = vy;       mc.player.yHeadRotO = vy;
                 mc.player.yBodyRot = vy;       mc.player.yBodyRotO = vy;
             }
-            lastSableYaw = Float.NaN;
-        } else {
-            // View Angle mode: compensate sable rotation using delta
-            var vehicle = mc.player.getVehicle();
-            float sy = (vehicle instanceof ControlSeatEntity cs) ? cs.getSableRelativeYaw() : 0;
-            if (!Float.isNaN(lastSableYaw)) {
-                float sDelta = sy - lastSableYaw; // how much sable rotated since last frame
-                if (Math.abs(sDelta) > 0.001f) {
-                    // Counteract: rotate player opposite to sable
-                    mc.player.setYRot(mc.player.getYRot() + sDelta);
-                    mc.player.yRotO += sDelta;
-                    mc.player.yHeadRot += sDelta;
-                    mc.player.yHeadRotO += sDelta;
-                }
-            }
-            lastSableYaw = sy;
         }
+        // View Angle mode: rotation handled by EntitySubLevelUtilMixin intercepting sable
         if (mc.player.isShiftKeyDown()) mc.player.setShiftKeyDown(false);
     }
 }
