@@ -37,6 +37,8 @@ public class ControlSeatEntity extends Entity {
 
     @Override
     public void tick() {
+        // Lock yaw before vanilla tick may modify it
+        float ly = getYRot(), lh = getYHeadRot();
         super.tick();
         if (!level().isClientSide()) {
             if (!isVehicle()) {
@@ -46,6 +48,15 @@ public class ControlSeatEntity extends Entity {
             BlockPos pos = blockPosition();
             setPos(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
         }
+        // Restore yaw on both sides — entity must not rotate via its own fields
+        if (getYRot() != ly) setYRot(ly);
+        yRotO = ly;
+        if (getYHeadRot() != lh) setYHeadRot(lh);
+    }
+
+    @Override
+    public float getViewYRot(float partialTick) {
+        return getYRot(); // never interpolate — always return fixed yaw
     }
 
     /** Prevent vanilla from syncing passenger yaw to vehicle yaw.
