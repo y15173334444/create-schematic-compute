@@ -5,6 +5,7 @@ import com.example.create_schematic_compute.entity.ControlSeatEntity;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.BlockGetter;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -31,8 +32,7 @@ public class CameraMixin {
     }
 
     @Inject(method = "setup", at = @At("RETURN"), remap = false)
-    private void afterSetup(net.minecraft.client.renderer.LevelRenderer levelRenderer,
-                            Entity entity, boolean detached,
+    private void afterSetup(BlockGetter level, Entity entity, boolean detached,
                             boolean thirdPersonReverse, float partialTick,
                             CallbackInfo ci) {
         var player = Minecraft.getInstance().player;
