@@ -56,6 +56,7 @@ public class ControlSeatInputHandler {
     private static volatile float joystickX = 0, joystickY = 0;
     private static volatile boolean wantDismount = false;
     private static volatile boolean wasGuiOpen = false;
+    private static float lastVehicleYaw = Float.NaN; // for View Angle mode vehicle rotation compensation
 
     // ═══════════════════════════════════════
     //  Pre — 摇杆值来自 Mixin 导出的原始 delta
@@ -211,6 +212,23 @@ public class ControlSeatInputHandler {
                 mc.player.setYRot(vy);        mc.player.yRotO = vy;
                 mc.player.yHeadRot = vy;       mc.player.yHeadRotO = vy;
                 mc.player.yBodyRot = vy;       mc.player.yBodyRotO = vy;
+            }
+            lastVehicleYaw = Float.NaN;
+        } else {
+            // View Angle mode: compensate for vehicle rotation so player view stays world-fixed
+            var vehicle = mc.player.getVehicle();
+            if (vehicle != null) {
+                float cv = vehicle.getYRot();
+                if (!Float.isNaN(lastVehicleYaw)) {
+                    float vDelta = cv - lastVehicleYaw;
+                    if (Math.abs(vDelta) > 0.001f) {
+                        mc.player.setYRot(mc.player.getYRot() - vDelta);
+                        mc.player.yRotO -= vDelta;
+                        mc.player.yBodyRot -= vDelta;
+                        mc.player.yBodyRotO -= vDelta;
+                    }
+                }
+                lastVehicleYaw = cv;
             }
         }
         if (mc.player.isShiftKeyDown()) mc.player.setShiftKeyDown(false);
