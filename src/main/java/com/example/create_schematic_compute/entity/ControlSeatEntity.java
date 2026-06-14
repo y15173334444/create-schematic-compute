@@ -52,7 +52,6 @@ public class ControlSeatEntity extends Entity {
 
     @Override
     public void tick() {
-        float ly = getYRot(), lh = getYHeadRot();
         super.tick();
         if (!level().isClientSide()) {
             if (!isVehicle()) {
@@ -62,14 +61,6 @@ public class ControlSeatEntity extends Entity {
             BlockPos pos = blockPosition();
             setPos(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
         }
-        if (getYRot() != ly) setYRot(ly);
-        yRotO = ly;
-        if (getYHeadRot() != lh) setYHeadRot(lh);
-    }
-
-    @Override
-    public float getViewYRot(float partialTick) {
-        return getYRot();
     }
 
     @Override
