@@ -73,13 +73,11 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
         // Update entity yaw based on sable rotation
         float relativeYaw = cachedSubYaw - initialSubYaw;
         if (entity != null) {
+            // Sync relativeYaw to client via SynchedEntityData (needed for View Angle compensation)
+            entity.setSableRelativeYaw(relativeYaw);
             if (inputMode == 0) {
                 entity.yRotO = cachedBlockFacingYaw - relativeYaw;
                 entity.setYHeadRot(cachedBlockFacingYaw - relativeYaw);
-            } else {
-                // View Angle mode: encode relativeYaw in yHeadRot for client compensation
-                // Client reads vehicle.getYHeadRot() to get sable rotation amount
-                entity.setYHeadRot(relativeYaw);
             }
         }
     }

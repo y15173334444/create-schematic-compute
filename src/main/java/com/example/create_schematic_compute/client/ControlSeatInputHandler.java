@@ -228,7 +228,7 @@ public class ControlSeatInputHandler {
                 viewAngleAccumYaw = 0;
             }
             var vehicle = mc.player.getVehicle();
-            float sableYaw = (vehicle != null) ? vehicle.getYHeadRot() : 0;
+            float sableYaw = (vehicle instanceof ControlSeatEntity cs) ? cs.getSableRelativeYaw() : 0;
             float desired = viewAngleRefYaw + (float)viewAngleAccumYaw - sableYaw;
             mc.player.setYRot(desired);       mc.player.yRotO = desired;
             mc.player.yHeadRot = desired;      mc.player.yHeadRotO = desired;

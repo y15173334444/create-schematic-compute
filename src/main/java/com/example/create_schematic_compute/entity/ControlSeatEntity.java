@@ -2,6 +2,8 @@ package com.example.create_schematic_compute.entity;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
@@ -10,18 +12,28 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 
 public class ControlSeatEntity extends Entity {
+    private static final EntityDataAccessor<Float> DATA_SABLE_RELATIVE_YAW =
+        SynchedEntityData.defineId(ControlSeatEntity.class, EntityDataSerializers.FLOAT);
+
     public ControlSeatEntity(EntityType<?> type, Level level) {
         super(type, level);
         this.noPhysics = true;
     }
 
+    /** Read sable relative yaw synced from server (degrees). Used by client for View Angle compensation. */
+    public float getSableRelativeYaw() { return entityData.get(DATA_SABLE_RELATIVE_YAW); }
+    /** Set sable relative yaw on server. Synced to client automatically. */
+    public void setSableRelativeYaw(float v) { entityData.set(DATA_SABLE_RELATIVE_YAW, v); }
+
     @Override
     protected Vec3 getPassengerAttachmentPoint(Entity passenger, net.minecraft.world.entity.EntityDimensions dimensions, float partialTick) {
-        return new Vec3(0.0, 0.3125, 0.0); // 5/16 坐上座椅面
+        return new Vec3(0.0, 0.3125, 0.0);
     }
 
     @Override
-    protected void defineSynchedData(SynchedEntityData.Builder builder) {}
+    protected void defineSynchedData(SynchedEntityData.Builder builder) {
+        builder.define(DATA_SABLE_RELATIVE_YAW, 0f);
+    }
 
     @Override
     protected void readAdditionalSaveData(CompoundTag tag) {}
@@ -37,7 +49,6 @@ public class ControlSeatEntity extends Entity {
 
     @Override
     public void tick() {
-        // Lock yaw before vanilla tick may modify it
         float ly = getYRot(), lh = getYHeadRot();
         super.tick();
         if (!level().isClientSide()) {
@@ -48,7 +59,6 @@ public class ControlSeatEntity extends Entity {
             BlockPos pos = blockPosition();
             setPos(pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5);
         }
-        // Restore yaw on both sides — entity must not rotate via its own fields
         if (getYRot() != ly) setYRot(ly);
         yRotO = ly;
         if (getYHeadRot() != lh) setYHeadRot(lh);
@@ -56,11 +66,9 @@ public class ControlSeatEntity extends Entity {
 
     @Override
     public float getViewYRot(float partialTick) {
-        return getYRot(); // never interpolate — always return fixed yaw
+        return getYRot();
     }
 
-    /** Prevent vanilla from syncing passenger yaw to vehicle yaw.
-     *  The ControlSeatInputHandler manages player rotation per input mode. */
     @Override
     protected void positionRider(Entity passenger, MoveFunction callback) {
         float sy = passenger.getYRot();
