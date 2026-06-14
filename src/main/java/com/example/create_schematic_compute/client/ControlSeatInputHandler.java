@@ -45,6 +45,7 @@ public class ControlSeatInputHandler {
 
     private static volatile boolean suppressMouseTurn = false;
     public static boolean isSuppressingMouseTurn() { return suppressMouseTurn; }
+    public static int getInputMode() { return inputMode; }
 
     // 由 Mixin 写入上一帧 turn() 的原始鼠标增量（替代 glfwGetCursorPos）
     private static volatile double rawMouseDYaw, rawMouseDPitch;
