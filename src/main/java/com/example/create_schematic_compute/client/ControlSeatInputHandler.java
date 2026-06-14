@@ -215,7 +215,8 @@ public class ControlSeatInputHandler {
             }
             lastVehicleYaw = Float.NaN;
         } else {
-            // View Angle mode: compensate for vehicle rotation so player view stays world-fixed
+            // View Angle mode: compensate vehicle rotation so player view stays world-fixed
+            // Must counteract ALL rotation fields — camera uses yHeadRot for view direction
             var vehicle = mc.player.getVehicle();
             if (vehicle != null) {
                 float cv = vehicle.getYRot();
@@ -224,6 +225,8 @@ public class ControlSeatInputHandler {
                     if (Math.abs(vDelta) > 0.001f) {
                         mc.player.setYRot(mc.player.getYRot() - vDelta);
                         mc.player.yRotO -= vDelta;
+                        mc.player.yHeadRot -= vDelta;
+                        mc.player.yHeadRotO -= vDelta;
                         mc.player.yBodyRot -= vDelta;
                         mc.player.yBodyRotO -= vDelta;
                     }
