@@ -62,11 +62,6 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
         if (!hasRider) {
             riderUUID = null;
             keyBits = 0; mouseJoystickX = 0; mouseJoystickY = 0;
-            // Pop entity back into local space when rider dismounts
-            if (entity != null && entityPopped) {
-                SubLevelHelper.pushEntityLocal(subLevel, entity);
-                entityPopped = false;
-            }
             updateAttitude();
             return;
         }
