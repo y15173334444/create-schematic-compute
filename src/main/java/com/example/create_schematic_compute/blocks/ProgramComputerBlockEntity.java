@@ -36,6 +36,7 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
     private final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
 
     // 时序节点状态
+    private final Map<Integer, Float> pidState = new HashMap<>();
     private final Map<Integer, ArrayDeque<Float>> delayQueues = new HashMap<>();
     private final Map<Integer, Boolean> flipflopStates = new HashMap<>();
     private final Map<Integer, Integer> pulseTimers = new HashMap<>();
@@ -69,7 +70,7 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
 
         rs.refreshInputsActive();
         var in = rs.buildInputs(graph);
-        var results = evaluator.evaluate(in, Collections.emptyMap(), 0.05f, delayQueues, flipflopStates, pulseTimers);
+        var results = evaluator.evaluate(in, pidState, 0.05f, delayQueues, flipflopStates, pulseTimers);
 
         // DELAY 入队
         for(var n : graph.nodes) {
