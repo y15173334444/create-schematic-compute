@@ -79,10 +79,16 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
         updateAttitude();
 
         // View Angle mode: pop entity OUT of sable's local coordinate space
-        // so the player's view is NOT affected by sublevel rotation (tank turret behavior)
+        // popEntityLocal changes world position → save/restore to prevent dismount
         if (entity != null) {
             if (inputMode == 1 && !entityPopped) {
+                var oldPos = entity.position();
+                var riders = new java.util.ArrayList<>(entity.getPassengers());
                 SubLevelHelper.popEntityLocal(subLevel, entity);
+                var newPos = entity.position();
+                double dx = oldPos.x - newPos.x, dy = oldPos.y - newPos.y, dz = oldPos.z - newPos.z;
+                entity.setPos(oldPos.x, oldPos.y, oldPos.z);
+                for (var r : riders) r.setPos(r.getX() + dx, r.getY() + dy, r.getZ() + dz);
                 entityPopped = true;
             } else if (inputMode == 0 && entityPopped) {
                 SubLevelHelper.pushEntityLocal(subLevel, entity);
