@@ -56,7 +56,8 @@ public class ControlSeatInputHandler {
     private static volatile float joystickX = 0, joystickY = 0;
     private static volatile boolean wantDismount = false;
     private static volatile boolean wasGuiOpen = false;
-    private static float lastVehicleYaw = Float.NaN; // for View Angle mode vehicle rotation compensation
+    private static float lastVehicleYaw = Float.NaN;
+    private static net.minecraft.world.phys.Vec3 viewAngleRefPos = null; // stabilize camera position
 
     // ═══════════════════════════════════════
     //  Pre — 摇杆值来自 Mixin 导出的原始 delta
@@ -213,12 +214,13 @@ public class ControlSeatInputHandler {
                 mc.player.yHeadRot = vy;       mc.player.yHeadRotO = vy;
                 mc.player.yBodyRot = vy;       mc.player.yBodyRotO = vy;
             }
-            lastVehicleYaw = Float.NaN;
+            lastVehicleYaw = Float.NaN; viewAngleRefPos = null;
         } else {
-            // View Angle mode: compensate vehicle rotation so player view stays world-fixed
-            // Must counteract ALL rotation fields — camera uses yHeadRot for view direction
+            // View Angle mode: compensate both vehicle rotation AND position
+            // Sable sublevel transforms entity world position — camera follows → must cancel
             var vehicle = mc.player.getVehicle();
             if (vehicle != null) {
+                // ── Rotation compensation ──
                 float cv = vehicle.getYRot();
                 if (!Float.isNaN(lastVehicleYaw)) {
                     float vDelta = cv - lastVehicleYaw;
@@ -232,6 +234,15 @@ public class ControlSeatInputHandler {
                     }
                 }
                 lastVehicleYaw = cv;
+                // ── Position compensation: cancel sable sublevel transform ──
+                var cp = vehicle.position();
+                if (viewAngleRefPos == null) viewAngleRefPos = cp;
+                double dx = viewAngleRefPos.x - cp.x;
+                double dy = viewAngleRefPos.y - cp.y;
+                double dz = viewAngleRefPos.z - cp.z;
+                if (Math.abs(dx) > 0.0001 || Math.abs(dy) > 0.0001 || Math.abs(dz) > 0.0001) {
+                    mc.player.setPos(mc.player.getX() + dx, mc.player.getY() + dy, mc.player.getZ() + dz);
+                }
             }
         }
         if (mc.player.isShiftKeyDown()) mc.player.setShiftKeyDown(false);
