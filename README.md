@@ -707,7 +707,14 @@ MIT License © 2026 StarryNight_Luo
 ## 📝 Changelog
 
 ### v1.1.2
+- **Add: GATE node** — signal gate with 4 inputs (value/open/close/toggle) and NBT-persistent state; available on Blueprint and Program computers
 - **Fix: Node connection culling** — connections on the left/top side of the GUI are no longer incorrectly culled
+- **Fix: Monitor GUI rotation** — display element rotation direction now matches between GUI editor and 3D screen
+- **Fix: Monitor GUI margins** — component positions in GUI now include the 0.04-block bezel margin matching the 3D screen
+- **Fix: Monitor IMAGE clamping** — rotated IMAGE elements use AABB-aware edge clamping matching the 3D renderer
+- **Fix: Monitor settings data loss** — changing screen settings no longer resets display element positions/rotations
+- **Fix: Monitor live preview** — display area updates in real-time while editing screen settings
+- **Fix: ACCUMULATOR crash** — placing accumulator node on Program Computer no longer crashes the game
 
 ### v1.1.1
 - **Add: Encapsulation node** — nest sub-graphs inside a single node, double-click to expand, 48→49 types
