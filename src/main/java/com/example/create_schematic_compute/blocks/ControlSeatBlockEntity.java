@@ -113,16 +113,14 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     public boolean running = false;
     public final Map<Integer, Float> pidState = new HashMap<>();
 
-    // 控制座椅输入状态（由客户端包更新）
-    public long keyBits = 0;          // bit 0-25: A-Z, 26-35: 0-9, 58=LMB, 59=RMB
-    public float mouseJoystickX = 0;  // -1 ~ 1
-    public float mouseJoystickY = 0;  // -1 ~ 1
-    public float viewYaw = 0;         // 视角差YAW（度）
-    public float viewPitch = 0;       // 视角差PITCH（度）
-    public int inputMode = 0;         // 0=摇杆, 1=视角差
-    public int mouseButtons = 0;      // bit 0=LMB, 1=RMB
-    public float gpadLX = 0, gpadLY = 0, gpadRX = 0, gpadRY = 0;
-    public long gpadButtons = 0;
+    // 控制座椅输入状态（由客户端包更新） — volatile 确保 sable 物理线程可见
+    public volatile long keyBits = 0;
+    public volatile float mouseJoystickX = 0, mouseJoystickY = 0;
+    public volatile float viewYaw = 0, viewPitch = 0;
+    public volatile int inputMode = 0;         // 0=摇杆, 1=视角差
+    public volatile int mouseButtons = 0;
+    public volatile float gpadLX = 0, gpadLY = 0, gpadRX = 0, gpadRY = 0;
+    public volatile long gpadButtons = 0;
 
     /** 世界视角缓存：仅视角差模式更新，摇杆模式/下马后冻结 */
     private float savedWorldYaw = 0, savedWorldPitch = 0;
