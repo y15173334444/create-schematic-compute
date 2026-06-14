@@ -2,7 +2,6 @@ package com.example.create_schematic_compute.compat;
 
 import com.example.create_schematic_compute.blocks.ControlSeatBlock;
 import com.example.create_schematic_compute.blocks.ControlSeatBlockEntity;
-import dev.ryanhcode.sable.api.SubLevelHelper;
 import dev.ryanhcode.sable.api.block.BlockEntitySubLevelActor;
 import dev.ryanhcode.sable.api.physics.handle.RigidBodyHandle;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
@@ -19,8 +18,6 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
     private volatile float cachedBlockFacingYaw = 0;
     private volatile float initialSubYaw = Float.NaN;
     private volatile boolean hasSubPose = false;
-    /** Track whether entity has been popped out of sable's local coordinate space */
-    private boolean entityPopped = false;
 
     public ControlSeatBlockEntitySable(BlockPos pos, BlockState state) {
         super(pos, state);
@@ -78,29 +75,17 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
 
         updateAttitude();
 
-        // View Angle mode: pop entity OUT of sable's local coordinate space
-        // popEntityLocal changes world position → save/restore to prevent dismount
+        // Update entity yaw based on sable rotation
+        float relativeYaw = cachedSubYaw - initialSubYaw;
         if (entity != null) {
-            if (inputMode == 1 && !entityPopped) {
-                var oldPos = entity.position();
-                var riders = new java.util.ArrayList<>(entity.getPassengers());
-                SubLevelHelper.popEntityLocal(subLevel, entity);
-                var newPos = entity.position();
-                double dx = oldPos.x - newPos.x, dy = oldPos.y - newPos.y, dz = oldPos.z - newPos.z;
-                entity.setPos(oldPos.x, oldPos.y, oldPos.z);
-                for (var r : riders) r.setPos(r.getX() + dx, r.getY() + dy, r.getZ() + dz);
-                entityPopped = true;
-            } else if (inputMode == 0 && entityPopped) {
-                SubLevelHelper.pushEntityLocal(subLevel, entity);
-                entityPopped = false;
+            if (inputMode == 0) {
+                entity.yRotO = cachedBlockFacingYaw - relativeYaw;
+                entity.setYHeadRot(cachedBlockFacingYaw - relativeYaw);
+            } else {
+                // View Angle mode: encode relativeYaw in yHeadRot for client compensation
+                // Client reads vehicle.getYHeadRot() to get sable rotation amount
+                entity.setYHeadRot(relativeYaw);
             }
-        }
-
-        // Update entity yaw only in joystick mode (follows structure)
-        if (entity != null && inputMode == 0) {
-            float relativeYaw = cachedSubYaw - initialSubYaw;
-            entity.yRotO = cachedBlockFacingYaw - relativeYaw;
-            entity.setYHeadRot(cachedBlockFacingYaw - relativeYaw);
         }
     }
 

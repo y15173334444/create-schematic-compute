@@ -222,13 +222,14 @@ public class ControlSeatInputHandler {
             viewAngleRefYaw = Float.NaN; viewAngleAccumYaw = 0;
         } else {
             // View Angle mode: stabilize player yaw using absolute mouse tracking
-            // Player's world yaw = refYaw (captured on mode entry) + accumYaw (mouse only)
-            // This ignores any rotation applied by sable/vanilla to the entity
+            // minus sable relativeYaw (encoded by server in vehicle.getYHeadRot())
             if (Float.isNaN(viewAngleRefYaw)) {
                 viewAngleRefYaw = mc.player.getYHeadRot();
                 viewAngleAccumYaw = 0;
             }
-            float desired = viewAngleRefYaw + (float)viewAngleAccumYaw;
+            var vehicle = mc.player.getVehicle();
+            float sableYaw = (vehicle != null) ? vehicle.getYHeadRot() : 0;
+            float desired = viewAngleRefYaw + (float)viewAngleAccumYaw - sableYaw;
             mc.player.setYRot(desired);       mc.player.yRotO = desired;
             mc.player.yHeadRot = desired;      mc.player.yHeadRotO = desired;
             mc.player.yBodyRot = desired;      mc.player.yBodyRotO = desired;
