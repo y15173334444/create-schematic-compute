@@ -49,11 +49,7 @@ public class ControlSeatInputHandler {
 
     // 由 Mixin 写入上一帧 turn() 的原始鼠标增量（替代 glfwGetCursorPos）
     private static volatile double rawMouseDYaw, rawMouseDPitch;
-    private static volatile double viewAngleAccumYaw; // accumulated mouse yaw in View Angle mode
-    public static void onRawMouseDelta(double yaw, double pitch) {
-        rawMouseDYaw = yaw; rawMouseDPitch = pitch;
-        if (inputMode == 1) viewAngleAccumYaw += yaw; // track total mouse rotation
-    }
+    public static void onRawMouseDelta(double yaw, double pitch) { rawMouseDYaw = yaw; rawMouseDPitch = pitch; }
 
     private static volatile int inputMode = 0; // 默认摇杆模式
     private static volatile boolean wasTab = false;
@@ -61,7 +57,7 @@ public class ControlSeatInputHandler {
     private static volatile float joystickX = 0, joystickY = 0;
     private static volatile boolean wantDismount = false;
     private static volatile boolean wasGuiOpen = false;
-    private static float viewAngleRefYaw = Float.NaN; // player yaw when View Angle mode entered
+    private static float lastSableYaw = Float.NaN; // previous frame's sable relativeYaw for delta compensation
 
     // ═══════════════════════════════════════
     //  Pre — 摇杆值来自 Mixin 导出的原始 delta
@@ -219,20 +215,22 @@ public class ControlSeatInputHandler {
                 mc.player.yHeadRot = vy;       mc.player.yHeadRotO = vy;
                 mc.player.yBodyRot = vy;       mc.player.yBodyRotO = vy;
             }
-            viewAngleRefYaw = Float.NaN; viewAngleAccumYaw = 0;
+            lastSableYaw = Float.NaN;
         } else {
-            // View Angle mode: stabilize player yaw using absolute mouse tracking
-            // minus sable relativeYaw (encoded by server in vehicle.getYHeadRot())
-            if (Float.isNaN(viewAngleRefYaw)) {
-                viewAngleRefYaw = mc.player.getYHeadRot();
-                viewAngleAccumYaw = 0;
-            }
+            // View Angle mode: compensate sable rotation using delta
             var vehicle = mc.player.getVehicle();
-            float sableYaw = (vehicle instanceof ControlSeatEntity cs) ? cs.getSableRelativeYaw() : 0;
-            float desired = viewAngleRefYaw + (float)viewAngleAccumYaw - sableYaw;
-            mc.player.setYRot(desired);       mc.player.yRotO = desired;
-            mc.player.yHeadRot = desired;      mc.player.yHeadRotO = desired;
-            mc.player.yBodyRot = desired;      mc.player.yBodyRotO = desired;
+            float sy = (vehicle instanceof ControlSeatEntity cs) ? cs.getSableRelativeYaw() : 0;
+            if (!Float.isNaN(lastSableYaw)) {
+                float sDelta = sy - lastSableYaw; // how much sable rotated since last frame
+                if (Math.abs(sDelta) > 0.001f) {
+                    // Counteract: rotate player opposite to sable
+                    mc.player.setYRot(mc.player.getYRot() + sDelta);
+                    mc.player.yRotO += sDelta;
+                    mc.player.yHeadRot += sDelta;
+                    mc.player.yHeadRotO += sDelta;
+                }
+            }
+            lastSableYaw = sy;
         }
         if (mc.player.isShiftKeyDown()) mc.player.setShiftKeyDown(false);
     }
