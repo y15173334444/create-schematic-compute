@@ -124,7 +124,7 @@ public enum NodeType {
         case MOUSE_JOYSTICK -> i == 0 ? pk("x") : pk("y");
         case KEYBOARD -> pk("one_zero");
         case VIEW_ANGLE -> i == 0 ? pk("pitch") : pk("yaw");
-        case MOUSE_BUTTON -> i == 0 ? pk("l") : pk("r");
+        case MOUSE_BUTTON -> i == 0 ? pk("l_btn") : pk("r_btn");
         case GAMEPAD_JOYSTICK -> switch (i) { case 0 -> pk("lx"); case 1 -> pk("ly"); case 2 -> pk("rx"); default -> pk("ry"); };
         case GAMEPAD_BUTTON -> pk("one_zero");
         case GAMEPAD_TRIGGER -> i == 0 ? pk("lt") : pk("rt");
