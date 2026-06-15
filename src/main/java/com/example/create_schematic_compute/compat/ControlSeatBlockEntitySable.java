@@ -24,6 +24,7 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
     /** 子世界初始 yaw（用于计算相对旋转，消除初始偏移） */
     private volatile float initialSubYaw = Float.NaN;
     private volatile boolean hasSubPose = false;
+    // 原始本地速度由基类字段 rawVelX/Y/Z 存储，tick() 差分为加速度
 
     public ControlSeatBlockEntitySable(BlockPos pos, BlockState state) {
         super(pos, state);
@@ -56,6 +57,24 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
         if (getBlockState().hasProperty(ControlSeatBlock.FACING))
             cachedBlockFacingYaw = getBlockState().getValue(ControlSeatBlock.FACING).toYRot();
         hasSubPose = true;
+
+        // ── 原始本地速度（世界→本地旋转，纯浮点运算无 GC）──
+        double wx = subLevel.latestLinearVelocity.x();
+        double wy = subLevel.latestLinearVelocity.y();
+        double wz = subLevel.latestLinearVelocity.z();
+        double cy = Math.cos(Math.toRadians(cachedSubYaw)), sy = Math.sin(Math.toRadians(cachedSubYaw));
+        double cp = Math.cos(Math.toRadians(cachedSubPitch)), sp = Math.sin(Math.toRadians(cachedSubPitch));
+        double cr = Math.cos(Math.toRadians(cachedSubRoll)), sr = Math.sin(Math.toRadians(cachedSubRoll));
+        // R^T = Rz^T * Rx^T * Ry^T, apply to world vector
+        double v1x = cy * wx - sy * wz;
+        double v1y = wy;
+        double v1z = sy * wx + cy * wz;
+        double v2x = v1x;
+        double v2y = cp * v1y + sp * v1z;
+        double v2z = -sp * v1y + cp * v1z;
+        rawVelX = cr * v2x + sr * v2y;  // 前后
+        rawVelY = -sr * v2x + cr * v2y; // 上下
+        rawVelZ = v2z;                   // 左右
 
         // ── 检测骑手（setSeatEntity 在 useWithoutItem 中调用） ──
         boolean hasRider = false;

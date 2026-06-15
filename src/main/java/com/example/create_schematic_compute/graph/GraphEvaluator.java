@@ -20,10 +20,11 @@ public class GraphEvaluator {
     /** 控制座椅输入状态 */
     public record SeatInputState(long keyBits, float mouseX, float mouseY, float yaw, float pitch,
         float worldYaw, float worldPitch,
-        int mouseButtons, float gpadLX, float gpadLY, float gpadRX, float gpadRY, long gpadButtons,
-        float blockYaw, float attitudeYaw, float attitudePitch, float attitudeRoll, float forwardYaw, float forwardPitch) {
+        int mouseButtons, float gpadLX, float gpadLY, float gpadRX, float gpadRY, float gpadLT, float gpadRT, long gpadButtons,
+        float blockYaw, float attitudeYaw, float attitudePitch, float attitudeRoll, float forwardYaw, float forwardPitch,
+        float accelX, float accelY, float accelZ) {
         public SeatInputState(long keyBits, float mouseX, float mouseY, float yaw, float pitch) {
-            this(keyBits, mouseX, mouseY, yaw, pitch, yaw, pitch, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            this(keyBits, mouseX, mouseY, yaw, pitch, yaw, pitch, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
     }
 
@@ -146,7 +147,8 @@ public class GraphEvaluator {
             }
             case T_FLIPFLOP -> {
                 float in = graph.getInputValue(node.id, 0, outputs);
-                boolean cur = flipflopStates.getOrDefault(node.id, false);
+                boolean defaultOn = node.params.length > 0 && node.params[0] > 0.5f;
+                boolean cur = flipflopStates.getOrDefault(node.id, defaultOn);
                 // 检测上升沿
                 boolean prev = flipflopStates.getOrDefault(-(node.id+1), false);
                 if (in > 0.5f && !prev) cur = !cur;
@@ -237,9 +239,11 @@ public class GraphEvaluator {
                 int bi = node.params.length > 0 ? (int)node.params[0] : 0;
                 o[0] = bi >= 0 && bi < 64 && ((seat.gpadButtons() >> bi) & 1L) != 0 ? 1 : 0;
             }
+            case GAMEPAD_TRIGGER -> { o[0] = seat.gpadLT(); o[1] = seat.gpadRT(); }
             case WORLD_VIEW -> { o[0] = seat.worldYaw(); o[1] = seat.worldPitch(); }
             case ATTITUDE -> { o[0] = seat.attitudePitch(); o[1] = seat.attitudeRoll(); }
             case FORWARD -> { o[0] = seat.forwardYaw(); o[1] = seat.forwardPitch(); }
+            case ACCELERATION -> { o[0] = seat.accelX(); o[1] = seat.accelY(); o[2] = seat.accelZ(); }
             case SPLIT -> {
                 float v = graph.getInputValue(node.id, 0, outputs);
                 o[0] = Math.max(0, v); o[1] = Math.max(0, -v);
@@ -269,6 +273,12 @@ public class GraphEvaluator {
             case POW -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); float r = (float) Math.pow(Math.abs(a), b); o[0] = Float.isFinite(r) ? r : 0; }
             case ROOT -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = (b != 0 && a >= 0) ? (float) Math.pow(a, 1.0 / b) : 0; }
             case ABS -> o[0] = Math.abs(graph.getInputValue(node.id, 0, outputs));
+            case ROUND -> {
+                float val = graph.getInputValue(node.id, 0, outputs);
+                int decimals = node.params.length > 0 ? Math.max(0, (int)node.params[0]) : 2;
+                double pow10 = Math.pow(10, decimals);
+                o[0] = (float)(Math.round(val * pow10) / pow10);
+            }
             case INTERP -> {
                 float a = graph.getInputValue(node.id, 0, outputs);
                 float b = graph.getInputValue(node.id, 1, outputs);
@@ -278,6 +288,7 @@ public class GraphEvaluator {
             }
             case CEIL -> o[0] = (float) Math.ceil(graph.getInputValue(node.id, 0, outputs));
             case FLOOR -> o[0] = (float) Math.floor(graph.getInputValue(node.id, 0, outputs));
+            case OR -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = (a > 0.5f || b > 0.5f) ? 1 : 0; }
             case BOOL -> {
                 float vin = graph.getInputValue(node.id, 0, outputs);
                 o[0] = vin > 0 ? 1 : 0;
@@ -285,6 +296,8 @@ public class GraphEvaluator {
             }
             case GT -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a > b ? 1 : 0; }
             case LT -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a < b ? 1 : 0; }
+            case GE -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a >= b ? 1 : 0; }
+            case LE -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = a <= b ? 1 : 0; }
             case EQ -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = Math.abs(a - b) < 0.01f ? 1 : 0; }
             case PID -> {
                 float sp = graph.getInputValue(node.id, 0, outputs);
@@ -348,6 +361,29 @@ public class GraphEvaluator {
                 pidState.put(node.id, cur);
                 pidState.put(prevPKey, inPlus);
                 pidState.put(prevMKey, inMinus);
+                o[0] = cur;
+            }
+            case INTEGRATOR -> {
+                float inPlus = graph.getInputValue(node.id, 0, outputs);
+                float inMinus = graph.getInputValue(node.id, 1, outputs);
+                float inClear = graph.getInputValue(node.id, 2, outputs);
+                float step = node.params.length > 0 ? node.params[0] : 1f;
+                int interval = node.params.length > 1 ? Math.max(1, (int)node.params[1]) : 1;
+                float limit = node.params.length > 2 ? node.params[2] : 1000f;
+                int tickKey = node.id + 100000;
+                float cur = pidState.getOrDefault(node.id, 0f);
+                int tick = pidState.getOrDefault(tickKey, 0f).intValue();
+                tick++;
+                if (inClear > 0.5f) { cur = 0f; tick = 0; }
+                else if (tick >= interval) {
+                    tick = 0;
+                    if (inPlus > 0.5f && inMinus <= 0.5f) cur += step;
+                    else if (inMinus > 0.5f && inPlus <= 0.5f) cur -= step;
+                    // both active → hold (no change)
+                }
+                cur = Math.max(0, Math.min(cur, limit));
+                pidState.put(node.id, cur);
+                pidState.put(tickKey, (float)tick);
                 o[0] = cur;
             }
             case FORMULA -> {

@@ -8,6 +8,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.resources.language.I18n;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import java.util.HashSet;
@@ -71,6 +72,7 @@ public class GraphEditor {
     private boolean multiDragging = false;
     private GraphNode multiClickedNode = null;
     private float multiCenterX, multiCenterY;
+    private long prevGpadButtons = 0; // for gamepad button edge detection in binding mode
     private final java.util.Map<GraphNode, float[]> multiDragOrigins = new java.util.HashMap<>();
     // 鼠标坐标缓存（供 X 键删除用）
     private double lastMouseX, lastMouseY;
@@ -133,8 +135,9 @@ public class GraphEditor {
         s.paramKeys = node.type.paramNames.clone();
         var mc = Minecraft.getInstance();
         for (int i = 0; i < node.params.length; i++) {
-            if (node.type == NodeType.BOOL || node.type == NodeType.GATE || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON
-                || node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT) continue;
+            if (node.type == NodeType.BOOL || node.type == NodeType.GATE || node.type == NodeType.T_FLIPFLOP || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON
+                || node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT
+                || node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) continue;
             int idx = i;
             var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
@@ -170,11 +173,16 @@ public class GraphEditor {
             s.paramKeys = new String[]{"color"};
         }
         if (node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) {
-            var mb = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
-            mb.setMaxLength(8); mb.setValue(String.format("%.3f", node.moveScale));
-            mb.setResponder(t -> { try { node.moveScale = Float.parseFloat(t.trim()); } catch (Exception e) {} });
-            s.fields.add(mb);
-            s.paramKeys = new String[]{"move"};
+            String[] keys = {"moveX", "moveY", "rotScl"};
+            float[] defaults = {0.01f, 0.01f, 1f};
+            for (int pi = 0; pi < 3; pi++) {
+                int idx = pi;
+                var b = new EditBox(mc.font, 0, 0, 50, 16, Component.literal(""));
+                b.setMaxLength(8); b.setValue(String.format("%.3f", node.params.length > idx ? node.params[idx] : defaults[idx]));
+                b.setResponder(t -> { try { if (node.params.length > idx) node.params[idx] = Float.parseFloat(t.trim()); } catch (Exception e) {} });
+                s.fields.add(b);
+            }
+            s.paramKeys = keys;
         }
         if (node.type == NodeType.FORMULA) {
             var fb = new EditBox(mc.font, 0, 0, 140, 16, Component.literal(""));
@@ -257,8 +265,9 @@ public class GraphEditor {
             g.fill(bx - 1, by - 1, bx + bw + 1, by + bh + 1, 0xFF3A3A3A);
             g.fill(bx, by, bx + bw, by + bh, 0xFF2A2822);
             var mc = Minecraft.getInstance();
-            int tw = mc.font.width("← Back");
-            g.drawString(mc.font, "← Back", bx + (bw - tw) / 2, by + 4, 0xFFCCCCCC);
+            String backLabel = "← " + I18n.get("gui.create_schematic_compute.back");
+            int tw = mc.font.width(backLabel);
+            g.drawString(mc.font, backLabel, bx + (bw - tw) / 2, by + 4, 0xFFCCCCCC);
         }
 
         renderer.renderConnections(g, graph, camX, camY, zoom);
@@ -312,6 +321,38 @@ public class GraphEditor {
             g.fill((int)x1, (int)y1, (int)x2, (int)y2, 0x22D4A017);
             g.renderOutline((int)x1, (int)y1, (int)(x2-x1), (int)(y2-y1), 0xFFD4A017);
         }
+        // GAMEPAD_BUTTON binding capture: poll gamepad each frame since gamepad buttons don't fire key events
+        if (!nodeEditStatesById.isEmpty()) {
+            var gamepadNodes = new java.util.ArrayList<com.example.create_schematic_compute.graph.GraphNode>();
+            for (var en : getGraph().nodes) {
+                var es = nodeEditStatesById.get(en.id);
+                if (es != null && es.listeningForKey && en.type == NodeType.GAMEPAD_BUTTON)
+                    gamepadNodes.add(en);
+            }
+            if (!gamepadNodes.isEmpty()) {
+                long curBtns = 0;
+                var gState = org.lwjgl.glfw.GLFWGamepadState.malloc();
+                try {
+                    if (org.lwjgl.glfw.GLFW.glfwGetGamepadState(org.lwjgl.glfw.GLFW.GLFW_JOYSTICK_1, gState)) {
+                        var btns = gState.buttons();
+                        for (int bi = 0; bi < 15 && bi < btns.capacity(); bi++)
+                            if (btns.get(bi) == 1) curBtns |= (1L << bi);
+                    }
+                } finally { gState.free(); }
+                long rising = curBtns & ~prevGpadButtons; // edge detect: 0→1
+                if (rising != 0) {
+                    int bi = Long.numberOfTrailingZeros(rising);
+                    for (var en : gamepadNodes) { en.params[0] = bi; }
+                    for (var en : gamepadNodes) {
+                        var es = nodeEditStatesById.get(en.id);
+                        if (es != null) es.listeningForKey = false;
+                    }
+                }
+                prevGpadButtons = curBtns;
+            } else {
+                prevGpadButtons = 0; // reset when not listening
+            }
+        }
     }
 
     public boolean mouseClicked(double mx, double my, int btn) {
@@ -332,7 +373,7 @@ public class GraphEditor {
                 if(mx>=26&&mx<=78&&my>=btnY&&my<=btnY+18){recompile(graph);return true;}
                 if(mx>=82&&mx<=130&&my>=btnY&&my<=btnY+18){
                     boolean ws=!host.isRunning();
-                    if(ws && graph.hasCycles()){cycleWarning="! Cycle detected!";return true;}
+                    if(ws && graph.hasCycles()){cycleWarning=I18n.get("gui.create_schematic_compute.cycle_detected");return true;}
                     cycleWarning=null;
                     saveGraph();
                     host.toggleRunning(ws);
@@ -474,6 +515,18 @@ public class GraphEditor {
                     if (lmx >= 4 && lmx <= NW - 4 && lmy >= gateLocalY && lmy <= gateLocalY + 16)
                     { en.params[0] = en.params[0] > 0.5f ? 0 : 1; return true; }
                 }
+                if (en.type == NodeType.T_FLIPFLOP && en.params.length > 0) {
+                    int ffLocalY = editLocalY + 4 + numRows * 18;
+                    if (lmx >= 4 && lmx <= NW - 4 && lmy >= ffLocalY && lmy <= ffLocalY + 16)
+                    { en.params[0] = en.params[0] > 0.5f ? 0 : 1; return true; }
+                }
+                if ((en.type == NodeType.IMAGE || en.type == NodeType.IMAGE_SEQUENCE) && en.params.length > 3) {
+                    for (int ti = 0; ti < 2; ti++) {
+                        int tgY = editLocalY + 4 + (numRows + ti) * 18;
+                        if (lmx >= 4 && lmx <= NW - 4 && lmy >= tgY && lmy <= tgY + 14)
+                        { en.params[3 + ti] = en.params[3 + ti] > 0.5f ? 0 : 1; return true; }
+                    }
+                }
                 if (en.type == NodeType.KEYBOARD || en.type == NodeType.GAMEPAD_BUTTON) {
                     int kbLocalY = editLocalY + 4;
                     if (EditPanel.handleKeyboardClick(en, st, lmx, lmy - kbLocalY, NW)) return true;
@@ -613,48 +666,29 @@ public class GraphEditor {
             if (key == 256) { showColorConfig = false; return true; }
         }
         if (key == 258) { tabHeld = true; return true; } // TAB
-        // KEYBOARD / GAMEPAD_BUTTON 按键绑定捕获
+        // KEYBOARD 按键绑定捕获（GAMEPAD_BUTTON 由 renderBg 每帧轮询处理）
         if (!nodeEditStatesById.isEmpty()) {
             for (var st : nodeEditStatesById.values()) {
                 if (st.listeningForKey) {
-                    // 判断是键盘还是手柄
+                    // GAMEPAD_BUTTON handled by renderBg() — only ESC cancels, other keys ignored
                     boolean isGpad = false;
                     for (var en : getGraph().nodes) {
                         var es = nodeEditStatesById.get(en.id);
                         if (es == st && en.type == NodeType.GAMEPAD_BUTTON) { isGpad = true; break; }
                     }
-                    if (!isGpad) {
-                        // 键盘绑定
+                    if (isGpad) {
                         if (key == 256) { st.listeningForKey = false; return true; }
-                        int idx = com.example.create_schematic_compute.blocks.EditPanel.glfwKeyToIndex(key);
-                        if (idx >= 0) {
-                            for (var en : getGraph().nodes) {
-                                var es = nodeEditStatesById.get(en.id);
-                                if (es == st && en.params.length > 0) { en.params[0] = idx; break; }
-                            }
-                            st.listeningForKey = false;
+                        return true; // consume event, let renderBg() handle capture
+                    }
+                    // 键盘绑定
+                    if (key == 256) { st.listeningForKey = false; return true; }
+                    int idx = com.example.create_schematic_compute.blocks.EditPanel.glfwKeyToIndex(key);
+                    if (idx >= 0) {
+                        for (var en : getGraph().nodes) {
+                            var es = nodeEditStatesById.get(en.id);
+                            if (es == st && en.params.length > 0) { en.params[0] = idx; break; }
                         }
-                    } else {
-                        // 手柄绑定：扫描已连接的手柄
-                        if (key == 256) { st.listeningForKey = false; return true; }
-                        var gState = org.lwjgl.glfw.GLFWGamepadState.malloc();
-                        try {
-                            if (org.lwjgl.glfw.GLFW.glfwGetGamepadState(org.lwjgl.glfw.GLFW.GLFW_JOYSTICK_1, gState)) {
-                                var btns = gState.buttons();
-                                for (int bi = 0; bi < 15 && bi < btns.capacity(); bi++) {
-                                    if (btns.get(bi) == 1) {
-                                        for (var en : getGraph().nodes) {
-                                            var es = nodeEditStatesById.get(en.id);
-                                            if (es == st && en.params.length > 0) { en.params[0] = bi; break; }
-                                        }
-                                        st.listeningForKey = false;
-                                        break;
-                                    }
-                                }
-                            }
-                        } finally {
-                            gState.free();
-                        }
+                        st.listeningForKey = false;
                     }
                     return true;
                 }

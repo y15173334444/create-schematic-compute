@@ -158,13 +158,13 @@ public class NodeRenderer {
     private static final NodeCategory[] CATEGORIES = {
         new NodeCategory("category.create_schematic_compute.values", new NodeType[]{NodeType.CONST, NodeType.REDSTONE_IN, NodeType.PRIVATE_IN}),
         new NodeCategory("category.create_schematic_compute.math_basic", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.POW, NodeType.ROOT, NodeType.ABS, NodeType.CEIL, NodeType.FLOOR}),
-        new NodeCategory("category.create_schematic_compute.math_advanced", new NodeType[]{NodeType.FORMULA, NodeType.POSE_CONVERT, NodeType.SPLIT, NodeType.INTERP}),
-        new NodeCategory("category.create_schematic_compute.logic", new NodeType[]{NodeType.GT, NodeType.LT, NodeType.EQ, NodeType.BOOL, NodeType.GATE}),
+        new NodeCategory("category.create_schematic_compute.math_advanced", new NodeType[]{NodeType.FORMULA, NodeType.POSE_CONVERT, NodeType.SPLIT, NodeType.INTERP, NodeType.ROUND}),
+        new NodeCategory("category.create_schematic_compute.logic", new NodeType[]{NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ, NodeType.BOOL, NodeType.GATE, NodeType.OR}),
         new NodeCategory("category.create_schematic_compute.control", new NodeType[]{NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP}),
         new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL}),
-        new NodeCategory("category.create_schematic_compute.sequential", new NodeType[]{NodeType.DELAY, NodeType.LATCH, NodeType.T_FLIPFLOP, NodeType.PULSE_EXTEND, NodeType.LOOP, NodeType.FUSE, NodeType.ACCUMULATOR}),
-        new NodeCategory("category.create_schematic_compute.input_ctrl", new NodeType[]{NodeType.KEYBOARD, NodeType.MOUSE_BUTTON, NodeType.MOUSE_JOYSTICK, NodeType.GAMEPAD_JOYSTICK, NodeType.GAMEPAD_BUTTON}),
-        new NodeCategory("category.create_schematic_compute.input_sensor", new NodeType[]{NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD}),
+        new NodeCategory("category.create_schematic_compute.sequential", new NodeType[]{NodeType.DELAY, NodeType.LATCH, NodeType.T_FLIPFLOP, NodeType.PULSE_EXTEND, NodeType.LOOP, NodeType.FUSE, NodeType.ACCUMULATOR, NodeType.INTEGRATOR}),
+        new NodeCategory("category.create_schematic_compute.input_ctrl", new NodeType[]{NodeType.KEYBOARD, NodeType.MOUSE_BUTTON, NodeType.MOUSE_JOYSTICK, NodeType.GAMEPAD_JOYSTICK, NodeType.GAMEPAD_BUTTON, NodeType.GAMEPAD_TRIGGER}),
+        new NodeCategory("category.create_schematic_compute.input_sensor", new NodeType[]{NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD, NodeType.ACCELERATION}),
         new NodeCategory("category.create_schematic_compute.display", new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE}),
         new NodeCategory("category.create_schematic_compute.structure", new NodeType[]{NodeType.ENCAPSULATION}),
         new NodeCategory("category.create_schematic_compute.encap_io", new NodeType[]{NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT}),
@@ -267,7 +267,7 @@ public class NodeRenderer {
             int r = PR;
             g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1), CPIB);
             g.fill(-r, (int)(py - r), r, (int)(py + r), CPI);
-            drawStr(g, n.inputLabel(i), 10, py-3, CD);
+            drawStr(g, I18n.get(n.inputLabel(i)), 10, py-3, CD);
         }
         // 输出端
         for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL; i++) {
@@ -275,11 +275,11 @@ public class NodeRenderer {
             int r = PR;
             g.fill(NW - r - 1, (int)(py - r - 1), NW + r + 1, (int)(py + r + 1), CPOB);
             g.fill(NW - r, (int)(py - r), NW + r, (int)(py + r), CPO);
-            drawStr(g, n.outputLabel(i), NW-30, py-3, CD);
+            drawStr(g, I18n.get(n.outputLabel(i)), NW-30, py-3, CD);
         }
         // 公式文本显示（FORMULA 节点）
         if (n.type == NodeType.FORMULA) {
-            drawStr(g, "§7" + (n.formula.isEmpty() ? "A+B" : n.formula), 4, HH+PH*(n.inputs()+n.outputs())+4, CD);
+            drawStr(g, "§7" + (n.formula.isEmpty() ? I18n.get("gui.create_schematic_compute.formula_placeholder") : n.formula), 4, HH+PH*(n.inputs()+n.outputs())+4, CD);
         }
         // 展开指示器（可编辑节点在标题右侧显示 ▶/▼）
         if (n.type == NodeType.FORMULA || n.type.paramNames.length > 0
@@ -292,7 +292,7 @@ public class NodeRenderer {
         }
         // 封装节点体部摘要
         if (n.type == NodeType.ENCAPSULATION && !editing) {
-            String summary = n.inputs() + " in / " + n.outputs() + " out";
+            String summary = java.text.MessageFormat.format(I18n.get("gui.create_schematic_compute.encap_summary"), n.inputs(), n.outputs());
             drawStr(g, "§8" + summary, 4, HH + PH * Math.max(n.inputs(), n.outputs()) + 4, CD);
         }
         // 编辑区（pose 内渲染保证缩放同步，覆盖层在 renderBg 中更高优先级）
@@ -342,7 +342,7 @@ public class NodeRenderer {
         g.fill((int)menuRX,(int)menuRY,(int)(menuRX+mw),(int)(menuRY+totalH),0xFF2A2822);
         g.renderOutline((int)menuRX,(int)menuRY,mw,totalH,CSB);
         g.renderOutline((int)menuRX+1,(int)menuRY+1,mw-2,totalH-2,0xFF1A1814);
-        drawStr(g, "§lNodes", menuRX+6, menuRY+4, CCT);
+        drawStr(g, "§l" + I18n.get("gui.create_schematic_compute.nodes"), menuRX+6, menuRY+4, CCT);
 
         NodeType hovered = null;
         int cy = (int)menuRY + 18;
@@ -404,13 +404,13 @@ public class NodeRenderer {
         g.fill(cX2, btnY, cX2+cW2, btnY+btnH, fb ? 0xFF3A5A2A : 0xFF3A3832);
         g.renderOutline(cX2, btnY, cW2, btnH, CSB);
         g.renderOutline(cX2+1, btnY+1, cW2-2, btnH-2, 0xFF2A2822);
-        drawStr(g, fb ? "§aCompiled!" : "§eCompile", cX2+4, btnY+4, CT);
+        drawStr(g, fb ? "§a" + I18n.get("gui.create_schematic_compute.compiled") : "§e" + I18n.get("gui.create_schematic_compute.compile"), cX2+4, btnY+4, CT);
         // Run/Stop 按钮
         int cX3 = 82, cW3 = 48;
         g.fill(cX3, btnY, cX3+cW3, btnY+btnH, running ? 0xFF3A5A2A : 0xFF3A3832);
         g.renderOutline(cX3, btnY, cW3, btnH, CSB);
         g.renderOutline(cX3+1, btnY+1, cW3-2, btnH-2, 0xFF2A2822);
-        drawStr(g, running ? "§a[Stop]" : "§e[Run]", cX3+4, btnY+4, CT);
+        drawStr(g, running ? "§a" + I18n.get("gui.create_schematic_compute.stop") : "§e" + I18n.get("gui.create_schematic_compute.run"), cX3+4, btnY+4, CT);
         // 网格吸附按钮
         int cX4 = 134, cW4 = 58;
         g.fill(cX4, btnY, cX4+cW4, btnY+btnH, gridSnap ? 0xFF3A5A2A : 0xFF3A3428);

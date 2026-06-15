@@ -37,15 +37,15 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
 
     // ══ 全局输入缓存（按玩家 UUID） ══
     public record InputState(long keyBits, float mouseX, float mouseY, float yaw, float pitch, int mode,
-        int mouseButtons, float gpadLX, float gpadLY, float gpadRX, float gpadRY, long gpadButtons) {}
+        int mouseButtons, float gpadLX, float gpadLY, float gpadRX, float gpadRY, float gpadLT, float gpadRT, long gpadButtons) {}
     private static final Map<java.util.UUID, InputState> PLAYER_INPUTS = new java.util.HashMap<>();
 
     public static void storeInput(java.util.UUID playerUuid, long keyBits, float mouseX, float mouseY,
         float yaw, float pitch, int mode, int mouseButtons,
-        float gpadLX, float gpadLY, float gpadRX, float gpadRY, long gpadButtons) {
+        float gpadLX, float gpadLY, float gpadRX, float gpadRY, float gpadLT, float gpadRT, long gpadButtons) {
         synchronized (PLAYER_INPUTS) {
             PLAYER_INPUTS.put(playerUuid, new InputState(keyBits, mouseX, mouseY, yaw, pitch, mode,
-                mouseButtons, gpadLX, gpadLY, gpadRX, gpadRY, gpadButtons));
+                mouseButtons, gpadLX, gpadLY, gpadRX, gpadRY, gpadLT, gpadRT, gpadButtons));
         }
     }
 
@@ -96,6 +96,7 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
             this.mouseButtons = s.mouseButtons;
             this.gpadLX = s.gpadLX; this.gpadLY = s.gpadLY;
             this.gpadRX = s.gpadRX; this.gpadRY = s.gpadRY;
+            this.gpadLT = s.gpadLT; this.gpadRT = s.gpadRT;
             this.gpadButtons = s.gpadButtons;
         }
     }
@@ -122,6 +123,7 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     public int inputMode = 0;         // 0=摇杆, 1=视角差
     public int mouseButtons = 0;      // bit 0=LMB, 1=RMB
     public float gpadLX = 0, gpadLY = 0, gpadRX = 0, gpadRY = 0;
+    public float gpadLT = 0, gpadRT = 0;
     public long gpadButtons = 0;
 
     /** 世界视角缓存：仅视角差模式更新，摇杆模式/下马后冻结 */
@@ -135,6 +137,10 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     protected float attitudeYaw = 0, attitudePitch = 0, attitudeRoll = 0;
     protected float forwardYaw = 0, forwardPitch = 0;
     protected float blockYaw = 0;
+    protected float accelX = 0, accelY = 0, accelZ = 0;
+    protected double rawVelX, rawVelY, rawVelZ;
+    private double prevRawVelX, prevRawVelY, prevRawVelZ;
+    private boolean firstAccel = true;
 
     public ControlSeatBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.CONTROL_SEAT_BE.get(), pos, s); }
     @Override public boolean isRunning() { return running; }
@@ -209,9 +215,18 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
         }
         // 更新姿态/前方朝向（子类在 sable$physicsTick 中覆盖）
         updateAttitude();
+        // 加速度：在稳定 20Hz 游戏 tick 下差分原始速度（物理 tick 下差分噪声太大）
+        if (firstAccel) { prevRawVelX = rawVelX; prevRawVelY = rawVelY; prevRawVelZ = rawVelZ; firstAccel = false; }
+        else {
+            accelX = (float)((rawVelX - prevRawVelX) / 0.05);
+            accelY = (float)((rawVelY - prevRawVelY) / 0.05);
+            accelZ = (float)((rawVelZ - prevRawVelZ) / 0.05);
+            prevRawVelX = rawVelX; prevRawVelY = rawVelY; prevRawVelZ = rawVelZ;
+        }
         var seatInput = new GraphEvaluator.SeatInputState(keyBits, mouseJoystickX, mouseJoystickY, viewYaw, viewPitch,
-            savedWorldYaw, savedWorldPitch, mouseButtons, gpadLX, gpadLY, gpadRX, gpadRY, gpadButtons,
-            blockYaw, attitudeYaw, attitudePitch, attitudeRoll, forwardYaw, forwardPitch);
+            savedWorldYaw, savedWorldPitch, mouseButtons, gpadLX, gpadLY, gpadRX, gpadRY, gpadLT, gpadRT, gpadButtons,
+            blockYaw, attitudeYaw, attitudePitch, attitudeRoll, forwardYaw, forwardPitch,
+            accelX, accelY, accelZ);
 
         float dt = 0.05f;
         var results = evaluator.evaluate(in, pidState, dt, seatInput);

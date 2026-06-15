@@ -26,8 +26,10 @@ public class ControlSeatScreen extends AbstractContainerScreen<ControlSeatMenu> 
             || nt == NodeType.MOUSE_BUTTON
             || nt == NodeType.GAMEPAD_JOYSTICK
             || nt == NodeType.GAMEPAD_BUTTON
+            || nt == NodeType.GAMEPAD_TRIGGER
             || nt == NodeType.WORLD_VIEW
             || nt == NodeType.ATTITUDE
+            || nt == NodeType.ACCELERATION
             || nt == NodeType.POSE_CONVERT
             || nt == NodeType.SPLIT
             || nt == NodeType.REDSTONE_OUT

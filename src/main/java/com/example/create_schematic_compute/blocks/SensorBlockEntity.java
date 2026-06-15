@@ -33,6 +33,10 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
     public final Map<Integer, Float> pidState = new HashMap<>();
     public float attitudeYaw = 0, attitudePitch = 0, attitudeRoll = 0;
     public float forwardYaw = 0, forwardPitch = 0;
+    public float accelX = 0, accelY = 0, accelZ = 0;
+    public double rawVelX, rawVelY, rawVelZ;
+    private double prevRawVelX, prevRawVelY, prevRawVelZ;
+    private boolean firstAccel = true;
     private GraphEvaluator evaluator = null;
     private NodeGraph lastEvaluatedGraph = null;
     private final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
@@ -121,10 +125,17 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
         if(state.getValue(SensorBlock.LIT)!=lit) level.setBlock(worldPosition, state.setValue(SensorBlock.LIT, lit), 3);
         if(!running) return;
         updateAttitude();
+        if (firstAccel) { prevRawVelX = rawVelX; prevRawVelY = rawVelY; prevRawVelZ = rawVelZ; firstAccel = false; }
+        else {
+            accelX = (float)((rawVelX - prevRawVelX) / 0.05);
+            accelY = (float)((rawVelY - prevRawVelY) / 0.05);
+            accelZ = (float)((rawVelZ - prevRawVelZ) / 0.05);
+            prevRawVelX = rawVelX; prevRawVelY = rawVelY; prevRawVelZ = rawVelZ;
+        }
         if(evaluator==null||lastEvaluatedGraph!=graph){ evaluator=new GraphEvaluator(graph); lastEvaluatedGraph=graph; pidState.clear(); }
         rs.refreshInputs();
         var in = rs.buildInputs(graph);
-        var si = new GraphEvaluator.SeatInputState(0,0,0,0,0, 0,0, 0,0,0,0,0,0, 0,attitudeYaw,attitudePitch,attitudeRoll,forwardYaw,forwardPitch);
+        var si = new GraphEvaluator.SeatInputState(0,0,0,0,0, 0,0, 0,0,0,0,0,0,0,0, 0,attitudeYaw,attitudePitch,attitudeRoll,forwardYaw,forwardPitch, accelX,accelY,accelZ);
         var results = evaluator.evaluate(in, pidState, 0.05f, si);
         rs.writeOutputs(results);
         setChanged();

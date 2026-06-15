@@ -33,6 +33,7 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
             || nt == com.example.create_schematic_compute.graph.NodeType.FUSE
             || nt == com.example.create_schematic_compute.graph.NodeType.BOOL
             || nt == com.example.create_schematic_compute.graph.NodeType.ACCUMULATOR
+            || nt == com.example.create_schematic_compute.graph.NodeType.INTEGRATOR
             || nt == com.example.create_schematic_compute.graph.NodeType.GATE);
     }
 

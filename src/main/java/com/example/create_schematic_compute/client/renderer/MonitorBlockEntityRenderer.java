@@ -116,32 +116,53 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         drawBorderFace(sceneBuf, m, l, r, t, b, bw, -1);
         for (var n : be.graph.nodes) {
             if (n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE) continue;
-            if (n.imagePixels == null || n.imagePixels.length != 256) continue;
-            // X/Y signal offsets: X+ = right, Y+ = up (moveScale in normalized units per signal)
+            // X/Y/rotation signal offsets
             float ox = be.graph.getInputValue(n.id, 0, evaluator.getCurrentOutputs());
             float oy = be.graph.getInputValue(n.id, 1, evaluator.getCurrentOutputs());
+            float msX = n.params.length > 0 ? n.params[0] : 0.01f;
+            float msY = n.params.length > 1 ? n.params[1] : 0.01f;
+            float rotScale = n.params.length > 2 ? n.params[2] : 1f;
+            boolean invX = n.params.length > 3 && n.params[3] > 0.5f;
+            boolean invY = n.params.length > 4 && n.params[4] > 0.5f;
+            float dx = ox * (invX ? -msX : msX);
+            float dy = oy * (invY ? -msY : msY);
+            // Select the pixel array to render — IMAGE uses imagePixels, IMAGE_SEQUENCE picks a frame
+            int[] pixels = n.imagePixels;
+            int rotPin = n.type == NodeType.IMAGE_SEQUENCE ? 3 : 2;
+            if (n.type == NodeType.IMAGE_SEQUENCE) {
+                int frameIdx = Math.round(be.graph.getInputValue(n.id, 2, evaluator.getCurrentOutputs()));
+                if (n.imageSequenceFrames != null && !n.imageSequenceFrames.isEmpty()) {
+                    frameIdx = Math.max(0, Math.min(frameIdx, n.imageSequenceFrames.size() - 1));
+                    pixels = n.imageSequenceFrames.get(frameIdx);
+                }
+            }
+            if (pixels == null || pixels.length != 256) continue;
+            float rotInput = be.graph.getInputValue(n.id, rotPin, evaluator.getCurrentOutputs());
+            float effectiveRot = n.displayRotation + rotInput * rotScale;
             // Clamp so rotated bounding box doesn't overflow right/bottom
             float cell = 0.03f * n.displayScale;
             float iw = 8f * cell, ih = 8f * cell;
-            float rA = (float)Math.abs(Math.cos(Math.toRadians(n.displayRotation)));
-            float rB = (float)Math.abs(Math.sin(Math.toRadians(n.displayRotation)));
+            float rA = (float)Math.abs(Math.cos(Math.toRadians(effectiveRot)));
+            float rB = (float)Math.abs(Math.sin(Math.toRadians(effectiveRot)));
             float bbHalfW = (iw * rA + ih * rB) / cw;
             float bbHalfH = (iw * rB + ih * rA) / ch;
-            float rawX = n.layoutX + ox * n.moveScale;
-            float rawY = n.layoutY + oy * n.moveScale;
+            float rawX = n.layoutX + dx;
+            float rawY = n.layoutY + dy;
             float cpx = Math.max(0, Math.min(1 - bbHalfW, rawX));
             float cpy = Math.max(0, Math.min(1 - bbHalfH, rawY));
             float nx = cx + cpx * cw;
             float ny = cy - cpy * ch;
             poseStack.pushPose();
-            poseStack.translate(nx, ny, 0);
-            poseStack.mulPose(Axis.ZP.rotationDegrees(-n.displayRotation));
+            float halfW = 8f * cell, halfH = 8f * cell;
+            poseStack.translate(nx + halfW, ny - halfH, 0);
+            poseStack.mulPose(Axis.ZP.rotationDegrees(-effectiveRot));
+            poseStack.translate(-halfW, halfH, 0);
             var m2 = poseStack.last().pose();
             for (int py = 0; py < 16; py++) {
                 for (int px = 0; px < 16; px++) {
                     int idx = py * 16 + px;
-                    if (idx >= n.imagePixels.length) continue;
-                    int c = n.imagePixels[idx];
+                    if (idx >= pixels.length) continue;
+                    int c = pixels[idx];
                     int a = (c >> 24) & 0xFF, rr = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, bl = c & 0xFF;
                     if (a == 0) continue;
                     float x0 = px * cell, x1 = x0 + cell;
@@ -167,9 +188,11 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             int color = n.textColor != 0 ? n.textColor : (n.type == NodeType.DATA ? 0xFF88FF88 : 0xFFCCCCCC);
             float s = 0.015f * n.displayScale;
             poseStack.pushPose();
-            poseStack.translate(nx, ny, 0);
-            poseStack.mulPose(Axis.ZP.rotationDegrees(n.displayRotation));
+            float fw = font.width(str), fh = 10f;
+            poseStack.translate(nx + fw * s / 2f, ny - fh * s / 2f, 0);
+            poseStack.mulPose(Axis.ZP.rotationDegrees(-n.displayRotation));
             poseStack.scale(s, -s, s);
+            poseStack.translate(-fw / 2f, -fh / 2f, 0);
             font.drawInBatch(str, 0, 0, color, false,
                 poseStack.last().pose(), buffer, Font.DisplayMode.NORMAL, 0, 0xF000F0);
             poseStack.popPose();

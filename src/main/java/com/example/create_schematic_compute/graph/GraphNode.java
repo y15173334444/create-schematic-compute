@@ -105,7 +105,14 @@ public class GraphNode {
             this.params[1] = 0.05f;  // ki
             this.params[2] = 3.0f;   // ilimit
         }
+        if (type == NodeType.T_FLIPFLOP) this.params[0] = 0f; // default off
         if (type == NodeType.ACCUMULATOR) this.params[0] = 1f; // step=1
+        if (type == NodeType.INTEGRATOR) {
+            if (this.params.length > 0 && this.params[0] == 0f) this.params[0] = 1f;   // step
+            if (this.params.length > 1 && this.params[1] == 0f) this.params[1] = 1f;   // interval
+            if (this.params.length > 2 && this.params[2] == 0f) this.params[2] = 1000f; // limit
+        }
+        if (type == NodeType.ROUND) this.params[0] = 2f;      // 2 decimal places
         if (type == NodeType.DELAY) this.params[0] = 10f;     // 10 ticks
         if (type == NodeType.PULSE_EXTEND) this.params[0] = 10f;
         if (type == NodeType.LOOP) { this.params[0] = 5f; this.params[1] = 10f; }
@@ -114,10 +121,14 @@ public class GraphNode {
         if (type == NodeType.GATE) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // default closed, current state closed
         if (type == NodeType.KEYBOARD) this.params[0] = 0f; // 默认 A
         if (type == NodeType.GAMEPAD_BUTTON) this.params[0] = 0f; // 默认 A
-        // IMAGE/IMAGE_SEQUENCE: lazy-allocate pixel array (saves memory for other node types)
+        // IMAGE/IMAGE_SEQUENCE: lazy-allocate pixel array + set param defaults
         if (type == NodeType.IMAGE || type == NodeType.IMAGE_SEQUENCE) {
             this.imagePixels = new int[256];
             java.util.Arrays.fill(this.imagePixels, 0x00000000);
+            if (this.params.length > 0 && this.params[0] == 0f) this.params[0] = 0.01f; // moveScaleX
+            if (this.params.length > 1 && this.params[1] == 0f) this.params[1] = 0.01f; // moveScaleY
+            if (this.params.length > 2 && this.params[2] == 0f) this.params[2] = 1f;    // rotationScale
+            // invertX, invertY defaults stay 0
         }
         // ENCAPSULATION: outputValues resized dynamically during eval based on subGraph
         this.outputValues = new float[type == NodeType.ENCAPSULATION ? 0 : type.outputs];
@@ -191,7 +202,13 @@ public class GraphNode {
         if (tag.contains("ly")) node.layoutY = tag.getFloat("ly");
         if (tag.contains("ds")) node.displayScale = tag.getFloat("ds");
         if (tag.contains("dr")) node.displayRotation = tag.getFloat("dr");
-        if (tag.contains("ms")) node.moveScale = tag.getFloat("ms");
+        if (tag.contains("ms")) { node.moveScale = tag.getFloat("ms");
+            // migrate old shared moveScale to new per-axis params
+            if ((node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) && node.params.length >= 2) {
+                if (node.params[0] == 0f) node.params[0] = node.moveScale;
+                if (node.params[1] == 0f) node.params[1] = node.moveScale;
+            }
+        }
         if (tag.contains("subGraph")) node.subGraph = NodeGraph.load(tag.getCompound("subGraph"), registries);
         return node;
     }

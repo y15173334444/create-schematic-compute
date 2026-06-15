@@ -18,6 +18,7 @@ public record ControlSeatInputPacket(
     int inputMode,
     int mouseButtons,
     float gpadLX, float gpadLY, float gpadRX, float gpadRY,
+    float gpadLT, float gpadRT,
     long gpadButtons,
     boolean dismount    // ~ 键请求下马
 ) implements CustomPacketPayload {
@@ -35,6 +36,7 @@ public record ControlSeatInputPacket(
                 buf.readInt(),
                 buf.readInt(),
                 buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat(),
+                buf.readFloat(), buf.readFloat(),
                 buf.readLong(),
                 buf.readBoolean()
             );
@@ -48,6 +50,7 @@ public record ControlSeatInputPacket(
             buf.writeInt(p.mouseButtons);
             buf.writeFloat(p.gpadLX); buf.writeFloat(p.gpadLY);
             buf.writeFloat(p.gpadRX); buf.writeFloat(p.gpadRY);
+            buf.writeFloat(p.gpadLT); buf.writeFloat(p.gpadRT);
             buf.writeLong(p.gpadButtons);
             buf.writeBoolean(p.dismount);
         }
@@ -67,11 +70,12 @@ public record ControlSeatInputPacket(
                 be.viewYaw = viewYaw; be.viewPitch = viewPitch; be.inputMode = inputMode;
                 be.mouseButtons = mouseButtons;
                 be.gpadLX = gpadLX; be.gpadLY = gpadLY; be.gpadRX = gpadRX; be.gpadRY = gpadRY;
+                be.gpadLT = gpadLT; be.gpadRT = gpadRT;
                 be.gpadButtons = gpadButtons;
             } else {
                 ControlSeatBlockEntity.storeInput(ctx.player().getUUID(), keyBits, mouseX, mouseY,
                     viewYaw, viewPitch, inputMode, mouseButtons,
-                    gpadLX, gpadLY, gpadRX, gpadRY, gpadButtons);
+                    gpadLX, gpadLY, gpadRX, gpadRY, gpadLT, gpadRT, gpadButtons);
             }
         });
     }

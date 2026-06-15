@@ -5,16 +5,18 @@ import com.example.create_schematic_compute.graph.NodeType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.client.resources.language.I18n;
 
 /**
  * 编辑控件工具类 — 提供编辑区高度计算和内联渲染（静态方法）
  */
 public class EditPanel {
 
-    /** 手柄按键名 */
-    private static final String[] GPAD_BTN_NAMES = {"A","B","X","Y","LB","RB","Back","Start","Guide","L3","R3","↑","↓","←","→"};
+    /** 手柄按键名 (i18n keys) */
+    private static final String[] GPAD_BTN_KEYS = {"a","b","x","y","lb","rb","back","start","guide","l3","r3","up","down","left","right"};
     public static String gamepadButtonLabel(int idx) {
-        if (idx >= 0 && idx < GPAD_BTN_NAMES.length) return GPAD_BTN_NAMES[idx];
+        if (idx >= 0 && idx < GPAD_BTN_KEYS.length)
+            return I18n.get("gamepad.create_schematic_compute." + GPAD_BTN_KEYS[idx]);
         return "Btn" + idx;
     }
 
@@ -22,17 +24,18 @@ public class EditPanel {
     public static int calcRenderHeight(GraphNode n, float zoom) {
         if (n == null) return 0;
         int h = 6;
-        if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL && n.type != NodeType.GATE) {
+        if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL && n.type != NodeType.GATE && n.type != NodeType.T_FLIPFLOP
+            && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE) {
             if (n.type == NodeType.KEYBOARD || n.type == NodeType.GAMEPAD_BUTTON) {
-                h += 24; // KEYBOARD/GAMEPAD_BUTTON 已有自己的绑定UI
+                h += 24;
             } else h += n.params.length * 18;
         }
-        if ((n.type == NodeType.BOOL || n.type == NodeType.GATE) && n.params.length > 0) h += 16;
+        if ((n.type == NodeType.BOOL || n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP) && n.params.length > 0) h += 16;
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
         if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) h += 22;
         if (n.type == NodeType.FORMULA) h += 22;
         if (n.type == NodeType.TEXT) h += 22;
-        if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) h += 22;
+        if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) h += 54 + 32; // 3 text fields + 2 toggles
         if (n.type == NodeType.TEXT || n.type == NodeType.DATA) h += 22;
         if (n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT) h += 22;
         return h;
@@ -51,8 +54,8 @@ public class EditPanel {
             String label = node.type == NodeType.KEYBOARD ? keyIndexToLabel(idx) : gamepadButtonLabel(idx);
             int bx = px + 4, by = py + 4, bw = pw - 8, bh = 18;
             String hint = st.listeningForKey
-                ? (node.type == NodeType.GAMEPAD_BUTTON ? "§e按下手柄按键..." : "§e按下按键...")
-                : "§7[ " + label + " ] §7点击绑定";
+                ? "§e" + I18n.get(node.type == NodeType.GAMEPAD_BUTTON ? "gui.create_schematic_compute.edit.press_gamepad" : "gui.create_schematic_compute.edit.press_key")
+                : "§7" + java.text.MessageFormat.format(I18n.get("gui.create_schematic_compute.edit.click_bind"), label);
             boolean hovering = mx >= bx && mx <= bx + bw && my >= by && my <= by + bh;
             g.fill(bx, by, bx + bw, by + bh, st.listeningForKey ? 0xFF5A3A2A : (hovering ? 0xFF3A4A3A : 0xFF1A1814));
             g.renderOutline(bx, by, bw, bh, st.listeningForKey ? 0xFFFF8844 : NodeRenderer.CSB);
@@ -63,7 +66,7 @@ public class EditPanel {
         for (int i = 0; i < st.fields.size(); i++) {
             var b = st.fields.get(i);
             String label = i < st.paramKeys.length ? st.paramKeys[i] + ":" :
-                (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT ? "channel:" : "");
+                (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT ? I18n.get("gui.create_schematic_compute.edit.channel") : "");
             g.drawString(Minecraft.getInstance().font, label, px + 4, py + 4 + row * 18, 0xFF888888, false);
             int lw = Minecraft.getInstance().font.width(label) + 6;
             b.setX(px + 4 + lw);
@@ -79,7 +82,7 @@ public class EditPanel {
             g.fill(bx, by, bx + bw, by + bh, inverted ? 0xFF3A5A2A : 0xFF3A3428);
             g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
             g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
-            g.drawString(Minecraft.getInstance().font, inverted ? "§a✔ Inverted" : "§7Not Inverted", bx+4, by+2, 0xFFFFFFFF, false);
+            g.drawString(Minecraft.getInstance().font, inverted ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.inverted") : "§7" + I18n.get("gui.create_schematic_compute.edit.not_inverted"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
         }
         if (node.type == NodeType.GATE && node.params.length > 0) {
@@ -89,8 +92,31 @@ public class EditPanel {
             g.fill(bx, by, bx + bw, by + bh, defOpen ? 0xFF3A5A2A : 0xFF3A3428);
             g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
             g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
-            g.drawString(Minecraft.getInstance().font, defOpen ? "§a✔ Default: Open" : "§7Default: Closed", bx+4, by+2, 0xFFFFFFFF, false);
+            g.drawString(Minecraft.getInstance().font, defOpen ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.default_open") : "§7" + I18n.get("gui.create_schematic_compute.edit.default_closed"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
+        }
+        if (node.type == NodeType.T_FLIPFLOP && node.params.length > 0) {
+            boolean defOn = node.params[0] > 0.5f;
+            int bx = px + 4, by = py + 4 + row * 18;
+            int bw = pw - 8, bh = 16;
+            g.fill(bx, by, bx + bw, by + bh, defOn ? 0xFF3A5A2A : 0xFF3A3428);
+            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
+            g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
+            g.drawString(Minecraft.getInstance().font, defOn ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.flipflop_default_on") : "§7" + I18n.get("gui.create_schematic_compute.edit.flipflop_default_off"), bx+4, by+2, 0xFFFFFFFF, false);
+            row++;
+        }
+        if ((node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) && node.params.length > 3) {
+            for (int ti = 0; ti < 2; ti++) {
+                boolean on = node.params[3 + ti] > 0.5f;
+                String key = ti == 0 ? "gui.create_schematic_compute.edit.invert_x" : "gui.create_schematic_compute.edit.invert_y";
+                int bx = px + 4, by = py + 4 + row * 18;
+                int bw = pw - 8, bh = 14;
+                g.fill(bx, by, bx + bw, by + bh, on ? 0xFF3A5A2A : 0xFF3A3428);
+                g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
+                g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
+                g.drawString(Minecraft.getInstance().font, (on ? "§a✔ " : "§7") + I18n.get(key), bx+4, by+1, 0xFFFFFFFF, false);
+                row++;
+            }
         }
         if (node.type == NodeType.REDSTONE_IN || node.type == NodeType.REDSTONE_OUT) {
             st.freqSlotX = px + 4; st.freqSlotY = py + 8 + row * 18;
@@ -121,10 +147,18 @@ public class EditPanel {
         if (idx >= 0 && idx < 26) return "" + (char)('A' + idx);
         if (idx >= 26 && idx < 36) return "" + (char)('0' + idx - 26);
         return switch (idx) {
-            case K_SPACE -> "Space"; case K_LSHIFT -> "LShift"; case K_RSHIFT -> "RShift";
-            case K_LCTRL -> "LCtrl"; case K_RCTRL -> "RCtrl"; case K_LALT -> "LAlt"; case K_RALT -> "RAlt";
-            case K_ENTER -> "Enter"; case K_TAB -> "Tab"; case K_BACKSPACE -> "Bksp";
-            case K_CAPS -> "Caps"; case K_MINUS -> "-"; case K_EQUALS -> "=";
+            case K_SPACE -> I18n.get("key.create_schematic_compute.space");
+            case K_LSHIFT -> I18n.get("key.create_schematic_compute.lshift");
+            case K_RSHIFT -> I18n.get("key.create_schematic_compute.rshift");
+            case K_LCTRL -> I18n.get("key.create_schematic_compute.lctrl");
+            case K_RCTRL -> I18n.get("key.create_schematic_compute.rctrl");
+            case K_LALT -> I18n.get("key.create_schematic_compute.lalt");
+            case K_RALT -> I18n.get("key.create_schematic_compute.ralt");
+            case K_ENTER -> I18n.get("key.create_schematic_compute.enter");
+            case K_TAB -> I18n.get("key.create_schematic_compute.tab");
+            case K_BACKSPACE -> I18n.get("key.create_schematic_compute.backspace");
+            case K_CAPS -> I18n.get("key.create_schematic_compute.caps");
+            case K_MINUS -> "-"; case K_EQUALS -> "=";
             case K_LBRACKET -> "["; case K_RBRACKET -> "]"; case K_SEMICOLON -> ";";
             case K_QUOTE -> "'"; case K_COMMA -> ","; case K_PERIOD -> "."; case K_SLASH -> "/";
             case K_BACKSLASH -> "\\"; case K_GRAVE -> "`";

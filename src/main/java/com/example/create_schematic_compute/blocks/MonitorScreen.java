@@ -259,7 +259,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
             switch (elem.type) {
                 case TEXT -> {
-                    String text = elem.text.isEmpty() ? "(Text)" : elem.text;
+                    String text = elem.text.isEmpty() ? I18n.get("gui.create_schematic_compute.text_placeholder") : elem.text;
                     g.drawString(mc.font, text, 0, 0, elem.color, false);
                 }
                 case DATA -> {
@@ -465,20 +465,38 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 case IMAGE -> {
                     float ox = graph.getInputValue(n.id, 0, eval.getCurrentOutputs());
                     float oy = graph.getInputValue(n.id, 1, eval.getCurrentOutputs());
-                    float[] cp = clampImageNorm(n, n.layoutX + ox * n.moveScale, n.layoutY + oy * n.moveScale);
-                    list.add(new DisplayElement(n.id, n.type, "", 0, n.imagePixels, "", cp[0], cp[1], n.displayScale, n.displayRotation, 0));
+                    float rotIn = graph.getInputValue(n.id, 2, eval.getCurrentOutputs());
+                    float msX = n.params.length > 0 ? n.params[0] : 0.01f;
+                    float msY = n.params.length > 1 ? n.params[1] : 0.01f;
+                    float rotScale = n.params.length > 2 ? n.params[2] : 1f;
+                    boolean invX = n.params.length > 3 && n.params[3] > 0.5f;
+                    boolean invY = n.params.length > 4 && n.params[4] > 0.5f;
+                    float dx = ox * (invX ? -msX : msX);
+                    float dy = oy * (invY ? -msY : msY);
+                    float effRot = n.displayRotation + rotIn * rotScale;
+                    float[] cp = clampImageNorm(n, n.layoutX + dx, n.layoutY + dy, effRot);
+                    list.add(new DisplayElement(n.id, n.type, "", 0, n.imagePixels, "", cp[0], cp[1], n.displayScale, effRot, 0));
                 }
                 case IMAGE_SEQUENCE -> {
                     float ox = graph.getInputValue(n.id, 0, eval.getCurrentOutputs());
                     float oy = graph.getInputValue(n.id, 1, eval.getCurrentOutputs());
                     int frameIdx = Math.round(graph.getInputValue(n.id, 2, eval.getCurrentOutputs()));
+                    float rotIn = graph.getInputValue(n.id, 3, eval.getCurrentOutputs());
+                    float msX = n.params.length > 0 ? n.params[0] : 0.01f;
+                    float msY = n.params.length > 1 ? n.params[1] : 0.01f;
+                    float rotScale = n.params.length > 2 ? n.params[2] : 1f;
+                    boolean invX = n.params.length > 3 && n.params[3] > 0.5f;
+                    boolean invY = n.params.length > 4 && n.params[4] > 0.5f;
+                    float dx = ox * (invX ? -msX : msX);
+                    float dy = oy * (invY ? -msY : msY);
+                    float effRot = n.displayRotation + rotIn * rotScale;
                     int[] pixels = null;
                     if (n.imageSequenceFrames != null && !n.imageSequenceFrames.isEmpty()) {
                         frameIdx = Math.max(0, Math.min(frameIdx, n.imageSequenceFrames.size() - 1));
                         pixels = n.imageSequenceFrames.get(frameIdx);
                     }
-                    float[] cp = clampImageNorm(n, n.layoutX + ox * n.moveScale, n.layoutY + oy * n.moveScale);
-                    list.add(new DisplayElement(n.id, n.type, "", 0, pixels, "", cp[0], cp[1], n.displayScale, n.displayRotation, 0));
+                    float[] cp = clampImageNorm(n, n.layoutX + dx, n.layoutY + dy, effRot);
+                    list.add(new DisplayElement(n.id, n.type, "", 0, pixels, "", cp[0], cp[1], n.displayScale, effRot, 0));
                 }
             }
         }
@@ -487,15 +505,15 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     /** Clamp IMAGE normalized position using rotated-AABB-aware bounds,
      *  matching MonitorBlockEntityRenderer's clamping (lines 124-133). */
-    private float[] clampImageNorm(GraphNode n, float rawX, float rawY) {
+    private float[] clampImageNorm(GraphNode n, float rawX, float rawY, float rotation) {
         float sw = getEffectiveScreenW();
         float sl = getEffectiveScreenL();
-        float cww = Math.max(sw - 0.08f, 0.01f); // content world width
-        float cwl = Math.max(sl - 0.08f, 0.01f); // content world length
-        float hw = 8f * 0.03f * n.displayScale; // half image width in blocks
-        float hh = 8f * 0.03f * n.displayScale; // half image height in blocks
-        float rA = (float)Math.abs(Math.cos(Math.toRadians(n.displayRotation)));
-        float rB = (float)Math.abs(Math.sin(Math.toRadians(n.displayRotation)));
+        float cww = Math.max(sw - 0.08f, 0.01f);
+        float cwl = Math.max(sl - 0.08f, 0.01f);
+        float hw = 8f * 0.03f * n.displayScale;
+        float hh = 8f * 0.03f * n.displayScale;
+        float rA = (float)Math.abs(Math.cos(Math.toRadians(rotation)));
+        float rB = (float)Math.abs(Math.sin(Math.toRadians(rotation)));
         float bbHalfW = (hw * rA + hh * rB) / cww;
         float bbHalfH = (hw * rB + hh * rA) / cwl;
         float px = Math.max(0, Math.min(1 - bbHalfW, rawX));
@@ -640,7 +658,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             int okX = trX + mc.font.width(hexStr) + 8;
             g.fill(okX, hexTopY - 1, okX + 30, hexTopY + 11, 0xFF3A5A2A);
             g.renderOutline(okX, hexTopY - 1, 30, 12, 0xFF5A8A3A);
-            g.drawString(mc.font, "§aOK", okX + 4, hexTopY, 0xFFFFFFFF, false);
+            g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.ok"), okX + 4, hexTopY, 0xFFFFFFFF, false);
         }
 
         // Close hint (bottom center)

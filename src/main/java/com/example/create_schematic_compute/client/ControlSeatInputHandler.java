@@ -151,7 +151,7 @@ public class ControlSeatInputHandler {
         if (GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS) mouseBtns |= 1;
         if (GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_RIGHT) == GLFW.GLFW_PRESS) mouseBtns |= 2;
 
-        float gLX = 0, gLY = 0, gRX = 0, gRY = 0;
+        float gLX = 0, gLY = 0, gRX = 0, gRY = 0, gLT = 0, gRT = 0;
         long gBtns = 0;
         if (GLFW.glfwJoystickPresent(GLFW.GLFW_JOYSTICK_1)) {
             var state = org.lwjgl.glfw.GLFWGamepadState.malloc();
@@ -161,6 +161,8 @@ public class ControlSeatInputHandler {
                     gLY = state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_LEFT_Y);
                     gRX = state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_RIGHT_X);
                     gRY = state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_RIGHT_Y);
+                    gLT = Math.max(0f, state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_LEFT_TRIGGER));
+                    gRT = Math.max(0f, state.axes().get(org.lwjgl.glfw.GLFW.GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER));
                     var btns = state.buttons();
                     for (int i = 0; i < 15 && i < btns.capacity(); i++)
                         if (btns.get(i) == 1) gBtns |= (1L << i);
@@ -188,7 +190,7 @@ public class ControlSeatInputHandler {
         long extKeyBits = keyBits | ((long)(mouseBtns & 3) << 58);
         PacketDistributor.sendToServer(new ControlSeatInputPacket(
             seatPos, extKeyBits, mx, my, vy, vp, inputMode,
-            mouseBtns, gLX, gLY, gRX, gRY, gBtns, wantDismount
+            mouseBtns, gLX, gLY, gRX, gRY, gLT, gRT, gBtns, wantDismount
         ));
         wantDismount = false;
     }
