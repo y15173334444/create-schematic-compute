@@ -748,6 +748,24 @@ MIT License © 2026 StarryNight_Luo
 
 ## 📝 Changelog
 
+### v1.1.3
+- **Add: OR Gate** — 2 inputs (A,B), 1 output (bool), Logic category, Blueprint Computer
+- **Add: GE / LE** — Greater Than or Equal / Less Than or Equal comparison nodes in Logic category
+- **Add: ROUND** — round to N decimal places (Advanced Math, Blueprint only)
+- **Add: Continuous Integrator** — 3 inputs (+,-,clear), configurable step/interval/limit, Program Computer
+- **Add: Acceleration** — structure-local X/Y/Z acceleration from sable physics (Control Seat + Attitude Sensor)
+- **Add: Gamepad Trigger** — analog LT/RT outputs (0.0~1.0) for Control Seat
+- **Add: IMAGE/IMAGE_SEQUENCE rotation input** — signal-driven rotation with per-axis moveScale (X/Y), rotationScale, invertX/Y toggles
+- **Add: T_FLIPFLOP edit panel** — configurable default on/off state toggle
+- **Add: i18n** — ~130 new translation keys for node edit panels, pin labels, toolbar, toggles (zh_cn + en_us)
+- **Fix: GAMEPAD_BUTTON binding** — moved from keyPressed() to frame-polling with edge detection; works with mapping software
+- **Fix: Gamepad trigger clamp** — axes clamped to [0,1] for phone/Bluetooth gamepads
+- **Fix: IMAGE_SEQUENCE frame display** — 3D renderer now reads frame input pin and selects correct frame
+- **Fix: Monitor display rotation** — center-based rotation with correct direction matching GUI preview
+- **Fix: Double checkmark** — removed duplicate ✔ from BOOL/GATE toggle i18n strings
+- **Fix: LATCH pin label** — resolved duplicate `r` key conflict between LATCH Reset and Mouse Right
+- **Perf: Acceleration** — pure float trig instead of JOML object allocations, no GC stutter on sable structures
+
 ### v1.1.2
 - **Add: GATE node** — signal gate with 4 inputs (value/open/close/toggle) and NBT-persistent state; available on Blueprint and Program computers
 - **Fix: Node connection culling** — connections on the left/top side of the GUI are no longer incorrectly culled
