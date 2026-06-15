@@ -88,6 +88,7 @@ Reads the orientation of sable physics structures through a node-based graph.
 | **Logic** | Greater Than, Less Than, Equals, Bool (Toggle) |
 | **Control** | PID Controller (I-term resets on zero error), Power PID, Clamp, Map Range |
 | **Output** | Redstone Output, Private Signal Output, Speed Control |
+| **Display (Monitor only)** | TEXT, DATA, IMAGE, IMAGE_SEQUENCE |
 | **Sequential** | Delay, Latch, T Flip-Flop, Pulse Extender, Loop, Safety Timer |
 | **Input Ctrl** | KEYBOARD (58 keys), Mouse Joystick (X/Y), View Angle, Mouse Button (L/R), Gamepad Joystick (LX/LY/RX/RY), Gamepad Button (15 buttons) |
 | **Sensor** | World View (yaw/pitch), Attitude (pitch/roll), Forward (yaw/pitch), Pose Convert (3-in 2-out), Split |
@@ -140,6 +141,14 @@ Reads the orientation of sable physics structures through a node-based graph.
 | PRIVATE_OUT | val | - | channel | Writes float to named channel |
 | SPEED_CTRL | speed, dir | rpm | - | Sets Speed Controller RPM; dir>0.5 reverses direction |
 
+##### Display (Monitor only)
+| Node | Inputs | Output | Params | Description |
+|------|--------|--------|--------|-------------|
+| TEXT | - | - | text, color | Displays text content |
+| DATA | val | - | color | Displays input float value |
+| IMAGE | X, Y | - | imageData | 16×16 pixel image, XY signals drive position |
+| IMAGE_SEQUENCE | X, Y, frame | - | frames, fps | Multi-frame animation, frame input switches frame |
+
 ##### Sequential (Program Computer only)
 | Node | Inputs | Output | Params | Description |
 |------|--------|--------|--------|-------------|
@@ -186,7 +195,7 @@ Reads the orientation of sable physics structures through a node-based graph.
 
 ### How to Use
 
-1. **Place** one of the three computers
+1. **Place** one of the six blocks
 2. **Right-click** to open the node editor
 3. **Right-click empty space** to open the add-node menu (categorized & collapsible)
 4. **Left-click a node** to edit its parameters
@@ -221,7 +230,7 @@ Reads the orientation of sable physics structures through a node-based graph.
 ---
 
 ### Schematic Support
-All three computers fully support **Create's Schematicannon**. Your node graphs, parameters, and running state are preserved when saving and loading schematics — no data loss.
+All six blocks fully support **Create's Schematicannon**. Your node graphs, parameters, and running state are preserved when saving and loading schematics — no data loss.
 
 This means you can:
 - 🏗️ **Build complex logic** in creative mode, then **print it in survival** with the Schematicannon
@@ -234,7 +243,7 @@ This means you can:
 
 ### Block Properties
 
-All five blocks share consistent properties:
+All six blocks share consistent properties:
 
 | Property | Value |
 |----------|-------|
@@ -336,6 +345,7 @@ The sable physics thread and the Minecraft server thread run concurrently. Share
 | 🏭 **Smart factory control** | Use PID nodes for automatic RPM regulation |
 | 🔄 **Automated sequences** | Build complex automation with Delay and Loop nodes |
 | 🎛️ **Multi-computer coordination** | Link computers via Private Signal Bus |
+| 🖥️ **Live factory dashboards** | Use Holographic Monitor to display sensor data and KPIs in real-time |
 | 🎯 **Wireless remote control** | Combine with Redstone Link network |
 | ⚙️ **Precision speed matching** | Speed Proxy Controller for exact RPM matching |
 
@@ -384,13 +394,24 @@ MIT License © 2026 StarryNight_Luo
 
 ### 什么是 Create: Schematic Compute？
 
-**Create: Schematic Compute（机械动力：蓝图计算机）** 是一个**机械动力附属模组**，添加了**三种可编程计算机**，采用**可视化节点图编程系统**。无需编写代码或搭建复杂的红石电路，只需拖拽连接节点即可构建逻辑——类似虚幻引擎的蓝图系统或 Blender 的几何节点。
+**Create: Schematic Compute（机械动力：蓝图计算机）** 是一个**机械动力附属模组**，添加了**六种可编程方块**，采用**可视化节点图编程系统**。无需编写代码或搭建复杂的红石电路，只需拖拽连接节点即可构建逻辑——类似虚幻引擎的蓝图系统或 Blender 的几何节点。
 
 每台计算机拥有独立的节点图，以 **20Hz（每游戏刻）** 的频率运行，适合实时控制应用。
 
 ---
 
 ### 方块
+
+#### 🖥️ 全息显示器
+一个**3D 悬浮显示方块**，将节点图输出渲染为世界中的虚拟屏幕。
+
+- **显示节点** — TEXT、DATA、IMAGE、IMAGE_SEQUENCE 用于视觉输出
+- **16×16 像素编辑器** — 内置像素画编辑器，支持多帧动画
+- **3D 自由定位** — 在世界空间中自由定位和旋转屏幕（X/Y/Z + 滚转/俯仰/偏航）
+- **信号驱动移动** — IMAGE/IMAGE_SEQUENCE 通过 X/Y 输入信号驱动位置，移动比例可配置
+- **红石输入** — 从红石链接网络读取信号（共享频率）
+- **实时预览** — GUI 显示模式，所见即所得的布局/缩放/旋转编辑
+- **自定义模型** — 完整 Blockbench 自定义模型支持
 
 #### 🖥️ 蓝图计算机
 通过可视化编程控制机械动力的**红石链接网络**。
@@ -441,6 +462,7 @@ MIT License © 2026 StarryNight_Luo
 | **控制** | PID 控制器（误差归零时 I 项复位）、动力 PID、限幅、映射范围 |
 | **输出** | 红石输出、私有信号输出、转速控制 |
 | **时序** | 延时、锁存器、T 触发器、脉冲延长、循环、保险 |
+| **显示** | TEXT（文字）、DATA（数值）、IMAGE（图片）、IMAGE_SEQUENCE（动画） |
 | **操作输入** | 键盘按键（58键）、鼠标摇杆（X/Y）、视角差、鼠标按键（左/右）、手柄摇杆（LX/LY/RX/RY）、手柄按键（15键） |
 | **传感器** | 世界视角（偏航/俯仰）、姿态（俯仰/横滚）、前方朝向（偏航/俯仰）、姿态换算（3入2出）、分割 |
 
@@ -492,6 +514,14 @@ MIT License © 2026 StarryNight_Luo
 | PRIVATE_OUT | val | - | channel | 将浮点数写入命名通道 |
 | SPEED_CTRL | speed, dir | rpm | - | 设置转速控制器的 RPM; dir>0.5 时反转方向 |
 
+##### 显示（仅全息显示器专用）
+| 节点 | 输入 | 输出 | 参数 | 说明 |
+|------|------|------|------|------|
+| TEXT | - | - | text, color | 显示文字内容 |
+| DATA | val | - | color | 显示输入浮点数值 |
+| IMAGE | X, Y | - | imageData | 16×16 像素图片，XY 信号驱动位置 |
+| IMAGE_SEQUENCE | X, Y, frame | - | frames, fps | 多帧动画，frame 输入切换帧 |
+
 ##### 时序（仅编程计算机）
 | 节点 | 输入 | 输出 | 参数 | 说明 |
 |------|------|------|------|------|
@@ -525,7 +555,7 @@ MIT License © 2026 StarryNight_Luo
 
 ### 使用方法
 
-1. **放置**任意一台计算机
+1. **放置**任意一个方块
 2. **右键**打开节点编辑器
 3. **右键空白处**打开添加节点菜单（支持分类折叠）
 4. **左键节点**编辑参数
@@ -560,7 +590,7 @@ MIT License © 2026 StarryNight_Luo
 ---
 
 ### 蓝图兼容
-三台计算机完全支持**机械动力的蓝图大炮（Schematicannon）**。节点图、参数和运行状态在保存和放置蓝图时都会**完整保留**，不会丢失数据。
+全部六种方块完全支持**机械动力的蓝图大炮（Schematicannon）**。节点图、参数和运行状态在保存和放置蓝图时都会**完整保留**，不会丢失数据。
 
 > 采用 Create 官方 `IMergeableBE` 接口和 `SafeNbtWriter` 注册，确保蓝图数据的可靠保存与恢复。
 
@@ -582,7 +612,7 @@ MIT License © 2026 StarryNight_Luo
 ---
 
 ### 方块属性
-所有 5 个方块共享一致的属性：
+所有 6 个方块共享一致的属性：
 
 | 属性 | 值 |
 |------|-----|
@@ -646,8 +676,9 @@ Sable 物理线程和 Minecraft 服务端线程并发运行。共享字段（`ca
 | **蓝图计算机** | 无线红石信号终端 ×2 + 精密构件 + 玻璃板 ×2 + 中继器 + 比较器 + 黄铜外壳 ×2 |
 | **转速代理控制器** | 黄铜锭 ×4 + 齿轮 + 玻璃板 ×2 + 比较器 + 安山岩外壳 |
 | **编程计算机** | 安山岩外壳 ×4 + 中继器 + 玻璃板 ×2 + 比较器 + 安山合金 |
-| **控制座椅** | 重质测重压力板 ×1 + 铁锭 ×2 + 黄铜机壳 ×1 + 红石 ×1 + 遥控器 ×4 |
+| **控制座椅** | 重质测重压力板 ×1 + 铁锭 ×2 + 黄铜机壳 ×1 + 红石 ×1 + 无线红石信号终端 ×4 |
 | **姿态传感器** | 铁锭 ×6 + 中继器 ×1 + 比较器 ×1 + 黄铜机壳 ×2 |
+| **全息显示器** | 无线红石信号终端 ×2 + 精密构件 + 玻璃板 ×2 + 黄铜机壳 + 荧石粉 ×2 |
 
 *(需要 JEI 模组在游戏中查看)*
 
@@ -660,6 +691,7 @@ Sable 物理线程和 Minecraft 服务端线程并发运行。共享字段（`ca
 | 🏭 **智能工厂控制** | 使用 PID 节点实现转速自动调节 |
 | 🔄 **自动化时序** | 构建复杂的自动化序列 |
 | 🎛️ **多级联动** | 多台计算机通过私有信号总线协同工作 |
+| 🖥️ **实时工厂仪表盘** | 用全息显示器实时展示传感器数据和运行指标 |
 | 🎯 **无线远程控制** | 结合红石链接网络实现远程控制 |
 | ⚙️ **速度匹配** | 转速代理控制器让转速精确匹配 |
 
