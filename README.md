@@ -34,7 +34,7 @@ A **3D floating display block** that renders node graph output as a virtual scre
 - **Display Nodes** — TEXT, DATA, IMAGE, IMAGE_SEQUENCE for visual output
 - **16×16 Pixel Editor** — Built-in pixel art editor with multi-frame animation support
 - **3D Positioning** — Freely position and rotate the floating screen in world space (X/Y/Z + Roll/Pitch/Yaw)
-- **Signal-Driven Movement** — Drive IMAGE/IMAGE_SEQUENCE position via X/Y input signals with configurable move scale
+- **Signal-Driven Movement** — Drive IMAGE/IMAGE_SEQUENCE position (X/Y) and rotation via input signals with per-axis move scale, rotation scale, and invert toggles
 - **Redstone Input** — Read signals from Create's Redstone Link network (shared frequency)
 - **Real-time Preview** — GUI display mode with WYSIWYG editing of layout, scale, and rotation
 - **Custom Model** — Full Blockbench custom model support
@@ -57,14 +57,14 @@ Directly control the target RPM of Create's **Speed Controller** blocks on adjac
 A **sequential logic computer** for timing, counting, and pulse control applications.
 
 - **Redstone I/O** — Communicates through Create's Redstone Link network
-- **Dedicated sequential nodes**: Delay, Latch, T Flip-Flop, Pulse Extender, Loop, Safety Timer
+- **Dedicated sequential nodes**: Delay, Latch, T Flip-Flop (configurable default), Pulse Extender, Loop, Safety Timer, Accumulator, Continuous Integrator
 
 #### 🪑 Control Seat
 A **sit-able controller seat** with real-time keyboard, mouse, and gamepad input capture.
 
 - **58 assignable keys** — Bind any key via click-to-bind UI
 - **Two input modes**: Joystick (mouse delta) and View Angle (player rotation difference)
-- **Gamepad support** — Dual-stick, 15 buttons via GLFW gamepad API
+- **Gamepad support** — Dual-stick, 15 buttons, analog triggers (LT/RT) via GLFW gamepad API
 - **Sable physics compatible** — Entity yaw syncs with sable sublevel rotation
 - **Smooth mode transitions** — No view jump when switching between Joystick and View Angle modes
 - **Press `~` to dismount**, **`TAB` to switch input mode**, **`ESC` for pause menu**
@@ -79,19 +79,19 @@ Reads the orientation of sable physics structures through a node-based graph.
 
 ---
 
-### Node Reference (49 Types)
+### Node Reference (56 Types)
 
 | Category | Nodes |
 |----------|-------|
 | **Values** | CONST, Redstone Input, Private Signal Input |
-| **Math** | Add, Subtract, Multiply, Divide, Modulo, Power (A^B), Root (B-th Root), Absolute Value, Comparison Router (\|A-B\|), Ceil, Floor, **Formula** |
-| **Logic** | Greater Than, Less Than, Equals, Bool (Toggle) |
-| **Control** | PID Controller (I-term resets on zero error), Power PID, Clamp, Map Range |
+| **Math** | Add, Subtract, Multiply, Divide, Modulo, Power (A^B), Root (B-th Root), Absolute Value, **Round (N Decimals)**, Comparison Router (\|A-B\|), Ceil, Floor, **Formula** |
+| **Logic** | Greater Than, Less Than, **Greater Than or Equal**, **Less Than or Equal**, Equals, **OR Gate**, Bool (Toggle), Gate |
+| **Control** | PID Controller, Power PID, Clamp, Map Range |
 | **Output** | Redstone Output, Private Signal Output, Speed Control |
 | **Display (Monitor only)** | TEXT, DATA, IMAGE, IMAGE_SEQUENCE |
-| **Sequential** | Delay, Latch, T Flip-Flop, Pulse Extender, Loop, Safety Timer |
-| **Input Ctrl** | KEYBOARD (58 keys), Mouse Joystick (X/Y), View Angle, Mouse Button (L/R), Gamepad Joystick (LX/LY/RX/RY), Gamepad Button (15 buttons) |
-| **Sensor** | World View (yaw/pitch), Attitude (pitch/roll), Forward (yaw/pitch), Pose Convert (3-in 2-out), Split |
+| **Sequential** | Delay, Latch, T Flip-Flop, Pulse Extender, Loop, Safety Timer, Accumulator, **Continuous Integrator** |
+| **Input Ctrl** | KEYBOARD (58 keys), Mouse Joystick (X/Y), View Angle, Mouse Button (L/R), Gamepad Joystick (LX/LY/RX/RY), Gamepad Button (15 buttons), **Gamepad Trigger (LT/RT)** |
+| **Sensor** | World View (yaw/pitch), Attitude (pitch/roll), Forward (yaw/pitch), **Acceleration (X/Y/Z)**, Pose Convert (3-in 2-out), Split |
 
 #### Detailed Node Table
 
@@ -113,6 +113,7 @@ Reads the orientation of sable physics structures through a node-based graph.
 | POW | A, B | float | A ^ B (A to the power of B) |
 | ROOT | A, B | float | B-th root of A (returns 0 if B=0) |
 | ABS | in | float | Absolute value of input |
+| ROUND | in | float | decimals | Round to N decimal places (default 2) |
 | Comparison Router | A, B | A, B | A≥B → A port outputs A-B, else B port outputs \|B-A\| |
 | CEIL | in | int | Round up to nearest integer |
 | FLOOR | in | int | Round down to nearest integer |
@@ -123,8 +124,12 @@ Reads the orientation of sable physics structures through a node-based graph.
 |------|--------|--------|--------|-------------|
 | GT | A, B | bool | - | A > B → 1 |
 | LT | A, B | bool | - | A < B → 1 |
+| GE | A, B | bool | - | A >= B → 1 |
+| LE | A, B | bool | - | A <= B → 1 |
 | EQ | A, B | bool | - | A = B → 1 |
+| OR | A, B | bool | - | A > 0.5 or B > 0.5 → 1 |
 | BOOL | in | bool | inverted | in > 0 → 1, ≤ 0 → 0; inverted=1 flips output |
+| GATE | val, Open, Close, Tog | out | default | val passes thru when open; Open/Close set state, Tog toggles |
 
 ##### Control
 | Node | Inputs | Output | Params | Description |
@@ -146,8 +151,8 @@ Reads the orientation of sable physics structures through a node-based graph.
 |------|--------|--------|--------|-------------|
 | TEXT | - | - | text, color | Displays text content |
 | DATA | val | - | color | Displays input float value |
-| IMAGE | X, Y | - | imageData | 16×16 pixel image, XY signals drive position |
-| IMAGE_SEQUENCE | X, Y, frame | - | frames, fps | Multi-frame animation, frame input switches frame |
+| IMAGE | X, Y, rotation | - | moveScaleX/Y, rotationScale, invertX/Y | 16×16 pixel image, signal-driven position + rotation |
+| IMAGE_SEQUENCE | X, Y, frame, rotation | - | moveScaleX/Y, rotationScale, invertX/Y, frames | Multi-frame animation, signal-driven position + rotation + frame select |
 
 ##### Sequential (Program Computer only)
 | Node | Inputs | Output | Params | Description |
@@ -158,6 +163,8 @@ Reads the orientation of sable physics structures through a node-based graph.
 | PULSE_EXTEND | in | pulse | ticks | Extends input pulse by N ticks |
 | LOOP | in | clk | count, interval | Fires pulse every interval tick, repeats count times |
 | FUSE | in | pulse | cooldown | Trigger → 2-tick pulse → cooldown N ticks |
+| ACCUMULATOR | +, - | val | step | Rising-edge triggered; + adds step, - subtracts step |
+| INTEGRATOR | +, -, clear | val | step, interval, limit | Continuous integration every N ticks; both + and - active → hold; clear resets to 0; clamped [0, limit] |
 
 ##### Input Ctrl (Control Seat only)
 | Node | Inputs | Output | Params | Description |
@@ -167,7 +174,8 @@ Reads the orientation of sable physics structures through a node-based graph.
 | VIEW_ANGLE | - | pitch, yaw | - | Player view angle delta (view angle mode) |
 | MOUSE_BUTTON | - | L, R | - | Left/right mouse button state |
 | GAMEPAD_JOYSTICK | - | LX, LY, RX, RY | - | Dual-stick gamepad axes -1~1 |
-| GAMEPAD_BUTTON | - | 1/0 | button | Gamepad button (15 buttons) |
+| GAMEPAD_BUTTON | - | 1/0 | button | Gamepad button (15 buttons), click-to-bind via frame-polling |
+| GAMEPAD_TRIGGER | - | LT, RT | - | Gamepad analog triggers (0.0 ~ 1.0) |
 
 ##### Sensor (Attitude Sensor only)
 | Node | Inputs | Output | Params | Description |
@@ -175,6 +183,7 @@ Reads the orientation of sable physics structures through a node-based graph.
 | WORLD_VIEW | - | yaw, pitch | - | Player absolute world view direction |
 | ATTITUDE | - | pitch, roll | - | Sublevel attitude (pitch/roll) |
 | FORWARD | - | yaw, pitch | - | Sublevel forward direction in world space |
+| ACCELERATION | - | X, Y, Z | - | Structure-local acceleration (fwd/back, up/down, left/right), computed at 20Hz from velocity |
 | POSE_CONVERT | pitch_a, yaw_a, roll | pitch_b, yaw_b | - | Pose conversion (3-in 2-out) |
 | SPLIT | in | +out, -out | - | Split positive/negative: positive→+out, negative→\|-out\|
 
@@ -287,6 +296,7 @@ The sable physics thread and the Minecraft server thread run concurrently. Share
 |------|--------|------------|
 | **ATTITUDE** | `subLevel.logicalPose().orientation()` → `getEulerAnglesYXZ()` | Output: pitch (X), roll (Z) |
 | **FORWARD** | Block facing vector rotated by sublevel quaternion | Output: world-space yaw/pitch |
+| **ACCELERATION** | `subLevel.latestLinearVelocity` differentiated at 20Hz | Structure-local X/Y/Z (fwd/back, up/down, left/right) |
 | **WORLD_VIEW** | Player absolute yaw (view angle diff + entity yaw) | Updates in view angle mode only |
 
 #### Without Sable
