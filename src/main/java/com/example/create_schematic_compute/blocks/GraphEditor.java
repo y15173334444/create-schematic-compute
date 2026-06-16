@@ -54,12 +54,16 @@ public class GraphEditor {
     public final java.util.Set<Integer> expandedNodeIds = new java.util.HashSet<>();
     public static class EditState {
         public final java.util.List<net.minecraft.client.gui.components.EditBox> fields = new java.util.ArrayList<>();
+        /** 每个 field 对应的参数索引（用于参数引脚映射和渲染） */
+        public final java.util.List<Integer> fieldParamIndices = new java.util.ArrayList<>();
         public String[] paramKeys;
         public int freqSlotSelected = 0;
         public float boolBtnX, boolBtnY, boolBtnW, boolBtnH;
         public float freqSlotX, freqSlotY;
-        // KEYBOARD 节点：按键绑定状态
         public boolean listeningForKey = false;
+        public NodeGraph graph;
+        /** 有参数引脚连线时阻止折叠（值由连线决定，编辑区已隐藏） */
+        public boolean blockCollapse;
     }
     public final java.util.Map<Integer, EditState> nodeEditStatesById = new java.util.HashMap<>();
     // 颜色配置面板
@@ -132,12 +136,18 @@ public class GraphEditor {
     /** 创建节点的编辑状态 */
     private EditState createEditState(GraphNode node) {
         var s = new EditState();
+        s.graph = getGraph(); // 用于检查参数引脚连线状态
         s.paramKeys = node.type.paramNames.clone();
         var mc = Minecraft.getInstance();
         for (int i = 0; i < node.params.length; i++) {
             if (node.type == NodeType.BOOL || node.type == NodeType.GATE || node.type == NodeType.T_FLIPFLOP || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON
                 || node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT
                 || node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) continue;
+            // 参数输入引脚已连线 → 阻止折叠（值由连线提供，但引脚仍可见）
+            int pinIdx = node.type.inputs + i;
+            if (node.type.editableParamCount() > 0 && getGraph().hasInputConnection(node.id, pinIdx)) {
+                s.blockCollapse = true;
+            }
             int idx = i;
             var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
@@ -145,6 +155,7 @@ public class GraphEditor {
             float oldVal = node.params[idx];
             b.setResponder(t -> { try { node.params[idx] = Float.parseFloat(t.trim()); } catch (Exception e) { node.params[idx] = oldVal; } });
             s.fields.add(b);
+            s.fieldParamIndices.add(i);
         }
         if ((node.type == NodeType.REDSTONE_IN || node.type == NodeType.REDSTONE_OUT) && node.itemParams.length < 2)
             node.itemParams = new ItemStack[]{ItemStack.EMPTY, ItemStack.EMPTY};
@@ -213,9 +224,13 @@ public class GraphEditor {
         }
         if (!shouldOpenPanel(node)) return;
         if (expandedNodeIds.contains(node.id)) {
+            var st = nodeEditStatesById.get(node.id);
+            if (st != null && st.blockCollapse) return; // 有参数引脚连线，阻止折叠
             expandedNodeIds.remove(node.id); nodeEditStatesById.remove(node.id);
+            node.expanded = false;
         } else {
             expandedNodeIds.add(node.id); nodeEditStatesById.put(node.id, createEditState(node));
+            node.expanded = true;
         }
     }
 
@@ -254,8 +269,20 @@ public class GraphEditor {
     //  4: 热栏弹出
     //  5: 颜色设置面板 / Nodes菜单
     //  6: 框选矩形
+    private boolean expandedInitDone = false;
+
     public void renderBg(GuiGraphics g, int mx, int my) {
         var graph = getGraph();
+        // 首次渲染时从 NBT 恢复展开状态
+        if (!expandedInitDone) {
+            for (var n : graph.nodes) {
+                if (n.expanded && n.type != NodeType.ENCAPSULATION && shouldOpenPanel(n)) {
+                    expandedNodeIds.add(n.id);
+                    nodeEditStatesById.put(n.id, createEditState(n));
+                }
+            }
+            expandedInitDone = true;
+        }
         renderer.renderGrid(g, camX, camY, zoom, host.asScreen().width, host.asScreen().height);
 
         // ── 子图 Back 按钮 ──
@@ -290,10 +317,10 @@ public class GraphEditor {
             var mc = Minecraft.getInstance();
             if (mc.player != null) {
                 float nsx = c2sX(hotbarNode.x), nsy = c2sY(hotbarNode.y);
-                float nch = (HH + PH*(hotbarNode.inputs()+hotbarNode.outputs()))*zoom+4;
+                float nch = (HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()))*zoom+4;
                 var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
                 int numRows = st != null ? st.fields.size() : 0;
-                int editLocalY = (int)(HH + PH*(hotbarNode.inputs()+hotbarNode.outputs()) + 4/zoom);
+                int editLocalY = (int)(HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()) + 4/zoom);
                 int freqLocalY = editLocalY + 4 + numRows * 18;
                 float popupY = nsy + nch + (freqLocalY - editLocalY + 20 + 4) * zoom;
                 int pw = 196, ph = 36;
@@ -407,9 +434,9 @@ public class GraphEditor {
             var mc2 = Minecraft.getInstance();
             var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
             float nsx2 = c2sX(hotbarNode.x), nsy2 = c2sY(hotbarNode.y);
-            float nch2 = (HH + PH*(hotbarNode.inputs()+hotbarNode.outputs()))*zoom+4;
+            float nch2 = (HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()))*zoom+4;
             int numRows2 = st != null ? st.fields.size() : 0;
-            int editLocalY2 = (int)(HH + PH*(hotbarNode.inputs()+hotbarNode.outputs()) + 4/zoom);
+            int editLocalY2 = (int)(HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()) + 4/zoom);
             int freqLocalY2 = editLocalY2 + 4 + numRows2 * 18;
             float popupY2 = nsy2 + nch2 + (freqLocalY2 - editLocalY2 + 20 + 4) * zoom;
             int pw2 = 196, ph2 = 36;
@@ -442,7 +469,7 @@ public class GraphEditor {
                     if (st == null || !st.listeningForKey) continue;
                     float nsx = c2sX(en.x), nsy = c2sY(en.y);
                     int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
-                    int editLocalY = (int)(HH + PH*(en.inputs()+en.outputs()) + 4/zoom);
+                    int editLocalY = (int)(HH + PH*(en.functionalInputs() + en.outputs()) + 4/zoom);
                     int kbLocalY = editLocalY + 4;
                     if (!(lmx >= 4 && lmx <= NW && lmy >= kbLocalY && lmy <= kbLocalY + 18)) {
                         st.listeningForKey = false;
@@ -494,7 +521,7 @@ public class GraphEditor {
                 if (st == null) continue;
                 float nsx = c2sX(en.x), nsy = c2sY(en.y);
                 int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
-                int editLocalY = (int)(HH + PH*(en.inputs()+en.outputs()) + 4/zoom);
+                int editLocalY = (int)(HH + PH*(en.functionalInputs() + en.outputs()) + 4/zoom);
                 int numRows = st.fields.size();
                 // Frequency slots only exist for REDSTONE_IN/OUT nodes
                 if (en.type == NodeType.REDSTONE_IN || en.type == NodeType.REDSTONE_OUT) {
@@ -542,7 +569,16 @@ public class GraphEditor {
             // TAB+左键 → 连线删除 / 多选 / 框选
             if (tabHeld) {
                 var hc = hitConn(mx, my);
-                if (hc != null) { graph.removeConnection(hc.fromId, hc.fromPin, hc.toId, hc.toPin); return true; }
+                if (hc != null) {
+                    graph.removeConnection(hc.fromId, hc.fromPin, hc.toId, hc.toPin);
+                    // 删除参数引脚连线后刷新编辑区（恢复输入框）
+                    var tn = graph.findNode(hc.toId);
+                    if (tn != null && hc.toPin >= tn.functionalInputs() && expandedNodeIds.contains(hc.toId)) {
+                        nodeEditStatesById.remove(hc.toId);
+                        nodeEditStatesById.put(hc.toId, createEditState(tn));
+                    }
+                    return true;
+                }
                 var hit = hitNode(mx, my);
                 if (hit != null && selectedNodes.contains(hit)) {
                     multiDragging = true; multiClickedNode = hit; multiDragOrigins.clear();
@@ -561,7 +597,7 @@ public class GraphEditor {
             var expandHit = hitExpandIndicator(mx, my, graph);
             if (expandHit != null) { toggleExpand(expandHit); return true; }
             // 拖拽连线
-            for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.outputs();i++){float py=sy+HH*zoom+PH*zoom*(node.inputs()+i)+PH*zoom/2f;if(Math.abs(mx-(sx+NW*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
+            for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.outputs();i++){float py=sy+HH*zoom+PH*zoom*(node.functionalInputs()+i)+PH*zoom/2f;if(Math.abs(mx-(sx+NW*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
             // 点击节点（不含 ▶/▼ 区域）
             var hit=hitNode(mx,my);
             if(hit!=null){
@@ -617,7 +653,7 @@ public class GraphEditor {
             float y1 = Math.min(boxSY, boxEY), y2 = Math.max(boxSY, boxEY);
             for(var n : graph.nodes) {
                 float nx = c2sX(n.x), ny = c2sY(n.y);
-                float nw = NW*zoom, nh = (HH+PH*(n.inputs()+n.outputs()))*zoom+4;
+                float nw = NW*zoom, nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
                 if(nx < x2 && nx+nw > x1 && ny < y2 && ny+nh > y1) {
                     // TAB按住时框选切换选中状态
                     if (tabHeld && selectedNodes.contains(n)) selectedNodes.remove(n);
@@ -628,7 +664,55 @@ public class GraphEditor {
             else selectedNode = null;
             return;
         }
-        if(btn==0&&draggingWire){for(var node:graph.nodes){float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.inputs();i++){float py=sy+HH*zoom+PH*zoom*i+PH*zoom/2f;if(Math.abs(mx-sx)<8&&Math.abs(my-py)<PH*zoom/2f+2&&wireFromNode!=node.id)graph.addConnection(wireFromNode,wireFromPin,node.id,i);}}draggingWire=false;}
+        if(btn==0&&draggingWire){
+            // 找最近的输入引脚（只连一个，避免多个引脚全连上）
+            int bestNodeId=-1, bestPin=-1;
+            float bestDist=Float.MAX_VALUE;
+            float xTol=20;
+            // 第一阶段：节点主体上的功能引脚
+            for(var node:graph.nodes){
+                float sx=c2sX(node.x), sy=c2sY(node.y);
+                for(int i=0;i<node.functionalInputs();i++){
+                    float py=sy+HH*zoom+PH*zoom*i+PH*zoom/2f;
+                    float dx=(float)Math.abs(mx-sx), dy=(float)Math.abs(my-py);
+                    if(dx<xTol&&dy<PH*zoom/2f+2&&wireFromNode!=node.id){
+                        float dist=dx+dy;
+                        if(dist<bestDist){bestDist=dist;bestNodeId=node.id;bestPin=i;}
+                    }
+                }
+            }
+            // 第二阶段：编辑区内的参数引脚（展开的节点）
+            for (int nid : expandedNodeIds) {
+                var n = graph.findNode(nid);
+                if (n == null || n.type.editableParamCount() == 0) continue;
+                var st = nodeEditStatesById.get(nid);
+                if (st == null) continue;
+                float sx = c2sX(n.x), sy = c2sY(n.y);
+                float editBaseY = sy + (HH + PH*(n.functionalInputs() + n.outputs()))*zoom + 4;
+                for (int fi = 0; fi < st.fields.size() && fi < st.fieldParamIndices.size(); fi++) {
+                    int pinIdx = n.functionalInputs() + st.fieldParamIndices.get(fi);
+                    if (getGraph().hasInputConnection(nid, pinIdx)) continue;
+                    float py = editBaseY + (12 + fi * 18)*zoom;
+                    float px = sx + 10*zoom;
+                    float dx = (float)Math.abs(mx - px), dy = (float)Math.abs(my - py);
+                    if (dx < 16*zoom && dy < 10*zoom && wireFromNode != nid) {
+                        float dist = dx + dy;
+                        if (dist < bestDist) { bestDist = dist; bestNodeId = nid; bestPin = pinIdx; }
+                    }
+                }
+            }
+            if(bestNodeId>=0){
+                graph.addConnection(wireFromNode,wireFromPin,bestNodeId,bestPin);
+                // 参数引脚连线后刷新编辑区（隐藏对应输入框）
+                var targetNode = graph.findNode(bestNodeId);
+                if (targetNode != null && bestPin >= targetNode.type.inputs) {
+                    nodeEditStatesById.remove(bestNodeId);
+                    var newSt = createEditState(targetNode);
+                    nodeEditStatesById.put(bestNodeId, newSt);
+                }
+            }
+            draggingWire=false;
+        }
         if(btn==0&&draggingNode!=null)draggingNode=null;if(btn==0&&panning)panning=false;
     }
     public void mouseMoved(double mx, double my) {
@@ -713,12 +797,12 @@ public class GraphEditor {
             var idMap = new java.util.HashMap<Integer, Integer>();
             var newNodes = new java.util.ArrayList<GraphNode>();
             float ofs = 30;
-            // 克隆所有选中节点
+            // 克隆所有选中节点（含子图等所有字段）
             for (var n : selectedNodes) {
-                var dup = graph.addNode(n.type, n.x + ofs, n.y + ofs);
-                System.arraycopy(n.params, 0, dup.params, 0, Math.min(n.params.length, dup.params.length));
-                if (n.itemParams != null) dup.itemParams = n.itemParams.clone();
-                if (n.signalName != null) dup.signalName = n.signalName;
+                int newId = graph.nextNodeId++;
+                var dup = n.shallowCopyWithNewId(newId);
+                dup.x += ofs; dup.y += ofs;
+                graph.adoptNode(dup);
                 idMap.put(n.id, dup.id);
                 newNodes.add(dup);
             }
@@ -826,7 +910,7 @@ public class GraphEditor {
         for(int i=graph.nodes.size()-1;i>=0;i--){
             var n=graph.nodes.get(i);
             float sx=c2sX(n.x), sy=c2sY(n.y), sw=NW*zoom;
-            float nh = (HH+PH*(n.inputs()+n.outputs()))*zoom+4;
+            float nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
             if (expandedNodeIds.contains(n.id))
                 nh += EditPanel.calcRenderHeight(n, zoom) * zoom;
             if(mx>=sx&&mx<=sx+sw&&my>=sy&&my<=sy+nh) return n;
@@ -835,11 +919,20 @@ public class GraphEditor {
     }
     private NodeConnection hitConn(double mx, double my) {
         var graph = getGraph();
+        NodeConnection best=null;
+        float globalMin=12; // 阈值
         for(NodeConnection c:graph.connections){
             GraphNode fn=graph.findNode(c.fromId), tn=graph.findNode(c.toId);
             if(fn==null||tn==null)continue;
-            float fx=c2sX(fn.x+NW), fy=c2sY(fn.y+HH+PH*(fn.inputs()+c.fromPin)+PH/2f);
-            float tx=c2sX(tn.x), ty=c2sY(tn.y+HH+PH*c.toPin+PH/2f);
+            float fx=c2sX(fn.x+NW), fy=c2sY(fn.y+HH+PH*(fn.functionalInputs() + c.fromPin)+PH/2f);
+            float ty;
+            if (c.toPin < tn.functionalInputs())
+                ty=c2sY(tn.y+HH+PH*c.toPin+PH/2f);                       // 功能引脚
+            else {
+                int pi=c.toPin-tn.functionalInputs();
+                ty=c2sY(tn.y+HH+PH*(tn.functionalInputs()+tn.outputs())+4/zoom+pi*18+12); // 参数引脚
+            }
+            float tx=c2sX(tn.x);
             float dx=Math.abs(tx-fx)*0.4f, dist=(float)Math.sqrt((tx-fx)*(tx-fx)+(ty-fy)*(ty-fy));
             int steps=Math.max(10,(int)(dist*0.3f));
             float minDist=Float.MAX_VALUE, px=fx, py=fy;
@@ -850,9 +943,9 @@ public class GraphEditor {
                 float segDist=distanceToSegment((float)mx,(float)my,px,py,nx,ny);
                 if(segDist<minDist) minDist=segDist; px=nx; py=ny;
             }
-            if(minDist<12) return c;
+            if(minDist<globalMin){globalMin=minDist;best=c;}
         }
-        return null;
+        return best;
     }
     private static float distanceToSegment(float px,float py,float x1,float y1,float x2,float y2){
         float abx=x2-x1, aby=y2-y1, apx=px-x1, apy=py-y1;

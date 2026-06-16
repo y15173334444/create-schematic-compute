@@ -22,9 +22,10 @@ public class GraphEvaluator {
         float worldYaw, float worldPitch,
         int mouseButtons, float gpadLX, float gpadLY, float gpadRX, float gpadRY, float gpadLT, float gpadRT, long gpadButtons,
         float blockYaw, float attitudeYaw, float attitudePitch, float attitudeRoll, float forwardYaw, float forwardPitch,
-        float accelX, float accelY, float accelZ) {
+        float accelX, float accelY, float accelZ,
+        float velX, float velY, float velZ) {
         public SeatInputState(long keyBits, float mouseX, float mouseY, float yaw, float pitch) {
-            this(keyBits, mouseX, mouseY, yaw, pitch, yaw, pitch, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+            this(keyBits, mouseX, mouseY, yaw, pitch, yaw, pitch, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
     }
 
@@ -225,6 +226,23 @@ public class GraphEvaluator {
 
     private void eval(GraphNode node, List<InputSource> inputs, Map<Integer, Float> pidState, float dt, SeatInputState seat) {
         float[] o = node.outputValues;
+
+        // 通用参数引脚：连线值临时覆盖 node.params（所有节点 handler 无缝兼容）
+        float[] origParams = node.params;
+        float[] effParams = origParams;
+        int extraBase = node.type.inputs;
+        int extraCnt = node.type.editableParamCount();
+        if (extraCnt > 0) {
+            boolean hasOverride = false;
+            for (int pi = 0; pi < extraCnt; pi++) {
+                if (graph.hasInputConnection(node.id, extraBase + pi)) {
+                    if (!hasOverride) { effParams = origParams.clone(); hasOverride = true; }
+                    if (pi < effParams.length) effParams[pi] = graph.getInputValue(node.id, extraBase + pi, outputs);
+                }
+            }
+            if (hasOverride) node.params = effParams;
+        }
+
         switch (node.type) {
             case KEYBOARD -> {
                 int keyIndex = node.params.length > 0 ? (int)node.params[0] : 0;
@@ -244,6 +262,7 @@ public class GraphEvaluator {
             case ATTITUDE -> { o[0] = seat.attitudePitch(); o[1] = seat.attitudeRoll(); }
             case FORWARD -> { o[0] = seat.forwardYaw(); o[1] = seat.forwardPitch(); }
             case ACCELERATION -> { o[0] = seat.accelX(); o[1] = seat.accelY(); o[2] = seat.accelZ(); }
+            case VELOCITY -> { o[0] = seat.velX() * 2f; o[1] = seat.velY() * 2f; o[2] = seat.velZ() * 2f; }
             case SPLIT -> {
                 float v = graph.getInputValue(node.id, 0, outputs);
                 o[0] = Math.max(0, v); o[1] = Math.max(0, -v);
@@ -339,8 +358,30 @@ public class GraphEvaluator {
                 pidState.put(ik, integral);
                 o[0] = Math.max(0, base + kp * err + ki * integral);
             }
-            case CLAMP -> { float v = graph.getInputValue(node.id, 0, outputs); if (Float.isNaN(v) || !Float.isFinite(v)) v = 0; float mn = graph.getInputValue(node.id, 1, outputs); float mx = graph.getInputValue(node.id, 2, outputs); o[0] = Math.max(mn, Math.min(mx, v)); }
-            case MAP -> { float v = graph.getInputValue(node.id, 0, outputs); float imn = graph.getInputValue(node.id, 1, outputs); float imx = graph.getInputValue(node.id, 2, outputs); float omn = graph.getInputValue(node.id, 3, outputs); float omx = graph.getInputValue(node.id, 4, outputs); if (!Float.isFinite(v) || !Float.isFinite(imn) || !Float.isFinite(imx) || !Float.isFinite(omn) || !Float.isFinite(omx)) { o[0] = 0; } else { float r = imx - imn; o[0] = r == 0 ? omn : omn + (v - imn) / r * (omx - omn); } }
+            case CLAMP -> {
+                float v = graph.getInputValue(node.id, 0, outputs);
+                if (Float.isNaN(v) || !Float.isFinite(v)) v = 0;
+                float mn = graph.hasInputConnection(node.id, 1)
+                    ? graph.getInputValue(node.id, 1, outputs)
+                    : (node.params.length > 0 ? node.params[0] : 0);
+                float mx = graph.hasInputConnection(node.id, 2)
+                    ? graph.getInputValue(node.id, 2, outputs)
+                    : (node.params.length > 1 ? node.params[1] : 0);
+                o[0] = Math.max(mn, Math.min(mx, v));
+            }
+            case MAP -> {
+                float v = graph.getInputValue(node.id, 0, outputs);
+                float imn = graph.hasInputConnection(node.id, 1)
+                    ? graph.getInputValue(node.id, 1, outputs) : (node.params.length > 0 ? node.params[0] : 0);
+                float imx = graph.hasInputConnection(node.id, 2)
+                    ? graph.getInputValue(node.id, 2, outputs) : (node.params.length > 1 ? node.params[1] : 0);
+                float omn = graph.hasInputConnection(node.id, 3)
+                    ? graph.getInputValue(node.id, 3, outputs) : (node.params.length > 2 ? node.params[2] : 0);
+                float omx = graph.hasInputConnection(node.id, 4)
+                    ? graph.getInputValue(node.id, 4, outputs) : (node.params.length > 3 ? node.params[3] : 0);
+                if (!Float.isFinite(v) || !Float.isFinite(imn) || !Float.isFinite(imx) || !Float.isFinite(omn) || !Float.isFinite(omx)) { o[0] = 0; }
+                else { float r = imx - imn; o[0] = r == 0 ? omn : omn + (v - imn) / r * (omx - omn); }
+            }
             case SPEED_CTRL -> {
                 float speed = graph.getInputValue(node.id, 0, outputs);
                 float dir = graph.getInputValue(node.id, 1, outputs);
@@ -430,6 +471,7 @@ public class GraphEvaluator {
                 }
             }
         }
+        node.params = origParams; // 恢复参数（可能被连线值临时覆盖）
         outputs.put(node.id, o.clone());
     }
 

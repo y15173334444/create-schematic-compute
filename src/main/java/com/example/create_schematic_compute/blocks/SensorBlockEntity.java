@@ -4,6 +4,7 @@ import com.example.create_schematic_compute.SchematicCompute;
 import com.example.create_schematic_compute.graph.GraphEvaluator;
 import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
+import com.example.create_schematic_compute.graph.RuntimeState;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -30,7 +31,7 @@ import java.util.Map;
 public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
-    public final Map<Integer, Float> pidState = new HashMap<>();
+    public final RuntimeState runtimeState = new RuntimeState();
     public float attitudeYaw = 0, attitudePitch = 0, attitudeRoll = 0;
     public float forwardYaw = 0, forwardPitch = 0;
     public float accelX = 0, accelY = 0, accelZ = 0;
@@ -45,7 +46,7 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
     @Override public boolean isRunning() { return running; }
     @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override public boolean graphHasCycles() { return graph.hasCycles(); }
-    @Override public void clearPidState() { pidState.clear(); }
+    @Override public void clearPidState() { runtimeState.pidState.clear(); }
 
     public static SensorBlockEntity create(BlockPos pos, BlockState state) {
         try {
@@ -57,7 +58,7 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
         return new SensorBlockEntity(pos, state);
     }
     @Override public void accept(BlockEntity other) {
-        if(other instanceof SensorBlockEntity src) { this.graph = src.graph; this.running = src.running; setChanged();
+        if(other instanceof SensorBlockEntity src) { this.graph = src.graph; this.running = src.running; runtimeState.clear(); setChanged();
             if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     }
     @Override public void onLoad() { super.onLoad(); rs.onLoad(graph); }
@@ -132,11 +133,11 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
             accelZ = (float)((rawVelZ - prevRawVelZ) / 0.05);
             prevRawVelX = rawVelX; prevRawVelY = rawVelY; prevRawVelZ = rawVelZ;
         }
-        if(evaluator==null||lastEvaluatedGraph!=graph){ evaluator=new GraphEvaluator(graph); lastEvaluatedGraph=graph; pidState.clear(); }
+        if(evaluator==null||lastEvaluatedGraph!=graph){ evaluator=new GraphEvaluator(graph); lastEvaluatedGraph=graph; runtimeState.pidState.clear(); }
         rs.refreshInputs();
         var in = rs.buildInputs(graph);
-        var si = new GraphEvaluator.SeatInputState(0,0,0,0,0, 0,0, 0,0,0,0,0,0,0,0, 0,attitudeYaw,attitudePitch,attitudeRoll,forwardYaw,forwardPitch, accelX,accelY,accelZ);
-        var results = evaluator.evaluate(in, pidState, 0.05f, si);
+        var si = new GraphEvaluator.SeatInputState(0,0,0,0,0, 0,0, 0,0,0,0,0,0,0,0, 0,attitudeYaw,attitudePitch,attitudeRoll,forwardYaw,forwardPitch, accelX,accelY,accelZ, (float)rawVelX,(float)rawVelY,(float)rawVelZ);
+        var results = evaluator.evaluate(in, runtimeState.pidState, 0.05f, si);
         rs.writeOutputs(results);
         setChanged();
     }
@@ -152,11 +153,16 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
 
     @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.saveAdditional(t,r); t.put("graph", graph.save(r)); t.putBoolean("running", running);
+        t.put("runtime", runtimeState.save());
     }
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t,r);
         if (t.contains("graph")) { graph = NodeGraph.load(t.getCompound("graph"), r); rs.onLoad(graph); }
         if (t.contains("running")) running = t.getBoolean("running");
+        if (t.contains("runtime")) {
+            RuntimeState loaded = RuntimeState.load(t.getCompound("runtime"));
+            runtimeState.pidState.putAll(loaded.pidState);
+        }
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }

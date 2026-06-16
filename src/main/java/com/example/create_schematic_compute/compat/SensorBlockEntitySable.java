@@ -51,9 +51,17 @@ public class SensorBlockEntitySable extends SensorBlockEntity implements BlockEn
         double v2x = v1x;
         double v2y = cp * v1y + sp * v1z;
         double v2z = -sp * v1y + cp * v1z;
-        rawVelX = cr * v2x + sr * v2y;  // 前后
-        rawVelY = -sr * v2x + cr * v2y; // 上下
-        rawVelZ = v2z;                   // 左右
+        rawVelX = cr * v2x + sr * v2y;  // 结构前后
+        rawVelY = -sr * v2x + cr * v2y; // 结构上下
+        rawVelZ = v2z;                   // 结构左右
+
+        // 从结构局部旋转到方块自身朝向（X=方块前后, Z=方块左右）
+        double blockAngle = Math.toRadians(-cachedBlockFacingYaw);
+        double cb = Math.cos(blockAngle), sb = Math.sin(blockAngle);
+        double bvx = sb * rawVelX + cb * rawVelZ;
+        double bvz = cb * rawVelX - sb * rawVelZ;
+        rawVelX = bvx;
+        rawVelZ = bvz;
 
         // 更新 attitude/forward（tick() 会调用 updateAttitude() 转到此方法）
         updateAttitude();

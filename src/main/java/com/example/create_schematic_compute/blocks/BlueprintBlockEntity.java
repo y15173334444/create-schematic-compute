@@ -3,6 +3,7 @@ package com.example.create_schematic_compute.blocks;
 import com.example.create_schematic_compute.SchematicCompute;
 import com.example.create_schematic_compute.graph.GraphEvaluator;
 import com.example.create_schematic_compute.graph.NodeGraph;
+import com.example.create_schematic_compute.graph.RuntimeState;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -21,13 +22,11 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
-import java.util.HashMap;
-import java.util.Map;
 
 public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
     public NodeGraph graph = new NodeGraph();
     public boolean running = false;
-    public final Map<Integer, Float> pidState = new HashMap<>();
+    public final RuntimeState runtimeState = new RuntimeState();
 
     private final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
 
@@ -38,11 +37,11 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
     @Override public boolean isRunning() { return running; }
     @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override public boolean graphHasCycles() { return graph.hasCycles(); }
-    @Override public void clearPidState() { pidState.clear(); }
+    @Override public void clearPidState() { runtimeState.pidState.clear(); }
 
     @Override public void accept(BlockEntity other) {
         if(other instanceof BlueprintBlockEntity src) {
-            this.graph = src.graph; this.running = src.running;
+            this.graph = src.graph; this.running = src.running; runtimeState.clear();
             setChanged();
             if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
@@ -64,12 +63,12 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
         if (evaluator == null || lastEvaluatedGraph != graph) {
             evaluator = new GraphEvaluator(graph);
             lastEvaluatedGraph = graph;
-            pidState.clear();
+            runtimeState.pidState.clear();
         }
         rs.refreshInputsActive();
         var in = rs.buildInputs(graph);
         float dt = 0.05f;
-        var results = evaluator.evaluate(in, pidState, dt);
+        var results = evaluator.evaluate(in, runtimeState.pidState, dt);
         rs.writeOutputs(results);
         setChanged();
     }
@@ -88,11 +87,16 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
     }
     @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.saveAdditional(t,r); t.put("graph", graph.save(r)); t.putBoolean("running", running);
+        t.put("runtime", runtimeState.save());
     }
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t,r);
         if (t.contains("graph")) { graph = NodeGraph.load(t.getCompound("graph"), r); rs.onLoad(graph); }
         if (t.contains("running")) running = t.getBoolean("running");
+        if (t.contains("runtime")) {
+            RuntimeState loaded = RuntimeState.load(t.getCompound("runtime"));
+            runtimeState.pidState.putAll(loaded.pidState);
+        }
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }

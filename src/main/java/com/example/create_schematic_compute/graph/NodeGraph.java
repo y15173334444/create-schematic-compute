@@ -35,6 +35,12 @@ public class NodeGraph {
         return node;
     }
 
+    /** Adopt an externally-constructed node. Does NOT touch {@code nextNodeId}. */
+    public void adoptNode(GraphNode node) {
+        nodes.add(node);
+        nodeMap.put(node.id, node);
+    }
+
     public void removeNode(int id) {
         nodes.removeIf(n -> n.id == id);
         connections.removeIf(c -> c.fromId == id || c.toId == id);
@@ -121,12 +127,36 @@ public class NodeGraph {
         return 0;
     }
 
+    /** O(1) 检查指定输入引脚是否有连线 */
+    public boolean hasInputConnection(int nodeId, int pinIdx) {
+        return inputCache.containsKey(key(nodeId, pinIdx));
+    }
+
     public boolean hasCycles() {
         return getTopoOrder().size() < nodes.size();
     }
 
+    /** Deep-copy this entire graph with new IDs. Recursively copies sub-graphs inside encapsulation nodes. */
+    public NodeGraph copy() {
+        NodeGraph g = new NodeGraph();
+        java.util.Map<Integer, Integer> idMap = new java.util.HashMap<>();
+        for (GraphNode n : nodes) {
+            GraphNode dup = n.shallowCopyWithNewId(g.nextNodeId++);
+            idMap.put(n.id, dup.id);
+            g.nodes.add(dup);
+            g.nodeMap.put(dup.id, dup);
+        }
+        for (NodeConnection c : connections) {
+            if (idMap.containsKey(c.fromId) && idMap.containsKey(c.toId))
+                g.connections.add(new NodeConnection(idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin));
+        }
+        g.rebuildInputCache();
+        return g;
+    }
+
     public CompoundTag save(HolderLookup.Provider registries) {
         CompoundTag tag = new CompoundTag();
+        tag.putInt(NbtVersions.VERSION_KEY, NbtVersions.DATA_VERSION);
         tag.putInt("nextId", nextNodeId);
         ListTag nl = new ListTag();
         for (GraphNode n : nodes) nl.add(n.save(registries));
@@ -137,7 +167,14 @@ public class NodeGraph {
         return tag;
     }
 
-    public static NodeGraph load(CompoundTag tag, HolderLookup.Provider registries) {
+    /** Load graph from NBT, transparently migrating old formats. */
+    public static NodeGraph load(CompoundTag rawTag, HolderLookup.Provider registries) {
+        CompoundTag tag = GraphMigration.migrate(rawTag);
+        return loadCurrent(tag, registries);
+    }
+
+    /** Load a tag that is already at the current DATA_VERSION. */
+    private static NodeGraph loadCurrent(CompoundTag tag, HolderLookup.Provider registries) {
         NodeGraph g = new NodeGraph();
         g.nextNodeId = tag.getInt("nextId");
         ListTag nl = tag.getList("nodes", Tag.TAG_COMPOUND);

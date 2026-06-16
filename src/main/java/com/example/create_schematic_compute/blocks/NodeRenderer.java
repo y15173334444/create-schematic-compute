@@ -146,7 +146,7 @@ public class NodeRenderer {
     }
 
     // 尺寸常量
-    static final int NW=140, HH=18, PH=16, PR=4, GS=30;
+    public static final int NW=140, HH=18, PH=16, PR=4, GS=30;
 
     // 坐标转换接口
     public interface CoordMapper { float apply(float coord); }
@@ -164,7 +164,7 @@ public class NodeRenderer {
         new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL}),
         new NodeCategory("category.create_schematic_compute.sequential", new NodeType[]{NodeType.DELAY, NodeType.LATCH, NodeType.T_FLIPFLOP, NodeType.PULSE_EXTEND, NodeType.LOOP, NodeType.FUSE, NodeType.ACCUMULATOR, NodeType.INTEGRATOR}),
         new NodeCategory("category.create_schematic_compute.input_ctrl", new NodeType[]{NodeType.KEYBOARD, NodeType.MOUSE_BUTTON, NodeType.MOUSE_JOYSTICK, NodeType.GAMEPAD_JOYSTICK, NodeType.GAMEPAD_BUTTON, NodeType.GAMEPAD_TRIGGER}),
-        new NodeCategory("category.create_schematic_compute.input_sensor", new NodeType[]{NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD, NodeType.ACCELERATION}),
+        new NodeCategory("category.create_schematic_compute.input_sensor", new NodeType[]{NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD, NodeType.ACCELERATION, NodeType.VELOCITY}),
         new NodeCategory("category.create_schematic_compute.display", new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE}),
         new NodeCategory("category.create_schematic_compute.structure", new NodeType[]{NodeType.ENCAPSULATION}),
         new NodeCategory("category.create_schematic_compute.encap_io", new NodeType[]{NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT}),
@@ -196,11 +196,19 @@ public class NodeRenderer {
             GraphNode fn = graph.findNode(c.fromId);
             GraphNode tn = graph.findNode(c.toId);
             if(fn==null||tn==null) continue;
-            // cull: both endpoints outside viewport edge (conservative — bezier stays near endpoints)
+            // cull: both endpoints outside viewport edge
             float wx1 = fn.x + NW, wx2 = tn.x;
             if ((wx1 < vpLeft && wx2 < vpLeft) || (wx1 > vpRight && wx2 > vpRight)) continue;
-            float wy1 = fn.y + HH + PH*(fn.inputs()+c.fromPin) + PH/2f;
-            float wy2 = tn.y + HH + PH*c.toPin + PH/2f;
+            // 输出引脚Y（来源节点 — 功能引脚之后）
+            float wy1 = fn.y + HH + PH*(fn.functionalInputs() + c.fromPin) + PH/2f;
+            // 输入引脚Y（目标节点 — 功能引脚在节点体上，参数引脚在编辑区内）
+            float wy2;
+            if (c.toPin < tn.functionalInputs()) {
+                wy2 = tn.y + HH + PH*c.toPin + PH/2f;  // 功能引脚：节点体左侧
+            } else {
+                int paramIdx = c.toPin - tn.functionalInputs();
+                wy2 = tn.y + HH + PH*(tn.functionalInputs() + tn.outputs()) + 4/zoom + paramIdx*18 + 12; // 参数引脚：编辑区内
+            }
             if ((wy1 < vpTop && wy2 < vpTop) || (wy1 > vpBottom && wy2 > vpBottom)) continue;
             float x1 = c2sX.apply(wx1), y1 = c2sY.apply(wy1);
             float x2 = c2sX.apply(wx2), y2 = c2sY.apply(wy2);
@@ -212,7 +220,7 @@ public class NodeRenderer {
                                     float wireEndX, float wireEndY, float camX, float camY, float zoom) {
         var fn = graph.findNode(wireFromNode);
         if(fn==null) return;
-        float x1 = c2sX.apply(fn.x+NW), y1 = c2sY.apply(fn.y+HH+PH*(fn.inputs()+wireFromPin)+PH/2f);
+        float x1 = c2sX.apply(fn.x+NW), y1 = c2sY.apply(fn.y+HH+PH*(fn.functionalInputs() + wireFromPin)+PH/2f);
         float x2 = c2sX.apply(wireEndX), y2 = c2sY.apply(wireEndY);
         bezier(g, x1, y1, x2, y2, CWD);
     }
@@ -232,7 +240,7 @@ public class NodeRenderer {
         float margin = 50;
         for(var n : nodes) {
             float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
-            float sw = NW*zoom, nh = (HH+PH*(n.inputs()+n.outputs()))*zoom+4;
+            float sw = NW*zoom, nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
             if (sx + sw < -margin || sx > w + margin || sy + nh < -margin || sy > h + margin)
                 continue;
             drawNode(g, n, selectedNodes.contains(n), n == primaryNode, expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my);
@@ -243,9 +251,10 @@ public class NodeRenderer {
                            float camX, float camY, float zoom, int mx, int my) {
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
         float sw = NW*zoom;
-        float contentH = (HH+PH*(n.inputs()+n.outputs()))*zoom+4;
+        float contentH = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
         // 编辑模式：各节点独立计算高度
-        float extraH = editing ? com.example.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom) * zoom : 0;
+        float extraH = editing ? com.example.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom,
+            editing ? nodeEditStatesById.get(n.id) : null) * zoom : 0;
         float nh = contentH + extraH;
         // 节点体（暖钢色）
         // 节点体在编辑区背景
@@ -261,8 +270,9 @@ public class NodeRenderer {
         pose.translate(sx,sy,0);
         pose.scale(zoom,zoom,1);
         drawStr(g, I18n.get(n.type.getTitle()), 4, 4, CNT);
-        // 输入端
-        for(int i=0; i<n.inputs(); i++) {
+        // 输入端（仅功能引脚，参数引脚在编辑区内）
+        int funcInputs = n.functionalInputs();
+        for(int i=0; i<funcInputs; i++) {
             float py = HH+PH*i+PH/2f;
             int r = PR;
             g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1), CPIB);
@@ -271,7 +281,7 @@ public class NodeRenderer {
         }
         // 输出端
         for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL; i++) {
-            float py = HH+PH*(n.inputs()+i)+PH/2f;
+            float py = HH+PH*(funcInputs + i)+PH/2f;
             int r = PR;
             g.fill(NW - r - 1, (int)(py - r - 1), NW + r + 1, (int)(py + r + 1), CPOB);
             g.fill(NW - r, (int)(py - r), NW + r, (int)(py + r), CPO);
@@ -279,7 +289,7 @@ public class NodeRenderer {
         }
         // 公式文本显示（FORMULA 节点）
         if (n.type == NodeType.FORMULA) {
-            drawStr(g, "§7" + (n.formula.isEmpty() ? I18n.get("gui.create_schematic_compute.formula_placeholder") : n.formula), 4, HH+PH*(n.inputs()+n.outputs())+4, CD);
+            drawStr(g, "§7" + (n.formula.isEmpty() ? I18n.get("gui.create_schematic_compute.formula_placeholder") : n.formula), 4, HH+PH*(n.functionalInputs() + n.outputs())+4, CD);
         }
         // 展开指示器（可编辑节点在标题右侧显示 ▶/▼）
         if (n.type == NodeType.FORMULA || n.type.paramNames.length > 0
@@ -292,16 +302,16 @@ public class NodeRenderer {
         }
         // 封装节点体部摘要
         if (n.type == NodeType.ENCAPSULATION && !editing) {
-            String summary = java.text.MessageFormat.format(I18n.get("gui.create_schematic_compute.encap_summary"), n.inputs(), n.outputs());
-            drawStr(g, "§8" + summary, 4, HH + PH * Math.max(n.inputs(), n.outputs()) + 4, CD);
+            String summary = java.text.MessageFormat.format(I18n.get("gui.create_schematic_compute.encap_summary"), n.functionalInputs(), n.outputs());
+            drawStr(g, "§8" + summary, 4, HH + PH * Math.max(n.functionalInputs(), n.outputs()) + 4, CD);
         }
         // 编辑区（pose 内渲染保证缩放同步，覆盖层在 renderBg 中更高优先级）
         if (editing) {
-            int editLocalY = (int)(HH + PH*(n.inputs() + n.outputs()) + 4/zoom);
-            int editLocalH = com.example.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom);
+            int editLocalY = (int)(HH + PH*(n.functionalInputs() + n.outputs()) + 4/zoom);
+            var editSt = nodeEditStatesById.get(n.id);
+            int editLocalH = com.example.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom, editSt);
             g.fill(2, editLocalY - 2, NW - 2, editLocalY, 0xFF5A4D3A);
             g.fill(2, editLocalY, NW - 2, editLocalY + editLocalH, 0xFF2A2822);
-            var editSt = nodeEditStatesById.get(n.id);
             if (editSt != null && !suppressControls) {
                 com.example.create_schematic_compute.blocks.EditPanel.renderAt(g, 0, editLocalY, NW, n, editSt, zoom, mx, my);
             }

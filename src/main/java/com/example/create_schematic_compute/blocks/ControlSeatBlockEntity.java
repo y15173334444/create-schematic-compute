@@ -5,6 +5,7 @@ import com.example.create_schematic_compute.SchematicCompute;
 import com.example.create_schematic_compute.graph.GraphEvaluator;
 import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
+import com.example.create_schematic_compute.graph.RuntimeState;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 
 import net.createmod.catnip.data.Couple;
@@ -112,7 +113,7 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
         return new ControlSeatBlockEntity(pos, state);
     }
     public boolean running = false;
-    public final Map<Integer, Float> pidState = new HashMap<>();
+    public final RuntimeState runtimeState = new RuntimeState();
 
     // 控制座椅输入状态（由客户端包更新）
     public long keyBits = 0;          // bit 0-25: A-Z, 26-35: 0-9, 58=LMB, 59=RMB
@@ -146,12 +147,13 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     @Override public boolean isRunning() { return running; }
     @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override public boolean graphHasCycles() { return graph.hasCycles(); }
-    @Override public void clearPidState() { pidState.clear(); }
+    @Override public void clearPidState() { runtimeState.pidState.clear(); }
 
     @Override public void accept(net.minecraft.world.level.block.entity.BlockEntity other) {
         if(other instanceof ControlSeatBlockEntity src) {
             this.graph = src.graph;
             this.running = src.running;
+            runtimeState.clear();
             setChanged();
             if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
@@ -194,7 +196,7 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
         if (evaluator == null || lastEvaluatedGraph != graph) {
             evaluator = new GraphEvaluator(graph);
             lastEvaluatedGraph = graph;
-            pidState.clear();
+            runtimeState.pidState.clear();
         }
 
         rs.refreshInputs();
@@ -226,10 +228,11 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
         var seatInput = new GraphEvaluator.SeatInputState(keyBits, mouseJoystickX, mouseJoystickY, viewYaw, viewPitch,
             savedWorldYaw, savedWorldPitch, mouseButtons, gpadLX, gpadLY, gpadRX, gpadRY, gpadLT, gpadRT, gpadButtons,
             blockYaw, attitudeYaw, attitudePitch, attitudeRoll, forwardYaw, forwardPitch,
-            accelX, accelY, accelZ);
+            accelX, accelY, accelZ,
+            (float) rawVelX, (float) rawVelY, (float) rawVelZ);
 
         float dt = 0.05f;
-        var results = evaluator.evaluate(in, pidState, dt, seatInput);
+        var results = evaluator.evaluate(in, runtimeState.pidState, dt, seatInput);
 
         rs.writeOutputs(results);
         setChanged();
@@ -256,6 +259,7 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
         super.saveAdditional(t,r);
         t.put("graph", graph.save(r));
         t.putBoolean("running", running);
+        t.put("runtime", runtimeState.save());
     }
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t,r);
@@ -264,6 +268,10 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
             rs.onLoad(graph);
         }
         if (t.contains("running")) running = t.getBoolean("running");
+        if (t.contains("runtime")) {
+            RuntimeState loaded = RuntimeState.load(t.getCompound("runtime"));
+            runtimeState.pidState.putAll(loaded.pidState);
+        }
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }

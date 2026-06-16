@@ -4,6 +4,7 @@ import com.example.create_schematic_compute.SchematicCompute;
 import com.example.create_schematic_compute.graph.GraphEvaluator;
 import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
+import com.example.create_schematic_compute.graph.RuntimeState;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -23,8 +24,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.util.ArrayDeque;
-import java.util.HashMap;
-import java.util.Map;
 
 public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
     public NodeGraph graph = new NodeGraph();
@@ -35,19 +34,16 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
     private final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
 
     // 时序节点状态
-    private final Map<Integer, Float> pidState = new HashMap<>();
-    private final Map<Integer, ArrayDeque<Float>> delayQueues = new HashMap<>();
-    private final Map<Integer, Boolean> flipflopStates = new HashMap<>();
-    private final Map<Integer, Integer> pulseTimers = new HashMap<>();
+    public final RuntimeState runtimeState = new RuntimeState();
 
     public ProgramComputerBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.PROGRAM_BE.get(), pos, s); }
     @Override public boolean isRunning() { return running; }
     @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override public boolean graphHasCycles() { return graph.hasCycles(); }
-    @Override public void clearPidState() {} // no PID state
+    @Override public void clearPidState() { runtimeState.pidState.clear(); }
 
     @Override public void accept(BlockEntity other) {
-        if(other instanceof ProgramComputerBlockEntity src) { this.graph = src.graph; this.running = src.running; setChanged();
+        if(other instanceof ProgramComputerBlockEntity src) { this.graph = src.graph; this.running = src.running; runtimeState.clear(); setChanged();
             if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     }
 
@@ -69,12 +65,13 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
 
         rs.refreshInputsActive();
         var in = rs.buildInputs(graph);
-        var results = evaluator.evaluate(in, pidState, 0.05f, delayQueues, flipflopStates, pulseTimers);
+        var results = evaluator.evaluate(in, runtimeState.pidState, 0.05f,
+                runtimeState.delayQueues, runtimeState.flipflopStates, runtimeState.pulseTimers);
 
         // DELAY 入队
         for(var n : graph.nodes) {
             if(n.type==NodeType.DELAY) {
-                var q = delayQueues.computeIfAbsent(n.id, k -> new ArrayDeque<>());
+                var q = runtimeState.delayQueues.computeIfAbsent(n.id, k -> new ArrayDeque<>());
                 int ticks = Math.max(1, (int)(n.params.length>0?n.params[0]:10));
                 q.addLast(evaluator.getNodeInput(n.id, 0));
                 while(q.size()>ticks) q.pollFirst();
@@ -95,11 +92,19 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
 
     @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.saveAdditional(t,r); t.put("graph", graph.save(r)); t.putBoolean("running", running);
+        t.put("runtime", runtimeState.save());
     }
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t,r);
         if (t.contains("graph")) { graph = NodeGraph.load(t.getCompound("graph"), r); rs.onLoad(graph); }
         if (t.contains("running")) running = t.getBoolean("running");
+        if (t.contains("runtime")) {
+            RuntimeState loaded = RuntimeState.load(t.getCompound("runtime"));
+            runtimeState.pidState.putAll(loaded.pidState);
+            runtimeState.delayQueues.putAll(loaded.delayQueues);
+            runtimeState.flipflopStates.putAll(loaded.flipflopStates);
+            runtimeState.pulseTimers.putAll(loaded.pulseTimers);
+        }
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }

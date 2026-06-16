@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github)](https://github.com/y15173334444/create-schematic-compute)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.1.3-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
+[![Version](https://img.shields.io/badge/Version-1.1.4-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
 
@@ -79,7 +79,7 @@ Reads the orientation of sable physics structures through a node-based graph.
 
 ---
 
-### Node Reference (56 Types)
+### Node Reference (57 Types)
 
 | Category | Nodes |
 |----------|-------|
@@ -91,7 +91,7 @@ Reads the orientation of sable physics structures through a node-based graph.
 | **Display (Monitor only)** | TEXT, DATA, IMAGE, IMAGE_SEQUENCE |
 | **Sequential** | Delay, Latch, T Flip-Flop, Pulse Extender, Loop, Safety Timer, Accumulator, **Continuous Integrator** |
 | **Input Ctrl** | KEYBOARD (58 keys), Mouse Joystick (X/Y), View Angle, Mouse Button (L/R), Gamepad Joystick (LX/LY/RX/RY), Gamepad Button (15 buttons), **Gamepad Trigger (LT/RT)** |
-| **Sensor** | World View (yaw/pitch), Attitude (pitch/roll), Forward (yaw/pitch), **Acceleration (X/Y/Z)**, Pose Convert (3-in 2-out), Split |
+| **Sensor** | World View (yaw/pitch), Attitude (pitch/roll), Forward (yaw/pitch), **Acceleration (X/Y/Z)**, **Velocity (X/Y/Z)**, Pose Convert (3-in 2-out), Split |
 
 #### Detailed Node Table
 
@@ -184,6 +184,7 @@ Reads the orientation of sable physics structures through a node-based graph.
 | ATTITUDE | - | pitch, roll | - | Sublevel attitude (pitch/roll) |
 | FORWARD | - | yaw, pitch | - | Sublevel forward direction in world space |
 | ACCELERATION | - | X, Y, Z | - | Structure-local acceleration (fwd/back, up/down, left/right), computed at 20Hz from velocity |
+| VELOCITY | - | X, Y, Z | - | Structure-local velocity (fwd/back, up/down, left/right), ×2 m/s |
 | POSE_CONVERT | pitch_a, yaw_a, roll | pitch_b, yaw_b | - | Pose conversion (3-in 2-out) |
 | SPLIT | in | +out, -out | - | Split positive/negative: positive→+out, negative→\|-out\|
 
@@ -747,6 +748,25 @@ MIT License © 2026 StarryNight_Luo
 ---
 
 ## 📝 Changelog
+
+### v1.1.4
+- **Add: Velocity node** — structure-local X/Y/Z velocity from sable physics (Control Seat + Attitude Sensor), ×2 scaled to m/s
+- **Add: Universal param input pins** — all numeric EditBox params now expose input pins inside the edit panel (PID kp/ki/kd, DELAY ticks, LOOP count/interval, etc.)
+- **Add: CLAMP/MAP param pins** — min/max and in/out range pins moved to edit panel, with EditBox fallback defaults
+- **Add: Edit panel pin rendering** — param input pins rendered as small circles on the left of each EditBox; connected pins shown dimmed
+- **Add: Expanded state NBT persistence** — node expand/collapse state saved to NBT and restored on world reload
+- **Add: NBT compatibility layer** — data format versioning (`NbtVersions`), v0→v1 migration (`GraphMigration`), stable NodeType string IDs for forward compatibility
+- **Add: Runtime state persistence** — PID integrals, delay queues, flipflop states, and pulse timers saved to NBT via `RuntimeState`, surviving save/reload without data loss
+- **Fix: Encapsulation node copy** — Ctrl+D now deep-copies sub-graph contents via `shallowCopyWithNewId()` and `NodeGraph.copy()`
+- **Fix: Wire drag connects to nearest pin** — no longer connects to all nearby pins simultaneously
+- **Fix: TAB+click deletes nearest connection** — finds globally nearest connection instead of first match
+- **Fix: Connection bezier positions** — correctly target functional pins on node body and param pins in edit panel
+- **Fix: Edit panel Y coordinate mismatch** — unified `functionalInputs()` for body layout, fixing broken edit area click detection
+- **Fix: Velocity/acceleration block-facing rotation** — properly rotates to block-local frame from sub-world-local
+- **Fix: Non-param fields pin rendering** — FORMULA, PRIVATE_IN/OUT, ENCAP_INPUT/OUTPUT no longer show false pin circles
+- **Fix: Block filtering** — VELOCITY node correctly excluded from Blueprint Computer, included in Control Seat and Attitude Sensor
+- **Perf: `NodeGraph.hasInputConnection()`** — O(1) input pin connection check via input cache
+- **Refactor: `shallowCopyWithNewId()`** — unified deep-copy covering all node fields (subGraph, formula, image pixels, display layout)
 
 ### v1.1.3
 - **Add: OR Gate** — 2 inputs (A,B), 1 output (bool), Logic category, Blueprint Computer

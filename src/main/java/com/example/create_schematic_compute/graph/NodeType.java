@@ -2,74 +2,117 @@ package com.example.create_schematic_compute.graph;
 
 import net.minecraft.network.chat.Component;
 
-public enum NodeType {
-    CONST("node.create_schematic_compute.const", 0, 1, "value"),
-    REDSTONE_IN("node.create_schematic_compute.redstone_in", 0, 1, ""),
-    REDSTONE_OUT("node.create_schematic_compute.redstone_out", 1, 0, ""),
-    ADD("node.create_schematic_compute.add", 2, 1, ""),
-    SUB("node.create_schematic_compute.sub", 2, 1, ""),
-    MUL("node.create_schematic_compute.mul", 2, 1, ""),
-    DIV("node.create_schematic_compute.div", 2, 1, ""),
-    MOD("node.create_schematic_compute.mod", 2, 1, ""),
-    POW("node.create_schematic_compute.pow", 2, 1, ""),
-    ROOT("node.create_schematic_compute.root", 2, 1, ""),
-    ABS("node.create_schematic_compute.abs", 1, 1, ""),
-    INTERP("node.create_schematic_compute.interp", 2, 2, ""),
-    CEIL("node.create_schematic_compute.ceil", 1, 1, ""),
-    FLOOR("node.create_schematic_compute.floor", 1, 1, ""),
-    GT("node.create_schematic_compute.gt", 2, 1, ""),
-    LT("node.create_schematic_compute.lt", 2, 1, ""),
-    EQ("node.create_schematic_compute.eq", 2, 1, ""),
-    GE("node.create_schematic_compute.ge", 2, 1, ""),
-    LE("node.create_schematic_compute.le", 2, 1, ""),
-    PID("node.create_schematic_compute.pid", 1, 1, "kp,ki,kd,scale,ilimit"),
-    PID_POWER("node.create_schematic_compute.pid_power", 2, 1, "kp,ki,ilimit"),
-    CLAMP("node.create_schematic_compute.clamp", 3, 1, ""),
-    MAP("node.create_schematic_compute.map", 5, 1, ""),
-    SPEED_CTRL("node.create_schematic_compute.speed_ctrl", 2, 1, ""),
-    BOOL("node.create_schematic_compute.bool", 1, 1, "inverted"),
-    GATE("node.create_schematic_compute.gate", 4, 1, "default"),
-    OR("node.create_schematic_compute.or", 2, 1, ""),
-    PRIVATE_IN("node.create_schematic_compute.private_in", 0, 1, ""),
-    PRIVATE_OUT("node.create_schematic_compute.private_out", 1, 0, ""),
-    DELAY("node.create_schematic_compute.delay", 1, 1, "ticks"),
-    LATCH("node.create_schematic_compute.latch", 2, 1, ""),
-    T_FLIPFLOP("node.create_schematic_compute.t_flipflop", 1, 1, "default"),
-    PULSE_EXTEND("node.create_schematic_compute.pulse_extend", 1, 1, "ticks"),
-    LOOP("node.create_schematic_compute.loop", 1, 1, "count,interval"),
-    FUSE("node.create_schematic_compute.fuse", 1, 1, "cooldown"),
-    ROUND("node.create_schematic_compute.round", 1, 1, "decimals"),
-    ACCUMULATOR("node.create_schematic_compute.accumulator", 2, 1, "step"),
-    INTEGRATOR("node.create_schematic_compute.integrator", 3, 1, "step,interval,limit"),
-    FORMULA("node.create_schematic_compute.formula", 0, 1, ""),
-    POSE_CONVERT("node.create_schematic_compute.pose_convert", 3, 2, ""),
-    // Control Seat input nodes
-    KEYBOARD("node.create_schematic_compute.keyboard", 0, 1, "key"),
-    MOUSE_JOYSTICK("node.create_schematic_compute.mouse_joystick", 0, 2, ""),
-    VIEW_ANGLE("node.create_schematic_compute.view_angle", 0, 2, ""),
-    MOUSE_BUTTON("node.create_schematic_compute.mouse_button", 0, 2, ""),
-    GAMEPAD_JOYSTICK("node.create_schematic_compute.gamepad_joystick", 0, 4, ""),
-    GAMEPAD_BUTTON("node.create_schematic_compute.gamepad_button", 0, 1, "button"),
-    GAMEPAD_TRIGGER("node.create_schematic_compute.gamepad_trigger", 0, 2, ""),
-    WORLD_VIEW("node.create_schematic_compute.world_view", 0, 2, ""),
-    ATTITUDE("node.create_schematic_compute.attitude", 0, 2, ""),
-    FORWARD("node.create_schematic_compute.forward", 0, 2, ""),
-    ACCELERATION("node.create_schematic_compute.acceleration", 0, 3, ""),
-    SPLIT("node.create_schematic_compute.split", 1, 2, ""),
-    TEXT("node.create_schematic_compute.text", 0, 0, ""),
-    DATA("node.create_schematic_compute.data", 1, 0, ""),
-    IMAGE("node.create_schematic_compute.image", 3, 0, "moveScaleX,moveScaleY,rotationScale,invertX,invertY"),
-    IMAGE_SEQUENCE("node.create_schematic_compute.image_sequence", 4, 0, "moveScaleX,moveScaleY,rotationScale,invertX,invertY"),
-    ENCAPSULATION("node.create_schematic_compute.encapsulation", 0, 0, ""),
-    ENCAP_INPUT("node.create_schematic_compute.encap_input", 0, 1, "name"),
-    ENCAP_OUTPUT("node.create_schematic_compute.encap_output", 1, 0, "name");
+import javax.annotation.Nullable;
+import java.util.*;
 
+public enum NodeType {
+    CONST("const", "node.create_schematic_compute.const", 0, 1, "value"),
+    REDSTONE_IN("redstone_in", "node.create_schematic_compute.redstone_in", 0, 1, ""),
+    REDSTONE_OUT("redstone_out", "node.create_schematic_compute.redstone_out", 1, 0, ""),
+    ADD("add", "node.create_schematic_compute.add", 2, 1, ""),
+    SUB("sub", "node.create_schematic_compute.sub", 2, 1, ""),
+    MUL("mul", "node.create_schematic_compute.mul", 2, 1, ""),
+    DIV("div", "node.create_schematic_compute.div", 2, 1, ""),
+    MOD("mod", "node.create_schematic_compute.mod", 2, 1, ""),
+    POW("pow", "node.create_schematic_compute.pow", 2, 1, ""),
+    ROOT("root", "node.create_schematic_compute.root", 2, 1, ""),
+    ABS("abs", "node.create_schematic_compute.abs", 1, 1, ""),
+    INTERP("interp", "node.create_schematic_compute.interp", 2, 2, ""),
+    CEIL("ceil", "node.create_schematic_compute.ceil", 1, 1, ""),
+    FLOOR("floor", "node.create_schematic_compute.floor", 1, 1, ""),
+    GT("gt", "node.create_schematic_compute.gt", 2, 1, ""),
+    LT("lt", "node.create_schematic_compute.lt", 2, 1, ""),
+    EQ("eq", "node.create_schematic_compute.eq", 2, 1, ""),
+    GE("ge", "node.create_schematic_compute.ge", 2, 1, ""),
+    LE("le", "node.create_schematic_compute.le", 2, 1, ""),
+    PID("pid", "node.create_schematic_compute.pid", 1, 1, "kp,ki,kd,scale,ilimit"),
+    PID_POWER("pid_power", "node.create_schematic_compute.pid_power", 2, 1, "kp,ki,ilimit"),
+    CLAMP("clamp", "node.create_schematic_compute.clamp", 1, 1, "min,max"),
+    MAP("map", "node.create_schematic_compute.map", 1, 1, "in_min,in_max,out_min,out_max"),
+    SPEED_CTRL("speed_ctrl", "node.create_schematic_compute.speed_ctrl", 2, 1, ""),
+    BOOL("bool", "node.create_schematic_compute.bool", 1, 1, "inverted"),
+    GATE("gate", "node.create_schematic_compute.gate", 4, 1, "default"),
+    OR("or", "node.create_schematic_compute.or", 2, 1, ""),
+    PRIVATE_IN("private_in", "node.create_schematic_compute.private_in", 0, 1, ""),
+    PRIVATE_OUT("private_out", "node.create_schematic_compute.private_out", 1, 0, ""),
+    DELAY("delay", "node.create_schematic_compute.delay", 1, 1, "ticks"),
+    LATCH("latch", "node.create_schematic_compute.latch", 2, 1, ""),
+    T_FLIPFLOP("t_flipflop", "node.create_schematic_compute.t_flipflop", 1, 1, "default"),
+    PULSE_EXTEND("pulse_extend", "node.create_schematic_compute.pulse_extend", 1, 1, "ticks"),
+    LOOP("loop", "node.create_schematic_compute.loop", 1, 1, "count,interval"),
+    FUSE("fuse", "node.create_schematic_compute.fuse", 1, 1, "cooldown"),
+    ROUND("round", "node.create_schematic_compute.round", 1, 1, "decimals"),
+    ACCUMULATOR("accumulator", "node.create_schematic_compute.accumulator", 2, 1, "step"),
+    INTEGRATOR("integrator", "node.create_schematic_compute.integrator", 3, 1, "step,interval,limit"),
+    FORMULA("formula", "node.create_schematic_compute.formula", 0, 1, ""),
+    POSE_CONVERT("pose_convert", "node.create_schematic_compute.pose_convert", 3, 2, ""),
+    // Control Seat input nodes
+    KEYBOARD("keyboard", "node.create_schematic_compute.keyboard", 0, 1, "key"),
+    MOUSE_JOYSTICK("mouse_joystick", "node.create_schematic_compute.mouse_joystick", 0, 2, ""),
+    VIEW_ANGLE("view_angle", "node.create_schematic_compute.view_angle", 0, 2, ""),
+    MOUSE_BUTTON("mouse_button", "node.create_schematic_compute.mouse_button", 0, 2, ""),
+    GAMEPAD_JOYSTICK("gamepad_joystick", "node.create_schematic_compute.gamepad_joystick", 0, 4, ""),
+    GAMEPAD_BUTTON("gamepad_button", "node.create_schematic_compute.gamepad_button", 0, 1, "button"),
+    GAMEPAD_TRIGGER("gamepad_trigger", "node.create_schematic_compute.gamepad_trigger", 0, 2, ""),
+    WORLD_VIEW("world_view", "node.create_schematic_compute.world_view", 0, 2, ""),
+    ATTITUDE("attitude", "node.create_schematic_compute.attitude", 0, 2, ""),
+    FORWARD("forward", "node.create_schematic_compute.forward", 0, 2, ""),
+    ACCELERATION("acceleration", "node.create_schematic_compute.acceleration", 0, 3, ""),
+    VELOCITY("velocity", "node.create_schematic_compute.velocity", 0, 3, ""),
+    SPLIT("split", "node.create_schematic_compute.split", 1, 2, ""),
+    TEXT("text", "node.create_schematic_compute.text", 0, 0, ""),
+    DATA("data", "node.create_schematic_compute.data", 1, 0, ""),
+    IMAGE("image", "node.create_schematic_compute.image", 3, 0, "moveScaleX,moveScaleY,rotationScale,invertX,invertY"),
+    IMAGE_SEQUENCE("image_sequence", "node.create_schematic_compute.image_sequence", 4, 0, "moveScaleX,moveScaleY,rotationScale,invertX,invertY"),
+    ENCAPSULATION("encapsulation", "node.create_schematic_compute.encapsulation", 0, 0, ""),
+    ENCAP_INPUT("encap_input", "node.create_schematic_compute.encap_input", 0, 1, "name"),
+    ENCAP_OUTPUT("encap_output", "node.create_schematic_compute.encap_output", 1, 0, "name");
+
+    /** Stable string identifier for NBT serialisation — never change these. */
+    public final String id;
     public final String displayName;
     public final int inputs;
     public final int outputs;
     public final String[] paramNames;
 
-    NodeType(String n, int in, int out, String params) { displayName=n; inputs=in; outputs=out; paramNames=params.isEmpty()?new String[0]:params.split(","); }
+    /** Lookup table for deserialising from stable string id. */
+    public static final Map<String, NodeType> BY_ID;
+    static {
+        var map = new HashMap<String, NodeType>();
+        for (NodeType t : values()) {
+            if (map.put(t.id, t) != null) {
+                throw new IllegalStateException("Duplicate NodeType id: " + t.id);
+            }
+        }
+        BY_ID = Collections.unmodifiableMap(map);
+    }
+
+    NodeType(String id, String n, int in, int out, String params) {
+        this.id = id;
+        displayName = n;
+        inputs = in;
+        outputs = out;
+        paramNames = params.isEmpty() ? new String[0] : params.split(",");
+    }
+
+    /**
+     * Safe ordinal lookup for migration use only.
+     * Returns {@code null} if ordinal is out of range (corrupted data).
+     */
+    public static @Nullable NodeType byOrdinalSafe(int ordinal) {
+        NodeType[] vals = values();
+        return (ordinal >= 0 && ordinal < vals.length) ? vals[ordinal] : null;
+    }
+
+    /** 数值 EditBox 参数的数量（这些参数获得额外输入引脚）。返回 0 表示无。 */
+    public int editableParamCount() {
+        return switch (this) {
+            case BOOL, GATE, T_FLIPFLOP, KEYBOARD, GAMEPAD_BUTTON,
+                 ENCAP_INPUT, ENCAP_OUTPUT, IMAGE, IMAGE_SEQUENCE -> 0;
+            default -> paramNames.length;
+        };
+    }
+
     public String getTitle() { return displayName; }
     public Component title() { return Component.translatable(displayName); }
 
@@ -92,8 +135,8 @@ public enum NodeType {
         case GATE -> i==0?pk("val"):i==1?pk("open"):i==2?pk("close"):pk("tog");
         case SPEED_CTRL -> i==0?pk("speed"):pk("dir");
         case PULSE_EXTEND, T_FLIPFLOP, DELAY, LOOP, FUSE -> pk("in");
-        case ACCUMULATOR -> i == 0 ? pk("plus") : pk("minus");
-        case INTEGRATOR -> i == 0 ? pk("plus") : i == 1 ? pk("minus") : pk("clear");
+        case ACCUMULATOR -> i == 0 ? pk("plus") : i == 1 ? pk("minus") : pk("step");
+        case INTEGRATOR -> i == 0 ? pk("plus") : i == 1 ? pk("minus") : i == 2 ? pk("clear") : i == 3 ? pk("step") : i == 4 ? pk("interval") : pk("limit");
         case KEYBOARD -> pk("value");
         case POSE_CONVERT -> i == 0 ? pk("pitch_a") : i == 1 ? pk("yaw_a") : pk("roll");
         case DATA -> pk("val");
@@ -132,6 +175,7 @@ public enum NodeType {
         case ATTITUDE -> i == 0 ? pk("pitch") : pk("roll");
         case FORWARD -> i == 0 ? pk("yaw") : pk("pitch");
         case ACCELERATION -> i == 0 ? pk("accel_x") : i == 1 ? pk("accel_y") : pk("accel_z");
+        case VELOCITY -> i == 0 ? pk("vel_x") : i == 1 ? pk("vel_y") : pk("vel_z");
         case SPLIT -> i == 0 ? pk("plus_out") : pk("minus_out");
         case ACCUMULATOR, INTEGRATOR -> pk("val");
         case POSE_CONVERT -> i == 0 ? pk("pitch_b") : pk("yaw_b");

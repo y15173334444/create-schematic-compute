@@ -22,12 +22,18 @@ public class EditPanel {
 
     /** 计算编辑区高度 */
     public static int calcRenderHeight(GraphNode n, float zoom) {
+        return calcRenderHeight(n, zoom, null);
+    }
+    /** 计算编辑区高度（可传入 EditState 以根据连线状态动态调整） */
+    public static int calcRenderHeight(GraphNode n, float zoom, com.example.create_schematic_compute.blocks.GraphEditor.EditState st) {
         if (n == null) return 0;
         int h = 6;
         if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL && n.type != NodeType.GATE && n.type != NodeType.T_FLIPFLOP
             && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE) {
             if (n.type == NodeType.KEYBOARD || n.type == NodeType.GAMEPAD_BUTTON) {
                 h += 24;
+            } else if (n.type == NodeType.ACCUMULATOR || n.type == NodeType.INTEGRATOR) {
+                h += (st != null ? st.fields.size() : n.params.length) * 18;
             } else h += n.params.length * 18;
         }
         if ((n.type == NodeType.BOOL || n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP) && n.params.length > 0) h += 16;
@@ -62,19 +68,37 @@ public class EditPanel {
             g.drawString(Minecraft.getInstance().font, hint, bx + 6, by + 3,
                 st.listeningForKey ? 0xFFFFEE88 : 0xFFCCCCCC, false);
             row++;
-        } else
+        } else {
+        int r = NodeRenderer.PR;
         for (int i = 0; i < st.fields.size(); i++) {
             var b = st.fields.get(i);
+            boolean hasParamPin = i < st.fieldParamIndices.size();
+            boolean pinConnected = false;
+            // 渲染参数输入引脚（始终可见，连线时变暗）
+            if (hasParamPin) {
+                int paramIdx = st.fieldParamIndices.get(i);
+                int pinIdx = node.type.inputs + paramIdx;
+                pinConnected = st.graph != null && st.graph.hasInputConnection(node.id, pinIdx);
+                int pinX = px + 6 + r, pinY = py + 4 + row * 18 + 8;
+                g.fill(pinX - r - 1, pinY - r - 1, pinX + r + 1, pinY + r + 1, NodeRenderer.CPIB);
+                g.fill(pinX - r, pinY - r, pinX + r, pinY + r, pinConnected ? 0xFF666644 : NodeRenderer.CPI);
+            }
+
             String label = i < st.paramKeys.length ? st.paramKeys[i] + ":" :
                 (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT ? I18n.get("gui.create_schematic_compute.edit.channel") : "");
-            g.drawString(Minecraft.getInstance().font, label, px + 4, py + 4 + row * 18, 0xFF888888, false);
-            int lw = Minecraft.getInstance().font.width(label) + 6;
-            b.setX(px + 4 + lw);
-            b.setY(py + 4 + row * 18);
-            b.setWidth(pw - lw - 8);
-            b.render(g, mx, my, 0);
+            int labelX = px + (hasParamPin ? 18 : 4);
+            g.drawString(Minecraft.getInstance().font, label, labelX, py + 4 + row * 18, 0xFF888888, false);
+            // 已连线时隐藏输入框，但保留标签和引脚
+            if (!pinConnected) {
+                int lw = Minecraft.getInstance().font.width(label) + 6;
+                b.setX(px + (hasParamPin ? 16 : 4) + lw);
+                b.setY(py + 4 + row * 18);
+                b.setWidth(pw - lw - (hasParamPin ? 22 : 8));
+                b.render(g, mx, my, 0);
+            }
             row++;
         }
+        } // else 块结束
         if (node.type == NodeType.BOOL && node.params.length > 0) {
             boolean inverted = node.params[0] > 0.5f;
             int bx = px + 4, by = py + 4 + row * 18;

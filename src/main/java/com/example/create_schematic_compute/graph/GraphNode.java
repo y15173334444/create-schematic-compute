@@ -30,11 +30,18 @@ public class GraphNode {
     /** Encapsulation node's nested sub-graph (null for other types) */
     public NodeGraph subGraph;
 
-    /** 有效输入引脚数（FORMULA/ENCAPSULATION 动态决定） */
+    /** NBT 持久化的展开/折叠状态 */
+    public boolean expanded = false;
+
+    /** 有效输入引脚数（FORMULA/ENCAPSULATION 动态决定，通用参数引脚自动追加） */
     public int inputs() {
         if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicInputCount, 26));
         if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_INPUT);
-        return type.inputs;
+        return type.inputs + type.editableParamCount();
+    }
+    /** 节点主体上的功能输入引脚数（不含编辑区参数引脚） */
+    public int functionalInputs() {
+        return inputs() - type.editableParamCount();
     }
     public int outputs() {
         if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_OUTPUT);
@@ -65,6 +72,10 @@ public class GraphNode {
                 return name.isEmpty() ? "in" + (i + 1) : name;
             }
         }
+        // 参数输入引脚：显示参数名（如 "step", "kp" 等）
+        int extraBase = type.inputs;
+        int paramIdx = i - extraBase;
+        if (paramIdx >= 0 && paramIdx < type.paramNames.length) return type.paramNames[paramIdx];
         return type.inputLabel(i);
     }
     /** 输出引脚标签（ENCAPSULATION 用内部节点名） */
@@ -134,11 +145,34 @@ public class GraphNode {
         this.outputValues = new float[type == NodeType.ENCAPSULATION ? 0 : type.outputs];
     }
 
+    /** Deep-copy all fields except id (which is assigned from {@code newId}). Recursively copies {@code subGraph}. */
+    public GraphNode shallowCopyWithNewId(int newId) {
+        GraphNode n = new GraphNode(newId, type, x, y);
+        System.arraycopy(params, 0, n.params, 0, Math.min(params.length, n.params.length));
+        if (itemParams != null) n.itemParams = itemParams.clone();
+        n.signalName = signalName;
+        n.formula = formula;
+        n.dynamicInputCount = dynamicInputCount;
+        n.displayText = displayText;
+        n.textColor = textColor;
+        if (imagePixels != null) n.imagePixels = imagePixels.clone();
+        if (imageSequenceFrames != null) {
+            n.imageSequenceFrames = new java.util.ArrayList<>();
+            for (int[] f : imageSequenceFrames) n.imageSequenceFrames.add(f.clone());
+        }
+        n.layoutX = layoutX; n.layoutY = layoutY;
+        n.displayScale = displayScale; n.displayRotation = displayRotation;
+        n.moveScale = moveScale;
+        if (subGraph != null) n.subGraph = subGraph.copy();
+        n.expanded = false; // 副本默认折叠
+        return n;
+    }
+
     // Save to NBT
     public CompoundTag save(HolderLookup.Provider registries) {
         CompoundTag tag = new CompoundTag();
         tag.putInt("id", id);
-        tag.putInt("type", type.ordinal());
+        tag.putString("type", type.id);
         tag.putFloat("x", x);
         tag.putFloat("y", y);
         tag.putInt("pcount", params.length);
@@ -166,13 +200,14 @@ public class GraphNode {
         tag.putFloat("ly", layoutY);
         tag.putFloat("ds", displayScale);
         tag.putFloat("dr", displayRotation);
-        if (moveScale != 0.01f) tag.putFloat("ms", moveScale);
+        if (expanded) tag.putBoolean("expanded", true);
         if (subGraph != null) tag.put("subGraph", subGraph.save(registries));
         return tag;
     }
 
     public static GraphNode load(CompoundTag tag, HolderLookup.Provider registries) {
-        NodeType type = NodeType.values()[tag.getInt("type")];
+        NodeType type = NodeType.BY_ID.get(tag.getString("type"));
+        if (type == null) type = NodeType.CONST; // fallback for corrupted data
         GraphNode node = new GraphNode(tag.getInt("id"), type, tag.getFloat("x"), tag.getFloat("y"));
         int pc = tag.getInt("pcount");
         for (int i = 0; i < pc && i < node.params.length; i++)
@@ -202,13 +237,7 @@ public class GraphNode {
         if (tag.contains("ly")) node.layoutY = tag.getFloat("ly");
         if (tag.contains("ds")) node.displayScale = tag.getFloat("ds");
         if (tag.contains("dr")) node.displayRotation = tag.getFloat("dr");
-        if (tag.contains("ms")) { node.moveScale = tag.getFloat("ms");
-            // migrate old shared moveScale to new per-axis params
-            if ((node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) && node.params.length >= 2) {
-                if (node.params[0] == 0f) node.params[0] = node.moveScale;
-                if (node.params[1] == 0f) node.params[1] = node.moveScale;
-            }
-        }
+        node.expanded = tag.getBoolean("expanded"); // 旧存档无此 key 返回 false
         if (tag.contains("subGraph")) node.subGraph = NodeGraph.load(tag.getCompound("subGraph"), registries);
         return node;
     }
