@@ -6,6 +6,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.resources.language.I18n;
+import java.util.Map;
 
 /**
  * 编辑控件工具类 — 提供编辑区高度计算和内联渲染（静态方法）
@@ -29,14 +30,15 @@ public class EditPanel {
         if (n == null) return 0;
         int h = 6;
         if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL && n.type != NodeType.GATE && n.type != NodeType.T_FLIPFLOP
-            && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE) {
+            && n.type != NodeType.LATCH && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE) {
             if (n.type == NodeType.KEYBOARD || n.type == NodeType.GAMEPAD_BUTTON) {
                 h += 24;
             } else if (n.type == NodeType.ACCUMULATOR || n.type == NodeType.INTEGRATOR) {
                 h += (st != null ? st.fields.size() : n.params.length) * 18;
             } else h += n.params.length * 18;
         }
-        if ((n.type == NodeType.BOOL || n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP) && n.params.length > 0) h += 16;
+        if (n.type == NodeType.BOOL && n.params.length > 0) h += 16;
+        if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 32; // 初始按钮 + 当前只读
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
         if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) h += 22;
         if (n.type == NodeType.FORMULA) h += 22;
@@ -50,7 +52,7 @@ public class EditPanel {
     /** 在局部坐标中渲染编辑控件（由 drawNode 在 pose 内调用，自动随缩放） */
     public static void renderAt(GuiGraphics g, int px, int py, int pw, GraphNode node,
                                  com.example.create_schematic_compute.blocks.GraphEditor.EditState st,
-                                 float zoom, int mx, int my) {
+                                 float zoom, int mx, int my, Map<Integer, Boolean> flipflopStates) {
         if (node == null || st == null) return;
         int row = 0;
 
@@ -119,6 +121,12 @@ public class EditPanel {
             g.drawString(Minecraft.getInstance().font, defOpen ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.default_open") : "§7" + I18n.get("gui.create_schematic_compute.edit.default_closed"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
         }
+        if (node.type == NodeType.GATE && node.params.length > 1) {
+            boolean curOpen = flipflopStates != null && flipflopStates.containsKey(node.id)
+                ? flipflopStates.get(node.id) : node.params[1] > 0.5f;
+            g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(curOpen ? "gui.create_schematic_compute.edit.gate_cur_open" : "gui.create_schematic_compute.edit.gate_cur_closed"), px + 8, py + 4 + row * 18 + 3, 0xFFAAAAAA, false);
+            row++;
+        }
         if (node.type == NodeType.T_FLIPFLOP && node.params.length > 0) {
             boolean defOn = node.params[0] > 0.5f;
             int bx = px + 4, by = py + 4 + row * 18;
@@ -127,6 +135,28 @@ public class EditPanel {
             g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
             g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
             g.drawString(Minecraft.getInstance().font, defOn ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.flipflop_default_on") : "§7" + I18n.get("gui.create_schematic_compute.edit.flipflop_default_off"), bx+4, by+2, 0xFFFFFFFF, false);
+            row++;
+        }
+        if (node.type == NodeType.T_FLIPFLOP && node.params.length > 1) {
+            boolean curOn = flipflopStates != null && flipflopStates.containsKey(node.id)
+                ? flipflopStates.get(node.id) : node.params[1] > 0.5f;
+            g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(curOn ? "gui.create_schematic_compute.edit.flipflop_cur_on" : "gui.create_schematic_compute.edit.flipflop_cur_off"), px + 8, py + 4 + row * 18 + 3, 0xFFAAAAAA, false);
+            row++;
+        }
+        if (node.type == NodeType.LATCH && node.params.length > 0) {
+            boolean defSet = node.params[0] > 0.5f;
+            int bx = px + 4, by = py + 4 + row * 18;
+            int bw = pw - 8, bh = 16;
+            g.fill(bx, by, bx + bw, by + bh, defSet ? 0xFF3A5A2A : 0xFF3A3428);
+            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
+            g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
+            g.drawString(Minecraft.getInstance().font, defSet ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.latch_default_set") : "§7" + I18n.get("gui.create_schematic_compute.edit.latch_default_reset"), bx+4, by+2, 0xFFFFFFFF, false);
+            row++;
+        }
+        if (node.type == NodeType.LATCH && node.params.length > 1) {
+            boolean curSet = flipflopStates != null && flipflopStates.containsKey(node.id)
+                ? flipflopStates.get(node.id) : node.params[1] > 0.5f;
+            g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(curSet ? "gui.create_schematic_compute.edit.latch_cur_set" : "gui.create_schematic_compute.edit.latch_cur_reset"), px + 8, py + 4 + row * 18 + 3, 0xFFAAAAAA, false);
             row++;
         }
         if ((node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) && node.params.length > 3) {

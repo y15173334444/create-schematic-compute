@@ -35,5 +35,10 @@ public class AllPackets {
                 MonitorRedstoneSyncPacket.CODEC,
                 MonitorRedstoneSyncPacket::handle
         );
+        registrar.playToClient(
+                RuntimeStateSyncPacket.TYPE,
+                RuntimeStateSyncPacket.CODEC,
+                RuntimeStateSyncPacket::handle
+        );
     }
 }

@@ -70,6 +70,7 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
         if (evaluator == null || lastEvaluatedGraph != graph) {
             evaluator = new GraphEvaluator(graph);
             lastEvaluatedGraph = graph;
+            runtimeState.pidState.clear();
         }
         var results = evaluator.evaluate(List.of(), runtimeState.pidState, 0.05f);
         for (var n : graph.nodes) {

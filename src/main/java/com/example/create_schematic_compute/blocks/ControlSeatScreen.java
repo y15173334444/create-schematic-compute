@@ -47,6 +47,7 @@ public class ControlSeatScreen extends AbstractContainerScreen<ControlSeatMenu> 
 
     @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
     @Override public boolean isRunning() { return blockEntity != null && blockEntity.running; }
+    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { return blockEntity != null ? blockEntity.runtimeState.flipflopStates : null; }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
 
     @Override

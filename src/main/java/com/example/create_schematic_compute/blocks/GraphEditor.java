@@ -13,6 +13,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -27,6 +28,7 @@ public class GraphEditor {
         void toggleRunning(boolean start);
         boolean isRunning();
         Screen asScreen();
+        default Map<Integer, Boolean> getFlipflopStates() { return null; }
     }
 
     private final Host host;
@@ -140,7 +142,7 @@ public class GraphEditor {
         s.paramKeys = node.type.paramNames.clone();
         var mc = Minecraft.getInstance();
         for (int i = 0; i < node.params.length; i++) {
-            if (node.type == NodeType.BOOL || node.type == NodeType.GATE || node.type == NodeType.T_FLIPFLOP || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON
+            if (node.type == NodeType.BOOL || node.type == NodeType.GATE || node.type == NodeType.T_FLIPFLOP || node.type == NodeType.LATCH || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON
                 || node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT
                 || node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) continue;
             // 参数输入引脚已连线 → 阻止折叠（值由连线提供，但引脚仍可见）
@@ -300,8 +302,9 @@ public class GraphEditor {
         renderer.renderConnections(g, graph, camX, camY, zoom);
         if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
         renderer.suppressControls = showColorConfig || showMenu;
+        Map<Integer, Boolean> flipflopStates = host.getFlipflopStates();
         renderer.renderNodes(g, graph.nodes, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
-            camX, camY, zoom, mx, my);
+            camX, camY, zoom, mx, my, flipflopStates);
         if (!isInSubGraph()) {
             renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width, host.asScreen().height);
         } else {
@@ -402,7 +405,6 @@ public class GraphEditor {
                     boolean ws=!host.isRunning();
                     if(ws && graph.hasCycles()){cycleWarning=I18n.get("gui.create_schematic_compute.cycle_detected");return true;}
                     cycleWarning=null;
-                    saveGraph();
                     host.toggleRunning(ws);
                     return true;
                 }
@@ -545,6 +547,11 @@ public class GraphEditor {
                 if (en.type == NodeType.T_FLIPFLOP && en.params.length > 0) {
                     int ffLocalY = editLocalY + 4 + numRows * 18;
                     if (lmx >= 4 && lmx <= NW - 4 && lmy >= ffLocalY && lmy <= ffLocalY + 16)
+                    { en.params[0] = en.params[0] > 0.5f ? 0 : 1; return true; }
+                }
+                if (en.type == NodeType.LATCH && en.params.length > 0) {
+                    int latchLocalY = editLocalY + 4 + numRows * 18;
+                    if (lmx >= 4 && lmx <= NW - 4 && lmy >= latchLocalY && lmy <= latchLocalY + 16)
                     { en.params[0] = en.params[0] > 0.5f ? 0 : 1; return true; }
                 }
                 if ((en.type == NodeType.IMAGE || en.type == NodeType.IMAGE_SEQUENCE) && en.params.length > 3) {
@@ -882,7 +889,14 @@ public class GraphEditor {
     }
 
     private void recompile(NodeGraph graph) {
-        cycleWarning=null; saveGraph();
+        cycleWarning=null;
+        // 编译时当前状态回归初始值
+        for (var n : graph.nodes) {
+            if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) {
+                n.params[1] = n.params[0];
+            }
+        }
+        saveGraph();
         host.toggleRunning(false);
     }
 

@@ -23,6 +23,7 @@ public final class GraphMigration {
      */
     private static final Migrator[] STEPS = {
             GraphMigration::migrateV0toV1,
+            GraphMigration::migrateV1toV2,
     };
 
     /**
@@ -88,6 +89,42 @@ public final class GraphMigration {
 
         // 4. Stamp current version
         out.putInt(NbtVersions.VERSION_KEY, 1);
+        return out;
+    }
+
+    // ── V1 → V2 ───────────────────────────────────────────────────────────
+    // Changes in v2 (v1.1.5):
+    //   1. LATCH node: old saves had params.length=0 (no "default" param),
+    //      new saves have params[2] = {default, currentState}.
+    //      Expand empty params to [0f, 0f] for old LATCH nodes.
+    //   2. Recursive migration for ENCAPSULATION sub-graphs.
+
+    private static CompoundTag migrateV1toV2(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+
+        ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
+        for (int i = 0; i < nodes.size(); i++) {
+            CompoundTag n = nodes.getCompound(i);
+
+            // 1. Expand LATCH params from old format (0 params) to new format (2 params)
+            String typeId = n.getString("type");
+            if ("latch".equals(typeId)) {
+                int pc = n.getInt("pcount");
+                if (pc == 0) {
+                    n.putInt("pcount", 2);
+                    n.putFloat("p0", 0f);
+                    n.putFloat("p1", 0f);
+                }
+            }
+
+            // 2. Recursively migrate subGraph (ENCAPSULATION nodes)
+            if (n.contains("subGraph")) {
+                n.put("subGraph", migrateV1toV2(n.getCompound("subGraph")));
+            }
+        }
+
+        // 3. Stamp current version
+        out.putInt(NbtVersions.VERSION_KEY, 2);
         return out;
     }
 }

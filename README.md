@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github)](https://github.com/y15173334444/create-schematic-compute)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.1.4-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
+[![Version](https://img.shields.io/badge/Version-1.1.5-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
 
@@ -57,7 +57,7 @@ Directly control the target RPM of Create's **Speed Controller** blocks on adjac
 A **sequential logic computer** for timing, counting, and pulse control applications.
 
 - **Redstone I/O** — Communicates through Create's Redstone Link network
-- **Dedicated sequential nodes**: Delay, Latch, T Flip-Flop (configurable default), Pulse Extender, Loop, Safety Timer, Accumulator, Continuous Integrator
+- **Dedicated sequential nodes**: Delay, Latch, T Flip-Flop (configurable default), Gate (configurable default), Pulse Extender, Loop, Safety Timer, Accumulator, Continuous Integrator
 
 #### 🪑 Control Seat
 A **sit-able controller seat** with real-time keyboard, mouse, and gamepad input capture.
@@ -89,7 +89,7 @@ Reads the orientation of sable physics structures through a node-based graph.
 | **Control** | PID Controller, Power PID, Clamp, Map Range |
 | **Output** | Redstone Output, Private Signal Output, Speed Control |
 | **Display (Monitor only)** | TEXT, DATA, IMAGE, IMAGE_SEQUENCE |
-| **Sequential** | Delay, Latch, T Flip-Flop, Pulse Extender, Loop, Safety Timer, Accumulator, **Continuous Integrator** |
+| **Sequential** | Delay, Latch, T Flip-Flop, Gate, Pulse Extender, Loop, Safety Timer, Accumulator, **Continuous Integrator** |
 | **Input Ctrl** | KEYBOARD (58 keys), Mouse Joystick (X/Y), View Angle, Mouse Button (L/R), Gamepad Joystick (LX/LY/RX/RY), Gamepad Button (15 buttons), **Gamepad Trigger (LT/RT)** |
 | **Sensor** | World View (yaw/pitch), Attitude (pitch/roll), Forward (yaw/pitch), **Acceleration (X/Y/Z)**, **Velocity (X/Y/Z)**, Pose Convert (3-in 2-out), Split |
 
@@ -442,7 +442,7 @@ MIT License © 2026 StarryNight_Luo
 专为**时序逻辑**设计的计算机，适用于延时、计数和脉冲控制。
 
 - **红石 I/O** — 通过机械动力的红石链接网络通信
-- **专用时序节点**：延时、锁存器、T 触发器、脉冲延长、循环、保险
+- **专用时序节点**：延时、锁存器、T 触发器（可配置默认）、闸门（可配置默认）、脉冲延长、循环、保险、累计器、连续积分器
 
 #### 🪑 控制座椅
 一个**可乘坐的控制座椅**，支持实时键盘、鼠标和手柄输入捕获。
@@ -472,7 +472,7 @@ MIT License © 2026 StarryNight_Luo
 | **逻辑** | 大于、小于、等于、布尔（反转） |
 | **控制** | PID 控制器（误差归零时 I 项复位）、动力 PID、限幅、映射范围 |
 | **输出** | 红石输出、私有信号输出、转速控制 |
-| **时序** | 延时、锁存器、T 触发器、脉冲延长、循环、保险 |
+| **时序** | 延时、锁存器、T 触发器、闸门、脉冲延长、循环、保险、累计器、连续积分器 |
 | **显示** | TEXT（文字）、DATA（数值）、IMAGE（图片）、IMAGE_SEQUENCE（动画） |
 | **操作输入** | 键盘按键（58键）、鼠标摇杆（X/Y）、视角差、鼠标按键（左/右）、手柄摇杆（LX/LY/RX/RY）、手柄按键（15键） |
 | **传感器** | 世界视角（偏航/俯仰）、姿态（俯仰/横滚）、前方朝向（偏航/俯仰）、姿态换算（3入2出）、分割 |
@@ -748,6 +748,16 @@ MIT License © 2026 StarryNight_Luo
 ---
 
 ## 📝 Changelog
+
+### v1.1.5
+- **Add: LATCH edit panel** — configurable default set/reset state toggle with real-time current state display
+- **Add: PRIVATE_IN / PRIVATE_OUT nodes** — Program Computer now supports private signal channels for cross-block communication
+- **Add: RuntimeState sync packet** — flipflopStates synced server→client on change for real-time UI display in multiplayer
+- **Fix: Recompile state reset** — GATE, T_FLIPFLOP, and LATCH current state now resets to configured default on recompile
+- **Fix: Edit panel live state display** — GATE/T_FLIPFLOP/LATCH current state now updates in real-time during execution (single-player shared object + multiplayer network sync)
+- **Fix: World reload state persistence** — Program Computer and Blueprint Computer now correctly restore flipflopStates and pulseTimers across world reloads (high-precision circuits survive save/quit)
+- **Fix: RuntimeState load consistency** — all 6 block entities audited; Blueprint now loads full runtime state; SpeedProxy clears pidState on graph change
+- **NBT compatibility: v1→v2 migration** — old LATCH saves (params.length=0) auto-upgraded to new format (params[2] with defaults)
 
 ### v1.1.4
 - **Add: Velocity node** — structure-local X/Y/Z velocity from sable physics (Control Seat + Attitude Sensor), ×2 scaled to m/s

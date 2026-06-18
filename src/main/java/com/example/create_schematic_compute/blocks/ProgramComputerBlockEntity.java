@@ -35,12 +35,17 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
 
     // 时序节点状态
     public final RuntimeState runtimeState = new RuntimeState();
+    private java.util.Map<Integer, Boolean> lastSyncedFlipflopStates = null;
 
     public ProgramComputerBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.PROGRAM_BE.get(), pos, s); }
     @Override public boolean isRunning() { return running; }
     @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override public boolean graphHasCycles() { return graph.hasCycles(); }
     @Override public void clearPidState() { runtimeState.pidState.clear(); }
+    @Override public void syncFlipflopStates(java.util.Map<Integer, Boolean> states) {
+        runtimeState.flipflopStates.clear();
+        if (states != null) runtimeState.flipflopStates.putAll(states);
+    }
 
     @Override public void accept(BlockEntity other) {
         if(other instanceof ProgramComputerBlockEntity src) { this.graph = src.graph; this.running = src.running; runtimeState.clear(); setChanged();
@@ -61,7 +66,7 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
         rs.checkGraphChanged(graph);
         if(!running) return;
 
-        if(evaluator==null||lastEvaluatedGraph!=graph) { evaluator = new GraphEvaluator(graph); lastEvaluatedGraph = graph; }
+        if(evaluator==null||lastEvaluatedGraph!=graph) { evaluator = new GraphEvaluator(graph); lastEvaluatedGraph = graph; runtimeState.clear(); }
 
         rs.refreshInputsActive();
         var in = rs.buildInputs(graph);
@@ -78,6 +83,13 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
             }
         }
         rs.writeOutputs(results);
+        if (level instanceof net.minecraft.server.level.ServerLevel sl && !runtimeState.flipflopStates.equals(lastSyncedFlipflopStates)) {
+            lastSyncedFlipflopStates = new java.util.HashMap<>(runtimeState.flipflopStates);
+            net.neoforged.neoforge.network.PacketDistributor.sendToPlayersTrackingChunk(sl,
+                new net.minecraft.world.level.ChunkPos(worldPosition),
+                new com.example.create_schematic_compute.network.RuntimeStateSyncPacket(worldPosition,
+                    lastSyncedFlipflopStates));
+        }
         setChanged();
     }
 
@@ -85,9 +97,9 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
         if (level == null) return;
         try {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
-            if(t!=null&&t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),level.registryAccess()); rs.onLoad(graph); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+            if(t!=null&&t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),level.registryAccess()); runtimeState.clear(); rs.onLoad(graph); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
             setChanged();
-        } catch(Exception e) { SchematicCompute.LOGGER.error("Failed to load program", e); graph=new NodeGraph(); setChanged(); }
+        } catch(Exception e) { SchematicCompute.LOGGER.error("Failed to load program", e); graph=new NodeGraph(); runtimeState.clear(); setChanged(); }
     }
 
     @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) {
@@ -104,6 +116,7 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
             runtimeState.delayQueues.putAll(loaded.delayQueues);
             runtimeState.flipflopStates.putAll(loaded.flipflopStates);
             runtimeState.pulseTimers.putAll(loaded.pulseTimers);
+            // 重新编译通过 runtimeState.clear() 重置为初始状态，世界重载保留运行状态
         }
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);

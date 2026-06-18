@@ -11,6 +11,7 @@ import net.minecraft.client.resources.language.I18n;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -233,7 +234,8 @@ public class NodeRenderer {
     public void renderNodes(GuiGraphics g, List<GraphNode> nodes, Set<GraphNode> selectedNodes,
                              GraphNode primaryNode, java.util.Set<Integer> editNodeIds,
                              java.util.Map<Integer, com.example.create_schematic_compute.blocks.GraphEditor.EditState> editStates,
-                             float camX, float camY, float zoom, int mx, int my) {
+                             float camX, float camY, float zoom, int mx, int my,
+                             Map<Integer, Boolean> flipflopStates) {
         expandedNodeIds = editNodeIds != null ? editNodeIds : java.util.Collections.emptySet();
         nodeEditStatesById = editStates != null ? editStates : java.util.Collections.emptyMap();
         int w = screen.width, h = screen.height;
@@ -243,12 +245,13 @@ public class NodeRenderer {
             float sw = NW*zoom, nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
             if (sx + sw < -margin || sx > w + margin || sy + nh < -margin || sy > h + margin)
                 continue;
-            drawNode(g, n, selectedNodes.contains(n), n == primaryNode, expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my);
+            drawNode(g, n, selectedNodes.contains(n), n == primaryNode, expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, flipflopStates);
         }
     }
 
     private void drawNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary, boolean editing,
-                           float camX, float camY, float zoom, int mx, int my) {
+                           float camX, float camY, float zoom, int mx, int my,
+                           Map<Integer, Boolean> flipflopStates) {
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
         float sw = NW*zoom;
         float contentH = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
@@ -313,7 +316,7 @@ public class NodeRenderer {
             g.fill(2, editLocalY - 2, NW - 2, editLocalY, 0xFF5A4D3A);
             g.fill(2, editLocalY, NW - 2, editLocalY + editLocalH, 0xFF2A2822);
             if (editSt != null && !suppressControls) {
-                com.example.create_schematic_compute.blocks.EditPanel.renderAt(g, 0, editLocalY, NW, n, editSt, zoom, mx, my);
+                com.example.create_schematic_compute.blocks.EditPanel.renderAt(g, 0, editLocalY, NW, n, editSt, zoom, mx, my, flipflopStates);
             }
         }
         pose.popPose();

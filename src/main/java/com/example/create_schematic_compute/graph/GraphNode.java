@@ -116,7 +116,8 @@ public class GraphNode {
             this.params[1] = 0.05f;  // ki
             this.params[2] = 3.0f;   // ilimit
         }
-        if (type == NodeType.T_FLIPFLOP) this.params[0] = 0f; // default off
+        if (type == NodeType.T_FLIPFLOP) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // default off, current off
+        if (type == NodeType.LATCH) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // default reset, current reset
         if (type == NodeType.ACCUMULATOR) this.params[0] = 1f; // step=1
         if (type == NodeType.INTEGRATOR) {
             if (this.params.length > 0 && this.params[0] == 0f) this.params[0] = 1f;   // step
@@ -129,7 +130,7 @@ public class GraphNode {
         if (type == NodeType.LOOP) { this.params[0] = 5f; this.params[1] = 10f; }
         if (type == NodeType.FUSE) this.params[0] = 40f; // cooldown=40 ticks
         if (type == NodeType.BOOL) this.params[0] = 0f;  // inverted=0 (默认不反转)
-        if (type == NodeType.GATE) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // default closed, current state closed
+        if (type == NodeType.GATE) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // default closed, current closed
         if (type == NodeType.KEYBOARD) this.params[0] = 0f; // 默认 A
         if (type == NodeType.GAMEPAD_BUTTON) this.params[0] = 0f; // 默认 A
         // IMAGE/IMAGE_SEQUENCE: lazy-allocate pixel array + set param defaults

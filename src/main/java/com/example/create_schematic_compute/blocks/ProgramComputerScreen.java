@@ -25,6 +25,8 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
         editor.setNodeFilter(nt -> nt == com.example.create_schematic_compute.graph.NodeType.CONST
             || nt == com.example.create_schematic_compute.graph.NodeType.REDSTONE_IN
             || nt == com.example.create_schematic_compute.graph.NodeType.REDSTONE_OUT
+            || nt == com.example.create_schematic_compute.graph.NodeType.PRIVATE_IN
+            || nt == com.example.create_schematic_compute.graph.NodeType.PRIVATE_OUT
             || nt == com.example.create_schematic_compute.graph.NodeType.DELAY
             || nt == com.example.create_schematic_compute.graph.NodeType.LATCH
             || nt == com.example.create_schematic_compute.graph.NodeType.T_FLIPFLOP
@@ -39,6 +41,7 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
 
     @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
     @Override public boolean isRunning() { return blockEntity != null && blockEntity.running; }
+    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { return blockEntity != null ? blockEntity.runtimeState.flipflopStates : null; }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
 
     @Override

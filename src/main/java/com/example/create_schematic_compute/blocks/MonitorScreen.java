@@ -101,6 +101,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     // ── GraphEditor.Host ──
     @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
     @Override public boolean isRunning() { return blockEntity != null && blockEntity.running; }
+    @Override public Map<Integer, Boolean> getFlipflopStates() { return blockEntity != null ? blockEntity.runtimeState.flipflopStates : null; }
     @Override public Screen asScreen() { return this; }
 
     @Override

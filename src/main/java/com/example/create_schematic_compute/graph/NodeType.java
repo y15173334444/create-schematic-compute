@@ -36,7 +36,7 @@ public enum NodeType {
     PRIVATE_IN("private_in", "node.create_schematic_compute.private_in", 0, 1, ""),
     PRIVATE_OUT("private_out", "node.create_schematic_compute.private_out", 1, 0, ""),
     DELAY("delay", "node.create_schematic_compute.delay", 1, 1, "ticks"),
-    LATCH("latch", "node.create_schematic_compute.latch", 2, 1, ""),
+    LATCH("latch", "node.create_schematic_compute.latch", 2, 1, "default"),
     T_FLIPFLOP("t_flipflop", "node.create_schematic_compute.t_flipflop", 1, 1, "default"),
     PULSE_EXTEND("pulse_extend", "node.create_schematic_compute.pulse_extend", 1, 1, "ticks"),
     LOOP("loop", "node.create_schematic_compute.loop", 1, 1, "count,interval"),
@@ -107,7 +107,7 @@ public enum NodeType {
     /** 数值 EditBox 参数的数量（这些参数获得额外输入引脚）。返回 0 表示无。 */
     public int editableParamCount() {
         return switch (this) {
-            case BOOL, GATE, T_FLIPFLOP, KEYBOARD, GAMEPAD_BUTTON,
+            case BOOL, GATE, T_FLIPFLOP, KEYBOARD, GAMEPAD_BUTTON, LATCH,
                  ENCAP_INPUT, ENCAP_OUTPUT, IMAGE, IMAGE_SEQUENCE -> 0;
             default -> paramNames.length;
         };
