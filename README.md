@@ -89,7 +89,7 @@ Reads the orientation of sable physics structures through a node-based graph.
 | **Control** | PID Controller, Power PID, Clamp, Map Range |
 | **Output** | Redstone Output, Private Signal Output, Speed Control |
 | **Display (Monitor only)** | TEXT, DATA, IMAGE, IMAGE_SEQUENCE |
-| **Sequential** | Delay, Latch, T Flip-Flop, Gate, Pulse Extender, Loop, Safety Timer, Accumulator, **Continuous Integrator** |
+| **Sequential** | Delay, Latch, T Flip-Flop, Pulse Extender, Loop, Safety Timer, Accumulator, **Continuous Integrator** |
 | **Input Ctrl** | KEYBOARD (58 keys), Mouse Joystick (X/Y), View Angle, Mouse Button (L/R), Gamepad Joystick (LX/LY/RX/RY), Gamepad Button (15 buttons), **Gamepad Trigger (LT/RT)** |
 | **Sensor** | World View (yaw/pitch), Attitude (pitch/roll), Forward (yaw/pitch), **Acceleration (X/Y/Z)**, **Velocity (X/Y/Z)**, Pose Convert (3-in 2-out), Split |
 
@@ -158,8 +158,8 @@ Reads the orientation of sable physics structures through a node-based graph.
 | Node | Inputs | Output | Params | Description |
 |------|--------|--------|--------|-------------|
 | DELAY | in | out | ticks | Delays output by N ticks |
-| LATCH | S, R | q | - | S≥1 sets, R≥1 resets, holds value |
-| T_FLIPFLOP | in | tog | - | Toggles output on rising edge |
+| LATCH | S, R | q | default | S≥1 sets, R≥1 resets, holds value; configurable initial state |
+| T_FLIPFLOP | in | tog | default | Toggles output on rising edge; configurable initial state |
 | PULSE_EXTEND | in | pulse | ticks | Extends input pulse by N ticks |
 | LOOP | in | clk | count, interval | Fires pulse every interval tick, repeats count times |
 | FUSE | in | pulse | cooldown | Trigger → 2-tick pulse → cooldown N ticks |
@@ -463,19 +463,19 @@ MIT License © 2026 StarryNight_Luo
 
 ---
 
-### 节点参考（43 种）
+### 节点参考（57 种）
 
 | 分类 | 节点 |
 |------|------|
 | **数值** | 常量、红石输入、私有信号输入 |
-| **运算** | 加、减、乘、除、模运算、次幂、次方根、绝对值、比较路由、向上取整、向下取整、**公式** |
-| **逻辑** | 大于、小于、等于、布尔（反转） |
+| **运算** | 加、减、乘、除、模运算、次幂、次方根、绝对值、保留N位小数、比较路由、向上取整、向下取整、**公式** |
+| **逻辑** | 大于、小于、大于等于、小于等于、等于、或门、布尔（反转）、闸门 |
 | **控制** | PID 控制器（误差归零时 I 项复位）、动力 PID、限幅、映射范围 |
 | **输出** | 红石输出、私有信号输出、转速控制 |
-| **时序** | 延时、锁存器、T 触发器、闸门、脉冲延长、循环、保险、累计器、连续积分器 |
+| **时序** | 延时、锁存器、T 触发器（可配置默认）、脉冲延长、循环、保险、累计器、连续积分器 |
 | **显示** | TEXT（文字）、DATA（数值）、IMAGE（图片）、IMAGE_SEQUENCE（动画） |
 | **操作输入** | 键盘按键（58键）、鼠标摇杆（X/Y）、视角差、鼠标按键（左/右）、手柄摇杆（LX/LY/RX/RY）、手柄按键（15键） |
-| **传感器** | 世界视角（偏航/俯仰）、姿态（俯仰/横滚）、前方朝向（偏航/俯仰）、姿态换算（3入2出）、分割 |
+| **传感器** | 世界视角（偏航/俯仰）、姿态（俯仰/横滚）、前方朝向（偏航/俯仰）、**加速度（X/Y/Z）**、**速度（X/Y/Z）**、姿态换算（3入2出）、分割 |
 
 #### 详细节点表
 
@@ -497,6 +497,7 @@ MIT License © 2026 StarryNight_Luo
 | POW | A, B | float | A 的 B 次幂 |
 | ROOT | A, B | float | A 的 B 次方根（B=0 时返回 0） |
 | ABS | in | float | 输入值的绝对值 |
+| ROUND | in | float | decimals | 保留N位小数（默认2位） |
 | Comparison Router | A, B | A, B | A≥B 时 A 口输出 A-B，否则 B 口输出 \|B-A\| |
 | CEIL | in | int | 向上取整 |
 | FLOOR | in | int | 向下取整 |
@@ -507,8 +508,12 @@ MIT License © 2026 StarryNight_Luo
 |------|------|------|------|------|
 | GT | A, B | bool | - | A > B → 1 |
 | LT | A, B | bool | - | A < B → 1 |
+| GE | A, B | bool | - | A >= B → 1 |
+| LE | A, B | bool | - | A <= B → 1 |
 | EQ | A, B | bool | - | A = B → 1 |
+| OR | A, B | bool | - | A > 0.5 或 B > 0.5 → 1 |
 | BOOL | in | bool | inverted | 输入 > 0 → 1, ≤ 0 → 0; inverted=1 时反转 |
+| GATE | val, Open, Close, Tog | out | default | val 在开启时通过; Open/Close 设置状态, Tog 切换 |
 
 ##### 控制
 | 节点 | 输入 | 输出 | 参数 | 说明 |
@@ -537,11 +542,13 @@ MIT License © 2026 StarryNight_Luo
 | 节点 | 输入 | 输出 | 参数 | 说明 |
 |------|------|------|------|------|
 | DELAY | in | out | ticks | 延时 N tick 后输出 |
-| LATCH | S, R | q | - | S≥1 置位，R≥1 复位，保持 |
-| T_FLIPFLOP | in | tog | - | 上升沿翻转输出 |
+| LATCH | S, R | q | default | S≥1 置位，R≥1 复位，保持；可配置初始状态 |
+| T_FLIPFLOP | in | tog | default | 上升沿翻转输出；可配置初始状态 |
 | PULSE_EXTEND | in | pulse | ticks | 输入高电平时脉冲延长 N tick |
 | LOOP | in | clk | count, interval | 收到触发后每 interval tick 输出脉冲，重复 count 次 |
 | FUSE | in | pulse | cooldown | 收到信号→2 tick 脉冲→冷却 N tick |
+| ACCUMULATOR | +, - | val | step | 上升沿触发；+ 加 step，- 减 step |
+| INTEGRATOR | +, -, clear | val | step, interval, limit | 每 interval tick 累计；+/- 同时有效→保持；clear 清零；上限 [0, limit] |
 
 ##### 操作输入（控制座椅专用）
 | 节点 | 输入 | 输出 | 参数 | 说明 |
@@ -559,6 +566,8 @@ MIT License © 2026 StarryNight_Luo
 | WORLD_VIEW | - | yaw, pitch | - | 玩家世界视角方向 |
 | ATTITUDE | - | pitch, roll | - | 子世界姿态（俯仰/横滚） |
 | FORWARD | - | yaw, pitch | - | 子世界前方朝向 |
+| ACCELERATION | - | X, Y, Z | - | 结构本地加速度（前/后、上/下、左/右），20Hz 差分计算 |
+| VELOCITY | - | X, Y, Z | - | 结构本地速度（前/后、上/下、左/右），×2 换算为 m/s |
 | POSE_CONVERT | pitch_a, yaw_a, roll | pitch_b, yaw_b | - | 姿态换算（3入2出） |
 | SPLIT | in | +out, -out | - | 正负分离：正数输出+，负数绝对值输出- |
 
