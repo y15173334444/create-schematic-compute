@@ -44,7 +44,7 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
 
     public SpeedProxyBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.SPEED_PROXY_BE.get(), pos, s); }
     @Override public boolean isRunning() { return running; }
-    @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public void setRunning(boolean r) { running = r; setChanged(); }
     @Override public boolean graphHasCycles() { return graph.hasCycles(); }
     @Override public void clearPidState() { runtimeState.pidState.clear(); }
 
@@ -142,6 +142,9 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
         try {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) {
+                graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
+            }
+            if (t != null && t.contains("graph_old")) {
                 graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
             }
             setChanged();

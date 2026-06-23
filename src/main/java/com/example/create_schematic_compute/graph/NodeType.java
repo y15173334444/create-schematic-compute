@@ -25,8 +25,8 @@ public enum NodeType {
     EQ("eq", "node.create_schematic_compute.eq", 2, 1, ""),
     GE("ge", "node.create_schematic_compute.ge", 2, 1, ""),
     LE("le", "node.create_schematic_compute.le", 2, 1, ""),
-    PID("pid", "node.create_schematic_compute.pid", 1, 1, "kp,ki,kd,scale,ilimit"),
-    PID_POWER("pid_power", "node.create_schematic_compute.pid_power", 2, 1, "kp,ki,ilimit"),
+    PID("pid", "node.create_schematic_compute.pid", 2, 1, "kp,ki,kd,scale,ilimit"),
+    PID_POWER("pid_power", "node.create_schematic_compute.pid_power", 3, 1, "kp,ki,kd,ilimit"),
     CLAMP("clamp", "node.create_schematic_compute.clamp", 1, 1, "min,max"),
     MAP("map", "node.create_schematic_compute.map", 1, 1, "in_min,in_max,out_min,out_max"),
     SPEED_CTRL("speed_ctrl", "node.create_schematic_compute.speed_ctrl", 2, 1, ""),
@@ -35,6 +35,8 @@ public enum NodeType {
     OR("or", "node.create_schematic_compute.or", 2, 1, ""),
     PRIVATE_IN("private_in", "node.create_schematic_compute.private_in", 0, 1, ""),
     PRIVATE_OUT("private_out", "node.create_schematic_compute.private_out", 1, 0, ""),
+    BUS_IN("bus_in", "node.create_schematic_compute.bus_in", 0, 0, ""),
+    BUS_OUT("bus_out", "node.create_schematic_compute.bus_out", 0, 0, ""),
     DELAY("delay", "node.create_schematic_compute.delay", 1, 1, "ticks"),
     LATCH("latch", "node.create_schematic_compute.latch", 2, 1, "default"),
     T_FLIPFLOP("t_flipflop", "node.create_schematic_compute.t_flipflop", 1, 1, "default"),
@@ -42,6 +44,16 @@ public enum NodeType {
     LOOP("loop", "node.create_schematic_compute.loop", 1, 1, "count,interval"),
     FUSE("fuse", "node.create_schematic_compute.fuse", 1, 1, "cooldown"),
     ROUND("round", "node.create_schematic_compute.round", 1, 1, "decimals"),
+    SIN("sin", "node.create_schematic_compute.sin", 1, 1, ""),
+    COS("cos", "node.create_schematic_compute.cos", 1, 1, ""),
+    TAN("tan", "node.create_schematic_compute.tan", 1, 1, ""),
+    ASIN("asin", "node.create_schematic_compute.asin", 1, 1, ""),
+    ACOS("acos", "node.create_schematic_compute.acos", 1, 1, ""),
+    ATAN2("atan2", "node.create_schematic_compute.atan2", 2, 1, ""),
+    SINH("sinh", "node.create_schematic_compute.sinh", 1, 1, ""),
+    COSH("cosh", "node.create_schematic_compute.cosh", 1, 1, ""),
+    DIRECTION("direction", "node.create_schematic_compute.direction", 0, 3, "ax,ay,az,bx,by,bz"),
+    POSITION("position", "node.create_schematic_compute.position", 0, 3, ""),
     ACCUMULATOR("accumulator", "node.create_schematic_compute.accumulator", 2, 1, "step"),
     INTEGRATOR("integrator", "node.create_schematic_compute.integrator", 3, 1, "step,interval,limit"),
     FORMULA("formula", "node.create_schematic_compute.formula", 0, 1, ""),
@@ -108,7 +120,8 @@ public enum NodeType {
     public int editableParamCount() {
         return switch (this) {
             case BOOL, GATE, T_FLIPFLOP, KEYBOARD, GAMEPAD_BUTTON, LATCH,
-                 ENCAP_INPUT, ENCAP_OUTPUT, IMAGE, IMAGE_SEQUENCE -> 0;
+                 ENCAP_INPUT, ENCAP_OUTPUT, IMAGE, IMAGE_SEQUENCE,
+                 BUS_IN, BUS_OUT -> 0;
             default -> paramNames.length;
         };
     }
@@ -124,8 +137,8 @@ public enum NodeType {
         return switch(this){
         case ADD,SUB,MUL,DIV,MOD,POW,ROOT -> i==0?pk("a"):pk("b");
         case GT,LT,EQ,GE,LE,OR -> i==0?pk("a"):pk("b");
-        case PID -> pk("sp");
-        case PID_POWER -> i==0?pk("sp"):pk("base");
+        case PID -> i==0?pk("sp"):pk("pv");
+        case PID_POWER -> i==0?pk("sp"):i==1?pk("pv"):pk("base");
         case CLAMP -> i==0?pk("in"):i==1?pk("min"):pk("max");
         case MAP -> i==0?pk("in"):i==1?pk("in_min"):i==2?pk("in_max"):i==3?pk("out_min"):pk("out_max");
         case CEIL, FLOOR, BOOL, ABS, ROUND -> pk("in");
@@ -142,6 +155,7 @@ public enum NodeType {
         case DATA -> pk("val");
         case IMAGE -> i == 0 ? pk("x") : i == 1 ? pk("y") : pk("rotation");
         case IMAGE_SEQUENCE -> i == 0 ? pk("x") : i == 1 ? pk("y") : i == 2 ? pk("frame") : pk("rotation");
+        case DIRECTION -> i==0?pk("ax"):i==1?pk("ay"):i==2?pk("az"):i==3?pk("bx"):i==4?pk("by"):pk("bz");
         case ENCAPSULATION -> pk("in"); // dynamic label from sub-graph ENCAP_INPUT name
         case ENCAP_OUTPUT -> pk("val");
         default -> pk("in");
@@ -149,7 +163,7 @@ public enum NodeType {
     public String outputLabel(int i) { return switch(this){
         case CONST -> pk("float");
         case REDSTONE_IN -> pk("signal");
-        case ADD,SUB,MUL,DIV,MOD,POW,ROOT,ABS,ROUND -> pk("float");
+        case ADD,SUB,MUL,DIV,MOD,POW,ROOT,ABS,ROUND,SIN,COS,TAN,ASIN,ACOS,ATAN2,SINH,COSH -> pk("float");
         case INTERP -> i==0?pk("a"):pk("b");
         case GT,LT,EQ,GE,LE, BOOL, OR -> pk("bool");
         case PID -> pk("ctrl");
@@ -176,9 +190,11 @@ public enum NodeType {
         case FORWARD -> i == 0 ? pk("yaw") : pk("pitch");
         case ACCELERATION -> i == 0 ? pk("accel_x") : i == 1 ? pk("accel_y") : pk("accel_z");
         case VELOCITY -> i == 0 ? pk("vel_x") : i == 1 ? pk("vel_y") : pk("vel_z");
+        case POSITION -> i == 0 ? pk("x") : i == 1 ? pk("y") : pk("z");
         case SPLIT -> i == 0 ? pk("plus_out") : pk("minus_out");
         case ACCUMULATOR, INTEGRATOR -> pk("val");
         case POSE_CONVERT -> i == 0 ? pk("pitch_b") : pk("yaw_b");
+        case DIRECTION -> i==0?pk("yaw"):i==1?pk("pitch"):pk("distance");
         case ENCAPSULATION -> pk("out"); // dynamic label from sub-graph ENCAP_OUTPUT name
         case ENCAP_INPUT -> pk("val");
         default -> "";

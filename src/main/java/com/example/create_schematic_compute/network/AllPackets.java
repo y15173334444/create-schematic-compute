@@ -40,5 +40,15 @@ public class AllPackets {
                 RuntimeStateSyncPacket.CODEC,
                 RuntimeStateSyncPacket::handle
         );
+        registrar.playToClient(
+                BusBandSyncPacket.TYPE,
+                BusBandSyncPacket.CODEC,
+                BusBandSyncPacket::handle
+        );
+        registrar.playToServer(
+                BusBandUploadPacket.TYPE,
+                BusBandUploadPacket.CODEC,
+                BusBandUploadPacket::handle
+        );
     }
 }

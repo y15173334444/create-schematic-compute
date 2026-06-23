@@ -48,11 +48,19 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
         if (this.level == null) this.level = savedLevel;
         if (this.level == null || this.level.isClientSide()) return;
 
-        // ── 先缓存子世界 pose（无论是否有骑手） ──
+        // ── 先缓存子世界 pose 和位置（无论是否有骑手） ──
         float[] pose = SablePoseHelper.getSubPose(subLevel);
         cachedSubYaw = pose[0];
         cachedSubPitch = pose[1];
         cachedSubRoll = pose[2];
+        try {
+            var pos = subLevel.logicalPose().position();
+            if (pos != null) {
+                cachedSubWorldX = (float) pos.x();
+                cachedSubWorldY = (float) pos.y();
+                cachedSubWorldZ = (float) pos.z();
+            }
+        } catch (Exception ignored) {}
         if (Float.isNaN(initialSubYaw)) initialSubYaw = cachedSubYaw;
         if (getBlockState().hasProperty(ControlSeatBlock.FACING))
             cachedBlockFacingYaw = getBlockState().getValue(ControlSeatBlock.FACING).toYRot();

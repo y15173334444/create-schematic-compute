@@ -28,11 +28,19 @@ public class SensorBlockEntitySable extends SensorBlockEntity implements BlockEn
     public void sable$physicsTick(ServerSubLevel subLevel, RigidBodyHandle handle, double deltaTime) {
         if (level == null || level.isClientSide()) return;
 
-        // ── 读取子世界姿态 ──
+        // ── 读取子世界姿态和位置 ──
         float[] pose = SablePoseHelper.getSubPose(subLevel);
         cachedSubYaw = pose[0];
         cachedSubPitch = pose[1];
         cachedSubRoll = pose[2];
+        try {
+            var pos = subLevel.logicalPose().position();
+            if (pos != null) {
+                cachedSubWorldX = (float) pos.x();
+                cachedSubWorldY = (float) pos.y();
+                cachedSubWorldZ = (float) pos.z();
+            }
+        } catch (Exception ignored) {}
         if (getBlockState().hasProperty(SensorBlock.FACING))
             cachedBlockFacingYaw = getBlockState().getValue(SensorBlock.FACING).toYRot();
         hasSubPose = true;

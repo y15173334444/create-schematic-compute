@@ -11,11 +11,18 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.resources.language.I18n;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
+
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.NbtAccounter;
+import net.minecraft.nbt.NbtIo;
 
 /**
  * 节点图编辑器 — 封装两屏共享的编辑、渲染、输入逻辑
@@ -29,11 +36,15 @@ public class GraphEditor {
         boolean isRunning();
         Screen asScreen();
         default Map<Integer, Boolean> getFlipflopStates() { return null; }
+        default net.minecraft.core.BlockPos getBlockPos() { return net.minecraft.core.BlockPos.ZERO; }
     }
 
     private final Host host;
     public final NodeRenderer renderer;
     private Predicate<NodeType> nodeFilter;
+
+    /** 每个图的最大节点数上限（含主图和每个封装子图） */
+    public static final int MAX_NODES = 1024;
 
     // 编辑状态
     public float camX=0, camY=0, zoom=1f;
@@ -49,7 +60,15 @@ public class GraphEditor {
     public float menuX, menuY;
     public NodeType selectedMenuType=null;
     public long saveFeedbackUntil=0;
+    public String saveFeedbackText="";
+    public long importFeedbackUntil=0;
     public String cycleWarning=null;
+    // 导入/导出封装节点对话框
+    public boolean showExportDialog = false;
+    public boolean showImportDialog = false;
+    public EditBox exportNameEdit = null;
+    public java.util.List<java.nio.file.Path> importFiles = null;
+    public int importScrollOff = 0;
     public boolean gridSnapEnabled = NodeRenderer.loadGridSnap();
     public GraphNode hotbarNode = null; // 当前显示热栏的节点（点击频率槽时弹出）
     // 多节点展开：Set + 每节点独立编辑状态
@@ -66,8 +85,18 @@ public class GraphEditor {
         public NodeGraph graph;
         /** 有参数引脚连线时阻止折叠（值由连线决定，编辑区已隐藏） */
         public boolean blockCollapse;
+        /** 频段 +/- 按钮位置（仅 BUS_IN/OUT 用） */
+        public float bandAddBtnX, bandAddBtnY, bandAddBtnW, bandAddBtnH;
+        public float bandRemoveBtnX, bandRemoveBtnY, bandRemoveBtnW, bandRemoveBtnH;
+        /** 每个频段引脚的 node-local Y 坐标（同步编辑区渲染与连线检测） */
+        public float[] bandPinY;
+        /** BUS 总线名 EditBox（用于失焦/Enter 提交检测） */
+        public net.minecraft.client.gui.components.EditBox busBox;
+        public GraphNode busNode;
     }
     public final java.util.Map<Integer, EditState> nodeEditStatesById = new java.util.HashMap<>();
+    /** EditBox → 提交动作（回车或失焦时执行） */
+    private final java.util.Map<net.minecraft.client.gui.components.EditBox, Runnable> enterActions = new java.util.HashMap<>();
     // 颜色配置面板
     public boolean showColorConfig = false;
     public final net.minecraft.client.gui.components.EditBox[] colorFields = new net.minecraft.client.gui.components.EditBox[NodeRenderer._NUM_COLORS];
@@ -107,6 +136,7 @@ public class GraphEditor {
         nodeFilter = nt -> nt == NodeType.ENCAP_INPUT || nt == NodeType.ENCAP_OUTPUT
             || (nt != NodeType.REDSTONE_IN && nt != NodeType.REDSTONE_OUT
                 && nt != NodeType.PRIVATE_IN && nt != NodeType.PRIVATE_OUT
+                && nt != NodeType.BUS_IN && nt != NodeType.BUS_OUT
                 && nt != NodeType.ENCAPSULATION
                 && nt != NodeType.TEXT && nt != NodeType.DATA
                 && nt != NodeType.IMAGE && nt != NodeType.IMAGE_SEQUENCE
@@ -124,7 +154,7 @@ public class GraphEditor {
         selectedNode = null; selectedNodes.clear();
         nodeFilter = state.parentFilter();
         mainNodeFilter = state.parentFilter();
-        host.saveGraph(); // 保存以便子图变更持久化
+        // 子图修改已写入 encapsulationParent.subGraph，随 Recompile 统一保存
     }
 
     public NodeGraph getGraph() {
@@ -135,8 +165,23 @@ public class GraphEditor {
         host.saveGraph();
     }
 
+    /** 注册 Enter/失焦提交动作 */
+    private void registerEnter(net.minecraft.client.gui.components.EditBox eb, Runnable action) {
+        enterActions.put(eb, action);
+    }
+
     /** 创建节点的编辑状态 */
     private EditState createEditState(GraphNode node) {
+        // 保存旧状态引用（供 busBox 保留输入值）
+        final var oldStRef = nodeEditStatesById.get(node.id);
+        // 先移除本节点的旧 EditState（避免旧 EditBox 仍在旧 state 中被保留）
+        nodeEditStatesById.remove(node.id);
+        // 清除不再被任何 EditState 引用的旧 EditBox 的 enterActions
+        enterActions.keySet().removeIf(eb -> {
+            for (var st : nodeEditStatesById.values())
+                if (st.fields.contains(eb)) return false;
+            return true;
+        });
         var s = new EditState();
         s.graph = getGraph(); // 用于检查参数引脚连线状态
         s.paramKeys = node.type.paramNames.clone();
@@ -155,7 +200,7 @@ public class GraphEditor {
             b.setMaxLength(12);
             b.setValue(String.format("%.3f", node.params[i]));
             float oldVal = node.params[idx];
-            b.setResponder(t -> { try { node.params[idx] = Float.parseFloat(t.trim()); } catch (Exception e) { node.params[idx] = oldVal; } });
+            registerEnter(b, () -> { try { node.params[idx] = Float.parseFloat(b.getValue().trim()); } catch (Exception e) {} });
             s.fields.add(b);
             s.fieldParamIndices.add(i);
         }
@@ -164,24 +209,81 @@ public class GraphEditor {
         if (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT) {
             var sb = new EditBox(mc.font, 0, 0, 120, 16, Component.literal(""));
             sb.setMaxLength(32); sb.setValue(node.signalName);
-            sb.setResponder(t -> node.signalName = t);
+            registerEnter(sb, () -> node.signalName = sb.getValue());
             s.fields.add(sb);
+        }
+        if (node.type == NodeType.BUS_IN || node.type == NodeType.BUS_OUT) {
+            // 预计算编辑区引脚位置（避免连线首帧跳动）
+            int bandCnt = node.bandCount();
+            if (bandCnt > 0) {
+                s.bandPinY = new float[bandCnt];
+                for (int i = 0; i < bandCnt; i++) s.bandPinY[i] = bandPinY(node, i, zoom);
+            }
+            // BUS_IN 展开时自动同步频段（先本地 BUS_OUT，后全局注册表）
+            if (node.type == NodeType.BUS_IN && !node.signalName.isEmpty() && node.signalBands.isEmpty()) {
+                boolean synced = false;
+                // 先从同图内 BUS_OUT 同步
+                for (var n : getGraph().nodes) {
+                    if (n.type == NodeType.BUS_OUT && n.signalName.equals(node.signalName) && n.bandCount() > 0) {
+                        node.signalBands = new java.util.ArrayList<>(n.signalBands); synced = true; break;
+                    }
+                }
+                // 本地没有则从全局注册表同步
+                if (!synced) {
+                    var gb = com.example.create_schematic_compute.network.SignalBus.getBands(node.signalName);
+                    if (gb != null && !gb.isEmpty()) node.signalBands = new java.util.ArrayList<>(gb);
+                }
+            }
+            var busBox = new EditBox(mc.font, 0, 0, 120, 16, Component.literal(""));
+            busBox.setMaxLength(32); busBox.setValue(node.signalName);
+            // busBox 不通过 enterActions 提交；保留旧聚焦 busBox 的输入值
+            var oldSt = oldStRef;
+            s.busNode = node;
+            if (oldSt != null && oldSt.busBox != null && oldSt.busBox.isFocused()) {
+                busBox.setValue(oldSt.busBox.getValue()); // 保留用户正在输入的内容
+                busBox.setFocused(true);
+            }
+            s.busBox = busBox;
+            s.fields.add(busBox);
+            s.fieldParamIndices.add(-1);
+            if (node.signalBands == null) node.signalBands = new java.util.ArrayList<>();
+            // 同步旧频段 EditBox 的值到 signalBands（仅同步未聚焦的，防止干扰正在编辑的框）
+            if (oldSt != null && oldSt.fields.size() > 1 && node.type == NodeType.BUS_OUT) {
+                for (int bi = 1; bi < oldSt.fields.size(); bi++) {
+                    int sigIdx = bi - 1;
+                    var oldBox = oldSt.fields.get(bi);
+                    if (sigIdx < node.signalBands.size() && !oldBox.isFocused()) {
+                        String val = oldBox.getValue();
+                        if (!val.isEmpty()) node.signalBands.set(sigIdx, val);
+                        node.bandsDirty = true;
+                    }
+                }
+            }
+            for (int bi = 0; bi < node.signalBands.size(); bi++) {
+                final int idx = bi;
+                var bandBox = new EditBox(mc.font, 0, 0, 80, 16, Component.literal(""));
+                bandBox.setMaxLength(16); bandBox.setValue(node.signalBands.get(bi));
+                if (node.type == NodeType.BUS_IN) bandBox.setEditable(false);
+                // BUS_OUT 频段可编辑但不在 enterActions 中（由 recompile 批量同步）
+                s.fields.add(bandBox);
+                s.fieldParamIndices.add(bi);
+            }
         }
         if (node.type == NodeType.TEXT) {
             var tb = new EditBox(mc.font, 0, 0, 120, 16, Component.literal(""));
             tb.setMaxLength(256); tb.setValue(node.displayText);
-            tb.setResponder(t -> node.displayText = t);
+            registerEnter(tb, () -> node.displayText = tb.getValue());
             s.fields.add(tb);
             var cb = new EditBox(mc.font, 0, 0, 70, 16, Component.literal(""));
             cb.setMaxLength(8); cb.setValue(String.format("%08X", node.textColor != 0 ? node.textColor : 0xFFCCCCCC));
-            cb.setResponder(t -> { try { node.textColor = (int)(Long.parseLong(t.trim(), 16) & 0xFFFFFFFFL); } catch (Exception e) {} });
+            registerEnter(cb, () -> { try { node.textColor = (int)(Long.parseLong(cb.getValue().trim(), 16) & 0xFFFFFFFFL); } catch (Exception e) {} });
             s.fields.add(cb);
             s.paramKeys = new String[]{"text", "color"};
         }
         if (node.type == NodeType.DATA) {
             var cb = new EditBox(mc.font, 0, 0, 70, 16, Component.literal(""));
             cb.setMaxLength(8); cb.setValue(String.format("%08X", node.textColor != 0 ? node.textColor : 0xFF88FF88));
-            cb.setResponder(t -> { try { node.textColor = (int)(Long.parseLong(t.trim(), 16) & 0xFFFFFFFFL); } catch (Exception e) {} });
+            registerEnter(cb, () -> { try { node.textColor = (int)(Long.parseLong(cb.getValue().trim(), 16) & 0xFFFFFFFFL); } catch (Exception e) {} });
             s.fields.add(cb);
             s.paramKeys = new String[]{"color"};
         }
@@ -192,7 +294,7 @@ public class GraphEditor {
                 int idx = pi;
                 var b = new EditBox(mc.font, 0, 0, 50, 16, Component.literal(""));
                 b.setMaxLength(8); b.setValue(String.format("%.3f", node.params.length > idx ? node.params[idx] : defaults[idx]));
-                b.setResponder(t -> { try { if (node.params.length > idx) node.params[idx] = Float.parseFloat(t.trim()); } catch (Exception e) {} });
+                int iidx = idx; registerEnter(b, () -> { try { if (node.params.length > iidx) node.params[iidx] = Float.parseFloat(b.getValue().trim()); } catch (Exception e) {} });
                 s.fields.add(b);
             }
             s.paramKeys = keys;
@@ -200,6 +302,7 @@ public class GraphEditor {
         if (node.type == NodeType.FORMULA) {
             var fb = new EditBox(mc.font, 0, 0, 140, 16, Component.literal(""));
             fb.setMaxLength(64); fb.setValue(node.formula.isEmpty() ? "A+B" : node.formula);
+            // 公式框保持实时更新（输入引脚数需即时反映）
             fb.setResponder(t -> {
                 String clean = t.replaceAll("[^a-zA-Z0-9+\\-*/%^(). ]", "");
                 if (!clean.equals(t)) fb.setValue(clean);
@@ -211,7 +314,7 @@ public class GraphEditor {
         if (node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT) {
             var nb = new EditBox(mc.font, 0, 0, 100, 16, Component.literal(""));
             nb.setMaxLength(32); nb.setValue(node.displayText);
-            nb.setResponder(t -> node.displayText = t);
+            registerEnter(nb, () -> node.displayText = nb.getValue());
             s.fields.add(nb);
             s.paramKeys = new String[]{"name"};
         }
@@ -272,9 +375,16 @@ public class GraphEditor {
     //  5: 颜色设置面板 / Nodes菜单
     //  6: 框选矩形
     private boolean expandedInitDone = false;
+    private com.example.create_schematic_compute.graph.NodeGraph lastInitGraph = null;
+    /** 本方块通过 syncBusBands 实际注册过的频道名（用于区分自身和跨方块冲突） */
+    private final java.util.Set<String> localBusNames = new java.util.HashSet<>();
 
     public void renderBg(GuiGraphics g, int mx, int my) {
         var graph = getGraph();
+        if (graph != lastInitGraph) {
+            lastInitGraph = graph;
+            expandedInitDone = false;
+        }
         // 首次渲染时从 NBT 恢复展开状态
         if (!expandedInitDone) {
             for (var n : graph.nodes) {
@@ -299,6 +409,58 @@ public class GraphEditor {
             g.drawString(mc.font, backLabel, bx + (bw - tw) / 2, by + 4, 0xFFCCCCCC);
         }
 
+        // 从全局 BAND_REGISTRY 同步 BUS_IN 的频段（BUS_OUT 自己定义，不同步）
+        for (var n : graph.nodes) {
+            if (n.type != NodeType.BUS_IN) continue;
+            if (n.signalName.isEmpty()) continue;
+            var gb = com.example.create_schematic_compute.network.SignalBus.getBands(n.signalName);
+            if (gb != null && !gb.isEmpty() && !gb.equals(n.signalBands)) {
+                // 断开已删除频段引脚上的连线
+                int oldCount = n.bandCount();
+                for (int pi = 0; pi < oldCount; pi++) {
+                    if (pi >= gb.size()) {
+                        final int p = pi;
+                        graph.connections.removeIf(c ->
+                            (c.fromId == n.id && c.fromPin == p) || (c.toId == n.id && c.toPin == p));
+                    }
+                }
+                n.signalBands = new java.util.ArrayList<>(gb);
+            } else if ((gb == null || gb.isEmpty()) && !n.signalBands.isEmpty() && n.type == NodeType.BUS_IN) {
+                // BUS_IN 被动同步：BAND_REGISTRY 为空 → BUS_OUT 不存在 → 清空
+                int oldCount = n.bandCount();
+                for (int pi = 0; pi < oldCount; pi++) {
+                    final int p = pi;
+                    graph.connections.removeIf(c ->
+                        (c.fromId == n.id && c.fromPin == p) || (c.toId == n.id && c.toPin == p));
+                }
+                n.signalBands.clear();
+                n.bandsDirty = true;
+                if (expandedNodeIds.contains(n.id))
+                    nodeEditStatesById.put(n.id, createEditState(n));
+            }
+        }
+        // BUS_IN/OUT 展开面板刷新：比较 band 数量 + 内容是否与 EditState 一致
+        for (var n : graph.nodes) {
+            if ((n.type != NodeType.BUS_IN && n.type != NodeType.BUS_OUT)
+                || !expandedNodeIds.contains(n.id)) continue;
+            var st = nodeEditStatesById.get(n.id);
+            if (st == null) continue;
+            // 跳过正在编辑的频段输入框（用户正在输入中，不要重建 EditState）
+            boolean editingBand = false;
+            for (int bi = 1; bi < st.fields.size(); bi++) {
+                if (st.fields.get(bi).isFocused()) { editingBand = true; break; }
+            }
+            if (editingBand) continue;
+            boolean changed = st.fields.size() - 1 != n.bandCount();
+            if (!changed && n.bandCount() > 0) {
+                for (int bi = 0; bi < n.bandCount(); bi++) {
+                    if (!n.signalBands.get(bi).equals(st.fields.get(bi + 1).getValue())) {
+                        changed = true; break;
+                    }
+                }
+            }
+            if (changed) nodeEditStatesById.put(n.id, createEditState(n));
+        }
         renderer.renderConnections(g, graph, camX, camY, zoom);
         if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
         renderer.suppressControls = showColorConfig || showMenu;
@@ -307,13 +469,114 @@ public class GraphEditor {
             camX, camY, zoom, mx, my, flipflopStates);
         if (!isInSubGraph()) {
             renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width, host.asScreen().height);
+            // 导入/导出封装节点按钮（仅蓝图计算机显示）
+            if (host instanceof BlueprintScreen) {
+                var mc = Minecraft.getInstance();
+                int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : 4;
+                int impX = 254, impW = 72, btnH = 18;
+                // 仅选中单个封装节点时显示导出，否则显示导入
+                boolean hasSingleEncap = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
+                if (hasSingleEncap) {
+                    g.fill(impX, btnY, impX + impW, btnY + btnH, 0xFF2A3A1A);
+                    g.renderOutline(impX, btnY, impW, btnH, NodeRenderer.CSB);
+                    g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
+                    g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.encap_export"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
+                } else {
+                    g.fill(impX, btnY, impX + impW, btnY + btnH, 0xFF2A2A3A);
+                    g.renderOutline(impX, btnY, impW, btnH, NodeRenderer.CSB);
+                    g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
+                    g.drawString(mc.font, "§b" + I18n.get("gui.create_schematic_compute.encap_import"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
+                }
+            }
         } else {
             // 封装模式标识 (替换按钮栏)
             var mc2 = Minecraft.getInstance();
-            g.fill(2, 2, host.asScreen().width - 2, 22, 0xFF3A2A1A);
-            String modeText = "◈ " + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.encap_mode") + " ◈";
+            int nodeCount = getGraph().nodes.size();
+            boolean overLimit = nodeCount > MAX_NODES;
+            int barH = overLimit ? 36 : 22;
+            g.fill(2, 2, host.asScreen().width - 2, barH, 0xFF3A2A1A);
+            String countStr = " (" + nodeCount + "/" + MAX_NODES + ")" + (overLimit ? " §c⚠" : "");
+            String modeText = "◈ " + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.encap_mode") + " ◈" + countStr;
             int mtw = mc2.font.width(modeText);
-            g.drawString(mc2.font, modeText, (host.asScreen().width - mtw) / 2, 6, 0xFFFFCC88);
+            g.drawString(mc2.font, modeText, (host.asScreen().width - mtw) / 2, 6, overLimit ? 0xFFFF6666 : 0xFFFFCC88);
+            if (overLimit) {
+                String warn = net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.encap_node_limit");
+                int ww = mc2.font.width(warn);
+                g.drawString(mc2.font, warn, (host.asScreen().width - ww) / 2, 22, 0xFFFF4444);
+            }
+        }
+        // 导入/导出反馈文字
+        if (System.currentTimeMillis() < importFeedbackUntil && !saveFeedbackText.isEmpty()) {
+            var mc = Minecraft.getInstance();
+            int tw = mc.font.width(saveFeedbackText) + 20;
+            int fy = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 60 : 26;
+            g.fill(host.asScreen().width / 2 - tw / 2, fy, host.asScreen().width / 2 + tw / 2, fy + 18, 0xCC2A3A2A);
+            g.renderOutline(host.asScreen().width / 2 - tw / 2, fy, tw, 18, 0xFF6A8A4A);
+            g.drawString(mc.font, saveFeedbackText, host.asScreen().width / 2 - tw / 2 + 10, fy + 4, 0xFFFFFFFF, false);
+        }
+        // 导出封装节点对话框
+        if (showExportDialog && exportNameEdit != null && selectedNode != null) {
+            var mc = Minecraft.getInstance();
+            int w = 280, h = 80;
+            int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
+            g.fill(cx, cy, cx + w, cy + h, 0xEE1A1A2A);
+            g.renderOutline(cx, cy, w, h, NodeRenderer.CSB);
+            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_export"), cx + 8, cy + 6, 0xFFFFCC88, false);
+            exportNameEdit.setX(cx + 8);
+            exportNameEdit.setY(cy + 26);
+            exportNameEdit.setWidth(w - 70);
+            exportNameEdit.render(g, 0, 0, 0);
+            // 保存按钮
+            int sx = cx + w - 60, sy = cy + 24;
+            g.fill(sx, sy, sx + 50, sy + 20, 0xFF3A5A2A);
+            g.renderOutline(sx, sy, 50, 20, 0xFF6A8A4A);
+            g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.save"), sx + 8, sy + 5, 0xFFFFFFFF, false);
+            // 取消按钮
+            g.fill(cx + 8, cy + 50, cx + 58, cy + 68, 0xFF4A3030);
+            g.renderOutline(cx + 8, cy + 50, 50, 18, 0xFF8B5333);
+            g.drawString(mc.font, "§c" + I18n.get("gui.create_schematic_compute.cancel"), cx + 12, cy + 53, 0xFFFFFFFF, false);
+        }
+        // 导入封装节点对话框
+        if (showImportDialog) {
+            var mc = Minecraft.getInstance();
+            int w = 280, visRows = 8;
+            int fileCount = importFiles != null ? importFiles.size() : 0;
+            int listH = Math.min(fileCount, visRows) * 18;
+            int h = 56 + listH + 30; // 标题 + 列表 + 按钮区
+            int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
+            g.fill(cx, cy, cx + w, cy + h, 0xEE1A1A2A);
+            g.renderOutline(cx, cy, w, h, NodeRenderer.CSB);
+            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_import"), cx + 8, cy + 6, 0xFFCCCCFF, false);
+            if (fileCount == 0) {
+                g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.encap_import_failed"), cx + 8, cy + 30, 0xFFFFFFFF, false);
+            } else {
+                int maxScroll = Math.max(0, fileCount - visRows);
+                if (importScrollOff < 0) importScrollOff = 0;
+                if (importScrollOff > maxScroll) importScrollOff = maxScroll;
+                int listY = cy + 28;
+                int endIdx = Math.min(fileCount, importScrollOff + visRows);
+                for (int i = importScrollOff; i < endIdx; i++) {
+                    var p = importFiles.get(i);
+                    String name = p.getFileName().toString();
+                    if (name.endsWith(".nbt")) name = name.substring(0, name.length() - 4);
+                    int ry = listY + (i - importScrollOff) * 18;
+                    boolean hover = mx >= cx + 4 && mx <= cx + w - 20 && my >= ry && my <= ry + 16;
+                    if (hover) g.fill(cx + 4, ry, cx + w - 20, ry + 16, 0xFF3A4A6A);
+                    g.drawString(mc.font, (hover ? "§e" : "§7") + name, cx + 8, ry + 3, 0xFFFFFFFF, false);
+                }
+                // 右侧滚动条
+                if (maxScroll > 0) {
+                    int sbX = cx + w - 14, sbY = listY, sbH = visRows * 18;
+                    g.fill(sbX, sbY, sbX + 8, sbY + sbH, 0xFF2A2822);
+                    float thumbTop = sbY + (float) importScrollOff / maxScroll * (sbH - 12);
+                    g.fill(sbX + 1, (int) thumbTop, sbX + 7, (int) thumbTop + 12, 0xFF8B7533);
+                }
+            }
+            // 取消按钮
+            int cby = cy + h - 22;
+            g.fill(cx + 8, cby, cx + 58, cby + 16, 0xFF4A3030);
+            g.renderOutline(cx + 8, cby, 50, 16, 0xFF8B5333);
+            g.drawString(mc.font, "§c" + I18n.get("gui.create_schematic_compute.cancel"), cx + 12, cby + 2, 0xFFFFFFFF, false);
         }
         // 热栏弹出（点击频率槽后在节点下方显示）
         if (hotbarNode != null) {
@@ -387,6 +650,62 @@ public class GraphEditor {
 
     public boolean mouseClicked(double mx, double my, int btn) {
         var graph = getGraph();
+        // ── 导出对话框处理 ──
+        if (showExportDialog && btn == 0) {
+            int w = 280, h = 80;
+            int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
+            // Save 按钮
+            if (mx >= cx + w - 60 && mx <= cx + w - 10 && my >= cy + 24 && my <= cy + 44) {
+                if (exportNameEdit != null && selectedNode != null) {
+                    String name = exportNameEdit.getValue().trim();
+                    if (!name.isEmpty()) exportEncapNode(selectedNode, name);
+                }
+                showExportDialog = false; exportNameEdit = null; return true;
+            }
+            // Cancel 按钮
+            if (mx >= cx + 8 && mx <= cx + 58 && my >= cy + 50 && my <= cy + 68) {
+                showExportDialog = false; exportNameEdit = null; return true;
+            }
+            // 点击对话框外部 → 关闭
+            if (mx < cx || mx > cx + w || my < cy || my > cy + h) {
+                showExportDialog = false; exportNameEdit = null; return true;
+            }
+            if (exportNameEdit != null) { exportNameEdit.mouseClicked(mx, my, btn); }
+            return true;
+        }
+        // ── 导入对话框处理 ──
+        if (showImportDialog && btn == 0) {
+            int w = 280, visRows = 8;
+            int fileCount = importFiles != null ? importFiles.size() : 0;
+            int listH = Math.min(fileCount, visRows) * 18;
+            int h = 56 + listH + 30;
+            int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
+            // Cancel 按钮
+            int cby = cy + h - 22;
+            if (mx >= cx + 8 && mx <= cx + 58 && my >= cby && my <= cby + 16) {
+                showImportDialog = false; importFiles = null; return true;
+            }
+            // 点击对话框外部
+            if (mx < cx || mx > cx + w || my < cy || my > cy + h) {
+                showImportDialog = false; importFiles = null; return true;
+            }
+            // 文件列表点击（留出滚动条区域）
+            if (fileCount > 0) {
+                int endIdx = Math.min(fileCount, importScrollOff + visRows);
+                for (int i = importScrollOff; i < endIdx; i++) {
+                    int ry = cy + 28 + (i - importScrollOff) * 18;
+                    if (mx >= cx + 4 && mx <= cx + w - 20 && my >= ry && my <= ry + 16) {
+                        importEncapNode(importFiles.get(i));
+                        showImportDialog = false; importFiles = null; return true;
+                    }
+                }
+            }
+            return true;
+        }
+        // 失焦提交：enterActions（频段 EditBox 等通过 enterActions 注册的控件）
+        for (var e : enterActions.entrySet()) {
+            if (e.getKey().isFocused()) { e.getValue().run(); break; }
+        }
         if(btn==0){
             // ── 子图 Back 按钮 ──
             if (isInSubGraph()) {
@@ -419,6 +738,29 @@ public class GraphEditor {
                     }
                     return true;
                 }
+                // 导入/导出封装节点按钮（仅蓝图计算机）
+                if (host instanceof BlueprintScreen && mx >= 254 && mx <= 326 && my >= btnY && my <= btnY + 18) {
+                    boolean hasEncapSelected = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
+                    if (hasEncapSelected) {
+                        showExportDialog = true;
+                        String defName = selectedNode.displayText.isEmpty() ? "encap" : selectedNode.displayText;
+                        exportNameEdit = new EditBox(Minecraft.getInstance().font, host.asScreen().width / 2 - 80, host.asScreen().height / 2 - 10, 160, 20, Component.literal(defName));
+                        exportNameEdit.setValue(defName);
+                        exportNameEdit.setFocused(true);
+                    } else {
+                        showImportDialog = true;
+                        importScrollOff = 0;
+                        try {
+                            var dir = getExportPath().getParent();
+                            if (Files.exists(dir)) {
+                                try (var s = Files.list(dir)) {
+                                    importFiles = s.filter(p -> p.toString().endsWith(".nbt")).sorted().toList();
+                                }
+                            } else importFiles = java.util.Collections.emptyList();
+                        } catch (Exception e) { importFiles = java.util.Collections.emptyList(); }
+                    }
+                    return true;
+                }
             }
             // 右下角工具栏位置切换按钮（始终可见）
             { int w = host.asScreen().width, h = host.asScreen().height;
@@ -426,7 +768,13 @@ public class GraphEditor {
         }
         if(showMenu&&btn==0){
             if(renderer.handleCategoryClick((int)mx, (int)my)) return true;
-            if(selectedMenuType!=null)graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));showMenu=false;return true;}
+            if(selectedMenuType!=null){
+                if(graph.nodes.size()>=MAX_NODES){
+                    cycleWarning=I18n.get("gui.create_schematic_compute.node_limit");
+                }else{
+                    graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));
+                }
+            }showMenu=false;return true;}
         if(btn==1){
             if (showColorConfig) return true; // 颜色面板打开时禁止操作
             menuX=(float)mx; menuY=(float)my; showMenu=true; return true;
@@ -554,6 +902,49 @@ public class GraphEditor {
                     if (lmx >= 4 && lmx <= NW - 4 && lmy >= latchLocalY && lmy <= latchLocalY + 16)
                     { en.params[0] = en.params[0] > 0.5f ? 0 : 1; return true; }
                 }
+                // BUS_IN/OUT 频段 +/- 按钮（先提交未保存的 busBox，防止名称丢失）
+                if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
+                    // 提交当前节点的 busBox（如有未保存的频道名编辑）
+                    if (st.busBox != null && st.busNode != null
+                        && !st.busBox.getValue().equals(st.busNode.signalName))
+                        commitBusBox(st);
+                }
+                if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
+                    if (lmx >= st.bandAddBtnX && lmx <= st.bandAddBtnX + st.bandAddBtnW
+                        && lmy >= st.bandAddBtnY && lmy <= st.bandAddBtnY + st.bandAddBtnH) {
+                        // + 按钮：添加新频段，同步同总线名节点
+                        if (en.signalBands == null) en.signalBands = new java.util.ArrayList<>();
+                        String name = "band_" + en.signalBands.size();
+                        en.signalBands.add(name);
+                        en.bandsDirty = true;
+                        syncBusBands(en);
+                        if (!en.busConflict)
+                            net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                                new com.example.create_schematic_compute.network.BusBandUploadPacket(
+                                    host.getBlockPos(), en.signalName, en.signalBands));
+                        nodeEditStatesById.put(en.id, createEditState(en));
+                        return true;
+                    }
+                    if (lmx >= st.bandRemoveBtnX && lmx <= st.bandRemoveBtnX + st.bandRemoveBtnW
+                        && lmy >= st.bandRemoveBtnY && lmy <= st.bandRemoveBtnY + st.bandRemoveBtnH) {
+                        if (en.signalBands != null && !en.signalBands.isEmpty()) {
+                            int removedPin = en.signalBands.size() - 1;
+                            // 断开被移除引脚上的连线
+                            graph.connections.removeIf(c ->
+                                (c.fromId == en.id && c.fromPin == removedPin)
+                                || (c.toId == en.id && c.toPin == removedPin));
+                            en.signalBands.remove(removedPin);
+                            en.bandsDirty = true;
+                            syncBusBands(en);
+                            if (!en.busConflict)
+                                net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                                    new com.example.create_schematic_compute.network.BusBandUploadPacket(
+                                        host.getBlockPos(), en.signalName, en.signalBands));
+                            nodeEditStatesById.put(en.id, createEditState(en));
+                        }
+                        return true;
+                    }
+                }
                 if ((en.type == NodeType.IMAGE || en.type == NodeType.IMAGE_SEQUENCE) && en.params.length > 3) {
                     for (int ti = 0; ti < 2; ti++) {
                         int tgY = editLocalY + 4 + (numRows + ti) * 18;
@@ -603,8 +994,11 @@ public class GraphEditor {
             // ▶/▼ 折叠展开按钮（优先检测，不依赖选中状态）
             var expandHit = hitExpandIndicator(mx, my, graph);
             if (expandHit != null) { toggleExpand(expandHit); return true; }
-            // 拖拽连线
-            for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.outputs();i++){float py=sy+HH*zoom+PH*zoom*(node.functionalInputs()+i)+PH*zoom/2f;if(Math.abs(mx-(sx+NW*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
+            // BUS_IN 编辑区输出引脚优先检测
+            for(var node:graph.nodes){if(node.type==NodeType.BUS_IN&&expandedNodeIds.contains(node.id)&&node.signalBands!=null){float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.signalBands.size();i++){float py=sy+bandPinY(node,i,zoom)*zoom;if(Math.abs(mx-(sx+NW*zoom))<12&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}}
+            // 拖拽连线 — 节点体输出引脚
+            for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);
+            for(int i=0;i<node.outputs();i++){float py=sy+HH*zoom+PH*zoom*(node.functionalInputs()+i)+PH*zoom/2f;if(Math.abs(mx-(sx+NW*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
             // 点击节点（不含 ▶/▼ 区域）
             var hit=hitNode(mx,my);
             if(hit!=null){
@@ -621,14 +1015,124 @@ public class GraphEditor {
             selectedNodes.clear(); selectedNode=null;
             panning=true; panLastX=(float)mx; panLastY=(float)my;
         }
+        // busBox 失焦提交（在按钮处理之后，避免 createEditState 冲掉频段编辑）
+        for (var st : nodeEditStatesById.values()) {
+            if (st.busBox != null && st.busBox.isFocused() && !st.busBox.getValue().equals(st.busNode.signalName))
+                { commitBusBox(st); break; }
+        }
         return false;
+    }
+
+    /** 提交 busBox 的值到 node.signalName */
+    private void commitBusBox(EditState st) {
+        if (st == null || st.busBox == null || st.busNode == null) return;
+        var node = st.busNode;
+        String oldName = node.signalName;
+        String t = st.busBox.getValue();
+        if (t.equals(oldName)) return;
+        node.signalName = t;
+        boolean localConflict = false, crossConflict = false;
+        if (node.type == NodeType.BUS_OUT && !t.isEmpty()) {
+            for (var n : getGraph().nodes)
+                if (n != node && n.type == NodeType.BUS_OUT && n.signalName.equals(t)) { localConflict = true; break; }
+            if (!localConflict && !localBusNames.contains(t)) {
+                var gb = com.example.create_schematic_compute.network.SignalBus.getBands(t);
+                if (gb != null && !gb.isEmpty()) crossConflict = true;
+            }
+        }
+        node.busConflict = localConflict || crossConflict;
+        // 旧名清理（不调用 createEditState）
+        if (!oldName.isEmpty()) {
+            boolean hasOldBusOut = false;
+            for (var n : getGraph().nodes) if (n.type == NodeType.BUS_OUT && n.signalName.equals(oldName)) { hasOldBusOut = true; break; }
+            if (!hasOldBusOut) {
+                // 清除所有引用旧名称的 BUS_IN 节点（它们已无 BUS_OUT 提供数据）
+                for (var n : getGraph().nodes)
+                    if ((n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) && n.signalName.equals(oldName))
+                        { clearBusNode(n); }
+                com.example.create_schematic_compute.network.SignalBus.clearBus(oldName);
+            }
+        }
+        if (!localConflict && !crossConflict) {
+            boolean synced = false;
+            for (var n : getGraph().nodes) {
+                if (n != node && n.type == NodeType.BUS_OUT && n.signalName.equals(t) && n.bandCount() > 0) {
+                    node.signalBands = new java.util.ArrayList<>(n.signalBands); node.bandsDirty = true; synced = true; break;
+                }
+            }
+            if (!synced) {
+                var gb = com.example.create_schematic_compute.network.SignalBus.getBands(t);
+                if (gb != null && !gb.isEmpty()) { node.signalBands = new java.util.ArrayList<>(gb); node.bandsDirty = true; synced = true; }
+            }
+        }
+        // 重新评估所有 BUS_OUT 的冲突状态（改名可能解除其他节点的冲突）
+        for (var n : getGraph().nodes) {
+            if (n.type != NodeType.BUS_OUT || n.signalName.isEmpty()) continue;
+            boolean c = false;
+            for (var other : getGraph().nodes) {
+                if (other != n && other.type == NodeType.BUS_OUT && other.signalName.equals(n.signalName)) {
+                    c = true; break;
+                }
+            }
+            n.busConflict = c;
+        }
+        // 重建编辑区（在最后调用，确保所有状态已更新）
+        nodeEditStatesById.put(node.id, createEditState(node));
+    }
+
+    /** 清除 BUS 节点的频段、连线，并折叠编辑区 */
+    private void clearBusNode(GraphNode n) {
+        int oldCount = n.bandCount();
+        // 清除该总线名的全局信号数据
+        if (!n.signalName.isEmpty())
+            com.example.create_schematic_compute.network.SignalBus.clearBus(n.signalName);
+        n.signalBands.clear();
+        n.bandsDirty = true;
+        var g = getGraph();
+        for (int pi = 0; pi < oldCount; pi++) {
+            final int p = pi;
+            g.connections.removeIf(c ->
+                (c.fromId == n.id && c.fromPin == p) || (c.toId == n.id && c.toPin == p));
+        }
+        expandedNodeIds.remove(n.id);
+        nodeEditStatesById.remove(n.id);
+        n.expanded = false;
+    }
+
+    /** 同步所有同总线名的 BUS 节点的频段列表 */
+    private void syncBusBands(GraphNode src) {
+        if (src.signalName.isEmpty()) return;
+        // 冲突的 BUS_OUT 不上传频段（防止频道夺取）
+        if (src.type == NodeType.BUS_OUT && src.busConflict) return;
+        var bands = src.signalBands;
+        if (src.type == NodeType.BUS_OUT) {
+            com.example.create_schematic_compute.network.SignalBus.registerBands(src.signalName, bands);
+            localBusNames.add(src.signalName);
+        }
+        int newCount = bands != null ? bands.size() : 0;
+        var g = getGraph();
+        for (var n : getGraph().nodes) {
+            if (n != src && (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
+                && n.signalName.equals(src.signalName)) {
+                int oldCount = n.bandCount();
+                n.signalBands = bands != null ? new java.util.ArrayList<>(bands) : new java.util.ArrayList<>();
+                // 删除超出新频段数的旧连线
+                for (int pi = newCount; pi < oldCount; pi++) {
+                    final int p = pi;
+                    g.connections.removeIf(c ->
+                        (c.fromId == n.id && c.fromPin == p) || (c.toId == n.id && c.toPin == p));
+                }
+                var st = nodeEditStatesById.get(n.id);
+                if (st != null) nodeEditStatesById.put(n.id, createEditState(n));
+            }
+        }
     }
 
     /** 子类可重写定义哪些节点左键打开编辑面板 */
     protected boolean shouldOpenPanel(GraphNode node) {
         return node.type.paramNames.length > 0 || node.type == NodeType.REDSTONE_IN
             || node.type == NodeType.REDSTONE_OUT || node.type == NodeType.PRIVATE_IN
-            || node.type == NodeType.PRIVATE_OUT || node.type == NodeType.PID_POWER
+            || node.type == NodeType.PRIVATE_OUT || node.type == NodeType.BUS_IN || node.type == NodeType.BUS_OUT || node.type == NodeType.PID_POWER
             || node.type == NodeType.FORMULA || node.type == NodeType.KEYBOARD
             || node.type == NodeType.GAMEPAD_BUTTON
             || node.type == NodeType.TEXT || node.type == NodeType.IMAGE
@@ -708,6 +1212,8 @@ public class GraphEditor {
                     }
                 }
             }
+            // BUS_OUT 编辑区输入引脚
+            if(bestNodeId<0){for(int nid:expandedNodeIds){var n=graph.findNode(nid);if(n==null||n.type!=NodeType.BUS_OUT||n.signalBands==null)continue;float sx=c2sX(n.x),sy2=c2sY(n.y);for(int bi=0;bi<n.signalBands.size();bi++){float py2=sy2+bandPinY(n,bi,zoom)*zoom;float px2=sx+10*zoom;float dx2=(float)Math.abs(mx-px2),dy2=(float)Math.abs(my-py2);if(dx2<16*zoom&&dy2<10*zoom&&wireFromNode!=nid){float dist2=dx2+dy2;if(dist2<bestDist){bestDist=dist2;bestNodeId=nid;bestPin=bi;}}}}}
             if(bestNodeId>=0){
                 graph.addConnection(wireFromNode,wireFromPin,bestNodeId,bestPin);
                 // 参数引脚连线后刷新编辑区（隐藏对应输入框）
@@ -746,15 +1252,40 @@ public class GraphEditor {
         }if(draggingWire){wireEndX=s2cX(mx);wireEndY=s2cY(my);}
     }
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
-        if (showColorConfig) return true; // 颜色面板打开时禁止缩放
+        if (showImportDialog) { importScrollOff += (sy > 0) ? -1 : 1; if (importScrollOff < 0) importScrollOff = 0; return true; }
+        if (showExportDialog || showColorConfig) return true;
         float oz=zoom; zoom*=(sy>0)?1.12f:(1f/1.12f); zoom=Math.max(0.25f,Math.min(4f,zoom));
         camX+=(mx-host.asScreen().width/2f)*(1f/zoom-1f/oz); camY+=(my-host.asScreen().height/2f)*(1f/zoom-1f/oz); return true;
     }
     public boolean keyPressed(int key, int sc, int mod) {
         var graph = getGraph();
+        // 导出对话框键盘
+        if (showExportDialog) {
+            if (key == 256) { showExportDialog = false; exportNameEdit = null; return true; } // Esc
+            if (key == 257 && exportNameEdit != null && selectedNode != null) { // Enter
+                String name = exportNameEdit.getValue().trim();
+                if (!name.isEmpty()) exportEncapNode(selectedNode, name);
+                showExportDialog = false; exportNameEdit = null; return true;
+            }
+            if (exportNameEdit != null) return exportNameEdit.keyPressed(key, sc, mod);
+            return true;
+        }
+        // 导入对话框键盘
+        if (showImportDialog) {
+            if (key == 256) { showImportDialog = false; importFiles = null; return true; } // Esc
+            return true;
+        }
         if (showColorConfig) {
             for (var f : colorFields) if (f.isFocused()) { return f.keyPressed(key, sc, mod); }
             if (key == 256) { showColorConfig = false; return true; }
+        }
+        if (key == 257) { // Enter: 提交当前聚焦的编辑框
+            for (var e : enterActions.entrySet()) {
+                if (e.getKey().isFocused()) { e.getValue().run(); return true; }
+            }
+            for (var st : nodeEditStatesById.values()) {
+                if (st.busBox != null && st.busBox.isFocused()) { commitBusBox(st); return true; }
+            }
         }
         if (key == 258) { tabHeld = true; return true; } // TAB
         // KEYBOARD 按键绑定捕获（GAMEPAD_BUTTON 由 renderBg 每帧轮询处理）
@@ -809,9 +1340,18 @@ public class GraphEditor {
                 int newId = graph.nextNodeId++;
                 var dup = n.shallowCopyWithNewId(newId);
                 dup.x += ofs; dup.y += ofs;
+                // BUS 节点复制后清空频道名，只保留 MAP 结构（避免与原节点频道冲突）
+                if (dup.type == NodeType.BUS_IN || dup.type == NodeType.BUS_OUT) {
+                    dup.signalName = "";
+                }
                 graph.adoptNode(dup);
                 idMap.put(n.id, dup.id);
                 newNodes.add(dup);
+                // 复制展开状态
+                if (n.expanded) {
+                    expandedNodeIds.add(dup.id);
+                    nodeEditStatesById.put(dup.id, createEditState(dup));
+                }
             }
             // 复制选中节点之间的连接
             for (var c : List.copyOf(graph.connections)) {
@@ -828,6 +1368,17 @@ public class GraphEditor {
         // Delete 删除选中节点
         if ((key == 259 || key == 261) && !selectedNodes.isEmpty()) {
             for (var n : List.copyOf(selectedNodes)) {
+                if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
+                    boolean hasOther = false;
+                    for (var other : graph.nodes) {
+                        if (other != n && other.type == NodeType.BUS_OUT && other.signalName.equals(n.signalName))
+                            { hasOther = true; break; }
+                    }
+                    if (!hasOther) {
+                        com.example.create_schematic_compute.network.SignalBus.clearBus(n.signalName);
+                        localBusNames.remove(n.signalName);
+                    }
+                }
                 graph.removeNode(n.id);
             }
             if (selectedNode != null) {
@@ -845,6 +1396,7 @@ public class GraphEditor {
         return false;
     }
     public boolean charTyped(char ch, int mod) {
+        if (showExportDialog && exportNameEdit != null) return exportNameEdit.charTyped(ch, mod);
         if (showColorConfig) for (var f : colorFields) if (f.isFocused()) return f.charTyped(ch, mod);
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.charTyped(ch, mod);
         return false;
@@ -890,6 +1442,35 @@ public class GraphEditor {
 
     private void recompile(NodeGraph graph) {
         cycleWarning=null;
+        // 编译前同步所有未保存的编辑（busBox + 频段改名）
+        var pendingCommits = new java.util.ArrayList<>(nodeEditStatesById.values());
+        for (var st : pendingCommits) {
+            if (st.busBox != null && st.busNode != null
+                && !st.busBox.getValue().equals(st.busNode.signalName)) {
+                commitBusBox(st);
+            }
+            // 同步频段 EditBox 的值
+            var node = st.busNode;
+            if (node != null && node.type == NodeType.BUS_OUT && st.fields.size() > 1) {
+                boolean changed = false;
+                for (int bi = 1; bi < st.fields.size(); bi++) {
+                    int sigIdx = bi - 1;
+                    if (sigIdx < node.signalBands.size()) {
+                        String val = st.fields.get(bi).getValue();
+                        if (!val.equals(node.signalBands.get(sigIdx))) {
+                            node.signalBands.set(sigIdx, val);
+                            node.bandsDirty = true;
+                            changed = true;
+                        }
+                    }
+                }
+                if (changed && !node.busConflict) {
+                    net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                        new com.example.create_schematic_compute.network.BusBandUploadPacket(
+                            host.getBlockPos(), node.signalName, node.signalBands));
+                }
+            }
+        }
         // 编译时当前状态回归初始值
         for (var n : graph.nodes) {
             if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) {
@@ -909,7 +1490,8 @@ public class GraphEditor {
                 && n.type != NodeType.PRIVATE_IN && n.type != NodeType.PRIVATE_OUT && n.type != NodeType.FORMULA
                 && n.type != NodeType.KEYBOARD && n.type != NodeType.GAMEPAD_BUTTON
                 && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE && n.type != NodeType.TEXT && n.type != NodeType.DATA
-                && n.type != NodeType.ENCAPSULATION && n.type != NodeType.ENCAP_INPUT && n.type != NodeType.ENCAP_OUTPUT) continue;
+                && n.type != NodeType.ENCAPSULATION && n.type != NodeType.ENCAP_INPUT && n.type != NodeType.ENCAP_OUTPUT
+                && n.type != NodeType.BUS_IN && n.type != NodeType.BUS_OUT) continue;
             float sx = c2sX(n.x), sy = c2sY(n.y);
             float ix = sx + (NW - 22) * zoom;
             float iy = sy + 2 * zoom;
@@ -938,13 +1520,20 @@ public class GraphEditor {
         for(NodeConnection c:graph.connections){
             GraphNode fn=graph.findNode(c.fromId), tn=graph.findNode(c.toId);
             if(fn==null||tn==null)continue;
-            float fx=c2sX(fn.x+NW), fy=c2sY(fn.y+HH+PH*(fn.functionalInputs() + c.fromPin)+PH/2f);
+            float fx = c2sX(fn.x+NW), fy;
+            if (fn.type == NodeType.BUS_IN) {
+                fy = c2sY(fn.y + bandPinY(fn, c.fromPin, zoom));
+            } else {
+                fy = c2sY(fn.y+HH+PH*(fn.functionalInputs() + c.fromPin)+PH/2f);
+            }
             float ty;
-            if (c.toPin < tn.functionalInputs())
-                ty=c2sY(tn.y+HH+PH*c.toPin+PH/2f);                       // 功能引脚
+            if (tn.type == NodeType.BUS_OUT) {
+                ty = c2sY(tn.y + bandPinY(tn, c.toPin, zoom));
+            } else if (c.toPin < tn.functionalInputs())
+                ty=c2sY(tn.y+HH+PH*c.toPin+PH/2f);
             else {
                 int pi=c.toPin-tn.functionalInputs();
-                ty=c2sY(tn.y+HH+PH*(tn.functionalInputs()+tn.outputs())+4/zoom+pi*18+12); // 参数引脚
+                ty=c2sY(tn.y+HH+PH*(tn.functionalInputs()+tn.outputs())+4/zoom+pi*18+12);
             }
             float tx=c2sX(tn.x);
             float dx=Math.abs(tx-fx)*0.4f, dist=(float)Math.sqrt((tx-fx)*(tx-fx)+(ty-fy)*(ty-fy));
@@ -968,6 +1557,68 @@ public class GraphEditor {
         float cx=x1+t*abx, cy=y1+t*aby;
         float dx=px-cx, dy=py-cy;
         return (float)Math.sqrt(dx*dx+dy*dy);
+    }
+
+    /** 计算 BUS 编辑面板中第 pinIndex 个 band pin 的本地 Y 偏移（从节点顶部算起） */
+    static float bandPinY(GraphNode node, int pinIndex, double zoom) {
+        int editLY = (int)(HH + PH * (node.functionalInputs() + node.outputs()) + 4 / zoom);
+        return editLY + 30 + pinIndex * 18;
+    }
+
+    // ── 封装节点导入/导出 ──────────────────────────────────
+
+    private static Path getExportPath() {
+        return Minecraft.getInstance().gameDirectory.toPath()
+            .resolve("create_schematic_compute").resolve("exports").resolve("encap_export.nbt");
+    }
+
+    private void exportEncapNode(GraphNode node, String name) {
+        if (node.type != NodeType.ENCAPSULATION) return;
+        try {
+            var level = Minecraft.getInstance().level;
+            if (level == null) return;
+            Path dir = getExportPath().getParent();
+            Files.createDirectories(dir);
+            // 同名文件自动追加序号，避免覆盖
+            Path file = dir.resolve(name + ".nbt");
+            String finalName = name;
+            if (Files.exists(file)) {
+                for (int n = 2; n < 1000; n++) {
+                    Path alt = dir.resolve(name + "_" + n + ".nbt");
+                    if (!Files.exists(alt)) { file = alt; finalName = name + "_" + n; break; }
+                }
+            }
+            CompoundTag tag = node.save(level.registryAccess());
+            NbtIo.writeCompressed(tag, file);
+            importFeedbackUntil = System.currentTimeMillis() + 3000;
+            saveFeedbackText = "§a" + I18n.get("gui.create_schematic_compute.encap_exported") + ": " + finalName;
+        } catch (IOException e) {
+            importFeedbackUntil = System.currentTimeMillis() + 3000;
+            saveFeedbackText = "§c" + e.getMessage();
+        }
+    }
+
+    private void importEncapNode(Path file) {
+        try {
+            var level = Minecraft.getInstance().level;
+            if (level == null) return;
+            CompoundTag tag = NbtIo.readCompressed(file, NbtAccounter.create(2 * 1024 * 1024));
+            GraphNode imported = GraphNode.load(tag, level.registryAccess());
+            // 分配到当前图中，分配新 ID
+            var g = getGraph();
+            imported.id = g.nextNodeId++;
+            imported.x = 100; imported.y = 100; // 默认位置
+            imported.expanded = false;
+            g.nodes.add(imported);
+            selectedNode = imported;
+            selectedNodes.clear();
+            selectedNodes.add(imported);
+            importFeedbackUntil = System.currentTimeMillis() + 3000;
+            saveFeedbackText = I18n.get("gui.create_schematic_compute.encap_imported");
+        } catch (Exception e) {
+            importFeedbackUntil = System.currentTimeMillis() + 3000;
+            saveFeedbackText = "§c" + I18n.get("gui.create_schematic_compute.encap_import_failed");
+        }
     }
 
     static final int NW=140, HH=18, PH=16;

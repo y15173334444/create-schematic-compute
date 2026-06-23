@@ -5,6 +5,7 @@ import com.example.create_schematic_compute.graph.GraphEvaluator;
 import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
 import com.example.create_schematic_compute.graph.RuntimeState;
+import com.example.create_schematic_compute.network.BusChannelHelper;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -36,25 +37,47 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
     // 时序节点状态
     public final RuntimeState runtimeState = new RuntimeState();
     private java.util.Map<Integer, Boolean> lastSyncedFlipflopStates = null;
+    private final java.util.HashMap<Integer, Integer> lastBusHashMap = new java.util.HashMap<>();
 
     public ProgramComputerBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.PROGRAM_BE.get(), pos, s); }
     @Override public boolean isRunning() { return running; }
-    @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public void setRunning(boolean r) { running = r; }
     @Override public boolean graphHasCycles() { return graph.hasCycles(); }
     @Override public void clearPidState() { runtimeState.pidState.clear(); }
     @Override public void syncFlipflopStates(java.util.Map<Integer, Boolean> states) {
         runtimeState.flipflopStates.clear();
         if (states != null) runtimeState.flipflopStates.putAll(states);
     }
+    @Override public void syncBusBandsFromServer(String busName, java.util.List<String> bands) {
+        BusChannelHelper.syncBandsFromServer(busName, bands, graph);
+    }
 
     @Override public void accept(BlockEntity other) {
-        if(other instanceof ProgramComputerBlockEntity src) { this.graph = src.graph; this.running = src.running; runtimeState.clear(); setChanged();
-            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+        if(other instanceof ProgramComputerBlockEntity src) {
+            unregisterBusChannels(graph);
+            this.graph = src.graph; this.running = src.running; runtimeState.clear(); setChanged();
+            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
     }
 
     @Override public void onLoad() { super.onLoad(); rs.onLoad(graph); }
-    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); rs.onChunkUnloaded(); }
-    @Override public void setRemoved() { rs.setRemoved(); super.setRemoved(); }
+    @Override public void onChunkUnloaded() { cleanupBusChannels(graph); unregisterBusChannels(graph); super.onChunkUnloaded(); rs.onChunkUnloaded(); }
+    @Override public void setRemoved() { cleanupBusChannels(graph); unregisterBusChannels(graph); rs.setRemoved(); super.setRemoved(); }
+
+    /** 将图中所有 BUS_OUT 频段注册到全局 SignalBus.CHANNELS */
+    private void registerBusChannels() {
+        if (BusChannelHelper.registerChannels(graph, worldPosition, level))
+            needsFullSync = true;
+    }
+
+    /** 发送空同步清理客户端 BAND_REGISTRY（方块销毁/卸载时调用） */
+    private void cleanupBusChannels(NodeGraph g) {
+        BusChannelHelper.cleanupClientBands(g, worldPosition, level);
+    }
+
+    private void unregisterBusChannels(NodeGraph g) {
+        BusChannelHelper.unregisterChannels(g, worldPosition, level);
+    }
 
     public void tick() {
         if(level==null||level.isClientSide()) return;
@@ -64,11 +87,31 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
         if(state.getValue(ProgramComputerBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, state.setValue(ProgramComputerBlock.LIT, shouldBeLit), 3);
         rs.checkGraphChanged(graph);
-        if(!running) return;
-
-        if(evaluator==null||lastEvaluatedGraph!=graph) { evaluator = new GraphEvaluator(graph); lastEvaluatedGraph = graph; runtimeState.clear(); }
+        // 图变化时维护 BUS 频道注册（必须在 running 检查之前，否则其他方块无法读取未启动电脑的 BUS_OUT）
+        if(evaluator==null||lastEvaluatedGraph!=graph) {
+            // 收集旧图中的 BUS_OUT 名称（供后续检测被删除的频道）
+            if (lastEvaluatedGraph != null) {
+                BusChannelHelper.syncDeletedBusNames(lastEvaluatedGraph, graph, worldPosition, level);
+                unregisterBusChannels(lastEvaluatedGraph);
+                runtimeState.clear(); // 仅 Recompile 时重置状态
+            }
+            evaluator = new GraphEvaluator(graph);
+            evaluator.restoreSubState(runtimeState);
+            lastEvaluatedGraph = graph;
+            registerBusChannels();
+        }
+        if(!running) {
+            // 停止时清除 MAP + 红石输出
+            for (var n : graph.nodes) {
+                if (n.type == NodeType.BUS_OUT && n.busInternalMap != null)
+                    n.busInternalMap.clear();
+            }
+            rs.writeOutputs(java.util.Collections.emptyList());
+            return;
+        }
 
         rs.refreshInputsActive();
+        BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level);
         var in = rs.buildInputs(graph);
         var results = evaluator.evaluate(in, runtimeState.pidState, 0.05f,
                 runtimeState.delayQueues, runtimeState.flipflopStates, runtimeState.pulseTimers);
@@ -83,6 +126,8 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
             }
         }
         rs.writeOutputs(results);
+        // BUS 频段变化时发包通知所有客户端
+        BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
         if (level instanceof net.minecraft.server.level.ServerLevel sl && !runtimeState.flipflopStates.equals(lastSyncedFlipflopStates)) {
             lastSyncedFlipflopStates = new java.util.HashMap<>(runtimeState.flipflopStates);
             net.neoforged.neoforge.network.PacketDistributor.sendToPlayersTrackingChunk(sl,
@@ -97,7 +142,8 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
         if (level == null) return;
         try {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
-            if(t!=null&&t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),level.registryAccess()); runtimeState.clear(); rs.onLoad(graph); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+            if(t!=null&&t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),level.registryAccess()); runtimeState.clear(); rs.onLoad(graph);
+            needsFullSync=true; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
             setChanged();
         } catch(Exception e) { SchematicCompute.LOGGER.error("Failed to load program", e); graph=new NodeGraph(); runtimeState.clear(); setChanged(); }
     }
@@ -108,7 +154,14 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
     }
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t,r);
-        if (t.contains("graph")) { graph = NodeGraph.load(t.getCompound("graph"), r); rs.onLoad(graph); }
+        if (t.contains("graph")) {
+            // 保留客户端展开状态（服务器同步不应覆盖 UI 状态）
+            var oldExpanded = new java.util.HashMap<Integer, Boolean>();
+            for (var n : graph.nodes) if (n.expanded) oldExpanded.put(n.id, true);
+            graph = NodeGraph.load(t.getCompound("graph"), r);
+            for (var n : graph.nodes) if (oldExpanded.containsKey(n.id)) n.expanded = true;
+            rs.onLoad(graph);
+        }
         if (t.contains("running")) running = t.getBoolean("running");
         if (t.contains("runtime")) {
             RuntimeState loaded = RuntimeState.load(t.getCompound("runtime"));
@@ -116,13 +169,18 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
             runtimeState.delayQueues.putAll(loaded.delayQueues);
             runtimeState.flipflopStates.putAll(loaded.flipflopStates);
             runtimeState.pulseTimers.putAll(loaded.pulseTimers);
+            runtimeState.subStates.putAll(loaded.subStates);
             // 重新编译通过 runtimeState.clear() 重置为初始状态，世界重载保留运行状态
         }
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
-    @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) { var t=new CompoundTag(); saveAdditional(t,r); return t; }
+    private boolean needsFullSync = true;
+    @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
+        if (needsFullSync) { needsFullSync = false; var t=new CompoundTag(); saveAdditional(t,r); return t; }
+        var t=new CompoundTag(); t.putBoolean("running", running); return t;
+    }
     @Override public Component getDisplayName() { return Component.translatable("container."+SchematicCompute.MOD_ID+".program"); }
     @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new ProgramComputerMenu(id, this); }
 }

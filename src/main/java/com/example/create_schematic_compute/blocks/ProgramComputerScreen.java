@@ -27,6 +27,8 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
             || nt == com.example.create_schematic_compute.graph.NodeType.REDSTONE_OUT
             || nt == com.example.create_schematic_compute.graph.NodeType.PRIVATE_IN
             || nt == com.example.create_schematic_compute.graph.NodeType.PRIVATE_OUT
+            || nt == com.example.create_schematic_compute.graph.NodeType.BUS_IN
+            || nt == com.example.create_schematic_compute.graph.NodeType.BUS_OUT
             || nt == com.example.create_schematic_compute.graph.NodeType.DELAY
             || nt == com.example.create_schematic_compute.graph.NodeType.LATCH
             || nt == com.example.create_schematic_compute.graph.NodeType.T_FLIPFLOP
@@ -36,7 +38,15 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
             || nt == com.example.create_schematic_compute.graph.NodeType.BOOL
             || nt == com.example.create_schematic_compute.graph.NodeType.ACCUMULATOR
             || nt == com.example.create_schematic_compute.graph.NodeType.INTEGRATOR
-            || nt == com.example.create_schematic_compute.graph.NodeType.GATE);
+            || nt == com.example.create_schematic_compute.graph.NodeType.GATE
+            || nt == com.example.create_schematic_compute.graph.NodeType.SIN
+            || nt == com.example.create_schematic_compute.graph.NodeType.COS
+            || nt == com.example.create_schematic_compute.graph.NodeType.TAN
+            || nt == com.example.create_schematic_compute.graph.NodeType.ASIN
+            || nt == com.example.create_schematic_compute.graph.NodeType.ACOS
+            || nt == com.example.create_schematic_compute.graph.NodeType.ATAN2
+            || nt == com.example.create_schematic_compute.graph.NodeType.SINH
+            || nt == com.example.create_schematic_compute.graph.NodeType.COSH);
     }
 
     @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }

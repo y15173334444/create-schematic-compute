@@ -127,6 +127,16 @@ public class NodeGraph {
         return 0;
     }
 
+    /** O(1) 查找输入值，无连线时返回默认值（一次查找，避免 hasInputConnection + getInputValue 两次查找） */
+    public float getInputValueOrDefault(int nodeId, int pinIdx, Map<Integer, float[]> outputs, float defaultVal) {
+        NodeConnection c = inputCache.get(key(nodeId, pinIdx));
+        if (c != null) {
+            float[] out = outputs.get(c.fromId);
+            if (out != null && c.fromPin < out.length) return out[c.fromPin];
+        }
+        return defaultVal;
+    }
+
     /** O(1) 检查指定输入引脚是否有连线 */
     public boolean hasInputConnection(int nodeId, int pinIdx) {
         return inputCache.containsKey(key(nodeId, pinIdx));

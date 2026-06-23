@@ -5,6 +5,7 @@ import com.example.create_schematic_compute.graph.GraphEvaluator;
 import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
 import com.example.create_schematic_compute.graph.RuntimeState;
+import com.example.create_schematic_compute.network.BusChannelHelper;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -36,6 +37,7 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
     public float forwardYaw = 0, forwardPitch = 0;
     public float accelX = 0, accelY = 0, accelZ = 0;
     public double rawVelX, rawVelY, rawVelZ;
+    public volatile float cachedSubWorldX = Float.NaN, cachedSubWorldY = Float.NaN, cachedSubWorldZ = Float.NaN;
     private double prevRawVelX, prevRawVelY, prevRawVelZ;
     private boolean firstAccel = true;
     private GraphEvaluator evaluator = null;
@@ -44,7 +46,7 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
 
     public SensorBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.SENSOR_BE.get(), pos, s); }
     @Override public boolean isRunning() { return running; }
-    @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public void setRunning(boolean r) { running = r; }
     @Override public boolean graphHasCycles() { return graph.hasCycles(); }
     @Override public void clearPidState() { runtimeState.pidState.clear(); }
 
@@ -58,12 +60,34 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
         return new SensorBlockEntity(pos, state);
     }
     @Override public void accept(BlockEntity other) {
-        if(other instanceof SensorBlockEntity src) { this.graph = src.graph; this.running = src.running; runtimeState.clear(); setChanged();
-            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+        if(other instanceof SensorBlockEntity src) {
+            unregisterBusChannels(graph);
+            this.graph = src.graph; this.running = src.running; runtimeState.clear(); setChanged();
+            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
     }
     @Override public void onLoad() { super.onLoad(); rs.onLoad(graph); }
-    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); rs.onChunkUnloaded(); }
-    @Override public void setRemoved() { rs.setRemoved(); super.setRemoved(); }
+    @Override public void onChunkUnloaded() { cleanupBusChannels(graph); unregisterBusChannels(graph); super.onChunkUnloaded(); rs.onChunkUnloaded(); }
+    @Override public void setRemoved() { cleanupBusChannels(graph); unregisterBusChannels(graph); rs.setRemoved(); super.setRemoved(); }
+
+    private final java.util.HashMap<Integer, Integer> lastBusHashMap = new java.util.HashMap<>();
+    @Override public com.example.create_schematic_compute.graph.NodeGraph getNodeGraph() { return graph; }
+    @Override public void syncBusBandsFromServer(String busName, java.util.List<String> bands) {
+        BusChannelHelper.syncBandsFromServer(busName, bands, graph);
+    }
+
+    private void registerBusChannels() {
+        if (BusChannelHelper.registerChannels(graph, worldPosition, level))
+            needsFullSync = true;
+    }
+
+    private void cleanupBusChannels(com.example.create_schematic_compute.graph.NodeGraph g) {
+        BusChannelHelper.cleanupClientBands(g, worldPosition, level);
+    }
+
+    private void unregisterBusChannels(com.example.create_schematic_compute.graph.NodeGraph g) {
+        BusChannelHelper.unregisterChannels(g, worldPosition, level);
+    }
 
     protected void updateAttitude() {
         float bYaw = 0;
@@ -124,7 +148,26 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
         if (!state.hasProperty(SensorBlock.LIT)) return;
         boolean lit = running && !graph.nodes.isEmpty();
         if(state.getValue(SensorBlock.LIT)!=lit) level.setBlock(worldPosition, state.setValue(SensorBlock.LIT, lit), 3);
-        if(!running) return;
+        rs.checkGraphChanged(graph);
+        if(evaluator==null||lastEvaluatedGraph!=graph) {
+            if (lastEvaluatedGraph != null) {
+                BusChannelHelper.syncDeletedBusNames(lastEvaluatedGraph, graph, worldPosition, level);
+                unregisterBusChannels(lastEvaluatedGraph);
+            }
+            evaluator = new GraphEvaluator(graph);
+            evaluator.restoreSubState(runtimeState);
+            lastEvaluatedGraph = graph;
+            runtimeState.pidState.clear();
+            registerBusChannels();
+        }
+        if(!running) {
+            for (var n : graph.nodes) {
+                if (n.type == NodeType.BUS_OUT && n.busInternalMap != null)
+                    n.busInternalMap.clear();
+            }
+            rs.writeOutputs(java.util.Collections.emptyList());
+            return;
+        }
         updateAttitude();
         if (firstAccel) { prevRawVelX = rawVelX; prevRawVelY = rawVelY; prevRawVelZ = rawVelZ; firstAccel = false; }
         else {
@@ -133,12 +176,20 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
             accelZ = (float)((rawVelZ - prevRawVelZ) / 0.05);
             prevRawVelX = rawVelX; prevRawVelY = rawVelY; prevRawVelZ = rawVelZ;
         }
-        if(evaluator==null||lastEvaluatedGraph!=graph){ evaluator=new GraphEvaluator(graph); lastEvaluatedGraph=graph; runtimeState.pidState.clear(); }
+        if(evaluator==null||lastEvaluatedGraph!=graph){
+            evaluator=new GraphEvaluator(graph); lastEvaluatedGraph=graph;
+            if (lastEvaluatedGraph != null) runtimeState.pidState.clear();
+        }
         rs.refreshInputs();
+        BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level);
         var in = rs.buildInputs(graph);
-        var si = new GraphEvaluator.SeatInputState(0,0,0,0,0, 0,0, 0,0,0,0,0,0,0,0, 0,attitudeYaw,attitudePitch,attitudeRoll,forwardYaw,forwardPitch, accelX,accelY,accelZ, (float)rawVelX,(float)rawVelY,(float)rawVelZ);
+        var si = new GraphEvaluator.SeatInputState(0,0,0,0,0, 0,0, 0,0,0,0,0,0,0,0, 0,attitudeYaw,attitudePitch,attitudeRoll,forwardYaw,forwardPitch, accelX,accelY,accelZ, (float)rawVelX,(float)rawVelY,(float)rawVelZ,
+            Float.isNaN(cachedSubWorldX) ? worldPosition.getX()+0.5f : cachedSubWorldX,
+            Float.isNaN(cachedSubWorldY) ? worldPosition.getY()+0.5f : cachedSubWorldY,
+            Float.isNaN(cachedSubWorldZ) ? worldPosition.getZ()+0.5f : cachedSubWorldZ);
         var results = evaluator.evaluate(in, runtimeState.pidState, 0.05f, si);
         rs.writeOutputs(results);
+        BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
         setChanged();
     }
 
@@ -146,7 +197,8 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
         if (level == null) return;
         try {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2*1024*1024));
-            if(t!=null&&t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),level.registryAccess()); rs.onLoad(graph); setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+            if(t!=null&&t.contains("graph")){ graph=NodeGraph.load(t.getCompound("graph"),level.registryAccess()); rs.onLoad(graph);
+            needsFullSync=true; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
             setChanged();
         } catch(Exception e) { SchematicCompute.LOGGER.error("Failed to load sensor", e); graph=new NodeGraph(); setChanged(); }
     }
@@ -157,17 +209,28 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
     }
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t,r);
-        if (t.contains("graph")) { graph = NodeGraph.load(t.getCompound("graph"), r); rs.onLoad(graph); }
+        if (t.contains("graph")) {
+            var oldExpanded = new java.util.HashMap<Integer, Boolean>();
+            for (var n : graph.nodes) if (n.expanded) oldExpanded.put(n.id, true);
+            graph = NodeGraph.load(t.getCompound("graph"), r);
+            for (var n : graph.nodes) if (oldExpanded.containsKey(n.id)) n.expanded = true;
+            rs.onLoad(graph);
+        }
         if (t.contains("running")) running = t.getBoolean("running");
         if (t.contains("runtime")) {
             RuntimeState loaded = RuntimeState.load(t.getCompound("runtime"));
             runtimeState.pidState.putAll(loaded.pidState);
+            runtimeState.subStates.putAll(loaded.subStates);
         }
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
-    @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) { var t=new CompoundTag(); saveAdditional(t,r); return t; }
+    private boolean needsFullSync = true;
+    @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
+        if (needsFullSync) { needsFullSync = false; var t=new CompoundTag(); saveAdditional(t,r); return t; }
+        var t=new CompoundTag(); t.putBoolean("running", running); return t;
+    }
     @Override public Component getDisplayName() { return Component.translatable("container."+SchematicCompute.MOD_ID+".sensor"); }
     @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new SensorMenu(id, this); }
 }

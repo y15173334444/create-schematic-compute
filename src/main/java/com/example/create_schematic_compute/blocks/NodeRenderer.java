@@ -157,15 +157,16 @@ public class NodeRenderer {
     // 分类菜单
     private record NodeCategory(String langKey, NodeType[] types) {}
     private static final NodeCategory[] CATEGORIES = {
-        new NodeCategory("category.create_schematic_compute.values", new NodeType[]{NodeType.CONST, NodeType.REDSTONE_IN, NodeType.PRIVATE_IN}),
+        new NodeCategory("category.create_schematic_compute.values", new NodeType[]{NodeType.CONST, NodeType.REDSTONE_IN, NodeType.PRIVATE_IN, NodeType.BUS_IN}),
         new NodeCategory("category.create_schematic_compute.math_basic", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.POW, NodeType.ROOT, NodeType.ABS, NodeType.CEIL, NodeType.FLOOR}),
         new NodeCategory("category.create_schematic_compute.math_advanced", new NodeType[]{NodeType.FORMULA, NodeType.POSE_CONVERT, NodeType.SPLIT, NodeType.INTERP, NodeType.ROUND}),
+        new NodeCategory("category.create_schematic_compute.trig", new NodeType[]{NodeType.SIN, NodeType.COS, NodeType.TAN, NodeType.ASIN, NodeType.ACOS, NodeType.ATAN2, NodeType.SINH, NodeType.COSH, NodeType.DIRECTION}),
         new NodeCategory("category.create_schematic_compute.logic", new NodeType[]{NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ, NodeType.BOOL, NodeType.GATE, NodeType.OR}),
         new NodeCategory("category.create_schematic_compute.control", new NodeType[]{NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP}),
-        new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL}),
+        new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL, NodeType.BUS_OUT}),
         new NodeCategory("category.create_schematic_compute.sequential", new NodeType[]{NodeType.DELAY, NodeType.LATCH, NodeType.T_FLIPFLOP, NodeType.PULSE_EXTEND, NodeType.LOOP, NodeType.FUSE, NodeType.ACCUMULATOR, NodeType.INTEGRATOR}),
         new NodeCategory("category.create_schematic_compute.input_ctrl", new NodeType[]{NodeType.KEYBOARD, NodeType.MOUSE_BUTTON, NodeType.MOUSE_JOYSTICK, NodeType.GAMEPAD_JOYSTICK, NodeType.GAMEPAD_BUTTON, NodeType.GAMEPAD_TRIGGER}),
-        new NodeCategory("category.create_schematic_compute.input_sensor", new NodeType[]{NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD, NodeType.ACCELERATION, NodeType.VELOCITY}),
+        new NodeCategory("category.create_schematic_compute.input_sensor", new NodeType[]{NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD, NodeType.ACCELERATION, NodeType.VELOCITY, NodeType.POSITION}),
         new NodeCategory("category.create_schematic_compute.display", new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE}),
         new NodeCategory("category.create_schematic_compute.structure", new NodeType[]{NodeType.ENCAPSULATION}),
         new NodeCategory("category.create_schematic_compute.encap_io", new NodeType[]{NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT}),
@@ -200,15 +201,22 @@ public class NodeRenderer {
             // cull: both endpoints outside viewport edge
             float wx1 = fn.x + NW, wx2 = tn.x;
             if ((wx1 < vpLeft && wx2 < vpLeft) || (wx1 > vpRight && wx2 > vpRight)) continue;
-            // 输出引脚Y（来源节点 — 功能引脚之后）
-            float wy1 = fn.y + HH + PH*(fn.functionalInputs() + c.fromPin) + PH/2f;
-            // 输入引脚Y（目标节点 — 功能引脚在节点体上，参数引脚在编辑区内）
+            // 输出引脚Y（BUS_IN 编辑区引脚动态计算）
+            float wy1;
+            if (fn.type == NodeType.BUS_IN) {
+                wy1 = fn.y + GraphEditor.bandPinY(fn, c.fromPin, zoom);
+            } else {
+                wy1 = fn.y + HH + PH*(fn.functionalInputs() + c.fromPin) + PH/2f;
+            }
+            // 输入引脚Y（BUS_OUT 编辑区引脚动态计算）
             float wy2;
-            if (c.toPin < tn.functionalInputs()) {
-                wy2 = tn.y + HH + PH*c.toPin + PH/2f;  // 功能引脚：节点体左侧
+            if (tn.type == NodeType.BUS_OUT) {
+                wy2 = tn.y + GraphEditor.bandPinY(tn, c.toPin, zoom);
+            } else if (c.toPin < tn.functionalInputs()) {
+                wy2 = tn.y + HH + PH*c.toPin + PH/2f;
             } else {
                 int paramIdx = c.toPin - tn.functionalInputs();
-                wy2 = tn.y + HH + PH*(tn.functionalInputs() + tn.outputs()) + 4/zoom + paramIdx*18 + 12; // 参数引脚：编辑区内
+                wy2 = tn.y + HH + PH*(tn.functionalInputs() + tn.outputs()) + 4/zoom + paramIdx*18 + 12;
             }
             if ((wy1 < vpTop && wy2 < vpTop) || (wy1 > vpBottom && wy2 > vpBottom)) continue;
             float x1 = c2sX.apply(wx1), y1 = c2sY.apply(wy1);
@@ -221,7 +229,13 @@ public class NodeRenderer {
                                     float wireEndX, float wireEndY, float camX, float camY, float zoom) {
         var fn = graph.findNode(wireFromNode);
         if(fn==null) return;
-        float x1 = c2sX.apply(fn.x+NW), y1 = c2sY.apply(fn.y+HH+PH*(fn.functionalInputs() + wireFromPin)+PH/2f);
+        float y1;
+        if (fn.type == NodeType.BUS_IN) {
+            y1 = c2sY.apply(fn.y + GraphEditor.bandPinY(fn, wireFromPin, zoom));
+        } else {
+            y1 = c2sY.apply(fn.y+HH+PH*(fn.functionalInputs() + wireFromPin)+PH/2f);
+        }
+        float x1 = c2sX.apply(fn.x+NW);
         float x2 = c2sX.apply(wireEndX), y2 = c2sY.apply(wireEndY);
         bezier(g, x1, y1, x2, y2, CWD);
     }
@@ -259,8 +273,41 @@ public class NodeRenderer {
         float extraH = editing ? com.example.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom,
             editing ? nodeEditStatesById.get(n.id) : null) * zoom : 0;
         float nh = contentH + extraH;
+        // BUS_OUT 通道冲突警告 — 在节点上方渲染
+        if (n.type == NodeType.BUS_OUT && n.busConflict) {
+            String warn = net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.bus_conflict");
+            int warnW = Minecraft.getInstance().font.width(warn) + 20;
+            int warnH = 14;
+            int wx = (int)(sx + (sw - warnW * zoom) / 2);
+            int wy = (int)(sy - warnH * zoom - 2);
+            g.fill(wx, wy, (int)(wx + warnW * zoom), (int)(wy + warnH * zoom), 0xCC660000);
+            g.renderOutline(wx, wy, (int)(warnW * zoom), (int)(warnH * zoom), 0xFFFF4444);
+            var warnPose = g.pose();
+            warnPose.pushPose();
+            warnPose.translate(wx + 4 * zoom, wy + 1 * zoom, 0);
+            warnPose.scale(zoom, zoom, 1);
+            drawStr(g, "§c⚠ " + warn, 0, 0, 0xFFFF8888);
+            warnPose.popPose();
+        }
+        // ENCAPSULATION 节点数量超出警告 — 在节点上方渲染
+        if (n.type == NodeType.ENCAPSULATION && n.subGraph != null && n.subGraph.nodes.size() > GraphEditor.MAX_NODES) {
+            String warn = I18n.get("gui.create_schematic_compute.encap_node_limit");
+            int warnW = Minecraft.getInstance().font.width(warn) + 20;
+            int warnH = 14;
+            // 避开已有的 BUS_OUT 冲突警告（如果同时存在则移到更上方）
+            int yOff = (n.type == NodeType.BUS_OUT && n.busConflict) ? -(warnH + 6) : 0;
+            int wx = (int)(sx + (sw - warnW * zoom) / 2);
+            int wy = (int)(sy + yOff * zoom - warnH * zoom - 2);
+            g.fill(wx, wy, (int)(wx + warnW * zoom), (int)(wy + warnH * zoom), 0xCC330000);
+            g.renderOutline(wx, wy, (int)(warnW * zoom), (int)(warnH * zoom), 0xFFFF4444);
+            var warnPose = g.pose();
+            warnPose.pushPose();
+            warnPose.translate(wx + 4 * zoom, wy + 1 * zoom, 0);
+            warnPose.scale(zoom, zoom, 1);
+            drawStr(g, "§c" + warn, 0, 0, 0xFFFF8888);
+            warnPose.popPose();
+        }
         // 节点体（暖钢色）
-        // 节点体在编辑区背景
         g.fill((int)sx,(int)sy,(int)(sx+sw),(int)(sy+nh),CN);
         int borderColor = isPrimary ? 0xFFFFAA00 : selected ? 0xFFD4A017 : CB;
         // 第一遍边框
@@ -280,7 +327,8 @@ public class NodeRenderer {
             int r = PR;
             g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1), CPIB);
             g.fill(-r, (int)(py - r), r, (int)(py + r), CPI);
-            drawStr(g, I18n.get(n.inputLabel(i)), 10, py-3, CD);
+            String inlbl = n.inputLabel(i);
+            drawStr(g, (n.type == NodeType.BUS_OUT || n.type == NodeType.FORMULA || n.type == NodeType.ENCAPSULATION) ? inlbl : I18n.get(inlbl), 10, py-3, CD);
         }
         // 输出端
         for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL; i++) {
@@ -288,7 +336,10 @@ public class NodeRenderer {
             int r = PR;
             g.fill(NW - r - 1, (int)(py - r - 1), NW + r + 1, (int)(py + r + 1), CPOB);
             g.fill(NW - r, (int)(py - r), NW + r, (int)(py + r), CPO);
-            drawStr(g, I18n.get(n.outputLabel(i)), NW-30, py-3, CD);
+            String rawOutLbl = n.outputLabel(i);
+            String outlbl = (n.type == NodeType.BUS_IN || n.type == NodeType.ENCAPSULATION) ? rawOutLbl : I18n.get(rawOutLbl);
+            int olw = Minecraft.getInstance().font.width(outlbl);
+            drawStr(g, outlbl, NW - olw - 6, py-3, CD);
         }
         // 公式文本显示（FORMULA 节点）
         if (n.type == NodeType.FORMULA) {
@@ -300,7 +351,8 @@ public class NodeRenderer {
             || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT
             || n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE
             || n.type == NodeType.TEXT || n.type == NodeType.DATA
-            || n.type == NodeType.ENCAPSULATION || n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT) {
+            || n.type == NodeType.ENCAPSULATION || n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT
+            || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) {
             drawStr(g, editing ? (n.type == NodeType.ENCAPSULATION ? "§b▶▶" : "§6▼") : (n.type == NodeType.ENCAPSULATION ? "§b▶" : "§7▶"), NW - 18, 4, CT);
         }
         // 封装节点体部摘要

@@ -94,6 +94,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         editor.setNodeFilter(nt -> nt == NodeType.CONST
             || nt == NodeType.REDSTONE_IN
             || nt == NodeType.PRIVATE_IN
+            || nt == NodeType.BUS_IN
             || nt == NodeType.TEXT || nt == NodeType.DATA
             || nt == NodeType.IMAGE || nt == NodeType.IMAGE_SEQUENCE);
     }

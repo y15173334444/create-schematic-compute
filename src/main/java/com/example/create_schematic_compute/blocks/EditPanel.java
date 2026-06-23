@@ -41,6 +41,10 @@ public class EditPanel {
         if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 32; // 初始按钮 + 当前只读
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
         if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) h += 22;
+        if (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) {
+            int bands = n.signalBands != null ? n.signalBands.size() : 0;
+            h += 22 + bands * 18 + 20;
+        }
         if (n.type == NodeType.FORMULA) h += 22;
         if (n.type == NodeType.TEXT) h += 22;
         if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) h += 54 + 32; // 3 text fields + 2 toggles
@@ -70,6 +74,73 @@ public class EditPanel {
             g.drawString(Minecraft.getInstance().font, hint, bx + 6, by + 3,
                 st.listeningForKey ? 0xFFFFEE88 : 0xFFCCCCCC, false);
             row++;
+        } else if (node.type == NodeType.BUS_IN || node.type == NodeType.BUS_OUT) {
+        // ── 总线编辑区 ──
+        // 总线名行
+        String busLabel = I18n.get("gui.create_schematic_compute.edit.bus_name") + ":";
+        int busLabelW = Minecraft.getInstance().font.width(busLabel);
+        g.drawString(Minecraft.getInstance().font, busLabel, px + 4, py + 4, 0xFF888888, false);
+        if (!st.fields.isEmpty()) {
+            var busBox = st.fields.get(0);
+            busBox.setX(px + 8 + busLabelW);
+            busBox.setY(py + 4);
+            busBox.setWidth(Math.max(40, pw - busLabelW - 18));
+            busBox.render(g, mx, my, 0);
+        }
+        row++;
+        // 频段行
+        int pinR = NodeRenderer.PR;
+        boolean isBusIn = node.type == NodeType.BUS_IN;
+        int bandCount = st.fields.size() - 1;
+        if (bandCount > 0) st.bandPinY = new float[bandCount];
+        for (int bi = 1; bi < st.fields.size(); bi++) {
+            // 引脚圆点（BUS_IN 输出在右，BUS_OUT 输入在左）
+            int pinIdx = st.fieldParamIndices.size() > bi ? st.fieldParamIndices.get(bi) : (bi - 1);
+            boolean pinConnected;
+            int pinX;
+            if (isBusIn) {
+                pinX = px + pw - 12;
+                pinConnected = st.graph != null && hasOutputConnection(st.graph, node.id, pinIdx);
+            } else {
+                pinX = px + 6 + pinR;
+                pinConnected = st.graph != null && st.graph.hasInputConnection(node.id, pinIdx);
+            }
+            int pinY = py + 4 + row * 18 + 8;
+            if (st.bandPinY != null && bi - 1 < st.bandPinY.length) st.bandPinY[bi - 1] = pinY;
+            g.fill(pinX - pinR - 1, pinY - pinR - 1, pinX + pinR + 1, pinY + pinR + 1, NodeRenderer.CPIB);
+            g.fill(pinX - pinR, pinY - pinR, pinX + pinR, pinY + pinR, pinConnected ? 0xFF666644 : isBusIn ? NodeRenderer.CPO : NodeRenderer.CPI);
+            // 频段名（BUS_IN 只读文本，BUS_OUT EditBox 可编辑）
+            if (isBusIn) {
+                String bandName = st.fields.get(bi).getValue();
+                int tx = px + pw - 12 - Minecraft.getInstance().font.width(bandName) - 6;
+                g.drawString(Minecraft.getInstance().font, bandName, tx, py + 4 + row * 18 + 2, 0xFFCCCCCC, false);
+            } else {
+                var bandBox = st.fields.get(bi);
+                bandBox.setX(px + 22);
+                bandBox.setY(py + 4 + row * 18);
+                bandBox.setWidth(80);
+                bandBox.render(g, mx, my, 0);
+            }
+            row++;
+        }
+
+        // +/- 按钮（仅 BUS_OUT 可管理频段，BUS_IN 被动同步）
+        if (!isBusIn) {
+            int btnY = py + 4 + row * 18;
+            int addBW = 20, rmBW = 20;
+            g.fill(px + 4, btnY, px + 4 + addBW, btnY + 14, 0xFF2A4A2A);
+            g.renderOutline(px + 4, btnY, addBW, 14, NodeRenderer.CSB);
+            g.drawString(Minecraft.getInstance().font, "+", px + 11, btnY + 2, 0xFF88FF88, false);
+            g.fill(px + 4 + addBW + 4, btnY, px + 4 + addBW + 4 + rmBW, btnY + 14, 0xFF4A2A2A);
+            g.renderOutline(px + 4 + addBW + 4, btnY, rmBW, 14, NodeRenderer.CSB);
+            g.drawString(Minecraft.getInstance().font, "-", px + 4 + addBW + 11, btnY + 2, 0xFFFF8888, false);
+            st.bandAddBtnX = px + 4; st.bandAddBtnY = btnY;
+            st.bandAddBtnW = addBW; st.bandAddBtnH = 14;
+            st.bandRemoveBtnX = px + 4 + addBW + 4; st.bandRemoveBtnY = btnY;
+            st.bandRemoveBtnW = rmBW; st.bandRemoveBtnH = 14;
+        } else {
+            st.bandAddBtnW = 0; // 隐藏 +/-
+        }
         } else {
         int r = NodeRenderer.PR;
         for (int i = 0; i < st.fields.size(); i++) {
@@ -86,7 +157,7 @@ public class EditPanel {
                 g.fill(pinX - r, pinY - r, pinX + r, pinY + r, pinConnected ? 0xFF666644 : NodeRenderer.CPI);
             }
 
-            String label = i < st.paramKeys.length ? st.paramKeys[i] + ":" :
+            String label = i < st.paramKeys.length ? I18n.get("param.create_schematic_compute." + st.paramKeys[i]) + ":" :
                 (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT ? I18n.get("gui.create_schematic_compute.edit.channel") : "");
             int labelX = px + (hasParamPin ? 18 : 4);
             g.drawString(Minecraft.getInstance().font, label, labelX, py + 4 + row * 18, 0xFF888888, false);
@@ -261,6 +332,13 @@ public class EditPanel {
             st.listeningForKey = !st.listeningForKey;
             return true;
         }
+        return false;
+    }
+
+    /** 检查指定输出引脚是否有连线（BUS_IN 编辑区输出引脚用） */
+    private static boolean hasOutputConnection(com.example.create_schematic_compute.graph.NodeGraph g, int nodeId, int pinIdx) {
+        for (var c : g.connections)
+            if (c.fromId == nodeId && c.fromPin == pinIdx) return true;
         return false;
     }
 }

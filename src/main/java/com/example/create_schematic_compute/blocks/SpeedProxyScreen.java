@@ -23,7 +23,8 @@ public class SpeedProxyScreen extends AbstractContainerScreen<SpeedProxyMenu> im
         this.imageWidth = 9999;
         this.editor = new GraphEditor(this, this);
         editor.setNodeFilter(nt -> nt == com.example.create_schematic_compute.graph.NodeType.SPEED_CTRL
-            || nt == com.example.create_schematic_compute.graph.NodeType.PRIVATE_IN);
+            || nt == com.example.create_schematic_compute.graph.NodeType.PRIVATE_IN
+            || nt == com.example.create_schematic_compute.graph.NodeType.BUS_IN);
     }
 
     @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }

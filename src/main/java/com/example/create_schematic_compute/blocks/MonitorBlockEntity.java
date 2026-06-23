@@ -75,7 +75,7 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
     }
 
     @Override public boolean isRunning() { return running; }
-    @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public void setRunning(boolean r) { running = r; setChanged(); }
     @Override public boolean graphHasCycles() { return graph.hasCycles(); }
     @Override public void clearPidState() { runtimeState.pidState.clear(); }
 
@@ -178,7 +178,7 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
         if (level == null) return;
         try {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
-            if (t != null && t.contains("graph")) graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
+            if (t != null && t.contains("graph")) { graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess()); }
             if (t != null) loadSettings(t);
             registerLinks();
             setChanged();

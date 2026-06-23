@@ -6,6 +6,7 @@ import com.example.create_schematic_compute.graph.GraphEvaluator;
 import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
 import com.example.create_schematic_compute.graph.RuntimeState;
+import com.example.create_schematic_compute.network.BusChannelHelper;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 
 import net.createmod.catnip.data.Couple;
@@ -134,23 +135,27 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     protected GraphEvaluator evaluator = null;
     protected NodeGraph lastEvaluatedGraph = null;
     protected final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
+    private final java.util.HashMap<Integer, Integer> lastBusHashMap = new java.util.HashMap<>();
     /** 姿态/前方朝向（由子类 sable$physicsTick 更新） */
     protected float attitudeYaw = 0, attitudePitch = 0, attitudeRoll = 0;
     protected float forwardYaw = 0, forwardPitch = 0;
     protected float blockYaw = 0;
     protected float accelX = 0, accelY = 0, accelZ = 0;
     protected double rawVelX, rawVelY, rawVelZ;
+    /** Sable 子世界缓存世界坐标（非 NaN 时优先于 worldPosition） */
+    protected volatile float cachedSubWorldX = Float.NaN, cachedSubWorldY = Float.NaN, cachedSubWorldZ = Float.NaN;
     private double prevRawVelX, prevRawVelY, prevRawVelZ;
     private boolean firstAccel = true;
 
     public ControlSeatBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.CONTROL_SEAT_BE.get(), pos, s); }
     @Override public boolean isRunning() { return running; }
-    @Override public void setRunning(boolean r) { running = r; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    @Override public void setRunning(boolean r) { running = r; }
     @Override public boolean graphHasCycles() { return graph.hasCycles(); }
     @Override public void clearPidState() { runtimeState.pidState.clear(); }
 
     @Override public void accept(net.minecraft.world.level.block.entity.BlockEntity other) {
         if(other instanceof ControlSeatBlockEntity src) {
+            unregisterBusChannels(graph);
             this.graph = src.graph;
             this.running = src.running;
             runtimeState.clear();
@@ -160,8 +165,26 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     }
 
     @Override public void onLoad() { super.onLoad(); rs.onLoad(graph); }
-    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); rs.onChunkUnloaded(); }
-    @Override public void setRemoved() { rs.setRemoved(); super.setRemoved(); }
+    @Override public void onChunkUnloaded() { cleanupBusChannels(graph); unregisterBusChannels(graph); super.onChunkUnloaded(); rs.onChunkUnloaded(); }
+    @Override public void setRemoved() { cleanupBusChannels(graph); unregisterBusChannels(graph); rs.setRemoved(); super.setRemoved(); }
+
+    @Override public com.example.create_schematic_compute.graph.NodeGraph getNodeGraph() { return graph; }
+    @Override public void syncBusBandsFromServer(String busName, java.util.List<String> bands) {
+        BusChannelHelper.syncBandsFromServer(busName, bands, graph);
+    }
+
+    private void registerBusChannels() {
+        if (BusChannelHelper.registerChannels(graph, worldPosition, level))
+            needsFullSync = true;
+    }
+
+    private void cleanupBusChannels(com.example.create_schematic_compute.graph.NodeGraph g) {
+        BusChannelHelper.cleanupClientBands(g, worldPosition, level);
+    }
+
+    private void unregisterBusChannels(com.example.create_schematic_compute.graph.NodeGraph g) {
+        BusChannelHelper.unregisterChannels(g, worldPosition, level);
+    }
 
     /** 子类（Sable）覆盖使用 */
     protected volatile com.example.create_schematic_compute.entity.ControlSeatEntity mySeatEntity = null;
@@ -191,15 +214,29 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
         if (!currentState.hasProperty(ControlSeatBlock.LIT)) return;
         if(currentState.getValue(ControlSeatBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(ControlSeatBlock.LIT, shouldBeLit), 3);
-        if(!running) return;
-
-        if (evaluator == null || lastEvaluatedGraph != graph) {
+        rs.checkGraphChanged(graph);
+        if(evaluator==null||lastEvaluatedGraph!=graph) {
+            if (lastEvaluatedGraph != null) {
+                BusChannelHelper.syncDeletedBusNames(lastEvaluatedGraph, graph, worldPosition, level);
+                unregisterBusChannels(lastEvaluatedGraph);
+                runtimeState.pidState.clear();
+            }
             evaluator = new GraphEvaluator(graph);
+            evaluator.restoreSubState(runtimeState);
             lastEvaluatedGraph = graph;
-            runtimeState.pidState.clear();
+            registerBusChannels();
+        }
+        if(!running) {
+            for (var n : graph.nodes) {
+                if (n.type == NodeType.BUS_OUT && n.busInternalMap != null)
+                    n.busInternalMap.clear();
+            }
+            rs.writeOutputs(java.util.Collections.emptyList());
+            return;
         }
 
         rs.refreshInputs();
+        BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level);
         var in = rs.buildInputs(graph);
 
         // 计算世界视角（仅视角差模式更新，摇杆模式下冻结）
@@ -229,12 +266,17 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
             savedWorldYaw, savedWorldPitch, mouseButtons, gpadLX, gpadLY, gpadRX, gpadRY, gpadLT, gpadRT, gpadButtons,
             blockYaw, attitudeYaw, attitudePitch, attitudeRoll, forwardYaw, forwardPitch,
             accelX, accelY, accelZ,
-            (float) rawVelX, (float) rawVelY, (float) rawVelZ);
+            (float) rawVelX, (float) rawVelY, (float) rawVelZ,
+            Float.isNaN(cachedSubWorldX) ? worldPosition.getX() + 0.5f : cachedSubWorldX,
+            Float.isNaN(cachedSubWorldY) ? worldPosition.getY() + 0.5f : cachedSubWorldY,
+            Float.isNaN(cachedSubWorldZ) ? worldPosition.getZ() + 0.5f : cachedSubWorldZ);
 
         float dt = 0.05f;
         var results = evaluator.evaluate(in, runtimeState.pidState, dt, seatInput);
 
         rs.writeOutputs(results);
+        // BUS 频段变化时发包通知客户端
+        BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
         setChanged();
     }
 
@@ -246,7 +288,8 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
                 graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
                 rs.onLoad(graph);
             }
-            setChanged();
+            needsFullSync = true; setChanged();
+            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         } catch (Exception e) {
             SchematicCompute.LOGGER.error("Failed to load control seat graph, resetting", e);
             graph = new NodeGraph();
@@ -264,19 +307,27 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t,r);
         if (t.contains("graph")) {
+            var oldExpanded = new java.util.HashMap<Integer, Boolean>();
+            for (var n : graph.nodes) if (n.expanded) oldExpanded.put(n.id, true);
             graph = NodeGraph.load(t.getCompound("graph"), r);
+            for (var n : graph.nodes) if (oldExpanded.containsKey(n.id)) n.expanded = true;
             rs.onLoad(graph);
         }
         if (t.contains("running")) running = t.getBoolean("running");
         if (t.contains("runtime")) {
             RuntimeState loaded = RuntimeState.load(t.getCompound("runtime"));
             runtimeState.pidState.putAll(loaded.pidState);
+            runtimeState.subStates.putAll(loaded.subStates);
         }
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
-    @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) { var t=new CompoundTag(); saveAdditional(t,r); return t; }
+    private boolean needsFullSync = true;
+    @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
+        if (needsFullSync) { needsFullSync = false; var t=new CompoundTag(); saveAdditional(t,r); return t; }
+        var t=new CompoundTag(); t.putBoolean("running", running); return t;
+    }
     @Override public Component getDisplayName() { return Component.translatable("container."+SchematicCompute.MOD_ID+".control_seat"); }
     @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new ControlSeatMenu(id, this); }
 }

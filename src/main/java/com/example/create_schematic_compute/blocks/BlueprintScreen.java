@@ -54,6 +54,7 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
     @Override public boolean isRunning() { return blockEntity != null && blockEntity.running; }
     @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { return blockEntity != null ? blockEntity.runtimeState.flipflopStates : null; }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
+    @Override public net.minecraft.core.BlockPos getBlockPos() { return menu.blockPos; }
 
     @Override
     public void saveGraph() {

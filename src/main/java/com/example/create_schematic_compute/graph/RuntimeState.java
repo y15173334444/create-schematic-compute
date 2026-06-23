@@ -16,6 +16,9 @@ import java.util.Map;
  *
  * <p>All maps use the same integer keys as the pre-existing per-BlockEntity maps:
  * {@code node.id}, {@code -(node.id+1)} for secondary slots, etc.
+ *
+ * <p>Sub-graph state (nodes inside ENCAPSULATION) is stored in {@link #subStates}
+ * keyed by the encapsulation node ID, keeping IDs separate from top-level nodes.
  */
 public class RuntimeState {
 
@@ -31,7 +34,27 @@ public class RuntimeState {
     // PULSE_EXTEND, LOOP, FUSE tick counters
     public final Map<Integer, Integer> pulseTimers = new HashMap<>();
 
+    // ── Sub-graph state (ENCAPSULATION nodes) ────────────────────────
+    // Key: encapsulation node ID. Each entry holds the state maps for
+    // the timing/state nodes inside that ENCAPSULATION's sub-graph.
+
+    /** Key: encapNodeId → sub-node state map */
+    public final Map<Integer, SubState> subStates = new HashMap<>();
+
+    /** Runtime state for one ENCAPSULATION sub-graph. */
+    public static class SubState {
+        public final Map<Integer, Float> pidState = new HashMap<>();
+        public final Map<Integer, ArrayDeque<Float>> delayQueues = new HashMap<>();
+        public final Map<Integer, Boolean> flipflopStates = new HashMap<>();
+        public final Map<Integer, Integer> pulseTimers = new HashMap<>();
+    }
+
     public RuntimeState() {}
+
+    /** Get or create the SubState for an encapsulation node. */
+    public SubState getOrCreateSubState(int encapNodeId) {
+        return subStates.computeIfAbsent(encapNodeId, k -> new SubState());
+    }
 
     /** Wipe all state (used on {@code accept()} merge). */
     public void clear() {
@@ -39,6 +62,7 @@ public class RuntimeState {
         delayQueues.clear();
         flipflopStates.clear();
         pulseTimers.clear();
+        subStates.clear();
     }
 
     // ── NBT serialisation ──────────────────────────────────────────────────
@@ -73,6 +97,40 @@ public class RuntimeState {
                 pt.putInt(String.valueOf(e.getKey()), e.getValue());
             tag.put("pt", pt);
         }
+        // Sub-graph state — one CompoundTag per encapsulation node
+        if (!subStates.isEmpty()) {
+            CompoundTag sub = new CompoundTag();
+            for (var entry : subStates.entrySet()) {
+                CompoundTag ss = new CompoundTag();
+                SubState s = entry.getValue();
+                if (!s.pidState.isEmpty()) {
+                    CompoundTag sp = new CompoundTag();
+                    for (var e : s.pidState.entrySet()) sp.putFloat(String.valueOf(e.getKey()), e.getValue());
+                    ss.put("pid", sp);
+                }
+                if (!s.delayQueues.isEmpty()) {
+                    CompoundTag sd = new CompoundTag();
+                    for (var e : s.delayQueues.entrySet()) {
+                        ListTag list = new ListTag();
+                        for (float f : e.getValue()) list.add(FloatTag.valueOf(f));
+                        sd.put(String.valueOf(e.getKey()), list);
+                    }
+                    ss.put("delay", sd);
+                }
+                if (!s.flipflopStates.isEmpty()) {
+                    CompoundTag sf = new CompoundTag();
+                    for (var e : s.flipflopStates.entrySet()) sf.putBoolean(String.valueOf(e.getKey()), e.getValue());
+                    ss.put("ff", sf);
+                }
+                if (!s.pulseTimers.isEmpty()) {
+                    CompoundTag spt = new CompoundTag();
+                    for (var e : s.pulseTimers.entrySet()) spt.putInt(String.valueOf(e.getKey()), e.getValue());
+                    ss.put("pt", spt);
+                }
+                sub.put(String.valueOf(entry.getKey()), ss);
+            }
+            tag.put("sub", sub);
+        }
         return tag;
     }
 
@@ -103,6 +161,37 @@ public class RuntimeState {
             var pt = tag.getCompound("pt");
             for (var k : pt.getAllKeys())
                 rs.pulseTimers.put(Integer.parseInt(k), pt.getInt(k));
+        }
+        // Sub-graph state
+        if (tag.contains("sub")) {
+            var sub = tag.getCompound("sub");
+            for (var k : sub.getAllKeys()) {
+                int encapId = Integer.parseInt(k);
+                var ss = sub.getCompound(k);
+                SubState s = new SubState();
+                if (ss.contains("pid")) {
+                    var sp = ss.getCompound("pid");
+                    for (var sk : sp.getAllKeys()) s.pidState.put(Integer.parseInt(sk), sp.getFloat(sk));
+                }
+                if (ss.contains("delay")) {
+                    var sd = ss.getCompound("delay");
+                    for (var sk : sd.getAllKeys()) {
+                        var list = sd.getList(sk, Tag.TAG_FLOAT);
+                        var q = new ArrayDeque<Float>(list.size());
+                        for (int i = 0; i < list.size(); i++) q.addLast(list.getFloat(i));
+                        s.delayQueues.put(Integer.parseInt(sk), q);
+                    }
+                }
+                if (ss.contains("ff")) {
+                    var sf = ss.getCompound("ff");
+                    for (var sk : sf.getAllKeys()) s.flipflopStates.put(Integer.parseInt(sk), sf.getBoolean(sk));
+                }
+                if (ss.contains("pt")) {
+                    var spt = ss.getCompound("pt");
+                    for (var sk : spt.getAllKeys()) s.pulseTimers.put(Integer.parseInt(sk), spt.getInt(sk));
+                }
+                rs.subStates.put(encapId, s);
+            }
         }
         return rs;
     }
