@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github)](https://github.com/y15173334444/create-schematic-compute)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.1.5-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
+[![Version](https://img.shields.io/badge/Version-1.2.0-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
 
@@ -757,6 +757,24 @@ MIT License © 2026 StarryNight_Luo
 ---
 
 ## 📝 Changelog
+
+### v1.2.0
+- **Add: BUS_IN / BUS_OUT nodes** — cross-block channel communication via shared HashMap reference, zero-copy signal passing
+- **Add: Bus Band system** — multi-band bus channels with global `BAND_REGISTRY` for editor synchronization across computers
+- **Add: BusChannelHelper** — centralized bus lifecycle management, eliminating ~160 lines of duplicated code across 4 BlockEntities
+- **Add: Encapsulation state persistence** — GATE, LATCH, T_FLIPFLOP, DELAY, and PID states inside encapsulation nodes survive world reload
+- **Add: Encapsulation node limit warning** — red warning overlay on nodes >1024, evaluator disables output when exceeded
+- **Add: Encapsulation I/O pin Y-order** — external pin order matches internal visual layout (sorted by Y position)
+- **Add: Import / Export encapsulation nodes** — Blueprint Computer toolbar buttons with file browser dialog and duplicate name protection
+- **Add: World coordinate nodes** — VELOCITY, ACCELERATION nodes for Attitude Sensor and Control Seat (requires Sable physics)
+- **Add: BUS_OUT conflict auto-recovery** — conflicting nodes automatically take over the channel when the first owner is removed
+- **Fix: ControlSeat / Sensor missing** `cleanupBusChannels()` and `syncBusBandsFromServer()` — stale BAND_REGISTRY entries on unload
+- **Fix: BUS rename dead code** — `commitBusBox()` had unreachable BUS_OUT loop and unconditional `clearBus()` call
+- **Fix: Sub-graph PID state** — PID integrals inside encapsulation were lost every tick (now stored in `RuntimeState.subStates`)
+- **Fix: Import feedback timer** — separated `importFeedbackUntil` from compile feedback to prevent false "Compiled!" flash
+- **Perf: bandsDirty flag** — skips redundant per-tick `registerBands()` ArrayList allocations in steady state
+- **Perf: I18n lookup skipped** — BUS / FORMULA / ENCAPSULATION pin labels bypass `I18n.get()` since they are not translation keys
+- **Perf: Conflict BUS_OUT** — entities with `busConflict` skip `busInternalMap` writes entirely
 
 ### v1.1.5
 - **Add: LATCH edit panel** — configurable default set/reset state toggle with real-time current state display
