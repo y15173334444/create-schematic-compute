@@ -5,6 +5,7 @@
 [![Version](https://img.shields.io/badge/Version-1.2.0-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
+[![MC](https://img.shields.io/badge/Minecraft-1.21.1-8B4513?style=flat-square)](https://www.minecraft.net/)
 
 ---
 
@@ -79,11 +80,11 @@ Reads the orientation of sable physics structures through a node-based graph.
 
 ---
 
-### Node Reference (57 Types)
+### Node Reference (59 Types)
 
 | Category | Nodes |
 |----------|-------|
-| **Values** | CONST, Redstone Input, Private Signal Input |
+| **Values** | CONST, Redstone Input, Private Signal Input, Bus Input, Bus Output |
 | **Math** | Add, Subtract, Multiply, Divide, Modulo, Power (A^B), Root (B-th Root), Absolute Value, **Round (N Decimals)**, Comparison Router (\|A-B\|), Ceil, Floor, **Formula** |
 | **Logic** | Greater Than, Less Than, **Greater Than or Equal**, **Less Than or Equal**, Equals, **OR Gate**, Bool (Toggle), Gate |
 | **Control** | PID Controller, Power PID, Clamp, Map Range |
@@ -101,6 +102,8 @@ Reads the orientation of sable physics structures through a node-based graph.
 | CONST | - | float | value | Outputs a constant value |
 | REDSTONE_IN | - | signal | frequency item ×2 | Reads from Redstone Link network |
 | PRIVATE_IN | - | val | channel | Reads float from named channel |
+| BUS_IN | - | band×N | bus name | Reads band values from a shared bus channel |
+| BUS_OUT | band×N | - | bus name | Writes input values to a shared bus channel |
 
 ##### Math
 | Node | Inputs | Output | Description |
@@ -463,11 +466,11 @@ MIT License © 2026 StarryNight_Luo
 
 ---
 
-### 节点参考（57 种）
+### 节点参考（59 种）
 
 | 分类 | 节点 |
 |------|------|
-| **数值** | 常量、红石输入、私有信号输入 |
+| **数值** | 常量、红石输入、私有信号输入、总线输入、总线输出 |
 | **运算** | 加、减、乘、除、模运算、次幂、次方根、绝对值、保留N位小数、比较路由、向上取整、向下取整、**公式** |
 | **逻辑** | 大于、小于、大于等于、小于等于、等于、或门、布尔（反转）、闸门 |
 | **控制** | PID 控制器（误差归零时 I 项复位）、动力 PID、限幅、映射范围 |
@@ -485,6 +488,8 @@ MIT License © 2026 StarryNight_Luo
 | CONST | - | float | value | 输出常量值 |
 | REDSTONE_IN | - | signal | 频率物品×2 | 从机械动力红石链接读取信号 |
 | PRIVATE_IN | - | val | channel | 从命名通道读取浮点数 |
+| BUS_IN | - | band×N | bus name | 从共享总线通道读取频段值 |
+| BUS_OUT | band×N | - | bus name | 将输入值写入共享总线通道 |
 
 ##### 运算
 | 节点 | 输入 | 输出 | 说明 |
