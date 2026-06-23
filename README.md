@@ -47,6 +47,7 @@ Control Create's **Redstone Link network** through visual programming.
 - **Redstone Output** — Writes computed signals back to the Redstone Link network
 - **Private Signal Output** — Transmits float values across named channels to other computers
 - **Private Signal Input** — Reads float values from named channels
+- **Encapsulation Import / Export** — Save and load encapsulation nodes via the toolbar. Export with a custom filename (auto-renames on duplicate), import from a file browser with scrollable list. Exported `.nbt` files are stored in the `create_schematic_compute/exports/` directory.
 
 #### ⚡ Speed Proxy Controller
 Directly control the target RPM of Create's **Speed Controller** blocks on adjacent faces.
@@ -434,6 +435,7 @@ MIT License © 2026 StarryNight_Luo
 - **红石输出** — 将计算后的信号写回红石链接网络
 - **私有信号输出** — 通过命名通道将浮点数传输到其他计算机
 - **私有信号输入** — 从命名通道读取浮点数
+- **封装节点导入/导出** — 通过工具栏按钮保存和加载封装节点。导出时自定义文件名（同名自动追加序号），导入时从文件列表中选择。导出的 `.nbt` 文件存储在 `create_schematic_compute/exports/` 目录下。
 
 #### ⚡ 转速代理控制器
 直接控制相邻 6 个面上机械动力**转速控制器**的目标 RPM。
