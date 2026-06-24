@@ -21,7 +21,7 @@
 
 ### What is Create: Schematic Compute?
 
-**Create: Schematic Compute** is a **Create mod addon** that introduces **six programmable blocks** with a **visual node-based programming system**. Instead of writing complex redstone circuits or struggling with command blocks, you simply drag and connect nodes to build logic — just like in Unreal Engine's Blueprint system or Blender's Geometry Nodes.
+**Create: Schematic Compute** is a **Create mod addon** that introduces **seven programmable blocks** with a **visual node-based programming system**. Instead of writing complex redstone circuits or struggling with command blocks, you simply drag and connect nodes to build logic — just like in Unreal Engine's Blueprint system or Blender's Geometry Nodes.
 
 Each computer has its own internal node graph that runs at **20Hz (every game tick)**, making it suitable for real-time control applications.
 
@@ -491,7 +491,7 @@ MIT License © 2026 StarryNight_Luo
 
 ### 什么是 Create: Schematic Compute？
 
-**Create: Schematic Compute（机械动力：蓝图计算机）** 是一个**机械动力附属模组**，添加了**六种可编程方块**，采用**可视化节点图编程系统**。无需编写代码或搭建复杂的红石电路，只需拖拽连接节点即可构建逻辑——类似虚幻引擎的蓝图系统或 Blender 的几何节点。
+**Create: Schematic Compute（机械动力：蓝图计算机）** 是一个**机械动力附属模组**，添加了**七种可编程方块**，采用**可视化节点图编程系统**。无需编写代码或搭建复杂的红石电路，只需拖拽连接节点即可构建逻辑——类似虚幻引擎的蓝图系统或 Blender 的几何节点。
 
 每台计算机拥有独立的节点图，以 **20Hz（每游戏刻）** 的频率运行，适合实时控制应用。
 
@@ -547,6 +547,70 @@ MIT License © 2026 StarryNight_Luo
 - **前方朝向节点** — 输出结构的全局朝向偏航/俯仰
 - **世界视角节点** — 读取玩家在座椅上的绝对视角方向
 - **姿态换算节点** — 在不同坐标系间转换 pitch/yaw/roll
+
+#### 📡 3D全息显示雷达
+一个**实时 3D 雷达扫描器**，在可配置的半径内检测实体和 sable 结构，以彩色小方块的形式显示在 XYZ 轴显示屏上。
+
+- **实体扫描** — 检测玩家、生物和 Sable 结构，范围可配置（1-128 格）
+- **目标分配** — 自动将检测到的目标分配给节点图中的 `TARGET_OUT` 节点，支持多目标和单目标模式
+- **手动锁定** — 右键点击空中 blip 锁定特定目标；锁定的目标跨扫描保持
+- **自动锁定** — 根据扫描模式自动分配最近目标
+- **锁定距离** — 可配置最小锁定距离（0-128m）；距离小于此值的目标不会被锁定
+- **显示设置** — 通过 GUI 设置面板调整 XYZ 偏移（左/右、上/下、前/后）、扫描范围 (R) 和显示比例 (S)
+- **显示风格** — 两种视觉模式：**经典**（彩色 XYZ 轴线）和**全息**（白色中心方块 + 半透明蓝色底面，类似全息战术显示屏）
+- **过滤开关** — 分别显示/隐藏玩家、生物和 Sable 结构
+- **排除主机** — 可选择排除雷达所在的 Sable 结构
+- **Sable 兼容** — 完整支持在移动/旋转的 Sable 结构上扫描；雷达位置和扫描框跟随结构移动
+- **实时 GUI** — 专用设置面板带数字输入框，实时预览更新
+- **自定义模型** — 完整 Blockbench 模型，带旋转扫描碟（BakedModel + RenderType.solid 完整光照）
+
+**雷达专用节点：**
+| 节点 | 说明 |
+|------|------|
+| `TARGET_OUT` | 输出分配目标的世界坐标 (X, Y, Z)、实体 ID 和距离。可多个 TARGET_OUT 节点用于多目标跟踪 |
+
+**设置面板参数：**
+| 参数 | 范围 | 说明 |
+|------|------|------|
+| 扫描范围 (R) | 1-128 | 检测半径（格） |
+| 显示比例 (S) | 1-32 | XYZ 轴显示大小 |
+| 锁定距离 | 0-128 | 目标锁定的最小距离 |
+| X(左/右) | 浮点数 | 左右显示偏移 |
+| Y(上/下) | 浮点数 | 上下显示偏移 |
+| Z(前/后) | 浮点数 | 前后显示偏移 |
+
+---
+
+### BUS 总线节点系统
+
+**Signal Bus** 是一个全局命名通道通信系统，允许计算机之间共享数据——类似发布-订阅消息总线。
+
+#### 工作原理
+
+1. **BUS_OUT 节点** 将输入值写入命名通道（如 `"power_grid"`）
+2. **BUS_IN 节点** 从同一通道名称读取数据（任意位置、任意计算机）
+3. 每个通道支持**频段**——命名的子字段，每个频段携带独立浮点数
+4. 使用 `ConcurrentHashMap` 实现线程安全的跨计算机通信
+
+#### BUS_OUT（总线输出）
+| 功能 | 说明 |
+|------|------|
+| 通道注册 | 在全局 BAND_REGISTRY 中注册通道名和频段定义 |
+| 引用计数 | 每个 BUS_OUT 增加引用计数；计数归零时自动清理 |
+| 冲突检测 | 不同计算机的 BUS_OUT 使用相同通道名时，第二个被拒绝并标记为冲突 |
+| 频段同步 | 频段定义同步到所有客户端供编辑器 UI 显示 |
+
+#### BUS_IN（总线输入）
+| 功能 | 说明 |
+|------|------|
+| 动态引脚 | 引脚数量匹配通道频段数；无频段则默认 1 个引脚 |
+| 频段名 | 每个频段有用户可定义名称（如 "speed"、"direction"） |
+| 一对多 | 多个 BUS_IN 可同时从同一通道读取 |
+
+**应用场景：**
+- 🏭 **工厂级控制** — 一台计算机发布指令，多台接收执行
+- 📊 **数据分发** — 传感器采集数据，显示屏展示仪表盘
+- 🔄 **跨计算机联动** — 多个子系统通过共享通道通信
 
 ---
 
@@ -788,6 +852,7 @@ Sable 物理线程和 Minecraft 服务端线程并发运行。共享字段（`ca
 | **控制座椅** | 重质测重压力板 ×1 + 铁锭 ×2 + 黄铜机壳 ×1 + 红石 ×1 + 无线红石信号终端 ×4 |
 | **姿态传感器** | 铁锭 ×6 + 中继器 ×1 + 比较器 ×1 + 黄铜机壳 ×2 |
 | **全息显示器** | 无线红石信号终端 ×2 + 精密构件 + 玻璃板 ×2 + 黄铜机壳 + 荧石粉 ×2 |
+| **3D全息显示雷达** | 全息显示器 ×2 + 铁锭 ×4 + 黄铜机壳 ×1 + 红石块 ×2 |
 
 *(需要 JEI 模组在游戏中查看)*
 
@@ -846,6 +911,20 @@ MIT License © 2026 StarryNight_Luo
 ---
 
 ## 📝 Changelog
+
+### v1.3.0
+- **Add: 3D Holographic Radar** — real-time 3D radar scanner detecting players, mobs, and sable structures with configurable range
+- **Add: Target assignment** — auto/manual target locking system with multi-target and single-target modes
+- **Add: Display styles** — Classic (XYZ axis lines) and Holographic (white cube + blue ground plane) visual modes
+- **Add: Lock distance** — configurable minimum distance filter for target locking
+- **Add: Radar UI** — settings panel with R/S/L/X/Y/Z numeric input fields, real-time editing, style toggle
+- **Add: Radar model** — custom Blockbench model with rotating scanner disc (BakedModel + RenderType.solid)
+- **Add: BUS node documentation** — detailed Signal Bus system docs (registration, reference counting, conflict detection)
+- **Add: Radar crafting recipe** — 2× Monitor + 4× Iron + Brass Casing + 2× Redstone Block
+- **Fix: Sable scanning** — bootstrap detection for radar on Sable structures, `pose.transformPosition()` coordinate conversion
+- **Fix: Sable rotation** — removed incorrect Sable rotation from renderer/ray detection (Sable pipeline handles structure rotation)
+- **Fix: Item models** — radar, monitor, control seat, sensor use standard block display transforms (orthographic GUI view)
+- **Fix: Blip cleanup** — blips hidden when radar stops running
 
 ### v1.2.0
 - **Add: BUS_IN / BUS_OUT nodes** — cross-block channel communication via shared HashMap reference, zero-copy signal passing
