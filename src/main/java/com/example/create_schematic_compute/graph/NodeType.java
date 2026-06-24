@@ -52,6 +52,13 @@ public enum NodeType {
     ATAN2("atan2", "node.create_schematic_compute.atan2", 2, 1, ""),
     SINH("sinh", "node.create_schematic_compute.sinh", 1, 1, ""),
     COSH("cosh", "node.create_schematic_compute.cosh", 1, 1, ""),
+    SQRT("sqrt", "node.create_schematic_compute.sqrt", 1, 1, ""),
+    LN("ln", "node.create_schematic_compute.ln", 1, 1, ""),
+    LOG("log", "node.create_schematic_compute.log", 1, 1, ""),
+    EXP("exp", "node.create_schematic_compute.exp", 1, 1, ""),
+    SEC("sec", "node.create_schematic_compute.sec", 1, 1, ""),
+    CSC("csc", "node.create_schematic_compute.csc", 1, 1, ""),
+    COT("cot", "node.create_schematic_compute.cot", 1, 1, ""),
     DIRECTION("direction", "node.create_schematic_compute.direction", 0, 3, "ax,ay,az,bx,by,bz"),
     POSITION("position", "node.create_schematic_compute.position", 0, 3, "offsetX,offsetY,offsetZ"),
     ACCUMULATOR("accumulator", "node.create_schematic_compute.accumulator", 2, 1, "step"),
@@ -165,7 +172,7 @@ public enum NodeType {
     public String outputLabel(int i) { return switch(this){
         case CONST -> pk("float");
         case REDSTONE_IN -> pk("signal");
-        case ADD,SUB,MUL,DIV,MOD,POW,ROOT,ABS,ROUND,SIN,COS,TAN,ASIN,ACOS,ATAN2,SINH,COSH -> pk("float");
+        case ADD,SUB,MUL,DIV,MOD,POW,ROOT,ABS,ROUND,SIN,COS,TAN,ASIN,ACOS,ATAN2,SINH,COSH,SQRT,LN,LOG,EXP,SEC,CSC,COT -> pk("float");
         case INTERP -> i==0?pk("a"):pk("b");
         case GT,LT,EQ,GE,LE, BOOL, OR -> pk("bool");
         case PID -> pk("ctrl");

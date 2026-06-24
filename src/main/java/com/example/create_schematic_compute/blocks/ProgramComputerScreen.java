@@ -46,7 +46,14 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
             || nt == com.example.create_schematic_compute.graph.NodeType.ACOS
             || nt == com.example.create_schematic_compute.graph.NodeType.ATAN2
             || nt == com.example.create_schematic_compute.graph.NodeType.SINH
-            || nt == com.example.create_schematic_compute.graph.NodeType.COSH);
+            || nt == com.example.create_schematic_compute.graph.NodeType.COSH
+            || nt == com.example.create_schematic_compute.graph.NodeType.SQRT
+            || nt == com.example.create_schematic_compute.graph.NodeType.LN
+            || nt == com.example.create_schematic_compute.graph.NodeType.LOG
+            || nt == com.example.create_schematic_compute.graph.NodeType.EXP
+            || nt == com.example.create_schematic_compute.graph.NodeType.SEC
+            || nt == com.example.create_schematic_compute.graph.NodeType.CSC
+            || nt == com.example.create_schematic_compute.graph.NodeType.COT);
     }
 
     @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
@@ -78,10 +85,13 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
     @Override public boolean mouseClicked(double mx, double my, int btn) { return editor.mouseClicked(mx, my, btn) || super.mouseClicked(mx, my, btn); }
     @Override public boolean mouseReleased(double mx, double my, int btn) { editor.mouseReleased(mx, my, btn); return super.mouseReleased(mx, my, btn); }
     @Override public void mouseMoved(double mx, double my) { editor.mouseMoved(mx, my); }
+    @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }
     @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) { return editor.mouseScrolled(mx, my, sx, sy); }
     @Override public boolean keyPressed(int key, int sc, int mod) {
         if(key==256){onClose();return true;}
-        return editor.keyPressed(key, sc, mod) || super.keyPressed(key, sc, mod);
+        if (editor.keyPressed(key, sc, mod)) return true;
+        if (key >= 32 && key <= 96) return true; // printable keys → charTyped
+        return super.keyPressed(key, sc, mod);
     }
     @Override public boolean keyReleased(int key, int sc, int mod) { return editor.keyReleased(key, sc, mod) || super.keyReleased(key, sc, mod); }
     @Override public boolean charTyped(char ch, int mod) { return editor.charTyped(ch, mod) || super.charTyped(ch, mod); }

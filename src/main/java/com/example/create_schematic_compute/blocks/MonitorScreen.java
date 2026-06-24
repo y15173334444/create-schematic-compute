@@ -883,6 +883,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         editor.mouseMoved(mx, my);
     }
 
+    @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }
+
     @Override
     public boolean mouseReleased(double mx, double my, int btn) {
         if (pixelEdit != null && pixelEdit.open) { pixelEdit.painting = false; return false; }
@@ -1092,7 +1094,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             return true;
         }
         if (key == 256) { onClose(); return true; }
-        return editor.keyPressed(key, sc, mod) || super.keyPressed(key, sc, mod);
+        if (editor.keyPressed(key, sc, mod)) return true;
+        if (key >= 32 && key <= 96) return true;
+        return super.keyPressed(key, sc, mod);
     }
 
     @Override public boolean keyReleased(int key, int sc, int mod) {

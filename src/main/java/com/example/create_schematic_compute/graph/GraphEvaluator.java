@@ -26,6 +26,16 @@ public class GraphEvaluator {
             }
         };
 
+    // FORMULA script parse cache — formula string → ScriptParseResult (v1.2+ multi-line script)
+    private static final int MAX_SCRIPT_CACHE = 1024;
+    private final Map<String, FormulaParser.ScriptParseResult> scriptCache =
+        new java.util.LinkedHashMap<>(64, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, FormulaParser.ScriptParseResult> eldest) {
+                return size() > MAX_SCRIPT_CACHE;
+            }
+        };
+
     // Cache sub-graph evaluators and runtime state for ENCAPSULATION nodes
     // Key: encapsulation node ID (node that owns the subGraph)
     private final Map<Integer, GraphEvaluator> subEvaluators = new HashMap<>();
@@ -372,6 +382,37 @@ public class GraphEvaluator {
                 float v = graph.getInputValue(node.id, 0, outputs);
                 o[0] = Float.isFinite(v) ? (float) Math.cosh(v) : 0;
             }
+            case SQRT -> {
+                float v = graph.getInputValue(node.id, 0, outputs);
+                o[0] = Float.isFinite(v) && v >= 0 ? (float) Math.sqrt(v) : 0;
+            }
+            case LN -> {
+                float v = graph.getInputValue(node.id, 0, outputs);
+                o[0] = Float.isFinite(v) && v > 0 ? (float) Math.log(v) : 0;
+            }
+            case LOG -> {
+                float v = graph.getInputValue(node.id, 0, outputs);
+                o[0] = Float.isFinite(v) && v > 0 ? (float) Math.log10(v) : 0;
+            }
+            case EXP -> {
+                float v = graph.getInputValue(node.id, 0, outputs);
+                o[0] = Float.isFinite(v) ? (float) Math.exp(v) : 0;
+            }
+            case SEC -> {
+                float v = graph.getInputValue(node.id, 0, outputs);
+                o[0] = (Float.isFinite(v) && Math.abs(Math.cos(Math.toRadians(v))) > 1e-12f)
+                    ? (float)(1.0 / Math.cos(Math.toRadians(v))) : 0;
+            }
+            case CSC -> {
+                float v = graph.getInputValue(node.id, 0, outputs);
+                o[0] = (Float.isFinite(v) && Math.abs(Math.sin(Math.toRadians(v))) > 1e-12f)
+                    ? (float)(1.0 / Math.sin(Math.toRadians(v))) : 0;
+            }
+            case COT -> {
+                float v = graph.getInputValue(node.id, 0, outputs);
+                o[0] = (Float.isFinite(v) && Math.abs(Math.tan(Math.toRadians(v))) > 1e-12f)
+                    ? (float)(1.0 / Math.tan(Math.toRadians(v))) : 0;
+            }
             case DIRECTION -> {
                 float ax = node.params.length > 0 ? node.params[0] : 0;
                 float ay = node.params.length > 1 ? node.params[1] : 0;
@@ -597,12 +638,47 @@ public class GraphEvaluator {
                 o[0] = cur;
             }
             case FORMULA -> {
-                if (node.formula.isEmpty()) { o[0] = 0; break; }
+                if (node.formula.isEmpty()) {
+                    int nOut = Math.max(1, node.dynamicOutputCount);
+                    if (o.length != nOut) { o = new float[nOut]; node.outputValues = o; }
+                    for (int i = 0; i < nOut; i++) o[i] = 0;
+                    break;
+                }
+                // Parse script (cached)
+                var script = scriptCache.get(node.formula);
+                if (script == null) {
+                    script = FormulaParser.parseScript(node.formula);
+                    scriptCache.put(node.formula, script);
+                }
+                // Update node state
+                int nOut = Math.max(1, script.outputLabels.size());
+                node.dynamicInputCount = script.inputVars.size();
+                node.dynamicOutputCount = nOut;
+                node.outputLabels = script.outputLabels;
+                // Size output array dynamically (same pattern as ENCAPSULATION / BUS_IN)
+                if (o.length != nOut) { o = new float[nOut]; node.outputValues = o; }
+                // Map input pins to variable values
                 var vars = new java.util.HashMap<String, Double>();
-                var varNames = FormulaParser.extractVariables(node.formula);
-                for (int vi = 0; vi < varNames.size(); vi++)
-                    vars.put(varNames.get(vi), (double)graph.getInputValue(node.id, vi, outputs));
-                o[0] = FormulaParser.evalCached(node.formula, vars, formulaCache);
+                for (int vi = 0; vi < script.inputVars.size(); vi++)
+                    vars.put(script.inputVars.get(vi), (double)graph.getInputValue(node.id, vi, outputs));
+                // Execute assignments in order (each isolated, prevents one bad expr from killing the script)
+                for (var assign : script.assignments) {
+                    try {
+                        vars.put(assign.varName(), FormulaParser.evaluate(assign.rpn(), vars));
+                    } catch (Exception e) {
+                        vars.put(assign.varName(), 0.0);
+                    }
+                }
+                // Evaluate each output expression
+                for (int oi = 0; oi < nOut; oi++) {
+                    try {
+                        var rpn = script.outputRpns.get(oi);
+                        o[oi] = (float)FormulaParser.evaluate(
+                            oi < script.outputRpns.size() ? rpn : java.util.List.of(0.0), vars);
+                    } catch (Exception e) {
+                        o[oi] = 0;
+                    }
+                }
             }
             // Display nodes — no float output; data read from GraphNode fields by renderer
             case TEXT, DATA, IMAGE, IMAGE_SEQUENCE -> {}

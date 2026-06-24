@@ -45,7 +45,16 @@ public class EditPanel {
             int bands = n.signalBands != null ? n.signalBands.size() : 0;
             h += 22 + bands * 18 + 20;
         }
-        if (n.type == NodeType.FORMULA) h += 22;
+        if (n.type == NodeType.FORMULA) {
+            // Height based on visual lines (word-wrap aware)
+            if (st != null && !st.fields.isEmpty()
+                && st.fields.get(0) instanceof com.example.create_schematic_compute.client.MultiLineEditBox mle) {
+                h += 22 + mle.getContentHeight() + 12;
+            } else {
+                int lineCount = n.formula.isEmpty() ? 1 : Math.max(1, n.formula.split("\n", -1).length);
+                h += 22 + Math.max(1, Math.min(lineCount, 32)) * 12 + 12;
+            }
+        }
         if (n.type == NodeType.TEXT) h += 22;
         if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) h += 54 + 32; // 3 text fields + 2 toggles
         if (n.type == NodeType.TEXT || n.type == NodeType.DATA) h += 22;
@@ -58,6 +67,7 @@ public class EditPanel {
                                  com.example.create_schematic_compute.blocks.GraphEditor.EditState st,
                                  float zoom, int mx, int my, Map<Integer, Boolean> flipflopStates) {
         if (node == null || st == null) return;
+        var font = Minecraft.getInstance().font;
         int row = 0;
 
         // KEYBOARD / GAMEPAD_BUTTON 节点：绑定UI
@@ -140,6 +150,63 @@ public class EditPanel {
             st.bandRemoveBtnW = rmBW; st.bandRemoveBtnH = 14;
         } else {
             st.bandAddBtnW = 0; // 隐藏 +/-
+        }
+        } else if (node.type == NodeType.FORMULA) {
+        // ── FORMULA 多行脚本编辑区（MultiLineEditBox） ──
+        // 摘要信息行
+        String summary = java.text.MessageFormat.format(
+            I18n.get("gui.create_schematic_compute.formula_summary"),
+            node.dynamicInputCount, node.dynamicOutputCount);
+        g.drawString(Minecraft.getInstance().font, "§7" + summary, px + 4, py + 4, 0xFF888888, false);
+        row++; // row 0 = summary
+        // MultiLineEditBox — single field with word-wrap support
+        if (!st.fields.isEmpty() && st.fields.get(0) instanceof com.example.create_schematic_compute.client.MultiLineEditBox mle) {
+            int editBoxY = py + 4 + row * 18;
+            int contentH = mle.getContentHeight();
+            mle.setX(px + 28);
+            mle.setY(editBoxY);
+            mle.setWidth(pw - 36);
+            mle.setHeight(Math.max(contentH, 18));
+            mle.render(g, mx, my, 0);
+            // Render line prefixes aligned with visual lines (word-wrap aware)
+            String hintComment = I18n.get("gui.create_schematic_compute.formula_comment_hint");
+            String hintOutput = I18n.get("gui.create_schematic_compute.formula_output_hint");
+            String hintAssign = I18n.get("gui.create_schematic_compute.formula_assign_hint");
+            String hintExpr   = I18n.get("gui.create_schematic_compute.formula_expr_hint");
+            String fullText = mle.getValue();
+            String[] logLines = fullText.split("\n", -1);
+            if (logLines.length == 0) logLines = new String[]{""};
+            int vi = 0; // visual line index
+            for (int li = 0; li < logLines.length; li++) {
+                String lineText = logLines[li].trim();
+                String prefix;
+                if (lineText.startsWith("--")) prefix = "§8--";
+                else if (lineText.startsWith("@output")) prefix = "§b@";
+                else if (lineText.contains("=") && lineText.indexOf('=') > 0) prefix = "§e=";
+                else if (!lineText.isEmpty()) prefix = "§7>";
+                else prefix = "§7·";
+                // Each logical line may span multiple visual lines — render prefix on first visual line only
+                int logicalVisualLines = Math.max(1, (int)Math.ceil((double)Math.max(1, font.width(logLines[li])) / Math.max(1, pw - 40)));
+                for (int v = 0; v < logicalVisualLines; v++) {
+                    int lineY = editBoxY + 3 + vi * 12;
+                    if (lineY + 12 > editBoxY + mle.getHeight()) break;
+                    if (v == 0) {
+                        boolean hovering = mx >= px + 4 && mx <= px + 26 && my >= lineY && my <= lineY + 12;
+                        if (hovering) {
+                            String tip = switch (prefix) {
+                                case "§8--" -> hintComment;
+                                case "§b@" -> hintOutput;
+                                case "§e=" -> hintAssign;
+                                default -> hintExpr;
+                            };
+                            g.drawString(Minecraft.getInstance().font, "§7" + tip, px + 28, lineY - 9, 0xFFAAAAAA, false);
+                        }
+                        String lineLabel = prefix + (li + 1) + ":";
+                        g.drawString(Minecraft.getInstance().font, lineLabel, px + 4, lineY, 0xFFAAAAAA, false);
+                    }
+                    vi++;
+                }
+            }
         }
         } else {
         int r = NodeRenderer.PR;

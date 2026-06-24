@@ -6,6 +6,7 @@ import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
 import net.minecraft.world.item.ItemStack;
 import java.util.ArrayList;
+import java.util.List;
 
 /** A single node instance in the graph. */
 public class GraphNode {
@@ -24,6 +25,8 @@ public class GraphNode {
     public boolean bandsDirty = true;
     public String formula = "";      // formula expression for FORMULA node
     public int dynamicInputCount = 0; // dynamic inputs for FORMULA node
+    public int dynamicOutputCount = 1; // dynamic outputs for FORMULA node (v1.2+)
+    public List<String> outputLabels = null; // @output names for FORMULA node (lazy-parsed)
     // Display node fields (Monitor block)
     public String displayText = "";               // TEXT node content
     public int textColor = 0;                      // ARGB text color (0 = use type default)
@@ -51,6 +54,7 @@ public class GraphNode {
     /** 节点主体上的功能输入引脚数（不含编辑区参数引脚，BUS_OUT 引脚仅在编辑区） */
     public int functionalInputs() { return inputs() - type.editableParamCount(); }
     public int outputs() {
+        if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicOutputCount, 16));
         if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_OUTPUT);
         return type.outputs;
     }
@@ -73,8 +77,10 @@ public class GraphNode {
         if (type == NodeType.BUS_OUT && signalBands != null && i < signalBands.size())
             return signalBands.get(i);
         if (type == NodeType.FORMULA && !formula.isEmpty()) {
-            var vars = FormulaParser.extractVariables(formula);
-            if (i < vars.size()) return vars.get(i);
+            // Use parsed script input vars (excludes assigned intermediate variables)
+            var res = FormulaParser.parseScript(formula);
+            dynamicInputCount = Math.max(1, res.inputVars.size());
+            if (i < res.inputVars.size()) return res.inputVars.get(i);
         }
         if (type == NodeType.ENCAPSULATION) {
             var ins = getSubNodes(NodeType.ENCAP_INPUT);
@@ -89,10 +95,23 @@ public class GraphNode {
         if (paramIdx >= 0 && paramIdx < type.paramNames.length) return type.paramNames[paramIdx];
         return type.inputLabel(i);
     }
-    /** 输出引脚标签（ENCAPSULATION 用内部节点名，BUS_IN 用频段名） */
+    /** 输出引脚标签（FORMULA 用 @output 名，ENCAPSULATION 用内部节点名，BUS_IN 用频段名） */
     public String outputLabel(int i) {
         if (type == NodeType.BUS_IN && signalBands != null && i < signalBands.size())
             return signalBands.get(i);
+        if (type == NodeType.FORMULA && !formula.isEmpty()) {
+            // Lazy-parse output labels from formula text
+            if (outputLabels == null) {
+                var result = FormulaParser.parseScript(formula);
+                outputLabels = result.outputLabels;
+                dynamicOutputCount = Math.max(1, result.outputLabels.size());
+            }
+            if (outputLabels != null && i < outputLabels.size()) {
+                String name = outputLabels.get(i);
+                return name.isEmpty() ? type.outputLabel(i) : name;
+            }
+            return type.outputLabel(i);
+        }
         if (type == NodeType.ENCAPSULATION) {
             var outs = getSubNodes(NodeType.ENCAP_OUTPUT);
             if (i < outs.size()) {
@@ -156,6 +175,13 @@ public class GraphNode {
             if (this.params.length > 2 && this.params[2] == 0f) this.params[2] = 1f;    // rotationScale
             // invertX, invertY defaults stay 0
         }
+        // FORMULA: default to "A+B" so collapsed view shows 2 inputs + 1 output
+        if (type == NodeType.FORMULA) {
+            this.formula = "A+B";
+            this.dynamicInputCount = 2;
+            this.dynamicOutputCount = 1;
+            this.outputLabels = java.util.List.of("");
+        }
         // ENCAPSULATION: outputValues resized dynamically during eval based on subGraph
         this.outputValues = new float[type == NodeType.ENCAPSULATION ? 0 : type.outputs];
     }
@@ -170,6 +196,8 @@ public class GraphNode {
         if (busInternalMap != null) n.busInternalMap = new java.util.HashMap<>(busInternalMap);
         n.formula = formula;
         n.dynamicInputCount = dynamicInputCount;
+        n.dynamicOutputCount = dynamicOutputCount;
+        if (outputLabels != null) n.outputLabels = new java.util.ArrayList<>(outputLabels);
         n.displayText = displayText;
         n.textColor = textColor;
         if (imagePixels != null) n.imagePixels = imagePixels.clone();
@@ -215,6 +243,12 @@ public class GraphNode {
         }
         if (!formula.isEmpty()) tag.putString("formula", formula);
         if (dynamicInputCount > 0) tag.putInt("din", dynamicInputCount);
+        if (type == NodeType.FORMULA && dynamicOutputCount > 1) tag.putInt("dout", dynamicOutputCount);
+        if (type == NodeType.FORMULA && outputLabels != null && !outputLabels.isEmpty()) {
+            ListTag lbls = new ListTag();
+            for (String l : outputLabels) lbls.add(net.minecraft.nbt.StringTag.valueOf(l));
+            tag.put("outlbls", lbls);
+        }
         if (!displayText.isEmpty()) tag.putString("dtext", displayText);
         if (textColor != 0) tag.putInt("tcol", textColor);
         if (type == NodeType.IMAGE || type == NodeType.IMAGE_SEQUENCE) {
@@ -267,6 +301,13 @@ public class GraphNode {
         }
         if (tag.contains("formula")) node.formula = tag.getString("formula");
         if (tag.contains("din")) node.dynamicInputCount = tag.getInt("din");
+        if (tag.contains("dout")) node.dynamicOutputCount = tag.getInt("dout");
+        if (tag.contains("outlbls")) {
+            ListTag lbls = tag.getList("outlbls", Tag.TAG_STRING);
+            node.outputLabels = new java.util.ArrayList<>();
+            for (int i = 0; i < lbls.size(); i++)
+                node.outputLabels.add(lbls.getString(i));
+        }
         if (tag.contains("dtext")) node.displayText = tag.getString("dtext");
         if (tag.contains("tcol")) node.textColor = tag.getInt("tcol");
         if (tag.contains("ipx")) node.imagePixels = tag.getIntArray("ipx");

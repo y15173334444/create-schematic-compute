@@ -147,7 +147,9 @@ public class NodeRenderer {
     }
 
     // 尺寸常量
-    public static final int NW=140, HH=18, PH=16, PR=4, GS=30;
+    public static final int NW=140, WIDE_NW=240, HH=18, PH=16, PR=4, GS=30;
+    /** Dynamic node width: FORMULA gets 240px for long expressions */
+    public static int nw(GraphNode n) { return n != null && n.type == NodeType.FORMULA ? WIDE_NW : NW; }
 
     // 坐标转换接口
     public interface CoordMapper { float apply(float coord); }
@@ -160,7 +162,7 @@ public class NodeRenderer {
         new NodeCategory("category.create_schematic_compute.values", new NodeType[]{NodeType.CONST, NodeType.REDSTONE_IN, NodeType.PRIVATE_IN, NodeType.BUS_IN}),
         new NodeCategory("category.create_schematic_compute.math_basic", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.POW, NodeType.ROOT, NodeType.ABS, NodeType.CEIL, NodeType.FLOOR}),
         new NodeCategory("category.create_schematic_compute.math_advanced", new NodeType[]{NodeType.FORMULA, NodeType.POSE_CONVERT, NodeType.SPLIT, NodeType.INTERP, NodeType.ROUND}),
-        new NodeCategory("category.create_schematic_compute.trig", new NodeType[]{NodeType.SIN, NodeType.COS, NodeType.TAN, NodeType.ASIN, NodeType.ACOS, NodeType.ATAN2, NodeType.SINH, NodeType.COSH, NodeType.DIRECTION}),
+        new NodeCategory("category.create_schematic_compute.trig", new NodeType[]{NodeType.SIN, NodeType.COS, NodeType.TAN, NodeType.ASIN, NodeType.ACOS, NodeType.ATAN2, NodeType.SINH, NodeType.COSH, NodeType.SQRT, NodeType.LN, NodeType.LOG, NodeType.EXP, NodeType.SEC, NodeType.CSC, NodeType.COT, NodeType.DIRECTION}),
         new NodeCategory("category.create_schematic_compute.logic", new NodeType[]{NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ, NodeType.BOOL, NodeType.GATE, NodeType.OR}),
         new NodeCategory("category.create_schematic_compute.control", new NodeType[]{NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP}),
         new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL, NodeType.BUS_OUT}),
@@ -199,7 +201,7 @@ public class NodeRenderer {
             GraphNode tn = graph.findNode(c.toId);
             if(fn==null||tn==null) continue;
             // cull: both endpoints outside viewport edge
-            float wx1 = fn.x + NW, wx2 = tn.x;
+            float wx1 = fn.x + nw(fn), wx2 = tn.x;
             if ((wx1 < vpLeft && wx2 < vpLeft) || (wx1 > vpRight && wx2 > vpRight)) continue;
             // 输出引脚Y（BUS_IN 编辑区引脚动态计算）
             float wy1;
@@ -235,7 +237,7 @@ public class NodeRenderer {
         } else {
             y1 = c2sY.apply(fn.y+HH+PH*(fn.functionalInputs() + wireFromPin)+PH/2f);
         }
-        float x1 = c2sX.apply(fn.x+NW);
+        float x1 = c2sX.apply(fn.x + nw(fn));
         float x2 = c2sX.apply(wireEndX), y2 = c2sY.apply(wireEndY);
         bezier(g, x1, y1, x2, y2, CWD);
     }
@@ -267,7 +269,8 @@ public class NodeRenderer {
                            float camX, float camY, float zoom, int mx, int my,
                            Map<Integer, Boolean> flipflopStates) {
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
-        float sw = NW*zoom;
+        int nodeW = nw(n);
+        float sw = nodeW*zoom;
         float contentH = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
         // 编辑模式：各节点独立计算高度
         float extraH = editing ? com.example.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom,
@@ -334,17 +337,14 @@ public class NodeRenderer {
         for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL; i++) {
             float py = HH+PH*(funcInputs + i)+PH/2f;
             int r = PR;
-            g.fill(NW - r - 1, (int)(py - r - 1), NW + r + 1, (int)(py + r + 1), CPOB);
-            g.fill(NW - r, (int)(py - r), NW + r, (int)(py + r), CPO);
+            g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1), CPOB);
+            g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r), CPO);
             String rawOutLbl = n.outputLabel(i);
             String outlbl = (n.type == NodeType.BUS_IN || n.type == NodeType.ENCAPSULATION) ? rawOutLbl : I18n.get(rawOutLbl);
             int olw = Minecraft.getInstance().font.width(outlbl);
-            drawStr(g, outlbl, NW - olw - 6, py-3, CD);
+            drawStr(g, outlbl, nodeW - olw - 6, py-3, CD);
         }
-        // 公式文本显示（FORMULA 节点）
-        if (n.type == NodeType.FORMULA) {
-            drawStr(g, "§7" + (n.formula.isEmpty() ? I18n.get("gui.create_schematic_compute.formula_placeholder") : n.formula), 4, HH+PH*(n.functionalInputs() + n.outputs())+4, CD);
-        }
+        // FORMULA 节点：不显示内部文本（多行脚本在节点体中不可读），展开后在编辑区查看
         // 展开指示器（可编辑节点在标题右侧显示 ▶/▼）
         if (n.type == NodeType.FORMULA || n.type.paramNames.length > 0
             || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT
@@ -353,7 +353,7 @@ public class NodeRenderer {
             || n.type == NodeType.TEXT || n.type == NodeType.DATA
             || n.type == NodeType.ENCAPSULATION || n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT
             || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) {
-            drawStr(g, editing ? (n.type == NodeType.ENCAPSULATION ? "§b▶▶" : "§6▼") : (n.type == NodeType.ENCAPSULATION ? "§b▶" : "§7▶"), NW - 18, 4, CT);
+            drawStr(g, editing ? (n.type == NodeType.ENCAPSULATION ? "§b▶▶" : "§6▼") : (n.type == NodeType.ENCAPSULATION ? "§b▶" : "§7▶"), nodeW - 18, 4, CT);
         }
         // 封装节点体部摘要
         if (n.type == NodeType.ENCAPSULATION && !editing) {
@@ -365,10 +365,10 @@ public class NodeRenderer {
             int editLocalY = (int)(HH + PH*(n.functionalInputs() + n.outputs()) + 4/zoom);
             var editSt = nodeEditStatesById.get(n.id);
             int editLocalH = com.example.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom, editSt);
-            g.fill(2, editLocalY - 2, NW - 2, editLocalY, 0xFF5A4D3A);
-            g.fill(2, editLocalY, NW - 2, editLocalY + editLocalH, 0xFF2A2822);
+            g.fill(2, editLocalY - 2, nodeW - 2, editLocalY, 0xFF5A4D3A);
+            g.fill(2, editLocalY, nodeW - 2, editLocalY + editLocalH, 0xFF2A2822);
             if (editSt != null && !suppressControls) {
-                com.example.create_schematic_compute.blocks.EditPanel.renderAt(g, 0, editLocalY, NW, n, editSt, zoom, mx, my, flipflopStates);
+                com.example.create_schematic_compute.blocks.EditPanel.renderAt(g, 0, editLocalY, nodeW, n, editSt, zoom, mx, my, flipflopStates);
             }
         }
         pose.popPose();

@@ -56,6 +56,7 @@ public class GraphEditor {
     public boolean draggingWire=false;
     public int wireFromNode=-1, wireFromPin=-1;
     public float wireEndX, wireEndY;
+    private int editBoxDragNodeId = -1; // node id whose EditBox is being drag-selected
     public boolean showMenu=false;
     public float menuX, menuY;
     public NodeType selectedMenuType=null;
@@ -300,16 +301,45 @@ public class GraphEditor {
             s.paramKeys = keys;
         }
         if (node.type == NodeType.FORMULA) {
-            var fb = new EditBox(mc.font, 0, 0, 140, 16, Component.literal(""));
-            fb.setMaxLength(64); fb.setValue(node.formula.isEmpty() ? "A+B" : node.formula);
-            // 公式框保持实时更新（输入引脚数需即时反映）
-            fb.setResponder(t -> {
-                String clean = t.replaceAll("[^a-zA-Z0-9+\\-*/%^(). ]", "");
-                if (!clean.equals(t)) fb.setValue(clean);
-                node.formula = clean;
-                node.dynamicInputCount = com.example.create_schematic_compute.graph.FormulaParser.extractVariables(clean).size();
+            // Multi-line script editor — single MultiLineEditBox
+            int editW = NodeRenderer.WIDE_NW - 36;
+            var mle = new com.example.create_schematic_compute.client.MultiLineEditBox(
+                mc.font, 0, 0, editW, 18);
+            mle.setMaxLength(4096);
+            String initialText = node.formula.isEmpty() ? "A+B" : node.formula;
+            mle.setValue(initialText);
+            node.formula = initialText; // sync
+            // Initial parse from displayed text (not empty node.formula)
+            var initScript = com.example.create_schematic_compute.graph.FormulaParser.parseScript(initialText);
+            node.dynamicInputCount = initScript.inputVars.size();
+            node.dynamicOutputCount = Math.max(1, initScript.outputLabels.size());
+            node.outputLabels = initScript.outputLabels;
+            mle.setResponder(t -> {
+                node.formula = t;
+                // Update input/output counts from parsed script
+                var res = com.example.create_schematic_compute.graph.FormulaParser.parseScript(t);
+                int newIn = res.inputVars.size();
+                int newOut = Math.max(1, res.outputLabels.size());
+                // Clean up connections to removed pins
+                if (newOut < node.dynamicOutputCount) {
+                    int oldOut = node.dynamicOutputCount;
+                    for (int pi = newOut; pi < oldOut; pi++) {
+                        final int p = pi;
+                        host.getGraph().connections.removeIf(c -> c.fromId == node.id && c.fromPin == p);
+                    }
+                }
+                if (newIn < node.dynamicInputCount) {
+                    int oldIn = node.dynamicInputCount;
+                    for (int pi = newIn; pi < oldIn; pi++) {
+                        final int p = pi;
+                        host.getGraph().connections.removeIf(c -> c.toId == node.id && c.toPin == p);
+                    }
+                }
+                node.dynamicInputCount = newIn;
+                node.dynamicOutputCount = newOut;
+                node.outputLabels = res.outputLabels;
             });
-            s.fields.add(fb);
+            s.fields.add(mle);
         }
         if (node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT) {
             var nb = new EditBox(mc.font, 0, 0, 100, 16, Component.literal(""));
@@ -954,14 +984,28 @@ public class GraphEditor {
                 }
                 if (en.type == NodeType.KEYBOARD || en.type == NodeType.GAMEPAD_BUTTON) {
                     int kbLocalY = editLocalY + 4;
-                    if (EditPanel.handleKeyboardClick(en, st, lmx, lmy - kbLocalY, NW)) return true;
+                    if (EditPanel.handleKeyboardClick(en, st, lmx, lmy - kbLocalY, com.example.create_schematic_compute.blocks.NodeRenderer.nw(en))) return true;
                 }
-                for (int fi = 0; fi < st.fields.size(); fi++) {
-                    var b = st.fields.get(fi);
-                    int fy = editLocalY + 4 + fi * 18;
-                    if (lmx >= 0 && lmx <= NW && lmy >= fy && lmy <= fy + 18)
-                    { b.setFocused(true); b.mouseClicked(lmx, lmy, 0); }
-                    else b.setFocused(false);
+                // FORMULA multi-line editor: single MultiLineEditBox covers full edit panel height
+                int enW = com.example.create_schematic_compute.blocks.NodeRenderer.nw(en);
+                if (en.type == NodeType.FORMULA) {
+                    for (int fi = 0; fi < st.fields.size(); fi++) {
+                        var b = st.fields.get(fi);
+                        int editPanelHeight = EditPanel.calcRenderHeight(en, zoom, st);
+                        int fy = editLocalY + 4 + 18;
+                        if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + editPanelHeight) {
+                            b.setFocused(true);
+                            if (b.mouseClicked(lmx, lmy, 0)) editBoxDragNodeId = en.id;
+                        } else b.setFocused(false);
+                    }
+                } else {
+                    for (int fi = 0; fi < st.fields.size(); fi++) {
+                        var b = st.fields.get(fi);
+                        int fy = editLocalY + 4 + fi * 18;
+                        if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + 18)
+                        { b.setFocused(true); b.mouseClicked(lmx, lmy, 0); }
+                        else b.setFocused(false);
+                    }
                 }
             }
             // TAB+左键 → 连线删除 / 多选 / 框选
@@ -995,10 +1039,10 @@ public class GraphEditor {
             var expandHit = hitExpandIndicator(mx, my, graph);
             if (expandHit != null) { toggleExpand(expandHit); return true; }
             // BUS_IN 编辑区输出引脚优先检测
-            for(var node:graph.nodes){if(node.type==NodeType.BUS_IN&&expandedNodeIds.contains(node.id)&&node.signalBands!=null){float sx=c2sX(node.x),sy=c2sY(node.y);for(int i=0;i<node.signalBands.size();i++){float py=sy+bandPinY(node,i,zoom)*zoom;if(Math.abs(mx-(sx+NW*zoom))<12&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}}
+            for(var node:graph.nodes){if(node.type==NodeType.BUS_IN&&expandedNodeIds.contains(node.id)&&node.signalBands!=null){float sx=c2sX(node.x),sy=c2sY(node.y);int nw=com.example.create_schematic_compute.blocks.NodeRenderer.nw(node);for(int i=0;i<node.signalBands.size();i++){float py=sy+bandPinY(node,i,zoom)*zoom;if(Math.abs(mx-(sx+nw*zoom))<12&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}}
             // 拖拽连线 — 节点体输出引脚
-            for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);
-            for(int i=0;i<node.outputs();i++){float py=sy+HH*zoom+PH*zoom*(node.functionalInputs()+i)+PH*zoom/2f;if(Math.abs(mx-(sx+NW*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
+            for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);int nw=com.example.create_schematic_compute.blocks.NodeRenderer.nw(node);
+            for(int i=0;i<node.outputs();i++){float py=sy+HH*zoom+PH*zoom*(node.functionalInputs()+i)+PH*zoom/2f;if(Math.abs(mx-(sx+nw*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
             // 点击节点（不含 ▶/▼ 区域）
             var hit=hitNode(mx,my);
             if(hit!=null){
@@ -1143,6 +1187,7 @@ public class GraphEditor {
 
     public void mouseReleased(double mx, double my, int btn) {
         var graph = getGraph();
+        editBoxDragNodeId = -1;
         if(btn==0&&multiDragging){
             multiDragging = false;
             if (multiClickedNode != null) {
@@ -1230,14 +1275,27 @@ public class GraphEditor {
     }
     public void mouseMoved(double mx, double my) {
         lastMouseX = mx; lastMouseY = my;
+        // Drag-select in expanded FORMULA EditBox
+        if (editBoxDragNodeId >= 0 && (org.lwjgl.glfw.GLFW.glfwGetMouseButton(
+            org.lwjgl.glfw.GLFW.glfwGetCurrentContext(), 0) == org.lwjgl.glfw.GLFW.GLFW_PRESS)) {
+            var en = getGraph().findNode(editBoxDragNodeId);
+            if (en != null && expandedNodeIds.contains(en.id)) {
+                var st = nodeEditStatesById.get(en.id);
+                if (st != null && !st.fields.isEmpty()) {
+                    float sx = c2sX(en.x), sy = c2sY(en.y);
+                    st.fields.get(0).mouseDragged((mx - sx) / zoom, (my - sy) / zoom, 0, 0, 0);
+                    return;
+                }
+            }
+        }
         if(boxSelecting){boxEX=(float)mx;boxEY=(float)my;return;}
         if(multiDragging){
-            float dx = (s2cX(mx) - dragOffX) - multiCenterX;
-            float dy = (s2cY(my) - dragOffY) - multiCenterY;
+            float dmx = (s2cX(mx) - dragOffX) - multiCenterX;
+            float dmy = (s2cY(my) - dragOffY) - multiCenterY;
             for (var sn : selectedNodes) {
                 float[] orig = multiDragOrigins.get(sn);
                 if (orig != null) {
-                    float nx = orig[0] + dx, ny = orig[1] + dy;
+                    float nx = orig[0] + dmx, ny = orig[1] + dmy;
                     if(gridSnapEnabled){nx=Math.round(nx/NodeRenderer.GS)*NodeRenderer.GS;ny=Math.round(ny/NodeRenderer.GS)*NodeRenderer.GS;}
                     sn.x=nx; sn.y=ny;
                 }
@@ -1250,6 +1308,20 @@ public class GraphEditor {
             if(gridSnapEnabled){nx=Math.round(nx/NodeRenderer.GS)*NodeRenderer.GS;ny=Math.round(ny/NodeRenderer.GS)*NodeRenderer.GS;}
             draggingNode.x=nx;draggingNode.y=ny;
         }if(draggingWire){wireEndX=s2cX(mx);wireEndY=s2cY(my);}
+    }
+    public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
+        for (var en : getGraph().nodes) {
+            if (!expandedNodeIds.contains(en.id)) continue;
+            var st = nodeEditStatesById.get(en.id);
+            if (st == null) continue;
+            float sx = c2sX(en.x), sy = c2sY(en.y);
+            int lmx = (int)((mx - sx) / zoom);
+            int lmy = (int)((my - sy) / zoom);
+            for (var b : st.fields) {
+                if (b.mouseDragged(lmx, lmy, btn, dx / zoom, dy / zoom)) return true;
+            }
+        }
+        return false;
     }
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         if (showImportDialog) { importScrollOff += (sy > 0) ? -1 : 1; if (importScrollOff < 0) importScrollOff = 0; return true; }
@@ -1493,7 +1565,7 @@ public class GraphEditor {
                 && n.type != NodeType.ENCAPSULATION && n.type != NodeType.ENCAP_INPUT && n.type != NodeType.ENCAP_OUTPUT
                 && n.type != NodeType.BUS_IN && n.type != NodeType.BUS_OUT) continue;
             float sx = c2sX(n.x), sy = c2sY(n.y);
-            float ix = sx + (NW - 22) * zoom;
+            float ix = sx + (com.example.create_schematic_compute.blocks.NodeRenderer.nw(n) - 22) * zoom;
             float iy = sy + 2 * zoom;
             if (mx >= ix && mx <= ix + indicatorSize && my >= iy && my <= iy + indicatorSize)
                 return n;
@@ -1505,7 +1577,7 @@ public class GraphEditor {
         var graph = getGraph();
         for(int i=graph.nodes.size()-1;i>=0;i--){
             var n=graph.nodes.get(i);
-            float sx=c2sX(n.x), sy=c2sY(n.y), sw=NW*zoom;
+            float sx=c2sX(n.x), sy=c2sY(n.y), sw=com.example.create_schematic_compute.blocks.NodeRenderer.nw(n)*zoom;
             float nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
             if (expandedNodeIds.contains(n.id))
                 nh += EditPanel.calcRenderHeight(n, zoom) * zoom;
