@@ -53,7 +53,7 @@ public enum NodeType {
     SINH("sinh", "node.create_schematic_compute.sinh", 1, 1, ""),
     COSH("cosh", "node.create_schematic_compute.cosh", 1, 1, ""),
     DIRECTION("direction", "node.create_schematic_compute.direction", 0, 3, "ax,ay,az,bx,by,bz"),
-    POSITION("position", "node.create_schematic_compute.position", 0, 3, ""),
+    POSITION("position", "node.create_schematic_compute.position", 0, 3, "offsetX,offsetY,offsetZ"),
     ACCUMULATOR("accumulator", "node.create_schematic_compute.accumulator", 2, 1, "step"),
     INTEGRATOR("integrator", "node.create_schematic_compute.integrator", 3, 1, "step,interval,limit"),
     FORMULA("formula", "node.create_schematic_compute.formula", 0, 1, ""),
@@ -78,7 +78,9 @@ public enum NodeType {
     IMAGE_SEQUENCE("image_sequence", "node.create_schematic_compute.image_sequence", 4, 0, "moveScaleX,moveScaleY,rotationScale,invertX,invertY"),
     ENCAPSULATION("encapsulation", "node.create_schematic_compute.encapsulation", 0, 0, ""),
     ENCAP_INPUT("encap_input", "node.create_schematic_compute.encap_input", 0, 1, "name"),
-    ENCAP_OUTPUT("encap_output", "node.create_schematic_compute.encap_output", 1, 0, "name");
+    ENCAP_OUTPUT("encap_output", "node.create_schematic_compute.encap_output", 1, 0, "name"),
+    // Radar
+    TARGET_OUT("target_out", "node.create_schematic_compute.target_out", 0, 5, "");
 
     /** Stable string identifier for NBT serialisation — never change these. */
     public final String id;
@@ -197,6 +199,7 @@ public enum NodeType {
         case DIRECTION -> i==0?pk("yaw"):i==1?pk("pitch"):pk("distance");
         case ENCAPSULATION -> pk("out"); // dynamic label from sub-graph ENCAP_OUTPUT name
         case ENCAP_INPUT -> pk("val");
+        case TARGET_OUT -> switch(i) { case 0 -> pk("x"); case 1 -> pk("y"); case 2 -> pk("z"); case 3 -> pk("entity_id"); default -> pk("distance"); };
         default -> "";
     };}
 }

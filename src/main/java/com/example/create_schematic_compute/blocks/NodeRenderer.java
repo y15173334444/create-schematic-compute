@@ -166,7 +166,7 @@ public class NodeRenderer {
         new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL, NodeType.BUS_OUT}),
         new NodeCategory("category.create_schematic_compute.sequential", new NodeType[]{NodeType.DELAY, NodeType.LATCH, NodeType.T_FLIPFLOP, NodeType.PULSE_EXTEND, NodeType.LOOP, NodeType.FUSE, NodeType.ACCUMULATOR, NodeType.INTEGRATOR}),
         new NodeCategory("category.create_schematic_compute.input_ctrl", new NodeType[]{NodeType.KEYBOARD, NodeType.MOUSE_BUTTON, NodeType.MOUSE_JOYSTICK, NodeType.GAMEPAD_JOYSTICK, NodeType.GAMEPAD_BUTTON, NodeType.GAMEPAD_TRIGGER}),
-        new NodeCategory("category.create_schematic_compute.input_sensor", new NodeType[]{NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD, NodeType.ACCELERATION, NodeType.VELOCITY, NodeType.POSITION}),
+        new NodeCategory("category.create_schematic_compute.input_sensor", new NodeType[]{NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD, NodeType.ACCELERATION, NodeType.VELOCITY, NodeType.POSITION, NodeType.TARGET_OUT}),
         new NodeCategory("category.create_schematic_compute.display", new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE}),
         new NodeCategory("category.create_schematic_compute.structure", new NodeType[]{NodeType.ENCAPSULATION}),
         new NodeCategory("category.create_schematic_compute.encap_io", new NodeType[]{NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT}),

@@ -183,7 +183,9 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
         rs.refreshInputs();
         BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level);
         var in = rs.buildInputs(graph);
-        var si = new GraphEvaluator.SeatInputState(0,0,0,0,0, 0,0, 0,0,0,0,0,0,0,0, 0,attitudeYaw,attitudePitch,attitudeRoll,forwardYaw,forwardPitch, accelX,accelY,accelZ, (float)rawVelX,(float)rawVelY,(float)rawVelZ,
+        float blockYaw = getBlockState().hasProperty(SensorBlock.FACING)
+            ? getBlockState().getValue(SensorBlock.FACING).toYRot() : 0;
+        var si = new GraphEvaluator.SeatInputState(0,0,0,0,0, 0,0, 0,0,0,0,0,0,0,0, blockYaw,attitudeYaw,attitudePitch,attitudeRoll,forwardYaw,forwardPitch, accelX,accelY,accelZ, (float)rawVelX,(float)rawVelY,(float)rawVelZ,
             Float.isNaN(cachedSubWorldX) ? worldPosition.getX()+0.5f : cachedSubWorldX,
             Float.isNaN(cachedSubWorldY) ? worldPosition.getY()+0.5f : cachedSubWorldY,
             Float.isNaN(cachedSubWorldZ) ? worldPosition.getZ()+0.5f : cachedSubWorldZ);

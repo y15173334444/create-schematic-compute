@@ -50,5 +50,15 @@ public class AllPackets {
                 BusBandUploadPacket.CODEC,
                 BusBandUploadPacket::handle
         );
+        registrar.playToServer(
+                RadarSettingsPacket.TYPE,
+                RadarSettingsPacket.CODEC,
+                RadarSettingsPacket::handle
+        );
+        registrar.playToServer(
+                RadarLockPacket.TYPE,
+                RadarLockPacket.CODEC,
+                RadarLockPacket::handle
+        );
     }
 }

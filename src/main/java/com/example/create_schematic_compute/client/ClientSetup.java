@@ -5,6 +5,7 @@ import com.example.create_schematic_compute.blocks.BlueprintScreen;
 import com.example.create_schematic_compute.blocks.ControlSeatScreen;
 import com.example.create_schematic_compute.blocks.MonitorScreen;
 import com.example.create_schematic_compute.blocks.ProgramComputerScreen;
+import com.example.create_schematic_compute.blocks.RadarScreen;
 import com.example.create_schematic_compute.blocks.SensorScreen;
 import com.example.create_schematic_compute.blocks.SpeedProxyScreen;
 import com.example.create_schematic_compute.entity.ControlSeatEntity;
@@ -14,10 +15,18 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
+import net.minecraft.client.resources.model.ModelResourceLocation;
 
 @EventBusSubscriber(modid = SchematicCompute.MOD_ID, value = Dist.CLIENT)
 public class ClientSetup {
+    public static final ModelResourceLocation SCANNER_MODEL = ModelResourceLocation.standalone(ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "block/radar_scanner"));
+
+    @net.neoforged.bus.api.SubscribeEvent
+    public static void registerModels(ModelEvent.RegisterAdditional event) {
+        event.register(SCANNER_MODEL);
+    }
     @net.neoforged.bus.api.SubscribeEvent
     public static void registerScreens(RegisterMenuScreensEvent event) {
         event.register(SchematicCompute.BLUEPRINT_MENU.get(), BlueprintScreen::new);
@@ -26,6 +35,7 @@ public class ClientSetup {
         event.register(SchematicCompute.CONTROL_SEAT_MENU.get(), ControlSeatScreen::new);
         event.register(SchematicCompute.SENSOR_MENU.get(), SensorScreen::new);
         event.register(SchematicCompute.MONITOR_MENU.get(), MonitorScreen::new);
+        event.register(SchematicCompute.RADAR_MENU.get(), RadarScreen::new);
     }
 
     @net.neoforged.bus.api.SubscribeEvent

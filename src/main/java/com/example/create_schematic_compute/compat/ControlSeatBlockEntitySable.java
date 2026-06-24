@@ -54,11 +54,27 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
         cachedSubPitch = pose[1];
         cachedSubRoll = pose[2];
         try {
-            var pos = subLevel.logicalPose().position();
+            var logicalPose = subLevel.logicalPose();
+            var pos = logicalPose.position();
+            var orient = logicalPose.orientation();
+            var rp = logicalPose.rotationPoint();
             if (pos != null) {
-                cachedSubWorldX = (float) pos.x();
-                cachedSubWorldY = (float) pos.y();
-                cachedSubWorldZ = (float) pos.z();
+                // 计算方块自身世界坐标（而非子世界轴心坐标）
+                double lx = worldPosition.getX() + 0.5;
+                double ly = worldPosition.getY() + 0.5;
+                double lz = worldPosition.getZ() + 0.5;
+                if (rp != null) {
+                    var localOffset = new org.joml.Vector3d(lx - rp.x(), ly - rp.y(), lz - rp.z());
+                    var q = new org.joml.Quaterniond(orient.x(), orient.y(), orient.z(), orient.w());
+                    q.transform(localOffset);
+                    cachedSubWorldX = (float) (pos.x() + localOffset.x);
+                    cachedSubWorldY = (float) (pos.y() + localOffset.y);
+                    cachedSubWorldZ = (float) (pos.z() + localOffset.z);
+                } else {
+                    cachedSubWorldX = (float) pos.x();
+                    cachedSubWorldY = (float) pos.y();
+                    cachedSubWorldZ = (float) pos.z();
+                }
             }
         } catch (Exception ignored) {}
         if (Float.isNaN(initialSubYaw)) initialSubYaw = cachedSubYaw;

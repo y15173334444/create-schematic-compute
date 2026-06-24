@@ -100,6 +100,16 @@ public class SchematicCompute {
     public static final DeferredHolder<MenuType<?>, MenuType<MonitorMenu>> MONITOR_MENU =
             MENUS.register("monitor", () -> IMenuTypeExtension.create((id, inv, buf) -> new MonitorMenu(id, inv, buf)));
 
+    // 雷达方块
+    public static final DeferredHolder<Block, RadarBlock> RADAR_BLOCK =
+            BLOCKS.register("radar", () -> new RadarBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
+    public static final DeferredHolder<Item, BlockItem> RADAR_ITEM =
+            ITEMS.register("radar", () -> new BlockItem(RADAR_BLOCK.get(), new Item.Properties()));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<RadarBlockEntity>> RADAR_BE =
+            BLOCK_ENTITIES.register("radar", () -> BlockEntityType.Builder.of(RadarBlockEntity::create, RADAR_BLOCK.get()).build(null));
+    public static final DeferredHolder<MenuType<?>, MenuType<RadarMenu>> RADAR_MENU =
+            MENUS.register("radar", () -> IMenuTypeExtension.create((id, inv, buf) -> new RadarMenu(id, inv, buf)));
+
     public SchematicCompute(IEventBus modEventBus) {
         LOGGER.info("{} initializing...", MOD_ID);
         BLOCKS.register(modEventBus);
@@ -119,6 +129,7 @@ public class SchematicCompute {
                     output.accept(CONTROL_SEAT_ITEM.get());
                     output.accept(SENSOR_ITEM.get());
                     output.accept(MONITOR_ITEM.get());
+                    output.accept(RADAR_ITEM.get());
                 }).build());
 
         // 在注册事件完成后再注册 SafeNbtWriter
@@ -130,18 +141,23 @@ public class SchematicCompute {
 
         // 注册方块实体渲染器 (仅客户端)
         modEventBus.addListener(net.neoforged.fml.event.lifecycle.FMLClientSetupEvent.class, event -> {
-            event.enqueueWork(() ->
+            event.enqueueWork(() -> {
                 net.minecraft.client.renderer.blockentity.BlockEntityRenderers.register(
                     MONITOR_BE.get(),
                     com.example.create_schematic_compute.client.renderer.MonitorBlockEntityRenderer::new
-                )
-            );
+                );
+                net.minecraft.client.renderer.blockentity.BlockEntityRenderers.register(
+                    RADAR_BE.get(),
+                    com.example.create_schematic_compute.client.renderer.RadarBlockEntityRenderer::new
+                );
+            });
         });
 
         // 服务器停止时清理全局状态（防止跨世界污染）
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
             net.neoforged.neoforge.event.server.ServerStoppingEvent.class, event -> {
                 ControlSeatBlockEntity.clearAllInputs();
+                com.example.create_schematic_compute.radar.TargetAssignment.clearAll();
                 com.example.create_schematic_compute.network.SignalBus.clear();
                 LOGGER.info("{} cleared static state for server shutdown", MOD_ID);
             });
@@ -170,6 +186,7 @@ public class SchematicCompute {
         SafeNbtWriterRegistry.REGISTRY.register(CONTROL_SEAT_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(SENSOR_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(MONITOR_BE.get(), writer);
+        SafeNbtWriterRegistry.REGISTRY.register(RADAR_BE.get(), writer);
         LOGGER.info("Registered SafeNbtWriters for all computers");
     }
 }

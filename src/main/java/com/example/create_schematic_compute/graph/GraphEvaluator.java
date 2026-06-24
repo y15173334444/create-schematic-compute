@@ -13,6 +13,8 @@ import java.util.Map;
 public class GraphEvaluator {
     private final NodeGraph graph;
     private final Map<Integer, float[]> outputs = new HashMap<>();
+    private net.minecraft.core.BlockPos radarPos = null;
+    public void setRadarPos(net.minecraft.core.BlockPos pos) { this.radarPos = pos; }
     // FORMULA compilation cache — formula string → compiled RPN tokens (avoids recompile per tick)
     // LRU eviction at 1024 entries to prevent unbounded growth from frequent formula edits
     private static final int MAX_FORMULA_CACHE = 1024;
@@ -535,7 +537,27 @@ public class GraphEvaluator {
                     }
                 }
             }
-            case POSITION -> { o[0] = seat.worldX(); o[1] = seat.worldY(); o[2] = seat.worldZ(); }
+            case POSITION -> {
+                float wx = seat.worldX(), wy = seat.worldY(), wz = seat.worldZ();
+                // 应用编辑区偏移（左/右、上/下、前/后），按方块世界朝向旋转
+                if (node.params.length >= 3) {
+                    float offX = node.params[0], offY = node.params[1], offZ = node.params[2];
+                    if (offX != 0 || offY != 0 || offZ != 0) {
+                        // 使用 forwardYaw 而非 blockYaw — forwardYaw 包含了 Sable 结构旋转
+                        float rad = (float) Math.toRadians(seat.forwardYaw());
+                        float cos = (float) Math.cos(rad), sin = (float) Math.sin(rad);
+                        // +X = 方块右侧, +Z = 方块前方（世界空间）
+                        wx += offX * cos + offZ * sin;
+                        wy += offY;
+                        wz += offX * sin - offZ * cos;
+                    }
+                }
+                o[0] = wx; o[1] = wy; o[2] = wz;
+            }
+            case TARGET_OUT -> {
+                var t = radarPos != null ? com.example.create_schematic_compute.radar.TargetAssignment.getTarget(radarPos, node.id) : null;
+                if (t != null) { o[0] = (float) t.x(); o[1] = (float) t.y(); o[2] = (float) t.z(); o[3] = t.entityId(); o[4] = t.distance(); }
+            }
             case ACCUMULATOR -> {
                 float inPlus = graph.getInputValue(node.id, 0, outputs);
                 float inMinus = graph.getInputValue(node.id, 1, outputs);
