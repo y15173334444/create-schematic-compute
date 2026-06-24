@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github)](https://github.com/y15173334444/create-schematic-compute)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.3.0-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
+[![Version](https://img.shields.io/badge/Version-1.2.0-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
 [![MC](https://img.shields.io/badge/Minecraft-1.21.1-8B4513?style=flat-square)](https://www.minecraft.net/)
@@ -162,12 +162,13 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 
 ---
 
-### Node Reference (59 Types)
+### Node Reference (78 Types)
 
 | Category | Nodes |
 |----------|-------|
 | **Values** | CONST, Redstone Input, Private Signal Input, Bus Input, Bus Output |
-| **Math** | Add, Subtract, Multiply, Divide, Modulo, Power (A^B), Root (B-th Root), Absolute Value, **Round (N Decimals)**, Comparison Router (\|A-B\|), Ceil, Floor, **Formula** |
+| **Math** | Add, Subtract, Multiply, Divide, Modulo, Power (A^B), Root (B-th Root), Absolute Value, **Round (N Decimals)**, Comparison Router (\|A-B\|), Ceil, Floor, **Formula**, **Square Root**, **Natural Log**, **Base-10 Log**, **Exponential (e^x)** |
+| **Trig** | Sin, Cos, Tan, Arcsin, Arccos, Arctan2, Sinh, Cosh, **Secant**, **Cosecant**, **Cotangent**, **Angle Unwrap** |
 | **Logic** | Greater Than, Less Than, **Greater Than or Equal**, **Less Than or Equal**, Equals, **OR Gate**, Bool (Toggle), Gate |
 | **Control** | PID Controller, Power PID, Clamp, Map Range |
 | **Output** | Redstone Output, Private Signal Output, Speed Control |
@@ -202,7 +203,15 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 | Comparison Router | A, B | A, B | A≥B → A port outputs A-B, else B port outputs \|B-A\| |
 | CEIL | in | int | Round up to nearest integer |
 | FLOOR | in | int | Round down to nearest integer |
-| FORMULA | var(A-Z) | float | formula | Custom math expression, auto-creates input pins per variable (e.g. `AB*2+Speed`) |
+| FORMULA | dynamic (per script) | dynamic (per @output) | script | **Multi-line script editor** — supports assignments (`var = expr`), `@output` named outputs, `--` comments, `\` line continuation. Auto-wrap + drag-select. Functions: sin/cos/tan/asin/acos/atan2/sinh/cosh/sqrt/ln/log/exp/sec/csc/cot/abs. [See usage below](#formula-script-node) |
+| SQRT | in | float | - | Square root of input (returns 0 if negative) |
+| LN | in | float | - | Natural logarithm of input (returns 0 if ≤0) |
+| LOG | in | float | - | Base-10 logarithm of input (returns 0 if ≤0) |
+| EXP | in | float | - | e to the power of input |
+| SEC | in | float | - | Secant: 1 / cos(input°) |
+| CSC | in | float | - | Cosecant: 1 / sin(input°) |
+| COT | in | float | - | Cotangent: 1 / tan(input°) |
+| ANGLE_UNWRAP | in | float | - | Unwraps angle to avoid ±180° jumps; stateful (remembers last output) |
 
 ##### Logic
 | Node | Inputs | Output | Params | Description |
@@ -284,7 +293,35 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 | **Comparison Router** | A≥B → A port outputs A-B, else B port outputs \|B-A\|. Smart signal routing |
 | **Pulse Extender** | Extends input pulse by N ticks |
 | **Loop** | Fires pulses every interval ticks, repeat count times |
-| **Formula** | Custom math expressions with multi-letter variable names, auto-creates input pins |
+| **Formula (Script)** | Multi-line script editor — assignments, `@output` named pins, `--` comments, `\` continuation. Word-wrap, drag-select, Ctrl+A, arrow key navigation. Functions: sin/cos/tan/asin/acos/atan2/sinh/cosh/sqrt/ln/log/exp/sec/csc/cot/abs |
+
+---
+
+### Formula Script Node
+
+The FORMULA node is now a **multi-line script editor** (v1.2.0+). It supports:
+
+- **Assignments**: `varName = expression` — intermediate variables reusable in later lines
+- **Named outputs**: `@output varName` — declares output pins with custom names
+- **Comments**: `-- text` — lines starting with `--` are ignored
+- **Line continuation**: end a line with `\` to continue on the next line
+- **Default output**: if no `@output` is declared, the last expression line becomes the single output
+
+**Example — Ballistic trajectory:**
+```
+-- Ballistic calculation
+dx = X1 - X0
+dz = Z1 - Z0
+w = sqrt(dx*dx + dz*dz)
+secTheta = 1 / cos(THETA)
+y = (99 * secTheta / (20 * N) + tan(THETA)) * w + 99 * ln(1 - 2 * (w * secTheta - K) / (199 * N)) / (20 * ln(100/99)) - 99 * K / (20 * N) + 2
+@output y
+@output w
+@output secTheta
+```
+This creates **7 input pins** (X1, X0, Z1, Z0, THETA, N, K) and **3 output pins** (Y, W, SEC_THETA).
+
+**Editor shortcuts:** Enter = new line, ↑↓ = navigate lines, Home/End = line start/end, Ctrl+A = select all, drag mouse = select text.
 
 ---
 
@@ -614,12 +651,13 @@ MIT License © 2026 StarryNight_Luo
 
 ---
 
-### 节点参考（59 种）
+### 节点参考（78 种）
 
 | 分类 | 节点 |
 |------|------|
 | **数值** | 常量、红石输入、私有信号输入、总线输入、总线输出 |
-| **运算** | 加、减、乘、除、模运算、次幂、次方根、绝对值、保留N位小数、比较路由、向上取整、向下取整、**公式** |
+| **运算** | 加、减、乘、除、模运算、次幂、次方根、绝对值、保留N位小数、比较路由、向上取整、向下取整、**公式**、**平方根**、**自然对数**、**常用对数**、**指数** |
+| **三角** | 正弦、余弦、正切、反正弦、反余弦、反正切2、双曲正弦、双曲余弦、**正割**、**余割**、**余切**、**角度解绕** |
 | **逻辑** | 大于、小于、大于等于、小于等于、等于、或门、布尔（反转）、闸门 |
 | **控制** | PID 控制器（误差归零时 I 项复位）、动力 PID、限幅、映射范围 |
 | **输出** | 红石输出、私有信号输出、转速控制 |
@@ -654,7 +692,15 @@ MIT License © 2026 StarryNight_Luo
 | Comparison Router | A, B | A, B | A≥B 时 A 口输出 A-B，否则 B 口输出 \|B-A\| |
 | CEIL | in | int | 向上取整 |
 | FLOOR | in | int | 向下取整 |
-| FORMULA | 变量名(A-Z) | float | formula | 自定义数学公式，自动根据变量名创建输入引脚 |
+| FORMULA | 动态（按脚本） | 动态（按@output） | script | **多行脚本编辑器** — 支持赋值（`var = expr`）、`@output` 命名输出、`--` 注释、`\` 续行。自动换行+拖选。函数：sin/cos/tan/asin/acos/atan2/sinh/cosh/sqrt/ln/log/exp/sec/csc/cot/abs。[用法见下](#公式脚本节点) |
+| SQRT | in | float | - | 平方根（负数返回0） |
+| LN | in | float | - | 自然对数（≤0返回0） |
+| LOG | in | float | - | 常用对数（≤0返回0） |
+| EXP | in | float | - | e的指数 |
+| SEC | in | float | - | 正割：1/cos(输入°) |
+| CSC | in | float | - | 余割：1/sin(输入°) |
+| COT | in | float | - | 余切：1/tan(输入°) |
+| ANGLE_UNWRAP | in | float | - | 角度解绕，消除±180°跳变；有状态（记住上次输出） |
 
 ##### 逻辑
 | 节点 | 输入 | 输出 | 参数 | 说明 |
@@ -723,6 +769,34 @@ MIT License © 2026 StarryNight_Luo
 | VELOCITY | - | X, Y, Z | - | 结构本地速度（前/后、上/下、左/右），×2 换算为 m/s |
 | POSE_CONVERT | pitch_a, yaw_a, roll | pitch_b, yaw_b | - | 姿态换算（3入2出） |
 | SPLIT | in | +out, -out | - | 正负分离：正数输出+，负数绝对值输出- |
+
+---
+
+### 公式脚本节点
+
+FORMULA 节点现已升级为**多行脚本编辑器**（v1.2.0+），支持：
+
+- **赋值**：`varName = expression` — 定义中间变量，后续行可复用
+- **命名输出**：`@output varName` — 声明自定义名称的输出引脚
+- **注释**：`-- 文字` — 以 `--` 开头的行被忽略
+- **行续接**：行尾加 `\` 将下一行合并到当前行
+- **默认输出**：未声明 `@output` 时，最后一行独立表达式作为输出
+
+**示例 — 弹道方程：**
+```
+-- 弹道计算
+dx = X1 - X0
+dz = Z1 - Z0
+w = sqrt(dx*dx + dz*dz)
+secTheta = 1 / cos(THETA)
+y = (99 * secTheta / (20 * N) + tan(THETA)) * w + 99 * ln(1 - 2 * (w * secTheta - K) / (199 * N)) / (20 * ln(100/99)) - 99 * K / (20 * N) + 2
+@output y
+@output w
+@output secTheta
+```
+生成 **7 个输入引脚**（X1, X0, Z1, Z0, THETA, N, K）和 **3 个输出引脚**（Y, W, SEC_THETA）。
+
+**编辑器快捷键：** Enter = 换行，↑↓ = 跨行，Home/End = 行首/尾，Ctrl+A = 全选，拖拽鼠标 = 选择文本。
 
 ---
 
@@ -913,31 +987,20 @@ MIT License © 2026 StarryNight_Luo
 ## 📝 Changelog
 
 ### v1.2.0
-- **Add: BUS_IN / BUS_OUT nodes** — cross-block channel communication via shared HashMap reference, zero-copy signal passing
-- **Add: Bus Band system** — multi-band bus channels with global `BAND_REGISTRY` for editor synchronization across computers
-- **Add: BusChannelHelper** — centralized bus lifecycle management, eliminating ~160 lines of duplicated code across 4 BlockEntities
-- **Add: Encapsulation state persistence** — GATE, LATCH, T_FLIPFLOP, DELAY, and PID states inside encapsulation nodes survive world reload
-- **Add: Encapsulation node limit warning** — red warning overlay on nodes >1024, evaluator disables output when exceeded
-- **Add: Encapsulation I/O pin Y-order** — external pin order matches internal visual layout (sorted by Y position)
-- **Add: Import / Export encapsulation nodes** — Blueprint Computer toolbar buttons with file browser dialog and duplicate name protection
-- **Add: World coordinate nodes** — VELOCITY, ACCELERATION nodes for Attitude Sensor and Control Seat (requires Sable physics)
-- **Add: BUS_OUT conflict auto-recovery** — conflicting nodes automatically take over the channel when the first owner is removed
-- **Fix: ControlSeat / Sensor missing** `cleanupBusChannels()` and `syncBusBandsFromServer()` — stale BAND_REGISTRY entries on unload
-- **Fix: BUS rename dead code** — `commitBusBox()` had unreachable BUS_OUT loop and unconditional `clearBus()` call
-- **Fix: Sub-graph PID state** — PID integrals inside encapsulation were lost every tick (now stored in `RuntimeState.subStates`)
-- **Fix: Import feedback timer** — separated `importFeedbackUntil` from compile feedback to prevent false "Compiled!" flash
-- **Perf: bandsDirty flag** — skips redundant per-tick `registerBands()` ArrayList allocations in steady state
-- **Perf: I18n lookup skipped** — BUS / FORMULA / ENCAPSULATION pin labels bypass `I18n.get()` since they are not translation keys
-- **Perf: Conflict BUS_OUT** — entities with `busConflict` skip `busInternalMap` writes entirely
-- **Add: 3D Holographic Radar** — real-time radar scanner with configurable range, target locking, and two display styles (Classic/Holographic)
-- **Add: Radar settings panel** — GUI panel with R/S/L/X/Y/Z numeric inputs, real-time editing, and save button
-- **Add: Radar model** — Blockbench custom model + rotating scanner disc (BakedModel + RenderType.solid)
-- **Add: Radar recipe** — 2× Monitor + 4× Iron + Brass Casing + 2× Redstone Block
-- **Add: BUS docs** — detailed Signal Bus system documentation (EN + ZH)
-- **Fix: Sable radar scanning** — bootstrap detection, pose.transformPosition() coordinate conversion, AABB following
-- **Fix: Sable rotation** — removed incorrect Sable rotation from renderer/ray detection
-- **Fix: Item models** — radar, monitor, control seat, sensor use standard block display transforms
-- **Fix: Blip cleanup** — blips hidden when radar stops running
+- **Formula node → multi-line script editor** — MultiLineEditBox with word wrap, drag-select (Ctrl+A), Enter/arrow key navigation, Ctrl+V paste with `\r\n` normalization
+- **Formula script syntax** — assignments (`var = expr`), `@output` named pins, `--` comments, `\` line continuation, dynamic I/O pins
+- **7 new math function nodes** — SQRT, LN, LOG, EXP, SEC, CSC, COT + **Angle Unwrap** (stateful ±180° jump elimination)
+- **3D Holographic Radar** — real-time radar scanner with configurable range, target locking, Classic/Holographic display styles, Blockbench model, rotating scanner disc
+- **TARGET_OUT node** — radar target output (X/Y/Z/entityId/distance) for graph-driven radar processing
+- **Identifier scanning** — variable names support `[a-zA-Z_][a-zA-Z0-9_]*` (X1/X0/Z1/Z0 style vars)
+- **FORMULA node widened to 240px** — `nw()` dynamic node width + multi-column Trig menu (17 items → 2 cols)
+- **E key fix** — printable keys intercepted to prevent inventory closure + pin auto-cleanup on variable removal
+- **Performance** — dead code removed, ScriptParseResult cached, buildVisualLines dirty flag, EditPanel reuse
+- **Radar recipe** — 2× Monitor + 4× Iron + Brass Casing + 2× Redstone Block
+- **BUS system** — BUS_IN/BUS_OUT nodes, Bus Band system, BusChannelHelper, import/export, encapsulation state persistence, conflict auto-recovery
+- **3D Holographic Radar** — real-time scanner, target locking, Classic/Holographic styles, Blockbench model, rotating disc, Sable structure scanning, recipe
+- **World coordinate nodes** — VELOCITY, ACCELERATION, DIRECTION, POSITION, TARGET_OUT for sensors and radar
+- **Various fixes** — Sable radar scanning, expand button hit test, output pin connection offset, `\r\n` normalization, formula display removed from collapsed node, bandsDirty perf, I18n skip, NBT compatibility
 
 ### v1.1.5
 - **Add: LATCH edit panel** — configurable default set/reset state toggle with real-time current state display
