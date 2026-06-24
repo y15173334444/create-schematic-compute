@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github)](https://github.com/y15173334444/create-schematic-compute)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.2.0-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
+[![Version](https://img.shields.io/badge/Version-1.3.0-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
 [![MC](https://img.shields.io/badge/Minecraft-1.21.1-8B4513?style=flat-square)](https://www.minecraft.net/)
@@ -10,7 +10,7 @@
 ---
 
 <p align="center">
-  <b>🎮 Six Programmable Blocks with a Visual Node-Based Programming System</b><br>
+  <b>🎮 Seven Programmable Blocks with a Visual Node-Based Programming System</b><br>
   <i>Drag, connect, and build logic — just like Unreal Engine Blueprints or Blender Geometry Nodes!</i><br>
   <i>Created by <b>StarryNight_Luo</b> (y15173334444)</i>
 </p>
@@ -78,6 +78,87 @@ Reads the orientation of sable physics structures through a node-based graph.
 - **FORWARD node** — Outputs the world-space forward yaw/pitch of the structure
 - **WORLD_VIEW node** — Reads the player's absolute view direction when seated
 - **POSE_CONVERT node** — Converts pitch/yaw/roll between coordinate conventions
+
+#### 📡 3D Holographic Radar
+A **real-time 3D radar scanner** that detects entities and sable structures in a configurable radius, displaying them as colored blips on an XYZ axis display.
+
+- **Entity Scanning** — Detects players, mobs, and sable structures within configurable range (1-128 blocks)
+- **Target Assignment** — Automatically assigns detected targets to `TARGET_OUT` nodes in the node graph, supporting multi-target and single-target modes
+- **Manual Locking** — Right-click blips in the air to lock specific targets; locked targets persist across scans
+- **Auto Lock** — Automatically assigns the closest target(s) based on scan mode
+- **Lock Distance** — Configurable minimum distance (0-128m); targets closer than this are excluded from locking
+- **Display Settings** — Adjustable XYZ offset (L/R, U/D, F/B), scan range (R), and display scale (S) via in-GUI settings panel
+- **Display Styles** — Two visual modes: **Classic** (colored XYZ axis lines) and **Holographic** (white center cube + semi-transparent blue ground plane, resembling a holographic tactical display)
+- **Filter Toggles** — Independently show/hide players, mobs, and sable structures
+- **Exclude Host** — Option to exclude the radar's own sable structure from scanning
+- **Sable Compatible** — Full support for scanning from moving/rotating sable physics structures; radar position and scan box follow structure movement
+- **Real-time GUI** — Dedicated settings panel with numeric input fields for all parameters, live preview updates
+- **Custom Model** — Full Blockbench model with rotating scanner disc (BakedModel + `RenderType.solid()` for proper lighting)
+
+**Radar-Specific Nodes:**
+
+| Node | Description |
+|------|-------------|
+| `TARGET_OUT` | Outputs the assigned target's world position (X, Y, Z), entity ID, and distance. Multiple TARGET_OUT nodes can be used for multi-target tracking |
+
+**Settings Panel:**
+| Parameter | Range | Description |
+|-----------|-------|-------------|
+| Scan Range (R) | 1-128 | Detection radius in blocks |
+| Display Scale (S) | 1-32 | XYZ axis display size |
+| Lock Distance | 0-128 | Minimum distance for target locking |
+| X(L/R) | float | Left/right display offset |
+| Y(U/D) | float | Up/down display offset |
+| Z(F/B) | float | Forward/back display offset |
+
+**Target Assignment Modes:**
+- **Multi-target**: Targets are distributed across TARGET_OUT nodes in round-robin order
+- **Single-target**: All TARGET_OUT nodes receive the closest target
+
+---
+
+### BUS Node System (Signal Bus)
+
+The **Signal Bus** is a global named-channel communication system that allows multiple computers to share data — similar to a publish-subscribe message bus.
+
+#### How it works
+
+1. **BUS_OUT nodes** write their input values to a named channel (e.g., `"power_grid"`)
+2. **BUS_IN nodes** on any computer (anywhere in the world) read from that same channel name
+3. Each channel supports **bands** — named sub-fields that carry individual float values
+4. The bus uses `ConcurrentHashMap` for thread-safe cross-computer communication
+
+#### BUS_OUT (Bus Output)
+
+| Feature | Description |
+|---------|-------------|
+| **Channel Registration** | Registers the channel name and band definitions in the global `BAND_REGISTRY` |
+| **Reference Counting** | Each BUS_OUT increments a reference count; channel cleaned up when count reaches 0 |
+| **Conflict Detection** | If two BUS_OUT nodes on different computers use the same channel name, the second one is rejected and marked as conflicted |
+| **Band Sync** | Band definitions are synced to all clients for editor UI display |
+
+#### BUS_IN (Bus Input)
+
+| Feature | Description |
+|---------|-------------|
+| **Dynamic Pins** | Pin count matches the channel's band count; no bands = 1 default pin |
+| **Band Names** | Each band has a user-defined name (e.g., `"speed"`, `"direction"`, `"status"`) |
+| **One-to-Many** | Multiple BUS_IN nodes can read from the same channel simultaneously |
+
+#### Channel Lifecycle
+
+```
+BUS_OUT created → register channel + bands → refCount=1
+Other BUS_IN nodes connect → read values from channel
+BUS_OUT destroyed → refCount decreases → if 0, channel removed
+```
+
+**Channel Names:** User-defined strings (case-sensitive). Channels are per-server; not persisted across world reloads.
+
+**Use Cases:**
+- 🏭 **Factory-wide control**: One computer publishes commands, multiple computers receive
+- 📊 **Data distribution**: Sensor computer publishes readings, display computers show dashboards
+- 🔄 **Cross-computer coordination**: Multiple subsystems communicate via shared channels
 
 ---
 
@@ -340,6 +421,7 @@ The sable physics thread and the Minecraft server thread run concurrently. Share
 | **Control Seat** | 1× Heavy Weighted Pressure Plate, 2× Iron Ingot, 1× Brass Casing, 1× Redstone, 4× Redstone Link |
 | **Attitude Sensor** | 6× Iron Ingot, 1× Repeater, 1× Comparator, 2× Brass Casing |
 | **Holographic Monitor** | 2× Redstone Link, 1× Precision Mechanism, 2× Glass Pane, 1× Brass Casing, 2× Glowstone Dust |
+| **3D Holographic Radar** | 2× Monitor, 4× Iron Ingot, 1× Brass Casing, 2× Redstone Block |
 
 *(Requires JEI to view in-game)*
 
