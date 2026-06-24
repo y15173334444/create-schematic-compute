@@ -912,20 +912,6 @@ MIT License © 2026 StarryNight_Luo
 
 ## 📝 Changelog
 
-### v1.3.0
-- **Add: 3D Holographic Radar** — real-time 3D radar scanner detecting players, mobs, and sable structures with configurable range
-- **Add: Target assignment** — auto/manual target locking system with multi-target and single-target modes
-- **Add: Display styles** — Classic (XYZ axis lines) and Holographic (white cube + blue ground plane) visual modes
-- **Add: Lock distance** — configurable minimum distance filter for target locking
-- **Add: Radar UI** — settings panel with R/S/L/X/Y/Z numeric input fields, real-time editing, style toggle
-- **Add: Radar model** — custom Blockbench model with rotating scanner disc (BakedModel + RenderType.solid)
-- **Add: BUS node documentation** — detailed Signal Bus system docs (registration, reference counting, conflict detection)
-- **Add: Radar crafting recipe** — 2× Monitor + 4× Iron + Brass Casing + 2× Redstone Block
-- **Fix: Sable scanning** — bootstrap detection for radar on Sable structures, `pose.transformPosition()` coordinate conversion
-- **Fix: Sable rotation** — removed incorrect Sable rotation from renderer/ray detection (Sable pipeline handles structure rotation)
-- **Fix: Item models** — radar, monitor, control seat, sensor use standard block display transforms (orthographic GUI view)
-- **Fix: Blip cleanup** — blips hidden when radar stops running
-
 ### v1.2.0
 - **Add: BUS_IN / BUS_OUT nodes** — cross-block channel communication via shared HashMap reference, zero-copy signal passing
 - **Add: Bus Band system** — multi-band bus channels with global `BAND_REGISTRY` for editor synchronization across computers
@@ -943,6 +929,15 @@ MIT License © 2026 StarryNight_Luo
 - **Perf: bandsDirty flag** — skips redundant per-tick `registerBands()` ArrayList allocations in steady state
 - **Perf: I18n lookup skipped** — BUS / FORMULA / ENCAPSULATION pin labels bypass `I18n.get()` since they are not translation keys
 - **Perf: Conflict BUS_OUT** — entities with `busConflict` skip `busInternalMap` writes entirely
+- **Add: 3D Holographic Radar** — real-time radar scanner with configurable range, target locking, and two display styles (Classic/Holographic)
+- **Add: Radar settings panel** — GUI panel with R/S/L/X/Y/Z numeric inputs, real-time editing, and save button
+- **Add: Radar model** — Blockbench custom model + rotating scanner disc (BakedModel + RenderType.solid)
+- **Add: Radar recipe** — 2× Monitor + 4× Iron + Brass Casing + 2× Redstone Block
+- **Add: BUS docs** — detailed Signal Bus system documentation (EN + ZH)
+- **Fix: Sable radar scanning** — bootstrap detection, pose.transformPosition() coordinate conversion, AABB following
+- **Fix: Sable rotation** — removed incorrect Sable rotation from renderer/ray detection
+- **Fix: Item models** — radar, monitor, control seat, sensor use standard block display transforms
+- **Fix: Blip cleanup** — blips hidden when radar stops running
 
 ### v1.1.5
 - **Add: LATCH edit panel** — configurable default set/reset state toggle with real-time current state display
