@@ -50,8 +50,9 @@ public record RadarSettingsPacket(BlockPos pos, int scanRange, int scanMode, int
                 be.lockMode = lockMode;
                 be.displayX = displayX; be.displayY = displayY; be.displayZ = displayZ;
                 be.excludeHost = excludeHost;
-                be.displayStyle = displayStyle;
-                be.lockDistance = lockDistance;
+                be.displayStyle = Math.max(0, Math.min(1, displayStyle));
+                be.lockMode = Math.max(0, Math.min(1, lockMode));
+                be.lockDistance = Math.max(0f, lockDistance);
                 be.setChanged();
             }
         });

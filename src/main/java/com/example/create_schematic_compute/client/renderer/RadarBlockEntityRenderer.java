@@ -77,20 +77,20 @@ public class RadarBlockEntityRenderer implements BlockEntityRenderer<RadarBlockE
         double cy = onSable ? be.cachedSubWorldY : be.getBlockPos().getY() + 0.5;
         double cz = onSable ? be.cachedSubWorldZ : be.getBlockPos().getZ() + 0.5;
 
-        var targets = new java.util.ArrayList<>(be.targets);
+        synchronized (be.targets) {
         if (running) {
-        for (var t : targets) {
+        // 提升到循环外：四元数只创建一次
+        org.joml.Quaternionf invQ = null;
+        if (onSable && !Float.isNaN(be.cachedSubQw))
+            invQ = new org.joml.Quaternionf(be.cachedSubQx, be.cachedSubQy, be.cachedSubQz, be.cachedSubQw).conjugate();
+        float facingRad = (float) Math.toRadians(facingYDeg);
+        for (var t : be.targets) {
             float dx = (float)(t.x() - cx);
             float dy = (float)(t.y() - cy);
             float dz = (float)(t.z() - cz);
             var v = new org.joml.Vector3f(dx, dy, dz);
-
-            if (onSable && !Float.isNaN(be.cachedSubQw)) {
-                var q = new org.joml.Quaternionf(be.cachedSubQx, be.cachedSubQy, be.cachedSubQz, be.cachedSubQw);
-                v.rotate(q.conjugate());
-            }
-
-            v.rotateY((float) Math.toRadians(facingYDeg));
+            if (invQ != null) v.rotate(invQ);
+            v.rotateY(facingRad);
 
             float rx = v.x / scanRange * axisLen;
             float ry = v.y / scanRange * axisLen;
@@ -109,6 +109,7 @@ public class RadarBlockEntityRenderer implements BlockEntityRenderer<RadarBlockE
             if (highlight) wireframeBox(m, vc, rx, ry, rz, 0.06f, cr, cg, cb, 0.8f);
         }
         } // if (running)
+        } // synchronized
         ps.popPose();
     }
 

@@ -281,7 +281,7 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
                                  scx + scanRange, scy + scanRange, scz + scanRange);
 
         // 诊断日志：无条件打印扫描信息
-        SchematicCompute.LOGGER.info("SABLE-SCAN: onSable={} sc=({},{},{}) wp=({},{},{}) subWorld=({},{},{}) subOrigin=({},{},{}) sableYPR=({},{},{}) sqw={} scanLevel={}",
+        SchematicCompute.LOGGER.debug("SABLE-SCAN: onSable={} sc=({},{},{}) wp=({},{},{}) subWorld=({},{},{}) subOrigin=({},{},{}) sableYPR=({},{},{}) sqw={} scanLevel={}",
             onSable,
             scx, scy, scz, worldPosition.getX(), worldPosition.getY(), worldPosition.getZ(),
             cachedSubWorldX, cachedSubWorldY, cachedSubWorldZ,
@@ -294,7 +294,7 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
         if (showPlayers) {
             for (var e : scanLevel.players()) {
                 boolean inBox = scanBox.contains(e.getX(), e.getY(), e.getZ());
-                SchematicCompute.LOGGER.info("SABLE-SCAN: player at ({},{},{}) sc=({},{},{}) inBox={} dist={}",
+                SchematicCompute.LOGGER.debug("SABLE-SCAN: player at ({},{},{}) sc=({},{},{}) inBox={} dist={}",
                     e.getX(), e.getY(), e.getZ(), scx, scy, scz, inBox,
                     Math.sqrt((e.getX()-scx)*(e.getX()-scx)+(e.getY()-scy)*(e.getY()-scy)+(e.getZ()-scz)*(e.getZ()-scz)));
                 if (inBox) {
@@ -306,7 +306,7 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
         if (showMobs) {
             for (var e : scanLevel.getEntitiesOfClass(Mob.class, scanBox, e -> true)) {
                 boolean inBox = scanBox.contains(e.getX(), e.getY(), e.getZ());
-                SchematicCompute.LOGGER.info("SABLE-SCAN: mob at ({},{},{}) sc=({},{},{}) inBox={} dist={}",
+                SchematicCompute.LOGGER.debug("SABLE-SCAN: mob at ({},{},{}) sc=({},{},{}) inBox={} dist={}",
                     e.getX(), e.getY(), e.getZ(), scx, scy, scz, inBox,
                     Math.sqrt((e.getX()-scx)*(e.getX()-scx)+(e.getY()-scy)*(e.getY()-scy)+(e.getZ()-scz)*(e.getZ()-scz)));
                 if (inBox) {
@@ -315,7 +315,7 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
                 }
             }
         }
-        SchematicCompute.LOGGER.info("SABLE-SCAN: main scan found {} players, {} mobs (onSable={})",
+        SchematicCompute.LOGGER.debug("SABLE-SCAN: main scan found {} players, {} mobs (onSable={})",
             playerCount, mobCount, onSable);
         scanSableStructures(scx, scy, scz, scanBox); // 始终扫描子世界实体，结构 blip 内部判断 showSable
         targets.sort(Comparator.comparingDouble(TargetRecord::distance));

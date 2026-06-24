@@ -12,7 +12,6 @@ import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.network.PacketDistributor;
-import org.joml.Matrix4f;
 import org.joml.Vector3f;
 import org.lwjgl.glfw.GLFW;
 
@@ -66,7 +65,7 @@ public class RadarLockHandler {
         boolean isLocked = radar.lockedTargets.contains(targetId);
         PacketDistributor.sendToServer(new RadarLockPacket(blockPos, targetId, !isLocked));
         if (isLocked) radar.lockedTargets.remove(targetId);
-        else radar.lockedTargets.add(targetId);
+        else { radar.lockedTargets.add(targetId); /* 乐观更新，服务端确认后可能回退 */ }
     }
 
     /** 客户端侧：与渲染器完全相同的 blip 位置计算，命中最靠近准星的 blip */

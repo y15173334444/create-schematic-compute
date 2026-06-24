@@ -30,6 +30,7 @@ public class RadarBlockEntitySable extends RadarBlockEntity implements BlockEnti
     public void sable$physicsTick(ServerSubLevel subLevel, RigidBodyHandle handle, double deltaTime) {
         if (this.level == null) this.level = savedLevel;
         if (this.level == null || this.level.isClientSide()) return;
+        if (savedLevel == null) savedLevel = this.level;
         try {
             var pose = subLevel.logicalPose();
             var pos = pose.position();
@@ -69,7 +70,7 @@ public class RadarBlockEntitySable extends RadarBlockEntity implements BlockEnti
             cachedSubQz = (float) orient.z();
             cachedSubQw = (float) orient.w();
 
-            // 缓存旋转 (yaw, pitch, roll) 用于渲染器（保留兼容）
+            // Euler 角已由四元数取代，仅保留兼容（渲染器/锁定已迁移到四元数）
             var q = new org.joml.Quaterniond(orient.x(), orient.y(), orient.z(), orient.w());
             var euler = new org.joml.Vector3d();
             q.getEulerAnglesYXZ(euler);

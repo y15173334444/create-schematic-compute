@@ -244,7 +244,7 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
             be.displayX, be.displayY, be.displayZ, be.excludeHost, be.displayStyle, be.lockDistance));
     }
 
-    @Override public void removed() { applyInputs(getBE()); hideInputs(); super.removed(); }
+    @Override public void removed() { RadarBlockEntity be = getBE(); if (be != null) { applyInputs(be); hideInputs(); } super.removed(); }
     @Override public boolean mouseReleased(double mx, double my, int btn) { editor.mouseReleased(mx, my, btn); return super.mouseReleased(mx, my, btn); }
     @Override public void mouseMoved(double mx, double my) { editor.mouseMoved(mx, my); }
     @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) { return editor.mouseScrolled(mx, my, sx, sy); }
