@@ -59,6 +59,7 @@ public enum NodeType {
     SEC("sec", "node.create_schematic_compute.sec", 1, 1, ""),
     CSC("csc", "node.create_schematic_compute.csc", 1, 1, ""),
     COT("cot", "node.create_schematic_compute.cot", 1, 1, ""),
+    ANGLE_UNWRAP("angle_unwrap", "node.create_schematic_compute.angle_unwrap", 1, 1, ""),
     DIRECTION("direction", "node.create_schematic_compute.direction", 0, 3, "ax,ay,az,bx,by,bz"),
     POSITION("position", "node.create_schematic_compute.position", 0, 3, "offsetX,offsetY,offsetZ"),
     ACCUMULATOR("accumulator", "node.create_schematic_compute.accumulator", 2, 1, "step"),

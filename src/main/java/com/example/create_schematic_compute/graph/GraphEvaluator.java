@@ -15,17 +15,6 @@ public class GraphEvaluator {
     private final Map<Integer, float[]> outputs = new HashMap<>();
     private net.minecraft.core.BlockPos radarPos = null;
     public void setRadarPos(net.minecraft.core.BlockPos pos) { this.radarPos = pos; }
-    // FORMULA compilation cache — formula string → compiled RPN tokens (avoids recompile per tick)
-    // LRU eviction at 1024 entries to prevent unbounded growth from frequent formula edits
-    private static final int MAX_FORMULA_CACHE = 1024;
-    private final Map<String, java.util.List<Object>> formulaCache =
-        new java.util.LinkedHashMap<>(64, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, java.util.List<Object>> eldest) {
-                return size() > MAX_FORMULA_CACHE;
-            }
-        };
-
     // FORMULA script parse cache — formula string → ScriptParseResult (v1.2+ multi-line script)
     private static final int MAX_SCRIPT_CACHE = 1024;
     private final Map<String, FormulaParser.ScriptParseResult> scriptCache =
@@ -412,6 +401,15 @@ public class GraphEvaluator {
                 float v = graph.getInputValue(node.id, 0, outputs);
                 o[0] = (Float.isFinite(v) && Math.abs(Math.tan(Math.toRadians(v))) > 1e-12f)
                     ? (float)(1.0 / Math.tan(Math.toRadians(v))) : 0;
+            }
+            case ANGLE_UNWRAP -> {
+                float cur = graph.getInputValue(node.id, 0, outputs);
+                float last = pidState.getOrDefault(node.id, cur);
+                float diff = cur - last;
+                while (diff > 180f) diff -= 360f;
+                while (diff < -180f) diff += 360f;
+                o[0] = last + diff;
+                pidState.put(node.id, o[0]);
             }
             case DIRECTION -> {
                 float ax = node.params.length > 0 ? node.params[0] : 0;

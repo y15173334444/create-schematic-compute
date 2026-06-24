@@ -257,24 +257,6 @@ public class FormulaParser {
         return switch(op) { case '+','-' -> 1; case '*','/','%' -> 2; case '^' -> 3; default -> 0; };
     }
 
-    /** 编译并求值一步完成 */
-    public static float eval(String formula, Map<String, Double> vars) {
-        try { return (float)evaluate(compile(formula), vars); }
-        catch (Exception e) { return 0; }
-    }
-
-    /** 带缓存的求值：formula变化频率低，但对同一个公式每tick都会被求值 */
-    public static float evalCached(String formula, Map<String, Double> vars, Map<String, java.util.List<Object>> cache) {
-        try {
-            var rpn = cache.get(formula);
-            if (rpn == null) {
-                rpn = compile(formula);
-                cache.put(formula, rpn);
-            }
-            return (float)evaluate(rpn, vars);
-        } catch (Exception e) { return 0; }
-    }
-
     // ==================== 脚本解析（v1.2+） ====================
 
     /** 检查字符串是否为合法标识符 */

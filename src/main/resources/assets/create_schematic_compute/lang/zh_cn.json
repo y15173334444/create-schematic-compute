@@ -309,6 +309,7 @@
   "node.create_schematic_compute.sec": "正割/SEC",
   "node.create_schematic_compute.csc": "余割/CSC",
   "node.create_schematic_compute.cot": "余切/COT",
+  "node.create_schematic_compute.angle_unwrap": "角度解绕/A_UNWRAP",
   "node.create_schematic_compute.direction": "向量转角度/DIRECTION",
   "node.create_schematic_compute.position": "世界坐标/POSITION",
   "category.create_schematic_compute.trig": "三角函数",

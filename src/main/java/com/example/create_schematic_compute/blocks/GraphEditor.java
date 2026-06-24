@@ -308,7 +308,8 @@ public class GraphEditor {
             mle.setMaxLength(4096);
             String initialText = node.formula.isEmpty() ? "A+B" : node.formula;
             mle.setValue(initialText);
-            node.formula = initialText; // sync
+            node.formula = initialText;
+            node.cachedScript = null;
             // Initial parse from displayed text (not empty node.formula)
             var initScript = com.example.create_schematic_compute.graph.FormulaParser.parseScript(initialText);
             node.dynamicInputCount = initScript.inputVars.size();
@@ -316,7 +317,7 @@ public class GraphEditor {
             node.outputLabels = initScript.outputLabels;
             mle.setResponder(t -> {
                 node.formula = t;
-                // Update input/output counts from parsed script
+                node.cachedScript = null; // invalidate label cache
                 var res = com.example.create_schematic_compute.graph.FormulaParser.parseScript(t);
                 int newIn = res.inputVars.size();
                 int newOut = Math.max(1, res.outputLabels.size());

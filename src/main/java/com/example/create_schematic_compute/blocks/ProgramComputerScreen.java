@@ -53,7 +53,8 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
             || nt == com.example.create_schematic_compute.graph.NodeType.EXP
             || nt == com.example.create_schematic_compute.graph.NodeType.SEC
             || nt == com.example.create_schematic_compute.graph.NodeType.CSC
-            || nt == com.example.create_schematic_compute.graph.NodeType.COT);
+            || nt == com.example.create_schematic_compute.graph.NodeType.COT
+            || nt == com.example.create_schematic_compute.graph.NodeType.ANGLE_UNWRAP);
     }
 
     @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }

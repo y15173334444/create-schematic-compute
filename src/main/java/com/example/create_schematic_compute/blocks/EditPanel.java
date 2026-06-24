@@ -168,15 +168,14 @@ public class EditPanel {
             mle.setWidth(pw - 36);
             mle.setHeight(Math.max(contentH, 18));
             mle.render(g, mx, my, 0);
-            // Render line prefixes aligned with visual lines (word-wrap aware)
+            // Render line prefixes aligned with MLE visual lines
             String hintComment = I18n.get("gui.create_schematic_compute.formula_comment_hint");
             String hintOutput = I18n.get("gui.create_schematic_compute.formula_output_hint");
             String hintAssign = I18n.get("gui.create_schematic_compute.formula_assign_hint");
             String hintExpr   = I18n.get("gui.create_schematic_compute.formula_expr_hint");
-            String fullText = mle.getValue();
-            String[] logLines = fullText.split("\n", -1);
+            String[] logLines = mle.getValue().split("\n", -1);
             if (logLines.length == 0) logLines = new String[]{""};
-            int vi = 0; // visual line index
+            int vi = 0;
             for (int li = 0; li < logLines.length; li++) {
                 String lineText = logLines[li].trim();
                 String prefix;
@@ -185,9 +184,8 @@ public class EditPanel {
                 else if (lineText.contains("=") && lineText.indexOf('=') > 0) prefix = "§e=";
                 else if (!lineText.isEmpty()) prefix = "§7>";
                 else prefix = "§7·";
-                // Each logical line may span multiple visual lines — render prefix on first visual line only
-                int logicalVisualLines = Math.max(1, (int)Math.ceil((double)Math.max(1, font.width(logLines[li])) / Math.max(1, pw - 40)));
-                for (int v = 0; v < logicalVisualLines; v++) {
+                int visualCount = mle.visualLinesForLogicalLine(li);
+                for (int v = 0; v < visualCount; v++) {
                     int lineY = editBoxY + 3 + vi * 12;
                     if (lineY + 12 > editBoxY + mle.getHeight()) break;
                     if (v == 0) {
@@ -199,10 +197,10 @@ public class EditPanel {
                                 case "§e=" -> hintAssign;
                                 default -> hintExpr;
                             };
-                            g.drawString(Minecraft.getInstance().font, "§7" + tip, px + 28, lineY - 9, 0xFFAAAAAA, false);
+                            g.drawString(font, "§7" + tip, px + 28, lineY - 9, 0xFFAAAAAA, false);
                         }
                         String lineLabel = prefix + (li + 1) + ":";
-                        g.drawString(Minecraft.getInstance().font, lineLabel, px + 4, lineY, 0xFFAAAAAA, false);
+                        g.drawString(font, lineLabel, px + 4, lineY, 0xFFAAAAAA, false);
                     }
                     vi++;
                 }

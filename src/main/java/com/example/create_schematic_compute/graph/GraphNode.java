@@ -27,6 +27,7 @@ public class GraphNode {
     public int dynamicInputCount = 0; // dynamic inputs for FORMULA node
     public int dynamicOutputCount = 1; // dynamic outputs for FORMULA node (v1.2+)
     public List<String> outputLabels = null; // @output names for FORMULA node (lazy-parsed)
+    public transient FormulaParser.ScriptParseResult cachedScript = null; // cached parse result
     // Display node fields (Monitor block)
     public String displayText = "";               // TEXT node content
     public int textColor = 0;                      // ARGB text color (0 = use type default)
@@ -77,10 +78,9 @@ public class GraphNode {
         if (type == NodeType.BUS_OUT && signalBands != null && i < signalBands.size())
             return signalBands.get(i);
         if (type == NodeType.FORMULA && !formula.isEmpty()) {
-            // Use parsed script input vars (excludes assigned intermediate variables)
-            var res = FormulaParser.parseScript(formula);
-            dynamicInputCount = Math.max(1, res.inputVars.size());
-            if (i < res.inputVars.size()) return res.inputVars.get(i);
+            if (cachedScript == null) cachedScript = FormulaParser.parseScript(formula);
+            dynamicInputCount = Math.max(1, cachedScript.inputVars.size());
+            if (i < cachedScript.inputVars.size()) return cachedScript.inputVars.get(i);
         }
         if (type == NodeType.ENCAPSULATION) {
             var ins = getSubNodes(NodeType.ENCAP_INPUT);
@@ -100,13 +100,10 @@ public class GraphNode {
         if (type == NodeType.BUS_IN && signalBands != null && i < signalBands.size())
             return signalBands.get(i);
         if (type == NodeType.FORMULA && !formula.isEmpty()) {
-            // Lazy-parse output labels from formula text
-            if (outputLabels == null) {
-                var result = FormulaParser.parseScript(formula);
-                outputLabels = result.outputLabels;
-                dynamicOutputCount = Math.max(1, result.outputLabels.size());
-            }
-            if (outputLabels != null && i < outputLabels.size()) {
+            if (cachedScript == null) cachedScript = FormulaParser.parseScript(formula);
+            outputLabels = cachedScript.outputLabels;
+            dynamicOutputCount = Math.max(1, cachedScript.outputLabels.size());
+            if (i < outputLabels.size()) {
                 String name = outputLabels.get(i);
                 return name.isEmpty() ? type.outputLabel(i) : name;
             }

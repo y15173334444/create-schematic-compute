@@ -15,10 +15,11 @@ public class MultiLineEditBox extends EditBox {
     private static final int LINE_HEIGHT = 12;
     private final Font font;
 
-    // Word-wrap visual line mapping: visualLineInfo[visualLine] = (logicalLine, charOffsetInLine)
-    // Rebuilt each frame in renderWidget.
+    // Word-wrap visual line mapping; rebuilt only when content or width changes
     private static class VLine { int logLine; int charStart; int charEnd; }
     private final java.util.ArrayList<VLine> visualLines = new java.util.ArrayList<>();
+    private String lastBuiltText = null;
+    private int lastBuiltWidth = -1;
 
     public MultiLineEditBox(Font font, int x, int y, int width, int height) {
         super(font, x, y, width, height, Component.empty());
@@ -66,11 +67,15 @@ public class MultiLineEditBox extends EditBox {
         return line;
     }
 
-    /** Build the visual line map for word-wrap rendering */
+    /** Build the visual line map, skipping if content and width unchanged */
     private void buildVisualLines() {
-        visualLines.clear();
         String text = getValue();
-        int availW = getWidth() - 4;
+        int w = getWidth();
+        if (text.equals(lastBuiltText) && w == lastBuiltWidth && !visualLines.isEmpty()) return;
+        lastBuiltText = text;
+        lastBuiltWidth = w;
+        visualLines.clear();
+        int availW = w - 4;
         if (availW <= 0) { availW = 100; }
         for (int li = 0; li < getLineCount(); li++) {
             int ls = getLineStart(li), le = getLineEnd(li);
@@ -375,8 +380,14 @@ public class MultiLineEditBox extends EditBox {
         return true;
     }
 
+    /** Visual line count for a logical line (for prefix alignment in EditPanel) */
+    public int visualLinesForLogicalLine(int logLine) {
+        int count = 0;
+        for (VLine vl : visualLines) if (vl.logLine == logLine) count++;
+        return Math.max(1, count);
+    }
+
     public int getContentHeight() {
-        buildVisualLines();
         return Math.max(visualLines.size() * LINE_HEIGHT + 6, LINE_HEIGHT + 6);
     }
 }

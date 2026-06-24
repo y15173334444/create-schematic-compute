@@ -297,6 +297,7 @@
   "node.create_schematic_compute.sec": "Secant",
   "node.create_schematic_compute.csc": "Cosecant",
   "node.create_schematic_compute.cot": "Cotangent",
+  "node.create_schematic_compute.angle_unwrap": "Angle Unwrap",
   "node.create_schematic_compute.direction": "Direction",
   "node.create_schematic_compute.position": "World Position",
   "category.create_schematic_compute.trig": "Trigonometry",

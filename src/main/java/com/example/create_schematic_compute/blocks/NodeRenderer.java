@@ -157,12 +157,14 @@ public class NodeRenderer {
     private final net.minecraft.client.gui.screens.Screen screen;
 
     // 分类菜单
-    private record NodeCategory(String langKey, NodeType[] types) {}
+    private record NodeCategory(String langKey, NodeType[] types, int columns) {
+        NodeCategory(String langKey, NodeType[] types) { this(langKey, types, 1); }
+    }
     private static final NodeCategory[] CATEGORIES = {
         new NodeCategory("category.create_schematic_compute.values", new NodeType[]{NodeType.CONST, NodeType.REDSTONE_IN, NodeType.PRIVATE_IN, NodeType.BUS_IN}),
         new NodeCategory("category.create_schematic_compute.math_basic", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.POW, NodeType.ROOT, NodeType.ABS, NodeType.CEIL, NodeType.FLOOR}),
         new NodeCategory("category.create_schematic_compute.math_advanced", new NodeType[]{NodeType.FORMULA, NodeType.POSE_CONVERT, NodeType.SPLIT, NodeType.INTERP, NodeType.ROUND}),
-        new NodeCategory("category.create_schematic_compute.trig", new NodeType[]{NodeType.SIN, NodeType.COS, NodeType.TAN, NodeType.ASIN, NodeType.ACOS, NodeType.ATAN2, NodeType.SINH, NodeType.COSH, NodeType.SQRT, NodeType.LN, NodeType.LOG, NodeType.EXP, NodeType.SEC, NodeType.CSC, NodeType.COT, NodeType.DIRECTION}),
+        new NodeCategory("category.create_schematic_compute.trig", new NodeType[]{NodeType.SIN, NodeType.COS, NodeType.TAN, NodeType.ASIN, NodeType.ACOS, NodeType.ATAN2, NodeType.SINH, NodeType.COSH, NodeType.SQRT, NodeType.LN, NodeType.LOG, NodeType.EXP, NodeType.SEC, NodeType.CSC, NodeType.COT, NodeType.ANGLE_UNWRAP, NodeType.DIRECTION}, 2),
         new NodeCategory("category.create_schematic_compute.logic", new NodeType[]{NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ, NodeType.BOOL, NodeType.GATE, NodeType.OR}),
         new NodeCategory("category.create_schematic_compute.control", new NodeType[]{NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP}),
         new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL, NodeType.BUS_OUT}),
@@ -392,14 +394,25 @@ public class NodeRenderer {
 
     public NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my, java.util.function.Predicate<NodeType> filter) {
         currentFilter = filter;
-        int mw=160, ih=14, ch=16;
-        // 计算总高度（跳过无可见节点的分类）
+        int ih=14, ch=16;
+        // Determine max columns needed (for width calculation)
+        int maxCols = 1;
+        for (int ci = 0; ci < CATEGORIES.length; ci++) {
+            if (visibleCount(CATEGORIES[ci], filter) == 0) continue;
+            if (catExpanded.getOrDefault(ci, false))
+                maxCols = Math.max(maxCols, CATEGORIES[ci].columns);
+        }
+        int colW = 144; // width per column
+        int mw = 16 + maxCols * colW;
+        // Calculate total height (multi-col categories: ceil(items/cols) rows)
         int totalH = 20;
         for (int ci = 0; ci < CATEGORIES.length; ci++) {
             if (visibleCount(CATEGORIES[ci], filter) == 0) continue;
             totalH += ch;
             if (catExpanded.getOrDefault(ci, false)) {
-                totalH += visibleCount(CATEGORIES[ci], filter) * ih;
+                int cols = CATEGORIES[ci].columns;
+                int items = visibleCount(CATEGORIES[ci], filter);
+                totalH += (int)Math.ceil((double)items / cols) * ih;
             }
         }
         menuRX = Math.max(0, Math.min(menuX, screen.width-mw));
@@ -413,40 +426,59 @@ public class NodeRenderer {
         int cy = (int)menuRY + 18;
         for (int ci = 0; ci < CATEGORIES.length; ci++) {
             NodeCategory cat = CATEGORIES[ci];
-            if (visibleCount(cat, filter) == 0) continue;
+            int vis = visibleCount(cat, filter);
+            if (vis == 0) continue;
             boolean exp = catExpanded.getOrDefault(ci, false);
-            // 分类标题
+            int cols = exp ? cat.columns : 1;
+            // Category header (full width)
             String title = (exp ? "▼ " : "▶ ") + net.minecraft.client.resources.language.I18n.get(cat.langKey);
             boolean titleHover = mx>=menuRX+2 && mx<=menuRX+mw-2 && my>=cy && my<cy+ch;
             if (titleHover) g.fill((int)menuRX+2, cy, (int)(menuRX+mw-2), (int)(cy+ch), 0xFF3A3428);
             drawStr(g, title, menuRX+6, cy+2, titleHover ? CMH : CCT);
             cy += ch;
             if (!exp) continue;
-            // 子节点
+            // Items in grid layout
+            int itemsPerCol = (int)Math.ceil((double)vis / cols);
+            int itemIdx = 0;
             for (var nt : cat.types) {
                 if (filter != null && !filter.test(nt)) continue;
-                boolean h = mx>=menuRX+2 && mx<=menuRX+mw-2 && my>=cy && my<cy+ih;
-                if (h) { g.fill((int)menuRX+12, cy, (int)(menuRX+mw-2), (int)(cy+ih), 0xFF3A3428); hovered = nt; }
-                drawStr(g, I18n.get(nt.displayName), menuRX+16, cy+2, h ? CMH : CMN);
-                cy += ih;
+                int col = itemIdx / itemsPerCol;
+                int row = itemIdx % itemsPerCol;
+                int ix = (int)menuRX + 8 + col * colW;
+                int iy = cy + row * ih;
+                boolean h = mx>=ix && mx<=ix+colW-4 && my>=iy && my<iy+ih;
+                if (h) { g.fill(ix, iy, ix+colW-4, iy+ih, 0xFF3A3428); hovered = nt; }
+                drawStr(g, I18n.get(nt.displayName), ix + 4, iy + 2, h ? CMH : CMN);
+                itemIdx++;
             }
+            cy += itemsPerCol * ih;
         }
         return hovered;
     }
 
-    /** 处理分类折叠点击，返回 true 表示点击被消费 */
+    /** Handle category expand/collapse click. Returns true if consumed. */
     public boolean handleCategoryClick(int mx, int my) {
-        int mw=160, ih=14, ch=16;
-        int cy = (int)menuRY + 18;
+        int ih=14, ch=16;
+        int maxCols = 1;
         for (int ci = 0; ci < CATEGORIES.length; ci++) {
             if (visibleCount(CATEGORIES[ci], currentFilter) == 0) continue;
+            if (catExpanded.getOrDefault(ci, false))
+                maxCols = Math.max(maxCols, CATEGORIES[ci].columns);
+        }
+        int colW = 144;
+        int mw = 16 + maxCols * colW;
+        int cy = (int)menuRY + 18;
+        for (int ci = 0; ci < CATEGORIES.length; ci++) {
+            int vis = visibleCount(CATEGORIES[ci], currentFilter);
+            if (vis == 0) continue;
             if (mx>=menuRX+2 && mx<=menuRX+mw-2 && my>=cy && my<cy+ch) {
                 catExpanded.put(ci, !catExpanded.getOrDefault(ci, false));
                 return true;
             }
             cy += ch;
             if (!catExpanded.getOrDefault(ci, false)) continue;
-            cy += visibleCount(CATEGORIES[ci], currentFilter) * ih;
+            int cols = CATEGORIES[ci].columns;
+            cy += (int)Math.ceil((double)vis / cols) * ih;
         }
         return false;
     }
