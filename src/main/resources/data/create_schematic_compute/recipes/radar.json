@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "IMI",
+    "MBR",
+    "IRI"
+  ],
+  "key": {
+    "I": { "item": "minecraft:iron_ingot" },
+    "M": { "item": "create_schematic_compute:monitor" },
+    "B": { "item": "create:brass_casing" },
+    "R": { "item": "minecraft:redstone_block" }
+  },
+  "result": {
+    "count": 1,
+    "id": "create_schematic_compute:radar"
+  }
+}
