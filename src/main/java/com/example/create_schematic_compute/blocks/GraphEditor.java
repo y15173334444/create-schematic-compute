@@ -199,7 +199,7 @@ public class GraphEditor {
             int idx = i;
             var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
-            b.setValue(String.format("%.3f", node.params[i]));
+            b.setValue(ff3(node.params[i]));
             float oldVal = node.params[idx];
             registerEnter(b, () -> { try { node.params[idx] = Float.parseFloat(b.getValue().trim()); } catch (Exception e) {} });
             s.fields.add(b);
@@ -276,14 +276,14 @@ public class GraphEditor {
             registerEnter(tb, () -> node.displayText = tb.getValue());
             s.fields.add(tb);
             var cb = new EditBox(mc.font, 0, 0, 70, 16, Component.literal(""));
-            cb.setMaxLength(8); cb.setValue(String.format("%08X", node.textColor != 0 ? node.textColor : 0xFFCCCCCC));
+            cb.setMaxLength(8); cb.setValue(hex8(node.textColor != 0 ? node.textColor : 0xFFCCCCCC));
             registerEnter(cb, () -> { try { node.textColor = (int)(Long.parseLong(cb.getValue().trim(), 16) & 0xFFFFFFFFL); } catch (Exception e) {} });
             s.fields.add(cb);
             s.paramKeys = new String[]{"text", "color"};
         }
         if (node.type == NodeType.DATA) {
             var cb = new EditBox(mc.font, 0, 0, 70, 16, Component.literal(""));
-            cb.setMaxLength(8); cb.setValue(String.format("%08X", node.textColor != 0 ? node.textColor : 0xFF88FF88));
+            cb.setMaxLength(8); cb.setValue(hex8(node.textColor != 0 ? node.textColor : 0xFF88FF88));
             registerEnter(cb, () -> { try { node.textColor = (int)(Long.parseLong(cb.getValue().trim(), 16) & 0xFFFFFFFFL); } catch (Exception e) {} });
             s.fields.add(cb);
             s.paramKeys = new String[]{"color"};
@@ -294,7 +294,7 @@ public class GraphEditor {
             for (int pi = 0; pi < 3; pi++) {
                 int idx = pi;
                 var b = new EditBox(mc.font, 0, 0, 50, 16, Component.literal(""));
-                b.setMaxLength(8); b.setValue(String.format("%.3f", node.params.length > idx ? node.params[idx] : defaults[idx]));
+                b.setMaxLength(8); b.setValue(ff3(node.params.length > idx ? node.params[idx] : defaults[idx]));
                 int iidx = idx; registerEnter(b, () -> { try { if (node.params.length > iidx) node.params[iidx] = Float.parseFloat(b.getValue().trim()); } catch (Exception e) {} });
                 s.fields.add(b);
             }
@@ -379,7 +379,7 @@ public class GraphEditor {
             colorFields[i] = new net.minecraft.client.gui.components.EditBox(mc.font, 0, 0, 80, 14, net.minecraft.network.chat.Component.literal(""));
             colorFields[i].setMaxLength(8);
             int[] cur = NodeRenderer.currentColors();
-            colorFields[i].setValue(String.format("%08X", cur[i]));
+            colorFields[i].setValue(hex8(cur[i]));
             colorFields[i].setResponder(s -> {
                 if (s.length() == 8) try {
                     NodeRenderer.stagingColors[idx] = (int)(Long.parseLong(s, 16) & 0xFFFFFFFFL);
@@ -509,12 +509,12 @@ public class GraphEditor {
                 boolean hasSingleEncap = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
                 if (hasSingleEncap) {
                     g.fill(impX, btnY, impX + impW, btnY + btnH, 0xFF2A3A1A);
-                    g.renderOutline(impX, btnY, impW, btnH, NodeRenderer.CSB);
+                    g.renderOutline(impX, btnY, impW, btnH, NodeRenderer.CSB());
                     g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
                     g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.encap_export"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
                 } else {
                     g.fill(impX, btnY, impX + impW, btnY + btnH, 0xFF2A2A3A);
-                    g.renderOutline(impX, btnY, impW, btnH, NodeRenderer.CSB);
+                    g.renderOutline(impX, btnY, impW, btnH, NodeRenderer.CSB());
                     g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
                     g.drawString(mc.font, "§b" + I18n.get("gui.create_schematic_compute.encap_import"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
                 }
@@ -551,7 +551,7 @@ public class GraphEditor {
             int w = 280, h = 80;
             int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
             g.fill(cx, cy, cx + w, cy + h, 0xEE1A1A2A);
-            g.renderOutline(cx, cy, w, h, NodeRenderer.CSB);
+            g.renderOutline(cx, cy, w, h, NodeRenderer.CSB());
             g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_export"), cx + 8, cy + 6, 0xFFFFCC88, false);
             exportNameEdit.setX(cx + 8);
             exportNameEdit.setY(cy + 26);
@@ -576,7 +576,7 @@ public class GraphEditor {
             int h = 56 + listH + 30; // 标题 + 列表 + 按钮区
             int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
             g.fill(cx, cy, cx + w, cy + h, 0xEE1A1A2A);
-            g.renderOutline(cx, cy, w, h, NodeRenderer.CSB);
+            g.renderOutline(cx, cy, w, h, NodeRenderer.CSB());
             g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_import"), cx + 8, cy + 6, 0xFFCCCCFF, false);
             if (fileCount == 0) {
                 g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.encap_import_failed"), cx + 8, cy + 30, 0xFFFFFFFF, false);
@@ -624,7 +624,7 @@ public class GraphEditor {
                 int px = (int)(nsx + NW*zoom/2 - pw/2);
                 int py = (int)popupY;
                 g.fill(px, py, px+pw, py+ph, 0xFF2A2822);
-                g.renderOutline(px, py, pw, ph, NodeRenderer.CSB);
+                g.renderOutline(px, py, pw, ph, NodeRenderer.CSB());
                 g.drawString(mc.font, "§6§l" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.hotbar.select"), px + 4, py + 2, 0xFFFFFFFF, false);
                 for (int i = 0; i < 9; i++) {
                     int hx = px + 4 + i * 20;
@@ -765,7 +765,7 @@ public class GraphEditor {
                     if (showColorConfig) {
                         NodeRenderer.initStaging();
                         for (int i = 0; i < NodeRenderer._NUM_COLORS; i++)
-                            colorFields[i].setValue(String.format("%08X", NodeRenderer.stagingColors[i]));
+                            colorFields[i].setValue(hex8(NodeRenderer.stagingColors[i]));
                     }
                     return true;
                 }
@@ -870,7 +870,7 @@ public class GraphEditor {
             // Defaults
             if (mx >= px + 8 && mx <= px + 72 && my >= py + ph - 22 && my <= py + ph - 6) {
                 NodeRenderer.setColors(NodeRenderer.DEFAULT_COLORS.clone());
-                for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) colorFields[i].setValue(String.format("%08X", NodeRenderer.DEFAULT_COLORS[i]));
+                for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) colorFields[i].setValue(hex8(NodeRenderer.DEFAULT_COLORS[i]));
                 return true;
             }
             // Apply
@@ -1482,7 +1482,7 @@ public class GraphEditor {
         int colW = 185, pw = colW * 2 + 30, ph = 36 + numRows * 18 + 24;
         int px = (host.asScreen().width - pw) / 2, py = (host.asScreen().height - ph) / 2;
         g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
-        g.renderOutline(px, py, pw, ph, NodeRenderer.CSB);
+        g.renderOutline(px, py, pw, ph, NodeRenderer.CSB());
         g.fill(px + 2, py + 2, px + pw - 2, py + 18, 0xFF4A3F28);
         g.drawString(mc.font, "§6§l" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.color.title"), px + 6, py + 5, 0xFFFFFFFF, false);
         g.fill(px + pw - 18, py + 2, px + pw - 2, py + 18, 0xFF4A3028);
@@ -1506,7 +1506,7 @@ public class GraphEditor {
         }
         int by = py + ph - 22;
         g.fill(px + 8, by, px + 72, by + 16, 0xFF3A3428);
-        g.renderOutline(px + 8, by, 64, 16, NodeRenderer.CSB);
+        g.renderOutline(px + 8, by, 64, 16, NodeRenderer.CSB());
         g.drawString(mc.font, "§7" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.color.defaults"), px + 14, by + 3, 0xFFFFFFFF, false);
         g.fill(px + pw - 72, by, px + pw - 8, by + 16, 0xFF3A5A2A);
         g.renderOutline(px + pw - 72, by, 64, 16, 0xFF5A8A3A);
@@ -1695,4 +1695,8 @@ public class GraphEditor {
     }
 
     static final int NW=140, HH=18, PH=16;
+
+    // ── Fast number formatting to avoid String.format allocation (Phase 1) ──
+    static String ff3(float v) { return Float.toString((float)Math.round(v * 1000) / 1000); }
+    static String hex8(int v) { String h = Integer.toHexString(v).toUpperCase(); return "00000000".substring(h.length()) + h; }
 }

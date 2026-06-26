@@ -181,6 +181,6 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
         if (needsFullSync) { needsFullSync = false; var t=new CompoundTag(); saveAdditional(t,r); return t; }
         var t=new CompoundTag(); t.putBoolean("running", running); return t;
     }
-    @Override public Component getDisplayName() { return Component.translatable("container."+SchematicCompute.MOD_ID+".program"); }
+    @Override public Component getDisplayName() { return Component.translatable("container."+SchematicCompute.MOD_ID+".program_computer"); }
     @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new ProgramComputerMenu(id, this); }
 }

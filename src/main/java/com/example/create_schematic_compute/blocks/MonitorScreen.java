@@ -66,6 +66,13 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         "gui.create_schematic_compute.monitor.scr_yaw"
     };
 
+    // ── Fast number formatting to avoid String.format allocation in hot paths (Phase 1) ──
+    private static String ff0(float v) { return Integer.toString(Math.round(v)); }
+    private static String ff1(float v) { return Float.toString((float)Math.round(v * 10) / 10); }
+    private static String ff2(float v) { return Float.toString((float)Math.round(v * 100) / 100); }
+    private static String ff3(float v) { return Float.toString((float)Math.round(v * 1000) / 1000); }
+    private static String hex8(int v) { String h = Integer.toHexString(v).toUpperCase(); return "00000000".substring(h.length()) + h; }
+
     private static class PixelEditState {
         GraphNode node;
         int frameIndex; // -1 for IMAGE, 0+ for IMAGE_SEQUENCE
@@ -189,16 +196,17 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             if (cachedPidState == null) cachedPidState = new java.util.HashMap<>();
             cachedPidState.clear();
         }
-        // Build InputSource list from synced redstone inputs for REDSTONE_IN nodes
-        var inputs = new ArrayList<GraphEvaluator.InputSource>();
+        // Build InputSource list from synced redstone inputs (reuse list to avoid allocation)
+        if (cachedEmptyInputs == null) cachedEmptyInputs = new ArrayList<>();
+        cachedEmptyInputs.clear();
         for (var n : graph.nodes) {
             if (n.type == NodeType.REDSTONE_IN) {
                 long fk = com.example.create_schematic_compute.ModUtils.freqKey(n.itemParams);
                 int sig = blockEntity != null ? blockEntity.getRedstoneInput(fk) : 0;
-                inputs.add(new GraphEvaluator.InputSource(fk, sig));
+                cachedEmptyInputs.add(new GraphEvaluator.InputSource(fk, sig));
             }
         }
-        cachedEval.evaluate(inputs, cachedPidState, 0.05f);
+        cachedEval.evaluate(cachedEmptyInputs, cachedPidState, 0.05f);
         return cachedEval;
     }
 
@@ -238,7 +246,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             // In the GUI: each IMAGE pixel = 2 font-pixels (cellSize=2), total 32 font-pixels.
             float elemW = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? 16 * 2
                 : Minecraft.getInstance().font.width(elem.text.isEmpty() && elem.type != NodeType.DATA ? " " :
-                    elem.type == NodeType.DATA ? String.format("%.1f", elem.value) : elem.text);
+                    elem.type == NodeType.DATA ? ff1(elem.value) : elem.text);
             float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? 16 * 2 : 10;
             // Clamp using same rotated-AABB calculation as the yellow selection outline
             float ex = contentX + elem.x * contentW;
@@ -265,7 +273,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     g.drawString(mc.font, text, 0, 0, elem.color, false);
                 }
                 case DATA -> {
-                    String dataStr = String.format("%.1f", elem.value);
+                    String dataStr = ff1(elem.value);
                     g.drawString(mc.font, dataStr, 0, 0, elem.color, false);
                 }
                 case IMAGE, IMAGE_SEQUENCE -> {
@@ -306,12 +314,12 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         if (selectedDisplayNode != null) {
             String sTxt = "§6S:";
             if (editingS) sTxt += "§e" + editSBuf + "▌";
-            else sTxt += "§e" + String.format("%.1f", selectedDisplayNode.displayScale);
+            else sTxt += "§e" + ff1(selectedDisplayNode.displayScale);
             g.drawString(mc.font, sTxt, tbx + 4, tby + 5, 0xFFFFAA44, false);
             tbx += mc.font.width(sTxt) + 12;
             String rTxt = "§6R:";
             if (editingR) rTxt += "§e" + editRBuf + "▌";
-            else rTxt += "§e" + String.format("%.0f", selectedDisplayNode.displayRotation);
+            else rTxt += "§e" + ff0(selectedDisplayNode.displayRotation);
             g.drawString(mc.font, rTxt, tbx + 4, tby + 5, 0xFFFFAA44, false);
         }
 
@@ -325,7 +333,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     hitW = 16 * 2; hitH = 16 * 2;
                 } else {
                     String displayStr = elem.type == NodeType.DATA
-                        ? String.format("%.1f", elem.value)
+                        ? ff1(elem.value)
                         : (elem.text.isEmpty() ? " " : elem.text);
                     hitW = font2.width(displayStr);
                     hitH = 10;
@@ -365,14 +373,14 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
         // Load BE values into EditBoxes only once when panel opens
         if (!settingsInited && blockEntity != null) {
-            settingFields[0].setValue(String.format("%.2f", blockEntity.screenWidth));
-            settingFields[1].setValue(String.format("%.2f", blockEntity.screenLength));
-            settingFields[2].setValue(String.format("%.2f", blockEntity.screenX));
-            settingFields[3].setValue(String.format("%.2f", blockEntity.screenY));
-            settingFields[4].setValue(String.format("%.2f", blockEntity.screenZ));
-            settingFields[5].setValue(String.format("%.2f", blockEntity.screenRoll));
-            settingFields[6].setValue(String.format("%.2f", blockEntity.screenPitch));
-            settingFields[7].setValue(String.format("%.2f", blockEntity.screenYaw));
+            settingFields[0].setValue(ff2(blockEntity.screenWidth));
+            settingFields[1].setValue(ff2(blockEntity.screenLength));
+            settingFields[2].setValue(ff2(blockEntity.screenX));
+            settingFields[3].setValue(ff2(blockEntity.screenY));
+            settingFields[4].setValue(ff2(blockEntity.screenZ));
+            settingFields[5].setValue(ff2(blockEntity.screenRoll));
+            settingFields[6].setValue(ff2(blockEntity.screenPitch));
+            settingFields[7].setValue(ff2(blockEntity.screenYaw));
             settingsInited = true;
         }
 
@@ -460,7 +468,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 }
                 case DATA -> {
                     float val = graph.getInputValue(n.id, 0, eval.getCurrentOutputs());
-                    String lbl = n.params.length > 0 ? String.format("%.3f", n.params[0]) : "val";
+                    String lbl = n.params.length > 0 ? ff3(n.params[0]) : "val";
                     int dc = n.textColor != 0 ? n.textColor : 0xFF88FF88;
                     list.add(new DisplayElement(n.id, n.type, "", val, null, lbl, n.layoutX, n.layoutY, n.displayScale, n.displayRotation, dc));
                 }
@@ -654,7 +662,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
         // Hex color + OK button (always visible, below nav)
         int hexTopY = pixelEdit.node.type == NodeType.IMAGE_SEQUENCE ? trY + 24 : trY;
-        String hexStr = pixelEdit.editingHex ? ("§e#" + pixelEdit.hexInput + "▌") : ("§7#" + String.format("%08X", pixelEdit.selectedColor));
+        String hexStr = pixelEdit.editingHex ? ("§e#" + pixelEdit.hexInput + "▌") : ("§7#" + hex8(pixelEdit.selectedColor));
         g.drawString(mc.font, hexStr, trX, hexTopY, 0xFFCCCCCC, false);
         if (pixelEdit.editingHex) {
             int okX = trX + mc.font.width(hexStr) + 8;
@@ -760,17 +768,17 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             if (selectedDisplayNode != null) {
                 var fw = Minecraft.getInstance().font;
                 int sx = 128, sy = tby;
-                String sVal = editingS ? editSBuf : String.format("%.1f", selectedDisplayNode.displayScale);
+                String sVal = editingS ? editSBuf : ff1(selectedDisplayNode.displayScale);
                 int sEnd = sx + fw.width("§6S:§e" + sVal + "▌") + 12;
                 if (mx >= sx && mx <= sEnd && my >= sy && my <= sy + tbh) {
-                    editingS = true; editingR = false; editSBuf = String.format("%.1f", selectedDisplayNode.displayScale);
+                    editingS = true; editingR = false; editSBuf = ff1(selectedDisplayNode.displayScale);
                     return true;
                 }
                 int rx = sEnd;
-                String rVal = editingR ? editRBuf : String.format("%.0f", selectedDisplayNode.displayRotation);
+                String rVal = editingR ? editRBuf : ff0(selectedDisplayNode.displayRotation);
                 int rEnd = rx + fw.width("§6R:§e" + rVal + "▌") + 4;
                 if (mx >= rx && mx <= rEnd && my >= sy && my <= sy + tbh) {
-                    editingR = true; editingS = false; editRBuf = String.format("%.0f", selectedDisplayNode.displayRotation);
+                    editingR = true; editingS = false; editRBuf = ff0(selectedDisplayNode.displayRotation);
                     return true;
                 }
             }
@@ -791,7 +799,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 if (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) {
                     hitW = 16 * 2; hitH = 16 * 2;
                 } else if (elem.type == NodeType.DATA) {
-                    String valStr = String.format("%.1f", elem.value);
+                    String valStr = ff1(elem.value);
                     hitW = font2.width(valStr.isEmpty() ? "0.0" : valStr);
                     hitH = 10;
                 } else {
@@ -859,7 +867,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     eW = 16 * 2; eH = 16 * 2;
                 } else {
                     String ts = draggedDisplayNode.type == NodeType.DATA
-                        ? String.format("%.1f", 0f)
+                        ? ff1(0f)
                         : (draggedDisplayNode.displayText.isEmpty() ? " " : draggedDisplayNode.displayText);
                     eW = Minecraft.getInstance().font.width(ts); eH = 10;
                 }
@@ -954,11 +962,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         // Hex color + OK (top-right)
         int trX = width - 240, trY = 6;
         int hexTopY = pixelEdit.node.type == NodeType.IMAGE_SEQUENCE ? trY + 24 : trY;
-        String hexShow = "#" + String.format("%08X", pixelEdit.selectedColor);
+        String hexShow = "#" + hex8(pixelEdit.selectedColor);
         int hexW = Minecraft.getInstance().font.width(hexShow);
         if (mx >= trX && mx <= trX + hexW + 4 && my >= hexTopY - 2 && my <= hexTopY + 12) {
             pixelEdit.editingHex = !pixelEdit.editingHex;
-            if (pixelEdit.editingHex) pixelEdit.hexInput = String.format("%08X", pixelEdit.selectedColor);
+            if (pixelEdit.editingHex) pixelEdit.hexInput = hex8(pixelEdit.selectedColor);
             return true;
         }
         // OK button (visible when editing hex)

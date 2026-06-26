@@ -105,20 +105,20 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
     private void bt(GuiGraphics g, int x, int y, int w, String text, int mx, int my, int bg, boolean hoverable) {
         boolean h = hoverable && mx >= x && mx <= x + w && my >= y && my <= y + H;
         g.fill(x, y, x + w, y + H, h ? 0xFF555555 : bg);
-        g.renderOutline(x, y, w, H, NodeRenderer.CSB);
+        g.renderOutline(x, y, w, H, NodeRenderer.CSB());
         g.drawString(font, text, x + 4, y + 5, h ? 0xFFFFFFFF : 0xFFCCCCCC);
     }
 
-    // 开关按钮（激活=绿色填充，边框保持 CSB，无悬停高亮）
+    // 开关按钮（激活=绿色填充，边框保持 CSB()，无悬停高亮）
     private void btn(GuiGraphics g, int x, int y, int w, String text, int mx, int my, boolean active) {
         g.fill(x, y, x + w, y + H, active ? 0xFF224422 : 0xFF3A3832);
-        g.renderOutline(x, y, w, H, NodeRenderer.CSB);
+        g.renderOutline(x, y, w, H, NodeRenderer.CSB());
         g.drawString(font, text, x + 4, y + 5, active ? 0xFFAAFFAA : 0xFF888888);
     }
     // 纯展示按钮（无激活态）
     private void btn2(GuiGraphics g, int x, int y, int w, String text, int mx, int my) {
         g.fill(x, y, x + w, y + H, 0xFF3A3832);
-        g.renderOutline(x, y, w, H, NodeRenderer.CSB);
+        g.renderOutline(x, y, w, H, NodeRenderer.CSB());
         g.drawString(font, text, x + 4, y + 5, 0xFFCCCCCC);
     }
 
@@ -130,7 +130,7 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
         int py = bottom ? toolY - 86 : toolY + 22;
         int px = 4, pw = 340, ph = 80;
         g.fill(px, py, px + pw, py + ph, 0xDD1F1E1A);
-        g.renderOutline(px, py, pw, ph, NodeRenderer.CSB);
+        g.renderOutline(px, py, pw, ph, NodeRenderer.CSB());
         g.drawString(font, "§6§l" + t("settings_title"), px + 6, py + 4, 0xFFFFFFFF);
         // 右下角保存按钮
         bt(g, px + pw - 46, py + ph - H - 2, 42, I18n.get("gui.create_schematic_compute.save"), mx, my, 0xFF224422, true);

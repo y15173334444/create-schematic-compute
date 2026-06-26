@@ -45,6 +45,8 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     private NodeGraph cachedEvalGraph;
     private GraphEvaluator cachedEvaluator;
     private final java.util.HashMap<Integer, Float> cachedPidState = new java.util.HashMap<>();
+    // Reusable input list to avoid per-frame allocation (Phase 1 optimization)
+    private final java.util.ArrayList<GraphEvaluator.InputSource> reusableInputs = new java.util.ArrayList<>();
 
     @Override
     public void render(MonitorBlockEntity be, float partialTick, PoseStack poseStack,
@@ -60,16 +62,16 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         }
         var evaluator = cachedEvaluator;
         var pidState = cachedPidState;
-        // Build InputSource from synced redstone inputs (lightweight, every frame)
-        var inputs = new ArrayList<GraphEvaluator.InputSource>();
+        // Build InputSource from synced redstone inputs (reuse list to avoid allocation)
+        reusableInputs.clear();
         for (var n : be.graph.nodes) {
             if (n.type == NodeType.REDSTONE_IN) {
                 long fk = com.example.create_schematic_compute.ModUtils.freqKey(n.itemParams);
                 int sig = be.getRedstoneInput(fk);
-                inputs.add(new GraphEvaluator.InputSource(fk, sig));
+                reusableInputs.add(new GraphEvaluator.InputSource(fk, sig));
             }
         }
-        evaluator.evaluate(inputs, pidState, 0.05f);
+        evaluator.evaluate(reusableInputs, pidState, 0.05f);
 
         boolean hasContent = false;
         for (var n : be.graph.nodes)

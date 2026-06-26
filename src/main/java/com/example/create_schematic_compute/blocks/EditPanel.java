@@ -80,7 +80,7 @@ public class EditPanel {
                 : "§7" + java.text.MessageFormat.format(I18n.get("gui.create_schematic_compute.edit.click_bind"), label);
             boolean hovering = mx >= bx && mx <= bx + bw && my >= by && my <= by + bh;
             g.fill(bx, by, bx + bw, by + bh, st.listeningForKey ? 0xFF5A3A2A : (hovering ? 0xFF3A4A3A : 0xFF1A1814));
-            g.renderOutline(bx, by, bw, bh, st.listeningForKey ? 0xFFFF8844 : NodeRenderer.CSB);
+            g.renderOutline(bx, by, bw, bh, st.listeningForKey ? 0xFFFF8844 : NodeRenderer.CSB());
             g.drawString(Minecraft.getInstance().font, hint, bx + 6, by + 3,
                 st.listeningForKey ? 0xFFFFEE88 : 0xFFCCCCCC, false);
             row++;
@@ -117,8 +117,8 @@ public class EditPanel {
             }
             int pinY = py + 4 + row * 18 + 8;
             if (st.bandPinY != null && bi - 1 < st.bandPinY.length) st.bandPinY[bi - 1] = pinY;
-            g.fill(pinX - pinR - 1, pinY - pinR - 1, pinX + pinR + 1, pinY + pinR + 1, NodeRenderer.CPIB);
-            g.fill(pinX - pinR, pinY - pinR, pinX + pinR, pinY + pinR, pinConnected ? 0xFF666644 : isBusIn ? NodeRenderer.CPO : NodeRenderer.CPI);
+            g.fill(pinX - pinR - 1, pinY - pinR - 1, pinX + pinR + 1, pinY + pinR + 1, NodeRenderer.CPIB());
+            g.fill(pinX - pinR, pinY - pinR, pinX + pinR, pinY + pinR, pinConnected ? 0xFF666644 : isBusIn ? NodeRenderer.CPO() : NodeRenderer.CPI());
             // 频段名（BUS_IN 只读文本，BUS_OUT EditBox 可编辑）
             if (isBusIn) {
                 String bandName = st.fields.get(bi).getValue();
@@ -139,10 +139,10 @@ public class EditPanel {
             int btnY = py + 4 + row * 18;
             int addBW = 20, rmBW = 20;
             g.fill(px + 4, btnY, px + 4 + addBW, btnY + 14, 0xFF2A4A2A);
-            g.renderOutline(px + 4, btnY, addBW, 14, NodeRenderer.CSB);
+            g.renderOutline(px + 4, btnY, addBW, 14, NodeRenderer.CSB());
             g.drawString(Minecraft.getInstance().font, "+", px + 11, btnY + 2, 0xFF88FF88, false);
             g.fill(px + 4 + addBW + 4, btnY, px + 4 + addBW + 4 + rmBW, btnY + 14, 0xFF4A2A2A);
-            g.renderOutline(px + 4 + addBW + 4, btnY, rmBW, 14, NodeRenderer.CSB);
+            g.renderOutline(px + 4 + addBW + 4, btnY, rmBW, 14, NodeRenderer.CSB());
             g.drawString(Minecraft.getInstance().font, "-", px + 4 + addBW + 11, btnY + 2, 0xFFFF8888, false);
             st.bandAddBtnX = px + 4; st.bandAddBtnY = btnY;
             st.bandAddBtnW = addBW; st.bandAddBtnH = 14;
@@ -218,8 +218,8 @@ public class EditPanel {
                 int pinIdx = node.type.inputs + paramIdx;
                 pinConnected = st.graph != null && st.graph.hasInputConnection(node.id, pinIdx);
                 int pinX = px + 6 + r, pinY = py + 4 + row * 18 + 8;
-                g.fill(pinX - r - 1, pinY - r - 1, pinX + r + 1, pinY + r + 1, NodeRenderer.CPIB);
-                g.fill(pinX - r, pinY - r, pinX + r, pinY + r, pinConnected ? 0xFF666644 : NodeRenderer.CPI);
+                g.fill(pinX - r - 1, pinY - r - 1, pinX + r + 1, pinY + r + 1, NodeRenderer.CPIB());
+                g.fill(pinX - r, pinY - r, pinX + r, pinY + r, pinConnected ? 0xFF666644 : NodeRenderer.CPI());
             }
 
             String label = i < st.paramKeys.length ? I18n.get("param.create_schematic_compute." + st.paramKeys[i]) + ":" :
@@ -242,7 +242,7 @@ public class EditPanel {
             int bx = px + 4, by = py + 4 + row * 18;
             int bw = pw - 8, bh = 16;
             g.fill(bx, by, bx + bw, by + bh, inverted ? 0xFF3A5A2A : 0xFF3A3428);
-            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
+            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
             g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
             g.drawString(Minecraft.getInstance().font, inverted ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.inverted") : "§7" + I18n.get("gui.create_schematic_compute.edit.not_inverted"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
@@ -252,7 +252,7 @@ public class EditPanel {
             int bx = px + 4, by = py + 4 + row * 18;
             int bw = pw - 8, bh = 16;
             g.fill(bx, by, bx + bw, by + bh, defOpen ? 0xFF3A5A2A : 0xFF3A3428);
-            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
+            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
             g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
             g.drawString(Minecraft.getInstance().font, defOpen ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.default_open") : "§7" + I18n.get("gui.create_schematic_compute.edit.default_closed"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
@@ -268,7 +268,7 @@ public class EditPanel {
             int bx = px + 4, by = py + 4 + row * 18;
             int bw = pw - 8, bh = 16;
             g.fill(bx, by, bx + bw, by + bh, defOn ? 0xFF3A5A2A : 0xFF3A3428);
-            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
+            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
             g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
             g.drawString(Minecraft.getInstance().font, defOn ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.flipflop_default_on") : "§7" + I18n.get("gui.create_schematic_compute.edit.flipflop_default_off"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
@@ -284,7 +284,7 @@ public class EditPanel {
             int bx = px + 4, by = py + 4 + row * 18;
             int bw = pw - 8, bh = 16;
             g.fill(bx, by, bx + bw, by + bh, defSet ? 0xFF3A5A2A : 0xFF3A3428);
-            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
+            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
             g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
             g.drawString(Minecraft.getInstance().font, defSet ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.latch_default_set") : "§7" + I18n.get("gui.create_schematic_compute.edit.latch_default_reset"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
@@ -302,7 +302,7 @@ public class EditPanel {
                 int bx = px + 4, by = py + 4 + row * 18;
                 int bw = pw - 8, bh = 14;
                 g.fill(bx, by, bx + bw, by + bh, on ? 0xFF3A5A2A : 0xFF3A3428);
-                g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB);
+                g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
                 g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
                 g.drawString(Minecraft.getInstance().font, (on ? "§a✔ " : "§7") + I18n.get(key), bx+4, by+1, 0xFFFFFFFF, false);
                 row++;
@@ -313,7 +313,7 @@ public class EditPanel {
             for (int i = 0; i < 2; i++) {
                 int bx = (int)st.freqSlotX + i * 24;
                 g.fill(bx, (int)st.freqSlotY, bx + 20, (int)st.freqSlotY + 20, 0xFF1A1814);
-                g.renderOutline(bx, (int)st.freqSlotY, 20, 20, i == st.freqSlotSelected ? 0xFFFFAA44 : NodeRenderer.CSB);
+                g.renderOutline(bx, (int)st.freqSlotY, 20, 20, i == st.freqSlotSelected ? 0xFFFFAA44 : NodeRenderer.CSB());
                 if (node.itemParams != null && i < node.itemParams.length && !node.itemParams[i].isEmpty())
                     g.renderItem(node.itemParams[i], bx + 2, (int)st.freqSlotY + 2);
             }

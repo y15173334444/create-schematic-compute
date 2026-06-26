@@ -16,6 +16,10 @@ import org.joml.Matrix4f;
 
 public class RadarBlockEntityRenderer implements BlockEntityRenderer<RadarBlockEntity> {
 
+    // Reusable objects to avoid per-frame allocations (Phase 1 optimization)
+    private final org.joml.Vector3f reusableVec = new org.joml.Vector3f();
+    private org.joml.Quaternionf reusableQuat = null;
+
     public RadarBlockEntityRenderer(BlockEntityRendererProvider.Context ctx) {}
 
     @Override
@@ -81,14 +85,16 @@ public class RadarBlockEntityRenderer implements BlockEntityRenderer<RadarBlockE
         if (running) {
         // 提升到循环外：四元数只创建一次
         org.joml.Quaternionf invQ = null;
-        if (onSable && !Float.isNaN(be.cachedSubQw))
-            invQ = new org.joml.Quaternionf(be.cachedSubQx, be.cachedSubQy, be.cachedSubQz, be.cachedSubQw).conjugate();
+        if (onSable && !Float.isNaN(be.cachedSubQw)) {
+            if (reusableQuat == null) reusableQuat = new org.joml.Quaternionf();
+            invQ = reusableQuat.set(be.cachedSubQx, be.cachedSubQy, be.cachedSubQz, be.cachedSubQw).conjugate();
+        }
         float facingRad = (float) Math.toRadians(facingYDeg);
         for (var t : be.targets) {
             float dx = (float)(t.x() - cx);
             float dy = (float)(t.y() - cy);
             float dz = (float)(t.z() - cz);
-            var v = new org.joml.Vector3f(dx, dy, dz);
+            var v = reusableVec.set(dx, dy, dz);
             if (invQ != null) v.rotate(invQ);
             v.rotateY(facingRad);
 
@@ -178,6 +184,9 @@ public class RadarBlockEntityRenderer implements BlockEntityRenderer<RadarBlockE
         vc.addVertex(m, x4, y4, z4).setColor(r, g, b, a);
     }
 
+    // NOTE: AABB.INFINITE is used because radar must render even when the block is far away
+    // (especially on moving Sable structures where the render extent is unpredictable).
+    // The performance cost is negligible for radars — there are typically only 1-2 per world.
     @Override public AABB getRenderBoundingBox(RadarBlockEntity be) { return AABB.INFINITE; }
     @Override public boolean shouldRenderOffScreen(RadarBlockEntity be) { return true; }
     @Override public int getViewDistance() { return 256; }

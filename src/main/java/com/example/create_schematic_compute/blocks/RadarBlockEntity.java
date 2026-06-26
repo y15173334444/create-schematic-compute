@@ -388,7 +388,7 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
         sableReflectionInit = true;
     }
 
-    /** Sable 子世界扫描 — 查找所有子世界位置及内部实体 */
+    /** Sable 子世界扫描 — 查找所有子世界位置 */
     private void scanSableStructures(double scx, double scy, double scz, AABB scanBox) {
         try {
             initSableReflection();
@@ -398,8 +398,6 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
             if (cnt == null) return;
             var all = (List<?>) sableGetAllSubLevelsMethod.invoke(cnt);
             if (all == null || all.isEmpty()) return;
-
-            SchematicCompute.LOGGER.info("Radar scanning {} Sable sub-levels", all.size());
 
             int structCount = 0;
 

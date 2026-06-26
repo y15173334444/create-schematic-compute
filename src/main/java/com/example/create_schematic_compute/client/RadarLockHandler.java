@@ -20,6 +20,13 @@ import javax.annotation.Nullable;
 @EventBusSubscriber(modid = SchematicCompute.MOD_ID, value = net.neoforged.api.distmarker.Dist.CLIENT)
 public class RadarLockHandler {
 
+    // Reusable objects to avoid per-frame allocations (Phase 1 optimization)
+    private static final Vector3f REUSABLE_VEC = new Vector3f();
+    private static final Vector3f REUSABLE_VEC2 = new Vector3f();
+    private static final Vector3f REUSABLE_VEC3 = new Vector3f();
+    private static org.joml.Quaternionf reusableQuat = null;
+    private static org.joml.Quaternionf reusableQuat2 = null;
+
     /** 射线命中 blip 的结果 */
     private record BlipHit(int entityId, double distance) {}
 
@@ -83,19 +90,21 @@ public class RadarLockHandler {
         double rwx = onSable ? be.cachedSubWorldX : be.getBlockPos().getX() + 0.5;
         double rwy = onSable ? be.cachedSubWorldY : be.getBlockPos().getY() + 0.5;
         double rwz = onSable ? be.cachedSubWorldZ : be.getBlockPos().getZ() + 0.5;
-        var dispOff = new Vector3f(be.displayX, be.displayY, be.displayZ);
+        var dispOff = REUSABLE_VEC.set(be.displayX, be.displayY, be.displayZ);
         dispOff.rotateY((float) Math.toRadians(-facingYDeg)); // 去掉方块朝向 → 子世界本地
+        org.joml.Quaternionf fwdQ = null;
         if (onSable && !Float.isNaN(be.cachedSubQw)) {
-            var q = new org.joml.Quaternionf(be.cachedSubQx, be.cachedSubQy, be.cachedSubQz, be.cachedSubQw);
-            dispOff.rotate(q); // 子世界本地 → 世界（正向旋转）
+            if (reusableQuat2 == null) reusableQuat2 = new org.joml.Quaternionf();
+            fwdQ = reusableQuat2.set(be.cachedSubQx, be.cachedSubQy, be.cachedSubQz, be.cachedSubQw);
+            dispOff.rotate(fwdQ); // 子世界本地 → 世界（正向旋转）
         }
         rwx += dispOff.x; rwy += dispOff.y; rwz += dispOff.z;
 
         // 预计算 Sable 逆旋转四元数（世界→子世界本地）
         org.joml.Quaternionf invQ = null;
         if (onSable && !Float.isNaN(be.cachedSubQw)) {
-            invQ = new org.joml.Quaternionf(be.cachedSubQx, be.cachedSubQy, be.cachedSubQz, be.cachedSubQw);
-            invQ.conjugate();
+            if (reusableQuat == null) reusableQuat = new org.joml.Quaternionf();
+            invQ = reusableQuat.set(be.cachedSubQx, be.cachedSubQy, be.cachedSubQz, be.cachedSubQw).conjugate();
         }
 
         int best = 0;
@@ -105,18 +114,17 @@ public class RadarLockHandler {
             float dx = (float)(t.x() - rwx);
             float dy = (float)(t.y() - rwy);
             float dz = (float)(t.z() - rwz);
-            var v = new Vector3f(dx, dy, dz);
+            var v = REUSABLE_VEC2.set(dx, dy, dz);
             if (invQ != null) v.rotate(invQ); // 世界 → 子世界本地
             v.rotateY((float) Math.toRadians(facingYDeg)); // 子世界本地 → 显示空间
             float rx = v.x / scanRange * axisLen;
             float ry = v.y / scanRange * axisLen;
             float rz = v.z / scanRange * axisLen;
             if (Math.abs(rx) > axisLen || Math.abs(ry) > axisLen || Math.abs(rz) > axisLen) continue;
-            var wo = new Vector3f(rx, ry, rz);
+            var wo = REUSABLE_VEC3.set(rx, ry, rz);
             wo.rotateY((float) Math.toRadians(-facingYDeg)); // 去掉方块朝向 → 子世界本地
-            if (onSable && !Float.isNaN(be.cachedSubQw)) {
-                var q = new org.joml.Quaternionf(be.cachedSubQx, be.cachedSubQy, be.cachedSubQz, be.cachedSubQw);
-                wo.rotate(q); // 子世界本地 → 世界（正向旋转）
+            if (fwdQ != null) {
+                wo.rotate(fwdQ); // 子世界本地 → 世界（正向旋转），fwdQ 不会被 rotate 修改
             }
             double wx = rwx + wo.x;
             double wy = rwy + wo.y;

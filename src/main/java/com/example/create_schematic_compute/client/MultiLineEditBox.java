@@ -88,10 +88,10 @@ public class MultiLineEditBox extends EditBox {
             // Word wrap: split line into chunks that fit available width
             int pos = 0;
             while (pos < lineText.length()) {
-                // Find how many chars fit
-                int fit = 0;
-                while (fit < lineText.length() - pos && font.width(lineText.substring(pos, pos + fit + 1)) <= availW)
-                    fit++;
+                // Use font.plainSubstrByWidth for O(log n) binary search instead of O(n²) substring loop
+                String remaining = lineText.substring(pos);
+                String fitted = font.plainSubstrByWidth(remaining, availW, false);
+                int fit = fitted.length();
                 if (fit == 0 && pos < lineText.length()) fit = 1; // force at least 1 char
                 VLine vl = new VLine();
                 vl.logLine = li;

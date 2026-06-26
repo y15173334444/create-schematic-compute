@@ -42,7 +42,6 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
             && nt != com.example.create_schematic_compute.graph.NodeType.FORWARD
             && nt != com.example.create_schematic_compute.graph.NodeType.ACCELERATION
             && nt != com.example.create_schematic_compute.graph.NodeType.VELOCITY
-            && nt != com.example.create_schematic_compute.graph.NodeType.DIRECTION
             && nt != com.example.create_schematic_compute.graph.NodeType.POSITION
             && nt != com.example.create_schematic_compute.graph.NodeType.TARGET_OUT
             && nt != com.example.create_schematic_compute.graph.NodeType.TEXT

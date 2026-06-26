@@ -18,19 +18,32 @@ import java.util.Set;
  * 节点图渲染器 — 处理网格、节点、连线的绘制逻辑
  */
 public class NodeRenderer {
-    // 颜色常量（可配置，通过主题切换）
-    static int CG=0xFF1F1E1A, CGL=0xFF2C2A24, CN=0xFF3A3832, CH=0xFF4A3F28;
-    static int CB=0xFF5A4D3A, CPI=0xFFD4A017, CPO=0xFFB87333;
-    static int CW=0xFFC5962B, CWD=0xFFFFDD55, CT=0xFFFFFFFF, CD=0xFF888888;
-    static int CMN=0xFF888888, CMH=0xFFFFDD77;
-    static int CNT=0xFFFFAA00, CCT=0xFFFFAA00, CSB=0xFF8B7533;
-    static int CPIB=0xFF8B6914, CPOB=0xFF8A4A22; // 引脚边框
-
+    // ── Color palette stored in a single volatile array for atomic read/write (Phase 1) ──
+    // Index constants for the 16 themeable colors
+    static final int _CG=0,_CGL=1,_CN=2,_CH=3,_CB=4,_CPI=5,_CPO=6,_CW=7,_CWD=8;
+    static final int _CMN=9,_CMH=10,_CNT=11,_CCT=12,_CSB=13,_CPIB=14,_CPOB=15;
     static final int _NUM_COLORS = 16;
 
+    // Text and dim colors are constant across all themes
+    static final int CT=0xFFFFFFFF, CD=0xFF888888;
+
+    private static volatile int[] _c = {
+        0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,
+        0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22};
+
+    // Inline accessors — JIT constant-folds the bounds checks
+    static int CG() { return _c[_CG]; } static int CGL() { return _c[_CGL]; }
+    static int CN() { return _c[_CN]; } static int CH() { return _c[_CH]; }
+    static int CB() { return _c[_CB]; } static int CPI() { return _c[_CPI]; }
+    static int CPO() { return _c[_CPO]; } static int CW() { return _c[_CW]; }
+    static int CWD() { return _c[_CWD]; } static int CMN() { return _c[_CMN]; }
+    static int CMH() { return _c[_CMH]; } static int CNT() { return _c[_CNT]; }
+    static int CCT() { return _c[_CCT]; } static int CSB() { return _c[_CSB]; }
+    static int CPIB() { return _c[_CPIB]; } static int CPOB() { return _c[_CPOB]; }
+
     static final int[][] THEMES = {
-        // 16色: CG,CGL,CN,CH,CB,CPI,CPO,CW,CWD,CMN,CMH,CNT,CCT,CSB,CPIB,CPOB
-        {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,CSB,0xFF8B6914,0xFF8A4A22},
+        // 16色: CG(),CGL(),CN(),CH(),CB(),CPI(),CPO(),CW(),CWD(),CMN(),CMH(),CNT(),CCT(),CSB(),CPIB(),CPOB()
+        {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22},
         {0xFF0A1020,0xFF152040,0xFF1A2A4A,0xFF2A3A5A,0xFF3A5A7A,0xFF44AAFF,0xFFFFAA44,0xFF66BBFF,0xFFFFFF88,0xFF88AACC,0xFFFFDD77,0xFFFFDD77,0xFF88AACC,0xFF6688AA,0xFF2266AA,0xFFAA6622},
         {0xFF0A0A0A,0xFF1A1A1A,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF00FF88,0xFFFF4466,0xFF888888,0xFFFFFF88,0xFFAAAAAA,0xFFCCCCCC,0xFFCCCCCC,0xFF888888,0xFF666666,0xFF444444,0xFF444444},
         {0xFF1E1410,0xFF2A1C14,0xFF3A2820,0xFF4A3428,0xFF5A4438,0xFFFF8844,0xFFAA6633,0xFFDD8844,0xFFFFCC66,0xFFAA8866,0xFFFFCC77,0xFFFFCC77,0xFFAA8866,0xFF8B6B53,0xFF6B4A33,0xFF6B3A23},
@@ -40,21 +53,18 @@ public class NodeRenderer {
     static void applyTheme(int index) {
         if (index < 0 || index >= THEMES.length) index = 0;
         currentTheme = index;
-        int[] t = THEMES[index];
-        CG=t[0];CGL=t[1];CN=t[2];CH=t[3];CB=t[4];CPI=t[5];CPO=t[6];
-        CW=t[7];CWD=t[8];CMN=t[9];CMH=t[10];CNT=t[11];CCT=t[12];CSB=t[13];CPIB=t[14];CPOB=t[15];
+        _c = THEMES[index]; // atomic array swap — all colors change at once
     }
 
-    static int[] currentColors() { return new int[]{CG,CGL,CN,CH,CB,CPI,CPO,CW,CWD,CMN,CMH,CNT,CCT,CSB,CPIB,CPOB}; }
-    static final int[] DEFAULT_COLORS = {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,CSB,0xFF8B6914,0xFF8A4A22};
+    static int[] currentColors() { return _c.clone(); }
+    static final int[] DEFAULT_COLORS = {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22};
     static final String[] COLOR_KEYS = {"bg","grid","node","header","border","input","output","wire","drag","menu_text","menu_hover","node_title","cat_text","sys_border","input_border","output_border"};
     static int[] stagingColors = DEFAULT_COLORS.clone();
     static void initStaging() { stagingColors = currentColors(); }
 
     static void setColors(int[] c) {
         if (c.length < _NUM_COLORS) return;
-        CG=c[0];CGL=c[1];CN=c[2];CH=c[3];CB=c[4];CPI=c[5];CPO=c[6];
-        CW=c[7];CWD=c[8];CMN=c[9];CMH=c[10];CNT=c[11];CCT=c[12];CSB=c[13];CPIB=c[14];CPOB=c[15];
+        _c = c.clone(); // atomic array swap — all colors change at once
     }
 
     /** 从配置文件加载颜色 */
@@ -185,12 +195,12 @@ public class NodeRenderer {
     }
 
     public void renderGrid(GuiGraphics g, float camX, float camY, float zoom, int width, int height) {
-        g.fill(-10,-10,width+10,height+10,CG);
+        g.fill(-10,-10,width+10,height+10,CG());
         float ox=(camX*zoom)%(GS*zoom), oy=(camY*zoom)%(GS*zoom);
-        for(float x=width/2f+ox; x<width; x+=GS*zoom) g.fill((int)x,0,(int)x+1,height,CGL);
-        for(float y=height/2f+oy; y<height; y+=GS*zoom) g.fill(0,(int)y,width,(int)y+1,CGL);
-        for(float x=width/2f+ox; x>=0; x-=GS*zoom) g.fill((int)x,0,(int)x+1,height,CGL);
-        for(float y=height/2f+oy; y>=0; y-=GS*zoom) g.fill(0,(int)y,width,(int)y+1,CGL);
+        for(float x=width/2f+ox; x<width; x+=GS*zoom) g.fill((int)x,0,(int)x+1,height,CGL());
+        for(float y=height/2f+oy; y<height; y+=GS*zoom) g.fill(0,(int)y,width,(int)y+1,CGL());
+        for(float x=width/2f+ox; x>=0; x-=GS*zoom) g.fill((int)x,0,(int)x+1,height,CGL());
+        for(float y=height/2f+oy; y>=0; y-=GS*zoom) g.fill(0,(int)y,width,(int)y+1,CGL());
     }
 
     public void renderConnections(GuiGraphics g, NodeGraph graph, float camX, float camY, float zoom) {
@@ -225,7 +235,7 @@ public class NodeRenderer {
             if ((wy1 < vpTop && wy2 < vpTop) || (wy1 > vpBottom && wy2 > vpBottom)) continue;
             float x1 = c2sX.apply(wx1), y1 = c2sY.apply(wy1);
             float x2 = c2sX.apply(wx2), y2 = c2sY.apply(wy2);
-            bezier(g, x1, y1, x2, y2, CW);
+            bezier(g, x1, y1, x2, y2, CW());
         }
     }
 
@@ -241,7 +251,7 @@ public class NodeRenderer {
         }
         float x1 = c2sX.apply(fn.x + nw(fn));
         float x2 = c2sX.apply(wireEndX), y2 = c2sY.apply(wireEndY);
-        bezier(g, x1, y1, x2, y2, CWD);
+        bezier(g, x1, y1, x2, y2, CWD());
     }
 
     // 编辑区高度（像素，本地坐标空间）
@@ -313,25 +323,25 @@ public class NodeRenderer {
             warnPose.popPose();
         }
         // 节点体（暖钢色）
-        g.fill((int)sx,(int)sy,(int)(sx+sw),(int)(sy+nh),CN);
-        int borderColor = isPrimary ? 0xFFFFAA00 : selected ? 0xFFD4A017 : CB;
+        g.fill((int)sx,(int)sy,(int)(sx+sw),(int)(sy+nh),CN());
+        int borderColor = isPrimary ? 0xFFFFAA00 : selected ? 0xFFD4A017 : CB();
         // 第一遍边框
         g.renderOutline((int)sx,(int)sy,(int)sw,(int)nh, borderColor);
         g.renderOutline((int)sx+1,(int)sy+1,(int)sw-2,(int)nh-2, 0xFF2A2822);
         // 节点头部
-        g.fill((int)sx+2,(int)sy+2,(int)(sx+sw-2),(int)(sy+HH*zoom),CH);
+        g.fill((int)sx+2,(int)sy+2,(int)(sx+sw-2),(int)(sy+HH*zoom),CH());
         var pose = g.pose();
         pose.pushPose();
         pose.translate(sx,sy,0);
         pose.scale(zoom,zoom,1);
-        drawStr(g, I18n.get(n.type.getTitle()), 4, 4, CNT);
+        drawStr(g, I18n.get(n.type.getTitle()), 4, 4, CNT());
         // 输入端（仅功能引脚，参数引脚在编辑区内）
         int funcInputs = n.functionalInputs();
         for(int i=0; i<funcInputs; i++) {
             float py = HH+PH*i+PH/2f;
             int r = PR;
-            g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1), CPIB);
-            g.fill(-r, (int)(py - r), r, (int)(py + r), CPI);
+            g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1), CPIB());
+            g.fill(-r, (int)(py - r), r, (int)(py + r), CPI());
             String inlbl = n.inputLabel(i);
             drawStr(g, (n.type == NodeType.BUS_OUT || n.type == NodeType.FORMULA || n.type == NodeType.ENCAPSULATION) ? inlbl : I18n.get(inlbl), 10, py-3, CD);
         }
@@ -339,8 +349,8 @@ public class NodeRenderer {
         for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL; i++) {
             float py = HH+PH*(funcInputs + i)+PH/2f;
             int r = PR;
-            g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1), CPOB);
-            g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r), CPO);
+            g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1), CPOB());
+            g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r), CPO());
             String rawOutLbl = n.outputLabel(i);
             String outlbl = (n.type == NodeType.BUS_IN || n.type == NodeType.ENCAPSULATION) ? rawOutLbl : I18n.get(rawOutLbl);
             int olw = Minecraft.getInstance().font.width(outlbl);
@@ -418,9 +428,9 @@ public class NodeRenderer {
         menuRX = Math.max(0, Math.min(menuX, screen.width-mw));
         menuRY = Math.max(0, Math.min(menuY, screen.height-totalH));
         g.fill((int)menuRX,(int)menuRY,(int)(menuRX+mw),(int)(menuRY+totalH),0xFF2A2822);
-        g.renderOutline((int)menuRX,(int)menuRY,mw,totalH,CSB);
+        g.renderOutline((int)menuRX,(int)menuRY,mw,totalH,CSB());
         g.renderOutline((int)menuRX+1,(int)menuRY+1,mw-2,totalH-2,0xFF1A1814);
-        drawStr(g, "§l" + I18n.get("gui.create_schematic_compute.nodes"), menuRX+6, menuRY+4, CCT);
+        drawStr(g, "§l" + I18n.get("gui.create_schematic_compute.nodes"), menuRX+6, menuRY+4, CCT());
 
         NodeType hovered = null;
         int cy = (int)menuRY + 18;
@@ -434,7 +444,7 @@ public class NodeRenderer {
             String title = (exp ? "▼ " : "▶ ") + net.minecraft.client.resources.language.I18n.get(cat.langKey);
             boolean titleHover = mx>=menuRX+2 && mx<=menuRX+mw-2 && my>=cy && my<cy+ch;
             if (titleHover) g.fill((int)menuRX+2, cy, (int)(menuRX+mw-2), (int)(cy+ch), 0xFF3A3428);
-            drawStr(g, title, menuRX+6, cy+2, titleHover ? CMH : CCT);
+            drawStr(g, title, menuRX+6, cy+2, titleHover ? CMH() : CCT());
             cy += ch;
             if (!exp) continue;
             // Items in grid layout
@@ -448,7 +458,7 @@ public class NodeRenderer {
                 int iy = cy + row * ih;
                 boolean h = mx>=ix && mx<=ix+colW-4 && my>=iy && my<iy+ih;
                 if (h) { g.fill(ix, iy, ix+colW-4, iy+ih, 0xFF3A3428); hovered = nt; }
-                drawStr(g, I18n.get(nt.displayName), ix + 4, iy + 2, h ? CMH : CMN);
+                drawStr(g, I18n.get(nt.displayName), ix + 4, iy + 2, h ? CMH() : CMN());
                 itemIdx++;
             }
             cy += itemsPerCol * ih;
@@ -499,32 +509,32 @@ public class NodeRenderer {
         // Compile 按钮
         int cX2 = 26, cW2 = 52;
         g.fill(cX2, btnY, cX2+cW2, btnY+btnH, fb ? 0xFF3A5A2A : 0xFF3A3832);
-        g.renderOutline(cX2, btnY, cW2, btnH, CSB);
+        g.renderOutline(cX2, btnY, cW2, btnH, CSB());
         g.renderOutline(cX2+1, btnY+1, cW2-2, btnH-2, 0xFF2A2822);
         drawStr(g, fb ? "§a" + I18n.get("gui.create_schematic_compute.compiled") : "§e" + I18n.get("gui.create_schematic_compute.compile"), cX2+4, btnY+4, CT);
         // Run/Stop 按钮
         int cX3 = 82, cW3 = 48;
         g.fill(cX3, btnY, cX3+cW3, btnY+btnH, running ? 0xFF3A5A2A : 0xFF3A3832);
-        g.renderOutline(cX3, btnY, cW3, btnH, CSB);
+        g.renderOutline(cX3, btnY, cW3, btnH, CSB());
         g.renderOutline(cX3+1, btnY+1, cW3-2, btnH-2, 0xFF2A2822);
         drawStr(g, running ? "§a" + I18n.get("gui.create_schematic_compute.stop") : "§e" + I18n.get("gui.create_schematic_compute.run"), cX3+4, btnY+4, CT);
         // 网格吸附按钮
         int cX4 = 134, cW4 = 58;
         g.fill(cX4, btnY, cX4+cW4, btnY+btnH, gridSnap ? 0xFF3A5A2A : 0xFF3A3428);
-        g.renderOutline(cX4, btnY, cW4, btnH, CSB);
+        g.renderOutline(cX4, btnY, cW4, btnH, CSB());
         g.renderOutline(cX4+1, btnY+1, cW4-2, btnH-2, 0xFF2A2822);
         drawStr(g, (gridSnap ? "§a" : "§7") + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.grid"), cX4+6, btnY+4, CT);
         // 颜色配置按钮
         int cX5 = 196, cW5 = 54;
         g.fill(cX5, btnY, cX5+cW5, btnY+btnH, 0xFF3A3832);
-        g.renderOutline(cX5, btnY, cW5, btnH, CSB);
+        g.renderOutline(cX5, btnY, cW5, btnH, CSB());
         g.renderOutline(cX5+1, btnY+1, cW5-2, btnH-2, 0xFF2A2822);
         drawStr(g, "§7" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.style"), cX5+8, btnY+4, CT);
 
         // 右下角工具栏位置切换按钮
         int tX = width - 22, tY = height - 22, tW = 18, tH = 18;
         g.fill(tX, tY, tX+tW, tY+tH, 0xFF3A3832);
-        g.renderOutline(tX, tY, tW, tH, CSB);
+        g.renderOutline(tX, tY, tW, tH, CSB());
         drawStr(g, toolbarBottom ? "§7▲" : "§7▼", tX+5, tY+3, CT);
 
         // 环警告
