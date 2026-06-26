@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github)](https://github.com/y15173334444/create-schematic-compute)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.2.0-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
+[![Version](https://img.shields.io/badge/Version-1.2.1-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
 [![MC](https://img.shields.io/badge/Minecraft-1.21.1-8B4513?style=flat-square)](https://www.minecraft.net/)
@@ -985,6 +985,16 @@ MIT License © 2026 StarryNight_Luo
 ---
 
 ## 📝 Changelog
+
+### v1.2.1
+- **⚡ GUI performance optimization (Phase 1)** — eliminated per-frame allocations: pooled Vector3f/Quaternionf in radar renderer, cached redstone input lists, replaced String.format with fast formatters (ff0/ff1/ff2/ff3/hex8), fixed MultiLineEditBox O(n²) substring allocation via plainSubstrByWidth
+- **🎨 Atomic color palette** — 16 themeable colors stored in single volatile int[] array; atomic swap eliminates cross-thread color tearing during theme switch
+- **🏗️ Dirty flag framework (Phase 2)** — NodeGraph.graphGeneration counter for cache invalidation; markDirty() wired into all mutation paths (drag, param edit, expand/collapse, recompile, pixel paint)
+- **📐 MonitorScreen display cache** — collectDisplayElements() cached when graph/screen static; auto-invalidates on drag, running state change, or generation bump
+- **📏 Precision hardening (Phase 3)** — new GeometryConstants with 22 shared layout constants; deduplicated clampImageNorm, elemRotAABB, color palette; unified FONT_BLOCK_SCALE across 2D GUI and 3D renderer; PALETTE_CELL inconsistency fixed (24→16); grid line sub-pixel jitter fixed (truncation→Math.round); MultiLineEditBox LINE_HEIGHT now reads font.lineHeight
+- **🛠️ Radar Sable fixes** — removed 1,000,000 coordinate guard in tryBootstrapSableCache() that blocked initialization for schematic-placed radars; fixed RadarBlockEntitySable savedLevel fallback race during blueprint placement where both level and savedLevel were null simultaneously
+- **🧩 DIRECTION node unlocked** — now visible in BlueprintScreen and ProgramComputerScreen (was defined but hidden by all screen filters)
+- **📦 Radar loot table** — radar block now drops itself on break
 
 ### v1.2.0
 - **Formula node → multi-line script editor** — MultiLineEditBox with word wrap, drag-select (Ctrl+A), Enter/arrow key navigation, Ctrl+V paste with `\r\n` normalization
