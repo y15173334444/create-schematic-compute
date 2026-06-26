@@ -669,7 +669,7 @@ MIT License © 2026 StarryNight_Luo
 
 ---
 
-### 节点参考（78 种）
+### 节点参考（80 种）
 
 | 分类 | 节点 |
 |------|------|
@@ -784,6 +784,7 @@ MIT License © 2026 StarryNight_Luo
 | MOUSE_BUTTON | - | L, R | - | 鼠标左/右键状态 |
 | GAMEPAD_JOYSTICK | - | LX, LY, RX, RY | - | 手柄双摇杆 -1~1 |
 | GAMEPAD_BUTTON | - | 1/0 | button | 手柄按键（15键） |
+| GAMEPAD_TRIGGER | - | LT, RT | - | 手柄模拟扳机（0.0 ~ 1.0） |
 
 ##### 传感器（姿态传感器专用）
 | 节点 | 输入 | 输出 | 参数 | 说明 |
