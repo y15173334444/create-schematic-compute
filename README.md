@@ -228,8 +228,8 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 ##### Control
 | Node | Inputs | Output | Params | Description |
 |------|--------|--------|--------|-------------|
-| PID | SP | ctrl | kp, ki, kd, scale | Classic PID, output 0~16, I-term resets on zero error (anti-windup) |
-| PID_POWER | SP, base | power | kp, ki | PID with base power input, ideal for minimum output maintenance |
+| PID | SP, PV | ctrl | kp, ki, kd, scale, ilimit | Classic PID (setpoint vs process variable), output 0~16, anti-windup |
+| PID_POWER | SP, PV, base | power | kp, ki, kd, ilimit | PID with base power input and PV feedback |
 | CLAMP | In, Min, Max | float | - | Clamp input between Min and Max |
 | MAP | In, InMin, InMax, OutMin, OutMax | float | - | Map input range to output range |
 
@@ -280,7 +280,9 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 | ACCELERATION | - | X, Y, Z | - | Structure-local acceleration (fwd/back, up/down, left/right), computed at 20Hz from velocity |
 | VELOCITY | - | X, Y, Z | - | Structure-local velocity (fwd/back, up/down, left/right), ×2 m/s |
 | POSE_CONVERT | pitch_a, yaw_a, roll | pitch_b, yaw_b | - | Pose conversion (3-in 2-out) |
-| SPLIT | in | +out, -out | - | Split positive/negative: positive→+out, negative→\|-out\|
+| SPLIT | in | +out, -out | - | Split positive/negative: positive→+out, negative→\|-out\| |
+| DIRECTION | ax,ay,az,bx,by,bz | yaw, pitch, distance | - | World-space direction from point A to B with distance |
+| POSITION | - | X, Y, Z | offset | World position with configurable offset |
 
 ---
 
@@ -288,8 +290,8 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 
 | Node | Description |
 |------|-------------|
-| **PID Controller** | Classic PID algorithm, output 0~16, I-term resets on zero error (anti-windup) |
-| **Power PID** | PID with base power input, ideal for maintaining minimum output |
+| **PID Controller** | Full PID with SP/PV inputs, configurable kp/ki/kd/scale/ilimit, anti-windup with integral capping |
+| **Power PID** | PID with SP/PV/base inputs, configurable kp/ki/kd/ilimit, output combines PID correction with base power |
 | **Comparison Router** | A≥B → A port outputs A-B, else B port outputs \|B-A\|. Smart signal routing |
 | **Pulse Extender** | Extends input pulse by N ticks |
 | **Loop** | Fires pulses every interval ticks, repeat count times |
@@ -441,7 +443,7 @@ The sable physics thread and the Minecraft server thread run concurrently. Share
 | 🚀 **GC-friendly** | `GraphEvaluator` instances reused across ticks, reducing GC pressure |
 | 🔄 **Private Signal Bus** | Global named-channel float communication across computers |
 | 🎯 **Reflection-based speed control** | Directly sets `SpeedControllerBlockEntity.targetSpeed` field |
-| 🧹 **PID anti-windup** | I-term auto-resets when error reaches zero |
+| 🧹 **PID anti-windup** | Full SP/PV dual-input PID with configurable kp/ki/kd/scale/ilimit, integral capping |
 | 🛡️ **Cycle detection** | Blocks execution if circular dependencies are detected in the graph |
 | 🎮 **GLFW raw input** | Control Seat reads keyboard/mouse/gamepad at the GLFW level, not through Minecraft's keybinding system |
 | 🔄 **Sable physics integration** | Control Seat and Attitude Sensor implement `BlockEntitySubLevelActor` for sublevel pose reading |
@@ -717,8 +719,8 @@ MIT License © 2026 StarryNight_Luo
 ##### 控制
 | 节点 | 输入 | 输出 | 参数 | 说明 |
 |------|------|------|------|------|
-| PID | SP | ctrl | kp, ki, kd, scale | PID 控制器，输出 0~16，误差归零时 I 项复位 |
-| PID_POWER | SP, base | power | kp, ki | 带基础动力的 PID，输出 0~16 |
+| PID | SP, PV | ctrl | kp, ki, kd, scale, ilimit | PID 控制器（设定值 vs 过程变量），抗积分饱和 |
+| PID_POWER | SP, PV, base | power | kp, ki, kd, ilimit | 带基础动力和 PV 反馈的 PID |
 | CLAMP | In, Min, Max | float | - | 限幅 |
 | MAP | In, InMin, InMax, OutMin, OutMax | float | - | 映射范围 |
 
@@ -769,6 +771,8 @@ MIT License © 2026 StarryNight_Luo
 | VELOCITY | - | X, Y, Z | - | 结构本地速度（前/后、上/下、左/右），×2 换算为 m/s |
 | POSE_CONVERT | pitch_a, yaw_a, roll | pitch_b, yaw_b | - | 姿态换算（3入2出） |
 | SPLIT | in | +out, -out | - | 正负分离：正数输出+，负数绝对值输出- |
+| DIRECTION | ax,ay,az,bx,by,bz | yaw, pitch, distance | - | 两点间世界空间的方向和距离 |
+| POSITION | - | X, Y, Z | offset | 世界坐标位置（可配置偏移） |
 
 ---
 
@@ -851,7 +855,7 @@ y = (99 * secTheta / (20 * N) + tan(THETA)) * w + 99 * ln(1 - 2 * (w * secTheta 
 | 🚀 **GC 友好** | 重用 `GraphEvaluator` 实例，减少每 tick 垃圾回收压力 |
 | 🔄 **私有信号总线** | 全局命名通道通信，跨计算机联动 |
 | 🎯 **精准反射** | 通过反射直接设置转速控制器的内部字段 |
-| 🧹 **积分防饱和** | PID 控制器误差归零时自动复位积分项 |
+| 🧹 **PID 抗积分饱和** | 完整的 SP/PV 双输入 PID，可配置 kp/ki/kd/scale/ilimit，积分上限钳制 |
 | 🛡️ **环检测** | 编译时自动检测循环引用并阻止运行 |
 | 🎮 **GLFW 原始输入** | 控制座椅通过 GLFW 直接读取键盘/鼠标/手柄，绕过 Minecraft 按键绑定系统 |
 | 🔄 **Sable 物理集成** | 控制座椅和姿态传感器实现 `BlockEntitySubLevelActor` 接口读取子世界姿态 |
