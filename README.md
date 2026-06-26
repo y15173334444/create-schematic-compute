@@ -204,6 +204,14 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 | CEIL | in | int | Round up to nearest integer |
 | FLOOR | in | int | Round down to nearest integer |
 | FORMULA | dynamic (per script) | dynamic (per @output) | script | **Multi-line script editor** — supports assignments (`var = expr`), `@output` named outputs, `--` comments, `\` line continuation. Auto-wrap + drag-select. Functions: sin/cos/tan/asin/acos/atan2/sinh/cosh/sqrt/ln/log/exp/sec/csc/cot/abs. [See usage below](#formula-script-node) |
+| SIN | in | float | - | Sine of input (degrees) |
+| COS | in | float | - | Cosine of input (degrees) |
+| TAN | in | float | - | Tangent of input (degrees) |
+| ASIN | in | float | - | Arcsine in degrees |
+| ACOS | in | float | - | Arccosine in degrees |
+| ATAN2 | y, x | float | - | Arctangent of y/x in degrees |
+| SINH | in | float | - | Hyperbolic sine |
+| COSH | in | float | - | Hyperbolic cosine |
 | SQRT | in | float | - | Square root of input (returns 0 if negative) |
 | LN | in | float | - | Natural logarithm of input (returns 0 if ≤0) |
 | LOG | in | float | - | Base-10 logarithm of input (returns 0 if ≤0) |
@@ -695,6 +703,14 @@ MIT License © 2026 StarryNight_Luo
 | CEIL | in | int | 向上取整 |
 | FLOOR | in | int | 向下取整 |
 | FORMULA | 动态（按脚本） | 动态（按@output） | script | **多行脚本编辑器** — 支持赋值（`var = expr`）、`@output` 命名输出、`--` 注释、`\` 续行。自动换行+拖选。函数：sin/cos/tan/asin/acos/atan2/sinh/cosh/sqrt/ln/log/exp/sec/csc/cot/abs。[用法见下](#公式脚本节点) |
+| SIN | in | float | - | 正弦（度） |
+| COS | in | float | - | 余弦（度） |
+| TAN | in | float | - | 正切（度） |
+| ASIN | in | float | - | 反正弦（度） |
+| ACOS | in | float | - | 反余弦（度） |
+| ATAN2 | y, x | float | - | y/x 的反正切（度） |
+| SINH | in | float | - | 双曲正弦 |
+| COSH | in | float | - | 双曲余弦 |
 | SQRT | in | float | - | 平方根（负数返回0） |
 | LN | in | float | - | 自然对数（≤0返回0） |
 | LOG | in | float | - | 常用对数（≤0返回0） |
