@@ -32,7 +32,6 @@ public class ControlSeatScreen extends AbstractContainerScreen<ControlSeatMenu> 
             || nt == NodeType.ACCELERATION
             || nt == NodeType.VELOCITY
             || nt == NodeType.POSITION
-            || nt == NodeType.DIRECTION
             || nt == NodeType.BUS_OUT
             || nt == NodeType.POSE_CONVERT
             || nt == NodeType.SPLIT

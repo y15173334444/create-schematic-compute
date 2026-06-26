@@ -19,8 +19,7 @@ public class SensorScreen extends AbstractContainerScreen<SensorMenu> implements
     private final GraphEditor editor;
     private static boolean isAllowed(NodeType nt) {
         return nt == NodeType.ATTITUDE || nt == NodeType.FORWARD || nt == NodeType.ACCELERATION || nt == NodeType.VELOCITY || nt == NodeType.POSITION || nt == NodeType.BUS_OUT
-            || nt == NodeType.REDSTONE_OUT || nt == NodeType.PRIVATE_OUT
-            || nt == NodeType.DIRECTION || nt == NodeType.POSE_CONVERT || nt == NodeType.SPLIT;
+            || nt == NodeType.REDSTONE_OUT || nt == NodeType.PRIVATE_OUT;
     }
     public SensorScreen(SensorMenu m, Inventory inv, Component t) {
         super(m, inv, t);
