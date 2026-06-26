@@ -27,11 +27,17 @@ public class NodeGraph {
     private int topoVersion = 0;
     private List<Integer> topoOrder = null;
 
+    /** 全局图版本号 — 任何影响渲染的变更（结构/参数/位置）时递增。
+     *  Phase 2 脏标记框架用此值判断是否需要重新渲染。 */
+    public int graphGeneration = 0;
+    public void bumpGeneration() { graphGeneration++; }
+
     public GraphNode addNode(NodeType type, float x, float y) {
         GraphNode node = new GraphNode(nextNodeId++, type, x, y);
         nodes.add(node);
         nodeMap.put(node.id, node);
         invalidateTopo();
+        bumpGeneration();
         return node;
     }
 
@@ -39,6 +45,7 @@ public class NodeGraph {
     public void adoptNode(GraphNode node) {
         nodes.add(node);
         nodeMap.put(node.id, node);
+        bumpGeneration();
     }
 
     public void removeNode(int id) {
@@ -46,6 +53,7 @@ public class NodeGraph {
         connections.removeIf(c -> c.fromId == id || c.toId == id);
         nodeMap.remove(id);
         invalidateTopo();
+        bumpGeneration();
     }
 
     public GraphNode findNode(int id) {
@@ -57,6 +65,7 @@ public class NodeGraph {
         if (fromId == toId) return false;
         connections.add(new NodeConnection(fromId, fromPin, toId, toPin));
         invalidateTopo();
+        bumpGeneration();
         return true;
     }
 
@@ -64,6 +73,7 @@ public class NodeGraph {
         connections.removeIf(c -> c.fromId == fromId && c.fromPin == fromPin
                 && c.toId == toId && c.toPin == toPin);
         invalidateTopo();
+        bumpGeneration();
     }
 
     /** 获取拓扑排序（缓存，仅在连接变化时重算） */

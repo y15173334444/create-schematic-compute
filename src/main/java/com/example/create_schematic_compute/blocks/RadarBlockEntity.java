@@ -166,7 +166,6 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
      *  sable$physicsTick 每 tick 更新精确世界位置，bootstrap 不应覆盖它。 */
     private void tryBootstrapSableCache() {
         if (!Float.isNaN(cachedSubYaw)) return; // sable$physicsTick 已接管，无需 bootstrap
-        if (Math.abs(worldPosition.getX()) < 1_000_000 && Math.abs(worldPosition.getZ()) < 1_000_000) return;
         try {
             initSableReflection();
             if (sableLogicalPoseMethod == null || sableGetContainerMethod == null) return;

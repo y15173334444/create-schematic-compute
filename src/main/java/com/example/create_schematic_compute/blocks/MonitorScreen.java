@@ -49,6 +49,12 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     private java.util.HashMap<Integer, Float> cachedPidState = null;
     private ArrayList<GraphEvaluator.InputSource> cachedEmptyInputs = null;
 
+    // ── Phase 2: Display area render cache ──
+    private int lastDisplayGen = -1;
+    private float lastDisplaySW = -1, lastDisplaySL = -1;
+    private java.util.List<DisplayElement> cachedDisplayElements = null;
+    private DisplayArea cachedDisplayArea = null;
+
     // ── Settings panel state ──
     private boolean showSettings = false;
     private boolean settingsInited = false;
@@ -227,8 +233,20 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         var graph = blockEntity != null ? blockEntity.graph : new NodeGraph();
         var localEval = getCachedEvaluator(graph);
 
-        // Collect and render display elements (clipped to display area)
-        var elements = collectDisplayElements(graph, localEval);
+        // Collect and render display elements (cached when graph is static — Phase 2)
+        // When running, output values change each tick so we must rebuild.
+        boolean isRunning = blockEntity != null && blockEntity.running;
+        float efsw = getEffectiveScreenW(), efsl = getEffectiveScreenL();
+        int curGen = graph.graphGeneration;
+        boolean displayChanged = curGen != lastDisplayGen || efsw != lastDisplaySW || efsl != lastDisplaySL
+            || isRunning || draggedDisplayNode != null;
+        if (displayChanged || cachedDisplayElements == null) {
+            lastDisplayGen = curGen; lastDisplaySW = efsw; lastDisplaySL = efsl;
+            cachedDisplayElements = collectDisplayElements(graph, localEval);
+            cachedDisplayArea = da;
+        }
+        var elements = cachedDisplayElements;
+        var daCached = cachedDisplayArea != null ? cachedDisplayArea : da;
         // Dynamic guiScale: match world proportions
         // World: 1 font-pixel = 0.015 blocks. GUI: da.w pixels maps to cw = screenWidth-0.08 blocks.
         // So: guiScale = 0.015 * da.w / cw  (font-px → screen-px matching world scale)
@@ -850,8 +868,10 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     int py = (int)((my - oy) / cs);
                     if (px >= 0 && px < 16 && py >= 0 && py < 16) {
                         int idx = py * 16 + px;
-                        if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length)
+                        if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
                             pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor;
+                            if (blockEntity != null) blockEntity.graph.bumpGeneration();
+                        }
                     }
                 }
             }
@@ -936,6 +956,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
                     pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor;
                     pixelEdit.painting = true;
+                    if (blockEntity != null) blockEntity.graph.bumpGeneration();
                 }
             }
             return true;

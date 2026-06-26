@@ -48,6 +48,10 @@ public class GraphEditor {
 
     // 编辑状态
     public float camX=0, camY=0, zoom=1f;
+    // Phase 2 render cache — skip expensive layers when nothing changed
+    private int lastRenderedGen = -1;
+    private float lastRenderedCamX, lastRenderedCamY, lastRenderedZoom;
+    private int lastRenderedScreenW, lastRenderedScreenH;
     public GraphNode draggingNode=null, selectedNode=null;
     public final Set<GraphNode> selectedNodes = new HashSet<>();
     public float dragOffX, dragOffY;
@@ -368,6 +372,7 @@ public class GraphEditor {
             expandedNodeIds.add(node.id); nodeEditStatesById.put(node.id, createEditState(node));
             node.expanded = true;
         }
+        markDirty();
     }
 
     public GraphEditor(Host host, Screen screen) {
@@ -395,6 +400,9 @@ public class GraphEditor {
     public float c2sY(float cy) { Screen s = host.asScreen(); return s.height/2f+(cy+camY)*zoom; }
     public float s2cX(double sx) { Screen s = host.asScreen(); return(float)((sx-s.width/2f)/zoom-camX); }
     public float s2cY(double sy) { Screen s = host.asScreen(); return(float)((sy-s.height/2f)/zoom-camY); }
+
+    /** Bump graph generation to invalidate render caches (Phase 2 dirty flag framework) */
+    void markDirty() { getGraph().bumpGeneration(); }
 
     // 渲染优先级（低→高，高的覆盖低的）
     //  0: 网格
@@ -426,7 +434,13 @@ public class GraphEditor {
             }
             expandedInitDone = true;
         }
-        renderer.renderGrid(g, camX, camY, zoom, host.asScreen().width, host.asScreen().height);
+
+        // Phase 2: update render generation tracking (used by MonitorScreen cache)
+        lastRenderedGen = graph.graphGeneration;
+        lastRenderedCamX = camX; lastRenderedCamY = camY; lastRenderedZoom = zoom;
+        lastRenderedScreenW = host.asScreen().width; lastRenderedScreenH = host.asScreen().height;
+
+        renderer.renderGrid(g, camX, camY, zoom, lastRenderedScreenW, lastRenderedScreenH);
 
         // ── 子图 Back 按钮 ──
         if (isInSubGraph()) {
@@ -734,9 +748,11 @@ public class GraphEditor {
             return true;
         }
         // 失焦提交：enterActions（频段 EditBox 等通过 enterActions 注册的控件）
+        boolean committed = false;
         for (var e : enterActions.entrySet()) {
-            if (e.getKey().isFocused()) { e.getValue().run(); break; }
+            if (e.getKey().isFocused()) { e.getValue().run(); committed = true; break; }
         }
+        if (committed) markDirty();
         if(btn==0){
             // ── 子图 Back 按钮 ──
             if (isInSubGraph()) {
@@ -1190,7 +1206,7 @@ public class GraphEditor {
         var graph = getGraph();
         editBoxDragNodeId = -1;
         if(btn==0&&multiDragging){
-            multiDragging = false;
+            multiDragging = false; markDirty();
             if (multiClickedNode != null) {
                 float[] orig = multiDragOrigins.get(multiClickedNode);
                 if (orig != null && Math.abs(multiClickedNode.x - orig[0]) < 2
@@ -1272,7 +1288,7 @@ public class GraphEditor {
             }
             draggingWire=false;
         }
-        if(btn==0&&draggingNode!=null)draggingNode=null;if(btn==0&&panning)panning=false;
+        if(btn==0&&draggingNode!=null){draggingNode=null;markDirty();}if(btn==0&&panning)panning=false;
     }
     public void mouseMoved(double mx, double my) {
         lastMouseX = mx; lastMouseY = my;
@@ -1552,6 +1568,7 @@ public class GraphEditor {
         }
         saveGraph();
         host.toggleRunning(false);
+        markDirty();
     }
 
     /** 检测 ▶/▼ 展开按钮点击 */

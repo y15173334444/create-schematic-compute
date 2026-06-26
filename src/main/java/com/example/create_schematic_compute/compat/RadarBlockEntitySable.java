@@ -28,9 +28,10 @@ public class RadarBlockEntitySable extends RadarBlockEntity implements BlockEnti
 
     @Override
     public void sable$physicsTick(ServerSubLevel subLevel, RigidBodyHandle handle, double deltaTime) {
+        // Always have a valid level reference: use subLevel.getLevel() as fallback
+        if (savedLevel == null) savedLevel = subLevel.getLevel();
         if (this.level == null) this.level = savedLevel;
         if (this.level == null || this.level.isClientSide()) return;
-        if (savedLevel == null) savedLevel = this.level;
         try {
             var pose = subLevel.logicalPose();
             var pos = pose.position();
