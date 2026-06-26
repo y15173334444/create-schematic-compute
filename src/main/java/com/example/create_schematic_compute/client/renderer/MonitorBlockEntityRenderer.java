@@ -1,6 +1,7 @@
 package com.example.create_schematic_compute.client.renderer;
 
 import com.example.create_schematic_compute.SchematicCompute;
+import com.example.create_schematic_compute.client.GeometryConstants;
 import com.example.create_schematic_compute.blocks.MonitorBlock;
 import com.example.create_schematic_compute.blocks.MonitorBlockEntity;
 import com.example.create_schematic_compute.graph.GraphEvaluator;
@@ -188,7 +189,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 : n.displayText;
             if (str.isEmpty()) continue;
             int color = n.textColor != 0 ? n.textColor : (n.type == NodeType.DATA ? 0xFF88FF88 : 0xFFCCCCCC);
-            float s = 0.015f * n.displayScale;
+            float s = GeometryConstants.FONT_BLOCK_SCALE * n.displayScale;
             poseStack.pushPose();
             float fw = font.width(str), fh = 10f;
             poseStack.translate(nx + fw * s / 2f, ny - fh * s / 2f, 0);

@@ -1,6 +1,7 @@
 package com.example.create_schematic_compute.blocks;
 
 import com.example.create_schematic_compute.SchematicCompute;
+import com.example.create_schematic_compute.client.GeometryConstants;
 import com.example.create_schematic_compute.graph.*;
 import com.example.create_schematic_compute.network.BlueprintSavePacket;
 import com.example.create_schematic_compute.network.BlueprintTogglePacket;
@@ -19,6 +20,8 @@ import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
+import static com.example.create_schematic_compute.client.GeometryConstants.*;
 
 public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implements GraphEditor.Host {
     private final MonitorBlockEntity blockEntity;
@@ -160,11 +163,10 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     }
 
     // ── Display area rendering ──
-    private static final int TOOLBAR_H = 20; // toolbar at screen top
     private record DisplayArea(int x, int y, int w, int h) {}
     private DisplayArea computeDisplayArea() {
-        int margin = 30;
-        int topOffset = TOOLBAR_H + 6; // toolbar + gap
+        int margin = MONITOR_MARGIN;
+        int topOffset = MONITOR_TOOLBAR_H + 6; // toolbar + gap
         int availW = width - 2 * margin;
         int availH = height - margin - topOffset;
         float aspect = 16f / 9f;
@@ -185,15 +187,15 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     private int[] getContentArea(DisplayArea da) {
         float sw = getEffectiveScreenW();
         float sl = getEffectiveScreenL();
-        float mfX = 0.04f / Math.max(sw, 0.01f);
-        float mfY = 0.04f / Math.max(sl, 0.01f);
+        float mfX = BEZEL_MARGIN / Math.max(sw, 0.01f);
+        float mfY = BEZEL_MARGIN / Math.max(sl, 0.01f);
         int ix = Math.round(da.w * mfX);
         int iy = Math.round(da.h * mfY);
         return new int[]{da.x + ix, da.y + iy, da.w - 2 * ix, da.h - 2 * iy};
     }
 
     /** Get the world-space content width (screenWidth - 2*margin) for guiScale computation */
-    private float getContentWorldW() { return Math.max(getEffectiveScreenW() - 0.08f, 0.01f); }
+    private float getContentWorldW() { return Math.max(getEffectiveScreenW() - (2 * BEZEL_MARGIN), 0.01f); }
 
     private GraphEvaluator getCachedEvaluator(NodeGraph graph) {
         if (cachedEval == null || lastEvalGraph != graph) {
@@ -251,7 +253,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         // World: 1 font-pixel = 0.015 blocks. GUI: da.w pixels maps to cw = screenWidth-0.08 blocks.
         // So: guiScale = 0.015 * da.w / cw  (font-px → screen-px matching world scale)
         float cw = getContentWorldW();
-        float guiScale = da.w * 0.015f / Math.max(cw, 0.01f);
+        float guiScale = da.w * FONT_BLOCK_SCALE / Math.max(cw, 0.01f);
         var ci = getContentArea(da);
         int contentX = ci[0], contentY = ci[1], contentW = ci[2], contentH = ci[3];
         var mc = Minecraft.getInstance();
@@ -262,10 +264,10 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             // Compute element content size in local (unscaled) coords.
             // In the world: 1 IMAGE pixel = 0.03 blocks = 2 font-pixels (since 1 font-px = 0.015 blocks).
             // In the GUI: each IMAGE pixel = 2 font-pixels (cellSize=2), total 32 font-pixels.
-            float elemW = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? 16 * 2
+            float elemW = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? IMAGE_GRID * IMAGE_CELL_FONT
                 : Minecraft.getInstance().font.width(elem.text.isEmpty() && elem.type != NodeType.DATA ? " " :
                     elem.type == NodeType.DATA ? ff1(elem.value) : elem.text);
-            float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? 16 * 2 : 10;
+            float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? IMAGE_GRID * IMAGE_CELL_FONT : 10;
             // Clamp using same rotated-AABB calculation as the yellow selection outline
             float ex = contentX + elem.x * contentW;
             float ey = contentY + elem.y * contentH;
@@ -315,7 +317,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             }
         }
         // ── Toolbar at screen top (fixed position) ──
-        int tbx = 4, tby = 4, tbh = TOOLBAR_H;
+        int tbx = 4, tby = 4, tbh = MONITOR_TOOLBAR_H;
         g.fill(0, tby, width, tby + tbh, 0xFF2A2822);
         // < Graph
         g.fill(tbx, tby, tbx + 56, tby + tbh, 0xFF3A3832);
@@ -348,7 +350,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 float s = guiScale * elem.scale;
                 float hitW, hitH;
                 if (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) {
-                    hitW = 16 * 2; hitH = 16 * 2;
+                    hitW = IMAGE_GRID * IMAGE_CELL_FONT; hitH = IMAGE_GRID * IMAGE_CELL_FONT;
                 } else {
                     String displayStr = elem.type == NodeType.DATA
                         ? ff1(elem.value)
@@ -378,7 +380,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     // ── Settings panel ──
     private void renderSettingsPanel(GuiGraphics g, int mx, int my) {
         var mc = Minecraft.getInstance();
-        int pw = 220, ph = 56 + 8 * 20 + 30;
+        int pw = MONITOR_SETTINGS_PANEL_W, ph = 56 + 8 * 20 + 30;
         int px = (width - pw) / 2, py = (height - ph) / 2;
         g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
         g.renderOutline(px, py, pw, ph, 0xFF5A4D3A);
@@ -448,7 +450,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     private boolean handleSettingsClick(double mx, double my, int btn) {
         if (btn != 0) return false;
-        int pw = 220, ph = 56 + 8 * 20 + 30;
+        int pw = MONITOR_SETTINGS_PANEL_W, ph = 56 + 8 * 20 + 30;
         int px = (width - pw) / 2, py = (height - ph) / 2;
         // Close button
         if (mx >= px + pw - 18 && mx <= px + pw - 2 && my >= py + 2 && my <= py + 18) {
@@ -533,39 +535,15 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     /** Clamp IMAGE normalized position using rotated-AABB-aware bounds,
      *  matching MonitorBlockEntityRenderer's clamping (lines 124-133). */
+    /** Clamp IMAGE normalized position — delegates to shared GeometryConstants. */
     private float[] clampImageNorm(GraphNode n, float rawX, float rawY, float rotation) {
-        float sw = getEffectiveScreenW();
-        float sl = getEffectiveScreenL();
-        float cww = Math.max(sw - 0.08f, 0.01f);
-        float cwl = Math.max(sl - 0.08f, 0.01f);
-        float hw = 8f * 0.03f * n.displayScale;
-        float hh = 8f * 0.03f * n.displayScale;
-        float rA = (float)Math.abs(Math.cos(Math.toRadians(rotation)));
-        float rB = (float)Math.abs(Math.sin(Math.toRadians(rotation)));
-        float bbHalfW = (hw * rA + hh * rB) / cww;
-        float bbHalfH = (hw * rB + hh * rA) / cwl;
-        float px = Math.max(0, Math.min(1 - bbHalfW, rawX));
-        float py = Math.max(0, Math.min(1 - bbHalfH, rawY));
-        return new float[]{px, py};
+        return GeometryConstants.clampImageNorm(n.displayScale, rawX, rawY, rotation,
+            getEffectiveScreenW(), getEffectiveScreenL());
     }
 
-    /** Compute rotated AABB: returns [minX, minY, maxX, maxY] (center-based rotation) */
-    private float[] elemRotAABB(float ex, float ey, float w, float h, float rot) {
-        float hw = w / 2, hh = h / 2;
-        float cx = ex + hw, cy = ey + hh; // center
-        float mnX = Float.MAX_VALUE, mnY = Float.MAX_VALUE, mxX = -Float.MAX_VALUE, mxY = -Float.MAX_VALUE;
-        float[] lx = {-hw, hw, hw, -hw}, ly = {-hh, -hh, hh, hh};
-        if (rot != 0) {
-            float rad = (float)Math.toRadians(rot), c = (float)Math.cos(rad), s = (float)Math.sin(rad);
-            for (int i = 0; i < 4; i++) {
-                float rx = lx[i] * c - ly[i] * s, ry = lx[i] * s + ly[i] * c;
-                mnX = Math.min(mnX, cx + rx); mxX = Math.max(mxX, cx + rx);
-                mnY = Math.min(mnY, cy + ry); mxY = Math.max(mxY, cy + ry);
-            }
-        } else {
-            mnX = ex; mxX = ex + w; mnY = ey; mxY = ey + h;
-        }
-        return new float[]{mnX, mnY, mxX, mxY};
+    /** Compute rotated AABB — delegates to shared GeometryConstants. */
+    private static float[] elemRotAABB(float ex, float ey, float w, float h, float rot) {
+        return GeometryConstants.elemRotAABB(ex, ey, w, h, rot);
     }
 
     private void renderPixels(GuiGraphics g, int[] pixels, int x, int y, int cellSize, int gridSize) {
@@ -610,7 +588,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         int fh = mc.font.lineHeight;
 
         // Layout constants (2-column palette, hex input at top-right)
-        final int PAL_CELL = 16, PAL_GAP = 2, PAL_LEFT = 8, PAL_COLS = 2;
+        final int PAL_CELL = PALETTE_CELL, PAL_GAP = PALETTE_GAP, PAL_LEFT = PALETTE_LEFT, PAL_COLS = PALETTE_COLS;
         int palNumColors = 23; // 22 colors + sentinel 0
         int palRows = (palNumColors + PAL_COLS - 1) / PAL_COLS; // 12
         int palH = palRows * (PAL_CELL + PAL_GAP);
@@ -652,11 +630,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
 
         // Palette (2-column grid)
-        int[] palette = {0xFFFFFFFF, 0xFFCCCCCC, 0xFF888888, 0xFF444444, 0xFF000000,
-                         0xFFFF0000, 0xFFCC0000, 0xFFFF8800, 0xFF8B4513, 0xFFFFFF00,
-                         0xFF88FF00, 0xFF00FF00, 0xFF008800, 0xFF00FFFF, 0xFF008888,
-                         0xFF88CCFF, 0xFF0000FF, 0xFF000088, 0xFF8800FF, 0xFFFF00FF,
-                         0xFFFF88CC, 0xFF880044, 0x00000000};
+        int[] palette = PIXEL_PALETTE;
         for (int i = 0; i < palette.length; i++) {
             int col = i % PAL_COLS, row = i / PAL_COLS;
             int px = PAL_LEFT + col * (PAL_CELL + PAL_GAP);
@@ -701,8 +675,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         state.open = true;
         state.frameIndex = -1;
         // Pre-compute grid origin for first-click accuracy (match render layout)
-        final int PAL_W = 28, PAL_LEFT = 10, PAL_CELL = 24, PAL_GAP = 2;
-        int palAreaW = PAL_LEFT + PAL_W + 6;
+        int palW2 = PALETTE_CELL * PALETTE_COLS + PALETTE_GAP * (PALETTE_COLS - 1);
+        int palAreaW = PALETTE_LEFT + palW2 + 12;
         int maxPx = (int)(Math.min((width - palAreaW) * 0.65f, height * 0.72f));
         int cellSize = Math.max(8, maxPx / 16);
         state.gridOriginX = palAreaW + (width - palAreaW - cellSize * 16) / 2;
@@ -774,7 +748,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     private boolean handleDisplayAreaClick(double mx, double my, int btn) {
         if (btn == 0) {
             var da = computeDisplayArea();
-            int tby = 4, tbh = TOOLBAR_H;
+            int tby = 4, tbh = MONITOR_TOOLBAR_H;
             // < Graph
             if (mx >= 4 && mx <= 60 && my >= tby && my <= tby + tbh)
                 { displayMode = false; selectedDisplayNode = null; return true; }
@@ -805,7 +779,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             var graph = blockEntity != null ? blockEntity.graph : new NodeGraph();
             var localEval = getCachedEvaluator(graph);
             var elements = collectDisplayElements(graph, localEval);
-            float guiScale2 = da.w * 0.015f / Math.max(getContentWorldW(), 0.01f);
+            float guiScale2 = da.w * FONT_BLOCK_SCALE / Math.max(getContentWorldW(), 0.01f);
             var ci = getContentArea(da);
             int contentX = ci[0], contentY = ci[1], contentW = ci[2], contentH = ci[3];
 
@@ -815,7 +789,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 float hitW, hitH;
                 var font2 = Minecraft.getInstance().font;
                 if (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) {
-                    hitW = 16 * 2; hitH = 16 * 2;
+                    hitW = IMAGE_GRID * IMAGE_CELL_FONT; hitH = IMAGE_GRID * IMAGE_CELL_FONT;
                 } else if (elem.type == NodeType.DATA) {
                     String valStr = ff1(elem.value);
                     hitW = font2.width(valStr.isEmpty() ? "0.0" : valStr);
@@ -857,7 +831,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         if (pixelEdit != null && pixelEdit.open) {
             if (pixelEdit.painting) {
                 // Recalculate grid (same as renderPixelEditor)
-                final int PAL_CELL = 16, PAL_GAP = 2, PAL_LEFT = 8, PAL_COLS = 2;
+                final int PAL_CELL = PALETTE_CELL, PAL_GAP = PALETTE_GAP, PAL_LEFT = PALETTE_LEFT, PAL_COLS = PALETTE_COLS;
                 int palW2 = PAL_CELL * PAL_COLS + PAL_GAP * (PAL_COLS - 1);
                 int palAreaW = PAL_LEFT + palW2 + 12;
                 int cs = Math.max(6, (int)(Math.min((width - palAreaW) * 0.65f, (height - 40) * 0.72f)) / 16);
@@ -880,11 +854,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         if (displayMode) {
             if (draggedDisplayNode != null) {
                 var da = computeDisplayArea();
-                float gsD = da.w * 0.015f / Math.max(getContentWorldW(), 0.01f);
+                float gsD = da.w * FONT_BLOCK_SCALE / Math.max(getContentWorldW(), 0.01f);
                 float sD = gsD * draggedDisplayNode.displayScale;
                 float eW, eH;
                 if (draggedDisplayNode.type == NodeType.IMAGE || draggedDisplayNode.type == NodeType.IMAGE_SEQUENCE) {
-                    eW = 16 * 2; eH = 16 * 2;
+                    eW = IMAGE_GRID * IMAGE_CELL_FONT; eH = IMAGE_GRID * IMAGE_CELL_FONT;
                 } else {
                     String ts = draggedDisplayNode.type == NodeType.DATA
                         ? ff1(0f)
@@ -933,7 +907,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         if (btn != 0) return false;
 
         // Recalculate layout (same as render)
-        final int PAL_CELL = 16, PAL_GAP = 2, PAL_LEFT = 8, PAL_COLS = 2;
+        final int PAL_CELL = PALETTE_CELL, PAL_GAP = PALETTE_GAP, PAL_LEFT = PALETTE_LEFT, PAL_COLS = PALETTE_COLS;
         int palNumColors = 23;
         int palRows = (palNumColors + PAL_COLS - 1) / PAL_COLS;
         int palH = palRows * (PAL_CELL + PAL_GAP);
@@ -963,11 +937,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
 
         // Palette (2-column grid)
-        int[] palette = {0xFFFFFFFF, 0xFFCCCCCC, 0xFF888888, 0xFF444444, 0xFF000000,
-                         0xFFFF0000, 0xFFCC0000, 0xFFFF8800, 0xFF8B4513, 0xFFFFFF00,
-                         0xFF88FF00, 0xFF00FF00, 0xFF008800, 0xFF00FFFF, 0xFF008888,
-                         0xFF88CCFF, 0xFF0000FF, 0xFF000088, 0xFF8800FF, 0xFFFF00FF,
-                         0xFFFF88CC, 0xFF880044, 0x00000000};
+        int[] palette = PIXEL_PALETTE;
         int palColsC = 2;
         for (int i = 0; i < palette.length; i++) {
             int col = i % palColsC, row = i / palColsC;

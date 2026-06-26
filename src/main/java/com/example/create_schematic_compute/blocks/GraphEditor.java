@@ -1711,7 +1711,7 @@ public class GraphEditor {
         }
     }
 
-    static final int NW=140, HH=18, PH=16;
+    static final int NW=NodeRenderer.NW, HH=NodeRenderer.HH, PH=NodeRenderer.PH;
 
     // ── Fast number formatting to avoid String.format allocation (Phase 1) ──
     static String ff3(float v) { return Float.toString((float)Math.round(v * 1000) / 1000); }

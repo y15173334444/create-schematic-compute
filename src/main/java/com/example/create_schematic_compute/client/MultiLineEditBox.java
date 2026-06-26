@@ -12,7 +12,8 @@ import org.lwjgl.glfw.GLFW;
  * Supports word wrap (visual line wrapping at widget width) and horizontal scroll.
  */
 public class MultiLineEditBox extends EditBox {
-    private static final int LINE_HEIGHT = 12;
+    /** Visual line height, derived from font metrics instead of hardcoded. */
+    private int lineHeight() { return font.lineHeight + 3; }
     private final Font font;
 
     // Word-wrap visual line mapping; rebuilt only when content or width changes
@@ -140,8 +141,8 @@ public class MultiLineEditBox extends EditBox {
         int textColor = 0xFFE0E0E0;
 
         for (int vi = 0; vi < visualLines.size(); vi++) {
-            int y = getY() + 3 + vi * LINE_HEIGHT;
-            if (y + LINE_HEIGHT > getY() + getHeight()) break;
+            int y = getY() + 3 + vi * lineHeight();
+            if (y + lineHeight() > getY() + getHeight()) break;
 
             VLine vl = visualLines.get(vi);
             int ls = getLineStart(vl.logLine);
@@ -343,7 +344,7 @@ public class MultiLineEditBox extends EditBox {
         setFocused(true);
         buildVisualLines();
         int relY = (int)(my - getY() - 3);
-        int clickedVL = Mth.clamp(relY / LINE_HEIGHT, 0, visualLines.size() - 1);
+        int clickedVL = Mth.clamp(relY / lineHeight(), 0, visualLines.size() - 1);
         VLine vl = visualLines.get(clickedVL);
         int ls = getLineStart(vl.logLine);
         String lineText = getValue().substring(ls + vl.charStart, ls + vl.charEnd);
@@ -365,7 +366,7 @@ public class MultiLineEditBox extends EditBox {
         if (!isVisible() || !isFocused()) return false;
         buildVisualLines();
         int relY = (int)(my - getY() - 3);
-        int dragVL = Mth.clamp(relY / LINE_HEIGHT, 0, visualLines.size() - 1);
+        int dragVL = Mth.clamp(relY / lineHeight(), 0, visualLines.size() - 1);
         VLine vl = visualLines.get(dragVL);
         int ls = getLineStart(vl.logLine);
         String lineText = getValue().substring(ls + vl.charStart, ls + vl.charEnd);
@@ -388,6 +389,6 @@ public class MultiLineEditBox extends EditBox {
     }
 
     public int getContentHeight() {
-        return Math.max(visualLines.size() * LINE_HEIGHT + 6, LINE_HEIGHT + 6);
+        return Math.max(visualLines.size() * lineHeight() + 6, lineHeight() + 6);
     }
 }

@@ -197,10 +197,10 @@ public class NodeRenderer {
     public void renderGrid(GuiGraphics g, float camX, float camY, float zoom, int width, int height) {
         g.fill(-10,-10,width+10,height+10,CG());
         float ox=(camX*zoom)%(GS*zoom), oy=(camY*zoom)%(GS*zoom);
-        for(float x=width/2f+ox; x<width; x+=GS*zoom) g.fill((int)x,0,(int)x+1,height,CGL());
-        for(float y=height/2f+oy; y<height; y+=GS*zoom) g.fill(0,(int)y,width,(int)y+1,CGL());
-        for(float x=width/2f+ox; x>=0; x-=GS*zoom) g.fill((int)x,0,(int)x+1,height,CGL());
-        for(float y=height/2f+oy; y>=0; y-=GS*zoom) g.fill(0,(int)y,width,(int)y+1,CGL());
+        for(float x=width/2f+ox; x<width; x+=GS*zoom) { int ix=Math.round(x); g.fill(ix,0,ix+1,height,CGL()); }
+        for(float y=height/2f+oy; y<height; y+=GS*zoom) { int iy=Math.round(y); g.fill(0,iy,width,iy+1,CGL()); }
+        for(float x=width/2f+ox; x>=0; x-=GS*zoom) { int ix=Math.round(x); g.fill(ix,0,ix+1,height,CGL()); }
+        for(float y=height/2f+oy; y>=0; y-=GS*zoom) { int iy=Math.round(y); g.fill(0,iy,width,iy+1,CGL()); }
     }
 
     public void renderConnections(GuiGraphics g, NodeGraph graph, float camX, float camY, float zoom) {
