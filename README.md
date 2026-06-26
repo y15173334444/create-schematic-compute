@@ -5,6 +5,7 @@
 [![Version](https://img.shields.io/badge/Version-1.2.1-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
+[![Modrinth](https://img.shields.io/badge/Modrinth-create--schematic--compute-00AF5C?style=flat-square&logo=modrinth)](https://modrinth.com/mod/create-schematic-compute)
 [![MC](https://img.shields.io/badge/Minecraft-1.21.1-8B4513?style=flat-square)](https://www.minecraft.net/)
 
 ---
