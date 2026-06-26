@@ -162,7 +162,7 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 
 ---
 
-### Node Reference (78 Types)
+### Node Reference (80 Types)
 
 | Category | Nodes |
 |----------|-------|
@@ -291,6 +291,14 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 | SPLIT | in | +out, -out | - | Split positive/negative: positive→+out, negative→\|-out\| |
 | DIRECTION | ax,ay,az,bx,by,bz | yaw, pitch, distance | - | World-space direction from point A to B with distance |
 | POSITION | - | X, Y, Z | offset | World position with configurable offset |
+| TARGET_OUT | - | X, Y, Z, entityId, distance | - | Radar target output (Radar only) |
+
+##### Structure
+| Node | Inputs | Output | Params | Description |
+|------|--------|--------|--------|-------------|
+| ENCAPSULATION | dynamic | dynamic | - | Nest sub-graphs inside a single node; double-click to enter sub-graph editor |
+| ENCAP_INPUT | - | float | name | External input pin for encapsulation node |
+| ENCAP_OUTPUT | float | - | name | External output pin for encapsulation node |
 
 ---
 
@@ -789,6 +797,14 @@ MIT License © 2026 StarryNight_Luo
 | SPLIT | in | +out, -out | - | 正负分离：正数输出+，负数绝对值输出- |
 | DIRECTION | ax,ay,az,bx,by,bz | yaw, pitch, distance | - | 两点间世界空间的方向和距离 |
 | POSITION | - | X, Y, Z | offset | 世界坐标位置（可配置偏移） |
+| TARGET_OUT | - | X, Y, Z, entityId, distance | - | 雷达目标输出（仅雷达可用） |
+
+##### 结构
+| 节点 | 输入 | 输出 | 参数 | 说明 |
+|------|------|------|------|------|
+| ENCAPSULATION | 动态 | 动态 | - | 在单个节点内嵌套子图；双击进入子图编辑器 |
+| ENCAP_INPUT | - | float | name | 封装节点的外部输入引脚 |
+| ENCAP_OUTPUT | float | - | name | 封装节点的外部输出引脚 |
 
 ---
 
