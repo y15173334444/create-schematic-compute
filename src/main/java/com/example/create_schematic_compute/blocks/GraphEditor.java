@@ -48,6 +48,9 @@ public class GraphEditor {
 
     // 编辑状态
     public float camX=0, camY=0, zoom=1f;
+    // Phase 4: pre-baked grid VBO (replaces 140+ g.fill() calls per frame)
+    private final com.example.create_schematic_compute.client.renderer.GridMeshBuffer gridMesh =
+        new com.example.create_schematic_compute.client.renderer.GridMeshBuffer(NodeRenderer::CGL);
     // Phase 2 render cache — skip expensive layers when nothing changed
     private int lastRenderedGen = -1;
     private float lastRenderedCamX, lastRenderedCamY, lastRenderedZoom;
@@ -440,7 +443,10 @@ public class GraphEditor {
         lastRenderedCamX = camX; lastRenderedCamY = camY; lastRenderedZoom = zoom;
         lastRenderedScreenW = host.asScreen().width; lastRenderedScreenH = host.asScreen().height;
 
-        renderer.renderGrid(g, camX, camY, zoom, lastRenderedScreenW, lastRenderedScreenH);
+        // Phase 4: pre-baked grid VBO (replaces 140+ g.fill calls with 1 draw)
+        g.fill(-10, -10, lastRenderedScreenW + 10, lastRenderedScreenH + 10, NodeRenderer.CG());
+        gridMesh.rebuildIfNeeded(camX, camY, zoom, lastRenderedScreenW, lastRenderedScreenH);
+        gridMesh.draw();
 
         // ── 子图 Back 按钮 ──
         if (isInSubGraph()) {

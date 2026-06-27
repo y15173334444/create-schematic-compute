@@ -33,6 +33,10 @@ public class GraphNode {
     public int textColor = 0;                      // ARGB text color (0 = use type default)
     public int[] imagePixels;                      // IMAGE node: 16×16 ARGB pixels (lazy)
     public java.util.List<int[]> imageSequenceFrames; // IMAGE_SEQUENCE frames (lazy)
+    // Phase 4: baked GPU texture for IMAGE/IMAGE_SEQUENCE nodes (transient — not serialized)
+    public transient Object bakedTexture;           // DynamicTexture (avoid import in data model)
+    public transient Object bakedTextureLocation;   // ResourceLocation
+    public transient int bakedPixelHash;
     public float layoutX = 0.5f, layoutY = 0.5f;  // normalized [0,1] position in display area
     public float displayScale = 1.0f;              // size multiplier
     public float displayRotation = 0f;             // rotation (degrees)

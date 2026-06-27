@@ -20,6 +20,7 @@ import net.minecraft.world.phys.AABB;
 import org.joml.Quaternionf;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Map;
 
 public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBlockEntity> {
@@ -57,6 +58,10 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
 
         // Reuse evaluator across frames until graph changes
         if (cachedEvaluator == null || cachedEvalGraph != be.graph) {
+            // Release old textures when graph is replaced
+            if (cachedEvalGraph != null) {
+                releaseNodeTextures(cachedEvalGraph);
+            }
             cachedEvalGraph = be.graph;
             cachedEvaluator = new GraphEvaluator(be.graph);
             cachedPidState.clear();
@@ -143,7 +148,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             float rotInput = be.graph.getInputValue(n.id, rotPin, evaluator.getCurrentOutputs());
             float effectiveRot = n.displayRotation + rotInput * rotScale;
             // Clamp so rotated bounding box doesn't overflow right/bottom
-            float cell = 0.03f * n.displayScale;
+            float cell = GeometryConstants.IMAGE_CELL_BLOCK * n.displayScale;
             float iw = 8f * cell, ih = 8f * cell;
             float rA = (float)Math.abs(Math.cos(Math.toRadians(effectiveRot)));
             float rB = (float)Math.abs(Math.sin(Math.toRadians(effectiveRot)));
@@ -155,27 +160,48 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             float cpy = Math.max(0, Math.min(1 - bbHalfH, rawY));
             float nx = cx + cpx * cw;
             float ny = cy - cpy * ch;
+
+            // ── Phase 4: Baked texture (1 quad instead of 256) ──
+            var texLoc = (net.minecraft.resources.ResourceLocation) n.bakedTextureLocation;
+            var dt = (net.minecraft.client.renderer.texture.DynamicTexture) n.bakedTexture;
+            var mc2 = Minecraft.getInstance();
+            // Lazy-init texture
+            if (dt == null) {
+                var ni = new com.mojang.blaze3d.platform.NativeImage(16, 16, true);
+                for (int py = 0; py < 16; py++)
+                    for (int px = 0; px < 16; px++)
+                        ni.setPixelRGBA(px, py, pixels[py * 16 + px]);
+                dt = new net.minecraft.client.renderer.texture.DynamicTexture(ni);
+                texLoc = mc2.getTextureManager().register("monitor_pixels", dt);
+                n.bakedTexture = dt;
+                n.bakedTextureLocation = texLoc;
+                n.bakedPixelHash = java.util.Arrays.hashCode(pixels);
+            } else {
+                // Update texture if pixels changed
+                int newHash = java.util.Arrays.hashCode(pixels);
+                if (newHash != n.bakedPixelHash) {
+                    n.bakedPixelHash = newHash;
+                    var ni = dt.getPixels();
+                    if (ni != null) {
+                        for (int py = 0; py < 16; py++)
+                            for (int px = 0; px < 16; px++)
+                                ni.setPixelRGBA(px, py, pixels[py * 16 + px]);
+                        dt.upload();
+                    }
+                }
+            }
+
             poseStack.pushPose();
             float halfW = 8f * cell, halfH = 8f * cell;
             poseStack.translate(nx + halfW, ny - halfH, 0);
             poseStack.mulPose(Axis.ZP.rotationDegrees(-effectiveRot));
             poseStack.translate(-halfW, halfH, 0);
             var m2 = poseStack.last().pose();
-            for (int py = 0; py < 16; py++) {
-                for (int px = 0; px < 16; px++) {
-                    int idx = py * 16 + px;
-                    if (idx >= pixels.length) continue;
-                    int c = pixels[idx];
-                    int a = (c >> 24) & 0xFF, rr = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, bl = c & 0xFF;
-                    if (a == 0) continue;
-                    float x0 = px * cell, x1 = x0 + cell;
-                    float y0 = -py * cell, y1 = y0 - cell;
-                    sceneBuf.addVertex(m2, x0, y0, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
-                    sceneBuf.addVertex(m2, x1, y0, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
-                    sceneBuf.addVertex(m2, x1, y1, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
-                    sceneBuf.addVertex(m2, x0, y1, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
-                }
-            }
+            var texBuf = buffer.getBuffer(MonitorRenderTypes.SCREEN_PIXEL_TEX.apply(texLoc));
+            texBuf.addVertex(m2, 0, 0, 0).setUv(0, 0);
+            texBuf.addVertex(m2, iw, 0, 0).setUv(1, 0);
+            texBuf.addVertex(m2, iw, -ih, 0).setUv(1, 1);
+            texBuf.addVertex(m2, 0, -ih, 0).setUv(0, 1);
             poseStack.popPose();
         }
 
@@ -235,6 +261,20 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 }
             }
         } catch (Exception e) { SchematicCompute.LOGGER.error("Monitor flushTextNoCull failed", e); }
+    }
+
+    /** Release baked textures for all IMAGE nodes in a graph (Phase 4 cleanup). */
+    private static void releaseNodeTextures(NodeGraph graph) {
+        var mc = Minecraft.getInstance();
+        var tm = mc.getTextureManager();
+        for (var n : graph.nodes) {
+            if (n.bakedTextureLocation != null) {
+                tm.release((net.minecraft.resources.ResourceLocation) n.bakedTextureLocation);
+            }
+            n.bakedTexture = null;
+            n.bakedTextureLocation = null;
+            n.bakedPixelHash = 0;
+        }
     }
 
     @Override
