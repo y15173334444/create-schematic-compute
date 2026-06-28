@@ -115,18 +115,23 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             || nt == NodeType.IMAGE || nt == NodeType.IMAGE_SEQUENCE);
     }
 
+    private MonitorBlockEntity getBE() {
+        if (blockEntity != null) return blockEntity;
+        if (menu.blockPos != null && minecraft != null && minecraft.level != null) {
+            if (minecraft.level.getBlockEntity(menu.blockPos) instanceof MonitorBlockEntity be) return be;
+        }
+        return null;
+    }
     // ── GraphEditor.Host ──
-    @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
-    @Override public boolean isRunning() { return blockEntity != null && blockEntity.running; }
-    @Override public Map<Integer, Boolean> getFlipflopStates() { return blockEntity != null ? blockEntity.runtimeState.flipflopStates : null; }
+    @Override public NodeGraph getGraph() { MonitorBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
+    @Override public boolean isRunning() { MonitorBlockEntity be = getBE(); return be != null && be.running; }
+    @Override public Map<Integer, Boolean> getFlipflopStates() { MonitorBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
     @Override public Screen asScreen() { return this; }
 
     @Override
     public void saveGraph() {
         try {
-            MonitorBlockEntity be = blockEntity;
-            if (be == null && menu.blockPos != null && minecraft != null && minecraft.level != null)
-                if (minecraft.level.getBlockEntity(menu.blockPos) instanceof MonitorBlockEntity found) be = found;
+            MonitorBlockEntity be = getBE();
             if (be == null || be.getLevel() == null) return;
             var tag = new CompoundTag();
             tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
@@ -139,8 +144,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     @Override
     public void toggleRunning(boolean start) {
-        if (blockEntity != null)
-            PacketDistributor.sendToServer(new BlueprintTogglePacket(blockEntity.getBlockPos(), start));
+        MonitorBlockEntity be = getBE();
+        if (be != null)
+            PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start));
     }
 
     // ── Rendering ──
@@ -170,8 +176,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         int availW = width - 2 * margin;
         int availH = height - margin - topOffset;
         float aspect = 16f / 9f;
-        if (blockEntity != null && blockEntity.screenLength > 0.001f)
-            aspect = blockEntity.screenWidth / blockEntity.screenLength;
+        MonitorBlockEntity mbe = getBE();
+        if (mbe != null && mbe.screenLength > 0.001f)
+            aspect = mbe.screenWidth / mbe.screenLength;
         int dw, dh;
         if (availW / aspect <= availH) { dw = availW; dh = (int)(availW / aspect); }
         else { dh = availH; dw = (int)(availH * aspect); }
@@ -179,8 +186,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     }
 
     /** Get effective screen dimensions, using preview overrides when settings panel is open */
-    private float getEffectiveScreenW() { return previewScreenW >= 0 ? previewScreenW : (blockEntity != null ? blockEntity.screenWidth : 1.5f); }
-    private float getEffectiveScreenL() { return previewScreenL >= 0 ? previewScreenL : (blockEntity != null ? blockEntity.screenLength : 1.2f); }
+    private float getEffectiveScreenW() { return previewScreenW >= 0 ? previewScreenW : (getBE() != null ? getBE().screenWidth : 1.5f); }
+    private float getEffectiveScreenL() { return previewScreenL >= 0 ? previewScreenL : (getBE() != null ? getBE().screenLength : 1.2f); }
 
     /** Compute content area insets matching the 3D renderer's 0.04-block bezel margin.
      *  Returns {contentX, contentY, contentW, contentH} within the given DisplayArea. */
@@ -210,7 +217,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         for (var n : graph.nodes) {
             if (n.type == NodeType.REDSTONE_IN) {
                 long fk = com.example.create_schematic_compute.ModUtils.freqKey(n.itemParams);
-                int sig = blockEntity != null ? blockEntity.getRedstoneInput(fk) : 0;
+                int sig = getBE() != null ? getBE().getRedstoneInput(fk) : 0;
                 cachedEmptyInputs.add(new GraphEvaluator.InputSource(fk, sig));
             }
         }
@@ -232,12 +239,12 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         g.renderOutline(da.x, da.y, da.w, da.h, 0xFF3A3A3A);
 
         // Local evaluation to get display values (cached across frames)
-        var graph = blockEntity != null ? blockEntity.graph : new NodeGraph();
+        var graph = getBE() != null ? getBE().graph : new NodeGraph();
         var localEval = getCachedEvaluator(graph);
 
         // Collect and render display elements (cached when graph is static — Phase 2)
         // When running, output values change each tick so we must rebuild.
-        boolean isRunning = blockEntity != null && blockEntity.running;
+        boolean isRunning = getBE() != null && getBE().running;
         float efsw = getEffectiveScreenW(), efsl = getEffectiveScreenL();
         int curGen = graph.graphGeneration;
         boolean displayChanged = curGen != lastDisplayGen || efsw != lastDisplaySW || efsl != lastDisplaySL
@@ -392,15 +399,16 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         g.drawString(mc.font, "§cX", px + pw - 14, py + 5, 0xFFFFFFFF, false);
 
         // Load BE values into EditBoxes only once when panel opens
-        if (!settingsInited && blockEntity != null) {
-            settingFields[0].setValue(ff2(blockEntity.screenWidth));
-            settingFields[1].setValue(ff2(blockEntity.screenLength));
-            settingFields[2].setValue(ff2(blockEntity.screenX));
-            settingFields[3].setValue(ff2(blockEntity.screenY));
-            settingFields[4].setValue(ff2(blockEntity.screenZ));
-            settingFields[5].setValue(ff2(blockEntity.screenRoll));
-            settingFields[6].setValue(ff2(blockEntity.screenPitch));
-            settingFields[7].setValue(ff2(blockEntity.screenYaw));
+        MonitorBlockEntity mbe = getBE();
+        if (!settingsInited && mbe != null) {
+            settingFields[0].setValue(ff2(mbe.screenWidth));
+            settingFields[1].setValue(ff2(mbe.screenLength));
+            settingFields[2].setValue(ff2(mbe.screenX));
+            settingFields[3].setValue(ff2(mbe.screenY));
+            settingFields[4].setValue(ff2(mbe.screenZ));
+            settingFields[5].setValue(ff2(mbe.screenRoll));
+            settingFields[6].setValue(ff2(mbe.screenPitch));
+            settingFields[7].setValue(ff2(mbe.screenYaw));
             settingsInited = true;
         }
 
@@ -441,7 +449,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             float yw = Float.parseFloat(settingFields[7].getValue().trim());
             saveGraph(); // sync graph to server before settings trigger a block update
             var pkt = new com.example.create_schematic_compute.network.MonitorSettingsPacket(
-                blockEntity.getBlockPos(), w, l, x, y, z, r, p, yw);
+                getBE().getBlockPos(), w, l, x, y, z, r, p, yw);
             PacketDistributor.sendToServer(pkt);
         } catch (Exception e) { SchematicCompute.LOGGER.warn("Failed to parse monitor settings", e); }
         previewScreenW = -1; previewScreenL = -1;
@@ -717,11 +725,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
         // Double-click IMAGE/IMAGE_SEQUENCE node → open pixel editor
         // (exclude expand-indicator area to avoid conflict with expand toggle)
-        if (btn == 0 && blockEntity != null) {
+        if (btn == 0 && getBE() != null) {
             long now = System.currentTimeMillis();
             GraphNode clicked = null;
             float hitSx = 0, hitSy = 0;
-            for (var n : blockEntity.graph.nodes) {
+            for (var n : getBE().graph.nodes) {
                 if (n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE) continue;
                 float sx = editor.c2sX(n.x), sy = editor.c2sY(n.y);
                 float sw = GraphEditor.NW * editor.zoom, nh = (GraphEditor.HH + GraphEditor.PH * (n.inputs() + n.outputs())) * editor.zoom + 4;
@@ -776,7 +784,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             }
 
             // Check for display element hits (scaled to rendered size)
-            var graph = blockEntity != null ? blockEntity.graph : new NodeGraph();
+            var graph = getBE() != null ? getBE().graph : new NodeGraph();
             var localEval = getCachedEvaluator(graph);
             var elements = collectDisplayElements(graph, localEval);
             float guiScale2 = da.w * FONT_BLOCK_SCALE / Math.max(getContentWorldW(), 0.01f);
@@ -844,7 +852,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                         int idx = py * 16 + px;
                         if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
                             pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor;
-                            if (blockEntity != null) blockEntity.graph.bumpGeneration();
+                            if (blockEntity != null) getBE().graph.bumpGeneration();
                         }
                     }
                 }
@@ -930,7 +938,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
                     pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor;
                     pixelEdit.painting = true;
-                    if (blockEntity != null) blockEntity.graph.bumpGeneration();
+                    if (blockEntity != null) getBE().graph.bumpGeneration();
                 }
             }
             return true;

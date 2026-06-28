@@ -27,17 +27,22 @@ public class SpeedProxyScreen extends AbstractContainerScreen<SpeedProxyMenu> im
             || nt == com.example.create_schematic_compute.graph.NodeType.BUS_IN);
     }
 
-    @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
-    @Override public boolean isRunning() { return blockEntity != null && blockEntity.running; }
-    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { return blockEntity != null ? blockEntity.runtimeState.flipflopStates : null; }
+    private SpeedProxyBlockEntity getBE() {
+        if (blockEntity != null) return blockEntity;
+        if (menu.blockPos != null && minecraft != null && minecraft.level != null) {
+            if (minecraft.level.getBlockEntity(menu.blockPos) instanceof SpeedProxyBlockEntity be) return be;
+        }
+        return null;
+    }
+    @Override public NodeGraph getGraph() { SpeedProxyBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
+    @Override public boolean isRunning() { SpeedProxyBlockEntity be = getBE(); return be != null && be.running; }
+    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { SpeedProxyBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
 
     @Override
     public void saveGraph() {
         try {
-            SpeedProxyBlockEntity be = blockEntity;
-            if(be==null&&menu.blockPos!=null&&minecraft!=null&&minecraft.level!=null)
-                if(minecraft.level.getBlockEntity(menu.blockPos) instanceof SpeedProxyBlockEntity found) be=found;
+            SpeedProxyBlockEntity be = getBE();
             if(be==null||be.getLevel()==null) return;
             var tag = new CompoundTag();
             tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
@@ -50,8 +55,9 @@ public class SpeedProxyScreen extends AbstractContainerScreen<SpeedProxyMenu> im
 
     @Override
     public void toggleRunning(boolean start) {
-        if(blockEntity != null)
-            PacketDistributor.sendToServer(new BlueprintTogglePacket(blockEntity.getBlockPos(), start));
+        SpeedProxyBlockEntity be = getBE();
+        if(be != null)
+            PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start));
     }
 
     @Override protected void renderBg(GuiGraphics g, float pt, int mx, int my) { editor.renderBg(g, mx, my); }

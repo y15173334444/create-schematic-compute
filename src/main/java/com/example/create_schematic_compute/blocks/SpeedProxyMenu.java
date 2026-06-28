@@ -18,7 +18,11 @@ public class SpeedProxyMenu extends AbstractContainerMenu {
         this.blockEntity = be;
         this.blockPos = be.getBlockPos();
     }
-
+    /** Terminal virtual menu. */
+    public SpeedProxyMenu(int id, BlockPos pos) {
+        super(SchematicCompute.SPEED_PROXY_MENU.get(), id);
+        this.blockEntity = null; this.blockPos = pos;
+    }
     public SpeedProxyMenu(int id, Inventory inv, RegistryFriendlyByteBuf buf) {
         super(SchematicCompute.SPEED_PROXY_MENU.get(), id);
         this.blockPos = buf.readBlockPos();

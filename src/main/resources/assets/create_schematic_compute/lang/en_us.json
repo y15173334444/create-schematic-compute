@@ -377,5 +377,14 @@
   "gui.create_schematic_compute.radar.lock_dist": "LockDist",
   "gui.create_schematic_compute.radar.offset_x": "X(L/R)",
   "gui.create_schematic_compute.radar.offset_y": "Y(U/D)",
-  "gui.create_schematic_compute.radar.offset_z": "Z(F/B)"
+  "gui.create_schematic_compute.radar.offset_z": "Z(F/B)",
+
+  "item.create_schematic_compute.portable_terminal": "Portable Terminal",
+  "gui.create_schematic_compute.terminal.title": "Portable Terminal - Nearby Devices",
+  "gui.create_schematic_compute.terminal.edit": "Edit",
+  "gui.create_schematic_compute.terminal.refresh": "Refresh",
+  "gui.create_schematic_compute.terminal.range": "Range",
+  "gui.create_schematic_compute.terminal.no_devices": "No devices nearby",
+  "gui.create_schematic_compute.terminal.target_gone": "Target block destroyed",
+  "gui.create_schematic_compute.terminal.back": "← Back to device list"
 }

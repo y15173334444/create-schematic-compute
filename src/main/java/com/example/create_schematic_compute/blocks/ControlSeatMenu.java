@@ -18,7 +18,11 @@ public class ControlSeatMenu extends AbstractContainerMenu {
         this.blockEntity = be;
         this.blockPos = be.getBlockPos();
     }
-
+    /** Terminal virtual menu. */
+    public ControlSeatMenu(int id, BlockPos pos) {
+        super(SchematicCompute.CONTROL_SEAT_MENU.get(), id);
+        this.blockEntity = null; this.blockPos = pos;
+    }
     public ControlSeatMenu(int id, Inventory inv, RegistryFriendlyByteBuf buf) {
         super(SchematicCompute.CONTROL_SEAT_MENU.get(), id);
         this.blockPos = buf.readBlockPos();

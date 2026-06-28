@@ -60,5 +60,17 @@ public class AllPackets {
                 RadarLockPacket.CODEC,
                 RadarLockPacket::handle
         );
+        // v1.2.2: portable terminal packets
+        registrar.playToServer(RequestGraphPacket.TYPE, RequestGraphPacket.CODEC, RequestGraphPacket::handle);
+        registrar.playToClient(ResponseGraphPacket.TYPE, ResponseGraphPacket.CODEC, ResponseGraphPacket::handle);
+        registrar.playToServer(SaveGraphPacket.TYPE, SaveGraphPacket.CODEC, SaveGraphPacket::handle);
+        registrar.playToClient(SaveRejectedPacket.TYPE, SaveRejectedPacket.CODEC, SaveRejectedPacket::handle);
+        // v1.2.2: Sable sub-level device scanning (server-side)
+        registrar.playToServer(ScanSablePacket.TYPE, ScanSablePacket.CODEC, ScanSablePacket::handle);
+        registrar.playToClient(ScanSableResponsePacket.TYPE, ScanSableResponsePacket.CODEC, ScanSableResponsePacket::handle);
+        // v1.2.2: remote settings sync for terminal
+        registrar.playToServer(RequestSettingsPacket.TYPE, RequestSettingsPacket.CODEC, RequestSettingsPacket::handle);
+        registrar.playToClient(ResponseSettingsPacket.TYPE, ResponseSettingsPacket.CODEC, ResponseSettingsPacket::handle);
+        registrar.playToServer(SaveSettingsPacket.TYPE, SaveSettingsPacket.CODEC, SaveSettingsPacket::handle);
     }
 }

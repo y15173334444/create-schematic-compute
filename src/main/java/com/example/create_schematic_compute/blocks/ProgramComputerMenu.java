@@ -18,6 +18,12 @@ public class ProgramComputerMenu extends AbstractContainerMenu {
         this.blockEntity = be;
         this.blockPos = be.getBlockPos();
     }
+    /** Terminal virtual menu — no local BE available. */
+    public ProgramComputerMenu(int id, BlockPos pos) {
+        super(SchematicCompute.PROGRAM_MENU.get(), id);
+        this.blockEntity = null;
+        this.blockPos = pos;
+    }
     public ProgramComputerMenu(int id, Inventory inv, RegistryFriendlyByteBuf buf) {
         super(SchematicCompute.PROGRAM_MENU.get(), id);
         this.blockPos = buf.readBlockPos();

@@ -19,6 +19,13 @@ public class MonitorMenu extends AbstractContainerMenu {
         this.blockPos = be.getBlockPos();
     }
 
+    /** Terminal virtual menu — no local BE available. */
+    public MonitorMenu(int id, BlockPos pos) {
+        super(SchematicCompute.MONITOR_MENU.get(), id);
+        this.blockEntity = null;
+        this.blockPos = pos;
+    }
+
     public MonitorMenu(int id, Inventory inv, RegistryFriendlyByteBuf buf) {
         super(SchematicCompute.MONITOR_MENU.get(), id);
         this.blockPos = buf.readBlockPos();

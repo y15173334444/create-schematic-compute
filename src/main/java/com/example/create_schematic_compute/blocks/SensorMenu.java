@@ -13,6 +13,8 @@ public class SensorMenu extends AbstractContainerMenu {
     public final SensorBlockEntity blockEntity;
     public final BlockPos blockPos;
     public SensorMenu(int id, SensorBlockEntity be) { super(SchematicCompute.SENSOR_MENU.get(), id); this.blockEntity = be; this.blockPos = be.getBlockPos(); }
+    /** Terminal virtual menu. */
+    public SensorMenu(int id, BlockPos pos) { super(SchematicCompute.SENSOR_MENU.get(), id); this.blockEntity = null; this.blockPos = pos; }
     public SensorMenu(int id, Inventory inv, RegistryFriendlyByteBuf buf) {
         super(SchematicCompute.SENSOR_MENU.get(), id);
         this.blockPos = buf.readBlockPos();

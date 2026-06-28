@@ -52,18 +52,23 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
             && nt != com.example.create_schematic_compute.graph.NodeType.ENCAP_OUTPUT);
     }
 
-    @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
-    @Override public boolean isRunning() { return blockEntity != null && blockEntity.running; }
-    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { return blockEntity != null ? blockEntity.runtimeState.flipflopStates : null; }
+    private BlueprintBlockEntity getBE() {
+        if (blockEntity != null) return blockEntity;
+        if (menu.blockPos != null && minecraft != null && minecraft.level != null) {
+            if (minecraft.level.getBlockEntity(menu.blockPos) instanceof BlueprintBlockEntity be) return be;
+        }
+        return null;
+    }
+    @Override public NodeGraph getGraph() { BlueprintBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
+    @Override public boolean isRunning() { BlueprintBlockEntity be = getBE(); return be != null && be.running; }
+    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { BlueprintBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
     @Override public net.minecraft.core.BlockPos getBlockPos() { return menu.blockPos; }
 
     @Override
     public void saveGraph() {
         try {
-            BlueprintBlockEntity be = blockEntity;
-            if(be==null&&menu.blockPos!=null&&minecraft!=null&&minecraft.level!=null)
-                if(minecraft.level.getBlockEntity(menu.blockPos) instanceof BlueprintBlockEntity found) be=found;
+            BlueprintBlockEntity be = getBE();
             if(be==null||be.getLevel()==null) return;
             var tag = new CompoundTag();
             tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
@@ -76,8 +81,9 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
 
     @Override
     public void toggleRunning(boolean start) {
-        if(blockEntity != null)
-            PacketDistributor.sendToServer(new BlueprintTogglePacket(blockEntity.getBlockPos(), start));
+        BlueprintBlockEntity be = getBE();
+        if(be != null)
+            PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start));
     }
 
     @Override protected void renderBg(GuiGraphics g, float pt, int mx, int my) { editor.renderBg(g, mx, my); }

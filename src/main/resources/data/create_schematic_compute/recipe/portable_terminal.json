@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "RGR",
+    "GBG",
+    "RGR"
+  ],
+  "key": {
+    "B": { "item": "create_schematic_compute:blueprint" },
+    "R": { "item": "create:redstone_link" },
+    "G": { "item": "minecraft:glass_pane" }
+  },
+  "result": {
+    "id": "create_schematic_compute:portable_terminal",
+    "count": 1
+  }
+}

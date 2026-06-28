@@ -1,0 +1,53 @@
+{
+	"format_version": "1.21.11",
+	"credit": "Made with Blockbench",
+	"texture_size": [32, 32],
+	"textures": {
+		"0": "create_schematic_compute:item/portable_terminal",
+		"particle": "create_schematic_compute:item/portable_terminal"
+	},
+	"elements": [
+		{
+			"from": [0, 0, 3],
+			"to": [16, 1, 12],
+			"rotation": {"angle": 0, "axis": "y", "origin": [0, 0, 3]},
+			"faces": {
+				"north": {"uv": [8, 0, 16, 0.5], "texture": "#0"},
+				"east": {"uv": [8, 1, 12.5, 1.5], "texture": "#0"},
+				"south": {"uv": [8, 0.5, 16, 1], "texture": "#0"},
+				"west": {"uv": [8, 1.5, 12.5, 2], "texture": "#0"},
+				"up": {"uv": [8, 4.5, 0, 0], "texture": "#0"},
+				"down": {"uv": [8, 4.5, 0, 9], "texture": "#0"}
+			}
+		}
+	],
+	"display": {
+		"thirdperson_righthand": {
+			"rotation": [95, 0, 0],
+			"translation": [-6, 0, 7.25]
+		},
+		"thirdperson_lefthand": {
+			"rotation": [95, 0, 0],
+			"translation": [-6, 0, 7.25]
+		},
+		"firstperson_righthand": {
+			"rotation": [60, 0, 0],
+			"translation": [-9, 5.5, 2.5]
+		},
+		"firstperson_lefthand": {
+			"rotation": [60, 0, 0],
+			"translation": [-9, 5.5, 2.5]
+		},
+		"ground": {
+			"translation": [0, 3.5, 0],
+			"scale": [0.5, 0.5, 0.5]
+		},
+		"gui": {
+			"rotation": [90, 0, 0]
+		},
+		"fixed": {
+			"rotation": [-90, 180, 0],
+			"translation": [0, 0, -6.75]
+		}
+	}
+}

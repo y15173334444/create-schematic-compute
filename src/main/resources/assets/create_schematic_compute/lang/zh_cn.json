@@ -389,5 +389,14 @@
   "gui.create_schematic_compute.radar.lock_dist": "锁定距离",
   "gui.create_schematic_compute.radar.offset_x": "左/右(X)",
   "gui.create_schematic_compute.radar.offset_y": "上/下(Y)",
-  "gui.create_schematic_compute.radar.offset_z": "前/后(Z)"
+  "gui.create_schematic_compute.radar.offset_z": "前/后(Z)",
+
+  "item.create_schematic_compute.portable_terminal": "便携终端",
+  "gui.create_schematic_compute.terminal.title": "便携终端 - 附近设备",
+  "gui.create_schematic_compute.terminal.edit": "编辑",
+  "gui.create_schematic_compute.terminal.refresh": "刷新",
+  "gui.create_schematic_compute.terminal.range": "范围",
+  "gui.create_schematic_compute.terminal.no_devices": "附近没有设备",
+  "gui.create_schematic_compute.terminal.target_gone": "目标方块已消失",
+  "gui.create_schematic_compute.terminal.back": "← 返回设备列表"
 }

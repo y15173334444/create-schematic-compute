@@ -47,17 +47,22 @@ public class ControlSeatScreen extends AbstractContainerScreen<ControlSeatMenu> 
         editor.setNodeFilter(ControlSeatScreen::isAllowedNode);
     }
 
-    @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
-    @Override public boolean isRunning() { return blockEntity != null && blockEntity.running; }
-    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { return blockEntity != null ? blockEntity.runtimeState.flipflopStates : null; }
+    private ControlSeatBlockEntity getBE() {
+        if (blockEntity != null) return blockEntity;
+        if (menu.blockPos != null && minecraft != null && minecraft.level != null) {
+            if (minecraft.level.getBlockEntity(menu.blockPos) instanceof ControlSeatBlockEntity be) return be;
+        }
+        return null;
+    }
+    @Override public NodeGraph getGraph() { ControlSeatBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
+    @Override public boolean isRunning() { ControlSeatBlockEntity be = getBE(); return be != null && be.running; }
+    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { ControlSeatBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
 
     @Override
     public void saveGraph() {
         try {
-            ControlSeatBlockEntity be = blockEntity;
-            if(be==null&&menu.blockPos!=null&&minecraft!=null&&minecraft.level!=null)
-                if(minecraft.level.getBlockEntity(menu.blockPos) instanceof ControlSeatBlockEntity found) be=found;
+            ControlSeatBlockEntity be = getBE();
             if(be==null||be.getLevel()==null) return;
             var tag = new CompoundTag(); tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
             var baos = new ByteArrayOutputStream(); NbtIo.writeCompressed(tag, baos);
@@ -68,8 +73,9 @@ public class ControlSeatScreen extends AbstractContainerScreen<ControlSeatMenu> 
 
     @Override
     public void toggleRunning(boolean start) {
-        if(blockEntity != null)
-            PacketDistributor.sendToServer(new BlueprintTogglePacket(blockEntity.getBlockPos(), start));
+        ControlSeatBlockEntity be = getBE();
+        if(be != null)
+            PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start));
     }
 
     @Override protected void renderBg(GuiGraphics g, float pt, int mx, int my) { editor.renderBg(g, mx, my); }

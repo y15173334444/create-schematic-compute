@@ -18,7 +18,12 @@ public class RadarMenu extends AbstractContainerMenu {
         this.blockEntity = be;
         this.blockPos = be.getBlockPos();
     }
-
+    /** Terminal virtual menu — no local BE available. */
+    public RadarMenu(int id, BlockPos pos) {
+        super(SchematicCompute.RADAR_MENU.get(), id);
+        this.blockEntity = null;
+        this.blockPos = pos;
+    }
     public RadarMenu(int id, Inventory inv, RegistryFriendlyByteBuf buf) {
         super(SchematicCompute.RADAR_MENU.get(), id);
         this.blockPos = buf.readBlockPos();

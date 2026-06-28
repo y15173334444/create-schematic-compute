@@ -3,6 +3,7 @@ package com.example.create_schematic_compute;
 import com.example.create_schematic_compute.blocks.*;
 import com.example.create_schematic_compute.client.ClientSetup;
 import com.example.create_schematic_compute.entity.ControlSeatEntity;
+import com.example.create_schematic_compute.items.PortableTerminalItem;
 import com.simibubi.create.api.schematic.nbt.SafeNbtWriterRegistry;
 import com.simibubi.create.api.schematic.nbt.SafeNbtWriterRegistry.SafeNbtWriter;
 import net.minecraft.core.registries.Registries;
@@ -110,6 +111,10 @@ public class SchematicCompute {
     public static final DeferredHolder<MenuType<?>, MenuType<RadarMenu>> RADAR_MENU =
             MENUS.register("radar", () -> IMenuTypeExtension.create((id, inv, buf) -> new RadarMenu(id, inv, buf)));
 
+    // v1.2.2: 便携终端物品
+    public static final DeferredHolder<Item, PortableTerminalItem> PORTABLE_TERMINAL =
+            ITEMS.register("portable_terminal", () -> new PortableTerminalItem(new Item.Properties()));
+
     public SchematicCompute(IEventBus modEventBus) {
         LOGGER.info("{} initializing...", MOD_ID);
         BLOCKS.register(modEventBus);
@@ -130,6 +135,7 @@ public class SchematicCompute {
                     output.accept(SENSOR_ITEM.get());
                     output.accept(MONITOR_ITEM.get());
                     output.accept(RADAR_ITEM.get());
+                    output.accept(PORTABLE_TERMINAL.get());
                 }).build());
 
         // 在注册事件完成后再注册 SafeNbtWriter

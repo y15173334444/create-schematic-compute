@@ -28,14 +28,19 @@ public class SensorScreen extends AbstractContainerScreen<SensorMenu> implements
         this.editor = new GraphEditor(this, this);
         editor.setNodeFilter(SensorScreen::isAllowed);
     }
-    @Override public NodeGraph getGraph() { return blockEntity != null ? blockEntity.graph : new NodeGraph(); }
-    @Override public boolean isRunning() { return blockEntity != null && blockEntity.running; }
-    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { return blockEntity != null ? blockEntity.runtimeState.flipflopStates : null; }
+    private SensorBlockEntity getBE() {
+        if (blockEntity != null) return blockEntity;
+        if (menu.blockPos != null && minecraft != null && minecraft.level != null) {
+            if (minecraft.level.getBlockEntity(menu.blockPos) instanceof SensorBlockEntity be) return be;
+        }
+        return null;
+    }
+    @Override public NodeGraph getGraph() { SensorBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
+    @Override public boolean isRunning() { SensorBlockEntity be = getBE(); return be != null && be.running; }
+    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { SensorBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
     @Override public void saveGraph() {
-        try { SensorBlockEntity be = blockEntity;
-            if(be==null&&menu.blockPos!=null&&minecraft!=null&&minecraft.level!=null)
-                if(minecraft.level.getBlockEntity(menu.blockPos) instanceof SensorBlockEntity found) be=found;
+        try { SensorBlockEntity be = getBE();
             if(be==null||be.getLevel()==null) return;
             var tag = new CompoundTag(); tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
             var baos = new ByteArrayOutputStream(); NbtIo.writeCompressed(tag, baos);
@@ -43,7 +48,7 @@ public class SensorScreen extends AbstractContainerScreen<SensorMenu> implements
             editor.saveFeedbackUntil = System.currentTimeMillis() + 1500;
         } catch(Exception e) { SchematicCompute.LOGGER.error("Save", e); }
     }
-    @Override public void toggleRunning(boolean start) { if(blockEntity != null) PacketDistributor.sendToServer(new BlueprintTogglePacket(blockEntity.getBlockPos(), start)); }
+    @Override public void toggleRunning(boolean start) { SensorBlockEntity be = getBE(); if(be != null) PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     @Override protected void renderBg(GuiGraphics g, float pt, int mx, int my) { editor.renderBg(g, mx, my); }
     @Override public boolean mouseClicked(double mx, double my, int btn) { return editor.mouseClicked(mx, my, btn) || super.mouseClicked(mx, my, btn); }
     @Override public boolean mouseReleased(double mx, double my, int btn) { editor.mouseReleased(mx, my, btn); return super.mouseReleased(mx, my, btn); }

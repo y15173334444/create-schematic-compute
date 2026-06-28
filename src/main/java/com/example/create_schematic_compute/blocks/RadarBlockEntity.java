@@ -117,7 +117,9 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
         }
     }
 
-    @Override public void onLoad() { super.onLoad(); rs.onLoad(graph); if (level != null && level.isClientSide()) CLIENT_RADARS.add(this); }
+    @Override public void onLoad() { super.onLoad(); rs.onLoad(graph); if (level != null && level.isClientSide()) CLIENT_RADARS.add(this);
+        else clearCachedSubPose(); // 服务端清除 NBT 带来的旧 Sable 缓存，让 bootstrap 重新初始化
+    }
     @Override public void onChunkUnloaded() { cleanupBusChannels(graph); unregisterBusChannels(graph); super.onChunkUnloaded(); rs.onChunkUnloaded(); }
     @Override public void setRemoved() { CLIENT_RADARS.remove(this); cleanupBusChannels(graph); unregisterBusChannels(graph); TargetAssignment.clear(worldPosition); rs.setRemoved(); super.setRemoved(); }
     @Override public NodeGraph getNodeGraph() { return graph; }
@@ -150,18 +152,6 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
         cachedSubQw = Float.NaN;
     }
 
-    /** 验证 Sable 缓存有效性 — 防止从 NBT 复制或蓝图粘贴带来的过期坐标 */
-    private void validateSableCache() {
-        if (Float.isNaN(cachedSubYaw)) return; // 无缓存数据
-        Level checkLevel = getEffectiveLevel();
-        if (checkLevel == null) return;
-        // Sable 子世界类名包含 "SubLevel"，主世界 Level 不包含
-        String cn = checkLevel.getClass().getSimpleName();
-        if (!cn.contains("SubLevel")) {
-            clearCachedSubPose();
-        }
-    }
-
     /** 仅在 sable$physicsTick 从未被调用时兜底填充初始缓存。
      *  sable$physicsTick 每 tick 更新精确世界位置，bootstrap 不应覆盖它。 */
     private void tryBootstrapSableCache() {
@@ -175,12 +165,29 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
             if (cnt == null) return;
             var all = (List<?>) sableGetAllSubLevelsMethod.invoke(cnt);
             if (all == null || all.isEmpty()) return;
-            Object pose = sableLogicalPoseMethod.invoke(all.get(0));
-            var pm = pose.getClass().getMethod("position");
-            var pos = pm.invoke(pose);
-            double px = (double) pos.getClass().getMethod("x").invoke(pos);
-            double py = (double) pos.getClass().getMethod("y").invoke(pos);
-            double pz = (double) pos.getClass().getMethod("z").invoke(pos);
+            // Find the sub-level whose global bounding box contains this radar
+            double rx = worldPosition.getX() + 0.5, ry = worldPosition.getY() + 0.5, rz = worldPosition.getZ() + 0.5;
+            Object found = null;
+            for (var s : all) {
+                var bb = s.getClass().getMethod("boundingBox").invoke(s);
+                if (bb == null) continue;
+                double mnx = (double) bb.getClass().getMethod("minX").invoke(bb);
+                double mxx = (double) bb.getClass().getMethod("maxX").invoke(bb);
+                double mny = (double) bb.getClass().getMethod("minY").invoke(bb);
+                double mxy = (double) bb.getClass().getMethod("maxY").invoke(bb);
+                double mnz = (double) bb.getClass().getMethod("minZ").invoke(bb);
+                double mxz = (double) bb.getClass().getMethod("maxZ").invoke(bb);
+                if (rx >= mnx && rx <= mxx && ry >= mny && ry <= mxy && rz >= mnz && rz <= mxz) {
+                    found = s; break;
+                }
+            }
+            if (found == null) return;
+            var bestPose = sableLogicalPoseMethod.invoke(found);
+            var pm2 = bestPose.getClass().getMethod("position");
+            var pos2 = pm2.invoke(bestPose);
+            double px = (double) pos2.getClass().getMethod("x").invoke(pos2);
+            double py = (double) pos2.getClass().getMethod("y").invoke(pos2);
+            double pz = (double) pos2.getClass().getMethod("z").invoke(pos2);
             cachedSubOriginX = (float) px;
             cachedSubOriginY = (float) py;
             cachedSubOriginZ = (float) pz;
@@ -188,8 +195,8 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
             cachedSubWorldY = (float) py;
             cachedSubWorldZ = (float) pz;
             try {
-                var om = pose.getClass().getMethod("orientation");
-                var oq = om.invoke(pose);
+                var om = bestPose.getClass().getMethod("orientation");
+                var oq = om.invoke(bestPose);
                 if (oq != null) {
                     double ox = (double) oq.getClass().getMethod("x").invoke(oq);
                     double oy = (double) oq.getClass().getMethod("y").invoke(oq);
@@ -260,8 +267,6 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
             return;
         }
 
-        // ══ 校验 Sable 缓存 — 防止从 NBT 带入过期坐标 ══
-        validateSableCache();
         // 主动检测 Sable（sable$physicsTick 未调用时的兜底）
         tryBootstrapSableCache();
 
