@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github)](https://github.com/y15173334444/create-schematic-compute)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.2.1-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
+[![Version](https://img.shields.io/badge/Version-1.2.2-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
 [![Modrinth](https://img.shields.io/badge/Modrinth-create--schematic--compute-00AF5C?style=flat-square&logo=modrinth)](https://modrinth.com/mod/create-schematic-compute)
@@ -115,6 +115,19 @@ A **real-time 3D radar scanner** that detects entities and sable structures in a
 **Target Assignment Modes:**
 - **Multi-target**: Targets are distributed across TARGET_OUT nodes in round-robin order
 - **Single-target**: All TARGET_OUT nodes receive the closest target
+
+---
+
+#### 📱 Portable Terminal
+
+A **handheld remote editor** that scans for nearby programmable blocks and opens their native GUI for remote editing.
+
+- **Device Scanning** — Scans overworld and Sable sub-level blocks within configurable range (1–256 blocks). Sable scanning uses server-side `LevelPlot` chunk iteration with rotation-corrected world position calculation.
+- **One-Click Edit** — Select any device from the list to instantly open its native GUI (graph editor, settings, pixel editor, radar controls, etc.)
+- **Editable Scan Range** — Numeric input field with auto-refresh on value change; range persists within the same game session.
+- **All 7 Block Types** — Supports Monitor, Blueprint, ProgramComputer, Radar, ControlSeat, Sensor, and SpeedProxy.
+- **Sable Compatible** — Correctly identifies programmable blocks inside Sable physics structures via classloader-safe interface detection.
+- **3D Handheld Model** — Custom Blockbench model with adjusted GUI display angles.
 
 ---
 
@@ -637,6 +650,19 @@ MIT License © 2026 StarryNight_Luo
 
 ---
 
+#### 📱 便携终端
+
+一个**手持远程编辑器**，扫描附近的可编程方块并直接打开其原生界面进行远程编辑。
+
+- **设备扫描** — 扫描 overworld 和 Sable 子世界中的可编程方块，范围可配置（1-256 格）。Sable 扫描使用服务端 `LevelPlot` chunk 迭代和旋转修正的世界坐标计算。
+- **一键编辑** — 从列表选择任意设备，即时打开其原生 GUI（图编辑器、设置、像素编辑器、雷达控制等）。
+- **扫描范围可编辑** — 数字输入框，值变更自动刷新，同一次游戏内范围保持。
+- **支持全部 7 种方块** — 全息显示器、蓝图计算机、可编程计算机、雷达、控制座椅、姿态传感器、速度代理。
+- **Sable 兼容** — 通过类加载器安全的接口检测正确识别 Sable 物理结构内的可编程方块。
+- **3D 手持模型** — 自定义 Blockbench 模型，已调整 GUI 显示角度。
+
+---
+
 ### BUS 总线节点系统
 
 **Signal Bus** 是一个全局命名通道通信系统，允许计算机之间共享数据——类似发布-订阅消息总线。
@@ -1023,6 +1049,14 @@ MIT License © 2026 StarryNight_Luo
 ---
 
 ## 📝 Changelog
+
+### v1.2.2 — Portable Terminal
+- **📱 Portable Terminal** — new handheld item to remotely discover and edit programmable blocks. Scans overworld and Sable sub-level devices within configurable range (1–256 blocks). One-click opens the block's native GUI.
+- **🔍 Sable sub-level scanning** — server-side scan via `LevelPlot.getLoadedChunks()` with rotation-corrected world position calculation. Classloader-safe interface detection handles Sable's jarjar isolation.
+- **🖥️ Remote block GUI** — all 7 programmable blocks open their native interface through the terminal. Virtual menu system with `getBE()` fallback for blocks at any location.
+- **🛠️ Radar fixes** — removed aggressive `validateSableCache()` that cleared Sable pose every tick. Bootstrap now uses `boundingBox()` for precise sub-level matching. `onLoad()` clears cached coordinates to fix NBT-copied radar stale data.
+- **🧹 Code cleanup** — portable terminal streamlined (7 dead packet files removed, screen code -52%). All screens unified `toggleRunning()` pattern for local state update.
+- **🎨 3D terminal model** — custom Blockbench handheld model with GUI display angles.
 
 ### v1.2.1
 - **⚡ GUI performance optimization (Phase 1)** — eliminated per-frame allocations: pooled Vector3f/Quaternionf in radar renderer, cached redstone input lists, replaced String.format with fast formatters (ff0/ff1/ff2/ff3/hex8), fixed MultiLineEditBox O(n²) substring allocation via plainSubstrByWidth
