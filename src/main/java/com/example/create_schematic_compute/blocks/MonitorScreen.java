@@ -145,8 +145,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     @Override
     public void toggleRunning(boolean start) {
         MonitorBlockEntity be = getBE();
-        if (be != null)
-            PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start));
+        if (be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
 
     // ── Rendering ──

@@ -48,7 +48,7 @@ public class SensorScreen extends AbstractContainerScreen<SensorMenu> implements
             editor.saveFeedbackUntil = System.currentTimeMillis() + 1500;
         } catch(Exception e) { SchematicCompute.LOGGER.error("Save", e); }
     }
-    @Override public void toggleRunning(boolean start) { SensorBlockEntity be = getBE(); if(be != null) PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
+    @Override public void toggleRunning(boolean start) { SensorBlockEntity be = getBE(); if(be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); } }
     @Override protected void renderBg(GuiGraphics g, float pt, int mx, int my) { editor.renderBg(g, mx, my); }
     @Override public boolean mouseClicked(double mx, double my, int btn) { return editor.mouseClicked(mx, my, btn) || super.mouseClicked(mx, my, btn); }
     @Override public boolean mouseReleased(double mx, double my, int btn) { editor.mouseReleased(mx, my, btn); return super.mouseReleased(mx, my, btn); }

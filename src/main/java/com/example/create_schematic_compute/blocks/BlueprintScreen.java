@@ -82,8 +82,7 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
     @Override
     public void toggleRunning(boolean start) {
         BlueprintBlockEntity be = getBE();
-        if(be != null)
-            PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start));
+        if(be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
 
     @Override protected void renderBg(GuiGraphics g, float pt, int mx, int my) { editor.renderBg(g, mx, my); }
