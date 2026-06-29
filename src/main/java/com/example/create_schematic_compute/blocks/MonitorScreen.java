@@ -42,6 +42,19 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     private GraphNode selectedDisplayNode = null;
     private float dragOffX, dragOffY;
 
+    // ── Layer panel state ──
+    private int layerScroll = 0;
+
+    // ── Layer drag-and-drop state ──
+    private enum LayerDragState { IDLE, PRESSED, DRAGGING }
+    private LayerDragState layerDragState = LayerDragState.IDLE;
+    private GraphNode layerDragNode = null;        // the node being dragged
+    private int layerDragOrigIndex = -1;           // original position in full sorted list
+    private int layerDropIndex = -1;               // where the drop indicator draws
+    private double layerDragStartMy = 0;           // mouse Y when click started
+    private long layerDragPressTime = 0;           // system time when click started
+    private long lastAutoScrollTime = 0;           // throttle timer for auto-scroll
+
     // ── Display mode inline editing ──
     private boolean editingS = false, editingR = false;
     private String editSBuf = "", editRBuf = "";
@@ -103,7 +116,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         var mc = Minecraft.getInstance();
         settingFields = new net.minecraft.client.gui.components.EditBox[8];
         for (int i = 0; i < 8; i++) {
-            settingFields[i] = new net.minecraft.client.gui.components.EditBox(mc.font, 0, 0, 60, 14, Component.literal(""));
+            settingFields[i] = new net.minecraft.client.gui.components.EditBox(Minecraft.getInstance().font, 0, 0, 60, 14, Component.literal(""));
             settingFields[i].setMaxLength(8);
         }
         // node filter: only input and display nodes
@@ -153,6 +166,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     protected void renderBg(GuiGraphics g, float pt, int mx, int my) {
         if (displayMode) {
             renderDisplayArea(g, mx, my);
+            renderLayerPanel(g, mx, my);
         } else {
             editor.renderBg(g, mx, my);
             renderDisplayToggleButton(g);
@@ -296,11 +310,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             switch (elem.type) {
                 case TEXT -> {
                     String text = elem.text.isEmpty() ? I18n.get("gui.create_schematic_compute.text_placeholder") : elem.text;
-                    g.drawString(mc.font, text, 0, 0, elem.color, false);
+                    g.drawString(Minecraft.getInstance().font, text, 0, 0, elem.color, false);
                 }
                 case DATA -> {
                     String dataStr = ff1(elem.value);
-                    g.drawString(mc.font, dataStr, 0, 0, elem.color, false);
+                    g.drawString(Minecraft.getInstance().font, dataStr, 0, 0, elem.color, false);
                 }
                 case IMAGE, IMAGE_SEQUENCE -> {
                     if (elem.pixels != null) {
@@ -328,12 +342,12 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         // < Graph
         g.fill(tbx, tby, tbx + 56, tby + tbh, 0xFF3A3832);
         g.renderOutline(tbx, tby, 56, tbh, 0xFF8B7533);
-        g.drawString(mc.font, I18n.get("gui.create_schematic_compute.monitor.back_graph"), tbx + 6, tby + 5, 0xFFFFFFFF, false);
+        g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.back_graph"), tbx + 6, tby + 5, 0xFFFFFFFF, false);
         tbx += 62;
         // Settings
         g.fill(tbx, tby, tbx + 56, tby + tbh, showSettings ? 0xFF3A5A2A : 0xFF3A3832);
         g.renderOutline(tbx, tby, 56, tbh, 0xFF8B7533);
-        g.drawString(mc.font, I18n.get("gui.create_schematic_compute.monitor.settings"), tbx + 6, tby + 5, 0xFFFFFFFF, false);
+        g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.settings"), tbx + 6, tby + 5, 0xFFFFFFFF, false);
         tbx += 62;
 
         // Selected element editing (clickable S/R values)
@@ -341,12 +355,12 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             String sTxt = "§6S:";
             if (editingS) sTxt += "§e" + editSBuf + "▌";
             else sTxt += "§e" + ff1(selectedDisplayNode.displayScale);
-            g.drawString(mc.font, sTxt, tbx + 4, tby + 5, 0xFFFFAA44, false);
-            tbx += mc.font.width(sTxt) + 12;
+            g.drawString(Minecraft.getInstance().font, sTxt, tbx + 4, tby + 5, 0xFFFFAA44, false);
+            tbx += Minecraft.getInstance().font.width(sTxt) + 12;
             String rTxt = "§6R:";
             if (editingR) rTxt += "§e" + editRBuf + "▌";
             else rTxt += "§e" + ff0(selectedDisplayNode.displayRotation);
-            g.drawString(mc.font, rTxt, tbx + 4, tby + 5, 0xFFFFAA44, false);
+            g.drawString(Minecraft.getInstance().font, rTxt, tbx + 4, tby + 5, 0xFFFFAA44, false);
         }
 
         // Hover hints (use rotated AABB for accuracy, with bounding-box clamp)
@@ -383,6 +397,313 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
     }
 
+    // ── Layer panel ──
+    private List<GraphNode> getDisplayLayers(NodeGraph graph) {
+        List<GraphNode> layers = new ArrayList<>();
+        for (var n : graph.nodes) {
+            if (n.type == NodeType.TEXT || n.type == NodeType.DATA
+                || n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE)
+                layers.add(n);
+        }
+        layers.sort((a, b) -> Integer.compare(b.layerIndex, a.layerIndex));
+        return layers;
+    }
+
+    private void renderLayerThumbnail(GuiGraphics g, GraphNode node, int x, int y, int size) {
+        // Dark background
+        g.fill(x, y, x + size, y + size, 0xFF1A1814);
+
+        switch (node.type) {
+            case TEXT -> {
+                String preview = node.displayText.isEmpty() ? "T"
+                    : node.displayText.substring(0, Math.min(3, node.displayText.length()));
+                int tc = node.textColor != 0 ? node.textColor : 0xFFCCCCCC;
+                int tw = Minecraft.getInstance().font.width(preview);
+                g.drawString(Minecraft.getInstance().font, preview,
+                    x + (size - tw) / 2, y + (size - 8) / 2, tc, false);
+            }
+            case DATA -> {
+                var graph = getBE() != null ? getBE().graph : new NodeGraph();
+                var eval = getCachedEvaluator(graph);
+                float val = graph.getInputValue(node.id, 0, eval.getCurrentOutputs());
+                String valStr = ff1(val);
+                int dc = node.textColor != 0 ? node.textColor : 0xFF88FF88;
+                int tw = Minecraft.getInstance().font.width(valStr);
+                g.drawString(Minecraft.getInstance().font, valStr,
+                    x + (size - tw) / 2, y + (size - 8) / 2, dc, false);
+            }
+            case IMAGE -> {
+                if (node.imagePixels != null) {
+                    int cellSz = 1;
+                    int offsetX = x + (size - 16 * cellSz) / 2;
+                    int offsetY = y + (size - 16 * cellSz) / 2;
+                    renderPixels(g, node.imagePixels, offsetX, offsetY, cellSz, 16);
+                }
+            }
+            case IMAGE_SEQUENCE -> {
+                var graph = getBE() != null ? getBE().graph : new NodeGraph();
+                var eval = getCachedEvaluator(graph);
+                int frameIdx = Math.round(graph.getInputValue(node.id, 2, eval.getCurrentOutputs()));
+                int[] pixels = null;
+                if (node.imageSequenceFrames != null && !node.imageSequenceFrames.isEmpty()) {
+                    frameIdx = Math.max(0, Math.min(frameIdx, node.imageSequenceFrames.size() - 1));
+                    pixels = node.imageSequenceFrames.get(frameIdx);
+                }
+                if (pixels != null) {
+                    int cellSz = 1;
+                    int offsetX = x + (size - 16 * cellSz) / 2;
+                    int offsetY = y + (size - 16 * cellSz) / 2;
+                    renderPixels(g, pixels, offsetX, offsetY, cellSz, 16);
+                }
+                // "S" badge at top-right of thumbnail
+                int badgeX = x + size - 7;
+                int badgeY = y + 1;
+                g.fill(badgeX, badgeY, badgeX + 6, badgeY + 6, 0xFF3A3A3A);
+                g.renderOutline(badgeX, badgeY, 6, 6, 0xFF8B7533);
+                g.drawString(Minecraft.getInstance().font, "S", badgeX + 1, badgeY, 0xFFFFAA44, false);
+            }
+        }
+    }
+
+    private void renderLayerPanel(GuiGraphics g, int mx, int my) {
+        var graph = getBE() != null ? getBE().graph : new NodeGraph();
+        List<GraphNode> layers = getDisplayLayers(graph);
+        if (layers.isEmpty()) return;
+
+        int px = width - LAYER_PANEL_W - LAYER_PANEL_PADDING;
+        int py = 26;
+        int titleH = 12;
+        int rowStartY = py + titleH + 2;
+        // Calculate max visible rows below title
+        int availableH = height - rowStartY - 4;
+        int maxRows = Math.max(1, availableH / LAYER_ROW_H);
+        int visibleRows = Math.min(layers.size(), maxRows);
+        int ph = titleH + 2 + visibleRows * LAYER_ROW_H + 4;
+        if (layers.size() > maxRows) ph += 2; // scrollbar foot
+
+        // Panel background
+        g.fill(px, py, px + LAYER_PANEL_W, py + ph, 0xCC1A1814);
+        g.renderOutline(px, py, LAYER_PANEL_W, ph, 0xFF6A6A4A);
+
+        // Title bar
+        g.fill(px + 1, py + 1, px + LAYER_PANEL_W - 1, py + titleH + 1, 0xFF2A2822);
+        String title = "Layers";
+        int titleW = Minecraft.getInstance().font.width(title);
+        g.drawString(Minecraft.getInstance().font, title,
+            px + (LAYER_PANEL_W - titleW) / 2, py + 2, 0xFF8B7533, false);
+
+        int maxScroll = Math.max(0, layers.size() - maxRows);
+        if (layerScroll < 0) layerScroll = 0;
+        if (layerScroll > maxScroll) layerScroll = maxScroll;
+
+        // Compute drop indicator Y position (in screen space, above the target row)
+        int dropIndicatorY = -1;
+        if (layerDragState == LayerDragState.DRAGGING && layerDropIndex >= 0) {
+            int visibleDropIdx = layerDropIndex - layerScroll;
+            if (visibleDropIdx >= 0 && visibleDropIdx <= visibleRows) {
+                dropIndicatorY = rowStartY + visibleDropIdx * LAYER_ROW_H;
+            }
+        }
+
+        // Draw drop indicator line (behind rows)
+        if (dropIndicatorY >= rowStartY) {
+            g.fill(px + 2, dropIndicatorY - 1, px + LAYER_PANEL_W - 2, dropIndicatorY + 1, 0xFFFFAA44);
+        }
+
+        for (int vi = 0; vi < visibleRows; vi++) {
+            int idx = layerScroll + vi;
+            if (idx >= layers.size()) break;
+            var n = layers.get(idx);
+            int ry = rowStartY + vi * LAYER_ROW_H;
+            boolean isSel = selectedDisplayNode != null && selectedDisplayNode.id == n.id;
+            boolean isDragged = layerDragState == LayerDragState.DRAGGING
+                             && layerDragNode != null && layerDragNode.id == n.id;
+
+            if (isDragged) {
+                // Ghost — dimmed placeholder at original position
+                g.fill(px + 2, ry, px + LAYER_PANEL_W - 2, ry + LAYER_ROW_H, 0x442A2822);
+            } else {
+                int bgCol = isSel ? 0xFF4A5A2A : (idx % 2 == 0 ? 0xFF2A2822 : 0xFF22201A);
+                g.fill(px + 2, ry, px + LAYER_PANEL_W - 2, ry + LAYER_ROW_H, bgCol);
+                // Hover highlight (only when not dragging)
+                if (layerDragState != LayerDragState.DRAGGING
+                    && mx >= px && mx <= px + LAYER_PANEL_W
+                    && my >= ry && my <= ry + LAYER_ROW_H) {
+                    g.fill(px + 2, ry, px + LAYER_PANEL_W - 2, ry + LAYER_ROW_H, 0x33353428);
+                }
+            }
+
+            // Thumbnail
+            int thumbX = px + LAYER_PANEL_PADDING;
+            int thumbY = ry + (LAYER_ROW_H - LAYER_THUMB_SIZE) / 2;
+            renderLayerThumbnail(g, n, thumbX, thumbY, LAYER_THUMB_SIZE);
+
+            // Type icon + node name
+            String typeIcon = switch (n.type) {
+                case TEXT -> "T"; case DATA -> "D"; case IMAGE -> "I"; case IMAGE_SEQUENCE -> "S"; default -> "?";
+            };
+            int labelX = thumbX + LAYER_THUMB_SIZE + LAYER_THUMB_MARGIN;
+            int labelY = ry + 5;
+            g.drawString(Minecraft.getInstance().font, typeIcon + " #" + n.id,
+                labelX, labelY, isSel ? 0xFFFFFF88 : 0xFFCCCCCC, false);
+
+            // Color swatch for TEXT/DATA
+            if ((n.type == NodeType.TEXT || n.type == NodeType.DATA) && n.textColor != 0) {
+                int swatchX = px + LAYER_PANEL_W - LAYER_PANEL_PADDING - 12;
+                int swatchY = ry + 4;
+                g.fill(swatchX, swatchY, swatchX + 10, swatchY + 8, n.textColor);
+                g.renderOutline(swatchX, swatchY, 10, 8, 0xFF666666);
+            }
+        }
+
+        // ── Render dragged ghost row following cursor (on top of everything) ──
+        if (layerDragState == LayerDragState.DRAGGING && layerDragNode != null) {
+            int ghostY = (int)(my - LAYER_ROW_H / 2.0);
+            // Clamp within visible row area
+            ghostY = Math.max(rowStartY, Math.min(ghostY, rowStartY + visibleRows * LAYER_ROW_H - LAYER_ROW_H));
+            g.fill(px + 2, ghostY, px + LAYER_PANEL_W - 2, ghostY + LAYER_ROW_H, 0xBB3A3A38);
+            g.renderOutline(px + 2, ghostY, LAYER_PANEL_W - 4, LAYER_ROW_H, 0xFFFFAA44);
+            int ghostThumbX = px + LAYER_PANEL_PADDING;
+            int ghostThumbY = ghostY + (LAYER_ROW_H - LAYER_THUMB_SIZE) / 2;
+            renderLayerThumbnail(g, layerDragNode, ghostThumbX, ghostThumbY, LAYER_THUMB_SIZE);
+            String ghostIcon = switch (layerDragNode.type) {
+                case TEXT -> "T"; case DATA -> "D"; case IMAGE -> "I"; case IMAGE_SEQUENCE -> "S"; default -> "?";
+            };
+            int ghostLabelX = ghostThumbX + LAYER_THUMB_SIZE + LAYER_THUMB_MARGIN;
+            g.drawString(Minecraft.getInstance().font, ghostIcon + " #" + layerDragNode.id,
+                ghostLabelX, ghostY + 5, 0xFFFFFFFF, false);
+        }
+
+        // ── Scrollbar ──
+        if (maxScroll > 0) {
+            int sbX = px + LAYER_PANEL_W - 8;
+            int sbY = rowStartY;
+            int sbH = visibleRows * LAYER_ROW_H;
+            g.fill(sbX, sbY, sbX + 6, sbY + sbH, 0xFF2A2822);
+            float thumbH = Math.max(20, (float) visibleRows / layers.size() * sbH);
+            float thumbY = sbY + (float) layerScroll / maxScroll * (sbH - thumbH);
+            g.fill(sbX + 1, (int) thumbY, sbX + 5, (int) (thumbY + thumbH), 0xFF8B7533);
+        }
+    }
+
+    /** Returns clicked layer index in full sorted list, or -1 if no hit */
+    private int handleLayerPanelClick(double mx, double my) {
+        int px = width - LAYER_PANEL_W - LAYER_PANEL_PADDING;
+        if (mx < px || mx > px + LAYER_PANEL_W) return -1;
+
+        var graph = getBE() != null ? getBE().graph : new NodeGraph();
+        List<GraphNode> layers = getDisplayLayers(graph);
+        if (layers.isEmpty()) return -1;
+
+        int titleH = 12;
+        int rowStartY = 26 + titleH + 2;
+        int maxRows = Math.max(1, (height - rowStartY - 4) / LAYER_ROW_H);
+        if (my < rowStartY || my > rowStartY + maxRows * LAYER_ROW_H) return -1;
+
+        int idx = layerScroll + (int)((my - rowStartY) / LAYER_ROW_H);
+        if (idx < 0 || idx >= layers.size()) return -1;
+
+        selectedDisplayNode = layers.get(idx);
+        return idx;
+    }
+
+    // ── Layer drag-and-drop helpers ──
+
+    private void updateLayerDropIndex(double my) {
+        var graph = getBE() != null ? getBE().graph : new NodeGraph();
+        List<GraphNode> layers = getDisplayLayers(graph);
+        if (layers.isEmpty()) return;
+
+        int titleH = 12;
+        int rowStartY = 26 + titleH + 2;
+        int maxRows = Math.max(1, (height - rowStartY - 4) / LAYER_ROW_H);
+        int visibleRows = Math.min(layers.size(), maxRows);
+
+        // Walk through ACTUAL visible rows (not empty virtual slots):
+        // if mouse is below a row's center, drop advances to after that row
+        int targetIdx = layerScroll;
+        for (int vi = 0; vi < visibleRows; vi++) {
+            int rowCenterY = rowStartY + vi * LAYER_ROW_H + LAYER_ROW_H / 2;
+            if (my > rowCenterY) {
+                targetIdx = layerScroll + vi + 1;
+            }
+        }
+        // If mouse is below the last visible row, drop at the very end
+        float lastRowBottom = rowStartY + visibleRows * LAYER_ROW_H;
+        if (my > lastRowBottom) {
+            targetIdx = layerScroll + visibleRows;
+        }
+        targetIdx = Math.max(0, Math.min(layers.size(), targetIdx));
+        if (targetIdx != layerDropIndex) {
+            layerDropIndex = targetIdx;
+        }
+    }
+
+    private void handleLayerAutoScroll(double my) {
+        int titleH = 12;
+        int rowStartY = 26 + titleH + 2;
+        int maxRows = Math.max(1, (height - rowStartY - 4) / LAYER_ROW_H);
+        int panelBottom = rowStartY + maxRows * LAYER_ROW_H;
+        long now = System.currentTimeMillis();
+        if (now - lastAutoScrollTime < LAYER_AUTOSCROLL_TICK) return;
+
+        var graph = getBE() != null ? getBE().graph : new NodeGraph();
+        List<GraphNode> layers = getDisplayLayers(graph);
+        if (layers.isEmpty()) return;
+
+        int maxScroll = Math.max(0, layers.size() - maxRows);
+        if (my < rowStartY + LAYER_AUTOSCROLL_ZONE && layerScroll > 0) {
+            layerScroll = Math.max(0, layerScroll - 1);
+            lastAutoScrollTime = now;
+        } else if (my > panelBottom - LAYER_AUTOSCROLL_ZONE && layerScroll < maxScroll) {
+            layerScroll = Math.min(maxScroll, layerScroll + 1);
+            lastAutoScrollTime = now;
+        }
+    }
+
+    private void applyLayerReorder() {
+        var graph = getBE() != null ? getBE().graph : new NodeGraph();
+        if (layerDragNode == null) return;
+
+        List<GraphNode> layers = getDisplayLayers(graph);
+        int fromIdx = -1;
+        for (int i = 0; i < layers.size(); i++) {
+            if (layers.get(i).id == layerDragNode.id) { fromIdx = i; break; }
+        }
+        if (fromIdx < 0) return;
+
+        int toIdx = layerDropIndex;
+        if (toIdx > fromIdx) toIdx--;
+        if (fromIdx == toIdx) return; // no movement
+
+        // Remove dragged node then insert at target position
+        GraphNode dragged = layers.remove(fromIdx);
+        if (toIdx < 0) toIdx = 0;
+        if (toIdx > layers.size()) toIdx = layers.size();
+        layers.add(toIdx, dragged);
+
+        // Reassign layerIndex: front (top) gets highest value, back gets lowest
+        // Use nextLayerIndex as the base to avoid collisions
+        int base = graph.nextLayerIndex + 1000;
+        for (int i = 0; i < layers.size(); i++) {
+            layers.get(i).layerIndex = base + (layers.size() - i);
+        }
+        // Update nextLayerIndex so future nodes appear in front
+        graph.nextLayerIndex = base + layers.size() + 1;
+
+        graph.bumpGeneration();
+        saveGraph();
+    }
+
+    private void resetLayerDragState() {
+        layerDragState = LayerDragState.IDLE;
+        layerDragNode = null;
+        layerDragOrigIndex = -1;
+        layerDropIndex = -1;
+        layerDragStartMy = 0;
+        layerDragPressTime = 0;
+    }
+
     // ── Settings panel ──
     private void renderSettingsPanel(GuiGraphics g, int mx, int my) {
         var mc = Minecraft.getInstance();
@@ -391,11 +712,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
         g.renderOutline(px, py, pw, ph, 0xFF5A4D3A);
         g.fill(px + 2, py + 2, px + pw - 2, py + 18, 0xFF4A3F28);
-        g.drawString(mc.font, "§6§l" + I18n.get("gui.create_schematic_compute.monitor.settings_title"), px + 6, py + 5, 0xFFFFFFFF, false);
+        g.drawString(Minecraft.getInstance().font, "§6§l" + I18n.get("gui.create_schematic_compute.monitor.settings_title"), px + 6, py + 5, 0xFFFFFFFF, false);
         // Close
         g.fill(px + pw - 18, py + 2, px + pw - 2, py + 18, 0xFF4A3028);
         g.renderOutline(px + pw - 18, py + 2, 16, 16, 0xFF8B5333);
-        g.drawString(mc.font, "§cX", px + pw - 14, py + 5, 0xFFFFFFFF, false);
+        g.drawString(Minecraft.getInstance().font, "§cX", px + pw - 14, py + 5, 0xFFFFFFFF, false);
 
         // Load BE values into EditBoxes only once when panel opens
         MonitorBlockEntity mbe = getBE();
@@ -414,7 +735,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         // EditBoxes
         int ey = py + 24;
         for (int i = 0; i < 8; i++) {
-            g.drawString(mc.font, "§7" + I18n.get(SETTING_KEYS[i]) + ":", px + 10, ey + 2, 0xFFCCCCCC, false);
+            g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(SETTING_KEYS[i]) + ":", px + 10, ey + 2, 0xFFCCCCCC, false);
             var f = settingFields[i];
             f.setX(px + 110); f.setY(ey);
             f.render(g, mx, my, 0);
@@ -431,7 +752,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         int svX = px + 10, svY = ey + 8;
         g.fill(svX, svY, svX + 200, svY + 18, 0xFF3A5A2A);
         g.renderOutline(svX, svY, 200, 18, 0xFF5A8A3A);
-        g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.monitor.save_close"), svX + 60, svY + 4, 0xFFFFFFFF, false);
+        g.drawString(Minecraft.getInstance().font, "§a" + I18n.get("gui.create_schematic_compute.monitor.save_close"), svX + 60, svY + 4, 0xFFFFFFFF, false);
     }
 
     /** 保存所有设置并关闭面板 */
@@ -537,6 +858,12 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 }
             }
         }
+        list.sort((a, b) -> {
+            GraphNode na = graph.findNode(a.nodeId()), nb = graph.findNode(b.nodeId());
+            int la = na != null ? na.layerIndex : 0;
+            int lb = nb != null ? nb.layerIndex : 0;
+            return Integer.compare(lb, la); // descending: higher layerIndex = front = rendered last
+        });
         return list;
     }
 
@@ -584,7 +911,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         g.fill(btnX, btnY, btnX + btnW, btnY + btnH, 0xFF3A3832);
         g.renderOutline(btnX, btnY, btnW, btnH, 0xFF8B7533);
         g.renderOutline(btnX + 1, btnY + 1, btnW - 2, btnH - 2, 0xFF2A2822);
-        g.drawString(mc.font, I18n.get("gui.create_schematic_compute.monitor.display"), btnX + 6, btnY + 4, 0xFFFFFFFF, false);
+        g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.display"), btnX + 6, btnY + 4, 0xFFFFFFFF, false);
     }
 
     // ── Pixel editor overlay ──
@@ -592,7 +919,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         if (pixelEdit == null || pixelEdit.node == null) return;
         var mc = Minecraft.getInstance();
         int w = width, h = height;
-        int fh = mc.font.lineHeight;
+        int fh = Minecraft.getInstance().font.lineHeight;
 
         // Layout constants (2-column palette, hex input at top-right)
         final int PAL_CELL = PALETTE_CELL, PAL_GAP = PALETTE_GAP, PAL_LEFT = PALETTE_LEFT, PAL_COLS = PALETTE_COLS;
@@ -650,29 +977,29 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         int trX = w - 240, trY = 6;
         if (pixelEdit.node.type == NodeType.IMAGE_SEQUENCE) {
             String navTxt = "§7◀  " + pixelEdit.frameIndex + "  ▶";
-            g.drawString(mc.font, navTxt, trX, trY, 0xFFCCCCCC, false);
-            g.drawString(mc.font, "§a▸ " + I18n.get("gui.create_schematic_compute.monitor.pixel_new"), trX + 120, trY, 0xFFCCCCCC, false);
+            g.drawString(Minecraft.getInstance().font, navTxt, trX, trY, 0xFFCCCCCC, false);
+            g.drawString(Minecraft.getInstance().font, "§a▸ " + I18n.get("gui.create_schematic_compute.monitor.pixel_new"), trX + 120, trY, 0xFFCCCCCC, false);
             if (pixelEdit.newFrameMenuOpen) {
                 g.fill(trX + 110, trY + 12, trX + 210, trY + 34, 0xFF2A2822);
                 g.renderOutline(trX + 110, trY + 12, 100, 22, 0xFF5A4D3A);
-                g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_blank"), trX + 116, trY + 14, 0xFFCCCCCC, false);
-                g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_from_current"), trX + 116, trY + 24, 0xFFCCCCCC, false);
+                g.drawString(Minecraft.getInstance().font, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_blank"), trX + 116, trY + 14, 0xFFCCCCCC, false);
+                g.drawString(Minecraft.getInstance().font, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_from_current"), trX + 116, trY + 24, 0xFFCCCCCC, false);
             }
         }
         // Hex color + OK button (always visible, below nav)
         int hexTopY = pixelEdit.node.type == NodeType.IMAGE_SEQUENCE ? trY + 24 : trY;
         String hexStr = pixelEdit.editingHex ? ("§e#" + pixelEdit.hexInput + "▌") : ("§7#" + hex8(pixelEdit.selectedColor));
-        g.drawString(mc.font, hexStr, trX, hexTopY, 0xFFCCCCCC, false);
+        g.drawString(Minecraft.getInstance().font, hexStr, trX, hexTopY, 0xFFCCCCCC, false);
         if (pixelEdit.editingHex) {
-            int okX = trX + mc.font.width(hexStr) + 8;
+            int okX = trX + Minecraft.getInstance().font.width(hexStr) + 8;
             g.fill(okX, hexTopY - 1, okX + 30, hexTopY + 11, 0xFF3A5A2A);
             g.renderOutline(okX, hexTopY - 1, 30, 12, 0xFF5A8A3A);
-            g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.ok"), okX + 4, hexTopY, 0xFFFFFFFF, false);
+            g.drawString(Minecraft.getInstance().font, "§a" + I18n.get("gui.create_schematic_compute.ok"), okX + 4, hexTopY, 0xFFFFFFFF, false);
         }
 
         // Close hint (bottom center)
         String hint = "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_close_hint");
-        g.drawString(mc.font, hint, (w - mc.font.width(hint)) / 2, h - 20, 0xFF888888, false);
+        g.drawString(Minecraft.getInstance().font, hint, (w - Minecraft.getInstance().font.width(hint)) / 2, h - 20, 0xFF888888, false);
     }
 
     private void openPixelEditor(GraphNode node) {
@@ -715,6 +1042,17 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             return handlePixelEditorClick(mx, my, btn);
         }
         if (displayMode) {
+            int clickedLayerIdx = handleLayerPanelClick(mx, my);
+            if (clickedLayerIdx >= 0) {
+                // Initiate potential drag
+                layerDragState = LayerDragState.PRESSED;
+                layerDragNode = selectedDisplayNode;
+                layerDragOrigIndex = clickedLayerIdx;
+                layerDropIndex = clickedLayerIdx;
+                layerDragStartMy = my;
+                layerDragPressTime = System.currentTimeMillis();
+                return true;
+            }
             return handleDisplayAreaClick(mx, my, btn);
         }
         // Graph editor mode: check display toggle button first
@@ -859,6 +1197,20 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             return;
         }
         if (displayMode) {
+            // Layer drag-and-drop — handle here AND in mouseDragged
+            // (Minecraft may call either depending on version/patches)
+            if (layerDragState == LayerDragState.PRESSED) {
+                if (Math.abs(my - layerDragStartMy) > LAYER_DRAG_THRESHOLD
+                    || System.currentTimeMillis() - layerDragPressTime > 200) {
+                    layerDragState = LayerDragState.DRAGGING;
+                }
+            }
+            if (layerDragState == LayerDragState.DRAGGING && layerDragNode != null) {
+                updateLayerDropIndex(my);
+                handleLayerAutoScroll(my);
+                return;
+            }
+            // Display-area component dragging
             if (draggedDisplayNode != null) {
                 var da = computeDisplayArea();
                 float gsD = da.w * FONT_BLOCK_SCALE / Math.max(getContentWorldW(), 0.01f);
@@ -892,12 +1244,45 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         editor.mouseMoved(mx, my);
     }
 
-    @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }
+    @Override
+    public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
+        if (pixelEdit != null && pixelEdit.open) return super.mouseDragged(mx, my, btn, dx, dy);
+        if (displayMode) {
+            // ── Layer drag-and-drop (same logic as mouseMoved) ──
+            if (layerDragState == LayerDragState.PRESSED) {
+                if (Math.abs(my - layerDragStartMy) > LAYER_DRAG_THRESHOLD
+                    || System.currentTimeMillis() - layerDragPressTime > 200) {
+                    layerDragState = LayerDragState.DRAGGING;
+                }
+            }
+            if (layerDragState == LayerDragState.DRAGGING && layerDragNode != null) {
+                updateLayerDropIndex(my);
+                handleLayerAutoScroll(my);
+                return true;
+            }
+            // Display-area dragging (existing behavior)
+            if (draggedDisplayNode != null) return true;
+            return super.mouseDragged(mx, my, btn, dx, dy);
+        }
+        return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy);
+    }
 
     @Override
     public boolean mouseReleased(double mx, double my, int btn) {
         if (pixelEdit != null && pixelEdit.open) { pixelEdit.painting = false; return false; }
-        if (displayMode) { draggedDisplayNode = null; return true; }
+        if (displayMode) {
+            if (layerDragState == LayerDragState.DRAGGING && layerDragNode != null) {
+                applyLayerReorder();
+                resetLayerDragState();
+                draggedDisplayNode = null;
+                return true;
+            }
+            if (layerDragState == LayerDragState.PRESSED) {
+                resetLayerDragState();
+            }
+            draggedDisplayNode = null;
+            return true;
+        }
         editor.mouseReleased(mx, my, btn);
         return super.mouseReleased(mx, my, btn);
     }
@@ -905,7 +1290,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     @Override
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         if (pixelEdit != null && pixelEdit.open) return true;
-        if (displayMode) return true;
+        if (displayMode) {
+            int px = width - LAYER_PANEL_W - LAYER_PANEL_PADDING;
+            if (mx >= px && mx <= px + LAYER_PANEL_W) { layerScroll += (sy > 0) ? -1 : 1; }
+            return true;
+        }
         return editor.mouseScrolled(mx, my, sx, sy);
     }
 
@@ -1073,6 +1462,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             return true; // consume all keys while pixel editor is open
         }
         if (displayMode) {
+            // ESC cancels layer drag
+            if (key == 256 && layerDragState == LayerDragState.DRAGGING) {
+                resetLayerDragState();
+                return true;
+            }
             if (editingS) {
                 if (key == 256) { editingS = false; return true; }
                 if (key == 257 || key == 335) {

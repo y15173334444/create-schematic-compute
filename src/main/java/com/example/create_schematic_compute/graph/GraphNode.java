@@ -30,6 +30,7 @@ public class GraphNode {
     public transient FormulaParser.ScriptParseResult cachedScript = null; // cached parse result
     // Display node fields (Monitor block)
     public String displayText = "";               // TEXT node content
+    public int layerIndex = 0;                     // z-order in display editor (higher = front)
     public int textColor = 0;                      // ARGB text color (0 = use type default)
     public int[] imagePixels;                      // IMAGE node: 16×16 ARGB pixels (lazy)
     public java.util.List<int[]> imageSequenceFrames; // IMAGE_SEQUENCE frames (lazy)
@@ -262,6 +263,7 @@ public class GraphNode {
         tag.putFloat("ly", layoutY);
         tag.putFloat("ds", displayScale);
         tag.putFloat("dr", displayRotation);
+        if (layerIndex != 0) tag.putInt("layer", layerIndex);
         if (expanded) tag.putBoolean("expanded", true);
         if (busConflict) tag.putBoolean("busConflict", true);
         if (subGraph != null) tag.put("subGraph", subGraph.save(registries));
@@ -319,7 +321,8 @@ public class GraphNode {
         if (tag.contains("ly")) node.layoutY = tag.getFloat("ly");
         if (tag.contains("ds")) node.displayScale = tag.getFloat("ds");
         if (tag.contains("dr")) node.displayRotation = tag.getFloat("dr");
-        node.expanded = tag.getBoolean("expanded"); // 旧存档无此 key 返回 false
+        if (tag.contains("layer")) node.layerIndex = tag.getInt("layer");
+        node.expanded = tag.getBoolean("expanded");
         node.busConflict = tag.getBoolean("busConflict");
         if (tag.contains("subGraph")) node.subGraph = NodeGraph.load(tag.getCompound("subGraph"), registries);
         return node;

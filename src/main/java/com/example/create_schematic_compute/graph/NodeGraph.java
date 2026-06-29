@@ -18,6 +18,7 @@ public class NodeGraph {
     public final List<GraphNode> nodes = new ArrayList<>();
     public final List<NodeConnection> connections = new ArrayList<>();
     public int nextNodeId = 1;
+    public int nextLayerIndex = 1;
 
     // 缓存：O(1) 节点查找
     private Map<Integer, GraphNode> nodeMap = new HashMap<>();
@@ -34,6 +35,7 @@ public class NodeGraph {
 
     public GraphNode addNode(NodeType type, float x, float y) {
         GraphNode node = new GraphNode(nextNodeId++, type, x, y);
+        node.layerIndex = nextLayerIndex++;
         nodes.add(node);
         nodeMap.put(node.id, node);
         invalidateTopo();

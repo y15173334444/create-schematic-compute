@@ -31,6 +31,16 @@ public final class GeometryConstants {
     public static final int MONITOR_TOOLBAR_H = 20;
     public static final int MONITOR_SETTINGS_PANEL_W = 220;
 
+    // ── Layer panel (right side of display mode) ──
+    public static final int LAYER_PANEL_W = 108;        // was 64 — widened for thumbnails
+    public static final int LAYER_ROW_H = 30;           // was 14 — taller for thumbnails
+    public static final int LAYER_THUMB_SIZE = 24;      // thumbnail square dimension
+    public static final int LAYER_THUMB_MARGIN = 4;     // gap between thumbnail and text
+    public static final int LAYER_PANEL_PADDING = 4;    // inner padding from panel edge
+    public static final int LAYER_DRAG_THRESHOLD = 5;   // pixels of mouse movement to start drag
+    public static final int LAYER_AUTOSCROLL_ZONE = 24; // pixels from panel top/bottom for auto-scroll
+    public static final int LAYER_AUTOSCROLL_TICK = 150;// ms between auto-scroll steps
+
     // ── Pixel editor ──
     public static final int PALETTE_CELL = 16;
     public static final int PALETTE_GAP = 2;
