@@ -62,6 +62,12 @@ public class NodeGraph {
         return nodeMap.get(id);  // O(1) 查找
     }
 
+    /** Rebuild the node lookup map (required after external node list mutation) */
+    public void rebuildNodeMap() {
+        nodeMap.clear();
+        for (var n : nodes) nodeMap.put(n.id, n);
+    }
+
     public boolean addConnection(int fromId, int fromPin, int toId, int toPin) {
         if (inputCache.containsKey(key(toId, toPin))) return false;
         if (fromId == toId) return false;

@@ -54,6 +54,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     private double layerDragStartMy = 0;           // mouse Y when click started
     private long layerDragPressTime = 0;           // system time when click started
     private long lastAutoScrollTime = 0;           // throttle timer for auto-scroll
+    private boolean pixelDragUndoCaptured = false;
 
     // ── Display mode inline editing ──
     private boolean editingS = false, editingR = false;
@@ -105,6 +106,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         boolean newFrameMenuOpen = false; // IMAGE_SEQUENCE "+New" dropdown
         String hexInput = ""; // hex color being typed
         boolean editingHex = false; // hex input active
+        // Pixel-only undo stacks (independent of graph-level undo)
+        java.util.List<int[]> pixelUndoStack = new java.util.ArrayList<>();
+        java.util.List<int[]> pixelRedoStack = new java.util.ArrayList<>();
     }
 
     public MonitorScreen(MonitorMenu m, Inventory inv, Component t) {
@@ -161,7 +165,84 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         if (be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
 
-    // ── Rendering ──
+    // ── Undo / Redo (delegates to GraphEditor static methods) ──
+
+    @Override
+    public void pushUndoSnapshot() {
+        var be = getBE();
+        if (be == null || be.getLevel() == null) return;
+        try {
+            var tag = be.graph.save(be.getLevel().registryAccess());
+            GraphEditor.undoStack().add(tag);
+            GraphEditor.redoStack().clear();
+            while (GraphEditor.undoStack().size() > 50) GraphEditor.undoStack().remove(0);
+        } catch (Exception e) {
+            SchematicCompute.LOGGER.error("pushUndoSnapshot", e);
+        }
+    }
+
+    @Override
+    public void performUndo() {
+        if (pixelEdit != null && pixelEdit.open) { performPixelUndo(); return; }
+        var be = getBE();
+        if (be == null || be.getLevel() == null) return;
+        GraphEditor.performUndo(this, be.getLevel().registryAccess());
+    }
+
+    @Override
+    public void performRedo() {
+        if (pixelEdit != null && pixelEdit.open) { performPixelRedo(); return; }
+        var be = getBE();
+        if (be == null || be.getLevel() == null) return;
+        GraphEditor.performRedo(this, be.getLevel().registryAccess());
+    }
+
+    private void performPixelUndo() {
+        if (pixelEdit == null || pixelEdit.pixelUndoStack.isEmpty()) return;
+        var be = getBE();
+        int[] top = pixelEdit.pixelUndoStack.remove(pixelEdit.pixelUndoStack.size() - 1);
+        if (top.length == 1) {
+            // Count marker: restore full frames list (new-frame undo)
+            int count = top[0];
+            // Save current frames to redo
+            int curCount = pixelEdit.node.imageSequenceFrames.size();
+            for (int i = curCount - 1; i >= 0; i--)
+                pixelEdit.pixelRedoStack.add(pixelEdit.node.imageSequenceFrames.get(i).clone());
+            pixelEdit.pixelRedoStack.add(new int[]{curCount});
+            // Restore old frames
+            pixelEdit.node.imageSequenceFrames.clear();
+            for (int i = 0; i < count; i++)
+                pixelEdit.node.imageSequenceFrames.add(0, pixelEdit.pixelUndoStack.remove(pixelEdit.pixelUndoStack.size() - 1));
+            if (pixelEdit.frameIndex >= pixelEdit.node.imageSequenceFrames.size())
+                pixelEdit.frameIndex = pixelEdit.node.imageSequenceFrames.size() - 1;
+            if (pixelEdit.frameIndex >= 0)
+                pixelEdit.node.imagePixels = pixelEdit.node.imageSequenceFrames.get(pixelEdit.frameIndex);
+        } else {
+            // Single frame undo (paint operation)
+            pixelEdit.pixelRedoStack.add(pixelEdit.node.imagePixels.clone());
+            pixelEdit.node.imagePixels = top;
+            if (pixelEdit.frameIndex >= 0 && pixelEdit.node.type == NodeType.IMAGE_SEQUENCE
+                && pixelEdit.node.imageSequenceFrames != null
+                && pixelEdit.frameIndex < pixelEdit.node.imageSequenceFrames.size()) {
+                pixelEdit.node.imageSequenceFrames.set(pixelEdit.frameIndex, top);
+            }
+        }
+        if (be != null) be.graph.bumpGeneration();
+    }
+
+    private void performPixelRedo() {
+        if (pixelEdit == null || pixelEdit.pixelRedoStack.isEmpty()) return;
+        var be = getBE();
+        pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone());
+        pixelEdit.node.imagePixels = pixelEdit.pixelRedoStack.remove(pixelEdit.pixelRedoStack.size() - 1);
+        if (pixelEdit.frameIndex >= 0 && pixelEdit.node.type == NodeType.IMAGE_SEQUENCE
+            && pixelEdit.node.imageSequenceFrames != null
+            && pixelEdit.frameIndex < pixelEdit.node.imageSequenceFrames.size()) {
+            pixelEdit.node.imageSequenceFrames.set(pixelEdit.frameIndex, pixelEdit.node.imagePixels);
+        }
+        if (be != null) be.graph.bumpGeneration();
+    }
+
     @Override
     protected void renderBg(GuiGraphics g, float pt, int mx, int my) {
         if (displayMode) {
@@ -1188,6 +1269,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     if (px >= 0 && px < 16 && py >= 0 && py < 16) {
                         int idx = py * 16 + px;
                         if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
+                            if (!pixelDragUndoCaptured) { if (pixelEdit.pixelUndoStack.size() < 100) { pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone()); pixelEdit.pixelRedoStack.clear(); } pixelDragUndoCaptured = true; }
                             pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor;
                             if (blockEntity != null) getBE().graph.bumpGeneration();
                         }
@@ -1269,7 +1351,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     @Override
     public boolean mouseReleased(double mx, double my, int btn) {
-        if (pixelEdit != null && pixelEdit.open) { pixelEdit.painting = false; return false; }
+        if (pixelEdit != null && pixelEdit.open) { pixelEdit.painting = false; pixelDragUndoCaptured = false; return false; }
         if (displayMode) {
             if (layerDragState == LayerDragState.DRAGGING && layerDragNode != null) {
                 applyLayerReorder();
@@ -1324,6 +1406,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             if (px >= 0 && px < 16 && py >= 0 && py < 16) {
                 int idx = py * 16 + px;
                 if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
+                    if (!pixelDragUndoCaptured) { if (pixelEdit.pixelUndoStack.size() < 100) { pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone()); pixelEdit.pixelRedoStack.clear(); } pixelDragUndoCaptured = true; }
                     pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor;
                     pixelEdit.painting = true;
                     if (blockEntity != null) getBE().graph.bumpGeneration();
@@ -1399,7 +1482,15 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 return true;
             }
             // Dropdown: "Blank"
-            if (pixelEdit.newFrameMenuOpen && mx >= navX + 110 && mx <= navX + 210 && my >= navY + 12 && my <= navY + 22) {
+            if (pixelEdit.newFrameMenuOpen && mx >= navX + 110 && mx <= navX + 210 && my >= navY + 22 && my <= navY + 34) {
+                // Save all current frames for undo
+                int frameCount = pixelEdit.node.imageSequenceFrames.size();
+                if (pixelEdit.pixelUndoStack.size() + frameCount < 100) {
+                    for (int i = frameCount - 1; i >= 0; i--)
+                        pixelEdit.pixelUndoStack.add(pixelEdit.node.imageSequenceFrames.get(i).clone());
+                    pixelEdit.pixelUndoStack.add(new int[]{frameCount}); // count marker
+                    pixelEdit.pixelRedoStack.clear();
+                }
                 int[] newFrame = new int[256];
                 java.util.Arrays.fill(newFrame, 0x00000000);
                 pixelEdit.node.imageSequenceFrames.add(newFrame);
@@ -1410,6 +1501,13 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             }
             // Dropdown: "From current"
             if (pixelEdit.newFrameMenuOpen && mx >= navX + 110 && mx <= navX + 210 && my >= navY + 22 && my <= navY + 34) {
+                int frameCount = pixelEdit.node.imageSequenceFrames.size();
+                if (pixelEdit.pixelUndoStack.size() + frameCount < 100) {
+                    for (int i = frameCount - 1; i >= 0; i--)
+                        pixelEdit.pixelUndoStack.add(pixelEdit.node.imageSequenceFrames.get(i).clone());
+                    pixelEdit.pixelUndoStack.add(new int[]{frameCount}); // count marker
+                    pixelEdit.pixelRedoStack.clear();
+                }
                 int[] newFrame = pixelEdit.node.imagePixels.clone();
                 pixelEdit.node.imageSequenceFrames.add(newFrame);
                 pixelEdit.frameIndex = pixelEdit.node.imageSequenceFrames.size() - 1;
@@ -1433,6 +1531,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     @Override
     public boolean keyPressed(int key, int sc, int mod) {
+        // ── Global undo/redo (display mode + pixel editor; graph mode handled by GraphEditor) ──
+        if (net.minecraft.client.gui.screens.Screen.hasControlDown()) {
+            if (key == 90) { performUndo(); return true; }
+            if (key == 89) { performRedo(); return true; }
+        }
         if (showSettings) {
             for (var f : settingFields) if (f.isFocused()) {
                 if ((key == 257 || key == 335) && blockEntity != null) { saveAllSettings(); return true; } // Enter saves

@@ -9,11 +9,13 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.resources.language.I18n;
+import net.minecraft.core.HolderLookup;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +37,9 @@ public class GraphEditor {
         void toggleRunning(boolean start);
         boolean isRunning();
         Screen asScreen();
+        default void pushUndoSnapshot() {}
+        default void performUndo() {}
+        default void performRedo() {}
         default Map<Integer, Boolean> getFlipflopStates() { return null; }
         default net.minecraft.core.BlockPos getBlockPos() { return net.minecraft.core.BlockPos.ZERO; }
     }
@@ -45,6 +50,59 @@ public class GraphEditor {
 
     /** 每个图的最大节点数上限（含主图和每个封装子图） */
     public static final int MAX_NODES = 1024;
+
+    // ── Static undo/redo stacks (shared across all editor instances) ──
+    private static final List<CompoundTag> undoStack = new ArrayList<>();
+    private static final List<CompoundTag> redoStack = new ArrayList<>();
+    private static final int MAX_UNDO = 50;
+
+    /** Check if undo stack is empty */
+    public static boolean isUndoEmpty() { return undoStack.isEmpty(); }
+
+    /** Access the static undo/redo stacks (for direct manipulation by MonitorScreen) */
+    public static java.util.List<net.minecraft.nbt.CompoundTag> undoStack() { return undoStack; }
+    public static java.util.List<net.minecraft.nbt.CompoundTag> redoStack() { return redoStack; }
+
+    /** Take an undo snapshot of the given graph */
+    public static void takeSnapshot(NodeGraph graph, HolderLookup.Provider reg) {
+        try {
+            undoStack.add(graph.save(reg));
+            redoStack.clear();
+            while (undoStack.size() > MAX_UNDO) undoStack.remove(0);
+        } catch (Exception e) { com.example.create_schematic_compute.SchematicCompute.LOGGER.error("takeSnapshot", e); }
+    }
+
+    /** Restore the host's graph from the undo stack */
+    public static void performUndo(Host host, HolderLookup.Provider reg) {
+        if (undoStack.isEmpty()) return;
+        try {
+            redoStack.add(host.getGraph().save(reg));
+            NodeGraph restored = NodeGraph.load(undoStack.remove(undoStack.size() - 1), reg);
+            replaceGraph(host, restored);
+        } catch (Exception e) { com.example.create_schematic_compute.SchematicCompute.LOGGER.error("performUndo", e); }
+    }
+
+    /** Restore the host's graph from the redo stack */
+    public static void performRedo(Host host, HolderLookup.Provider reg) {
+        if (redoStack.isEmpty()) return;
+        try {
+            undoStack.add(host.getGraph().save(reg));
+            NodeGraph restored = NodeGraph.load(redoStack.remove(redoStack.size() - 1), reg);
+            replaceGraph(host, restored);
+        } catch (Exception e) { com.example.create_schematic_compute.SchematicCompute.LOGGER.error("performRedo", e); }
+    }
+
+    private static void replaceGraph(Host host, NodeGraph restored) {
+        var current = host.getGraph();
+        current.nodes.clear();
+        current.connections.clear();
+        current.nodes.addAll(restored.nodes);
+        current.connections.addAll(restored.connections);
+        current.nextNodeId = restored.nextNodeId;
+        current.nextLayerIndex = restored.nextLayerIndex;
+        current.rebuildNodeMap();
+        current.bumpGeneration();
+    }
 
     // 编辑状态
     public float camX=0, camY=0, zoom=1f;
@@ -819,6 +877,7 @@ public class GraphEditor {
                 if(graph.nodes.size()>=MAX_NODES){
                     cycleWarning=I18n.get("gui.create_schematic_compute.node_limit");
                 }else{
+                    {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
                     graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));
                 }
             }showMenu=false;return true;}
@@ -1029,6 +1088,7 @@ public class GraphEditor {
             if (tabHeld) {
                 var hc = hitConn(mx, my);
                 if (hc != null) {
+                    {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
                     graph.removeConnection(hc.fromId, hc.fromPin, hc.toId, hc.toPin);
                     // 删除参数引脚连线后刷新编辑区（恢复输入框）
                     var tn = graph.findNode(hc.toId);
@@ -1277,6 +1337,7 @@ public class GraphEditor {
             // BUS_OUT 编辑区输入引脚
             if(bestNodeId<0){for(int nid:expandedNodeIds){var n=graph.findNode(nid);if(n==null||n.type!=NodeType.BUS_OUT||n.signalBands==null)continue;float sx=c2sX(n.x),sy2=c2sY(n.y);for(int bi=0;bi<n.signalBands.size();bi++){float py2=sy2+bandPinY(n,bi,zoom)*zoom;float px2=sx+10*zoom;float dx2=(float)Math.abs(mx-px2),dy2=(float)Math.abs(my-py2);if(dx2<16*zoom&&dy2<10*zoom&&wireFromNode!=nid){float dist2=dx2+dy2;if(dist2<bestDist){bestDist=dist2;bestNodeId=nid;bestPin=bi;}}}}}
             if(bestNodeId>=0){
+                {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
                 graph.addConnection(wireFromNode,wireFromPin,bestNodeId,bestPin);
                 // 参数引脚连线后刷新编辑区（隐藏对应输入框）
                 var targetNode = graph.findNode(bestNodeId);
@@ -1411,6 +1472,7 @@ public class GraphEditor {
             var g2 = getGraph();
             var hit = hitNode(lastMouseX, lastMouseY);
             if (hit != null) {
+                {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(g2,l.registryAccess());}
                 g2.removeNode(hit.id);
                 expandedNodeIds.remove(hit.id);
                 nodeEditStatesById.remove(hit.id);
@@ -1419,8 +1481,14 @@ public class GraphEditor {
                 return true;
             }
         }
+        // Ctrl+Z / Ctrl+Y undo / redo
+        if (net.minecraft.client.gui.screens.Screen.hasControlDown()) {
+            if (key == 90) { var lvl = Minecraft.getInstance().level; if (lvl != null) performUndo(host, lvl.registryAccess()); return true; }
+            if (key == 89) { var lvl = Minecraft.getInstance().level; if (lvl != null) performRedo(host, lvl.registryAccess()); return true; }
+        }
         // Ctrl+D 复制（支持多选）
         if(key==68&&net.minecraft.client.gui.screens.Screen.hasControlDown()&&!selectedNodes.isEmpty()){
+            {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
             var idMap = new java.util.HashMap<Integer, Integer>();
             var newNodes = new java.util.ArrayList<GraphNode>();
             float ofs = 30;
@@ -1456,6 +1524,7 @@ public class GraphEditor {
         }
         // Delete 删除选中节点
         if ((key == 259 || key == 261) && !selectedNodes.isEmpty()) {
+            {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
             for (var n : List.copyOf(selectedNodes)) {
                 if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
                     boolean hasOther = false;
