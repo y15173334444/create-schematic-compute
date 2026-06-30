@@ -5,6 +5,7 @@ import com.example.create_schematic_compute.client.GeometryConstants;
 import com.example.create_schematic_compute.blocks.MonitorBlock;
 import com.example.create_schematic_compute.blocks.MonitorBlockEntity;
 import com.example.create_schematic_compute.graph.GraphEvaluator;
+import com.example.create_schematic_compute.graph.GraphNode;
 import com.example.create_schematic_compute.graph.NodeGraph;
 import com.example.create_schematic_compute.graph.NodeType;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -117,8 +118,13 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         var sceneBuf = buffer.getBuffer(MonitorRenderTypes.SCREEN_PIXEL);
         drawBorderFace(sceneBuf, m, l, r, t, b, bw, 1);
         drawBorderFace(sceneBuf, m, l, r, t, b, bw, -1);
+        // Collect IMAGE/IMAGE_SEQUENCE nodes and sort by layerIndex (back→front)
+        var imgNodes = new java.util.ArrayList<GraphNode>();
         for (var n : be.graph.nodes) {
-            if (n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE) continue;
+            if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) imgNodes.add(n);
+        }
+        imgNodes.sort((n1, n2) -> Integer.compare(n1.layerIndex, n2.layerIndex));
+        for (var n : imgNodes) {
             // X/Y/rotation signal offsets
             float ox = be.graph.getInputValue(n.id, 0, evaluator.getCurrentOutputs());
             float oy = be.graph.getInputValue(n.id, 1, evaluator.getCurrentOutputs());
@@ -157,7 +163,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             float ny = cy - cpy * ch;
             poseStack.pushPose();
             float halfW = 8f * cell, halfH = 8f * cell;
-            poseStack.translate(nx + halfW, ny - halfH, 0);
+            poseStack.translate(nx + halfW, ny - halfH, -n.layerIndex * 0.00001f);
             poseStack.mulPose(Axis.ZP.rotationDegrees(-effectiveRot));
             poseStack.translate(-halfW, halfH, 0);
             var m2 = poseStack.last().pose();
@@ -179,9 +185,13 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             poseStack.popPose();
         }
 
-        // ── Text (uses font's own RenderType) ──
+        // ── Text (uses font's own RenderType, sort by layerIndex back→front) ──
+        var textNodes = new java.util.ArrayList<GraphNode>();
         for (var n : be.graph.nodes) {
-            if (n.type != NodeType.TEXT && n.type != NodeType.DATA) continue;
+            if (n.type == NodeType.TEXT || n.type == NodeType.DATA) textNodes.add(n);
+        }
+        textNodes.sort((n1, n2) -> Integer.compare(n1.layerIndex, n2.layerIndex));
+        for (var n : textNodes) {
             float nx = cx + n.layoutX * cw;
             float ny = cy - n.layoutY * ch;
             String str = n.type == NodeType.DATA
@@ -192,7 +202,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             float s = GeometryConstants.FONT_BLOCK_SCALE * n.displayScale;
             poseStack.pushPose();
             float fw = font.width(str), fh = 10f;
-            poseStack.translate(nx + fw * s / 2f, ny - fh * s / 2f, 0);
+            poseStack.translate(nx + fw * s / 2f, ny - fh * s / 2f, -n.layerIndex * 0.00001f);
             poseStack.mulPose(Axis.ZP.rotationDegrees(-n.displayRotation));
             poseStack.scale(s, -s, s);
             poseStack.translate(-fw / 2f, -fh / 2f, 0);

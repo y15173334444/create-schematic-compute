@@ -360,7 +360,6 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         var mc = Minecraft.getInstance();
         for (var elem : elements) {
             float s = guiScale * elem.scale;
-            boolean isSelected = selectedDisplayNode != null && selectedDisplayNode.id == elem.nodeId;
 
             // Compute element content size in local (unscaled) coords.
             // In the world: 1 IMAGE pixel = 0.03 blocks = 2 font-pixels (since 1 font-px = 0.015 blocks).
@@ -404,9 +403,26 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 }
             }
             pose.popPose();
-
-            // Selected highlight (rotated with component, same transform)
-            if (isSelected) {
+        }
+        // ── Selection highlight: draw AFTER all elements so it's always on top ──
+        if (selectedDisplayNode != null) {
+            for (var elem : elements) {
+                if (selectedDisplayNode.id != elem.nodeId) continue;
+                float s = guiScale * elem.scale;
+                float elemW = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? IMAGE_GRID * IMAGE_CELL_FONT
+                    : Minecraft.getInstance().font.width(elem.text.isEmpty() && elem.type != NodeType.DATA ? " " :
+                        elem.type == NodeType.DATA ? ff1(elem.value) : elem.text);
+                float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? IMAGE_GRID * IMAGE_CELL_FONT : 10;
+                float ex = contentX + elem.x * contentW;
+                float ey = contentY + elem.y * contentH;
+                float ew = elemW * s, eh = elemH * s;
+                float[] bb = elemRotAABB(ex, ey, ew, eh, elem.rotation);
+                float dl = contentX, dr = contentX + contentW, dt = contentY, db = contentY + contentH;
+                if (bb[2] > dr) ex -= (bb[2] - dr);
+                if (bb[3] > db) ey -= (bb[3] - db);
+                if (bb[0] < dl) ex += (dl - bb[0]);
+                if (bb[1] < dt) ey += (dt - bb[1]);
+                var pose = g.pose();
                 pose.pushPose();
                 pose.translate(ex + elemW * s / 2, ey + elemH * s / 2, 0);
                 pose.mulPose(com.mojang.math.Axis.ZP.rotationDegrees(elem.rotation));
@@ -415,6 +431,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 int hx = -1, hy = -1, hw = (int)elemW + 2, hh = (int)elemH + 2;
                 g.renderOutline(hx, hy, hw, hh, 0xFFFFAA44);
                 pose.popPose();
+                break;
             }
         }
         // ── Toolbar at screen top (fixed position) ──
@@ -1246,6 +1263,17 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                         return true;
                     }
                 }
+            }
+            // No element hit — if already selected via layer panel, start dragging it
+            if (selectedDisplayNode != null) {
+                draggedDisplayNode = selectedDisplayNode;
+                var da2 = computeDisplayArea();
+                var ci2 = getContentArea(da2);
+                float sx = ci2[0] + selectedDisplayNode.layoutX * ci2[2];
+                float sy = ci2[1] + selectedDisplayNode.layoutY * ci2[3];
+                dragOffX = (float)(mx - sx);
+                dragOffY = (float)(my - sy);
+                return true;
             }
             selectedDisplayNode = null;
         }
