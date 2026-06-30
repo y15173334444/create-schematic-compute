@@ -34,11 +34,13 @@ Each computer has its own internal node graph that runs at **20Hz (every game ti
 A **3D floating display block** that renders node graph output as a virtual screen in the world.
 
 - **Display Nodes** — TEXT, DATA, IMAGE, IMAGE_SEQUENCE for visual output
-- **16×16 Pixel Editor** — Built-in pixel art editor with multi-frame animation support
+- **16×16 Pixel Editor** — Built-in pixel art editor with multi-frame animation support and undo/redo
+- **Photoshop-style Layer Panel** — Drag-and-drop layer reordering with 24×24 component thumbnails (text preview, data value, image pixels, sequence frame badge)
 - **3D Positioning** — Freely position and rotate the floating screen in world space (X/Y/Z + Roll/Pitch/Yaw)
 - **Signal-Driven Movement** — Drive IMAGE/IMAGE_SEQUENCE position (X/Y) and rotation via input signals with per-axis move scale, rotation scale, and invert toggles
 - **Redstone Input** — Read signals from Create's Redstone Link network (shared frequency)
 - **Real-time Preview** — GUI display mode with WYSIWYG editing of layout, scale, and rotation
+- **Undo/Redo** — Ctrl+Z/Y across graph editor and pixel editor
 - **Custom Model** — Full Blockbench custom model support
 
 #### 🖥️ Blueprint Computer
@@ -176,20 +178,23 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 
 ---
 
-### Node Reference (80 Types)
+### Node Reference (81 Types)
 
 | Category | Nodes |
 |----------|-------|
-| **Values** | CONST, Redstone Input, Private Signal Input, Bus Input, Bus Output |
-| **Math** | Add, Subtract, Multiply, Divide, Modulo, Power (A^B), Root (B-th Root), Absolute Value, **Round (N Decimals)**, Comparison Router (\|A-B\|), Ceil, Floor, **Formula**, **Square Root**, **Natural Log**, **Base-10 Log**, **Exponential (e^x)** |
-| **Trig** | Sin, Cos, Tan, Arcsin, Arccos, Arctan2, Sinh, Cosh, **Secant**, **Cosecant**, **Cotangent**, **Angle Unwrap** |
-| **Logic** | Greater Than, Less Than, **Greater Than or Equal**, **Less Than or Equal**, Equals, **OR Gate**, Bool (Toggle), Gate |
+| **Values** | CONST, Redstone Input, Private Signal Input, Bus Input |
+| **Basic Math** | Add, Subtract, Multiply, Divide, Modulo, Power (A^B), Root (B-th Root), Absolute Value, Ceil, Floor |
+| **Advanced Math** | **Formula**, Comparison Router (\|A-B\|), **Round (N Decimals)**, Pose Convert (3-in 2-out), Split |
+| **Trigonometry** | Sin, Cos, Tan, Arcsin, Arccos, Arctan2, Sinh, Cosh, **Square Root**, **Natural Log**, **Base-10 Log**, **Exponential (e^x)**, **Secant**, **Cosecant**, **Cotangent**, **Angle Unwrap**, Direction (3-in 3-out) |
+| **Logic** | Greater Than, Less Than, **Greater Than or Equal**, **Less Than or Equal**, Equals, Bool (Toggle), Gate, **OR Gate** |
 | **Control** | PID Controller, Power PID, Clamp, Map Range |
-| **Output** | Redstone Output, Private Signal Output, Speed Control |
+| **Output** | Redstone Output, Private Signal Output, Speed Control, **Bus Output** |
 | **Display (Monitor only)** | TEXT, DATA, IMAGE, IMAGE_SEQUENCE |
 | **Sequential** | Delay, Latch, T Flip-Flop, Pulse Extender, Loop, Safety Timer, Accumulator, **Continuous Integrator** |
-| **Input Ctrl** | KEYBOARD (58 keys), Mouse Joystick (X/Y), View Angle, Mouse Button (L/R), Gamepad Joystick (LX/LY/RX/RY), Gamepad Button (15 buttons), **Gamepad Trigger (LT/RT)** |
-| **Sensor** | World View (yaw/pitch), Attitude (pitch/roll), Forward (yaw/pitch), **Acceleration (X/Y/Z)**, **Velocity (X/Y/Z)**, Pose Convert (3-in 2-out), Split |
+| **Controls (Input Ctrl)** | KEYBOARD (58 keys), Mouse Button (L/R), Mouse Joystick (X/Y), Gamepad Joystick (LX/LY/RX/RY), Gamepad Button (15 buttons), **Gamepad Trigger (LT/RT)** |
+| **Sensors (Input Sensor)** | World View (yaw/pitch), Attitude (pitch/roll), Forward (yaw/pitch), View Angle (pitch/yaw), **Acceleration (X/Y/Z)**, **Velocity (X/Y/Z)**, **World Position (X/Y/Z)**, **Target Output (X/Y/Z/entityId/distance)** |
+| **Structure** | Encapsulation |
+| **Encapsulation I/O** | Input, Output |
 
 #### Detailed Node Table
 
@@ -200,9 +205,8 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 | REDSTONE_IN | - | signal | frequency item ×2 | Reads from Redstone Link network |
 | PRIVATE_IN | - | val | channel | Reads float from named channel |
 | BUS_IN | - | band×N | bus name | Reads band values from a shared bus channel |
-| BUS_OUT | band×N | - | bus name | Writes input values to a shared bus channel |
 
-##### Math
+##### Basic Math
 | Node | Inputs | Output | Description |
 |------|--------|--------|-------------|
 | ADD | A, B | float | A + B |
@@ -213,27 +217,38 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 | POW | A, B | float | A ^ B (A to the power of B) |
 | ROOT | A, B | float | B-th root of A (returns 0 if B=0) |
 | ABS | in | float | Absolute value of input |
-| ROUND | in | float | decimals | Round to N decimal places (default 2) |
-| Comparison Router | A, B | A, B | A≥B → A port outputs A-B, else B port outputs \|B-A\| |
 | CEIL | in | int | Round up to nearest integer |
 | FLOOR | in | int | Round down to nearest integer |
+
+##### Advanced Math
+| Node | Inputs | Output | Params | Description |
+|------|--------|--------|--------|-------------|
 | FORMULA | dynamic (per script) | dynamic (per @output) | script | **Multi-line script editor** — supports assignments (`var = expr`), `@output` named outputs, `--` comments, `\` line continuation. Auto-wrap + drag-select. Functions: sin/cos/tan/asin/acos/atan2/sinh/cosh/sqrt/ln/log/exp/sec/csc/cot/abs. [See usage below](#formula-script-node) |
-| SIN | in | float | - | Sine of input (degrees) |
-| COS | in | float | - | Cosine of input (degrees) |
-| TAN | in | float | - | Tangent of input (degrees) |
-| ASIN | in | float | - | Arcsine in degrees |
-| ACOS | in | float | - | Arccosine in degrees |
-| ATAN2 | y, x | float | - | Arctangent of y/x in degrees |
-| SINH | in | float | - | Hyperbolic sine |
-| COSH | in | float | - | Hyperbolic cosine |
-| SQRT | in | float | - | Square root of input (returns 0 if negative) |
-| LN | in | float | - | Natural logarithm of input (returns 0 if ≤0) |
-| LOG | in | float | - | Base-10 logarithm of input (returns 0 if ≤0) |
-| EXP | in | float | - | e to the power of input |
-| SEC | in | float | - | Secant: 1 / cos(input°) |
-| CSC | in | float | - | Cosecant: 1 / sin(input°) |
-| COT | in | float | - | Cotangent: 1 / tan(input°) |
-| ANGLE_UNWRAP | in | float | - | Unwraps angle to avoid ±180° jumps; stateful (remembers last output) |
+| INTERP (Comparison Router) | A, B | A, B | - | A≥B → A port outputs A-B, else B port outputs \|B-A\| |
+| ROUND | in | float | decimals | Round to N decimal places (default 2) |
+| POSE_CONVERT | pitch_a, yaw_a, roll | pitch_b, yaw_b | - | Pose conversion (3-in 2-out) |
+| SPLIT | in | +out, -out | - | Split positive/negative: positive→+out, negative→\|-out\| |
+
+##### Trigonometry
+| Node | Inputs | Output | Description |
+|------|--------|--------|-------------|
+| SIN | in | float | Sine of input (degrees) |
+| COS | in | float | Cosine of input (degrees) |
+| TAN | in | float | Tangent of input (degrees) |
+| ASIN | in | float | Arcsine in degrees |
+| ACOS | in | float | Arccosine in degrees |
+| ATAN2 | y, x | float | Arctangent of y/x in degrees |
+| SINH | in | float | Hyperbolic sine |
+| COSH | in | float | Hyperbolic cosine |
+| SQRT | in | float | Square root of input (returns 0 if negative) |
+| LN | in | float | Natural logarithm of input (returns 0 if ≤0) |
+| LOG | in | float | Base-10 logarithm of input (returns 0 if ≤0) |
+| EXP | in | float | e to the power of input |
+| SEC | in | float | Secant: 1 / cos(input°) |
+| CSC | in | float | Cosecant: 1 / sin(input°) |
+| COT | in | float | Cotangent: 1 / tan(input°) |
+| ANGLE_UNWRAP | in | float | Unwraps angle to avoid ±180° jumps; stateful (remembers last output) |
+| DIRECTION | ax, ay, az, bx, by, bz | yaw, pitch, distance | World-space direction from point A to B with distance |
 
 ##### Logic
 | Node | Inputs | Output | Params | Description |
@@ -261,6 +276,7 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 | REDSTONE_OUT | In | - | frequency item ×2 | Writes signal to Redstone Link network (clamped 0~15) |
 | PRIVATE_OUT | val | - | channel | Writes float to named channel |
 | SPEED_CTRL | speed, dir | rpm | - | Sets Speed Controller RPM; dir>0.5 reverses direction |
+| BUS_OUT | band×N | - | bus name | Writes input values to a shared bus channel |
 
 ##### Display (Monitor only)
 | Node | Inputs | Output | Params | Description |
@@ -287,30 +303,31 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 |------|--------|--------|--------|-------------|
 | KEYBOARD | - | 1/0 | key | Bindable keyboard key (58 keys), outputs 1 when pressed |
 | MOUSE_JOYSTICK | - | X, Y | - | Mouse delta output -1~1 (joystick mode) |
-| VIEW_ANGLE | - | pitch, yaw | - | Player view angle delta (view angle mode) |
 | MOUSE_BUTTON | - | L, R | - | Left/right mouse button state |
 | GAMEPAD_JOYSTICK | - | LX, LY, RX, RY | - | Dual-stick gamepad axes -1~1 |
 | GAMEPAD_BUTTON | - | 1/0 | button | Gamepad button (15 buttons), click-to-bind via frame-polling |
 | GAMEPAD_TRIGGER | - | LT, RT | - | Gamepad analog triggers (0.0 ~ 1.0) |
 
-##### Sensor (Attitude Sensor only)
+##### Sensor (Attitude Sensor / Control Seat)
 | Node | Inputs | Output | Params | Description |
 |------|--------|--------|--------|-------------|
 | WORLD_VIEW | - | yaw, pitch | - | Player absolute world view direction |
 | ATTITUDE | - | pitch, roll | - | Sublevel attitude (pitch/roll) |
 | FORWARD | - | yaw, pitch | - | Sublevel forward direction in world space |
+| VIEW_ANGLE | - | pitch, yaw | - | Player view angle delta (view angle mode) |
 | ACCELERATION | - | X, Y, Z | - | Structure-local acceleration (fwd/back, up/down, left/right), computed at 20Hz from velocity |
 | VELOCITY | - | X, Y, Z | - | Structure-local velocity (fwd/back, up/down, left/right), ×2 m/s |
-| POSE_CONVERT | pitch_a, yaw_a, roll | pitch_b, yaw_b | - | Pose conversion (3-in 2-out) |
-| SPLIT | in | +out, -out | - | Split positive/negative: positive→+out, negative→\|-out\| |
-| DIRECTION | ax,ay,az,bx,by,bz | yaw, pitch, distance | - | World-space direction from point A to B with distance |
-| POSITION | - | X, Y, Z | offset | World position with configurable offset |
+| POSITION | - | X, Y, Z | offsetX, offsetY, offsetZ | World position with configurable offset |
 | TARGET_OUT | - | X, Y, Z, entityId, distance | - | Radar target output (Radar only) |
 
 ##### Structure
 | Node | Inputs | Output | Params | Description |
 |------|--------|--------|--------|-------------|
 | ENCAPSULATION | dynamic | dynamic | - | Nest sub-graphs inside a single node; double-click to enter sub-graph editor |
+
+##### Encapsulation I/O
+| Node | Inputs | Output | Params | Description |
+|------|--------|--------|--------|-------------|
 | ENCAP_INPUT | - | float | name | External input pin for encapsulation node |
 | ENCAP_OUTPUT | float | - | name | External output pin for encapsulation node |
 
@@ -359,7 +376,7 @@ This creates **7 input pins** (X1, X0, Z1, Z0, THETA, N, K) and **3 output pins*
 
 ### How to Use
 
-1. **Place** one of the six blocks
+1. **Place** one of the seven blocks
 2. **Right-click** to open the node editor
 3. **Right-click empty space** to open the add-node menu (categorized & collapsible)
 4. **Left-click a node** to edit its parameters
@@ -394,7 +411,7 @@ This creates **7 input pins** (X1, X0, Z1, Z0, THETA, N, K) and **3 output pins*
 ---
 
 ### Schematic Support
-All six blocks fully support **Create's Schematicannon**. Your node graphs, parameters, and running state are preserved when saving and loading schematics — no data loss.
+All seven blocks fully support **Create's Schematicannon**. Your node graphs, parameters, and running state are preserved when saving and loading schematics — no data loss.
 
 This means you can:
 - 🏗️ **Build complex logic** in creative mode, then **print it in survival** with the Schematicannon
@@ -407,7 +424,7 @@ This means you can:
 
 ### Block Properties
 
-All six blocks share consistent properties:
+All seven blocks share consistent properties:
 
 | Property | Value |
 |----------|-------|
@@ -696,20 +713,23 @@ MIT License © 2026 StarryNight_Luo
 
 ---
 
-### 节点参考（80 种）
+### 节点参考（81 种）
 
 | 分类 | 节点 |
 |------|------|
-| **数值** | 常量、红石输入、私有信号输入、总线输入、总线输出 |
-| **运算** | 加、减、乘、除、模运算、次幂、次方根、绝对值、保留N位小数、比较路由、向上取整、向下取整、**公式**、**平方根**、**自然对数**、**常用对数**、**指数** |
-| **三角** | 正弦、余弦、正切、反正弦、反余弦、反正切2、双曲正弦、双曲余弦、**正割**、**余割**、**余切**、**角度解绕** |
-| **逻辑** | 大于、小于、大于等于、小于等于、等于、或门、布尔（反转）、闸门 |
-| **控制** | PID 控制器（误差归零时 I 项复位）、动力 PID、限幅、映射范围 |
-| **输出** | 红石输出、私有信号输出、转速控制 |
+| **数值** | 常量、红石输入、私有信号输入、总线输入 |
+| **基础运算** | 加、减、乘、除、模运算、次幂、次方根、绝对值、向上取整、向下取整 |
+| **高级运算** | **公式**、比较路由、**保留N位小数**、姿态换算（3入2出）、分割 |
+| **三角函数** | 正弦、余弦、正切、反正弦、反余弦、反正切2、双曲正弦、双曲余弦、**平方根**、**自然对数**、**常用对数**、**指数**、**正割**、**余割**、**余切**、**角度解绕**、方向（3入3出） |
+| **逻辑** | 大于、小于、大于等于、小于等于、等于、布尔（反转）、闸门、**或门** |
+| **控制** | PID 控制器、动力 PID、限幅、映射范围 |
+| **输出** | 红石输出、私有信号输出、转速控制、**总线输出** |
 | **时序** | 延时、锁存器、T 触发器（可配置默认）、脉冲延长、循环、保险、累计器、连续积分器 |
 | **显示** | TEXT（文字）、DATA（数值）、IMAGE（图片）、IMAGE_SEQUENCE（动画） |
-| **操作输入** | 键盘按键（58键）、鼠标摇杆（X/Y）、视角差、鼠标按键（左/右）、手柄摇杆（LX/LY/RX/RY）、手柄按键（15键） |
-| **传感器** | 世界视角（偏航/俯仰）、姿态（俯仰/横滚）、前方朝向（偏航/俯仰）、**加速度（X/Y/Z）**、**速度（X/Y/Z）**、姿态换算（3入2出）、分割 |
+| **操作输入** | 键盘按键（58键）、鼠标按键（左/右）、鼠标摇杆（X/Y）、手柄摇杆（LX/LY/RX/RY）、手柄按键（15键）、**手柄扳机（LT/RT）** |
+| **传感器** | 世界视角（偏航/俯仰）、姿态（俯仰/横滚）、前方朝向（偏航/俯仰）、视角差（俯仰/偏航）、**加速度（X/Y/Z）**、**速度（X/Y/Z）**、**世界坐标（X/Y/Z）**、**目标输出（X/Y/Z/entityId/距离）** |
+| **结构** | 封装 |
+| **封装 I/O** | 输入、输出 |
 
 #### 详细节点表
 
@@ -720,9 +740,8 @@ MIT License © 2026 StarryNight_Luo
 | REDSTONE_IN | - | signal | 频率物品×2 | 从机械动力红石链接读取信号 |
 | PRIVATE_IN | - | val | channel | 从命名通道读取浮点数 |
 | BUS_IN | - | band×N | bus name | 从共享总线通道读取频段值 |
-| BUS_OUT | band×N | - | bus name | 将输入值写入共享总线通道 |
 
-##### 运算
+##### 基础运算
 | 节点 | 输入 | 输出 | 说明 |
 |------|------|------|------|
 | ADD | A, B | float | A + B |
@@ -733,27 +752,38 @@ MIT License © 2026 StarryNight_Luo
 | POW | A, B | float | A 的 B 次幂 |
 | ROOT | A, B | float | A 的 B 次方根（B=0 时返回 0） |
 | ABS | in | float | 输入值的绝对值 |
-| ROUND | in | float | decimals | 保留N位小数（默认2位） |
-| Comparison Router | A, B | A, B | A≥B 时 A 口输出 A-B，否则 B 口输出 \|B-A\| |
 | CEIL | in | int | 向上取整 |
 | FLOOR | in | int | 向下取整 |
+
+##### 高级运算
+| 节点 | 输入 | 输出 | 参数 | 说明 |
+|------|------|------|------|------|
 | FORMULA | 动态（按脚本） | 动态（按@output） | script | **多行脚本编辑器** — 支持赋值（`var = expr`）、`@output` 命名输出、`--` 注释、`\` 续行。自动换行+拖选。函数：sin/cos/tan/asin/acos/atan2/sinh/cosh/sqrt/ln/log/exp/sec/csc/cot/abs。[用法见下](#公式脚本节点) |
-| SIN | in | float | - | 正弦（度） |
-| COS | in | float | - | 余弦（度） |
-| TAN | in | float | - | 正切（度） |
-| ASIN | in | float | - | 反正弦（度） |
-| ACOS | in | float | - | 反余弦（度） |
-| ATAN2 | y, x | float | - | y/x 的反正切（度） |
-| SINH | in | float | - | 双曲正弦 |
-| COSH | in | float | - | 双曲余弦 |
-| SQRT | in | float | - | 平方根（负数返回0） |
-| LN | in | float | - | 自然对数（≤0返回0） |
-| LOG | in | float | - | 常用对数（≤0返回0） |
-| EXP | in | float | - | e的指数 |
-| SEC | in | float | - | 正割：1/cos(输入°) |
-| CSC | in | float | - | 余割：1/sin(输入°) |
-| COT | in | float | - | 余切：1/tan(输入°) |
-| ANGLE_UNWRAP | in | float | - | 角度解绕，消除±180°跳变；有状态（记住上次输出） |
+| INTERP（比较路由） | A, B | A, B | - | A≥B 时 A 口输出 A-B，否则 B 口输出 \|B-A\| |
+| ROUND | in | float | decimals | 保留N位小数（默认2位） |
+| POSE_CONVERT | pitch_a, yaw_a, roll | pitch_b, yaw_b | - | 姿态换算（3入2出） |
+| SPLIT | in | +out, -out | - | 正负分离：正数输出+，负数绝对值输出- |
+
+##### 三角函数
+| 节点 | 输入 | 输出 | 说明 |
+|------|------|------|------|
+| SIN | in | float | 正弦（度） |
+| COS | in | float | 余弦（度） |
+| TAN | in | float | 正切（度） |
+| ASIN | in | float | 反正弦（度） |
+| ACOS | in | float | 反余弦（度） |
+| ATAN2 | y, x | float | y/x 的反正切（度） |
+| SINH | in | float | 双曲正弦 |
+| COSH | in | float | 双曲余弦 |
+| SQRT | in | float | 平方根（负数返回0） |
+| LN | in | float | 自然对数（≤0返回0） |
+| LOG | in | float | 常用对数（≤0返回0） |
+| EXP | in | float | e的指数 |
+| SEC | in | float | 正割：1/cos(输入°) |
+| CSC | in | float | 余割：1/sin(输入°) |
+| COT | in | float | 余切：1/tan(输入°) |
+| ANGLE_UNWRAP | in | float | 角度解绕，消除±180°跳变；有状态（记住上次输出） |
+| DIRECTION | ax, ay, az, bx, by, bz | yaw, pitch, distance | 两点间世界空间的方向和距离 |
 
 ##### 逻辑
 | 节点 | 输入 | 输出 | 参数 | 说明 |
@@ -781,6 +811,7 @@ MIT License © 2026 StarryNight_Luo
 | REDSTONE_OUT | In | - | 频率物品×2 | 将信号写入机械动力红石链接（限幅 0~15） |
 | PRIVATE_OUT | val | - | channel | 将浮点数写入命名通道 |
 | SPEED_CTRL | speed, dir | rpm | - | 设置转速控制器的 RPM; dir>0.5 时反转方向 |
+| BUS_OUT | band×N | - | bus name | 将输入值写入共享总线通道 |
 
 ##### 显示（仅全息显示器专用）
 | 节点 | 输入 | 输出 | 参数 | 说明 |
@@ -807,30 +838,31 @@ MIT License © 2026 StarryNight_Luo
 |------|------|------|------|------|
 | KEYBOARD | - | 1/0 | key | 绑定键盘按键（58键），按下输出 1 |
 | MOUSE_JOYSTICK | - | X, Y | - | 鼠标增量输出 -1~1（摇杆模式） |
-| VIEW_ANGLE | - | pitch, yaw | - | 玩家视角差（视角差模式） |
 | MOUSE_BUTTON | - | L, R | - | 鼠标左/右键状态 |
 | GAMEPAD_JOYSTICK | - | LX, LY, RX, RY | - | 手柄双摇杆 -1~1 |
 | GAMEPAD_BUTTON | - | 1/0 | button | 手柄按键（15键） |
 | GAMEPAD_TRIGGER | - | LT, RT | - | 手柄模拟扳机（0.0 ~ 1.0） |
 
-##### 传感器（姿态传感器专用）
+##### 传感器（姿态传感器 / 控制座椅）
 | 节点 | 输入 | 输出 | 参数 | 说明 |
 |------|------|------|------|------|
 | WORLD_VIEW | - | yaw, pitch | - | 玩家世界视角方向 |
 | ATTITUDE | - | pitch, roll | - | 子世界姿态（俯仰/横滚） |
 | FORWARD | - | yaw, pitch | - | 子世界前方朝向 |
+| VIEW_ANGLE | - | pitch, yaw | - | 玩家视角差（视角差模式） |
 | ACCELERATION | - | X, Y, Z | - | 结构本地加速度（前/后、上/下、左/右），20Hz 差分计算 |
 | VELOCITY | - | X, Y, Z | - | 结构本地速度（前/后、上/下、左/右），×2 换算为 m/s |
-| POSE_CONVERT | pitch_a, yaw_a, roll | pitch_b, yaw_b | - | 姿态换算（3入2出） |
-| SPLIT | in | +out, -out | - | 正负分离：正数输出+，负数绝对值输出- |
-| DIRECTION | ax,ay,az,bx,by,bz | yaw, pitch, distance | - | 两点间世界空间的方向和距离 |
-| POSITION | - | X, Y, Z | offset | 世界坐标位置（可配置偏移） |
+| POSITION | - | X, Y, Z | offsetX, offsetY, offsetZ | 世界坐标位置（可配置偏移） |
 | TARGET_OUT | - | X, Y, Z, entityId, distance | - | 雷达目标输出（仅雷达可用） |
 
 ##### 结构
 | 节点 | 输入 | 输出 | 参数 | 说明 |
 |------|------|------|------|------|
 | ENCAPSULATION | 动态 | 动态 | - | 在单个节点内嵌套子图；双击进入子图编辑器 |
+
+##### 封装 I/O
+| 节点 | 输入 | 输出 | 参数 | 说明 |
+|------|------|------|------|------|
 | ENCAP_INPUT | - | float | name | 封装节点的外部输入引脚 |
 | ENCAP_OUTPUT | float | - | name | 封装节点的外部输出引脚 |
 
@@ -1050,10 +1082,13 @@ MIT License © 2026 StarryNight_Luo
 
 ## 📝 Changelog
 
-### v1.2.2 — Portable Terminal
+### v1.2.2 — Portable Terminal + Layer Panel + Undo/Redo
 - **📱 Portable Terminal** — new handheld item to remotely discover and edit programmable blocks. Scans overworld and Sable sub-level devices within configurable range (1–256 blocks). One-click opens the block's native GUI.
 - **🔍 Sable sub-level scanning** — server-side scan via `LevelPlot.getLoadedChunks()` with rotation-corrected world position calculation. Classloader-safe interface detection handles Sable's jarjar isolation.
 - **🖥️ Remote block GUI** — all 7 programmable blocks open their native interface through the terminal. Virtual menu system with `getBE()` fallback for blocks at any location.
+- **🖼️ Photoshop-style layer panel** — redesigned Holographic Monitor display editor with 108px-wide layer panel, 30px rows, and 24×24 component thumbnails (TEXT preview, DATA value, IMAGE 16×16 pixels, IMAGE_SEQUENCE current frame). Drag-and-drop layer reordering with ghost row, amber drop indicator, and auto-scroll. Layer order persists via NBT.
+- **↩️ Undo/Redo system** — Ctrl+Z / Ctrl+Y support for graph editor (add/delete nodes, connections, duplicate) and pixel editor (paint operations, new frames). Graph-level undo uses NBT snapshots with 50-step history. Pixel editor has independent pixel-data-only undo stacks.
+- **🖥️ Display editor fixes** — selection highlight now renders on top of all elements. Clicking empty display area starts dragging the already-selected component (no more lost selections). 3D renderer sorts by layerIndex with per-element Z-offset to prevent z-fighting.
 - **🛠️ Radar fixes** — removed aggressive `validateSableCache()` that cleared Sable pose every tick. Bootstrap now uses `boundingBox()` for precise sub-level matching. `onLoad()` clears cached coordinates to fix NBT-copied radar stale data.
 - **🧹 Code cleanup** — portable terminal streamlined (7 dead packet files removed, screen code -52%). All screens unified `toggleRunning()` pattern for local state update.
 - **🎨 3D terminal model** — custom Blockbench handheld model with GUI display angles.
