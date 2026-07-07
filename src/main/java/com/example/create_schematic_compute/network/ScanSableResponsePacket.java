@@ -1,7 +1,6 @@
 package com.example.create_schematic_compute.network;
 
 import com.example.create_schematic_compute.SchematicCompute;
-import com.example.create_schematic_compute.client.PortableTerminalScreen;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -12,6 +11,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 /** Server→Client: results of a Sable sub-level device scan. */
 public record ScanSableResponsePacket(List<SablePacketHelper.SableDeviceEntry> devices)
@@ -22,10 +22,13 @@ public record ScanSableResponsePacket(List<SablePacketHelper.SableDeviceEntry> d
     public static final StreamCodec<ByteBuf, ScanSableResponsePacket> CODEC =
         StreamCodec.composite(entryListCodec(), ScanSableResponsePacket::devices, ScanSableResponsePacket::new);
 
+    /** Client-side handler — set during client init, no-op on server. */
+    public static Consumer<List<SablePacketHelper.SableDeviceEntry>> clientHandler = list -> {};
+
     @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 
     public void handle(IPayloadContext ctx) {
-        ctx.enqueueWork(() -> PortableTerminalScreen.onSableScanResult(devices));
+        ctx.enqueueWork(() -> clientHandler.accept(devices));
     }
 
     // ── Custom list codec ──

@@ -1,7 +1,6 @@
 package com.example.create_schematic_compute;
 
 import com.example.create_schematic_compute.blocks.*;
-import com.example.create_schematic_compute.client.ClientSetup;
 import com.example.create_schematic_compute.entity.ControlSeatEntity;
 import com.example.create_schematic_compute.items.PortableTerminalItem;
 import com.simibubi.create.api.schematic.nbt.SafeNbtWriterRegistry;

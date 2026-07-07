@@ -9,11 +9,15 @@ import com.example.create_schematic_compute.blocks.RadarScreen;
 import com.example.create_schematic_compute.blocks.SensorScreen;
 import com.example.create_schematic_compute.blocks.SpeedProxyScreen;
 import com.example.create_schematic_compute.entity.ControlSeatEntity;
+import com.example.create_schematic_compute.items.PortableTerminalItem;
+import com.example.create_schematic_compute.network.ScanSableResponsePacket;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.entity.EntityRenderer;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
@@ -26,6 +30,13 @@ public class ClientSetup {
     @net.neoforged.bus.api.SubscribeEvent
     public static void registerModels(ModelEvent.RegisterAdditional event) {
         event.register(SCANNER_MODEL);
+    }
+    @net.neoforged.bus.api.SubscribeEvent
+    public static void clientSetup(FMLClientSetupEvent event) {
+        event.enqueueWork(() -> {
+            ScanSableResponsePacket.clientHandler = PortableTerminalScreen::onSableScanResult;
+            PortableTerminalItem.screenOpener = p -> Minecraft.getInstance().setScreen(new PortableTerminalScreen(p));
+        });
     }
     @net.neoforged.bus.api.SubscribeEvent
     public static void registerScreens(RegisterMenuScreensEvent event) {
