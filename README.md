@@ -1082,6 +1082,10 @@ MIT License © 2026 StarryNight_Luo
 
 ## 📝 Changelog
 
+### v1.2.3 — Server Crash Fix + Package Rename
+- **🐛 Dedicated Server crash fix** — removed client-class imports (`Screen`, `Minecraft`, `PortableTerminalScreen`) from common-side code (`ScanSableResponsePacket`, `PortableTerminalItem`). Replaced with static `Consumer` injection pattern wired during `FMLClientSetupEvent`. Fixes #4.
+- **📦 Package rename** — `com.example.create_schematic_compute` → `io.github.y15173334444.create_schematic_compute` (group, mixins, all 80 Java sources)
+
 ### v1.2.2 — Portable Terminal + Layer Panel + Undo/Redo
 - **📱 Portable Terminal** — new handheld item to remotely discover and edit programmable blocks. Scans overworld and Sable sub-level devices within configurable range (1–256 blocks). One-click opens the block's native GUI.
 - **🔍 Sable sub-level scanning** — server-side scan via `LevelPlot.getLoadedChunks()` with rotation-corrected world position calculation. Classloader-safe interface detection handles Sable's jarjar isolation.

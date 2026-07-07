@@ -1,6 +1,6 @@
 {
     "required": true,
-    "package": "com.example.create_schematic_compute.mixin",
+    "package": "io.github.y15173334444.create_schematic_compute.mixin",
     "compatibilityLevel": "JAVA_21",
     "client": [
         "LocalPlayerMixin"
