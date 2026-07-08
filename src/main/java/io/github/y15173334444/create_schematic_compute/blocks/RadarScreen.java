@@ -26,7 +26,8 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
 
     private static boolean isAllowedNode(NodeType nt) {
         return nt == NodeType.TARGET_OUT || nt == NodeType.REDSTONE_OUT
-            || nt == NodeType.PRIVATE_OUT || nt == NodeType.BUS_OUT;
+            || nt == NodeType.PRIVATE_OUT || nt == NodeType.BUS_OUT
+            || nt == NodeType.COMMENT;
     }
 
     public RadarScreen(RadarMenu m, Inventory inv, Component t) {

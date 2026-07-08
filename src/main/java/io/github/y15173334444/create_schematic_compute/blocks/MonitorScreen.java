@@ -129,7 +129,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             || nt == NodeType.PRIVATE_IN
             || nt == NodeType.BUS_IN
             || nt == NodeType.TEXT || nt == NodeType.DATA
-            || nt == NodeType.IMAGE || nt == NodeType.IMAGE_SEQUENCE);
+            || nt == NodeType.IMAGE || nt == NodeType.IMAGE_SEQUENCE
+            || nt == NodeType.COMMENT);
     }
 
     private MonitorBlockEntity getBE() {

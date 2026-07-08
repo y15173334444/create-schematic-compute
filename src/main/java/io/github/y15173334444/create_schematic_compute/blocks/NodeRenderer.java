@@ -158,8 +158,13 @@ public class NodeRenderer {
 
     // 尺寸常量
     public static final int NW=140, WIDE_NW=240, HH=18, PH=16, PR=4, GS=30;
-    /** Dynamic node width: FORMULA gets 240px for long expressions */
-    public static int nw(GraphNode n) { return n != null && n.type == NodeType.FORMULA ? WIDE_NW : NW; }
+    /** Dynamic node width: FORMULA gets 240px for long expressions, COMMENT uses its own width */
+    public static int nw(GraphNode n) {
+        if (n == null) return NW;
+        if (n.type == NodeType.COMMENT) return Math.round(n.commentWidth);
+        if (n.type == NodeType.FORMULA) return WIDE_NW;
+        return NW;
+    }
 
     // 坐标转换接口
     public interface CoordMapper { float apply(float coord); }
@@ -184,6 +189,7 @@ public class NodeRenderer {
         new NodeCategory("category.create_schematic_compute.display", new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE}),
         new NodeCategory("category.create_schematic_compute.structure", new NodeType[]{NodeType.ENCAPSULATION}),
         new NodeCategory("category.create_schematic_compute.encap_io", new NodeType[]{NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT}),
+        new NodeCategory("category.create_schematic_compute.annotation", new NodeType[]{NodeType.COMMENT}),
     };
     private final java.util.Map<Integer, Boolean> catExpanded = new java.util.HashMap<>();
     private float menuRX, menuRY;
@@ -270,16 +276,238 @@ public class NodeRenderer {
         float margin = 50;
         for(var n : nodes) {
             float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
-            float sw = NW*zoom, nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
+            float sw = nw(n)*zoom, nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
+            if (n.type == NodeType.COMMENT) nh = n.commentHeight * zoom;
             if (sx + sw < -margin || sx > w + margin || sy + nh < -margin || sy > h + margin)
                 continue;
             drawNode(g, n, selectedNodes.contains(n), n == primaryNode, expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, flipflopStates);
         }
     }
 
+    /** Render a COMMENT node with sticky-note styling, edit button, resize handle, and markdown text. */
+    private void drawCommentNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary,
+                                  boolean editing, float camX, float camY, float zoom, int mx, int my) {
+        float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
+        float sw = n.commentWidth * zoom;
+        float sh = n.commentHeight * zoom;
+        int isx = (int) sx, isy = (int) sy, isw = (int) (sx + sw), ish = (int) (sy + sh);
+
+        // Background
+        g.fill(isx, isy, isw, ish, n.commentBgColor);
+        // Border: brighter when editing
+        int borderColor;
+        if (editing) borderColor = 0xFFC0A060;                // warm tan = active editing
+        else if (isPrimary) borderColor = 0xFFFFAA00;          // gold = primary selection
+        else if (selected) borderColor = 0xFFE6C060;           // light gold = selected
+        else borderColor = n.commentBorderColor;                // custom = normal
+        g.renderOutline(isx, isy, (int) sw, (int) sh, borderColor);
+        // Editing banner — rendered above the node
+        if (editing) {
+            int bannerH = (int)(16 * zoom);
+            String editHint = I18n.get("gui.create_schematic_compute.comment.edit_hint");
+            int textW = Minecraft.getInstance().font.width(editHint);
+            float bannerW = (textW + 16) * zoom;
+            float bx = sx + sw/2 - bannerW/2;
+            float by = sy - bannerH - 2 * zoom;
+            g.fill((int)bx, (int)by, (int)(bx + bannerW), (int)(by + bannerH), 0xCC2A2822);
+            g.renderOutline((int)bx, (int)by, (int)bannerW, bannerH, 0xFFC0A060);
+            var bannerPose = g.pose();
+            bannerPose.pushPose();
+            bannerPose.translate(bx + bannerW/2, by + bannerH/2, 0);
+            bannerPose.scale(zoom, zoom, 1);
+            drawStr(g, "§e" + editHint, -textW/2, -4, 0xFFFFDD77);
+            bannerPose.popPose();
+        }
+        // Inner subtle border
+        if ((int) sw > 6 && (int) sh > 6) {
+            int ib = n.commentBorderColor;
+            int innerB = (Math.min((ib >> 16) & 0xFF, 248) << 16)
+                       | (Math.min((ib >> 8) & 0xFF, 248) << 8)
+                       | Math.min(ib & 0xFF, 248)
+                       | (ib & 0xFF000000);
+            g.renderOutline(isx + 2, isy + 2, (int) sw - 4, (int) sh - 4, innerB);
+        }
+
+        // Edit button — top-right 14×14 px, highlighted when editing
+        int btnBg = editing ? 0x88C0A060 : 0x66000000;
+        int btnOutline = editing ? 0xFFC0A060 : 0xFF888888;
+        float btnSize = 14 * zoom;
+        int btnX = (int) (sx + 2 * zoom);
+        int btnY = (int) (sy + 2 * zoom);
+        int btnS = (int) btnSize;
+        // Button background
+        g.fill(btnX, btnY, btnX + btnS, btnY + btnS, btnBg);
+        g.renderOutline(btnX, btnY, btnS, btnS, btnOutline);
+        // Gear icon
+        var btPose = g.pose();
+        btPose.pushPose();
+        btPose.translate(btnX + btnS/2f, btnY + btnS/2f, 0);
+        btPose.scale(zoom, zoom, 1);
+        drawStr(g, "§7⚙", -4, -4, 0xFFCCCCCC);
+        btPose.popPose();
+
+        // Resize handle — bottom-right L-shape
+        int handleSize = (int) (10 * zoom);
+        int hx = (int) (sx + sw - handleSize);
+        int hy = (int) (sy + sh - handleSize);
+        g.fill(hx, (int) (sy + sh - 3 * zoom), (int) (sx + sw), (int) (sy + sh), n.commentBorderColor);
+        g.fill((int) (sx + sw - 3 * zoom), hy, (int) (sx + sw), (int) (sy + sh), n.commentBorderColor);
+
+        // Render text body (markdown-simplified)
+        var mc = Minecraft.getInstance();
+        float textX = sx + 6 * zoom;
+        float textY = sy + 6 * zoom;
+        float maxTextW = sw - 26 * zoom;
+        int availW = Math.max(1, (int) (maxTextW / zoom));
+        int lineH = 12;
+        float visibleH = (sh - 16 * zoom) / zoom;
+        int maxVis = Math.max(1, (int)(visibleH / lineH));
+        String renderText = editing ? (nodeEditStatesById.containsKey(n.id)
+            ? getEditStateText(n) : n.displayText) : n.displayText;
+
+        // Compute scroll info from displayText
+        int totalWraps = 0;
+        if (!n.displayText.isEmpty()) {
+            totalWraps = countWrappedLinesLocal(n.displayText, availW);
+        }
+        int scrollMax = Math.max(0, totalWraps - maxVis);
+        int scrollOff = n.commentScrollOff;
+        if (scrollOff < 0) scrollOff = 0;
+        if (scrollOff > scrollMax) { scrollOff = scrollMax; n.commentScrollOff = scrollOff; }
+
+        // Always render scrollbar track
+        int sbX = (int)(sx + sw - 10 * zoom);
+        int sbY = (int)(sy + 2 * zoom);
+        int sbH = (int)(sh - 16 * zoom);
+        int sbW = Math.max(2, (int)(6 * zoom));
+        g.fill(sbX, sbY, sbX + sbW, sbY + sbH, 0xFF3A3832);
+        if (scrollMax > 0) {
+            float thumbH = Math.max(12 * zoom, (float) maxVis / totalWraps * sbH);
+            float thumbY = sbY + (float) scrollOff / scrollMax * (sbH - thumbH);
+            g.fill(sbX + 1, (int)thumbY, sbX + sbW - 1, (int)(thumbY + thumbH), n.commentBorderColor);
+        }
+
+        if (editing) {
+            // Render the MLE on the sticky-note surface via EditPanel, with scroll offset
+            var editSt = nodeEditStatesById.get(n.id);
+            if (editSt != null && !suppressControls) {
+                int commentEditY = 2 - scrollOff * lineH;
+                var pose = g.pose();
+                pose.pushPose();
+                pose.translate(sx, sy, 0);
+                pose.scale(zoom, zoom, 1);
+                io.github.y15173334444.create_schematic_compute.blocks.EditPanel.renderAt(
+                    g, 0, commentEditY, Math.round(n.commentWidth), n, editSt, zoom, mx, my, null);
+                pose.popPose();
+            }
+        } else if (!n.displayText.isEmpty()) {
+            // Build all wrapped segments into a flat list
+            var segments = new java.util.ArrayList<String>();
+            for (String line : n.displayText.split("\n", -1)) {
+                String remaining = line;
+                if (remaining.isEmpty()) { segments.add(""); continue; }
+                while (!remaining.isEmpty()) {
+                    if (mc.font.width(plainText(remaining)) <= availW) {
+                        segments.add(remaining);
+                        break;
+                    }
+                    String chunk = mc.font.plainSubstrByWidth(remaining, availW);
+                    if (chunk.isEmpty()) chunk = remaining.substring(0, 1);
+                    segments.add(chunk);
+                    remaining = remaining.substring(chunk.length());
+                }
+            }
+
+            // Render visible segments
+            float ly = textY;
+            int endIdx = Math.min(segments.size(), scrollOff + maxVis);
+            for (int i = scrollOff; i < endIdx; i++) {
+                if (ly > sy + sh - 10 * zoom) break;
+                var txtPose = g.pose();
+                txtPose.pushPose();
+                txtPose.translate(textX, ly, 0);
+                txtPose.scale(zoom, zoom, 1);
+                renderMarkdownLine(g, segments.get(i), 0, 0, availW, n.commentTextColor);
+                txtPose.popPose();
+                ly += 12 * zoom;
+            }
+        }
+    }
+
+    private static String getEditStateText(GraphNode n) {
+        // Return empty — MLE handles its own text display
+        return "";
+    }
+
+    private static int countWrappedLinesLocal(String text, int availW) {
+        var font = Minecraft.getInstance().font;
+        int total = 0;
+        for (String line : text.split("\n", -1)) {
+            String rem = line;
+            if (rem.isEmpty()) { total++; continue; }
+            while (!rem.isEmpty()) {
+                if (font.width(rem) <= availW) { total++; break; }
+                String chunk = font.plainSubstrByWidth(rem, availW);
+                if (chunk.isEmpty()) chunk = rem.substring(0, 1);
+                total++;
+                rem = rem.substring(chunk.length());
+            }
+        }
+        return Math.max(1, total);
+    }
+
+    private static String plainText(String line) {
+        return line.replaceAll("\\*\\*|\\*|`|#\\s?", "");
+    }
+
+    private void renderMarkdownLine(GuiGraphics g, String line, int x, int y, int maxW, int textColor) {
+        if (line.startsWith("# ")) {
+            drawStr(g, "§l" + line.substring(2), x, y, textColor);
+        } else if (line.startsWith("- ")) {
+            drawStr(g, "§7•§r " + inlineMarkdown(line.substring(2)), x, y, textColor);
+        } else {
+            drawStr(g, inlineMarkdown(line), x, y, textColor);
+        }
+    }
+
+    private static String inlineMarkdown(String text) {
+        var sb = new StringBuilder();
+        int i = 0;
+        while (i < text.length()) {
+            if (i + 1 < text.length() && text.charAt(i) == '*' && text.charAt(i + 1) == '*') {
+                int end = text.indexOf("**", i + 2);
+                if (end >= 0) {
+                    sb.append("§l").append(text, i + 2, end).append("§r");
+                    i = end + 2;
+                } else { sb.append(text.charAt(i)); i++; }
+            } else if (text.charAt(i) == '*' && (i == 0 || text.charAt(i - 1) != '\\')) {
+                int end = text.indexOf('*', i + 1);
+                if (end >= 0) {
+                    sb.append("§o").append(text, i + 1, end).append("§r");
+                    i = end + 1;
+                } else { sb.append(text.charAt(i)); i++; }
+            } else if (text.charAt(i) == '`') {
+                int end = text.indexOf('`', i + 1);
+                if (end >= 0) {
+                    sb.append("§7§o").append(text, i + 1, end).append("§r");
+                    i = end + 1;
+                } else { sb.append(text.charAt(i)); i++; }
+            } else {
+                sb.append(text.charAt(i));
+                i++;
+            }
+        }
+        return sb.toString();
+    }
+
     private void drawNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary, boolean editing,
                            float camX, float camY, float zoom, int mx, int my,
                            Map<Integer, Boolean> flipflopStates) {
+        // COMMENT nodes use a completely different rendering path
+        if (n.type == NodeType.COMMENT) {
+            drawCommentNode(g, n, selected, isPrimary, editing, camX, camY, zoom, mx, my);
+            return;
+        }
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
         int nodeW = nw(n);
         float sw = nodeW*zoom;
@@ -364,6 +592,7 @@ public class NodeRenderer {
             || n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE
             || n.type == NodeType.TEXT || n.type == NodeType.DATA
             || n.type == NodeType.ENCAPSULATION || n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT
+            || n.type == NodeType.COMMENT
             || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) {
             drawStr(g, editing ? (n.type == NodeType.ENCAPSULATION ? "§b▶▶" : "§6▼") : (n.type == NodeType.ENCAPSULATION ? "§b▶" : "§7▶"), nodeW - 18, 4, CT);
         }

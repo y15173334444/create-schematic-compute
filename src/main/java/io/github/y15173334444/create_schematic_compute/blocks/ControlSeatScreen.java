@@ -36,7 +36,8 @@ public class ControlSeatScreen extends AbstractContainerScreen<ControlSeatMenu> 
             || nt == NodeType.POSE_CONVERT
             || nt == NodeType.SPLIT
             || nt == NodeType.REDSTONE_OUT
-            || nt == NodeType.PRIVATE_OUT;
+            || nt == NodeType.PRIVATE_OUT
+            || nt == NodeType.COMMENT;
     }
 
     public ControlSeatScreen(ControlSeatMenu m, Inventory inv, Component t) {

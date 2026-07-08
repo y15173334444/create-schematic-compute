@@ -21,6 +21,16 @@ public class MultiLineEditBox extends EditBox {
     private final java.util.ArrayList<VLine> visualLines = new java.util.ArrayList<>();
     private String lastBuiltText = null;
     private int lastBuiltWidth = -1;
+    private int backgroundColor = 0xFF000000;
+    private int textColor = 0xFFE0E0E0;
+    private boolean drawMleBorder = true;
+
+    private int cursorColor = 0xFFFFFFFF;
+
+    public void setBackgroundColor(int color) { this.backgroundColor = color; }
+    public void setTextColor(int color) { this.textColor = color; }
+    public void setCursorColor(int color) { this.cursorColor = color; }
+    public void setDrawBorder(boolean draw) { this.drawMleBorder = draw; }
 
     public MultiLineEditBox(Font font, int x, int y, int width, int height) {
         super(font, x, y, width, height, Component.empty());
@@ -125,20 +135,20 @@ public class MultiLineEditBox extends EditBox {
     @Override
     public void renderWidget(GuiGraphics g, int mx, int my, float pt) {
         if (!isVisible()) return;
-        int bgColor = 0xFF000000;
-        g.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), bgColor);
-        int borderColor = isFocused() ? 0xFFFFFFFF : 0xFFA0A0A0;
-        g.fill(getX() - 1, getY() - 1, getX() + getWidth() + 1, getY(), borderColor);
-        g.fill(getX() - 1, getY() + getHeight(), getX() + getWidth() + 1, getY() + getHeight() + 1, borderColor);
-        g.fill(getX() - 1, getY(), getX(), getY() + getHeight(), borderColor);
-        g.fill(getX() + getWidth(), getY(), getX() + getWidth() + 1, getY() + getHeight(), borderColor);
+        g.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), backgroundColor);
+        if (drawMleBorder) {
+            int borderColor = isFocused() ? 0xFFFFFFFF : 0xFFA0A0A0;
+            g.fill(getX() - 1, getY() - 1, getX() + getWidth() + 1, getY(), borderColor);
+            g.fill(getX() - 1, getY() + getHeight(), getX() + getWidth() + 1, getY() + getHeight() + 1, borderColor);
+            g.fill(getX() - 1, getY(), getX(), getY() + getHeight(), borderColor);
+            g.fill(getX() + getWidth(), getY(), getX() + getWidth() + 1, getY() + getHeight(), borderColor);
+        }
 
         buildVisualLines();
         String text = getValue();
         int cursorLine = getCursorLine();
         int cursorCol = getCursorColumn();
         int cursorVisLine = findVisualLine(cursorLine, cursorCol);
-        int textColor = 0xFFE0E0E0;
 
         for (int vi = 0; vi < visualLines.size(); vi++) {
             int y = getY() + 3 + vi * lineHeight();
@@ -179,7 +189,7 @@ public class MultiLineEditBox extends EditBox {
                 int visCol = cursorCol - vl.charStart;
                 if (visCol >= 0 && visCol <= chunk.length()) {
                     int curX = drawX + font.width(chunk.substring(0, Math.min(visCol, chunk.length())));
-                    g.fill(curX, y - 1, curX + 1, y + font.lineHeight, 0xFFFFFFFF);
+                    g.fill(curX, y - 1, curX + 1, y + font.lineHeight, cursorColor);
                 }
             }
         }

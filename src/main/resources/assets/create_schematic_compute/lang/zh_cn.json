@@ -115,6 +115,7 @@
   "block.create_schematic_compute.radar": "3D全息显示雷达",
   "container.create_schematic_compute.radar": "3D全息显示雷达编辑器",
   "node.create_schematic_compute.target_out": "目标输出",
+  "node.create_schematic_compute.comment": "注释",
   "pin.create_schematic_compute.entity_id": "实体ID",
   "pin.create_schematic_compute.distance": "距离",
   "node.create_schematic_compute.text": "文本",
@@ -143,6 +144,7 @@
   "gui.create_schematic_compute.monitor.pixel_close_hint": "点击外部 | ESC 关闭",
   "category.create_schematic_compute.structure": "封装",
   "category.create_schematic_compute.encap_io": "封装 I/O",
+  "category.create_schematic_compute.annotation": "注释",
   "node.create_schematic_compute.encapsulation": "封装",
   "node.create_schematic_compute.encap_input": "封装输入",
   "node.create_schematic_compute.encap_output": "封装输出",
@@ -398,5 +400,9 @@
   "gui.create_schematic_compute.terminal.range": "范围",
   "gui.create_schematic_compute.terminal.no_devices": "附近没有设备",
   "gui.create_schematic_compute.terminal.target_gone": "目标方块已消失",
-  "gui.create_schematic_compute.terminal.back": "← 返回设备列表"
+  "gui.create_schematic_compute.terminal.back": "← 返回设备列表",
+  "gui.create_schematic_compute.comment.bg_color": "背景",
+  "gui.create_schematic_compute.comment.border_color": "边框",
+  "gui.create_schematic_compute.comment.text_color": "文字",
+  "gui.create_schematic_compute.comment.edit_hint": "编辑中 - 双击退出以操作内部节点"
 }

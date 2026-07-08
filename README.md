@@ -11,7 +11,7 @@
 ---
 
 <p align="center">
-  <b>🎮 Seven Programmable Blocks with a Visual Node-Based Programming System</b><br>
+  <b>🎮 Seven Programmable Blocks · 82 Node Types · Visual Node Graph</b><br>
   <i>Drag, connect, and build logic — just like Unreal Engine Blueprints or Blender Geometry Nodes!</i><br>
   <i>Created by <b>StarryNight_Luo</b> (y15173334444)</i>
 </p>
@@ -178,7 +178,7 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 
 ---
 
-### Node Reference (81 Types)
+### Node Reference (82 Types)
 
 | Category | Nodes |
 |----------|-------|
@@ -194,6 +194,7 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 | **Controls (Input Ctrl)** | KEYBOARD (58 keys), Mouse Button (L/R), Mouse Joystick (X/Y), Gamepad Joystick (LX/LY/RX/RY), Gamepad Button (15 buttons), **Gamepad Trigger (LT/RT)** |
 | **Sensors (Input Sensor)** | World View (yaw/pitch), Attitude (pitch/roll), Forward (yaw/pitch), View Angle (pitch/yaw), **Acceleration (X/Y/Z)**, **Velocity (X/Y/Z)**, **World Position (X/Y/Z)**, **Target Output (X/Y/Z/entityId/distance)** |
 | **Structure** | Encapsulation |
+| **Annotation** | **COMMENT** (sticky-note, resizable, scrollable, 3-color customizable) |
 | **Encapsulation I/O** | Input, Output |
 
 #### Detailed Node Table
@@ -330,6 +331,11 @@ BUS_OUT destroyed → refCount decreases → if 0, channel removed
 |------|--------|--------|--------|-------------|
 | ENCAP_INPUT | - | float | name | External input pin for encapsulation node |
 | ENCAP_OUTPUT | float | - | name | External output pin for encapsulation node |
+
+##### Annotation
+| Node | Inputs | Output | Params | Description |
+|------|--------|--------|--------|-------------|
+| COMMENT | - | - | - | Sticky-note annotation. Resizable (80~8000 × 40~6000), scrollable with word-wrap, 3-color customizable (bg/border/text). Double-click body to edit, ⚙ button for color panel. Parent-move: drag comment to move contained nodes. Pure visual — ignored during compile/evaluation. |
 
 ---
 
@@ -577,7 +583,7 @@ MIT License © 2026 StarryNight_Luo
 
 ### 什么是 Create: Schematic Compute？
 
-**Create: Schematic Compute（机械动力：蓝图计算机）** 是一个**机械动力附属模组**，添加了**七种可编程方块**，采用**可视化节点图编程系统**。无需编写代码或搭建复杂的红石电路，只需拖拽连接节点即可构建逻辑——类似虚幻引擎的蓝图系统或 Blender 的几何节点。
+**Create: Schematic Compute（机械动力：蓝图计算机）** 是一个**机械动力附属模组**，添加了**七种可编程方块 · 82 种节点类型**，采用**可视化节点图编程系统**。无需编写代码或搭建复杂的红石电路，只需拖拽连接节点即可构建逻辑——类似虚幻引擎的蓝图系统或 Blender 的几何节点。
 
 每台计算机拥有独立的节点图，以 **20Hz（每游戏刻）** 的频率运行，适合实时控制应用。
 
@@ -713,7 +719,7 @@ MIT License © 2026 StarryNight_Luo
 
 ---
 
-### 节点参考（81 种）
+### 节点参考（82 种）
 
 | 分类 | 节点 |
 |------|------|
@@ -729,6 +735,7 @@ MIT License © 2026 StarryNight_Luo
 | **操作输入** | 键盘按键（58键）、鼠标按键（左/右）、鼠标摇杆（X/Y）、手柄摇杆（LX/LY/RX/RY）、手柄按键（15键）、**手柄扳机（LT/RT）** |
 | **传感器** | 世界视角（偏航/俯仰）、姿态（俯仰/横滚）、前方朝向（偏航/俯仰）、视角差（俯仰/偏航）、**加速度（X/Y/Z）**、**速度（X/Y/Z）**、**世界坐标（X/Y/Z）**、**目标输出（X/Y/Z/entityId/距离）** |
 | **结构** | 封装 |
+| **注释** | **COMMENT**（便利贴、可调大小、可滚动、三色自定义） |
 | **封装 I/O** | 输入、输出 |
 
 #### 详细节点表
@@ -865,6 +872,11 @@ MIT License © 2026 StarryNight_Luo
 |------|------|------|------|------|
 | ENCAP_INPUT | - | float | name | 封装节点的外部输入引脚 |
 | ENCAP_OUTPUT | float | - | name | 封装节点的外部输出引脚 |
+
+##### 注释
+| 节点 | 输入 | 输出 | 参数 | 说明 |
+|------|------|------|------|------|
+| COMMENT | - | - | - | 便利贴式注释节点。可调大小（80~8000 × 40~6000），支持滚动条和自动换行，三色自定义（背景/边框/文字）。双击主体编辑文本，⚙ 按钮打开颜色面板。父级移动：拖拽注释可移动内部节点。纯视觉辅助——编译和运行时完全忽略。 |
 
 ---
 
@@ -1082,7 +1094,17 @@ MIT License © 2026 StarryNight_Luo
 
 ## 📝 Changelog
 
-### v1.2.3 — Server Crash Fix + Package Rename
+### v1.2.3 — Comment Node + Server Crash Fix + Package Rename
+- **📝 COMMENT node (82 total node types)** — sticky-note style annotation node for visual documentation. Pure visual (0 inputs, 0 outputs, skipped during evaluation). Resizable, scrollable, with word-wrapped markdown text rendering. Available in all 7 programmable blocks.
+- **🎨 3-color customization** — independently configure background, border, and text colors via the top-left ⚙ button. ARGB hex format with color swatch previews.
+- **📜 Scrollbar & scroll wheel** — built-in scrollbar always visible, mouse wheel scrolling in all modes. Word-wrapped text using `plainSubstrByWidth`.
+- **🔄 Auto-close on compile** — COMMENT nodes exit editing mode on Recompile. Color data syncs via `BlueprintSavePacket`.
+- **🧲 Parent-move** — dragging a COMMENT moves all contained nodes (with recursive nesting + infinite-loop protection).
+- **✏️ Seamless text editing** — transparent-background MultiLineEditBox via new `setBackgroundColor/textColor/cursorColor/drawBorder` API.
+- **📏 Expanded size** — max comment 8000×6000 (was 400×300).
+- **📦 All screens** — COMMENT added to ProgramComputer, Monitor, ControlSeat, Radar, Sensor, SpeedProxy filters.
+- **🐛 Dedicated Server crash fix** — removed client-class imports (`Screen`, `Minecraft`, `PortableTerminalScreen`) from common-side code (`ScanSableResponsePacket`, `PortableTerminalItem`). Replaced with static `Consumer` injection pattern wired during `FMLClientSetupEvent`. Fixes #4.
+- **📦 Package rename** — `com.example.create_schematic_compute` → `io.github.y15173334444.create_schematic_compute` (group, mixins, all 80 Java sources)
 - **🐛 Dedicated Server crash fix** — removed client-class imports (`Screen`, `Minecraft`, `PortableTerminalScreen`) from common-side code (`ScanSableResponsePacket`, `PortableTerminalItem`). Replaced with static `Consumer` injection pattern wired during `FMLClientSetupEvent`. Fixes #4.
 - **📦 Package rename** — `com.example.create_schematic_compute` → `io.github.y15173334444.create_schematic_compute` (group, mixins, all 80 Java sources)
 

@@ -679,7 +679,7 @@ public class GraphEvaluator {
                 }
             }
             // Display nodes — no float output; data read from GraphNode fields by renderer
-            case TEXT, DATA, IMAGE, IMAGE_SEQUENCE -> {}
+            case TEXT, DATA, IMAGE, IMAGE_SEQUENCE, COMMENT -> {}
             case ENCAPSULATION -> {
                 if (node.subGraph == null) break;
                 var outNodes = node.getSubNodes(NodeType.ENCAP_OUTPUT);

@@ -45,6 +45,9 @@ public class EditPanel {
             int bands = n.signalBands != null ? n.signalBands.size() : 0;
             h += 22 + bands * 18 + 20;
         }
+        if (n.type == NodeType.COMMENT) {
+            h += Math.round(n.commentHeight) - 12;
+        }
         if (n.type == NodeType.FORMULA) {
             // Height based on visual lines (word-wrap aware)
             if (st != null && !st.fields.isEmpty()
@@ -151,6 +154,13 @@ public class EditPanel {
         } else {
             st.bandAddBtnW = 0; // 隐藏 +/-
         }
+        } else if (node.type == NodeType.COMMENT) {
+            if (!st.fields.isEmpty() && st.fields.get(0) instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mle) {
+                mle.setX(px + 20); mle.setY(py + 4);
+                mle.setWidth(Math.max(40, pw - 28)); // leave room for edit button (top-left)
+                mle.setHeight(Math.max(18, Math.round(node.commentHeight) - 12));
+                mle.render(g, mx, my, 0);
+            }
         } else if (node.type == NodeType.FORMULA) {
         // ── FORMULA 多行脚本编辑区（MultiLineEditBox） ──
         // 摘要信息行

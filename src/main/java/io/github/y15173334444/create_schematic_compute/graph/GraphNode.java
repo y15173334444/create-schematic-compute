@@ -39,6 +39,13 @@ public class GraphNode {
     public float displayRotation = 0f;             // rotation (degrees)
     /** 每单位信号移动量（归一化坐标），默认每1信号移动1%宽度 */
     public float moveScale = 0.01f;
+    /** Comment node fields */
+    public float commentWidth = 160;      // default width in graph-space pixels
+    public float commentHeight = 100;     // default height in graph-space pixels
+    public int commentBgColor = 0xFFFFF8E7;    // background color, default cream
+    public int commentBorderColor = 0xFFE6D8B0; // border color, default light brown
+    public int commentTextColor = 0xFF333333;   // text color, default dark gray
+    public transient int commentScrollOff = 0;  // vertical scroll offset (UI state, not persisted)
     /** Encapsulation node's nested sub-graph (null for other types) */
     public NodeGraph subGraph;
 
@@ -206,6 +213,11 @@ public class GraphNode {
         n.layoutX = layoutX; n.layoutY = layoutY;
         n.displayScale = displayScale; n.displayRotation = displayRotation;
         n.moveScale = moveScale;
+        n.commentWidth = commentWidth;
+        n.commentHeight = commentHeight;
+        n.commentBgColor = commentBgColor;
+        n.commentBorderColor = commentBorderColor;
+        n.commentTextColor = commentTextColor;
         if (subGraph != null) n.subGraph = subGraph.copy();
         n.expanded = expanded;
         n.busConflict = busConflict;
@@ -246,6 +258,13 @@ public class GraphNode {
             ListTag lbls = new ListTag();
             for (String l : outputLabels) lbls.add(net.minecraft.nbt.StringTag.valueOf(l));
             tag.put("outlbls", lbls);
+        }
+        if (type == NodeType.COMMENT) {
+            tag.putFloat("cw", commentWidth);
+            tag.putFloat("ch", commentHeight);
+            if (commentBgColor != 0xFFFFF8E7) tag.putInt("cbg", commentBgColor);
+            if (commentBorderColor != 0xFFE6D8B0) tag.putInt("cbr", commentBorderColor);
+            if (commentTextColor != 0xFF333333) tag.putInt("ctx", commentTextColor);
         }
         if (!displayText.isEmpty()) tag.putString("dtext", displayText);
         if (textColor != 0) tag.putInt("tcol", textColor);
@@ -307,6 +326,12 @@ public class GraphNode {
             for (int i = 0; i < lbls.size(); i++)
                 node.outputLabels.add(lbls.getString(i));
         }
+        if (tag.contains("cw")) node.commentWidth = tag.getFloat("cw");
+        if (tag.contains("ch")) node.commentHeight = tag.getFloat("ch");
+        if (tag.contains("cc")) node.commentBgColor = tag.getInt("cc"); // legacy key
+        if (tag.contains("cbg")) node.commentBgColor = tag.getInt("cbg");
+        if (tag.contains("cbr")) node.commentBorderColor = tag.getInt("cbr");
+        if (tag.contains("ctx")) node.commentTextColor = tag.getInt("ctx");
         if (tag.contains("dtext")) node.displayText = tag.getString("dtext");
         if (tag.contains("tcol")) node.textColor = tag.getInt("tcol");
         if (tag.contains("ipx")) node.imagePixels = tag.getIntArray("ipx");

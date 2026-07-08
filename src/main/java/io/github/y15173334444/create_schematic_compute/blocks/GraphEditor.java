@@ -175,6 +175,15 @@ public class GraphEditor {
     // 鼠标坐标缓存（供 X 键删除用）
     private double lastMouseX, lastMouseY;
 
+    // ── Comment node interaction state ──
+    private long lastClickTimeMs = 0;
+    private int lastClickNodeId = -1;
+    private GraphNode resizingComment = null;
+    private float resizeStartW, resizeStartH;
+    private GraphNode editingCommentColorNode = null;
+    private final net.minecraft.client.gui.components.EditBox[] commentColorEditBoxes = new net.minecraft.client.gui.components.EditBox[3];
+    private final java.util.Map<Integer, Integer> commentScrollOffsets = new java.util.HashMap<>();
+
     // ── 子图编辑栈（封装节点） ──
     private record GraphEditState(GraphNode parentNode, Predicate<NodeType> parentFilter,
                                    float camX, float camY, float zoom) {}
@@ -361,6 +370,19 @@ public class GraphEditor {
                 s.fields.add(b);
             }
             s.paramKeys = keys;
+        }
+        if (node.type == NodeType.COMMENT) {
+            int editW = Math.max(40, Math.round(node.commentWidth) - 28);
+            var mle = new io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox(
+                mc.font, 0, 0, editW, 18);
+            mle.setMaxLength(4096);
+            mle.setValue(node.displayText);
+            mle.setBackgroundColor(0x00000000); // transparent, let comment bg show through
+            mle.setTextColor(node.commentTextColor);
+            mle.setCursorColor(node.commentTextColor);
+            mle.setDrawBorder(false);
+            mle.setResponder(t -> node.displayText = t);
+            s.fields.add(mle);
         }
         if (node.type == NodeType.FORMULA) {
             // Multi-line script editor — single MultiLineEditBox
@@ -710,6 +732,35 @@ public class GraphEditor {
         // 颜色配置面板
         if (showColorConfig) renderColorPanel(g, mx, my);
         if(showMenu) { selectedMenuType = renderer.renderAddNodeMenu(g, menuX, menuY, mx, my, nodeFilter); }
+        // Comment color edit popup (3-color panel above the node)
+        if (editingCommentColorNode != null && commentColorEditBoxes[0] != null) {
+            var cn = editingCommentColorNode;
+            int pw = 200, ph = 74;
+            float csx = c2sX(cn.x), csy = c2sY(cn.y);
+            int px = (int)(csx + cn.commentWidth * zoom / 2 - pw / 2);
+            int py = (int)(csy - ph - 6);
+            if (py < 4) py = 4; // clamp to top
+            g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
+            g.renderOutline(px, py, pw, ph, 0xFFD4A017);
+            String[] labels = {
+                I18n.get("gui.create_schematic_compute.comment.bg_color"),
+                I18n.get("gui.create_schematic_compute.comment.border_color"),
+                I18n.get("gui.create_schematic_compute.comment.text_color")
+            };
+            int[] curColors = {cn.commentBgColor, cn.commentBorderColor, cn.commentTextColor};
+            for (int row = 0; row < 3; row++) {
+                int ry = py + 4 + row * 22;
+                g.drawString(Minecraft.getInstance().font, labels[row], px + 6, ry + 2, 0xFFCCCCCC, false);
+                // Color swatch
+                g.fill(px + pw - 100, ry, px + pw - 84, ry + 16, curColors[row]);
+                g.renderOutline(px + pw - 100, ry, 16, 16, 0xFF999999);
+                // Hex input
+                var box = commentColorEditBoxes[row];
+                box.setX(px + pw - 82);
+                box.setY(ry);
+                box.render(g, mx, my, 0);
+            }
+        }
         // 框选矩形
         if (boxSelecting) {
             float x1 = Math.min(boxSX, boxEX), y1 = Math.min(boxSY, boxEY);
@@ -753,6 +804,24 @@ public class GraphEditor {
 
     public boolean mouseClicked(double mx, double my, int btn) {
         var graph = getGraph();
+        // ── Comment color edit popup ──
+        if (editingCommentColorNode != null && commentColorEditBoxes[0] != null && btn == 0) {
+            var cn = editingCommentColorNode;
+            int pw = 200, ph = 74;
+            float csx = c2sX(cn.x), csy = c2sY(cn.y);
+            int px = (int)(csx + cn.commentWidth * zoom / 2 - pw / 2);
+            int py = (int)(csy - ph - 6);
+            if (py < 4) py = (int)(csy + cn.commentHeight * zoom + 6);
+            if (mx < px || mx > px + pw || my < py || my > py + ph) {
+                applyCommentColors();
+                return true;
+            }
+            // Click inside → activate the nearest EditBox
+            for (int ci = 0; ci < 3; ci++) {
+                commentColorEditBoxes[ci].mouseClicked(mx, my, btn);
+            }
+            return true;
+        }
         // ── 导出对话框处理 ──
         if (showExportDialog && btn == 0) {
             int w = 280, h = 80;
@@ -1064,17 +1133,26 @@ public class GraphEditor {
                 }
                 // FORMULA multi-line editor: single MultiLineEditBox covers full edit panel height
                 int enW = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(en);
-                if (en.type == NodeType.FORMULA) {
+                // FORMULA / COMMENT multi-line editor: MultiLineEditBox covers full edit panel height
+                if (en.type == NodeType.FORMULA || en.type == NodeType.COMMENT) {
                     for (int fi = 0; fi < st.fields.size(); fi++) {
                         var b = st.fields.get(fi);
-                        int editPanelHeight = EditPanel.calcRenderHeight(en, zoom, st);
-                        int fy = editLocalY + 4 + 18;
-                        if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + editPanelHeight) {
+                        int mleY, mleH;
+                        if (en.type == NodeType.COMMENT) {
+                            // MLE fills body minus edit button: X=6..w-18, Y=6, H=body-12
+                            mleY = 6;
+                            mleH = Math.round(en.commentHeight) - 12;
+                            enW = Math.round(en.commentWidth) - 28; // leave room for left button
+                        } else {
+                            mleY = editLocalY + 4 + 18;
+                            mleH = EditPanel.calcRenderHeight(en, zoom, st);
+                        }
+                        if (lmx >= 0 && lmx <= enW && lmy >= mleY && lmy <= mleY + mleH) {
                             b.setFocused(true);
                             if (b.mouseClicked(lmx, lmy, 0)) editBoxDragNodeId = en.id;
                         } else b.setFocused(false);
                     }
-                } else {
+                } else if (en.type != NodeType.COMMENT) {
                     for (int fi = 0; fi < st.fields.size(); fi++) {
                         var b = st.fields.get(fi);
                         int fy = editLocalY + 4 + fi * 18;
@@ -1115,6 +1193,68 @@ public class GraphEditor {
             // ▶/▼ 折叠展开按钮（优先检测，不依赖选中状态）
             var expandHit = hitExpandIndicator(mx, my, graph);
             if (expandHit != null) { toggleExpand(expandHit); return true; }
+            // ── Comment node interaction ──
+            // Only handle clicks on COMMENT chrome (resize, color dot) or
+            // body clicks when no non-comment node is under the cursor.
+            var nonCommentHit = hitNode(mx, my);
+            boolean hitIsNonComment = nonCommentHit != null && nonCommentHit.type != NodeType.COMMENT;
+            for (int i2 = graph.nodes.size() - 1; i2 >= 0; i2--) {
+                var n2 = graph.nodes.get(i2);
+                if (n2.type != NodeType.COMMENT) continue;
+                float sx2 = c2sX(n2.x), sy2 = c2sY(n2.y);
+                float sw2 = n2.commentWidth * zoom, sh2 = n2.commentHeight * zoom;
+                if (mx < sx2 || mx > sx2 + sw2 || my < sy2 || my > sy2 + sh2) continue;
+                float locX = (float)(mx - sx2) / zoom;
+                float locY = (float)(my - sy2) / zoom;
+                boolean onResize = locX > n2.commentWidth - 14 && locY > n2.commentHeight - 14;
+                boolean onColorDot = locX < 18 && locY < 18;
+                // Resize handle (bottom-right 14x14) — always handled
+                if (onResize) {
+                    resizingComment = n2; resizeStartW = n2.commentWidth; resizeStartH = n2.commentHeight;
+                    return true;
+                }
+                // Edit button (top-right 14x14) — open 3-color edit panel
+                if (onColorDot) {
+                    var lvl = Minecraft.getInstance().level;
+                    if (lvl != null) takeSnapshot(getGraph(), lvl.registryAccess());
+                    editingCommentColorNode = n2;
+                    var font = Minecraft.getInstance().font;
+                    for (int ci = 0; ci < 3; ci++) {
+                        commentColorEditBoxes[ci] = new EditBox(font, 0, 0, 80, 14, Component.literal(""));
+                        commentColorEditBoxes[ci].setMaxLength(8);
+                    }
+                    int[] colors = {n2.commentBgColor, n2.commentBorderColor, n2.commentTextColor};
+                    for (int ci = 0; ci < 3; ci++)
+                        commentColorEditBoxes[ci].setValue(hex8(colors[ci]));
+                    commentColorEditBoxes[0].setFocused(true);
+                    lastClickNodeId = -1;
+                    return true;
+                }
+                // Body double-click → toggle expand (works regardless of expand state)
+                long now2 = System.currentTimeMillis();
+                if (n2.id == lastClickNodeId && (now2 - lastClickTimeMs) < 400) {
+                    toggleExpand(n2);
+                    lastClickNodeId = -1;
+                    return true;
+                }
+                lastClickTimeMs = now2; lastClickNodeId = n2.id;
+                // If a non-comment node is under cursor or comment is expanded, skip drag
+                if (hitIsNonComment || expandedNodeIds.contains(n2.id)) continue;
+                // Single click on body → drag / select
+                if (!tabHeld) {
+                    if (selectedNode != n2) { selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2); }
+                } else {
+                    if (selectedNodes.contains(n2)) selectedNodes.remove(n2);
+                    else selectedNodes.add(n2);
+                    selectedNode = selectedNodes.isEmpty() ? null : selectedNodes.iterator().next();
+                    if (selectedNodes.isEmpty()) { panning = true; panLastX = (float)mx; panLastY = (float)my; return true; }
+                }
+                // Start drag with parent-move snapshot
+                var lvl = Minecraft.getInstance().level;
+                if (lvl != null) takeSnapshot(getGraph(), lvl.registryAccess());
+                draggingNode = n2; dragOffX = n2.x - s2cX(mx); dragOffY = n2.y - s2cY(my);
+                return true;
+            }
             // BUS_IN 编辑区输出引脚优先检测
             for(var node:graph.nodes){if(node.type==NodeType.BUS_IN&&expandedNodeIds.contains(node.id)&&node.signalBands!=null){float sx=c2sX(node.x),sy=c2sY(node.y);int nw=io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(node);for(int i=0;i<node.signalBands.size();i++){float py=sy+bandPinY(node,i,zoom)*zoom;if(Math.abs(mx-(sx+nw*zoom))<12&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}}
             // 拖拽连线 — 节点体输出引脚
@@ -1259,12 +1399,22 @@ public class GraphEditor {
             || node.type == NodeType.TEXT || node.type == NodeType.IMAGE
             || node.type == NodeType.IMAGE_SEQUENCE || node.type == NodeType.DATA
             || node.type == NodeType.ENCAPSULATION || node.type == NodeType.ENCAP_INPUT
-            || node.type == NodeType.ENCAP_OUTPUT;
+            || node.type == NodeType.ENCAP_OUTPUT || node.type == NodeType.COMMENT;
     }
 
     public void mouseReleased(double mx, double my, int btn) {
         var graph = getGraph();
         editBoxDragNodeId = -1;
+        // Comment resize complete
+        if (resizingComment != null) {
+            if (Math.abs(resizingComment.commentWidth - resizeStartW) > 1
+                || Math.abs(resizingComment.commentHeight - resizeStartH) > 1) {
+                var lvl = Minecraft.getInstance().level;
+                if (lvl != null) takeSnapshot(getGraph(), lvl.registryAccess());
+            }
+            resizingComment = null;
+            return;
+        }
         if(btn==0&&multiDragging){
             multiDragging = false; markDirty();
             if (multiClickedNode != null) {
@@ -1353,6 +1503,35 @@ public class GraphEditor {
     }
     public void mouseMoved(double mx, double my) {
         lastMouseX = mx; lastMouseY = my;
+        // Comment resize
+        if (resizingComment != null) {
+            float newW = resizeStartW + (float)(mx / zoom - (c2sX(resizingComment.x) + resizeStartW * zoom) / zoom);
+            float newH = resizeStartH + (float)(my / zoom - (c2sY(resizingComment.y) + resizeStartH * zoom) / zoom);
+            newW = Math.max(80, Math.min(8000, newW));
+            newH = Math.max(40, Math.min(6000, newH));
+            if (gridSnapEnabled) {
+                newW = Math.round(newW / NodeRenderer.GS) * NodeRenderer.GS;
+                newH = Math.round(newH / NodeRenderer.GS) * NodeRenderer.GS;
+            }
+            resizingComment.commentWidth = newW;
+            resizingComment.commentHeight = newH;
+            markDirty();
+            return;
+        }
+        // Comment parent-move
+        if (draggingNode != null && draggingNode.type == NodeType.COMMENT) {
+            float oldX = draggingNode.x, oldY = draggingNode.y;
+            float nx = s2cX(mx) + dragOffX, ny = s2cY(my) + dragOffY;
+            if (gridSnapEnabled) {
+                nx = Math.round(nx / NodeRenderer.GS) * NodeRenderer.GS;
+                ny = Math.round(ny / NodeRenderer.GS) * NodeRenderer.GS;
+            }
+            float dx = nx - oldX, dy = ny - oldY;
+            draggingNode.x = nx; draggingNode.y = ny;
+            moveContainedNodes(draggingNode, dx, dy);
+            markDirty();
+            return;
+        }
         // Drag-select in expanded FORMULA EditBox
         if (editBoxDragNodeId >= 0 && (org.lwjgl.glfw.GLFW.glfwGetMouseButton(
             org.lwjgl.glfw.GLFW.glfwGetCurrentContext(), 0) == org.lwjgl.glfw.GLFW.GLFW_PRESS)) {
@@ -1404,6 +1583,31 @@ public class GraphEditor {
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         if (showImportDialog) { importScrollOff += (sy > 0) ? -1 : 1; if (importScrollOff < 0) importScrollOff = 0; return true; }
         if (showExportDialog || showColorConfig) return true;
+        // Comment node scroll — if mouse is over a comment, scroll its content
+        var graph = getGraph();
+        for (int i = graph.nodes.size() - 1; i >= 0; i--) {
+            var n = graph.nodes.get(i);
+            if (n.type != NodeType.COMMENT) continue;
+            if (n.displayText.isEmpty()) continue;
+            float csx = c2sX(n.x), csy = c2sY(n.y);
+            float csw = n.commentWidth * zoom, csh = n.commentHeight * zoom;
+            if (mx >= csx && mx <= csx + csw && my >= csy && my <= csy + csh) {
+                // Only consume scroll if text overflows
+                int maxTextW = Math.max(1, (int)((csw - 26 * zoom) / zoom));
+                int lineH = 12, visibleH = Math.max(1, (int)((csh - 16 * zoom) / zoom));
+                int maxVis = Math.max(1, visibleH / lineH);
+                int totalWraps = countWrappedLines(n.displayText, maxTextW);
+                if (totalWraps > maxVis) {
+                    n.commentScrollOff += (sy > 0) ? -1 : 1;
+                    int scrollMax = Math.max(0, totalWraps - maxVis);
+                    if (n.commentScrollOff < 0) n.commentScrollOff = 0;
+                    if (n.commentScrollOff > scrollMax) n.commentScrollOff = scrollMax;
+                    return true;
+                }
+                // No overflow → fall through to zoom
+                break;
+            }
+        }
         float oz=zoom; zoom*=(sy>0)?1.12f:(1f/1.12f); zoom=Math.max(0.25f,Math.min(4f,zoom));
         camX+=(mx-host.asScreen().width/2f)*(1f/zoom-1f/oz); camY+=(my-host.asScreen().height/2f)*(1f/zoom-1f/oz); return true;
     }
@@ -1424,6 +1628,28 @@ public class GraphEditor {
         if (showImportDialog) {
             if (key == 256) { showImportDialog = false; importFiles = null; return true; } // Esc
             return true;
+        }
+        if (editingCommentColorNode != null && commentColorEditBoxes[0] != null) {
+            if (key == 257) { // Enter: apply colors and close
+                applyCommentColors();
+                return true;
+            }
+            if (key == 256) { editingCommentColorNode = null; clearCommentColorBoxes(); return true; }
+            // Tab: cycle focus between the 3 fields
+            if (key == 258) {
+                for (int ci = 0; ci < 3; ci++) {
+                    if (commentColorEditBoxes[ci] != null && commentColorEditBoxes[ci].isFocused()) {
+                        commentColorEditBoxes[ci].setFocused(false);
+                        int next = (ci + 1) % 3;
+                        commentColorEditBoxes[next].setFocused(true);
+                        return true;
+                    }
+                }
+            }
+            for (int ci = 0; ci < 3; ci++)
+                if (commentColorEditBoxes[ci] != null && commentColorEditBoxes[ci].isFocused())
+                    return commentColorEditBoxes[ci].keyPressed(key, sc, mod);
+            return false;
         }
         if (showColorConfig) {
             for (var f : colorFields) if (f.isFocused()) { return f.keyPressed(key, sc, mod); }
@@ -1547,6 +1773,36 @@ public class GraphEditor {
             selectedNode = null;
             return true;
         }
+        // C key: Create comment node around selection
+        if (key == 67 && !net.minecraft.client.gui.screens.Screen.hasControlDown()
+            && !selectedNodes.isEmpty()) {
+            boolean anyFocused = false;
+            for (var st : nodeEditStatesById.values())
+                for (var f : st.fields) if (f.isFocused()) { anyFocused = true; break; }
+            if (anyFocused) return false;
+            if (showExportDialog || showImportDialog || showColorConfig) return false;
+            var l = Minecraft.getInstance().level;
+            if (l != null) takeSnapshot(getGraph(), l.registryAccess());
+            float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE;
+            float maxX = Float.MIN_VALUE, maxY = Float.MIN_VALUE;
+            for (var n : selectedNodes) {
+                float nw = NodeRenderer.nw(n);
+                float nh = NodeRenderer.HH + NodeRenderer.PH * (n.functionalInputs() + n.outputs());
+                if (n.x < minX) minX = n.x;
+                if (n.y < minY) minY = n.y;
+                if (n.x + nw > maxX) maxX = n.x + nw;
+                if (n.y + nh > maxY) maxY = n.y + nh;
+            }
+            float padding = 20;
+            float cw = maxX - minX + padding * 2 + 8;
+            float ch = maxY - minY + padding * 2 + 4;
+            cw = Math.max(80, Math.min(8000, cw));
+            ch = Math.max(40, Math.min(6000, ch));
+            var comment = graph.addNode(NodeType.COMMENT, minX - padding, minY - padding);
+            comment.commentWidth = cw;
+            comment.commentHeight = ch;
+            return true;
+        }
         return false;
     }
     public boolean keyReleased(int key, int sc, int mod) {
@@ -1554,6 +1810,9 @@ public class GraphEditor {
         return false;
     }
     public boolean charTyped(char ch, int mod) {
+        for (int ci = 0; ci < 3; ci++)
+            if (commentColorEditBoxes[ci] != null && commentColorEditBoxes[ci].isFocused())
+                return commentColorEditBoxes[ci].charTyped(ch, mod);
         if (showExportDialog && exportNameEdit != null) return exportNameEdit.charTyped(ch, mod);
         if (showColorConfig) for (var f : colorFields) if (f.isFocused()) return f.charTyped(ch, mod);
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.charTyped(ch, mod);
@@ -1600,6 +1859,14 @@ public class GraphEditor {
 
     private void recompile(NodeGraph graph) {
         cycleWarning=null;
+        // Auto-close all COMMENT nodes before compile
+        for (var n : graph.nodes) {
+            if (n.type == NodeType.COMMENT && expandedNodeIds.contains(n.id)) {
+                expandedNodeIds.remove(n.id);
+                nodeEditStatesById.remove(n.id);
+                n.expanded = false;
+            }
+        }
         // 编译前同步所有未保存的编辑（busBox + 频段改名）
         var pendingCommits = new java.util.ArrayList<>(nodeEditStatesById.values());
         for (var st : pendingCommits) {
@@ -1658,6 +1925,78 @@ public class GraphEditor {
                 return n;
         }
         return null;
+    }
+
+    private void applyCommentColors() {
+        if (editingCommentColorNode == null) return;
+        int[] targets = {0, 0, 0}; // bg, border, text
+        boolean anyChanged = false;
+        for (int ci = 0; ci < 3; ci++) {
+            if (commentColorEditBoxes[ci] == null) continue;
+            try {
+                String val = commentColorEditBoxes[ci].getValue().trim();
+                if (val.length() == 6) val = "FF" + val;
+                if (val.length() == 8) targets[ci] = (int)(Long.parseLong(val, 16) & 0xFFFFFFFFL);
+            } catch (Exception ignored) { continue; }
+        }
+        if (targets[0] != 0 && targets[0] != editingCommentColorNode.commentBgColor) {
+            editingCommentColorNode.commentBgColor = targets[0]; anyChanged = true;
+        }
+        if (targets[1] != 0 && targets[1] != editingCommentColorNode.commentBorderColor) {
+            editingCommentColorNode.commentBorderColor = targets[1]; anyChanged = true;
+        }
+        if (targets[2] != 0 && targets[2] != editingCommentColorNode.commentTextColor) {
+            editingCommentColorNode.commentTextColor = targets[2]; anyChanged = true;
+        }
+        if (anyChanged) markDirty();
+        editingCommentColorNode = null;
+        clearCommentColorBoxes();
+    }
+
+    private void clearCommentColorBoxes() {
+        for (int ci = 0; ci < 3; ci++) commentColorEditBoxes[ci] = null;
+    }
+
+    private static String plainText(String line) {
+        return line.replaceAll("\\*\\*|\\*|`|#\\s?", "");
+    }
+
+    private static int countWrappedLines(String text, int availW) {
+        var font = Minecraft.getInstance().font;
+        int total = 0;
+        for (String line : text.split("\n", -1)) {
+            String rem = line;
+            if (rem.isEmpty()) { total++; continue; }
+            while (!rem.isEmpty()) {
+                if (font.width(plainText(rem)) <= availW) { total++; break; }
+                String chunk = font.plainSubstrByWidth(rem, availW);
+                if (chunk.isEmpty()) chunk = rem.substring(0, 1);
+                total++;
+                rem = rem.substring(chunk.length());
+            }
+        }
+        return Math.max(1, total);
+    }
+
+    /** Recursively move all nodes whose center is inside the given comment's rectangle. */
+    private void moveContainedNodes(GraphNode comment, float dx, float dy) {
+        moveContainedNodes(comment, dx, dy, new java.util.HashSet<>());
+    }
+    private void moveContainedNodes(GraphNode comment, float dx, float dy, java.util.Set<Integer> moved) {
+        for (var n : getGraph().nodes) {
+            if (n == comment || moved.contains(n.id)) continue;
+            float ch = (NodeRenderer.HH + NodeRenderer.PH * (n.functionalInputs() + n.outputs()));
+            float cx = n.x + NodeRenderer.nw(n) / 2f;
+            float cy = n.y + ch / 2f;
+            if (cx > comment.x && cx < comment.x + comment.commentWidth
+                && cy > comment.y && cy < comment.y + comment.commentHeight) {
+                n.x += dx; n.y += dy;
+                moved.add(n.id);
+                if (n.type == NodeType.COMMENT) {
+                    moveContainedNodes(n, dx, dy, moved);
+                }
+            }
+        }
     }
 
     private GraphNode hitNode(double mx, double my) {

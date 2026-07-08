@@ -24,7 +24,8 @@ public class SpeedProxyScreen extends AbstractContainerScreen<SpeedProxyMenu> im
         this.editor = new GraphEditor(this, this);
         editor.setNodeFilter(nt -> nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.SPEED_CTRL
             || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.PRIVATE_IN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN);
+            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN
+            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT);
     }
 
     private SpeedProxyBlockEntity getBE() {

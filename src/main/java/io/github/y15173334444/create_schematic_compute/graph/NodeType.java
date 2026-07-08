@@ -88,7 +88,8 @@ public enum NodeType {
     ENCAP_INPUT("encap_input", "node.create_schematic_compute.encap_input", 0, 1, "name"),
     ENCAP_OUTPUT("encap_output", "node.create_schematic_compute.encap_output", 1, 0, "name"),
     // Radar
-    TARGET_OUT("target_out", "node.create_schematic_compute.target_out", 0, 5, "");
+    TARGET_OUT("target_out", "node.create_schematic_compute.target_out", 0, 5, ""),
+    COMMENT("comment", "node.create_schematic_compute.comment", 0, 0, "");
 
     /** Stable string identifier for NBT serialisation — never change these. */
     public final String id;

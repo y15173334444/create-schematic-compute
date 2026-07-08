@@ -103,6 +103,7 @@
   "block.create_schematic_compute.radar": "3D Holographic Radar",
   "container.create_schematic_compute.radar": "3D Holographic Radar Editor",
   "node.create_schematic_compute.target_out": "Target Output",
+  "node.create_schematic_compute.comment": "Comment",
   "pin.create_schematic_compute.entity_id": "Entity ID",
   "pin.create_schematic_compute.distance": "Distance",
   "node.create_schematic_compute.text": "Text",
@@ -129,6 +130,7 @@
   "gui.create_schematic_compute.monitor.pixel_blank": "Blank",
   "category.create_schematic_compute.structure": "Structure",
   "category.create_schematic_compute.encap_io": "Encapsulation I/O",
+  "category.create_schematic_compute.annotation": "Annotation",
   "node.create_schematic_compute.encapsulation": "Encapsulation",
   "node.create_schematic_compute.encap_input": "Input",
   "node.create_schematic_compute.encap_output": "Output",
@@ -386,5 +388,9 @@
   "gui.create_schematic_compute.terminal.range": "Range",
   "gui.create_schematic_compute.terminal.no_devices": "No devices nearby",
   "gui.create_schematic_compute.terminal.target_gone": "Target block destroyed",
-  "gui.create_schematic_compute.terminal.back": "← Back to device list"
+  "gui.create_schematic_compute.terminal.back": "← Back to device list",
+  "gui.create_schematic_compute.comment.bg_color": "BG",
+  "gui.create_schematic_compute.comment.border_color": "Border",
+  "gui.create_schematic_compute.comment.text_color": "Text",
+  "gui.create_schematic_compute.comment.edit_hint": "Editing - Double-click to exit"
 }
