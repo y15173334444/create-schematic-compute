@@ -232,7 +232,19 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
         setChanged();
     }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
-    @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) { var t = new CompoundTag(); saveAdditional(t, r); return t; }
+    private boolean needsFullSync = true;
+    @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
+        // First sync (chunk load) sends full data; subsequent updates only send running/state.
+        // Prevents server graph from overwriting unsaved client edits on LIT change.
+        if (needsFullSync) { needsFullSync = false; var t = new CompoundTag(); saveAdditional(t, r); return t; }
+        var t = new CompoundTag();
+        t.putBoolean("running", running);
+        saveSettings(t);
+        var inputs = new CompoundTag();
+        for(var e : lastInputs.entrySet()) inputs.putInt(String.valueOf(e.getKey()), e.getValue());
+        t.put("rs_in", inputs);
+        return t;
+    }
     @Override public Component getDisplayName() { return Component.translatable("container." + SchematicCompute.MOD_ID + ".monitor"); }
     @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new MonitorMenu(id, this); }
 }

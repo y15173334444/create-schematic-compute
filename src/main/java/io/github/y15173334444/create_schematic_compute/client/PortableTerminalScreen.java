@@ -10,6 +10,7 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.resources.language.I18n;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import org.lwjgl.glfw.GLFW;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -274,6 +275,8 @@ public class PortableTerminalScreen extends Screen {
             @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return innerScreen.mouseDragged(mx, my, btn, dx, dy); }
             @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) { return innerScreen.mouseScrolled(mx, my, sx, sy); }
             @Override public boolean keyPressed(int key, int sc, int mod) {
+                // Let inner screen handle Esc first (e.g., pixel editor, settings panel)
+                if (key == 256 && innerScreen.keyPressed(key, sc, mod)) return true;
                 if (key == 256) { onClose(); return true; }
                 return innerScreen.keyPressed(key, sc, mod);
             }
@@ -290,7 +293,15 @@ public class PortableTerminalScreen extends Screen {
                 innerScreen.removed();
                 if (activeInstance != null) {
                     needsRescan = true;
-                    mc.tell(() -> { if (mc.screen == null) mc.setScreen(activeInstance); });
+                    // Save mouse pos before returning to game, restore after switching back
+                    double mx = mc.mouseHandler.xpos();
+                    double my = mc.mouseHandler.ypos();
+                    mc.tell(() -> {
+                        if (mc.screen == null) {
+                            mc.setScreen(activeInstance);
+                            org.lwjgl.glfw.GLFW.glfwSetCursorPos(mc.getWindow().getWindow(), mx, my);
+                        }
+                    });
                 }
             }
         };

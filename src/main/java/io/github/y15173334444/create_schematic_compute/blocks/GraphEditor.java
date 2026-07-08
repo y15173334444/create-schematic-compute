@@ -289,7 +289,17 @@ public class GraphEditor {
             int bandCnt = node.bandCount();
             if (bandCnt > 0) {
                 s.bandPinY = new float[bandCnt];
-                for (int i = 0; i < bandCnt; i++) s.bandPinY[i] = bandPinY(node, i, zoom);
+                for (int i = 0; i < bandCnt; i++) {
+                    s.bandPinY[i] = bandPinY(node, i, zoom);
+                    // 检查频段引脚是否有连线，有则阻止折叠
+                    if (node.type == NodeType.BUS_OUT && getGraph().hasInputConnection(node.id, i))
+                        s.blockCollapse = true;
+                    else if (node.type == NodeType.BUS_IN) {
+                        final int bi = i;
+                        if (getGraph().connections.stream().anyMatch(c -> c.fromId == node.id && c.fromPin == bi))
+                            s.blockCollapse = true;
+                    }
+                }
             }
             // BUS_IN 展开时自动同步频段（先本地 BUS_OUT，后全局注册表）
             if (node.type == NodeType.BUS_IN && !node.signalName.isEmpty() && node.signalBands.isEmpty()) {

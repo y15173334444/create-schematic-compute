@@ -47,6 +47,7 @@ public class NodeGraph {
     public void adoptNode(GraphNode node) {
         nodes.add(node);
         nodeMap.put(node.id, node);
+        invalidateTopo();
         bumpGeneration();
     }
 

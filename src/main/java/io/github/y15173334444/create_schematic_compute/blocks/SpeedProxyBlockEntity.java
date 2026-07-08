@@ -174,7 +174,11 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
         setChanged();
     }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
-    @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) { var t=new CompoundTag(); saveAdditional(t,r); return t; }
+    private boolean needsFullSync = true;
+    @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
+        if (needsFullSync) { needsFullSync = false; var t=new CompoundTag(); saveAdditional(t,r); return t; }
+        var t=new CompoundTag(); t.putBoolean("running", running); return t;
+    }
     @Override public Component getDisplayName() { return Component.translatable("container."+SchematicCompute.MOD_ID+".speed_proxy"); }
     @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new SpeedProxyMenu(id, this); }
 }

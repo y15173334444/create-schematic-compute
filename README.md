@@ -1103,10 +1103,12 @@ MIT License © 2026 StarryNight_Luo
 - **✏️ Seamless text editing** — transparent-background MultiLineEditBox via new `setBackgroundColor/textColor/cursorColor/drawBorder` API.
 - **📏 Expanded size** — max comment 8000×6000 (was 400×300).
 - **📦 All screens** — COMMENT added to ProgramComputer, Monitor, ControlSeat, Radar, Sensor, SpeedProxy filters.
-- **🐛 Dedicated Server crash fix** — removed client-class imports (`Screen`, `Minecraft`, `PortableTerminalScreen`) from common-side code (`ScanSableResponsePacket`, `PortableTerminalItem`). Replaced with static `Consumer` injection pattern wired during `FMLClientSetupEvent`. Fixes #4.
-- **📦 Package rename** — `com.example.create_schematic_compute` → `io.github.y15173334444.create_schematic_compute` (group, mixins, all 80 Java sources)
-- **🐛 Dedicated Server crash fix** — removed client-class imports (`Screen`, `Minecraft`, `PortableTerminalScreen`) from common-side code (`ScanSableResponsePacket`, `PortableTerminalItem`). Replaced with static `Consumer` injection pattern wired during `FMLClientSetupEvent`. Fixes #4.
-- **📦 Package rename** — `com.example.create_schematic_compute` → `io.github.y15173334444.create_schematic_compute` (group, mixins, all 80 Java sources)
+- **🐛 Dedicated Server crash fix** — removed client-class imports from common-side code. Fixes #4.
+- **📦 Package rename** — `com.example.create_schematic_compute` → `io.github.y15173334444.create_schematic_compute`
+- **🐛 Monitor Run graph overwrite** — `MonitorBlockEntity.getUpdateTag()` uses `needsFullSync` to exclude graph from LIT block updates (matching Blueprint). Also fixed `SpeedProxyBlockEntity`.
+- **🐛 BUS node collapse with connections** — BUS_IN/OUT band-pin connections now set `blockCollapse` to prevent collapsing.
+- **🐛 Copy IMAGE node false cycle** — `NodeGraph.adoptNode()` now calls `invalidateTopo()`, fixing stale cache after Ctrl+D.
+- **🐛 Terminal pixel editor Esc** — wrapper delegates Esc to inner screen first (closing pixel editor/settings). Mouse position saved/restored on X-button close.
 
 ### v1.2.2 — Portable Terminal + Layer Panel + Undo/Redo
 - **📱 Portable Terminal** — new handheld item to remotely discover and edit programmable blocks. Scans overworld and Sable sub-level devices within configurable range (1–256 blocks). One-click opens the block's native GUI.
