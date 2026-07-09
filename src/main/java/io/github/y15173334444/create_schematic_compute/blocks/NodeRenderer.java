@@ -306,6 +306,8 @@ public class NodeRenderer {
             if (n.type == NodeType.COMMENT) continue; // rendered at A=1 by renderCommentNodes
             float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
             float sw = nw(n)*zoom, nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
+            if (expandedNodeIds.contains(n.id) && n.type != NodeType.COMMENT)
+                nh += io.github.y15173334444.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom) * zoom;
             if (sx + sw < -margin || sx > w + margin || sy + nh < -margin || sy > h + margin)
                 continue;
             drawNode(g, n, selectedNodes.contains(n), n == primaryNode, expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, flipflopStates);

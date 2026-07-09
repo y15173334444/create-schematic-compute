@@ -529,8 +529,7 @@ public class GraphEditor {
     /** Full node height including expanded edit panel (for occlusion/AABB calculations). */
     private float fullNodeHeight(GraphNode n) {
         float h = NodeRenderer.nh(n);
-        if (expandedNodeIds.contains(n.id)
-            && (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)) {
+        if (expandedNodeIds.contains(n.id)) {
             h += io.github.y15173334444.create_schematic_compute.blocks.EditPanel
                 .calcRenderHeight(n, 1.0f);
         }
@@ -1138,9 +1137,32 @@ public class GraphEditor {
         // 旧的颜色配置面板交互（隔离用，新逻辑在上面）
         if(btn==0){
             showMenu=false;
+            // 预计算 z-order 排序候选（供每个展开节点做遮挡判断）
+            var clickCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my)).stream()
+                .sorted(GraphEditor::compareHitOrder)
+                .collect(java.util.stream.Collectors.toList());
             // 内联编辑区交互（局部坐标，与 pose 内渲染一致）
             for (var en : getGraph().nodes) {
                 if (!expandedNodeIds.contains(en.id)) continue;
+                // 逐个检查：是否有更高 z-order 的非 Comment 节点实际遮挡了点击位置
+                boolean occluded = false;
+                for (var n : clickCandidates) {
+                    if (n == en) break; // 到达当前节点，上方无遮挡
+                    if (n.type == NodeType.COMMENT) continue;
+                    float sx = c2sX(n.x), sy = c2sY(n.y);
+                    float sw = NodeRenderer.nw(n) * zoom;
+                    float nh = (HH + PH * (n.functionalInputs() + n.outputs())) * zoom + 4;
+                    if (expandedNodeIds.contains(n.id)) nh += EditPanel.calcRenderHeight(n, zoom) * zoom;
+                    if (mx >= sx && mx <= sx + sw && my >= sy && my <= sy + nh) {
+                        occluded = true;
+                        break;
+                    }
+                }
+                if (occluded) {
+                    var st0 = nodeEditStatesById.get(en.id);
+                    if (st0 != null) for (var b : st0.fields) b.setFocused(false);
+                    continue;
+                }
                 var st = nodeEditStatesById.get(en.id);
                 if (st == null) continue;
                 float nsx = c2sX(en.x), nsy = c2sY(en.y);

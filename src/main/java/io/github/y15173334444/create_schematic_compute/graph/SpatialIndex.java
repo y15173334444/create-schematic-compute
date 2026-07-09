@@ -45,8 +45,7 @@ public class SpatialIndex {
         for (var n : nodes) {
             float w = n.type == NodeType.COMMENT ? n.commentWidth : nwStatic(n);
             float h = n.type == NodeType.COMMENT ? n.commentHeight : nhStatic(n);
-            if (expandedIds != null && expandedIds.contains(n.id)
-                && (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)) {
+            if (expandedIds != null && expandedIds.contains(n.id)) {
                 h += io.github.y15173334444.create_schematic_compute.blocks.EditPanel
                     .calcRenderHeight(n, 1.0f);
             }
