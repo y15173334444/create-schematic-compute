@@ -4,6 +4,7 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeConnection;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.graph.SpatialIndex;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
@@ -46,6 +47,7 @@ public class GraphEditor {
 
     private final Host host;
     public final NodeRenderer renderer;
+    private final SpatialIndex spatialIndex = new SpatialIndex();
     private Predicate<NodeType> nodeFilter;
 
     /** 每个图的最大节点数上限（含主图和每个封装子图） */
@@ -174,6 +176,10 @@ public class GraphEditor {
     private final java.util.Map<GraphNode, float[]> multiDragOrigins = new java.util.HashMap<>();
     // 鼠标坐标缓存（供 X 键删除用）
     private double lastMouseX, lastMouseY;
+
+    // ── Z-order (B-layer) drag state ──
+    private int preDragSortB = 0;
+    private final java.util.Map<GraphNode, Integer> preDragSortBs = new java.util.HashMap<>();
 
     // ── Comment node interaction state ──
     private long lastClickTimeMs = 0;
@@ -494,15 +500,63 @@ public class GraphEditor {
     /** Bump graph generation to invalidate render caches (Phase 2 dirty flag framework) */
     void markDirty() { getGraph().bumpGeneration(); }
 
-    // 渲染优先级（低→高，高的覆盖低的）
-    //  0: 网格
-    //  1: 连线
-    //  2: 节点主体 + 展开编辑区（背景，pose内渲染）
-    //    编辑控件（EditBox/物品图标）仅在无覆盖层时渲染，避免穿透
-    //  3: 按钮栏
-    //  4: 热栏弹出
-    //  5: 颜色设置面板 / Nodes菜单
-    //  6: 框选矩形
+    /** Sort nodes by B-layer ascending (lower B = rendered first = behind, higher B = on top). */
+    private List<GraphNode> sortNodesByB(List<GraphNode> nodes) {
+        return nodes.stream()
+            .sorted((a, b) -> Integer.compare(a.sortB, b.sortB))
+            .collect(java.util.stream.Collectors.toList());
+    }
+
+    /** Find the overlapping node with the largest sortB. The dragged node will be
+     *  inserted above it (sortB = max + 1). Returns null if no node overlaps. */
+    private GraphNode findNodeBelow(GraphNode dragged) {
+        float w = NodeRenderer.nw(dragged);
+        float h = NodeRenderer.nh(dragged);
+        var candidates = spatialIndex.queryRect(dragged.x, dragged.y, w, h);
+        GraphNode best = null;
+        int bestB = Integer.MIN_VALUE;
+        for (var n : candidates) {
+            if (n == dragged) continue;
+            if (n.sortB <= bestB) continue;
+            if (rectsOverlap(dragged, n)) {
+                best = n;
+                bestB = n.sortB;
+            }
+        }
+        return best;
+    }
+
+    /** AABB overlap test between two nodes (graph-space). */
+    private boolean rectsOverlap(GraphNode a, GraphNode b) {
+        float aw = NodeRenderer.nw(a), ah = NodeRenderer.nh(a);
+        float bw = NodeRenderer.nw(b), bh = NodeRenderer.nh(b);
+        return rectsOverlap(a.x, a.y, aw, ah, b.x, b.y, bw, bh);
+    }
+    /** AABB overlap test with raw coordinates (graph-space). */
+    private static boolean rectsOverlap(float ax, float ay, float aw, float ah,
+                                         float bx, float by, float bw, float bh) {
+        return ax < bx + bw && ax + aw > bx
+            && ay < by + bh && ay + ah > by;
+    }
+
+    /** Renormalize all sortB values to [0, N-1] preserving relative order. */
+    private void renormalizeSortB(NodeGraph graph) {
+        var sorted = graph.nodes.stream()
+            .sorted((a, b) -> Integer.compare(a.sortB, b.sortB))
+            .toList();
+        for (int i = 0; i < sorted.size(); i++) {
+            sorted.get(i).sortB = i;
+        }
+    }
+
+    // A.B.C occlusion system render layers (higher A = later = on top):
+    //  A=0: Grid
+    //  A=1: Comment backgrounds (behind connections)
+    //  A=2: Connections (bezier curves)
+    //  A=3: Node bodies + expanded edit areas (within poses)
+    //       Edit controls only when no overlay is on top (avoid bleed-through)
+    //  A=4: Overlays (toolbar, hotbar popup, color config, nodes menu, box-select)
+    //  A=5: Tooltips / right-click menu
     private boolean expandedInitDone = false;
     private io.github.y15173334444.create_schematic_compute.graph.NodeGraph lastInitGraph = null;
     /** 本方块通过 syncBusBands 实际注册过的频道名（用于区分自身和跨方块冲突） */
@@ -530,7 +584,19 @@ public class GraphEditor {
         lastRenderedCamX = camX; lastRenderedCamY = camY; lastRenderedZoom = zoom;
         lastRenderedScreenW = host.asScreen().width; lastRenderedScreenH = host.asScreen().height;
 
+        // ── A=0: Grid ──
         renderer.renderGrid(g, camX, camY, zoom, lastRenderedScreenW, lastRenderedScreenH);
+
+        // Rebuild spatial index once per frame (used by all spatial queries below)
+        spatialIndex.build(graph.nodes);
+
+        // Sort nodes by B-layer ascending (lower B = rendered first = behind, higher B = on top)
+        var sortedByB = sortNodesByB(graph.nodes);
+
+        // ── A=1: Complete COMMENT nodes (bg, border, text) — container mats behind connections ──
+        Map<Integer, Boolean> flipflopStates = host.getFlipflopStates();
+        renderer.renderCommentNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds,
+            nodeEditStatesById, camX, camY, zoom, mx, my, flipflopStates);
 
         // ── 子图 Back 按钮 ──
         if (isInSubGraph()) {
@@ -596,11 +662,12 @@ public class GraphEditor {
             }
             if (changed) nodeEditStatesById.put(n.id, createEditState(n));
         }
+        // ── A=2: Connections (bezier curves) ──
         renderer.renderConnections(g, graph, camX, camY, zoom);
         if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
-        renderer.suppressControls = showColorConfig || showMenu;
-        Map<Integer, Boolean> flipflopStates = host.getFlipflopStates();
-        renderer.renderNodes(g, graph.nodes, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
+
+        // ── A=3: Regular node bodies (sorted by B ascending, comments excluded — rendered at A=1) ──
+        renderer.renderNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
             camX, camY, zoom, mx, my, flipflopStates);
         if (!isInSubGraph()) {
             renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width, host.asScreen().height);
@@ -1205,12 +1272,15 @@ public class GraphEditor {
             if (expandHit != null) { toggleExpand(expandHit); return true; }
             // ── Comment node interaction ──
             // Only handle clicks on COMMENT chrome (resize, color dot) or
-            // body clicks when no non-comment node is under the cursor.
+            // body clicks — spatial-index candidates sorted by compareHitOrder
+            // (A=3 nodes first, then A=1 comments by B descending = innermost first)
             var nonCommentHit = hitNode(mx, my);
             boolean hitIsNonComment = nonCommentHit != null && nonCommentHit.type != NodeType.COMMENT;
-            for (int i2 = graph.nodes.size() - 1; i2 >= 0; i2--) {
-                var n2 = graph.nodes.get(i2);
-                if (n2.type != NodeType.COMMENT) continue;
+            var commentCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my)).stream()
+                .filter(n -> n.type == NodeType.COMMENT)
+                .sorted(GraphEditor::compareHitOrder)
+                .collect(java.util.stream.Collectors.toList());
+            for (var n2 : commentCandidates) {
                 float sx2 = c2sX(n2.x), sy2 = c2sY(n2.y);
                 float sw2 = n2.commentWidth * zoom, sh2 = n2.commentHeight * zoom;
                 if (mx < sx2 || mx > sx2 + sw2 || my < sy2 || my > sy2 + sh2) continue;
@@ -1248,9 +1318,19 @@ public class GraphEditor {
                     return true;
                 }
                 lastClickTimeMs = now2; lastClickNodeId = n2.id;
-                // If a non-comment node is under cursor or comment is expanded, skip drag
+                // Only drag by header bar; non-header body clicks → select or skip
                 if (hitIsNonComment || expandedNodeIds.contains(n2.id)) continue;
-                // Single click on body → drag / select
+                // Header bar in local coords: headerH/zoom pixels from the top edge
+                float commentHeaderLocal = Math.max(6f / zoom, 12f);
+                boolean inCommentHeader = locY >= 0 && locY < commentHeaderLocal;
+                if (!inCommentHeader) {
+                    // Non-header click → select only, don't drag (like regular nodes)
+                    if (selectedNode != n2) {
+                        selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
+                    }
+                    return true;
+                }
+                // Header click → drag / select
                 if (!tabHeld) {
                     if (selectedNode != n2) { selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2); }
                 } else {
@@ -1259,24 +1339,68 @@ public class GraphEditor {
                     selectedNode = selectedNodes.isEmpty() ? null : selectedNodes.iterator().next();
                     if (selectedNodes.isEmpty()) { panning = true; panLastX = (float)mx; panLastY = (float)my; return true; }
                 }
-                // Start drag with parent-move snapshot
+                // Start drag with parent-move snapshot + z-order top
                 var lvl = Minecraft.getInstance().level;
                 if (lvl != null) takeSnapshot(getGraph(), lvl.registryAccess());
+                preDragSortB = n2.sortB;
+                // Pin contained nodes with depth-based B: outermost=lowest B
+                // (rendered first=behind), innermost=highest B (rendered last=on top)
+                preDragSortBs.clear();
+                var depthMap = new java.util.HashMap<GraphNode, Integer>();
+                collectContainedNodesDepth(n2, depthMap, 1);
+                int maxDepth = depthMap.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+                for (var e : depthMap.entrySet()) {
+                    GraphNode cn = e.getKey();
+                    int depth = e.getValue();
+                    preDragSortBs.put(cn, cn.sortB);  // save original
+                    cn.sortB = Integer.MAX_VALUE - (maxDepth - depth + 1);
+                }
+                // Outermost comment = lowest B (MAX_VALUE - maxDepth - 1)
+                n2.sortB = Integer.MAX_VALUE - maxDepth - 2;
                 draggingNode = n2; dragOffX = n2.x - s2cX(mx); dragOffY = n2.y - s2cY(my);
                 return true;
             }
-            // BUS_IN 编辑区输出引脚优先检测
-            for(var node:graph.nodes){if(node.type==NodeType.BUS_IN&&expandedNodeIds.contains(node.id)&&node.signalBands!=null){float sx=c2sX(node.x),sy=c2sY(node.y);int nw=io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(node);for(int i=0;i<node.signalBands.size();i++){float py=sy+bandPinY(node,i,zoom)*zoom;if(Math.abs(mx-(sx+nw*zoom))<12&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}}
-            // 拖拽连线 — 节点体输出引脚
-            for(var node:graph.nodes){if(node.type==NodeType.SPEED_CTRL)continue;float sx=c2sX(node.x),sy=c2sY(node.y);int nw=io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(node);
-            for(int i=0;i<node.outputs();i++){float py=sy+HH*zoom+PH*zoom*(node.functionalInputs()+i)+PH*zoom/2f;if(Math.abs(mx-(sx+nw*zoom))<8&&Math.abs(my-py)<PH*zoom/2f+2){draggingWire=true;wireFromNode=node.id;wireFromPin=i;wireEndX=s2cX(mx);wireEndY=s2cY(my);return true;}}}
+            // BUS_IN edit area output pins — A-layer then B-sort aware
+            var pinCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my));
+            pinCandidates.sort(GraphEditor::compareHitOrder);
+            for (var node : pinCandidates) {
+                if (node.type != NodeType.BUS_IN || !expandedNodeIds.contains(node.id) || node.signalBands == null) continue;
+                float sx = c2sX(node.x), sy = c2sY(node.y);
+                int nw = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(node);
+                for (int i = 0; i < node.signalBands.size(); i++) {
+                    float py = sy + bandPinY(node, i, zoom) * zoom;
+                    if (Math.abs(mx - (sx + nw * zoom)) < 12 && Math.abs(my - py) < PH * zoom / 2f + 2) {
+                        draggingWire = true; wireFromNode = node.id; wireFromPin = i;
+                        wireEndX = s2cX(mx); wireEndY = s2cY(my); return true;
+                    }
+                }
+            }
+            // Wire drag — node body output pins, z-order aware
+            for (var node : pinCandidates) {
+                if (node.type == NodeType.SPEED_CTRL) continue;
+                float sx = c2sX(node.x), sy = c2sY(node.y);
+                int nw = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(node);
+                for (int i = 0; i < node.outputs(); i++) {
+                    float py = sy + HH * zoom + PH * zoom * (node.functionalInputs() + i) + PH * zoom / 2f;
+                    if (Math.abs(mx - (sx + nw * zoom)) < 8 && Math.abs(my - py) < PH * zoom / 2f + 2) {
+                        draggingWire = true; wireFromNode = node.id; wireFromPin = i;
+                        wireEndX = s2cX(mx); wireEndY = s2cY(my); return true;
+                    }
+                }
+            }
             // 点击节点（不含 ▶/▼ 区域）
             var hit=hitNode(mx,my);
             if(hit!=null){
                 // 仅在非 ▶/▼ 区域允许拖拽
                 float sy=c2sY(hit.y);
                 boolean inHeader = my>=sy && my<=sy+HH*zoom+4;
-                if (inHeader) { draggingNode=hit; dragOffX=hit.x-s2cX(mx); dragOffY=hit.y-s2cY(my); }
+                if (inHeader) {
+                    var lvl2 = Minecraft.getInstance().level;
+                    if (lvl2 != null) takeSnapshot(getGraph(), lvl2.registryAccess());
+                    preDragSortB = hit.sortB;
+                    hit.sortB = Integer.MAX_VALUE;
+                    draggingNode=hit; dragOffX=hit.x-s2cX(mx); dragOffY=hit.y-s2cY(my);
+                }
                 if (selectedNode != hit) {
                     selectedNode=hit; selectedNodes.clear(); selectedNodes.add(hit);
                 }
@@ -1509,7 +1633,37 @@ public class GraphEditor {
             }
             draggingWire=false;
         }
-        if(btn==0&&draggingNode!=null){draggingNode=null;markDirty();}if(btn==0&&panning)panning=false;
+        if(btn==0&&draggingNode!=null){
+            // Drop-insert: find max sortB among all overlapping nodes and slot above them
+            GraphNode below = findNodeBelow(draggingNode);
+            if (below != null) {
+                draggingNode.sortB = below.sortB + 1;
+            } else {
+                draggingNode.sortB = 0;
+            }
+            if (draggingNode.sortB >= Integer.MAX_VALUE - 100) {
+                renormalizeSortB(getGraph());
+            }
+            // Restore contained nodes' sortB, ensuring they stay above the outer
+            // comment (outer must have the lowest B so nested renders on top)
+            for (var e : preDragSortBs.entrySet()) e.getKey().sortB = e.getValue();
+            if (!preDragSortBs.isEmpty()) {
+                int outerB = draggingNode.sortB;
+                // Find the minimum sortB among contained — if any are <= outerB,
+                // shift them all up so outer remains the lowest
+                int minContained = Integer.MAX_VALUE;
+                for (int v : preDragSortBs.values())
+                    if (v < minContained) minContained = v;
+                if (minContained <= outerB) {
+                    int shift = outerB - minContained + 1;
+                    for (var e : preDragSortBs.entrySet())
+                        e.getKey().sortB = e.getValue() + shift;
+                }
+            }
+            preDragSortBs.clear();
+            markDirty();
+            draggingNode=null;
+        }if(btn==0&&panning)panning=false;
     }
     public void mouseMoved(double mx, double my) {
         lastMouseX = mx; lastMouseY = my;
@@ -1593,29 +1747,34 @@ public class GraphEditor {
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         if (showImportDialog) { importScrollOff += (sy > 0) ? -1 : 1; if (importScrollOff < 0) importScrollOff = 0; return true; }
         if (showExportDialog || showColorConfig) return true;
-        // Comment node scroll — if mouse is over a comment, scroll its content
-        var graph = getGraph();
-        for (int i = graph.nodes.size() - 1; i >= 0; i--) {
-            var n = graph.nodes.get(i);
-            if (n.type != NodeType.COMMENT) continue;
-            if (n.displayText.isEmpty()) continue;
-            float csx = c2sX(n.x), csy = c2sY(n.y);
-            float csw = n.commentWidth * zoom, csh = n.commentHeight * zoom;
-            if (mx >= csx && mx <= csx + csw && my >= csy && my <= csy + csh) {
-                // Only consume scroll if text overflows
-                int maxTextW = Math.max(1, (int)((csw - 26 * zoom) / zoom));
-                int lineH = 12, visibleH = Math.max(1, (int)((csh - 16 * zoom) / zoom));
-                int maxVis = Math.max(1, visibleH / lineH);
-                int totalWraps = countWrappedLines(n.displayText, maxTextW);
-                if (totalWraps > maxVis) {
-                    n.commentScrollOff += (sy > 0) ? -1 : 1;
-                    int scrollMax = Math.max(0, totalWraps - maxVis);
-                    if (n.commentScrollOff < 0) n.commentScrollOff = 0;
-                    if (n.commentScrollOff > scrollMax) n.commentScrollOff = scrollMax;
-                    return true;
+        // Ctrl+scroll → comment text scroll; normal scroll → zoom
+        boolean ctrlHeld = org.lwjgl.glfw.GLFW.glfwGetKey(
+            Minecraft.getInstance().getWindow().getWindow(), org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_CONTROL) == org.lwjgl.glfw.GLFW.GLFW_PRESS
+            || org.lwjgl.glfw.GLFW.glfwGetKey(
+            Minecraft.getInstance().getWindow().getWindow(), org.lwjgl.glfw.GLFW.GLFW_KEY_RIGHT_CONTROL) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
+        if (ctrlHeld) {
+            var graph = getGraph();
+            var scrollCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my)).stream()
+                .filter(n -> n.type == NodeType.COMMENT && !n.displayText.isEmpty())
+                .sorted((a, b) -> Integer.compare(b.sortB, a.sortB))
+                .collect(java.util.stream.Collectors.toList());
+            for (var n : scrollCandidates) {
+                float csx = c2sX(n.x), csy = c2sY(n.y);
+                float csw = n.commentWidth * zoom, csh = n.commentHeight * zoom;
+                if (mx >= csx && mx <= csx + csw && my >= csy && my <= csy + csh) {
+                    int maxTextW = Math.max(1, (int)((csw - 26 * zoom) / zoom));
+                    int lineH = 12, visibleH = Math.max(1, (int)((csh - 16 * zoom) / zoom));
+                    int maxVis = Math.max(1, visibleH / lineH);
+                    int totalWraps = countWrappedLines(n.displayText, maxTextW);
+                    if (totalWraps > maxVis) {
+                        n.commentScrollOff += (sy > 0) ? -1 : 1;
+                        int scrollMax = Math.max(0, totalWraps - maxVis);
+                        if (n.commentScrollOff < 0) n.commentScrollOff = 0;
+                        if (n.commentScrollOff > scrollMax) n.commentScrollOff = scrollMax;
+                        return true;
+                    }
+                    break;
                 }
-                // No overflow → fall through to zoom
-                break;
             }
         }
         float oz=zoom; zoom*=(sy>0)?1.12f:(1f/1.12f); zoom=Math.max(0.25f,Math.min(4f,zoom));
@@ -1797,7 +1956,11 @@ public class GraphEditor {
             float maxX = Float.MIN_VALUE, maxY = Float.MIN_VALUE;
             for (var n : selectedNodes) {
                 float nw = NodeRenderer.nw(n);
-                float nh = NodeRenderer.HH + NodeRenderer.PH * (n.functionalInputs() + n.outputs());
+                float nh = NodeRenderer.nh(n);
+                if (expandedNodeIds.contains(n.id)) {
+                    var es = nodeEditStatesById.get(n.id);
+                    nh += EditPanel.calcRenderHeight(n, 1f, es) + 4;
+                }
                 if (n.x < minX) minX = n.x;
                 if (n.y < minY) minY = n.y;
                 if (n.x + nw > maxX) maxX = n.x + nw;
@@ -1920,8 +2083,11 @@ public class GraphEditor {
     /** 检测 ▶/▼ 展开按钮点击 */
     private GraphNode hitExpandIndicator(double mx, double my, NodeGraph graph) {
         float indicatorSize = 12 * zoom;
-        for (int i = graph.nodes.size() - 1; i >= 0; i--) {
-            var n = graph.nodes.get(i);
+        float scx = s2cX(mx), scy = s2cY(my);
+        var candidates = spatialIndex.queryPoint(scx, scy);
+        candidates.sort(GraphEditor::compareHitOrder);
+        for (var n : candidates) {
+            if (n.type == NodeType.COMMENT) continue;
             if (n.type.paramNames.length == 0 && n.type != NodeType.REDSTONE_IN && n.type != NodeType.REDSTONE_OUT
                 && n.type != NodeType.PRIVATE_IN && n.type != NodeType.PRIVATE_OUT && n.type != NodeType.FORMULA
                 && n.type != NodeType.KEYBOARD && n.type != NodeType.GAMEPAD_BUTTON
@@ -1988,18 +2154,43 @@ public class GraphEditor {
         return Math.max(1, total);
     }
 
+    /** Collect all nodes whose center is inside the comment, saving their sortB
+     *  and nesting depth. Recursive for nested comments. */
+    private void collectContainedNodes(GraphNode comment, java.util.Map<GraphNode, Integer> out) {
+        collectContainedNodesDepth(comment, out, 0);
+    }
+    private void collectContainedNodesDepth(GraphNode comment, java.util.Map<GraphNode, Integer> out, int depth) {
+        var candidates = spatialIndex.queryRect(
+            comment.x, comment.y, comment.commentWidth, comment.commentHeight);
+        for (var n : candidates) {
+            if (n == comment || out.containsKey(n)) continue;
+            float nw = NodeRenderer.nw(n);
+            float nh = NodeRenderer.nh(n);
+            // Only collect nodes fully inside the comment
+            if (n.x >= comment.x && n.x + nw <= comment.x + comment.commentWidth
+                && n.y >= comment.y && n.y + nh <= comment.y + comment.commentHeight) {
+                out.put(n, n.sortB);          // save original
+                if (n.type == NodeType.COMMENT) {
+                    collectContainedNodesDepth(n, out, depth + 1);
+                }
+            }
+        }
+    }
+
     /** Recursively move all nodes whose center is inside the given comment's rectangle. */
     private void moveContainedNodes(GraphNode comment, float dx, float dy) {
         moveContainedNodes(comment, dx, dy, new java.util.HashSet<>());
     }
     private void moveContainedNodes(GraphNode comment, float dx, float dy, java.util.Set<Integer> moved) {
-        for (var n : getGraph().nodes) {
+        var candidates = spatialIndex.queryRect(
+            comment.x, comment.y, comment.commentWidth, comment.commentHeight);
+        for (var n : candidates) {
             if (n == comment || moved.contains(n.id)) continue;
-            float ch = (NodeRenderer.HH + NodeRenderer.PH * (n.functionalInputs() + n.outputs()));
-            float cx = n.x + NodeRenderer.nw(n) / 2f;
-            float cy = n.y + ch / 2f;
-            if (cx > comment.x && cx < comment.x + comment.commentWidth
-                && cy > comment.y && cy < comment.y + comment.commentHeight) {
+            float nw = NodeRenderer.nw(n);
+            float nh = NodeRenderer.nh(n);
+            // Only move nodes fully inside the comment (not parent comments that contain it)
+            if (n.x >= comment.x && n.x + nw <= comment.x + comment.commentWidth
+                && n.y >= comment.y && n.y + nh <= comment.y + comment.commentHeight) {
                 n.x += dx; n.y += dy;
                 moved.add(n.id);
                 if (n.type == NodeType.COMMENT) {
@@ -2009,13 +2200,25 @@ public class GraphEditor {
         }
     }
 
+    /** Sort candidates by A-layer first (higher A = visually on top), then B descending. */
+    private static int compareHitOrder(GraphNode a, GraphNode b) {
+        int aA = a.type == NodeType.COMMENT ? 1 : 3;  // A=1 comments behind A=3 nodes
+        int bA = b.type == NodeType.COMMENT ? 1 : 3;
+        int cmp = Integer.compare(bA, aA); // higher A first
+        if (cmp != 0) return cmp;
+        return Integer.compare(b.sortB, a.sortB); // higher B first within same A
+    }
+
     private GraphNode hitNode(double mx, double my) {
-        var graph = getGraph();
-        for(int i=graph.nodes.size()-1;i>=0;i--){
-            var n=graph.nodes.get(i);
+        float scx = s2cX(mx), scy = s2cY(my);
+        var candidates = spatialIndex.queryPoint(scx, scy);
+        if (candidates.isEmpty()) return null;
+        candidates.sort(GraphEditor::compareHitOrder);
+        for (var n : candidates) {
             float sx=c2sX(n.x), sy=c2sY(n.y), sw=io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(n)*zoom;
             float nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
-            if (expandedNodeIds.contains(n.id))
+            if (n.type == NodeType.COMMENT) nh = n.commentHeight * zoom;
+            if (expandedNodeIds.contains(n.id) && n.type != NodeType.COMMENT)
                 nh += EditPanel.calcRenderHeight(n, zoom) * zoom;
             if(mx>=sx&&mx<=sx+sw&&my>=sy&&my<=sy+nh) return n;
         }

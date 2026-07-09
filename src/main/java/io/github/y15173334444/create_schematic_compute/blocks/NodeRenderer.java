@@ -165,6 +165,12 @@ public class NodeRenderer {
         if (n.type == NodeType.FORMULA) return WIDE_NW;
         return NW;
     }
+    /** Node body height in graph-space pixels (excluding edit panel expansion). */
+    public static float nh(GraphNode n) {
+        if (n == null) return HH + PH * 2;
+        if (n.type == NodeType.COMMENT) return n.commentHeight;
+        return HH + PH * (n.functionalInputs() + n.outputs());
+    }
 
     // 坐标转换接口
     public interface CoordMapper { float apply(float coord); }
@@ -263,7 +269,29 @@ public class NodeRenderer {
     // 编辑区高度（像素，本地坐标空间）
     public java.util.Set<Integer> expandedNodeIds = java.util.Collections.emptySet();
     public java.util.Map<Integer, io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState> nodeEditStatesById = java.util.Collections.emptyMap();
-    public boolean suppressControls = false; // 覆盖层打开时禁止渲染编辑控件（仅保留背景）
+
+    /** A=1: Render complete COMMENT nodes (background, border, text, handles) behind connections.
+     *  Comment nodes act as container mats — everything renders at A=1, sorted by B. */
+    public void renderCommentNodes(GuiGraphics g, List<GraphNode> nodes, Set<GraphNode> selectedNodes,
+                                    GraphNode primaryNode, java.util.Set<Integer> editNodeIds,
+                                    java.util.Map<Integer, io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState> editStates,
+                                    float camX, float camY, float zoom, int mx, int my,
+                                    Map<Integer, Boolean> flipflopStates) {
+        expandedNodeIds = editNodeIds != null ? editNodeIds : java.util.Collections.emptySet();
+        nodeEditStatesById = editStates != null ? editStates : java.util.Collections.emptyMap();
+        int w = screen.width, h = screen.height;
+        float margin = 50;
+        for (var n : nodes) {
+            if (n.type != NodeType.COMMENT) continue;
+            float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
+            float sw = n.commentWidth * zoom;
+            float sh = n.commentHeight * zoom;
+            if (sx + sw < -margin || sx > w + margin || sy + sh < -margin || sy > h + margin)
+                continue;
+            drawCommentNode(g, n, selectedNodes.contains(n), n == primaryNode,
+                expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, false);
+        }
+    }
 
     public void renderNodes(GuiGraphics g, List<GraphNode> nodes, Set<GraphNode> selectedNodes,
                              GraphNode primaryNode, java.util.Set<Integer> editNodeIds,
@@ -275,9 +303,9 @@ public class NodeRenderer {
         int w = screen.width, h = screen.height;
         float margin = 50;
         for(var n : nodes) {
+            if (n.type == NodeType.COMMENT) continue; // rendered at A=1 by renderCommentNodes
             float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
             float sw = nw(n)*zoom, nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
-            if (n.type == NodeType.COMMENT) nh = n.commentHeight * zoom;
             if (sx + sw < -margin || sx > w + margin || sy + nh < -margin || sy > h + margin)
                 continue;
             drawNode(g, n, selectedNodes.contains(n), n == primaryNode, expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, flipflopStates);
@@ -286,14 +314,23 @@ public class NodeRenderer {
 
     /** Render a COMMENT node with sticky-note styling, edit button, resize handle, and markdown text. */
     private void drawCommentNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary,
-                                  boolean editing, float camX, float camY, float zoom, int mx, int my) {
+                                  boolean editing, float camX, float camY, float zoom, int mx, int my,
+                                  boolean skipBackground) {
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
         float sw = n.commentWidth * zoom;
         float sh = n.commentHeight * zoom;
         int isx = (int) sx, isy = (int) sy, isw = (int) (sx + sw), ish = (int) (sy + sh);
+        int headerH = Math.max(6, (int)(12 * zoom)); // drag header bar
 
-        // Background
-        g.fill(isx, isy, isw, ish, n.commentBgColor);
+        // Background — skip when already rendered at A=1
+        if (!skipBackground) g.fill(isx, isy, isw, ish, n.commentBgColor);
+        // Header drag bar (allows drag-only-by-header, like regular nodes)
+        int argb = n.commentBgColor;
+        int headerBg = ((Math.min((argb >> 16) & 0xFF, 220) << 16)
+                      | (Math.min((argb >> 8) & 0xFF, 220) << 8)
+                      | Math.min(argb & 0xFF, 220)
+                      | (argb & 0xFF000000));
+        g.fill(isx, isy, isw, (int)(isy + headerH), headerBg);
         // Border: brighter when editing
         int borderColor;
         if (editing) borderColor = 0xFFC0A060;                // warm tan = active editing
@@ -353,14 +390,14 @@ public class NodeRenderer {
         g.fill(hx, (int) (sy + sh - 3 * zoom), (int) (sx + sw), (int) (sy + sh), n.commentBorderColor);
         g.fill((int) (sx + sw - 3 * zoom), hy, (int) (sx + sw), (int) (sy + sh), n.commentBorderColor);
 
-        // Render text body (markdown-simplified)
+        // Render text body (markdown-simplified), below the header bar
         var mc = Minecraft.getInstance();
         float textX = sx + 6 * zoom;
-        float textY = sy + 6 * zoom;
+        float textY = sy + headerH + 4 * zoom;
         float maxTextW = sw - 26 * zoom;
         int availW = Math.max(1, (int) (maxTextW / zoom));
         int lineH = 12;
-        float visibleH = (sh - 16 * zoom) / zoom;
+        float visibleH = (sh - headerH - 8 * zoom) / zoom;
         int maxVis = Math.max(1, (int)(visibleH / lineH));
         String renderText = editing ? (nodeEditStatesById.containsKey(n.id)
             ? getEditStateText(n) : n.displayText) : n.displayText;
@@ -375,10 +412,10 @@ public class NodeRenderer {
         if (scrollOff < 0) scrollOff = 0;
         if (scrollOff > scrollMax) { scrollOff = scrollMax; n.commentScrollOff = scrollOff; }
 
-        // Always render scrollbar track
+        // Always render scrollbar track (below header)
         int sbX = (int)(sx + sw - 10 * zoom);
-        int sbY = (int)(sy + 2 * zoom);
-        int sbH = (int)(sh - 16 * zoom);
+        int sbY = (int)(sy + headerH + 4 * zoom);
+        int sbH = (int)(sh - headerH - 8 * zoom);
         int sbW = Math.max(2, (int)(6 * zoom));
         g.fill(sbX, sbY, sbX + sbW, sbY + sbH, 0xFF3A3832);
         if (scrollMax > 0) {
@@ -390,7 +427,7 @@ public class NodeRenderer {
         if (editing) {
             // Render the MLE on the sticky-note surface via EditPanel, with scroll offset
             var editSt = nodeEditStatesById.get(n.id);
-            if (editSt != null && !suppressControls) {
+            if (editSt != null) {
                 int commentEditY = 2 - scrollOff * lineH;
                 var pose = g.pose();
                 pose.pushPose();
@@ -432,6 +469,7 @@ public class NodeRenderer {
                 ly += 12 * zoom;
             }
         }
+        g.flush(); // per-node flush for buffer ordering (see drawNode)
     }
 
     private static String getEditStateText(GraphNode n) {
@@ -503,11 +541,8 @@ public class NodeRenderer {
     private void drawNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary, boolean editing,
                            float camX, float camY, float zoom, int mx, int my,
                            Map<Integer, Boolean> flipflopStates) {
-        // COMMENT nodes use a completely different rendering path
-        if (n.type == NodeType.COMMENT) {
-            drawCommentNode(g, n, selected, isPrimary, editing, camX, camY, zoom, mx, my);
-            return;
-        }
+        // COMMENT nodes are rendered entirely at A=1 via renderCommentNodes
+        if (n.type == NodeType.COMMENT) return;
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
         int nodeW = nw(n);
         float sw = nodeW*zoom;
@@ -550,42 +585,20 @@ public class NodeRenderer {
             drawStr(g, "§c" + warn, 0, 0, 0xFFFF8888);
             warnPose.popPose();
         }
-        // 节点体（暖钢色）
+        // Per-node buffer isolation: flush before drawing to ensure this node's
+        // fills and text are not interleaved with previous nodes' text batches.
+        g.flush();
+        // C=0: 节点体背景（暖钢色）
         g.fill((int)sx,(int)sy,(int)(sx+sw),(int)(sy+nh),CN());
-        int borderColor = isPrimary ? 0xFFFFAA00 : selected ? 0xFFD4A017 : CB();
-        // 第一遍边框
-        g.renderOutline((int)sx,(int)sy,(int)sw,(int)nh, borderColor);
-        g.renderOutline((int)sx+1,(int)sy+1,(int)sw-2,(int)nh-2, 0xFF2A2822);
-        // 节点头部
+        // C=1: 节点头部
         g.fill((int)sx+2,(int)sy+2,(int)(sx+sw-2),(int)(sy+HH*zoom),CH());
         var pose = g.pose();
         pose.pushPose();
         pose.translate(sx,sy,0);
         pose.scale(zoom,zoom,1);
+        // C=1: 标题文字
         drawStr(g, I18n.get(n.type.getTitle()), 4, 4, CNT());
-        // 输入端（仅功能引脚，参数引脚在编辑区内）
-        int funcInputs = n.functionalInputs();
-        for(int i=0; i<funcInputs; i++) {
-            float py = HH+PH*i+PH/2f;
-            int r = PR;
-            g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1), CPIB());
-            g.fill(-r, (int)(py - r), r, (int)(py + r), CPI());
-            String inlbl = n.inputLabel(i);
-            drawStr(g, (n.type == NodeType.BUS_OUT || n.type == NodeType.FORMULA || n.type == NodeType.ENCAPSULATION) ? inlbl : I18n.get(inlbl), 10, py-3, CD);
-        }
-        // 输出端
-        for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL; i++) {
-            float py = HH+PH*(funcInputs + i)+PH/2f;
-            int r = PR;
-            g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1), CPOB());
-            g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r), CPO());
-            String rawOutLbl = n.outputLabel(i);
-            String outlbl = (n.type == NodeType.BUS_IN || n.type == NodeType.ENCAPSULATION) ? rawOutLbl : I18n.get(rawOutLbl);
-            int olw = Minecraft.getInstance().font.width(outlbl);
-            drawStr(g, outlbl, nodeW - olw - 6, py-3, CD);
-        }
-        // FORMULA 节点：不显示内部文本（多行脚本在节点体中不可读），展开后在编辑区查看
-        // 展开指示器（可编辑节点在标题右侧显示 ▶/▼）
+        // C=2: 展开指示器
         if (n.type == NodeType.FORMULA || n.type.paramNames.length > 0
             || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT
             || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT
@@ -596,28 +609,56 @@ public class NodeRenderer {
             || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) {
             drawStr(g, editing ? (n.type == NodeType.ENCAPSULATION ? "§b▶▶" : "§6▼") : (n.type == NodeType.ENCAPSULATION ? "§b▶" : "§7▶"), nodeW - 18, 4, CT);
         }
-        // 封装节点体部摘要
+        // C=2: 封装节点体部摘要
         if (n.type == NodeType.ENCAPSULATION && !editing) {
             String summary = java.text.MessageFormat.format(I18n.get("gui.create_schematic_compute.encap_summary"), n.functionalInputs(), n.outputs());
             drawStr(g, "§8" + summary, 4, HH + PH * Math.max(n.functionalInputs(), n.outputs()) + 4, CD);
         }
-        // 编辑区（pose 内渲染保证缩放同步，覆盖层在 renderBg 中更高优先级）
+        // C=3: 编辑区
         if (editing) {
             int editLocalY = (int)(HH + PH*(n.functionalInputs() + n.outputs()) + 4/zoom);
             var editSt = nodeEditStatesById.get(n.id);
             int editLocalH = io.github.y15173334444.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom, editSt);
             g.fill(2, editLocalY - 2, nodeW - 2, editLocalY, 0xFF5A4D3A);
             g.fill(2, editLocalY, nodeW - 2, editLocalY + editLocalH, 0xFF2A2822);
-            if (editSt != null && !suppressControls) {
+            if (editSt != null) {
                 io.github.y15173334444.create_schematic_compute.blocks.EditPanel.renderAt(g, 0, editLocalY, nodeW, n, editSt, zoom, mx, my, flipflopStates);
             }
         }
         pose.popPose();
-        // 底部边框重绘（仅编辑区所在边，不覆盖左右连接的连线）
-        if (editing) {
-            g.fill((int)sx, (int)(sy+nh-1), (int)(sx+sw), (int)(sy+nh), borderColor);
-            g.fill((int)sx+1, (int)(sy+nh-2), (int)(sx+sw-1), (int)(sy+nh-1), 0xFF2A2822);
+        // C=4: 边框
+        int borderColor = isPrimary ? 0xFFFFAA00 : selected ? 0xFFD4A017 : CB();
+        g.renderOutline((int)sx,(int)sy,(int)sw,(int)nh, borderColor);
+        g.renderOutline((int)sx+1,(int)sy+1,(int)sw-2,(int)nh-2, 0xFF2A2822);
+        // C=5: 引脚（在边框之上，始终可见）
+        var pinPose = g.pose();
+        pinPose.pushPose();
+        pinPose.translate(sx,sy,0);
+        pinPose.scale(zoom,zoom,1);
+        int funcInputs = n.functionalInputs();
+        for(int i=0; i<funcInputs; i++) {
+            float py = HH+PH*i+PH/2f;
+            int r = PR;
+            g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1), CPIB());
+            g.fill(-r, (int)(py - r), r, (int)(py + r), CPI());
+            String inlbl = n.inputLabel(i);
+            drawStr(g, (n.type == NodeType.BUS_OUT || n.type == NodeType.FORMULA || n.type == NodeType.ENCAPSULATION) ? inlbl : I18n.get(inlbl), 10, py-3, CD);
         }
+        for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL; i++) {
+            float py = HH+PH*(funcInputs + i)+PH/2f;
+            int r = PR;
+            g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1), CPOB());
+            g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r), CPO());
+            String rawOutLbl = n.outputLabel(i);
+            String outlbl = (n.type == NodeType.BUS_IN || n.type == NodeType.ENCAPSULATION) ? rawOutLbl : I18n.get(rawOutLbl);
+            int olw = Minecraft.getInstance().font.width(outlbl);
+            drawStr(g, outlbl, nodeW - olw - 6, py-3, CD);
+        }
+        pinPose.popPose();
+        // Flush per-node to prevent text (font buffer) from later nodes'
+        // fills covering earlier nodes' text due to Minecraft's two-pass
+        // buffer flush (all fills before all text).
+        g.flush();
     }
 
     public NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my) {

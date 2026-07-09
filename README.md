@@ -1094,7 +1094,21 @@ MIT License © 2026 StarryNight_Luo
 
 ## 📝 Changelog
 
-### v1.2.3 — Comment Node + Server Crash Fix + Package Rename
+### v1.2.3 — A.B.C Occlusion System + Comment Drag Header + Manual EditBox Rendering
+
+- **🔄 A.B.C Three-Layer Occlusion System** — professional-grade render ordering for the graph editor. Six ordered layers: A=0 Grid → A=1 Comment backgrounds → A=2 Connections → A=3 Node bodies → A=4 Overlays → A=5 Tooltips. Within each layer, nodes are sorted by a dynamic B-value (higher = on top), and each node's internal elements are ordered by C-value (background→header→pins→edit area→borders→pins-over-border).
+- **📊 Dynamic B-Value Ordering** — each node gets a unique `sortB` assigned on creation. Dragging a node temporarily pins it to the top (`MAX_VALUE`), and dropping it inserts it above any overlapping nodes (max B among overlaps + 1). Drag-and-drop undo uses single snapshot (pre-drag state). Auto-renormalization prevents B-value overflow.
+- **🎯 Spatial Index Acceleration** — uniform grid-based spatial hash (256px cells) rebuilt per frame. All spatial queries (`hitNode`, `findNodeBelow`, `moveContainedNodes`, pin detection, expand hit, comment body click) use `SpatialIndex.queryPoint/queryRect` for O(k) candidate filtering.
+- **🗂️ Per-Node g.flush()** — `g.flush()` before+after each `drawNode` call isolates Minecraft's two-pass buffer submission (fill-before-text), preventing earlier nodes' text from bleeding through later nodes' opaque bodies.
+- **📝 Manual EditBox Rendering** — parameter EditBox, BUS name, and BUS band EditBoxes now render inline via `manualEditBox()` (fill bg → drawString → cursor), bypassing `EditBox.render()` which separates fills and text into different vertex buffers.
+- **🖱️ Comment Header Drag + Ctrl-Scroll** — COMMENT nodes have a thin drag-header bar at the top. Click header to drag, click body to select. Ctrl+Scroll scrolls comment text; normal scroll zooms canvas. Prevents large comments from hijacking pan/zoom.
+- **📐 C-Level Render Reorder** — node internals: body (C=0) → header (C=1) → pins+indicator (C=2) → edit area (C=3) → borders (C=4) → pins-over-border (C=5). Borders and selection highlight never covered by expanded edit areas.
+- **🪆 Nested Comment Z-Order** — dragging a comment that contains nested comments assigns depth-based B-values (outermost=lowest B, innermost=highest B) so inner comments stay visible. Drop restores original Bs with shift to keep outer below inner.
+- **🎯 A-Layer-Aware Hit Testing** — `compareHitOrder` sorts by A-layer first (A=3 nodes before A=1 comments), then B descending. Applied to `hitNode`, `hitExpandIndicator`, pin detection, and comment body clicks — all use spatial index + consistent ordering.
+- **📦 AABB Containment Detection** — comment containment (`moveContainedNodes`, `collectContainedNodesDepth`) uses node-fully-inside-comment check, preventing parent comments from being dragged along with inner comments.
+- **🗑️ Removed suppressControls workaround** — A.B.C layering handles occlusion naturally (A=4 overlays render after A=3 edit areas, no need for manual suppression).
+- **💾 NBT v3 Migration** — `DATA_VERSION` 2→3. Old saves get sequential `sortB` values. `nextSortB` persisted in graph root tag.
+- **📁 New Files** — `graph/SpatialIndex.java`, `graph/ZOrder.java`
 - **📝 COMMENT node (82 total node types)** — sticky-note style annotation node for visual documentation. Pure visual (0 inputs, 0 outputs, skipped during evaluation). Resizable, scrollable, with word-wrapped markdown text rendering. Available in all 7 programmable blocks.
 - **🎨 3-color customization** — independently configure background, border, and text colors via the top-left ⚙ button. ARGB hex format with color swatch previews.
 - **📜 Scrollbar & scroll wheel** — built-in scrollbar always visible, mouse wheel scrolling in all modes. Word-wrapped text using `plainSubstrByWidth`.

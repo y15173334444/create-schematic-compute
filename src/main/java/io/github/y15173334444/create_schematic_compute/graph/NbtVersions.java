@@ -5,7 +5,7 @@ import net.minecraft.nbt.CompoundTag;
 /** Central version tracking for all NBT data formats in this mod. */
 public final class NbtVersions {
     /** Current data format version. Bump when breaking NBT changes are made. */
-    public static final int DATA_VERSION = 2;
+    public static final int DATA_VERSION = 3;
 
     /** NBT key name for the version field. */
     public static final String VERSION_KEY = "data_version";

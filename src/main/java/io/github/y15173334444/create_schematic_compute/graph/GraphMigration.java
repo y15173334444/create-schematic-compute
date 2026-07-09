@@ -24,6 +24,7 @@ public final class GraphMigration {
     private static final Migrator[] STEPS = {
             GraphMigration::migrateV0toV1,
             GraphMigration::migrateV1toV2,
+            GraphMigration::migrateV2toV3,
     };
 
     /**
@@ -125,6 +126,41 @@ public final class GraphMigration {
 
         // 3. Stamp current version
         out.putInt(NbtVersions.VERSION_KEY, 2);
+        return out;
+    }
+
+    // ── V2 → V3 ───────────────────────────────────────────────────────────
+    // Changes in v3:
+    //   1. Add "zb" (sortB) field to all nodes with sequential values
+    //   2. Add "nextSortB" field to graph root
+    //   3. Recursive migration for ENCAPSULATION sub-graphs
+
+    private static CompoundTag migrateV2toV3(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+
+        ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
+        int idx = 0;
+        for (int i = 0; i < nodes.size(); i++) {
+            CompoundTag n = nodes.getCompound(i);
+
+            // 1. Assign sequential sortB values (higher = newer = larger B)
+            if (!n.contains("zb")) {
+                n.putInt("zb", idx++);
+            }
+
+            // 2. Recursively migrate subGraph (ENCAPSULATION nodes)
+            if (n.contains("subGraph")) {
+                n.put("subGraph", migrateV2toV3(n.getCompound("subGraph")));
+            }
+        }
+
+        // 3. Set nextSortB on root graph
+        if (!out.contains("nextSortB")) {
+            out.putInt("nextSortB", idx);
+        }
+
+        // 4. Stamp current version
+        out.putInt(NbtVersions.VERSION_KEY, 3);
         return out;
     }
 }

@@ -31,6 +31,7 @@ public class GraphNode {
     // Display node fields (Monitor block)
     public String displayText = "";               // TEXT node content
     public int layerIndex = 0;                     // z-order in display editor (higher = front)
+    public int sortB = 0;                          // B-layer z-order in graph editor (higher = front)
     public int textColor = 0;                      // ARGB text color (0 = use type default)
     public int[] imagePixels;                      // IMAGE node: 16×16 ARGB pixels (lazy)
     public java.util.List<int[]> imageSequenceFrames; // IMAGE_SEQUENCE frames (lazy)
@@ -211,6 +212,7 @@ public class GraphNode {
             for (int[] f : imageSequenceFrames) n.imageSequenceFrames.add(f.clone());
         }
         n.layoutX = layoutX; n.layoutY = layoutY;
+        n.sortB = sortB;
         n.displayScale = displayScale; n.displayRotation = displayRotation;
         n.moveScale = moveScale;
         n.commentWidth = commentWidth;
@@ -283,6 +285,7 @@ public class GraphNode {
         tag.putFloat("ds", displayScale);
         tag.putFloat("dr", displayRotation);
         if (layerIndex != 0) tag.putInt("layer", layerIndex);
+        if (sortB != 0) tag.putInt("zb", sortB);
         if (expanded) tag.putBoolean("expanded", true);
         if (busConflict) tag.putBoolean("busConflict", true);
         if (subGraph != null) tag.put("subGraph", subGraph.save(registries));
@@ -347,6 +350,7 @@ public class GraphNode {
         if (tag.contains("ds")) node.displayScale = tag.getFloat("ds");
         if (tag.contains("dr")) node.displayRotation = tag.getFloat("dr");
         if (tag.contains("layer")) node.layerIndex = tag.getInt("layer");
+        if (tag.contains("zb")) node.sortB = tag.getInt("zb");
         node.expanded = tag.getBoolean("expanded");
         node.busConflict = tag.getBoolean("busConflict");
         if (tag.contains("subGraph")) node.subGraph = NodeGraph.load(tag.getCompound("subGraph"), registries);

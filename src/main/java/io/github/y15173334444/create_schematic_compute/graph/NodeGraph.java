@@ -19,6 +19,7 @@ public class NodeGraph {
     public final List<NodeConnection> connections = new ArrayList<>();
     public int nextNodeId = 1;
     public int nextLayerIndex = 1;
+    public int nextSortB = 1;
 
     // 缓存：O(1) 节点查找
     private Map<Integer, GraphNode> nodeMap = new HashMap<>();
@@ -36,6 +37,7 @@ public class NodeGraph {
     public GraphNode addNode(NodeType type, float x, float y) {
         GraphNode node = new GraphNode(nextNodeId++, type, x, y);
         node.layerIndex = nextLayerIndex++;
+        node.sortB = nextSortB++;
         nodes.add(node);
         nodeMap.put(node.id, node);
         invalidateTopo();
@@ -187,6 +189,7 @@ public class NodeGraph {
         CompoundTag tag = new CompoundTag();
         tag.putInt(NbtVersions.VERSION_KEY, NbtVersions.DATA_VERSION);
         tag.putInt("nextId", nextNodeId);
+        tag.putInt("nextSortB", nextSortB);
         ListTag nl = new ListTag();
         for (GraphNode n : nodes) nl.add(n.save(registries));
         tag.put("nodes", nl);
@@ -206,6 +209,7 @@ public class NodeGraph {
     private static NodeGraph loadCurrent(CompoundTag tag, HolderLookup.Provider registries) {
         NodeGraph g = new NodeGraph();
         g.nextNodeId = tag.getInt("nextId");
+        g.nextSortB = tag.contains("nextSortB") ? tag.getInt("nextSortB") : 1;
         ListTag nl = tag.getList("nodes", Tag.TAG_COMPOUND);
         for (int i = 0; i < nl.size(); i++) {
             GraphNode node = GraphNode.load(nl.getCompound(i), registries);
