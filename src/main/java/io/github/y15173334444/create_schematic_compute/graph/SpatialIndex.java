@@ -31,10 +31,25 @@ public class SpatialIndex {
      * Called once per frame in {@code renderBg()} before any spatial queries.
      */
     public void build(List<GraphNode> nodes) {
+        build(nodes, null);
+    }
+
+    /**
+     * Full rebuild with expanded-edit-panel awareness.
+     * Expanded BUS_IN/OUT nodes get their edit panel height added to the AABB
+     * so that {@code queryPoint} returns them for clicks in the expanded area,
+     * enabling correct z-ordering via {@code compareHitOrder}.
+     */
+    public void build(List<GraphNode> nodes, java.util.Set<Integer> expandedIds) {
         cells.clear();
         for (var n : nodes) {
             float w = n.type == NodeType.COMMENT ? n.commentWidth : nwStatic(n);
             float h = n.type == NodeType.COMMENT ? n.commentHeight : nhStatic(n);
+            if (expandedIds != null && expandedIds.contains(n.id)
+                && (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)) {
+                h += io.github.y15173334444.create_schematic_compute.blocks.EditPanel
+                    .calcRenderHeight(n, 1.0f);
+            }
             int minCX = cellCoord(n.x);
             int minCY = cellCoord(n.y);
             int maxCX = cellCoord(n.x + w);

@@ -511,7 +511,7 @@ public class GraphEditor {
      *  inserted above it (sortB = max + 1). Returns null if no node overlaps. */
     private GraphNode findNodeBelow(GraphNode dragged) {
         float w = NodeRenderer.nw(dragged);
-        float h = NodeRenderer.nh(dragged);
+        float h = fullNodeHeight(dragged);
         var candidates = spatialIndex.queryRect(dragged.x, dragged.y, w, h);
         GraphNode best = null;
         int bestB = Integer.MIN_VALUE;
@@ -526,10 +526,21 @@ public class GraphEditor {
         return best;
     }
 
+    /** Full node height including expanded edit panel (for occlusion/AABB calculations). */
+    private float fullNodeHeight(GraphNode n) {
+        float h = NodeRenderer.nh(n);
+        if (expandedNodeIds.contains(n.id)
+            && (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)) {
+            h += io.github.y15173334444.create_schematic_compute.blocks.EditPanel
+                .calcRenderHeight(n, 1.0f);
+        }
+        return h;
+    }
+
     /** AABB overlap test between two nodes (graph-space). */
     private boolean rectsOverlap(GraphNode a, GraphNode b) {
-        float aw = NodeRenderer.nw(a), ah = NodeRenderer.nh(a);
-        float bw = NodeRenderer.nw(b), bh = NodeRenderer.nh(b);
+        float aw = NodeRenderer.nw(a), ah = fullNodeHeight(a);
+        float bw = NodeRenderer.nw(b), bh = fullNodeHeight(b);
         return rectsOverlap(a.x, a.y, aw, ah, b.x, b.y, bw, bh);
     }
     /** AABB overlap test with raw coordinates (graph-space). */
@@ -588,7 +599,7 @@ public class GraphEditor {
         renderer.renderGrid(g, camX, camY, zoom, lastRenderedScreenW, lastRenderedScreenH);
 
         // Rebuild spatial index once per frame (used by all spatial queries below)
-        spatialIndex.build(graph.nodes);
+        spatialIndex.build(graph.nodes, expandedNodeIds);
 
         // Sort nodes by B-layer ascending (lower B = rendered first = behind, higher B = on top)
         var sortedByB = sortNodesByB(graph.nodes);
@@ -660,7 +671,18 @@ public class GraphEditor {
                     }
                 }
             }
-            if (changed) nodeEditStatesById.put(n.id, createEditState(n));
+            if (changed) {
+                // 判断是否为纯名称变化（非数量变化）
+                boolean nameOnlyChange = st.fields.size() - 1 == n.bandCount() && n.bandCount() > 0;
+                nodeEditStatesById.put(n.id, createEditState(n));
+                // 纯名称变化时同步到同总线名节点并上传服务器
+                if (nameOnlyChange && n.type == NodeType.BUS_OUT && !n.busConflict) {
+                    syncBusBands(n);
+                    net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                        new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
+                            host.getBlockPos(), n.signalName, n.signalBands));
+                }
+            }
         }
         // ── A=2: Connections (bezier curves) ──
         renderer.renderConnections(g, graph, camX, camY, zoom);
@@ -1210,6 +1232,7 @@ public class GraphEditor {
                 }
                 // FORMULA multi-line editor: single MultiLineEditBox covers full edit panel height
                 int enW = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(en);
+                // EditBox focus/click
                 // FORMULA / COMMENT multi-line editor: MultiLineEditBox covers full edit panel height
                 if (en.type == NodeType.FORMULA || en.type == NodeType.COMMENT) {
                     for (int fi = 0; fi < st.fields.size(); fi++) {
@@ -1360,7 +1383,7 @@ public class GraphEditor {
                 draggingNode = n2; dragOffX = n2.x - s2cX(mx); dragOffY = n2.y - s2cY(my);
                 return true;
             }
-            // BUS_IN edit area output pins — A-layer then B-sort aware
+            // BUS_IN edit area output pins — spatial-index aware for occlusion
             var pinCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my));
             pinCandidates.sort(GraphEditor::compareHitOrder);
             for (var node : pinCandidates) {
@@ -1369,7 +1392,8 @@ public class GraphEditor {
                 int nw = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(node);
                 for (int i = 0; i < node.signalBands.size(); i++) {
                     float py = sy + bandPinY(node, i, zoom) * zoom;
-                    if (Math.abs(mx - (sx + nw * zoom)) < 12 && Math.abs(my - py) < PH * zoom / 2f + 2) {
+                    float pinCenterX = sx + (nw - 12) * zoom; // EditPanel 引脚绘于 px+pw-12=128
+                    if (Math.abs(mx - pinCenterX) < 8 && Math.abs(my - py) < PH * zoom / 2f + 2) {
                         draggingWire = true; wireFromNode = node.id; wireFromPin = i;
                         wireEndX = s2cX(mx); wireEndY = s2cY(my); return true;
                     }

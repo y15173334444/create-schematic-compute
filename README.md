@@ -1123,6 +1123,10 @@ MIT License © 2026 StarryNight_Luo
 - **🐛 BUS node collapse with connections** — BUS_IN/OUT band-pin connections now set `blockCollapse` to prevent collapsing.
 - **🐛 Copy IMAGE node false cycle** — `NodeGraph.adoptNode()` now calls `invalidateTopo()`, fixing stale cache after Ctrl+D.
 - **🐛 Terminal pixel editor Esc** — wrapper delegates Esc to inner screen first (closing pixel editor/settings). Mouse position saved/restored on X-button close.
+- **🐛 BUS_OUT band name sync** — editing a band name in an expanded BUS_OUT node now triggers `syncBusBands()` and sends `BusBandUploadPacket` to the server, propagating the name change to all same-bus-name BUS_IN/OUT nodes. Previously only +/- band count changes triggered sync.
+- **🐛 BUS_IN output pin drag** — fixed X-coordinate mismatch between EditPanel pin rendering (local X=128) and mouse hit detection (checked against right edge at local X=140). Pin center is now `sx + (nw - 12) * zoom`, matching the actual rendered position.
+- **🔧 SpatialIndex expanded area awareness** — `SpatialIndex.build()` now accepts `expandedNodeIds` and adds `EditPanel.calcRenderHeight` to the AABB of expanded BUS_IN/OUT nodes. This enables correct z-order occlusion queries (`compareHitOrder`) for clicks within expanded edit areas.
+- **🔧 B-value occlusion with expanded edit panels** — `rectsOverlap()` and `findNodeBelow()` now use `fullNodeHeight()` instead of `NodeRenderer.nh()`, including expanded edit panel height in AABB overlap tests for drag-drop B-value assignment.
 
 ### v1.2.2 — Portable Terminal + Layer Panel + Undo/Redo
 - **📱 Portable Terminal** — new handheld item to remotely discover and edit programmable blocks. Scans overworld and Sable sub-level devices within configurable range (1–256 blocks). One-click opens the block's native GUI.
