@@ -2,6 +2,8 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.client.GeometryConstants;
+import io.github.y15173334444.create_schematic_compute.client.colorpicker.ColorPickerButton;
+import io.github.y15173334444.create_schematic_compute.client.colorpicker.RecentColors;
 import io.github.y15173334444.create_schematic_compute.graph.*;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
@@ -106,6 +108,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         boolean newFrameMenuOpen = false; // IMAGE_SEQUENCE "+New" dropdown
         String hexInput = ""; // hex color being typed
         boolean editingHex = false; // hex input active
+        ColorPickerButton colorButton; // replaces simple palette
         // Pixel-only undo stacks (independent of graph-level undo)
         java.util.List<int[]> pixelUndoStack = new java.util.ArrayList<>();
         java.util.List<int[]> pixelRedoStack = new java.util.ArrayList<>();
@@ -260,6 +263,10 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         // Settings panel overlay
         if (showSettings) {
             renderSettingsPanel(g, mx, my);
+        }
+        // Color picker — always on top of everything
+        if (editor.colorPicker.isVisible()) {
+            editor.colorPicker.render(g, mx, my);
         }
     }
 
@@ -1025,8 +1032,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         int palNumColors = 23; // 22 colors + sentinel 0
         int palRows = (palNumColors + PAL_COLS - 1) / PAL_COLS; // 12
         int palH = palRows * (PAL_CELL + PAL_GAP);
-        int palW2 = PAL_CELL * PAL_COLS + PAL_GAP * (PAL_COLS - 1);
-        int palAreaW = PAL_LEFT + palW2 + 12;
+        int palW2 = 0; //
+        int palAreaW = 174;
         int maxPx = (int)(Math.min((w - palAreaW) * 0.65f, (h - 40) * 0.72f));
         int cellSize = Math.max(6, maxPx / 16);
         int gridPx = cellSize * 16;
@@ -1062,17 +1069,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             }
         }
 
-        // Palette (2-column grid)
-        int[] palette = PIXEL_PALETTE;
-        for (int i = 0; i < palette.length; i++) {
-            int col = i % PAL_COLS, row = i / PAL_COLS;
-            int px = PAL_LEFT + col * (PAL_CELL + PAL_GAP);
-            int py = palStartY + row * (PAL_CELL + PAL_GAP);
-            g.fill(px, py, px + PAL_CELL, py + PAL_CELL, palette[i]);
-            g.renderOutline(px, py, PAL_CELL, PAL_CELL, pixelEdit.selectedColor == palette[i] ? 0xFFFFAA44 : 0xFF666666);
-        }
-
-        // Frame navigation + Hex color (screen top-right)
+        // ColorPicker button replaces simple palette + hex input
         int trX = w - 240, trY = 6;
         if (pixelEdit.node.type == NodeType.IMAGE_SEQUENCE) {
             String navTxt = "§7◀  " + pixelEdit.frameIndex + "  ▶";
@@ -1085,16 +1082,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 g.drawString(Minecraft.getInstance().font, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_from_current"), trX + 116, trY + 24, 0xFFCCCCCC, false);
             }
         }
-        // Hex color + OK button (always visible, below nav)
+        // Hex display (picker handles color selection, auto-opens on the left)
         int hexTopY = pixelEdit.node.type == NodeType.IMAGE_SEQUENCE ? trY + 24 : trY;
-        String hexStr = pixelEdit.editingHex ? ("§e#" + pixelEdit.hexInput + "▌") : ("§7#" + hex8(pixelEdit.selectedColor));
-        g.drawString(Minecraft.getInstance().font, hexStr, trX, hexTopY, 0xFFCCCCCC, false);
-        if (pixelEdit.editingHex) {
-            int okX = trX + Minecraft.getInstance().font.width(hexStr) + 8;
-            g.fill(okX, hexTopY - 1, okX + 30, hexTopY + 11, 0xFF3A5A2A);
-            g.renderOutline(okX, hexTopY - 1, 30, 12, 0xFF5A8A3A);
-            g.drawString(Minecraft.getInstance().font, "§a" + I18n.get("gui.create_schematic_compute.ok"), okX + 4, hexTopY, 0xFFFFFFFF, false);
-        }
+        g.drawString(Minecraft.getInstance().font, "§7#" + hex8(pixelEdit.selectedColor), trX, hexTopY, 0xFFCCCCCC, false);
 
         // Close hint (bottom center)
         String hint = "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_close_hint");
@@ -1107,10 +1097,16 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         state.node = node;
         state.open = true;
         state.frameIndex = -1;
-        // Pre-compute grid origin for first-click accuracy (match render layout)
-        int palW2 = PALETTE_CELL * PALETTE_COLS + PALETTE_GAP * (PALETTE_COLS - 1);
-        int palAreaW = PALETTE_LEFT + palW2 + 12;
-        int maxPx = (int)(Math.min((width - palAreaW) * 0.65f, height * 0.72f));
+        state.colorButton = new ColorPickerButton(
+            () -> state.selectedColor,
+            c -> { state.selectedColor = c; pixelEdit = null; },
+            editor.colorPicker,
+            true, // left-side
+            c -> state.selectedColor = c  // live update
+        );
+        // Pre-compute grid origin — leave room for the color picker (200px wide on left)
+        int palAreaW = 174; // picker width + margin
+        int maxPx = (int)(Math.min((width - palAreaW) * 0.65f, (height - 40) * 0.72f));
         int cellSize = Math.max(8, maxPx / 16);
         state.gridOriginX = palAreaW + (width - palAreaW - cellSize * 16) / 2;
         state.gridOriginY = (height - cellSize * 16) / 2;
@@ -1127,11 +1123,31 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             node.imagePixels = node.imageSequenceFrames.get(0);
         }
         pixelEdit = state;
+        // Auto-open picker with live update for real-time painting
+        editor.colorPicker.open(0, height / 2, state.selectedColor,
+            c -> { state.selectedColor = c; pixelEdit = null; },
+            c -> state.selectedColor = c,
+            true,  // left-side
+            true); // show erase button
     }
 
     // ── Input handling ──
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
+        // Color picker: only handle if click is inside picker; painting on canvas keeps it open
+        if (editor.colorPicker.isVisible()) {
+            if (editor.colorPicker.contains((int)mx, (int)my)) {
+                return editor.colorPicker.mouseClicked(mx, my, btn);
+            }
+            // Click outside picker — if pixel editor is open and click is on the pixel grid, let it paint
+            if (pixelEdit != null && pixelEdit.open) {
+                // Let pixel editor handle the click (painting), picker stays open
+                return handlePixelEditorClick(mx, my, btn);
+            }
+            // Otherwise close picker
+            editor.colorPicker.close();
+            return true;
+        }
         // Settings panel takes priority
         if (showSettings) {
             return handleSettingsClick(mx, my, btn);
@@ -1287,8 +1303,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             if (pixelEdit.painting) {
                 // Recalculate grid (same as renderPixelEditor)
                 final int PAL_CELL = PALETTE_CELL, PAL_GAP = PALETTE_GAP, PAL_LEFT = PALETTE_LEFT, PAL_COLS = PALETTE_COLS;
-                int palW2 = PAL_CELL * PAL_COLS + PAL_GAP * (PAL_COLS - 1);
-                int palAreaW = PAL_LEFT + palW2 + 12;
+                int palW2 = 0; //
+                int palAreaW = 174;
                 int cs = Math.max(6, (int)(Math.min((width - palAreaW) * 0.65f, (height - 40) * 0.72f)) / 16);
                 int gp = cs * 16;
                 int ox = palAreaW + (width - palAreaW - gp) / 2, oy = (height - gp) / 2;
@@ -1299,7 +1315,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                         int idx = py * 16 + px;
                         if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
                             if (!pixelDragUndoCaptured) { if (pixelEdit.pixelUndoStack.size() < 100) { pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone()); pixelEdit.pixelRedoStack.clear(); } pixelDragUndoCaptured = true; }
-                            pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor;
+                            pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor; RecentColors.addRecent(pixelEdit.selectedColor);
                             if (blockEntity != null) getBE().graph.bumpGeneration();
                         }
                     }
@@ -1357,6 +1373,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     @Override
     public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
+        if (editor.colorPicker.isVisible()) return editor.colorPicker.mouseDragged(mx, my, btn, dx, dy);
         if (pixelEdit != null && pixelEdit.open) return super.mouseDragged(mx, my, btn, dx, dy);
         if (displayMode) {
             // ── Layer drag-and-drop (same logic as mouseMoved) ──
@@ -1380,6 +1397,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     @Override
     public boolean mouseReleased(double mx, double my, int btn) {
+        if (editor.colorPicker.isVisible()) { editor.colorPicker.mouseReleased(mx, my, btn); return true; }
         if (pixelEdit != null && pixelEdit.open) { pixelEdit.painting = false; pixelDragUndoCaptured = false; return false; }
         if (displayMode) {
             if (layerDragState == LayerDragState.DRAGGING && layerDragNode != null) {
@@ -1400,6 +1418,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     @Override
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+        if (editor.colorPicker.isVisible() && editor.colorPicker.mouseScrolled(mx, my, sy)) return true;
         if (pixelEdit != null && pixelEdit.open) return true;
         if (displayMode) {
             int px = width - LAYER_PANEL_W - LAYER_PANEL_PADDING;
@@ -1418,8 +1437,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         int palNumColors = 23;
         int palRows = (palNumColors + PAL_COLS - 1) / PAL_COLS;
         int palH = palRows * (PAL_CELL + PAL_GAP);
-        int palW2b = PAL_CELL * PAL_COLS + PAL_GAP * (PAL_COLS - 1);
-        int palAreaW = PAL_LEFT + palW2b + 12;
+        int palW2b = 0;
+        int palAreaW = 174;
         int maxPx = (int)(Math.min((width - palAreaW) * 0.65f, (height - 40) * 0.72f));
         int cellSize = Math.max(6, maxPx / 16);
         int gridPx = cellSize * 16;
@@ -1436,7 +1455,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 int idx = py * 16 + px;
                 if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
                     if (!pixelDragUndoCaptured) { if (pixelEdit.pixelUndoStack.size() < 100) { pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone()); pixelEdit.pixelRedoStack.clear(); } pixelDragUndoCaptured = true; }
-                    pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor;
+                    pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor; RecentColors.addRecent(pixelEdit.selectedColor);
                     pixelEdit.painting = true;
                     if (blockEntity != null) getBE().graph.bumpGeneration();
                 }
@@ -1444,41 +1463,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             return true;
         }
 
-        // Palette (2-column grid)
-        int[] palette = PIXEL_PALETTE;
-        int palColsC = 2;
-        for (int i = 0; i < palette.length; i++) {
-            int col = i % palColsC, row = i / palColsC;
-            int px = PAL_LEFT + col * (PAL_CELL + PAL_GAP);
-            int py = palStartY + row * (PAL_CELL + PAL_GAP);
-            if (mx >= px && mx <= px + PAL_CELL && my >= py && my <= py + PAL_CELL) {
-                pixelEdit.selectedColor = palette[i];
-                pixelEdit.newFrameMenuOpen = false;
-                pixelEdit.editingHex = false;
-                return true;
-            }
-        }
-        // Hex color + OK (top-right)
-        int trX = width - 240, trY = 6;
-        int hexTopY = pixelEdit.node.type == NodeType.IMAGE_SEQUENCE ? trY + 24 : trY;
-        String hexShow = "#" + hex8(pixelEdit.selectedColor);
-        int hexW = Minecraft.getInstance().font.width(hexShow);
-        if (mx >= trX && mx <= trX + hexW + 4 && my >= hexTopY - 2 && my <= hexTopY + 12) {
-            pixelEdit.editingHex = !pixelEdit.editingHex;
-            if (pixelEdit.editingHex) pixelEdit.hexInput = hex8(pixelEdit.selectedColor);
-            return true;
-        }
-        // OK button (visible when editing hex)
-        if (pixelEdit.editingHex) {
-            String hx = pixelEdit.editingHex ? ("#" + pixelEdit.hexInput + "▌") : hexShow;
-            int okX = trX + Minecraft.getInstance().font.width(hx) + 8;
-            if (mx >= okX && mx <= okX + 30 && my >= hexTopY - 1 && my <= hexTopY + 11) {
-                try { pixelEdit.selectedColor = (int)(Long.parseLong(pixelEdit.hexInput, 16) & 0xFFFFFFFFL); }
-                catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
-                pixelEdit.editingHex = false;
-                return true;
-            }
-        }
+        // Color picker handles color selection (auto-opens on left)
 
         // Frame navigation (screen top-right, font-width based hit areas)
         if (pixelEdit.node.type == NodeType.IMAGE_SEQUENCE) {
@@ -1551,7 +1536,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
         // Click outside → close
         if (mx < ox - 20 || mx > ox + gridPx + 20 || my < oy - 20 || my > oy + gridPx + 40) {
-            pixelEdit = null;
+            pixelEdit = null; editor.colorPicker.close();
             return true;
         }
 
@@ -1560,6 +1545,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     @Override
     public boolean keyPressed(int key, int sc, int mod) {
+        if (editor.colorPicker.isVisible()) return editor.colorPicker.keyPressed(key, sc, mod);
         // ── Global undo/redo (display mode + pixel editor; graph mode handled by GraphEditor) ──
         if (net.minecraft.client.gui.screens.Screen.hasControlDown()) {
             if (key == 90) { performUndo(); return true; }
@@ -1573,22 +1559,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             if (key == 256) { previewScreenW = -1; previewScreenL = -1; showSettings = false; settingsInited = false; return true; }
         }
         if (pixelEdit != null && pixelEdit.open) {
-            if (pixelEdit.editingHex) {
-                if (key == 256) { pixelEdit.editingHex = false; return true; } // ESC cancel
-                if (key == 257 || key == 335) { // Enter → apply hex
-                    try { pixelEdit.selectedColor = (int)(Long.parseLong(pixelEdit.hexInput, 16) & 0xFFFFFFFFL); }
-                    catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
-                    pixelEdit.editingHex = false;
-                    return true;
-                }
-                if (key == 259 && pixelEdit.hexInput.length() > 0) { // Backspace
-                    pixelEdit.hexInput = pixelEdit.hexInput.substring(0, pixelEdit.hexInput.length() - 1);
-                    return true;
-                }
-                return true; // consume all keys
-            }
+            // Color picker handles hex input; no separate hex editing needed
             if (key == 256) { // ESC
-                pixelEdit = null;
+                pixelEdit = null; editor.colorPicker.close();
                 return true;
             }
             return true; // consume all keys while pixel editor is open
@@ -1642,15 +1615,12 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         return editor.keyReleased(key, sc, mod) || super.keyReleased(key, sc, mod);
     }
     @Override public boolean charTyped(char ch, int mod) {
+        if (editor.colorPicker.isVisible()) return editor.colorPicker.charTyped(ch, mod);
         if (showSettings) {
             for (var f : settingFields) if (f.isFocused()) return f.charTyped(ch, mod);
             return false;
         }
         if (pixelEdit != null && pixelEdit.open) {
-            if (pixelEdit.editingHex && (Character.isDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F'))) {
-                if (pixelEdit.hexInput.length() < 8) { pixelEdit.hexInput += ch; }
-                return true;
-            }
             return false;
         }
         if (displayMode) {

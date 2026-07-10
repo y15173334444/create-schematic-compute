@@ -2,7 +2,7 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github)](https://github.com/y15173334444/create-schematic-compute)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.2.3-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
+[![Version](https://img.shields.io/badge/Version-1.2.4-blue?style=flat-square)](https://github.com/y15173334444/create-schematic-compute/releases)
 [![NeoForge](https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square)](https://neoforged.net/)
 [![Create](https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square)](https://www.curseforge.com/minecraft/mc-mods/create)
 [![Modrinth](https://img.shields.io/badge/Modrinth-create--schematic--compute-00AF5C?style=flat-square&logo=modrinth)](https://modrinth.com/mod/create-schematic-compute)
@@ -411,6 +411,9 @@ This creates **7 input pins** (X1, X0, Z1, Z0, THETA, N, K) and **3 output pins*
 | Duplicate node(s) | Ctrl + D |
 | Undo / Redo | Ctrl + Z / Ctrl + Y |
 | Wrap selected nodes in COMMENT | Press **C** with nodes selected |
+| Edit COMMENT text | Double-click comment body |
+| Resize COMMENT | Drag bottom-right corner |
+| Scroll COMMENT text | Ctrl + Scroll wheel |
 | Expand/collapse edit area | Click ▶ / ▼ on node header |
 | Color customization | Click **Style** button |
 | Toggle grid snap | Click **Grid** button |
@@ -943,6 +946,9 @@ y = (99 * secTheta / (20 * N) + tan(THETA)) * w + 99 * ln(1 - 2 * (w * secTheta 
 | 复制节点 | Ctrl + D |
 | 撤回 / 重做 | Ctrl + Z / Ctrl + Y |
 | 将选中节点包裹到注释 | 选中节点后按 **C** 键 |
+| 编辑注释文本 | 双击注释节点主体 |
+| 调整注释大小 | 拖动右下角 |
+| 滚动注释文本 | Ctrl + 滚轮 |
 | 展开/折叠编辑区 | 点击节点标题的 ▶ / ▼ |
 | 颜色自定义 | 点击 **Style** 按钮 |
 | 网格吸附开关 | 点击 **Grid** 按钮 |
@@ -1107,6 +1113,18 @@ MIT License © 2026 StarryNight_Luo
 <a name="changelog"></a>
 
 ## 📝 Changelog
+
+### v1.2.4 — Color Picker Widget + Theme & Comment Panel Integration
+
+- **🎨 Color Picker Widget** — a full-featured HSV color picker with SV plane (saturation × brightness), vertical hue bar, and vertical alpha slider. Replaces all plain hex text inputs throughout the mod with a visual, interactive color selection experience.
+- **🖌️ Color Picker Button** — a small swatch button with Supplier/Consumer binding that opens the color picker. Used in theme color config (16 colors), comment node color editing (3 colors), and TEXT/DATA node color fields.
+- **⭐ Favorites & Recent Colors** — favorites grid (max 128 colors, persisted to JSON) with add/remove/reset controls and vertical scrollbar. Recent colors grid (max 16, session-only) auto-populated on color selection. Both grids use mouse wheel scrolling with row-snapping.
+- **🔗 Panel Integration** — color picker opens/closes in sync with theme color config panel and comment color popup. Left-side settings panel + right-side color picker layout. Persistent selection highlight on active color buttons.
+- **🖼️ Pixel Editor Upgrade** — replaces the simple 23-color palette with the full color picker (positioned on the left). Live color update during HSV/alpha adjustments. Eraser button (sets alpha to transparent). OK button closes the pixel editor.
+- **🌐 Multi-Language** — English and Chinese (zh_cn) translations for all color picker UI strings.
+- **📐 Layout Refinement** — compact 164×246 design with row-snapped vertical scrolling, alpha bar integrated beside hue bar, fixed button positions, and proper header spacing for section labels.
+
+#### Previous Versions
 
 ### v1.2.3 — A.B.C Occlusion System + Comment Drag Header + Manual EditBox Rendering
 

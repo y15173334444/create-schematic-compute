@@ -1,5 +1,8 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
+import io.github.y15173334444.create_schematic_compute.client.colorpicker.ColorPickerButton;
+import io.github.y15173334444.create_schematic_compute.client.colorpicker.ColorPickerWidget;
+import io.github.y15173334444.create_schematic_compute.client.colorpicker.ColorUtils;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeConnection;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
@@ -21,6 +24,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 import net.minecraft.nbt.CompoundTag;
@@ -158,13 +162,16 @@ public class GraphEditor {
         /** BUS 总线名 EditBox（用于失焦/Enter 提交检测） */
         public net.minecraft.client.gui.components.EditBox busBox;
         public GraphNode busNode;
+        /** ColorPickerButton for TEXT/DATA node color editing */
+        public ColorPickerButton colorButton;
     }
     public final java.util.Map<Integer, EditState> nodeEditStatesById = new java.util.HashMap<>();
     /** EditBox → 提交动作（回车或失焦时执行） */
     private final java.util.Map<net.minecraft.client.gui.components.EditBox, Runnable> enterActions = new java.util.HashMap<>();
     // 颜色配置面板
     public boolean showColorConfig = false;
-    public final net.minecraft.client.gui.components.EditBox[] colorFields = new net.minecraft.client.gui.components.EditBox[NodeRenderer._NUM_COLORS];
+    public final ColorPickerWidget colorPicker = new ColorPickerWidget();
+    private final ColorPickerButton[] themeButtons = new ColorPickerButton[NodeRenderer._NUM_COLORS];
     // 框选 + 多选拖拽状态
     private boolean tabHeld = false;
     private boolean boxSelecting = false;
@@ -187,7 +194,7 @@ public class GraphEditor {
     private GraphNode resizingComment = null;
     private float resizeStartW, resizeStartH;
     private GraphNode editingCommentColorNode = null;
-    private final net.minecraft.client.gui.components.EditBox[] commentColorEditBoxes = new net.minecraft.client.gui.components.EditBox[3];
+    private ColorPickerButton[] commentButtons = null; // created when popup opens
     private final java.util.Map<Integer, Integer> commentScrollOffsets = new java.util.HashMap<>();
 
     // ── 子图编辑栈（封装节点） ──
@@ -362,17 +369,21 @@ public class GraphEditor {
             tb.setMaxLength(256); tb.setValue(node.displayText);
             registerEnter(tb, () -> node.displayText = tb.getValue());
             s.fields.add(tb);
-            var cb = new EditBox(mc.font, 0, 0, 70, 16, Component.literal(""));
-            cb.setMaxLength(8); cb.setValue(hex8(node.textColor != 0 ? node.textColor : 0xFFCCCCCC));
-            registerEnter(cb, () -> { try { node.textColor = (int)(Long.parseLong(cb.getValue().trim(), 16) & 0xFFFFFFFFL); } catch (Exception e) {} });
-            s.fields.add(cb);
+            // Color swatch button replaces old hex EditBox
+            s.colorButton = new ColorPickerButton(
+                () -> node.textColor != 0 ? node.textColor : 0xFFCCCCCC,
+                c -> { node.textColor = c; markDirty(); },
+                colorPicker
+            );
             s.paramKeys = new String[]{"text", "color"};
         }
         if (node.type == NodeType.DATA) {
-            var cb = new EditBox(mc.font, 0, 0, 70, 16, Component.literal(""));
-            cb.setMaxLength(8); cb.setValue(hex8(node.textColor != 0 ? node.textColor : 0xFF88FF88));
-            registerEnter(cb, () -> { try { node.textColor = (int)(Long.parseLong(cb.getValue().trim(), 16) & 0xFFFFFFFFL); } catch (Exception e) {} });
-            s.fields.add(cb);
+            // Color swatch button replaces old hex EditBox
+            s.colorButton = new ColorPickerButton(
+                () -> node.textColor != 0 ? node.textColor : 0xFF88FF88,
+                c -> { node.textColor = c; markDirty(); },
+                colorPicker
+            );
             s.paramKeys = new String[]{"color"};
         }
         if (node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) {
@@ -476,16 +487,12 @@ public class GraphEditor {
         this.renderer = new NodeRenderer(this::c2sX, this::c2sY, screen);
         var mc = net.minecraft.client.Minecraft.getInstance();
         for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) {
-            int idx = i;
-            colorFields[i] = new net.minecraft.client.gui.components.EditBox(mc.font, 0, 0, 80, 14, net.minecraft.network.chat.Component.literal(""));
-            colorFields[i].setMaxLength(8);
-            int[] cur = NodeRenderer.currentColors();
-            colorFields[i].setValue(hex8(cur[i]));
-            colorFields[i].setResponder(s -> {
-                if (s.length() == 8) try {
-                    NodeRenderer.stagingColors[idx] = (int)(Long.parseLong(s, 16) & 0xFFFFFFFFL);
-                } catch (Exception ignored) {}
-            });
+            final int idx = i;
+            themeButtons[i] = new ColorPickerButton(
+                () -> NodeRenderer.stagingColors[idx],
+                c -> NodeRenderer.stagingColors[idx] = c,
+                colorPicker
+            );
         }
     }
 
@@ -830,14 +837,11 @@ public class GraphEditor {
         // 颜色配置面板
         if (showColorConfig) renderColorPanel(g, mx, my);
         if(showMenu) { selectedMenuType = renderer.renderAddNodeMenu(g, menuX, menuY, mx, my, nodeFilter); }
-        // Comment color edit popup (3-color panel above the node)
-        if (editingCommentColorNode != null && commentColorEditBoxes[0] != null) {
-            var cn = editingCommentColorNode;
+        // Comment color edit popup — fixed left-aligned, vertically centered
+        if (editingCommentColorNode != null && commentButtons != null) {
             int pw = 200, ph = 74;
-            float csx = c2sX(cn.x), csy = c2sY(cn.y);
-            int px = (int)(csx + cn.commentWidth * zoom / 2 - pw / 2);
-            int py = (int)(csy - ph - 6);
-            if (py < 4) py = 4; // clamp to top
+            int px = 8;
+            int py = Math.max(4, (host.asScreen().height - ph) / 2);
             g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
             g.renderOutline(px, py, pw, ph, 0xFFD4A017);
             String[] labels = {
@@ -845,20 +849,16 @@ public class GraphEditor {
                 I18n.get("gui.create_schematic_compute.comment.border_color"),
                 I18n.get("gui.create_schematic_compute.comment.text_color")
             };
-            int[] curColors = {cn.commentBgColor, cn.commentBorderColor, cn.commentTextColor};
             for (int row = 0; row < 3; row++) {
                 int ry = py + 4 + row * 22;
                 g.drawString(Minecraft.getInstance().font, labels[row], px + 6, ry + 2, 0xFFCCCCCC, false);
-                // Color swatch
-                g.fill(px + pw - 100, ry, px + pw - 84, ry + 16, curColors[row]);
-                g.renderOutline(px + pw - 100, ry, 16, 16, 0xFF999999);
-                // Hex input
-                var box = commentColorEditBoxes[row];
-                box.setX(px + pw - 82);
-                box.setY(ry);
-                box.render(g, mx, my, 0);
+                // Color swatch button
+                commentButtons[row].setPosition(px + pw - 100, ry);
+                commentButtons[row].render(g, mx, my);
             }
         }
+        // Color picker popup — renders LAST to stay on top of all other overlays
+        if (colorPicker.isVisible()) colorPicker.render(g, mx, my);
         // 框选矩形
         if (boxSelecting) {
             float x1 = Math.min(boxSX, boxEX), y1 = Math.min(boxSY, boxEY);
@@ -902,21 +902,20 @@ public class GraphEditor {
 
     public boolean mouseClicked(double mx, double my, int btn) {
         var graph = getGraph();
-        // ── Comment color edit popup ──
-        if (editingCommentColorNode != null && commentColorEditBoxes[0] != null && btn == 0) {
-            var cn = editingCommentColorNode;
+        // ── Comment color edit popup (handled BEFORE picker so buttons can rebind) ──
+        // Comment popup: skip if picker is open and click is on it
+        if (editingCommentColorNode != null && commentButtons != null && btn == 0
+            && !(colorPicker.isVisible() && colorPicker.contains((int)mx, (int)my))) {
             int pw = 200, ph = 74;
-            float csx = c2sX(cn.x), csy = c2sY(cn.y);
-            int px = (int)(csx + cn.commentWidth * zoom / 2 - pw / 2);
-            int py = (int)(csy - ph - 6);
-            if (py < 4) py = (int)(csy + cn.commentHeight * zoom + 6);
+            int px = 8;
+            int py = Math.max(4, (host.asScreen().height - ph) / 2);
             if (mx < px || mx > px + pw || my < py || my > py + ph) {
-                applyCommentColors();
+                closeCommentColorPopup();
                 return true;
             }
-            // Click inside → activate the nearest EditBox
+            // Click inside → delegate to comment buttons
             for (int ci = 0; ci < 3; ci++) {
-                commentColorEditBoxes[ci].mouseClicked(mx, my, btn);
+                if (commentButtons[ci].mouseClicked(mx, my, btn)) return true;
             }
             return true;
         }
@@ -1005,8 +1004,9 @@ public class GraphEditor {
                     showColorConfig = !showColorConfig;
                     if (showColorConfig) {
                         NodeRenderer.initStaging();
-                        for (int i = 0; i < NodeRenderer._NUM_COLORS; i++)
-                            colorFields[i].setValue(hex8(NodeRenderer.stagingColors[i]));
+                        openColorPickerForTheme(0);
+                    } else {
+                        
                     }
                     return true;
                 }
@@ -1100,41 +1100,39 @@ public class GraphEditor {
                 }
             }
         }
-        // 颜色配置面板打开时阻止所有画布交互
-        if (showColorConfig && btn == 0) {
+        // Theme color panel: if picker is open and click is on it, skip panel entirely
+        if (showColorConfig && btn == 0 && !(colorPicker.isVisible() && colorPicker.contains((int)mx, (int)my))) {
             var mc = Minecraft.getInstance();
-            int colW = 185, pw = colW * 2 + 30, ph = 36 + 8 * 18 + 24;
-            int px = (host.asScreen().width - pw) / 2, py = (host.asScreen().height - ph) / 2;
+            int colW = 100, pw = colW * 2 + 22, ph = 36 + 8 * 18 + 24;
+            int px = 8, py = Math.max(4, (host.asScreen().height - ph) / 2); // left-aligned
             // 点击面板外部 → 关闭
-            if (mx < px || mx > px + pw || my < py || my > py + ph) { showColorConfig = false; return true; }
+            if (mx < px || mx > px + pw || my < py || my > py + ph) { showColorConfig = false; colorPicker.close(); return true;
+            }
             // 关闭按钮
-            if (mx >= px + pw - 18 && mx <= px + pw - 2 && my >= py + 2 && my <= py + 18) { showColorConfig = false; return true; }
+            if (mx >= px + pw - 18 && mx <= px + pw - 2 && my >= py + 2 && my <= py + 18) { showColorConfig = false; colorPicker.close(); return true; }
             // Defaults
             if (mx >= px + 8 && mx <= px + 72 && my >= py + ph - 22 && my <= py + ph - 6) {
-                NodeRenderer.setColors(NodeRenderer.DEFAULT_COLORS.clone());
-                for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) colorFields[i].setValue(hex8(NodeRenderer.DEFAULT_COLORS[i]));
+                NodeRenderer.stagingColors = NodeRenderer.DEFAULT_COLORS.clone();
                 return true;
             }
             // Apply
             if (mx >= px + pw - 72 && mx <= px + pw - 8 && my >= py + ph - 22 && my <= py + ph - 6) {
                 NodeRenderer.setColors(NodeRenderer.stagingColors.clone());
                 NodeRenderer.saveColorConfig();
-                showColorConfig = false;
+                showColorConfig = false; colorPicker.close();
+                
                 return true;
             }
-            // 颜色字段焦点（先全部清除再设置单个，避免多个光标）
-            for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) colorFields[i].setFocused(false);
+            // Theme color buttons
             for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) {
-                if (mx >= colorFields[i].getX() && mx <= colorFields[i].getX() + 80
-                    && my >= colorFields[i].getY() && my <= colorFields[i].getY() + 14) {
-                    colorFields[i].setFocused(true);
-                    colorFields[i].mouseClicked(mx, my, btn);
-                    break;
-                }
+                if (themeButtons[i].mouseClicked(mx, my, btn)) return true;
             }
             return true;
         }
-        // 旧的颜色配置面板交互（隔离用，新逻辑在上面）
+        // Color picker (after panels — absorbs clicks on picker, closes if outside)
+        if (colorPicker.isVisible()) {
+            return colorPicker.mouseClicked(mx, my, btn);
+        }
         if(btn==0){
             showMenu=false;
             // 预计算 z-order 排序候选（供每个展开节点做遮挡判断）
@@ -1275,6 +1273,22 @@ public class GraphEditor {
                         } else b.setFocused(false);
                     }
                 } else if (en.type != NodeType.COMMENT) {
+                    // Color button click for TEXT/DATA nodes
+                    if ((en.type == NodeType.TEXT || en.type == NodeType.DATA) && st.colorButton != null) {
+                        // Color swatch is rendered after the generic fields, at row = st.fields.size()
+                        int colorFieldRow = st.fields.size();
+                        int swatchLabelW = Minecraft.getInstance().font.width(
+                            net.minecraft.client.resources.language.I18n.get("param.create_schematic_compute.color") + ":") + 6;
+                        int swatchX = 4 + swatchLabelW;
+                        int swatchY = editLocalY + 4 + colorFieldRow * 18;
+                        int swatchSize = 16;
+                        if (lmx >= swatchX && lmx <= swatchX + swatchSize
+                            && lmy >= swatchY && lmy <= swatchY + swatchSize) {
+                            st.colorButton.setPosition(swatchX, swatchY);
+                            st.colorButton.mouseClicked(lmx, lmy, 0);
+                            return true;
+                        }
+                    }
                     for (int fi = 0; fi < st.fields.size(); fi++) {
                         var b = st.fields.get(fi);
                         int fy = editLocalY + 4 + fi * 18;
@@ -1343,15 +1357,33 @@ public class GraphEditor {
                     var lvl = Minecraft.getInstance().level;
                     if (lvl != null) takeSnapshot(getGraph(), lvl.registryAccess());
                     editingCommentColorNode = n2;
-                    var font = Minecraft.getInstance().font;
+                    commentButtons = new ColorPickerButton[3];
                     for (int ci = 0; ci < 3; ci++) {
-                        commentColorEditBoxes[ci] = new EditBox(font, 0, 0, 80, 14, Component.literal(""));
-                        commentColorEditBoxes[ci].setMaxLength(8);
+                        final int idx = ci;
+                        commentButtons[ci] = new ColorPickerButton(
+                            () -> {
+                                if (editingCommentColorNode == null) return 0xFF000000;
+                                return switch (idx) {
+                                    case 0 -> editingCommentColorNode.commentBgColor;
+                                    case 1 -> editingCommentColorNode.commentBorderColor;
+                                    case 2 -> editingCommentColorNode.commentTextColor;
+                                    default -> 0xFF000000;
+                                };
+                            },
+                            c -> {
+                                if (editingCommentColorNode == null) return;
+                                switch (idx) {
+                                    case 0 -> editingCommentColorNode.commentBgColor = c;
+                                    case 1 -> editingCommentColorNode.commentBorderColor = c;
+                                    case 2 -> editingCommentColorNode.commentTextColor = c;
+                                }
+                                markDirty();
+                            },
+                            colorPicker
+                        );
                     }
-                    int[] colors = {n2.commentBgColor, n2.commentBorderColor, n2.commentTextColor};
-                    for (int ci = 0; ci < 3; ci++)
-                        commentColorEditBoxes[ci].setValue(hex8(colors[ci]));
-                    commentColorEditBoxes[0].setFocused(true);
+                    // Auto-open picker alongside comment popup
+                    openColorPickerForComment(0);
                     lastClickNodeId = -1;
                     return true;
                 }
@@ -1583,6 +1615,7 @@ public class GraphEditor {
     }
 
     public void mouseReleased(double mx, double my, int btn) {
+        if (colorPicker.isVisible()) { colorPicker.mouseReleased(mx, my, btn); return; }
         var graph = getGraph();
         editBoxDragNodeId = -1;
         // Comment resize complete
@@ -1777,6 +1810,7 @@ public class GraphEditor {
         }if(draggingWire){wireEndX=s2cX(mx);wireEndY=s2cY(my);}
     }
     public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
+        if (colorPicker.isVisible()) return colorPicker.mouseDragged(mx, my, btn, dx, dy);
         for (var en : getGraph().nodes) {
             if (!expandedNodeIds.contains(en.id)) continue;
             var st = nodeEditStatesById.get(en.id);
@@ -1791,6 +1825,7 @@ public class GraphEditor {
         return false;
     }
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+        if (colorPicker.isVisible() && colorPicker.mouseScrolled(mx, my, sy)) return true;
         if (showImportDialog) { importScrollOff += (sy > 0) ? -1 : 1; if (importScrollOff < 0) importScrollOff = 0; return true; }
         if (showExportDialog || showColorConfig) return true;
         // Ctrl+scroll → comment text scroll; normal scroll → zoom
@@ -1844,31 +1879,16 @@ public class GraphEditor {
             if (key == 256) { showImportDialog = false; importFiles = null; return true; } // Esc
             return true;
         }
-        if (editingCommentColorNode != null && commentColorEditBoxes[0] != null) {
-            if (key == 257) { // Enter: apply colors and close
-                applyCommentColors();
-                return true;
-            }
-            if (key == 256) { editingCommentColorNode = null; clearCommentColorBoxes(); return true; }
-            // Tab: cycle focus between the 3 fields
-            if (key == 258) {
-                for (int ci = 0; ci < 3; ci++) {
-                    if (commentColorEditBoxes[ci] != null && commentColorEditBoxes[ci].isFocused()) {
-                        commentColorEditBoxes[ci].setFocused(false);
-                        int next = (ci + 1) % 3;
-                        commentColorEditBoxes[next].setFocused(true);
-                        return true;
-                    }
-                }
-            }
-            for (int ci = 0; ci < 3; ci++)
-                if (commentColorEditBoxes[ci] != null && commentColorEditBoxes[ci].isFocused())
-                    return commentColorEditBoxes[ci].keyPressed(key, sc, mod);
-            return false;
+        // Color picker keyboard delegation (takes priority when open)
+        if (colorPicker.isVisible()) {
+            return colorPicker.keyPressed(key, sc, mod);
+        }
+        if (editingCommentColorNode != null && commentButtons != null) {
+            if (key == 256) { closeCommentColorPopup(); return true; } // Esc
+            return false; // no keyboard for comment popup — only button clicks
         }
         if (showColorConfig) {
-            for (var f : colorFields) if (f.isFocused()) { return f.keyPressed(key, sc, mod); }
-            if (key == 256) { showColorConfig = false; return true; }
+            if (key == 256) { showColorConfig = false; colorPicker.close(); return true; }
         }
         if (key == 257) { // Enter: 提交当前聚焦的编辑框
             for (var e : enterActions.entrySet()) {
@@ -2029,11 +2049,8 @@ public class GraphEditor {
         return false;
     }
     public boolean charTyped(char ch, int mod) {
-        for (int ci = 0; ci < 3; ci++)
-            if (commentColorEditBoxes[ci] != null && commentColorEditBoxes[ci].isFocused())
-                return commentColorEditBoxes[ci].charTyped(ch, mod);
+        if (colorPicker.isVisible()) return colorPicker.charTyped(ch, mod);
         if (showExportDialog && exportNameEdit != null) return exportNameEdit.charTyped(ch, mod);
-        if (showColorConfig) for (var f : colorFields) if (f.isFocused()) return f.charTyped(ch, mod);
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.charTyped(ch, mod);
         return false;
     }
@@ -2042,8 +2059,8 @@ public class GraphEditor {
     private void renderColorPanel(GuiGraphics g, int mx, int my) {
         var mc = net.minecraft.client.Minecraft.getInstance();
         int itemsPerCol = 8, numRows = 8; // 16色分 8+8 两列
-        int colW = 185, pw = colW * 2 + 30, ph = 36 + numRows * 18 + 24;
-        int px = (host.asScreen().width - pw) / 2, py = (host.asScreen().height - ph) / 2;
+        int colW = 100, pw = colW * 2 + 22, ph = 36 + numRows * 18 + 24;
+        int px = 8, py = Math.max(4, (host.asScreen().height - ph) / 2); // left-aligned
         g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
         g.renderOutline(px, py, pw, ph, NodeRenderer.CSB());
         g.fill(px + 2, py + 2, px + pw - 2, py + 18, 0xFF4A3F28);
@@ -2056,16 +2073,11 @@ public class GraphEditor {
             int row = i < itemsPerCol ? i : i - itemsPerCol;
             int cx = px + 8 + col * (colW + 14);
             int ry = py + 24 + row * 18;
-            // 色块（预览暂存颜色）
-            g.fill(cx + 2, ry + 2, cx + 18, ry + 14, NodeRenderer.stagingColors[i]);
-            g.renderOutline(cx + 2, ry + 2, 16, 12, 0xFF666666);
+            // 色块按钮（预览暂存颜色）
+            themeButtons[i].setPosition(cx + 2, ry + 2);
+            themeButtons[i].render(g, mx, my);
             // 名称
             g.drawString(mc.font, net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.color." + NodeRenderer.COLOR_KEYS[i]), cx + 22, ry + 2, 0xFFCCCCCC, false);
-            // HEX 输入框
-            var f = colorFields[i];
-            f.setX(cx + colW - 90);
-            f.setY(ry + 1);
-            f.render(g, mx, my, 0);
         }
         int by = py + ph - 22;
         g.fill(px + 8, by, px + 72, by + 16, 0xFF3A3428);
@@ -2149,34 +2161,46 @@ public class GraphEditor {
         return null;
     }
 
-    private void applyCommentColors() {
-        if (editingCommentColorNode == null) return;
-        int[] targets = {0, 0, 0}; // bg, border, text
-        boolean anyChanged = false;
-        for (int ci = 0; ci < 3; ci++) {
-            if (commentColorEditBoxes[ci] == null) continue;
-            try {
-                String val = commentColorEditBoxes[ci].getValue().trim();
-                if (val.length() == 6) val = "FF" + val;
-                if (val.length() == 8) targets[ci] = (int)(Long.parseLong(val, 16) & 0xFFFFFFFFL);
-            } catch (Exception ignored) { continue; }
-        }
-        if (targets[0] != 0 && targets[0] != editingCommentColorNode.commentBgColor) {
-            editingCommentColorNode.commentBgColor = targets[0]; anyChanged = true;
-        }
-        if (targets[1] != 0 && targets[1] != editingCommentColorNode.commentBorderColor) {
-            editingCommentColorNode.commentBorderColor = targets[1]; anyChanged = true;
-        }
-        if (targets[2] != 0 && targets[2] != editingCommentColorNode.commentTextColor) {
-            editingCommentColorNode.commentTextColor = targets[2]; anyChanged = true;
-        }
-        if (anyChanged) markDirty();
+    private void closeCommentColorPopup() {
         editingCommentColorNode = null;
-        clearCommentColorBoxes();
+        commentButtons = null;
+        colorPicker.close();
     }
 
-    private void clearCommentColorBoxes() {
-        for (int ci = 0; ci < 3; ci++) commentColorEditBoxes[ci] = null;
+    /** Open/rebind the color picker to a theme staging color. */
+    private void openColorPickerForTheme(int idx) {
+        Consumer<Integer> setter = c -> { NodeRenderer.stagingColors[idx] = c; };
+        if (colorPicker.isVisible()) {
+            colorPicker.rebind(NodeRenderer.stagingColors[idx], setter);
+        } else {
+            int sw = Minecraft.getInstance().getWindow().getGuiScaledWidth();
+            colorPicker.open(sw - ColorPickerWidget.WIDTH / 2, Minecraft.getInstance().getWindow().getGuiScaledHeight() / 2,
+                NodeRenderer.stagingColors[idx], setter);
+        }
+    }
+
+    /** Open/rebind the color picker to a comment color field (0=bg, 1=border, 2=text). */
+    private void openColorPickerForComment(int field) {
+        if (editingCommentColorNode == null) return;
+        int color = switch (field) {
+            case 0 -> editingCommentColorNode.commentBgColor;
+            case 1 -> editingCommentColorNode.commentBorderColor;
+            case 2 -> editingCommentColorNode.commentTextColor;
+            default -> 0xFF000000;
+        };
+        Consumer<Integer> setter = switch (field) {
+            case 0 -> c -> { editingCommentColorNode.commentBgColor = c; markDirty(); };
+            case 1 -> c -> { editingCommentColorNode.commentBorderColor = c; markDirty(); };
+            case 2 -> c -> { editingCommentColorNode.commentTextColor = c; markDirty(); };
+            default -> c -> {};
+        };
+        if (colorPicker.isVisible()) {
+            colorPicker.rebind(color, setter);
+        } else {
+            int sw = Minecraft.getInstance().getWindow().getGuiScaledWidth();
+            colorPicker.open(sw - ColorPickerWidget.WIDTH / 2, Minecraft.getInstance().getWindow().getGuiScaledHeight() / 2,
+                color, setter);
+        }
     }
 
     private static String plainText(String line) {

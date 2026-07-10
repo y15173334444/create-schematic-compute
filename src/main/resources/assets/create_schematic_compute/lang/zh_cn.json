@@ -404,5 +404,16 @@
   "gui.create_schematic_compute.comment.bg_color": "背景",
   "gui.create_schematic_compute.comment.border_color": "边框",
   "gui.create_schematic_compute.comment.text_color": "文字",
-  "gui.create_schematic_compute.comment.edit_hint": "编辑中 - 双击退出以操作内部节点"
+  "gui.create_schematic_compute.comment.edit_hint": "编辑中 - 双击退出以操作内部节点",
+  "gui.create_schematic_compute.colorpicker.hue": "色相",
+  "gui.create_schematic_compute.colorpicker.sat": "饱和度",
+  "gui.create_schematic_compute.colorpicker.bri": "亮度",
+  "gui.create_schematic_compute.colorpicker.recent": "最近",
+  "gui.create_schematic_compute.colorpicker.hex": "十六进制",
+  "gui.create_schematic_compute.colorpicker.ok": "确定",
+  "gui.create_schematic_compute.colorpicker.erase": "橡皮擦",
+  "gui.create_schematic_compute.colorpicker.title": "调色板",
+  "gui.create_schematic_compute.colorpicker.favorites": "常用颜色",
+  "gui.create_schematic_compute.colorpicker.recent": "最近使用",
+  "gui.create_schematic_compute.colorpicker.alpha": "透明度"
 }

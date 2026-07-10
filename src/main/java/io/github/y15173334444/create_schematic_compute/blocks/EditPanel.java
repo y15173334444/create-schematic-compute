@@ -246,6 +246,25 @@ public class EditPanel {
             row++;
         }
         } // else 块结束
+        // Color swatch for TEXT/DATA nodes (replaces old hex EditBox)
+        if ((node.type == NodeType.TEXT || node.type == NodeType.DATA) && st.colorButton != null) {
+            String label = node.type == NodeType.TEXT
+                ? I18n.get("param.create_schematic_compute.color") + ":"
+                : I18n.get("param.create_schematic_compute.color") + ":";
+            int labelX = px + 4;
+            g.drawString(Minecraft.getInstance().font, label, labelX, py + 4 + row * 18, 0xFF888888, false);
+            int lw = Minecraft.getInstance().font.width(label) + 6;
+            int swatchX = px + 4 + lw;
+            int swatchY = py + 4 + row * 18;
+            int color = node.textColor != 0 ? node.textColor
+                : (node.type == NodeType.DATA ? 0xFF88FF88 : 0xFFCCCCCC);
+            g.fill(swatchX, swatchY, swatchX + 16, swatchY + 16, color);
+            boolean hover = mx >= swatchX && mx <= swatchX + 16 && my >= swatchY && my <= swatchY + 16;
+            g.renderOutline(swatchX, swatchY, 16, 16, hover ? 0xFFFFAA44 : 0xFF888888);
+            // Store position for mouse click detection (via EditState.colorButton)
+            st.colorButton.setPosition(swatchX, swatchY);
+            row++;
+        }
         if (node.type == NodeType.BOOL && node.params.length > 0) {
             boolean inverted = node.params[0] > 0.5f;
             int bx = px + 4, by = py + 4 + row * 18;

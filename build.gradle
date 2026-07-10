@@ -14,7 +14,7 @@ base {
 }
 
 group = 'io.github.y15173334444'
-version = '1.2.3'
+version = '1.2.4'
 
 runs {
     configureEach {

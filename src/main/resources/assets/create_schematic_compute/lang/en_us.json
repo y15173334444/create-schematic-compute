@@ -392,5 +392,16 @@
   "gui.create_schematic_compute.comment.bg_color": "BG",
   "gui.create_schematic_compute.comment.border_color": "Border",
   "gui.create_schematic_compute.comment.text_color": "Text",
-  "gui.create_schematic_compute.comment.edit_hint": "Editing - Double-click to exit"
+  "gui.create_schematic_compute.comment.edit_hint": "Editing - Double-click to exit",
+  "gui.create_schematic_compute.colorpicker.hue": "Hue",
+  "gui.create_schematic_compute.colorpicker.sat": "Saturation",
+  "gui.create_schematic_compute.colorpicker.bri": "Brightness",
+  "gui.create_schematic_compute.colorpicker.recent": "Recent",
+  "gui.create_schematic_compute.colorpicker.hex": "Hex",
+  "gui.create_schematic_compute.colorpicker.ok": "OK",
+  "gui.create_schematic_compute.colorpicker.erase": "Erase",
+  "gui.create_schematic_compute.colorpicker.title": "Color Picker",
+  "gui.create_schematic_compute.colorpicker.favorites": "Favorites",
+  "gui.create_schematic_compute.colorpicker.recent": "Recent",
+  "gui.create_schematic_compute.colorpicker.alpha": "Alpha"
 }
