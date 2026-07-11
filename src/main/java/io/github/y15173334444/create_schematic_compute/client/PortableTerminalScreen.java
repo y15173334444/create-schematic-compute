@@ -37,6 +37,9 @@ public class PortableTerminalScreen extends Screen {
     private EditBox rangeInput;
     private static int savedScanRange = 16;
     private int scrollOff = 0;
+    private boolean scrollbarDragging = false;
+    private double scrollDragStartY = 0;
+    private int scrollDragStartOff = 0;
     private List<DeviceEntry> devices = new ArrayList<>();
     private boolean needsRescan = true;
     private double lastScanX, lastScanY, lastScanZ;
@@ -219,6 +222,19 @@ public class PortableTerminalScreen extends Screen {
         }
         int listY = cy + 54, listH = ch - 58, itemH = 22;
         int visItems = listH / itemH;
+        // Scrollbar thumb drag detection
+        int maxScroll = Math.max(0, devices.size() - visItems);
+        if (maxScroll > 0) {
+            int sbX = cx + cw - 8;
+            float thumbH = Math.max(12, listH * (float) visItems / devices.size());
+            float thumbY = listY + (float) scrollOff / maxScroll * (listH - thumbH);
+            if (mx >= sbX && mx <= sbX + 6 && my >= thumbY && my <= thumbY + thumbH) {
+                scrollbarDragging = true;
+                scrollDragStartY = my;
+                scrollDragStartOff = scrollOff;
+                return true;
+            }
+        }
         for (int i = scrollOff; i < Math.min(devices.size(), scrollOff + visItems); i++) {
             int iy = listY + 2 + (i - scrollOff) * itemH;
             int eX = cx + cw - 58;
@@ -228,6 +244,31 @@ public class PortableTerminalScreen extends Screen {
             }
         }
         return super.mouseClicked(mx, my, btn);
+    }
+
+    @Override
+    public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
+        if (scrollbarDragging) {
+            int listH = (int)(height * 0.8) - 58;
+            int visItems = listH / 22;
+            int maxScroll = Math.max(0, devices.size() - visItems);
+            if (maxScroll > 0) {
+                float thumbH = Math.max(12, listH * (float) visItems / devices.size());
+                float delta = (float) (my - scrollDragStartY) / (listH - thumbH);
+                int newOff = scrollDragStartOff + Math.round(delta * maxScroll);
+                if (newOff < 0) newOff = 0;
+                if (newOff > maxScroll) newOff = maxScroll;
+                scrollOff = newOff;
+            }
+            return true;
+        }
+        return super.mouseDragged(mx, my, btn, dx, dy);
+    }
+
+    @Override
+    public boolean mouseReleased(double mx, double my, int btn) {
+        if (scrollbarDragging) { scrollbarDragging = false; return true; }
+        return super.mouseReleased(mx, my, btn);
     }
 
     @Override

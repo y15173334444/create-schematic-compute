@@ -403,5 +403,6 @@
   "gui.create_schematic_compute.colorpicker.title": "Color Picker",
   "gui.create_schematic_compute.colorpicker.favorites": "Favorites",
   "gui.create_schematic_compute.colorpicker.recent": "Recent",
-  "gui.create_schematic_compute.colorpicker.alpha": "Alpha"
+  "gui.create_schematic_compute.colorpicker.alpha": "Alpha",
+  "gui.create_schematic_compute.colorpicker.fav_full": "Favorites full (max 128)"
 }

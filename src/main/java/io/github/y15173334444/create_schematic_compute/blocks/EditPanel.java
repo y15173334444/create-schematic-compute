@@ -154,8 +154,8 @@ public class EditPanel {
         }
         } else if (node.type == NodeType.COMMENT) {
             if (!st.fields.isEmpty() && st.fields.get(0) instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mle) {
-                mle.setX(px + 20); mle.setY(py + 4);
-                mle.setWidth(Math.max(40, pw - 28)); // leave room for edit button (top-left)
+                mle.setX(px + 6); mle.setY(py + 4);
+                mle.setWidth(Math.max(40, pw - 16)); // 6px left + 10px scrollbar right
                 mle.setHeight(Math.max(18, Math.round(node.commentHeight) - 12));
                 mle.render(g, mx, my, 0);
             }

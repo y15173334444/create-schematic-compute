@@ -57,8 +57,19 @@ public class ColorPickerWidget {
     private int favScrollRow; // row offset (0, 1, 2...) — snaps to whole rows
     private boolean draggingFavSb;
     private int selectedFavIdx = -1;
+    // Swatch drag state
+    private boolean draggingSwatch = false;
+    private boolean dragSourceIsFav = false;
+    private int dragSwatchIdx = -1;
+    private int dragColor = 0;
+    private double dragStartMx, dragStartMy;
+    private boolean dragStarted = false;
+    private static final int DRAG_THRESHOLD = 4;
     private Consumer<Integer> onSelect;
     private Consumer<Integer> liveUpdate; // fires on every HSV/alpha change
+    private boolean persistent; // if true, OK/confirm doesn't close the picker
+    private String feedbackText = "";
+    private long feedbackUntil = 0;
     private boolean showErase; // only in pixel editor context
     private final EditBox hexInput;
     private final Font font;
@@ -121,7 +132,8 @@ public class ColorPickerWidget {
         RecentColors.load();
     }
 
-    public void close() { visible = false; ColorPickerButton.clearSelection(); }
+    public void close() { visible = false; persistent = false; clearDragState();
+        draggingSV = draggingHue = draggingAlpha = draggingFavSb = false; ColorPickerButton.clearSelection(); }
 
     /** Update color + callbacks without repositioning. */
     public void rebind(int newColor, Consumer<Integer> newCallback) {
@@ -175,6 +187,24 @@ public class ColorPickerWidget {
         g.fill(px + OK_X, okY, px + OK_X + OK_W, okY + OK_H, okH ? 0xFF4A6A3A : 0xFF3A5A2A);
         g.renderOutline(px + OK_X, okY, OK_W, OK_H, 0xFF5A8A3A);
         g.drawString(font, I18n.get("gui.create_schematic_compute.colorpicker.ok"), px + OK_X + (OK_W - font.width(I18n.get("gui.create_schematic_compute.colorpicker.ok"))) / 2, okY + 3, 0xFF88FF88, false);
+        // Feedback text (e.g. favorites full warning)
+        if (System.currentTimeMillis() < feedbackUntil && !feedbackText.isEmpty()) {
+            g.drawString(font, feedbackText, px + 4, py + HEIGHT + 2, 0xFFFFAA44, false);
+        }
+        // Drag ghost — force full opacity and offset from cursor
+        if (draggingSwatch) {
+            int gx = (int)mx - 10, gy = (int)my - 20;
+            // Checkerboard for semi-transparent ghost
+            if ((dragColor >>> 24) < 0xFF) {
+                for (int cy = 0; cy < 14; cy += 4)
+                    for (int cx = 0; cx < 14; cx += 4)
+                        g.fill(gx + cx, gy + cy,
+                            gx + Math.min(cx + 4, 14), gy + Math.min(cy + 4, 14),
+                            ((cx / 4 + cy / 4) & 1) == 0 ? 0xFFCCCCCC : 0xFF888888);
+            }
+            g.fill(gx, gy, gx + 14, gy + 14, dragColor);
+            g.renderOutline(gx, gy, 14, 14, 0xFFFFAA44);
+        }
     }
 
     private void renderSVPlane(GuiGraphics g, int sx, int sy) {
@@ -210,7 +240,7 @@ public class ColorPickerWidget {
         // Gradient (top=opaque, bottom=transparent)
         int rgb = ColorUtils.setAlpha(ColorUtils.hsbToRgb(hue, saturation, brightness), 0xFF);
         for (int y = 0; y < ALPHA_H; y++) {
-            int a = 255 - (int)((float)y / ALPHA_H * 255f);
+            int a = 255 - (int)((float)y / (ALPHA_H - 1) * 255f);
             g.fill(ax, ay + y, ax + ALPHA_W, ay + y + 1, ColorUtils.setAlpha(rgb, a));
         }
         g.renderOutline(ax, ay, ALPHA_W, ALPHA_H, 0xFF888888);
@@ -223,8 +253,7 @@ public class ColorPickerWidget {
 
     private void renderColorGrid(GuiGraphics g, int px, int py, boolean isFav, int mx, int my) {
         List<Integer> colors = isFav ? RecentColors.getFavorites() : RecentColors.getRecents();
-        int cols = isFav ? GRID_COLS - 3 : GRID_COLS; // favorites: last 3 cols are buttons
-        int totalRows = (colors.size() + cols - 1) / cols;
+        int totalRows = (colors.size() + GRID_COLS - 1) / GRID_COLS; // swatches use full 8-col layout
         int visibleRows = isFav ? FAV_VISIBLE_ROWS : REC_VISIBLE_ROWS;
         int headerH = isFav ? FAV_HEADER_H : REC_HEADER_H;
         int gridH = visibleRows * CELL;
@@ -260,13 +289,18 @@ public class ColorPickerWidget {
             int sx = gridX + col * CELL;
             int sy = gridY + row * CELL - off;
             if (sy + SWATCH <= gridY || sy >= gridY + gridH) continue;
-            g.fill(sx, sy, sx + SWATCH, sy + SWATCH, colors.get(i));
-            boolean hover = hit(mx, my, sx, sy, SWATCH, SWATCH);
+            int c = colors.get(i);
+            // Checkerboard behind semi-transparent swatches
+            if ((c >>> 24) < 0xFF) {
+                for (int cy = 0; cy < SWATCH; cy += 4)
+                    for (int cx = 0; cx < SWATCH; cx += 4)
+                        g.fill(sx + cx, sy + cy,
+                            sx + Math.min(cx + 4, SWATCH), sy + Math.min(cy + 4, SWATCH),
+                            ((cx / 4 + cy / 4) & 1) == 0 ? 0xFFCCCCCC : 0xFF888888);
+            }
+            g.fill(sx, sy, sx + SWATCH, sy + SWATCH, c);
             boolean sel = isFav && i == selectedFavIdx;
-            int border = sel ? 0xFFD4A017 : (hover ? 0xFFFFAA44 : 0xFF555555);
-            g.renderOutline(sx, sy, SWATCH, SWATCH, border);
-            if ((colors.get(i) & 0x00FFFFFF) == (currentArgb() & 0x00FFFFFF))
-                g.renderOutline(sx + 1, sy + 1, SWATCH - 2, SWATCH - 2, 0xFFD4A017);
+            g.renderOutline(sx, sy, SWATCH, SWATCH, sel ? 0xFFD4A017 : 0xFF555555);
         }
 
         if (isFav && maxOff > 0) {
@@ -313,6 +347,13 @@ public class ColorPickerWidget {
         }
         if (btn != 0) return false;
         int px = screenX, py = screenY;
+        // Hex input — highest priority on its row (before erase/OK/grids)
+        if (hit(mx, my, px + HEX_X, py + BOTTOM_Y, HEX_W, HEX_H)) {
+            hexInput.setX(px + HEX_X); hexInput.setY(py + BOTTOM_Y);
+            hexInput.setFocused(true);
+            hexInput.mouseClicked(mx, my, btn);
+            return true;
+        }
         if (showErase && hit(mx, my, px + ERASE_X, py + BOTTOM_Y, ERASE_W, ERASE_H)) {
             alpha = 0; syncHexFromHsv();
             if (liveUpdate != null) liveUpdate.accept(currentArgb());
@@ -334,20 +375,24 @@ public class ColorPickerWidget {
         if (hit(mx, my, px + SV_X, py + SV_Y, SV_SIZE, SV_SIZE)) {
             draggingSV = true; updateSVFromMouse(mx, my); return true;
         }
-        hexInput.mouseClicked(mx, my, btn);
         return true;
     }
 
+    private long lastSwatchAutoScroll = 0;
+    private static final int SWATCH_AUTOSCROLL_MS = 350;
+
     private boolean handleGridClick(double mx, double my, int px, int py, boolean isFav) {
         List<Integer> colors = isFav ? RecentColors.getFavorites() : RecentColors.getRecents();
-        int cols = isFav ? GRID_COLS - 3 : GRID_COLS;
-        int totalRows = (colors.size() + cols - 1) / cols;
+        int totalRows = (colors.size() + GRID_COLS - 1) / GRID_COLS;
         int visibleRows = isFav ? FAV_VISIBLE_ROWS : REC_VISIBLE_ROWS;
         int headerH = isFav ? FAV_HEADER_H : REC_HEADER_H;
         int gridH = visibleRows * CELL;
         int off = isFav ? favScrollRow * CELL : 0;
         int maxOff = Math.max(0, totalRows * CELL - gridH);
         int gridX = px + 4, gridY = py + headerH;
+
+        // Quick reject: click outside grid Y bounds
+        if (my < gridY || my > gridY + gridH) return false;
 
         // +/-/reset buttons in header (favorites only)
         if (isFav) {
@@ -359,7 +404,13 @@ public class ColorPickerWidget {
                 return true;
             }
             bx += btnS + 2;
-            if (hit(mx, my, bx, by, btnS, btnS)) { RecentColors.addFavorite(currentArgb()); return true; }
+            if (hit(mx, my, bx, by, btnS, btnS)) {
+                if (!RecentColors.addFavorite(currentArgb())) {
+                    feedbackText = "§c" + I18n.get("gui.create_schematic_compute.colorpicker.fav_full");
+                    feedbackUntil = System.currentTimeMillis() + 2000;
+                }
+                return true;
+            }
             bx += btnS + 2;
             if (hit(mx, my, bx, by, btnS, btnS)) { RecentColors.resetFavorites(); selectedFavIdx = -1; return true; }
         }
@@ -371,22 +422,39 @@ public class ColorPickerWidget {
             return true;
         }
 
-        // Swatches
+        // Swatches — use GRID_COLS layout; buttons take priority via hit order
         for (int i = 0; i < colors.size(); i++) {
-            int row = i / cols, col = i % cols;
+            int row = i / GRID_COLS, col = i % GRID_COLS;
             int sx = gridX + col * CELL, sy = gridY + row * CELL - off;
             if (hit(mx, my, sx, sy, SWATCH, SWATCH)) {
-                if (isFav) selectedFavIdx = (selectedFavIdx == i) ? -1 : i;
-                int c = colors.get(i);
-                float[] hs = ColorUtils.rgbToHsb(c);
-                hue = hs[0]; saturation = hs[1]; brightness = hs[2];
-                alpha = ColorUtils.alpha(c);
-                syncHexFromHsv();
-                if (!isFav) confirm();
+                dragSwatchIdx = i;
+                dragSourceIsFav = isFav;
+                dragColor = colors.get(i);
+                dragStartMx = mx; dragStartMy = my;
+                dragStarted = false;
+                draggingSwatch = false;
                 return true;
             }
         }
         return false;
+    }
+
+    /** Compute insertion index for a drop at (mx, my) on the given grid, or -1 if outside. */
+    private int swatchIndexAt(double mx, double my, boolean isFav) {
+        int px = screenX, py = screenY;
+        int gridX = px + 4;
+        int headerH = isFav ? FAV_HEADER_H : REC_HEADER_H;
+        int gridY = (isFav ? FAV_Y : REC_Y) + py + headerH;
+        List<Integer> colors = isFav ? RecentColors.getFavorites() : RecentColors.getRecents();
+        int visibleRows = isFav ? FAV_VISIBLE_ROWS : REC_VISIBLE_ROWS;
+        int gridH = visibleRows * CELL;
+        if (mx < gridX || mx > gridX + GRID_W || my < gridY || my > gridY + gridH) return -1;
+        int off = isFav ? favScrollRow * CELL : 0;
+        int col = (int)((mx - gridX) / CELL);
+        int row = (int)((my - gridY + off) / CELL);
+        if (col < 0 || col >= GRID_COLS) return -1;
+        int idx = row * GRID_COLS + col;
+        return Math.min(idx, colors.size());
     }
 
     private void updateFavScroll(double my) {
@@ -403,6 +471,32 @@ public class ColorPickerWidget {
 
     public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
         if (!visible) return false;
+        // Start swatch drag if threshold exceeded
+        if (dragSwatchIdx >= 0 && !dragStarted) {
+            if (Math.abs(mx - dragStartMx) + Math.abs(my - dragStartMy) >= DRAG_THRESHOLD) {
+                dragStarted = true; draggingSwatch = true;
+            }
+        }
+        if (draggingSwatch) {
+            // Throttled auto-scroll when dragging near edges (like iOS app reorder)
+            long now = System.currentTimeMillis();
+            if (now - lastSwatchAutoScroll >= SWATCH_AUTOSCROLL_MS) {
+                List<Integer> favs = RecentColors.getFavorites();
+                int totalRows2 = (favs.size() + GRID_COLS - 1) / GRID_COLS;
+                int gridH2 = FAV_VISIBLE_ROWS * CELL;
+                int maxRow = Math.max(0, totalRows2 - FAV_VISIBLE_ROWS);
+                int favHeaderY = screenY + FAV_Y + FAV_HEADER_H;
+                int recHeaderY = screenY + REC_Y + REC_HEADER_H;
+                if (maxRow > 0 && my < favHeaderY && favScrollRow > 0) {
+                    favScrollRow = Math.max(0, favScrollRow - 1);
+                    lastSwatchAutoScroll = now;
+                } else if (maxRow > 0 && my > recHeaderY && favScrollRow < maxRow) {
+                    favScrollRow = Math.min(maxRow, favScrollRow + 1);
+                    lastSwatchAutoScroll = now;
+                }
+            }
+            return true;
+        }
         if (draggingSV)    { updateSVFromMouse(mx, my); return true; }
         if (draggingHue)   { updateHueFromMouse(my); return true; }
         if (draggingAlpha) { updateAlphaFromMouse(my); return true; }
@@ -417,7 +511,7 @@ public class ColorPickerWidget {
         int gridX = screenX + 4;
         int gridY = screenY + FAV_Y + FAV_HEADER_H;
         int gridH = FAV_VISIBLE_ROWS * CELL;
-        if (mx >= gridX && mx < gridX + GRID_W && my >= gridY && my < gridY + gridH) {
+        if (mx >= gridX && mx < gridX + GRID_W + SCROLLBAR_W && my >= gridY && my < gridY + gridH) {
             List<Integer> colors = RecentColors.getFavorites();
             int fcols = GRID_COLS - 3;
             int totalRows = (colors.size() + fcols - 1) / fcols;
@@ -431,9 +525,64 @@ public class ColorPickerWidget {
     }
 
     public boolean mouseReleased(double mx, double my, int btn) {
+        // Handle swatch drag drop
+        if (draggingSwatch) {
+            int targetFav = swatchIndexAt(mx, my, true);
+            int targetRec = swatchIndexAt(mx, my, false);
+            if (targetFav >= 0) {
+                if (dragSourceIsFav) {
+                    // Fav → Fav: reorder within favorites
+                    if (dragSwatchIdx != targetFav)
+                        RecentColors.moveFavorite(dragSwatchIdx, targetFav);
+                } else {
+                    // Rec → Fav: move to favorites at target position
+                    int removed = RecentColors.removeRecentByIndex(dragSwatchIdx);
+                    if (!RecentColors.insertFavorite(targetFav, removed)) {
+                        // Favorites full — put back and warn
+                        RecentColors.insertRecent(dragSwatchIdx, removed);
+                        feedbackText = "§c" + I18n.get("gui.create_schematic_compute.colorpicker.fav_full");
+                        feedbackUntil = System.currentTimeMillis() + 2000;
+                    }
+                }
+            } else if (targetRec >= 0) {
+                if (dragSourceIsFav) {
+                    // Fav → Rec: move to recents at target position
+                    int removed = RecentColors.removeFavoriteByIndex(dragSwatchIdx);
+                    RecentColors.insertRecent(targetRec, removed);
+                } else {
+                    // Rec → Rec: reorder within recents
+                    if (dragSwatchIdx != targetRec)
+                        RecentColors.moveRecent(dragSwatchIdx, targetRec);
+                }
+            }
+            clearDragState();
+            return true;
+        }
+        // Handle short click on swatch (no drag)
+        if (dragSwatchIdx >= 0 && !dragStarted) {
+            List<Integer> colors = dragSourceIsFav ? RecentColors.getFavorites() : RecentColors.getRecents();
+            if (dragSwatchIdx < colors.size()) {
+                int c = colors.get(dragSwatchIdx);
+                float[] hs = ColorUtils.rgbToHsb(c);
+                hue = hs[0]; saturation = hs[1]; brightness = hs[2];
+                alpha = ColorUtils.alpha(c);
+                syncHexFromHsv();
+                if (dragSourceIsFav) {
+                    selectedFavIdx = (selectedFavIdx == dragSwatchIdx) ? -1 : dragSwatchIdx;
+                }
+            }
+            clearDragState();
+            return true;
+        }
+        clearDragState();
         boolean was = draggingSV || draggingHue || draggingAlpha || draggingFavSb;
         draggingSV = draggingHue = draggingAlpha = draggingFavSb = false;
         return was;
+    }
+
+    private void clearDragState() {
+        draggingSwatch = false; dragSwatchIdx = -1;
+        dragStarted = false; dragColor = 0;
     }
 
     // ── Keyboard ──
@@ -442,7 +591,7 @@ public class ColorPickerWidget {
         if (!visible) return false;
         if (keyCode == GLFW.GLFW_KEY_ESCAPE) { close(); return true; }
         if (keyCode == GLFW.GLFW_KEY_ENTER || keyCode == GLFW.GLFW_KEY_KP_ENTER) {
-            if (hexInput.isFocused()) onHexChanged(hexInput.getValue());
+            if (hexInput.isFocused()) { onHexChanged(hexInput.getValue()); return true; }
             confirm(); return true;
         }
         return hexInput.keyPressed(keyCode, scanCode, modifiers);
@@ -469,7 +618,7 @@ public class ColorPickerWidget {
         syncHexFromHsv();
     }
     private void updateAlphaFromMouse(double my) {
-        alpha = 255 - Mth.clamp((int)((float)(my - screenY - ALPHA_Y) / ALPHA_H * 255f), 0, 255);
+        alpha = 255 - Mth.clamp((int)((float)(my - screenY - ALPHA_Y) / (ALPHA_H - 1) * 255f), 0, 255);
         syncHexFromHsv();
     }
     private void syncHexFromHsv() {
@@ -481,10 +630,13 @@ public class ColorPickerWidget {
     private int currentArgb() {
         return ColorUtils.setAlpha(ColorUtils.hsbToRgb(hue, saturation, brightness), alpha);
     }
+    /** Set whether OK/confirm keeps the picker open (for multi-swatch panels). */
+    public void setPersistent(boolean p) { this.persistent = p; }
+
     private void confirm() {
         int color = currentArgb();
         RecentColors.addRecent(color);
         if (onSelect != null) onSelect.accept(color);
-        close();
+        if (!persistent) close();
     }
 }

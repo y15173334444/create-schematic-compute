@@ -93,7 +93,7 @@ public final class RecentColors {
 
     public static void addRecent(int argb) {
         synchronized (recents) {
-            recents.removeIf(c -> (c & 0x00FFFFFF) == (argb & 0x00FFFFFF));
+            recents.removeIf(c -> c.equals(argb));
             recents.add(0, argb);
             while (recents.size() > MAX_RECENTS) recents.remove(recents.size() - 1);
         }
@@ -113,20 +113,83 @@ public final class RecentColors {
         }
     }
 
-    public static void addFavorite(int argb) {
+    public static boolean addFavorite(int argb) {
         synchronized (recents) {
-            favorites.removeIf(c -> (c & 0x00FFFFFF) == (argb & 0x00FFFFFF));
+            favorites.removeIf(c -> c.equals(argb));
+            if (favorites.size() >= MAX_FAVORITES) return false;
             favorites.add(0, argb);
-            while (favorites.size() > MAX_FAVORITES) favorites.remove(favorites.size() - 1);
         }
         saveFavorites();
+        return true;
     }
 
     public static void removeFavorite(int argb) {
         synchronized (recents) {
-            favorites.removeIf(c -> (c & 0x00FFFFFF) == (argb & 0x00FFFFFF));
+            favorites.removeIf(c -> c.equals(argb));
         }
         saveFavorites();
+    }
+
+    public static void moveFavorite(int fromIndex, int toIndex) {
+        if (fromIndex == toIndex) return;
+        synchronized (recents) {
+            if (fromIndex < 0 || fromIndex >= favorites.size()) return;
+            if (toIndex < 0 || toIndex >= favorites.size()) return;
+            int color = favorites.remove(fromIndex);
+            favorites.add(toIndex, color);
+        }
+        saveFavorites();
+    }
+
+    /** Remove a favorite by index. Returns the color, or 0 if invalid. */
+    public static int removeFavoriteByIndex(int index) {
+        synchronized (recents) {
+            if (index < 0 || index >= favorites.size()) return 0;
+            int color = favorites.remove(index);
+            saveFavorites();
+            return color;
+        }
+    }
+
+    /** Insert into favorites at position (with dedup and 128 cap). Returns false if full. */
+    public static boolean insertFavorite(int index, int color) {
+        synchronized (recents) {
+            favorites.removeIf(c -> c.equals(color));
+            if (favorites.size() >= MAX_FAVORITES) return false;
+            int idx = Math.min(index, favorites.size());
+            favorites.add(idx, color);
+        }
+        saveFavorites();
+        return true;
+    }
+
+    /** Remove a recent by index. Returns the color, or 0 if invalid. */
+    public static int removeRecentByIndex(int index) {
+        synchronized (recents) {
+            if (index < 0 || index >= recents.size()) return 0;
+            return recents.remove(index);
+        }
+    }
+
+    /** Insert into recents at position (with dedup and 16 cap). */
+    public static void insertRecent(int index, int color) {
+        synchronized (recents) {
+            recents.removeIf(c -> c.equals(color));
+            int idx = Math.min(index, recents.size());
+            recents.add(idx, color);
+            while (recents.size() > MAX_RECENTS) recents.remove(recents.size() - 1);
+        }
+    }
+
+    /** Move a recent from fromIndex to toIndex. */
+    public static void moveRecent(int fromIndex, int toIndex) {
+        if (fromIndex == toIndex) return;
+        synchronized (recents) {
+            if (fromIndex < 0 || fromIndex >= recents.size()) return;
+            if (toIndex < 0 || toIndex >= recents.size()) return;
+            int color = recents.remove(fromIndex);
+            recents.add(toIndex, color);
+        }
     }
 
     public static void resetFavorites() {

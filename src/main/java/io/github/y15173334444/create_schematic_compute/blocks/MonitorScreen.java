@@ -56,6 +56,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     private double layerDragStartMy = 0;           // mouse Y when click started
     private long layerDragPressTime = 0;           // system time when click started
     private long lastAutoScrollTime = 0;           // throttle timer for auto-scroll
+    private boolean layerScrollbarDragging = false;
+    private double layerScrollDragStartY = 0;
+    private int layerScrollDragStartOff = 0;
     private boolean pixelDragUndoCaptured = false;
 
     // ── Display mode inline editing ──
@@ -912,6 +915,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     private record DisplayElement(int nodeId, NodeType type, String text, float value, int[] pixels,
         String label, float x, float y, float scale, float rotation, int color) {}
 
+    private static DisplayElement findInElements(java.util.List<DisplayElement> elements, int nodeId) {
+        for (var e : elements) if (e.nodeId == nodeId) return e;
+        return null;
+    }
+
     private java.util.List<DisplayElement> collectDisplayElements(NodeGraph graph, GraphEvaluator eval) {
         var list = new java.util.ArrayList<DisplayElement>();
         for (var n : graph.nodes) {
@@ -1141,10 +1149,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             }
             // Click outside picker — if pixel editor is open and click is on the pixel grid, let it paint
             if (pixelEdit != null && pixelEdit.open) {
-                // Let pixel editor handle the click (painting), picker stays open
                 return handlePixelEditorClick(mx, my, btn);
             }
-            // Otherwise close picker
+            // Delegate to GraphEditor first — comment color popup / theme panel may need the picker
+            if (editor.mouseClicked(mx, my, btn)) return true;
+            // If GraphEditor didn't handle it, close picker on outside click
             editor.colorPicker.close();
             return true;
         }
@@ -1157,6 +1166,29 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             return handlePixelEditorClick(mx, my, btn);
         }
         if (displayMode) {
+            // Check layer panel scrollbar thumb drag first
+            var graph2 = getBE() != null ? getBE().graph : new NodeGraph();
+            List<GraphNode> layers2 = getDisplayLayers(graph2);
+            if (!layers2.isEmpty()) {
+                int px2 = width - LAYER_PANEL_W - LAYER_PANEL_PADDING;
+                int rowStartY2 = 26 + 12 + 2;
+                int maxRows2 = Math.max(1, (height - rowStartY2 - 4) / LAYER_ROW_H);
+                int visRows2 = Math.min(layers2.size(), maxRows2);
+                int maxScroll2 = Math.max(0, layers2.size() - maxRows2);
+                if (maxScroll2 > 0) {
+                    int sbX2 = px2 + LAYER_PANEL_W - 8;
+                    int sbY2 = rowStartY2;
+                    int sbH2 = visRows2 * LAYER_ROW_H;
+                    float thumbH2 = Math.max(20, (float) visRows2 / layers2.size() * sbH2);
+                    float thumbY2 = sbY2 + (float) layerScroll / maxScroll2 * (sbH2 - thumbH2);
+                    if (mx >= sbX2 && mx <= sbX2 + 6 && my >= thumbY2 && my <= thumbY2 + thumbH2) {
+                        layerScrollbarDragging = true;
+                        layerScrollDragStartY = my;
+                        layerScrollDragStartOff = layerScroll;
+                        return true;
+                    }
+                }
+            }
             int clickedLayerIdx = handleLayerPanelClick(mx, my);
             if (clickedLayerIdx >= 0) {
                 // Initiate potential drag
@@ -1243,6 +1275,33 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             var ci = getContentArea(da);
             int contentX = ci[0], contentY = ci[1], contentW = ci[2], contentH = ci[3];
 
+            // Check selected element first (from layer panel) — elevated hit priority
+            if (selectedDisplayNode != null) {
+                var selNode = selectedDisplayNode;
+                var selElem = findInElements(elements, selNode.id);
+                if (selElem != null) {
+                    float s2 = guiScale2 * selElem.scale;
+                    float hw, hh;
+                    var font3 = Minecraft.getInstance().font;
+                    if (selElem.type == NodeType.IMAGE || selElem.type == NodeType.IMAGE_SEQUENCE) {
+                        hw = IMAGE_GRID * IMAGE_CELL_FONT; hh = IMAGE_GRID * IMAGE_CELL_FONT;
+                    } else if (selElem.type == NodeType.DATA) {
+                        String vs = ff1(selElem.value);
+                        hw = font3.width(vs.isEmpty() ? "0.0" : vs); hh = 10;
+                    } else {
+                        hw = font3.width(selElem.text.isEmpty() ? " " : selElem.text); hh = 10;
+                    }
+                    float sx = contentX + selElem.x * contentW;
+                    float sy = contentY + selElem.y * contentH;
+                    float[] bb2 = elemRotAABB(sx, sy, hw * s2, hh * s2, selElem.rotation);
+                    if (mx >= bb2[0] && mx <= bb2[2] && my >= bb2[1] && my <= bb2[3]) {
+                        draggedDisplayNode = selNode;
+                        dragOffX = (float)(mx - sx);
+                        dragOffY = (float)(my - sy);
+                        return true;
+                    }
+                }
+            }
             for (int i = elements.size() - 1; i >= 0; i--) {
                 var elem = elements.get(i);
                 float s = guiScale2 * elem.scale;
@@ -1299,6 +1358,25 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     @Override
     public void mouseMoved(double mx, double my) {
+        // Layer panel scrollbar drag
+        if (layerScrollbarDragging) {
+            var graph3 = getBE() != null ? getBE().graph : new NodeGraph();
+            List<GraphNode> layers3 = getDisplayLayers(graph3);
+            if (!layers3.isEmpty()) {
+                int rowStartY3 = 26 + 12 + 2;
+                int maxRows3 = Math.max(1, (height - rowStartY3 - 4) / LAYER_ROW_H);
+                int visRows3 = Math.min(layers3.size(), maxRows3);
+                int maxScroll3 = Math.max(0, layers3.size() - maxRows3);
+                int sbH3 = visRows3 * LAYER_ROW_H;
+                float thumbH3 = Math.max(20, (float) visRows3 / layers3.size() * sbH3);
+                float delta = (float) (my - layerScrollDragStartY) / (sbH3 - thumbH3);
+                int newOff = layerScrollDragStartOff + Math.round(delta * maxScroll3);
+                if (newOff < 0) newOff = 0;
+                if (newOff > maxScroll3) newOff = maxScroll3;
+                layerScroll = newOff;
+            }
+            return;
+        }
         if (pixelEdit != null && pixelEdit.open) {
             if (pixelEdit.painting) {
                 // Recalculate grid (same as renderPixelEditor)
@@ -1373,7 +1451,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     @Override
     public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
-        if (editor.colorPicker.isVisible()) return editor.colorPicker.mouseDragged(mx, my, btn, dx, dy);
+        if (editor.colorPicker.isVisible() && editor.colorPicker.contains((int)mx, (int)my))
+            return editor.colorPicker.mouseDragged(mx, my, btn, dx, dy);
         if (pixelEdit != null && pixelEdit.open) return super.mouseDragged(mx, my, btn, dx, dy);
         if (displayMode) {
             // ── Layer drag-and-drop (same logic as mouseMoved) ──
@@ -1397,7 +1476,10 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     @Override
     public boolean mouseReleased(double mx, double my, int btn) {
-        if (editor.colorPicker.isVisible()) { editor.colorPicker.mouseReleased(mx, my, btn); return true; }
+        if (editor.colorPicker.isVisible() && editor.colorPicker.contains((int)mx, (int)my)) {
+            editor.colorPicker.mouseReleased(mx, my, btn); return true;
+        }
+        if (layerScrollbarDragging) { layerScrollbarDragging = false; return true; }
         if (pixelEdit != null && pixelEdit.open) { pixelEdit.painting = false; pixelDragUndoCaptured = false; return false; }
         if (displayMode) {
             if (layerDragState == LayerDragState.DRAGGING && layerDragNode != null) {
@@ -1496,7 +1578,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 return true;
             }
             // Dropdown: "Blank"
-            if (pixelEdit.newFrameMenuOpen && mx >= navX + 110 && mx <= navX + 210 && my >= navY + 22 && my <= navY + 34) {
+            if (pixelEdit.newFrameMenuOpen && mx >= navX + 110 && mx <= navX + 210 && my >= navY + 14 && my <= navY + 24) {
                 // Save all current frames for undo
                 int frameCount = pixelEdit.node.imageSequenceFrames.size();
                 if (pixelEdit.pixelUndoStack.size() + frameCount < 100) {
@@ -1514,7 +1596,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 return true;
             }
             // Dropdown: "From current"
-            if (pixelEdit.newFrameMenuOpen && mx >= navX + 110 && mx <= navX + 210 && my >= navY + 22 && my <= navY + 34) {
+            if (pixelEdit.newFrameMenuOpen && mx >= navX + 110 && mx <= navX + 210 && my >= navY + 26 && my <= navY + 36) {
                 int frameCount = pixelEdit.node.imageSequenceFrames.size();
                 if (pixelEdit.pixelUndoStack.size() + frameCount < 100) {
                     for (int i = frameCount - 1; i >= 0; i--)

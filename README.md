@@ -1119,10 +1119,39 @@ MIT License © 2026 StarryNight_Luo
 - **🎨 Color Picker Widget** — a full-featured HSV color picker with SV plane (saturation × brightness), vertical hue bar, and vertical alpha slider. Replaces all plain hex text inputs throughout the mod with a visual, interactive color selection experience.
 - **🖌️ Color Picker Button** — a small swatch button with Supplier/Consumer binding that opens the color picker. Used in theme color config (16 colors), comment node color editing (3 colors), and TEXT/DATA node color fields.
 - **⭐ Favorites & Recent Colors** — favorites grid (max 128 colors, persisted to JSON) with add/remove/reset controls and vertical scrollbar. Recent colors grid (max 16, session-only) auto-populated on color selection. Both grids use mouse wheel scrolling with row-snapping.
-- **🔗 Panel Integration** — color picker opens/closes in sync with theme color config panel and comment color popup. Left-side settings panel + right-side color picker layout. Persistent selection highlight on active color buttons.
+- **↔️ Swatch Drag-and-Drop** — drag swatches to reorder within grids or move between favorites and recents. Cross-grid moves insert at target position. Auto-scroll on drag near edges with throttled row-snapping. Ghost swatch follows cursor with checkerboard alpha preview.
+- **⚠️ Favorites Capacity Warning** — adding to favorites when at 128 max shows an on-screen warning instead of silently discarding. Cross-grid drags from recents are bounced back if favorites is full.
+- **🔗 Panel Integration** — color picker opens/closes in sync with theme color config panel and comment color popup. Left-side settings panel + right-side color picker layout. Persistent mode keeps picker open across swatch changes in multi-swatch contexts.
 - **🖼️ Pixel Editor Upgrade** — replaces the simple 23-color palette with the full color picker (positioned on the left). Live color update during HSV/alpha adjustments. Eraser button (sets alpha to transparent). OK button closes the pixel editor.
+- **🧩 Recent Colors Behavior** — clicking a recent-color swatch loads it into the picker without auto-confirming. Press OK or Enter to apply. Hex input box selectable with manual focus handling.
 - **🌐 Multi-Language** — English and Chinese (zh_cn) translations for all color picker UI strings.
-- **📐 Layout Refinement** — compact 164×246 design with row-snapped vertical scrolling, alpha bar integrated beside hue bar, fixed button positions, and proper header spacing for section labels.
+- **📐 Layout Refinement** — compact 164×246 design with row-snapped vertical scrolling, alpha bar integrated beside hue bar, alpha minimum correctly reaches 0, scroll wheel covers scrollbar area. Checkerboard background on semi-transparent swatches. Selection-only border (gold for selected, gray otherwise).
+
+#### COMMENT Node Improvements
+
+- **🖱️ C-Key Wrap** — creating a wrapping COMMENT via C key now correctly places the wrapper behind contained nodes (Z-order fix). Symmetric 30px padding on all four sides. Width calculation correctly handles negative-X nodes (`Float.MIN_VALUE` → `-Float.MAX_VALUE`).
+- **📜 Scrollbar & Scrolling** — scrollbar auto-hides when text fits. Scrollbar supports mouse drag (not just wheel). Scrollbar hit priority above resize handle. Ctrl+scroll scrolls comment text; normal scroll zooms canvas.
+- **✂️ Scissor Clipping** — both editing and preview mode text is properly clipped to the comment body, preventing text overflow above/below the node bounds.
+- **📏 Edit Mode Alignment** — editing mode text area now matches preview mode's horizontal margins (6px left, 10px right). Scroll height computed from actual edit box content, not saved displayText.
+- **↕️ Resize Handle** — enlarged to 22×22 px hit area with larger L-shape indicator (16px).
+- **🖱️ Body Click Panning** — clicking a COMMENT node body now passes through to canvas panning, preventing large comments from blocking navigation.
+- **🔒 Edit Mode Isolation** — clicking/dragging within an expanded COMMENT's edit area no longer falls through to comments behind it.
+
+#### Holographic Monitor & Pixel Editor
+
+- **📋 Layer Panel Scrollbar** — scrollbar thumb supports mouse drag. Layer panel selection has elevated hit-test priority so the selected component always responds to clicks.
+- **🎨 Color Picker Integration** — clicking color swatches in the comment/theme popup no longer toggles the picker open/closed. picker stays in sync with these panels.
+- **🖌️ Pixel Editor Paint Fix** — `mouseReleased` and `mouseDragged` only route to the color picker when the mouse is inside the picker bounds, fixing paint state cleanup and drag-to-paint.
+- **🐛 "From current" Dropdown** — fixed hit-test overlap with "Blank" option that made it unreachable.
+
+#### Portable Terminal
+
+- **📜 Scrollbar Drag** — device list scrollbar now supports mouse drag scrolling.
+
+#### Other Fixes
+
+- **💾 Save Config** — `saveColorConfig` and `saveGridSnap` no longer overwrite each other's properties in the config file. Style reset preserves grid snap setting.
+- **🔄 Alpha Dedup** — `addFavorite`/`addRecent` now deduplicate by full ARGB (including alpha), so semi-transparent color variants are preserved.
 
 #### Previous Versions
 

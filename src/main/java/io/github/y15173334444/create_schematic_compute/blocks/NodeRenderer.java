@@ -86,12 +86,14 @@ public class NodeRenderer {
         } catch (Exception e) { /* 默认 */ }
     }
 
-    /** 保存颜色到配置文件 */
+    /** 保存颜色到配置文件（保留已有非颜色属性） */
     static void saveColorConfig() {
         try {
             var path = java.nio.file.Path.of("config", "create_schematic_compute-client.properties");
             java.nio.file.Files.createDirectories(path.getParent());
             var props = new java.util.Properties();
+            if (java.nio.file.Files.exists(path))
+                try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
             int[] c = currentColors();
             for (int i = 0; i < _NUM_COLORS; i++) props.setProperty("color." + COLOR_KEYS[i], String.format("%08X", c[i]));
             try (var os = java.nio.file.Files.newOutputStream(path)) { props.store(os, "Create: Schematic Compute Theme"); }
@@ -100,7 +102,7 @@ public class NodeRenderer {
 
     static { loadColorConfig(); }
 
-    /** 保存网格吸附状态 */
+    /** 保存网格吸附状态（保留已有颜色属性） */
     static void saveGridSnap(boolean on) {
         try {
             var path = java.nio.file.Path.of("config", "create_schematic_compute-client.properties");
@@ -386,7 +388,7 @@ public class NodeRenderer {
         btPose.popPose();
 
         // Resize handle — bottom-right L-shape
-        int handleSize = (int) (10 * zoom);
+        int handleSize = (int) (16 * zoom);
         int hx = (int) (sx + sw - handleSize);
         int hy = (int) (sy + sh - handleSize);
         g.fill(hx, (int) (sy + sh - 3 * zoom), (int) (sx + sw), (int) (sy + sh), n.commentBorderColor);
@@ -404,23 +406,31 @@ public class NodeRenderer {
         String renderText = editing ? (nodeEditStatesById.containsKey(n.id)
             ? getEditStateText(n) : n.displayText) : n.displayText;
 
-        // Compute scroll info from displayText
+        // Compute scroll info — use edit state text when editing, displayText otherwise
+        String scrollText = n.displayText;
+        if (editing) {
+            var st = nodeEditStatesById.get(n.id);
+            if (st != null && !st.fields.isEmpty()
+                && st.fields.get(0) instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mle) {
+                scrollText = mle.getValue();
+            }
+        }
         int totalWraps = 0;
-        if (!n.displayText.isEmpty()) {
-            totalWraps = countWrappedLinesLocal(n.displayText, availW);
+        if (!scrollText.isEmpty()) {
+            totalWraps = countWrappedLinesLocal(scrollText, availW);
         }
         int scrollMax = Math.max(0, totalWraps - maxVis);
         int scrollOff = n.commentScrollOff;
         if (scrollOff < 0) scrollOff = 0;
         if (scrollOff > scrollMax) { scrollOff = scrollMax; n.commentScrollOff = scrollOff; }
 
-        // Always render scrollbar track (below header)
-        int sbX = (int)(sx + sw - 10 * zoom);
-        int sbY = (int)(sy + headerH + 4 * zoom);
-        int sbH = (int)(sh - headerH - 8 * zoom);
-        int sbW = Math.max(2, (int)(6 * zoom));
-        g.fill(sbX, sbY, sbX + sbW, sbY + sbH, 0xFF3A3832);
+        // Scrollbar — only visible when text overflows
         if (scrollMax > 0) {
+            int sbX = (int)(sx + sw - 10 * zoom);
+            int sbY = (int)(sy + headerH + 4 * zoom);
+            int sbH = (int)(sh - headerH - 8 * zoom);
+            int sbW = Math.max(2, (int)(6 * zoom));
+            g.fill(sbX, sbY, sbX + sbW, sbY + sbH, 0xFF3A3832);
             float thumbH = Math.max(12 * zoom, (float) maxVis / totalWraps * sbH);
             float thumbY = sbY + (float) scrollOff / scrollMax * (sbH - thumbH);
             g.fill(sbX + 1, (int)thumbY, sbX + sbW - 1, (int)(thumbY + thumbH), n.commentBorderColor);
@@ -430,7 +440,10 @@ public class NodeRenderer {
             // Render the MLE on the sticky-note surface via EditPanel, with scroll offset
             var editSt = nodeEditStatesById.get(n.id);
             if (editSt != null) {
-                int commentEditY = 2 - scrollOff * lineH;
+                int scX2 = (int) sx, scY2 = (int) (sy + headerH);
+                int scW2 = (int) sw, scH2 = (int) (sh - headerH);
+                g.enableScissor(scX2, scY2, scX2 + scW2, scY2 + scH2);
+                int commentEditY = (int)(headerH / zoom) + 4 - scrollOff * lineH;
                 var pose = g.pose();
                 pose.pushPose();
                 pose.translate(sx, sy, 0);
@@ -438,6 +451,7 @@ public class NodeRenderer {
                 io.github.y15173334444.create_schematic_compute.blocks.EditPanel.renderAt(
                     g, 0, commentEditY, Math.round(n.commentWidth), n, editSt, zoom, mx, my, null);
                 pose.popPose();
+                g.disableScissor();
             }
         } else if (!n.displayText.isEmpty()) {
             // Build all wrapped segments into a flat list
@@ -457,7 +471,10 @@ public class NodeRenderer {
                 }
             }
 
-            // Render visible segments
+            // Render visible segments with scissor clipping
+            int scX = (int) sx, scY = (int) (sy + headerH);
+            int scW = (int) sw, scH = (int) (sh - headerH);
+            g.enableScissor(scX, scY, scX + scW, scY + scH);
             float ly = textY;
             int endIdx = Math.min(segments.size(), scrollOff + maxVis);
             for (int i = scrollOff; i < endIdx; i++) {
@@ -470,6 +487,7 @@ public class NodeRenderer {
                 txtPose.popPose();
                 ly += 12 * zoom;
             }
+            g.disableScissor();
         }
         g.flush(); // per-node flush for buffer ordering (see drawNode)
     }

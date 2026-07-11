@@ -196,6 +196,11 @@ public class GraphEditor {
     private GraphNode editingCommentColorNode = null;
     private ColorPickerButton[] commentButtons = null; // created when popup opens
     private final java.util.Map<Integer, Integer> commentScrollOffsets = new java.util.HashMap<>();
+    // Scrollbar drag state
+    private GraphNode scrollingComment = null;
+    private float scrollDragStartY = 0;
+    private int scrollDragStartOff = 0;
+    private boolean scrollingImport = false;
 
     // ── 子图编辑栈（封装节点） ──
     private record GraphEditState(GraphNode parentNode, Predicate<NodeType> parentFilter,
@@ -913,7 +918,8 @@ public class GraphEditor {
                 closeCommentColorPopup();
                 return true;
             }
-            // Click inside → delegate to comment buttons
+            // Click inside → delegate to comment buttons, keep picker persistent
+            colorPicker.setPersistent(true);
             for (int ci = 0; ci < 3; ci++) {
                 if (commentButtons[ci].mouseClicked(mx, my, btn)) return true;
             }
@@ -957,6 +963,21 @@ public class GraphEditor {
             // 点击对话框外部
             if (mx < cx || mx > cx + w || my < cy || my > cy + h) {
                 showImportDialog = false; importFiles = null; return true;
+            }
+            // 滚动条拖动
+            if (fileCount > 0) {
+                int listY2 = cy + 28, sbX2 = cx + w - 14;
+                int maxScroll2 = Math.max(0, fileCount - visRows);
+                if (maxScroll2 > 0) {
+                    int sbH2 = visRows * 18;
+                    float thumbY2 = listY2 + (float) importScrollOff / maxScroll2 * (sbH2 - 12);
+                    if (mx >= sbX2 && mx <= sbX2 + 8 && my >= (int) thumbY2 && my <= (int) thumbY2 + 12) {
+                        scrollingImport = true;
+                        scrollDragStartY = (float) my;
+                        scrollDragStartOff = importScrollOff;
+                        return true;
+                    }
+                }
             }
             // 文件列表点击（留出滚动条区域）
             if (fileCount > 0) {
@@ -1123,7 +1144,8 @@ public class GraphEditor {
                 
                 return true;
             }
-            // Theme color buttons
+            // Theme color buttons — keep picker persistent in this context
+            colorPicker.setPersistent(true);
             for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) {
                 if (themeButtons[i].mouseClicked(mx, my, btn)) return true;
             }
@@ -1345,9 +1367,32 @@ public class GraphEditor {
                 if (mx < sx2 || mx > sx2 + sw2 || my < sy2 || my > sy2 + sh2) continue;
                 float locX = (float)(mx - sx2) / zoom;
                 float locY = (float)(my - sy2) / zoom;
-                boolean onResize = locX > n2.commentWidth - 14 && locY > n2.commentHeight - 14;
+                boolean onResize = locX > n2.commentWidth - 22 && locY > n2.commentHeight - 22;
                 boolean onColorDot = locX < 18 && locY < 18;
-                // Resize handle (bottom-right 14x14) — always handled
+                // Scrollbar thumb drag — check before resize for better UX
+                if (!n2.displayText.isEmpty()) {
+                    float headerH2 = Math.max(6f, 12f * zoom);
+                    int sbXc = (int) (sx2 + sw2 - 10 * zoom);
+                    int sbYc = (int) (sy2 + headerH2 + 4 * zoom);
+                    int sbHc = (int) (sh2 - headerH2 - 8 * zoom);
+                    int maxTextW2 = Math.max(1, (int) ((sw2 - 26 * zoom) / zoom));
+                    int visibleH2 = Math.max(1, (int) ((sh2 - 16 * zoom) / zoom));
+                    int maxVis2b = Math.max(1, visibleH2 / 12);
+                    int totalWraps2b = countWrappedLines(n2.displayText, maxTextW2);
+                    int scrollMax2b = Math.max(0, totalWraps2b - maxVis2b);
+                    if (scrollMax2b > 0 && mx >= sbXc && mx <= sbXc + Math.max(2, (int)(6 * zoom))
+                        && my >= sbYc && my <= sbYc + sbHc) {
+                        float thumbH2b = Math.max(12 * zoom, (float) maxVis2b / totalWraps2b * sbHc);
+                        float thumbYc = sbYc + (float) n2.commentScrollOff / scrollMax2b * (sbHc - thumbH2b);
+                        if (my >= thumbYc && my <= thumbYc + thumbH2b) {
+                            scrollingComment = n2;
+                            scrollDragStartY = (float) my;
+                            scrollDragStartOff = n2.commentScrollOff;
+                            return true;
+                        }
+                    }
+                }
+                // Resize handle (bottom-right) — checked after scrollbar
                 if (onResize) {
                     resizingComment = n2; resizeStartW = n2.commentWidth; resizeStartH = n2.commentHeight;
                     return true;
@@ -1395,16 +1440,24 @@ public class GraphEditor {
                     return true;
                 }
                 lastClickTimeMs = now2; lastClickNodeId = n2.id;
-                // Only drag by header bar; non-header body clicks → select or skip
-                if (hitIsNonComment || expandedNodeIds.contains(n2.id)) continue;
+                // Only drag by header bar; expanded comments stay expanded — absorb click
+                if (hitIsNonComment) continue;
+                if (expandedNodeIds.contains(n2.id)) {
+                    // Keep this comment focused, don't let click fall through to nodes behind
+                    if (selectedNode != n2) {
+                        selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
+                    }
+                    return true;
+                }
                 // Header bar in local coords: headerH/zoom pixels from the top edge
                 float commentHeaderLocal = Math.max(6f / zoom, 12f);
                 boolean inCommentHeader = locY >= 0 && locY < commentHeaderLocal;
                 if (!inCommentHeader) {
-                    // Non-header click → select only, don't drag (like regular nodes)
+                    // Non-header click → select only, allow panning through
                     if (selectedNode != n2) {
                         selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
                     }
+                    panning = true; panLastX = (float) mx; panLastY = (float) my;
                     return true;
                 }
                 // Header click → drag / select
@@ -1628,6 +1681,12 @@ public class GraphEditor {
             resizingComment = null;
             return;
         }
+        // Scrollbar drag release
+        if (scrollingComment != null || scrollingImport) {
+            scrollingComment = null;
+            scrollingImport = false;
+            return;
+        }
         if(btn==0&&multiDragging){
             multiDragging = false; markDirty();
             if (multiClickedNode != null) {
@@ -1759,6 +1818,36 @@ public class GraphEditor {
             resizingComment.commentWidth = newW;
             resizingComment.commentHeight = newH;
             markDirty();
+            return;
+        }
+        // Comment scrollbar drag
+        if (scrollingComment != null) {
+            int maxTextW = Math.max(1, Math.round(scrollingComment.commentWidth) - 26);
+            int visibleH = Math.max(1, Math.round(scrollingComment.commentHeight) - 16);
+            int maxVis = Math.max(1, visibleH / 12);
+            int totalWraps = countWrappedLines(scrollingComment.displayText, maxTextW);
+            int scrollMax = Math.max(0, totalWraps - maxVis);
+            float sbH = Math.round(scrollingComment.commentHeight * zoom) - Math.max(6f, 12f * zoom) - 8 * zoom;
+            float thumbH = Math.max(12 * zoom, (float) maxVis / totalWraps * sbH);
+            float delta = (float) (my - scrollDragStartY) / (sbH - thumbH);
+            int newOff = scrollDragStartOff + Math.round(delta * scrollMax);
+            if (newOff < 0) newOff = 0;
+            if (newOff > scrollMax) newOff = scrollMax;
+            scrollingComment.commentScrollOff = newOff;
+            return;
+        }
+        // Import dialog scrollbar drag
+        if (scrollingImport) {
+            int fileCount = importFiles != null ? importFiles.size() : 0;
+            int visRows = 8;
+            int maxScroll = Math.max(0, fileCount - visRows);
+            float sbH = visRows * 18;
+            float thumbH = 12;
+            float delta = (float) (my - scrollDragStartY) / (sbH - thumbH);
+            int newOff = scrollDragStartOff + Math.round(delta * maxScroll);
+            if (newOff < 0) newOff = 0;
+            if (newOff > maxScroll) newOff = maxScroll;
+            importScrollOff = newOff;
             return;
         }
         // Comment parent-move
@@ -2019,7 +2108,7 @@ public class GraphEditor {
             var l = Minecraft.getInstance().level;
             if (l != null) takeSnapshot(getGraph(), l.registryAccess());
             float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE;
-            float maxX = Float.MIN_VALUE, maxY = Float.MIN_VALUE;
+            float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
             for (var n : selectedNodes) {
                 float nw = NodeRenderer.nw(n);
                 float nh = NodeRenderer.nh(n);
@@ -2032,14 +2121,23 @@ public class GraphEditor {
                 if (n.x + nw > maxX) maxX = n.x + nw;
                 if (n.y + nh > maxY) maxY = n.y + nh;
             }
-            float padding = 20;
-            float cw = maxX - minX + padding * 2 + 8;
-            float ch = maxY - minY + padding * 2 + 4;
+            float padding = 30;
+            float cw = maxX - minX + padding * 2;
+            float ch = maxY - minY + padding * 2;
             cw = Math.max(80, Math.min(8000, cw));
             ch = Math.max(40, Math.min(6000, ch));
             var comment = graph.addNode(NodeType.COMMENT, minX - padding, minY - padding);
             comment.commentWidth = cw;
             comment.commentHeight = ch;
+            // Ensure wrapper comment renders behind all contained nodes
+            int minSelSortB = Integer.MAX_VALUE;
+            for (var n : selectedNodes) {
+                if (n.sortB < minSelSortB) minSelSortB = n.sortB;
+            }
+            if (minSelSortB != Integer.MAX_VALUE) {
+                comment.sortB = minSelSortB - 1;
+                if (comment.sortB < 0) renormalizeSortB(graph);
+            }
             return true;
         }
         return false;
@@ -2194,6 +2292,7 @@ public class GraphEditor {
             case 2 -> c -> { editingCommentColorNode.commentTextColor = c; markDirty(); };
             default -> c -> {};
         };
+        colorPicker.setPersistent(true);
         if (colorPicker.isVisible()) {
             colorPicker.rebind(color, setter);
         } else {
@@ -2230,15 +2329,16 @@ public class GraphEditor {
         collectContainedNodesDepth(comment, out, 0);
     }
     private void collectContainedNodesDepth(GraphNode comment, java.util.Map<GraphNode, Integer> out, int depth) {
+        float commentH = fullNodeHeight(comment);
         var candidates = spatialIndex.queryRect(
-            comment.x, comment.y, comment.commentWidth, comment.commentHeight);
+            comment.x, comment.y, comment.commentWidth, commentH);
         for (var n : candidates) {
             if (n == comment || out.containsKey(n)) continue;
             float nw = NodeRenderer.nw(n);
-            float nh = NodeRenderer.nh(n);
+            float nh = fullNodeHeight(n);
             // Only collect nodes fully inside the comment
             if (n.x >= comment.x && n.x + nw <= comment.x + comment.commentWidth
-                && n.y >= comment.y && n.y + nh <= comment.y + comment.commentHeight) {
+                && n.y >= comment.y && n.y + nh <= comment.y + commentH) {
                 out.put(n, n.sortB);          // save original
                 if (n.type == NodeType.COMMENT) {
                     collectContainedNodesDepth(n, out, depth + 1);
@@ -2252,15 +2352,16 @@ public class GraphEditor {
         moveContainedNodes(comment, dx, dy, new java.util.HashSet<>());
     }
     private void moveContainedNodes(GraphNode comment, float dx, float dy, java.util.Set<Integer> moved) {
+        float commentH = fullNodeHeight(comment);
         var candidates = spatialIndex.queryRect(
-            comment.x, comment.y, comment.commentWidth, comment.commentHeight);
+            comment.x, comment.y, comment.commentWidth, commentH);
         for (var n : candidates) {
             if (n == comment || moved.contains(n.id)) continue;
             float nw = NodeRenderer.nw(n);
-            float nh = NodeRenderer.nh(n);
+            float nh = fullNodeHeight(n);
             // Only move nodes fully inside the comment (not parent comments that contain it)
             if (n.x >= comment.x && n.x + nw <= comment.x + comment.commentWidth
-                && n.y >= comment.y && n.y + nh <= comment.y + comment.commentHeight) {
+                && n.y >= comment.y && n.y + nh <= comment.y + commentH) {
                 n.x += dx; n.y += dy;
                 moved.add(n.id);
                 if (n.type == NodeType.COMMENT) {
