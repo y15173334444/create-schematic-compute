@@ -387,12 +387,25 @@ public class NodeRenderer {
         drawStr(g, "§7⚙", -4, -4, 0xFFCCCCCC);
         btPose.popPose();
 
-        // Resize handle — bottom-right L-shape
-        int handleSize = (int) (16 * zoom);
-        int hx = (int) (sx + sw - handleSize);
-        int hy = (int) (sy + sh - handleSize);
-        g.fill(hx, (int) (sy + sh - 3 * zoom), (int) (sx + sw), (int) (sy + sh), n.commentBorderColor);
-        g.fill((int) (sx + sw - 3 * zoom), hy, (int) (sx + sw), (int) (sy + sh), n.commentBorderColor);
+        // Resize handle — bottom-right corner, darker contrasting L-shape with grip lines
+        int handleW = (int) (18 * zoom);
+        int hx2 = (int) (sx + sw - handleW);
+        int hy2 = (int) (sy + sh - handleW);
+        // Darker contrasting background corner
+        int handleBg = 0x88000000;
+        g.fill(hx2, hy2, (int) (sx + sw), (int) (sy + sh), handleBg);
+        // L-shaped corner lines — thick, visible dark gray
+        int handleColor = 0xFF777777;
+        int lineW = Math.max(1, (int) (3 * zoom));
+        g.fill(hx2, (int) (sy + sh - lineW), (int) (sx + sw), (int) (sy + sh), handleColor);
+        g.fill((int) (sx + sw - lineW), hy2, (int) (sx + sw), (int) (sy + sh), handleColor);
+        // Diagonal grip stripes — 3 short diagonal lines (classic resize grip pattern)
+        int gripColor = 0xFFAAAAAA;
+        for (int i = 0; i < 3; i++) {
+            int gx = (int) (sx + sw - (5 * zoom) - i * (5 * zoom));
+            int gy = (int) (sy + sh - (2 * zoom));
+            g.fill(gx, gy, gx + Math.max(1, (int)(3 * zoom)), gy + Math.max(1, (int)(2 * zoom)), gripColor);
+        }
 
         // Render text body (markdown-simplified), below the header bar
         var mc = Minecraft.getInstance();

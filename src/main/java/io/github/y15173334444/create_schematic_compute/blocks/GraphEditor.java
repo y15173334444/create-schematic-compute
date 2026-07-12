@@ -414,6 +414,7 @@ public class GraphEditor {
             mle.setCursorColor(node.commentTextColor);
             mle.setDrawBorder(false);
             mle.setResponder(t -> node.displayText = t);
+            mle.setFocused(true); // auto-focus so user can type immediately
             s.fields.add(mle);
         }
         if (node.type == NodeType.FORMULA) {

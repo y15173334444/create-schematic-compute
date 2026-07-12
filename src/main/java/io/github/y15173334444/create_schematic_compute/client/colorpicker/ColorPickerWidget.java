@@ -9,14 +9,37 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
 /**
  * Compact color picker: SV plane + hue bar + alpha bar (vertical, beside hue).
  * Favorites grid with vertical scroll, recent grid (no scroll).
+ *
+ * <p>Hit detection uses a spatial index ({@link HitRegion}) so every interactive
+ * element registers its own bounding box — no element can be shadowed by another's
+ * quick-reject guard.</p>
  */
 public class ColorPickerWidget {
+
+    // ── Spatial index types ──
+
+    /** Every interactive region in the widget. */
+    private enum RegionType {
+        SV_PLANE, HUE_BAR, ALPHA_BAR,
+        HEX_INPUT, ERASE_BTN, OK_BTN,
+        FAV_MINUS, FAV_PLUS, FAV_RESET,
+        FAV_SCROLLBAR, FAV_SWATCH,
+        REC_SWATCH
+    }
+
+    /** A clickable region with absolute screen-space bounds. */
+    private record HitRegion(int x, int y, int w, int h, RegionType type) {
+        boolean contains(double mx, double my) {
+            return mx >= x && mx < x + w && my >= y && my < y + h;
+        }
+    }
 
     // ── Layout ──
     public static final int WIDTH = 164;
@@ -187,9 +210,16 @@ public class ColorPickerWidget {
         g.fill(px + OK_X, okY, px + OK_X + OK_W, okY + OK_H, okH ? 0xFF4A6A3A : 0xFF3A5A2A);
         g.renderOutline(px + OK_X, okY, OK_W, OK_H, 0xFF5A8A3A);
         g.drawString(font, I18n.get("gui.create_schematic_compute.colorpicker.ok"), px + OK_X + (OK_W - font.width(I18n.get("gui.create_schematic_compute.colorpicker.ok"))) / 2, okY + 3, 0xFF88FF88, false);
-        // Feedback text (e.g. favorites full warning)
+        // Feedback text — floats over the first row of favorites swatches
         if (System.currentTimeMillis() < feedbackUntil && !feedbackText.isEmpty()) {
-            g.drawString(font, feedbackText, px + 4, py + HEIGHT + 2, 0xFFFFAA44, false);
+            int fx = px + 4;
+            int fy = py + FAV_Y + FAV_HEADER_H;
+            int tw = font.width(feedbackText);
+            // Dark pill background centered on the first swatch row
+            g.fill(fx + (GRID_W - tw) / 2 - 3, fy + (CELL - font.lineHeight) / 2 - 1,
+                   fx + (GRID_W + tw) / 2 + 3, fy + (CELL + font.lineHeight) / 2 + 1,
+                   0xDD222222);
+            g.drawString(font, feedbackText, fx + (GRID_W - tw) / 2, fy + (CELL - font.lineHeight) / 2 + 1, 0xFFFFAA44, false);
         }
         // Drag ghost — force full opacity and offset from cursor
         if (draggingSwatch) {
@@ -334,46 +364,109 @@ public class ColorPickerWidget {
         } catch (NumberFormatException ignored) {}
     }
 
+    // ── Spatial index builder ──
+
+    /** Build every clickable region for the current widget position. */
+    private List<HitRegion> buildHitRegions(int px, int py) {
+        var list = new ArrayList<HitRegion>();
+        // Bottom row (highest priority)
+        list.add(new HitRegion(px + HEX_X, py + BOTTOM_Y, HEX_W, HEX_H, RegionType.HEX_INPUT));
+        if (showErase) list.add(new HitRegion(px + ERASE_X, py + BOTTOM_Y, ERASE_W, ERASE_H, RegionType.ERASE_BTN));
+        list.add(new HitRegion(px + OK_X, py + BOTTOM_Y, OK_W, OK_H, RegionType.OK_BTN));
+
+        // Favorites header buttons
+        int btnS = 12, bx = px + BTN_X, by = py + FAV_Y + 1;
+        list.add(new HitRegion(bx, by, btnS, btnS, RegionType.FAV_MINUS));
+        bx += btnS + 2;
+        list.add(new HitRegion(bx, by, btnS, btnS, RegionType.FAV_PLUS));
+        bx += btnS + 2;
+        list.add(new HitRegion(bx, by, btnS, btnS, RegionType.FAV_RESET));
+
+        // Favorites scrollbar
+        List<Integer> favs = RecentColors.getFavorites();
+        int favTotalRows = (favs.size() + GRID_COLS - 1) / GRID_COLS;
+        int favGridH = FAV_VISIBLE_ROWS * CELL;
+        int favMaxOff = Math.max(0, favTotalRows * CELL - favGridH);
+        if (favMaxOff > 0) {
+            int sbX = px + 4 + GRID_W + 2;
+            int sbY = py + FAV_Y + FAV_HEADER_H;
+            list.add(new HitRegion(sbX, sbY, SCROLLBAR_W, favGridH, RegionType.FAV_SCROLLBAR));
+        }
+
+        // Favorites swatch grid
+        int favGridX = px + 4, favGridY = py + FAV_Y + FAV_HEADER_H;
+        list.add(new HitRegion(favGridX, favGridY, GRID_W, favGridH, RegionType.FAV_SWATCH));
+
+        // Recents swatch grid
+        int recGridX = px + 4, recGridY = py + REC_Y + REC_HEADER_H;
+        int recGridH = REC_VISIBLE_ROWS * CELL;
+        list.add(new HitRegion(recGridX, recGridY, GRID_W, recGridH, RegionType.REC_SWATCH));
+
+        // Alpha / Hue / SV (lowest priority — dragged, not clicked)
+        list.add(new HitRegion(px + ALPHA_X - 2, py + ALPHA_Y, ALPHA_W + 4, ALPHA_H, RegionType.ALPHA_BAR));
+        list.add(new HitRegion(px + HUE_X - 3, py + HUE_Y, HUE_W + 6, HUE_H, RegionType.HUE_BAR));
+        list.add(new HitRegion(px + SV_X, py + SV_Y, SV_SIZE, SV_SIZE, RegionType.SV_PLANE));
+
+        return list;
+    }
+
     // ── Mouse ──
 
     public boolean mouseClicked(double mx, double my, int btn) {
         if (!visible) return false;
         // Always consume clicks inside bounds, even non-left-click
         if (inBounds(mx, my)) {
-            if (btn != 0) return true; // absorb right-clicks etc.
+            if (btn != 0) return true;
         } else {
             close();
             return true;
         }
         if (btn != 0) return false;
         int px = screenX, py = screenY;
-        // Hex input — highest priority on its row (before erase/OK/grids)
-        if (hit(mx, my, px + HEX_X, py + BOTTOM_Y, HEX_W, HEX_H)) {
-            hexInput.setX(px + HEX_X); hexInput.setY(py + BOTTOM_Y);
-            hexInput.setFocused(true);
-            hexInput.mouseClicked(mx, my, btn);
-            return true;
-        }
-        if (showErase && hit(mx, my, px + ERASE_X, py + BOTTOM_Y, ERASE_W, ERASE_H)) {
-            alpha = 0; syncHexFromHsv();
-            if (liveUpdate != null) liveUpdate.accept(currentArgb());
-            return true;
-        }
-        if (hit(mx, my, px + OK_X, py + BOTTOM_Y, OK_W, OK_H)) { confirm(); return true; }
-        if (handleGridClick(mx, my, px, py + FAV_Y, true)) return true;
-        if (handleGridClick(mx, my, px, py + REC_Y, false)) return true;
 
-        // Alpha bar (vertical)
-        if (hit(mx, my, px + ALPHA_X - 2, py + ALPHA_Y, ALPHA_W + 4, ALPHA_H)) {
-            draggingAlpha = true; updateAlphaFromMouse(my); return true;
-        }
-        // Hue bar
-        if (hit(mx, my, px + HUE_X - 3, py + HUE_Y, HUE_W + 6, HUE_H)) {
-            draggingHue = true; updateHueFromMouse(my); return true;
-        }
-        // SV plane
-        if (hit(mx, my, px + SV_X, py + SV_Y, SV_SIZE, SV_SIZE)) {
-            draggingSV = true; updateSVFromMouse(mx, my); return true;
+        // Spatial index lookup — find the first region containing the click
+        for (var r : buildHitRegions(px, py)) {
+            if (!r.contains(mx, my)) continue;
+            switch (r.type()) {
+                case HEX_INPUT -> {
+                    hexInput.setX(px + HEX_X); hexInput.setY(py + BOTTOM_Y);
+                    hexInput.setFocused(true);
+                    hexInput.mouseClicked(mx, my, btn);
+                    return true;
+                }
+                case ERASE_BTN -> {
+                    alpha = 0; syncHexFromHsv();
+                    if (liveUpdate != null) liveUpdate.accept(currentArgb());
+                    return true;
+                }
+                case OK_BTN -> { confirm(); return true; }
+                case FAV_MINUS -> {
+                    var fc = RecentColors.getFavorites();
+                    if (selectedFavIdx >= 0 && selectedFavIdx < fc.size()) {
+                        RecentColors.removeFavorite(fc.get(selectedFavIdx));
+                        selectedFavIdx = -1;
+                    }
+                    return true;
+                }
+                case FAV_PLUS -> {
+                    if (!RecentColors.addFavorite(currentArgb())) {
+                        feedbackText = I18n.get("gui.create_schematic_compute.colorpicker.fav_full");
+                        feedbackUntil = System.currentTimeMillis() + 2000;
+                    }
+                    return true;
+                }
+                case FAV_RESET -> { RecentColors.resetFavorites(); selectedFavIdx = -1; return true; }
+                case FAV_SCROLLBAR -> { draggingFavSb = true; updateFavScroll(my); return true; }
+                case FAV_SWATCH -> {
+                    if (handleGridClick(mx, my, px, py + FAV_Y, true)) return true;
+                }
+                case REC_SWATCH -> {
+                    if (handleGridClick(mx, my, px, py + REC_Y, false)) return true;
+                }
+                case ALPHA_BAR -> { draggingAlpha = true; updateAlphaFromMouse(my); return true; }
+                case HUE_BAR   -> { draggingHue = true; updateHueFromMouse(my); return true; }
+                case SV_PLANE   -> { draggingSV = true; updateSVFromMouse(mx, my); return true; }
+            }
         }
         return true;
     }
@@ -381,6 +474,10 @@ public class ColorPickerWidget {
     private long lastSwatchAutoScroll = 0;
     private static final int SWATCH_AUTOSCROLL_MS = 350;
 
+    /**
+     * Handle a click inside a swatch grid.  Buttons and scrollbar are dispatched
+     * directly by the spatial index — this method only deals with swatch tiles.
+     */
     private boolean handleGridClick(double mx, double my, int px, int py, boolean isFav) {
         List<Integer> colors = isFav ? RecentColors.getFavorites() : RecentColors.getRecents();
         int totalRows = (colors.size() + GRID_COLS - 1) / GRID_COLS;
@@ -388,41 +485,13 @@ public class ColorPickerWidget {
         int headerH = isFav ? FAV_HEADER_H : REC_HEADER_H;
         int gridH = visibleRows * CELL;
         int off = isFav ? favScrollRow * CELL : 0;
-        int maxOff = Math.max(0, totalRows * CELL - gridH);
         int gridX = px + 4, gridY = py + headerH;
 
-        // Quick reject: click outside grid Y bounds
+        // Quick reject: outside grid Y bounds (buttons live in the header row above and
+        // are handled by their own spatial-index regions, so they never reach here).
         if (my < gridY || my > gridY + gridH) return false;
 
-        // +/-/reset buttons in header (favorites only)
-        if (isFav) {
-            int btnS = 12, bx = px + BTN_X, by = py + 1;
-            if (hit(mx, my, bx, by, btnS, btnS)) {
-                if (selectedFavIdx >= 0 && selectedFavIdx < colors.size()) {
-                    RecentColors.removeFavorite(colors.get(selectedFavIdx)); selectedFavIdx = -1;
-                }
-                return true;
-            }
-            bx += btnS + 2;
-            if (hit(mx, my, bx, by, btnS, btnS)) {
-                if (!RecentColors.addFavorite(currentArgb())) {
-                    feedbackText = "§c" + I18n.get("gui.create_schematic_compute.colorpicker.fav_full");
-                    feedbackUntil = System.currentTimeMillis() + 2000;
-                }
-                return true;
-            }
-            bx += btnS + 2;
-            if (hit(mx, my, bx, by, btnS, btnS)) { RecentColors.resetFavorites(); selectedFavIdx = -1; return true; }
-        }
-
-        // Scrollbar
-        if (isFav && maxOff > 0 && hit(mx, my, gridX + GRID_W + 2, gridY, SCROLLBAR_W, gridH)) {
-            draggingFavSb = true;
-            updateFavScroll(my);
-            return true;
-        }
-
-        // Swatches — use GRID_COLS layout; buttons take priority via hit order
+        // Swatches — use GRID_COLS layout
         for (int i = 0; i < colors.size(); i++) {
             int row = i / GRID_COLS, col = i % GRID_COLS;
             int sx = gridX + col * CELL, sy = gridY + row * CELL - off;
@@ -540,7 +609,7 @@ public class ColorPickerWidget {
                     if (!RecentColors.insertFavorite(targetFav, removed)) {
                         // Favorites full — put back and warn
                         RecentColors.insertRecent(dragSwatchIdx, removed);
-                        feedbackText = "§c" + I18n.get("gui.create_schematic_compute.colorpicker.fav_full");
+                        feedbackText = I18n.get("gui.create_schematic_compute.colorpicker.fav_full");
                         feedbackUntil = System.currentTimeMillis() + 2000;
                     }
                 }
