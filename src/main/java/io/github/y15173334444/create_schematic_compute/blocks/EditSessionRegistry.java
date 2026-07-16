@@ -122,18 +122,16 @@ public final class EditSessionRegistry {
 
         // 3. Validate structural ops
         if (op.type() == OpType.ADD_CONN) {
-            // Prevent cycles
-            var testGraph = targetGraph.copy();
-            testGraph.addConnection(op.fromId(), op.fromPin(), op.toId(), op.toPin());
-            if (testGraph.hasCycles()) {
-                io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.warn("[Collab] REJECT cycle {}->{}", op.fromId(), op.toId());
+            // Check both endpoints exist in the graph the op actually targets
+            // (sub-graphs have independent ID spaces — must NOT check the outer graph)
+            if (targetGraph.findNode(op.toId()) == null || targetGraph.findNode(op.fromId()) == null) {
                 var reject = new GraphOp(OpType.REJECT, pos, op.ownerNodeId(), op.targetNodeId(), op.actor());
                 PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(reject));
                 return;
             }
-            // Check target exists
-            if (graph.findNode(op.toId()) == null || graph.findNode(op.fromId()) == null) {
-                io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.warn("[Collab] REJECT missing node {} or {}", op.fromId(), op.toId());
+            // Prevent cycles — read-only reachability check on the target graph itself.
+            // (NodeGraph.copy() remaps node IDs, so testing op IDs against a copy is invalid.)
+            if (targetGraph.wouldCreateCycle(op.fromId(), op.toId())) {
                 var reject = new GraphOp(OpType.REJECT, pos, op.ownerNodeId(), op.targetNodeId(), op.actor());
                 PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(reject));
                 return;
