@@ -328,6 +328,7 @@ public class GraphEditor {
     private final java.util.Map<net.minecraft.client.gui.components.EditBox, Runnable> enterActions = new java.util.HashMap<>();
     // 颜色配置面板
     public boolean showColorConfig = false;
+    private boolean suppressEditBoxResponder = false; // suppress SET_PARAM echo from remote ops (H3)
     public final ColorPickerWidget colorPicker = new ColorPickerWidget();
     private final ColorPickerButton[] themeButtons = new ColorPickerButton[NodeRenderer._NUM_COLORS];
     // 框选 + 多选拖拽状态
@@ -348,6 +349,7 @@ public class GraphEditor {
     private final java.util.List<GraphNode> containedDragNodes = new java.util.ArrayList<>();
     // Old position for MOVE_NODE undo
     private float preDragX, preDragY;
+    private final java.util.Map<Integer, float[]> preDragPositions = new java.util.HashMap<>(); // H7: per-node pre-drag coords
 
     // ── P2 Presence ──
     private final java.util.Map<java.util.UUID, io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket> remotePresences = new java.util.HashMap<>();
@@ -493,7 +495,26 @@ public class GraphEditor {
             var encap = host.getGraph().findNode(op.ownerNodeId());
             if (encap != null && encap.subGraph != null) graph = encap.subGraph;
         }
+        // REJECT: roll back the locally-applied change that the server refused
+        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.REJECT) {
+            // The op carries the rejected ADD_CONN details — remove the local connection.
+            // For non-originator editors this is a no-op (they never applied it).
+            graph.removeConnection(op.fromId(), op.fromPin(), op.toId(), op.toPin());
+            return;
+        }
         io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(graph, op, /*animateMoves=*/true);
+        // Clean up UI state for remote REMOVE_NODE (local delete path does this manually) (M5)
+        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE) {
+            int rid = op.targetNodeId();
+            if (selectedNode != null && selectedNode.id == rid) selectedNode = null;
+            selectedNodes.removeIf(n -> n.id == rid);
+            expandedNodeIds.remove(rid);
+            nodeEditStatesById.remove(rid);
+            if (draggingNode != null && draggingNode.id == rid) draggingNode = null;
+            if (encapsulationParent != null && encapsulationParent.id == rid) encapsulationParent = null;
+            if (resizingComment != null && resizingComment.id == rid) resizingComment = null;
+            if (wireFromNode == rid) { wireFromNode = -1; wireFromPin = 0; }
+        }
         // Refresh edit panel UI for data changes
         if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT
@@ -507,8 +528,11 @@ public class GraphEditor {
             if (st != null && op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM
                 && op.paramIndex() < st.fieldParamIndices.size()) {
                 int fi = st.fieldParamIndices.get(op.paramIndex());
-                if (fi < st.fields.size() && st.fields.get(fi) instanceof net.minecraft.client.gui.components.EditBox eb)
+                if (fi < st.fields.size() && st.fields.get(fi) instanceof net.minecraft.client.gui.components.EditBox eb) {
+                    suppressEditBoxResponder = true;
                     eb.setValue(ff3(op.paramValue()));
+                    suppressEditBoxResponder = false;
+                }
             } else if (st == null || op.type() != io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM) {
                 // Recreate entire EditState for non-param ops or if expanded
                 var n = graph.findNode(op.targetNodeId());
@@ -554,6 +578,7 @@ public class GraphEditor {
             b.setValue(ff3(node.params[i]));
             final float[] lastSent = {node.params[idx]};
             b.setResponder(text -> { try {
+                if (suppressEditBoxResponder) return; // remote SET_PARAM setValue → don't echo back
                 float newV = Float.parseFloat(text.trim());
                 if (Math.abs(newV - lastSent[0]) > 0.0001f) {
                     node.params[idx] = newV;
@@ -1994,6 +2019,10 @@ public class GraphEditor {
                     hit.sortB = Integer.MAX_VALUE;
                     draggingNode=hit; dragOffX=hit.x-s2cX(mx); dragOffY=hit.y-s2cY(my);
                     preDragX = hit.x; preDragY = hit.y; // for undo
+                    preDragPositions.clear();
+                    for (var sn : selectedNodes) {
+                        if (sn != hit) preDragPositions.put(sn.id, new float[]{sn.x, sn.y});
+                    }
                 }
                 if (selectedNode != hit) {
                     selectedNode=hit; selectedNodes.clear(); selectedNodes.add(hit);
@@ -2300,7 +2329,10 @@ public class GraphEditor {
                         var mop = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                             host.getBlockPos(), ownerNodeId(), sn.id, sn.x, sn.y, host.getPlayerUUID());
                         host.sendOp(mop);
-                        recordOp(mop, sn.x - (sn.x - preDragX) /* approximate */, sn.y - (sn.y - preDragY), 0, null);
+                        var rec = preDragPositions.get(sn.id);
+                        float oldX = rec != null ? rec[0] : preDragX;
+                        float oldY = rec != null ? rec[1] : preDragY;
+                        recordOp(mop, oldX, oldY, 0, null);
                     }
                 }
             }
