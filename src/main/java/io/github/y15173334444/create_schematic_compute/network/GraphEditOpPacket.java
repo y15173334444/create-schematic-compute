@@ -57,6 +57,8 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
                 java.util.List<String> bands = null;
                 if (b.readBoolean()) {
                     int bandCount = b.readVarInt();
+                    if (bandCount < 0 || bandCount > 64) // upper bound: prevent OOM
+                        bandCount = 0;
                     bands = new ArrayList<>(bandCount);
                     for (int i = 0; i < bandCount; i++) bands.add(b.readUtf());
                 }
@@ -118,11 +120,31 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
 
     @Override public @NotNull Type<? extends CustomPacketPayload> type() { return TYPE; }
 
+    /** Max edit distance (squared) — ~80 blocks range. */
+    private static final double MAX_EDIT_DIST_SQ = 80.0 * 80.0;
+
     public static void handleServer(GraphEditOpPacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
             if (!(sp.level() instanceof ServerLevel sl)) return;
-            EditSessionRegistry.applyOp(sl, pkt.op.graphPos(), pkt.op, sp);
+            var pos = pkt.op.graphPos();
+            // 1. Range check — prevent arbitrary chunk loading / remote editing
+            double dx = sp.getX() - pos.getX();
+            double dz = sp.getZ() - pos.getZ();
+            if (dx * dx + dz * dz > MAX_EDIT_DIST_SQ) return;
+            // 2. Session membership check (join required before editing)
+            if (!EditSessionRegistry.getEditors(pos).contains(sp.getUUID())) return;
+            // 3. Overwrite actor UUID with the authenticated sender
+            var authenticatedOp = new GraphOp(
+                pkt.op.type(), pkt.op.graphPos(), pkt.op.ownerNodeId(), pkt.op.targetNodeId(),
+                pkt.op.tempId(), pkt.op.nodeType(), pkt.op.x(), pkt.op.y(),
+                pkt.op.fromId(), pkt.op.fromPin(), pkt.op.toId(), pkt.op.toPin(),
+                pkt.op.paramIndex(), pkt.op.paramValue(), pkt.op.stringValue(),
+                pkt.op.colorBg(), pkt.op.colorBorder(), pkt.op.colorText(),
+                pkt.op.sortB(), pkt.op.bands(), pkt.op.keyIndex(), pkt.op.imageFrameIndex(),
+                pkt.op.hotbarSlot(), pkt.op.itemStack(),
+                pkt.op.editVersion(), sp.getUUID());
+            EditSessionRegistry.applyOp(sl, pos, authenticatedOp, sp);
         });
     }
 

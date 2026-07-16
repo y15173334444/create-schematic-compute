@@ -69,8 +69,10 @@ public record GraphPresencePacket(
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
             var sync = new GraphPresenceSyncPacket(pkt);
             var editors = EditSessionRegistry.getEditors(pkt.pos);
+            // Use authenticated player UUID, ignore client-supplied UUID
+            var senderUUID = sp.getUUID();
             for (var editorId : editors) {
-                if (editorId.equals(pkt.player)) continue;
+                if (editorId.equals(senderUUID)) continue;
                 var ep = sp.getServer().getPlayerList().getPlayer(editorId);
                 if (ep != null) PacketDistributor.sendToPlayer(ep, sync);
             }

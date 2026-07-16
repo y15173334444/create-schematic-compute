@@ -215,7 +215,7 @@ public final class OpExecutor {
 
             case SET_IMAGE_FRAME_TOGGLE -> {
                 var n = graph.findNode(op.targetNodeId());
-                if (n != null && n.params.length > 3 + op.imageFrameIndex()) {
+                if (n != null && op.imageFrameIndex() >= 0 && n.params.length > 3 + op.imageFrameIndex()) {
                     int pi = 3 + op.imageFrameIndex();
                     n.params[pi] = n.params[pi] > 0.5f ? 0 : 1;
                     graph.bumpGeneration();
@@ -236,7 +236,7 @@ public final class OpExecutor {
 
             case SET_HOTBAR_ITEM -> {
                 var n = graph.findNode(op.targetNodeId());
-                if (n != null && n.itemParams != null && op.hotbarSlot() < n.itemParams.length) {
+                if (n != null && n.itemParams != null && op.hotbarSlot() >= 0 && op.hotbarSlot() < n.itemParams.length) {
                     n.itemParams[op.hotbarSlot()] = op.itemStack();
                     graph.bumpGeneration();
                 }

@@ -9,7 +9,6 @@ import io.github.y15173334444.create_schematic_compute.network.GraphEditOpSyncPa
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.ChunkPos;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.*;
@@ -105,7 +104,6 @@ public final class EditSessionRegistry {
      * @param actor  the player who sent the op
      */
     public static void applyOp(ServerLevel level, BlockPos pos, GraphOp op, ServerPlayer actor) {
-        io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.info("[Collab] applyOp {} from {} editors={}", op.type(), actor.getGameProfile().getName(), getEditors(pos).size());
         // 1. Get BE and graph
         if (!(level.getBlockEntity(pos) instanceof GraphBlockEntity gbe)) return;
         var graph = gbe.getNodeGraph();
@@ -186,8 +184,8 @@ public final class EditSessionRegistry {
             version, op.actor()
         );
         var syncPkt = new GraphEditOpSyncPacket(broadcastOp);
-        var editors = getEditors(pos);
-        for (var editorId : editors) {
+        var editorsOuter = getEditors(pos);
+        for (var editorId : editorsOuter) {
             if (editorId.equals(actor.getUUID())) continue;
             var editorPlayer = level.getServer().getPlayerList().getPlayer(editorId);
             if (editorPlayer != null) {

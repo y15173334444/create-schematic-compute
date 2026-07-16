@@ -26,23 +26,30 @@ public record GraphJoinPacket(BlockPos pos) implements CustomPacketPayload {
     @Override
     public @NotNull Type<? extends CustomPacketPayload> type() { return TYPE; }
 
+    /** Max join distance (squared) — ~80 blocks range. */
+    private static final double MAX_JOIN_DIST_SQ = 80.0 * 80.0;
+
     public static void handle(GraphJoinPacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
-            EditSessionRegistry.join(pkt.pos, ctx.player().getUUID());
-            // Force full graph sync for all BE types - send directly to joiner
-            var be = ctx.player().level().getBlockEntity(pkt.pos);
-            if (be != null && ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp) {
-                if (be instanceof BlueprintBlockEntity bbe) bbe.flagFullSync();
-                else if (be instanceof MonitorBlockEntity mbe) mbe.flagFullSync();
-                else if (be instanceof RadarBlockEntity rbe) rbe.flagFullSync();
-                else if (be instanceof SensorBlockEntity sbe) sbe.flagFullSync();
-                else if (be instanceof ControlSeatBlockEntity cbe) cbe.flagFullSync();
-                else if (be instanceof SpeedProxyBlockEntity spbe) spbe.flagFullSync();
-                else if (be instanceof ProgramComputerBlockEntity pbe) pbe.flagFullSync();
-                else { be.setChanged(); be.getLevel().sendBlockUpdated(pkt.pos, be.getBlockState(), be.getBlockState(), 3); }
-                // Immediately push full NBT to the joining player (don't wait for async sendBlockUpdated)
-                sp.connection.send(be.getUpdatePacket());
-            }
+            if (!(ctx.player() instanceof ServerPlayer sp)) return;
+            // 1. Range check before touching chunk/block entity
+            double dx = sp.getX() - pkt.pos.getX();
+            double dz = sp.getZ() - pkt.pos.getZ();
+            if (dx * dx + dz * dz > MAX_JOIN_DIST_SQ) return;
+            // 2. Verify target is one of the 7 graph block entities BEFORE joining session
+            var be = sp.level().getBlockEntity(pkt.pos);
+            if (!(be instanceof GraphBlockEntity)) return;
+            // 3. Safe to join
+            EditSessionRegistry.join(pkt.pos, sp.getUUID());
+            if (be instanceof BlueprintBlockEntity bbe) bbe.flagFullSync();
+            else if (be instanceof MonitorBlockEntity mbe) mbe.flagFullSync();
+            else if (be instanceof RadarBlockEntity rbe) rbe.flagFullSync();
+            else if (be instanceof SensorBlockEntity sbe) sbe.flagFullSync();
+            else if (be instanceof ControlSeatBlockEntity cbe) cbe.flagFullSync();
+            else if (be instanceof SpeedProxyBlockEntity spbe) spbe.flagFullSync();
+            else if (be instanceof ProgramComputerBlockEntity pbe) pbe.flagFullSync();
+            var update = be.getUpdatePacket();
+            if (update != null) sp.connection.send(update);
         });
     }
 }
