@@ -133,7 +133,7 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
             double dz = sp.getZ() - pos.getZ();
             if (dx * dx + dz * dz > MAX_EDIT_DIST_SQ) return;
             // 2. Session membership check (join required before editing)
-            if (!EditSessionRegistry.getEditors(pos).contains(sp.getUUID())) return;
+            if (!EditSessionRegistry.getEditors(sl, pos).contains(sp.getUUID())) return;
             // 3. Overwrite actor UUID with the authenticated sender
             var authenticatedOp = new GraphOp(
                 pkt.op.type(), pkt.op.graphPos(), pkt.op.ownerNodeId(), pkt.op.targetNodeId(),
@@ -152,7 +152,8 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
         ctx.enqueueWork(() -> {
             if (ctx.player() == null) return;
             var mc = net.minecraft.client.Minecraft.getInstance();
-            if (mc.screen instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.Host host) {
+            if (mc.screen instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.Host host
+                && host.getBlockPos().equals(pkt.op.graphPos())) {
                 host.onRemoteOp(pkt.op);
             }
         });

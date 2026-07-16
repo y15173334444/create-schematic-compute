@@ -4,9 +4,9 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
 import io.github.y15173334444.create_schematic_compute.graph.OpExecutor;
 import io.github.y15173334444.create_schematic_compute.graph.OpType;
 import io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket;
-import io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket;
 import io.github.y15173334444.create_schematic_compute.network.GraphEditOpSyncPacket;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.GlobalPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
@@ -18,7 +18,7 @@ import java.util.*;
  *
  * <p>Responsibilities:</p>
  * <ul>
- *   <li>Maintain the set of online editors per {@link BlockPos}</li>
+ *   <li>Maintain the set of online editors per {@link GlobalPos} (dimension + pos)</li>
  *   <li>Assign monotonically increasing editVersion per graph</li>
  *   <li>Validate and apply incoming ops, then broadcast to other editors</li>
  *   <li>Send acks back to the originating player</li>
@@ -27,68 +27,69 @@ import java.util.*;
  */
 public final class EditSessionRegistry {
 
-    private static final Map<BlockPos, Set<UUID>> editors = new HashMap<>();
-    private static final Map<BlockPos, Long> editVersions = new HashMap<>();
-    private static final Map<BlockPos, Deque<GraphOp>> opLogs = new HashMap<>();
+    private static final Map<GlobalPos, Set<UUID>> editors = new HashMap<>();
+    private static final Map<GlobalPos, Long> editVersions = new HashMap<>();
+    private static final Map<GlobalPos, Deque<GraphOp>> opLogs = new HashMap<>();
     private static final int MAX_OP_LOG = 200;
 
     private EditSessionRegistry() {}
 
-    // ── Session management ──
-
-    public static void join(BlockPos pos, UUID player) {
-        editors.computeIfAbsent(pos, k -> new LinkedHashSet<>()).add(player);
-        // Init version if this is the first editor
-        editVersions.putIfAbsent(pos, 1L);
+    /** Build a dimension-aware key from the player's current level. */
+    private static GlobalPos key(ServerLevel level, BlockPos pos) {
+        return GlobalPos.of(level.dimension(), pos);
     }
 
-    public static void leave(BlockPos pos, UUID player) {
-        var set = editors.get(pos);
+    // ── Session management ──
+
+    public static void join(ServerLevel level, BlockPos pos, UUID player) {
+        var k = key(level, pos);
+        editors.computeIfAbsent(k, kg -> new LinkedHashSet<>()).add(player);
+        editVersions.putIfAbsent(k, 1L);
+    }
+
+    public static void leave(ServerLevel level, BlockPos pos, UUID player) {
+        var k = key(level, pos);
+        var set = editors.get(k);
         if (set != null) {
             set.remove(player);
             if (set.isEmpty()) {
-                editors.remove(pos);
-                // Keep editVersion and opLog for a while in case of reconnect
+                editors.remove(k);
             }
         }
     }
 
-    public static Set<UUID> getEditors(BlockPos pos) {
-        var set = editors.get(pos);
+    /** Remove a player from every session they are in (called on disconnect). */
+    public static void leaveAll(UUID player) {
+        var toRemove = new ArrayList<GlobalPos>();
+        for (var entry : editors.entrySet()) {
+            entry.getValue().remove(player);
+            if (entry.getValue().isEmpty()) toRemove.add(entry.getKey());
+        }
+        toRemove.forEach(editors::remove);
+    }
+
+    public static Set<UUID> getEditors(ServerLevel level, BlockPos pos) {
+        var set = editors.get(key(level, pos));
         return set != null ? Collections.unmodifiableSet(set) : Collections.emptySet();
     }
 
-    public static boolean hasEditors(BlockPos pos) {
-        var set = editors.get(pos);
+    public static boolean hasEditors(ServerLevel level, BlockPos pos) {
+        var set = editors.get(key(level, pos));
         return set != null && !set.isEmpty();
     }
 
     // ── Versioning ──
 
-    public static long currentVersion(BlockPos pos) {
-        return editVersions.getOrDefault(pos, 0L);
-    }
-
-    private static long nextVersion(BlockPos pos) {
-        long v = editVersions.getOrDefault(pos, 0L) + 1;
-        editVersions.put(pos, v);
+    private static long nextVersion(GlobalPos key) {
+        long v = editVersions.getOrDefault(key, 0L) + 1;
+        editVersions.put(key, v);
         return v;
     }
 
     // ── Op log ──
 
-    public static List<GraphOp> getOpsSince(BlockPos pos, long sinceVersion) {
-        var log = opLogs.get(pos);
-        if (log == null) return Collections.emptyList();
-        var recent = new ArrayList<GraphOp>();
-        for (var op : log) {
-            if (op.editVersion() > sinceVersion) recent.add(op);
-        }
-        return recent;
-    }
-
-    private static void appendToLog(BlockPos pos, GraphOp op) {
-        var log = opLogs.computeIfAbsent(pos, k -> new ArrayDeque<>());
+    private static void appendToLog(GlobalPos key, GraphOp op) {
+        var log = opLogs.computeIfAbsent(key, kg -> new ArrayDeque<>());
         log.addLast(op);
         while (log.size() > MAX_OP_LOG) log.removeFirst();
     }
@@ -104,6 +105,8 @@ public final class EditSessionRegistry {
      * @param actor  the player who sent the op
      */
     public static void applyOp(ServerLevel level, BlockPos pos, GraphOp op, ServerPlayer actor) {
+        var gk = key(level, pos);
+
         // 1. Get BE and graph
         if (!(level.getBlockEntity(pos) instanceof GraphBlockEntity gbe)) return;
         var graph = gbe.getNodeGraph();
@@ -120,15 +123,11 @@ public final class EditSessionRegistry {
 
         // 3. Validate structural ops
         if (op.type() == OpType.ADD_CONN) {
-            // Check both endpoints exist in the graph the op actually targets
-            // (sub-graphs have independent ID spaces — must NOT check the outer graph)
             if (targetGraph.findNode(op.toId()) == null || targetGraph.findNode(op.fromId()) == null) {
                 var reject = new GraphOp(OpType.REJECT, pos, op.ownerNodeId(), op.targetNodeId(), op.actor());
                 PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(reject));
                 return;
             }
-            // Prevent cycles — read-only reachability check on the target graph itself.
-            // (NodeGraph.copy() remaps node IDs, so testing op IDs against a copy is invalid.)
             if (targetGraph.wouldCreateCycle(op.fromId(), op.toId())) {
                 var reject = new GraphOp(OpType.REJECT, pos, op.ownerNodeId(), op.targetNodeId(), op.actor());
                 PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(reject));
@@ -138,12 +137,10 @@ public final class EditSessionRegistry {
 
         // 4. ADD_NODE_REQUEST: server allocates real ID → ACK originator → broadcast to others
         if (op.type() == OpType.ADD_NODE_REQUEST) {
-            var node = OpExecutor.apply(targetGraph, op); // server assigns nextNodeId
-            long version = nextVersion(pos);
-            // ACK originator with tempId → realId mapping
+            var node = OpExecutor.apply(targetGraph, op);
+            long version = nextVersion(gk);
             PacketDistributor.sendToPlayer(actor,
                 new GraphEditAckPacket(pos, op.tempId(), node.id, version));
-            // Broadcast ADD_NODE (S→C direction) to other editors only
             var broadcastOp = new GraphOp(
                 OpType.ADD_NODE, op.graphPos(), op.ownerNodeId(), node.id,
                 node.id, op.nodeType(), op.x(), op.y(),
@@ -152,27 +149,23 @@ public final class EditSessionRegistry {
                 net.minecraft.world.item.ItemStack.EMPTY, version, op.actor()
             );
             var syncPkt = new GraphEditOpSyncPacket(broadcastOp);
-            var editors = getEditors(pos);
+            var editors = getEditors(level, pos);
             for (var editorId : editors) {
                 if (editorId.equals(actor.getUUID())) continue;
                 var editorPlayer = level.getServer().getPlayerList().getPlayer(editorId);
-                if (editorPlayer != null) {
-                    PacketDistributor.sendToPlayer(editorPlayer, syncPkt);
-                }
+                if (editorPlayer != null) PacketDistributor.sendToPlayer(editorPlayer, syncPkt);
             }
-            appendToLog(pos, broadcastOp);
+            appendToLog(gk, broadcastOp);
             gbe.getNodeGraph().bumpGeneration();
-            if (gbe instanceof BlueprintBlockEntity bbe) {
-                bbe.setChanged();
-            }
+            markDirty(gbe);
             return;
         }
 
         // 5. Execute
         OpExecutor.apply(targetGraph, op);
-        long version = nextVersion(pos);
+        long version = nextVersion(gk);
 
-        // 6. Broadcast to other editors (skip originator to avoid double-apply)
+        // 6. Broadcast to other editors
         var broadcastOp = new GraphOp(
             op.type(), op.graphPos(), op.ownerNodeId(), op.targetNodeId(),
             op.tempId(), op.nodeType(), op.x(), op.y(),
@@ -184,13 +177,11 @@ public final class EditSessionRegistry {
             version, op.actor()
         );
         var syncPkt = new GraphEditOpSyncPacket(broadcastOp);
-        var editorsOuter = getEditors(pos);
+        var editorsOuter = getEditors(level, pos);
         for (var editorId : editorsOuter) {
             if (editorId.equals(actor.getUUID())) continue;
             var editorPlayer = level.getServer().getPlayerList().getPlayer(editorId);
-            if (editorPlayer != null) {
-                PacketDistributor.sendToPlayer(editorPlayer, syncPkt);
-            }
+            if (editorPlayer != null) PacketDistributor.sendToPlayer(editorPlayer, syncPkt);
         }
 
         // 7. Ack to originator
@@ -198,13 +189,22 @@ public final class EditSessionRegistry {
             new GraphEditAckPacket(pos, 0, 0, version));
 
         // 8. Log
-        appendToLog(pos, broadcastOp);
+        appendToLog(gk, broadcastOp);
 
         // 9. Mark dirty
         gbe.getNodeGraph().bumpGeneration();
-        if (gbe instanceof BlueprintBlockEntity bbe) {
-            bbe.setChanged();
-        }
+        markDirty(gbe);
+    }
+
+    /** Mark the block entity dirty so the chunk is saved. Covers all 7 graph host types. */
+    private static void markDirty(GraphBlockEntity gbe) {
+        if (gbe instanceof BlueprintBlockEntity bbe) bbe.setChanged();
+        else if (gbe instanceof MonitorBlockEntity mbe) mbe.setChanged();
+        else if (gbe instanceof ProgramComputerBlockEntity pbe) pbe.setChanged();
+        else if (gbe instanceof RadarBlockEntity rbe) rbe.setChanged();
+        else if (gbe instanceof SensorBlockEntity sbe) sbe.setChanged();
+        else if (gbe instanceof SpeedProxyBlockEntity spbe) spbe.setChanged();
+        else if (gbe instanceof ControlSeatBlockEntity cbe) cbe.setChanged();
     }
 
     // ── Cleanup ──

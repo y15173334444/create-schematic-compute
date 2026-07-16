@@ -38,7 +38,7 @@ public record GraphEditAckPacket(BlockPos pos, int tempId, int assignedId, long 
     public static void handle(GraphEditAckPacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             var mc = net.minecraft.client.Minecraft.getInstance();
-            if (mc.screen instanceof GraphEditor.Host host) {
+            if (mc.screen instanceof GraphEditor.Host host && host.getBlockPos().equals(pkt.pos)) {
                 host.handleAck(pkt);
             }
         });

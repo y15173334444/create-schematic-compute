@@ -26,6 +26,9 @@ public record GraphLeavePacket(BlockPos pos) implements CustomPacketPayload {
     public @NotNull Type<? extends CustomPacketPayload> type() { return TYPE; }
 
     public static void handle(GraphLeavePacket pkt, IPayloadContext ctx) {
-        ctx.enqueueWork(() -> EditSessionRegistry.leave(pkt.pos, ctx.player().getUUID()));
+        ctx.enqueueWork(() -> {
+            if (ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)
+                EditSessionRegistry.leave(sp.serverLevel(), pkt.pos, sp.getUUID());
+        });
     }
 }

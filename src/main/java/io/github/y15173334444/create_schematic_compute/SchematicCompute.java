@@ -167,10 +167,12 @@ public class SchematicCompute {
                 io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.clearAll();
                 LOGGER.info("{} cleared static state for server shutdown", MOD_ID);
             });
-        // 玩家断开时清理其残留输入（防止下次重连时泄漏）
+        // 玩家断开时清理其残留输入和协作会话（防止下次重连时泄漏/幽灵编辑者）
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
             net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent.class, event -> {
-                ControlSeatBlockEntity.clearPlayerInput(event.getEntity().getUUID());
+                var uuid = event.getEntity().getUUID();
+                ControlSeatBlockEntity.clearPlayerInput(uuid);
+                io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.leaveAll(uuid);
             });
 
         LOGGER.info("{} loaded!", MOD_ID);

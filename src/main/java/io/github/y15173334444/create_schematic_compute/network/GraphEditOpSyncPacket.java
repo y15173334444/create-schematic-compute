@@ -38,7 +38,8 @@ public record GraphEditOpSyncPacket(GraphOp op) implements CustomPacketPayload {
         ctx.enqueueWork(() -> {
             if (ctx.player() == null) return;
             var mc = net.minecraft.client.Minecraft.getInstance();
-            if (mc.screen instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.Host host) {
+            if (mc.screen instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.Host host
+                && host.getBlockPos().equals(pkt.op().graphPos())) {
                 host.onRemoteOp(pkt.op());
             }
         });

@@ -68,7 +68,7 @@ public record GraphPresencePacket(
         ctx.enqueueWork(() -> {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
             var sync = new GraphPresenceSyncPacket(pkt);
-            var editors = EditSessionRegistry.getEditors(pkt.pos);
+            var editors = EditSessionRegistry.getEditors(sp.serverLevel(), pkt.pos);
             // Use authenticated player UUID, ignore client-supplied UUID
             var senderUUID = sp.getUUID();
             for (var editorId : editors) {
@@ -82,7 +82,8 @@ public record GraphPresencePacket(
     public static void handleClient(GraphPresencePacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             var mc = net.minecraft.client.Minecraft.getInstance();
-            if (mc.screen instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.Host host) {
+            if (mc.screen instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.Host host
+                && host.getBlockPos().equals(pkt.pos)) {
                 host.getEditor().storeRemotePresence(pkt);
             }
         });

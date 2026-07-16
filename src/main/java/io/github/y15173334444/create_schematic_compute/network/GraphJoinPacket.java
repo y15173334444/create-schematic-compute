@@ -40,7 +40,7 @@ public record GraphJoinPacket(BlockPos pos) implements CustomPacketPayload {
             var be = sp.level().getBlockEntity(pkt.pos);
             if (!(be instanceof GraphBlockEntity)) return;
             // 3. Safe to join
-            EditSessionRegistry.join(pkt.pos, sp.getUUID());
+            EditSessionRegistry.join(sp.serverLevel(), pkt.pos, sp.getUUID());
             if (be instanceof BlueprintBlockEntity bbe) bbe.flagFullSync();
             else if (be instanceof MonitorBlockEntity mbe) mbe.flagFullSync();
             else if (be instanceof RadarBlockEntity rbe) rbe.flagFullSync();
