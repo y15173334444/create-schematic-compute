@@ -411,7 +411,7 @@ public class GraphEditor {
             var encap = host.getGraph().findNode(op.ownerNodeId());
             if (encap != null && encap.subGraph != null) graph = encap.subGraph;
         }
-        io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(graph, op);
+        io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(graph, op, /*animateMoves=*/true);
         // Refresh edit panel UI for data changes
         if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT

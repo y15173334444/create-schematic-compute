@@ -15,8 +15,22 @@ public final class OpExecutor {
     /**
      * Apply an op to the given graph. Returns the affected node for
      * operations that create or modify a single node, null otherwise.
+     *
+     * <p>Moves land directly on x/y (authoritative). Use
+     * {@link #apply(NodeGraph, GraphOp, boolean)} with {@code animateMoves=true}
+     * on the client when applying remote ops, to smooth large moves.</p>
      */
     public static GraphNode apply(NodeGraph graph, GraphOp op) {
+        return apply(graph, op, false);
+    }
+
+    /**
+     * @param animateMoves client-only: large MOVE_NODE deltas start a render-loop
+     *                     lerp instead of snapping. Must be {@code false} on the
+     *                     server — nothing ticks the lerp there and the remote*
+     *                     fields are transient, so animated moves would never land.
+     */
+    public static GraphNode apply(NodeGraph graph, GraphOp op, boolean animateMoves) {
         return switch (op.type()) {
             case ADD_NODE -> {
                 var node = graph.addNode(op.nodeType(), op.x(), op.y());
@@ -35,13 +49,14 @@ public final class OpExecutor {
                 if (n != null) {
                     float dx = Math.abs(n.x - op.x());
                     float dy = Math.abs(n.y - op.y());
-                    if (dx < 2 && dy < 2) {
-                        n.x = op.x(); n.y = op.y(); // local or tiny move
-                    } else {
+                    if (animateMoves && (dx >= 2 || dy >= 2)) {
                         n.remoteStartX = n.x; n.remoteStartY = n.y;
                         n.remoteTargetX = op.x(); n.remoteTargetY = op.y();
-                        n.remoteLerpT = 0f; // start smooth animation
+                        n.remoteLerpT = 0f; // start smooth animation (client render loop)
                     }
+                    // Always land the authoritative position immediately —
+                    // the client lerp is purely visual (NodeRenderer reads remote* while lerping).
+                    n.x = op.x(); n.y = op.y();
                     graph.bumpGeneration();
                 }
                 yield n;
