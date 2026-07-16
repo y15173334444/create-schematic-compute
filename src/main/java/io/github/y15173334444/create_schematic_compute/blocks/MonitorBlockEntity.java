@@ -40,6 +40,7 @@ import java.util.Map;
 
 public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
     public NodeGraph graph = new NodeGraph();
+    @Override public io.github.y15173334444.create_schematic_compute.graph.NodeGraph getNodeGraph() { return graph; }
     public boolean running = false;
     public final RuntimeState runtimeState = new RuntimeState();
 
@@ -233,6 +234,8 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
     }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
     private boolean needsFullSync = true;
+    public void flagFullSync() { needsFullSync = true; setChanged();
+        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
         // First sync (chunk load) sends full data; subsequent updates only send running/state.
         // Prevents server graph from overwriting unsaved client edits on LIT change.

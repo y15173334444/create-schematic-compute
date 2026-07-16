@@ -28,6 +28,7 @@ import java.util.ArrayDeque;
 
 public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
     public NodeGraph graph = new NodeGraph();
+    @Override public io.github.y15173334444.create_schematic_compute.graph.NodeGraph getNodeGraph() { return graph; }
     public boolean running = false;
     private GraphEvaluator evaluator = null;
     private NodeGraph lastEvaluatedGraph = null;
@@ -177,6 +178,8 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
     }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
     private boolean needsFullSync = true;
+    public void flagFullSync() { needsFullSync = true; setChanged();
+        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
         if (needsFullSync) { needsFullSync = false; var t=new CompoundTag(); saveAdditional(t,r); return t; }
         var t=new CompoundTag(); t.putBoolean("running", running); return t;

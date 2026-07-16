@@ -67,6 +67,7 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
 
     @Override protected void init() {
         super.init();
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
         int sy = (NodeRenderer.isToolbarBottom() ? height - 44 : 26) + 22;
         rangeInput   = new EditBox(font, 0, sy, 36, 14, Component.literal("R"));
         scaleInput   = new EditBox(font, 0, sy, 36, 14, Component.literal("S"));
@@ -245,7 +246,7 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
             be.displayX, be.displayY, be.displayZ, be.excludeHost, be.displayStyle, be.lockDistance));
     }
 
-    @Override public void removed() { RadarBlockEntity be = getBE(); if (be != null) { applyInputs(be); hideInputs(); } super.removed(); }
+    @Override public void removed() { RadarBlockEntity be = getBE(); if (be != null) { applyInputs(be); hideInputs(); } super.removed(); net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos)); }
     @Override public boolean mouseReleased(double mx, double my, int btn) { editor.mouseReleased(mx, my, btn); return super.mouseReleased(mx, my, btn); }
     @Override public void mouseMoved(double mx, double my) { editor.mouseMoved(mx, my); }
     @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }
@@ -253,4 +254,14 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
     @Override public boolean keyPressed(int key, int sc, int mod) { if (key == 256) { applyInputs(getBE()); onClose(); return true; } if (editor.keyPressed(key, sc, mod)) return true; if (key >= 32 && key <= 96) return true; return super.keyPressed(key, sc, mod); }
     @Override public boolean keyReleased(int key, int sc, int mod) { return editor.keyReleased(key, sc, mod) || super.keyReleased(key, sc, mod); }
     @Override public boolean charTyped(char ch, int mod) { return editor.charTyped(ch, mod) || super.charTyped(ch, mod); }
+
+    // ── Multiplayer collaboration ──
+    @Override public net.minecraft.core.BlockPos getBlockPos() { return menu.blockPos; }
+    @Override public java.util.UUID getPlayerUUID() { return minecraft.player != null ? minecraft.player.getUUID() : java.util.UUID.randomUUID(); }
+    @Override public GraphEditor getEditor() { return editor; }
+    @Override public String getPlayerName() { return minecraft.player != null ? minecraft.player.getName().getString() : ""; }
+    @Override public void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket(op));
+    }
+    @Override public void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) { editor.onRemoteOp(op); }
 }

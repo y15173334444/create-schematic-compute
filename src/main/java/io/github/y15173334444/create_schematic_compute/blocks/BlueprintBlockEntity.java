@@ -180,6 +180,9 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
     }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
     private boolean needsFullSync = true;
+    /** Force a full graph sync to all tracking clients (called when a new editor joins). */
+    public void flagFullSync() { needsFullSync = true; setChanged();
+        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
         if (needsFullSync) { needsFullSync = false; var t=new CompoundTag(); saveAdditional(t,r); return t; }
         var t=new CompoundTag(); t.putBoolean("running", running); return t;

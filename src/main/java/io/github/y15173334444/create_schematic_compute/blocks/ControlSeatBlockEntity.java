@@ -324,6 +324,8 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
     private boolean needsFullSync = true;
+    public void flagFullSync() { needsFullSync = true; setChanged();
+        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
         if (needsFullSync) { needsFullSync = false; var t=new CompoundTag(); saveAdditional(t,r); return t; }
         var t=new CompoundTag(); t.putBoolean("running", running); return t;

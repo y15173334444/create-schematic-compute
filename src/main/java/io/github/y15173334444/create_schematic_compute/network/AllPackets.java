@@ -63,5 +63,14 @@ public class AllPackets {
         // v1.2.2: Sable sub-level device scanning
         registrar.playToServer(ScanSablePacket.TYPE, ScanSablePacket.CODEC, ScanSablePacket::handle);
         registrar.playToClient(ScanSableResponsePacket.TYPE, ScanSableResponsePacket.CODEC, ScanSableResponsePacket::handle);
+        // v1.2.4+: Multiplayer collaboration
+        registrar.playToServer(GraphEditOpPacket.TYPE, GraphEditOpPacket.CODEC, GraphEditOpPacket::handleServer);
+        registrar.playToClient(GraphEditOpSyncPacket.TYPE, GraphEditOpSyncPacket.CODEC, GraphEditOpSyncPacket::handle);
+        registrar.playToClient(GraphEditAckPacket.TYPE, GraphEditAckPacket.CODEC, GraphEditAckPacket::handle);
+        // v1.2.4+: P2 Presence
+        registrar.playToServer(GraphPresencePacket.TYPE, GraphPresencePacket.CODEC, GraphPresencePacket::handleServer);
+        registrar.playToClient(GraphPresenceSyncPacket.TYPE, GraphPresenceSyncPacket.CODEC, GraphPresenceSyncPacket::handle);
+        registrar.playToServer(GraphJoinPacket.TYPE, GraphJoinPacket.CODEC, GraphJoinPacket::handle);
+        registrar.playToServer(GraphLeavePacket.TYPE, GraphLeavePacket.CODEC, GraphLeavePacket::handle);
     }
 }

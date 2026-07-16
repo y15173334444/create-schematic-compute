@@ -164,6 +164,7 @@ public class SchematicCompute {
                 ControlSeatBlockEntity.clearAllInputs();
                 io.github.y15173334444.create_schematic_compute.radar.TargetAssignment.clearAll();
                 io.github.y15173334444.create_schematic_compute.network.SignalBus.clear();
+                io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.clearAll();
                 LOGGER.info("{} cleared static state for server shutdown", MOD_ID);
             });
         // 玩家断开时清理其残留输入（防止下次重连时泄漏）

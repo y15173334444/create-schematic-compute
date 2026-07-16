@@ -74,6 +74,8 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
     private final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
     private final HashMap<Integer, Integer> lastBusHashMap = new HashMap<>();
     private boolean needsFullSync = true;
+    public void flagFullSync() { needsFullSync = true; setChanged();
+        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
 
     /** 客户端侧所有已加载雷达的注册表，用于 RadarLockHandler 遍历 */
     private static final java.util.Set<RadarBlockEntity> CLIENT_RADARS = new java.util.HashSet<>();

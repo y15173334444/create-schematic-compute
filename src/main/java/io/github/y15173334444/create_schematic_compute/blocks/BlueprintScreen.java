@@ -52,6 +52,20 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
             && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.ENCAP_OUTPUT);
     }
 
+    @Override protected void init() {
+        super.init();
+        // Join collaborative editing session
+        PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(
+            menu.blockPos));
+    }
+
+    @Override public void removed() {
+        super.removed();
+        // Leave collaborative editing session
+        PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(
+            menu.blockPos));
+    }
+
     private BlueprintBlockEntity getBE() {
         if (blockEntity != null) return blockEntity;
         if (menu.blockPos != null && minecraft != null && minecraft.level != null) {
@@ -64,6 +78,28 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
     @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { BlueprintBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
     @Override public net.minecraft.core.BlockPos getBlockPos() { return menu.blockPos; }
+    // ── Multiplayer collaboration (Phase 0) ──
+    @Override public java.util.UUID getPlayerUUID() { return minecraft.player != null ? minecraft.player.getUUID() : java.util.UUID.randomUUID(); }
+    @Override public GraphEditor getEditor() { return editor; }
+    @Override public String getPlayerName() { return minecraft.player != null ? minecraft.player.getName().getString() : ""; }
+    @Override public void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+            new io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket(op));
+    }
+    @Override public void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
+        editor.onRemoteOp(op);
+    }
+    @Override public void handleAck(io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket ack) {
+        // Remap local tempId to server-assigned ID so subsequent ops reference the correct node
+        if (ack.tempId() > 0 && ack.assignedId() > 0 && ack.tempId() != ack.assignedId()) {
+            var graph = getGraph();
+            var node = graph.findNode(ack.tempId());
+            if (node != null) {
+                node.id = ack.assignedId();
+                graph.rebuildNodeMap();
+            }
+        }
+    }
 
     @Override
     public void saveGraph() {
