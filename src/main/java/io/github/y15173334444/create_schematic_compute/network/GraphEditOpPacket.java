@@ -26,9 +26,6 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
     /** C→S: client emits an edit op to the server. */
     public static final Type<GraphEditOpPacket> TYPE =
         new Type<>(ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "graph_edit_op"));
-    /** S→C: server broadcasts an applied op to other editors. */
-    public static final Type<GraphEditOpPacket> TYPE_SYNC =
-        new Type<>(ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "graph_edit_op_sync"));
 
     public static final StreamCodec<ByteBuf, GraphEditOpPacket> CODEC =
         new StreamCodec<>() {
@@ -148,14 +145,4 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
         });
     }
 
-    public static void handleClient(GraphEditOpPacket pkt, IPayloadContext ctx) {
-        ctx.enqueueWork(() -> {
-            if (ctx.player() == null) return;
-            var mc = net.minecraft.client.Minecraft.getInstance();
-            if (mc.screen instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.Host host
-                && host.getBlockPos().equals(pkt.op.graphPos())) {
-                host.onRemoteOp(pkt.op);
-            }
-        });
-    }
 }
