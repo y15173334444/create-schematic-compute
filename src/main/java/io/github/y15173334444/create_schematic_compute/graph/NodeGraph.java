@@ -29,6 +29,9 @@ public class NodeGraph {
     private int topoVersion = 0;
     private List<Integer> topoOrder = null;
 
+    /** Expose nodeMap for UI remapping (ACK-handler in GraphEditor). */
+    public Map<Integer, GraphNode> nodeMap() { return nodeMap; }
+
     /** 全局图版本号 — 任何影响渲染的变更（结构/参数/位置）时递增。
      *  Phase 2 脏标记框架用此值判断是否需要重新渲染。 */
     public int graphGeneration = 0;
@@ -127,7 +130,8 @@ public class NodeGraph {
     }
 
     /** 重建输入缓存 */
-    private void rebuildInputCache() {
+    /** Rebuild the input cache (public for ACK-based ID remapping). */
+    public void rebuildInputCache() {
         inputCache.clear();
         for (NodeConnection c : connections) {
             inputCache.put(key(c.toId, c.toPin), c);

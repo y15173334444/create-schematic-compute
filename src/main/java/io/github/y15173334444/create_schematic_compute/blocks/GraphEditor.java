@@ -53,7 +53,12 @@ public class GraphEditor {
         /** Apply a remote edit op received from the server. */
         default void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {}
         /** Handle a server acknowledgment (assigned node ID, edit version). */
-        default void handleAck(io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket ack) {}
+        /** Handle server-assigned node ID from ADD_NODE_REQUEST. */
+        default void handleAck(io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket ack) {
+            if (ack.tempId() <= 0 || ack.assignedId() <= 0) return;
+            var ed = getEditor();
+            if (ed != null) ed.remapNodeId(ack);
+        }
         /** Get the local player UUID for soft-lock attribution. */
         default java.util.UUID getPlayerUUID() { return java.util.UUID.randomUUID(); }
         /** Get the local player name for presence display. */
@@ -143,6 +148,83 @@ public class GraphEditor {
         var graph = getGraph();
         io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(graph, e.op);
         host.sendOp(e.op);
+    }
+
+    /** Remap a client-assigned temp node ID to the server-assigned real ID
+     *  (ACK for ADD_NODE_REQUEST). Updates every reference: nodes, connections,
+     *  undo/redo stacks, and UI selections. */
+    void remapNodeId(io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket ack) {
+        int tid = ack.tempId(), rid = ack.assignedId();
+        if (tid == rid) return;
+        var graph = getGraph();
+        var node = graph.findNode(tid);
+        if (node == null) return; // already gone or already remapped
+        // Update the node itself
+        graph.nodeMap().remove(tid);
+        node.id = rid;
+        graph.nodeMap().put(rid, node);
+        // Rewire connections referencing the tempId
+        for (var c : graph.connections) {
+            if (c.fromId == tid) c.fromId = rid;
+            if (c.toId == tid) c.toId = rid;
+        }
+        // Update undo/redo stacks (ops targeting this node)
+        for (int i = 0; i < localUndoStack2.size(); i++) {
+            var entry = localUndoStack2.get(i);
+            var op = entry.op;
+            if (op.targetNodeId() == tid) op = withTargetId(op, rid);
+            if (op.fromId() == tid) op = withFromToId(op, rid, op.toId());
+            if (op.toId() == tid) op = withFromToId(op, op.fromId(), rid);
+            if (op != entry.op) localUndoStack2.set(i, new UndoEntry(op, entry.oldX(), entry.oldY(), entry.oldVal(), entry.oldStr()));
+        }
+        for (int i = 0; i < localRedoStack2.size(); i++) {
+            var entry = localRedoStack2.get(i);
+            var op = entry.op;
+            if (op.targetNodeId() == tid) op = withTargetId(op, rid);
+            if (op.fromId() == tid) op = withFromToId(op, rid, op.toId());
+            if (op.toId() == tid) op = withFromToId(op, op.fromId(), rid);
+            if (op != entry.op) localRedoStack2.set(i, new UndoEntry(op, entry.oldX(), entry.oldY(), entry.oldVal(), entry.oldStr()));
+        }
+        // UI selections
+        if (selectedNode != null && selectedNode.id == tid) selectedNode = node;
+        selectedNodes.removeIf(n -> n.id == tid);
+        selectedNodes.add(node); // add with remapped node identity
+        var expand = expandedNodeIds.remove(tid);
+        if (expand) expandedNodeIds.add(rid);
+        var state = nodeEditStatesById.remove(tid);
+        if (state != null) nodeEditStatesById.put(rid, state);
+        if (draggingNode != null && draggingNode.id == tid) draggingNode = node;
+        if (wireFromNode == tid) wireFromNode = rid;
+        if (encapsulationParent != null && encapsulationParent.id == tid) encapsulationParent = node;
+        if (resizingComment != null && resizingComment.id == tid) resizingComment = node;
+        graph.rebuildInputCache();
+        graph.bumpGeneration();
+    }
+
+    /** Return a copy of {@code op} with {@code targetNodeId} replaced. */
+    private static io.github.y15173334444.create_schematic_compute.graph.GraphOp withTargetId(
+        io.github.y15173334444.create_schematic_compute.graph.GraphOp op, int newId) {
+        return new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            op.type(), op.graphPos(), op.ownerNodeId(), newId,
+            op.tempId(), op.nodeType(), op.x(), op.y(),
+            op.fromId(), op.fromPin(), op.toId(), op.toPin(),
+            op.paramIndex(), op.paramValue(), op.stringValue(),
+            op.colorBg(), op.colorBorder(), op.colorText(),
+            op.sortB(), op.bands(), op.keyIndex(), op.imageFrameIndex(),
+            op.hotbarSlot(), op.itemStack(), op.editVersion(), op.actor());
+    }
+
+    /** Return a copy of {@code op} with {@code fromId}/{@code toId} replaced. */
+    private static io.github.y15173334444.create_schematic_compute.graph.GraphOp withFromToId(
+        io.github.y15173334444.create_schematic_compute.graph.GraphOp op, int newFromId, int newToId) {
+        return new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            op.type(), op.graphPos(), op.ownerNodeId(), op.targetNodeId(),
+            op.tempId(), op.nodeType(), op.x(), op.y(),
+            newFromId, op.fromPin(), newToId, op.toPin(),
+            op.paramIndex(), op.paramValue(), op.stringValue(),
+            op.colorBg(), op.colorBorder(), op.colorText(),
+            op.sortB(), op.bands(), op.keyIndex(), op.imageFrameIndex(),
+            op.hotbarSlot(), op.itemStack(), op.editVersion(), op.actor());
     }
 
     /** Take an undo snapshot of the given graph */
@@ -1399,12 +1481,9 @@ public class GraphEditor {
                 }else{
                     {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
                     var added = graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));
-                    var addOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                        io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE,
+                    var addOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(
                         host.getBlockPos(), ownerNodeId(), added.id,
-                        added.id, selectedMenuType, s2cX(mx), s2cY(my), 0, 0, 0, 0, 0, 0f,
-                        null, 0, 0, 0, 0, null, 0, 0, 0,
-                        net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
+                        selectedMenuType, s2cX(mx), s2cY(my), host.getPlayerUUID());
                     host.sendOp(addOp);
                     recordOp(addOp, 0, 0, 0, null);
                 }

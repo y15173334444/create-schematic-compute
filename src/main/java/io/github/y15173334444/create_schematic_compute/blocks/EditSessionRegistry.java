@@ -138,6 +138,38 @@ public final class EditSessionRegistry {
             }
         }
 
+        // 4. ADD_NODE_REQUEST: server allocates real ID → ACK originator → broadcast to others
+        if (op.type() == OpType.ADD_NODE_REQUEST) {
+            var node = OpExecutor.apply(targetGraph, op); // server assigns nextNodeId
+            long version = nextVersion(pos);
+            // ACK originator with tempId → realId mapping
+            PacketDistributor.sendToPlayer(actor,
+                new GraphEditAckPacket(pos, op.tempId(), node.id, version));
+            // Broadcast ADD_NODE (S→C direction) to other editors only
+            var broadcastOp = new GraphOp(
+                OpType.ADD_NODE, op.graphPos(), op.ownerNodeId(), node.id,
+                node.id, op.nodeType(), op.x(), op.y(),
+                0, 0, 0, 0, 0, 0f,
+                null, 0, 0, 0, 0, null, 0, 0, 0,
+                net.minecraft.world.item.ItemStack.EMPTY, version, op.actor()
+            );
+            var syncPkt = new GraphEditOpSyncPacket(broadcastOp);
+            var editors = getEditors(pos);
+            for (var editorId : editors) {
+                if (editorId.equals(actor.getUUID())) continue;
+                var editorPlayer = level.getServer().getPlayerList().getPlayer(editorId);
+                if (editorPlayer != null) {
+                    PacketDistributor.sendToPlayer(editorPlayer, syncPkt);
+                }
+            }
+            appendToLog(pos, broadcastOp);
+            gbe.getNodeGraph().bumpGeneration();
+            if (gbe instanceof BlueprintBlockEntity bbe) {
+                bbe.setChanged();
+            }
+            return;
+        }
+
         // 5. Execute
         OpExecutor.apply(targetGraph, op);
         long version = nextVersion(pos);
@@ -155,7 +187,6 @@ public final class EditSessionRegistry {
         );
         var syncPkt = new GraphEditOpSyncPacket(broadcastOp);
         var editors = getEditors(pos);
-        var chunkPos = new ChunkPos(pos);
         for (var editorId : editors) {
             if (editorId.equals(actor.getUUID())) continue;
             var editorPlayer = level.getServer().getPlayerList().getPlayer(editorId);

@@ -33,10 +33,18 @@ public final class OpExecutor {
     public static GraphNode apply(NodeGraph graph, GraphOp op, boolean animateMoves) {
         return switch (op.type()) {
             case ADD_NODE -> {
+                // S→C broadcast to non-originator editors: server-assigned ID is authoritative.
                 var node = graph.addNode(op.nodeType(), op.x(), op.y());
                 node.id = op.targetNodeId();
-                graph.rebuildNodeMap(); // remap after ID override
+                graph.rebuildNodeMap();
                 yield node;
+            }
+
+            case ADD_NODE_REQUEST -> {
+                // Server only: create node with the server's nextNodeId (ignore client tempId).
+                var node = graph.addNode(op.nodeType(), op.x(), op.y());
+                graph.rebuildNodeMap();
+                yield node;  // caller sends ACK with node.id → tempId
             }
 
             case REMOVE_NODE -> {
@@ -235,7 +243,7 @@ public final class OpExecutor {
                 yield n;
             }
             // These are handled at the session / UI layer, not the graph layer:
-            case ADD_NODE_REQUEST, ENCAP_IMPORT, REJECT -> null;
+            case ENCAP_IMPORT, REJECT -> null;
 
             default -> null;
         };
