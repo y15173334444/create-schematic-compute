@@ -29,6 +29,9 @@ public class NodeGraph {
     private int topoVersion = 0;
     private List<Integer> topoOrder = null;
 
+    /** Expose nodeMap for UI remapping (ACK-handler in GraphEditor). */
+    public Map<Integer, GraphNode> nodeMap() { return nodeMap; }
+
     /** 全局图版本号 — 任何影响渲染的变更（结构/参数/位置）时递增。
      *  Phase 2 脏标记框架用此值判断是否需要重新渲染。 */
     public int graphGeneration = 0;
@@ -127,7 +130,8 @@ public class NodeGraph {
     }
 
     /** 重建输入缓存 */
-    private void rebuildInputCache() {
+    /** Rebuild the input cache (public for ACK-based ID remapping). */
+    public void rebuildInputCache() {
         inputCache.clear();
         for (NodeConnection c : connections) {
             inputCache.put(key(c.toId, c.toPin), c);
@@ -165,6 +169,26 @@ public class NodeGraph {
 
     public boolean hasCycles() {
         return getTopoOrder().size() < nodes.size();
+    }
+
+    /** 检查新增 from→to 连接是否会构成环（只读，不修改图）。
+     *  从 toId 沿现有连接方向 BFS，若能到达 fromId，则 from→to 会闭环。 */
+    public boolean wouldCreateCycle(int fromId, int toId) {
+        if (fromId == toId) return true;
+        Map<Integer, List<Integer>> adj = new HashMap<>();
+        for (NodeConnection c : connections)
+            adj.computeIfAbsent(c.fromId, k -> new ArrayList<>()).add(c.toId);
+        Queue<Integer> q = new ArrayDeque<>();
+        java.util.Set<Integer> visited = new java.util.HashSet<>();
+        q.add(toId);
+        visited.add(toId);
+        while (!q.isEmpty()) {
+            int cur = q.poll();
+            if (cur == fromId) return true;
+            for (int nb : adj.getOrDefault(cur, Collections.emptyList()))
+                if (visited.add(nb)) q.add(nb);
+        }
+        return false;
     }
 
     /** Deep-copy this entire graph with new IDs. Recursively copies sub-graphs inside encapsulation nodes. */

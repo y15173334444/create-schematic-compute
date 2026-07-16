@@ -255,6 +255,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         if (displayMode) {
             renderDisplayArea(g, mx, my);
             renderLayerPanel(g, mx, my);
+            editor.renderPresenceOverlay(g);
         } else {
             editor.renderBg(g, mx, my);
             renderDisplayToggleButton(g);
@@ -1491,6 +1492,13 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             if (layerDragState == LayerDragState.PRESSED) {
                 resetLayerDragState();
             }
+            if (draggedDisplayNode != null) {
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
+                    menu.blockPos, -1, draggedDisplayNode.id,
+                    draggedDisplayNode.layoutX, draggedDisplayNode.layoutY,
+                    draggedDisplayNode.displayScale, draggedDisplayNode.displayRotation,
+                    minecraft.player.getUUID()));
+            }
             draggedDisplayNode = null;
             return true;
         }
@@ -1618,7 +1626,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
         // Click outside → close
         if (mx < ox - 20 || mx > ox + gridPx + 20 || my < oy - 20 || my > oy + gridPx + 40) {
-            pixelEdit = null; editor.colorPicker.close();
+            pixelEdit = null; editor.colorPicker.close(); saveGraph();
             return true;
         }
 
@@ -1643,7 +1651,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         if (pixelEdit != null && pixelEdit.open) {
             // Color picker handles hex input; no separate hex editing needed
             if (key == 256) { // ESC
-                pixelEdit = null; editor.colorPicker.close();
+                pixelEdit = null; editor.colorPicker.close(); saveGraph();
                 return true;
             }
             return true; // consume all keys while pixel editor is open
@@ -1659,6 +1667,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 if (key == 257 || key == 335) {
                     try { selectedDisplayNode.displayScale = Math.max(0.01f, Float.parseFloat(editSBuf)); }
                     catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
+                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
+                        menu.blockPos, -1, selectedDisplayNode.id,
+                        selectedDisplayNode.layoutX, selectedDisplayNode.layoutY,
+                        selectedDisplayNode.displayScale, selectedDisplayNode.displayRotation,
+                        minecraft.player.getUUID()));
                     editingS = false; return true;
                 }
                 if (key == 259 && editSBuf.length() > 0) { editSBuf = editSBuf.substring(0, editSBuf.length() - 1); return true; }
@@ -1669,6 +1682,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 if (key == 257 || key == 335) {
                     try { selectedDisplayNode.displayRotation = Float.parseFloat(editRBuf) % 360f; }
                     catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
+                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
+                        menu.blockPos, -1, selectedDisplayNode.id,
+                        selectedDisplayNode.layoutX, selectedDisplayNode.layoutY,
+                        selectedDisplayNode.displayScale, selectedDisplayNode.displayRotation,
+                        minecraft.player.getUUID()));
                     editingR = false; return true;
                 }
                 if (key == 259 && editRBuf.length() > 0) { editRBuf = editRBuf.substring(0, editRBuf.length() - 1); return true; }
@@ -1682,7 +1700,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
         if (key == 256) {
             // Esc closes sub-panels first, then the screen
-            if (pixelEdit != null && pixelEdit.open) { pixelEdit.open = false; return true; }
+            if (pixelEdit != null && pixelEdit.open) { pixelEdit.open = false; saveGraph(); return true; }
             if (showSettings) { showSettings = false; return true; }
             if (displayMode) { displayMode = false; return true; }
             onClose(); return true;
@@ -1724,4 +1742,23 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
         super.onClose();
     }
+
+    // ── Multiplayer collaboration ──
+    @Override public net.minecraft.core.BlockPos getBlockPos() { return menu.blockPos; }
+    @Override public java.util.UUID getPlayerUUID() { return minecraft.player != null ? minecraft.player.getUUID() : java.util.UUID.randomUUID(); }
+    @Override public GraphEditor getEditor() { return editor; }
+    @Override public String getPlayerName() { return minecraft.player != null ? minecraft.player.getName().getString() : ""; }
+    @Override public void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket(op));
+    }
+    @Override public void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) { editor.onRemoteOp(op); }
+    @Override protected void init() {
+        super.init();
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
+    }
+    @Override public void removed() {
+        super.removed();
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));
+    }
+
 }

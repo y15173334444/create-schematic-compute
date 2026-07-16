@@ -299,7 +299,8 @@ public class NodeRenderer {
                              GraphNode primaryNode, java.util.Set<Integer> editNodeIds,
                              java.util.Map<Integer, io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState> editStates,
                              float camX, float camY, float zoom, int mx, int my,
-                             Map<Integer, Boolean> flipflopStates) {
+                             Map<Integer, Boolean> flipflopStates,
+                             Map<Integer, String> lockedNodes) {
         expandedNodeIds = editNodeIds != null ? editNodeIds : java.util.Collections.emptySet();
         nodeEditStatesById = editStates != null ? editStates : java.util.Collections.emptyMap();
         int w = screen.width, h = screen.height;
@@ -312,7 +313,7 @@ public class NodeRenderer {
                 nh += io.github.y15173334444.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom) * zoom;
             if (sx + sw < -margin || sx > w + margin || sy + nh < -margin || sy > h + margin)
                 continue;
-            drawNode(g, n, selectedNodes.contains(n), n == primaryNode, expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, flipflopStates);
+            drawNode(g, n, selectedNodes.contains(n), n == primaryNode, expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
         }
     }
 
@@ -573,9 +574,11 @@ public class NodeRenderer {
 
     private void drawNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary, boolean editing,
                            float camX, float camY, float zoom, int mx, int my,
-                           Map<Integer, Boolean> flipflopStates) {
+                           Map<Integer, Boolean> flipflopStates,
+                           Map<Integer, String> lockedNodes) {
         // COMMENT nodes are rendered entirely at A=1 via renderCommentNodes
         if (n.type == NodeType.COMMENT) return;
+        String lockedBy = lockedNodes != null ? lockedNodes.get(n.id) : null;
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
         int nodeW = nw(n);
         float sw = nodeW*zoom;
@@ -688,6 +691,25 @@ public class NodeRenderer {
             drawStr(g, outlbl, nodeW - olw - 6, py-3, CD);
         }
         pinPose.popPose();
+        // Soft lock: colored border + name label (no overlay)
+        if (lockedBy != null) {
+            int h = lockedBy.hashCode();
+            int lockColor = 0xFF000000 | (((h >> 16) & 0xFF) << 16) | (((h >> 8) & 0xFF) << 8) | (h & 0xFF) | 0xFF000000;
+            // Thick outer border in player color
+            g.renderOutline((int)sx - 3, (int)sy - 3, (int)sw + 6, (int)(nh + 6), lockColor);
+            g.renderOutline((int)sx - 2, (int)sy - 2, (int)sw + 4, (int)(nh + 4), lockColor);
+            // Name label above node
+            int lw = Minecraft.getInstance().font.width(lockedBy);
+            int lx = (int)(sx + (sw - lw * zoom) / 2);
+            int ly = (int)(sy - 22 * zoom);
+            g.fill(lx - 4, ly - 2, (int)(lx + lw * zoom + 4), (int)(ly + 12 * zoom), 0xCC222222);
+            var lockPose = g.pose();
+            lockPose.pushPose();
+            lockPose.translate(lx, ly, 0);
+            lockPose.scale(zoom, zoom, 1);
+            drawStr(g, "§e" + lockedBy, 0, 0, 0xFFFFAA44);
+            lockPose.popPose();
+        }
         // Flush per-node to prevent text (font buffer) from later nodes'
         // fills covering earlier nodes' text due to Minecraft's two-pass
         // buffer flush (all fills before all text).

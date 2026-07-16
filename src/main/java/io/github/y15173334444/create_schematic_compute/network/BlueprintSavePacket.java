@@ -31,6 +31,12 @@ public record BlueprintSavePacket(BlockPos pos, byte[] nbtData) implements Custo
                 SchematicCompute.LOGGER.warn("Rejected oversized blueprint data ({} bytes) from {}", nbtData.length, ctx.player().getName().getString());
                 return;
             }
+            // Skip full-graph overwrite when other editors are actively collaborating via ops.
+            // The incremental op path already applies every mutation server-side,
+            // so a client-sent snapshot would stomp concurrent edits.
+            if (ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp
+                && io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.getEditors(sp.serverLevel(), pos).size() > 1)
+                return;
             if (ctx.player().level().getBlockEntity(pos) instanceof GraphBlockEntity gbe) {
                 gbe.loadGraphFromBytes(nbtData);
                 if (gbe.graphHasCycles() && gbe.isRunning()) {

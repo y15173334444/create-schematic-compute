@@ -47,6 +47,9 @@ public class GraphNode {
     public int commentBorderColor = 0xFFE6D8B0; // border color, default light brown
     public int commentTextColor = 0xFF333333;   // text color, default dark gray
     public transient int commentScrollOff = 0;  // vertical scroll offset (UI state, not persisted)
+    // Remote move interpolation (for smooth multiplayer drag)
+    public transient float remoteLerpT = 1f;
+    public transient float remoteStartX, remoteStartY, remoteTargetX, remoteTargetY;
     /** Encapsulation node's nested sub-graph (null for other types) */
     public NodeGraph subGraph;
 
@@ -284,6 +287,7 @@ public class GraphNode {
         tag.putFloat("ly", layoutY);
         tag.putFloat("ds", displayScale);
         tag.putFloat("dr", displayRotation);
+        if (moveScale != 0.01f) tag.putFloat("ms", moveScale);
         if (layerIndex != 0) tag.putInt("layer", layerIndex);
         if (sortB != 0) tag.putInt("zb", sortB);
         if (expanded) tag.putBoolean("expanded", true);
@@ -349,6 +353,7 @@ public class GraphNode {
         if (tag.contains("ly")) node.layoutY = tag.getFloat("ly");
         if (tag.contains("ds")) node.displayScale = tag.getFloat("ds");
         if (tag.contains("dr")) node.displayRotation = tag.getFloat("dr");
+        if (tag.contains("ms")) node.moveScale = tag.getFloat("ms");
         if (tag.contains("layer")) node.layerIndex = tag.getInt("layer");
         if (tag.contains("zb")) node.sortB = tag.getInt("zb");
         node.expanded = tag.getBoolean("expanded");

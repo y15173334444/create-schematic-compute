@@ -24,6 +24,10 @@ runs {
 
     client {
         systemProperty 'forge.enabledGameTestNamespaces', project.group
+        // Multiplayer dev: -Pusername=Name sets player name
+        if (project.hasProperty('username')) {
+            arguments '--username', project.property('username').toString()
+        }
     }
 
     server {

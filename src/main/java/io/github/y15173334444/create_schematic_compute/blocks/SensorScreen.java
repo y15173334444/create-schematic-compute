@@ -59,4 +59,23 @@ public class SensorScreen extends AbstractContainerScreen<SensorMenu> implements
     @Override public boolean keyPressed(int key, int sc, int mod) { if(key==256){onClose();return true;} if (editor.keyPressed(key, sc, mod)) return true; if (key >= 32 && key <= 96) return true; return super.keyPressed(key, sc, mod); }
     @Override public boolean keyReleased(int key, int sc, int mod) { return editor.keyReleased(key, sc, mod) || super.keyReleased(key, sc, mod); }
     @Override public boolean charTyped(char ch, int mod) { return editor.charTyped(ch, mod) || super.charTyped(ch, mod); }
+
+    // ── Multiplayer collaboration ──
+    @Override public net.minecraft.core.BlockPos getBlockPos() { return menu.blockPos; }
+    @Override public java.util.UUID getPlayerUUID() { return minecraft.player != null ? minecraft.player.getUUID() : java.util.UUID.randomUUID(); }
+    @Override public GraphEditor getEditor() { return editor; }
+    @Override public String getPlayerName() { return minecraft.player != null ? minecraft.player.getName().getString() : ""; }
+    @Override public void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket(op));
+    }
+    @Override public void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) { editor.onRemoteOp(op); }
+    @Override protected void init() {
+        super.init();
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
+    }
+    @Override public void removed() {
+        super.removed();
+        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));
+    }
+
 }
