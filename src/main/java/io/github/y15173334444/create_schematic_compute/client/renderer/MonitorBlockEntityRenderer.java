@@ -45,6 +45,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
 
     // Cached evaluator (reused across frames until graph changes)
     private NodeGraph cachedEvalGraph;
+    private int cachedEvalGraphGen = -1;
     private GraphEvaluator cachedEvaluator;
     private final java.util.HashMap<Integer, Float> cachedPidState = new java.util.HashMap<>();
     // Reusable input list to avoid per-frame allocation (Phase 1 optimization)
@@ -57,8 +58,9 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         if (be.graph == null || be.graph.nodes.isEmpty()) return;
 
         // Reuse evaluator across frames until graph changes
-        if (cachedEvaluator == null || cachedEvalGraph != be.graph) {
+        if (cachedEvaluator == null || cachedEvalGraphGen != be.graph.graphGeneration) {
             cachedEvalGraph = be.graph;
+            cachedEvalGraphGen = be.graph.graphGeneration;
             cachedEvaluator = new GraphEvaluator(be.graph);
             cachedPidState.clear();
         }

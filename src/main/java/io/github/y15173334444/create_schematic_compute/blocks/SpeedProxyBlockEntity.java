@@ -33,6 +33,7 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
     public boolean running = false;
     private GraphEvaluator evaluator = null;
     private NodeGraph lastEvaluatedGraph = null;
+    private int lastGraphGeneration = -1;
 
     // 反射缓存：SpeedControllerBlockEntity 的 targetSpeed 字段
     private static Class<?> speedControllerClass = null;
@@ -68,9 +69,10 @@ public class SpeedProxyBlockEntity extends BlockEntity implements MenuProvider, 
         if (state.getValue(SpeedProxyBlock.LIT) != shouldBeLit)
             level.setBlock(worldPosition, state.setValue(SpeedProxyBlock.LIT, shouldBeLit), 3);
         if (!running) return;
-        if (evaluator == null || lastEvaluatedGraph != graph) {
+        if (evaluator == null || lastGraphGeneration != graph.graphGeneration) {
             evaluator = new GraphEvaluator(graph);
             lastEvaluatedGraph = graph;
+            lastGraphGeneration = graph.graphGeneration;
             runtimeState.pidState.clear();
         }
         var results = evaluator.evaluate(List.of(), runtimeState.pidState, 0.05f);

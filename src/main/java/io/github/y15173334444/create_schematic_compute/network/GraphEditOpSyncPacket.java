@@ -38,9 +38,28 @@ public record GraphEditOpSyncPacket(GraphOp op) implements CustomPacketPayload {
         ctx.enqueueWork(() -> {
             if (ctx.player() == null) return;
             var mc = net.minecraft.client.Minecraft.getInstance();
+            // If the editor UI is open, delegate to the host for full UI-aware handling
             if (mc.screen instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.Host host
                 && host.getBlockPos().equals(pkt.op().graphPos())) {
                 host.onRemoteOp(pkt.op());
+            } else {
+                // UI closed: apply op directly to the BE graph so the in-world renderer sees changes
+                var level = mc.level;
+                if (level != null) {
+                    var be = level.getBlockEntity(pkt.op().graphPos());
+                    if (be instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity gbe) {
+                        var graph = gbe.getNodeGraph();
+                        if (graph == null) return;
+                        // Resolve sub-graph for encapsulation nodes
+                        if (pkt.op().ownerNodeId() >= 0) {
+                            var encapNode = graph.findNode(pkt.op().ownerNodeId());
+                            if (encapNode != null && encapNode.subGraph != null)
+                                graph = encapNode.subGraph;
+                            else return;
+                        }
+                        io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(graph, pkt.op(), false);
+                    }
+                }
             }
         });
     }

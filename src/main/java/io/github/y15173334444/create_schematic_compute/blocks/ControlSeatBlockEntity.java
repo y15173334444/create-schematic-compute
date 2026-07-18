@@ -134,6 +134,7 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
     /** 子类（Sable compat）访问 */
     protected GraphEvaluator evaluator = null;
     protected NodeGraph lastEvaluatedGraph = null;
+    protected int lastGraphGeneration = -1;
     protected final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
     private final java.util.HashMap<Integer, Integer> lastBusHashMap = new java.util.HashMap<>();
     /** 姿态/前方朝向（由子类 sable$physicsTick 更新） */
@@ -215,7 +216,7 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
         if(currentState.getValue(ControlSeatBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(ControlSeatBlock.LIT, shouldBeLit), 3);
         rs.checkGraphChanged(graph);
-        if(evaluator==null||lastEvaluatedGraph!=graph) {
+        if(evaluator==null||lastGraphGeneration!=graph.graphGeneration) {
             if (lastEvaluatedGraph != null) {
                 BusChannelHelper.syncDeletedBusNames(lastEvaluatedGraph, graph, worldPosition, level);
                 unregisterBusChannels(lastEvaluatedGraph);
@@ -224,6 +225,7 @@ public class ControlSeatBlockEntity extends BlockEntity implements MenuProvider,
             evaluator = new GraphEvaluator(graph);
             evaluator.restoreSubState(runtimeState);
             lastEvaluatedGraph = graph;
+            lastGraphGeneration = graph.graphGeneration;
             registerBusChannels();
         }
         if(!running) {

@@ -1536,9 +1536,11 @@ public class GraphEditor {
                 if (si >= 0 && si < 9 && mc2.player != null && hotbarNode.itemParams != null && st != null
                     && st.freqSlotSelected < hotbarNode.itemParams.length) {
                     var inv = mc2.player.getInventory().items.get(si);
-                    hotbarNode.itemParams[st.freqSlotSelected] = inv.isEmpty() ? ItemStack.EMPTY : inv.copy();
-                    if (!inv.isEmpty()) hotbarNode.itemParams[st.freqSlotSelected].setCount(1);
-                    host.saveGraph(); // sync item params via full graph
+                    var is = inv.isEmpty() ? ItemStack.EMPTY : inv.copy();
+                    if (!inv.isEmpty()) is.setCount(1);
+                    hotbarNode.itemParams[st.freqSlotSelected] = is;
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setHotbarItem(
+                        host.getBlockPos(), ownerNodeId(), hotbarNode.id, st.freqSlotSelected, is, host.getPlayerUUID()));
                 }
                 hotbarNode = null; // 点击面板内始终关闭
                 return true;
@@ -2177,6 +2179,12 @@ public class GraphEditor {
                 host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
                     host.getBlockPos(), ownerNodeId(), resizingComment.id,
                     resizingComment.commentWidth, resizingComment.commentHeight, host.getPlayerUUID()));
+                // Sync positions of nodes that were pushed/contained by the resize
+                var pushed = new java.util.HashMap<GraphNode, Integer>();
+                collectContainedNodesDepth(resizingComment, pushed, 0);
+                for (var cn : pushed.keySet())
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                        host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID()));
             }
             resizingComment = null;
             return;
@@ -2354,6 +2362,13 @@ public class GraphEditor {
             }
             resizingComment.commentWidth = newW;
             resizingComment.commentHeight = newH;
+            // Real-time size sync (throttled) for collaboration
+            long nowRs = System.currentTimeMillis();
+            if (nowRs - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
+                lastDragSendTime = nowRs;
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
+                    host.getBlockPos(), ownerNodeId(), resizingComment.id, newW, newH, host.getPlayerUUID()));
+            }
             markDirty();
             return;
         }

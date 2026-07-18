@@ -7,6 +7,7 @@ import io.github.y15173334444.create_schematic_compute.client.colorpicker.Recent
 import io.github.y15173334444.create_schematic_compute.graph.*;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
+
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
@@ -67,6 +68,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     // ── Evaluator cache (reused across display-mode frames) ──
     private NodeGraph lastEvalGraph = null;
+    private int lastEvalGraphGen = -1;
     private GraphEvaluator cachedEval = null;
     private java.util.HashMap<Integer, Float> cachedPidState = null;
     private ArrayList<GraphEvaluator.InputSource> cachedEmptyInputs = null;
@@ -164,6 +166,20 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             PacketDistributor.sendToServer(new BlueprintSavePacket(be.getBlockPos(), baos.toByteArray()));
             editor.saveFeedbackUntil = System.currentTimeMillis() + 1500;
         } catch (Exception e) { SchematicCompute.LOGGER.error("Save", e); }
+    }
+
+    /** Send current frame pixel data via existing GraphOp pipeline */
+    private void sendFrameSync() {
+        if (pixelEdit == null || pixelEdit.node == null) return;
+        var node = pixelEdit.node;
+        int frameIdx = (node.type == NodeType.IMAGE_SEQUENCE) ? pixelEdit.frameIndex : 0;
+        int[] data = (node.imagePixels != null) ? node.imagePixels.clone() : new int[256];
+        // Encode as Base64 and send through existing GraphOp pipeline
+        var buf = java.nio.ByteBuffer.allocate(data.length * 4);
+        for (int v : data) buf.putInt(v);
+        String b64 = java.util.Base64.getEncoder().encodeToString(buf.array());
+        sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(
+            menu.blockPos, -1, node.id, frameIdx, b64, minecraft.player.getUUID()));
     }
 
     @Override
@@ -311,8 +327,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     private float getContentWorldW() { return Math.max(getEffectiveScreenW() - (2 * BEZEL_MARGIN), 0.01f); }
 
     private GraphEvaluator getCachedEvaluator(NodeGraph graph) {
-        if (cachedEval == null || lastEvalGraph != graph) {
+        if (cachedEval == null || lastEvalGraphGen != graph.graphGeneration) {
             lastEvalGraph = graph;
+            lastEvalGraphGen = graph.graphGeneration;
             cachedEval = new GraphEvaluator(graph);
             if (cachedPidState == null) cachedPidState = new java.util.HashMap<>();
             cachedPidState.clear();
@@ -1566,6 +1583,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
             // ◀ prev
             if (mx >= navX && mx <= navX + prevW + 4 && my >= navY && my <= navY + 12) {
+                sendFrameSync(); // sync current frame before switching
                 pixelEdit.frameIndex = Math.max(0, pixelEdit.frameIndex - 1);
                 if (pixelEdit.frameIndex < pixelEdit.node.imageSequenceFrames.size())
                     pixelEdit.node.imagePixels = pixelEdit.node.imageSequenceFrames.get(pixelEdit.frameIndex);
@@ -1574,6 +1592,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             }
             // ▶ next
             if (mx >= nextOff && mx <= nextOff + nextW + 4 && my >= navY && my <= navY + 12) {
+                sendFrameSync(); // sync current frame before switching
                 pixelEdit.frameIndex = Math.min(pixelEdit.node.imageSequenceFrames.size() - 1, pixelEdit.frameIndex + 1);
                 if (pixelEdit.frameIndex >= 0 && pixelEdit.frameIndex < pixelEdit.node.imageSequenceFrames.size())
                     pixelEdit.node.imagePixels = pixelEdit.node.imageSequenceFrames.get(pixelEdit.frameIndex);
@@ -1601,6 +1620,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 pixelEdit.frameIndex = pixelEdit.node.imageSequenceFrames.size() - 1;
                 pixelEdit.node.imagePixels = newFrame;
                 pixelEdit.newFrameMenuOpen = false;
+                sendFrameSync();
                 return true;
             }
             // Dropdown: "From current"
@@ -1617,6 +1637,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                 pixelEdit.frameIndex = pixelEdit.node.imageSequenceFrames.size() - 1;
                 pixelEdit.node.imagePixels = newFrame;
                 pixelEdit.newFrameMenuOpen = false;
+                sendFrameSync();
                 return true;
             }
         }
@@ -1626,7 +1647,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
         // Click outside → close
         if (mx < ox - 20 || mx > ox + gridPx + 20 || my < oy - 20 || my > oy + gridPx + 40) {
-            pixelEdit = null; editor.colorPicker.close(); saveGraph();
+            sendFrameSync(); pixelEdit = null; editor.colorPicker.close(); saveGraph();
             return true;
         }
 
@@ -1651,7 +1672,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         if (pixelEdit != null && pixelEdit.open) {
             // Color picker handles hex input; no separate hex editing needed
             if (key == 256) { // ESC
-                pixelEdit = null; editor.colorPicker.close(); saveGraph();
+                sendFrameSync(); pixelEdit = null; editor.colorPicker.close(); saveGraph();
                 return true;
             }
             return true; // consume all keys while pixel editor is open
@@ -1700,7 +1721,6 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
         if (key == 256) {
             // Esc closes sub-panels first, then the screen
-            if (pixelEdit != null && pixelEdit.open) { pixelEdit.open = false; saveGraph(); return true; }
             if (showSettings) { showSettings = false; return true; }
             if (displayMode) { displayMode = false; return true; }
             onClose(); return true;

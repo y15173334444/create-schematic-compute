@@ -32,6 +32,7 @@ public class RedstoneLinkHelper {
     private final Map<Long, Integer> lastInputs = new HashMap<>();
     private final Map<Long, Integer> lastOutputs = new HashMap<>();
     private NodeGraph lastLinkedGraph;
+    private int lastLinkGeneration = -1;
 
     public record FreqLink(long freqKey, IRedstoneLinkable linkable) {}
 
@@ -52,9 +53,10 @@ public class RedstoneLinkHelper {
 
     /** Check if graph changed and re-register if needed. Returns true if re-registered. */
     public boolean checkGraphChanged(NodeGraph graph) {
-        if (lastLinkedGraph != graph) {
+        if (lastLinkGeneration != graph.graphGeneration) {
             registerLinksFrom(graph, true);
             lastLinkedGraph = graph;
+            lastLinkGeneration = graph.graphGeneration;
             return true;
         }
         return false;

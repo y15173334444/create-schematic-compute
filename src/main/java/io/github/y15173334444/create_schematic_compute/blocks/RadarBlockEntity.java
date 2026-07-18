@@ -71,6 +71,7 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
 
     private GraphEvaluator evaluator = null;
     private NodeGraph lastEvaluatedGraph = null;
+    private int lastGraphGeneration = -1;
     private final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
     private final HashMap<Integer, Integer> lastBusHashMap = new HashMap<>();
     private boolean needsFullSync = true;
@@ -250,7 +251,7 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
             level.setBlock(worldPosition, currentState.setValue(RadarBlock.LIT, shouldBeLit), 3);
 
         rs.checkGraphChanged(graph);
-        if (evaluator == null || lastEvaluatedGraph != graph) {
+        if (evaluator == null || lastGraphGeneration != graph.graphGeneration) {
             if (lastEvaluatedGraph != null) {
                 BusChannelHelper.syncDeletedBusNames(lastEvaluatedGraph, graph, worldPosition, level);
                 unregisterBusChannels(lastEvaluatedGraph);
@@ -259,6 +260,7 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
             evaluator = new GraphEvaluator(graph);
             evaluator.restoreSubState(runtimeState);
             lastEvaluatedGraph = graph;
+            lastGraphGeneration = graph.graphGeneration;
             registerBusChannels();
         }
         if (!running) {

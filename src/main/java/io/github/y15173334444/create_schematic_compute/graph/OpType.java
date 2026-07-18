@@ -22,13 +22,12 @@ public enum OpType {
     SET_DISPLAY_TEXT,
     SET_TEXT_COLOR,
     SET_ZORDER,
-    SET_BANDS,
     SET_KEY_BINDING,
     SET_IMAGE_FRAME_TOGGLE,
     SET_DISPLAY_LAYOUT,     // layoutX, layoutY, displayScale, displayRotation
     TOGGLE_BOOL,
     SET_HOTBAR_ITEM,
-    ENCAP_IMPORT,
+    SET_IMAGE_PIXELS,       // stringValue=Base64 pixels, paramIndex=frameIndex
 
     // UI State
     EXPAND_NODE,

@@ -32,6 +32,7 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
     public boolean running = false;
     private GraphEvaluator evaluator = null;
     private NodeGraph lastEvaluatedGraph = null;
+    private int lastGraphGeneration = -1;
 
     private final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
 
@@ -89,7 +90,7 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
             level.setBlock(worldPosition, state.setValue(ProgramComputerBlock.LIT, shouldBeLit), 3);
         rs.checkGraphChanged(graph);
         // 图变化时维护 BUS 频道注册（必须在 running 检查之前，否则其他方块无法读取未启动电脑的 BUS_OUT）
-        if(evaluator==null||lastEvaluatedGraph!=graph) {
+        if(evaluator==null||lastGraphGeneration!=graph.graphGeneration) {
             // 收集旧图中的 BUS_OUT 名称（供后续检测被删除的频道）
             if (lastEvaluatedGraph != null) {
                 BusChannelHelper.syncDeletedBusNames(lastEvaluatedGraph, graph, worldPosition, level);
@@ -99,6 +100,7 @@ public class ProgramComputerBlockEntity extends BlockEntity implements MenuProvi
             evaluator = new GraphEvaluator(graph);
             evaluator.restoreSubState(runtimeState);
             lastEvaluatedGraph = graph;
+            lastGraphGeneration = graph.graphGeneration;
             registerBusChannels();
         }
         if(!running) {

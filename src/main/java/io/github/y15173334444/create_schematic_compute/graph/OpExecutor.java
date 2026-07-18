@@ -142,9 +142,10 @@ public final class OpExecutor {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null) {
                     n.displayText = op.stringValue() != null ? op.stringValue() : "";
-                    // Also update signalName for PRIVATE_IN/OUT/BUS nodes
+                    // Also update signalName for PRIVATE_IN/OUT/BUS/REDSTONE nodes
                     if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT
-                        || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
+                        || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT
+                        || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT)
                         n.signalName = n.displayText;
                     graph.bumpGeneration();
                 }
@@ -164,20 +165,6 @@ public final class OpExecutor {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null) {
                     n.sortB = op.sortB();
-                    graph.bumpGeneration();
-                }
-                yield n;
-            }
-
-            case SET_BANDS -> {
-                var n = graph.findNode(op.targetNodeId());
-                if (n != null) {
-                    if (op.bands() != null) {
-                        n.signalBands = new java.util.ArrayList<>(op.bands());
-                    } else {
-                        n.signalBands = null;
-                    }
-                    n.bandsDirty = true;
                     graph.bumpGeneration();
                 }
                 yield n;
@@ -242,8 +229,23 @@ public final class OpExecutor {
                 }
                 yield n;
             }
+            case SET_IMAGE_PIXELS -> {
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null && op.stringValue() != null && !op.stringValue().isEmpty()) {
+                    var decoded = java.util.Base64.getDecoder().decode(op.stringValue());
+                    var buf = java.nio.ByteBuffer.wrap(decoded);
+                    int[] pixels = new int[Math.min(256, decoded.length / 4)];
+                    for (int i = 0; i < pixels.length; i++) pixels[i] = buf.getInt();
+                    n.imagePixels = pixels;
+                    if (n.type == NodeType.IMAGE_SEQUENCE && n.imageSequenceFrames != null
+                        && op.paramIndex() >= 0 && op.paramIndex() < n.imageSequenceFrames.size())
+                        n.imageSequenceFrames.set(op.paramIndex(), pixels.clone());
+                    graph.bumpGeneration();
+                }
+                yield n;
+            }
             // These are handled at the session / UI layer, not the graph layer:
-            case ENCAP_IMPORT, REJECT -> null;
+            case REJECT -> null;
 
             default -> null;
         };

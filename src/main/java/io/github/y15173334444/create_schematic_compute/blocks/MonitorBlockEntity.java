@@ -1,17 +1,11 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
-import io.github.y15173334444.create_schematic_compute.ModUtils;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.graph.RuntimeState;
-import com.simibubi.create.Create;
-import com.simibubi.create.content.redstone.link.IRedstoneLinkable;
-import com.simibubi.create.content.redstone.link.RedstoneLinkNetworkHandler;
-import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import io.github.y15173334444.create_schematic_compute.network.MonitorRedstoneSyncPacket;
-import net.createmod.catnip.data.Couple;
+import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
@@ -44,14 +38,10 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
     public boolean running = false;
     public final RuntimeState runtimeState = new RuntimeState();
 
-    // ── Redstone Link network integration (inline — proven working pattern) ──
-    private final List<FreqLink> freqLinks = new ArrayList<>();
-    private final Map<Long, Integer> lastInputs = new HashMap<>();
-    public void putRedstoneInput(long freqKey, int signal) { lastInputs.put(freqKey, signal); }
-    public int getRedstoneInput(long freqKey) { return lastInputs.getOrDefault(freqKey, 0); }
-    private final Map<Long, Integer> lastOutputs = new HashMap<>();
-    private NodeGraph lastLinkedGraph = null;
-    private record FreqLink(long freqKey, IRedstoneLinkable linkable) {}
+    // ── Redstone Link network integration ──
+    private final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
+    public void putRedstoneInput(long freqKey, int signal) { rs.putInput(freqKey, signal); }
+    public int getRedstoneInput(long freqKey) { return rs.getInput(freqKey); }
 
     // Display settings (units in blocks)
     public float screenWidth = 1.5f, screenLength = 1.2f;
@@ -60,6 +50,7 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
 
     private GraphEvaluator evaluator = null;
     private NodeGraph lastEvaluatedGraph = null;
+    private int lastGraphGeneration = -1;
 
     public MonitorBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.MONITOR_BE.get(), pos, s); }
 
@@ -83,59 +74,9 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
     public void toggleRunning() { running = !running; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
 
     // ── Redstone links ──
-    @Override public void onLoad() { super.onLoad(); registerLinks(); }
-    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); unregisterLinks(); }
-    @Override public void setRemoved() { unregisterLinks(); super.setRemoved(); }
-
-    private void registerLinks() {
-        if(level==null||level.isClientSide()) return;
-        unregisterLinks();
-        var EMPTY = RedstoneLinkNetworkHandler.Frequency.EMPTY;
-        for(var n : graph.nodes) {
-            if(n.type==NodeType.REDSTONE_IN||n.type==NodeType.REDSTONE_OUT) {
-                var item1 = n.itemParams!=null&&n.itemParams.length>0 ? n.itemParams[0] : ItemStack.EMPTY;
-                var item2 = n.itemParams!=null&&n.itemParams.length>1 ? n.itemParams[1] : ItemStack.EMPTY;
-                var f1 = !item1.isEmpty() ? RedstoneLinkNetworkHandler.Frequency.of(item1) : EMPTY;
-                var f2 = !item2.isEmpty() ? RedstoneLinkNetworkHandler.Frequency.of(item2) : EMPTY;
-                var freqKey = ModUtils.freqKey(item1, item2);
-                var isIn = n.type==NodeType.REDSTONE_IN;
-                addLink(isIn, freqKey, f1, f2);
-            }
-        }
-        // 强制网络中所有发射端重发信号（Monitor 可能后注册，错过了之前的推送）
-        for(var fl : freqLinks) {
-            var net = Create.REDSTONE_LINK_NETWORK_HANDLER.getNetworkOf(level, fl.linkable);
-            if(net!=null) for(var l : net) if(l!=fl.linkable&&l.isAlive()&&!l.isListening()) {
-                Create.REDSTONE_LINK_NETWORK_HANDLER.updateNetworkOf(level, l);
-            }
-        }
-    }
-
-    private void addLink(boolean isIn, long freqKey, RedstoneLinkNetworkHandler.Frequency f1, RedstoneLinkNetworkHandler.Frequency f2) {
-        var link = new IRedstoneLinkable() {
-            public int getTransmittedStrength() { return isIn?0:lastOutputs.getOrDefault(freqKey,0); }
-            public void setReceivedStrength(int s) {
-                if(isIn) {
-                    lastInputs.put(freqKey,s);
-                    setChanged();
-                    if(level instanceof ServerLevel sl)
-                        PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(worldPosition),
-                            new MonitorRedstoneSyncPacket(worldPosition, freqKey, s));
-                }
-            }
-            public boolean isListening() { return isIn; }
-            public boolean isAlive() { return true; }
-            public Couple<RedstoneLinkNetworkHandler.Frequency> getNetworkKey() { return Couple.create(f1,f2); }
-            public BlockPos getLocation() { return worldPosition; }
-        };
-        Create.REDSTONE_LINK_NETWORK_HANDLER.addToNetwork(level, link);
-        freqLinks.add(new FreqLink(freqKey, link));
-    }
-
-    private void unregisterLinks() {
-        for(var fl : freqLinks) Create.REDSTONE_LINK_NETWORK_HANDLER.removeFromNetwork(level, fl.linkable);
-        freqLinks.clear();
-    }
+    @Override public void onLoad() { super.onLoad(); rs.onLoad(graph); }
+    @Override public void onChunkUnloaded() { super.onChunkUnloaded(); rs.onChunkUnloaded(); }
+    @Override public void setRemoved() { rs.setRemoved(); super.setRemoved(); }
 
     public void tick() {
         if(level == null || level.isClientSide()) return;
@@ -144,33 +85,24 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
         if (!currentState.hasProperty(MonitorBlock.LIT)) return;
         if(currentState.getValue(MonitorBlock.LIT) != shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(MonitorBlock.LIT, shouldBeLit), 3);
-        if(lastLinkedGraph != graph) { registerLinks(); lastLinkedGraph = graph; }
+        rs.checkGraphChanged(graph);
         if(!running) return;
-        if(evaluator == null || lastEvaluatedGraph != graph) {
+        if(evaluator == null || lastGraphGeneration != graph.graphGeneration) {
             evaluator = new GraphEvaluator(graph);
             lastEvaluatedGraph = graph;
+            lastGraphGeneration = graph.graphGeneration;
             runtimeState.pidState.clear();
         }
-        // Refresh: rely on setReceivedStrength() callback (Create LinkBehaviour.getTransmittedStrength()==0)
-        for(var fl : freqLinks) {
-            var net = Create.REDSTONE_LINK_NETWORK_HANDLER.getNetworkOf(level, fl.linkable);
-            if(net == null) lastInputs.remove(fl.freqKey);
-            else if(!lastInputs.containsKey(fl.freqKey)) lastInputs.put(fl.freqKey, 0);
-        }
-        var in = new ArrayList<GraphEvaluator.InputSource>();
-        for(var n : graph.nodes)
-            if(n.type==NodeType.REDSTONE_IN) {
-                long fk = ModUtils.freqKey(n.itemParams);
-                int sig = lastInputs.getOrDefault(fk, 0);
-                in.add(new GraphEvaluator.InputSource(fk, sig));
-            }
+        rs.refreshInputs();
+        var in = rs.buildInputs(graph);
         float dt = 0.05f;
         var results = evaluator.evaluate(in, runtimeState.pidState, dt);
-        lastOutputs.clear();
-        for(var r : results) {
-            long freqKey = ModUtils.freqKey(r.freq1(), r.freq2());
-            lastOutputs.put(freqKey, r.signal());
-            for(var fl : freqLinks) if(fl.freqKey() == freqKey) Create.REDSTONE_LINK_NETWORK_HANDLER.updateNetworkOf(level, fl.linkable);
+        rs.writeOutputs(results);
+        // Sync redstone inputs to tracking clients for in-world rendering
+        if (level instanceof ServerLevel sl) {
+            for (var e : rs.lastInputs().entrySet())
+                PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(worldPosition),
+                    new MonitorRedstoneSyncPacket(worldPosition, e.getKey(), e.getValue()));
         }
         setChanged();
     }
@@ -181,12 +113,12 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) { graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess()); }
             if (t != null) loadSettings(t);
-            registerLinks();
+            rs.onLoad(graph);
             setChanged();
         } catch (Exception e) {
             SchematicCompute.LOGGER.error("Failed to load monitor graph, resetting", e);
             graph = new NodeGraph();
-            registerLinks();
+            rs.onLoad(graph);
             setChanged();
         }
     }
@@ -205,7 +137,7 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
         t.put("runtime", runtimeState.save());
         saveSettings(t);
         var inputs = new CompoundTag();
-        for(var e : lastInputs.entrySet()) inputs.putInt(String.valueOf(e.getKey()), e.getValue());
+        for(var e : rs.lastInputs().entrySet()) inputs.putInt(String.valueOf(e.getKey()), e.getValue());
         t.put("rs_in", inputs);
     }
     private void saveSettings(CompoundTag t) {
@@ -222,7 +154,7 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
     }
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t, r);
-        if (t.contains("graph")) { graph = NodeGraph.load(t.getCompound("graph"), r); registerLinks(); }
+        if (t.contains("graph")) { graph = NodeGraph.load(t.getCompound("graph"), r); rs.onLoad(graph); }
         if (t.contains("running")) running = t.getBoolean("running");
         if (t.contains("runtime")) {
             RuntimeState loaded = RuntimeState.load(t.getCompound("runtime"));
@@ -233,20 +165,13 @@ public class MonitorBlockEntity extends BlockEntity implements MenuProvider, IMe
         setChanged();
     }
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
-    private boolean needsFullSync = true;
-    public void flagFullSync() { needsFullSync = true; setChanged();
+    public void flagFullSync() { setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
     @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
-        // First sync (chunk load) sends full data; subsequent updates only send running/state.
-        // Prevents server graph from overwriting unsaved client edits on LIT change.
-        if (needsFullSync) { needsFullSync = false; var t = new CompoundTag(); saveAdditional(t, r); return t; }
-        var t = new CompoundTag();
-        t.putBoolean("running", running);
-        saveSettings(t);
-        var inputs = new CompoundTag();
-        for(var e : lastInputs.entrySet()) inputs.putInt(String.valueOf(e.getKey()), e.getValue());
-        t.put("rs_in", inputs);
-        return t;
+        // Always send full data — the graph is the authoritative source for in-world
+        // rendering and new players need it on first chunk load regardless of whether
+        // a previous player already consumed a full sync.
+        var t = new CompoundTag(); saveAdditional(t, r); return t;
     }
     @Override public Component getDisplayName() { return Component.translatable("container." + SchematicCompute.MOD_ID + ".monitor"); }
     @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new MonitorMenu(id, this); }

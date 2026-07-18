@@ -62,7 +62,8 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
                 int keyIndex = b.readVarInt();
                 int imageFrameIndex = b.readVarInt();
                 int hotbarSlot = b.readVarInt();
-                b.readBoolean(); // skip hasItem (Phase 2)
+                ItemStack itemStack = ItemStack.OPTIONAL_STREAM_CODEC.decode(
+                    (net.minecraft.network.RegistryFriendlyByteBuf) buf);
                 long editVersion = b.readVarLong();
                 UUID actor = new UUID(b.readLong(), b.readLong());
                 return new GraphEditOpPacket(new GraphOp(
@@ -72,7 +73,7 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
                     paramIndex, paramValue, stringValue,
                     colorBg, colorBorder, colorText,
                     sortB, bands, keyIndex, imageFrameIndex,
-                    hotbarSlot, ItemStack.EMPTY, editVersion, actor
+                    hotbarSlot, itemStack, editVersion, actor
                 ));
             }
             @Override public void encode(ByteBuf buf, GraphEditOpPacket pkt) {
@@ -107,7 +108,9 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
                 b.writeVarInt(o.keyIndex());
                 b.writeVarInt(o.imageFrameIndex());
                 b.writeVarInt(o.hotbarSlot());
-                b.writeBoolean(false); // hasItem (Phase 2)
+                ItemStack.OPTIONAL_STREAM_CODEC.encode(
+                    (net.minecraft.network.RegistryFriendlyByteBuf) buf,
+                    o.itemStack() != null ? o.itemStack() : ItemStack.EMPTY);
                 b.writeVarLong(o.editVersion());
                 UUID a = o.actor();
                 b.writeLong(a != null ? a.getMostSignificantBits() : 0L);

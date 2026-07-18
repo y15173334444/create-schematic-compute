@@ -30,6 +30,17 @@ runs {
         }
     }
 
+    client2 {
+        runType 'client'
+        systemProperty 'forge.enabledGameTestNamespaces', project.group
+        // Multiplayer dev: -Pusername2=Name sets second player name
+        if (project.hasProperty('username2')) {
+            arguments '--username', project.property('username2').toString()
+        } else {
+            arguments '--username', 'Dev2'
+        }
+    }
+
     server {
         systemProperty 'forge.enabledGameTestNamespaces', project.group
         arguments '--nogui'

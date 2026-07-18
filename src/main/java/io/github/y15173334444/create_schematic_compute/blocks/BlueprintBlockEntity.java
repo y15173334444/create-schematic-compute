@@ -37,6 +37,7 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
 
     private GraphEvaluator evaluator = null;
     private NodeGraph lastEvaluatedGraph = null;
+    private int lastGraphGeneration = -1;
 
     public BlueprintBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.BLUEPRINT_BE.get(), pos, s); }
     @Override public boolean isRunning() { return running; }
@@ -87,7 +88,7 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
             level.setBlock(worldPosition, currentState.setValue(BlueprintBlock.LIT, shouldBeLit), 3);
         rs.checkGraphChanged(graph);
         // 图变化时维护 BUS 频道注册（必须在 running 检查之前，否则其他方块无法读取未启动电脑的 BUS_OUT）
-        if (evaluator == null || lastEvaluatedGraph != graph) {
+        if (evaluator == null || lastGraphGeneration != graph.graphGeneration) {
             if (lastEvaluatedGraph != null) {
                 BusChannelHelper.syncDeletedBusNames(lastEvaluatedGraph, graph, worldPosition, level);
                 unregisterBusChannels(lastEvaluatedGraph);
@@ -96,6 +97,7 @@ public class BlueprintBlockEntity extends BlockEntity implements MenuProvider, I
             evaluator = new GraphEvaluator(graph);
             evaluator.restoreSubState(runtimeState);
             lastEvaluatedGraph = graph;
+            lastGraphGeneration = graph.graphGeneration;
             registerBusChannels();
         }
         if(!running) {

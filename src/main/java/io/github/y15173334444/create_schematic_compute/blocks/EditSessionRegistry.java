@@ -194,6 +194,20 @@ public final class EditSessionRegistry {
         // 9. Mark dirty
         gbe.getNodeGraph().bumpGeneration();
         markDirty(gbe);
+        // 10. For display-affecting ops, trigger a block update so tracking clients
+        //     (including players without the UI open) get the latest graph via getUpdateTag().
+        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_LAYOUT
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_TEXT_COLOR
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_PIXELS
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_FRAME_TOGGLE
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE) {
+            if (gbe instanceof MonitorBlockEntity mbe) {
+                mbe.flagFullSync();
+            }
+        }
     }
 
     /** Mark the block entity dirty so the chunk is saved. Covers all 7 graph host types. */

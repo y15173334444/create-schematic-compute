@@ -42,6 +42,7 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
     private boolean firstAccel = true;
     private GraphEvaluator evaluator = null;
     private NodeGraph lastEvaluatedGraph = null;
+    private int lastGraphGeneration = -1;
     private final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
 
     public SensorBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.SENSOR_BE.get(), pos, s); }
@@ -149,7 +150,7 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
         boolean lit = running && !graph.nodes.isEmpty();
         if(state.getValue(SensorBlock.LIT)!=lit) level.setBlock(worldPosition, state.setValue(SensorBlock.LIT, lit), 3);
         rs.checkGraphChanged(graph);
-        if(evaluator==null||lastEvaluatedGraph!=graph) {
+        if(evaluator==null||lastGraphGeneration!=graph.graphGeneration) {
             if (lastEvaluatedGraph != null) {
                 BusChannelHelper.syncDeletedBusNames(lastEvaluatedGraph, graph, worldPosition, level);
                 unregisterBusChannels(lastEvaluatedGraph);
@@ -157,6 +158,7 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
             evaluator = new GraphEvaluator(graph);
             evaluator.restoreSubState(runtimeState);
             lastEvaluatedGraph = graph;
+            lastGraphGeneration = graph.graphGeneration;
             runtimeState.pidState.clear();
             registerBusChannels();
         }
@@ -176,8 +178,8 @@ public class SensorBlockEntity extends BlockEntity implements MenuProvider, IMer
             accelZ = (float)((rawVelZ - prevRawVelZ) / 0.05);
             prevRawVelX = rawVelX; prevRawVelY = rawVelY; prevRawVelZ = rawVelZ;
         }
-        if(evaluator==null||lastEvaluatedGraph!=graph){
-            evaluator=new GraphEvaluator(graph); lastEvaluatedGraph=graph;
+        if(evaluator==null||lastGraphGeneration!=graph.graphGeneration){
+            evaluator=new GraphEvaluator(graph); lastEvaluatedGraph=graph; lastGraphGeneration=graph.graphGeneration;
             if (lastEvaluatedGraph != null) runtimeState.pidState.clear();
         }
         rs.refreshInputs();

@@ -102,4 +102,19 @@ public record GraphOp(
             0, null, lx, ly, 0, 0, 0, 0, 0, scale,
             null, 0, 0, 0, 0, null, (int)(rot * 100f), 0, 0, ItemStack.EMPTY, 0L, actor);
     }
+
+    public static GraphOp setHotbarItem(BlockPos pos, int ownerNodeId, int nodeId,
+                                         int slot, ItemStack stack, UUID actor) {
+        return new GraphOp(OpType.SET_HOTBAR_ITEM, pos, ownerNodeId, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+            null, 0, 0, 0, 0, null, 0, 0, slot, stack, 0L, actor);
+    }
+
+    /** paramIndex=frameIndex, stringValue=Base64-encoded int[256] pixels */
+    public static GraphOp setImagePixels(BlockPos pos, int ownerNodeId, int nodeId,
+                                          int frameIndex, String base64Pixels, UUID actor) {
+        return new GraphOp(OpType.SET_IMAGE_PIXELS, pos, ownerNodeId, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, frameIndex, 0f,
+            base64Pixels, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor);
+    }
 }
