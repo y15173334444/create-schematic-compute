@@ -66,7 +66,7 @@ public enum NodeType {
     INTEGRATOR("integrator", "node.create_schematic_compute.integrator", 3, 1, "step,interval,limit"),
     FORMULA("formula", "node.create_schematic_compute.formula", 0, 1, ""),
     POSE_CONVERT("pose_convert", "node.create_schematic_compute.pose_convert", 3, 2, ""),
-    // Control Seat input nodes
+    // Control Seat 输入节点 / Control Seat input nodes
     KEYBOARD("keyboard", "node.create_schematic_compute.keyboard", 0, 1, "key"),
     MOUSE_JOYSTICK("mouse_joystick", "node.create_schematic_compute.mouse_joystick", 0, 2, ""),
     VIEW_ANGLE("view_angle", "node.create_schematic_compute.view_angle", 0, 2, ""),
@@ -87,18 +87,18 @@ public enum NodeType {
     ENCAPSULATION("encapsulation", "node.create_schematic_compute.encapsulation", 0, 0, ""),
     ENCAP_INPUT("encap_input", "node.create_schematic_compute.encap_input", 0, 1, "name"),
     ENCAP_OUTPUT("encap_output", "node.create_schematic_compute.encap_output", 1, 0, "name"),
-    // Radar
+    // Radar  /  Radar
     TARGET_OUT("target_out", "node.create_schematic_compute.target_out", 0, 5, ""),
     COMMENT("comment", "node.create_schematic_compute.comment", 0, 0, "");
 
-    /** Stable string identifier for NBT serialisation — never change these. */
+    /** NBT 序列化的稳定字符串标识符 — 永远不要修改这些值。 / Stable string identifier for NBT serialisation — never change these. */
     public final String id;
     public final String displayName;
     public final int inputs;
     public final int outputs;
     public final String[] paramNames;
 
-    /** Lookup table for deserialising from stable string id. */
+    /** 通过稳定字符串 ID 反序列化的查找表。 / Lookup table for deserialising from stable string id. */
     public static final Map<String, NodeType> BY_ID;
     static {
         var map = new HashMap<String, NodeType>();
@@ -119,6 +119,7 @@ public enum NodeType {
     }
 
     /**
+     * 安全的序号查找，仅供迁移使用。若序号超出范围（数据损坏）则返回 {@code null}。
      * Safe ordinal lookup for migration use only.
      * Returns {@code null} if ordinal is out of range (corrupted data).
      */
@@ -127,7 +128,8 @@ public enum NodeType {
         return (ordinal >= 0 && ordinal < vals.length) ? vals[ordinal] : null;
     }
 
-    /** 数值 EditBox 参数的数量（这些参数获得额外输入引脚）。返回 0 表示无。 */
+    /** 数值 EditBox 参数的数量（这些参数获得额外输入引脚）。返回 0 表示无。
+     *  Number of numeric EditBox params (these params get additional input pins). Returns 0 if none. */
     public int editableParamCount() {
         return switch (this) {
             case BOOL, GATE, T_FLIPFLOP, KEYBOARD, GAMEPAD_BUTTON, LATCH,
@@ -140,7 +142,7 @@ public enum NodeType {
     public String getTitle() { return displayName; }
     public Component title() { return Component.translatable(displayName); }
 
-    /** Shorthand for pin i18n key: pin.create_schematic_compute.<label> */
+    /** 引脚 i18n 键的简写：pin.create_schematic_compute.<label>  /  Shorthand for pin i18n key: pin.create_schematic_compute.<label> */
     private static String pk(String label) { return "pin.create_schematic_compute." + label; }
 
     public String inputLabel(int i) {
@@ -167,7 +169,7 @@ public enum NodeType {
         case IMAGE -> i == 0 ? pk("x") : i == 1 ? pk("y") : pk("rotation");
         case IMAGE_SEQUENCE -> i == 0 ? pk("x") : i == 1 ? pk("y") : i == 2 ? pk("frame") : pk("rotation");
         case DIRECTION -> i==0?pk("ax"):i==1?pk("ay"):i==2?pk("az"):i==3?pk("bx"):i==4?pk("by"):pk("bz");
-        case ENCAPSULATION -> pk("in"); // dynamic label from sub-graph ENCAP_INPUT name
+        case ENCAPSULATION -> pk("in"); // 动态标签，来自子图 ENCAP_INPUT 名称 / dynamic label from sub-graph ENCAP_INPUT name
         case ENCAP_OUTPUT -> pk("val");
         default -> pk("in");
     };}
@@ -206,7 +208,7 @@ public enum NodeType {
         case ACCUMULATOR, INTEGRATOR -> pk("val");
         case POSE_CONVERT -> i == 0 ? pk("pitch_b") : pk("yaw_b");
         case DIRECTION -> i==0?pk("yaw"):i==1?pk("pitch"):pk("distance");
-        case ENCAPSULATION -> pk("out"); // dynamic label from sub-graph ENCAP_OUTPUT name
+        case ENCAPSULATION -> pk("out"); // 动态标签，来自子图 ENCAP_OUTPUT 名称 / dynamic label from sub-graph ENCAP_OUTPUT name
         case ENCAP_INPUT -> pk("val");
         case TARGET_OUT -> switch(i) { case 0 -> pk("x"); case 1 -> pk("y"); case 2 -> pk("z"); case 3 -> pk("entity_id"); default -> pk("distance"); };
         default -> "";

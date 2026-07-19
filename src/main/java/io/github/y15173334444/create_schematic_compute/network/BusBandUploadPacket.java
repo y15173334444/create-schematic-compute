@@ -13,7 +13,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 客户端→服务端：上传 BUS 频段变更（不触发编译） */
+/** Client→Server: upload BUS band changes (does not trigger compilation) / 客户端→服务端：上传 BUS 频段变更（不触发编译） */
 public record BusBandUploadPacket(BlockPos pos, String busName, List<String> bands) implements CustomPacketPayload {
 
     public static final Type<BusBandUploadPacket> TYPE =
@@ -39,6 +39,7 @@ public record BusBandUploadPacket(BlockPos pos, String busName, List<String> ban
         ctx.enqueueWork(() -> {
             var be = ctx.player().level().getBlockEntity(pos);
             if (be instanceof GraphBlockEntity gbe) {
+                // EN: Update signalBands of BUS_OUT/BUS_IN in the server-side graph
                 // 更新服务端图中 BUS_OUT/BUS_IN 的 signalBands
                 var graph = gbe.getNodeGraph();
                 if (graph != null) {
@@ -51,11 +52,13 @@ public record BusBandUploadPacket(BlockPos pos, String busName, List<String> ban
                         }
                     }
                 }
+                // EN: Register to global table; unregister via ref-count when bands are empty
                 // 注册到全局表；空频段时通过引用计数取消注册
                 if (bands != null && !bands.isEmpty()) {
                     SignalBus.registerBands(busName, bands);
                 } else {
                     SignalBus.clearBus(busName);
+                    // EN: Unregister this BUS_OUT's channel (via ref-count cleanup, doesn't affect other BUS_OUT with the same name)
                     // 取消注册此 BUS_OUT 的频道（通过引用计数清理，不影响其他同名 BUS_OUT）
                     for (var n : graph.nodes) {
                         if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
@@ -65,6 +68,7 @@ public record BusBandUploadPacket(BlockPos pos, String busName, List<String> ban
                         }
                     }
                 }
+                // EN: Notify all clients (including sender, so BUS_IN nodes in other blocks update)
                 // 通知所有客户端（含发送者，以便更新其他方块中的 BUS_IN 节点）
                 if (be instanceof net.minecraft.world.level.block.entity.BlockEntity bet) {
                     var level = bet.getLevel();

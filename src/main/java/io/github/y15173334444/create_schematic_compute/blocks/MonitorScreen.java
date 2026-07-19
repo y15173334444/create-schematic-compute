@@ -66,13 +66,6 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     private boolean editingS = false, editingR = false;
     private String editSBuf = "", editRBuf = "";
 
-    // ── Evaluator cache (reused across display-mode frames) ──
-    private NodeGraph lastEvalGraph = null;
-    private int lastEvalGraphGen = -1;
-    private GraphEvaluator cachedEval = null;
-    private java.util.HashMap<Integer, Float> cachedPidState = null;
-    private ArrayList<GraphEvaluator.InputSource> cachedEmptyInputs = null;
-
     // ── Phase 2: Display area render cache ──
     private int lastDisplayGen = -1;
     private float lastDisplaySW = -1, lastDisplaySL = -1;
@@ -148,6 +141,16 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
         return null;
     }
+
+    @Override protected void containerTick() {
+        super.containerTick();
+        // Auto-close if the block was destroyed (e.g. by another player)
+        if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
+            if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof MonitorBlockEntity)) {
+                onClose();
+            }
+        }
+    }
     // ── GraphEditor.Host ──
     @Override public NodeGraph getGraph() { MonitorBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { MonitorBlockEntity be = getBE(); return be != null && be.running; }
@@ -168,18 +171,14 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         } catch (Exception e) { SchematicCompute.LOGGER.error("Save", e); }
     }
 
-    /** Send current frame pixel data via existing GraphOp pipeline */
+    /** Send current frame pixel data directly (no more Base64). */
     private void sendFrameSync() {
         if (pixelEdit == null || pixelEdit.node == null) return;
         var node = pixelEdit.node;
         int frameIdx = (node.type == NodeType.IMAGE_SEQUENCE) ? pixelEdit.frameIndex : 0;
         int[] data = (node.imagePixels != null) ? node.imagePixels.clone() : new int[256];
-        // Encode as Base64 and send through existing GraphOp pipeline
-        var buf = java.nio.ByteBuffer.allocate(data.length * 4);
-        for (int v : data) buf.putInt(v);
-        String b64 = java.util.Base64.getEncoder().encodeToString(buf.array());
         sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(
-            menu.blockPos, -1, node.id, frameIdx, b64, minecraft.player.getUUID()));
+            menu.blockPos, -1, node.id, frameIdx, data, minecraft.player.getUUID()));
     }
 
     @Override
@@ -326,26 +325,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     /** Get the world-space content width (screenWidth - 2*margin) for guiScale computation */
     private float getContentWorldW() { return Math.max(getEffectiveScreenW() - (2 * BEZEL_MARGIN), 0.01f); }
 
-    private GraphEvaluator getCachedEvaluator(NodeGraph graph) {
-        if (cachedEval == null || lastEvalGraphGen != graph.graphGeneration) {
-            lastEvalGraph = graph;
-            lastEvalGraphGen = graph.graphGeneration;
-            cachedEval = new GraphEvaluator(graph);
-            if (cachedPidState == null) cachedPidState = new java.util.HashMap<>();
-            cachedPidState.clear();
-        }
-        // Build InputSource list from synced redstone inputs (reuse list to avoid allocation)
-        if (cachedEmptyInputs == null) cachedEmptyInputs = new ArrayList<>();
-        cachedEmptyInputs.clear();
-        for (var n : graph.nodes) {
-            if (n.type == NodeType.REDSTONE_IN) {
-                long fk = io.github.y15173334444.create_schematic_compute.ModUtils.freqKey(n.itemParams);
-                int sig = getBE() != null ? getBE().getRedstoneInput(fk) : 0;
-                cachedEmptyInputs.add(new GraphEvaluator.InputSource(fk, sig));
-            }
-        }
-        cachedEval.evaluate(cachedEmptyInputs, cachedPidState, 0.05f);
-        return cachedEval;
+    /** Read evaluation outputs from the server-authoritative snapshot (synced via ClientboundGraphEvalPacket). */
+    private Map<Integer, float[]> getEvalOutputs() {
+        var be = getBE();
+        if (be == null) return java.util.Collections.emptyMap();
+        return be.cachedEvalSnapshot.outputs();
     }
 
     private void renderDisplayArea(GuiGraphics g, int mx, int my) {
@@ -361,9 +345,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             g.fill(da.x, gy, da.x + da.w, gy + 1, 0xFF2C2A24);
         g.renderOutline(da.x, da.y, da.w, da.h, 0xFF3A3A3A);
 
-        // Local evaluation to get display values (cached across frames)
+        // Read server-authoritative evaluation outputs (synced via ClientboundGraphEvalPacket)
         var graph = getBE() != null ? getBE().graph : new NodeGraph();
-        var localEval = getCachedEvaluator(graph);
+        var evalOutputs = getEvalOutputs();
 
         // Collect and render display elements (cached when graph is static — Phase 2)
         // When running, output values change each tick so we must rebuild.
@@ -374,7 +358,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             || isRunning || draggedDisplayNode != null;
         if (displayChanged || cachedDisplayElements == null) {
             lastDisplayGen = curGen; lastDisplaySW = efsw; lastDisplaySL = efsl;
-            cachedDisplayElements = collectDisplayElements(graph, localEval);
+            cachedDisplayElements = collectDisplayElements(graph, evalOutputs);
             cachedDisplayArea = da;
         }
         var elements = cachedDisplayElements;
@@ -551,8 +535,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             }
             case DATA -> {
                 var graph = getBE() != null ? getBE().graph : new NodeGraph();
-                var eval = getCachedEvaluator(graph);
-                float val = graph.getInputValue(node.id, 0, eval.getCurrentOutputs());
+                var evalOutputs2 = getEvalOutputs();
+                float val = graph.getInputValue(node.id, 0, evalOutputs2);
                 String valStr = ff1(val);
                 int dc = node.textColor != 0 ? node.textColor : 0xFF88FF88;
                 int tw = Minecraft.getInstance().font.width(valStr);
@@ -569,8 +553,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             }
             case IMAGE_SEQUENCE -> {
                 var graph = getBE() != null ? getBE().graph : new NodeGraph();
-                var eval = getCachedEvaluator(graph);
-                int frameIdx = Math.round(graph.getInputValue(node.id, 2, eval.getCurrentOutputs()));
+                var evalOutputs3 = getEvalOutputs();
+                int frameIdx = Math.round(graph.getInputValue(node.id, 2, evalOutputs3));
                 int[] pixels = null;
                 if (node.imageSequenceFrames != null && !node.imageSequenceFrames.isEmpty()) {
                     frameIdx = Math.max(0, Math.min(frameIdx, node.imageSequenceFrames.size() - 1));
@@ -882,7 +866,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         g.drawString(Minecraft.getInstance().font, "§a" + I18n.get("gui.create_schematic_compute.monitor.save_close"), svX + 60, svY + 4, 0xFFFFFFFF, false);
     }
 
-    /** 保存所有设置并关闭面板 */
+    /** Save all settings and close the panel.
+     *  保存所有设置并关闭面板 */
     private void saveAllSettings() {
         if (blockEntity == null) return;
         try {
@@ -938,7 +923,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         return null;
     }
 
-    private java.util.List<DisplayElement> collectDisplayElements(NodeGraph graph, GraphEvaluator eval) {
+    private java.util.List<DisplayElement> collectDisplayElements(NodeGraph graph, Map<Integer, float[]> outputs) {
         var list = new java.util.ArrayList<DisplayElement>();
         for (var n : graph.nodes) {
             switch (n.type) {
@@ -947,15 +932,15 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     list.add(new DisplayElement(n.id, n.type, n.displayText, 0, null, "", n.layoutX, n.layoutY, n.displayScale, n.displayRotation, tc));
                 }
                 case DATA -> {
-                    float val = graph.getInputValue(n.id, 0, eval.getCurrentOutputs());
+                    float val = graph.getInputValue(n.id, 0, outputs);
                     String lbl = n.params.length > 0 ? ff3(n.params[0]) : "val";
                     int dc = n.textColor != 0 ? n.textColor : 0xFF88FF88;
                     list.add(new DisplayElement(n.id, n.type, "", val, null, lbl, n.layoutX, n.layoutY, n.displayScale, n.displayRotation, dc));
                 }
                 case IMAGE -> {
-                    float ox = graph.getInputValue(n.id, 0, eval.getCurrentOutputs());
-                    float oy = graph.getInputValue(n.id, 1, eval.getCurrentOutputs());
-                    float rotIn = graph.getInputValue(n.id, 2, eval.getCurrentOutputs());
+                    float ox = graph.getInputValue(n.id, 0, outputs);
+                    float oy = graph.getInputValue(n.id, 1, outputs);
+                    float rotIn = graph.getInputValue(n.id, 2, outputs);
                     float msX = n.params.length > 0 ? n.params[0] : 0.01f;
                     float msY = n.params.length > 1 ? n.params[1] : 0.01f;
                     float rotScale = n.params.length > 2 ? n.params[2] : 1f;
@@ -968,10 +953,10 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     list.add(new DisplayElement(n.id, n.type, "", 0, n.imagePixels, "", cp[0], cp[1], n.displayScale, effRot, 0));
                 }
                 case IMAGE_SEQUENCE -> {
-                    float ox = graph.getInputValue(n.id, 0, eval.getCurrentOutputs());
-                    float oy = graph.getInputValue(n.id, 1, eval.getCurrentOutputs());
-                    int frameIdx = Math.round(graph.getInputValue(n.id, 2, eval.getCurrentOutputs()));
-                    float rotIn = graph.getInputValue(n.id, 3, eval.getCurrentOutputs());
+                    float ox = graph.getInputValue(n.id, 0, outputs);
+                    float oy = graph.getInputValue(n.id, 1, outputs);
+                    int frameIdx = Math.round(graph.getInputValue(n.id, 2, outputs));
+                    float rotIn = graph.getInputValue(n.id, 3, outputs);
                     float msX = n.params.length > 0 ? n.params[0] : 0.01f;
                     float msY = n.params.length > 1 ? n.params[1] : 0.01f;
                     float rotScale = n.params.length > 2 ? n.params[2] : 1f;
@@ -1000,8 +985,11 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     }
 
     /** Clamp IMAGE normalized position using rotated-AABB-aware bounds,
-     *  matching MonitorBlockEntityRenderer's clamping (lines 124-133). */
-    /** Clamp IMAGE normalized position — delegates to shared GeometryConstants. */
+     *  matching MonitorBlockEntityRenderer's clamping (lines 124-133).
+     *  使用旋转 AABB 感知边界裁剪 IMAGE 归一化位置，
+     *  与 MonitorBlockEntityRenderer 的裁剪逻辑一致（第 124-133 行）。 */
+    /** Clamp IMAGE normalized position — delegates to shared GeometryConstants.
+     *  裁剪 IMAGE 归一化位置 — 委托给共享的 GeometryConstants。 */
     private float[] clampImageNorm(GraphNode n, float rawX, float rawY, float rotation) {
         return GeometryConstants.clampImageNorm(n.displayScale, rawX, rawY, rotation,
             getEffectiveScreenW(), getEffectiveScreenL());
@@ -1287,8 +1275,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
             // Check for display element hits (scaled to rendered size)
             var graph = getBE() != null ? getBE().graph : new NodeGraph();
-            var localEval = getCachedEvaluator(graph);
-            var elements = collectDisplayElements(graph, localEval);
+            var evalOutputs4 = getEvalOutputs();
+            var elements = collectDisplayElements(graph, evalOutputs4);
             float guiScale2 = da.w * FONT_BLOCK_SCALE / Math.max(getContentWorldW(), 0.01f);
             var ci = getContentArea(da);
             int contentX = ci[0], contentY = ci[1], contentW = ci[2], contentH = ci[3];
@@ -1777,6 +1765,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
     }
     @Override public void removed() {
+        editor.clearRemotePresences();
         super.removed();
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));
     }

@@ -20,10 +20,14 @@ import java.util.Map;
 
 /**
  * Composition-based helper for Redstone Link network integration.
+ * 基于组合的红石链接网络集成辅助类。
  * Eliminates ~200 lines of duplicated code across 5 block entities.
+ * 消除了 5 个方块实体之间约 200 行重复代码。
  *
  * Usage: each BlockEntity creates a RedstoneLinkHelper(this) and delegates
  * registerLinks() / unregisterLinks() / refreshInputs() / buildInputs() / writeOutputs() to it.
+ * 用法：每个方块实体创建一个 RedstoneLinkHelper(this)，并将
+ * registerLinks() / unregisterLinks() / refreshInputs() / buildInputs() / writeOutputs() 委托给它。
  */
 public class RedstoneLinkHelper {
     private final BlockEntity owner;
@@ -51,7 +55,8 @@ public class RedstoneLinkHelper {
     public void onChunkUnloaded() { unregisterLinks(); }
     public void setRemoved() { unregisterLinks(); }
 
-    /** Check if graph changed and re-register if needed. Returns true if re-registered. */
+    /** Check if graph changed and re-register if needed. Returns true if re-registered.
+     *  检查图是否发生变化，如需要则重新注册。若重新注册则返回 true。 */
     public boolean checkGraphChanged(NodeGraph graph) {
         if (lastLinkGeneration != graph.graphGeneration) {
             registerLinksFrom(graph, true);
@@ -81,6 +86,7 @@ public class RedstoneLinkHelper {
             }
         }
         if (forceResend) {
+            // EN: Force all transmitters in the network to re-send signals (listeners registered later may miss earlier pushes)
             // 强制网络中所有发射端重发信号（后注册的监听器可能错过之前的推送）
             for (var fl : freqLinks) {
                 var net = Create.REDSTONE_LINK_NETWORK_HANDLER.getNetworkOf(level, fl.linkable);
@@ -113,7 +119,8 @@ public class RedstoneLinkHelper {
 
     // ── Per-tick refresh ──
 
-    /** Hybrid refresh: scan for non-zero signals, keep setReceivedStrength values as fallback. */
+    /** Hybrid refresh: scan for non-zero signals, keep setReceivedStrength values as fallback.
+     *  混合刷新：扫描非零信号，保留 setReceivedStrength 的值作为回退。 */
     public void refreshInputs() {
         Level level = owner.getLevel();
         if (level == null) return;
@@ -129,7 +136,8 @@ public class RedstoneLinkHelper {
         }
     }
 
-    /** Active refresh: scan all linkables for max signal per frequency. */
+    /** Active refresh: scan all linkables for max signal per frequency.
+     *  主动刷新：扫描所有可链接对象，获取每个频率的最大信号。 */
     public void refreshInputsActive() {
         Level level = owner.getLevel();
         if (level == null) return;
@@ -147,7 +155,8 @@ public class RedstoneLinkHelper {
         }
     }
 
-    /** Build InputSource list for REDSTONE_IN nodes in the given graph. */
+    /** Build InputSource list for REDSTONE_IN nodes in the given graph.
+     *  为给定图中的 REDSTONE_IN 节点构建 InputSource 列表。 */
     public ArrayList<GraphEvaluator.InputSource> buildInputs(NodeGraph graph) {
         var in = new ArrayList<GraphEvaluator.InputSource>();
         for (var n : graph.nodes) {
@@ -159,7 +168,8 @@ public class RedstoneLinkHelper {
         return in;
     }
 
-    /** Write REDSTONE_OUT results back to the network. Call after evaluation. */
+    /** Write REDSTONE_OUT results back to the network. Call after evaluation.
+     *  将 REDSTONE_OUT 结果写回网络。在求值后调用。 */
     public void writeOutputs(List<GraphEvaluator.OutputResult> results) {
         Level level = owner.getLevel();
         if (level == null) return;

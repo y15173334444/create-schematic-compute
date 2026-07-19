@@ -8,63 +8,75 @@ import net.minecraft.world.item.ItemStack;
 import java.util.ArrayList;
 import java.util.List;
 
-/** A single node instance in the graph. */
+/** 图中的单个节点实例。 / A single node instance in the graph. */
 public class GraphNode {
     public int id;
     public NodeType type;
     public float x, y;
-    public float[] params;           // numeric parameters (const value, kp, ki, etc.)
-    public ItemStack[] itemParams;   // item parameters (frequency stacks)
-    public String signalName = "";   // bus name for PRIVATE_IN/OUT nodes
-    public java.util.List<String> signalBands = new java.util.ArrayList<>(); // band names for BUS/BUS_OUT
-    /** BUS_OUT 内部 band→value 映射。注册到 SignalBus.CHANNELS 后，此引用与全局表共享，求值写入立即可见。 */
+    public float[] params;           // 数值参数（常量值、kp、ki 等）/ numeric parameters (const value, kp, ki, etc.)
+    public ItemStack[] itemParams;   // 物品参数（频率堆）/ item parameters (frequency stacks)
+    public String signalName = "";   // PRIVATE_IN/OUT 节点的总线名称 / bus name for PRIVATE_IN/OUT nodes
+    public java.util.List<String> signalBands = new java.util.ArrayList<>(); // BUS/BUS_OUT 的频段名称 / band names for BUS/BUS_OUT
+    /** BUS_OUT 内部 band→value 映射。注册到 SignalBus.CHANNELS 后，此引用与全局表共享，求值写入立即可见。
+     *  BUS_OUT internal band→value map. Once registered with SignalBus.CHANNELS,
+     *  this reference is shared with the global table — eval writes are immediately visible. */
     public java.util.Map<String, Float> busInternalMap;
-    /** 运行时标记：此 BUS_OUT 的频道名被另一个 BUS_OUT 占用（registerChannel 返回 false） */
+    /** 运行时标记：此 BUS_OUT 的频道名被另一个 BUS_OUT 占用（registerChannel 返回 false）。
+     *  Runtime flag: this BUS_OUT's channel name is taken by another BUS_OUT
+     *  (registerChannel returned false). */
     public boolean busConflict;
-    /** 频段列表是否已变更（用于避免每 tick 重复调用 registerBands） */
+    /** 频段列表是否已变更（用于避免每 tick 重复调用 registerBands）。
+     *  Whether the band list has changed (avoids redundant registerBands calls per tick). */
     public boolean bandsDirty = true;
-    public String formula = "";      // formula expression for FORMULA node
-    public int dynamicInputCount = 0; // dynamic inputs for FORMULA node
-    public int dynamicOutputCount = 1; // dynamic outputs for FORMULA node (v1.2+)
-    public List<String> outputLabels = null; // @output names for FORMULA node (lazy-parsed)
-    public transient FormulaParser.ScriptParseResult cachedScript = null; // cached parse result
-    // Display node fields (Monitor block)
-    public String displayText = "";               // TEXT node content
-    public int layerIndex = 0;                     // z-order in display editor (higher = front)
-    public int sortB = 0;                          // B-layer z-order in graph editor (higher = front)
-    public int textColor = 0;                      // ARGB text color (0 = use type default)
-    public int[] imagePixels;                      // IMAGE node: 16×16 ARGB pixels (lazy)
-    public java.util.List<int[]> imageSequenceFrames; // IMAGE_SEQUENCE frames (lazy)
-    public float layoutX = 0.5f, layoutY = 0.5f;  // normalized [0,1] position in display area
-    public float displayScale = 1.0f;              // size multiplier
-    public float displayRotation = 0f;             // rotation (degrees)
-    /** 每单位信号移动量（归一化坐标），默认每1信号移动1%宽度 */
+    public String formula = "";      // FORMULA 节点的公式表达式 / formula expression for FORMULA node
+    public int dynamicInputCount = 0; // FORMULA 节点的动态输入数 / dynamic inputs for FORMULA node
+    public int dynamicOutputCount = 1; // FORMULA 节点的动态输出数 (v1.2+) / dynamic outputs for FORMULA node (v1.2+)
+    public List<String> outputLabels = null; // FORMULA 节点的 @output 名称（延迟解析）/ @output names for FORMULA node (lazy-parsed)
+    public transient FormulaParser.ScriptParseResult cachedScript = null; // 缓存的解析结果 / cached parse result
+    // Display node fields (Monitor block)  /  显示节点字段（Monitor 方块）
+    public String displayText = "";               // TEXT 节点内容 / TEXT node content
+    public int layerIndex = 0;                     // 显示编辑器中的 z 序（越高越靠前）/ z-order in display editor (higher = front)
+    public int sortB = 0;                          // 图编辑器中的 B 层 z 序（越高越靠前）/ B-layer z-order in graph editor (higher = front)
+    public int textColor = 0;                      // ARGB 文字颜色（0 = 使用类型默认）/ ARGB text color (0 = use type default)
+    public int[] imagePixels;                      // IMAGE 节点：16×16 ARGB 像素（延迟分配）/ IMAGE node: 16×16 ARGB pixels (lazy)
+    public java.util.List<int[]> imageSequenceFrames; // IMAGE_SEQUENCE 帧（延迟分配）/ IMAGE_SEQUENCE frames (lazy)
+    public float layoutX = 0.5f, layoutY = 0.5f;  // 显示区域中的归一化 [0,1] 坐标 / normalized [0,1] position in display area
+    public float displayScale = 1.0f;              // 大小倍数 / size multiplier
+    public float displayRotation = 0f;             // 旋转角度（度）/ rotation (degrees)
+    /** 每单位信号移动量（归一化坐标），默认每1信号移动1%宽度。
+     *  Movement per unit signal (normalized coordinates), default 1% width per 1 signal. */
     public float moveScale = 0.01f;
-    /** Comment node fields */
-    public float commentWidth = 160;      // default width in graph-space pixels
-    public float commentHeight = 100;     // default height in graph-space pixels
-    public int commentBgColor = 0xFFFFF8E7;    // background color, default cream
-    public int commentBorderColor = 0xFFE6D8B0; // border color, default light brown
-    public int commentTextColor = 0xFF333333;   // text color, default dark gray
-    public transient int commentScrollOff = 0;  // vertical scroll offset (UI state, not persisted)
-    // Remote move interpolation (for smooth multiplayer drag)
+    /** Comment 节点字段 / Comment node fields */
+    public float commentWidth = 160;      // 默认宽度（图空间像素）/ default width in graph-space pixels
+    public float commentHeight = 100;     // 默认高度（图空间像素）/ default height in graph-space pixels
+    public int commentBgColor = 0xFFFFF8E7;    // 背景色，默认米色 / background color, default cream
+    public int commentBorderColor = 0xFFE6D8B0; // 边框色，默认浅棕 / border color, default light brown
+    public int commentTextColor = 0xFF333333;   // 文字色，默认深灰 / text color, default dark gray
+    public transient int commentScrollOff = 0;  // 垂直滚动偏移（UI 状态，不持久化）/ vertical scroll offset (UI state, not persisted)
+    // Remote move interpolation (for smooth multiplayer drag)  /  远程移动插值（多人拖动平滑过渡）
     public transient float remoteLerpT = 1f;
     public transient float remoteStartX, remoteStartY, remoteTargetX, remoteTargetY;
-    /** Encapsulation node's nested sub-graph (null for other types) */
+    /** 封装节点的嵌套子图（非该类型则为 null）。/ Encapsulation node's nested sub-graph (null for other types). */
     public NodeGraph subGraph;
 
-    /** NBT 持久化的展开/折叠状态 */
+    /** NBT 持久化的展开/折叠状态。
+     *  NBT-persisted expand/collapse state. */
     public boolean expanded = false;
 
-    /** 有效输入引脚数（FORMULA/ENCAPSULATION 动态决定，通用参数引脚自动追加） */
-    /** BUS 频段数（仅供评估器和编辑区使用，不在节点体渲染引脚） */
+    /** BUS 频段数（仅供评估器和编辑区使用，不在节点体渲染引脚）。
+     *  BUS band count (for evaluator and editor use only; pins are not rendered on the node body). */
     public int bandCount() { return signalBands != null ? signalBands.size() : 0; }
+    /** 有效输入引脚数（FORMULA/ENCAPSULATION 动态决定，通用参数引脚自动追加）。
+     *  Effective input pin count (dynamically determined for FORMULA/ENCAPSULATION;
+     *  generic parameter pins are automatically appended). */
     public int inputs() {
         if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicInputCount, 26));
         if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_INPUT);
         return type.inputs + type.editableParamCount();
     }
-    /** 节点主体上的功能输入引脚数（不含编辑区参数引脚，BUS_OUT 引脚仅在编辑区） */
+    /** 节点主体上的功能输入引脚数（不含编辑区参数引脚，BUS_OUT 引脚仅在编辑区）。
+     *  Number of functional input pins on the node body (excluding editor parameter pins;
+     *  BUS_OUT pins are editor-only). */
     public int functionalInputs() { return inputs() - type.editableParamCount(); }
     public int outputs() {
         if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicOutputCount, 16));
@@ -76,7 +88,9 @@ public class GraphNode {
         for (var node : subGraph.nodes) if (node.type == t) n++;
         return n;
     }
-    /** Get internal ENCAP_INPUT/OUTPUT nodes sorted by Y position (top → bottom),
+    /** 获取内部 ENCAP_INPUT/OUTPUT 节点，按 Y 位置排序（上→下），以 ID 作为决胜条件
+     *  以保证确定性排序。这使得外部引脚顺序与内部视觉布局一致。
+     *  Get internal ENCAP_INPUT/OUTPUT nodes sorted by Y position (top → bottom),
      *  tie-breaking by ID for deterministic ordering.
      *  This makes the external pin order match the internal visual layout. */
     public java.util.List<GraphNode> getSubNodes(NodeType t) {
@@ -85,7 +99,9 @@ public class GraphNode {
         list.sort(java.util.Comparator.<GraphNode>comparingDouble(n -> n.y).thenComparingInt(n -> n.id));
         return list;
     }
-    /** 输入引脚标签（FORMULA 用变量名，ENCAPSULATION 用内部节点名，BUS_OUT 用频段名） */
+    /** 输入引脚标签（FORMULA 用变量名，ENCAPSULATION 用内部节点名，BUS_OUT 用频段名）。
+     *  Input pin label (variable names for FORMULA, internal node names for ENCAPSULATION,
+     *  band names for BUS_OUT). */
     public String inputLabel(int i) {
         if (type == NodeType.BUS_OUT && signalBands != null && i < signalBands.size())
             return signalBands.get(i);
@@ -101,13 +117,15 @@ public class GraphNode {
                 return name.isEmpty() ? "in" + (i + 1) : name;
             }
         }
-        // 参数输入引脚：显示参数名（如 "step", "kp" 等）
+        // 参数输入引脚：显示参数名（如 "step", "kp" 等）  /  Param input pins: show param names (e.g. "step", "kp", etc.)
         int extraBase = type.inputs;
         int paramIdx = i - extraBase;
         if (paramIdx >= 0 && paramIdx < type.paramNames.length) return type.paramNames[paramIdx];
         return type.inputLabel(i);
     }
-    /** 输出引脚标签（FORMULA 用 @output 名，ENCAPSULATION 用内部节点名，BUS_IN 用频段名） */
+    /** 输出引脚标签（FORMULA 用 @output 名，ENCAPSULATION 用内部节点名，BUS_IN 用频段名）。
+     *  Output pin label (@output names for FORMULA, internal node names for ENCAPSULATION,
+     *  band names for BUS_IN). */
     public String outputLabel(int i) {
         if (type == NodeType.BUS_IN && signalBands != null && i < signalBands.size())
             return signalBands.get(i);
@@ -131,7 +149,7 @@ public class GraphNode {
         return type.outputLabel(i);
     }
 
-    // Runtime computed values (filled by evaluator)
+    // 运行时计算值（由 evaluator 填充）/ Runtime computed values (filled by evaluator)
     public float[] outputValues;
 
     public GraphNode(int id, NodeType type, float x, float y) {
@@ -140,10 +158,11 @@ public class GraphNode {
         this.x = x;
         this.y = y;
         // ENCAP_INPUT/OUTPUT 的 name 存在 displayText 中，无需 params
+        // ENCAP_INPUT/OUTPUT name is stored in displayText; no params needed
         this.params = (type == NodeType.ENCAP_INPUT || type == NodeType.ENCAP_OUTPUT)
             ? new float[0] : new float[type.paramNames.length];
         this.itemParams = new ItemStack[0];
-        // Set defaults for param-based nodes
+        // 设置基于参数的节点的默认值 / Set defaults for param-based nodes
         if (type == NodeType.CONST) this.params[0] = 1.0f;
         if (type == NodeType.PID) {
             this.params[0] = 1.0f;   // kp
@@ -158,23 +177,24 @@ public class GraphNode {
             this.params[2] = 3.0f;   // kd
             this.params[3] = 3.0f;   // ilimit
         }
-        if (type == NodeType.T_FLIPFLOP) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // default off, current off
-        if (type == NodeType.LATCH) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // default reset, current reset
+        if (type == NodeType.T_FLIPFLOP) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // 默认关，当前关 / default off, current off
+        if (type == NodeType.LATCH) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // 默认复位，当前复位 / default reset, current reset
         if (type == NodeType.ACCUMULATOR) this.params[0] = 1f; // step=1
         if (type == NodeType.INTEGRATOR) {
             if (this.params.length > 0 && this.params[0] == 0f) this.params[0] = 1f;   // step
             if (this.params.length > 1 && this.params[1] == 0f) this.params[1] = 1f;   // interval
             if (this.params.length > 2 && this.params[2] == 0f) this.params[2] = 1000f; // limit
         }
-        if (type == NodeType.ROUND) this.params[0] = 2f;      // 2 decimal places
+        if (type == NodeType.ROUND) this.params[0] = 2f;      // 2 位小数  /  2 decimal places
         if (type == NodeType.DELAY) this.params[0] = 10f;     // 10 ticks
         if (type == NodeType.PULSE_EXTEND) this.params[0] = 10f;
         if (type == NodeType.LOOP) { this.params[0] = 5f; this.params[1] = 10f; }
         if (type == NodeType.FUSE) this.params[0] = 40f; // cooldown=40 ticks
-        if (type == NodeType.BOOL) this.params[0] = 0f;  // inverted=0 (默认不反转)
-        if (type == NodeType.GATE) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // default closed, current closed
-        if (type == NodeType.KEYBOARD) this.params[0] = 0f; // 默认 A
-        if (type == NodeType.GAMEPAD_BUTTON) this.params[0] = 0f; // 默认 A
+        if (type == NodeType.BOOL) this.params[0] = 0f;  // inverted=0 (默认不反转 / default not inverted)
+        if (type == NodeType.GATE) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // 默认关，当前关 / default closed, current closed
+        if (type == NodeType.KEYBOARD) this.params[0] = 0f; // 默认 A  /  default A
+        if (type == NodeType.GAMEPAD_BUTTON) this.params[0] = 0f; // 默认 A  /  default A
+        // IMAGE/IMAGE_SEQUENCE：延迟分配像素数组 + 设置参数默认值
         // IMAGE/IMAGE_SEQUENCE: lazy-allocate pixel array + set param defaults
         if (type == NodeType.IMAGE || type == NodeType.IMAGE_SEQUENCE) {
             this.imagePixels = new int[256];
@@ -182,8 +202,9 @@ public class GraphNode {
             if (this.params.length > 0 && this.params[0] == 0f) this.params[0] = 0.01f; // moveScaleX
             if (this.params.length > 1 && this.params[1] == 0f) this.params[1] = 0.01f; // moveScaleY
             if (this.params.length > 2 && this.params[2] == 0f) this.params[2] = 1f;    // rotationScale
-            // invertX, invertY defaults stay 0
+            // invertX, invertY 默认保持 0  /  invertX, invertY defaults stay 0
         }
+        // FORMULA：默认 "A+B"，折叠视图显示 2 输入 + 1 输出
         // FORMULA: default to "A+B" so collapsed view shows 2 inputs + 1 output
         if (type == NodeType.FORMULA) {
             this.formula = "A+B";
@@ -191,11 +212,13 @@ public class GraphNode {
             this.dynamicOutputCount = 1;
             this.outputLabels = java.util.List.of("");
         }
+        // ENCAPSULATION：outputValues 在 eval 期间根据 subGraph 动态调整大小
         // ENCAPSULATION: outputValues resized dynamically during eval based on subGraph
         this.outputValues = new float[type == NodeType.ENCAPSULATION ? 0 : type.outputs];
     }
 
-    /** Deep-copy all fields except id (which is assigned from {@code newId}). Recursively copies {@code subGraph}. */
+    /** 深拷贝除 id 外的所有字段（id 由 {@code newId} 指定）。递归复制 {@code subGraph}。
+     *  Deep-copy all fields except id (which is assigned from {@code newId}). Recursively copies {@code subGraph}. */
     public GraphNode shallowCopyWithNewId(int newId) {
         GraphNode n = new GraphNode(newId, type, x, y);
         System.arraycopy(params, 0, n.params, 0, Math.min(params.length, n.params.length));
@@ -215,7 +238,7 @@ public class GraphNode {
             for (int[] f : imageSequenceFrames) n.imageSequenceFrames.add(f.clone());
         }
         n.layoutX = layoutX; n.layoutY = layoutY;
-        n.sortB = sortB;
+        n.sortB = sortB + 1; // 将副本带到最前面 / bring copy to front
         n.displayScale = displayScale; n.displayRotation = displayRotation;
         n.moveScale = moveScale;
         n.commentWidth = commentWidth;
@@ -230,7 +253,7 @@ public class GraphNode {
         return n;
     }
 
-    // Save to NBT
+    // 保存到 NBT / Save to NBT
     public CompoundTag save(HolderLookup.Provider registries) {
         CompoundTag tag = new CompoundTag();
         tag.putInt("id", id);
@@ -250,6 +273,7 @@ public class GraphNode {
             tag.put("bands", bandsTag);
         }
         // BUS_OUT internalMap — 仅保存本地数据，不保存全局状态
+        // BUS_OUT internalMap — only save local data, not global state
         if (type == NodeType.BUS_OUT && busInternalMap != null && !busInternalMap.isEmpty()) {
             CompoundTag busData = new CompoundTag();
             for (var e : busInternalMap.entrySet())
@@ -298,7 +322,7 @@ public class GraphNode {
 
     public static GraphNode load(CompoundTag tag, HolderLookup.Provider registries) {
         NodeType type = NodeType.BY_ID.get(tag.getString("type"));
-        if (type == null) type = NodeType.CONST; // fallback for corrupted data
+        if (type == null) type = NodeType.CONST; // 损坏数据的回退  /  fallback for corrupted data
         GraphNode node = new GraphNode(tag.getInt("id"), type, tag.getFloat("x"), tag.getFloat("y"));
         int pc = tag.getInt("pcount");
         for (int i = 0; i < pc && i < node.params.length; i++)
@@ -335,7 +359,7 @@ public class GraphNode {
         }
         if (tag.contains("cw")) node.commentWidth = tag.getFloat("cw");
         if (tag.contains("ch")) node.commentHeight = tag.getFloat("ch");
-        if (tag.contains("cc")) node.commentBgColor = tag.getInt("cc"); // legacy key
+        if (tag.contains("cc")) node.commentBgColor = tag.getInt("cc"); // 旧版键 / legacy key
         if (tag.contains("cbg")) node.commentBgColor = tag.getInt("cbg");
         if (tag.contains("cbr")) node.commentBorderColor = tag.getInt("cbr");
         if (tag.contains("ctx")) node.commentTextColor = tag.getInt("ctx");

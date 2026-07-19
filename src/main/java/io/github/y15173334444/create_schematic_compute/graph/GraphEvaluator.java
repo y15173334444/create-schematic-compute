@@ -10,11 +10,24 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 将 {@link NodeGraph} 编译为可执行形式，并在每个 tick 进行评估。
+ * Compiles a {@link NodeGraph} into an executable form and evaluates it each tick.
+ *
+ * <p><b>仅服务端使用。</b>客户端通过 {@code ClientboundGraphEvalPacket} 接收评估结果
+ * 并缓存为 {@link EvalSnapshot}。客户端代码绝对不应实例化此类 —— 请使用
+ * {@code be.cachedEvalSnapshot} 读取评估输出以进行渲染。
+ * <b>Server-side only.</b> The client receives evaluation results via
+ * {@code ClientboundGraphEvalPacket} and caches them as {@link EvalSnapshot}.
+ * Client code must never instantiate this class — use {@code be.cachedEvalSnapshot}
+ * to read evaluation outputs for rendering.</p>
+ */
 public class GraphEvaluator {
     private final NodeGraph graph;
     private final Map<Integer, float[]> outputs = new HashMap<>();
     private net.minecraft.core.BlockPos radarPos = null;
     public void setRadarPos(net.minecraft.core.BlockPos pos) { this.radarPos = pos; }
+    // FORMULA 脚本解析缓存 — formula 字符串 → ScriptParseResult (v1.2+ 多行脚本)
     // FORMULA script parse cache — formula string → ScriptParseResult (v1.2+ multi-line script)
     private static final int MAX_SCRIPT_CACHE = 1024;
     private final Map<String, FormulaParser.ScriptParseResult> scriptCache =
@@ -25,6 +38,8 @@ public class GraphEvaluator {
             }
         };
 
+    // 缓存子图 evaluator 和运行时状态，供 ENCAPSULATION 节点使用
+    // 键值：封装节点 ID（拥有该 subGraph 的节点）
     // Cache sub-graph evaluators and runtime state for ENCAPSULATION nodes
     // Key: encapsulation node ID (node that owns the subGraph)
     private final Map<Integer, GraphEvaluator> subEvaluators = new HashMap<>();
@@ -32,12 +47,15 @@ public class GraphEvaluator {
     private final Map<Integer, Map<Integer, Boolean>> subFlipflopStates = new HashMap<>();
     private final Map<Integer, Map<Integer, Integer>> subPulseTimers = new HashMap<>();
 
-    /** External RuntimeState reference — set before first evaluate() to restore sub-graph state. */
+    /** 外部 RuntimeState 引用 — 在首次 evaluate() 前设置以恢复子图状态。
+     *  External RuntimeState reference — set before first evaluate() to restore sub-graph state. */
     private RuntimeState runtimeState;
 
     public GraphEvaluator(NodeGraph graph) { this.graph = graph; }
 
-    /** Restore sub-graph state from a previously-saved RuntimeState.
+    /** 从之前保存的 RuntimeState 恢复子图状态。
+     *  必须在构造后、首次 {@link #evaluate} 前调用一次。
+     *  Restore sub-graph state from a previously-saved RuntimeState.
      *  Must be called once after construction and before the first {@link #evaluate}. */
     public void restoreSubState(RuntimeState rs) {
         this.runtimeState = rs;
@@ -56,7 +74,7 @@ public class GraphEvaluator {
         }
     }
 
-    /** 控制座椅输入状态 */
+    /** 控制座椅输入状态 / Control seat input state */
     public record SeatInputState(long keyBits, float mouseX, float mouseY, float yaw, float pitch,
         float worldYaw, float worldPitch,
         int mouseButtons, float gpadLX, float gpadLY, float gpadRX, float gpadRY, float gpadLT, float gpadRT, long gpadButtons,
@@ -76,7 +94,7 @@ public class GraphEvaluator {
 
     public List<OutputResult> evaluate(List<InputSource> inputs, Map<Integer, Float> pidState, float dt, SeatInputState seat) {
         outputs.clear();
-        // 使用缓存的拓扑排序
+        // 使用缓存的拓扑排序  /  Use cached topological order
         List<Integer> sorted = graph.getTopoOrder();
         for (int id : sorted) {
             GraphNode n = graph.findNode(id);
@@ -96,21 +114,29 @@ public class GraphEvaluator {
         return res;
     }
 
-    /** 获取当前输出映射表（供显示区域等外部查询输入值） */
+    /** 获取当前输出映射表（供显示区域等外部查询输入值）。
+     *  Get the current output map (for external queries of input values, e.g. display area). */
     public Map<Integer, float[]> getCurrentOutputs() { return outputs; }
 
-    /** 读取任意节点某引脚的计算结果（供外部查询） */
+    /** 创建当前评估输出的不可变快照（服务端→客户端同步）。
+     *  Create an immutable snapshot of the current evaluation outputs (server → client sync). */
+    public EvalSnapshot captureSnapshot() { return EvalSnapshot.capture(outputs); }
+
+    /** 读取任意节点某引脚的计算结果（供外部查询）。
+     *  Read the computed result of any node's pin (for external queries). */
     public float getNodeOutput(int nodeId, int pinIndex) {
         float[] out = outputs.get(nodeId);
         return out != null && pinIndex < out.length ? out[pinIndex] : 0;
     }
 
-    /** 读取某节点某输入引脚的值（用于延时节点入队） */
+    /** 读取某节点某输入引脚的值（用于延时节点入队）。
+     *  Read the value at a node's input pin (used for delay node enqueue). */
     public float getNodeInput(int nodeId, int pinIndex) {
         return graph.getInputValue(nodeId, pinIndex, outputs);
     }
 
-    /** 带扩展状态的评估（时序节点用） */
+    /** 带扩展状态的评估（时序节点用）。
+     *  Evaluate with extended state (for sequential/timing nodes). */
     public List<OutputResult> evaluate(List<InputSource> inputs, Map<Integer, Float> pidState, float dt,
                                         Map<Integer, java.util.ArrayDeque<Float>> delayQueues,
                                         Map<Integer, Boolean> flipflopStates,
@@ -174,11 +200,11 @@ public class GraphEvaluator {
                 float open = graph.getInputValue(node.id, 1, outputs);
                 float close = graph.getInputValue(node.id, 2, outputs);
                 float toggle = graph.getInputValue(node.id, 3, outputs);
-                // Rising-edge detection for toggle
+                // 上升沿检测用于 toggle  /  Rising-edge detection for toggle
                 boolean prevTog = flipflopStates.getOrDefault(-(node.id+1), toggle > 0.5f);
                 boolean togEdge = toggle > 0.5f && !prevTog;
                 flipflopStates.put(-(node.id+1), toggle > 0.5f);
-                // Open has priority, then Close, then Toggle edge
+                // Open 优先，其次 Close，最后 Toggle 边沿  /  Open has priority, then Close, then Toggle edge
                 if (open > 0.5f) cur = true;
                 else if (close > 0.5f) cur = false;
                 else if (togEdge) cur = !cur;
@@ -212,7 +238,7 @@ public class GraphEvaluator {
                 int remaining = pulseTimers.getOrDefault(node.id, 0);
                 int counter = pulseTimers.getOrDefault(-(node.id+1), 0);
                 boolean prevTrigger = flipflopStates.getOrDefault(-(node.id+1), false);
-                // 上升沿触发启动
+                // 上升沿触发启动  /  Rising edge triggers start
                 if (in > 0.5f && !prevTrigger && remaining == 0) {
                     remaining = count;
                     counter = interval;
@@ -241,16 +267,16 @@ public class GraphEvaluator {
                 boolean triggered = in > 0.5f && !prev;
                 flipflopStates.put(-(node.id+1), in > 0.5f);
                 if (triggered && timer == 0) {
-                    timer = cd;         // 冷却倒计时开始
-                    pulseTimers.put(-(node.id+1), 2); // 脉冲已输出 0 tick
+                    timer = cd;         // 冷却倒计时开始  /  Cooldown countdown begins
+                    pulseTimers.put(-(node.id+1), 2); // 脉冲已输出 0 tick  /  Pulse output 0 ticks
                     o[0] = 1;
                 } else if (timer > 0) {
                     int pulseOut = pulseTimers.getOrDefault(-(node.id+1), 0);
                     if (pulseOut < 2) {
-                        o[0] = 1;      // 2 tick 脉冲
+                        o[0] = 1;      // 2 tick 脉冲  /  2-tick pulse
                         pulseTimers.put(-(node.id+1), pulseOut + 1);
                     } else {
-                        o[0] = 0;      // 脉冲结束，在冷却中
+                        o[0] = 0;      // 脉冲结束，在冷却中  /  Pulse ended, in cooldown
                     }
                     timer--;
                     if (timer == 0) pulseTimers.remove(-(node.id+1));
@@ -268,6 +294,8 @@ public class GraphEvaluator {
         float[] o = node.outputValues;
 
         // 通用参数引脚：连线值临时覆盖 node.params（所有节点 handler 无缝兼容）
+        // Generic parameter pins: wired values temporarily override node.params
+        // (transparently compatible with all node handlers)
         float[] origParams = node.params;
         float[] effParams = origParams;
         int extraBase = node.type.inputs;
@@ -286,7 +314,7 @@ public class GraphEvaluator {
         switch (node.type) {
             case KEYBOARD -> {
                 int keyIndex = node.params.length > 0 ? (int)node.params[0] : 0;
-                keyIndex = Math.max(0, Math.min(57, keyIndex)); // 58 keys: A-Z, 0-9, Space, Shift, Ctrl, etc.
+                keyIndex = Math.max(0, Math.min(57, keyIndex)); // 58 键: A-Z, 0-9, Space, Shift, Ctrl 等 / 58 keys: A-Z, 0-9, Space, Shift, Ctrl, etc.
                 o[0] = ((seat.keyBits >> keyIndex) & 1L) != 0 ? 1f : 0f;
             }
             case MOUSE_JOYSTICK -> { o[0] = seat.mouseX(); o[1] = seat.mouseY(); }
@@ -463,16 +491,16 @@ public class GraphEvaluator {
                 float integral = pidState.getOrDefault(ik, 0f);
                 if (Math.abs(err) > 0.001f) integral += err * dt;
                 else integral = 0;
-                // ilimit 直接限制 I 项输出贡献
+                // ilimit 直接限制 I 项输出贡献  /  ilimit directly clamps I-term output contribution
                 float iContrib = ki * integral;
                 if (iContrib > ilimit) iContrib = ilimit;
                 if (iContrib < -ilimit) iContrib = -ilimit;
-                // 抗饱和：同时限制原始积分
+                // 抗饱和：同时限制原始积分  /  Anti-windup: also clamp the raw integral
                 float iCap = ilimit / Math.max(ki, 0.001f);
                 if (integral > iCap) integral = iCap;
                 if (integral < -iCap) integral = -iCap;
                 pidState.put(ik, integral);
-                // D 项：误差变化率
+                // D 项：误差变化率  /  D term: rate of error change
                 int prevErrKey = node.id + 300000;
                 float prevErr = pidState.getOrDefault(prevErrKey, 0f);
                 float derivative = dt > 0 ? (err - prevErr) / dt : 0;
@@ -495,7 +523,7 @@ public class GraphEvaluator {
                 float integral = pidState.getOrDefault(ik, 0f);
                 if (Math.abs(err) > 0.001f) integral += err * dt;
                 else integral = 0;
-                // ilimit 直接限制 I 项输出贡献
+                // ilimit 直接限制 I 项输出贡献  /  ilimit directly clamps I-term output contribution
                 float iContrib = ki * integral;
                 if (iContrib > ilimit) iContrib = ilimit;
                 if (iContrib < -ilimit) iContrib = -ilimit;
@@ -503,7 +531,7 @@ public class GraphEvaluator {
                 if (integral > iCap) integral = iCap;
                 if (integral < -iCap) integral = -iCap;
                 pidState.put(ik, integral);
-                // D 项
+                // D 项  /  D term
                 int prevErrKey = node.id + 300000;
                 float prevErr = pidState.getOrDefault(prevErrKey, 0f);
                 float derivative = dt > 0 ? (err - prevErr) / dt : 0;
@@ -540,7 +568,7 @@ public class GraphEvaluator {
             case PRIVATE_IN -> o[0] = SignalBus.get(node.signalName);
             case PRIVATE_OUT -> SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
             case BUS_IN -> {
-                if (node.signalName.isEmpty()) break; // 空名称不允许通信
+                if (node.signalName.isEmpty()) break; // 空名称不允许通信  /  Empty name disallows communication
                 int bc = node.bandCount();
                 if (bc > 0) {
                     if (o.length != bc) { o = new float[bc]; node.outputValues = o; }
@@ -564,11 +592,15 @@ public class GraphEvaluator {
                     if (node.busInternalMap == null) node.busInternalMap = new java.util.HashMap<>();
                     // 冲突节点不注册频段，防止劫持 BAND_REGISTRY
                     // bandsDirty 跳过稳态下每 tick 的冗余 ArrayList 分配
+                    // Conflicting nodes skip band registration to prevent BAND_REGISTRY hijacking
+                    // bandsDirty avoids redundant ArrayList allocations per tick in steady state
                     if (!node.busConflict && node.bandsDirty) {
                         SignalBus.registerBands(node.signalName, node.signalBands);
                         node.bandsDirty = false;
                     }
                     // 冲突节点跳过 busInternalMap 写入 — MAP 修改权属于首个注册的 BUS_OUT
+                    // Conflicting nodes skip busInternalMap writes — MAP mutation rights belong to
+                    // the first registered BUS_OUT
                     if (!node.busConflict) {
                         for (int bi = 0; bi < bc; bi++)
                             node.busInternalMap.put(node.signalBands.get(bi),
@@ -579,13 +611,15 @@ public class GraphEvaluator {
             case POSITION -> {
                 float wx = seat.worldX(), wy = seat.worldY(), wz = seat.worldZ();
                 // 应用编辑区偏移（左/右、上/下、前/后），按方块世界朝向旋转
+                // Apply editor offsets (left/right, up/down, front/back), rotated by block world facing
                 if (node.params.length >= 3) {
                     float offX = node.params[0], offY = node.params[1], offZ = node.params[2];
                     if (offX != 0 || offY != 0 || offZ != 0) {
                         // 使用 forwardYaw 而非 blockYaw — forwardYaw 包含了 Sable 结构旋转
+                        // Use forwardYaw instead of blockYaw — forwardYaw includes Sable structure rotation
                         float rad = (float) Math.toRadians(seat.forwardYaw());
                         float cos = (float) Math.cos(rad), sin = (float) Math.sin(rad);
-                        // +X = 方块右侧, +Z = 方块前方（世界空间）
+                        // +X = 方块右侧, +Z = 方块前方（世界空间）  /  +X = block right, +Z = block forward (world space)
                         wx += offX * cos + offZ * sin;
                         wy += offY;
                         wz += offX * sin - offZ * cos;
@@ -605,8 +639,8 @@ public class GraphEvaluator {
                 float cur = pidState.getOrDefault(node.id, 0f);
                 float prevP = pidState.getOrDefault(prevPKey, 0f);
                 float prevM = pidState.getOrDefault(prevMKey, 0f);
-                if (inPlus > 0.5f && prevP <= 0.5f) cur += step;   // + 上升沿
-                if (inMinus > 0.5f && prevM <= 0.5f) cur -= step;  // - 上升沿
+                if (inPlus > 0.5f && prevP <= 0.5f) cur += step;   // + 上升沿  /  + rising edge
+                if (inMinus > 0.5f && prevM <= 0.5f) cur -= step;  // - 上升沿  /  - rising edge
                 pidState.put(node.id, cur);
                 pidState.put(prevPKey, inPlus);
                 pidState.put(prevMKey, inMinus);
@@ -628,7 +662,7 @@ public class GraphEvaluator {
                     tick = 0;
                     if (inPlus > 0.5f && inMinus <= 0.5f) cur += step;
                     else if (inMinus > 0.5f && inPlus <= 0.5f) cur -= step;
-                    // both active → hold (no change)
+                    // 两者都激活 → 保持（不变）  /  both active → hold (no change)
                 }
                 cur = Math.max(0, Math.min(cur, limit));
                 pidState.put(node.id, cur);
@@ -642,23 +676,25 @@ public class GraphEvaluator {
                     for (int i = 0; i < nOut; i++) o[i] = 0;
                     break;
                 }
-                // Parse script (cached)
+                // 解析脚本（缓存）/ Parse script (cached)
                 var script = scriptCache.get(node.formula);
                 if (script == null) {
                     script = FormulaParser.parseScript(node.formula);
                     scriptCache.put(node.formula, script);
                 }
-                // Update node state
+                // 更新节点状态 / Update node state
                 int nOut = Math.max(1, script.outputLabels.size());
                 node.dynamicInputCount = script.inputVars.size();
                 node.dynamicOutputCount = nOut;
                 node.outputLabels = script.outputLabels;
+                // 动态调整输出数组大小（与 ENCAPSULATION / BUS_IN 相同的模式）
                 // Size output array dynamically (same pattern as ENCAPSULATION / BUS_IN)
                 if (o.length != nOut) { o = new float[nOut]; node.outputValues = o; }
-                // Map input pins to variable values
+                // 将输入引脚映射为变量值 / Map input pins to variable values
                 var vars = new java.util.HashMap<String, Double>();
                 for (int vi = 0; vi < script.inputVars.size(); vi++)
                     vars.put(script.inputVars.get(vi), (double)graph.getInputValue(node.id, vi, outputs));
+                // 按顺序执行赋值语句（各自隔离，防止一个错误表达式破坏整个脚本）
                 // Execute assignments in order (each isolated, prevents one bad expr from killing the script)
                 for (var assign : script.assignments) {
                     try {
@@ -667,7 +703,7 @@ public class GraphEvaluator {
                         vars.put(assign.varName(), 0.0);
                     }
                 }
-                // Evaluate each output expression
+                // 评估每个输出表达式 / Evaluate each output expression
                 for (int oi = 0; oi < nOut; oi++) {
                     try {
                         var rpn = script.outputRpns.get(oi);
@@ -678,6 +714,7 @@ public class GraphEvaluator {
                     }
                 }
             }
+            // 显示节点 — 无浮点输出；数据由渲染器从 GraphNode 字段读取
             // Display nodes — no float output; data read from GraphNode fields by renderer
             case TEXT, DATA, IMAGE, IMAGE_SEQUENCE, COMMENT -> {}
             case ENCAPSULATION -> {
@@ -685,6 +722,7 @@ public class GraphEvaluator {
                 var outNodes = node.getSubNodes(NodeType.ENCAP_OUTPUT);
                 int nOut = outNodes.size();
                 // 节点数量超出上限 → 禁用所有功能，输出 0
+                // Node count exceeds limit → disable all functions, output 0
                 if (node.subGraph.nodes.size() > 1024) {
                     o = new float[nOut];
                     node.outputValues = o;
@@ -694,16 +732,19 @@ public class GraphEvaluator {
                 o = new float[nOut];
                 node.outputValues = o;
                 // 复用子图 evaluator（子图不变 → evaluator 缓存复用，避免每 tick 新建）
+                // Reuse sub-graph evaluator (unchanged sub-graph → cached evaluator reuse, avoids per-tick instantiation)
                 var subEval = subEvaluators.get(node.id);
                 if (subEval == null) {
                     subEval = new GraphEvaluator(node.subGraph);
                     subEvaluators.put(node.id, subEval);
                 }
+                // 将外部输入注入 ENCAP_INPUT 节点
                 // Inject outer inputs into ENCAP_INPUT nodes
                 for (int i = 0; i < inpNodes.size(); i++) {
                     float val = graph.getInputValue(node.id, i, outputs);
                     subEval.outputs.put(inpNodes.get(i).id, new float[]{val});
                 }
+                // 评估子图 — 使用 RuntimeState 支持的映射表，以封装节点 ID 为键
                 // Evaluate sub-graph — use RuntimeState-backed maps keyed by encap node ID
                 int encapId = node.id;
                 var subPidState = runtimeState != null
@@ -724,7 +765,7 @@ public class GraphEvaluator {
                             sdq, sff, spt);
                     }
                 }
-                // DELAY 入队（子图内）
+                // DELAY 入队（子图内）  /  DELAY enqueue (within sub-graph)
                 for (var n : node.subGraph.nodes) {
                     if (n.type == NodeType.DELAY) {
                         var q = sdq.computeIfAbsent(n.id, k -> new java.util.ArrayDeque<>());
@@ -733,10 +774,12 @@ public class GraphEvaluator {
                         while (q.size() > ticks) q.pollFirst();
                     }
                 }
+                // 收集 ENCAP_OUTPUT 值
                 // Collect ENCAP_OUTPUT values
                 for (int i = 0; i < outNodes.size(); i++) {
                     o[i] = node.subGraph.getInputValue(outNodes.get(i).id, 0, subEval.outputs);
                 }
+                // 将子图状态写回 RuntimeState 以进行 NBT 持久化
                 // Write sub-graph state back to RuntimeState for NBT persistence
                 if (runtimeState != null) {
                     RuntimeState.SubState ss = runtimeState.getOrCreateSubState(encapId);
@@ -746,7 +789,7 @@ public class GraphEvaluator {
                 }
             }
         }
-        node.params = origParams; // 恢复参数（可能被连线值临时覆盖）
+        node.params = origParams; // 恢复参数（可能被连线值临时覆盖）  /  Restore params (may have been temporarily overwritten by wired values)
         outputs.put(node.id, o.clone());
     }
 

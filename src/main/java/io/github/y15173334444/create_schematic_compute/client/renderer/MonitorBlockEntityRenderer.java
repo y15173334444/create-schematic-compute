@@ -4,9 +4,7 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.client.GeometryConstants;
 import io.github.y15173334444.create_schematic_compute.blocks.MonitorBlock;
 import io.github.y15173334444.create_schematic_compute.blocks.MonitorBlockEntity;
-import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
-import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.*;
@@ -43,39 +41,15 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
 
     public MonitorBlockEntityRenderer(BlockEntityRendererProvider.Context ctx) {}
 
-    // Cached evaluator (reused across frames until graph changes)
-    private NodeGraph cachedEvalGraph;
-    private int cachedEvalGraphGen = -1;
-    private GraphEvaluator cachedEvaluator;
-    private final java.util.HashMap<Integer, Float> cachedPidState = new java.util.HashMap<>();
-    // Reusable input list to avoid per-frame allocation (Phase 1 optimization)
-    private final java.util.ArrayList<GraphEvaluator.InputSource> reusableInputs = new java.util.ArrayList<>();
-
     @Override
     public void render(MonitorBlockEntity be, float partialTick, PoseStack poseStack,
                        MultiBufferSource buffer, int packedLight, int packedOverlay) {
         if (be == null || !be.running) return;
         if (be.graph == null || be.graph.nodes.isEmpty()) return;
 
-        // Reuse evaluator across frames until graph changes
-        if (cachedEvaluator == null || cachedEvalGraphGen != be.graph.graphGeneration) {
-            cachedEvalGraph = be.graph;
-            cachedEvalGraphGen = be.graph.graphGeneration;
-            cachedEvaluator = new GraphEvaluator(be.graph);
-            cachedPidState.clear();
-        }
-        var evaluator = cachedEvaluator;
-        var pidState = cachedPidState;
-        // Build InputSource from synced redstone inputs (reuse list to avoid allocation)
-        reusableInputs.clear();
-        for (var n : be.graph.nodes) {
-            if (n.type == NodeType.REDSTONE_IN) {
-                long fk = io.github.y15173334444.create_schematic_compute.ModUtils.freqKey(n.itemParams);
-                int sig = be.getRedstoneInput(fk);
-                reusableInputs.add(new GraphEvaluator.InputSource(fk, sig));
-            }
-        }
-        evaluator.evaluate(reusableInputs, pidState, 0.05f);
+        // Read server-authoritative evaluation snapshot (synced via ClientboundGraphEvalPacket).
+        // No local GraphEvaluator — the client no longer evaluates the graph itself.
+        var snapshot = be.cachedEvalSnapshot;
 
         boolean hasContent = false;
         for (var n : be.graph.nodes)
@@ -128,8 +102,8 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         imgNodes.sort((n1, n2) -> Integer.compare(n1.layerIndex, n2.layerIndex));
         for (var n : imgNodes) {
             // X/Y/rotation signal offsets
-            float ox = be.graph.getInputValue(n.id, 0, evaluator.getCurrentOutputs());
-            float oy = be.graph.getInputValue(n.id, 1, evaluator.getCurrentOutputs());
+            float ox = be.graph.getInputValue(n.id, 0, snapshot.outputs());
+            float oy = be.graph.getInputValue(n.id, 1, snapshot.outputs());
             float msX = n.params.length > 0 ? n.params[0] : 0.01f;
             float msY = n.params.length > 1 ? n.params[1] : 0.01f;
             float rotScale = n.params.length > 2 ? n.params[2] : 1f;
@@ -141,14 +115,14 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             int[] pixels = n.imagePixels;
             int rotPin = n.type == NodeType.IMAGE_SEQUENCE ? 3 : 2;
             if (n.type == NodeType.IMAGE_SEQUENCE) {
-                int frameIdx = Math.round(be.graph.getInputValue(n.id, 2, evaluator.getCurrentOutputs()));
+                int frameIdx = Math.round(be.graph.getInputValue(n.id, 2, snapshot.outputs()));
                 if (n.imageSequenceFrames != null && !n.imageSequenceFrames.isEmpty()) {
                     frameIdx = Math.max(0, Math.min(frameIdx, n.imageSequenceFrames.size() - 1));
                     pixels = n.imageSequenceFrames.get(frameIdx);
                 }
             }
             if (pixels == null || pixels.length != 256) continue;
-            float rotInput = be.graph.getInputValue(n.id, rotPin, evaluator.getCurrentOutputs());
+            float rotInput = be.graph.getInputValue(n.id, rotPin, snapshot.outputs());
             float effectiveRot = n.displayRotation + rotInput * rotScale;
             // Clamp so rotated bounding box doesn't overflow right/bottom
             float cell = 0.03f * n.displayScale;
@@ -197,7 +171,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             float nx = cx + n.layoutX * cw;
             float ny = cy - n.layoutY * ch;
             String str = n.type == NodeType.DATA
-                ? String.format("%.1f", be.graph.getInputValue(n.id, 0, evaluator.getCurrentOutputs()))
+                ? String.format("%.1f", be.graph.getInputValue(n.id, 0, snapshot.outputs()))
                 : n.displayText;
             if (str.isEmpty()) continue;
             int color = n.textColor != 0 ? n.textColor : (n.type == NodeType.DATA ? 0xFF88FF88 : 0xFFCCCCCC);

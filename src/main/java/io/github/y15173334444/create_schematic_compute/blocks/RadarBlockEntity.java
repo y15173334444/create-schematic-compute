@@ -28,10 +28,7 @@ import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.util.*;
 
-public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMergeableBE, GraphBlockEntity {
-    public NodeGraph graph = new NodeGraph();
-    public boolean running = false;
-    public final RuntimeState runtimeState = new RuntimeState();
+public class RadarBlockEntity extends SyncedGraphBlockEntity {
 
     // 扫描设置
     public int scanRange = 32;
@@ -69,15 +66,6 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
     // 扫描结果缓存（渲染器读取）
     public final List<TargetRecord> targets = new ArrayList<>();
 
-    private GraphEvaluator evaluator = null;
-    private NodeGraph lastEvaluatedGraph = null;
-    private int lastGraphGeneration = -1;
-    private final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
-    private final HashMap<Integer, Integer> lastBusHashMap = new HashMap<>();
-    private boolean needsFullSync = true;
-    public void flagFullSync() { needsFullSync = true; setChanged();
-        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
-
     /** 客户端侧所有已加载雷达的注册表，用于 RadarLockHandler 遍历 */
     private static final java.util.Set<RadarBlockEntity> CLIENT_RADARS = new java.util.HashSet<>();
     public static java.util.Collection<RadarBlockEntity> getClientRadars() { return CLIENT_RADARS; }
@@ -100,11 +88,6 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
 
     public RadarBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.RADAR_BE.get(), pos, s); }
 
-    @Override public boolean isRunning() { return running; }
-    @Override public void setRunning(boolean r) { running = r; }
-    @Override public boolean graphHasCycles() { return graph.hasCycles(); }
-    @Override public void clearPidState() { runtimeState.pidState.clear(); }
-
     @Override public void accept(BlockEntity other) {
         if (other instanceof RadarBlockEntity src) {
             unregisterBusChannels(graph);
@@ -120,17 +103,10 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
         }
     }
 
-    @Override public void onLoad() { super.onLoad(); rs.onLoad(graph); if (level != null && level.isClientSide()) CLIENT_RADARS.add(this);
+    @Override public void onLoad() { super.onLoad(); if (level != null && level.isClientSide()) CLIENT_RADARS.add(this);
         else clearCachedSubPose(); // 服务端清除 NBT 带来的旧 Sable 缓存，让 bootstrap 重新初始化
     }
-    @Override public void onChunkUnloaded() { cleanupBusChannels(graph); unregisterBusChannels(graph); super.onChunkUnloaded(); rs.onChunkUnloaded(); }
-    @Override public void setRemoved() { CLIENT_RADARS.remove(this); cleanupBusChannels(graph); unregisterBusChannels(graph); TargetAssignment.clear(worldPosition); rs.setRemoved(); super.setRemoved(); }
-    @Override public NodeGraph getNodeGraph() { return graph; }
-    @Override public void syncBusBandsFromServer(String busName, List<String> bands) { BusChannelHelper.syncBandsFromServer(busName, bands, graph); }
-
-    private void registerBusChannels() { if (BusChannelHelper.registerChannels(graph, worldPosition, level)) needsFullSync = true; }
-    private void cleanupBusChannels(NodeGraph g) { BusChannelHelper.cleanupClientBands(g, worldPosition, level); }
-    private void unregisterBusChannels(NodeGraph g) { BusChannelHelper.unregisterChannels(g, worldPosition, level); }
+    @Override public void setRemoved() { CLIENT_RADARS.remove(this); TargetAssignment.clear(worldPosition); super.setRemoved(); }
 
     /** 检查实体是否在扫描范围内（实体与中心已在同一坐标系） */
     private static boolean inScanRange(double ex, double ey, double ez,
@@ -243,6 +219,7 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
         // 修复 Sable 结构上 level 为 null 的问题
         if (level == null) level = getEffectiveLevel();
         if (level == null || level.isClientSide()) return;
+        ensureBusRegistered();
         Level scanLevel = getScanLevel();
 
         boolean shouldBeLit = running && !graph.nodes.isEmpty();
@@ -251,18 +228,7 @@ public class RadarBlockEntity extends BlockEntity implements MenuProvider, IMerg
             level.setBlock(worldPosition, currentState.setValue(RadarBlock.LIT, shouldBeLit), 3);
 
         rs.checkGraphChanged(graph);
-        if (evaluator == null || lastGraphGeneration != graph.graphGeneration) {
-            if (lastEvaluatedGraph != null) {
-                BusChannelHelper.syncDeletedBusNames(lastEvaluatedGraph, graph, worldPosition, level);
-                unregisterBusChannels(lastEvaluatedGraph);
-                runtimeState.pidState.clear();
-            }
-            evaluator = new GraphEvaluator(graph);
-            evaluator.restoreSubState(runtimeState);
-            lastEvaluatedGraph = graph;
-            lastGraphGeneration = graph.graphGeneration;
-            registerBusChannels();
-        }
+        if (graphChanged()) recompileEvaluator();
         if (!running) {
             for (var n : graph.nodes) {
                 if (n.type == NodeType.BUS_OUT && n.busInternalMap != null) n.busInternalMap.clear();

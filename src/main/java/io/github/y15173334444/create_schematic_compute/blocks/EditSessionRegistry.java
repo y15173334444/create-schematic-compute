@@ -15,14 +15,20 @@ import java.util.*;
 
 /**
  * Lightweight server-side registry tracking active edit sessions per graph.
+ * 轻量级服务端注册表，跟踪每个图的活跃编辑会话。
  *
- * <p>Responsibilities:</p>
+ * <p>Responsibilities: / 职责:</p>
  * <ul>
- *   <li>Maintain the set of online editors per {@link GlobalPos} (dimension + pos)</li>
- *   <li>Assign monotonically increasing editVersion per graph</li>
- *   <li>Validate and apply incoming ops, then broadcast to other editors</li>
- *   <li>Send acks back to the originating player</li>
- *   <li>Keep a bounded opLog for reconnection replay (future Phase 4)</li>
+ *   <li>Maintain the set of online editors per {@link GlobalPos} (dimension + pos)
+ *       / 维护每个 {@link GlobalPos}（维度 + 坐标）的在线编辑者集合</li>
+ *   <li>Assign monotonically increasing editVersion per graph
+ *       / 为每个图分配单调递增的 editVersion</li>
+ *   <li>Validate and apply incoming ops, then broadcast to other editors
+ *       / 验证并应用传入的操作，然后广播给其他编辑者</li>
+ *   <li>Send acks back to the originating player
+ *       / 向发起操作的玩家发送确认</li>
+ *   <li>Keep a bounded opLog for reconnection replay (future Phase 4)
+ *       / 保持有界 opLog 用于重连回放（未来第四阶段）</li>
  * </ul>
  */
 public final class EditSessionRegistry {
@@ -34,7 +40,8 @@ public final class EditSessionRegistry {
 
     private EditSessionRegistry() {}
 
-    /** Build a dimension-aware key from the player's current level. */
+    /** Build a dimension-aware key from the player's current level.
+     *  从玩家当前所在维度构建维度感知的键。 */
     private static GlobalPos key(ServerLevel level, BlockPos pos) {
         return GlobalPos.of(level.dimension(), pos);
     }
@@ -58,7 +65,8 @@ public final class EditSessionRegistry {
         }
     }
 
-    /** Remove a player from every session they are in (called on disconnect). */
+    /** Remove a player from every session they are in (called on disconnect).
+     *  将玩家从其所在的所有会话中移除（断开连接时调用）。 */
     public static void leaveAll(UUID player) {
         var toRemove = new ArrayList<GlobalPos>();
         for (var entry : editors.entrySet()) {
@@ -98,21 +106,22 @@ public final class EditSessionRegistry {
 
     /**
      * Validate, apply, broadcast, and ack an edit op received from a client.
+     * 验证、应用、广播并确认从客户端收到的编辑操作。
      *
-     * @param level  the server level
-     * @param pos    the block entity position
-     * @param op     the incoming operation (from client)
-     * @param actor  the player who sent the op
+     * @param level  the server level / 服务器世界
+     * @param pos    the block entity position / 方块实体坐标
+     * @param op     the incoming operation (from client) / 传入的操作（来自客户端）
+     * @param actor  the player who sent the op / 发送操作的玩家
      */
     public static void applyOp(ServerLevel level, BlockPos pos, GraphOp op, ServerPlayer actor) {
         var gk = key(level, pos);
 
-        // 1. Get BE and graph
+        // 1. Get BE and graph / 获取方块实体和图
         if (!(level.getBlockEntity(pos) instanceof GraphBlockEntity gbe)) return;
         var graph = gbe.getNodeGraph();
         if (graph == null) return;
 
-        // 2. Route to sub-graph
+        // 2. Route to sub-graph / 路由到子图
         var targetGraph = graph;
         if (op.ownerNodeId() >= 0) {
             var encap = graph.findNode(op.ownerNodeId());
@@ -121,7 +130,7 @@ public final class EditSessionRegistry {
             } else return;
         }
 
-        // 3. Validate structural ops
+        // 3. Validate structural ops / 验证结构操作
         if (op.type() == OpType.ADD_CONN) {
             if (targetGraph.findNode(op.toId()) == null || targetGraph.findNode(op.fromId()) == null) {
                 var reject = new GraphOp(OpType.REJECT, pos, op.ownerNodeId(), op.targetNodeId(), op.actor());
@@ -136,6 +145,7 @@ public final class EditSessionRegistry {
         }
 
         // 4. ADD_NODE_REQUEST: server allocates real ID → ACK originator → broadcast to others
+        // 4. ADD_NODE_REQUEST: 服务端分配真实 ID → 确认发起者 → 广播给其他人
         if (op.type() == OpType.ADD_NODE_REQUEST) {
             var node = OpExecutor.apply(targetGraph, op);
             long version = nextVersion(gk);
@@ -146,7 +156,7 @@ public final class EditSessionRegistry {
                 node.id, op.nodeType(), op.x(), op.y(),
                 0, 0, 0, 0, 0, 0f,
                 null, 0, 0, 0, 0, null, 0, 0, 0,
-                net.minecraft.world.item.ItemStack.EMPTY, version, op.actor()
+                net.minecraft.world.item.ItemStack.EMPTY, version, op.actor(), 0, null
             );
             var syncPkt = new GraphEditOpSyncPacket(broadcastOp);
             var editors = getEditors(level, pos);
@@ -161,11 +171,11 @@ public final class EditSessionRegistry {
             return;
         }
 
-        // 5. Execute
+        // 5. Execute / 执行
         OpExecutor.apply(targetGraph, op);
         long version = nextVersion(gk);
 
-        // 6. Broadcast to other editors
+        // 6. Broadcast to other editors / 广播给其他编辑者
         var broadcastOp = new GraphOp(
             op.type(), op.graphPos(), op.ownerNodeId(), op.targetNodeId(),
             op.tempId(), op.nodeType(), op.x(), op.y(),
@@ -174,7 +184,7 @@ public final class EditSessionRegistry {
             op.colorBg(), op.colorBorder(), op.colorText(),
             op.sortB(), op.bands(), op.keyIndex(), op.imageFrameIndex(),
             op.hotbarSlot(), op.itemStack(),
-            version, op.actor()
+            version, op.actor(), op.blobRefId(), op.imageData()
         );
         var syncPkt = new GraphEditOpSyncPacket(broadcastOp);
         var editorsOuter = getEditors(level, pos);
@@ -184,18 +194,20 @@ public final class EditSessionRegistry {
             if (editorPlayer != null) PacketDistributor.sendToPlayer(editorPlayer, syncPkt);
         }
 
-        // 7. Ack to originator
+        // 7. Ack to originator / 确认给发起者
         PacketDistributor.sendToPlayer(actor,
             new GraphEditAckPacket(pos, 0, 0, version));
 
-        // 8. Log
+        // 8. Log / 记录日志
         appendToLog(gk, broadcastOp);
 
-        // 9. Mark dirty
+        // 9. Mark dirty / 标记脏数据
         gbe.getNodeGraph().bumpGeneration();
         markDirty(gbe);
         // 10. For display-affecting ops, trigger a block update so tracking clients
         //     (including players without the UI open) get the latest graph via getUpdateTag().
+        // 10. 对于影响显示的操作，触发放块更新，使跟踪客户端
+        //     （包括未打开 UI 的玩家）通过 getUpdateTag() 获取最新图。
         if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_LAYOUT
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT
@@ -210,20 +222,16 @@ public final class EditSessionRegistry {
         }
     }
 
-    /** Mark the block entity dirty so the chunk is saved. Covers all 7 graph host types. */
+    /** Mark the block entity dirty so the chunk is saved.
+     *  标记方块实体为脏数据以便区块保存。 */
     private static void markDirty(GraphBlockEntity gbe) {
-        if (gbe instanceof BlueprintBlockEntity bbe) bbe.setChanged();
-        else if (gbe instanceof MonitorBlockEntity mbe) mbe.setChanged();
-        else if (gbe instanceof ProgramComputerBlockEntity pbe) pbe.setChanged();
-        else if (gbe instanceof RadarBlockEntity rbe) rbe.setChanged();
-        else if (gbe instanceof SensorBlockEntity sbe) sbe.setChanged();
-        else if (gbe instanceof SpeedProxyBlockEntity spbe) spbe.setChanged();
-        else if (gbe instanceof ControlSeatBlockEntity cbe) cbe.setChanged();
+        if (gbe instanceof net.minecraft.world.level.block.entity.BlockEntity be) be.setChanged();
     }
 
     // ── Cleanup ──
 
-    /** Call on server stopping to clear all state. */
+    /** Call on server stopping to clear all state.
+     *  服务端停止时调用以清除所有状态。 */
     public static void clearAll() {
         editors.clear();
         editVersions.clear();

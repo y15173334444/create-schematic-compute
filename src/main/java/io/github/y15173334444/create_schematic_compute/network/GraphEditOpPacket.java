@@ -6,7 +6,8 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.graph.OpType;
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.VarInt;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
@@ -23,14 +24,13 @@ import java.util.UUID;
 
 public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
 
-    /** C→S: client emits an edit op to the server. */
     public static final Type<GraphEditOpPacket> TYPE =
         new Type<>(ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "graph_edit_op"));
 
     public static final StreamCodec<ByteBuf, GraphEditOpPacket> CODEC =
         new StreamCodec<>() {
             @Override public GraphEditOpPacket decode(ByteBuf buf) {
-                var b = new FriendlyByteBuf(buf);
+                var b = new net.minecraft.network.FriendlyByteBuf(buf);
                 OpType type = OpType.values()[b.readVarInt()];
                 BlockPos graphPos = b.readBlockPos();
                 int ownerNodeId = b.readVarInt();
@@ -54,18 +54,28 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
                 java.util.List<String> bands = null;
                 if (b.readBoolean()) {
                     int bandCount = b.readVarInt();
-                    if (bandCount < 0 || bandCount > 64) // upper bound: prevent OOM
-                        bandCount = 0;
+                    if (bandCount < 0 || bandCount > 64) bandCount = 0;
                     bands = new ArrayList<>(bandCount);
                     for (int i = 0; i < bandCount; i++) bands.add(b.readUtf());
                 }
                 int keyIndex = b.readVarInt();
                 int imageFrameIndex = b.readVarInt();
                 int hotbarSlot = b.readVarInt();
-                ItemStack itemStack = ItemStack.OPTIONAL_STREAM_CODEC.decode(
-                    (net.minecraft.network.RegistryFriendlyByteBuf) buf);
+                // ItemStack: only present for SET_HOTBAR_ITEM / 中文：仅在 SET_HOTBAR_ITEM 时存在
+                ItemStack itemStack = ItemStack.EMPTY;
+                if (b.readBoolean()) {
+                    itemStack = ItemStack.OPTIONAL_STREAM_CODEC.decode(
+                        (RegistryFriendlyByteBuf) buf);
+                }
                 long editVersion = b.readVarLong();
                 UUID actor = new UUID(b.readLong(), b.readLong());
+                int blobRefId = VarInt.read(buf);
+                int[] imageData = null;
+                int imgLen = VarInt.read(buf);
+                if (imgLen > 0) {
+                    imageData = new int[imgLen];
+                    for (int i = 0; i < imgLen; i++) imageData[i] = buf.readInt();
+                }
                 return new GraphEditOpPacket(new GraphOp(
                     type, graphPos, ownerNodeId, targetNodeId,
                     tempId, nodeType, x, y,
@@ -73,11 +83,12 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
                     paramIndex, paramValue, stringValue,
                     colorBg, colorBorder, colorText,
                     sortB, bands, keyIndex, imageFrameIndex,
-                    hotbarSlot, itemStack, editVersion, actor
+                    hotbarSlot, itemStack, editVersion, actor,
+                    blobRefId, imageData
                 ));
             }
             @Override public void encode(ByteBuf buf, GraphEditOpPacket pkt) {
-                var b = new FriendlyByteBuf(buf);
+                var b = new net.minecraft.network.FriendlyByteBuf(buf);
                 GraphOp o = pkt.op;
                 b.writeVarInt(o.type().ordinal());
                 b.writeBlockPos(o.graphPos());
@@ -108,19 +119,30 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
                 b.writeVarInt(o.keyIndex());
                 b.writeVarInt(o.imageFrameIndex());
                 b.writeVarInt(o.hotbarSlot());
-                ItemStack.OPTIONAL_STREAM_CODEC.encode(
-                    (net.minecraft.network.RegistryFriendlyByteBuf) buf,
-                    o.itemStack() != null ? o.itemStack() : ItemStack.EMPTY);
+                // ItemStack: only serialize for SET_HOTBAR_ITEM (bandwidth optimization) / 中文：仅为 SET_HOTBAR_ITEM 序列化（带宽优化）
+                boolean hasItem = o.type() == OpType.SET_HOTBAR_ITEM && o.itemStack() != null;
+                b.writeBoolean(hasItem);
+                if (hasItem) {
+                    ItemStack.OPTIONAL_STREAM_CODEC.encode(
+                        (RegistryFriendlyByteBuf) buf, o.itemStack());
+                }
                 b.writeVarLong(o.editVersion());
                 UUID a = o.actor();
                 b.writeLong(a != null ? a.getMostSignificantBits() : 0L);
                 b.writeLong(a != null ? a.getLeastSignificantBits() : 0L);
+                VarInt.write(buf, o.blobRefId());
+                int[] img = o.imageData();
+                if (img != null && img.length > 0) {
+                    VarInt.write(buf, img.length);
+                    for (int v : img) buf.writeInt(v);
+                } else {
+                    VarInt.write(buf, 0);
+                }
             }
         };
 
     @Override public @NotNull Type<? extends CustomPacketPayload> type() { return TYPE; }
 
-    /** Max edit distance (squared) — ~80 blocks range. */
     private static final double MAX_EDIT_DIST_SQ = 80.0 * 80.0;
 
     public static void handleServer(GraphEditOpPacket pkt, IPayloadContext ctx) {
@@ -128,13 +150,10 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
             if (!(sp.level() instanceof ServerLevel sl)) return;
             var pos = pkt.op.graphPos();
-            // 1. Range check — prevent arbitrary chunk loading / remote editing
             double dx = sp.getX() - pos.getX();
             double dz = sp.getZ() - pos.getZ();
             if (dx * dx + dz * dz > MAX_EDIT_DIST_SQ) return;
-            // 2. Session membership check (join required before editing)
             if (!EditSessionRegistry.getEditors(sl, pos).contains(sp.getUUID())) return;
-            // 3. Overwrite actor UUID with the authenticated sender
             var authenticatedOp = new GraphOp(
                 pkt.op.type(), pkt.op.graphPos(), pkt.op.ownerNodeId(), pkt.op.targetNodeId(),
                 pkt.op.tempId(), pkt.op.nodeType(), pkt.op.x(), pkt.op.y(),
@@ -143,7 +162,8 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
                 pkt.op.colorBg(), pkt.op.colorBorder(), pkt.op.colorText(),
                 pkt.op.sortB(), pkt.op.bands(), pkt.op.keyIndex(), pkt.op.imageFrameIndex(),
                 pkt.op.hotbarSlot(), pkt.op.itemStack(),
-                pkt.op.editVersion(), sp.getUUID());
+                pkt.op.editVersion(), sp.getUUID(),
+                pkt.op.blobRefId(), pkt.op.imageData());
             EditSessionRegistry.applyOp(sl, pos, authenticatedOp, sp);
         });
     }

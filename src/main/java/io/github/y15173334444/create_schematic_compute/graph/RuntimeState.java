@@ -10,38 +10,51 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
+ * 所有逐节点运行时状态的可序列化快照。
+ * 由每个 BlockEntity 持有，并传给 {@link GraphEvaluator#evaluate} 以支持
+ * PID 积分、延时队列、触发器状态和脉冲计时器。
  * Serializable snapshot of all per-node runtime state.
  * Owned by each BlockEntity and passed to {@link GraphEvaluator#evaluate}
  * for PID integrals, delay queues, flipflop states, and pulse timers.
  *
- * <p>All maps use the same integer keys as the pre-existing per-BlockEntity maps:
+ * <p>所有映射使用与原有逐 BlockEntity 映射相同的整数键：
+ * {@code node.id}、{@code -(node.id+1)} 用于辅助槽位等。
+ * All maps use the same integer keys as the pre-existing per-BlockEntity maps:
  * {@code node.id}, {@code -(node.id+1)} for secondary slots, etc.
  *
- * <p>Sub-graph state (nodes inside ENCAPSULATION) is stored in {@link #subStates}
+ * <p>子图状态（ENCAPSULATION 内的节点）存储在 {@link #subStates} 中，
+ * 以封装节点 ID 为键，将 ID 与顶层节点隔离开来。
+ * Sub-graph state (nodes inside ENCAPSULATION) is stored in {@link #subStates}
  * keyed by the encapsulation node ID, keeping IDs separate from top-level nodes.
  */
 public class RuntimeState {
 
+    // PID 积分、ACCUMULATOR 当前值、INTEGRATOR 值和 tick 计数器
     // PID integrals, ACCUMULATOR current values, INTEGRATOR values and tick counters
     public final Map<Integer, Float> pidState = new HashMap<>();
 
+    // DELAY 节点逐 tick 队列
     // DELAY node per-tick queues
     public final Map<Integer, ArrayDeque<Float>> delayQueues = new HashMap<>();
 
+    // LATCH、T_FLIPFLOP、GATE、LOOP、FUSE 布尔状态
     // LATCH, T_FLIPFLOP, GATE, LOOP, FUSE boolean states
     public final Map<Integer, Boolean> flipflopStates = new HashMap<>();
 
+    // PULSE_EXTEND、LOOP、FUSE tick 计数器
     // PULSE_EXTEND, LOOP, FUSE tick counters
     public final Map<Integer, Integer> pulseTimers = new HashMap<>();
 
+    // ── 子图状态（ENCAPSULATION 节点）────────────────────────
+    // 键：封装节点 ID。每个条目持有该 ENCAPSULATION 子图中时序/状态节点的状态映射。
     // ── Sub-graph state (ENCAPSULATION nodes) ────────────────────────
     // Key: encapsulation node ID. Each entry holds the state maps for
     // the timing/state nodes inside that ENCAPSULATION's sub-graph.
 
-    /** Key: encapNodeId → sub-node state map */
+    /** 键：encapNodeId → 子节点状态映射 / Key: encapNodeId → sub-node state map */
     public final Map<Integer, SubState> subStates = new HashMap<>();
 
-    /** Runtime state for one ENCAPSULATION sub-graph. */
+    /** 一个 ENCAPSULATION 子图的运行时状态。 / Runtime state for one ENCAPSULATION sub-graph. */
     public static class SubState {
         public final Map<Integer, Float> pidState = new HashMap<>();
         public final Map<Integer, ArrayDeque<Float>> delayQueues = new HashMap<>();
@@ -51,12 +64,13 @@ public class RuntimeState {
 
     public RuntimeState() {}
 
-    /** Get or create the SubState for an encapsulation node. */
+    /** 获取或创建封装节点的 SubState。 / Get or create the SubState for an encapsulation node. */
     public SubState getOrCreateSubState(int encapNodeId) {
         return subStates.computeIfAbsent(encapNodeId, k -> new SubState());
     }
 
-    /** Wipe all state (used on {@code accept()} merge). */
+    /** 清除所有状态（在 {@code accept()} 合并时使用）。
+     *  Wipe all state (used on {@code accept()} merge). */
     public void clear() {
         pidState.clear();
         delayQueues.clear();
@@ -65,6 +79,7 @@ public class RuntimeState {
         subStates.clear();
     }
 
+    // ── NBT 序列化 ──────────────────────────────────────────────────────
     // ── NBT serialisation ──────────────────────────────────────────────────
 
     public CompoundTag save() {
@@ -97,6 +112,7 @@ public class RuntimeState {
                 pt.putInt(String.valueOf(e.getKey()), e.getValue());
             tag.put("pt", pt);
         }
+        // 子图状态 — 每个封装节点一个 CompoundTag
         // Sub-graph state — one CompoundTag per encapsulation node
         if (!subStates.isEmpty()) {
             CompoundTag sub = new CompoundTag();
@@ -162,7 +178,7 @@ public class RuntimeState {
             for (var k : pt.getAllKeys())
                 rs.pulseTimers.put(Integer.parseInt(k), pt.getInt(k));
         }
-        // Sub-graph state
+        // 子图状态  /  Sub-graph state
         if (tag.contains("sub")) {
             var sub = tag.getCompound("sub");
             for (var k : sub.getAllKeys()) {

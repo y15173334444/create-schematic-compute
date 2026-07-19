@@ -72,5 +72,11 @@ public class AllPackets {
         registrar.playToClient(GraphPresenceSyncPacket.TYPE, GraphPresenceSyncPacket.CODEC, GraphPresenceSyncPacket::handle);
         registrar.playToServer(GraphJoinPacket.TYPE, GraphJoinPacket.CODEC, GraphJoinPacket::handle);
         registrar.playToServer(GraphLeavePacket.TYPE, GraphLeavePacket.CODEC, GraphLeavePacket::handle);
+        // v1.2.4+: Server-authoritative evaluation sync
+        registrar.playToClient(ClientboundGraphEvalPacket.TYPE, ClientboundGraphEvalPacket.CODEC, ClientboundGraphEvalPacket::handle);
+        // v1.2.4+: Blob data channel (C→S and S→C use separate types per NeoForge requirement)
+        registrar.playToServer(BlobDataPacket.TYPE, BlobDataPacket.CODEC, BlobPacketHandler::handleServer);
+        registrar.playToClient(BlobDataSyncPacket.TYPE, BlobDataSyncPacket.CODEC,
+            (pkt, ctx) -> BlobPacketHandler.handleClient(pkt.inner(), ctx));
     }
 }

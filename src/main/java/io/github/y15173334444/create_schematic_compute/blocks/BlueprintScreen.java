@@ -60,6 +60,7 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
     }
 
     @Override public void removed() {
+        editor.clearRemotePresences();
         super.removed();
         // Leave collaborative editing session
         PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(
@@ -73,6 +74,16 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
         }
         return null;
     }
+
+    @Override protected void containerTick() {
+        super.containerTick();
+        if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
+            if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof BlueprintBlockEntity)) {
+                onClose();
+            }
+        }
+    }
+
     @Override public NodeGraph getGraph() { BlueprintBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { BlueprintBlockEntity be = getBE(); return be != null && be.running; }
     @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { BlueprintBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }

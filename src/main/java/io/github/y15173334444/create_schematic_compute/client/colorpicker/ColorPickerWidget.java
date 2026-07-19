@@ -91,6 +91,7 @@ public class ColorPickerWidget {
     private Consumer<Integer> onSelect;
     private Consumer<Integer> liveUpdate; // fires on every HSV/alpha change
     private boolean persistent; // if true, OK/confirm doesn't close the picker
+    private Runnable onClose;   // called when close() is invoked
     private String feedbackText = "";
     private long feedbackUntil = 0;
     private boolean showErase; // only in pixel editor context
@@ -156,7 +157,8 @@ public class ColorPickerWidget {
     }
 
     public void close() { visible = false; persistent = false; clearDragState();
-        draggingSV = draggingHue = draggingAlpha = draggingFavSb = false; ColorPickerButton.clearSelection(); }
+        draggingSV = draggingHue = draggingAlpha = draggingFavSb = false; ColorPickerButton.clearSelection();
+        if (onClose != null) { var cb = onClose; onClose = null; cb.run(); } }
 
     /** Update color + callbacks without repositioning. */
     public void rebind(int newColor, Consumer<Integer> newCallback) {
@@ -701,6 +703,9 @@ public class ColorPickerWidget {
     }
     /** Set whether OK/confirm keeps the picker open (for multi-swatch panels). */
     public void setPersistent(boolean p) { this.persistent = p; }
+
+    /** Set a callback invoked when close() is called (ESC or click-outside). */
+    public void setOnClose(Runnable cb) { this.onClose = cb; }
 
     private void confirm() {
         int color = currentArgb();

@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 
-/** The complete node graph: nodes + connections. */
+/** 完整的节点图：节点 + 连接。 / The complete node graph: nodes + connections. */
 public class NodeGraph {
     public final List<GraphNode> nodes = new ArrayList<>();
     public final List<NodeConnection> connections = new ArrayList<>();
@@ -21,19 +21,23 @@ public class NodeGraph {
     public int nextLayerIndex = 1;
     public int nextSortB = 1;
 
-    // 缓存：O(1) 节点查找
+    // 缓存：O(1) 节点查找  /  Cache: O(1) node lookup
     private Map<Integer, GraphNode> nodeMap = new HashMap<>();
-    // 缓存：O(1) 输入查询 key = (toId << 16) | toPin
+    // 缓存：O(1) 输入查询 key = (toId << 16) | toPin  /  Cache: O(1) input query
     private Map<Long, NodeConnection> inputCache = new HashMap<>();
-    // 缓存：拓扑排序版本号，连接变化时递增
+    // 缓存：拓扑排序版本号，连接变化时递增  /  Cache: topological order version, incremented on connection changes
     private int topoVersion = 0;
     private List<Integer> topoOrder = null;
 
-    /** Expose nodeMap for UI remapping (ACK-handler in GraphEditor). */
+    /** 暴露 nodeMap 供 UI 重映射使用（GraphEditor 中的 ACK 处理器）。
+     *  Expose nodeMap for UI remapping (ACK-handler in GraphEditor). */
     public Map<Integer, GraphNode> nodeMap() { return nodeMap; }
 
     /** 全局图版本号 — 任何影响渲染的变更（结构/参数/位置）时递增。
-     *  Phase 2 脏标记框架用此值判断是否需要重新渲染。 */
+     *  Phase 2 脏标记框架用此值判断是否需要重新渲染。
+     *  Global graph generation — incremented on any change that affects rendering
+     *  (structure/params/position). Phase 2 dirty-flag framework uses this to
+     *  determine whether re-render is needed. */
     public int graphGeneration = 0;
     public void bumpGeneration() { graphGeneration++; }
 
@@ -65,10 +69,11 @@ public class NodeGraph {
     }
 
     public GraphNode findNode(int id) {
-        return nodeMap.get(id);  // O(1) 查找
+        return nodeMap.get(id);  // O(1) 查找  /  O(1) lookup
     }
 
-    /** Rebuild the node lookup map (required after external node list mutation) */
+    /** 重建节点查找映射（在外部修改节点列表后必须调用）。
+     *  Rebuild the node lookup map (required after external node list mutation). */
     public void rebuildNodeMap() {
         nodeMap.clear();
         for (var n : nodes) nodeMap.put(n.id, n);
@@ -90,13 +95,15 @@ public class NodeGraph {
         bumpGeneration();
     }
 
-    /** 获取拓扑排序（缓存，仅在连接变化时重算） */
+    /** 获取拓扑排序（缓存，仅在连接变化时重算）。
+     *  Get topological order (cached, recomputed only on connection changes). */
     public List<Integer> getTopoOrder() {
         if (topoOrder != null) return topoOrder;
         return computeTopoOrder();
     }
 
-    /** 返回拓扑版本号，供外部判断图是否变化 */
+    /** 返回拓扑版本号，供外部判断图是否变化。
+     *  Return the topological version number for external callers to detect graph changes. */
     public int topoVersion() { return topoVersion; }
 
     private void invalidateTopo() {
@@ -129,8 +136,8 @@ public class NodeGraph {
         return topoOrder;
     }
 
-    /** 重建输入缓存 */
-    /** Rebuild the input cache (public for ACK-based ID remapping). */
+    /** 重建输入缓存（公开方法，供 ACK 的 ID 重映射使用）。
+     *  Rebuild the input cache (public for ACK-based ID remapping). */
     public void rebuildInputCache() {
         inputCache.clear();
         for (NodeConnection c : connections) {
@@ -142,7 +149,7 @@ public class NodeGraph {
         return ((long) nodeId << 16) | (pinIdx & 0xFFFF);
     }
 
-    /** O(1) 查找输入连接 */
+    /** O(1) 查找输入连接 / O(1) lookup input connection */
     public float getInputValue(int nodeId, int pinIdx, Map<Integer, float[]> outputs) {
         NodeConnection c = inputCache.get(key(nodeId, pinIdx));
         if (c != null) {
@@ -152,7 +159,9 @@ public class NodeGraph {
         return 0;
     }
 
-    /** O(1) 查找输入值，无连线时返回默认值（一次查找，避免 hasInputConnection + getInputValue 两次查找） */
+    /** O(1) 查找输入值，无连线时返回默认值（一次查找，避免 hasInputConnection + getInputValue 两次查找）。
+     *  O(1) lookup input value; returns default when unconnected (single lookup avoids
+     *  the double lookup of hasInputConnection + getInputValue). */
     public float getInputValueOrDefault(int nodeId, int pinIdx, Map<Integer, float[]> outputs, float defaultVal) {
         NodeConnection c = inputCache.get(key(nodeId, pinIdx));
         if (c != null) {
@@ -162,7 +171,7 @@ public class NodeGraph {
         return defaultVal;
     }
 
-    /** O(1) 检查指定输入引脚是否有连线 */
+    /** O(1) 检查指定输入引脚是否有连线 / O(1) check whether the specified input pin has a connection */
     public boolean hasInputConnection(int nodeId, int pinIdx) {
         return inputCache.containsKey(key(nodeId, pinIdx));
     }
@@ -172,7 +181,10 @@ public class NodeGraph {
     }
 
     /** 检查新增 from→to 连接是否会构成环（只读，不修改图）。
-     *  从 toId 沿现有连接方向 BFS，若能到达 fromId，则 from→to 会闭环。 */
+     *  从 toId 沿现有连接方向 BFS，若能到达 fromId，则 from→to 会闭环。
+     *  Check whether adding a from→to connection would form a cycle (read-only, does not
+     *  modify the graph). BFS from toId along existing connections; if fromId is reachable,
+     *  then from→to would close a cycle. */
     public boolean wouldCreateCycle(int fromId, int toId) {
         if (fromId == toId) return true;
         Map<Integer, List<Integer>> adj = new HashMap<>();
@@ -191,7 +203,8 @@ public class NodeGraph {
         return false;
     }
 
-    /** Deep-copy this entire graph with new IDs. Recursively copies sub-graphs inside encapsulation nodes. */
+    /** 深拷贝整个图，分配新 ID。递归复制封装节点内的子图。
+     *  Deep-copy this entire graph with new IDs. Recursively copies sub-graphs inside encapsulation nodes. */
     public NodeGraph copy() {
         NodeGraph g = new NodeGraph();
         java.util.Map<Integer, Integer> idMap = new java.util.HashMap<>();
@@ -223,13 +236,15 @@ public class NodeGraph {
         return tag;
     }
 
-    /** Load graph from NBT, transparently migrating old formats. */
+    /** 从 NBT 加载图，透明地迁移旧格式。
+     *  Load graph from NBT, transparently migrating old formats. */
     public static NodeGraph load(CompoundTag rawTag, HolderLookup.Provider registries) {
         CompoundTag tag = GraphMigration.migrate(rawTag);
         return loadCurrent(tag, registries);
     }
 
-    /** Load a tag that is already at the current DATA_VERSION. */
+    /** 加载已经是当前 DATA_VERSION 的 NBT 标签。
+     *  Load a tag that is already at the current DATA_VERSION. */
     private static NodeGraph loadCurrent(CompoundTag tag, HolderLookup.Provider registries) {
         NodeGraph g = new NodeGraph();
         g.nextNodeId = tag.getInt("nextId");
@@ -243,7 +258,7 @@ public class NodeGraph {
         ListTag cl = tag.getList("conns", Tag.TAG_COMPOUND);
         for (int i = 0; i < cl.size(); i++) {
             NodeConnection c = NodeConnection.load(cl.getCompound(i));
-            // 忽略引用不存在的节点的连接
+            // 忽略引用不存在的节点的连接  /  Skip connections referencing nonexistent nodes
             if (g.nodeMap.containsKey(c.fromId) && g.nodeMap.containsKey(c.toId))
                 g.connections.add(c);
         }
