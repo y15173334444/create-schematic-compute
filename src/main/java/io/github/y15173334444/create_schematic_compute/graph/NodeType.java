@@ -89,6 +89,9 @@ public enum NodeType {
     ENCAP_OUTPUT("encap_output", "node.create_schematic_compute.encap_output", 1, 0, "name"),
     // Radar  /  Radar
     TARGET_OUT("target_out", "node.create_schematic_compute.target_out", 0, 5, ""),
+    // Debug tools / 调试工具
+    DEBUG_SIGNAL_GEN("debug_signal_gen", "node.create_schematic_compute.debug_signal_gen", 0, 1, "setMode,outMode,speed,amplitude,inputX"),
+    DEBUG_PROBE("debug_probe", "node.create_schematic_compute.debug_probe", 1, 1, "windowSize,autoScale"),
     COMMENT("comment", "node.create_schematic_compute.comment", 0, 0, "");
 
     /** NBT 序列化的稳定字符串标识符 — 永远不要修改这些值。 / Stable string identifier for NBT serialisation — never change these. */
@@ -134,13 +137,18 @@ public enum NodeType {
         return switch (this) {
             case BOOL, GATE, T_FLIPFLOP, KEYBOARD, GAMEPAD_BUTTON, LATCH,
                  ENCAP_INPUT, ENCAP_OUTPUT, IMAGE, IMAGE_SEQUENCE,
-                 BUS_IN, BUS_OUT -> 0;
+                 BUS_IN, BUS_OUT, DEBUG_SIGNAL_GEN -> 0;
             default -> paramNames.length;
         };
     }
 
     public String getTitle() { return displayName; }
     public Component title() { return Component.translatable(displayName); }
+
+    /** 是否为调试节点（导出/封装时过滤）。 / Whether this is a debug node (filtered on export/encapsulate). */
+    public boolean isDebug() {
+        return this == DEBUG_SIGNAL_GEN || this == DEBUG_PROBE;
+    }
 
     /** 引脚 i18n 键的简写：pin.create_schematic_compute.<label>  /  Shorthand for pin i18n key: pin.create_schematic_compute.<label> */
     private static String pk(String label) { return "pin.create_schematic_compute." + label; }

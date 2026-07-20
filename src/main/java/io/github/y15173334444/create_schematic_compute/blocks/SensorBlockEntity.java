@@ -124,6 +124,7 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
             Float.isNaN(cachedSubWorldZ) ? worldPosition.getZ()+0.5f : cachedSubWorldZ);
         var results = evaluator.evaluate(in, runtimeState.pidState, 0.05f, si);
         rs.writeOutputs(results);
+        broadcastEvalSnapshot(); // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
         BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
         setChanged();
     }

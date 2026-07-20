@@ -106,11 +106,15 @@ public class SpatialIndex {
     static float nwStatic(GraphNode n) {
         if (n.type == NodeType.COMMENT) return n.commentWidth;
         if (n.type == NodeType.FORMULA) return 240f; // WIDE_NW
+        if (n.type == NodeType.DEBUG_SIGNAL_GEN || n.type == NodeType.DEBUG_PROBE) return 240f; // WIDE_NW
         return 140f; // NW
     }
 
     static float nhStatic(GraphNode n) {
         if (n.type == NodeType.COMMENT) return n.commentHeight;
-        return 18f + 16f * (n.functionalInputs() + n.outputs()); // HH + PH * rows
+        float base = 18f + 16f * (n.functionalInputs() + n.outputs()); // HH + PH * rows
+        if (n.type == NodeType.DEBUG_SIGNAL_GEN) return base + 84f; // XY 图区域
+        if (n.type == NodeType.DEBUG_PROBE) return base + 64f;       // 数值 + 趋势图
+        return base;
     }
 }

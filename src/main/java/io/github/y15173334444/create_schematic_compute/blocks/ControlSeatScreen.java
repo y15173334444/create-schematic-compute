@@ -37,7 +37,9 @@ public class ControlSeatScreen extends AbstractContainerScreen<ControlSeatMenu> 
             || nt == NodeType.SPLIT
             || nt == NodeType.REDSTONE_OUT
             || nt == NodeType.PRIVATE_OUT
-            || nt == NodeType.COMMENT;
+            || nt == NodeType.COMMENT
+            || nt == NodeType.DEBUG_SIGNAL_GEN
+            || nt == NodeType.DEBUG_PROBE;
     }
 
     public ControlSeatScreen(ControlSeatMenu m, Inventory inv, Component t) {
@@ -55,9 +57,23 @@ public class ControlSeatScreen extends AbstractContainerScreen<ControlSeatMenu> 
         }
         return null;
     }
+    @Override protected void containerTick() {
+        super.containerTick();
+        if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
+            if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof ControlSeatBlockEntity)) {
+                onClose();
+                return;
+            }
+        }
+        editor.clientTick();
+    }
     @Override public NodeGraph getGraph() { ControlSeatBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { ControlSeatBlockEntity be = getBE(); return be != null && be.running; }
     @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { ControlSeatBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() {
+        ControlSeatBlockEntity be = getBE();
+        return be != null ? be.cachedEvalSnapshot : null;
+    }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
 
     @Override
@@ -107,6 +123,7 @@ public class ControlSeatScreen extends AbstractContainerScreen<ControlSeatMenu> 
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
     }
     @Override public void removed() {
+        editor.onClose();
         super.removed();
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));
     }

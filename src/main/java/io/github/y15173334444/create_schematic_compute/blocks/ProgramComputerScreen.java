@@ -56,7 +56,9 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
             || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.COT
             || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.ANGLE_UNWRAP
             || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DIRECTION
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT);
+            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT
+            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_SIGNAL_GEN
+            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_PROBE);
     }
 
     private ProgramComputerBlockEntity getBE() {
@@ -66,9 +68,23 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
         }
         return null;
     }
+    @Override protected void containerTick() {
+        super.containerTick();
+        if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
+            if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof ProgramComputerBlockEntity)) {
+                onClose();
+                return;
+            }
+        }
+        editor.clientTick();
+    }
     @Override public NodeGraph getGraph() { ProgramComputerBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { ProgramComputerBlockEntity be = getBE(); return be != null && be.running; }
     @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { ProgramComputerBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() {
+        ProgramComputerBlockEntity be = getBE();
+        return be != null ? be.cachedEvalSnapshot : null;
+    }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
 
     @Override
@@ -118,6 +134,7 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
     }
     @Override public void removed() {
+        editor.onClose();
         super.removed();
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));
     }

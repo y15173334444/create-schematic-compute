@@ -64,6 +64,9 @@ public class GraphEditor {
         default java.util.UUID getPlayerUUID() { return java.util.UUID.randomUUID(); }
         /** Get the local player name for presence display. */
         default String getPlayerName() { return ""; }
+        /** Get the client-cached eval snapshot (for DEBUG_PROBE sampling). Null on server or no BE.
+         *  获取客户端缓存的求值快照（供 DEBUG_PROBE 采样）。服务端或无 BE 时返回 null。 */
+        default io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() { return null; }
         default GraphEditor getEditor() { return null; }
     }
 
@@ -271,6 +274,18 @@ public class GraphEditor {
 
     // 编辑状态 (Edit state)
     public float camX=0, camY=0, zoom=1f;
+    // 视角书签 UI 状态 / view bookmark UI state
+    private boolean showBookmarkPanel = false;
+    private String bookmarkNameDraft = "";
+    private boolean editingBookmarkName = false;
+    private int bookmarkScrollOff = 0; // 书签面板滚动偏移 / bookmark panel scroll offset
+    // 临时视角（内存 static，session 内跨编辑器实例恢复，不持久化不共享）
+    // Temporary view (in-memory static, restored across editor instances within session, not persisted, not shared)
+    private static float[] lastTempView = null; // [camX, camY, zoom]
+
+    /** 清除临时视角（客户端断开/切换存档时调用，防止跨存档污染）。
+     *  Clear temp view (called on client disconnect/world switch, prevents cross-world pollution). */
+    public static void clearTempView() { lastTempView = null; }
     // Phase 2 render cache — skip expensive layers when nothing changed
     private int lastRenderedGen = -1;
     private float lastRenderedCamX, lastRenderedCamY, lastRenderedZoom;
@@ -283,6 +298,13 @@ public class GraphEditor {
     public boolean draggingWire=false;
     public int wireFromNode=-1, wireFromPin=-1;
     public float wireEndX, wireEndY;
+    // DEBUG_SIGNAL_GEN 控制点拖拽 / control point drag
+    private int draggingCtrlNode = -1;
+    private int draggingCtrlIdx = -1;
+    private boolean ctrlPointsChanged = false; // true if any control point was modified since last sync
+    private long lastClickMs = 0; // 双击检测 / double-click detection
+    // DEBUG_SIGNAL_GEN x 标记拖拽 / x marker drag
+    private int draggingXMarkerNode = -1;
     private int editBoxDragNodeId = -1; // node id whose EditBox is being drag-selected
     public boolean showMenu=false;
     public float menuX, menuY;
@@ -323,6 +345,11 @@ public class GraphEditor {
         public GraphNode busNode;
         /** ColorPickerButton for TEXT/DATA node color editing */
         public ColorPickerButton colorButton;
+        /** Mode toggle pending confirmation state (DEBUG_SIGNAL_GEN) */
+        public int pendingSetMode = -1;       // -1=none, 0/1=target setMode
+        public long pendingSetModeExpireMs = 0;
+        public int pendingOutMode = -1;       // -1=none, 0/1=target outMode
+        public long pendingOutModeExpireMs = 0;
     }
     public final java.util.Map<Integer, EditState> nodeEditStatesById = new java.util.HashMap<>();
     /** EditBox → 提交动作（回车或失焦时执行） (EditBox → commit action, executed on Enter or focus loss) */
@@ -563,7 +590,8 @@ public class GraphEditor {
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_TEXT_COLOR
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_COLORS
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_SIZE
-            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL) {
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_CTRL_POINTS) {
             var st = nodeEditStatesById.get(op.targetNodeId());
             if (st != null && op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM
                 && op.paramIndex() < st.fieldParamIndices.size()) {
@@ -571,6 +599,14 @@ public class GraphEditor {
                 if (fi < st.fields.size() && st.fields.get(fi) instanceof net.minecraft.client.gui.components.EditBox eb) {
                     suppressEditBoxResponder = true;
                     eb.setValue(ff3(op.paramValue()));
+                    suppressEditBoxResponder = false;
+                }
+            } else if (st != null && op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM) {
+                // DEBUG_SIGNAL_GEN: setMode/outMode changes → recreate EditState to update visible fields
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null && n.type == NodeType.DEBUG_SIGNAL_GEN && (op.paramIndex() == 0 || op.paramIndex() == 1)) {
+                    suppressEditBoxResponder = true;
+                    nodeEditStatesById.put(n.id, createEditState(n));
                     suppressEditBoxResponder = false;
                 }
             } else if (st == null || op.type() != io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM) {
@@ -606,7 +642,8 @@ public class GraphEditor {
         for (int i = 0; i < node.params.length; i++) {
             if (node.type == NodeType.BOOL || node.type == NodeType.GATE || node.type == NodeType.T_FLIPFLOP || node.type == NodeType.LATCH || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON
                 || node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT
-                || node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) continue;
+                || node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE
+                || node.type == NodeType.DEBUG_SIGNAL_GEN) continue;
             // 参数输入引脚已连线 → 阻止折叠（值由连线提供，但引脚仍可见） (Param input pin has connection → block collapse; value driven by connection but pin still visible)
             int pinIdx = node.type.inputs + i;
             if (node.type.editableParamCount() > 0 && getGraph().hasInputConnection(node.id, pinIdx)) {
@@ -811,9 +848,10 @@ public class GraphEditor {
             node.dynamicOutputCount = Math.max(1, initScript.outputLabels.size());
             node.outputLabels = initScript.outputLabels;
             mle.setResponder(t -> {
-                node.formula = t;
+                String sanitized = t.replace('（', '(').replace('）', ')');
+                node.formula = sanitized;
                 node.cachedScript = null; // invalidate label cache
-                var res = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.parseScript(t);
+                var res = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.parseScript(sanitized);
                 int newIn = res.inputVars.size();
                 int newOut = Math.max(1, res.outputLabels.size());
                 // Clean up connections to removed pins
@@ -835,9 +873,12 @@ public class GraphEditor {
                 node.dynamicOutputCount = newOut;
                 node.outputLabels = res.outputLabels;
                 host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(
-                    host.getBlockPos(), ownerNodeId(), node.id, t, host.getPlayerUUID()));
+                    host.getBlockPos(), ownerNodeId(), node.id, sanitized, host.getPlayerUUID()));
             });
             s.fields.add(mle);
+        }
+        if (node.type == NodeType.DEBUG_SIGNAL_GEN) {
+            createDebugSignalGenEditState(node, s, mc);
         }
         if (node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT) {
             var nb = new EditBox(mc.font, 0, 0, 100, 16, Component.literal(""));
@@ -847,6 +888,155 @@ public class GraphEditor {
             s.paramKeys = new String[]{"name"};
         }
         return s;
+    }
+
+    /** 为 DEBUG_SIGNAL_GEN 创建条件编辑状态（公式/参数按 setMode/outMode 动态可见）。
+     *  Create conditional edit state for DEBUG_SIGNAL_GEN (formula/params visible per setMode/outMode). */
+    private void createDebugSignalGenEditState(GraphNode node, EditState s, Minecraft mc) {
+        int setMode = node.params.length > 0 ? (int) node.params[0] : 0;
+        int outMode = node.params.length > 1 ? (int) node.params[1] : 0;
+        int editW = NodeRenderer.WIDE_NW - 36;
+
+        // 公式 EditBox（仅 SET_FORMULA 模式）
+        if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_FORMULA) {
+            var fe = new EditBox(mc.font, 0, 0, editW, 16, Component.literal(""));
+            fe.setMaxLength(256);
+            fe.setValue(node.formula);
+            fe.setHint(Component.literal("f(x)=... (sin/cos 为度, x∈[0,1])"));
+            fe.setResponder(t -> {
+                // 自动将全角括号转为半角 / auto-convert full-width parens to half-width
+                String sanitized = t.replace('（', '(').replace('）', ')');
+                node.formula = sanitized;
+                node.debugFormulaRpn = null;
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(
+                    host.getBlockPos(), ownerNodeId(), node.id, sanitized, host.getPlayerUUID()));
+            });
+            s.fields.add(fe);
+        }
+
+        // speed EditBox（仅 SET_MANUAL + OUT_FREQ 模式）
+        if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL
+            && outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ) {
+            int idx = 2;
+            var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
+            b.setMaxLength(12);
+            b.setValue(ff3(node.params.length > idx ? node.params[idx] : (1f / 20f)));
+            final float[] lastSent = {node.params.length > idx ? node.params[idx] : (1f / 20f)};
+            b.setResponder(text -> { try {
+                if (suppressEditBoxResponder) return;
+                float newV = Float.parseFloat(text.trim());
+                if (Math.abs(newV - lastSent[0]) > 0.0001f) {
+                    if (node.params.length > idx) node.params[idx] = newV;
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), node.id, idx, newV, host.getPlayerUUID()));
+                    recordOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), node.id, idx, newV, host.getPlayerUUID()),
+                        0, 0, lastSent[0], null);
+                    lastSent[0] = newV;
+                }
+            } catch (Exception e) {} });
+            s.fields.add(b);
+        }
+
+        // amplitude EditBox（仅 SET_MANUAL 模式）
+        if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL) {
+            int idx = 3;
+            var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
+            b.setMaxLength(12);
+            b.setValue(ff3(node.params.length > idx ? node.params[idx] : 1f));
+            final float[] lastSent = {node.params.length > idx ? node.params[idx] : 1f};
+            b.setResponder(text -> { try {
+                if (suppressEditBoxResponder) return;
+                float newV = Float.parseFloat(text.trim());
+                if (Math.abs(newV - lastSent[0]) > 0.0001f) {
+                    if (node.params.length > idx) node.params[idx] = newV;
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), node.id, idx, newV, host.getPlayerUUID()));
+                    recordOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), node.id, idx, newV, host.getPlayerUUID()),
+                        0, 0, lastSent[0], null);
+                    lastSent[0] = newV;
+                }
+            } catch (Exception e) {} });
+            s.fields.add(b);
+        }
+
+        // inputX 不显示 EditBox — 用户直接拖拽 XY 图上的天蓝色扫描线设置 x 值
+        // inputX has no EditBox — set x by dragging the sky-blue marker on the chart
+    }
+
+    /** 处理 DEBUG_SIGNAL_GEN 模式切换按钮点击（含二次确认状态机）。
+     *  Handle DEBUG_SIGNAL_GEN mode toggle button click (with confirm-on-second-click state machine).
+     *  @param hit format: "setMode:0", "setMode:1", "outMode:0", "outMode:1" */
+    private void handleModeToggleClick(GraphNode node, EditState st, String hit) {
+        long now = System.currentTimeMillis();
+        String[] parts = hit.split(":");
+        boolean isSetMode = parts[0].equals("setMode");
+        int targetVal = Integer.parseInt(parts[1]);
+        int paramIdx = isSetMode ? 0 : 1;
+        int currentVal = node.params.length > paramIdx ? (int) node.params[paramIdx] : 0;
+
+        // 点击当前已激活的模式 → 忽略
+        if (targetVal == currentVal) {
+            // clear any pending state
+            if (isSetMode) { st.pendingSetMode = -1; st.pendingSetModeExpireMs = 0; }
+            else { st.pendingOutMode = -1; st.pendingOutModeExpireMs = 0; }
+            return;
+        }
+
+        // 检查是否匹配待确认的目标
+        int pendingTarget = isSetMode ? st.pendingSetMode : st.pendingOutMode;
+        long pendingExpire = isSetMode ? st.pendingSetModeExpireMs : st.pendingOutModeExpireMs;
+        boolean hasPending = pendingTarget >= 0 && now < pendingExpire;
+
+        if (hasPending && pendingTarget == targetVal) {
+            // 二次点击确认 → 执行切换并清空原模式数据
+            // Second click confirmed → execute switch and clear old mode data
+            node.params[paramIdx] = targetVal;
+            if (isSetMode) {
+                // 切换设置模式 → 清空原模式数据 + 重置参数为默认，同步
+                // Switching set mode → clear old data + reset params to default, sync
+                if (targetVal == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL) {
+                    // 切换到手动曲线 → 清空公式，重置 speed/amp 为默认
+                    node.formula = "";
+                    node.debugFormulaRpn = null;
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(
+                        host.getBlockPos(), ownerNodeId(), node.id, "", host.getPlayerUUID()));
+                    node.params[2] = 1f / 20f; // speed 默认
+                    node.params[3] = 1f;       // amplitude 默认
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), node.id, 2, 1f / 20f, host.getPlayerUUID()));
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), node.id, 3, 1f, host.getPlayerUUID()));
+                } else {
+                    // 切换到 f(x) → 重置控制点为默认，speed/amp 恢复默认
+                    node.debugCtrlX = new float[]{0f, 1f};
+                    node.debugCtrlY = new float[]{0f, 0f};
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
+                        host.getBlockPos(), ownerNodeId(), node.id, node.debugCtrlX, node.debugCtrlY, host.getPlayerUUID()));
+                    node.params[2] = 1f / 20f;
+                    node.params[3] = 1f;
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), node.id, 2, 1f / 20f, host.getPlayerUUID()));
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), node.id, 3, 1f, host.getPlayerUUID()));
+                }
+            }
+            // 发送 SET_PARAM op
+            host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                host.getBlockPos(), ownerNodeId(), node.id, paramIdx, (float) targetVal, host.getPlayerUUID()));
+            // 清除待确认状态
+            if (isSetMode) { st.pendingSetMode = -1; st.pendingSetModeExpireMs = 0; }
+            else { st.pendingOutMode = -1; st.pendingOutModeExpireMs = 0; }
+            // 重建编辑状态以更新可见的 EditBox
+            nodeEditStatesById.put(node.id, createEditState(node));
+            markDirty();
+        } else {
+            // 首次点击 → 设置待确认状态（3 秒超时）
+            // First click → set pending confirmation (3 second timeout)
+            if (isSetMode) { st.pendingSetMode = targetVal; st.pendingSetModeExpireMs = now + 3000; }
+            else { st.pendingOutMode = targetVal; st.pendingOutModeExpireMs = now + 3000; }
+        }
     }
 
     /** 切换节点展开/折叠（封装节点双击进入子图编辑，其余节点内联展开） (Toggle node expand/collapse; encapsulation nodes enter sub-graph, others inline-expand) */
@@ -887,6 +1077,8 @@ public class GraphEditor {
                 colorPicker
             );
         }
+        // 临时视角恢复（内存 static，session 内跨编辑器实例恢复） / temporary view restore (in-memory static, cross-instance within session)
+        if (lastTempView != null) { camX = lastTempView[0]; camY = lastTempView[1]; zoom = lastTempView[2]; }
     }
 
     public void setNodeFilter(Predicate<NodeType> filter) { this.nodeFilter = filter; this.mainNodeFilter = filter; }
@@ -972,7 +1164,60 @@ public class GraphEditor {
     /** 本方块通过 syncBusBands 实际注册过的频道名（用于区分自身和跨方块冲突） (Bus names actually registered by this BE via syncBusBands; distinguishes self from cross-BE conflicts) */
     private final java.util.Set<String> localBusNames = new java.util.HashSet<>();
 
+    // ── 视角书签过渡动画 / View bookmark transition animation ──
+    private float transFromX, transFromY, transFromZoom;
+    private float transToX, transToY, transToZoom;
+    private long transStartMs = 0;
+    private static final long TRANSITION_MS = 200;
+
+    /** 启动视角过渡动画。 / Start a camera transition animation. */
+    private void startTransition(float toX, float toY, float toZoom) {
+        transFromX = camX; transFromY = camY; transFromZoom = zoom;
+        transToX = toX; transToY = toY; transToZoom = toZoom;
+        transStartMs = System.currentTimeMillis();
+    }
+
+    /** 每帧推进过渡动画（ease-in-out）。 / Advance transition animation per frame (ease-in-out). */
+    private void advanceCameraTransition() {
+        if (transStartMs == 0) return;
+        long elapsed = System.currentTimeMillis() - transStartMs;
+        float t = Math.min(1f, elapsed / (float) TRANSITION_MS);
+        float e = t < 0.5f ? 2 * t * t : 1 - (float) Math.pow(-2 * t + 2, 2) / 2;
+        camX = lerp(transFromX, transToX, e);
+        camY = lerp(transFromY, transToY, e);
+        zoom = lerp(transFromZoom, transToZoom, e);
+        if (t >= 1f) transStartMs = 0;
+    }
+
+    private static float lerp(float a, float b, float t) { return a + (b - a) * t; }
+
+    /** 客户端每 tick 调用（由各 Host Screen 的 containerTick 触发）。
+     *  - 推进 DEBUG_PROBE 历史采样
+     *  - 推进书签视角过渡动画
+     *  Client tick (called by each Host Screen's containerTick). */
+    public void clientTick() {
+        advanceCameraTransition();
+        var snap = host.getCachedEvalSnapshot();
+        if (snap == null || snap == io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY) return;
+        var graph = getGraph();
+        for (GraphNode n : graph.nodes) {
+            if (n.type != NodeType.DEBUG_PROBE) continue;
+            if (n.probeFrozen) continue;
+            float v = snap.get(n.id, 0);
+            n.probeHistory[n.probeHead] = v;
+            n.probeHead = (n.probeHead + 1) % n.probeHistory.length;
+            if (n.probeCount < n.probeHistory.length) n.probeCount++;
+        }
+    }
+
+    /** 编辑器关闭时调用，保存临时视角。 / Called when editor closes, saves temporary view. */
+    public void onClose() {
+        // 临时视角保存（内存 static，session 内跨编辑器实例恢复，不持久化） / temporary view save (in-memory static, not persisted)
+        lastTempView = new float[]{camX, camY, zoom};
+    }
+
     public void renderBg(GuiGraphics g, int mx, int my) {
+        advanceCameraTransition(); // 每帧推进视角过渡动画 / advance camera transition per frame
         var graph = getGraph();
         if (lastInitGeneration != graph.graphGeneration) {
             lastInitGeneration = graph.graphGeneration;
@@ -1105,6 +1350,8 @@ public class GraphEditor {
         if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
 
         // ── A=3: Regular node bodies (sorted by B ascending, comments excluded — rendered at A=1) ──
+        renderer.evalSnapshot = host.getCachedEvalSnapshot();
+        if (renderer.evalSnapshot == null) renderer.evalSnapshot = io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY;
         renderer.renderNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
             camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
         if (!isInSubGraph()) {
@@ -1175,6 +1422,73 @@ public class GraphEditor {
             g.fill(cx + 8, cy + 50, cx + 58, cy + 68, 0xFF4A3030);
             g.renderOutline(cx + 8, cy + 50, 50, 18, 0xFF8B5333);
             g.drawString(mc.font, "§c" + I18n.get("gui.create_schematic_compute.cancel"), cx + 12, cy + 53, 0xFFFFFFFF, false);
+        }
+        // 书签命名对话框 (Bookmark name dialog)
+        if (editingBookmarkName) {
+            var mc = Minecraft.getInstance();
+            int w = 280, h = 70;
+            int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
+            g.fill(cx, cy, cx + w, cy + h, 0xEE1A1A2A);
+            g.renderOutline(cx, cy, w, h, NodeRenderer.CSB());
+            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.bookmark.name"), cx + 8, cy + 6, 0xFFFFCC88, false);
+            // 文本输入框（用 bookmarkNameDraft + 光标模拟）
+            g.fill(cx + 8, cy + 26, cx + w - 8, cy + 46, 0xFF000000);
+            g.renderOutline(cx + 8, cy + 26, w - 16, 20, 0xFF6A6A6A);
+            g.drawString(mc.font, bookmarkNameDraft + "_", cx + 12, cy + 31, 0xFFFFFFFF, false);
+            // 提示
+            g.drawString(mc.font, "§7Enter §r确认 | §7Esc §r取消", cx + 8, cy + 52, 0xFFAAAAAA, false);
+        }
+        // 书签列表面板（右侧，带滚动条） / bookmark list panel (right side, with scrollbar)
+        if (showBookmarkPanel) {
+            var mc = Minecraft.getInstance();
+            var bks = getGraph().bookmarks;
+            int panelW = 130;
+            int rowH = 16;
+            int maxRows = 10;
+            int titleH = 16;
+            int totalRows = bks.size();
+            int visibleRows = Math.min(totalRows, maxRows);
+            int panelH = titleH + Math.max(visibleRows, 1) * rowH + 10;
+            int panelX = host.asScreen().width - panelW - 4;
+            int panelY = 40;
+            // 限制滚动偏移 / clamp scroll offset
+            if (bookmarkScrollOff < 0) bookmarkScrollOff = 0;
+            if (bookmarkScrollOff > Math.max(0, totalRows - maxRows)) bookmarkScrollOff = Math.max(0, totalRows - maxRows);
+            // 背景
+            g.fill(panelX, panelY, panelX + panelW, panelY + panelH, 0xEE1A1A2A);
+            g.renderOutline(panelX, panelY, panelW, panelH, NodeRenderer.CSB());
+            // 标题
+            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.bookmark.title"), panelX + 6, panelY + 4, 0xFFFFCC88, false);
+            // 书签列表
+            for (int i = 0; i < visibleRows; i++) {
+                int idx = i + bookmarkScrollOff;
+                if (idx >= totalRows) break;
+                var bm = bks.get(idx);
+                int ry = panelY + titleH + i * rowH;
+                // 行背景（悬停高亮） / row hover highlight
+                boolean hover = mx >= panelX && mx < panelX + panelW && my >= ry && my < ry + rowH;
+                if (hover) g.fill(panelX + 2, ry, panelX + panelW - 2, ry + rowH, 0xFF3A3A5E);
+                // 序号 + 名称 / index + name
+                String label = (idx < 9 ? (idx + 1) + ". " : "   ") + bm.name();
+                g.drawString(mc.font, label, panelX + 6, ry + 4, 0xFFCCCCCC, false);
+                // 删除按钮 × / delete button
+                g.drawString(mc.font, "§c×", panelX + panelW - 14, ry + 4, 0xFFFF6666, false);
+            }
+            // 空列表提示 / empty list hint
+            if (totalRows == 0) {
+                g.drawString(mc.font, "§7(空)", panelX + 6, panelY + titleH + 4, 0xFF888888, false);
+            }
+            // 滚动条（当书签数 > 可见行数时） / scrollbar (when bookmarks exceed visible rows)
+            if (totalRows > maxRows) {
+                int sbX = panelX + panelW - 5;
+                int sbH = visibleRows * rowH;
+                int sbY = panelY + titleH;
+                g.fill(sbX, sbY, sbX + 3, sbY + sbH, 0xFF2A2A4E);
+                int thumbH = Math.max(10, sbH * maxRows / totalRows);
+                int maxOff = Math.max(1, totalRows - maxRows);
+                int thumbY = sbY + (sbH - thumbH) * bookmarkScrollOff / maxOff;
+                g.fill(sbX, thumbY, sbX + 3, thumbY + thumbH, 0xFF6A6A8E);
+            }
         }
         // 导入封装节点对话框 (Import encapsulation node dialog)
         if (showImportDialog) {
@@ -1394,6 +1708,84 @@ public class GraphEditor {
 
     public boolean mouseClicked(double mx, double my, int btn) {
         var graph = getGraph();
+        // 书签面板交互（仅在面板显示且无弹窗时） / bookmark panel interaction
+        if (showBookmarkPanel && !showExportDialog && !showImportDialog && !colorPicker.isVisible() && editingCommentColorNode == null) {
+            int panelW = 130, rowH = 16, maxRows = 10, titleH = 16;
+            var bks = graph.bookmarks;
+            int totalRows = bks.size();
+            int visibleRows = Math.min(totalRows, maxRows);
+            int panelX = host.asScreen().width - panelW - 4;
+            int panelY = 40;
+            int panelH = titleH + Math.max(visibleRows, 1) * rowH + 10;
+            if (btn == 0 && mx >= panelX && mx < panelX + panelW && my >= panelY && my < panelY + panelH) {
+                int ry = (int)((my - panelY - titleH) / rowH);
+                if (ry >= 0 && ry < visibleRows) {
+                    int idx = ry + bookmarkScrollOff;
+                    if (idx >= 0 && idx < totalRows) {
+                        if (mx >= panelX + panelW - 16) {
+                            // 点击 × 删除 / click × delete
+                            host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeBookmark(
+                                host.getBlockPos(), ownerNodeId(), idx, host.getPlayerUUID()));
+                        } else {
+                            // 点击行 → 跳转 / click row → jump
+                            var bm = bks.get(idx);
+                            startTransition(bm.camX(), bm.camY(), bm.zoom());
+                        }
+                    }
+                    return true;
+                }
+            }
+        }
+        // DEBUG_SIGNAL_GEN 控制点交互（仅在无弹窗时）
+        if (!showExportDialog && !showImportDialog && !colorPicker.isVisible() && editingCommentColorNode == null) {
+            if (btn == 0) {
+                // 1. 控制点命中 → 开始拖拽
+                int[] cpHit = hitControlPoint(mx, my);
+                if (cpHit != null) {
+                    draggingCtrlNode = cpHit[0];
+                    draggingCtrlIdx = cpHit[1];
+                    ctrlPointsChanged = true;
+                    lastClickMs = 0;
+                    return true;
+                }
+                // 1.5. x 标记线命中（OUT_INPUT 模式）→ 开始拖拽
+                int xmNode = hitXMarker(mx, my);
+                if (xmNode >= 0) {
+                    draggingXMarkerNode = xmNode;
+                    lastClickMs = 0;
+                    return true;
+                }
+                // 2. 双击空白处添加控制点（仅在 XY 图区域内）
+                long now = System.currentTimeMillis();
+                boolean isDoubleClick = (now - lastClickMs < 300);
+                lastClickMs = now;
+                if (isDoubleClick) {
+                    GraphNode hover = hitNode(mx, my);
+                    if (hover != null && hover.type == NodeType.DEBUG_SIGNAL_GEN) {
+                        int hsetMode = hover.params.length > 0 ? (int) hover.params[0] : 0;
+                        if (hsetMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL) {
+                            // 仅在 XY 图区域内添加控制点 / only add within chart area
+                            if (isInChartArea(hover, mx, my)) {
+                                addControlPoint(hover, mx, my);
+                                return true;
+                            }
+                        }
+                    }
+                    // DEBUG_PROBE 双击切换冻结
+                    if (hover != null && hover.type == NodeType.DEBUG_PROBE) {
+                        hover.probeFrozen = !hover.probeFrozen;
+                        return true;
+                    }
+                }
+            }
+            if (btn == 1) {
+                int[] cpHit = hitControlPoint(mx, my);
+                if (cpHit != null) {
+                    removeControlPoint(graph.findNode(cpHit[0]), cpHit[1]);
+                    return true;
+                }
+            }
+        }
         // ── Comment color edit popup (handled BEFORE picker so buttons can rebind) ──
         // Comment popup: skip if picker is open and click is on it
         if (editingCommentColorNode != null && commentButtons != null && btn == 0
@@ -1667,7 +2059,7 @@ public class GraphEditor {
                     if (n.type == NodeType.COMMENT) continue;
                     float sx = c2sX(n.x), sy = c2sY(n.y);
                     float sw = NodeRenderer.nw(n) * zoom;
-                    float nh = (HH + PH * (n.functionalInputs() + n.outputs())) * zoom + 4;
+                    float nh = NodeRenderer.nh(n) * zoom + 4; // 使用 nh() 含图表区域 / use nh() to include chart area
                     if (expandedNodeIds.contains(n.id)) nh += EditPanel.calcRenderHeight(n, zoom) * zoom;
                     if (mx >= sx && mx <= sx + sw && my >= sy && my <= sy + nh) {
                         occluded = true;
@@ -1683,7 +2075,7 @@ public class GraphEditor {
                 if (st == null) continue;
                 float nsx = c2sX(en.x), nsy = c2sY(en.y);
                 int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
-                int editLocalY = (int)(HH + PH*(en.functionalInputs() + en.outputs()) + 4/zoom);
+                int editLocalY = (int)(NodeRenderer.nh(en) + 4/zoom); // 使用 nh() 含图表区域 / use nh() to include chart area
                 int numRows = st.fields.size();
                 // Frequency slots only exist for REDSTONE_IN/OUT nodes
                 if (en.type == NodeType.REDSTONE_IN || en.type == NodeType.REDSTONE_OUT) {
@@ -1794,6 +2186,14 @@ public class GraphEditor {
                     int kbLocalY = editLocalY + 4;
                     if (EditPanel.handleKeyboardClick(en, st, lmx, lmy - kbLocalY, io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(en))) return true;
                 }
+                // DEBUG_SIGNAL_GEN mode toggle buttons
+                if (en.type == NodeType.DEBUG_SIGNAL_GEN) {
+                    String hit = EditPanel.hitModeToggle(0, editLocalY, NodeRenderer.nw(en), en, lmx, lmy);
+                    if (hit != null) {
+                        handleModeToggleClick(en, st, hit);
+                        return true;
+                    }
+                }
                 // FORMULA multi-line editor: single MultiLineEditBox covers full edit panel height
                 int enW = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(en);
                 // EditBox focus/click
@@ -1815,6 +2215,48 @@ public class GraphEditor {
                             b.setFocused(true);
                             if (b.mouseClicked(lmx, lmy, 0)) editBoxDragNodeId = en.id;
                         } else b.setFocused(false);
+                    }
+                } else if (en.type == NodeType.DEBUG_SIGNAL_GEN) {
+                    // EditBox positions match EditPanel.renderAt layout: mode toggles (2 rows) + conditional fields
+                    int dsgFieldRow = 2; // mode toggle rows come first
+                    int setMode = en.params.length > 0 ? (int) en.params[0] : 0;
+                    int outMode = en.params.length > 1 ? (int) en.params[1] : 0;
+                    int fieldIdx = 0;
+                    // formula field (if SET_FORMULA)
+                    if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_FORMULA) {
+                        if (fieldIdx < st.fields.size()) {
+                            var b = st.fields.get(fieldIdx);
+                            int fy = editLocalY + 4 + dsgFieldRow * 18;
+                            if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + 18) {
+                                b.setFocused(true); b.mouseClicked(lmx, lmy, 0);
+                            } else b.setFocused(false);
+                            fieldIdx++;
+                        }
+                        dsgFieldRow++;
+                    }
+                    // speed (manual+OUT_FREQ), amplitude (manual only)
+                    for (int ci = 0; ci < 2; ci++) {
+                        boolean visible = switch (ci) {
+                            case 0 -> setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL
+                                && outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ;
+                            case 1 -> setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL;
+                            default -> false;
+                        };
+                        if (!visible) continue;
+                        if (fieldIdx < st.fields.size()) {
+                            var b = st.fields.get(fieldIdx);
+                            int fy = editLocalY + 4 + dsgFieldRow * 18;
+                            if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + 18) {
+                                b.setFocused(true); b.mouseClicked(lmx, lmy, 0);
+                            } else b.setFocused(false);
+                            fieldIdx++;
+                        }
+                        dsgFieldRow++;
+                    }
+                    // Unfocus remaining fields
+                    while (fieldIdx < st.fields.size()) {
+                        st.fields.get(fieldIdx).setFocused(false);
+                        fieldIdx++;
                     }
                 } else if (en.type != NodeType.COMMENT) {
                     // Color button click for TEXT/DATA nodes
@@ -2218,6 +2660,26 @@ public class GraphEditor {
         if (colorPicker.isVisible()) { colorPicker.mouseReleased(mx, my, btn); return; }
         var graph = getGraph();
         editBoxDragNodeId = -1;
+        // 清除 DEBUG_SIGNAL_GEN 控制点拖拽状态 — 若有变更则同步
+        if (draggingCtrlNode >= 0 && ctrlPointsChanged) {
+            GraphNode cn = graph.findNode(draggingCtrlNode);
+            if (cn != null && cn.debugCtrlX != null && cn.debugCtrlY != null) {
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
+                    host.getBlockPos(), ownerNodeId(), cn.id, cn.debugCtrlX, cn.debugCtrlY, host.getPlayerUUID()));
+            }
+        }
+        draggingCtrlNode = -1;
+        draggingCtrlIdx = -1;
+        ctrlPointsChanged = false;
+        // 清除 DEBUG_SIGNAL_GEN x 标记拖拽状态 — 同步 inputX 参数
+        if (draggingXMarkerNode >= 0) {
+            GraphNode xn = graph.findNode(draggingXMarkerNode);
+            if (xn != null && xn.params.length > 4) {
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                    host.getBlockPos(), ownerNodeId(), xn.id, 4, xn.params[4], host.getPlayerUUID()));
+            }
+        }
+        draggingXMarkerNode = -1;
         // Comment resize complete
         if (resizingComment != null) {
             if (Math.abs(resizingComment.commentWidth - resizeStartW) > 1
@@ -2395,6 +2857,161 @@ public class GraphEditor {
             draggingNode=null;
         }if(btn==0&&panning)panning=false;
     }
+
+    // ── DEBUG_SIGNAL_GEN 控制点辅助方法 ──
+    // Control point helper methods for DEBUG_SIGNAL_GEN
+
+    /** 获取节点的 Y 轴映射参数。返回 {minV, scale, chartY, chartH}。
+     *  Get Y-axis mapping params for a node. Returns {minV, scale, chartY, chartH}.
+     *  Screen-Y → value: v = minV + (chartY + chartH - screenY) / scale */
+    private float[] yScale(GraphNode n) {
+        float bodyH = NodeRenderer.HH + NodeRenderer.PH * (n.functionalInputs() + n.outputs());
+        int chartY = (int) bodyH, chartH = 80;
+        int setMode = n.params.length > 0 ? (int) n.params[0] : 0;
+        float[] vr = io.github.y15173334444.create_schematic_compute.graph.DebugSignals.computeVisibleRange(
+            setMode, n.debugCtrlX, n.debugCtrlY, n.formula, n.debugFormulaRpn);
+        return new float[]{vr[0], chartH / vr[2], chartY, chartH};
+    }
+
+    /** 将屏幕 Y 坐标转为曲线值。 / Convert screen Y to curve value. */
+    private float screenYToValue(float[] ys, float screenY) {
+        return ys[0] + (ys[2] + ys[3] - screenY) / ys[1];
+    }
+
+    /** 将曲线值转为屏幕 Y 坐标。 / Convert curve value to screen Y. */
+    private float valueToScreenY(float[] ys, float v) {
+        return ys[2] + ys[3] - (v - ys[0]) * ys[1];
+    }
+
+    /** 检测鼠标是否命中控制点。返回 [nodeId, ctrlIdx] 或 null。 */
+    private int[] hitControlPoint(double mx, double my) {
+        for (GraphNode n : getGraph().nodes) {
+            if (n.type != NodeType.DEBUG_SIGNAL_GEN) continue;
+            int setMode = n.params.length > 0 ? (int) n.params[0] : 0;
+            if (setMode != io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL || n.debugCtrlX == null) continue;
+            float sx = c2sX(n.x), sy = c2sY(n.y);
+            int nodeW = NodeRenderer.WIDE_NW;
+            float[] ys = yScale(n);
+            int chartX = 2, chartW = nodeW - 4;
+            for (int i = 0; i < n.debugCtrlX.length; i++) {
+                float cpx = sx + (chartX + n.debugCtrlX[i] * chartW) * zoom;
+                float cpy = sy + valueToScreenY(ys, n.debugCtrlY[i]) * zoom;
+                if (Math.abs(mx - cpx) <= 5 * zoom && Math.abs(my - cpy) <= 5 * zoom) {
+                    return new int[]{n.id, i};
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 检测鼠标是否命中 x 标记线（仅 OUT_INPUT 模式可拖拽）。返回 nodeId 或 -1。 */
+    private int hitXMarker(double mx, double my) {
+        for (GraphNode n : getGraph().nodes) {
+            if (n.type != NodeType.DEBUG_SIGNAL_GEN) continue;
+            int outMode = n.params.length > 1 ? (int) n.params[1] : 0;
+            if (outMode != io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_INPUT) continue;
+            float sx = c2sX(n.x), sy = c2sY(n.y);
+            int nodeW = NodeRenderer.WIDE_NW;
+            float bodyH = NodeRenderer.HH + NodeRenderer.PH * (n.functionalInputs() + n.outputs());
+            int chartX = 2, chartY = (int) bodyH, chartW = nodeW - 4, chartH = 80;
+            float xPos = n.params.length > 4 ? n.params[4] : 0.5f;
+            float mxLine = sx + (chartX + xPos * chartW) * zoom;
+            float myTop = sy + chartY * zoom;
+            float myBot = sy + (chartY + chartH) * zoom;
+            if (Math.abs(mx - mxLine) <= 5 * zoom && my >= myTop && my <= myBot) {
+                return n.id;
+            }
+        }
+        return -1;
+    }
+
+    /** 拖拽时更新 x 标记的 x 值。 */
+    private void updateXMarkerX(GraphNode n, double mx) {
+        float sx = c2sX(n.x);
+        int nodeW = NodeRenderer.WIDE_NW;
+        int chartX = 2, chartW = nodeW - 4;
+        float graphX = (float) ((mx - sx) / zoom);
+        float t = (graphX - chartX) / chartW;
+        t = Math.max(0f, Math.min(1f, t));
+        if (n.params.length > 4) n.params[4] = t;
+    }
+
+    /** 检测鼠标是否在节点 XY 图区域内。 */
+    private boolean isInChartArea(GraphNode n, double mx, double my) {
+        float sx = c2sX(n.x), sy = c2sY(n.y);
+        int nodeW = NodeRenderer.WIDE_NW;
+        float bodyH = NodeRenderer.HH + NodeRenderer.PH * (n.functionalInputs() + n.outputs());
+        int chartX = 2, chartY = (int) bodyH, chartW = nodeW - 4, chartH = 80;
+        float cx = sx + chartX * zoom;
+        float cy = sy + chartY * zoom;
+        float cw = chartW * zoom;
+        float ch = chartH * zoom;
+        return mx >= cx && mx <= cx + cw && my >= cy && my <= cy + ch;
+    }
+
+    /** 拖拽时更新控制点 X 和 Y 值（X 被夹在相邻点之间，保证不跨越）。
+     *  Update control point X and Y during drag (X clamped between neighbors to prevent crossing). */
+    private void updateControlPoint(GraphNode n, int idx, double mx, double my) {
+        float sx = c2sX(n.x), sy = c2sY(n.y);
+        int nodeW = NodeRenderer.WIDE_NW;
+        float[] ys = yScale(n);
+        int chartX = 2, chartW = nodeW - 4;
+        // Y: 自动缩放范围
+        float graphY = (float) ((my - sy) / zoom);
+        n.debugCtrlY[idx] = screenYToValue(ys, graphY);
+        // X: 夹在前后点之间（首点≥0，末点≤1）
+        float graphX = (float) ((mx - sx) / zoom);
+        float t = (graphX - chartX) / chartW;
+        float minX = (idx > 0) ? n.debugCtrlX[idx - 1] : 0f;
+        float maxX = (idx < n.debugCtrlX.length - 1) ? n.debugCtrlX[idx + 1] : 1f;
+        n.debugCtrlX[idx] = Math.max(minX, Math.min(maxX, t));
+    }
+
+    /** 在鼠标位置添加控制点（按 X 升序插入）。 */
+    private void addControlPoint(GraphNode n, double mx, double my) {
+        float sx = c2sX(n.x), sy = c2sY(n.y);
+        int nodeW = NodeRenderer.WIDE_NW;
+        float[] ys = yScale(n);
+        int chartX = 2, chartW = nodeW - 4;
+        float graphX = (float) ((mx - sx) / zoom);
+        float graphY = (float) ((my - sy) / zoom);
+        float t = (graphX - chartX) / chartW;
+        float v = screenYToValue(ys, graphY);
+        t = Math.max(0f, Math.min(1f, t));
+        int idx = 0;
+        while (idx < n.debugCtrlX.length && n.debugCtrlX[idx] < t) idx++;
+        n.debugCtrlX = insertFloat(n.debugCtrlX, idx, t);
+        n.debugCtrlY = insertFloat(n.debugCtrlY, idx, v);
+        ctrlPointsChanged = true;
+        host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
+            host.getBlockPos(), ownerNodeId(), n.id, n.debugCtrlX, n.debugCtrlY, host.getPlayerUUID()));
+    }
+
+    /** 删除指定控制点（保留至少 2 个）。 */
+    private void removeControlPoint(GraphNode n, int idx) {
+        if (n == null || n.debugCtrlX == null || n.debugCtrlX.length <= 2) return;
+        n.debugCtrlX = removeFloat(n.debugCtrlX, idx);
+        n.debugCtrlY = removeFloat(n.debugCtrlY, idx);
+        ctrlPointsChanged = true;
+        host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
+            host.getBlockPos(), ownerNodeId(), n.id, n.debugCtrlX, n.debugCtrlY, host.getPlayerUUID()));
+    }
+
+    private static float[] insertFloat(float[] arr, int idx, float val) {
+        float[] r = new float[arr.length + 1];
+        System.arraycopy(arr, 0, r, 0, idx);
+        r[idx] = val;
+        System.arraycopy(arr, idx, r, idx + 1, arr.length - idx);
+        return r;
+    }
+
+    private static float[] removeFloat(float[] arr, int idx) {
+        float[] r = new float[arr.length - 1];
+        System.arraycopy(arr, 0, r, 0, idx);
+        System.arraycopy(arr, idx + 1, r, idx, arr.length - idx - 1);
+        return r;
+    }
+
     public void mouseMoved(double mx, double my) {
         lastMouseX = mx; lastMouseY = my;
         sendPresenceIfNeeded();
@@ -2517,6 +3134,21 @@ public class GraphEditor {
     }
     public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
         if (colorPicker.isVisible()) return colorPicker.mouseDragged(mx, my, btn, dx, dy);
+        // DEBUG_SIGNAL_GEN 控制点拖拽（X 被夹在相邻点之间 / X clamped between neighbors）
+        if (draggingCtrlNode >= 0 && draggingCtrlIdx >= 0) {
+            GraphNode cn = getGraph().findNode(draggingCtrlNode);
+            if (cn != null && cn.debugCtrlY != null && draggingCtrlIdx < cn.debugCtrlY.length) {
+                updateControlPoint(cn, draggingCtrlIdx, mx, my);
+                ctrlPointsChanged = true;
+            }
+            return true;
+        }
+        // DEBUG_SIGNAL_GEN x 标记拖拽
+        if (draggingXMarkerNode >= 0) {
+            GraphNode xn = getGraph().findNode(draggingXMarkerNode);
+            if (xn != null) updateXMarkerX(xn, mx);
+            return true;
+        }
         for (var en : getGraph().nodes) {
             if (!expandedNodeIds.contains(en.id)) continue;
             var st = nodeEditStatesById.get(en.id);
@@ -2534,6 +3166,20 @@ public class GraphEditor {
         if (colorPicker.isVisible() && colorPicker.mouseScrolled(mx, my, sy)) return true;
         if (showImportDialog) { importScrollOff += (sy > 0) ? -1 : 1; if (importScrollOff < 0) importScrollOff = 0; return true; }
         if (showExportDialog || showColorConfig) return true;
+        // 书签面板滚动 / bookmark panel scroll
+        if (showBookmarkPanel) {
+            int panelW = 130, maxRows = 10;
+            int panelX = host.asScreen().width - panelW - 4;
+            if (mx >= panelX && mx < panelX + panelW) {
+                var bks = getGraph().bookmarks;
+                int totalRows = bks.size();
+                int maxOff = Math.max(0, totalRows - maxRows);
+                bookmarkScrollOff += (sy > 0) ? -1 : 1;
+                if (bookmarkScrollOff < 0) bookmarkScrollOff = 0;
+                if (bookmarkScrollOff > maxOff) bookmarkScrollOff = maxOff;
+                return true;
+            }
+        }
         // Ctrl+scroll → comment text scroll; normal scroll → zoom
         boolean ctrlHeld = org.lwjgl.glfw.GLFW.glfwGetKey(
             Minecraft.getInstance().getWindow().getWindow(), org.lwjgl.glfw.GLFW.GLFW_KEY_LEFT_CONTROL) == org.lwjgl.glfw.GLFW.GLFW_PRESS
@@ -2569,6 +3215,23 @@ public class GraphEditor {
     }
     public boolean keyPressed(int key, int sc, int mod) {
         var graph = getGraph();
+        // 书签命名对话框 / bookmark name dialog
+        if (editingBookmarkName) {
+            if (key == 257) { // Enter: 提交 — 发送 ADD_BOOKMARK op（多人共享）
+                if (!bookmarkNameDraft.isEmpty()) {
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addBookmark(
+                        host.getBlockPos(), ownerNodeId(), bookmarkNameDraft, camX, camY, zoom, host.getPlayerUUID()));
+                }
+                editingBookmarkName = false;
+                return true;
+            }
+            if (key == 256) { editingBookmarkName = false; return true; } // Esc
+            if (key == 259 && !bookmarkNameDraft.isEmpty()) { // Backspace
+                bookmarkNameDraft = bookmarkNameDraft.substring(0, bookmarkNameDraft.length() - 1);
+                return true;
+            }
+            return true; // 消费其他键
+        }
         // 导出对话框键盘 (Export dialog keyboard)
         if (showExportDialog) {
             if (key == 256) { showExportDialog = false; exportNameEdit = null; return true; } // Esc (退出)
@@ -2659,7 +3322,40 @@ public class GraphEditor {
         if (net.minecraft.client.gui.screens.Screen.hasControlDown()) {
             if (key == 90) { opUndo(); return true; }  // Ctrl+Z: undo own last op
             if (key == 89) { opRedo(); return true; }  // Ctrl+Y: redo own last undo
+            // 视角书签快捷键 / view bookmark shortcuts
+            if (key == 77) { // Ctrl+M: 保存书签（Ctrl+B 与 MC 讲述人冲突）/ Ctrl+M: save bookmark (Ctrl+B conflicts with MC narrator)
+                editingBookmarkName = true;
+                bookmarkNameDraft = "书签 " + (getGraph().bookmarks.size() + 1);
+                return true;
+            }
+            if (key >= 49 && key <= 57) { // Ctrl+1~9: 跳转书签（从共享 graph.bookmarks 读取）
+                var bks = getGraph().bookmarks;
+                int idx = key - 49;
+                if (idx >= 0 && idx < bks.size()) {
+                    var bm = bks.get(idx);
+                    startTransition(bm.camX(), bm.camY(), bm.zoom());
+                }
+                return true;
+            }
+            if (net.minecraft.client.gui.screens.Screen.hasShiftDown()) {
+                if (key == 83) { // Ctrl+Shift+S: 保存临时视角（内存 static）
+                    lastTempView = new float[]{camX, camY, zoom};
+                    return true;
+                }
+                if (key == 76) { // Ctrl+Shift+L: 恢复临时视角（内存 static）
+                    if (lastTempView != null) startTransition(lastTempView[0], lastTempView[1], lastTempView[2]);
+                    return true;
+                }
+            }
         }
+        // Ctrl+K: 切换书签面板 / toggle bookmark panel
+        if (key == 75 && net.minecraft.client.gui.screens.Screen.hasControlDown()) {
+            showBookmarkPanel = !showBookmarkPanel;
+            bookmarkScrollOff = 0;
+            return true;
+        }
+        // Home: 重置视角 / reset view
+        if (key == 268) { startTransition(0, 0, 1f); return true; }
         // Ctrl+D 复制（支持多选） (Ctrl+D duplicate, supports multi-select)
         if(key==68&&net.minecraft.client.gui.screens.Screen.hasControlDown()&&!selectedNodes.isEmpty()){
             {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
@@ -2821,6 +3517,10 @@ public class GraphEditor {
         return false;
     }
     public boolean charTyped(char ch, int mod) {
+        if (editingBookmarkName) {
+            if (ch >= 32 && bookmarkNameDraft.length() < 30) bookmarkNameDraft += ch;
+            return true;
+        }
         if (colorPicker.isVisible()) return colorPicker.charTyped(ch, mod);
         if (showExportDialog && exportNameEdit != null) return exportNameEdit.charTyped(ch, mod);
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.charTyped(ch, mod);
@@ -3145,7 +3845,17 @@ public class GraphEditor {
                     if (!Files.exists(alt)) { file = alt; finalName = name + "_" + n; break; }
                 }
             }
-            CompoundTag tag = node.save(level.registryAccess());
+            // 克隆节点并从子图移除调试节点（导出时跳过调试节点）
+            // Clone node and remove debug nodes from sub-graph (skip debug nodes on export)
+            GraphNode exportCopy = node.shallowCopyWithNewId(node.id);
+            if (exportCopy.subGraph != null) {
+                exportCopy.subGraph.nodes.removeIf(n -> n.type.isDebug());
+                exportCopy.subGraph.connections.removeIf(c ->
+                    exportCopy.subGraph.findNode(c.fromId) == null
+                    || exportCopy.subGraph.findNode(c.toId) == null);
+                exportCopy.subGraph.rebuildNodeMap();
+            }
+            CompoundTag tag = exportCopy.save(level.registryAccess());
             NbtIo.writeCompressed(tag, file);
             importFeedbackUntil = System.currentTimeMillis() + 3000;
             saveFeedbackText = "§a" + I18n.get("gui.create_schematic_compute.encap_exported") + ": " + finalName;

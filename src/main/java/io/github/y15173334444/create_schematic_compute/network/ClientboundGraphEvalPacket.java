@@ -25,7 +25,7 @@ import java.util.Map;
  * 替代了原先客户端本地运行 GraphEvaluator 的架构。服务端每 tick 评估完成后，
  * 将输出快照通过此包发送给所有追踪客户端。客户端渲染器直接读取缓存的结果而不做本地计算。</p>
  */
-public record ClientboundGraphEvalPacket(BlockPos pos, Map<Integer, float[]> outputs)
+public record ClientboundGraphEvalPacket(BlockPos pos, Map<Integer, float[]> outputs, Map<Integer, Float> debugTimes)
         implements CustomPacketPayload {
 
     public static final Type<ClientboundGraphEvalPacket> TYPE =
@@ -44,7 +44,14 @@ public record ClientboundGraphEvalPacket(BlockPos pos, Map<Integer, float[]> out
                 for (int j = 0; j < len; j++) arr[j] = buf.readFloat();
                 outputs.put(nodeId, arr);
             }
-            return new ClientboundGraphEvalPacket(pos, outputs);
+            int dtSize = VarInt.read(buf);
+            var debugTimes = new HashMap<Integer, Float>(dtSize);
+            for (int i = 0; i < dtSize; i++) {
+                int nodeId = VarInt.read(buf);
+                float t = buf.readFloat();
+                debugTimes.put(nodeId, t);
+            }
+            return new ClientboundGraphEvalPacket(pos, outputs, debugTimes);
         }
 
         @Override
@@ -58,6 +65,12 @@ public record ClientboundGraphEvalPacket(BlockPos pos, Map<Integer, float[]> out
                 VarInt.write(buf, arr.length);
                 for (float v : arr) buf.writeFloat(v);
             }
+            var dt = pkt.debugTimes;
+            VarInt.write(buf, dt.size());
+            for (var e : dt.entrySet()) {
+                VarInt.write(buf, e.getKey());
+                buf.writeFloat(e.getValue());
+            }
         }
     };
 
@@ -69,8 +82,8 @@ public record ClientboundGraphEvalPacket(BlockPos pos, Map<Integer, float[]> out
             var level = ctx.player().level();
             if (level == null) return;
             var be = level.getBlockEntity(pos);
-            if (be instanceof MonitorBlockEntity mbe) {
-                mbe.cachedEvalSnapshot = new EvalSnapshot(outputs);
+            if (be instanceof io.github.y15173334444.create_schematic_compute.blocks.SyncedGraphBlockEntity sgbe) {
+                sgbe.cachedEvalSnapshot = new EvalSnapshot(outputs, debugTimes);
             }
         });
     }

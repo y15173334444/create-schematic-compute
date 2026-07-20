@@ -21,6 +21,13 @@ public class NodeGraph {
     public int nextLayerIndex = 1;
     public int nextSortB = 1;
 
+    // 共享视角书签（存入 NBT，多人协作同步）
+    // Shared view bookmarks (stored in NBT, synced via multiplayer collaboration)
+    public final List<Bookmark> bookmarks = new ArrayList<>();
+
+    /** 视角书签：名称 + 摄像机状态。 / View bookmark: name + camera state. */
+    public record Bookmark(String name, float camX, float camY, float zoom) {}
+
     // 缓存：O(1) 节点查找  /  Cache: O(1) node lookup
     private Map<Integer, GraphNode> nodeMap = new HashMap<>();
     // 缓存：O(1) 输入查询 key = (toId << 16) | toPin  /  Cache: O(1) input query
@@ -233,6 +240,19 @@ public class NodeGraph {
         ListTag cl = new ListTag();
         for (NodeConnection c : connections) cl.add(c.save());
         tag.put("conns", cl);
+        // 序列化共享视角书签 / serialise shared view bookmarks
+        if (!bookmarks.isEmpty()) {
+            ListTag bl = new ListTag();
+            for (Bookmark b : bookmarks) {
+                CompoundTag bt = new CompoundTag();
+                bt.putString("name", b.name());
+                bt.putFloat("camX", b.camX());
+                bt.putFloat("camY", b.camY());
+                bt.putFloat("zoom", b.zoom());
+                bl.add(bt);
+            }
+            tag.put("bookmarks", bl);
+        }
         return tag;
     }
 
@@ -263,6 +283,18 @@ public class NodeGraph {
                 g.connections.add(c);
         }
         g.rebuildInputCache();
+        // 反序列化共享视角书签 / deserialise shared view bookmarks
+        if (tag.contains("bookmarks")) {
+            ListTag bl = tag.getList("bookmarks", Tag.TAG_COMPOUND);
+            for (int i = 0; i < bl.size(); i++) {
+                CompoundTag bt = bl.getCompound(i);
+                g.bookmarks.add(new Bookmark(
+                    bt.getString("name"),
+                    bt.getFloat("camX"),
+                    bt.getFloat("camY"),
+                    bt.getFloat("zoom")));
+            }
+        }
         return g;
     }
 }

@@ -64,6 +64,7 @@ public class BlueprintBlockEntity extends SyncedGraphBlockEntity {
             }
         }
         rs.writeOutputs(results);
+        broadcastEvalSnapshot(); // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
         BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
         if (level instanceof ServerLevel sl && !runtimeState.flipflopStates.equals(lastSyncedFlipflopStates)) {
             lastSyncedFlipflopStates = new java.util.HashMap<>(runtimeState.flipflopStates);

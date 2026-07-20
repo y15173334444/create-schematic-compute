@@ -334,6 +334,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
             new HashMap<>(), new HashMap<>(), new HashMap<>());
         evaluator.setRadarPos(null);
         rs.writeOutputs(results);
+        broadcastEvalSnapshot(); // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
         BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
         setChanged();
         // 强制同步目标到客户端

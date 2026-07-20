@@ -174,6 +174,11 @@ public class SchematicCompute {
                 ControlSeatBlockEntity.clearPlayerInput(uuid);
                 io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.leaveAll(uuid);
             });
+        // 客户端断开时清除临时视角（防止跨存档污染） / clear temp view on client disconnect (prevent cross-world pollution)
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+            net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingOut.class, event -> {
+                io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.clearTempView();
+            });
 
         LOGGER.info("{} loaded!", MOD_ID);
     }

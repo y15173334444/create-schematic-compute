@@ -93,6 +93,8 @@ public class FormulaParser {
 
     /** 编译表达式为 RPN token 列表（String=变量名, Double=数字, Character=运算符, FunctionToken=函数调用） */
     public static List<Object> compile(String formula) {
+        // 自动将全角括号转为半角 / auto-convert full-width parens to half-width
+        formula = formula.replace('（', '(').replace('）', ')');
         var output = new ArrayList<Object>();
         var ops = new ArrayDeque<Object>();
         boolean expectUnary = true;

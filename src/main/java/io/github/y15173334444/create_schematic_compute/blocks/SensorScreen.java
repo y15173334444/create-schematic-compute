@@ -20,7 +20,9 @@ public class SensorScreen extends AbstractContainerScreen<SensorMenu> implements
     private static boolean isAllowed(NodeType nt) {
         return nt == NodeType.ATTITUDE || nt == NodeType.FORWARD || nt == NodeType.ACCELERATION || nt == NodeType.VELOCITY || nt == NodeType.POSITION || nt == NodeType.BUS_OUT
             || nt == NodeType.REDSTONE_OUT || nt == NodeType.PRIVATE_OUT
-            || nt == NodeType.COMMENT;
+            || nt == NodeType.COMMENT
+            || nt == NodeType.DEBUG_SIGNAL_GEN
+            || nt == NodeType.DEBUG_PROBE;
     }
     public SensorScreen(SensorMenu m, Inventory inv, Component t) {
         super(m, inv, t);
@@ -36,9 +38,23 @@ public class SensorScreen extends AbstractContainerScreen<SensorMenu> implements
         }
         return null;
     }
+    @Override protected void containerTick() {
+        super.containerTick();
+        if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
+            if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof SensorBlockEntity)) {
+                onClose();
+                return;
+            }
+        }
+        editor.clientTick();
+    }
     @Override public NodeGraph getGraph() { SensorBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { SensorBlockEntity be = getBE(); return be != null && be.running; }
     @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { SensorBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() {
+        SensorBlockEntity be = getBE();
+        return be != null ? be.cachedEvalSnapshot : null;
+    }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
     @Override public void saveGraph() {
         try { SensorBlockEntity be = getBE();
@@ -74,6 +90,7 @@ public class SensorScreen extends AbstractContainerScreen<SensorMenu> implements
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
     }
     @Override public void removed() {
+        editor.onClose();
         super.removed();
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));
     }

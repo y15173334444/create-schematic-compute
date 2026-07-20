@@ -1,8 +1,8 @@
 # Create: Schematic Compute
 
 <p align="center">
-  <b>🎮 7 Programmable Blocks · 82 Node Types · Multiplayer Collaboration</b><br>
-  <b>七种可编程方块 · 82种节点 · 多人实时协作</b><br>
+  <b>🎮 7 Programmable Blocks · 84 Node Types · Multiplayer Collaboration · Debug Tools</b><br>
+  <b>七种可编程方块 · 84种节点 · 多人实时协作 · 调试工具链</b><br>
   <i>Drag, connect, and build logic — just like Unreal Engine Blueprints!</i><br>
   <i>拖拽连接，构建逻辑 — 像虚幻引擎蓝图一样直观！</i><br>
   <i>Created by <b>StarryNight_Luo</b> (y15173334444)</i>
@@ -181,7 +181,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 
 ---
 
-## 🧩 Node Reference / 节点参考（82 种）
+## 🧩 Node Reference / 节点参考（84 种）
 
 <details>
 <summary><b>📦 Values / 数值</b></summary>
@@ -192,7 +192,6 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | Redstone Input / 红石输入 | Reads from Redstone Link / 从红石链接网络读取 |
 | Private Signal Input / 私有信号输入 | Reads float from named channel / 从命名通道读取浮点数 |
 | Bus Input / 总线输入 | Reads bus channel bands / 从总线通道读取频段值 |
-| Bus Output / 总线输出 | Writes to bus channel / 写入总线通道 |
 
 </details>
 
@@ -266,6 +265,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 |-------------|-------------------|
 | Redstone Output / 红石输出 | Write to Redstone Link (0~15) / 写入红石链接 |
 | Private Signal Output / 私有信号输出 | Write to named channel / 写入命名通道 |
+| Bus Output / 总线输出 | Writes to bus channel / 写入总线通道 |
 | Speed Control / 转速控制 | Speed Controller RPM (-256~256) / 转速控制 |
 
 </details>
@@ -348,6 +348,31 @@ Global named-channel communication across computers. Like publish-subscribe mess
 
 </details>
 
+<details>
+<summary><b>🔧 Debug / 调试</b> (All blocks / 全部方块)</summary>
+
+| Node / 节点 | Description / 说明 |
+|-------------|-------------------|
+| Signal Generator / 信号发生器 | Test signal source with XY curve preview, manual control-point curve or custom f(x) formula, frequency-generate or input-driven output modes / 测试信号源，XY曲线预览，手动控制点曲线或自定义f(x)公式，频率发生/指定模式输出 |
+| Signal Probe / 信号探针 | Real-time signal monitor with 100-tick trend chart, auto-scale Y axis with outlier clipping, freeze/clear / 实时信号监视，100 tick趋势图，Y轴自动缩放+离群截断，冻结/清除 |
+
+**Signal Generator Modes / 信号发生器模式：**
+
+| Mode / 模式 | Description / 说明 |
+|-------------|-------------------|
+| 🎯 Manual Curve / 手动曲线 | Drag control points on XY chart. Double-click to add, right-click to delete, drag X/Y freely (X clamped between neighbors, server-sorted). Points synced via multiplayer collaboration. / XY图上拖拽控制点。双击添加，右键删除，XY双向自由拖拽（X被相邻点夹持，服务端排序）。多人协作同步。 |
+| 📐 Custom f(x) / 自定义公式 | Enter formula expression using variable `x` (0~1). Supports all math functions (trig in degrees), auto full-width paren conversion. Speed/amplitude disabled — formula controls everything. / 输入公式表达式，变量 `x`（0~1）。支持全部数学函数（三角函数用度），自动全角括号转换。speed/amplitude 禁用。 |
+| 🔄 Frequency Generate / 频率发生 | X auto-advances 0→1 cyclically. Speed control (manual mode only). Current X position shown as sky-blue marker on chart. / X自动0→1循环推进。speed控制速度（仅手动模式）。天蓝色标记线显示当前X位置。 |
+| 🎯 Input-Driven / 指定模式 | X set by dragging sky-blue marker line on chart. No EditBox — pure drag interaction. / 拖拽天蓝色标记线设置X值。无输入框，纯拖拽交互。 |
+
+**Signal Probe Features / 信号探针功能：**
+- 100-tick ring buffer trend chart with auto-scale Y axis
+- Outlier clipping (±5) prevents spikes from flattening the waveform
+- Right-click: Freeze/Unfreeze, Clear History
+- Shows "---" when blueprint not running
+
+</details>
+
 ---
 
 ## 🎮 Controls / 操作指南
@@ -376,6 +401,13 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | **Control Seat — Dismount / 下马** | `~` |
 | **Control Seat — Switch mode / 切换模式** | `TAB` |
 | **Control Seat — Release mouse / 释放鼠标** | `ESC` |
+| **Signal Gen — Add control point / 添加控制点** | Double-click XY chart / 双击XY图 |
+| **Signal Gen — Delete control point / 删除控制点** | Right-click control point / 右键控制点 |
+| **Signal Gen — Drag control point / 拖拽控制点** | Left-drag (X clamped, Y free) / 左键拖拽 |
+| **Signal Gen — Drag X marker / 拖拽X标记** | Left-drag sky-blue line (input mode) / 左键拖拽天蓝色线 |
+| **Signal Gen — Switch mode / 切换模式** | Click toggle button (confirm with second click) / 点击切换按钮（二次点击确认） |
+| **Probe — Freeze/Unfreeze / 冻结解冻** | Double-click probe node / 双击探针节点 |
+| **Probe — Clear/Clear History / 清除历史** | Right-click probe node / 右键探针节点 |
 
 ---
 
@@ -445,16 +477,41 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 ## 📜 Changelog / 更新日志
 
 <details>
-<summary><b>v1.2.4</b> — Multiplayer Collaboration + Architecture Refactoring / 多人协作+架构重构</summary>
+<summary><b>v1.2.4</b> — Multiplayer Collaboration + Debug Toolchain / 多人协作 + 调试工具链</summary>
 
-- 👥 **Multiplayer Collaboration System / 多人协作系统** — Real-time collaborative graph editing for all 7 blocks. Live cursor tracking, remote node dragging, wire drawing preview, online player list, node lock protection, auto-close UI. / 全部7种方块实时协作编辑——实时光标追踪、远程节点拖拽、连线预览、在线列表、节点锁定、自动关闭UI。
-- ⚡ **Server-Authoritative Evaluation / 服务端权威评估** — Client-side `GraphEvaluator` removed. All evaluation runs server-side; results synced via `ClientboundGraphEvalPacket` + `EvalSnapshot`. Fixes PRIVATE_IN/BUS_IN always 0 on client. / 客户端不再运行 GraphEvaluator，所有计算在服务端完成。
-- 🏗️ **Unified BE Base Class / 统一BE基类** — `SyncedGraphBlockEntity` consolidates ~200 lines duplicated across 7 BEs (BUS lifecycle, RedstoneLink, NBT, sync, EvalSnapshot). / 统一基类消除7个BE的重复代码。
-- 📦 **Blob Data Channel / Blob大数据通道** — `BlobDataPacket` + `BlobRegistry` for chunked large data transfer. `SET_IMAGE_PIXELS` from Base64 to direct `int[]`. / 分片大数据传输，图像直传int[]。
-- 🔧 **Graph Init Fix / 图初始化修复** — `onLoad()` bumps generation to force full recompile on first tick. BUS channels + evaluator rebuilt from NBT without manual intervention. / onLoad时bump generation强制首次tick完整重编译。
-- 🚌 **BUS Channel Fix / BUS通道修复** — `registerChannels()` no longer requires `bandCount()>0`. Channels with empty bands now register so BUS_IN reads immediately. / 无频段通道现在也能注册。
-- 🎨 **Color Picker UX / 颜色选择器UX** — ESC closes picker + panels together via `onClose` callback. Duplicated nodes `sortB = original+1`. / ESC关闭选择器+面板，复制节点sortB+1。
-- 📝 **Bilingual Comments / 双语注释** — All `graph/`, `blocks/`, `network/` source comments now Chinese+English. / 三大包源码注释中英双语。
+### 👥 Multiplayer Collaboration / 多人协作
+All 7 blocks now support real-time collaborative graph editing — multiple players can edit the same node graph simultaneously. / 全部 7 种方块支持多人实时协作编辑同一节点图。
+
+| Feature / 功能 | Description / 说明 |
+|----------------|-------------------|
+| 🖱️ Live Cursors / 实时光标 | Colored crosshairs with player names / 彩色十字准星 + 玩家名 |
+| 📦 Remote Node Drag / 远程拖拽节点 | Smooth lerp animation on remote moves / 远程移动平滑插值动画 |
+| 🔗 Wire Preview / 连线预览 | Live bezier curve while dragging wires / 拖拽连线时实时贝塞尔曲线 |
+| 👤 Player List / 玩家列表 | Right-side vertical list, host highlighted / 右侧竖向列表，房主高亮 |
+| 🔒 Node Lock / 节点锁定 | IMAGE nodes protected during pixel editing / 像素编辑时自动锁定 |
+| ⚡ Join/Leave / 加入离开 | Appear immediately on open, disappear on close / 打开即现，关闭即消 |
+| ✏️ Op-Based Editing / 操作同步 | `GraphOp` + `OpExecutor` model, server-authoritative ID allocation / 服务器权威 ID 分配 |
+
+### ⚡ Architecture Refactoring / 架构重构
+
+| Change / 改动 | Description / 说明 |
+|---------------|-------------------|
+| 🖥️ Server-Authoritative Eval / 服务端评估 | Client-side `GraphEvaluator` removed. All evaluation runs server-side; results synced via `ClientboundGraphEvalPacket` + `EvalSnapshot`. Fixes PRIVATE_IN/BUS_IN always returning 0 on client. |
+| 🏗️ Unified BE Base / 统一 BE 基类 | `SyncedGraphBlockEntity` consolidates ~200 lines duplicated across 7 BEs (BUS lifecycle, RedstoneLink, NBT, sync, EvalSnapshot). |
+| 📦 Blob Data Channel / Blob 通道 | `BlobDataPacket` + `BlobRegistry` for chunked large data. `SET_IMAGE_PIXELS` from Base64 to direct `int[]`. |
+
+### 🔧 Debug Toolchain / 调试工具链
+
+| Tool / 工具 | Description / 说明 |
+|-------------|-------------------|
+| 📶 Signal Generator / 信号发生器 | Test signal source. Manual curve mode (draggable control points, X-clamped, server-sorted) or custom f(x) formula (all math functions, auto full-width paren conversion). Frequency-generate (auto-cycling X) or input-driven (drag sky-blue marker). Auto-scale Y axis with ±5 outlier clipping. |
+| 📊 Signal Probe / 信号探针 | Real-time monitor with 100-tick trend chart. Auto-scale Y axis with outlier clipping. Right-click freeze/unfreeze/clear. |
+
+### 🐛 Fixes & Polish / 修复与打磨
+- 🔧 **Graph Init** — `onLoad()` bumps generation to force full recompile on first tick.
+- 🚌 **BUS Channel** — `registerChannels()` no longer requires `bandCount()>0`; empty-band channels register so BUS_IN reads immediately.
+- 🎨 **Color Picker UX** — ESC closes picker + panels together. Duplicated nodes get `sortB = original+1`.
+- 📝 **Bilingual Comments** — All `graph/`, `blocks/`, `network/` source comments now Chinese+English.
 
 </details>
 

@@ -141,4 +141,49 @@ public record GraphOp(
             0, null, 0f, 0f, 0, 0, 0, 0, frameIndex, 0f,
             null, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, pixels);
     }
+
+    /** 添加共享视角书签。 stringValue=name, x=camX, y=camY, paramValue=zoom */
+    public static GraphOp addBookmark(BlockPos pos, int ownerNodeId,
+                                        String name, float camX, float camY, float zoom, UUID actor) {
+        return new GraphOp(OpType.ADD_BOOKMARK, pos, ownerNodeId, 0,
+            0, null, camX, camY, 0, 0, 0, 0, 0, zoom,
+            name, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
+    /** 删除共享视角书签。 targetNodeId=bookmark index */
+    public static GraphOp removeBookmark(BlockPos pos, int ownerNodeId, int index, UUID actor) {
+        return new GraphOp(OpType.REMOVE_BOOKMARK, pos, ownerNodeId, index,
+            0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+            null, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
+    /** 全量替换 DEBUG_SIGNAL_GEN 控制点数组。stringValue="x0,y0;x1,y1;..." */
+    public static GraphOp setCtrlPoints(BlockPos pos, int ownerNodeId, int nodeId,
+                                         float[] ctrlX, float[] ctrlY, UUID actor) {
+        var sb = new StringBuilder();
+        for (int i = 0; i < ctrlX.length; i++) {
+            if (i > 0) sb.append(';');
+            sb.append(ctrlX[i]).append(',').append(ctrlY[i]);
+        }
+        return new GraphOp(OpType.SET_CTRL_POINTS, pos, ownerNodeId, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+            sb.toString(), 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
+    /** 解析 SET_CTRL_POINTS 的 stringValue 为控制点对。返回 [ctrlX[], ctrlY[]] 或 null。 */
+    public static float[][] parseCtrlPoints(String str) {
+        if (str == null || str.isEmpty()) return null;
+        try {
+            String[] pairs = str.split(";");
+            float[] cx = new float[pairs.length];
+            float[] cy = new float[pairs.length];
+            for (int i = 0; i < pairs.length; i++) {
+                String[] xy = pairs[i].split(",");
+                if (xy.length < 2) return null;
+                cx[i] = Float.parseFloat(xy[0]);
+                cy[i] = Float.parseFloat(xy[1]);
+            }
+            return new float[][]{cx, cy};
+        } catch (Exception e) { return null; }
+    }
 }

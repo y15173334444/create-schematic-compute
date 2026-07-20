@@ -131,7 +131,9 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             || nt == NodeType.BUS_IN
             || nt == NodeType.TEXT || nt == NodeType.DATA
             || nt == NodeType.IMAGE || nt == NodeType.IMAGE_SEQUENCE
-            || nt == NodeType.COMMENT);
+            || nt == NodeType.COMMENT
+            || nt == NodeType.DEBUG_SIGNAL_GEN
+            || nt == NodeType.DEBUG_PROBE);
     }
 
     private MonitorBlockEntity getBE() {
@@ -148,13 +150,19 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
             if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof MonitorBlockEntity)) {
                 onClose();
+                return;
             }
         }
+        editor.clientTick();
     }
     // ── GraphEditor.Host ──
     @Override public NodeGraph getGraph() { MonitorBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { MonitorBlockEntity be = getBE(); return be != null && be.running; }
     @Override public Map<Integer, Boolean> getFlipflopStates() { MonitorBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() {
+        MonitorBlockEntity be = getBE();
+        return be != null ? be.cachedEvalSnapshot : null;
+    }
     @Override public Screen asScreen() { return this; }
 
     @Override
@@ -1765,6 +1773,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
     }
     @Override public void removed() {
+        editor.onClose();
         editor.clearRemotePresences();
         super.removed();
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));

@@ -150,6 +150,7 @@ public class ControlSeatBlockEntity extends SyncedGraphBlockEntity {
 
         var results = evaluator.evaluate(in, runtimeState.pidState, 0.05f, seatInput);
         rs.writeOutputs(results);
+        broadcastEvalSnapshot(); // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
         BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
         setChanged();
     }

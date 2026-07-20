@@ -30,7 +30,8 @@ public class EditPanel {
         if (n == null) return 0;
         int h = 6;
         if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL && n.type != NodeType.GATE && n.type != NodeType.T_FLIPFLOP
-            && n.type != NodeType.LATCH && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE) {
+            && n.type != NodeType.LATCH && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE
+            && n.type != NodeType.DEBUG_SIGNAL_GEN) {
             if (n.type == NodeType.KEYBOARD || n.type == NodeType.GAMEPAD_BUTTON) {
                 h += 24;
             } else if (n.type == NodeType.ACCUMULATOR || n.type == NodeType.INTEGRATOR) {
@@ -59,6 +60,16 @@ public class EditPanel {
             }
         }
         if (n.type == NodeType.TEXT) h += 22;
+        if (n.type == NodeType.DEBUG_SIGNAL_GEN) {
+            // 模式切换行（始终可见）+ 条件 EditBox / mode toggle rows (always) + conditional EditBoxes
+            h += 36; // 2 toggle rows: setMode + outMode
+            int setMode = n.params.length > 0 ? (int) n.params[0] : 0;
+            int outMode = n.params.length > 1 ? (int) n.params[1] : 0;
+            if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_FORMULA) h += 18; // formula EditBox
+            if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL
+                && outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ) h += 18; // speed (manual+frequency only)
+            if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL) h += 18; // amplitude (manual only)
+        }
         if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) h += 54 + 32; // 3 text fields + 2 toggles
         if (n.type == NodeType.TEXT || n.type == NodeType.DATA) h += 22;
         if (n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT) h += 22;
@@ -214,6 +225,50 @@ public class EditPanel {
                 }
             }
         }
+        } else if (node.type == NodeType.DEBUG_SIGNAL_GEN) {
+        // ── 信号发生器编辑区：模式切换 + 条件参数 EditBox ──
+        int dsgRow = 0;
+        // 模式切换行
+        renderModeToggles(g, px, py, pw, node, st, mx, my);
+        dsgRow += 2;
+        int setMode = node.params.length > 0 ? (int) node.params[0] : 0;
+        int outMode = node.params.length > 1 ? (int) node.params[1] : 0;
+        int fieldIdx = 0;
+        // 公式 EditBox（仅 SET_FORMULA）
+        if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_FORMULA) {
+            int ey = py + 4 + dsgRow * 18;
+            if (fieldIdx < st.fields.size()) {
+                var fe = st.fields.get(fieldIdx);
+                fe.setX(px + 4); fe.setY(ey); fe.setWidth(pw - 12);
+                manualEditBox(g, fe, px + 4, ey, pw - 12, 16);
+                fieldIdx++;
+            }
+            dsgRow++;
+        }
+        // 参数 EditBoxes（按条件：speed, amplitude）
+        String[] condKeys = {"speed", "amplitude"};
+        for (int ci = 0; ci < 2; ci++) {
+            boolean visible = switch (ci) {
+                case 0 -> setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL
+                    && outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ;
+                case 1 -> setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL;
+                default -> false;
+            };
+            if (!visible) continue;
+            int ey = py + 4 + dsgRow * 18;
+            String label = I18n.get("param.create_schematic_compute." + condKeys[ci]) + ":";
+            int labelW = font.width(label);
+            g.drawString(font, label, px + 4, ey, 0xFF888888, false);
+            if (fieldIdx < st.fields.size()) {
+                var eb = st.fields.get(fieldIdx);
+                int ex = px + 8 + labelW;
+                int ew = pw - labelW - 14;
+                eb.setX(ex); eb.setY(ey); eb.setWidth(ew);
+                manualEditBox(g, eb, ex, ey, ew, 16);
+                fieldIdx++;
+            }
+            dsgRow++;
+        }
         } else {
         int r = NodeRenderer.PR;
         for (int i = 0; i < st.fields.size(); i++) {
@@ -346,6 +401,92 @@ public class EditPanel {
                     g.renderItem(node.itemParams[i], bx + 2, (int)st.freqSlotY + 2);
             }
         }
+    }
+
+    // ── DEBUG_SIGNAL_GEN 模式切换按钮 ──
+    // Mode toggle buttons for DEBUG_SIGNAL_GEN
+
+    /** 渲染两行模式切换按钮。返回占用的行数 (2)。
+     *  Render two rows of mode toggle buttons. Returns rows consumed (2).
+     *  @return number of rows rendered (always 2) */
+    public static int renderModeToggles(GuiGraphics g, int px, int py, int pw, GraphNode node,
+                                         GraphEditor.EditState st, int mx, int my) {
+        var font = Minecraft.getInstance().font;
+        int setMode = node.params.length > 0 ? (int) node.params[0] : 0;
+        int outMode = node.params.length > 1 ? (int) node.params[1] : 0;
+        int rowH = 16, gap = 4;
+        int btnW = (pw - 12 - gap) / 2;
+        long now = System.currentTimeMillis();
+
+        // Helper to check pending state
+        boolean setPending = st != null && st.pendingSetMode >= 0 && now < st.pendingSetModeExpireMs;
+        int setPendingTarget = st != null ? st.pendingSetMode : -1;
+        boolean outPending = st != null && st.pendingOutMode >= 0 && now < st.pendingOutModeExpireMs;
+        int outPendingTarget = st != null ? st.pendingOutMode : -1;
+
+        // Row 1: setMode — [手动曲线] [f(x)]
+        String[] setLabels = {
+            I18n.get("gui.create_schematic_compute.edit.setmode_manual"),
+            I18n.get("gui.create_schematic_compute.edit.setmode_formula")
+        };
+        for (int i = 0; i < 2; i++) {
+            int bx = px + 4 + i * (btnW + gap);
+            boolean isActive = setMode == i;
+            boolean isPendingTarget = setPending && setPendingTarget == i;
+            int bg = isPendingTarget ? 0xFF5A3A1A // orange warning
+                : (isActive ? 0xFF2A4A2A : 0xFF2A2A2A);
+            g.fill(bx, py, bx + btnW, py + rowH, bg);
+            g.renderOutline(bx, py, btnW, rowH, isActive ? 0xFF88FF88 : 0xFF666666);
+            String label = isPendingTarget ? "? " + setLabels[i] : setLabels[i];
+            int labelColor = isPendingTarget ? 0xFFFFAA44 : (isActive ? 0xFFAAFFAA : 0xFF888888);
+            int tw = font.width(label);
+            g.drawString(font, label, bx + (btnW - tw) / 2, py + 3, labelColor, false);
+        }
+
+        // Row 2: outMode — [频率发生] [指定模式]
+        int row2y = py + rowH + 4;
+        String[] outLabels = {
+            I18n.get("gui.create_schematic_compute.edit.outmode_freq"),
+            I18n.get("gui.create_schematic_compute.edit.outmode_input")
+        };
+        for (int i = 0; i < 2; i++) {
+            int bx = px + 4 + i * (btnW + gap);
+            boolean isActive = outMode == i;
+            boolean isPendingTarget = outPending && outPendingTarget == i;
+            int bg = isPendingTarget ? 0xFF5A3A1A
+                : (isActive ? 0xFF2A4A2A : 0xFF2A2A2A);
+            g.fill(bx, row2y, bx + btnW, row2y + rowH, bg);
+            g.renderOutline(bx, row2y, btnW, rowH, isActive ? 0xFF88FF88 : 0xFF666666);
+            String label = isPendingTarget ? "? " + outLabels[i] : outLabels[i];
+            int labelColor = isPendingTarget ? 0xFFFFAA44 : (isActive ? 0xFFAAFFAA : 0xFF888888);
+            int tw = font.width(label);
+            g.drawString(font, label, bx + (btnW - tw) / 2, row2y + 3, labelColor, false);
+        }
+
+        return 2;
+    }
+
+    /** 检测模式切换按钮命中。返回按钮标识符或 null。
+     *  Hit-test mode toggle buttons. Returns button identifier or null.
+     *  @return "setMode:0", "setMode:1", "outMode:0", "outMode:1", or null */
+    public static String hitModeToggle(int px, int py, int pw, GraphNode node, int lmx, int lmy) {
+        if (node == null || node.type != NodeType.DEBUG_SIGNAL_GEN) return null;
+        int rowH = 16, gap = 4;
+        int btnW = (pw - 12 - gap) / 2;
+        // Row 1 (setMode)
+        for (int i = 0; i < 2; i++) {
+            int bx = px + 4 + i * (btnW + gap);
+            if (lmx >= bx && lmx <= bx + btnW && lmy >= py && lmy <= py + rowH)
+                return "setMode:" + i;
+        }
+        // Row 2 (outMode)
+        int row2y = py + rowH + 4;
+        for (int i = 0; i < 2; i++) {
+            int bx = px + 4 + i * (btnW + gap);
+            if (lmx >= bx && lmx <= bx + btnW && lmy >= row2y && lmy <= row2y + rowH)
+                return "outMode:" + i;
+        }
+        return null;
     }
 
     // 按键索引定义

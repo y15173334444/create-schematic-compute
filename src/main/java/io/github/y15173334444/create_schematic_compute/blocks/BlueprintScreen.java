@@ -60,6 +60,7 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
     }
 
     @Override public void removed() {
+        editor.onClose(); // 保存临时视角书签 / save temporary view bookmark
         editor.clearRemotePresences();
         super.removed();
         // Leave collaborative editing session
@@ -80,13 +81,19 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
         if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
             if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof BlueprintBlockEntity)) {
                 onClose();
+                return;
             }
         }
+        editor.clientTick();
     }
 
     @Override public NodeGraph getGraph() { BlueprintBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { BlueprintBlockEntity be = getBE(); return be != null && be.running; }
     @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { BlueprintBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() {
+        BlueprintBlockEntity be = getBE();
+        return be != null ? be.cachedEvalSnapshot : null;
+    }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
     @Override public net.minecraft.core.BlockPos getBlockPos() { return menu.blockPos; }
     // ── Multiplayer collaboration (Phase 0) ──

@@ -25,7 +25,9 @@ public class SpeedProxyScreen extends AbstractContainerScreen<SpeedProxyMenu> im
         editor.setNodeFilter(nt -> nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.SPEED_CTRL
             || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.PRIVATE_IN
             || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT);
+            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT
+            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_SIGNAL_GEN
+            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_PROBE);
     }
 
     private SpeedProxyBlockEntity getBE() {
@@ -35,9 +37,23 @@ public class SpeedProxyScreen extends AbstractContainerScreen<SpeedProxyMenu> im
         }
         return null;
     }
+    @Override protected void containerTick() {
+        super.containerTick();
+        if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
+            if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof SpeedProxyBlockEntity)) {
+                onClose();
+                return;
+            }
+        }
+        editor.clientTick();
+    }
     @Override public NodeGraph getGraph() { SpeedProxyBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { SpeedProxyBlockEntity be = getBE(); return be != null && be.running; }
     @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { SpeedProxyBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() {
+        SpeedProxyBlockEntity be = getBE();
+        return be != null ? be.cachedEvalSnapshot : null;
+    }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
 
     @Override
@@ -90,6 +106,7 @@ public class SpeedProxyScreen extends AbstractContainerScreen<SpeedProxyMenu> im
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
     }
     @Override public void removed() {
+        editor.onClose();
         super.removed();
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));
     }

@@ -23,9 +23,9 @@ import java.util.Map;
  * static {@code SignalBus} that is always empty on the client,
  * causing PRIVATE_IN and BUS_IN to always return 0.</p>
  */
-public record EvalSnapshot(Map<Integer, float[]> outputs) {
+public record EvalSnapshot(Map<Integer, float[]> outputs, Map<Integer, Float> debugTimes) {
 
-    public static final EvalSnapshot EMPTY = new EvalSnapshot(Collections.emptyMap());
+    public static final EvalSnapshot EMPTY = new EvalSnapshot(Collections.emptyMap(), Collections.emptyMap());
 
     /** 从此快照中读取单个输出值（不存在时返回 0）。
      *  Read a single output value from this snapshot (0 if not present). */
@@ -33,6 +33,12 @@ public record EvalSnapshot(Map<Integer, float[]> outputs) {
         float[] out = outputs.get(nodeId);
         if (out == null || pinIndex < 0 || pinIndex >= out.length) return 0;
         return out[pinIndex];
+    }
+
+    /** 从此快照中读取 DEBUG_SIGNAL_GEN 的当前 debugTime（不存在时返回 0）。
+     *  Read the current debugTime for a DEBUG_SIGNAL_GEN node (0 if not present). */
+    public float getDebugTime(int nodeId) {
+        return debugTimes.getOrDefault(nodeId, 0f);
     }
 
     /** 输出映射的不可修改视图。 / Unmodifiable view of the output map. */
@@ -43,12 +49,14 @@ public record EvalSnapshot(Map<Integer, float[]> outputs) {
 
     /** 从可变输出映射创建快照（防御性拷贝）。
      *  Create a snapshot from a mutable outputs map (defensive copy). */
-    public static EvalSnapshot capture(Map<Integer, float[]> outputs) {
-        if (outputs.isEmpty()) return EMPTY;
+    public static EvalSnapshot capture(Map<Integer, float[]> outputs, Map<Integer, Float> debugTimes) {
+        if (outputs.isEmpty() && (debugTimes == null || debugTimes.isEmpty())) return EMPTY;
         var copy = new HashMap<Integer, float[]>(outputs.size());
         for (var e : outputs.entrySet()) {
             copy.put(e.getKey(), e.getValue().clone());
         }
-        return new EvalSnapshot(Collections.unmodifiableMap(copy));
+        var dtCopy = (debugTimes != null && !debugTimes.isEmpty())
+            ? new HashMap<>(debugTimes) : Collections.<Integer, Float>emptyMap();
+        return new EvalSnapshot(Collections.unmodifiableMap(copy), Collections.unmodifiableMap(dtCopy));
     }
 }

@@ -27,7 +27,9 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
     private static boolean isAllowedNode(NodeType nt) {
         return nt == NodeType.TARGET_OUT || nt == NodeType.REDSTONE_OUT
             || nt == NodeType.PRIVATE_OUT || nt == NodeType.BUS_OUT
-            || nt == NodeType.COMMENT;
+            || nt == NodeType.COMMENT
+            || nt == NodeType.DEBUG_SIGNAL_GEN
+            || nt == NodeType.DEBUG_PROBE;
     }
 
     public RadarScreen(RadarMenu m, Inventory inv, Component t) {
@@ -46,8 +48,23 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
         return null;
     }
 
+    @Override protected void containerTick() {
+        super.containerTick();
+        if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
+            if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof RadarBlockEntity)) {
+                onClose();
+                return;
+            }
+        }
+        editor.clientTick();
+    }
+
     @Override public NodeGraph getGraph() { RadarBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { RadarBlockEntity be = getBE(); return be != null && be.running; }
+    @Override public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() {
+        RadarBlockEntity be = getBE();
+        return be != null ? be.cachedEvalSnapshot : null;
+    }
     @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
     @Override public void saveGraph() {
         try {
@@ -246,7 +263,10 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
             be.displayX, be.displayY, be.displayZ, be.excludeHost, be.displayStyle, be.lockDistance));
     }
 
-    @Override public void removed() { RadarBlockEntity be = getBE(); if (be != null) { applyInputs(be); hideInputs(); } super.removed(); net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos)); }
+    @Override public void removed() {
+        editor.onClose();
+        RadarBlockEntity be = getBE(); if (be != null) { applyInputs(be); hideInputs(); } super.removed(); net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));
+    }
     @Override public boolean mouseReleased(double mx, double my, int btn) { editor.mouseReleased(mx, my, btn); return super.mouseReleased(mx, my, btn); }
     @Override public void mouseMoved(double mx, double my) { editor.mouseMoved(mx, my); }
     @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }

@@ -47,6 +47,10 @@ public class GraphEvaluator {
     private final Map<Integer, Map<Integer, Boolean>> subFlipflopStates = new HashMap<>();
     private final Map<Integer, Map<Integer, Integer>> subPulseTimers = new HashMap<>();
 
+    // DEBUG_SIGNAL_GEN 的内部时间状态（nodeId → 归一化时间 0~1）
+    // Internal time state for DEBUG_SIGNAL_GEN (nodeId → normalized time 0~1)
+    private final Map<Integer, Float> debugTime = new HashMap<>();
+
     /** 外部 RuntimeState 引用 — 在首次 evaluate() 前设置以恢复子图状态。
      *  External RuntimeState reference — set before first evaluate() to restore sub-graph state. */
     private RuntimeState runtimeState;
@@ -120,7 +124,7 @@ public class GraphEvaluator {
 
     /** 创建当前评估输出的不可变快照（服务端→客户端同步）。
      *  Create an immutable snapshot of the current evaluation outputs (server → client sync). */
-    public EvalSnapshot captureSnapshot() { return EvalSnapshot.capture(outputs); }
+    public EvalSnapshot captureSnapshot() { return EvalSnapshot.capture(outputs, debugTime); }
 
     /** 读取任意节点某引脚的计算结果（供外部查询）。
      *  Read the computed result of any node's pin (for external queries). */
@@ -345,6 +349,35 @@ public class GraphEvaluator {
                 o[1] = (float)(cr * pa - sr * ya);
             }
             case CONST -> o[0] = node.params.length > 0 ? node.params[0] : 0;
+            case DEBUG_SIGNAL_GEN -> {
+                int setMode = node.params.length > 0 ? (int) node.params[0] : 0;
+                int outMode = node.params.length > 1 ? (int) node.params[1] : 0;
+                float inputX = node.params.length > 4 ? node.params[4] : 0.5f;
+                // speed/amp 仅手动模式生效；公式模式用默认值
+                // speed/amp only effective in manual mode; formula mode uses defaults
+                float speed = (setMode == DebugSignals.SET_MANUAL && node.params.length > 2) ? node.params[2] : (1f / 20f);
+                float amp = (setMode == DebugSignals.SET_MANUAL && node.params.length > 3) ? node.params[3] : 1f;
+                float x;
+                if (outMode == DebugSignals.OUT_FREQ) {
+                    // 频率发生：x 自动 0→1 循环推进 / frequency generate: x auto-advances 0→1
+                    x = debugTime.getOrDefault(node.id, 0f);
+                    x += speed;
+                    x -= (float) Math.floor(x);
+                    debugTime.put(node.id, x);
+                } else {
+                    // 指定模式：x 来自节点参数 / input-driven: x from node param
+                    x = inputX;
+                }
+                // 编译缓存（避免每 tick 重新编译公式） / compile cache
+                if (setMode == DebugSignals.SET_FORMULA && node.debugFormulaRpn == null) {
+                    node.debugFormulaRpn = DebugSignals.compileFormula(node.formula);
+                }
+                o[0] = amp * DebugSignals.computeCurve(setMode, x, node.debugCtrlX, node.debugCtrlY, node.formula, node.debugFormulaRpn);
+            }
+            case DEBUG_PROBE -> {
+                // pass-through：输出 = 输入，供客户端从 EvalSnapshot 读取
+                o[0] = graph.getInputValue(node.id, 0, outputs);
+            }
             case REDSTONE_IN -> {
                 long nodeKey = ModUtils.freqKey(node.itemParams);
                 int sig = 0;

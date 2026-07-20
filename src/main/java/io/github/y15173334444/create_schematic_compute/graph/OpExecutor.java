@@ -16,6 +16,18 @@ public final class OpExecutor {
 
     private OpExecutor() {}
 
+    /** 按 X 升序排列控制点对（冒泡排序，数组很小）。 */
+    private static void sortByX(float[] cx, float[] cy) {
+        for (int i = 0; i < cx.length - 1; i++) {
+            for (int j = i + 1; j < cx.length; j++) {
+                if (cx[i] > cx[j]) {
+                    float tx = cx[i]; cx[i] = cx[j]; cx[j] = tx;
+                    float ty = cy[i]; cy[i] = cy[j]; cy[j] = ty;
+                }
+            }
+        }
+    }
+
     /**
      * 将操作应用到给定图上。对于创建或修改单个节点的操作，返回受影响的节点；
      * 否则返回 null。
@@ -121,6 +133,11 @@ public final class OpExecutor {
                         (c.toId == n.id && c.toPin >= n.inputs()) ||
                         (c.fromId == n.id && c.fromPin >= n.outputs()));
                     graph.rebuildNodeMap();
+                    graph.bumpGeneration();
+                } else if (n != null && n.type == NodeType.DEBUG_SIGNAL_GEN) {
+                    // DEBUG_SIGNAL_GEN 自定义公式（单行表达式，用 FormulaParser.compile）
+                    n.formula = op.stringValue() != null ? op.stringValue() : "";
+                    n.debugFormulaRpn = null; // 失效编译缓存
                     graph.bumpGeneration();
                 }
                 yield n;
@@ -260,9 +277,41 @@ public final class OpExecutor {
                 }
                 yield n;
             }
+            case SET_CTRL_POINTS -> {
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null && n.type == NodeType.DEBUG_SIGNAL_GEN) {
+                    float[][] parsed = GraphOp.parseCtrlPoints(op.stringValue());
+                    if (parsed != null) {
+                        // 服务端按 X 排序，保证多人协作时点不会因竞态条件乱序
+                        // Server-side X-sort: guarantees point order survives race conditions
+                        sortByX(parsed[0], parsed[1]);
+                        n.debugCtrlX = parsed[0];
+                        n.debugCtrlY = parsed[1];
+                        graph.bumpGeneration();
+                    }
+                }
+                yield n;
+            }
+
             // 这些在会话层 / UI 层处理，不在图层中处理：
             // These are handled at the session / UI layer, not the graph layer:
             case REJECT -> null;
+
+            case ADD_BOOKMARK -> {
+                String name = op.stringValue() != null ? op.stringValue() : "";
+                graph.bookmarks.add(new NodeGraph.Bookmark(name, op.x(), op.y(), op.paramValue()));
+                graph.bumpGeneration();
+                yield null;
+            }
+
+            case REMOVE_BOOKMARK -> {
+                int idx = op.targetNodeId();
+                if (idx >= 0 && idx < graph.bookmarks.size()) {
+                    graph.bookmarks.remove(idx);
+                    graph.bumpGeneration();
+                }
+                yield null;
+            }
 
             default -> null;
         };

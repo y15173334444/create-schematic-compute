@@ -165,13 +165,17 @@ public class NodeRenderer {
         if (n == null) return NW;
         if (n.type == NodeType.COMMENT) return Math.round(n.commentWidth);
         if (n.type == NodeType.FORMULA) return WIDE_NW;
+        if (n.type == NodeType.DEBUG_SIGNAL_GEN || n.type == NodeType.DEBUG_PROBE) return WIDE_NW;
         return NW;
     }
     /** Node body height in graph-space pixels (excluding edit panel expansion). */
     public static float nh(GraphNode n) {
         if (n == null) return HH + PH * 2;
         if (n.type == NodeType.COMMENT) return n.commentHeight;
-        return HH + PH * (n.functionalInputs() + n.outputs());
+        float base = HH + PH * (n.functionalInputs() + n.outputs());
+        if (n.type == NodeType.DEBUG_SIGNAL_GEN) return base + 84; // XY 图区域
+        if (n.type == NodeType.DEBUG_PROBE) return base + 64;      // 数值 + 趋势图
+        return base;
     }
 
     // 坐标转换接口
@@ -197,6 +201,7 @@ public class NodeRenderer {
         new NodeCategory("category.create_schematic_compute.display", new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE}),
         new NodeCategory("category.create_schematic_compute.structure", new NodeType[]{NodeType.ENCAPSULATION}),
         new NodeCategory("category.create_schematic_compute.encap_io", new NodeType[]{NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT}),
+        new NodeCategory("category.create_schematic_compute.debug", new NodeType[]{NodeType.DEBUG_SIGNAL_GEN, NodeType.DEBUG_PROBE}),
         new NodeCategory("category.create_schematic_compute.annotation", new NodeType[]{NodeType.COMMENT}),
     };
     private final java.util.Map<Integer, Boolean> catExpanded = new java.util.HashMap<>();
@@ -271,6 +276,7 @@ public class NodeRenderer {
     // 编辑区高度（像素，本地坐标空间）
     public java.util.Set<Integer> expandedNodeIds = java.util.Collections.emptySet();
     public java.util.Map<Integer, io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState> nodeEditStatesById = java.util.Collections.emptyMap();
+    public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot evalSnapshot = io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY;
 
     /** A=1: Render complete COMMENT nodes (background, border, text, handles) behind connections.
      *  Comment nodes act as container mats — everything renders at A=1, sorted by B. */
@@ -308,7 +314,7 @@ public class NodeRenderer {
         for(var n : nodes) {
             if (n.type == NodeType.COMMENT) continue; // rendered at A=1 by renderCommentNodes
             float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
-            float sw = nw(n)*zoom, nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
+            float sw = nw(n)*zoom, nh = NodeRenderer.nh(n)*zoom+4;
             if (expandedNodeIds.contains(n.id) && n.type != NodeType.COMMENT)
                 nh += io.github.y15173334444.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom) * zoom;
             if (sx + sw < -margin || sx > w + margin || sy + nh < -margin || sy > h + margin)
@@ -582,7 +588,7 @@ public class NodeRenderer {
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
         int nodeW = nw(n);
         float sw = nodeW*zoom;
-        float contentH = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
+        float contentH = nh(n)*zoom+4;
         // 编辑模式：各节点独立计算高度
         float extraH = editing ? io.github.y15173334444.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom,
             editing ? nodeEditStatesById.get(n.id) : null) * zoom : 0;
@@ -652,7 +658,7 @@ public class NodeRenderer {
         }
         // C=3: 编辑区
         if (editing) {
-            int editLocalY = (int)(HH + PH*(n.functionalInputs() + n.outputs()) + 4/zoom);
+            int editLocalY = (int)(nh(n) + 4/zoom); // nh(n) 含图表区域高度，编辑区在图表之后
             var editSt = nodeEditStatesById.get(n.id);
             int editLocalH = io.github.y15173334444.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom, editSt);
             g.fill(2, editLocalY - 2, nodeW - 2, editLocalY, 0xFF5A4D3A);
@@ -660,6 +666,12 @@ public class NodeRenderer {
             if (editSt != null) {
                 io.github.y15173334444.create_schematic_compute.blocks.EditPanel.renderAt(g, 0, editLocalY, nodeW, n, editSt, zoom, mx, my, flipflopStates);
             }
+        }
+        // C=3.5: 调试节点图表区域（graph space，坐标相对于节点左上角）
+        if (n.type == NodeType.DEBUG_SIGNAL_GEN) {
+            renderDebugSignalGenChart(g, n, nodeW);
+        } else if (n.type == NodeType.DEBUG_PROBE) {
+            renderDebugProbeChart(g, n, nodeW);
         }
         pose.popPose();
         // C=4: 边框
@@ -680,7 +692,7 @@ public class NodeRenderer {
             String inlbl = n.inputLabel(i);
             drawStr(g, (n.type == NodeType.BUS_OUT || n.type == NodeType.FORMULA || n.type == NodeType.ENCAPSULATION) ? inlbl : I18n.get(inlbl), 10, py-3, CD);
         }
-        for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL; i++) {
+        for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL && n.type != NodeType.DEBUG_PROBE; i++) {
             float py = HH+PH*(funcInputs + i)+PH/2f;
             int r = PR;
             g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1), CPOB());
@@ -714,6 +726,185 @@ public class NodeRenderer {
         // fills covering earlier nodes' text due to Minecraft's two-pass
         // buffer flush (all fills before all text).
         g.flush();
+    }
+
+    // ── 调试节点图表渲染（graph space，坐标相对于节点左上角）──
+    // Debug node chart rendering (graph space, coords relative to node top-left)
+
+    /** DEBUG_SIGNAL_GEN：XY 坐标图 + 波形曲线 + 控制点（Y 轴自动缩放）。 */
+    private void renderDebugSignalGenChart(GuiGraphics g, GraphNode n, int nodeW) {
+        float bodyH = HH + PH * (n.functionalInputs() + n.outputs());
+        int chartX = 2;
+        int chartY = (int) bodyH;
+        int chartW = nodeW - 4;
+        int chartH = 80;
+        int setMode = n.params.length > 0 ? (int) n.params[0] : 0;
+        int samples = 60;
+
+        // ── 计算 Y 范围（自动缩放）/ compute Y range (auto-scale) ──
+        float[] visRange = io.github.y15173334444.create_schematic_compute.graph.DebugSignals.computeVisibleRange(
+            setMode, n.debugCtrlX, n.debugCtrlY, n.formula, n.debugFormulaRpn);
+        float minV = visRange[0], maxV = visRange[1], range = visRange[2];
+        float scale = chartH / range;
+
+        // ── 渲染 / rendering ──
+        // 背景
+        g.fill(chartX, chartY, chartX + chartW, chartY + chartH, 0xFF1A1A2E);
+        // 网格线（每 1/4 一条）
+        for (int i = 1; i < 4; i++) {
+            int gx = chartX + chartW * i / 4;
+            g.fill(gx, chartY, gx + 1, chartY + chartH, 0xFF2A2A4E);
+            int gy = chartY + chartH * i / 4;
+            g.fill(chartX, gy, chartX + chartW, gy + 1, 0xFF2A2A4E);
+        }
+        // 0 值线（如果在可见范围内）/ zero line (if within visible range)
+        if (minV <= 0 && maxV >= 0) {
+            int zeroY = chartY + chartH - (int) ((0 - minV) * scale);
+            g.fill(chartX, zeroY, chartX + chartW, zeroY + 1, 0xFF3A3A6E);
+        }
+
+        // 曲线 / curve
+        int prevPX = -1, prevPY = -1;
+        float prevV = 0;
+        boolean prevValid = false;
+        for (int i = 0; i <= samples; i++) {
+            float x = (float) i / samples;
+            float v = io.github.y15173334444.create_schematic_compute.graph.DebugSignals.computeCurve(
+                setMode, x, n.debugCtrlX, n.debugCtrlY, n.formula, n.debugFormulaRpn);
+            boolean discontinuity = prevValid && Math.abs(v - prevV) > range * 1.5f;
+            int px = chartX + (int) (x * chartW);
+            int py = chartY + chartH - (int) ((v - minV) * scale);
+            py = Math.max(chartY, Math.min(chartY + chartH - 1, py));
+            if (prevPX >= 0 && !discontinuity) drawLine(g, prevPX, prevPY, px, py, 0xFF4ADE80);
+            prevPX = px; prevPY = py;
+            prevV = v;
+            prevValid = true;
+        }
+
+        // 控制点（仅手动曲线模式显示）
+        boolean showCtrl = (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL);
+        if (showCtrl && n.debugCtrlX != null) {
+            for (int i = 0; i < n.debugCtrlX.length; i++) {
+                int cpx = chartX + (int) (n.debugCtrlX[i] * chartW);
+                int cpy = chartY + chartH - (int) ((n.debugCtrlY[i] - minV) * scale);
+                g.fill(cpx - 2, cpy - 2, cpx + 3, cpy + 3, 0xFFFBBF24);
+            }
+        }
+
+        // x 标记线
+        int outMode = n.params.length > 1 ? (int) n.params[1] : 0;
+        float xPos;
+        if (outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ) {
+            xPos = evalSnapshot != null ? evalSnapshot.getDebugTime(n.id) : 0f;
+        } else {
+            xPos = n.params.length > 4 ? n.params[4] : 0.5f;
+        }
+        xPos = Math.max(0f, Math.min(1f, xPos));
+        int mxLine = chartX + (int) (xPos * chartW);
+        int xMarkerColor = outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ
+            ? 0xFF00BFFF : 0xFF44DDFF;
+        g.fill(mxLine, chartY, mxLine + 1, chartY + chartH, xMarkerColor);
+
+        // 模式标签
+        drawStr(g, io.github.y15173334444.create_schematic_compute.graph.DebugSignals.setModeName(setMode),
+            chartX + 4, chartY + 2, 0xFFCCCCCC);
+    }
+
+    /** DEBUG_PROBE：当前数值 + 迷你趋势折线图。 */
+    private void renderDebugProbeChart(GuiGraphics g, GraphNode n, int nodeW) {
+        float bodyH = HH + PH * (n.functionalInputs() + n.outputs());
+        int valY = (int) bodyH;
+        int chartX = 2;
+        int chartY = valY + 20;
+        int chartW = nodeW - 4;
+        int chartH = 44;
+
+        // 读取最新采样值
+        int lastIdx = (n.probeHead - 1 + n.probeHistory.length) % n.probeHistory.length;
+        float curVal = n.probeCount > 0 ? n.probeHistory[lastIdx] : 0f;
+        boolean hasData = n.probeCount > 0;
+
+        // 数值显示
+        String valStr = hasData ? String.format("%.3f", curVal) : "---";
+        int valCol = !hasData ? 0xFF888888
+            : (Float.isNaN(curVal) || Float.isInfinite(curVal) ? 0xFF888888
+            : (Math.abs(curVal) > 10f ? 0xFFFF4444 : 0xFF4ADE80));
+        drawStr(g, valStr, chartX + 4, valY + 2, valCol);
+
+        // 趋势图背景
+        g.fill(chartX, chartY, chartX + chartW, chartY + chartH, 0xFF1A1A2E);
+        int midY = chartY + chartH / 2;
+        g.fill(chartX, midY, chartX + chartW, midY + 1, 0xFF2A2A4E);
+
+        if (!hasData || n.probeCount < 2) {
+            drawStr(g, "...", chartX + chartW / 2 - 8, chartY + chartH / 2 - 3, 0xFF666666);
+            return;
+        }
+
+        // 读取参数
+        int windowSize = n.params.length > 0 ? (int) n.params[0] : 50;
+        windowSize = Math.max(2, Math.min(n.probeHistory.length, windowSize));
+        boolean autoScale = n.params.length > 1 ? n.params[1] != 0 : true;
+        float fixedRange = 10f;
+
+        int count = Math.min(n.probeCount, windowSize);
+        int start = (n.probeHead - count + n.probeHistory.length) % n.probeHistory.length;
+
+        // 计算窗口内数据范围（极端值截断 + 边距，与信号发生器一致）
+        // Compute window data range (clip extremes + padding, same as signal generator)
+        float CLIP = 5f;
+        float minV = Float.MAX_VALUE, maxV = -Float.MAX_VALUE;
+        for (int i = 0; i < count; i++) {
+            int idx = (start + i) % n.probeHistory.length;
+            float v = n.probeHistory[idx];
+            if (!Float.isFinite(v)) continue;
+            if (v < -CLIP) v = -CLIP;
+            if (v > CLIP) v = CLIP;
+            if (v < minV) minV = v;
+            if (v > maxV) maxV = v;
+        }
+        if (minV > maxV) { minV = -1f; maxV = 1f; }
+        float range = autoScale ? Math.max(maxV - minV, 0.001f) : (2 * fixedRange);
+        float base = autoScale ? minV : -fixedRange;
+        if (autoScale && range > 0.001f) {
+            float pad = range * 0.1f;
+            base -= pad;
+            range += pad * 2;
+        }
+
+        // 绘制折线
+        int prevPX = -1, prevPY = -1;
+        int lineCol = 0xFF4ADE80;
+        for (int i = 0; i < count; i++) {
+            int idx = (start + i) % n.probeHistory.length;
+            float v = n.probeHistory[idx];
+            int px = chartX + (int) ((float) i / (count - 1) * chartW);
+            int py = chartY + chartH - (int) ((v - base) / range * chartH);
+            py = Math.max(chartY, Math.min(chartY + chartH - 1, py));
+            if (prevPX >= 0) drawLine(g, prevPX, prevPY, px, py, lineCol);
+            prevPX = px; prevPY = py;
+        }
+
+        // 冻结指示
+        if (n.probeFrozen) {
+            drawStr(g, "FROZEN", chartX + chartW - 36, valY + 2, 0xFFFFAA00);
+        }
+    }
+
+    /** Bresenham 逐像素画线（GuiGraphics 无直接画线 API）。 */
+    private static void drawLine(GuiGraphics g, int x0, int y0, int x1, int y1, int col) {
+        int dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+        int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+        int err = dx - dy;
+        int x = x0, y = y0;
+        int guard = 0;
+        while (guard++ < 2000) {
+            g.fill(x, y, x + 1, y + 1, col);
+            if (x == x1 && y == y1) break;
+            int e2 = 2 * err;
+            if (e2 > -dy) { err -= dy; x += sx; }
+            if (e2 < dx) { err += dx; y += sy; }
+        }
     }
 
     public NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my) {

@@ -56,6 +56,22 @@ public class GraphNode {
     // Remote move interpolation (for smooth multiplayer drag)  /  远程移动插值（多人拖动平滑过渡）
     public transient float remoteLerpT = 1f;
     public transient float remoteStartX, remoteStartY, remoteTargetX, remoteTargetY;
+
+    // ── DEBUG_SIGNAL_GEN 控制点（持久化，多人协作同步）──
+    // Control points for DEBUG_SIGNAL_GEN; persisted, synced via SET_CTRL_POINTS.
+    // X 固定排序递增（0~1），Y 为信号值。默认两点：起点 (0,0)、终点 (1,0)。
+    public float[] debugCtrlX = new float[]{0f, 1f};
+    public float[] debugCtrlY = new float[]{0f, 0f};
+    // 自定义公式编译缓存（避免每 tick 重新编译）
+    public transient java.util.List<Object> debugFormulaRpn;
+
+    // ── DEBUG_PROBE 历史采样（transient，不序列化）──
+    // Ring buffer of recent samples; transient, not serialized.
+    public transient float[] probeHistory = new float[100];
+    public transient int probeHead = 0;
+    public transient int probeCount = 0;
+    public transient boolean probeFrozen = false;
+
     /** 封装节点的嵌套子图（非该类型则为 null）。/ Encapsulation node's nested sub-graph (null for other types). */
     public NodeGraph subGraph;
 
@@ -212,6 +228,21 @@ public class GraphNode {
             this.dynamicOutputCount = 1;
             this.outputLabels = java.util.List.of("");
         }
+        // DEBUG_SIGNAL_GEN：默认手动曲线 + 频率发生
+        // DEBUG_SIGNAL_GEN: default manual curve + frequency generate
+        if (type == NodeType.DEBUG_SIGNAL_GEN) {
+            this.params[0] = 0f;       // setMode = 手动曲线 / manual curve
+            this.params[1] = 0f;       // outMode = 频率发生 / frequency generate
+            this.params[2] = 1f / 20f; // speed (每 tick 推进 1/20，1 秒循环一次)
+            this.params[3] = 1f;       // amplitude
+            this.params[4] = 0.5f;     // inputX (指定模式下的 x 值)
+        }
+        // DEBUG_PROBE：默认窗口 50 tick，自动缩放
+        // DEBUG_PROBE: default window 50 ticks, auto-scale
+        if (type == NodeType.DEBUG_PROBE) {
+            this.params[0] = 50f;     // windowSize
+            this.params[1] = 1f;      // autoScale = on
+        }
         // ENCAPSULATION：outputValues 在 eval 期间根据 subGraph 动态调整大小
         // ENCAPSULATION: outputValues resized dynamically during eval based on subGraph
         this.outputValues = new float[type == NodeType.ENCAPSULATION ? 0 : type.outputs];
@@ -233,6 +264,8 @@ public class GraphNode {
         n.displayText = displayText;
         n.textColor = textColor;
         if (imagePixels != null) n.imagePixels = imagePixels.clone();
+        if (debugCtrlX != null) n.debugCtrlX = debugCtrlX.clone();
+        if (debugCtrlY != null) n.debugCtrlY = debugCtrlY.clone();
         if (imageSequenceFrames != null) {
             n.imageSequenceFrames = new java.util.ArrayList<>();
             for (int[] f : imageSequenceFrames) n.imageSequenceFrames.add(f.clone());
@@ -281,6 +314,16 @@ public class GraphNode {
             tag.put("busData", busData);
         }
         if (!formula.isEmpty()) tag.putString("formula", formula);
+        // 控制点持久化（DEBUG_SIGNAL_GEN 手动曲线模式）
+        // Control point persistence (DEBUG_SIGNAL_GEN manual curve mode)
+        if (type == NodeType.DEBUG_SIGNAL_GEN && debugCtrlX != null && debugCtrlY != null) {
+            int[] dcx = new int[debugCtrlX.length];
+            int[] dcy = new int[debugCtrlY.length];
+            for (int i = 0; i < debugCtrlX.length; i++) dcx[i] = Float.floatToRawIntBits(debugCtrlX[i]);
+            for (int i = 0; i < debugCtrlY.length; i++) dcy[i] = Float.floatToRawIntBits(debugCtrlY[i]);
+            tag.putIntArray("dcx", dcx);
+            tag.putIntArray("dcy", dcy);
+        }
         if (dynamicInputCount > 0) tag.putInt("din", dynamicInputCount);
         if (type == NodeType.FORMULA && dynamicOutputCount > 1) tag.putInt("dout", dynamicOutputCount);
         if (type == NodeType.FORMULA && outputLabels != null && !outputLabels.isEmpty()) {
@@ -366,6 +409,20 @@ public class GraphNode {
         if (tag.contains("dtext")) node.displayText = tag.getString("dtext");
         if (tag.contains("tcol")) node.textColor = tag.getInt("tcol");
         if (tag.contains("ipx")) node.imagePixels = tag.getIntArray("ipx");
+        // 控制点加载（DEBUG_SIGNAL_GEN 手动曲线模式）
+        // Control point loading (DEBUG_SIGNAL_GEN manual curve mode)
+        if (node.type == NodeType.DEBUG_SIGNAL_GEN) {
+            if (tag.contains("dcx")) {
+                int[] dcx = tag.getIntArray("dcx");
+                node.debugCtrlX = new float[dcx.length];
+                for (int i = 0; i < dcx.length; i++) node.debugCtrlX[i] = Float.intBitsToFloat(dcx[i]);
+            }
+            if (tag.contains("dcy")) {
+                int[] dcy = tag.getIntArray("dcy");
+                node.debugCtrlY = new float[dcy.length];
+                for (int i = 0; i < dcy.length; i++) node.debugCtrlY[i] = Float.intBitsToFloat(dcy[i]);
+            }
+        }
         if (tag.contains("iframes")) {
             var framesTag = tag.getList("iframes", Tag.TAG_INT_ARRAY);
             node.imageSequenceFrames = new java.util.ArrayList<>();

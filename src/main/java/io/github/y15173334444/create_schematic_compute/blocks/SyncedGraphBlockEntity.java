@@ -206,7 +206,7 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         if (level instanceof ServerLevel sl) {
             var snapshot = evaluator.captureSnapshot();
             PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(worldPosition),
-                new ClientboundGraphEvalPacket(worldPosition, snapshot.outputs()));
+                new ClientboundGraphEvalPacket(worldPosition, snapshot.outputs(), snapshot.debugTimes()));
         }
     }
 
