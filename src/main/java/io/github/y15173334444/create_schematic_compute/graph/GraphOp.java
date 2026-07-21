@@ -150,6 +150,20 @@ public record GraphOp(
             name, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
     }
 
+    /** 移动书签位置。 targetNodeId=fromIndex, paramIndex=toIndex */
+    public static GraphOp moveBookmark(BlockPos pos, int ownerNodeId, int fromIdx, int toIdx, UUID actor) {
+        return new GraphOp(OpType.MOVE_BOOKMARK, pos, ownerNodeId, fromIdx,
+            0, null, 0f, 0f, 0, 0, 0, 0, toIdx, 0f,
+            null, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
+    /** 重命名共享视角书签。 targetNodeId=bookmark index, stringValue=new name */
+    public static GraphOp renameBookmark(BlockPos pos, int ownerNodeId, int index, String newName, UUID actor) {
+        return new GraphOp(OpType.RENAME_BOOKMARK, pos, ownerNodeId, index,
+            0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+            newName, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
     /** 删除共享视角书签。 targetNodeId=bookmark index */
     public static GraphOp removeBookmark(BlockPos pos, int ownerNodeId, int index, UUID actor) {
         return new GraphOp(OpType.REMOVE_BOOKMARK, pos, ownerNodeId, index,

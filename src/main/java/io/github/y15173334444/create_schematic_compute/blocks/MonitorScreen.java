@@ -1715,13 +1715,12 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             }
             return true;
         }
+        if (editor.keyPressed(key, sc, mod)) return true;
         if (key == 256) {
-            // Esc closes sub-panels first, then the screen
             if (showSettings) { showSettings = false; return true; }
             if (displayMode) { displayMode = false; return true; }
             onClose(); return true;
         }
-        if (editor.keyPressed(key, sc, mod)) return true;
         if (key >= 32 && key <= 96) return true;
         return super.keyPressed(key, sc, mod);
     }

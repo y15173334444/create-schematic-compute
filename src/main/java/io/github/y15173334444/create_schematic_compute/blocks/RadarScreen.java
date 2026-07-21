@@ -271,7 +271,7 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
     @Override public void mouseMoved(double mx, double my) { editor.mouseMoved(mx, my); }
     @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }
     @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) { return editor.mouseScrolled(mx, my, sx, sy); }
-    @Override public boolean keyPressed(int key, int sc, int mod) { if (key == 256) { applyInputs(getBE()); onClose(); return true; } if (editor.keyPressed(key, sc, mod)) return true; if (key >= 32 && key <= 96) return true; return super.keyPressed(key, sc, mod); }
+    @Override public boolean keyPressed(int key, int sc, int mod) { if (editor.keyPressed(key, sc, mod)) return true; if (key == 256) { applyInputs(getBE()); onClose(); return true; } if (key >= 32 && key <= 96) return true; return super.keyPressed(key, sc, mod); }
     @Override public boolean keyReleased(int key, int sc, int mod) { return editor.keyReleased(key, sc, mod) || super.keyReleased(key, sc, mod); }
     @Override public boolean charTyped(char ch, int mod) { return editor.charTyped(ch, mod) || super.charTyped(ch, mod); }
 

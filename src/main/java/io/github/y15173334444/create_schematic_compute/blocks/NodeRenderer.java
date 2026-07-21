@@ -277,6 +277,7 @@ public class NodeRenderer {
     public java.util.Set<Integer> expandedNodeIds = java.util.Collections.emptySet();
     public java.util.Map<Integer, io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState> nodeEditStatesById = java.util.Collections.emptyMap();
     public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot evalSnapshot = io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY;
+    public boolean showBookmarkPanel = false;
 
     /** A=1: Render complete COMMENT nodes (background, border, text, handles) behind connections.
      *  Comment nodes act as container mats — everything renders at A=1, sorted by B. */
@@ -1046,6 +1047,13 @@ public class NodeRenderer {
         g.renderOutline(cX5, btnY, cW5, btnH, CSB());
         g.renderOutline(cX5+1, btnY+1, cW5-2, btnH-2, 0xFF2A2822);
         drawStr(g, "§7" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.style"), cX5+8, btnY+4, CT);
+
+        // 右下角书签按钮 / bottom-right bookmark button
+        int bmX = width - 22, bmY = height - 44, bmW = 18, bmH = 18;
+        boolean bmOpen = showBookmarkPanel;
+        g.fill(bmX, bmY, bmX+bmW, bmY+bmH, bmOpen ? 0xFF4A4A2A : 0xFF3A3832);
+        g.renderOutline(bmX, bmY, bmW, bmH, bmOpen ? 0xFFFFCC44 : CSB());
+        drawStr(g, bmOpen ? "§e★" : "§7☆", bmX+2, bmY+2, CT);
 
         // 右下角工具栏位置切换按钮
         int tX = width - 22, tY = height - 22, tW = 18, tH = 18;

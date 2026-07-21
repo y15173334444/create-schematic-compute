@@ -313,6 +313,29 @@ public final class OpExecutor {
                 yield null;
             }
 
+            case RENAME_BOOKMARK -> {
+                int idx = op.targetNodeId();
+                String newName = op.stringValue() != null ? op.stringValue() : "";
+                if (idx >= 0 && idx < graph.bookmarks.size() && !newName.isEmpty()) {
+                    var old = graph.bookmarks.get(idx);
+                    graph.bookmarks.set(idx, new NodeGraph.Bookmark(newName, old.camX(), old.camY(), old.zoom()));
+                    graph.bumpGeneration();
+                }
+                yield null;
+            }
+
+            case MOVE_BOOKMARK -> {
+                int fromIdx = op.targetNodeId();
+                int toIdx = op.paramIndex();
+                if (fromIdx >= 0 && fromIdx < graph.bookmarks.size()
+                    && toIdx >= 0 && toIdx < graph.bookmarks.size() && fromIdx != toIdx) {
+                    var bm = graph.bookmarks.remove(fromIdx);
+                    graph.bookmarks.add(toIdx, bm);
+                    graph.bumpGeneration();
+                }
+                yield null;
+            }
+
             default -> null;
         };
     }

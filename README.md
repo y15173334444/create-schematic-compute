@@ -408,6 +408,13 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | **Signal Gen — Switch mode / 切换模式** | Click toggle button (confirm with second click) / 点击切换按钮（二次点击确认） |
 | **Probe — Freeze/Unfreeze / 冻结解冻** | Double-click probe node / 双击探针节点 |
 | **Probe — Clear/Clear History / 清除历史** | Right-click probe node / 右键探针节点 |
+| **Bookmark — Open panel / 打开书签面板** | Click ★ bottom-right / 点击右下角★ |
+| **Bookmark — Add / 添加书签** | `[+]` in panel or `Ctrl+M` / 面板内`[+]`或`Ctrl+M` |
+| **Bookmark — Rename / 重命名** | Click ✎ on bookmark row / 点击书签行✎ |
+| **Bookmark — Delete / 删除** | Click × on bookmark row / 点击书签行× |
+| **Bookmark — Jump / 跳转** | Click → or name / 点击→或名称 |
+| **Bookmark — Reorder / 拖拽排序** | Drag name area to new position / 拖拽名称区域到新位置 |
+| **Bookmark — Reset view / 重置视角** | `[↺]` in panel or `Home` key / 面板`[↺]`或`Home`键 |
 
 ---
 
@@ -507,6 +514,14 @@ All 7 blocks now support real-time collaborative graph editing — multiple play
 | 📶 Signal Generator / 信号发生器 | Test signal source. Manual curve mode (draggable control points, X-clamped, server-sorted) or custom f(x) formula (all math functions, auto full-width paren conversion). Frequency-generate (auto-cycling X) or input-driven (drag sky-blue marker). Auto-scale Y axis with ±5 outlier clipping. |
 | 📊 Signal Probe / 信号探针 | Real-time monitor with 100-tick trend chart. Auto-scale Y axis with outlier clipping. Right-click freeze/unfreeze/clear. |
 
+### 📌 View Bookmarks / 视角书签
+- ★ button (bottom-right, above ▼) toggles bookmark panel / ★按钮开关书签面板
+- `[+]` / `Ctrl+M` save current view, `[↺]` / `Home` reset to origin
+- `[✎]` rename, `[✕]` delete, `[→]` or click name to jump with 200ms ease-in-out transition
+- Drag name area to reorder, synced via `MOVE_BOOKMARK` op
+- Click outside naming dialog to cancel; Esc handled by unified popup stack
+- Multiplayer-synced via `ADD_BOOKMARK` / `REMOVE_BOOKMARK` / `RENAME_BOOKMARK` / `MOVE_BOOKMARK` ops
+
 ### 🐛 Fixes & Polish / 修复与打磨
 - 🔧 **Graph Init** — `onLoad()` bumps generation to force full recompile on first tick.
 - 🚌 **BUS Channel** — `registerChannels()` no longer requires `bandCount()>0`; empty-band channels register so BUS_IN reads immediately.
@@ -582,18 +597,19 @@ All 7 blocks now support real-time collaborative graph editing — multiple play
 
 | Category / 分类 | Nodes / 节点 |
 |-----------------|-------------|
-| **Values / 数值** | CONST, REDSTONE_IN, PRIVATE_IN, BUS_IN, BUS_OUT |
+| **Values / 数值** | CONST, REDSTONE_IN, PRIVATE_IN, BUS_IN |
 | **Math / 数学** | ADD, SUB, MUL, DIV, MOD, POW, ROOT, ABS, CEIL, FLOOR, FORMULA, ROUND, INTERP, SPLIT, POSE_CONVERT |
 | **Trig / 三角** | SIN, COS, TAN, ASIN, ACOS, ATAN2, SINH, COSH, SQRT, LN, LOG, EXP, SEC, CSC, COT, ANGLE_UNWRAP, DIRECTION |
 | **Logic / 逻辑** | GT, LT, GE, LE, EQ, OR, BOOL, GATE |
 | **Control / 控制** | PID, PID_POWER, CLAMP, MAP |
-| **Output / 输出** | REDSTONE_OUT, PRIVATE_OUT, SPEED_CTRL |
+| **Output / 输出** | REDSTONE_OUT, PRIVATE_OUT, BUS_OUT, SPEED_CTRL |
 | **Sequential / 时序** | DELAY, LATCH, T_FLIPFLOP, PULSE_EXTEND, LOOP, FUSE, ACCUMULATOR, INTEGRATOR |
 | **Input / 输入** | KEYBOARD, MOUSE_JOYSTICK, VIEW_ANGLE, MOUSE_BUTTON, GAMEPAD_JOYSTICK, GAMEPAD_BUTTON, GAMEPAD_TRIGGER |
 | **Sensor / 传感器** | WORLD_VIEW, ATTITUDE, FORWARD, ACCELERATION, VELOCITY, POSITION, TARGET_OUT |
 | **Display / 显示** | TEXT, DATA, IMAGE, IMAGE_SEQUENCE |
 | **Structure / 结构** | ENCAPSULATION, ENCAP_INPUT, ENCAP_OUTPUT |
 | **Annotation / 注释** | COMMENT |
+| **Debug / 调试** | DEBUG_SIGNAL_GEN, DEBUG_PROBE |
 
 ---
 

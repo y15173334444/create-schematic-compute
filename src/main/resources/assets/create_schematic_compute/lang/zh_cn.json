@@ -444,6 +444,7 @@
   "gui.create_schematic_compute.bookmark.reset_view": "重置视角 (Home)",
   "gui.create_schematic_compute.bookmark.new": "新建",
   "gui.create_schematic_compute.bookmark.title": "视角书签",
+  "gui.create_schematic_compute.bookmark.empty": "空",
   "gui.create_schematic_compute.edit.setmode_manual": "手动曲线",
   "gui.create_schematic_compute.edit.setmode_formula": "f(x)",
   "gui.create_schematic_compute.edit.outmode_freq": "频率发生",

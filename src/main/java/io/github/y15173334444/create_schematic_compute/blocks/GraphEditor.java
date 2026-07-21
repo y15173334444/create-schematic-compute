@@ -278,6 +278,7 @@ public class GraphEditor {
     private boolean showBookmarkPanel = false;
     private String bookmarkNameDraft = "";
     private boolean editingBookmarkName = false;
+    private int editingBookmarkIndex = -1; // -1 = 新建, >= 0 = 重命名 / -1 = new, >= 0 = renaming
     private int bookmarkScrollOff = 0; // 书签面板滚动偏移 / bookmark panel scroll offset
     // 临时视角（内存 static，session 内跨编辑器实例恢复，不持久化不共享）
     // Temporary view (in-memory static, restored across editor instances within session, not persisted, not shared)
@@ -478,6 +479,9 @@ public class GraphEditor {
     private float scrollDragStartY = 0;
     private int scrollDragStartOff = 0;
     private boolean scrollingImport = false;
+    private boolean scrollingBookmark = false;
+    private int draggingBookmarkIdx = -1; // 书签拖拽排序 / bookmark drag reorder
+    private float bookmarkDragY = 0;       // 拖拽时的鼠标 Y / mouse Y during drag
 
     // ── 子图编辑栈（封装节点） (Sub-graph edit stack for encapsulation nodes) ──
     private record GraphEditState(GraphNode parentNode, Predicate<NodeType> parentFilter,
@@ -1212,7 +1216,7 @@ public class GraphEditor {
 
     /** 编辑器关闭时调用，保存临时视角。 / Called when editor closes, saves temporary view. */
     public void onClose() {
-        // 临时视角保存（内存 static，session 内跨编辑器实例恢复，不持久化） / temporary view save (in-memory static, not persisted)
+        // 临时视角保存 / temporary view save
         lastTempView = new float[]{camX, camY, zoom};
     }
 
@@ -1355,6 +1359,7 @@ public class GraphEditor {
         renderer.renderNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
             camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
         if (!isInSubGraph()) {
+            renderer.showBookmarkPanel = showBookmarkPanel;
             renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width, host.asScreen().height);
             // 导入/导出封装节点按钮（仅蓝图计算机显示） (Import/export encapsulation node buttons, Blueprint computer only)
             if (host instanceof BlueprintScreen) {
@@ -1423,7 +1428,100 @@ public class GraphEditor {
             g.renderOutline(cx + 8, cy + 50, 50, 18, 0xFF8B5333);
             g.drawString(mc.font, "§c" + I18n.get("gui.create_schematic_compute.cancel"), cx + 12, cy + 53, 0xFFFFFFFF, false);
         }
-        // 书签命名对话框 (Bookmark name dialog)
+        // 书签列表面板（右下角，带滚动条） / bookmark list panel (bottom-right, with scrollbar)
+        if (showBookmarkPanel) {
+            var mc = Minecraft.getInstance();
+            var bks = getGraph().bookmarks;
+            int panelW = 180;
+            int rowH = 16;
+            int maxRows = 5;
+            int titleH = 16;
+            int btnRowH = 18;
+            int totalRows = bks.size();
+            int visibleRows = Math.min(totalRows, maxRows);
+            int panelH = titleH + btnRowH + 6 + Math.max(visibleRows, 1) * rowH + 10;
+            int panelX = host.asScreen().width - panelW - 4;
+            int panelY = host.asScreen().height - 44 - panelH; // 在 ★ 按钮上方
+            // 限制滚动偏移 / clamp scroll offset
+            if (bookmarkScrollOff < 0) bookmarkScrollOff = 0;
+            if (bookmarkScrollOff > Math.max(0, totalRows - maxRows)) bookmarkScrollOff = Math.max(0, totalRows - maxRows);
+            // 面板背景 / panel background
+            g.fill(panelX, panelY, panelX + panelW, panelY + panelH, 0xEE1A1A2A);
+            g.renderOutline(panelX, panelY, panelW, panelH, NodeRenderer.CSB());
+            // 标题 / title
+            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.bookmark.title"), panelX + 6, panelY + 4, 0xFFFFCC88, false);
+            // 操作按钮行 / action button row
+            int btnY = panelY + titleH + 2;
+            // [+ 保存当前] 按钮
+            int addBX = panelX + 4, addBW = 72;
+            boolean addHover = mx >= addBX && mx < addBX + addBW && my >= btnY && my < btnY + btnRowH;
+            g.fill(addBX, btnY, addBX + addBW, btnY + btnRowH, addHover ? 0xFF3A5A3A : 0xFF3A3A2A);
+            g.renderOutline(addBX, btnY, addBW, btnRowH, NodeRenderer.CSB());
+            g.drawString(mc.font, "+ " + I18n.get("gui.create_schematic_compute.bookmark.add"), addBX + 4, btnY + 4, 0xFFAAFFAA, false);
+            // [↺ 重置] 按钮
+            int rstBX = panelX + 78, rstBW = 96;
+            boolean rstHover = mx >= rstBX && mx < rstBX + rstBW && my >= btnY && my < btnY + btnRowH;
+            g.fill(rstBX, btnY, rstBX + rstBW, btnY + btnRowH, rstHover ? 0xFF3A5A3A : 0xFF3A3A2A);
+            g.renderOutline(rstBX, btnY, rstBW, btnRowH, NodeRenderer.CSB());
+            g.drawString(mc.font, "↺ " + I18n.get("gui.create_schematic_compute.bookmark.reset_view"), rstBX + 4, btnY + 4, 0xFFCCCCCC, false);
+            // 分隔线 / separator
+            int sepY = btnY + btnRowH + 2;
+            g.fill(panelX + 4, sepY, panelX + panelW - 4, sepY + 1, 0xFF3A3A5E);
+            // 书签列表 / bookmark list
+            int listTopY = sepY + 3;
+            for (int i = 0; i < visibleRows; i++) {
+                int idx = i + bookmarkScrollOff;
+                if (idx >= totalRows) break;
+                var bm = bks.get(idx);
+                int ry = listTopY + i * rowH;
+                // 行背景（悬停高亮） / row hover highlight
+                boolean hover = mx >= panelX && mx < panelX + panelW - 10 && my >= ry && my < ry + rowH;
+                if (hover) g.fill(panelX + 2, ry, panelX + panelW - 2, ry + rowH, 0xFF3A3A5E);
+                // 序号 + 名称 / index + name
+                int nameMaxW = panelW - 48;
+                String label = (idx < 9 ? (idx + 1) + ". " : "   ") + bm.name();
+                if (mc.font.width(label) > nameMaxW) {
+                    String trunc = mc.font.plainSubstrByWidth(label, nameMaxW - 8) + "…";
+                    g.drawString(mc.font, trunc, panelX + 6, ry + 4, 0xFFCCCCCC, false);
+                } else {
+                    g.drawString(mc.font, label, panelX + 6, ry + 4, 0xFFCCCCCC, false);
+                }
+                // 重命名按钮 ✎ / rename button
+                boolean renHover = hover && mx >= panelX + panelW - 58 && mx < panelX + panelW - 44;
+                g.drawString(mc.font, renHover ? "§e✎" : "§7✎", panelX + panelW - 58, ry + 4, 0xFFFFCC44, false);
+                // 跳转按钮 → / jump button
+                boolean jmpHover = hover && mx >= panelX + panelW - 42 && mx < panelX + panelW - 28;
+                g.drawString(mc.font, jmpHover ? "§a→" : "§7→", panelX + panelW - 42, ry + 4, 0xFF88FF88, false);
+                // 删除按钮 × / delete button
+                boolean delHover = hover && mx >= panelX + panelW - 26;
+                g.drawString(mc.font, delHover ? "§c×" : "§7×", panelX + panelW - 26, ry + 4, 0xFFFF6666, false);
+            }
+            // 空列表提示 / empty list hint
+            if (totalRows == 0) {
+                g.drawString(mc.font, "§7(" + I18n.get("gui.create_schematic_compute.bookmark.empty") + ")", panelX + 6, listTopY + 4, 0xFF888888, false);
+            }
+            // 拖拽幽灵行 / drag ghost row
+            if (draggingBookmarkIdx >= 0 && draggingBookmarkIdx < totalRows) {
+                int ghostRowH = rowH + 2;
+                int ghostY = Math.max(listTopY, Math.min((int)bookmarkDragY - ghostRowH / 2, listTopY + visibleRows * rowH - ghostRowH));
+                g.fill(panelX + 2, ghostY, panelX + panelW - 12, ghostY + ghostRowH, 0xBB3A3A38);
+                g.renderOutline(panelX + 2, ghostY, panelW - 14, ghostRowH, 0xFFFFCC44);
+                var bm = bks.get(draggingBookmarkIdx);
+                g.drawString(mc.font, "↕ " + bm.name(), panelX + 8, ghostY + 3, 0xFFFFFF88, false);
+            }
+            // 滚动条 / scrollbar
+            if (totalRows > maxRows) {
+                int sbX = panelX + panelW - 8;
+                int sbH = visibleRows * rowH;
+                int sbY = listTopY;
+                g.fill(sbX, sbY, sbX + 6, sbY + sbH, 0xFF2A2A4E);
+                int thumbH = Math.max(10, sbH * maxRows / totalRows);
+                int maxOff = Math.max(1, totalRows - maxRows);
+                int thumbY = sbY + (sbH - thumbH) * bookmarkScrollOff / maxOff;
+                g.fill(sbX, thumbY, sbX + 6, thumbY + thumbH, 0xFF6A6A8E);
+            }
+        }
+        // 书签命名对话框（在面板之后渲染，位于上方）/ bookmark name dialog (rendered after panel, on top)
         if (editingBookmarkName) {
             var mc = Minecraft.getInstance();
             int w = 280, h = 70;
@@ -1431,64 +1529,10 @@ public class GraphEditor {
             g.fill(cx, cy, cx + w, cy + h, 0xEE1A1A2A);
             g.renderOutline(cx, cy, w, h, NodeRenderer.CSB());
             g.drawString(mc.font, I18n.get("gui.create_schematic_compute.bookmark.name"), cx + 8, cy + 6, 0xFFFFCC88, false);
-            // 文本输入框（用 bookmarkNameDraft + 光标模拟）
             g.fill(cx + 8, cy + 26, cx + w - 8, cy + 46, 0xFF000000);
             g.renderOutline(cx + 8, cy + 26, w - 16, 20, 0xFF6A6A6A);
             g.drawString(mc.font, bookmarkNameDraft + "_", cx + 12, cy + 31, 0xFFFFFFFF, false);
-            // 提示
             g.drawString(mc.font, "§7Enter §r确认 | §7Esc §r取消", cx + 8, cy + 52, 0xFFAAAAAA, false);
-        }
-        // 书签列表面板（右侧，带滚动条） / bookmark list panel (right side, with scrollbar)
-        if (showBookmarkPanel) {
-            var mc = Minecraft.getInstance();
-            var bks = getGraph().bookmarks;
-            int panelW = 130;
-            int rowH = 16;
-            int maxRows = 10;
-            int titleH = 16;
-            int totalRows = bks.size();
-            int visibleRows = Math.min(totalRows, maxRows);
-            int panelH = titleH + Math.max(visibleRows, 1) * rowH + 10;
-            int panelX = host.asScreen().width - panelW - 4;
-            int panelY = 40;
-            // 限制滚动偏移 / clamp scroll offset
-            if (bookmarkScrollOff < 0) bookmarkScrollOff = 0;
-            if (bookmarkScrollOff > Math.max(0, totalRows - maxRows)) bookmarkScrollOff = Math.max(0, totalRows - maxRows);
-            // 背景
-            g.fill(panelX, panelY, panelX + panelW, panelY + panelH, 0xEE1A1A2A);
-            g.renderOutline(panelX, panelY, panelW, panelH, NodeRenderer.CSB());
-            // 标题
-            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.bookmark.title"), panelX + 6, panelY + 4, 0xFFFFCC88, false);
-            // 书签列表
-            for (int i = 0; i < visibleRows; i++) {
-                int idx = i + bookmarkScrollOff;
-                if (idx >= totalRows) break;
-                var bm = bks.get(idx);
-                int ry = panelY + titleH + i * rowH;
-                // 行背景（悬停高亮） / row hover highlight
-                boolean hover = mx >= panelX && mx < panelX + panelW && my >= ry && my < ry + rowH;
-                if (hover) g.fill(panelX + 2, ry, panelX + panelW - 2, ry + rowH, 0xFF3A3A5E);
-                // 序号 + 名称 / index + name
-                String label = (idx < 9 ? (idx + 1) + ". " : "   ") + bm.name();
-                g.drawString(mc.font, label, panelX + 6, ry + 4, 0xFFCCCCCC, false);
-                // 删除按钮 × / delete button
-                g.drawString(mc.font, "§c×", panelX + panelW - 14, ry + 4, 0xFFFF6666, false);
-            }
-            // 空列表提示 / empty list hint
-            if (totalRows == 0) {
-                g.drawString(mc.font, "§7(空)", panelX + 6, panelY + titleH + 4, 0xFF888888, false);
-            }
-            // 滚动条（当书签数 > 可见行数时） / scrollbar (when bookmarks exceed visible rows)
-            if (totalRows > maxRows) {
-                int sbX = panelX + panelW - 5;
-                int sbH = visibleRows * rowH;
-                int sbY = panelY + titleH;
-                g.fill(sbX, sbY, sbX + 3, sbY + sbH, 0xFF2A2A4E);
-                int thumbH = Math.max(10, sbH * maxRows / totalRows);
-                int maxOff = Math.max(1, totalRows - maxRows);
-                int thumbY = sbY + (sbH - thumbH) * bookmarkScrollOff / maxOff;
-                g.fill(sbX, thumbY, sbX + 3, thumbY + thumbH, 0xFF6A6A8E);
-            }
         }
         // 导入封装节点对话框 (Import encapsulation node dialog)
         if (showImportDialog) {
@@ -1708,28 +1752,68 @@ public class GraphEditor {
 
     public boolean mouseClicked(double mx, double my, int btn) {
         var graph = getGraph();
-        // 书签面板交互（仅在面板显示且无弹窗时） / bookmark panel interaction
-        if (showBookmarkPanel && !showExportDialog && !showImportDialog && !colorPicker.isVisible() && editingCommentColorNode == null) {
-            int panelW = 130, rowH = 16, maxRows = 10, titleH = 16;
+        // 命名对话框：点击外部取消
+        if (editingBookmarkName) {
+            int w = 280, h = 70;
+            int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
+            if (mx < cx || mx > cx + w || my < cy || my > cy + h) {
+                editingBookmarkName = false; editingBookmarkIndex = -1; return true;
+            }
+        }
+        // 书签面板交互（仅在面板显示、无弹窗、无命名对话框时）
+        if (showBookmarkPanel && !editingBookmarkName && !showExportDialog && !showImportDialog && !colorPicker.isVisible() && editingCommentColorNode == null) {
+            int panelW = 180, rowH = 16, maxRows = 5, titleH = 16, btnRowH = 18;
             var bks = graph.bookmarks;
             int totalRows = bks.size();
             int visibleRows = Math.min(totalRows, maxRows);
             int panelX = host.asScreen().width - panelW - 4;
-            int panelY = 40;
-            int panelH = titleH + Math.max(visibleRows, 1) * rowH + 10;
-            if (btn == 0 && mx >= panelX && mx < panelX + panelW && my >= panelY && my < panelY + panelH) {
-                int ry = (int)((my - panelY - titleH) / rowH);
+            int panelY = host.asScreen().height - 44 - (titleH + btnRowH + 6 + Math.max(visibleRows, 1) * rowH + 10) - 4;
+            int panelH = titleH + btnRowH + 6 + Math.max(visibleRows, 1) * rowH + 10;
+            int listTopY = panelY + titleH + btnRowH + 4;
+            // [+ 保存] [↺ 重置] 按钮行
+            if (btn == 0 && my >= panelY + titleH && my < listTopY) {
+                if (mx >= panelX + 4 && mx < panelX + 4 + 70) {
+                    // [+ 保存当前]
+                    editingBookmarkName = true;
+                    editingBookmarkIndex = -1;
+                    bookmarkNameDraft = I18n.get("gui.create_schematic_compute.bookmark.new") + " " + (bks.size() + 1);
+                    return true;
+                }
+                if (mx >= panelX + 78 && mx < panelX + 78 + 96) {
+                    // [↺ 重置视角]
+                    startTransition(0, 0, 1f);
+                    return true;
+                }
+            }
+            if (btn == 0 && mx >= panelX && mx < panelX + panelW && my >= listTopY && my < panelY + panelH) {
+                // 滚动条拖拽/点击优先（拦截整个滚动条区域）
+                if (totalRows > maxRows && mx >= panelX + panelW - 14) {
+                    int sbY = listTopY, sbH = visibleRows * rowH;
+                    int thumbH = Math.max(10, sbH * maxRows / totalRows);
+                    int maxOff = Math.max(1, totalRows - maxRows);
+                    int thumbY = sbY + (sbH - thumbH) * bookmarkScrollOff / maxOff;
+                    if (my < thumbY) { bookmarkScrollOff = Math.max(0, bookmarkScrollOff - 3); }  // 点上方→上滚
+                    else if (my > thumbY + thumbH) { bookmarkScrollOff = Math.min(maxOff, bookmarkScrollOff + 3); } // 点下方→下滚
+                    else { scrollingBookmark = true; scrollDragStartY = (float)my; scrollDragStartOff = bookmarkScrollOff; } // 拖拽thumb
+                    return true;
+                }
+                int ry = (int)((my - listTopY) / rowH);
                 if (ry >= 0 && ry < visibleRows) {
                     int idx = ry + bookmarkScrollOff;
                     if (idx >= 0 && idx < totalRows) {
-                        if (mx >= panelX + panelW - 16) {
-                            // 点击 × 删除 / click × delete
+                        if (mx >= panelX + panelW - 26) {
+                            bks.remove(idx); graph.bumpGeneration();
                             host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeBookmark(
                                 host.getBlockPos(), ownerNodeId(), idx, host.getPlayerUUID()));
+                        } else if (mx >= panelX + panelW - 58 && mx < panelX + panelW - 44) {
+                            editingBookmarkName = true; editingBookmarkIndex = idx;
+                            bookmarkNameDraft = bks.get(idx).name();
+                        } else if (mx >= panelX + panelW - 42 && mx < panelX + panelW - 28) {
+                            startTransition(bks.get(idx).camX(), bks.get(idx).camY(), bks.get(idx).zoom());
                         } else {
-                            // 点击行 → 跳转 / click row → jump
-                            var bm = bks.get(idx);
-                            startTransition(bm.camX(), bm.camY(), bm.zoom());
+                            // 点击名称 → 开始拖拽 / name → start drag (release without move = jump)
+                            draggingBookmarkIdx = idx;
+                            bookmarkDragY = (float)my;
                         }
                     }
                     return true;
@@ -1934,6 +2018,14 @@ public class GraphEditor {
                     return true;
                 }
             }
+            // 右下角书签按钮（在三角形上方） (Bottom-right bookmark button, above triangle)
+            { int w = host.asScreen().width, h = host.asScreen().height;
+              if(mx>=w-22&&mx<=w-4&&my>=h-44&&my<=h-26){
+                showBookmarkPanel = !showBookmarkPanel;
+                bookmarkScrollOff = 0;
+                if (showBookmarkPanel) { showColorConfig = false; colorPicker.close(); showExportDialog = false; showImportDialog = false; }
+                return true;
+              } }
             // 右下角工具栏位置切换按钮（始终可见） (Bottom-right toolbar position toggle, always visible)
             { int w = host.asScreen().width, h = host.asScreen().height;
               if(mx>=w-22&&mx<=w-4&&my>=h-22&&my<=h-4){NodeRenderer.toggleToolbarBottom();return true;} }
@@ -2700,6 +2792,31 @@ public class GraphEditor {
             return;
         }
         // Scrollbar drag release
+        if (scrollingBookmark) { scrollingBookmark = false; return; }
+        if (draggingBookmarkIdx >= 0) {
+            var bks = getGraph().bookmarks;
+            if (draggingBookmarkIdx < bks.size() && showBookmarkPanel) {
+                int panelW = 180, rowH = 16, maxRows = 5, titleH = 16, btnRowH = 18;
+                int panelY = host.asScreen().height - 44 - (titleH + btnRowH + 6 + Math.max(Math.min(bks.size(), maxRows), 1) * rowH + 10) - 4;
+                int listTopY = panelY + titleH + btnRowH + 4;
+                int toRow = (int)((my - listTopY) / rowH);
+                int toIdx = toRow + bookmarkScrollOff;
+                if (toIdx >= 0 && toIdx < bks.size() && toIdx != draggingBookmarkIdx) {
+                    // 移动书签 / move bookmark
+                    var bm = bks.remove(draggingBookmarkIdx);
+                    bks.add(toIdx, bm);
+                    getGraph().bumpGeneration();
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveBookmark(
+                        host.getBlockPos(), ownerNodeId(), draggingBookmarkIdx, toIdx, host.getPlayerUUID()));
+                } else {
+                    // 未移动 → 跳转 / not moved → jump
+                    var bm = bks.get(draggingBookmarkIdx);
+                    startTransition(bm.camX(), bm.camY(), bm.zoom());
+                }
+            }
+            draggingBookmarkIdx = -1;
+            return;
+        }
         if (scrollingComment != null || scrollingImport) {
             scrollingComment = null;
             scrollingImport = false;
@@ -3037,7 +3154,24 @@ public class GraphEditor {
             markDirty();
             return;
         }
-        // Comment scrollbar drag
+        // 书签拖拽排序 / bookmark drag reorder
+        if (draggingBookmarkIdx >= 0) { bookmarkDragY = (float)my; return; }
+        // 书签滚动条拖拽 / bookmark scrollbar drag
+        if (scrollingBookmark) {
+            int panelW = 180, rowH = 16, maxRows = 5;
+            var bks = getGraph().bookmarks;
+            int totalRows = bks.size();
+            if (totalRows > maxRows) {
+                int visibleRows = Math.min(totalRows, maxRows);
+                int sbH = visibleRows * rowH;
+                int thumbH = Math.max(10, sbH * maxRows / totalRows);
+                int maxOff = Math.max(1, totalRows - maxRows);
+                float delta = (float)(my - scrollDragStartY) / (sbH - thumbH);
+                int newOff = scrollDragStartOff + Math.round(delta * maxOff);
+                bookmarkScrollOff = Math.max(0, Math.min(maxOff, newOff));
+            }
+            return;
+        }
         if (scrollingComment != null) {
             int maxTextW = Math.max(1, Math.round(scrollingComment.commentWidth) - 26);
             int visibleH = Math.max(1, Math.round(scrollingComment.commentHeight) - 16);
@@ -3168,7 +3302,7 @@ public class GraphEditor {
         if (showExportDialog || showColorConfig) return true;
         // 书签面板滚动 / bookmark panel scroll
         if (showBookmarkPanel) {
-            int panelW = 130, maxRows = 10;
+            int panelW = 180, maxRows = 5;
             int panelX = host.asScreen().width - panelW - 4;
             if (mx >= panelX && mx < panelX + panelW) {
                 var bks = getGraph().bookmarks;
@@ -3217,15 +3351,31 @@ public class GraphEditor {
         var graph = getGraph();
         // 书签命名对话框 / bookmark name dialog
         if (editingBookmarkName) {
-            if (key == 257) { // Enter: 提交 — 发送 ADD_BOOKMARK op（多人共享）
+            if (key == 257) { // Enter: 提交（新建/重命名）/ submit (add or rename)
                 if (!bookmarkNameDraft.isEmpty()) {
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addBookmark(
-                        host.getBlockPos(), ownerNodeId(), bookmarkNameDraft, camX, camY, zoom, host.getPlayerUUID()));
+                    var bmGraph = getGraph();
+                    if (editingBookmarkIndex >= 0) {
+                        // 重命名：本地先应用 / rename: apply locally first
+                        var bks = bmGraph.bookmarks;
+                        if (editingBookmarkIndex >= 0 && editingBookmarkIndex < bks.size()) {
+                            var old = bks.get(editingBookmarkIndex);
+                            bks.set(editingBookmarkIndex, new io.github.y15173334444.create_schematic_compute.graph.NodeGraph.Bookmark(bookmarkNameDraft, old.camX(), old.camY(), old.zoom()));
+                            bmGraph.bumpGeneration();
+                        }
+                        host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.renameBookmark(
+                            host.getBlockPos(), ownerNodeId(), editingBookmarkIndex, bookmarkNameDraft, host.getPlayerUUID()));
+                    } else {
+                        // 新建：本地先应用 / add: apply locally first
+                        bmGraph.bookmarks.add(new io.github.y15173334444.create_schematic_compute.graph.NodeGraph.Bookmark(bookmarkNameDraft, camX, camY, zoom));
+                        bmGraph.bumpGeneration();
+                        host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addBookmark(
+                            host.getBlockPos(), ownerNodeId(), bookmarkNameDraft, camX, camY, zoom, host.getPlayerUUID()));
+                    }
                 }
                 editingBookmarkName = false;
+                editingBookmarkIndex = -1;
                 return true;
             }
-            if (key == 256) { editingBookmarkName = false; return true; } // Esc
             if (key == 259 && !bookmarkNameDraft.isEmpty()) { // Backspace
                 bookmarkNameDraft = bookmarkNameDraft.substring(0, bookmarkNameDraft.length() - 1);
                 return true;
@@ -3254,6 +3404,7 @@ public class GraphEditor {
         }
         // ESC closes open panels first, then falls through to close UI
         if (key == 256) {
+            if (editingBookmarkName) { editingBookmarkName = false; editingBookmarkIndex = -1; return true; }
             if (showColorConfig) { showColorConfig = false; return true; }
             if (editingCommentColorNode != null && commentButtons != null) { closeCommentColorPopup(); return true; }
         }
@@ -3323,36 +3474,12 @@ public class GraphEditor {
             if (key == 90) { opUndo(); return true; }  // Ctrl+Z: undo own last op
             if (key == 89) { opRedo(); return true; }  // Ctrl+Y: redo own last undo
             // 视角书签快捷键 / view bookmark shortcuts
-            if (key == 77) { // Ctrl+M: 保存书签（Ctrl+B 与 MC 讲述人冲突）/ Ctrl+M: save bookmark (Ctrl+B conflicts with MC narrator)
+            if (key == 77) { // Ctrl+M: 保存书签 / Ctrl+M: save bookmark
                 editingBookmarkName = true;
+                editingBookmarkIndex = -1;
                 bookmarkNameDraft = "书签 " + (getGraph().bookmarks.size() + 1);
                 return true;
             }
-            if (key >= 49 && key <= 57) { // Ctrl+1~9: 跳转书签（从共享 graph.bookmarks 读取）
-                var bks = getGraph().bookmarks;
-                int idx = key - 49;
-                if (idx >= 0 && idx < bks.size()) {
-                    var bm = bks.get(idx);
-                    startTransition(bm.camX(), bm.camY(), bm.zoom());
-                }
-                return true;
-            }
-            if (net.minecraft.client.gui.screens.Screen.hasShiftDown()) {
-                if (key == 83) { // Ctrl+Shift+S: 保存临时视角（内存 static）
-                    lastTempView = new float[]{camX, camY, zoom};
-                    return true;
-                }
-                if (key == 76) { // Ctrl+Shift+L: 恢复临时视角（内存 static）
-                    if (lastTempView != null) startTransition(lastTempView[0], lastTempView[1], lastTempView[2]);
-                    return true;
-                }
-            }
-        }
-        // Ctrl+K: 切换书签面板 / toggle bookmark panel
-        if (key == 75 && net.minecraft.client.gui.screens.Screen.hasControlDown()) {
-            showBookmarkPanel = !showBookmarkPanel;
-            bookmarkScrollOff = 0;
-            return true;
         }
         // Home: 重置视角 / reset view
         if (key == 268) { startTransition(0, 0, 1f); return true; }

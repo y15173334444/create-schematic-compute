@@ -432,6 +432,7 @@
   "gui.create_schematic_compute.bookmark.reset_view": "Reset View (Home)",
   "gui.create_schematic_compute.bookmark.new": "New",
   "gui.create_schematic_compute.bookmark.title": "View Bookmarks",
+  "gui.create_schematic_compute.bookmark.empty": "Empty",
   "gui.create_schematic_compute.edit.setmode_manual": "Manual",
   "gui.create_schematic_compute.edit.setmode_formula": "f(x)",
   "gui.create_schematic_compute.edit.outmode_freq": "Frequency",

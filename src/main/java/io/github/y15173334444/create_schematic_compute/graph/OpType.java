@@ -36,6 +36,8 @@ public enum OpType {
     // Shared view bookmarks (synced via multiplayer collaboration)
     ADD_BOOKMARK,           // stringValue=name, x=camX, y=camY, paramValue=zoom
     REMOVE_BOOKMARK,        // targetNodeId=bookmark index
+    RENAME_BOOKMARK,        // targetNodeId=bookmark index, stringValue=new name
+    MOVE_BOOKMARK,          // targetNodeId=fromIndex, paramIndex=toIndex
 
     // Control points (DEBUG_SIGNAL_GEN)
     SET_CTRL_POINTS,        // imageData=ctrlX (float→int bits), blobRefId=ctrlY bits
