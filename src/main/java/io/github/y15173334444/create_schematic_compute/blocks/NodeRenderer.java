@@ -277,6 +277,9 @@ public class NodeRenderer {
     public java.util.Set<Integer> expandedNodeIds = java.util.Collections.emptySet();
     public java.util.Map<Integer, io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState> nodeEditStatesById = java.util.Collections.emptyMap();
     public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot evalSnapshot = io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY;
+    /** 当前渲染的封装子图节点 ID（-1 = 主图）。用于从 EvalSnapshot 读取子图 debugTime。
+     *  Current encap node ID being rendered (-1 = main graph). Used to read sub-graph debugTime from EvalSnapshot. */
+    public int currentEncapId = -1;
     public boolean showBookmarkPanel = false;
 
     /** A=1: Render complete COMMENT nodes (background, border, text, handles) behind connections.
@@ -796,7 +799,9 @@ public class NodeRenderer {
         int outMode = n.params.length > 1 ? (int) n.params[1] : 0;
         float xPos;
         if (outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ) {
-            xPos = evalSnapshot != null ? evalSnapshot.getDebugTime(n.id) : 0f;
+            xPos = evalSnapshot != null
+                ? (currentEncapId >= 0 ? evalSnapshot.getSubDebugTime(currentEncapId, n.id) : evalSnapshot.getDebugTime(n.id))
+                : 0f;
         } else {
             xPos = n.params.length > 4 ? n.params[4] : 0.5f;
         }

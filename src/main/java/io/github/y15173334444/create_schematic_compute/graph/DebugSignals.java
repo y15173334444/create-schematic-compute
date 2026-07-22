@@ -95,6 +95,11 @@ public final class DebugSignals {
      *  @return float[] {minY, maxY, range} */
     public static float[] computeVisibleRange(int setMode, float[] ctrlX, float[] ctrlY,
                                                String formula, java.util.List<Object> cachedRpn) {
+        // 手动曲线模式使用固定范围——只有公式模式需要自动缩放（公式可能产生极端值）
+        // Manual curve mode uses a fixed range — only formula mode needs auto-scale (formulas can produce extreme values)
+        if (setMode == SET_MANUAL) {
+            return new float[]{-1.1f, 1.1f, 2.2f};
+        }
         int samples = 60;
         float CLIP = 5f; // 超出此值的采样点被截断 / samples beyond this are clipped
         float minV = Float.MAX_VALUE, maxV = -Float.MAX_VALUE;

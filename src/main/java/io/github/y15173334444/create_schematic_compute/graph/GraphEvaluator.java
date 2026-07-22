@@ -123,8 +123,42 @@ public class GraphEvaluator {
     public Map<Integer, float[]> getCurrentOutputs() { return outputs; }
 
     /** 创建当前评估输出的不可变快照（服务端→客户端同步）。
-     *  Create an immutable snapshot of the current evaluation outputs (server → client sync). */
-    public EvalSnapshot captureSnapshot() { return EvalSnapshot.capture(outputs, debugTime); }
+     *  合并主图输出 + 所有子图（ENCAPSULATION）输出和 debugTime，使客户端中的 DEBUG_PROBE /
+     *  DEBUG_SIGNAL_GEN 能够在封装内部正常工作。
+     *  Create an immutable snapshot of the current evaluation outputs (server → client sync).
+     *  Merges main graph outputs + all sub-graph (ENCAPSULATION) outputs and debugTimes so that
+     *  DEBUG_PROBE / DEBUG_SIGNAL_GEN works inside encapsulation on the client. */
+    public EvalSnapshot captureSnapshot() {
+        Map<Integer, Map<Integer, float[]>> subOutputs;
+        Map<Integer, Map<Integer, Float>> subDebugTimes;
+        if (subEvaluators.isEmpty()) {
+            subOutputs = java.util.Collections.emptyMap();
+            subDebugTimes = java.util.Collections.emptyMap();
+        } else {
+            subOutputs = new HashMap<>(subEvaluators.size());
+            subDebugTimes = new HashMap<>(subEvaluators.size());
+            for (var entry : subEvaluators.entrySet()) {
+                int encapId = entry.getKey();
+                GraphEvaluator subEval = entry.getValue();
+                if (!subEval.outputs.isEmpty()) {
+                    Map<Integer, float[]> copy = new HashMap<>(subEval.outputs.size());
+                    for (var oe : subEval.outputs.entrySet()) {
+                        copy.put(oe.getKey(), oe.getValue().clone());
+                    }
+                    subOutputs.put(encapId, copy);
+                    subEval.outputs.clear(); // 清除以避免删除节点的残留 id 堆积 / clear to prevent stale deleted-node IDs
+                }
+                if (!subEval.debugTime.isEmpty()) {
+                    subDebugTimes.put(encapId, new HashMap<>(subEval.debugTime));
+                    // 注意：不清除 subEval.debugTime — 它是跨 tick 累积的相位状态，
+                    // DEBUG_SIGNAL_GEN 依赖它推进频率。残留条目仅在被删除节点上泄漏一个 float。
+                    // Note: do NOT clear subEval.debugTime — it is phase state that
+                    // accumulates across ticks; DEBUG_SIGNAL_GEN depends on it to advance.
+                }
+            }
+        }
+        return EvalSnapshot.capture(outputs, debugTime, subOutputs, subDebugTimes);
+    }
 
     /** 读取任意节点某引脚的计算结果（供外部查询）。
      *  Read the computed result of any node's pin (for external queries). */

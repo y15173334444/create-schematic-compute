@@ -1198,16 +1198,19 @@ public class GraphEditor {
     /** 客户端每 tick 调用（由各 Host Screen 的 containerTick 触发）。
      *  - 推进 DEBUG_PROBE 历史采样
      *  - 推进书签视角过渡动画
+     *  - 子图模式下从 subOutputs 读取快照值（修复 #18：封装内 DEBUG 节点不可见）
      *  Client tick (called by each Host Screen's containerTick). */
     public void clientTick() {
         advanceCameraTransition();
         var snap = host.getCachedEvalSnapshot();
         if (snap == null || snap == io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY) return;
         var graph = getGraph();
+        boolean inSub = isInSubGraph();
+        int encapId = inSub ? encapsulationParent.id : -1;
         for (GraphNode n : graph.nodes) {
             if (n.type != NodeType.DEBUG_PROBE) continue;
             if (n.probeFrozen) continue;
-            float v = snap.get(n.id, 0);
+            float v = inSub ? snap.getSub(encapId, n.id, 0) : snap.get(n.id, 0);
             n.probeHistory[n.probeHead] = v;
             n.probeHead = (n.probeHead + 1) % n.probeHistory.length;
             if (n.probeCount < n.probeHistory.length) n.probeCount++;
@@ -1356,6 +1359,7 @@ public class GraphEditor {
         // ── A=3: Regular node bodies (sorted by B ascending, comments excluded — rendered at A=1) ──
         renderer.evalSnapshot = host.getCachedEvalSnapshot();
         if (renderer.evalSnapshot == null) renderer.evalSnapshot = io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY;
+        renderer.currentEncapId = isInSubGraph() ? encapsulationParent.id : -1;
         renderer.renderNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
             camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
         if (!isInSubGraph()) {

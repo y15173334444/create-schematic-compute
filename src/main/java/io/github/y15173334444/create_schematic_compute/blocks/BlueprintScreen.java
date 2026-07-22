@@ -147,8 +147,8 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
     @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }
     @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) { return editor.mouseScrolled(mx, my, sx, sy); }
     @Override public boolean keyPressed(int key, int sc, int mod) {
-        if(key==256){onClose();return true;}
         if (editor.keyPressed(key, sc, mod)) return true;
+        if(key==256){onClose();return true;}
         if (key >= 32 && key <= 96) return true;
         return super.keyPressed(key, sc, mod);
     }
