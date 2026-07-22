@@ -499,6 +499,9 @@ public class GraphEditor {
     private int scrollDragStartOff = 0;
     private boolean scrollingImport = false;
     private boolean scrollingBookmark = false;
+    private boolean scrollingMenu = false;        // 菜单滚动条拖拽 / menu scrollbar drag
+    private float menuScrollDragStartY = 0;
+    private int menuScrollDragStartOff = 0;
     private int draggingBookmarkIdx = -1; // 书签拖拽排序 / bookmark drag reorder
     private float bookmarkDragY = 0;       // 拖拽时的鼠标 Y / mouse Y during drag
 
@@ -2204,6 +2207,17 @@ public class GraphEditor {
               if(mx>=w-22&&mx<=w-4&&my>=h-22&&my<=h-4){NodeRenderer.toggleToolbarBottom();return true;} }
         }
         if(showMenu&&btn==0){
+            // 菜单滚动条拖拽优先（参考书签UI实现）/ menu scrollbar drag first (matching bookmark UI pattern)
+            if (renderer.menuHasScrollbar()) {
+                int[] track = renderer.menuScrollbarTrack();
+                int[] thumb = renderer.menuScrollbarThumb();
+                int maxOff = renderer.menuMaxScrollOff();
+                if (mx >= track[0] && mx <= track[0] + track[2] && my >= track[1] && my <= track[1] + track[3]) {
+                    if (my < thumb[0]) { renderer.setMenuScrollOff(renderer.menuScrollOff() - 3 * 14); return true; }
+                    else if (my > thumb[0] + thumb[1]) { renderer.setMenuScrollOff(renderer.menuScrollOff() + 3 * 14); return true; }
+                    else { scrollingMenu = true; menuScrollDragStartY = (float)my; menuScrollDragStartOff = (int)renderer.menuScrollOff(); return true; }
+                }
+            }
             if(renderer.handleCategoryClick((int)mx, (int)my)) return true;
             if(selectedMenuType!=null){
                 if(graph.nodes.size()>=MAX_NODES){
@@ -2220,7 +2234,7 @@ public class GraphEditor {
             }showMenu=false;return true;}
         if(btn==1){
             if (showColorConfig) return true; // 颜色面板打开时禁止操作 (Disable operations while color panel is open)
-            menuX=(float)mx; menuY=(float)my; showMenu=true; return true;
+            menuX=(float)mx; menuY=(float)my; showMenu=true; renderer.resetMenuSearch(); return true;
         }
         // 热栏弹出交互 (Hotbar popup interaction)
         if (hotbarNode != null && btn == 0) {
@@ -2965,6 +2979,7 @@ public class GraphEditor {
             return;
         }
         // Scrollbar drag release
+        if (scrollingMenu) { scrollingMenu = false; return; }
         if (scrollingBookmark) { scrollingBookmark = false; return; }
         if (draggingBookmarkIdx >= 0) {
             var bks = getGraph().bookmarks;
@@ -3337,6 +3352,18 @@ public class GraphEditor {
         }
         // 书签拖拽排序 / bookmark drag reorder
         if (draggingBookmarkIdx >= 0) { bookmarkDragY = (float)my; return; }
+        // 菜单滚动条拖拽 / menu scrollbar drag
+        if (scrollingMenu) {
+            int[] track = renderer.menuScrollbarTrack();
+            int[] thumb = renderer.menuScrollbarThumb();
+            int trackH = track[3], thumbH = thumb[1];
+            int maxOff = renderer.menuMaxScrollOff();
+            if (maxOff > 0 && trackH > thumbH) {
+                float delta = (float)(my - menuScrollDragStartY) / (trackH - thumbH);
+                renderer.setMenuScrollOff(menuScrollDragStartOff + Math.round(delta * maxOff));
+            }
+            return;
+        }
         // 书签滚动条拖拽 / bookmark scrollbar drag
         if (scrollingBookmark) {
             int panelW = 180, rowH = 16, maxRows = 5;
@@ -3479,6 +3506,7 @@ public class GraphEditor {
     }
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         if (colorPicker.isVisible() && colorPicker.mouseScrolled(mx, my, sy)) return true;
+        if (showMenu) { renderer.scrollMenu((float)(-sy * 14)); return true; }
         if (showImportDialog) { importScrollOff += (sy > 0) ? -1 : 1; if (importScrollOff < 0) importScrollOff = 0; return true; }
         if (showExportDialog || showColorConfig) return true;
         // 书签面板滚动 / bookmark panel scroll
@@ -3530,6 +3558,15 @@ public class GraphEditor {
     }
     public boolean keyPressed(int key, int sc, int mod) {
         var graph = getGraph();
+        // D: 搜索框菜单键盘 / search box menu keyboard
+        if (showMenu) {
+            if (renderer.isMenuSearchFocused()) {
+                if (key == 256) { renderer.setMenuSearchFocused(false); return true; } // Esc unfocus
+                if (key == 259) { renderer.menuSearchBackspace(); return true; }       // Backspace
+            } else {
+                if (key == 256) { showMenu = false; return true; } // Esc close menu
+            }
+        }
         // 书签命名对话框 / bookmark name dialog
         if (editingBookmarkName) {
             if (key == 257) { // Enter: 提交（新建/重命名）/ submit (add or rename)
@@ -3801,6 +3838,15 @@ public class GraphEditor {
         return false;
     }
     public boolean charTyped(char ch, int mod) {
+        // D: 菜单搜索输入 / menu search input
+        if (showMenu) {
+            if (renderer.isMenuSearchFocused() || java.lang.Character.isLetterOrDigit(ch)
+                    || ch == ' ' || ch == '_' || ch == '-' || ch == '/') {
+                renderer.appendMenuSearch(ch);
+                renderer.setMenuSearchFocused(true);
+                return true;
+            }
+        }
         if (editingBookmarkName) {
             if (ch >= 32 && bookmarkNameDraft.length() < 30) bookmarkNameDraft += ch;
             return true;

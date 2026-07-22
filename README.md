@@ -287,7 +287,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 </details>
 
 <details>
-<summary><b>🎮 Input Controls / 操作输入</b> (Control Seat only / 仅控制座椅)</summary>
+<summary><b>🎮 Input / 输入</b> (Control Seat + Attitude Sensor / 控制座椅+姿态传感器)</summary>
 
 | Node / 节点 | Description / 说明 |
 |-------------|-------------------|
@@ -298,14 +298,6 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | Gamepad Joystick / 手柄摇杆 | Dual stick LX/LY/RX/RY / 双摇杆 |
 | Gamepad Button / 手柄按键 | 15 buttons / 15按键 |
 | Gamepad Trigger / 手柄扳机 | Analog triggers LT/RT (0~1) / 模拟扳机 |
-
-</details>
-
-<details>
-<summary><b>📡 Sensors / 传感器</b> (Attitude Sensor + Control Seat / 姿态传感器+控制座椅)</summary>
-
-| Node / 节点 | Description / 说明 |
-|-------------|-------------------|
 | World View / 世界视角 | Player absolute world view direction / 玩家绝对视角 |
 | Attitude / 姿态 | Sub-level pitch and roll / 子世界姿态 |
 | Forward / 前方朝向 | World-space forward yaw/pitch / 结构朝向 |
@@ -340,19 +332,11 @@ Global named-channel communication across computers. Like publish-subscribe mess
 </details>
 
 <details>
-<summary><b>📝 Annotation / 注释</b></summary>
-
-| Node / 节点 | Description / 说明 |
-|-------------|-------------------|
-| Comment / 便利贴 | Sticky-note annotation, resizable (80~8000×40~6000), scrollable, 3-color customizable. Drag header to move, parent-move contains nodes. Pure visual — skipped during evaluation. Press **C** with nodes selected to wrap. / 可调大小/滚动/三色自定义。拖拽顶部移动，父级移动携带内部节点。纯视觉辅助。选中节点按 **C** 包裹。 |
-
-</details>
-
-<details>
 <summary><b>🔧 Debug / 调试</b> (All blocks / 全部方块)</summary>
 
 | Node / 节点 | Description / 说明 |
 |-------------|-------------------|
+| Comment / 便利贴 | Sticky-note annotation, resizable (80~8000×40~6000), scrollable, 3-color customizable. Drag header to move, parent-move contains nodes. Pure visual — skipped during evaluation. Press **C** with nodes selected to wrap. / 可调大小/滚动/三色自定义。拖拽顶部移动，父级移动携带内部节点。纯视觉辅助。选中节点按 **C** 包裹。 |
 | Signal Generator / 信号发生器 | Test signal source with XY curve preview, manual control-point curve or custom f(x) formula, frequency-generate or input-driven output modes / 测试信号源，XY曲线预览，手动控制点曲线或自定义f(x)公式，频率发生/指定模式输出 |
 | Signal Probe / 信号探针 | Real-time signal monitor with 100-tick trend chart, auto-scale Y axis with outlier clipping, freeze/clear / 实时信号监视，100 tick趋势图，Y轴自动缩放+离群截断，冻结/清除 |
 
@@ -612,12 +596,10 @@ All 7 blocks now support real-time collaborative graph editing — multiple play
 | **Control / 控制** | PID, PID_POWER, CLAMP, MAP |
 | **Output / 输出** | REDSTONE_OUT, PRIVATE_OUT, BUS_OUT, SPEED_CTRL |
 | **Sequential / 时序** | DELAY, LATCH, T_FLIPFLOP, PULSE_EXTEND, LOOP, FUSE, ACCUMULATOR, INTEGRATOR |
-| **Input / 输入** | KEYBOARD, MOUSE_JOYSTICK, VIEW_ANGLE, MOUSE_BUTTON, GAMEPAD_JOYSTICK, GAMEPAD_BUTTON, GAMEPAD_TRIGGER |
-| **Sensor / 传感器** | WORLD_VIEW, ATTITUDE, FORWARD, ACCELERATION, VELOCITY, POSITION, TARGET_OUT |
+| **Input / 输入** | KEYBOARD, MOUSE_JOYSTICK, VIEW_ANGLE, MOUSE_BUTTON, GAMEPAD_JOYSTICK, GAMEPAD_BUTTON, GAMEPAD_TRIGGER, WORLD_VIEW, ATTITUDE, FORWARD, ACCELERATION, VELOCITY, POSITION, TARGET_OUT |
 | **Display / 显示** | TEXT, DATA, IMAGE, IMAGE_SEQUENCE |
 | **Structure / 结构** | ENCAPSULATION, ENCAP_INPUT, ENCAP_OUTPUT |
-| **Annotation / 注释** | COMMENT |
-| **Debug / 调试** | DEBUG_SIGNAL_GEN, DEBUG_PROBE |
+| **Debug / 调试** | COMMENT, DEBUG_SIGNAL_GEN, DEBUG_PROBE |
 
 ---
 

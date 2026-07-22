@@ -108,8 +108,7 @@
 
   "category.create_schematic_compute.math_basic": "基础运算",
   "category.create_schematic_compute.math_advanced": "高级运算",
-  "category.create_schematic_compute.input_ctrl": "操作输入",
-  "category.create_schematic_compute.input_sensor": "传感器",
+  "category.create_schematic_compute.input": "输入",
   "block.create_schematic_compute.monitor": "全息显示器",
   "container.create_schematic_compute.monitor": "显示器编辑器",
   "block.create_schematic_compute.radar": "3D全息显示雷达",
@@ -142,9 +141,7 @@
   "gui.create_schematic_compute.monitor.pixel_blank": "空白",
   "gui.create_schematic_compute.monitor.pixel_from_current": "从当前新建",
   "gui.create_schematic_compute.monitor.pixel_close_hint": "点击外部 | ESC 关闭",
-  "category.create_schematic_compute.structure": "封装",
-  "category.create_schematic_compute.encap_io": "封装 I/O",
-  "category.create_schematic_compute.annotation": "注释",
+  "category.create_schematic_compute.structure": "结构",
   "node.create_schematic_compute.encapsulation": "封装",
   "node.create_schematic_compute.encap_input": "封装输入",
   "node.create_schematic_compute.encap_output": "封装输出",
@@ -258,6 +255,7 @@
   "gui.create_schematic_compute.stop": "[停止]",
 
   "gui.create_schematic_compute.nodes": "节点",
+  "gui.create_schematic_compute.search_hint": "搜索节点…",
   "gui.create_schematic_compute.formula_placeholder": "A+B",
   "gui.create_schematic_compute.formula_summary": "输入 {0} / 输出 {1}",
   "gui.create_schematic_compute.formula_comment_hint": "-- 注释",

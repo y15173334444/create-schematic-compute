@@ -196,17 +196,30 @@ public class NodeRenderer {
         new NodeCategory("category.create_schematic_compute.control", new NodeType[]{NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP}),
         new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL, NodeType.BUS_OUT}),
         new NodeCategory("category.create_schematic_compute.sequential", new NodeType[]{NodeType.DELAY, NodeType.LATCH, NodeType.T_FLIPFLOP, NodeType.PULSE_EXTEND, NodeType.LOOP, NodeType.FUSE, NodeType.ACCUMULATOR, NodeType.INTEGRATOR}),
-        new NodeCategory("category.create_schematic_compute.input_ctrl", new NodeType[]{NodeType.KEYBOARD, NodeType.MOUSE_BUTTON, NodeType.MOUSE_JOYSTICK, NodeType.GAMEPAD_JOYSTICK, NodeType.GAMEPAD_BUTTON, NodeType.GAMEPAD_TRIGGER}),
-        new NodeCategory("category.create_schematic_compute.input_sensor", new NodeType[]{NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD, NodeType.ACCELERATION, NodeType.VELOCITY, NodeType.POSITION, NodeType.TARGET_OUT}),
-        new NodeCategory("category.create_schematic_compute.display", new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE}),
-        new NodeCategory("category.create_schematic_compute.structure", new NodeType[]{NodeType.ENCAPSULATION}),
-        new NodeCategory("category.create_schematic_compute.encap_io", new NodeType[]{NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT}),
-        new NodeCategory("category.create_schematic_compute.debug", new NodeType[]{NodeType.DEBUG_SIGNAL_GEN, NodeType.DEBUG_PROBE}),
-        new NodeCategory("category.create_schematic_compute.annotation", new NodeType[]{NodeType.COMMENT}),
+        // F: input_ctrl + input_sensor 合并 / merged
+        new NodeCategory("category.create_schematic_compute.input",
+            new NodeType[]{NodeType.KEYBOARD, NodeType.MOUSE_BUTTON, NodeType.MOUSE_JOYSTICK, NodeType.GAMEPAD_JOYSTICK, NodeType.GAMEPAD_BUTTON, NodeType.GAMEPAD_TRIGGER,
+                           NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD, NodeType.ACCELERATION, NodeType.VELOCITY, NodeType.POSITION, NodeType.TARGET_OUT}),
+        // F: COMMENT 并入 display / COMMENT merged into display
+        new NodeCategory("category.create_schematic_compute.display",
+            new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE}),
+        // F: encap_io 并入 structure / encap_io merged into structure
+        new NodeCategory("category.create_schematic_compute.structure",
+            new NodeType[]{NodeType.ENCAPSULATION, NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT}),
+        new NodeCategory("category.create_schematic_compute.debug", new NodeType[]{NodeType.DEBUG_SIGNAL_GEN, NodeType.DEBUG_PROBE, NodeType.COMMENT}),
     };
     private final java.util.Map<Integer, Boolean> catExpanded = new java.util.HashMap<>();
     private float menuRX, menuRY;
     private java.util.function.Predicate<NodeType> currentFilter = null;
+    // —— ADF 滚动+搜索字段 / scroll + search fields ——
+    private float menuW = 0;
+    private float menuScrollOff = 0;
+    private int menuTotalH = 0;       // 列表总高（不含封顶）/ total list height (uncapped)
+    private int menuMaxH = 0;         // 封顶后的可见高度 / capped visible height
+    private String menuSearchText = "";
+    private boolean menuSearchFocused = false;
+    private static final int TOP_H = 34;   // 标题(18) + 搜索框(16) 固定不滚动区 / fixed non-scroll area
+    private static final int SCROLLBAR_W = 6;
 
     public NodeRenderer(CoordMapper c2sX, CoordMapper c2sY, net.minecraft.client.gui.screens.Screen screen) {
         this.c2sX = c2sX; this.c2sY = c2sY;
@@ -959,85 +972,149 @@ public class NodeRenderer {
     }
 
     public NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my, java.util.function.Predicate<NodeType> filter) {
-        currentFilter = filter;
-        int ih=14, ch=16;
-        // Determine max columns needed (for width calculation)
+        // D: 组合外部 filter + 搜索文本 / combine external filter + search text
+        java.util.function.Predicate<NodeType> combined = nt -> {
+            if (filter != null && !filter.test(nt)) return false;
+            if (menuSearchText.isEmpty()) return true;
+            String q = menuSearchText.toLowerCase();
+            return I18n.get(nt.displayName).toLowerCase().contains(q);
+        };
+        currentFilter = combined;
+
+        int ih=14, ch=16, colW=144;
         int maxCols = 1;
         for (int ci = 0; ci < CATEGORIES.length; ci++) {
-            if (visibleCount(CATEGORIES[ci], filter) == 0) continue;
+            if (visibleCount(CATEGORIES[ci], combined) == 0) continue;
             if (catExpanded.getOrDefault(ci, false))
                 maxCols = Math.max(maxCols, CATEGORIES[ci].columns);
         }
-        int colW = 144; // width per column
-        int mw = 16 + maxCols * colW;
-        // Calculate total height (multi-col categories: ceil(items/cols) rows)
-        int totalH = 20;
+        menuW = 16 + maxCols * colW;
+        int totalH = TOP_H;
         for (int ci = 0; ci < CATEGORIES.length; ci++) {
-            if (visibleCount(CATEGORIES[ci], filter) == 0) continue;
+            if (visibleCount(CATEGORIES[ci], combined) == 0) continue;
             totalH += ch;
             if (catExpanded.getOrDefault(ci, false)) {
                 int cols = CATEGORIES[ci].columns;
-                int items = visibleCount(CATEGORIES[ci], filter);
+                int items = visibleCount(CATEGORIES[ci], combined);
                 totalH += (int)Math.ceil((double)items / cols) * ih;
             }
         }
-        menuRX = Math.max(0, Math.min(menuX, screen.width-mw));
-        menuRY = Math.max(0, Math.min(menuY, screen.height-totalH));
-        g.fill((int)menuRX,(int)menuRY,(int)(menuRX+mw),(int)(menuRY+totalH),0xFF2A2822);
-        g.renderOutline((int)menuRX,(int)menuRY,mw,totalH,CSB());
-        g.renderOutline((int)menuRX+1,(int)menuRY+1,mw-2,totalH-2,0xFF1A1814);
-        drawStr(g, "§l" + I18n.get("gui.create_schematic_compute.nodes"), menuRX+6, menuRY+4, CCT());
+        // A: 真实高度封顶 / height cap
+        int maxH = Math.min(totalH, screen.height - 12);
+        menuTotalH = totalH; menuMaxH = maxH;
+        menuScrollOff = Math.max(0, Math.min(menuScrollOff, totalH - maxH));
+        menuRX = Math.max(0, Math.min(menuX, screen.width - menuW));
+        menuRY = Math.max(0, Math.min(menuY, screen.height - maxH));
+
+        // 面板框（固定 maxH 高）/ panel frame (fixed maxH height)
+        g.fill((int)menuRX, (int)menuRY, (int)(menuRX + menuW), (int)(menuRY + maxH), 0xFF2A2822);
+        g.renderOutline((int)menuRX, (int)menuRY, (int)menuW, maxH, CSB());
+        g.renderOutline((int)menuRX + 1, (int)menuRY + 1, (int)menuW - 2, maxH - 2, 0xFF1A1814);
+
+        // —— 固定顶部区（标题 + 搜索框，不滚动）/ fixed top area (title + search, non-scrolling) ——
+        drawStr(g, "§l" + I18n.get("gui.create_schematic_compute.nodes"), menuRX + 6, menuRY + 4, CCT());
+        // D: 搜索框 / search box
+        int sbX = (int)menuRX + 6, sbY = (int)menuRY + 18, sbW = (int)menuW - 12, sbH = 12;
+        g.fill(sbX, sbY, sbX + sbW, sbY + sbH, 0xFF1A1814);
+        g.renderOutline(sbX, sbY, sbW, sbH, menuSearchFocused ? 0xFFD4A017 : 0xFF5A4D3A);
+        String shown = menuSearchText.isEmpty()
+            ? I18n.get("gui.create_schematic_compute.search_hint")
+            : menuSearchText + (menuSearchFocused && (System.currentTimeMillis() / 500 % 2 == 0) ? "_" : "");
+        drawStr(g, shown, sbX + 3, sbY + 2, menuSearchText.isEmpty() ? 0xFF777777 : CMN());
 
         NodeType hovered = null;
-        int cy = (int)menuRY + 18;
-        for (int ci = 0; ci < CATEGORIES.length; ci++) {
-            NodeCategory cat = CATEGORIES[ci];
-            int vis = visibleCount(cat, filter);
-            if (vis == 0) continue;
-            boolean exp = catExpanded.getOrDefault(ci, false);
-            int cols = exp ? cat.columns : 1;
-            // Category header (full width)
-            String title = (exp ? "▼ " : "▶ ") + net.minecraft.client.resources.language.I18n.get(cat.langKey);
-            boolean titleHover = mx>=menuRX+2 && mx<=menuRX+mw-2 && my>=cy && my<cy+ch;
-            if (titleHover) g.fill((int)menuRX+2, cy, (int)(menuRX+mw-2), (int)(cy+ch), 0xFF3A3428);
-            drawStr(g, title, menuRX+6, cy+2, titleHover ? CMH() : CCT());
-            cy += ch;
-            if (!exp) continue;
-            // Items in grid layout
-            int itemsPerCol = (int)Math.ceil((double)vis / cols);
-            int itemIdx = 0;
-            for (var nt : cat.types) {
-                if (filter != null && !filter.test(nt)) continue;
-                int col = itemIdx / itemsPerCol;
-                int row = itemIdx % itemsPerCol;
+        // A: scissor 裁剪列表区 / scissor-clip list area (screen coords, y=0=top)
+        g.enableScissor((int)menuRX, (int)(menuRY + TOP_H), (int)menuRX + (int)menuW, (int)(menuRY + maxH));
+        // 滚动条可见时，hover 排除滚动条区域 / exclude scrollbar from hover when visible
+        float hoverRight = menuRX + menuW - (totalH > maxH ? SCROLLBAR_W + 4 : 2);
+        int cy = (int)menuRY + TOP_H - (int)menuScrollOff;
+
+        boolean searching = !menuSearchText.isEmpty();
+        if (searching) {
+            // D: 搜索模式 — 扁平列表，按匹配度排序 / search mode — flat list, sorted by relevance
+            var matches = new java.util.ArrayList<NodeType>();
+            for (var cat : CATEGORIES) for (var nt : cat.types) if (combined.test(nt)) matches.add(nt);
+            String q = menuSearchText.toLowerCase();
+            matches.sort((a, b) -> {
+                String na = I18n.get(a.displayName).toLowerCase();
+                String nb = I18n.get(b.displayName).toLowerCase();
+                int scoreA = na.equals(q) ? 0 : na.startsWith(q) ? 1 : 2;
+                int scoreB = nb.equals(q) ? 0 : nb.startsWith(q) ? 1 : 2;
+                if (scoreA != scoreB) return Integer.compare(scoreA, scoreB);
+                return na.compareTo(nb);
+            });
+            int cols = 2; // 双列布局 / two-column layout
+            int itemsPerCol = (int)Math.ceil((double)matches.size() / cols);
+            int idx = 0;
+            for (var nt : matches) {
+                int col = idx / itemsPerCol, row = idx % itemsPerCol;
                 int ix = (int)menuRX + 8 + col * colW;
                 int iy = cy + row * ih;
-                boolean h = mx>=ix && mx<=ix+colW-4 && my>=iy && my<iy+ih;
-                if (h) { g.fill(ix, iy, ix+colW-4, iy+ih, 0xFF3A3428); hovered = nt; }
+                int itemRight = (int)Math.min(ix + colW - 4, hoverRight);
+                boolean h = mx >= ix && mx <= itemRight && my >= iy && my < iy + ih;
+                if (h) { g.fill(ix, iy, itemRight, iy + ih, 0xFF3A3428); hovered = nt; }
                 drawStr(g, I18n.get(nt.displayName), ix + 4, iy + 2, h ? CMH() : CMN());
-                itemIdx++;
+                idx++;
             }
-            cy += itemsPerCol * ih;
+        } else {
+            for (int ci = 0; ci < CATEGORIES.length; ci++) {
+                NodeCategory cat = CATEGORIES[ci];
+                int vis = visibleCount(cat, combined);
+                if (vis == 0) continue;
+                boolean exp = catExpanded.getOrDefault(ci, false);
+                int cols = exp ? cat.columns : 1;
+                String title = (exp ? "▼ " : "▶ ") + net.minecraft.client.resources.language.I18n.get(cat.langKey);
+                boolean titleHover = mx >= menuRX + 2 && mx <= hoverRight && my >= cy && my < cy + ch;
+                if (titleHover) g.fill((int)menuRX + 2, cy, (int)(hoverRight), (int)(cy + ch), 0xFF3A3428);
+                drawStr(g, title, menuRX + 6, cy + 2, titleHover ? CMH() : CCT());
+                cy += ch;
+                if (!exp) continue;
+                int itemsPerCol = (int)Math.ceil((double)vis / cols);
+                int itemIdx = 0;
+                for (var nt : cat.types) {
+                    if (!combined.test(nt)) continue;
+                    int col = itemIdx / itemsPerCol;
+                    int row = itemIdx % itemsPerCol;
+                    int ix = (int)menuRX + 8 + col * colW;
+                    int iy = cy + row * ih;
+                    int itemRight = (int)Math.min(ix + colW - 4, hoverRight);
+                    boolean h = mx >= ix && mx <= itemRight && my >= iy && my < iy + ih;
+                    if (h) { g.fill(ix, iy, itemRight, iy + ih, 0xFF3A3428); hovered = nt; }
+                    drawStr(g, I18n.get(nt.displayName), ix + 4, iy + 2, h ? CMH() : CMN());
+                    itemIdx++;
+                }
+                cy += itemsPerCol * ih;
+            }
+        }
+        g.disableScissor();
+
+        // A: 右侧滚动条 / scrollbar
+        if (totalH > maxH) {
+            int trackH = maxH - TOP_H;
+            int thumbH = Math.max(16, (int)((double)maxH / totalH * trackH));
+            int thumbY = (int)menuRY + TOP_H + (int)((double)menuScrollOff / (totalH - maxH) * (trackH - thumbH));
+            g.fill((int)(menuRX + menuW - SCROLLBAR_W - 2), thumbY,
+                   (int)(menuRX + menuW - 2), thumbY + thumbH, 0xFF5A4D3A);
         }
         return hovered;
     }
 
-    /** Handle category expand/collapse click. Returns true if consumed. */
+    /** Handle category expand/collapse click + search box focus. Returns true if consumed. */
     public boolean handleCategoryClick(int mx, int my) {
-        int ih=14, ch=16;
-        int maxCols = 1;
-        for (int ci = 0; ci < CATEGORIES.length; ci++) {
-            if (visibleCount(CATEGORIES[ci], currentFilter) == 0) continue;
-            if (catExpanded.getOrDefault(ci, false))
-                maxCols = Math.max(maxCols, CATEGORIES[ci].columns);
+        // D: 命中搜索框 → 聚焦 / hit search box → focus
+        int sbX = (int)menuRX + 6, sbY = (int)menuRY + 18, sbW = (int)menuW - 12, sbH = 12;
+        if (mx >= sbX && mx <= sbX + sbW && my >= sbY && my <= sbY + sbH) {
+            menuSearchFocused = true; return true;
         }
-        int colW = 144;
-        int mw = 16 + maxCols * colW;
-        int cy = (int)menuRY + 18;
+        // 搜索模式下无分类折叠 / no category toggle in search mode
+        if (!menuSearchText.isEmpty()) return false;
+        int ih=14, ch=16;
+        float clickRight = menuRX + menuW - (menuHasScrollbar() ? SCROLLBAR_W + 4 : 2);
+        int cy = (int)menuRY + TOP_H - (int)menuScrollOff;
         for (int ci = 0; ci < CATEGORIES.length; ci++) {
             int vis = visibleCount(CATEGORIES[ci], currentFilter);
             if (vis == 0) continue;
-            if (mx>=menuRX+2 && mx<=menuRX+mw-2 && my>=cy && my<cy+ch) {
+            if (mx >= menuRX + 2 && mx <= clickRight && my >= cy && my < cy + ch) {
                 catExpanded.put(ci, !catExpanded.getOrDefault(ci, false));
                 return true;
             }
@@ -1048,6 +1125,36 @@ public class NodeRenderer {
         }
         return false;
     }
+
+    // ── D: 搜索框辅助方法 / search box helpers ──
+    public void scrollMenu(float delta) { setMenuScrollOff((int)(menuScrollOff + delta)); }
+    /** 菜单是否有滚动条。 / Whether the menu has a scrollbar. */
+    public boolean menuHasScrollbar() { return menuTotalH > menuMaxH && menuMaxH > 0; }
+    /** 滚动条轨道区（屏幕坐标）。 / Scrollbar track area (screen coords). */
+    public int[] menuScrollbarTrack() {
+        return new int[]{(int)(menuRX + menuW - SCROLLBAR_W - 2), (int)(menuRY + TOP_H),
+                         SCROLLBAR_W, menuMaxH - TOP_H};
+    }
+    /** 按当前 scrollOff 计算 thumb Y 与高度。 */
+    public int[] menuScrollbarThumb() {
+        int trackH = menuMaxH - TOP_H;
+        int thumbH = Math.max(16, (int)((double)menuMaxH / menuTotalH * trackH));
+        int maxOff = menuTotalH - menuMaxH;
+        int thumbY = (int)(menuRY + TOP_H);
+        if (maxOff > 0) thumbY += (int)((double)menuScrollOff / maxOff * (trackH - thumbH));
+        return new int[]{thumbY, thumbH};
+    }
+    public int menuScrollOff() { return (int)menuScrollOff; }
+    public int menuMaxScrollOff() { return Math.max(0, menuTotalH - menuMaxH); }
+    public void setMenuScrollOff(int off) { menuScrollOff = Math.max(0, Math.min(off, menuMaxScrollOff())); }
+    public void appendMenuSearch(char c) { menuSearchText += c; }
+    public void menuSearchBackspace() {
+        if (!menuSearchText.isEmpty()) menuSearchText = menuSearchText.substring(0, menuSearchText.length() - 1);
+    }
+    public void resetMenuSearch() { menuSearchText = ""; menuSearchFocused = false; menuScrollOff = 0; }
+    public boolean isMenuSearchFocused() { return menuSearchFocused; }
+    public void setMenuSearchFocused(boolean f) { menuSearchFocused = f; }
+    public void setMenuSearchText(String t) { menuSearchText = t == null ? "" : t; }
 
     public void renderButtons(GuiGraphics g, boolean compiled, boolean running, String cycleWarning,
                                long saveFeedbackUntil, boolean gridSnap, int themeIdx, int width, int height) {
