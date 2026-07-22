@@ -58,7 +58,21 @@ public class GraphEditor {
         default void handleAck(io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket ack) {
             if (ack.tempId() <= 0 || ack.assignedId() <= 0) return;
             var ed = getEditor();
-            if (ed != null) ed.remapNodeId(ack);
+            if (ed == null) return;
+            ed.remapNodeId(ack);
+            // 检查是否有待发送的 Ctrl+D 复制数据（等待全部节点获得服务端 ID 后批量发送）
+            // Check pending copy groups — flush data ops once all nodes have real IDs
+            int tid = ack.tempId(), rid = ack.assignedId();
+            for (var it = ed.pendingCopyGroups.entrySet().iterator(); it.hasNext(); ) {
+                var g = it.next().getValue();
+                if (g.tempToReal.containsKey(tid)) {
+                    g.tempToReal.put(tid, rid);
+                    if (g.allRemapped()) {
+                        ed.flushCopyGroup(g);
+                        it.remove();
+                    }
+                }
+            }
         }
         /** Get the local player UUID for soft-lock attribution. */
         default java.util.UUID getPlayerUUID() { return java.util.UUID.randomUUID(); }
@@ -167,6 +181,9 @@ public class GraphEditor {
         graph.nodeMap().remove(tid);
         node.id = rid;
         graph.nodeMap().put(rid, node);
+        // 防止客户端 nextNodeId 漂移：服务端分配的 rid 可能比本地计数器大
+        // Prevent client nextNodeId drift: server-assigned rid may be larger than local counter
+        graph.nextNodeId = Math.max(graph.nextNodeId, rid + 1);
         // Rewire connections referencing the tempId
         for (var c : graph.connections) {
             if (c.fromId == tid) c.fromId = rid;
@@ -391,10 +408,11 @@ public class GraphEditor {
     private static final long DRAG_SEND_INTERVAL_MS = 50;
     private static final long PRESENCE_TIMEOUT_MS = 30_000; // 30s timeout for disconnected players
 
-    /** True if any remote player is currently editing the given node (pixel editor etc). */
-    public boolean isNodeLocked(int nodeId) {
+    /** True if any remote player is currently editing the given node (pixel editor etc).
+     *  owner = 当前作用域（-1=主图，>0=封装节点 ID）/ current scope (-1=main graph, >0=encap node ID). */
+    public boolean isNodeLocked(int nodeId, int owner) {
         for (var p : remotePresences.values()) {
-            if (p.editingNodeId() == nodeId) return true;
+            if (p.ownerNodeId() == owner && p.editingNodeId() == nodeId) return true;
         }
         return false;
     }
@@ -441,10 +459,11 @@ public class GraphEditor {
         }
     }
 
-    /** Check if a node is selected/edited by another player (soft lock). */
-    private boolean isNodeLockedByOther(int nodeId) {
+    /** Check if a node is selected/edited by another player in the same scope (soft lock).
+     *  owner = 当前作用域（-1=主图，>0=封装节点 ID）/ current scope (-1=main graph, >0=encap node ID). */
+    private boolean isNodeLockedByOther(int nodeId, int owner) {
         for (var rp : remotePresences.values())
-            if (rp.selectedNodeId() == nodeId || rp.editingNodeId() == nodeId) return true;
+            if (rp.ownerNodeId() == owner && (rp.selectedNodeId() == nodeId || rp.editingNodeId() == nodeId)) return true;
         return false;
     }
 
@@ -482,6 +501,21 @@ public class GraphEditor {
     private boolean scrollingBookmark = false;
     private int draggingBookmarkIdx = -1; // 书签拖拽排序 / bookmark drag reorder
     private float bookmarkDragY = 0;       // 拖拽时的鼠标 Y / mouse Y during drag
+
+    // ── Ctrl+D 复制待发送数据（等待服务端 ACK 分配真实 ID 后批量发送）
+    // Pending copy data (deferred until server ACK assigns real IDs for all nodes in the batch)
+    private static class PendingCopyGroup {
+        final java.util.Map<Integer, Integer> tempToReal = new java.util.HashMap<>(); // tempId → realId (-1 = pending)
+        final java.util.List<GraphNode> nodes = new java.util.ArrayList<>();
+        final java.util.List<int[]> conns = new java.util.ArrayList<>(); // {fromId, fromPin, toId, toPin} (tempIds)
+        final int oid; final net.minecraft.core.BlockPos gpos; final java.util.UUID uid;
+        PendingCopyGroup(int oid, net.minecraft.core.BlockPos gpos, java.util.UUID uid) {
+            this.oid = oid; this.gpos = gpos; this.uid = uid;
+        }
+        boolean allRemapped() { return !tempToReal.containsValue(-1); }
+    }
+    final java.util.Map<Integer, PendingCopyGroup> pendingCopyGroups = new java.util.HashMap<>();
+    int nextCopyGroupId = 1;
 
     // ── 子图编辑栈（封装节点） (Sub-graph edit stack for encapsulation nodes) ──
     private record GraphEditState(GraphNode parentNode, Predicate<NodeType> parentFilter,
@@ -564,7 +598,9 @@ public class GraphEditor {
             : host.getGraph();
         if (op.ownerNodeId() >= 0) {
             var encap = host.getGraph().findNode(op.ownerNodeId());
-            if (encap != null && encap.subGraph != null) graph = encap.subGraph;
+            if (encap == null) return; // 封装节点不存在 / encap node doesn't exist
+            if (encap.subGraph == null) encap.subGraph = new io.github.y15173334444.create_schematic_compute.graph.NodeGraph();
+            graph = encap.subGraph;
         }
         // REJECT: roll back the locally-applied change that the server refused
         if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.REJECT) {
@@ -887,7 +923,20 @@ public class GraphEditor {
         if (node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT) {
             var nb = new EditBox(mc.font, 0, 0, 100, 16, Component.literal(""));
             nb.setMaxLength(32); nb.setValue(node.displayText);
-            registerEnter(nb, () -> node.displayText = nb.getValue());
+            final String[] lastName = {node.displayText};
+            nb.setResponder(text -> {
+                if (!text.equals(lastName[0])) {
+                    String prev = lastName[0];
+                    node.displayText = text;
+                    var op = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                        io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,
+                        host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
+                        0, 0, 0, 0, 0, 0f, text, 0, 0, 0, 0, null, 0, 0, 0,
+                        net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
+                    host.sendOp(op); recordOp(op, 0, 0, 0, prev);
+                    lastName[0] = text;
+                }
+            });
             s.fields.add(nb);
             s.paramKeys = new String[]{"name"};
         }
@@ -1045,7 +1094,7 @@ public class GraphEditor {
 
     /** 切换节点展开/折叠（封装节点双击进入子图编辑，其余节点内联展开） (Toggle node expand/collapse; encapsulation nodes enter sub-graph, others inline-expand) */
     private void toggleExpand(GraphNode node) {
-        if (isNodeLockedByOther(node.id)) return; // soft lock
+        if (isNodeLockedByOther(node.id, ownerNodeId())) return; // soft lock (same scope only)
         if (node.type == NodeType.ENCAPSULATION) {
             enterSubGraph(node);
             return;
@@ -1217,6 +1266,107 @@ public class GraphEditor {
         }
     }
 
+    /** 服务端 ACK 到达后，发送复制节点的所有数据 op 和连接。
+     *  Called after server ACK assigns real IDs to all nodes in a copy batch.
+     *  Sends all data ops (params, formula, displayText, comment, image, debug) + connections. */
+    void flushCopyGroup(PendingCopyGroup g) {
+        for (var dup : g.nodes) {
+            int realId = g.tempToReal.get(dup.id);
+            if (realId < 0) continue;
+            // 参数 / params
+            if (dup.params != null) {
+                for (int pi = 0; pi < dup.params.length; pi++) {
+                    if (dup.params[pi] != 0) host.sendOp(
+                        io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(g.gpos, g.oid, realId, pi, dup.params[pi], g.uid));
+                }
+            }
+            // 公式 / formula
+            if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.FORMULA && dup.formula != null && !dup.formula.isEmpty())
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(g.gpos, g.oid, realId, dup.formula, g.uid));
+            // 显示文本 / displayText
+            if (dup.displayText != null && !dup.displayText.isEmpty()) host.sendOp(
+                new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                    io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT, g.gpos, g.oid, realId,
+                    0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f, dup.displayText, 0, 0, 0, 0, null, 0, 0, 0,
+                    net.minecraft.world.item.ItemStack.EMPTY, 0L, g.uid));
+            // 注释节点 / comment node
+            if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(g.gpos, g.oid, realId, dup.commentWidth, dup.commentHeight, g.uid));
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(g.gpos, g.oid, realId, dup.commentBgColor, dup.commentBorderColor, dup.commentTextColor, g.uid));
+            }
+            // 图像像素 / image pixels
+            if ((dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.IMAGE || dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.IMAGE_SEQUENCE) && dup.imagePixels != null)
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(g.gpos, g.oid, realId, 0, dup.imagePixels, g.uid));
+            // DEBUG 控制点 / DEBUG control points
+            if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_SIGNAL_GEN && dup.debugCtrlX != null && dup.debugCtrlY != null
+                && dup.debugCtrlX.length > 0)
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(g.gpos, g.oid, realId, dup.debugCtrlX, dup.debugCtrlY, g.uid));
+            // 展开状态 / expand state
+            if (dup.expanded) host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.EXPAND_NODE, g.gpos, g.oid, realId, g.uid));
+        }
+        // 发送内部连接 / send internal connections (with remapped IDs)
+        for (int[] c : g.conns) {
+            int fromReal = g.tempToReal.getOrDefault(c[0], -1);
+            int toReal = g.tempToReal.getOrDefault(c[2], -1);
+            if (fromReal >= 0 && toReal >= 0) {
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(g.gpos, g.oid, fromReal, c[1], toReal, c[3], g.uid));
+            }
+        }
+        // 封装节点含子图时，递归发送子图内所有节点/连线/数据
+        // For ENCAPSULATION nodes with sub-graphs, recursively send all subGraph content
+        for (var dup : g.nodes) {
+            if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.ENCAPSULATION
+                && dup.subGraph != null && !dup.subGraph.nodes.isEmpty()) {
+                int encapRealId = g.tempToReal.get(dup.id);
+                if (encapRealId > 0) sendSubGraphOps(dup.subGraph, encapRealId, g.gpos, g.uid);
+            }
+        }
+    }
+
+    /** 递归发送子图中所有节点的 ADD_NODE + 数据 op + 连线。
+     *  新创建的子图（来自复制）为空命名空间，直接用本地 ID 发送 ADD_NODE 是安全的。
+     *  Recursively send ADD_NODE + data ops + connections for all nodes in a subGraph.
+     *  Safe to use local IDs with ADD_NODE because the subGraph is freshly created (empty namespace). */
+    private void sendSubGraphOps(io.github.y15173334444.create_schematic_compute.graph.NodeGraph subGraph,
+                                  int ownerNodeId, net.minecraft.core.BlockPos gpos, java.util.UUID uid) {
+        // 先发所有节点 / send all nodes first
+        for (var sn : subGraph.nodes) {
+            host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE,
+                gpos, ownerNodeId, sn.id, sn.id, sn.type, sn.x, sn.y, 0, 0, 0, 0, 0, 0f,
+                null, 0, 0, 0, 0, null, 0, 0, 0,
+                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid));
+            // 节点数据 / node data
+            if (sn.params != null) {
+                for (int pi = 0; pi < sn.params.length; pi++) {
+                    if (sn.params[pi] != 0) host.sendOp(
+                        io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(gpos, ownerNodeId, sn.id, pi, sn.params[pi], uid));
+                }
+            }
+            if (sn.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.FORMULA && sn.formula != null && !sn.formula.isEmpty())
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(gpos, ownerNodeId, sn.id, sn.formula, uid));
+            if (sn.displayText != null && !sn.displayText.isEmpty()) host.sendOp(
+                new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                    io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT, gpos, ownerNodeId, sn.id,
+                    0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f, sn.displayText, 0, 0, 0, 0, null, 0, 0, 0,
+                    net.minecraft.world.item.ItemStack.EMPTY, 0L, uid));
+            if (sn.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(gpos, ownerNodeId, sn.id, sn.commentWidth, sn.commentHeight, uid));
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(gpos, ownerNodeId, sn.id, sn.commentBgColor, sn.commentBorderColor, sn.commentTextColor, uid));
+            }
+            // 递归处理嵌套封装 / recurse into nested encapsulations
+            if (sn.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.ENCAPSULATION
+                && sn.subGraph != null && !sn.subGraph.nodes.isEmpty()) {
+                sendSubGraphOps(sn.subGraph, sn.id, gpos, uid);
+            }
+        }
+        // 再发所有连线 / then send all connections
+        for (var sc : subGraph.connections) {
+            host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(gpos, ownerNodeId, sc.fromId, sc.fromPin, sc.toId, sc.toPin, uid));
+        }
+    }
+
     /** 编辑器关闭时调用，保存临时视角。 / Called when editor closes, saves temporary view. */
     public void onClose() {
         // 临时视角保存 / temporary view save
@@ -1265,9 +1415,11 @@ public class GraphEditor {
         // Sort nodes by B-layer ascending (lower B = rendered first = behind, higher B = on top)
         var sortedByB = sortNodesByB(graph.nodes);
 
-        // Build soft-lock map: selected or editing by another player
+        // Build soft-lock map: selected or editing by another player (same scope only)
         var lockedNodes = new java.util.HashMap<Integer, String>();
+        int myOwner = ownerNodeId();
         for (var rp : remotePresences.values()) {
+            if (rp.ownerNodeId() != myOwner) continue; // 不同作用域不显示锁 / skip different scopes
             if (rp.selectedNodeId() > 0) lockedNodes.put(rp.selectedNodeId(), rp.playerName());
             if (rp.editingNodeId() > 0) lockedNodes.put(rp.editingNodeId(), rp.playerName());
         }
@@ -1360,6 +1512,21 @@ public class GraphEditor {
         renderer.evalSnapshot = host.getCachedEvalSnapshot();
         if (renderer.evalSnapshot == null) renderer.evalSnapshot = io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY;
         renderer.currentEncapId = isInSubGraph() ? encapsulationParent.id : -1;
+        // 构建封装占用者表（主图中哪些封装节点内有玩家在编辑）
+        // Build encapsulation occupant map (which encap nodes have players editing inside)
+        if (!isInSubGraph() && !remotePresences.isEmpty()) {
+            var occ = new java.util.HashMap<Integer, String>();
+            for (var rp : remotePresences.values()) {
+                int oid = rp.ownerNodeId();
+                if (oid <= 0) continue;
+                String cur = occ.get(oid);
+                if (cur == null) occ.put(oid, rp.playerName());
+                else if (!cur.contains(rp.playerName())) occ.put(oid, cur + ", " + rp.playerName());
+            }
+            renderer.encapOccupants = occ.isEmpty() ? java.util.Collections.emptyMap() : occ;
+        } else {
+            renderer.encapOccupants = java.util.Collections.emptyMap();
+        }
         renderer.renderNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
             camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
         if (!isInSubGraph()) {
@@ -1681,10 +1848,11 @@ public class GraphEditor {
         if (remotePresences.isEmpty()) return;
         var mc = Minecraft.getInstance();
         int sw = host.asScreen().width;
-        // Render remote dragging wires
+        // Render remote dragging wires (same scope only)
         for (var e : remotePresences.entrySet()) {
             var p = e.getValue();
             if (p.wireFromNode() < 0) continue;
+            if (p.ownerNodeId() != ownerNodeId()) continue; // 不同作用域不画 / skip different scopes
             var graph = getGraph();
             var fn = graph.findNode(p.wireFromNode());
             if (fn == null) continue;
@@ -1720,9 +1888,10 @@ public class GraphEditor {
                 px = nx; py = ny;
             }
         }
-        // Render remote cursors
+        // Render remote cursors (same scope only)
         for (var e : remotePresences.entrySet()) {
             var p = e.getValue();
+            if (p.ownerNodeId() != ownerNodeId()) continue; // 不同作用域不显示光标 / skip different scopes
             var cl = cursorLerp.get(p.player());
             if (cl == null) { cl = new float[]{0,0,0,0,1f}; cursorLerp.put(p.player(), cl); }
             // Smoothstep cursor lerp (same algorithm as node move)
@@ -2147,7 +2316,7 @@ public class GraphEditor {
             // 内联编辑区交互（局部坐标，与 pose 内渲染一致） (Inline edit-area interaction, local coords matching pose rendering)
             for (var en : getGraph().nodes) {
                 if (!expandedNodeIds.contains(en.id)) continue;
-                if (isNodeLockedByOther(en.id)) continue; // soft lock (软锁)
+                if (isNodeLockedByOther(en.id, ownerNodeId())) continue; // soft lock (same scope only)
                 // 逐个检查：是否有更高 z-order 的非 Comment 节点实际遮挡了点击位置 (Check: does a higher-z non-Comment node actually occlude the click?)
                 boolean occluded = false;
                 for (var n : clickCandidates) {
@@ -2513,7 +2682,7 @@ public class GraphEditor {
                 lastClickTimeMs = now2; lastClickNodeId = n2.id;
                 // Only drag by header bar; expanded comments stay expanded — absorb click
                 if (hitIsNonComment) continue;
-                if (isNodeLockedByOther(n2.id)) continue; // soft lock
+                if (isNodeLockedByOther(n2.id, ownerNodeId())) continue; // soft lock (same scope only)
                 if (expandedNodeIds.contains(n2.id)) {
                     // Keep this comment focused, don't let click fall through to nodes behind
                     if (selectedNode != n2) {
@@ -2595,7 +2764,7 @@ public class GraphEditor {
             }
             // 点击节点（不含 ▶/▼ 区域） (Click node, excluding expand indicator area)
             var hit=hitNode(mx,my);
-            if(hit!=null && isNodeLockedByOther(hit.id)) hit = null; // soft lock (软锁)
+            if(hit!=null && isNodeLockedByOther(hit.id, ownerNodeId())) hit = null; // soft lock (same scope only)
             if(hit!=null){
                 // 仅在非 ▶/▼ 区域允许拖拽 (Only allow drag outside the expand indicator area)
                 float sy=c2sY(hit.y);
@@ -3080,6 +3249,10 @@ public class GraphEditor {
         // Y: 自动缩放范围
         float graphY = (float) ((my - sy) / zoom);
         n.debugCtrlY[idx] = screenYToValue(ys, graphY);
+        // Y: 钳制在可见范围内 / Y: clamp to visible range
+        float minV = ys[0], maxV = ys[0] + ys[3] / ys[1];
+        if (n.debugCtrlY[idx] < minV) n.debugCtrlY[idx] = minV;
+        if (n.debugCtrlY[idx] > maxV) n.debugCtrlY[idx] = maxV;
         // X: 夹在前后点之间（首点≥0，末点≤1）
         float graphX = (float) ((mx - sx) / zoom);
         float t = (graphX - chartX) / chartW;
@@ -3098,6 +3271,10 @@ public class GraphEditor {
         float graphY = (float) ((my - sy) / zoom);
         float t = (graphX - chartX) / chartW;
         float v = screenYToValue(ys, graphY);
+        // Y: 钳制在可见范围内 / Y: clamp to visible range
+        float minV = ys[0], maxV = ys[0] + ys[3] / ys[1];
+        if (v < minV) v = minV;
+        if (v > maxV) v = maxV;
         t = Math.max(0f, Math.min(1f, t));
         int idx = 0;
         while (idx < n.debugCtrlX.length && n.debugCtrlX[idx] < t) idx++;
@@ -3460,7 +3637,7 @@ public class GraphEditor {
         if (key == 88) { // GLFW_KEY_X
             var g2 = getGraph();
             var hit = hitNode(lastMouseX, lastMouseY);
-            if (hit != null && !isNodeLocked(hit.id)) {
+            if (hit != null && !isNodeLocked(hit.id, ownerNodeId())) {
                 {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(g2,l.registryAccess());}
                 g2.removeNode(hit.id);
                 host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
@@ -3487,85 +3664,61 @@ public class GraphEditor {
         }
         // Home: 重置视角 / reset view
         if (key == 268) { startTransition(0, 0, 1f); return true; }
-        // Ctrl+D 复制（支持多选） (Ctrl+D duplicate, supports multi-select)
+        // Ctrl+D 复制（支持多选） — 走服务端权威 ID 分配流程
+        // Ctrl+D duplicate (supports multi-select) — uses server-authoritative ID allocation
         if(key==68&&net.minecraft.client.gui.screens.Screen.hasControlDown()&&!selectedNodes.isEmpty()){
             {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
             var idMap = new java.util.HashMap<Integer, Integer>();
             var newNodes = new java.util.ArrayList<GraphNode>();
             float ofs = 30;
-            // 克隆所有选中节点（含子图等所有字段） (Clone all selected nodes, including sub-graphs and all fields)
+            var uid = host.getPlayerUUID();
+            var gpos = host.getBlockPos();
+            int oid = ownerNodeId();
+            var group = new PendingCopyGroup(oid, gpos, uid);
+            // 克隆所有选中节点（含子图等所有字段） / Clone all selected nodes (incl. sub-graphs, all fields)
             for (var n : selectedNodes) {
-                int newId = graph.nextNodeId++;
-                var dup = n.shallowCopyWithNewId(newId);
+                int tempId = graph.nextNodeId++;
+                var dup = n.shallowCopyWithNewId(tempId);
                 dup.x += ofs; dup.y += ofs;
-                // BUS 节点复制后清空频道名，只保留 MAP 结构（避免与原节点频道冲突） (Clear channel name on BUS duplicate to avoid conflict with source node)
+                // BUS 节点复制后清空频道名 / Clear channel name on BUS duplicate
                 if (dup.type == NodeType.BUS_IN || dup.type == NodeType.BUS_OUT) {
                     dup.signalName = "";
                 }
                 graph.adoptNode(dup);
                 idMap.put(n.id, dup.id);
                 newNodes.add(dup);
-                // 复制展开状态 (Copy expand state, local only — EXPAND_NODE sent after ADD_NODE below)
+                group.nodes.add(dup);
+                group.tempToReal.put(tempId, -1); // pending
+                // 复制展开状态（本地） / Copy expand state (local only)
                 if (n.expanded) {
                     expandedNodeIds.add(dup.id);
                     nodeEditStatesById.put(dup.id, createEditState(dup));
                 }
+                // 发送 ADD_NODE_REQUEST（服务端分配真实 ID）/ Send ADD_NODE_REQUEST (server assigns real ID)
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(gpos, oid, tempId, dup.type, dup.x, dup.y, uid));
             }
-            // 复制选中节点之间的连接 (Copy connections between selected nodes)
+            // 复制选中节点之间的连接（本地 + 待发送）/ Copy connections between selected nodes (local + pending)
             for (var c : List.copyOf(graph.connections)) {
                 if (idMap.containsKey(c.fromId) && idMap.containsKey(c.toId)) {
                     graph.addConnection(idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin);
+                    group.conns.add(new int[]{idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin});
                 }
             }
-            // 更新选中为新节点 (Update selection to new nodes)
+            // 更新选中为新节点 / Update selection to new nodes
             selectedNodes.clear();
             selectedNodes.addAll(newNodes);
             selectedNode = newNodes.isEmpty() ? null : newNodes.get(0);
-            // Emit ops for collaboration sync
-            var uid = host.getPlayerUUID();
-            var gpos = host.getBlockPos();
-            int oid = ownerNodeId();
-            for (var dup : newNodes) {
-                host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                    io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE,
-                    gpos, oid, dup.id, dup.id, dup.type, dup.x, dup.y, 0, 0, 0, 0, 0, 0f,
-                    null, 0, 0, 0, 0, null, 0, 0, 0,
-                    net.minecraft.world.item.ItemStack.EMPTY, 0L, uid));
-                // Send full node data (params, formula, displayText, comment fields)
-                if (dup.params != null) {
-                    for (int pi = 0; pi < dup.params.length; pi++) {
-                        if (dup.params[pi] != 0) host.sendOp(
-                            io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(gpos, oid, dup.id, pi, dup.params[pi], uid));
-                    }
-                }
-                if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.FORMULA && dup.formula != null && !dup.formula.isEmpty())
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(gpos, oid, dup.id, dup.formula, uid));
-                if (dup.displayText != null && !dup.displayText.isEmpty()) host.sendOp(
-                    new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                        io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT, gpos, oid, dup.id,
-                        0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f, dup.displayText, 0, 0, 0, 0, null, 0, 0, 0,
-                        net.minecraft.world.item.ItemStack.EMPTY, 0L, uid));
-                if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(gpos, oid, dup.id, dup.commentWidth, dup.commentHeight, uid));
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(gpos, oid, dup.id, dup.commentBgColor, dup.commentBorderColor, dup.commentTextColor, uid));
-                }
-                // Send expand state AFTER ADD_NODE (so node exists on receiver)
-                if (dup.expanded) host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                    io.github.y15173334444.create_schematic_compute.graph.OpType.EXPAND_NODE, gpos, oid, dup.id, uid));
-            }
-            for (var c : graph.connections) {
-                if (idMap.containsKey(c.fromId) && idMap.containsKey(c.toId)) {
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
-                        host.getBlockPos(), ownerNodeId(), idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin, host.getPlayerUUID()));
-                }
-            }
+            // 注册待发送组 — handleAck 在所有节点获得服务端真实 ID 后批量发送数据 op
+            // Register pending group — handleAck flushes data ops once all nodes have real IDs
+            int groupId = nextCopyGroupId++;
+            pendingCopyGroups.put(groupId, group);
             return true;
         }
         // Delete 删除选中节点 (Delete key removes selected nodes)
         if ((key == 259 || key == 261) && !selectedNodes.isEmpty()) {
             {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
             for (var n : List.copyOf(selectedNodes)) {
-                if (isNodeLocked(n.id)) continue; // skip nodes being edited by remote players
+                if (isNodeLocked(n.id, ownerNodeId())) continue; // skip nodes being edited by remote players (same scope only)
                 if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
                     boolean hasOther = false;
                     for (var other : graph.nodes) {

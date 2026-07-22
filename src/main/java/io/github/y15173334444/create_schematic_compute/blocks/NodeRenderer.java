@@ -280,6 +280,9 @@ public class NodeRenderer {
     /** 当前渲染的封装子图节点 ID（-1 = 主图）。用于从 EvalSnapshot 读取子图 debugTime。
      *  Current encap node ID being rendered (-1 = main graph). Used to read sub-graph debugTime from EvalSnapshot. */
     public int currentEncapId = -1;
+    /** 封装占用者表（encapId → "Player1, Player2"）。主图中哪些封装节点内有玩家在编辑。
+     *  Encapsulation occupant map (encapId → "Player1, Player2"). Which encap nodes have players editing inside. */
+    public java.util.Map<Integer, String> encapOccupants = java.util.Collections.emptyMap();
     public boolean showBookmarkPanel = false;
 
     /** A=1: Render complete COMMENT nodes (background, border, text, handles) behind connections.
@@ -672,8 +675,9 @@ public class NodeRenderer {
             }
         }
         // C=3.5: 调试节点图表区域（graph space，坐标相对于节点左上角）
+        java.util.List<float[]> debugCtrlPoints = null;
         if (n.type == NodeType.DEBUG_SIGNAL_GEN) {
-            renderDebugSignalGenChart(g, n, nodeW);
+            debugCtrlPoints = renderDebugSignalGenChart(g, n, nodeW);
         } else if (n.type == NodeType.DEBUG_PROBE) {
             renderDebugProbeChart(g, n, nodeW);
         }
@@ -682,6 +686,31 @@ public class NodeRenderer {
         int borderColor = isPrimary ? 0xFFFFAA00 : selected ? 0xFFD4A017 : CB();
         g.renderOutline((int)sx,(int)sy,(int)sw,(int)nh, borderColor);
         g.renderOutline((int)sx+1,(int)sy+1,(int)sw-2,(int)nh-2, 0xFF2A2822);
+        // C=4.3: 手动曲线控制点（边框上方，屏幕空间）/ manual curve control points (above border, screen space)
+        if (debugCtrlPoints != null) {
+            for (float[] cp : debugCtrlPoints) {
+                float csx = sx + cp[0] * zoom;
+                float csy = sy + cp[1] * zoom;
+                g.fill((int)(csx - 2 * zoom), (int)(csy - 2 * zoom), (int)(csx + 3 * zoom), (int)(csy + 3 * zoom), 0xFFFBBF24);
+            }
+        }
+        // C=4.5: 封装节点占用高亮（有玩家在内部编辑时显示金色外框 + 玩家名）
+        if (n.type == NodeType.ENCAPSULATION && !encapOccupants.isEmpty()) {
+            String occupants = encapOccupants.get(n.id);
+            if (occupants != null) {
+                // 金色外框 / gold outer border
+                g.renderOutline((int)sx-2,(int)sy-2,(int)sw+4,(int)nh+4, 0xFFFFD700);
+                g.renderOutline((int)sx-1,(int)sy-1,(int)sw+2,(int)nh+2, 0xFFB8960F);
+                // 玩家名文本 / player names text
+                var occPose = g.pose();
+                occPose.pushPose();
+                occPose.translate(sx, sy, 0);
+                occPose.scale(zoom, zoom, 1);
+                int occY = HH + (int)(PH * Math.max(n.functionalInputs(), n.outputs())) + 4 + 12;
+                drawStr(g, "§6👤 " + occupants, 4, occY, 0xFFFFD700);
+                occPose.popPose();
+            }
+        }
         // C=5: 引脚（在边框之上，始终可见）
         var pinPose = g.pose();
         pinPose.pushPose();
@@ -735,8 +764,9 @@ public class NodeRenderer {
     // ── 调试节点图表渲染（graph space，坐标相对于节点左上角）──
     // Debug node chart rendering (graph space, coords relative to node top-left)
 
-    /** DEBUG_SIGNAL_GEN：XY 坐标图 + 波形曲线 + 控制点（Y 轴自动缩放）。 */
-    private void renderDebugSignalGenChart(GuiGraphics g, GraphNode n, int nodeW) {
+    /** DEBUG_SIGNAL_GEN：XY 坐标图 + 波形曲线。返回控制点本地坐标列表（供边框上方渲染）。
+     *  XY chart + waveform curve. Returns control point local coords for above-border rendering. */
+    private java.util.List<float[]> renderDebugSignalGenChart(GuiGraphics g, GraphNode n, int nodeW) {
         float bodyH = HH + PH * (n.functionalInputs() + n.outputs());
         int chartX = 2;
         int chartY = (int) bodyH;
@@ -785,13 +815,16 @@ public class NodeRenderer {
             prevValid = true;
         }
 
-        // 控制点（仅手动曲线模式显示）
+        // 控制点位置收集（仅手动曲线模式）— 在边框上方渲染
+        // Collect control point positions (manual curve only) — rendered above border
+        java.util.List<float[]> ctrlPoints = null;
         boolean showCtrl = (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL);
         if (showCtrl && n.debugCtrlX != null) {
+            ctrlPoints = new java.util.ArrayList<>();
             for (int i = 0; i < n.debugCtrlX.length; i++) {
-                int cpx = chartX + (int) (n.debugCtrlX[i] * chartW);
-                int cpy = chartY + chartH - (int) ((n.debugCtrlY[i] - minV) * scale);
-                g.fill(cpx - 2, cpy - 2, cpx + 3, cpy + 3, 0xFFFBBF24);
+                float cpx = chartX + n.debugCtrlX[i] * chartW;
+                float cpy = chartY + chartH - (n.debugCtrlY[i] - minV) * scale;
+                ctrlPoints.add(new float[]{cpx, cpy});
             }
         }
 
@@ -814,6 +847,7 @@ public class NodeRenderer {
         // 模式标签
         drawStr(g, io.github.y15173334444.create_schematic_compute.graph.DebugSignals.setModeName(setMode),
             chartX + 4, chartY + 2, 0xFFCCCCCC);
+        return ctrlPoints;
     }
 
     /** DEBUG_PROBE：当前数值 + 迷你趋势折线图。 */

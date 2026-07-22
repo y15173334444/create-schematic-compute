@@ -107,18 +107,6 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
     @Override public void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
         editor.onRemoteOp(op);
     }
-    @Override public void handleAck(io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket ack) {
-        // Remap local tempId to server-assigned ID so subsequent ops reference the correct node
-        if (ack.tempId() > 0 && ack.assignedId() > 0 && ack.tempId() != ack.assignedId()) {
-            var graph = getGraph();
-            var node = graph.findNode(ack.tempId());
-            if (node != null) {
-                node.id = ack.assignedId();
-                graph.rebuildNodeMap();
-            }
-        }
-    }
-
     @Override
     public void saveGraph() {
         try {

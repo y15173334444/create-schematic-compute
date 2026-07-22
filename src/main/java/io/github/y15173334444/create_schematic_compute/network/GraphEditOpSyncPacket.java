@@ -53,9 +53,9 @@ public record GraphEditOpSyncPacket(GraphOp op) implements CustomPacketPayload {
                         // Resolve sub-graph for encapsulation nodes
                         if (pkt.op().ownerNodeId() >= 0) {
                             var encapNode = graph.findNode(pkt.op().ownerNodeId());
-                            if (encapNode != null && encapNode.subGraph != null)
-                                graph = encapNode.subGraph;
-                            else return;
+                            if (encapNode == null) return; // 封装节点不存在
+                            if (encapNode.subGraph == null) encapNode.subGraph = new io.github.y15173334444.create_schematic_compute.graph.NodeGraph();
+                            graph = encapNode.subGraph;
                         }
                         io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(graph, pkt.op(), false);
                     }

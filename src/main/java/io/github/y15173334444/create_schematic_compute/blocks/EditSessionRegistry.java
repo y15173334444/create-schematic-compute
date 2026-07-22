@@ -125,9 +125,9 @@ public final class EditSessionRegistry {
         var targetGraph = graph;
         if (op.ownerNodeId() >= 0) {
             var encap = graph.findNode(op.ownerNodeId());
-            if (encap != null && encap.subGraph != null) {
-                targetGraph = encap.subGraph;
-            } else return;
+            if (encap == null) return; // 封装节点不存在 / encap node doesn't exist
+            if (encap.subGraph == null) encap.subGraph = new io.github.y15173334444.create_schematic_compute.graph.NodeGraph();
+            targetGraph = encap.subGraph;
         }
 
         // 3. Validate structural ops / 验证结构操作

@@ -527,6 +527,14 @@ All 7 blocks now support real-time collaborative graph editing — multiple play
 - 🚌 **BUS Channel** — `registerChannels()` no longer requires `bandCount()>0`; empty-band channels register so BUS_IN reads immediately.
 - 🎨 **Color Picker UX** — ESC closes picker + panels together. Duplicated nodes get `sortB = original+1`.
 - 📝 **Bilingual Comments** — All `graph/`, `blocks/`, `network/` source comments now Chinese+English.
+- 🐛 **Encapsulation DEBUG Visibility** — `EvalSnapshot` now captures sub-evaluator outputs + debugTimes. Signal Generator (blue X marker) and Signal Probe work correctly inside encapsulation sub-graphs. / 封装内信号发生器（蓝色X标记线）和探针现在正确显示。
+- ⌨️ **Esc Key Delegation** — Esc now closes sub-UI (bookmark rename, export/import dialog, color picker) before closing the entire editor screen. / Esc 先关闭子 UI 再关整个编辑界面。
+- 🔒 **Soft-Lock Scope** — Node locking now scoped by `ownerNodeId`. Selecting a node inside encapsulation no longer falsely locks main-graph nodes with the same ID. / 封装内选中节点不再误锁主图同 ID 节点。
+- 🖱️ **Cursor Scope Isolation** — Remote player cursors are now filtered by scope; cursors inside encapsulation are hidden from main-graph view and vice versa. / 远端光标按作用域隔离。
+- 🟡 **ENCAPSULATION Occupant Highlight** — Golden border + player name label on ENCAPSULATION nodes in the main graph when other players are editing inside. / 主图中被占用的封装节点显示金色边框+玩家名。
+- 📝 **ENCAP I/O Rename Sync** — Renaming `ENCAP_INPUT` / `ENCAP_OUTPUT` now sends `SET_DISPLAY_TEXT` op for server sync + undo support. / 封装I/O改名现在同步到服务端并支持撤销。
+- 📋 **Ctrl+D Copy Fix** — Copy now uses server-authoritative ID allocation (`ADD_NODE_REQUEST` → ACK); data ops are deferred until all real IDs assigned. Sub-graph content recursively synced for ENCAPSULATION nodes. Fixes "empty node on other clients". / 复制走服务端权威ID分配，封装子图递归同步。
+- 📐 **Manual Curve Fixed Y-Axis** — Signal Generator manual curve mode now uses fixed Y range `[-1.1, 1.1]`; auto-scaling retained for formula mode. Control points clamped to visible range and rendered above border. / 手动曲线Y轴固定，控制点钳制+边框上方渲染。
 
 </details>
 
