@@ -46,7 +46,10 @@ public class ProgramComputerBlockEntity extends SyncedGraphBlockEntity {
         if(graphChanged()) recompileEvaluatorFull();
         if(!running) { onStopRunning(); return; }
         rs.refreshInputsActive();
-        BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level);
+        if (BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level)) {
+            needsFullSync = true; setChanged();
+            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
         var in = rs.buildInputs(graph);
         float dt = 0.05f;
         var results = evaluator.evaluate(in, runtimeState.pidState, dt,

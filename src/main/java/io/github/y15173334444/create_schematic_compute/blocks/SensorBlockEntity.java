@@ -114,7 +114,10 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
             prevRawVelX = rawVelX; prevRawVelY = rawVelY; prevRawVelZ = rawVelZ;
         }
         rs.refreshInputs();
-        BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level);
+        if (BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level)) {
+            needsFullSync = true; setChanged();
+            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
         var in = rs.buildInputs(graph);
         float blockYaw = getBlockState().hasProperty(SensorBlock.FACING)
             ? getBlockState().getValue(SensorBlock.FACING).toYRot() : 0;

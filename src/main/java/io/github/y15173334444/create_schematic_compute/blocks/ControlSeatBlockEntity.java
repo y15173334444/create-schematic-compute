@@ -120,7 +120,10 @@ public class ControlSeatBlockEntity extends SyncedGraphBlockEntity {
         if(!running) { onStopRunning(); return; }
 
         rs.refreshInputs();
-        BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level);
+        if (BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level)) {
+            needsFullSync = true; setChanged();
+            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
         var in = rs.buildInputs(graph);
 
         if (inputMode == 1) {

@@ -88,9 +88,9 @@ public class SignalBus {
             existing.incrementRef();
             if (existing.internalMap != internalMap) {
                 SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' map reference updated by {}", channelName, owner);
-                // EN: Migrate old values into new Map (preserve already-written band values)
-                // 将旧值迁移到新 Map（保留已写入的频段值）
-                internalMap.putAll(existing.internalMap);
+                // Replace the entry with the new map reference WITHOUT copying old values.
+                // Old values belong to the previous graph state; each BUS_OUT starts fresh.
+                // 用新 map 引用替换条目，不复制旧值。旧值属于之前的图状态，每个 BUS_OUT 重新开始。
                 CHANNELS.put(channelName, new ChannelEntry(internalMap, owner));
             }
             return true;
@@ -125,6 +125,31 @@ public class SignalBus {
         if (remaining <= 0) {
             SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' removed (refCount reached 0)", channelName);
             CHANNELS.remove(channelName, existing);
+            // Clear residual signal data so the channel doesn't pollute the next registrant
+            // 清除残留信号数据，防止频道污染下一个注册者
+            clearBus(channelName);
+        }
+        return true;
+    }
+
+    /**
+     * Update an existing channel's internalMap reference without changing the ref-count.
+     * <p>更新现有频道的 internalMap 引用，不改变引用计数。</p>
+     * <p>Used during evaluator recompile to refresh the Map reference for BUS_OUT nodes
+     * that were already the channel owner, without the unregister/reregister cycle that
+     * could allow a competing node to steal the channel.
+     * 用于求值器重编译时刷新已是频道所有者的 BUS_OUT 节点的 Map 引用，
+     * 避免取消注册/重新注册循环可能让竞争节点窃取频道。</p>
+     *
+     * @return true if the channel exists and is owned by the specified owner / 频道存在且属于指定所有者时返回 true
+     */
+    public static boolean updateChannel(String channelName, Map<String, Float> internalMap, ChannelOwner owner) {
+        ChannelEntry existing = CHANNELS.get(channelName);
+        if (existing == null || !existing.owner.equals(owner)) return false;
+        if (existing.internalMap != internalMap) {
+            // Replace the entry with the new map reference WITHOUT copying old values.
+            // 用新 map 引用替换条目，不复制旧值。
+            CHANNELS.put(channelName, new ChannelEntry(internalMap, owner));
         }
         return true;
     }

@@ -321,7 +321,10 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
 
         // ══ 图评估 ══
         rs.refreshInputs();
-        BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level);
+        if (BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level)) {
+            needsFullSync = true; setChanged();
+            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
         var in = rs.buildInputs(graph);
         evaluator.setRadarPos(worldPosition);
         float wx = Float.isNaN(cachedSubWorldX) ? worldPosition.getX() + 0.5f : cachedSubWorldX;
@@ -522,34 +525,16 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
     }
 
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() { return ClientboundBlockEntityDataPacket.create(this); }
+    /** Always send the full graph so that new clients tracking this chunk receive
+     *  the authoritative graph data. Also includes runtime radar targets for the
+     *  client-side blip renderer.
+     *  始终发送完整图数据，以确保新追踪此区块的客户端能收到权威图数据。
+     *  同时包含运行时雷达目标数据供客户端 blip 渲染器使用。 */
     @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
-        if (needsFullSync) { needsFullSync = false; var t = new CompoundTag(); saveAdditional(t, r); return t; }
-        var t = new CompoundTag(); t.putBoolean("running", running);
-        if (!Float.isNaN(cachedSubWorldX)) {
-            t.putFloat("swx", cachedSubWorldX);
-            t.putFloat("swy", cachedSubWorldY);
-            t.putFloat("swz", cachedSubWorldZ);
-            t.putFloat("syaw", cachedSubYaw);
-            t.putFloat("spitch", cachedSubPitch);
-            t.putFloat("sroll", cachedSubRoll);
-            t.putFloat("sqx", cachedSubQx);
-            t.putFloat("sqy", cachedSubQy);
-            t.putFloat("sqz", cachedSubQz);
-            t.putFloat("sqw", cachedSubQw);
-        }
-        if (!Float.isNaN(cachedSubOriginX)) {
-            t.putFloat("sox", cachedSubOriginX);
-            t.putFloat("soy", cachedSubOriginY);
-            t.putFloat("soz", cachedSubOriginZ);
-        }
-        t.putInt("lockMode", lockMode);
-        t.putFloat("displayX", displayX); t.putFloat("displayY", displayY); t.putFloat("displayZ", displayZ);
-        t.putBoolean("excludeHost", excludeHost);
-        t.putInt("displayStyle", displayStyle);
-        t.putFloat("lockDistance", lockDistance);
-        t.putIntArray("lockedTargets", lockedTargets.stream().mapToInt(i->i).toArray());
-        t.putIntArray("activeTargets", activeTargets.stream().mapToInt(i->i).toArray());
-        // 同步目标列表到客户端渲染器
+        var t = new CompoundTag();
+        saveAdditional(t, r);
+        // Append runtime radar targets for client-side blip renderer
+        // 附加运行时雷达目标供客户端 blip 渲染器使用
         var list = new net.minecraft.nbt.ListTag();
         for (var tr : targets) {
             var e = new CompoundTag();

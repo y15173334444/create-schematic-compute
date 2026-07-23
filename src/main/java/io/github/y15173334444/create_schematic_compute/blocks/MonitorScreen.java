@@ -1510,6 +1510,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     menu.blockPos, -1, draggedDisplayNode.id,
                     draggedDisplayNode.layoutX, draggedDisplayNode.layoutY,
                     draggedDisplayNode.displayScale, draggedDisplayNode.displayRotation,
+                    draggedDisplayNode.moveScale,
                     minecraft.player.getUUID()));
             }
             draggedDisplayNode = null;
@@ -1688,6 +1689,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                         menu.blockPos, -1, selectedDisplayNode.id,
                         selectedDisplayNode.layoutX, selectedDisplayNode.layoutY,
                         selectedDisplayNode.displayScale, selectedDisplayNode.displayRotation,
+                        selectedDisplayNode.moveScale,
                         minecraft.player.getUUID()));
                     editingS = false; return true;
                 }
@@ -1703,6 +1705,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                         menu.blockPos, -1, selectedDisplayNode.id,
                         selectedDisplayNode.layoutX, selectedDisplayNode.layoutY,
                         selectedDisplayNode.displayScale, selectedDisplayNode.displayRotation,
+                        selectedDisplayNode.moveScale,
                         minecraft.player.getUUID()));
                     editingR = false; return true;
                 }

@@ -397,8 +397,15 @@ public class EditPanel {
                 int bx = (int)st.freqSlotX + i * 24;
                 g.fill(bx, (int)st.freqSlotY, bx + 20, (int)st.freqSlotY + 20, 0xFF1A1814);
                 g.renderOutline(bx, (int)st.freqSlotY, 20, 20, i == st.freqSlotSelected ? 0xFFFFAA44 : NodeRenderer.CSB());
-                if (node.itemParams != null && i < node.itemParams.length && !node.itemParams[i].isEmpty())
+                if (node.itemParams != null && i < node.itemParams.length && !node.itemParams[i].isEmpty()) {
+                    // ItemRenderer writes to depth buffer at Z≈250 (hardcoded in GuiGraphics).
+                    // Disable depth writes so the 3D model doesn't block later 2D UI draws at Z=0.
+                    // ItemRenderer 在 Z≈250 写入深度缓冲（GuiGraphics 中硬编码）。
+                    // 禁用深度写入，防止 3D 模型阻止后续 Z=0 处 2D UI 的绘制。
+                    com.mojang.blaze3d.systems.RenderSystem.depthMask(false);
                     g.renderItem(node.itemParams[i], bx + 2, (int)st.freqSlotY + 2);
+                    com.mojang.blaze3d.systems.RenderSystem.depthMask(true);
+                }
             }
         }
     }

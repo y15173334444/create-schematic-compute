@@ -117,11 +117,34 @@ public record GraphOp(
             null, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
     }
 
+    public static GraphOp setTextColor(BlockPos pos, int ownerNodeId, int nodeId,
+                                        int color, UUID actor) {
+        return new GraphOp(OpType.SET_TEXT_COLOR, pos, ownerNodeId, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+            null, 0, 0, color, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
+    public static GraphOp setBands(BlockPos pos, int ownerNodeId, int nodeId,
+                                    java.util.List<String> bands, UUID actor) {
+        return new GraphOp(OpType.SET_BANDS, pos, ownerNodeId, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+            null, 0, 0, 0, 0, bands, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
+    public static GraphOp setZOrder(BlockPos pos, int ownerNodeId, int nodeId,
+                                     int sortB, UUID actor) {
+        return new GraphOp(OpType.SET_ZORDER, pos, ownerNodeId, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+            null, 0, 0, 0, sortB, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
     public static GraphOp setDisplayLayout(BlockPos pos, int ownerNodeId, int nodeId,
-                                            float lx, float ly, float scale, float rot, UUID actor) {
+                                            float lx, float ly, float scale, float rot,
+                                            float moveScale, UUID actor) {
         return new GraphOp(OpType.SET_DISPLAY_LAYOUT, pos, ownerNodeId, nodeId,
             0, null, lx, ly, 0, 0, 0, 0, 0, scale,
-            null, 0, 0, 0, 0, null, (int)(rot * 100f), 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+            null, 0, 0, 0, (int)(moveScale * 10000f), null, (int)(rot * 100f), 0, 0,
+            ItemStack.EMPTY, 0L, actor, 0, null);
     }
 
     public static GraphOp setHotbarItem(BlockPos pos, int ownerNodeId, int nodeId,

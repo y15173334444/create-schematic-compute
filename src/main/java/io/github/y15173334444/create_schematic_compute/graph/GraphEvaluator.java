@@ -85,6 +85,12 @@ public class GraphEvaluator {
         }
     }
 
+    /** 从保存的映射恢复 debugTime 相位（在运行时状态清除后使用）。
+     *  Restore debugTime phase from a saved map (used after runtime state clear). */
+    public void restoreDebugTimes(Map<Integer, Float> saved) {
+        this.debugTime.putAll(saved);
+    }
+
     /** 将当前 debugTime 相位写回 RuntimeState 以便 NBT 持久化。
      *  Write accumulated debugTime phase state back to RuntimeState for NBT persistence. */
     public void saveDebugTimes(RuntimeState rs) {
@@ -827,6 +833,13 @@ public class GraphEvaluator {
                 if (subEval == null) {
                     subEval = new GraphEvaluator(node.subGraph);
                     subEvaluators.put(node.id, subEval);
+                    // Propagate saved debugTime from RuntimeState to the newly created sub-evaluator
+                    if (runtimeState != null) {
+                        RuntimeState.SubState ss = runtimeState.subStates.get(node.id);
+                        if (ss != null && !ss.debugTime.isEmpty()) {
+                            subEval.debugTime.putAll(ss.debugTime);
+                        }
+                    }
                 }
                 // 将外部输入注入 ENCAP_INPUT 节点
                 // Inject outer inputs into ENCAP_INPUT nodes

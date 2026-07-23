@@ -1,5 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
+import net.minecraft.world.item.ItemStack;
+
 /**
  * {@link GraphOp} 应用的共享执行器。
  * 服务端的 {@code applyOp} 和客户端的 {@code onRemoteOp} 都委托给此类，
@@ -197,6 +199,16 @@ public final class OpExecutor {
                 yield n;
             }
 
+            case SET_BANDS -> {
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null && op.bands() != null) {
+                    n.signalBands = new java.util.ArrayList<>(op.bands());
+                    n.bandsDirty = true;
+                    graph.bumpGeneration();
+                }
+                yield n;
+            }
+
             case SET_ZORDER -> {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null) {
@@ -231,6 +243,7 @@ public final class OpExecutor {
                     n.layoutY = op.y();
                     n.displayScale = op.paramValue();
                     n.displayRotation = op.keyIndex() / 100f;
+                    if (op.sortB() != 0) n.moveScale = op.sortB() / 10000f;
                     graph.bumpGeneration();
                 }
                 yield n;
@@ -259,7 +272,17 @@ public final class OpExecutor {
 
             case SET_HOTBAR_ITEM -> {
                 var n = graph.findNode(op.targetNodeId());
-                if (n != null && n.itemParams != null && op.hotbarSlot() >= 0 && op.hotbarSlot() < n.itemParams.length) {
+                if (n != null && op.hotbarSlot() >= 0) {
+                    // Ensure itemParams is large enough; resize if needed (handles legacy nodes and edge cases)
+                    // 确保 itemParams 足够大；必要时扩容（处理旧节点和边缘情况）
+                    if (n.itemParams == null) n.itemParams = new ItemStack[0];
+                    if (op.hotbarSlot() >= n.itemParams.length) {
+                        ItemStack[] expanded = new ItemStack[op.hotbarSlot() + 1];
+                        System.arraycopy(n.itemParams, 0, expanded, 0, n.itemParams.length);
+                        for (int i = n.itemParams.length; i < expanded.length; i++)
+                            expanded[i] = ItemStack.EMPTY;
+                        n.itemParams = expanded;
+                    }
                     n.itemParams[op.hotbarSlot()] = op.itemStack();
                     graph.bumpGeneration();
                 }

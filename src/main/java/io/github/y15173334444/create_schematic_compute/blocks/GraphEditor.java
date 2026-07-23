@@ -659,6 +659,22 @@ public class GraphEditor {
                     nodeEditStatesById.put(n.id, createEditState(n));
             }
         }
+        // When a remote player edits a BUS_OUT signalName (SET_DISPLAY_TEXT) or band list
+        // (SET_BANDS), re-evaluate busConflict so all editors see the conflict warning in
+        // real time — not just the player who made the edit.
+        // 当远程玩家编辑 BUS_OUT 的 signalName（SET_DISPLAY_TEXT）或频段列表（SET_BANDS）时，
+        // 重新评估 busConflict 使所有编辑者实时看到冲突警告 —— 而不仅是进行编辑的玩家。
+        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_BANDS) {
+            var affected = graph.findNode(op.targetNodeId());
+            if (affected != null && affected.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT) {
+                reevaluateBusConflicts(graph);
+                // Refresh edit state for the affected node (conflict warning may change appearance)
+                // 刷新受影响节点的编辑状态（冲突警告可能改变外观）
+                if (expandedNodeIds.contains(affected.id))
+                    nodeEditStatesById.put(affected.id, createEditState(affected));
+            }
+        }
     }
 
     /** 注册 Enter/失焦提交动作 (Register Enter/focus-lost commit action) */
@@ -1292,6 +1308,19 @@ public class GraphEditor {
                     io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT, g.gpos, g.oid, realId,
                     0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f, dup.displayText, 0, 0, 0, 0, null, 0, 0, 0,
                     net.minecraft.world.item.ItemStack.EMPTY, 0L, g.uid));
+            // 文字颜色 / text color
+            if (dup.textColor != 0) host.sendOp(
+                io.github.y15173334444.create_schematic_compute.graph.GraphOp.setTextColor(g.gpos, g.oid, realId, dup.textColor, g.uid));
+            // 物品栏 / hotbar items
+            if (dup.itemParams != null) {
+                for (int si = 0; si < dup.itemParams.length; si++) {
+                    if (!dup.itemParams[si].isEmpty())
+                        host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setHotbarItem(g.gpos, g.oid, realId, si, dup.itemParams[si], g.uid));
+                }
+            }
+            // 信号频段 / signal bands
+            if (dup.signalBands != null && !dup.signalBands.isEmpty())
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setBands(g.gpos, g.oid, realId, dup.signalBands, g.uid));
             // 注释节点 / comment node
             if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
                 host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(g.gpos, g.oid, realId, dup.commentWidth, dup.commentHeight, g.uid));
@@ -1300,10 +1329,28 @@ public class GraphEditor {
             // 图像像素 / image pixels
             if ((dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.IMAGE || dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.IMAGE_SEQUENCE) && dup.imagePixels != null)
                 host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(g.gpos, g.oid, realId, 0, dup.imagePixels, g.uid));
+            // 图像序列剩余帧 / remaining image sequence frames
+            if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.IMAGE_SEQUENCE
+                && dup.imageSequenceFrames != null && dup.imageSequenceFrames.size() > 1) {
+                for (int fi = 1; fi < dup.imageSequenceFrames.size(); fi++) {
+                    int[] frame = dup.imageSequenceFrames.get(fi);
+                    if (frame != null)
+                        host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(g.gpos, g.oid, realId, fi, frame, g.uid));
+                }
+            }
             // DEBUG 控制点 / DEBUG control points
             if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_SIGNAL_GEN && dup.debugCtrlX != null && dup.debugCtrlY != null
                 && dup.debugCtrlX.length > 0)
                 host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(g.gpos, g.oid, realId, dup.debugCtrlX, dup.debugCtrlY, g.uid));
+            // 显示布局 / display layout (layoutX, layoutY, displayScale, displayRotation, moveScale)
+            host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
+                g.gpos, g.oid, realId,
+                dup.layoutX, dup.layoutY,
+                dup.displayScale, dup.displayRotation,
+                dup.moveScale, g.uid));
+            // Z 序 / z-order (sortB)
+            if (dup.sortB != 0) host.sendOp(
+                io.github.y15173334444.create_schematic_compute.graph.GraphOp.setZOrder(g.gpos, g.oid, realId, dup.sortB, g.uid));
             // 展开状态 / expand state
             if (dup.expanded) host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.EXPAND_NODE, g.gpos, g.oid, realId, g.uid));
@@ -1772,7 +1819,7 @@ public class GraphEditor {
                     g.fill(hx, py + 16, hx + 18, py + 34, 0xFF1A1814);
                     g.renderOutline(hx, py + 16, 18, 18, 0xFF5A4D3A);
                     var item = mc.player.getInventory().items.get(i);
-                    if (!item.isEmpty()) g.renderItem(item, hx + 1, py + 17);
+                    if (!item.isEmpty()) { com.mojang.blaze3d.systems.RenderSystem.depthMask(false); g.renderItem(item, hx + 1, py + 17); com.mojang.blaze3d.systems.RenderSystem.depthMask(true); }
                 }
             }
         }
@@ -2825,16 +2872,6 @@ public class GraphEditor {
             host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
             0, 0, 0, 0, 0, 0f, t, 0, 0, 0, 0, null, 0, 0, 0,
             net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID()));
-        boolean localConflict = false, crossConflict = false;
-        if (node.type == NodeType.BUS_OUT && !t.isEmpty()) {
-            for (var n : getGraph().nodes)
-                if (n != node && n.type == NodeType.BUS_OUT && n.signalName.equals(t)) { localConflict = true; break; }
-            if (!localConflict && !localBusNames.contains(t)) {
-                var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(t);
-                if (gb != null && !gb.isEmpty()) crossConflict = true;
-            }
-        }
-        node.busConflict = localConflict || crossConflict;
         // 旧名清理（不调用 createEditState） (Clean up old name, without calling createEditState)
         if (!oldName.isEmpty()) {
             boolean hasOldBusOut = false;
@@ -2847,7 +2884,11 @@ public class GraphEditor {
                 io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(oldName);
             }
         }
-        if (!localConflict && !crossConflict) {
+        // Re-evaluate all BUS_OUT conflict state (renaming may create or resolve conflicts).
+        // 重新评估所有 BUS_OUT 冲突状态（改名可能产生或解决冲突）。
+        reevaluateBusConflicts(getGraph());
+        // Sync bands for non-conflicted nodes
+        if (node.type == NodeType.BUS_OUT && !node.busConflict && !t.isEmpty()) {
             boolean synced = false;
             for (var n : getGraph().nodes) {
                 if (n != node && n.type == NodeType.BUS_OUT && n.signalName.equals(t) && n.bandCount() > 0) {
@@ -2856,19 +2897,8 @@ public class GraphEditor {
             }
             if (!synced) {
                 var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(t);
-                if (gb != null && !gb.isEmpty()) { node.signalBands = new java.util.ArrayList<>(gb); node.bandsDirty = true; synced = true; }
+                if (gb != null && !gb.isEmpty()) { node.signalBands = new java.util.ArrayList<>(gb); node.bandsDirty = true; }
             }
-        }
-        // 重新评估所有 BUS_OUT 的冲突状态（改名可能解除其他节点的冲突） (Re-evaluate all BUS_OUT conflict state; renaming may resolve other nodes' conflicts)
-        for (var n : getGraph().nodes) {
-            if (n.type != NodeType.BUS_OUT || n.signalName.isEmpty()) continue;
-            boolean c = false;
-            for (var other : getGraph().nodes) {
-                if (other != n && other.type == NodeType.BUS_OUT && other.signalName.equals(n.signalName)) {
-                    c = true; break;
-                }
-            }
-            n.busConflict = c;
         }
         // 重建编辑区（在最后调用，确保所有状态已更新） (Rebuild edit state last, ensuring all state is up to date)
         nodeEditStatesById.put(node.id, createEditState(node));
@@ -2891,6 +2921,51 @@ public class GraphEditor {
         expandedNodeIds.remove(n.id);
         nodeEditStatesById.remove(n.id);
         n.expanded = false;
+    }
+
+    /** Re-evaluate busConflict for all BUS_OUT nodes in the given graph.
+     *  <p>重新评估给定图中所有 BUS_OUT 节点的 busConflict 状态。</p>
+     *  <p>Called both from local edits ({@link #commitBusBox}) and from remote op handling
+     *  ({@link #onRemoteOp}) so that all players see conflict warnings in real time.
+     *  同时从本地编辑（commitBusBox）和远程操作处理（onRemoteOp）中调用，
+     *  使所有玩家都能实时看到冲突警告。</p> */
+    private void reevaluateBusConflicts(io.github.y15173334444.create_schematic_compute.graph.NodeGraph graph) {
+        for (var n : graph.nodes) {
+            if (n.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT || n.signalName.isEmpty()) {
+                n.busConflict = false;
+                continue;
+            }
+            // Check for local conflict (another BUS_OUT in the same graph with the same signalName)
+            // 检查本地冲突（同一图中另一个同 signalName 的 BUS_OUT）
+            boolean localConflict = false;
+            for (var other : graph.nodes) {
+                if (other != n && other.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
+                    && other.signalName.equals(n.signalName)) {
+                    localConflict = true; break;
+                }
+            }
+            // Check for cross-block conflict (band registry knows about this name from another block)
+            // Only flag if NO BUS_OUT in THIS graph owns this name — otherwise the bands
+            // in the registry are our own, synced from the server via BusBandSyncPacket.
+            // 检查跨方块冲突（频段注册表知道此名称来自另一个方块）
+            // 仅当当前图中没有 BUS_OUT 拥有此名称时才标记 —— 否则注册表中的频段
+            // 是我们自己的，由服务端通过 BusBandSyncPacket 同步而来。
+            boolean crossConflict = false;
+            if (!localConflict && !localBusNames.contains(n.signalName)) {
+                boolean anyBusOutOwns = false;
+                for (var other : graph.nodes) {
+                    if (other.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
+                        && other.signalName.equals(n.signalName)) {
+                        anyBusOutOwns = true; break;
+                    }
+                }
+                if (!anyBusOutOwns) {
+                    var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(n.signalName);
+                    if (gb != null && !gb.isEmpty()) crossConflict = true;
+                }
+            }
+            n.busConflict = localConflict || crossConflict;
+        }
     }
 
     /** 同步所有同总线名的 BUS 节点的频段列表 (Sync band lists of all BUS nodes sharing the same bus name) */

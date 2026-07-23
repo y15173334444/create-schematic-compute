@@ -30,6 +30,10 @@ import java.util.*;
  *   <li>Keep a bounded opLog for reconnection replay (future Phase 4)
  *       / 保持有界 opLog 用于重连回放（未来第四阶段）</li>
  * </ul>
+ *
+ * <p><b>Thread safety:</b> All methods must be called from the main server thread.
+ * NeoForge's {@code ctx.enqueueWork()} guarantees this for all current call sites
+ * via the network packet handlers.</p>
  */
 public final class EditSessionRegistry {
 
@@ -133,12 +137,16 @@ public final class EditSessionRegistry {
         // 3. Validate structural ops / 验证结构操作
         if (op.type() == OpType.ADD_CONN) {
             if (targetGraph.findNode(op.toId()) == null || targetGraph.findNode(op.fromId()) == null) {
-                var reject = new GraphOp(OpType.REJECT, pos, op.ownerNodeId(), op.targetNodeId(), op.actor());
+                var reject = new GraphOp(OpType.REJECT, pos, op.ownerNodeId(), op.targetNodeId(),
+                    0, null, 0f, 0f, op.fromId(), op.fromPin(), op.toId(), op.toPin(),
+                    0, 0f, null, 0, 0, 0, 0, null, 0, 0, 0, net.minecraft.world.item.ItemStack.EMPTY, 0L, op.actor());
                 PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(reject));
                 return;
             }
             if (targetGraph.wouldCreateCycle(op.fromId(), op.toId())) {
-                var reject = new GraphOp(OpType.REJECT, pos, op.ownerNodeId(), op.targetNodeId(), op.actor());
+                var reject = new GraphOp(OpType.REJECT, pos, op.ownerNodeId(), op.targetNodeId(),
+                    0, null, 0f, 0f, op.fromId(), op.fromPin(), op.toId(), op.toPin(),
+                    0, 0f, null, 0, 0, 0, 0, null, 0, 0, 0, net.minecraft.world.item.ItemStack.EMPTY, 0L, op.actor());
                 PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(reject));
                 return;
             }

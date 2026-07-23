@@ -150,9 +150,7 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
             if (!(sp.level() instanceof ServerLevel sl)) return;
             var pos = pkt.op.graphPos();
-            double dx = sp.getX() - pos.getX();
-            double dz = sp.getZ() - pos.getZ();
-            if (dx * dx + dz * dz > MAX_EDIT_DIST_SQ) return;
+            if (!io.github.y15173334444.create_schematic_compute.network.SablePacketHelper.isWithinReachableRange(sp, pos, MAX_EDIT_DIST_SQ)) return;
             if (!EditSessionRegistry.getEditors(sl, pos).contains(sp.getUUID())) return;
             var authenticatedOp = new GraphOp(
                 pkt.op.type(), pkt.op.graphPos(), pkt.op.ownerNodeId(), pkt.op.targetNodeId(),

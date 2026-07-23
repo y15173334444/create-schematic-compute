@@ -32,10 +32,8 @@ public record GraphJoinPacket(BlockPos pos) implements CustomPacketPayload {
     public static void handle(GraphJoinPacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
-            // 1. Range check before touching chunk/block entity
-            double dx = sp.getX() - pkt.pos.getX();
-            double dz = sp.getZ() - pkt.pos.getZ();
-            if (dx * dx + dz * dz > MAX_JOIN_DIST_SQ) return;
+            // 1. Range check before touching chunk/block entity (Sable-aware)
+            if (!io.github.y15173334444.create_schematic_compute.network.SablePacketHelper.isWithinReachableRange(sp, pkt.pos, MAX_JOIN_DIST_SQ)) return;
             // 2. Verify target is one of the 7 graph block entities BEFORE joining session
             var be = sp.level().getBlockEntity(pkt.pos);
             if (!(be instanceof GraphBlockEntity)) return;

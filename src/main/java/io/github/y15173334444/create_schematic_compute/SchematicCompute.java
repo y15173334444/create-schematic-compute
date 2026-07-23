@@ -180,6 +180,17 @@ public class SchematicCompute {
                 io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.clearTempView();
             });
 
+        // Periodic BlobRegistry cleanup — expire stale incomplete blobs every 20 ticks
+        final int[] blobCleanupTick = {0};
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+            net.neoforged.neoforge.event.tick.ServerTickEvent.Post.class, event -> {
+                blobCleanupTick[0]++;
+                if (blobCleanupTick[0] >= 20) {
+                    blobCleanupTick[0] = 0;
+                    io.github.y15173334444.create_schematic_compute.network.BlobRegistry.cleanup();
+                }
+            });
+
         LOGGER.info("{} loaded!", MOD_ID);
     }
 

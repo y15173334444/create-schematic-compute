@@ -40,9 +40,7 @@ public record BusBandUploadPacket(BlockPos pos, String busName, List<String> ban
             // 安全校验：距离检查 + 编辑会话成员检查
             if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
             if (!(sp.level() instanceof net.minecraft.server.level.ServerLevel serverLevel)) return;
-            double dx = sp.getX() - pos.getX();
-            double dz = sp.getZ() - pos.getZ();
-            if (dx * dx + dz * dz > 16384.0) return;
+            if (!io.github.y15173334444.create_schematic_compute.network.SablePacketHelper.isWithinReachableRange(sp, pos, 16384.0)) return;
             if (!io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.getEditors(serverLevel, pos).contains(sp.getUUID()))
                 return;
             var be = ctx.player().level().getBlockEntity(pos);

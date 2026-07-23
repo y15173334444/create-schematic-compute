@@ -178,6 +178,9 @@ public class GraphNode {
         this.params = (type == NodeType.ENCAP_INPUT || type == NodeType.ENCAP_OUTPUT)
             ? new float[0] : new float[type.paramNames.length];
         this.itemParams = new ItemStack[0];
+        // REDSTONE nodes always have 2 frequency slots / REDSTONE 节点始终有 2 个频率槽
+        if (type == NodeType.REDSTONE_IN || type == NodeType.REDSTONE_OUT)
+            this.itemParams = new ItemStack[]{ItemStack.EMPTY, ItemStack.EMPTY};
         // 设置基于参数的节点的默认值 / Set defaults for param-based nodes
         if (type == NodeType.CONST) this.params[0] = 1.0f;
         if (type == NodeType.PID) {
@@ -377,6 +380,13 @@ public class GraphNode {
                 node.itemParams[i] = ItemStack.parseOptional(registries, tag.getCompound("i" + i));
             else
                 node.itemParams[i] = ItemStack.EMPTY;
+        }
+        // Legacy save compatibility: REDSTONE nodes always need at least 2 frequency slots
+        // 旧存档兼容：REDSTONE 节点始终需要至少 2 个频率槽
+        if ((node.type == NodeType.REDSTONE_IN || node.type == NodeType.REDSTONE_OUT) && node.itemParams.length < 2) {
+            ItemStack[] expanded = new ItemStack[]{ItemStack.EMPTY, ItemStack.EMPTY};
+            System.arraycopy(node.itemParams, 0, expanded, 0, node.itemParams.length);
+            node.itemParams = expanded;
         }
         if (tag.contains("sig")) node.signalName = tag.getString("sig");
         if (tag.contains("bands")) {

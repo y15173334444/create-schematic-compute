@@ -7,7 +7,9 @@ import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.graph.RuntimeState;
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
+import io.github.y15173334444.create_schematic_compute.network.ChannelOwner;
 import io.github.y15173334444.create_schematic_compute.network.ClientboundGraphEvalPacket;
+import io.github.y15173334444.create_schematic_compute.network.SignalBus;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -27,6 +29,9 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Common base class for all graph-hosting block entities.
@@ -68,6 +73,19 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     protected int lastGraphGeneration = -1;
     protected final HashMap<Integer, Integer> lastBusHashMap = new HashMap<>();
     protected boolean needsFullSync = true;
+    private long lastFullSyncGameTime = 0;
+    private static final int FULL_SYNC_GRACE_TICKS = 40;
+    /** Snapshot of BUS_OUT (signalName + "@" + nodeId) keys from the last recompile.
+     *  Because {@link #lastEvaluatedGraph} is a reference (not a copy), it cannot
+     *  detect node removals when the graph is mutated in-place. This set tracks
+     *  the BUS_OUT key set at the last recompile so that removed nodes can be
+     *  explicitly unregistered before {@link BusChannelHelper#reRegisterChannels}
+     *  processes the new graph.
+     *  上次重编译时 BUS_OUT (signalName + "@" + nodeId) 键的快照。
+     *  因为 lastEvaluatedGraph 是引用（非副本），无法在就地修改图时检测到节点删除。
+     *  此集合追踪上次重编译时的 BUS_OUT 键集，以便在 reRegisterChannels 处理新图之前
+     *  显式取消注册已删除的节点。 */
+    private final Set<String> lastBusOutKeys = new HashSet<>();
 
     /** Server-authoritative evaluation snapshot (Phase MVP — set by ClientboundGraphEvalPacket on client).
      *  服务端权威求值快照（MVP 阶段 —— 由 ClientboundGraphEvalPacket 在客户端设置）。 */
@@ -76,6 +94,10 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     /** True until the first tick registers BUS channels — ensures old saves work without manual intervention.
      *  在第一次 tick 注册 BUS 通道之前为 true —— 确保旧存档无需手动干预即可正常工作。 */
     private boolean busRegistrationPending = true;
+
+    /** Set to true on the client once the graph NBT has been loaded from the server.
+     *  Allows the client UI (e.g. GraphEditor) to check whether the graph is ready for rendering. */
+    public transient boolean graphReady = false;
 
     /** Call at the start of each tick to guarantee BUS channels are registered at least once.
      *  在每个 tick 开始时调用，以确保 BUS 通道至少被注册一次。 */
@@ -127,8 +149,16 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     // ── BUS channel lifecycle (safe no-ops — BEs without BUS just inherit these)
     //      BUS 通道生命周期（安全空操作 —— 无 BUS 的 BE 直接继承即可） ──
     protected void registerBusChannels() {
-        if (BusChannelHelper.registerChannels(graph, worldPosition, level))
+        if (BusChannelHelper.registerChannels(graph, worldPosition, level)) {
             needsFullSync = true;
+            // Trigger a block update so tracking clients receive the full graph NBT
+            // (including busConflict flags) via getUpdateTag(). Without this, clients
+            // would not see busConflict changes until the next chunk re-send.
+            // 触发放块更新，使追踪客户端通过 getUpdateTag() 接收完整图 NBT
+            //（包含 busConflict 标志）。否则客户端在下次区块重新发送前无法看到 busConflict 变更。
+            setChanged();
+            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
     }
     protected void cleanupBusChannels(NodeGraph g) {
         BusChannelHelper.cleanupClientBands(g, worldPosition, level);
@@ -149,16 +179,35 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  在图结构变更后重建求值器并重新注册 BUS 通道。
      *  仅清除 pidState —— subStates（ENCAPSULATION 子图状态）会被保留。 */
     protected void recompileEvaluator() {
-        if (lastEvaluatedGraph != null) {
-            BusChannelHelper.syncDeletedBusNames(lastEvaluatedGraph, graph, worldPosition, level);
-            unregisterBusChannels(lastEvaluatedGraph);
+        NodeGraph oldGraph = lastEvaluatedGraph;
+        if (oldGraph != null) {
+            BusChannelHelper.syncDeletedBusNames(oldGraph, graph, worldPosition, level);
         }
+        // Explicitly unregister BUS_OUT nodes that were removed since the last recompile.
+        // Because lastEvaluatedGraph is a reference (not a copy), reRegisterChannels
+        // alone cannot detect removals when the graph is mutated in-place.
+        // 显式取消注册自上次重编译以来已删除的 BUS_OUT 节点。
+        // 因为 lastEvaluatedGraph 是引用（而非副本），仅靠 reRegisterChannels 无法在
+        // 就地修改图时检测到删除。
+        unregisterRemovedBusOutNodes();
         evaluator = new GraphEvaluator(graph);
         evaluator.restoreSubState(runtimeState);
         lastEvaluatedGraph = graph;
         lastGraphGeneration = graph.graphGeneration;
         runtimeState.pidState.clear();
-        registerBusChannels();
+        // Use diff-based re-registration to preserve channel ownership.
+        // This prevents a newly-added BUS_OUT with the same signalName from
+        // stealing the channel from the existing owner during the recompile window.
+        // 使用基于差异的重新注册以保留频道所有权。
+        // 防止新添加的同名 BUS_OUT 在重编译窗口期间从现有所有者窃取频道。
+        if (BusChannelHelper.reRegisterChannels(graph, oldGraph, worldPosition, level)) {
+            needsFullSync = true;
+            setChanged();
+            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+        // Snapshot current BUS_OUT keys for the next recompile's removal detection.
+        // 快照当前 BUS_OUT 键，供下次重编译的删除检测使用。
+        snapshotBusOutKeys();
     }
 
     /** Full rebuild that also resets delay queues, flipflop states and pulse timers.
@@ -166,16 +215,32 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  完全重建，同时重置延迟队列、触发器状态和脉冲计时器。
      *  供 Blueprint 和 ProgramComputer（使用时序/状态节点）使用。 */
     protected void recompileEvaluatorFull() {
-        if (lastEvaluatedGraph != null) {
-            BusChannelHelper.syncDeletedBusNames(lastEvaluatedGraph, graph, worldPosition, level);
-            unregisterBusChannels(lastEvaluatedGraph);
+        Map<Integer, Float> savedDebugTime = null;
+        NodeGraph oldGraph = lastEvaluatedGraph;
+        if (oldGraph != null) {
+            BusChannelHelper.syncDeletedBusNames(oldGraph, graph, worldPosition, level);
+            savedDebugTime = new HashMap<>(runtimeState.debugTime);
             runtimeState.clear();
         }
+        // Explicitly unregister BUS_OUT nodes that were removed since the last recompile.
+        // 显式取消注册自上次重编译以来已删除的 BUS_OUT 节点。
+        unregisterRemovedBusOutNodes();
         evaluator = new GraphEvaluator(graph);
         evaluator.restoreSubState(runtimeState);
+        if (savedDebugTime != null && !savedDebugTime.isEmpty()) {
+            evaluator.restoreDebugTimes(savedDebugTime);
+        }
         lastEvaluatedGraph = graph;
         lastGraphGeneration = graph.graphGeneration;
-        registerBusChannels();
+        // Use diff-based re-registration to preserve channel ownership.
+        if (BusChannelHelper.reRegisterChannels(graph, oldGraph, worldPosition, level)) {
+            needsFullSync = true;
+            setChanged();
+            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
+        // Snapshot current BUS_OUT keys for the next recompile's removal detection.
+        // 快照当前 BUS_OUT 键，供下次重编译的删除检测使用。
+        snapshotBusOutKeys();
     }
 
     /** Minimal rebuild (no BUS lifecycle). Used by Monitor and SpeedProxy.
@@ -186,6 +251,45 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         lastGraphGeneration = graph.graphGeneration;
         runtimeState.pidState.clear();
         registerBusChannels(); // EN: ensure BUS channels are registered on first tick 中文: 确保 BUS 通道在首次 tick 时被注册
+    }
+
+    // ── BUS_OUT removal detection (works around lastEvaluatedGraph reference sharing) ──
+    //     BUS_OUT 删除检测（解决 lastEvaluatedGraph 引用共享问题）
+
+    /** Unregister BUS_OUT channels for nodes that were present in the last recompile
+     *  snapshot ({@link #lastBusOutKeys}) but are no longer in the current {@link #graph}.
+     *  Called before {@link BusChannelHelper#reRegisterChannels} so that removed nodes
+     *  are properly cleaned up even when the graph was mutated in-place.
+     *  取消注册在上次重编译快照 (lastBusOutKeys) 中存在但当前 graph 中已不存在的
+     *  BUS_OUT 节点频道。在 reRegisterChannels 之前调用，确保即使在就地修改图时，
+     *  已删除的节点也能被正确清理。 */
+    private void unregisterRemovedBusOutNodes() {
+        if (level == null || level.isClientSide() || lastBusOutKeys.isEmpty()) return;
+        Set<String> currentKeys = new HashSet<>();
+        for (var n : graph.nodes)
+            if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty())
+                currentKeys.add(n.signalName + "@" + n.id);
+        for (var key : lastBusOutKeys) {
+            if (!currentKeys.contains(key)) {
+                int at = key.lastIndexOf('@');
+                if (at > 0) {
+                    String name = key.substring(0, at);
+                    int nodeId = Integer.parseInt(key.substring(at + 1));
+                    SignalBus.unregisterChannel(name, new ChannelOwner(worldPosition, nodeId));
+                }
+            }
+        }
+    }
+
+    /** Snapshot the current BUS_OUT (signalName, nodeId) key set into
+     *  {@link #lastBusOutKeys} for the next recompile's removal detection.
+     *  将当前 BUS_OUT (signalName, nodeId) 键集快照到 lastBusOutKeys 中，
+     *  供下次重编译的删除检测使用。 */
+    private void snapshotBusOutKeys() {
+        lastBusOutKeys.clear();
+        for (var n : graph.nodes)
+            if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty())
+                lastBusOutKeys.add(n.signalName + "@" + n.id);
     }
 
     // ── Not-running helper / 停止运行辅助方法 ──
@@ -248,6 +352,7 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         if (t.contains("graph")) {
             graph = NodeGraph.load(t.getCompound("graph"), r);
             rs.onLoad(graph);
+            this.graphReady = true;
         }
         if (t.contains("running")) running = t.getBoolean("running");
         if (t.contains("runtime")) {
@@ -277,19 +382,22 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  强制向所有追踪客户端进行完整图同步（当新编辑器加入时调用）。 */
     public void flagFullSync() {
         needsFullSync = true;
+        lastFullSyncGameTime = (level != null) ? level.getGameTime() : 0;
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }
 
+    /** Always send the full graph so that new clients tracking this chunk receive
+     *  the authoritative graph data regardless of whether a prior full sync has
+     *  already been consumed by another client. Without this, a client loading a
+     *  chunk after {@link #needsFullSync} was cleared would never receive the graph
+     *  NBT, leaving {@link #graphReady} permanently false.
+     *  始终发送完整图数据，以确保新追踪此区块的客户端无论先前是否有其他客户端
+     *  消费了完整同步，都能收到权威的图数据。否则在 needsFullSync 被清除后
+     *  加载区块的客户端将永远收不到图 NBT，导致 graphReady 永久为 false。 */
     @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
-        if (needsFullSync) {
-            needsFullSync = false;
-            var t = new CompoundTag();
-            saveAdditional(t, r);
-            return t;
-        }
         var t = new CompoundTag();
-        t.putBoolean("running", running);
+        saveAdditional(t, r);
         return t;
     }
 }
