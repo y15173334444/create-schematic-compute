@@ -45,6 +45,10 @@ public class RuntimeState {
     // PULSE_EXTEND, LOOP, FUSE tick counters
     public final Map<Integer, Integer> pulseTimers = new HashMap<>();
 
+    // DEBUG_SIGNAL_GEN 相位状态（nodeId → 归一化时间 0~1）
+    // DEBUG_SIGNAL_GEN phase state (nodeId → normalized time 0~1)
+    public final Map<Integer, Float> debugTime = new HashMap<>();
+
     // ── 子图状态（ENCAPSULATION 节点）────────────────────────
     // 键：封装节点 ID。每个条目持有该 ENCAPSULATION 子图中时序/状态节点的状态映射。
     // ── Sub-graph state (ENCAPSULATION nodes) ────────────────────────
@@ -60,6 +64,7 @@ public class RuntimeState {
         public final Map<Integer, ArrayDeque<Float>> delayQueues = new HashMap<>();
         public final Map<Integer, Boolean> flipflopStates = new HashMap<>();
         public final Map<Integer, Integer> pulseTimers = new HashMap<>();
+        public final Map<Integer, Float> debugTime = new HashMap<>();
     }
 
     public RuntimeState() {}
@@ -76,6 +81,7 @@ public class RuntimeState {
         delayQueues.clear();
         flipflopStates.clear();
         pulseTimers.clear();
+        debugTime.clear();
         subStates.clear();
     }
 
@@ -112,6 +118,13 @@ public class RuntimeState {
                 pt.putInt(String.valueOf(e.getKey()), e.getValue());
             tag.put("pt", pt);
         }
+        // DEBUG_SIGNAL_GEN 相位状态 / DEBUG_SIGNAL_GEN phase state
+        if (!debugTime.isEmpty()) {
+            CompoundTag dt = new CompoundTag();
+            for (var e : debugTime.entrySet())
+                dt.putFloat(String.valueOf(e.getKey()), e.getValue());
+            tag.put("dt", dt);
+        }
         // 子图状态 — 每个封装节点一个 CompoundTag
         // Sub-graph state — one CompoundTag per encapsulation node
         if (!subStates.isEmpty()) {
@@ -142,6 +155,11 @@ public class RuntimeState {
                     CompoundTag spt = new CompoundTag();
                     for (var e : s.pulseTimers.entrySet()) spt.putInt(String.valueOf(e.getKey()), e.getValue());
                     ss.put("pt", spt);
+                }
+                if (!s.debugTime.isEmpty()) {
+                    CompoundTag sdt = new CompoundTag();
+                    for (var e : s.debugTime.entrySet()) sdt.putFloat(String.valueOf(e.getKey()), e.getValue());
+                    ss.put("dt", sdt);
                 }
                 sub.put(String.valueOf(entry.getKey()), ss);
             }
@@ -178,6 +196,12 @@ public class RuntimeState {
             for (var k : pt.getAllKeys())
                 rs.pulseTimers.put(Integer.parseInt(k), pt.getInt(k));
         }
+        // DEBUG_SIGNAL_GEN 相位状态 / DEBUG_SIGNAL_GEN phase state
+        if (tag.contains("dt")) {
+            var dt = tag.getCompound("dt");
+            for (var k : dt.getAllKeys())
+                rs.debugTime.put(Integer.parseInt(k), dt.getFloat(k));
+        }
         // 子图状态  /  Sub-graph state
         if (tag.contains("sub")) {
             var sub = tag.getCompound("sub");
@@ -205,6 +229,10 @@ public class RuntimeState {
                 if (ss.contains("pt")) {
                     var spt = ss.getCompound("pt");
                     for (var sk : spt.getAllKeys()) s.pulseTimers.put(Integer.parseInt(sk), spt.getInt(sk));
+                }
+                if (ss.contains("dt")) {
+                    var sdt = ss.getCompound("dt");
+                    for (var sk : sdt.getAllKeys()) s.debugTime.put(Integer.parseInt(sk), sdt.getFloat(sk));
                 }
                 rs.subStates.put(encapId, s);
             }

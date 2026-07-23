@@ -3,6 +3,9 @@ package io.github.y15173334444.create_schematic_compute.graph;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /** DEBUG_SIGNAL_GEN 的曲线计算（无状态静态方法）。
  *  Curve computation for DEBUG_SIGNAL_GEN (stateless static methods).
  *
@@ -26,6 +29,8 @@ public final class DebugSignals {
     public static final int OUT_FREQ = 0;
     /** 输出模式：指定 x（x 来自输入引脚）。 / Output mode: input-driven (x from input pin). */
     public static final int OUT_INPUT = 1;
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(DebugSignals.class);
 
     private DebugSignals() {}
 
@@ -67,6 +72,7 @@ public final class DebugSignals {
             List<Object> rpn = cachedRpn != null ? cachedRpn : FormulaParser.compile(formula);
             return (float) FormulaParser.evaluate(rpn, Map.of("x", x));
         } catch (Exception e) {
+            LOGGER.warn("Failed to evaluate formula '{}': {}", formula, e.getMessage());
             return 0f;
         }
     }
@@ -76,7 +82,10 @@ public final class DebugSignals {
     public static List<Object> compileFormula(String formula) {
         if (formula == null || formula.isBlank()) return null;
         try { return FormulaParser.compile(formula); }
-        catch (Exception e) { return null; }
+        catch (Exception e) {
+            LOGGER.debug("Failed to compile formula '{}': {}", formula, e.getMessage());
+            return null;
+        }
     }
 
     /** 设置模式名称（用于渲染标签）。 / Set mode name (for render label). */

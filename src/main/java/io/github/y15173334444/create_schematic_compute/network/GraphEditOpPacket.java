@@ -143,7 +143,7 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
 
     @Override public @NotNull Type<? extends CustomPacketPayload> type() { return TYPE; }
 
-    private static final double MAX_EDIT_DIST_SQ = 80.0 * 80.0;
+    private static final double MAX_EDIT_DIST_SQ = 128.0 * 128.0;
 
     public static void handleServer(GraphEditOpPacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {

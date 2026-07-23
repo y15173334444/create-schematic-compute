@@ -40,6 +40,14 @@ public record RadarSettingsPacket(BlockPos pos, int scanRange, int scanMode, int
 
     public void handle(IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
+            // 安全校验：距离检查 + 编辑会话成员检查
+            if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+            if (!(sp.level() instanceof net.minecraft.server.level.ServerLevel sl)) return;
+            double dx = sp.getX() - pos.getX();
+            double dz = sp.getZ() - pos.getZ();
+            if (dx * dx + dz * dz > 16384.0) return;
+            if (!io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.getEditors(sl, pos).contains(sp.getUUID()))
+                return;
             if (ctx.player().level().getBlockEntity(pos) instanceof RadarBlockEntity be) {
                 be.scanRange = Math.max(1, Math.min(128, scanRange));
                 be.scanMode = scanMode;

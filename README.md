@@ -120,7 +120,7 @@
 
 | Feature / 功能 | Description / 说明 |
 |----------------|-------------------|
-| 📡 Device Scan / 设备扫描 | Scan 1-256 blocks for programmable blocks / 扫描1-256格可编程方块 |
+| 📡 Device Scan / 设备扫描 | Scan 1-128 blocks for programmable blocks / 扫描1-128格可编程方块 |
 | ✏️ One-Click Edit / 一键编辑 | Open native GUI instantly / 即时打开原生GUI |
 | 📦 All 7 Blocks / 全7方块 | Monitor, Blueprint, Program, Radar, Seat, Sensor, SpeedProxy |
 | 🔄 Sable Compatible / Sable兼容 | Sub-level scanning with rotation correction / 子世界扫描+旋转修正 |
@@ -536,7 +536,7 @@ All 7 blocks now support real-time collaborative graph editing — multiple play
 <details>
 <summary><b>v1.2.2</b> — Portable Terminal + Layer Panel + Undo/Redo / 便携终端+图层面板+撤销重做</summary>
 
-- 📱 Portable Terminal — Handheld remote editor, scan 1-256 blocks / 便携终端
+- 📱 Portable Terminal — Handheld remote editor, scan 1-128 blocks / 便携终端
 - 🖼️ Layer Panel — Photoshop-style with drag-drop + thumbnails / 图层面板
 - ↩️ Undo/Redo — Graph + pixel editor, 50-step history / 撤销重做
 

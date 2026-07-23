@@ -23,6 +23,14 @@ public final class BlobPacketHandler {
      *  服务端接收来自客户端的 blob 分片。重组后数据可供相应的 GraphOp 使用。 */
     public static void handleServer(BlobDataPacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
+            // 安全校验：距离检查 + 编辑会话成员检查
+            if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+            if (!(sp.level() instanceof net.minecraft.server.level.ServerLevel sl)) return;
+            double dx = sp.getX() - pkt.pos().getX();
+            double dz = sp.getZ() - pkt.pos().getZ();
+            if (dx * dx + dz * dz > 16384.0) return;
+            if (!io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.getEditors(sl, pkt.pos()).contains(sp.getUUID()))
+                return;
             BlobRegistry.receive(pkt);
         });
     }

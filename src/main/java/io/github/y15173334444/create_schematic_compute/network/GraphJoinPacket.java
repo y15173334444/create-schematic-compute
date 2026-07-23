@@ -27,7 +27,7 @@ public record GraphJoinPacket(BlockPos pos) implements CustomPacketPayload {
     public @NotNull Type<? extends CustomPacketPayload> type() { return TYPE; }
 
     /** Max join distance (squared) — ~80 blocks range. */
-    private static final double MAX_JOIN_DIST_SQ = 80.0 * 80.0;
+    private static final double MAX_JOIN_DIST_SQ = 128.0 * 128.0;
 
     public static void handle(GraphJoinPacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {

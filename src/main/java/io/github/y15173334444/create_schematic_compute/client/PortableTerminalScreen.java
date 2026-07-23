@@ -168,7 +168,7 @@ public class PortableTerminalScreen extends Screen {
         g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.terminal.range") + ":", cx + 6, tby + 6, 0xFFCCCCCC);
         rangeInput.setX(cx + 40); rangeInput.setY(tby + 3); rangeInput.setWidth(44);
         rangeInput.render(g, mx, my, pt);
-        try { int v = Integer.parseInt(rangeInput.getValue()); if (v >= 1 && v <= 256 && v != scanRange) { scanRange = v; needsRescan = true; } } catch (NumberFormatException ignored) {}
+        try { int v = Integer.parseInt(rangeInput.getValue()); if (v >= 1 && v <= 128 && v != scanRange) { scanRange = v; needsRescan = true; } } catch (NumberFormatException ignored) {}
 
         int listY = tby + 28;
         int listH = ch - 58;

@@ -10,6 +10,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * 公式解析器 — 将数学表达式编译为可执行的后缀表达式（RPN）及轻量级脚本解析。
  * 数学表达式支持：多字母变量名（连续字母如 ABD）、+ - * / % ^ ( )、数字、一元负号、
@@ -25,6 +28,7 @@ public class FormulaParser {
 
     /** Pattern for valid identifiers: a-z, A-Z, 0-9, underscore, starting with letter or underscore */
     private static final Pattern IDENTIFIER = Pattern.compile("[a-zA-Z_][a-zA-Z0-9_]*");
+    private static final Logger LOGGER = LoggerFactory.getLogger(FormulaParser.class);
 
     /** RPN token representing a function call. */
     private record FunctionToken(String name, int arity) {}
@@ -289,7 +293,7 @@ public class FormulaParser {
             // Legacy single-expression mode
             List<String> vars = extractVariables(formula);
             List<Object> rpn;
-            try { rpn = compile(formula); } catch (Exception e) { rpn = List.of(0.0); }
+            try { rpn = compile(formula); } catch (Exception e) { LOGGER.debug("Legacy expression compile failed", e); rpn = List.of(0.0); }
             return new ScriptParseResult(
                 vars, List.of(""), List.of(rpn), List.of(), true);
         }
@@ -361,6 +365,7 @@ public class FormulaParser {
                             assignments.add(new Assignment(varName, rpn));
                         } catch (Exception e) {
                             // 编译失败 → 赋值 0
+                            LOGGER.debug("Compile failed for assignment '{}'", varName, e);
                             assignments.add(new Assignment(varName, List.of(0.0)));
                         }
                     }
@@ -372,6 +377,7 @@ public class FormulaParser {
                 lastStandaloneExpr = line;
                 lastStandaloneRpn = compile(line);
             } catch (Exception e) {
+                LOGGER.debug("Standalone expression compile failed", e);
                 lastStandaloneRpn = List.of(0.0);
             }
         }

@@ -77,13 +77,13 @@ public class NodeRenderer {
                 int[] c = DEFAULT_COLORS.clone();
                 for (int i = 0; i < _NUM_COLORS; i++) {
                     String v = props.getProperty("color." + COLOR_KEYS[i]);
-                    if (v != null && v.length() == 8) try { c[i] = (int)(Long.parseLong(v, 16) & 0xFFFFFFFFL); } catch (Exception ignored) {}
+                    if (v != null && v.length() == 8) try { c[i] = (int)(Long.parseLong(v, 16) & 0xFFFFFFFFL); } catch (Exception ignored) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Bad hex color value: {}", v); }
                 }
                 setColors(c);
             } else if (currentTheme > 0) {
                 applyTheme(currentTheme);
             }
-        } catch (Exception e) { /* 默认 */ }
+        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("Failed to load color config", e); }
     }
 
     /** 保存颜色到配置文件（保留已有非颜色属性） */
@@ -97,7 +97,7 @@ public class NodeRenderer {
             int[] c = currentColors();
             for (int i = 0; i < _NUM_COLORS; i++) props.setProperty("color." + COLOR_KEYS[i], String.format("%08X", c[i]));
             try (var os = java.nio.file.Files.newOutputStream(path)) { props.store(os, "Create: Schematic Compute Theme"); }
-        } catch (Exception e) { /* 忽略 */ }
+        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("Failed to save color config", e); }
     }
 
     static { loadColorConfig(); }
@@ -111,7 +111,7 @@ public class NodeRenderer {
                 try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
             props.setProperty("grid_snap", String.valueOf(on));
             try (var os = java.nio.file.Files.newOutputStream(path)) { props.store(os, null); }
-        } catch (Exception e) { /* 忽略 */ }
+        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("Failed to save grid snap setting", e); }
     }
 
     /** 加载网格吸附状态 */
@@ -123,7 +123,7 @@ public class NodeRenderer {
                 try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
                 return Boolean.parseBoolean(props.getProperty("grid_snap", "true"));
             }
-        } catch (Exception e) { /* 忽略 */ }
+        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("Failed to load grid snap setting", e); }
         return true;
     }
 
@@ -143,7 +143,7 @@ public class NodeRenderer {
             props.setProperty("toolbar_bottom", String.valueOf(toolbarBottom));
             java.nio.file.Files.createDirectories(path.getParent());
             try (var os = java.nio.file.Files.newOutputStream(path)) { props.store(os, null); }
-        } catch (Exception e) { /* 忽略 */ }
+        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("Failed to save toolbar position", e); }
     }
 
     static boolean loadToolbarBottom() {
@@ -154,7 +154,7 @@ public class NodeRenderer {
                 try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
                 return Boolean.parseBoolean(props.getProperty("toolbar_bottom", "false"));
             }
-        } catch (Exception e) { /* 忽略 */ }
+        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("Failed to load toolbar position", e); }
         return false;
     }
 

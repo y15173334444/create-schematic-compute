@@ -60,6 +60,12 @@ public record ControlSeatInputPacket(
 
     public void handle(IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
+            // 安全校验：距离检查（ControlSeat 输入来自骑乘玩家，不做编辑会话检查）
+            if (ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp) {
+                double dx = sp.getX() - pos.getX();
+                double dz = sp.getZ() - pos.getZ();
+                if (dx * dx + dz * dz > 16384.0) return;
+            }
             // ~ 键下马
             if (dismount) {
                 ctx.player().stopRiding();

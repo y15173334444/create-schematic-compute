@@ -204,6 +204,8 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  求值完成后向追踪客户端广播求值快照。 */
     protected void broadcastEvalSnapshot() {
         if (level instanceof ServerLevel sl) {
+            // 在快照前保存 debugTime 到 RuntimeState（用于 NBT 持久化）/ save debugTime before snapshot for NBT persistence
+            evaluator.saveDebugTimes(runtimeState);
             var snapshot = evaluator.captureSnapshot();
             PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(worldPosition),
                 new ClientboundGraphEvalPacket(worldPosition, snapshot.outputs(), snapshot.debugTimes(),

@@ -10,6 +10,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * 将 {@link NodeGraph} 编译为可执行形式，并在每个 tick 进行评估。
  * Compiles a {@link NodeGraph} into an executable form and evaluates it each tick.
@@ -23,6 +26,8 @@ import java.util.Map;
  * to read evaluation outputs for rendering.</p>
  */
 public class GraphEvaluator {
+    private static final Logger LOGGER = LoggerFactory.getLogger(GraphEvaluator.class);
+
     private final NodeGraph graph;
     private final Map<Integer, float[]> outputs = new HashMap<>();
     private net.minecraft.core.BlockPos radarPos = null;
@@ -63,6 +68,8 @@ public class GraphEvaluator {
      *  Must be called once after construction and before the first {@link #evaluate}. */
     public void restoreSubState(RuntimeState rs) {
         this.runtimeState = rs;
+        // 恢复主图 DEBUG_SIGNAL_GEN 相位 / restore main-graph DEBUG_SIGNAL_GEN phase
+        if (!rs.debugTime.isEmpty()) this.debugTime.putAll(rs.debugTime);
         for (var entry : rs.subStates.entrySet()) {
             int encapId = entry.getKey();
             RuntimeState.SubState ss = entry.getValue();
@@ -75,6 +82,20 @@ public class GraphEvaluator {
             if (!ss.pulseTimers.isEmpty()) {
                 subPulseTimers.put(encapId, new HashMap<>(ss.pulseTimers));
             }
+        }
+    }
+
+    /** 将当前 debugTime 相位写回 RuntimeState 以便 NBT 持久化。
+     *  Write accumulated debugTime phase state back to RuntimeState for NBT persistence. */
+    public void saveDebugTimes(RuntimeState rs) {
+        rs.debugTime.clear();
+        rs.debugTime.putAll(this.debugTime);
+        for (var entry : subEvaluators.entrySet()) {
+            int encapId = entry.getKey();
+            var subEval = entry.getValue();
+            var ss = rs.getOrCreateSubState(encapId);
+            ss.debugTime.clear();
+            ss.debugTime.putAll(subEval.debugTime);
         }
     }
 
@@ -767,6 +788,7 @@ public class GraphEvaluator {
                     try {
                         vars.put(assign.varName(), FormulaParser.evaluate(assign.rpn(), vars));
                     } catch (Exception e) {
+                        LOGGER.debug("FORMULA assign error var={}: {}", assign.varName(), e.getMessage());
                         vars.put(assign.varName(), 0.0);
                     }
                 }
@@ -777,6 +799,7 @@ public class GraphEvaluator {
                         o[oi] = (float)FormulaParser.evaluate(
                             oi < script.outputRpns.size() ? rpn : java.util.List.of(0.0), vars);
                     } catch (Exception e) {
+                        LOGGER.debug("FORMULA output error idx={}: {}", oi, e.getMessage());
                         o[oi] = 0;
                     }
                 }

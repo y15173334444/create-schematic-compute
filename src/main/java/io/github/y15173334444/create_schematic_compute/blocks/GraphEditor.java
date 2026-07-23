@@ -706,7 +706,7 @@ public class GraphEditor {
                     host.sendOp(op); recordOp(op, 0, 0, lastSent[0], null);
                     lastSent[0] = newV;
                 }
-            } catch (Exception e) {} });
+            } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
             s.fields.add(b);
             s.fieldParamIndices.add(i);
         }
@@ -851,7 +851,7 @@ public class GraphEditor {
                 int idx = pi;
                 var b = new EditBox(mc.font, 0, 0, 50, 16, Component.literal(""));
                 b.setMaxLength(8); b.setValue(ff3(node.params.length > idx ? node.params[idx] : defaults[idx]));
-                int iidx = idx; registerEnter(b, () -> { try { if (node.params.length > iidx) node.params[iidx] = Float.parseFloat(b.getValue().trim()); } catch (Exception e) {} });
+                int iidx = idx; registerEnter(b, () -> { try { if (node.params.length > iidx) node.params[iidx] = Float.parseFloat(b.getValue().trim()); } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
                 s.fields.add(b);
             }
             s.paramKeys = keys;
@@ -990,7 +990,7 @@ public class GraphEditor {
                         0, 0, lastSent[0], null);
                     lastSent[0] = newV;
                 }
-            } catch (Exception e) {} });
+            } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
             s.fields.add(b);
         }
 
@@ -1013,7 +1013,7 @@ public class GraphEditor {
                         0, 0, lastSent[0], null);
                     lastSent[0] = newV;
                 }
-            } catch (Exception e) {} });
+            } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
             s.fields.add(b);
         }
 
@@ -2189,7 +2189,7 @@ public class GraphEditor {
                                     importFiles = s.filter(p -> p.toString().endsWith(".nbt")).sorted().toList();
                                 }
                             } else importFiles = java.util.Collections.emptyList();
-                        } catch (Exception e) { importFiles = java.util.Collections.emptyList(); }
+                        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.warn("Failed to list import files: {}", e.getMessage()); importFiles = java.util.Collections.emptyList(); }
                     }
                     return true;
                 }

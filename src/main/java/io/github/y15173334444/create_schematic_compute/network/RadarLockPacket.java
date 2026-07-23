@@ -26,8 +26,15 @@ public record RadarLockPacket(BlockPos pos, int entityId, boolean lock) implemen
 
     public static void handle(RadarLockPacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
-            var level = ctx.player().level();
-            if (level == null) return;
+            // 安全校验：距离检查 + 编辑会话成员检查
+            if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
+            if (!(sp.level() instanceof net.minecraft.server.level.ServerLevel sl)) return;
+            double dx = sp.getX() - pkt.pos.getX();
+            double dz = sp.getZ() - pkt.pos.getZ();
+            if (dx * dx + dz * dz > 16384.0) return;
+            if (!io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.getEditors(sl, pkt.pos).contains(sp.getUUID()))
+                return;
+            var level = sp.level();
             var be = level.getBlockEntity(pkt.pos);
             if (be instanceof RadarBlockEntity radar) {
                 int nodeCount = 0;
