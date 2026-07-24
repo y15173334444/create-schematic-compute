@@ -1653,7 +1653,15 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
 
     @Override
     public boolean keyPressed(int key, int sc, int mod) {
-        if (editor.colorPicker.isVisible()) return editor.colorPicker.keyPressed(key, sc, mod);
+        if (editor.colorPicker.isVisible()) {
+            // ESC: close color picker AND pixel editor together (not just the picker)
+            // ESC：同时关闭调色板与像素编辑器
+            if (key == 256 && pixelEdit != null && pixelEdit.open) {
+                sendFrameSync(); pixelEdit = null; editor.colorPicker.close(); saveGraph();
+                return true;
+            }
+            return editor.colorPicker.keyPressed(key, sc, mod);
+        }
         // ── Global undo/redo (display mode + pixel editor; graph mode handled by GraphEditor) ──
         if (net.minecraft.client.gui.screens.Screen.hasControlDown()) {
             if (key == 90) { performUndo(); return true; }

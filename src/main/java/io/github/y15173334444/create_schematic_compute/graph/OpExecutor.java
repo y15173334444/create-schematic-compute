@@ -293,9 +293,30 @@ public final class OpExecutor {
                 if (n != null && op.imageData() != null && op.imageData().length > 0) {
                     int[] pixels = op.imageData();
                     n.imagePixels = pixels;
-                    if (n.type == NodeType.IMAGE_SEQUENCE && n.imageSequenceFrames != null
-                        && op.paramIndex() >= 0 && op.paramIndex() < n.imageSequenceFrames.size())
-                        n.imageSequenceFrames.set(op.paramIndex(), pixels.clone());
+                    if (n.type == NodeType.IMAGE_SEQUENCE) {
+                        // Lazily initialize imageSequenceFrames if this is the first
+                        // pixel data arriving (e.g. from remote ADD_NODE + flushCopyGroup).
+                        // Without this, imageSequenceFrames stays null forever, causing
+                        // save to skip frames and display to render nothing.
+                        // 延迟初始化 imageSequenceFrames（首次像素数据到达时）。
+                        // 否则 imageSequenceFrames 永远为 null，导致保存跳过帧且显示为空。
+                        if (n.imageSequenceFrames == null) {
+                            n.imageSequenceFrames = new java.util.ArrayList<>();
+                        }
+                        // Expand frames list to accommodate the incoming frame index
+                        // 扩展帧列表以容纳传入的帧索引
+                        int fi = op.paramIndex();
+                        while (n.imageSequenceFrames.size() <= fi) {
+                            int[] blank = new int[256];
+                            java.util.Arrays.fill(blank, 0x00000000);
+                            n.imageSequenceFrames.add(blank);
+                        }
+                        n.imageSequenceFrames.set(fi, pixels.clone());
+                        // Re-link imagePixels to the current frame so painting works
+                        // 将 imagePixels 重新链接到当前帧，确保绘制正常
+                        if (fi >= 0 && fi < n.imageSequenceFrames.size())
+                            n.imagePixels = n.imageSequenceFrames.get(fi);
+                    }
                     graph.bumpGeneration();
                 }
                 yield n;

@@ -3693,6 +3693,14 @@ public class GraphEditor {
         }
         // Color picker keyboard delegation (close callback handles panel cleanup)
         if (colorPicker.isVisible()) {
+            // ESC: close color picker AND comment color panel together
+            // ESC：同时关闭调色板与注释颜色面板
+            if (key == 256) {
+                colorPicker.close();
+                if (showColorConfig) { showColorConfig = false; return true; }
+                if (editingCommentColorNode != null && commentButtons != null) { closeCommentColorPopup(); return true; }
+                return true;
+            }
             return colorPicker.keyPressed(key, sc, mod);
         }
         // ESC closes open panels first, then falls through to close UI
