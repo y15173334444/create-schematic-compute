@@ -304,7 +304,8 @@ public class NodeRenderer {
                                     GraphNode primaryNode, java.util.Set<Integer> editNodeIds,
                                     java.util.Map<Integer, io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState> editStates,
                                     float camX, float camY, float zoom, int mx, int my,
-                                    Map<Integer, Boolean> flipflopStates) {
+                                    Map<Integer, Boolean> flipflopStates,
+                                    Map<Integer, String> lockedNodes) {
         expandedNodeIds = editNodeIds != null ? editNodeIds : java.util.Collections.emptySet();
         nodeEditStatesById = editStates != null ? editStates : java.util.Collections.emptyMap();
         int w = screen.width, h = screen.height;
@@ -317,7 +318,8 @@ public class NodeRenderer {
             if (sx + sw < -margin || sx > w + margin || sy + sh < -margin || sy > h + margin)
                 continue;
             drawCommentNode(g, n, selectedNodes.contains(n), n == primaryNode,
-                expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, false);
+                expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, false,
+                lockedNodes != null ? lockedNodes.get(n.id) : null);
         }
     }
 
@@ -346,7 +348,7 @@ public class NodeRenderer {
     /** Render a COMMENT node with sticky-note styling, edit button, resize handle, and markdown text. */
     private void drawCommentNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary,
                                   boolean editing, float camX, float camY, float zoom, int mx, int my,
-                                  boolean skipBackground) {
+                                  boolean skipBackground, String lockedBy) {
         float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
         float sw = n.commentWidth * zoom;
         float sh = n.commentHeight * zoom;
@@ -369,6 +371,23 @@ public class NodeRenderer {
         else if (selected) borderColor = 0xFFE6C060;           // light gold = selected
         else borderColor = n.commentBorderColor;                // custom = normal
         g.renderOutline(isx, isy, (int) sw, (int) sh, borderColor);
+        // Remote lock/selection indicator — golden border when another player has this comment selected
+        // 远程锁定/选中指示器 — 其他玩家选中此注释时显示金色边框
+        if (lockedBy != null && !lockedBy.isEmpty()) {
+            int lockCol = 0xFFD4A017;
+            g.renderOutline(isx - 2, isy - 2, (int) sw + 4, (int) sh + 4, lockCol);
+            g.renderOutline(isx - 3, isy - 3, (int) sw + 6, (int) sh + 6, lockCol);
+            int lw = Minecraft.getInstance().font.width(lockedBy);
+            int lx = isx + ((int) sw - lw) / 2;
+            int ly = isy - (int)(16 * zoom) - 2;
+            g.fill(lx - 3, ly - 2, lx + lw + 3, ly + (int)(12 * zoom), 0xCC2A2822);
+            var lockPose = g.pose();
+            lockPose.pushPose();
+            lockPose.translate(lx, ly, 0);
+            lockPose.scale(zoom, zoom, 1);
+            drawStr(g, "§e" + lockedBy, 0, 0, 0xFFFFAA44);
+            lockPose.popPose();
+        }
         // Editing banner — rendered above the node
         if (editing) {
             int bannerH = (int)(16 * zoom);

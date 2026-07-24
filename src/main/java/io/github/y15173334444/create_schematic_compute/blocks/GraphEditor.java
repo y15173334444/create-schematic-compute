@@ -142,30 +142,50 @@ public class GraphEditor {
         };
     }
 
-    /** Undo last local op (per-player, only reverts own actions). */
+    /** Undo last local op (per-player, only reverts own actions).
+     *  Batch-undoes consecutive MOVE_NODE entries so one Ctrl+Z undoes
+     *  an entire comment drag (comment + contained nodes) at once.
+     *  批量撤销连续的 MOVE_NODE 条目，使一次 Ctrl+Z 撤销整个注释拖动
+     * （注释本体 + 框内节点）。 */
     private void opUndo() {
         if (localUndoStack2.isEmpty()) return;
-        var e = localUndoStack2.remove(localUndoStack2.size() - 1);
-        var rev = reverseOp(e);
-        if (rev != null) {
-            localRedoStack2.add(e);
-            // Apply locally
-            var graph = getGraph();
-            io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(graph, rev);
-            // Send to server for broadcast
-            host.sendOp(rev);
+        // Collect consecutive MOVE_NODE entries (batch undo for comment drag)
+        // 收集连续的 MOVE_NODE 条目（注释拖动的批量撤销）
+        var batch = new java.util.ArrayList<UndoEntry>();
+        while (!localUndoStack2.isEmpty()
+            && localUndoStack2.get(localUndoStack2.size() - 1).op.type()
+                == io.github.y15173334444.create_schematic_compute.graph.OpType.MOVE_NODE) {
+            batch.add(localUndoStack2.remove(localUndoStack2.size() - 1));
+        }
+        // Reverse order: undo from oldest to newest so positions cascade correctly
+        // 逆序：从最旧到最新撤销，使位置级联正确
+        for (int i = batch.size() - 1; i >= 0; i--) {
+            var e = batch.get(i);
+            var rev = reverseOp(e);
+            if (rev != null) {
+                localRedoStack2.add(e);
+                io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), rev);
+                host.sendOp(rev);
+            }
         }
     }
 
-    /** Redo last undone local op. */
+    /** Redo last undone local op. Batch-redoes consecutive MOVE_NODE entries. */
     private void opRedo() {
         if (localRedoStack2.isEmpty()) return;
-        var e = localRedoStack2.remove(localRedoStack2.size() - 1);
-        localUndoStack2.add(e);
-        // Replay original op
-        var graph = getGraph();
-        io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(graph, e.op);
-        host.sendOp(e.op);
+        // Collect consecutive MOVE_NODE entries (batch redo for comment drag)
+        var batch = new java.util.ArrayList<UndoEntry>();
+        while (!localRedoStack2.isEmpty()
+            && localRedoStack2.get(localRedoStack2.size() - 1).op.type()
+                == io.github.y15173334444.create_schematic_compute.graph.OpType.MOVE_NODE) {
+            batch.add(localRedoStack2.remove(localRedoStack2.size() - 1));
+        }
+        for (int i = batch.size() - 1; i >= 0; i--) {
+            var e = batch.get(i);
+            localUndoStack2.add(e);
+            io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), e.op);
+            host.sendOp(e.op);
+        }
     }
 
     /** Remap a client-assigned temp node ID to the server-assigned real ID
@@ -393,6 +413,12 @@ public class GraphEditor {
     private int preDragSortB = 0;
     private final java.util.Map<GraphNode, Integer> preDragSortBs = new java.util.HashMap<>();
     private final java.util.List<GraphNode> containedDragNodes = new java.util.ArrayList<>();
+    // Comment push-aside: nodes pushed out of the way during comment drag (sync + undo)
+    // 注释撞开：拖动注释时被推开的框外节点（同步+撤销）
+    private final java.util.Set<GraphNode> pushedDragNodes = new java.util.HashSet<>();
+    private final java.util.Map<Integer, float[]> pushOrigins = new java.util.HashMap<>();
+    private final java.util.Map<Integer, float[]> containedOrigins = new java.util.HashMap<>();
+    private static final float PUSH_MARGIN = 4f;
     // Old position for MOVE_NODE undo (移动撤销旧坐标)
     private float preDragX, preDragY;
     private final java.util.Map<Integer, float[]> preDragPositions = new java.util.HashMap<>(); // H7: per-node pre-drag coords (每节点拖动前坐标)
@@ -1477,7 +1503,7 @@ public class GraphEditor {
         // ── A=1: Complete COMMENT nodes (bg, border, text) — container mats behind connections ──
         Map<Integer, Boolean> flipflopStates = host.getFlipflopStates();
         renderer.renderCommentNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds,
-            nodeEditStatesById, camX, camY, zoom, mx, my, flipflopStates);
+            nodeEditStatesById, camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
 
         // ── 子图 Back 按钮 ──
         if (isInSubGraph()) {
@@ -2779,9 +2805,12 @@ public class GraphEditor {
                 // (rendered first=behind), innermost=highest B (rendered last=on top)
                 preDragSortBs.clear();
                 containedDragNodes.clear();
+                containedOrigins.clear();
                 var depthMap = new java.util.HashMap<GraphNode, Integer>();
                 collectContainedNodesDepth(n2, depthMap, 1);
                 containedDragNodes.addAll(depthMap.keySet());
+                for (var cn : depthMap.keySet())
+                    containedOrigins.put(cn.id, new float[]{cn.x, cn.y});
                 int maxDepth = depthMap.values().stream().mapToInt(Integer::intValue).max().orElse(0);
                 for (var e : depthMap.entrySet()) {
                     GraphNode cn = e.getKey();
@@ -3201,12 +3230,32 @@ public class GraphEditor {
                 }
             }
             // Send MOVE ops for comment-contained nodes (moved locally by moveContainedNodes)
+            // + record for undo so Ctrl+Z moves them back together with the comment
+            // 发送框内节点的 MOVE op + 记录用于撤销，使 Ctrl+Z 同时回退内部节点
             if (draggingNode.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
                 for (var cn : preDragSortBs.keySet()) {
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                        host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID()));
+                    var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                        host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID());
+                    host.sendOp(op);
+                    float[] orig = containedOrigins.get(cn.id);
+                    if (orig != null) recordOp(op, orig[0], orig[1], 0, null);
                 }
             }
+            containedOrigins.clear();
+            // Send final MOVE ops for pushed-aside nodes (sync only, no undo).
+            // Pushed nodes stay at their new positions on Ctrl+Z — this is by design:
+            // if a pushed node was soft-locked by another player, undoing it would be confusing.
+            // 发送被撞开节点的最终 MOVE op（仅同步，不入撤销栈）。
+            // 被撞开节点不随 Ctrl+Z 归位 —— 设计如此：若被其他玩家软锁，撤回会令人困惑。
+            if (draggingNode.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
+                for (var pn : pushedDragNodes) {
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                        host.getBlockPos(), ownerNodeId(), pn.id, pn.x, pn.y, host.getPlayerUUID()));
+                }
+            }
+            pushedDragNodes.clear();
+            pushOrigins.clear();
+            containedOrigins.clear();
             preDragSortBs.clear();
             markDirty();
             // Sync Z-order to other editors
@@ -3495,7 +3544,17 @@ public class GraphEditor {
             float dx = nx - oldX, dy = ny - oldY;
             draggingNode.x = nx; draggingNode.y = ny;
             moveContainedNodes(draggingNode, dx, dy);
-            // Real-time drag sync (throttled) — include contained nodes
+            // Push aside overlapping out-of-bounds nodes (MTV on shortest axis)
+            // 撞开重叠的框外节点（最短轴 MTV）
+            pushedDragNodes.clear();
+            pushAsideNodes(draggingNode, pushedDragNodes);
+            if (gridSnapEnabled) {
+                for (var pn : pushedDragNodes) {
+                    pn.x = Math.round(pn.x / NodeRenderer.GS) * NodeRenderer.GS;
+                    pn.y = Math.round(pn.y / NodeRenderer.GS) * NodeRenderer.GS;
+                }
+            }
+            // Real-time drag sync (throttled) — include contained + pushed nodes
             long now3 = System.currentTimeMillis();
             if (now3 - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
                 lastDragSendTime = now3;
@@ -3504,6 +3563,9 @@ public class GraphEditor {
                 for (var cn : containedDragNodes)
                     host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                         host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID()));
+                for (var pn : pushedDragNodes)
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                        host.getBlockPos(), ownerNodeId(), pn.id, pn.x, pn.y, host.getPlayerUUID()));
             }
             markDirty();
             return;
@@ -4156,6 +4218,69 @@ public class GraphEditor {
                     moveContainedNodes(n, dx, dy, moved);
                 }
             }
+        }
+    }
+
+    /** Push aside nodes that the comment rectangle overlaps but does NOT fully contain.
+     *  Uses MTV (Minimum Translation Vector) to push nodes out along the shortest axis.
+     *  Skips nodes locked by other players. Records original positions for undo.
+     *  将被注释矩形覆盖但不完全包含的节点推开。使用 MTV（最小平移向量）沿最短轴推出。
+     *  跳过被其他玩家锁定的节点。记录原始位置用于撤销。 */
+    private void pushAsideNodes(GraphNode comment, java.util.Set<GraphNode> out) {
+        float commentH = fullNodeHeight(comment);
+        float x0 = comment.x, y0 = comment.y;
+        float x1 = comment.x + comment.commentWidth, y1 = comment.y + commentH;
+        // Iterate all nodes directly instead of using spatialIndex.queryRect.
+        // The spatial index was built at frame start with old positions and its own
+        // nwStatic/nhStatic sizing, which disagrees with NodeRenderer.nw/fullNodeHeight
+        // used by moveContainedNodes — causing inconsistent collision detection.
+        // 直接遍历所有节点而非使用 spatialIndex.queryRect。
+        // spatialIndex 在帧开始时用旧位置和自身的 nwStatic/nhStatic 构建，
+        // 与 moveContainedNodes 使用的 NodeRenderer.nw/fullNodeHeight 不一致，
+        // 导致碰撞检测不一致。
+        for (var n : getGraph().nodes) {
+            if (n == comment || out.contains(n)) continue;
+            // Comments can nest — don't push aside other comments (they move with their own parent)
+            // 注释可以嵌套 — 不推开其他注释（它们随自己的父级移动）
+            if (n.type == NodeType.COMMENT) continue;
+            if (isNodeLockedByOther(n.id, ownerNodeId())) continue;
+            float nw = NodeRenderer.nw(n);
+            float nh = fullNodeHeight(n);
+            // Skip nodes that were already pushed aside by this drag session
+            // 跳过已在本次拖拽中被推开的节点
+            float nx0 = n.x, ny0 = n.y, nx1 = n.x + nw, ny1 = n.y + nh;
+            // Fully inside → handled by moveContainedNodes, skip
+            // 完全在内部 → 由 moveContainedNodes 处理，跳过
+            if (nx0 >= x0 && nx1 <= x1 && ny0 >= y0 && ny1 <= y1) continue;
+            // No overlap → skip
+            // 无重叠 → 跳过
+            if (nx0 >= x1 || nx1 <= x0 || ny0 >= y1 || ny1 <= y0) continue;
+            // Compute penetration on each axis
+            // 计算各轴穿透量
+            float penLeft = nx1 - x0, penRight = x1 - nx0;
+            float penUp = ny1 - y0, penDown = y1 - ny0;
+            float minX = Math.min(penLeft, penRight);
+            float minY = Math.min(penUp, penDown);
+            float dx, dy;
+            if (minX < minY) {
+                dx = (penLeft <= penRight ? -penLeft : penRight);
+                dy = 0;
+            } else {
+                dx = 0;
+                dy = (penUp <= penDown ? -penUp : penDown);
+            }
+            // Add margin to prevent re-collision next frame
+            // 加间距防止下一帧又相交抖动
+            if (dx < -0.01f) dx -= PUSH_MARGIN;
+            else if (dx > 0.01f) dx += PUSH_MARGIN;
+            if (dy < -0.01f) dy -= PUSH_MARGIN;
+            else if (dy > 0.01f) dy += PUSH_MARGIN;
+            n.x += dx; n.y += dy;
+            // Record original position for undo (only on first push)
+            // 记录原始位置用于撤销（仅首次撞开时）
+            if (!pushOrigins.containsKey(n.id))
+                pushOrigins.put(n.id, new float[]{nx0, ny0});
+            out.add(n);
         }
     }
 
