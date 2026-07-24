@@ -56,6 +56,7 @@ public class ControlSeatInputHandler {
     private static volatile float joystickX = 0, joystickY = 0;
     private static volatile boolean wantDismount = false;
     private static volatile boolean wasGuiOpen = false;
+    private static volatile int savedHotbarSlot = -1; // 乘坐时锁定的物品栏槽位
 
     // ═══════════════════════════════════════
     //  Pre — 摇杆值来自 Mixin 导出的原始 delta
@@ -71,6 +72,15 @@ public class ControlSeatInputHandler {
         boolean guiOpen = mc.screen != null;
 
         if (seated) {
+            // 锁定物品栏：禁止数字键切槽、禁止鼠标破坏/放置方块
+            // Lock hotbar: prevent number-key slot switching, prevent block breaking/placing
+            if (savedHotbarSlot < 0) savedHotbarSlot = mc.player.getInventory().selected;
+            mc.player.getInventory().selected = savedHotbarSlot;
+            // 持续消耗所有交互按键，阻止 Minecraft 默认处理
+            // Continuously consume all interaction keys to block Minecraft default handling
+            mc.options.keyAttack.setDown(false);
+            mc.options.keyUse.setDown(false);
+            mc.options.keyPickItem.setDown(false);
             mc.options.keyInventory.consumeClick();
             mc.options.keyDrop.consumeClick();
             mc.options.keySwapOffhand.consumeClick();
@@ -79,6 +89,10 @@ public class ControlSeatInputHandler {
             mc.options.keyAdvancements.consumeClick();
             mc.options.keyAttack.consumeClick();
             mc.options.keyUse.consumeClick();
+            mc.options.keyPickItem.consumeClick();
+            for (int i = 0; i < 9; i++) mc.options.keyHotbarSlots[i].consumeClick();
+        } else {
+            savedHotbarSlot = -1;
         }
 
         if (seated && GLFW.glfwGetKey(window, GLFW.GLFW_KEY_GRAVE_ACCENT) == GLFW.GLFW_PRESS) {
@@ -150,6 +164,7 @@ public class ControlSeatInputHandler {
         int mouseBtns = 0;
         if (GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS) mouseBtns |= 1;
         if (GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_RIGHT) == GLFW.GLFW_PRESS) mouseBtns |= 2;
+        if (GLFW.glfwGetMouseButton(window, GLFW.GLFW_MOUSE_BUTTON_MIDDLE) == GLFW.GLFW_PRESS) mouseBtns |= 4;
 
         float gLX = 0, gLY = 0, gRX = 0, gRY = 0, gLT = 0, gRT = 0;
         long gBtns = 0;
@@ -187,7 +202,7 @@ public class ControlSeatInputHandler {
             vp = mc.player.getXRot();
         }
 
-        long extKeyBits = keyBits | ((long)(mouseBtns & 3) << 58);
+        long extKeyBits = keyBits | ((long)(mouseBtns & 7) << 58); // L/R/M buttons → bits 58-60
         PacketDistributor.sendToServer(new ControlSeatInputPacket(
             seatPos, extKeyBits, mx, my, vy, vp, inputMode,
             mouseBtns, gLX, gLY, gRX, gRY, gLT, gRT, gBtns, wantDismount
