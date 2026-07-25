@@ -92,31 +92,62 @@ public class GraphEditor {
     /** 每个图的最大节点数上限（含主图和每个封装子图） (Max nodes per graph, including main graph and each encapsulated sub-graph) */
     public static final int MAX_NODES = 1024;
 
-    // ── Static undo/redo stacks (shared across all editor instances) ──
-    private static final List<CompoundTag> undoStack = new ArrayList<>();
-    private static final List<CompoundTag> redoStack = new ArrayList<>();
-    private static final int MAX_UNDO = 50;
+    // ── Per-instance op-based undo (collaboration-safe) ──
+    private static final class UndoEntry {
+        io.github.y15173334444.create_schematic_compute.graph.GraphOp op; // mutable for ID remapping
+        final float oldX, oldY, oldVal;
+        final String oldStr;
+        final java.util.List<UndoEntry> batch; // null = single op; non-null = batch marker
+        UndoEntry(io.github.y15173334444.create_schematic_compute.graph.GraphOp op,
+                  float oldX, float oldY, float oldVal, String oldStr) {
+            this.op = op; this.oldX = oldX; this.oldY = oldY; this.oldVal = oldVal; this.oldStr = oldStr;
+            this.batch = null;
+        }
+        UndoEntry(java.util.List<UndoEntry> batch) { this.op = null; this.oldX = this.oldY = this.oldVal = 0; this.oldStr = null; this.batch = batch; }
+        boolean isBatch() { return batch != null; }
+    }
+    private final java.util.ArrayDeque<UndoEntry> undoStack2 = new java.util.ArrayDeque<>();
+    private final java.util.ArrayDeque<UndoEntry> redoStack2 = new java.util.ArrayDeque<>();
+    private static final int MAX_UNDO2 = 100;
+    private int batchDepth = 0;
+    private final java.util.List<UndoEntry> currentBatch = new java.util.ArrayList<>();
 
-    /** Check if undo stack is empty */
-    public static boolean isUndoEmpty() { return undoStack.isEmpty(); }
+    /** Start a batch undo group. All recordOp calls between begin/end are
+     *  treated as one atomic undo unit (one Ctrl+Z undoes the whole group).
+     *  开始批量撤销组。begin/end 之间的所有 recordOp 调用被视为一个原子撤销单元。 */
+    void beginUndoBatch() {
+        if (batchDepth > 0) { batchDepth = 0; currentBatch.clear(); } // safety: discard stale batch
+        batchDepth++;
+    }
+    /** End a batch undo group. / 结束批量撤销组。 */
+    void endUndoBatch() {
+        if (batchDepth <= 0) return;
+        batchDepth--;
+        if (batchDepth == 0 && !currentBatch.isEmpty()) {
+            undoStack2.add(new UndoEntry(new java.util.ArrayList<>(currentBatch)));
+            while (undoStack2.size() > MAX_UNDO2) undoStack2.removeFirst();
+            currentBatch.clear();
+            redoStack2.clear();
+        }
+    }
+    /** Abandon any incomplete batch (called at start of new actions to prevent stack freeze).
+     *  丢弃任何未完成的批量组（在新操作开始时调用，防止栈冻结）。 */
+    private void resetBatch() {
+        if (batchDepth > 0) { batchDepth = 0; currentBatch.clear(); }
+    }
 
-    /** Access the static undo/redo stacks (for direct manipulation by MonitorScreen) */
-    public static java.util.List<net.minecraft.nbt.CompoundTag> undoStack() { return undoStack; }
-    public static java.util.List<net.minecraft.nbt.CompoundTag> redoStack() { return redoStack; }
-
-    // ── Op-based per-player undo (collaboration-safe) ──
-    private record UndoEntry(io.github.y15173334444.create_schematic_compute.graph.GraphOp op,
-                             float oldX, float oldY, float oldVal, String oldStr) {}
-    private final List<UndoEntry> localUndoStack2 = new ArrayList<>();
-    private final List<UndoEntry> localRedoStack2 = new ArrayList<>();
-    private static final int MAX_LOCAL_UNDO = 100;
-
-    /** Record an emitted op for per-player undo. Call AFTER sendOp. */
+    /** Record an emitted op for per-player undo. Call AFTER sendOp.
+     *  If inside a batch, the op is deferred until endUndoBatch(). */
     private void recordOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op,
                           float oldX, float oldY, float oldVal, String oldStr) {
-        localUndoStack2.add(new UndoEntry(op, oldX, oldY, oldVal, oldStr));
-        if (localUndoStack2.size() > MAX_LOCAL_UNDO) localUndoStack2.remove(0);
-        localRedoStack2.clear(); // new action invalidates redo
+        var entry = new UndoEntry(op, oldX, oldY, oldVal, oldStr);
+        if (batchDepth > 0) {
+            currentBatch.add(entry);
+        } else {
+            undoStack2.add(entry);
+            while (undoStack2.size() > MAX_UNDO2) undoStack2.removeFirst();
+            redoStack2.clear();
+        }
     }
 
     /** Generate the reverse op for an undo entry, or null if not reversible. */
@@ -128,63 +159,163 @@ public class GraphEditor {
         return switch (op.type()) {
             case ADD_NODE -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE, bp, oid, op.targetNodeId(), uid);
+            case ADD_NODE_REQUEST -> {
+                // Use targetNodeId if ACK has remapped it; fall back to oldVal (local node id)
+                // 如果 ACK 已重映射则用 targetNodeId；否则用 oldVal（本地节点 ID）
+                int nid = op.targetNodeId() > 0 ? op.targetNodeId() : (int)e.oldVal;
+                yield new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                    io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE, bp, oid, nid, uid);
+            }
+            case REMOVE_NODE -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE, bp, oid, op.targetNodeId(),
+                op.tempId(), io.github.y15173334444.create_schematic_compute.graph.NodeType.values()[(int)e.oldVal],
+                e.oldX, e.oldY, 0, 0, 0, 0, 0, 0f,
+                e.oldStr, 0, 0, 0, 0, null, 0, 0, 0,
+                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
             case MOVE_NODE -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(bp, oid, op.targetNodeId(), e.oldX, e.oldY, uid);
             case ADD_CONN -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(bp, oid, op.fromId(), op.fromPin(), op.toId(), op.toPin(), uid);
+            case REMOVE_CONN -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(bp, oid,
+                (int)e.oldX, (int)e.oldY, (int)e.oldVal, op.toPin(), uid);
             case SET_PARAM -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(bp, oid, op.targetNodeId(), op.paramIndex(), e.oldVal, uid);
             case SET_FORMULA -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(bp, oid, op.targetNodeId(), e.oldStr, uid);
+            case SET_DISPLAY_TEXT -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT, bp, oid, op.targetNodeId(),
+                0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+                e.oldStr, 0, 0, 0, 0, null, 0, 0, 0,
+                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
+            case SET_COMMENT_SIZE -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
+                bp, oid, op.targetNodeId(), e.oldX, e.oldY, uid);
             case SET_COMMENT_TEXT -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_TEXT, bp, oid, op.targetNodeId(), 0, null, 0f, 0f,
                 0, 0, 0, 0, 0, 0f, e.oldStr, 0, 0, 0, 0, null, 0, 0, 0,
                 net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
+            case SET_COMMENT_COLORS -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_COLORS, bp, oid, op.targetNodeId(),
+                0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+                null, (int)e.oldX, (int)e.oldY, (int)e.oldVal, 0, null, 0, 0, 0,
+                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
+            case SET_HOTBAR_ITEM -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setHotbarItem(
+                bp, oid, op.targetNodeId(), op.hotbarSlot(),
+                restoreItemFromNbt(e.oldStr), uid);
+            case SET_IMAGE_FRAME_TOGGLE -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_FRAME_TOGGLE, bp, oid, op.targetNodeId(),
+                0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+                null, 0, 0, 0, 0, null, 0, op.imageFrameIndex(), 0,
+                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
+            case SET_KEY_BINDING -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_KEY_BINDING, bp, oid, op.targetNodeId(),
+                0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+                null, 0, 0, 0, 0, null, (int)e.oldVal, 0, 0,
+                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
+            case SET_TEXT_COLOR -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setTextColor(
+                bp, oid, op.targetNodeId(), (int)e.oldVal, uid);
+            case SET_CTRL_POINTS -> {
+                float[][] parsed = io.github.y15173334444.create_schematic_compute.graph.GraphOp.parseCtrlPoints(e.oldStr);
+                yield parsed != null
+                    ? io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
+                        bp, oid, op.targetNodeId(), parsed[0], parsed[1], uid)
+                    : null;
+            }
             case TOGGLE_BOOL -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL, bp, oid, op.targetNodeId(), uid);
             default -> null;
         };
     }
 
-    /** Undo last local op (per-player, only reverts own actions).
-     *  Batch-undoes consecutive MOVE_NODE entries so one Ctrl+Z undoes
-     *  an entire comment drag (comment + contained nodes) at once.
-     *  批量撤销连续的 MOVE_NODE 条目，使一次 Ctrl+Z 撤销整个注释拖动
-     * （注释本体 + 框内节点）。 */
-    private void opUndo() {
-        if (localUndoStack2.isEmpty()) return;
-        // Collect consecutive MOVE_NODE entries (batch undo for comment drag)
-        // 收集连续的 MOVE_NODE 条目（注释拖动的批量撤销）
-        var batch = new java.util.ArrayList<UndoEntry>();
-        while (!localUndoStack2.isEmpty()
-            && localUndoStack2.get(localUndoStack2.size() - 1).op.type()
-                == io.github.y15173334444.create_schematic_compute.graph.OpType.MOVE_NODE) {
-            batch.add(localUndoStack2.remove(localUndoStack2.size() - 1));
+    /** Encode control point arrays to a string (x0,y0;x1,y1;...), same format as GraphOp.setCtrlPoints. */
+    private static String encodeCtrlPoints(float[] cx, float[] cy) {
+        var sb = new StringBuilder();
+        for (int i = 0; i < cx.length; i++) {
+            if (i > 0) sb.append(';');
+            sb.append(cx[i]).append(',').append(cy[i]);
         }
-        // Reverse order: undo from oldest to newest so positions cascade correctly
-        // 逆序：从最旧到最新撤销，使位置级联正确
-        for (int i = batch.size() - 1; i >= 0; i--) {
-            var e = batch.get(i);
-            var rev = reverseOp(e);
+        return sb.toString();
+    }
+
+    /** Parse an ItemStack from its NBT string representation (saved via saveOptional). */
+    private static net.minecraft.world.item.ItemStack restoreItemFromNbt(String nbtStr) {
+        if (nbtStr == null || nbtStr.isEmpty()) return net.minecraft.world.item.ItemStack.EMPTY;
+        try {
+            var tag = net.minecraft.nbt.TagParser.parseTag(nbtStr);
+            if (tag instanceof net.minecraft.nbt.CompoundTag ct)
+                return net.minecraft.world.item.ItemStack.parseOptional(
+                    net.minecraft.client.Minecraft.getInstance().level.registryAccess(), ct);
+        } catch (Exception e) {
+            io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("restoreItemFromNbt failed", e);
+        }
+        return net.minecraft.world.item.ItemStack.EMPTY;
+    }
+
+    /** Save a node to NBT string for undo snapshot (REMOVE_NODE restore).
+     *  将节点保存为 NBT 字符串，用于撤销快照（REMOVE_NODE 恢复）。 */
+    private String saveNodeNbt(io.github.y15173334444.create_schematic_compute.graph.GraphNode node) {
+        try {
+            var lvl = net.minecraft.client.Minecraft.getInstance().level;
+            if (lvl != null) return node.save(lvl.registryAccess()).toString();
+        } catch (Exception e) {
+            io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("saveNodeNbt failed", e);
+        }
+        return "";
+    }
+
+    /** Commit any pending EditBox edit (enterAction) before undo/redo so the
+     *  current edit session is captured in the undo stack.
+     *  在撤销/重做前提交任何未完成的 EditBox 编辑，确保当前编辑会话入栈。 */
+    private void commitFocusedEditBox() {
+        for (var e : enterActions.entrySet()) {
+            if (e.getKey().isFocused()) { e.getValue().run(); break; }
+        }
+    }
+
+    /** Undo last entry (single op or batch). One Ctrl+Z = one call.
+     *  撤销最后一个条目（单条 op 或批量组）。一次 Ctrl+Z = 一次调用。 */
+    private void opUndo() {
+        var entry = undoStack2.pollLast();
+        if (entry == null) return;
+        if (entry.isBatch()) {
+            // Undo batch in reverse order (newest op first so positions cascade correctly)
+            // 逆序撤销批量组中的 op（最新 op 先撤销，使位置级联正确）
+            var batch = entry.batch;
+            var redone = new java.util.ArrayList<UndoEntry>();
+            for (int i = batch.size() - 1; i >= 0; i--) {
+                var e = batch.get(i);
+                var rev = reverseOp(e);
+                if (rev != null) {
+                    redone.add(e);
+                    io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), rev);
+                    host.sendOp(rev);
+                }
+            }
+            // Push entire batch as one redo entry
+            java.util.Collections.reverse(redone);
+            redoStack2.add(new UndoEntry(redone));
+        } else {
+            var rev = reverseOp(entry);
             if (rev != null) {
-                localRedoStack2.add(e);
+                redoStack2.add(entry);
                 io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), rev);
                 host.sendOp(rev);
             }
         }
     }
 
-    /** Redo last undone local op. Batch-redoes consecutive MOVE_NODE entries. */
+    /** Redo last undone entry (single op or batch). */
     private void opRedo() {
-        if (localRedoStack2.isEmpty()) return;
-        // Collect consecutive MOVE_NODE entries (batch redo for comment drag)
-        var batch = new java.util.ArrayList<UndoEntry>();
-        while (!localRedoStack2.isEmpty()
-            && localRedoStack2.get(localRedoStack2.size() - 1).op.type()
-                == io.github.y15173334444.create_schematic_compute.graph.OpType.MOVE_NODE) {
-            batch.add(localRedoStack2.remove(localRedoStack2.size() - 1));
-        }
-        for (int i = batch.size() - 1; i >= 0; i--) {
-            var e = batch.get(i);
-            localUndoStack2.add(e);
-            io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), e.op);
-            host.sendOp(e.op);
+        var entry = redoStack2.pollLast();
+        if (entry == null) return;
+        if (entry.isBatch()) {
+            var batch = entry.batch;
+            var redone = new java.util.ArrayList<UndoEntry>();
+            for (var e : batch) {
+                redone.add(e);
+                io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), e.op);
+                host.sendOp(e.op);
+            }
+            undoStack2.add(new UndoEntry(redone));
+        } else {
+            undoStack2.add(entry);
+            io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), entry.op);
+            host.sendOp(entry.op);
         }
     }
 
@@ -209,22 +340,27 @@ public class GraphEditor {
             if (c.fromId == tid) c.fromId = rid;
             if (c.toId == tid) c.toId = rid;
         }
-        // Update undo/redo stacks (ops targeting this node)
-        for (int i = 0; i < localUndoStack2.size(); i++) {
-            var entry = localUndoStack2.get(i);
-            var op = entry.op;
-            if (op.targetNodeId() == tid) op = withTargetId(op, rid);
-            if (op.fromId() == tid) op = withFromToId(op, rid, op.toId());
-            if (op.toId() == tid) op = withFromToId(op, op.fromId(), rid);
-            if (op != entry.op) localUndoStack2.set(i, new UndoEntry(op, entry.oldX(), entry.oldY(), entry.oldVal(), entry.oldStr()));
+        // Update undo/redo stacks (ops targeting or referencing this temp node ID)
+        // ADD_NODE_REQUEST entries store the temp ID in op.tempId(), not op.targetNodeId().
+        // 更新 undo/redo 栈（目标或引用此临时节点 ID 的操作）。
+        // ADD_NODE_REQUEST 条目将临时 ID 存储在 op.tempId() 中，而非 op.targetNodeId()。
+        for (var entry : undoStack2) {
+            if (entry.isBatch()) {
+                for (var be : entry.batch) {
+                    remapEntryOp(be, tid, rid);
+                }
+            } else {
+                remapEntryOp(entry, tid, rid);
+            }
         }
-        for (int i = 0; i < localRedoStack2.size(); i++) {
-            var entry = localRedoStack2.get(i);
-            var op = entry.op;
-            if (op.targetNodeId() == tid) op = withTargetId(op, rid);
-            if (op.fromId() == tid) op = withFromToId(op, rid, op.toId());
-            if (op.toId() == tid) op = withFromToId(op, op.fromId(), rid);
-            if (op != entry.op) localRedoStack2.set(i, new UndoEntry(op, entry.oldX(), entry.oldY(), entry.oldVal(), entry.oldStr()));
+        for (var entry : redoStack2) {
+            if (entry.isBatch()) {
+                for (var be : entry.batch) {
+                    remapEntryOp(be, tid, rid);
+                }
+            } else {
+                remapEntryOp(entry, tid, rid);
+            }
         }
         // UI selections
         if (selectedNode != null && selectedNode.id == tid) selectedNode = node;
@@ -268,45 +404,19 @@ public class GraphEditor {
             op.hotbarSlot(), op.itemStack(), op.editVersion(), op.actor());
     }
 
-    /** Take an undo snapshot of the given graph */
-    public static void takeSnapshot(NodeGraph graph, HolderLookup.Provider reg) {
-        try {
-            undoStack.add(graph.save(reg));
-            redoStack.clear();
-            while (undoStack.size() > MAX_UNDO) undoStack.remove(0);
-        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("takeSnapshot", e); }
-    }
-
-    /** Restore the host's graph from the undo stack */
-    public static void performUndo(Host host, HolderLookup.Provider reg) {
-        if (undoStack.isEmpty()) return;
-        try {
-            redoStack.add(host.getGraph().save(reg));
-            NodeGraph restored = NodeGraph.load(undoStack.remove(undoStack.size() - 1), reg);
-            replaceGraph(host, restored);
-        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("performUndo", e); }
-    }
-
-    /** Restore the host's graph from the redo stack */
-    public static void performRedo(Host host, HolderLookup.Provider reg) {
-        if (redoStack.isEmpty()) return;
-        try {
-            undoStack.add(host.getGraph().save(reg));
-            NodeGraph restored = NodeGraph.load(redoStack.remove(redoStack.size() - 1), reg);
-            replaceGraph(host, restored);
-        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("performRedo", e); }
-    }
-
-    private static void replaceGraph(Host host, NodeGraph restored) {
-        var current = host.getGraph();
-        current.nodes.clear();
-        current.connections.clear();
-        current.nodes.addAll(restored.nodes);
-        current.connections.addAll(restored.connections);
-        current.nextNodeId = restored.nextNodeId;
-        current.nextLayerIndex = restored.nextLayerIndex;
-        current.rebuildNodeMap();
-        current.bumpGeneration();
+    /** Remap one UndoEntry's op when the server assigns real ID for temp ID.
+     *  当服务器为临时 ID 分配真实 ID 时，重映射单个 UndoEntry 的操作。 */
+    private static void remapEntryOp(UndoEntry be, int tid, int rid) {
+        var op = be.op;
+        // ADD_NODE_REQUEST: temp ID is in tempId(), targetNodeId is 0 placeholder
+        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE_REQUEST
+            && op.tempId() == tid) {
+            be.op = withTargetId(op, rid);
+            return;
+        }
+        if (op.targetNodeId() == tid) be.op = withTargetId(op, rid);
+        if (op.fromId() == tid) be.op = withFromToId(op, rid, op.toId());
+        if (op.toId() == tid) be.op = withFromToId(op, op.fromId(), rid);
     }
 
     // 编辑状态 (Edit state)
@@ -339,6 +449,7 @@ public class GraphEditor {
     // DEBUG_SIGNAL_GEN 控制点拖拽 / control point drag
     private int draggingCtrlNode = -1;
     private int draggingCtrlIdx = -1;
+    private String preDragCtrlStr = ""; // control point string before drag, for undo
     private boolean ctrlPointsChanged = false; // true if any control point was modified since last sync
     private long lastClickMs = 0; // 双击检测 / double-click detection
     // DEBUG_SIGNAL_GEN x 标记拖拽 / x marker drag
@@ -438,7 +549,12 @@ public class GraphEditor {
      *  owner = 当前作用域（-1=主图，>0=封装节点 ID）/ current scope (-1=main graph, >0=encap node ID). */
     public boolean isNodeLocked(int nodeId, int owner) {
         for (var p : remotePresences.values()) {
-            if (p.ownerNodeId() == owner && p.editingNodeId() == nodeId) return true;
+            if (p.ownerNodeId() != owner) continue;
+            if (p.editingNodeId() == nodeId) return true;
+            if (p.selectedNodeIds() != null) {
+                for (int id : p.selectedNodeIds())
+                    if (id == nodeId) return true;
+            }
         }
         return false;
     }
@@ -488,8 +604,14 @@ public class GraphEditor {
     /** Check if a node is selected/edited by another player in the same scope (soft lock).
      *  owner = 当前作用域（-1=主图，>0=封装节点 ID）/ current scope (-1=main graph, >0=encap node ID). */
     private boolean isNodeLockedByOther(int nodeId, int owner) {
-        for (var rp : remotePresences.values())
-            if (rp.ownerNodeId() == owner && (rp.selectedNodeId() == nodeId || rp.editingNodeId() == nodeId)) return true;
+        for (var rp : remotePresences.values()) {
+            if (rp.ownerNodeId() != owner) continue;
+            if (rp.selectedNodeId() == nodeId || rp.editingNodeId() == nodeId) return true;
+            if (rp.selectedNodeIds() != null) {
+                for (int id : rp.selectedNodeIds())
+                    if (id == nodeId) return true;
+            }
+        }
         return false;
     }
 
@@ -504,11 +626,13 @@ public class GraphEditor {
         int wfp = draggingWire ? wireFromPin : -1;
         float wex = draggingWire ? wireEndX : 0;
         float wey = draggingWire ? wireEndY : 0;
+        // Collect all selected node IDs for multi-select lock display
+        int[] selIds = selectedNodes.stream().mapToInt(n -> n.id).toArray();
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(
             new io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket(
                 host.getBlockPos(), host.getPlayerUUID(), host.getPlayerName(),
                 ownerNodeId(), s2cX(lastMouseX), s2cY(lastMouseY),
-                selId, editId, wfn, wfp, wex, wey));
+                selId, editId, wfn, wfp, wex, wey, selIds));
     }
 
     // ── Comment node interaction state ──
@@ -516,6 +640,7 @@ public class GraphEditor {
     private int lastClickNodeId = -1;
     private GraphNode resizingComment = null;
     private float resizeStartW, resizeStartH;
+    private final java.util.Map<Integer, float[]> resizeStartNodePositions = new java.util.HashMap<>();
     private GraphNode editingCommentColorNode = null;
     private ColorPickerButton[] commentButtons = null; // created when popup opens
     private final java.util.Map<Integer, Integer> commentScrollOffsets = new java.util.HashMap<>();
@@ -738,17 +863,25 @@ public class GraphEditor {
             var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
             b.setValue(ff3(node.params[i]));
-            final float[] lastSent = {node.params[idx]};
+            final float[] preEditParam = {node.params[idx]}; // captured before edit session / 编辑会话开始前捕获
+            final float[] lastSentParam = {node.params[idx]};
             b.setResponder(text -> { try {
                 if (suppressEditBoxResponder) return; // remote SET_PARAM setValue → don't echo back
                 float newV = Float.parseFloat(text.trim());
-                if (Math.abs(newV - lastSent[0]) > 0.0001f) {
+                if (Math.abs(newV - lastSentParam[0]) > 0.0001f) {
                     node.params[idx] = newV;
                     var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(host.getBlockPos(), ownerNodeId(), node.id, idx, newV, host.getPlayerUUID());
-                    host.sendOp(op); recordOp(op, 0, 0, lastSent[0], null);
-                    lastSent[0] = newV;
+                    host.sendOp(op); // sync to server, undo recorded on commit / 同步到服务器，撤销在提交时记录
+                    lastSentParam[0] = newV;
                 }
             } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
+            enterActions.put(b, () -> {
+                if (Math.abs(lastSentParam[0] - preEditParam[0]) > 0.0001f) {
+                    var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(host.getBlockPos(), ownerNodeId(), node.id, idx, lastSentParam[0], host.getPlayerUUID());
+                    recordOp(op, 0, 0, preEditParam[0], null);
+                    preEditParam[0] = lastSentParam[0];
+                }
+            });
             s.fields.add(b);
             s.fieldParamIndices.add(i);
         }
@@ -757,19 +890,29 @@ public class GraphEditor {
         if (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT) {
             var sb = new EditBox(mc.font, 0, 0, 120, 16, Component.literal(""));
             sb.setMaxLength(32); sb.setValue(node.signalName);
+            final String[] preEditSig = {node.signalName}; // initial value for undo
             final String[] lastSig = {node.signalName};
             sb.setResponder(text -> {
                 if (!text.equals(lastSig[0])) {
-                    String prev = lastSig[0];
                     node.signalName = text;
-                    // Send as SET_DISPLAY_TEXT since signalName uses displayText-like semantics
                     var op = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                         io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,
                         host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
                         0, 0, 0, 0, 0, 0f, text, 0, 0, 0, 0, null, 0, 0, 0,
                         net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
-                    host.sendOp(op); recordOp(op, 0, 0, 0, prev);
+                    host.sendOp(op); // sync, undo recorded on commit / 同步，撤销在提交时记录
                     lastSig[0] = text;
+                }
+            });
+            enterActions.put(sb, () -> {
+                if (!lastSig[0].equals(preEditSig[0])) {
+                    var op = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                        io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,
+                        host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
+                        0, 0, 0, 0, 0, 0f, lastSig[0], 0, 0, 0, 0, null, 0, 0, 0,
+                        net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
+                    recordOp(op, 0, 0, 0, preEditSig[0]);
+                    preEditSig[0] = lastSig[0];
                 }
             });
             s.fields.add(sb);
@@ -844,30 +987,42 @@ public class GraphEditor {
         if (node.type == NodeType.TEXT) {
             var tb = new EditBox(mc.font, 0, 0, 120, 16, Component.literal(""));
             tb.setMaxLength(256); tb.setValue(node.displayText);
+            final String[] preEditText = {node.displayText}; // initial value for undo
             final String[] lastText = {node.displayText};
             tb.setResponder(text -> {
                 if (!text.equals(lastText[0])) {
                     node.displayText = text;
-                    String prev = lastText[0];
                     var op = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                         io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,
                         host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
                         0, 0, 0, 0, 0, 0f, text, 0, 0, 0, 0, null, 0, 0, 0,
                         net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
-                    host.sendOp(op); recordOp(op, 0, 0, 0, prev);
+                    host.sendOp(op); // sync, undo recorded on commit / 同步，撤销在提交时记录
                     lastText[0] = text;
+                }
+            });
+            enterActions.put(tb, () -> {
+                if (!lastText[0].equals(preEditText[0])) {
+                    var op = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                        io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,
+                        host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
+                        0, 0, 0, 0, 0, 0f, lastText[0], 0, 0, 0, 0, null, 0, 0, 0,
+                        net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
+                    recordOp(op, 0, 0, 0, preEditText[0]);
+                    preEditText[0] = lastText[0];
                 }
             });
             s.fields.add(tb);
             // Color swatch button replaces old hex EditBox
             s.colorButton = new ColorPickerButton(
                 () -> node.textColor != 0 ? node.textColor : 0xFFCCCCCC,
-                c -> { node.textColor = c; markDirty();
-                    host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                c -> { int oldC = node.textColor; node.textColor = c; markDirty();
+                    var tcOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                         io.github.y15173334444.create_schematic_compute.graph.OpType.SET_TEXT_COLOR,
                         host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
                         0, 0, 0, 0, 0, 0f, null, 0, 0, c, 0, null, 0, 0, 0,
-                        net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID())); },
+                        net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
+                    host.sendOp(tcOp); recordOp(tcOp, 0, 0, oldC, null); },
                 colorPicker
             );
             s.paramKeys = new String[]{"text", "color"};
@@ -876,12 +1031,13 @@ public class GraphEditor {
             // Color swatch button replaces old hex EditBox
             s.colorButton = new ColorPickerButton(
                 () -> node.textColor != 0 ? node.textColor : 0xFF88FF88,
-                c -> { node.textColor = c; markDirty();
-                    host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                c -> { int oldC = node.textColor; node.textColor = c; markDirty();
+                    var tcOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                         io.github.y15173334444.create_schematic_compute.graph.OpType.SET_TEXT_COLOR,
                         host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
                         0, 0, 0, 0, 0, 0f, null, 0, 0, c, 0, null, 0, 0, 0,
-                        net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID())); },
+                        net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
+                    host.sendOp(tcOp); recordOp(tcOp, 0, 0, oldC, null); },
                 colorPicker
             );
             s.paramKeys = new String[]{"color"};
@@ -968,18 +1124,29 @@ public class GraphEditor {
         if (node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT) {
             var nb = new EditBox(mc.font, 0, 0, 100, 16, Component.literal(""));
             nb.setMaxLength(32); nb.setValue(node.displayText);
+            final String[] preEditName = {node.displayText}; // initial value for undo
             final String[] lastName = {node.displayText};
             nb.setResponder(text -> {
                 if (!text.equals(lastName[0])) {
-                    String prev = lastName[0];
                     node.displayText = text;
                     var op = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                         io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,
                         host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
                         0, 0, 0, 0, 0, 0f, text, 0, 0, 0, 0, null, 0, 0, 0,
                         net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
-                    host.sendOp(op); recordOp(op, 0, 0, 0, prev);
+                    host.sendOp(op); // sync, undo recorded on commit / 同步，撤销在提交时记录
                     lastName[0] = text;
+                }
+            });
+            enterActions.put(nb, () -> {
+                if (!lastName[0].equals(preEditName[0])) {
+                    var op = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                        io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,
+                        host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
+                        0, 0, 0, 0, 0, 0f, lastName[0], 0, 0, 0, 0, null, 0, 0, 0,
+                        net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
+                    recordOp(op, 0, 0, 0, preEditName[0]);
+                    preEditName[0] = lastName[0];
                 }
             });
             s.fields.add(nb);
@@ -1019,20 +1186,25 @@ public class GraphEditor {
             var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
             b.setValue(ff3(node.params.length > idx ? node.params[idx] : (1f / 20f)));
-            final float[] lastSent = {node.params.length > idx ? node.params[idx] : (1f / 20f)};
+            final float[] preEditSpd = {node.params.length > idx ? node.params[idx] : (1f / 20f)};
+            final float[] lastSentSpd = {preEditSpd[0]};
             b.setResponder(text -> { try {
                 if (suppressEditBoxResponder) return;
                 float newV = Float.parseFloat(text.trim());
-                if (Math.abs(newV - lastSent[0]) > 0.0001f) {
+                if (Math.abs(newV - lastSentSpd[0]) > 0.0001f) {
                     if (node.params.length > idx) node.params[idx] = newV;
                     host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                         host.getBlockPos(), ownerNodeId(), node.id, idx, newV, host.getPlayerUUID()));
-                    recordOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
-                        host.getBlockPos(), ownerNodeId(), node.id, idx, newV, host.getPlayerUUID()),
-                        0, 0, lastSent[0], null);
-                    lastSent[0] = newV;
+                    lastSentSpd[0] = newV;
                 }
             } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
+            enterActions.put(b, () -> {
+                if (Math.abs(lastSentSpd[0] - preEditSpd[0]) > 0.0001f) {
+                    var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(host.getBlockPos(), ownerNodeId(), node.id, idx, lastSentSpd[0], host.getPlayerUUID());
+                    recordOp(op, 0, 0, preEditSpd[0], null);
+                    preEditSpd[0] = lastSentSpd[0];
+                }
+            });
             s.fields.add(b);
         }
 
@@ -1042,20 +1214,25 @@ public class GraphEditor {
             var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
             b.setValue(ff3(node.params.length > idx ? node.params[idx] : 1f));
-            final float[] lastSent = {node.params.length > idx ? node.params[idx] : 1f};
+            final float[] preEditAmp = {node.params.length > idx ? node.params[idx] : 1f};
+            final float[] lastSentAmp = {preEditAmp[0]};
             b.setResponder(text -> { try {
                 if (suppressEditBoxResponder) return;
                 float newV = Float.parseFloat(text.trim());
-                if (Math.abs(newV - lastSent[0]) > 0.0001f) {
+                if (Math.abs(newV - lastSentAmp[0]) > 0.0001f) {
                     if (node.params.length > idx) node.params[idx] = newV;
                     host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                         host.getBlockPos(), ownerNodeId(), node.id, idx, newV, host.getPlayerUUID()));
-                    recordOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
-                        host.getBlockPos(), ownerNodeId(), node.id, idx, newV, host.getPlayerUUID()),
-                        0, 0, lastSent[0], null);
-                    lastSent[0] = newV;
+                    lastSentAmp[0] = newV;
                 }
             } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
+            enterActions.put(b, () -> {
+                if (Math.abs(lastSentAmp[0] - preEditAmp[0]) > 0.0001f) {
+                    var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(host.getBlockPos(), ownerNodeId(), node.id, idx, lastSentAmp[0], host.getPlayerUUID());
+                    recordOp(op, 0, 0, preEditAmp[0], null);
+                    preEditAmp[0] = lastSentAmp[0];
+                }
+            });
             s.fields.add(b);
         }
 
@@ -1090,6 +1267,13 @@ public class GraphEditor {
         if (hasPending && pendingTarget == targetVal) {
             // 二次点击确认 → 执行切换并清空原模式数据
             // Second click confirmed → execute switch and clear old mode data
+            beginUndoBatch();
+            float oldMode = node.params.length > paramIdx ? node.params[paramIdx] : 0;
+            float oldSpeed = node.params.length > 2 ? node.params[2] : 1f / 20f;
+            float oldAmp = node.params.length > 3 ? node.params[3] : 1f;
+            String oldFormula = node.formula != null ? node.formula : "";
+            float[] oldCtrlX = node.debugCtrlX;
+            float[] oldCtrlY = node.debugCtrlY;
             node.params[paramIdx] = targetVal;
             if (isSetMode) {
                 // 切换设置模式 → 清空原模式数据 + 重置参数为默认，同步
@@ -1098,31 +1282,40 @@ public class GraphEditor {
                     // 切换到手动曲线 → 清空公式，重置 speed/amp 为默认
                     node.formula = "";
                     node.debugFormulaRpn = null;
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(
-                        host.getBlockPos(), ownerNodeId(), node.id, "", host.getPlayerUUID()));
+                    var opF = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(
+                        host.getBlockPos(), ownerNodeId(), node.id, "", host.getPlayerUUID());
+                    host.sendOp(opF); recordOp(opF, 0, 0, 0, oldFormula);
                     node.params[2] = 1f / 20f; // speed 默认
                     node.params[3] = 1f;       // amplitude 默认
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
-                        host.getBlockPos(), ownerNodeId(), node.id, 2, 1f / 20f, host.getPlayerUUID()));
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
-                        host.getBlockPos(), ownerNodeId(), node.id, 3, 1f, host.getPlayerUUID()));
+                    var opSp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), node.id, 2, 1f / 20f, host.getPlayerUUID());
+                    host.sendOp(opSp); recordOp(opSp, 0, 0, oldSpeed, null);
+                    var opAmp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), node.id, 3, 1f, host.getPlayerUUID());
+                    host.sendOp(opAmp); recordOp(opAmp, 0, 0, oldAmp, null);
                 } else {
                     // 切换到 f(x) → 重置控制点为默认，speed/amp 恢复默认
                     node.debugCtrlX = new float[]{0f, 1f};
                     node.debugCtrlY = new float[]{0f, 0f};
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
-                        host.getBlockPos(), ownerNodeId(), node.id, node.debugCtrlX, node.debugCtrlY, host.getPlayerUUID()));
+                    String oldCtrlStr = oldCtrlX != null ? encodeCtrlPoints(oldCtrlX, oldCtrlY) : "";
+                    var opCp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
+                        host.getBlockPos(), ownerNodeId(), node.id, node.debugCtrlX, node.debugCtrlY, host.getPlayerUUID());
+                    host.sendOp(opCp); recordOp(opCp, 0, 0, 0, oldCtrlStr);
                     node.params[2] = 1f / 20f;
                     node.params[3] = 1f;
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
-                        host.getBlockPos(), ownerNodeId(), node.id, 2, 1f / 20f, host.getPlayerUUID()));
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
-                        host.getBlockPos(), ownerNodeId(), node.id, 3, 1f, host.getPlayerUUID()));
+                    var opSp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), node.id, 2, 1f / 20f, host.getPlayerUUID());
+                    host.sendOp(opSp); recordOp(opSp, 0, 0, oldSpeed, null);
+                    var opAmp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), node.id, 3, 1f, host.getPlayerUUID());
+                    host.sendOp(opAmp); recordOp(opAmp, 0, 0, oldAmp, null);
                 }
             }
             // 发送 SET_PARAM op
-            host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
-                host.getBlockPos(), ownerNodeId(), node.id, paramIdx, (float) targetVal, host.getPlayerUUID()));
+            var modeOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                host.getBlockPos(), ownerNodeId(), node.id, paramIdx, (float) targetVal, host.getPlayerUUID());
+            host.sendOp(modeOp); recordOp(modeOp, 0, 0, oldMode, null);
+            endUndoBatch();
             // 清除待确认状态
             if (isSetMode) { st.pendingSetMode = -1; st.pendingSetModeExpireMs = 0; }
             else { st.pendingOutMode = -1; st.pendingOutModeExpireMs = 0; }
@@ -1498,6 +1691,10 @@ public class GraphEditor {
             if (rp.ownerNodeId() != myOwner) continue; // 不同作用域不显示锁 / skip different scopes
             if (rp.selectedNodeId() > 0) lockedNodes.put(rp.selectedNodeId(), rp.playerName());
             if (rp.editingNodeId() > 0) lockedNodes.put(rp.editingNodeId(), rp.playerName());
+            if (rp.selectedNodeIds() != null) {
+                for (int id : rp.selectedNodeIds())
+                    if (id > 0) lockedNodes.put(id, rp.playerName());
+            }
         }
 
         // ── A=1: Complete COMMENT nodes (bg, border, text) — container mats behind connections ──
@@ -2000,6 +2197,7 @@ public class GraphEditor {
     }
 
     public boolean mouseClicked(double mx, double my, int btn) {
+        resetBatch(); // discard any incomplete batch to prevent undo stack freeze
         var graph = getGraph();
         // 命名对话框：点击外部取消
         if (editingBookmarkName) {
@@ -2077,6 +2275,10 @@ public class GraphEditor {
                 if (cpHit != null) {
                     draggingCtrlNode = cpHit[0];
                     draggingCtrlIdx = cpHit[1];
+                    // Save pre-drag control points for undo / 保存拖拽前控制点用于撤销
+                    GraphNode pcn = graph.findNode(cpHit[0]);
+                    if (pcn != null && pcn.debugCtrlX != null)
+                        preDragCtrlStr = encodeCtrlPoints(pcn.debugCtrlX, pcn.debugCtrlY);
                     ctrlPointsChanged = true;
                     lastClickMs = 0;
                     return true;
@@ -2296,13 +2498,12 @@ public class GraphEditor {
                 if(graph.nodes.size()>=MAX_NODES){
                     cycleWarning=I18n.get("gui.create_schematic_compute.node_limit");
                 }else{
-                    {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
                     var added = graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));
                     var addOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(
                         host.getBlockPos(), ownerNodeId(), added.id,
                         selectedMenuType, s2cX(mx), s2cY(my), host.getPlayerUUID());
                     host.sendOp(addOp);
-                    recordOp(addOp, 0, 0, 0, null);
+                    recordOp(addOp, 0, 0, added.id, null); // oldVal=localId for pre-ACK undo
                 }
             }showMenu=false;return true;}
         if(btn==1){
@@ -2330,9 +2531,14 @@ public class GraphEditor {
                     var inv = mc2.player.getInventory().items.get(si);
                     var is = inv.isEmpty() ? ItemStack.EMPTY : inv.copy();
                     if (!inv.isEmpty()) is.setCount(1);
+                    // Save old item for undo / 保存旧物品用于撤销
+                    var oldItem = hotbarNode.itemParams[st.freqSlotSelected];
+                    String oldItemNbt = oldItem.isEmpty() ? "" :
+                        oldItem.saveOptional(mc2.level.registryAccess()).toString();
                     hotbarNode.itemParams[st.freqSlotSelected] = is;
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setHotbarItem(
-                        host.getBlockPos(), ownerNodeId(), hotbarNode.id, st.freqSlotSelected, is, host.getPlayerUUID()));
+                    var hoOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setHotbarItem(
+                        host.getBlockPos(), ownerNodeId(), hotbarNode.id, st.freqSlotSelected, is, host.getPlayerUUID());
+                    host.sendOp(hoOp); recordOp(hoOp, 0, 0, 0, oldItemNbt);
                 }
                 hotbarNode = null; // 点击面板内始终关闭 (Always close on click inside panel)
                 return true;
@@ -2526,11 +2732,12 @@ public class GraphEditor {
                         int tgY = editLocalY + 4 + (numRows + ti) * 18;
                         if (lmx >= 4 && lmx <= NW - 4 && lmy >= tgY && lmy <= tgY + 14) {
                             en.params[3 + ti] = en.params[3 + ti] > 0.5f ? 0 : 1;
-                            host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                            var toggleOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                                 io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_FRAME_TOGGLE,
                                 host.getBlockPos(), ownerNodeId(), en.id, 0, null, 0f, 0f,
                                 0, 0, 0, 0, 0, 0f, null, 0, 0, 0, 0, null, 0, ti, 0,
-                                net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID()));
+                                net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
+                            host.sendOp(toggleOp); recordOp(toggleOp, 0, 0, 0, null);
                             return true; }
                     }
                 }
@@ -2641,11 +2848,10 @@ public class GraphEditor {
             if (tabHeld) {
                 var hc = hitConn(mx, my);
                 if (hc != null) {
-                    {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
                     graph.removeConnection(hc.fromId, hc.fromPin, hc.toId, hc.toPin);
                     var rcOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(
                         host.getBlockPos(), ownerNodeId(), hc.fromId, hc.fromPin, hc.toId, hc.toPin, host.getPlayerUUID());
-                    host.sendOp(rcOp); recordOp(rcOp, 0, 0, 0, null);
+                    host.sendOp(rcOp); recordOp(rcOp, hc.fromId, hc.fromPin, hc.toId, null);
                     // 删除参数引脚连线后刷新编辑区（恢复输入框） (Refresh edit area after removing param pin connection, restoring input box)
                     var tn = graph.findNode(hc.toId);
                     if (tn != null && hc.toPin >= tn.functionalInputs() && expandedNodeIds.contains(hc.toId)) {
@@ -2715,13 +2921,22 @@ public class GraphEditor {
                 // Resize handle (bottom-right) — checked after scrollbar
                 if (onResize) {
                     resizingComment = n2; resizeStartW = n2.commentWidth; resizeStartH = n2.commentHeight;
+                    // Capture contained node positions before resize for undo
+                    resizeStartNodePositions.clear();
+                    var depthMap2 = new java.util.HashMap<GraphNode, Integer>();
+                    collectContainedNodesDepth(n2, depthMap2, 0);
+                    for (var cn2 : depthMap2.keySet())
+                        resizeStartNodePositions.put(cn2.id, new float[]{cn2.x, cn2.y});
                     return true;
                 }
                 // Edit button (top-right 14x14) — open 3-color edit panel
                 if (onColorDot) {
-                    var lvl = Minecraft.getInstance().level;
-                    if (lvl != null) takeSnapshot(getGraph(), lvl.registryAccess());
                     editingCommentColorNode = n2;
+                    // Capture old colors for undo (saved per-change in recordOp)
+                    // 捕获旧颜色用于撤销（每次变更时在 recordOp 中保存）
+                    final int[] oldColors = {
+                        n2.commentBgColor, n2.commentBorderColor, n2.commentTextColor
+                    };
                     commentButtons = new ColorPickerButton[3];
                     for (int ci = 0; ci < 3; ci++) {
                         final int idx = ci;
@@ -2737,6 +2952,13 @@ public class GraphEditor {
                             },
                             c -> {
                                 if (editingCommentColorNode == null) return;
+                                // Save pre-change color for undo / 保存变更前颜色用于撤销
+                                int oldC = switch (idx) {
+                                    case 0 -> editingCommentColorNode.commentBgColor;
+                                    case 1 -> editingCommentColorNode.commentBorderColor;
+                                    case 2 -> editingCommentColorNode.commentTextColor;
+                                    default -> 0;
+                                };
                                 switch (idx) {
                                     case 0 -> editingCommentColorNode.commentBgColor = c;
                                     case 1 -> editingCommentColorNode.commentBorderColor = c;
@@ -2749,7 +2971,8 @@ public class GraphEditor {
                                     editingCommentColorNode.commentBorderColor,
                                     editingCommentColorNode.commentTextColor,
                                     host.getPlayerUUID());
-                                host.sendOp(ccOp); recordOp(ccOp, 0, 0, 0, null);
+                                host.sendOp(ccOp); recordOp(ccOp,
+                                    oldColors[0], oldColors[1], oldColors[2], null);
                             },
                             colorPicker
                         );
@@ -2798,8 +3021,7 @@ public class GraphEditor {
                     if (selectedNodes.isEmpty()) { panning = true; panLastX = (float)mx; panLastY = (float)my; return true; }
                 }
                 // Start drag with parent-move snapshot + z-order top
-                var lvl = Minecraft.getInstance().level;
-                if (lvl != null) takeSnapshot(getGraph(), lvl.registryAccess());
+                beginUndoBatch(); // batch all contained-node moves + comment move as one undo unit
                 preDragSortB = n2.sortB;
                 // Pin contained nodes with depth-based B: outermost=lowest B
                 // (rendered first=behind), innermost=highest B (rendered last=on top)
@@ -2821,6 +3043,7 @@ public class GraphEditor {
                 // Outermost comment = lowest B (MAX_VALUE - maxDepth - 1)
                 n2.sortB = Integer.MAX_VALUE - maxDepth - 2;
                 draggingNode = n2; dragOffX = n2.x - s2cX(mx); dragOffY = n2.y - s2cY(my);
+                preDragX = n2.x; preDragY = n2.y; // for undo
                 return true;
             }
             // BUS_IN edit area output pins — spatial-index aware for occlusion
@@ -2860,8 +3083,6 @@ public class GraphEditor {
                 float sy=c2sY(hit.y);
                 boolean inHeader = my>=sy && my<=sy+HH*zoom+4;
                 if (inHeader) {
-                    var lvl2 = Minecraft.getInstance().level;
-                    if (lvl2 != null) takeSnapshot(getGraph(), lvl2.registryAccess());
                     preDragSortB = hit.sortB;
                     hit.sortB = Integer.MAX_VALUE;
                     draggingNode=hit; dragOffX=hit.x-s2cX(mx); dragOffY=hit.y-s2cY(my);
@@ -3047,8 +3268,13 @@ public class GraphEditor {
         if (draggingCtrlNode >= 0 && ctrlPointsChanged) {
             GraphNode cn = graph.findNode(draggingCtrlNode);
             if (cn != null && cn.debugCtrlX != null && cn.debugCtrlY != null) {
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
-                    host.getBlockPos(), ownerNodeId(), cn.id, cn.debugCtrlX, cn.debugCtrlY, host.getPlayerUUID()));
+                var cpOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
+                    host.getBlockPos(), ownerNodeId(), cn.id, cn.debugCtrlX, cn.debugCtrlY, host.getPlayerUUID());
+                host.sendOp(cpOp);
+                if (!preDragCtrlStr.isEmpty()) {
+                    recordOp(cpOp, 0, 0, 0, preDragCtrlStr);
+                    preDragCtrlStr = "";
+                }
             }
         }
         draggingCtrlNode = -1;
@@ -3067,17 +3293,23 @@ public class GraphEditor {
         if (resizingComment != null) {
             if (Math.abs(resizingComment.commentWidth - resizeStartW) > 1
                 || Math.abs(resizingComment.commentHeight - resizeStartH) > 1) {
-                var lvl = Minecraft.getInstance().level;
-                if (lvl != null) takeSnapshot(getGraph(), lvl.registryAccess());
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
+                beginUndoBatch();
+                var csOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
                     host.getBlockPos(), ownerNodeId(), resizingComment.id,
-                    resizingComment.commentWidth, resizingComment.commentHeight, host.getPlayerUUID()));
+                    resizingComment.commentWidth, resizingComment.commentHeight, host.getPlayerUUID());
+                host.sendOp(csOp); recordOp(csOp, resizeStartW, resizeStartH, 0, null);
                 // Sync positions of nodes that were pushed/contained by the resize
                 var pushed = new java.util.HashMap<GraphNode, Integer>();
                 collectContainedNodesDepth(resizingComment, pushed, 0);
-                for (var cn : pushed.keySet())
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                        host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID()));
+                for (var cn : pushed.keySet()) {
+                    var mnOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                        host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID());
+                    host.sendOp(mnOp);
+                    float[] old = resizeStartNodePositions.get(cn.id);
+                    if (old != null) recordOp(mnOp, old[0], old[1], 0, null);
+                }
+                resizeStartNodePositions.clear();
+                endUndoBatch();
             }
             resizingComment = null;
             return;
@@ -3116,7 +3348,28 @@ public class GraphEditor {
         }
         if(btn==0&&multiDragging){
             multiDragging = false; markDirty();
-            if (multiClickedNode != null) {
+            // If nodes actually moved, send MOVE ops and record undo for all dragged nodes
+            // 如果节点确实移动了，为所有拖拽节点发送 MOVE op 并记录撤销
+            boolean anyMoved = false;
+            for (var sn : selectedNodes) {
+                float[] orig = multiDragOrigins.get(sn);
+                if (orig != null && (Math.abs(sn.x - orig[0]) >= 2 || Math.abs(sn.y - orig[1]) >= 2)) {
+                    anyMoved = true; break;
+                }
+            }
+            if (anyMoved) {
+                beginUndoBatch();
+                for (var sn : selectedNodes) {
+                    float[] orig = multiDragOrigins.get(sn);
+                    if (orig == null) continue;
+                    var mop = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                        host.getBlockPos(), ownerNodeId(), sn.id, sn.x, sn.y, host.getPlayerUUID());
+                    host.sendOp(mop);
+                    recordOp(mop, orig[0], orig[1], 0, null);
+                }
+                endUndoBatch();
+            } else if (multiClickedNode != null) {
+                // Barely moved → deselect / 微移 → 去选
                 float[] orig = multiDragOrigins.get(multiClickedNode);
                 if (orig != null && Math.abs(multiClickedNode.x - orig[0]) < 2
                     && Math.abs(multiClickedNode.y - orig[1]) < 2) {
@@ -3186,7 +3439,6 @@ public class GraphEditor {
             // BUS_OUT 编辑区输入引脚 (BUS_OUT edit-area input pins)
             if(bestNodeId<0){for(int nid:expandedNodeIds){var n=graph.findNode(nid);if(n==null||n.type!=NodeType.BUS_OUT||n.signalBands==null)continue;float sx=c2sX(n.x),sy2=c2sY(n.y);for(int bi=0;bi<n.signalBands.size();bi++){float py2=sy2+bandPinY(n,bi,zoom)*zoom;float px2=sx+10*zoom;float dx2=(float)Math.abs(mx-px2),dy2=(float)Math.abs(my-py2);if(dx2<16*zoom&&dy2<10*zoom&&wireFromNode!=nid){float dist2=dx2+dy2;if(dist2<bestDist){bestDist=dist2;bestNodeId=nid;bestPin=bi;}}}}}
             if(bestNodeId>=0){
-                {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
                 graph.addConnection(wireFromNode,wireFromPin,bestNodeId,bestPin);
                 var connOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
                     host.getBlockPos(), ownerNodeId(), wireFromNode, wireFromPin, bestNodeId, bestPin, host.getPlayerUUID());
@@ -3283,6 +3535,8 @@ public class GraphEditor {
                     }
                 }
             }
+            if (moved.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT)
+                endUndoBatch(); // close the batch started at drag begin
             draggingNode=null;
         }if(btn==0&&panning)panning=false;
     }
@@ -3417,21 +3671,25 @@ public class GraphEditor {
         t = Math.max(0f, Math.min(1f, t));
         int idx = 0;
         while (idx < n.debugCtrlX.length && n.debugCtrlX[idx] < t) idx++;
+        var oldCtrlStr = encodeCtrlPoints(n.debugCtrlX, n.debugCtrlY);
         n.debugCtrlX = insertFloat(n.debugCtrlX, idx, t);
         n.debugCtrlY = insertFloat(n.debugCtrlY, idx, v);
         ctrlPointsChanged = true;
-        host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
-            host.getBlockPos(), ownerNodeId(), n.id, n.debugCtrlX, n.debugCtrlY, host.getPlayerUUID()));
+        var cpOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
+            host.getBlockPos(), ownerNodeId(), n.id, n.debugCtrlX, n.debugCtrlY, host.getPlayerUUID());
+        host.sendOp(cpOp); recordOp(cpOp, 0, 0, 0, oldCtrlStr);
     }
 
     /** 删除指定控制点（保留至少 2 个）。 */
     private void removeControlPoint(GraphNode n, int idx) {
         if (n == null || n.debugCtrlX == null || n.debugCtrlX.length <= 2) return;
+        var oldCtrlStr = encodeCtrlPoints(n.debugCtrlX, n.debugCtrlY);
         n.debugCtrlX = removeFloat(n.debugCtrlX, idx);
         n.debugCtrlY = removeFloat(n.debugCtrlY, idx);
         ctrlPointsChanged = true;
-        host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
-            host.getBlockPos(), ownerNodeId(), n.id, n.debugCtrlX, n.debugCtrlY, host.getPlayerUUID()));
+        var cpOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
+            host.getBlockPos(), ownerNodeId(), n.id, n.debugCtrlX, n.debugCtrlY, host.getPlayerUUID());
+        host.sendOp(cpOp); recordOp(cpOp, 0, 0, 0, oldCtrlStr);
     }
 
     private static float[] insertFloat(float[] arr, int idx, float val) {
@@ -3595,12 +3853,22 @@ public class GraphEditor {
                     sn.x=nx; sn.y=ny;
                 }
             }
+            // Real-time sync for multiplayer / 多人实时同步
+            long nowMulti = System.currentTimeMillis();
+            if (nowMulti - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
+                lastDragSendTime = nowMulti;
+                for (var sn : selectedNodes) {
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                        host.getBlockPos(), ownerNodeId(), sn.id, sn.x, sn.y, host.getPlayerUUID()));
+                }
+            }
             return;
         }
         if(panning){camX+=(float)(mx-panLastX)/zoom;camY+=(float)(my-panLastY)/zoom;panLastX=(float)mx;panLastY=(float)my;}
         if(draggingNode!=null){
             float nx=s2cX(mx)+dragOffX, ny=s2cY(my)+dragOffY;
             if(gridSnapEnabled){nx=Math.round(nx/NodeRenderer.GS)*NodeRenderer.GS;ny=Math.round(ny/NodeRenderer.GS)*NodeRenderer.GS;}
+            float dx=nx-draggingNode.x, dy=ny-draggingNode.y;
             draggingNode.x=nx;draggingNode.y=ny;
             // Real-time drag sync (throttled)
             long now2 = System.currentTimeMillis();
@@ -3800,12 +4068,15 @@ public class GraphEditor {
                     if (idx >= 0) {
                         for (var en : getGraph().nodes) {
                             var es = nodeEditStatesById.get(en.id);
-                            if (es == st && en.params.length > 0) { en.params[0] = idx;
-                                host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                            if (es == st && en.params.length > 0) {
+                                var oldIdx = (int)en.params[0]; // save for undo
+                                en.params[0] = idx;
+                                var kbOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                                     io.github.y15173334444.create_schematic_compute.graph.OpType.SET_KEY_BINDING,
                                     host.getBlockPos(), ownerNodeId(), en.id, 0, null, 0f, 0f,
                                     0, 0, 0, 0, 0, 0f, null, 0, 0, 0, 0, null, idx, 0, 0,
-                                    net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID()));
+                                    net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
+                                host.sendOp(kbOp); recordOp(kbOp, 0, 0, oldIdx, null);
                                 break; }
                         }
                         st.listeningForKey = false;
@@ -3820,11 +4091,16 @@ public class GraphEditor {
             var g2 = getGraph();
             var hit = hitNode(lastMouseX, lastMouseY);
             if (hit != null && !isNodeLocked(hit.id, ownerNodeId())) {
-                {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(g2,l.registryAccess());}
+                beginUndoBatch();
+                var savedX = hit.x; var savedY = hit.y; var savedType = hit.type.ordinal();
+                var savedNbt = saveNodeNbt(hit); // snapshot for undo restore
                 g2.removeNode(hit.id);
-                host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                var removeOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                     io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE,
-                    host.getBlockPos(), ownerNodeId(), hit.id, host.getPlayerUUID()));
+                    host.getBlockPos(), ownerNodeId(), hit.id, host.getPlayerUUID());
+                host.sendOp(removeOp);
+                recordOp(removeOp, savedX, savedY, savedType, savedNbt);
+                endUndoBatch();
                 expandedNodeIds.remove(hit.id);
                 nodeEditStatesById.remove(hit.id);
                 selectedNodes.remove(hit);
@@ -3834,8 +4110,8 @@ public class GraphEditor {
         }
         // Ctrl+Z / Ctrl+Y undo / redo
         if (net.minecraft.client.gui.screens.Screen.hasControlDown()) {
-            if (key == 90) { opUndo(); return true; }  // Ctrl+Z: undo own last op
-            if (key == 89) { opRedo(); return true; }  // Ctrl+Y: redo own last undo
+            if (key == 90) { commitFocusedEditBox(); opUndo(); return true; }  // Ctrl+Z
+            if (key == 89) { commitFocusedEditBox(); opRedo(); return true; }  // Ctrl+Y
             // 视角书签快捷键 / view bookmark shortcuts
             if (key == 77) { // Ctrl+M: 保存书签 / Ctrl+M: save bookmark
                 editingBookmarkName = true;
@@ -3849,7 +4125,7 @@ public class GraphEditor {
         // Ctrl+D 复制（支持多选） — 走服务端权威 ID 分配流程
         // Ctrl+D duplicate (supports multi-select) — uses server-authoritative ID allocation
         if(key==68&&net.minecraft.client.gui.screens.Screen.hasControlDown()&&!selectedNodes.isEmpty()){
-            {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
+            beginUndoBatch();
             var idMap = new java.util.HashMap<Integer, Integer>();
             var newNodes = new java.util.ArrayList<GraphNode>();
             float ofs = 30;
@@ -3877,7 +4153,8 @@ public class GraphEditor {
                     nodeEditStatesById.put(dup.id, createEditState(dup));
                 }
                 // 发送 ADD_NODE_REQUEST（服务端分配真实 ID）/ Send ADD_NODE_REQUEST (server assigns real ID)
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(gpos, oid, tempId, dup.type, dup.x, dup.y, uid));
+                var anOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(gpos, oid, tempId, dup.type, dup.x, dup.y, uid);
+                host.sendOp(anOp); recordOp(anOp, 0, 0, dup.id, null); // oldVal=localId
             }
             // 复制选中节点之间的连接（本地 + 待发送）/ Copy connections between selected nodes (local + pending)
             for (var c : List.copyOf(graph.connections)) {
@@ -3886,6 +4163,7 @@ public class GraphEditor {
                     group.conns.add(new int[]{idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin});
                 }
             }
+            endUndoBatch();
             // 更新选中为新节点 / Update selection to new nodes
             selectedNodes.clear();
             selectedNodes.addAll(newNodes);
@@ -3898,9 +4176,9 @@ public class GraphEditor {
         }
         // Delete 删除选中节点 (Delete key removes selected nodes)
         if ((key == 259 || key == 261) && !selectedNodes.isEmpty()) {
-            {var l=Minecraft.getInstance().level;if(l!=null)takeSnapshot(getGraph(),l.registryAccess());}
+            beginUndoBatch();
             for (var n : List.copyOf(selectedNodes)) {
-                if (isNodeLocked(n.id, ownerNodeId())) continue; // skip nodes being edited by remote players (same scope only)
+                if (isNodeLocked(n.id, ownerNodeId())) continue;
                 if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
                     boolean hasOther = false;
                     for (var other : graph.nodes) {
@@ -3912,11 +4190,16 @@ public class GraphEditor {
                         localBusNames.remove(n.signalName);
                     }
                 }
+                var savedX = n.x; var savedY = n.y; var savedType = n.type.ordinal();
+                var savedNbt = saveNodeNbt(n); // snapshot for undo restore
                 graph.removeNode(n.id);
-                host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                var removeOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                     io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE,
-                    host.getBlockPos(), ownerNodeId(), n.id, host.getPlayerUUID()));
+                    host.getBlockPos(), ownerNodeId(), n.id, host.getPlayerUUID());
+                host.sendOp(removeOp);
+                recordOp(removeOp, savedX, savedY, savedType, savedNbt);
             }
+            endUndoBatch();
             if (selectedNode != null) {
                 expandedNodeIds.remove(selectedNode.id);
                 nodeEditStatesById.remove(selectedNode.id);
@@ -3933,8 +4216,7 @@ public class GraphEditor {
                 for (var f : st.fields) if (f.isFocused()) { anyFocused = true; break; }
             if (anyFocused) return false;
             if (showExportDialog || showImportDialog || showColorConfig) return false;
-            var l = Minecraft.getInstance().level;
-            if (l != null) takeSnapshot(getGraph(), l.registryAccess());
+            beginUndoBatch();
             float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE;
             float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
             for (var n : selectedNodes) {
@@ -3966,14 +4248,17 @@ public class GraphEditor {
                 comment.sortB = minSelSortB - 1;
                 if (comment.sortB < 0) renormalizeSortB(graph);
             }
-            host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            var addOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE,
                 host.getBlockPos(), ownerNodeId(), comment.id,
                 comment.id, NodeType.COMMENT, minX - padding, minY - padding, 0, 0, 0, 0, 0, 0f,
                 null, 0, 0, 0, 0, null, 0, 0, 0,
-                net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID()));
-            host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
-                host.getBlockPos(), ownerNodeId(), comment.id, cw, ch, host.getPlayerUUID()));
+                net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
+            host.sendOp(addOp); recordOp(addOp, 0, 0, 0, null);
+            var szOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
+                host.getBlockPos(), ownerNodeId(), comment.id, cw, ch, host.getPlayerUUID());
+            host.sendOp(szOp); recordOp(szOp, 0, 0, 0, null);
+            endUndoBatch();
             return true;
         }
         return false;
@@ -4137,9 +4422,9 @@ public class GraphEditor {
             default -> 0xFF000000;
         };
         Consumer<Integer> setter = switch (field) {
-            case 0 -> c -> { editingCommentColorNode.commentBgColor = c; markDirty(); host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID())); showColorConfig = false; };
-            case 1 -> c -> { editingCommentColorNode.commentBorderColor = c; markDirty(); host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID())); showColorConfig = false; };
-            case 2 -> c -> { editingCommentColorNode.commentTextColor = c; markDirty(); host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID())); showColorConfig = false; };
+            case 0 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentBgColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); host.sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); showColorConfig = false; };
+            case 1 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentBorderColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); host.sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); showColorConfig = false; };
+            case 2 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentTextColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); host.sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); showColorConfig = false; };
             default -> c -> {};
         };
         colorPicker.setOnClose(() -> { showColorConfig = false; if (editingCommentColorNode != null) closeCommentColorPopup(); });

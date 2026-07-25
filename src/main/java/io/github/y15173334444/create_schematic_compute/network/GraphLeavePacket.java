@@ -33,7 +33,7 @@ public record GraphLeavePacket(BlockPos pos) implements CustomPacketPayload {
                 // Remove self / 移除自己
                 EditSessionRegistry.leave(level, pkt.pos, sp.getUUID());
                 // Broadcast "left" notification to remaining editors so they remove this player immediately / 向其余编辑器广播"离开"通知，使其立即移除该玩家
-                var leftPkt = new GraphPresencePacket(pkt.pos, sp.getUUID(), "", 0, 0f, 0f, -1, -1, -1, 0, 0f, 0f);
+                var leftPkt = new GraphPresencePacket(pkt.pos, sp.getUUID(), "", 0, 0f, 0f, -1, -1, -1, 0, 0f, 0f, new int[0]);
                 for (var editorId : editors) {
                     if (editorId.equals(sp.getUUID())) continue;
                     var ep = level.getServer().getPlayerList().getPlayer(editorId);

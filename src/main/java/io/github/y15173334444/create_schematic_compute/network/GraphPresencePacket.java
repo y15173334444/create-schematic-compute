@@ -20,7 +20,8 @@ public record GraphPresencePacket(
     BlockPos pos, UUID player, String playerName,
     int ownerNodeId, float cursorX, float cursorY,
     int selectedNodeId, int editingNodeId,
-    int wireFromNode, int wireFromPin, float wireEndX, float wireEndY
+    int wireFromNode, int wireFromPin, float wireEndX, float wireEndY,
+    int[] selectedNodeIds  // all selected node IDs for multi-select lock / 所有选中节点 ID 用于多选锁定
 ) implements CustomPacketPayload {
 
     public static final Type<GraphPresencePacket> TYPE =
@@ -42,7 +43,10 @@ public record GraphPresencePacket(
                 int wfp = b.readVarInt();
                 float wex = b.readFloat();
                 float wey = b.readFloat();
-                return new GraphPresencePacket(pos, player, name, owner, cx, cy, sel, edit, wfn, wfp, wex, wey);
+                int count = b.readVarInt();
+                int[] selIds = new int[count];
+                for (int i = 0; i < count; i++) selIds[i] = b.readVarInt();
+                return new GraphPresencePacket(pos, player, name, owner, cx, cy, sel, edit, wfn, wfp, wex, wey, selIds);
             }
             @Override public void encode(ByteBuf buf, GraphPresencePacket p) {
                 var b = new FriendlyByteBuf(buf);
@@ -59,6 +63,9 @@ public record GraphPresencePacket(
                 b.writeVarInt(p.wireFromPin);
                 b.writeFloat(p.wireEndX);
                 b.writeFloat(p.wireEndY);
+                int[] ids = p.selectedNodeIds != null ? p.selectedNodeIds : new int[0];
+                b.writeVarInt(ids.length);
+                for (int id : ids) b.writeVarInt(id);
             }
         };
 

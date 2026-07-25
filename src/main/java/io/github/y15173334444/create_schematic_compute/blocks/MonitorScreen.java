@@ -195,36 +195,28 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         if (be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
 
-    // ── Undo / Redo (delegates to GraphEditor static methods) ──
+    // ── Pixel editor undo/redo (pixel-level only; graph-level undo is handled by GraphEditor) ──
+    // 像素编辑器撤销/重做（仅像素级；图级撤销由 GraphEditor 处理）
 
     @Override
     public void pushUndoSnapshot() {
-        var be = getBE();
-        if (be == null || be.getLevel() == null) return;
-        try {
-            var tag = be.graph.save(be.getLevel().registryAccess());
-            GraphEditor.undoStack().add(tag);
-            GraphEditor.redoStack().clear();
-            while (GraphEditor.undoStack().size() > 50) GraphEditor.undoStack().remove(0);
-        } catch (Exception e) {
-            SchematicCompute.LOGGER.error("pushUndoSnapshot", e);
-        }
+        // Graph-level undo is now handled incrementally by GraphEditor.opUndo().
+        // 图级撤销现已由 GraphEditor.opUndo() 增量处理。
+        // This override exists only for Host interface compatibility; no longer used.
     }
 
     @Override
     public void performUndo() {
-        if (pixelEdit != null && pixelEdit.open) { performPixelUndo(); return; }
-        var be = getBE();
-        if (be == null || be.getLevel() == null) return;
-        GraphEditor.performUndo(this, be.getLevel().registryAccess());
+        // Only handle pixel editor undo here. Graph-level undo is handled by
+        // GraphEditor.keyPressed → opUndo() when Ctrl+Z passes through to it.
+        // 仅在此处理像素编辑器撤销。图级撤销由 GraphEditor.keyPressed → opUndo()
+        // 在 Ctrl+Z 传递到它时处理。
+        if (pixelEdit != null && pixelEdit.open) { performPixelUndo(); }
     }
 
     @Override
     public void performRedo() {
-        if (pixelEdit != null && pixelEdit.open) { performPixelRedo(); return; }
-        var be = getBE();
-        if (be == null || be.getLevel() == null) return;
-        GraphEditor.performRedo(this, be.getLevel().registryAccess());
+        if (pixelEdit != null && pixelEdit.open) { performPixelRedo(); }
     }
 
     private void performPixelUndo() {
@@ -1654,6 +1646,12 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     @Override
     public boolean keyPressed(int key, int sc, int mod) {
         if (editor.colorPicker.isVisible()) {
+            // Ctrl+Z/Y handled here before colorPicker eats the key (pixel editor undo/redo)
+            // Ctrl+Z/Y 在此处处理，优先于 colorPicker（像素编辑器撤销/重做）
+            if (net.minecraft.client.gui.screens.Screen.hasControlDown() && pixelEdit != null && pixelEdit.open) {
+                if (key == 90) { performPixelUndo(); return true; }
+                if (key == 89) { performPixelRedo(); return true; }
+            }
             // ESC: close color picker AND pixel editor together (not just the picker)
             // ESC：同时关闭调色板与像素编辑器
             if (key == 256 && pixelEdit != null && pixelEdit.open) {
@@ -1662,10 +1660,10 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             }
             return editor.colorPicker.keyPressed(key, sc, mod);
         }
-        // ── Global undo/redo (display mode + pixel editor; graph mode handled by GraphEditor) ──
-        if (net.minecraft.client.gui.screens.Screen.hasControlDown()) {
-            if (key == 90) { performUndo(); return true; }
-            if (key == 89) { performRedo(); return true; }
+        // ── Pixel-editor undo/redo when colorPicker is not visible ──
+        if (net.minecraft.client.gui.screens.Screen.hasControlDown() && pixelEdit != null && pixelEdit.open) {
+            if (key == 90) { performPixelUndo(); return true; }
+            if (key == 89) { performPixelRedo(); return true; }
         }
         if (showSettings) {
             for (var f : settingFields) if (f.isFocused()) {

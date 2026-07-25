@@ -64,6 +64,19 @@ public final class OpExecutor {
                 // S→C broadcast to non-originator editors: server-assigned ID is authoritative.
                 var node = graph.addNode(op.nodeType(), op.x(), op.y());
                 node.id = op.targetNodeId();
+                // Undo of REMOVE_NODE: restore full node data from NBT snapshot stored in stringValue
+                // REMOVE_NODE 撤销：从 stringValue 中存储的 NBT 快照恢复完整节点数据
+                if (op.stringValue() != null && !op.stringValue().isEmpty() && op.stringValue().charAt(0) == '{') {
+                    try {
+                        var nbtTag = net.minecraft.nbt.TagParser.parseTag(op.stringValue());
+                        if (nbtTag instanceof net.minecraft.nbt.CompoundTag ct) {
+                            restoreNodeFromNbt(node, ct);
+                        }
+                    } catch (Exception ex) {
+                        // NBT parse failure — node will be a bare shell; subsequent ops will fill in data
+                        // NBT 解析失败 — 节点将是空壳；后续操作会填充数据
+                    }
+                }
                 graph.rebuildNodeMap();
                 yield node;
             }
@@ -382,5 +395,90 @@ public final class OpExecutor {
 
             default -> null;
         };
+    }
+
+    /**
+     * Restore node fields from an NBT snapshot (undo of REMOVE_NODE).
+     * Does NOT restore itemParams (needs registries) or transient fields.
+     * Connections are restored separately by the caller.
+     * 从 NBT 快照恢复节点字段（REMOVE_NODE 撤销）。
+     * 不恢复 itemParams（需要 registries）或 transient 字段。
+     * 连线由调用方单独恢复。
+     */
+    private static void restoreNodeFromNbt(GraphNode node, net.minecraft.nbt.CompoundTag tag) {
+        // params
+        int pc = tag.getInt("pcount");
+        for (int i = 0; i < pc && i < node.params.length; i++)
+            node.params[i] = tag.getFloat("p" + i);
+        // signal name
+        if (tag.contains("sig")) node.signalName = tag.getString("sig");
+        // signal bands
+        if (tag.contains("bands")) {
+            var bandsTag = tag.getList("bands", net.minecraft.nbt.Tag.TAG_STRING);
+            node.signalBands = new java.util.ArrayList<>();
+            for (int i = 0; i < bandsTag.size(); i++)
+                node.signalBands.add(bandsTag.getString(i));
+        }
+        // BUS_OUT internalMap
+        if (tag.contains("busData")) {
+            var busData = tag.getCompound("busData");
+            node.busInternalMap = new java.util.HashMap<>();
+            for (String key : busData.getAllKeys())
+                node.busInternalMap.put(key, busData.getFloat(key));
+        }
+        // formula
+        if (tag.contains("formula")) node.formula = tag.getString("formula");
+        // display text
+        if (tag.contains("dtext")) node.displayText = tag.getString("dtext");
+        // text color
+        if (tag.contains("tcol")) node.textColor = tag.getInt("tcol");
+        // comment geometry
+        if (tag.contains("cw")) node.commentWidth = tag.getFloat("cw");
+        if (tag.contains("ch")) node.commentHeight = tag.getFloat("ch");
+        if (tag.contains("cbg")) node.commentBgColor = tag.getInt("cbg");
+        if (tag.contains("cbr")) node.commentBorderColor = tag.getInt("cbr");
+        if (tag.contains("ctx")) node.commentTextColor = tag.getInt("ctx");
+        // image pixels
+        if (tag.contains("ipx")) node.imagePixels = tag.getIntArray("ipx");
+        // image sequence frames
+        if (tag.contains("iframes")) {
+            var framesTag = tag.getList("iframes", net.minecraft.nbt.Tag.TAG_INT_ARRAY);
+            node.imageSequenceFrames = new java.util.ArrayList<>();
+            for (int i = 0; i < framesTag.size(); i++)
+                node.imageSequenceFrames.add(framesTag.getIntArray(i));
+        }
+        // display layout
+        node.layoutX = tag.getFloat("lx");
+        node.layoutY = tag.getFloat("ly");
+        node.displayScale = tag.getFloat("ds");
+        node.displayRotation = tag.getFloat("dr");
+        if (tag.contains("ms")) node.moveScale = tag.getFloat("ms");
+        // layer / z-order
+        if (tag.contains("layer")) node.layerIndex = tag.getInt("layer");
+        if (tag.contains("zb")) node.sortB = tag.getInt("zb");
+        // expanded state
+        if (tag.contains("expanded")) node.expanded = tag.getBoolean("expanded");
+        // bus conflict
+        if (tag.contains("busConflict")) node.busConflict = tag.getBoolean("busConflict");
+        // dynamic input/output counts for FORMULA
+        if (tag.contains("din")) node.dynamicInputCount = tag.getInt("din");
+        if (tag.contains("dout")) node.dynamicOutputCount = tag.getInt("dout");
+        if (tag.contains("outlbls")) {
+            var lbls = tag.getList("outlbls", net.minecraft.nbt.Tag.TAG_STRING);
+            node.outputLabels = new java.util.ArrayList<>();
+            for (int i = 0; i < lbls.size(); i++)
+                node.outputLabels.add(lbls.getString(i));
+        }
+        // DEBUG_SIGNAL_GEN control points
+        if (tag.contains("dcx") && tag.contains("dcy")) {
+            int[] dcx = tag.getIntArray("dcx");
+            int[] dcy = tag.getIntArray("dcy");
+            node.debugCtrlX = new float[dcx.length];
+            node.debugCtrlY = new float[dcy.length];
+            for (int i = 0; i < dcx.length; i++) {
+                node.debugCtrlX[i] = Float.intBitsToFloat(dcx[i]);
+                node.debugCtrlY[i] = Float.intBitsToFloat(dcy[i]);
+            }
+        }
     }
 }
