@@ -26,6 +26,16 @@ import org.slf4j.LoggerFactory;
  */
 public class FormulaParser {
 
+    // ─────────────────── Token types for syntax highlighting / validation ───────────────────
+    // 词法单元类型 — 用于语法高亮和校验
+
+    public enum TokType { NUMBER, IDENT, FUNCTION, CONSTANT, OPERATOR, LPAREN, RPAREN,
+                          COMMENT, AT_OUTPUT, ASSIGN, UNKNOWN }
+
+    /** A lexical token with [start, end) character offsets in the source string.
+     *  词法单元，携带源字符串中的 [start, end) 字符偏移。 */
+    public record Token(int start, int end, TokType type, String text) {}
+
     /** Pattern for valid identifiers: a-z, A-Z, 0-9, underscore, starting with letter or underscore */
     private static final Pattern IDENTIFIER = Pattern.compile("[a-zA-Z_][a-zA-Z0-9_]*");
     private static final Logger LOGGER = LoggerFactory.getLogger(FormulaParser.class);
@@ -55,7 +65,7 @@ public class FormulaParser {
         }
     }
 
-    private static final Map<String, Integer> FUNCTIONS;
+    public static final Map<String, Integer> FUNCTIONS;
     private static final Set<String> FUNCTION_NAMES;
     static {
         var m = new java.util.LinkedHashMap<String, Integer>();
@@ -68,22 +78,45 @@ public class FormulaParser {
         FUNCTION_NAMES = FUNCTIONS.keySet();
     }
 
+    /** Named constants requiring parenthesis disambiguation: bare PI/E are variables,
+     *  only (PI)/(E) wrapped directly by a grouping '(' are constant literals. */
+    private static final Map<String, Double> CONSTANTS;
+    private static final Set<String> CONSTANT_NAMES;
+    static {
+        var cm = new java.util.LinkedHashMap<String, Double>();
+        cm.put("PI", Math.PI);
+        cm.put("E", Math.E);
+        CONSTANTS = Collections.unmodifiableMap(cm);
+        CONSTANT_NAMES = CONSTANTS.keySet();
+    }
+
+    /** Returns the set of constant names (for autocomplete / validation to enumerate). */
+    public static Set<String> constantNames() { return CONSTANT_NAMES; }
+
+    /** Returns true if the name is a known constant name. */
+    public static boolean isConstantName(String name) { return CONSTANT_NAMES.contains(name); }
+
     /** 解析 formula 返回所有变量名（按出现顺序，跳过函数名）。
-     *  变量名支持字母、数字、下划线，首字符必须是字母或下划线。 */
+     *  变量名支持字母、数字、下划线，首字符必须是字母或下划线。
+     *  命名常量 (PI)/(E) 仅在其紧邻前驱为分组 '(' 时跳过（视为字面量），
+     *  函数调用内的裸 PI/E（如 sin(PI)）仍作为变量。
+     *  Uses {@link #tokenize(String)} so that CONSTANT vs IDENT distinction
+     *  is consistent with {@link #compile(String)}. */
     public static List<String> extractVariables(String formula) {
         var vars = new LinkedHashSet<String>();
-        int i = 0;
-        while (i < formula.length()) {
-            char c = formula.charAt(i);
-            if (isIdentStart(c)) {
-                int j = i + 1;
-                while (j < formula.length() && isIdentPart(formula.charAt(j))) j++;
-                String name = formula.substring(i, j);
-                if (!FUNCTION_NAMES.contains(name)) {
-                    vars.add(name);
-                }
-                i = j;
-            } else { i++; }
+        if (formula == null || formula.isEmpty()) return new ArrayList<>(vars);
+        // Normalize full-width parens to match tokenize() behaviour
+        String s = formula.replace('（', '(').replace('）', ')');
+        var tokens = tokenize(s);
+        for (Token t : tokens) {
+            if (t.type() == TokType.IDENT && !FUNCTION_NAMES.contains(t.text())) {
+                vars.add(t.text());
+            }
+            // CONSTANT tokens represent literal PI/E inside grouping (…) and are
+            // deliberately skipped — they are not variables.  PI/E tokens inside
+            // function calls (e.g. sin(PI)) are marked IDENT by tokenize() because
+            // the function's LPAREN is consumed by the FUNCTION token and never
+            // emitted as a standalone LPAREN.
         }
         return new ArrayList<>(vars);
     }
@@ -95,68 +128,366 @@ public class FormulaParser {
         return isIdentStart(c) || (c >= '0' && c <= '9');
     }
 
-    /** 编译表达式为 RPN token 列表（String=变量名, Double=数字, Character=运算符, FunctionToken=函数调用） */
+    /**
+     * Lexically tokenize a formula string for syntax highlighting, autocomplete, and validation.
+     * Returns a flat list of tokens with [start, end) character offsets.
+     * Whitespace is skipped (no tokens emitted). Unknown single characters that aren't
+     * part of any valid token are emitted as {@code UNKNOWN}.
+     *
+     * 对公式字符串进行词法分析，用于语法高亮、自动补全和校验。
+     * 返回带 [start, end) 字符偏移的 token 列表。空白字符被跳过（不生成 token）。
+     * 不属于任何有效 token 的未知字符被标记为 {@code UNKNOWN}。
+     */
+    public static List<Token> tokenize(String src) {
+        var tokens = new ArrayList<Token>();
+        if (src == null || src.isEmpty()) return tokens;
+        // Normalize full-width parens
+        String s = src.replace('（', '(').replace('）', ')');
+        int i = 0;
+        int len = s.length();
+        while (i < len) {
+            char c = s.charAt(i);
+            // Whitespace — skip
+            if (c == ' ' || c == '\t' || c == '\r' || c == '\n') { i++; continue; }
+            // Line continuation: backslash (treated as operator for coloring)
+            if (c == '\\') { tokens.add(new Token(i, i + 1, TokType.OPERATOR, "\\")); i++; continue; }
+            // Comment: -- to end of line
+            if (c == '-' && i + 1 < len && s.charAt(i + 1) == '-') {
+                int j = i + 2;
+                while (j < len && s.charAt(j) != '\n') j++;
+                tokens.add(new Token(i, j, TokType.COMMENT, s.substring(i, j)));
+                i = j; continue;
+            }
+            // @output marker
+            if (c == '@' && i + 6 <= len && s.startsWith("output", i + 1)) {
+                int j = i + 7; // "@output".length()
+                // only match if followed by whitespace, end, or non-ident char
+                if (j >= len || !isIdentPart(s.charAt(j))) {
+                    tokens.add(new Token(i, i + 7, TokType.AT_OUTPUT, "@output"));
+                    i = i + 7; continue;
+                }
+            }
+            // Identifiers
+            if (isIdentStart(c)) {
+                int j = i + 1;
+                while (j < len && isIdentPart(s.charAt(j))) j++;
+                String name = s.substring(i, j);
+                // Peek ahead: is it a function call?
+                int k = j;
+                while (k < len && s.charAt(k) == ' ') k++;
+                if (FUNCTION_NAMES.contains(name) && k < len && s.charAt(k) == '(') {
+                    tokens.add(new Token(i, j, TokType.FUNCTION, name));
+                    i = k + 1; // skip '(' — don't emit as standalone LPAREN,
+                               // so that PI in sin(PI) is IDENT (variable),
+                               // while PI in (PI) is CONSTANT (literal)
+                    continue;
+                }
+                // Named constant: (PI) / (E) — only when immediately preceded by LPAREN token
+                if (CONSTANT_NAMES.contains(name) && !tokens.isEmpty()
+                    && tokens.get(tokens.size() - 1).type() == TokType.LPAREN) {
+                    tokens.add(new Token(i, j, TokType.CONSTANT, name));
+                } else {
+                    tokens.add(new Token(i, j, TokType.IDENT, name));
+                }
+                i = j; continue;
+            }
+            // Numbers
+            if (c >= '0' && c <= '9') {
+                int j = i + 1;
+                while (j < len && ((s.charAt(j) >= '0' && s.charAt(j) <= '9') || s.charAt(j) == '.')) j++;
+                String numStr = s.substring(i, j);
+                try {
+                    Double.parseDouble(numStr);
+                    tokens.add(new Token(i, j, TokType.NUMBER, numStr));
+                } catch (NumberFormatException e) {
+                    tokens.add(new Token(i, j, TokType.UNKNOWN, numStr));
+                }
+                i = j; continue;
+            }
+            // Parens
+            if (c == '(') { tokens.add(new Token(i, i + 1, TokType.LPAREN, "(")); i++; continue; }
+            if (c == ')') { tokens.add(new Token(i, i + 1, TokType.RPAREN, ")")); i++; continue; }
+            // Assignment
+            if (c == '=') { tokens.add(new Token(i, i + 1, TokType.ASSIGN, "=")); i++; continue; }
+            // Comma (function argument separator)
+            if (c == ',') { tokens.add(new Token(i, i + 1, TokType.OPERATOR, ",")); i++; continue; }
+            // Arithmetic operators
+            if ("+-*/%^".indexOf(c) >= 0) {
+                tokens.add(new Token(i, i + 1, TokType.OPERATOR, String.valueOf(c)));
+                i++; continue;
+            }
+            // Unknown character — group consecutive unknown chars
+            int j = i + 1;
+            while (j < len) {
+                char nc = s.charAt(j);
+                if (nc == ' ' || nc == '\t' || nc == '\r' || nc == '\n') break;
+                if (isIdentStart(nc) || (nc >= '0' && nc <= '9')) break;
+                if ("()=,+\\-*/%^".indexOf(nc) >= 0) break;
+                if (nc == '@' || nc == '#' || nc == '!' || nc == '?' || nc == '<' || nc == '>'
+                    || nc == ';' || nc == ':' || nc == '\'' || nc == '"') break;
+                j++;
+            }
+            tokens.add(new Token(i, j, TokType.UNKNOWN, s.substring(i, j)));
+            i = j;
+        }
+        return tokens;
+    }
+
+    // ──────────────────────────── Validation ────────────────────────────
+
+    /** Issue severity / 问题严重程度 */
+    public enum Severity { ERROR, WARN }
+
+    /** A validation issue with source location and message.
+     *  校验问题，包含源位置和消息。 */
+    public record FormulaIssue(int line, int col, int length, Severity severity, String message) {}
+
+    /**
+     * Validate a formula string, returning a list of issues found.
+     * This is purely a UI aid — it does not affect evaluation (which is lenient and defaults to 0).
+     *
+     * 校验公式字符串，返回发现的问题列表。
+     * 纯 UI 辅助功能——不影响求值（求值宽容，默认返回 0）。
+     */
+    public static List<FormulaIssue> validate(String src) {
+        var issues = new ArrayList<FormulaIssue>();
+        if (src == null || src.isEmpty()) return issues;
+        String s = src.replace('（', '(').replace('）', ')');
+        var tokens = tokenize(s);
+        if (tokens.isEmpty()) return issues;
+
+        // ── 1) Bracket matching ──
+        // FUNCTION tokens implicitly open a call context (tokenize() consumes
+        // their '(' and never emits a standalone LPAREN), so both LPAREN and
+        // FUNCTION are pushed onto the stack.  RPAREN closes whichever is on top.
+        var parenStack = new ArrayDeque<Integer>(); // token indices
+        for (int ti = 0; ti < tokens.size(); ti++) {
+            Token t = tokens.get(ti);
+            if (t.type() == TokType.LPAREN || t.type() == TokType.FUNCTION) {
+                parenStack.push(ti);
+            } else if (t.type() == TokType.RPAREN) {
+                if (parenStack.isEmpty()) {
+                    int[] lc = lineCol(s, t.start());
+                    issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
+                        "多余的右括号"));
+                } else { parenStack.pop(); }
+            }
+        }
+        for (int ti : parenStack) {
+            Token t = tokens.get(ti);
+            int[] lc = lineCol(s, t.start());
+            if (t.type() == TokType.FUNCTION) {
+                issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
+                    "未闭合的函数调用 '" + t.text() + "()'"));
+            } else {
+                issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
+                    "未闭合的左括号"));
+            }
+        }
+
+        // ── 2) UNKNOWN tokens ──
+        for (Token t : tokens) {
+            if (t.type() == TokType.UNKNOWN) {
+                int[] lc = lineCol(s, t.start());
+                String text = t.text();
+                if (text.equals(".")) {
+                    issues.add(new FormulaIssue(lc[0], lc[1], 1, Severity.ERROR, "无法识别的字符 '.'"));
+                } else if (!text.isEmpty() && (text.charAt(0) >= '0' && text.charAt(0) <= '9')) {
+                    issues.add(new FormulaIssue(lc[0], lc[1], text.length(), Severity.ERROR,
+                        "无效的数字格式 '" + text + "'"));
+                } else {
+                    issues.add(new FormulaIssue(lc[0], lc[1], text.length(), Severity.ERROR,
+                        "无法识别的字符 '" + text + "'"));
+                }
+            }
+        }
+
+        // ── 4) Unknown function: IDENT followed by LPAREN but not in FUNCTIONS ──
+        for (int ti = 0; ti < tokens.size() - 1; ti++) {
+            Token t = tokens.get(ti);
+            if (t.type() == TokType.IDENT && tokens.get(ti + 1).type() == TokType.LPAREN) {
+                // CONSTANT followed by LPAREN is fine (e.g., (PI) is constant, not a call)
+                // But IDENT followed by LPAREN means user tried to call something like foo(...)
+                int[] lc = lineCol(s, t.start());
+                issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
+                    "未知函数 '" + t.text() + "()'"));
+            }
+        }
+
+        // ── 5) Function arity ──
+        for (int ti = 0; ti < tokens.size(); ti++) {
+            Token t = tokens.get(ti);
+            if (t.type() == TokType.FUNCTION) {
+                int arity = FUNCTIONS.getOrDefault(t.text(), 0);
+                int argCount = countFunctionArgs(tokens, ti);
+                if (argCount != arity) {
+                    int[] lc = lineCol(s, t.start());
+                    issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
+                        "函数 '" + t.text() + "()' 期望 " + arity + " 个参数，但传入了 " + argCount + " 个"));
+                }
+            }
+        }
+
+        // ── 6) Assignment: ASSIGN left side must be a valid identifier ──
+        for (int ti = 0; ti < tokens.size(); ti++) {
+            if (tokens.get(ti).type() == TokType.ASSIGN) {
+                boolean validLeft = ti > 0 && tokens.get(ti - 1).type() == TokType.IDENT
+                    && isValidIdentifier(tokens.get(ti - 1).text());
+                if (!validLeft) {
+                    int[] lc = lineCol(s, tokens.get(ti).start());
+                    issues.add(new FormulaIssue(lc[0], lc[1], 1, Severity.ERROR,
+                        "赋值左侧必须是变量名"));
+                }
+            }
+        }
+
+        // ── 7) @output checks ──
+        var outputNames = new ArrayList<String>();
+        for (int ti = 0; ti < tokens.size(); ti++) {
+            if (tokens.get(ti).type() == TokType.AT_OUTPUT) {
+                Token next = ti + 1 < tokens.size() ? tokens.get(ti + 1) : null;
+                if (next == null || next.type() != TokType.IDENT || !isValidIdentifier(next.text())) {
+                    int[] lc = lineCol(s, tokens.get(ti).start());
+                    issues.add(new FormulaIssue(lc[0], lc[1], 7, Severity.WARN,
+                        "@output 后面需要合法的变量名"));
+                } else {
+                    String outName = next.text();
+                    if (CONSTANT_NAMES.contains(outName)) {
+                        // @output PI / @output E is technically fine for bare variable PI/E
+                        // (only (PI)/(E) is constant; bare PI/E is a variable)
+                    }
+                    if (outputNames.contains(outName)) {
+                        int[] lc = lineCol(s, next.start());
+                        issues.add(new FormulaIssue(lc[0], lc[1], next.end() - next.start(), Severity.WARN,
+                            "重复的输出名 '" + outName + "'"));
+                    } else {
+                        outputNames.add(outName);
+                    }
+                }
+            }
+        }
+
+        return issues;
+    }
+
+    /** Count arguments inside a function call.  Since {@link #tokenize(String)}
+     *  consumes the {@code (} that follows a function name (it is never emitted as
+     *  a standalone LPAREN token), the arguments start at {@code funcIdx+1}.
+     *  Both LPAREN (grouping) and FUNCTION (nested call) increase depth;
+     *  only depth==0 RPAREN closes the outer call whose args we are counting. */
+    private static int countFunctionArgs(List<Token> tokens, int funcIdx) {
+        if (funcIdx + 1 >= tokens.size()) return 0;
+        int depth = 0, commas = 0;
+        boolean hasContent = false;
+        for (int i = funcIdx + 1; i < tokens.size(); i++) {
+            TokType tt = tokens.get(i).type();
+            if (tt == TokType.LPAREN || tt == TokType.FUNCTION) {
+                depth++; hasContent = true;
+            } else if (tt == TokType.RPAREN) {
+                if (depth == 0) {
+                    // Matching close of the outer function's argument list
+                    return hasContent ? commas + 1 : 0;
+                }
+                depth--;
+            } else if (tt == TokType.OPERATOR && tokens.get(i).text().equals(",") && depth == 0) {
+                commas++;
+            } else if (tt != TokType.UNKNOWN) {
+                hasContent = true;
+            }
+        }
+        return hasContent ? commas + 1 : 0;
+    }
+
+    /** Convert a character offset into (line, col) — both 0-based. */
+    private static int[] lineCol(String src, int offset) {
+        int line = 0, lineStart = 0;
+        for (int i = 0; i < offset && i < src.length(); i++) {
+            if (src.charAt(i) == '\n') { line++; lineStart = i + 1; }
+        }
+        return new int[]{line, offset - lineStart};
+    }
+
+    /** 编译表达式为 RPN token 列表（String=变量名, Double=数字, Character=运算符, FunctionToken=函数调用）。
+     *  Refactored to consume {@link #tokenize(String)} so that tokenization, highlighting, and
+     *  validation share a single scan of the source.  The RPN produced is identical to the old
+     *  character-at-a-time implementation. */
     public static List<Object> compile(String formula) {
         // 自动将全角括号转为半角 / auto-convert full-width parens to half-width
         formula = formula.replace('（', '(').replace('）', ')');
+        var tokens = tokenize(formula);
         var output = new ArrayList<Object>();
         var ops = new ArrayDeque<Object>();
         boolean expectUnary = true;
-        int i = 0;
-        while (i < formula.length()) {
-            char c = formula.charAt(i);
-            if (c == ' ') { i++; continue; }
-            if (isIdentStart(c)) {
-                int j = i + 1;
-                while (j < formula.length() && isIdentPart(formula.charAt(j))) j++;
-                String name = formula.substring(i, j);
-                // 向前跳过空白，检查是否是函数调用
-                int k = j;
-                while (k < formula.length() && formula.charAt(k) == ' ') k++;
-                Integer arity = FUNCTIONS.get(name);
-                if (arity != null && k < formula.length() && formula.charAt(k) == '(') {
-                    ops.push(new FunctionToken(name, arity));
-                    i = k + 1; // 跳过 '('
+        for (int ti = 0; ti < tokens.size(); ti++) {
+            Token t = tokens.get(ti);
+            switch (t.type()) {
+                case NUMBER -> {
+                    output.add(Double.parseDouble(t.text()));
+                    expectUnary = false;
+                }
+                case IDENT -> {
+                    output.add(t.text());
+                    expectUnary = false;
+                }
+                case CONSTANT -> {
+                    // Re-check ops stack: only treat as literal when a grouping '(' is on top.
+                    // tokenize() may mark PI/E as CONSTANT even inside function arguments
+                    // (e.g. sin(PI)) because it only sees the preceding LPAREN token.
+                    // The old compile() checked ops.peek()=='(' to distinguish grouping '(' from
+                    // function '(' — we must do the same here to keep PI as a variable reference
+                    // inside function calls (so it generates an input pin).
+                    Double v = CONSTANTS.get(t.text());
+                    if (v != null && !ops.isEmpty() && ops.peek().equals('(')) {
+                        output.add(v);
+                    } else {
+                        output.add(t.text()); // variable reference
+                    }
+                    expectUnary = false;
+                }
+                case FUNCTION -> {
+                    ops.push(new FunctionToken(t.text(), FUNCTIONS.getOrDefault(t.text(), 1)));
+                    // Skip the following LPAREN (FUNCTION token already consumed the '(')
+                    if (ti + 1 < tokens.size() && tokens.get(ti + 1).type() == TokType.LPAREN) ti++;
                     expectUnary = true;
-                    continue;
                 }
-                output.add(name);
-                i = j; expectUnary = false; continue;
-            }
-            if (c >= '0' && c <= '9') {
-                int j = i + 1;
-                while (j < formula.length() && ((formula.charAt(j) >= '0' && formula.charAt(j) <= '9') || formula.charAt(j) == '.')) j++;
-                output.add(Double.parseDouble(formula.substring(i, j)));
-                i = j; expectUnary = false; continue;
-            }
-            if (c == '(') { ops.push('('); i++; expectUnary = true; continue; }
-            if (c == ',') {
-                while (!ops.isEmpty() && !(ops.peek() instanceof FunctionToken))
-                    output.add(ops.pop());
-                i++; expectUnary = true; continue;
-            }
-            if (c == ')') {
-                while (!ops.isEmpty() && !(ops.peek() instanceof FunctionToken) && !ops.peek().equals('('))
-                    output.add(ops.pop());
-                if (!ops.isEmpty()) {
-                    Object top = ops.pop();
-                    if (top instanceof FunctionToken ft) output.add(ft);
+                case LPAREN -> {
+                    ops.push('(');
+                    expectUnary = true;
                 }
-                i++; expectUnary = false; continue;
-            }
-            if ("+-*/%^".indexOf(c) >= 0) {
-                if (expectUnary && (c == '+' || c == '-')) {
-                    output.add(0.0); ops.push('-');
-                } else {
-                    int prec = precedence(c);
-                    while (!ops.isEmpty() && ops.peek() instanceof Character op
-                           && !op.equals('(') && precedence(op) >= prec)
+                case RPAREN -> {
+                    while (!ops.isEmpty() && !(ops.peek() instanceof FunctionToken) && !ops.peek().equals('('))
                         output.add(ops.pop());
-                    ops.push(c);
+                    if (!ops.isEmpty()) {
+                        Object top = ops.pop();
+                        if (top instanceof FunctionToken ft) output.add(ft);
+                    }
+                    expectUnary = false;
                 }
-                i++; expectUnary = true; continue;
+                case OPERATOR -> {
+                    String opText = t.text();
+                    if (opText.equals(",")) {
+                        while (!ops.isEmpty() && !(ops.peek() instanceof FunctionToken))
+                            output.add(ops.pop());
+                        expectUnary = true;
+                    } else {
+                        char op = opText.charAt(0);
+                        if (expectUnary && (op == '+' || op == '-')) {
+                            output.add(0.0);
+                            ops.push('-');
+                        } else if ("+-*/%^".indexOf(op) >= 0) {
+                            int prec = precedence(op);
+                            while (!ops.isEmpty() && ops.peek() instanceof Character opc
+                                   && !opc.equals('(') && precedence(opc) >= prec)
+                                output.add(ops.pop());
+                            ops.push(op);
+                        }
+                        // else: \ (line continuation) or other non-arithmetic operator — skip
+                        expectUnary = true;
+                    }
+                }
+                // ASSIGN, COMMENT, AT_OUTPUT, UNKNOWN — lenient skip
+                default -> { /* skip */ }
             }
-            i++; // skip unknown chars
         }
         while (!ops.isEmpty()) output.add(ops.pop());
         return output;

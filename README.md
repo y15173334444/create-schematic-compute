@@ -1,8 +1,8 @@
 # Create: Schematic Compute
 
 <p align="center">
-  <b>🎮 7 Programmable Blocks · 84 Node Types · Multiplayer Collaboration · Debug Tools</b><br>
-  <b>七种可编程方块 · 84种节点 · 多人实时协作 · 调试工具链</b><br>
+  <b>🎮 7 Programmable Blocks · 84 Node Types · Formula Syntax Highlighting & Autocomplete · Multiplayer Collaboration</b><br>
+  <b>七种可编程方块 · 84种节点 · 公式语法高亮与自动补全 · 多人实时协作</b><br>
   <i>Drag, connect, and build logic — just like Unreal Engine Blueprints!</i><br>
   <i>拖拽连接，构建逻辑 — 像虚幻引擎蓝图一样直观！</i><br>
   <i>Created by <b>StarryNight_Luo</b> (y15173334444)</i>
@@ -21,9 +21,9 @@
 
 ## 📖 Overview / 简介
 
-**🇬🇧** Create: Schematic Compute is a **Create mod addon** that introduces **7 programmable blocks + 1 portable terminal** with a **visual node-based programming system**. Instead of writing complex redstone circuits, simply drag and connect nodes to build logic — just like Unreal Engine Blueprints or Blender Geometry Nodes. Each computer runs at **20Hz (every game tick)** for real-time control. **All 7 blocks support real-time multiplayer collaborative editing** with live cursor tracking and node lock protection.
+**🇬🇧** Create: Schematic Compute is a **Create mod addon** that introduces **7 programmable blocks + 1 portable terminal** with a **visual node-based programming system**. Instead of writing complex redstone circuits, simply drag and connect nodes to build logic — just like Unreal Engine Blueprints or Blender Geometry Nodes. Each computer runs at **20Hz (every game tick)** for real-time control. **All 7 blocks support real-time multiplayer collaborative editing** with live cursor tracking and node lock protection. The **FORMULA script editor** features syntax highlighting (9 token colours), intelligent autocomplete (functions, variables, `@output`), real-time validation with error badges, and named constants `(PI)`/`(E)`.
 
-**🇨🇳** **机械动力：蓝图计算机** 是一个机械动力附属模组，添加了**七种可编程方块和一个便携终端**，采用**可视化节点图编程系统**。无需搭建复杂红石电路，只需拖拽连接节点即可构建逻辑——就像虚幻引擎的蓝图系统或 Blender 的几何节点一样直观。每台设备拥有独立的节点图，以 **20Hz（每游戏刻）** 的频率运行，适合实时控制应用。**全部 7 种方块支持多人实时协作编辑**，带实时光标追踪和节点锁定保护。
+**🇨🇳** **机械动力：蓝图计算机** 是一个机械动力附属模组，添加了**七种可编程方块和一个便携终端**，采用**可视化节点图编程系统**。无需搭建复杂红石电路，只需拖拽连接节点即可构建逻辑——就像虚幻引擎的蓝图系统或 Blender 的几何节点一样直观。每台设备拥有独立的节点图，以 **20Hz（每游戏刻）** 的频率运行，适合实时控制应用。**全部 7 种方块支持多人实时协作编辑**，带实时光标追踪和节点锁定保护。**FORMULA 公式脚本编辑器** 支持语法高亮（9 种词法颜色）、智能自动补全（函数、变量、`@output`）、实时校验与错误徽章、以及命名常量 `(PI)`/`(E)`。
 
 ---
 
@@ -148,6 +148,64 @@ Real-time collaborative graph editing for all 7 block types. Multiple players ca
 
 Multi-line script editor (v1.2.0+) — assignments, named outputs, comments, line continuation.
 多行脚本编辑器 — 支持赋值、命名输出、注释、续行。
+
+### 🎨 Syntax Highlighting / 语法高亮
+Real-time colour-coded editing with 9 token categories.
+9 种词法分类的实时彩色标注。
+
+| Token Type / 词法类型 | Colour / 颜色 | Examples / 示例 |
+|----------------------|-------------|-----------------|
+| Functions / 函数 | 🟡 Yellow / 黄色 | `sin`, `cos`, `sqrt`, `exp` |
+| Constants / 常量 | 🩷 Pink / 粉色 | `(PI)`, `(E)` — 仅分组括号内视为字面量 |
+| Identifiers / 标识符 | 🩵 Light Cyan / 浅青 | `x`, `speed`, `myVar` |
+| Numbers / 数字 | 🟠 Orange / 橙色 | `3.14`, `42`, `0.5` |
+| Operators / 运算符 | ⬜ Grey / 灰色 | `+`, `-`, `*`, `/`, `^`, `%` |
+| Parens / 括号 | ⬜ Grey / 灰色 | `(`, `)` |
+| Comments / 注释 | 🟢 Green / 绿色 | `-- this is a comment` |
+| @output / 输出 | 🟣 Purple / 紫色 | `@output` |
+| Assignment / 赋值 | 🟣 Purple / 紫色 | `=` |
+| Unknown / 未知 | 🔴 Red / 红色 | Invalid characters / 非法字符 |
+
+### 🔍 Autocomplete / 自动补全
+Type to trigger suggestions near the caret, rendered above all pins.
+输入即触发，候选框显示在光标下方、所有引脚上方。
+
+| Trigger / 触发方式 | Behaviour / 行为 |
+|-------------------|-----------------|
+| Type identifier char / 输入标识符字符 | Filtered dropdown: functions, constants, current variables / 过滤候选：函数、常量、当前变量 |
+| Type `@` / 输入 `@` | Immediately suggests `@output` / 立即建议 `@output` |
+| `Tab` / `Enter` | Accept selected candidate / 接受选中候选项 |
+| `↑` `↓` | Navigate candidates / 导航候选项 |
+| `Esc` / any other key | Close popup / 关闭候选框 |
+| Click candidate / 点击候选项 | Accept and insert / 接受并插入 |
+| Zoom-aware / 缩放感知 | Popup scales with graph zoom level / 候选框随图缩放 |
+
+### ✅ Real-Time Validation / 实时校验
+Issues shown as red ⚠ badge on the node title bar. Hover the badge to see details.
+错误以红色 ⚠ 徽章显示在节点标题栏，悬停查看详情。
+
+| Check / 校验项 | Type / 类型 |
+|---------------|-----------|
+| Bracket matching / 括号匹配 | Error / 错误 |
+| Unknown function / 未知函数 | Error / 错误 |
+| Function arity / 函数参数数量不符 | Error / 错误 |
+| Invalid assignment / 无效赋值 | Error / 错误 |
+| Duplicate output names / 重复输出名 | Warning / 警告 |
+| @output without identifier / @output 缺少变量名 | Warning / 警告 |
+| Red border on MLE / 输入框红色边框 | Visual feedback / 视觉反馈 |
+
+### 📐 Named Constants / 命名常量
+`(PI)` and `(E)` in grouping parentheses are literal constants (π ≈ 3.14159, e ≈ 2.71828).
+Bare `PI` / `E` or `PI` / `E` inside function calls like `sin(PI)` are treated as variable references (create input pins).
+`(PI)` 和 `(E)` 在分组括号内视为字面常量。裸 `PI`/`E` 或函数调用内的 `sin(PI)` 视为变量（创建输入引脚）。
+
+```
+-- (PI) = literal π, not a variable / 字面量π，不是变量
+-- sin(PI) = PI is a variable input / PI 是变量输入
+result = (PI) + sin(PI)
+@output result
+```
+→ 1 input pin (PI) + 1 output / 1 输入引脚 + 1 输出
 
 ```
 -- Ballistic calculation / 弹道计算
@@ -468,7 +526,7 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 ## 📜 Changelog / 更新日志
 
 <details>
-<summary><b>v1.2.4</b> — Multiplayer Collaboration + Debug Toolchain / 多人协作 + 调试工具链</summary>
+<summary><b>v1.2.4</b> — Multiplayer Collaboration + Debug Toolchain + Formula Editor UX / 多人协作 + 调试工具链 + 公式编辑器体验</summary>
 
 ### 👥 Multiplayer Collaboration / 多人协作
 All 7 blocks now support real-time collaborative graph editing — multiple players can edit the same node graph simultaneously. / 全部 7 种方块支持多人实时协作编辑同一节点图。
@@ -519,6 +577,20 @@ All 7 blocks now support real-time collaborative graph editing — multiple play
 - 📝 **ENCAP I/O Rename Sync** — Renaming `ENCAP_INPUT` / `ENCAP_OUTPUT` now sends `SET_DISPLAY_TEXT` op for server sync + undo support. / 封装I/O改名现在同步到服务端并支持撤销。
 - 📋 **Ctrl+D Copy Fix** — Copy now uses server-authoritative ID allocation (`ADD_NODE_REQUEST` → ACK); data ops are deferred until all real IDs assigned. Sub-graph content recursively synced for ENCAPSULATION nodes. Fixes "empty node on other clients". / 复制走服务端权威ID分配，封装子图递归同步。
 - 📐 **Manual Curve Fixed Y-Axis** — Signal Generator manual curve mode now uses fixed Y range `[-1.1, 1.1]`; auto-scaling retained for formula mode. Control points clamped to visible range and rendered above border. / 手动曲线Y轴固定，控制点钳制+边框上方渲染。
+
+### 🎨 Formula Editor UX / 公式编辑器体验
+
+**Syntax Highlighting / 语法高亮** — Real-time token-based colouring with 9 categories: functions (yellow), constants (pink), identifiers (cyan), numbers (orange), operators/parens (grey), comments (green), @output/assignment (purple), unknown (red underline). Token cache avoids per-frame re-parsing. / 实时词法彩色标注，9 种分类：函数（黄）、常量（粉）、标识符（青）、数字（橙）、运算符/括号（灰）、注释（绿）、@output/赋值（紫）、未知（红色下划线）。Token 缓存避免每帧重复解析。
+
+**Autocomplete Popup / 自动补全候选框** — Type identifier characters to trigger filtered dropdown (functions, named constants, current variables); type `@` for immediate `@output`. Keyboard: `↑↓` navigate, `Tab`/`Enter` accept, `Esc` dismiss. Mouse: click any candidate to accept. Popup renders **above all pins** (z-layer C=5.5) with **zoom-aware scaling** — text and layout scale proportionally with graph zoom. Deleted variables immediately disappear from suggestions. / 输入标识符触发过滤候选框；输入 `@` 立即建议 `@output`。键盘导航/接受/关闭，点击候选项接受。候选框渲染在**所有引脚上方**（C=5.5 层），支持**缩放感知**。删除变量立即从候选消失。
+
+**Real-Time Validation / 实时校验** — Red `⚠` badge on FORMULA node title bar; hover for tooltip list. Checks: bracket matching, unknown function, wrong arity, invalid assignment (errors), duplicate outputs, @output without identifier (warnings). Red border on the edit box when errors present. Validation cached after NBT reload to avoid per-frame re-parse. / 红色 ⚠ 徽章 + 悬停工具提示。校验：括号匹配、未知函数、参数数错误、无效赋值（错误），重复输出名、@output 缺变量（警告）。输入框红色边框。NBT 重载后缓存避免每帧重解析。
+
+**Named Constants / 命名常量** — `(PI)` and `(E)` in grouping parentheses are literal constants (π / e). Bare `PI`/`E` or inside function calls like `sin(PI)` are variable references (create input pins). Consistent across `extractVariables()`, `compile()`, and `tokenize()`. / `(PI)`/`(E)` 在分组括号内为字面常量。裸 `PI`/`E` 或函数调用内 `sin(PI)` 视为变量。三种解析入口行为一致。
+
+**Robustness / 健壮性** — Mouse drag selection restored (hlPos sync scoped). SET_FORMULA self-skip prevents EditState recreation → no focus loss during typing. Formula responder re-fetches graph node each keystroke (handles NBT sync between keystrokes). Connection cleanup corrected to use `inputs()`/`outputs()` clamps. Screen-width hardcoded 1920 replaced with `getGuiScaledWidth()`. Null safety in suggestion filtering. / 拖拽选区修复、SET_FORMULA 自跳、按键间图引用重获取、连线清理用 clamp 值、屏幕宽度动态获取、候选过滤 null 防护。
+
+**Tests / 测试** — 27 new unit tests covering tokenize, extractVariables, compile/evaluate, validate, parseScript, countFunctionArgs, and edge cases. / 27 个新单元测试。
 
 </details>
 

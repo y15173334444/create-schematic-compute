@@ -679,6 +679,23 @@ public class NodeRenderer {
         pose.scale(zoom,zoom,1);
         // C=1: 标题文字
         drawStr(g, I18n.get(n.type.getTitle()), 4, 4, CNT());
+        // FORMULA error badge: red ⚠ in the title bar.
+        // Prefer cached issues set by the edit-panel responder; validate only on
+        // first frame after NBT reload (when formulaIssues is null).
+        // FORMULA 错误徽章：标题栏红色 ⚠。优先使用编辑面板 responder 设置的
+        // 缓存问题列表；仅在 NBT 重载后首帧（formulaIssues 为 null 时）重新校验。
+        java.util.List<io.github.y15173334444.create_schematic_compute.graph.FormulaParser.FormulaIssue> formulaIssuesLive = null;
+        if (n.type == NodeType.FORMULA && !n.formula.isEmpty()) {
+            formulaIssuesLive = n.formulaIssues;
+            if (formulaIssuesLive == null) {
+                formulaIssuesLive = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(n.formula);
+                n.formulaIssues = formulaIssuesLive; // cache until next NBT reload or edit
+            }
+        }
+        boolean formulaHasIssues = formulaIssuesLive != null && !formulaIssuesLive.isEmpty();
+        if (formulaHasIssues) {
+            drawStr(g, "§c⚠", nodeW - 30, 4, 0xFFFF4444);
+        }
         // C=2: 展开指示器
         if (n.type == NodeType.FORMULA || n.type.paramNames.length > 0
             || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT
@@ -786,6 +803,82 @@ public class NodeRenderer {
             lockPose.scale(zoom, zoom, 1);
             drawStr(g, "§e" + lockedBy, 0, 0, 0xFFFFAA44);
             lockPose.popPose();
+        }
+        // C=5.5: Autocomplete popup — rendered in screen space with zoom-aware scaling.
+        // The MLE stores anchorX/Y (MLE-relative caret bottom) during renderWidget.
+        // C=5.5: 自动补全候选框 — 屏幕空间渲染，支持缩放感知。
+        // MLE 在 renderWidget 中存储 anchorX/Y（MLE 相对光标底部位置）。
+        if (editing) {
+            var editSt = nodeEditStatesById.get(n.id);
+            if (editSt != null) {
+                for (var f : editSt.fields) {
+                    if (f instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mle) {
+                        var popup = mle.getSuggestPopup();
+                        if (popup.isVisible()) {
+                            int editLocalY = (int)(nh(n) + 4 / zoom);
+                            int screenX = (int)(sx + (28 + popup.anchorX) * zoom);
+                            int screenY = (int)(sy + (editLocalY + 4 + popup.anchorY + 18) * zoom);
+                            int maxW = Math.min(200, nodeW - 36); // unscaled, pose will scale it
+
+                            // Estimate popup height (unscaled) to flip above if it doesn't fit below
+                            int estH = Math.min(popup.getCandidates().size(), 8) * 14 + 6;
+                            int screenEstH = (int)(estH * zoom);
+                            int panelBottom = (int)(sy + (editLocalY + io.github.y15173334444.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom, editSt)) * zoom);
+                            if (screenY + screenEstH > panelBottom) {
+                                // Flip above caret
+                                screenY = (int)(sy + (editLocalY + 4 + popup.anchorY) * zoom) - (int)(Minecraft.getInstance().font.lineHeight * zoom) - screenEstH;
+                                if (screenY < (int)sy) screenY = (int)sy;
+                            }
+                            // Horizontal clamp
+                            int screenW = (int)((nodeW - 36) * zoom);
+                            if (screenX + screenW > (int)(sx + nodeW * zoom)) screenX = (int)(sx + nodeW * zoom) - screenW;
+                            if (screenX < (int)sx) screenX = (int)sx;
+
+                            var popPose = g.pose();
+                            popPose.pushPose();
+                            popPose.translate(screenX, screenY, 0);
+                            popPose.scale(zoom, zoom, 1);
+                            popup.render(g, Minecraft.getInstance().font, 0, 0, maxW);
+                            popPose.popPose();
+
+                            // Convert rendered bounds (pose-local) back to screen space for click detection
+                            popup.renderedX = screenX;
+                            popup.renderedY = screenY;
+                            popup.renderedW = (int)(popup.renderedW * zoom);
+                            popup.renderedH = (int)(popup.renderedH * zoom);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        // C=5.5: FORMULA error tooltip (after pins, above all — screen space)
+        if (formulaHasIssues) {
+            int badgeX = (int)(sx + (nodeW - 30) * zoom);
+            int badgeY = (int)(sy + 4 * zoom);
+            int badgeW = (int)(14 * zoom);
+            int badgeH = (int)(14 * zoom);
+            if (mx >= badgeX && mx <= badgeX + badgeW && my >= badgeY && my <= badgeY + badgeH) {
+                var lines = new java.util.ArrayList<String>();
+                for (var iss : formulaIssuesLive) {
+                    String sev = iss.severity() == io.github.y15173334444.create_schematic_compute.graph.FormulaParser.Severity.ERROR ? "§c" : "§e";
+                    lines.add(sev + "L" + (iss.line() + 1) + ":" + (iss.col() + 1) + " " + iss.message());
+                }
+                int maxW = 0;
+                for (String l : lines) maxW = Math.max(maxW, Minecraft.getInstance().font.width(l));
+                int tw = Math.min(maxW + 10, 260);
+                int rows = lines.size();
+                int rowH = 11;
+                int th = rows * rowH + 4;
+                int tx = mx, ty = my + 8;
+                if (tx + tw > Minecraft.getInstance().getWindow().getGuiScaledWidth()) tx = Minecraft.getInstance().getWindow().getGuiScaledWidth() - tw;
+                if (tx < 0) tx = 0;
+                g.fill(tx, ty, tx + tw, ty + th, 0xDD1A0000);
+                g.renderOutline(tx, ty, tw, th, 0xFFFF4444);
+                for (int i = 0; i < rows; i++) {
+                    g.drawString(Minecraft.getInstance().font, lines.get(i), tx + 4, ty + 2 + i * rowH, 0xFFFF8888, false);
+                }
+            }
         }
         // Flush per-node to prevent text (font buffer) from later nodes'
         // fills covering earlier nodes' text due to Minecraft's two-pass

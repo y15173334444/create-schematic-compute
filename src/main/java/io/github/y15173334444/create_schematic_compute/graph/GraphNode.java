@@ -33,6 +33,7 @@ public class GraphNode {
     public int dynamicOutputCount = 1; // FORMULA 节点的动态输出数 (v1.2+) / dynamic outputs for FORMULA node (v1.2+)
     public List<String> outputLabels = null; // FORMULA 节点的 @output 名称（延迟解析）/ @output names for FORMULA node (lazy-parsed)
     public transient FormulaParser.ScriptParseResult cachedScript = null; // 缓存的解析结果 / cached parse result
+    public transient java.util.List<FormulaParser.FormulaIssue> formulaIssues = null; // 客户端校验问题 (client-side validation issues)
     // Display node fields (Monitor block)  /  显示节点字段（Monitor 方块）
     public String displayText = "";               // TEXT 节点内容 / TEXT node content
     public int layerIndex = 0;                     // 显示编辑器中的 z 序（越高越靠前）/ z-order in display editor (higher = front)

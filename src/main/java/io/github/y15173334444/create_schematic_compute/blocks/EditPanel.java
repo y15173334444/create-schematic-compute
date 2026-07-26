@@ -224,6 +224,10 @@ public class EditPanel {
                     vi++;
                 }
             }
+
+            // Popup is rendered by NodeRenderer at C=5.5 in screen space.
+            // anchorX/Y (MLE-relative caret position) are maintained by
+            // renderWidget and triggerCompletion.
         }
         } else if (node.type == NodeType.DEBUG_SIGNAL_GEN) {
         // ── 信号发生器编辑区：模式切换 + 条件参数 EditBox ──
@@ -598,4 +602,5 @@ public class EditPanel {
             g.fill(cx, y + 2, cx + 1, y + h - 4, 0xFFFFFFFF);
         }
     }
+
 }

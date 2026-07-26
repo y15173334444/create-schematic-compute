@@ -804,10 +804,20 @@ public class GraphEditor {
                     suppressEditBoxResponder = false;
                 }
             } else if (st == null || op.type() != io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM) {
-                // Recreate entire EditState for non-param ops or if expanded
-                var n = graph.findNode(op.targetNodeId());
-                if (n != null && expandedNodeIds.contains(n.id))
-                    nodeEditStatesById.put(n.id, createEditState(n));
+                // Recreate entire EditState for non-param ops or if expanded.
+                // SKIP for SET_FORMULA from self: the local responder already updated
+                // node.formula and the MLE text; recreating EditState here would replace
+                // the MLE the user is actively typing in → focus loss + data bounce-back.
+                // 跳过本地玩家的 SET_FORMULA：本地 responder 已更新了 node.formula 和 MLE
+                // 文本；在此重建 EditState 会替换用户正在输入的 MLE → 焦点丢失+数据回弹。
+                if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_FORMULA
+                    && op.actor() != null && op.actor().equals(host.getPlayerUUID())) {
+                    // no-op: formula already current
+                } else {
+                    var n = graph.findNode(op.targetNodeId());
+                    if (n != null && expandedNodeIds.contains(n.id))
+                        nodeEditStatesById.put(n.id, createEditState(n));
+                }
             }
         }
         // When a remote player edits a BUS_OUT signalName (SET_DISPLAY_TEXT) or band list
@@ -1083,38 +1093,62 @@ public class GraphEditor {
             mle.setValue(initialText);
             node.formula = initialText;
             node.cachedScript = null;
+
+            // ── Syntax highlighting / 语法高亮 ──
+            mle.setHighlighter(io.github.y15173334444.create_schematic_compute.graph.FormulaParser::tokenize);
+            mle.setTokenPalette(io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox.DEFAULT_PALETTE);
+
+            // ── Autocomplete / 自动补全 ──
+            mle.setCompletionProvider(
+                io.github.y15173334444.create_schematic_compute.client.FormulaCompletion::candidates, node);
+
             // Initial parse from displayed text (not empty node.formula)
             var initScript = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.parseScript(initialText);
             node.dynamicInputCount = initScript.inputVars.size();
             node.dynamicOutputCount = Math.max(1, initScript.outputLabels.size());
             node.outputLabels = initScript.outputLabels;
+            // Initial validation
+            node.formulaIssues = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(initialText);
+            mle.setHasError(hasErrors(node.formulaIssues));
+
+            final int formulaNodeId = node.id; // capture id, re-fetch node each call
             mle.setResponder(t -> {
                 String sanitized = t.replace('（', '(').replace('）', ')');
-                node.formula = sanitized;
-                node.cachedScript = null; // invalidate label cache
+                // Re-fetch from current graph — the graph reference may have been
+                // replaced by an NBT sync between keystrokes.
+                // 每次按键重新获取图引用——NBT 同步可能在两次按键之间替换了图对象。
+                var cur = host.getGraph().findNode(formulaNodeId);
+                if (cur == null || cur.type != NodeType.FORMULA) return;
+                cur.formula = sanitized;
+                cur.cachedScript = null; // invalidate label cache
                 var res = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.parseScript(sanitized);
                 int newIn = res.inputVars.size();
                 int newOut = Math.max(1, res.outputLabels.size());
                 // Clean up connections to removed pins
-                if (newOut < node.dynamicOutputCount) {
-                    int oldOut = node.dynamicOutputCount;
+                if (newOut < cur.dynamicOutputCount) {
+                    int oldOut = cur.dynamicOutputCount;
                     for (int pi = newOut; pi < oldOut; pi++) {
                         final int p = pi;
-                        host.getGraph().connections.removeIf(c -> c.fromId == node.id && c.fromPin == p);
+                        host.getGraph().connections.removeIf(c -> c.fromId == cur.id && c.fromPin == p);
                     }
                 }
-                if (newIn < node.dynamicInputCount) {
-                    int oldIn = node.dynamicInputCount;
+                if (newIn < cur.dynamicInputCount) {
+                    int oldIn = cur.dynamicInputCount;
                     for (int pi = newIn; pi < oldIn; pi++) {
                         final int p = pi;
-                        host.getGraph().connections.removeIf(c -> c.toId == node.id && c.toPin == p);
+                        host.getGraph().connections.removeIf(c -> c.toId == cur.id && c.toPin == p);
                     }
                 }
-                node.dynamicInputCount = newIn;
-                node.dynamicOutputCount = newOut;
-                node.outputLabels = res.outputLabels;
+                cur.dynamicInputCount = newIn;
+                cur.dynamicOutputCount = newOut;
+                cur.outputLabels = res.outputLabels;
+
+                // ── Real-time validation (client-side only) ──
+                cur.formulaIssues = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(sanitized);
+                mle.setHasError(hasErrors(cur.formulaIssues));
+
                 host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(
-                    host.getBlockPos(), ownerNodeId(), node.id, sanitized, host.getPlayerUUID()));
+                    host.getBlockPos(), ownerNodeId(), formulaNodeId, sanitized, host.getPlayerUUID()));
             });
             s.fields.add(mle);
         }
@@ -1157,6 +1191,16 @@ public class GraphEditor {
 
     /** 为 DEBUG_SIGNAL_GEN 创建条件编辑状态（公式/参数按 setMode/outMode 动态可见）。
      *  Create conditional edit state for DEBUG_SIGNAL_GEN (formula/params visible per setMode/outMode). */
+    /** Helper: true if the issue list contains at least one ERROR-level item.
+     *  辅助方法：如果问题列表中至少有一个 ERROR 级别的问题则返回 true。 */
+    private static boolean hasErrors(java.util.List<io.github.y15173334444.create_schematic_compute.graph.FormulaParser.FormulaIssue> issues) {
+        if (issues == null) return false;
+        for (var iss : issues)
+            if (iss.severity() == io.github.y15173334444.create_schematic_compute.graph.FormulaParser.Severity.ERROR)
+                return true;
+        return false;
+    }
+
     private void createDebugSignalGenEditState(GraphNode node, EditState s, Minecraft mc) {
         int setMode = node.params.length > 0 ? (int) node.params[0] : 0;
         int outMode = node.params.length > 1 ? (int) node.params[1] : 0;
@@ -2760,6 +2804,35 @@ public class GraphEditor {
                 if (en.type == NodeType.FORMULA || en.type == NodeType.COMMENT) {
                     for (int fi = 0; fi < st.fields.size(); fi++) {
                         var b = st.fields.get(fi);
+                        // Check suggestion popup first (rendered on top of the MLE)
+                        if (b instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mleBox) {
+                            var popup = mleBox.getSuggestPopup();
+                            if (popup.isVisible()) {
+                                // popup rendered at C=5.5 in screen space → use screen coords
+                                // 候选框在 C=5.5 屏幕空间渲染 → 使用屏幕坐标
+                                String accepted = popup.mouseClicked((int)mx, (int)my);
+                                if (accepted != null) {
+                                    b.setFocused(true);
+                                    mleBox.replaceCurrentWordForPopup(accepted);
+                                    return true;
+                                }
+                                // Click outside popup but on MLE: close popup, don't steal focus
+                                int mleY2, mleH2;
+                                if (en.type == NodeType.COMMENT) {
+                                    mleY2 = 6;
+                                    mleH2 = Math.round(en.commentHeight) - 12;
+                                } else {
+                                    mleY2 = editLocalY + 4 + 18;
+                                    mleH2 = Math.max(b.getHeight(), 18);
+                                }
+                                if (lmx >= 0 && lmx <= enW && lmy >= mleY2 && lmy <= mleY2 + mleH2) {
+                                    popup.close();
+                                    // fall through: let normal MLE handling below focus & position cursor
+                                } else {
+                                    continue; // click outside both popup and MLE
+                                }
+                            }
+                        }
                         int mleY, mleH;
                         if (en.type == NodeType.COMMENT) {
                             // MLE fills body minus edit button: X=6..w-18, Y=6, H=body-12
@@ -2768,7 +2841,7 @@ public class GraphEditor {
                             enW = Math.round(en.commentWidth) - 28; // leave room for left button
                         } else {
                             mleY = editLocalY + 4 + 18;
-                            mleH = EditPanel.calcRenderHeight(en, zoom, st);
+                            mleH = Math.max(b.getHeight(), 18);
                         }
                         if (lmx >= 0 && lmx <= enW && lmy >= mleY && lmy <= mleY + mleH) {
                             b.setFocused(true);
@@ -4047,7 +4120,21 @@ public class GraphEditor {
                 if (st.busBox != null && st.busBox.isFocused()) { commitBusBox(st); return true; }
             }
         }
-        if (key == 258) { tabHeld = true; return true; } // TAB
+        if (key == 258) { // TAB — let popup consume first, otherwise use for box-select
+            for (var st : nodeEditStatesById.values()) {
+                for (var f : st.fields) {
+                    if (f.isFocused() && f instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mleBox) {
+                        var popup = mleBox.getSuggestPopup();
+                        if (popup.isVisible()) {
+                            String insert = popup.acceptSelected();
+                            if (insert != null) mleBox.replaceCurrentWordForPopup(insert);
+                            return true;
+                        }
+                    }
+                }
+            }
+            tabHeld = true; return true;
+        }
         // KEYBOARD 按键绑定捕获（GAMEPAD_BUTTON 由 renderBg 每帧轮询处理） (KEYBOARD key binding capture; GAMEPAD_BUTTON polled by renderBg each frame)
         if (!nodeEditStatesById.isEmpty()) {
             for (var st : nodeEditStatesById.values()) {
