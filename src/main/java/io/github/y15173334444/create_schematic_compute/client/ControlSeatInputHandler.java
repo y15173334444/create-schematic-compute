@@ -80,6 +80,15 @@ public class ControlSeatInputHandler {
     /** Cached at class init; false when Sable is absent. / 类加载时缓存；无 Sable 时为 false。 */
     private static final boolean SABLE_LOADED = net.neoforged.fml.ModList.get().isLoaded("sable");
 
+    /** True if Sable is actively rotating the camera for this seat
+     *  (FIXED mode + inside a sub-level). / Sable 正在为此座椅旋转相机。 */
+    private static boolean sableRotatesCamera(Entity vehicle) {
+        if (!SABLE_LOADED) return false;
+        try {
+            return dev.ryanhcode.sable.Sable.HELPER.getContaining(vehicle) != null;
+        } catch (Exception e) { return false; }
+    }
+
     private static volatile boolean wasTab = false;
     private static volatile boolean wasSeatedLastTick = false;
     private static volatile float joystickX = 0, joystickY = 0;
@@ -134,11 +143,12 @@ public class ControlSeatInputHandler {
             var v = new org.joml.Vector3d(lx, ly, lz);
             q.transform(v);
 
-            // Convert world forward vector back to yaw & pitch
-            // 世界前向向量转回偏航和俯仰
+            // Convert world forward vector back to yaw & pitch.
+            // Minecraft pitch convention: positive = looking down, so negate.
+            // 世界前向向量转回偏航和俯仰。MC 俯仰约定：正值=低头，故取反。
             double worldYaw = Math.toDegrees(Math.atan2(-v.x, v.z));
             double horiz = Math.sqrt(v.x * v.x + v.z * v.z);
-            double worldPitch = Math.toDegrees(Math.atan2(v.y, horiz));
+            double worldPitch = -Math.toDegrees(Math.atan2(v.y, horiz));
             while (worldYaw < 0) worldYaw += 360;
             while (worldYaw >= 360) worldYaw -= 360;
             return new float[]{(float) worldYaw, (float) worldPitch};
@@ -297,14 +307,30 @@ public class ControlSeatInputHandler {
         float mx = 0, my = 0, vy = 0, vp = 0;
 
         if (inputMode == 0) {
-            // FIXED mode: camera locked to seat world orientation; joystick from mouse delta.
-            // FIXED 模式：相机锁定到座椅世界朝向；摇杆来自鼠标增量。
+            // FIXED mode: camera locked to seat orientation.
+            // Inside a Sable sub-level: set player to block-local facing; Sable adds pitch/yaw/roll.
+            // Outside sub-levels: manual lock with full world orientation.
+            // FIXED 模式：相机锁定到座椅朝向。
+            // Sable 子关卡内：设玩家为方块本地朝向，Sable 叠加俯仰/偏航/横滚。
+            // 子关卡外：手动锁定完整世界朝向。
             mx = joystickX;
             my = joystickY;
-            mc.player.yRotO = seatYaw;     mc.player.setYRot(seatYaw);
-            mc.player.xRotO = seatPitch;   mc.player.setXRot(seatPitch);
-            mc.player.yHeadRot = seatYaw;  mc.player.yHeadRotO = seatYaw;
-            mc.player.yBodyRot = seatYaw;  mc.player.yBodyRotO = seatYaw;
+            if (sableRotatesCamera(vehicle)) {
+                // Block local facing — Sable handles the rest / 方块本地朝向，Sable 处理剩余
+                float localYaw = 0;
+                var bs = mc.player.level().getBlockState(seatPos);
+                if (bs.hasProperty(ControlSeatBlock.FACING))
+                    localYaw = bs.getValue(ControlSeatBlock.FACING).toYRot();
+                mc.player.yRotO = localYaw;   mc.player.setYRot(localYaw);
+                mc.player.xRotO = 0;          mc.player.setXRot(0);
+                mc.player.yHeadRot = localYaw; mc.player.yHeadRotO = localYaw;
+                mc.player.yBodyRot = localYaw; mc.player.yBodyRotO = localYaw;
+            } else {
+                mc.player.yRotO = seatYaw;     mc.player.setYRot(seatYaw);
+                mc.player.xRotO = seatPitch;   mc.player.setXRot(seatPitch);
+                mc.player.yHeadRot = seatYaw;  mc.player.yHeadRotO = seatYaw;
+                mc.player.yBodyRot = seatYaw;  mc.player.yBodyRotO = seatYaw;
+            }
         } else {
             // VIEW_DIFFERENCE mode: camera free. vy/vp = angular difference between
             // player view and seat's current world forward.
@@ -338,16 +364,28 @@ public class ControlSeatInputHandler {
         if (mc.screen != null) return;
 
         if (inputMode == 0) {
-            // FIXED mode: re-apply camera lock each render frame to prevent
-            // any drift between tick boundaries (e.g. from mouse events).
-            // FIXED 模式：每渲染帧重新应用相机锁，防止 tick 间隙漂移。
+            // FIXED mode: re-apply camera lock each render frame to prevent drift.
+            // Inside Sable sub-level: block-local facing; Sable adds pitch/yaw/roll.
+            // FIXED 模式：每渲染帧重新应用相机锁，防止漂移。
+            // Sable 子关卡内：方块本地朝向；Sable 叠加俯仰/偏航/横滚。
             var vehicle = mc.player.getVehicle();
             if (vehicle != null) {
-                float[] ori = getSeatWorldOrientation(mc, vehicle.blockPosition(), vehicle);
-                mc.player.setYRot(ori[0]);     mc.player.yRotO = ori[0];
-                mc.player.setXRot(ori[1]);     mc.player.xRotO = ori[1];
-                mc.player.yHeadRot = ori[0];   mc.player.yHeadRotO = ori[0];
-                mc.player.yBodyRot = ori[0];   mc.player.yBodyRotO = ori[0];
+                if (sableRotatesCamera(vehicle)) {
+                    float localYaw = 0;
+                    var bs = mc.player.level().getBlockState(vehicle.blockPosition());
+                    if (bs.hasProperty(ControlSeatBlock.FACING))
+                        localYaw = bs.getValue(ControlSeatBlock.FACING).toYRot();
+                    mc.player.setYRot(localYaw);   mc.player.yRotO = localYaw;
+                    mc.player.setXRot(0);           mc.player.xRotO = 0;
+                    mc.player.yHeadRot = localYaw;  mc.player.yHeadRotO = localYaw;
+                    mc.player.yBodyRot = localYaw;  mc.player.yBodyRotO = localYaw;
+                } else {
+                    float[] ori = getSeatWorldOrientation(mc, vehicle.blockPosition(), vehicle);
+                    mc.player.setYRot(ori[0]);     mc.player.yRotO = ori[0];
+                    mc.player.setXRot(ori[1]);     mc.player.xRotO = ori[1];
+                    mc.player.yHeadRot = ori[0];   mc.player.yHeadRotO = ori[0];
+                    mc.player.yBodyRot = ori[0];   mc.player.yBodyRotO = ori[0];
+                }
             }
         }
         // Prevent shift (sneak) while seated / 乘坐时阻止潜行

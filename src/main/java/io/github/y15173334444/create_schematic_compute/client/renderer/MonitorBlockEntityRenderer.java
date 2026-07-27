@@ -44,12 +44,15 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     @Override
     public void render(MonitorBlockEntity be, float partialTick, PoseStack poseStack,
                        MultiBufferSource buffer, int packedLight, int packedOverlay) {
-        if (be == null || !be.running) return;
-        if (be.graph == null || be.graph.nodes.isEmpty()) return;
+        if (be == null || be.graph == null || be.graph.nodes.isEmpty()) return;
 
         // Read server-authoritative evaluation snapshot (synced via ClientboundGraphEvalPacket).
-        // No local GraphEvaluator — the client no longer evaluates the graph itself.
+        // When not running, snapshot is null — display-only nodes (IMAGE, TEXT) still render,
+        // but DATA nodes and signal-driven IMAGE offsets are skipped.
+        // 读取服务端权威评估快照。未运行时快照为 null——仅显示节点（IMAGE、TEXT）仍渲染，
+        // DATA 节点和信号驱动 IMAGE 偏移需跳过。
         var snapshot = be.cachedEvalSnapshot;
+        boolean evalAvailable = be.running && snapshot != null;
 
         boolean hasContent = false;
         for (var n : be.graph.nodes)
@@ -101,9 +104,9 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         }
         imgNodes.sort((n1, n2) -> Integer.compare(n1.layerIndex, n2.layerIndex));
         for (var n : imgNodes) {
-            // X/Y/rotation signal offsets
-            float ox = be.graph.getInputValue(n.id, 0, snapshot.outputs());
-            float oy = be.graph.getInputValue(n.id, 1, snapshot.outputs());
+            // X/Y/rotation signal offsets (0 when not running / 未运行时为 0)
+            float ox = evalAvailable ? be.graph.getInputValue(n.id, 0, snapshot.outputs()) : 0;
+            float oy = evalAvailable ? be.graph.getInputValue(n.id, 1, snapshot.outputs()) : 0;
             float msX = n.params.length > 0 ? n.params[0] : 0.01f;
             float msY = n.params.length > 1 ? n.params[1] : 0.01f;
             float rotScale = n.params.length > 2 ? n.params[2] : 1f;
@@ -115,14 +118,14 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             int[] pixels = n.imagePixels;
             int rotPin = n.type == NodeType.IMAGE_SEQUENCE ? 3 : 2;
             if (n.type == NodeType.IMAGE_SEQUENCE) {
-                int frameIdx = Math.round(be.graph.getInputValue(n.id, 2, snapshot.outputs()));
+                int frameIdx = evalAvailable ? Math.round(be.graph.getInputValue(n.id, 2, snapshot.outputs())) : 0;
                 if (n.imageSequenceFrames != null && !n.imageSequenceFrames.isEmpty()) {
                     frameIdx = Math.max(0, Math.min(frameIdx, n.imageSequenceFrames.size() - 1));
                     pixels = n.imageSequenceFrames.get(frameIdx);
                 }
             }
             if (pixels == null || pixels.length != 256) continue;
-            float rotInput = be.graph.getInputValue(n.id, rotPin, snapshot.outputs());
+            float rotInput = evalAvailable ? be.graph.getInputValue(n.id, rotPin, snapshot.outputs()) : 0;
             float effectiveRot = n.displayRotation + rotInput * rotScale;
             // Clamp so rotated bounding box doesn't overflow right/bottom
             float cell = 0.03f * n.displayScale;
@@ -170,6 +173,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         for (var n : textNodes) {
             float nx = cx + n.layoutX * cw;
             float ny = cy - n.layoutY * ch;
+            if (n.type == NodeType.DATA && !evalAvailable) continue; // need eval output / 需要评估输出
             String str = n.type == NodeType.DATA
                 ? String.format("%.1f", be.graph.getInputValue(n.id, 0, snapshot.outputs()))
                 : n.displayText;
@@ -225,7 +229,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
 
     @Override
     public AABB getRenderBoundingBox(MonitorBlockEntity be) {
-        if (!be.running || be.graph == null || be.graph.nodes.isEmpty()) {
+        if (be.graph == null || be.graph.nodes.isEmpty()) {
             return AABB.INFINITE;
         }
         boolean hasDisplayContent = false;

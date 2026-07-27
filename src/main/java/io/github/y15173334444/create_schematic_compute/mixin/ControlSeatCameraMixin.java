@@ -1,5 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.mixin;
 
+import dev.ryanhcode.sable.Sable;
 import dev.ryanhcode.sable.mixinhelpers.camera.camera_rotation.EntitySubLevelRotationHelper;
 import io.github.y15173334444.create_schematic_compute.client.ControlSeatInputHandler;
 import io.github.y15173334444.create_schematic_compute.entity.ControlSeatEntity;
@@ -13,41 +14,42 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
  * Mixin into Sable's {@code EntitySubLevelRotationHelper.shouldCameraRotate()} to
- * disable Sable's sub-level camera rotation while riding a Control Seat.
+ * control sub-level camera rotation for Control Seat riders.
  * <p>
- * Sable sub-level camera rotation is disabled for Control Seat riders because
- * the seat manages camera orientation via {@code ControlSeatInputHandler}:
- * FIXED mode uses a manual camera lock (playerYaw/pitch = seat world yaw/pitch),
- * and VIEW_DIFFERENCE mode leaves the camera free. Letting Sable rotate the
- * view vector on top of the manual lock would cause double-rotation and jitter.
+ * In FIXED mode inside a Sable sub-level, Sable is allowed to rotate the camera
+ * (handling pitch/yaw/roll correctly). The manual lock sets the player to the
+ * seat's block-local facing, and Sable adds the sub-level orientation on top.
  * <p>
- * 控制座椅骑乘时禁用 Sable 子关卡相机旋转。座椅通过 ControlSeatInputHandler 管理
- * 相机朝向：FIXED 模式手动锁（playerYaw/pitch = 座椅世界朝向），VIEW_DIFFERENCE
- * 模式相机自由。若同时让 Sable 旋转 viewVector，会与手动锁叠加产生双重旋转和抖动。
+ * In VIEW_DIFFERENCE mode or outside sub-levels, Sable rotation is disabled.
+ * <p>
+ * FIXED 模式在 Sable 子关卡内时允许 Sable 旋转相机（正确处理俯仰/偏航/横滚）。
+ * 手动锁将玩家设为座椅方块本地朝向，Sable 在此基础上叠加子关卡旋转。
+ * VIEW_DIFFERENCE 模式或不在子关卡内时禁用 Sable 旋转。
  *
- * <p>Registered in {@code create_schematic_compute.sable.mixins.json} ({@code required:false})
- * so it is silently skipped when Sable is absent. / 注册在 required:false 配置中，
- * 无 Sable 时静默跳过。</p>
+ * <p>Registered in {@code create_schematic_compute.sable.mixins.json} ({@code required:false}).</p>
  */
 @Mixin(EntitySubLevelRotationHelper.class)
 public abstract class ControlSeatCameraMixin {
 
-    /**
-     * Always return {@code false} when the local player is riding a Control Seat.
-     * This prevents Sable from rotating the camera view vector, delegating full
-     * camera control to {@code ControlSeatInputHandler}.
-     * <p>
-     * 本地玩家骑乘控制座椅时始终返回 false，阻止 Sable 旋转相机，完全交由
-     * ControlSeatInputHandler 管理。
-     */
     @Inject(method = "shouldCameraRotate", at = @At("HEAD"), cancellable = true, remap = false)
     private static void csc$controlSeatCamera(CallbackInfoReturnable<Boolean> cir) {
         Minecraft mc = Minecraft.getInstance();
         Entity camera = mc.getCameraEntity();
         if (!(camera instanceof LocalPlayer player)) return;
         if (!(player.getVehicle() instanceof ControlSeatEntity)) return;
-        // Disable Sable camera rotation for Control Seat riders.
-        // 控制座椅骑乘时禁用 Sable 相机旋转。
-        cir.setReturnValue(false);
+
+        int mode = ControlSeatInputHandler.getInputMode();
+        if (mode == 1) {
+            // VIEW_DIFFERENCE: free camera, no Sable rotation
+            // 视角差模式：自由相机，无 Sable 旋转
+            cir.setReturnValue(false);
+            return;
+        }
+        // FIXED mode: enable Sable rotation only inside a sub-level
+        // (Sable handles pitch/yaw/roll; manual lock sets local block facing)
+        // FIXED 模式：仅在子关卡内启用 Sable 旋转
+        // （Sable 处理俯仰/偏航/横滚；手动锁设方块本地朝向）
+        boolean inSubLevel = Sable.HELPER.getContaining(player.getVehicle()) != null;
+        cir.setReturnValue(inSubLevel);
     }
 }

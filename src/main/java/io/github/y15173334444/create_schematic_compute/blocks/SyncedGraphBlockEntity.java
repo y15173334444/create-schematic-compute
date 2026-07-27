@@ -244,9 +244,17 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     }
 
     /** Minimal rebuild (no BUS lifecycle). Used by Monitor and SpeedProxy.
-     *  最小化重建（无 BUS 生命周期操作）。供 Monitor 和 SpeedProxy 使用。 */
+     *  最小化重建（无 BUS 生命周期操作）。供 Monitor 和 SpeedProxy 使用。
+     *  Preserves debugTime (DEBUG_SIGNAL_GEN phase accumulator) across rebuilds so that
+     *  frequency-generate mode continues smoothly after graph edits.
+     *  跨重建保留 debugTime（信号发生器相位累加器），使频率发生模式在图编辑后平滑继续。 */
     protected void recompileEvaluatorLight() {
+        // Save debugTime before destroying the old evaluator / 销毁旧求值器前保存 debugTime
+        if (evaluator != null) evaluator.saveDebugTimes(runtimeState);
         evaluator = new GraphEvaluator(graph);
+        // Restore debugTime from RuntimeState so frequency mode phase persists
+        // 从 RuntimeState 恢复 debugTime，使频率模式相位保持
+        if (!runtimeState.debugTime.isEmpty()) evaluator.restoreDebugTimes(runtimeState.debugTime);
         lastEvaluatedGraph = graph;
         lastGraphGeneration = graph.graphGeneration;
         runtimeState.pidState.clear();

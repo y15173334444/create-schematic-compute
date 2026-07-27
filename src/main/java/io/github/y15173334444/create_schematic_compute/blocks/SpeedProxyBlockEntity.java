@@ -45,6 +45,9 @@ public class SpeedProxyBlockEntity extends SyncedGraphBlockEntity {
         if (!running) return;
         if (graphChanged()) recompileEvaluatorLight();
         var results = evaluator.evaluate(List.of(), runtimeState.pidState, 0.05f);
+        // Broadcast eval snapshot so DEBUG_SIGNAL_GEN / DEBUG_PROBE charts render on client.
+        // 广播评测快照，使客户端 DEBUG_SIGNAL_GEN / DEBUG_PROBE 图表正常渲染。
+        broadcastEvalSnapshot();
         for (var n : graph.nodes) {
             if (n.type == NodeType.SPEED_CTRL) {
                 float speed = evaluator.getNodeOutput(n.id, 0);

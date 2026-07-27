@@ -1797,19 +1797,13 @@ public class GraphEditor {
                 }
                 n.signalBands = newBands;
                 graph.rebuildInputCache();
-            } else if ((gb == null || gb.isEmpty()) && !n.signalBands.isEmpty() && n.type == NodeType.BUS_IN) {
-                // BUS_IN 被动同步：BAND_REGISTRY 为空 → BUS_OUT 不存在 → 清空 (BUS_IN passive sync: BAND_REGISTRY empty → BUS_OUT doesn't exist → clear)
-                // Remove all connections by pinId (band name)
-                for (String oldBand : n.signalBands) {
-                    graph.connections.removeIf(c ->
-                        (c.fromId == n.id && oldBand.equals(c.fromPinId)) ||
-                        (c.toId == n.id && oldBand.equals(c.toPinId)));
-                }
-                n.signalBands.clear();
-                n.bandsDirty = true;
-                graph.rebuildInputCache();
-                if (expandedNodeIds.contains(n.id))
-                    nodeEditStatesById.put(n.id, createEditState(n));
+            // Note: we deliberately do NOT clear BUS_IN bands when BAND_REGISTRY is empty.
+            // Registry may be empty transiently (e.g. during recompile after a rename) or
+            // when the channel has BUS_IN readers but no BUS_OUT writer — clearing would
+            // destroy bands and connections on still-valid BUS_IN nodes.
+            // 注意：当 BAND_REGISTRY 为空时，刻意不清除 BUS_IN 频段。
+            // 注册表可能短暂为空（如改名触发重编译窗口），或频道仅有 BUS_IN 读取者而无 BUS_OUT——
+            // 清除会摧毁仍然有效的 BUS_IN 节点的频段和连线。
             }
         }
         // BUS_IN/OUT 展开面板刷新：比较 band 数量 + 内容是否与 EditState 一致 (BUS_IN/OUT expand panel refresh: compare band count + content against EditState)
@@ -3244,16 +3238,27 @@ public class GraphEditor {
             host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
             0, 0, 0, 0, 0, 0f, t, 0, 0, 0, 0, null, 0, 0, 0,
             net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID()));
-        // 旧名清理（不调用 createEditState） (Clean up old name, without calling createEditState)
+        // 旧名清理（不调用 createEditState）/ Clean up old name (without createEditState)
         if (!oldName.isEmpty()) {
             boolean hasOldBusOut = false;
             for (var n : getGraph().nodes) if (n.type == NodeType.BUS_OUT && n.signalName.equals(oldName)) { hasOldBusOut = true; break; }
             if (!hasOldBusOut) {
-                // 清除所有引用旧名称的 BUS_IN 节点（它们已无 BUS_OUT 提供数据） (Clear all BUS_IN nodes referencing old name, as they no longer have a BUS_OUT source)
-                for (var n : getGraph().nodes)
-                    if ((n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) && n.signalName.equals(oldName))
-                        { clearBusNode(n); }
-                io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(oldName);
+                // Only clear the old name if no other BUS node still uses it.
+                // Otherwise other BUS_IN readers (e.g. original node before copy+rename)
+                // would lose their bands, connections, and signal data.
+                // 仅当没有其他 BUS 节点仍使用旧名时才清理。
+                // 否则其他 BUS_IN（如复制前原节点）会丢失频段、连线和信号数据。
+                boolean othersUseOldName = false;
+                for (var n : getGraph().nodes) {
+                    if (n != node && (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
+                        && n.signalName.equals(oldName)) {
+                        othersUseOldName = true; break;
+                    }
+                }
+                if (!othersUseOldName) {
+                    clearBusNode(node);
+                    io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(oldName);
+                }
             }
         }
         // Re-evaluate all BUS_OUT conflict state (renaming may create or resolve conflicts).
@@ -4287,9 +4292,13 @@ public class GraphEditor {
                 int tempId = graph.nextNodeId++;
                 var dup = n.shallowCopyWithNewId(tempId);
                 dup.x += ofs; dup.y += ofs;
-                // BUS 节点复制后清空频道名 / Clear channel name on BUS duplicate
-                if (dup.type == NodeType.BUS_IN || dup.type == NodeType.BUS_OUT) {
+                // BUS_OUT 复制后清空频道名（防止两个 BUS_OUT 同频道冲突）。
+                // BUS_IN 保留频道名——多个 BUS_IN 读同一频道是合法场景。
+                // Clear channel name on BUS_OUT duplicate to prevent conflicts.
+                // BUS_IN keeps its name — multiple readers on the same channel is valid.
+                if (dup.type == NodeType.BUS_OUT) {
                     dup.signalName = "";
+                    dup.displayText = "";
                 }
                 graph.adoptNode(dup);
                 idMap.put(n.id, dup.id);
