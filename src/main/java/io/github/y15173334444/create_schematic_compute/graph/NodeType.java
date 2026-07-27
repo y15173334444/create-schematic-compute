@@ -92,6 +92,8 @@ public enum NodeType {
     // Debug tools / 调试工具
     DEBUG_SIGNAL_GEN("debug_signal_gen", "node.create_schematic_compute.debug_signal_gen", 0, 1, "setMode,outMode,speed,amplitude,inputX"),
     DEBUG_PROBE("debug_probe", "node.create_schematic_compute.debug_probe", 1, 1, "windowSize,autoScale"),
+    RELAY_A("relay_a", "node.create_schematic_compute.relay_a", 3, 2, ""),
+    RELAY_B("relay_b", "node.create_schematic_compute.relay_b", 3, 1, ""),
     COMMENT("comment", "node.create_schematic_compute.comment", 0, 0, "");
 
     /** NBT 序列化的稳定字符串标识符 — 永远不要修改这些值。 / Stable string identifier for NBT serialisation — never change these. */
@@ -179,6 +181,7 @@ public enum NodeType {
         case DIRECTION -> i==0?pk("ax"):i==1?pk("ay"):i==2?pk("az"):i==3?pk("bx"):i==4?pk("by"):pk("bz");
         case ENCAPSULATION -> pk("in"); // 动态标签，来自子图 ENCAP_INPUT 名称 / dynamic label from sub-graph ENCAP_INPUT name
         case ENCAP_OUTPUT -> pk("val");
+        case RELAY_A, RELAY_B -> switch(i) { case 0 -> pk("relay_a_in"); case 1 -> pk("relay_b_in"); default -> pk("relay_contact"); };
         default -> pk("in");
     };}
     public String outputLabel(int i) { return switch(this){
@@ -219,6 +222,8 @@ public enum NodeType {
         case ENCAPSULATION -> pk("out"); // 动态标签，来自子图 ENCAP_OUTPUT 名称 / dynamic label from sub-graph ENCAP_OUTPUT name
         case ENCAP_INPUT -> pk("val");
         case TARGET_OUT -> switch(i) { case 0 -> pk("x"); case 1 -> pk("y"); case 2 -> pk("z"); case 3 -> pk("entity_id"); default -> pk("distance"); };
+        case RELAY_A -> switch(i) { case 0 -> pk("relay_a_out"); default -> pk("relay_b_out"); };
+        case RELAY_B -> pk("relay_out");
         default -> "";
     };}
 }

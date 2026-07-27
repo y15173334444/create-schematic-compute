@@ -446,5 +446,14 @@
   "gui.create_schematic_compute.edit.setmode_manual": "手动曲线",
   "gui.create_schematic_compute.edit.setmode_formula": "f(x)",
   "gui.create_schematic_compute.edit.outmode_freq": "频率发生",
-  "gui.create_schematic_compute.edit.outmode_input": "指定模式"
+  "gui.create_schematic_compute.edit.outmode_input": "指定模式",
+
+  "node.create_schematic_compute.relay_a": "继电器A",
+  "node.create_schematic_compute.relay_b": "继电器B",
+  "pin.create_schematic_compute.relay_a_in": "A",
+  "pin.create_schematic_compute.relay_b_in": "B",
+  "pin.create_schematic_compute.relay_contact": "触点",
+  "pin.create_schematic_compute.relay_a_out": "A输出",
+  "pin.create_schematic_compute.relay_b_out": "B输出",
+  "pin.create_schematic_compute.relay_out": "输出"
 }

@@ -58,7 +58,9 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
             || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DIRECTION
             || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT
             || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_SIGNAL_GEN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_PROBE);
+            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_PROBE
+            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.RELAY_A
+            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.RELAY_B);
     }
 
     private ProgramComputerBlockEntity getBE() {

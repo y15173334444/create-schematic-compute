@@ -192,7 +192,7 @@ public class NodeRenderer {
         new NodeCategory("category.create_schematic_compute.math_basic", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.POW, NodeType.ROOT, NodeType.ABS, NodeType.CEIL, NodeType.FLOOR}),
         new NodeCategory("category.create_schematic_compute.math_advanced", new NodeType[]{NodeType.FORMULA, NodeType.POSE_CONVERT, NodeType.SPLIT, NodeType.INTERP, NodeType.ROUND}),
         new NodeCategory("category.create_schematic_compute.trig", new NodeType[]{NodeType.SIN, NodeType.COS, NodeType.TAN, NodeType.ASIN, NodeType.ACOS, NodeType.ATAN2, NodeType.SINH, NodeType.COSH, NodeType.SQRT, NodeType.LN, NodeType.LOG, NodeType.EXP, NodeType.SEC, NodeType.CSC, NodeType.COT, NodeType.ANGLE_UNWRAP, NodeType.DIRECTION}, 2),
-        new NodeCategory("category.create_schematic_compute.logic", new NodeType[]{NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ, NodeType.BOOL, NodeType.GATE, NodeType.OR}),
+        new NodeCategory("category.create_schematic_compute.logic", new NodeType[]{NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ, NodeType.BOOL, NodeType.GATE, NodeType.OR, NodeType.RELAY_A, NodeType.RELAY_B}),
         new NodeCategory("category.create_schematic_compute.control", new NodeType[]{NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP}),
         new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL, NodeType.BUS_OUT}),
         new NodeCategory("category.create_schematic_compute.sequential", new NodeType[]{NodeType.DELAY, NodeType.LATCH, NodeType.T_FLIPFLOP, NodeType.PULSE_EXTEND, NodeType.LOOP, NodeType.FUSE, NodeType.ACCUMULATOR, NodeType.INTEGRATOR}),
@@ -972,6 +972,10 @@ public class NodeRenderer {
         // 模式标签
         drawStr(g, io.github.y15173334444.create_schematic_compute.graph.DebugSignals.setModeName(setMode),
             chartX + 4, chartY + 2, 0xFFCCCCCC);
+        // Y 轴范围标注（右上角）/ Y-axis range label (top-right)
+        String rangeStr = String.format("%.1f … %.1f", minV, maxV);
+        int rangeW = Minecraft.getInstance().font.width(rangeStr);
+        drawStr(g, rangeStr, chartX + chartW - rangeW - 3, chartY + 2, 0xFF888899);
         return ctrlPoints;
     }
 
@@ -1015,18 +1019,25 @@ public class NodeRenderer {
         int count = Math.min(n.probeCount, windowSize);
         int start = (n.probeHead - count + n.probeHistory.length) % n.probeHistory.length;
 
-        // 计算窗口内数据范围（极端值截断 + 边距，与信号发生器一致）
-        // Compute window data range (clip extremes + padding, same as signal generator)
-        float CLIP = 5f;
-        float minV = Float.MAX_VALUE, maxV = -Float.MAX_VALUE;
+        // 计算窗口内数据范围（百分位数稳健范围，与信号发生器一致）
+        // 不再使用固定 ±5 截断，避免大值域数据（如 x*360）的范围被错误压垮。
+        // Compute window data range (percentile-based robust range, same as signal generator).
+        // Fixed ±5 clipping is removed so large-scale data (e.g. x*360) displays correctly.
+        java.util.List<Float> pvals = new java.util.ArrayList<>(count);
         for (int i = 0; i < count; i++) {
             int idx = (start + i) % n.probeHistory.length;
             float v = n.probeHistory[idx];
-            if (!Float.isFinite(v)) continue;
-            if (v < -CLIP) v = -CLIP;
-            if (v > CLIP) v = CLIP;
-            if (v < minV) minV = v;
-            if (v > maxV) maxV = v;
+            if (Float.isFinite(v) && Math.abs(v) < 1e6f) pvals.add(v);
+        }
+        float minV, maxV;
+        if (pvals.isEmpty()) { minV = -1f; maxV = 1f; }
+        else {
+            java.util.Collections.sort(pvals);
+            int lo = (int)(pvals.size() * 0.01f);
+            int hi = (int)(pvals.size() * 0.99f);
+            if (lo >= hi) { lo = 0; hi = pvals.size() - 1; }
+            minV = pvals.get(lo);
+            maxV = pvals.get(hi);
         }
         if (minV > maxV) { minV = -1f; maxV = 1f; }
         float range = autoScale ? Math.max(maxV - minV, 0.001f) : (2 * fixedRange);

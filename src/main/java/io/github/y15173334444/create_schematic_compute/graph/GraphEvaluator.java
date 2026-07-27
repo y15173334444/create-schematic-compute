@@ -400,6 +400,20 @@ public class GraphEvaluator {
                 float v = graph.getInputValue(node.id, 0, outputs);
                 o[0] = Math.max(0, v); o[1] = Math.max(0, -v);
             }
+            case RELAY_A -> {
+                float a = graph.getInputValue(node.id, 0, outputs);
+                float b = graph.getInputValue(node.id, 1, outputs);
+                boolean c = graph.getInputValue(node.id, 2, outputs) > 0.5f;
+                // SPDT: contact false → A throw connected; contact true → B throw connected; disconnected side = 0
+                o[0] = c ? 0f : a;  // A输出
+                o[1] = c ? b : 0f;  // B输出
+            }
+            case RELAY_B -> {
+                float a = graph.getInputValue(node.id, 0, outputs);
+                float b = graph.getInputValue(node.id, 1, outputs);
+                boolean c = graph.getInputValue(node.id, 2, outputs) > 0.5f;
+                o[0] = c ? b : a;   // 输出 = selected source
+            }
             case POSE_CONVERT -> {
                 float pa = graph.getInputValue(node.id, 0, outputs);
                 float ya = graph.getInputValue(node.id, 1, outputs);

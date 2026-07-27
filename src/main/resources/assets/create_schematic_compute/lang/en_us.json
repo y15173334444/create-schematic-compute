@@ -434,5 +434,14 @@
   "gui.create_schematic_compute.edit.setmode_manual": "Manual",
   "gui.create_schematic_compute.edit.setmode_formula": "f(x)",
   "gui.create_schematic_compute.edit.outmode_freq": "Frequency",
-  "gui.create_schematic_compute.edit.outmode_input": "Input"
+  "gui.create_schematic_compute.edit.outmode_input": "Input",
+
+  "node.create_schematic_compute.relay_a": "Relay A",
+  "node.create_schematic_compute.relay_b": "Relay B",
+  "pin.create_schematic_compute.relay_a_in": "A",
+  "pin.create_schematic_compute.relay_b_in": "B",
+  "pin.create_schematic_compute.relay_contact": "Contact",
+  "pin.create_schematic_compute.relay_a_out": "A Out",
+  "pin.create_schematic_compute.relay_b_out": "B Out",
+  "pin.create_schematic_compute.relay_out": "Out"
 }

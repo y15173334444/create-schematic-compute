@@ -98,9 +98,12 @@ public final class DebugSignals {
     }
 
     /** 计算曲线在 [0,1] 范围内的可见 Y 区间（供自动缩放和坐标转换）。
-     *  超出 [-5,5] 的极端值被截断，避免 tan 等渐近线撑爆缩放。
+     *  使用百分位数稳健范围，仅剔除极端离群值（±1e6）、NaN/Inf 和退化区间。
+     *  不再使用固定 ±5 截断，避免大值域公式（如 x*360）的范围被错误压垮。
      *  Compute the visible Y range of the curve over [0,1] (for auto-scale and coordinate mapping).
-     *  Extreme values beyond [-5,5] are clipped to prevent tan asymptotes from blowing up the scale.
+     *  Uses percentile-based robust range; only extreme outliers (±1e6), NaN/Inf, and degenerate
+     *  ranges are filtered. Fixed ±5 clipping is removed so large-scale formulas (e.g. x*360)
+     *  display correctly.
      *  @return float[] {minY, maxY, range} */
     public static float[] computeVisibleRange(int setMode, float[] ctrlX, float[] ctrlY,
                                                String formula, java.util.List<Object> cachedRpn) {
@@ -110,25 +113,24 @@ public final class DebugSignals {
             return new float[]{-1.1f, 1.1f, 2.2f};
         }
         int samples = 60;
-        float CLIP = 5f; // 超出此值的采样点被截断 / samples beyond this are clipped
-        float minV = Float.MAX_VALUE, maxV = -Float.MAX_VALUE;
+        // 收集所有有限且非极端离群的采样值
+        // Collect all finite, non-extreme samples
+        java.util.List<Float> vals = new java.util.ArrayList<>(samples + 1);
         for (int i = 0; i <= samples; i++) {
             float x = (float) i / samples;
             float v = computeCurve(setMode, x, ctrlX, ctrlY, formula, cachedRpn);
-            if (Float.isFinite(v)) {
-                if (v < -CLIP) v = -CLIP;
-                if (v > CLIP) v = CLIP;
-                if (v < minV) minV = v; if (v > maxV) maxV = v;
-            }
+            if (Float.isFinite(v) && Math.abs(v) < 1e6f) vals.add(v);
         }
-        if (setMode == SET_MANUAL && ctrlY != null) {
-            for (float y : ctrlY) {
-                if (Float.isFinite(y)) {
-                    if (y < -CLIP) y = -CLIP;
-                    if (y > CLIP) y = CLIP;
-                    if (y < minV) minV = y; if (y > maxV) maxV = y;
-                }
-            }
+        float minV, maxV;
+        if (vals.isEmpty()) {
+            minV = -1f; maxV = 1f;
+        } else {
+            java.util.Collections.sort(vals);
+            int lo = (int)(vals.size() * 0.01f);  // p1
+            int hi = (int)(vals.size() * 0.99f);  // p99
+            if (lo >= hi) { lo = 0; hi = vals.size() - 1; }
+            minV = vals.get(lo);
+            maxV = vals.get(hi);
         }
         if (minV > maxV) { minV = -1f; maxV = 1f; }
         float range = maxV - minV;

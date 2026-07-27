@@ -1,8 +1,8 @@
 # Create: Schematic Compute
 
 <p align="center">
-  <b>🎮 7 Programmable Blocks · 84 Node Types · Formula Syntax Highlighting & Autocomplete · Multiplayer Collaboration</b><br>
-  <b>七种可编程方块 · 84种节点 · 公式语法高亮与自动补全 · 多人实时协作</b><br>
+  <b>🎮 7 Programmable Blocks · 86 Node Types · Formula Syntax Highlighting & Autocomplete · Multiplayer Collaboration</b><br>
+  <b>七种可编程方块 · 86种节点 · 公式语法高亮与自动补全 · 多人实时协作</b><br>
   <i>Drag, connect, and build logic — just like Unreal Engine Blueprints!</i><br>
   <i>拖拽连接，构建逻辑 — 像虚幻引擎蓝图一样直观！</i><br>
   <i>Created by <b>StarryNight_Luo</b> (y15173334444)</i>
@@ -239,7 +239,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 
 ---
 
-## 🧩 Node Reference / 节点参考（84 种）
+## 🧩 Node Reference / 节点参考（86 种）
 
 <details>
 <summary><b>📦 Values / 数值</b></summary>
@@ -301,6 +301,8 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | OR Gate / 或门 | A > 0.5 or B > 0.5 |
 | Bool / 布尔 | Boolean with invert toggle / 布尔（可反转） |
 | Gate / 闸门 | Signal gate with Set/Reset/Toggle / 信号门 |
+| Relay A / 继电器A | SPDT relay — contact false→A, contact true→B / 双掷继电器 |
+| Relay B / 继电器B | SPST relay — out = contact ? B : A / 单掷合并继电器 |
 
 </details>
 
@@ -395,8 +397,8 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | Node / 节点 | Description / 说明 |
 |-------------|-------------------|
 | Comment / 便利贴 | Sticky-note annotation, resizable (80~8000×40~6000), scrollable, 3-color customizable. Drag header to move, parent-move contains nodes. Pure visual — skipped during evaluation. Press **C** with nodes selected to wrap. / 可调大小/滚动/三色自定义。拖拽顶部移动，父级移动携带内部节点。纯视觉辅助。选中节点按 **C** 包裹。 |
-| Signal Generator / 信号发生器 | Test signal source with XY curve preview, manual control-point curve or custom f(x) formula, frequency-generate or input-driven output modes / 测试信号源，XY曲线预览，手动控制点曲线或自定义f(x)公式，频率发生/指定模式输出 |
-| Signal Probe / 信号探针 | Real-time signal monitor with 100-tick trend chart, auto-scale Y axis with outlier clipping, freeze/clear / 实时信号监视，100 tick趋势图，Y轴自动缩放+离群截断，冻结/清除 |
+| Signal Generator / 信号发生器 | Test signal source with XY curve preview + Y-axis range label, manual control-point curve or custom f(x) formula, frequency-generate or input-driven output modes, percentile-based robust auto-scale / 测试信号源，XY曲线预览+Y轴范围标注，手动控制点曲线或自定义f(x)公式，频率发生/指定模式输出，百分位数稳健自动缩放 |
+| Signal Probe / 信号探针 | Real-time signal monitor with 100-tick trend chart, percentile-based robust auto-scale (p1-p99), freeze/clear / 实时信号监视，100 tick趋势图，百分位数稳健自动缩放（p1-p99），冻结/清除 |
 
 **Signal Generator Modes / 信号发生器模式：**
 
@@ -408,8 +410,8 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | 🎯 Input-Driven / 指定模式 | X set by dragging sky-blue marker line on chart. No EditBox — pure drag interaction. / 拖拽天蓝色标记线设置X值。无输入框，纯拖拽交互。 |
 
 **Signal Probe Features / 信号探针功能：**
-- 100-tick ring buffer trend chart with auto-scale Y axis
-- Outlier clipping (±5) prevents spikes from flattening the waveform
+- 100-tick ring buffer trend chart with percentile-based robust auto-scale (p1-p99)
+- Percentile filtering replaces fixed ±5 clipping — correctly displays large-range data (e.g. 0~360)
 - Right-click: Freeze/Unfreeze, Clear History
 - Shows "---" when blueprint not running
 
@@ -578,6 +580,44 @@ All 7 blocks now support real-time collaborative graph editing — multiple play
 - 📋 **Ctrl+D Copy Fix** — Copy now uses server-authoritative ID allocation (`ADD_NODE_REQUEST` → ACK); data ops are deferred until all real IDs assigned. Sub-graph content recursively synced for ENCAPSULATION nodes. Fixes "empty node on other clients". / 复制走服务端权威ID分配，封装子图递归同步。
 - 📐 **Manual Curve Fixed Y-Axis** — Signal Generator manual curve mode now uses fixed Y range `[-1.1, 1.1]`; auto-scaling retained for formula mode. Control points clamped to visible range and rendered above border. / 手动曲线Y轴固定，控制点钳制+边框上方渲染。
 
+### 🔗 Stable PinId Refactoring / 稳定引脚ID重构
+Connections now bind to **stable string pin identifiers** instead of positional integer indices. Pin insertion, deletion, or reordering no longer breaks existing connections — they follow the pin by name.
+
+| System / 系统 | pinId Source / pinId 来源 | Before / 修复前 | After / 修复后 |
+|---------------|--------------------------|----------------|---------------|
+| FORMULA inputs | Variable name (e.g. `A`, `B`, `x`) | Adding/removing variables shifted pin indices — connections broke or pointed to wrong pins | Connections follow variable names; `ensureScriptParsed()` eliminates lazy-parse race conditions |
+| FORMULA outputs | `@output` label (e.g. `result`, `angle`) | Output reordering broke downstream connections | Connections track output labels; `"out0"` default handled correctly |
+| ENCAPSULATION I/O | Sub-node ID (sorted by Y, then ID) | Dragging ENCAP_INPUT/OUTPUT nodes changed pin order — external connections silently shifted | pinId = sub-node ID, invariant under drag; parent cache rebuilt after sub-graph structural edits |
+| BUS bands | Band name (e.g. `band_0`, `band_1`) | Inserting/removing/reordering bands cleared all connections or caused index drift | Only connections on actually-deleted bands are removed; reordered bands preserved |
+
+**Key changes:**
+- `NodeConnection` gains `fromPinId` / `toPinId` fields; `save()` / `load()` backward-compatible
+- `GraphNode` adds `inputPinIndex(id)` / `outputPinIndex(id)` / `inputPinId(i)` / `outputPinId(i)` — pinId↔index resolution per node type
+- `NodeGraph.rebuildInputCache()` resolves all pinIds to current indices, prunes stale connections
+- `GraphMigration` V3→V4: one-time NBT upgrade converting integer pins to stable pinIds for FORMULA, ENCAP, BUS, and generic nodes (recursive into sub-graphs)
+- `GraphEvaluator` BUS evaluation and ENCAP pin injection now match by pinId rather than cache position
+- `BusChannelHelper.syncBandsFromServer` only disconnects actually-removed bands (by name), preserving reordered bands
+- `NbtVersions.DATA_VERSION` bumped 3→4
+- Eliminates ~200 lines of REWIRE/reconnect complexity from the v1.2.5 roadmap — pin reordering is now free
+
+Related docs: [`docs/v1.2.4-pin-id-stability-plan.md`](docs/v1.2.4-pin-id-stability-plan.md)
+
+### 🧠 Relay Nodes / 继电器节点
+Two new logic nodes for conditional signal routing — available in both Blueprint and Program Computers.
+
+| Node / 节点 | Description / 说明 |
+|-------------|-------------------|
+| Relay A / 继电器A | SPDT (双掷) — 3 inputs (A, B, Contact), 2 outputs. Contact ≤0.5 → A输出=A, B输出=0; Contact >0.5 → A输出=0, B输出=B. Mutually exclusive throws like a physical relay. |
+| Relay B / 继电器B | SPST (单掷) — 3 inputs (A, B, Contact), 1 output. Contact >0.5 → out=B; else → out=A. Merged single-throw variant. |
+
+Both use the standard `>0.5` threshold consistent with `BOOL`/`GATE`/`OR`. No parameters, pure combinatorial logic — compatible with multiplayer collaboration and encapsulation out of the box.
+
+### 🔧 Signal Generator Auto-Scale Fix / 信号发生器自动缩放修复
+- **Root cause**: `computeVisibleRange()` used fixed ±5 clipping, squashing large-range formulas (e.g. `x*360`) into a ~6-unit Y window while rendering used raw values → curve painted to chart corners looking like an inverse-proportional function.
+- **Fix**: Replaced ±5 hard clipping with **percentile-based robust range** (p1–p99). Only extreme outliers (|v| ≥ 1e6) and NaN/Inf are filtered. Both `DEBUG_SIGNAL_GEN` and `DEBUG_PROBE` charts use the same logic.
+- **Y-axis range label**: Chart top-right now shows `min … max` (e.g. `0.0 … 360.0`) so the scale is immediately visible.
+- **Cache**: Formula compilation cache (`debugFormulaRpn`) properly invalidated on formula edits — chart refreshes instantly.
+
 ### 🎨 Formula Editor UX / 公式编辑器体验
 
 **Syntax Highlighting / 语法高亮** — Real-time token-based colouring with 9 categories: functions (yellow), constants (pink), identifiers (cyan), numbers (orange), operators/parens (grey), comments (green), @output/assignment (purple), unknown (red underline). Token cache avoids per-frame re-parsing. / 实时词法彩色标注，9 种分类：函数（黄）、常量（粉）、标识符（青）、数字（橙）、运算符/括号（灰）、注释（绿）、@output/赋值（紫）、未知（红色下划线）。Token 缓存避免每帧重复解析。
@@ -664,7 +704,7 @@ All 7 blocks now support real-time collaborative graph editing — multiple play
 | **Values / 数值** | CONST, REDSTONE_IN, PRIVATE_IN, BUS_IN |
 | **Math / 数学** | ADD, SUB, MUL, DIV, MOD, POW, ROOT, ABS, CEIL, FLOOR, FORMULA, ROUND, INTERP, SPLIT, POSE_CONVERT |
 | **Trig / 三角** | SIN, COS, TAN, ASIN, ACOS, ATAN2, SINH, COSH, SQRT, LN, LOG, EXP, SEC, CSC, COT, ANGLE_UNWRAP, DIRECTION |
-| **Logic / 逻辑** | GT, LT, GE, LE, EQ, OR, BOOL, GATE |
+| **Logic / 逻辑** | GT, LT, GE, LE, EQ, OR, BOOL, GATE, RELAY_A, RELAY_B |
 | **Control / 控制** | PID, PID_POWER, CLAMP, MAP |
 | **Output / 输出** | REDSTONE_OUT, PRIVATE_OUT, BUS_OUT, SPEED_CTRL |
 | **Sequential / 时序** | DELAY, LATCH, T_FLIPFLOP, PULSE_EXTEND, LOOP, FUSE, ACCUMULATOR, INTEGRATOR |
