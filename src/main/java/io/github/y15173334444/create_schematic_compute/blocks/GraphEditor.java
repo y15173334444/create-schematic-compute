@@ -836,10 +836,25 @@ public class GraphEditor {
         if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_BANDS) {
             var affected = graph.findNode(op.targetNodeId());
-            if (affected != null && affected.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT) {
-                reevaluateBusConflicts(graph);
-                // Refresh edit state for the affected node (conflict warning may change appearance)
-                // 刷新受影响节点的编辑状态（冲突警告可能改变外观）
+            if (affected != null) {
+                if (affected.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT) {
+                    reevaluateBusConflicts(graph);
+                }
+                // Sync bands from BAND_REGISTRY when BUS_IN/BUS_OUT is renamed
+                // BUS_IN/BUS_OUT 改名时从 BAND_REGISTRY 同步频段
+                if ((affected.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN
+                    || affected.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT)
+                    && !affected.signalName.isEmpty()) {
+                    var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(affected.signalName);
+                    if (gb != null && !gb.isEmpty()) {
+                        if (!gb.equals(affected.signalBands)) {
+                            affected.signalBands = new java.util.ArrayList<>(gb);
+                            affected.bandsDirty = true;
+                        }
+                    }
+                }
+                // Refresh edit state (conflict warning may change appearance for BUS_OUT)
+                // 刷新编辑状态（BUS_OUT 冲突警告可能改变外观）
                 if (expandedNodeIds.contains(affected.id))
                     nodeEditStatesById.put(affected.id, createEditState(affected));
             }
@@ -913,6 +928,13 @@ public class GraphEditor {
             sb.setResponder(text -> {
                 if (!text.equals(lastSig[0])) {
                     node.signalName = text;
+                    // Sync bands from new channel's BAND_REGISTRY (or clear if none)
+                    // 从新频道 BAND_REGISTRY 同步频段（无则清空）
+                    var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(text);
+                    node.signalBands = (gb != null && !gb.isEmpty())
+                        ? new java.util.ArrayList<>(gb)
+                        : new java.util.ArrayList<>();
+                    node.bandsDirty = true;
                     var op = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                         io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,
                         host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
@@ -3264,17 +3286,28 @@ public class GraphEditor {
         // Re-evaluate all BUS_OUT conflict state (renaming may create or resolve conflicts).
         // 重新评估所有 BUS_OUT 冲突状态（改名可能产生或解决冲突）。
         reevaluateBusConflicts(getGraph());
-        // Sync bands for non-conflicted nodes
-        if (node.type == NodeType.BUS_OUT && !node.busConflict && !t.isEmpty()) {
+        // Sync bands from the new channel's BAND_REGISTRY (or clear if none).
+        // For BUS_OUT: copy from another BUS_OUT on the same channel or from registry.
+        // For BUS_IN: read from BAND_REGISTRY — if empty, start with empty bands
+        // (old channel's bands are no longer valid after rename).
+        // 从新频道的 BAND_REGISTRY 同步频段（无则清空）。
+        // BUS_OUT：从同频道其他 BUS_OUT 或注册表复制。
+        // BUS_IN：从 BAND_REGISTRY 读取——若为空则以空频段开始（旧频道频段在改名后已无效）。
+        if ((node.type == NodeType.BUS_OUT || node.type == NodeType.BUS_IN) && !t.isEmpty()) {
             boolean synced = false;
             for (var n : getGraph().nodes) {
-                if (n != node && n.type == NodeType.BUS_OUT && n.signalName.equals(t) && n.bandCount() > 0) {
-                    node.signalBands = new java.util.ArrayList<>(n.signalBands); node.bandsDirty = true; synced = true; break;
+                if (n != node && (n.type == NodeType.BUS_OUT || n.type == NodeType.BUS_IN)
+                    && n.signalName.equals(t) && n.bandCount() > 0) {
+                    node.signalBands = new java.util.ArrayList<>(n.signalBands);
+                    node.bandsDirty = true; synced = true; break;
                 }
             }
             if (!synced) {
                 var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(t);
-                if (gb != null && !gb.isEmpty()) { node.signalBands = new java.util.ArrayList<>(gb); node.bandsDirty = true; }
+                node.signalBands = (gb != null && !gb.isEmpty())
+                    ? new java.util.ArrayList<>(gb)
+                    : new java.util.ArrayList<>();
+                node.bandsDirty = true;
             }
         }
         // 重建编辑区（在最后调用，确保所有状态已更新） (Rebuild edit state last, ensuring all state is up to date)

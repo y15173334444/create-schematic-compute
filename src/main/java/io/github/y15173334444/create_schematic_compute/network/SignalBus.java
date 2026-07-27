@@ -82,16 +82,18 @@ public class SignalBus {
             }
             existing = raced; // EN: Lost the race, process according to existing entry / 竞态失败，按已有条目处理
         }
-        // EN: Same owner → update reference and increment count
-        // 同一 owner → 更新引用并增加计数
+        // EN: Same owner → update reference; preserve ref-count across internalMap replacement.
+        // 同一 owner → 更新引用；替换 internalMap 时保留引用计数。
         if (existing.owner.equals(owner)) {
-            existing.incrementRef();
             if (existing.internalMap != internalMap) {
                 SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' map reference updated by {}", channelName, owner);
-                // Replace the entry with the new map reference WITHOUT copying old values.
+                // Preserve ref-count when replacing the entry with a new map reference.
                 // Old values belong to the previous graph state; each BUS_OUT starts fresh.
-                // 用新 map 引用替换条目，不复制旧值。旧值属于之前的图状态，每个 BUS_OUT 重新开始。
-                CHANNELS.put(channelName, new ChannelEntry(internalMap, owner));
+                // 替换条目时保留引用计数。旧值属于之前的图状态，每个 BUS_OUT 重新开始。
+                ChannelEntry updated = new ChannelEntry(internalMap, owner);
+                // Carry forward the old ref-count (don't reset to 1) / 沿用旧引用计数（不重置为1）
+                while (updated.refCount() < existing.refCount()) updated.incrementRef();
+                CHANNELS.put(channelName, updated);
             }
             return true;
         }
@@ -147,9 +149,10 @@ public class SignalBus {
         ChannelEntry existing = CHANNELS.get(channelName);
         if (existing == null || !existing.owner.equals(owner)) return false;
         if (existing.internalMap != internalMap) {
-            // Replace the entry with the new map reference WITHOUT copying old values.
-            // 用新 map 引用替换条目，不复制旧值。
-            CHANNELS.put(channelName, new ChannelEntry(internalMap, owner));
+            // Preserve ref-count across map reference update / 更新 map 引用时保留引用计数
+            ChannelEntry updated = new ChannelEntry(internalMap, owner);
+            while (updated.refCount() < existing.refCount()) updated.incrementRef();
+            CHANNELS.put(channelName, updated);
         }
         return true;
     }

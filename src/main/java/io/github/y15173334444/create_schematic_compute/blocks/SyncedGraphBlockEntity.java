@@ -247,10 +247,15 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  最小化重建（无 BUS 生命周期操作）。供 Monitor 和 SpeedProxy 使用。
      *  Preserves debugTime (DEBUG_SIGNAL_GEN phase accumulator) across rebuilds so that
      *  frequency-generate mode continues smoothly after graph edits.
-     *  跨重建保留 debugTime（信号发生器相位累加器），使频率发生模式在图编辑后平滑继续。 */
+     *  Also detects and unregisters removed BUS_OUT nodes so that deleted channels
+     *  don't leak in SignalBus.CHANNELS.
+     *  跨重建保留 debugTime（信号发生器相位累加器），使频率发生模式在图编辑后平滑继续。
+     *  同时检测并注销已删除的 BUS_OUT 节点，防止已删除频道在 SignalBus.CHANNELS 中泄漏。 */
     protected void recompileEvaluatorLight() {
         // Save debugTime before destroying the old evaluator / 销毁旧求值器前保存 debugTime
         if (evaluator != null) evaluator.saveDebugTimes(runtimeState);
+        // Unregister BUS_OUT nodes that were removed since last recompile / 注销自上次重编译以来已删除的 BUS_OUT 节点
+        unregisterRemovedBusOutNodes();
         evaluator = new GraphEvaluator(graph);
         // Restore debugTime from RuntimeState so frequency mode phase persists
         // 从 RuntimeState 恢复 debugTime，使频率模式相位保持
@@ -259,6 +264,8 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         lastGraphGeneration = graph.graphGeneration;
         runtimeState.pidState.clear();
         registerBusChannels(); // EN: ensure BUS channels are registered on first tick 中文: 确保 BUS 通道在首次 tick 时被注册
+        // Snapshot current BUS_OUT keys for next recompile's removal detection / 快照当前 BUS_OUT 键供下次重编译检测删除
+        snapshotBusOutKeys();
     }
 
     // ── BUS_OUT removal detection (works around lastEvaluatedGraph reference sharing) ──
@@ -331,6 +338,9 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         try {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) {
+                // Unregister old BUS channels before replacing the graph / 替换图前注销旧 BUS 频道
+                unregisterBusChannels(graph);
+                cleanupBusChannels(graph);
                 graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
                 rs.onLoad(graph);
             }

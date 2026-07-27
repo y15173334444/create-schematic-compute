@@ -73,6 +73,11 @@ public record BusBandUploadPacket(BlockPos pos, String busName, List<String> ban
                         }
                     }
                 }
+                // Bump generation so the evaluator recompiles with updated band counts.
+                // Without this, BUS_IN band changes are synced to the graph but the
+                // evaluator may use stale cached state.
+                // 递增代数使评测器用更新后的频段数重编译。
+                graph.bumpGeneration();
                 // EN: Register to global table; unregister via ref-count when bands are empty
                 // 注册到全局表；空频段时通过引用计数取消注册
                 if (bands != null && !bands.isEmpty()) {

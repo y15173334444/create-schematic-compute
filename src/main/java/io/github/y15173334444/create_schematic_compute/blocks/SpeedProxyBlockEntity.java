@@ -29,6 +29,7 @@ public class SpeedProxyBlockEntity extends SyncedGraphBlockEntity {
 
     @Override public void accept(BlockEntity other) {
         if(other instanceof SpeedProxyBlockEntity src) {
+            unregisterBusChannels(graph); // 先注销旧图的 BUS 频道 / unregister old graph's BUS channels first
             this.graph = src.graph; this.running = src.running; runtimeState.clear();
             setChanged();
         }
@@ -42,7 +43,7 @@ public class SpeedProxyBlockEntity extends SyncedGraphBlockEntity {
         if (!state.hasProperty(SpeedProxyBlock.LIT)) return;
         if (state.getValue(SpeedProxyBlock.LIT) != shouldBeLit)
             level.setBlock(worldPosition, state.setValue(SpeedProxyBlock.LIT, shouldBeLit), 3);
-        if (!running) return;
+        if (!running) { onStopRunning(); return; }
         if (graphChanged()) recompileEvaluatorLight();
         var results = evaluator.evaluate(List.of(), runtimeState.pidState, 0.05f);
         // Broadcast eval snapshot so DEBUG_SIGNAL_GEN / DEBUG_PROBE charts render on client.

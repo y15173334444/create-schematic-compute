@@ -32,6 +32,7 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
 
     @Override public void accept(BlockEntity other) {
         if(other instanceof MonitorBlockEntity src) {
+            unregisterBusChannels(graph); // 先注销旧图的 BUS 频道 / unregister old graph's BUS channels first
             this.graph = src.graph; this.running = src.running;
             this.screenWidth = src.screenWidth; this.screenLength = src.screenLength;
             this.screenX = src.screenX; this.screenY = src.screenY; this.screenZ = src.screenZ;
@@ -53,7 +54,7 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         if(currentState.getValue(MonitorBlock.LIT) != shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(MonitorBlock.LIT, shouldBeLit), 3);
         rs.checkGraphChanged(graph);
-        if(!running) return;
+        if(!running) { onStopRunning(); return; }
         if(graphChanged()) recompileEvaluatorLight();
         rs.refreshInputs();
         var in = rs.buildInputs(graph);
@@ -75,6 +76,8 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         try {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) {
+                unregisterBusChannels(graph); // unregister old BUS channels before replacing graph
+                cleanupBusChannels(graph);
                 graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
             }
             if (t != null) loadSettings(t);
