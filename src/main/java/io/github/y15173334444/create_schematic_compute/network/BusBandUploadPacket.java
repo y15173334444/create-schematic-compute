@@ -53,8 +53,23 @@ public record BusBandUploadPacket(BlockPos pos, String busName, List<String> ban
                         if ((n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
                             || n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN)
                             && n.signalName.equals(busName)) {
-                            n.signalBands = bands != null ? new ArrayList<>(bands) : new ArrayList<>();
+                            // Collect removed band names (pinIds) before replacing
+                            // 在替换前收集被删除的频段名（pinId）
+                            var oldBands = n.signalBands != null ? n.signalBands : java.util.Collections.<String>emptyList();
+                            java.util.List<String> newBands = bands != null ? new ArrayList<>(bands) : new ArrayList<>();
+                            var removed = new java.util.ArrayList<>(oldBands);
+                            removed.removeAll(newBands);
+                            n.signalBands = newBands;
                             n.bandsDirty = true;
+                            // Remove connections only on actually-deleted bands, matched by pinId
+                            // 仅删除实际被移除频段上的连接（按 pinId 匹配）
+                            for (String removedBand : removed) {
+                                graph.connections.removeIf(c ->
+                                    (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
+                                    (c.toId == n.id && removedBand.equals(c.toPinId)));
+                            }
+                            graph.rebuildNodeMap(); // invalidate inputCache
+                            graph.rebuildInputCache();
                         }
                     }
                 }

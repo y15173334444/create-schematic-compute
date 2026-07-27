@@ -25,6 +25,7 @@ public final class GraphMigration {
             GraphMigration::migrateV0toV1,
             GraphMigration::migrateV1toV2,
             GraphMigration::migrateV2toV3,
+            GraphMigration::migrateV3toV4,
     };
 
     /**
@@ -162,5 +163,171 @@ public final class GraphMigration {
         // 4. Stamp current version
         out.putInt(NbtVersions.VERSION_KEY, 3);
         return out;
+    }
+
+    // ── V3 → V4 ───────────────────────────────────────────────────────────
+    // Changes in v4 (v1.2.4):
+    //   1. Connections gain stable pinId fields (fPinId, tPinId) derived from
+    //      node type + pin index → pin name mapping.
+    //   2. Recursive migration for ENCAPSULATION sub-graphs.
+    //
+    //   PinId derivation rules (mirrors GraphNode.inputPinId/outputPinId):
+    //     FORMULA input:  variable name from formula parse (e.g. "A", "B")
+    //     FORMULA output: @output label (from outlbls tag), or "outN"
+    //     ENCAP input:    String.valueOf(sub-node id) sorted by Y
+    //     ENCAP output:   String.valueOf(sub-node id) sorted by Y
+    //     BUS_IN output:  band name from signalBands
+    //     BUS_OUT input:  band name from signalBands
+    //     generic:        String.valueOf(index)
+
+    private static CompoundTag migrateV3toV4(CompoundTag tag) {
+        CompoundTag out = tag.copy();
+
+        // Build a node-index for pinId resolution
+        ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
+        var nodeIndex = new java.util.HashMap<Integer, CompoundTag>();
+        for (int i = 0; i < nodes.size(); i++) {
+            CompoundTag n = nodes.getCompound(i);
+            nodeIndex.put(n.getInt("id"), n);
+        }
+
+        // Migrate connections
+        ListTag conns = out.getList("conns", Tag.TAG_COMPOUND);
+        for (int i = 0; i < conns.size(); i++) {
+            CompoundTag c = conns.getCompound(i);
+            if (c.contains("fPinId") && c.contains("tPinId")) continue; // already migrated
+
+            int fromId = c.getInt("from");
+            int fromPin = c.getInt("fPin");
+            int toId = c.getInt("to");
+            int toPin = c.getInt("tPin");
+
+            CompoundTag fromNode = nodeIndex.get(fromId);
+            CompoundTag toNode = nodeIndex.get(toId);
+
+            if (fromNode != null) {
+                c.putString("fPinId", resolveOutputPinId(fromNode, fromPin));
+            }
+            if (toNode != null) {
+                c.putString("tPinId", resolveInputPinId(toNode, toPin));
+            }
+        }
+
+        // Recursively migrate sub-graphs
+        for (int i = 0; i < nodes.size(); i++) {
+            CompoundTag n = nodes.getCompound(i);
+            if (n.contains("subGraph")) {
+                n.put("subGraph", migrateV3toV4(n.getCompound("subGraph")));
+            }
+        }
+
+        out.putInt(NbtVersions.VERSION_KEY, 4);
+        return out;
+    }
+
+    /** Resolve an input pin index → stable pinId from node NBT data. */
+    private static String resolveInputPinId(CompoundTag nodeTag, int pinIndex) {
+        String typeId = nodeTag.getString("type");
+        if (typeId.isEmpty() && nodeTag.contains("type", Tag.TAG_INT)) {
+            // Legacy ordinal-based type — look up by ordinal
+            NodeType t = NodeType.byOrdinalSafe(nodeTag.getInt("type"));
+            if (t != null) typeId = t.id;
+        }
+        if (pinIndex < 0) return String.valueOf(pinIndex);
+
+        // FORMULA: pinId = input variable name
+        if ("formula".equals(typeId)) {
+            String formula = nodeTag.getString("formula");
+            if (!formula.isEmpty()) {
+                var parsed = FormulaParser.parseScript(formula);
+                if (pinIndex < parsed.inputVars.size())
+                    return parsed.inputVars.get(pinIndex);
+            }
+            return String.valueOf(pinIndex);
+        }
+
+        // ENCAPSULATION: pinId = String.valueOf(sub-node id) sorted by Y
+        if ("encapsulation".equals(typeId) && nodeTag.contains("subGraph")) {
+            CompoundTag subTag = nodeTag.getCompound("subGraph");
+            ListTag subNodes = subTag.getList("nodes", Tag.TAG_COMPOUND);
+            var encapInputs = new java.util.ArrayList<CompoundTag>();
+            for (int i = 0; i < subNodes.size(); i++) {
+                CompoundTag sn = subNodes.getCompound(i);
+                String st = sn.getString("type");
+                if (st.isEmpty() && sn.contains("type", Tag.TAG_INT)) {
+                    NodeType t = NodeType.byOrdinalSafe(sn.getInt("type"));
+                    if (t != null) st = t.id;
+                }
+                if ("encap_input".equals(st)) encapInputs.add(sn);
+            }
+            encapInputs.sort(java.util.Comparator.<CompoundTag>comparingDouble(sn -> sn.getFloat("y"))
+                .thenComparingInt(sn -> sn.getInt("id")));
+            if (pinIndex < encapInputs.size())
+                return String.valueOf(encapInputs.get(pinIndex).getInt("id"));
+            return String.valueOf(pinIndex);
+        }
+
+        // BUS_OUT: pinId = band name
+        if ("bus_out".equals(typeId) && nodeTag.contains("bands")) {
+            ListTag bands = nodeTag.getList("bands", Tag.TAG_STRING);
+            if (pinIndex < bands.size()) return bands.getString(pinIndex);
+            return String.valueOf(pinIndex);
+        }
+
+        // Generic: pinId = decimal string of index
+        return String.valueOf(pinIndex);
+    }
+
+    /** Resolve an output pin index → stable pinId from node NBT data. */
+    private static String resolveOutputPinId(CompoundTag nodeTag, int pinIndex) {
+        String typeId = nodeTag.getString("type");
+        if (typeId.isEmpty() && nodeTag.contains("type", Tag.TAG_INT)) {
+            NodeType t = NodeType.byOrdinalSafe(nodeTag.getInt("type"));
+            if (t != null) typeId = t.id;
+        }
+        if (pinIndex < 0) return String.valueOf(pinIndex);
+
+        // FORMULA: pinId = output label (from outlbls), or "outN"
+        if ("formula".equals(typeId)) {
+            if (nodeTag.contains("outlbls")) {
+                ListTag lbls = nodeTag.getList("outlbls", Tag.TAG_STRING);
+                if (pinIndex < lbls.size()) {
+                    String name = lbls.getString(pinIndex);
+                    if (!name.isEmpty()) return name;
+                }
+            }
+            return "out" + pinIndex;
+        }
+
+        // ENCAPSULATION: pinId = String.valueOf(sub-node id) sorted by Y
+        if ("encapsulation".equals(typeId) && nodeTag.contains("subGraph")) {
+            CompoundTag subTag = nodeTag.getCompound("subGraph");
+            ListTag subNodes = subTag.getList("nodes", Tag.TAG_COMPOUND);
+            var encapOutputs = new java.util.ArrayList<CompoundTag>();
+            for (int i = 0; i < subNodes.size(); i++) {
+                CompoundTag sn = subNodes.getCompound(i);
+                String st = sn.getString("type");
+                if (st.isEmpty() && sn.contains("type", Tag.TAG_INT)) {
+                    NodeType t = NodeType.byOrdinalSafe(sn.getInt("type"));
+                    if (t != null) st = t.id;
+                }
+                if ("encap_output".equals(st)) encapOutputs.add(sn);
+            }
+            encapOutputs.sort(java.util.Comparator.<CompoundTag>comparingDouble(sn -> sn.getFloat("y"))
+                .thenComparingInt(sn -> sn.getInt("id")));
+            if (pinIndex < encapOutputs.size())
+                return String.valueOf(encapOutputs.get(pinIndex).getInt("id"));
+            return String.valueOf(pinIndex);
+        }
+
+        // BUS_IN: pinId = band name
+        if ("bus_in".equals(typeId) && nodeTag.contains("bands")) {
+            ListTag bands = nodeTag.getList("bands", Tag.TAG_STRING);
+            if (pinIndex < bands.size()) return bands.getString(pinIndex);
+            return String.valueOf(pinIndex);
+        }
+
+        // Generic: pinId = decimal string of index
+        return String.valueOf(pinIndex);
     }
 }

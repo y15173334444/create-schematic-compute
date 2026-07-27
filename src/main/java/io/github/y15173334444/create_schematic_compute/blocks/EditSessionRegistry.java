@@ -181,6 +181,12 @@ public final class EditSessionRegistry {
 
         // 5. Execute / 执行
         OpExecutor.apply(targetGraph, op);
+        // After sub-graph edits, rebuild parent graph's input cache so that
+        // the server-side evaluator uses correct ENCAP pin→index mappings.
+        // 子图编辑后重建父图的输入缓存，使服务端评估器使用正确的 ENCAP 引脚→索引映射。
+        if (op.ownerNodeId() >= 0 && gbe.getNodeGraph() != null) {
+            gbe.getNodeGraph().rebuildInputCache();
+        }
         long version = nextVersion(gk);
 
         // 6. Broadcast to other editors / 广播给其他编辑者

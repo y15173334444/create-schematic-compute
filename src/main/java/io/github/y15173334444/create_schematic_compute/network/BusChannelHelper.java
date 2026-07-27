@@ -124,8 +124,9 @@ public final class BusChannelHelper {
     // ── Client graph sync / 客户端图同步 ──────────────────────────────────
 
     /** Apply a server-pushed band list to matching BUS_IN / BUS_OUT nodes in the local graph.
-     *  Old connections on removed bands are pruned.
-     *  将服务端推送的频段列表应用到本地图中匹配的 BUS_IN / BUS_OUT 节点。被移除频段上的旧连接会被修剪。 */
+     *  Only connections on bands that were actually removed are pruned (matched by band name / pinId).
+     *  将服务端推送的频段列表应用到本地图中匹配的 BUS_IN / BUS_OUT 节点。
+     *  仅删除被实际移除的频段（按频段名 / pinId 匹配）上的连接。 */
     public static void syncBandsFromServer(String busName, List<String> bands, NodeGraph graph) {
         if (graph == null) return;
         List<String> newBands = bands != null ? bands : Collections.emptyList();
@@ -137,14 +138,25 @@ public final class BusChannelHelper {
                 // 不要覆盖冲突的 BUS_OUT —— 其频段属于自身，不属于广播此同步的频道所有者。
                 if (n.type == NodeType.BUS_OUT && n.busConflict) continue;
                 if (!newBands.equals(n.signalBands)) {
-                    int oldCount = n.bandCount();
-                    for (int pi = 0; pi < oldCount; pi++) {
-                        final int p = pi;
-                        graph.connections.removeIf(c ->
-                            (c.fromId == n.id && c.fromPin == p) || (c.toId == n.id && c.toPin == p));
-                    }
+                    // Collect removed band names (pinIds) by comparing old vs new
+                    // 通过对比新旧集合，收集被删除的频段名（pinId）
+                    var oldBands = n.signalBands != null ? n.signalBands : Collections.<String>emptyList();
+                    var removed = new ArrayList<>(oldBands);
+                    removed.removeAll(newBands);
                     n.signalBands = new ArrayList<>(newBands);
                     n.bandsDirty = true;
+                    // Only remove connections on bands that were actually deleted,
+                    // matched by band name (= pinId). This preserves connections
+                    // on bands that were merely reordered.
+                    // 仅删除实际被移除频段上的连接（按频段名 = pinId 匹配）。
+                    // 仅被重排的频段上的连接得以保留。
+                    for (String removedBand : removed) {
+                        graph.connections.removeIf(c ->
+                            (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
+                            (c.toId == n.id && removedBand.equals(c.toPinId)));
+                    }
+                    graph.rebuildNodeMap(); // invalidate inputCache / 刷新 inputCache
+                    graph.rebuildInputCache();
                 }
             }
         }

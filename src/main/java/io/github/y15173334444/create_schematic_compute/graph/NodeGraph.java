@@ -89,15 +89,57 @@ public class NodeGraph {
     public boolean addConnection(int fromId, int fromPin, int toId, int toPin) {
         if (inputCache.containsKey(key(toId, toPin))) return false;
         if (fromId == toId) return false;
-        connections.add(new NodeConnection(fromId, fromPin, toId, toPin));
+        // Resolve pinIds from nodes
+        GraphNode fromNode = nodeMap.get(fromId);
+        GraphNode toNode = nodeMap.get(toId);
+        String fPid = fromNode != null ? fromNode.outputPinId(fromPin) : null;
+        String tPid = toNode != null ? toNode.inputPinId(toPin) : null;
+        connections.add(new NodeConnection(fromId, fPid, fromPin, toId, tPid, toPin));
+        invalidateTopo();
+        bumpGeneration();
+        return true;
+    }
+
+    /** Add a connection using stable pinIds. The int indices are resolved from the
+     *  pinIds and cached on the connection. Returns false if the input is already
+     *  connected or would create a self-loop. */
+    public boolean addConnectionWithPinIds(int fromId, String fromPinId, int toId, String toPinId) {
+        GraphNode fromNode = nodeMap.get(fromId);
+        GraphNode toNode = nodeMap.get(toId);
+        if (fromNode == null || toNode == null) return false;
+        int fromPin = fromNode.outputPinIndex(fromPinId);
+        int toPin = toNode.inputPinIndex(toPinId);
+        if (fromPin < 0 || toPin < 0) return false;
+        if (inputCache.containsKey(key(toId, toPin))) return false;
+        if (fromId == toId) return false;
+        connections.add(new NodeConnection(fromId, fromPinId, fromPin, toId, toPinId, toPin));
         invalidateTopo();
         bumpGeneration();
         return true;
     }
 
     public void removeConnection(int fromId, int fromPin, int toId, int toPin) {
-        connections.removeIf(c -> c.fromId == fromId && c.fromPin == fromPin
-                && c.toId == toId && c.toPin == toPin);
+        // Try exact match first (index-based); fall back to pinId match if
+        // indices were shifted by band reordering between creation and removal.
+        boolean removed = connections.removeIf(c ->
+            c.fromId == fromId && c.fromPin == fromPin
+            && c.toId == toId && c.toPin == toPin);
+        if (!removed) {
+            // PinId-based fallback: find by node+pinId
+            GraphNode fromNode = nodeMap.get(fromId);
+            GraphNode toNode = nodeMap.get(toId);
+            String fPid = fromNode != null ? fromNode.outputPinId(fromPin) : null;
+            String tPid = toNode != null ? toNode.inputPinId(toPin) : null;
+            if (fPid != null || tPid != null) {
+                final String ff = fPid, tt = tPid;
+                connections.removeIf(c -> {
+                    if (c.fromId != fromId || c.toId != toId) return false;
+                    boolean fMatch = ff != null ? ff.equals(c.fromPinId) : c.fromPin == fromPin;
+                    boolean tMatch = tt != null ? tt.equals(c.toPinId) : c.toPin == toPin;
+                    return fMatch && tMatch;
+                });
+            }
+        }
         invalidateTopo();
         bumpGeneration();
     }
@@ -144,12 +186,39 @@ public class NodeGraph {
     }
 
     /** 重建输入缓存（公开方法，供 ACK 的 ID 重映射使用）。
+     *  Resolves stable pinIds to current integer indices and prunes connections
+     *  whose pinIds no longer map to any pin.
+     *  Always bumps generation when any index changes to ensure evaluator recompile.
      *  Rebuild the input cache (public for ACK-based ID remapping). */
     public void rebuildInputCache() {
         inputCache.clear();
+        var stale = new java.util.ArrayList<NodeConnection>();
+        boolean anyIndexChanged = false;
         for (NodeConnection c : connections) {
+            // Resolve pinIds to current integer indices
+            if (c.toPinId != null) {
+                GraphNode toNode = nodeMap.get(c.toId);
+                if (toNode != null) {
+                    int resolved = toNode.inputPinIndex(c.toPinId);
+                    if (resolved < 0) { stale.add(c); continue; }
+                    if (c.toPin != resolved) { c.toPin = resolved; anyIndexChanged = true; }
+                }
+            }
+            if (c.fromPinId != null) {
+                GraphNode fromNode = nodeMap.get(c.fromId);
+                if (fromNode != null) {
+                    int resolved = fromNode.outputPinIndex(c.fromPinId);
+                    if (resolved < 0) { stale.add(c); continue; }
+                    if (c.fromPin != resolved) { c.fromPin = resolved; anyIndexChanged = true; }
+                }
+            }
             inputCache.put(key(c.toId, c.toPin), c);
         }
+        if (!stale.isEmpty()) {
+            connections.removeAll(stale);
+            anyIndexChanged = true;
+        }
+        if (anyIndexChanged) bumpGeneration();
     }
 
     private static long key(int nodeId, int pinIdx) {
@@ -222,8 +291,12 @@ public class NodeGraph {
             g.nodeMap.put(dup.id, dup);
         }
         for (NodeConnection c : connections) {
-            if (idMap.containsKey(c.fromId) && idMap.containsKey(c.toId))
-                g.connections.add(new NodeConnection(idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin));
+            if (idMap.containsKey(c.fromId) && idMap.containsKey(c.toId)) {
+                NodeConnection dup = new NodeConnection(
+                    idMap.get(c.fromId), c.fromPinId, c.fromPin,
+                    idMap.get(c.toId), c.toPinId, c.toPin);
+                g.connections.add(dup);
+            }
         }
         g.rebuildInputCache();
         return g;

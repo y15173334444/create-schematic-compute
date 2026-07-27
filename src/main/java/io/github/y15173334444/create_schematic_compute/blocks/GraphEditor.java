@@ -764,6 +764,14 @@ public class GraphEditor {
             return;
         }
         io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(graph, op, /*animateMoves=*/true);
+        // After a sub-graph edit, rebuild the parent graph's input cache so that
+        // external connections on the ENCAPSULATION node follow the correct pin
+        // positions (ENCAP_INPUT/OUTPUT ordering may have changed due to MOVE/ADD/REMOVE).
+        // 子图编辑后重建父图的输入缓存，使封装节点上的外部连线跟随正确的引脚位置
+        //（ENCAP_INPUT/OUTPUT 的顺序可能因 MOVE/ADD/REMOVE 而改变）。
+        if (op.ownerNodeId() >= 0 && host.getGraph() != null) {
+            host.getGraph().rebuildInputCache();
+        }
         // Clean up UI state for remote REMOVE_NODE (local delete path does this manually) (M5)
         if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE) {
             int rid = op.targetNodeId();
@@ -1120,28 +1128,31 @@ public class GraphEditor {
                 var cur = host.getGraph().findNode(formulaNodeId);
                 if (cur == null || cur.type != NodeType.FORMULA) return;
                 cur.formula = sanitized;
-                cur.cachedScript = null; // invalidate label cache
                 var res = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.parseScript(sanitized);
+                cur.cachedScript = res; // cache for ensureScriptParsed() — avoids double-parse
                 int newIn = res.inputVars.size();
                 int newOut = Math.max(1, res.outputLabels.size());
-                // Clean up connections to removed pins
-                if (newOut < cur.dynamicOutputCount) {
-                    int oldOut = cur.dynamicOutputCount;
-                    for (int pi = newOut; pi < oldOut; pi++) {
-                        final int p = pi;
-                        host.getGraph().connections.removeIf(c -> c.fromId == cur.id && c.fromPin == p);
-                    }
-                }
-                if (newIn < cur.dynamicInputCount) {
-                    int oldIn = cur.dynamicInputCount;
-                    for (int pi = newIn; pi < oldIn; pi++) {
-                        final int p = pi;
-                        host.getGraph().connections.removeIf(c -> c.toId == cur.id && c.toPin == p);
-                    }
-                }
                 cur.dynamicInputCount = newIn;
                 cur.dynamicOutputCount = newOut;
                 cur.outputLabels = res.outputLabels;
+
+                // Clean up connections to now-removed pins using stable pinId (v1.2.4).
+                // Uses pinIndex resolution, not list.contains, to correctly handle
+                // default output labels ("out0" vs "") and cachedScript-based resolution.
+                // 使用 pinIndex 解析判断（而非 list.contains），正确处理默认输出标签
+                // （"out0" vs ""）以及基于 cachedScript 的解析。
+                host.getGraph().connections.removeIf(c -> {
+                    if (c.toId == cur.id) {
+                        if (c.toPinId != null) return cur.inputPinIndex(c.toPinId) < 0;
+                        else return c.toPin >= cur.inputs(); // legacy fallback
+                    }
+                    if (c.fromId == cur.id) {
+                        if (c.fromPinId != null) return cur.outputPinIndex(c.fromPinId) < 0;
+                        else return c.fromPin >= cur.outputs(); // legacy fallback
+                    }
+                    return false;
+                });
+                host.getGraph().rebuildInputCache();
 
                 // ── Real-time validation (client-side only) ──
                 cur.formulaIssues = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(sanitized);
@@ -1426,6 +1437,15 @@ public class GraphEditor {
 
     /** Bump graph generation to invalidate render caches (Phase 2 dirty flag framework) */
     void markDirty() { getGraph().bumpGeneration(); }
+
+    /** 子图结构变更后，重建父图的输入缓存，使封装节点的外部连线引脚位置跟随子节点变化。
+     *  Rebuild parent graph input cache after sub-graph structural changes,
+     *  so that external connection pin positions on ENCAPSULATION follow sub-node changes. */
+    private void rebuildParentCacheIfInSubGraph() {
+        if (isInSubGraph() && host.getGraph() != null) {
+            host.getGraph().rebuildInputCache();
+        }
+    }
 
     /** Sort nodes by B-layer ascending (lower B = rendered first = behind, higher B = on top). */
     private List<GraphNode> sortNodesByB(List<GraphNode> nodes) {
@@ -1764,26 +1784,30 @@ public class GraphEditor {
             if (n.signalName.isEmpty()) continue;
             var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(n.signalName);
             if (gb != null && !gb.isEmpty() && !gb.equals(n.signalBands)) {
-                // 断开已删除频段引脚上的连线 (Break connections on removed band pins)
-                int oldCount = n.bandCount();
-                for (int pi = 0; pi < oldCount; pi++) {
-                    if (pi >= gb.size()) {
-                        final int p = pi;
-                        graph.connections.removeIf(c ->
-                            (c.fromId == n.id && c.fromPin == p) || (c.toId == n.id && c.toPin == p));
-                    }
+                // Collect removed band names (pinIds) before replacing
+                // 在替换前收集被删除的频段名（pinId）
+                var oldBands = n.signalBands != null ? n.signalBands : java.util.Collections.<String>emptyList();
+                var newBands = new java.util.ArrayList<>(gb);
+                var removed = new java.util.ArrayList<>(oldBands);
+                removed.removeAll(newBands);
+                for (String removedBand : removed) {
+                    graph.connections.removeIf(c ->
+                        (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
+                        (c.toId == n.id && removedBand.equals(c.toPinId)));
                 }
-                n.signalBands = new java.util.ArrayList<>(gb);
+                n.signalBands = newBands;
+                graph.rebuildInputCache();
             } else if ((gb == null || gb.isEmpty()) && !n.signalBands.isEmpty() && n.type == NodeType.BUS_IN) {
                 // BUS_IN 被动同步：BAND_REGISTRY 为空 → BUS_OUT 不存在 → 清空 (BUS_IN passive sync: BAND_REGISTRY empty → BUS_OUT doesn't exist → clear)
-                int oldCount = n.bandCount();
-                for (int pi = 0; pi < oldCount; pi++) {
-                    final int p = pi;
+                // Remove all connections by pinId (band name)
+                for (String oldBand : n.signalBands) {
                     graph.connections.removeIf(c ->
-                        (c.fromId == n.id && c.fromPin == p) || (c.toId == n.id && c.toPin == p));
+                        (c.fromId == n.id && oldBand.equals(c.fromPinId)) ||
+                        (c.toId == n.id && oldBand.equals(c.toPinId)));
                 }
                 n.signalBands.clear();
                 n.bandsDirty = true;
+                graph.rebuildInputCache();
                 if (expandedNodeIds.contains(n.id))
                     nodeEditStatesById.put(n.id, createEditState(n));
             }
@@ -1821,6 +1845,12 @@ public class GraphEditor {
                 }
             }
         }
+        // ── Ensure FORMULA scripts are parsed before connection rendering ──
+        //    Pin counts must be up-to-date before A=2 so connections are drawn
+        //    at the correct Y positions. / 在连线渲染前确保 FORMULA 脚本已解析，
+        //    引脚计数必须在 A=2 之前更新，确保连线画在正确的 Y 位置。
+        for (var n : graph.nodes) n.ensureScriptParsed();
+
         // ── A=2: Connections (bezier curves) ──
         renderer.renderConnections(g, graph, camX, camY, zoom);
         if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
@@ -2543,6 +2573,7 @@ public class GraphEditor {
                     cycleWarning=I18n.get("gui.create_schematic_compute.node_limit");
                 }else{
                     var added = graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));
+                    rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping
                     var addOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(
                         host.getBlockPos(), ownerNodeId(), added.id,
                         selectedMenuType, s2cX(mx), s2cY(my), host.getPlayerUUID());
@@ -2755,10 +2786,18 @@ public class GraphEditor {
                         && lmy >= st.bandRemoveBtnY && lmy <= st.bandRemoveBtnY + st.bandRemoveBtnH) {
                         if (en.signalBands != null && !en.signalBands.isEmpty()) {
                             int removedPin = en.signalBands.size() - 1;
-                            // 断开被移除引脚上的连线 (Break connections on the removed pin)
+                            String removedBand = en.signalBands.get(removedPin);
+                            // Remove connections by pinId (band name), not by index.
+                            // 按 pinId（频段名）而非索引清理连线。
                             graph.connections.removeIf(c ->
-                                (c.fromId == en.id && c.fromPin == removedPin)
-                                || (c.toId == en.id && c.toPin == removedPin));
+                                (c.fromId == en.id && removedBand.equals(c.fromPinId))
+                                || (c.toId == en.id && removedBand.equals(c.toPinId)));
+                            // Legacy fallback: also remove by index for unmigrated connections
+                            graph.connections.removeIf(c ->
+                                (c.fromId == en.id && c.fromPin == removedPin && c.fromPinId == null)
+                                || (c.toId == en.id && c.toPin == removedPin && c.toPinId == null));
+                            graph.rebuildNodeMap();
+                            graph.rebuildInputCache();
                             en.signalBands.remove(removedPin);
                             en.bandsDirty = true;
                             syncBusBands(en);
@@ -3301,19 +3340,30 @@ public class GraphEditor {
             io.github.y15173334444.create_schematic_compute.network.SignalBus.registerBands(src.signalName, bands);
             localBusNames.add(src.signalName);
         }
-        int newCount = bands != null ? bands.size() : 0;
         var g = getGraph();
         for (var n : getGraph().nodes) {
             if (n != src && (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
                 && n.signalName.equals(src.signalName)) {
-                int oldCount = n.bandCount();
-                n.signalBands = bands != null ? new java.util.ArrayList<>(bands) : new java.util.ArrayList<>();
-                // 删除超出新频段数的旧连线 (Remove old connections beyond the new band count)
-                for (int pi = newCount; pi < oldCount; pi++) {
-                    final int p = pi;
+                // Collect removed band names (pinIds) before replacing the list
+                // 在替换列表前收集被删除的频段名（pinId）
+                var oldBands = n.signalBands != null ? n.signalBands : java.util.Collections.<String>emptyList();
+                java.util.List<String> newBands = bands != null ? new java.util.ArrayList<>(bands) : new java.util.ArrayList<>();
+                var removed = new java.util.ArrayList<>(oldBands);
+                removed.removeAll(newBands);
+                n.signalBands = newBands;
+                n.bandsDirty = true;
+                // Only remove connections on bands that were actually deleted,
+                // matched by band name (= pinId). Preserves connections on
+                // bands that were merely reordered.
+                // 仅删除实际被移除频段上的连接（按频段名 = pinId 匹配）。
+                // 仅被重排的频段上的连接得以保留。
+                for (String removedBand : removed) {
                     g.connections.removeIf(c ->
-                        (c.fromId == n.id && c.fromPin == p) || (c.toId == n.id && c.toPin == p));
+                        (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
+                        (c.toId == n.id && removedBand.equals(c.toPinId)));
                 }
+                g.rebuildNodeMap(); // invalidate inputCache / 刷新 inputCache
+                g.rebuildInputCache();
                 var st = nodeEditStatesById.get(n.id);
                 if (st != null) nodeEditStatesById.put(n.id, createEditState(n));
             }
@@ -3610,6 +3660,7 @@ public class GraphEditor {
             }
             if (moved.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT)
                 endUndoBatch(); // close the batch started at drag begin
+            rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping after drag
             draggingNode=null;
         }if(btn==0&&panning)panning=false;
     }
@@ -4182,6 +4233,7 @@ public class GraphEditor {
                 var savedX = hit.x; var savedY = hit.y; var savedType = hit.type.ordinal();
                 var savedNbt = saveNodeNbt(hit); // snapshot for undo restore
                 g2.removeNode(hit.id);
+                rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping
                 var removeOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                     io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE,
                     host.getBlockPos(), ownerNodeId(), hit.id, host.getPlayerUUID());

@@ -696,9 +696,24 @@ public class GraphEvaluator {
                     // Conflicting nodes skip busInternalMap writes — MAP mutation rights belong to
                     // the first registered BUS_OUT
                     if (!node.busConflict) {
-                        for (int bi = 0; bi < bc; bi++)
-                            node.busInternalMap.put(node.signalBands.get(bi),
-                                graph.getInputValue(node.id, bi, outputs));
+                        // v1.2.4: Build pinId→value map from connections, then feed by band name.
+                        // This avoids depending on cache position being in sync with signalBands order.
+                        // 构建 pinId→值映射，再按频段名注入，避免依赖缓存位置与 signalBands 顺序一致。
+                        var pinValues = new java.util.HashMap<String, Float>();
+                        for (var c : graph.connections) {
+                            if (c.toId == node.id) {
+                                float[] out = outputs.get(c.fromId);
+                                if (out != null) {
+                                    float val = c.fromPin < out.length ? out[c.fromPin] : 0;
+                                    String pid = c.toPinId != null ? c.toPinId : String.valueOf(c.toPin);
+                                    pinValues.put(pid, val);
+                                }
+                            }
+                        }
+                        for (int bi = 0; bi < bc; bi++) {
+                            String bandName = node.signalBands.get(bi);
+                            node.busInternalMap.put(bandName, pinValues.getOrDefault(bandName, 0f));
+                        }
                     }
                 }
             }
@@ -841,11 +856,23 @@ public class GraphEvaluator {
                         }
                     }
                 }
-                // 将外部输入注入 ENCAP_INPUT 节点
-                // Inject outer inputs into ENCAP_INPUT nodes
-                for (int i = 0; i < inpNodes.size(); i++) {
-                    float val = graph.getInputValue(node.id, i, outputs);
-                    subEval.outputs.put(inpNodes.get(i).id, new float[]{val});
+                // 将外部输入注入 ENCAP_INPUT 节点（v1.2.4: 按 pinId 匹配连线，不依赖缓存位置）
+                // Inject outer inputs into ENCAP_INPUT nodes (v1.2.4: match by pinId, not cache position)
+                // Build pinId→sourceValue map from connections targeting this ENCAPSULATION node
+                var pinValues = new java.util.HashMap<String, Float>();
+                for (var c : graph.connections) {
+                    if (c.toId == node.id) {
+                        float[] out = outputs.get(c.fromId);
+                        if (out != null) {
+                            float val = c.fromPin < out.length ? out[c.fromPin] : 0;
+                            String pid = c.toPinId != null ? c.toPinId : String.valueOf(c.toPin);
+                            pinValues.put(pid, val);
+                        }
+                    }
+                }
+                for (var inp : inpNodes) {
+                    float val = pinValues.getOrDefault(String.valueOf(inp.id), 0f);
+                    subEval.outputs.put(inp.id, new float[]{val});
                 }
                 // 评估子图 — 使用 RuntimeState 支持的映射表，以封装节点 ID 为键
                 // Evaluate sub-graph — use RuntimeState-backed maps keyed by encap node ID

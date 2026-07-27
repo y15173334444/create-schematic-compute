@@ -116,15 +116,158 @@ public class GraphNode {
         list.sort(java.util.Comparator.<GraphNode>comparingDouble(n -> n.y).thenComparingInt(n -> n.id));
         return list;
     }
+    /** 确保 FORMULA 节点的脚本已解析，更新 dynamicInputCount/dynamicOutputCount。
+     *  在渲染连线（A=2）之前调用，避免 inputLabel()/outputLabel() 中的懒解析副作用
+     *  导致连线渲染与引脚渲染使用不同的 pin 数量。
+     *  Ensure the FORMULA node's script is parsed and pin counts are up-to-date.
+     *  Call before renderConnections() (A=2) so that connection and pin rendering
+     *  see the same pin counts — eliminates the stale-count race condition. */
+    public void ensureScriptParsed() {
+        if (type == NodeType.FORMULA && !formula.isEmpty()) {
+            if (cachedScript == null) {
+                cachedScript = FormulaParser.parseScript(formula);
+                dynamicInputCount = Math.max(1, cachedScript.inputVars.size());
+                dynamicOutputCount = Math.max(1, cachedScript.outputLabels.size());
+                outputLabels = cachedScript.outputLabels;
+            }
+        }
+    }
+
+    // ── Stable pinId methods (v1.2.4) ───────────────────────────────────────
+
+    /** Resolve a stable pinId to the current input pin index, or -1 if not found.
+     *  FORMULA: pinId = variable name (e.g. "A", "B", "x")
+     *  ENCAP:   pinId = String.valueOf(subNode.id)
+     *  BUS_OUT: pinId = signalBands.get(i)
+     *  generic: pinId = String.valueOf(index) */
+    public int inputPinIndex(String pinId) {
+        if (pinId == null) return -1;
+        if (type == NodeType.FORMULA && cachedScript != null) {
+            var vars = cachedScript.inputVars;
+            for (int i = 0; i < vars.size(); i++)
+                if (pinId.equals(vars.get(i))) return i;
+            return -1;
+        }
+        if (type == NodeType.ENCAPSULATION && subGraph != null) {
+            var ins = getSubNodes(NodeType.ENCAP_INPUT);
+            for (int i = 0; i < ins.size(); i++)
+                if (pinId.equals(String.valueOf(ins.get(i).id))) return i;
+            return -1;
+        }
+        if (type == NodeType.BUS_OUT && signalBands != null) {
+            for (int i = 0; i < signalBands.size(); i++)
+                if (pinId.equals(signalBands.get(i))) return i;
+            return -1;
+        }
+        // Generic / param pins: pinId is the decimal string of the index
+        try {
+            int idx = Integer.parseInt(pinId);
+            int maxIn = inputs();
+            return (idx >= 0 && idx < maxIn) ? idx : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /** Resolve a stable pinId to the current output pin index, or -1 if not found.
+     *  FORMULA: pinId = outputLabels.get(i) (or "out"+i)
+     *  ENCAP:   pinId = String.valueOf(subNode.id)
+     *  BUS_IN:  pinId = signalBands.get(i)
+     *  generic: pinId = String.valueOf(index) */
+    public int outputPinIndex(String pinId) {
+        if (pinId == null) return -1;
+        if (type == NodeType.FORMULA) {
+            ensureScriptParsed();
+            if (outputLabels != null) {
+                for (int i = 0; i < outputLabels.size(); i++)
+                    if (pinId.equals(outputLabels.get(i))) return i;
+            }
+            // Fallback: "out0", "out1", etc.
+            if (pinId.startsWith("out")) {
+                try { return Integer.parseInt(pinId.substring(3)); }
+                catch (NumberFormatException ignored) {}
+            }
+            return -1;
+        }
+        if (type == NodeType.ENCAPSULATION && subGraph != null) {
+            var outs = getSubNodes(NodeType.ENCAP_OUTPUT);
+            for (int i = 0; i < outs.size(); i++)
+                if (pinId.equals(String.valueOf(outs.get(i).id))) return i;
+            return -1;
+        }
+        if (type == NodeType.BUS_IN && signalBands != null) {
+            for (int i = 0; i < signalBands.size(); i++)
+                if (pinId.equals(signalBands.get(i))) return i;
+            return -1;
+        }
+        // Generic: pinId is the decimal string of the index
+        try {
+            int idx = Integer.parseInt(pinId);
+            int maxOut = outputs();
+            return (idx >= 0 && idx < maxOut) ? idx : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    /** Get the stable pinId for an input pin at the given index.
+     *  Returns null if the index is out of bounds. */
+    public String inputPinId(int index) {
+        if (index < 0) return null;
+        if (type == NodeType.FORMULA) {
+            ensureScriptParsed();
+            if (cachedScript != null && index < cachedScript.inputVars.size())
+                return cachedScript.inputVars.get(index);
+            return null;
+        }
+        if (type == NodeType.ENCAPSULATION && subGraph != null) {
+            var ins = getSubNodes(NodeType.ENCAP_INPUT);
+            if (index < ins.size()) return String.valueOf(ins.get(index).id);
+            return null;
+        }
+        if (type == NodeType.BUS_OUT && signalBands != null) {
+            if (index < signalBands.size()) return signalBands.get(index);
+            return null;
+        }
+        // Generic: pinId = decimal string of index
+        if (index < inputs()) return String.valueOf(index);
+        return null;
+    }
+
+    /** Get the stable pinId for an output pin at the given index.
+     *  Returns null if the index is out of bounds. */
+    public String outputPinId(int index) {
+        if (index < 0) return null;
+        if (type == NodeType.FORMULA) {
+            ensureScriptParsed();
+            if (outputLabels != null && index < outputLabels.size()) {
+                String name = outputLabels.get(index);
+                return name.isEmpty() ? "out" + index : name;
+            }
+            return null;
+        }
+        if (type == NodeType.ENCAPSULATION && subGraph != null) {
+            var outs = getSubNodes(NodeType.ENCAP_OUTPUT);
+            if (index < outs.size()) return String.valueOf(outs.get(index).id);
+            return null;
+        }
+        if (type == NodeType.BUS_IN && signalBands != null) {
+            if (index < signalBands.size()) return signalBands.get(index);
+            return null;
+        }
+        // Generic: pinId = decimal string of index
+        if (index < outputs()) return String.valueOf(index);
+        return null;
+    }
+
     /** 输入引脚标签（FORMULA 用变量名，ENCAPSULATION 用内部节点名，BUS_OUT 用频段名）。
      *  Input pin label (variable names for FORMULA, internal node names for ENCAPSULATION,
-     *  band names for BUS_OUT). */
+     *  band names for BUS_OUT).
+     *  NOTE: 不再有副作用——调用者需先调用 ensureScriptParsed()。 / No side effects — caller must call ensureScriptParsed() first. */
     public String inputLabel(int i) {
         if (type == NodeType.BUS_OUT && signalBands != null && i < signalBands.size())
             return signalBands.get(i);
-        if (type == NodeType.FORMULA && !formula.isEmpty()) {
-            if (cachedScript == null) cachedScript = FormulaParser.parseScript(formula);
-            dynamicInputCount = Math.max(1, cachedScript.inputVars.size());
+        if (type == NodeType.FORMULA && !formula.isEmpty() && cachedScript != null) {
             if (i < cachedScript.inputVars.size()) return cachedScript.inputVars.get(i);
         }
         if (type == NodeType.ENCAPSULATION) {
@@ -142,14 +285,12 @@ public class GraphNode {
     }
     /** 输出引脚标签（FORMULA 用 @output 名，ENCAPSULATION 用内部节点名，BUS_IN 用频段名）。
      *  Output pin label (@output names for FORMULA, internal node names for ENCAPSULATION,
-     *  band names for BUS_IN). */
+     *  band names for BUS_IN).
+     *  NOTE: 不再有副作用——调用者需先调用 ensureScriptParsed()。 / No side effects — caller must call ensureScriptParsed() first. */
     public String outputLabel(int i) {
         if (type == NodeType.BUS_IN && signalBands != null && i < signalBands.size())
             return signalBands.get(i);
-        if (type == NodeType.FORMULA && !formula.isEmpty()) {
-            if (cachedScript == null) cachedScript = FormulaParser.parseScript(formula);
-            outputLabels = cachedScript.outputLabels;
-            dynamicOutputCount = Math.max(1, cachedScript.outputLabels.size());
+        if (type == NodeType.FORMULA && !formula.isEmpty() && cachedScript != null) {
             if (i < outputLabels.size()) {
                 String name = outputLabels.get(i);
                 return name.isEmpty() ? type.outputLabel(i) : name;

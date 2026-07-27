@@ -137,17 +137,28 @@ public final class OpExecutor {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null && n.type == NodeType.FORMULA) {
                     n.formula = op.stringValue() != null ? op.stringValue() : "";
-                    n.cachedScript = null;
                     var res = FormulaParser.parseScript(n.formula);
+                    n.cachedScript = res; // must set BEFORE rebuildInputCache — inputPinIndex depends on it
                     n.dynamicInputCount = res.inputVars.size();
                     n.dynamicOutputCount = Math.max(1, res.outputLabels.size());
                     n.outputLabels = res.outputLabels;
-                    // 清理指向已移除引脚的连接
-                    // Clean up connections to now-removed pins
-                    graph.connections.removeIf(c ->
-                        (c.toId == n.id && c.toPin >= n.inputs()) ||
-                        (c.fromId == n.id && c.fromPin >= n.outputs()));
+                    // 清理 pinId 不再存在的连接（v1.2.4: 通过 pinIndex 解析判断，而非 list.contains）
+                    // Clean up connections whose pinId no longer resolves to a valid pin
+                    // (v1.2.4: uses pinIndex resolution, not list.contains, to handle
+                    //  "out0" vs "" for default output labels correctly)
+                    graph.connections.removeIf(c -> {
+                        if (c.toId == n.id) {
+                            if (c.toPinId != null) return n.inputPinIndex(c.toPinId) < 0;
+                            else return c.toPin >= n.inputs(); // legacy fallback
+                        }
+                        if (c.fromId == n.id) {
+                            if (c.fromPinId != null) return n.outputPinIndex(c.fromPinId) < 0;
+                            else return c.fromPin >= n.outputs(); // legacy fallback
+                        }
+                        return false;
+                    });
                     graph.rebuildNodeMap();
+                    graph.rebuildInputCache();
                     graph.bumpGeneration();
                 } else if (n != null && n.type == NodeType.DEBUG_SIGNAL_GEN) {
                     // DEBUG_SIGNAL_GEN 自定义公式（单行表达式，用 FormulaParser.compile）
@@ -217,6 +228,7 @@ public final class OpExecutor {
                 if (n != null && op.bands() != null) {
                     n.signalBands = new java.util.ArrayList<>(op.bands());
                     n.bandsDirty = true;
+                    graph.rebuildInputCache(); // prune connections to removed bands by pinId
                     graph.bumpGeneration();
                 }
                 yield n;
