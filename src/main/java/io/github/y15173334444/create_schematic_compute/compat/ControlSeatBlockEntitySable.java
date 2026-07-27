@@ -135,11 +135,14 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
         // 更新姿态/前方朝向（tick() 中会调用 updateAttitude()）
         updateAttitude();
 
-        // 更新实体 yaw → 使用相对旋转（减去初始偏移），保持 getYRot() 与初始朝向一致
+        // 更新实体 yaw（当前值+插值缓存），使 getYRot() 返回正确的世界朝向。
+        // Update entity yaw (current + interpolation cache) so getYRot() returns correct world yaw.
         if (entity != null) {
             float relativeYaw = cachedSubYaw - initialSubYaw;
-            entity.yRotO = cachedBlockFacingYaw - relativeYaw;
-            entity.setYHeadRot(cachedBlockFacingYaw - relativeYaw);
+            float newYaw = cachedBlockFacingYaw - relativeYaw;
+            entity.setYRot(newYaw);      // current yaw / 当前偏航
+            entity.yRotO = newYaw;       // previous yaw (for interpolation) / 上一帧偏航（插值用）
+            entity.setYHeadRot(newYaw);
         }
     }
 

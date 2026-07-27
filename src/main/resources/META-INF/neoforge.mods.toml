@@ -5,6 +5,9 @@ license = "${mod_license}"
 [[mixins]]
 config = "create_schematic_compute.mixins.json"
 
+[[mixins]]
+config = "create_schematic_compute.sable.mixins.json"
+
 [[mods]]
 modId = "${mod_id}"
 version = "${mod_version}"
