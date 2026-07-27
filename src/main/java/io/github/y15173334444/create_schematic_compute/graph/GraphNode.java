@@ -73,6 +73,10 @@ public class GraphNode {
     public transient int probeCount = 0;
     public transient boolean probeFrozen = false;
 
+    // ── MOUSE_JOYSTICK absolute-mode stick accumulator (transient, per-node) ──
+    // 绝对值模式摇杆累加器（transient，每节点独立）
+    public transient float runtimeStickX = 0, runtimeStickY = 0;
+
     /** 封装节点的嵌套子图（非该类型则为 null）。/ Encapsulation node's nested sub-graph (null for other types). */
     public NodeGraph subGraph;
 

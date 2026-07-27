@@ -31,7 +31,7 @@ public class EditPanel {
         int h = 6;
         if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL && n.type != NodeType.GATE && n.type != NodeType.T_FLIPFLOP
             && n.type != NodeType.LATCH && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE
-            && n.type != NodeType.DEBUG_SIGNAL_GEN) {
+            && n.type != NodeType.DEBUG_SIGNAL_GEN && n.type != NodeType.MOUSE_JOYSTICK) {
             if (n.type == NodeType.KEYBOARD || n.type == NodeType.GAMEPAD_BUTTON) {
                 h += 24;
             } else if (n.type == NodeType.ACCUMULATOR || n.type == NodeType.INTEGRATOR) {
@@ -39,6 +39,7 @@ public class EditPanel {
             } else h += n.params.length * 18;
         }
         if (n.type == NodeType.BOOL && n.params.length > 0) h += 16;
+        if (n.type == NodeType.MOUSE_JOYSTICK && n.params.length > 0) h += 16;
         if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 32; // 初始按钮 + 当前只读
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
         if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) h += 22;
@@ -332,6 +333,20 @@ public class EditPanel {
             g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
             g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
             g.drawString(Minecraft.getInstance().font, inverted ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.inverted") : "§7" + I18n.get("gui.create_schematic_compute.edit.not_inverted"), bx+4, by+2, 0xFFFFFFFF, false);
+            row++;
+        }
+        if (node.type == NodeType.MOUSE_JOYSTICK && node.params.length > 0) {
+            // 绝对值 / 增量 模式切换开关 (abs / incremental mode toggle)
+            boolean abs = node.params[0] > 0.5f;
+            int bx = px + 4, by = py + 4 + row * 18;
+            int bw = pw - 8, bh = 16;
+            g.fill(bx, by, bx + bw, by + bh, abs ? 0xFF3A5A2A : 0xFF3A3428);
+            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
+            g.renderOutline(bx + 1, by + 1, bw - 2, bh - 2, 0xFF1A1814);
+            g.drawString(Minecraft.getInstance().font,
+                abs ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.abs_mode")
+                    : "§7"   + I18n.get("gui.create_schematic_compute.edit.inc_mode"),
+                bx + 4, by + 2, 0xFFFFFFFF, false);
             row++;
         }
         if (node.type == NodeType.GATE && node.params.length > 0) {

@@ -216,6 +216,8 @@
   "gui.create_schematic_compute.edit.press_gamepad": "Press a gamepad button...",
   "gui.create_schematic_compute.edit.inverted": "Inverted",
   "gui.create_schematic_compute.edit.not_inverted": "Not Inverted",
+  "gui.create_schematic_compute.edit.abs_mode": "Absolute",
+  "gui.create_schematic_compute.edit.inc_mode": "Incremental",
   "gui.create_schematic_compute.edit.default_open": "Default: Open",
   "gui.create_schematic_compute.edit.default_closed": "Default: Closed",
   "gui.create_schematic_compute.edit.flipflop_default_on": "Default: On",

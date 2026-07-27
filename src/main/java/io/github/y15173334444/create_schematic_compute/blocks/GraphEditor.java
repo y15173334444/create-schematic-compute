@@ -871,7 +871,7 @@ public class GraphEditor {
             if (node.type == NodeType.BOOL || node.type == NodeType.GATE || node.type == NodeType.T_FLIPFLOP || node.type == NodeType.LATCH || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON
                 || node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT
                 || node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE
-                || node.type == NodeType.DEBUG_SIGNAL_GEN) continue;
+                || node.type == NodeType.DEBUG_SIGNAL_GEN || node.type == NodeType.MOUSE_JOYSTICK) continue;
             // 参数输入引脚已连线 → 阻止折叠（值由连线提供，但引脚仍可见） (Param input pin has connection → block collapse; value driven by connection but pin still visible)
             int pinIdx = node.type.inputs + i;
             if (node.type.editableParamCount() > 0 && getGraph().hasInputConnection(node.id, pinIdx)) {
@@ -2722,6 +2722,16 @@ public class GraphEditor {
                 if (en.type == NodeType.BOOL && en.params.length > 0) {
                     int boolLocalY = editLocalY + 4 + numRows * 18;
                     if (lmx >= 4 && lmx <= NW - 4 && lmy >= boolLocalY && lmy <= boolLocalY + 16)
+                    { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
+                    var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                        io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
+                        host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
+                    host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+                    return true; }}
+                if (en.type == NodeType.MOUSE_JOYSTICK && en.params.length > 0) {
+                    // Toggle absolute/incremental mode via TOGGLE_BOOL op (same pipeline as BOOL)
+                    int mjLocalY = editLocalY + 4 + numRows * 18;
+                    if (lmx >= 4 && lmx <= NW - 4 && lmy >= mjLocalY && lmy <= mjLocalY + 16)
                     { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
                     var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                         io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,

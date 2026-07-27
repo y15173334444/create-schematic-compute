@@ -84,7 +84,7 @@
 | ⌨️ 58 Key Bindings / 58键绑定 | Click-to-bind UI / 点击绑定 |
 | 🖱️ Dual Mode / 双模式 | Joystick (mouse delta) / View Angle (rotation difference) / 摇杆/视角差 |
 | 🎮 Gamepad / 手柄 | Dual stick + 15 buttons + analog triggers LT/RT / 双摇杆+15键+模拟扳机 |
-| 🔄 Sable Compatible / Sable兼容 | Entity yaw sync with sub-level rotation / 实体yaw自动追踪子世界 |
+| 🔄 Sable Compatible / Sable兼容 | Two camera modes (FIXED / VIEW_DIFFERENCE), world-orientation tracking via quaternion / 双相机模式，四元数世界朝向追踪 |
 | 🚪 Controls / 操作 | Right-click sit / `Shift`+Right-click editor / `~` dismount / `TAB` mode / `ESC` release |
 
 ---
@@ -352,7 +352,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | Node / 节点 | Description / 说明 |
 |-------------|-------------------|
 | Keyboard Key / 键盘按键 | 58 bindable keys / 58键绑定 |
-| Mouse Joystick / 鼠标摇杆 | Mouse delta -1~1 / 鼠标增量 |
+| Mouse Joystick / 鼠标摇杆 | Dual mode: incremental (mouse delta) / absolute (stick with memory). Toggle in edit panel. / 双模式：增量/绝对值，编辑区切换 |
 | View Angle / 视角差 | View angle delta / 视角差 |
 | Mouse Button / 鼠标按键 | Left/Right mouse buttons / 鼠标按键 |
 | Gamepad Joystick / 手柄摇杆 | Dual stick LX/LY/RX/RY / 双摇杆 |
@@ -612,6 +612,28 @@ Two new logic nodes for conditional signal routing — available in both Bluepri
 
 Both use the standard `>0.5` threshold consistent with `BOOL`/`GATE`/`OR`. No parameters, pure combinatorial logic — compatible with multiplayer collaboration and encapsulation out of the box.
 
+### 🪑 Sable Sub-Level Control Seat Camera / Sable 子关卡控制座椅相机
+Two camera modes for Control Seat riders inside Sable rotating structures. Camera orientation computed client-side from block FACING + Sable render-pose quaternion — bypasses entity yaw sync (unreliable for `retain_in_sub_level` entities).
+Sable 旋转结构上控制座椅的两种相机模式。座椅世界朝向由客户端根据方块 FACING + Sable 渲染姿态四元数实时计算，不依赖 entity yaw 同步。
+
+| Mode / 模式 | Camera / 相机 | Output / 输出 |
+|-------------|--------------|---------------|
+| **FIXED** (default) | Locked to seat world orientation (yaw + pitch). `ControlSeatCameraMixin` disables Sable camera rotation to prevent double-rotation. / 锁定到座椅世界朝向（偏航+俯仰） | Joystick `mx/my` from raw mouse delta / 摇杆来自鼠标增量 |
+| **VIEW_DIFFERENCE** | Free camera, mouse-controlled. Sable does not rotate the view. / 自由相机，鼠标控制 | `vy = playerYaw - seatWorldYaw`, `vp = playerPitch - seatWorldPitch` |
+
+- `ControlSeatBlockEntitySable`: fixed missing `setYRot()` — entity yaw now properly updates both `yRot` and `yRotO`. / 修复缺失的 setYRot()。
+- `ControlSeatEntity`: manual `setPos` skipped inside sub-levels (Sable handles positioning). / 子关卡内跳过手动 setPos。
+- `ControlSeatCameraMixin`: registered in `required:false` sable mixin config — silently skipped without Sable. / 无 Sable 时静默跳过。
+
+### 🎮 MOUSE_JOYSTICK Absolute Mode / 鼠标摇杆绝对值模式
+Per-node toggle in the edit panel switches between **incremental** (direct mouse delta, default) and **absolute** (accumulated stick position with memory, clamped to `[-1,1]`).
+编辑区提供每节点独立开关，在增量（默认，鼠标位移即输出）和绝对值（累积摇杆位置，停手保持）之间切换。
+
+- Uses `TOGGLE_BOOL` op pipeline — server-authoritative, undo-supported, multiplayer-synced. / 复用 BOOL 开关流水线。
+- Absolute accumulation uses `ABS_SCALE=1/6` per tick for smooth control. / 绝对值每 tick 累积系数 1/6。
+- Stick position persists across GUI open/close. / 开菜单再关闭位置保持。
+- Both x and y axes accumulate independently. / X/Y 轴独立累积。
+
 ### 🔧 Signal Generator Auto-Scale Fix / 信号发生器自动缩放修复
 - **Root cause**: `computeVisibleRange()` used fixed ±5 clipping, squashing large-range formulas (e.g. `x*360`) into a ~6-unit Y window while rendering used raw values → curve painted to chart corners looking like an inverse-proportional function.
 - **Fix**: Replaced ±5 hard clipping with **percentile-based robust range** (p1–p99). Only extreme outliers (|v| ≥ 1e6) and NaN/Inf are filtered. Both `DEBUG_SIGNAL_GEN` and `DEBUG_PROBE` charts use the same logic.
@@ -694,24 +716,6 @@ Both use the standard `>0.5` threshold consistent with `BOOL`/`GATE`/`OR`. No pa
 3台可编程计算机、24种节点、可视化编辑器、红石链接集成。
 
 </details>
-
----
-
-## 🔗 Quick Reference / 快速参考
-
-| Category / 分类 | Nodes / 节点 |
-|-----------------|-------------|
-| **Values / 数值** | CONST, REDSTONE_IN, PRIVATE_IN, BUS_IN |
-| **Math / 数学** | ADD, SUB, MUL, DIV, MOD, POW, ROOT, ABS, CEIL, FLOOR, FORMULA, ROUND, INTERP, SPLIT, POSE_CONVERT |
-| **Trig / 三角** | SIN, COS, TAN, ASIN, ACOS, ATAN2, SINH, COSH, SQRT, LN, LOG, EXP, SEC, CSC, COT, ANGLE_UNWRAP, DIRECTION |
-| **Logic / 逻辑** | GT, LT, GE, LE, EQ, OR, BOOL, GATE, RELAY_A, RELAY_B |
-| **Control / 控制** | PID, PID_POWER, CLAMP, MAP |
-| **Output / 输出** | REDSTONE_OUT, PRIVATE_OUT, BUS_OUT, SPEED_CTRL |
-| **Sequential / 时序** | DELAY, LATCH, T_FLIPFLOP, PULSE_EXTEND, LOOP, FUSE, ACCUMULATOR, INTEGRATOR |
-| **Input / 输入** | KEYBOARD, MOUSE_JOYSTICK, VIEW_ANGLE, MOUSE_BUTTON, GAMEPAD_JOYSTICK, GAMEPAD_BUTTON, GAMEPAD_TRIGGER, WORLD_VIEW, ATTITUDE, FORWARD, ACCELERATION, VELOCITY, POSITION, TARGET_OUT |
-| **Display / 显示** | TEXT, DATA, IMAGE, IMAGE_SEQUENCE |
-| **Structure / 结构** | ENCAPSULATION, ENCAP_INPUT, ENCAP_OUTPUT |
-| **Debug / 调试** | COMMENT, DEBUG_SIGNAL_GEN, DEBUG_PROBE |
 
 ---
 

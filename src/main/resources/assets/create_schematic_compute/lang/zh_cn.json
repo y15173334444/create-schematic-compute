@@ -228,6 +228,8 @@
   "gui.create_schematic_compute.edit.press_gamepad": "按下手柄按键...",
   "gui.create_schematic_compute.edit.inverted": "已反转",
   "gui.create_schematic_compute.edit.not_inverted": "未反转",
+  "gui.create_schematic_compute.edit.abs_mode": "绝对值",
+  "gui.create_schematic_compute.edit.inc_mode": "增量",
   "gui.create_schematic_compute.edit.default_open": "默认: 开启",
   "gui.create_schematic_compute.edit.default_closed": "默认: 关闭",
   "gui.create_schematic_compute.edit.flipflop_default_on": "默认: 开启",

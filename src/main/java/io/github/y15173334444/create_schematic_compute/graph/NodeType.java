@@ -68,7 +68,7 @@ public enum NodeType {
     POSE_CONVERT("pose_convert", "node.create_schematic_compute.pose_convert", 3, 2, ""),
     // Control Seat 输入节点 / Control Seat input nodes
     KEYBOARD("keyboard", "node.create_schematic_compute.keyboard", 0, 1, "key"),
-    MOUSE_JOYSTICK("mouse_joystick", "node.create_schematic_compute.mouse_joystick", 0, 2, ""),
+    MOUSE_JOYSTICK("mouse_joystick", "node.create_schematic_compute.mouse_joystick", 0, 2, "abs"),
     VIEW_ANGLE("view_angle", "node.create_schematic_compute.view_angle", 0, 2, ""),
     MOUSE_BUTTON("mouse_button", "node.create_schematic_compute.mouse_button", 0, 2, ""),
     GAMEPAD_JOYSTICK("gamepad_joystick", "node.create_schematic_compute.gamepad_joystick", 0, 4, ""),
@@ -139,7 +139,7 @@ public enum NodeType {
         return switch (this) {
             case BOOL, GATE, T_FLIPFLOP, KEYBOARD, GAMEPAD_BUTTON, LATCH,
                  ENCAP_INPUT, ENCAP_OUTPUT, IMAGE, IMAGE_SEQUENCE,
-                 BUS_IN, BUS_OUT, DEBUG_SIGNAL_GEN -> 0;
+                 BUS_IN, BUS_OUT, DEBUG_SIGNAL_GEN, MOUSE_JOYSTICK -> 0;
             default -> paramNames.length;
         };
     }

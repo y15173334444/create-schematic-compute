@@ -58,7 +58,10 @@ public class ControlSeatInputHandler {
 
     /** Joystick scale: ~3°/tick at full deflection (~60°/s), matches legacy dx*0.05 feel.
      *  摇杆比例系数：满偏约 3°/tick (60°/s)，匹配旧版手感。 */
-    private static final float JOYSTICK_SCALE = 1.0f / 3.0f;
+    public static final float JOYSTICK_SCALE = 1.0f / 3.0f;
+    /** Absolute-mode accumulation scale (per-tick), slower than incremental to avoid overshoot.
+     *  绝对值模式每tick累积系数，比增量模式更缓和，避免过冲。 */
+    public static final float ABS_SCALE = 1.0f / 6.0f;
 
     // ── State fields / 状态字段 ──
     private static volatile boolean suppressMouseTurn = false;
@@ -207,9 +210,6 @@ public class ControlSeatInputHandler {
         // ── Grab cursor when GUI is closed / GUI 关闭时抓取光标 ──
         if (!guiOpen) {
             GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
-        }
-        if (wasGuiOpen && !guiOpen) {
-            joystickX = 0; joystickY = 0;
         }
         wasGuiOpen = guiOpen;
 

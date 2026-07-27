@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
 import io.github.y15173334444.create_schematic_compute.ModUtils;
+import io.github.y15173334444.create_schematic_compute.client.ControlSeatInputHandler;
 import io.github.y15173334444.create_schematic_compute.network.ChannelEntry;
 import io.github.y15173334444.create_schematic_compute.network.SignalBus;
 import net.minecraft.world.item.ItemStack;
@@ -382,7 +383,24 @@ public class GraphEvaluator {
                 keyIndex = Math.max(0, Math.min(57, keyIndex)); // 58 键: A-Z, 0-9, Space, Shift, Ctrl 等 / 58 keys: A-Z, 0-9, Space, Shift, Ctrl, etc.
                 o[0] = ((seat.keyBits >> keyIndex) & 1L) != 0 ? 1f : 0f;
             }
-            case MOUSE_JOYSTICK -> { o[0] = seat.mouseX(); o[1] = seat.mouseY(); }
+            case MOUSE_JOYSTICK -> {
+                // abs mode (params[0]==1): accumulate mouse delta → stick position with memory.
+                // inc mode (params[0]==0): direct output → mouse delta, stops=zero.
+                // 绝对值模式：累积鼠标增量 → 带记忆的摇杆位置。
+                // 增量模式：直接输出鼠标增量，停手归零。
+                if (node.params.length > 0 && node.params[0] > 0.5f) {
+                    float rawDx = seat.mouseX() / ControlSeatInputHandler.JOYSTICK_SCALE;
+                    float rawDy = seat.mouseY() / ControlSeatInputHandler.JOYSTICK_SCALE;
+                    node.runtimeStickX += rawDx * ControlSeatInputHandler.ABS_SCALE;
+                    node.runtimeStickY += rawDy * ControlSeatInputHandler.ABS_SCALE;
+                    node.runtimeStickX = Math.max(-1f, Math.min(1f, node.runtimeStickX));
+                    node.runtimeStickY = Math.max(-1f, Math.min(1f, node.runtimeStickY));
+                    o[0] = node.runtimeStickX;
+                    o[1] = node.runtimeStickY;
+                } else {
+                    o[0] = seat.mouseX(); o[1] = seat.mouseY();
+                }
+            }
             case VIEW_ANGLE -> { o[0] = seat.pitch(); o[1] = seat.yaw(); }
             case MOUSE_BUTTON -> { o[0] = (seat.mouseButtons() & 1) != 0 ? 1 : 0; o[1] = (seat.mouseButtons() & 2) != 0 ? 1 : 0; }
             case GAMEPAD_JOYSTICK -> { o[0] = seat.gpadLX(); o[1] = seat.gpadLY(); o[2] = seat.gpadRX(); o[3] = seat.gpadRY(); }
