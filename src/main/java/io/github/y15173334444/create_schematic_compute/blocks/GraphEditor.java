@@ -477,7 +477,7 @@ public class GraphEditor {
         /** 每个 field 对应的参数索引（用于参数引脚映射和渲染） (Param index each field maps to, for param pin mapping and rendering) */
         public final java.util.List<Integer> fieldParamIndices = new java.util.ArrayList<>();
         public String[] paramKeys;
-        public int freqSlotSelected = 0;
+        public int freqSlotSelected = -1; // -1 = none selected, 0/1 = slot index
         public float boolBtnX, boolBtnY, boolBtnW, boolBtnH;
         public float freqSlotX, freqSlotY;
         public boolean listeningForKey = false;
@@ -2618,7 +2618,7 @@ public class GraphEditor {
             if (mx >= px2 && mx <= px2 + pw2 && my >= py2 && my <= py2 + ph2) {
                 int si = (int)((mx - px2 - 4) / 20);
                 if (si >= 0 && si < 9 && mc2.player != null && hotbarNode.itemParams != null && st != null
-                    && st.freqSlotSelected < hotbarNode.itemParams.length) {
+                    && st.freqSlotSelected >= 0 && st.freqSlotSelected < hotbarNode.itemParams.length) {
                     var inv = mc2.player.getInventory().items.get(si);
                     var is = inv.isEmpty() ? ItemStack.EMPTY : inv.copy();
                     if (!inv.isEmpty()) is.setCount(1);
@@ -2732,7 +2732,16 @@ public class GraphEditor {
                     for (int fi = 0; fi < 2; fi++) {
                         int bx = 4 + fi * 24;
                         if (lmx >= bx && lmx <= bx + 20 && lmy >= freqLocalY && lmy <= freqLocalY + 20)
-                        { st.freqSlotSelected = fi; hotbarNode = (hotbarNode == en) ? null : en; return true; }
+                        {
+                            // 切换热栏弹窗时，先复位旧节点的高亮态 (Reset old node's highlight when switching hotbar)
+                            if (hotbarNode != null && hotbarNode != en) {
+                                var old = nodeEditStatesById.get(hotbarNode.id);
+                                if (old != null) old.freqSlotSelected = -1;
+                            }
+                            st.freqSlotSelected = fi;
+                            hotbarNode = (hotbarNode == en) ? null : en;
+                            return true;
+                        }
                     }
                 }
                 if (en.type == NodeType.BOOL && en.params.length > 0) {
@@ -2910,7 +2919,10 @@ public class GraphEditor {
                         }
                         if (lmx >= 0 && lmx <= enW && lmy >= mleY && lmy <= mleY + mleH) {
                             b.setFocused(true);
-                            if (b.mouseClicked(lmx, lmy, 0)) editBoxDragNodeId = en.id;
+                            if (b.mouseClicked(mx, my, 0)) editBoxDragNodeId = en.id;
+                            if (!tabHeld && selectedNode != en) {
+                                selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
+                            }
                         } else b.setFocused(false);
                     }
                 } else if (en.type == NodeType.DEBUG_SIGNAL_GEN) {
@@ -2925,7 +2937,10 @@ public class GraphEditor {
                             var b = st.fields.get(fieldIdx);
                             int fy = editLocalY + 4 + dsgFieldRow * 18;
                             if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + 18) {
-                                b.setFocused(true); b.mouseClicked(lmx, lmy, 0);
+                                b.setFocused(true); b.mouseClicked(mx, my, 0);
+                                if (!tabHeld && selectedNode != en) {
+                                    selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
+                                }
                             } else b.setFocused(false);
                             fieldIdx++;
                         }
@@ -2944,7 +2959,10 @@ public class GraphEditor {
                             var b = st.fields.get(fieldIdx);
                             int fy = editLocalY + 4 + dsgFieldRow * 18;
                             if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + 18) {
-                                b.setFocused(true); b.mouseClicked(lmx, lmy, 0);
+                                b.setFocused(true); b.mouseClicked(mx, my, 0);
+                                if (!tabHeld && selectedNode != en) {
+                                    selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
+                                }
                             } else b.setFocused(false);
                             fieldIdx++;
                         }
@@ -2976,7 +2994,11 @@ public class GraphEditor {
                         var b = st.fields.get(fi);
                         int fy = editLocalY + 4 + fi * 18;
                         if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + 18) {
-                            b.setFocused(true); b.mouseClicked(lmx, lmy, 0);
+                            b.setFocused(true); b.mouseClicked(mx, my, 0);
+                            // 点击编辑区时自动选中所属节点 (auto-select owning node on edit-area click)
+                            if (!tabHeld && selectedNode != en) {
+                                selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
+                            }
                         }
                         else b.setFocused(false);
                     }
@@ -3232,11 +3254,13 @@ public class GraphEditor {
                 }
                 if (selectedNode != hit) {
                     selectedNode=hit; selectedNodes.clear(); selectedNodes.add(hit);
+                    syncEditStateToSelection(); // 切换选中节点后，清掉旧节点的控件状态（新节点保持聚焦）
                 }
                 return true;
             }
             // 点击空白区域 → 取消选中（不折叠编辑区） (Click empty area → deselect, without collapsing edit panels)
             selectedNodes.clear(); selectedNode=null;
+            syncEditStateToSelection(); // 取消选中后，同步清掉所有节点的控件状态
             panning=true; panLastX=(float)mx; panLastY=(float)my;
         }
         // busBox 失焦提交（在按钮处理之后，避免 createEditState 冲掉频段编辑） (busBox focus-lost commit, after button handling to avoid createEditState overwriting band edits)
@@ -3278,8 +3302,7 @@ public class GraphEditor {
                     }
                 }
                 if (!othersUseOldName) {
-                    clearBusNode(node);
-                    io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(oldName);
+                    releaseOldBusName(node, oldName);
                 }
             }
         }
@@ -3314,23 +3337,61 @@ public class GraphEditor {
         nodeEditStatesById.put(node.id, createEditState(node));
     }
 
-    /** 清除 BUS 节点的频段、连线，并折叠编辑区 (Clear BUS node bands and connections, then collapse edit panel) */
-    private void clearBusNode(GraphNode n) {
-        int oldCount = n.bandCount();
-        // 清除该总线名的全局信号数据 (Clear global signal data for this bus name)
-        if (!n.signalName.isEmpty())
-            io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(n.signalName);
+    /** 仅释放旧频道名的全局数据与连线，不折叠编辑区。
+     *  供 commitBusBox 改名时使用——改名不应关闭正在编辑的节点。
+     *  (Release old channel global data and connections without collapsing the edit panel.
+     *   Used by commitBusBox when renaming — renaming should not close the node being edited.) */
+    private void releaseOldBusName(GraphNode n, String oldName) {
+        if (oldName == null || oldName.isEmpty()) return;
+        io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(oldName);
+        // 在清空前捕获旧频段名和数量，用于连线清理 (Capture old band names and count before clearing)
+        java.util.List<String> oldBands = n.signalBands != null
+            ? new java.util.ArrayList<>(n.signalBands) : java.util.List.of();
+        int oldCount = oldBands.size();
         n.signalBands.clear();
         n.bandsDirty = true;
         var g = getGraph();
+        // 按 pinId（频段名）清理连线，并带 legacy 索引回退（与 bandRemoveBtn 路径一致）
+        // Remove connections by pinId (band name), with legacy index fallback
         for (int pi = 0; pi < oldCount; pi++) {
             final int p = pi;
+            String band = pi < oldBands.size() ? oldBands.get(pi) : null;
             g.connections.removeIf(c ->
-                (c.fromId == n.id && c.fromPin == p) || (c.toId == n.id && c.toPin == p));
+                (c.fromId == n.id && band != null && band.equals(c.fromPinId))
+                || (c.toId == n.id && band != null && band.equals(c.toPinId)));
+            // Legacy fallback: also remove by index for unmigrated connections
+            g.connections.removeIf(c ->
+                (c.fromId == n.id && c.fromPin == p && c.fromPinId == null)
+                || (c.toId == n.id && c.toPin == p && c.fromPinId == null));
         }
+    }
+
+    /** 清除 BUS 节点的频段、连线，并折叠编辑区 (Clear BUS node bands and connections, then collapse edit panel).
+     *  保留给节点删除/清空路径使用。改名路径请用 {@link #releaseOldBusName}。
+     *  (Preserved for node deletion/clear paths. Use releaseOldBusName for rename paths.) */
+    private void clearBusNode(GraphNode n) {
+        releaseOldBusName(n, n.signalName);
         expandedNodeIds.remove(n.id);
         nodeEditStatesById.remove(n.id);
         n.expanded = false;
+    }
+
+    /** 失焦所有编辑控件，并关闭不属于当前选中节点的热栏弹窗（选中态与控件态联动复位）。
+     *  (Blur all edit controls and close hotbar popups for nodes no longer selected.) */
+    private void syncEditStateToSelection() {
+        GraphNode sel = selectedNode;
+        for (int nid : nodeEditStatesById.keySet()) {
+            var st = nodeEditStatesById.get(nid);
+            if (st == null) continue;
+            boolean keepFocus = (sel != null && nid == sel.id);
+            if (!keepFocus) {
+                for (var f : st.fields) f.setFocused(false);
+                st.freqSlotSelected = -1;
+            }
+        }
+        if (hotbarNode != null && (sel == null || hotbarNode.id != sel.id)) {
+            hotbarNode = null;
+        }
     }
 
     /** Re-evaluate busConflict for all BUS_OUT nodes in the given graph.
@@ -3568,6 +3629,7 @@ public class GraphEditor {
             }
             if(!selectedNodes.isEmpty()) selectedNode = selectedNodes.iterator().next();
             else selectedNode = null;
+            syncEditStateToSelection(); // 框选结束后同步控件状态，清掉未选中节点的残留聚焦/高亮
             return;
         }
         if(btn==0&&draggingWire){

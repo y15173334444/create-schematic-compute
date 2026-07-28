@@ -415,7 +415,7 @@ public class EditPanel {
             for (int i = 0; i < 2; i++) {
                 int bx = (int)st.freqSlotX + i * 24;
                 g.fill(bx, (int)st.freqSlotY, bx + 20, (int)st.freqSlotY + 20, 0xFF1A1814);
-                g.renderOutline(bx, (int)st.freqSlotY, 20, 20, i == st.freqSlotSelected ? 0xFFFFAA44 : NodeRenderer.CSB());
+                g.renderOutline(bx, (int)st.freqSlotY, 20, 20, st.freqSlotSelected >= 0 && i == st.freqSlotSelected ? 0xFFFFAA44 : NodeRenderer.CSB());
                 if (node.itemParams != null && i < node.itemParams.length && !node.itemParams[i].isEmpty()) {
                     // ItemRenderer writes to depth buffer at Z≈250 (hardcoded in GuiGraphics).
                     // Disable depth writes so the 3D model doesn't block later 2D UI draws at Z=0.
