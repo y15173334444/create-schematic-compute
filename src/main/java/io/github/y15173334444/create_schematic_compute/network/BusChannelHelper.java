@@ -1,5 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.network;
 
+import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import net.minecraft.core.BlockPos;
@@ -295,8 +296,12 @@ public final class BusChannelHelper {
 
     /** Check every conflicted BUS_OUT node: if the previous channel owner is gone
      *  (CHANNELS has no entry for that name), this node takes over.
+     *  Also applies a tick-based timeout (200 ticks = 10 s): if the conflicted
+     *  node's channel is held by an owner whose chunk is not loaded, force takeover.
      *  Call once per tick before the evaluator runs.
      *  检查每个冲突的 BUS_OUT 节点：若原频道所有者已消失（CHANNELS 中无该名称条目），则由此节点接管。
+     *  同时应用基于 tick 的超时机制（200 tick = 10 秒）：若冲突节点的频道被一个所在区块未加载的
+     *  owner 持有，则强制接管。
      *  每 tick 在评估器运行前调用一次。
      *  @return true if at least one node recovered (caller should trigger a full sync) / 若至少有一个节点恢复则返回 true（调用方应触发完整同步） */
     public static boolean recoverConflictedChannels(NodeGraph graph, BlockPos pos, @Nullable Level level) {
@@ -305,26 +310,55 @@ public final class BusChannelHelper {
         for (var n : graph.nodes) {
             if (n.type == NodeType.BUS_OUT && n.busConflict
                 && !n.signalName.isEmpty() && n.bandCount() > 0) {
-                if (SignalBus.getChannel(n.signalName) == null) {
+                var entry = SignalBus.getChannel(n.signalName);
+                if (entry == null) {
                     // EN: First owner is gone → take over the channel and immediately sync bands to clients
                     // 首个 owner 已消失 → 接管频道并立即同步 bands 到客户端
-                    if (n.busInternalMap == null) n.busInternalMap = new java.util.HashMap<>();
-                    SignalBus.registerChannel(n.signalName, n.busInternalMap,
-                        new ChannelOwner(pos, n.id));
-                    n.busConflict = false;
+                    takeoverChannel(n, pos, level);
                     anyRecovered = true;
-                    if (n.signalBands != null && !n.signalBands.isEmpty()) {
-                        SignalBus.registerBands(n.signalName, n.signalBands);
-                        if (level instanceof ServerLevel sl) {
-                            PacketDistributor.sendToPlayersTrackingChunk(sl,
-                                new ChunkPos(pos),
-                                new BusBandSyncPacket(pos, n.signalName, n.signalBands));
+                } else if (level instanceof ServerLevel sl) {
+                    // Channel is still held — check if the current owner's chunk is loaded
+                    // 频道仍被持有 — 检查当前 owner 的区块是否已加载
+                    int cx = entry.owner.pos().getX() >> 4;
+                    int cz = entry.owner.pos().getZ() >> 4;
+                    boolean ownerLoaded = sl.getChunkSource().getChunkNow(cx, cz) != null;
+                    if (ownerLoaded) {
+                        n.busConflictTicks = 0; // owner is alive, reset counter
+                    } else {
+                        n.busConflictTicks++;
+                        // After 200 ticks (~10 s) with owner chunk unloaded, force takeover
+                        // 200 tick（约 10 秒）owner 区块持续未加载后，强制接管
+                        if (n.busConflictTicks > 200) {
+                            // Force-unregister the stale owner, then take over
+                            // 强制注销过期的 owner，然后接管
+                            SignalBus.unregisterChannel(n.signalName, entry.owner);
+                            takeoverChannel(n, pos, level);
+                            anyRecovered = true;
                         }
                     }
-                    n.bandsDirty = false;
                 }
             }
         }
         return anyRecovered;
+    }
+
+    /** Take over the channel: register this node as owner, clear conflict flag, sync bands.
+     *  接管频道：将此节点注册为 owner，清除冲突标志，同步 bands。 */
+    private static void takeoverChannel(GraphNode n,
+                                        BlockPos pos, Level level) {
+        if (n.busInternalMap == null) n.busInternalMap = new java.util.HashMap<>();
+        SignalBus.registerChannel(n.signalName, n.busInternalMap,
+            new ChannelOwner(pos, n.id));
+        n.busConflict = false;
+        n.busConflictTicks = 0;
+        if (n.signalBands != null && !n.signalBands.isEmpty()) {
+            SignalBus.registerBands(n.signalName, n.signalBands);
+            if (level instanceof ServerLevel sl) {
+                PacketDistributor.sendToPlayersTrackingChunk(sl,
+                    new ChunkPos(pos),
+                    new BusBandSyncPacket(pos, n.signalName, n.signalBands));
+            }
+        }
+        n.bandsDirty = false;
     }
 }

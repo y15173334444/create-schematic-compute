@@ -215,6 +215,10 @@ public final class OpExecutor {
                     // BUS_IN/BUS_OUT 改名时，从新频道 BUS_OUT 同步频段（无则清空）。
                     if ((n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
                         && !n.signalName.isEmpty() && !n.signalName.equals(oldName)) {
+                        // Capture old band names before replacing, for connection cleanup
+                        // 在替换前捕获旧频段名，用于连线清理
+                        var oldBands = n.signalBands != null && !n.signalBands.isEmpty()
+                            ? new java.util.ArrayList<>(n.signalBands) : java.util.Collections.<String>emptyList();
                         // Try copying from another BUS on the same new channel first
                         boolean found = false;
                         for (var other : graph.nodes) {
@@ -231,6 +235,16 @@ public final class OpExecutor {
                                 : new java.util.ArrayList<>();
                         }
                         n.bandsDirty = true;
+                        // Prune connections on old bands (matched by pinId / band name).
+                        // Without this, connections to bands that existed under the old name
+                        // would linger in graph.connections indefinitely.
+                        // 清理旧频段上的连线（按 pinId / 频段名匹配）。
+                        // 否则旧名称下的频段连线将无限期残留在 graph.connections 中。
+                        for (String oldBand : oldBands) {
+                            graph.connections.removeIf(c ->
+                                (c.fromId == n.id && oldBand.equals(c.fromPinId))
+                                || (c.toId == n.id && oldBand.equals(c.toPinId)));
+                        }
                     }
                     graph.bumpGeneration();
                 }

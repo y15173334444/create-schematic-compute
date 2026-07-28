@@ -25,6 +25,9 @@ public class GraphNode {
      *  Runtime flag: this BUS_OUT's channel name is taken by another BUS_OUT
      *  (registerChannel returned false). */
     public boolean busConflict;
+    /** 冲突持续 tick 数，用于 recoverConflictedChannels 的超时机制。
+     *  Number of ticks this node has been in conflict, used by recoverConflictedChannels timeout. */
+    public int busConflictTicks = 0;
     /** 频段列表是否已变更（用于避免每 tick 重复调用 registerBands）。
      *  Whether the band list has changed (avoids redundant registerBands calls per tick). */
     public boolean bandsDirty = true;
@@ -431,6 +434,7 @@ public class GraphNode {
         if (subGraph != null) n.subGraph = subGraph.copy();
         n.expanded = expanded;
         n.busConflict = busConflict;
+        n.busConflictTicks = 0; // runtime counter, reset on copy
         n.bandsDirty = bandsDirty;
         return n;
     }

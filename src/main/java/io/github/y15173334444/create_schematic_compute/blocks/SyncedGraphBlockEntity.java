@@ -254,6 +254,10 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     protected void recompileEvaluatorLight() {
         // Save debugTime before destroying the old evaluator / 销毁旧求值器前保存 debugTime
         if (evaluator != null) evaluator.saveDebugTimes(runtimeState);
+        NodeGraph oldGraph = lastEvaluatedGraph;
+        if (oldGraph != null) {
+            BusChannelHelper.syncDeletedBusNames(oldGraph, graph, worldPosition, level);
+        }
         // Unregister BUS_OUT nodes that were removed since last recompile / 注销自上次重编译以来已删除的 BUS_OUT 节点
         unregisterRemovedBusOutNodes();
         evaluator = new GraphEvaluator(graph);
@@ -263,7 +267,14 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         lastEvaluatedGraph = graph;
         lastGraphGeneration = graph.graphGeneration;
         runtimeState.pidState.clear();
-        registerBusChannels(); // EN: ensure BUS channels are registered on first tick 中文: 确保 BUS 通道在首次 tick 时被注册
+        // Use diff-based re-registration (same as recompileEvaluator) to preserve channel
+        // ownership across recompiles. 使用基于差异的重新注册（与 recompileEvaluator 相同），
+        // 在重编译期间保留频道所有权。
+        if (BusChannelHelper.reRegisterChannels(graph, oldGraph, worldPosition, level)) {
+            needsFullSync = true;
+            setChanged();
+            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
         // Snapshot current BUS_OUT keys for next recompile's removal detection / 快照当前 BUS_OUT 键供下次重编译检测删除
         snapshotBusOutKeys();
     }
@@ -379,9 +390,10 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         }
         loadTypeSpecific(t, r);
         setChanged();
-        // EN: Register BUS channels early if level is already available (belt-and-suspenders with onLoad).
-        // 中文: 如果 level 已经可用，尽早注册 BUS 通道（与 onLoad 形成双重保险）。
-        if (level != null && !level.isClientSide()) registerBusChannels();
+        // BUS channels are registered on first tick via ensureBusRegistered() —
+        // no need to eagerly register here (avoids double-registration with onLoad bump).
+        // BUS 通道在首次 tick 时通过 ensureBusRegistered() 注册 — 无需在此过早注册
+        //（避免与 onLoad 的 bumpGeneration 形成双重注册）。
     }
 
     /** Override to save BE-type-specific NBT (e.g. Monitor screen settings).
