@@ -47,6 +47,7 @@ public class GraphEvaluator {
     // Cache sub-graph evaluators and runtime state for ENCAPSULATION nodes
     // Key: encapsulation node ID (node that owns the subGraph)
     private final Map<Integer, GraphEvaluator> subEvaluators = new HashMap<>();
+    private final Map<Integer, Integer> subGraphGenerations = new HashMap<>(); // last known subGraph.graphGeneration per encapId
     private final Map<Integer, Map<Integer, java.util.ArrayDeque<Float>>> subDelayQueues = new HashMap<>();
     private final Map<Integer, Map<Integer, Boolean>> subFlipflopStates = new HashMap<>();
     private final Map<Integer, Map<Integer, Integer>> subPulseTimers = new HashMap<>();
@@ -872,8 +873,16 @@ public class GraphEvaluator {
                 var inpNodes = node.getSubNodes(NodeType.ENCAP_INPUT);
                 o = new float[nOut];
                 node.outputValues = o;
-                // 复用子图 evaluator（子图不变 → evaluator 缓存复用，避免每 tick 新建）
-                // Reuse sub-graph evaluator (unchanged sub-graph → cached evaluator reuse, avoids per-tick instantiation)
+                // 子图 evaluator 缓存 + 陈旧检测：若子图 generation 变化，丢弃旧缓存重建
+                // Sub-graph evaluator cache + staleness check: if sub-graph generation
+                // changed, discard the old cache and rebuild so that FORMULA edits etc.
+                // are reflected immediately without waiting for a main-graph recompile.
+                int currentGen = node.subGraph.graphGeneration;
+                Integer lastGen = subGraphGenerations.get(node.id);
+                if (lastGen == null || lastGen != currentGen) {
+                    subEvaluators.remove(node.id);
+                    subGraphGenerations.put(node.id, currentGen);
+                }
                 var subEval = subEvaluators.get(node.id);
                 if (subEval == null) {
                     subEval = new GraphEvaluator(node.subGraph);

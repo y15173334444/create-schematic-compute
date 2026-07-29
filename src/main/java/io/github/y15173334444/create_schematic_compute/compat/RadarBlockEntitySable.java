@@ -4,7 +4,9 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.RadarBlockEntity;
 import dev.ryanhcode.sable.api.block.BlockEntitySubLevelActor;
 import dev.ryanhcode.sable.api.physics.handle.RigidBodyHandle;
+import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
+import dev.ryanhcode.sable.sublevel.SubLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
@@ -84,9 +86,28 @@ public class RadarBlockEntitySable extends RadarBlockEntity implements BlockEnti
         }
     }
 
-    @Override public void onLoad() { super.onLoad(); savedLevel = level; }
-    @Override public void setLevel(Level l) { super.setLevel(l); savedLevel = l; }
+    @Override public void onLoad() { super.onLoad(); savedLevel = level; cachedSubLevel = null; }
+    @Override public void setLevel(Level l) { super.setLevel(l); savedLevel = l; cachedSubLevel = null; }
 
-    @Override public Iterable<dev.ryanhcode.sable.sublevel.SubLevel> sable$getLoadingDependencies() { return java.util.Collections.emptyList(); }
-    @Override public Iterable<dev.ryanhcode.sable.sublevel.SubLevel> sable$getConnectionDependencies() { return java.util.Collections.emptyList(); }
+    private volatile SubLevel cachedSubLevel;
+
+    @Override public Iterable<SubLevel> sable$getLoadingDependencies() {
+        if (cachedSubLevel != null) return java.util.List.of(cachedSubLevel);
+        if (level == null || level.isClientSide()) return java.util.Collections.emptyList();
+        try {
+            var container = SubLevelContainer.getContainer(level);
+            if (container == null) return java.util.Collections.emptyList();
+            var cp = new net.minecraft.world.level.ChunkPos(worldPosition);
+            var plot = container.getPlot(cp);
+            if (plot != null) {
+                cachedSubLevel = plot.getSubLevel();
+                if (cachedSubLevel != null) return java.util.List.of(cachedSubLevel);
+            }
+        } catch (Exception ignored) {}
+        return java.util.Collections.emptyList();
+    }
+
+    @Override public Iterable<SubLevel> sable$getConnectionDependencies() {
+        return sable$getLoadingDependencies();
+    }
 }

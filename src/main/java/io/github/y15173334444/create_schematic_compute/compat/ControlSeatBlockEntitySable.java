@@ -4,7 +4,9 @@ import io.github.y15173334444.create_schematic_compute.blocks.ControlSeatBlock;
 import io.github.y15173334444.create_schematic_compute.blocks.ControlSeatBlockEntity;
 import dev.ryanhcode.sable.api.block.BlockEntitySubLevelActor;
 import dev.ryanhcode.sable.api.physics.handle.RigidBodyHandle;
+import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
+import dev.ryanhcode.sable.sublevel.SubLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
@@ -173,13 +175,27 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
         while (forwardYaw < -180) forwardYaw += 360;
     }
 
-    @Override
-    public Iterable<dev.ryanhcode.sable.sublevel.SubLevel> sable$getLoadingDependencies() {
-        return java.util.Collections.emptyList();
-    }
+    private volatile SubLevel cachedSubLevel;
 
     @Override
-    public Iterable<dev.ryanhcode.sable.sublevel.SubLevel> sable$getConnectionDependencies() {
+    public Iterable<SubLevel> sable$getLoadingDependencies() { return resolveSubLevel(); }
+
+    @Override
+    public Iterable<SubLevel> sable$getConnectionDependencies() { return resolveSubLevel(); }
+
+    private Iterable<SubLevel> resolveSubLevel() {
+        if (cachedSubLevel != null) return java.util.List.of(cachedSubLevel);
+        if (level == null || level.isClientSide()) return java.util.Collections.emptyList();
+        try {
+            var container = SubLevelContainer.getContainer(level);
+            if (container == null) return java.util.Collections.emptyList();
+            var cp = new net.minecraft.world.level.ChunkPos(worldPosition);
+            var plot = container.getPlot(cp);
+            if (plot != null) {
+                cachedSubLevel = plot.getSubLevel();
+                if (cachedSubLevel != null) return java.util.List.of(cachedSubLevel);
+            }
+        } catch (Exception ignored) {}
         return java.util.Collections.emptyList();
     }
 }
