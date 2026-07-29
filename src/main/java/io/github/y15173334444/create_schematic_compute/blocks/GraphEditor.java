@@ -693,6 +693,7 @@ public class GraphEditor {
         encapsulationParent = encapNode;
         camX = 0; camY = 0; zoom = 1f;
         expandedNodeIds.clear(); nodeEditStatesById.clear();
+        lastInitGeneration = -1; // force re-init for sub-graph expanded nodes
         selectedNode = null; selectedNodes.clear();
         // 子图过滤器：允许 ENCAP_INPUT, ENCAP_OUTPUT 及所有非 I/O 节点 (Sub-graph filter: allow ENCAP_INPUT, ENCAP_OUTPUT and all non-I/O nodes)
         nodeFilter = nt -> nt == NodeType.ENCAP_INPUT || nt == NodeType.ENCAP_OUTPUT
@@ -713,6 +714,7 @@ public class GraphEditor {
         encapsulationParent = graphStack.isEmpty() ? null : graphStack.peek().parentNode();
         camX = state.camX(); camY = state.camY(); zoom = state.zoom();
         expandedNodeIds.clear(); nodeEditStatesById.clear();
+        lastInitGeneration = -1; // force re-init for parent graph expanded nodes
         selectedNode = null; selectedNodes.clear();
         nodeFilter = state.parentFilter();
         mainNodeFilter = state.parentFilter();
