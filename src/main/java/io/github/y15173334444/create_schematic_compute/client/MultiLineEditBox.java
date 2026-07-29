@@ -448,41 +448,68 @@ public class MultiLineEditBox extends EditBox {
             case GLFW.GLFW_KEY_UP -> {
                 int col = getCursorColumn();
                 int curVL = findVisualLine(cursorLine, col);
+                int newPos;
                 if (curVL > 0) {
                     VLine prevVL = visualLines.get(curVL - 1);
                     int prevStart = getLineStart(prevVL.logLine);
                     int newCol = Math.min(col, prevVL.charEnd - 1);
-                    setCursorPosition(prevStart + newCol);
-                } else { setCursorPosition(0); }
+                    newPos = prevStart + newCol;
+                } else { newPos = 0; }
+                setCursorPosition(newPos);
+                // Arrow keys (without Shift) collapse selection / 方向键（无 Shift）折叠选区
+                if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
+                    setHighlightPos(newPos); setSelAnchor(newPos);
+                }
                 yield true;
             }
             case GLFW.GLFW_KEY_DOWN -> {
                 int col = getCursorColumn();
                 int curVL = findVisualLine(cursorLine, col);
+                int newPos;
                 if (curVL < visualLines.size() - 1) {
                     VLine nextVL = visualLines.get(curVL + 1);
                     int nextStart = getLineStart(nextVL.logLine);
                     int newCol = Math.min(col, nextVL.charEnd - 1);
-                    setCursorPosition(nextStart + newCol);
-                } else { setCursorPosition(text.length()); }
+                    newPos = nextStart + newCol;
+                } else { newPos = text.length(); }
+                setCursorPosition(newPos);
+                if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
+                    setHighlightPos(newPos); setSelAnchor(newPos);
+                }
                 yield true;
             }
             case GLFW.GLFW_KEY_HOME -> {
                 int curVL = findVisualLine(cursorLine, getCursorColumn());
-                setCursorPosition(getLineStart(visualLines.get(curVL).logLine) + visualLines.get(curVL).charStart);
+                int newPos = getLineStart(visualLines.get(curVL).logLine) + visualLines.get(curVL).charStart;
+                setCursorPosition(newPos);
+                if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
+                    setHighlightPos(newPos); setSelAnchor(newPos);
+                }
                 yield true;
             }
             case GLFW.GLFW_KEY_END -> {
                 int curVL = findVisualLine(cursorLine, getCursorColumn());
-                setCursorPosition(getLineStart(visualLines.get(curVL).logLine) + visualLines.get(curVL).charEnd);
+                int newPos = getLineStart(visualLines.get(curVL).logLine) + visualLines.get(curVL).charEnd;
+                setCursorPosition(newPos);
+                if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
+                    setHighlightPos(newPos); setSelAnchor(newPos);
+                }
                 yield true;
             }
             case GLFW.GLFW_KEY_LEFT -> {
-                if (cursor > 0) setCursorPosition(cursor - 1);
+                int newPos = cursor > 0 ? cursor - 1 : 0;
+                setCursorPosition(newPos);
+                if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
+                    setHighlightPos(newPos); setSelAnchor(newPos);
+                }
                 yield true;
             }
             case GLFW.GLFW_KEY_RIGHT -> {
-                if (cursor < text.length()) setCursorPosition(cursor + 1);
+                int newPos = cursor < text.length() ? cursor + 1 : cursor;
+                setCursorPosition(newPos);
+                if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
+                    setHighlightPos(newPos); setSelAnchor(newPos);
+                }
                 yield true;
             }
             case GLFW.GLFW_KEY_BACKSPACE -> { deleteText(-1); yield true; }

@@ -53,15 +53,17 @@ public class FormulaParser {
         public final List<List<Object>> outputRpns;// 每个输出对应的编译后 RPN 表达式
         public final List<Assignment> assignments; // 顺序的赋值语句列表
         public final boolean isLegacy;             // true = 旧版单行表达式模式
+        public final String sourceFormula;         // 解析来源字符串，用于检测陈旧缓存
 
         public ScriptParseResult(List<String> inputVars, List<String> outputLabels,
                                  List<List<Object>> outputRpns, List<Assignment> assignments,
-                                 boolean isLegacy) {
+                                 boolean isLegacy, String sourceFormula) {
             this.inputVars = inputVars;
             this.outputLabels = outputLabels;
             this.outputRpns = outputRpns;
             this.assignments = assignments;
             this.isLegacy = isLegacy;
+            this.sourceFormula = sourceFormula;
         }
     }
 
@@ -606,15 +608,16 @@ public class FormulaParser {
      * 自动检测旧版单行表达式模式（无换行、无 =、无 @output）并保持向后兼容。
      */
     public static ScriptParseResult parseScript(String formula) {
+        final String originalFormula = formula;
         if (formula == null) {
             return new ScriptParseResult(
-                List.of(), List.of(""), List.of(), List.of(), true);
+                List.of(), List.of(""), List.of(), List.of(), true, "");
         }
         // Normalize line endings: \r\n → \n, strip standalone \r
         formula = formula.replace("\r\n", "\n").replace("\r", "");
         if (formula.isEmpty()) {
             return new ScriptParseResult(
-                List.of(), List.of(""), List.of(), List.of(), true);
+                List.of(), List.of(""), List.of(), List.of(), true, originalFormula);
         }
         // 向下兼容检测：无换行、无 =、无 @output → 旧版单行表达式
         boolean hasNewline = formula.indexOf('\n') >= 0;
@@ -626,7 +629,7 @@ public class FormulaParser {
             List<Object> rpn;
             try { rpn = compile(formula); } catch (Exception e) { LOGGER.debug("Legacy expression compile failed", e); rpn = List.of(0.0); }
             return new ScriptParseResult(
-                vars, List.of(""), List.of(rpn), List.of(), true);
+                vars, List.of(""), List.of(rpn), List.of(), true, originalFormula);
         }
 
         // 新脚本模式：逐行解析
@@ -749,6 +752,6 @@ public class FormulaParser {
         }
 
         return new ScriptParseResult(
-            new ArrayList<>(inputVars), outputLabels, outputRpns, assignments, false);
+            new ArrayList<>(inputVars), outputLabels, outputRpns, assignments, false, originalFormula);
     }
 }

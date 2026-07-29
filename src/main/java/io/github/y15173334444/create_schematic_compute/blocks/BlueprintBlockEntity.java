@@ -83,7 +83,8 @@ public class BlueprintBlockEntity extends SyncedGraphBlockEntity {
             var t = net.minecraft.nbt.NbtIo.readCompressed(new java.io.ByteArrayInputStream(data), net.minecraft.nbt.NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) {
                 unregisterBusChannels(graph); // unregister old BUS channels before replacing graph
-                cleanupBusChannels(graph);
+                // Do NOT call cleanupBusChannels — it broadcasts empty band syncs to clients,
+                // permanently deleting BUS connections. Next tick's recompile restores correct bands.
                 graph = io.github.y15173334444.create_schematic_compute.graph.NodeGraph.load(t.getCompound("graph"), level.registryAccess());
                 rs.onLoad(graph);
             }

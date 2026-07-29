@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/y15173334444/create-schematic-compute"><img src="https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github" alt="GitHub"></a>
   <a href="https://github.com/y15173334444/create-schematic-compute/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License"></a>
-  <a href="https://github.com/y15173334444/create-schematic-compute/releases"><img src="https://img.shields.io/badge/Version-1.2.4-blue?style=flat-square" alt="Version"></a>
+  <a href="https://github.com/y15173334444/create-schematic-compute/releases"><img src="https://img.shields.io/badge/Version-1.2.4.1-blue?style=flat-square" alt="Version"></a>
   <a href="https://neoforged.net/"><img src="https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square" alt="NeoForge"></a>
   <a href="https://modrinth.com/mod/create"><img src="https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square" alt="Create"></a>
   <a href="https://www.minecraft.net/"><img src="https://img.shields.io/badge/Minecraft-1.21.1-8B4513?style=flat-square" alt="MC"></a>
@@ -526,6 +526,19 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 ---
 
 ## 📜 Changelog / 更新日志
+
+<details>
+<summary><b>v1.2.4.1</b></summary>
+
+- **数值输入回弹**：修复编辑区输入框修改数值时概率性回弹到旧值。服务端 NBT 全量同步不再替换编辑器打开时的客户端图对象。
+- **公式节点缓存不一致**：消除 `cachedScript` 与 `GraphEvaluator.scriptCache` 双缓存漂移，改为单一真相源，解决输出引脚索引错位导致的 ~20° 角度偏差。
+- **V3→V4 迁移连线断裂**：迁移逻辑复用 `GraphNode.inputPinId`/`outputPinId`，支持旧版动态引脚的连线保留。
+- **编译时 BUS 断线**：移除 `loadGraphFromBytes` 中 `cleanupBusChannels()`，避免保存时广播空 `BusBandSyncPacket` 清空 BUS 频段并删除连线。
+- **公式节点清空回弹 A+B**：移除编辑器强制将空公式替换为 `A+B` 的逻辑。
+- **公式编辑器光标与选区**：修复 MultiLineEditBox 坐标转换错误（点击定位、拖动选中），修复方向键未折叠选区问题。
+- **临时视角跨方块污染**：从全局 `static` 改为按 `BlockPos` 存储。
+
+</details>
 
 <details>
 <summary><b>v1.2.4</b> — Multiplayer Collaboration + Debug Toolchain + Formula Editor UX / 多人协作 + 调试工具链 + 公式编辑器体验</summary>

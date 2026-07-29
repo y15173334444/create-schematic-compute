@@ -128,14 +128,40 @@ public class GraphNode {
      *  导致连线渲染与引脚渲染使用不同的 pin 数量。
      *  Ensure the FORMULA node's script is parsed and pin counts are up-to-date.
      *  Call before renderConnections() (A=2) so that connection and pin rendering
-     *  see the same pin counts — eliminates the stale-count race condition. */
+     *  see the same pin counts — eliminates the stale-count race condition.
+     *
+     *  <p>Uses sourceFormula to detect staleness: if the formula string changed since
+     *  the last parse, re-parse even when cachedScript is non-null. This is the
+     *  single source of truth for both pin-index resolution and evaluation
+     *  (GraphEvaluator.eval FORMULA branch also calls ensureScriptParsed),
+     *  eliminating the dual-cache inconsistency that caused ~20° angle errors.</p>
+     *  <p>通过 sourceFormula 检测陈旧：若 formula 字符串自上次解析以来已变化，
+     *  即使 cachedScript 非 null 也重新解析。这是引脚索引解析和求值（GraphEvaluator.eval
+     *  FORMULA 分支也调用 ensureScriptParsed）的唯一真相源，消除了双缓存不一致
+     *  导致的 ~20° 角度误差。</p> */
     public void ensureScriptParsed() {
         if (type == NodeType.FORMULA && !formula.isEmpty()) {
-            if (cachedScript == null) {
+            if (cachedScript == null || !cachedScript.sourceFormula.equals(formula)) {
+                var oldOutLabels = outputLabels;
                 cachedScript = FormulaParser.parseScript(formula);
-                dynamicInputCount = Math.max(1, cachedScript.inputVars.size());
-                dynamicOutputCount = Math.max(1, cachedScript.outputLabels.size());
-                outputLabels = cachedScript.outputLabels;
+                // Don't shrink pin counts — legacy saves may have extra pins
+                // (dynamicInputCount > inputVars.size()) from V3. Preserve the
+                // larger value so that inputPinId/outputPinId can return numeric
+                // fallback pinIds for those legacy connections.
+                // 不缩小引脚计数——旧版存档可能有额外引脚。保留较大值。
+                dynamicInputCount = Math.max(dynamicInputCount, Math.max(1, cachedScript.inputVars.size()));
+                dynamicOutputCount = Math.max(dynamicOutputCount, Math.max(1, cachedScript.outputLabels.size()));
+                // Merge outputLabels: use parsed names for positions 0..parsed-1,
+                // keep old labels for extra positions (legacy connections reference them by name).
+                // 合并 outputLabels：位置 0..parsed-1 用解析名，额外位置保留旧标签（旧版连接按名引用）。
+                var merged = new java.util.ArrayList<>(cachedScript.outputLabels);
+                if (oldOutLabels != null) {
+                    for (int i = merged.size(); i < dynamicOutputCount && i < oldOutLabels.size(); i++) {
+                        String old = oldOutLabels.get(i);
+                        merged.add(old != null && !old.isEmpty() ? old : "out" + i);
+                    }
+                }
+                outputLabels = merged;
             }
         }
     }
@@ -149,11 +175,18 @@ public class GraphNode {
      *  generic: pinId = String.valueOf(index) */
     public int inputPinIndex(String pinId) {
         if (pinId == null) return -1;
-        if (type == NodeType.FORMULA && cachedScript != null) {
-            var vars = cachedScript.inputVars;
-            for (int i = 0; i < vars.size(); i++)
-                if (pinId.equals(vars.get(i))) return i;
-            return -1;
+        if (type == NodeType.FORMULA) {
+            ensureScriptParsed(); // match outputPinIndex symmetry (v1.2.4.1)
+            if (cachedScript != null) {
+                var vars = cachedScript.inputVars;
+                for (int i = 0; i < vars.size(); i++)
+                    if (pinId.equals(vars.get(i))) return i;
+                // Variable name not found — fall through to generic numeric parsing.
+                // This handles legacy extra pins whose pinId is a numeric string
+                // (e.g. "2", "3") from saves where dynamicInputCount > inputVars.size().
+                // 变量名未找到——继续走通用数字解析。处理旧版额外引脚，其 pinId
+                // 为数字字符串（如 "2"、"3"），来自 dynamicInputCount > inputVars.size() 的存档。
+            }
         }
         if (type == NodeType.ENCAPSULATION && subGraph != null) {
             var ins = getSubNodes(NodeType.ENCAP_INPUT);
@@ -225,6 +258,12 @@ public class GraphNode {
             ensureScriptParsed();
             if (cachedScript != null && index < cachedScript.inputVars.size())
                 return cachedScript.inputVars.get(index);
+            // Legacy extra pins (dynamicInputCount > inputVars.size()):
+            // these were functionally dead in V3 but connections existed on them.
+            // Use numeric pinId so migrateV3toV4 preserves them.
+            // 旧版额外引脚（dynamicInputCount > inputVars.size()）：
+            // 在 V3 中功能上已是死引脚，但连接存在于其上。使用数字 pinId 使迁移保留它们。
+            if (index < inputs()) return String.valueOf(index);
             return null;
         }
         if (type == NodeType.ENCAPSULATION && subGraph != null) {
@@ -251,6 +290,11 @@ public class GraphNode {
                 String name = outputLabels.get(index);
                 return name.isEmpty() ? "out" + index : name;
             }
+            // Legacy extra output pins (dynamicOutputCount > outputLabels.size()):
+            // use "outN" fallback so migrateV3toV4 preserves them.
+            // 旧版额外输出引脚（dynamicOutputCount > outputLabels.size()）：
+            // 使用 "outN" 回退使迁移保留它们。
+            if (index < outputs()) return "out" + index;
             return null;
         }
         if (type == NodeType.ENCAPSULATION && subGraph != null) {
@@ -551,7 +595,7 @@ public class GraphNode {
             for (String key : busData.getAllKeys())
                 node.busInternalMap.put(key, busData.getFloat(key));
         }
-        if (tag.contains("formula")) node.formula = tag.getString("formula");
+        if (tag.contains("formula")) { node.formula = tag.getString("formula"); node.cachedScript = null; }
         if (tag.contains("din")) node.dynamicInputCount = tag.getInt("din");
         if (tag.contains("dout")) node.dynamicOutputCount = tag.getInt("dout");
         if (tag.contains("outlbls")) {

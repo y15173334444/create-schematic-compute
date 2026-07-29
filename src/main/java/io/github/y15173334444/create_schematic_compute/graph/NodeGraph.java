@@ -332,7 +332,7 @@ public class NodeGraph {
     /** 从 NBT 加载图，透明地迁移旧格式。
      *  Load graph from NBT, transparently migrating old formats. */
     public static NodeGraph load(CompoundTag rawTag, HolderLookup.Provider registries) {
-        CompoundTag tag = GraphMigration.migrate(rawTag);
+        CompoundTag tag = GraphMigration.migrate(rawTag, registries);
         return loadCurrent(tag, registries);
     }
 

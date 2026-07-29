@@ -14,7 +14,7 @@ public final class GraphMigration {
     @FunctionalInterface
     public interface Migrator {
         /** Transform tag from version {@code fromVer} to {@code fromVer + 1}. */
-        CompoundTag migrate(CompoundTag tag);
+        CompoundTag migrate(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries);
     }
 
     /**
@@ -32,7 +32,7 @@ public final class GraphMigration {
      * Bring {@code rawTag} up to the current {@link NbtVersions#DATA_VERSION}.
      * Returns a migrated copy (or the original if already current).
      */
-    public static CompoundTag migrate(CompoundTag rawTag) {
+    public static CompoundTag migrate(CompoundTag rawTag, net.minecraft.core.HolderLookup.Provider registries) {
         int ver = NbtVersions.getVersion(rawTag);
         // Already current — no migration needed
         if (ver >= NbtVersions.DATA_VERSION) return rawTag;
@@ -41,7 +41,7 @@ public final class GraphMigration {
         while (ver < NbtVersions.DATA_VERSION) {
             int stepIdx = ver;
             if (stepIdx < STEPS.length) {
-                tag = STEPS[stepIdx].migrate(tag);
+                tag = STEPS[stepIdx].migrate(tag, registries);
             } else {
                 break;
             }
@@ -57,7 +57,7 @@ public final class GraphMigration {
     //   3. "data_version": 1 added
     //   4. Recursive migration for ENCAPSULATION sub-graphs
 
-    private static CompoundTag migrateV0toV1(CompoundTag tag) {
+    private static CompoundTag migrateV0toV1(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
         CompoundTag out = tag.copy();
 
         ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
@@ -85,7 +85,7 @@ public final class GraphMigration {
 
             // 3. Recursively migrate subGraph (ENCAPSULATION nodes)
             if (n.contains("subGraph")) {
-                n.put("subGraph", migrateV0toV1(n.getCompound("subGraph")));
+                n.put("subGraph", migrateV0toV1(n.getCompound("subGraph"), registries));
             }
         }
 
@@ -101,7 +101,7 @@ public final class GraphMigration {
     //      Expand empty params to [0f, 0f] for old LATCH nodes.
     //   2. Recursive migration for ENCAPSULATION sub-graphs.
 
-    private static CompoundTag migrateV1toV2(CompoundTag tag) {
+    private static CompoundTag migrateV1toV2(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
         CompoundTag out = tag.copy();
 
         ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
@@ -121,7 +121,7 @@ public final class GraphMigration {
 
             // 2. Recursively migrate subGraph (ENCAPSULATION nodes)
             if (n.contains("subGraph")) {
-                n.put("subGraph", migrateV1toV2(n.getCompound("subGraph")));
+                n.put("subGraph", migrateV1toV2(n.getCompound("subGraph"), registries));
             }
         }
 
@@ -136,7 +136,7 @@ public final class GraphMigration {
     //   2. Add "nextSortB" field to graph root
     //   3. Recursive migration for ENCAPSULATION sub-graphs
 
-    private static CompoundTag migrateV2toV3(CompoundTag tag) {
+    private static CompoundTag migrateV2toV3(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
         CompoundTag out = tag.copy();
 
         ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
@@ -151,7 +151,7 @@ public final class GraphMigration {
 
             // 2. Recursively migrate subGraph (ENCAPSULATION nodes)
             if (n.contains("subGraph")) {
-                n.put("subGraph", migrateV2toV3(n.getCompound("subGraph")));
+                n.put("subGraph", migrateV2toV3(n.getCompound("subGraph"), registries));
             }
         }
 
@@ -180,44 +180,65 @@ public final class GraphMigration {
     //     BUS_OUT input:  band name from signalBands
     //     generic:        String.valueOf(index)
 
-    private static CompoundTag migrateV3toV4(CompoundTag tag) {
+    private static CompoundTag migrateV3toV4(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
         CompoundTag out = tag.copy();
 
-        // Build a node-index for pinId resolution
         ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
-        var nodeIndex = new java.util.HashMap<Integer, CompoundTag>();
+
+        // Load all nodes via GraphNode.load so that pinId derivation uses the
+        // same code path as the runtime (GraphNode.inputPinId/outputPinId).
+        // This is the single source of truth — no independent re-parsing.
+        // 通过 GraphNode.load 加载所有节点，使 pinId 推导与运行时使用同一代码路径
+        //（GraphNode.inputPinId/outputPinId）。单一真相源——不再独立重新解析。
+        var runtimeNodes = new java.util.HashMap<Integer, GraphNode>();
         for (int i = 0; i < nodes.size(); i++) {
             CompoundTag n = nodes.getCompound(i);
-            nodeIndex.put(n.getInt("id"), n);
+            GraphNode node = GraphNode.load(n, registries);
+            // FORMULA nodes: ensure the script is parsed so inputPinId/outputPinId work
+            if (node.type == NodeType.FORMULA && !node.formula.isEmpty()) {
+                node.ensureScriptParsed();
+            }
+            runtimeNodes.put(node.id, node);
         }
 
-        // Migrate connections
+        // Migrate connections — use runtime pinId methods, drop if null
         ListTag conns = out.getList("conns", Tag.TAG_COMPOUND);
+        var migratedConns = new java.util.ArrayList<CompoundTag>();
         for (int i = 0; i < conns.size(); i++) {
             CompoundTag c = conns.getCompound(i);
-            if (c.contains("fPinId") && c.contains("tPinId")) continue; // already migrated
+            if (c.contains("fPinId") && c.contains("tPinId")) {
+                migratedConns.add(c);
+                continue;
+            }
 
             int fromId = c.getInt("from");
             int fromPin = c.getInt("fPin");
             int toId = c.getInt("to");
             int toPin = c.getInt("tPin");
 
-            CompoundTag fromNode = nodeIndex.get(fromId);
-            CompoundTag toNode = nodeIndex.get(toId);
+            GraphNode fromNode = runtimeNodes.get(fromId);
+            GraphNode toNode = runtimeNodes.get(toId);
 
+            boolean drop = false;
             if (fromNode != null) {
-                c.putString("fPinId", resolveOutputPinId(fromNode, fromPin));
+                String pid = fromNode.outputPinId(fromPin);
+                if (pid == null) drop = true;
+                else c.putString("fPinId", pid);
             }
             if (toNode != null) {
-                c.putString("tPinId", resolveInputPinId(toNode, toPin));
+                String pid = toNode.inputPinId(toPin);
+                if (pid == null) drop = true;
+                else c.putString("tPinId", pid);
             }
+            if (!drop) migratedConns.add(c);
         }
+        out.put("conns", listToTag(migratedConns));
 
         // Recursively migrate sub-graphs
         for (int i = 0; i < nodes.size(); i++) {
             CompoundTag n = nodes.getCompound(i);
             if (n.contains("subGraph")) {
-                n.put("subGraph", migrateV3toV4(n.getCompound("subGraph")));
+                n.put("subGraph", migrateV3toV4(n.getCompound("subGraph"), registries));
             }
         }
 
@@ -225,109 +246,9 @@ public final class GraphMigration {
         return out;
     }
 
-    /** Resolve an input pin index → stable pinId from node NBT data. */
-    private static String resolveInputPinId(CompoundTag nodeTag, int pinIndex) {
-        String typeId = nodeTag.getString("type");
-        if (typeId.isEmpty() && nodeTag.contains("type", Tag.TAG_INT)) {
-            // Legacy ordinal-based type — look up by ordinal
-            NodeType t = NodeType.byOrdinalSafe(nodeTag.getInt("type"));
-            if (t != null) typeId = t.id;
-        }
-        if (pinIndex < 0) return String.valueOf(pinIndex);
-
-        // FORMULA: pinId = input variable name
-        if ("formula".equals(typeId)) {
-            String formula = nodeTag.getString("formula");
-            if (!formula.isEmpty()) {
-                var parsed = FormulaParser.parseScript(formula);
-                if (pinIndex < parsed.inputVars.size())
-                    return parsed.inputVars.get(pinIndex);
-            }
-            return String.valueOf(pinIndex);
-        }
-
-        // ENCAPSULATION: pinId = String.valueOf(sub-node id) sorted by Y
-        if ("encapsulation".equals(typeId) && nodeTag.contains("subGraph")) {
-            CompoundTag subTag = nodeTag.getCompound("subGraph");
-            ListTag subNodes = subTag.getList("nodes", Tag.TAG_COMPOUND);
-            var encapInputs = new java.util.ArrayList<CompoundTag>();
-            for (int i = 0; i < subNodes.size(); i++) {
-                CompoundTag sn = subNodes.getCompound(i);
-                String st = sn.getString("type");
-                if (st.isEmpty() && sn.contains("type", Tag.TAG_INT)) {
-                    NodeType t = NodeType.byOrdinalSafe(sn.getInt("type"));
-                    if (t != null) st = t.id;
-                }
-                if ("encap_input".equals(st)) encapInputs.add(sn);
-            }
-            encapInputs.sort(java.util.Comparator.<CompoundTag>comparingDouble(sn -> sn.getFloat("y"))
-                .thenComparingInt(sn -> sn.getInt("id")));
-            if (pinIndex < encapInputs.size())
-                return String.valueOf(encapInputs.get(pinIndex).getInt("id"));
-            return String.valueOf(pinIndex);
-        }
-
-        // BUS_OUT: pinId = band name
-        if ("bus_out".equals(typeId) && nodeTag.contains("bands")) {
-            ListTag bands = nodeTag.getList("bands", Tag.TAG_STRING);
-            if (pinIndex < bands.size()) return bands.getString(pinIndex);
-            return String.valueOf(pinIndex);
-        }
-
-        // Generic: pinId = decimal string of index
-        return String.valueOf(pinIndex);
-    }
-
-    /** Resolve an output pin index → stable pinId from node NBT data. */
-    private static String resolveOutputPinId(CompoundTag nodeTag, int pinIndex) {
-        String typeId = nodeTag.getString("type");
-        if (typeId.isEmpty() && nodeTag.contains("type", Tag.TAG_INT)) {
-            NodeType t = NodeType.byOrdinalSafe(nodeTag.getInt("type"));
-            if (t != null) typeId = t.id;
-        }
-        if (pinIndex < 0) return String.valueOf(pinIndex);
-
-        // FORMULA: pinId = output label (from outlbls), or "outN"
-        if ("formula".equals(typeId)) {
-            if (nodeTag.contains("outlbls")) {
-                ListTag lbls = nodeTag.getList("outlbls", Tag.TAG_STRING);
-                if (pinIndex < lbls.size()) {
-                    String name = lbls.getString(pinIndex);
-                    if (!name.isEmpty()) return name;
-                }
-            }
-            return "out" + pinIndex;
-        }
-
-        // ENCAPSULATION: pinId = String.valueOf(sub-node id) sorted by Y
-        if ("encapsulation".equals(typeId) && nodeTag.contains("subGraph")) {
-            CompoundTag subTag = nodeTag.getCompound("subGraph");
-            ListTag subNodes = subTag.getList("nodes", Tag.TAG_COMPOUND);
-            var encapOutputs = new java.util.ArrayList<CompoundTag>();
-            for (int i = 0; i < subNodes.size(); i++) {
-                CompoundTag sn = subNodes.getCompound(i);
-                String st = sn.getString("type");
-                if (st.isEmpty() && sn.contains("type", Tag.TAG_INT)) {
-                    NodeType t = NodeType.byOrdinalSafe(sn.getInt("type"));
-                    if (t != null) st = t.id;
-                }
-                if ("encap_output".equals(st)) encapOutputs.add(sn);
-            }
-            encapOutputs.sort(java.util.Comparator.<CompoundTag>comparingDouble(sn -> sn.getFloat("y"))
-                .thenComparingInt(sn -> sn.getInt("id")));
-            if (pinIndex < encapOutputs.size())
-                return String.valueOf(encapOutputs.get(pinIndex).getInt("id"));
-            return String.valueOf(pinIndex);
-        }
-
-        // BUS_IN: pinId = band name
-        if ("bus_in".equals(typeId) && nodeTag.contains("bands")) {
-            ListTag bands = nodeTag.getList("bands", Tag.TAG_STRING);
-            if (pinIndex < bands.size()) return bands.getString(pinIndex);
-            return String.valueOf(pinIndex);
-        }
-
-        // Generic: pinId = decimal string of index
-        return String.valueOf(pinIndex);
+    private static ListTag listToTag(java.util.List<CompoundTag> items) {
+        ListTag t = new ListTag();
+        for (CompoundTag c : items) t.add(c);
+        return t;
     }
 }

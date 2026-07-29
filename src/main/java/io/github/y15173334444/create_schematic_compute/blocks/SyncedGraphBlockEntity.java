@@ -349,9 +349,17 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         try {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) {
-                // Unregister old BUS channels before replacing the graph / 替换图前注销旧 BUS 频道
+                // Unregister old BUS channels from the server's SignalBus before
+                // replacing the graph. Do NOT call cleanupBusChannels here — it
+                // broadcasts empty BusBandSyncPackets to clients, which would
+                // clear signalBands and permanently delete all BUS connections.
+                // The next tick's recompile will re-register channels from the
+                // new graph and broadcast the correct band lists.
+                // 替换图前从服务端 SignalBus 注销旧 BUS 频道。
+                // 不调用 cleanupBusChannels —— 它会广播空 BusBandSyncPacket 给客户端，
+                // 清空 signalBands 并永久删除所有 BUS 连线。
+                // 下一次 tick 的 recompile 会从新图重新注册频道并广播正确的频段列表。
                 unregisterBusChannels(graph);
-                cleanupBusChannels(graph);
                 graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
                 rs.onLoad(graph);
             }
@@ -379,9 +387,29 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t, r);
         if (t.contains("graph")) {
-            graph = NodeGraph.load(t.getCompound("graph"), r);
-            rs.onLoad(graph);
-            this.graphReady = true;
+            // If the editor UI is open, the editor holds live references into the current
+            // graph (nodeEditStatesById, responder closures, etc.). Replacing the graph
+            // here from a server NBT sync would orphan those references and cause the
+            // next renderBg to recreate EditStates from potentially stale server data →
+            // visible value bounce-back. Skip the replacement; the editor's graph is
+            // always more current for params the local player is editing.
+            // 如果编辑器 UI 处于打开状态，编辑器中持有对当前图的活跃引用
+            //（nodeEditStatesById、responder 闭包等）。在此替换图会导致这些引用失效，
+            // 下一次 renderBg 重建 EditState 时可能读取服务端的过时数据 → 数值回弹。
+            // 跳过替换；对于本地玩家正在编辑的参数，编辑器中的图始终是最新的。
+            boolean editorOpen = false;
+            if (level != null && level.isClientSide()) {
+                var mc = net.minecraft.client.Minecraft.getInstance();
+                if (mc.screen instanceof GraphEditor.Host host
+                    && host.getBlockPos().equals(worldPosition)) {
+                    editorOpen = true;
+                }
+            }
+            if (!editorOpen) {
+                graph = NodeGraph.load(t.getCompound("graph"), r);
+                rs.onLoad(graph);
+                this.graphReady = true;
+            }
         }
         if (t.contains("running")) running = t.getBoolean("running");
         if (t.contains("runtime")) {

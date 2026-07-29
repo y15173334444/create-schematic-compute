@@ -77,7 +77,8 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) {
                 unregisterBusChannels(graph); // unregister old BUS channels before replacing graph
-                cleanupBusChannels(graph);
+                // Do NOT call cleanupBusChannels — it broadcasts empty band syncs to clients,
+                // permanently deleting BUS connections. Next tick's recompile restores correct bands.
                 graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
             }
             if (t != null) loadSettings(t);

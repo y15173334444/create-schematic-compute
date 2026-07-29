@@ -475,8 +475,11 @@ public final class OpExecutor {
             for (String key : busData.getAllKeys())
                 node.busInternalMap.put(key, busData.getFloat(key));
         }
-        // formula
-        if (tag.contains("formula")) node.formula = tag.getString("formula");
+        // formula — invalidate cachedScript so ensureScriptParsed re-parses on next use
+        // (the formula may have changed via NBT sync / paste / collaboration, not via SET_FORMULA)
+        // formula——使 cachedScript 失效，让 ensureScriptParsed 在下次使用时重新解析
+        //（formula 可能通过 NBT 同步/粘贴/协作而非 SET_FORMULA 被修改）
+        if (tag.contains("formula")) { node.formula = tag.getString("formula"); node.cachedScript = null; }
         // display text
         if (tag.contains("dtext")) node.displayText = tag.getString("dtext");
         // text color

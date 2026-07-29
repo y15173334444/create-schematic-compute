@@ -427,13 +427,14 @@ public class GraphEditor {
     private boolean editingBookmarkName = false;
     private int editingBookmarkIndex = -1; // -1 = 新建, >= 0 = 重命名 / -1 = new, >= 0 = renaming
     private int bookmarkScrollOff = 0; // 书签面板滚动偏移 / bookmark panel scroll offset
-    // 临时视角（内存 static，session 内跨编辑器实例恢复，不持久化不共享）
-    // Temporary view (in-memory static, restored across editor instances within session, not persisted, not shared)
-    private static float[] lastTempView = null; // [camX, camY, zoom]
+    // 临时视角（按方块位置存储，session 内同一方块跨编辑器实例恢复，不持久化）
+    // Temporary view (keyed by block position, restored across editor instances for the same
+    // block within a session; not persisted, not shared across different blocks)
+    private static final java.util.Map<net.minecraft.core.BlockPos, float[]> tempViewByPos = new java.util.HashMap<>();
 
-    /** 清除临时视角（客户端断开/切换存档时调用，防止跨存档污染）。
-     *  Clear temp view (called on client disconnect/world switch, prevents cross-world pollution). */
-    public static void clearTempView() { lastTempView = null; }
+    /** 清除所有临时视角（客户端断开/切换存档时调用，防止跨存档污染）。
+     *  Clear all temp views (called on client disconnect/world switch, prevents cross-world pollution). */
+    public static void clearTempView() { tempViewByPos.clear(); }
     // Phase 2 render cache — skip expensive layers when nothing changed
     private int lastRenderedGen = -1;
     private float lastRenderedCamX, lastRenderedCamY, lastRenderedZoom;
@@ -813,19 +814,9 @@ public class GraphEditor {
                 }
             } else if (st == null || op.type() != io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM) {
                 // Recreate entire EditState for non-param ops or if expanded.
-                // SKIP for SET_FORMULA from self: the local responder already updated
-                // node.formula and the MLE text; recreating EditState here would replace
-                // the MLE the user is actively typing in → focus loss + data bounce-back.
-                // 跳过本地玩家的 SET_FORMULA：本地 responder 已更新了 node.formula 和 MLE
-                // 文本；在此重建 EditState 会替换用户正在输入的 MLE → 焦点丢失+数据回弹。
-                if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_FORMULA
-                    && op.actor() != null && op.actor().equals(host.getPlayerUUID())) {
-                    // no-op: formula already current
-                } else {
-                    var n = graph.findNode(op.targetNodeId());
-                    if (n != null && expandedNodeIds.contains(n.id))
-                        nodeEditStatesById.put(n.id, createEditState(n));
-                }
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null && expandedNodeIds.contains(n.id))
+                    nodeEditStatesById.put(n.id, createEditState(n));
             }
         }
         // When a remote player edits a BUS_OUT signalName (SET_DISPLAY_TEXT) or band list
@@ -1119,9 +1110,7 @@ public class GraphEditor {
             var mle = new io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox(
                 mc.font, 0, 0, editW, 18);
             mle.setMaxLength(4096);
-            String initialText = node.formula.isEmpty() ? "A+B" : node.formula;
-            mle.setValue(initialText);
-            node.formula = initialText;
+            mle.setValue(node.formula);
             node.cachedScript = null;
 
             // ── Syntax highlighting / 语法高亮 ──
@@ -1132,14 +1121,15 @@ public class GraphEditor {
             mle.setCompletionProvider(
                 io.github.y15173334444.create_schematic_compute.client.FormulaCompletion::candidates, node);
 
-            // Initial parse from displayed text (not empty node.formula)
-            var initScript = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.parseScript(initialText);
-            node.dynamicInputCount = initScript.inputVars.size();
-            node.dynamicOutputCount = Math.max(1, initScript.outputLabels.size());
-            node.outputLabels = initScript.outputLabels;
-            // Initial validation
-            node.formulaIssues = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(initialText);
-            mle.setHasError(hasErrors(node.formulaIssues));
+            // Initial parse and validation from the actual formula text
+            if (!node.formula.isEmpty()) {
+                var initScript = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.parseScript(node.formula);
+                node.dynamicInputCount = initScript.inputVars.size();
+                node.dynamicOutputCount = Math.max(1, initScript.outputLabels.size());
+                node.outputLabels = initScript.outputLabels;
+                node.formulaIssues = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(node.formula);
+                mle.setHasError(hasErrors(node.formulaIssues));
+            }
 
             final int formulaNodeId = node.id; // capture id, re-fetch node each call
             mle.setResponder(t -> {
@@ -1445,8 +1435,13 @@ public class GraphEditor {
                 colorPicker
             );
         }
-        // 临时视角恢复（内存 static，session 内跨编辑器实例恢复） / temporary view restore (in-memory static, cross-instance within session)
-        if (lastTempView != null) { camX = lastTempView[0]; camY = lastTempView[1]; zoom = lastTempView[2]; }
+        // 临时视角恢复（按方块位置，session 内同方块跨编辑器实例恢复）
+        // temporary view restore (keyed by block position, cross-instance within session)
+        var bp = host.getBlockPos();
+        if (bp != null) {
+            float[] saved = tempViewByPos.get(bp);
+            if (saved != null) { camX = saved[0]; camY = saved[1]; zoom = saved[2]; }
+        }
     }
 
     public void setNodeFilter(Predicate<NodeType> filter) { this.nodeFilter = filter; this.mainNodeFilter = filter; }
@@ -1722,10 +1717,10 @@ public class GraphEditor {
         }
     }
 
-    /** 编辑器关闭时调用，保存临时视角。 / Called when editor closes, saves temporary view. */
+    /** 编辑器关闭时调用，按方块位置保存临时视角。 / Called when editor closes, saves temporary view keyed by block position. */
     public void onClose() {
-        // 临时视角保存 / temporary view save
-        lastTempView = new float[]{camX, camY, zoom};
+        var bp = host.getBlockPos();
+        if (bp != null) tempViewByPos.put(bp, new float[]{camX, camY, zoom});
     }
 
     public void renderBg(GuiGraphics g, int mx, int my) {
@@ -2919,7 +2914,10 @@ public class GraphEditor {
                         }
                         if (lmx >= 0 && lmx <= enW && lmy >= mleY && lmy <= mleY + mleH) {
                             b.setFocused(true);
-                            if (b.mouseClicked(mx, my, 0)) editBoxDragNodeId = en.id;
+                            // MLE coordinates are graph-space; convert mouse to graph-space
+                            // MLE 坐标为图空间，将鼠标转换为图空间坐标
+                            float gx = (float)((mx - nsx) / zoom), gy = (float)((my - nsy) / zoom);
+                            if (b.mouseClicked(gx, gy, 0)) editBoxDragNodeId = en.id;
                             if (!tabHeld && selectedNode != en) {
                                 selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
                             }
@@ -4062,15 +4060,18 @@ public class GraphEditor {
             markDirty();
             return;
         }
-        // Drag-select in expanded FORMULA EditBox
+        // Drag-select in expanded FORMULA/COMMENT EditBox
         if (editBoxDragNodeId >= 0 && (org.lwjgl.glfw.GLFW.glfwGetMouseButton(
             org.lwjgl.glfw.GLFW.glfwGetCurrentContext(), 0) == org.lwjgl.glfw.GLFW.GLFW_PRESS)) {
             var en = getGraph().findNode(editBoxDragNodeId);
             if (en != null && expandedNodeIds.contains(en.id)) {
                 var st = nodeEditStatesById.get(en.id);
                 if (st != null && !st.fields.isEmpty()) {
-                    float sx = c2sX(en.x), sy = c2sY(en.y);
-                    st.fields.get(0).mouseDragged((mx - sx) / zoom, (my - sy) / zoom, 0, 0, 0);
+                    // MLE coordinates are graph-space; convert mouse to graph-space
+                    // MLE 坐标为图空间，将鼠标转换为图空间坐标
+                    float gx = (float)((mx - c2sX(en.x)) / zoom);
+                    float gy = (float)((my - c2sY(en.y)) / zoom);
+                    st.fields.get(0).mouseDragged(gx, gy, 0, 0, 0);
                     return;
                 }
             }

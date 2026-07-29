@@ -33,16 +33,14 @@ public class GraphEvaluator {
     private final Map<Integer, float[]> outputs = new HashMap<>();
     private net.minecraft.core.BlockPos radarPos = null;
     public void setRadarPos(net.minecraft.core.BlockPos pos) { this.radarPos = pos; }
-    // FORMULA 脚本解析缓存 — formula 字符串 → ScriptParseResult (v1.2+ 多行脚本)
-    // FORMULA script parse cache — formula string → ScriptParseResult (v1.2+ multi-line script)
-    private static final int MAX_SCRIPT_CACHE = 1024;
-    private final Map<String, FormulaParser.ScriptParseResult> scriptCache =
-        new java.util.LinkedHashMap<>(64, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(Map.Entry<String, FormulaParser.ScriptParseResult> eldest) {
-                return size() > MAX_SCRIPT_CACHE;
-            }
-        };
+    // FORMULA script parsing is now unified through GraphNode.cachedScript.
+    // The eval branch calls node.ensureScriptParsed() which checks sourceFormula
+    // freshness (方案 A) — this guarantees the same ScriptParseResult is used for
+    // both pin-index resolution (inputPinIndex/outputPinIndex) and evaluation,
+    // eliminating the dual-cache inconsistency that caused ~20° angle errors.
+    // FORMULA 脚本解析现已通过 GraphNode.cachedScript 统一。
+    // eval 分支调用 node.ensureScriptParsed()，由 sourceFormula 检查新鲜度（方案 A）
+    // — 保证引脚索引解析与求值使用同一 ScriptParseResult，消除双缓存不一致。
 
     // 缓存子图 evaluator 和运行时状态，供 ENCAPSULATION 节点使用
     // 键值：封装节点 ID（拥有该 subGraph 的节点）
@@ -817,17 +815,17 @@ public class GraphEvaluator {
                     for (int i = 0; i < nOut; i++) o[i] = 0;
                     break;
                 }
-                // 解析脚本（缓存）/ Parse script (cached)
-                var script = scriptCache.get(node.formula);
-                if (script == null) {
-                    script = FormulaParser.parseScript(node.formula);
-                    scriptCache.put(node.formula, script);
-                }
+                // Single source of truth: node.cachedScript, freshness-guarded by
+                // ensureScriptParsed (方案 A). This is the same cache used by
+                // inputPinIndex / outputPinIndex for connection resolution —
+                // no more dual-cache drift.
+                // 唯一真相源：node.cachedScript，由 ensureScriptParsed（方案 A）保护新鲜度。
+                // 与连线解析 inputPinIndex/outputPinIndex 使用同一缓存 —— 不再有双缓存漂移。
+                node.ensureScriptParsed();
+                var script = node.cachedScript;
                 // 更新节点状态 / Update node state
-                int nOut = Math.max(1, script.outputLabels.size());
-                node.dynamicInputCount = script.inputVars.size();
-                node.dynamicOutputCount = nOut;
-                node.outputLabels = script.outputLabels;
+                int nOut = Math.max(1, node.dynamicOutputCount);
+                node.outputLabels = node.outputLabels; // already set by ensureScriptParsed
                 // 动态调整输出数组大小（与 ENCAPSULATION / BUS_IN 相同的模式）
                 // Size output array dynamically (same pattern as ENCAPSULATION / BUS_IN)
                 if (o.length != nOut) { o = new float[nOut]; node.outputValues = o; }
