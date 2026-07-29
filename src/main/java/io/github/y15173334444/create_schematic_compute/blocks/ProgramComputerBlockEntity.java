@@ -65,10 +65,27 @@ public class ProgramComputerBlockEntity extends SyncedGraphBlockEntity {
         rs.writeOutputs(results);
         broadcastEvalSnapshot(); // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
         BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
-        if (level instanceof ServerLevel sl && !runtimeState.flipflopStates.equals(lastSyncedFlipflopStates)) {
-            lastSyncedFlipflopStates = new java.util.HashMap<>(runtimeState.flipflopStates);
-            PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(worldPosition),
-                new RuntimeStateSyncPacket(worldPosition, lastSyncedFlipflopStates));
+        if (level instanceof ServerLevel sl) {
+            var currentFf = runtimeState.flipflopStates;
+            boolean changed = !currentFf.equals(lastSyncedFlipflopStates);
+            if (!changed && !runtimeState.subStates.isEmpty()) {
+                for (var se : runtimeState.subStates.entrySet()) {
+                    if (!se.getValue().flipflopStates.isEmpty()) { changed = true; break; }
+                }
+            }
+            if (changed) {
+                lastSyncedFlipflopStates = new java.util.HashMap<>(currentFf);
+                java.util.Map<Integer, java.util.Map<Integer, Boolean>> subFf = java.util.Collections.emptyMap();
+                if (!runtimeState.subStates.isEmpty()) {
+                    subFf = new java.util.HashMap<>();
+                    for (var se : runtimeState.subStates.entrySet()) {
+                        if (!se.getValue().flipflopStates.isEmpty())
+                            subFf.put(se.getKey(), new java.util.HashMap<>(se.getValue().flipflopStates));
+                    }
+                }
+                PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(worldPosition),
+                    new RuntimeStateSyncPacket(worldPosition, lastSyncedFlipflopStates, subFf));
+            }
         }
         setChanged();
     }

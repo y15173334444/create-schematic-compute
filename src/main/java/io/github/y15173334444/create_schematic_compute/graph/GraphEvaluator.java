@@ -874,9 +874,6 @@ public class GraphEvaluator {
                 o = new float[nOut];
                 node.outputValues = o;
                 // 子图 evaluator 缓存 + 陈旧检测：若子图 generation 变化，丢弃旧缓存重建
-                // Sub-graph evaluator cache + staleness check: if sub-graph generation
-                // changed, discard the old cache and rebuild so that FORMULA edits etc.
-                // are reflected immediately without waiting for a main-graph recompile.
                 int currentGen = node.subGraph.graphGeneration;
                 Integer lastGen = subGraphGenerations.get(node.id);
                 if (lastGen == null || lastGen != currentGen) {
@@ -887,7 +884,6 @@ public class GraphEvaluator {
                 if (subEval == null) {
                     subEval = new GraphEvaluator(node.subGraph);
                     subEvaluators.put(node.id, subEval);
-                    // Propagate saved debugTime from RuntimeState to the newly created sub-evaluator
                     if (runtimeState != null) {
                         RuntimeState.SubState ss = runtimeState.subStates.get(node.id);
                         if (ss != null && !ss.debugTime.isEmpty()) {

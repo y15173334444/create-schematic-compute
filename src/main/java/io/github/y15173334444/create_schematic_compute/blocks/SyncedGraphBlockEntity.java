@@ -126,6 +126,15 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         runtimeState.flipflopStates.clear();
         if (states != null) runtimeState.flipflopStates.putAll(states);
     }
+    @Override public void syncSubFlipflopStates(java.util.Map<Integer, java.util.Map<Integer, Boolean>> subStates) {
+        runtimeState.subStates.clear();
+        if (subStates != null) {
+            for (var entry : subStates.entrySet()) {
+                var ss = runtimeState.getOrCreateSubState(entry.getKey());
+                ss.flipflopStates.putAll(entry.getValue());
+            }
+        }
+    }
     @Override public void syncBusBandsFromServer(String busName, java.util.List<String> bands) {
         BusChannelHelper.syncBandsFromServer(busName, bands, graph);
     }
@@ -216,16 +225,28 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  供 Blueprint 和 ProgramComputer（使用时序/状态节点）使用。 */
     protected void recompileEvaluatorFull() {
         Map<Integer, Float> savedDebugTime = null;
+        Map<Integer, RuntimeState.SubState> savedSubStates = null;
         NodeGraph oldGraph = lastEvaluatedGraph;
         if (oldGraph != null) {
             BusChannelHelper.syncDeletedBusNames(oldGraph, graph, worldPosition, level);
             savedDebugTime = new HashMap<>(runtimeState.debugTime);
+            // Save sub-graph state before clearing — preserves DELAY queues,
+            // flipflop states, pulse timers, and PID state for encapsulation
+            // timing nodes across recompiles.
+            // 清除前保存子图状态——保留封装内 DELAY 队列、触发器、脉冲计时器
+            // 和 PID 状态，跨重编译保持时序节点连续性。
+            if (!runtimeState.subStates.isEmpty()) {
+                savedSubStates = new HashMap<>(runtimeState.subStates);
+            }
             runtimeState.clear();
         }
-        // Explicitly unregister BUS_OUT nodes that were removed since the last recompile.
-        // 显式取消注册自上次重编译以来已删除的 BUS_OUT 节点。
         unregisterRemovedBusOutNodes();
         evaluator = new GraphEvaluator(graph);
+        // Restore sub-graph state to runtimeState so the new evaluator picks it up
+        // 将子图状态恢复到 runtimeState，使新评估器能获取
+        if (savedSubStates != null) {
+            runtimeState.subStates.putAll(savedSubStates);
+        }
         evaluator.restoreSubState(runtimeState);
         if (savedDebugTime != null && !savedDebugTime.isEmpty()) {
             evaluator.restoreDebugTimes(savedDebugTime);

@@ -13,8 +13,10 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import java.util.HashMap;
 import java.util.Map;
 
-/** 服务端→客户端：同步运行时 flipflopStates 用于编辑区当前状态实时显示 */
-public record RuntimeStateSyncPacket(BlockPos pos, Map<Integer, Boolean> flipflopStates) implements CustomPacketPayload {
+/** 服务端→客户端：同步运行时 flipflopStates（含子图），用于编辑区当前状态实时显示 */
+public record RuntimeStateSyncPacket(BlockPos pos, Map<Integer, Boolean> flipflopStates,
+                                      Map<Integer, Map<Integer, Boolean>> subFlipflopStates)
+        implements CustomPacketPayload {
     public static final Type<RuntimeStateSyncPacket> TYPE =
         new Type<>(ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "runtime_state_sync"));
 
@@ -22,6 +24,9 @@ public record RuntimeStateSyncPacket(BlockPos pos, Map<Integer, Boolean> flipflo
         BlockPos.STREAM_CODEC, RuntimeStateSyncPacket::pos,
         ByteBufCodecs.map(HashMap::new, ByteBufCodecs.VAR_INT, ByteBufCodecs.BOOL),
             RuntimeStateSyncPacket::flipflopStates,
+        ByteBufCodecs.map(HashMap::new, ByteBufCodecs.VAR_INT,
+            ByteBufCodecs.map(HashMap::new, ByteBufCodecs.VAR_INT, ByteBufCodecs.BOOL)),
+            RuntimeStateSyncPacket::subFlipflopStates,
         RuntimeStateSyncPacket::new);
 
     @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
@@ -29,8 +34,9 @@ public record RuntimeStateSyncPacket(BlockPos pos, Map<Integer, Boolean> flipflo
     public void handle(IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             var be = ctx.player().level().getBlockEntity(pos);
-            if (be instanceof GraphBlockEntity gbe && flipflopStates != null) {
-                gbe.syncFlipflopStates(flipflopStates);
+            if (be instanceof GraphBlockEntity gbe) {
+                if (flipflopStates != null) gbe.syncFlipflopStates(flipflopStates);
+                if (subFlipflopStates != null) gbe.syncSubFlipflopStates(subFlipflopStates);
             }
         });
     }

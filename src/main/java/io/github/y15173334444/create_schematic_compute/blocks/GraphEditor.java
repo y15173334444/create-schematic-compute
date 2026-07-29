@@ -683,6 +683,18 @@ public class GraphEditor {
     /** -1 for main graph, otherwise the ENCAPSULATION node ID (sub-graph routing). */
     private int ownerNodeId() { return isInSubGraph() ? encapsulationParent.id : -1; }
     public GraphNode getEncapsulationParent() { return encapsulationParent; }
+    /** Get sub-graph flipflop states for the current encapsulation (synced from server). */
+    private Map<Integer, Boolean> getSubFlipflopStates() {
+        if (!isInSubGraph()) return null;
+        var be = host.getBlockPos() != null && net.minecraft.client.Minecraft.getInstance().level != null
+            ? net.minecraft.client.Minecraft.getInstance().level.getBlockEntity(host.getBlockPos())
+            : null;
+        if (be instanceof SyncedGraphBlockEntity sgbe) {
+            var ss = sgbe.runtimeState.subStates.get(encapsulationParent.id);
+            if (ss != null) return ss.flipflopStates;
+        }
+        return java.util.Collections.emptyMap();
+    }
 
     /** 进入封装节点的子图编辑 (Enter sub-graph editing for an encapsulation node) */
     public void enterSubGraph(GraphNode encapNode) {
@@ -1781,7 +1793,9 @@ public class GraphEditor {
         }
 
         // ── A=1: Complete COMMENT nodes (bg, border, text) — container mats behind connections ──
-        Map<Integer, Boolean> flipflopStates = host.getFlipflopStates();
+        Map<Integer, Boolean> flipflopStates = isInSubGraph()
+            ? getSubFlipflopStates()
+            : host.getFlipflopStates();
         renderer.renderCommentNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds,
             nodeEditStatesById, camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
 

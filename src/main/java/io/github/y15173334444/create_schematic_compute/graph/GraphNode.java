@@ -144,16 +144,8 @@ public class GraphNode {
             if (cachedScript == null || !cachedScript.sourceFormula.equals(formula)) {
                 var oldOutLabels = outputLabels;
                 cachedScript = FormulaParser.parseScript(formula);
-                // Don't shrink pin counts — legacy saves may have extra pins
-                // (dynamicInputCount > inputVars.size()) from V3. Preserve the
-                // larger value so that inputPinId/outputPinId can return numeric
-                // fallback pinIds for those legacy connections.
-                // 不缩小引脚计数——旧版存档可能有额外引脚。保留较大值。
                 dynamicInputCount = Math.max(dynamicInputCount, Math.max(1, cachedScript.inputVars.size()));
                 dynamicOutputCount = Math.max(dynamicOutputCount, Math.max(1, cachedScript.outputLabels.size()));
-                // Merge outputLabels: use parsed names for positions 0..parsed-1,
-                // keep old labels for extra positions (legacy connections reference them by name).
-                // 合并 outputLabels：位置 0..parsed-1 用解析名，额外位置保留旧标签（旧版连接按名引用）。
                 var merged = new java.util.ArrayList<>(cachedScript.outputLabels);
                 if (oldOutLabels != null) {
                     for (int i = merged.size(); i < dynamicOutputCount && i < oldOutLabels.size(); i++) {
