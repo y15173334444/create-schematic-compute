@@ -530,13 +530,17 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 <details>
 <summary><b>v1.2.4.1</b></summary>
 
-- **数值输入回弹**：修复编辑区输入框修改数值时概率性回弹到旧值。服务端 NBT 全量同步不再替换编辑器打开时的客户端图对象。
-- **公式节点缓存不一致**：消除 `cachedScript` 与 `GraphEvaluator.scriptCache` 双缓存漂移，改为单一真相源，解决输出引脚索引错位导致的 ~20° 角度偏差。
-- **V3→V4 迁移连线断裂**：迁移逻辑复用 `GraphNode.inputPinId`/`outputPinId`，支持旧版动态引脚的连线保留。
-- **编译时 BUS 断线**：移除 `loadGraphFromBytes` 中 `cleanupBusChannels()`，避免保存时广播空 `BusBandSyncPacket` 清空 BUS 频段并删除连线。
-- **公式节点清空回弹 A+B**：移除编辑器强制将空公式替换为 `A+B` 的逻辑。
-- **公式编辑器光标与选区**：修复 MultiLineEditBox 坐标转换错误（点击定位、拖动选中），修复方向键未折叠选区问题。
-- **临时视角跨方块污染**：从全局 `static` 改为按 `BlockPos` 存储。
+- **封装节点输出假数值**：修复 `recompileEvaluatorFull()` 的 `runtimeState.clear()` 清除子图时序组件状态（DELAY/LATCH/flipflop 等），导致封装内部计算偏差。1.2.3 的子评估器缓存掩盖了此问题，修复缓存失效后暴露。现在重编译前保存并恢复 `subStates`。
+- **封装内时序节点编辑区状态**：扩展 `RuntimeStateSyncPacket` 携带子图 flipflop 状态，编辑器在子图内显示正确的时序节点实时状态。
+- **子图展开状态初始化**：修复进出封装节点后 `expandedInitDone` 未重置，导致子图展开节点不恢复。
+- **公式节点双缓存统一**：移除 `GraphEvaluator.scriptCache`，改为 `node.cachedScript` 单一真相源，消除引脚解析与求值的缓存漂移。
+- **V3→V4 迁移**：`GraphMigration` 复用 `GraphNode.inputPinId`/`outputPinId`，支持旧版动态引脚连线保留。
+- **Sable 重连**：`sable$getLoadingDependencies` 通过 `getPlot(chunkPos)` 安全返回子世界引用，修复重进存档后 Sable 节点失效。
+- **数值输入回弹**：编辑器打开时跳过 NBT 全量图替换，防止服务端同步覆盖本地编辑值。
+- **编译 BUS 断线**：移除 `loadGraphFromBytes` 中 `cleanupBusChannels()`。
+- **公式节点清空回弹 A+B**：`createEditState` 不再强制默认值。
+- **公式编辑器光标与选区**：MLE 图空间坐标转换 + 方向键折叠选区。
+- **临时视角跨方块污染**：改为按 `BlockPos` 存储。
 
 </details>
 
