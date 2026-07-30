@@ -26,6 +26,12 @@ import java.util.Map;
  * 以封装节点 ID 为键，将 ID 与顶层节点隔离开来。
  * Sub-graph state (nodes inside ENCAPSULATION) is stored in {@link #subStates}
  * keyed by the encapsulation node ID, keeping IDs separate from top-level nodes.
+ *
+ * <p>所有浮点值统一使用 {@code Float}（32 位），因为 Minecraft NBT 仅原生支持
+ * {@code FloatTag}，且 Create Schematic Compute 的图运算精度在 32 位范围内足够。
+ * All floating-point values use {@code Float} (32-bit) because Minecraft NBT only
+ * natively supports {@code FloatTag}, and graph computation precision is adequate
+ * within 32-bit range.
  */
 public class RuntimeState {
 
@@ -58,24 +64,59 @@ public class RuntimeState {
     /** 键：encapNodeId → 子节点状态映射 / Key: encapNodeId → sub-node state map */
     public final Map<Integer, SubState> subStates = new HashMap<>();
 
-    /** 一个 ENCAPSULATION 子图的运行时状态。 / Runtime state for one ENCAPSULATION sub-graph. */
+    /**
+     * 一个 ENCAPSULATION 子图的运行时状态。
+     * 每个子图拥有独立的状态集合，避免子图内节点 ID 与顶层节点 ID 冲突。
+     * Runtime state for one ENCAPSULATION sub-graph.
+     * Each sub-graph owns an independent state set, preventing ID collisions
+     * between sub-graph internal nodes and top-level nodes.
+     */
     public static class SubState {
+        // PID/ACCUMULATOR/INTEGRATOR 累积值 / PID/ACCUMULATOR/INTEGRATOR accumulated values
         public final Map<Integer, Float> pidState = new HashMap<>();
+
+        // DELAY 节点逐 tick 队列 / DELAY node per-tick queues
         public final Map<Integer, ArrayDeque<Float>> delayQueues = new HashMap<>();
+
+        // LATCH、T_FLIPFLOP、GATE、LOOP、FUSE 布尔状态 / LATCH, T_FLIPFLOP, GATE, LOOP, FUSE boolean states
         public final Map<Integer, Boolean> flipflopStates = new HashMap<>();
+
+        // PULSE_EXTEND、LOOP、FUSE tick 计数器 / PULSE_EXTEND, LOOP, FUSE tick counters
         public final Map<Integer, Integer> pulseTimers = new HashMap<>();
+
+        // DEBUG_SIGNAL_GEN 相位状态（归一化时间 0~1） / DEBUG_SIGNAL_GEN phase state (normalized time 0~1)
         public final Map<Integer, Float> debugTime = new HashMap<>();
     }
 
+    /**
+     * 构造一个空的 RuntimeState，所有映射初始化为空 HashMap。
+     * Construct an empty RuntimeState; all maps are initialized as empty HashMaps.
+     */
     public RuntimeState() {}
 
-    /** 获取或创建封装节点的 SubState。 / Get or create the SubState for an encapsulation node. */
+    /**
+     * 获取或创建封装节点的 SubState。
+     * 使用 {@link Map#computeIfAbsent} 实现惰性初始化，仅在 ENCAPSULATION 节点
+     * 首次参与图计算时才分配内部状态映射。
+     * Get or create the SubState for an encapsulation node.
+     * Uses {@link Map#computeIfAbsent} for lazy initialization — internal state maps
+     * are only allocated when the ENCAPSULATION node first participates in graph evaluation.
+     *
+     * @param encapNodeId 封装节点的 ID / the ID of the encapsulation node
+     * @return 该封装节点的 SubState（新建或已有） / the SubState for the encapsulation node (new or existing)
+     */
     public SubState getOrCreateSubState(int encapNodeId) {
         return subStates.computeIfAbsent(encapNodeId, k -> new SubState());
     }
 
-    /** 清除所有状态（在 {@code accept()} 合并时使用）。
-     *  Wipe all state (used on {@code accept()} merge). */
+    /**
+     * 清除所有状态，用于新一轮图计算开始时接收合并后的新状态。
+     * 在 {@link GraphEvaluator#evaluate} 返回后，BlockEntity 调用
+     * {@code accept()} 方法将计算结果写入此对象之前，先清空旧数据。
+     * Wipe all state before accepting fresh results from a new graph evaluation cycle.
+     * After {@link GraphEvaluator#evaluate} returns, the BlockEntity clears old data
+     * before its {@code accept()} method writes the computed results into this object.
+     */
     public void clear() {
         pidState.clear();
         delayQueues.clear();
@@ -88,9 +129,26 @@ public class RuntimeState {
     // ── NBT 序列化 ──────────────────────────────────────────────────────
     // ── NBT serialisation ──────────────────────────────────────────────────
 
+    /**
+     * 将当前运行时状态序列化为一个 NBT {@link CompoundTag}。
+     * 每个映射类别使用独立的子 CompoundTag（如 "pid"、"delay"、"ff"、"pt"、"dt"），
+     * 键均为节点 ID 的字符串形式（因为 NBT CompoundTag 的键必须是 String）。
+     * 子图状态嵌套在 "sub" 键下，每个封装节点 ID 对应其自身的状态 CompoundTag。
+     * 空的映射会被跳过，以减小磁盘占用。
+     * Serialise the current runtime state into an NBT {@link CompoundTag}.
+     * Each map category uses a dedicated sub-CompoundTag (e.g. "pid", "delay", "ff",
+     * "pt", "dt"), with keys as the string form of node IDs (because NBT CompoundTag
+     * keys must be Strings). Sub-graph state is nested under the "sub" key, with
+     * each encapsulation node ID mapping to its own state CompoundTag.
+     * Empty maps are skipped to reduce on-disk footprint.
+     *
+     * @return 包含完整运行时状态的 CompoundTag / a CompoundTag containing the full runtime state
+     */
     public CompoundTag save() {
         CompoundTag tag = new CompoundTag();
 
+        // PID 积分值 — 使用 String.valueOf(id) 作为 CompoundTag 键
+        // PID integral values — use String.valueOf(id) as CompoundTag key
         if (!pidState.isEmpty()) {
             CompoundTag p = new CompoundTag();
             for (var e : pidState.entrySet())
@@ -100,6 +158,8 @@ public class RuntimeState {
         if (!delayQueues.isEmpty()) {
             CompoundTag d = new CompoundTag();
             for (var e : delayQueues.entrySet()) {
+                // 延时队列序列化为 FloatTag 列表以保持 FIFO 顺序
+                // Delay queue serialised as FloatTag list to preserve FIFO order
                 ListTag list = new ListTag();
                 for (float f : e.getValue()) list.add(FloatTag.valueOf(f));
                 d.put(String.valueOf(e.getKey()), list);
@@ -132,6 +192,8 @@ public class RuntimeState {
             for (var entry : subStates.entrySet()) {
                 CompoundTag ss = new CompoundTag();
                 SubState s = entry.getValue();
+                // 重复顶层结构的序列化模式，保持格式一致性
+                // Repeat the top-level serialisation pattern for format consistency
                 if (!s.pidState.isEmpty()) {
                     CompoundTag sp = new CompoundTag();
                     for (var e : s.pidState.entrySet()) sp.putFloat(String.valueOf(e.getKey()), e.getValue());
@@ -161,6 +223,8 @@ public class RuntimeState {
                     for (var e : s.debugTime.entrySet()) sdt.putFloat(String.valueOf(e.getKey()), e.getValue());
                     ss.put("dt", sdt);
                 }
+                // 键 = 封装节点 ID 的字符串形式，与其他映射的键格式一致
+                // Key = string form of encapsulation node ID, consistent with other map key formats
                 sub.put(String.valueOf(entry.getKey()), ss);
             }
             tag.put("sub", sub);
@@ -168,17 +232,36 @@ public class RuntimeState {
         return tag;
     }
 
+    /**
+     * 从 NBT {@link CompoundTag} 反序列化，重建一个完整的 RuntimeState。
+     * 这是一个静态工厂方法，总是创建一个新的 {@link RuntimeState} 对象。
+     * 各映射类别按其在 {@link #save()} 中写入的键名反向解析；
+     * 缺失的键（即序列化时被跳过的空映射）会保持为初始的空 HashMap。
+     * Deserialise an NBT {@link CompoundTag} back into a full RuntimeState.
+     * This is a static factory method that always creates a new {@link RuntimeState}
+     * object. Each map category is parsed in reverse by the same key names written
+     * in {@link #save()}; missing keys (empty maps skipped during serialisation)
+     * remain as their initial empty HashMap.
+     *
+     * @param tag 先前由 {@link #save()} 生成的 NBT CompoundTag /
+     *            the NBT CompoundTag previously produced by {@link #save()}
+     * @return 反序列化重建的 RuntimeState / a RuntimeState reconstructed from deserialisation
+     */
     public static RuntimeState load(CompoundTag tag) {
         RuntimeState rs = new RuntimeState();
 
         if (tag.contains("pid")) {
             var p = tag.getCompound("pid");
             for (var k : p.getAllKeys())
+                // 键从 String 解析回 Integer（节点 ID）
+                // Parse key from String back to Integer (node ID)
                 rs.pidState.put(Integer.parseInt(k), p.getFloat(k));
         }
         if (tag.contains("delay")) {
             var d = tag.getCompound("delay");
             for (var k : d.getAllKeys()) {
+                // 反序列化 FloatTag 列表，按顺序重建 ArrayDeque（FIFO）以保持延时顺序
+                // Deserialise FloatTag list; rebuild ArrayDeque in order (FIFO) to preserve delay sequence
                 var list = d.getList(k, Tag.TAG_FLOAT);
                 var q = new ArrayDeque<Float>(list.size());
                 for (int i = 0; i < list.size(); i++)
@@ -206,6 +289,8 @@ public class RuntimeState {
         if (tag.contains("sub")) {
             var sub = tag.getCompound("sub");
             for (var k : sub.getAllKeys()) {
+                // 封装节点 ID 必须从 String 键解析回 int
+                // Encapsulation node ID must be parsed from String key back to int
                 int encapId = Integer.parseInt(k);
                 var ss = sub.getCompound(k);
                 SubState s = new SubState();

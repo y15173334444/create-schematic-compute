@@ -36,6 +36,23 @@ import net.minecraft.nbt.NbtIo;
  * Node graph editor — encapsulates editing, rendering, and input logic shared across screens
  */
 public class GraphEditor {
+
+    /**
+     * Resolve the active Host, unwrapping portable terminal wrapper screens.
+     * Use this instead of {@code instanceof Host} checks so collaboration
+     * features work through the portable terminal.
+     */
+    public static Host getActiveHost() {
+        var mc = Minecraft.getInstance();
+        if (mc.screen instanceof Host host) return host;
+        // Portable terminal wrapper — delegate to inner screen
+        if (mc.screen instanceof io.github.y15173334444.create_schematic_compute.client.PortableTerminalScreen.HostWrapper w) {
+            var inner = w.getInnerScreen();
+            if (inner instanceof Host host) return host;
+        }
+        return null;
+    }
+
     /** 宿主屏需要实现的接口 (Interface the host screen must implement) */
     public interface Host {
         NodeGraph getGraph();
@@ -93,6 +110,17 @@ public class GraphEditor {
     public static final int MAX_NODES = 1024;
 
     // ── Per-instance op-based undo (collaboration-safe) ──
+    // 基于 op 的每实例撤销（协作安全）
+
+    /**
+     * A single undo entry — either a single GraphOp or a batch of ops treated as one atomic unit.
+     * 单个撤销条目 —— 要么是单条 GraphOp，要么是作为原子单元处理的批量 op。
+     * <p>
+     * Op references are mutable (for server-assigned ID remapping). Old values (x, y, val, str)
+     * are captured at record time so the reverse op can restore prior state without re-reading the graph.
+     * Op 引用是可变的（用于服务端分配的 ID 重映射）。旧值（x, y, val, str）在记录时捕获，
+     * 使反向 op 无需重新读取图即可恢复先前状态。
+     */
     private static final class UndoEntry {
         io.github.y15173334444.create_schematic_compute.graph.GraphOp op; // mutable for ID remapping
         final float oldX, oldY, oldVal;
@@ -222,7 +250,11 @@ public class GraphEditor {
         };
     }
 
-    /** Encode control point arrays to a string (x0,y0;x1,y1;...), same format as GraphOp.setCtrlPoints. */
+    /** Encode control point arrays to a string (x0,y0;x1,y1;...), same format as GraphOp.setCtrlPoints.
+     *  将控制点数组编码为字符串 (x0,y0;x1,y1;...)，与 GraphOp.setCtrlPoints 格式相同。
+     *  @param cx 控制点 X 坐标数组 / control point X coordinates
+     *  @param cy 控制点 Y 坐标数组 / control point Y coordinates
+     *  @return 编码后的控制点字符串 / encoded control point string */
     private static String encodeCtrlPoints(float[] cx, float[] cy) {
         var sb = new StringBuilder();
         for (int i = 0; i < cx.length; i++) {
@@ -232,7 +264,10 @@ public class GraphEditor {
         return sb.toString();
     }
 
-    /** Parse an ItemStack from its NBT string representation (saved via saveOptional). */
+    /** Parse an ItemStack from its NBT string representation (saved via saveOptional).
+     *  从 NBT 字符串表示中解析 ItemStack（通过 saveOptional 保存的）。
+     *  @param nbtStr NBT 字符串 / NBT string
+     *  @return 解析出的 ItemStack，失败时返回 EMPTY / parsed ItemStack, or EMPTY on failure */
     private static net.minecraft.world.item.ItemStack restoreItemFromNbt(String nbtStr) {
         if (nbtStr == null || nbtStr.isEmpty()) return net.minecraft.world.item.ItemStack.EMPTY;
         try {
@@ -299,7 +334,9 @@ public class GraphEditor {
         }
     }
 
-    /** Redo last undone entry (single op or batch). */
+    /** Redo last undone entry (single op or batch).
+     *  重做上一个被撤销的条目（单条 op 或批量组）。
+     *  Re-applies the most recent entry from the redo stack to the graph, and syncs via sendOp. */
     private void opRedo() {
         var entry = redoStack2.pollLast();
         if (entry == null) return;
@@ -321,7 +358,10 @@ public class GraphEditor {
 
     /** Remap a client-assigned temp node ID to the server-assigned real ID
      *  (ACK for ADD_NODE_REQUEST). Updates every reference: nodes, connections,
-     *  undo/redo stacks, and UI selections. */
+     *  undo/redo stacks, and UI selections.
+     *  将客户端分配的临时节点 ID 重映射为服务端分配的真实 ID（ADD_NODE_REQUEST 的 ACK）。
+     *  更新所有引用：节点、连线、撤销/重做栈和 UI 选择。
+     *  @param ack 服务端发送的 ACK 包，包含 tempId 和 assignedId / server ACK packet with tempId and assignedId */
     void remapNodeId(io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket ack) {
         int tid = ack.tempId(), rid = ack.assignedId();
         if (tid == rid) return;
@@ -378,7 +418,11 @@ public class GraphEditor {
         graph.bumpGeneration();
     }
 
-    /** Return a copy of {@code op} with {@code targetNodeId} replaced. */
+    /** Return a copy of {@code op} with {@code targetNodeId} replaced.
+     *  返回 op 的副本，将其 targetNodeId 替换为指定值。
+     *  @param op 原始操作 / original operation
+     *  @param newId 新的目标节点 ID / new target node ID
+     *  @return 修改了 targetNodeId 的操作副本 / copy of op with targetNodeId replaced */
     private static io.github.y15173334444.create_schematic_compute.graph.GraphOp withTargetId(
         io.github.y15173334444.create_schematic_compute.graph.GraphOp op, int newId) {
         return new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
@@ -391,7 +435,12 @@ public class GraphEditor {
             op.hotbarSlot(), op.itemStack(), op.editVersion(), op.actor());
     }
 
-    /** Return a copy of {@code op} with {@code fromId}/{@code toId} replaced. */
+    /** Return a copy of {@code op} with {@code fromId}/{@code toId} replaced.
+     *  返回 op 的副本，将其 fromId/toId 替换为指定值。
+     *  @param op 原始操作 / original operation
+     *  @param newFromId 新的来源节点 ID / new source node ID
+     *  @param newToId 新的目标节点 ID / new target node ID
+     *  @return 修改了 fromId/toId 的操作副本 / copy of op with fromId/toId replaced */
     private static io.github.y15173334444.create_schematic_compute.graph.GraphOp withFromToId(
         io.github.y15173334444.create_schematic_compute.graph.GraphOp op, int newFromId, int newToId) {
         return new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
@@ -419,11 +468,17 @@ public class GraphEditor {
         if (op.toId() == tid) be.op = withFromToId(op, op.fromId(), rid);
     }
 
-    // 编辑状态 (Edit state)
+    // ── 编辑状态 (Edit state) ──
+    /** 相机 X 偏移（图空间）/ camera X offset (graph space) */
     public float camX=0, camY=0, zoom=1f;
-    // 视角书签 UI 状态 / view bookmark UI state
+    /** 相机 Y 偏移（图空间）/ camera Y offset (graph space) */
+    /** 缩放级别 0.25x~4x / zoom level 0.25x~4x */
+    // ── 视角书签 UI 状态 / view bookmark UI state ──
+    /** 书签列表面板是否可见 / whether the bookmark list panel is visible */
     private boolean showBookmarkPanel = false;
+    /** 书签名称草稿（新建/重命名时使用）/ draft bookmark name (used when creating/renaming) */
     private String bookmarkNameDraft = "";
+    /** 是否正在编辑书签名称 / whether bookmark name editing is active */
     private boolean editingBookmarkName = false;
     private int editingBookmarkIndex = -1; // -1 = 新建, >= 0 = 重命名 / -1 = new, >= 0 = renaming
     private int bookmarkScrollOff = 0; // 书签面板滚动偏移 / bookmark panel scroll offset
@@ -435,44 +490,77 @@ public class GraphEditor {
     /** 清除所有临时视角（客户端断开/切换存档时调用，防止跨存档污染）。
      *  Clear all temp views (called on client disconnect/world switch, prevents cross-world pollution). */
     public static void clearTempView() { tempViewByPos.clear(); }
+    // ── Phase 2 渲染缓存 —— 状态未变时跳过昂贵的渲染层 ──
     // Phase 2 render cache — skip expensive layers when nothing changed
+    /** 上次渲染时的图代数 / graph generation at last render */
     private int lastRenderedGen = -1;
+    /** 上次渲染时的相机位置和缩放 / camera position and zoom at last render */
     private float lastRenderedCamX, lastRenderedCamY, lastRenderedZoom;
+    /** 上次渲染时的屏幕尺寸 / screen dimensions at last render */
     private int lastRenderedScreenW, lastRenderedScreenH;
+    /** 当前正在拖拽的节点 / the node currently being dragged */
     public GraphNode draggingNode=null, selectedNode=null;
+    /** 当前选中的单个节点 / the currently selected single node */
+    /** 多选节点集合 / set of selected nodes (for multi-select) */
     public final Set<GraphNode> selectedNodes = new HashSet<>();
+    /** 拖拽时鼠标相对于节点左上角的偏移 / mouse offset from node top-left during drag */
     public float dragOffX, dragOffY;
+    /** 是否正在平移视图 / whether view is being panned */
     public boolean panning=false;
+    /** 平移起始鼠标坐标 / pan start mouse position */
     public float panLastX, panLastY;
+    /** 是否正在拖拽连线 / whether a wire is being dragged */
     public boolean draggingWire=false;
+    /** 连线源节点和引脚索引 / wire source node and pin index */
     public int wireFromNode=-1, wireFromPin=-1;
+    /** 连线当前末端坐标（图空间）/ current wire end position (graph space) */
     public float wireEndX, wireEndY;
-    // DEBUG_SIGNAL_GEN 控制点拖拽 / control point drag
+    // ── DEBUG_SIGNAL_GEN 控制点拖拽 / control point drag ──
+    /** 正在拖拽的控制点所属节点 ID / node ID of control point being dragged */
     private int draggingCtrlNode = -1;
+    /** 正在拖拽的控制点索引 / index of control point being dragged */
     private int draggingCtrlIdx = -1;
     private String preDragCtrlStr = ""; // control point string before drag, for undo
     private boolean ctrlPointsChanged = false; // true if any control point was modified since last sync
     private long lastClickMs = 0; // 双击检测 / double-click detection
-    // DEBUG_SIGNAL_GEN x 标记拖拽 / x marker drag
+    // ── DEBUG_SIGNAL_GEN x 标记拖拽 / x marker drag ──
+    /** 正在拖拽 x 标记线的节点 ID / node ID whose x marker is being dragged */
     private int draggingXMarkerNode = -1;
     private int editBoxDragNodeId = -1; // node id whose EditBox is being drag-selected
+    /** 添加节点菜单是否可见 / whether the add-node menu is visible */
     public boolean showMenu=false;
+    /** 菜单位置（屏幕坐标）/ menu position (screen coords) */
     public float menuX, menuY;
+    /** 菜单中当前选中的节点类型 / currently selected node type in menu */
     public NodeType selectedMenuType=null;
+    /** 保存反馈文字显示的截止时间戳 / expiration timestamp for save feedback text */
     public long saveFeedbackUntil=0;
+    /** 保存反馈文字内容 / save feedback text content */
     public String saveFeedbackText="";
+    /** 导入反馈文字显示的截止时间戳 / expiration timestamp for import feedback text */
     public long importFeedbackUntil=0;
+    /** 循环依赖警告文字 / cycle dependency warning text */
     public String cycleWarning=null;
-    // 导入/导出封装节点对话框 (Import/export encapsulation node dialog)
+    // ── 导入/导出封装节点对话框 (Import/export encapsulation node dialog) ──
+    /** 导出对话框是否可见 / whether the export dialog is visible */
     public boolean showExportDialog = false;
+    /** 导入对话框是否可见 / whether the import dialog is visible */
     public boolean showImportDialog = false;
+    /** 导出名称编辑框 / export name EditBox */
     public EditBox exportNameEdit = null;
+    /** 可导入的文件列表 / list of importable files */
     public java.util.List<java.nio.file.Path> importFiles = null;
+    /** 导入列表滚动偏移 / import list scroll offset */
     public int importScrollOff = 0;
+    /** 是否启用网格吸附 / whether grid snap is enabled */
     public boolean gridSnapEnabled = NodeRenderer.loadGridSnap();
-    public GraphNode hotbarNode = null; // 当前显示热栏的节点（点击频率槽时弹出） (Node currently showing hotbar popup)
-    // 多节点展开：Set + 每节点独立编辑状态 (Multi-node expand: Set + per-node independent edit states)
+    /** 当前显示热栏弹窗的节点（点击频率槽时弹出）/ node currently showing hotbar popup (shown when clicking frequency slot) */
+    public GraphNode hotbarNode = null;
+    // ── 多节点展开：Set + 每节点独立编辑状态 (Multi-node expand: Set + per-node independent edit states) ──
+    /** 当前展开的节点 ID 集合 / set of currently expanded node IDs */
     public final java.util.Set<Integer> expandedNodeIds = new java.util.HashSet<>();
+    /** 每个节点的独立编辑控件状态（EditBox、按钮位置、频段等）。
+     *  Per-node independent edit control state (EditBoxes, button positions, bands, etc.). */
     public static class EditState {
         public final java.util.List<net.minecraft.client.gui.components.EditBox> fields = new java.util.ArrayList<>();
         /** 每个 field 对应的参数索引（用于参数引脚映射和渲染） (Param index each field maps to, for param pin mapping and rendering) */
@@ -501,24 +589,36 @@ public class GraphEditor {
         public int pendingOutMode = -1;       // -1=none, 0/1=target outMode
         public long pendingOutModeExpireMs = 0;
     }
+    /** 节点 ID → 编辑状态 的映射 / node ID → EditState mapping */
     public final java.util.Map<Integer, EditState> nodeEditStatesById = new java.util.HashMap<>();
     /** EditBox → 提交动作（回车或失焦时执行） (EditBox → commit action, executed on Enter or focus loss) */
     private final java.util.Map<net.minecraft.client.gui.components.EditBox, Runnable> enterActions = new java.util.HashMap<>();
-    // 颜色配置面板 (Color configuration panel)
+    // ── 颜色配置面板 (Color configuration panel) ──
+    /** 颜色配置面板是否可见 / whether the color configuration panel is visible */
     public boolean showColorConfig = false;
     private boolean suppressEditBoxResponder = false; // suppress SET_PARAM echo from remote ops (H3) (抑制远程SET_PARAM回显)
+    /** 颜色选择器控件 / the color picker widget instance */
     public final ColorPickerWidget colorPicker = new ColorPickerWidget();
+    /** 主题颜色按钮组 / array of theme color swatch buttons */
     private final ColorPickerButton[] themeButtons = new ColorPickerButton[NodeRenderer._NUM_COLORS];
-    // 框选 + 多选拖拽状态 (Box-select + multi-drag state)
+    // ── 框选 + 多选拖拽状态 (Box-select + multi-drag state) ──
+    /** TAB 键是否按下（进入框选/多选模式）/ whether TAB is held (box-select/multi-select mode) */
     private boolean tabHeld = false;
+    /** 是否正在进行框选 / whether box-select is active */
     private boolean boxSelecting = false;
+    /** 框选起止坐标（屏幕空间）/ box-select start and end coords (screen space) */
     private float boxSX, boxSY, boxEX, boxEY;
+    /** 是否正在进行多选拖拽 / whether multi-drag is active */
     private boolean multiDragging = false;
+    /** 多选拖拽中被点击的节点 / the node clicked during multi-drag */
     private GraphNode multiClickedNode = null;
+    /** 多选节点组的几何中心 / geometric center of the multi-selected node group */
     private float multiCenterX, multiCenterY;
     private long prevGpadButtons = 0; // for gamepad button edge detection in binding mode (手柄按键边缘检测)
+    /** 多选拖拽时每个节点的起始位置 / per-node starting positions during multi-drag */
     private final java.util.Map<GraphNode, float[]> multiDragOrigins = new java.util.HashMap<>();
-    // 鼠标坐标缓存（供 X 键删除用） (Cached mouse coords for X-key deletion)
+    // ── 鼠标坐标缓存（供 X 键删除用） (Cached mouse coords for X-key deletion) ──
+    /** 上次记录的鼠标坐标（图空间）/ last recorded mouse position (graph space) */
     private double lastMouseX, lastMouseY;
 
     // ── Z-order (B-layer) drag state ──
@@ -659,6 +759,17 @@ public class GraphEditor {
 
     // ── Ctrl+D 复制待发送数据（等待服务端 ACK 分配真实 ID 后批量发送）
     // Pending copy data (deferred until server ACK assigns real IDs for all nodes in the batch)
+    /**
+     * Groups all nodes, connections, and data ops for a single Ctrl+D copy operation.
+     * 将单次 Ctrl+D 复制操作的所有节点、连线和数据 op 分组。
+     * <p>
+     * Copy operations use a two-phase protocol: (1) send ADD_NODE_REQUEST for each cloned node,
+     * (2) after server ACK assigns real IDs to all nodes, flush deferred data ops (params, formula,
+     * connections, etc.) in a batch. This avoids data loss from stale local IDs.
+     * 复制操作使用两阶段协议：(1) 为每个克隆节点发送 ADD_NODE_REQUEST，
+     * (2) 在服务器 ACK 为所有节点分配真实 ID 后，批量发送延迟的数据 op（参数、公式、连线等）。
+     * 这避免了因本地 ID 过期导致的数据丢失。
+     */
     private static class PendingCopyGroup {
         final java.util.Map<Integer, Integer> tempToReal = new java.util.HashMap<>(); // tempId → realId (-1 = pending)
         final java.util.List<GraphNode> nodes = new java.util.ArrayList<>();
@@ -673,15 +784,23 @@ public class GraphEditor {
     int nextCopyGroupId = 1;
 
     // ── 子图编辑栈（封装节点） (Sub-graph edit stack for encapsulation nodes) ──
+    /** 快照视图状态（相机位置 + 缩放 + 过滤器），用于进入/退出子图时恢复。
+     *  Snapshot of view state (camera position + zoom + filter) for enter/exit sub-graph restore. */
     private record GraphEditState(GraphNode parentNode, Predicate<NodeType> parentFilter,
                                    float camX, float camY, float zoom) {}
+    /** 子图编辑栈，支持嵌套封装节点 / sub-graph edit stack, supports nested encapsulation nodes */
     private final java.util.Deque<GraphEditState> graphStack = new java.util.ArrayDeque<>();
     private GraphNode encapsulationParent; // 当前正在编辑的封装节点（null = 编辑主图） (Currently edited encapsulation node; null = editing main graph)
     private Predicate<NodeType> mainNodeFilter; // 进入子图前保存的主图过滤器 (Main graph filter saved before entering sub-graph)
 
+    /** 是否正在编辑封装节点的子图（而非主图）。
+     *  Whether currently editing an encapsulation node's sub-graph (rather than the main graph). */
     public boolean isInSubGraph() { return encapsulationParent != null; }
-    /** -1 for main graph, otherwise the ENCAPSULATION node ID (sub-graph routing). */
+    /** -1 for main graph, otherwise the ENCAPSULATION node ID (sub-graph routing).
+     *  -1 表示主图，否则为封装节点 ID（子图路由）。 */
     private int ownerNodeId() { return isInSubGraph() ? encapsulationParent.id : -1; }
+    /** 获取当前正在编辑的封装父节点（null = 编辑主图）。
+     *  Get the encapsulation parent node currently being edited (null = editing main graph). */
     public GraphNode getEncapsulationParent() { return encapsulationParent; }
     /** Get sub-graph flipflop states for the current encapsulation (synced from server). */
     private Map<Integer, Boolean> getSubFlipflopStates() {
@@ -733,10 +852,13 @@ public class GraphEditor {
         // 子图修改已写入 encapsulationParent.subGraph，随 Recompile 统一保存 (Sub-graph changes written to encapsulationParent.subGraph, saved on recompile)
     }
 
+    /** 获取当前活动的图（在子图模式下返回子图，否则返回主图）。
+     *  Get the currently active graph (returns sub-graph in sub-graph mode, otherwise main graph). */
     public NodeGraph getGraph() {
         return isInSubGraph() ? encapsulationParent.subGraph : host.getGraph();
     }
 
+    /** 委托到宿主屏保存当前图。 / Delegate to host screen to save the current graph. */
     public void saveGraph() {
         host.saveGraph();
     }
@@ -1437,6 +1559,10 @@ public class GraphEditor {
         markDirty();
     }
 
+    /** 构造编辑器实例，绑定到宿主屏幕，初始化节点渲染器、主题色按钮和临时视角。
+     *  Construct an editor instance bound to a host screen; initialize node renderer, theme color buttons, and temp view.
+     *  @param host 实现 Host 接口的宿主屏幕 / the host screen implementing the Host interface
+     *  @param screen 当前 Minecraft Screen 实例 / the current Minecraft Screen instance */
     public GraphEditor(Host host, Screen screen) {
         this.host = host;
         this.renderer = new NodeRenderer(this::c2sX, this::c2sY, screen);
@@ -1458,15 +1584,25 @@ public class GraphEditor {
         }
     }
 
+    /** 设置添加节点菜单的节点类型过滤器，同时更新主图过滤器缓存。
+     *  Set the node type filter for the add-node menu, also updates the main filter cache.
+     *  @param filter 过滤谓词 / filter predicate */
     public void setNodeFilter(Predicate<NodeType> filter) { this.nodeFilter = filter; this.mainNodeFilter = filter; }
 
-    // 坐标转换 (Coordinate transforms)
+    // ── 坐标转换 (Coordinate transforms) ──
+    // 图空间 → 屏幕空间 / graph-space → screen-space
+    /** 图空间 X → 屏幕 X / graph-space X → screen-space X */
     public float c2sX(float cx) { Screen s = host.asScreen(); return s.width/2f+(cx+camX)*zoom; }
+    /** 图空间 Y → 屏幕 Y / graph-space Y → screen-space Y */
     public float c2sY(float cy) { Screen s = host.asScreen(); return s.height/2f+(cy+camY)*zoom; }
+    /** 屏幕 X → 图空间 X / screen-space X → graph-space X */
     public float s2cX(double sx) { Screen s = host.asScreen(); return(float)((sx-s.width/2f)/zoom-camX); }
+    /** 屏幕 Y → 图空间 Y / screen-space Y → graph-space Y */
     public float s2cY(double sy) { Screen s = host.asScreen(); return(float)((sy-s.height/2f)/zoom-camY); }
 
-    /** Bump graph generation to invalidate render caches (Phase 2 dirty flag framework) */
+    /** 增加图代数以作废渲染缓存（Phase 2 脏标记框架）。
+     *  Bump graph generation to invalidate render caches (Phase 2 dirty flag framework).
+     *  Any change that should trigger a re-render calls this. / 任何应触发重渲染的变更都调用此方法。 */
     void markDirty() { getGraph().bumpGeneration(); }
 
     /** 子图结构变更后，重建父图的输入缓存，使封装节点的外部连线引脚位置跟随子节点变化。
@@ -1478,7 +1614,10 @@ public class GraphEditor {
         }
     }
 
-    /** Sort nodes by B-layer ascending (lower B = rendered first = behind, higher B = on top). */
+    /** Sort nodes by B-layer ascending (lower B = rendered first = behind, higher B = on top).
+     *  按 B 层升序排列节点（B 值越小越先渲染/越靠后，B 值越大越靠前）。
+     *  @param nodes 待排序节点列表 / list of nodes to sort
+     *  @return 按 sortB 升序排列的新列表 / new list sorted by sortB ascending */
     private List<GraphNode> sortNodesByB(List<GraphNode> nodes) {
         return nodes.stream()
             .sorted((a, b) -> Integer.compare(a.sortB, b.sortB))
@@ -1486,7 +1625,11 @@ public class GraphEditor {
     }
 
     /** Find the overlapping node with the largest sortB. The dragged node will be
-     *  inserted above it (sortB = max + 1). Returns null if no node overlaps. */
+     *  inserted above it (sortB = max + 1). Returns null if no node overlaps.
+     *  查找重叠节点中 sortB 最大的那个。拖拽的节点将插入到它上方（sortB = max + 1）。
+     *  无重叠节点时返回 null。
+     *  @param dragged 被拖拽的节点 / the node being dragged
+     *  @return 下方重叠节点中 sortB 最大的，或 null / the overlapped node with highest sortB, or null */
     private GraphNode findNodeBelow(GraphNode dragged) {
         float w = NodeRenderer.nw(dragged);
         float h = fullNodeHeight(dragged);
@@ -1504,7 +1647,10 @@ public class GraphEditor {
         return best;
     }
 
-    /** Full node height including expanded edit panel (for occlusion/AABB calculations). */
+    /** Full node height including expanded edit panel (for occlusion/AABB calculations).
+     *  完整节点高度（含展开编辑面板），用于遮挡/AABB 计算。
+     *  @param n 目标节点 / the target node
+     *  @return 包含展开区域的完整节点高度 / total height including expanded edit area */
     private float fullNodeHeight(GraphNode n) {
         float h = NodeRenderer.nh(n);
         if (expandedNodeIds.contains(n.id)) {
@@ -1514,20 +1660,30 @@ public class GraphEditor {
         return h;
     }
 
-    /** AABB overlap test between two nodes (graph-space). */
+    /** AABB overlap test between two nodes (graph-space).
+     *  两节点 AABB 重叠检测（图空间）。
+     *  @param a 节点 A / node A
+     *  @param b 节点 B / node B
+     *  @return true 如果两个节点的包围盒重叠 / true if the two nodes' bounding boxes overlap */
     private boolean rectsOverlap(GraphNode a, GraphNode b) {
         float aw = NodeRenderer.nw(a), ah = fullNodeHeight(a);
         float bw = NodeRenderer.nw(b), bh = fullNodeHeight(b);
         return rectsOverlap(a.x, a.y, aw, ah, b.x, b.y, bw, bh);
     }
-    /** AABB overlap test with raw coordinates (graph-space). */
+    /** AABB overlap test with raw coordinates (graph-space).
+     *  使用原始坐标的 AABB 重叠检测（图空间）。
+     *  @return true 如果两个矩形重叠 / true if the two rectangles overlap */
     private static boolean rectsOverlap(float ax, float ay, float aw, float ah,
                                          float bx, float by, float bw, float bh) {
         return ax < bx + bw && ax + aw > bx
             && ay < by + bh && ay + ah > by;
     }
 
-    /** Renormalize all sortB values to [0, N-1] preserving relative order. */
+    /** Renormalize all sortB values to [0, N-1] preserving relative order.
+     *  将所有 sortB 值重新规范化为 [0, N-1]，保持相对顺序。
+     *  Called when sortB values approach Integer.MAX_VALUE to prevent overflow.
+     *  当 sortB 值接近 Integer.MAX_VALUE 时调用，防止溢出。
+     *  @param graph 目标图 / the target graph */
     private void renormalizeSortB(NodeGraph graph) {
         var sorted = graph.nodes.stream()
             .sorted((a, b) -> Integer.compare(a.sortB, b.sortB))
@@ -1551,9 +1707,13 @@ public class GraphEditor {
     private final java.util.Set<String> localBusNames = new java.util.HashSet<>();
 
     // ── 视角书签过渡动画 / View bookmark transition animation ──
+    /** 过渡起始相机状态 / transition start camera state */
     private float transFromX, transFromY, transFromZoom;
+    /** 过渡目标相机状态 / transition target camera state */
     private float transToX, transToY, transToZoom;
+    /** 过渡开始时间戳 / transition start timestamp (ms) */
     private long transStartMs = 0;
+    /** 视角过渡持续时间（毫秒）/ camera transition duration in milliseconds */
     private static final long TRANSITION_MS = 200;
 
     /** 启动视角过渡动画。 / Start a camera transition animation. */
@@ -1737,6 +1897,16 @@ public class GraphEditor {
         if (bp != null) tempViewByPos.put(bp, new float[]{camX, camY, zoom});
     }
 
+    /** 渲染编辑器背景（网格、连线、节点、叠加层/UI 等全部内容）。
+     *  Render the editor background — grid, connections, nodes, overlays, UI, everything.
+     *  <p>
+     *  Uses a layered rendering system (A=0 through A=5) to ensure correct occlusion:
+     *  A=0 Grid, A=1 Comment backgrounds, A=2 Connections, A=3 Node bodies,
+     *  A=4 Overlays (toolbar, menus, etc.), A=5 Tooltips/right-click menu.
+     *  使用分层渲染系统（A=0 到 A=5）确保正确的遮挡关系。
+     *  @param g GuiGraphics 渲染上下文 / rendering context
+     *  @param mx 鼠标 X 坐标（屏幕空间）/ mouse X (screen space)
+     *  @param my 鼠标 Y 坐标（屏幕空间）/ mouse Y (screen space) */
     public void renderBg(GuiGraphics g, int mx, int my) {
         advanceCameraTransition(); // 每帧推进视角过渡动画 / advance camera transition per frame
         var graph = getGraph();
@@ -2216,7 +2386,14 @@ public class GraphEditor {
         renderPresenceOverlay(g);
     }
 
-    /** Render remote cursors and online list. Called from renderBg + MonitorScreen.displayMode. */
+    /** Render remote cursors and online player list. Called from renderBg + MonitorScreen.displayMode.
+     *  渲染远程光标和在线玩家列表。由 renderBg 和 MonitorScreen.displayMode 调用。
+     *  <p>
+     *  Draws remote player cursors with smoothstep interpolation, remote dragging wires,
+     *  and a player list overlay on the right side. Stale presences (>30s) are cleaned up.
+     *  使用 smoothstep 插值绘制远程玩家光标、远程拖拽中的连线，以及右侧的玩家列表叠加层。
+     *  过期（>30 秒）的在线状态会被清理。
+     *  @param g GuiGraphics 渲染上下文 / rendering context */
     public void renderPresenceOverlay(GuiGraphics g) {
         cleanupStalePresences();
         if (remotePresences.isEmpty()) return;
@@ -2297,6 +2474,17 @@ public class GraphEditor {
         }
     }
 
+    /** 处理鼠标点击事件——节点选择、拖拽、连线、菜单、按钮等所有点击交互。
+     *  Handle mouse click — node selection, drag, wiring, menus, buttons, all click interactions.
+     *  <p>
+     *  This is the main input dispatch: hit-testing, selection, UI panels (bookmarks, export/import,
+     *  color config, comment popup), inline edit areas, node creation menu, connection drag, etc.
+     *  这是主要的输入分发方法：碰撞检测、选择、UI 面板（书签、导入/导出、颜色配置、注释弹窗）、
+     *  内联编辑区、节点创建菜单、连线拖拽等。
+     *  @param mx 鼠标 X（屏幕坐标）/ mouse X (screen coords)
+     *  @param my 鼠标 Y（屏幕坐标）/ mouse Y (screen coords)
+     *  @param btn 鼠标按键（0=左键, 1=右键）/ mouse button (0=left, 1=right)
+     *  @return true 如果事件被消费 / true if the event was consumed */
     public boolean mouseClicked(double mx, double my, int btn) {
         resetBatch(); // discard any incomplete batch to prevent undo stack freeze
         var graph = getGraph();
@@ -3506,6 +3694,11 @@ public class GraphEditor {
             || node.type == NodeType.ENCAP_OUTPUT || node.type == NodeType.COMMENT;
     }
 
+    /** 处理鼠标释放——完成拖拽、连线、框选等操作，发送同步 op 并记录撤销。
+     *  Handle mouse release — finalize drag, wiring, box-select, send sync ops and record undo.
+     *  @param mx 鼠标 X（屏幕坐标）/ mouse X (screen coords)
+     *  @param my 鼠标 Y（屏幕坐标）/ mouse Y (screen coords)
+     *  @param btn 鼠标按键 / mouse button */
     public void mouseReleased(double mx, double my, int btn) {
         if (colorPicker.isVisible()) { colorPicker.mouseReleased(mx, my, btn); return; }
         var graph = getGraph();
@@ -3940,6 +4133,7 @@ public class GraphEditor {
         host.sendOp(cpOp); recordOp(cpOp, 0, 0, 0, oldCtrlStr);
     }
 
+    /** 在浮点数组指定索引处插入值，返回新数组。 / Insert a float into an array at the given index, returns a new array. */
     private static float[] insertFloat(float[] arr, int idx, float val) {
         float[] r = new float[arr.length + 1];
         System.arraycopy(arr, 0, r, 0, idx);
@@ -3948,6 +4142,7 @@ public class GraphEditor {
         return r;
     }
 
+    /** 从浮点数组中删除指定索引处的值，返回新数组。 / Remove a float at the given index from the array, returns a new array. */
     private static float[] removeFloat(float[] arr, int idx) {
         float[] r = new float[arr.length - 1];
         System.arraycopy(arr, 0, r, 0, idx);
@@ -3955,6 +4150,10 @@ public class GraphEditor {
         return r;
     }
 
+    /** 处理鼠标移动——更新拖拽中的节点/注释位置，处理滚动条拖拽，发送在线状态。
+     *  Handle mouse move — update node/comment position during drag, handle scrollbar drags, send presence.
+     *  @param mx 鼠标 X（屏幕坐标）/ mouse X (screen coords)
+     *  @param my 鼠标 Y（屏幕坐标）/ mouse Y (screen coords) */
     public void mouseMoved(double mx, double my) {
         lastMouseX = mx; lastMouseY = my;
         sendPresenceIfNeeded();
@@ -4130,6 +4329,14 @@ public class GraphEditor {
             }
         }if(draggingWire){wireEndX=s2cX(mx);wireEndY=s2cY(my);}
     }
+    /** 处理鼠标拖拽——控制点拖拽、EditBox 文本选择拖拽、x 标记线拖拽。
+     *  Handle mouse drag — control point drag, EditBox text selection drag, x-marker drag.
+     *  @param mx 鼠标 X（屏幕坐标）/ mouse X (screen coords)
+     *  @param my 鼠标 Y（屏幕坐标）/ mouse Y (screen coords)
+     *  @param btn 鼠标按键 / mouse button
+     *  @param dx X 方向拖拽增量（屏幕空间）/ drag delta X (screen space)
+     *  @param dy Y 方向拖拽增量（屏幕空间）/ drag delta Y (screen space)
+     *  @return true 如果事件被消费 / true if consumed */
     public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
         if (colorPicker.isVisible()) return colorPicker.mouseDragged(mx, my, btn, dx, dy);
         // DEBUG_SIGNAL_GEN 控制点拖拽（X 被夹在相邻点之间 / X clamped between neighbors）
@@ -4160,6 +4367,16 @@ public class GraphEditor {
         }
         return false;
     }
+    /** 处理鼠标滚轮——缩放、注释文本滚动、菜单滚动、书签面板滚动、导入列表滚动。
+     *  Handle mouse scroll — zoom, comment text scroll, menu scroll, bookmark panel scroll, import list scroll.
+     *  <p>
+     *  Ctrl+滚轮滚动注释内文本；普通滚轮缩放视图。
+     *  Ctrl+scroll scrolls comment text; normal scroll zooms the view.
+     *  @param mx 鼠标 X（屏幕坐标）/ mouse X (screen coords)
+     *  @param my 鼠标 Y（屏幕坐标）/ mouse Y (screen coords)
+     *  @param sx X 方向滚动量 / scroll delta X
+     *  @param sy Y 方向滚动量 / scroll delta Y (positive = scroll up/zoom in)
+     *  @return true 如果事件被消费 / true if consumed */
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         if (colorPicker.isVisible() && colorPicker.mouseScrolled(mx, my, sy)) return true;
         if (showMenu) { renderer.scrollMenu((float)(-sy * 14)); return true; }
@@ -4212,6 +4429,14 @@ public class GraphEditor {
         float oz=zoom; zoom*=(sy>0)?1.12f:(1f/1.12f); zoom=Math.max(0.25f,Math.min(4f,zoom));
         camX+=(mx-host.asScreen().width/2f)*(1f/zoom-1f/oz); camY+=(my-host.asScreen().height/2f)*(1f/zoom-1f/oz); return true;
     }
+    /** 处理键盘按键——ESC 关闭面板、Enter 提交编辑、Ctrl+Z/Y 撤销重做、
+     *  Ctrl+D 复制、X 键删除、Delete 删除、C 键创建注释、TAB 框选模式等。
+     *  Handle keyboard input — ESC closes panels, Enter commits edits, Ctrl+Z/Y undo/redo,
+     *  Ctrl+D duplicate, X/Delete remove nodes, C create comment, TAB box-select mode, etc.
+     *  @param key GLFW 键码 / GLFW key code
+     *  @param sc 扫描码 / scan code
+     *  @param mod 修饰键位掩码 / modifier bitmask
+     *  @return true 如果事件被消费 / true if consumed */
     public boolean keyPressed(int key, int sc, int mod) {
         var graph = getGraph();
         // D: 搜索框菜单键盘 / search box menu keyboard
@@ -4533,10 +4758,18 @@ public class GraphEditor {
         }
         return false;
     }
+    /** 处理按键释放——主要用于 TAB 键释放时退出框选模式。
+     *  Handle key release — mainly used to exit box-select mode when TAB is released.
+     *  @return true 如果事件被消费 / true if consumed */
     public boolean keyReleased(int key, int sc, int mod) {
         if (key == 258) { tabHeld = false; return true; }
         return false;
     }
+    /** 处理字符输入——菜单搜索、书签命名、EditBox 文本输入。
+     *  Handle character input — menu search, bookmark naming, EditBox text input.
+     *  @param ch 输入的字符 / the typed character
+     *  @param mod 修饰键位掩码 / modifier bitmask
+     *  @return true 如果事件被消费 / true if consumed */
     public boolean charTyped(char ch, int mod) {
         // D: 菜单搜索输入 / menu search input
         if (showMenu) {
@@ -4590,6 +4823,9 @@ public class GraphEditor {
         g.drawString(mc.font, "§a" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.color.apply"), px + pw - 62, by + 3, 0xFFFFFFFF, false);
     }
 
+    /** 重新编译图——自动折叠所有注释节点，同步未保存编辑，保存并重启运行状态。
+     *  Recompile the graph — auto-close all COMMENT nodes, sync unsaved edits, save and restart running state.
+     *  @param graph 待编译的图 / the graph to recompile */
     private void recompile(NodeGraph graph) {
         cycleWarning=null;
         // Auto-close all COMMENT nodes before compile
@@ -4663,6 +4899,8 @@ public class GraphEditor {
         return null;
     }
 
+    /** 关闭注释颜色编辑弹窗，重置所有相关状态。
+     *  Close the comment color edit popup and reset all related state. */
     private void closeCommentColorPopup() {
         editingCommentColorNode = null;
         commentButtons = null;
@@ -4707,10 +4945,19 @@ public class GraphEditor {
         }
     }
 
+    /** 去除 Markdown 格式标记（粗体、斜体、代码、标题），返回纯文本。
+     *  Strip Markdown formatting markers (bold, italic, code, heading) and return plain text.
+     *  @param line 原始文本行 / raw text line
+     *  @return 去除格式标记后的纯文本 / plain text with formatting stripped */
     private static String plainText(String line) {
         return line.replaceAll("\\*\\*|\\*|`|#\\s?", "");
     }
 
+    /** 计算文本在给定宽度下的自动换行行数。
+     *  Count the number of wrapped lines when text is rendered within a given pixel width.
+     *  @param text 待计算的文本 / text to measure
+     *  @param availW 可用像素宽度 / available pixel width
+     *  @return 换行后的总行数 / total number of wrapped lines */
     private static int countWrappedLines(String text, int availW) {
         var font = Minecraft.getInstance().font;
         int total = 0;
@@ -4729,10 +4976,15 @@ public class GraphEditor {
     }
 
     /** Collect all nodes whose center is inside the comment, saving their sortB
-     *  and nesting depth. Recursive for nested comments. */
+     *  and nesting depth. Recursive for nested comments.
+     *  收集中心在注释框内的所有节点，保存其 sortB 和嵌套深度。递归处理嵌套注释。
+     *  @param comment 父注释节点 / the parent comment node
+     *  @param out 输出 map（节点 → sortB）/ output map (node → sortB) */
     private void collectContainedNodes(GraphNode comment, java.util.Map<GraphNode, Integer> out) {
         collectContainedNodesDepth(comment, out, 0);
     }
+    /** Recursive depth-aware collection of contained nodes. Depth 0 = directly contained,
+     *  higher depths = nested inside inner comments. 递归收集包含节点，带深度感知。*/
     private void collectContainedNodesDepth(GraphNode comment, java.util.Map<GraphNode, Integer> out, int depth) {
         float commentH = fullNodeHeight(comment);
         var candidates = spatialIndex.queryRect(
@@ -4752,10 +5004,15 @@ public class GraphEditor {
         }
     }
 
-    /** Recursively move all nodes whose center is inside the given comment's rectangle. */
+    /** Recursively move all nodes whose center is inside the given comment's rectangle.
+     *  递归移动中心在给定注释框内的所有节点。
+     *  @param comment 父注释节点 / the parent comment node
+     *  @param dx X 方向位移（图空间）/ X translation (graph space)
+     *  @param dy Y 方向位移（图空间）/ Y translation (graph space) */
     private void moveContainedNodes(GraphNode comment, float dx, float dy) {
         moveContainedNodes(comment, dx, dy, new java.util.HashSet<>());
     }
+    /** 内部递归实现，使用 visited set 避免重复移动。 / Internal recursive impl, uses visited set to avoid double-move. */
     private void moveContainedNodes(GraphNode comment, float dx, float dy, java.util.Set<Integer> moved) {
         float commentH = fullNodeHeight(comment);
         var candidates = spatialIndex.queryRect(
@@ -4839,7 +5096,17 @@ public class GraphEditor {
         }
     }
 
-    /** Sort candidates by A-layer first (higher A = visually on top), then B descending. */
+    /** Sort candidates by A-layer first (higher A = visually on top), then B descending within the same A.
+     *  先按 A 层排序（A 值越大越靠上），同 A 层内按 B 降序排列。
+     *  <p>
+     *  A=1 for COMMENT nodes (behind A=3 nodes), A=3 for regular nodes.
+     *  This ensures that when a click overlaps both a comment and a regular node,
+     *  the regular node (visually on top) is hit first.
+     *  注释节点 A=1（在 A=3 的常规节点之后），确保点击同时覆盖注释和常规节点时，
+     *  视觉上在上的常规节点优先被命中。
+     *  @param a 节点 A / node A
+     *  @param b 节点 B / node B
+     *  @return 比较结果（负值 a 在前，正值 b 在前）/ comparison result */
     private static int compareHitOrder(GraphNode a, GraphNode b) {
         int aA = a.type == NodeType.COMMENT ? 1 : 3;  // A=1 comments behind A=3 nodes
         int bA = b.type == NodeType.COMMENT ? 1 : 3;
@@ -4848,6 +5115,11 @@ public class GraphEditor {
         return Integer.compare(b.sortB, a.sortB); // higher B first within same A
     }
 
+    /** 检测鼠标位置下最上层的节点（按 A 层排序，含展开面板高度）。
+     *  Hit-test the topmost node under the mouse cursor (sorted by A-layer, includes expanded panel height).
+     *  @param mx 鼠标 X（屏幕坐标）/ mouse X (screen coords)
+     *  @param my 鼠标 Y（屏幕坐标）/ mouse Y (screen coords)
+     *  @return 命中的节点，无命中返回 null / the hit node, or null */
     private GraphNode hitNode(double mx, double my) {
         float scx = s2cX(mx), scy = s2cY(my);
         var candidates = spatialIndex.queryPoint(scx, scy);
@@ -4863,6 +5135,11 @@ public class GraphEditor {
         }
         return null;
     }
+    /** 检测鼠标位置下的连线（对贝塞尔曲线做逐段距离检测，阈值 12px）。
+     *  Hit-test connections under the mouse cursor (segment-by-segment distance check on bezier curves, 12px threshold).
+     *  @param mx 鼠标 X（屏幕坐标）/ mouse X (screen coords)
+     *  @param my 鼠标 Y（屏幕坐标）/ mouse Y (screen coords)
+     *  @return 命中的连线，无命中返回 null / the hit connection, or null */
     private NodeConnection hitConn(double mx, double my) {
         var graph = getGraph();
         NodeConnection best=null;
@@ -4900,6 +5177,7 @@ public class GraphEditor {
         }
         return best;
     }
+    /** 计算点到线段的最短距离。 / Compute the shortest distance from a point to a line segment. */
     private static float distanceToSegment(float px,float py,float x1,float y1,float x2,float y2){
         float abx=x2-x1, aby=y2-y1, apx=px-x1, apy=py-y1;
         float dot=apx*abx+apy*aby, len2=abx*abx+aby*aby;
@@ -4917,11 +5195,17 @@ public class GraphEditor {
 
     // ── 封装节点导入/导出 (Encapsulation node import/export) ──────────────────────────────────
 
+    /** 获取封装节点导出目录的默认路径。 / Get the default export directory path for encapsulation nodes.
+     *  @return 导出路径（create_schematic_compute/exports/ 目录） */
     private static Path getExportPath() {
         return Minecraft.getInstance().gameDirectory.toPath()
             .resolve("create_schematic_compute").resolve("exports").resolve("encap_export.nbt");
     }
 
+    /** 将封装节点导出为 NBT 文件。自动跳过重名文件（追加序号），导出时移除调试节点。
+     *  Export an encapsulation node as an NBT file. Auto-renames to avoid overwrites, strips debug nodes.
+     *  @param node 待导出的封装节点 / the encapsulation node to export
+     *  @param name 导出文件名（不含 .nbt 后缀）/ export filename (without .nbt extension) */
     private void exportEncapNode(GraphNode node, String name) {
         if (node.type != NodeType.ENCAPSULATION) return;
         try {
@@ -4958,6 +5242,9 @@ public class GraphEditor {
         }
     }
 
+    /** 从 NBT 文件导入封装节点，分配新 ID 并加入当前图。
+     *  Import an encapsulation node from an NBT file, assign new ID and add to the current graph.
+     *  @param file 包含封装节点的 .nbt 文件路径 / path to the .nbt file containing the encapsulation node */
     private void importEncapNode(Path file) {
         try {
             var level = Minecraft.getInstance().level;
@@ -4981,9 +5268,13 @@ public class GraphEditor {
         }
     }
 
+    /** 节点渲染常量缓存（避免每次通过 NodeRenderer 引用）/ cached node rendering constants (avoid NodeRenderer indirection each time) */
     static final int NW=NodeRenderer.NW, HH=NodeRenderer.HH, PH=NodeRenderer.PH;
 
     // ── Fast number formatting to avoid String.format allocation (Phase 1) ──
+    // 快速数字格式化，避免 String.format 分配开销
+    /** 格式化浮点数为 3 位小数（四舍五入）/ format float to 3 decimal places (rounded) */
     static String ff3(float v) { return Float.toString((float)Math.round(v * 1000) / 1000); }
+    /** 格式化 int 为 8 位大写十六进制（前导零补齐）/ format int to 8-char uppercase hex (zero-padded) */
     static String hex8(int v) { String h = Integer.toHexString(v).toUpperCase(); return "00000000".substring(h.length()) + h; }
 }

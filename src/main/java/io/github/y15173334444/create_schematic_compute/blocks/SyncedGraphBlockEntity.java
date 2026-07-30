@@ -64,17 +64,62 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         implements MenuProvider, IMergeableBE, GraphBlockEntity {
 
     // ── Common fields / 通用字段 ──
+
+    /** The node graph hosted by this block entity — the core data model.
+     *  此方块实体托管的节点图 —— 核心数据模型。 */
     public NodeGraph graph = new NodeGraph();
+
+    /** Whether this block entity is currently evaluating its graph each tick.
+     *  此方块实体当前是否每 tick 都在求值其图。 */
     public boolean running = false;
+
+    /** Per-entity runtime state holding PID accumulators, flipflop states,
+     *  sub-graph states, and debug timing data.
+     *  每个实体的运行时状态，保存 PID 累加器、触发器状态、子图状态和调试计时数据。 */
     public final RuntimeState runtimeState = new RuntimeState();
+
+    /** Helper for managing Create redstone link I/O bound to this block entity.
+     *  管理绑定到此方块实体的 Create 红石链接输入/输出的辅助器。 */
     protected final RedstoneLinkHelper rs = new RedstoneLinkHelper(this);
+
+    /** The evaluator that executes the graph each tick. Rebuilt on graph change.
+     *  每 tick 执行图求值的求值器。图变更时重建。 */
     protected GraphEvaluator evaluator = null;
+
+    /** Reference to the graph for which the current evaluator was built.
+     *  Used to detect in-place mutations by comparing generations.
+     *  指向当前求值器所基于的图的引用。用于通过比较代数来检测就地变更。 */
     protected NodeGraph lastEvaluatedGraph = null;
+
+    /** Graph generation at the time of the last evaluator build.
+     *  Compared against {@link NodeGraph#graphGeneration} to detect changes.
+     *  上次构建求值器时的图代数。与 graphGeneration 比较以检测变更。 */
     protected int lastGraphGeneration = -1;
+
+    /** Cached hash map of BUS channel states at the last evaluation.
+     *  Key: node ID, Value: hashed bus state. Used to detect BUS value changes
+     *  and trigger channel broadcasts only when values actually differ.
+     *  上次求值时 BUS 通道状态的缓存哈希映射。
+     *  Key: 节点 ID, Value: 哈希化的总线状态。用于检测 BUS 值变更，
+     *  仅在值实际不同时才触发通道广播。 */
     protected final HashMap<Integer, Integer> lastBusHashMap = new HashMap<>();
+
+    /** When true, the next {@link #getUpdateTag} call will include the full graph NBT.
+     *  Set on graph mutation, BUS re-registration, or manual {@link #flagFullSync}.
+     *  为 true 时，下一次 getUpdateTag 调用将包含完整图 NBT。
+     *  在图变更、BUS 重新注册或手动调用 flagFullSync 时设置。 */
     protected boolean needsFullSync = true;
+
+    /** Game time at which the last full sync was requested.
+     *  Used together with {@link #FULL_SYNC_GRACE_TICKS} to throttle sync frequency.
+     *  上次请求完整同步时的游戏时间。与 FULL_SYNC_GRACE_TICKS 配合使用以限制同步频率。 */
     private long lastFullSyncGameTime = 0;
+
+    /** Minimum ticks between two consecutive full graph syncs.
+     *  Prevents network spam when many graph mutations happen in quick succession.
+     *  两次连续完整图同步之间的最小 tick 数。防止快速连续发生大量图变更时网络刷屏。 */
     private static final int FULL_SYNC_GRACE_TICKS = 40;
+
     /** Snapshot of BUS_OUT (signalName + "@" + nodeId) keys from the last recompile.
      *  Because {@link #lastEvaluatedGraph} is a reference (not a copy), it cannot
      *  detect node removals when the graph is mutated in-place. This set tracks
@@ -96,11 +141,19 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     private boolean busRegistrationPending = true;
 
     /** Set to true on the client once the graph NBT has been loaded from the server.
-     *  Allows the client UI (e.g. GraphEditor) to check whether the graph is ready for rendering. */
+     *  Allows the client UI (e.g. GraphEditor) to check whether the graph is ready for rendering.
+     *  客户端在从服务端加载图 NBT 后设置为 true。允许客户端 UI（如 GraphEditor）检查图是否准备好渲染。 */
     public transient boolean graphReady = false;
 
+    // ── BUS registration guard / BUS 注册守卫 ──
+
     /** Call at the start of each tick to guarantee BUS channels are registered at least once.
-     *  在每个 tick 开始时调用，以确保 BUS 通道至少被注册一次。 */
+     *  This is a lazy one-shot guard: after the first call, busRegistrationPending flips to
+     *  false and becomes a no-op. Designed so that old world saves (where BUS channels were
+     *  never explicitly registered) get auto-repaired on first load.
+     *  在每个 tick 开始时调用，以确保 BUS 通道至少被注册一次。
+     *  这是一个惰性一次性守卫：首次调用后 busRegistrationPending 翻转为 false 并变为空操作。
+     *  设计用于旧世界存档（BUS 通道从未显式注册过）在首次加载时自动修复。 */
     protected void ensureBusRegistered() {
         if (busRegistrationPending) {
             busRegistrationPending = false;
@@ -109,23 +162,62 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     }
 
     // ── RedstoneLinkHelper accessors / RedstoneLinkHelper 访问器 ──
+
+    /** Store a redstone input signal value for a given frequency key.
+     *  存储给定频率键的红石输入信号值。
+     *  @param freqKey the Create redstone link frequency key / Create 红石链接频率键
+     *  @param signal  the redstone signal strength (0-15) / 红石信号强度（0-15） */
     public void putRedstoneInput(long freqKey, int signal) { rs.putInput(freqKey, signal); }
+
+    /** Retrieve the last-known redstone input signal for a given frequency key.
+     *  获取给定频率键的最后已知红石输入信号。
+     *  @param freqKey the Create redstone link frequency key / Create 红石链接频率键
+     *  @return the cached signal strength, or 0 if never set / 缓存的信号强度，从未设置则返回 0 */
     public int getRedstoneInput(long freqKey) { return rs.getInput(freqKey); }
 
+    /**
+     * Construct a new graph-hosting block entity.
+     * 构造一个新的托管图的方块实体。
+     *
+     * @param type  the registered block entity type / 已注册的方块实体类型
+     * @param pos   the block position in the world / 世界中的方块坐标
+     * @param state the block state at this position / 此位置的方块状态
+     */
     protected SyncedGraphBlockEntity(BlockEntityType<?> type, BlockPos pos, BlockState state) {
         super(type, pos, state);
     }
 
     // ── GraphBlockEntity interface / GraphBlockEntity 接口 ──
+
+    /** @return the node graph hosted by this BE / 此 BE 托管的节点图 */
     @Override public NodeGraph getNodeGraph() { return graph; }
+
+    /** @return whether the graph evaluator is currently running / 图求值器当前是否在运行 */
     @Override public boolean isRunning() { return running; }
+
+    /** Set the running state and mark the BE as changed for saving.
+     *  设置运行状态并标记 BE 已变更以便保存。
+     *  @param r true to start evaluation, false to stop / true 开始求值，false 停止 */
     @Override public void setRunning(boolean r) { running = r; setChanged(); }
+
+    /** @return true if the graph contains directed cycles / 如果图包含有向环则返回 true */
     @Override public boolean graphHasCycles() { return graph.hasCycles(); }
+
+    /** Clear all PID controller accumulators in the runtime state.
+     *  清除运行时状态中的所有 PID 控制器累加器。 */
     @Override public void clearPidState() { runtimeState.pidState.clear(); }
+
+    /** Replace flipflop states with the given map (used for client-server sync).
+     *  用给定映射替换触发器状态（用于客户端-服务端同步）。
+     *  @param states map of node ID to flipflop output value / 节点 ID 到触发器输出值的映射 */
     @Override public void syncFlipflopStates(java.util.Map<Integer, Boolean> states) {
         runtimeState.flipflopStates.clear();
         if (states != null) runtimeState.flipflopStates.putAll(states);
     }
+
+    /** Replace sub-graph flipflop states from the server (used for ENCAPSULATION nodes).
+     *  从服务端替换子图触发器状态（用于 ENCAPSULATION 节点）。
+     *  @param subStates map of sub-graph ID to (node ID → flipflop value) / 子图 ID 到（节点 ID → 触发器值）的映射 */
     @Override public void syncSubFlipflopStates(java.util.Map<Integer, java.util.Map<Integer, Boolean>> subStates) {
         runtimeState.subStates.clear();
         if (subStates != null) {
@@ -135,11 +227,22 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
             }
         }
     }
+
+    /** Apply BUS band list from the server to the client-side graph.
+     *  将服务端的 BUS 频段列表应用到客户端图。
+     *  @param busName the BUS signal name / BUS 信号名称
+     *  @param bands   the list of band identifiers / 频段标识符列表 */
     @Override public void syncBusBandsFromServer(String busName, java.util.List<String> bands) {
         BusChannelHelper.syncBandsFromServer(busName, bands, graph);
     }
 
     // ── Redstone links lifecycle / 红石链接生命周期 ──
+
+    /** Called when the block entity is added to the world.
+     *  Loads redstone link associations and bumps graph generation to force a full
+     *  recompile on the first tick (ensures BUS channels and evaluator caches are rebuilt).
+     *  方块实体被添加到世界时调用。加载红石链接关联并递增图代数，
+     *  以在首次 tick 时强制完全重编译（确保 BUS 通道和求值器缓存被重建）。 */
     @Override public void onLoad() {
         super.onLoad();
         rs.onLoad(graph);
@@ -152,11 +255,27 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
             graph.bumpGeneration();
         }
     }
+
+    /** Called when the chunk containing this BE is unloaded.
+     *  Cleans up BUS channels on both client and server before the BE goes dormant.
+     *  包含此 BE 的区块被卸载时调用。在 BE 休眠之前清理客户端和服务端的 BUS 通道。 */
     @Override public void onChunkUnloaded() { cleanupBusChannels(graph); unregisterBusChannels(graph); super.onChunkUnloaded(); rs.onChunkUnloaded(); }
+
+    /** Called when the block is removed from the world.
+     *  Performs full BUS channel teardown: client cleanup + server unregistration.
+     *  方块从世界中移除时调用。执行完整的 BUS 通道拆除：客户端清理 + 服务端注销。 */
     @Override public void setRemoved() { cleanupBusChannels(graph); unregisterBusChannels(graph); rs.setRemoved(); super.setRemoved(); }
 
     // ── BUS channel lifecycle (safe no-ops — BEs without BUS just inherit these)
     //      BUS 通道生命周期（安全空操作 —— 无 BUS 的 BE 直接继承即可） ──
+
+    /** Register all BUS_IN and BUS_OUT nodes in the current graph with the server's
+     *  SignalBus. Called once on first tick (via {@link #ensureBusRegistered}) and
+     *  again on each recompile. Triggers a block update if any channels were registered
+     *  so that tracking clients receive the updated graph NBT including busConflict flags.
+     *  向服务端 SignalBus 注册当前图中所有 BUS_IN 和 BUS_OUT 节点。
+     *  首次 tick 时调用一次（通过 ensureBusRegistered），每次重编译时再次调用。
+     *  如果有任何通道被注册，触发放块更新，使追踪客户端接收包含 busConflict 标志的更新图 NBT。 */
     protected void registerBusChannels() {
         if (BusChannelHelper.registerChannels(graph, worldPosition, level)) {
             needsFullSync = true;
@@ -169,24 +288,45 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
             if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
     }
+
+    /** Clear client-side BUS band caches for all BUS_IN/BUS_OUT nodes in the graph.
+     *  This broadcasts empty band lists; should only be called when the BE is being
+     *  unloaded or removed — not during a graph reload.
+     *  清除图中所有 BUS_IN/BUS_OUT 节点的客户端 BUS 频段缓存。
+     *  这会广播空频段列表；应仅在 BE 被卸载或移除时调用 —— 而不是在图重载期间。
+     *  @param g the graph whose BUS nodes to clean up / 要清理其 BUS 节点的图 */
     protected void cleanupBusChannels(NodeGraph g) {
         BusChannelHelper.cleanupClientBands(g, worldPosition, level);
     }
+
+    /** Unregister all BUS_IN and BUS_OUT channels from the server's SignalBus.
+     *  从服务端 SignalBus 注销所有 BUS_IN 和 BUS_OUT 通道。
+     *  @param g the graph whose BUS nodes to unregister / 要注销其 BUS 节点的图 */
     protected void unregisterBusChannels(NodeGraph g) {
         BusChannelHelper.unregisterChannels(g, worldPosition, level);
     }
 
     // ── Graph change detection / 图变更检测 ──
+
     /** True when the evaluator needs rebuilding (graph changed since last check).
-     *  当求值器需要重建时为 true（自上次检查以来图结构已更改）。 */
+     *  Compares {@link #lastGraphGeneration} against the graph's current generation;
+     *  also true when no evaluator has been built yet (evaluator == null).
+     *  当求值器需要重建时为 true（自上次检查以来图结构已更改）。
+     *  比较 lastGraphGeneration 与图的当前代数；尚未构建求值器时（evaluator == null）也为 true。 */
     protected boolean graphChanged() {
         return evaluator == null || lastGraphGeneration != graph.graphGeneration;
     }
 
     /** Rebuild evaluator and re-register BUS channels after a graph change.
-     *  Only clears pidState — subStates (ENCAPSULATION sub-graph state) is preserved.
+     *  Only clears pidState — subStates (ENCAPSULATION sub-graph state) is preserved
+     *  so that nested timing nodes retain their state across recompiles.
+     *  Uses diff-based BUS re-registration ({@link BusChannelHelper#reRegisterChannels})
+     *  to prevent newly-added BUS_OUT nodes from stealing channels from existing owners.
      *  在图结构变更后重建求值器并重新注册 BUS 通道。
-     *  仅清除 pidState —— subStates（ENCAPSULATION 子图状态）会被保留。 */
+     *  仅清除 pidState —— subStates（ENCAPSULATION 子图状态）会被保留，
+     *  使嵌套时序节点在重编译期间保持其状态。
+     *  使用基于差异的 BUS 重新注册（reRegisterChannels），防止新添加的 BUS_OUT 节点
+     *  从现有所有者窃取频道。 */
     protected void recompileEvaluator() {
         NodeGraph oldGraph = lastEvaluatedGraph;
         if (oldGraph != null) {
@@ -221,8 +361,13 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
 
     /** Full rebuild that also resets delay queues, flipflop states and pulse timers.
      *  Used by Blueprint and ProgramComputer (which use timing/state nodes).
+     *  Before clearing, saves and restores sub-graph state (DELAY queues, flipflops,
+     *  pulse timers, PID state) so that encapsulation timing nodes survive the rebuild.
+     *  Also restores debugTime so that frequency-generate mode phase persists.
      *  完全重建，同时重置延迟队列、触发器状态和脉冲计时器。
-     *  供 Blueprint 和 ProgramComputer（使用时序/状态节点）使用。 */
+     *  供 Blueprint 和 ProgramComputer（使用时序/状态节点）使用。
+     *  清除前保存并恢复子图状态（DELAY 队列、触发器、脉冲计时器、PID 状态），
+     *  使封装内的时序节点在重建后仍然存活。同时恢复 debugTime 使频率发生模式相位保持。 */
     protected void recompileEvaluatorFull() {
         Map<Integer, Float> savedDebugTime = null;
         Map<Integer, RuntimeState.SubState> savedSubStates = null;
@@ -254,6 +399,7 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         lastEvaluatedGraph = graph;
         lastGraphGeneration = graph.graphGeneration;
         // Use diff-based re-registration to preserve channel ownership.
+        // 使用基于差异的重新注册以保留频道所有权。
         if (BusChannelHelper.reRegisterChannels(graph, oldGraph, worldPosition, level)) {
             needsFullSync = true;
             setChanged();
@@ -340,8 +486,12 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     }
 
     // ── Not-running helper / 停止运行辅助方法 ──
+
     /** Clear BUS_OUT maps and write empty redstone outputs when stopped.
-     *  停止时清除 BUS_OUT 映射并写入空的红石输出。 */
+     *  Called by subclasses when the running state transitions to false.
+     *  Prevents stale output values from persisting after the graph stops.
+     *  停止时清除 BUS_OUT 映射并写入空的红石输出。
+     *  由子类在运行状态转换为 false 时调用。防止图停止后残留过时的输出值。 */
     protected void onStopRunning() {
         for (var n : graph.nodes) {
             if (n.type == NodeType.BUS_OUT && n.busInternalMap != null)
@@ -351,8 +501,16 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     }
 
     // ── EvalSnapshot broadcast / EvalSnapshot 广播 ──
+
     /** Broadcast eval snapshot to tracking clients after evaluation completes.
-     *  求值完成后向追踪客户端广播求值快照。 */
+     *  Saves debugTime to RuntimeState before capturing the snapshot so that
+     *  frequency-generate phase data is included in the packet payload.
+     *  The packet is sent via {@link PacketDistributor#sendToPlayersTrackingChunk}
+     *  so only clients with this chunk loaded receive it.
+     *  求值完成后向追踪客户端广播求值快照。
+     *  捕获快照前将 debugTime 保存到 RuntimeState，使频率发生相位数据包含在数据包中。
+     *  数据包通过 PacketDistributor.sendToPlayersTrackingChunk 发送，
+     *  仅加载了此区块的客户端会收到。 */
     protected void broadcastEvalSnapshot() {
         if (level instanceof ServerLevel sl) {
             // 在快照前保存 debugTime 到 RuntimeState（用于 NBT 持久化）/ save debugTime before snapshot for NBT persistence
@@ -365,6 +523,23 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     }
 
     // ── loadGraphFromBytes (from network packet) / 从网络包加载图 ──
+
+    /** Deserialize and replace the current graph from compressed NBT bytes received
+     *  over the network (typically from a client-side editor save).
+     *  从通过网络接收的压缩 NBT 字节（通常来自客户端编辑器保存）反序列化并替换当前图。
+     *
+     *  <p>Before replacing the graph, old BUS channels are unregistered from the
+     *  server's SignalBus. {@link #cleanupBusChannels} is deliberately NOT called
+     *  here because it broadcasts empty BusBandSyncPackets to clients, which would
+     *  clear signalBands and permanently delete all BUS connections. The next tick's
+     *  recompile will re-register channels from the new graph and broadcast the
+     *  correct band lists.</p>
+     *  <p>替换图之前，旧 BUS 通道从服务端 SignalBus 注销。此处故意不调用
+     *  cleanupBusChannels，因为它会向客户端广播空的 BusBandSyncPacket，
+     *  清空 signalBands 并永久删除所有 BUS 连线。下一次 tick 的 recompile
+     *  将从新图重新注册通道并广播正确的频段列表。</p>
+     *
+     *  @param data the compressed NBT bytes containing the serialized graph / 包含序列化图的压缩 NBT 字节 */
     public void loadGraphFromBytes(byte[] data) {
         if (level == null) return;
         try {
@@ -397,6 +572,14 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     }
 
     // ── NBT save/load / NBT 保存/加载 ──
+
+    /** Save the graph, running state, runtime state, and any type-specific data to NBT.
+     *  Called by Minecraft when the chunk is saved or when {@link #getUpdateTag} needs
+     *  the full block entity data for network sync.
+     *  将图、运行状态、运行时状态以及任何类型特定数据保存到 NBT。
+     *  由 Minecraft 在区块保存时或 getUpdateTag 需要完整方块实体数据进行网络同步时调用。
+     *  @param t the compound tag to write into / 要写入的复合标签
+     *  @param r the holder lookup provider for registry access / 用于注册表访问的 HolderLookup.Provider */
     @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.saveAdditional(t, r);
         t.put("graph", graph.save(r));
@@ -405,6 +588,20 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         saveTypeSpecific(t, r);
     }
 
+    /** Load the graph, running state, runtime state, and any type-specific data from NBT.
+     *  On the client side, if a GraphEditor is currently open for this BE, the graph
+     *  replacement is skipped to avoid overwriting in-progress edits with server data
+     *  (which would cause visible value bounce-back in the editor UI).
+     *  BUS channels are NOT registered here — they are lazily registered on the first
+     *  tick via {@link #ensureBusRegistered} to avoid double-registration with the
+     *  generation bump in {@link #onLoad}.
+     *  从 NBT 加载图、运行状态、运行时状态以及任何类型特定数据。
+     *  在客户端，如果当前正为此 BE 打开 GraphEditor，则跳过图替换，以避免用服务端数据
+     *  覆盖正在进行的编辑（这会在编辑器 UI 中导致可见的数值回弹）。
+     *  BUS 通道不在此处注册 —— 它们在首次 tick 时通过 ensureBusRegistered 惰性注册，
+     *  以避免与 onLoad 中的代数递增形成双重注册。
+     *  @param t the compound tag to read from / 要读取的复合标签
+     *  @param r the holder lookup provider for registry access / 用于注册表访问的 HolderLookup.Provider */
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t, r);
         if (t.contains("graph")) {
@@ -446,19 +643,40 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     }
 
     /** Override to save BE-type-specific NBT (e.g. Monitor screen settings).
-     *  覆写以保存 BE 类型特定的 NBT（例如 Monitor 屏幕设置）。 */
+     *  Called from {@link #saveAdditional} after the common fields have been written.
+     *  覆写以保存 BE 类型特定的 NBT（例如 Monitor 屏幕设置）。
+     *  在通用字段写入后由 saveAdditional 调用。
+     *  @param t the compound tag to write into / 要写入的复合标签
+     *  @param r the holder lookup provider / HolderLookup.Provider */
     protected void saveTypeSpecific(CompoundTag t, HolderLookup.Provider r) {}
+
     /** Override to load BE-type-specific NBT.
-     *  覆写以加载 BE 类型特定的 NBT。 */
+     *  Called from {@link #loadAdditional} after the common fields have been read.
+     *  覆写以加载 BE 类型特定的 NBT。
+     *  在通用字段读取后由 loadAdditional 调用。
+     *  @param t the compound tag to read from / 要读取的复合标签
+     *  @param r the holder lookup provider / HolderLookup.Provider */
     protected void loadTypeSpecific(CompoundTag t, HolderLookup.Provider r) {}
 
     // ── Network sync / 网络同步 ──
+
+    /** Create the packet that is sent to clients when this block entity is first loaded
+     *  or when {@code sendBlockUpdated} is called. Delegates to Minecraft's standard
+     *  {@link ClientboundBlockEntityDataPacket} which calls {@link #getUpdateTag}.
+     *  创建当此方块实体首次加载或调用 sendBlockUpdated 时发送给客户端的数据包。
+     *  委托给 Minecraft 标准的 ClientboundBlockEntityDataPacket，后者调用 getUpdateTag。
+     *  @return the update packet, or null if not applicable / 更新数据包，如不适用则返回 null */
     @Nullable @Override public Packet<ClientGamePacketListener> getUpdatePacket() {
         return ClientboundBlockEntityDataPacket.create(this);
     }
 
     /** Force a full graph sync to all tracking clients (called when a new editor joins).
-     *  强制向所有追踪客户端进行完整图同步（当新编辑器加入时调用）。 */
+     *  Sets {@link #needsFullSync} to true so that the next {@link #getUpdateTag} call
+     *  includes the complete graph NBT. Also records the current game time for
+     *  throttling and triggers an immediate block update.
+     *  强制向所有追踪客户端进行完整图同步（当新编辑器加入时调用）。
+     *  将 needsFullSync 设为 true，使下一次 getUpdateTag 调用包含完整的图 NBT。
+     *  同时记录当前游戏时间用于限流，并触发即时方块更新。 */
     public void flagFullSync() {
         needsFullSync = true;
         lastFullSyncGameTime = (level != null) ? level.getGameTime() : 0;
@@ -473,7 +691,9 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  NBT, leaving {@link #graphReady} permanently false.
      *  始终发送完整图数据，以确保新追踪此区块的客户端无论先前是否有其他客户端
      *  消费了完整同步，都能收到权威的图数据。否则在 needsFullSync 被清除后
-     *  加载区块的客户端将永远收不到图 NBT，导致 graphReady 永久为 false。 */
+     *  加载区块的客户端将永远收不到图 NBT，导致 graphReady 永久为 false。
+     *  @param r the holder lookup provider / HolderLookup.Provider
+     *  @return a compound tag containing all block entity data / 包含所有方块实体数据的复合标签 */
     @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
         var t = new CompoundTag();
         saveAdditional(t, r);
