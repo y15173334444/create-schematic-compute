@@ -3460,12 +3460,26 @@ public class GraphEditor {
                 }
                 return true;
             }
-            // 点击空白区域 → 取消选中（不折叠编辑区） (Click empty area → deselect, without collapsing edit panels)
+            // 点击空白区域 → 先提交未保存的 busBox（回车以外的提交途径），再取消选中。
+            // 修复：原逻辑 syncEditStateToSelection 先清除所有控件 focus，导致后续
+            // busBox.isFocused() 检查失败，点击空白处提交无反应。
+            // Click empty area -> commit any unsaved busBox FIRST (the non-Enter commit
+            // path), then deselect. Fix: syncEditStateToSelection used to clear every
+            // control's focus first, so the later busBox.isFocused() check failed and
+            // clicking empty did nothing. Use a snapshot copy because commitBusBox
+            // rebuilds the edit state (modifies nodeEditStatesById) during iteration.
+            for (var st : java.util.List.copyOf(nodeEditStatesById.values())) {
+                if (st.busBox != null && st.busBox.isFocused()
+                    && !st.busBox.getValue().equals(st.busNode.signalName)) {
+                    commitBusBox(st);
+                }
+            }
             selectedNodes.clear(); selectedNode=null;
             syncEditStateToSelection(); // 取消选中后，同步清掉所有节点的控件状态
             panning=true; panLastX=(float)mx; panLastY=(float)my;
         }
         // busBox 失焦提交（在按钮处理之后，避免 createEditState 冲掉频段编辑） (busBox focus-lost commit, after button handling to avoid createEditState overwriting band edits)
+        // 注：已提交的 busBox 不再 isFocused，此循环无副作用；保留以防其他路径需要。
         for (var st : nodeEditStatesById.values()) {
             if (st.busBox != null && st.busBox.isFocused() && !st.busBox.getValue().equals(st.busNode.signalName))
                 { commitBusBox(st); break; }
