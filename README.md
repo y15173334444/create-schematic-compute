@@ -530,6 +530,17 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 <details>
 <summary><b>v1.2.4.1</b></summary>
 
+- **回归审计 + 总线系统修复**：对 1915202 起的改动做全量业务逻辑审计（6 路并行 + 对抗验证），修复雷达红石输出失效、传感器子关卡姿态误用、flipflop 同步风暴、子图状态泄漏、Sable 专用服务器反射错误等。
+- **总线跨方块编辑修复**：创建同名 BUS_OUT 不再自动同步覆盖原频道 owner 的 band 定义；改名保留自身 band 与连线（BUS_IN 采用新频道 band）；点击空白处提交频道名；修复反复编译+运行导致 BUS_IN 读 0（loadGraphFromBytes 的 generation 冲突）；自身 BUS_OUT 不再误报冲突。
+- **Sable 兼容层加固**：反射访问改编译期桥，专用服务器不再触发 ClientLevel 加载错误；雷达 Sable 结构扫描在专用服务器正常；无 Sable 环境安全回退。
+- **编辑器冲突检测**：修复 crossConflict 死代码（客户端从不显示跨方块冲突），改名/删除时 `localBusNames` 保持同步。
+- **雷达锁定**：空中 blip 锁定不再被方块 UI 拦截；移除编辑会话成员校验（锁定是使用操作）。
+
+</details>
+
+<details>
+<summary><b>v1.2.4.1 (original)</b></summary>
+
 - **封装节点输出假数值**：修复 `recompileEvaluatorFull()` 的 `runtimeState.clear()` 清除子图时序组件状态（DELAY/LATCH/flipflop 等），导致封装内部计算偏差。1.2.3 的子评估器缓存掩盖了此问题，修复缓存失效后暴露。现在重编译前保存并恢复 `subStates`。
 - **封装内时序节点编辑区状态**：扩展 `RuntimeStateSyncPacket` 携带子图 flipflop 状态，编辑器在子图内显示正确的时序节点实时状态。
 - **子图展开状态初始化**：修复进出封装节点后 `expandedInitDone` 未重置，导致子图展开节点不恢复。
