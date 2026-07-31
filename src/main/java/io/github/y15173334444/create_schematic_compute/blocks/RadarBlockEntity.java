@@ -552,6 +552,10 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         var results = evaluator.evaluate(in, runtimeState.pidState, 0.05f, si,
             new HashMap<>(), new HashMap<>(), new HashMap<>());
         evaluator.setRadarPos(null);
+        // Write REDSTONE_OUT results back to Create's redstone-link network.
+        // Regressed in 9c46fb9 (line deleted during comment rewrite) — restored.
+        // 将 REDSTONE_OUT 结果写回 Create 红石链接网络。9c46fb9 误删，已恢复。
+        rs.writeOutputs(results);
         // Broadcast EvalSnapshot to clients for DEBUG_PROBE sampling.
         // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）。
         broadcastEvalSnapshot();
@@ -690,6 +694,9 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) {
                 graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
+                // Force generation bump so graphChanged() triggers recompile + BUS re-registration.
+                // 强制 bump 代数，确保下一 tick 重编译并重新注册 BUS 频道。
+                graph.bumpGeneration();
                 rs.onLoad(graph);
             }
             needsFullSync = true; setChanged();

@@ -80,6 +80,9 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
                 // Do NOT call cleanupBusChannels — it broadcasts empty band syncs to clients,
                 // permanently deleting BUS connections. Next tick's recompile restores correct bands.
                 graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
+                // Force generation bump so graphChanged() triggers recompile + BUS re-registration.
+                // 强制 bump 代数，确保下一 tick 重编译并重新注册 BUS 频道。
+                graph.bumpGeneration();
             }
             if (t != null) loadSettings(t);
             rs.onLoad(graph);

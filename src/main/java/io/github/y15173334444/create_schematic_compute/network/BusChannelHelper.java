@@ -41,6 +41,13 @@ public final class BusChannelHelper {
                 if (n.busInternalMap == null) n.busInternalMap = new HashMap<>();
                 boolean ok = SignalBus.registerChannel(n.signalName, n.busInternalMap,
                     new ChannelOwner(pos, n.id));
+                // 注：此处不做"过时 owner 强制清理"——注册失败只标冲突，所有权保持
+                // "首个注册者获胜"稳定语义。残留 owner 回收由 recoverConflictedChannels
+                // 的 chunk-loaded 超时机制处理（见下方），避免误杀其他方块存活的同名牌。
+                // Note: no stale-owner force-cleanup here — a failed registration only
+                // marks conflict, preserving stable first-registrant-wins semantics.
+                // Residual-owner reclamation is handled by recoverConflictedChannels'
+                // chunk-loaded timeout, avoiding stealing a live peer's channel.
                 if (n.busConflict != !ok) anyConflict = true;
                 n.busConflict = !ok;
                 // EN: Registration succeeded → immediately sync bands to BAND_REGISTRY and broadcast to clients
@@ -276,6 +283,11 @@ public final class BusChannelHelper {
                     ok = SignalBus.registerChannel(n.signalName, n.busInternalMap,
                         new ChannelOwner(pos, n.id));
                 }
+                // 注：不做"过时 owner 强制清理"——与 registerChannels 一致，所有权
+                // 保持首个注册者获胜。残留回收交给 recoverConflictedChannels。
+                // Note: no stale-owner force-cleanup here either — consistent with
+                // registerChannels, preserving first-registrant-wins. Residual-owner
+                // reclamation is delegated to recoverConflictedChannels.
                 if (n.busConflict != !ok) anyConflict = true;
                 n.busConflict = !ok;
                 if (ok && n.signalBands != null && !n.signalBands.isEmpty()) {
@@ -317,13 +329,42 @@ public final class BusChannelHelper {
                     takeoverChannel(n, pos, level);
                     anyRecovered = true;
                 } else if (level instanceof ServerLevel sl) {
-                    // Channel is still held — check if the current owner's chunk is loaded
-                    // 频道仍被持有 — 检查当前 owner 的区块是否已加载
+                    // Channel is still held — check whether the current owner is actually alive.
+                    // Liveness = the owner's chunk is loaded AND a graph-hosting block entity
+                    // still exists at the owner's position. If the chunk is loaded but the
+                    // block is gone (removed without channel cleanup), reclaim after a SHORT
+                    // timeout instead of waiting for the chunk to unload (which may never
+                    // happen). The short timeout (rather than immediate takeover) gives a
+                    // safety buffer for Sable sub-level cases where the block entity position
+                    // may transiently not resolve via overworld coordinates — we never steal
+                    // from a possibly-live owner.
+                    // 频道仍被持有 — 检查当前 owner 是否真正存活。
+                    // 存活判定 = owner 区块已加载 且 该坐标仍存在图宿主方块实体。
+                    // 若区块已加载但方块已消失（移除时未清理频道），用一个较短超时回收，
+                    // 而不是等待区块卸载（可能永远不会发生）。
+                    // 用短超时而非立即接管，是为 Sable 子关卡场景留缓冲：子关卡方块坐标
+                    // 可能瞬时无法通过主世界坐标解析——绝不从可能存活的 owner 处强夺。
                     int cx = entry.owner.pos().getX() >> 4;
                     int cz = entry.owner.pos().getZ() >> 4;
-                    boolean ownerLoaded = sl.getChunkSource().getChunkNow(cx, cz) != null;
-                    if (ownerLoaded) {
-                        n.busConflictTicks = 0; // owner is alive, reset counter
+                    boolean ownerChunkLoaded = sl.getChunkSource().getChunkNow(cx, cz) != null;
+                    if (ownerChunkLoaded) {
+                        boolean ownerBeAlive = sl.getBlockEntity(entry.owner.pos())
+                            instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+                        if (ownerBeAlive) {
+                            n.busConflictTicks = 0; // owner is alive, reset counter
+                        } else {
+                            // Owner's chunk is loaded but no graph BE at that position — the
+                            // channel is likely a stale residue. Use a short timeout (40 ticks
+                            // ≈ 2 s) before reclaiming, to tolerate transient Sable lookups.
+                            // owner 区块已加载但该位置无图宿主 BE — 频道很可能是残留。
+                            // 用短超时（40 tick ≈ 2 秒）后再回收，容忍 Sable 瞬时查询失败。
+                            n.busConflictTicks++;
+                            if (n.busConflictTicks > 40) {
+                                SignalBus.unregisterChannel(n.signalName, entry.owner);
+                                takeoverChannel(n, pos, level);
+                                anyRecovered = true;
+                            }
+                        }
                     } else {
                         n.busConflictTicks++;
                         // After 200 ticks (~10 s) with owner chunk unloaded, force takeover

@@ -387,10 +387,22 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         }
         unregisterRemovedBusOutNodes();
         evaluator = new GraphEvaluator(graph);
-        // Restore sub-graph state to runtimeState so the new evaluator picks it up
-        // 将子图状态恢复到 runtimeState，使新评估器能获取
+        // Restore sub-graph state to runtimeState so the new evaluator picks it up,
+        // but only for ENCAPSULATION nodes still present in the current graph —
+        // prunes state for deleted encaps so stale DELAY/flipflop/PID no longer
+        // leaks into NBT or keeps the flipflop diff perpetually dirty.
+        // 将子图状态恢复到 runtimeState，使新评估器能获取；但只恢复当前图中
+        // 仍存在的 ENCAPSULATION 节点——剪除已删除封装的状态，避免陈旧
+        // DELAY/flipflop/PID 泄漏入 NBT 或让 flipflop diff 永远处于变更态。
         if (savedSubStates != null) {
-            runtimeState.subStates.putAll(savedSubStates);
+            var aliveIds = new java.util.HashSet<Integer>();
+            for (var n : graph.nodes)
+                if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.ENCAPSULATION)
+                    aliveIds.add(n.id);
+            for (var entry : savedSubStates.entrySet()) {
+                if (aliveIds.contains(entry.getKey()))
+                    runtimeState.subStates.put(entry.getKey(), entry.getValue());
+            }
         }
         evaluator.restoreSubState(runtimeState);
         if (savedDebugTime != null && !savedDebugTime.isEmpty()) {
@@ -557,6 +569,24 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
                 // 下一次 tick 的 recompile 会从新图重新注册频道并广播正确的频段列表。
                 unregisterBusChannels(graph);
                 graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
+                // Force a generation bump so graphChanged() fires on the next tick.
+                // NodeGraph.load produces a fresh graph with generation 0, which can
+                // equal lastGraphGeneration (e.g. an empty graph) — without the bump,
+                // recompile (and BUS re-registration) would be skipped and the new
+                // graph's BUS_OUT channels would never register → BUS_IN reads 0.
+                // 强制 bump 代数，确保下一 tick graphChanged() 触发重编译。
+                // NodeGraph.load 产生 generation=0 的新图，可能与 lastGraphGeneration
+                // 相等（如空图）——不 bump 则重编译（及 BUS 重注册）被跳过，
+                // 新图 BUS_OUT 永不注册 → BUS_IN 读到 0。
+                graph.bumpGeneration();
+                // The graph was fully replaced — clear sub-graph runtime state so the
+                // next recompile starts from a clean slate. Old-graph ENCAPSULATION
+                // node IDs have no meaning in the new graph; preserving them lets
+                // stale DELAY/flipflop/PID leak across loads.
+                // 图被整体替换——清空子图运行时状态，使下次重编译从干净状态开始。
+                // 旧图的 ENCAPSULATION 节点 ID 在新图中无意义，保留会让陈旧状态泄漏。
+                runtimeState.subStates.clear();
+                runtimeState.flipflopStates.clear();
                 rs.onLoad(graph);
             }
             needsFullSync = true;

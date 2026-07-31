@@ -64,6 +64,19 @@ public final class OpExecutor {
                 // S→C broadcast to non-originator editors: server-assigned ID is authoritative.
                 var node = graph.addNode(op.nodeType(), op.x(), op.y());
                 node.id = op.targetNodeId();
+                // Newly placed BUS_IN has empty signalBands; if the channel already has a
+                // band definition in the global registry (owned by a BUS_OUT, possibly in
+                // another block), initialize the bands so this BUS_IN can read them right
+                // away. Fixes "BUS_OUT writes but BUS_IN reads 0" when the BUS_IN is placed
+                // after the channel definition exists.
+                // 新建 BUS_IN 的 signalBands 为空；若频道在全局注册表中已有 band 定义
+                // （由 BUS_OUT 拥有，可能在另一个方块），立即初始化 band，使此 BUS_IN
+                // 马上能读取。修复频道定义已存在后才放置 BUS_IN 时的 "写入但读 0"。
+                if (node.type == NodeType.BUS_IN && !node.signalName.isEmpty()) {
+                    var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(node.signalName);
+                    if (gb != null && !gb.isEmpty())
+                        node.signalBands = new java.util.ArrayList<>(gb);
+                }
                 // Undo of REMOVE_NODE: restore full node data from NBT snapshot stored in stringValue
                 // REMOVE_NODE 撤销：从 stringValue 中存储的 NBT 快照恢复完整节点数据
                 if (op.stringValue() != null && !op.stringValue().isEmpty() && op.stringValue().charAt(0) == '{') {

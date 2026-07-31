@@ -128,7 +128,7 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
         // Get the sub-level's orientation quaternion. Defaults to identity if no sub-level exists.
         org.joml.Quaterniond subQ = new org.joml.Quaterniond();
         if (level != null && net.neoforged.fml.ModList.get().isLoaded("sable")) {
-            var subQ2 = getSublevelOrientation(level);
+            var subQ2 = getSublevelOrientation(level, worldPosition);
             if (subQ2 != null) subQ = subQ2;
         }
 
@@ -164,27 +164,38 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
      * Retrieves the orientation quaternion of the sub-level (e.g. Sable ship)
      * that contains this block entity, via reflection-based Sable API access.
      * <p>
-     * Returns {@code null} if the level is not inside a sub-level, Sable is not
+     * Returns {@code null} if the block is not inside a sub-level, Sable is not
      * loaded, or any reflection step fails.
      * <p>
      * 通过反射访问 Sable API 获取包含本方块的子关卡（如 Sable 舰船）的朝向四元数。
-     * 如果不在子关卡中、Sable 未加载或反射调用失败，返回 {@code null}。
+     * 如果方块不在子关卡中、Sable 未加载或反射调用失败，返回 {@code null}。
      *
-     * @param level the world level / 世界关卡
+     * @param level         the world level / 世界关卡
+     * @param worldPosition the block position of this sensor / 本传感器方块坐标
      * @return orientation quaternion, or {@code null} / 朝向四元数，失败时为 {@code null}
      */
-    private static org.joml.Quaterniond getSublevelOrientation(net.minecraft.world.level.Level level) {
+    private static org.joml.Quaterniond getSublevelOrientation(net.minecraft.world.level.Level level,
+                                                               net.minecraft.core.BlockPos worldPosition) {
         try {
             if (!io.github.y15173334444.create_schematic_compute.compat.SableReflection.isAvailable()) return null;
             var cnt = io.github.y15173334444.create_schematic_compute.compat.SableReflection.getContainer(level);
             if (cnt == null) return null;
             var allSubs = io.github.y15173334444.create_schematic_compute.compat.SableReflection.getAllSubLevels(cnt);
             if (allSubs.isEmpty()) return null;
-            var pose = io.github.y15173334444.create_schematic_compute.compat.SableReflection.getLogicalPose(allSubs.get(0));
-            if (pose == null) return null;
-            double[] o = io.github.y15173334444.create_schematic_compute.compat.SableReflection.extractOrientation(pose);
-            if (o == null) return null;
-            return new org.joml.Quaterniond(o[0], o[1], o[2], o[3]);
+            // 成员检查：只应用「确实包含本传感器方块」的子关卡姿态，避免引用任意子关卡
+            // Membership check: only apply the pose of a sub-level that actually
+            // contains this sensor's block, never an arbitrary sub-level.
+            for (var sub : allSubs) {
+                var sl = io.github.y15173334444.create_schematic_compute.compat.SableReflection.getSubLevelLevel(sub);
+                if (sl == null) continue;
+                if (sl.getBlockEntity(worldPosition) == null) continue;
+                var pose = io.github.y15173334444.create_schematic_compute.compat.SableReflection.getLogicalPose(sub);
+                if (pose == null) return null;
+                double[] o = io.github.y15173334444.create_schematic_compute.compat.SableReflection.extractOrientation(pose);
+                if (o == null) return null;
+                return new org.joml.Quaterniond(o[0], o[1], o[2], o[3]);
+            }
+            return null;
         } catch (Exception ignored) { return null; }
     }
 

@@ -135,14 +135,17 @@ public final class SableReflection {
         if (initialized) return;  // 已初始化则直接返回 / already initialized, bail out
         initialized = true;        // 先置标志，防止重复进入 / set flag first to prevent re-entry
 
-        // 专用服务器上反射访问不可用，因为 Pose3dc 等引用 ClientLevel
-        // On dedicated server: reflection-based Sable access is unavailable
-        // because Pose3dc etc. reference ClientLevel.
-        if (net.neoforged.fml.loading.FMLEnvironment.dist.isDedicatedServer()) {
-            available = false;
-            SchematicCompute.LOGGER.info("SableReflection: dedicated server — reflection disabled (compat subclasses active)");
-            return;
-        }
+        // 注意：不再按专用服务器硬禁用。javap 验证反射链（SubLevelContainer、
+        // SubLevel、Pose3dc、Vector3dc、Quaterniondc）全部服务端安全——
+        // Pose3dc 是纯 JOML 接口，不引用 ClientLevel。旧代码（9c46fb9 之前）
+        // 无此守卫且专用服务器上正常工作；9c46fb9 引入的硬禁用在专用服务器 +
+        // Sable 环境下使终端无线设备扫描永久为空（回归审计 #4）。
+        // Note: no longer hard-disable on dedicated servers. javap confirms the
+        // reflection chain (SubLevelContainer, SubLevel, Pose3dc, Vector3dc,
+        // Quaterniondc) is fully server-safe — Pose3dc is a pure JOML interface,
+        // no ClientLevel references. Pre-9c46fb9 code had no such guard and
+        // worked on dedicated servers (regression audit #4).
+        // 若某个可选类在专用服务器缺失，各阶段 best-effort 加载会安全降级为 null。
 
         // ── 第一阶段：核心类（必须成功，否则整体不可用） ──
         // ── Phase 1: core classes — must succeed or the whole thing is unavailable ──

@@ -697,12 +697,34 @@ public class GraphEvaluator {
                 int bc = node.bandCount();
                 if (bc > 0) {
                     if (o.length != bc) { o = new float[bc]; node.outputValues = o; }
+                    // Band definition is owned by the channel's BUS_OUT and stored in the
+                    // global BAND_REGISTRY. A BUS_IN in a DIFFERENT block may hold a stale
+                    // signalBands list (BusBandUploadPacket only updates the sender's block),
+                    // so prefer the registry's authoritative band list for KEY LOOKUP. This
+                    // keeps the map key aligned with what BUS_OUT writes, fixing "BUS_OUT
+                    // writes but BUS_IN reads 0" across blocks. The output array size still
+                    // follows the node's own bandCount (pin count is node-defined); if the
+                    // registry is longer we just read the leading bands, if shorter the rest
+                    // fall back to the node's own names.
+                    // band 定义归频道 BUS_OUT 所有，存于全局 BAND_REGISTRY。其他方块中的
+                    // BUS_IN 可能持有过时的 signalBands（BusBandUploadPacket 只更新发送者
+                    // 方块），故 KEY 查询优先用注册表的权威 band 列表，使 map key 与 BUS_OUT
+                    // 写入一致，修复跨方块 "BUS_OUT 写入但 BUS_IN 读 0"。输出数组大小仍
+                    // 遵循节点自身 bandCount（引脚数由节点定义）；注册表更长时只读前几个，
+                    // 更短时其余回退到节点自身名称。
+                    var registered = SignalBus.getBands(node.signalName);
                     ChannelEntry entry = SignalBus.getChannel(node.signalName);
                     if (entry == null) {
                         for (int bi = 0; bi < bc; bi++) o[bi] = 0;
                     } else {
-                        for (int bi = 0; bi < bc; bi++)
-                            o[bi] = entry.internalMap.getOrDefault(node.signalBands.get(bi), 0f);
+                        for (int bi = 0; bi < bc; bi++) {
+                            String key;
+                            if (registered != null && bi < registered.size())
+                                key = registered.get(bi);        // authoritative key / 权威 key
+                            else
+                                key = node.signalBands.get(bi);    // fallback to node list / 回退到节点列表
+                            o[bi] = entry.internalMap.getOrDefault(key, 0f);
+                        }
                     }
                 } else {
                     if (o.length < 1) { o = new float[1]; node.outputValues = o; }
