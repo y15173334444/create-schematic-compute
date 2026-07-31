@@ -505,18 +505,9 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  停止时清除 BUS_OUT 映射并写入空的红石输出。
      *  由子类在运行状态转换为 false 时调用。防止图停止后残留过时的输出值。 */
     protected void onStopRunning() {
-        // 共享模型（回归审计）：求值器不再写 busInternalMap；停止时清零共享频道
-        // map 中本 block 自己的 band（其他生产者下 tick 重新填充）。
-        // Shared model: the evaluator no longer writes busInternalMap; on stop, zero
-        // this block's own bands in the shared channel map (other producers repopulate).
         for (var n : graph.nodes) {
-            if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty() && n.signalBands != null) {
-                var entry = io.github.y15173334444.create_schematic_compute.network.SignalBus.getChannel(n.signalName);
-                if (entry != null) {
-                    var shared = entry.busMap();
-                    for (String b : n.signalBands) shared.put(b, 0f);
-                }
-            }
+            if (n.type == NodeType.BUS_OUT && n.busInternalMap != null)
+                n.busInternalMap.clear();
         }
         rs.writeOutputs(java.util.Collections.emptyList());
     }

@@ -56,24 +56,52 @@ public class SignalBus {
     // ── BUS channel registration API (new) / BUS 频道注册 API（新增） ──────────────────────
 
     /**
-     * Register a BUS_OUT node as a participant of a shared channel.
-     * <p>注册一个 BUS_OUT 节点为共享频道的参与者。</p>
-     * <p>Shared model (回归审计：跨方块同名 BUS_OUT 共享频道而非独占):
-     * every same-name BUS_OUT across blocks joins the SAME channel entry and
-     * writes into the shared map. Always returns true — there is no ownership
-     * conflict; same-graph duplicates are flagged separately as local conflicts.
-     * 共享模型：所有同名 BUS_OUT（可跨方块）加入同一频道条目并写入共享 map。
-     * 恒返回 true——无所有权冲突；同图内重名由本地冲突标记单独处理。</p>
+     * Register a BUS_OUT channel in the global table.
+     * <p>注册一个 BUS_OUT 频道到全局表。</p>
+     * <p>Same owner may re-register (e.g. tick re-entry): updates the internalMap
+     * reference and increments the ref-count.
+     * 同一 owner 可重复注册（如 tick 重入）：更新 internalMap 引用并递增引用计数。</p>
+     * <p>Different owner with same channel name → conflict; prints WARN and returns false.
+     * 不同 owner 使用相同频道名 → 冲突，打印 WARN 并返回 false。</p>
      *
-     * @param channelName bus name (signalName) / 总线名（signalName）
-     * @param owner       participant identifier (pos, nodeId) / 参与者标识
-     * @return true（恒真）/ always true
+     * @param channelName band name (signalName) / 频段名（signalName）
+     * @param internalMap BUS_OUT node's busInternalMap reference / BUS_OUT 节点的 busInternalMap 引用
+     * @param owner       channel owner identifier / 频道所有者标识
+     * @return true on success, false if occupied by another owner / true 注册成功，false 被其他 owner 占用
      */
-    public static boolean registerChannel(String channelName, ChannelOwner owner) {
-        ChannelEntry entry = CHANNELS.computeIfAbsent(channelName, k -> new ChannelEntry());
-        entry.addParticipant(owner);
-        SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' participant added: {}", channelName, owner);
-        return true;
+    public static boolean registerChannel(String channelName, Map<String, Float> internalMap, ChannelOwner owner) {
+        ChannelEntry existing = CHANNELS.get(channelName);
+        if (existing == null) {
+            // EN: First registration — use putIfAbsent to prevent races
+            // 首次注册 — 使用 putIfAbsent 防竞态
+            ChannelEntry created = new ChannelEntry(internalMap, owner);
+            ChannelEntry raced = CHANNELS.putIfAbsent(channelName, created);
+            if (raced == null) {
+                SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' registered by {}", channelName, owner);
+                return true;
+            }
+            existing = raced; // EN: Lost the race, process according to existing entry / 竞态失败，按已有条目处理
+        }
+        // EN: Same owner → update reference; preserve ref-count across internalMap replacement.
+        // 同一 owner → 更新引用；替换 internalMap 时保留引用计数。
+        if (existing.owner.equals(owner)) {
+            if (existing.internalMap != internalMap) {
+                SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' map reference updated by {}", channelName, owner);
+                // Preserve ref-count when replacing the entry with a new map reference.
+                // Old values belong to the previous graph state; each BUS_OUT starts fresh.
+                // 替换条目时保留引用计数。旧值属于之前的图状态，每个 BUS_OUT 重新开始。
+                ChannelEntry updated = new ChannelEntry(internalMap, owner);
+                // Carry forward the old ref-count (don't reset to 1) / 沿用旧引用计数（不重置为1）
+                while (updated.refCount() < existing.refCount()) updated.incrementRef();
+                CHANNELS.put(channelName, updated);
+            }
+            return true;
+        }
+        // EN: Different owner → conflict
+        // 不同 owner → 冲突
+        SchematicCompute.LOGGER.warn("[SignalBus] Channel '{}' already owned by {} — rejected registration by {}",
+            channelName, existing.owner, owner);
+        return false;
     }
 
     /**
@@ -90,18 +118,41 @@ public class SignalBus {
             SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' not found for unregistration by {}", channelName, owner);
             return false;
         }
-        // 共享模型：移除参与者；最后一个参与者离开时清理整个频道
-        // Shared model: remove the participant; tear down the channel when the last leaves
-        if (!existing.removeParticipant(owner, null)) {
-            SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' unregistration by {} — not a participant", channelName, owner);
+        if (!existing.owner.equals(owner)) {
+            SchematicCompute.LOGGER.warn("[SignalBus] Channel '{}' unregistration by {} rejected — owned by {}",
+                channelName, owner, existing.owner);
             return false;
         }
-        if (existing.isEmpty()) {
-            SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' removed (last participant left)", channelName);
+        int remaining = existing.decrementRef();
+        if (remaining <= 0) {
+            SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' removed (refCount reached 0)", channelName);
             CHANNELS.remove(channelName, existing);
             // Clear residual signal data so the channel doesn't pollute the next registrant
             // 清除残留信号数据，防止频道污染下一个注册者
             clearBus(channelName);
+        }
+        return true;
+    }
+
+    /**
+     * Update an existing channel's internalMap reference without changing the ref-count.
+     * <p>更新现有频道的 internalMap 引用，不改变引用计数。</p>
+     * <p>Used during evaluator recompile to refresh the Map reference for BUS_OUT nodes
+     * that were already the channel owner, without the unregister/reregister cycle that
+     * could allow a competing node to steal the channel.
+     * 用于求值器重编译时刷新已是频道所有者的 BUS_OUT 节点的 Map 引用，
+     * 避免取消注册/重新注册循环可能让竞争节点窃取频道。</p>
+     *
+     * @return true if the channel exists and is owned by the specified owner / 频道存在且属于指定所有者时返回 true
+     */
+    public static boolean updateChannel(String channelName, Map<String, Float> internalMap, ChannelOwner owner) {
+        ChannelEntry existing = CHANNELS.get(channelName);
+        if (existing == null || !existing.owner.equals(owner)) return false;
+        if (existing.internalMap != internalMap) {
+            // Preserve ref-count across map reference update / 更新 map 引用时保留引用计数
+            ChannelEntry updated = new ChannelEntry(internalMap, owner);
+            while (updated.refCount() < existing.refCount()) updated.incrementRef();
+            CHANNELS.put(channelName, updated);
         }
         return true;
     }

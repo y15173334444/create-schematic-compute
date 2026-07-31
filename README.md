@@ -234,9 +234,8 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | 🚌 BUS_OUT / 总线输出 | Write values to named channel with bands / 写入命名通道+频段 |
 | 🚌 BUS_IN / 总线输入 | Read band values from channel / 从通道读取频段值 |
 | 📋 Band System / 频段 | Named sub-fields per channel / 每通道命名字段 |
-| 🔗 Shared Channel / 共享通道 | Same-name BUS_OUT across computers SHARE one channel (each writes its bands) / 跨计算机同名 BUS_OUT 共享同一频道（各自写入频段） |
-| 🔢 Ref Counting / 引用计数 | Auto-cleanup when last BUS_OUT leaves / 最后一个 BUS_OUT 离开时自动清理 |
-| ⚠️ Local Conflict / 本地冲突 | Warning when duplicate channel names within the SAME computer (same-named bands overwrite) / 同一计算机内重名通道告警（同频段相互覆盖） |
+| 🔢 Ref Counting / 引用计数 | Auto-cleanup when no BUS_OUT references / 无引用时自动清理 |
+| ⚠️ Conflict Detection / 冲突检测 | Reject duplicate channel names / 拒绝重名通道 |
 
 ---
 

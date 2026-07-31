@@ -3622,29 +3622,22 @@ public class GraphEditor {
                     localConflict = true; break;
                 }
             }
-            // 共享模型（回归审计）：跨 block 同名 BUS_OUT 共享频道，是合法的，不再是
-            // 冲突。busConflict 仅表示"同图内重名"（警告——同频段会相互覆盖）。
-            // Shared model: same-name BUS_OUT across blocks SHARE a channel (legitimate);
-            // busConflict now means only same-graph duplicate (a warning).
-            n.busConflict = localConflict;
-        }
-    }
-
-    /** 网络钩子：远端 BusBandSyncPacket 更新 BAND_REGISTRY 后，刷新本编辑器图中
-     *  busName 相关节点的冲突状态。若图中无该 bus 的 BUS_OUT 则为 no-op。
-     *  Network hook: after a remote BusBandSyncPacket updated BAND_REGISTRY, refresh
-     *  the conflict state of nodes for {@code busName}. No-op when this editor's
-     *  graph has no BUS_OUT for that name. */
-    public void reevaluateBusConflictsForBus(String busName) {
-        if (busName == null || busName.isEmpty()) return;
-        var graph = getGraph();
-        if (graph == null) return;
-        for (var n : graph.nodes) {
-            if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
-                && n.signalName.equals(busName)) {
-                reevaluateBusConflicts(graph);
-                return;
+            // Check for cross-block conflict (band registry knows about this name from another block).
+            // localBusNames distinguishes THIS block's own synced band definitions from another
+            // block's: if this editor ran syncBusBands for the name, it's our own echo (no conflict);
+            // otherwise BAND_REGISTRY carries a peer's bands (cross-block conflict).
+            // 检查跨方块冲突（频段注册表知道此名称来自另一个方块）。
+            // localBusNames 区分本 block 自己同步的频段定义与另一个 block 的：
+            // 若本编辑器为此名运行过 syncBusBands，则是自己的回声（无冲突）；
+            // 否则 BAND_REGISTRY 携带的是其他方块的频段（跨方块冲突）。
+            // （原 anyBusOutOwns 循环缺少 other != n 守卫，匹配到节点自身导致
+            // crossConflict 恒 false——死代码，已删除。回归审计：客户端从不显示跨 block 冲突。）
+            boolean crossConflict = false;
+            if (!localConflict && !localBusNames.contains(n.signalName)) {
+                var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(n.signalName);
+                if (gb != null && !gb.isEmpty()) crossConflict = true;
             }
+            n.busConflict = localConflict || crossConflict;
         }
     }
 

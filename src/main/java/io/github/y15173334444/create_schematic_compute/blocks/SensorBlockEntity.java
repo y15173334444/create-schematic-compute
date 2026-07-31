@@ -257,6 +257,10 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
 
         // 检查并修复 bus 通道冲突：若存在冲突通道则强制全量同步
         // Resolve bus channel conflicts; if any exist, force a full sync.
+        if (BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level)) {
+            needsFullSync = true; setChanged();
+            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
 
         // 构建图求值器的输入
         // Build inputs for the graph evaluator.
