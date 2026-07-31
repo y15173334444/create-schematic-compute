@@ -131,20 +131,21 @@ public class RadarLockHandler {
 
         var player = mc.player;
 
-        // If the player's crosshair is on a radar block itself, the server-side
-        // useWithoutItem handles it — skip here to avoid sending a duplicate packet.
-        // 若准星正指向雷达方块本身，由服务端 useWithoutItem 处理，客户端跳过以避免重复发包。
         var eyePos = player.getEyePosition();
         var lookVec = player.getLookAngle();
         Vec3 end = eyePos.add(lookVec.scale(20));
         var blockHit = mc.level.clip(new ClipContext(eyePos, end, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, player));
-        if (blockHit != null && blockHit.getType() != HitResult.Type.MISS) {
-            if (mc.level.getBlockEntity(blockHit.getBlockPos()) instanceof RadarBlockEntity) return;
-        }
 
-        // Raycast blips from all loaded radar block-entities on the client.
-        // This handles the case where the player right-clicks a blip floating in the air.
-        // 遍历所有已加载的雷达方块实体，对 blip 做射线检测——处理空中点击 blip 的情况。
+        // Raycast blips FIRST. Blips float in the air, typically right above the radar
+        // block itself, so a raycast to a blip often passes through the radar block
+        // first. If we deferred to useWithoutItem whenever the block is hit, the air
+        // blip selection would be silently rejected (the block UI/`useWithoutItem`
+        // takes over). Blip intent takes priority; only when NO blip is hit do we
+        // let the radar block's own handler proceed.
+        // 先做 blip 射线检测。blip 悬浮在空中，通常就在雷达方块正上方，指向 blip 的
+        // 射线往往先穿过雷达方块本体。若一命中方块就让位给 useWithoutItem，空中 blip
+        // 选择会被静默拒绝（方块 UI 接管）。故 blip 意图优先；仅当无 blip 命中时才
+        // 交给雷达方块自身的处理。
         BlipHit bestHit = null;
         RadarBlockEntity bestRadar = null;
         double bestDist = 2.0; // tolerance radius in blocks / 容差半径（方块）
@@ -161,6 +162,16 @@ public class RadarLockHandler {
 
         if (bestHit != null && bestRadar != null) {
             handleLock(bestRadar, bestRadar.getBlockPos(), bestHit.entityId);
+            return;
+        }
+
+        // No blip was hit — if the crosshair is on a radar block itself, defer to the
+        // server-side useWithoutItem (shift = program GUI, no-shift = server-side blip
+        // pick), avoiding a duplicate packet.
+        // 无 blip 命中——若准星正指向雷达方块本身，交由服务端 useWithoutItem 处理
+        //（潜行 = 编程 GUI，非潜行 = 服务端 blip 选取），避免重复发包。
+        if (blockHit != null && blockHit.getType() != HitResult.Type.MISS) {
+            if (mc.level.getBlockEntity(blockHit.getBlockPos()) instanceof RadarBlockEntity) return;
         }
     }
 

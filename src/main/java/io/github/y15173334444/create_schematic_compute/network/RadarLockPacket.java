@@ -61,8 +61,8 @@ public record RadarLockPacket(BlockPos pos, int entityId, boolean lock) implemen
      */
     public static void handle(RadarLockPacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
-            // 安全校验：距离检查 + 编辑会话成员检查
-            // Security: distance check + edit-session membership check
+            // 安全校验：仅距离检查
+            // Security: distance check only
 
             // 仅服务端玩家可处理 —— 客户端不应收到此包
             // Only server-side players may process —— clients should never receive this packet
@@ -74,11 +74,16 @@ public record RadarLockPacket(BlockPos pos, int entityId, boolean lock) implemen
             // (16384.0 = 128^2, roughly 8 chunks of squared distance)
             if (!io.github.y15173334444.create_schematic_compute.network.SablePacketHelper.isWithinReachableRange(sp, pkt.pos, 16384.0)) return;
 
-            // 编辑会话成员校验：仅允许正在编辑该雷达方块的玩家发送锁定指令
-            // Edit-session membership check: only players currently editing this radar block
-            // may send lock commands
-            if (!io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.getEditors(sl, pkt.pos).contains(sp.getUUID()))
-                return;
+            // 注：此处不做编辑会话成员校验。锁定/解锁是「使用」操作（与右键雷达方块
+            // 本体的 useWithoutItem 一致），不是「编辑」操作——要求编辑会话成员会把
+            // 未打开编辑 UI 的玩家的 blip 锁定全部拒绝（客户端乐观更新被服务器同步覆盖，
+            // 边框闪一下就消失）。距离校验已足够防滥用。
+            // Note: no edit-session membership check here. Lock/unlock is a USE operation
+            // (consistent with right-clicking the radar block itself via useWithoutItem),
+            // not an EDIT operation — requiring edit-session membership would reject all
+            // blip locks from players who haven't opened the edit UI (client optimistic
+            // update gets overwritten by the server sync, the highlight flashes and vanishes).
+            // The distance check is sufficient anti-abuse.
 
             var level = sp.level();
             var be = level.getBlockEntity(pkt.pos);
