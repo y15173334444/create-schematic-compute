@@ -3469,7 +3469,12 @@ public class GraphEditor {
             // clicking empty did nothing. Use a snapshot copy because commitBusBox
             // rebuilds the edit state (modifies nodeEditStatesById) during iteration.
             for (var st : java.util.List.copyOf(nodeEditStatesById.values())) {
-                if (st.busBox != null && st.busBox.isFocused()
+                // 不依赖 isFocused()：mouseClicked 更早的编辑框处理已 setFocused(false)。
+                // 只要 busBox 值 != 当前 signalName（用户改了名未提交），点击空白即提交。
+                // Do not rely on isFocused(): earlier edit-box handling in mouseClicked
+                // already cleared focus. Commit whenever the box value differs from the
+                // node's signalName (the user typed a new name but didn't Enter).
+                if (st.busBox != null && st.busNode != null
                     && !st.busBox.getValue().equals(st.busNode.signalName)) {
                     commitBusBox(st);
                 }

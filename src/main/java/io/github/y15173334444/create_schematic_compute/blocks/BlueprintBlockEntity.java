@@ -117,6 +117,13 @@ public class BlueprintBlockEntity extends SyncedGraphBlockEntity {
                 // (see SyncedGraphBlockEntity.loadGraphFromBytes for the full rationale).
                 // 强制 bump 代数，确保下一 tick 重编译并重新注册 BUS 频道。
                 graph.bumpGeneration();
+                // 重置 lastGraphGeneration 为 -1：bump 到 1 可能与上次重编译留下的
+                // lastGraphGeneration=1 冲突，graphChanged() 为 false → 重编译（及 BUS
+                // 重注册）被跳过 → BUS_IN 读 0（回归审计：反复编译+运行失效）。
+                // Reset lastGraphGeneration to -1: bumping to 1 can collide with the
+                // prior compile's lastGraphGeneration=1, making graphChanged() false —
+                // recompile (and BUS re-registration) is skipped -> BUS_IN reads 0.
+                lastGraphGeneration = -1;
                 rs.onLoad(graph);
             }
             needsFullSync = true; setChanged();

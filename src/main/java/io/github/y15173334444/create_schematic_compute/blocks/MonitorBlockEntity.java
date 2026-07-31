@@ -83,6 +83,12 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
                 // Force generation bump so graphChanged() triggers recompile + BUS re-registration.
                 // 强制 bump 代数，确保下一 tick 重编译并重新注册 BUS 频道。
                 graph.bumpGeneration();
+                // 重置 lastGraphGeneration 为 -1（与基类/Blueprint 一致）：bump 到 1 可能
+                // 与上次重编译留下的 lastGraphGeneration=1 冲突，graphChanged() 为 false
+                // → 重编译（及 BUS 重注册）被跳过 → BUS_IN 读 0。
+                // Reset lastGraphGeneration to -1 (consistent with base/Blueprint): bumping
+                // to 1 can collide with the prior compile's lastGraphGeneration=1.
+                lastGraphGeneration = -1;
             }
             if (t != null) loadSettings(t);
             rs.onLoad(graph);
