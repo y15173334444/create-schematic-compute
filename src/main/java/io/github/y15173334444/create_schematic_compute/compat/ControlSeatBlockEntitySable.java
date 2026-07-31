@@ -115,6 +115,11 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
     public void onLoad() {
         super.onLoad();
         savedLevel = level;
+        // 重置缓存的子关卡引用——reload 后子关卡可能重新注册，缓存可能指向已移除的旧实例。
+        // 与 RadarBlockEntitySable/SensorBlockEntitySable 一致（回归审计 #8）。
+        // Reset the cached sub-level ref — after a reload the sub-level may re-register
+        // and the cache could point to a removed instance. Matches the sibling classes.
+        cachedSubLevel = null;
     }
 
     /**
@@ -127,6 +132,9 @@ public class ControlSeatBlockEntitySable extends ControlSeatBlockEntity implemen
     public void setLevel(Level level) {
         super.setLevel(level);
         savedLevel = level;
+        // 重置缓存的子关卡引用（见 onLoad 注释，回归审计 #8）。
+        // Reset the cached sub-level ref (see onLoad comment, regression audit #8).
+        cachedSubLevel = null;
     }
 
     /**
