@@ -304,10 +304,6 @@ public class ControlSeatBlockEntity extends SyncedGraphBlockEntity {
         rs.refreshInputs();
         // EN: If bus channels were in conflict, force a full sync so all peers see the resolution.
         // ZH: 如果总线通道存在冲突，强制执行全量同步，使所有对等端获知解决结果。
-        if (BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level)) {
-            needsFullSync = true; setChanged();
-            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
         var in = rs.buildInputs(graph);
 
         // EN: Mode 1 = world-relative input. Convert view-relative yaw/pitch into world-relative

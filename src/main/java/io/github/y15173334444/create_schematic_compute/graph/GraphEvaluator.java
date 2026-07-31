@@ -723,50 +723,49 @@ public class GraphEvaluator {
                                 key = registered.get(bi);        // authoritative key / 权威 key
                             else
                                 key = node.signalBands.get(bi);    // fallback to node list / 回退到节点列表
-                            o[bi] = entry.internalMap.getOrDefault(key, 0f);
+                            o[bi] = entry.busMap().getOrDefault(key, 0f);
                         }
                     }
                 } else {
                     if (o.length < 1) { o = new float[1]; node.outputValues = o; }
                     ChannelEntry entry = SignalBus.getChannel(node.signalName);
-                    o[0] = (entry != null) ? entry.internalMap.getOrDefault("", 0f) : 0;
+                    o[0] = (entry != null) ? entry.busMap().getOrDefault("", 0f) : 0;
                 }
             }
             case BUS_OUT -> {
                 if (node.signalName.isEmpty()) break;
                 int bc = node.bandCount();
                 if (bc > 0) {
-                    if (node.busInternalMap == null) node.busInternalMap = new java.util.HashMap<>();
-                    // 冲突节点不注册频段，防止劫持 BAND_REGISTRY
-                    // bandsDirty 跳过稳态下每 tick 的冗余 ArrayList 分配
-                    // Conflicting nodes skip band registration to prevent BAND_REGISTRY hijacking
-                    // bandsDirty avoids redundant ArrayList allocations per tick in steady state
-                    if (!node.busConflict && node.bandsDirty) {
+                    // 共享模型（回归审计）：所有同名 BUS_OUT（可跨方块）都写入共享频道 map，
+                    // 不再有"首个注册者独占"。band 定义无条件注册（bandsDirty 时），
+                    // 同一 band 的并发写者为 last-writer-wins（每 tick）。
+                    // Shared model: every same-name BUS_OUT writes into the shared channel
+                    // map — no first-registrant exclusivity. Band definition registers
+                    // unconditionally when bandsDirty; concurrent writers to the same band
+                    // are last-writer-wins per tick.
+                    if (node.bandsDirty) {
                         SignalBus.registerBands(node.signalName, node.signalBands);
                         node.bandsDirty = false;
                     }
-                    // 冲突节点跳过 busInternalMap 写入 — MAP 修改权属于首个注册的 BUS_OUT
-                    // Conflicting nodes skip busInternalMap writes — MAP mutation rights belong to
-                    // the first registered BUS_OUT
-                    if (!node.busConflict) {
-                        // v1.2.4: Build pinId→value map from connections, then feed by band name.
-                        // This avoids depending on cache position being in sync with signalBands order.
-                        // 构建 pinId→值映射，再按频段名注入，避免依赖缓存位置与 signalBands 顺序一致。
-                        var pinValues = new java.util.HashMap<String, Float>();
-                        for (var c : graph.connections) {
-                            if (c.toId == node.id) {
-                                float[] out = outputs.get(c.fromId);
-                                if (out != null) {
-                                    float val = c.fromPin < out.length ? out[c.fromPin] : 0;
-                                    String pid = c.toPinId != null ? c.toPinId : String.valueOf(c.toPin);
-                                    pinValues.put(pid, val);
-                                }
+                    ChannelEntry entry = SignalBus.getChannel(node.signalName);
+                    if (entry == null) break;
+                    var shared = entry.busMap();
+                    // v1.2.4: Build pinId→value map from connections, then feed by band name.
+                    // 构建 pinId→值映射，再按频段名注入。
+                    var pinValues = new java.util.HashMap<String, Float>();
+                    for (var c : graph.connections) {
+                        if (c.toId == node.id) {
+                            float[] out = outputs.get(c.fromId);
+                            if (out != null) {
+                                float val = c.fromPin < out.length ? out[c.fromPin] : 0;
+                                String pid = c.toPinId != null ? c.toPinId : String.valueOf(c.toPin);
+                                pinValues.put(pid, val);
                             }
                         }
-                        for (int bi = 0; bi < bc; bi++) {
-                            String bandName = node.signalBands.get(bi);
-                            node.busInternalMap.put(bandName, pinValues.getOrDefault(bandName, 0f));
-                        }
+                    }
+                    for (int bi = 0; bi < bc; bi++) {
+                        String bandName = node.signalBands.get(bi);
+                        shared.put(bandName, pinValues.getOrDefault(bandName, 0f));
                     }
                 }
             }

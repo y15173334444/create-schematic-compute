@@ -56,42 +56,36 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
                 // Re-evaluate busConflict for BUS_OUT nodes in this block's graph.
                 // When another block registers a BUS_OUT with the same signalName, the
                 // BandSyncPacket updates BAND_REGISTRY here, and we must check whether
-                // any local BUS_OUT now has a cross-block conflict.
+                // any local BUS_OUT now has a conflict.
                 // 重新评估此方块图中 BUS_OUT 节点的 busConflict。
                 // 当另一个方块注册了相同 signalName 的 BUS_OUT 时，
-                // BandSyncPacket 在此更新 BAND_REGISTRY，我们必须检查是否有本地 BUS_OUT 现在存在跨方块冲突。
+                // BandSyncPacket 在此更新 BAND_REGISTRY，我们必须检查是否有本地 BUS_OUT 现在存在冲突。
                 reevaluateBusConflicts(gbe.getNodeGraph(), busName);
+            }
+            // 同时刷新当前活跃编辑器（玩家正在编辑的 block）的冲突显示，
+            // 使跨方块 bus 变化实时反映到编辑器 UI。
+            // Also refresh the active editor (the block the player is editing) so
+            // cross-block bus changes show up in the editor UI in real time.
+            var host = io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.getActiveHost();
+            if (host != null) {
+                var ed = host.getEditor();
+                if (ed != null) ed.reevaluateBusConflictsForBus(busName);
             }
         });
     }
 
-    /** Check BUS_OUT nodes in {@code graph} for conflicts on {@code busName}.
-     *  A conflict exists when the local graph has a BUS_OUT with the given signalName
-     *  and the band registry knows about this name from another block (meaning another
-     *  block's BUS_OUT already claimed the channel). When the band registry entry is
-     *  cleared (empty bands), any cross-block conflict on this name is resolved.
-     *  检查 graph 中 BUS_OUT 节点在 busName 上的冲突。
-     *  当本地图有一个带有给定 signalName 的 BUS_OUT 且频段注册表从另一个方块知道此名称时
-     *  （意味着另一个方块的 BUS_OUT 已声明该频道），存在冲突。
-     *  当频段注册表条目被清除（空频段）时，此名称上的任何跨方块冲突将被解决。 */
+    /** Check BUS_OUT nodes in {@code graph} for LOCAL conflicts on {@code busName}.
+     *  Shared model (回归审计): same-name BUS_OUT across blocks SHARE a channel, so a
+     *  cross-block same-name is legitimate, not a conflict. busConflict now means only
+     *  "another BUS_OUT in the SAME graph uses this name" (a warning — same-named bands
+     *  would overwrite each other within one computer).
+     *  检查 graph 中 BUS_OUT 节点在 busName 上的本地冲突。
+     *  共享模型：跨方块同名 BUS_OUT 共享频道，是合法的，不再是冲突。busConflict
+     *  现在仅表示"同图内另一个 BUS_OUT 使用此名称"（警告——同图内同频段会相互覆盖）。 */
     private static void reevaluateBusConflicts(
             io.github.y15173334444.create_schematic_compute.graph.NodeGraph graph,
             String busName) {
         if (graph == null || busName == null || busName.isEmpty()) return;
-        // Check if any BUS_OUT in THIS graph owns busName. If so, the bands in the
-        // registry were registered by this graph's own BUS_OUT (the server broadcasts
-        // them back to us) — NOT a cross-block conflict.
-        // 检查当前图中是否有 BUS_OUT 拥有 busName。如果是，注册表中的频段是由
-        // 此图自己的 BUS_OUT 注册的（服务端广播回来的）—— 不是跨方块冲突。
-        boolean anyBusOutOwns = false;
-        for (var n : graph.nodes) {
-            if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
-                && n.signalName.equals(busName)) {
-                anyBusOutOwns = true; break;
-            }
-        }
-        var gb = SignalBus.getBands(busName);
-        boolean crossBlockExists = !anyBusOutOwns && (gb != null && !gb.isEmpty());
         for (var n : graph.nodes) {
             if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
                 && n.signalName.equals(busName)) {
@@ -102,7 +96,7 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
                         localConflict = true; break;
                     }
                 }
-                n.busConflict = localConflict || crossBlockExists;
+                n.busConflict = localConflict;
             }
         }
     }

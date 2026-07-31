@@ -393,10 +393,9 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         rs.checkGraphChanged(graph);
         if (graphChanged()) recompileEvaluator();
         if (!running) {
-            for (var n : graph.nodes) {
-                if (n.type == NodeType.BUS_OUT && n.busInternalMap != null) n.busInternalMap.clear();
-            }
-            rs.writeOutputs(Collections.emptyList());
+            // 共享模型（回归审计）：停止时清零共享频道 map 中本 block 的 band
+            //（onStopRunning 内部处理），而非旧的 busInternalMap.clear()（已不写）。
+            onStopRunning();
             return;
         }
 
@@ -495,10 +494,6 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
 
         // ══ Graph evaluation / 图评估 ══
         rs.refreshInputs();
-        if (BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level)) {
-            needsFullSync = true; setChanged();
-            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
         var in = rs.buildInputs(graph);
         evaluator.setRadarPos(worldPosition);
         // Use Sable world-space coordinates if available, otherwise fall back to BlockPos center.

@@ -3546,6 +3546,11 @@ public class GraphEditor {
     private void releaseOldBusName(GraphNode n, String oldName) {
         if (oldName == null || oldName.isEmpty()) return;
         io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(oldName);
+        // 保持 localBusNames 与 BAND_REGISTRY 同步，防止改名后残留旧名
+        // 掩盖后续同名频道上的真实跨 block 冲突（回归审计补充）。
+        // Keep localBusNames in sync with BAND_REGISTRY so a stale entry cannot
+        // mask a genuine later cross-block conflict on the reused name.
+        localBusNames.remove(oldName);
         // 在清空前捕获旧频段名和数量，用于连线清理 (Capture old band names and count before clearing)
         java.util.List<String> oldBands = n.signalBands != null
             ? new java.util.ArrayList<>(n.signalBands) : java.util.List.of();
@@ -3617,27 +3622,29 @@ public class GraphEditor {
                     localConflict = true; break;
                 }
             }
-            // Check for cross-block conflict (band registry knows about this name from another block)
-            // Only flag if NO BUS_OUT in THIS graph owns this name — otherwise the bands
-            // in the registry are our own, synced from the server via BusBandSyncPacket.
-            // 检查跨方块冲突（频段注册表知道此名称来自另一个方块）
-            // 仅当当前图中没有 BUS_OUT 拥有此名称时才标记 —— 否则注册表中的频段
-            // 是我们自己的，由服务端通过 BusBandSyncPacket 同步而来。
-            boolean crossConflict = false;
-            if (!localConflict && !localBusNames.contains(n.signalName)) {
-                boolean anyBusOutOwns = false;
-                for (var other : graph.nodes) {
-                    if (other.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
-                        && other.signalName.equals(n.signalName)) {
-                        anyBusOutOwns = true; break;
-                    }
-                }
-                if (!anyBusOutOwns) {
-                    var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(n.signalName);
-                    if (gb != null && !gb.isEmpty()) crossConflict = true;
-                }
+            // 共享模型（回归审计）：跨 block 同名 BUS_OUT 共享频道，是合法的，不再是
+            // 冲突。busConflict 仅表示"同图内重名"（警告——同频段会相互覆盖）。
+            // Shared model: same-name BUS_OUT across blocks SHARE a channel (legitimate);
+            // busConflict now means only same-graph duplicate (a warning).
+            n.busConflict = localConflict;
+        }
+    }
+
+    /** 网络钩子：远端 BusBandSyncPacket 更新 BAND_REGISTRY 后，刷新本编辑器图中
+     *  busName 相关节点的冲突状态。若图中无该 bus 的 BUS_OUT 则为 no-op。
+     *  Network hook: after a remote BusBandSyncPacket updated BAND_REGISTRY, refresh
+     *  the conflict state of nodes for {@code busName}. No-op when this editor's
+     *  graph has no BUS_OUT for that name. */
+    public void reevaluateBusConflictsForBus(String busName) {
+        if (busName == null || busName.isEmpty()) return;
+        var graph = getGraph();
+        if (graph == null) return;
+        for (var n : graph.nodes) {
+            if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
+                && n.signalName.equals(busName)) {
+                reevaluateBusConflicts(graph);
+                return;
             }
-            n.busConflict = localConflict || crossConflict;
         }
     }
 
