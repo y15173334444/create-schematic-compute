@@ -17,6 +17,7 @@
 - **无会话 / 权限 / 锁**：`GraphBlockEntity` 接口被 8 个 BE 实现（`Blueprint`/`ControlSeat`/`Monitor`/`ProgramComputer`/`Radar`/`Sensor`/`SpeedProxy`…），全仓无 `owner/permission/accessor` 概念；任何人打开同一 BE 都能编辑，服务端不感知「谁在编辑」。
 - **节点 ID 自增**：`NodeGraph.nextNodeId` 是 `int` 自增分配器，是多人协作的首要冲突源（两人同时 `addNode` 会得到相同 id）。
 - **撤销栈静态共享**：`GraphEditor.undoStack/redoStack` 是静态成员，跨所有编辑器实例共享，当前单人未暴露问题，多人下会串栈。
+  > ✅ 已解决（v1.2.4）：撤销栈已重构为 per-instance op 栈（`undoStack2`/`redoStack2`），静态共享移除，详见 `undo-stack-refactor-plan.md`。
 - **唯一的「owner」概念**在 `SignalBus`：`ChannelOwner = record(BlockPos pos, int nodeId)`，用于 BUS 频道命名归属——可作为节点级寻址的现成范式。
 
 ### 1.2 设计目标

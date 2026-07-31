@@ -31,18 +31,16 @@
 
 ## ⚠️ 残余差异
 
-### 1. 撤销栈不完全迁移
+### 1. 撤销栈不完全迁移 → ✅ 已解决（v1.2.4）
 
-**状态**: 两套系统并存
+**状态**: 静态全图快照栈已移除，统一为 per-instance op 栈。
 
-- **旧静态栈**: `GraphEditor.java:96-97` — `private static final List<CompoundTag> undoStack/redoStack`
-  - 仍被 11 处旧代码调用（`takeSnapshot()`/`performUndo()`/`performRedo()`）
-  - Ctrl+D 复制、删除连线、节点删除等路径仍推入静态栈
-- **新 per-instance op 栈**: `GraphEditor.java:108-119` — `localUndoStack2`/`localRedoStack2`
-  - Ctrl+Z/Y 路由到 op 栈
-  - 发送反向 op 到服务端实现协同撤销
+- `GraphEditor.java` — `undoStack2`/`redoStack2`（`ArrayDeque<UndoEntry>`，`MAX_UNDO2=100`，每编辑器独立实例字段）
+- 批量撤销：`beginUndoBatch()`/`endUndoBatch()` + `currentBatch`（一次 Ctrl+Z 撤销整批）
+- 已删除：静态 `undoStack`/`redoStack`、`takeSnapshot()`/`replaceGraph()`；`Host` 仅残留空默认方法 `pushUndoSnapshot/performUndo/performRedo`（死接口方法，可选清理）
+- MonitorScreen / PortableTerminalScreen 各自的像素撤销栈独立，不受影响
 
-**建议**: 暂不清理（风险高，牵涉多处调用点），记录为已知技术债。未来版本可考虑统一为 op 栈并移除静态栈。
+**建议**: 无需处理，技术债已清除（详见 `undo-stack-refactor-plan.md`）。
 
 ### 2. 整图更新可能冲刷编辑者
 
@@ -88,4 +86,4 @@
 
 **collab-plan.md 的核心架构已全部实施**：服务端权威 + 增量 Op + Presence 三层架构、EditSessionRegistry、OpExecutor、节点 ID 服务端分配、多人协作 UI。
 
-残余的 5 项差异均为优化/健壮性增强（节流、重连回放、乐观回滚），不阻塞核心协作功能。撤销栈双系统是最大的技术债，建议在后续大版本清理。
+残余的 5 项差异均为优化/健壮性增强（节流、重连回放、乐观回滚），不阻塞核心协作功能。撤销栈双系统的技术债已在 v1.2.4 清理（统一为 per-instance op 栈，见 §1 与 `undo-stack-refactor-plan.md`）。

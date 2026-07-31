@@ -1,7 +1,9 @@
 # 撤销栈统一重构计划
 
 > 日期：2026-07-25
-> 当前状态：两套撤销系统并存（静态全图快照 + per-instance op），有技术债
+
+> **✅ 状态更新（2026-08-01）：重构已实施（v1.2.4，2026-07-26，commit `0b52ce6`），技术债已清除。**
+> 静态全图快照栈（`undoStack`/`redoStack`）与 `takeSnapshot`/`replaceGraph` 已移除；per-instance op 栈落地（`GraphEditor.undoStack2`/`redoStack2`，`ArrayDeque<UndoEntry>`，`MAX_UNDO2=100`），批量撤销 API（`beginUndoBatch`/`endUndoBatch` + `currentBatch`）就绪。仅保留命名 `undoStack2`（未按原计划正名，无影响）。以下为实施前计划存档；代码现状见 `collab-verification.md` §1。
 
 ---
 

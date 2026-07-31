@@ -311,7 +311,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 
 | Node / 节点 | Description / 说明 |
 |-------------|-------------------|
-| PID Controller / PID控制器 | SP/PV PID (0~16), anti-windup / PID算法，抗积分饱和 |
+| PID Controller / PID控制器 | SP/PV PID (scalable output, anti-windup) / SP/PV 双输入 PID（输出可缩放，抗积分饱和） |
 | Power PID / 动力PID | PID with base power input / 带基础动力PID |
 | Clamp / 限制 | Min/Max clamp / 限幅 |
 | Map Range / 映射范围 | Range mapping / 范围映射 |
