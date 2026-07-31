@@ -649,6 +649,9 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
             //（nodeEditStatesById、responder 闭包等）。在此替换图会导致这些引用失效，
             // 下一次 renderBg 重建 EditState 时可能读取服务端的过时数据 → 数值回弹。
             // 跳过替换；对于本地玩家正在编辑的参数，编辑器中的图始终是最新的。
+            // 例外：graphReady == false 时（中途加入的玩家首次同步，本地图还是空的/旧的），
+            // 即使编辑器已打开也必须加载服务端最新图，否则永远拿不到权威图数据
+            // （回归审计：中途加入玩家无法获取最新图）。
             boolean editorOpen = false;
             if (level != null && level.isClientSide()) {
                 var mc = net.minecraft.client.Minecraft.getInstance();
@@ -657,7 +660,7 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
                     editorOpen = true;
                 }
             }
-            if (!editorOpen) {
+            if (!editorOpen || !graphReady) {
                 graph = NodeGraph.load(t.getCompound("graph"), r);
                 rs.onLoad(graph);
                 this.graphReady = true;
