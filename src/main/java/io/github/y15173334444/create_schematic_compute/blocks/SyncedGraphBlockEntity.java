@@ -144,6 +144,13 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  Allows the client UI (e.g. GraphEditor) to check whether the graph is ready for rendering.
      *  客户端在从服务端加载图 NBT 后设置为 true。允许客户端 UI（如 GraphEditor）检查图是否准备好渲染。 */
     public transient boolean graphReady = false;
+    /** Count of local graph-edit ops not yet ACKed by the server (client-side only).
+     *  While > 0 the local editor has unsaved changes, so a full-graph sync must NOT
+     *  replace the graph (bounce-back protection). Joiners with no local edits are 0
+     *  and always receive the authoritative graph.
+     *  本地编辑 op 尚未被服务端 ACK 的计数（仅客户端）。>0 表示编辑器有未保存改动，
+     *  此时不应用 full-graph 替换（回弹保护）。未编辑的加入者为 0，总是接收权威图。 */
+    public transient int pendingLocalOps = 0;
 
     // ── BUS registration guard / BUS 注册守卫 ──
 
@@ -649,9 +656,11 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
             //（nodeEditStatesById、responder 闭包等）。在此替换图会导致这些引用失效，
             // 下一次 renderBg 重建 EditState 时可能读取服务端的过时数据 → 数值回弹。
             // 跳过替换；对于本地玩家正在编辑的参数，编辑器中的图始终是最新的。
-            // 例外：graphReady == false 时（中途加入的玩家首次同步，本地图还是空的/旧的），
-            // 即使编辑器已打开也必须加载服务端最新图，否则永远拿不到权威图数据
-            // （回归审计：中途加入玩家无法获取最新图）。
+            // 例外：本地玩家没有未 ACK 的编辑 op（pendingLocalOps == 0，如中途加入的玩家
+            // 首次同步、本地图还是空的/旧的）时，即使编辑器已打开也必须加载服务端最新图，
+            // 否则永远拿不到权威图数据。
+            // （回归审计：中途加入玩家无法获取最新图。便携终端路径 editorOpen 检测不命中 →
+            // 总是加载，故不受此 bug 影响。）
             boolean editorOpen = false;
             if (level != null && level.isClientSide()) {
                 var mc = net.minecraft.client.Minecraft.getInstance();
@@ -660,10 +669,16 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
                     editorOpen = true;
                 }
             }
-            if (!editorOpen || !graphReady) {
+            if (!editorOpen || pendingLocalOps <= 0) {
                 graph = NodeGraph.load(t.getCompound("graph"), r);
                 rs.onLoad(graph);
                 this.graphReady = true;
+                this.pendingLocalOps = 0;   // 兜底复位 / safety reset
+                // Client-side only: bump generation so an open editor rebuilds EditState
+                // against the fresh graph (avoids stale EditState.graph references after a
+                // sync). The server doesn't need it (onLoad already bumps). Matches
+                // loadGraphFromBytes. / 仅客户端：提升代际使打开的编辑器针对新图重建 EditState。
+                if (level != null && level.isClientSide()) graph.bumpGeneration();
             }
         }
         if (t.contains("running")) running = t.getBoolean("running");

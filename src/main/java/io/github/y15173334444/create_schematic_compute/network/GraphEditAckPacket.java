@@ -77,6 +77,15 @@ public record GraphEditAckPacket(BlockPos pos, int tempId, int assignedId, long 
         // 将任务加入主线程/渲染线程队列，因为所有 GUI 交互必须在主线程执行。
         ctx.enqueueWork(() -> {
             var mc = net.minecraft.client.Minecraft.getInstance();
+            // Decrement the pending local-op counter on the target BE regardless of screen
+            // state — the ack may arrive after the editor closed. Rejected ops are decremented
+            // in GraphEditor.onRemoteOp instead (they never reach here as an ACK).
+            // 无论编辑器是否仍打开，都按坐标对 BE 的待 ACK 计数递减（ACK 可能晚于关闭到达）。
+            // 被拒 op 在 GraphEditor.onRemoteOp 中递减（不会作为 ACK 到达此处）。
+            if (mc.level != null
+                && mc.level.getBlockEntity(pkt.pos) instanceof io.github.y15173334444.create_schematic_compute.blocks.SyncedGraphBlockEntity sbe) {
+                sbe.pendingLocalOps = Math.max(0, sbe.pendingLocalOps - 1);
+            }
             // Only apply if the player still has the same GraphEditor open at the same position.
             // 只有当玩家仍在相同坐标打开着同一个 GraphEditor 时才应用更新。
             if (mc.screen instanceof GraphEditor.Host host && host.getBlockPos().equals(pkt.pos)) {

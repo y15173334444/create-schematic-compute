@@ -560,6 +560,7 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 - **雷达锁定 / Radar lock**：空中 blip 锁定不再被方块 UI 拦截；移除编辑会话成员校验（锁定是使用操作）。/ Air-blip lock is no longer intercepted by the block-UI; removed the edit-session membership check (locking is a use operation).
 - **数值输入回弹 / Numeric input bounce-back**：编辑器打开时跳过 NBT 全量图替换，防止服务端同步覆盖本地编辑值。/ Skipped full-graph NBT replacement on editor open so server sync cannot overwrite local edits.
 - **临时视角跨方块污染 / Temp camera-view contamination**：改为按 `BlockPos` 存储。/ Temp camera view is now stored per `BlockPos`.
+- **中途加入玩家获取完整图 / Mid-game joiners get the full graph**：`loadAdditional` 守卫由 `graphReady` 锁存改为本地待 ACK 编辑计数（`pendingLocalOps`）—— 加入者无本地编辑时总是应用服务端权威图；活跃编辑者仍受回弹保护（仅在发送 op 且未 ACK 期间跳过替换）。/ The `loadAdditional` guard now uses a pending-local-op counter instead of the `graphReady` latch — joiners with no local edits always apply the authoritative graph, while active editors keep bounce-back protection (replacement skipped only while ops are un-ACKed).
 
 </details>
 

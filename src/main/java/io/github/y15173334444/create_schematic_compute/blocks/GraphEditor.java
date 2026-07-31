@@ -898,6 +898,13 @@ public class GraphEditor {
             // The op carries the rejected ADD_CONN details — remove the local connection.
             // For non-originator editors this is a no-op (they never applied it).
             graph.removeConnection(op.fromId(), op.fromPin(), op.toId(), op.toPin());
+            // A rejected op never receives an ACK — decrement the pending-op counter so the
+            // bounce-back guard doesn't stay latched. / 被拒 op 不会收到 ACK —— 递减待 ACK 计数。
+            if (host.getBlockPos() != null
+                && net.minecraft.client.Minecraft.getInstance().level != null
+                && net.minecraft.client.Minecraft.getInstance().level.getBlockEntity(host.getBlockPos()) instanceof SyncedGraphBlockEntity sbe) {
+                sbe.pendingLocalOps = Math.max(0, sbe.pendingLocalOps - 1);
+            }
             return;
         }
         io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(graph, op, /*animateMoves=*/true);

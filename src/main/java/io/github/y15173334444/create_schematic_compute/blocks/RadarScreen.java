@@ -280,7 +280,14 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
     @Override public java.util.UUID getPlayerUUID() { return minecraft.player != null ? minecraft.player.getUUID() : java.util.UUID.randomUUID(); }
     @Override public GraphEditor getEditor() { return editor; }
     @Override public String getPlayerName() { return minecraft.player != null ? minecraft.player.getName().getString() : ""; }
+    @Override public void onClose() {
+        var be = getBE();
+        if (be != null) be.pendingLocalOps = 0;   // 关闭编辑器复位待 ACK 计数 / reset pending-op counter on close
+        super.onClose();
+    }
     @Override public void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
+        var be = getBE();
+        if (be != null) be.pendingLocalOps++;   // 本地编辑 op 计数（回弹保护）/ count local edit op
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket(op));
     }
     @Override public void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) { editor.onRemoteOp(op); }

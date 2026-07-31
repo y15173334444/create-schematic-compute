@@ -208,7 +208,7 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
 - `broadcastEvalSnapshot()` — 广播 EvalSnapshot → ClientboundGraphEvalPacket
 - `getUpdateTag()` — 网络同步（始终发送完整图）/ Network sync (full graph, unconditional)
 - `flagFullSync()` — 触发完整图同步 / Trigger full graph sync
-- `loadAdditional()` — 中途加入玩家（`graphReady == false`）强制加载服务端最新图 / Mid-game joiners get the latest authoritative graph
+- `loadAdditional()` — 客户端守卫 `!editorOpen || pendingLocalOps <= 0`：仅当本地玩家有未 ACK 编辑 op 时跳过图替换（回弹保护）；加入者/无编辑者总是应用服务端权威图 / Client guard: replace the graph unless the local editor has un-ACKed ops (bounce-back protection); joiners with no local edits always apply the authoritative graph
 
 ### 7 个方块类 / 7 Block Types
 
