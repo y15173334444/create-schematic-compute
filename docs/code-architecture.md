@@ -1,7 +1,7 @@
 # 代码结构文档 / Code Architecture
 
-> 更新日期 / Last Updated：2026-07-24
-> 版本 / Version：1.2.4
+> 更新日期 / Last Updated：2026-08-01
+> 版本 / Version：1.2.4.1
 
 ---
 
@@ -11,15 +11,15 @@
 io.github.y15173334444.create_schematic_compute/
 ├── SchematicCompute.java          ← @Mod 入口 / @Mod entry point
 ├── ModUtils.java                  ← 工具方法 / Utility methods
-├── graph/          (14 files)     ← 节点图核心引擎 / Node graph core engine
-├── blocks/         (22 files)     ← 方块·BE·Screen·Menu·编辑器 / Blocks, BEs, Screens, Editor
-├── network/        (25 files)     ← 网络包·BUS 总线·Sable 兼容 / Packets, BUS, Sable compat
-├── client/         (12 files)     ← 客户端渲染·颜色选择器·便携终端 / Client rendering
-├── compat/          (4 files)     ← Sable 物理引擎兼容层 / Sable physics compat layer
+├── graph/          (16 files)     ← 节点图核心引擎 / Node graph core engine
+├── blocks/         (35 files)     ← 方块·BE·Screen·Menu·编辑器 / Blocks, BEs, Screens, Editor
+├── network/        (31 files)     ← 网络包·BUS 总线·Sable 兼容 / Packets, BUS, Sable compat
+├── client/         (15 files)     ← 客户端渲染·颜色选择器·便携终端 / Client rendering
+├── compat/          (6 files)     ← Sable 物理引擎兼容层 / Sable physics compat layer
 ├── radar/           (2 files)     ← 雷达目标管理 / Radar target management
 ├── entity/          (1 file)      ← 控制座椅隐形实体 / Control seat invisible entity
 ├── items/           (1 file)      ← 便携终端物品 / Portable terminal item
-└── mixin/           (1 file)      ← Mixin 注入 / Mixin injection
+└── mixin/           (2 files)     ← Mixin 注入 / Mixin injection
 ```
 
 ---
@@ -27,15 +27,15 @@ io.github.y15173334444.create_schematic_compute/
 ## 1. `graph/` — 节点图核心引擎 / Node Graph Core Engine
 
 ### NodeType (enum)
-84 种节点类型枚举，定义每种节点的 `id`（稳定 NBT 字符串）、输入/输出引脚数、参数名列表。
-/ 84 node-type enum defining the stable NBT `id`, input/output pin counts, and parameter names for each type.
+86 种节点类型枚举，定义每种节点的 `id`（稳定 NBT 字符串）、输入/输出引脚数、参数名列表。
+/ 86 node-type enum defining the stable NBT `id`, input/output pin counts, and parameter names for each type.
 
 | 分类 / Category | 节点 / Nodes |
 |------|------|
 | 数值 / Values | CONST, REDSTONE_IN, PRIVATE_IN, BUS_IN |
-| 数学 / Math | ADD, SUB, MUL, DIV, MOD, POW, ROOT, ABS, CEIL, FLOOR, ROUND, INTERP, SPLIT |
+| 数学 / Math | ADD, SUB, MUL, DIV, MOD, POW, ROOT, ABS, CEIL, FLOOR, ROUND, INTERP, SPLIT, FORMULA, POSE_CONVERT |
 | 三角 / Trig | SIN, COS, TAN, ASIN, ACOS, ATAN2, SINH, COSH, SQRT, LN, LOG, EXP, SEC, CSC, COT, ANGLE_UNWRAP, DIRECTION |
-| 逻辑 / Logic | GT, LT, GE, LE, EQ, OR, BOOL, GATE |
+| 逻辑 / Logic | GT, LT, GE, LE, EQ, OR, BOOL, GATE, RELAY_A, RELAY_B |
 | 控制 / Control | PID, PID_POWER, CLAMP, MAP |
 | 输出 / Output | REDSTONE_OUT, PRIVATE_OUT, BUS_OUT, SPEED_CTRL |
 | 时序 / Sequential | DELAY, LATCH, T_FLIPFLOP, PULSE_EXTEND, LOOP, FUSE, ACCUMULATOR, INTEGRATOR |
@@ -45,8 +45,8 @@ io.github.y15173334444.create_schematic_compute/
 | 调试 / Debug | DEBUG_SIGNAL_GEN, DEBUG_PROBE, COMMENT |
 
 ### GraphNode
-节点数据类。所有 84 种类型共用同一个类（无继承），通过 `type` 字段区分。
-/ Node data class. All 84 types share a single flat class (no inheritance); distinguished by the `type` field.
+节点数据类。所有 86 种类型共用同一个类（无继承），通过 `type` 字段区分。
+/ Node data class. All 86 types share a single flat class (no inheritance); distinguished by the `type` field.
 
 **核心字段 / Core Fields**：
 - `id` — 唯一标识，服务端权威分配 / Unique ID, server-authoritative allocation
@@ -58,17 +58,36 @@ io.github.y15173334444.create_schematic_compute/
 - `signalName` — BUS/PRIVATE/REDSTONE 的信号名 / Signal name for I/O nodes
 - `signalBands` — BUS 频段名列表 / BUS band name list
 - `busInternalMap` — BUS_OUT 求值输出映射（与 SignalBus CHANNELS 共享引用）/ Shared map with SignalBus
-- `busConflict` — 频道名已被其他方块占用 / Channel name taken by another block
+- `busConflict` / `busConflictTicks` / `bandsDirty` — BUS 冲突标记与脏检查 / BUS conflict flags
 - `outputValues[]` — 运行时计算值（由 GraphEvaluator 填充）/ Runtime values filled by evaluator
 - `displayText, textColor, imagePixels[]` — 显示节点数据 / Display node data
-- `commentWidth, commentHeight, commentBgColor` — COMMENT 节点样式 / Comment node styling
+- `layerIndex, imageSequenceFrames, layoutX, layoutY, displayScale, displayRotation, moveScale` — IMAGE 显示布局 / Image display layout
+- `commentWidth, commentHeight, commentBgColor, commentBorderColor, commentTextColor, commentScrollOff` — COMMENT 节点样式 / Comment node styling
 - `subGraph` — ENCAPSULATION 子图（递归嵌套）/ Nested sub-graph
 - `expanded` — 编辑器展开状态 / Editor expanded state
 - `sortB` — Z 序 / Z-order
-- `debugCtrlX[], debugCtrlY[]` — DEBUG_SIGNAL_GEN 控制点（transient）/ Control points (transient)
-- `probeHistory[]` — DEBUG_PROBE 采样缓冲（transient）/ Sample ring buffer (transient)
+- `dynamicInputCount, dynamicOutputCount, outputLabels, cachedScript, formulaIssues` — FORMULA 解析状态（`ensureScriptParsed()` 维护）/ Parsed script state
+- `debugCtrlX[], debugCtrlY[]` — DEBUG_SIGNAL_GEN 控制点（**持久化** NBT `dcx`/`dcy`，非 transient）/ Control points (persisted, synced via SET_CTRL_POINTS)
+- `debugFormulaRpn` — 公式模式 RPN 编译缓存 / Compiled formula cache
+- `probeHistory[], probeHead, probeCount, probeFrozen` — DEBUG_PROBE 采样缓冲 / Probe ring buffer
+- `runtimeStickX, runtimeStickY` — MOUSE_JOYSTICK 绝对值累积 / Absolute-joystick accumulation
+- `remoteLerpT, remoteStartX/Y, remoteTargetX/Y` — 多人协作远程拖拽插值 / Remote-drag lerp (transient)
 
-**序列化 / Serialization**：`save()` / `load()` 通过 NBT。transient 字段不入 NBT。
+**序列化 / Serialization**：`save()` / `load()` 通过 NBT。transient 字段不入 NBT（remote lerp 字段不入 NBT）。
+
+**稳定引脚方法 / Stable pinId methods (v1.2.4)**：
+- `inputPinId(i)` / `outputPinId(i)` — 引脚索引 → 稳定 pinId（FORMULA=变量名、ENCAP=子节点 ID、BUS=频段名、通用=十进制索引）
+- `inputPinIndex(pinId)` / `outputPinIndex(pinId)` — pinId → 当前索引（找不到返回 -1）
+- `getSubNodes(NodeType)` — 子图 ENCAP_INPUT/OUTPUT 按 Y 升序、同 Y 按 ID 排序 / Sort I/O sub-nodes deterministically
+- `ensureScriptParsed()` — 按 `sourceFormula` 检测公式陈旧，刷新 dynamicInput/OutputCount（引脚解析与求值共用的唯一真相源）/ Re-parse FORMULA when stale
+
+### NodeConnection (v1.2.4 起 / since v1.2.4)
+连线数据类。整数索引 `fromPin`/`toPin` 是从稳定 pinId 派生的缓存值；`fromPinId`/`toPinId` 为稳定字符串。
+/ Connection data class. `fromPin`/`toPin` are cached int indices derived from the stable `fromPinId`/`toPinId` strings.
+
+- 自 v1.2.4 起连线绑定稳定 pinId：引脚插入/删除/重排不再使既有连线串线 / Connections bind stable pinIds since v1.2.4
+- `save()` / `load()` — NBT 键 `fPin/tPin/fPinId/tPinId`，向后兼容（旧存档无 pinId 字段）/ NBT, backward-compatible
+- 两个构造函数：纯索引（旧）/ 索引+pinId（新）/ Two constructors: index-only (legacy) and index+pinId
 
 ### NodeGraph
 图的容器。管理节点列表、连接列表、O(1) 查找缓存、拓扑排序。
@@ -77,14 +96,20 @@ io.github.y15173334444.create_schematic_compute/
 **核心方法 / Core Methods**：
 - `addNode(type, x, y)` — 创建节点 + 分配 ID / Create node + allocate ID
 - `removeNode(id)` — 删除节点 + 级联删除所有关联连接 / Remove node + cascade delete connections
-- `addConnection(fromId, fromPin, toId, toPin)` — 去重 + 自环保护 / Dedup + self-loop guard
-- `removeConnection(fromId, fromPin, toId, toPin)`
+- `addConnection(fromId, fromPin, toId, toPin)` — 去重 + 自环保护，自动派生 pinId / Dedup + self-loop guard, derives pinIds
+- `addConnectionWithPinIds(fromId, fromPinId, toId, toPinId)` — v1.2.4 按稳定 pinId 建连 / Connect by stable pinIds
+- `removeConnection(fromId, fromPin, toId, toPin)` — 索引优先，pinId 回退 / Index-first, pinId fallback
+- `rebuildInputCache()` — 将 pinId 重新解析为当前索引，剪除失效连接（拓扑变化时自动调用）/ Re-resolve pinIds → indices, prune stale
+- `getInputValue(nodeId, pin, outputs)` / `getInputValueOrDefault(...)` / `hasInputConnection(...)` — O(1) 输入查询 / O(1) input lookup via inputCache
 - `getTopoOrder()` — 缓存 Kahn 算法拓扑排序 / Cached Kahn topological sort
 - `hasCycles()` — topo 排序大小 < 节点数 → 有环 / Sort size < node count → cycle exists
 - `wouldCreateCycle(fromId, toId)` — BFS 预检测 / BFS pre-check
-- `getInputValue(nodeId, pin, outputs)` — O(1) 输入查询 / O(1) input lookup via inputCache
+- `bumpGeneration()` / `graphGeneration` — 图代际号（求值器重建判定）/ Generation counter for evaluator recompile
+- `findNode(id)` / `adoptNode(node)` / `rebuildNodeMap()` — 节点查找与归属 / Node lookup / adoption
+- `topoVersion()` — 拓扑版本号 / Topology version
 - `copy()` — 深拷贝（新 ID）/ Deep copy with new IDs
 - `save()` / `load()` — NBT 序列化，带版本迁移 / NBT serialization with migration
+- 书签 / Bookmarks — `List<Bookmark>` 记录（`addBookmark`/`moveBookmark`/`renameBookmark`/`removeBookmark` 经 op 同步）/ Bookmark list synced via ops
 
 ### GraphEvaluator
 服务端唯一求值器。客户端不实例化此类，通过 `ClientboundGraphEvalPacket` 接收 `EvalSnapshot`。
@@ -96,14 +121,20 @@ io.github.y15173334444.create_schematic_compute/
 3. 生成 `OutputResult` 列表（REDSTONE_OUT 节点）/ Collect OutputResult list
 4. `captureSnapshot()` 创建 `EvalSnapshot` 广播客户端 / Capture and broadcast to clients
 
-**状态管理 / State Management**：
+**求值器自身字段 / Evaluator-Owned Fields**：
 - `outputs` — `Map<nodeId, float[]>` 中间输出 / Intermediate outputs
-- `pidState` — PID 积分值 / PID integral accumulation
-- `delayQueues` — DELAY 节点延时队列 / DELAY per-tick queues
-- `flipflopStates` — LATCH/T_FLIPFLOP/GATE 布尔状态 / Boolean state
-- `pulseTimers` — PULSE_EXTEND/LOOP/FUSE 计时器 / Tick counters
+- `subEvaluators` — ENCAPSULATION 子图递归求值器（懒创建 + generation 陈旧检测）/ Lazy sub-evaluators with stale detection
+- `subGraphGenerations` — 子图代际缓存 / Sub-graph generation cache
+- `subDelayQueues` / `subFlipflopStates` / `subPulseTimers` — 子图时序组件状态 / Sub-graph sequential state
 - `debugTime` — DEBUG_SIGNAL_GEN 相位时间 / Phase time (persisted via RuntimeState)
-- `subEvaluators` — ENCAPSULATION 子图递归求值器（懒创建）/ Lazy-created sub-evaluators
+- `runtimeState` — 运行时状态引用（读写子图状态持久化）/ RuntimeState reference
+- `radarPos` — 雷达扫描位置上下文 / Radar scan position context
+
+> 主图时序状态（`pidState`/`delayQueues`/`flipflopStates`/`pulseTimers`）**不是**求值器字段——由 `RuntimeState` 持有，作为 `evaluate()` 参数传入并回写。
+> / Main-graph sequential state is NOT a field — it lives in `RuntimeState` and is passed into `evaluate()`.
+
+**ENCAP 注入 / ENCAP Injection (v1.2.4)**：外部连线按 **pinId**（`String.valueOf(subNode.id)`）匹配并注入 `ENCAP_INPUT`，不依赖缓存位置；子图输出经 `captureSnapshot()` 合并进 `EvalSnapshot.subOutputs`/`subDebugTimes`。
+/ Outer inputs injected into ENCAP_INPUT by pinId; sub-graph outputs merged into the snapshot.
 
 ### RuntimeState
 可序列化的运行时状态快照，由 BE 持有。
@@ -111,6 +142,7 @@ io.github.y15173334444.create_schematic_compute/
 
 **持久化状态 / Persisted State**：`pidState`, `delayQueues`, `flipflopStates`, `pulseTimers`, `debugTime`
 **子图状态 / Sub-graph State**：`SubState` — 每个 ENCAPSULATION 节点独立的上述五类状态 / Independent state per encapsulation node
+**API**：`clear()`、`save()`/`load()`（NBT 键 `pid/delay/ff/pt/dt/sub`）、`getOrCreateSubState(id)`
 
 ### FormulaParser
 数学表达式解析器。调车场算法编译中缀→RPN，支持多行脚本。
@@ -120,25 +152,44 @@ io.github.y15173334444.create_schematic_compute/
 - `compile(formula)` — 编译中缀表达式为 RPN token 列表 / Compile infix to RPN token list
 - `evaluate(rpn, vars)` — 执行 RPN / Execute RPN with variable bindings
 - `parseScript(formula)` — v1.2+ 多行脚本（赋值、@output、注释、续行）/ Multi-line scripts
-- 18 个数学函数（三角函数取度为输入）/ 18 math functions (trig takes degrees)
+- `tokenize()` / `validate()` / `extractVariables()` — 语法高亮、实时校验、变量提取（v1.2.0）/ Tokenize, validate, extract variables
+- 记录类型 / Records：`Token`、`FormulaIssue`、`Assignment`、`ScriptParseResult`（含 `sourceFormula` 陈旧检测字段）
+- **15 个数学函数**（三角函数取度为输入）/ **15 math functions** (trig takes degrees)：
+  `sin` `cos` `tan` `asin` `acos` `atan2` `sinh` `cosh` `sqrt` `ln` `log` `exp` `sec` `csc` `cot`
 
 ### OpExecutor
 `GraphOp` 应用执行器。服务端和客户端共享，确保变更逻辑单一定义。
 / Shared `GraphOp` executor used by both server and client — single source of truth for all mutations.
 
-**处理 35 种 OpType / Handles 35 OpTypes**：ADD_NODE, REMOVE_NODE, MOVE_NODE, ADD_CONN, REMOVE_CONN, SET_PARAM, SET_FORMULA, SET_DISPLAY_TEXT, SET_TEXT_COLOR, SET_ZORDER, SET_BANDS, SET_HOTBAR_ITEM, SET_IMAGE_PIXELS, SET_CTRL_POINTS, ADD/REMOVE/RENAME/MOVE_BOOKMARK, EXPAND/COLLAPSE_NODE, etc.
+**处理 29 种 OpType / Handles 29 OpTypes**：ADD_NODE_REQUEST, ADD_NODE, REMOVE_NODE, MOVE_NODE, ADD_CONN, REMOVE_CONN, SET_PARAM, SET_FORMULA, SET_COMMENT_TEXT, SET_COMMENT_COLORS, SET_COMMENT_SIZE, SET_DISPLAY_TEXT, SET_TEXT_COLOR, SET_BANDS, SET_ZORDER, SET_KEY_BINDING, SET_IMAGE_FRAME_TOGGLE, SET_DISPLAY_LAYOUT, TOGGLE_BOOL, SET_HOTBAR_ITEM, SET_IMAGE_PIXELS, EXPAND_NODE, COLLAPSE_NODE, ADD_BOOKMARK, REMOVE_BOOKMARK, RENAME_BOOKMARK, MOVE_BOOKMARK, SET_CTRL_POINTS, REJECT
 
 ### GraphOp / OpType
-`GraphOp`：26 字段 record + 16 个静态工厂方法 / 26-field record + 16 static factory methods.
-`OpType`：35 种操作枚举 / 35-operation enum.
+`GraphOp`：**28 字段** record + **20 个静态方法**（19 个工厂 + `parseCtrlPoints` helper）。
+/ 28-field record + 20 static methods (19 factories + 1 helper).
+- `blobRefId` — 非零 → 经 `BlobRegistry` 取大数据 / non-zero → BlobRegistry lookup
+- `imageData` — IMAGE 像素直接以 `int[]` 传输（替代 Base64 `stringValue`）/ direct pixel array
+- `OpType`：**29 种**操作枚举 / 29-operation enum
 
 ### DebugSignals
-DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。8 种模式：CONST, STEP, SINE, SQUARE, TRIANGLE, NOISE, PULSE, CUSTOM。
-/ Stateless signal computation for DEBUG_SIGNAL_GEN. 8 modes.
+DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
+/ Stateless signal computation for DEBUG_SIGNAL_GEN.
+
+- **设置模式 / Set Modes**：`SET_MANUAL`（手动控制点插值）、`SET_FORMULA`（自定义 f(x)）
+- **输出模式 / Output Modes**：`OUT_FREQ`（x 自动 0→1 循环）、`OUT_INPUT`（x 由输入引脚指定）
+- 方法 / Methods：`computeCurve()`、`compileFormula()`、`setModeName()`、`computeVisibleRange()`（p1–p99 稳健自动缩放 / percentile robust auto-scale）
 
 ### EvalSnapshot
 不可变 record：`(outputs, debugTimes, subOutputs, subDebugTimes)`。服务端→客户端广播。
-/ Immutable record for server→client broadcast.
+/ Immutable record for server→client broadcast. Sub-graph (ENCAP) outputs and debug times merged since v1.2.4.
+
+### GraphMigration / NbtVersions
+- `NbtVersions.DATA_VERSION = 4`（`VERSION_KEY = "data_version"`）/ Data format version 4
+- `GraphMigration.migrate(rawTag, registries)` — 顺序执行 V1→V2→V3→**V4** 迁移
+- **V3→V4（v1.2.4）**：为每条连线派生稳定 `fPinId`/`tPinId`（FORMULA=变量名、ENCAP=子节点 ID、BUS=频段名）；pinId 无法映射的连线丢弃 / Derive stable pinIds; drop unmappable connections
+
+### SpatialIndex / ZOrder（v1.2.3 遮挡系统 / occlusion system）
+- `ZOrder` — A/B/C 三层遮挡记录（网格→注释→连线→节点→覆盖层→工具提示）/ Occlusion record
+- `SpatialIndex` — 网格空间哈希（`CELL_SIZE=256`），O(k) 命中过滤 / Grid spatial hash used by the editor
 
 ---
 
@@ -147,15 +198,17 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。8 种模式：CONST, 
 ### SyncedGraphBlockEntity (抽象基类 / abstract base class)
 统一 7 个 BE 的共享字段和生命周期 / Consolidates shared fields and lifecycle for all 7 BEs.
 
-**共享字段 / Shared Fields**：`graph`, `running`, `runtimeState`, `evaluator`, `lastEvaluatedGraph`, `lastGraphGeneration`, `needsFullSync`, `cachedEvalSnapshot`, `graphReady`
+**共享字段 / Shared Fields**：`graph`, `running`, `runtimeState`, `evaluator`, `lastEvaluatedGraph`, `lastGraphGeneration`, `needsFullSync`, `cachedEvalSnapshot`, `graphReady`, `rs`（RedstoneLinkHelper）, `lastBusHashMap`, `lastBusOutKeys`, `busRegistrationPending`, `lastFullSyncGameTime`
 
 **共享方法 / Shared Methods**：
 - `ensureBusRegistered()` — 首次 tick 注册 BUS 频道 / Register BUS on first tick
 - `recompileEvaluator()` / `recompileEvaluatorFull()` / `recompileEvaluatorLight()` — 三级求值器重建 / Three-tier evaluator rebuild
+- `onLoad()` — 服务端 `graph.bumpGeneration()` 强制首 tick 全量重编译 / Bump generation to force first-tick full recompile
+- `loadGraphFromBytes()` — 网络包加载完整图（v1.2.4.1：`bumpGeneration()` + `lastGraphGeneration = -1` 强制重编译，**跳过** `cleanupBusChannels`）/ Load full graph; force recompile, skip bus cleanup
 - `broadcastEvalSnapshot()` — 广播 EvalSnapshot → ClientboundGraphEvalPacket
-- `getUpdateTag()` — 网络同步（含 40 tick 宽限期）/ Network sync with 40-tick grace period
+- `getUpdateTag()` — 网络同步（始终发送完整图）/ Network sync (full graph, unconditional)
 - `flagFullSync()` — 触发完整图同步 / Trigger full graph sync
-- `loadGraphFromBytes()` — 网络包加载完整图 / Load full graph from network bytes
+- `loadAdditional()` — 中途加入玩家（`graphReady == false`）强制加载服务端最新图 / Mid-game joiners get the latest authoritative graph
 
 ### 7 个方块类 / 7 Block Types
 
@@ -169,19 +222,24 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。8 种模式：CONST, 
 | `SpeedProxyBlockEntity` | 转速代理 / Speed Proxy | Create SpeedController 直控 / Direct speed controller access |
 | `ProgramComputerBlockEntity` | 编程计算机 / Program Computer | 时序逻辑专用 / Sequential logic only |
 
-### GraphEditor (~3000 行 / lines)
+### GraphEditor (~5300 行 / lines)
 核心节点图编辑器。承载所有渲染/输入/交互逻辑。
 / Core node graph editor. All rendering, input, and interaction logic.
 
 **关键子系统 / Key Subsystems**：
-- 节点渲染 / Node rendering (`drawNode`)
-- A/B/C 三层遮挡 / Three-layer occlusion (Grid→Comments→Connections→Nodes→Overlays)
-- `undoStack` / `redoStack`（旧静态栈 / old static）+ `localUndoStack2`（新 per-instance op 栈 / new per-instance op stack）
+- 节点渲染 / Node rendering — `renderBg()` 委托 `renderer.renderNodes(...)`（`NodeRenderer`）/ Node drawing lives in NodeRenderer
+- A=0~A=5 六层遮挡 / Six-layer occlusion (A=0 Grid → A=1 Comment backgrounds → A=2 Connections → A=3 Node bodies + edit areas → A=4 Overlays → A=5 Tooltips/menu)
+- `undoStack2` / `redoStack2`（per-instance `ArrayDeque<UndoEntry>`，`MAX_UNDO2 = 100`）/ Per-instance op undo/redo
 - Ctrl+D 复制 / Copy → `PendingCopyGroup` → `flushCopyGroup()`
+- 添加节点菜单搜索框 / Add-node menu search (`NodeRenderer.menuSearchText` + `appendMenuSearch`/`menuSearchBackspace`，双语 `search_hint`)/ Menu search box
 - 多人协作 Presence / Multiplayer presence (光标/节点锁/金色边框 / cursor/lock/golden border)
 - 书签系统 / Bookmark system
 - BUS 冲突检测 / BUS conflict detection (`reevaluateBusConflicts`)
 - 调试工具交互 / Debug tool interaction (控制点拖拽、探针冻结 / control point drag, probe freeze)
+
+### NodeRenderer
+节点图渲染器：`renderNodes()`、`drawNode()`、添加节点菜单（多列 + 搜索框 + scissor 裁剪 + 高度封顶）、`SpatialIndex` 命中过滤、A/B/C 遮挡排序。
+/ Graph renderer: nodes, add-node menu (multi-column + search + scissor + height cap), spatial culling, occlusion ordering.
 
 ### EditSessionRegistry
 多人编辑会话注册表 / Multiplayer edit session registry.
@@ -202,6 +260,8 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。8 种模式：CONST, 
 
 ### 网络包分类 / Packet Catalog
 
+**注册中枢 / Registration hub**：`AllPackets`（`@EventBusSubscriber`）注册 **13 个 C→S + 9 个 S→C = 22 个**包。
+
 | 方向 / Dir | 包 / Packet | 用途 / Purpose |
 |------|-----|------|
 | C→S | `GraphEditOpPacket` | 编辑操作（含安全校验）/ Edit with validation |
@@ -210,21 +270,29 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。8 种模式：CONST, 
 | C→S | `BlueprintSavePacket` | 完整图覆盖（兼容路径）/ Full graph overwrite (legacy) |
 | C→S | `BlueprintTogglePacket` | 启动/停止执行 / Start/stop execution |
 | C→S | `BusBandUploadPacket` | BUS 频段上传 / BUS band upload |
-| C→S | `BlobDataPacket` | 分片大数据传输（图像像素等）/ Chunked bulk data (image pixels) |
+| C→S | `BlobDataPacket` | 分片大数据上传（≤30KB/片）/ Chunked bulk data upload |
 | C→S | `ControlSeatInputPacket` | 座椅输入 / Seat input |
 | C→S | `RadarSettingsPacket` / `RadarLockPacket` | 雷达设置/锁定 / Radar settings/lock |
 | C→S | `MonitorSettingsPacket` | 屏幕参数 / Monitor screen params |
-| C→S | `ScanSablePacket` | 便携终端扫描 / Portable terminal scan |
+| C→S | `ScanSablePacket` | 便携终端扫描请求 / Portable terminal scan request |
 | S→C | `GraphEditOpSyncPacket` | 远程编辑操作同步 / Remote edit sync |
 | S→C | `GraphEditAckPacket` | ADD_NODE_REQUEST 回执 / Server ID allocation ack |
 | S→C | `GraphPresenceSyncPacket` | 远程光标同步 / Remote cursor sync |
 | S→C | `ClientboundGraphEvalPacket` | 求值结果快照 / Eval result snapshot |
 | S→C | `BusBandSyncPacket` | BUS 频段同步 / BUS band sync |
-| S→C | `RuntimeStateSyncPacket` | T-FlipFlop 状态同步 / Flipflop state sync |
+| S→C | `RuntimeStateSyncPacket` | 时序组件状态同步（含子图 flipflop）/ Sequential state sync (incl. sub-graph flipflop) |
 | S→C | `BlobDataSyncPacket` | Blob 数据转发 / Blob data relay |
+| S→C | `MonitorRedstoneSyncPacket` | Monitor 红石输入同步 / Monitor redstone input sync |
+| S→C | `ScanSableResponsePacket` | 便携终端扫描结果 / Terminal scan response |
 
-**安全校验 / Security**：所有 C→S 包通过 `SablePacketHelper.isWithinReachableRange(sp, pos, 128²)` + `EditSessionRegistry.getEditors(sl, pos).contains(sp.getUUID())` 双重验证。
-/ All C→S packets pass dual validation: distance check + editor membership check.
+**辅助类型 / Helper types**：`BlobPacketHandler`（Blob 收发）、`BlobType`（IMAGE_PIXELS/ITEMSTACK_NBT/RAW_BYTES）、`ChannelEntry`（CHANNELS 值类型，含 refCount）、`ChannelOwner`（`BlockPos+nodeId` 所有者标识）
+
+**安全校验 / Security**：双重验证（距离 + 编辑会话成员）**仅适用于编辑类包**（`GraphEditOpPacket`、`BlobDataPacket`）。
+/ Dual validation (distance + editor-membership) applies only to edit-type packets.
+- `ControlSeatInputPacket` / `RadarLockPacket` — 仅距离检查 / distance only
+- `ScanSablePacket` — 无距离/成员校验 / no validation before scan
+- `GraphJoinPacket` — 距离 + 目标为 GraphBlockEntity / distance + block-type check
+- `GraphPresencePacket` / `GraphLeavePacket` — 无成员校验（Presence 转发给会话编辑者）/ no membership check
 
 ### SignalBus
 全局静态 BUS 注册表 / Global static BUS registry (`ConcurrentHashMap`).
@@ -234,7 +302,7 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。8 种模式：CONST, 
 - `BAND_REGISTRY` — 频段定义 / Band definitions (`name → List<String>`)
 
 **核心方法 / Core Methods**：
-- `registerChannel(name, map, owner)` — 首次注册或 refCount++，不同 owner 返回 false / First registration or increment ref; different owner → conflict (false)
+- `registerChannel(name, map, owner)` — 首次注册创建（refCount=1）；**同 owner 重注册不递增 refCount**，仅更新 map 引用并保留原计数；不同 owner 返回 false / First registration creates; same-owner re-registration preserves ref-count; different owner → conflict (false)
 - `updateChannel(name, map, owner)` — 更新 map 引用不改变 refCount / Update map ref without touching refCount
 - `unregisterChannel(name, owner)` — refCount--，归零时移除 + clearBus / Decrement ref; remove + clearBus at zero
 - `registerBands(name, bands)` / `getBands(name)` / `clearBus(name)`
@@ -246,8 +314,13 @@ BUS 频道生命周期管理器 / BUS channel lifecycle manager.
 - `unregisterChannels()` — 注销所有 BUS_OUT / Unregister all
 - `reRegisterChannels()` — 差异式重注册（只注销移除的，保留现有的）/ Diff-based: unregister removed only
 - `recoverConflictedChannels()` — 原 owner 消失时接管频道 / Take over when original owner gone
-- `syncBandsFromServer()` — 服务端推送频段到客户端图（跳过冲突 BUS_OUT）/ Push bands to client graph
+- `syncBandsFromServer()` — 服务端推送频段到客户端图（仅断开实际删除的频段，保留重排频段）/ Push bands; disconnect only actually-removed bands
 - `syncIfBandsChanged()` — tick 级频段变更检测 / Per-tick band change detection
+- `cleanupClientBands(graph, pos, level)` — 卸载/销毁前清空 BUS_OUT 频段同步 + PRIVATE_OUT / Clear client bands before unload
+- `syncDeletedBusNames(oldGraph, newGraph, pos, level)` — 旧图有而新图无的 BUS_OUT 名发空同步 / Sync deleted bus names
+
+> **v1.2.4.1 行为要点 / Behavior note**：`loadGraphFromBytes` **跳过** `cleanupBusChannels`（避免向客户端广播空频段、永久删除连线），并**跳过立即重编译**——通过 `graph.bumpGeneration()` + `lastGraphGeneration = -1` 推迟到下一 tick 重编译时恢复频段。
+> / loadGraphFromBytes skips bus cleanup and immediate recompile; next-tick recompile restores correct bands.
 
 ### SablePacketHelper
 Sable 子层级兼容工具 / Sable sub-level compat utilities.
@@ -269,6 +342,8 @@ Sable 子层级兼容工具 / Sable sub-level compat utilities.
 |----|------|
 | `ClientSetup.java` | 客户端初始化 / Client init |
 | `ControlSeatInputHandler.java` | 座椅 GLFW 原始输入 / Raw GLFW input bypassing MC keybindings |
+| `FormulaCompletion.java` | FORMULA 编辑器自动补全候选构建 / Autocomplete candidate builder |
+| `FormulaSuggestPopup.java` | 自动补全浮层（光标附近，z 层 C=5.5）/ Suggestion dropdown overlay |
 | `GeometryConstants.java` | 统一布局常量 / Unified layout constants |
 | `MultiLineEditBox.java` | 多行文本编辑 / Multi-line text editing |
 | `PortableTerminalScreen.java` | 便携终端 UI / Portable terminal UI |
@@ -278,21 +353,33 @@ Sable 子层级兼容工具 / Sable sub-level compat utilities.
 | `colorpicker/ColorUtils.java` | 颜色工具 / Color utilities |
 | `colorpicker/RecentColors.java` | 最近使用颜色持久化 / Recent colors persistence |
 | `renderer/MonitorBlockEntityRenderer.java` | 全息显示器 3D 渲染（BER）/ Holographic monitor 3D renderer |
+| `renderer/MonitorRenderTypes.java` | Monitor 自定义 RenderType（SCREEN_PIXEL/NO_CULL）/ Custom RenderTypes |
 | `renderer/RadarBlockEntityRenderer.java` | 雷达 3D 渲染（BER）/ Radar 3D renderer |
 
 ---
 
 ## 5. `compat/` — Sable 兼容层 / Sable Compat Layer
 
-通过反射访问 Sable 物理引擎 API。Sable 未安装时优雅降级。
-/ Reflection-based access to Sable physics engine API. Graceful degradation when Sable is absent.
+v1.2.4.1 起访问机制为**编译期桥 + 反射混合**：入口 `SubLevelContainer` 经编译期桥（专用服务器安全），仅部分深层类型（`SubLevel.logicalPose/getLevel`、`Pose3dc`/`Vector3dc`/`Quaterniondc`、`Plot`/`PlotChunkHolder`、包围盒）保留反射。无 Sable 时优雅降级。
+/ Since v1.2.4.1: a mix of compile-time bridge (dedicated-server safe) + reflection for deep internals. Graceful degradation without Sable.
 
 | 类 / Class | 功能 / Function |
 |----|------|
-| `ControlSeatBlockEntitySable.java` | 座椅实体 yaw 追踪子世界旋转 / Seat entity yaw tracks sub-level rotation |
+| `SableAccess.java` | **编译期桥** — `SubLevelContainer.getContainer(level)` / `getAllSubLevels` / `getSubLevelLevel`（`isClientSide` + `ModList.isLoaded("sable")` 守卫）/ Compile-time bridge entry point |
+| `SableReflection.java` | 反射助手 — SubLevel/Pose3dc/Plot/包围盒；`SubLevelContainer` 访问委托给 `SableAccess` / Reflection helper for deep internals |
+| `SablePoseHelper.java` | 从 SubLevel 提取欧拉角；`isWithinReachableRange` 直接用编译期 API（无反射）/ Extract Euler angles; direct compile-time API |
+| `ControlSeatBlockEntitySable.java` | 座椅实体 yaw 追踪子世界旋转（`BlockEntitySubLevelActor`）/ Seat entity yaw tracks sub-level rotation |
 | `RadarBlockEntitySable.java` | 雷达子层级扫描 / Radar sub-level scanning |
 | `SensorBlockEntitySable.java` | 姿态传感器读取 logicalPose 四元数 / Read logicalPose quaternion |
-| `SablePoseHelper.java` | 从 SubLevel 提取欧拉角 / Extract Euler angles from SubLevel |
+
+---
+
+## 6. `mixin/` — Mixin 注入 / Mixin Injection
+
+| 类 / Class | 目标 / Target | 功能 / Function | 配置 / Config |
+|----|------|---------|------|
+| `LocalPlayerMixin.java` | `Entity.turn()` | 摇杆抑制 + 鼠标增量导出（HEAD 拦截）/ Joystick suppression + raw mouse delta export | `create_schematic_compute.mixins.json` (client) |
+| `ControlSeatCameraMixin.java` | Sable 相机 | 禁用 Sable 相机旋转防双重旋转 / Disable Sable camera rotation to prevent double-rotation | `create_schematic_compute.sable.mixins.json` (`required:false`) |
 
 ---
 
@@ -330,7 +417,7 @@ Client A 编辑节点 / edits node
 ### BUS 频道生命周期 / BUS Channel Lifecycle
 
 ```
-loadAdditional() → registerBusChannels() → registerChannels()
+loadAdditional()/onLoad() → registerBusChannels() → registerChannels()
   → SignalBus.registerChannel(name, map, owner)
     → CHANNELS.putIfAbsent → ChannelEntry(map, owner, refCount=1)
   → n.busConflict = !ok
@@ -342,6 +429,11 @@ recompileEvaluator()
     → 保留的节点 / kept: updateChannel()       [不改变 refCount / refCount unchanged]
     → 新增的节点 / new: registerChannel()      [首次注册 / first registration]
   → snapshotBusOutKeys()  [保存当前快照 / save current snapshot]
+
+loadGraphFromBytes()（v1.2.4.1）
+  → unregisterBusChannels(graph)
+  → 跳过 cleanupBusChannels [不向客户端广播空频段 / no empty band syncs]
+  → graph.bumpGeneration() + lastGraphGeneration = -1 [下一 tick 重编译恢复频段 / next-tick recompile restores bands]
 
 onChunkUnloaded / setRemoved
   → cleanupBusChannels()  [清空 BusBandSync / clear band syncs]

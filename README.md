@@ -528,30 +528,38 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 ## 📜 Changelog / 更新日志
 
 <details>
-<summary><b>v1.2.4.1</b></summary>
+<summary><b>v1.2.4.1</b> — 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 / Regression Audit · Bus System · Encapsulation State · Formula Consistency · Sable Hardening</summary>
 
-- **回归审计 + 总线系统修复**：对 1915202 起的改动做全量业务逻辑审计（6 路并行 + 对抗验证），修复雷达红石输出失效、传感器子关卡姿态误用、flipflop 同步风暴、子图状态泄漏、Sable 专用服务器反射错误等。
-- **总线跨方块编辑修复**：创建同名 BUS_OUT 不再自动同步覆盖原频道 owner 的 band 定义；改名保留自身 band 与连线（BUS_IN 采用新频道 band）；点击空白处提交频道名；修复反复编译+运行导致 BUS_IN 读 0（loadGraphFromBytes 的 generation 冲突）；自身 BUS_OUT 不再误报冲突。
-- **Sable 兼容层加固**：反射访问改编译期桥，专用服务器不再触发 ClientLevel 加载错误；雷达 Sable 结构扫描在专用服务器正常；无 Sable 环境安全回退。
-- **编辑器冲突检测**：修复 crossConflict 死代码（客户端从不显示跨方块冲突），改名/删除时 `localBusNames` 保持同步。
-- **雷达锁定**：空中 blip 锁定不再被方块 UI 拦截；移除编辑会话成员校验（锁定是使用操作）。
+### 🔍 回归审计 + 总线系统 / Regression Audit + Bus System
 
-</details>
+- **回归审计 / Regression audit**：对 `1915202` 起的改动做全量业务逻辑审计（6 路并行 + 对抗验证），修复雷达红石输出失效、传感器子关卡姿态误用、flipflop 同步风暴、子图状态泄漏、Sable 专用服务器反射错误等。/ Full business-logic audit of changes since `1915202` (6 parallel + adversarial verification): fixed radar redstone output, sensor sub-level pose misuse, flipflop sync storm, sub-graph state leak, and Sable dedicated-server reflection errors.
+- **总线跨方块编辑修复 / BUS cross-block editing fixes**：创建同名 BUS_OUT 不再自动同步覆盖原频道 owner 的 band 定义；改名保留自身 band 与连线（BUS_IN 采用新频道 band）；点击空白处提交频道名；修复反复编译+运行导致 BUS_IN 读 0（`loadGraphFromBytes` 的 generation 冲突）；自身 BUS_OUT 不再误报冲突。/ Creating a same-name BUS_OUT no longer overwrites the original owner's band definitions; rename preserves the node's bands and connections (BUS_IN adopts the new channel's bands); clicking empty space commits the channel name; fixed BUS_IN reading 0 after repeated compile+run (generation conflict in `loadGraphFromBytes`); a node's own BUS_OUT no longer reports a false conflict.
+- **编译 BUS 断线修复 / Compile-time BUS disconnection fix**：移除 `loadGraphFromBytes` 中 `cleanupBusChannels()`，防止编译时向客户端广播空频段导致连线永久丢失。/ Removed `cleanupBusChannels()` from `loadGraphFromBytes` to stop empty band syncs from permanently deleting connections.
+- **编辑器冲突检测 / Editor conflict detection**：修复 `crossConflict` 死代码（客户端从不显示跨方块冲突），改名/删除时 `localBusNames` 保持同步。/ Fixed the `crossConflict` dead code (cross-block conflicts were never shown client-side); `localBusNames` stays in sync on rename/delete.
 
-<details>
-<summary><b>v1.2.4.1 (original)</b></summary>
+### 📦 封装节点 / Encapsulation Nodes
 
-- **封装节点输出假数值**：修复 `recompileEvaluatorFull()` 的 `runtimeState.clear()` 清除子图时序组件状态（DELAY/LATCH/flipflop 等），导致封装内部计算偏差。1.2.3 的子评估器缓存掩盖了此问题，修复缓存失效后暴露。现在重编译前保存并恢复 `subStates`。
-- **封装内时序节点编辑区状态**：扩展 `RuntimeStateSyncPacket` 携带子图 flipflop 状态，编辑器在子图内显示正确的时序节点实时状态。
-- **子图展开状态初始化**：修复进出封装节点后 `expandedInitDone` 未重置，导致子图展开节点不恢复。
-- **公式节点双缓存统一**：移除 `GraphEvaluator.scriptCache`，改为 `node.cachedScript` 单一真相源，消除引脚解析与求值的缓存漂移。
-- **V3→V4 迁移**：`GraphMigration` 复用 `GraphNode.inputPinId`/`outputPinId`，支持旧版动态引脚连线保留。
-- **Sable 重连**：`sable$getLoadingDependencies` 通过 `getPlot(chunkPos)` 安全返回子世界引用，修复重进存档后 Sable 节点失效。
-- **数值输入回弹**：编辑器打开时跳过 NBT 全量图替换，防止服务端同步覆盖本地编辑值。
-- **编译 BUS 断线**：移除 `loadGraphFromBytes` 中 `cleanupBusChannels()`。
-- **公式节点清空回弹 A+B**：`createEditState` 不再强制默认值。
-- **公式编辑器光标与选区**：MLE 图空间坐标转换 + 方向键折叠选区。
-- **临时视角跨方块污染**：改为按 `BlockPos` 存储。
+- **封装节点输出假数值 / Fake outputs from encapsulated nodes**：修复 `recompileEvaluatorFull()` 的 `runtimeState.clear()` 清除子图时序组件状态（DELAY/LATCH/flipflop 等），导致封装内部计算偏差。1.2.3 的子评估器缓存掩盖了此问题，修复缓存失效后暴露。现在重编译前保存并恢复 `subStates`。/ `runtimeState.clear()` no longer wipes sub-graph sequential state (DELAY/LATCH/flipflop etc.) — `subStates` are saved and restored before a full recompile; previously masked by the v1.2.3 sub-evaluator cache.
+- **封装内时序节点编辑区状态 / In-encapsulation sequential node state**：扩展 `RuntimeStateSyncPacket` 携带子图 flipflop 状态，编辑器在子图内显示正确的时序节点实时状态。/ `RuntimeStateSyncPacket` now carries sub-graph flipflop state so the editor shows correct live sequential state inside encapsulation.
+- **子图展开状态初始化 / Sub-graph expansion state init**：修复进出封装节点后 `expandedInitDone` 未重置，导致子图展开节点不恢复。/ Fixed `expandedInitDone` not resetting when entering/leaving encapsulation, so expanded sub-graph nodes fail to restore.
+
+### 📝 公式编辑器 / Formula Editor
+
+- **公式节点双缓存统一 / Unified formula cache**：移除 `GraphEvaluator.scriptCache`，改为 `node.cachedScript` 单一真相源，消除引脚解析与求值的缓存漂移。/ Removed `GraphEvaluator.scriptCache`; `node.cachedScript` is now the single source of truth, eliminating pin-resolution vs. evaluation cache drift.
+- **公式节点清空回弹 A+B / Formula empty-value bounce-back A+B**：`createEditState` 不再强制默认值。/ `createEditState` no longer forces default values.
+- **公式编辑器光标与选区 / Formula editor caret & selection**：MLE 图空间坐标转换 + 方向键折叠选区。/ MLE graph-space coordinate conversion + arrow-key selection folding.
+- **V3→V4 迁移 / V3→V4 migration**：`GraphMigration` 复用 `GraphNode.inputPinId`/`outputPinId`，支持旧版动态引脚连线保留。/ Migration reuses `GraphNode.inputPinId`/`outputPinId` so legacy dynamic-pin connections are preserved.
+
+### 🔄 Sable 兼容 / Sable Compat
+
+- **Sable 兼容层加固 / Compat layer hardening**：反射访问改编译期桥，专用服务器不再触发 ClientLevel 加载错误；雷达 Sable 结构扫描在专用服务器正常；无 Sable 环境安全回退。/ Reflection access replaced with a compile-time bridge — dedicated servers no longer trigger ClientLevel load errors; radar Sable structure scanning works on dedicated servers; safe fallback without Sable.
+- **Sable 重连 / Sable reconnection**：`sable$getLoadingDependencies` 通过 `getPlot(chunkPos)` 安全返回子世界引用，修复重进存档后 Sable 节点失效。/ Safe sub-level reference via `getPlot(chunkPos)` — Sable nodes survive world reload.
+
+### 🛠️ 其他修复 / Other Fixes
+
+- **雷达锁定 / Radar lock**：空中 blip 锁定不再被方块 UI 拦截；移除编辑会话成员校验（锁定是使用操作）。/ Air-blip lock is no longer intercepted by the block-UI; removed the edit-session membership check (locking is a use operation).
+- **数值输入回弹 / Numeric input bounce-back**：编辑器打开时跳过 NBT 全量图替换，防止服务端同步覆盖本地编辑值。/ Skipped full-graph NBT replacement on editor open so server sync cannot overwrite local edits.
+- **临时视角跨方块污染 / Temp camera-view contamination**：改为按 `BlockPos` 存储。/ Temp camera view is now stored per `BlockPos`.
 
 </details>
 
