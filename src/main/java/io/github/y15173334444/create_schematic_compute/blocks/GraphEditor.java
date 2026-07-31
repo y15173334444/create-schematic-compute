@@ -3526,8 +3526,32 @@ public class GraphEditor {
         // Re-evaluate all BUS_OUT conflict state (renaming may create or resolve conflicts).
         // 重新评估所有 BUS_OUT 冲突状态（改名可能产生或解决冲突）。
         reevaluateBusConflicts(getGraph());
-        // 保留自身 signalBands —— 不再从新频道覆盖（用户期望改名保留自身 band + 连线）。
-        // Keep the node's own signalBands — no longer overwrite from the new channel.
+        // 改名 band 处理：
+        // - BUS_OUT：保留自身 band + 连线（用户期望改名不丢图）
+        // - BUS_IN：采用新频道的 band 定义（从同频道节点或 BAND_REGISTRY 复制）。
+        //   BUS_IN 是读取方，其 band 列表必须匹配频道定义才能读到值；若保留旧 band，
+        //   改名后 key 与频道不匹配 → 读 0（回归审计：BUS_IN 改名不替换图）。
+        // Rename band handling:
+        // - BUS_OUT: keep its own bands + connections (user wants rename not to lose the graph)
+        // - BUS_IN: adopt the new channel's band definition (copy from a same-channel node or
+        //   BAND_REGISTRY). BUS_IN is a reader; its band list must match the channel definition
+        //   to read values; keeping the old bands would mismatch the channel keys -> reads 0.
+        if (node.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN && !t.isEmpty()) {
+            boolean synced = false;
+            for (var n : getGraph().nodes) {
+                if (n != node && n.signalName.equals(t) && n.bandCount() > 0) {
+                    node.signalBands = new java.util.ArrayList<>(n.signalBands);
+                    node.bandsDirty = true; synced = true; break;
+                }
+            }
+            if (!synced) {
+                var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(t);
+                node.signalBands = (gb != null && !gb.isEmpty())
+                    ? new java.util.ArrayList<>(gb)
+                    : new java.util.ArrayList<>();
+                node.bandsDirty = true;
+            }
+        }
         // 重建编辑区（在最后调用，确保所有状态已更新） (Rebuild edit state last, ensuring all state is up to date)
         nodeEditStatesById.put(node.id, createEditState(node));
     }
@@ -3625,8 +3649,22 @@ public class GraphEditor {
             // 否则 BAND_REGISTRY 携带的是其他方块的频段（跨方块冲突）。
             // （原 anyBusOutOwns 循环缺少 other != n 守卫，匹配到节点自身导致
             // crossConflict 恒 false——死代码，已删除。回归审计：客户端从不显示跨 block 冲突。）
+            // 跨 block 冲突：仅当本图完全没有同名 BUS_OUT（含自身）且 BAND_REGISTRY 有该名
+            // bands 时成立。若本图有同名 BUS_OUT，BAND_REGISTRY 的 bands 可能是本 block 的
+            // 自身 echo（服务端广播回来）——不构成跨 block 冲突（回归审计：加载后的
+            // BUS_OUT 名字不在 localBusNames，导致自身 echo 被误标冲突）。
+            // Cross-block conflict only when this graph has NO same-name BUS_OUT at all
+            // (including itself) AND BAND_REGISTRY has the name. If the graph has one,
+            // BAND_REGISTRY's bands may be this block's own echo — not a conflict.
             boolean crossConflict = false;
-            if (!localConflict && !localBusNames.contains(n.signalName)) {
+            boolean anyLocalSameName = false;
+            for (var any : graph.nodes) {
+                if (any.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
+                    && any.signalName.equals(n.signalName)) {
+                    anyLocalSameName = true; break;
+                }
+            }
+            if (!localConflict && !anyLocalSameName && !localBusNames.contains(n.signalName)) {
                 var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(n.signalName);
                 if (gb != null && !gb.isEmpty()) crossConflict = true;
             }

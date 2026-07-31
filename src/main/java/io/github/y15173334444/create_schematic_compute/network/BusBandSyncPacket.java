@@ -87,23 +87,29 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
             io.github.y15173334444.create_schematic_compute.graph.NodeGraph graph,
             String busName) {
         if (graph == null || busName == null || busName.isEmpty()) return;
-        // 修复 anyBusOutOwns 死代码：原循环缺 other != n 守卫，匹配到节点自身致
-        // crossBlockExists 恒 false，客户端从不显示跨 block 冲突（与 GraphEditor
-        // 同 bug）。现在 anyBusOutOwns = 图内还有另一个同名 BUS_OUT。
-        // Fix the anyBusOutOwns dead-code: the original loop had no other != n guard,
-        // always matching the node itself, so crossBlockExists was always false and the
-        // client never showed cross-block conflicts (same bug as GraphEditor). Now
-        // anyBusOutOwns = there is another same-name BUS_OUT in this graph.
+        // 本地冲突 = 图内另一个同名 BUS_OUT（同图重名会互相覆盖，警告）。
+        // crossBlockExists = 本图没有任何同名 BUS_OUT（含自身），但 BAND_REGISTRY
+        // 有该名 bands —— 说明是另一个 block 的频道（跨 block 冲突）。
+        // 注意：anyBusOutOwns 必须匹配含自身的同名节点——若本图有同名 BUS_OUT，
+        // BAND_REGISTRY 的 bands 可能是本 block 自己的 echo（服务端广播回来），
+        // 不构成跨 block 冲突。回归审计：上一轮加 other != n 移除了自我回显保护，
+        // 导致单一 BUS_OUT 自己的 echo 被误标 busConflict=true。
+        // Local conflict = another same-name BUS_OUT in this graph (warning: same-graph
+        // duplicates overwrite each other). crossBlockExists = this graph has NO same-name
+        // BUS_OUT at all (including itself) but BAND_REGISTRY has the name — another block's
+        // channel (cross-block conflict). anyBusOutOwns must match same-name nodes INCLUDING
+        // itself: if this graph has one, BAND_REGISTRY's bands may be this block's own echo
+        // (broadcast back by the server), not a cross-block conflict.
         boolean anyBusOutOwns = false;
         var localConflictByNode = new java.util.HashSet<Integer>();
         for (var n : graph.nodes) {
             if (n.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
                 || !n.signalName.equals(busName)) continue;
+            anyBusOutOwns = true; // 本图有同名 BUS_OUT（含自身）
             for (var other : graph.nodes) {
                 if (other != n && other.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
                     && other.signalName.equals(busName)) {
                     localConflictByNode.add(n.id);
-                    anyBusOutOwns = true;
                 }
             }
         }

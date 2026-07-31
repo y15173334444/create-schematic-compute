@@ -223,12 +223,29 @@ public final class OpExecutor {
                         || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT
                         || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT)
                         n.signalName = n.displayText;
-                    // 改名保留自身 band 与连线（回归审计：用户期望改名不丢图，与客户端
-                    // commitBusBox 一致）。不再从新频道覆盖 signalBands，也不删旧 band 连线。
-                    // Rename keeps the node's own bands and connections (regression audit:
-                    // renaming must not lose the carried graph; consistent with the client
-                    // commitBusBox). No longer overwrite signalBands from the new channel,
-                    // and no longer delete old-band connections.
+                    // 改名 band 处理（与客户端 commitBusBox 一致）：
+                    // - BUS_OUT：保留自身 band 与连线（用户期望改名不丢图）
+                    // - BUS_IN：采用新频道的 band 定义（读取方需匹配频道 key 才能读到值）
+                    // Rename band handling (consistent with client commitBusBox):
+                    // - BUS_OUT: keep its own bands and connections (rename must not lose the graph)
+                    // - BUS_IN: adopt the new channel's band definition (reader must match keys)
+                    if ((n.type == NodeType.BUS_IN) && !n.signalName.isEmpty() && !n.signalName.equals(oldName)) {
+                        boolean found = false;
+                        for (var other : graph.nodes) {
+                            if (other != n && other.signalName.equals(n.signalName)
+                                && other.bandCount() > 0) {
+                                n.signalBands = new java.util.ArrayList<>(other.signalBands);
+                                found = true; break;
+                            }
+                        }
+                        if (!found) {
+                            var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(n.signalName);
+                            n.signalBands = (gb != null && !gb.isEmpty())
+                                ? new java.util.ArrayList<>(gb)
+                                : new java.util.ArrayList<>();
+                        }
+                        n.bandsDirty = true;
+                    }
                     graph.bumpGeneration();
                 }
                 yield n;

@@ -569,16 +569,20 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
                 // 下一次 tick 的 recompile 会从新图重新注册频道并广播正确的频段列表。
                 unregisterBusChannels(graph);
                 graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
-                // Force a generation bump so graphChanged() fires on the next tick.
-                // NodeGraph.load produces a fresh graph with generation 0, which can
-                // equal lastGraphGeneration (e.g. an empty graph) — without the bump,
-                // recompile (and BUS re-registration) would be skipped and the new
-                // graph's BUS_OUT channels would never register → BUS_IN reads 0.
-                // 强制 bump 代数，确保下一 tick graphChanged() 触发重编译。
-                // NodeGraph.load 产生 generation=0 的新图，可能与 lastGraphGeneration
-                // 相等（如空图）——不 bump 则重编译（及 BUS 重注册）被跳过，
-                // 新图 BUS_OUT 永不注册 → BUS_IN 读到 0。
+                // Force recompile on the next tick: bump the fresh graph's generation AND
+                // reset lastGraphGeneration to -1. NodeGraph.load produces a fresh graph
+                // with generation 0; bumping once to 1 can COLLIDE with lastGraphGeneration
+                // left at 1 by the previous compile's recompile (regression audit: repeated
+                // Compile+Run made graphChanged() false, so the unregistered BUS_OUT channel
+                // was never re-registered and BUS_IN read 0). Resetting lastGraphGeneration
+                // guarantees the next graphChanged() is true regardless of the new value.
+                // 强制下一 tick 重编译：bump 新图代数，并把 lastGraphGeneration 重置为 -1。
+                // NodeGraph.load 产生 generation=0 的新图；bump 一次到 1 可能与上次重编译
+                // 留下的 lastGraphGeneration=1 冲突（回归审计：反复编译+运行使 graphChanged()
+                // 为 false，被注销的 BUS_OUT 频道永不重注册，BUS_IN 读 0）。重置
+                // lastGraphGeneration 保证无论新值如何 graphChanged() 都为 true。
                 graph.bumpGeneration();
+                lastGraphGeneration = -1;
                 // The graph was fully replaced — clear sub-graph runtime state so the
                 // next recompile starts from a clean slate. Old-graph ENCAPSULATION
                 // node IDs have no meaning in the new graph; preserving them lets
