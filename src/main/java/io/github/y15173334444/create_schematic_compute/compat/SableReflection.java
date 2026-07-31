@@ -37,13 +37,8 @@ public final class SableReflection {
      */
     private static volatile boolean available;
 
-    // ── SubLevelContainer 反射方法 / SubLevelContainer reflective methods ──
-
-    /** SubLevelContainer.getContainer(Level) — 获取容器实例 / get the container instance */
-    private static Method containerGetContainer;
-
-    /** SubLevelContainer.getAllSubLevels() — 获取全部子关卡 / get all sub-levels */
-    private static Method containerGetAllSubLevels;
+    // ── SubLevelContainer 访问已迁移到编译期桥 SableAccess（专用服务器安全） ──
+    // ── SubLevelContainer access migrated to the compile-time SableAccess bridge ──
 
     // ── SubLevel 反射方法 / SubLevel reflective methods ──
 
@@ -150,10 +145,15 @@ public final class SableReflection {
         // ── 第一阶段：核心类（必须成功，否则整体不可用） ──
         // ── Phase 1: core classes — must succeed or the whole thing is unavailable ──
         try {
-            var containerClass = Class.forName("dev.ryanhcode.sable.api.sublevel.SubLevelContainer");
-            containerGetContainer = containerClass.getMethod("getContainer", Level.class);
-            containerGetAllSubLevels = containerClass.getMethod("getAllSubLevels");
-
+            // 注意：不再对 SubLevelContainer 做 Class.forName——其重载方法
+            // getContainer(ClientLevel) 引用 ClientLevel，专用服务器 dev 环境会触发
+            // RuntimeDistCleaner 拦截。SubLevelContainer 访问统一走编译期桥 SableAccess
+            //（专用服务器安全）。SubLevel 无 ClientLevel 重载，可安全 Class.forName。
+            // Note: no Class.forName on SubLevelContainer — its getContainer(ClientLevel)
+            // overload references ClientLevel, which RuntimeDistCleaner rejects on
+            // dedicated-server dev. SubLevelContainer access goes through the compile-time
+            // SableAccess bridge (dedicated-server safe). SubLevel has no ClientLevel
+            // overload, so Class.forName on it is safe.
             var subLevelClass = Class.forName("dev.ryanhcode.sable.sublevel.SubLevel");
             subLevelLogicalPose = subLevelClass.getMethod("logicalPose");
             subLevelGetLevel = subLevelClass.getMethod("getLevel");
@@ -259,22 +259,36 @@ public final class SableReflection {
      */
     public static Object getContainer(Level level) {
         init();
-        if (!available || containerGetContainer == null) return null;
-        try { return containerGetContainer.invoke(null, level); }
+        if (!available) return null;
+        // Delegate to the compile-time bridge — no Class.forName on SubLevelContainer
+        // (its getContainer(ClientLevel) overload trips RuntimeDistCleaner on
+        // dedicated-server dev). Dedicated-server safe.
+        // 委托给编译期桥——不对 SubLevelContainer 做 Class.forName（其
+        // getContainer(ClientLevel) 重载在专用服务器 dev 触发 RuntimeDistCleaner）。
+        // 专用服务器安全。
+        try { return io.github.y15173334444.create_schematic_compute.compat.SableAccess.getContainer(level); }
         catch (Exception e) { return null; }
     }
 
     /**
      * 获取容器中的所有子关卡 / Get all sub-levels from a container.
      *
-     * @param container SubLevelContainer 实例 / the SubLevelContainer instance
+     * @param container SubLevelContainer 实例（来自 {@link #getContainer}）/
+     *                  the SubLevelContainer instance (from {@link #getContainer})
      * @return 子关卡列表，失败时返回空列表 / list of sub-levels, or an empty list on failure
      */
     @SuppressWarnings("unchecked")
     public static List<Object> getAllSubLevels(Object container) {
-        if (!available || container == null || containerGetAllSubLevels == null) return List.of();
-        try { return (List<Object>) containerGetAllSubLevels.invoke(container); }
-        catch (Exception e) { return List.of(); }
+        if (!available || container == null) return List.of();
+        // Delegate to the compile-time bridge (dedicated-server safe). The container
+        // is a SubLevelContainer instance from SableAccess.getContainer.
+        // 委托给编译期桥（专用服务器安全）。container 是 SableAccess.getContainer 返回的
+        // SubLevelContainer 实例。
+        try {
+            var list = io.github.y15173334444.create_schematic_compute.compat.SableAccess
+                .getAllSubLevels((dev.ryanhcode.sable.api.sublevel.SubLevelContainer) container);
+            return new java.util.ArrayList<Object>(list);
+        } catch (Exception ignored) { return List.of(); }
     }
 
     /**

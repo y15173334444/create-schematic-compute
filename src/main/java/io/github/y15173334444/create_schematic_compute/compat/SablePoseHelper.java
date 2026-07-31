@@ -79,6 +79,96 @@ public class SablePoseHelper {
     }
 
     /**
+     * Enumerate the world-space origin [x,y,z] of every loaded Sable sub-level.
+     * Used by {@code RadarBlockEntity} structure scanning. Compile-time Sable
+     * access — dedicated-server safe (only the Level overload of getContainer is
+     * resolved, never the ClientLevel one). Returns empty list when Sable absent.
+     * <p>
+     * 枚举所有已加载 Sable 子关卡的世界空间原点 [x,y,z]。
+     * 供 RadarBlockEntity 结构扫描使用。编译期 Sable 访问——专用服务器安全
+     * （只解析 getContainer 的 Level 重载，绝不触碰 ClientLevel 重载）。
+     * Sable 未安装时返回空列表。
+     *
+     * @param level 目标世界（服务端）/ the target level (server-side)
+     * @return 世界空间原点列表，空当 Sable 未加载 / world-space origins, empty if Sable absent
+     */
+    public static java.util.List<double[]> getAllSubLevelOrigins(Level level) {
+        if (level == null || level.isClientSide()) return java.util.List.of();
+        if (!net.neoforged.fml.ModList.get().isLoaded("sable")) return java.util.List.of();
+        try {
+            var container = SubLevelContainer.getContainer(level);
+            if (container == null) return java.util.List.of();
+            var out = new java.util.ArrayList<double[]>();
+            for (var subLevel : container.getAllSubLevels()) {
+                var pose = subLevel.logicalPose();
+                if (pose == null) continue;
+                var pos = pose.position();
+                if (pos == null) continue;
+                out.add(new double[]{pos.x(), pos.y(), pos.z()});
+            }
+            return out;
+        } catch (Exception ignored) { return java.util.List.of(); }
+    }
+
+    /**
+     * Extract {@code [ox,oy,oz,qx,qy,qz,qw]} of the sub-level containing {@code pos},
+     * or {@code null} if the block is not inside a Sable sub-level. Compile-time
+     * Sable access — dedicated-server safe. Returns null when Sable absent.
+     * <p>
+     * 提取包含 {@code pos} 的子关卡的世界原点 + 朝向四元数
+     * {@code [ox,oy,oz,qx,qy,qz,qw]}，方块不在 Sable 子关卡内或 Sable 未加载
+     * 时返回 {@code null}。编译期 Sable 访问——专用服务器安全。
+     *
+     * @param level         目标世界（服务端）/ the target level (server-side)
+     * @param worldPosition 方块坐标 / the block position to look up
+     * @return 7 元素数组或 null / 7-element array or null
+     */
+    public static double[] getContainingSubLevelTransform(Level level, BlockPos worldPosition) {
+        if (level == null || level.isClientSide()) return null;
+        if (!net.neoforged.fml.ModList.get().isLoaded("sable")) return null;
+        try {
+            var subLevel = resolveSubLevel(level, worldPosition);
+            if (subLevel == null) return null;
+            var pose = subLevel.logicalPose();
+            if (pose == null) return null;
+            var p = pose.position();
+            if (p == null) return null;
+            var oq = pose.orientation();
+            return new double[]{
+                p.x(), p.y(), p.z(),
+                oq != null ? oq.x() : 0, oq != null ? oq.y() : 0,
+                oq != null ? oq.z() : 0, oq != null ? oq.w() : 1
+            };
+        } catch (Exception ignored) { return null; }
+    }
+
+    /**
+     * Extract the orientation quaternion of the sub-level containing {@code pos},
+     * or {@code null} if the block is not inside a Sable sub-level (or Sable absent).
+     * Compile-time Sable access — dedicated-server safe.
+     * <p>
+     * 提取包含 {@code pos} 的子关卡朝向四元数。方块不在 Sable 子关卡内或 Sable
+     * 未加载时返回 {@code null}。编译期 Sable 访问——专用服务器安全。
+     *
+     * @param level         目标世界（服务端）/ the target level (server-side)
+     * @param worldPosition 方块坐标 / the block position to look up
+     * @return 朝向四元数或 null / orientation quaternion or null
+     */
+    public static org.joml.Quaterniond getSubLevelOrientationQuaternion(Level level, BlockPos worldPosition) {
+        if (level == null || level.isClientSide()) return null;
+        if (!net.neoforged.fml.ModList.get().isLoaded("sable")) return null;
+        try {
+            var subLevel = resolveSubLevel(level, worldPosition);
+            if (subLevel == null) return null;
+            var pose = subLevel.logicalPose();
+            if (pose == null) return null;
+            var oq = pose.orientation();
+            if (oq == null) return null;
+            return new org.joml.Quaterniond(oq.x(), oq.y(), oq.z(), oq.w());
+        } catch (Exception ignored) { return null; }
+    }
+
+    /**
      * Sable-aware BlockEntity 查找 / Sable-aware BlockEntity lookup.
      * <p>
      * 先在给定 level 中查找，再回退到遍历 Sable 子层级。

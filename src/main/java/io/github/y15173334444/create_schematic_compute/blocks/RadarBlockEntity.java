@@ -268,73 +268,33 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
      */
     private void tryBootstrapSableCache() {
         if (!Float.isNaN(cachedSubYaw)) return; // sable$physicsTick has taken over, no bootstrap needed. sable$physicsTick 已接管，无需 bootstrap
+        if (!net.neoforged.fml.ModList.get().isLoaded("sable")) return;
         try {
-            initSableReflection();
-            if (sableLogicalPoseMethod == null || sableGetContainerMethod == null) return;
             var scanLevel = getScanLevel();
             if (scanLevel == null) return;
-            var cnt = sableGetContainerMethod.invoke(null, scanLevel);
-            if (cnt == null) return;
-            var all = (List<?>) sableGetAllSubLevelsMethod.invoke(cnt);
-            if (all == null || all.isEmpty()) return;
-            // Find the sub-level whose global bounding box contains this radar.
-            // 查找全局包围盒包含此雷达的子世界。
-            double rx = worldPosition.getX() + 0.5, ry = worldPosition.getY() + 0.5, rz = worldPosition.getZ() + 0.5;
-            Object found = null;
-            for (var s : all) {
-                var bb = s.getClass().getMethod("boundingBox").invoke(s);
-                if (bb == null) continue;
-                double mnx = (double) bb.getClass().getMethod("minX").invoke(bb);
-                double mxx = (double) bb.getClass().getMethod("maxX").invoke(bb);
-                double mny = (double) bb.getClass().getMethod("minY").invoke(bb);
-                double mxy = (double) bb.getClass().getMethod("maxY").invoke(bb);
-                double mnz = (double) bb.getClass().getMethod("minZ").invoke(bb);
-                double mxz = (double) bb.getClass().getMethod("maxZ").invoke(bb);
-                if (rx >= mnx && rx <= mxx && ry >= mny && ry <= mxy && rz >= mnz && rz <= mxz) {
-                    found = s; break;
-                }
-            }
-            if (found == null) return;
-            var bestPose = sableLogicalPoseMethod.invoke(found);
-            var pm2 = bestPose.getClass().getMethod("position");
-            var pos2 = pm2.invoke(bestPose);
-            double px = (double) pos2.getClass().getMethod("x").invoke(pos2);
-            double py = (double) pos2.getClass().getMethod("y").invoke(pos2);
-            double pz = (double) pos2.getClass().getMethod("z").invoke(pos2);
-            // Cache sub-world origin in world space — used later for isHost comparison.
-            // 缓存子世界原点世界坐标 — 后续用于 isHost 比较。
-            cachedSubOriginX = (float) px;
-            cachedSubOriginY = (float) py;
-            cachedSubOriginZ = (float) pz;
-            // Initial world position equals origin before sable$physicsTick refines it.
-            // 初始世界位置等于原点，sable$physicsTick 后续会细化。
-            cachedSubWorldX = (float) px;
-            cachedSubWorldY = (float) py;
-            cachedSubWorldZ = (float) pz;
-            try {
-                var om = bestPose.getClass().getMethod("orientation");
-                var oq = om.invoke(bestPose);
-                if (oq != null) {
-                    double ox = (double) oq.getClass().getMethod("x").invoke(oq);
-                    double oy = (double) oq.getClass().getMethod("y").invoke(oq);
-                    double oz = (double) oq.getClass().getMethod("z").invoke(oq);
-                    double ow = (double) oq.getClass().getMethod("w").invoke(oq);
-                    cachedSubQx = (float) ox; cachedSubQy = (float) oy;
-                    cachedSubQz = (float) oz; cachedSubQw = (float) ow;
-                    // Derive Euler angles from quaternion for display and simple rotations.
-                    // 从四元数推导 Euler 角，用于显示和简单旋转。
-                    var q = new org.joml.Quaterniond(ox, oy, oz, ow);
-                    var euler = new org.joml.Vector3d();
-                    q.getEulerAnglesYXZ(euler);
-                    cachedSubYaw   = (float) Math.toDegrees(euler.y);
-                    cachedSubPitch = (float) Math.toDegrees(euler.x);
-                    cachedSubRoll  = (float) Math.toDegrees(euler.z);
-                }
-            } catch (Exception e) {
-                // Orientation extraction failed — assume zero rotation as safe default.
-                // 朝向提取失败 — 默认零旋转作为安全回退。
-                cachedSubYaw = 0; cachedSubPitch = 0; cachedSubRoll = 0;
-            }
+            // Compile-time Sable access (dedicated-server safe — no Class.forName on
+            // SubLevelContainer, which has a ClientLevel overload). Uses the same
+            // ChunkPos→Plot→SubLevel mapping as RadarBlockEntitySable.
+            // 编译期 Sable 访问（专用服务器安全——不对含 ClientLevel 重载的
+            // SubLevelContainer 做 Class.forName）。使用与 RadarBlockEntitySable
+            // 相同的 ChunkPos→Plot→SubLevel 映射。
+            double[] t = io.github.y15173334444.create_schematic_compute.compat.SablePoseHelper
+                .getContainingSubLevelTransform(scanLevel, worldPosition);
+            if (t == null) return;
+            // t = [ox, oy, oz, qx, qy, qz, qw]
+            float ox = (float) t[0], oy = (float) t[1], oz = (float) t[2];
+            cachedSubOriginX = ox; cachedSubOriginY = oy; cachedSubOriginZ = oz;
+            cachedSubWorldX = ox; cachedSubWorldY = oy; cachedSubWorldZ = oz;
+            float qx = (float) t[3], qy = (float) t[4], qz = (float) t[5], qw = (float) t[6];
+            cachedSubQx = qx; cachedSubQy = qy; cachedSubQz = qz; cachedSubQw = qw;
+            // Derive Euler angles from quaternion for display and simple rotations.
+            // 从四元数推导 Euler 角，用于显示和简单旋转。
+            var q = new org.joml.Quaterniond(qx, qy, qz, qw);
+            var euler = new org.joml.Vector3d();
+            q.getEulerAnglesYXZ(euler);
+            cachedSubYaw   = (float) Math.toDegrees(euler.y);
+            cachedSubPitch = (float) Math.toDegrees(euler.x);
+            cachedSubRoll  = (float) Math.toDegrees(euler.z);
         } catch (Exception e) {
             SchematicCompute.LOGGER.warn("Radar Sable bootstrap failed: {}", e.toString());
         }
@@ -567,54 +527,13 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }
 
-    // ── Sable reflection cache / Sable 反射缓存 ──
-    /** Cached reflective Method handles for Sable API, avoiding repeated Class.forName and getMethod calls. 缓存的 Sable API 反射 Method 句柄，避免重复 Class.forName 和 getMethod 调用。 */
-    private static java.lang.reflect.Method sableGetContainerMethod, sableGetAllSubLevelsMethod,
-                                             sableLogicalPoseMethod, sableSubLevelGetLevelMethod;
-    /** Thread-safe initialization guard — ensures reflection is set up at most once. 线程安全的初始化守卫 — 确保反射最多初始化一次。 */
-    private static volatile boolean sableReflectionInit;
-
-    /**
-     * Lazily initializes cached {@link java.lang.reflect.Method} handles for Sable's
-     * {@code SubLevelContainer} and {@code SubLevel} APIs. Uses a volatile boolean guard
-     * for thread-safe one-shot initialization.
-     * <p>
-     * Caches:
-     * <ul>
-     *   <li>{@code SubLevelContainer.getContainer(Level)}</li>
-     *   <li>{@code SubLevelContainer.getAllSubLevels()}</li>
-     *   <li>{@code SubLevel.logicalPose()}</li>
-     *   <li>{@code SubLevel.getLevel()}</li>
-     * </ul>
-     *
-     * 惰性初始化 Sable 的 {@code SubLevelContainer} 和 {@code SubLevel} API 的缓存的
-     * {@link java.lang.reflect.Method} 句柄。使用 volatile boolean 守卫实现线程安全的一次性初始化。
-     * <p>
-     * 缓存内容：
-     * <ul>
-     *   <li>{@code SubLevelContainer.getContainer(Level)}</li>
-     *   <li>{@code SubLevelContainer.getAllSubLevels()}</li>
-     *   <li>{@code SubLevel.logicalPose()}</li>
-     *   <li>{@code SubLevel.getLevel()}</li>
-     * </ul>
-     */
-    private static void initSableReflection() {
-        if (sableReflectionInit) return;
-        try {
-            var containerClass = Class.forName("dev.ryanhcode.sable.api.sublevel.SubLevelContainer");
-            sableGetContainerMethod = containerClass.getMethod("getContainer", net.minecraft.world.level.Level.class);
-            sableGetAllSubLevelsMethod = containerClass.getMethod("getAllSubLevels");
-            // SubLevel is in dev.ryanhcode.sable.sublevel (not the api subpackage).
-            // SubLevel 在 dev.ryanhcode.sable.sublevel 包（非 api 子包）。
-            var subLevelClass = Class.forName("dev.ryanhcode.sable.sublevel.SubLevel");
-            sableLogicalPoseMethod = subLevelClass.getMethod("logicalPose");
-            sableSubLevelGetLevelMethod = subLevelClass.getMethod("getLevel");
-            SchematicCompute.LOGGER.info("Radar Sable reflection initialized OK");
-        } catch (Exception e) {
-            SchematicCompute.LOGGER.error("Radar Sable reflection init FAILED: {}", e.toString());
-        }
-        sableReflectionInit = true;
-    }
+    // ── Sable 访问已迁移到 SablePoseHelper 编译期 API（专用服务器安全） ──
+    // ── Sable access migrated to SablePoseHelper compile-time API (dedicated-server safe) ──
+    // 旧的 Class.forName("SubLevelContainer") 反射因重载 getContainer(ClientLevel)
+    // 在专用服务器 dev 环境触发 RuntimeDistCleaner 错误，已删除（回归审计 #4 残留）。
+    // The old Class.forName("SubLevelContainer") reflection threw a RuntimeDistCleaner
+    // error on dedicated-server dev (the class has a getContainer(ClientLevel) overload);
+    // removed as regression-audit #4 residue.
 
     /**
      * Scans all Sable sub-world structures and adds them as target blips at their
@@ -637,25 +556,22 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
      * @param scanBox scan bounding box 扫描包围盒
      */
     private void scanSableStructures(double scx, double scy, double scz, AABB scanBox) {
+        if (!net.neoforged.fml.ModList.get().isLoaded("sable")) return;
         try {
-            initSableReflection();
-            if (sableGetContainerMethod == null) return;
-            // getContainer must receive the overworld Level, not a sub-world Level.
-            // getContainer 应传 overworld Level，不是子世界 Level。
-            var cnt = sableGetContainerMethod.invoke(null, getScanLevel());
-            if (cnt == null) return;
-            var all = (List<?>) sableGetAllSubLevelsMethod.invoke(cnt);
-            if (all == null || all.isEmpty()) return;
+            // Compile-time Sable access (dedicated-server safe — no Class.forName on
+            // SubLevelContainer). Enumerates world-space origins of every loaded sub-level.
+            // 编译期 Sable 访问（专用服务器安全——不对 SubLevelContainer 做 Class.forName）。
+            // 枚举所有已加载子关卡的世界空间原点。
+            var scanLevel = getScanLevel();
+            if (scanLevel == null) return;
+            var origins = io.github.y15173334444.create_schematic_compute.compat.SablePoseHelper
+                .getAllSubLevelOrigins(scanLevel);
+            if (origins.isEmpty()) return;
 
             int structCount = 0;
 
-            for (var s : all) {
-                var pose = sableLogicalPoseMethod.invoke(s);
-                var pm = pose.getClass().getMethod("position");
-                var pos = pm.invoke(pose);
-                double sx = (double) pos.getClass().getMethod("x").invoke(pos);
-                double sy = (double) pos.getClass().getMethod("y").invoke(pos);
-                double sz = (double) pos.getClass().getMethod("z").invoke(pos);
+            for (var o : origins) {
+                double sx = o[0], sy = o[1], sz = o[2];
 
                 // Determine if this structure is the one hosting this radar.
                 // Tolerance of 0.01 accounts for floating-point drift.

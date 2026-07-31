@@ -176,26 +176,14 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
      */
     private static org.joml.Quaterniond getSublevelOrientation(net.minecraft.world.level.Level level,
                                                                net.minecraft.core.BlockPos worldPosition) {
+        // Compile-time Sable access (dedicated-server safe — no Class.forName on
+        // SubLevelContainer). SablePoseHelper.resolveSubLevel already performs the
+        // membership check: it only returns a sub-level that contains worldPosition.
+        // 编译期 Sable 访问（专用服务器安全——不对 SubLevelContainer 做 Class.forName）。
+        // SablePoseHelper.resolveSubLevel 已做成员检查：只返回包含 worldPosition 的子关卡。
         try {
-            if (!io.github.y15173334444.create_schematic_compute.compat.SableReflection.isAvailable()) return null;
-            var cnt = io.github.y15173334444.create_schematic_compute.compat.SableReflection.getContainer(level);
-            if (cnt == null) return null;
-            var allSubs = io.github.y15173334444.create_schematic_compute.compat.SableReflection.getAllSubLevels(cnt);
-            if (allSubs.isEmpty()) return null;
-            // 成员检查：只应用「确实包含本传感器方块」的子关卡姿态，避免引用任意子关卡
-            // Membership check: only apply the pose of a sub-level that actually
-            // contains this sensor's block, never an arbitrary sub-level.
-            for (var sub : allSubs) {
-                var sl = io.github.y15173334444.create_schematic_compute.compat.SableReflection.getSubLevelLevel(sub);
-                if (sl == null) continue;
-                if (sl.getBlockEntity(worldPosition) == null) continue;
-                var pose = io.github.y15173334444.create_schematic_compute.compat.SableReflection.getLogicalPose(sub);
-                if (pose == null) return null;
-                double[] o = io.github.y15173334444.create_schematic_compute.compat.SableReflection.extractOrientation(pose);
-                if (o == null) return null;
-                return new org.joml.Quaterniond(o[0], o[1], o[2], o[3]);
-            }
-            return null;
+            return io.github.y15173334444.create_schematic_compute.compat.SablePoseHelper
+                .getSubLevelOrientationQuaternion(level, worldPosition);
         } catch (Exception ignored) { return null; }
     }
 

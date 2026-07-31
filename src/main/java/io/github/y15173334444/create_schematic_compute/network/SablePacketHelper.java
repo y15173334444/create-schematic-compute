@@ -63,11 +63,14 @@ public class SablePacketHelper {
     public static Level findSubLevel(Level overworld, BlockPos pos) {
         if (!sableAvailable()) return null;
         try {
-            var cnt = SableReflection.getContainer(overworld);
-            if (cnt == null) return null;
-            var all = SableReflection.getAllSubLevels(cnt);
-            for (var s : all) {
-                Level sl = SableReflection.getSubLevelLevel(s);
+            // Compile-time Sable access (dedicated-server safe). resolveSubLevel uses
+            // the ChunkPos→Plot→SubLevel mapping — O(1) vs. the old full iteration.
+            // 编译期 Sable 访问（专用服务器安全）。resolveSubLevel 使用
+            // ChunkPos→Plot→SubLevel 映射——O(1)，优于旧的完整遍历。
+            var sub = io.github.y15173334444.create_schematic_compute.compat.SablePoseHelper
+                .resolveSubLevel(overworld, pos);
+            if (sub != null) {
+                Level sl = sub.getLevel();
                 if (sl != null && sl.getBlockEntity(pos) != null) return sl;
             }
         } catch (Exception e) {
