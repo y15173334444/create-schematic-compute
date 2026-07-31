@@ -70,8 +70,12 @@ public class SablePacketHelper {
             var sub = io.github.y15173334444.create_schematic_compute.compat.SablePoseHelper
                 .resolveSubLevel(overworld, pos);
             if (sub != null) {
-                Level sl = sub.getLevel();
-                if (sl != null && sl.getBlockEntity(pos) != null) return sl;
+                // 存在性检查改用 findSubLevelBlockEntity（含 chunk 枚举回退，回归审计 #7）
+                // Existence check via findSubLevelBlockEntity (with chunk fallback, audit #7)
+                if (io.github.y15173334444.create_schematic_compute.compat.SablePoseHelper
+                        .findSubLevelBlockEntity(sub, pos) != null) {
+                    return sub.getLevel();
+                }
             }
         } catch (Exception e) {
             // Log the failure but don't crash — sub-level lookup is best-effort.

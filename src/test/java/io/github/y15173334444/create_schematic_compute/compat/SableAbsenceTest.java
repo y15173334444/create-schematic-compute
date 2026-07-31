@@ -70,4 +70,29 @@ class SableAbsenceTest {
             .invoke(null, (Object) null);
         assertNull(c, "无 Sable 时 SableAccess.getContainer 应返回 null");
     }
+
+    @Test
+    void findSubLevelBlockEntitySafeWithoutSable() throws Exception {
+        // findSubLevelBlockEntity 的签名含 Sable 类型（SubLevel 参数），但其方法体
+        // 只操作传入对象，无 Sable 时传 null 应返回 null 而不抛 NoClassDefFoundError
+        //（懒解析——方法签名类型不触发加载）。
+        // findSubLevelBlockEntity's signature references Sable types (SubLevel param),
+        // but its body only operates on the passed object; with null and no Sable it
+        // must return null without NoClassDefFoundError (lazy resolution).
+        ClassLoader cl = noSableLoader();
+        Class<?> ph = Class.forName(
+            "io.github.y15173334444.create_schematic_compute.compat.SablePoseHelper", true, cl);
+        // 按名字找方法（签名含 Sable 类型，无法用 getMethod(name, SubLevel.class) 直接匹配
+        // 因为无 Sable classloader 拦截 dev.ryanhcode.*）。找第一个名为
+        // findSubLevelBlockEntity 的方法即可，invoke(null,null,null) 验证懒加载安全。
+        // Find by name (the signature references Sable types, which the no-Sable loader
+        // blocks). Invoke with nulls to verify lazy-loading safety.
+        java.lang.reflect.Method m = null;
+        for (var candidate : ph.getMethods()) {
+            if (candidate.getName().equals("findSubLevelBlockEntity")) { m = candidate; break; }
+        }
+        assertNotNull(m, "应找到 findSubLevelBlockEntity 方法");
+        Object r = m.invoke(null, (Object) null, (Object) null);
+        assertNull(r, "无 Sable 时 findSubLevelBlockEntity(null,null) 应返回 null");
+    }
 }

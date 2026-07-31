@@ -168,14 +168,15 @@ public class SablePoseHelper {
             // 成员检查：ChunkPos→Plot 映射只保证坐标落在 plot 的 chunk 覆盖内，不代表该
             // 方块确实属于这个结构（如大型结构下方/内部的地面方块）。仅当该子关卡的
             // level 中确实存在此方块实体时，才应用其姿态——与旧反射路径的
-            // sl.getBlockEntity(worldPosition) != null 语义一致。
+            // sl.getBlockEntity(worldPosition) != null 语义一致；findSubLevelBlockEntity
+            // 额外提供 chunk 枚举回退（回归审计 #7，非 (0,0) plot 直接查找会 miss）。
             // Membership check: ChunkPos→Plot only means the block is inside the plot's
             // chunk footprint, not that it's part of the structure (e.g. overworld terrain
-            // under/inside a large structure). Only apply the pose when the sub-level's
-            // level actually holds a block entity at worldPosition — matches the old
-            // reflection path's sl.getBlockEntity(worldPosition) != null semantics.
-            Level sl = subLevel.getLevel();
-            if (sl == null || sl.getBlockEntity(worldPosition) == null) return null;
+            // under/inside a large structure). Only apply the pose when the sub-level
+            // genuinely holds a block entity at worldPosition — matches the old reflection
+            // semantics; findSubLevelBlockEntity adds a chunk-enumeration fallback
+            // (regression audit #7, non-(0,0) plot direct lookups miss).
+            if (findSubLevelBlockEntity(subLevel, worldPosition) == null) return null;
             var pose = subLevel.logicalPose();
             if (pose == null) return null;
             var oq = pose.orientation();
@@ -214,9 +215,48 @@ public class SablePoseHelper {
             // 遍历全部子层级查找同一坐标处的 BE
             // Iterate all sub-levels to find a BE at the same coordinates
             for (var subLevel : container.getAllSubLevels()) {
-                Level sl = subLevel.getLevel();
-                if (sl == null) continue;
-                be = sl.getBlockEntity(pos);
+                be = findSubLevelBlockEntity(subLevel, pos);
+                if (be != null) return be;
+            }
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /**
+     * 在子关卡中查找位于 {@code pos} 的方块实体（含 chunk 枚举回退）。
+     * Find a block entity at {@code pos} inside a sub-level (with chunk-enumeration fallback).
+     *
+     * <p>先尝试子关卡 level 的直接查找（覆盖 plot (0,0)/标准坐标框架）；未命中时
+     * 遍历子关卡已加载 chunk 的 BE map，按 GLOBAL 坐标 key 匹配。这修复了
+     * Sable 1.2.2 中心+本地坐标框架下非 (0,0) plot 的直接查找 miss（回归审计 #7）。
+     * pos 与 BE map key 均为 GLOBAL 坐标，无需转换。</p>
+     *
+     * <p>Direct lookup first (covers plot (0,0) / nominal frame); on miss, iterate the
+     * sub-level's loaded chunks' BE maps keyed by GLOBAL pos. Fixes the direct-lookup
+     * miss for non-(0,0) plots under Sable 1.2.2's center+local coordinate frame
+     * (regression audit #7). pos and BE-map keys are both GLOBAL — no conversion.</p>
+     *
+     * @param subLevel the Sable sub-level / Sable 子关卡
+     * @param pos      目标方块坐标（GLOBAL）/ the target block position (GLOBAL)
+     * @return the block entity, or null / 方块实体，未找到为 null
+     */
+    public static BlockEntity findSubLevelBlockEntity(SubLevel subLevel, BlockPos pos) {
+        if (subLevel == null) return null;
+        try {
+            Level sl = subLevel.getLevel();
+            if (sl != null) {
+                BlockEntity be = sl.getBlockEntity(pos); // covers plot (0,0) / 标准框架
+                if (be != null) return be;
+            }
+            var plot = subLevel.getPlot();
+            if (plot == null) return null;
+            // 1.2.2 的 LevelPlot.getLoadedChunks() 存在（javap 验证）——遍历已加载 chunk
+            // 1.2.2's LevelPlot.getLoadedChunks() exists (javap-verified) — iterate loaded chunks
+            for (var holder : plot.getLoadedChunks()) {
+                if (holder == null) continue;
+                var chunk = holder.getChunk();
+                if (chunk == null) continue;
+                BlockEntity be = chunk.getBlockEntities().get(pos); // GLOBAL key match
                 if (be != null) return be;
             }
         } catch (Exception ignored) {}
@@ -259,11 +299,10 @@ public class SablePoseHelper {
             var container = SubLevelContainer.getContainer(sp.serverLevel());
             if (container == null) return false;
             for (var subLevel : container.getAllSubLevels()) {
-                Level sl = subLevel.getLevel();
-                if (sl == null) continue;
-                // 仅处理确实包含该方块坐标的子层级
+                // 仅处理确实包含该方块坐标的子层级（含 chunk 枚举回退，回归审计 #7）
                 // Only process sub-levels that actually contain a BE at this position
-                if (sl.getBlockEntity(pos) == null) continue;
+                // (with chunk-enumeration fallback, regression audit #7)
+                if (findSubLevelBlockEntity(subLevel, pos) == null) continue;
 
                 // 获取子层级变换参数：原点、朝向四元数、旋转中心
                 // Retrieve sub-level transform parameters: origin, orientation quaternion, rotation point
