@@ -67,6 +67,11 @@ public class SablePoseHelper {
     public static SubLevel resolveSubLevel(Level level, BlockPos worldPosition) {
         // 客户端世界没有 Sable 子层级数据，直接返回 / client-side levels have no Sable sub-level data, bail early
         if (level == null || level.isClientSide()) return null;
+        // 内部守卫：NoClassDefFoundError 是 Error 而非 Exception，catch(Exception) 抓不住；
+        // 必须在触碰任何 Sable 类前检查。防御未来未加守卫的调用方。
+        // Internal guard: NoClassDefFoundError is an Error, not caught by catch(Exception);
+        // check before touching any Sable class. Defense against future unguarded callers.
+        if (!net.neoforged.fml.ModList.get().isLoaded("sable")) return null;
         try {
             var container = SubLevelContainer.getContainer(level);
             if (container == null) return null;
@@ -160,6 +165,17 @@ public class SablePoseHelper {
         try {
             var subLevel = resolveSubLevel(level, worldPosition);
             if (subLevel == null) return null;
+            // 成员检查：ChunkPos→Plot 映射只保证坐标落在 plot 的 chunk 覆盖内，不代表该
+            // 方块确实属于这个结构（如大型结构下方/内部的地面方块）。仅当该子关卡的
+            // level 中确实存在此方块实体时，才应用其姿态——与旧反射路径的
+            // sl.getBlockEntity(worldPosition) != null 语义一致。
+            // Membership check: ChunkPos→Plot only means the block is inside the plot's
+            // chunk footprint, not that it's part of the structure (e.g. overworld terrain
+            // under/inside a large structure). Only apply the pose when the sub-level's
+            // level actually holds a block entity at worldPosition — matches the old
+            // reflection path's sl.getBlockEntity(worldPosition) != null semantics.
+            Level sl = subLevel.getLevel();
+            if (sl == null || sl.getBlockEntity(worldPosition) == null) return null;
             var pose = subLevel.logicalPose();
             if (pose == null) return null;
             var oq = pose.orientation();
@@ -236,6 +252,9 @@ public class SablePoseHelper {
         // Sable path: the block may be inside a sub-level; transform its local
         // coordinates to world-space via the sub-level's logicalPose
         // (position + orientation + rotation point) before computing distance
+        // 内部守卫：NoClassDefFoundError 是 Error 而非 Exception，须在触碰 Sable 类前检查。
+        // Internal guard: NoClassDefFoundError is an Error; check before touching Sable classes.
+        if (!net.neoforged.fml.ModList.get().isLoaded("sable")) return false;
         try {
             var container = SubLevelContainer.getContainer(sp.serverLevel());
             if (container == null) return false;
