@@ -3486,55 +3486,34 @@ public class GraphEditor {
             host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
             0, 0, 0, 0, 0, 0f, t, 0, 0, 0, 0, null, 0, 0, 0,
             net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID()));
-        // 旧名清理（不调用 createEditState）/ Clean up old name (without createEditState)
+        // 改名：保留自身 band 与连线，只改频道名（回归审计：用户期望改名不丢图）。
+        // 仅清理旧频道的全局数据（SIGNALS/BAND_REGISTRY 残留），不动节点的 signalBands/连线。
+        // Rename: keep the node's own bands and connections — only change the channel
+        // name. Only clear the old channel's GLOBAL data (SIGNALS/BAND_REGISTRY residue),
+        // never the node's signalBands or its band connections.
         if (!oldName.isEmpty()) {
-            boolean hasOldBusOut = false;
-            for (var n : getGraph().nodes) if (n.type == NodeType.BUS_OUT && n.signalName.equals(oldName)) { hasOldBusOut = true; break; }
-            if (!hasOldBusOut) {
-                // Only clear the old name if no other BUS node still uses it.
-                // Otherwise other BUS_IN readers (e.g. original node before copy+rename)
-                // would lose their bands, connections, and signal data.
-                // 仅当没有其他 BUS 节点仍使用旧名时才清理。
-                // 否则其他 BUS_IN（如复制前原节点）会丢失频段、连线和信号数据。
-                boolean othersUseOldName = false;
-                for (var n : getGraph().nodes) {
-                    if (n != node && (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
-                        && n.signalName.equals(oldName)) {
-                        othersUseOldName = true; break;
-                    }
+            boolean othersUseOldName = false;
+            for (var n : getGraph().nodes) {
+                if (n != node && (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
+                    && n.signalName.equals(oldName)) {
+                    othersUseOldName = true; break;
                 }
-                if (!othersUseOldName) {
-                    releaseOldBusName(node, oldName);
-                }
+            }
+            if (!othersUseOldName) {
+                // 只清全局旧频道数据 + 同步 localBusNames；不调 releaseOldBusName（它会清空
+                // signalBands 并删除旧 band 连线——"携带的图丢失"根因）。
+                // Clear only the global old-channel data + localBusNames; do NOT call
+                // releaseOldBusName (it wipes signalBands and deletes old-band connections —
+                // the "carried graph lost" root cause).
+                io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(oldName);
+                localBusNames.remove(oldName);
             }
         }
         // Re-evaluate all BUS_OUT conflict state (renaming may create or resolve conflicts).
         // 重新评估所有 BUS_OUT 冲突状态（改名可能产生或解决冲突）。
         reevaluateBusConflicts(getGraph());
-        // Sync bands from the new channel's BAND_REGISTRY (or clear if none).
-        // For BUS_OUT: copy from another BUS_OUT on the same channel or from registry.
-        // For BUS_IN: read from BAND_REGISTRY — if empty, start with empty bands
-        // (old channel's bands are no longer valid after rename).
-        // 从新频道的 BAND_REGISTRY 同步频段（无则清空）。
-        // BUS_OUT：从同频道其他 BUS_OUT 或注册表复制。
-        // BUS_IN：从 BAND_REGISTRY 读取——若为空则以空频段开始（旧频道频段在改名后已无效）。
-        if ((node.type == NodeType.BUS_OUT || node.type == NodeType.BUS_IN) && !t.isEmpty()) {
-            boolean synced = false;
-            for (var n : getGraph().nodes) {
-                if (n != node && (n.type == NodeType.BUS_OUT || n.type == NodeType.BUS_IN)
-                    && n.signalName.equals(t) && n.bandCount() > 0) {
-                    node.signalBands = new java.util.ArrayList<>(n.signalBands);
-                    node.bandsDirty = true; synced = true; break;
-                }
-            }
-            if (!synced) {
-                var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(t);
-                node.signalBands = (gb != null && !gb.isEmpty())
-                    ? new java.util.ArrayList<>(gb)
-                    : new java.util.ArrayList<>();
-                node.bandsDirty = true;
-            }
-        }
+        // 保留自身 signalBands —— 不再从新频道覆盖（用户期望改名保留自身 band + 连线）。
+        // Keep the node's own signalBands — no longer overwrite from the new channel.
         // 重建编辑区（在最后调用，确保所有状态已更新） (Rebuild edit state last, ensuring all state is up to date)
         nodeEditStatesById.put(node.id, createEditState(node));
     }
@@ -3638,6 +3617,24 @@ public class GraphEditor {
                 if (gb != null && !gb.isEmpty()) crossConflict = true;
             }
             n.busConflict = localConflict || crossConflict;
+        }
+    }
+
+    /** 网络钩子：远端 BusBandSyncPacket 更新 BAND_REGISTRY 后，刷新本编辑器图中
+     *  busName 相关节点的冲突状态。若图中无该 bus 的 BUS_OUT 则为 no-op。
+     *  Network hook: after a remote BusBandSyncPacket updated BAND_REGISTRY, refresh
+     *  the conflict state of nodes for {@code busName}. No-op when this editor's
+     *  graph has no BUS_OUT for that name. */
+    public void reevaluateBusConflictsForBus(String busName) {
+        if (busName == null || busName.isEmpty()) return;
+        var graph = getGraph();
+        if (graph == null) return;
+        for (var n : graph.nodes) {
+            if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
+                && n.signalName.equals(busName)) {
+                reevaluateBusConflicts(graph);
+                return;
+            }
         }
     }
 

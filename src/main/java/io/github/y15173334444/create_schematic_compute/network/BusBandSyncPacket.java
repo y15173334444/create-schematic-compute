@@ -62,6 +62,15 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
                 // BandSyncPacket 在此更新 BAND_REGISTRY，我们必须检查是否有本地 BUS_OUT 现在存在跨方块冲突。
                 reevaluateBusConflicts(gbe.getNodeGraph(), busName);
             }
+            // 同时刷新当前活跃编辑器（玩家正在编辑的 block），使跨 block 频道变化
+            // 实时反映到编辑器 UI 的冲突警告。
+            // Also refresh the active editor so cross-block channel changes show up
+            // in the editor UI's conflict warnings in real time.
+            var host = io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.getActiveHost();
+            if (host != null) {
+                var ed = host.getEditor();
+                if (ed != null) ed.reevaluateBusConflictsForBus(busName);
+            }
         });
     }
 
@@ -78,16 +87,24 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
             io.github.y15173334444.create_schematic_compute.graph.NodeGraph graph,
             String busName) {
         if (graph == null || busName == null || busName.isEmpty()) return;
-        // Check if any BUS_OUT in THIS graph owns busName. If so, the bands in the
-        // registry were registered by this graph's own BUS_OUT (the server broadcasts
-        // them back to us) — NOT a cross-block conflict.
-        // 检查当前图中是否有 BUS_OUT 拥有 busName。如果是，注册表中的频段是由
-        // 此图自己的 BUS_OUT 注册的（服务端广播回来的）—— 不是跨方块冲突。
+        // 修复 anyBusOutOwns 死代码：原循环缺 other != n 守卫，匹配到节点自身致
+        // crossBlockExists 恒 false，客户端从不显示跨 block 冲突（与 GraphEditor
+        // 同 bug）。现在 anyBusOutOwns = 图内还有另一个同名 BUS_OUT。
+        // Fix the anyBusOutOwns dead-code: the original loop had no other != n guard,
+        // always matching the node itself, so crossBlockExists was always false and the
+        // client never showed cross-block conflicts (same bug as GraphEditor). Now
+        // anyBusOutOwns = there is another same-name BUS_OUT in this graph.
         boolean anyBusOutOwns = false;
+        var localConflictByNode = new java.util.HashSet<Integer>();
         for (var n : graph.nodes) {
-            if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
-                && n.signalName.equals(busName)) {
-                anyBusOutOwns = true; break;
+            if (n.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
+                || !n.signalName.equals(busName)) continue;
+            for (var other : graph.nodes) {
+                if (other != n && other.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
+                    && other.signalName.equals(busName)) {
+                    localConflictByNode.add(n.id);
+                    anyBusOutOwns = true;
+                }
             }
         }
         var gb = SignalBus.getBands(busName);
@@ -95,14 +112,7 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
         for (var n : graph.nodes) {
             if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
                 && n.signalName.equals(busName)) {
-                boolean localConflict = false;
-                for (var other : graph.nodes) {
-                    if (other != n && other.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
-                        && other.signalName.equals(busName)) {
-                        localConflict = true; break;
-                    }
-                }
-                n.busConflict = localConflict || crossBlockExists;
+                n.busConflict = localConflictByNode.contains(n.id) || crossBlockExists;
             }
         }
     }

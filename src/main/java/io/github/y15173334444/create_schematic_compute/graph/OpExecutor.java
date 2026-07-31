@@ -223,42 +223,12 @@ public final class OpExecutor {
                         || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT
                         || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT)
                         n.signalName = n.displayText;
-                    // When BUS_IN/BUS_OUT is renamed, sync bands from new channel's BUS_OUT
-                    // (or clear if the new channel has no band definition).
-                    // BUS_IN/BUS_OUT 改名时，从新频道 BUS_OUT 同步频段（无则清空）。
-                    if ((n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
-                        && !n.signalName.isEmpty() && !n.signalName.equals(oldName)) {
-                        // Capture old band names before replacing, for connection cleanup
-                        // 在替换前捕获旧频段名，用于连线清理
-                        var oldBands = n.signalBands != null && !n.signalBands.isEmpty()
-                            ? new java.util.ArrayList<>(n.signalBands) : java.util.Collections.<String>emptyList();
-                        // Try copying from another BUS on the same new channel first
-                        boolean found = false;
-                        for (var other : graph.nodes) {
-                            if (other != n && other.signalName.equals(n.signalName)
-                                && other.bandCount() > 0) {
-                                n.signalBands = new java.util.ArrayList<>(other.signalBands);
-                                found = true; break;
-                            }
-                        }
-                        if (!found) {
-                            var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(n.signalName);
-                            n.signalBands = (gb != null && !gb.isEmpty())
-                                ? new java.util.ArrayList<>(gb)
-                                : new java.util.ArrayList<>();
-                        }
-                        n.bandsDirty = true;
-                        // Prune connections on old bands (matched by pinId / band name).
-                        // Without this, connections to bands that existed under the old name
-                        // would linger in graph.connections indefinitely.
-                        // 清理旧频段上的连线（按 pinId / 频段名匹配）。
-                        // 否则旧名称下的频段连线将无限期残留在 graph.connections 中。
-                        for (String oldBand : oldBands) {
-                            graph.connections.removeIf(c ->
-                                (c.fromId == n.id && oldBand.equals(c.fromPinId))
-                                || (c.toId == n.id && oldBand.equals(c.toPinId)));
-                        }
-                    }
+                    // 改名保留自身 band 与连线（回归审计：用户期望改名不丢图，与客户端
+                    // commitBusBox 一致）。不再从新频道覆盖 signalBands，也不删旧 band 连线。
+                    // Rename keeps the node's own bands and connections (regression audit:
+                    // renaming must not lose the carried graph; consistent with the client
+                    // commitBusBox). No longer overwrite signalBands from the new channel,
+                    // and no longer delete old-band connections.
                     graph.bumpGeneration();
                 }
                 yield n;

@@ -53,6 +53,12 @@ public record BusBandUploadPacket(BlockPos pos, String busName, List<String> ban
                         if ((n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
                             || n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN)
                             && n.signalName.equals(busName)) {
+                            // 冲突的 BUS_OUT 无权定义频道 band——跳过其覆盖，防止
+                            // 劫持原 owner 的 BAND_REGISTRY（回归审计：创建同名自动同步干扰）。
+                            // A conflicted BUS_OUT may not define the channel band list —
+                            // skip it so it cannot hijack the original owner's BAND_REGISTRY.
+                            if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
+                                && n.busConflict) continue;
                             // Collect removed band names (pinIds) before replacing
                             // 在替换前收集被删除的频段名（pinId）
                             var oldBands = n.signalBands != null ? n.signalBands : java.util.Collections.<String>emptyList();
