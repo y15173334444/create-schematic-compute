@@ -1,7 +1,7 @@
 # 公式预算池 + 语法升级 · 决策记录(压力测试收口)
 
-> 状态:**DRAFT 1.0 · 决策已锁定 · 未实现**(2026-08-14 grilling 压力测试收口)
-> 对照代码基线:`HEAD = 5395c50`(v1.2.5)
+> 状态:**✅ 已实施**(2026-08-14 grilling 决策锁定;2026-08-15 六刀全部落地,实施记录见 §十)
+> 对照代码基线:`HEAD = 5395c50`(v1.2.5);实施收口于 v1.2.6
 > 来源方案(WorkBuddy,仓库外):
 >
 > - `formula-budget-complete-plan.md`(方案 C:统一 FORMULA 预算池)
@@ -129,6 +129,23 @@ slice = budgetMs / max(1, N_heavy_prev)        -- N_heavy = 上一 tick 实际 y
 - `starveTicks` 在保底制下仅作观测计数(无 shed 场景时恒 0),保留字段供未来调试面板。
 - 服务端优雅关闭约定(CLAUDE.md)与本次改动无关,联调验证流程不变。
 
+## 十、实施记录 / Implementation Record
+
+**六刀落地(v1.2.6)**:
+
+| 刀 | 提交 | 内容 | 验证 |
+|---|---|---|---|
+| 1 | `4076747` | ModConfigSpec(`formulaBudgetMs`) + `FormulaCompute` 门面 + tick 级 dedup | ✅ `FormulaComputeTest` |
+| 2 | `5865b46` | Value 栈 + tokenizer 扩展(比较/逻辑/vec3/swizzle/`{}`/关键字)+ 编辑器补全/高亮 | ✅ `FormulaParserSyntaxTest` |
+| 3 | `cbc39de` | 语句解析器 + Stmt/RPN 混合 AST + 类型推断 + `FormulaInterpreter` | ✅ `FormulaInterpreterTest` |
+| 4 | `f479c1f` | vec3 输出展开 3 标量引脚、pinId 顺延、16 上限、FORMULA 参数引脚避让 | ✅ `FormulaPinExpansionTest` |
+| 5 | `08e8cda` | 协作超时 + carrier + 温启动参数 + emit-on-done + 进度条渲染态 | ✅ `FormulaBudgetSpreadTest`(7 个失败修复:循环边界推进时序、CONVERGE 脚本 @output、warm 引脚基数 `functionalInputs()`) |
+| 6 | 本文档批次 | 语法手册 + README changelog + 架构文档同步 | ✅ 文档 |
+
+**验证清单(§八)状态**:条目 1 完成(`./gradlew test` 235 绿 + 联网 `gradle build` 通过)。条目 2–12 中由单元测试覆盖的部分(向后兼容、挂起/续算不丢迭代、emit-on-done、冻结/温启动、done 冷复位、shed 冻结、语法、引脚模型)已通过;需游戏内验证的部分(保底零饿死的真实负载行为、进度条渲染效果、多人联调)按既有工作流由人工在游戏窗口内验证。
+
+**与来源方案差异(§七)全部按决策落地**;来源方案文档未收录进仓库(差异清单 §七即收录依据,实施细节以本账与语法手册为准)。
+
 ---
 
-> 关联文档:[`docs/code-architecture.md`](code-architecture.md)(刀 6 需同步更新求值模型章节)、[`docs/formula-pin-render-tech-debt.md`](formula-pin-render-tech-debt.md)(引脚模型历史背景)。
+> 关联文档:[`docs/formula-syntax-manual.md`](formula-syntax-manual.md)(语法手册)、[`docs/code-architecture.md`](code-architecture.md)(求值模型章节已同步)、[`docs/formula-pin-render-tech-debt.md`](formula-pin-render-tech-debt.md)(引脚模型历史背景)。

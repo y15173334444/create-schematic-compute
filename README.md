@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/y15173334444/create-schematic-compute"><img src="https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github" alt="GitHub"></a>
   <a href="https://github.com/y15173334444/create-schematic-compute/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License"></a>
-  <a href="https://github.com/y15173334444/create-schematic-compute/releases"><img src="https://img.shields.io/badge/Version-1.2.5-blue?style=flat-square" alt="Version"></a>
+  <a href="https://github.com/y15173334444/create-schematic-compute/releases"><img src="https://img.shields.io/badge/Version-1.2.6-blue?style=flat-square" alt="Version"></a>
   <a href="https://neoforged.net/"><img src="https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square" alt="NeoForge"></a>
   <a href="https://modrinth.com/mod/create"><img src="https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square" alt="Create"></a>
   <a href="https://www.minecraft.net/"><img src="https://img.shields.io/badge/Minecraft-1.21.1-8B4513?style=flat-square" alt="MC"></a>
@@ -526,6 +526,40 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 ---
 
 ## 📜 Changelog / 更新日志
+
+<details>
+<summary><b>v1.2.6</b> — 公式语言升级：控制流 + vec3 + 预算池 / Formula Language Upgrade: Control Flow + vec3 + Budget Pool</summary>
+
+### 🧮 公式语法升级 / Formula Syntax Upgrade
+
+| Feature / 功能 | Description / 说明 |
+|----------------|-------------------|
+| 🔁 Control Flow / 控制流 | `repeat` / `while` / `if` / `else` / `break` / `continue` — loop-heavy formulas spread across ticks / 循环公式跨 tick 分摊 |
+| 🧊 vec3 + Vector Functions / 向量 | `vec3(x,y,z)`, swizzle `v.x/y/z`, `length`/`normalize`/`dot`/`cross`/`dist`/`yaw`/`pitch` (`yaw`/`pitch` aligned with the DIRECTION node, degrees, yaw ∈ [0,360)) |
+| ⚖️ Comparison & Logic / 比较逻辑 | `< > <= >=` exact; `==`/`!=` 1e-6 tolerance; `&&` `\|\|` `!` with `!=0` truthiness |
+| 📐 Scalar Functions / 标量函数 | `sin cos tan asin acos atan2 sinh cosh sqrt ln log exp sec csc cot` (degrees convention) |
+| 🎯 @output vec3 Expansion / 输出展开 | `@output v` (vec3) auto-expands into 3 scalar pins `v.x`/`v.y`/`v.z` with stable pinIds |
+| 🔗 Warm Param Pin / warm 参数引脚 | FORMULA node param pin `warm`: 1 = warm restart toward new inputs, 0 = strict freeze (default) / 温启动节点参数 |
+| ✍️ Editor Support / 编辑器支持 | Syntax highlighting, autocomplete and validation for all new tokens / 新语法高亮补全校验 |
+
+- **统一求值引擎 / Unified eval engine**：single `Value` stack machine for legacy RPN and new AST scripts — old formulas are byte-identical, no migration, no dual-engine drift. / 单一栈机统一求值,旧脚本逐位不变。
+- 详见 [`docs/formula-syntax-manual.md`](docs/formula-syntax-manual.md)。
+
+### ⏱️ 公式预算池 / Formula Budget Pool
+
+| Mechanism / 机制 | Behavior / 行为 |
+|------------------|----------------|
+| 🕒 Per-Node Slice / 节点配额 | `slice = formulaBudgetMs / N_heavy_prev` (default 3.0ms, configurable 0.5–20); every node admitted every tick — zero starvation / 保底零饿死 |
+| 🤝 Cooperative Suspend / 协作挂起 | Wall-clock check every 16 iterations at loop boundaries; carrier (loop stack + Env snapshot) saved, resumed next tick via seek execution — no lost iterations / 循环边界挂起续算不丢迭代 |
+| 📤 Emit-on-Done / 收敛输出 | Outputs frozen during spread, fresh value only on done — half-converged values never leak / 半收敛解永不流出 |
+| 🧊 Freeze / Warm / 冻结与温启动 | Input change mid-spread: strict freeze completes the old snapshot (default); warm restarts toward new inputs (opt-in) |
+| 🛡️ MAX_ITER Backstop / 兜底 | 1M iterations spread-wide → shed to lastGood + one-shot warning, unfrozen on formula edit / 超限冻结直到编辑 |
+| ⚡ Dedup / 去重 | Same script + same inputs deduplicated per tick (pure functions, array-isolated) / tick 级去重 |
+| 📊 Progress Bar / 进度条 | Thin render-state bar on FORMULA nodes (no values): 0..1 progress, breathing fill for `while` (indeterminate) / 渲染态进度条 |
+
+- **架构 / Architecture**：inline gating — FORMULA evaluates in place at its topological position; no central queue, no added tick latency. / 内联门控,无中央队列无延迟。
+
+</details>
 
 <details>
 <summary><b>v1.2.5</b> — GUI 架构迁移：纯 Screen 界面 / GUI Architecture Migration: Pure Screen GUIs</summary>

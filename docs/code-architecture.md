@@ -67,6 +67,7 @@ io.github.y15173334444.create_schematic_compute/
 - `expanded` — 编辑器展开状态 / Editor expanded state
 - `sortB` — Z 序 / Z-order
 - `dynamicInputCount, dynamicOutputCount, outputLabels, cachedScript, formulaIssues` — FORMULA 解析状态（`ensureScriptParsed()` 维护）/ Parsed script state
+- `formulaCarrier, formulaSpreadProgress, formulaShedWarned` — 刀5 挂起-lite 收敛态（**transient**，不进 NBT；generation/公式文本变更即作废）/ Knife-5 suspend-lite convergence state (transient; invalidated by generation/formula change)
 - `debugCtrlX[], debugCtrlY[]` — DEBUG_SIGNAL_GEN 控制点（**持久化** NBT `dcx`/`dcy`，非 transient）/ Control points (persisted, synced via SET_CTRL_POINTS)
 - `debugFormulaRpn` — 公式模式 RPN 编译缓存 / Compiled formula cache
 - `probeHistory[], probeHead, probeCount, probeFrozen` — DEBUG_PROBE 采样缓冲 / Probe ring buffer
@@ -79,7 +80,8 @@ io.github.y15173334444.create_schematic_compute/
 - `inputPinId(i)` / `outputPinId(i)` — 引脚索引 → 稳定 pinId（FORMULA=变量名、ENCAP=子节点 ID、BUS=频段名、通用=十进制索引）
 - `inputPinIndex(pinId)` / `outputPinIndex(pinId)` — pinId → 当前索引（找不到返回 -1）
 - `getSubNodes(NodeType)` — 子图 ENCAP_INPUT/OUTPUT 按 Y 升序、同 Y 按 ID 排序 / Sort I/O sub-nodes deterministically
-- `ensureScriptParsed()` — 按 `sourceFormula` 检测公式陈旧，刷新 dynamicInput/OutputCount（引脚解析与求值共用的唯一真相源）/ Re-parse FORMULA when stale
+- `ensureScriptParsed()` — 按 `sourceFormula` 检测公式陈旧，刷新 dynamicInput/OutputCount（引脚解析与求值共用的唯一真相源）；公式变更同时作废刀5 carrier 与 shed 冻结 / Re-parse FORMULA when stale; a formula change also invalidates the knife-5 carrier and shed freeze
+- `functionalInputs()` — 功能引脚数（= `inputs() − editableParamCount()`）；FORMULA 参数引脚（warm）索引的基数——pinId 解析、`inputLabel`、求值器 `extraBase` 三处同源 / Param-pin index base — single source across pinId resolution, labels and evaluator extraBase
 
 ### NodeConnection (v1.2.4 起 / since v1.2.4)
 连线数据类。整数索引 `fromPin`/`toPin` 是从稳定 pinId 派生的缓存值；`fromPinId`/`toPinId` 为稳定字符串。
@@ -136,6 +138,9 @@ io.github.y15173334444.create_schematic_compute/
 **ENCAP 注入 / ENCAP Injection (v1.2.4)**：外部连线按 **pinId**（`String.valueOf(subNode.id)`）匹配并注入 `ENCAP_INPUT`，不依赖缓存位置；子图输出经 `captureSnapshot()` 合并进 `EvalSnapshot.subOutputs`/`subDebugTimes`。
 / Outer inputs injected into ENCAP_INPUT by pinId; sub-graph outputs merged into the snapshot.
 
+**FORMULA 内联门控 / FORMULA Inline Gating (v1.2.6 刀5)**：FORMULA 在拓扑位置原地求值（无中央队列、无 1-tick 延迟）；循环边界协作超时（每 16 迭代墙钟检查，超 `FormulaCompute.sliceNs()` 即挂起存 carrier 于 `GraphNode.formulaCarrier`，下 tick 寻径续算）；emit-on-done——spread 期间输出冻结，done 才写新值；done 且输入未变整节点跳过（1e-3 容差）；输入变更默认严格冻结、`warm` 参数 opt-in 温启动；MAX_ITER 1M 按 spread 累计兜底 shed；tick 级去重（脚本,输入）由 `FormulaCompute` 提供。
+/ FORMULA evaluates in place at its topological position (no central queue, no added tick latency); cooperative timeout at loop boundaries (wall clock every 16 iterations, suspends past `FormulaCompute.sliceNs()` with a carrier on `GraphNode.formulaCarrier`, resumed next tick via seek execution); emit-on-done — outputs frozen during spread, fresh on done; done nodes skip while inputs unchanged (1e-3); input change = strict freeze by default, warm restart opt-in via the `warm` param; MAX_ITER 1M spread-wide sheds pathological loops; per-tick (script, inputs) dedup via `FormulaCompute`.
+
 ### RuntimeState
 可序列化的运行时状态快照，由 BE 持有。
 / Serializable runtime state snapshot, owned by the BE.
@@ -152,10 +157,17 @@ io.github.y15173334444.create_schematic_compute/
 - `compile(formula)` — 编译中缀表达式为 RPN token 列表 / Compile infix to RPN token list
 - `evaluate(rpn, vars)` — 执行 RPN / Execute RPN with variable bindings
 - `parseScript(formula)` — v1.2+ 多行脚本（赋值、@output、注释、续行）/ Multi-line scripts
+- **AST 模式（刀3/刀4，v1.2.6）**：控制流关键字/`{}`/swizzle/vec3 触发 Stmt 树 + RPN 叶子；`@output` hoist、vec3 输出展开为 3 标量引脚、保守类型推断、向量形态校验 ERROR / AST mode (knife 3/4): control-flow keywords/braces/swizzle/vec3 produce a Stmt tree with RPN leaves; `@output` hoisting, vec3 output expansion, conservative type inference, vector-shape validation errors
+- `evaluateValue(rpn, env)` — 统一 `Value` 栈机（标量与 AST 共用单一求值引擎，刀3）/ Unified Value stack machine — one eval engine for scalar and AST scripts
 - `tokenize()` / `validate()` / `extractVariables()` — 语法高亮、实时校验、变量提取（v1.2.0）/ Tokenize, validate, extract variables
-- 记录类型 / Records：`Token`、`FormulaIssue`、`Assignment`、`ScriptParseResult`（含 `sourceFormula` 陈旧检测字段）
-- **15 个数学函数**（三角函数取度为输入）/ **15 math functions** (trig takes degrees)：
-  `sin` `cos` `tan` `asin` `acos` `atan2` `sinh` `cosh` `sqrt` `ln` `log` `exp` `sec` `csc` `cot`
+- 记录类型 / Records：`Token`、`FormulaIssue`、`Assignment`、`ScriptParseResult`（含 `sourceFormula` 陈旧检测字段）；AST 记录见 `FormulaAst`（Stmt/RPN 混合）
+- **15 个标量函数**（三角函数取度为输入）+ **7 个向量函数**（`vec3 length normalize dot cross dist yaw pitch`，yaw/pitch 逐字对齐 DIRECTION 节点）
+  / **15 scalar functions** (trig takes degrees) + **7 vector functions** (`vec3 length normalize dot cross dist yaw pitch`, yaw/pitch mirror the DIRECTION node):
+  标量 `sin` `cos` `tan` `asin` `acos` `atan2` `sinh` `cosh` `sqrt` `ln` `log` `exp` `sec` `csc` `cot`
+
+### FormulaInterpreter / FormulaCompute（v1.2.6 刀3/刀5）
+- `FormulaInterpreter` — AST 语句解释器：控制流语句级执行、表达式走 `evaluateValue` 栈机；循环边界协作超时（`CHECK_EVERY=16` 墙钟检查）挂起 `SuspendSignal` 携 carrier（循环栈计数 + Env 快照），续算**寻径执行**跳过已快照化前缀；`MAX_ITER=1M` 按 spread 累计 → `ShedSignal`。/ AST statement interpreter with cooperative suspend at loop boundaries and seek-execution resume.
+- `FormulaCompute` — 预算门面（刀1）：`beginTick()`（ServerTickEvent.Pre 单点复位 + 轮转 `N_heavy_prev` + 清 dedup 表）、`sliceNs() = budgetMs / max(1, N_heavy_prev)`、`reportYield()`、tick 级去重缓存。/ Budget facade: per-tick reset/rotate/dedup-clear, adaptive slice, tick-level dedup.
 
 ### OpExecutor
 `GraphOp` 应用执行器。服务端和客户端共享，确保变更逻辑单一定义。
@@ -179,8 +191,8 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
 - 方法 / Methods：`computeCurve()`、`compileFormula()`、`setModeName()`、`computeVisibleRange()`（p1–p99 稳健自动缩放 / percentile robust auto-scale）
 
 ### EvalSnapshot
-不可变 record：`(outputs, debugTimes, subOutputs, subDebugTimes)`。服务端→客户端广播。
-/ Immutable record for server→client broadcast. Sub-graph (ENCAP) outputs and debug times merged since v1.2.4.
+不可变 record：`(outputs, debugTimes, subOutputs, subDebugTimes, formulaSpreads)`。服务端→客户端广播。
+/ Immutable record for server→client broadcast. Sub-graph (ENCAP) outputs and debug times merged since v1.2.4; `formulaSpreads`（刀5）携带 FORMULA 节点 spread 渲染态进度（0=空闲、0..1=repeat 进度、-1=while 不定），仅渲染进度条、无数值。/ `formulaSpreads` (knife 5) carries FORMULA spread render-state progress (0 = idle, 0..1 = repeat progress, -1 = indeterminate while) — render-only, no values.
 
 ### GraphMigration / NbtVersions
 - `NbtVersions.DATA_VERSION = 4`（`VERSION_KEY = "data_version"`）/ Data format version 4
@@ -421,16 +433,21 @@ v1.2.4.1 起访问机制为**编译期桥 + 反射混合**：入口 `SubLevelCon
 
 ```
 ServerLevel.tick()
+  → FormulaCompute.beginTick()     [ServerTickEvent.Pre:轮转 N_heavy_prev、清 dedup 表]
   → BE.tick()
     → ensureBusRegistered()        [首次 tick / first tick]
     → recoverConflictedChannels()  [每 tick / every tick]
     → graphChanged()? → recompileEvaluator()
     → evaluator.evaluate(inputs, pidState, dt)
       → topo order → eval(node) → outputs
+        └ FORMULA:dedup 查表 → 未命中 → 解释器(刀5:循环边界挂起/续算、emit-on-done)
     → saveDebugTimes(runtimeState) [服务端持久化 / server persistence]
     → broadcastEvalSnapshot()
       → ClientboundGraphEvalPacket → tracking clients
 ```
+
+> 刀5 挂起时 FORMULA 输出冻结（emit-on-done），spread 进度经 `EvalSnapshot.formulaSpreads` 同步客户端渲染进度条。
+> / On knife-5 suspension the FORMULA outputs stay frozen (emit-on-done); spread progress syncs to clients via `EvalSnapshot.formulaSpreads` for the render bar.
 
 ### 编辑操作流程 / Edit Operation Flow
 
