@@ -19,11 +19,12 @@ cdac33f refactor: migrate SpeedProxyScreen to Screen (pilot for AbstractGraphScr
 a366492 feat: add AbstractGraphScreen base — Screen + GraphEditor.Host for graph GUIs
 ```
 
-实施中发现本文档修订稿仍有 **3 处与代码基线不符**（不影响方案设计，仅调整了机制与提交顺序）：
+实施中发现本文档修订稿仍有 **4 处问题**（不影响方案设计，仅调整了机制与提交顺序）：
 
 1. **§2.1.4「只需改基类一处」有误**：`getDisplayName`/`createMenu` 的实现实际分布在 **7 个 BE 子类**（基类 `SyncedGraphBlockEntity` 只声明 `implements MenuProvider`）。实施时 7 个子类的方法与基类声明一并删除。
 2. **§4.3 虚拟菜单调用点**：位于 `PortableTerminalScreen.openBlockUI()`（原 640-646 行），7 处 `new XxxMenu(0, editingPos)` 已改为 `new XxxScreen(editingPos)`；Screen 构造签名统一为 `(BlockPos pos)`。
 3. **Phase 2 第 5 步会破坏编译**：先删基类 `MenuProvider` 会让其余 6 个 Block 的 `openMenu(be, …)` 失去 MenuProvider 实参。改为：各 Screen 迁移时同步迁移其 Block 与 `registerScreens` 行，基类 MenuProvider 与 BE 方法延后到全部 Screen 迁移完成后一次删除。
+4. **§3.3 的直写 `setScreen` 模式使专用服务端无法启动（严重，运行时发现）**：公共 Block 类中 `new XxxScreen(p)` 是客户端类的 `new` 指令，专用服务端校验公共类时触发 `Attempted to load class net/minecraft/client/gui/screens/Screen for invalid dist DEDICATED_SERVER` → `ModLoadingException` → 服务端拒绝启动（`runServer` 实测）。修复：每个 Block 改为调用私有 `@OnlyIn(Dist.CLIENT) openScreen(pos)` 助手方法，方法体由 `runtimedistcleaner` 在专用服务端剥离（commit `0f033a2`）。NeoForge 21.1 已移除 `DistExecutor`，`@OnlyIn` + dist cleaner 是标准替代。
 
 另补充两处设计细化：基类 `render()` 增加 `renderGraphCanvas()` 钩子（Monitor 显示模式画布 / Radar 工具栏经钩子叠加，避免子类复制 render 契约）；`Screen` 无 `renderTooltip(GuiGraphics,int,int)`（1.21.1），tooltip 由 GraphEditor/NodeRenderer 自绘，基类 render 不再调用。
 

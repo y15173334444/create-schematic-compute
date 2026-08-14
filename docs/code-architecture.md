@@ -256,6 +256,9 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
 | `MonitorScreen` | `MonitorBlockEntity` | 同上 / same |
 | `RadarScreen` | `RadarBlockEntity` | Shift+右键 → `setScreen` / Shift+RMB |
 
+> **dist 边界 / dist boundary**：打开动作不能把客户端类的 `new` 指令写进公共 Block 代码——专用服务端校验公共类时会尝试加载 `Screen` 导致 `invalid dist DEDICATED_SERVER` 崩溃。每个 Block 的 `useWithoutItem` 调用私有 `@OnlyIn(Dist.CLIENT) openScreen(pos)` 助手，方法体由 `runtimedistcleaner` 在专用服务端剥离（`0f033a2`）。
+> / The opener cannot inline `new XxxScreen(...)` in common block code — the dedicated server fails class verification with `invalid dist`. Each block calls a private `@OnlyIn(Dist.CLIENT) openScreen(pos)` helper whose body the runtime dist cleaner strips on the server.
+
 **`AbstractGraphScreen` 基类职责 / Base class responsibilities**：
 - 持有 `blockPos` + `GraphEditor`，构造器 `(Component title, BlockPos pos)`；子类通过 `setNodeFilter()` 设置节点过滤器 / Holds blockPos + GraphEditor; subclasses set node filters
 - `init()` 发送 `GraphJoinPacket`；`onClose()` 依次执行 `preClose()` 钩子 → `pendingLocalOps=0` 复位（`5892caa` 守卫）→ `editor.onClose()` → `clearRemotePresences()` → 发送 `GraphLeavePacket` / Full close lifecycle
