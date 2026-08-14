@@ -1,93 +1,81 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
+import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Inventory;
 import net.neoforged.neoforge.network.PacketDistributor;
 import java.io.ByteArrayOutputStream;
+import java.util.Map;
 
-public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComputerMenu> implements GraphEditor.Host {
-    private final ProgramComputerBlockEntity blockEntity;
-    private final GraphEditor editor;
+public class ProgramComputerScreen extends AbstractGraphScreen {
 
-    public ProgramComputerScreen(ProgramComputerMenu m, Inventory inv, Component t) {
-        super(m, inv, t);
-        this.blockEntity = m.blockEntity;
-        this.imageWidth = 9999;
-        this.editor = new GraphEditor(this, this);
-        editor.setNodeFilter(nt -> nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.CONST
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.REDSTONE_IN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.REDSTONE_OUT
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.PRIVATE_IN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.PRIVATE_OUT
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DELAY
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.LATCH
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.T_FLIPFLOP
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.PULSE_EXTEND
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.LOOP
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.FUSE
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.BOOL
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.ACCUMULATOR
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.INTEGRATOR
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.GATE
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.SIN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.COS
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.TAN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.ASIN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.ACOS
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.ATAN2
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.SINH
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.COSH
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.SQRT
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.LN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.LOG
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.EXP
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.SEC
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.CSC
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.COT
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.ANGLE_UNWRAP
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DIRECTION
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_SIGNAL_GEN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_PROBE
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.RELAY_A
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.RELAY_B);
+    public ProgramComputerScreen(BlockPos pos) {
+        super(Component.translatable("container." + SchematicCompute.MOD_ID + ".program_computer"), pos);
+        setNodeFilter(nt -> nt == NodeType.CONST
+            || nt == NodeType.REDSTONE_IN
+            || nt == NodeType.REDSTONE_OUT
+            || nt == NodeType.PRIVATE_IN
+            || nt == NodeType.PRIVATE_OUT
+            || nt == NodeType.BUS_IN
+            || nt == NodeType.BUS_OUT
+            || nt == NodeType.DELAY
+            || nt == NodeType.LATCH
+            || nt == NodeType.T_FLIPFLOP
+            || nt == NodeType.PULSE_EXTEND
+            || nt == NodeType.LOOP
+            || nt == NodeType.FUSE
+            || nt == NodeType.BOOL
+            || nt == NodeType.ACCUMULATOR
+            || nt == NodeType.INTEGRATOR
+            || nt == NodeType.GATE
+            || nt == NodeType.SIN
+            || nt == NodeType.COS
+            || nt == NodeType.TAN
+            || nt == NodeType.ASIN
+            || nt == NodeType.ACOS
+            || nt == NodeType.ATAN2
+            || nt == NodeType.SINH
+            || nt == NodeType.COSH
+            || nt == NodeType.SQRT
+            || nt == NodeType.LN
+            || nt == NodeType.LOG
+            || nt == NodeType.EXP
+            || nt == NodeType.SEC
+            || nt == NodeType.CSC
+            || nt == NodeType.COT
+            || nt == NodeType.ANGLE_UNWRAP
+            || nt == NodeType.DIRECTION
+            || nt == NodeType.COMMENT
+            || nt == NodeType.DEBUG_SIGNAL_GEN
+            || nt == NodeType.DEBUG_PROBE
+            || nt == NodeType.RELAY_A
+            || nt == NodeType.RELAY_B);
     }
 
-    private ProgramComputerBlockEntity getBE() {
-        if (blockEntity != null) return blockEntity;
-        if (menu.blockPos != null && minecraft != null && minecraft.level != null) {
-            if (minecraft.level.getBlockEntity(menu.blockPos) instanceof ProgramComputerBlockEntity be) return be;
+    @Override protected ProgramComputerBlockEntity getBE() {
+        if (minecraft != null && minecraft.level != null) {
+            if (minecraft.level.getBlockEntity(blockPos) instanceof ProgramComputerBlockEntity be) return be;
         }
         return null;
     }
-    @Override protected void containerTick() {
-        super.containerTick();
-        if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
-            if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof ProgramComputerBlockEntity)) {
-                onClose();
-                return;
-            }
-        }
-        editor.clientTick();
+    @Override protected boolean isBlockEntityValid() {
+        return minecraft != null && minecraft.level != null
+            && minecraft.level.getBlockEntity(blockPos) instanceof ProgramComputerBlockEntity;
     }
     @Override public NodeGraph getGraph() { ProgramComputerBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { ProgramComputerBlockEntity be = getBE(); return be != null && be.running; }
-    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { ProgramComputerBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
-    @Override public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() {
+    @Override public Map<Integer, Boolean> getFlipflopStates() { ProgramComputerBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public EvalSnapshot getCachedEvalSnapshot() {
         ProgramComputerBlockEntity be = getBE();
         return be != null ? be.cachedEvalSnapshot : null;
     }
-    @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
 
     @Override
     public void saveGraph() {
@@ -106,46 +94,4 @@ public class ProgramComputerScreen extends AbstractContainerScreen<ProgramComput
         ProgramComputerBlockEntity be = getBE();
         if(be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
-
-    @Override protected void renderBg(GuiGraphics g, float pt, int mx, int my) { editor.renderBg(g, mx, my); }
-    @Override public boolean mouseClicked(double mx, double my, int btn) { return editor.mouseClicked(mx, my, btn) || super.mouseClicked(mx, my, btn); }
-    @Override public boolean mouseReleased(double mx, double my, int btn) { editor.mouseReleased(mx, my, btn); return super.mouseReleased(mx, my, btn); }
-    @Override public void mouseMoved(double mx, double my) { editor.mouseMoved(mx, my); }
-    @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }
-    @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) { return editor.mouseScrolled(mx, my, sx, sy); }
-    @Override public boolean keyPressed(int key, int sc, int mod) {
-        if (editor.keyPressed(key, sc, mod)) return true;
-        if(key==256){onClose();return true;}
-        if (key >= 32 && key <= 96) return true; // printable keys → charTyped
-        return super.keyPressed(key, sc, mod);
-    }
-    @Override public boolean keyReleased(int key, int sc, int mod) { return editor.keyReleased(key, sc, mod) || super.keyReleased(key, sc, mod); }
-    @Override public boolean charTyped(char ch, int mod) { return editor.charTyped(ch, mod) || super.charTyped(ch, mod); }
-
-    // ── Multiplayer collaboration ──
-    @Override public net.minecraft.core.BlockPos getBlockPos() { return menu.blockPos; }
-    @Override public java.util.UUID getPlayerUUID() { return minecraft.player != null ? minecraft.player.getUUID() : java.util.UUID.randomUUID(); }
-    @Override public GraphEditor getEditor() { return editor; }
-    @Override public String getPlayerName() { return minecraft.player != null ? minecraft.player.getName().getString() : ""; }
-    @Override public void onClose() {
-        var be = getBE();
-        if (be != null) be.pendingLocalOps = 0;   // 关闭编辑器复位待 ACK 计数 / reset pending-op counter on close
-        super.onClose();
-    }
-    @Override public void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
-        var be = getBE();
-        if (be != null) be.pendingLocalOps++;   // 本地编辑 op 计数（回弹保护）/ count local edit op
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket(op));
-    }
-    @Override public void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) { editor.onRemoteOp(op); }
-    @Override protected void init() {
-        super.init();
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
-    }
-    @Override public void removed() {
-        editor.onClose();
-        super.removed();
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));
-    }
-
 }

@@ -639,10 +639,10 @@ public class PortableTerminalScreen extends Screen {
         // 通过子串匹配使 "MonitorSable" 仍能路由到 MonitorScreen
         if (cn.contains("Monitor"))       inner = new MonitorScreen(new MonitorMenu(0, editingPos), mc.player.getInventory(), Component.empty());
         else if (cn.contains("Radar"))    inner = new RadarScreen(new RadarMenu(0, editingPos), mc.player.getInventory(), Component.empty());
-        else if (cn.contains("Blueprint")) inner = new BlueprintScreen(new BlueprintMenu(0, editingPos), mc.player.getInventory(), Component.empty());
-        else if (cn.contains("Program"))  inner = new ProgramComputerScreen(new ProgramComputerMenu(0, editingPos), mc.player.getInventory(), Component.empty());
-        else if (cn.contains("ControlSeat")) inner = new ControlSeatScreen(new ControlSeatMenu(0, editingPos), mc.player.getInventory(), Component.empty());
-        else if (cn.contains("Sensor"))   inner = new SensorScreen(new SensorMenu(0, editingPos), mc.player.getInventory(), Component.empty());
+        else if (cn.contains("Blueprint")) inner = new BlueprintScreen(editingPos);
+        else if (cn.contains("Program"))  inner = new ProgramComputerScreen(editingPos);
+        else if (cn.contains("ControlSeat")) inner = new ControlSeatScreen(editingPos);
+        else if (cn.contains("Sensor"))   inner = new SensorScreen(editingPos);
         else if (cn.contains("SpeedProxy")) inner = new SpeedProxyScreen(editingPos);
         if (inner == null) return;
 

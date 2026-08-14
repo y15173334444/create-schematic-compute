@@ -7,7 +7,6 @@ import com.simibubi.create.content.equipment.wrench.IWrenchable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
@@ -63,14 +62,15 @@ public class ControlSeatBlock extends BaseEntityBlock implements IWrenchable {
 
     @Override
     protected InteractionResult useWithoutItem(BlockState s, Level l, BlockPos p, Player pl, BlockHitResult h) {
-        if (l.isClientSide()) return InteractionResult.SUCCESS;
-
-        // Shift+右键 → 打开编辑 GUI
-        if (pl.isShiftKeyDown()) {
-            if (pl instanceof ServerPlayer sp && l.getBlockEntity(p) instanceof ControlSeatBlockEntity be)
-                sp.openMenu(be, buf -> buf.writeBlockPos(p));
+        // Shift+右键 → 打开编辑 GUI（仅客户端 setScreen，无 Menu 网络 round-trip）
+        // Shift+RMB opens the editor directly on the client (no menu round-trip)
+        if (l.isClientSide()) {
+            if (pl.isShiftKeyDown() && l.getBlockEntity(p) instanceof ControlSeatBlockEntity)
+                net.minecraft.client.Minecraft.getInstance().setScreen(new ControlSeatScreen(p));
             return InteractionResult.SUCCESS;
         }
+        // 服务端 Shift+右键仅配合客户端打开 GUI，不做坐椅逻辑 / server: shift+RMB only pairs with the client-side GUI open
+        if (pl.isShiftKeyDown()) return InteractionResult.SUCCESS;
 
         // 已在本座椅上时不做任何事（~ 下马由数据包处理，保证服务端先处理下马）
         if (pl.isPassenger() && pl.getVehicle() instanceof io.github.y15173334444.create_schematic_compute.entity.ControlSeatEntity)

@@ -1,119 +1,71 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
+import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Inventory;
 import net.neoforged.neoforge.network.PacketDistributor;
 import java.io.ByteArrayOutputStream;
+import java.util.Map;
 
-public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> implements GraphEditor.Host {
-    private final BlueprintBlockEntity blockEntity;
-    private final GraphEditor editor;
+public class BlueprintScreen extends AbstractGraphScreen {
 
-    public BlueprintScreen(BlueprintMenu m, Inventory inv, Component t) {
-        super(m, inv, t);
-        this.blockEntity = m.blockEntity;
-        this.imageWidth = 9999;
-        this.editor = new GraphEditor(this, this);
-        editor.setNodeFilter(nt -> nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.SPEED_CTRL
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.DELAY
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.LATCH
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.T_FLIPFLOP
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.PULSE_EXTEND
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.LOOP
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.FUSE
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.KEYBOARD
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.MOUSE_JOYSTICK
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.MOUSE_BUTTON
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.GAMEPAD_JOYSTICK
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.GAMEPAD_BUTTON
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.GAMEPAD_TRIGGER
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.VIEW_ANGLE
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.WORLD_VIEW
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.ATTITUDE
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.FORWARD
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.ACCELERATION
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.VELOCITY
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.POSITION
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.TARGET_OUT
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.TEXT
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.DATA
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.IMAGE
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.IMAGE_SEQUENCE
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.ENCAP_INPUT
-            && nt != io.github.y15173334444.create_schematic_compute.graph.NodeType.ENCAP_OUTPUT);
+    public BlueprintScreen(BlockPos pos) {
+        super(Component.translatable("container." + SchematicCompute.MOD_ID + ".blueprint"), pos);
+        setNodeFilter(nt -> nt != NodeType.SPEED_CTRL
+            && nt != NodeType.DELAY
+            && nt != NodeType.LATCH
+            && nt != NodeType.T_FLIPFLOP
+            && nt != NodeType.PULSE_EXTEND
+            && nt != NodeType.LOOP
+            && nt != NodeType.FUSE
+            && nt != NodeType.KEYBOARD
+            && nt != NodeType.MOUSE_JOYSTICK
+            && nt != NodeType.MOUSE_BUTTON
+            && nt != NodeType.GAMEPAD_JOYSTICK
+            && nt != NodeType.GAMEPAD_BUTTON
+            && nt != NodeType.GAMEPAD_TRIGGER
+            && nt != NodeType.VIEW_ANGLE
+            && nt != NodeType.WORLD_VIEW
+            && nt != NodeType.ATTITUDE
+            && nt != NodeType.FORWARD
+            && nt != NodeType.ACCELERATION
+            && nt != NodeType.VELOCITY
+            && nt != NodeType.POSITION
+            && nt != NodeType.TARGET_OUT
+            && nt != NodeType.TEXT
+            && nt != NodeType.DATA
+            && nt != NodeType.IMAGE
+            && nt != NodeType.IMAGE_SEQUENCE
+            && nt != NodeType.ENCAP_INPUT
+            && nt != NodeType.ENCAP_OUTPUT);
     }
 
-    @Override protected void init() {
-        super.init();
-        // Join collaborative editing session
-        PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(
-            menu.blockPos));
-    }
-
-    @Override public void removed() {
-        editor.onClose(); // 保存临时视角书签 / save temporary view bookmark
-        editor.clearRemotePresences();
-        super.removed();
-        // Leave collaborative editing session
-        PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(
-            menu.blockPos));
-    }
-
-    private BlueprintBlockEntity getBE() {
-        if (blockEntity != null) return blockEntity;
-        if (menu.blockPos != null && minecraft != null && minecraft.level != null) {
-            if (minecraft.level.getBlockEntity(menu.blockPos) instanceof BlueprintBlockEntity be) return be;
+    @Override protected BlueprintBlockEntity getBE() {
+        if (minecraft != null && minecraft.level != null) {
+            if (minecraft.level.getBlockEntity(blockPos) instanceof BlueprintBlockEntity be) return be;
         }
         return null;
     }
-
-    @Override protected void containerTick() {
-        super.containerTick();
-        if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
-            if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof BlueprintBlockEntity)) {
-                onClose();
-                return;
-            }
-        }
-        editor.clientTick();
+    @Override protected boolean isBlockEntityValid() {
+        return minecraft != null && minecraft.level != null
+            && minecraft.level.getBlockEntity(blockPos) instanceof BlueprintBlockEntity;
     }
 
     @Override public NodeGraph getGraph() { BlueprintBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { BlueprintBlockEntity be = getBE(); return be != null && be.running; }
-    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { BlueprintBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
-    @Override public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() {
+    @Override public Map<Integer, Boolean> getFlipflopStates() { BlueprintBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public EvalSnapshot getCachedEvalSnapshot() {
         BlueprintBlockEntity be = getBE();
         return be != null ? be.cachedEvalSnapshot : null;
     }
-    @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
-    @Override public net.minecraft.core.BlockPos getBlockPos() { return menu.blockPos; }
-    // ── Multiplayer collaboration (Phase 0) ──
-    @Override public java.util.UUID getPlayerUUID() { return minecraft.player != null ? minecraft.player.getUUID() : java.util.UUID.randomUUID(); }
-    @Override public GraphEditor getEditor() { return editor; }
-    @Override public String getPlayerName() { return minecraft.player != null ? minecraft.player.getName().getString() : ""; }
-    @Override public void onClose() {
-        var be = getBE();
-        if (be != null) be.pendingLocalOps = 0;   // 关闭编辑器复位待 ACK 计数 / reset pending-op counter on close
-        super.onClose();
-    }
-    @Override public void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
-        var be = getBE();
-        if (be != null) be.pendingLocalOps++;   // 本地编辑 op 计数（回弹保护）/ count local edit op
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
-            new io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket(op));
-    }
-    @Override public void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
-        editor.onRemoteOp(op);
-    }
+
     @Override
     public void saveGraph() {
         try {
@@ -133,20 +85,4 @@ public class BlueprintScreen extends AbstractContainerScreen<BlueprintMenu> impl
         BlueprintBlockEntity be = getBE();
         if(be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
-
-    @Override protected void renderBg(GuiGraphics g, float pt, int mx, int my) { editor.renderBg(g, mx, my); }
-
-    @Override public boolean mouseClicked(double mx, double my, int btn) { return editor.mouseClicked(mx, my, btn) || super.mouseClicked(mx, my, btn); }
-    @Override public boolean mouseReleased(double mx, double my, int btn) { editor.mouseReleased(mx, my, btn); return super.mouseReleased(mx, my, btn); }
-    @Override public void mouseMoved(double mx, double my) { editor.mouseMoved(mx, my); }
-    @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }
-    @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) { return editor.mouseScrolled(mx, my, sx, sy); }
-    @Override public boolean keyPressed(int key, int sc, int mod) {
-        if (editor.keyPressed(key, sc, mod)) return true;
-        if(key==256){onClose();return true;}
-        if (key >= 32 && key <= 96) return true;
-        return super.keyPressed(key, sc, mod);
-    }
-    @Override public boolean keyReleased(int key, int sc, int mod) { return editor.keyReleased(key, sc, mod) || super.keyReleased(key, sc, mod); }
-    @Override public boolean charTyped(char ch, int mod) { return editor.charTyped(ch, mod) || super.charTyped(ch, mod); }
 }
