@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/y15173334444/create-schematic-compute"><img src="https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github" alt="GitHub"></a>
   <a href="https://github.com/y15173334444/create-schematic-compute/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License"></a>
-  <a href="https://github.com/y15173334444/create-schematic-compute/releases"><img src="https://img.shields.io/badge/Version-1.2.4.1-blue?style=flat-square" alt="Version"></a>
+  <a href="https://github.com/y15173334444/create-schematic-compute/releases"><img src="https://img.shields.io/badge/Version-1.2.5-blue?style=flat-square" alt="Version"></a>
   <a href="https://neoforged.net/"><img src="https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square" alt="NeoForge"></a>
   <a href="https://modrinth.com/mod/create"><img src="https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square" alt="Create"></a>
   <a href="https://www.minecraft.net/"><img src="https://img.shields.io/badge/Minecraft-1.21.1-8B4513?style=flat-square" alt="MC"></a>
@@ -526,6 +526,19 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 ---
 
 ## 📜 Changelog / 更新日志
+
+<details>
+<summary><b>v1.2.5</b> — GUI 架构迁移：纯 Screen 界面 / GUI Architecture Migration: Pure Screen GUIs</summary>
+
+### 🖥️ GUI 架构迁移 / GUI Architecture Migration
+
+- **7 个编辑界面脱离容器体系 / All 7 editors leave the container system**：全部 7 个编辑界面（蓝图 / 转速代理 / 编程计算机 / 传感器 / 控制座椅 / 显示器 / 雷达）从 `AbstractContainerScreen` + `Menu` 体系迁移为继承新基类 `AbstractGraphScreen`（纯 `Screen`），由方块在客户端直接 `setScreen` 打开——无 Menu 注册、无网络 round-trip、即时打开。/ All 7 editors (blueprint / speed proxy / program computer / sensor / control seat / monitor / radar) now extend the new `AbstractGraphScreen` base (plain `Screen`) and open client-side via `setScreen` — no menu registrations, no network round-trip, instant open.
+- **第三方模组注入规避 / Third-party mod injection avoided**：界面不再被 FTB Quests、Quark 等模组识别为容器界面，节点编辑器画布上不再出现无关按钮、任务覆盖层或装饰边框。/ Screens are no longer recognized as container GUIs, so unrelated buttons, quest overlays and decorative frames no longer appear on the node canvas.
+- **容器设施全部删除 / Container plumbing removed**：删除 7 个 `XxxMenu` 类、`SchematicCompute.MENUS` 注册（7 个 MenuType）、`ClientSetup.registerScreens`、`SyncedGraphBlockEntity` 的 `MenuProvider` 以及 7 个 BE 的 `getDisplayName`/`createMenu`。/ Deleted the 7 menu classes, the MENUS DeferredRegister, registerScreens, MenuProvider on the base BE, and getDisplayName/createMenu on all 7 BEs.
+- **便携终端路径 / Portable terminal path**：终端打开设备编辑界面改为直接构造 `XxxScreen(editingPos)`，不再构造虚拟 Menu。/ The terminal now constructs editor screens directly from the edit position — no virtual menus.
+- **守卫保持 / Guards preserved**：`pendingLocalOps` 回弹保护（`5892caa`）、BE 失效自动关界面、`GraphJoin/LeavePacket` 协作生命周期全部迁入基类，行为与迁移前一致；雷达设置面板 EditBox 写回经 `preClose()` 钩子保留。/ The pendingLocalOps bounce-back guard, BE-invalidation auto-close and join/leave collaboration lifecycle all moved into the base class with unchanged behavior; the radar settings EditBox write-back survives via the `preClose()` hook.
+
+</details>
 
 <details>
 <summary><b>v1.2.4.1</b> — 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 / Regression Audit · Bus System · Encapsulation State · Formula Consistency · Sable Hardening</summary>

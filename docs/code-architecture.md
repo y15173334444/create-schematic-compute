@@ -1,7 +1,7 @@
 # 代码结构文档 / Code Architecture
 
 > 更新日期 / Last Updated：2026-08-14
-> 版本 / Version：1.2.4.1（含未发布的 Screen 迁移 / includes unreleased Screen migration）
+> 版本 / Version：1.2.5
 
 ---
 
