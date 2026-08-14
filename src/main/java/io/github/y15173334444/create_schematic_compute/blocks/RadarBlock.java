@@ -6,7 +6,6 @@ import com.simibubi.create.content.equipment.wrench.IWrenchable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
@@ -57,13 +56,14 @@ public class RadarBlock extends BaseEntityBlock implements IWrenchable {
 
     @Override
     protected InteractionResult useWithoutItem(BlockState s, Level l, BlockPos p, Player pl, BlockHitResult h) {
-        if (l.isClientSide()) return InteractionResult.SUCCESS;
+        // 潜行 → 打开编程 GUI（仅客户端 setScreen，无 Menu 网络 round-trip）
+        // Shift+RMB opens the editor directly on the client (no menu round-trip)
+        if (l.isClientSide()) {
+            if (pl.isShiftKeyDown() && l.getBlockEntity(p) instanceof RadarBlockEntity)
+                net.minecraft.client.Minecraft.getInstance().setScreen(new RadarScreen(p));
+            return InteractionResult.SUCCESS;
+        }
         if (l.getBlockEntity(p) instanceof RadarBlockEntity be) {
-            // 潜行 → 打开编程 GUI
-            if (pl.isShiftKeyDown() && pl instanceof ServerPlayer sp) {
-                sp.openMenu(be, buf -> buf.writeBlockPos(p));
-                return InteractionResult.SUCCESS;
-            }
             // 自动/手动模式 + 不潜行 → 准星选取 blip 锁定/解锁
             if (!be.targets.isEmpty()) {
                 Integer targetId = be.findBlipUnderCrosshair(pl);

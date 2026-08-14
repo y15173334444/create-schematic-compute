@@ -638,7 +638,7 @@ public class PortableTerminalScreen extends Screen {
         // Match by substring so "MonitorSable" still routes to MonitorScreen
         // 通过子串匹配使 "MonitorSable" 仍能路由到 MonitorScreen
         if (cn.contains("Monitor"))       inner = new MonitorScreen(new MonitorMenu(0, editingPos), mc.player.getInventory(), Component.empty());
-        else if (cn.contains("Radar"))    inner = new RadarScreen(new RadarMenu(0, editingPos), mc.player.getInventory(), Component.empty());
+        else if (cn.contains("Radar"))    inner = new RadarScreen(editingPos);
         else if (cn.contains("Blueprint")) inner = new BlueprintScreen(editingPos);
         else if (cn.contains("Program"))  inner = new ProgramComputerScreen(editingPos);
         else if (cn.contains("ControlSeat")) inner = new ControlSeatScreen(editingPos);

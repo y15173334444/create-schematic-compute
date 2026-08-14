@@ -41,7 +41,6 @@ public class ClientSetup {
     @net.neoforged.bus.api.SubscribeEvent
     public static void registerScreens(RegisterMenuScreensEvent event) {
         event.register(SchematicCompute.MONITOR_MENU.get(), MonitorScreen::new);
-        event.register(SchematicCompute.RADAR_MENU.get(), RadarScreen::new);
     }
 
     @net.neoforged.bus.api.SubscribeEvent

@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
@@ -8,18 +9,15 @@ import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePa
 import io.github.y15173334444.create_schematic_compute.network.RadarSettingsPacket;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
 import net.minecraft.client.resources.language.I18n;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Inventory;
 import net.neoforged.neoforge.network.PacketDistributor;
 import java.io.ByteArrayOutputStream;
 
-public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements GraphEditor.Host {
-    private final RadarBlockEntity blockEntity;
-    private final GraphEditor editor;
+public class RadarScreen extends AbstractGraphScreen {
     private boolean showDisplaySettings;
     private EditBox rangeInput, scaleInput, lockDistInput, offXInput, offYInput, offZInput;
     private static final int H = 18;
@@ -32,45 +30,33 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
             || nt == NodeType.DEBUG_PROBE;
     }
 
-    public RadarScreen(RadarMenu m, Inventory inv, Component t) {
-        super(m, inv, t);
-        this.blockEntity = m.blockEntity;
-        this.imageWidth = 9999;
-        this.editor = new GraphEditor(this, this);
-        editor.setNodeFilter(RadarScreen::isAllowedNode);
+    public RadarScreen(BlockPos pos) {
+        super(Component.translatable("container." + SchematicCompute.MOD_ID + ".radar"), pos);
+        setNodeFilter(RadarScreen::isAllowedNode);
     }
 
-    private RadarBlockEntity getBE() {
-        if (blockEntity != null) return blockEntity;
-        if (menu.blockPos != null && minecraft != null && minecraft.level != null) {
-            if (minecraft.level.getBlockEntity(menu.blockPos) instanceof RadarBlockEntity be) return be;
+    @Override protected RadarBlockEntity getBE() {
+        if (minecraft != null && minecraft.level != null) {
+            if (minecraft.level.getBlockEntity(blockPos) instanceof RadarBlockEntity be) return be;
         }
         return null;
     }
-
-    @Override protected void containerTick() {
-        super.containerTick();
-        if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
-            if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof RadarBlockEntity)) {
-                onClose();
-                return;
-            }
-        }
-        editor.clientTick();
+    @Override protected boolean isBlockEntityValid() {
+        return minecraft != null && minecraft.level != null
+            && minecraft.level.getBlockEntity(blockPos) instanceof RadarBlockEntity;
     }
 
     @Override public NodeGraph getGraph() { RadarBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { RadarBlockEntity be = getBE(); return be != null && be.running; }
-    @Override public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() {
+    @Override public EvalSnapshot getCachedEvalSnapshot() {
         RadarBlockEntity be = getBE();
         return be != null ? be.cachedEvalSnapshot : null;
     }
-    @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
     @Override public void saveGraph() {
         try {
             RadarBlockEntity be = getBE();
             if (be == null || be.getLevel() == null) return;
-            applyInputs(be); send(be); // 先同步设置
+            applyInputs(be); send(be); // 先同步设置 / sync settings first
             var tag = new CompoundTag(); tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
             var baos = new ByteArrayOutputStream(); NbtIo.writeCompressed(tag, baos);
             PacketDistributor.sendToServer(new BlueprintSavePacket(be.getBlockPos(), baos.toByteArray()));
@@ -83,8 +69,7 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
     }
 
     @Override protected void init() {
-        super.init();
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
+        super.init(); // Screen.init 清空 widget + 发送 GraphJoinPacket / clears widgets + sends GraphJoinPacket
         int sy = (NodeRenderer.isToolbarBottom() ? height - 44 : 26) + 22;
         rangeInput   = new EditBox(font, 0, sy, 36, 14, Component.literal("R"));
         scaleInput   = new EditBox(font, 0, sy, 36, 14, Component.literal("S"));
@@ -97,7 +82,8 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
         addRenderableWidget(offXInput); addRenderableWidget(offYInput); addRenderableWidget(offZInput);
     }
 
-    @Override protected void renderBg(GuiGraphics g, float pt, int mx, int my) {
+    /** 画布钩子：节点编辑器 + 雷达工具栏 + 设置面板 / canvas hook: graph editor + radar toolbar + settings panel */
+    @Override protected void renderGraphCanvas(GuiGraphics g, int mx, int my, float pt) {
         editor.renderBg(g, mx, my);
         RadarBlockEntity be = getBE();
         if (be == null) return;
@@ -263,32 +249,18 @@ public class RadarScreen extends AbstractContainerScreen<RadarMenu> implements G
             be.displayX, be.displayY, be.displayZ, be.excludeHost, be.displayStyle, be.lockDistance));
     }
 
-    @Override public void removed() {
-        editor.onClose();
-        RadarBlockEntity be = getBE(); if (be != null) { applyInputs(be); hideInputs(); } super.removed(); net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));
+    /** 关界面前钩子：把 EditBox 输入写回 BE 并隐藏输入框（原 removed() 中的子类逻辑）
+     *  / pre-close hook: write EditBox input back to the BE and hide the boxes (was in removed()) */
+    @Override protected void preClose() {
+        RadarBlockEntity be = getBE();
+        if (be != null) { applyInputs(be); hideInputs(); }
     }
+
     @Override public boolean mouseReleased(double mx, double my, int btn) { editor.mouseReleased(mx, my, btn); return super.mouseReleased(mx, my, btn); }
     @Override public void mouseMoved(double mx, double my) { editor.mouseMoved(mx, my); }
     @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }
     @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) { return editor.mouseScrolled(mx, my, sx, sy); }
-    @Override public boolean keyPressed(int key, int sc, int mod) { if (editor.keyPressed(key, sc, mod)) return true; if (key == 256) { applyInputs(getBE()); onClose(); return true; } if (key >= 32 && key <= 96) return true; return super.keyPressed(key, sc, mod); }
+    @Override public boolean keyPressed(int key, int sc, int mod) { if (editor.keyPressed(key, sc, mod)) return true; if (key == 256) { onClose(); return true; } if (key >= 32 && key <= 96) return true; return super.keyPressed(key, sc, mod); }
     @Override public boolean keyReleased(int key, int sc, int mod) { return editor.keyReleased(key, sc, mod) || super.keyReleased(key, sc, mod); }
     @Override public boolean charTyped(char ch, int mod) { return editor.charTyped(ch, mod) || super.charTyped(ch, mod); }
-
-    // ── Multiplayer collaboration ──
-    @Override public net.minecraft.core.BlockPos getBlockPos() { return menu.blockPos; }
-    @Override public java.util.UUID getPlayerUUID() { return minecraft.player != null ? minecraft.player.getUUID() : java.util.UUID.randomUUID(); }
-    @Override public GraphEditor getEditor() { return editor; }
-    @Override public String getPlayerName() { return minecraft.player != null ? minecraft.player.getName().getString() : ""; }
-    @Override public void onClose() {
-        var be = getBE();
-        if (be != null) be.pendingLocalOps = 0;   // 关闭编辑器复位待 ACK 计数 / reset pending-op counter on close
-        super.onClose();
-    }
-    @Override public void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
-        var be = getBE();
-        if (be != null) be.pendingLocalOps++;   // 本地编辑 op 计数（回弹保护）/ count local edit op
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket(op));
-    }
-    @Override public void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) { editor.onRemoteOp(op); }
 }
