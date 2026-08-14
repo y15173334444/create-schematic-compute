@@ -515,6 +515,11 @@ public class FormulaParser {
             var parsed = parseScript(s);
             if (parsed.ast != null) {
                 issues.addAll(parsed.issues);
+                // ── 14) 输出引脚 16 上限(vec3 展开后,节点 UI 上限)/ pin cap 16 (post vec3 expansion) ──
+                if (parsed.outputLabels.size() > 16) {
+                    issues.add(new FormulaIssue(0, 0, 0, Severity.WARN,
+                        "输出引脚共 " + parsed.outputLabels.size() + " 个,超过节点显示上限 16,超出部分不在节点上显示"));
+                }
             }
         } catch (Exception e) {
             LOGGER.debug("AST type-check parse failed", e);
@@ -1204,7 +1209,7 @@ public class FormulaParser {
         var srcLines = new ArrayList<SrcLine>();
         for (int i = 0; i < lines.size(); i++) srcLines.add(new SrcLine(lines.get(i), tokenize(lines.get(i)), lineSources.get(i)));
         var out = new AstParseOut();
-        parseBlockStatements(new LineCursor(srcLines), out, false);
+        parseBlockStatements(new LineCursor(srcLines), out, true);
 
         // 输出:无 @output → 顶层末行独立表达式为默认输出(与旧模式一致)
         if (out.outputLabels.isEmpty()) {
@@ -1233,8 +1238,30 @@ public class FormulaParser {
             typeCheckRpn(site.rpn(), vec3Vars, issues, site.line(), site.col());
         }
 
+        // ── vec3 输出展开(刀4,决策 §五):@output v(vec3)→ v.x/v.y/v.z 三个标量引脚,解析期静态展开。
+        //    outputRpns 追加 SwizzleToken;引脚数解析后固定不变;outputPinIndex 由展开后的标签解析。
+        // ── vec3 output expansion (knife 4, decisions §五): @output v (vec3) → three scalar pins v.x/v.y/v.z.
+        var expandedLabels = new ArrayList<String>();
+        var expandedRpns = new ArrayList<List<Object>>();
+        for (int i = 0; i < out.outputLabels.size(); i++) {
+            String label = out.outputLabels.get(i);
+            List<Object> rpn = out.outputRpns.get(i);
+            if (rpnYieldsVec3(rpn, vec3Vars)) {
+                String prefix = label.isEmpty() ? "" : label + ".";
+                for (char comp : new char[]{'x', 'y', 'z'}) {
+                    var r = new ArrayList<Object>(rpn);
+                    r.add(new SwizzleToken(String.valueOf(comp)));
+                    expandedLabels.add(prefix + comp);
+                    expandedRpns.add(r);
+                }
+            } else {
+                expandedLabels.add(label);
+                expandedRpns.add(rpn);
+            }
+        }
+
         return new ScriptParseResult(
-            new ArrayList<>(inputVars), out.outputLabels, out.outputRpns, List.of(), false, originalFormula,
+            new ArrayList<>(inputVars), expandedLabels, expandedRpns, List.of(), false, originalFormula,
             out.stmts, vec3Vars, issues);
     }
 
