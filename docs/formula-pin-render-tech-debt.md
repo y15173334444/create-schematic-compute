@@ -75,7 +75,7 @@ graph.connections.removeIf(c ->
 
 ## 修复方案
 
-> **注意**: 以下方案**原计划在 v1.2.5 处理，因影响大提前至 v1.2.4 从根源清除**。根治方案（stable pinId）仍与 v1.2.5 ENCAP I/O 合并处理，详见 [`v1.2.5-plan.md` §3.3 方案 3](./v1.2.5-plan.md)。
+> **注意**: 以下方案**原计划在 v1.2.5 处理，因影响大提前至 v1.2.4 从根源清除**。根治方案（stable pinId）仍与 v1.2.5 ENCAP I/O 合并处理，详见 [`v1.2.5-plan-resolved.md` §3.3 方案 3](./v1.2.5-plan-resolved.md)。
 
 ### 1. 消除 `inputLabel()`/`outputLabel()` 的副作用（主因 · 先清除）
 
@@ -151,7 +151,7 @@ mle.setResponder(t -> {
 
 ## 与 v1.2.5 ENCAP I/O 引脚重排的关联
 
-本问题与 [`v1.2.5-plan.md` §3](./v1.2.5-plan.md) 中的 **Bug B（封装 I/O 重排后外部连线不跟随）** 属于同一类根因：
+本问题与 [`v1.2.5-plan-resolved.md` §3](./v1.2.5-plan-resolved.md) 中的 **Bug B（封装 I/O 重排后外部连线不跟随）** 属于同一类根因：
 
 > 连线存储使用整数 `fromPin`/`toPin` 索引，引脚顺序或数量变化时索引失效。
 
