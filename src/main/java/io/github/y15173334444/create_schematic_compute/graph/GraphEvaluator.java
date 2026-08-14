@@ -184,7 +184,15 @@ public class GraphEvaluator {
                 }
             }
         }
-        return EvalSnapshot.capture(outputs, debugTime, subOutputs, subDebugTimes);
+        // 刀5:FORMULA spread 渲染态(无数值,进度条用)/ knife 5: spread render state (bar only, no value)
+        Map<Integer, Float> spreads = null;
+        for (GraphNode n : graph.nodes) {
+            if (n.formulaSpreadProgress != 0f) {
+                if (spreads == null) spreads = new HashMap<>();
+                spreads.put(n.id, n.formulaSpreadProgress);
+            }
+        }
+        return EvalSnapshot.capture(outputs, debugTime, subOutputs, subDebugTimes, spreads);
     }
 
     /** 读取任意节点某引脚的计算结果（供外部查询）。
@@ -363,7 +371,8 @@ public class GraphEvaluator {
         // (transparently compatible with all node handlers)
         float[] origParams = node.params;
         float[] effParams = origParams;
-        int extraBase = node.type.inputs;
+        // 参数引脚排在功能引脚之后;FORMULA 的功能引脚数是动态的(刀5 参数引脚避让)
+        int extraBase = node.functionalInputs();
         int extraCnt = node.type.editableParamCount();
         if (extraCnt > 0) {
             boolean hasOverride = false;
@@ -869,15 +878,69 @@ public class GraphEvaluator {
                     // Copy out the cached result (cache array is read-only); zero any remainder on length mismatch (legacy dout)
                     java.util.Arrays.fill(o, 0f);
                     System.arraycopy(cached, 0, o, 0, Math.min(cached.length, o.length));
+                    // 去重命中:本节点不推进自己的 spread,清 carrier 与渲染态(值由缓存保证一致)
+                    // Dedup hit: this node doesn't advance its own spread — clear carrier + render state (values stay consistent via cache)
+                    node.formulaCarrier = null;
+                    node.formulaSpreadProgress = 0f;
                     break;
                 }
-                // AST 模式(刀3):Value env + 语句解释器 + 输出 RPN / AST mode (knife 3)
+                // AST 模式(刀3+刀5):carrier 挂起-lite + emit-on-done / AST mode: carrier suspend-lite + emit-on-done
                 if (script.ast != null) {
+                    if (node.formulaShedWarned) {
+                        // MAX_ITER shed 冻结:病态脚本不再重试,输出保持 lastGood,直到公式被编辑
+                        // MAX_ITER shed freeze: pathological script retries no more; outputs hold lastGood until the formula is edited
+                        node.formulaSpreadProgress = 0f;
+                        break;
+                    }
                     var env = new java.util.HashMap<String, Value>(Math.max(4, script.inputVars.size() * 2));
-                    for (int vi = 0; vi < script.inputVars.size(); vi++)
-                        env.put(script.inputVars.get(vi), new Value.Scalar(pinInputs[vi]));
+                    boolean warm = node.params.length > 0 && node.params[0] > 0.5f; // 温启动节点参数 / warm-restart node param
+                    var car = node.formulaCarrier;
+                    float[] usedFrozen = null;
+
+                    if (car != null && car.done) {
+                        if (inputsUnchanged(car.frozenInputs, pinInputs)) {
+                            // done 且输入未变:整节点跳过(输出保持)/ done & inputs unchanged: skip, outputs hold
+                            node.formulaSpreadProgress = 0f;
+                            break;
+                        }
+                        node.formulaCarrier = null; // done 冷复位(决策 §五)/ done → cold reset
+                        car = null;
+                    }
+                    if (car != null) {
+                        // spread 中 / mid-spread
+                        if (inputsUnchanged(car.frozenInputs, pinInputs)) {
+                            env.putAll(car.envSnapshot); // 续算 / resume
+                            usedFrozen = car.frozenInputs;
+                        } else if (warm) {
+                            // 温启动:旧 Env 作初值、输入变量刷新、k=0(决策 §五)/ warm restart
+                            env.putAll(car.envSnapshot);
+                            for (int vi = 0; vi < script.inputVars.size(); vi++)
+                                env.put(script.inputVars.get(vi), new Value.Scalar(pinInputs[vi]));
+                            node.formulaCarrier = null;
+                            car = null;
+                            usedFrozen = pinInputs.clone();
+                        } else {
+                            // 严格冻结:继续旧输入快照(默认)/ strict freeze: continue the old snapshot (default)
+                            env.putAll(car.envSnapshot);
+                            usedFrozen = car.frozenInputs;
+                        }
+                    }
+                    if (car == null) {
+                        // 全新执行(冷):env 来自引脚 / fresh (cold): env from pins
+                        for (int vi = 0; vi < script.inputVars.size(); vi++)
+                            env.put(script.inputVars.get(vi), new Value.Scalar(pinInputs[vi]));
+                        usedFrozen = pinInputs.clone();
+                    }
+                    final float[] frozenRef = usedFrozen;
                     try {
-                        FormulaInterpreter.exec(script.ast, env);
+                        FormulaInterpreter.exec(script.ast, env, FormulaCompute.sliceNs(),
+                            car != null ? car.loopStack : null, car != null ? car.totalIterations : 0);
+                        // 完成:done + 输出新鲜值 / done: fresh outputs
+                        var done = new FormulaInterpreter.Carrier();
+                        done.done = true;
+                        done.frozenInputs = frozenRef;
+                        node.formulaCarrier = done;
+                        node.formulaSpreadProgress = 0f;
                         for (int oi = 0; oi < nOut; oi++) {
                             try {
                                 var rpn = script.outputRpns.get(oi);
@@ -888,9 +951,25 @@ public class GraphEvaluator {
                                 o[oi] = 0;
                             }
                         }
+                    } catch (FormulaInterpreter.SuspendSignal sus) {
+                        // 挂起:carrier 续存,输出冻结(emit-on-done)/ suspend: keep carrier, outputs frozen
+                        sus.carrier.frozenInputs = frozenRef;
+                        node.formulaCarrier = sus.carrier;
+                        node.formulaSpreadProgress = sus.carrier.progress;
+                        FormulaCompute.reportYield();
+                    } catch (FormulaInterpreter.ShedSignal sh) {
+                        // MAX_ITER 兜底:清 carrier、输出冻结、告警一次 / MAX_ITER backstop
+                        node.formulaCarrier = null;
+                        node.formulaSpreadProgress = 0f;
+                        if (!node.formulaShedWarned) {
+                            node.formulaShedWarned = true;
+                            LOGGER.warn("FORMULA node {} exceeded MAX_ITER — pathological script, shed to lastGood", node.id);
+                        }
                     } catch (Exception e) {
                         LOGGER.debug("FORMULA AST exec error: {}", e.getMessage());
                         java.util.Arrays.fill(o, 0f);
+                        node.formulaCarrier = null;
+                        node.formulaSpreadProgress = 0f;
                     }
                     FormulaCompute.storeDedup(script.sourceFormula, pinInputs, o);
                     break;
@@ -1020,6 +1099,15 @@ public class GraphEvaluator {
         }
         node.params = origParams; // 恢复参数（可能被连线值临时覆盖）  /  Restore params (may have been temporarily overwritten by wired values)
         outputs.put(node.id, o.clone());
+    }
+
+    /** spread 输入变更检测:每引脚 1e-3 容差(决策 §五)。 / Spread input-change detection: 1e-3 tolerance per pin (decisions §五). */
+    private static boolean inputsUnchanged(float[] frozen, float[] current) {
+        if (frozen == null || frozen.length != current.length) return false;
+        for (int i = 0; i < frozen.length; i++) {
+            if (Math.abs(frozen[i] - current[i]) > 1e-3f) return false;
+        }
+        return true;
     }
 
     public record InputSource(long freqKey, int signal) {}

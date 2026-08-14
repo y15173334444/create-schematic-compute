@@ -679,6 +679,23 @@ public class NodeRenderer {
         pose.scale(zoom,zoom,1);
         // C=1: 标题文字
         drawStr(g, I18n.get(n.type.getTitle()), 4, 4, CNT());
+        // 刀5:FORMULA spread 进度条(无数值,只有进度)/ knife 5: spread progress bar (no value shown)
+        if (n.type == NodeType.FORMULA && evalSnapshot != null) {
+            float prog = evalSnapshot.getFormulaSpread(n.id);
+            if (prog != 0f) {
+                int barX = 4, barY = HH + 3, barW = nodeW - 8, barH = 3;
+                g.fill(barX, barY, barX + barW, barY + barH, 0xFF333340);
+                if (prog > 0f) {
+                    int w = (int)(barW * Math.min(1f, prog));
+                    g.fill(barX, barY, barX + Math.max(1, w), barY + barH, 0xFF6FC3FF);
+                } else {
+                    // 不定(while 循环):呼吸式填充 / indeterminate (while loop): breathing fill
+                    double phase = (System.currentTimeMillis() % 2000) / 2000.0 * Math.PI * 2;
+                    int w = (int)(barW * (0.35 + 0.3 * Math.sin(phase)));
+                    g.fill(barX, barY, barX + Math.max(1, w), barY + barH, 0xFF6FC3FF);
+                }
+            }
+        }
         // FORMULA error badge: red ⚠ in the title bar.
         // Prefer cached issues set by the edit-panel responder; validate only on
         // first frame after NBT reload (when formulaIssues is null).

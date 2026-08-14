@@ -25,10 +25,12 @@ import java.util.Map;
  */
 public record EvalSnapshot(Map<Integer, float[]> outputs, Map<Integer, Float> debugTimes,
                            Map<Integer, Map<Integer, float[]>> subOutputs,
-                           Map<Integer, Map<Integer, Float>> subDebugTimes) {
+                           Map<Integer, Map<Integer, Float>> subDebugTimes,
+                           Map<Integer, Float> formulaSpreads) {
 
     public static final EvalSnapshot EMPTY = new EvalSnapshot(
-        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap());
+        Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap(), Collections.emptyMap(),
+        Collections.emptyMap());
 
     /** 从此快照中读取单个输出值（不存在时返回 0）。
      *  Read a single output value from this snapshot (0 if not present). */
@@ -64,6 +66,12 @@ public record EvalSnapshot(Map<Integer, float[]> outputs, Map<Integer, Float> de
         return sub.getOrDefault(nodeId, 0f);
     }
 
+    /** 读取 FORMULA 节点的 spread 进度(0 = 无 spread;>0 = 进度;-1 = 不定)。刀5 渲染态。
+     *  Read a FORMULA node's spread progress (0 = idle; >0 = progress; -1 = indeterminate). Knife 5 render state. */
+    public float getFormulaSpread(int nodeId) {
+        return formulaSpreads.getOrDefault(nodeId, 0f);
+    }
+
     /** 输出映射的不可修改视图。 / Unmodifiable view of the output map. */
     @Override
     public Map<Integer, float[]> outputs() {
@@ -84,10 +92,12 @@ public record EvalSnapshot(Map<Integer, float[]> outputs, Map<Integer, Float> de
      *  Create a snapshot from a mutable outputs map (defensive copy). */
     public static EvalSnapshot capture(Map<Integer, float[]> outputs, Map<Integer, Float> debugTimes,
                                         Map<Integer, Map<Integer, float[]>> subOutputs,
-                                        Map<Integer, Map<Integer, Float>> subDebugTimes) {
+                                        Map<Integer, Map<Integer, Float>> subDebugTimes,
+                                        Map<Integer, Float> formulaSpreads) {
         if (outputs.isEmpty() && (debugTimes == null || debugTimes.isEmpty())
             && (subOutputs == null || subOutputs.isEmpty())
-            && (subDebugTimes == null || subDebugTimes.isEmpty())) return EMPTY;
+            && (subDebugTimes == null || subDebugTimes.isEmpty())
+            && (formulaSpreads == null || formulaSpreads.isEmpty())) return EMPTY;
         var copy = new HashMap<Integer, float[]>(outputs.size());
         for (var e : outputs.entrySet()) {
             copy.put(e.getKey(), e.getValue().clone());
@@ -119,7 +129,10 @@ public record EvalSnapshot(Map<Integer, float[]> outputs, Map<Integer, Float> de
             }
             subDtCopy = Collections.unmodifiableMap(subDtCopy);
         }
+        Map<Integer, Float> spreadCopy = (formulaSpreads == null || formulaSpreads.isEmpty())
+            ? Collections.<Integer, Float>emptyMap()
+            : Collections.unmodifiableMap(new HashMap<>(formulaSpreads));
         return new EvalSnapshot(Collections.unmodifiableMap(copy), Collections.unmodifiableMap(dtCopy),
-            subCopy, subDtCopy);
+            subCopy, subDtCopy, spreadCopy);
     }
 }

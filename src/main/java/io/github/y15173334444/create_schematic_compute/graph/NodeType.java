@@ -64,7 +64,7 @@ public enum NodeType {
     POSITION("position", "node.create_schematic_compute.position", 0, 3, "offsetX,offsetY,offsetZ"),
     ACCUMULATOR("accumulator", "node.create_schematic_compute.accumulator", 2, 1, "step"),
     INTEGRATOR("integrator", "node.create_schematic_compute.integrator", 3, 1, "step,interval,limit"),
-    FORMULA("formula", "node.create_schematic_compute.formula", 0, 1, ""),
+    FORMULA("formula", "node.create_schematic_compute.formula", 0, 1, "warm"),
     POSE_CONVERT("pose_convert", "node.create_schematic_compute.pose_convert", 3, 2, ""),
     // Control Seat 输入节点 / Control Seat input nodes
     KEYBOARD("keyboard", "node.create_schematic_compute.keyboard", 0, 1, "key"),

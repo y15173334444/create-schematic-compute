@@ -36,6 +36,11 @@ public class GraphNode {
     public int dynamicOutputCount = 1; // FORMULA 节点的动态输出数 (v1.2+) / dynamic outputs for FORMULA node (v1.2+)
     public List<String> outputLabels = null; // FORMULA 节点的 @output 名称（延迟解析）/ @output names for FORMULA node (lazy-parsed)
     public transient FormulaParser.ScriptParseResult cachedScript = null; // 缓存的解析结果 / cached parse result
+    // ── 刀5:挂起-lite 收敛态(transient,存盘丢弃;generation/sourceFormula 变更即作废)──
+    // Knife 5: suspend-lite convergence state (transient; invalidated by generation/sourceFormula change)
+    public transient FormulaInterpreter.Carrier formulaCarrier = null; // 跨 tick 收敛态 / cross-tick convergence state
+    public transient float formulaSpreadProgress = 0f;                 // 渲染态进度:0..1,-1 不定 / render progress
+    public transient boolean formulaShedWarned = false;                // MAX_ITER shed 已告警一次 / shed warned once per formula
     public transient java.util.List<FormulaParser.FormulaIssue> formulaIssues = null; // 客户端校验问题 (client-side validation issues)
     // Display node fields (Monitor block)  /  显示节点字段（Monitor 方块）
     public String displayText = "";               // TEXT 节点内容 / TEXT node content
@@ -94,7 +99,7 @@ public class GraphNode {
      *  Effective input pin count (dynamically determined for FORMULA/ENCAPSULATION;
      *  generic parameter pins are automatically appended). */
     public int inputs() {
-        if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicInputCount, 26));
+        if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicInputCount, 26)) + type.editableParamCount();
         if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_INPUT);
         return type.inputs + type.editableParamCount();
     }
@@ -144,6 +149,11 @@ public class GraphNode {
             if (cachedScript == null || !cachedScript.sourceFormula.equals(formula)) {
                 var oldOutLabels = outputLabels;
                 cachedScript = FormulaParser.parseScript(formula);
+                // 公式变更:作废刀5 收敛态(旧 AST 身份/Env 快照不再有效)与 shed 冻结标记
+                // Formula changed: invalidate the knife-5 carrier (stale AST identity/Env) and the shed freeze flag
+                formulaCarrier = null;
+                formulaSpreadProgress = 0f;
+                formulaShedWarned = false;
                 dynamicInputCount = Math.max(dynamicInputCount, Math.max(1, cachedScript.inputVars.size()));
                 dynamicOutputCount = Math.max(dynamicOutputCount, Math.max(1, cachedScript.outputLabels.size()));
                 var merged = new java.util.ArrayList<>(cachedScript.outputLabels);
@@ -173,6 +183,12 @@ public class GraphNode {
                 var vars = cachedScript.inputVars;
                 for (int i = 0; i < vars.size(); i++)
                     if (pinId.equals(vars.get(i))) return i;
+                // 参数引脚排在动态变量引脚之后(刀5:warm 等);基数用 functionalInputs(),
+                // 与 inputPinId/inputLabel/求值器 extraBase 同源,stale 状态下索引一致。
+                // param pins follow the dynamic variable pins; base = functionalInputs(), same source
+                // as inputPinId/inputLabel/evaluator extraBase — indices stay consistent in stale states.
+                for (int i = 0; i < type.editableParamCount(); i++)
+                    if (pinId.equals(type.paramNames[i])) return functionalInputs() + i;
                 // Variable name not found — fall through to generic numeric parsing.
                 // This handles legacy extra pins whose pinId is a numeric string
                 // (e.g. "2", "3") from saves where dynamicInputCount > inputVars.size().
@@ -250,6 +266,12 @@ public class GraphNode {
             ensureScriptParsed();
             if (cachedScript != null && index < cachedScript.inputVars.size())
                 return cachedScript.inputVars.get(index);
+            // 参数引脚(刀5):pinId = 参数名 / param pins (knife 5): pinId = param name
+            if (cachedScript != null) {
+                int paramIdx = index - functionalInputs();
+                if (paramIdx >= 0 && paramIdx < type.editableParamCount())
+                    return type.paramNames[paramIdx];
+            }
             // Legacy extra pins (dynamicInputCount > inputVars.size()):
             // these were functionally dead in V3 but connections existed on them.
             // Use numeric pinId so migrateV3toV4 preserves them.
@@ -321,7 +343,7 @@ public class GraphNode {
             }
         }
         // 参数输入引脚：显示参数名（如 "step", "kp" 等）  /  Param input pins: show param names (e.g. "step", "kp", etc.)
-        int extraBase = type.inputs;
+        int extraBase = type == NodeType.FORMULA ? Math.max(1, Math.min(dynamicInputCount, 26)) : type.inputs;
         int paramIdx = i - extraBase;
         if (paramIdx >= 0 && paramIdx < type.paramNames.length) return type.paramNames[paramIdx];
         return type.inputLabel(i);

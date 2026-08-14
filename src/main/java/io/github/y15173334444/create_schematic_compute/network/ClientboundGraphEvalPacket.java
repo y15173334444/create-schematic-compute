@@ -27,7 +27,8 @@ import java.util.Map;
  */
 public record ClientboundGraphEvalPacket(BlockPos pos, Map<Integer, float[]> outputs, Map<Integer, Float> debugTimes,
                                       Map<Integer, Map<Integer, float[]>> subOutputs,
-                                      Map<Integer, Map<Integer, Float>> subDebugTimes)
+                                      Map<Integer, Map<Integer, Float>> subDebugTimes,
+                                      Map<Integer, Float> formulaSpreads)
         implements CustomPacketPayload {
 
     public static final Type<ClientboundGraphEvalPacket> TYPE =
@@ -93,7 +94,20 @@ public record ClientboundGraphEvalPacket(BlockPos pos, Map<Integer, float[]> out
                     subDebugTimes.put(encapId, subMap);
                 }
             }
-            return new ClientboundGraphEvalPacket(pos, outputs, debugTimes, subOutputs, subDebugTimes);
+            // 刀5:FORMULA spread 渲染态(无数值,进度条用)/ knife 5: spread render state
+            int spreadCount = VarInt.read(buf);
+            Map<Integer, Float> formulaSpreads;
+            if (spreadCount == 0) {
+                formulaSpreads = java.util.Collections.emptyMap();
+            } else {
+                formulaSpreads = new HashMap<>(spreadCount);
+                for (int i = 0; i < spreadCount; i++) {
+                    int nodeId = VarInt.read(buf);
+                    float p = buf.readFloat();
+                    formulaSpreads.put(nodeId, p);
+                }
+            }
+            return new ClientboundGraphEvalPacket(pos, outputs, debugTimes, subOutputs, subDebugTimes, formulaSpreads);
         }
 
         @Override
@@ -139,6 +153,13 @@ public record ClientboundGraphEvalPacket(BlockPos pos, Map<Integer, float[]> out
                     buf.writeFloat(ne.getValue());
                 }
             }
+            // 刀5:FORMULA spread 渲染态(无数值,进度条用)/ knife 5: spread render state
+            var spreads = pkt.formulaSpreads;
+            VarInt.write(buf, spreads.size());
+            for (var e : spreads.entrySet()) {
+                VarInt.write(buf, e.getKey());
+                buf.writeFloat(e.getValue());
+            }
         }
     };
 
@@ -151,7 +172,7 @@ public record ClientboundGraphEvalPacket(BlockPos pos, Map<Integer, float[]> out
             if (level == null) return;
             var be = level.getBlockEntity(pos);
             if (be instanceof io.github.y15173334444.create_schematic_compute.blocks.SyncedGraphBlockEntity sgbe) {
-                sgbe.cachedEvalSnapshot = new EvalSnapshot(outputs, debugTimes, subOutputs, subDebugTimes);
+                sgbe.cachedEvalSnapshot = new EvalSnapshot(outputs, debugTimes, subOutputs, subDebugTimes, formulaSpreads);
             }
         });
     }
