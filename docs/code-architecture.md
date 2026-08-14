@@ -1,7 +1,7 @@
 # 代码结构文档 / Code Architecture
 
-> 更新日期 / Last Updated：2026-08-01
-> 版本 / Version：1.2.4.1
+> 更新日期 / Last Updated：2026-08-14
+> 版本 / Version：1.2.4.1（含未发布的 Screen 迁移 / includes unreleased Screen migration）
 
 ---
 
@@ -12,7 +12,7 @@ io.github.y15173334444.create_schematic_compute/
 ├── SchematicCompute.java          ← @Mod 入口 / @Mod entry point
 ├── ModUtils.java                  ← 工具方法 / Utility methods
 ├── graph/          (16 files)     ← 节点图核心引擎 / Node graph core engine
-├── blocks/         (35 files)     ← 方块·BE·Screen·Menu·编辑器 / Blocks, BEs, Screens, Editor
+├── blocks/         (29 files)     ← 方块·BE·Screen·编辑器 / Blocks, BEs, Screens, Editor
 ├── network/        (31 files)     ← 网络包·BUS 总线·Sable 兼容 / Packets, BUS, Sable compat
 ├── client/         (15 files)     ← 客户端渲染·颜色选择器·便携终端 / Client rendering
 ├── compat/          (6 files)     ← Sable 物理引擎兼容层 / Sable physics compat layer
@@ -240,6 +240,35 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
 ### NodeRenderer
 节点图渲染器：`renderNodes()`、`drawNode()`、添加节点菜单（多列 + 搜索框 + scissor 裁剪 + 高度封顶）、`SpatialIndex` 命中过滤、A/B/C 遮挡排序。
 / Graph renderer: nodes, add-node menu (multi-column + search + scissor + height cap), spatial culling, occlusion ordering.
+
+### 7 个编辑界面 / The 7 Editor Screens（无 Menu 架构 / menu-less, v1.2.5）
+
+自 v1.2.5 起，7 个编辑界面全部继承 **`AbstractGraphScreen`**（`extends Screen implements GraphEditor.Host`），不再使用 `AbstractContainerScreen`/`Menu` 体系。
+/ Since v1.2.5 all 7 editors extend `AbstractGraphScreen`; the container-screen/menu system is gone.
+
+| Screen | BlockEntity | 打开方式 / Opened by |
+|--------|-------------|----------------------|
+| `BlueprintScreen` | `BlueprintBlockEntity` | `BlueprintBlock.useWithoutItem` → 客户端 `setScreen` / client-side setScreen |
+| `SpeedProxyScreen` | `SpeedProxyBlockEntity` | 同上 / same |
+| `ProgramComputerScreen` | `ProgramComputerBlockEntity` | 同上 / same |
+| `SensorScreen` | `SensorBlockEntity` | 同上 / same |
+| `ControlSeatScreen` | `ControlSeatBlockEntity` | Shift+右键 → `setScreen` / Shift+RMB |
+| `MonitorScreen` | `MonitorBlockEntity` | 同上 / same |
+| `RadarScreen` | `RadarBlockEntity` | Shift+右键 → `setScreen` / Shift+RMB |
+
+**`AbstractGraphScreen` 基类职责 / Base class responsibilities**：
+- 持有 `blockPos` + `GraphEditor`，构造器 `(Component title, BlockPos pos)`；子类通过 `setNodeFilter()` 设置节点过滤器 / Holds blockPos + GraphEditor; subclasses set node filters
+- `init()` 发送 `GraphJoinPacket`；`onClose()` 依次执行 `preClose()` 钩子 → `pendingLocalOps=0` 复位（`5892caa` 守卫）→ `editor.onClose()` → `clearRemotePresences()` → 发送 `GraphLeavePacket` / Full close lifecycle
+- `tick()` 通过子类 `isBlockEntityValid()` 检查 BE，失效自动 `onClose()` / Auto-close on BE invalidation
+- `render()` 契约：`renderBackground` → `renderGraphCanvas()` 钩子（默认 `editor.renderBg`，Radar 叠加工具栏、Monitor 切换显示模式画布）→ `renderables` widget → tooltip 由编辑器自绘 / Canvas hook for per-screen overlays
+- `sendOp()` 自增 `pendingLocalOps` 后发送 `GraphEditOpPacket` / pending-op guard on send
+- 输入事件（mouse/key/char）统一委托 `GraphEditor` / Unified input delegation
+
+**不再存在的部分 / Removed**：7 个 `XxxMenu` 类、`SchematicCompute.MENUS` DeferredRegister（7 个 MenuType 注册项）、`ClientSetup.registerScreens`、`SyncedGraphBlockEntity implements MenuProvider` 及 7 个 BE 的 `getDisplayName`/`createMenu`。
+/ The 7 menu classes, MENUS registry, registerScreens, MenuProvider and per-BE getDisplayName/createMenu are all deleted.
+
+**终端虚拟路径 / Terminal path**：`PortableTerminalScreen.openBlockUI()` 直接 `new XxxScreen(editingPos)` 并包进 `TerminalWrapper`，不再构造虚拟 Menu。
+/ The portable terminal constructs the screens directly from editingPos, no virtual menus.
 
 ### EditSessionRegistry
 多人编辑会话注册表 / Multiplayer edit session registry.
