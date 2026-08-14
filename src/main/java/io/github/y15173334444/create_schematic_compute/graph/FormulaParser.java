@@ -30,7 +30,8 @@ public class FormulaParser {
     // 词法单元类型 — 用于语法高亮和校验
 
     public enum TokType { NUMBER, IDENT, FUNCTION, CONSTANT, OPERATOR, LPAREN, RPAREN,
-                          COMMENT, AT_OUTPUT, ASSIGN, UNKNOWN }
+                          COMMENT, AT_OUTPUT, ASSIGN, UNKNOWN,
+                          LBRACE, RBRACE, KEYWORD, SWIZZLE }
 
     /** A lexical token with [start, end) character offsets in the source string.
      *  词法单元，携带源字符串中的 [start, end) 字符偏移。 */
@@ -42,6 +43,17 @@ public class FormulaParser {
 
     /** RPN token representing a function call. */
     private record FunctionToken(String name, int arity) {}
+
+    /** 双字符/逻辑运算符的 RPN token(==、!=、<=、>=、&&、||、一元 !)。
+     *  RPN token for two-char / logical operators (==, !=, <=, >=, &&, ||, unary !). */
+    public record OpToken(String op) {}
+
+    /** 控制流关键字(repeat/while/if/else/break/continue)。 / Control-flow keywords. */
+    public static final Set<String> KEYWORDS = Set.of("repeat", "while", "if", "else", "break", "continue");
+
+    /** `==`/`!=` 浮点容差(决策文档 §五:1e-6;`< > <= >=` 保持精确)。
+     *  Float tolerance for ==/!= (decisions doc §五: 1e-6; < > <= >= stay exact). */
+    public static final double EQ_TOLERANCE = 1e-6;
 
     /** 一条赋值语句：变量名 + 编译好的 RPN 表达式 */
     public record Assignment(String varName, List<Object> rpn) {}
@@ -76,6 +88,7 @@ public class FormulaParser {
         m.put("sinh", 1); m.put("cosh", 1);
         m.put("sqrt", 1); m.put("ln", 1); m.put("log", 1); m.put("exp", 1);
         m.put("sec", 1); m.put("csc", 1); m.put("cot", 1);
+        m.put("vec3", 3); // 刀2 词法占位:字面量被识别为函数调用,求值语义在刀3接入 / knife-2 lexical placeholder: real eval lands in knife 3
         FUNCTIONS = Collections.unmodifiableMap(m);
         FUNCTION_NAMES = FUNCTIONS.keySet();
     }
@@ -174,6 +187,11 @@ public class FormulaParser {
                 int j = i + 1;
                 while (j < len && isIdentPart(s.charAt(j))) j++;
                 String name = s.substring(i, j);
+                // Control-flow keyword — before function/variable checks
+                if (KEYWORDS.contains(name)) {
+                    tokens.add(new Token(i, j, TokType.KEYWORD, name));
+                    i = j; continue;
+                }
                 // Peek ahead: is it a function call?
                 int k = j;
                 while (k < len && s.charAt(k) == ' ') k++;
@@ -209,8 +227,37 @@ public class FormulaParser {
             // Parens
             if (c == '(') { tokens.add(new Token(i, i + 1, TokType.LPAREN, "(")); i++; continue; }
             if (c == ')') { tokens.add(new Token(i, i + 1, TokType.RPAREN, ")")); i++; continue; }
+            // Two-char operators: == != <= >=
+            if ((c == '=' || c == '!' || c == '<' || c == '>') && i + 1 < len && s.charAt(i + 1) == '=') {
+                tokens.add(new Token(i, i + 2, TokType.OPERATOR, s.substring(i, i + 2)));
+                i += 2; continue;
+            }
+            // Two-char logical operators: && ||
+            if (c == '&' && i + 1 < len && s.charAt(i + 1) == '&') {
+                tokens.add(new Token(i, i + 2, TokType.OPERATOR, "&&"));
+                i += 2; continue;
+            }
+            if (c == '|' && i + 1 < len && s.charAt(i + 1) == '|') {
+                tokens.add(new Token(i, i + 2, TokType.OPERATOR, "||"));
+                i += 2; continue;
+            }
             // Assignment
             if (c == '=') { tokens.add(new Token(i, i + 1, TokType.ASSIGN, "=")); i++; continue; }
+            // Comparison / logical singles: < > !
+            if (c == '<' || c == '>' || c == '!') {
+                tokens.add(new Token(i, i + 1, TokType.OPERATOR, String.valueOf(c)));
+                i++; continue;
+            }
+            // Braces (control-flow blocks)
+            if (c == '{') { tokens.add(new Token(i, i + 1, TokType.LBRACE, "{")); i++; continue; }
+            if (c == '}') { tokens.add(new Token(i, i + 1, TokType.RBRACE, "}")); i++; continue; }
+            // Swizzle: '.' followed by identifier → member access (v.x / v.xy)
+            if (c == '.' && i + 1 < len && isIdentStart(s.charAt(i + 1))) {
+                int j = i + 1;
+                while (j < len && isIdentPart(s.charAt(j))) j++;
+                tokens.add(new Token(i, j, TokType.SWIZZLE, s.substring(i + 1, j)));
+                i = j; continue;
+            }
             // Comma (function argument separator)
             if (c == ',') { tokens.add(new Token(i, i + 1, TokType.OPERATOR, ",")); i++; continue; }
             // Arithmetic operators
@@ -224,9 +271,8 @@ public class FormulaParser {
                 char nc = s.charAt(j);
                 if (nc == ' ' || nc == '\t' || nc == '\r' || nc == '\n') break;
                 if (isIdentStart(nc) || (nc >= '0' && nc <= '9')) break;
-                if ("()=,+\\-*/%^".indexOf(nc) >= 0) break;
-                if (nc == '@' || nc == '#' || nc == '!' || nc == '?' || nc == '<' || nc == '>'
-                    || nc == ';' || nc == ':' || nc == '\'' || nc == '"') break;
+                if ("()=,+\\-*/%^{}!.&|<>".indexOf(nc) >= 0) break;
+                if (nc == '@' || nc == '#' || nc == '?' || nc == ';' || nc == ':' || nc == '\'' || nc == '"') break;
                 j++;
             }
             tokens.add(new Token(i, j, TokType.UNKNOWN, s.substring(i, j)));
@@ -369,6 +415,82 @@ public class FormulaParser {
             }
         }
 
+        // ── 8) Brace matching (control-flow blocks) ──
+        var braceStack = new ArrayDeque<Integer>();
+        for (int ti = 0; ti < tokens.size(); ti++) {
+            Token t = tokens.get(ti);
+            if (t.type() == TokType.LBRACE) {
+                braceStack.push(ti);
+            } else if (t.type() == TokType.RBRACE) {
+                if (braceStack.isEmpty()) {
+                    int[] lc = lineCol(s, t.start());
+                    issues.add(new FormulaIssue(lc[0], lc[1], 1, Severity.ERROR, "多余的右大括号 '}'"));
+                } else { braceStack.pop(); }
+            }
+        }
+        for (int ti : braceStack) {
+            Token t = tokens.get(ti);
+            int[] lc = lineCol(s, t.start());
+            issues.add(new FormulaIssue(lc[0], lc[1], 1, Severity.ERROR, "未闭合的左大括号 '{'"));
+        }
+
+        // ── 9) Keyword syntax ──
+        for (int ti = 0; ti < tokens.size(); ti++) {
+            Token t = tokens.get(ti);
+            if (t.type() != TokType.KEYWORD) continue;
+            int[] lc = lineCol(s, t.start());
+            String kw = t.text();
+            if (kw.equals("repeat")) {
+                if (ti + 2 >= tokens.size() || tokens.get(ti + 1).type() != TokType.NUMBER
+                    || tokens.get(ti + 2).type() != TokType.LBRACE) {
+                    issues.add(new FormulaIssue(lc[0], lc[1], kw.length(), Severity.ERROR,
+                        "'repeat' 后应为次数和 '{',如 repeat 10 {"));
+                }
+            } else if (kw.equals("if") || kw.equals("while")) {
+                if (ti + 1 >= tokens.size() || tokens.get(ti + 1).type() != TokType.LPAREN) {
+                    issues.add(new FormulaIssue(lc[0], lc[1], kw.length(), Severity.ERROR,
+                        "'" + kw + "' 后应为条件,如 " + kw + " (x > 0) {"));
+                }
+            } else if (kw.equals("else")) {
+                if (ti + 1 >= tokens.size() || tokens.get(ti + 1).type() != TokType.LBRACE) {
+                    issues.add(new FormulaIssue(lc[0], lc[1], kw.length(), Severity.ERROR,
+                        "'else' 后应为 '{'"));
+                }
+            }
+        }
+
+        // ── 10) Empty block WARN ──
+        for (int ti = 0; ti + 1 < tokens.size(); ti++) {
+            if (tokens.get(ti).type() == TokType.LBRACE && tokens.get(ti + 1).type() == TokType.RBRACE) {
+                int[] lc = lineCol(s, tokens.get(ti).start());
+                issues.add(new FormulaIssue(lc[0], lc[1], 1, Severity.WARN, "空块不会产生任何效果"));
+            }
+        }
+
+        // ── 11) while(true) WARN ──
+        for (int ti = 0; ti + 3 < tokens.size(); ti++) {
+            if (tokens.get(ti).type() == TokType.KEYWORD && tokens.get(ti).text().equals("while")
+                && tokens.get(ti + 1).type() == TokType.LPAREN
+                && tokens.get(ti + 2).type() == TokType.NUMBER
+                && tokens.get(ti + 3).type() == TokType.RPAREN) {
+                double v = Double.parseDouble(tokens.get(ti + 2).text());
+                if (v != 0) {
+                    int[] lc = lineCol(s, tokens.get(ti).start());
+                    issues.add(new FormulaIssue(lc[0], lc[1], 5, Severity.WARN,
+                        "while 条件恒真且无退出条件,将依赖预算超时兜底"));
+                }
+            }
+        }
+
+        // ── 12) Swizzle components ──
+        for (Token t : tokens) {
+            if (t.type() == TokType.SWIZZLE && !t.text().matches("[xyz]+")) {
+                int[] lc = lineCol(s, t.start());
+                issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
+                    "无效的分量访问 '.'" + t.text() + "(仅支持 x/y/z)"));
+            }
+        }
+
         return issues;
     }
 
@@ -471,17 +593,23 @@ public class FormulaParser {
                         while (!ops.isEmpty() && !(ops.peek() instanceof FunctionToken))
                             output.add(ops.pop());
                         expectUnary = true;
+                    } else if (expectUnary && opText.equals("!")) {
+                        // 一元逻辑非:求值时只弹一个操作数 / unary logical not: pops a single operand at eval
+                        ops.push(new OpToken("!"));
+                        expectUnary = true;
                     } else {
                         char op = opText.charAt(0);
                         if (expectUnary && (op == '+' || op == '-')) {
                             output.add(0.0);
                             ops.push('-');
-                        } else if ("+-*/%^".indexOf(op) >= 0) {
-                            int prec = precedence(op);
-                            while (!ops.isEmpty() && ops.peek() instanceof Character opc
-                                   && !opc.equals('(') && precedence(opc) >= prec)
+                        } else if (isBinaryOperator(opText)) {
+                            Object opObj = opText.length() == 1 ? (Object)op : (Object)new OpToken(opText);
+                            int prec = precedenceOf(opObj);
+                            while (!ops.isEmpty() && !(ops.peek() instanceof FunctionToken)
+                                   && !ops.peek().equals('(')
+                                   && precedenceOf(ops.peek()) >= prec)
                                 output.add(ops.pop());
-                            ops.push(op);
+                            ops.push(opObj);
                         }
                         // else: \ (line continuation) or other non-arithmetic operator — skip
                         expectUnary = true;
@@ -495,29 +623,73 @@ public class FormulaParser {
         return output;
     }
 
-    /** 计算 RPN 表达式 */
+    /** 计算 RPN 表达式(标量适配层,旧 API 零回归)。内部走统一 Value 栈机,纯标量 RPN 结果逐位不变。
+     *  Evaluate an RPN expression (scalar adapter, legacy API zero regression). Internally the unified
+     *  Value stack machine — pure scalar RPNs stay bit-identical. */
     public static double evaluate(List<Object> rpn, Map<String, Double> vars) {
-        var stack = new ArrayDeque<Double>();
+        var env = new java.util.HashMap<String, Value>(Math.max(4, vars.size() * 2));
+        for (var e : vars.entrySet()) env.put(e.getKey(), new Value.Scalar(e.getValue()));
+        return asScalar(evaluateValue(rpn, env));
+    }
+
+    /** 取标量分量;向量入参 lenient 归 0(刀 3 在解析/校验层拦形态错误)。
+     *  Extract the scalar component; vectors are leniently 0 (knife 3 rejects shape errors at parse/validate). */
+    public static double asScalar(Value v) {
+        return v instanceof Value.Scalar s ? s.v() : 0.0;
+    }
+
+    /** 真值判定:!= 0(比较/逻辑运算符共用,决策文档 §五)。 / Truthiness: != 0 (shared by comparison/logical operators). */
+    private static boolean truthy(double v) { return v != 0.0; }
+
+    /**
+     * 统一 Value 栈机(单一求值引擎,决策文档 §五)。旧标量 RPN 与刀 3 的向量/控制流共用同一引擎。
+     * Unified Value stack machine (single evaluation engine, decisions doc §五). Legacy scalar RPN
+     * and knife-3 vectors share this one engine.
+     */
+    public static Value evaluateValue(List<Object> rpn, Map<String, Value> env) {
+        var stack = new ArrayDeque<Value>();
         for (var tok : rpn) {
-            if (tok instanceof Double d) { stack.push(d); continue; }
-            if (tok instanceof String varName) { stack.push(vars.getOrDefault(varName, 0.0)); continue; }
+            if (tok instanceof Double d) { stack.push(new Value.Scalar(d)); continue; }
+            if (tok instanceof String varName) { stack.push(env.getOrDefault(varName, Value.Scalar.ZERO)); continue; }
             if (tok instanceof FunctionToken ft) {
+                // 刀2:仅标量函数路径;vec3 等向量函数在刀3按参数形态分派 / knife 2: scalar path; vector fns dispatch by shape in knife 3
                 int arity = ft.arity();
                 double[] args = new double[arity];
-                for (int a = arity - 1; a >= 0; a--) args[a] = stack.pop();
-                stack.push(applyFunction(ft.name(), args));
+                for (int a = arity - 1; a >= 0; a--) args[a] = asScalar(stack.pop());
+                stack.push(new Value.Scalar(applyFunction(ft.name(), args)));
+                continue;
+            }
+            if (tok instanceof OpToken ot) {
+                if (ot.op().equals("!")) {
+                    Value v = stack.pop();
+                    stack.push(new Value.Scalar(truthy(asScalar(v)) ? 0.0 : 1.0));
+                    continue;
+                }
+                double b = asScalar(stack.pop()), a = asScalar(stack.pop());
+                double r = switch (ot.op()) {
+                    case "==" -> Math.abs(a - b) < EQ_TOLERANCE ? 1.0 : 0.0; // 1e-6 容差 / tolerance
+                    case "!=" -> Math.abs(a - b) < EQ_TOLERANCE ? 0.0 : 1.0;
+                    case "<=" -> a <= b ? 1.0 : 0.0;
+                    case ">=" -> a >= b ? 1.0 : 0.0;
+                    case "&&" -> (truthy(a) && truthy(b)) ? 1.0 : 0.0;
+                    case "||" -> (truthy(a) || truthy(b)) ? 1.0 : 0.0;
+                    default -> 0.0;
+                };
+                stack.push(new Value.Scalar(r));
                 continue;
             }
             char op = (Character)tok;
-            double b = stack.pop(), a = stack.pop();
-            stack.push(switch(op){
+            double b = asScalar(stack.pop()), a = asScalar(stack.pop());
+            stack.push(new Value.Scalar(switch(op){
                 case '+' -> a + b; case '-' -> a - b; case '*' -> a * b;
                 case '/' -> b != 0 ? a / b : 0; case '%' -> b != 0 ? a % b : 0;
                 case '^' -> Math.pow(a, b);
+                case '<' -> a < b ? 1.0 : 0.0;
+                case '>' -> a > b ? 1.0 : 0.0;
                 default -> 0.0;
-            });
+            }));
         }
-        return stack.isEmpty() ? 0 : stack.pop();
+        return stack.isEmpty() ? Value.Scalar.ZERO : stack.pop();
     }
 
     /** 执行单个函数调用。角度约定与 GraphEvaluator 中 trig 节点保持一致：
@@ -592,8 +764,29 @@ public class FormulaParser {
         };
     }
 
-    private static int precedence(char op) {
-        return switch(op) { case '+','-' -> 1; case '*','/','%' -> 2; case '^' -> 3; default -> 0; };
+    /** 是否为二元运算符(含双字符比较/逻辑)。 / Is a binary operator (incl. two-char comparison/logical). */
+    private static boolean isBinaryOperator(String text) {
+        if (text.length() == 1 && "+-*/%^<>".indexOf(text.charAt(0)) >= 0) return true;
+        return text.equals("==") || text.equals("!=") || text.equals("<=") || text.equals(">=")
+            || text.equals("&&") || text.equals("||");
+    }
+
+    /** 统一优先级(决策文档 §五):|| < && < 比较 < +- < * / % < ^ < 一元 !。
+     *  Unified precedence (decisions §五): || < && < comparison < +- < * / % < ^ < unary !. */
+    private static int precedenceOf(Object op) {
+        if (op instanceof Character c) {
+            return switch (c) { case '+','-' -> 4; case '*','/','%' -> 5; case '^' -> 6; case '<','>' -> 3; default -> 0; };
+        }
+        if (op instanceof OpToken ot) {
+            return switch (ot.op()) {
+                case "||" -> 1;
+                case "&&" -> 2;
+                case "==", "!=", "<=", ">=" -> 3;
+                case "!" -> 7;
+                default -> 0;
+            };
+        }
+        return 0;
     }
 
     // ==================== 脚本解析（v1.2+） ====================
@@ -684,10 +877,15 @@ public class FormulaParser {
                 }
                 continue;
             }
-            // Assignment: varName = expression
+            // Assignment: varName = expression(跳过 == 的两个 =,避免比较被误判为赋值)
+            // Assignment: varName = expression (skip both '=' of == so comparisons aren't mistaken for assignments)
             int eqIdx = -1;
             for (int i = 0; i < line.length(); i++) {
-                if (line.charAt(i) == '=') { eqIdx = i; break; }
+                if (line.charAt(i) == '='
+                    && (i + 1 >= line.length() || line.charAt(i + 1) != '=')
+                    && (i == 0 || line.charAt(i - 1) != '=')) {
+                    eqIdx = i; break;
+                }
             }
             if (eqIdx > 0) {
                 String varName = line.substring(0, eqIdx).trim();

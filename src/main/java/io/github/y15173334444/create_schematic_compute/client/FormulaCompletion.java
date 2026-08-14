@@ -22,7 +22,7 @@ public class FormulaCompletion {
         for (var e : FormulaParser.FUNCTIONS.entrySet()) {
             String name = e.getKey();
             int arity = e.getValue();
-            String sig = arity == 2 ? name + "(y, x)" : name + "(x)";
+            String sig = arity == 2 ? name + "(y, x)" : arity == 3 ? name + "(x, y, z)" : name + "(x)";
             result.add(new FormulaSuggestPopup.Candidate(name, sig, name + "("));
         }
 
@@ -31,6 +31,14 @@ public class FormulaCompletion {
             result.add(new FormulaSuggestPopup.Candidate("(" + cn + ")",
                 cn.equals("PI") ? "= π" : "= e", "(" + cn + ")"));
         }
+
+        // 2.5) Control-flow keywords / 控制流关键字
+        result.add(new FormulaSuggestPopup.Candidate("repeat", "N { … }", "repeat  {"));
+        result.add(new FormulaSuggestPopup.Candidate("while", "(cond) { … }", "while () {"));
+        result.add(new FormulaSuggestPopup.Candidate("if", "(cond) { … }", "if () {"));
+        result.add(new FormulaSuggestPopup.Candidate("else", "{ … }", "else {"));
+        result.add(new FormulaSuggestPopup.Candidate("break", "退出循环", "break"));
+        result.add(new FormulaSuggestPopup.Candidate("continue", "跳到下一轮", "continue"));
 
         // 3) Known identifiers from the current text (via tokenize).
         //    Only suggest variables that actually appear right now.

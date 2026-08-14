@@ -61,6 +61,10 @@ public class MultiLineEditBox extends EditBox {
         p[TokType.AT_OUTPUT.ordinal()]  = 0xFFC78BDA; // purple / 紫色 — @output
         p[TokType.ASSIGN.ordinal()]     = 0xFFC78BDA; // purple / 紫色 — 赋值
         p[TokType.UNKNOWN.ordinal()]    = 0xFFFF6B6B; // red / 红色 — 未知/非法字符
+        p[TokType.LBRACE.ordinal()]     = 0xFFD0D0D0; // grey-white / 灰白色 — 左大括号
+        p[TokType.RBRACE.ordinal()]     = 0xFFD0D0D0; // grey-white / 灰白色 — 右大括号
+        p[TokType.KEYWORD.ordinal()]    = 0xFF6FC3FF; // light blue / 浅蓝色 — 控制流关键字
+        p[TokType.SWIZZLE.ordinal()]    = 0xFF7FD8D8; // light cyan / 浅青色 — 分量访问(与变量同色)
         return p;
     }
 
