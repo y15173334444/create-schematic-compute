@@ -12,11 +12,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.resources.language.I18n;
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Inventory;
 import net.neoforged.neoforge.network.PacketDistributor;
 import com.mojang.math.Axis;
 import java.io.ByteArrayOutputStream;
@@ -26,9 +25,7 @@ import java.util.Map;
 
 import static io.github.y15173334444.create_schematic_compute.client.GeometryConstants.*;
 
-public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implements GraphEditor.Host {
-    private final MonitorBlockEntity blockEntity;
-    private final GraphEditor editor;
+public class MonitorScreen extends AbstractGraphScreen {
 
     // ── Display mode state ──
     private boolean displayMode = false;
@@ -112,11 +109,8 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         java.util.List<int[]> pixelRedoStack = new java.util.ArrayList<>();
     }
 
-    public MonitorScreen(MonitorMenu m, Inventory inv, Component t) {
-        super(m, inv, t);
-        this.blockEntity = m.blockEntity;
-        this.imageWidth = 9999;
-        this.editor = new GraphEditor(this, this);
+    public MonitorScreen(BlockPos pos) {
+        super(Component.translatable("container." + SchematicCompute.MOD_ID + ".monitor"), pos);
         // Settings EditBoxes — values loaded when panel opens (settingsInited flag)
         var mc = Minecraft.getInstance();
         settingFields = new net.minecraft.client.gui.components.EditBox[8];
@@ -136,24 +130,15 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             || nt == NodeType.DEBUG_PROBE);
     }
 
-    private MonitorBlockEntity getBE() {
-        if (blockEntity != null) return blockEntity;
-        if (menu.blockPos != null && minecraft != null && minecraft.level != null) {
-            if (minecraft.level.getBlockEntity(menu.blockPos) instanceof MonitorBlockEntity be) return be;
+    @Override protected MonitorBlockEntity getBE() {
+        if (minecraft != null && minecraft.level != null) {
+            if (minecraft.level.getBlockEntity(blockPos) instanceof MonitorBlockEntity be) return be;
         }
         return null;
     }
-
-    @Override protected void containerTick() {
-        super.containerTick();
-        // Auto-close if the block was destroyed (e.g. by another player)
-        if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
-            if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof MonitorBlockEntity)) {
-                onClose();
-                return;
-            }
-        }
-        editor.clientTick();
+    @Override protected boolean isBlockEntityValid() {
+        return minecraft != null && minecraft.level != null
+            && minecraft.level.getBlockEntity(blockPos) instanceof MonitorBlockEntity;
     }
     // ── GraphEditor.Host ──
     @Override public NodeGraph getGraph() { MonitorBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
@@ -186,7 +171,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         int frameIdx = (node.type == NodeType.IMAGE_SEQUENCE) ? pixelEdit.frameIndex : 0;
         int[] data = (node.imagePixels != null) ? node.imagePixels.clone() : new int[256];
         sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(
-            menu.blockPos, -1, node.id, frameIdx, data, minecraft.player.getUUID()));
+            blockPos, -1, node.id, frameIdx, data, minecraft.player.getUUID()));
     }
 
     @Override
@@ -266,7 +251,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     }
 
     @Override
-    protected void renderBg(GuiGraphics g, float pt, int mx, int my) {
+    protected void renderGraphCanvas(GuiGraphics g, int mx, int my, float pt) {
         if (displayMode) {
             renderDisplayArea(g, mx, my);
             renderLayerPanel(g, mx, my);
@@ -869,7 +854,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
     /** Save all settings and close the panel.
      *  保存所有设置并关闭面板 */
     private void saveAllSettings() {
-        if (blockEntity == null) return;
+        if (getBE() == null) return;
         try {
             float w = Float.parseFloat(settingFields[0].getValue().trim());
             float l = Float.parseFloat(settingFields[1].getValue().trim());
@@ -900,7 +885,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         // Save button
         int ey = py + 24 + 8 * 20;
         int svX = px + 10, svY = ey + 8;
-        if (mx >= svX && mx <= svX + 200 && my >= svY && my <= svY + 18 && blockEntity != null) {
+        if (mx >= svX && mx <= svX + 200 && my >= svY && my <= svY + 18 && getBE() != null) {
             saveAllSettings();
             return true;
         }
@@ -1400,7 +1385,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                         if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
                             if (!pixelDragUndoCaptured) { if (pixelEdit.pixelUndoStack.size() < 100) { pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone()); pixelEdit.pixelRedoStack.clear(); } pixelDragUndoCaptured = true; }
                             pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor; RecentColors.addRecent(pixelEdit.selectedColor);
-                            if (blockEntity != null) getBE().graph.bumpGeneration();
+                            if (getBE() != null) getBE().graph.bumpGeneration();
                         }
                     }
                 }
@@ -1499,7 +1484,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
             }
             if (draggedDisplayNode != null) {
                 sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
-                    menu.blockPos, -1, draggedDisplayNode.id,
+                    blockPos, -1, draggedDisplayNode.id,
                     draggedDisplayNode.layoutX, draggedDisplayNode.layoutY,
                     draggedDisplayNode.displayScale, draggedDisplayNode.displayRotation,
                     draggedDisplayNode.moveScale,
@@ -1553,7 +1538,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     if (!pixelDragUndoCaptured) { if (pixelEdit.pixelUndoStack.size() < 100) { pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone()); pixelEdit.pixelRedoStack.clear(); } pixelDragUndoCaptured = true; }
                     pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor; RecentColors.addRecent(pixelEdit.selectedColor);
                     pixelEdit.painting = true;
-                    if (blockEntity != null) getBE().graph.bumpGeneration();
+                    if (getBE() != null) getBE().graph.bumpGeneration();
                 }
             }
             return true;
@@ -1667,7 +1652,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         }
         if (showSettings) {
             for (var f : settingFields) if (f.isFocused()) {
-                if ((key == 257 || key == 335) && blockEntity != null) { saveAllSettings(); return true; } // Enter saves
+                if ((key == 257 || key == 335) && getBE() != null) { saveAllSettings(); return true; } // Enter saves
                 return f.keyPressed(key, sc, mod);
             }
             if (key == 256) { previewScreenW = -1; previewScreenL = -1; showSettings = false; settingsInited = false; return true; }
@@ -1692,7 +1677,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     try { selectedDisplayNode.displayScale = Math.max(0.01f, Float.parseFloat(editSBuf)); }
                     catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
                     sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
-                        menu.blockPos, -1, selectedDisplayNode.id,
+                        blockPos, -1, selectedDisplayNode.id,
                         selectedDisplayNode.layoutX, selectedDisplayNode.layoutY,
                         selectedDisplayNode.displayScale, selectedDisplayNode.displayRotation,
                         selectedDisplayNode.moveScale,
@@ -1708,7 +1693,7 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
                     try { selectedDisplayNode.displayRotation = Float.parseFloat(editRBuf) % 360f; }
                     catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
                     sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
-                        menu.blockPos, -1, selectedDisplayNode.id,
+                        blockPos, -1, selectedDisplayNode.id,
                         selectedDisplayNode.layoutX, selectedDisplayNode.layoutY,
                         selectedDisplayNode.displayScale, selectedDisplayNode.displayRotation,
                         selectedDisplayNode.moveScale,
@@ -1759,35 +1744,10 @@ public class MonitorScreen extends AbstractContainerScreen<MonitorMenu> implemen
         return editor.charTyped(ch, mod) || super.charTyped(ch, mod);
     }
 
-    @Override
-    public void onClose() {
-        if (blockEntity != null) {
-            saveGraph();
-            blockEntity.pendingLocalOps = 0;   // 关闭编辑器复位待 ACK 计数 / reset pending-op counter on close
-        }
-        super.onClose();
-    }
-
-    // ── Multiplayer collaboration ──
-    @Override public net.minecraft.core.BlockPos getBlockPos() { return menu.blockPos; }
-    @Override public java.util.UUID getPlayerUUID() { return minecraft.player != null ? minecraft.player.getUUID() : java.util.UUID.randomUUID(); }
-    @Override public GraphEditor getEditor() { return editor; }
-    @Override public String getPlayerName() { return minecraft.player != null ? minecraft.player.getName().getString() : ""; }
-    @Override public void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
-        var be = getBE();
-        if (be != null) be.pendingLocalOps++;   // 本地编辑 op 计数（回弹保护）/ count local edit op
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket(op));
-    }
-    @Override public void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) { editor.onRemoteOp(op); }
-    @Override protected void init() {
-        super.init();
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
-    }
-    @Override public void removed() {
-        editor.onClose();
-        editor.clearRemotePresences();
-        super.removed();
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));
+    /** 关界面前钩子：保存图到服务端（原 onClose 中的子类逻辑；pendingLocalOps 复位由基类 onClose 处理）
+     *  / pre-close hook: save the graph before closing (was in onClose; the pendingLocalOps reset lives in the base onClose) */
+    @Override protected void preClose() {
+        if (getBE() != null) saveGraph();
     }
 
 }

@@ -6,7 +6,6 @@ import com.simibubi.create.content.equipment.wrench.IWrenchable;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.BlockItem;
@@ -60,9 +59,13 @@ public class MonitorBlock extends BaseEntityBlock implements IWrenchable {
     @Override protected VoxelShape getShape(BlockState s, BlockGetter l, BlockPos p, CollisionContext c) { return SHAPE; }
     @Override
     protected InteractionResult useWithoutItem(BlockState s, Level l, BlockPos p, Player pl, BlockHitResult h) {
-        if(!l.isClientSide()&&pl instanceof ServerPlayer sp)
-            if(l.getBlockEntity(p) instanceof MonitorBlockEntity be) sp.openMenu(be, buf->buf.writeBlockPos(p));
-        return InteractionResult.SUCCESS;
+        // 仅客户端直接打开编辑界面（无 Menu 网络 round-trip）/ client-side only: open the editor directly (no menu round-trip)
+        if(l.isClientSide()) {
+            if(l.getBlockEntity(p) instanceof MonitorBlockEntity)
+                net.minecraft.client.Minecraft.getInstance().setScreen(new MonitorScreen(p));
+            return InteractionResult.SUCCESS;
+        }
+        return InteractionResult.CONSUME;
     }
 
     @Override

@@ -40,7 +40,7 @@ public class ClientSetup {
     }
     @net.neoforged.bus.api.SubscribeEvent
     public static void registerScreens(RegisterMenuScreensEvent event) {
-        event.register(SchematicCompute.MONITOR_MENU.get(), MonitorScreen::new);
+        // 全部 7 个编辑界面已迁移到纯 Screen（setScreen 直开），无 Menu 注册 / all 7 editors now open via setScreen; no menu registrations
     }
 
     @net.neoforged.bus.api.SubscribeEvent
