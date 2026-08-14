@@ -871,6 +871,30 @@ public class GraphEvaluator {
                     System.arraycopy(cached, 0, o, 0, Math.min(cached.length, o.length));
                     break;
                 }
+                // AST 模式(刀3):Value env + 语句解释器 + 输出 RPN / AST mode (knife 3)
+                if (script.ast != null) {
+                    var env = new java.util.HashMap<String, Value>(Math.max(4, script.inputVars.size() * 2));
+                    for (int vi = 0; vi < script.inputVars.size(); vi++)
+                        env.put(script.inputVars.get(vi), new Value.Scalar(pinInputs[vi]));
+                    try {
+                        FormulaInterpreter.exec(script.ast, env);
+                        for (int oi = 0; oi < nOut; oi++) {
+                            try {
+                                var rpn = script.outputRpns.get(oi);
+                                o[oi] = (float)FormulaParser.asScalar(FormulaParser.evaluateValue(
+                                    oi < script.outputRpns.size() ? rpn : java.util.List.of(0.0), env));
+                            } catch (Exception e) {
+                                LOGGER.debug("FORMULA AST output error idx={}: {}", oi, e.getMessage());
+                                o[oi] = 0;
+                            }
+                        }
+                    } catch (Exception e) {
+                        LOGGER.debug("FORMULA AST exec error: {}", e.getMessage());
+                        java.util.Arrays.fill(o, 0f);
+                    }
+                    FormulaCompute.storeDedup(script.sourceFormula, pinInputs, o);
+                    break;
+                }
                 // 按顺序执行赋值语句（各自隔离，防止一个错误表达式破坏整个脚本）
                 // Execute assignments in order (each isolated, prevents one bad expr from killing the script)
                 for (var assign : script.assignments) {
