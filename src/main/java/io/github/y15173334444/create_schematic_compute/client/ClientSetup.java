@@ -41,7 +41,6 @@ public class ClientSetup {
     @net.neoforged.bus.api.SubscribeEvent
     public static void registerScreens(RegisterMenuScreensEvent event) {
         event.register(SchematicCompute.BLUEPRINT_MENU.get(), BlueprintScreen::new);
-        event.register(SchematicCompute.SPEED_PROXY_MENU.get(), SpeedProxyScreen::new);
         event.register(SchematicCompute.PROGRAM_MENU.get(), ProgramComputerScreen::new);
         event.register(SchematicCompute.CONTROL_SEAT_MENU.get(), ControlSeatScreen::new);
         event.register(SchematicCompute.SENSOR_MENU.get(), SensorScreen::new);

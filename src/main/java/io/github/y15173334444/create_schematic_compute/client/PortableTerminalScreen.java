@@ -643,7 +643,7 @@ public class PortableTerminalScreen extends Screen {
         else if (cn.contains("Program"))  inner = new ProgramComputerScreen(new ProgramComputerMenu(0, editingPos), mc.player.getInventory(), Component.empty());
         else if (cn.contains("ControlSeat")) inner = new ControlSeatScreen(new ControlSeatMenu(0, editingPos), mc.player.getInventory(), Component.empty());
         else if (cn.contains("Sensor"))   inner = new SensorScreen(new SensorMenu(0, editingPos), mc.player.getInventory(), Component.empty());
-        else if (cn.contains("SpeedProxy")) inner = new SpeedProxyScreen(new SpeedProxyMenu(0, editingPos), mc.player.getInventory(), Component.empty());
+        else if (cn.contains("SpeedProxy")) inner = new SpeedProxyScreen(editingPos);
         if (inner == null) return;
 
         // Store reference for re-opening terminal after the inner screen closes

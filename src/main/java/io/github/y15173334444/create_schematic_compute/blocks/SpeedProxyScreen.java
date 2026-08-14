@@ -1,62 +1,51 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
+import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.inventory.AbstractContainerScreen;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Inventory;
 import net.neoforged.neoforge.network.PacketDistributor;
 import java.io.ByteArrayOutputStream;
+import java.util.Map;
 
-public class SpeedProxyScreen extends AbstractContainerScreen<SpeedProxyMenu> implements GraphEditor.Host {
-    private final SpeedProxyBlockEntity blockEntity;
-    private final GraphEditor editor;
+public class SpeedProxyScreen extends AbstractGraphScreen {
 
-    public SpeedProxyScreen(SpeedProxyMenu m, Inventory inv, Component t) {
-        super(m, inv, t);
-        this.blockEntity = m.blockEntity;
-        this.imageWidth = 9999;
-        this.editor = new GraphEditor(this, this);
-        editor.setNodeFilter(nt -> nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.SPEED_CTRL
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.CONST
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.REDSTONE_IN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.PRIVATE_IN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_SIGNAL_GEN
-            || nt == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_PROBE);
+    public SpeedProxyScreen(BlockPos pos) {
+        super(Component.translatable("container." + SchematicCompute.MOD_ID + ".speed_proxy"), pos);
+        setNodeFilter(nt -> nt == NodeType.SPEED_CTRL
+            || nt == NodeType.CONST
+            || nt == NodeType.REDSTONE_IN
+            || nt == NodeType.PRIVATE_IN
+            || nt == NodeType.BUS_IN
+            || nt == NodeType.COMMENT
+            || nt == NodeType.DEBUG_SIGNAL_GEN
+            || nt == NodeType.DEBUG_PROBE);
     }
 
-    private SpeedProxyBlockEntity getBE() {
-        if (blockEntity != null) return blockEntity;
-        if (menu.blockPos != null && minecraft != null && minecraft.level != null) {
-            if (minecraft.level.getBlockEntity(menu.blockPos) instanceof SpeedProxyBlockEntity be) return be;
+    @Override protected SpeedProxyBlockEntity getBE() {
+        if (minecraft != null && minecraft.level != null) {
+            if (minecraft.level.getBlockEntity(blockPos) instanceof SpeedProxyBlockEntity be) return be;
         }
         return null;
     }
-    @Override protected void containerTick() {
-        super.containerTick();
-        if (minecraft != null && minecraft.level != null && menu.blockPos != null) {
-            if (!(minecraft.level.getBlockEntity(menu.blockPos) instanceof SpeedProxyBlockEntity)) {
-                onClose();
-                return;
-            }
-        }
-        editor.clientTick();
+    @Override protected boolean isBlockEntityValid() {
+        return minecraft != null && minecraft.level != null
+            && minecraft.level.getBlockEntity(blockPos) instanceof SpeedProxyBlockEntity;
     }
+
     @Override public NodeGraph getGraph() { SpeedProxyBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
     @Override public boolean isRunning() { SpeedProxyBlockEntity be = getBE(); return be != null && be.running; }
-    @Override public java.util.Map<Integer, Boolean> getFlipflopStates() { SpeedProxyBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
-    @Override public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() {
+    @Override public Map<Integer, Boolean> getFlipflopStates() { SpeedProxyBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public EvalSnapshot getCachedEvalSnapshot() {
         SpeedProxyBlockEntity be = getBE();
         return be != null ? be.cachedEvalSnapshot : null;
     }
-    @Override public net.minecraft.client.gui.screens.Screen asScreen() { return this; }
 
     @Override
     public void saveGraph() {
@@ -77,47 +66,4 @@ public class SpeedProxyScreen extends AbstractContainerScreen<SpeedProxyMenu> im
         SpeedProxyBlockEntity be = getBE();
         if(be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
-
-    @Override protected void renderBg(GuiGraphics g, float pt, int mx, int my) { editor.renderBg(g, mx, my); }
-
-    @Override public boolean mouseClicked(double mx, double my, int btn) { return editor.mouseClicked(mx, my, btn) || super.mouseClicked(mx, my, btn); }
-    @Override public boolean mouseReleased(double mx, double my, int btn) { editor.mouseReleased(mx, my, btn); return super.mouseReleased(mx, my, btn); }
-    @Override public void mouseMoved(double mx, double my) { editor.mouseMoved(mx, my); }
-    @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }
-    @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) { return editor.mouseScrolled(mx, my, sx, sy); }
-    @Override public boolean keyPressed(int key, int sc, int mod) {
-        if (editor.keyPressed(key, sc, mod)) return true;
-        if(key==256){onClose();return true;}
-        if (key >= 32 && key <= 96) return true;
-        return super.keyPressed(key, sc, mod);
-    }
-    @Override public boolean keyReleased(int key, int sc, int mod) { return editor.keyReleased(key, sc, mod) || super.keyReleased(key, sc, mod); }
-    @Override public boolean charTyped(char ch, int mod) { return editor.charTyped(ch, mod) || super.charTyped(ch, mod); }
-
-    // ── Multiplayer collaboration ──
-    @Override public net.minecraft.core.BlockPos getBlockPos() { return menu.blockPos; }
-    @Override public java.util.UUID getPlayerUUID() { return minecraft.player != null ? minecraft.player.getUUID() : java.util.UUID.randomUUID(); }
-    @Override public GraphEditor getEditor() { return editor; }
-    @Override public String getPlayerName() { return minecraft.player != null ? minecraft.player.getName().getString() : ""; }
-    @Override public void onClose() {
-        var be = getBE();
-        if (be != null) be.pendingLocalOps = 0;   // 关闭编辑器复位待 ACK 计数 / reset pending-op counter on close
-        super.onClose();
-    }
-    @Override public void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
-        var be = getBE();
-        if (be != null) be.pendingLocalOps++;   // 本地编辑 op 计数（回弹保护）/ count local edit op
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket(op));
-    }
-    @Override public void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) { editor.onRemoteOp(op); }
-    @Override protected void init() {
-        super.init();
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket(menu.blockPos));
-    }
-    @Override public void removed() {
-        editor.onClose();
-        super.removed();
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(new io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket(menu.blockPos));
-    }
-
 }
