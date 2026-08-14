@@ -20,7 +20,6 @@ import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.MenuProvider;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
@@ -61,7 +60,7 @@ import java.util.Set;
  * </ul>
  */
 public abstract class SyncedGraphBlockEntity extends BlockEntity
-        implements MenuProvider, IMergeableBE, GraphBlockEntity {
+        implements IMergeableBE, GraphBlockEntity {
 
     // ── Common fields / 通用字段 ──
 

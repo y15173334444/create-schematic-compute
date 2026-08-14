@@ -11,16 +11,11 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
-import net.minecraft.world.MenuProvider;
 import net.minecraft.world.entity.Mob;
-import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -1025,25 +1020,4 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
             return false;
         }
     }
-
-    /**
-     * Returns the localized display name for the radar container GUI.
-     *
-     * 返回雷达容器 GUI 的本地化显示名称。
-     *
-     * @return translated component for the radar screen title 雷达界面标题的翻译后组件
-     */
-    @Override public Component getDisplayName() { return Component.translatable("container." + SchematicCompute.MOD_ID + ".radar"); }
-
-    /**
-     * Creates the radar container menu when a player interacts with the block.
-     *
-     * 当玩家与方块交互时创建雷达容器菜单。
-     *
-     * @param id  container window ID 容器窗口 ID
-     * @param inv player inventory 玩家背包
-     * @param p   the interacting player 交互的玩家
-     * @return a new {@link RadarMenu} instance, or {@code null} 新的 {@link RadarMenu} 实例，或 {@code null}
-     */
-    @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new RadarMenu(id, this); }
 }

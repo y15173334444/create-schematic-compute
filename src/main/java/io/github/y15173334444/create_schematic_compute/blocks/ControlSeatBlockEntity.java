@@ -7,14 +7,10 @@ import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.createmod.catnip.data.Couple;
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import javax.annotation.Nullable;
 import java.util.UUID;
 
 /**
@@ -357,23 +353,4 @@ public class ControlSeatBlockEntity extends SyncedGraphBlockEntity {
         BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
         setChanged();
     }
-
-    /**
-     * EN: Localized display name for the container UI.
-     * ZH: 容器界面的本地化显示名称。
-     *
-     * @return EN: translated component / ZH: 翻译后的文本组件
-     */
-    @Override public Component getDisplayName() { return Component.translatable("container."+SchematicCompute.MOD_ID+".control_seat"); }
-
-    /**
-     * EN: Create the menu (server-side container) for this block entity.
-     * ZH: 为此方块实体创建菜单（服务端容器）。
-     *
-     * @param id  EN: container sync ID / ZH: 容器同步 ID
-     * @param inv EN: player inventory / ZH: 玩家物品栏
-     * @param p   EN: the player opening the menu / ZH: 打开菜单的玩家
-     * @return EN: a new ControlSeatMenu instance / ZH: 新的 ControlSeatMenu 实例
-     */
-    @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new ControlSeatMenu(id, this); }
 }

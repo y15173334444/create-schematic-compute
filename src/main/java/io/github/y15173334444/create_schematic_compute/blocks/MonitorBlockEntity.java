@@ -9,17 +9,11 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.MenuProvider;
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.network.PacketDistributor;
-import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
 
 public class MonitorBlockEntity extends SyncedGraphBlockEntity {
@@ -139,7 +133,4 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
     @Override public CompoundTag getUpdateTag(HolderLookup.Provider r) {
         var t = new CompoundTag(); saveAdditional(t, r); return t;
     }
-
-    @Override public Component getDisplayName() { return Component.translatable("container." + SchematicCompute.MOD_ID + ".monitor"); }
-    @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new MonitorMenu(id, this); }
 }

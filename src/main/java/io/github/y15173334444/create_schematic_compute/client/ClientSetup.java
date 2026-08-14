@@ -1,13 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
-import io.github.y15173334444.create_schematic_compute.blocks.BlueprintScreen;
-import io.github.y15173334444.create_schematic_compute.blocks.ControlSeatScreen;
-import io.github.y15173334444.create_schematic_compute.blocks.MonitorScreen;
-import io.github.y15173334444.create_schematic_compute.blocks.ProgramComputerScreen;
-import io.github.y15173334444.create_schematic_compute.blocks.RadarScreen;
-import io.github.y15173334444.create_schematic_compute.blocks.SensorScreen;
-import io.github.y15173334444.create_schematic_compute.blocks.SpeedProxyScreen;
 import io.github.y15173334444.create_schematic_compute.entity.ControlSeatEntity;
 import io.github.y15173334444.create_schematic_compute.items.PortableTerminalItem;
 import io.github.y15173334444.create_schematic_compute.network.ScanSableResponsePacket;
@@ -20,7 +13,6 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.ModelEvent;
-import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.minecraft.client.resources.model.ModelResourceLocation;
 
 @EventBusSubscriber(modid = SchematicCompute.MOD_ID, value = Dist.CLIENT)
@@ -38,11 +30,6 @@ public class ClientSetup {
             PortableTerminalItem.screenOpener = p -> Minecraft.getInstance().setScreen(new PortableTerminalScreen(p));
         });
     }
-    @net.neoforged.bus.api.SubscribeEvent
-    public static void registerScreens(RegisterMenuScreensEvent event) {
-        // 全部 7 个编辑界面已迁移到纯 Screen（setScreen 直开），无 Menu 注册 / all 7 editors now open via setScreen; no menu registrations
-    }
-
     @net.neoforged.bus.api.SubscribeEvent
     public static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(SchematicCompute.CONTROL_SEAT_ENTITY.get(), NoRenderEntityRenderer::new);

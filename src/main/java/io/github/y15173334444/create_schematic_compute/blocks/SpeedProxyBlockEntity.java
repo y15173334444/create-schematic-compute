@@ -3,13 +3,8 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import javax.annotation.Nullable;
 import java.util.List;
 
 public class SpeedProxyBlockEntity extends SyncedGraphBlockEntity {
@@ -117,7 +112,4 @@ public class SpeedProxyBlockEntity extends SyncedGraphBlockEntity {
         // 未找到，冷却 20 tick 后重试
         scanCooldown = 20;
     }
-
-    @Override public Component getDisplayName() { return Component.translatable("container."+SchematicCompute.MOD_ID+".speed_proxy"); }
-    @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new SpeedProxyMenu(id, this); }
 }

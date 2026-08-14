@@ -5,13 +5,8 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Inventory;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
-import javax.annotation.Nullable;
 
 /**
  * Sensor Block Entity — 传感器方块实体
@@ -292,25 +287,4 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
         BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
         setChanged();
     }
-
-    /**
-     * Returns the localised display name of the sensor container.
-     * <p>
-     * 返回传感器容器的本地化显示名称。
-     *
-     * @return translatable component for the GUI title / 用于 GUI 标题的可翻译文本组件
-     */
-    @Override public Component getDisplayName() { return Component.translatable("container."+SchematicCompute.MOD_ID+".sensor"); }
-
-    /**
-     * Creates the menu (container screen) for this sensor block entity.
-     * <p>
-     * 为此传感器方块实体创建菜单（容器界面）。
-     *
-     * @param id  the container sync ID / 容器同步 ID
-     * @param inv the player's inventory / 玩家背包
-     * @param p   the player opening the menu / 打开菜单的玩家
-     * @return a new {@link SensorMenu} instance / 新的 {@link SensorMenu} 实例
-     */
-    @Nullable @Override public AbstractContainerMenu createMenu(int id, Inventory inv, Player p) { return new SensorMenu(id, this); }
 }
