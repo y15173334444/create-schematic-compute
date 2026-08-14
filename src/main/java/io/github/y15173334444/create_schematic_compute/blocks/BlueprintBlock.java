@@ -61,11 +61,19 @@ public class BlueprintBlock extends BaseEntityBlock implements IWrenchable {
     protected InteractionResult useWithoutItem(BlockState s, Level l, BlockPos p, Player pl, BlockHitResult h) {
         // 仅客户端直接打开编辑界面（无 Menu 网络 round-trip）/ client-side only: open the editor directly (no menu round-trip)
         if(l.isClientSide()) {
-            if(l.getBlockEntity(p) instanceof BlueprintBlockEntity)
-                net.minecraft.client.Minecraft.getInstance().setScreen(new BlueprintScreen(p));
+            if(l.getBlockEntity(p) instanceof BlueprintBlockEntity) openScreen(p);
             return InteractionResult.SUCCESS;
         }
         return InteractionResult.CONSUME;
+    }
+
+    /** 客户端打开编辑界面。@OnlyIn(CLIENT)：专用服务端由 dist cleaner 剥离方法体，
+     *  公共代码中不出现客户端类的 new 指令（否则 DEDICATED_SERVER 类加载校验失败）。
+     *  Client-only screen opener; the dist cleaner strips this body on dedicated servers
+     *  so no client-class `new` instruction lives in common code. */
+    @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
+    private static void openScreen(BlockPos p) {
+        net.minecraft.client.Minecraft.getInstance().setScreen(new BlueprintScreen(p));
     }
 
     @Override

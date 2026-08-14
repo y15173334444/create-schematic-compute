@@ -65,8 +65,7 @@ public class ControlSeatBlock extends BaseEntityBlock implements IWrenchable {
         // Shift+右键 → 打开编辑 GUI（仅客户端 setScreen，无 Menu 网络 round-trip）
         // Shift+RMB opens the editor directly on the client (no menu round-trip)
         if (l.isClientSide()) {
-            if (pl.isShiftKeyDown() && l.getBlockEntity(p) instanceof ControlSeatBlockEntity)
-                net.minecraft.client.Minecraft.getInstance().setScreen(new ControlSeatScreen(p));
+            if (pl.isShiftKeyDown() && l.getBlockEntity(p) instanceof ControlSeatBlockEntity) openScreen(p);
             return InteractionResult.SUCCESS;
         }
         // 服务端 Shift+右键仅配合客户端打开 GUI，不做坐椅逻辑 / server: shift+RMB only pairs with the client-side GUI open
@@ -103,6 +102,12 @@ public class ControlSeatBlock extends BaseEntityBlock implements IWrenchable {
             pl.startRiding(seat);
         }
         return InteractionResult.SUCCESS;
+    }
+
+    /** 客户端打开编辑界面（@OnlyIn 由 dist cleaner 在专用服务端剥离）/ client-only screen opener */
+    @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
+    private static void openScreen(BlockPos p) {
+        net.minecraft.client.Minecraft.getInstance().setScreen(new ControlSeatScreen(p));
     }
 
     @Override

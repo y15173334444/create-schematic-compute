@@ -59,11 +59,16 @@ public class SpeedProxyBlock extends BaseEntityBlock implements IWrenchable {
     protected InteractionResult useWithoutItem(BlockState s, Level l, BlockPos p, Player pl, BlockHitResult h) {
         // 仅客户端直接打开编辑界面（无 Menu 网络 round-trip）/ client-side only: open the editor directly (no menu round-trip)
         if(l.isClientSide()) {
-            if(l.getBlockEntity(p) instanceof SpeedProxyBlockEntity)
-                net.minecraft.client.Minecraft.getInstance().setScreen(new SpeedProxyScreen(p));
+            if(l.getBlockEntity(p) instanceof SpeedProxyBlockEntity) openScreen(p);
             return InteractionResult.SUCCESS;
         }
         return InteractionResult.CONSUME;
+    }
+
+    /** 客户端打开编辑界面（@OnlyIn 由 dist cleaner 在专用服务端剥离）/ client-only screen opener */
+    @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
+    private static void openScreen(BlockPos p) {
+        net.minecraft.client.Minecraft.getInstance().setScreen(new SpeedProxyScreen(p));
     }
 
     @Override

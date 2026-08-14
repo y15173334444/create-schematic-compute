@@ -59,8 +59,7 @@ public class RadarBlock extends BaseEntityBlock implements IWrenchable {
         // 潜行 → 打开编程 GUI（仅客户端 setScreen，无 Menu 网络 round-trip）
         // Shift+RMB opens the editor directly on the client (no menu round-trip)
         if (l.isClientSide()) {
-            if (pl.isShiftKeyDown() && l.getBlockEntity(p) instanceof RadarBlockEntity)
-                net.minecraft.client.Minecraft.getInstance().setScreen(new RadarScreen(p));
+            if (pl.isShiftKeyDown() && l.getBlockEntity(p) instanceof RadarBlockEntity) openScreen(p);
             return InteractionResult.SUCCESS;
         }
         if (l.getBlockEntity(p) instanceof RadarBlockEntity be) {
@@ -75,6 +74,12 @@ public class RadarBlock extends BaseEntityBlock implements IWrenchable {
             }
         }
         return InteractionResult.SUCCESS;
+    }
+
+    /** 客户端打开编辑界面（@OnlyIn 由 dist cleaner 在专用服务端剥离）/ client-only screen opener */
+    @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
+    private static void openScreen(BlockPos p) {
+        net.minecraft.client.Minecraft.getInstance().setScreen(new RadarScreen(p));
     }
 
     @Override public InteractionResult onSneakWrenched(BlockState state, UseOnContext context) {
