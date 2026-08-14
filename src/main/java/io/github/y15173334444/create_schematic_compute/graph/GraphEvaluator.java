@@ -854,8 +854,23 @@ public class GraphEvaluator {
                 if (o.length != nOut) { o = new float[nOut]; node.outputValues = o; }
                 // 将输入引脚映射为变量值 / Map input pins to variable values
                 var vars = new java.util.HashMap<String, Double>();
-                for (int vi = 0; vi < script.inputVars.size(); vi++)
-                    vars.put(script.inputVars.get(vi), (double)graph.getInputValue(node.id, vi, outputs));
+                // 输入快照 — 去重键按值比较 / Input snapshot — dedup key compares by value
+                float[] pinInputs = new float[script.inputVars.size()];
+                for (int vi = 0; vi < script.inputVars.size(); vi++) {
+                    float v = graph.getInputValue(node.id, vi, outputs);
+                    pinInputs[vi] = v;
+                    vars.put(script.inputVars.get(vi), (double)v);
+                }
+                // 去重:同脚本 + 同输入本 tick 内复用结果(FORMULA 为纯函数,安全)。
+                // Dedup: same script + same inputs reuses this tick's result (FORMULA is a pure function, safe).
+                float[] cached = FormulaCompute.lookupDedup(script.sourceFormula, pinInputs);
+                if (cached != null) {
+                    // 缓存结果复制出(缓存内部数组只读);长度不匹配的余项归零(legacy dout 差异)
+                    // Copy out the cached result (cache array is read-only); zero any remainder on length mismatch (legacy dout)
+                    java.util.Arrays.fill(o, 0f);
+                    System.arraycopy(cached, 0, o, 0, Math.min(cached.length, o.length));
+                    break;
+                }
                 // 按顺序执行赋值语句（各自隔离，防止一个错误表达式破坏整个脚本）
                 // Execute assignments in order (each isolated, prevents one bad expr from killing the script)
                 for (var assign : script.assignments) {
@@ -877,6 +892,9 @@ public class GraphEvaluator {
                         o[oi] = 0;
                     }
                 }
+                // 写入去重缓存(内部再克隆,与后续 node.outputValues 修改隔离)
+                // Store into the dedup cache (cloned internally, isolated from later outputValues mutation)
+                FormulaCompute.storeDedup(script.sourceFormula, pinInputs, o);
             }
             // 显示节点 — 无浮点输出；数据由渲染器从 GraphNode 字段读取
             // Display nodes — no float output; data read from GraphNode fields by renderer

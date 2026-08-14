@@ -17,7 +17,9 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -97,13 +99,17 @@ public class SchematicCompute {
     public static final DeferredHolder<Item, PortableTerminalItem> PORTABLE_TERMINAL =
             ITEMS.register("portable_terminal", () -> new PortableTerminalItem(new Item.Properties()));
 
-    public SchematicCompute(IEventBus modEventBus) {
+    public SchematicCompute(IEventBus modEventBus, ModContainer container) {
         LOGGER.info("{} initializing...", MOD_ID);
         BLOCKS.register(modEventBus);
         ITEMS.register(modEventBus);
         BLOCK_ENTITIES.register(modEventBus);
         ENTITIES.register(modEventBus);
         TABS.register(modEventBus);
+
+        // 服务器配置注册(SERVER 类型自动同步客户端;后续设置/调试面板的基建)
+        // Server config registration (SERVER config auto-syncs to clients; foundation for settings/debug panels)
+        container.registerConfig(ModConfig.Type.SERVER, Config.SPEC);
 
         TABS.register("main", () -> CreativeModeTab.builder()
                 .title(Component.translatable("itemGroup." + MOD_ID))
@@ -147,6 +153,7 @@ public class SchematicCompute {
                 io.github.y15173334444.create_schematic_compute.radar.TargetAssignment.clearAll();
                 io.github.y15173334444.create_schematic_compute.network.SignalBus.clear();
                 io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.clearAll();
+                io.github.y15173334444.create_schematic_compute.graph.FormulaCompute.clearAll();
                 LOGGER.info("{} cleared static state for server shutdown", MOD_ID);
             });
         // 玩家断开时清理其残留输入和协作会话（防止下次重连时泄漏/幽灵编辑者）
@@ -160,6 +167,13 @@ public class SchematicCompute {
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
             net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingOut.class, event -> {
                 io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.clearTempView();
+            });
+
+        // 每 tick 预算复位 — FORMULA 预算池单点复位(去重表清空 + deadline + yield 计数轮转)
+        // Per-tick budget reset — single-point reset of the FORMULA budget pool (dedup clear + deadline + yield rotation)
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+            net.neoforged.neoforge.event.tick.ServerTickEvent.Pre.class, event -> {
+                io.github.y15173334444.create_schematic_compute.graph.FormulaCompute.beginTick();
             });
 
         // Periodic BlobRegistry cleanup — expire stale incomplete blobs every 20 ticks
