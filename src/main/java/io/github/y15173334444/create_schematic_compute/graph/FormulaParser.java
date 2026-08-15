@@ -128,6 +128,39 @@ public class FormulaParser {
     /** Returns true if the name is a known constant name. */
     public static boolean isConstantName(String name) { return CONSTANT_NAMES.contains(name); }
 
+    /** 将常见中文/全角符号实时转换为半角 ASCII 等价物(公式编辑器输入即调用,
+     *  FORMULA 脚本框与信号发生器公式框共用)。未命中的字符原样保留。
+     *  Converts common CJK/full-width symbols to half-width ASCII equivalents on the fly
+     *  (applied live on formula input; shared by the FORMULA script box and the signal
+     *  generator's formula box). Unmatched characters pass through unchanged. */
+    public static String sanitizeFullwidth(String s) {
+        if (s == null || s.isEmpty()) return s;
+        var sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '　') c = ' ';                                                  // 全角空格 / ideographic space
+            if (c >= '０' && c <= '９') c = (char) (c - '０' + '0');                     // 全角数字 / full-width digits
+            if (c >= 'Ａ' && c <= 'Ｚ') c = (char) (c - 'Ａ' + 'A');                     // 全角大写 / full-width uppercase
+            if (c >= 'ａ' && c <= 'ｚ') c = (char) (c - 'ａ' + 'a');                     // 全角小写 / full-width lowercase
+            sb.append(switch (c) {
+                case '（' -> '(';  case '）' -> ')';
+                case '，' -> ',';  case '。', '．' -> '.';
+                case '；' -> ';';  case '：' -> ':';
+                case '＋' -> '+';  case '－' -> '-';
+                case '×' -> '*';  case '÷' -> '/';
+                case '＝' -> '=';  case '！' -> '!';
+                case '＜' -> '<';  case '＞' -> '>';
+                case '＆' -> '&';  case '｜' -> '|';
+                case '｛' -> '{';  case '｝' -> '}';
+                case '％' -> '%';  case '＾' -> '^';
+                default -> c;
+            });
+        }
+        // 组合符号(一对多映射,字符串级替换)/ composite symbols (1→2 mappings, string-level)
+        return sb.toString()
+            .replace("≥", ">=").replace("≤", "<=").replace("≠", "!=");
+    }
+
     /** 解析 formula 返回所有变量名（按出现顺序，跳过函数名）。
      *  变量名支持字母、数字、下划线，首字符必须是字母或下划线。
      *  命名常量 (PI)/(E) 仅在其紧邻前驱为分组 '(' 时跳过（视为字面量），
@@ -413,11 +446,21 @@ public class FormulaParser {
         for (int ti = 0; ti < tokens.size(); ti++) {
             if (tokens.get(ti).type() == TokType.AT_OUTPUT) {
                 Token next = ti + 1 < tokens.size() ? tokens.get(ti + 1) : null;
-                if (next == null || next.type() != TokType.IDENT || !isValidIdentifier(next.text())) {
+                // 刀 3/4 起 @output 支持表达式(如 @output length(v))——表达式起始 token 均合法,
+                // 仅对明确的非法起始(空/右括号/逗号/运算符等)给 WARN
+                // Since knife 3/4 @output accepts expressions (e.g. @output length(v)) — any expression
+                // start token is legal; WARN only on clearly invalid starts (empty / rparen / comma / op...)
+                boolean exprStart = next != null && switch (next.type()) {
+                    case IDENT, FUNCTION, LPAREN, NUMBER, CONSTANT -> true;
+                    case OPERATOR -> next.text().equals("-") || next.text().equals("+") || next.text().equals("!");
+                    default -> false;
+                };
+                if (!exprStart) {
                     int[] lc = lineCol(s, tokens.get(ti).start());
                     issues.add(new FormulaIssue(lc[0], lc[1], 7, Severity.WARN,
-                        "@output 后面需要合法的变量名"));
-                } else {
+                        "@output 后面需要合法的变量名或表达式"));
+                } else if (next.type() == TokType.IDENT && isValidIdentifier(next.text())) {
+                    // 重名检查仅对纯变量名输出有意义 / duplicate-name check only meaningful for plain-name outputs
                     String outName = next.text();
                     if (CONSTANT_NAMES.contains(outName)) {
                         // @output PI / @output E is technically fine for bare variable PI/E
@@ -1510,26 +1553,32 @@ public class FormulaParser {
     private static boolean rpnYieldsVec3(List<Object> rpn, Set<String> vec3Vars) {
         var stack = new ArrayDeque<Boolean>(); // true = vec3
         for (var tok : rpn) {
-            if (tok instanceof Double) { stack.push(false); continue; }
-            if (tok instanceof String v) { stack.push(vec3Vars.contains(v)); continue; }
-            if (tok instanceof SwizzleToken) { stack.pop(); stack.push(false); continue; } // 分量 = 标量
-            if (tok instanceof OpToken ot) {
-                if (ot.op().equals("!")) { stack.pop(); stack.push(false); }
-                else { stack.pop(); stack.pop(); stack.push(false); }
-                continue;
+            // 栈下溢 = 表达式未输完(编辑框逐击键实时校验的中途状态)→ 保守按标量处理,绝不抛异常
+            // Underflow = incomplete expression (mid-keystroke validation) — treat conservatively as scalar, never throw
+            try {
+                if (tok instanceof Double) { stack.push(false); continue; }
+                if (tok instanceof String v) { stack.push(vec3Vars.contains(v)); continue; }
+                if (tok instanceof SwizzleToken) { stack.pop(); stack.push(false); continue; } // 分量 = 标量
+                if (tok instanceof OpToken ot) {
+                    if (ot.op().equals("!")) { stack.pop(); stack.push(false); }
+                    else { stack.pop(); stack.pop(); stack.push(false); }
+                    continue;
+                }
+                if (tok instanceof FunctionToken ft) {
+                    boolean[] args = new boolean[ft.arity()];
+                    for (int i = ft.arity() - 1; i >= 0; i--) args[i] = stack.pop();
+                    stack.push(switch (ft.name()) {
+                        case "vec3", "normalize", "cross" -> true;
+                        default -> false; // length/dot/dist/yaw/pitch 与标量函数 → 标量
+                    });
+                    continue;
+                }
+                char op = (Character) tok;
+                boolean b = stack.pop(), a = stack.pop();
+                stack.push((a || b) && "+-*/".indexOf(op) >= 0);
+            } catch (java.util.NoSuchElementException underflow) {
+                return false;
             }
-            if (tok instanceof FunctionToken ft) {
-                boolean[] args = new boolean[ft.arity()];
-                for (int i = ft.arity() - 1; i >= 0; i--) args[i] = stack.pop();
-                stack.push(switch (ft.name()) {
-                    case "vec3", "normalize", "cross" -> true;
-                    default -> false; // length/dot/dist/yaw/pitch 与标量函数 → 标量
-                });
-                continue;
-            }
-            char op = (Character) tok;
-            boolean b = stack.pop(), a = stack.pop();
-            stack.push((a || b) && "+-*/".indexOf(op) >= 0);
         }
         return !stack.isEmpty() && stack.peek();
     }
@@ -1541,45 +1590,51 @@ public class FormulaParser {
     private static void typeCheckRpn(List<Object> rpn, Set<String> vec3Vars, List<FormulaIssue> issues, int line, int col) {
         var stack = new ArrayDeque<Boolean>(); // true = vec3
         for (var tok : rpn) {
-            if (tok instanceof Double) { stack.push(false); continue; }
-            if (tok instanceof String v) { stack.push(vec3Vars.contains(v)); continue; }
-            if (tok instanceof SwizzleToken) { stack.pop(); stack.push(false); continue; }
-            if (tok instanceof OpToken ot) {
-                if (ot.op().equals("!")) { stack.pop(); stack.push(false); continue; }
-                boolean b = stack.pop(), a = stack.pop();
-                if (a || b) issues.add(new FormulaIssue(line, col, 1, Severity.ERROR,
-                    "向量不可参与比较/逻辑运算('" + ot.op() + "')"));
-                stack.push(false);
-                continue;
-            }
-            if (tok instanceof FunctionToken ft) {
-                boolean[] args = new boolean[ft.arity()];
-                for (int i = ft.arity() - 1; i >= 0; i--) args[i] = stack.pop();
-                if (VECTOR_FN_NAMES.contains(ft.name())) {
-                    // vec3 构造器例外:参数是标量 / vec3 constructor is the exception: args are scalars
-                    for (int i = 0; i < args.length; i++) {
-                        if (!args[i]) issues.add(new FormulaIssue(line, col, 1, Severity.ERROR,
-                            "函数 '" + ft.name() + "' 的参数 " + (i + 1) + " 需要 vec3"));
-                    }
+            // 栈下溢 = 表达式未输完(编辑框逐击键实时校验的中途状态)→ 保守放弃本 RPN 的类型检查,绝不抛异常
+            // Underflow = incomplete expression (mid-keystroke validation) — abort this RPN's check conservatively, never throw
+            try {
+                if (tok instanceof Double) { stack.push(false); continue; }
+                if (tok instanceof String v) { stack.push(vec3Vars.contains(v)); continue; }
+                if (tok instanceof SwizzleToken) { stack.pop(); stack.push(false); continue; }
+                if (tok instanceof OpToken ot) {
+                    if (ot.op().equals("!")) { stack.pop(); stack.push(false); continue; }
+                    boolean b = stack.pop(), a = stack.pop();
+                    if (a || b) issues.add(new FormulaIssue(line, col, 1, Severity.ERROR,
+                        "向量不可参与比较/逻辑运算('" + ot.op() + "')"));
+                    stack.push(false);
+                    continue;
                 }
-                stack.push(switch (ft.name()) {
-                    case "vec3", "normalize", "cross" -> true;
-                    default -> false;
-                });
-                continue;
+                if (tok instanceof FunctionToken ft) {
+                    boolean[] args = new boolean[ft.arity()];
+                    for (int i = ft.arity() - 1; i >= 0; i--) args[i] = stack.pop();
+                    if (VECTOR_FN_NAMES.contains(ft.name())) {
+                        // vec3 构造器例外:参数是标量 / vec3 constructor is the exception: args are scalars
+                        for (int i = 0; i < args.length; i++) {
+                            if (!args[i]) issues.add(new FormulaIssue(line, col, 1, Severity.ERROR,
+                                "函数 '" + ft.name() + "' 的参数 " + (i + 1) + " 需要 vec3"));
+                        }
+                    }
+                    stack.push(switch (ft.name()) {
+                        case "vec3", "normalize", "cross" -> true;
+                        default -> false;
+                    });
+                    continue;
+                }
+                char op = (Character) tok;
+                boolean b = stack.pop(), a = stack.pop();
+                if ((op == '<' || op == '>') && (a || b)) {
+                    issues.add(new FormulaIssue(line, col, 1, Severity.ERROR, "向量不可比较"));
+                } else if (op == '*' && a && b) {
+                    issues.add(new FormulaIssue(line, col, 1, Severity.ERROR, "向量乘向量无良定义,请用 dot()/cross()"));
+                } else if (op == '/' && b) {
+                    issues.add(new FormulaIssue(line, col, 1, Severity.ERROR, "向量除法无良定义(v÷v / 标量÷v)"));
+                } else if ((op == '%' || op == '^') && (a || b)) {
+                    issues.add(new FormulaIssue(line, col, 1, Severity.ERROR, "运算符 '" + op + "' 不支持向量"));
+                }
+                stack.push((a || b) && "+-*/".indexOf(op) >= 0);
+            } catch (java.util.NoSuchElementException underflow) {
+                return;
             }
-            char op = (Character) tok;
-            boolean b = stack.pop(), a = stack.pop();
-            if ((op == '<' || op == '>') && (a || b)) {
-                issues.add(new FormulaIssue(line, col, 1, Severity.ERROR, "向量不可比较"));
-            } else if (op == '*' && a && b) {
-                issues.add(new FormulaIssue(line, col, 1, Severity.ERROR, "向量乘向量无良定义,请用 dot()/cross()"));
-            } else if (op == '/' && b) {
-                issues.add(new FormulaIssue(line, col, 1, Severity.ERROR, "向量除法无良定义(v÷v / 标量÷v)"));
-            } else if ((op == '%' || op == '^') && (a || b)) {
-                issues.add(new FormulaIssue(line, col, 1, Severity.ERROR, "运算符 '" + op + "' 不支持向量"));
-            }
-            stack.push((a || b) && "+-*/".indexOf(op) >= 0);
         }
     }
 }

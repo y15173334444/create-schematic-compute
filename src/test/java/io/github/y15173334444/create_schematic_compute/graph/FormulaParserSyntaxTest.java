@@ -207,4 +207,44 @@ class FormulaParserSyntaxTest {
         var issues = FormulaParser.validate("repeat 10 { x = x + 1 }\nif (x > 0) { y = 1 } else { y = 2 }");
         assertFalse(issues.stream().anyMatch(i -> i.severity() == FormulaParser.Severity.ERROR));
     }
+
+    @Test
+    @DisplayName("sanitizeFullwidth converts CJK/full-width symbols to ASCII equivalents")
+    void testSanitizeFullwidth() {
+        assertEquals("(a+b)*2>=1&&v.x", FormulaParser.sanitizeFullwidth("（a＋b）×２≥1&&v。x"));
+        assertEquals("a*b/c-d%e^2", FormulaParser.sanitizeFullwidth("a×b÷c－d％e＾2"));
+        assertEquals("if(x>0){y=1}else{y=0}", FormulaParser.sanitizeFullwidth("if（x＞0）｛y＝1｝else｛y＝0｝"));
+        assertEquals("vec3(1,2,3)", FormulaParser.sanitizeFullwidth("vec3（1，2，3）"));
+        // 全角字母/数字/空格(中文输入法自然产物)也转半角 / full-width letters/digits/spaces (natural IME output) convert too
+        assertEquals("x = a + 1", FormulaParser.sanitizeFullwidth("ｘ　＝　ａ　＋　１"));
+        assertEquals("v=vec3(A,B,C)", FormulaParser.sanitizeFullwidth("ｖ＝ｖｅｃ３（Ａ，Ｂ，Ｃ）"));
+        assertEquals("", FormulaParser.sanitizeFullwidth(""));
+        assertEquals("abc", FormulaParser.sanitizeFullwidth("abc")); // ASCII 原样 / ASCII unchanged
+        // 未命中字符原样保留 / unmatched chars pass through
+        assertEquals("注释——说明", FormulaParser.sanitizeFullwidth("注释——说明"));
+    }
+
+    @Test
+    @DisplayName("mid-typing partial expressions never crash the type checker (underflow-safe)")
+    void testPartialInputsNeverCrash() {
+        // 编辑框逐击键实时校验的中途状态:类型检查/vec3 模拟曾因栈下溢抛 NoSuchElementException 崩客户端
+        // Mid-keystroke validation states: the type checker / vec3 simulation once crashed the client on stack underflow
+        String[] partials = {
+            "a + ",                 // 尾部运算符 / trailing operator
+            "(a > 5) &&",           // 逻辑运算符缺右操作数 / logical op missing right operand
+            "vec3(1,",              // 函数调用缺参 / incomplete function call
+            "v = v * ",             // 赋值缺表达式 / assignment missing expression
+            "length(v",             // 括号未闭合 / unclosed paren
+            "if (a > ",             // 条件未输完 / incomplete condition
+            "@output v\nv = cross(a,", // 跨行中途 / partial across lines
+        };
+        for (String s : partials) {
+            try {
+                FormulaParser.parseScript(s);
+                FormulaParser.validate(s);
+            } catch (RuntimeException e) {
+                fail("partial input crashed the parser: '" + s + "' → " + e);
+            }
+        }
+    }
 }

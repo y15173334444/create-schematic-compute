@@ -431,11 +431,16 @@ class FormulaParserTest {
     }
 
     @Test
-    @DisplayName("validate: @output without valid identifier is a warning")
+    @DisplayName("validate: @output with invalid start is a warning (expressions are valid since knife 3/4)")
     void testValidateOutputMissingVar() {
-        var issues = FormulaParser.validate("@output 5\nx=1");
+        var issues = FormulaParser.validate("@output )\nx=1");
         assertFalse(issues.isEmpty());
         assertTrue(issues.stream().anyMatch(i -> i.severity() == FormulaParser.Severity.WARN));
+        // 表达式输出合法(刀3/4):@output 5 / @output length(v) 不再误报 / expression outputs are legal
+        assertTrue(FormulaParser.validate("@output 5\nx=1").stream()
+            .noneMatch(i -> i.message().contains("合法的变量名")));
+        assertTrue(FormulaParser.validate("v = vec3(1, 2, 3)\n@output length(v)").stream()
+            .noneMatch(i -> i.message().contains("合法的变量名")));
     }
 
     // ═══════════════════════════ parseScript + PI/E ═══════════════════════════
