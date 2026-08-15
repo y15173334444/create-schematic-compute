@@ -177,9 +177,41 @@ v = vec3(3, 4, 0)
 ```
 向量函数：`vec3 length normalize dot cross dist yaw pitch`；分量访问 `v.x/y/z`。
 
+**函数表 / Functions**（角度均按度 / trig in degrees）：
+**15 个标量函数 / 15 scalar functions** — `sin` `cos` `tan` `asin` `acos` `atan2` `sinh` `cosh` `sqrt` `ln` `log` `exp` `sec` `csc` `cot`
+**7 个向量函数 / 7 vector functions** — `vec3` `length` `normalize` `dot` `cross` `dist` `yaw` `pitch`
+
 **中文输入即转 / CJK input converts live** — `（）→()`、`×→*`、`≥→>=`、全角字母/数字/空格即输即转半角。
 
-**预算池 / Budget pool** — 循环重负载脚本跨 tick 分摊：节点下方进度条显示解算进度，spread 期间输出冻结、完成才更新（emit-on-done）；`warm` 编辑区开关控制输入变更时继续迭代还是严格冻结。火控弹道解算完整示例见 [`docs/examples/ballistic_solver.formula`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/examples/ballistic_solver.formula)。
+**预算池 / Budget pool** — 循环重负载脚本跨 tick 分摊：节点下方进度条显示解算进度，spread 期间输出冻结、完成才更新（emit-on-done）；`warm` 编辑区开关控制输入变更时继续迭代还是严格冻结。典型应用见下方火控弹道解算示例。
+
+### 🎯 火控弹道解算示例 / Fire-Control Ballistic Solver Example
+
+牛顿迭代弹道反解，移植自 Python 参考实现（CreateBigCannons 弹道模型：半隐式欧拉 dt=1/20、线性/二次阻力），四组场景对拍通过。完整可粘贴脚本：[`docs/examples/ballistic_solver.formula`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/examples/ballistic_solver.formula)（约 60 万次迭代，由预算池跨 tick 分摊、带进度条）。
+
+```
+-- 输入:mx,my,mz 炮口 / tx,ty,tz 目标 / v0 初速 / g 重力(正) / fd 阻力系数 / qd 二次阻力 / den 密度
+-- 输出:ay 射向角[0,360) / ap 射角 / hit 可达 / vx0,vy0,vz0 初速向量
+ay = atan2(tx - mx, 0 - (tz - mz))
+if (ay < 0) ay = ay + 360
+cy = cos(ay)
+sy = sin(ay)
+-- 俯仰粗扫描(361 点)+ 轨迹模拟(半隐式欧拉 dt=1/20,阻力/重力积分,记录最近距离)
+p = -89.899
+bestd = 1000000
+repeat 361 {
+  vx = v0 * cos(p) * sy
+  vy = v0 * sin(p)
+  vz = v0 * cos(p) * (0 - cy)
+  -- ... 1200 步轨迹模拟(完整脚本见上方链接) ...
+  p = p + 0.49944
+}
+-- 牛顿迭代精化(≤50 轮,中心差分,阻尼 0.5)
+@output ay
+@output ap
+@output hit
+```
+→ **11 inputs + 6 outputs / 11输入 + 6输出**
 
 ### 🎨 Syntax Highlighting / 语法高亮
 Real-time colour-coded editing with 9 token categories.
@@ -238,35 +270,6 @@ result = (PI) + sin(PI)
 @output result
 ```
 → 1 input pin (PI) + 1 output / 1 输入引脚 + 1 输出
-
-```
--- 火控弹道反解 / Fire-control ballistic inverse solver
--- 输入:mx,my,mz 炮口 / tx,ty,tz 目标 / v0 初速 / g 重力(正) / fd 阻力系数 / qd 二次阻力 / den 密度
--- 输出:ay 射向角[0,360) / ap 射角 / hit 可达 / vx0,vy0,vz0 初速向量
-ay = atan2(tx - mx, 0 - (tz - mz))
-if (ay < 0) ay = ay + 360
-cy = cos(ay)
-sy = sin(ay)
--- 俯仰粗扫描(361 点)+ 轨迹模拟(半隐式欧拉 dt=1/20,阻力/重力积分,记录最近距离)
-p = -89.899
-bestd = 1000000
-repeat 361 {
-  vx = v0 * cos(p) * sy
-  vy = v0 * sin(p)
-  vz = v0 * cos(p) * (0 - cy)
-  -- ... 1200 步轨迹模拟(完整脚本见下方链接) ...
-  p = p + 0.49944
-}
--- 牛顿迭代精化(≤50 轮,中心差分,阻尼 0.5)——完整可粘贴版本:
--- docs/examples/ballistic_solver.formula(与 Python 参考实现四组场景对拍通过)
-@output ay
-@output ap
-@output hit
-```
-→ **11 inputs + 6 outputs / 11输入 + 6输出**（完整脚本约 60 万次迭代，由预算池跨 tick 分摊、带进度条）
-
-**15 个标量函数 / 15 scalar functions（角度均按度 / trig in degrees）：** `sin` `cos` `tan` `asin` `acos` `atan2` `sinh` `cosh` `sqrt` `ln` `log` `exp` `sec` `csc` `cot`
-**7 个向量函数 / 7 vector functions：** `vec3` `length` `normalize` `dot` `cross` `dist` `yaw` `pitch`
 
 ---
 
