@@ -86,13 +86,27 @@ public final class FormulaInterpreter {
             if (++iterations >= CHECK_EVERY) {
                 iterations = 0;
                 if (System.nanoTime() - nodeStartNs > sliceNs) {
+                    // 进度以**最外层 repeat** 为主、内层份额平滑叠加:嵌套循环(如弹道脚本的
+                    // 扫描×模拟)下内层循环反复 0→1 会造成进度条横跳;最外层是 while 时退回
+                    // 最内层 repeat,都没有则不定(-1)。
+                    // Progress is driven by the **outermost repeat** with the innermost share added for
+                    // smoothness: under nested loops (e.g. the ballistic scan×simulation) the inner loop
+                    // repeatedly sweeping 0→1 makes the bar jump around; when the outermost is a while,
+                    // fall back to the innermost repeat, else indeterminate (-1).
                     float progress = 0f;
                     if (!loopStack.isEmpty()) {
-                        LoopState inner = loopStack.get(loopStack.size() - 1);
-                        if (inner.loop instanceof FormulaAst.RepeatStmt r && r.count() > 0) {
-                            progress = (float) Math.min(1.0, Math.max(0.0, (double) inner.k / r.count()));
+                        LoopState outer = loopStack.get(0);
+                        if (outer.loop instanceof FormulaAst.RepeatStmt ro && ro.count() > 0) {
+                            double p = outer.k / (double) ro.count();
+                            LoopState inner = loopStack.get(loopStack.size() - 1);
+                            if (inner != outer && inner.loop instanceof FormulaAst.RepeatStmt ri && ri.count() > 0)
+                                p += (inner.k / (double) ri.count()) / ro.count();
+                            progress = (float) Math.min(1.0, Math.max(0.0, p));
                         } else {
-                            progress = -1f; // while:不定 / indeterminate
+                            LoopState inner = loopStack.get(loopStack.size() - 1);
+                            progress = inner.loop instanceof FormulaAst.RepeatStmt ri && ri.count() > 0
+                                ? (float) Math.min(1.0, Math.max(0.0, (double) inner.k / ri.count()))
+                                : -1f; // 不定 / indeterminate
                         }
                     }
                     var c = new Carrier();
