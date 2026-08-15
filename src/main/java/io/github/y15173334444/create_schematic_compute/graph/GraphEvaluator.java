@@ -374,7 +374,9 @@ public class GraphEvaluator {
         // 参数引脚排在功能引脚之后;FORMULA 的功能引脚数是动态的(刀5 参数引脚避让)
         int extraBase = node.functionalInputs();
         int extraCnt = node.type.editableParamCount();
-        if (extraCnt > 0) {
+        // FORMULA 的 warm 参数无引脚(编辑区按钮配置,刀5 联调决策),不参与连线覆盖
+        // FORMULA's warm param has no pin (edit-panel button, knife 5 decision) — no wired override
+        if (extraCnt > 0 && node.type != NodeType.FORMULA) {
             boolean hasOverride = false;
             for (int pi = 0; pi < extraCnt; pi++) {
                 if (graph.hasInputConnection(node.id, extraBase + pi)) {
@@ -912,12 +914,18 @@ public class GraphEvaluator {
                             env.putAll(car.envSnapshot); // 续算 / resume
                             usedFrozen = car.frozenInputs;
                         } else if (warm) {
-                            // 温启动:旧 Env 作初值、输入变量刷新、k=0(决策 §五)/ warm restart
+                            // 温启动 = **继续迭代**(2026-08-15 联调决策,修订决策账 §五「k=0 重跑」):
+                            // 保留当前循环进度 k,刷新输入变量与冻结快照,求解器继续朝新目标迭代——
+                            // 进度条不重置、定长 repeat 完成剩余迭代即输出;信号发生器等持续变化输入
+                            // 不再每个 tick 重启。
+                            // Warm = **continue iterating** (session decision 2026-08-15, revising §五 "k=0 restart"):
+                            // keep the current loop progress k, refresh the input vars and the freeze snapshot —
+                            // the solver keeps iterating toward the new target; the bar never resets, fixed-count
+                            // repeats finish their remaining iterations, and continuously-changing inputs
+                            // (signal generator etc.) no longer restart every tick.
                             env.putAll(car.envSnapshot);
                             for (int vi = 0; vi < script.inputVars.size(); vi++)
                                 env.put(script.inputVars.get(vi), new Value.Scalar(pinInputs[vi]));
-                            node.formulaCarrier = null;
-                            car = null;
                             usedFrozen = pinInputs.clone();
                         } else {
                             // 严格冻结:继续旧输入快照(默认)/ strict freeze: continue the old snapshot (default)

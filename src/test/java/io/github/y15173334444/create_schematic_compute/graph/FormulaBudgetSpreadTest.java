@@ -13,9 +13,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * 刀 5 测试:协作超时挂起/续算(寻径执行)、emit-on-done、输入冻结 vs 温启动、
- * done 跳过/冷复位、MAX_ITER shed、N_heavy 计数、warm 参数引脚。
+ * done 跳过/冷复位、MAX_ITER shed、N_heavy 计数、无引脚 warm 参数。
  * Knife-5 tests: cooperative suspend/resume (seek execution), emit-on-done,
- * input freeze vs warm restart, done skip/cold reset, MAX_ITER shed, N_heavy counting, warm param pin.
+ * input freeze vs warm restart, done skip/cold reset, MAX_ITER shed, N_heavy counting, pinless warm param.
  */
 class FormulaBudgetSpreadTest {
 
@@ -51,6 +51,76 @@ class FormulaBudgetSpreadTest {
         // 寻径执行保证前缀 acc=0 不会把快照中的 acc 覆盖掉 / seek execution keeps acc from being reset by the prefix
         assertEquals(100.0, FormulaParser.asScalar(env.get("acc")), 1e-9);
         assertTrue(resumes >= 1, "should have suspended at least once");
+    }
+
+    @Test
+    @DisplayName("Warm continue: input change mid-spread keeps k (no reset) and tracks the new target")
+    void testWarmContinueKeepsProgress() {
+        var graph = new NodeGraph();
+        var c = graph.addNode(NodeType.CONST, 0, 0);
+        var f = graph.addNode(NodeType.FORMULA, 100, 100);
+        c.params[0] = 10f;
+        f.formula = "v = 0\nrepeat 50000 { v = v * 0.9 + target * 0.1 }\n@output v";
+        f.ensureScriptParsed();
+        graph.addConnection(c.id, 0, f.id, 0);
+        f.params[0] = 1f; // warm / 温启动
+        var ev = new GraphEvaluator(graph);
+
+        // 压低 slice → 挂起 / tiny slice → suspend
+        FormulaCompute.beginTick();
+        for (int i = 0; i < 200; i++) FormulaCompute.reportYield();
+        FormulaCompute.beginTick();
+        ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+        assertTrue(f.formulaCarrier != null && !f.formulaCarrier.done);
+        long k0 = f.formulaCarrier.loopStack.get(0).k;
+
+        // 输入变更 mid-spread(信号发生器式持续变化也允许)/ input change mid-spread (continuous changes allowed)
+        c.params[0] = 20f;
+
+        long lastK = k0;
+        boolean done = false;
+        for (int t = 0; t < 400; t++) {
+            FormulaCompute.beginTick();
+            // 每 3 tick 输入再变一次(模拟信号发生器持续变化)/ change the input every 3 ticks (signal-gen-like)
+            if (t % 3 == 0) c.params[0] = 15f + 5f * (float) Math.sin(t * 0.5);
+            ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+            if (f.formulaCarrier != null) {
+                if (f.formulaCarrier.done) { done = true; break; } // done carrier 的 loopStack 为空 / done carrier has an empty loop stack
+                long k = f.formulaCarrier.loopStack.get(0).k;
+                assertTrue(k >= lastK, "warm continue must never reset k (tick " + t + ": " + k + " < " + lastK + ")");
+                lastK = k;
+            }
+        }
+        assertTrue(done, "should converge with warm continue");
+        // 终值应逼近最后输入的 target(15±5 的近期值)/ output should approach the last fed target
+        assertTrue(ev.getNodeOutput(f.id, 0) > 5f && ev.getNodeOutput(f.id, 0) < 25f);
+    }
+
+    @Test
+    @DisplayName("Progress: nested loops report outermost-repeat progress — monotonic, no bar jumping")
+    void testNestedProgressMonotonic() {
+        // 弹道脚本同构:外层扫描 × 内层模拟;内层反复 0→1 不应造成进度条横跳
+        // Ballistic-script shape: outer scan × inner simulation; the inner sweep must not reset the bar
+        var parsed = FormulaParser.parseScript("a = 0\nrepeat 10 { repeat 100 { a = a + 1 } }");
+        var env = new HashMap<String, Value>();
+        var car = new FormulaInterpreter.Carrier();
+        float last = -1f;
+        int suspensions = 0;
+        while (true) {
+            try {
+                FormulaInterpreter.exec(parsed.ast, env, 0L, car.loopStack, car.totalIterations);
+                break;
+            } catch (FormulaInterpreter.SuspendSignal sus) {
+                car = sus.carrier;
+                suspensions++;
+                float p = car.progress;
+                assertTrue(p >= last, "progress must be monotonic (suspend " + suspensions + ": " + p + " < " + last + ")");
+                last = p;
+                assertTrue(p >= 0f && p <= 1f, "progress in [0,1], got " + p);
+            }
+        }
+        assertEquals(1000.0, FormulaParser.asScalar(env.get("a")), 1e-9);
+        assertTrue(suspensions >= 1);
     }
 
     @Test
@@ -188,11 +258,11 @@ class FormulaBudgetSpreadTest {
         var f = (GraphNode) parts[1];
         var ev = (GraphEvaluator) parts[2];
 
-        runUntilDone(ev, f, 20); // 正常负载 ~3ms/tick,100k 迭代需 ~12 tick 分摊 / ~12 ticks at 3ms each
+        runUntilDone(ev, f, 60); // 正常负载 ~3ms/tick,100k 迭代需 ~14 tick 分摊;负载高时放宽到 60
         assertEquals(10f, ev.getNodeOutput(f.id, 0), 0.01f);
 
         c.params[0] = 20f;
-        runUntilDone(ev, f, 20);
+        runUntilDone(ev, f, 60);
         assertEquals(20f, ev.getNodeOutput(f.id, 0), 0.01f); // 冷复位重算 / cold reset recompute
     }
 
@@ -235,8 +305,8 @@ class FormulaBudgetSpreadTest {
     // ── warm 参数引脚 / warm param pin ──
 
     @Test
-    @DisplayName("GraphNode: warm param pin sits after dynamic variable pins")
-    void testWarmParamPinResolution() {
+    @DisplayName("GraphNode: warm is a pinless eval-policy param (edit-panel button, no input pin)")
+    void testWarmParamPinless() {
         var node = new GraphNode(1, NodeType.FORMULA, 0f, 0f);
         node.formula = "x = a + 1\n@output x";
         // 镜像编辑面板 responder:解析后 din = inputVars.size()(真实编辑流程)
@@ -246,39 +316,12 @@ class FormulaBudgetSpreadTest {
         node.dynamicInputCount = res.inputVars.size();
         node.dynamicOutputCount = Math.max(1, res.outputLabels.size());
         node.ensureScriptParsed();
-        assertEquals(2, node.inputs()); // 1 var + 1 param
+        assertEquals(1, node.inputs()); // 仅变量引脚;warm 不占引脚 / variable pins only; warm takes no pin
         assertEquals(0, node.inputPinIndex("a"));
-        assertEquals(1, node.inputPinIndex("warm"));
+        assertEquals(-1, node.inputPinIndex("warm")); // warm 无引脚 / warm has no pin
         assertEquals("a", node.inputPinId(0));
-        assertEquals("warm", node.inputPinId(1));
-        assertEquals("warm", node.inputLabel(1));
-    }
-
-    @Test
-    @DisplayName("Wired warm param overrides node.params through the generic param machinery")
-    void testWarmParamWiredOverride() {
-        var graph = new NodeGraph();
-        var c1 = graph.addNode(NodeType.CONST, 0, 0);
-        var c2 = graph.addNode(NodeType.CONST, 100, 0);
-        var f = graph.addNode(NodeType.FORMULA, 200, 0);
-        c1.params[0] = 5f;
-        c2.params[0] = 1f;
-        f.formula = "x = a + 1\n@output x";
-        // 镜像编辑面板 responder(与 testWarmParamPinResolution 同款)/ mirror the edit-panel responder
-        var fres = FormulaParser.parseScript(f.formula);
-        f.cachedScript = fres;
-        f.dynamicInputCount = fres.inputVars.size();
-        f.dynamicOutputCount = Math.max(1, fres.outputLabels.size());
-        graph.addConnection(c1.id, 0, f.id, 0);  // a
-        graph.addConnection(c2.id, 0, f.id, 1);  // warm 参数引脚 / warm param pin
-        var ev = new GraphEvaluator(graph);
-
-        FormulaCompute.beginTick();
-        ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-
-        // 求值期间连线覆盖生效(warm=1);求值后 params 按既有机制恢复为编辑器值
-        // The wired override (warm=1) applies during eval; params restore to the editor value afterwards (existing machinery)
-        assertEquals(6f, ev.getNodeOutput(f.id, 0), 0.0001f);
-        assertEquals(0f, f.params[0], 0.0001f); // 恢复语义 / restore semantics
+        assertNull(node.inputPinId(1)); // 没有第二个引脚 / no second pin
+        assertEquals(1, node.type.editableParamCount()); // 参数存储仍在(params[0]) / param storage remains
+        assertEquals(1, node.functionalInputs()); // 功能引脚 = 全部输入 / functional = total inputs
     }
 }

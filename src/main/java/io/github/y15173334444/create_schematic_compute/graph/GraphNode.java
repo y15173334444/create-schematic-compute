@@ -99,14 +99,25 @@ public class GraphNode {
      *  Effective input pin count (dynamically determined for FORMULA/ENCAPSULATION;
      *  generic parameter pins are automatically appended). */
     public int inputs() {
-        if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicInputCount, 26)) + type.editableParamCount();
+        // 刀5:warm 是求值策略设置,以编辑区按钮配置,不占输入引脚(2026-08-15 联调决策)
+        // Knife 5: warm is an evaluation-policy setting configured via the edit-panel button — no input pin
+        if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicInputCount, 26));
         if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_INPUT);
         return type.inputs + type.editableParamCount();
     }
     /** 节点主体上的功能输入引脚数（不含编辑区参数引脚，BUS_OUT 引脚仅在编辑区）。
      *  Number of functional input pins on the node body (excluding editor parameter pins;
-     *  BUS_OUT pins are editor-only). */
-    public int functionalInputs() { return inputs() - type.editableParamCount(); }
+     *  BUS_OUT pins are editor-only). FORMULA:warm 参数无引脚,功能引脚 = 全部输入。 */
+    public int functionalInputs() {
+        if (type == NodeType.FORMULA) return inputs(); // pinless warm param / warm 无引脚
+        return inputs() - type.editableParamCount();
+    }
+    /** 参数引脚在输入侧的实际索引（刀5：FORMULA 功能引脚数是动态的，参数排在功能引脚之后；
+     *  其他类型恒等于 type.inputs + paramIdx）。编辑区渲染/连线检测/求值器 extraBase 共用。
+     *  Actual input-pin index of a param pin (knife 5: FORMULA's functional pin count is dynamic;
+     *  other types equal type.inputs + paramIdx). Shared by edit-panel render, connection
+     *  checks and the evaluator's extraBase. */
+    public int paramPinIndex(int paramIdx) { return functionalInputs() + paramIdx; }
     public int outputs() {
         if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicOutputCount, 16));
         if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_OUTPUT);
@@ -183,12 +194,8 @@ public class GraphNode {
                 var vars = cachedScript.inputVars;
                 for (int i = 0; i < vars.size(); i++)
                     if (pinId.equals(vars.get(i))) return i;
-                // 参数引脚排在动态变量引脚之后(刀5:warm 等);基数用 functionalInputs(),
-                // 与 inputPinId/inputLabel/求值器 extraBase 同源,stale 状态下索引一致。
-                // param pins follow the dynamic variable pins; base = functionalInputs(), same source
-                // as inputPinId/inputLabel/evaluator extraBase — indices stay consistent in stale states.
-                for (int i = 0; i < type.editableParamCount(); i++)
-                    if (pinId.equals(type.paramNames[i])) return functionalInputs() + i;
+                // FORMULA 的 warm 参数无引脚(编辑区按钮配置,刀5 联调决策),不参与 pinId 解析
+                // FORMULA's warm param has no pin (edit-panel button, knife 5 decision) — no pinId resolution
                 // Variable name not found — fall through to generic numeric parsing.
                 // This handles legacy extra pins whose pinId is a numeric string
                 // (e.g. "2", "3") from saves where dynamicInputCount > inputVars.size().
@@ -266,12 +273,8 @@ public class GraphNode {
             ensureScriptParsed();
             if (cachedScript != null && index < cachedScript.inputVars.size())
                 return cachedScript.inputVars.get(index);
-            // 参数引脚(刀5):pinId = 参数名 / param pins (knife 5): pinId = param name
-            if (cachedScript != null) {
-                int paramIdx = index - functionalInputs();
-                if (paramIdx >= 0 && paramIdx < type.editableParamCount())
-                    return type.paramNames[paramIdx];
-            }
+            // FORMULA 的 warm 参数无引脚(编辑区按钮配置,刀5 联调决策),不参与 pinId 解析
+            // FORMULA's warm param has no pin (edit-panel button, knife 5 decision) — no pinId resolution
             // Legacy extra pins (dynamicInputCount > inputVars.size()):
             // these were functionally dead in V3 but connections existed on them.
             // Use numeric pinId so migrateV3toV4 preserves them.
