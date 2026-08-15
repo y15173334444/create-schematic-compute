@@ -2338,6 +2338,10 @@ public class GraphEditor {
         // 颜色配置面板 (Color configuration panel)
         if (showColorConfig) renderColorPanel(g, mx, my);
         if(showMenu) { selectedMenuType = renderer.renderAddNodeMenu(g, menuX, menuY, mx, my, nodeFilter); }
+        // ── A=5: Tooltips（公式报错报告框等延迟覆盖层——A/B/C 分层的工具提示层，节点与 A=4 覆盖层均无法遮挡）
+        // ── A=5: Tooltips (deferred overlay such as the formula error report box — the layered-system
+        //     tooltip tier; no node body or A=4 overlay can cover it)
+        renderer.flushPendingOverlay(g);
         // Comment color edit popup — fixed left-aligned, vertically centered
         if (editingCommentColorNode != null && commentButtons != null) {
             int pw = 200, ph = 74;
@@ -3471,7 +3475,10 @@ public class GraphEditor {
             }
             // Wire drag — node body output pins, z-order aware
             for (var node : pinCandidates) {
-                if (node.type == NodeType.SPEED_CTRL) continue;
+                // 渲染器不绘制 SPEED_CTRL/DEBUG_PROBE 的输出引脚,命中检测必须一致——否则出现可拖连线的隐形引脚
+                // The renderer draws no output pins for SPEED_CTRL/DEBUG_PROBE — hit testing must match,
+                // otherwise an invisible pin could start a wire drag
+                if (node.type == NodeType.SPEED_CTRL || node.type == NodeType.DEBUG_PROBE) continue;
                 float sx = c2sX(node.x), sy = c2sY(node.y);
                 int nw = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(node);
                 for (int i = 0; i < node.outputs(); i++) {
@@ -4980,22 +4987,46 @@ public class GraphEditor {
         float indicatorSize = 12 * zoom;
         float scx = s2cX(mx), scy = s2cY(my);
         var candidates = spatialIndex.queryPoint(scx, scy);
-        candidates.sort(GraphEditor::compareHitOrder);
-        for (var n : candidates) {
-            if (n.type == NodeType.COMMENT) continue;
-            if (n.type.paramNames.length == 0 && n.type != NodeType.REDSTONE_IN && n.type != NodeType.REDSTONE_OUT
-                && n.type != NodeType.PRIVATE_IN && n.type != NodeType.PRIVATE_OUT && n.type != NodeType.FORMULA
-                && n.type != NodeType.KEYBOARD && n.type != NodeType.GAMEPAD_BUTTON
-                && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE && n.type != NodeType.TEXT && n.type != NodeType.DATA
-                && n.type != NodeType.ENCAPSULATION && n.type != NodeType.ENCAP_INPUT && n.type != NodeType.ENCAP_OUTPUT
-                && n.type != NodeType.BUS_IN && n.type != NodeType.BUS_OUT) continue;
+        boolean anyCapable = false;
+        for (var n : candidates)
+            if (n.type != NodeType.COMMENT && hasExpandIndicator(n)) { anyCapable = true; break; }
+        if (!anyCapable) return null;
+        // 触摸优先级:按绘制顺序(sortB 升序)扫描全部节点。上层节点的实体矩形(含展开编辑区)
+        // 覆盖此点时清掉下层指示器命中;上层节点自身指示器命中则覆盖下层——与视觉遮挡一致。
+        // Touch priority: scan all nodes in draw order (sortB ascending). A higher node's body rect
+        // (expanded edit area included) covering the point cancels any lower indicator hit; the higher
+        // node's own indicator hit overrides lower ones — matching visual occlusion.
+        var all = new java.util.ArrayList<>(graph.nodes);
+        all.sort(java.util.Comparator.comparingInt(n -> n.sortB));
+        GraphNode hit = null;
+        for (var n : all) {
+            if (!hasExpandIndicator(n)) continue;
             float sx = c2sX(n.x), sy = c2sY(n.y);
             float ix = sx + (io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(n) - 22) * zoom;
             float iy = sy + 2 * zoom;
-            if (mx >= ix && mx <= ix + indicatorSize && my >= iy && my <= iy + indicatorSize)
-                return n;
+            if (mx >= ix && mx <= ix + indicatorSize && my >= iy && my <= iy + indicatorSize) {
+                hit = n;
+                continue;
+            }
+            // 节点实体(含展开编辑区)覆盖此点 → 此节点之上不再有指示器可穿透 / body covers the point → no lower indicator may receive it
+            float nwpx = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(n) * zoom;
+            float nhpx = (fullNodeHeight(n) + 4) * zoom;
+            if (mx >= sx && mx <= sx + nwpx && my >= sy && my <= sy + nhpx) hit = null;
         }
-        return null;
+        return hit;
+    }
+
+    /** 该类型是否渲染 ▶/▼ 展开指示器(与 NodeRenderer 的绘制条件一致)。
+     *  Whether this type renders the ▶/▼ expand indicator (same condition as NodeRenderer). */
+    private static boolean hasExpandIndicator(GraphNode n) {
+        return n.type == NodeType.FORMULA || n.type.paramNames.length > 0
+            || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT
+            || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT
+            || n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE
+            || n.type == NodeType.TEXT || n.type == NodeType.DATA
+            || n.type == NodeType.ENCAPSULATION || n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT
+            || n.type == NodeType.COMMENT
+            || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT;
     }
 
     /** 关闭注释颜色编辑弹窗，重置所有相关状态。

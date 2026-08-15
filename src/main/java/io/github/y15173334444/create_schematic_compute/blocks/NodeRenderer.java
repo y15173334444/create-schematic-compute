@@ -890,17 +890,42 @@ public class NodeRenderer {
                 int tx = mx, ty = my + 8;
                 if (tx + tw > Minecraft.getInstance().getWindow().getGuiScaledWidth()) tx = Minecraft.getInstance().getWindow().getGuiScaledWidth() - tw;
                 if (tx < 0) tx = 0;
-                g.fill(tx, ty, tx + tw, ty + th, 0xDD1A0000);
-                g.renderOutline(tx, ty, tw, th, 0xFFFF4444);
-                for (int i = 0; i < rows; i++) {
-                    g.drawString(Minecraft.getInstance().font, lines.get(i), tx + 4, ty + 2 + i * rowH, 0xFFFF8888, false);
-                }
+                // 存入延迟覆盖层:节点循环内不直接绘制——本节点先画、z 序更高的节点后画会盖住报告框。
+                // Store into the deferred overlay: don't draw inside the node loop — nodes drawn later
+                // (higher z) would cover the report box. GraphEditor flushes it above all nodes.
+                pendingOverlayLines = lines;
+                pendingOverlayX = tx; pendingOverlayY = ty; pendingOverlayW = tw; pendingOverlayH = th;
+                pendingOverlayBg = 0xDD1A0000; pendingOverlayBorder = 0xFFFF4444; pendingOverlayText = 0xFFFF8888;
             }
         }
         // Flush per-node to prevent text (font buffer) from later nodes'
         // fills covering earlier nodes' text due to Minecraft's two-pass
         // buffer flush (all fills before all text).
         g.flush();
+    }
+
+    // ── A=5 工具提示层:延迟渲染覆盖层(报告框等)/ A=5 tooltip tier: deferred overlay (report box etc.) ──
+
+    /** 待绘制覆盖层(公式报错报告框)。悬停状态在节点绘制循环(A=3)内计算并收集于此;
+     *  GraphEditor 在 A=5 工具提示层调用 {@link #flushPendingOverlay} 统一绘制,
+     *  与 A/B/C 分层一致——任何节点体(A=3)或覆盖层(A=4)都无法遮挡。
+     *  Pending overlay (formula error report box). Hover state is computed during the node pass (A=3)
+     *  and collected here; GraphEditor calls {@link #flushPendingOverlay} at the A=5 tooltip tier —
+     *  consistent with the A/B/C layering, no node body (A=3) or overlay (A=4) can cover it. */
+    private java.util.List<String> pendingOverlayLines = null;
+    private int pendingOverlayX, pendingOverlayY, pendingOverlayW, pendingOverlayH;
+    private int pendingOverlayBg, pendingOverlayBorder, pendingOverlayText;
+
+    /** A=5 层绘制延迟覆盖层并清空。 / Draw the deferred overlay at the A=5 tier and clear it. */
+    public void flushPendingOverlay(GuiGraphics g) {
+        if (pendingOverlayLines == null) return;
+        g.fill(pendingOverlayX, pendingOverlayY, pendingOverlayX + pendingOverlayW, pendingOverlayY + pendingOverlayH, pendingOverlayBg);
+        g.renderOutline(pendingOverlayX, pendingOverlayY, pendingOverlayW, pendingOverlayH, pendingOverlayBorder);
+        for (int i = 0; i < pendingOverlayLines.size(); i++) {
+            g.drawString(Minecraft.getInstance().font, pendingOverlayLines.get(i),
+                pendingOverlayX + 4, pendingOverlayY + 2 + i * 11, pendingOverlayText, false);
+        }
+        pendingOverlayLines = null;
     }
 
     // ── 调试节点图表渲染（graph space，坐标相对于节点左上角）──
