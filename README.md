@@ -151,7 +151,7 @@ Multi-line script editor (v1.2.0+) — assignments, control flow, vec3, named ou
 
 ### 🧮 Syntax Overview / 语法速览
 
-**赋值与输入引脚 / Assignments & input pins** — 任何处被赋值的名字是内部变量，其余被读取的名字成为输入引脚：
+**赋值与输入引脚 / Assignments & input pins** — any name assigned anywhere is an internal variable; every other name that is read becomes an input pin. 任何处被赋值的名字是内部变量，其余被读取的名字成为输入引脚：
 ```
 x = a + 1        -- x 内部变量 / internal; a 成为输入引脚 / input pin
 @output x
@@ -166,7 +166,7 @@ if (acc > 50) { acc = 0 } else { acc = 1 }
 @output acc
 ```
 
-**比较与逻辑 / Comparison & logic** — `< > <= >=` 精确；`==`/`!=` 1e-6 容差；`&&` `||` `!` 以 `!=0` 判真。
+**比较与逻辑 / Comparison & logic** — `< > <= >=` are exact; `==`/`!=` use a 1e-6 tolerance; `&&` `||` `!` judge truthiness as `!=0`. `< > <= >=` 精确；`==`/`!=` 1e-6 容差；`&&` `||` `!` 以 `!=0` 判真。
 
 **vec3 与向量函数 / vec3 & vector functions**：
 ```
@@ -175,38 +175,44 @@ v = vec3(3, 4, 0)
 @output yaw(v)        -- 角度制,与 DIRECTION 节点一致 / degrees, mirrors DIRECTION
 @output v             -- vec3 自动展开为 v.x/v.y/v.z 三个输出引脚 / expands into 3 scalar pins
 ```
-向量函数：`vec3 length normalize dot cross dist yaw pitch`；分量访问 `v.x/y/z`。
+Vector functions: `vec3 length normalize dot cross dist yaw pitch`; component access `v.x/y/z`. 向量函数：`vec3 length normalize dot cross dist yaw pitch`；分量访问 `v.x/y/z`。
 
 **函数表 / Functions**（角度均按度 / trig in degrees）：
 **15 个标量函数 / 15 scalar functions** — `sin` `cos` `tan` `asin` `acos` `atan2` `sinh` `cosh` `sqrt` `ln` `log` `exp` `sec` `csc` `cot`
 **7 个向量函数 / 7 vector functions** — `vec3` `length` `normalize` `dot` `cross` `dist` `yaw` `pitch`
 
-**中文输入即转 / CJK input converts live** — `（）→()`、`×→*`、`≥→>=`、全角字母/数字/空格即输即转半角。
+**中文输入即转 / CJK input converts live** — `（）→()`、`×→*`、`≥→>=`，full-width letters/digits/spaces convert to half-width as you type. `（）→()`、`×→*`、`≥→>=`、全角字母/数字/空格即输即转半角。
 
-**预算池 / Budget pool** — 循环重负载脚本跨 tick 分摊：节点下方进度条显示解算进度，spread 期间输出冻结、完成才更新（emit-on-done）；`warm` 编辑区开关控制输入变更时继续迭代还是严格冻结。典型应用见下方火控弹道解算示例。
+**预算池 / Budget pool** — loop-heavy scripts spread across ticks: a thin progress bar below the node shows solve progress; outputs freeze during the spread and update only on completion (emit-on-done); the `warm` edit-panel toggle controls whether an input change keeps iterating or strictly freezes. 循环重负载脚本跨 tick 分摊：节点下方进度条显示解算进度，spread 期间输出冻结、完成才更新（emit-on-done）；`warm` 编辑区开关控制输入变更时继续迭代还是严格冻结。典型应用见下方火控弹道解算示例。
 
 ### 🎯 火控弹道解算示例 / Fire-Control Ballistic Solver Example
 
-牛顿迭代弹道反解，移植自 Python 参考实现（CreateBigCannons 弹道模型：半隐式欧拉 dt=1/20、线性/二次阻力），四组场景对拍通过。完整可粘贴脚本：[`docs/examples/ballistic_solver.formula`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/examples/ballistic_solver.formula)（约 60 万次迭代，由预算池跨 tick 分摊、带进度条）。
+Newton-iteration aim solver ported from a Python reference (CreateBigCannons ballistic model: semi-implicit Euler dt=1/20, linear/quadratic drag), verified against four reference scenarios.
+牛顿迭代弹道反解，移植自 Python 参考实现（CreateBigCannons 弹道模型：半隐式欧拉 dt=1/20、线性/二次阻力），四组场景对拍通过。
+Full paste-ready script: [`docs/examples/ballistic_solver.formula`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/examples/ballistic_solver.formula) — ~600k interpreter iterations per solve, spread across ticks by the budget pool with a progress bar.
+完整可粘贴脚本：[`docs/examples/ballistic_solver.formula`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/examples/ballistic_solver.formula)（约 60 万次迭代，由预算池跨 tick 分摊、带进度条）。
 
 ```
 -- 输入:mx,my,mz 炮口 / tx,ty,tz 目标 / v0 初速 / g 重力(正) / fd 阻力系数 / qd 二次阻力 / den 密度
+-- inputs: mx,my,mz muzzle / tx,ty,tz target / v0 speed / g gravity(+) / fd drag / qd quadratic drag / den density
 -- 输出:ay 射向角[0,360) / ap 射角 / hit 可达 / vx0,vy0,vz0 初速向量
+-- outputs: ay aim yaw [0,360) / ap aim pitch / hit reachable / vx0,vy0,vz0 velocity vector
 ay = atan2(tx - mx, 0 - (tz - mz))
 if (ay < 0) ay = ay + 360
 cy = cos(ay)
 sy = sin(ay)
 -- 俯仰粗扫描(361 点)+ 轨迹模拟(半隐式欧拉 dt=1/20,阻力/重力积分,记录最近距离)
+-- pitch coarse scan (361 points) + trajectory simulation (semi-implicit Euler dt=1/20, drag/gravity integration, track closest distance)
 p = -89.899
 bestd = 1000000
 repeat 361 {
   vx = v0 * cos(p) * sy
   vy = v0 * sin(p)
   vz = v0 * cos(p) * (0 - cy)
-  -- ... 1200 步轨迹模拟(完整脚本见上方链接) ...
+  -- ... 1200 步轨迹模拟(完整脚本见上方链接) ... / 1200-step simulation (full script linked above)
   p = p + 0.49944
 }
--- 牛顿迭代精化(≤50 轮,中心差分,阻尼 0.5)
+-- 牛顿迭代精化(≤50 轮,中心差分,阻尼 0.5) / Newton refinement (≤50 rounds, central difference, damping 0.5)
 @output ay
 @output ap
 @output hit
