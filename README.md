@@ -146,8 +146,40 @@ Real-time collaborative graph editing for all 7 block types. Multiple players ca
 
 ## 📝 Formula Script Node / 公式脚本节点
 
-Multi-line script editor (v1.2.0+) — assignments, named outputs, comments, line continuation.
-多行脚本编辑器 — 支持赋值、命名输出、注释、续行。
+Multi-line script editor (v1.2.0+) — assignments, control flow, vec3, named outputs, comments, line continuation.
+多行脚本编辑器 — 支持赋值、控制流、vec3、命名输出、注释、续行。完整语法见 [`docs/formula-syntax-manual.md`](docs/formula-syntax-manual.md)。
+
+### 🧮 Syntax Overview / 语法速览
+
+**赋值与输入引脚 / Assignments & input pins** — 任何处被赋值的名字是内部变量，其余被读取的名字成为输入引脚：
+```
+x = a + 1        -- x 内部变量 / internal; a 成为输入引脚 / input pin
+@output x
+```
+→ 1 input pin + 1 output / 1 输入 + 1 输出
+
+**控制流 / Control flow** — `repeat` / `while` / `if` / `else` / `break` / `continue`：
+```
+acc = 0
+repeat 100 { acc = acc + 1 }
+if (acc > 50) { acc = 0 } else { acc = 1 }
+@output acc
+```
+
+**比较与逻辑 / Comparison & logic** — `< > <= >=` 精确；`==`/`!=` 1e-6 容差；`&&` `||` `!` 以 `!=0` 判真。
+
+**vec3 与向量函数 / vec3 & vector functions**：
+```
+v = vec3(3, 4, 0)
+@output length(v)     -- 5
+@output yaw(v)        -- 角度制,与 DIRECTION 节点一致 / degrees, mirrors DIRECTION
+@output v             -- vec3 自动展开为 v.x/v.y/v.z 三个输出引脚 / expands into 3 scalar pins
+```
+向量函数：`vec3 length normalize dot cross dist yaw pitch`；分量访问 `v.x/y/z`。
+
+**中文输入即转 / CJK input converts live** — `（）→()`、`×→*`、`≥→>=`、全角字母/数字/空格即输即转半角。
+
+**预算池 / Budget pool** — 循环重负载脚本跨 tick 分摊：节点下方进度条显示解算进度，spread 期间输出冻结、完成才更新（emit-on-done）；`warm` 编辑区开关控制输入变更时继续迭代还是严格冻结。火控弹道解算完整示例见 [`docs/examples/ballistic_solver.formula`](docs/examples/ballistic_solver.formula)。
 
 ### 🎨 Syntax Highlighting / 语法高亮
 Real-time colour-coded editing with 9 token categories.
@@ -191,7 +223,7 @@ Issues shown as red ⚠ badge on the node title bar. Hover the badge to see deta
 | Function arity / 函数参数数量不符 | Error / 错误 |
 | Invalid assignment / 无效赋值 | Error / 错误 |
 | Duplicate output names / 重复输出名 | Warning / 警告 |
-| @output without identifier / @output 缺少变量名 | Warning / 警告 |
+| @output invalid start / @output 起始非法 | Warning / 警告（表达式输出合法，如 `@output length(v)`） |
 | Red border on MLE / 输入框红色边框 | Visual feedback / 视觉反馈 |
 
 ### 📐 Named Constants / 命名常量
@@ -220,7 +252,8 @@ y = (99*secTheta/(20*N)+tan(THETA))*w + 99*ln(1-2*(w*secTheta-K)/(199*N))/(20*ln
 ```
 → **7 inputs + 3 outputs / 7输入 + 3输出**
 
-**18 Functions / 18个数学函数：** `sin` `cos` `tan` `asin` `acos` `atan2` `sinh` `cosh` `sqrt` `ln` `log` `exp` `sec` `csc` `cot` `abs`
+**15 个标量函数 / 15 scalar functions（角度均按度 / trig in degrees）：** `sin` `cos` `tan` `asin` `acos` `atan2` `sinh` `cosh` `sqrt` `ln` `log` `exp` `sec` `csc` `cot`
+**7 个向量函数 / 7 vector functions：** `vec3` `length` `normalize` `dot` `cross` `dist` `yaw` `pitch`
 
 ---
 
