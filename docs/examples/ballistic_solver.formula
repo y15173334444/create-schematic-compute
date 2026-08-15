@@ -1,0 +1,192 @@
+-- ===== 弹道反解火控 v1(对齐 CreateBigCannons 弹道模型:半隐式欧拉 dt=1/20,线性/二次阻力) =====
+-- 输入引脚:mx,my,mz 炮口坐标 / tx,ty,tz 目标坐标 / v0 初速 / g 重力(正值) / fd 阻力系数 / qd 二次阻力(0/1) / den 介质密度
+-- 输出引脚:ay 射向角(度,[0,360)) / ap 射角(度,正=上抬) / hit 可达(1/0) / vx0,vy0,vz0 初速向量
+-- 算法:俯仰粗扫描(361 点锁定低伸区间)+ 牛顿迭代(≤50 轮,中心差分,阻尼 0.5),全部角度制
+DT = 0.05
+HIT = 0.5
+P0 = -89.899
+P1 = 89.899
+STEP = 179.798 / 360
+BIG = 1000000
+ay = atan2(tx - mx, 0 - (tz - mz))
+if (ay < 0) ay = ay + 360
+cy = cos(ay)
+sy = sin(ay)
+
+-- ---- 1) 粗扫描 ----
+bestd = BIG
+bestp = P0
+firstp = P0
+hitf = 0
+p = P0
+repeat 361 {
+  vx = v0 * cos(p) * sy
+  vy = v0 * sin(p)
+  vz = v0 * cos(p) * (0 - cy)
+  px = mx
+  py = my
+  pz = mz
+  mind = BIG
+  repeat 1200 {
+    sp = sqrt(vx*vx + vy*vy + vz*vz)
+    if (sp < 0.000000001) { ax = 0; acy = 0 - g; az = 0 } else {
+      dr = fd * den * sp
+      if (qd > 0.5) dr = dr * sp
+      if (dr > sp) dr = sp
+      ax = 0 - vx / sp * dr
+      acy = 0 - g - vy / sp * dr
+      az = 0 - vz / sp * dr
+    }
+    px = px + vx * DT + ax * 0.5 * DT * DT
+    py = py + vy * DT + acy * 0.5 * DT * DT
+    pz = pz + vz * DT + az * 0.5 * DT * DT
+    vx = vx + ax * DT
+    vy = vy + acy * DT
+    vz = vz + az * DT
+    d = dist(vec3(px,py,pz), vec3(tx,ty,tz))
+    if (d < mind) mind = d
+    if (py < ty - 60) break
+  }
+  if (mind < bestd) { bestd = mind; bestp = p }
+  if (hitf == 0 && mind < HIT) { firstp = p; hitf = 1 }
+  p = p + STEP
+}
+
+-- ---- 2) 牛顿迭代(最小化最近距离) ----
+ap = bestp
+hit = 0
+if (hitf == 1) {
+  p = firstp
+  h = 0.0573
+  repeat 50 {
+    vx = v0 * cos(p) * sy
+    vy = v0 * sin(p)
+    vz = v0 * cos(p) * (0 - cy)
+    px = mx
+    py = my
+    pz = mz
+    mind = BIG
+    repeat 1200 {
+      sp = sqrt(vx*vx + vy*vy + vz*vz)
+      if (sp < 0.000000001) { ax = 0; acy = 0 - g; az = 0 } else {
+        dr = fd * den * sp
+        if (qd > 0.5) dr = dr * sp
+        if (dr > sp) dr = sp
+        ax = 0 - vx / sp * dr
+        acy = 0 - g - vy / sp * dr
+        az = 0 - vz / sp * dr
+      }
+      px = px + vx * DT + ax * 0.5 * DT * DT
+      py = py + vy * DT + acy * 0.5 * DT * DT
+      pz = pz + vz * DT + az * 0.5 * DT * DT
+      vx = vx + ax * DT
+      vy = vy + acy * DT
+      vz = vz + az * DT
+      d = dist(vec3(px,py,pz), vec3(tx,ty,tz))
+      if (d < mind) mind = d
+      if (py < ty - 60) break
+    }
+    f = mind
+    if (f < 0.001) break
+    vx = v0 * cos(p + h) * sy
+    vy = v0 * sin(p + h)
+    vz = v0 * cos(p + h) * (0 - cy)
+    px = mx
+    py = my
+    pz = mz
+    mind = BIG
+    repeat 1200 {
+      sp = sqrt(vx*vx + vy*vy + vz*vz)
+      if (sp < 0.000000001) { ax = 0; acy = 0 - g; az = 0 } else {
+        dr = fd * den * sp
+        if (qd > 0.5) dr = dr * sp
+        if (dr > sp) dr = sp
+        ax = 0 - vx / sp * dr
+        acy = 0 - g - vy / sp * dr
+        az = 0 - vz / sp * dr
+      }
+      px = px + vx * DT + ax * 0.5 * DT * DT
+      py = py + vy * DT + acy * 0.5 * DT * DT
+      pz = pz + vz * DT + az * 0.5 * DT * DT
+      vx = vx + ax * DT
+      vy = vy + acy * DT
+      vz = vz + az * DT
+      d = dist(vec3(px,py,pz), vec3(tx,ty,tz))
+      if (d < mind) mind = d
+      if (py < ty - 60) break
+    }
+    fplus = mind
+    vx = v0 * cos(p - h) * sy
+    vy = v0 * sin(p - h)
+    vz = v0 * cos(p - h) * (0 - cy)
+    px = mx
+    py = my
+    pz = mz
+    mind = BIG
+    repeat 1200 {
+      sp = sqrt(vx*vx + vy*vy + vz*vz)
+      if (sp < 0.000000001) { ax = 0; acy = 0 - g; az = 0 } else {
+        dr = fd * den * sp
+        if (qd > 0.5) dr = dr * sp
+        if (dr > sp) dr = sp
+        ax = 0 - vx / sp * dr
+        acy = 0 - g - vy / sp * dr
+        az = 0 - vz / sp * dr
+      }
+      px = px + vx * DT + ax * 0.5 * DT * DT
+      py = py + vy * DT + acy * 0.5 * DT * DT
+      pz = pz + vz * DT + az * 0.5 * DT * DT
+      vx = vx + ax * DT
+      vy = vy + acy * DT
+      vz = vz + az * DT
+      d = dist(vec3(px,py,pz), vec3(tx,ty,tz))
+      if (d < mind) mind = d
+      if (py < ty - 60) break
+    }
+    fminus = mind
+    fp = (fplus - fminus) / (2 * h)
+    if (fp * fp < 0.000000000000000001) break
+    pn = p - f / fp * 0.5
+    if (pn <= P0 || pn >= P1) break
+    p = pn
+  }
+  vx = v0 * cos(p) * sy
+  vy = v0 * sin(p)
+  vz = v0 * cos(p) * (0 - cy)
+  px = mx
+  py = my
+  pz = mz
+  mind = BIG
+  repeat 1200 {
+    sp = sqrt(vx*vx + vy*vy + vz*vz)
+    if (sp < 0.000000001) { ax = 0; acy = 0 - g; az = 0 } else {
+      dr = fd * den * sp
+      if (qd > 0.5) dr = dr * sp
+      if (dr > sp) dr = sp
+      ax = 0 - vx / sp * dr
+      acy = 0 - g - vy / sp * dr
+      az = 0 - vz / sp * dr
+    }
+    px = px + vx * DT + ax * 0.5 * DT * DT
+    py = py + vy * DT + acy * 0.5 * DT * DT
+    pz = pz + vz * DT + az * 0.5 * DT * DT
+    vx = vx + ax * DT
+    vy = vy + acy * DT
+    vz = vz + az * DT
+    d = dist(vec3(px,py,pz), vec3(tx,ty,tz))
+    if (d < mind) mind = d
+    if (py < ty - 60) break
+  }
+  f = mind
+  if (f < HIT) { hit = 1; ap = p }
+}
+
+vx0 = v0 * cos(ap) * sy
+vy0 = v0 * sin(ap)
+vz0 = v0 * cos(ap) * (0 - cy)
+@output ay
+@output ap
+@output hit
+@output vx0
+@output vy0
+@output vz0
