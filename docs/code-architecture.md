@@ -138,7 +138,7 @@ io.github.y15173334444.create_schematic_compute/
 **ENCAP 注入 / ENCAP Injection (v1.2.4)**：外部连线按 **pinId**（`String.valueOf(subNode.id)`）匹配并注入 `ENCAP_INPUT`，不依赖缓存位置；子图输出经 `captureSnapshot()` 合并进 `EvalSnapshot.subOutputs`/`subDebugTimes`。
 / Outer inputs injected into ENCAP_INPUT by pinId; sub-graph outputs merged into the snapshot.
 
-**FORMULA 内联门控 / FORMULA Inline Gating (v1.2.6 刀5)**：FORMULA 在拓扑位置原地求值（无中央队列、无 1-tick 延迟）；循环边界协作超时（每 16 迭代墙钟检查，超 `FormulaCompute.sliceNs()` 即挂起存 carrier 于 `GraphNode.formulaCarrier`，下 tick 寻径续算）；emit-on-done——spread 期间输出冻结，done 才写新值；done 且输入未变整节点跳过（1e-3 容差）；输入变更默认严格冻结、`warm` 参数 opt-in 温启动；MAX_ITER 1M 按 spread 累计兜底 shed；tick 级去重（脚本,输入）由 `FormulaCompute` 提供。
+**FORMULA 内联门控 / FORMULA Inline Gating (v1.2.5 刀5)**：FORMULA 在拓扑位置原地求值（无中央队列、无 1-tick 延迟）；循环边界协作超时（每 16 迭代墙钟检查，超 `FormulaCompute.sliceNs()` 即挂起存 carrier 于 `GraphNode.formulaCarrier`，下 tick 寻径续算）；emit-on-done——spread 期间输出冻结，done 才写新值；done 且输入未变整节点跳过（1e-3 容差）；输入变更默认严格冻结、`warm` 参数 opt-in 温启动；MAX_ITER 1M 按 spread 累计兜底 shed；tick 级去重（脚本,输入）由 `FormulaCompute` 提供。
 / FORMULA evaluates in place at its topological position (no central queue, no added tick latency); cooperative timeout at loop boundaries (wall clock every 16 iterations, suspends past `FormulaCompute.sliceNs()` with a carrier on `GraphNode.formulaCarrier`, resumed next tick via seek execution); emit-on-done — outputs frozen during spread, fresh on done; done nodes skip while inputs unchanged (1e-3); input change = strict freeze by default, warm restart opt-in via the `warm` param; MAX_ITER 1M spread-wide sheds pathological loops; per-tick (script, inputs) dedup via `FormulaCompute`.
 
 ### RuntimeState
@@ -157,7 +157,7 @@ io.github.y15173334444.create_schematic_compute/
 - `compile(formula)` — 编译中缀表达式为 RPN token 列表 / Compile infix to RPN token list
 - `evaluate(rpn, vars)` — 执行 RPN / Execute RPN with variable bindings
 - `parseScript(formula)` — v1.2+ 多行脚本（赋值、@output、注释、续行）/ Multi-line scripts
-- **AST 模式（刀3/刀4，v1.2.6）**：控制流关键字/`{}`/swizzle/vec3 触发 Stmt 树 + RPN 叶子；`@output` hoist、vec3 输出展开为 3 标量引脚、保守类型推断、向量形态校验 ERROR / AST mode (knife 3/4): control-flow keywords/braces/swizzle/vec3 produce a Stmt tree with RPN leaves; `@output` hoisting, vec3 output expansion, conservative type inference, vector-shape validation errors
+- **AST 模式（刀3/刀4，v1.2.5）**：控制流关键字/`{}`/swizzle/vec3 触发 Stmt 树 + RPN 叶子；`@output` hoist、vec3 输出展开为 3 标量引脚、保守类型推断、向量形态校验 ERROR / AST mode (knife 3/4): control-flow keywords/braces/swizzle/vec3 produce a Stmt tree with RPN leaves; `@output` hoisting, vec3 output expansion, conservative type inference, vector-shape validation errors
 - `evaluateValue(rpn, env)` — 统一 `Value` 栈机（标量与 AST 共用单一求值引擎，刀3）/ Unified Value stack machine — one eval engine for scalar and AST scripts
 - `tokenize()` / `validate()` / `extractVariables()` — 语法高亮、实时校验、变量提取（v1.2.0）/ Tokenize, validate, extract variables
 - 记录类型 / Records：`Token`、`FormulaIssue`、`Assignment`、`ScriptParseResult`（含 `sourceFormula` 陈旧检测字段）；AST 记录见 `FormulaAst`（Stmt/RPN 混合）
@@ -165,7 +165,7 @@ io.github.y15173334444.create_schematic_compute/
   / **15 scalar functions** (trig takes degrees) + **7 vector functions** (`vec3 length normalize dot cross dist yaw pitch`, yaw/pitch mirror the DIRECTION node):
   标量 `sin` `cos` `tan` `asin` `acos` `atan2` `sinh` `cosh` `sqrt` `ln` `log` `exp` `sec` `csc` `cot`
 
-### FormulaInterpreter / FormulaCompute（v1.2.6 刀3/刀5）
+### FormulaInterpreter / FormulaCompute（v1.2.5 刀3/刀5）
 - `FormulaInterpreter` — AST 语句解释器：控制流语句级执行、表达式走 `evaluateValue` 栈机；循环边界协作超时（`CHECK_EVERY=16` 墙钟检查）挂起 `SuspendSignal` 携 carrier（循环栈计数 + Env 快照），续算**寻径执行**跳过已快照化前缀；`MAX_ITER=1M` 按 spread 累计 → `ShedSignal`。/ AST statement interpreter with cooperative suspend at loop boundaries and seek-execution resume.
 - `FormulaCompute` — 预算门面（刀1）：`beginTick()`（ServerTickEvent.Pre 单点复位 + 轮转 `N_heavy_prev` + 清 dedup 表）、`sliceNs() = budgetMs / max(1, N_heavy_prev)`、`reportYield()`、tick 级去重缓存。/ Budget facade: per-tick reset/rotate/dedup-clear, adaptive slice, tick-level dedup.
 

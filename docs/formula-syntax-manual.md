@@ -1,7 +1,7 @@
 # FORMULA 语法手册 · Formula Syntax Manual
 
-> 状态:**✅ 已实施**(v1.2.6,六刀落地:刀1 `4076747` / 刀2 `5865b46` / 刀3 `cbc39de` / 刀4 `f479c1f` / 刀5 `08e8cda` / 刀6 本文档)
-> 适用:FOMULA 节点的脚本语言(v1.2.6 起)。旧脚本(赋值 + 表达式)无需任何修改,逐位兼容。
+> 状态:**✅ 已实施**(v1.2.5 未发布,六刀落地:刀1 `4076747` / 刀2 `5865b46` / 刀3 `cbc39de` / 刀4 `f479c1f` / 刀5 `08e8cda` / 刀6 本文档)
+> 适用:FOMULA 节点的脚本语言(v1.2.5 起)。旧脚本(赋值 + 表达式)无需任何修改,逐位兼容。
 > 决策依据:[`formula-budget-syntax-decisions.md`](formula-budget-syntax-decisions.md)(压力测试收口的权威决策账)
 
 ---
@@ -26,6 +26,7 @@ v = v * 0.9 + 1  // 内部变量自引用
 - **WARN**:循环/分支内被赋值、且同时被读取的变量(如 `repeat { i = i + 1 }` 的 `i`)会得到校验器 WARN——计数器应视为内部变量,但会被引脚收集规则计入读路径。
 - 引脚名即变量名,连线按稳定 pinId 绑定,变量改名不会移位断线(v1.2.4+ 稳定 pinId)。
 - 注释:`--` 行注释(编辑区行首前缀 §8 深灰)。
+- **中文输入即转**:中文/全角符号、字母、数字与空格在输入时实时转换为半角 ASCII——`（）→()`、`×→*`、`≥→>=`、`ｘ→x`、全角空格→半角空格(脚本框与信号发生器公式框共用 `sanitizeFullwidth`)。
 
 ---
 
@@ -143,4 +144,4 @@ FORMULA 在拓扑位置原地求值;**节点入口永远准入(保底),循环边
 
 ---
 
-> 关联文档:[`formula-budget-syntax-decisions.md`](formula-budget-syntax-decisions.md)(决策账)、[`code-architecture.md`](code-architecture.md)(求值模型章节)、[`formula-pin-render-tech-debt.md`](formula-pin-render-tech-debt.md)(引脚模型历史背景)、README changelog v1.2.6(权威变更日志)。
+> 关联文档:[`formula-budget-syntax-decisions.md`](formula-budget-syntax-decisions.md)(决策账)、[`code-architecture.md`](code-architecture.md)(求值模型章节)、[`formula-pin-render-tech-debt.md`](formula-pin-render-tech-debt.md)(引脚模型历史背景)、README changelog v1.2.5(权威变更日志)。
