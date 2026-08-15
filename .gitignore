@@ -26,3 +26,6 @@ texture_reference/
 # Logs
 *.log
 *.hprof
+
+# Dev-server runtime logs (rotated .gz not covered by *.log)
+logs/
