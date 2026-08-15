@@ -240,17 +240,30 @@ result = (PI) + sin(PI)
 → 1 input pin (PI) + 1 output / 1 输入引脚 + 1 输出
 
 ```
--- Ballistic calculation / 弹道计算
-dx = X1 - X0
-dz = Z1 - Z0
-w = sqrt(dx*dx + dz*dz)
-secTheta = 1 / cos(THETA)
-y = (99*secTheta/(20*N)+tan(THETA))*w + 99*ln(1-2*(w*secTheta-K)/(199*N))/(20*ln(100/99)) - 99*K/(20*N) + 2
-@output y
-@output w
-@output secTheta
+-- 火控弹道反解 / Fire-control ballistic inverse solver
+-- 输入:mx,my,mz 炮口 / tx,ty,tz 目标 / v0 初速 / g 重力(正) / fd 阻力系数 / qd 二次阻力 / den 密度
+-- 输出:ay 射向角[0,360) / ap 射角 / hit 可达 / vx0,vy0,vz0 初速向量
+ay = atan2(tx - mx, 0 - (tz - mz))
+if (ay < 0) ay = ay + 360
+cy = cos(ay)
+sy = sin(ay)
+-- 俯仰粗扫描(361 点)+ 轨迹模拟(半隐式欧拉 dt=1/20,阻力/重力积分,记录最近距离)
+p = -89.899
+bestd = 1000000
+repeat 361 {
+  vx = v0 * cos(p) * sy
+  vy = v0 * sin(p)
+  vz = v0 * cos(p) * (0 - cy)
+  -- ... 1200 步轨迹模拟(完整脚本见下方链接) ...
+  p = p + 0.49944
+}
+-- 牛顿迭代精化(≤50 轮,中心差分,阻尼 0.5)——完整可粘贴版本:
+-- docs/examples/ballistic_solver.formula(与 Python 参考实现四组场景对拍通过)
+@output ay
+@output ap
+@output hit
 ```
-→ **7 inputs + 3 outputs / 7输入 + 3输出**
+→ **11 inputs + 6 outputs / 11输入 + 6输出**（完整脚本约 60 万次迭代，由预算池跨 tick 分摊、带进度条）
 
 **15 个标量函数 / 15 scalar functions（角度均按度 / trig in degrees）：** `sin` `cos` `tan` `asin` `acos` `atan2` `sinh` `cosh` `sqrt` `ln` `log` `exp` `sec` `csc` `cot`
 **7 个向量函数 / 7 vector functions：** `vec3` `length` `normalize` `dot` `cross` `dist` `yaw` `pitch`
