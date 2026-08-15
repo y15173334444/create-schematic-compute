@@ -147,7 +147,7 @@ Real-time collaborative graph editing for all 7 block types. Multiple players ca
 ## 📝 Formula Script Node / 公式脚本节点
 
 Multi-line script editor (v1.2.0+) — assignments, control flow, vec3, named outputs, comments, line continuation.
-多行脚本编辑器 — 支持赋值、控制流、vec3、命名输出、注释、续行。完整语法见 [`docs/formula-syntax-manual.md`](docs/formula-syntax-manual.md)。
+多行脚本编辑器 — 支持赋值、控制流、vec3、命名输出、注释、续行。完整语法见 [`docs/formula-syntax-manual.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/formula-syntax-manual.md)。
 
 ### 🧮 Syntax Overview / 语法速览
 
@@ -179,7 +179,7 @@ v = vec3(3, 4, 0)
 
 **中文输入即转 / CJK input converts live** — `（）→()`、`×→*`、`≥→>=`、全角字母/数字/空格即输即转半角。
 
-**预算池 / Budget pool** — 循环重负载脚本跨 tick 分摊：节点下方进度条显示解算进度，spread 期间输出冻结、完成才更新（emit-on-done）；`warm` 编辑区开关控制输入变更时继续迭代还是严格冻结。火控弹道解算完整示例见 [`docs/examples/ballistic_solver.formula`](docs/examples/ballistic_solver.formula)。
+**预算池 / Budget pool** — 循环重负载脚本跨 tick 分摊：节点下方进度条显示解算进度，spread 期间输出冻结、完成才更新（emit-on-done）；`warm` 编辑区开关控制输入变更时继续迭代还是严格冻结。火控弹道解算完整示例见 [`docs/examples/ballistic_solver.formula`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/examples/ballistic_solver.formula)。
 
 ### 🎨 Syntax Highlighting / 语法高亮
 Real-time colour-coded editing with 9 token categories.
@@ -590,7 +590,7 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 | ✍️ Editor Support / 编辑器支持 | Syntax highlighting, autocomplete and validation for all new tokens; `--` line comments / 新语法高亮补全校验；`--` 行注释 |
 
 - **统一求值引擎 / Unified eval engine**：single `Value` stack machine for legacy RPN and new AST scripts — old formulas are byte-identical, no migration, no dual-engine drift. / 单一栈机统一求值,旧脚本逐位不变。
-- 详见 [`docs/formula-syntax-manual.md`](docs/formula-syntax-manual.md)。
+- 详见 [`docs/formula-syntax-manual.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/formula-syntax-manual.md)。
 
 ### ⏱️ 公式预算池 / Formula Budget Pool
 
@@ -608,7 +608,7 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 
 ### 🎯 火控弹道解算示例 / Fire-Control Ballistic Solver Example
 
-[`docs/examples/ballistic_solver.formula`](docs/examples/ballistic_solver.formula) — Newton-iteration aim solver ported to the FORMULA language (CreateBigCannons ballistic model: semi-implicit Euler dt=1/20, linear/quadratic drag). 361-point pitch scan + damped Newton refinement; ~600k interpreter iterations per solve, spread across ticks by the budget pool with a progress bar. 11 input pins (muzzle/target positions, v0, gravity, drag, density) → 6 outputs (yaw/pitch/reachable + velocity vector). Validated against a Python reference implementation across four scenarios.
+[`docs/examples/ballistic_solver.formula`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/examples/ballistic_solver.formula) — Newton-iteration aim solver ported to the FORMULA language (CreateBigCannons ballistic model: semi-implicit Euler dt=1/20, linear/quadratic drag). 361-point pitch scan + damped Newton refinement; ~600k interpreter iterations per solve, spread across ticks by the budget pool with a progress bar. 11 input pins (muzzle/target positions, v0, gravity, drag, density) → 6 outputs (yaw/pitch/reachable + velocity vector). Validated against a Python reference implementation across four scenarios.
 / 牛顿迭代弹道反解：361 点俯仰扫描 + 阻尼牛顿精化，单次约 60 万次解释器迭代、由预算池跨 tick 分摊（带进度条）。11 输入（炮口/目标坐标、初速、重力、阻力、密度）→ 6 输出（射向角/射角/可达 + 初速向量）。四组场景与 Python 参考实现对拍通过。
 
 ### 🖥️ GUI 架构迁移 / GUI Architecture Migration
@@ -731,7 +731,7 @@ Connections now bind to **stable string pin identifiers** instead of positional 
 - `NbtVersions.DATA_VERSION` bumped 3→4
 - Eliminates ~200 lines of REWIRE/reconnect complexity from the v1.2.5 roadmap — pin reordering is now free
 
-Related docs: [`docs/v1.2.4-pin-id-stability-plan.md`](docs/v1.2.4-pin-id-stability-plan.md)
+Related docs: [`docs/v1.2.4-pin-id-stability-plan.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/v1.2.4-pin-id-stability-plan.md)
 
 ### 🧠 Relay Nodes / 继电器节点
 Two new logic nodes for conditional signal routing — available in both Blueprint and Program Computers.
