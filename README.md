@@ -611,8 +611,6 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 [`docs/examples/ballistic_solver.formula`](docs/examples/ballistic_solver.formula) — Newton-iteration aim solver ported to the FORMULA language (CreateBigCannons ballistic model: semi-implicit Euler dt=1/20, linear/quadratic drag). 361-point pitch scan + damped Newton refinement; ~600k interpreter iterations per solve, spread across ticks by the budget pool with a progress bar. 11 input pins (muzzle/target positions, v0, gravity, drag, density) → 6 outputs (yaw/pitch/reachable + velocity vector). Validated against a Python reference implementation across four scenarios.
 / 牛顿迭代弹道反解：361 点俯仰扫描 + 阻尼牛顿精化，单次约 60 万次解释器迭代、由预算池跨 tick 分摊（带进度条）。11 输入（炮口/目标坐标、初速、重力、阻力、密度）→ 6 输出（射向角/射角/可达 + 初速向量）。四组场景与 Python 参考实现对拍通过。
 
-</details>
-
 ### 🖥️ GUI 架构迁移 / GUI Architecture Migration
 
 - **7 个编辑界面脱离容器体系 / All 7 editors leave the container system**：全部 7 个编辑界面（蓝图 / 转速代理 / 编程计算机 / 传感器 / 控制座椅 / 显示器 / 雷达）从 `AbstractContainerScreen` + `Menu` 体系迁移为继承新基类 `AbstractGraphScreen`（纯 `Screen`），由方块在客户端直接 `setScreen` 打开——无 Menu 注册、无网络 round-trip、即时打开。/ All 7 editors (blueprint / speed proxy / program computer / sensor / control seat / monitor / radar) now extend the new `AbstractGraphScreen` base (plain `Screen`) and open client-side via `setScreen` — no menu registrations, no network round-trip, instant open.
