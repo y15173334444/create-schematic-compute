@@ -51,13 +51,18 @@ public class EditPanel {
             h += Math.round(n.commentHeight) - 12;
         }
         if (n.type == NodeType.FORMULA) {
-            // Height based on visual lines (word-wrap aware)
-            if (st != null && !st.fields.isEmpty()
-                && st.fields.get(0) instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mle) {
-                h += 22 + mle.getContentHeight() + 12;
+            // 摘要行 + 参数行(warm 等,刀5) + 脚本编辑区高度 / summary + param rows (warm etc., knife 5) + script box height
+            int paramRows = n.type.editableParamCount();
+            io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mle = null;
+            if (st != null) for (var f : st.fields)
+                if (f instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox m) { mle = m; break; }
+            // Height based on visual lines (word-wrap aware); 刀5 起 fields[0] 是 warm 参数框,MLE 须按类型查找
+            // Since knife 5 fields[0] is the warm param box — the MLE is located by type
+            if (mle != null) {
+                h += 22 + paramRows * 18 + mle.getContentHeight() + 12;
             } else {
                 int lineCount = n.formula.isEmpty() ? 1 : Math.max(1, n.formula.split("\n", -1).length);
-                h += 22 + Math.max(1, Math.min(lineCount, 32)) * 12 + 12;
+                h += 22 + paramRows * 18 + Math.max(1, Math.min(lineCount, 32)) * 12 + 12;
             }
         }
         if (n.type == NodeType.TEXT) h += 22;
@@ -179,8 +184,37 @@ public class EditPanel {
             node.dynamicInputCount, node.dynamicOutputCount);
         g.drawString(Minecraft.getInstance().font, "§7" + summary, px + 4, py + 4, 0xFF888888, false);
         row++; // row 0 = summary
+        // warm 参数（刀5）：两段式切换按钮（信号发生器模式切换同款）——求值策略设置，无引脚、
+        // 不用 EditBox（不抢脚本编辑区的键盘焦点）。值存 node.params[0]，点击走 SET_PARAM op。
+        // warm param (knife 5): segmented toggle (signal-generator mode-switch style) — an evaluation
+        // -policy setting with no pin and no EditBox (keeps keyboard focus in the script editor).
+        // Value lives in node.params[0]; clicks go through the SET_PARAM op.
+        for (int pi = 0; pi < node.type.editableParamCount(); pi++) {
+            int rowY = py + 4 + row * 18;
+            int gap = 4, btnW = (pw - 12 - gap) / 2;
+            boolean on = node.params.length > pi && node.params[pi] > 0.5f;
+            String[] labels = {
+                I18n.get("gui.create_schematic_compute.edit.warm_off"),
+                I18n.get("gui.create_schematic_compute.edit.warm_on")
+            };
+            for (int i = 0; i < 2; i++) {
+                int bx = px + 4 + i * (btnW + gap);
+                boolean isActive = on == (i == 1);
+                g.fill(bx, rowY, bx + btnW, rowY + 16, isActive ? 0xFF2A4A2A : 0xFF2A2A2A);
+                g.renderOutline(bx, rowY, btnW, 16, isActive ? 0xFF88FF88 : 0xFF666666);
+                String label = labels[i];
+                int tw = Minecraft.getInstance().font.width(label);
+                g.drawString(Minecraft.getInstance().font, label, bx + (btnW - tw) / 2, rowY + 3,
+                    isActive ? 0xFFAAFFAA : 0xFF888888, false);
+            }
+            row++;
+        }
         // MultiLineEditBox — single field with word-wrap support
-        if (!st.fields.isEmpty() && st.fields.get(0) instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mle) {
+        // 刀5 起 fields[0] 是 warm 参数框,MLE 按类型查找 / since knife 5 fields[0] is the warm box — find the MLE by type
+        io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mle = null;
+        for (var f : st.fields)
+            if (f instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox m) { mle = m; break; }
+        if (mle != null) {
             int editBoxY = py + 4 + row * 18;
             int contentH = mle.getContentHeight();
             mle.setX(px + 28);

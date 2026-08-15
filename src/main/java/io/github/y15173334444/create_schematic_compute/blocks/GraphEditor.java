@@ -1020,9 +1020,14 @@ public class GraphEditor {
             if (node.type == NodeType.BOOL || node.type == NodeType.GATE || node.type == NodeType.T_FLIPFLOP || node.type == NodeType.LATCH || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON
                 || node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT
                 || node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE
-                || node.type == NodeType.DEBUG_SIGNAL_GEN || node.type == NodeType.MOUSE_JOYSTICK) continue;
+                || node.type == NodeType.DEBUG_SIGNAL_GEN || node.type == NodeType.MOUSE_JOYSTICK
+                // FORMULA 的 warm 参数(刀5)由编辑区自己渲染为切换按钮(GATE 同款),不走通用 EditBox——EditBox 会抢走脚本编辑区的键盘焦点
+                // FORMULA's warm param (knife 5) renders as its own toggle button (GATE-style) — a generic EditBox would steal keyboard focus from the script editor
+                || node.type == NodeType.FORMULA) continue;
             // 参数输入引脚已连线 → 阻止折叠（值由连线提供，但引脚仍可见） (Param input pin has connection → block collapse; value driven by connection but pin still visible)
-            int pinIdx = node.type.inputs + i;
+            // 刀5:参数引脚索引用 paramPinIndex(FORMULA 功能引脚数动态,参数在其后)
+            // Knife 5: param pin index via paramPinIndex (FORMULA's functional count is dynamic, params follow it)
+            int pinIdx = node.paramPinIndex(i);
             if (node.type.editableParamCount() > 0 && getGraph().hasInputConnection(node.id, pinIdx)) {
                 s.blockCollapse = true;
             }
@@ -1252,7 +1257,8 @@ public class GraphEditor {
             int editW = NodeRenderer.WIDE_NW - 36;
             var mle = new io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox(
                 mc.font, 0, 0, editW, 18);
-            mle.setMaxLength(4096);
+            // 16KB 上限:火控等大脚本(~5KB)可整篇粘贴 / 16KB cap: fire-control-scale scripts (~5KB) paste whole
+            mle.setMaxLength(io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox.MAX_LENGTH);
             mle.setValue(node.formula);
             node.cachedScript = null;
 
@@ -1276,7 +1282,9 @@ public class GraphEditor {
 
             final int formulaNodeId = node.id; // capture id, re-fetch node each call
             mle.setResponder(t -> {
-                String sanitized = t.replace('（', '(').replace('）', ')');
+                // 全角/中文符号兜底转换(insertText 已实时转换,此处覆盖 setValue/撤销等路径)
+                // Full-width fallback conversion (insertText already converts live; this covers setValue/undo paths)
+                String sanitized = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.sanitizeFullwidth(t);
                 // Re-fetch from current graph — the graph reference may have been
                 // replaced by an NBT sync between keystrokes.
                 // 每次按键重新获取图引用——NBT 同步可能在两次按键之间替换了图对象。
@@ -1379,8 +1387,11 @@ public class GraphEditor {
             fe.setValue(node.formula);
             fe.setHint(Component.literal("f(x)=... (sin/cos 为度, x∈[0,1])"));
             fe.setResponder(t -> {
-                // 自动将全角括号转为半角 / auto-convert full-width parens to half-width
-                String sanitized = t.replace('（', '(').replace('）', ')');
+                // 全角/中文符号实时转半角(与 FORMULA 编辑器同款);转换时写回输入框显示,响应器以干净文本重入
+                // Convert full-width/CJK symbols live (same as the FORMULA editor); write back to the box
+                // on conversion — the responder re-enters with clean text
+                String sanitized = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.sanitizeFullwidth(t);
+                if (!sanitized.equals(t)) { fe.setValue(sanitized); return; }
                 node.formula = sanitized;
                 node.debugFormulaRpn = null;
                 host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(
@@ -3000,6 +3011,30 @@ public class GraphEditor {
                     host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
                     return true; }
                 }
+                // FORMULA warm 两段式切换（刀5）：摘要行后第一行；求值策略设置、无引脚。
+                // 左半=严格冻结(0)、右半=温启动(1)，SET_PARAM 精确设值（信号发生器模式切换同款 op）。
+                // FORMULA warm segmented toggle (knife 5): first row after the summary; pinless eval-policy
+                // setting. Left = strict freeze (0), right = warm (1) — exact-value SET_PARAM (same op as the
+                // signal generator's mode switch).
+                if (en.type == NodeType.FORMULA && en.params.length > 0) {
+                    int warmLocalY = editLocalY + 4 + 18; // 摘要行(row 0)之后 / after the summary row
+                    int warmW = NodeRenderer.nw(en); // FORMULA = WIDE_NW / wide node panel width
+                    int gap = 4, btnW = (warmW - 12 - gap) / 2;
+                    for (int i = 0; i < 2; i++) {
+                        int bx = 4 + i * (btnW + gap);
+                        if (lmy >= warmLocalY && lmy <= warmLocalY + 16 && lmx >= bx && lmx <= bx + btnW) {
+                            int target = i; // 0=严格冻结 1=温启动 / 0 = strict freeze, 1 = warm
+                            if ((en.params[0] > 0.5f ? 1 : 0) != target) {
+                                float oldWarm = en.params[0];
+                                en.params[0] = target;
+                                var wOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                                    host.getBlockPos(), ownerNodeId(), en.id, 0, (float) target, host.getPlayerUUID());
+                                host.sendOp(wOp); recordOp(wOp, 0, 0, oldWarm, null);
+                            }
+                            return true;
+                        }
+                    }
+                }
                 // BUS_IN/OUT 频段 +/- 按钮（先提交未保存的 busBox，防止名称丢失） (BUS_IN/OUT band +/- buttons; commit unsaved busBox first to avoid name loss)
                 if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
                     // 提交当前节点的 busBox（如有未保存的频道名编辑） (Commit current node's busBox if unsaved channel name edits exist)
@@ -3082,6 +3117,9 @@ public class GraphEditor {
                 // EditBox focus/click
                 // FORMULA / COMMENT multi-line editor: MultiLineEditBox covers full edit panel height
                 if (en.type == NodeType.FORMULA || en.type == NodeType.COMMENT) {
+                    // 刀5:FORMULA 的 MLE 在摘要行 + warm 参数行之后,偏移 = 4 + (1 + 参数行数) * 18
+                    // Knife 5: FORMULA's MLE sits below the summary + warm param rows; offset = 4 + (1 + paramRows) * 18
+                    int mleRowOff = en.type == NodeType.FORMULA ? 4 + (1 + en.type.editableParamCount()) * 18 : -1;
                     for (int fi = 0; fi < st.fields.size(); fi++) {
                         var b = st.fields.get(fi);
                         // Check suggestion popup first (rendered on top of the MLE)
@@ -3102,7 +3140,7 @@ public class GraphEditor {
                                     mleY2 = 6;
                                     mleH2 = Math.round(en.commentHeight) - 12;
                                 } else {
-                                    mleY2 = editLocalY + 4 + 18;
+                                    mleY2 = editLocalY + mleRowOff;
                                     mleH2 = Math.max(b.getHeight(), 18);
                                 }
                                 if (lmx >= 0 && lmx <= enW && lmy >= mleY2 && lmy <= mleY2 + mleH2) {
@@ -3120,7 +3158,7 @@ public class GraphEditor {
                             mleH = Math.round(en.commentHeight) - 12;
                             enW = Math.round(en.commentWidth) - 28; // leave room for left button
                         } else {
-                            mleY = editLocalY + 4 + 18;
+                            mleY = editLocalY + mleRowOff;
                             mleH = Math.max(b.getHeight(), 18);
                         }
                         if (lmx >= 0 && lmx <= enW && lmy >= mleY && lmy <= mleY + mleH) {

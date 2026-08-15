@@ -124,10 +124,14 @@ public class MultiLineEditBox extends EditBox {
         return new int[]{x, y};
     }
 
+    /** 脚本最大长度(刀5 火控脚本 ~5KB;16KB 对 NBT/网络包仍轻量)/ max script length
+     *  (knife-5 fire-control scripts run ~5KB; 16KB stays light for NBT/network packets). */
+    public static final int MAX_LENGTH = 16384;
+
     public MultiLineEditBox(Font font, int x, int y, int width, int height) {
         super(font, x, y, width, height, Component.empty());
         this.font = font;
-        setMaxLength(4096);
+        setMaxLength(MAX_LENGTH);
     }
 
     // ==================== Line utilities ====================
@@ -663,12 +667,15 @@ public class MultiLineEditBox extends EditBox {
 
     @Override
     public void insertText(String textToInsert) {
-        String clean = textToInsert.replace("\r\n", "\n").replace("\r", "");
+        // 输入即转:中文/全角符号实时转半角 ASCII(（）→()、×→* 等),显示与解析均为英文符号
+        // Convert on input: CJK/full-width symbols become half-width ASCII live — display and parser both see English symbols
+        String clean = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.sanitizeFullwidth(
+            textToInsert.replace("\r\n", "\n").replace("\r", ""));
         int cursor = getCursorPosition();
         String before = getValue().substring(0, cursor);
         String after = getValue().substring(cursor);
         String combined = before + clean + after;
-        if (combined.length() > 4096) return;
+        if (combined.length() > MAX_LENGTH) return;
         setValue(combined);
         setCursorPosition(cursor + clean.length());
         setSelAnchor(cursor + clean.length()); // sync hlPos, setValue moved it to end
