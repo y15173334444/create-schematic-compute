@@ -45,6 +45,18 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
 
     // ── Screen 生命周期 / lifecycle ──
 
+    /** 编辑器界面不暂停单机游戏：v1.2.4.1 的容器界面（AbstractContainerScreen）默认不暂停，
+     *  v1.2.5 迁移到纯 Screen 后继承了「打开即暂停」的默认行为——单机里打开编辑器会冻结
+     *  整个世界（方块图全部停 tick）。这里恢复容器界面语义。
+     *  Editor screens must not pause the singleplayer game: v1.2.4.1's container screens
+     *  (AbstractContainerScreen) don't pause by default; the v1.2.5 migration to plain Screen
+     *  inherited the pause-on-open default — freezing the whole world (block graphs stop
+     *  ticking) while an editor is open in singleplayer. Restore the container semantics. */
+    @Override
+    public boolean isPauseScreen() {
+        return false;
+    }
+
     @Override
     protected void init() {
         super.init();
