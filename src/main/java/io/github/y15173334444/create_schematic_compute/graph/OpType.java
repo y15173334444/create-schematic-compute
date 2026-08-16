@@ -29,6 +29,7 @@ public enum OpType {
     TOGGLE_BOOL,
     SET_HOTBAR_ITEM,
     SET_IMAGE_PIXELS,       // stringValue=Base64 pixels, paramIndex=frameIndex
+    SET_IMAGE_SIZE,         // IMAGE 画布尺寸 / canvas size: paramIndex=w, keyIndex=h (1..32)
 
     // UI State
     EXPAND_NODE,

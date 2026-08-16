@@ -351,6 +351,8 @@
   "param.create_schematic_compute.moveX": "Move X",
   "param.create_schematic_compute.moveY": "Move Y",
   "param.create_schematic_compute.rotScl": "Rot/Scl",
+  "param.create_schematic_compute.imgW": "Width (px)",
+  "param.create_schematic_compute.imgH": "Height (px)",
   "param.create_schematic_compute.offsetX": "L/R (+/-)",
   "param.create_schematic_compute.offsetY": "U/D (+/-)",
   "param.create_schematic_compute.offsetZ": "F/B (-/+)",

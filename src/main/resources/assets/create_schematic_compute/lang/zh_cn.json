@@ -363,6 +363,8 @@
   "param.create_schematic_compute.moveX": "水平移动/MoveX",
   "param.create_schematic_compute.moveY": "垂直移动/MoveY",
   "param.create_schematic_compute.rotScl": "旋转缩放/RotScl",
+  "param.create_schematic_compute.imgW": "宽（像素）",
+  "param.create_schematic_compute.imgH": "高（像素）",
   "param.create_schematic_compute.offsetX": "左/右（+/-）",
   "param.create_schematic_compute.offsetY": "上/下（+/-）",
   "param.create_schematic_compute.offsetZ": "前/后（-/+）",

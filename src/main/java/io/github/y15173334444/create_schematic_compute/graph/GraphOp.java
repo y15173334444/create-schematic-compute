@@ -165,6 +165,17 @@ public record GraphOp(
             null, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, pixels);
     }
 
+    /**
+     * 设置 IMAGE/IMAGE_SEQUENCE 画布尺寸（1..32）。paramIndex=w, keyIndex=h。
+     * Set the IMAGE/IMAGE_SEQUENCE canvas size (1..32). paramIndex=w, keyIndex=h.
+     */
+    public static GraphOp setImageSize(BlockPos pos, int ownerNodeId, int nodeId,
+                                        int w, int h, UUID actor) {
+        return new GraphOp(OpType.SET_IMAGE_SIZE, pos, ownerNodeId, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, w, 0f,
+            null, 0, 0, 0, 0, null, h, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
     /** 添加共享视角书签。 stringValue=name, x=camX, y=camY, paramValue=zoom */
     public static GraphOp addBookmark(BlockPos pos, int ownerNodeId,
                                         String name, float camX, float camY, float zoom, UUID actor) {

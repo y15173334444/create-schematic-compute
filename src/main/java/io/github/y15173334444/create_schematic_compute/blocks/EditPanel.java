@@ -76,7 +76,7 @@ public class EditPanel {
                 && outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ) h += 18; // speed (manual+frequency only)
             if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL) h += 18; // amplitude (manual only)
         }
-        if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) h += 54 + 32; // 3 text fields + 2 toggles
+        if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) h += 54 + 36 + 32; // 3 move/rot fields + 2 canvas-size fields + 2 toggles
         if (n.type == NodeType.TEXT || n.type == NodeType.DATA) h += 22;
         if (n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT) h += 22;
         return h;

@@ -47,7 +47,8 @@ public class GraphNode {
     public int layerIndex = 0;                     // 显示编辑器中的 z 序（越高越靠前）/ z-order in display editor (higher = front)
     public int sortB = 0;                          // 图编辑器中的 B 层 z 序（越高越靠前）/ B-layer z-order in graph editor (higher = front)
     public int textColor = 0;                      // ARGB 文字颜色（0 = 使用类型默认）/ ARGB text color (0 = use type default)
-    public int[] imagePixels;                      // IMAGE 节点：16×16 ARGB 像素（延迟分配）/ IMAGE node: 16×16 ARGB pixels (lazy)
+    public int[] imagePixels;                      // IMAGE 节点：ARGB 像素（延迟分配，尺寸=imageWidth×imageHeight）/ IMAGE node: ARGB pixels (lazy, size=imageWidth×imageHeight)
+    public int imageWidth = 16, imageHeight = 16;  // IMAGE 节点画布尺寸（默认 16×16，可长方形 1..32）/ IMAGE canvas size (default 16×16, rectangular 1..32 allowed)
     public java.util.List<int[]> imageSequenceFrames; // IMAGE_SEQUENCE 帧（延迟分配）/ IMAGE_SEQUENCE frames (lazy)
     public float layoutX = 0.5f, layoutY = 0.5f;  // 显示区域中的归一化 [0,1] 坐标 / normalized [0,1] position in display area
     public float displayScale = 1.0f;              // 大小倍数 / size multiplier
@@ -426,7 +427,7 @@ public class GraphNode {
         // IMAGE/IMAGE_SEQUENCE：延迟分配像素数组 + 设置参数默认值
         // IMAGE/IMAGE_SEQUENCE: lazy-allocate pixel array + set param defaults
         if (type == NodeType.IMAGE || type == NodeType.IMAGE_SEQUENCE) {
-            this.imagePixels = new int[256];
+            this.imagePixels = new int[imageWidth * imageHeight];
             java.util.Arrays.fill(this.imagePixels, 0x00000000);
             if (this.params.length > 0 && this.params[0] == 0f) this.params[0] = 0.01f; // moveScaleX
             if (this.params.length > 1 && this.params[1] == 0f) this.params[1] = 0.01f; // moveScaleY
@@ -477,6 +478,7 @@ public class GraphNode {
         n.displayText = displayText;
         n.textColor = textColor;
         if (imagePixels != null) n.imagePixels = imagePixels.clone();
+        n.imageWidth = imageWidth; n.imageHeight = imageHeight;
         if (debugCtrlX != null) n.debugCtrlX = debugCtrlX.clone();
         if (debugCtrlY != null) n.debugCtrlY = debugCtrlY.clone();
         if (imageSequenceFrames != null) {
@@ -556,6 +558,9 @@ public class GraphNode {
         if (textColor != 0) tag.putInt("tcol", textColor);
         if (type == NodeType.IMAGE || type == NodeType.IMAGE_SEQUENCE) {
             if (imagePixels != null) tag.putIntArray("ipx", imagePixels);
+            // 画布尺寸仅非默认时写入，节省空间 / write canvas size only when non-default
+            if (imageWidth != 16) tag.putInt("iw", imageWidth);
+            if (imageHeight != 16) tag.putInt("ih", imageHeight);
         }
         if (type == NodeType.IMAGE_SEQUENCE && imageSequenceFrames != null && !imageSequenceFrames.isEmpty()) {
             ListTag framesTag = new ListTag();
@@ -630,6 +635,8 @@ public class GraphNode {
         if (tag.contains("dtext")) node.displayText = tag.getString("dtext");
         if (tag.contains("tcol")) node.textColor = tag.getInt("tcol");
         if (tag.contains("ipx")) node.imagePixels = tag.getIntArray("ipx");
+        if (tag.contains("iw")) node.imageWidth = Math.max(1, Math.min(32, tag.getInt("iw")));
+        if (tag.contains("ih")) node.imageHeight = Math.max(1, Math.min(32, tag.getInt("ih")));
         // 控制点加载（DEBUG_SIGNAL_GEN 手动曲线模式）
         // Control point loading (DEBUG_SIGNAL_GEN manual curve mode)
         if (node.type == NodeType.DEBUG_SIGNAL_GEN) {
@@ -661,6 +668,71 @@ public class GraphNode {
         node.expanded = tag.getBoolean("expanded");
         node.busConflict = tag.getBoolean("busConflict");
         if (tag.contains("subGraph")) node.subGraph = NodeGraph.load(tag.getCompound("subGraph"), registries);
+        // 迁移保护：ipx/帧数组长度与 W×H 不符时按最小长度重排（兼容旧档/异常数据）
+        // Migration guard: re-fit pixel arrays whose length disagrees with W×H (legacy saves)
+        fixImagePixelsToSize(node);
         return node;
+    }
+
+    // ── 画布尺寸工具（IMAGE / IMAGE_SEQUENCE）──────────────────────────────
+    // Canvas-size utilities (IMAGE / IMAGE_SEQUENCE)
+
+    /** 尺寸上限（渲染与 UI 约束）/ canvas size cap (render + UI constraint) */
+    public static final int IMAGE_MAX_SIZE = 32;
+
+    /**
+     * Resize the node's pixel arrays to W×H, preserving old content top-left aligned;
+     * new area is transparent. All IMAGE_SEQUENCE frames are resized the same way.
+     * 将节点像素数组按新 W×H 重分配，左上角对齐保留旧内容，新增区域透明；
+     * IMAGE_SEQUENCE 的全部帧同步重分配。
+     */
+    public static void resizeImagePixels(GraphNode n, int newW, int newH) {
+        int oldW = n.imageWidth, oldH = n.imageHeight;
+        n.imageWidth = newW; n.imageHeight = newH;
+        if (n.imagePixels != null)
+            n.imagePixels = cropCopy(n.imagePixels, oldW, oldH, newW, newH);
+        if (n.imageSequenceFrames != null) {
+            for (int i = 0; i < n.imageSequenceFrames.size(); i++)
+                n.imageSequenceFrames.set(i, cropCopy(n.imageSequenceFrames.get(i), oldW, oldH, newW, newH));
+        }
+    }
+
+    /**
+     * Re-fit pixel arrays to the node's current W×H when lengths disagree (legacy or
+     * partially-updated data). Flat min-length copy — used only for inconsistent saves.
+     * 长度与当前 W×H 不符时按最小长度重排（旧档/部分更新数据）。扁平最小长度拷贝。
+     */
+    public static void fixImagePixelsToSize(GraphNode n) {
+        int size = n.imageWidth * n.imageHeight;
+        if (n.imagePixels != null && n.imagePixels.length != size)
+            n.imagePixels = fitPixelArray(n.imagePixels, size);
+        if (n.imageSequenceFrames != null) {
+            for (int i = 0; i < n.imageSequenceFrames.size(); i++) {
+                int[] f = n.imageSequenceFrames.get(i);
+                if (f != null && f.length != size) n.imageSequenceFrames.set(i, fitPixelArray(f, size));
+            }
+        }
+    }
+
+    /**
+     * Copy an arbitrary-length pixel array into a new array of the target length,
+     * zero-padded / truncated at the end. 按目标长度重排像素数组，尾部补零/截断。
+     */
+    public static int[] fitPixelArray(int[] src, int targetLen) {
+        int[] dst = new int[Math.max(0, targetLen)];
+        java.util.Arrays.fill(dst, 0x00000000);
+        if (src != null && dst.length > 0)
+            System.arraycopy(src, 0, dst, 0, Math.min(src.length, dst.length));
+        return dst;
+    }
+
+    /** Row-wise crop copy preserving the top-left content region. 逐行裁剪拷贝，保留左上角内容。 */
+    private static int[] cropCopy(int[] src, int srcW, int srcH, int dstW, int dstH) {
+        int[] dst = new int[dstW * dstH];
+        java.util.Arrays.fill(dst, 0x00000000);
+        int rows = Math.min(srcH, dstH), cols = Math.min(srcW, dstW);
+        for (int y = 0; y < rows; y++)
+            System.arraycopy(src, y * srcW, dst, y * dstW, cols);
+        return dst;
     }
 }

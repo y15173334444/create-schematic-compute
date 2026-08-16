@@ -126,7 +126,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                     pixels = n.imageSequenceFrames.get(frameIdx);
                 }
             }
-            if (pixels == null || pixels.length != 256) continue;
+            if (pixels == null || pixels.length != n.imageWidth * n.imageHeight) continue;
             float rotInput = evalAvailable ? be.graph.getInputValue(n.id, rotPin, snapshot.outputs()) : 0;
             float effectiveRot = n.displayRotation + rotInput * rotScale;
             // Clamp the TOP-LEFT anchor so the rotated bounding box stays inside the content
@@ -138,11 +138,11 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             // 上界须减去完整旋转 AABB（2*bbHalf）。旧公式只减半幅，导致图像在右/下边缘
             // 伸出半个图像宽度、与编辑器内位置错位。
             float cell = 0.03f * n.displayScale;
-            float iw = 8f * cell, ih = 8f * cell;
+            float halfW = (n.imageWidth * 0.5f) * cell, halfH = (n.imageHeight * 0.5f) * cell;
             float rA = (float)Math.abs(Math.cos(Math.toRadians(effectiveRot)));
             float rB = (float)Math.abs(Math.sin(Math.toRadians(effectiveRot)));
-            float bbHalfW = (iw * rA + ih * rB) / cw;
-            float bbHalfH = (iw * rB + ih * rA) / ch;
+            float bbHalfW = (halfW * rA + halfH * rB) / cw;
+            float bbHalfH = (halfW * rB + halfH * rA) / ch;
             float rawX = n.layoutX + dx;
             float rawY = n.layoutY + dy;
             float cpx = Math.max(0, Math.min(1 - 2 * bbHalfW, rawX));
@@ -150,14 +150,13 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             float nx = cx + cpx * cw;
             float ny = cy - cpy * ch;
             poseStack.pushPose();
-            float halfW = 8f * cell, halfH = 8f * cell;
             poseStack.translate(nx + halfW, ny - halfH, -n.layerIndex * 0.00001f);
             poseStack.mulPose(Axis.ZP.rotationDegrees(-effectiveRot));
             poseStack.translate(-halfW, halfH, 0);
             var m2 = poseStack.last().pose();
-            for (int py = 0; py < 16; py++) {
-                for (int px = 0; px < 16; px++) {
-                    int idx = py * 16 + px;
+            for (int py = 0; py < n.imageHeight; py++) {
+                for (int px = 0; px < n.imageWidth; px++) {
+                    int idx = py * n.imageWidth + px;
                     if (idx >= pixels.length) continue;
                     int c = pixels[idx];
                     int a = (c >> 24) & 0xFF, rr = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, bl = c & 0xFF;

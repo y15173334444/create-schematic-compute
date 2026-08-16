@@ -15,7 +15,7 @@ public final class GeometryConstants {
     public static final float IMAGE_CELL_BLOCK = 0.03f;
     /** IMAGE pixel cell size in font-pixels */
     public static final float IMAGE_CELL_FONT = 2f;
-    /** IMAGE grid dimension (always 16×16) */
+    /** IMAGE grid default dimension (16×16; per-node canvas size can differ, 1..32) */
     public static final int IMAGE_GRID = 16;
 
     // ── Node layout (graph editor) ──
@@ -79,14 +79,17 @@ public final class GeometryConstants {
      * @param rotation   rotation in degrees
      * @param screenW    effective screen width in blocks
      * @param screenL    effective screen length in blocks
+     * @param imageW     node canvas width in pixels
+     * @param imageH     node canvas height in pixels
      * @return {clampedX, clampedY}
      */
     public static float[] clampImageNorm(float displayScale, float rawX, float rawY,
-                                          float rotation, float screenW, float screenL) {
+                                          float rotation, float screenW, float screenL,
+                                          int imageW, int imageH) {
         float cww = Math.max(screenW - 2 * BEZEL_MARGIN, 0.01f);
         float cwl = Math.max(screenL - 2 * BEZEL_MARGIN, 0.01f);
-        float hw = 8f * IMAGE_CELL_BLOCK * displayScale;
-        float hh = 8f * IMAGE_CELL_BLOCK * displayScale;
+        float hw = (imageW * 0.5f) * IMAGE_CELL_BLOCK * displayScale;
+        float hh = (imageH * 0.5f) * IMAGE_CELL_BLOCK * displayScale;
         float rA = (float) Math.abs(Math.cos(Math.toRadians(rotation)));
         float rB = (float) Math.abs(Math.sin(Math.toRadians(rotation)));
         float bbHalfW = (hw * rA + hh * rB) / cww;

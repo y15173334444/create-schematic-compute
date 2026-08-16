@@ -230,6 +230,8 @@ public class GraphEditor {
                 0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
                 null, 0, 0, 0, 0, null, 0, op.imageFrameIndex(), 0,
                 net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
+            case SET_IMAGE_SIZE -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImageSize(
+                bp, oid, op.targetNodeId(), (int)e.oldX, (int)e.oldY, uid);
             case SET_KEY_BINDING -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.SET_KEY_BINDING, bp, oid, op.targetNodeId(),
                 0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
@@ -936,6 +938,7 @@ public class GraphEditor {
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_TEXT_COLOR
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_COLORS
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_SIZE
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_SIZE
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_CTRL_POINTS) {
             var st = nodeEditStatesById.get(op.targetNodeId());
@@ -1222,13 +1225,42 @@ public class GraphEditor {
             s.paramKeys = new String[]{"color"};
         }
         if (node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) {
-            String[] keys = {"moveX", "moveY", "rotScl"};
+            String[] keys = {"moveX", "moveY", "rotScl", "imgW", "imgH"};
             float[] defaults = {0.01f, 0.01f, 1f};
             for (int pi = 0; pi < 3; pi++) {
                 int idx = pi;
                 var b = new EditBox(mc.font, 0, 0, 50, 16, Component.literal(""));
                 b.setMaxLength(8); b.setValue(ff3(node.params.length > idx ? node.params[idx] : defaults[idx]));
                 int iidx = idx; registerEnter(b, () -> { try { if (node.params.length > iidx) node.params[iidx] = Float.parseFloat(b.getValue().trim()); } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
+                s.fields.add(b);
+            }
+            // 画布尺寸 W/H 输入框（1..32）：Enter/失焦提交，本地立即 resize + 同步服务端
+            // Canvas W/H fields (1..32): commit on Enter/focus-lost, resize locally + sync server
+            for (int si = 0; si < 2; si++) {
+                final int dim = si; // 0=W, 1=H
+                var b = new EditBox(mc.font, 0, 0, 50, 16, Component.literal(""));
+                b.setMaxLength(2);
+                b.setValue(String.valueOf(dim == 0 ? node.imageWidth : node.imageHeight));
+                registerEnter(b, () -> {
+                    try {
+                        int v = Math.max(1, Math.min(io.github.y15173334444.create_schematic_compute.graph.GraphNode.IMAGE_MAX_SIZE,
+                            Integer.parseInt(b.getValue().trim())));
+                        int oldW = node.imageWidth, oldH = node.imageHeight;
+                        if ((dim == 0 && v == oldW) || (dim == 1 && v == oldH)) {
+                            b.setValue(String.valueOf(dim == 0 ? oldW : oldH));
+                            return;
+                        }
+                        int nw = dim == 0 ? v : oldW, nh = dim == 1 ? v : oldH;
+                        io.github.y15173334444.create_schematic_compute.graph.GraphNode.resizeImagePixels(node, nw, nh);
+                        var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImageSize(
+                            host.getBlockPos(), ownerNodeId(), node.id, nw, nh, host.getPlayerUUID());
+                        host.sendOp(op);
+                        recordOp(op, oldW, oldH, 0, null);
+                    } catch (Exception e) {
+                        io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid image size in EditBox: {}", b.getValue().trim());
+                        b.setValue(String.valueOf(dim == 0 ? node.imageWidth : node.imageHeight));
+                    }
+                });
                 s.fields.add(b);
             }
             s.paramKeys = keys;

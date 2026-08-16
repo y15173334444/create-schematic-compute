@@ -107,6 +107,12 @@ public class MonitorScreen extends AbstractGraphScreen {
         // Pixel-only undo stacks (independent of graph-level undo)
         java.util.List<int[]> pixelUndoStack = new java.util.ArrayList<>();
         java.util.List<int[]> pixelRedoStack = new java.util.ArrayList<>();
+        // 并行元数据：-1=像素数组条目，N=帧数标记条目。
+        // 独立标记取代旧的 int[]{count}（其 length==1 判定与 1×1 画布的像素数组冲突）。
+        // Parallel metadata: -1 = pixel-array entry, N = frame-count marker. Replaces the old
+        // int[]{count} marker whose length==1 check collided with 1×1 canvas pixel arrays.
+        java.util.List<Integer> pixelUndoMeta = new java.util.ArrayList<>();
+        java.util.List<Integer> pixelRedoMeta = new java.util.ArrayList<>();
     }
 
     public MonitorScreen(BlockPos pos) {
@@ -169,7 +175,8 @@ public class MonitorScreen extends AbstractGraphScreen {
         if (pixelEdit == null || pixelEdit.node == null) return;
         var node = pixelEdit.node;
         int frameIdx = (node.type == NodeType.IMAGE_SEQUENCE) ? pixelEdit.frameIndex : 0;
-        int[] data = (node.imagePixels != null) ? node.imagePixels.clone() : new int[256];
+        int[] data = (node.imagePixels != null) ? node.imagePixels.clone()
+            : new int[node.imageWidth * node.imageHeight];
         sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(
             blockPos, -1, node.id, frameIdx, data, minecraft.player.getUUID()));
     }
@@ -208,18 +215,24 @@ public class MonitorScreen extends AbstractGraphScreen {
         if (pixelEdit == null || pixelEdit.pixelUndoStack.isEmpty()) return;
         var be = getBE();
         int[] top = pixelEdit.pixelUndoStack.remove(pixelEdit.pixelUndoStack.size() - 1);
-        if (top.length == 1) {
+        int meta = pixelEdit.pixelUndoMeta.remove(pixelEdit.pixelUndoMeta.size() - 1);
+        if (meta >= 0) {
             // Count marker: restore full frames list (new-frame undo)
-            int count = top[0];
+            int count = meta;
             // Save current frames to redo
             int curCount = pixelEdit.node.imageSequenceFrames.size();
-            for (int i = curCount - 1; i >= 0; i--)
+            for (int i = curCount - 1; i >= 0; i--) {
                 pixelEdit.pixelRedoStack.add(pixelEdit.node.imageSequenceFrames.get(i).clone());
+                pixelEdit.pixelRedoMeta.add(-1);
+            }
             pixelEdit.pixelRedoStack.add(new int[]{curCount});
+            pixelEdit.pixelRedoMeta.add(curCount);
             // Restore old frames
             pixelEdit.node.imageSequenceFrames.clear();
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < count; i++) {
                 pixelEdit.node.imageSequenceFrames.add(0, pixelEdit.pixelUndoStack.remove(pixelEdit.pixelUndoStack.size() - 1));
+                pixelEdit.pixelUndoMeta.remove(pixelEdit.pixelUndoMeta.size() - 1);
+            }
             if (pixelEdit.frameIndex >= pixelEdit.node.imageSequenceFrames.size())
                 pixelEdit.frameIndex = pixelEdit.node.imageSequenceFrames.size() - 1;
             if (pixelEdit.frameIndex >= 0)
@@ -227,6 +240,7 @@ public class MonitorScreen extends AbstractGraphScreen {
         } else {
             // Single frame undo (paint operation)
             pixelEdit.pixelRedoStack.add(pixelEdit.node.imagePixels.clone());
+            pixelEdit.pixelRedoMeta.add(-1);
             pixelEdit.node.imagePixels = top;
             if (pixelEdit.frameIndex >= 0 && pixelEdit.node.type == NodeType.IMAGE_SEQUENCE
                 && pixelEdit.node.imageSequenceFrames != null
@@ -240,12 +254,39 @@ public class MonitorScreen extends AbstractGraphScreen {
     private void performPixelRedo() {
         if (pixelEdit == null || pixelEdit.pixelRedoStack.isEmpty()) return;
         var be = getBE();
-        pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone());
-        pixelEdit.node.imagePixels = pixelEdit.pixelRedoStack.remove(pixelEdit.pixelRedoStack.size() - 1);
-        if (pixelEdit.frameIndex >= 0 && pixelEdit.node.type == NodeType.IMAGE_SEQUENCE
-            && pixelEdit.node.imageSequenceFrames != null
-            && pixelEdit.frameIndex < pixelEdit.node.imageSequenceFrames.size()) {
-            pixelEdit.node.imageSequenceFrames.set(pixelEdit.frameIndex, pixelEdit.node.imagePixels);
+        int[] top = pixelEdit.pixelRedoStack.remove(pixelEdit.pixelRedoStack.size() - 1);
+        int meta = pixelEdit.pixelRedoMeta.remove(pixelEdit.pixelRedoMeta.size() - 1);
+        if (meta >= 0) {
+            // Count marker: restore full frames list (new-frame redo)
+            int count = meta;
+            // Save current frames to undo
+            int curCount = pixelEdit.node.imageSequenceFrames.size();
+            for (int i = curCount - 1; i >= 0; i--) {
+                pixelEdit.pixelUndoStack.add(pixelEdit.node.imageSequenceFrames.get(i).clone());
+                pixelEdit.pixelUndoMeta.add(-1);
+            }
+            pixelEdit.pixelUndoStack.add(new int[]{curCount});
+            pixelEdit.pixelUndoMeta.add(curCount);
+            // Restore redo frames
+            pixelEdit.node.imageSequenceFrames.clear();
+            for (int i = 0; i < count; i++) {
+                pixelEdit.node.imageSequenceFrames.add(0, pixelEdit.pixelRedoStack.remove(pixelEdit.pixelRedoStack.size() - 1));
+                pixelEdit.pixelRedoMeta.remove(pixelEdit.pixelRedoMeta.size() - 1);
+            }
+            if (pixelEdit.frameIndex >= pixelEdit.node.imageSequenceFrames.size())
+                pixelEdit.frameIndex = pixelEdit.node.imageSequenceFrames.size() - 1;
+            if (pixelEdit.frameIndex >= 0)
+                pixelEdit.node.imagePixels = pixelEdit.node.imageSequenceFrames.get(pixelEdit.frameIndex);
+        } else {
+            // Single frame redo (paint operation)
+            pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone());
+            pixelEdit.pixelUndoMeta.add(-1);
+            pixelEdit.node.imagePixels = top;
+            if (pixelEdit.frameIndex >= 0 && pixelEdit.node.type == NodeType.IMAGE_SEQUENCE
+                && pixelEdit.node.imageSequenceFrames != null
+                && pixelEdit.frameIndex < pixelEdit.node.imageSequenceFrames.size()) {
+                pixelEdit.node.imageSequenceFrames.set(pixelEdit.frameIndex, pixelEdit.node.imagePixels);
+            }
         }
         if (be != null) be.graph.bumpGeneration();
     }
@@ -373,10 +414,10 @@ public class MonitorScreen extends AbstractGraphScreen {
             // Compute element content size in local (unscaled) coords.
             // In the world: 1 IMAGE pixel = 0.03 blocks = 2 font-pixels (since 1 font-px = 0.015 blocks).
             // In the GUI: each IMAGE pixel = 2 font-pixels (cellSize=2), total 32 font-pixels.
-            float elemW = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? IMAGE_GRID * IMAGE_CELL_FONT
+            float elemW = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? elem.imgW * IMAGE_CELL_FONT
                 : Minecraft.getInstance().font.width(elem.text.isEmpty() && elem.type != NodeType.DATA ? " " :
                     elem.type == NodeType.DATA ? ff1(elem.value) : elem.text);
-            float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? IMAGE_GRID * IMAGE_CELL_FONT : 10;
+            float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? elem.imgH * IMAGE_CELL_FONT : 10;
             // Clamp using same rotated-AABB calculation as the yellow selection outline
             float ex = contentX + elem.x * contentW;
             float ey = contentY + elem.y * contentH;
@@ -407,7 +448,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                 }
                 case IMAGE, IMAGE_SEQUENCE -> {
                     if (elem.pixels != null) {
-                        renderPixels(g, elem.pixels, 0, 0, 2, 16);
+                        renderPixels(g, elem.pixels, 0, 0, 2, elem.imgW, elem.imgH);
                     }
                 }
             }
@@ -418,10 +459,10 @@ public class MonitorScreen extends AbstractGraphScreen {
             for (var elem : elements) {
                 if (selectedDisplayNode.id != elem.nodeId) continue;
                 float s = guiScale * elem.scale;
-                float elemW = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? IMAGE_GRID * IMAGE_CELL_FONT
+                float elemW = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? elem.imgW * IMAGE_CELL_FONT
                     : Minecraft.getInstance().font.width(elem.text.isEmpty() && elem.type != NodeType.DATA ? " " :
                         elem.type == NodeType.DATA ? ff1(elem.value) : elem.text);
-                float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? IMAGE_GRID * IMAGE_CELL_FONT : 10;
+                float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? elem.imgH * IMAGE_CELL_FONT : 10;
                 float ex = contentX + elem.x * contentW;
                 float ey = contentY + elem.y * contentH;
                 float ew = elemW * s, eh = elemH * s;
@@ -477,7 +518,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                 float s = guiScale * elem.scale;
                 float hitW, hitH;
                 if (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) {
-                    hitW = IMAGE_GRID * IMAGE_CELL_FONT; hitH = IMAGE_GRID * IMAGE_CELL_FONT;
+                    hitW = elem.imgW * IMAGE_CELL_FONT; hitH = elem.imgH * IMAGE_CELL_FONT;
                 } else {
                     String displayStr = elem.type == NodeType.DATA
                         ? ff1(elem.value)
@@ -542,9 +583,9 @@ public class MonitorScreen extends AbstractGraphScreen {
             case IMAGE -> {
                 if (node.imagePixels != null) {
                     int cellSz = 1;
-                    int offsetX = x + (size - 16 * cellSz) / 2;
-                    int offsetY = y + (size - 16 * cellSz) / 2;
-                    renderPixels(g, node.imagePixels, offsetX, offsetY, cellSz, 16);
+                    int offsetX = x + (size - node.imageWidth * cellSz) / 2;
+                    int offsetY = y + (size - node.imageHeight * cellSz) / 2;
+                    renderPixels(g, node.imagePixels, offsetX, offsetY, cellSz, node.imageWidth, node.imageHeight);
                 }
             }
             case IMAGE_SEQUENCE -> {
@@ -558,9 +599,9 @@ public class MonitorScreen extends AbstractGraphScreen {
                 }
                 if (pixels != null) {
                     int cellSz = 1;
-                    int offsetX = x + (size - 16 * cellSz) / 2;
-                    int offsetY = y + (size - 16 * cellSz) / 2;
-                    renderPixels(g, pixels, offsetX, offsetY, cellSz, 16);
+                    int offsetX = x + (size - node.imageWidth * cellSz) / 2;
+                    int offsetY = y + (size - node.imageHeight * cellSz) / 2;
+                    renderPixels(g, pixels, offsetX, offsetY, cellSz, node.imageWidth, node.imageHeight);
                 }
                 // "S" badge at top-right of thumbnail
                 int badgeX = x + size - 7;
@@ -912,7 +953,7 @@ public class MonitorScreen extends AbstractGraphScreen {
     }
 
     private record DisplayElement(int nodeId, NodeType type, String text, float value, int[] pixels,
-        String label, float x, float y, float scale, float rotation, int color) {}
+        String label, float x, float y, float scale, float rotation, int color, int imgW, int imgH) {}
 
     private static DisplayElement findInElements(java.util.List<DisplayElement> elements, int nodeId) {
         for (var e : elements) if (e.nodeId == nodeId) return e;
@@ -925,13 +966,13 @@ public class MonitorScreen extends AbstractGraphScreen {
             switch (n.type) {
                 case TEXT -> {
                     int tc = n.textColor != 0 ? n.textColor : 0xFFCCCCCC;
-                    list.add(new DisplayElement(n.id, n.type, n.displayText, 0, null, "", n.layoutX, n.layoutY, n.displayScale, n.displayRotation, tc));
+                    list.add(new DisplayElement(n.id, n.type, n.displayText, 0, null, "", n.layoutX, n.layoutY, n.displayScale, n.displayRotation, tc, 0, 0));
                 }
                 case DATA -> {
                     float val = graph.getInputValue(n.id, 0, outputs);
                     String lbl = n.params.length > 0 ? ff3(n.params[0]) : "val";
                     int dc = n.textColor != 0 ? n.textColor : 0xFF88FF88;
-                    list.add(new DisplayElement(n.id, n.type, "", val, null, lbl, n.layoutX, n.layoutY, n.displayScale, n.displayRotation, dc));
+                    list.add(new DisplayElement(n.id, n.type, "", val, null, lbl, n.layoutX, n.layoutY, n.displayScale, n.displayRotation, dc, 0, 0));
                 }
                 case IMAGE -> {
                     float ox = graph.getInputValue(n.id, 0, outputs);
@@ -946,7 +987,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                     float dy = oy * (invY ? -msY : msY);
                     float effRot = n.displayRotation + rotIn * rotScale;
                     float[] cp = clampImageNorm(n, n.layoutX + dx, n.layoutY + dy, effRot);
-                    list.add(new DisplayElement(n.id, n.type, "", 0, n.imagePixels, "", cp[0], cp[1], n.displayScale, effRot, 0));
+                    list.add(new DisplayElement(n.id, n.type, "", 0, n.imagePixels, "", cp[0], cp[1], n.displayScale, effRot, 0, n.imageWidth, n.imageHeight));
                 }
                 case IMAGE_SEQUENCE -> {
                     float ox = graph.getInputValue(n.id, 0, outputs);
@@ -967,7 +1008,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                         pixels = n.imageSequenceFrames.get(frameIdx);
                     }
                     float[] cp = clampImageNorm(n, n.layoutX + dx, n.layoutY + dy, effRot);
-                    list.add(new DisplayElement(n.id, n.type, "", 0, pixels, "", cp[0], cp[1], n.displayScale, effRot, 0));
+                    list.add(new DisplayElement(n.id, n.type, "", 0, pixels, "", cp[0], cp[1], n.displayScale, effRot, 0, n.imageWidth, n.imageHeight));
                 }
             }
         }
@@ -988,7 +1029,7 @@ public class MonitorScreen extends AbstractGraphScreen {
      *  裁剪 IMAGE 归一化位置 — 委托给共享的 GeometryConstants。 */
     private float[] clampImageNorm(GraphNode n, float rawX, float rawY, float rotation) {
         return GeometryConstants.clampImageNorm(n.displayScale, rawX, rawY, rotation,
-            getEffectiveScreenW(), getEffectiveScreenL());
+            getEffectiveScreenW(), getEffectiveScreenL(), n.imageWidth, n.imageHeight);
     }
 
     /** Compute rotated AABB — delegates to shared GeometryConstants. */
@@ -996,10 +1037,10 @@ public class MonitorScreen extends AbstractGraphScreen {
         return GeometryConstants.elemRotAABB(ex, ey, w, h, rot);
     }
 
-    private void renderPixels(GuiGraphics g, int[] pixels, int x, int y, int cellSize, int gridSize) {
-        for (int py = 0; py < gridSize; py++) {
-            for (int px = 0; px < gridSize; px++) {
-                int idx = py * gridSize + px;
+    private void renderPixels(GuiGraphics g, int[] pixels, int x, int y, int cellSize, int gridW, int gridH) {
+        for (int py = 0; py < gridH; py++) {
+            for (int px = 0; px < gridW; px++) {
+                int idx = py * gridW + px;
                 if (idx < pixels.length) {
                     int color = pixels[idx];
                     // Skip fully transparent pixels so background shows through
@@ -1044,12 +1085,14 @@ public class MonitorScreen extends AbstractGraphScreen {
         int palH = palRows * (PAL_CELL + PAL_GAP);
         int palW2 = 0; //
         int palAreaW = 174;
+        int imgW = pixelEdit.node.imageWidth, imgH = pixelEdit.node.imageHeight;
         int maxPx = (int)(Math.min((w - palAreaW) * 0.65f, (h - 40) * 0.72f));
-        int cellSize = Math.max(6, maxPx / 16);
-        int gridPx = cellSize * 16;
+        int cellSize = Math.max(6, maxPx / Math.max(1, Math.max(imgW, imgH)));
+        int gridPx = cellSize * imgW;
+        int gridPy = cellSize * imgH;
         int ox = palAreaW + (w - palAreaW - gridPx) / 2;
         int palStartY = (h - palH) / 2;
-        int oy = (h - gridPx) / 2;
+        int oy = (h - gridPy) / 2;
 
         pixelEdit.gridOriginX = ox;
         pixelEdit.gridOriginY = oy;
@@ -1058,14 +1101,14 @@ public class MonitorScreen extends AbstractGraphScreen {
         g.fill(0, 0, w, h, 0xAA000000);
 
         // Grid background with border
-        g.fill(ox - 4, oy - 4, ox + gridPx + 4, oy + gridPx + 4, 0xFF2A2822);
-        g.renderOutline(ox - 4, oy - 4, gridPx + 8, gridPx + 8, 0xFF5A4D3A);
+        g.fill(ox - 4, oy - 4, ox + gridPx + 4, oy + gridPy + 4, 0xFF2A2822);
+        g.renderOutline(ox - 4, oy - 4, gridPx + 8, gridPy + 8, 0xFF5A4D3A);
 
         // Draw pixels with actual alpha (transparent → checkerboard visible)
         int[] pixels = pixelEdit.node.imagePixels;
-        for (int py = 0; py < 16; py++) {
-            for (int px = 0; px < 16; px++) {
-                int idx = py * 16 + px;
+        for (int py = 0; py < imgH; py++) {
+            for (int px = 0; px < imgW; px++) {
+                int idx = py * imgW + px;
                 int color = (idx < pixels.length) ? pixels[idx] : 0;
                 int x1 = ox + px * cellSize, y1 = oy + py * cellSize;
                 int x2 = x1 + cellSize, y2 = y1 + cellSize;
@@ -1116,16 +1159,17 @@ public class MonitorScreen extends AbstractGraphScreen {
         );
         // Pre-compute grid origin — leave room for the color picker (200px wide on left)
         int palAreaW = 174; // picker width + margin
+        int imgW = node.imageWidth, imgH = node.imageHeight;
         int maxPx = (int)(Math.min((width - palAreaW) * 0.65f, (height - 40) * 0.72f));
-        int cellSize = Math.max(8, maxPx / 16);
-        state.gridOriginX = palAreaW + (width - palAreaW - cellSize * 16) / 2;
-        state.gridOriginY = (height - cellSize * 16) / 2;
+        int cellSize = Math.max(8, maxPx / Math.max(1, Math.max(imgW, imgH)));
+        state.gridOriginX = palAreaW + (width - palAreaW - cellSize * imgW) / 2;
+        state.gridOriginY = (height - cellSize * imgH) / 2;
         if (node.type == NodeType.IMAGE_SEQUENCE) {
             state.frameIndex = 0;
             if (node.imageSequenceFrames == null || node.imageSequenceFrames.isEmpty()) {
                 node.imageSequenceFrames = new java.util.ArrayList<>();
                 // Start with one frame
-                int[] frame = new int[256];
+                int[] frame = new int[node.imageWidth * node.imageHeight];
                 java.util.Arrays.fill(frame, 0x00000000);
                 node.imageSequenceFrames.add(frame);
             }
@@ -1286,7 +1330,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                     float hw, hh;
                     var font3 = Minecraft.getInstance().font;
                     if (selElem.type == NodeType.IMAGE || selElem.type == NodeType.IMAGE_SEQUENCE) {
-                        hw = IMAGE_GRID * IMAGE_CELL_FONT; hh = IMAGE_GRID * IMAGE_CELL_FONT;
+                        hw = selElem.imgW * IMAGE_CELL_FONT; hh = selElem.imgH * IMAGE_CELL_FONT;
                     } else if (selElem.type == NodeType.DATA) {
                         String vs = ff1(selElem.value);
                         hw = font3.width(vs.isEmpty() ? "0.0" : vs); hh = 10;
@@ -1310,7 +1354,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                 float hitW, hitH;
                 var font2 = Minecraft.getInstance().font;
                 if (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) {
-                    hitW = IMAGE_GRID * IMAGE_CELL_FONT; hitH = IMAGE_GRID * IMAGE_CELL_FONT;
+                    hitW = elem.imgW * IMAGE_CELL_FONT; hitH = elem.imgH * IMAGE_CELL_FONT;
                 } else if (elem.type == NodeType.DATA) {
                     String valStr = ff1(elem.value);
                     hitW = font2.width(valStr.isEmpty() ? "0.0" : valStr);
@@ -1355,7 +1399,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                     float hw2, hh2;
                     var font3 = Minecraft.getInstance().font;
                     if (selElem.type == NodeType.IMAGE || selElem.type == NodeType.IMAGE_SEQUENCE) {
-                        hw2 = IMAGE_GRID * IMAGE_CELL_FONT; hh2 = IMAGE_GRID * IMAGE_CELL_FONT;
+                        hw2 = selElem.imgW * IMAGE_CELL_FONT; hh2 = selElem.imgH * IMAGE_CELL_FONT;
                     } else if (selElem.type == NodeType.DATA) {
                         String vs = ff1(selElem.value);
                         hw2 = font3.width(vs.isEmpty() ? "0.0" : vs); hh2 = 10;
@@ -1413,16 +1457,18 @@ public class MonitorScreen extends AbstractGraphScreen {
                 final int PAL_CELL = PALETTE_CELL, PAL_GAP = PALETTE_GAP, PAL_LEFT = PALETTE_LEFT, PAL_COLS = PALETTE_COLS;
                 int palW2 = 0; //
                 int palAreaW = 174;
-                int cs = Math.max(6, (int)(Math.min((width - palAreaW) * 0.65f, (height - 40) * 0.72f)) / 16);
-                int gp = cs * 16;
-                int ox = palAreaW + (width - palAreaW - gp) / 2, oy = (height - gp) / 2;
-                if (mx >= ox && mx < ox + gp && my >= oy && my < oy + gp) {
+                int imgW = pixelEdit.node.imageWidth, imgH = pixelEdit.node.imageHeight;
+                int cs = Math.max(6, (int)(Math.min((width - palAreaW) * 0.65f, (height - 40) * 0.72f)) / Math.max(1, Math.max(imgW, imgH)));
+                int gp = cs * imgW;
+                int gpy = cs * imgH;
+                int ox = palAreaW + (width - palAreaW - gp) / 2, oy = (height - gpy) / 2;
+                if (mx >= ox && mx < ox + gp && my >= oy && my < oy + gpy) {
                     int px = (int)((mx - ox) / cs);
                     int py = (int)((my - oy) / cs);
-                    if (px >= 0 && px < 16 && py >= 0 && py < 16) {
-                        int idx = py * 16 + px;
+                    if (px >= 0 && px < imgW && py >= 0 && py < imgH) {
+                        int idx = py * imgW + px;
                         if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
-                            if (!pixelDragUndoCaptured) { if (pixelEdit.pixelUndoStack.size() < 100) { pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone()); pixelEdit.pixelRedoStack.clear(); } pixelDragUndoCaptured = true; }
+                            if (!pixelDragUndoCaptured) { if (pixelEdit.pixelUndoStack.size() < 100) { pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone()); pixelEdit.pixelUndoMeta.add(-1); pixelEdit.pixelRedoStack.clear(); pixelEdit.pixelRedoMeta.clear(); } pixelDragUndoCaptured = true; }
                             pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor; RecentColors.addRecent(pixelEdit.selectedColor);
                             if (getBE() != null) getBE().graph.bumpGeneration();
                         }
@@ -1452,7 +1498,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                 float sD = gsD * draggedDisplayNode.displayScale;
                 float eW, eH;
                 if (draggedDisplayNode.type == NodeType.IMAGE || draggedDisplayNode.type == NodeType.IMAGE_SEQUENCE) {
-                    eW = IMAGE_GRID * IMAGE_CELL_FONT; eH = IMAGE_GRID * IMAGE_CELL_FONT;
+                    eW = draggedDisplayNode.imageWidth * IMAGE_CELL_FONT; eH = draggedDisplayNode.imageHeight * IMAGE_CELL_FONT;
                 } else {
                     String ts = draggedDisplayNode.type == NodeType.DATA
                         ? ff1(0f)
@@ -1559,20 +1605,22 @@ public class MonitorScreen extends AbstractGraphScreen {
         int palH = palRows * (PAL_CELL + PAL_GAP);
         int palW2b = 0;
         int palAreaW = 174;
+        int imgW = pixelEdit.node.imageWidth, imgH = pixelEdit.node.imageHeight;
         int maxPx = (int)(Math.min((width - palAreaW) * 0.65f, (height - 40) * 0.72f));
-        int cellSize = Math.max(6, maxPx / 16);
-        int gridPx = cellSize * 16;
+        int cellSize = Math.max(6, maxPx / Math.max(1, Math.max(imgW, imgH)));
+        int gridPx = cellSize * imgW;
+        int gridPy = cellSize * imgH;
         int ox = palAreaW + (width - palAreaW - gridPx) / 2;
-        int oy = (height - gridPx) / 2;
+        int oy = (height - gridPy) / 2;
         int palStartY = (height - palH) / 2;
 
         // Grid click → paint pixel
-        if (mx >= ox && mx < ox + gridPx && my >= oy && my < oy + gridPx) {
+        if (mx >= ox && mx < ox + gridPx && my >= oy && my < oy + gridPy) {
             pixelEdit.newFrameMenuOpen = false;
             int px = (int)((mx - ox) / cellSize);
             int py = (int)((my - oy) / cellSize);
-            if (px >= 0 && px < 16 && py >= 0 && py < 16) {
-                int idx = py * 16 + px;
+            if (px >= 0 && px < imgW && py >= 0 && py < imgH) {
+                int idx = py * imgW + px;
                 if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
                     if (!pixelDragUndoCaptured) { if (pixelEdit.pixelUndoStack.size() < 100) { pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone()); pixelEdit.pixelRedoStack.clear(); } pixelDragUndoCaptured = true; }
                     pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor; RecentColors.addRecent(pixelEdit.selectedColor);
@@ -1622,12 +1670,16 @@ public class MonitorScreen extends AbstractGraphScreen {
                 // Save all current frames for undo
                 int frameCount = pixelEdit.node.imageSequenceFrames.size();
                 if (pixelEdit.pixelUndoStack.size() + frameCount < 100) {
-                    for (int i = frameCount - 1; i >= 0; i--)
+                    for (int i = frameCount - 1; i >= 0; i--) {
                         pixelEdit.pixelUndoStack.add(pixelEdit.node.imageSequenceFrames.get(i).clone());
+                        pixelEdit.pixelUndoMeta.add(-1);
+                    }
                     pixelEdit.pixelUndoStack.add(new int[]{frameCount}); // count marker
+                    pixelEdit.pixelUndoMeta.add(frameCount);
                     pixelEdit.pixelRedoStack.clear();
+                    pixelEdit.pixelRedoMeta.clear();
                 }
-                int[] newFrame = new int[256];
+                int[] newFrame = new int[pixelEdit.node.imageWidth * pixelEdit.node.imageHeight];
                 java.util.Arrays.fill(newFrame, 0x00000000);
                 pixelEdit.node.imageSequenceFrames.add(newFrame);
                 pixelEdit.frameIndex = pixelEdit.node.imageSequenceFrames.size() - 1;
@@ -1640,10 +1692,14 @@ public class MonitorScreen extends AbstractGraphScreen {
             if (pixelEdit.newFrameMenuOpen && mx >= navX + 110 && mx <= navX + 210 && my >= navY + 26 && my <= navY + 36) {
                 int frameCount = pixelEdit.node.imageSequenceFrames.size();
                 if (pixelEdit.pixelUndoStack.size() + frameCount < 100) {
-                    for (int i = frameCount - 1; i >= 0; i--)
+                    for (int i = frameCount - 1; i >= 0; i--) {
                         pixelEdit.pixelUndoStack.add(pixelEdit.node.imageSequenceFrames.get(i).clone());
+                        pixelEdit.pixelUndoMeta.add(-1);
+                    }
                     pixelEdit.pixelUndoStack.add(new int[]{frameCount}); // count marker
+                    pixelEdit.pixelUndoMeta.add(frameCount);
                     pixelEdit.pixelRedoStack.clear();
+                    pixelEdit.pixelRedoMeta.clear();
                 }
                 int[] newFrame = pixelEdit.node.imagePixels.clone();
                 pixelEdit.node.imageSequenceFrames.add(newFrame);

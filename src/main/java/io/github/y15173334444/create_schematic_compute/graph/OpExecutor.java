@@ -353,7 +353,10 @@ public final class OpExecutor {
             case SET_IMAGE_PIXELS -> {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null && op.imageData() != null && op.imageData().length > 0) {
-                    int[] pixels = op.imageData();
+                    // 按节点画布尺寸规整像素数组（旧客户端/竞态可能送来长度不符的帧）
+                    // Normalize pixel data to the node's canvas size (stale/racing peers may
+                    // send mismatched lengths, which the renderer would otherwise skip).
+                    int[] pixels = GraphNode.fitPixelArray(op.imageData(), n.imageWidth * n.imageHeight);
                     n.imagePixels = pixels;
                     if (n.type == NodeType.IMAGE_SEQUENCE) {
                         // Lazily initialize imageSequenceFrames if this is the first
@@ -369,7 +372,7 @@ public final class OpExecutor {
                         // 扩展帧列表以容纳传入的帧索引
                         int fi = op.paramIndex();
                         while (n.imageSequenceFrames.size() <= fi) {
-                            int[] blank = new int[256];
+                            int[] blank = new int[n.imageWidth * n.imageHeight];
                             java.util.Arrays.fill(blank, 0x00000000);
                             n.imageSequenceFrames.add(blank);
                         }
@@ -380,6 +383,19 @@ public final class OpExecutor {
                             n.imagePixels = n.imageSequenceFrames.get(fi);
                     }
                     graph.bumpGeneration();
+                }
+                yield n;
+            }
+            case SET_IMAGE_SIZE -> {
+                // paramIndex=w, keyIndex=h（见 GraphOp.setImageSize）
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null && (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE)) {
+                    int w = Math.max(1, Math.min(GraphNode.IMAGE_MAX_SIZE, op.paramIndex()));
+                    int h = Math.max(1, Math.min(GraphNode.IMAGE_MAX_SIZE, op.keyIndex()));
+                    if (w != n.imageWidth || h != n.imageHeight) {
+                        GraphNode.resizeImagePixels(n, w, h);
+                        graph.bumpGeneration();
+                    }
                 }
                 yield n;
             }
@@ -492,6 +508,8 @@ public final class OpExecutor {
         if (tag.contains("ctx")) node.commentTextColor = tag.getInt("ctx");
         // image pixels
         if (tag.contains("ipx")) node.imagePixels = tag.getIntArray("ipx");
+        if (tag.contains("iw")) node.imageWidth = Math.max(1, Math.min(GraphNode.IMAGE_MAX_SIZE, tag.getInt("iw")));
+        if (tag.contains("ih")) node.imageHeight = Math.max(1, Math.min(GraphNode.IMAGE_MAX_SIZE, tag.getInt("ih")));
         // image sequence frames
         if (tag.contains("iframes")) {
             var framesTag = tag.getList("iframes", net.minecraft.nbt.Tag.TAG_INT_ARRAY);
@@ -499,6 +517,9 @@ public final class OpExecutor {
             for (int i = 0; i < framesTag.size(); i++)
                 node.imageSequenceFrames.add(framesTag.getIntArray(i));
         }
+        // 迁移保护：像素数组长度与 W×H 不符时重排（与 GraphNode.load 一致）
+        // Migration guard: re-fit pixel arrays whose length disagrees with W×H (same as GraphNode.load)
+        GraphNode.fixImagePixelsToSize(node);
         // display layout
         node.layoutX = tag.getFloat("lx");
         node.layoutY = tag.getFloat("ly");

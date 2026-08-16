@@ -378,6 +378,7 @@ public final class EditSessionRegistry {
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_TEXT_COLOR
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_PIXELS
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_FRAME_TOGGLE
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_SIZE
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE) {
             if (gbe instanceof MonitorBlockEntity mbe) {
