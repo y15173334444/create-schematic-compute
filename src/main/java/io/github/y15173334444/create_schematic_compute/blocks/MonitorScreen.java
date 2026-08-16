@@ -1390,6 +1390,23 @@ public class MonitorScreen extends AbstractGraphScreen {
             if (mx >= 66 && mx <= 122 && my >= tby && my <= tby + tbh)
                 { showSettings = true; return true; }
 
+            // 整图同步替换后 selectedDisplayNode 可能指向旧图的孤儿节点——按 id 重映射到当前图。
+            // 否则随后的"已选元素优先检查"会把拖拽绑定到孤儿节点：本地实时更新落空（渲染冻结、
+            // 松手才同步），而流式 op 仍携带孤儿位置使远端可见移动——"首次拖动正常、之后本地
+            // 视觉不更新"的根因。
+            // After a full-graph sync replacement selectedDisplayNode can point at an orphaned
+            // node from the old graph — remap it by id to the current graph. Otherwise the
+            // elevated hit check binds the next drag to the orphan: local live updates go
+            // nowhere (frozen render, position lands on release) while the streamed ops carry
+            // the orphan's position so remote clients still see movement.
+            {
+                var liveGraph = getBE() != null ? getBE().graph : null;
+                if (selectedDisplayNode != null && liveGraph != null) {
+                    var curSel = liveGraph.findNode(selectedDisplayNode.id);
+                    if (curSel != selectedDisplayNode) selectedDisplayNode = curSel;
+                }
+            }
+
             // S/R editable value clicks (compute positions matching toolbar render)
             if (selectedDisplayNode != null) {
                 var fw = Minecraft.getInstance().font;
