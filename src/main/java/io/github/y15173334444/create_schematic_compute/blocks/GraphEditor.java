@@ -103,6 +103,12 @@ public class GraphEditor {
          *  Whether the pixel editor is open (full-sync guard: never replace the local graph
          *  with server data while canvas editing is in progress). */
         default boolean isPixelEditorOpen() { return false; }
+        /** 显示区拖拽是否进行中（整图同步守卫：拖拽中替换本地图会孤儿化 draggedDisplayNode，
+         *  实时更新全部落空、松手时才跳变 —— "拖拽不跟手、松手才同步"的根因）。
+         *  Whether a display-area drag is in progress (full-sync guard: replacing the local
+         *  graph mid-drag orphans draggedDisplayNode, so live updates go nowhere and the
+         *  element jumps on release). */
+        default boolean isDisplayDragInProgress() { return false; }
     }
 
     private final Host host;

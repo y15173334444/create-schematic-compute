@@ -1203,6 +1203,9 @@ public class MonitorScreen extends AbstractGraphScreen {
     /** 像素编辑器是否打开（整图同步守卫用）。 */
     @Override public boolean isPixelEditorOpen() { return pixelEdit != null && pixelEdit.open; }
 
+    /** 显示区拖拽是否进行中（整图同步守卫用）。 */
+    @Override public boolean isDisplayDragInProgress() { return draggedDisplayNode != null; }
+
     // ── Input handling ──
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {

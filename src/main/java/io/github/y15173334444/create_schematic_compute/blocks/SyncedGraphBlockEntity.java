@@ -662,6 +662,7 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
             // 总是加载，故不受此 bug 影响。）
             boolean editorOpen = false;
             boolean hostPixelEditing = false;
+            boolean hostDisplayDragging = false;
             if (level != null && level.isClientSide()) {
                 var mc = net.minecraft.client.Minecraft.getInstance();
                 if (mc.screen instanceof GraphEditor.Host host
@@ -675,9 +676,14 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
                     // replacement here orphans pixelEdit.node and the next saveGraph pushes
                     // stale server data back — the second line of defense for the wiped-pixel bug.
                     hostPixelEditing = host.isPixelEditorOpen();
+                    // 显示区拖拽中同样禁止替换：替换会孤儿化 draggedDisplayNode，实时更新落空，
+                    // 元素冻结到松手才跳变（"拖拽不跟手、松手才同步"的根因）。
+                    // Never replace mid-drag either: it orphans draggedDisplayNode, freezing
+                    // the element until the release op bounces back from the server.
+                    hostDisplayDragging = host.isDisplayDragInProgress();
                 }
             }
-            if ((!editorOpen || pendingLocalOps <= 0) && !hostPixelEditing) {
+            if ((!editorOpen || pendingLocalOps <= 0) && !hostPixelEditing && !hostDisplayDragging) {
                 graph = NodeGraph.load(t.getCompound("graph"), r);
                 rs.onLoad(graph);
                 this.graphReady = true;
