@@ -10,7 +10,7 @@ public final class GeometryConstants {
     /** World blocks per font-pixel (used to match 3D renderer and 2D GUI preview) */
     public static final float FONT_BLOCK_SCALE = 0.015f;
     /** Bezel margin in blocks on each edge of the monitor screen */
-    public static final float BEZEL_MARGIN = 0.04f;
+    public static final float BEZEL_MARGIN = 0.02f;
     /** IMAGE pixel cell size in blocks (= 2 font-pixels) */
     public static final float IMAGE_CELL_BLOCK = 0.03f;
     /** IMAGE pixel cell size in font-pixels */

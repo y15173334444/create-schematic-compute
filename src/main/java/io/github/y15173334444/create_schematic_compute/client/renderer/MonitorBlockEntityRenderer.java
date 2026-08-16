@@ -88,7 +88,9 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         var m = poseStack.last().pose();
 
         float l = -hw, r = hw, t = -hh, b = hh, bw = 0.04f;
-        float margin = 0.04f;
+        // 内容边距与编辑器共用常量，保证归一化坐标映射一致
+        // Content margin shares the constant with the editor so normalized coords map identically
+        float margin = GeometryConstants.BEZEL_MARGIN;
         float cx = -hw + margin, cy = hh - margin;
         float cw = be.screenWidth - 2 * margin, ch = be.screenLength - 2 * margin;
 

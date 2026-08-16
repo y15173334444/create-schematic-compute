@@ -323,12 +323,23 @@ public class MonitorScreen extends AbstractGraphScreen {
 
         // Dark background + grid (matching node editor style)
         g.fill(0, 0, w, h, 0xFF1F1E1A);
-        int gs = 30;
-        for (int gx = da.x; gx < da.x + da.w; gx += gs)
-            g.fill(gx, da.y, gx + 1, da.y + da.h, 0xFF2C2A24);
-        for (int gy = da.y; gy < da.y + da.h; gy += gs)
-            g.fill(da.x, gy, da.x + da.w, gy + 1, 0xFF2C2A24);
-        g.renderOutline(da.x, da.y, da.w, da.h, 0xFF3A3A3A);
+        // Placement guide grid aligned to the CONTENT (display) area so cells are exact
+        // integers and the center is always locatable. 16 divisions = image-native resolution;
+        // major lines every 4 cells; bold center cross at division 8/8.
+        // 摆放辅助线绑定内容区：16 等分（与图像原生分辨率一致），每 4 格主线，8/8 处中心十字加粗。
+        var gi = getContentArea(da);
+        final int GDIV = 16;
+        for (int gx = 0; gx <= GDIV; gx++) {
+            int x = gi[0] + Math.round(gi[2] * (float) gx / GDIV);
+            int c = (gx == GDIV / 2) ? 0xFF5A4D3A : (gx % 4 == 0 ? 0xFF3A3A3A : 0xFF2C2A24);
+            g.fill(x, gi[1], x + 1, gi[1] + gi[3], c);
+        }
+        for (int gy = 0; gy <= GDIV; gy++) {
+            int y = gi[1] + Math.round(gi[3] * (float) gy / GDIV);
+            int c = (gy == GDIV / 2) ? 0xFF5A4D3A : (gy % 4 == 0 ? 0xFF3A3A3A : 0xFF2C2A24);
+            g.fill(gi[0], y, gi[0] + gi[2], y + 1, c);
+        }
+        g.renderOutline(gi[0], gi[1], gi[2], gi[3], 0xFF5A4D3A);
 
         // Read server-authoritative evaluation outputs (synced via ClientboundGraphEvalPacket)
         var graph = getBE() != null ? getBE().graph : new NodeGraph();
