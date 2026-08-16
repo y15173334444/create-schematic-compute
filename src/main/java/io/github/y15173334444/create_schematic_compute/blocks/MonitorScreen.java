@@ -2014,10 +2014,40 @@ public class MonitorScreen extends AbstractGraphScreen {
         return editor.charTyped(ch, mod) || super.charTyped(ch, mod);
     }
 
-    /** 关界面前钩子：保存图到服务端（原 onClose 中的子类逻辑；pendingLocalOps 复位由基类 onClose 处理）
-     *  / pre-close hook: save the graph before closing (was in onClose; the pendingLocalOps reset lives in the base onClose) */
+    /** 关界面前钩子：只提交尚未同步的局部编辑（EditBox/busBox/频段改名/像素编辑器/
+     *  进行中的显示区拖拽），全部走定向 op——不再全量上传整图。全量上传会用本客户端
+     *  旧快照覆盖服务端图，冲掉其他玩家期间并发的编辑；图数据本身早已由各定向 op
+     *  实时同步，服务端才是最新真相。设置面板保持显式 Apply 提交契约（ESC/× 为放弃）。
+     *  Pre-close hook: commit only unsynced in-progress edits (EditBox / busBox /
+     *  band renames / pixel editor / active display drag) via targeted ops — no
+     *  whole-graph upload, which would overwrite the server graph with this client's
+     *  stale snapshot and clobber other players' concurrent edits; the graph is
+     *  already kept in sync live by targeted ops, so the server holds the truth.
+     *  The settings panel keeps its explicit-Apply contract (ESC/× discards). */
     @Override protected void preClose() {
-        if (getBE() != null) saveGraph();
+        if (getBE() == null) return;
+        // 图编辑区的未提交输入（聚焦 EditBox、TAB 切焦点遗留文本、busBox、频段改名）
+        // Pending graph-editor inputs (focused EditBox, text left by TAB focus move, busBox, band renames)
+        editor.commitPendingEditsForClose();
+        // 像素编辑器开着 → 先定向同步当前帧再关（未同步的笔迹只存在于本地）
+        // Pixel editor open → targeted frame sync first (unsynced strokes are local-only)
+        if (pixelEdit != null && pixelEdit.open) closePixelEditorSynced();
+        // 显示模式：进行中的拖拽等不到 mouseReleased → 补发最终 op
+        // Display mode: an in-progress drag never gets mouseReleased → flush the final op
+        if (displayMode) {
+            if (layerDragState == LayerDragState.DRAGGING && layerDragNode != null) {
+                applyLayerReorder();
+            }
+            if (draggedDisplayNode != null) {
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
+                    blockPos, -1, draggedDisplayNode.id,
+                    draggedDisplayNode.layoutX, draggedDisplayNode.layoutY,
+                    draggedDisplayNode.displayScale, draggedDisplayNode.displayRotation,
+                    draggedDisplayNode.moveScale,
+                    minecraft.player.getUUID()));
+                draggedDisplayNode = null;
+            }
+        }
     }
 
 }
