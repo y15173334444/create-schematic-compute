@@ -628,6 +628,17 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 - **便携终端路径 / Portable terminal path**：终端打开设备编辑界面改为直接构造 `XxxScreen(editingPos)`，不再构造虚拟 Menu。/ The terminal now constructs editor screens directly from the edit position — no virtual menus.
 - **守卫保持 / Guards preserved**：`pendingLocalOps` 回弹保护（`5892caa`）、BE 失效自动关界面、`GraphJoin/LeavePacket` 协作生命周期全部迁入基类，行为与迁移前一致；雷达设置面板 EditBox 写回经 `preClose()` 钩子保留。/ The pendingLocalOps bounce-back guard, BE-invalidation auto-close and join/leave collaboration lifecycle all moved into the base class with unchanged behavior; the radar settings EditBox write-back survives via the `preClose()` hook.
 
+### 🖼️ 显示器图像系统修复 / Monitor Image System Fixes
+
+| Fix / 修复 | Description / 说明 |
+|------------|-------------------|
+| ⚓️ 图像锚点对齐 / Image anchor clamp | 编辑器与世界渲染器统一为左上角锚点语义；修正世界渲染器 clamp 上界缺因子 2（`1-bbHalfW` → `1-2*bbHalfW`），缩放图像不再在右/下边框伸出半个图像宽度、与编辑器错位 / Editor and world renderer now share the top-left anchor; the world clamp bound missing the factor-2 was fixed, so scaled images no longer overhang the right/bottom border by half their size |
+| 📏 边框与辅助线 / Bezel + placement grid | 死区减半（0.08→0.04 屏宽，编辑器与世界渲染器同源常量）；摆放辅助线绑定内容区 16 等分 + 中心十字，整格对齐 / Bezel margin halved (shared constant across editor and world renderer); the placement grid is bound to the content area in 16 exact divisions with a bold center cross |
+| 🖱️ 陈旧选择拖拽 / Stale-selection drag | 空白处按下不再抓取图层面板的旧选择——仅当按下点落在已选元素（裁剪后的旋转 AABB）内才开拖；"先点图1、再拖图2"不再误移图1 / Pressing empty canvas no longer grabs the layer-panel selection; the press must fall inside the selected element's clamped rotated AABB, fixing the "select image 1, drag image 2 → image 1 moves" bug |
+| 🧩 图像画布尺寸 / IMAGE canvas size | IMAGE/IMAGE_SEQUENCE 支持自定义 W×H（1..32，默认 16×16）：EditPanel 宽高输入、像素编辑器/缩略图/世界渲染/命中/拖拽全链路按节点尺寸、改尺寸左上角保留内容且全帧同步、旧档迁移保护；像素撤销计数标记改用并行元数据（1×1 画布不再冲突），并补全帧操作缺失的重做路径 / Custom W×H canvas (1..32, default 16×16) with edit-panel inputs, size-aware pixel editor/thumbnails/renderer/hit-tests, top-left-preserving resize across all frames, and legacy-save migration guard; pixel-undo count markers moved to parallel metadata (no more 1×1 collision) and the missing frame-redo path was completed |
+
+- 详见 [`docs/monitor-image-fixes-audit.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/monitor-image-fixes-audit.md)（评审结论、grilling 决策与提交记录）。
+
 </details>
 
 <details>
