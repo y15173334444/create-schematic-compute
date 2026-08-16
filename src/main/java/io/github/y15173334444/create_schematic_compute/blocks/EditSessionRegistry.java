@@ -373,6 +373,7 @@ public final class EditSessionRegistry {
         // 10. 对于影响显示的操作，触发放块更新，使跟踪客户端
         //     （包括未打开 UI 的玩家）通过 getUpdateTag() 获取最新图。
         if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_LAYOUT
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_LAYER_INDEX
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_TEXT_COLOR

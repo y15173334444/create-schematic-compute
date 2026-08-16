@@ -280,6 +280,21 @@ public final class OpExecutor {
                 yield n;
             }
 
+            case SET_LAYER_INDEX -> {
+                // 显示器图层序：layerIndex 存于 sortB 字段；顺带维护 nextLayerIndex，
+                // 保证后续新建节点仍排在最前（图层重排不再依赖整图上传同步该游标）。
+                // Display layer index (value packed in sortB); also maintain nextLayerIndex
+                // so future nodes still land in front without a whole-graph upload syncing it.
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null) {
+                    n.layerIndex = op.sortB();
+                    if (op.sortB() >= graph.nextLayerIndex)
+                        graph.nextLayerIndex = op.sortB() + 1;
+                    graph.bumpGeneration();
+                }
+                yield n;
+            }
+
             case SET_KEY_BINDING -> {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null && n.params.length > 0) {

@@ -23,6 +23,7 @@ public enum OpType {
     SET_TEXT_COLOR,
     SET_BANDS,
     SET_ZORDER,
+    SET_LAYER_INDEX,        // 显示器图层序 / display layer index: sortB=layerIndex
     SET_KEY_BINDING,
     SET_IMAGE_FRAME_TOGGLE,
     SET_DISPLAY_LAYOUT,     // layoutX, layoutY, displayScale, displayRotation

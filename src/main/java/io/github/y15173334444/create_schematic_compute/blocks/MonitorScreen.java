@@ -906,7 +906,16 @@ public class MonitorScreen extends AbstractGraphScreen {
         graph.nextLayerIndex = base + layers.size() + 1;
 
         graph.bumpGeneration();
-        saveGraph();
+        // 定向同步图层序（不再全量上传）：每个节点的 layerIndex 各发一个 SET_LAYER_INDEX op，
+        // 服务端应用并广播，不会用本客户端整图快照冲掉其他玩家的并发编辑。
+        // Targeted layer-order sync (no full upload): one SET_LAYER_INDEX op per node; the
+        // server applies and broadcasts them without clobbering other players' concurrent
+        // edits with a whole-graph snapshot.
+        var uid = minecraft.player.getUUID();
+        for (var ln : layers) {
+            sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setLayerIndex(
+                blockPos, -1, ln.id, ln.layerIndex, uid));
+        }
     }
 
     private void resetLayerDragState() {
@@ -982,7 +991,11 @@ public class MonitorScreen extends AbstractGraphScreen {
             float r = Float.parseFloat(settingFields[5].getValue().trim());
             float p = Float.parseFloat(settingFields[6].getValue().trim());
             float yw = Float.parseFloat(settingFields[7].getValue().trim());
-            saveGraph(); // sync graph to server before settings trigger a block update
+            // 设置面板只发定向的 MonitorSettingsPacket，不再全量上传整图（避免覆盖其他玩家
+            // 并发的图编辑）；图数据本身已由各类定向 op 增量同步。
+            // Settings send only the targeted MonitorSettingsPacket — no whole-graph upload
+            // (which would clobber other players' concurrent graph edits); graph data is
+            // already incrementally synced by the targeted ops.
             var pkt = new io.github.y15173334444.create_schematic_compute.network.MonitorSettingsPacket(
                 getBE().getBlockPos(), w, l, x, y, z, r, p, yw);
             PacketDistributor.sendToServer(pkt);

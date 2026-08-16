@@ -138,6 +138,17 @@ public record GraphOp(
             null, 0, 0, 0, sortB, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
     }
 
+    /**
+     * 设置显示器布局图层序（layerIndex），供图层重排的定向同步使用。
+     * Set the monitor display layer index, for the targeted layer-reorder sync.
+     */
+    public static GraphOp setLayerIndex(BlockPos pos, int ownerNodeId, int nodeId,
+                                         int layer, UUID actor) {
+        return new GraphOp(OpType.SET_LAYER_INDEX, pos, ownerNodeId, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+            null, 0, 0, 0, layer, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
     public static GraphOp setDisplayLayout(BlockPos pos, int ownerNodeId, int nodeId,
                                             float lx, float ly, float scale, float rot,
                                             float moveScale, UUID actor) {
