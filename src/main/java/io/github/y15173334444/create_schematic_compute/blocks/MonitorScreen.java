@@ -1254,16 +1254,23 @@ public class MonitorScreen extends AbstractGraphScreen {
     /** 同步并关闭像素编辑器。所有关闭路径（点外部 / ESC / 颜色确认）必须经此：
      *  否则画布内容只存在于本地，下一次整图同步（如显示区拖拽触发的 flagFullSync）
      *  会用服务端的旧数据替换本地图，绘画内容被清空（"拖拽后图像变透明"的根因）。
+     *  只做定向同步（SET_IMAGE_PIXELS op），不再调用 saveGraph() 全量上传——全量
+     *  上传会把本客户端的整图快照覆盖到服务端，冲掉其他玩家并发的编辑操作；像素与
+     *  帧数据经 sendFrameSync 的定向 op 同步后，服务端应用并 flagFullSync 广播给
+     *  所有客户端，无需整图回传。
      *  Close the pixel editor WITH sync. Every close path (click-outside, ESC, color
      *  confirm) must go through here: otherwise the painting exists only locally and
      *  the next full-graph sync (e.g. the flagFullSync triggered by a display drag)
-     *  replaces the local graph with stale server data, wiping the pixels. */
+     *  replaces the local graph with stale server data, wiping the pixels.
+     *  Only the targeted sync (SET_IMAGE_PIXELS op) runs — no saveGraph() full upload,
+     *  which would overwrite the server graph with this client's snapshot and clobber
+     *  other players' concurrent edits; the targeted op is applied server-side and
+     *  flagFullSync-broadcast to all clients, so no whole-graph echo is needed. */
     private void closePixelEditorSynced() {
         if (pixelEdit == null) return;
         sendFrameSync();
         pixelEdit = null;
         editor.colorPicker.close();
-        saveGraph();
     }
 
     /** 像素编辑器是否打开（整图同步守卫用）。 */
