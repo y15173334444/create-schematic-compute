@@ -1342,16 +1342,44 @@ public class MonitorScreen extends AbstractGraphScreen {
                     }
                 }
             }
-            // No element hit — if already selected via layer panel, start dragging it
+            // No element hit — only drag the selected node if the press point is actually
+            // inside its (clamped) AABB, never grab a stale selection. This fixes the
+            // "select image 1, then drag image 2 → image 1 moves / image 2 doesn't follow" bug.
+            // 未命中任何元素——仅当按下点落在已选节点（裁剪后的）AABB 内时才开拖，
+            // 不再抓取陈旧选择（先点图1再拖图2 → 动的却是图1 的 bug）。
             if (selectedDisplayNode != null) {
-                draggedDisplayNode = selectedDisplayNode;
-                var da2 = computeDisplayArea();
-                var ci2 = getContentArea(da2);
-                float sx = ci2[0] + selectedDisplayNode.layoutX * ci2[2];
-                float sy = ci2[1] + selectedDisplayNode.layoutY * ci2[3];
-                dragOffX = (float)(mx - sx);
-                dragOffY = (float)(my - sy);
-                return true;
+                var selNode = selectedDisplayNode;
+                var selElem = findInElements(elements, selNode.id);
+                if (selElem != null) {
+                    float s2 = guiScale2 * selElem.scale;
+                    float hw2, hh2;
+                    var font3 = Minecraft.getInstance().font;
+                    if (selElem.type == NodeType.IMAGE || selElem.type == NodeType.IMAGE_SEQUENCE) {
+                        hw2 = IMAGE_GRID * IMAGE_CELL_FONT; hh2 = IMAGE_GRID * IMAGE_CELL_FONT;
+                    } else if (selElem.type == NodeType.DATA) {
+                        String vs = ff1(selElem.value);
+                        hw2 = font3.width(vs.isEmpty() ? "0.0" : vs); hh2 = 10;
+                    } else {
+                        hw2 = font3.width(selElem.text.isEmpty() ? " " : selElem.text); hh2 = 10;
+                    }
+                    float ex = contentX + selElem.x * contentW;
+                    float ey = contentY + selElem.y * contentH;
+                    // Apply the same full-AABB clamp as the draw path so the guard region
+                    // matches the element's rendered position at the borders.
+                    // 与绘制路径一致的全 AABB 裁剪，保证守卫区域与边框处实际渲染位置吻合。
+                    float[] bb = elemRotAABB(ex, ey, hw2 * s2, hh2 * s2, selElem.rotation);
+                    if (bb[2] > contentX + contentW) ex -= (bb[2] - (contentX + contentW));
+                    if (bb[3] > contentY + contentH) ey -= (bb[3] - (contentY + contentH));
+                    if (bb[0] < contentX) ex += (contentX - bb[0]);
+                    if (bb[1] < contentY) ey += (contentY - bb[1]);
+                    var aabb = elemRotAABB(ex, ey, hw2 * s2, hh2 * s2, selElem.rotation);
+                    if (mx >= aabb[0] && mx <= aabb[2] && my >= aabb[1] && my <= aabb[3]) {
+                        draggedDisplayNode = selNode;
+                        dragOffX = (float)(mx - ex);
+                        dragOffY = (float)(my - ey);
+                        return true;
+                    }
+                }
             }
             selectedDisplayNode = null;
         }
