@@ -41,6 +41,13 @@ public class MonitorScreen extends AbstractGraphScreen {
     private GraphNode draggedDisplayNode = null;
     private GraphNode selectedDisplayNode = null;
     private float dragOffX, dragOffY;
+    // 显示布局拖拽的实时协作：节流流式发送 SET_DISPLAY_LAYOUT（与节点图 MOVE_NODE 同思路）
+    // Live collaboration for display-layout drags: throttle-stream SET_DISPLAY_LAYOUT
+    private long lastDisplayDragSendTime = 0;
+    private static final long DISPLAY_DRAG_SEND_INTERVAL_MS = 100;
+    // 显示模式下最近一次鼠标屏幕坐标（存在包用）
+    // Last mouse screen position in display mode (for the presence packet)
+    private float lastDisplayMouseX = -1, lastDisplayMouseY = -1;
 
     // ── Layer panel state ──
     private int layerScroll = 0;
@@ -296,7 +303,10 @@ public class MonitorScreen extends AbstractGraphScreen {
         if (displayMode) {
             renderDisplayArea(g, mx, my);
             renderLayerPanel(g, mx, my);
-            editor.renderPresenceOverlay(g);
+            // 显示模式绘制显示区协作叠加层（队友光标 + 拖拽描边），不再绘制节点图光标
+            // Display mode draws the display-area collaboration overlay (teammate cursors +
+            // drag outlines) instead of the node-graph cursor overlay.
+            renderDisplayPresence(g);
         } else {
             editor.renderBg(g, mx, my);
             renderDisplayToggleButton(g);
@@ -312,6 +322,58 @@ public class MonitorScreen extends AbstractGraphScreen {
         // Color picker — always on top of everything
         if (editor.colorPicker.isVisible()) {
             editor.colorPicker.render(g, mx, my);
+        }
+    }
+
+    /** 显示布局模式的协作叠加层：绘制模式为 display 的队友光标（屏幕坐标 + 名字），
+     *  并对队友正在拖拽的元素画彩色描边。元素位置本身通过流式 SET_DISPLAY_LAYOUT 实时同步。
+     *  Display-layout collaboration overlay: draws teammates' cursors (mode==display, screen
+     *  coords + name) and a colored outline around the element a teammate is dragging. Element
+     *  positions themselves sync live via the streamed SET_DISPLAY_LAYOUT ops. */
+    private void renderDisplayPresence(GuiGraphics g) {
+        editor.cleanupStalePresences();
+        var presences = editor.getRemotePresences();
+        if (presences.isEmpty()) return;
+        var mc = Minecraft.getInstance();
+        var graph = getBE() != null ? getBE().graph : null;
+        if (graph == null) return;
+        var elements = collectDisplayElements(graph, getEvalOutputs());
+        for (var p : presences.values()) {
+            if (p.mode() != 1) continue; // 仅显示布局模式的临场数据 / display-layout presences only
+            if (p.cursorX() < 0 || p.cursorY() < 0) continue; // 离开哨兵 / left sentinel
+            int h = p.player().hashCode();
+            int color = 0xFF000000 | (((h >> 16) & 0xFF) << 16) | (((h >> 8) & 0xFF) << 8) | (h & 0xFF);
+            float sx = p.cursorX(), sy = p.cursorY();
+            g.fill((int)sx - 6, (int)sy - 1, (int)sx + 7, (int)sy, color);
+            g.fill((int)sx - 1, (int)sy - 6, (int)sx, (int)sy + 7, color);
+            g.drawString(mc.font, p.playerName(), (int)sx + 8, (int)sy - 4, color);
+            // 队友正在拖拽的元素：彩色描边
+            // Element the teammate is dragging: colored outline
+            if (p.displayDraggedNodeId() >= 0) {
+                var elem = findInElements(elements, p.displayDraggedNodeId());
+                if (elem != null) {
+                    var da = computeDisplayArea();
+                    var ci = getContentArea(da);
+                    float guiScale = da.w * FONT_BLOCK_SCALE / Math.max(getContentWorldW(), 0.01f);
+                    float s = guiScale * elem.scale;
+                    float ew = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE)
+                        ? elem.imgW * IMAGE_CELL_FONT
+                        : Minecraft.getInstance().font.width(elem.text.isEmpty() ? " " : elem.text);
+                    float eh = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE)
+                        ? elem.imgH * IMAGE_CELL_FONT : 10;
+                    float ex = ci[0] + elem.x * ci[2];
+                    float ey = ci[1] + elem.y * ci[3];
+                    float[] bb = elemRotAABB(ex, ey, ew * s, eh * s, elem.rotation);
+                    int dr = ci[0] + ci[2], db = ci[1] + ci[3];
+                    if (bb[2] > dr) ex -= (bb[2] - dr);
+                    if (bb[3] > db) ey -= (bb[3] - db);
+                    if (bb[0] < ci[0]) ex += (ci[0] - bb[0]);
+                    if (bb[1] < ci[1]) ey += (ci[1] - bb[1]);
+                    var aabb = elemRotAABB(ex, ey, ew * s, eh * s, elem.rotation);
+                    g.renderOutline((int)aabb[0] - 1, (int)aabb[1] - 1,
+                        (int)(aabb[2] - aabb[0]) + 2, (int)(aabb[3] - aabb[1]) + 2, color);
+                }
+            }
         }
     }
 
@@ -1206,6 +1268,15 @@ public class MonitorScreen extends AbstractGraphScreen {
     /** 显示区拖拽是否进行中（整图同步守卫用）。 */
     @Override public boolean isDisplayDragInProgress() { return draggedDisplayNode != null; }
 
+    /** 存在包编辑模式：显示布局模式下为 1。 */
+    @Override public int getPresenceMode() { return displayMode ? 1 : 0; }
+    /** 显示布局模式下的光标屏幕 X；节点图模式返回 -1 走图光标。 */
+    @Override public float getPresenceCursorX() { return displayMode ? lastDisplayMouseX : -1f; }
+    /** 显示布局模式下的光标屏幕 Y；节点图模式返回 -1 走图光标。 */
+    @Override public float getPresenceCursorY() { return displayMode ? lastDisplayMouseY : -1f; }
+    /** 显示布局编辑器中正在拖拽的节点 id。 */
+    @Override public int getPresenceDraggedNodeId() { return draggedDisplayNode != null ? draggedDisplayNode.id : -1; }
+
     // ── Input handling ──
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
@@ -1363,6 +1434,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                     float[] bb2 = elemRotAABB(sx, sy, hw * s2, hh * s2, selElem.rotation);
                     if (mx >= bb2[0] && mx <= bb2[2] && my >= bb2[1] && my <= bb2[3]) {
                         draggedDisplayNode = selNode;
+                        lastDisplayDragSendTime = 0;
                         dragOffX = (float)(mx - sx);
                         dragOffY = (float)(my - sy);
                         return true;
@@ -1401,6 +1473,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                     if (hitNode != null) {
                         selectedDisplayNode = hitNode;
                         draggedDisplayNode = hitNode;
+                        lastDisplayDragSendTime = 0;
                         dragOffX = (float)(mx - ex);
                         dragOffY = (float)(my - ey);
                         return true;
@@ -1440,6 +1513,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                     var aabb = elemRotAABB(ex, ey, hw2 * s2, hh2 * s2, selElem.rotation);
                     if (mx >= aabb[0] && mx <= aabb[2] && my >= aabb[1] && my <= aabb[3]) {
                         draggedDisplayNode = selNode;
+                        lastDisplayDragSendTime = 0;
                         dragOffX = (float)(mx - ex);
                         dragOffY = (float)(my - ey);
                         return true;
@@ -1499,6 +1573,10 @@ public class MonitorScreen extends AbstractGraphScreen {
             return;
         }
         if (displayMode) {
+            // 记录最近鼠标屏幕坐标（存在包用）
+            // Track the last mouse screen position for the presence packet
+            lastDisplayMouseX = (float)mx;
+            lastDisplayMouseY = (float)my;
             // Layer drag-and-drop — handle here AND in mouseDragged
             // (Minecraft may call either depending on version/patches)
             if (layerDragState == LayerDragState.PRESSED) {
@@ -1540,6 +1618,21 @@ public class MonitorScreen extends AbstractGraphScreen {
                 if (bbD[1] < cYD) eyD += (cYD - bbD[1]);
                 draggedDisplayNode.layoutX = Math.max(0, Math.min(1, (exD - cXD) / cWD));
                 draggedDisplayNode.layoutY = Math.max(0, Math.min(1, (eyD - cYD) / cHD));
+                // 实时协作：按节流流式发送布局 op，远端客户端实时看到拖拽（松手时另有最终 op）。
+                // 顺带使拖拽期间 pendingLocalOps > 0，与整图同步守卫双重保护本地图不被替换。
+                // Live collaboration: throttle-stream the layout op so remote clients see the
+                // drag in real time (release sends the final op). Also keeps pendingLocalOps > 0
+                // during the drag as a second line of defense for the full-sync guard.
+                long nowMs = System.currentTimeMillis();
+                if (nowMs - lastDisplayDragSendTime >= DISPLAY_DRAG_SEND_INTERVAL_MS) {
+                    lastDisplayDragSendTime = nowMs;
+                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
+                        blockPos, -1, draggedDisplayNode.id,
+                        draggedDisplayNode.layoutX, draggedDisplayNode.layoutY,
+                        draggedDisplayNode.displayScale, draggedDisplayNode.displayRotation,
+                        draggedDisplayNode.moveScale,
+                        minecraft.player.getUUID()));
+                }
             }
             return;
         }

@@ -52,13 +52,17 @@ import java.util.UUID;
  * @param wireEndX         current X of the floating wire end (mouse position) / 连线浮动端当前的 X（跟随鼠标）
  * @param wireEndY         current Y of the floating wire end (mouse position) / 连线浮动端当前的 Y（跟随鼠标）
  * @param selectedNodeIds  all selected node IDs for multi-select lock / 所有选中节点 ID 用于多选锁定
+ * @param mode              editing mode: 0 = node graph editor, 1 = monitor display layout editor / 编辑模式：0=节点图编辑器，1=显示器布局编辑器
+ * @param displayDraggedNodeId  node currently being dragged in the display layout editor, or -1 / 显示布局编辑器中正在拖拽的节点 id，-1 为无
  */
 public record GraphPresencePacket(
     BlockPos pos, UUID player, String playerName,
     int ownerNodeId, float cursorX, float cursorY,
     int selectedNodeId, int editingNodeId,
     int wireFromNode, int wireFromPin, float wireEndX, float wireEndY,
-    int[] selectedNodeIds  // all selected node IDs for multi-select lock / 所有选中节点 ID 用于多选锁定
+    int[] selectedNodeIds,  // all selected node IDs for multi-select lock / 所有选中节点 ID 用于多选锁定
+    byte mode,              // 0=node graph editor, 1=display layout editor
+    int displayDraggedNodeId // node dragged in the display layout editor, -1 = none
 ) implements CustomPacketPayload {
 
     /**
@@ -104,7 +108,11 @@ public record GraphPresencePacket(
                 int count = b.readVarInt();
                 int[] selIds = new int[count];
                 for (int i = 0; i < count; i++) selIds[i] = b.readVarInt();
-                return new GraphPresencePacket(pos, player, name, owner, cx, cy, sel, edit, wfn, wfp, wex, wey, selIds);
+                // 编辑模式 + 显示布局拖拽节点（追加在末尾，保持与旧字段的顺序兼容）
+                // Editing mode + display-drag node (appended at the end for order compatibility)
+                byte mode = b.readByte();
+                int dragId = b.readVarInt();
+                return new GraphPresencePacket(pos, player, name, owner, cx, cy, sel, edit, wfn, wfp, wex, wey, selIds, mode, dragId);
             }
             @Override public void encode(ByteBuf buf, GraphPresencePacket p) {
                 var b = new FriendlyByteBuf(buf);
@@ -126,6 +134,8 @@ public record GraphPresencePacket(
                 int[] ids = p.selectedNodeIds != null ? p.selectedNodeIds : new int[0];
                 b.writeVarInt(ids.length);
                 for (int id : ids) b.writeVarInt(id);
+                b.writeByte(p.mode);
+                b.writeVarInt(p.displayDraggedNodeId);
             }
         };
 

@@ -109,6 +109,18 @@ public class GraphEditor {
          *  graph mid-drag orphans draggedDisplayNode, so live updates go nowhere and the
          *  element jumps on release). */
         default boolean isDisplayDragInProgress() { return false; }
+        /** 存在包编辑模式：0=节点图编辑器，1=显示器布局编辑器。
+         *  Presence editing mode: 0 = node graph editor, 1 = monitor display layout editor. */
+        default int getPresenceMode() { return 0; }
+        /** 显示布局模式下光标的屏幕 X 坐标；返回 -1 时走节点图光标坐标。
+         *  Display-layout cursor screen X; -1 falls back to the node-graph cursor. */
+        default float getPresenceCursorX() { return -1f; }
+        /** 显示布局模式下光标的屏幕 Y 坐标；返回 -1 时走节点图光标坐标。
+         *  Display-layout cursor screen Y; -1 falls back to the node-graph cursor. */
+        default float getPresenceCursorY() { return -1f; }
+        /** 显示布局编辑器中正在拖拽的节点 id（-1 = 无）。
+         *  Node currently dragged in the display layout editor, or -1. */
+        default int getPresenceDraggedNodeId() { return -1; }
     }
 
     private final Host host;
@@ -700,8 +712,15 @@ public class GraphEditor {
         cursorLerp.clear();
     }
 
-    /** Remove stale remote presences that haven't been updated within the timeout window. */
-    private void cleanupStalePresences() {
+    /** 远端临场数据访问器（显示器布局界面的协作叠加层用）。
+     *  Accessor for remote presences (used by the monitor screen's display-mode overlay). */
+    public java.util.Map<java.util.UUID, io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket> getRemotePresences() {
+        return remotePresences;
+    }
+
+    /** Remove stale remote presences that haven't been updated within the timeout window.
+     *  Public so the monitor screen's display-mode presence overlay can also clean up. */
+    public void cleanupStalePresences() {
         long now = System.currentTimeMillis();
         var it = remotePresenceTimestamps.entrySet().iterator();
         while (it.hasNext()) {
@@ -741,11 +760,19 @@ public class GraphEditor {
         float wey = draggingWire ? wireEndY : 0;
         // Collect all selected node IDs for multi-select lock display
         int[] selIds = selectedNodes.stream().mapToInt(n -> n.id).toArray();
+        // 编辑模式感知：显示布局模式下光标与拖拽节点由 Host 提供
+        // Mode-aware presence: in the display layout editor the cursor and dragged node come from the Host
+        int mode = host.getPresenceMode();
+        float pcx = host.getPresenceCursorX();
+        float pcy = host.getPresenceCursorY();
+        float cx = pcx >= 0 ? pcx : s2cX(lastMouseX);
+        float cy = pcy >= 0 ? pcy : s2cY(lastMouseY);
+        int dragId = host.getPresenceDraggedNodeId();
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(
             new io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket(
                 host.getBlockPos(), host.getPlayerUUID(), host.getPlayerName(),
-                ownerNodeId(), s2cX(lastMouseX), s2cY(lastMouseY),
-                selId, editId, wfn, wfp, wex, wey, selIds));
+                ownerNodeId(), cx, cy,
+                selId, editId, wfn, wfp, wex, wey, selIds, (byte)mode, dragId));
     }
 
     // ── Comment node interaction state ──
@@ -2503,10 +2530,13 @@ public class GraphEditor {
                 px = nx; py = ny;
             }
         }
-        // Render remote cursors (same scope only)
+        // Render remote cursors (same scope only; skip display-layout presences — the monitor
+        // screen renders those on its own display-area overlay)
+        // 渲染远端光标（仅同作用域；跳过显示布局的临场数据——由显示器界面自行渲染）
         for (var e : remotePresences.entrySet()) {
             var p = e.getValue();
             if (p.ownerNodeId() != ownerNodeId()) continue; // 不同作用域不显示光标 / skip different scopes
+            if (p.mode() == 1) continue; // 显示布局模式的光标由 MonitorScreen 渲染 / display-mode cursors render on MonitorScreen
             var cl = cursorLerp.get(p.player());
             if (cl == null) { cl = new float[]{0,0,0,0,1f}; cursorLerp.put(p.player(), cl); }
             // Smoothstep cursor lerp (same algorithm as node move)

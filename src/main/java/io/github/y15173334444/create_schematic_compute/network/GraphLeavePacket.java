@@ -82,7 +82,7 @@ public record GraphLeavePacket(BlockPos pos) implements CustomPacketPayload {
                 // The -1 cursor values are the sentinel that tells the client this user has left.
                 // 构建"离开"的在线状态数据包 — 所有字段归零/置空以表示离开。
                 // -1 的光标值是通知客户端该用户已离开的特殊标记。
-                var leftPkt = new GraphPresencePacket(pkt.pos, sp.getUUID(), "", 0, 0f, 0f, -1, -1, -1, 0, 0f, 0f, new int[0]);
+                var leftPkt = new GraphPresencePacket(pkt.pos, sp.getUUID(), "", 0, 0f, 0f, -1, -1, -1, 0, 0f, 0f, new int[0], (byte)0, -1);
 
                 // Broadcast "left" notification to remaining editors so they remove this player immediately.
                 // 向其余编辑者广播"离开"通知，使其立即移除该玩家。
