@@ -718,6 +718,16 @@ public class GraphEditor {
         return remotePresences;
     }
 
+    /** 显示布局组件的软锁：是否有其他玩家正在显示布局模式拖拽该组件。
+     *  Display-layout component soft lock: is another player dragging this component
+     *  in the display layout editor right now? */
+    public boolean isDisplayNodeLocked(int nodeId) {
+        for (var p : remotePresences.values()) {
+            if (p.mode() == 1 && p.displayDraggedNodeId() == nodeId) return true;
+        }
+        return false;
+    }
+
     /** Remove stale remote presences that haven't been updated within the timeout window.
      *  Public so the monitor screen's display-mode presence overlay can also clean up. */
     public void cleanupStalePresences() {
@@ -747,8 +757,12 @@ public class GraphEditor {
         return false;
     }
 
-    /** Send local presence to server (throttled). Called from mouseMoved. */
-    private void sendPresenceIfNeeded() {
+    /** Send local presence to server (throttled). Called from mouseMoved and — for the monitor
+     *  display layout editor — from MonitorScreen.renderGraphCanvas so presence keeps flowing
+     *  in display mode too (the graph-mode renderBg does not run there).
+     *  发送本地临场数据到服务端（节流）。由 mouseMoved 调用；显示器布局模式下由
+     *  MonitorScreen.renderGraphCanvas 调用，保证显示模式也持续发送。 */
+    public void sendPresenceIfNeeded() {
         long now = System.currentTimeMillis();
         if (now - lastPresenceSendTime < PRESENCE_INTERVAL_MS) return;
         lastPresenceSendTime = now;

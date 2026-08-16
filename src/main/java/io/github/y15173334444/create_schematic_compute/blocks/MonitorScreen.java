@@ -301,6 +301,9 @@ public class MonitorScreen extends AbstractGraphScreen {
     @Override
     protected void renderGraphCanvas(GuiGraphics g, int mx, int my, float pt) {
         if (displayMode) {
+            // 显示模式也持续发送存在包（节点图模式的 renderBg 不会在此运行）
+            // Keep presence flowing in display mode (the graph-mode renderBg does not run here)
+            editor.sendPresenceIfNeeded();
             renderDisplayArea(g, mx, my);
             renderLayerPanel(g, mx, my);
             // 显示模式绘制显示区协作叠加层（队友光标 + 拖拽描边），不再绘制节点图光标
@@ -347,8 +350,8 @@ public class MonitorScreen extends AbstractGraphScreen {
             g.fill((int)sx - 6, (int)sy - 1, (int)sx + 7, (int)sy, color);
             g.fill((int)sx - 1, (int)sy - 6, (int)sx, (int)sy + 7, color);
             g.drawString(mc.font, p.playerName(), (int)sx + 8, (int)sy - 4, color);
-            // 队友正在拖拽的元素：彩色描边
-            // Element the teammate is dragging: colored outline
+            // 队友正在拖拽的元素：彩色描边（软锁视觉）+ 名字标注
+            // Element the teammate is dragging: colored outline (soft-lock visual) + name tag
             if (p.displayDraggedNodeId() >= 0) {
                 var elem = findInElements(elements, p.displayDraggedNodeId());
                 if (elem != null) {
@@ -372,6 +375,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                     var aabb = elemRotAABB(ex, ey, ew * s, eh * s, elem.rotation);
                     g.renderOutline((int)aabb[0] - 1, (int)aabb[1] - 1,
                         (int)(aabb[2] - aabb[0]) + 2, (int)(aabb[3] - aabb[1]) + 2, color);
+                    g.drawString(mc.font, "§o" + p.playerName(), (int)aabb[0], (int)aabb[1] - 10, color);
                 }
             }
         }
@@ -1414,8 +1418,12 @@ public class MonitorScreen extends AbstractGraphScreen {
             int contentX = ci[0], contentY = ci[1], contentW = ci[2], contentH = ci[3];
 
             // Check selected element first (from layer panel) — elevated hit priority
+            // 队友正在拖拽的组件跳过（软锁） / skip elements a teammate is dragging (soft lock)
             if (selectedDisplayNode != null) {
                 var selNode = selectedDisplayNode;
+                if (editor.isDisplayNodeLocked(selNode.id)) {
+                    selectedDisplayNode = null;
+                } else {
                 var selElem = findInElements(elements, selNode.id);
                 if (selElem != null) {
                     float s2 = guiScale2 * selElem.scale;
@@ -1440,9 +1448,11 @@ public class MonitorScreen extends AbstractGraphScreen {
                         return true;
                     }
                 }
+                }
             }
             for (int i = elements.size() - 1; i >= 0; i--) {
                 var elem = elements.get(i);
+                if (editor.isDisplayNodeLocked(elem.nodeId)) continue; // 软锁：队友拖拽中 / soft lock
                 float s = guiScale2 * elem.scale;
                 float hitW, hitH;
                 var font2 = Minecraft.getInstance().font;
@@ -1485,7 +1495,7 @@ public class MonitorScreen extends AbstractGraphScreen {
             // "select image 1, then drag image 2 → image 1 moves / image 2 doesn't follow" bug.
             // 未命中任何元素——仅当按下点落在已选节点（裁剪后的）AABB 内时才开拖，
             // 不再抓取陈旧选择（先点图1再拖图2 → 动的却是图1 的 bug）。
-            if (selectedDisplayNode != null) {
+            if (selectedDisplayNode != null && !editor.isDisplayNodeLocked(selectedDisplayNode.id)) {
                 var selNode = selectedDisplayNode;
                 var selElem = findInElements(elements, selNode.id);
                 if (selElem != null) {
@@ -1592,51 +1602,63 @@ public class MonitorScreen extends AbstractGraphScreen {
             }
             // Display-area component dragging
             if (draggedDisplayNode != null) {
-                var da = computeDisplayArea();
-                float gsD = da.w * FONT_BLOCK_SCALE / Math.max(getContentWorldW(), 0.01f);
-                float sD = gsD * draggedDisplayNode.displayScale;
-                float eW, eH;
-                if (draggedDisplayNode.type == NodeType.IMAGE || draggedDisplayNode.type == NodeType.IMAGE_SEQUENCE) {
-                    eW = draggedDisplayNode.imageWidth * IMAGE_CELL_FONT; eH = draggedDisplayNode.imageHeight * IMAGE_CELL_FONT;
-                } else {
-                    String ts = draggedDisplayNode.type == NodeType.DATA
-                        ? ff1(0f)
-                        : (draggedDisplayNode.displayText.isEmpty() ? " " : draggedDisplayNode.displayText);
-                    eW = Minecraft.getInstance().font.width(ts); eH = 10;
-                }
-                var ciD = getContentArea(da);
-                int cXD = ciD[0], cYD = ciD[1], cWD = ciD[2], cHD = ciD[3];
-                float rawX = (float)(mx - cXD - dragOffX) / cWD;
-                float rawY = (float)(my - cYD - dragOffY) / cHD;
-                float exD = cXD + Math.max(0, Math.min(1, rawX)) * cWD;
-                float eyD = cYD + Math.max(0, Math.min(1, rawY)) * cHD;
-                float[] bbD = elemRotAABB(exD, eyD, eW * sD, eH * sD, draggedDisplayNode.displayRotation);
-                int drD = cXD + cWD, dbD = cYD + cHD;
-                if (bbD[2] > drD) exD -= (bbD[2] - drD);
-                if (bbD[3] > dbD) eyD -= (bbD[3] - dbD);
-                if (bbD[0] < cXD) exD += (cXD - bbD[0]);
-                if (bbD[1] < cYD) eyD += (cYD - bbD[1]);
-                draggedDisplayNode.layoutX = Math.max(0, Math.min(1, (exD - cXD) / cWD));
-                draggedDisplayNode.layoutY = Math.max(0, Math.min(1, (eyD - cYD) / cHD));
-                // 实时协作：按节流流式发送布局 op，远端客户端实时看到拖拽（松手时另有最终 op）。
-                // 顺带使拖拽期间 pendingLocalOps > 0，与整图同步守卫双重保护本地图不被替换。
-                // Live collaboration: throttle-stream the layout op so remote clients see the
-                // drag in real time (release sends the final op). Also keeps pendingLocalOps > 0
-                // during the drag as a second line of defense for the full-sync guard.
-                long nowMs = System.currentTimeMillis();
-                if (nowMs - lastDisplayDragSendTime >= DISPLAY_DRAG_SEND_INTERVAL_MS) {
-                    lastDisplayDragSendTime = nowMs;
-                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
-                        blockPos, -1, draggedDisplayNode.id,
-                        draggedDisplayNode.layoutX, draggedDisplayNode.layoutY,
-                        draggedDisplayNode.displayScale, draggedDisplayNode.displayRotation,
-                        draggedDisplayNode.moveScale,
-                        minecraft.player.getUUID()));
-                }
+                updateDisplayDrag(mx, my);
             }
             return;
         }
         editor.mouseMoved(mx, my);
+    }
+
+    /** 更新显示区拖拽位置 + 节流流式发送布局 op。
+     *  必须在 mouseMoved 与 mouseDragged 中都调用：触屏设备拖动期间只产生
+     *  mouseDragged 事件（无 mouseMoved），只挂在 mouseMoved 会导致触屏拖拽
+     *  本地渲染冻结、松手才同步（鼠标则正常）。
+     *  Update the display drag position + throttle-stream the layout op. MUST run from
+     *  both mouseMoved and mouseDragged: touchscreens only emit mouseDragged during a
+     *  drag (no mouseMoved), so updating only in mouseMoved froze the local render on
+     *  touch until release (mouse worked fine). */
+    private void updateDisplayDrag(double mx, double my) {
+        var da = computeDisplayArea();
+        float gsD = da.w * FONT_BLOCK_SCALE / Math.max(getContentWorldW(), 0.01f);
+        float sD = gsD * draggedDisplayNode.displayScale;
+        float eW, eH;
+        if (draggedDisplayNode.type == NodeType.IMAGE || draggedDisplayNode.type == NodeType.IMAGE_SEQUENCE) {
+            eW = draggedDisplayNode.imageWidth * IMAGE_CELL_FONT; eH = draggedDisplayNode.imageHeight * IMAGE_CELL_FONT;
+        } else {
+            String ts = draggedDisplayNode.type == NodeType.DATA
+                ? ff1(0f)
+                : (draggedDisplayNode.displayText.isEmpty() ? " " : draggedDisplayNode.displayText);
+            eW = Minecraft.getInstance().font.width(ts); eH = 10;
+        }
+        var ciD = getContentArea(da);
+        int cXD = ciD[0], cYD = ciD[1], cWD = ciD[2], cHD = ciD[3];
+        float rawX = (float)(mx - cXD - dragOffX) / cWD;
+        float rawY = (float)(my - cYD - dragOffY) / cHD;
+        float exD = cXD + Math.max(0, Math.min(1, rawX)) * cWD;
+        float eyD = cYD + Math.max(0, Math.min(1, rawY)) * cHD;
+        float[] bbD = elemRotAABB(exD, eyD, eW * sD, eH * sD, draggedDisplayNode.displayRotation);
+        int drD = cXD + cWD, dbD = cYD + cHD;
+        if (bbD[2] > drD) exD -= (bbD[2] - drD);
+        if (bbD[3] > dbD) eyD -= (bbD[3] - dbD);
+        if (bbD[0] < cXD) exD += (cXD - bbD[0]);
+        if (bbD[1] < cYD) eyD += (cYD - bbD[1]);
+        draggedDisplayNode.layoutX = Math.max(0, Math.min(1, (exD - cXD) / cWD));
+        draggedDisplayNode.layoutY = Math.max(0, Math.min(1, (eyD - cYD) / cHD));
+        // 实时协作：按节流流式发送布局 op，远端客户端实时看到拖拽（松手时另有最终 op）。
+        // 顺带使拖拽期间 pendingLocalOps > 0，与整图同步守卫双重保护本地图不被替换。
+        // Live collaboration: throttle-stream the layout op so remote clients see the
+        // drag in real time (release sends the final op). Also keeps pendingLocalOps > 0
+        // during the drag as a second line of defense for the full-sync guard.
+        long nowMs = System.currentTimeMillis();
+        if (nowMs - lastDisplayDragSendTime >= DISPLAY_DRAG_SEND_INTERVAL_MS) {
+            lastDisplayDragSendTime = nowMs;
+            sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
+                blockPos, -1, draggedDisplayNode.id,
+                draggedDisplayNode.layoutX, draggedDisplayNode.layoutY,
+                draggedDisplayNode.displayScale, draggedDisplayNode.displayRotation,
+                draggedDisplayNode.moveScale,
+                minecraft.player.getUUID()));
+        }
     }
 
     @Override
@@ -1657,8 +1679,10 @@ public class MonitorScreen extends AbstractGraphScreen {
                 handleLayerAutoScroll(my);
                 return true;
             }
-            // Display-area dragging (existing behavior)
-            if (draggedDisplayNode != null) return true;
+            // Display-area dragging — update in BOTH mouseDragged and mouseMoved (touchscreens
+            // only emit mouseDragged during drags; without this the local render freezes on touch)
+            // 显示区拖拽——mouseDragged 与 mouseMoved 都要更新（触屏拖动期间只发 mouseDragged）
+            if (draggedDisplayNode != null) { updateDisplayDrag(mx, my); return true; }
             return super.mouseDragged(mx, my, btn, dx, dy);
         }
         return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy);
