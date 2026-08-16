@@ -127,7 +127,14 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             if (pixels == null || pixels.length != 256) continue;
             float rotInput = evalAvailable ? be.graph.getInputValue(n.id, rotPin, snapshot.outputs()) : 0;
             float effectiveRot = n.displayRotation + rotInput * rotScale;
-            // Clamp so rotated bounding box doesn't overflow right/bottom
+            // Clamp the TOP-LEFT anchor so the rotated bounding box stays inside the content
+            // area. layoutX/Y is the top-left corner (matching the editor's draw/drag/hit-test),
+            // so the upper bound must subtract the FULL rotated AABB (2*bbHalf). The previous
+            // bound subtracted only half, letting the image overhang the right/bottom edge by
+            // half its own width and diverge from the editor's clamped position.
+            // 左上角锚点 clamp：layoutX/Y 是图像左上角（与编辑器绘制/拖拽/命中测试一致），
+            // 上界须减去完整旋转 AABB（2*bbHalf）。旧公式只减半幅，导致图像在右/下边缘
+            // 伸出半个图像宽度、与编辑器内位置错位。
             float cell = 0.03f * n.displayScale;
             float iw = 8f * cell, ih = 8f * cell;
             float rA = (float)Math.abs(Math.cos(Math.toRadians(effectiveRot)));
@@ -136,8 +143,8 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             float bbHalfH = (iw * rB + ih * rA) / ch;
             float rawX = n.layoutX + dx;
             float rawY = n.layoutY + dy;
-            float cpx = Math.max(0, Math.min(1 - bbHalfW, rawX));
-            float cpy = Math.max(0, Math.min(1 - bbHalfH, rawY));
+            float cpx = Math.max(0, Math.min(1 - 2 * bbHalfW, rawX));
+            float cpy = Math.max(0, Math.min(1 - 2 * bbHalfH, rawY));
             float nx = cx + cpx * cw;
             float ny = cy - cpy * ch;
             poseStack.pushPose();

@@ -68,6 +68,10 @@ public final class GeometryConstants {
     /**
      * Clamp an IMAGE/IMAGE_SEQUENCE node's normalized position so its rotated
      * bounding box stays within [0,1]×[0,1]. Matches the 3D renderer's clamping.
+     * <p>
+     * layoutX/Y is the element's TOP-LEFT anchor (both sides), so the upper bound
+     * subtracts the FULL rotated AABB (2 × half-width/height).
+     * layoutX/Y 是元素左上角锚点（两侧一致），上界减去完整旋转 AABB（2 × 半宽/半高）。
      *
      * @param displayScale node's display scale
      * @param rawX       unclamped normalized X
@@ -88,8 +92,8 @@ public final class GeometryConstants {
         float bbHalfW = (hw * rA + hh * rB) / cww;
         float bbHalfH = (hw * rB + hh * rA) / cwl;
         return new float[]{
-            Math.max(0, Math.min(1 - bbHalfW, rawX)),
-            Math.max(0, Math.min(1 - bbHalfH, rawY))
+            Math.max(0, Math.min(1 - 2 * bbHalfW, rawX)),
+            Math.max(0, Math.min(1 - 2 * bbHalfH, rawY))
         };
     }
 
