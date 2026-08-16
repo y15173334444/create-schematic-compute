@@ -326,6 +326,58 @@ public class GraphEditor {
         }
     }
 
+    /** 提交所有未同步的 busBox 与频段改名编辑（编译与关屏共用）。
+     *  全部走定向 op / BusBandUploadPacket，不做整图上传。
+     *  Commit all unsynced busBox and band-rename edits (shared by compile and
+     *  screen-close). All via targeted ops / BusBandUploadPacket — no whole-graph upload. */
+    private void commitPendingBusEdits() {
+        var pendingCommits = new java.util.ArrayList<>(nodeEditStatesById.values());
+        for (var st : pendingCommits) {
+            if (st.busBox != null && st.busNode != null
+                && !st.busBox.getValue().equals(st.busNode.signalName)) {
+                commitBusBox(st);
+            }
+            // 同步频段 EditBox 的值 (Sync band EditBox values)
+            var node = st.busNode;
+            if (node != null && node.type == NodeType.BUS_OUT && st.fields.size() > 1) {
+                boolean changed = false;
+                for (int bi = 1; bi < st.fields.size(); bi++) {
+                    int sigIdx = bi - 1;
+                    if (sigIdx < node.signalBands.size()) {
+                        String val = st.fields.get(bi).getValue();
+                        if (!val.equals(node.signalBands.get(sigIdx))) {
+                            node.signalBands.set(sigIdx, val);
+                            node.bandsDirty = true;
+                            changed = true;
+                        }
+                    }
+                }
+                if (changed && !node.busConflict) {
+                    net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                        new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
+                            host.getBlockPos(), node.signalName, node.signalBands));
+                }
+            }
+        }
+    }
+
+    /** 关屏前提交所有未同步的局部编辑：所有 enterActions（每个动作都有"值未变即
+     *  空操作"的守卫，幂等——覆盖已聚焦的 W/H 等提交型输入框，以及 TAB 切走焦点后
+     *  遗留的未提交文本）+ busBox + 频段改名。全部走定向 op/包，不做整图上传——
+     *  整图上传会用本客户端旧快照覆盖服务端，冲掉其他玩家并发的编辑。
+     *  Commit all unsynced local edits before the screen closes: every enterAction
+     *  (each is guarded to no-op when unchanged — covers the focused commit-type
+     *  boxes like IMAGE W/H plus text left uncommitted after TAB moved focus away)
+     *  + busBox + band renames. All via targeted ops/packets, no whole-graph upload,
+     *  which would overwrite the server graph with this client's stale snapshot and
+     *  clobber other players' concurrent edits. */
+    public void commitPendingEditsForClose() {
+        for (var e : new java.util.ArrayList<>(enterActions.entrySet())) {
+            e.getValue().run();
+        }
+        commitPendingBusEdits();
+    }
+
     /** Undo last entry (single op or batch). One Ctrl+Z = one call.
      *  撤销最后一个条目（单条 op 或批量组）。一次 Ctrl+Z = 一次调用。 */
     private void opUndo() {
@@ -5029,34 +5081,7 @@ public class GraphEditor {
             }
         }
         // 编译前同步所有未保存的编辑（busBox + 频段改名） (Sync all unsaved edits before compile: busBox + band renames)
-        var pendingCommits = new java.util.ArrayList<>(nodeEditStatesById.values());
-        for (var st : pendingCommits) {
-            if (st.busBox != null && st.busNode != null
-                && !st.busBox.getValue().equals(st.busNode.signalName)) {
-                commitBusBox(st);
-            }
-            // 同步频段 EditBox 的值 (Sync band EditBox values)
-            var node = st.busNode;
-            if (node != null && node.type == NodeType.BUS_OUT && st.fields.size() > 1) {
-                boolean changed = false;
-                for (int bi = 1; bi < st.fields.size(); bi++) {
-                    int sigIdx = bi - 1;
-                    if (sigIdx < node.signalBands.size()) {
-                        String val = st.fields.get(bi).getValue();
-                        if (!val.equals(node.signalBands.get(sigIdx))) {
-                            node.signalBands.set(sigIdx, val);
-                            node.bandsDirty = true;
-                            changed = true;
-                        }
-                    }
-                }
-                if (changed && !node.busConflict) {
-                    net.neoforged.neoforge.network.PacketDistributor.sendToServer(
-                        new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
-                            host.getBlockPos(), node.signalName, node.signalBands));
-                }
-            }
-        }
+        commitPendingBusEdits();
         // 编译时当前状态回归初始值 (Reset current state to initial values on compile)
         for (var n : graph.nodes) {
             if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) {
