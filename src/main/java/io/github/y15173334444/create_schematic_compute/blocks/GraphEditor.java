@@ -99,6 +99,10 @@ public class GraphEditor {
          *  获取客户端缓存的求值快照（供 DEBUG_PROBE 采样）。服务端或无 BE 时返回 null。 */
         default io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() { return null; }
         default GraphEditor getEditor() { return null; }
+        /** 像素编辑器是否打开（整图同步守卫：画布编辑期间禁止用服务端数据替换本地图）。
+         *  Whether the pixel editor is open (full-sync guard: never replace the local graph
+         *  with server data while canvas editing is in progress). */
+        default boolean isPixelEditorOpen() { return false; }
     }
 
     private final Host host;

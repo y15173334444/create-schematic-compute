@@ -661,14 +661,23 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
             // （回归审计：中途加入玩家无法获取最新图。便携终端路径 editorOpen 检测不命中 →
             // 总是加载，故不受此 bug 影响。）
             boolean editorOpen = false;
+            boolean hostPixelEditing = false;
             if (level != null && level.isClientSide()) {
                 var mc = net.minecraft.client.Minecraft.getInstance();
                 if (mc.screen instanceof GraphEditor.Host host
                     && host.getBlockPos().equals(worldPosition)) {
                     editorOpen = true;
+                    // 像素编辑器打开时禁止替换本地图：绘画不逐笔发 op（pendingLocalOps 守卫
+                    // 覆盖不到），此时替换会孤儿化 pixelEdit.node 并让下次 saveGraph 用旧数据
+                    // 覆盖服务端（"拖拽后图像变透明"的二次防线）。
+                    // Never replace the local graph while the pixel editor is open: painting
+                    // sends no per-stroke ops (the pendingLocalOps guard can't cover it), so a
+                    // replacement here orphans pixelEdit.node and the next saveGraph pushes
+                    // stale server data back — the second line of defense for the wiped-pixel bug.
+                    hostPixelEditing = host.isPixelEditorOpen();
                 }
             }
-            if (!editorOpen || pendingLocalOps <= 0) {
+            if ((!editorOpen || pendingLocalOps <= 0) && !hostPixelEditing) {
                 graph = NodeGraph.load(t.getCompound("graph"), r);
                 rs.onLoad(graph);
                 this.graphReady = true;

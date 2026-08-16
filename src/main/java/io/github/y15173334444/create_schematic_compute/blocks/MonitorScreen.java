@@ -1152,7 +1152,7 @@ public class MonitorScreen extends AbstractGraphScreen {
         state.frameIndex = -1;
         state.colorButton = new ColorPickerButton(
             () -> state.selectedColor,
-            c -> { state.selectedColor = c; pixelEdit = null; },
+            c -> { state.selectedColor = c; closePixelEditorSynced(); },
             editor.colorPicker,
             true, // left-side
             c -> state.selectedColor = c  // live update
@@ -1179,11 +1179,29 @@ public class MonitorScreen extends AbstractGraphScreen {
         pixelEdit = state;
         // Auto-open picker with live update for real-time painting
         editor.colorPicker.open(0, height / 2, state.selectedColor,
-            c -> { state.selectedColor = c; pixelEdit = null; },
+            c -> { state.selectedColor = c; closePixelEditorSynced(); },
             c -> state.selectedColor = c,
             true,  // left-side
             true); // show erase button
     }
+
+    /** 同步并关闭像素编辑器。所有关闭路径（点外部 / ESC / 颜色确认）必须经此：
+     *  否则画布内容只存在于本地，下一次整图同步（如显示区拖拽触发的 flagFullSync）
+     *  会用服务端的旧数据替换本地图，绘画内容被清空（"拖拽后图像变透明"的根因）。
+     *  Close the pixel editor WITH sync. Every close path (click-outside, ESC, color
+     *  confirm) must go through here: otherwise the painting exists only locally and
+     *  the next full-graph sync (e.g. the flagFullSync triggered by a display drag)
+     *  replaces the local graph with stale server data, wiping the pixels. */
+    private void closePixelEditorSynced() {
+        if (pixelEdit == null) return;
+        sendFrameSync();
+        pixelEdit = null;
+        editor.colorPicker.close();
+        saveGraph();
+    }
+
+    /** 像素编辑器是否打开（整图同步守卫用）。 */
+    @Override public boolean isPixelEditorOpen() { return pixelEdit != null && pixelEdit.open; }
 
     // ── Input handling ──
     @Override
@@ -1716,7 +1734,7 @@ public class MonitorScreen extends AbstractGraphScreen {
 
         // Click outside → close
         if (mx < ox - 20 || mx > ox + gridPx + 20 || my < oy - 20 || my > oy + gridPx + 40) {
-            sendFrameSync(); pixelEdit = null; editor.colorPicker.close(); saveGraph();
+            closePixelEditorSynced();
             return true;
         }
 
@@ -1735,7 +1753,7 @@ public class MonitorScreen extends AbstractGraphScreen {
             // ESC: close color picker AND pixel editor together (not just the picker)
             // ESC：同时关闭调色板与像素编辑器
             if (key == 256 && pixelEdit != null && pixelEdit.open) {
-                sendFrameSync(); pixelEdit = null; editor.colorPicker.close(); saveGraph();
+                closePixelEditorSynced();
                 return true;
             }
             return editor.colorPicker.keyPressed(key, sc, mod);
@@ -1755,7 +1773,7 @@ public class MonitorScreen extends AbstractGraphScreen {
         if (pixelEdit != null && pixelEdit.open) {
             // Color picker handles hex input; no separate hex editing needed
             if (key == 256) { // ESC
-                sendFrameSync(); pixelEdit = null; editor.colorPicker.close(); saveGraph();
+                closePixelEditorSynced();
                 return true;
             }
             return true; // consume all keys while pixel editor is open
