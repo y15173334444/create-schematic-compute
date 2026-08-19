@@ -2948,14 +2948,6 @@ public class GraphEditor {
                     cycleWarning=I18n.get("gui.create_schematic_compute.node_limit");
                 }else{
                     var added = graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));
-                    // 显示节点：默认锚定玩家当前视线（AR HUD 贴世界模式用；创建后静态可改）
-                    // Display nodes: default anchor = player's current view (for on-world
-                    // HUD anchoring; stays static afterwards)
-                    if (isDisplayNodeType(selectedMenuType)) {
-                        var cam = Minecraft.getInstance().gameRenderer.getMainCamera();
-                        added.anchorYaw = cam.getYRot();
-                        added.anchorPitch = -cam.getXRot(); // MC pitch: positive = look down
-                    }
                     rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping
                     var addOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(
                         host.getBlockPos(), ownerNodeId(), added.id,
@@ -5146,14 +5138,6 @@ public class GraphEditor {
             || n.type == NodeType.ENCAPSULATION || n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT
             || n.type == NodeType.COMMENT
             || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT;
-    }
-
-    /** 是否为显示器内容节点（HUD 贴世界锚定默认值适用）。
-     *  Whether this type is a monitor display node (HUD on-world anchor default applies). */
-    private static boolean isDisplayNodeType(NodeType t) {
-        return t == NodeType.TEXT || t == NodeType.DATA
-            || t == NodeType.IMAGE || t == NodeType.IMAGE_SEQUENCE
-            || t == NodeType.HUD_PITCH_LADDER;
     }
 
     /** 关闭注释颜色编辑弹窗，重置所有相关状态。

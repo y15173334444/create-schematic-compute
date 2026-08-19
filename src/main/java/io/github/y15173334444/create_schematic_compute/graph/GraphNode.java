@@ -50,11 +50,6 @@ public class GraphNode {
     public int[] imagePixels;                      // IMAGE 节点：ARGB 像素（延迟分配，尺寸=imageWidth×imageHeight）/ IMAGE node: ARGB pixels (lazy, size=imageWidth×imageHeight)
     public int imageWidth = 16, imageHeight = 16;  // IMAGE 节点画布尺寸（默认 16×16，可长方形 1..32）/ IMAGE canvas size (default 16×16, rectangular 1..32 allowed)
     public java.util.List<int[]> imageSequenceFrames; // IMAGE_SEQUENCE 帧（延迟分配）/ IMAGE_SEQUENCE frames (lazy)
-    // ── AR HUD 锚定（Phase 2）：贴玻璃 / 贴世界  /  AR HUD anchoring (Phase 2): on-glass / on-world
-    public int anchorMode = 0;        // 0=贴玻璃（layout 定位） 1=贴世界（anchorYaw/anchorPitch 共形投影）
-                                      // 0=on-glass (layout) 1=on-world (anchorYaw/anchorPitch conformal)
-    public float anchorYaw = 0f;      // 贴世界锚定的世界绝对方向 yaw（度）/ world-absolute yaw for on-world anchoring (deg)
-    public float anchorPitch = 0f;    // 贴世界锚定的世界绝对方向 pitch（度）/ world-absolute pitch for on-world anchoring (deg)
     public float layoutX = 0.5f, layoutY = 0.5f;  // 显示区域中的归一化 [0,1] 坐标 / normalized [0,1] position in display area
     public float displayScale = 1.0f;              // 大小倍数 / size multiplier
     public float displayRotation = 0f;             // 旋转角度（度）/ rotation (degrees)
@@ -499,7 +494,6 @@ public class GraphNode {
         n.layoutX = layoutX; n.layoutY = layoutY;
         n.sortB = sortB + 1; // 将副本带到最前面 / bring copy to front
         n.displayScale = displayScale; n.displayRotation = displayRotation;
-        n.anchorMode = anchorMode; n.anchorYaw = anchorYaw; n.anchorPitch = anchorPitch;
         n.moveScale = moveScale;
         n.commentWidth = commentWidth;
         n.commentHeight = commentHeight;
@@ -585,9 +579,6 @@ public class GraphNode {
         tag.putFloat("ly", layoutY);
         tag.putFloat("ds", displayScale);
         tag.putFloat("dr", displayRotation);
-        if (anchorMode != 0) tag.putInt("am", anchorMode);
-        if (anchorYaw != 0f) tag.putFloat("ay", anchorYaw);
-        if (anchorPitch != 0f) tag.putFloat("ap", anchorPitch);
         if (moveScale != 0.01f) tag.putFloat("ms", moveScale);
         if (layerIndex != 0) tag.putInt("layer", layerIndex);
         if (sortB != 0) tag.putInt("zb", sortB);
@@ -677,10 +668,6 @@ public class GraphNode {
         if (tag.contains("ly")) node.layoutY = tag.getFloat("ly");
         if (tag.contains("ds")) node.displayScale = tag.getFloat("ds");
         if (tag.contains("dr")) node.displayRotation = tag.getFloat("dr");
-        // AR HUD 锚定（旧档缺省 = 贴玻璃、正前方）/ AR HUD anchor (legacy default = on-glass, straight ahead)
-        if (tag.contains("am")) node.anchorMode = tag.getInt("am") == 1 ? 1 : 0;
-        if (tag.contains("ay")) node.anchorYaw = tag.getFloat("ay");
-        if (tag.contains("ap")) node.anchorPitch = tag.getFloat("ap");
         if (tag.contains("ms")) node.moveScale = tag.getFloat("ms");
         if (tag.contains("layer")) node.layerIndex = tag.getInt("layer");
         if (tag.contains("zb")) node.sortB = tag.getInt("zb");
