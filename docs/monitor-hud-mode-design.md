@@ -149,12 +149,11 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 - **包围盒**：面板尺寸 > 方块时，`getRenderBoundingBox` 必须把玻璃体积并入（`hudGlassAabb`，FACING 旋转 AABB 模板），否则某些视角凭空消失。
 
 ### 8.3 Sable 结构支持（2026-08-19）
-Sable 结构上的 BE 的 `getBlockPos()` 返回**子世界本地坐标**，与玩家相机（世界坐标）不匹配 → 共形投影坐标系错乱（俯仰梯完全不显示）。修复（照 Radar/Sensor 成熟模式）：
-- `MonitorBlockEntitySable`（compat 子类）实现 `BlockEntitySubLevelActor`，`sable$physicsTick` 每物理帧缓存：方块中心世界坐标（`cachedSubWorld*`）+ 结构朝向四元数（`cachedSubQ*`）
-- 工厂 `MonitorBlockEntity.create()` 反射创建 compat 实例；NBT（`saveTypeSpecific`/`loadTypeSpecific`）同步到客户端
-- `hudPanelFrame`（`panelFrameFromBasis` 纯函数）onSable 分支：面板中心 = 缓存世界坐标 + 偏移 + `q⊗(法线距离)`，法线/右/上经结构四元数旋转——结构旋转/移动时共形符号跟随
-- **刷新平滑**：姿态标记 20Hz 数据 → 60fps 指数插值（`smoothPitch/smoothRoll`，客户端 transient）
-- **裁剪改善**：刻度折线用 Liang-Barsky 线段裁剪到面板矩形（`clipSegmentToPanel`），刻度线在玻璃边缘平滑截断（移出视野）而非整段消失；方位采样 17→33 点
+纯画布方案**天然支持 Sable 结构**：内容画在 poseStack 局部坐标系的面板画布上（结构变换已由结构渲染器应用），不需要世界坐标/玩家相机。仅需保留：
+- `MonitorBlockEntitySable`（compat 子类）实现 `BlockEntitySubLevelActor`，`sable$physicsTick` **只恢复 level 引用**——Sable 结构上的 BE level 可能为 null，不恢复会导致服务端 `tick()` 提前返回、图不再求值、HUD 内容冻结（雷达遇到过同样问题）
+- 工厂 `MonitorBlockEntity.create()` 反射创建 compat 实例（Sable 缺席回退普通实例）
+- **刷新平滑**：姿态仪数据 20Hz → 60fps 指数插值（`smoothPitch/smoothRoll`，客户端 transient）
+- **裁剪**：刻度/线段 Liang-Barsky 裁剪到画布矩形（`clipSegmentToPanel`），超画布平滑截断
 
 ## 九、显示组件系统
 
@@ -175,29 +174,18 @@ Sable 结构上的 BE 的 `getBlockPos()` 返回**子世界本地坐标**，与�
 - 输出 2：**透传** pitch/roll（`GraphEvaluator` 透传分支，允许玩家把姿态值继续接到别处）
 - 参数 2：`range`（刻度范围，默认 **±90° 全姿态**、可调 0–180）、`interval`（刻度间隔，默认 5°）
 
-**普通组件锚定模式（2026-08-19 用户确认）**：TEXT/IMAGE/IMAGE_SEQUENCE/DATA 均可选「贴玻璃 / 贴世界」：
-- 贴玻璃（默认，方案 A）：`layoutX/layoutY` 归一化定位，固定在面板上
-- 贴世界（共形，方案 B）：锚定世界绝对方向 `anchorYaw/anchorPitch`（度），经玩家相机投影定位；创建节点时默认写入玩家当前视线方向
-- 存储：`GraphNode` 独立字段（`anchorMode`/`anchorYaw`/`anchorPitch`）——与现有 display 属性（layout/scale/rotation）同模式，不塞 `params`（NBT `DATA_VERSION` +1 + `GraphMigration`）
+**普通组件画布定位（2026-08-19 转向：纯画布方案）**：TEXT/IMAGE/IMAGE_SEQUENCE/DATA/`HUD_PITCH_LADDER` **全部贴画布**（`layoutX/layoutY` 归一化定位，画布 = 面板矩形）。**弃用玩家相机共形投影**（原 §9.1 的世界方向投影、贴世界锚定 `anchorMode` 已删除）——HUD 原理：符号画在固定画布上（像驾驶舱投影屏幕），面板即画布，随方块（含 Sable 结构变换）在世界中，不需要玩家相机 → **Sable 结构天然支持**。显示区域只做**裁剪**（Liang-Barsky 线段裁剪到画布矩形）与**遮挡**（layerIndex 排序 + 深度测试）。
 
 **布局**：节点已有 `layoutX/layoutY`（归一化 [0,1] 画布坐标）+ `displayScale`，spec 的 `(u,v,w,h)` 直接映射现有字段，Phase 6 工作量被高估。共形符号的 layout 仅作符号组整体偏移（默认居中），投影决定内容位置。
 
-### 9.1 共形符号投影（方案 B，用户 12:21 确认目标样式）
+### 9.1 俯仰梯画布姿态仪（2026-08-19 转向：非共形）
 
-玻璃面板仍世界固定尺寸、透视正确（§四）。共形符号 = 把「世界方向/世界点」经**玩家视线**投射到玻璃平面，得面板局部 2D 坐标（与 layoutX/Y 同构，直接用于 BER 绘制）。逐客户端计算（每玩家相机不同，渲染本就是逐客户端）。
-
-投影公式（每条符号/每帧）：
-- 玻璃中心世界坐标 `C = blockPos + 0.5 + offset(沿FACING) + panelDistance·N`，法线 `N = FACING 方向`，由 `N` 与世界上方构造右向量 `R`、上向量 `U`（见 §8.2 旋转）。
-- 玩家眼 `E`（相机位置）。对世界点 `P`（或对世界方向 `Dir` 取 `P = E + Dir·RANGE`，RANGE 任取大值）：
-  - 射线 `D = normalize(P - E)`
-  - `t = dot(C - E, N) / dot(D, N)`；若 `t > 0`（玻璃在眼前）则 `hit = E + D·t`
-  - `local = hit - C`；`r = dot(local, R)`；`u = dot(local, U)`
-  - UV = `(r / panelSizeX + 0.5, u / panelSizeY + 0.5)`，落在 [0,1] 内才绘制
-- 符号因此「贴在世界上」：转头/移动时相对世界固定，符合战斗机 HUD 共形体验。枪炮十字(boresight)等固定符号仍按方案 A 贴玻璃（不投影）。
-
-**全姿态刻度（2026-08-19 用户确认）**：俯仰梯刻度族是相对世界水平面的固定方向族，与输入姿态的表示无关——对每个刻度角 θ 构造方向 `Dir(θ) = (cosθ·cosφ, sinθ, cosθ·sinφ)`（φ 为方位采样角）投影到玻璃。θ 到 ±90° 只是 cosθ→0 方向转垂直，数学无退化；Sable 物理引擎四元数旋转（无万向锁）保证输入的 pitch/roll 可覆盖全姿态（倒飞/翻滚）。刻度默认 **±90°、间隔 5°**（37 条线，折线多方位采样），超出玻璃/背后（t≤0 或 UV∉[0,1]）的部分按共形物理正确裁剪，不特殊处理。
-
-**贴世界组件的锚定（2026-08-19 用户确认）**：贴世界组件锚定世界绝对方向（`anchorYaw`/`anchorPitch`），即 §9.1 的 `Dir` 固定为锚定方向——玩家转头/移动时组件相对世界固定（真共形）。创建节点时默认写入玩家当前视线方向。编辑器用**固定相机模拟预览**（正对面板中心的假设相机，复刻投影数学，可调 yaw/pitch 看效果——真实玩家视角在编辑器里不可得）。
+**弃用玩家相机共形投影**（原 §9.1 的世界方向→玻璃投影、§9.2 的贴世界刻度族已删除）。俯仰梯改为**画布内姿态仪**（真实 HUD 的 ADI 样式）：
+- 画布中心 = 飞机符号（固定）；`pitch` 输入平移地平线（抬头 → 地平线下移），`roll` 输入绕画布中心旋转整组
+- 刻度线相对地平线按 **tan 透视**分布（`y = -K·tan(pitch+θ)`，近地平线密、远处疏），θ ∈ [-range, +range]
+- 超画布的刻度被 Liang-Barsky **裁剪**掉（真实 HUD 俯仰梯只在视场附近可见）——「显示区域只做裁剪」
+- 姿态数据 20Hz + 客户端指数插值（`smoothPitch/smoothRoll`）→ 60fps 平滑
+- 纯函数：`ladderCanvasY(pitch, θ, halfH)`（可单测）
 
 ### 9.2 共形符号数据来源（首批：俯仰梯/地平线）
 
