@@ -7,6 +7,7 @@
 > - 样式 = **战斗机 AR HUD（方案 B 共形瞄准）**：面板世界固定尺寸+透视正确，符号共形锁定世界（俯仰梯/地平线/航向带/速度矢量）。**姿态数值由玩家自己在图中接线驱动（控制座椅/姿态传感器/公式等任意节点皆可），刷新频率 20Hz（tick 率）**。不开独立开关/包/类/渲染器。
 > - counter-perspective（AR 护目镜式不变大小）**明确不做**。
 > - **渲染管线（2026-08-16 补充决策）**：**弃用离屏 FBO**，HUD 内容在 BER 主 pass 直接绘制——纯官方接口（`PoseStack` + `MultiBufferSource` + `MonitorRenderTypes` + `Font.drawInBatch`），与 3D 模式同一套 Sodium/Iris 已验证管线。原因：Sodium/Veil 世界管线在 flush 时重置视口/裁剪（读回实证），且采样渲染目标纹理在批处理 BER 管线不显示；直接绘制无纹理采样、无裸 GL、无 20Hz 节流（与 3D 模式同开销，见 §八）。
+> - **Phase 2 首批（2026-08-19 用户确认）**：**共形俯仰梯 + 地平线**，数据经图节点传输（`HUD_PITCH_LADDER`：输入 pitch/roll + 透传输出 + 刻度参数）。刻度族贴世界水平面（共形投影），pitch/roll 输入驱动「飞行器当前姿态标记」。**刻度全范围 ±90°**（Sable 物理引擎四元数旋转、无万向锁，姿态数据覆盖全姿态）。普通组件（TEXT/IMAGE 等）可选「贴玻璃 / 贴世界」锚定模式（`GraphNode` 独立字段 `anchorMode`/`anchorYaw`/`anchorPitch`，世界绝对方向，创建时默认取玩家当前视线）。详见 §九。
 > 前置进展（截至 `1170bac`）：§十二 依赖的 ⑤（IMAGE/IMAGE_SEQUENCE 自定义 W×H 1..32）已落地；§三 提及的历史渲染 bug（补丁评审 ①）已修复；另已落地：像素编辑器定向同步、显示区拖拽稳定性/触屏、显示布局实时协作（存在包+软锁）、关屏定向提交。落地记录见 `docs/monitor-image-fixes-audit.md`。
 
 ## 评审修订记录（#2，2026-08-16）
@@ -153,6 +154,7 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 
 **Phase 2 组件套件**：新增 `HUD_*` 节点类型（`NodeType.java` 加枚举，用**稳定 id 字符串**而非序号，迁移安全，见 `BY_ID` 查找表 L107-115）：
 俯仰梯 `HUD_PITCH_LADDER`、航向带 `HUD_HEADING_TAPE`、空速 `HUD_AIRSPEED`、高度 `HUD_ALTITUDE`、准星 `HUD_RETICLE`、文字 `HUD_TEXT`。
+**2026-08-19 首批只做 `HUD_PITCH_LADDER`**（共形俯仰梯 + 地平线），其余随排期。
 每新增类型需在 4 处加分支：
 1. `GraphEvaluator` — 计算输出值（多数 HUD 节点透传姿态输入，符号形态由渲染解释）；
 2. `MonitorScreen.collectDisplayElements`(L1042) — 让节点进编辑器、拿 layout；
@@ -160,7 +162,17 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 4. lang 文件 — `node.create_schematic_compute.hud_*`。
 注意 `editableParamCount()`(L138)、`inputLabel`/`outputLabel`(L158/L187) 也需覆盖新类型。
 
-**布局**：节点已有 `layoutX/layoutY`（归一化 [0,1] 画布坐标）+ `displayScale`，spec 的 `(u,v,w,h)` 直接映射现有字段，Phase 6 工作量被高估。
+**`HUD_PITCH_LADDER` 节点定义（2026-08-19 用户确认）**：
+- 输入 2：`pitch`、`roll`（玩家从 `ATTITUDE`/`VIEW_ANGLE`/公式/总线等任意节点接——上游不硬编码座椅字段）
+- 输出 2：**透传** pitch/roll（`GraphEvaluator` 透传分支，允许玩家把姿态值继续接到别处）
+- 参数 2：`range`（刻度范围，默认 **±90° 全姿态**、可调 0–180）、`interval`（刻度间隔，默认 5°）
+
+**普通组件锚定模式（2026-08-19 用户确认）**：TEXT/IMAGE/IMAGE_SEQUENCE/DATA 均可选「贴玻璃 / 贴世界」：
+- 贴玻璃（默认，方案 A）：`layoutX/layoutY` 归一化定位，固定在面板上
+- 贴世界（共形，方案 B）：锚定世界绝对方向 `anchorYaw/anchorPitch`（度），经玩家相机投影定位；创建节点时默认写入玩家当前视线方向
+- 存储：`GraphNode` 独立字段（`anchorMode`/`anchorYaw`/`anchorPitch`）——与现有 display 属性（layout/scale/rotation）同模式，不塞 `params`（NBT `DATA_VERSION` +1 + `GraphMigration`）
+
+**布局**：节点已有 `layoutX/layoutY`（归一化 [0,1] 画布坐标）+ `displayScale`，spec 的 `(u,v,w,h)` 直接映射现有字段，Phase 6 工作量被高估。共形符号的 layout 仅作符号组整体偏移（默认居中），投影决定内容位置。
 
 ### 9.1 共形符号投影（方案 B，用户 12:21 确认目标样式）
 
@@ -175,13 +187,17 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
   - UV = `(r / panelSizeX + 0.5, u / panelSizeY + 0.5)`，落在 [0,1] 内才绘制
 - 符号因此「贴在世界上」：转头/移动时相对世界固定，符合战斗机 HUD 共形体验。枪炮十字(boresight)等固定符号仍按方案 A 贴玻璃（不投影）。
 
-### 9.2 共形符号数据来源（首批：俯仰梯/地平线、航向带、速度矢量）
+**全姿态刻度（2026-08-19 用户确认）**：俯仰梯刻度族是相对世界水平面的固定方向族，与输入姿态的表示无关——对每个刻度角 θ 构造方向 `Dir(θ) = (cosθ·cosφ, sinθ, cosθ·sinφ)`（φ 为方位采样角）投影到玻璃。θ 到 ±90° 只是 cosθ→0 方向转垂直，数学无退化；Sable 物理引擎四元数旋转（无万向锁）保证输入的 pitch/roll 可覆盖全姿态（倒飞/翻滚）。刻度默认 **±90°、间隔 5°**（37 条线，折线多方位采样），超出玻璃/背后（t≤0 或 UV∉[0,1]）的部分按共形物理正确裁剪，不特殊处理。
+
+**贴世界组件的锚定（2026-08-19 用户确认）**：贴世界组件锚定世界绝对方向（`anchorYaw`/`anchorPitch`），即 §9.1 的 `Dir` 固定为锚定方向——玩家转头/移动时组件相对世界固定（真共形）。创建节点时默认写入玩家当前视线方向。编辑器用**固定相机模拟预览**（正对面板中心的假设相机，复刻投影数学，可调 yaw/pitch 看效果——真实玩家视角在编辑器里不可得）。
+
+### 9.2 共形符号数据来源（首批：俯仰梯/地平线）
 
 **姿态数值由玩家自己在图中接线驱动 —— 上游不硬编码任何座椅字段，HUD_* 节点就是普通图节点，其输入引脚由玩家从任意节点接（控制座椅 / 姿态传感器 / 公式 / 总线等皆可）。** 这样「数据从哪来」完全交给图，模组只负责把接进来的数值做共形投影渲染。**数据源节点现成**（`NodeType.java`）：`ATTITUDE`(L78)、`VELOCITY`(L81)、`VIEW_ANGLE`(L72)、`DIRECTION`(L63)、`POSITION`(L64)、`POSE_CONVERT`(L68)——控制座椅等源 BE 每 tick 广播求值快照（`ControlSeatBlockEntity` L352 / `broadcastEvalSnapshot` L532）。具体：
 
-- **俯仰梯 + 地平线**：取 HUD 节点接进来的俯仰/滚转输入，在玻璃上画一系列不同俯仰角的水平线（按 §9.1 对「各俯仰角方向射线」求交），滚转旋转整组 → 地平线始终水平于世界。
-- **航向带**：取接进来的航向/yaw 输入，画横向滚动刻度（各航向角方向射线求交）。
-- **速度矢量（飞行航迹点）**：取接进来的世界速度向量 `V`，对其方向射线求交得玻璃点 → 画航迹标记。
+- **俯仰梯 + 地平线（2026-08-19 首批）**：取 HUD 节点接进来的俯仰/滚转输入（`ATTITUDE` 输出 `seat.attitudePitch()/attitudeRoll()` 欧拉角度值；Sable 物理体姿态为四元数、无万向锁）。刻度族 = 相对世界水平面各俯仰角方向族（全范围 ±90°），经 §9.1 对「各俯仰角方向射线」求交画折线；地平线（0°）加粗高亮。**姿态标记**：pitch 输入定位「飞行器当前俯仰」标记线在刻度族中的位置，roll 输入旋转整组姿态指示（地平线始终水平于世界）。
+- **航向带（后续）**：取接进来的航向/yaw 输入，画横向滚动刻度（各航向角方向射线求交）。
+- **速度矢量（后续）**：取接进来的世界速度向量 `V`，对其方向射线求交得玻璃点 → 画航迹标记。
 - *目标框（暂不做）*：需雷达目标世界坐标 / 指定世界坐标节点输出（`POSITION`/`TARGET_OUT`），留待后续（无雷达依赖时不实现）。
 
 **刷新频率 20Hz（tick 率）**：即图求值/广播的节拍（`ClientboundGraphEvalPacket` 每 tick 推一次 outputs，`broadcastEvalSnapshot` L532-541）。HUD 节点读到的输入本就 20Hz 更新 → 共形投影与 FBO 重绘自然落在 20Hz，无需额外轮询机制。这也呼应 §8.2 的 FBO 20Hz 节流（二者同源）。
@@ -223,7 +239,7 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 ## 十三、开发路线（收敛到真实文件）
 
 - **Phase 1（MVP）**：`MonitorBlockEntity` 字段+NBT+同步（照 `applySettings` L98-105 模板）；`MonitorSettingsPacket` 扩展；`MonitorScreen` 设置面板 tab+HUD 开关+5 滑块（`renderSettingsPanel` L931 / `saveAllSettings` L983，遵循显式 Apply 契约）；渲染器 `hudMode` 分支 + 玻璃面板 + 内容直接绘制（纯官方接口，见 §八）；复用 `TEXT`/`IMAGE` 节点。→ 单人可见 3D HUD 玻璃，固定符号居中稳定。
-- **Phase 2（AR 共形）**：`HUD_*` 组件套件 + **共形投影（§9.1）**：俯仰梯/地平线、航向带、速度矢量（数据来源 §9.2，`ATTITUDE`/`VELOCITY` 等现成节点，由玩家在图中自接输入引脚驱动，数据刷新 20Hz）；面板变换在编辑器内调参。
+- **Phase 2（AR 共形，2026-08-19 首批）**：**`HUD_PITCH_LADDER`（共形俯仰梯+地平线，全姿态刻度 ±90°）+ 普通组件锚定模式（贴玻璃/贴世界，`anchorYaw/anchorPitch`）**。共形投影（§9.1）：玩家相机 → 世界方向族/锚定方向 → 玻璃平面求交；姿态标记由 pitch/roll 输入驱动；数据来源 §9.2（`ATTITUDE`/`VIEW_ANGLE` 等现成节点，玩家自接输入，20Hz 刷新）；编辑器固定相机模拟预览。航向带/速度矢量/其余 `HUD_*` 随后续排期。
 - **Phase 3**：多人验证（扩包已在 Phase 1 完成，本阶段只验证共形符号各客户端一致）。
 - **Phase 4（后续，可选）**：目标框（需雷达 `POSITION`/`TARGET_OUT` 世界坐标输出）；counter-perspective（AR 护目镜式不变大小，默认不做）。
 
@@ -234,19 +250,21 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 | `blocks/MonitorBlockEntity.java` | 加 6 字段 + NBT（saveSettings L107/loadSettings L112）+ `applySettings` 扩参（L98-105 模板）+ `setChanged()`/`sendBlockUpdated` 同步；`getUpdateTag` L133 已覆盖 |
 | `network/MonitorSettingsPacket.java` | 扩展携带 hudMode + 5 float（record L12-15 + 手写 codec L20-35 + handle L39-52） |
 | `blocks/MonitorScreen.java` | 设置区加 tab + HUD 开关 + 5 滑块（`renderSettingsPanel` L931 / `handleSettingsClick` L1007 / `saveAllSettings` L983 / Enter L1925）；`collectDisplayElements`(L1042) 覆盖 HUD 节点 |
-| `client/renderer/MonitorBlockEntityRenderer.java` | `render()`(L45) 加 `hudMode` 分支 → `renderHud`：玻璃 tint quad + 内容直接绘制（布局数学与 3D 模式一致，左上角锚定 + clamp 上界 `1-2*bbHalf`）；共形符号投影（§9.1，Phase 2）；`getRenderBoundingBox` 经 `hudGlassAabb` 并入玻璃体积 |
+| `client/renderer/MonitorBlockEntityRenderer.java` | `render()`(L45) 加 `hudMode` 分支 → `renderHud`：玻璃 tint quad + 内容直接绘制（布局数学与 3D 模式一致，左上角锚定 + clamp 上界 `1-2*bbHalf`）；Phase 2：§9.1 共形投影纯函数 + 俯仰梯/地平线/姿态标记绘制 + 贴世界组件投影定位；`getRenderBoundingBox` 经 `hudGlassAabb` 并入玻璃体积 |
 | `client/renderer/MonitorRenderTypes.java` | **已存在**（`SCREEN_PIXEL` 等）——直接复用，**无需新增 RenderType**（旧 `hudGlass` 已删） |
-| `graph/NodeType.java` | Phase 2 加 `HUD_*` 枚举（稳定 id，`BY_ID` L107-115 / `editableParamCount` L138 / `inputLabel` L158 / `outputLabel` L187） |
-| `graph/GraphEvaluator.java` | Phase 2 HUD 节点输出值（透传玩家自接的输入：姿态/速度等） |
-| `graph/GraphNode.java` | ✅ ⑤ W×H 已落地（字段/NBT `iw`/`ih`/迁移保护/`resizeImagePixels`），无需再动 |
+| `graph/NodeType.java` | Phase 2 加 `HUD_PITCH_LADDER` 枚举（稳定 id，`BY_ID` L107-115 / `editableParamCount` L138 / `inputLabel` L158 / `outputLabel` L187） |
+| `graph/GraphEvaluator.java` | Phase 2 HUD 节点透传输出（输出 = 输入 pitch/roll） |
+| `graph/GraphNode.java` | Phase 2 加锚定字段 `anchorMode`/`anchorYaw`/`anchorPitch`（独立字段 + NBT `DATA_VERSION`+1 + `GraphMigration` 兜底；✅ ⑤ W×H 已落地） |
 | `blocks/SyncedGraphBlockEntity.java` | 无需改动（评审 #2 核对：settings 字段经 `loadTypeSpecific` 无条件同步 L703，守卫 L686 只拦图替换，与 HUD 无冲突） |
 
 ## 十五、待定 / 开放问题
 
 1. tab 切换是否立即切换世界渲染？→ 建议「是」（已记入 §五；tab 点击本身是显式动作，与 Apply 契约兼容）。
 2. counter-perspective（AR 式不随距离缩小）？→ **用户 12:21 确认不做**（保持透视缩放）。
-3. 首批共形符号？→ **俯仰梯/地平线、航向带、速度矢量**（由座椅姿态+速度驱动）；目标框暂不做（需雷达）。
+3. 首批共形符号？→ **2026-08-19 确认：共形俯仰梯/地平线（`HUD_PITCH_LADDER`，全姿态刻度 ±90°）**；航向带/速度矢量/目标框随后续排期（目标框需雷达）。
 4. 面板变换默认值（2.0×1.2）是否合适？→ 用户可在 HUD tab 调（无 FBO 配套尺寸问题——内容为世界几何，直接随面板缩放）。
 5. ⑤ W×H 图像是否并入 Phase 1？→ ✅ **已提前落地**（2026-08-16，见 `docs/monitor-image-fixes-audit.md`），不再依赖 HUD 排期。
 6. 姿态/速度数据来源？→ **已澄清（用户 12:31）**：姿态数值由玩家自己在图中接线驱动（HUD_* 节点输入引脚接自任意节点，`ATTITUDE`/`VELOCITY` 等源节点现成），模组不耦合 `ControlSeatBlockEntity` 字段；刷新频率 20Hz（tick 率，即 `ClientboundGraphEvalPacket` 广播节拍）。本开放问题关闭。
 7. （评审 #2 新增）HUD tab 是否需要第三存在包模式？→ 当前无需（tab 在图模式设置面板内，mode 0）；独立全屏 HUD 编辑器时再扩。
+8. （2026-08-19 新增）普通组件贴世界模式的方向参数？→ **世界绝对方向 yaw/pitch**（创建时默认取玩家当前视线，之后静态可改）；编辑器固定相机模拟预览。本开放问题关闭。
+9. （2026-08-19 新增）刻度范围？→ **全范围 ±90°**（Sable 物理引擎四元数旋转无万向锁，姿态覆盖全姿态），参数可调 0–180°。本开放问题关闭。
