@@ -642,6 +642,12 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 
 - 详见 [`docs/monitor-image-fixes-audit.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/monitor-image-fixes-audit.md)（评审结论、grilling 决策与提交记录）。
 
+### 🪟 全息显示器 HUD 模式（Phase 1）/ Monitor HUD Mode (Phase 1)
+
+- **选项卡切换**：显示器设置面板新增 `[3D 模式] [HUD 模式]` tab——点击立即切换（服务端权威、`MonitorSettingsPacket` 广播、所见即所得）；HUD tab 提供面板宽/高/横纵偏移/距离 5 参数，沿用显式 Apply/Enter 契约。设计文档 [`docs/monitor-hud-mode-design.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/monitor-hud-mode-design.md) / Settings panel gains `[3D Mode] [HUD Mode]` tabs: clicking switches immediately (server-authoritative, broadcast via MonitorSettingsPacket, WYSIWYG); the HUD tab exposes panel width/height/lateral/vertical offsets and standoff distance under the explicit Apply/Enter contract.
+- **世界内玻璃面板**：中心锚点玻璃 quad 按 `FACING` 对齐、距方块表面可调（≥0.05 防 z-fighting）、尺寸 0.1–10 方块、世界固定尺寸远小近大；内容复用现有 `TEXT`/`DATA`/`IMAGE`/`IMAGE_SEQUENCE` 节点，在 BER 主 pass **直接绘制**（纯官方接口：`PoseStack` + `MultiBufferSource` + `MonitorRenderTypes.SCREEN_PIXEL` + `Font.drawInBatch`，与 3D 模式同一套 Sodium/Iris 已验证管线；弃用离屏 FBO——Sodium/Veil 世界管线在 flush 时重置视口/裁剪，读回实证内容只落进纹理一角），玻璃自发光全亮（`0xF000F0`），任意视角不消失（裁剪包围盒覆盖玻璃体积） / In-world glass panel: center-anchored quad aligned to `FACING` with adjustable standoff (≥0.05 anti-z-fighting), 0.1–10 blocks, fixed world size (perspective-correct near/far); content reuses `TEXT`/`DATA`/`IMAGE`/`IMAGE_SEQUENCE` nodes drawn **directly in the BER main pass** (official interfaces only: `PoseStack` + `MultiBufferSource` + `MonitorRenderTypes.SCREEN_PIXEL` + `Font.drawInBatch` — the same Sodium/Iris-proven pipeline as 3D mode; the offscreen FBO was dropped because the Sodium/Veil world pipeline resets viewport/scissor at flush time, with readback proving content only landed in one corner of the texture); the glass is fully self-lit and never vanishes at odd angles (cull box covers the glass volume).
+- Phase 2（`HUD_*` 节点套件 + 俯仰梯/航向带/速度矢量共形投影）随排期，见设计文档 §十三 / Phase 2 (HUD_* node suite + conformal pitch-ladder/heading-tape/velocity-vector projection) remains on the roadmap, see design doc §13.
+
 </details>
 
 <details>

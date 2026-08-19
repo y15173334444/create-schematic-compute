@@ -6,6 +6,7 @@
 > - 3D↔HUD 切换 = **全息显示器内部设置的选项卡切换**，互斥、参数不冲突。
 > - 样式 = **战斗机 AR HUD（方案 B 共形瞄准）**：面板世界固定尺寸+透视正确，符号共形锁定世界（俯仰梯/地平线/航向带/速度矢量）。**姿态数值由玩家自己在图中接线驱动（控制座椅/姿态传感器/公式等任意节点皆可），刷新频率 20Hz（tick 率）**。不开独立开关/包/类/渲染器。
 > - counter-perspective（AR 护目镜式不变大小）**明确不做**。
+> - **渲染管线（2026-08-16 补充决策）**：**弃用离屏 FBO**，HUD 内容在 BER 主 pass 直接绘制——纯官方接口（`PoseStack` + `MultiBufferSource` + `MonitorRenderTypes` + `Font.drawInBatch`），与 3D 模式同一套 Sodium/Iris 已验证管线。原因：Sodium/Veil 世界管线在 flush 时重置视口/裁剪（读回实证），且采样渲染目标纹理在批处理 BER 管线不显示；直接绘制无纹理采样、无裸 GL、无 20Hz 节流（与 3D 模式同开销，见 §八）。
 > 前置进展（截至 `1170bac`）：§十二 依赖的 ⑤（IMAGE/IMAGE_SEQUENCE 自定义 W×H 1..32）已落地；§三 提及的历史渲染 bug（补丁评审 ①）已修复；另已落地：像素编辑器定向同步、显示区拖拽稳定性/触屏、显示布局实时协作（存在包+软锁）、关屏定向提交。落地记录见 `docs/monitor-image-fixes-audit.md`。
 
 ## 评审修订记录（#2，2026-08-16）
@@ -44,9 +45,9 @@
 | `HoloDisplayHudRenderer` | → 不新建，在 `MonitorBlockEntityRenderer.render()` 加 `if(be.hudMode) renderHud() else renderNormal()` 分支（render 入口 L45） |
 | `HudModeData` 类 | → 不新建类，`MonitorBlockEntity` 的字段 + NBT（模式参考 `saveSettings` L107 / `loadSettings` L112 / `saveTypeSpecific` L120） |
 | `SetHudModePacket` | → **不新建**，扩展已有 `MonitorSettingsPacket`（C2S，`BlockPos pos` + 8 float，见 §七） |
-| `Framebuffer` 每帧 `new` | → **禁止**。每 BE 缓存一个 FBO，懒建 + 尺寸变化 resize + `onChunkUnloaded`/`onDispose` 时 dispose（否则 GPU 显存泄漏）。**本代码库目前无任何 FBO 先例，这是第一个** |
-| BER.render() 内混画 FBO | → **禁止**。应在世界渲染前独立 pass（`RenderLevelStageEvent`，**不是** `RenderHandEvent`）离屏画到 FBO，BER 主 pass 只**采样缓存纹理**画玻璃 quad |
-| FBO 宽高比随意 | → 必须等于 `panelSizeX / panelSizeY`，否则符号拉伸（2.0×1.2 面板配 1024×512 纹理=2:1≠5:3 → 拉伸；正确示范：默认 5:3 → **1280×768**） |
+| ~~`Framebuffer` 每帧 `new`~~ | ❌ 已废弃（2026-08-16）：**无 FBO**——内容每帧直接生成顶点画到面板平面，无纹理上传、无显存生命周期（见 §八） |
+| ~~BER.render() 内混画 FBO~~ | ❌ 已废弃：内容**就在** BER 主 pass 画（官方 BER 管线，与 3D 模式同路径），无离屏 pass、无 `RenderLevelStageEvent`/`RenderHandEvent` 挂钩 |
+| ~~FBO 宽高比~~ | ❌ 已废弃：无 FBO 纹理，内容为世界几何，与面板 `panelSizeX/panelSizeY` 天然一致、任意距离不糊 |
 | HUD 透传 `packedLight` | → 改为自发光：`0xF000F0`（现有 TEXT/DATA 渲染已这么干，BER L198），否则被方块光照压暗 |
 
 ## 三、3D 锚定早已存在（核对事实）
@@ -61,7 +62,7 @@
 
 ## 四、尺寸与距离属性（用户 12:21 确认）
 
-- **玻璃面板**：世界尺寸恒定 = `panelSizeX × panelSizeY` 方块单位；表观大小随距离透视缩放（远小近大，物理正确的座舱玻璃行为）；FBO 纹理分辨率恒定（如 1280×768）不糊；不受 GUI Scale 影响。
+- **玻璃面板**：世界尺寸恒定 = `panelSizeX × panelSizeY` 方块单位；表观大小随距离透视缩放（远小近大，物理正确的座舱玻璃行为）；内容为世界几何直接绘制（非纹理采样）——任意距离锐利、随透视正确缩放；不受 GUI Scale 影响。
 - **AR 共形样式（目标）**：用户确认「保持透视缩放」——玻璃仍按真实 3D 透视，仅符号做共形对齐（方案 B）。**counter-perspective（符号/面板随距离反向放大、永远不变大小）不做**，那是 AR 护目镜风、会打破「面板固定世界尺寸」原则。
 - 共形符号（俯仰梯/地平线/航向带/速度矢量）投影数学见 §九之一；符号在玻璃上随玩家视角变化位置，但始终「贴」在对应世界方向上。
 
@@ -112,33 +113,39 @@ public float panelDistance = 0.05f;      // 面板距方块表面距离（沿 FA
 - `handle()` 调 `mbe.applySettings(...)` 时把新字段传入；`MonitorBlockEntity.applySettings` 同步扩参并 clamp。
 - 会话成员校验意味着：**关屏（离开会话）后无法再切模式**——合理（只有编辑者可改显示器设置）。不新建任何 Packet 类。
 
-## 八、渲染管线（BER 分支 + FBO 离屏 pass）
+## 八、渲染管线（BER 直接绘制，无离屏 FBO）
 
-### 8.1 离屏 pass（世界渲染前，独立）
-每个 `MonitorBlockEntity` 持有一个缓存 `Framebuffer`（懒建、尺寸变化 resize、卸载 dispose）：
-- 把 HUD 画布（固定玻璃符号 + **共形符号**见 §九之一）按 `panelSizeX/panelSizeY` 比例渲到 FBO 纹理。**入口挂 `RenderLevelStageEvent`（如 `Stage.AFTER_SETUP` 或 `BEFORE_BLOCK_ENTITIES`），非 `RenderHandEvent`**——后者只覆盖第一人称手持路径，其他玩家视角下会丢 HUD。
-- 节流：按 20Hz（tick 率）重绘，而非 60Hz（活 HUD 每帧内容都变，「脏区域」优化基本无效）。
-- 无先例提醒：代码库目前没有 Framebuffer/RenderLevelStageEvent 用法，FBO 生命周期（懒建/resize/dispose）是本功能首个此类代码，按 §十一 一次做对。
+> 2026-08-16 决策：**弃用离屏 FBO 方案**（原 §8.1/8.2 已删除）。原因与替代见下。
 
-### 8.2 BER 主 pass（采样缓存纹理）
+### 8.1 决策背景（FBO 方案为何废弃）
+FBO 方案经 11 个修复提交 + 实证仍不可用：
+- **视口/裁剪被世界管线重置**：`RenderLevelStageEvent` 阶段绘制时，Sodium/Veil 世界管线在 flush 时把视口重置回窗口尺寸（854×480），内容只落进纹理一角（像素读回实证）；移入 `RenderGuiEvent.Post` 仍被改状态。
+- **采样渲染目标纹理不显示**：玻璃 quad 采样「曾用作渲染目标的纹理」在批处理 BER 管线里无输出（劫持实验），被迫 glCopyTexSubImage2D 复制到普通纹理 + 大量裸 GL 状态操纵（视口/scissor/depth/cull/blend）——自研 GL 方案，违背官方接口原则。
+
+### 8.2 现方案：BER 主 pass 直接绘制（纯官方接口）
+`render()` 的 `hudMode` 分支（`renderHud`）在 BER 主 pass 直接画，**与 3D 模式同一套已验证的 Sodium/Iris 兼容路径**（`PoseStack` + `MultiBufferSource` + `MonitorRenderTypes.SCREEN_PIXEL` + `Font.drawInBatch`，无任何裸 GL）：
 ```java
 public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
-    if (!be.hudMode) { renderNormal(...); return; }
-    // 1. 移到方块中心 + 偏移
+    if (!be.hudMode) { renderNormal(...); return; }   // 3D 模式原样
+    // 1. 移到方块中心 + 面板偏移（FACING 局部帧）
     stack.translate(0.5 + be.panelOffsetX, 0.5 + be.panelOffsetY, 0.5);
-    // 2. 应用 FACING 旋转
+    // 2. 应用 FACING 旋转（yaw=0 → 方块正面）
     stack.mulPose(Axis.YP.rotation(-be.getBlockState().getValue(FACING).toYRot()));
-    // 3. 推到面板距离（沿 FACING 法线）
+    // 3. 沿 FACING 法线推到面板距离
     stack.translate(0, 0, be.panelDistance);
-    // 4. 画四边形：尺寸 panelSizeX × panelSizeY，中心锚点
-    // 5. 材质 = FBO 颜色纹理，RenderType.entityTranslucent / noLight，关深度写入 + 混合
-    //    packedLight = 0xF000F0（自发光，同现有 TEXT 渲染 L198）
+    // 4. 玻璃 tint quad：SCREEN_PIXEL（POSITION_COLOR，半透明深绿 0.35α），面板整幅无边框
+    // 5. 内容：IMAGE 逐像素 quad + TEXT/DATA 用 font.drawInBatch，布局数学与 3D 模式
+    //    完全一致（layoutX/Y 归一化、layerIndex 排序、旋转、信号偏移、左上角 clamp），
+    //    内容区 = 整幅面板（无 bezel 边距），左上角锚点 y-up；packedLight = 0xF000F0 自发光
+    // 6. flushTextNoCull(buffer) 冲刷文字（NO_CULL，与 3D 模式同）
 }
 ```
 
-关键：FBO 尺寸固定 → 清晰度恒定；面板位姿由方块定 → 屏幕中心随方块非玩家；现有图驱动 + `ClientboundGraphEvalPacket` → 多人一致。
-自定义 RenderType 有 Iris 兼容先例：`MonitorRenderTypes.SCREEN_PIXEL` 已被 Iris 保留（BER L97-99 注释），玻璃 RenderType 加在 `MonitorRenderTypes`（已存在，非新文件）。
-**包围盒**：面板尺寸 > 方块时，BER `getRenderBoundingBox`（L238，已有 FACING+yaw/pitch/roll 旋转 AABB 模板）必须把玻璃体积并入，否则某些视角凭空消失。
+关键结论：
+- **清晰度**：内容是世界几何（逐像素 quad / 字体网格），任意距离锐利、随透视正确缩放——优于 FBO 纹理（近看糊、远看像素化）。
+- **性能**：与 3D 模式同一开销模型（每帧生成顶点），无 FBO 纹理上传、无渲染端节流；20Hz 数据节拍由 `ClientboundGraphEvalPacket` 天然提供（§9.2）。
+- **Sodium/Iris 兼容**：沿用 `MonitorRenderTypes.SCREEN_PIXEL`（`rendertype_position_color`，Iris 保留，BER L97-99 注释）——**无需新增任何 RenderType**（旧 `hudGlass` 已删除）。
+- **包围盒**：面板尺寸 > 方块时，`getRenderBoundingBox` 必须把玻璃体积并入（`hudGlassAabb`，FACING 旋转 AABB 模板），否则某些视角凭空消失。
 
 ## 九、显示组件系统
 
@@ -157,7 +164,7 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 
 ### 9.1 共形符号投影（方案 B，用户 12:21 确认目标样式）
 
-玻璃 quad 仍世界固定尺寸、透视正确（§四）。共形符号 = 把「世界方向/世界点」经**玩家视线**投射到玻璃平面，得玻璃局部 2D 坐标 → FBO UV。逐客户端计算（每玩家相机不同，FBO 仅客户端）。
+玻璃面板仍世界固定尺寸、透视正确（§四）。共形符号 = 把「世界方向/世界点」经**玩家视线**投射到玻璃平面，得面板局部 2D 坐标（与 layoutX/Y 同构，直接用于 BER 绘制）。逐客户端计算（每玩家相机不同，渲染本就是逐客户端）。
 
 投影公式（每条符号/每帧）：
 - 玻璃中心世界坐标 `C = blockPos + 0.5 + offset(沿FACING) + panelDistance·N`，法线 `N = FACING 方向`，由 `N` 与世界上方构造右向量 `R`、上向量 `U`（见 §8.2 旋转）。
@@ -193,16 +200,16 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 
 | 风险 | 缓解 |
 |---|---|
-| FBO 每帧 `new` → 泄漏（**本代码库首个 FBO**） | 每 BE 缓存一个，dispose 在 `onChunkUnloaded`/`onDispose` 时；尺寸变化才 resize |
-| BER 内混画 FBO 打乱渲染目标 | `RenderLevelStageEvent` 世界渲染前独立 pass 离屏画，主 pass 只采样（**勿用 RenderHandEvent**） |
+| ~~FBO 每帧 `new` → 泄漏（本代码库首个 FBO）~~ | ✅ 无 FBO（2026-08-16 决策）——内容直接绘制，无显存泄漏面 |
+| ~~BER 内混画 FBO 打乱渲染目标~~ | ✅ 无离屏 pass——内容在 BER 主 pass 官方管线内画，不切换渲染目标 |
 | 深度冲突（面板与方块重叠） | `panelDistance ≥ ~0.05` |
 | 透明排序（被其他透明方块覆盖） | `RenderType.entityTranslucent` + 适当顺序；必要时 `noCull` |
 | 渲染包围盒裁剪 | **扩大 `getRenderBoundingBox()`** 覆盖面板体积（模板：BER L238 的旋转 AABB；面板比方块大时必做，否则某些视角凭空消失） |
 | 背面单面消隐 | 单面 quad 背面不可见（物理正确）；要双面玻璃用 `noCull` |
-| FBO 每帧重绘性能 | 20Hz 节流；N 个 HUD×约 5MB 纹理上传/帧，少量 OK、几十个需降分辨率/节流 |
+| HUD 每帧顶点开销 | 与 3D 模式同一模型（逐像素 quad + 字体网格）；图像分辨率越大开销越高，与 3D 模式共享既有 displayScale 调参 |
 | 共形投影在玻璃背后（t≤0） | 该符号不绘制（落在视野外），避免错误地镜像到玻璃 |
 | GUI Scale 影响 | 无（3D 渲染，正是你要的） |
-| Iris/Sodium 兼容 | 先例：`MonitorRenderTypes.SCREEN_PIXEL` 已 Iris 保留（BER L97-99）；玻璃 RenderType 同法注册 |
+| Iris/Sodium 兼容 | `MonitorRenderTypes.SCREEN_PIXEL` 已 Iris 保留（BER L97-99），与 3D 模式同一路径；无新增 RenderType |
 | 编辑中客户端收不到 hudMode | 不会：`loadAdditional` 守卫只拦图替换，settings 字段无条件应用（L703） |
 | 符号内容与图编辑状态互相干扰 | 不会：HUD 符号读 `cachedEvalSnapshot` 输出，不引用图对象；图替换守卫与符号渲染解耦 |
 
@@ -215,8 +222,8 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 
 ## 十三、开发路线（收敛到真实文件）
 
-- **Phase 1（MVP）**：`MonitorBlockEntity` 字段+NBT+同步（照 `applySettings` L98-105 模板）；`MonitorSettingsPacket` 扩展；`MonitorScreen` 设置面板 tab+HUD 开关+5 滑块（`renderSettingsPanel` L931 / `saveAllSettings` L983，遵循显式 Apply 契约）；渲染器 `hudMode` 分支 + 每 BE 缓存 FBO + 玻璃 quad（中心锚点，`RenderLevelStageEvent` 离屏 pass）；复用 `TEXT`/`IMAGE` 节点。→ 单人可见 3D HUD 玻璃，固定符号居中稳定。
-- **Phase 2（AR 共形）**：`HUD_*` 组件套件 + **共形投影（§9.1）**：俯仰梯/地平线、航向带、速度矢量（数据来源 §9.2，`ATTITUDE`/`VELOCITY` 等现成节点，由玩家在图中自接输入引脚驱动，刷新 20Hz）；FBO 20Hz 节流；面板变换在编辑器内调参。
+- **Phase 1（MVP）**：`MonitorBlockEntity` 字段+NBT+同步（照 `applySettings` L98-105 模板）；`MonitorSettingsPacket` 扩展；`MonitorScreen` 设置面板 tab+HUD 开关+5 滑块（`renderSettingsPanel` L931 / `saveAllSettings` L983，遵循显式 Apply 契约）；渲染器 `hudMode` 分支 + 玻璃面板 + 内容直接绘制（纯官方接口，见 §八）；复用 `TEXT`/`IMAGE` 节点。→ 单人可见 3D HUD 玻璃，固定符号居中稳定。
+- **Phase 2（AR 共形）**：`HUD_*` 组件套件 + **共形投影（§9.1）**：俯仰梯/地平线、航向带、速度矢量（数据来源 §9.2，`ATTITUDE`/`VELOCITY` 等现成节点，由玩家在图中自接输入引脚驱动，数据刷新 20Hz）；面板变换在编辑器内调参。
 - **Phase 3**：多人验证（扩包已在 Phase 1 完成，本阶段只验证共形符号各客户端一致）。
 - **Phase 4（后续，可选）**：目标框（需雷达 `POSITION`/`TARGET_OUT` 世界坐标输出）；counter-perspective（AR 护目镜式不变大小，默认不做）。
 
@@ -227,8 +234,8 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 | `blocks/MonitorBlockEntity.java` | 加 6 字段 + NBT（saveSettings L107/loadSettings L112）+ `applySettings` 扩参（L98-105 模板）+ `setChanged()`/`sendBlockUpdated` 同步；`getUpdateTag` L133 已覆盖 |
 | `network/MonitorSettingsPacket.java` | 扩展携带 hudMode + 5 float（record L12-15 + 手写 codec L20-35 + handle L39-52） |
 | `blocks/MonitorScreen.java` | 设置区加 tab + HUD 开关 + 5 滑块（`renderSettingsPanel` L931 / `handleSettingsClick` L1007 / `saveAllSettings` L983 / Enter L1925）；`collectDisplayElements`(L1042) 覆盖 HUD 节点 |
-| `client/renderer/MonitorBlockEntityRenderer.java` | `render()`(L45) 加 `hudMode` 分支；中心锚点玻璃 quad（✅ 历史 bug① 已修复：两侧左上角锚定 + clamp 上界 `1-2*bbHalf`，L148-149）；共形符号投影（§9.1）；`getRenderBoundingBox`(L238) 并入玻璃体积 |
-| `client/renderer/MonitorRenderTypes.java` | **已存在**（`SCREEN_PIXEL` 等）——加自发光/透明玻璃 `RenderType` 即可，非新文件 |
+| `client/renderer/MonitorBlockEntityRenderer.java` | `render()`(L45) 加 `hudMode` 分支 → `renderHud`：玻璃 tint quad + 内容直接绘制（布局数学与 3D 模式一致，左上角锚定 + clamp 上界 `1-2*bbHalf`）；共形符号投影（§9.1，Phase 2）；`getRenderBoundingBox` 经 `hudGlassAabb` 并入玻璃体积 |
+| `client/renderer/MonitorRenderTypes.java` | **已存在**（`SCREEN_PIXEL` 等）——直接复用，**无需新增 RenderType**（旧 `hudGlass` 已删） |
 | `graph/NodeType.java` | Phase 2 加 `HUD_*` 枚举（稳定 id，`BY_ID` L107-115 / `editableParamCount` L138 / `inputLabel` L158 / `outputLabel` L187） |
 | `graph/GraphEvaluator.java` | Phase 2 HUD 节点输出值（透传玩家自接的输入：姿态/速度等） |
 | `graph/GraphNode.java` | ✅ ⑤ W×H 已落地（字段/NBT `iw`/`ih`/迁移保护/`resizeImagePixels`），无需再动 |
@@ -239,7 +246,7 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 1. tab 切换是否立即切换世界渲染？→ 建议「是」（已记入 §五；tab 点击本身是显式动作，与 Apply 契约兼容）。
 2. counter-perspective（AR 式不随距离缩小）？→ **用户 12:21 确认不做**（保持透视缩放）。
 3. 首批共形符号？→ **俯仰梯/地平线、航向带、速度矢量**（由座椅姿态+速度驱动）；目标框暂不做（需雷达）。
-4. 面板变换默认值（2.0×1.2）是否合适？→ 用户可在 HUD tab 调；配套 FBO 默认 1280×768（=5:3，评审 #2 补充）。
+4. 面板变换默认值（2.0×1.2）是否合适？→ 用户可在 HUD tab 调（无 FBO 配套尺寸问题——内容为世界几何，直接随面板缩放）。
 5. ⑤ W×H 图像是否并入 Phase 1？→ ✅ **已提前落地**（2026-08-16，见 `docs/monitor-image-fixes-audit.md`），不再依赖 HUD 排期。
 6. 姿态/速度数据来源？→ **已澄清（用户 12:31）**：姿态数值由玩家自己在图中接线驱动（HUD_* 节点输入引脚接自任意节点，`ATTITUDE`/`VELOCITY` 等源节点现成），模组不耦合 `ControlSeatBlockEntity` 字段；刷新频率 20Hz（tick 率，即 `ClientboundGraphEvalPacket` 广播节拍）。本开放问题关闭。
 7. （评审 #2 新增）HUD tab 是否需要第三存在包模式？→ 当前无需（tab 在图模式设置面板内，mode 0）；独立全屏 HUD 编辑器时再扩。
