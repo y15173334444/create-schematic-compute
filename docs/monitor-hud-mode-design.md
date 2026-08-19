@@ -178,14 +178,16 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 
 **布局**：节点已有 `layoutX/layoutY`（归一化 [0,1] 画布坐标）+ `displayScale`，spec 的 `(u,v,w,h)` 直接映射现有字段，Phase 6 工作量被高估。共形符号的 layout 仅作符号组整体偏移（默认居中），投影决定内容位置。
 
-### 9.1 俯仰梯画布姿态仪（2026-08-19 转向：非共形）
+### 9.1 俯仰梯画布姿态仪 + 虚像画布（2026-08-19 两轮转向后定稿）
 
-**弃用玩家相机共形投影**（原 §9.1 的世界方向→玻璃投影、§9.2 的贴世界刻度族已删除）。俯仰梯改为**画布内姿态仪**（真实 HUD 的 ADI 样式）：
-- 画布中心 = 飞机符号（固定）；`pitch` 输入平移地平线（抬头 → 地平线下移），`roll` 输入绕画布中心旋转整组
-- 刻度线相对地平线按 **tan 透视**分布（`y = -K·tan(pitch+θ)`，近地平线密、远处疏），θ ∈ [-range, +range]
-- 超画布的刻度被 Liang-Barsky **裁剪**掉（真实 HUD 俯仰梯只在视场附近可见）——「显示区域只做裁剪」
+**最终方案：近处屏幕 + 远处虚像画布**（真实 HUD 原理——符号聚焦无穷远，飞行员无需重新对焦）：
+- **近处屏幕**：玻璃 tint + 边框（可见的画布边界），不画内容
+- **远处虚像**：画布沿面板法线平移 `VIRTUAL_IMAGE_D=100` 格、尺寸 ×D——**角尺寸保持**，玩家看屏幕时内容恒定大小浮在远处（无限远聚焦）；内容（俯仰梯/TEXT/IMAGE/DATA）全部画在远处画布
+- **天然共形**：画布在世界固定位置（poseStack 局部坐标，Sable 结构上随结构）→ 玩家转头/移动时内容相对世界固定，**不依赖玩家相机投影** → **Sable 天然支持**
+- 俯仰梯 = 画布内姿态仪：画布中心 = 飞机符号（固定）；`pitch` 输入平移地平线（抬头 → 地平线下移），`roll` 输入绕画布中心旋转整组；刻度线相对地平线按 **tan 透视**分布（`y = -K·tan(pitch+θ)`，近地平线密、远处疏）；超画布的刻度被 Liang-Barsky 裁剪（真实 HUD 俯仰梯只在视场附近可见）
 - 姿态数据 20Hz + 客户端指数插值（`smoothPitch/smoothRoll`）→ 60fps 平滑
-- 纯函数：`ladderCanvasY(pitch, θ, halfH)`（可单测）
+- 纯函数：`ladderCanvasY(pitch, θ, halfH)`、`clipSegmentToPanel`（可单测）
+- **Sable 结构支持**：仅需 `MonitorBlockEntitySable`（`BlockEntitySubLevelActor` 的 `sable$physicsTick` 恢复 level 引用——结构上 BE 的 level 可能为 null，不恢复则图不求值、内容冻结）；无坐标缓存、无 NBT 额外同步
 
 ### 9.2 共形符号数据来源（首批：俯仰梯/地平线）
 

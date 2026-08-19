@@ -224,9 +224,20 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     // experiment). Content vertices are now emitted per frame straight onto the panel plane:
     // no texture sampling, no raw GL, no 20Hz throttle (same cost profile as 3D mode).
 
-    /** HUD 模式 BER 主 pass：玻璃 tint quad + 内容直接绘制（纯官方接口，无 FBO）。
-     *  HUD-mode BER main pass: glass tint quad + content drawn directly (official
-     *  interfaces only, no FBO). */
+    /** HUD 模式 BER 主 pass：近处屏幕（玻璃 tint + 边框）+ 远处虚像内容。
+     *  虚像画布沿面板法线平移 {@link #VIRTUAL_IMAGE_D} 格、尺寸 ×D——保持角尺寸，
+     *  玩家看屏幕时内容恒定大小浮在远处（HUD 无限远聚焦）。画布在世界固定位置
+     *  （poseStack 局部坐标系，Sable 结构上随结构）→ 天然共形（贴世界）且不依赖
+     *  玩家相机投影。显示区域只做裁剪（Liang-Barsky）与遮挡（深度 + layerIndex）。
+     *  HUD-mode BER main pass: near screen (glass tint + border) + far virtual-image
+     *  content. The virtual-image canvas is pushed VIRTUAL_IMAGE_D blocks along the
+     *  panel normal with size ×D — the angular size is preserved, so content floats
+     *  at a constant size far away (HUD infinite-focus). The canvas sits at a fixed
+     *  world position (poseStack local frame; follows the structure on Sable) → natively
+     *  conformal (world-anchored) with no player-camera projection. The display area
+     *  only clips (Liang-Barsky) and occludes (depth + layerIndex). */
+    private static final float VIRTUAL_IMAGE_D = 100f; // 虚像距离（格）/ virtual-image distance (blocks)
+
     private void renderHud(MonitorBlockEntity be, PoseStack poseStack, MultiBufferSource buffer) {
         float hw = be.panelSizeX * 0.5f, hh = be.panelSizeY * 0.5f;
         var mc = Minecraft.getInstance();
@@ -244,13 +255,25 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         // 3. 沿 FACING 法线推到面板距离
         poseStack.translate(0, 0, be.panelDistance);
         var m = poseStack.last().pose();
-        // 玻璃 tint quad（POSITION_COLOR，无纹理）：内容为空时也能看到面板边界
-        // Glass tint quad (POSITION_COLOR, no texture): panel bounds stay visible even with no content
+        // 玻璃 tint quad（POSITION_COLOR，无纹理）：近处「屏幕」底色
+        // Glass tint quad (POSITION_COLOR, no texture): the near-screen background
         var tintBuf = buffer.getBuffer(MonitorRenderTypes.SCREEN_PIXEL);
         tintBuf.addVertex(m, -hw, -hh, 0.0005f).setColor(0.02f, 0.10f, 0.04f, 0.35f);
         tintBuf.addVertex(m,  hw, -hh, 0.0005f).setColor(0.02f, 0.10f, 0.04f, 0.35f);
         tintBuf.addVertex(m,  hw,  hh, 0.0005f).setColor(0.02f, 0.10f, 0.04f, 0.35f);
         tintBuf.addVertex(m, -hw,  hh, 0.0005f).setColor(0.02f, 0.10f, 0.04f, 0.35f);
+        // 屏幕边框（画布边界可见）/ screen border (visible canvas bounds)
+        addClippedLine(tintBuf, m, -hw, -hh, hw, -hh, 0.01, 0.0005f, 0.1f, 0.6f, 0.2f, 0.5f, hw, hh);
+        addClippedLine(tintBuf, m, hw, -hh, hw, hh, 0.01, 0.0005f, 0.1f, 0.6f, 0.2f, 0.5f, hw, hh);
+        addClippedLine(tintBuf, m, hw, hh, -hw, hh, 0.01, 0.0005f, 0.1f, 0.6f, 0.2f, 0.5f, hw, hh);
+        addClippedLine(tintBuf, m, -hw, hh, -hw, -hh, 0.01, 0.0005f, 0.1f, 0.6f, 0.2f, 0.5f, hw, hh);
+
+        // ── 远处虚像画布：沿法线 D 格 + 尺寸 ×D（角尺寸保持 → 内容浮在远处） ──
+        // Far virtual-image canvas: pushed D along the normal with size ×D (angular
+        // size preserved → content floats far away).
+        poseStack.pushPose();
+        poseStack.translate(0, 0, VIRTUAL_IMAGE_D);
+        poseStack.scale(VIRTUAL_IMAGE_D, VIRTUAL_IMAGE_D, VIRTUAL_IMAGE_D);
 
         // 内容区 = 整幅面板（HUD 无边框，设计文档 §八）；布局数学与 3D 模式同一套
         // （layoutX/Y 归一化、layerIndex 排序、旋转、信号偏移、左上角 clamp），左上角
@@ -372,6 +395,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 drawPitchLadder(n, be, poseStack, buffer, hw, hh, snapshot.outputs());
             }
         }
+        poseStack.popPose(); // 虚像画布（×D）结束 / end of the ×D virtual-image canvas
 
         // ── Flush font with NO_CULL（tint + 像素由 endBatch 冲刷） ──
         flushTextNoCull(buffer);
