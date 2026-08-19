@@ -9,10 +9,19 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
+/**
+ * 显示器设置包（C2S）：3D 屏幕 8 参数 + HUD 模式 6 参数（hudMode + 5 面板变换）。
+ * HUD 字段按 docs/monitor-hud-mode-design.md §七 扩展自本包，不新建包类。
+ * Monitor settings packet (C2S): 8 screen params + HUD mode 6 params
+ * (hudMode + 5 panel transforms). Extended per the HUD design doc §七 — no new packet class.
+ */
 public record MonitorSettingsPacket(BlockPos pos,
     float screenWidth, float screenLength,
     float screenX, float screenY, float screenZ,
-    float screenRoll, float screenPitch, float screenYaw) implements CustomPacketPayload {
+    float screenRoll, float screenPitch, float screenYaw,
+    boolean hudMode,
+    float panelSizeX, float panelSizeY, float panelOffsetX, float panelOffsetY, float panelDistance)
+    implements CustomPacketPayload {
 
     public static final Type<MonitorSettingsPacket> TYPE =
         new Type<>(ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "monitor_settings"));
@@ -23,7 +32,9 @@ public record MonitorSettingsPacket(BlockPos pos,
                 BlockPos.STREAM_CODEC.decode(buf),
                 buf.readFloat(), buf.readFloat(),
                 buf.readFloat(), buf.readFloat(), buf.readFloat(),
-                buf.readFloat(), buf.readFloat(), buf.readFloat()
+                buf.readFloat(), buf.readFloat(), buf.readFloat(),
+                buf.readBoolean(),
+                buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat()
             );
         }
         @Override public void encode(ByteBuf buf, MonitorSettingsPacket p) {
@@ -31,6 +42,9 @@ public record MonitorSettingsPacket(BlockPos pos,
             buf.writeFloat(p.screenWidth); buf.writeFloat(p.screenLength);
             buf.writeFloat(p.screenX); buf.writeFloat(p.screenY); buf.writeFloat(p.screenZ);
             buf.writeFloat(p.screenRoll); buf.writeFloat(p.screenPitch); buf.writeFloat(p.screenYaw);
+            buf.writeBoolean(p.hudMode);
+            buf.writeFloat(p.panelSizeX); buf.writeFloat(p.panelSizeY);
+            buf.writeFloat(p.panelOffsetX); buf.writeFloat(p.panelOffsetY); buf.writeFloat(p.panelDistance);
         }
     };
 
@@ -46,7 +60,8 @@ public record MonitorSettingsPacket(BlockPos pos,
                 return;
             if (ctx.player().level().getBlockEntity(pos) instanceof MonitorBlockEntity mbe) {
                 mbe.applySettings(screenWidth, screenLength, screenX, screenY, screenZ,
-                    screenRoll, screenPitch, screenYaw);
+                    screenRoll, screenPitch, screenYaw,
+                    hudMode, panelSizeX, panelSizeY, panelOffsetX, panelOffsetY, panelDistance);
             }
         });
     }
