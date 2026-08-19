@@ -148,6 +148,14 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 - **Sodium/Iris 兼容**：沿用 `MonitorRenderTypes.SCREEN_PIXEL`（`rendertype_position_color`，Iris 保留，BER L97-99 注释）——**无需新增任何 RenderType**（旧 `hudGlass` 已删除）。
 - **包围盒**：面板尺寸 > 方块时，`getRenderBoundingBox` 必须把玻璃体积并入（`hudGlassAabb`，FACING 旋转 AABB 模板），否则某些视角凭空消失。
 
+### 8.3 Sable 结构支持（2026-08-19）
+Sable 结构上的 BE 的 `getBlockPos()` 返回**子世界本地坐标**，与玩家相机（世界坐标）不匹配 → 共形投影坐标系错乱（俯仰梯完全不显示）。修复（照 Radar/Sensor 成熟模式）：
+- `MonitorBlockEntitySable`（compat 子类）实现 `BlockEntitySubLevelActor`，`sable$physicsTick` 每物理帧缓存：方块中心世界坐标（`cachedSubWorld*`）+ 结构朝向四元数（`cachedSubQ*`）
+- 工厂 `MonitorBlockEntity.create()` 反射创建 compat 实例；NBT（`saveTypeSpecific`/`loadTypeSpecific`）同步到客户端
+- `hudPanelFrame`（`panelFrameFromBasis` 纯函数）onSable 分支：面板中心 = 缓存世界坐标 + 偏移 + `q⊗(法线距离)`，法线/右/上经结构四元数旋转——结构旋转/移动时共形符号跟随
+- **刷新平滑**：姿态标记 20Hz 数据 → 60fps 指数插值（`smoothPitch/smoothRoll`，客户端 transient）
+- **裁剪改善**：刻度折线用 Liang-Barsky 线段裁剪到面板矩形（`clipSegmentToPanel`），刻度线在玻璃边缘平滑截断（移出视野）而非整段消失；方位采样 17→33 点
+
 ## 九、显示组件系统
 
 **MVP（V1，可零新节点类型）**：直接复用现有 `TEXT`（文字=空速/高度数字）+ `IMAGE`（姿态仪贴图）节点当 HUD 元素，只加「hudMode 开关 + 玻璃 quad」。世界渲染器已支持这两类节点的 layerIndex 排序/旋转/全亮绘制（BER L102-200），复用面很完整。
