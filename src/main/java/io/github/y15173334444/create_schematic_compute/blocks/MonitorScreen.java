@@ -498,9 +498,11 @@ public class MonitorScreen extends AbstractGraphScreen {
             // In the world: 1 IMAGE pixel = 0.03 blocks = 2 font-pixels (since 1 font-px = 0.015 blocks).
             // In the GUI: each IMAGE pixel = 2 font-pixels (cellSize=2), total 32 font-pixels.
             float elemW = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? elem.imgW * IMAGE_CELL_FONT
+                : elem.type == NodeType.HUD_PITCH_LADDER ? 72
                 : Minecraft.getInstance().font.width(elem.text.isEmpty() && elem.type != NodeType.DATA ? " " :
                     elem.type == NodeType.DATA ? ff1(elem.value) : elem.text);
-            float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? elem.imgH * IMAGE_CELL_FONT : 10;
+            float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? elem.imgH * IMAGE_CELL_FONT
+                : elem.type == NodeType.HUD_PITCH_LADDER ? 48 : 10;
             // Clamp using same rotated-AABB calculation as the yellow selection outline
             float ex = contentX + elem.x * contentW;
             float ey = contentY + elem.y * contentH;
@@ -534,6 +536,18 @@ public class MonitorScreen extends AbstractGraphScreen {
                         renderPixels(g, elem.pixels, 0, 0, 2, elem.imgW, elem.imgH);
                     }
                 }
+                case HUD_PITCH_LADDER -> {
+                    // 固定相机模拟预览：正对面板中心，刻度按 tan(θ) 分布（示意共形俯仰梯）
+                    // Fixed-camera mock preview: ticks spread by tan(θ) (conformal ladder sketch)
+                    float halfWpx = elemW * 0.5f, halfHpx = elemH * 0.5f;
+                    for (int deg = 5; deg <= 45; deg += 5) {
+                        float y = (float)(Math.tan(Math.toRadians(deg)) / Math.tan(Math.toRadians(45))) * halfHpx * 0.85f;
+                        g.hLine(0, (int)-y, (int)elemW, 0x55FFFFFF); // 上刻度 / upper ticks
+                        g.hLine(0, (int)y, (int)elemW, 0x55FFFFFF);  // 下刻度 / lower ticks
+                    }
+                    g.hLine(0, (int)(halfHpx * 0.02f), (int)elemW, 0xFF88E866); // 地平线：高亮 / horizon: highlight
+                    g.fill((int)(elemW / 2 - 3), (int)(halfHpx * 0.02f - 1), (int)(elemW / 2 + 3), (int)(halfHpx * 0.02f + 1), 0xFF33CC66); // 姿态标记 / marker
+                }
             }
             pose.popPose();
         }
@@ -543,9 +557,11 @@ public class MonitorScreen extends AbstractGraphScreen {
                 if (selectedDisplayNode.id != elem.nodeId) continue;
                 float s = guiScale * elem.scale;
                 float elemW = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? elem.imgW * IMAGE_CELL_FONT
+                    : elem.type == NodeType.HUD_PITCH_LADDER ? 72
                     : Minecraft.getInstance().font.width(elem.text.isEmpty() && elem.type != NodeType.DATA ? " " :
                         elem.type == NodeType.DATA ? ff1(elem.value) : elem.text);
-                float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? elem.imgH * IMAGE_CELL_FONT : 10;
+                float elemH = (elem.type == NodeType.IMAGE || elem.type == NodeType.IMAGE_SEQUENCE) ? elem.imgH * IMAGE_CELL_FONT
+                    : elem.type == NodeType.HUD_PITCH_LADDER ? 48 : 10;
                 float ex = contentX + elem.x * contentW;
                 float ey = contentY + elem.y * contentH;
                 float ew = elemW * s, eh = elemH * s;
@@ -771,7 +787,8 @@ public class MonitorScreen extends AbstractGraphScreen {
 
             // Type icon + node name
             String typeIcon = switch (n.type) {
-                case TEXT -> "T"; case DATA -> "D"; case IMAGE -> "I"; case IMAGE_SEQUENCE -> "S"; default -> "?";
+                case TEXT -> "T"; case DATA -> "D"; case IMAGE -> "I"; case IMAGE_SEQUENCE -> "S";
+                case HUD_PITCH_LADDER -> "H"; default -> "?";
             };
             int labelX = thumbX + LAYER_THUMB_SIZE + LAYER_THUMB_MARGIN;
             int labelY = ry + 5;
@@ -798,7 +815,8 @@ public class MonitorScreen extends AbstractGraphScreen {
             int ghostThumbY = ghostY + (LAYER_ROW_H - LAYER_THUMB_SIZE) / 2;
             renderLayerThumbnail(g, layerDragNode, ghostThumbX, ghostThumbY, LAYER_THUMB_SIZE);
             String ghostIcon = switch (layerDragNode.type) {
-                case TEXT -> "T"; case DATA -> "D"; case IMAGE -> "I"; case IMAGE_SEQUENCE -> "S"; default -> "?";
+                case TEXT -> "T"; case DATA -> "D"; case IMAGE -> "I"; case IMAGE_SEQUENCE -> "S";
+                case HUD_PITCH_LADDER -> "H"; default -> "?";
             };
             int ghostLabelX = ghostThumbX + LAYER_THUMB_SIZE + LAYER_THUMB_MARGIN;
             g.drawString(Minecraft.getInstance().font, ghostIcon + " #" + layerDragNode.id,
@@ -1174,6 +1192,11 @@ public class MonitorScreen extends AbstractGraphScreen {
                     }
                     float[] cp = clampImageNorm(n, n.layoutX + dx, n.layoutY + dy, effRot);
                     list.add(new DisplayElement(n.id, n.type, "", 0, pixels, "", cp[0], cp[1], n.displayScale, effRot, 0, n.imageWidth, n.imageHeight));
+                }
+                case HUD_PITCH_LADDER -> {
+                    // 共形俯仰梯：编辑器里用固定相机模拟预览（layout 作符号组偏移，默认居中）
+                    // Conformal pitch ladder: fixed-camera mock preview in the editor (layout = group offset)
+                    list.add(new DisplayElement(n.id, n.type, "", 0, null, "", n.layoutX, n.layoutY, n.displayScale, 0, 0, 0, 0));
                 }
             }
         }
