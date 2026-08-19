@@ -233,6 +233,13 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         var font = mc.font;
         var snapshot = be.cachedEvalSnapshot;
         boolean evalAvailable = be.running && snapshot != null;
+        // 共形投影：玩家相机（眼睛）+ 面板世界帧（中心/法线/右/上）
+        // Conformal projection: player camera (eye) + panel world frame (center/normal/right/up)
+        var camera = mc.gameRenderer.getMainCamera();
+        double[] eye = {camera.getPosition().x, camera.getPosition().y, camera.getPosition().z};
+        float viewYaw = camera.getYRot();
+        double[][] frame = hudPanelFrame(be);
+        double[] pCenter = frame[0], pNormal = frame[1], pRight = frame[2], pUp = frame[3];
 
         poseStack.pushPose();
         // 1. 方块中心 + 面板偏移（面板偏移在方块局部帧，随 FACING 旋转）
@@ -294,21 +301,38 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             if (pixels == null || pixels.length != n.imageWidth * n.imageHeight) continue;
             float rotInput = evalAvailable ? graph.getInputValue(n.id, rotPin, snapshot.outputs()) : 0;
             float effectiveRot = n.displayRotation + rotInput * rotScale;
-            // 左上角锚点 clamp（与 3D 模式一致：上界 1-2*bbHalf）；HUD 面板整幅无边框
+            // 锚定：贴玻璃 = 左上角 clamp 定位；贴世界 = 共形投影中心 + layout 偏移
+            // Anchor: on-glass = top-left clamp; on-world = conformal projection center + layout offset
             float cell = 0.03f * n.displayScale;
             float halfW = (n.imageWidth * 0.5f) * cell, halfH = (n.imageHeight * 0.5f) * cell;
-            float rA = (float)Math.abs(Math.cos(Math.toRadians(effectiveRot)));
-            float rB = (float)Math.abs(Math.sin(Math.toRadians(effectiveRot)));
-            float bbHalfW = (halfW * rA + halfH * rB) / cw;
-            float bbHalfH = (halfW * rB + halfH * rA) / ch;
-            float rawX = n.layoutX + dx;
-            float rawY = n.layoutY + dy;
-            float cpx = Math.max(0, Math.min(1 - 2 * bbHalfW, rawX));
-            float cpy = Math.max(0, Math.min(1 - 2 * bbHalfH, rawY));
-            float nx = cx + cpx * cw;
-            float ny = cy - cpy * ch;
+            double[] anchor = null;
+            if (n.anchorMode == 1) {
+                anchor = projectDirectionToPanel(eye, directionFromYawPitch(n.anchorYaw, n.anchorPitch),
+                    pCenter, pNormal, pRight, pUp, hw, hh);
+                if (anchor == null) continue; // 锚定方向在面板背后/出界 → 不画
+            }
+            float nx, ny;
+            if (anchor != null) {
+                nx = (float)anchor[0] + (n.layoutX - 0.5f) * be.panelSizeX;
+                ny = (float)anchor[1] + (n.layoutY - 0.5f) * be.panelSizeY;
+            } else {
+                float rA = (float)Math.abs(Math.cos(Math.toRadians(effectiveRot)));
+                float rB = (float)Math.abs(Math.sin(Math.toRadians(effectiveRot)));
+                float bbHalfW = (halfW * rA + halfH * rB) / cw;
+                float bbHalfH = (halfW * rB + halfH * rA) / ch;
+                float rawX = n.layoutX + dx;
+                float rawY = n.layoutY + dy;
+                float cpx = Math.max(0, Math.min(1 - 2 * bbHalfW, rawX));
+                float cpy = Math.max(0, Math.min(1 - 2 * bbHalfH, rawY));
+                nx = cx + cpx * cw;
+                ny = cy - cpy * ch;
+            }
             poseStack.pushPose();
-            poseStack.translate(nx + halfW, ny - halfH, 0.001f - n.layerIndex * 0.00001f);
+            if (anchor != null) {
+                poseStack.translate(nx, ny, 0.001f - n.layerIndex * 0.00001f); // 中心锚 / center anchor
+            } else {
+                poseStack.translate(nx + halfW, ny - halfH, 0.001f - n.layerIndex * 0.00001f);
+            }
             poseStack.mulPose(Axis.ZP.rotationDegrees(-effectiveRot));
             poseStack.translate(-halfW, halfH, 0);
             var m2 = poseStack.last().pose();
@@ -337,8 +361,6 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         }
         textNodes.sort((n1, n2) -> Integer.compare(n1.layerIndex, n2.layerIndex));
         for (var n : textNodes) {
-            float nx = cx + n.layoutX * cw;
-            float ny = cy - n.layoutY * ch;
             if (n.type == NodeType.DATA && !evalAvailable) continue; // 需评估输出
             String str = n.type == NodeType.DATA
                 ? String.format("%.1f", graph.getInputValue(n.id, 0, snapshot.outputs()))
@@ -346,9 +368,29 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             if (str.isEmpty()) continue;
             int color = n.textColor != 0 ? n.textColor : (n.type == NodeType.DATA ? 0xFF88FF88 : 0xFFCCCCCC);
             float s = GeometryConstants.FONT_BLOCK_SCALE * n.displayScale;
+            // 锚定：贴玻璃 = layout 左上角；贴世界 = 共形投影中心 + layout 偏移
+            // Anchor: on-glass = layout top-left; on-world = conformal projection center + layout offset
+            double[] anchor = null;
+            if (n.anchorMode == 1) {
+                anchor = projectDirectionToPanel(eye, directionFromYawPitch(n.anchorYaw, n.anchorPitch),
+                    pCenter, pNormal, pRight, pUp, hw, hh);
+                if (anchor == null) continue; // 锚定方向在面板背后/出界 → 不画
+            }
+            float nx, ny;
+            if (anchor != null) {
+                nx = (float)anchor[0] + (n.layoutX - 0.5f) * be.panelSizeX;
+                ny = (float)anchor[1] + (n.layoutY - 0.5f) * be.panelSizeY;
+            } else {
+                nx = cx + n.layoutX * cw;
+                ny = cy - n.layoutY * ch;
+            }
             poseStack.pushPose();
             float fw = font.width(str), fh = 10f;
-            poseStack.translate(nx + fw * s / 2f, ny - fh * s / 2f, 0.001f - n.layerIndex * 0.00001f);
+            if (anchor != null) {
+                poseStack.translate(nx, ny, 0.001f - n.layerIndex * 0.00001f); // 中心锚 / center anchor
+            } else {
+                poseStack.translate(nx + fw * s / 2f, ny - fh * s / 2f, 0.001f - n.layerIndex * 0.00001f);
+            }
             poseStack.mulPose(Axis.ZP.rotationDegrees(-n.displayRotation));
             poseStack.scale(s, -s, s);
             poseStack.translate(-fw / 2f, -fh / 2f, 0);
@@ -357,10 +399,175 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             poseStack.popPose();
         }
 
+        // ── HUD_PITCH_LADDER（共形俯仰梯 + 地平线 + 姿态标记，Phase 2） ──
+        if (evalAvailable) {
+            var hudNodes = new ArrayList<GraphNode>();
+            for (var n : graph.nodes) {
+                if (n.type == NodeType.HUD_PITCH_LADDER) hudNodes.add(n);
+            }
+            hudNodes.sort((n1, n2) -> Integer.compare(n1.layerIndex, n2.layerIndex));
+            for (var n : hudNodes) {
+                drawPitchLadder(n, be, poseStack, buffer, eye, viewYaw,
+                    pCenter, pNormal, pRight, pUp, hw, hh, snapshot.outputs());
+            }
+        }
+
         // ── Flush font with NO_CULL（tint + 像素由 endBatch 冲刷） ──
         flushTextNoCull(buffer);
 
         poseStack.popPose();
+    }
+
+    // ── §9.1 共形投影（纯函数，供单元测试） / Conformal projection (§9.1, pure functions for tests) ──
+
+    /** 俯仰梯方位采样常量：以玩家视线为中心展开 ±50°、17 点（折线足够平滑）。
+     *  Ladder azimuth sampling: ±50° around the player's view, 17 points per line. */
+    private static final int LADDER_SAMPLES = 17;
+    private static final float LADDER_AZIMUTH_HALF = 50f;
+
+    /** 面板世界帧：{center[3], normal[3], right[3], up[3]}。与 renderHud 的位姿
+     *  变换完全一致（方块中心 + 面板偏移 + FACING 旋转 + 法线距离）。
+     *  Panel world frame: {center, normal, right, up} — matches renderHud's pose
+     *  exactly (block center + panel offset + FACING rotation + normal distance). */
+    public static double[][] hudPanelFrame(MonitorBlockEntity be) {
+        double yawRad = 0;
+        if (be.getBlockState().hasProperty(MonitorBlock.FACING)) {
+            yawRad = Math.toRadians(be.getBlockState().getValue(MonitorBlock.FACING).toYRot());
+        }
+        double sy = Math.sin(yawRad), cy = Math.cos(yawRad);
+        double[] n = {-sy, 0, cy};  // Ry(-yaw) * (0,0,1)
+        double[] r = {cy, 0, sy};   // Ry(-yaw) * (1,0,0)
+        double[] u = {0, 1, 0};     // 竖直面板的上向量 / up for a vertical panel
+        double d = be.panelDistance;
+        double[] c = {
+            be.getBlockPos().getX() + 0.5 + be.panelOffsetX + n[0] * d,
+            be.getBlockPos().getY() + 0.5 + be.panelOffsetY + n[1] * d,
+            be.getBlockPos().getZ() + 0.5 + n[2] * d};
+        return new double[][]{c, n, r, u};
+    }
+
+    /** 世界绝对方向（yaw/pitch 度，MC 约定：yaw=0 → +Z，正 yaw 顺时针）→ 单位向量。
+     *  World-absolute direction (yaw/pitch degrees, MC convention) → unit vector. */
+    public static double[] directionFromYawPitch(float yawDeg, float pitchDeg) {
+        double yaw = Math.toRadians(yawDeg);
+        double pitch = Math.toRadians(pitchDeg);
+        double cp = Math.cos(pitch);
+        return new double[]{-Math.sin(yaw) * cp, Math.sin(pitch), Math.cos(yaw) * cp};
+    }
+
+    /** §9.1 共形投影：世界方向经玩家眼投影到玻璃平面，得面板局部坐标（y-up，中心原点）。
+     *  返回 null：方向在面板背后（t≤0）、与面板平行、或投影出界。
+     *  §9.1 conformal projection: project a world direction through the player eye
+     *  onto the glass plane, yielding panel-local coords (y-up, origin at center).
+     *  Returns null when the direction is behind the panel (t≤0), parallel, or off-panel. */
+    public static double[] projectDirectionToPanel(
+            double[] eye, double[] dir,
+            double[] center, double[] normal, double[] right, double[] up,
+            double halfW, double halfH) {
+        double dx = dir[0], dy = dir[1], dz = dir[2];
+        double len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (len < 1e-9) return null;
+        dx /= len; dy /= len; dz /= len;
+        double denom = dx * normal[0] + dy * normal[1] + dz * normal[2];
+        if (Math.abs(denom) < 1e-9) return null; // 平行于面板 / parallel to the panel
+        double t = ((center[0] - eye[0]) * normal[0] + (center[1] - eye[1]) * normal[1]
+                  + (center[2] - eye[2]) * normal[2]) / denom;
+        if (t <= 0) return null; // 玻璃在背后 / the panel is behind the eye
+        double hx = eye[0] + dx * t - center[0];
+        double hy = eye[1] + dy * t - center[1];
+        double hz = eye[2] + dz * t - center[2];
+        double rr = hx * right[0] + hy * right[1] + hz * right[2];
+        double uu = hx * up[0] + hy * up[1] + hz * up[2];
+        if (Math.abs(rr) > halfW || Math.abs(uu) > halfH) return null; // 出界 / off-panel
+        return new double[]{rr, uu};
+    }
+
+    /** 俯仰梯单条刻度线：刻度角 θ → 面板局部折线点列（出界点跳过）。
+     *  One pitch-ladder line: ladder angle θ → panel-local polyline points (off-panel skipped). */
+    public static java.util.List<double[]> ladderLinePoints(
+            float viewYawDeg, float thetaDeg, int samples, float azimuthHalfSpreadDeg,
+            double[] eye, double[] center, double[] normal, double[] right, double[] up,
+            double halfW, double halfH) {
+        var pts = new java.util.ArrayList<double[]>();
+        for (int i = 0; i < samples; i++) {
+            float az = samples <= 1 ? 0f
+                : -azimuthHalfSpreadDeg + 2f * azimuthHalfSpreadDeg * i / (samples - 1);
+            double[] dir = directionFromYawPitch(viewYawDeg + az, thetaDeg);
+            double[] p = projectDirectionToPanel(eye, dir, center, normal, right, up, halfW, halfH);
+            if (p != null) pts.add(p);
+        }
+        return pts;
+    }
+
+    /** 细线 quad（面板局部坐标）：把线段 (x0,y0)-(x1,y1) 画成 w 宽矩形。
+     *  Thin line quad (panel-local coords): the segment (x0,y0)-(x1,y1) as a w-wide rect. */
+    private static void addThickLine(VertexConsumer buf, org.joml.Matrix4f m,
+            double x0, double y0, double x1, double y1, double w, float z,
+            float r, float g, float b, float a) {
+        double dx = x1 - x0, dy = y1 - y0;
+        double len = Math.sqrt(dx * dx + dy * dy);
+        if (len < 1e-6) return;
+        double nx = -dy / len * w * 0.5, ny = dx / len * w * 0.5;
+        buf.addVertex(m, (float)(x0 + nx), (float)(y0 + ny), z).setColor(r, g, b, a);
+        buf.addVertex(m, (float)(x1 + nx), (float)(y1 + ny), z).setColor(r, g, b, a);
+        buf.addVertex(m, (float)(x1 - nx), (float)(y1 - ny), z).setColor(r, g, b, a);
+        buf.addVertex(m, (float)(x0 - nx), (float)(y0 - ny), z).setColor(r, g, b, a);
+    }
+
+    /** 折线绘制：相邻点连细线（面板局部坐标）。 */
+    private static void drawPolyline(VertexConsumer buf, org.joml.Matrix4f m,
+            java.util.List<double[]> pts, double w, float z,
+            float r, float g, float b, float a) {
+        for (int i = 0; i + 1 < pts.size(); i++) {
+            double[] p0 = pts.get(i), p1 = pts.get(i + 1);
+            addThickLine(buf, m, p0[0], p0[1], p1[0], p1[1], w, z, r, g, b, a);
+        }
+    }
+
+    /** 共形俯仰梯 + 地平线 + 姿态标记（§9.2 首批）。
+     *  刻度族 = 相对世界水平面各俯仰角方向族（全范围 ±90°），经玩家相机投影成折线；
+     *  地平线（0°）加粗高亮；姿态标记 = pitch 输入定位 + roll 输入旋转的绿色横线。
+     *  Conformal pitch ladder + horizon + attitude marker (§9.2 first batch).
+     *  Ladder lines = fixed world-horizontal direction fans (±90° full range) projected
+     *  through the player camera; horizon (0°) is bold; the attitude marker is a green
+     *  line positioned by the pitch input and rotated by the roll input. */
+    private void drawPitchLadder(GraphNode n, MonitorBlockEntity be, PoseStack poseStack,
+            MultiBufferSource buffer, double[] eye, float viewYaw,
+            double[] center, double[] normal, double[] right, double[] up,
+            float hw, float hh, java.util.Map<Integer, float[]> outputs) {
+        float pitch = be.graph.getInputValue(n.id, 0, outputs);
+        float roll = be.graph.getInputValue(n.id, 1, outputs);
+        float range = n.params.length > 0 ? Math.max(1f, Math.min(180f, n.params[0])) : 90f;
+        float interval = n.params.length > 1 ? Math.max(1f, n.params[1]) : 5f;
+        var buf = buffer.getBuffer(MonitorRenderTypes.SCREEN_PIXEL);
+        var m = poseStack.last().pose();
+        float z = 0.001f - n.layerIndex * 0.00001f;
+        // 刻度族（全范围）/ ladder line fan (full range)
+        for (float theta = -range; theta <= range + 1e-4f; theta += interval) {
+            var pts = ladderLinePoints(viewYaw, theta, LADDER_SAMPLES, LADDER_AZIMUTH_HALF,
+                eye, center, normal, right, up, hw, hh);
+            if (Math.abs(theta) < interval * 0.5f) {
+                drawPolyline(buf, m, pts, 0.02, z, 0.0f, 1f, 0.6f, 0.9f);   // 地平线：加粗高亮 / horizon: bold
+            } else {
+                drawPolyline(buf, m, pts, 0.008, z, 1f, 1f, 1f, 0.5f);      // 普通刻度：半透明白 / ticks: translucent white
+            }
+        }
+        // 姿态标记：pitch 输入定位、roll 输入旋转（绕标记中心）
+        // Attitude marker: positioned by the pitch input, rotated by the roll input
+        double[] mark = projectDirectionToPanel(eye,
+            directionFromYawPitch(viewYaw, pitch), center, normal, right, up, hw, hh);
+        if (mark != null) {
+            double rad = Math.toRadians(roll);
+            double cr = Math.cos(rad), sr = Math.sin(rad);
+            float mw = be.panelSizeX * 0.18f;
+            double x0 = -mw, y0 = 0, x1 = mw, y1 = 0;
+            double rx0 = x0 * cr - y0 * sr + mark[0], ry0 = x0 * sr + y0 * cr + mark[1];
+            double rx1 = x1 * cr - y1 * sr + mark[0], ry1 = x1 * sr + y1 * cr + mark[1];
+            addThickLine(buf, m, rx0, ry0, rx1, ry1, 0.015, z, 0.2f, 1f, 0.4f, 0.95f);
+            // 中央小飞机机身（简化）/ central aircraft fuselage stub (simplified)
+            addThickLine(buf, m, mark[0] - mw * 0.15, mark[1], mark[0] + mw * 0.15, mark[1],
+                0.02, z, 0.2f, 1f, 0.4f, 0.95f);
+        }
     }
 
     @SuppressWarnings("unchecked")
