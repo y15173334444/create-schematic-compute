@@ -451,6 +451,12 @@ public class GraphEvaluator {
                 o[0] = (float)(sr * pa + cr * ya);
                 o[1] = (float)(cr * pa - sr * ya);
             }
+            case HUD_PITCH_LADDER -> {
+                // 透传姿态输入（pitch/roll），符号形态由渲染解释 / passthrough attitude
+                // inputs (pitch/roll); the symbol shape is interpreted by the renderer
+                o[0] = graph.getInputValue(node.id, 0, outputs);
+                o[1] = graph.getInputValue(node.id, 1, outputs);
+            }
             case CONST -> o[0] = node.params.length > 0 ? node.params[0] : 0;
             case DEBUG_SIGNAL_GEN -> {
                 int setMode = node.params.length > 0 ? (int) node.params[0] : 0;

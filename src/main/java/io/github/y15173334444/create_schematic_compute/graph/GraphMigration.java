@@ -47,6 +47,7 @@ public final class GraphMigration {
             GraphMigration::migrateV1toV2,
             GraphMigration::migrateV2toV3,
             GraphMigration::migrateV3toV4,
+            GraphMigration::migrateV4toV5,
     };
 
     /**
@@ -350,6 +351,51 @@ public final class GraphMigration {
         }
 
         out.putInt(NbtVersions.VERSION_KEY, 4);
+        return out;
+    }
+
+    // ── V4 → V5 ───────────────────────────────────────────────────────────
+    // Changes in v5 (v1.2.5, AR HUD Phase 2) / v5 中的变更（v1.2.5，AR HUD Phase 2）:
+    //   1. Display nodes gain AR HUD anchor fields: "am" (anchorMode: 0=on-glass,
+    //      1=on-world), "ay" (anchorYaw), "ap" (anchorPitch). Missing tags default
+    //      to on-glass / straight-ahead in GraphNode.load — this step only stamps
+    //      the version so the format is explicit.
+    //      显示节点获得 AR HUD 锚定字段："am"（锚定模式：0=贴玻璃，1=贴世界）、
+    //      "ay"（anchorYaw）、"ap"（anchorPitch）。GraphNode.load 对缺失字段默认
+    //      贴玻璃/正前方——本步骤仅盖章版本号，使格式显式。
+    //   2. Recursive migration for ENCAPSULATION sub-graphs.
+    //      对 ENCAPSULATION 子图进行递归迁移。
+
+    /**
+     * Migrate a graph tag from version 4 to version 5.
+     *
+     * 将图标签从版本 4 迁移到版本 5。
+     *
+     * @param tag        the v4 graph tag / v4 版本的图标签
+     * @param registries Minecraft holder lookup provider / Minecraft Holder 查找提供器
+     * @return the migrated v5 tag / 迁移后的 v5 标签
+     */
+    private static CompoundTag migrateV4toV5(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+        CompoundTag out = tag.copy();
+
+        ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
+        for (int i = 0; i < nodes.size(); i++) {
+            CompoundTag n = nodes.getCompound(i);
+            // 1. Anchor fields default (on-glass, straight ahead) — explicit stamp
+            //    锚定字段默认值（贴玻璃、正前方）——显式盖章
+            if (!n.contains("am")) n.putInt("am", 0);
+            if (!n.contains("ay")) n.putFloat("ay", 0f);
+            if (!n.contains("ap")) n.putFloat("ap", 0f);
+
+            // 2. Recursively migrate subGraph (ENCAPSULATION nodes)
+            //    递归迁移子图（ENCAPSULATION 节点）
+            if (n.contains("subGraph")) {
+                n.put("subGraph", migrateV4toV5(n.getCompound("subGraph"), registries));
+            }
+        }
+
+        // 3. Stamp current version / 写入当前版本号
+        out.putInt(NbtVersions.VERSION_KEY, 5);
         return out;
     }
 

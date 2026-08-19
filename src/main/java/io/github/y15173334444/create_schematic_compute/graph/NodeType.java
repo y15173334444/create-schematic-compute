@@ -84,6 +84,8 @@ public enum NodeType {
     DATA("data", "node.create_schematic_compute.data", 1, 0, ""),
     IMAGE("image", "node.create_schematic_compute.image", 3, 0, "moveScaleX,moveScaleY,rotationScale,invertX,invertY"),
     IMAGE_SEQUENCE("image_sequence", "node.create_schematic_compute.image_sequence", 4, 0, "moveScaleX,moveScaleY,rotationScale,invertX,invertY"),
+    // HUD 组件 / HUD components（AR HUD Phase 2）
+    HUD_PITCH_LADDER("hud_pitch_ladder", "node.create_schematic_compute.hud_pitch_ladder", 2, 2, "range,interval"),
     ENCAPSULATION("encapsulation", "node.create_schematic_compute.encapsulation", 0, 0, ""),
     ENCAP_INPUT("encap_input", "node.create_schematic_compute.encap_input", 0, 1, "name"),
     ENCAP_OUTPUT("encap_output", "node.create_schematic_compute.encap_output", 1, 0, "name"),
@@ -139,7 +141,7 @@ public enum NodeType {
         return switch (this) {
             case BOOL, GATE, T_FLIPFLOP, KEYBOARD, GAMEPAD_BUTTON, LATCH,
                  ENCAP_INPUT, ENCAP_OUTPUT, IMAGE, IMAGE_SEQUENCE,
-                 BUS_IN, BUS_OUT, DEBUG_SIGNAL_GEN, MOUSE_JOYSTICK -> 0;
+                 BUS_IN, BUS_OUT, DEBUG_SIGNAL_GEN, MOUSE_JOYSTICK, HUD_PITCH_LADDER -> 0;
             default -> paramNames.length;
         };
     }
@@ -178,6 +180,7 @@ public enum NodeType {
         case DATA -> pk("val");
         case IMAGE -> i == 0 ? pk("x") : i == 1 ? pk("y") : pk("rotation");
         case IMAGE_SEQUENCE -> i == 0 ? pk("x") : i == 1 ? pk("y") : i == 2 ? pk("frame") : pk("rotation");
+        case HUD_PITCH_LADDER -> i == 0 ? pk("pitch") : pk("roll");
         case DIRECTION -> i==0?pk("ax"):i==1?pk("ay"):i==2?pk("az"):i==3?pk("bx"):i==4?pk("by"):pk("bz");
         case ENCAPSULATION -> pk("in"); // 动态标签，来自子图 ENCAP_INPUT 名称 / dynamic label from sub-graph ENCAP_INPUT name
         case ENCAP_OUTPUT -> pk("val");
@@ -222,6 +225,7 @@ public enum NodeType {
         case ENCAPSULATION -> pk("out"); // 动态标签，来自子图 ENCAP_OUTPUT 名称 / dynamic label from sub-graph ENCAP_OUTPUT name
         case ENCAP_INPUT -> pk("val");
         case TARGET_OUT -> switch(i) { case 0 -> pk("x"); case 1 -> pk("y"); case 2 -> pk("z"); case 3 -> pk("entity_id"); default -> pk("distance"); };
+        case HUD_PITCH_LADDER -> i == 0 ? pk("pitch") : pk("roll");
         case RELAY_A -> switch(i) { case 0 -> pk("relay_a_out"); default -> pk("relay_b_out"); };
         case RELAY_B -> pk("relay_out");
         default -> "";
