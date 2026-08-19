@@ -43,6 +43,7 @@ public class BlueprintScreen extends AbstractGraphScreen {
             && nt != NodeType.DATA
             && nt != NodeType.IMAGE
             && nt != NodeType.IMAGE_SEQUENCE
+            && !nt.isMonitorOnly()
             && nt != NodeType.ENCAP_INPUT
             && nt != NodeType.ENCAP_OUTPUT);
     }

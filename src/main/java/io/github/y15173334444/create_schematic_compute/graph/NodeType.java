@@ -154,6 +154,15 @@ public enum NodeType {
         return this == DEBUG_SIGNAL_GEN || this == DEBUG_PROBE;
     }
 
+    /** 是否仅显示器可用（AR HUD 组件：只在 Monitor 的 HUD 模式下渲染；其他方块
+     *  的图编辑器应过滤掉）。新 HUD_* 类型在此登记。
+     *  Whether this node is monitor-only (AR HUD components: rendered only in the
+     *  Monitor's HUD mode; other blocks' graph editors should filter them out).
+     *  Register new HUD_* types here. */
+    public boolean isMonitorOnly() {
+        return this == HUD_PITCH_LADDER;
+    }
+
     /** 引脚 i18n 键的简写：pin.create_schematic_compute.<label>  /  Shorthand for pin i18n key: pin.create_schematic_compute.<label> */
     private static String pk(String label) { return "pin.create_schematic_compute." + label; }
 
