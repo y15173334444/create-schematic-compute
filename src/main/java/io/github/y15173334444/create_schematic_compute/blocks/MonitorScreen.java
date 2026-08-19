@@ -155,6 +155,7 @@ public class MonitorScreen extends AbstractGraphScreen {
             || nt == NodeType.BUS_IN
             || nt == NodeType.TEXT || nt == NodeType.DATA
             || nt == NodeType.IMAGE || nt == NodeType.IMAGE_SEQUENCE
+            || nt == NodeType.HUD_PITCH_LADDER
             || nt == NodeType.COMMENT
             || nt == NodeType.DEBUG_SIGNAL_GEN
             || nt == NodeType.DEBUG_PROBE);
