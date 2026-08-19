@@ -31,7 +31,47 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
     public float panelOffsetY = 0.0f;        // 相对方块中心纵向偏移 / vertical offset from block center
     public float panelDistance = 0.05f;      // 沿 FACING 法线距离（≥~0.05 防 z-fighting）/ distance along FACING normal
 
+    // Sable 结构位姿缓存（客户端共形投影用）——NaN = 不在结构上，用 getBlockPos()。
+    // Sable structure pose cache (for client-side conformal projection) — NaN = not on
+    // a structure, fall back to getBlockPos(). On a Sable structure getBlockPos() is
+    // sub-world LOCAL, so hudPanelFrame must use the cached world position + quaternion.
+    public volatile float cachedSubWorldX = Float.NaN;   // 方块中心世界坐标 X / block center world X
+    public volatile float cachedSubWorldY = Float.NaN;   // 方块中心世界坐标 Y / block center world Y
+    public volatile float cachedSubWorldZ = Float.NaN;   // 方块中心世界坐标 Z / block center world Z
+    public volatile float cachedSubQx = Float.NaN;       // 结构朝向四元数 x / structure orientation quaternion x
+    public volatile float cachedSubQy = Float.NaN;       // 结构朝向四元数 y / structure orientation quaternion y
+    public volatile float cachedSubQz = Float.NaN;       // 结构朝向四元数 z / structure orientation quaternion z
+    public volatile float cachedSubQw = Float.NaN;       // 结构朝向四元数 w / structure orientation quaternion w
+
+    // 客户端 HUD 姿态标记平滑值（20Hz 数据 → 60fps 插值显示；transient 不存 NBT）。
+    // Client-side smoothing for the HUD attitude marker (20Hz data → 60fps display;
+    // transient, never serialized). NaN = 未初始化（首帧直接取目标值）。
+    public float smoothPitch = Float.NaN;
+    public float smoothRoll = Float.NaN;
+
+    /** 是否为 Sable 结构上的 BE（缓存有效）。/ Whether this BE sits on a Sable structure (cache valid). */
+    public boolean onSableStructure() {
+        return !Float.isNaN(cachedSubWorldX) && !Float.isNaN(cachedSubQw);
+    }
+
     public MonitorBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.MONITOR_BE.get(), pos, s); }
+
+    /** 工厂：Sable 加载时创建 compat 子类（接收 sable$physicsTick 缓存结构位姿），
+     *  否则回退普通实例。与 Radar/Sensor 的 Sable 接入同模式（反射避免编译期硬依赖）。
+     *  Factory: creates the Sable-compat subclass when Sable is loaded (receives
+     *  sable$physicsTick to cache structure pose), else a plain instance. Same
+     *  reflection pattern as Radar/Sensor (no hard compile-time Sable dependency). */
+    public static MonitorBlockEntity create(BlockPos pos, BlockState state) {
+        try {
+            if (net.neoforged.fml.ModList.get().isLoaded("sable")) {
+                Class<?> cls = Class.forName("io.github.y15173334444.create_schematic_compute.compat.MonitorBlockEntitySable");
+                return (MonitorBlockEntity) cls.getConstructor(BlockPos.class, BlockState.class).newInstance(pos, state);
+            }
+        } catch (Exception e) {
+            SchematicCompute.LOGGER.warn("Monitor: Sable factory failed for {}: {}", pos, e.toString());
+        }
+        return new MonitorBlockEntity(pos, state);
+    }
 
     @Override public void accept(BlockEntity other) {
         if(other instanceof MonitorBlockEntity src) {
@@ -154,10 +194,29 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         var inputs = new CompoundTag();
         for(var e : rs.lastInputs().entrySet()) inputs.putInt(String.valueOf(e.getKey()), e.getValue());
         t.put("rs_in", inputs);
+        // Sable 结构位姿缓存（客户端渲染用）/ Sable structure pose cache (for client rendering)
+        if (!Float.isNaN(cachedSubWorldX)) {
+            t.putFloat("smx", cachedSubWorldX);
+            t.putFloat("smy", cachedSubWorldY);
+            t.putFloat("smz", cachedSubWorldZ);
+            t.putFloat("sqx", cachedSubQx);
+            t.putFloat("sqy", cachedSubQy);
+            t.putFloat("sqz", cachedSubQz);
+            t.putFloat("sqw", cachedSubQw);
+        }
     }
     @Override protected void loadTypeSpecific(CompoundTag t, HolderLookup.Provider r) {
         loadSettings(t);
         if (t.contains("rs_in")) { var inputs = t.getCompound("rs_in"); for(var k : inputs.getAllKeys()) putRedstoneInput(Long.parseLong(k), inputs.getInt(k)); }
+        // 缺省保持 NaN → onSableStructure() 返回 false（安全回退到 getBlockPos）
+        // Absent keys keep NaN → onSableStructure() false (safe fallback to getBlockPos)
+        if (t.contains("smx")) cachedSubWorldX = t.getFloat("smx");
+        if (t.contains("smy")) cachedSubWorldY = t.getFloat("smy");
+        if (t.contains("smz")) cachedSubWorldZ = t.getFloat("smz");
+        if (t.contains("sqx")) cachedSubQx = t.getFloat("sqx");
+        if (t.contains("sqy")) cachedSubQy = t.getFloat("sqy");
+        if (t.contains("sqz")) cachedSubQz = t.getFloat("sqz");
+        if (t.contains("sqw")) cachedSubQw = t.getFloat("sqw");
     }
 
     /** Always send full data — the graph is the authoritative source for in-world rendering.

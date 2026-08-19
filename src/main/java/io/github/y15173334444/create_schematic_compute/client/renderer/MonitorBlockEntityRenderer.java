@@ -420,29 +420,73 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
 
     // ── §9.1 共形投影（纯函数，供单元测试） / Conformal projection (§9.1, pure functions for tests) ──
 
-    /** 俯仰梯方位采样常量：以玩家视线为中心展开 ±50°、17 点（折线足够平滑）。
-     *  Ladder azimuth sampling: ±50° around the player's view, 17 points per line. */
-    private static final int LADDER_SAMPLES = 17;
+    /** 俯仰梯方位采样常量：以玩家视线为中心展开 ±50°、33 点（折线平滑、边缘裁剪后连续）。
+     *  Ladder azimuth sampling: ±50° around the player's view, 33 points per line
+     *  (smooth polylines; Liang-Barsky clipping keeps edge segments continuous). */
+    private static final int LADDER_SAMPLES = 33;
     private static final float LADDER_AZIMUTH_HALF = 50f;
 
     /** 面板世界帧：{center[3], normal[3], right[3], up[3]}。与 renderHud 的位姿
      *  变换完全一致（方块中心 + 面板偏移 + FACING 旋转 + 法线距离）。
+     *  Sable 结构上（onSableStructure）：用缓存的方块世界坐标 + 结构朝向四元数，
+     *  面板偏移/法线/右/上向量经四元数旋转到世界——getBlockPos() 在结构上是子世界
+     *  本地坐标，直接用它会导致共形投影坐标系错乱（俯仰梯完全不显示）。
      *  Panel world frame: {center, normal, right, up} — matches renderHud's pose
-     *  exactly (block center + panel offset + FACING rotation + normal distance). */
+     *  exactly (block center + panel offset + FACING rotation + normal distance).
+     *  On a Sable structure: uses the cached world position + structure orientation
+     *  quaternion; panel offset/normal/right/up are rotated into world space —
+     *  getBlockPos() is sub-world LOCAL there, so using it directly breaks the
+     *  conformal projection's coordinate frame (pitch ladder not drawn at all). */
     public static double[][] hudPanelFrame(MonitorBlockEntity be) {
         double yawRad = 0;
         if (be.getBlockState().hasProperty(MonitorBlock.FACING)) {
             yawRad = Math.toRadians(be.getBlockState().getValue(MonitorBlock.FACING).toYRot());
         }
+        return panelFrameFromBasis(
+            be.getBlockPos().getX(), be.getBlockPos().getY(), be.getBlockPos().getZ(),
+            (float) Math.toDegrees(yawRad), be.panelOffsetX, be.panelOffsetY, be.panelDistance,
+            be.onSableStructure(), be.cachedSubWorldX, be.cachedSubWorldY, be.cachedSubWorldZ,
+            be.cachedSubQx, be.cachedSubQy, be.cachedSubQz, be.cachedSubQw);
+    }
+
+    /** 纯函数：面板世界帧计算（可单元测试）。
+     *  Sable 结构上（onSable）：cachedSubWorld 是方块中心世界坐标（已含结构旋转），
+     *  面板偏移是 renderHud 的世界平移语义（直接加），法线距离沿 FACING 方向
+     *  （结构本地向量）经结构四元数旋转到世界；法线/右/上向量同样旋转。
+     *  普通路径：方块坐标 + 偏移 + FACING 旋转 + 法线距离（与 renderHud 一致）。
+     *  Pure function: panel world frame computation (unit-testable).
+     *  On a Sable structure: cachedSubWorld is the block-center world position
+     *  (structure-rotated); the panel offset is renderHud's world-translation (added
+     *  directly); the FACING-normal distance (a structure-local vector) is rotated
+     *  into world space by the structure quaternion, as are normal/right/up.
+     *  Plain path: block coords + offset + FACING rotation + normal distance. */
+    public static double[][] panelFrameFromBasis(
+            double bx, double by, double bz,
+            float facingYawDeg, float panelOffsetX, float panelOffsetY, float panelDistance,
+            boolean onSable, double swx, double swy, double swz,
+            double qx, double qy, double qz, double qw) {
+        double yawRad = Math.toRadians(facingYawDeg);
         double sy = Math.sin(yawRad), cy = Math.cos(yawRad);
         double[] n = {-sy, 0, cy};  // Ry(-yaw) * (0,0,1)
         double[] r = {cy, 0, sy};   // Ry(-yaw) * (1,0,0)
         double[] u = {0, 1, 0};     // 竖直面板的上向量 / up for a vertical panel
-        double d = be.panelDistance;
+        double d = panelDistance;
+
+        if (onSable) {
+            var q = new org.joml.Quaterniond(qx, qy, qz, qw);
+            var dist = new org.joml.Vector3d(n[0] * d, n[1] * d, n[2] * d);
+            q.transform(dist);
+            double[] c = {swx + panelOffsetX + dist.x, swy + panelOffsetY + dist.y, swz + dist.z};
+            var nv = new org.joml.Vector3d(n[0], n[1], n[2]); q.transform(nv);
+            var rv = new org.joml.Vector3d(r[0], r[1], r[2]); q.transform(rv);
+            var uv = new org.joml.Vector3d(u[0], u[1], u[2]); q.transform(uv);
+            return new double[][]{c, {nv.x, nv.y, nv.z}, {rv.x, rv.y, rv.z}, {uv.x, uv.y, uv.z}};
+        }
+
         double[] c = {
-            be.getBlockPos().getX() + 0.5 + be.panelOffsetX + n[0] * d,
-            be.getBlockPos().getY() + 0.5 + be.panelOffsetY + n[1] * d,
-            be.getBlockPos().getZ() + 0.5 + n[2] * d};
+            bx + 0.5 + panelOffsetX + n[0] * d,
+            by + 0.5 + panelOffsetY + n[1] * d,
+            bz + 0.5 + n[2] * d};
         return new double[][]{c, n, r, u};
     }
 
@@ -514,14 +558,53 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         buf.addVertex(m, (float)(x0 - nx), (float)(y0 - ny), z).setColor(r, g, b, a);
     }
 
-    /** 折线绘制：相邻点连细线（面板局部坐标）。 */
+    /** 折线绘制（Liang-Barsky 线段裁剪到面板矩形）：相邻点连细线，出界线段
+     *  裁剪到面板边界——刻度线在玻璃边缘平滑截断（移出视野）而非整段消失。
+     *  Polyline drawing (Liang-Barsky clip to the panel rect): adjacent points are
+     *  joined by thin lines; off-panel segments are clipped to the panel boundary so
+     *  ladder lines cut off smoothly at the glass edge instead of vanishing whole. */
     private static void drawPolyline(VertexConsumer buf, org.joml.Matrix4f m,
             java.util.List<double[]> pts, double w, float z,
-            float r, float g, float b, float a) {
+            float r, float g, float b, float a, double hw, double hh) {
         for (int i = 0; i + 1 < pts.size(); i++) {
             double[] p0 = pts.get(i), p1 = pts.get(i + 1);
-            addThickLine(buf, m, p0[0], p0[1], p1[0], p1[1], w, z, r, g, b, a);
+            addClippedLine(buf, m, p0[0], p0[1], p1[0], p1[1], w, z, r, g, b, a, hw, hh);
         }
+    }
+
+    /** Liang-Barsky 线段 vs 面板矩形裁剪：仅绘制落在 [-hw,hw]×[-hh,hh] 内的部分。
+     *  Liang-Barsky segment-vs-panel-rect clip: draws only the part inside
+     *  [-hw,hw]×[-hh,hh]. Pure function on doubles — unit-testable. */
+    public static double[] clipSegmentToPanel(
+            double x0, double y0, double x1, double y1, double hw, double hh) {
+        double t0 = 0, t1 = 1;
+        double dx = x1 - x0, dy = y1 - y0;
+        double[] p = {-dx, dx, -dy, dy};
+        double[] q = {x0 + hw, hw - x0, y0 + hh, hh - y0};
+        for (int i = 0; i < 4; i++) {
+            if (Math.abs(p[i]) < 1e-9) {
+                if (q[i] < 0) return null; // 平行且在矩形外 / parallel and outside
+            } else {
+                double t = q[i] / p[i];
+                if (p[i] < 0) {
+                    if (t > t1) return null;
+                    if (t > t0) t0 = t;
+                } else {
+                    if (t < t0) return null;
+                    if (t < t1) t1 = t;
+                }
+            }
+        }
+        if (t1 <= t0) return null;
+        return new double[]{x0 + t0 * dx, y0 + t0 * dy, x0 + t1 * dx, y0 + t1 * dy};
+    }
+
+    private static void addClippedLine(VertexConsumer buf, org.joml.Matrix4f m,
+            double x0, double y0, double x1, double y1, double w, float z,
+            float r, float g, float b, float a, double hw, double hh) {
+        double[] seg = clipSegmentToPanel(x0, y0, x1, y1, hw, hh);
+        if (seg == null) return;
+        addThickLine(buf, m, seg[0], seg[1], seg[2], seg[3], w, z, r, g, b, a);
     }
 
     /** 共形俯仰梯 + 地平线 + 姿态标记（§9.2 首批）。
@@ -535,8 +618,20 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             MultiBufferSource buffer, double[] eye, float viewYaw,
             double[] center, double[] normal, double[] right, double[] up,
             float hw, float hh, java.util.Map<Integer, float[]> outputs) {
-        float pitch = be.graph.getInputValue(n.id, 0, outputs);
-        float roll = be.graph.getInputValue(n.id, 1, outputs);
+        float targetPitch = be.graph.getInputValue(n.id, 0, outputs);
+        float targetRoll = be.graph.getInputValue(n.id, 1, outputs);
+        // 姿态平滑：20Hz 数据 → 60fps 指数插值（现实 HUD 姿态标记是连续平滑的，不跳变）。
+        // Attitude smoothing: 20Hz data → 60fps exponential interpolation (a real HUD
+        // marker moves continuously; it must not step).
+        float pitch, roll;
+        if (Float.isNaN(be.smoothPitch) || Float.isNaN(be.smoothRoll)) {
+            be.smoothPitch = targetPitch; be.smoothRoll = targetRoll;
+            pitch = targetPitch; roll = targetRoll;
+        } else {
+            be.smoothPitch += (targetPitch - be.smoothPitch) * 0.25f;
+            be.smoothRoll += (targetRoll - be.smoothRoll) * 0.25f;
+            pitch = be.smoothPitch; roll = be.smoothRoll;
+        }
         float range = n.params.length > 0 ? Math.max(1f, Math.min(180f, n.params[0])) : 90f;
         float interval = n.params.length > 1 ? Math.max(1f, n.params[1]) : 5f;
         var buf = buffer.getBuffer(MonitorRenderTypes.SCREEN_PIXEL);
@@ -547,9 +642,9 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             var pts = ladderLinePoints(viewYaw, theta, LADDER_SAMPLES, LADDER_AZIMUTH_HALF,
                 eye, center, normal, right, up, hw, hh);
             if (Math.abs(theta) < interval * 0.5f) {
-                drawPolyline(buf, m, pts, 0.02, z, 0.0f, 1f, 0.6f, 0.9f);   // 地平线：加粗高亮 / horizon: bold
+                drawPolyline(buf, m, pts, 0.02, z, 0.0f, 1f, 0.6f, 0.9f, hw, hh);   // 地平线：加粗高亮 / horizon: bold
             } else {
-                drawPolyline(buf, m, pts, 0.008, z, 1f, 1f, 1f, 0.5f);      // 普通刻度：半透明白 / ticks: translucent white
+                drawPolyline(buf, m, pts, 0.008, z, 1f, 1f, 1f, 0.5f, hw, hh);      // 普通刻度：半透明白 / ticks: translucent white
             }
         }
         // 姿态标记：pitch 输入定位、roll 输入旋转（绕标记中心）

@@ -85,7 +85,7 @@ public class SchematicCompute {
     public static final DeferredHolder<Item, BlockItem> MONITOR_ITEM =
             ITEMS.register("monitor", () -> new BlockItem(MONITOR_BLOCK.get(), new Item.Properties()));
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<MonitorBlockEntity>> MONITOR_BE =
-            BLOCK_ENTITIES.register("monitor", () -> BlockEntityType.Builder.of(MonitorBlockEntity::new, MONITOR_BLOCK.get()).build(null));
+            BLOCK_ENTITIES.register("monitor", () -> BlockEntityType.Builder.of(MonitorBlockEntity::create, MONITOR_BLOCK.get()).build(null));
 
     // 雷达方块
     public static final DeferredHolder<Block, RadarBlock> RADAR_BLOCK =

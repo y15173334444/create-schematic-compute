@@ -142,4 +142,79 @@ class ConformalProjectionTest {
         assertEquals(1, r[0], 1e-9); assertEquals(0, r[1], 1e-9); assertEquals(0, r[2], 1e-9);
         assertEquals(0, u[0], 1e-9); assertEquals(1, u[1], 1e-9); assertEquals(0, u[2], 1e-9);
     }
+
+    @Test
+    @DisplayName("panelFrameFromBasis: plain path matches block center + offset + normal distance")
+    void testPanelFramePlain() {
+        // 方块 (100,64,-20)，SOUTH FACING，偏移 (0.5, 0.25, 0)，距离 0.05
+        // Block (100,64,-20), SOUTH facing, offset (0.5,0.25,0), distance 0.05
+        double[][] f = MonitorBlockEntityRenderer.panelFrameFromBasis(
+            100, 64, -20, 0f, 0.5f, 0.25f, 0.05f, false, 0, 0, 0, 0, 0, 0, 1);
+        assertEquals(100.5 + 0.5, f[0][0], 1e-6);   // center x = blockX+0.5+offX
+        assertEquals(64.5 + 0.25, f[0][1], 1e-6);   // center y = blockY+0.5+offY
+        assertEquals(-20 + 0.5 + 0.05, f[0][2], 1e-6); // center z = blockZ+0.5+dist (SOUTH normal +Z)
+        assertEquals(0, f[1][0], 1e-9); assertEquals(0, f[1][1], 1e-9); assertEquals(1, f[1][2], 1e-9); // N
+        assertEquals(1, f[2][0], 1e-9); assertEquals(0, f[2][1], 1e-9); assertEquals(0, f[2][2], 1e-9); // R
+        assertEquals(0, f[3][0], 1e-9); assertEquals(1, f[3][1], 1e-9); assertEquals(0, f[3][2], 1e-9); // U
+    }
+
+    @Test
+    @DisplayName("panelFrameFromBasis: Sable path — identity quaternion keeps world coords")
+    void testPanelFrameSableIdentity() {
+        // 结构四元数 = 单位（无旋转）：中心 = 缓存世界坐标 + 偏移 + 法线距离
+        // Identity structure quaternion (no rotation): center = cached world + offset + normal distance
+        double[][] f = MonitorBlockEntityRenderer.panelFrameFromBasis(
+            0, 0, 0, 0f, 0f, 0f, 0.05f,
+            true, 500.5, 72.5, -300.5, 0, 0, 0, 1);
+        assertEquals(500.5, f[0][0], 1e-6);
+        assertEquals(72.5, f[0][1], 1e-6);
+        assertEquals(-300.5 + 0.05, f[0][2], 1e-6); // SOUTH normal +Z * distance
+        assertEquals(0, f[1][0], 1e-9); assertEquals(0, f[1][1], 1e-9); assertEquals(1, f[1][2], 1e-9); // N
+        assertEquals(1, f[2][0], 1e-9); assertEquals(0, f[2][1], 1e-9); assertEquals(0, f[2][2], 1e-9); // R
+        assertEquals(0, f[3][0], 1e-9); assertEquals(1, f[3][1], 1e-9); assertEquals(0, f[3][2], 1e-9); // U
+    }
+
+    @Test
+    @DisplayName("panelFrameFromBasis: Sable path — 90° yaw rotation turns normal to +X")
+    void testPanelFrameSableRotated() {
+        // 结构绕 Y 旋转 +90°（四元数 y=sin45, w=cos45）：SOUTH 法线 (0,0,1) → (+X)
+        // Structure yawed +90° about Y (quat y=sin45°, w=cos45°): SOUTH normal (0,0,1) → (+X)
+        double s45 = Math.sin(Math.toRadians(45));
+        double c45 = Math.cos(Math.toRadians(45));
+        double[][] f = MonitorBlockEntityRenderer.panelFrameFromBasis(
+            0, 0, 0, 0f, 0f, 0f, 0.05f,
+            true, 10, 20, 30, 0, s45, 0, c45);
+        // 法线 (0,0,1) 经 +90°Y 旋转 → (1,0,0)
+        assertEquals(1, f[1][0], 1e-6); assertEquals(0, f[1][1], 1e-6); assertEquals(0, f[1][2], 1e-6);
+        // 中心 = (10,20,30) + 法线旋转后的距离
+        assertEquals(10 + 0.05, f[0][0], 1e-6);
+        assertEquals(20, f[0][1], 1e-6);
+        assertEquals(30, f[0][2], 1e-6);
+    }
+
+    @Test
+    @DisplayName("clipSegmentToPanel: fully-inside segment unchanged")
+    void testClipInside() {
+        double[] s = MonitorBlockEntityRenderer.clipSegmentToPanel(-0.5, -0.3, 0.5, 0.3, 1, 0.6);
+        assertNotNull(s);
+        assertEquals(-0.5, s[0], 1e-9); assertEquals(-0.3, s[1], 1e-9);
+        assertEquals(0.5, s[2], 1e-9); assertEquals(0.3, s[3], 1e-9);
+    }
+
+    @Test
+    @DisplayName("clipSegmentToPanel: crossing segment clipped to panel edge")
+    void testClipCrossing() {
+        // 从面板外 (-2,0) 到面板内 (0.5,0)：裁剪到 x=-1（边界）
+        // From outside (-2,0) to inside (0.5,0): clipped to x=-1 (edge)
+        double[] s = MonitorBlockEntityRenderer.clipSegmentToPanel(-2, 0, 0.5, 0, 1, 0.6);
+        assertNotNull(s);
+        assertEquals(-1, s[0], 1e-9);
+        assertEquals(0.5, s[2], 1e-9);
+    }
+
+    @Test
+    @DisplayName("clipSegmentToPanel: fully-outside segment returns null")
+    void testClipOutside() {
+        assertNull(MonitorBlockEntityRenderer.clipSegmentToPanel(-3, -3, -2, -2, 1, 0.6));
+    }
 }

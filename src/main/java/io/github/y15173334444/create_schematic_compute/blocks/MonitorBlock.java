@@ -50,7 +50,7 @@ public class MonitorBlock extends BaseEntityBlock implements IWrenchable {
     @Override protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> b) {
         super.createBlockStateDefinition(b); b.add(LIT, FACING);
     }
-    @Nullable @Override public BlockEntity newBlockEntity(BlockPos pos, BlockState state) { return new MonitorBlockEntity(pos, state); }
+    @Nullable @Override public BlockEntity newBlockEntity(BlockPos pos, BlockState state) { return MonitorBlockEntity.create(pos, state); }
     @Nullable @Override
     public <T extends BlockEntity> BlockEntityTicker<T> getTicker(Level l, BlockState s, BlockEntityType<T> t) {
         if(l.isClientSide()) return null; return createTickerHelper(t, SchematicCompute.MONITOR_BE.get(), (lv,p,st,be)->be.tick());
