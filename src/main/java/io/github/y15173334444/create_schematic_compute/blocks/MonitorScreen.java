@@ -709,6 +709,18 @@ public class MonitorScreen extends AbstractGraphScreen {
                 g.renderOutline(badgeX, badgeY, 6, 6, 0xFF8B7533);
                 g.drawString(Minecraft.getInstance().font, "S", badgeX + 1, badgeY, 0xFFFFAA44, false);
             }
+            case HUD_PITCH_LADDER -> {
+                // 缩略图：简化俯仰梯示意（中心地平线 + 上下刻度线）
+                // Thumbnail: simplified ladder sketch (center horizon + ticks above/below)
+                int cy = y + size / 2;
+                for (int deg = 1; deg <= 3; deg++) {
+                    int dy = Math.round(size * 0.22f * deg / 3f);
+                    g.hLine(x + 2, cy - dy, x + size - 2, 0x55FFFFFF);
+                    g.hLine(x + 2, cy + dy, x + size - 2, 0x55FFFFFF);
+                }
+                g.hLine(x + 2, cy, x + size - 2, 0xFF88E866);
+                g.fill(x + size / 2 - 2, cy - 1, x + size / 2 + 2, cy + 1, 0xFF33CC66);
+            }
         }
     }
 

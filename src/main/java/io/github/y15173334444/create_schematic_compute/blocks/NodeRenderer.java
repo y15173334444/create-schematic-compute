@@ -202,7 +202,7 @@ public class NodeRenderer {
                            NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD, NodeType.ACCELERATION, NodeType.VELOCITY, NodeType.POSITION, NodeType.TARGET_OUT}),
         // F: COMMENT 并入 display / COMMENT merged into display
         new NodeCategory("category.create_schematic_compute.display",
-            new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE}),
+            new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE, NodeType.HUD_PITCH_LADDER}),
         // F: encap_io 并入 structure / encap_io merged into structure
         new NodeCategory("category.create_schematic_compute.structure",
             new NodeType[]{NodeType.ENCAPSULATION, NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT}),
