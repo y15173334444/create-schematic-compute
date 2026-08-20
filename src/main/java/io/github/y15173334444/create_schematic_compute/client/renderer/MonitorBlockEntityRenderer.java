@@ -241,6 +241,12 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     /** 深度锚定诊断日志只打一次（每帧刷屏无意义）/ depth-anchor debug log: once only */
     private static boolean HUD_DEPTH_DEBUG_LOGGED = false;
 
+    /** HUD 虚像画布共享字节缓冲（static 复用，2026-08-21 修复 OOM：每帧 new 1MB
+     *  ByteBufferBuilder 是堆外内存泄漏）。渲染线程串行，build() 快照后 clear() 重填。
+     *  Reused HUD canvas byte buffer (2026-08-21 OOM fix). Render thread is serial;
+     *  build() snapshots the data, then clear() refills per frame. */
+    private static ByteBufferBuilder HUD_CANVAS_BYTES;
+
     private void renderHud(MonitorBlockEntity be, PoseStack poseStack, MultiBufferSource buffer) {
         float hw = be.panelSizeX * 0.5f, hh = be.panelSizeY * 0.5f;
         var mc = Minecraft.getInstance();
@@ -339,10 +345,20 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         // (TRIANGLES mode for mask-clipped triangle fans), bypassing Iris'
         // FullyBufferedMultiBufferSource; drawDepthAnchored flushes them through the
         // official RenderType path.
-        BufferBuilder canvasBuf = new BufferBuilder(
-            new ByteBufferBuilder(1 << 20),
-            VertexFormat.Mode.TRIANGLES,
-            DefaultVertexFormat.POSITION_COLOR);
+        // 2026-08-21 修复：**复用** ByteBufferBuilder（堆外内存源）——此前每帧 new
+        // 1MB ByteBufferBuilder 是堆外泄漏（长时间运行 OOM，日志铁证 Failed to allocate
+        // 1048576 bytes at renderHud）。BufferBuilder 每帧轻量 new（无堆外），共享
+        // 复用的字节缓冲（clear() 重置写入位置）；渲染线程串行，build() 快照后安全。
+        // Reuse the ByteBufferBuilder (the off-heap allocation source) — a fresh 1MB
+        // one per frame leaked off-heap memory (OOM after long sessions, log-proven
+        // "Failed to allocate 1048576 bytes" at renderHud). The lightweight
+        // BufferBuilder is newed per frame but shares the reused byte buffer
+        // (clear() resets the write position); the render thread is serial, so a
+        // build() snapshot is safe before the next clear.
+        if (HUD_CANVAS_BYTES == null) HUD_CANVAS_BYTES = new ByteBufferBuilder(1 << 21);
+        else HUD_CANVAS_BYTES.clear();
+        BufferBuilder canvasBuf = new BufferBuilder(HUD_CANVAS_BYTES,
+            VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
 
         // ── IMAGE/IMAGE_SEQUENCE（layerIndex 排序，同世界渲染） ──
         var imgNodes = new ArrayList<GraphNode>();
