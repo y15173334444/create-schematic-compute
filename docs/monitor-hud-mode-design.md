@@ -1,6 +1,11 @@
 # 全息显示器 HUD 模式设计文档（收敛版 · AR 共形式）
 
-> 状态：🔶 待办（设计已收敛、代码锚点已于 2026-08-16 评审 #2 全部重新核对）
+> 状态：✅ 已解决（设计已收敛、代码锚点已于 2026-08-16 评审 #2 全部重新核对；Phase 1 玻璃面板 + Phase 2 俯仰梯/地平线 + **深度锚定虚像 + 玩家屏幕 4 边形遮罩**已实现）
+> 2026-08-21 落地（用户确认，最终实现）：
+> 1. **深度锚定（顶点级几何实现）**——虚像顶点构造为 `V'=(fx·gz/fz, fy·gz/fz, gz)`（gz=玻璃面板相机深度）：**屏幕位置保持远处画布投影**（角尺寸不变、浮在玩家面前远处）、**深度 = 玻璃平面** → 前方物体遮挡虚像、后方物体不遮挡（真实 HUD 遮挡关系）。纯官方接口 + vanilla `position_color` shader（`HUD_DEPTH_ANCHOR` RenderType：LEQUAL + 不写深度）——**无自定义 shader**（Veil 4.0 拦截自定义 ShaderInstance 绑定，实证 GL_CURRENT_PROGRAM=0 / GL_INVALID_OPERATION；此前 hud_depth_anchor 自定义 shader 方案在此环境不可用）。
+> 2. **玩家屏幕定位遮罩（4 边形）**——玻璃面板 4 角点从玩家眼睛位置投影到远处画布平面（`projectGlassCornersToCanvas` 纯函数，随玩家视角移动/变形），内容（IMAGE 像素 / 俯仰梯刻度）经 Sutherland-Hodgman 凸裁剪（`clipPolyToQuad`）**只在玩家透过玻璃看到的 4 边形区域内显示**——「hud 只在玻璃上显示」，视线离开玻璃（画布不在玻璃投影内）内容消失。
+> 3. **组件级剔除已移除**（逐像素/逐字符画布矩形裁剪 `clipQuadToPanel`、Liang-Barsky 线段裁剪、view-ray 视线遮罩、自定义 hud_depth_anchor shader 及注册）——GPU 省不了多少、CPU 开销大，仅保留玩家视角遮罩。
+> 4. **`hudGlassAabb` 符号修正**——面板中心原算到局部 +Z（镜像位置，与 `renderHud` 的 -Z 不一致），改为 `(0,0,-(0.5+panelDistance))` 一致。
 > 基线：`1170bac`（评审 #2）。本文是用户原始 HUD spec 经代码核对后的**修正 + 收敛版**，所有结论均锚定真实代码，非臆测。
 > 关键决策（2026-08-16，均已用户确认）：
 > - 3D↔HUD 切换 = **全息显示器内部设置的选项卡切换**，互斥、参数不冲突。
@@ -153,7 +158,7 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 - `MonitorBlockEntitySable`（compat 子类）实现 `BlockEntitySubLevelActor`，`sable$physicsTick` **只恢复 level 引用**——Sable 结构上的 BE level 可能为 null，不恢复会导致服务端 `tick()` 提前返回、图不再求值、HUD 内容冻结（雷达遇到过同样问题）
 - 工厂 `MonitorBlockEntity.create()` 反射创建 compat 实例（Sable 缺席回退普通实例）
 - **刷新平滑**：姿态仪数据 20Hz → 60fps 指数插值（`smoothPitch/smoothRoll`，客户端 transient）
-- **裁剪**：刻度/线段 Liang-Barsky 裁剪到画布矩形（`clipSegmentToPanel`），超画布平滑截断
+- **裁剪（2026-08-21 最终）**：显示区域 = **玩家屏幕定位 4 边形遮罩**——玻璃面板 4 角点从玩家眼睛投影到画布平面（`projectGlassCornersToCanvas`），刻度/线段/像素经 Sutherland-Hodgman 凸裁剪（`clipPolyToQuad`）只在透过玻璃看到的区域内显示；组件级裁剪（Liang-Barsky `clipSegmentToPanel` 等）已移除
 
 ## 九、显示组件系统
 
@@ -174,19 +179,21 @@ public void render(be, partialTick, stack, buffer, packedLight, packedOverlay) {
 - 输出 2：**透传** pitch/roll（`GraphEvaluator` 透传分支，允许玩家把姿态值继续接到别处）
 - 参数 2：`range`（刻度范围，默认 **±90° 全姿态**、可调 0–180）、`interval`（刻度间隔，默认 5°）
 
-**普通组件画布定位（2026-08-19 转向：纯画布方案）**：TEXT/IMAGE/IMAGE_SEQUENCE/DATA/`HUD_PITCH_LADDER` **全部贴画布**（`layoutX/layoutY` 归一化定位，画布 = 面板矩形）。**弃用玩家相机共形投影**（原 §9.1 的世界方向投影、贴世界锚定 `anchorMode` 已删除）——HUD 原理：符号画在固定画布上（像驾驶舱投影屏幕），面板即画布，随方块（含 Sable 结构变换）在世界中，不需要玩家相机 → **Sable 结构天然支持**。显示区域只做**裁剪**（Liang-Barsky 线段裁剪到画布矩形）与**遮挡**（layerIndex 排序 + 深度测试）。
+**普通组件画布定位（2026-08-19 转向：纯画布方案）**：TEXT/IMAGE/IMAGE_SEQUENCE/DATA/`HUD_PITCH_LADDER` **全部贴画布**（`layoutX/layoutY` 归一化定位，画布 = 面板矩形）。**弃用玩家相机共形投影**（原 §9.1 的世界方向投影、贴世界锚定 `anchorMode` 已删除）——HUD 原理：符号画在固定画布上（像驾驶舱投影屏幕），面板即画布，随方块（含 Sable 结构变换）在世界中，不需要玩家相机 → **Sable 结构天然支持**。显示区域 = **玩家屏幕定位 4 边形遮罩**（玻璃 4 角点投影到画布平面 + Sutherland-Hodgman 凸裁剪，2026-08-21），**遮挡 = 顶点级深度锚定**（虚像深度 = 玻璃平面，2026-08-21）。
 
 **布局**：节点已有 `layoutX/layoutY`（归一化 [0,1] 画布坐标）+ `displayScale`，spec 的 `(u,v,w,h)` 直接映射现有字段，Phase 6 工作量被高估。共形符号的 layout 仅作符号组整体偏移（默认居中），投影决定内容位置。
 
 ### 9.1 俯仰梯画布姿态仪 + 虚像画布（2026-08-19 两轮转向后定稿）
 
 **最终方案：近处屏幕 + 远处虚像画布**（真实 HUD 原理——符号聚焦无穷远，飞行员无需重新对焦）：
-- **近处屏幕**：玻璃 tint + 边框（可见的画布边界），不画内容
-- **远处虚像**：画布沿面板法线平移 `VIRTUAL_IMAGE_D=100` 格、尺寸 ×D——**角尺寸保持**，玩家看屏幕时内容恒定大小浮在远处（无限远聚焦）；内容（俯仰梯/TEXT/IMAGE/DATA）全部画在远处画布
+- **近处屏幕**：只画**边框**（可见的画布边界轮廓；半透明 tint 底色已删除——双重半透明在 Sodium/Veil 透明通道排序下会遮蔽虚像），不画内容
+- **远处虚像**：画布沿 **-FACING（玩家侧，玩家面前远处）** 平移 `VIRTUAL_IMAGE_D=100` 格、尺寸 ×D——**角尺寸保持**，玩家看屏幕时内容恒定大小浮在远处（无限远聚焦）；内容（俯仰梯/TEXT/IMAGE/DATA）全部画在远处画布
+- **深度锚定（2026-08-21，顶点级几何实现）**：虚像顶点构造为 `V'=(fx·gz/fz, fy·gz/fz, gz)`（`emitAnchored` 纯函数，gz=玻璃面板相机深度）——**屏幕位置保持远处画布投影**（角尺寸不变）、**NDC 深度 = 玻璃平面** → **前方物体（比玻璃近）在 LEQUAL 深度测试中遮挡虚像、后方物体（比玻璃远）不遮挡**（真实 HUD 遮挡关系）。用 vanilla `position_color` shader + 官方 RenderType（`HUD_DEPTH_ANCHOR`：LEQUAL + `COLOR_WRITE` 不写深度）——**无自定义 shader**（Veil 4.0 拦截自定义 ShaderInstance 绑定，实证 GL_CURRENT_PROGRAM=0 / GL_INVALID_OPERATION；hud_depth_anchor 自定义 shader 方案在此环境不可用，已删除）
+- **玩家屏幕定位遮罩（4 边形，2026-08-21）**：玻璃面板 4 角点从玩家眼睛（面板矩阵逆变换相机原点）投影到画布平面（`projectGlassCornersToCanvas`），内容（IMAGE 像素 / 俯仰梯刻度）经 Sutherland-Hodgman 凸裁剪（`clipPolyToQuad` + `pointInConvexQuad` + `polyAabb` 纯函数）**只在玩家透过玻璃看到的 4 边形区域内显示**——「hud 只在玻璃上显示」，视线离开玻璃（画布不在玻璃投影内）内容消失；玩家贴近/斜看时遮罩随视角变形
 - **天然共形**：画布在世界固定位置（poseStack 局部坐标，Sable 结构上随结构）→ 玩家转头/移动时内容相对世界固定，**不依赖玩家相机投影** → **Sable 天然支持**
-- 俯仰梯 = 画布内姿态仪：画布中心 = 飞机符号（固定）；`pitch` 输入平移地平线（抬头 → 地平线下移），`roll` 输入绕画布中心旋转整组；刻度线相对地平线按 **tan 透视**分布（`y = -K·tan(pitch+θ)`，近地平线密、远处疏）；超画布的刻度被 Liang-Barsky 裁剪（真实 HUD 俯仰梯只在视场附近可见）
+- 俯仰梯 = 画布内姿态仪：画布中心 = 飞机符号（固定）；`pitch` 输入平移地平线（抬头 → 地平线下移），`roll` 输入绕画布中心旋转整组；刻度线相对地平线按 **tan 透视**分布（`y = -K·tan(pitch+θ)`，近地平线密、远处疏）；超遮罩的刻度被 4 边形裁剪（真实 HUD 俯仰梯只在视场附近可见）
 - 姿态数据 20Hz + 客户端指数插值（`smoothPitch/smoothRoll`）→ 60fps 平滑
-- 纯函数：`ladderCanvasY(pitch, θ, halfH)`、`clipSegmentToPanel`（可单测）
+- 纯函数（可单测）：`ladderCanvasY`、`projectGlassCornersToCanvas`、`pointInConvexQuad`、`clipPolyToQuad`、`polyAabb`（`ConformalProjectionTest`）
 - **Sable 结构支持**：仅需 `MonitorBlockEntitySable`（`BlockEntitySubLevelActor` 的 `sable$physicsTick` 恢复 level 引用——结构上 BE 的 level 可能为 null，不恢复则图不求值、内容冻结）；无坐标缓存、无 NBT 额外同步
 
 ### 9.2 共形符号数据来源（首批：俯仰梯/地平线）
