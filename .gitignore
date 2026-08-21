@@ -3,6 +3,8 @@
 build/
 *.jar
 !build/libs/*.jar
+!libs/*.jar
+!gradle/wrapper/gradle-wrapper.jar
 
 # IDE
 .idea/
