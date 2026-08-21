@@ -1,0 +1,34 @@
+# PR 单元测试 / PR unit tests
+# 只在 Pull Request 时自动运行 `./gradlew test`；直接 push（如 main）不触发，不阻塞发布。
+# Runs unit tests on pull requests only; direct pushes (e.g. to main) do not trigger it.
+name: PR unit tests
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: gradlew test (Java 21)
+    runs-on: ubuntu-latest
+    env:
+      # NeoGradle/neoForm 反编译需要较多内存（默认 512m 会 OOM）
+      # neoForm decompilation needs more heap than the Gradle default (512m → OOM)
+      GRADLE_OPTS: -Xmx4g -Dorg.gradle.daemon=false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle (caches dependencies / neoForm outputs)
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run unit tests
+        run: ./gradlew test --console=plain
