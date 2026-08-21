@@ -238,6 +238,24 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  only clips (Liang-Barsky) and occludes (depth + layerIndex). */
     private static final float VIRTUAL_IMAGE_D = 100f; // 虚像距离（格）/ virtual-image distance (blocks)
 
+    /** 锚定比例 s 上界钳制（2026-08-24）：s=zAnchor/fz，掠射（视角与玻璃法线差
+     *  ≥~80°）时画布边缘顶点视线深度 fz→0⁻ → s→∞ → 锚定顶点坐标溢出为 Inf/NaN
+     *  → 虚像撕裂/颜色溢出（用户实测必然触发）。钳制 s 到有限上界：顶点坐标有界
+     *  （float 精确）、屏幕 NDC 落在视锥外 → GPU 视锥裁剪干净切掉，fz 正常时
+     *  （|s|≈0.03）完全不受影响。**不用** 8-22 的 clipPolyToHalfPlane 几何裁剪：
+     *  画布巨大（×D=200×120 格），正常斜视（30-50°）时画布边缘 fz 也接近 0 →
+     *  会把正常可见内容误切掉（"显示不全"，8-23 实测删除、8-24 复现误切）。
+     *  Anchor-ratio s upper clamp: s=zAnchor/fz; at grazing view (≥~80°) canvas-edge
+     *  vertices go fz→0⁻ → s→∞ → anchored vertex coords overflow to Inf/NaN → the
+     *  image tears/bleeds (user-measured, guaranteed). Clamping s to a finite bound
+     *  keeps vertex coords finite (float-exact) with NDC outside the frustum → the
+     *  GPU frustum clip cuts them cleanly; normal |s|≈0.03 is untouched. The 8-22
+     *  clipPolyToHalfPlane geometric clip is NOT used: the canvas is huge (×D,
+     *  200×120 blocks), so at ordinary oblique views (30-50°) canvas-edge fz also
+     *  nears 0 → it wrongly cuts visible content ("incomplete display", removed
+     *  8-23 after measurement, reproduced 8-24). */
+    static final float MAX_ANCHOR_S = 1e4f;
+
     /** 深度锚定诊断日志只打一次（每帧刷屏无意义）/ depth-anchor debug log: once only */
     private static boolean HUD_DEPTH_DEBUG_LOGGED = false;
 
@@ -277,11 +295,34 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         //    2026-08-20 (see the content-drawing comment below).
         poseStack.translate(0, 0, -(0.5f + be.panelDistance));
         var m = poseStack.last().pose();
-        // 玻璃面板中心 → 相机空间深度 gz（顶点级深度锚定目标，2026-08-21 几何等效）
+        // 相机旋转（世界 → 相机空间）：BER 的 poseStack 只含相机平移（LevelRenderer
+        // 把相机旋转乘进 RenderSystem 全局 modelView，不进入 BER poseStack），因此
+        // poseStack 变换后顶点的 z 分量是**世界 Z 分量**而非视线深度。深度锚定的
+        // 透视除法 s=zAnchor/fz 必须用真正的视线深度：玩家面朝东西（视线沿 X 轴）时
+        // 玻璃/画布的世界 Z 分量 ≈ 玩家 Z → fz≈0 → s 爆炸/翻转 → 虚像溢出
+        // （2026-08-24 修复，FacingOverflowDiagTest 数值实证：EAST s=0.9/-0.018、
+        // WEST s=-Infinity，NORTH/SOUTH 正常）。
+        // Camera rotation (world → camera space): the BER poseStack carries only the
+        // camera translation (LevelRenderer multiplies the camera rotation into the
+        // RenderSystem modelView stack, never into the BER poseStack), so a vertex's
+        // z after the poseStack is a **world-Z component**, not the view depth. The
+        // depth-anchor perspective division s=zAnchor/fz needs the true view depth:
+        // facing EAST/WEST (view along X), the glass/canvas world-Z ≈ the player Z →
+        // fz≈0 → s blows up/flips → the virtual image overflows (2026-08-24 fix;
+        // FacingOverflowDiagTest numbers: EAST s=0.9/-0.018, WEST s=-Infinity,
+        // NORTH/SOUTH fine).
+        var cam = Minecraft.getInstance().gameRenderer.getMainCamera();
+        Quaternionf camRotInv = cam.rotation().conjugate(new Quaternionf());
+        org.joml.Matrix4f viewRot = new org.joml.Matrix4f().rotation(camRotInv);  // 世界→相机空间
+        org.joml.Matrix4f viewRotInv = new org.joml.Matrix4f(viewRot).invert();   // 相机空间→世界
+        // 玻璃面板中心 → 相机空间深度 gz（顶点级深度锚定目标，2026-08-21 几何等效；
+        // 2026-08-24：先经 poseStack 到世界（相机相对），再经相机旋转到视线深度）。
         // Glass panel center → camera-space depth gz (the vertex-level depth-anchor
-        // target, 2026-08-21 geometric equivalent).
+        // target, 2026-08-21 geometric equivalent; 2026-08-24: poseStack → world
+        // (camera-relative), then camera rotation → true view depth).
         var glassView = new org.joml.Vector3f();
         m.transformPosition(glassView);
+        viewRot.transformPosition(glassView);
         float glassZ = glassView.z;
         // 玩家屏幕定位遮罩（4 边形）：眼睛在面板局部（相机原点经面板矩阵逆变换，
         // ez>0 = 玻璃前）；玻璃 4 角点投影到画布平面 → 内容局部 4 边形 + AABB。
@@ -444,9 +485,16 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                     float y0 = -py * cell, y1 = y0 - cell;
                     // 4 边形遮罩：像素 quad 与玻璃投影 4 边形求交——全内直画、
                     // 全外跳过、相交则 Sutherland-Hodgman 裁剪 + 三角形扇。
+                    // （2026-08-24：不再做相机平面几何裁剪——画布巨大（×D），正常
+                    // 斜视时画布边缘 fz 也接近 0，几何裁剪会误切正常可见内容；掠射
+                    // 溢出由 emitAnchored 的 s 钳制防 float 溢出，GPU 视锥干净裁剪。）
                     // 4-gon mask: intersect the pixel quad with the glass-projection
                     // quad — fully-inside draws directly, fully-outside skips,
-                    // partial clips (Sutherland-Hodgman) + triangle fan.
+                    // partial clips (Sutherland-Hodgman) + triangle fan. (No camera-
+                    // plane geometric clip since 2026-08-24: the canvas is huge (×D),
+                    // so ordinary oblique views put canvas-edge fz near 0 and a
+                    // geometric clip wrongly cuts visible content; grazing overflow
+                    // is handled by the s clamp in emitAnchored + the GPU frustum.)
                     if (x1 <= maskImgAabb[0] || x0 >= maskImgAabb[2]
                         || y1 <= maskImgAabb[1] || y0 >= maskImgAabb[3]) continue; // 全外
                     boolean allIn = pointInConvexQuad(x0, y0, maskImg)
@@ -457,21 +505,21 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                     if (allIn) {
                         // 顶点级深度锚定：屏幕位置保持远处画布投影、深度 = 玻璃平面 gz
                         // (Vertex-level depth anchor: far-canvas projection, glass depth)
-                        emitAnchored(canvasBuf, m2, x0, y0, 0f, glassZ, rf, gf, bf, af);
-                        emitAnchored(canvasBuf, m2, x1, y0, 0f, glassZ, rf, gf, bf, af);
-                        emitAnchored(canvasBuf, m2, x1, y1, 0f, glassZ, rf, gf, bf, af);
-                        emitAnchored(canvasBuf, m2, x0, y0, 0f, glassZ, rf, gf, bf, af);
-                        emitAnchored(canvasBuf, m2, x1, y1, 0f, glassZ, rf, gf, bf, af);
-                        emitAnchored(canvasBuf, m2, x0, y1, 0f, glassZ, rf, gf, bf, af);
+                        emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x0, y0, 0f, glassZ, rf, gf, bf, af);
+                        emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x1, y0, 0f, glassZ, rf, gf, bf, af);
+                        emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x1, y1, 0f, glassZ, rf, gf, bf, af);
+                        emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x0, y0, 0f, glassZ, rf, gf, bf, af);
+                        emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x1, y1, 0f, glassZ, rf, gf, bf, af);
+                        emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x0, y1, 0f, glassZ, rf, gf, bf, af);
                     } else {
                         float[] clipped = clipPolyToQuad(
                             new float[]{x0, y0, x1, y0, x1, y1, x0, y1}, maskImg);
                         int nv = clipped.length / 2;
                         if (nv < 3) continue;
                         for (int i = 1; i < nv - 1; i++) {
-                            emitAnchored(canvasBuf, m2, clipped[0], clipped[1], 0f, glassZ, rf, gf, bf, af);
-                            emitAnchored(canvasBuf, m2, clipped[i * 2], clipped[i * 2 + 1], 0f, glassZ, rf, gf, bf, af);
-                            emitAnchored(canvasBuf, m2, clipped[(i + 1) * 2], clipped[(i + 1) * 2 + 1], 0f, glassZ, rf, gf, bf, af);
+                            emitAnchored(canvasBuf, m2, viewRot, viewRotInv, clipped[0], clipped[1], 0f, glassZ, rf, gf, bf, af);
+                            emitAnchored(canvasBuf, m2, viewRot, viewRotInv, clipped[i * 2], clipped[i * 2 + 1], 0f, glassZ, rf, gf, bf, af);
+                            emitAnchored(canvasBuf, m2, viewRot, viewRotInv, clipped[(i + 1) * 2], clipped[(i + 1) * 2 + 1], 0f, glassZ, rf, gf, bf, af);
                         }
                     }
                 }
@@ -536,7 +584,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             }
             hudNodes.sort((n1, n2) -> Integer.compare(n1.layerIndex, n2.layerIndex));
             for (var n : hudNodes) {
-                drawPitchLadder(n, be, poseStack, canvasBuf, hw, hh, glassZ, maskQuad, snapshot.outputs());
+                drawPitchLadder(n, be, poseStack, canvasBuf, hw, hh, glassZ, viewRot, viewRotInv, maskQuad, snapshot.outputs());
             }
         }
         poseStack.popPose(); // 远处画布（×D）结束 / end of the far canvas (×D)
@@ -578,8 +626,9 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  interval, rotated about the canvas center by roll, then clipped by the
      *  player-screen 4-gon mask (see addThickLineAnchored). */
     private void drawPitchLadder(GraphNode n, MonitorBlockEntity be, PoseStack poseStack,
-            BufferBuilder buf, float hw, float hh, float glassZ, float[] maskQuad,
-            java.util.Map<Integer, float[]> outputs) {
+            BufferBuilder buf, float hw, float hh, float glassZ,
+            org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
+            float[] maskQuad, java.util.Map<Integer, float[]> outputs) {
         float targetPitch = be.graph.getInputValue(n.id, 0, outputs);
         float targetRoll = be.graph.getInputValue(n.id, 1, outputs);
         // 姿态平滑：20Hz 数据 → 60fps 指数插值（真实 HUD 姿态仪连续平滑，不跳变）。
@@ -611,17 +660,17 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             double rx0 = x0 * cr - y0 * sr, ry0 = x0 * sr + y0 * cr;
             double rx1 = x1 * cr - y1 * sr, ry1 = x1 * sr + y1 * cr;
             if (Math.abs(theta) < interval * 0.5f) {
-                addThickLineAnchored(buf, m, rx0, ry0, rx1, ry1, 0.02, z, glassZ, maskQuad, 0.0f, 1f, 0.6f, 0.9f); // 地平线
+                addThickLineAnchored(buf, m, rx0, ry0, rx1, ry1, 0.02, z, glassZ, viewRot, viewRotInv, maskQuad, 0.0f, 1f, 0.6f, 0.9f); // 地平线
             } else {
-                addThickLineAnchored(buf, m, rx0, ry0, rx1, ry1, 0.008, z, glassZ, maskQuad, 1f, 1f, 1f, 0.5f);    // 刻度
+                addThickLineAnchored(buf, m, rx0, ry0, rx1, ry1, 0.008, z, glassZ, viewRot, viewRotInv, maskQuad, 1f, 1f, 1f, 0.5f);    // 刻度
             }
         }
         // 中央飞机符号（固定画布中心，roll 旋转的短机身 + 翼线）
         // Central aircraft symbol (fixed at canvas center; short fuselage + wing rotated by roll)
         addThickLineAnchored(buf, m, -hw * 0.12 * cr, -hw * 0.12 * sr, hw * 0.12 * cr, hw * 0.12 * sr,
-            0.015, z, glassZ, maskQuad, 0.2f, 1f, 0.4f, 0.95f);
+            0.015, z, glassZ, viewRot, viewRotInv, maskQuad, 0.2f, 1f, 0.4f, 0.95f);
         addThickLineAnchored(buf, m, -hw * 0.18 * cr, -hw * 0.18 * sr, hw * 0.18 * cr, hw * 0.18 * sr,
-            0.02, z, glassZ, maskQuad, 0.2f, 1f, 0.4f, 0.95f);
+            0.02, z, glassZ, viewRot, viewRotInv, maskQuad, 0.2f, 1f, 0.4f, 0.95f);
     }
 
     /** 细线 quad（画布局部坐标，深度锚定 + 4 边形遮罩）：把线段 (x0,y0)-(x1,y1)
@@ -633,7 +682,8 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  (fully-inside draws / outside skips / partial clips + triangle fan). */
     private static void addThickLineAnchored(BufferBuilder buf, org.joml.Matrix4f m,
             double x0, double y0, double x1, double y1, double w, float z,
-            float glassZ, float[] maskQuad, float r, float g, float b, float a) {
+            float glassZ, org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
+            float[] maskQuad, float r, float g, float b, float a) {
         double dx = x1 - x0, dy = y1 - y0;
         double len = Math.sqrt(dx * dx + dy * dy);
         if (len < 1e-6) return;
@@ -647,6 +697,10 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         float q2x = (float)(x1 - nx), q2y = (float)(y1 - ny);
         float q3x = (float)(x0 - nx), q3y = (float)(y0 - ny);
         float[] quad = {q0x, q0y, q1x, q1y, q2x, q2y, q3x, q3y};
+        // （2026-08-24：不再做相机平面几何裁剪——见 MAX_ANCHOR_S 注释；掠射溢出由
+        // emitAnchored 的 s 钳制防 float 溢出，GPU 视锥干净裁剪。）
+        // (No camera-plane geometric clip since 2026-08-24 — see MAX_ANCHOR_S; grazing
+        // overflow is handled by the s clamp in emitAnchored + the GPU frustum.)
         float[] qa = polyAabb(quad);
         float[] ma = polyAabb(maskQuad);
         if (qa[2] <= ma[0] || qa[0] >= ma[2] || qa[3] <= ma[1] || qa[1] >= ma[3]) return; // 全外
@@ -655,40 +709,61 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             && pointInConvexQuad(q2x, q2y, maskQuad)
             && pointInConvexQuad(q3x, q3y, maskQuad);
         if (allIn) {
-            emitAnchored(buf, m, q0x, q0y, z, zAnchor, r, g, b, a);
-            emitAnchored(buf, m, q1x, q1y, z, zAnchor, r, g, b, a);
-            emitAnchored(buf, m, q2x, q2y, z, zAnchor, r, g, b, a);
-            emitAnchored(buf, m, q0x, q0y, z, zAnchor, r, g, b, a);
-            emitAnchored(buf, m, q2x, q2y, z, zAnchor, r, g, b, a);
-            emitAnchored(buf, m, q3x, q3y, z, zAnchor, r, g, b, a);
+            emitAnchored(buf, m, viewRot, viewRotInv, q0x, q0y, z, zAnchor, r, g, b, a);
+            emitAnchored(buf, m, viewRot, viewRotInv, q1x, q1y, z, zAnchor, r, g, b, a);
+            emitAnchored(buf, m, viewRot, viewRotInv, q2x, q2y, z, zAnchor, r, g, b, a);
+            emitAnchored(buf, m, viewRot, viewRotInv, q0x, q0y, z, zAnchor, r, g, b, a);
+            emitAnchored(buf, m, viewRot, viewRotInv, q2x, q2y, z, zAnchor, r, g, b, a);
+            emitAnchored(buf, m, viewRot, viewRotInv, q3x, q3y, z, zAnchor, r, g, b, a);
         } else {
             float[] clipped = clipPolyToQuad(quad, maskQuad);
             int nv = clipped.length / 2;
             if (nv < 3) return;
             for (int i = 1; i < nv - 1; i++) {
-                emitAnchored(buf, m, clipped[0], clipped[1], z, zAnchor, r, g, b, a);
-                emitAnchored(buf, m, clipped[i * 2], clipped[i * 2 + 1], z, zAnchor, r, g, b, a);
-                emitAnchored(buf, m, clipped[(i + 1) * 2], clipped[(i + 1) * 2 + 1], z, zAnchor, r, g, b, a);
+                emitAnchored(buf, m, viewRot, viewRotInv, clipped[0], clipped[1], z, zAnchor, r, g, b, a);
+                emitAnchored(buf, m, viewRot, viewRotInv, clipped[i * 2], clipped[i * 2 + 1], z, zAnchor, r, g, b, a);
+                emitAnchored(buf, m, viewRot, viewRotInv, clipped[(i + 1) * 2], clipped[(i + 1) * 2 + 1], z, zAnchor, r, g, b, a);
             }
         }
     }
 
-    /** 顶点级深度锚定（2026-08-21 几何等效，用户讲解机制的官方接口实现）：
-     *  画布局部点 (x,y,zLocal) 经画布矩阵 m2 到相机空间 V_far=(fx,fy,fz)，构造
-     *  V'=(fx·zAnchor/fz, fy·zAnchor/fz, zAnchor)——屏幕投影 x'/(-z') = fx/(-fz)
+    /** 顶点级深度锚定（2026-08-21 几何等效 + 2026-08-24 相机空间修复）：
+     *  画布局部点 (x,y,zLocal) 经画布矩阵 m2 到世界（相机相对）坐标，再经相机旋转
+     *  viewRot 到**真正的相机空间** V_cam=(fx,fy,fz)（fz = 视线深度）——BER 的
+     *  poseStack 只含相机平移，直接取 z 分量是世界 Z 分量，玩家面朝东西时 fz≈0
+     *  → s 爆炸（溢出根因，见 renderHud 相机旋转注释）。构造锚定顶点
+     *  V'=(fx·zAnchor/fz, fy·zAnchor/fz, zAnchor)：屏幕投影 x'/(-z') = fx/(-fz)
      *  与远处画布一致（角尺寸保持），深度 = zAnchor（玻璃平面 + 图层偏移）→ 前方
-     *  遮挡/后方不遮挡。无自定义 shader、无运行时 uniform——纯官方接口。
-     *  Vertex-level depth anchor (geometric equivalent, official interfaces only):
-     *  the canvas-local point (x,y,zLocal) goes through the canvas matrix m2 to
-     *  camera space V_far=(fx,fy,fz); V'=(fx·zAnchor/fz, fy·zAnchor/fz, zAnchor)
-     *  keeps the far-canvas screen projection (x'/z' ratio) while depth lands on
-     *  zAnchor (glass plane + layer offset) → near occludes / far does not. */
+     *  遮挡/后方不遮挡；再经 viewRotInv 转回世界坐标输出（shader 侧会再乘相机
+     *  旋转）。无自定义 shader、无运行时 uniform——纯官方接口。
+     *  Vertex-level depth anchor (2026-08-21 geometric equivalent + 2026-08-24
+     *  camera-space fix): the canvas-local point (x,y,zLocal) goes through the
+     *  canvas matrix m2 to world (camera-relative) coords, then the camera rotation
+     *  viewRot into **true camera space** V_cam=(fx,fy,fz) (fz = view depth) — the
+     *  BER poseStack carries only the camera translation, so taking the raw z is a
+     *  world-Z component; facing EAST/WEST fz≈0 → s blows up (the overflow root
+     *  cause; see the camera-rotation note in renderHud). The anchored vertex
+     *  V'=(fx·zAnchor/fz, fy·zAnchor/fz, zAnchor) keeps the far-canvas screen
+     *  projection (x'/z' ratio) while depth lands on zAnchor (glass plane + layer
+     *  offset) → near occludes / far does not; then viewRotInv maps it back to
+     *  world coords for emission (the shader applies the camera rotation again).
+     *  No custom shader, no runtime uniform — official interfaces only. */
     private static void emitAnchored(BufferBuilder buf, org.joml.Matrix4f m2,
+            org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
             float x, float y, float zLocal, float zAnchor, float r, float g, float b, float a) {
         var v = new org.joml.Vector3f(x, y, zLocal);
-        m2.transformPosition(v);
+        m2.transformPosition(v);          // 世界（相机相对）/ world (camera-relative)
+        viewRot.transformPosition(v);     // 相机空间：fz = 视线深度 / camera space: fz = view depth
         float s = zAnchor / v.z;
-        buf.addVertex(v.x * s, v.y * s, zAnchor).setColor(r, g, b, a);
+        // 2026-08-24：钳制 s 上界——掠射时 fz→0⁻ → s→∞ → 顶点 Inf/NaN → 撕裂。
+        // 钳到有限值：坐标有界（float 精确）、NDC 视锥外 → GPU 干净裁剪。
+        // Clamp s: at grazing fz→0⁻ → s→∞ → Inf/NaN vertices → tearing. Finite s
+        // keeps coords float-exact and NDC out of the frustum → clean GPU clip.
+        if (s > MAX_ANCHOR_S) s = MAX_ANCHOR_S;
+        else if (s < -MAX_ANCHOR_S) s = -MAX_ANCHOR_S;
+        var out = new org.joml.Vector3f(v.x * s, v.y * s, zAnchor); // 相机空间锚定顶点
+        viewRotInv.transformPosition(out); // 回世界坐标输出 / back to world for emission
+        buf.addVertex(out.x, out.y, out.z).setColor(r, g, b, a);
     }
 
     // ── 玩家屏幕定位遮罩（4 边形）：玻璃面板 4 角点从玩家眼睛投影到远处画布平面 ──
