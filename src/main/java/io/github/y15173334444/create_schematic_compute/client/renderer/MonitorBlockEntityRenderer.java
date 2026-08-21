@@ -584,7 +584,8 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             }
             hudNodes.sort((n1, n2) -> Integer.compare(n1.layerIndex, n2.layerIndex));
             for (var n : hudNodes) {
-                drawPitchLadder(n, be, poseStack, canvasBuf, hw, hh, glassZ, viewRot, viewRotInv, maskQuad, snapshot.outputs());
+                drawPitchLadder(n, be, poseStack, canvasBuf, hw, hh, glassZ, viewRot, viewRotInv,
+                    maskQuad, maskAabb, buffer, font, snapshot.outputs());
             }
         }
         poseStack.popPose(); // 远处画布（×D）结束 / end of the far canvas (×D)
@@ -620,15 +621,27 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         return -LADDER_CANVAS_SCALE * halfH * Math.tan(Math.toRadians(pitchDeg + thetaDeg));
     }
 
-    /** 姿态仪画布刻度：对 -range..+range 每 interval 一条水平刻度线（绕画布中心
-     *  旋转 roll 后经玩家屏幕 4 边形遮罩裁剪——见 addThickLineAnchored）。
-     *  Canvas ladder ticks: one horizontal line per angle in -range..+range step
-     *  interval, rotated about the canvas center by roll, then clipped by the
-     *  player-screen 4-gon mask (see addThickLineAnchored). */
+    /** 姿态仪画布（2026-08-24 全新样式，细线 + 不透明 alpha=1——光影/Iris/Veil 会剔除
+     *  半透明元素）：① 白色四段中空十字准星（固定画布中心，不随姿态移动/旋转）；
+     *  ② 白色水平线（地平线，随 pitch 上下移动，贯穿画布宽）；③ SC 式绿色俯仰横滚
+     *  指示条——两段式中空档线（中心留空避让准星，各 40% 画布宽），随 pitch 上下
+     *  （tan 透视 ladderCanvasY）、随 roll 整组绕画布中心旋转；④ 度数标注（±10° 起
+     *  每 10°，白色小字，档线两端外侧，随档组旋转）。全部经玩家屏幕 4 边形遮罩
+     *  裁剪（addThickLineAnchored / 标注字符级 AABB 快检）。
+     *  Canvas attitude indicator (2026-08-24 new style, thin + opaque alpha=1 — shaders/
+     *  Iris/Veil cull translucent elements): ① white 4-segment hollow cross boresight
+     *  (fixed at canvas center, never moves/rotates with attitude); ② white horizon
+     *  line (moves with pitch, spans the canvas width); ③ SC-style green pitch/roll
+     *  indicator bars — two segments with a center gap (clearing the boresight, 40%
+     *  canvas width each), moving with pitch (tan perspective ladderCanvasY) and
+     *  rotating about the canvas center with roll; ④ degree labels (±10° step 10°,
+     *  white small text at the outer bar ends, rotating with the group). All clipped
+     *  by the player-screen 4-gon mask (addThickLineAnchored / glyph AABB quick reject). */
     private void drawPitchLadder(GraphNode n, MonitorBlockEntity be, PoseStack poseStack,
             BufferBuilder buf, float hw, float hh, float glassZ,
             org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
-            float[] maskQuad, java.util.Map<Integer, float[]> outputs) {
+            float[] maskQuad, float[] maskAabb, MultiBufferSource buffer, Font font,
+            java.util.Map<Integer, float[]> outputs) {
         float targetPitch = be.graph.getInputValue(n.id, 0, outputs);
         float targetRoll = be.graph.getInputValue(n.id, 1, outputs);
         // 姿态平滑：20Hz 数据 → 60fps 指数插值（真实 HUD 姿态仪连续平滑，不跳变）。
@@ -648,42 +661,115 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         float z = 0.001f - n.layerIndex * 0.00001f;
         double rad = Math.toRadians(roll);
         double cr = Math.cos(rad), sr = Math.sin(rad);
-        // 刻度线横跨画布 90% 宽度 / tick lines span 90% of the canvas width
-        double halfLineW = hw * 0.9;
-        // 刻度族（tan 透视，绕画布中心旋转，经 4 边形遮罩裁剪）——玩家透过玻璃
-        // 看不到的刻度被裁掉（真实 HUD 俯仰梯只在视场附近可见）。
-        // Tick family (tan perspective, rotated about the canvas center, clipped by
-        // the 4-gon mask) — ticks outside the region seen through the glass are cut.
+        // 样式常量（2026-08-24：细线 + 不透明）/ style constants (thin + opaque)
+        double halfLineW = hw * 0.4;   // 档线半长（两段式，各 40% 画布宽）
+        double gap = hw * 0.12;        // 中心留空半宽（避让准星/地平线）
+        double horizonW = hw * 0.9;    // 白色地平线贯穿宽
+        float wBar = 0.008f;           // 档线/地平线宽（细线主元素）
+        float wFine = 0.006f;          // 准星宽（更细）
+        // 画布矩形（虚像屏幕边框，内容坐标 ±hw×±hh，BL→BR→TR→TL）——档线/地平线/
+        // 准星只在该矩形内显示，超出屏幕边框的部分裁剪掉（贴脸时 mask > 画布）。
+        // Canvas rect (the virtual-screen frame, content-local ±hw×±hh, BL→BR→TR→TL)
+        // — bars/horizon/boresight show only inside it (close-up mask > canvas).
+        float[] canvasRect = {-hw, -hh, hw, -hh, hw, hh, -hw, hh};
+        // ① 白色四段中空十字准星（固定中心，不随姿态；中空半径 bsGap、段长 bsLen；
+        //    2026-08-24 用户要求缩小到 1/3）
+        // ① white 4-segment hollow cross boresight (fixed; hollow radius, segment
+        // length; 2026-08-24 shrunk to 1/3 per user request)
+        float bsGap = hw * 0.04f / 3f, bsLen = hw * 0.12f / 3f;
+        addThickLineAnchored(buf, m, -bsLen, 0, -bsGap, 0, wFine, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
+        addThickLineAnchored(buf, m, bsGap, 0, bsLen, 0, wFine, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
+        addThickLineAnchored(buf, m, 0, bsGap, 0, bsLen, wFine, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
+        addThickLineAnchored(buf, m, 0, -bsLen, 0, -bsGap, wFine, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
+        // ②③ 档族 + 白色地平线（tan 透视，绕画布中心旋转，经 4 边形遮罩裁剪）
+        // ②③ bar family + white horizon (tan perspective, rotated about the canvas
+        // center, clipped by the 4-gon mask) — bars outside the glass view are cut.
         for (float theta = -range; theta <= range + 1e-4f; theta += interval) {
             double y = ladderCanvasY(pitch, theta, hh);
-            double x0 = -halfLineW, y0 = y, x1 = halfLineW, y1 = y;
-            double rx0 = x0 * cr - y0 * sr, ry0 = x0 * sr + y0 * cr;
-            double rx1 = x1 * cr - y1 * sr, ry1 = x1 * sr + y1 * cr;
-            if (Math.abs(theta) < interval * 0.5f) {
-                addThickLineAnchored(buf, m, rx0, ry0, rx1, ry1, 0.02, z, glassZ, viewRot, viewRotInv, maskQuad, 0.0f, 1f, 0.6f, 0.9f); // 地平线
+            boolean horizon = Math.abs(theta) < interval * 0.5f;
+            if (horizon) {
+                // ② 白色水平线（地平线，随 pitch 移动，贯穿画布宽，不透明）
+                addThickLineAnchored(buf, m, -horizonW * cr - y * sr, -horizonW * sr + y * cr,
+                    horizonW * cr - y * sr, horizonW * sr + y * cr, wBar, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
             } else {
-                addThickLineAnchored(buf, m, rx0, ry0, rx1, ry1, 0.008, z, glassZ, viewRot, viewRotInv, maskQuad, 1f, 1f, 1f, 0.5f);    // 刻度
+                // ③ 绿色两段式中空档（SC 绿，不透明）
+                double lx0 = -halfLineW * cr - y * sr, ly0 = -halfLineW * sr + y * cr;
+                double lx1 = -gap * cr - y * sr, ly1 = -gap * sr + y * cr;
+                double rx0 = gap * cr - y * sr, ry0 = gap * sr + y * cr;
+                double rx1 = halfLineW * cr - y * sr, ry1 = halfLineW * sr + y * cr;
+                addThickLineAnchored(buf, m, lx0, ly0, lx1, ly1, wBar, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 0.2f, 1f, 0.4f, 1f);
+                addThickLineAnchored(buf, m, rx0, ry0, rx1, ry1, wBar, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 0.2f, 1f, 0.4f, 1f);
+            }
+            // ④ 度数标注：±10° 起每 10°，白色小字，档线两端外侧，随档组旋转
+            // ④ degree labels: ±10° onward every 10°, white small text at the outer
+            // bar ends, rotating with the group (0° horizon not labelled).
+            if (!horizon && Math.abs(theta) > 9.99f && Math.abs(theta % 10f) < interval * 0.5f) {
+                drawLadderLabel(poseStack, font, buffer, Math.round(theta), y, cr, sr, halfLineW, maskAabb, canvasRect, z);
             }
         }
-        // 中央飞机符号（固定画布中心，roll 旋转的短机身 + 翼线）
-        // Central aircraft symbol (fixed at canvas center; short fuselage + wing rotated by roll)
-        addThickLineAnchored(buf, m, -hw * 0.12 * cr, -hw * 0.12 * sr, hw * 0.12 * cr, hw * 0.12 * sr,
-            0.015, z, glassZ, viewRot, viewRotInv, maskQuad, 0.2f, 1f, 0.4f, 0.95f);
-        addThickLineAnchored(buf, m, -hw * 0.18 * cr, -hw * 0.18 * sr, hw * 0.18 * cr, hw * 0.18 * sr,
-            0.02, z, glassZ, viewRot, viewRotInv, maskQuad, 0.2f, 1f, 0.4f, 0.95f);
     }
 
-    /** 细线 quad（画布局部坐标，深度锚定 + 4 边形遮罩）：把线段 (x0,y0)-(x1,y1)
-     *  画成 w 宽矩形。顶点经画布矩阵 m 到相机空间后深度锚定到玻璃平面；与玻璃
-     *  投影 4 边形 maskQuad 求交裁剪（全内直画 / 全外跳过 / 相交裁剪 + 三角扇）。
-     *  Thin line quad (canvas-local coords, depth-anchored + 4-gon mask): the
-     *  segment (x0,y0)-(x1,y1) as a w-wide rect. Vertices depth-anchor to the
-     *  glass plane; clipped against the glass-projection 4-gon maskQuad
-     *  (fully-inside draws / outside skips / partial clips + triangle fan). */
+    /** 档线度数标注（2026-08-24）：白色小字（Font.drawInBatch，深度=远处画布、不锚定
+     *  ——与 TEXT 节点同一已知限制），档线两端外侧，随档组绕画布中心旋转；字符级
+     *  AABB 快检经玩家屏幕 4 边形遮罩（玻璃外不显示）。
+     *  Bar degree label: white small text (Font.drawInBatch, depth = far canvas,
+     *  unanchored — same known limitation as TEXT nodes) at both outer bar ends,
+     *  rotating with the group about the canvas center; per-glyph AABB quick reject
+     *  against the player-screen 4-gon mask (hidden outside the glass). */
+    private void drawLadderLabel(PoseStack poseStack, Font font, MultiBufferSource buffer,
+            int deg, double y, double cr, double sr, double halfLineW, float[] maskAabb,
+            float[] canvasRect, float z) {
+        String label = Integer.toString(deg);
+        float s = GeometryConstants.FONT_BLOCK_SCALE * 0.6f; // 小字 / small text
+        float fw = font.width(label), fh = 10f;
+        float off = (float)(halfLineW + 0.045); // 档线端点外侧偏移
+        // 两端外侧位置（绕画布中心随 roll 旋转）/ outer ends, rotated by roll
+        float lx = (float)(-off * cr - y * sr), ly = (float)(-off * sr + y * cr);
+        float rx = (float)(off * cr - y * sr), ry = (float)(off * sr + y * cr);
+        float cosR = (float)cr, sinR = (float)sr; // 文字随档组旋转
+        float rollDeg = (float) Math.toDegrees(Math.atan2(sr, cr)); // 档组旋转角
+        float[] ca = polyAabb(canvasRect); // 画布矩形（虚像屏幕边框）AABB
+        for (int side = 0; side < 2; side++) {
+            float x = side == 0 ? lx : rx;
+            float yp = side == 0 ? ly : ry;
+            // 字符级 AABB 快检：先 vs 画布矩形（屏幕边框，2026-08-24），再 vs 遮罩
+            // glyph AABB quick reject: first vs the canvas rect (screen frame),
+            // then vs the player-screen mask
+            float[] ga = rotatedAabb(x - fw * s * 0.5f, yp - fh * s * 0.5f,
+                x + fw * s * 0.5f, yp + fh * s * 0.5f, x, yp, cosR, sinR);
+            if (ga[2] <= ca[0] || ga[0] >= ca[2]
+                || ga[3] <= ca[1] || ga[1] >= ca[3]) continue; // 画布外
+            if (ga[2] <= maskAabb[0] || ga[0] >= maskAabb[2]
+                || ga[3] <= maskAabb[1] || ga[1] >= maskAabb[3]) continue; // 遮罩外
+            poseStack.pushPose();
+            poseStack.translate(x, yp, z + 0.001f);
+            poseStack.mulPose(Axis.ZP.rotationDegrees(rollDeg)); // 随档组旋转
+            poseStack.scale(s, -s, s);
+            poseStack.translate(-fw * 0.5f, -fh * 0.5f, 0);
+            font.drawInBatch(label, 0, 0, 0xFFFFFFFF, false,
+                poseStack.last().pose(), buffer, Font.DisplayMode.NORMAL, 0, 0xF000F0);
+            poseStack.popPose();
+        }
+    }
+
+    /** 细线 quad（画布局部坐标，深度锚定 + 4 边形遮罩 + 画布矩形裁剪）：把线段
+     *  (x0,y0)-(x1,y1) 画成 w 宽矩形。顶点经画布矩阵 m 到相机空间后深度锚定到
+     *  玻璃平面；先与**画布矩形** canvasRect（内容坐标 ±hw×±hh，虚像屏幕边框）
+     *  求交（2026-08-24：贴脸时 mask > 画布，档线 pitch 大时会画到画布外——
+     *  超出屏幕边框仍显示；画布矩形裁剪兜底），再与玻璃投影 4 边形 maskQuad
+     *  求交（全内直画 / 全外跳过 / 相交裁剪 + 三角扇）。
+     *  Thin line quad (canvas-local coords, depth-anchored + 4-gon mask + canvas
+     *  rect clip): the segment (x0,y0)-(x1,y1) as a w-wide rect. Vertices
+     *  depth-anchor to the glass plane; intersected first with the **canvas rect**
+     *  canvasRect (content-local ±hw×±hh, the virtual-screen frame; 2026-08-24:
+     *  close-up the mask exceeds the canvas, so bars at large pitch draw past the
+     *  canvas edge — the rect clip caps them), then with the glass-projection
+     *  4-gon maskQuad (fully-inside draws / outside skips / partial clips +
+     *  triangle fan). */
     private static void addThickLineAnchored(BufferBuilder buf, org.joml.Matrix4f m,
             double x0, double y0, double x1, double y1, double w, float z,
             float glassZ, org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
-            float[] maskQuad, float r, float g, float b, float a) {
+            float[] canvasRect, float[] maskQuad, float r, float g, float b, float a) {
         double dx = x1 - x0, dy = y1 - y0;
         double len = Math.sqrt(dx * dx + dy * dy);
         if (len < 1e-6) return;
@@ -697,14 +783,49 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         float q2x = (float)(x1 - nx), q2y = (float)(y1 - ny);
         float q3x = (float)(x0 - nx), q3y = (float)(y0 - ny);
         float[] quad = {q0x, q0y, q1x, q1y, q2x, q2y, q3x, q3y};
-        // （2026-08-24：不再做相机平面几何裁剪——见 MAX_ANCHOR_S 注释；掠射溢出由
-        // emitAnchored 的 s 钳制防 float 溢出，GPU 视锥干净裁剪。）
-        // (No camera-plane geometric clip since 2026-08-24 — see MAX_ANCHOR_S; grazing
-        // overflow is handled by the s clamp in emitAnchored + the GPU frustum.)
+        // 相机平面剔除（2026-08-24 用户要求「超出虚像屏幕的指示线遮罩掉」）：
+        // 掠射/侧视时档线远端 fz>0（相机后方）→ 锚定 s 负镜像 → 线显示到屏幕外；
+        // 2D mask 挡不住（mask 内也有 fz>0 内容，数值实证）。阈值 0：只切相机后方
+        // 内容，fz<0 正常内容不动（不误切）。**fz 必须用 transformPosition 计算**
+        // （与 emitAnchored 完全同路径）——JOML 列主序下手算 m20/m21/m23 元素与
+        // transformPosition 实际语义不一致（诊断实证：m20=m21=m23=0 但变换给
+        // fz=-103.5），手算会算出 fz≈-0.1 的假值导致误切。
+        // Camera-plane reject (clip indicator lines outside the virtual screen):
+        // at grazing/side views the far bar ends go fz>0 (behind camera) → anchored
+        // s mirrors → the line shows off-screen; the 2D mask cannot stop it. Cut
+        // behind-camera content at threshold 0; normal fz<0 content untouched.
+        // **fz must come from transformPosition** (same path as emitAnchored) —
+        // hand-deriving m20/m21/m23 under JOML column-major layout disagrees with
+        // transformPosition (measured: m20=m21=m23=0 yet transform gives fz=-103.5).
+        var va = new org.joml.Vector3f(q0x, q0y, z); m.transformPosition(va); viewRot.transformPosition(va);
+        var vb = new org.joml.Vector3f(q1x, q1y, z); m.transformPosition(vb); viewRot.transformPosition(vb);
+        var vc = new org.joml.Vector3f(q2x, q2y, z); m.transformPosition(vc); viewRot.transformPosition(vc);
+        var vd = new org.joml.Vector3f(q3x, q3y, z); m.transformPosition(vd); viewRot.transformPosition(vd);
+        float fMin = Math.min(Math.min(va.z, vb.z), Math.min(vc.z, vd.z));
+        float fMax = Math.max(Math.max(va.z, vb.z), Math.max(vc.z, vd.z));
+        if (fMin > 0f) return; // 整条线在相机后方 → 不显示
+        boolean wasClipped = false;
+        if (fMax > 0f) {
+            quad = clipPolyByDepth(quad, new float[]{va.z, vb.z, vc.z, vd.z}, 0f);
+            wasClipped = true;
+            if (quad.length / 2 < 3) return;
+        }
+        // 画布矩形裁剪（虚像屏幕边框 ±hw×±hh）：贴脸时 mask > 画布，档线 pitch 大
+        // 会画到画布外仍显示——裁剪到屏幕边框内。
+        // Canvas-rect clip (the virtual-screen frame ±hw×±hh): close-up the mask
+        // exceeds the canvas, so bars at large pitch drew past the canvas edge;
+        // clip them back inside the screen frame.
+        float[] canvasClipped = clipPolyToQuad(quad, canvasRect);
+        if (canvasClipped.length / 2 < 3) return;
+        if (!java.util.Arrays.equals(quad, canvasClipped)) {
+            quad = canvasClipped;
+            wasClipped = true;
+        }
         float[] qa = polyAabb(quad);
         float[] ma = polyAabb(maskQuad);
         if (qa[2] <= ma[0] || qa[0] >= ma[2] || qa[3] <= ma[1] || qa[1] >= ma[3]) return; // 全外
-        boolean allIn = pointInConvexQuad(q0x, q0y, maskQuad)
+        boolean allIn = !wasClipped
+            && pointInConvexQuad(q0x, q0y, maskQuad)
             && pointInConvexQuad(q1x, q1y, maskQuad)
             && pointInConvexQuad(q2x, q2y, maskQuad)
             && pointInConvexQuad(q3x, q3y, maskQuad);
@@ -855,6 +976,49 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             System.arraycopy(next, 0, out, 0, n);
             if (n == 0) return out;
         }
+        return out;
+    }
+
+    /** 相机平面半平面裁剪（阈值 0，2026-08-24 指示线遮罩用，**逐顶点 fz 版**）：
+     *  subject 多边形（画布局部坐标）对「fz ≤ threshold」半平面做 Sutherland-Hodgman
+     *  单边裁剪，剔除相机后方（fz>0）的镜像内容。fz 数组是每个顶点经
+     *  transformPosition（与 emitAnchored 同路径）算出的视线深度，边交点用 fz
+     *  线性插值——不依赖矩阵元素手算（JOML 列主序下手算 m20/m21/m23 与
+     *  transformPosition 语义不一致，会算出假 fz 误切）。阈值 0 只切真正越过后方
+     *  的内容，fz<0 正常内容不动。纯函数——可单测。
+     *  Camera-plane half-plane clip (threshold 0, per-vertex fz): Sutherland-Hodgman
+     *  single-edge clip of the subject polygon (canvas-local coords) against
+     *  fz ≤ threshold, cutting mirrored behind-camera (fz>0) content. fz[] holds
+     *  each vertex's view depth from transformPosition (same path as emitAnchored);
+     *  edge hits are linearly interpolated in fz — no hand-derived matrix elements
+     *  (JOML column-major m20/m21/m23 disagree with transformPosition, which made
+     *  false fz≈-0.1 and wrongly cut content). Pure function — unit-testable. */
+    public static float[] clipPolyByDepth(float[] poly, float[] fz, float threshold) {
+        int cnt = poly.length / 2;
+        if (cnt < 3) return new float[0];
+        float[] out = new float[0];
+        float[] next = new float[poly.length + 8];
+        int n = 0;
+        for (int j = 0; j < cnt; j++) {
+            float px = poly[j * 2], py = poly[j * 2 + 1];
+            float qx = poly[((j + 1) % cnt) * 2], qy = poly[((j + 1) % cnt) * 2 + 1];
+            float fp = fz[j], fq = fz[(j + 1) % cnt];
+            boolean pIn = fp <= threshold, qIn = fq <= threshold;
+            if (qIn) {
+                if (!pIn) {
+                    float t = (threshold - fp) / (fq - fp);
+                    next[n++] = px + t * (qx - px);
+                    next[n++] = py + t * (qy - py);
+                }
+                next[n++] = qx; next[n++] = qy;
+            } else if (pIn) {
+                float t = (threshold - fp) / (fq - fp);
+                next[n++] = px + t * (qx - px);
+                next[n++] = py + t * (qy - py);
+            }
+        }
+        out = new float[n];
+        System.arraycopy(next, 0, out, 0, n);
         return out;
     }
 

@@ -171,4 +171,25 @@ class FacingOverflowDiagTest {
             }
         }
     }
+
+    /** clipPolyByDepth 纯函数单测（2026-08-24，逐顶点 fz 相机平面裁剪）：
+     *  全在相机前方（fz≤0）→ 不变；全在后方（fz>0）→ 空；跨越 → 精确裁剪。 */
+    @Test
+    void clipPolyByDepthUnit() {
+        float[] sq = {0f, 0f, 1f, 0f, 1f, 1f, 0f, 1f};
+        // 全在相机前方（fz 全 ≤ 0）→ 原样保留
+        float[] r1 = MonitorBlockEntityRenderer.clipPolyByDepth(sq, new float[]{-5f, -5f, -5f, -5f}, 0f);
+        assertEquals(8, r1.length, "fully-in-front must keep all vertices");
+        // 全在相机后方（fz 全 > 0）→ 空
+        float[] r2 = MonitorBlockEntityRenderer.clipPolyByDepth(sq, new float[]{5f, 5f, 5f, 5f}, 0f);
+        assertEquals(0, r2.length, "fully-behind must clip to empty");
+        // 跨越：fz = x - 0.5（左半负、右半正）→ 保留 x ≤ 0.5 部分且非空
+        float[] r3 = MonitorBlockEntityRenderer.clipPolyByDepth(
+            sq, new float[]{-0.5f, 0.5f, 0.5f, -0.5f}, 0f);
+        assertTrue(r3.length / 2 >= 3, "crossing must keep content, verts=" + r3.length / 2);
+        for (int k = 0; k < r3.length / 2; k++) {
+            assertTrue(r3[k * 2] <= 0.5f + 1e-4f,
+                "clipped vertex must stay in front (x ≤ 0.5), got " + r3[k * 2]);
+        }
+    }
 }
