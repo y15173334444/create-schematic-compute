@@ -33,10 +33,16 @@ class ConformalProjectionTest {
         // pitch=+10°（抬头）→ 地平线（θ=0）下移：y = -K·tan(10°) < 0（y-up）
         double y = MonitorBlockEntityRenderer.ladderCanvasY(10, 0, 0.6);
         assertTrue(y < 0);
-        // tan 透视：pitch=10° 与 θ=+10° 对称（同向叠加）
+        // 2026-08-24 修复（反向叠加）：抬头 10° 的地平线位置 == 平飞时 -10° 刻度
+        // 位置（地平线下移 = 下方负角）；+10° 刻度平飞时在中心上方（y > 0）
+        // Fixed (opposite-direction sum): the horizon at pitch=+10° equals the
+        // -10° tick at level flight (horizon down = negative below); the +10° tick
+        // sits above center at level flight (y > 0).
         assertEquals(
             MonitorBlockEntityRenderer.ladderCanvasY(10, 0, 0.6),
-            MonitorBlockEntityRenderer.ladderCanvasY(0, 10, 0.6), 1e-9);
+            MonitorBlockEntityRenderer.ladderCanvasY(0, -10, 0.6), 1e-9);
+        assertTrue(MonitorBlockEntityRenderer.ladderCanvasY(0, 10, 0.6) > 0,
+            "+10° tick must be above center at level flight");
     }
 
     @Test

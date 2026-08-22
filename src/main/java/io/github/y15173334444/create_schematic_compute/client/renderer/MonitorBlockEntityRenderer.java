@@ -23,6 +23,11 @@ import java.util.Map;
 
 public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBlockEntity> {
     private static final Field STARTED_BUILDERS, FIXED_BUFFERS, SHARED_BUFFER, LAST_SHARED_TYPE;
+    // BakedGlyph 私有字段反射（2026-08-24 手动字形锚定方案；模组锁定 MC 1.21.1，稳定）
+    // BakedGlyph private-field reflection (manual-glyph anchoring; MC pinned to 1.21.1)
+    private static final Field BG_LEFT, BG_RIGHT, BG_UP, BG_DOWN, BG_U0, BG_U1, BG_V0, BG_V1;
+    private static java.lang.reflect.Method FONT_GET_FONT_SET;
+    private static net.minecraft.client.gui.font.FontSet HUD_FONT_SET; // 缓存 / cached
     static {
         Field sb = null, fb = null, sh = null, lst = null;
         try {
@@ -37,6 +42,37 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             }
         } catch (Exception e) { SchematicCompute.LOGGER.error("MonitorRenderer reflection init", e); }
         STARTED_BUILDERS = sb; FIXED_BUFFERS = fb; SHARED_BUFFER = sh; LAST_SHARED_TYPE = lst;
+        Field lf = null, rf = null, uf = null, df = null, u0 = null, u1 = null, v0 = null, v1 = null;
+        try {
+            Class<?> bg = Class.forName("net.minecraft.client.gui.font.glyphs.BakedGlyph");
+            for (var f : bg.getDeclaredFields()) {
+                switch (f.getName()) {
+                    case "left" -> { lf = f; lf.setAccessible(true); }
+                    case "right" -> { rf = f; rf.setAccessible(true); }
+                    case "up" -> { uf = f; uf.setAccessible(true); }
+                    case "down" -> { df = f; df.setAccessible(true); }
+                    case "u0" -> { u0 = f; u0.setAccessible(true); }
+                    case "u1" -> { u1 = f; u1.setAccessible(true); }
+                    case "v0" -> { v0 = f; v0.setAccessible(true); }
+                    case "v1" -> { v1 = f; v1.setAccessible(true); }
+                }
+            }
+            FONT_GET_FONT_SET = Font.class.getDeclaredMethod("getFontSet", net.minecraft.resources.ResourceLocation.class);
+            FONT_GET_FONT_SET.setAccessible(true);
+        } catch (Exception e) { SchematicCompute.LOGGER.error("MonitorRenderer BakedGlyph reflection init", e); }
+        BG_LEFT = lf; BG_RIGHT = rf; BG_UP = uf; BG_DOWN = df;
+        BG_U0 = u0; BG_U1 = u1; BG_V0 = v0; BG_V1 = v1;
+    }
+
+    /** 取 HUD 文字字体集合（Font.getFontSet 包私有 → 反射，缓存一次）。
+     *  HUD FontSet via package-private Font.getFontSet (reflected, cached). */
+    private static net.minecraft.client.gui.font.FontSet hudFontSet(Font font) {
+        if (HUD_FONT_SET == null && FONT_GET_FONT_SET != null) {
+            try {
+                HUD_FONT_SET = (net.minecraft.client.gui.font.FontSet) FONT_GET_FONT_SET.invoke(font, net.minecraft.client.Minecraft.DEFAULT_FONT);
+            } catch (Exception e) { SchematicCompute.LOGGER.error("Monitor getFontSet failed", e); }
+        }
+        return HUD_FONT_SET;
     }
 
     public MonitorBlockEntityRenderer(BlockEntityRendererProvider.Context ctx) {}
@@ -204,7 +240,8 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         }
 
         // ── Flush font with NO_CULL (border + pixels are flushed by endBatch) ──
-        flushTextNoCull(buffer);
+        // 3D 模式不锚定（文字直接画屏幕，深度正常）——传 null 走无锚定路径。
+        flushTextNoCull(buffer, null, null, 0f);
 
         poseStack.popPose();
     }
@@ -264,6 +301,19 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  Reused HUD canvas byte buffer (2026-08-21 OOM fix). Render thread is serial;
      *  build() snapshots the data, then clear() refills per frame. */
     private static ByteBufferBuilder HUD_CANVAS_BYTES;
+
+    /** HUD 文字字形共享字节缓冲（2026-08-24 手动字形锚定：文字不走 Iris 包装的
+     *  MultiBufferSource，改为手动生成字形顶点 + 锚定到玻璃深度，独立字节缓冲）。
+     *  Reused HUD text-glyph byte buffer (manual-glyph anchoring; independent of the
+     *  Iris-wrapped MultiBufferSource). */
+    private static ByteBufferBuilder HUD_TEXT_BYTES;
+
+    /** 每帧首个字形的 RenderType（2026-08-24：用于 drawTextAnchored 冲刷——绑定
+     *  正确字体 atlas；同 FontSet 所有字形共享）。跨帧缓存，资源重载后自动更新。
+     *  First glyph's RenderType of the frame (used by drawTextAnchored — binds the
+     *  correct font atlas; shared by all glyphs of the same FontSet). Cached across
+     *  frames; refreshed after a resource reload. */
+    private static RenderType hudTextRenderType;
 
     private void renderHud(MonitorBlockEntity be, PoseStack poseStack, MultiBufferSource buffer) {
         float hw = be.panelSizeX * 0.5f, hh = be.panelSizeY * 0.5f;
@@ -400,6 +450,18 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         else HUD_CANVAS_BYTES.clear();
         BufferBuilder canvasBuf = new BufferBuilder(HUD_CANVAS_BYTES,
             VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
+        // 文字字形缓冲（2026-08-24 手动字形锚定：POSITION_COLOR_TEX_LIGHTMAP +
+        // TRIANGLES——字符级部分遮罩输出三角扇（3 顶点/三角形）；QUADS 模式会按
+        // 4 顶点解析导致三角扇顶点流错位（全部拉伸变形）。独立字节缓冲——文字不走
+        // Iris 包装的 MultiBufferSource）
+        // Text-glyph buffer (manual-glyph anchoring: PCTL + TRIANGLES — per-glyph
+        // partial masking emits triangle fans (3 verts); QUADS parses 4 verts/quad
+        // and misaligns the fan stream (everything stretched). Dedicated byte buffer
+        // — text bypasses the Iris-wrapped MultiBufferSource)
+        if (HUD_TEXT_BYTES == null) HUD_TEXT_BYTES = new ByteBufferBuilder(1 << 21);
+        else HUD_TEXT_BYTES.clear();
+        BufferBuilder textBuf = new BufferBuilder(HUD_TEXT_BYTES,
+            VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR_TEX_LIGHTMAP);
 
         // ── IMAGE/IMAGE_SEQUENCE（layerIndex 排序，同世界渲染） ──
         var imgNodes = new ArrayList<GraphNode>();
@@ -557,6 +619,8 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             // are skipped (the "HUD shows only on the glass" rule applies to text
             // too). Glyph-level AABB approximation — boundary glyphs draw whole.
             float adv = 0f;
+            var fontSet = hudFontSet(font);
+            var canvasM = poseStack.last().pose();
             for (int ci = 0; ci < str.length(); ci++) {
                 float cwCh = font.width(String.valueOf(str.charAt(ci)));
                 float gx0 = nx + adv * s, gy0 = ny;
@@ -565,14 +629,19 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 float[] ga = rotatedAabb(gx0, gy0, gx1, gy1, cxr, cyr, cosR, sinR);
                 if (ga[2] <= maskAabb[0] || ga[0] >= maskAabb[2]
                     || ga[3] <= maskAabb[1] || ga[1] >= maskAabb[3]) continue; // 字符在遮罩外
-                poseStack.pushPose();
-                poseStack.translate(cxr, cyr, 0.001f - n.layerIndex * 0.00001f);
-                poseStack.mulPose(Axis.ZP.rotationDegrees(-n.displayRotation));
-                poseStack.scale(s, -s, s);
-                poseStack.translate(-fw / 2f + adv - cwCh, -fh / 2f, 0);
-                font.drawInBatch(String.valueOf(str.charAt(ci)), 0, 0, color, false,
-                    poseStack.last().pose(), buffer, Font.DisplayMode.NORMAL, 0, 0xF000F0);
-                poseStack.popPose();
+                // 手动字形 + 锚定（2026-08-24 方案 X）：charMat 复刻原 drawInBatch 的
+                // 字符变换链（T(cxr,cyr)·R(-rot)·S(s,-s,s)·T(-fw/2+adv-cwCh,-fh/2)），
+                // 字形 4 角经它 → 画布矩阵 → 锚定到玻璃深度 → textBuf。
+                // Manual glyph + anchor (plan X): charMat replicates the original
+                // drawInBatch character chain; glyph corners → canvas matrix →
+                // anchored to the glass depth → textBuf.
+                var charMat = new org.joml.Matrix4f()
+                    .translate(cxr, cyr, 0f)
+                    .rotateZ((float) Math.toRadians(-n.displayRotation))
+                    .scale(s, -s, s)
+                    .translate(-fw / 2f + adv - cwCh, -fh / 2f, 0f);
+                emitTextGlyph(textBuf, fontSet, str.charAt(ci), canvasM, viewRot, viewRotInv,
+                    glassZ, charMat, maskQuad, color);
             }
         }
 
@@ -584,23 +653,24 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             }
             hudNodes.sort((n1, n2) -> Integer.compare(n1.layerIndex, n2.layerIndex));
             for (var n : hudNodes) {
-                drawPitchLadder(n, be, poseStack, canvasBuf, hw, hh, glassZ, viewRot, viewRotInv,
-                    maskQuad, maskAabb, buffer, font, snapshot.outputs());
+                drawPitchLadder(n, be, poseStack, canvasBuf, textBuf, hw, hh, glassZ, viewRot, viewRotInv,
+                    maskQuad, maskAabb, font, snapshot.outputs());
             }
         }
         poseStack.popPose(); // 远处画布（×D）结束 / end of the far canvas (×D)
 
         // 深度锚定冲刷：绑定 hud_depth_anchor 着色器、写入 GlassNdcZ（玻璃面板中心
         // 的 NDC 深度）、绘制独立 buffer 中的虚像顶点——屏幕位置在远处画布、深度在
-        // 玻璃平面（前方遮挡/后方不遮挡）。文字（font.drawInBatch）仍由 buffer 冲刷，
-        // 已知限制：文字深度=远处画布，暂不锚定。
+        // 玻璃平面（前方遮挡/后方不遮挡）。文字（2026-08-24 方案 X）手动字形锚定到
+        // 玻璃深度后由 drawTextAnchored 冲刷（官方文字 RenderType + 不写深度）。
         // Depth-anchored flush: bind hud_depth_anchor, write GlassNdcZ (the glass
         // panel center's NDC depth), draw the virtual-image vertices from the
         // independent buffer — screen position on the far canvas, depth on the glass
-        // plane (near occludes / far does not). Text (font.drawInBatch) still flushes
-        // via the buffer; known limitation: text depth stays on the far canvas.
+        // plane (near occludes / far does not). Text (plan X) is manually glyph-
+        // anchored to the glass depth and flushed by drawTextAnchored (official text
+        // RenderType, no depth write).
         drawDepthAnchored(canvasBuf);
-        flushTextNoCull(buffer); // 冲刷远处画布内的文字（NO_CULL）/ flush the text
+        drawTextAnchored(textBuf);
         poseStack.popPose(); // 面板 / panel
     }
 
@@ -614,11 +684,19 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     private static final float LADDER_CANVAS_SCALE = 0.9f;
 
     /** 刻度角度（度）→ 画布 y 偏移（面板局部 y-up，相对画布中心）。
-     *  world-pitch angle (deg) → canvas y offset (panel-local y-up, relative to canvas
-     *  center). y = -K·tan(pitch+θ): pitch+θ = world direction of this tick.
-     *  Pure function on doubles. */
+     *  y = -K·tan(pitch−θ)：θ 是刻度代表的世界俯仰角（+ 在上方），pitch 抬头时
+     *  地平线（θ=0）下移、+10° 刻度在中心上方（2026-08-24 修复：原为 pitch+θ
+     *  「同向叠加」，导致平飞时 +10° 刻度跑到中心下方、上方显示负角——不符合
+     *  HUD 惯例「向上为正」）。
+     *  Pure function on doubles.
+     *  Tick angle (deg) → canvas y offset (panel-local y-up, relative to canvas
+     *  center). y = -K·tan(pitch−θ): θ is the world pitch this tick labels (+ above);
+     *  nose-up pitch moves the horizon (θ=0) down, and the +10° tick sits above the
+     *  center (2026-08-24 fix: the old pitch+θ "same-direction sum" put the +10° tick
+     *  below center at level flight — negative angles above — against the HUD
+     *  convention "up is positive"). */
     public static double ladderCanvasY(double pitchDeg, double thetaDeg, double halfH) {
-        return -LADDER_CANVAS_SCALE * halfH * Math.tan(Math.toRadians(pitchDeg + thetaDeg));
+        return -LADDER_CANVAS_SCALE * halfH * Math.tan(Math.toRadians(pitchDeg - thetaDeg));
     }
 
     /** 姿态仪画布（2026-08-24 全新样式，细线 + 不透明 alpha=1——光影/Iris/Veil 会剔除
@@ -638,9 +716,9 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  white small text at the outer bar ends, rotating with the group). All clipped
      *  by the player-screen 4-gon mask (addThickLineAnchored / glyph AABB quick reject). */
     private void drawPitchLadder(GraphNode n, MonitorBlockEntity be, PoseStack poseStack,
-            BufferBuilder buf, float hw, float hh, float glassZ,
+            BufferBuilder buf, BufferBuilder textBuf, float hw, float hh, float glassZ,
             org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
-            float[] maskQuad, float[] maskAabb, MultiBufferSource buffer, Font font,
+            float[] maskQuad, float[] maskAabb, Font font,
             java.util.Map<Integer, float[]> outputs) {
         float targetPitch = be.graph.getInputValue(n.id, 0, outputs);
         float targetRoll = be.graph.getInputValue(n.id, 1, outputs);
@@ -704,21 +782,23 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             // ④ degree labels: ±10° onward every 10°, white small text at the outer
             // bar ends, rotating with the group (0° horizon not labelled).
             if (!horizon && Math.abs(theta) > 9.99f && Math.abs(theta % 10f) < interval * 0.5f) {
-                drawLadderLabel(poseStack, font, buffer, Math.round(theta), y, cr, sr, halfLineW, maskAabb, canvasRect, z);
+                drawLadderLabel(textBuf, font, m, viewRot, viewRotInv, glassZ,
+                    Math.round(theta), y, cr, sr, halfLineW, maskAabb, canvasRect, maskQuad);
             }
         }
     }
 
-    /** 档线度数标注（2026-08-24）：白色小字（Font.drawInBatch，深度=远处画布、不锚定
-     *  ——与 TEXT 节点同一已知限制），档线两端外侧，随档组绕画布中心旋转；字符级
-     *  AABB 快检经玩家屏幕 4 边形遮罩（玻璃外不显示）。
-     *  Bar degree label: white small text (Font.drawInBatch, depth = far canvas,
-     *  unanchored — same known limitation as TEXT nodes) at both outer bar ends,
-     *  rotating with the group about the canvas center; per-glyph AABB quick reject
-     *  against the player-screen 4-gon mask (hidden outside the glass). */
-    private void drawLadderLabel(PoseStack poseStack, Font font, MultiBufferSource buffer,
-            int deg, double y, double cr, double sr, double halfLineW, float[] maskAabb,
-            float[] canvasRect, float z) {
+    /** 档线度数标注（2026-08-24 方案 X）：白色小字，**手动字形 + 锚定**到玻璃深度
+     *  （绕开 Iris 包装的 MultiBufferSource），档线两端外侧，随档组绕画布中心旋转；
+     *  字符级 AABB 快检先 vs 画布矩形（屏幕边框）再 vs 玩家屏幕遮罩（玻璃外不显示）。
+     *  Bar degree label (plan X): white small text, **manual glyph + anchored** to the
+     *  glass depth (bypasses the Iris-wrapped MultiBufferSource), at both outer bar
+     *  ends rotating with the group; glyph AABB quick reject vs the canvas rect then
+     *  the player-screen 4-gon mask (hidden outside the glass). */
+    private void drawLadderLabel(BufferBuilder textBuf, Font font,
+            org.joml.Matrix4f m, org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
+            float glassZ, int deg, double y, double cr, double sr, double halfLineW,
+            float[] maskAabb, float[] canvasRect, float[] maskQuad) {
         String label = Integer.toString(deg);
         float s = GeometryConstants.FONT_BLOCK_SCALE * 0.6f; // 小字 / small text
         float fw = font.width(label), fh = 10f;
@@ -727,7 +807,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         float lx = (float)(-off * cr - y * sr), ly = (float)(-off * sr + y * cr);
         float rx = (float)(off * cr - y * sr), ry = (float)(off * sr + y * cr);
         float cosR = (float)cr, sinR = (float)sr; // 文字随档组旋转
-        float rollDeg = (float) Math.toDegrees(Math.atan2(sr, cr)); // 档组旋转角
+        float rollRad = (float) Math.atan2(sr, cr); // 档组旋转角（弧度）
         float[] ca = polyAabb(canvasRect); // 画布矩形（虚像屏幕边框）AABB
         for (int side = 0; side < 2; side++) {
             float x = side == 0 ? lx : rx;
@@ -741,14 +821,21 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 || ga[3] <= ca[1] || ga[1] >= ca[3]) continue; // 画布外
             if (ga[2] <= maskAabb[0] || ga[0] >= maskAabb[2]
                 || ga[3] <= maskAabb[1] || ga[1] >= maskAabb[3]) continue; // 遮罩外
-            poseStack.pushPose();
-            poseStack.translate(x, yp, z + 0.001f);
-            poseStack.mulPose(Axis.ZP.rotationDegrees(rollDeg)); // 随档组旋转
-            poseStack.scale(s, -s, s);
-            poseStack.translate(-fw * 0.5f, -fh * 0.5f, 0);
-            font.drawInBatch(label, 0, 0, 0xFFFFFFFF, false,
-                poseStack.last().pose(), buffer, Font.DisplayMode.NORMAL, 0, 0xF000F0);
-            poseStack.popPose();
+            // 逐字符手动字形 + 锚定（charMat 复刻原标注 drawInBatch 变换链，绕标注
+            // 中心随档组旋转）
+            var fontSet = hudFontSet(font);
+            float advL = 0f;
+            for (int ci = 0; ci < label.length(); ci++) {
+                float cwCh = font.width(String.valueOf(label.charAt(ci)));
+                advL += cwCh;
+                var charMat = new org.joml.Matrix4f()
+                    .translate(x, yp, 0f)
+                    .rotateZ(rollRad)
+                    .scale(s, -s, s)
+                    .translate(-fw * 0.5f + advL - cwCh, -fh * 0.5f, 0f);
+                emitTextGlyph(textBuf, fontSet, label.charAt(ci), m, viewRot, viewRotInv,
+                    glassZ, charMat, maskQuad, 0xFFFFFFFF);
+            }
         }
     }
 
@@ -885,6 +972,141 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         var out = new org.joml.Vector3f(v.x * s, v.y * s, zAnchor); // 相机空间锚定顶点
         viewRotInv.transformPosition(out); // 回世界坐标输出 / back to world for emission
         buf.addVertex(out.x, out.y, out.z).setColor(r, g, b, a);
+    }
+
+    // ── 手动字形锚定（2026-08-24 方案 X）：文字不走 Iris 包装的 MultiBufferSource，
+    // 直接读 BakedGlyph 字形几何 + UV 生成 4 顶点，锚定到玻璃深度后写入独立 textBuf。
+    // Manual glyph anchoring (plan X): text bypasses the Iris-wrapped MultiBufferSource;
+    // BakedGlyph geometry/UV is read directly to emit 4 vertices, anchored to the glass
+    // depth into a dedicated textBuf. (MC pinned to 1.21.1 — reflection is stable.)
+
+    /** 生成单个字形的 4 个锚定顶点（QUADS，顶点顺序与 BakedGlyph.render 一致）。
+     *  charMat = 复刻原 drawInBatch 的字符变换链（T(cxr,cyr)·R(-rot)·S(s,-s,s)·
+     *  T(-fw/2+adv-cwCh, -fh/2)）——绕序/翻转/UV 与原路径完全一致（避免 180° 翻转）。
+     *  Emit the 4 anchored vertices of one glyph (QUADS, same order as
+     *  BakedGlyph.render). charMat replicates the original drawInBatch character
+     *  transform chain so winding/flip/UV match the original path exactly. */
+    private static void emitTextGlyph(BufferBuilder buf, net.minecraft.client.gui.font.FontSet fontSet,
+            int code, org.joml.Matrix4f m, org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
+            float glassZ, org.joml.Matrix4f charMat, float[] maskQuad, int color) {
+        if (BG_LEFT == null || fontSet == null) return;
+        net.minecraft.client.gui.font.glyphs.BakedGlyph glyph = fontSet.getGlyph(code);
+        if (glyph == null) return;
+        if (hudTextRenderType == null) hudTextRenderType = glyph.renderType(Font.DisplayMode.NORMAL);
+        try {
+            float left = BG_LEFT.getFloat(glyph), right = BG_RIGHT.getFloat(glyph);
+            float up = BG_UP.getFloat(glyph), down = BG_DOWN.getFloat(glyph);
+            float u0 = BG_U0.getFloat(glyph), u1 = BG_U1.getFloat(glyph);
+            float v0 = BG_V0.getFloat(glyph), v1 = BG_V1.getFloat(glyph);
+            float r = ((color >> 16) & 0xFF) / 255f, g = ((color >> 8) & 0xFF) / 255f;
+            float b = (color & 0xFF) / 255f, a = ((color >> 24) & 0xFF) / 255f;
+            // 字符 4 角（画布内容坐标，经 charMat）——顶点顺序 BakedGlyph.render 一致：
+            // (left,up,u0,v0) (left,down,u0,v1) (right,down,u1,v1) (right,up,u1,v0)
+            // Glyph 4 corners in canvas-content coords (via charMat), same winding as
+            // BakedGlyph.render: (left,up,u0,v0) (left,down,u0,v1) (right,down,u1,v1)
+            // (right,up,u1,v0).
+            float[] cx = new float[8];
+            var p0 = new org.joml.Vector3f(left, up, 0f); charMat.transformPosition(p0);
+            var p1 = new org.joml.Vector3f(left, down, 0f); charMat.transformPosition(p1);
+            var p2 = new org.joml.Vector3f(right, down, 0f); charMat.transformPosition(p2);
+            var p3 = new org.joml.Vector3f(right, up, 0f); charMat.transformPosition(p3);
+            cx[0] = p0.x; cx[1] = p0.y; cx[2] = p1.x; cx[3] = p1.y;
+            cx[4] = p2.x; cx[5] = p2.y; cx[6] = p3.x; cx[7] = p3.y;
+            // 2026-08-24 字符内部分遮罩：4 角全在玩家屏幕遮罩内 → 直画；跨遮罩边界
+            // → Sutherland-Hodgman 裁剪 + UV 双线性插值 + 三角扇（不再是整字符二元
+            // 显示/隐藏，边界字符只显示玻璃内部分）。
+            // Per-glyph partial mask: fully inside → draw whole; crossing the mask
+            // edge → Sutherland-Hodgman clip + bilinear UV interpolation + triangle
+            // fan (boundary glyphs show only their on-glass part).
+            boolean allIn = pointInConvexQuad(cx[0], cx[1], maskQuad)
+                && pointInConvexQuad(cx[2], cx[3], maskQuad)
+                && pointInConvexQuad(cx[4], cx[5], maskQuad)
+                && pointInConvexQuad(cx[6], cx[7], maskQuad);
+            float[] clipped;
+            if (allIn) clipped = cx;
+            else {
+                clipped = clipPolyToQuad(cx, maskQuad);
+                if (clipped.length / 2 < 3) return;
+            }
+            // UV 双线性插值（平行四边形仿射反演）：P0 角 (u0,v0)，e1 = P0→P1（v 增），
+            // e3 = P0→P3（u 增）。Bilinear UV (parallelogram affine inverse): P0 corner
+            // (u0,v0), e1 = P0→P1 (v grows), e3 = P0→P3 (u grows).
+            float e1x = cx[2] - cx[0], e1y = cx[3] - cx[1];
+            float e3x = cx[6] - cx[0], e3y = cx[7] - cx[1];
+            float det = e3x * e1y - e3y * e1x;
+            int nv = clipped.length / 2;
+            for (int i = 1; i < nv - 1; i++) {
+                float[] uvA = interpGlyphUv(clipped[0], clipped[1], cx, e1x, e1y, e3x, e3y, det, u0, u1, v0, v1);
+                float[] uvB = interpGlyphUv(clipped[i * 2], clipped[i * 2 + 1], cx, e1x, e1y, e3x, e3y, det, u0, u1, v0, v1);
+                float[] uvC = interpGlyphUv(clipped[i * 2 + 2], clipped[i * 2 + 3], cx, e1x, e1y, e3x, e3y, det, u0, u1, v0, v1);
+                anchorTextVertex(buf, m, viewRot, viewRotInv, glassZ, clipped[0], clipped[1], uvA[0], uvA[1], r, g, b, a);
+                anchorTextVertex(buf, m, viewRot, viewRotInv, glassZ, clipped[i * 2], clipped[i * 2 + 1], uvB[0], uvB[1], r, g, b, a);
+                anchorTextVertex(buf, m, viewRot, viewRotInv, glassZ, clipped[i * 2 + 2], clipped[i * 2 + 3], uvC[0], uvC[1], r, g, b, a);
+            }
+        } catch (IllegalAccessException e) {
+            SchematicCompute.LOGGER.error("Monitor BakedGlyph field read failed", e);
+        }
+    }
+
+    /** UV 双线性插值：内容坐标点 (px,py) 在字符平行四边形（P0 角 + e1/e3 边）内的
+     *  (s,t)，映射到 (u,v)。平行四边形仿射，双线性退化为线性可逆。
+     *  Bilinear UV: (s,t) of the content point inside the glyph parallelogram
+     *  (P0 corner + e1/e3 edges), mapped to (u,v). Affine → linear inverse. */
+    private static float[] interpGlyphUv(float px, float py, float[] cx,
+            float e1x, float e1y, float e3x, float e3y, float det,
+            float u0, float u1, float v0, float v1) {
+        if (Math.abs(det) < 1e-9f) return new float[]{u0, v0};
+        float dx = px - cx[0], dy = py - cx[1];
+        float s = (dx * e1y - dy * e1x) / det;
+        float t = (e3x * dy - e3y * dx) / det;
+        return new float[]{u0 + s * (u1 - u0), v0 + t * (v1 - v0)};
+    }
+
+    /** 单个字形顶点（画布内容坐标直通）：画布矩阵 m → 相机空间 → 锚定到玻璃深度
+     *  → 回世界 → textBuf。One glyph vertex (canvas-content coords): canvas matrix m
+     *  → camera space → anchor to glass depth → back to world → textBuf. */
+    private static void anchorTextVertex(BufferBuilder buf, org.joml.Matrix4f m,
+            org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv, float glassZ,
+            float x, float y, float u, float v, float r, float g, float b, float a) {
+        var p = new org.joml.Vector3f(x, y, 0f);
+        m.transformPosition(p);          // 世界（相机相对）
+        viewRot.transformPosition(p);    // 相机空间：fz = 视线深度
+        float s = glassZ / p.z;
+        if (s > MAX_ANCHOR_S) s = MAX_ANCHOR_S;
+        else if (s < -MAX_ANCHOR_S) s = -MAX_ANCHOR_S;
+        var out = new org.joml.Vector3f(p.x * s, p.y * s, glassZ);
+        viewRotInv.transformPosition(out); // 回世界
+        buf.addVertex(out.x, out.y, out.z).setColor(r, g, b, a).setUv(u, v).setLight(0xF000F0);
+    }
+
+    /** 冲刷锚定文字（2026-08-24）：用**字形自身的 RenderType**（BakedGlyph.renderType
+     *  绑定正确字体 atlas；RenderType.text() 在部分环境下纹理绑定不可靠 → 紫黑块），
+     *  depthMask(false)（不写深度，同虚像内容语义——玻璃深度写入会遮挡后续渲染）。
+     *  Flush the anchored text: use the **glyph's own RenderType** (BakedGlyph.
+     *  renderType binds the correct font atlas; RenderType.text() texture binding is
+     *  unreliable in some environments → purple-black blocks), depthMask(false) (no
+     *  depth write, same as the virtual image — a glass-depth write would occlude
+     *  everything rendered afterwards). */
+    private void drawTextAnchored(BufferBuilder buf) {
+        var data = buf.build();
+        if (data == null) return;
+        try {
+            RenderType rt = hudTextRenderType;
+            if (rt == null) rt = RenderType.text(net.minecraft.client.Minecraft.DEFAULT_FONT);
+            rt.setupRenderState();
+            // 强制不剔除背面：字形 RenderType 可能启用 cull 而锚定后顶点绕序与
+            // 原绘制路径相反 → 正面被剔除（"正面不显示、背面显示"）。
+            // Force no cull: the glyph RenderType may cull, and the anchored vertex
+            // winding differs from the original draw path → front face got culled.
+            RenderSystem.disableCull();
+            RenderSystem.depthMask(false);
+            BufferUploader.drawWithShader(data);
+            RenderSystem.depthMask(true);
+            RenderSystem.enableCull();
+            rt.clearRenderState();
+        } catch (Exception e) {
+            SchematicCompute.LOGGER.error("Monitor depth-anchored text draw failed", e);
+        }
     }
 
     // ── 玩家屏幕定位遮罩（4 边形）：玻璃面板 4 角点从玩家眼睛投影到远处画布平面 ──
@@ -1088,8 +1310,31 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  is exactly the glass rect. Pure function — unit-testable.
      *  <p>Returns {secCx, secCy, secHw, secHh} (canvas-local, pre-×100-scale). */
     @SuppressWarnings("unchecked")
-    private void flushTextNoCull(MultiBufferSource buffer) {
-        if (!(buffer instanceof MultiBufferSource.BufferSource bs)) return;
+    private void flushTextNoCull(MultiBufferSource buffer, org.joml.Matrix4f viewRot,
+            org.joml.Matrix4f viewRotInv, float glassZ) {
+        // 解包 Iris 的 BufferSourceWrapper（2026-08-24）：光影环境把 BER 的
+        // MultiBufferSource 包装成 net.irisshaders.iris.layer.BufferSourceWrapper，
+        // instanceof BufferSource 失败 → 文字冲刷路径从未生效（文字由 LevelRenderer
+        // 正常冲刷，深度=远处画布 → 被地形遮挡）。用运行时反射调用 getOriginal()
+        // 逐层解包（不依赖编译期 Iris 依赖）。
+        // Unwrap Iris' BufferSourceWrapper: with shaders the BER MultiBufferSource
+        // is wrapped in net.irisshaders.iris.layer.BufferSourceWrapper, so the
+        // instanceof BufferSource check failed and the text flush path never ran
+        // (text flushed by LevelRenderer at far-canvas depth → occluded by terrain).
+        // Peel via runtime reflection on getOriginal() (no compile-time Iris dep).
+        MultiBufferSource unwrapped = buffer;
+        for (int peel = 0; peel < 8; peel++) {
+            if (!"net.irisshaders.iris.layer.BufferSourceWrapper".equals(unwrapped.getClass().getName())) break;
+            try {
+                Object o = unwrapped.getClass().getMethod("getOriginal").invoke(unwrapped);
+                if (!(o instanceof MultiBufferSource)) break;
+                unwrapped = (MultiBufferSource) o;
+            } catch (Exception e) {
+                SchematicCompute.LOGGER.error("Monitor unwrap BufferSourceWrapper failed", e);
+                break;
+            }
+        }
+        if (!(unwrapped instanceof MultiBufferSource.BufferSource bs)) return;
         if (STARTED_BUILDERS == null) return;
         try {
             var started = (Map<RenderType, BufferBuilder>) STARTED_BUILDERS.get(bs);
@@ -1103,9 +1348,16 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 var data = builder.build();
                 if (data == null) { it.remove(); continue; }
                 if (type.sortOnUpload()) data.sortQuads(shared, RenderSystem.getVertexSorting());
+                // 3D 模式 NO_CULL 冲刷（HUD 模式文字已走方案 X 手动字形锚定，
+                // 不再经此路径）。不写深度，避免文字深度污染场景缓冲。
+                // 3D-mode NO_CULL flush (HUD-mode text now uses plan-X manual glyph
+                // anchoring and no longer goes through here). No depth write, so the
+                // text depth never pollutes the scene buffer.
                 type.setupRenderState();
                 RenderSystem.disableCull();
+                RenderSystem.depthMask(false);
                 BufferUploader.drawWithShader(data);
+                RenderSystem.depthMask(true);
                 RenderSystem.enableCull();
                 type.clearRenderState();
                 it.remove();
