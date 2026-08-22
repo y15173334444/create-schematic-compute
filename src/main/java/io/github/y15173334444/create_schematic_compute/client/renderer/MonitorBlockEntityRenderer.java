@@ -688,13 +688,19 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  地平线（θ=0）下移、+10° 刻度在中心上方（2026-08-24 修复：原为 pitch+θ
      *  「同向叠加」，导致平飞时 +10° 刻度跑到中心下方、上方显示负角——不符合
      *  HUD 惯例「向上为正」）。
+     *  注：tan 周期 180° 使 +90° 与 −90° 刻度 y 恒相同（度数相同重叠）——重叠由
+     *  drawPitchLadder 的**档线分侧**解决（正角度画左段、负角度画右段），纯函数
+     *  保留 tan 透视原样（2026-08-24）。
      *  Pure function on doubles.
      *  Tick angle (deg) → canvas y offset (panel-local y-up, relative to canvas
      *  center). y = -K·tan(pitch−θ): θ is the world pitch this tick labels (+ above);
      *  nose-up pitch moves the horizon (θ=0) down, and the +10° tick sits above the
      *  center (2026-08-24 fix: the old pitch+θ "same-direction sum" put the +10° tick
      *  below center at level flight — negative angles above — against the HUD
-     *  convention "up is positive"). */
+     *  convention "up is positive").
+     *  Note: tan's 180° period gives the +90° and −90° ticks the same y (same
+     *  magnitude overlap) — resolved by drawPitchLadder's side-split bars (positive
+     *  angles left, negative right); the pure function keeps tan as-is. */
     public static double ladderCanvasY(double pitchDeg, double thetaDeg, double halfH) {
         return -LADDER_CANVAS_SCALE * halfH * Math.tan(Math.toRadians(pitchDeg - thetaDeg));
     }
@@ -766,11 +772,20 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             double y = ladderCanvasY(pitch, theta, hh);
             boolean horizon = Math.abs(theta) < interval * 0.5f;
             if (horizon) {
-                // ② 白色水平线（地平线，随 pitch 移动，贯穿画布宽，不透明）
+                // ② 白色水平线（地平线，随 pitch 移动，**两段式**——中心留空 gap
+                //    让准星通过，2026-08-24；不透明）
+                // ② white horizon (moves with pitch, **two segments** — center gap
+                // clears the boresight, 2026-08-24; opaque)
                 addThickLineAnchored(buf, m, -horizonW * cr - y * sr, -horizonW * sr + y * cr,
+                    -gap * cr - y * sr, -gap * sr + y * cr, wBar, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
+                addThickLineAnchored(buf, m, gap * cr - y * sr, gap * sr + y * cr,
                     horizonW * cr - y * sr, horizonW * sr + y * cr, wBar, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
             } else {
-                // ③ 绿色两段式中空档（SC 绿，不透明）
+                // ③ 绿色两段式中空档（SC 绿，不透明）——左右两段都画（2026-08-24：
+                //    档线不砍半；±90 数字由标注分侧「一边一个」解决重叠）。
+                // ③ green two-segment hollow bars (SC green, opaque) — both segments
+                //    drawn (the bar is NOT halved; the ±90 digit overlap is solved by
+                //    side-splitting the labels, one per side).
                 double lx0 = -halfLineW * cr - y * sr, ly0 = -halfLineW * sr + y * cr;
                 double lx1 = -gap * cr - y * sr, ly1 = -gap * sr + y * cr;
                 double rx0 = gap * cr - y * sr, ry0 = gap * sr + y * cr;
@@ -782,8 +797,14 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             // ④ degree labels: ±10° onward every 10°, white small text at the outer
             // bar ends, rotating with the group (0° horizon not labelled).
             if (!horizon && Math.abs(theta) > 9.99f && Math.abs(theta % 10f) < interval * 0.5f) {
+                // 标注分侧**只对 ±90° 生效**（2026-08-24）：±90 数字一边一个避免
+                // tan 周期重叠；其他度数两端都标。side = 0 左 / 1 右 / -1 两端。
+                // Side-splitting applies **only to ±90°**: the ±90 digits go one per
+                // side (tan-period overlap); other degrees keep both ends.
+                int absDeg = Math.abs(Math.round(theta));
+                int side = absDeg == 90 ? (theta > 0 ? 0 : 1) : -1;
                 drawLadderLabel(textBuf, font, m, viewRot, viewRotInv, glassZ,
-                    Math.round(theta), y, cr, sr, halfLineW, maskAabb, canvasRect, maskQuad);
+                    Math.round(theta), y, cr, sr, halfLineW, maskAabb, canvasRect, maskQuad, side);
             }
         }
     }
@@ -798,20 +819,21 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     private void drawLadderLabel(BufferBuilder textBuf, Font font,
             org.joml.Matrix4f m, org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
             float glassZ, int deg, double y, double cr, double sr, double halfLineW,
-            float[] maskAabb, float[] canvasRect, float[] maskQuad) {
+            float[] maskAabb, float[] canvasRect, float[] maskQuad, int side) {
         String label = Integer.toString(deg);
         float s = GeometryConstants.FONT_BLOCK_SCALE * 0.6f; // 小字 / small text
         float fw = font.width(label), fh = 10f;
         float off = (float)(halfLineW + 0.045); // 档线端点外侧偏移
-        // 两端外侧位置（绕画布中心随 roll 旋转）/ outer ends, rotated by roll
-        float lx = (float)(-off * cr - y * sr), ly = (float)(-off * sr + y * cr);
-        float rx = (float)(off * cr - y * sr), ry = (float)(off * sr + y * cr);
         float cosR = (float)cr, sinR = (float)sr; // 文字随档组旋转
         float rollRad = (float) Math.atan2(sr, cr); // 档组旋转角（弧度）
         float[] ca = polyAabb(canvasRect); // 画布矩形（虚像屏幕边框）AABB
-        for (int side = 0; side < 2; side++) {
-            float x = side == 0 ? lx : rx;
-            float yp = side == 0 ? ly : ry;
+        // 标哪几侧：side = 0 左 / 1 右 / -1 两端（±90 一边一个，其他两端）
+        int sides = side == -1 ? 2 : 1;
+        int side0 = side == -1 ? 0 : side;
+        for (int si = 0; si < sides; si++) {
+            int sIdx = side0 + si;
+            float x = sIdx == 0 ? (float)(-off * cr - y * sr) : (float)(off * cr - y * sr);
+            float yp = sIdx == 0 ? (float)(-off * sr + y * cr) : (float)(off * sr + y * cr);
             // 字符级 AABB 快检：先 vs 画布矩形（屏幕边框，2026-08-24），再 vs 遮罩
             // glyph AABB quick reject: first vs the canvas rect (screen frame),
             // then vs the player-screen mask

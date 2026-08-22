@@ -62,6 +62,12 @@ class ConformalProjectionTest {
         // θ=90°（pitch=0）：tan(90°) → ∞ → |y| 远超画布半高 → 裁剪后不可见
         double y = MonitorBlockEntityRenderer.ladderCanvasY(0, 90, 0.6);
         assertTrue(Math.abs(y) > 10); // far outside any panel
+        // 2026-08-24：tan 周期 180° 使 pitch=90° 时 ±90° 刻度 y 相同（0）——重叠由
+        // drawPitchLadder 档线分侧（正角度左段、负角度右段）解决，纯函数不负责。
+        // tan's 180° period: at pitch=90° the ±90 ticks share y=0 — the overlap is
+        // resolved by the side-split bars in drawPitchLadder, not this function.
+        assertEquals(0, MonitorBlockEntityRenderer.ladderCanvasY(90, 90, 0.6), 1e-9);
+        assertEquals(0, MonitorBlockEntityRenderer.ladderCanvasY(90, -90, 0.6), 1e-9);
     }
 
     // ── renderHud 几何（2026-08-20 调试）：面板/虚像世界位置 vs 玩家视角 ──
