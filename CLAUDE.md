@@ -40,6 +40,7 @@ GitHub Issues，外部 PR 也作为 triage 需求来源。见 `docs/agents/issue
 ### 测试规范 / Testing
 - JUnit 5，运行 `./gradlew test`。
 - `graph/` 核心逻辑（FormulaParser、GraphMigration、pinId 解析、OpExecutor）改动应配单元测试（`src/test/`）。
+- **不进行查询日志轮询等待**：测试、构建、客户端/服务端运行一律**后台执行**，不在前台流式读日志或 sleep 轮询等待（占上下文、降效率）——等完成通知后只取一次最终结果（退出码/测试报告/关键输出）。
 
 ### 构建与运行 / Build & Run
 - 客户端 `./gradlew runClient`，服务端 `./gradlew runServer`。

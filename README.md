@@ -931,5 +931,3 @@ Yes — Private Signal I/O (named channels) or BUS_IN/BUS_OUT (banded). / 可以
   <b>⭐ If you enjoy this mod, star us on GitHub! / 喜欢请在GitHub点⭐！</b><br>
   <i>Unleash Create's potential with visual programming! / 用可视化编程释放机械动力的潜力！🚀</i>
 </p>
-
-> CI: pull requests run \./gradlew test\ automatically (.github/workflows/pr-test.yml); direct pushes are not gated.

@@ -396,9 +396,20 @@ Sable 子层级兼容工具 / Sable sub-level compat utilities.
 | `colorpicker/ColorPickerWidget.java` | 颜色选择器浮层 / Color picker overlay |
 | `colorpicker/ColorUtils.java` | 颜色工具 / Color utilities |
 | `colorpicker/RecentColors.java` | 最近使用颜色持久化 / Recent colors persistence |
-| `renderer/MonitorBlockEntityRenderer.java` | 全息显示器 3D 渲染（BER）/ Holographic monitor 3D renderer |
-| `renderer/MonitorRenderTypes.java` | Monitor 自定义 RenderType（SCREEN_PIXEL/NO_CULL）/ Custom RenderTypes |
+| `renderer/MonitorBlockEntityRenderer.java` | 全息显示器 3D 渲染 + HUD 虚像（近处玻璃 + 远处画布 + 相机空间深度锚定 + 手动字形文字）/ Holographic monitor 3D renderer + HUD virtual image (near glass + far canvas + camera-space depth anchor + manual-glyph text) |
+| `renderer/MonitorRenderTypes.java` | Monitor 自定义 RenderType（SCREEN_PIXEL / HUD_DEPTH_ANCHOR）/ Custom RenderTypes |
 | `renderer/RadarBlockEntityRenderer.java` | 雷达 3D 渲染（BER）/ Radar 3D renderer |
+
+### HUD 虚像渲染架构（v1.2.5，2026-08-24 更新）/ HUD Virtual-Image Rendering Architecture
+
+✅ 已解决 — 深度锚定（东西溢出）/ 文字遮挡 / 俯仰梯样式；详见 [monitor-hud-mode-design.md](./monitor-hud-mode-design.md) 交叉引用。
+
+- **近处玻璃 + 远处画布**：近处玻璃只画边框（`SCREEN_PIXEL`）；内容画在沿 -FACING 100 格的虚像画布（×D 缩放保持角尺寸，`VIRTUAL_IMAGE_D=100`）。
+- **相机空间深度锚定（`emitAnchored`，2026-08-24）**：BER poseStack 只含相机平移（相机旋转在 RenderSystem modelView 栈），此前直接取世界 Z 分量当视线深度——玩家面朝东西时 `fz≈0` → `s=zAnchor/fz` 爆炸（虚像溢出）。现在顶点先经 `viewRot`（`camera.rotation()` 的逆）到**真正相机空间**取视线深度，锚定 `V'=(fx·gz/fz, fy·gz/fz, gz)` 到玻璃平面再经 `viewRotInv` 回世界；`s` 钳制 ±`MAX_ANCHOR_S` 防掠射 `fz→0⁻` 的 float 溢出（GPU 视锥干净裁剪）。
+- **文字手动字形锚定（方案 X，2026-08-24）**：`font.drawInBatch` 的 buffer 被 Iris `BufferSourceWrapper` 包装（`instanceof BufferSource` 失效，拦截路径不可行）→ 改为反射 `Font.getFontSet`（包私有）+ `BakedGlyph` 私有字段（left/right/up/down/u0/v1，锁定 1.21.1 稳定），手动生成字形 4 顶点（`charMat` 复刻原 drawInBatch 变换链）+ 锚定到玻璃深度，写入独立 `textBuf`（`TRIANGLES` + `POSITION_COLOR_TEX_LIGHTMAP`）。**字符级部分遮罩**：字形 4 角与玩家屏幕 4-gon 求交（`clipPolyToQuad`）+ UV 双线性插值 + 三角扇；冲刷用字形自身 RenderType（正确字体 atlas，`RenderType.text` 在部分环境纹理绑定不可靠→紫黑块）+ `depthMask(false)`（不写深度）+ `disableCull`。
+- **俯仰梯（`drawPitchLadder`）**：tan 透视 `ladderCanvasY(pitch−θ)`（+10° 刻度在中心上方，抬头地平线下移）；两段式中空绿色档线 + **两段式白色地平线**（中心留空让准星通过）+ ±10° 起白色度数标注（**±90 分侧**一边一个——tan 周期 180° 使 ±90 刻度同 y，数字分侧避免重叠；其余度数两端标注）。准星 = 固定白色四段中空十字（1/3 尺寸）。
+- **三层裁剪（指示线不超出虚像屏幕）**：① **相机平面**（`clipPolyByDepth` 逐顶点 fz，阈值 0，只切相机后方镜像内容）；② **画布矩形**（±hw×±hh 屏幕边框——贴脸时 mask > 画布，档线 pitch 大时兜底）；③ **玩家屏幕 4-gon 遮罩**（`projectGlassCornersToCanvas` + `clipPolyToQuad` + `pointInConvexQuad`）。
+- **RenderType**：`HUD_DEPTH_ANCHOR`（vanilla `position_color`，LEQUAL + COLOR_WRITE 不写深度——前方遮挡/后方不遮挡、不污染深度缓冲）；`SCREEN_PIXEL`（玻璃边框）。纯函数（`ladderCanvasY`/`projectGlassCornersToCanvas`/`clipPolyToQuad`/`clipPolyByDepth`/`pointInConvexQuad`/`polyAabb`/`rotatedAabb`）均有单测（`ConformalProjectionTest`、`FacingOverflowDiagTest`）。
 
 ---
 
