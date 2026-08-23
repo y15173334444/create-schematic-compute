@@ -479,7 +479,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | Action / 操作 | Input / 按键 |
 |---------------|-------------|
 | Add node menu / 添加节点 | Right-click empty / 右键空白 |
-| **Two-column layout / 双列布局** | Click `[▮▮]` button in menu title row (search list follows) / 点击菜单标题行右侧 `[▮▮]` 按钮（搜索列表同步） |
+| **Two-column layout / 双列布局** | Click the state-label button on the menu title row (`1 Col`/`2 Col`), gold = two columns on / 点击菜单标题行右侧状态文字按钮（`单列`/`双列`），金色=双列开启 |
 | Edit params / 编辑参数 | Left-click → ▶ / 左键→▶ |
 | Connect / 连接 | Drag output pin → input pin / 拖拽输出→输入 |
 | Delete node / 删除节点 | Hover + `X` / 悬停+`X` |
@@ -666,8 +666,10 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 
 | Feature / 功能 | Description / 说明 |
 |----------------|-------------------|
-| 🖱️ 手动双列开关 / Manual two-column toggle | 菜单标题行右侧新增 `[▮▮]` 按钮（点击切换，开启时金色边框高亮）：开启后**所有展开分类**均按双列渲染，关闭时恢复各分类默认（仅三角函数双列） / New `[▮▮]` button on the menu title row (gold border while active): when on, **every expanded category** renders in two columns; when off, categories return to their defaults (only Trig is two-column). |
-| 🔍 搜索列数同步 / Search columns follow | 搜索模式扁平列表的列数不再硬编码为 2——跟随双列开关（开启=2 列，关闭=1 列）/ The search-mode flat list column count is no longer hardcoded to 2 — it follows the toggle (on=2 columns, off=1). |
+| 🖱️ 手动双列开关 / Manual two-column toggle | 菜单标题行右侧的状态文字按钮（`单列`/`双列`，双语），点击切换，开启时金色文字+金框高亮：开启后**所有展开分类**均按双列渲染；关闭时全部单列（三角函数不再自动双列）/ A state-label button on the menu title row (`1 Col`/`2 Col`, localized): click to toggle, gold text+border while active. When on, **every expanded category** renders in two columns; when off, all are single-column (Trig no longer auto-expands to two). |
+| 📏 宽度常驻 / Persistent width | 双列开启时面板宽度**常驻双列**——即使没有任何展开分类也保持，切换不跳动 / While two-column is on, the panel width stays two-column even with nothing expanded — no resizing jump. |
+| 🔍 搜索列数同步 / Search columns follow | 搜索模式扁平列表列数跟随开关（开启=2 列，关闭=1 列），不再硬编码 2 / The search flat list follows the toggle (on=2, off=1) instead of a hardcoded 2. |
+| 🖱️ 搜索可滚动 / Search scrollable | 搜索模式 `totalH` 改为扁平列表真实高度——匹配多时出现滚动条，滚轮/拖拽可滚动（此前恒短、无法滚动）/ Search-mode `totalH` now reflects the flat-list height — the scrollbar appears for many matches and wheel/drag scrolling works (previously the list was always shorter than the panel and could not scroll). |
 | 📐 布局联动 / Layout consistency | 面板宽度 / 高度封顶 / 滚动条 / 点击命中全部按当前生效列数计算，切换瞬间重排无错位 / Panel width, height cap, scrollbar and click hit-testing all follow the effective column count — no misalignment on toggle. |
 
 </details>
