@@ -218,6 +218,10 @@ public class NodeRenderer {
     private int menuMaxH = 0;         // 封顶后的可见高度 / capped visible height
     private String menuSearchText = "";
     private boolean menuSearchFocused = false;
+    /** 手动双列布局开关：开启后所有展开分类与搜索列表均按双列渲染（默认单列，Trig 分类保留其 columns=2 默认值）。
+     *  Manual two-column layout toggle: when on, every expanded category AND the search list render in two
+     *  columns (default off — single column, except the Trig category which keeps its columns=2 default). */
+    private boolean menuTwoColumns = false;
     private static final int TOP_H = 34;   // 标题(18) + 搜索框(16) 固定不滚动区 / fixed non-scroll area
     private static final int SCROLLBAR_W = 6;
 
@@ -1136,6 +1140,11 @@ public class NodeRenderer {
         return n;
     }
 
+    /** 当前生效列数：手动双列开关开启时全部分类双列，否则用分类默认值（Trig=2，其余=1）。
+     *  Effective column count: two columns for every category while the manual toggle is on,
+     *  otherwise the category default (Trig=2, others=1). */
+    private int effectiveCols(NodeCategory cat) { return menuTwoColumns ? 2 : cat.columns; }
+
     public NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my, java.util.function.Predicate<NodeType> filter) {
         // D: 组合外部 filter + 搜索文本 / combine external filter + search text
         java.util.function.Predicate<NodeType> combined = nt -> {
@@ -1151,7 +1160,7 @@ public class NodeRenderer {
         for (int ci = 0; ci < CATEGORIES.length; ci++) {
             if (visibleCount(CATEGORIES[ci], combined) == 0) continue;
             if (catExpanded.getOrDefault(ci, false))
-                maxCols = Math.max(maxCols, CATEGORIES[ci].columns);
+                maxCols = Math.max(maxCols, effectiveCols(CATEGORIES[ci]));
         }
         menuW = 16 + maxCols * colW;
         int totalH = TOP_H;
@@ -1159,7 +1168,7 @@ public class NodeRenderer {
             if (visibleCount(CATEGORIES[ci], combined) == 0) continue;
             totalH += ch;
             if (catExpanded.getOrDefault(ci, false)) {
-                int cols = CATEGORIES[ci].columns;
+                int cols = effectiveCols(CATEGORIES[ci]);
                 int items = visibleCount(CATEGORIES[ci], combined);
                 totalH += (int)Math.ceil((double)items / cols) * ih;
             }
@@ -1187,6 +1196,17 @@ public class NodeRenderer {
             : menuSearchText + (menuSearchFocused && (System.currentTimeMillis() / 500 % 2 == 0) ? "_" : "");
         drawStr(g, shown, sbX + 3, sbY + 2, menuSearchText.isEmpty() ? 0xFF777777 : CMN());
 
+        // —— 双列切换按钮（标题行右侧）/ two-column toggle button (right side of title row) ——
+        int tbW = 16, tbH = 10;
+        int tbX = (int)menuRX + (int)menuW - tbW - 6, tbY = (int)menuRY + 4;
+        boolean tbHover = mx >= tbX && mx <= tbX + tbW && my >= tbY && my <= tbY + tbH;
+        g.fill(tbX, tbY, tbX + tbW, tbY + tbH, tbHover ? 0xFF3A3428 : 0xFF1A1814);
+        // 开启时金色边框高亮 / gold border while two-column mode is active
+        g.renderOutline(tbX, tbY, tbW, tbH, menuTwoColumns ? 0xFFD4A017 : 0xFF5A4D3A);
+        // 双竖条图标（列布局）/ two-bar columns icon
+        g.fill(tbX + 3, tbY + 2, tbX + 5, tbY + tbH - 2, 0xFFC8B088);
+        g.fill(tbX + 9, tbY + 2, tbX + 11, tbY + tbH - 2, 0xFFC8B088);
+
         NodeType hovered = null;
         // A: scissor 裁剪列表区 / scissor-clip list area (screen coords, y=0=top)
         g.enableScissor((int)menuRX, (int)(menuRY + TOP_H), (int)menuRX + (int)menuW, (int)(menuRY + maxH));
@@ -1208,7 +1228,7 @@ public class NodeRenderer {
                 if (scoreA != scoreB) return Integer.compare(scoreA, scoreB);
                 return na.compareTo(nb);
             });
-            int cols = 2; // 双列布局 / two-column layout
+            int cols = menuTwoColumns ? 2 : 1; // 列数与双列开关同步 / column count follows the two-column toggle
             int itemsPerCol = (int)Math.ceil((double)matches.size() / cols);
             int idx = 0;
             for (var nt : matches) {
@@ -1227,7 +1247,7 @@ public class NodeRenderer {
                 int vis = visibleCount(cat, combined);
                 if (vis == 0) continue;
                 boolean exp = catExpanded.getOrDefault(ci, false);
-                int cols = exp ? cat.columns : 1;
+                int cols = exp ? effectiveCols(cat) : 1;
                 String title = (exp ? "▼ " : "▶ ") + net.minecraft.client.resources.language.I18n.get(cat.langKey);
                 boolean titleHover = mx >= menuRX + 2 && mx <= hoverRight && my >= cy && my < cy + ch;
                 if (titleHover) g.fill((int)menuRX + 2, cy, (int)(hoverRight), (int)(cy + ch), 0xFF3A3428);
@@ -1266,6 +1286,13 @@ public class NodeRenderer {
 
     /** Handle category expand/collapse click + search box focus. Returns true if consumed. */
     public boolean handleCategoryClick(int mx, int my) {
+        // 双列切换按钮 / two-column toggle button
+        int tbW = 16, tbH = 10;
+        int tbX = (int)menuRX + (int)menuW - tbW - 6, tbY = (int)menuRY + 4;
+        if (mx >= tbX && mx <= tbX + tbW && my >= tbY && my <= tbY + tbH) {
+            toggleMenuColumns();
+            return true;
+        }
         // D: 命中搜索框 → 聚焦 / hit search box → focus
         int sbX = (int)menuRX + 6, sbY = (int)menuRY + 18, sbW = (int)menuW - 12, sbH = 12;
         if (mx >= sbX && mx <= sbX + sbW && my >= sbY && my <= sbY + sbH) {
@@ -1285,11 +1312,18 @@ public class NodeRenderer {
             }
             cy += ch;
             if (!catExpanded.getOrDefault(ci, false)) continue;
-            int cols = CATEGORIES[ci].columns;
+            int cols = effectiveCols(CATEGORIES[ci]);
             cy += (int)Math.ceil((double)vis / cols) * ih;
         }
         return false;
     }
+
+    // ── 双列布局开关 / two-column layout toggle ──
+    /** 切换添加节点菜单的双列布局（搜索列表同步跟随）。
+     *  Toggle the add-node menu's two-column layout (the search list follows). */
+    public void toggleMenuColumns() { menuTwoColumns = !menuTwoColumns; }
+    /** @return 双列布局是否开启 / whether two-column layout is on */
+    public boolean isMenuTwoColumns() { return menuTwoColumns; }
 
     // ── D: 搜索框辅助方法 / search box helpers ──
     public void scrollMenu(float delta) { setMenuScrollOff((int)(menuScrollOff + delta)); }
