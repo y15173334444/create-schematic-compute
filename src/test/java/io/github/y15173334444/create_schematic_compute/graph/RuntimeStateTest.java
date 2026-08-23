@@ -274,4 +274,86 @@ class RuntimeStateTest {
         assertTrue(loaded.pidState.isEmpty());
         assertTrue(loaded.flipflopStates.isEmpty());
     }
+
+    // ══════════════════ pruneToAliveIds ══════════════════
+
+    @Test
+    @DisplayName("pruneToAliveIds: keeps alive node state incl. auxiliary slots, drops dead nodes")
+    void testPruneKeepsAliveDropsDead() {
+        var rs = new RuntimeState();
+        // 存活节点 7：pid + ACCUMULATOR/INTEGRATOR 辅助槽 + flipflop 辅助槽
+        rs.pidState.put(7, 12f);
+        rs.pidState.put(7 + 100000, 1f);   // ACC prev+ / INT tick
+        rs.pidState.put(7 + 200000, 0f);   // ACC prev-
+        rs.flipflopStates.put(7, true);
+        rs.flipflopStates.put(-(7 + 1), false);
+        rs.pulseTimers.put(7, 3);
+        rs.pulseTimers.put(-(7 + 1), 5);
+        rs.delayQueues.put(7, new ArrayDeque<>());
+        rs.debugTime.put(7, 0.5f);
+        // 已删除节点 99：同族条目必须全部剪除
+        rs.pidState.put(99, 1f);
+        rs.pidState.put(99 + 100000, 1f);
+        rs.flipflopStates.put(99, true);
+        rs.flipflopStates.put(-(99 + 1), true);
+        rs.pulseTimers.put(99, 2);
+        rs.delayQueues.put(99, new ArrayDeque<>());
+        rs.debugTime.put(99, 0.25f);
+        // 已删除封装 55
+        rs.subStates.put(55, new RuntimeState.SubState());
+
+        rs.pruneToAliveIds(java.util.Set.of(7));
+
+        // 存活节点的所有状态保留
+        assertEquals(12f, rs.pidState.get(7));
+        assertTrue(rs.pidState.containsKey(7 + 100000));
+        assertTrue(rs.pidState.containsKey(7 + 200000));
+        assertTrue(rs.flipflopStates.get(7));
+        assertTrue(rs.flipflopStates.containsKey(-(7 + 1)));
+        assertEquals(3, rs.pulseTimers.get(7));
+        assertEquals(5, rs.pulseTimers.get(-(7 + 1)));
+        assertTrue(rs.delayQueues.containsKey(7));
+        assertEquals(0.5f, rs.debugTime.get(7), 0.0001f);
+        // 已删除节点的所有条目（含辅助槽）剪除
+        assertFalse(rs.pidState.containsKey(99));
+        assertFalse(rs.pidState.containsKey(99 + 100000));
+        assertFalse(rs.flipflopStates.containsKey(99));
+        assertFalse(rs.flipflopStates.containsKey(-(99 + 1)));
+        assertFalse(rs.pulseTimers.containsKey(99));
+        assertFalse(rs.delayQueues.containsKey(99));
+        assertFalse(rs.debugTime.containsKey(99));
+        assertFalse(rs.subStates.containsKey(55));
+    }
+
+    @Test
+    @DisplayName("pruneToAliveIds: empty alive set clears everything")
+    void testPruneEmptyAliveClearsAll() {
+        var rs = new RuntimeState();
+        rs.pidState.put(1, 1f);
+        rs.flipflopStates.put(1, true);
+        rs.delayQueues.put(1, new ArrayDeque<>());
+        rs.subStates.put(2, new RuntimeState.SubState());
+
+        rs.pruneToAliveIds(java.util.Set.of());
+
+        assertTrue(rs.pidState.isEmpty());
+        assertTrue(rs.flipflopStates.isEmpty());
+        assertTrue(rs.delayQueues.isEmpty());
+        assertTrue(rs.subStates.isEmpty());
+    }
+
+    @Test
+    @DisplayName("aliveStateKeys: expands ids with all auxiliary slot families")
+    void testAliveStateKeys() {
+        var keys = RuntimeState.aliveStateKeys(java.util.Set.of(7, 99));
+        assertEquals(4 + 4, keys.size()); // 2 ids × (id, -(id+1), id+100000, id+200000)
+        assertTrue(keys.contains(7));
+        assertTrue(keys.contains(-8));
+        assertTrue(keys.contains(100007));
+        assertTrue(keys.contains(200007));
+        assertTrue(keys.contains(99));
+        assertTrue(keys.contains(-100));
+        assertTrue(keys.contains(100099));
+        assertTrue(keys.contains(200099));
+    }
 }

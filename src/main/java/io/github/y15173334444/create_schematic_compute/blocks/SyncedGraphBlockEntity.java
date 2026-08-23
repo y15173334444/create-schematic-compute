@@ -349,7 +349,10 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         evaluator.restoreSubState(runtimeState);
         lastEvaluatedGraph = graph;
         lastGraphGeneration = graph.graphGeneration;
-        runtimeState.pidState.clear();
+        // 保留积分状态（PID/ACCUMULATOR/INTEGRATOR），仅剪除已删除节点——编辑不再清空积分
+        // Preserve integral state (PID/ACCUMULATOR/INTEGRATOR), prune only removed nodes —
+        // edits no longer wipe integrals.
+        pruneRuntimeStateToAlive();
         // Use diff-based re-registration to preserve channel ownership.
         // This prevents a newly-added BUS_OUT with the same signalName from
         // stealing the channel from the existing owner during the recompile window.
@@ -365,27 +368,34 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         snapshotBusOutKeys();
     }
 
-    /** Full rebuild that also resets delay queues, flipflop states and pulse timers.
-     *  Used by Blueprint and ProgramComputer (which use timing/state nodes).
-     *  Before clearing, saves and restores sub-graph state (DELAY queues, flipflops,
-     *  pulse timers, PID state) so that encapsulation timing nodes survive the rebuild.
-     *  Also restores debugTime so that frequency-generate mode phase persists.
-     *  完全重建，同时重置延迟队列、触发器状态和脉冲计时器。
-     *  供 Blueprint 和 ProgramComputer（使用时序/状态节点）使用。
-     *  清除前保存并恢复子图状态（DELAY 队列、触发器、脉冲计时器、PID 状态），
-     *  使封装内的时序节点在重建后仍然存活。同时恢复 debugTime 使频率发生模式相位保持。 */
+    /** Full rebuild that preserves all main-graph runtime state — sequential (DELAY
+     *  queues, flipflops, pulse timers) and integral (PID/ACCUMULATOR/INTEGRATOR in
+     *  pidState) — pruning only entries whose node was removed. Used by Blueprint and
+     *  ProgramComputer. Sub-graph state and debugTime are preserved as before, so
+     *  edits (wiring, adding nodes, formula/param/comment changes) no longer reset
+     *  timing or integrators.
+     *  完全重建，但保留主图全部运行时状态——时序（DELAY 队列、触发器、脉冲计时器）与
+     *  积分（pidState 中的 PID/ACCUMULATOR/INTEGRATOR），仅剪除已被删除节点的条目。
+     *  供 Blueprint 和 ProgramComputer 使用。子图状态与 debugTime 照旧保留——因此编辑
+     *  （连线/加节点/改公式/改参数/注释）不再重置时序与积分状态。 */
     protected void recompileEvaluatorFull() {
+        Map<Integer, Float> savedPid = null;
+        Map<Integer, java.util.ArrayDeque<Float>> savedDelay = null;
+        Map<Integer, Boolean> savedFf = null;
+        Map<Integer, Integer> savedPulse = null;
         Map<Integer, Float> savedDebugTime = null;
         Map<Integer, RuntimeState.SubState> savedSubStates = null;
         NodeGraph oldGraph = lastEvaluatedGraph;
         if (oldGraph != null) {
             BusChannelHelper.syncDeletedBusNames(oldGraph, graph, worldPosition, level);
+            // Save ALL main-graph runtime state before clearing — sequential + integral
+            // state survives recompiles (same policy as subStates/debugTime).
+            // 清除前保存主图全部运行时状态——时序与积分跨重编译保留（与 subStates/debugTime 同策略）。
+            savedPid = new HashMap<>(runtimeState.pidState);
+            savedDelay = new HashMap<>(runtimeState.delayQueues);
+            savedFf = new HashMap<>(runtimeState.flipflopStates);
+            savedPulse = new HashMap<>(runtimeState.pulseTimers);
             savedDebugTime = new HashMap<>(runtimeState.debugTime);
-            // Save sub-graph state before clearing — preserves DELAY queues,
-            // flipflop states, pulse timers, and PID state for encapsulation
-            // timing nodes across recompiles.
-            // 清除前保存子图状态——保留封装内 DELAY 队列、触发器、脉冲计时器
-            // 和 PID 状态，跨重编译保持时序节点连续性。
             if (!runtimeState.subStates.isEmpty()) {
                 savedSubStates = new HashMap<>(runtimeState.subStates);
             }
@@ -411,9 +421,21 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
             }
         }
         evaluator.restoreSubState(runtimeState);
+        // Restore main-graph sequential/integral state (pruned to alive nodes below).
+        // 恢复主图时序/积分状态（下方按存活节点剪除）。
+        if (savedPid != null) runtimeState.pidState.putAll(savedPid);
+        if (savedDelay != null) runtimeState.delayQueues.putAll(savedDelay);
+        if (savedFf != null) runtimeState.flipflopStates.putAll(savedFf);
+        if (savedPulse != null) runtimeState.pulseTimers.putAll(savedPulse);
         if (savedDebugTime != null && !savedDebugTime.isEmpty()) {
+            var alive = new java.util.HashSet<Integer>();
+            for (var n : graph.nodes) alive.add(n.id);
+            savedDebugTime.keySet().removeIf(k -> !RuntimeState.aliveStateKeys(alive).contains(k));
             evaluator.restoreDebugTimes(savedDebugTime);
         }
+        // Prune state of removed nodes so stale entries never leak into NBT.
+        // 剪除已删除节点的状态，避免陈旧条目泄漏入 NBT。
+        pruneRuntimeStateToAlive();
         lastEvaluatedGraph = graph;
         lastGraphGeneration = graph.graphGeneration;
         // Use diff-based re-registration to preserve channel ownership.
@@ -451,7 +473,10 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         if (!runtimeState.debugTime.isEmpty()) evaluator.restoreDebugTimes(runtimeState.debugTime);
         lastEvaluatedGraph = graph;
         lastGraphGeneration = graph.graphGeneration;
-        runtimeState.pidState.clear();
+        // 保留积分状态（PID/ACCUMULATOR/INTEGRATOR），仅剪除已删除节点——编辑不再清空积分
+        // Preserve integral state (PID/ACCUMULATOR/INTEGRATOR), prune only removed nodes —
+        // edits no longer wipe integrals.
+        pruneRuntimeStateToAlive();
         // Use diff-based re-registration (same as recompileEvaluator) to preserve channel
         // ownership across recompiles. 使用基于差异的重新注册（与 recompileEvaluator 相同），
         // 在重编译期间保留频道所有权。
@@ -501,6 +526,15 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         for (var n : graph.nodes)
             if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty())
                 lastBusOutKeys.add(n.signalName + "@" + n.id);
+    }
+
+    /** 按当前图剪除已删除节点的运行时状态（时序/积分/debugTime/子图），保留存活节点的状态。
+     *  Prune runtime state of nodes removed from the current graph (sequential/integral/
+     *  debugTime/sub), keeping surviving nodes' state. */
+    private void pruneRuntimeStateToAlive() {
+        var alive = new java.util.HashSet<Integer>();
+        for (var n : graph.nodes) alive.add(n.id);
+        runtimeState.pruneToAliveIds(alive);
     }
 
     // ── Not-running helper / 停止运行辅助方法 ──

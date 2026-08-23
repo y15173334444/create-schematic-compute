@@ -126,6 +126,40 @@ public class RuntimeState {
         subStates.clear();
     }
 
+    /** 从存活节点 ID 构建完整键集（含辅助槽位：flipflop 的 -(id+1)、ACCUMULATOR/INTEGRATOR 的 id+100000/id+200000）。
+     *  Build the full key set from alive node IDs (incl. auxiliary slots: flipflop's
+     *  -(id+1), ACCUMULATOR/INTEGRATOR's id+100000/id+200000). */
+    public static java.util.Set<Integer> aliveStateKeys(java.util.Set<Integer> aliveIds) {
+        java.util.Set<Integer> keys = new java.util.HashSet<>(aliveIds);
+        for (int id : aliveIds) {
+            keys.add(-(id + 1));
+            keys.add(id + 100000);
+            keys.add(id + 200000);
+        }
+        return keys;
+    }
+
+    /**
+     * 剪除已不再存活节点的运行时状态（含辅助槽位），保留其余节点的时序/积分状态。
+     * 供重编译时使用——编辑（连线/加节点/改公式/改参数/注释）不再清空时序与积分，
+     * 同时避免被删节点的状态泄漏进 NBT。
+     * Prune runtime state of nodes no longer alive (including auxiliary slots), keeping
+     * surviving nodes' sequential/integral state. Used by recompiles — edits (wiring,
+     * adding nodes, formula/param/comment changes) no longer wipe timing & integrals,
+     * while state of removed nodes is dropped so it never leaks into NBT.
+     *
+     * @param aliveIds 当前图中存活的节点 ID 集合 / the node IDs still present in the graph
+     */
+    public void pruneToAliveIds(java.util.Set<Integer> aliveIds) {
+        java.util.Set<Integer> keys = aliveStateKeys(aliveIds);
+        pidState.keySet().removeIf(k -> !keys.contains(k));
+        delayQueues.keySet().removeIf(k -> !keys.contains(k));
+        flipflopStates.keySet().removeIf(k -> !keys.contains(k));
+        pulseTimers.keySet().removeIf(k -> !keys.contains(k));
+        debugTime.keySet().removeIf(k -> !keys.contains(k));
+        subStates.keySet().removeIf(k -> !aliveIds.contains(k));
+    }
+
     // ── NBT 序列化 ──────────────────────────────────────────────────────
     // ── NBT serialisation ──────────────────────────────────────────────────
 
