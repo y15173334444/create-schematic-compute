@@ -306,12 +306,13 @@ public class SensorBlockEntitySable extends SensorBlockEntity implements BlockEn
             return;
         }
 
-        // ── 姿态：子世界旋转的 pitch 和 roll ──
-        // Attitude: pitch and roll from the sub-world's rotation.
-        // The yaw is handled separately via the forward vector computation below.
-        // 取自子世界旋转的俯仰和翻滚角。偏航角通过下方的 forward 矢量计算单独处理。
-        attitudePitch = cachedSubPitch;
-        attitudeRoll = cachedSubRoll;
+        // ── 姿态：方块自身在世界空间中的俯仰/横滚（朝向 × 子世界旋转）──
+        // Attitude: the block's own world-space pitch and roll (facing × sub-world rotation).
+        // 同一结构上朝向不同的方块，其姿态输出不同（修复前只取结构级 pitch/roll，
+        // 与方块朝向无关）。pitch 与 FORWARD 节点同公式（前向仰角），符号约定一致。
+        float[] att = SensorAttitudeMath.blockAttitude(cachedBlockFacingYaw, cachedSubYaw, cachedSubPitch, cachedSubRoll);
+        attitudePitch = att[0];
+        attitudeRoll = att[1];
 
         // ── 前方朝向：方块前方向量经子世界旋转 ──
         // Forward facing: rotate the block's canonical forward vector (0,0,1)
