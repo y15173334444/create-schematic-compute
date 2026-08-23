@@ -147,7 +147,7 @@ io.github.y15173334444.create_schematic_compute/
 
 **持久化状态 / Persisted State**：`pidState`, `delayQueues`, `flipflopStates`, `pulseTimers`, `debugTime`
 **子图状态 / Sub-graph State**：`SubState` — 每个 ENCAPSULATION 节点独立的上述五类状态 / Independent state per encapsulation node
-**API**：`clear()`、`save()`/`load()`（NBT 键 `pid/delay/ff/pt/dt/sub`）、`getOrCreateSubState(id)`
+**API**：`clear()`、`save()`/`load()`（NBT 键 `pid/delay/ff/pt/dt/sub`）、`getOrCreateSubState(id)`、`pruneToAliveIds(aliveIds)`（按存活节点剪除时序/积分状态含辅助槽 `-(id+1)`/`id+100000`/`id+200000`，重编译保留状态用）/ prune sequential/integral state to alive nodes incl. aux slots (used by recompiles to preserve state)
 
 ### FormulaParser
 数学表达式解析器。调车场算法编译中缀→RPN，支持多行脚本。

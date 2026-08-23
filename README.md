@@ -662,6 +662,15 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 
 - 详见 [`docs/drag-state-churn-fix.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/drag-state-churn-fix.md)。
 
+### 🔄 编辑不再清空时序/积分状态 / Edits No Longer Reset Sequential & Integral State
+
+| Fix / 修复 | Description / 说明 |
+|------------|-------------------|
+| 🧬 重编译保留主图状态 / Recompiles preserve main-graph state | `recompileEvaluatorFull` 改为像子图状态一样**保存→剪除→恢复**主图五类状态（`pidState` 含 PID/ACCUMULATOR/INTEGRATOR、`delayQueues`、`flipflopStates`、`pulseTimers`、`debugTime`）——连线、添加节点、公式输入、参数编辑（如时序节点参数引脚动态调参）**不再清空时序与积分**；删除节点仅剪除该节点状态（含辅助槽位 `-(id+1)`/`id+100000`/`id+200000`）/ `recompileEvaluatorFull` now saves→prunes→restores the five main-graph state maps (like sub-graph state): wiring, adding nodes, formula input and param edits (e.g. dynamic tuning via sequential-node param pins) no longer wipe timing or integrals; removing a node prunes only its own state incl. auxiliary slots. |
+| ⚙️ base/light 重编译同步修复 / base & light recompiles fixed too | `recompileEvaluator` / `recompileEvaluatorLight`（Sensor/ControlSeat/Radar/Monitor/SpeedProxy）不再 `pidState.clear()`——其他方块编辑时 PID 积分同样保留 / These no longer clear `pidState` — PID integrals survive edits on the other five block types too. |
+| 🗑️ 语义保持 / Semantics kept | 整图替换（`loadGraphFromBytes`/关屏上传）仍显式清空（旧节点 ID 无意义）；编译按钮的 Latch/GATE/T_FLIPFLOP 当前状态回归初始（`params[1]`）不变 / Whole-graph replacement still clears explicitly (old IDs meaningless); the compile button's latch-state reset stays unchanged. |
+| 🧪 测试 / Tests | `RuntimeState.pruneToAliveIds` + 3 例单测（保留含辅助槽/剪除死节点/空集合），全量测试通过 / prune logic + 3 unit tests; full suite green. |
+
 ### 🗂️ 添加节点菜单双列切换 / Add-Node Menu Two-Column Toggle
 
 | Feature / 功能 | Description / 说明 |
