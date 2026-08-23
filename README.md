@@ -395,7 +395,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | T Flip-Flop / T触发器 | Toggle flip-flop, configurable default / 可配置默认状态 |
 | Pulse Extender / 脉冲延长 | Extend input pulse N ticks / 脉冲延长N tick |
 | Loop / 循环 | Fire pulse every interval, repeat count times / 循环脉冲 |
-| Safety Timer / 保险 | Trigger → 2-tick pulse → cooldown / 触发→脉冲→冷却 |
+| Safety Timer / 保险 | Trigger (rising edge) or held-high input → 2-tick pulse → cooldown; held-high repeats as pulse generator / 触发（上升沿）或持续高电平 → 2 tick 脉冲 → 冷却；持续高电平自动循环（脉冲发生器） |
 | Accumulator / 累计器 | Rising-edge step counter / 累计器 |
 | Continuous Integrator / 连续积分器 | Continuous integration, configurable limit / 连续积分器 |
 
@@ -679,6 +679,12 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 - **纯函数可单测 / Pure-function testable**：新增 `SensorAttitudeMath.blockAttitude()`（零 Minecraft/Sable 依赖）+ `SensorAttitudeMathTest`（7 例，含实测数值锁定：结构 yaw=6.37°/pitch=19.03°/roll=-0.28° 时，面 WEST→(0.27,-19.03)、面 NORTH→(19.03,0.28)、面 SOUTH→(-19.03,-0.28)）。/ New `SensorAttitudeMath.blockAttitude()` (zero Minecraft/Sable deps) + `SensorAttitudeMathTest` (7 cases, locking measured values).
 - **注意 / Note**：pitch 符号约定由旧的欧拉角约定改为前向仰角约定（与 FORWARD 一致）——面朝与结构相反方向的传感器 pitch/roll 符号可能翻转；依赖旧数值的现有图需复查。/ The pitch sign convention switched from the legacy Euler-angle convention to the forward-elevation convention (matching FORWARD) — sensors facing opposite the structure may flip sign; existing graphs relying on legacy values should be re-checked.
 - **文档更正 / Docs correction**：VELOCITY / ACCELERATION 描述由「结构本地 / Structure-local」更正为「方块本地 / Block-local」——代码始终按方块 FACING 将结构运动分解到方块自身坐标轴（与 FORWARD/ATTITUDE 的朝向相关语义一致），文档此前与代码不符。/ VELOCITY / ACCELERATION descriptions corrected from "Structure-local" to "Block-local" — the code always resolves structure motion into the block's own axes via FACING (consistent with the facing-dependent FORWARD/ATTITUDE semantics); the docs previously contradicted the code.
+
+### ⏱️ 保险节点长信号支持 / FUSE Long-Signal Support
+
+- **长信号 = 脉冲发生器 / Held-high input = pulse generator**：FUSE（保险）此前只在输入**上升沿**触发一次（2 tick 脉冲 → 冷却），持续高电平期间冷却结束后不会再次触发，无法当脉冲发生器。现在输入**持续高电平**时，冷却结束后自动再触发（周期 ≈ 2 + cooldown），输入变低即停止；上升沿仍立即触发、冷却期间的新上升沿仍被忽略、输入在脉冲/冷却中途变低时当前一轮完整走完——旧行为完全兼容。/ FUSE previously fired only once on a rising edge (2-tick pulse → cooldown) and never re-fired while the input stayed high, so it could not act as a pulse generator. A held-high input now re-fires after each cooldown (period ≈ 2 + cooldown) and stops when the input drops; rising edges still fire immediately, new rising edges during cooldown are still ignored, and a drop mid-cycle lets the current cycle finish — fully backward compatible.
+- **脉冲宽度修正 / Pulse-width fix**：文档与注释均写「2 tick 脉冲」，旧代码因计数器 off-by-one 实际只输出 1 tick——已修正为真正的 2 tick（触发 tick + 1）。/ The docs and comments claimed a "2-tick pulse" but an off-by-one in the pulse counter emitted only 1 tick — now a true 2-tick pulse (fire tick + 1).
+- **回归测试 / Regression tests**：新增 `FuseLongSignalTest`（4 例）：上升沿 2 tick 脉冲+冷却、持续高电平循环脉冲（t0/t6/t12 触发）、中途变低当前轮走完+重武装、冷却期上升沿忽略+长信号再触发。/ New `FuseLongSignalTest` (4 cases): rising-edge 2-tick pulse + cooldown, held-high repeating pulses (fires at t0/t6/t12), mid-cycle drop completes then re-arms, cooldown-period rising edge ignored + held-high re-fire.
 
 </details>
 

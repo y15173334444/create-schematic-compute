@@ -337,22 +337,28 @@ public class GraphEvaluator {
                 int cd = Math.max(1, (int)(node.params.length>0?node.params[0]:40));
                 int timer = pulseTimers.getOrDefault(node.id, 0);
                 boolean prev = flipflopStates.getOrDefault(-(node.id+1), false);
-                boolean triggered = in > 0.5f && !prev;
-                flipflopStates.put(-(node.id+1), in > 0.5f);
-                if (triggered && timer == 0) {
-                    timer = cd;         // 冷却倒计时开始  /  Cooldown countdown begins
-                    pulseTimers.put(-(node.id+1), 2); // 脉冲已输出 0 tick  /  Pulse output 0 ticks
-                    o[0] = 1;
-                } else if (timer > 0) {
+                boolean high = in > 0.5f;
+                boolean triggered = high && !prev;   // 上升沿 / rising edge
+                flipflopStates.put(-(node.id+1), high);
+                if (timer > 0) {
+                    // 脉冲/冷却阶段：先输出 2 tick 脉冲，其余为冷却
+                    // Pulse/cooldown phase: 2-tick pulse first, then cooldown
                     int pulseOut = pulseTimers.getOrDefault(-(node.id+1), 0);
                     if (pulseOut < 2) {
-                        o[0] = 1;      // 2 tick 脉冲  /  2-tick pulse
+                        o[0] = 1;                    // 2 tick 脉冲 / 2-tick pulse
                         pulseTimers.put(-(node.id+1), pulseOut + 1);
                     } else {
-                        o[0] = 0;      // 脉冲结束，在冷却中  /  Pulse ended, in cooldown
+                        o[0] = 0;                    // 脉冲结束，在冷却中 / Pulse ended, in cooldown
                     }
                     timer--;
                     if (timer == 0) pulseTimers.remove(-(node.id+1));
+                } else if (triggered || high) {
+                    // 上升沿立即触发；持续高电平（长信号）冷却结束后自动再触发 → 脉冲发生器
+                    // Rising edge fires immediately; a held-high input (long signal) re-fires
+                    // after the cooldown expires — turning FUSE into a pulse generator.
+                    timer = cd;                      // 冷却倒计时开始 / Cooldown countdown begins
+                    pulseTimers.put(-(node.id+1), 1); // 首个脉冲 tick 已输出 / first pulse tick emitted
+                    o[0] = 1;
                 } else {
                     o[0] = 0;
                 }
