@@ -94,7 +94,7 @@
 
 | Feature / 功能 | Description / 说明 |
 |----------------|-------------------|
-| 📐 ATTITUDE / 姿态 | Sub-level pitch and roll / 子世界俯仰和横滚 |
+| 📐 ATTITUDE / 姿态 | Block world-space pitch and roll (facing × sub-level rotation) / 方块自身世界姿态俯仰与横滚（朝向 × 子世界旋转） |
 | 🧭 FORWARD / 前方朝向 | World-space forward yaw/pitch / 结构世界空间朝向 |
 | ⚡ ACCELERATION / 加速度 | Structure-local X/Y/Z acceleration / 结构本地加速度 |
 | 🚀 VELOCITY / 速度 | Structure-local velocity ×2 m/s / 结构本地速度 |
@@ -414,7 +414,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | Gamepad Button / 手柄按键 | 15 buttons / 15按键 |
 | Gamepad Trigger / 手柄扳机 | Analog triggers LT/RT (0~1) / 模拟扳机 |
 | World View / 世界视角 | Player absolute world view direction / 玩家绝对视角 |
-| Attitude / 姿态 | Sub-level pitch and roll / 子世界姿态 |
+| Attitude / 姿态 | Block world-space pitch and roll (facing × sub-level rotation) / 方块自身世界姿态俯仰与横滚（朝向 × 子世界旋转） |
 | Forward / 前方朝向 | World-space forward yaw/pitch / 结构朝向 |
 | Acceleration / 加速度 | Structure-local X/Y/Z acceleration / 结构本地加速度 |
 | Velocity / 速度 | Structure-local velocity ×2 m/s / 结构本地速度 |
@@ -671,6 +671,13 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 | 🔍 搜索列数同步 / Search columns follow | 搜索模式扁平列表列数跟随开关（开启=2 列，关闭=1 列），不再硬编码 2 / The search flat list follows the toggle (on=2, off=1) instead of a hardcoded 2. |
 | 🖱️ 搜索可滚动 / Search scrollable | 搜索模式 `totalH` 改为扁平列表真实高度——匹配多时出现滚动条，滚轮/拖拽可滚动（此前恒短、无法滚动）/ Search-mode `totalH` now reflects the flat-list height — the scrollbar appears for many matches and wheel/drag scrolling works (previously the list was always shorter than the panel and could not scroll). |
 | 📐 布局联动 / Layout consistency | 面板宽度 / 高度封顶 / 滚动条 / 点击命中全部按当前生效列数计算，切换瞬间重排无错位 / Panel width, height cap, scrollbar and click hit-testing all follow the effective column count — no misalignment on toggle. |
+
+### 📐 姿态传感器 ATTITUDE 修复 / Attitude Sensor ATTITUDE Fix
+
+- **ATTITUDE 节点随方块朝向变换 / ATTITUDE now follows the block facing**：同一 Sable 结构上朝向不同的姿态传感器，ATTITUDE（pitch/roll）输出此前完全相同——旧实现只取**结构级**俯仰/横滚（`cachedSubPitch/cachedSubRoll`），与方块朝向无关。修复后由「方块朝向 × 子世界旋转」的**局部基向量**推导方块自身世界姿态：前向向量决定俯仰（与 FORWARD 节点同公式、同符号约定），上向量绕前向轴的倾斜决定横滚。同一结构上侧向安装的传感器，其结构俯仰表现为自身横滚，输出不再相同。/ ATTITUDE (pitch/roll) outputs were identical across differently-faced sensors on the same Sable structure — the old implementation used structure-level pitch/roll only, ignoring the block facing. Now the block's world-space attitude is derived from its local basis rotated by facing × sub-world pose: the forward vector yields pitch (same formula and sign convention as the FORWARD node) and the up vector's tilt around the forward axis yields roll. A sideways-mounted sensor reports the structure pitch as its own roll.
+- **输出引脚不变 / Output pins unchanged**：仍为 2 引脚（pitch、roll），无图迁移。/ Still 2 pins (pitch, roll) — no graph migration.
+- **纯函数可单测 / Pure-function testable**：新增 `SensorAttitudeMath.blockAttitude()`（零 Minecraft/Sable 依赖）+ `SensorAttitudeMathTest`（7 例，含实测数值锁定：结构 yaw=6.37°/pitch=19.03°/roll=-0.28° 时，面 WEST→(0.27,-19.03)、面 NORTH→(19.03,0.28)、面 SOUTH→(-19.03,-0.28)）。/ New `SensorAttitudeMath.blockAttitude()` (zero Minecraft/Sable deps) + `SensorAttitudeMathTest` (7 cases, locking measured values).
+- **注意 / Note**：pitch 符号约定由旧的欧拉角约定改为前向仰角约定（与 FORWARD 一致）——面朝与结构相反方向的传感器 pitch/roll 符号可能翻转；依赖旧数值的现有图需复查。/ The pitch sign convention switched from the legacy Euler-angle convention to the forward-elevation convention (matching FORWARD) — sensors facing opposite the structure may flip sign; existing graphs relying on legacy values should be re-checked.
 
 </details>
 
