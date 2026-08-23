@@ -191,7 +191,7 @@ public class NodeRenderer {
         new NodeCategory("category.create_schematic_compute.values", new NodeType[]{NodeType.CONST, NodeType.REDSTONE_IN, NodeType.PRIVATE_IN, NodeType.BUS_IN}),
         new NodeCategory("category.create_schematic_compute.math_basic", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.POW, NodeType.ROOT, NodeType.ABS, NodeType.CEIL, NodeType.FLOOR}),
         new NodeCategory("category.create_schematic_compute.math_advanced", new NodeType[]{NodeType.FORMULA, NodeType.POSE_CONVERT, NodeType.SPLIT, NodeType.INTERP, NodeType.ROUND}),
-        new NodeCategory("category.create_schematic_compute.trig", new NodeType[]{NodeType.SIN, NodeType.COS, NodeType.TAN, NodeType.ASIN, NodeType.ACOS, NodeType.ATAN2, NodeType.SINH, NodeType.COSH, NodeType.SQRT, NodeType.LN, NodeType.LOG, NodeType.EXP, NodeType.SEC, NodeType.CSC, NodeType.COT, NodeType.ANGLE_UNWRAP, NodeType.DIRECTION}, 2),
+        new NodeCategory("category.create_schematic_compute.trig", new NodeType[]{NodeType.SIN, NodeType.COS, NodeType.TAN, NodeType.ASIN, NodeType.ACOS, NodeType.ATAN2, NodeType.SINH, NodeType.COSH, NodeType.SQRT, NodeType.LN, NodeType.LOG, NodeType.EXP, NodeType.SEC, NodeType.CSC, NodeType.COT, NodeType.ANGLE_UNWRAP, NodeType.DIRECTION}),
         new NodeCategory("category.create_schematic_compute.logic", new NodeType[]{NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ, NodeType.BOOL, NodeType.GATE, NodeType.OR, NodeType.RELAY_A, NodeType.RELAY_B}),
         new NodeCategory("category.create_schematic_compute.control", new NodeType[]{NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP}),
         new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL, NodeType.BUS_OUT}),
@@ -218,9 +218,9 @@ public class NodeRenderer {
     private int menuMaxH = 0;         // 封顶后的可见高度 / capped visible height
     private String menuSearchText = "";
     private boolean menuSearchFocused = false;
-    /** 手动双列布局开关：开启后所有展开分类与搜索列表均按双列渲染（默认单列，Trig 分类保留其 columns=2 默认值）。
+    /** 手动双列布局开关：开启后所有展开分类与搜索列表均按双列渲染（默认单列）。
      *  Manual two-column layout toggle: when on, every expanded category AND the search list render in two
-     *  columns (default off — single column, except the Trig category which keeps its columns=2 default). */
+     *  columns (default off — single column). */
     private boolean menuTwoColumns = false;
     private static final int TOP_H = 34;   // 标题(18) + 搜索框(16) 固定不滚动区 / fixed non-scroll area
     private static final int SCROLLBAR_W = 6;
@@ -1140,9 +1140,8 @@ public class NodeRenderer {
         return n;
     }
 
-    /** 当前生效列数：手动双列开关开启时全部分类双列，否则用分类默认值（Trig=2，其余=1）。
-     *  Effective column count: two columns for every category while the manual toggle is on,
-     *  otherwise the category default (Trig=2, others=1). */
+    /** 当前生效列数：手动双列开关开启时全部分类双列，否则单列。
+     *  Effective column count: two columns for every category while the manual toggle is on, otherwise one. */
     private int effectiveCols(NodeCategory cat) { return menuTwoColumns ? 2 : cat.columns; }
 
     public NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my, java.util.function.Predicate<NodeType> filter) {
@@ -1156,21 +1155,33 @@ public class NodeRenderer {
         currentFilter = combined;
 
         int ih=14, ch=16, colW=144;
-        int maxCols = 1;
+        // 双列开关开启时面板宽度常驻双列（即使无展开分类也保持，避免切换时面板跳动）
+        // two-column width persists while the toggle is on, even with nothing expanded
+        int maxCols = menuTwoColumns ? 2 : 1;
         for (int ci = 0; ci < CATEGORIES.length; ci++) {
             if (visibleCount(CATEGORIES[ci], combined) == 0) continue;
             if (catExpanded.getOrDefault(ci, false))
                 maxCols = Math.max(maxCols, effectiveCols(CATEGORIES[ci]));
         }
         menuW = 16 + maxCols * colW;
+        boolean searching = !menuSearchText.isEmpty();
         int totalH = TOP_H;
-        for (int ci = 0; ci < CATEGORIES.length; ci++) {
-            if (visibleCount(CATEGORIES[ci], combined) == 0) continue;
-            totalH += ch;
-            if (catExpanded.getOrDefault(ci, false)) {
-                int cols = effectiveCols(CATEGORIES[ci]);
-                int items = visibleCount(CATEGORIES[ci], combined);
-                totalH += (int)Math.ceil((double)items / cols) * ih;
+        if (searching) {
+            // 搜索模式：扁平列表高度（无分类标题行）——修复搜索时无法滚动的问题
+            // search mode: flat-list height (no category title rows) — fixes search not being scrollable
+            int n = 0;
+            for (var cat : CATEGORIES) for (var nt : cat.types) if (combined.test(nt)) n++;
+            int cols = menuTwoColumns ? 2 : 1;
+            totalH += (int)Math.ceil((double)n / cols) * ih;
+        } else {
+            for (int ci = 0; ci < CATEGORIES.length; ci++) {
+                if (visibleCount(CATEGORIES[ci], combined) == 0) continue;
+                totalH += ch;
+                if (catExpanded.getOrDefault(ci, false)) {
+                    int cols = effectiveCols(CATEGORIES[ci]);
+                    int items = visibleCount(CATEGORIES[ci], combined);
+                    totalH += (int)Math.ceil((double)items / cols) * ih;
+                }
             }
         }
         // A: 真实高度封顶 / height cap
@@ -1196,16 +1207,15 @@ public class NodeRenderer {
             : menuSearchText + (menuSearchFocused && (System.currentTimeMillis() / 500 % 2 == 0) ? "_" : "");
         drawStr(g, shown, sbX + 3, sbY + 2, menuSearchText.isEmpty() ? 0xFF777777 : CMN());
 
-        // —— 双列切换按钮（标题行右侧）/ two-column toggle button (right side of title row) ——
-        int tbW = 16, tbH = 10;
-        int tbX = (int)menuRX + (int)menuW - tbW - 6, tbY = (int)menuRY + 4;
-        boolean tbHover = mx >= tbX && mx <= tbX + tbW && my >= tbY && my <= tbY + tbH;
-        g.fill(tbX, tbY, tbX + tbW, tbY + tbH, tbHover ? 0xFF3A3428 : 0xFF1A1814);
-        // 开启时金色边框高亮 / gold border while two-column mode is active
-        g.renderOutline(tbX, tbY, tbW, tbH, menuTwoColumns ? 0xFFD4A017 : 0xFF5A4D3A);
-        // 双竖条图标（列布局）/ two-bar columns icon
-        g.fill(tbX + 3, tbY + 2, tbX + 5, tbY + tbH - 2, 0xFFC8B088);
-        g.fill(tbX + 9, tbY + 2, tbX + 11, tbY + tbH - 2, 0xFFC8B088);
+        // —— 双列切换按钮（标题行右侧，双语文本标签，显示当前状态）/ two-column toggle button (title row right, bilingual label showing current state) ——
+        String colsLabel = columnsLabel();
+        int[] tb = columnsButtonRect();
+        boolean tbHover = mx >= tb[0] && mx <= tb[0] + tb[2] && my >= tb[1] && my <= tb[1] + tb[3];
+        g.fill(tb[0], tb[1], tb[0] + tb[2], tb[1] + tb[3], tbHover ? 0xFF3A3428 : 0xFF1A1814);
+        // 开启（双列）时金色边框高亮 / gold border while two-column mode is active
+        g.renderOutline(tb[0], tb[1], tb[2], tb[3], menuTwoColumns ? 0xFFD4A017 : 0xFF5A4D3A);
+        drawStr(g, colsLabel, tb[0] + 5, tb[1] + 2,
+            menuTwoColumns ? 0xFFD4A017 : 0xFF777777);
 
         NodeType hovered = null;
         // A: scissor 裁剪列表区 / scissor-clip list area (screen coords, y=0=top)
@@ -1214,7 +1224,6 @@ public class NodeRenderer {
         float hoverRight = menuRX + menuW - (totalH > maxH ? SCROLLBAR_W + 4 : 2);
         int cy = (int)menuRY + TOP_H - (int)menuScrollOff;
 
-        boolean searching = !menuSearchText.isEmpty();
         if (searching) {
             // D: 搜索模式 — 扁平列表，按匹配度排序 / search mode — flat list, sorted by relevance
             var matches = new java.util.ArrayList<NodeType>();
@@ -1287,9 +1296,8 @@ public class NodeRenderer {
     /** Handle category expand/collapse click + search box focus. Returns true if consumed. */
     public boolean handleCategoryClick(int mx, int my) {
         // 双列切换按钮 / two-column toggle button
-        int tbW = 16, tbH = 10;
-        int tbX = (int)menuRX + (int)menuW - tbW - 6, tbY = (int)menuRY + 4;
-        if (mx >= tbX && mx <= tbX + tbW && my >= tbY && my <= tbY + tbH) {
+        int[] tb = columnsButtonRect();
+        if (mx >= tb[0] && mx <= tb[0] + tb[2] && my >= tb[1] && my <= tb[1] + tb[3]) {
             toggleMenuColumns();
             return true;
         }
@@ -1324,6 +1332,22 @@ public class NodeRenderer {
     public void toggleMenuColumns() { menuTwoColumns = !menuTwoColumns; }
     /** @return 双列布局是否开启 / whether two-column layout is on */
     public boolean isMenuTwoColumns() { return menuTwoColumns; }
+
+    /** 双列按钮矩形（屏幕坐标）——渲染与点击命中共用同一计算，按当前语言标签动态定宽。
+     *  Toggle button rect (screen coords) — shared by render & click hit-testing,
+     *  width follows the localized state label. */
+    private int[] columnsButtonRect() {
+        int w = Minecraft.getInstance().font.width(columnsLabel()) + 10;
+        return new int[]{(int)menuRX + (int)menuW - w - 6, (int)menuRY + 4, w, 12};
+    }
+
+    /** 双列按钮标签：显示当前状态（单列/双列），随开关切换。
+     *  Toggle button label: shows the current state (single/two columns). */
+    private String columnsLabel() {
+        return I18n.get(menuTwoColumns
+            ? "gui.create_schematic_compute.columns_double"
+            : "gui.create_schematic_compute.columns_single");
+    }
 
     // ── D: 搜索框辅助方法 / search box helpers ──
     public void scrollMenu(float delta) { setMenuScrollOff((int)(menuScrollOff + delta)); }

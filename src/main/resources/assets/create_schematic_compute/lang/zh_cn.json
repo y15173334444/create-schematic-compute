@@ -272,6 +272,8 @@
 
   "gui.create_schematic_compute.nodes": "节点",
   "gui.create_schematic_compute.search_hint": "搜索节点…",
+  "gui.create_schematic_compute.columns_single": "单列",
+  "gui.create_schematic_compute.columns_double": "双列",
   "gui.create_schematic_compute.formula_placeholder": "A+B",
   "gui.create_schematic_compute.formula_summary": "输入 {0} / 输出 {1}",
   "gui.create_schematic_compute.formula_comment_hint": "-- 注释",

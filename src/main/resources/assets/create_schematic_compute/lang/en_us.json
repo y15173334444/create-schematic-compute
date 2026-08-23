@@ -260,6 +260,8 @@
 
   "gui.create_schematic_compute.nodes": "Nodes",
   "gui.create_schematic_compute.search_hint": "Search nodes…",
+  "gui.create_schematic_compute.columns_single": "1 Col",
+  "gui.create_schematic_compute.columns_double": "2 Col",
   "gui.create_schematic_compute.formula_placeholder": "A+B",
   "gui.create_schematic_compute.formula_summary": "Inputs {0} / Outputs {1}",
   "gui.create_schematic_compute.formula_comment_hint": "-- Comment",
