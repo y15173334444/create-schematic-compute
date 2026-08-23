@@ -479,6 +479,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | Action / 操作 | Input / 按键 |
 |---------------|-------------|
 | Add node menu / 添加节点 | Right-click empty / 右键空白 |
+| **Two-column layout / 双列布局** | Click `[▮▮]` button in menu title row (search list follows) / 点击菜单标题行右侧 `[▮▮]` 按钮（搜索列表同步） |
 | Edit params / 编辑参数 | Left-click → ▶ / 左键→▶ |
 | Connect / 连接 | Drag output pin → input pin / 拖拽输出→输入 |
 | Delete node / 删除节点 | Hover + `X` / 悬停+`X` |
@@ -660,6 +661,14 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 | 🧪 回归测试 / Regression tests | `OpGenerationTest`（10 例）：MOVE/视觉 op 不 bump、求值 op 仍 bump、结构变更仍 bump / 10 cases: move/visual ops don't bump, eval ops still bump, structural changes still bump. |
 
 - 详见 [`docs/drag-state-churn-fix.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/drag-state-churn-fix.md)。
+
+### 🗂️ 添加节点菜单双列切换 / Add-Node Menu Two-Column Toggle
+
+| Feature / 功能 | Description / 说明 |
+|----------------|-------------------|
+| 🖱️ 手动双列开关 / Manual two-column toggle | 菜单标题行右侧新增 `[▮▮]` 按钮（点击切换，开启时金色边框高亮）：开启后**所有展开分类**均按双列渲染，关闭时恢复各分类默认（仅三角函数双列） / New `[▮▮]` button on the menu title row (gold border while active): when on, **every expanded category** renders in two columns; when off, categories return to their defaults (only Trig is two-column). |
+| 🔍 搜索列数同步 / Search columns follow | 搜索模式扁平列表的列数不再硬编码为 2——跟随双列开关（开启=2 列，关闭=1 列）/ The search-mode flat list column count is no longer hardcoded to 2 — it follows the toggle (on=2 columns, off=1). |
+| 📐 布局联动 / Layout consistency | 面板宽度 / 高度封顶 / 滚动条 / 点击命中全部按当前生效列数计算，切换瞬间重排无错位 / Panel width, height cap, scrollbar and click hit-testing all follow the effective column count — no misalignment on toggle. |
 
 </details>
 
