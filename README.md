@@ -686,6 +686,13 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 - **脉冲宽度修正 / Pulse-width fix**：文档与注释均写「2 tick 脉冲」，旧代码因计数器 off-by-one 实际只输出 1 tick——已修正为真正的 2 tick（触发 tick + 1）。/ The docs and comments claimed a "2-tick pulse" but an off-by-one in the pulse counter emitted only 1 tick — now a true 2-tick pulse (fire tick + 1).
 - **回归测试 / Regression tests**：新增 `FuseLongSignalTest`（4 例）：上升沿 2 tick 脉冲+冷却、持续高电平循环脉冲（t0/t6/t12 触发）、中途变低当前轮走完+重武装、冷却期上升沿忽略+长信号再触发。/ New `FuseLongSignalTest` (4 cases): rising-edge 2-tick pulse + cooldown, held-high repeating pulses (fires at t0/t6/t12), mid-cycle drop completes then re-arms, cooldown-period rising edge ignored + held-high re-fire.
 
+### 🔌 时序节点参数引脚修复 / Sequential-Node Param-Pin Fix
+
+- **可连线编辑区参数引脚生效 / Wireable edit-area (param) pins now work**：DELAY/PULSE_EXTEND/LOOP/FUSE 等时序节点的参数引脚（可连线编辑区）此前连上信号**没有任何效果**——通用参数覆盖机制（连线值临时覆盖 `node.params`）只应用在 `eval()` 默认路径，时序节点走 `evalExt()` 直接读 `node.params`，从未应用覆盖。修复后 `evalExt` 顶部统一应用、尾部恢复（连线值只在该 tick 生效，不污染 EditBox/NBT，断开连线恢复默认）。/ The wireable edit-area (param) pins of sequential nodes (DELAY/PULSE_EXTEND/LOOP/FUSE) previously had **no effect** when wired — the generic override mechanism (wired values temporarily replace `node.params`) only ran in the `eval()` default path, while sequential nodes go through `evalExt()` and read `node.params` directly. `evalExt` now applies the override up front and restores afterwards (wired values last one tick only — the EditBox/NBT stay clean and un-wiring restores the default).
+- **DELAY 入队移入求值器 / DELAY enqueue moved into the evaluator**：DELAY 的入队此前在方块实体（求值器外）读取 `params[0]`——参数恢复后读不到连线值。现入队并入 DELAY 求值分支（与子图一致），连线的 duration 即刻生效；BE 侧入队代码移除。/ The DELAY enqueue previously lived in the block entities (outside the evaluator), reading `params[0]` after the override was restored — so a wired duration never applied. The enqueue now lives inside the DELAY evaluation branch (matching sub-graphs); the BE-side enqueue was removed.
+- **边界行为（维持现状）/ Edge behavior (unchanged)**：`<0`/`0` 一律钳制为 1（最小时长），非整数向零截断（2.9→2）；INTEGRATOR limit<0 输出恒 0、负 step 反向计数由玩家自行负责。/ Values `<0`/`0` clamp to 1 (minimum duration); non-integers truncate toward zero (2.9→2); INTEGRATOR limit<0 forces output 0 and negative step counts backwards — left to the player.
+- **回归测试 / Regression tests**：新增 `SequentialParamPinTest`（3 例）：FUSE cooldown 连线（cd=5→周期 6）、PULSE_EXTEND duration 连线（3 tick）、LOOP count+interval 连线（count=2/interval=3）。/ New `SequentialParamPinTest` (3 cases): FUSE cooldown wired (cd=5 → period 6), PULSE_EXTEND duration wired (3 ticks), LOOP count+interval wired (count=2/interval=3).
+
 </details>
 
 <details>

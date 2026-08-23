@@ -129,7 +129,15 @@ public class GraphEvaluator {
         List<Integer> sorted = graph.getTopoOrder();
         for (int id : sorted) {
             GraphNode n = graph.findNode(id);
-            if (n != null) eval(n, inputs, pidState, dt, seat);
+            if (n != null) {
+                // 无状态路径也应用参数引脚覆盖（eval 不再自管），并立即恢复
+                // The stateless path applies param-pin overrides too (eval no longer
+                // self-manages them) and restores immediately.
+                float[] op = n.params;
+                applyParamPinOverrides(n);
+                eval(n, inputs, pidState, dt, seat);
+                n.params = op;
+            }
         }
         List<OutputResult> res = new ArrayList<>();
         for (GraphNode n : graph.nodes) {
@@ -242,18 +250,62 @@ public class GraphEvaluator {
         return res;
     }
 
+    /** 通用参数引脚：连线值临时覆盖 node.params（eval 与 evalExt 共用）。
+     *  Generic parameter pins: wired values temporarily override node.params
+     *  (shared by eval and evalExt).
+     *  <p>参数引脚排在功能引脚之后；FORMULA 的 warm 参数无引脚（编辑区按钮，刀5 决策），
+     *  不参与连线覆盖。注意：覆盖通过替换 node.params 实现，断开连线后原默认值需
+     *  重新编辑才会恢复（与旧 eval() 行为一致）。</p>
+     *  <p>Param pins come after the functional inputs; FORMULA's warm param has no pin
+     *  (edit-panel button, knife-5 decision) and never participates. Note: the override
+     *  replaces node.params, so after un-wiring the original default returns only when
+     *  re-edited — same behavior as the old eval() path.</p>
+     *
+     * @param node 目标节点 / the target node
+     * @return 是否发生了覆盖 / whether any wired override occurred
+     */
+    private boolean applyParamPinOverrides(GraphNode node) {
+        int extraBase = node.functionalInputs();
+        int extraCnt = node.type.editableParamCount();
+        if (extraCnt > 0 && node.type != NodeType.FORMULA) {
+            boolean hasOverride = false;
+            float[] effParams = node.params;
+            for (int pi = 0; pi < extraCnt; pi++) {
+                if (graph.hasInputConnection(node.id, extraBase + pi)) {
+                    if (!hasOverride) { effParams = node.params.clone(); hasOverride = true; }
+                    if (pi < effParams.length) effParams[pi] = graph.getInputValue(node.id, extraBase + pi, outputs);
+                }
+            }
+            if (hasOverride) node.params = effParams;
+            return hasOverride;
+        }
+        return false;
+    }
+
     private void evalExt(GraphNode node, List<InputSource> inputs, Map<Integer, Float> pidState, float dt,
                          SeatInputState seat,
                          Map<Integer, java.util.ArrayDeque<Float>> delayQueues,
                          Map<Integer, Boolean> flipflopStates,
                          Map<Integer, Integer> pulseTimers) {
+        // 通用参数引脚：连线值临时覆盖 node.params（时序节点同享；此前只应用于 eval()，
+        // 导致 DELAY/PULSE_EXTEND/LOOP/FUSE 等时序节点的参数引脚连线无效）
+        // Generic parameter pins: wired values temporarily override node.params (shared with
+        // eval(); previously only applied in eval(), so wiring the param pins of sequential
+        // nodes like DELAY/PULSE_EXTEND/LOOP/FUSE had no effect)
+        float[] origParams = node.params;
+        applyParamPinOverrides(node);
         float[] o = node.outputValues;
         switch (node.type) {
             case DELAY -> {
                 float in = graph.getInputValue(node.id, 0, outputs);
-                var q = delayQueues.get(node.id);
-                if (q == null || q.isEmpty()) { o[0] = 0; break; }
-                o[0] = q.peekFirst();
+                var q = delayQueues.computeIfAbsent(node.id, k -> new java.util.ArrayDeque<>());
+                // 输出队列头（(duration) tick 前的输入），再入队今日输入并裁剪。
+                // Output the queue head (the input from `duration` ticks ago), then
+                // enqueue today's input and trim to the (possibly wire-overridden) duration.
+                o[0] = q.isEmpty() ? 0 : q.peekFirst();
+                int ticks = Math.max(1, (int)(node.params.length>0?node.params[0]:10));
+                q.addLast(in);
+                while (q.size() > ticks) q.pollFirst();
             }
             case LATCH -> {
                 float s = graph.getInputValue(node.id, 0, outputs);
@@ -364,35 +416,20 @@ public class GraphEvaluator {
                 }
                 pulseTimers.put(node.id, timer);
             }
-            default -> { eval(node, inputs, pidState, dt, seat); return; }
+            default -> { eval(node, inputs, pidState, dt, seat); node.params = origParams; return; }
         }
+        node.params = origParams; // 恢复参数（可能被连线值临时覆盖）  /  Restore params (may have been temporarily overwritten by wired values)
         outputs.put(node.id, o.clone());
     }
 
     private void eval(GraphNode node, List<InputSource> inputs, Map<Integer, Float> pidState, float dt, SeatInputState seat) {
         float[] o = node.outputValues;
 
-        // 通用参数引脚：连线值临时覆盖 node.params（所有节点 handler 无缝兼容）
-        // Generic parameter pins: wired values temporarily override node.params
-        // (transparently compatible with all node handlers)
-        float[] origParams = node.params;
-        float[] effParams = origParams;
-        // 参数引脚排在功能引脚之后;FORMULA 的功能引脚数是动态的(刀5 参数引脚避让)
-        int extraBase = node.functionalInputs();
-        int extraCnt = node.type.editableParamCount();
-        // FORMULA 的 warm 参数无引脚(编辑区按钮配置,刀5 联调决策),不参与连线覆盖
-        // FORMULA's warm param has no pin (edit-panel button, knife 5 decision) — no wired override
-        if (extraCnt > 0 && node.type != NodeType.FORMULA) {
-            boolean hasOverride = false;
-            for (int pi = 0; pi < extraCnt; pi++) {
-                if (graph.hasInputConnection(node.id, extraBase + pi)) {
-                    if (!hasOverride) { effParams = origParams.clone(); hasOverride = true; }
-                    if (pi < effParams.length) effParams[pi] = graph.getInputValue(node.id, extraBase + pi, outputs);
-                }
-            }
-            if (hasOverride) node.params = effParams;
-        }
-
+        // 参数引脚覆盖由调用方（evalExt / 无状态 evaluate 包装）负责，本方法只消费
+        // node.params（连线覆盖已在进入前应用，返回后由调用方恢复）。
+        // Param-pin overrides are applied by the caller (evalExt / the stateless
+        // evaluate wrapper); this method only consumes node.params — wired overrides
+        // are active on entry and restored by the caller on return.
         switch (node.type) {
             case KEYBOARD -> {
                 int keyIndex = node.params.length > 0 ? (int)node.params[0] : 0;
@@ -1093,15 +1130,6 @@ public class GraphEvaluator {
                             sdq, sff, spt);
                     }
                 }
-                // DELAY 入队（子图内）  /  DELAY enqueue (within sub-graph)
-                for (var n : node.subGraph.nodes) {
-                    if (n.type == NodeType.DELAY) {
-                        var q = sdq.computeIfAbsent(n.id, k -> new java.util.ArrayDeque<>());
-                        int ticks = Math.max(1, (int)(n.params.length>0?n.params[0]:10));
-                        q.addLast(subEval.getNodeInput(n.id, 0));
-                        while (q.size() > ticks) q.pollFirst();
-                    }
-                }
                 // 收集 ENCAP_OUTPUT 值
                 // Collect ENCAP_OUTPUT values
                 for (int i = 0; i < outNodes.size(); i++) {
@@ -1117,10 +1145,8 @@ public class GraphEvaluator {
                 }
             }
         }
-        node.params = origParams; // 恢复参数（可能被连线值临时覆盖）  /  Restore params (may have been temporarily overwritten by wired values)
         outputs.put(node.id, o.clone());
     }
-
     /** spread 输入变更检测:每引脚 1e-3 容差(决策 §五)。 / Spread input-change detection: 1e-3 tolerance per pin (decisions §五). */
     private static boolean inputsUnchanged(float[] frozen, float[] current) {
         if (frozen == null || frozen.length != current.length) return false;

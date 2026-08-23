@@ -52,14 +52,6 @@ public class ProgramComputerBlockEntity extends SyncedGraphBlockEntity {
         float dt = 0.05f;
         var results = evaluator.evaluate(in, runtimeState.pidState, dt,
                 runtimeState.delayQueues, runtimeState.flipflopStates, runtimeState.pulseTimers);
-        for (var n : graph.nodes) {
-            if (n.type == NodeType.DELAY) {
-                var q = runtimeState.delayQueues.computeIfAbsent(n.id, k -> new ArrayDeque<>());
-                int ticks = Math.max(1, (int)(n.params.length > 0 ? n.params[0] : 10));
-                q.addLast(evaluator.getNodeInput(n.id, 0));
-                while (q.size() > ticks) q.pollFirst();
-            }
-        }
         rs.writeOutputs(results);
         broadcastEvalSnapshot(); // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
         BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
