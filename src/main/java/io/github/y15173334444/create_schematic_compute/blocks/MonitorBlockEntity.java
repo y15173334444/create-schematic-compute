@@ -80,6 +80,7 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
     public void tick() {
         if(level == null || level.isClientSide()) return;
         ensureBusRegistered();
+        flushPendingFullSync(); // 合并冲刷显示拖拽的延迟全量同步（约 0.5Hz）/ flush coalesced display-drag full syncs (~0.5Hz)
         boolean shouldBeLit = running && !graph.nodes.isEmpty();
         var currentState = getBlockState();
         if (!currentState.hasProperty(MonitorBlock.LIT)) return;

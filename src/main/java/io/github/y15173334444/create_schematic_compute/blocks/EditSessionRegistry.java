@@ -366,7 +366,24 @@ public final class EditSessionRegistry {
         appendToLog(gk, broadcastOp);
 
         // 9. Mark dirty / 标记脏数据
-        gbe.getNodeGraph().bumpGeneration();
+        // Note: NO unconditional bumpGeneration() here. Whether the generation bumps is
+        // decided by OpExecutor.apply per-op semantics — structural ops bump internally
+        // (addNode/removeNode/addConnection/removeConnection), eval-affecting SET_* ops
+        // bump explicitly, visual-only ops (MOVE_NODE, SET_ZORDER, SET_COMMENT_*) do not.
+        // An unconditional parent bump here made every drag op (up to 20Hz) recompile the
+        // evaluator (recompileEvaluatorFull → runtimeState.clear() wipes DELAY/flipflop/
+        // pulse/PID) and rebuild every expanded EditState on clients. Sub-graph ops also
+        // must NOT bump the parent: sub-evaluator staleness is tracked per-subgraph by
+        // GraphEvaluator.subGraphGenerations, and ENCAP pin re-mapping is handled by the
+        // rebuildInputCache() call above.
+        // 注意：这里不再无条件 bumpGeneration()。代际是否递增由 OpExecutor.apply 按 op 语义
+        // 决定——结构 op 内部 bump（addNode/removeNode/addConnection/removeConnection）、
+        // 影响求值的 SET_* 显式 bump、纯视觉 op（MOVE_NODE、SET_ZORDER、SET_COMMENT_*）不 bump。
+        // 此前的无条件父图 bump 使每次拖拽 op（最高 20Hz）都重编译求值器
+        //（recompileEvaluatorFull → runtimeState.clear() 清空 DELAY/flipflop/pulse/PID）
+        // 并在客户端重建全部展开节点的编辑区。子图 op 同样不能 bump 父图：子求值器陈旧检测
+        // 由 GraphEvaluator.subGraphGenerations 按子图代际完成，ENCAP 引脚重映射由上面的
+        // rebuildInputCache() 负责。
         markDirty(gbe);
         // 10. For display-affecting ops, trigger a block update so tracking clients
         //     (including players without the UI open) get the latest graph via getUpdateTag().
@@ -383,7 +400,12 @@ public final class EditSessionRegistry {
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE) {
             if (gbe instanceof MonitorBlockEntity mbe) {
-                mbe.flagFullSync();
+                // 限流版全量同步：拖拽流 20Hz 的显示 op 只推 ~0.5Hz 全图 NBT（避免带宽爆炸）；
+                // 编辑者仍经 op 广播实时同步，非编辑者由下一次 flushPendingFullSync 拿到最新图。
+                // Coalesced full sync: 20Hz display-drag ops push the full graph NBT at ~0.5Hz
+                // (no bandwidth bomb); editors still sync in real time via op broadcast, and
+                // non-editors receive the latest graph from the next flushPendingFullSync().
+                mbe.requestFullSync();
             }
         }
     }

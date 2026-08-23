@@ -750,6 +750,38 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }
 
+    /** Coalesced full-graph sync request for high-frequency display ops (layout / pixel
+     *  drag streams). The request is recorded; the actual broadcast is deferred to the
+     *  next {@link #flushPendingFullSync()} tick call and coalesced to at most one per
+     *  {@link #FULL_SYNC_GRACE_TICKS} ticks — a 20Hz display drag pushes the full graph
+     *  NBT at ~0.5Hz instead of once per op. Unlike {@link #flagFullSync()}, this never
+     *  fires immediately: joiners and one-shot callers must keep using flagFullSync().
+     *  限流版全量同步请求：用于高频显示 op（布局/像素拖拽流）。请求被记录，实际广播推迟到
+     *  下一次 flushPendingFullSync() tick，并按 FULL_SYNC_GRACE_TICKS 合并（拖拽 20Hz →
+     *  全图 NBT 约 0.5Hz）。与 flagFullSync() 不同，本方法从不立即发送——加入会话等一次性
+     *  调用方必须继续使用 flagFullSync()。 */
+    public void requestFullSync() {
+        if (level == null) return;
+        needsFullSync = true;
+        setChanged();
+    }
+
+    /** Call from the BE tick (server side only): flushes a deferred full-sync request at
+     *  most once per {@link #FULL_SYNC_GRACE_TICKS} ticks. The block update triggers
+     *  {@link #getUpdateTag()}, which always carries the full graph — so the flushed
+     *  packet reflects the latest state even when many requests were coalesced.
+     *  在 BE tick 中调用（仅服务端）：按 FULL_SYNC_GRACE_TICKS 合并冲刷延迟的全量同步请求。
+     *  触发的方块更新经 getUpdateTag() 始终携带完整图，因此合并后的推送反映最新状态。 */
+    protected void flushPendingFullSync() {
+        if (level == null || level.isClientSide()) return;
+        if (!needsFullSync) return;
+        long now = level.getGameTime();
+        if (now - lastFullSyncGameTime < FULL_SYNC_GRACE_TICKS) return;
+        lastFullSyncGameTime = now;
+        needsFullSync = false;
+        level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+    }
+
     /** Always send the full graph so that new clients tracking this chunk receive
      *  the authoritative graph data regardless of whether a prior full sync has
      *  already been consumed by another client. Without this, a client loading a

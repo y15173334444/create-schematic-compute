@@ -122,7 +122,15 @@ public final class OpExecutor {
                     // Always land the authoritative position immediately —
                     // the client lerp is purely visual (NodeRenderer reads remote* while lerping).
                     n.x = op.x(); n.y = op.y();
-                    graph.bumpGeneration();
+                    // 纯视觉 op：不 bump 代际。x/y 不进求值器，拖拽期间 20Hz 的 MOVE_NODE
+                    // 若 bump 会让服务端每 op 全量重编译（recompileEvaluatorFull → runtimeState.clear()
+                    // 时序清零）并让客户端 renderBg 重建全部展开节点的编辑区。
+                    // ENCAP I/O 重排由调用方 rebuildInputCache()（其内部 anyIndexChanged 才 bump）兜底。
+                    // Visual-only op: do NOT bump the generation. x/y never reach the evaluator;
+                    // bumping here would make the server full-recompile (recompileEvaluatorFull →
+                    // runtimeState.clear() wipes sequential state) and rebuild every expanded
+                    // EditState on the client for every drag op (up to 20Hz). ENCAP I/O reorder is
+                    // covered by the caller's rebuildInputCache(), which bumps only when indices change.
                 }
                 yield n;
             }
@@ -186,7 +194,7 @@ public final class OpExecutor {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null && n.type == NodeType.COMMENT) {
                     n.displayText = op.stringValue() != null ? op.stringValue() : "";
-                    graph.bumpGeneration();
+                    // 纯视觉 op（注释被求值器跳过）——不 bump / visual-only, evaluator skips COMMENT
                 }
                 yield n;
             }
@@ -197,7 +205,7 @@ public final class OpExecutor {
                     n.commentBgColor = op.colorBg();
                     n.commentBorderColor = op.colorBorder();
                     n.commentTextColor = op.colorText();
-                    graph.bumpGeneration();
+                    // 纯视觉 op——不 bump / visual-only
                 }
                 yield n;
             }
@@ -207,7 +215,7 @@ public final class OpExecutor {
                 if (n != null && n.type == NodeType.COMMENT) {
                     if (op.x() > 0) n.commentWidth = op.x();
                     if (op.y() > 0) n.commentHeight = op.y();
-                    graph.bumpGeneration();
+                    // 纯视觉 op——不 bump / visual-only
                 }
                 yield n;
             }
@@ -275,7 +283,7 @@ public final class OpExecutor {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null) {
                     n.sortB = op.sortB();
-                    graph.bumpGeneration();
+                    // 纯视觉 op（渲染层序）——不 bump / visual-only stacking, no bump
                 }
                 yield n;
             }

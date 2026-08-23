@@ -4516,7 +4516,11 @@ public class GraphEditor {
                     host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                         host.getBlockPos(), ownerNodeId(), pn.id, pn.x, pn.y, host.getPlayerUUID()));
             }
-            markDirty();
+            // 不在此处 markDirty()：拖拽中每帧 bump 代际会触发 renderBg 重建全部展开节点的
+            // 编辑区（20Hz 全量刷新）。注释移动是纯视觉操作——松手时的 op 已负责持久化与协作同步。
+            // No per-move markDirty() here: bumping the generation every frame makes renderBg
+            // rebuild every expanded EditState (full refresh at drag rate). Comment moves are
+            // purely visual — the drop ops already handle persistence and collaboration sync.
             return;
         }
         // Drag-select in expanded FORMULA/COMMENT EditBox
