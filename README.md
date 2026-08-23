@@ -96,8 +96,8 @@
 |----------------|-------------------|
 | 📐 ATTITUDE / 姿态 | Block world-space pitch and roll (facing × sub-level rotation) / 方块自身世界姿态俯仰与横滚（朝向 × 子世界旋转） |
 | 🧭 FORWARD / 前方朝向 | World-space forward yaw/pitch / 结构世界空间朝向 |
-| ⚡ ACCELERATION / 加速度 | Structure-local X/Y/Z acceleration / 结构本地加速度 |
-| 🚀 VELOCITY / 速度 | Structure-local velocity ×2 m/s / 结构本地速度 |
+| ⚡ ACCELERATION / 加速度 | Block-local X/Y/Z acceleration (structure motion in block axes) / 方块本地加速度（结构运动按方块朝向分解） |
+| 🚀 VELOCITY / 速度 | Block-local velocity ×2 m/s (structure motion in block axes) / 方块本地速度（结构运动按方块朝向分解） |
 | 🔄 POSE_CONVERT / 姿态换算 | Coordinate conversion / 坐标系转换 |
 
 ---
@@ -416,8 +416,8 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | World View / 世界视角 | Player absolute world view direction / 玩家绝对视角 |
 | Attitude / 姿态 | Block world-space pitch and roll (facing × sub-level rotation) / 方块自身世界姿态俯仰与横滚（朝向 × 子世界旋转） |
 | Forward / 前方朝向 | World-space forward yaw/pitch / 结构朝向 |
-| Acceleration / 加速度 | Structure-local X/Y/Z acceleration / 结构本地加速度 |
-| Velocity / 速度 | Structure-local velocity ×2 m/s / 结构本地速度 |
+| Acceleration / 加速度 | Block-local X/Y/Z acceleration (structure motion in block axes) / 方块本地加速度（结构运动按方块朝向分解） |
+| Velocity / 速度 | Block-local velocity ×2 m/s (structure motion in block axes) / 方块本地速度（结构运动按方块朝向分解） |
 | World Position / 世界坐标 | World position with offset / 世界坐标（可偏移） |
 | Target Output / 目标输出 | Radar target X/Y/Z/entityId/distance / 雷达目标 |
 
@@ -678,6 +678,7 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 - **输出引脚不变 / Output pins unchanged**：仍为 2 引脚（pitch、roll），无图迁移。/ Still 2 pins (pitch, roll) — no graph migration.
 - **纯函数可单测 / Pure-function testable**：新增 `SensorAttitudeMath.blockAttitude()`（零 Minecraft/Sable 依赖）+ `SensorAttitudeMathTest`（7 例，含实测数值锁定：结构 yaw=6.37°/pitch=19.03°/roll=-0.28° 时，面 WEST→(0.27,-19.03)、面 NORTH→(19.03,0.28)、面 SOUTH→(-19.03,-0.28)）。/ New `SensorAttitudeMath.blockAttitude()` (zero Minecraft/Sable deps) + `SensorAttitudeMathTest` (7 cases, locking measured values).
 - **注意 / Note**：pitch 符号约定由旧的欧拉角约定改为前向仰角约定（与 FORWARD 一致）——面朝与结构相反方向的传感器 pitch/roll 符号可能翻转；依赖旧数值的现有图需复查。/ The pitch sign convention switched from the legacy Euler-angle convention to the forward-elevation convention (matching FORWARD) — sensors facing opposite the structure may flip sign; existing graphs relying on legacy values should be re-checked.
+- **文档更正 / Docs correction**：VELOCITY / ACCELERATION 描述由「结构本地 / Structure-local」更正为「方块本地 / Block-local」——代码始终按方块 FACING 将结构运动分解到方块自身坐标轴（与 FORWARD/ATTITUDE 的朝向相关语义一致），文档此前与代码不符。/ VELOCITY / ACCELERATION descriptions corrected from "Structure-local" to "Block-local" — the code always resolves structure motion into the block's own axes via FACING (consistent with the facing-dependent FORWARD/ATTITUDE semantics); the docs previously contradicted the code.
 
 </details>
 
