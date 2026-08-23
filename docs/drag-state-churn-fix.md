@@ -69,7 +69,9 @@ ENCAP 引脚重映射由已有的 `rebuildInputCache()` 负责。
   - SET_ZORDER / SET_COMMENT_* 不 bump；
   - SET_PARAM / SET_FORMULA / SET_TEXT_COLOR / SET_DISPLAY_LAYOUT / SET_CTRL_POINTS / SET_BANDS 仍 bump；
   - 结构变更（addConnection）仍 bump（基线）。
-- 运行 `./gradlew test` 全量通过。
+- 运行 `./gradlew test` 全量通过（281 测试）。
+- **实机验证（2026-08-23，双客户端 + 独立服务端）**：玩家在图中拖动节点/注释、展开多个编辑区并放置 DELAY/Latch/PID 时序节点——拖动期间时序状态不再清零、编辑区不再整批重建；多人端同步正常。
+  / Live verification (2026-08-23, two clients + dedicated server): dragging nodes/comments with expanded edit panels and DELAY/Latch/PID sequential nodes in place — sequential state no longer resets and edit panels no longer mass-rebuild during drags; multiplayer sync intact.
 
 ## 交叉引用 / Cross-references
 
