@@ -29,7 +29,11 @@ public final class GeometryConstants {
     // ── Monitor display ──
     public static final int MONITOR_MARGIN = 30;
     public static final int MONITOR_TOOLBAR_H = 20;
-    public static final int MONITOR_SETTINGS_PANEL_W = 220;
+    // 设置面板宽度：双列布局（左列 3D 8 项 + 右列 HUD 6 项并排，见
+    // docs/monitor-mode-settings-merge-plan.md §3.1）——单列 14 行会超出小屏高度。
+    // Settings panel width: two-column layout (3D 8 fields left + HUD 6 fields right,
+    // merge-plan §3.1) — a single 14-row column overflows short screens.
+    public static final int MONITOR_SETTINGS_PANEL_W = 400;
 
     // ── Layer panel (right side of display mode) ──
     public static final int LAYER_PANEL_W = 108;        // was 64 — widened for thumbnails

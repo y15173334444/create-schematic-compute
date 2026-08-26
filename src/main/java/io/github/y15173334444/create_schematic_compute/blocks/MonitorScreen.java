@@ -91,8 +91,10 @@ public class MonitorScreen extends AbstractGraphScreen {
     private boolean showSettings = false;
     private boolean settingsInited = false;
     private net.minecraft.client.gui.components.EditBox[] settingFields;
-    // HUD 模式复选框 + 玻璃面板变换字段（docs/monitor-mode-settings-merge-plan.md §3.1）
-    // HUD-mode checkbox + glass panel transform fields (merge-plan §3.1)
+    // HUD 模式复选框 + 虚像缩放字段（docs/monitor-mode-settings-merge-plan.md §3.1/§3.4）。
+    // HUD 玻璃面板参数已删除——玻璃与 3D 悬浮屏幕共用 screen* 参数。
+    // HUD-mode checkbox + virtual-image-scale field (merge-plan §3.1/§3.4). The HUD
+    // glass-panel params are gone — the glass shares the 3D screen's screen* params.
     private Checkbox hudModeCheckbox;
     private net.minecraft.client.gui.components.EditBox[] hudSettingFields;
     // Live preview overrides for screen settings (negative = not previewing)
@@ -108,11 +110,6 @@ public class MonitorScreen extends AbstractGraphScreen {
         "gui.create_schematic_compute.monitor.scr_yaw"
     };
     private static final String[] HUD_SETTING_KEYS = {
-        "gui.create_schematic_compute.monitor.panel_w",
-        "gui.create_schematic_compute.monitor.panel_h",
-        "gui.create_schematic_compute.monitor.panel_ox",
-        "gui.create_schematic_compute.monitor.panel_oy",
-        "gui.create_schematic_compute.monitor.panel_dist",
         "gui.create_schematic_compute.monitor.vis_scale"
     };
 
@@ -131,10 +128,11 @@ public class MonitorScreen extends AbstractGraphScreen {
             settingFields[i] = new net.minecraft.client.gui.components.EditBox(Minecraft.getInstance().font, 0, 0, 60, 14, Component.literal(""));
             settingFields[i].setMaxLength(8);
         }
-        // HUD 面板变换 EditBoxes（含虚像缩放，HUD 组常显）
-        // HUD panel transform EditBoxes (incl. virtual-image scale; HUD group always visible)
-        hudSettingFields = new net.minecraft.client.gui.components.EditBox[6];
-        for (int i = 0; i < 6; i++) {
+        // HUD 字段 EditBoxes（仅虚像缩放 1 项；玻璃参数已删，共用 3D screen*）
+        // HUD field EditBoxes (only the virtual-image scale; glass params removed —
+        // the glass shares the 3D screen* params)
+        hudSettingFields = new net.minecraft.client.gui.components.EditBox[1];
+        for (int i = 0; i < 1; i++) {
             hudSettingFields[i] = new net.minecraft.client.gui.components.EditBox(Minecraft.getInstance().font, 0, 0, 60, 14, Component.literal(""));
             hudSettingFields[i].setMaxLength(8);
         }
@@ -850,10 +848,13 @@ public class MonitorScreen extends AbstractGraphScreen {
     private void renderSettingsPanel(GuiGraphics g, int mx, int my) {
         var mc = Minecraft.getInstance();
         int pw = MONITOR_SETTINGS_PANEL_W;
-        // 合并面板：1（复选框）+ 8（3D）+ 6（HUD）行常显，无需 tab（merge-plan §3.1）
-        // Merged panel: 1 (checkbox) + 8 (3D) + 6 (HUD) rows always shown, no tabs (§3.1)
-        int rows = 8 + 6;
-        int ph = 56 + 20 + rows * 20 + 30; // 标题行 + 复选框行 + 字段行 + 保存按钮
+        // 合并面板平衡布局：首行 = HUD 复选框 + 虚像缩放；下方 3D 8 项分左右两列
+        // （4+4）并排。总高 ≈ 186px，不超出小屏；两列均有内容，无空列（merge-plan §3.1）。
+        // Balanced merged panel: first row = HUD checkbox + virtual-image scale; below,
+        // the 3D 8 fields split into two side-by-side columns (4+4). Total height ≈ 186px
+        // fits short screens; both columns carry content, no empty column (§3.1).
+        int rows = 4;
+        int ph = 56 + 20 + rows * 20 + 30; // 标题行 + 首行(复选框+虚像缩放) + 3D 字段行 + 保存按钮
         int px = (width - pw) / 2, py = (height - ph) / 2;
         g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
         g.renderOutline(px, py, pw, ph, 0xFF5A4D3A);
@@ -875,12 +876,7 @@ public class MonitorScreen extends AbstractGraphScreen {
             settingFields[5].setValue(ff2(mbe.screenRoll));
             settingFields[6].setValue(ff2(mbe.screenPitch));
             settingFields[7].setValue(ff2(mbe.screenYaw));
-            hudSettingFields[0].setValue(ff2(mbe.panelSizeX));
-            hudSettingFields[1].setValue(ff2(mbe.panelSizeY));
-            hudSettingFields[2].setValue(ff2(mbe.panelOffsetX));
-            hudSettingFields[3].setValue(ff2(mbe.panelOffsetY));
-            hudSettingFields[4].setValue(ff2(mbe.panelDistance));
-            hudSettingFields[5].setValue(ff2(mbe.virtualImageScale));
+            hudSettingFields[0].setValue(ff2(mbe.virtualImageScale));
             // 复选框初始状态跟随服务端实际模式（取代原 tab 状态行）
             // Checkbox initial state follows the server's actual mode (replaces the old tab line)
             hudModeCheckbox = Checkbox.builder(
@@ -892,23 +888,38 @@ public class MonitorScreen extends AbstractGraphScreen {
             settingsInited = true;
         }
 
-        // 复选框行（hudMode 布尔开关，取代原 tab 条）
-        // Checkbox row (the hudMode boolean switch, replacing the old tab bar)
+        // 首行：HUD 模式复选框（左）+ 虚像缩放（右），并排
+        // First row: HUD-mode checkbox (left) + virtual-image scale (right), side by side
         if (hudModeCheckbox != null) {
             hudModeCheckbox.setPosition(px + 10, py + 24);
             hudModeCheckbox.render(g, mx, my, 0);
         }
         boolean hudOn = hudModeCheckbox != null && hudModeCheckbox.selected();
-        int ey = py + 24 + 20 + 6;
+        g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(HUD_SETTING_KEYS[0]) + ":", px + 230, py + 26, 0xFFCCCCCC, false);
+        var visField = hudSettingFields[0];
+        visField.active = true; // 虚像缩放两模式通用（仅 HUD 生效）/ works in both modes (HUD-only effect)
+        visField.setX(px + 330); visField.setY(py + 24);
+        visField.render(g, mx, my, 0);
 
-        // 3D 字段组（非 HUD 模式激活；非激活组置灰禁用）
-        // 3D field group (active when not HUD mode; inactive group greyed out)
-        for (int i = 0; i < 8; i++) {
-            g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(SETTING_KEYS[i]) + ":", px + 10, ey + 2, 0xFFCCCCCC, false);
-            var f = settingFields[i];
-            f.active = !hudOn;
-            f.setX(px + 110); f.setY(ey);
-            f.render(g, mx, my, 0);
+        // 3D 字段区：左列 i=0..3、右列 i=4..7，各 4 行并排。
+        // 两组字段始终可编辑（hudMode 只切换渲染路径，不影响参数——用户明确要求
+        // 「是否 HUD 模式都不影响面板大小/位置/姿态」，故不置灰）。
+        // 3D field area: left column i=0..3, right column i=4..7, 4 rows each.
+        // Both field groups are always editable — hudMode only switches the render
+        // path and never locks the params (the user required hud mode to not affect
+        // the panel geometry, so no greying-out here).
+        int ey = py + 24 + 20 + 6;
+        for (int row = 0; row < 4; row++) {
+            for (int col = 0; col < 2; col++) {
+                int i = col == 0 ? row : row + 4;
+                int lx = col == 0 ? px + 10 : px + 230;
+                int bx = col == 0 ? px + 110 : px + 330;
+                g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(SETTING_KEYS[i]) + ":", lx, ey + 2, 0xFFCCCCCC, false);
+                var f = settingFields[i];
+                f.active = true;
+                f.setX(bx); f.setY(ey);
+                f.render(g, mx, my, 0);
+            }
             ey += 20;
         }
         // Live preview: parse current field values into overrides so the display area updates in real-time
@@ -919,17 +930,6 @@ public class MonitorScreen extends AbstractGraphScreen {
             } catch (Exception e) { previewScreenW = -1; previewScreenL = -1; }
         } else {
             previewScreenW = -1; previewScreenL = -1;
-        }
-
-        // HUD 字段组（HUD 模式激活；非激活组置灰禁用）
-        // HUD field group (active in HUD mode; inactive group greyed out)
-        for (int i = 0; i < 6; i++) {
-            g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(HUD_SETTING_KEYS[i]) + ":", px + 10, ey + 2, 0xFFCCCCCC, false);
-            var f = hudSettingFields[i];
-            f.active = hudOn;
-            f.setX(px + 110); f.setY(ey);
-            f.render(g, mx, my, 0);
-            ey += 20;
         }
 
         // Save button
@@ -952,22 +952,17 @@ public class MonitorScreen extends AbstractGraphScreen {
             float r = Float.parseFloat(settingFields[5].getValue().trim());
             float p = Float.parseFloat(settingFields[6].getValue().trim());
             float yw = Float.parseFloat(settingFields[7].getValue().trim());
-            float psx = Float.parseFloat(hudSettingFields[0].getValue().trim());
-            float psy = Float.parseFloat(hudSettingFields[1].getValue().trim());
-            float pox = Float.parseFloat(hudSettingFields[2].getValue().trim());
-            float poy = Float.parseFloat(hudSettingFields[3].getValue().trim());
-            float pd = Float.parseFloat(hudSettingFields[4].getValue().trim());
-            float vis = Float.parseFloat(hudSettingFields[5].getValue().trim());
+            float vis = Float.parseFloat(hudSettingFields[0].getValue().trim());
             // 设置面板只发定向的 MonitorSettingsPacket，不做整图上传（避免覆盖其他玩家并发
-            // 的图编辑）；图数据本身已由各类定向 op 增量同步。HUD 模式与面板参数随本包同发。
+            // 的图编辑）；图数据本身已由各类定向 op 增量同步。HUD 模式与虚像缩放随本包同发。
             // Settings send only the targeted MonitorSettingsPacket — no whole-graph upload
             // (which would clobber other players' concurrent graph edits); graph data is
-            // already incrementally synced by the targeted ops. HUD mode + panel params
-            // ride the same packet.
+            // already incrementally synced by the targeted ops. HUD mode + virtual-image
+            // scale ride the same packet.
             boolean hud = hudModeCheckbox != null && hudModeCheckbox.selected();
             var pkt = new io.github.y15173334444.create_schematic_compute.network.MonitorSettingsPacket(
                 getBE().getBlockPos(), w, l, x, y, z, r, p, yw,
-                hud, psx, psy, pox, poy, pd, vis);
+                hud, vis);
             PacketDistributor.sendToServer(pkt);
         } catch (Exception e) { SchematicCompute.LOGGER.warn("Failed to parse monitor settings", e); }
         previewScreenW = -1; previewScreenL = -1;
@@ -986,15 +981,14 @@ public class MonitorScreen extends AbstractGraphScreen {
             be.getBlockPos(),
             be.screenWidth, be.screenLength, be.screenX, be.screenY, be.screenZ,
             be.screenRoll, be.screenPitch, be.screenYaw,
-            hud, be.panelSizeX, be.panelSizeY, be.panelOffsetX, be.panelOffsetY, be.panelDistance,
-            be.virtualImageScale);
+            hud, be.virtualImageScale);
         PacketDistributor.sendToServer(pkt);
     }
 
     private boolean handleSettingsClick(double mx, double my, int btn) {
         if (btn != 0) return false;
         int pw = MONITOR_SETTINGS_PANEL_W;
-        int rows = 8 + 6;
+        int rows = 4; // 平衡布局：3D 8 项分两列（4+4），首行含复选框+虚像缩放
         int ph = 56 + 20 + rows * 20 + 30;
         int px = (width - pw) / 2, py = (height - ph) / 2;
         // Close button
@@ -1016,12 +1010,19 @@ public class MonitorScreen extends AbstractGraphScreen {
             saveAllSettings();
             return true;
         }
-        // EditBox focus: clear all first, then focus the clicked one (active group only)
+        // EditBox focus: clear all first, then focus the clicked one.
+        // 3D 与虚像缩放字段始终可聚焦——hudMode 只切换渲染路径，不锁定参数。
+        // Both the 3D and virtual-image-scale fields are always focusable — hudMode
+        // only switches the render path and never locks the params.
         for (int i = 0; i < 8; i++) settingFields[i].setFocused(false);
-        for (int i = 0; i < 6; i++) hudSettingFields[i].setFocused(false);
-        boolean hudOn = hudModeCheckbox != null && hudModeCheckbox.selected();
-        var fields = hudOn ? hudSettingFields : settingFields;
-        for (var f : fields) {
+        for (int i = 0; i < 1; i++) hudSettingFields[i].setFocused(false);
+        // 虚像缩放两模式都可编辑（仅 HUD 生效）/ scale editable in both modes (HUD-only effect)
+        for (var f : hudSettingFields) {
+            if (mx >= f.getX() && mx <= f.getX() + 60 && my >= f.getY() && my <= f.getY() + 14) {
+                f.setFocused(true); f.mouseClicked(mx, my, btn); return true;
+            }
+        }
+        for (var f : settingFields) {
             if (mx >= f.getX() && mx <= f.getX() + 60 && my >= f.getY() && my <= f.getY() + 14) {
                 f.setFocused(true); f.mouseClicked(mx, my, btn); break;
             }
