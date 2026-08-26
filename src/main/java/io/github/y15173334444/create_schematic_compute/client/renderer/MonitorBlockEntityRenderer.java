@@ -322,34 +322,43 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     private static RenderType hudTextRenderType;
 
     private void renderHud(MonitorBlockEntity be, PoseStack poseStack, MultiBufferSource buffer) {
-        float hw = be.panelSizeX * 0.5f, hh = be.panelSizeY * 0.5f;
+        float hw = be.screenWidth * 0.5f, hh = be.screenLength * 0.5f;
         var mc = Minecraft.getInstance();
         var font = mc.font;
         var snapshot = be.cachedEvalSnapshot;
         boolean evalAvailable = be.running && snapshot != null;
 
         poseStack.pushPose();
-        // 1. 方块中心 + 面板偏移（面板偏移在方块局部帧，随 FACING 旋转）
-        poseStack.translate(0.5 + be.panelOffsetX, 0.5 + be.panelOffsetY, 0.5);
-        // 2. FACING 旋转（yaw=0 → 方块正面）
+        // HUD 玻璃与 3D 悬浮屏幕共用同一套大小/位置/姿态（screen*）——定位变换与
+        // render() 的 3D 分支完全一致：方块中心 + screenX/Z 随 FACING 旋转 + screenY，
+        // 再 Ry(adjYaw)·Rx(pitch)·Rz(roll)。hudMode 只切换渲染路径，不改变面板几何。
+        // The HUD glass shares the 3D floating screen's size/position/orientation
+        // (screen*) — the transform matches render()'s 3D branch: block center +
+        // screenX/Z rotated by FACING + screenY, then Ry(adjYaw)·Rx(pitch)·Rz(roll).
+        // hudMode only switches the render path; it never changes the panel geometry.
+        float facingYDeg = 0;
         if (be.getBlockState().hasProperty(MonitorBlock.FACING)) {
-            poseStack.mulPose(Axis.YP.rotationDegrees(-be.getBlockState().getValue(MonitorBlock.FACING).toYRot()));
+            facingYDeg = be.getBlockState().getValue(MonitorBlock.FACING).toYRot();
+            float rad = (float)Math.toRadians(facingYDeg);
+            float c = (float)Math.cos(rad), s = (float)Math.sin(rad);
+            float tx = be.screenX * c - be.screenZ * s;
+            float tz = be.screenX * s + be.screenZ * c;
+            poseStack.translate(0.5 + tx, be.screenY, 0.5 + tz);
+        } else {
+            poseStack.translate(0.5 + be.screenX, be.screenY, 0.5 + be.screenZ);
         }
-        // 3. 面板与虚像布局：MonitorBlock 放置时 FACING = 玩家面朝方向的**反方向**
-        //    （getStateForPlacement 用 getOpposite()），面板在 -FACING（玩家侧，玻璃
-        //    正面朝玩家）。虚像内容**直接绘制在玻璃平面**（面板局部 z=0，深度锚定）：
-        //    屏幕投影 = 玻璃投影（显示区域）、几何深度 = 玻璃深度（前方遮挡/后方不遮
-        //    挡）——2026-08-20 用户讲解的模板缓冲+深度锚定的几何等效实现（详见下方
-        //    内容绘制注释）。
-        //    Panel and virtual-image layout: MonitorBlock places FACING OPPOSITE to the
-        //    placing player's facing (getStateForPlacement uses getOpposite()), so the
-        //    panel sits on the -FACING (player) side (the glass front faces the player).
-        //    The virtual-image content is drawn DIRECTLY on the glass plane (panel-local
-        //    z=0, depth-anchored): screen projection = glass projection (display region),
-        //    geometric depth = glass depth (near occludes / far does not) — the geometric
-        //    equivalent of the stencil+depth-anchor mechanisms the user explained on
-        //    2026-08-20 (see the content-drawing comment below).
-        poseStack.translate(0, 0, -(0.5f + be.panelDistance));
+        float adjYaw = be.screenYaw - facingYDeg;
+        poseStack.mulPose(new Quaternionf().rotationY((float)Math.toRadians(adjYaw)));
+        poseStack.mulPose(new Quaternionf().rotationX((float)Math.toRadians(be.screenPitch)));
+        poseStack.mulPose(new Quaternionf().rotationZ((float)Math.toRadians(be.screenRoll)));
+        // 虚像内容**直接绘制在玻璃平面**（面板局部 z=0，深度锚定）：屏幕投影 = 玻璃
+        // 投影（显示区域）、几何深度 = 玻璃深度（前方遮挡/后方不遮挡）——2026-08-20
+        // 用户讲解的模板缓冲+深度锚定的几何等效实现（详见下方内容绘制注释）。
+        // The virtual-image content is drawn DIRECTLY on the glass plane (panel-local
+        // z=0, depth-anchored): screen projection = glass projection (display region),
+        // geometric depth = glass depth (near occludes / far does not) — the geometric
+        // equivalent of the stencil+depth-anchor mechanisms the user explained on
+        // 2026-08-20 (see the content-drawing comment below).
         var m = poseStack.last().pose();
         // 相机旋转（世界 → 相机空间）：BER 的 poseStack 只含相机平移（LevelRenderer
         // 把相机旋转乘进 RenderSystem 全局 modelView，不进入 BER poseStack），因此
@@ -432,14 +441,16 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         poseStack.pushPose();
         poseStack.translate(0, 0, -VIRTUAL_IMAGE_D);
         poseStack.scale(VIRTUAL_IMAGE_D, VIRTUAL_IMAGE_D, -VIRTUAL_IMAGE_D);
-        float cx = -hw, cy = hh;
-        // 虚像内容画布随 virtualImageScale 缩放（merge-plan §3.4）：只放大内容本身，
-        // 玻璃边框与遮罩仍用未缩放的 panelSizeX/panelSizeY —— 调大虚像时超出玻璃视口的
-        // 内容被 4 边形遮罩裁剪（透过玻璃看 HUD，物理正确）。
-        // Content canvas scales with virtualImageScale (§3.4): only the content grows;
-        // the glass border and mask keep the unscaled panelSizeX/Y — content beyond the
-        // glass viewport is clipped by the 4-gon mask (physically correct through-glass view).
-        float cw = be.panelSizeX * be.virtualImageScale, ch = be.panelSizeY * be.virtualImageScale;
+        // 虚像缩放系数：内容画布与全部元素（图像/文字/姿态仪）统一按 vis 放大，
+        // 画布原点也乘 vis（中心保持在玻璃中心）——调大虚像时内容整体变大，超出
+        // 玻璃视口的部分被 4 边形遮罩裁剪（透过玻璃看 HUD，物理正确，merge-plan §3.4）。
+        // Virtual-image scale: the content canvas AND all elements (images/text/ladder)
+        // scale uniformly by vis; the canvas origin also scales (center stays at the
+        // glass center) — enlarging the image grows the content, and parts beyond the
+        // glass viewport are clipped by the 4-gon mask (§3.4).
+        float vis = be.virtualImageScale;
+        float cw = be.screenWidth * vis, ch = be.screenLength * vis;
+        float cx = -cw * 0.5f, cy = ch * 0.5f;
         var graph = be.graph;
         // 虚像顶点收集到**独立 BufferBuilder**（TRIANGLES 模式，支撑遮罩裁剪的
         // 三角形扇）：绕开 Iris 的 FullyBufferedMultiBufferSource（其 endBatch 无法
@@ -508,7 +519,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             // 画布定位：左上角锚点 clamp（与 3D 模式一致：上界 1-2*bbHalf）；HUD 面板整幅无边框。
             // Canvas positioning: top-left anchor clamp (same as 3D mode). All components are
             // drawn on the panel canvas — no player-camera projection (Sable-friendly by design).
-            float cell = 0.03f * n.displayScale;
+            float cell = 0.03f * n.displayScale * vis;
             float halfW = (n.imageWidth * 0.5f) * cell, halfH = (n.imageHeight * 0.5f) * cell;
             float rA = (float)Math.abs(Math.cos(Math.toRadians(effectiveRot)));
             float rB = (float)Math.abs(Math.sin(Math.toRadians(effectiveRot)));
@@ -614,7 +625,9 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 : n.displayText;
             if (str.isEmpty()) continue;
             int color = n.textColor != 0 ? n.textColor : (n.type == NodeType.DATA ? 0xFF88FF88 : 0xFFCCCCCC);
-            float s = GeometryConstants.FONT_BLOCK_SCALE * n.displayScale;
+            // 文字世界尺寸随虚像缩放（内容整体放大，merge-plan §3.4）
+            // Text world size follows the virtual-image scale (content grows as a whole, §3.4)
+            float s = GeometryConstants.FONT_BLOCK_SCALE * n.displayScale * vis;
             // 画布定位：layout 左上角（所有组件贴画布，无玩家相机投影）
             // Canvas positioning: layout top-left (all components on the panel canvas)
             float nx = cx + n.layoutX * cw;
@@ -665,7 +678,9 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             }
             hudNodes.sort((n1, n2) -> Integer.compare(n1.layerIndex, n2.layerIndex));
             for (var n : hudNodes) {
-                drawPitchLadder(n, be, poseStack, canvasBuf, textBuf, hw, hh, glassZ, viewRot, viewRotInv,
+                // 姿态仪画布随虚像缩放（内容整体放大，merge-plan §3.4）
+                // The ladder canvas follows the virtual-image scale (§3.4)
+                drawPitchLadder(n, be, poseStack, canvasBuf, textBuf, hw * vis, hh * vis, glassZ, viewRot, viewRotInv,
                     maskQuad, maskAabb, font, snapshot.outputs());
             }
         }
@@ -738,6 +753,10 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
             float[] maskQuad, float[] maskAabb, Font font,
             java.util.Map<Integer, float[]> outputs) {
+        // 虚像缩放系数：姿态仪画布（hw/hh）已由调用方放大，标注字号需同乘（§3.4）
+        // Virtual-image scale: the caller already scaled the canvas (hw/hh); the
+        // degree-label size must scale with it (§3.4).
+        float vis = be.virtualImageScale;
         float targetPitch = be.graph.getInputValue(n.id, 0, outputs);
         float targetRoll = be.graph.getInputValue(n.id, 1, outputs);
         // 姿态平滑：20Hz 数据 → 60fps 指数插值（真实 HUD 姿态仪连续平滑，不跳变）。
@@ -816,7 +835,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 int absDeg = Math.abs(Math.round(theta));
                 int side = absDeg == 90 ? (theta > 0 ? 0 : 1) : -1;
                 drawLadderLabel(textBuf, font, m, viewRot, viewRotInv, glassZ,
-                    Math.round(theta), y, cr, sr, halfLineW, maskAabb, canvasRect, maskQuad, side);
+                    Math.round(theta), y, cr, sr, halfLineW, maskAabb, canvasRect, maskQuad, side, vis);
             }
         }
     }
@@ -831,9 +850,11 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     private void drawLadderLabel(BufferBuilder textBuf, Font font,
             org.joml.Matrix4f m, org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
             float glassZ, int deg, double y, double cr, double sr, double halfLineW,
-            float[] maskAabb, float[] canvasRect, float[] maskQuad, int side) {
+            float[] maskAabb, float[] canvasRect, float[] maskQuad, int side, float vis) {
         String label = Integer.toString(deg);
-        float s = GeometryConstants.FONT_BLOCK_SCALE * 0.6f; // 小字 / small text
+        // 度数标注字号随虚像缩放（内容整体放大，merge-plan §3.4）
+        // Degree-label size follows the virtual-image scale (§3.4)
+        float s = GeometryConstants.FONT_BLOCK_SCALE * 0.6f * vis; // 小字 / small text
         float fw = font.width(label), fh = 10f;
         float off = (float)(halfLineW + 0.045); // 档线端点外侧偏移
         float cosR = (float)cr, sinR = (float)sr; // 文字随档组旋转
@@ -1521,36 +1542,71 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     private static final float BG = 48f / 255f;
     private static final float BB = 48f / 255f;
 
-    /** HUD 玻璃的裁剪包围盒：中心 = 方块中心 + FACING 局部帧内的偏移 + 法线方向距离；
-     *  半长 = 面板尺寸/2 经 FACING 旋转的 OBB→AABB。面板大于方块时必需，否则某些视角
-     *  玻璃会凭空消失（设计文档 §十一）。/ Cull box for the HUD glass: center = block
-     *  center + offsets in the FACING local frame + normal distance; half-extents are the
-     *  panel half-size expanded to an AABB under the FACING rotation. Required when the
-     *  panel is bigger than the block (design doc §11). */
+    /** HUD 玻璃的裁剪包围盒：中心 = 方块中心 + screenX/Z 随 FACING 旋转 + screenY；
+     *  半长 = screenWidth/screenLength 经 Ry(adjYaw)·Rx(pitch)·Rz(roll) 旋转的
+     *  OBB→AABB。HUD 玻璃与 3D 悬浮屏幕共用 screen* 参数（merge-plan），故包围盒
+     *  计算与 render() 3D 分支完全一致。玻璃大于方块时必需，否则某些视角玻璃会
+     *  凭空消失（设计文档 §十一）。
+     *  Cull box for the HUD glass: center = block center + screenX/Z rotated by FACING
+     *  + screenY; half-extents = screenWidth/Length OBB→AABB under Ry(adjYaw)·Rx(pitch)
+     *  ·Rz(roll). The HUD glass shares the 3D screen's screen* params (merge-plan), so
+     *  this matches render()'s 3D branch exactly. Required when the glass is bigger
+     *  than the block (design doc §11). */
     private static AABB hudGlassAabb(MonitorBlockEntity be) {
         float facingYDeg = 0;
         if (be.getBlockState().hasProperty(MonitorBlock.FACING)) {
             facingYDeg = be.getBlockState().getValue(MonitorBlock.FACING).toYRot();
         }
-        double rad = Math.toRadians(facingYDeg);
-        double c = Math.cos(rad), s = Math.sin(rad);
-        double ox = be.panelOffsetX, d = 0.5 + be.panelDistance;
-        // renderHud 与 renderHud 面板位置必须一致：局部帧原点 (0.5+ox, 0.5+oy, 0.5)
-        // 先平移、后 Ry(-toYRot)、再 (0,0,-d)（面板在 -FACING 侧方块表面外——注意
-        // MonitorBlock 放置时 FACING = 玩家面朝方向的反方向）。局部 (ox,0,-d) 经
-        // Ry(-θ)（列主序）→ x' = ox·cosθ + d·sinθ，z' = ox·sinθ - d·cosθ。
-        // Must match renderHud's panel position: local origin (0.5+ox, 0.5+oy, 0.5),
-        // then Ry(-toYRot), then (0,0,-d) — the panel sits outside the -FACING face
-        // (MonitorBlock sets FACING opposite to the placing player). Local (ox,0,-d)
-        // through Ry(-θ) (column-major) → x' = ox·cosθ + d·sinθ, z' = ox·sinθ - d·cosθ.
-        double cx = be.getBlockPos().getX() + 0.5 + ox * c + d * s;
-        double cz = be.getBlockPos().getZ() + 0.5 + ox * s - d * c;
-        double cy = be.getBlockPos().getY() + 0.5 + be.panelOffsetY;
-        double hw = be.panelSizeX * 0.5 + 0.02, hh = be.panelSizeY * 0.5 + 0.02;
-        double dep = d + 0.02; // 从方块中心到面板外缘，AABB 覆盖方块+玻璃
-        double ex = Math.abs(hw * c) + Math.abs(dep * s);
-        double ez = Math.abs(hw * s) + Math.abs(dep * c);
-        return new AABB(cx - ex, cy - hh, cz - ez, cx + ex, cy + hh, cz + ez);
+        float rad = (float) Math.toRadians(facingYDeg);
+        float c = (float) Math.cos(rad), s = (float) Math.sin(rad);
+        float fx = be.screenX * c - be.screenZ * s;
+        float fz = be.screenX * s + be.screenZ * c;
+        double centerX = be.getBlockPos().getX() + 0.5 + fx;
+        double centerY = be.getBlockPos().getY() + be.screenY;
+        double centerZ = be.getBlockPos().getZ() + 0.5 + fz;
+
+        float hw = be.screenWidth * 0.5f + 0.04f;
+        float hh = be.screenLength * 0.5f + 0.04f;
+        float depth = 0.06f;
+
+        // R = Ry(adjYaw) * Rx(pitch) * Rz(roll) — matches renderer
+        float adjYaw = be.screenYaw - facingYDeg;
+        float yawRad = (float) Math.toRadians(adjYaw);
+        float pitchRad = (float) Math.toRadians(be.screenPitch);
+        float rollRad = (float) Math.toRadians(be.screenRoll);
+        float cy = (float) Math.cos(yawRad), sy = (float) Math.sin(yawRad);
+        float cp = (float) Math.cos(pitchRad), sp = (float) Math.sin(pitchRad);
+        float cr = (float) Math.cos(rollRad), sr = (float) Math.sin(rollRad);
+
+        float m00 = cy * cr + sy * sp * sr;
+        float m01 = -cy * sr + sy * sp * cr;
+        float m02 = sy * cp;
+        float m10 = cp * sr;
+        float m11 = cp * cr;
+        float m12 = -sp;
+        float m20 = -sy * cr + cy * sp * sr;
+        float m21 = sy * sr + cy * sp * cr;
+        float m22 = cy * cp;
+
+        float[] exts = {-hw, hw, -hh, hh, -depth, depth};
+        double minX = Double.MAX_VALUE, minY = Double.MAX_VALUE, minZ = Double.MAX_VALUE;
+        double maxX = -Double.MAX_VALUE, maxY = -Double.MAX_VALUE, maxZ = -Double.MAX_VALUE;
+        for (int ix = 0; ix < 2; ix++) {
+            float ex = exts[ix];
+            for (int iy = 0; iy < 2; iy++) {
+                float ey = exts[2 + iy];
+                for (int iz = 0; iz < 2; iz++) {
+                    float ez = exts[4 + iz];
+                    double wx = centerX + m00 * ex + m01 * ey + m02 * ez;
+                    double wy = centerY + m10 * ex + m11 * ey + m12 * ez;
+                    double wz = centerZ + m20 * ex + m21 * ey + m22 * ez;
+                    minX = Math.min(minX, wx); maxX = Math.max(maxX, wx);
+                    minY = Math.min(minY, wy); maxY = Math.max(maxY, wy);
+                    minZ = Math.min(minZ, wz); maxZ = Math.max(maxZ, wz);
+                }
+            }
+        }
+        return new AABB(minX, minY, minZ, maxX, maxY, maxZ);
     }
 
     @Override public boolean shouldRenderOffScreen(MonitorBlockEntity be) { return true; }
