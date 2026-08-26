@@ -31,3 +31,6 @@ texture_reference/
 
 # Dev-server runtime logs (rotated .gz not covered by *.log)
 logs/
+
+# Client run log captured for background launches (not covered by *.log)
+runclient_log.txt
