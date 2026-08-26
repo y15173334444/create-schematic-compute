@@ -722,6 +722,18 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 - **边界行为（维持现状）/ Edge behavior (unchanged)**：`<0`/`0` 一律钳制为 1（最小时长），非整数向零截断（2.9→2）；INTEGRATOR limit<0 输出恒 0、负 step 反向计数由玩家自行负责。/ Values `<0`/`0` clamp to 1 (minimum duration); non-integers truncate toward zero (2.9→2); INTEGRATOR limit<0 forces output 0 and negative step counts backwards — left to the player.
 - **回归测试 / Regression tests**：新增 `SequentialParamPinTest`（3 例）：FUSE cooldown 连线（cd=5→周期 6）、PULSE_EXTEND duration 连线（3 tick）、LOOP count+interval 连线（count=2/interval=3）。/ New `SequentialParamPinTest` (3 cases): FUSE cooldown wired (cd=5 → period 6), PULSE_EXTEND duration wired (3 ticks), LOOP count+interval wired (count=2/interval=3).
 
+### 🖥️ 显示器设置面板合并 + 统一细边框 / Monitor Settings-Panel Merge + Unified Thin Border
+
+| Feature / 功能 | Description / 说明 |
+|----------------|-------------------|
+| 🔀 设置面板合并 / Merged settings panel | 3D 与 HUD 两组设置不再用 tab 切换——面板顶部一个 **HUD 模式复选框**（`hudMode` 布尔开关），下方 3D 8 项 + HUD 6 项字段**常显**，非激活组置灰禁用（保存时两组都写入，切回模式数值不丢）/ 3D and HUD settings no longer switch via tabs — a single **HUD-mode checkbox** (`hudMode` boolean) sits at the top with both field groups (3D 8 + HUD 6) always visible; the inactive group is greyed out (both groups are still saved, so values survive mode switches) |
+| 📏 统一细边框 / Unified thin border | 3D 模式丢弃 0.04 方块粗边框（`drawBorderFace` 已删除），改用与 HUD 一致的 4 条 `addThickLine` 细线（≈1 像素）——两模式视觉一致 / 3D mode drops the 0.04-block border (`drawBorderFace` removed) for the same 4 `addThickLine` fine lines as HUD (≈1 px) — both modes now look identical |
+| 🔍 虚像屏幕大小 / Virtual-image scale | 新增设置 `virtualImageScale`（虚像缩放系数，默认 1.0，范围 0.25–4.0）：只缩放 HUD 虚像**内容画布**，与物理玻璃面板（`panelSizeX/Y`）解耦——调大虚像时玻璃不变，超出玻璃视口的内容被 4 边形遮罩裁剪（透过玻璃看 HUD，物理正确）/ New setting `virtualImageScale` (default 1.0, range 0.25–4.0): scales only the HUD virtual-image **content canvas**, decoupled from the physical glass (`panelSizeX/Y`) — enlarging the image leaves the glass unchanged and content beyond the viewport is clipped by the 4-gon mask (physically correct through-glass view) |
+| 💾 数据契约扩展 / Data-contract extension | `MonitorSettingsPacket` 增至 15 字段（`virtualImageScale` 追加在 HUD 组末尾）；BE 新增 NBT key `vis`——旧档缺省回落 1.0，无迁移 / `MonitorSettingsPacket` grows to 15 fields (`virtualImageScale` appended after the HUD group); new BE NBT key `vis` — legacy saves default to 1.0, no migration |
+| 🧪 编解码回归测试 / Codec regression test | 新增 `MonitorSettingsPacketCodecTest`：15 字段编解码往返逐字段一致 + 字段流顺序断言（vis 位于 HUD 组之后）/ New `MonitorSettingsPacketCodecTest`: 15-field codec round-trip + byte-stream order assertion (vis sits after the HUD group) |
+
+- 详见 [`docs/monitor-mode-settings-merge-plan.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/monitor-mode-settings-merge-plan.md)。
+
 </details>
 
 <details>
