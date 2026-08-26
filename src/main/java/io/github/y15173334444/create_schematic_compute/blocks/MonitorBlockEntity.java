@@ -30,6 +30,14 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
     public float panelOffsetX = 0.0f;        // 相对方块中心横向偏移 / lateral offset from block center
     public float panelOffsetY = 0.0f;        // 相对方块中心纵向偏移 / vertical offset from block center
     public float panelDistance = 0.05f;      // 沿 FACING 法线距离（≥~0.05 防 z-fighting）/ distance along FACING normal
+    // 虚像缩放系数（HUD 模式）：只缩放远处虚像内容画布（renderHud 的 cw/ch），
+    // 与物理玻璃面板（panelSizeX/panelSizeY）解耦——调大虚像时玻璃不变、超出视口的
+    // 内容被 4 边形遮罩裁剪。docs/monitor-mode-settings-merge-plan.md §3.4。
+    // Virtual-image scale (HUD mode): scales only the far virtual-image content
+    // canvas (renderHud's cw/ch), decoupled from the physical glass panel
+    // (panelSizeX/panelSizeY) — enlarging the image leaves the glass unchanged and
+    // content beyond the viewport is clipped by the 4-gon mask. See merge-plan §3.4.
+    public float virtualImageScale = 1.0f;   // 虚像缩放系数（默认 1.0）/ virtual-image scale (default 1.0)
 
     // 客户端 HUD 姿态标记平滑值（20Hz 数据 → 60fps 插值显示；transient 不存 NBT）。
     // Client-side smoothing for the HUD attitude marker (20Hz data → 60fps display;
@@ -69,6 +77,7 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
             this.panelSizeX = src.panelSizeX; this.panelSizeY = src.panelSizeY;
             this.panelOffsetX = src.panelOffsetX; this.panelOffsetY = src.panelOffsetY;
             this.panelDistance = src.panelDistance;
+            this.virtualImageScale = src.virtualImageScale;
             runtimeState.clear();
             setChanged();
             if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
@@ -135,7 +144,8 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
     }
 
     public void applySettings(float w, float l, float x, float y, float z, float r, float p, float yw,
-                              boolean hudMode, float psx, float psy, float pox, float poy, float pd) {
+                              boolean hudMode, float psx, float psy, float pox, float poy, float pd,
+                              float vis) {
         this.screenWidth = Math.max(0.1f, Math.min(10f, w)); this.screenLength = Math.max(0.1f, Math.min(10f, l));
         this.screenX = Math.max(-10f, Math.min(10f, x)); this.screenY = Math.max(-10f, Math.min(10f, y));
         this.screenZ = Math.max(-10f, Math.min(10f, z));
@@ -148,6 +158,10 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         this.panelOffsetX = Math.max(-10f, Math.min(10f, pox));
         this.panelOffsetY = Math.max(-10f, Math.min(10f, poy));
         this.panelDistance = Math.max(0.05f, Math.min(2f, pd));
+        // 虚像缩放 clamp：0.25..4.0（UI 滑块同范围；过大时虚像远超玻璃视口几乎不可见）。
+        // Virtual-image scale clamp: 0.25..4.0 (matches the UI slider; too large makes
+        // the image exceed the glass viewport so far it is nearly invisible).
+        this.virtualImageScale = Math.max(0.25f, Math.min(4f, vis));
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }
@@ -162,6 +176,7 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         t.putFloat("ps_x", panelSizeX); t.putFloat("ps_y", panelSizeY);
         t.putFloat("po_x", panelOffsetX); t.putFloat("po_y", panelOffsetY);
         t.putFloat("pd", panelDistance);
+        t.putFloat("vis", virtualImageScale);
     }
     public void loadSettings(CompoundTag t) {
         if (t.contains("ss_w")) screenWidth = t.getFloat("ss_w"); if (t.contains("ss_l")) screenLength = t.getFloat("ss_l");
@@ -173,6 +188,9 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         if (t.contains("ps_x")) panelSizeX = t.getFloat("ps_x"); if (t.contains("ps_y")) panelSizeY = t.getFloat("ps_y");
         if (t.contains("po_x")) panelOffsetX = t.getFloat("po_x"); if (t.contains("po_y")) panelOffsetY = t.getFloat("po_y");
         if (t.contains("pd")) panelDistance = t.getFloat("pd");
+        // 虚像缩放为可选键：旧档缺省 → 1.0，无需 DATA_VERSION 迁移（merge-plan §3.4）。
+        // Virtual-image scale is optional: legacy saves default to 1.0, no migration.
+        if (t.contains("vis")) virtualImageScale = t.getFloat("vis");
     }
 
     @Override protected void saveTypeSpecific(CompoundTag t, HolderLookup.Provider r) {

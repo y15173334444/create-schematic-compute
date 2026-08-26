@@ -8,6 +8,7 @@ import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePa
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.gui.components.Checkbox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.resources.language.I18n;
 import net.minecraft.core.BlockPos;
@@ -90,9 +91,9 @@ public class MonitorScreen extends AbstractGraphScreen {
     private boolean showSettings = false;
     private boolean settingsInited = false;
     private net.minecraft.client.gui.components.EditBox[] settingFields;
-    // HUD 选项卡状态与玻璃面板变换字段（docs/monitor-hud-mode-design.md §五/§六）
-    // HUD tab state + glass panel transform fields (design doc §5/§6)
-    private boolean settingsTabHud = false;
+    // HUD 模式复选框 + 玻璃面板变换字段（docs/monitor-mode-settings-merge-plan.md §3.1）
+    // HUD-mode checkbox + glass panel transform fields (merge-plan §3.1)
+    private Checkbox hudModeCheckbox;
     private net.minecraft.client.gui.components.EditBox[] hudSettingFields;
     // Live preview overrides for screen settings (negative = not previewing)
     private float previewScreenW = -1, previewScreenL = -1;
@@ -111,7 +112,8 @@ public class MonitorScreen extends AbstractGraphScreen {
         "gui.create_schematic_compute.monitor.panel_h",
         "gui.create_schematic_compute.monitor.panel_ox",
         "gui.create_schematic_compute.monitor.panel_oy",
-        "gui.create_schematic_compute.monitor.panel_dist"
+        "gui.create_schematic_compute.monitor.panel_dist",
+        "gui.create_schematic_compute.monitor.vis_scale"
     };
 
     // ── Fast number formatting to avoid String.format allocation in hot paths (Phase 1) ──
@@ -129,9 +131,10 @@ public class MonitorScreen extends AbstractGraphScreen {
             settingFields[i] = new net.minecraft.client.gui.components.EditBox(Minecraft.getInstance().font, 0, 0, 60, 14, Component.literal(""));
             settingFields[i].setMaxLength(8);
         }
-        // HUD 面板变换 EditBoxes（HUD tab 可见）
-        hudSettingFields = new net.minecraft.client.gui.components.EditBox[5];
-        for (int i = 0; i < 5; i++) {
+        // HUD 面板变换 EditBoxes（含虚像缩放，HUD 组常显）
+        // HUD panel transform EditBoxes (incl. virtual-image scale; HUD group always visible)
+        hudSettingFields = new net.minecraft.client.gui.components.EditBox[6];
+        for (int i = 0; i < 6; i++) {
             hudSettingFields[i] = new net.minecraft.client.gui.components.EditBox(Minecraft.getInstance().font, 0, 0, 60, 14, Component.literal(""));
             hudSettingFields[i].setMaxLength(8);
         }
@@ -847,8 +850,10 @@ public class MonitorScreen extends AbstractGraphScreen {
     private void renderSettingsPanel(GuiGraphics g, int mx, int my) {
         var mc = Minecraft.getInstance();
         int pw = MONITOR_SETTINGS_PANEL_W;
-        int rows = settingsTabHud ? 5 : 8;
-        int ph = 56 + 20 + rows * 20 + 30; // 标题行 + tab 条 + 字段行 + 保存按钮
+        // 合并面板：1（复选框）+ 8（3D）+ 6（HUD）行常显，无需 tab（merge-plan §3.1）
+        // Merged panel: 1 (checkbox) + 8 (3D) + 6 (HUD) rows always shown, no tabs (§3.1)
+        int rows = 8 + 6;
+        int ph = 56 + 20 + rows * 20 + 30; // 标题行 + 复选框行 + 字段行 + 保存按钮
         int px = (width - pw) / 2, py = (height - ph) / 2;
         g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
         g.renderOutline(px, py, pw, ph, 0xFF5A4D3A);
@@ -875,41 +880,56 @@ public class MonitorScreen extends AbstractGraphScreen {
             hudSettingFields[2].setValue(ff2(mbe.panelOffsetX));
             hudSettingFields[3].setValue(ff2(mbe.panelOffsetY));
             hudSettingFields[4].setValue(ff2(mbe.panelDistance));
-            settingsTabHud = mbe.hudMode; // tab 状态跟随服务端实际模式
+            hudSettingFields[5].setValue(ff2(mbe.virtualImageScale));
+            // 复选框初始状态跟随服务端实际模式（取代原 tab 状态行）
+            // Checkbox initial state follows the server's actual mode (replaces the old tab line)
+            hudModeCheckbox = Checkbox.builder(
+                Component.translatable("gui.create_schematic_compute.monitor.hud_mode_cb"),
+                Minecraft.getInstance().font)
+                .pos(px + 10, py + 24)
+                .selected(mbe.hudMode)
+                .build();
             settingsInited = true;
         }
 
-        // Tab 条: [3D 模式] [HUD 模式]
-        int ty = py + 24;
-        int tabW = 100, tabH = 16;
-        drawSettingsTab(g, px + 10, ty, tabW, tabH, !settingsTabHud,
-            I18n.get("gui.create_schematic_compute.monitor.tab_3d"));
-        drawSettingsTab(g, px + 10 + tabW + 4, ty, tabW, tabH, settingsTabHud,
-            I18n.get("gui.create_schematic_compute.monitor.tab_hud"));
-        int ey = ty + tabH + 6;
+        // 复选框行（hudMode 布尔开关，取代原 tab 条）
+        // Checkbox row (the hudMode boolean switch, replacing the old tab bar)
+        if (hudModeCheckbox != null) {
+            hudModeCheckbox.setPosition(px + 10, py + 24);
+            hudModeCheckbox.render(g, mx, my, 0);
+        }
+        boolean hudOn = hudModeCheckbox != null && hudModeCheckbox.selected();
+        int ey = py + 24 + 20 + 6;
 
-        // EditBoxes（当前 tab 的字段行）
-        if (settingsTabHud) {
-            for (int i = 0; i < 5; i++) {
-                g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(HUD_SETTING_KEYS[i]) + ":", px + 10, ey + 2, 0xFFCCCCCC, false);
-                var f = hudSettingFields[i];
-                f.setX(px + 110); f.setY(ey);
-                f.render(g, mx, my, 0);
-                ey += 20;
-            }
-        } else {
-            for (int i = 0; i < 8; i++) {
-                g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(SETTING_KEYS[i]) + ":", px + 10, ey + 2, 0xFFCCCCCC, false);
-                var f = settingFields[i];
-                f.setX(px + 110); f.setY(ey);
-                f.render(g, mx, my, 0);
-                ey += 20;
-            }
-            // Live preview: parse current field values into overrides so the display area updates in real-time
+        // 3D 字段组（非 HUD 模式激活；非激活组置灰禁用）
+        // 3D field group (active when not HUD mode; inactive group greyed out)
+        for (int i = 0; i < 8; i++) {
+            g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(SETTING_KEYS[i]) + ":", px + 10, ey + 2, 0xFFCCCCCC, false);
+            var f = settingFields[i];
+            f.active = !hudOn;
+            f.setX(px + 110); f.setY(ey);
+            f.render(g, mx, my, 0);
+            ey += 20;
+        }
+        // Live preview: parse current field values into overrides so the display area updates in real-time
+        if (!hudOn) {
             try {
                 previewScreenW = Float.parseFloat(settingFields[0].getValue().trim());
                 previewScreenL = Float.parseFloat(settingFields[1].getValue().trim());
             } catch (Exception e) { previewScreenW = -1; previewScreenL = -1; }
+        } else {
+            previewScreenW = -1; previewScreenL = -1;
+        }
+
+        // HUD 字段组（HUD 模式激活；非激活组置灰禁用）
+        // HUD field group (active in HUD mode; inactive group greyed out)
+        for (int i = 0; i < 6; i++) {
+            g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(HUD_SETTING_KEYS[i]) + ":", px + 10, ey + 2, 0xFFCCCCCC, false);
+            var f = hudSettingFields[i];
+            f.active = hudOn;
+            f.setX(px + 110); f.setY(ey);
+            f.render(g, mx, my, 0);
+            ey += 20;
         }
 
         // Save button
@@ -917,16 +937,6 @@ public class MonitorScreen extends AbstractGraphScreen {
         g.fill(svX, svY, svX + 200, svY + 18, 0xFF3A5A2A);
         g.renderOutline(svX, svY, 200, 18, 0xFF5A8A3A);
         g.drawString(Minecraft.getInstance().font, "§a" + I18n.get("gui.create_schematic_compute.monitor.save_close"), svX + 60, svY + 4, 0xFFFFFFFF, false);
-    }
-
-    /** 画设置面板 tab 按钮（选中高亮）。/ Draw a settings-panel tab button (highlighted when active). */
-    private void drawSettingsTab(GuiGraphics g, int x, int y, int w, int h, boolean active, String label) {
-        int bg = active ? 0xFF4A6B2F : 0xFF3A3428;
-        int border = active ? 0xFF7FAF4A : 0xFF5A4D3A;
-        g.fill(x, y, x + w, y + h, bg);
-        g.renderOutline(x, y, w, h, border);
-        int tw = Minecraft.getInstance().font.width(label);
-        g.drawString(Minecraft.getInstance().font, (active ? "§a" : "§7") + label, x + (w - tw) / 2, y + (h - 8) / 2, 0xFFFFFFFF, false);
     }
 
     /** Save all settings and close the panel.
@@ -947,42 +957,44 @@ public class MonitorScreen extends AbstractGraphScreen {
             float pox = Float.parseFloat(hudSettingFields[2].getValue().trim());
             float poy = Float.parseFloat(hudSettingFields[3].getValue().trim());
             float pd = Float.parseFloat(hudSettingFields[4].getValue().trim());
+            float vis = Float.parseFloat(hudSettingFields[5].getValue().trim());
             // 设置面板只发定向的 MonitorSettingsPacket，不做整图上传（避免覆盖其他玩家并发
             // 的图编辑）；图数据本身已由各类定向 op 增量同步。HUD 模式与面板参数随本包同发。
             // Settings send only the targeted MonitorSettingsPacket — no whole-graph upload
             // (which would clobber other players' concurrent graph edits); graph data is
             // already incrementally synced by the targeted ops. HUD mode + panel params
             // ride the same packet.
+            boolean hud = hudModeCheckbox != null && hudModeCheckbox.selected();
             var pkt = new io.github.y15173334444.create_schematic_compute.network.MonitorSettingsPacket(
                 getBE().getBlockPos(), w, l, x, y, z, r, p, yw,
-                settingsTabHud, psx, psy, pox, poy, pd);
+                hud, psx, psy, pox, poy, pd, vis);
             PacketDistributor.sendToServer(pkt);
         } catch (Exception e) { SchematicCompute.LOGGER.warn("Failed to parse monitor settings", e); }
         previewScreenW = -1; previewScreenL = -1;
         showSettings = false; settingsInited = false;
     }
 
-    /** tab 点击：立即切换模式（服务端广播 → 所见即所得）。面板参数沿用服务端当前已应用
+    /** 复选框点击：立即切换模式（服务端广播 → 所见即所得）。面板参数沿用服务端当前已应用
      *  值，不做隐式提交——其余字段仍走显式 Apply/Enter 契约。
-     *  Tab click: switch mode immediately (server broadcast → WYSIWYG). Panel params keep
+     *  Checkbox click: switch mode immediately (server broadcast → WYSIWYG). Panel params keep
      *  the server's current applied values — no implicit commit; other fields stay on the
      *  explicit Apply/Enter contract. */
     private void sendTabMode(boolean hud) {
         MonitorBlockEntity be = getBE();
         if (be == null) return;
-        settingsTabHud = hud;
         var pkt = new io.github.y15173334444.create_schematic_compute.network.MonitorSettingsPacket(
             be.getBlockPos(),
             be.screenWidth, be.screenLength, be.screenX, be.screenY, be.screenZ,
             be.screenRoll, be.screenPitch, be.screenYaw,
-            hud, be.panelSizeX, be.panelSizeY, be.panelOffsetX, be.panelOffsetY, be.panelDistance);
+            hud, be.panelSizeX, be.panelSizeY, be.panelOffsetX, be.panelOffsetY, be.panelDistance,
+            be.virtualImageScale);
         PacketDistributor.sendToServer(pkt);
     }
 
     private boolean handleSettingsClick(double mx, double my, int btn) {
         if (btn != 0) return false;
         int pw = MONITOR_SETTINGS_PANEL_W;
-        int rows = settingsTabHud ? 5 : 8;
+        int rows = 8 + 6;
         int ph = 56 + 20 + rows * 20 + 30;
         int px = (width - pw) / 2, py = (height - ph) / 2;
         // Close button
@@ -990,24 +1002,25 @@ public class MonitorScreen extends AbstractGraphScreen {
             previewScreenW = -1; previewScreenL = -1;
             showSettings = false; settingsInited = false; return true;
         }
-        // Tab 条（点击非当前 tab → 立即切换模式）
-        int ty = py + 24;
-        int tabW = 100, tabH = 16;
-        if (my >= ty && my <= ty + tabH) {
-            if (mx >= px + 10 && mx <= px + 10 + tabW) { if (settingsTabHud) sendTabMode(false); return true; }
-            if (mx >= px + 10 + tabW + 4 && mx <= px + 10 + tabW + 4 + tabW) { if (!settingsTabHud) sendTabMode(true); return true; }
+        // 复选框（点击非当前状态 → 立即切换模式）
+        // Checkbox (clicking toggles the mode immediately)
+        if (hudModeCheckbox != null && mx >= px + 10 && mx <= px + 10 + 200 && my >= py + 24 && my <= py + 44) {
+            hudModeCheckbox.onPress();
+            sendTabMode(hudModeCheckbox.selected());
+            return true;
         }
         // Save button
-        int ey = ty + tabH + 6 + rows * 20;
+        int ey = py + 24 + 20 + 6 + rows * 20;
         int svX = px + 10, svY = ey + 8;
         if (mx >= svX && mx <= svX + 200 && my >= svY && my <= svY + 18 && getBE() != null) {
             saveAllSettings();
             return true;
         }
-        // EditBox focus: clear all first, then focus the clicked one
+        // EditBox focus: clear all first, then focus the clicked one (active group only)
         for (int i = 0; i < 8; i++) settingFields[i].setFocused(false);
-        for (int i = 0; i < 5; i++) hudSettingFields[i].setFocused(false);
-        var fields = settingsTabHud ? hudSettingFields : settingFields;
+        for (int i = 0; i < 6; i++) hudSettingFields[i].setFocused(false);
+        boolean hudOn = hudModeCheckbox != null && hudModeCheckbox.selected();
+        var fields = hudOn ? hudSettingFields : settingFields;
         for (var f : fields) {
             if (mx >= f.getX() && mx <= f.getX() + 60 && my >= f.getY() && my <= f.getY() + 14) {
                 f.setFocused(true); f.mouseClicked(mx, my, btn); break;

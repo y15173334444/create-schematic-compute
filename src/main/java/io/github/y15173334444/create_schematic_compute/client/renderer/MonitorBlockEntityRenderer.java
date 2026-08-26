@@ -127,7 +127,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         poseStack.mulPose(new Quaternionf().rotationZ((float)Math.toRadians(be.screenRoll)));
         var m = poseStack.last().pose();
 
-        float l = -hw, r = hw, t = -hh, b = hh, bw = 0.04f;
+        float l = -hw, r = hw, t = -hh, b = hh;
         // 内容边距与编辑器共用常量，保证归一化坐标映射一致
         // Content margin shares the constant with the editor so normalized coords map identically
         float margin = GeometryConstants.BEZEL_MARGIN;
@@ -137,8 +137,14 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         // ── Border + IMAGE pixels use POSITION_COLOR with POSITION_COLOR_SHADER
         //     (rendertype_position_color = F3 debug shader — Iris preserves it; NO_CULL ensures all-angle visibility) ──
         var sceneBuf = buffer.getBuffer(MonitorRenderTypes.SCREEN_PIXEL);
-        drawBorderFace(sceneBuf, m, l, r, t, b, bw, 1);
-        drawBorderFace(sceneBuf, m, l, r, t, b, bw, -1);
+        // 统一细边框（merge-plan §3.2）：与 HUD 一致的 4 条 addThickLine 细线，替代原
+        // 0.04 方块粗边框 drawBorderFace（已删除）。几何仍取自 3D 画布 l/r/t/b。
+        // Unified thin border (§3.2): 4 addThickLine fine lines matching HUD, replacing
+        // the old 0.04-block drawBorderFace (now deleted). Geometry still from l/r/t/b.
+        addThickLine(sceneBuf, m, l, t, r, t, 0.01, 0.0005f, BR, BG, BB, 1f);
+        addThickLine(sceneBuf, m, r, t, r, b, 0.01, 0.0005f, BR, BG, BB, 1f);
+        addThickLine(sceneBuf, m, r, b, l, b, 0.01, 0.0005f, BR, BG, BB, 1f);
+        addThickLine(sceneBuf, m, l, b, l, t, 0.01, 0.0005f, BR, BG, BB, 1f);
         // Collect IMAGE/IMAGE_SEQUENCE nodes and sort by layerIndex (back→front)
         var imgNodes = new java.util.ArrayList<GraphNode>();
         for (var n : be.graph.nodes) {
@@ -427,7 +433,13 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         poseStack.translate(0, 0, -VIRTUAL_IMAGE_D);
         poseStack.scale(VIRTUAL_IMAGE_D, VIRTUAL_IMAGE_D, -VIRTUAL_IMAGE_D);
         float cx = -hw, cy = hh;
-        float cw = be.panelSizeX, ch = be.panelSizeY;
+        // 虚像内容画布随 virtualImageScale 缩放（merge-plan §3.4）：只放大内容本身，
+        // 玻璃边框与遮罩仍用未缩放的 panelSizeX/panelSizeY —— 调大虚像时超出玻璃视口的
+        // 内容被 4 边形遮罩裁剪（透过玻璃看 HUD，物理正确）。
+        // Content canvas scales with virtualImageScale (§3.4): only the content grows;
+        // the glass border and mask keep the unscaled panelSizeX/Y — content beyond the
+        // glass viewport is clipped by the 4-gon mask (physically correct through-glass view).
+        float cw = be.panelSizeX * be.virtualImageScale, ch = be.panelSizeY * be.virtualImageScale;
         var graph = be.graph;
         // 虚像顶点收集到**独立 BufferBuilder**（TRIANGLES 模式，支撑遮罩裁剪的
         // 三角形扇）：绕开 Iris 的 FullyBufferedMultiBufferSource（其 endBatch 无法
@@ -1508,28 +1520,6 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     private static final float BR = 48f / 255f; // border gray
     private static final float BG = 48f / 255f;
     private static final float BB = 48f / 255f;
-
-    /** Draw one side of the border frame. dir=1 for front (+Z), dir=-1 for back (-Z). */
-    private void drawBorderFace(VertexConsumer buf, org.joml.Matrix4f m,
-                                 float l, float r, float t, float b, float bw, int dir) {
-        float z = 0.001f * dir;
-        buf.addVertex(m, l - bw, t - bw, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, r + bw, t - bw, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, r + bw, t, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, l - bw, t, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, l - bw, b, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, r + bw, b, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, r + bw, b + bw, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, l - bw, b + bw, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, l - bw, t, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, l, t, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, l, b, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, l - bw, b, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, r, t, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, r + bw, t, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, r + bw, b, z).setColor(BR, BG, BB, 1f);
-        buf.addVertex(m, r, b, z).setColor(BR, BG, BB, 1f);
-    }
 
     /** HUD 玻璃的裁剪包围盒：中心 = 方块中心 + FACING 局部帧内的偏移 + 法线方向距离；
      *  半长 = 面板尺寸/2 经 FACING 旋转的 OBB→AABB。面板大于方块时必需，否则某些视角

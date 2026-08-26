@@ -10,17 +10,21 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 显示器设置包（C2S）：3D 屏幕 8 参数 + HUD 模式 6 参数（hudMode + 5 面板变换）。
- * HUD 字段按 docs/monitor-hud-mode-design.md §七 扩展自本包，不新建包类。
- * Monitor settings packet (C2S): 8 screen params + HUD mode 6 params
- * (hudMode + 5 panel transforms). Extended per the HUD design doc §七 — no new packet class.
+ * 显示器设置包（C2S）：3D 屏幕 8 参数 + HUD 模式 7 参数（hudMode + 6 面板变换，含虚像缩放）。
+ * HUD 字段按 docs/monitor-hud-mode-design.md §七 扩展自本包，不新建包类；
+ * virtualImageScale 按 docs/monitor-mode-settings-merge-plan.md §3.4 追加在 HUD 组末尾。
+ * Monitor settings packet (C2S): 8 screen params + HUD mode 7 params
+ * (hudMode + 6 panel transforms incl. virtual-image scale). Extended per the HUD
+ * design doc §七 — no new packet class; virtualImageScale appended per the
+ * merge-plan doc §3.4.
  */
 public record MonitorSettingsPacket(BlockPos pos,
     float screenWidth, float screenLength,
     float screenX, float screenY, float screenZ,
     float screenRoll, float screenPitch, float screenYaw,
     boolean hudMode,
-    float panelSizeX, float panelSizeY, float panelOffsetX, float panelOffsetY, float panelDistance)
+    float panelSizeX, float panelSizeY, float panelOffsetX, float panelOffsetY, float panelDistance,
+    float virtualImageScale)
     implements CustomPacketPayload {
 
     public static final Type<MonitorSettingsPacket> TYPE =
@@ -34,7 +38,8 @@ public record MonitorSettingsPacket(BlockPos pos,
                 buf.readFloat(), buf.readFloat(), buf.readFloat(),
                 buf.readFloat(), buf.readFloat(), buf.readFloat(),
                 buf.readBoolean(),
-                buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat()
+                buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat(),
+                buf.readFloat()
             );
         }
         @Override public void encode(ByteBuf buf, MonitorSettingsPacket p) {
@@ -45,6 +50,7 @@ public record MonitorSettingsPacket(BlockPos pos,
             buf.writeBoolean(p.hudMode);
             buf.writeFloat(p.panelSizeX); buf.writeFloat(p.panelSizeY);
             buf.writeFloat(p.panelOffsetX); buf.writeFloat(p.panelOffsetY); buf.writeFloat(p.panelDistance);
+            buf.writeFloat(p.virtualImageScale);
         }
     };
 
@@ -61,7 +67,8 @@ public record MonitorSettingsPacket(BlockPos pos,
             if (ctx.player().level().getBlockEntity(pos) instanceof MonitorBlockEntity mbe) {
                 mbe.applySettings(screenWidth, screenLength, screenX, screenY, screenZ,
                     screenRoll, screenPitch, screenYaw,
-                    hudMode, panelSizeX, panelSizeY, panelOffsetX, panelOffsetY, panelDistance);
+                    hudMode, panelSizeX, panelSizeY, panelOffsetX, panelOffsetY, panelDistance,
+                    virtualImageScale);
             }
         });
     }
