@@ -10,20 +10,19 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 显示器设置包（C2S）：3D 屏幕 8 参数 + HUD 模式 7 参数（hudMode + 6 面板变换，含虚像缩放）。
- * HUD 字段按 docs/monitor-hud-mode-design.md §七 扩展自本包，不新建包类；
- * virtualImageScale 按 docs/monitor-mode-settings-merge-plan.md §3.4 追加在 HUD 组末尾。
- * Monitor settings packet (C2S): 8 screen params + HUD mode 7 params
- * (hudMode + 6 panel transforms incl. virtual-image scale). Extended per the HUD
- * design doc §七 — no new packet class; virtualImageScale appended per the
- * merge-plan doc §3.4.
+ * 显示器设置包（C2S）：3D 屏幕 8 参数 + hudMode + 虚像缩放。
+ * HUD 玻璃面板参数（panelSizeX/Y、panelOffsetX/Y、panelDistance）已删除——HUD 玻璃
+ * 与 3D 悬浮屏幕共用同一套大小/位置/姿态（screen*），docs/monitor-mode-settings-merge-plan.md。
+ * Monitor settings packet (C2S): 8 screen params + hudMode + virtual-image scale.
+ * The HUD glass-panel params (panelSizeX/Y, panelOffsetX/Y, panelDistance) were removed —
+ * the HUD glass shares the 3D floating screen's size/position/orientation (screen*),
+ * per the settings-merge-plan doc.
  */
 public record MonitorSettingsPacket(BlockPos pos,
     float screenWidth, float screenLength,
     float screenX, float screenY, float screenZ,
     float screenRoll, float screenPitch, float screenYaw,
     boolean hudMode,
-    float panelSizeX, float panelSizeY, float panelOffsetX, float panelOffsetY, float panelDistance,
     float virtualImageScale)
     implements CustomPacketPayload {
 
@@ -38,7 +37,6 @@ public record MonitorSettingsPacket(BlockPos pos,
                 buf.readFloat(), buf.readFloat(), buf.readFloat(),
                 buf.readFloat(), buf.readFloat(), buf.readFloat(),
                 buf.readBoolean(),
-                buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat(), buf.readFloat(),
                 buf.readFloat()
             );
         }
@@ -48,8 +46,6 @@ public record MonitorSettingsPacket(BlockPos pos,
             buf.writeFloat(p.screenX); buf.writeFloat(p.screenY); buf.writeFloat(p.screenZ);
             buf.writeFloat(p.screenRoll); buf.writeFloat(p.screenPitch); buf.writeFloat(p.screenYaw);
             buf.writeBoolean(p.hudMode);
-            buf.writeFloat(p.panelSizeX); buf.writeFloat(p.panelSizeY);
-            buf.writeFloat(p.panelOffsetX); buf.writeFloat(p.panelOffsetY); buf.writeFloat(p.panelDistance);
             buf.writeFloat(p.virtualImageScale);
         }
     };
@@ -67,8 +63,7 @@ public record MonitorSettingsPacket(BlockPos pos,
             if (ctx.player().level().getBlockEntity(pos) instanceof MonitorBlockEntity mbe) {
                 mbe.applySettings(screenWidth, screenLength, screenX, screenY, screenZ,
                     screenRoll, screenPitch, screenYaw,
-                    hudMode, panelSizeX, panelSizeY, panelOffsetX, panelOffsetY, panelDistance,
-                    virtualImageScale);
+                    hudMode, virtualImageScale);
             }
         });
     }
