@@ -28,7 +28,7 @@ public class ColorPickerWidget {
     /** Every interactive region in the widget. */
     private enum RegionType {
         SV_PLANE, HUE_BAR, ALPHA_BAR,
-        HEX_INPUT, ERASE_BTN, OK_BTN,
+        HEX_INPUT, OK_BTN,
         FAV_MINUS, FAV_PLUS, FAV_RESET,
         FAV_SCROLLBAR, FAV_SWATCH,
         REC_SWATCH
@@ -43,7 +43,6 @@ public class ColorPickerWidget {
 
     // ── Layout ──
     public static final int WIDTH = 164;
-    private static final int HEIGHT = 246;
 
     private static final int TITLE_H = 10;
     private static final int SV_X = 4, SV_Y = TITLE_H + 2, SV_SIZE = 120;
@@ -59,21 +58,25 @@ public class ColorPickerWidget {
     private static final int BTN_X = 98; // +/-/reset fixed position, clear of alpha bar
 
     private static final int FAV_Y = SV_Y + SV_SIZE + 3;
-    private static final int FAV_VISIBLE_ROWS = 2;
-    private static final int FAV_HEADER_H = 14; // room for +/-/reset buttons (12px)
-
-    private static final int REC_Y = FAV_Y + FAV_HEADER_H + FAV_VISIBLE_ROWS * CELL + 3;
-    private static final int REC_VISIBLE_ROWS = 2;
-    private static final int REC_HEADER_H = 14;
 
     private static final int HEX_X = 4, HEX_W = 76, HEX_H = 16;
-    private static final int ERASE_X = HEX_X + HEX_W + 3, ERASE_W = 28, ERASE_H = 16;
-    private static final int OK_X = ERASE_X + ERASE_W + 3, OK_W = 50, OK_H = 16;
-    private static final int BOTTOM_Y = REC_Y + REC_HEADER_H + REC_VISIBLE_ROWS * CELL + 3;
+    private static final int OK_X = 114, OK_W = 50, OK_H = 16;   // 浮空模式确定键位置（保持原位置）/ OK button position (floating mode)
+
+    // ── 布局随模式：内嵌（像素编辑器）更多行、更高；浮空（GraphEditor 等）保持原样 ──
+    // Layout varies by mode: embedded (pixel editor) uses more rows & taller; floating keeps the original.
+    private int favVisibleRows() { return embedded ? 4 : 2; }
+    private int recVisibleRows() { return embedded ? 4 : 2; }
+    private int favHeaderH() { return embedded ? 16 : 14; }
+    private int recHeaderH() { return embedded ? 16 : 14; }
+    private int recY() { return FAV_Y + favHeaderH() + favVisibleRows() * CELL + 3; }
+    private int bottomY() { return recY() + recHeaderH() + recVisibleRows() * CELL + 3; }
+    private int height() { return embedded ? 310 : 246; }
 
     // ── State ──
     private boolean visible;
     private int screenX, screenY;
+    private float scale = 1f;                        // 渲染缩放 / render scale (compact docked palette)
+    private boolean embedded = false;                // 内嵌模式：不画浮空外框、不因外部点击而关闭 / embedded mode (no floating frame / outside-close)
     private float hue, saturation, brightness;
     private int alpha = 0xFF;
     private boolean draggingSV, draggingHue, draggingAlpha;
@@ -94,7 +97,6 @@ public class ColorPickerWidget {
     private Runnable onClose;   // called when close() is invoked
     private String feedbackText = "";
     private long feedbackUntil = 0;
-    private boolean showErase; // only in pixel editor context
     private final EditBox hexInput;
     private final Font font;
     private boolean updatingHexFromPicker;
@@ -115,7 +117,32 @@ public class ColorPickerWidget {
     }
 
     public boolean isVisible() { return visible; }
-    public boolean contains(int mx, int my) { return visible && mx >= screenX && mx < screenX + WIDTH && my >= screenY && my < screenY + HEIGHT; }
+    /** 屏幕空间命中（含缩放后的边界）。/ screen-space hit test (uses the scaled bounds). */
+    public boolean contains(int mx, int my) {
+        return visible && mx >= screenX && mx < screenX + WIDTH * scale
+            && my >= screenY && my < screenY + height() * scale;
+    }
+
+    /** 屏幕坐标 → 本组件逻辑坐标（镜像渲染缩放）。/ screen coords → widget-local logical coords (mirrors the render scale). */
+    private double lx(double mx) { return screenX + (mx - screenX) / scale; }
+    private double ly(double my) { return screenY + (my - screenY) / scale; }
+
+    /**
+     * 把已打开的取色器显式放置到给定屏幕位置（宿主面板停靠用）。
+     * 与 {@link #open(int,int,int,Consumer,Consumer,boolean)} 不同，这里的位置由宿主
+     * 完全接管，因此每次渲染/窗口缩放时可反复调用以保持停靠。（固定 164 宽，高度随模式。）
+     * Manually place the already-opened widget at an explicit screen position (host-owned dock).
+     * Unlike open(), the host owns the position, so call it on every render/resize to keep the
+     * widget inside its reserved panel. (Fixed 164 width; height varies by mode.)
+     */
+    public void setPosition(int x, int y) { this.screenX = x; this.screenY = y; }
+
+    /** 设置渲染缩放（缩小版停靠用；默认 1 为原尺寸）。/ set render scale (compact dock; default 1 = full size). */
+    public void setScale(float s) { this.scale = Math.max(0.1f, s); }
+
+    /** 设置内嵌模式：不画浮空外框/标题，不随外部点击关闭（停靠进宿主面板用）。/
+     *  set embedded mode: no floating frame/title and no outside-click close (host-docked panels). */
+    public void setEmbedded(boolean e) { this.embedded = e; }
 
     public void open(int anchorX, int anchorY, int startColor, Consumer<Integer> onSelect) {
         open(anchorX, anchorY, startColor, onSelect, null, false);
@@ -124,19 +151,12 @@ public class ColorPickerWidget {
     /** Open with liveUpdate (fires on every change, for pixel editor). */
     public void open(int anchorX, int anchorY, int startColor, Consumer<Integer> onSelect,
                      Consumer<Integer> liveUpdate, boolean leftSide) {
-        open(anchorX, anchorY, startColor, onSelect, liveUpdate, leftSide, false);
-    }
-
-    /** Open with full control: liveUpdate + showErase (pixel editor only). */
-    public void open(int anchorX, int anchorY, int startColor, Consumer<Integer> onSelect,
-                     Consumer<Integer> liveUpdate, boolean leftSide, boolean showErase) {
         int sw = Minecraft.getInstance().getWindow().getGuiScaledWidth();
         int sh = Minecraft.getInstance().getWindow().getGuiScaledHeight();
         this.screenX = leftSide ? 8 : sw - WIDTH - 8;
-        this.screenY = Mth.clamp(anchorY - HEIGHT / 2, 4, sh - HEIGHT - 4);
+        this.screenY = Mth.clamp(anchorY - height() / 2, 4, sh - height() - 4);
         this.onSelect = onSelect;
         this.liveUpdate = liveUpdate;
-        this.showErase = showErase;
 
         float[] hsb = ColorUtils.rgbToHsb(startColor);
         this.hue = hsb[0]; this.saturation = hsb[1]; this.brightness = hsb[2];
@@ -182,40 +202,43 @@ public class ColorPickerWidget {
     public void render(GuiGraphics g, int mx, int my) {
         if (!visible) return;
         int px = screenX, py = screenY;
+        // 缩放模式：把整块取色器（含文本/字段/渐变）绕左上角缩小；鼠标先逆变换回逻辑空间。
+        // Scaled mode: scale the whole picker (text/fields/gradients) about the top-left; mouse is inverse-mapped first.
+        mx = (int) lx(mx); my = (int) ly(my);
+        g.pose().pushPose();
+        g.pose().translate(px, py, 0f);
+        g.pose().scale(scale, scale, 1f);
+        g.pose().translate(-px, -py, 0f);
 
-        g.fill(px, py, px + WIDTH, py + HEIGHT, 0xEE2A2822);
-        g.renderOutline(px, py, WIDTH, HEIGHT, 0xFFD4A017);
-        g.renderOutline(px + 1, py + 1, WIDTH - 2, HEIGHT - 2, 0xFF444444);
-
-        g.fill(px + 2, py + 2, px + WIDTH - 2, py + TITLE_H, 0xFF4A3F28);
-        g.drawString(font, I18n.get("gui.create_schematic_compute.colorpicker.title"), px + 6, py + 3, 0xFFFFCC88, false);
+        if (!embedded) {
+            g.fill(px, py, px + WIDTH, py + height(), 0xEE2A2822);
+            g.renderOutline(px, py, WIDTH, height(), 0xFFD4A017);
+            g.renderOutline(px + 1, py + 1, WIDTH - 2, height() - 2, 0xFF444444);
+            g.fill(px + 2, py + 2, px + WIDTH - 2, py + TITLE_H, 0xFF4A3F28);
+            g.drawString(font, I18n.get("gui.create_schematic_compute.colorpicker.title"), px + 6, py + 3, 0xFFFFCC88, false);
+        }
 
         renderSVPlane(g, px + SV_X, py + SV_Y);
         renderHueBar(g, px + HUE_X, py + HUE_Y);
         renderAlphaBar(g, px + ALPHA_X, py + ALPHA_Y);
         renderColorGrid(g, px, py + FAV_Y, true, mx, my);
-        renderColorGrid(g, px, py + REC_Y, false, mx, my);
+        renderColorGrid(g, px, py + recY(), false, mx, my);
 
         hexInput.setX(px + HEX_X);
-        hexInput.setY(py + BOTTOM_Y);
+        hexInput.setY(py + bottomY());
         hexInput.render(g, mx, my, 0);
-        int okY = py + BOTTOM_Y;
-        // Eraser button (pixel editor only)
-        if (showErase) {
-            boolean erH = hit(mx, my, px + ERASE_X, okY, ERASE_W, ERASE_H);
-            g.fill(px + ERASE_X, okY, px + ERASE_X + ERASE_W, okY + ERASE_H, erH ? 0xFF5A4A3A : 0xFF4A3A2A);
-            g.renderOutline(px + ERASE_X, okY, ERASE_W, ERASE_H, 0xFF8A6A5A);
-            g.drawString(font, I18n.get("gui.create_schematic_compute.colorpicker.erase"), px + ERASE_X + (ERASE_W - font.width(I18n.get("gui.create_schematic_compute.colorpicker.erase"))) / 2, okY + 3, 0xFFFFCC88, false);
+        // 确定键：仅浮空模式显示（内嵌常驻面板不显示）/ OK button only in floating mode (hidden when embedded)
+        if (!embedded) {
+            int okY = py + bottomY();
+            boolean okH = hit(mx, my, px + OK_X, okY, OK_W, OK_H);
+            g.fill(px + OK_X, okY, px + OK_X + OK_W, okY + OK_H, okH ? 0xFF4A6A3A : 0xFF3A5A2A);
+            g.renderOutline(px + OK_X, okY, OK_W, OK_H, 0xFF5A8A3A);
+            g.drawString(font, I18n.get("gui.create_schematic_compute.colorpicker.ok"), px + OK_X + (OK_W - font.width(I18n.get("gui.create_schematic_compute.colorpicker.ok"))) / 2, okY + 3, 0xFF88FF88, false);
         }
-        // OK button
-        boolean okH = hit(mx, my, px + OK_X, okY, OK_W, OK_H);
-        g.fill(px + OK_X, okY, px + OK_X + OK_W, okY + OK_H, okH ? 0xFF4A6A3A : 0xFF3A5A2A);
-        g.renderOutline(px + OK_X, okY, OK_W, OK_H, 0xFF5A8A3A);
-        g.drawString(font, I18n.get("gui.create_schematic_compute.colorpicker.ok"), px + OK_X + (OK_W - font.width(I18n.get("gui.create_schematic_compute.colorpicker.ok"))) / 2, okY + 3, 0xFF88FF88, false);
         // Feedback text — floats over the first row of favorites swatches
         if (System.currentTimeMillis() < feedbackUntil && !feedbackText.isEmpty()) {
             int fx = px + 4;
-            int fy = py + FAV_Y + FAV_HEADER_H;
+            int fy = py + FAV_Y + favHeaderH();
             int tw = font.width(feedbackText);
             // Dark pill background centered on the first swatch row
             g.fill(fx + (GRID_W - tw) / 2 - 3, fy + (CELL - font.lineHeight) / 2 - 1,
@@ -237,6 +260,7 @@ public class ColorPickerWidget {
             g.fill(gx, gy, gx + 14, gy + 14, dragColor);
             g.renderOutline(gx, gy, 14, 14, 0xFFFFAA44);
         }
+        g.pose().popPose();
     }
 
     private void renderSVPlane(GuiGraphics g, int sx, int sy) {
@@ -286,16 +310,22 @@ public class ColorPickerWidget {
     private void renderColorGrid(GuiGraphics g, int px, int py, boolean isFav, int mx, int my) {
         List<Integer> colors = isFav ? RecentColors.getFavorites() : RecentColors.getRecents();
         int totalRows = (colors.size() + GRID_COLS - 1) / GRID_COLS; // swatches use full 8-col layout
-        int visibleRows = isFav ? FAV_VISIBLE_ROWS : REC_VISIBLE_ROWS;
-        int headerH = isFav ? FAV_HEADER_H : REC_HEADER_H;
+        int visibleRows = isFav ? favVisibleRows() : recVisibleRows();
+        int headerH = isFav ? favHeaderH() : recHeaderH();
         int gridH = visibleRows * CELL;
         int off = isFav ? favScrollRow * CELL : 0;
         int maxOff = Math.max(0, totalRows * CELL - gridH);
         off = Mth.clamp(off, 0, maxOff);
 
-        // Header
-        g.drawString(font, (isFav ? "★" : "◉") + " " + (isFav ? I18n.get("gui.create_schematic_compute.colorpicker.favorites") : I18n.get("gui.create_schematic_compute.colorpicker.recent")),
-            px + 4, py + 3, isFav ? 0xFFFFCC66 : 0xFFAAAAAA, false);
+        // Header（按 1x 绘制，抵消面板缩放，更易读）/ header drawn at 1x (undoes the panel scale) for readability
+        String hdr = (isFav ? "★" : "◉") + " " + (isFav ? I18n.get("gui.create_schematic_compute.colorpicker.favorites") : I18n.get("gui.create_schematic_compute.colorpicker.recent"));
+        int hx = px + 4, hy = py + 3;
+        g.pose().pushPose();
+        g.pose().translate(hx, hy, 0f);
+        g.pose().scale(1f / scale, 1f / scale, 1f);
+        g.pose().translate(-hx, -hy, 0f);
+        g.drawString(font, hdr, hx, hy, isFav ? 0xFFFFCC66 : 0xFFAAAAAA, false);
+        g.pose().popPose();
 
         int gridX = px + 4, gridY = py + headerH;
 
@@ -372,9 +402,8 @@ public class ColorPickerWidget {
     private List<HitRegion> buildHitRegions(int px, int py) {
         var list = new ArrayList<HitRegion>();
         // Bottom row (highest priority)
-        list.add(new HitRegion(px + HEX_X, py + BOTTOM_Y, HEX_W, HEX_H, RegionType.HEX_INPUT));
-        if (showErase) list.add(new HitRegion(px + ERASE_X, py + BOTTOM_Y, ERASE_W, ERASE_H, RegionType.ERASE_BTN));
-        list.add(new HitRegion(px + OK_X, py + BOTTOM_Y, OK_W, OK_H, RegionType.OK_BTN));
+        list.add(new HitRegion(px + HEX_X, py + bottomY(), HEX_W, HEX_H, RegionType.HEX_INPUT));
+        if (!embedded) list.add(new HitRegion(px + OK_X, py + bottomY(), OK_W, OK_H, RegionType.OK_BTN));
 
         // Favorites header buttons
         int btnS = 12, bx = px + BTN_X, by = py + FAV_Y + 1;
@@ -387,21 +416,21 @@ public class ColorPickerWidget {
         // Favorites scrollbar
         List<Integer> favs = RecentColors.getFavorites();
         int favTotalRows = (favs.size() + GRID_COLS - 1) / GRID_COLS;
-        int favGridH = FAV_VISIBLE_ROWS * CELL;
+        int favGridH = favVisibleRows() * CELL;
         int favMaxOff = Math.max(0, favTotalRows * CELL - favGridH);
         if (favMaxOff > 0) {
             int sbX = px + 4 + GRID_W + 2;
-            int sbY = py + FAV_Y + FAV_HEADER_H;
+            int sbY = py + FAV_Y + favHeaderH();
             list.add(new HitRegion(sbX, sbY, SCROLLBAR_W, favGridH, RegionType.FAV_SCROLLBAR));
         }
 
         // Favorites swatch grid
-        int favGridX = px + 4, favGridY = py + FAV_Y + FAV_HEADER_H;
+        int favGridX = px + 4, favGridY = py + FAV_Y + favHeaderH();
         list.add(new HitRegion(favGridX, favGridY, GRID_W, favGridH, RegionType.FAV_SWATCH));
 
         // Recents swatch grid
-        int recGridX = px + 4, recGridY = py + REC_Y + REC_HEADER_H;
-        int recGridH = REC_VISIBLE_ROWS * CELL;
+        int recGridX = px + 4, recGridY = py + recY() + recHeaderH();
+        int recGridH = recVisibleRows() * CELL;
         list.add(new HitRegion(recGridX, recGridY, GRID_W, recGridH, RegionType.REC_SWATCH));
 
         // Alpha / Hue / SV (lowest priority — dragged, not clicked)
@@ -416,12 +445,15 @@ public class ColorPickerWidget {
 
     public boolean mouseClicked(double mx, double my, int btn) {
         if (!visible) return false;
-        // Always consume clicks inside bounds, even non-left-click
-        if (inBounds(mx, my)) {
+        mx = lx(mx); my = ly(my);   // 缩放时先逆变换 / inverse-map in scaled mode
+        if (embedded) {
+            // 内嵌：面板外交由宿主（不关闭）；面板内吞掉所有按钮。 / embedded: outside clicks go to the host, inside swallowed.
+            if (!inBounds(mx, my)) return false;
             if (btn != 0) return true;
         } else {
-            close();
-            return true;
+            // Always consume clicks inside bounds, even non-left-click
+            if (inBounds(mx, my)) { if (btn != 0) return true; }
+            else { close(); return true; }
         }
         if (btn != 0) return false;
         int px = screenX, py = screenY;
@@ -431,14 +463,9 @@ public class ColorPickerWidget {
             if (!r.contains(mx, my)) continue;
             switch (r.type()) {
                 case HEX_INPUT -> {
-                    hexInput.setX(px + HEX_X); hexInput.setY(py + BOTTOM_Y);
+                    hexInput.setX(px + HEX_X); hexInput.setY(py + bottomY());
                     hexInput.setFocused(true);
                     hexInput.mouseClicked(mx, my, btn);
-                    return true;
-                }
-                case ERASE_BTN -> {
-                    alpha = 0; syncHexFromHsv();
-                    if (liveUpdate != null) liveUpdate.accept(currentArgb());
                     return true;
                 }
                 case OK_BTN -> { confirm(); return true; }
@@ -463,7 +490,7 @@ public class ColorPickerWidget {
                     if (handleGridClick(mx, my, px, py + FAV_Y, true)) return true;
                 }
                 case REC_SWATCH -> {
-                    if (handleGridClick(mx, my, px, py + REC_Y, false)) return true;
+                    if (handleGridClick(mx, my, px, py + recY(), false)) return true;
                 }
                 case ALPHA_BAR -> { draggingAlpha = true; updateAlphaFromMouse(my); return true; }
                 case HUE_BAR   -> { draggingHue = true; updateHueFromMouse(my); return true; }
@@ -483,8 +510,8 @@ public class ColorPickerWidget {
     private boolean handleGridClick(double mx, double my, int px, int py, boolean isFav) {
         List<Integer> colors = isFav ? RecentColors.getFavorites() : RecentColors.getRecents();
         int totalRows = (colors.size() + GRID_COLS - 1) / GRID_COLS;
-        int visibleRows = isFav ? FAV_VISIBLE_ROWS : REC_VISIBLE_ROWS;
-        int headerH = isFav ? FAV_HEADER_H : REC_HEADER_H;
+        int visibleRows = isFav ? favVisibleRows() : recVisibleRows();
+        int headerH = isFav ? favHeaderH() : recHeaderH();
         int gridH = visibleRows * CELL;
         int off = isFav ? favScrollRow * CELL : 0;
         int gridX = px + 4, gridY = py + headerH;
@@ -514,10 +541,10 @@ public class ColorPickerWidget {
     private int swatchIndexAt(double mx, double my, boolean isFav) {
         int px = screenX, py = screenY;
         int gridX = px + 4;
-        int headerH = isFav ? FAV_HEADER_H : REC_HEADER_H;
-        int gridY = (isFav ? FAV_Y : REC_Y) + py + headerH;
+        int headerH = isFav ? favHeaderH() : recHeaderH();
+        int gridY = (isFav ? FAV_Y : recY()) + py + headerH;
         List<Integer> colors = isFav ? RecentColors.getFavorites() : RecentColors.getRecents();
-        int visibleRows = isFav ? FAV_VISIBLE_ROWS : REC_VISIBLE_ROWS;
+        int visibleRows = isFav ? favVisibleRows() : recVisibleRows();
         int gridH = visibleRows * CELL;
         if (mx < gridX || mx > gridX + GRID_W || my < gridY || my > gridY + gridH) return -1;
         int off = isFav ? favScrollRow * CELL : 0;
@@ -532,16 +559,17 @@ public class ColorPickerWidget {
         List<Integer> colors = RecentColors.getFavorites();
         int cols = GRID_COLS - 3;
         int totalRows = (colors.size() + cols - 1) / cols;
-        int gridH = FAV_VISIBLE_ROWS * CELL;
+        int gridH = favVisibleRows() * CELL;
         int maxOff = Math.max(0, totalRows * CELL - gridH);
         if (maxOff == 0) return;
-        int gridY = screenY + FAV_Y + FAV_HEADER_H;
+        int gridY = screenY + FAV_Y + favHeaderH();
         float t = Mth.clamp((float)(my - gridY) / gridH, 0f, 1f);
         favScrollRow = Mth.clamp(Math.round(t * totalRows), 0, maxOff / CELL);
     }
 
     public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
         if (!visible) return false;
+        mx = lx(mx); my = ly(my);   // 缩放时先逆变换 / inverse-map in scaled mode
         // Start swatch drag if threshold exceeded
         if (dragSwatchIdx >= 0 && !dragStarted) {
             if (Math.abs(mx - dragStartMx) + Math.abs(my - dragStartMy) >= DRAG_THRESHOLD) {
@@ -554,10 +582,10 @@ public class ColorPickerWidget {
             if (now - lastSwatchAutoScroll >= SWATCH_AUTOSCROLL_MS) {
                 List<Integer> favs = RecentColors.getFavorites();
                 int totalRows2 = (favs.size() + GRID_COLS - 1) / GRID_COLS;
-                int gridH2 = FAV_VISIBLE_ROWS * CELL;
-                int maxRow = Math.max(0, totalRows2 - FAV_VISIBLE_ROWS);
-                int favHeaderY = screenY + FAV_Y + FAV_HEADER_H;
-                int recHeaderY = screenY + REC_Y + REC_HEADER_H;
+                int gridH2 = favVisibleRows() * CELL;
+                int maxRow = Math.max(0, totalRows2 - favVisibleRows());
+                int favHeaderY = screenY + FAV_Y + favHeaderH();
+                int recHeaderY = screenY + recY() + recHeaderH();
                 if (maxRow > 0 && my < favHeaderY && favScrollRow > 0) {
                     favScrollRow = Math.max(0, favScrollRow - 1);
                     lastSwatchAutoScroll = now;
@@ -578,15 +606,16 @@ public class ColorPickerWidget {
     /** Mouse wheel: scroll favorites grid. */
     public boolean mouseScrolled(double mx, double my, double delta) {
         if (!visible) return false;
+        mx = lx(mx); my = ly(my);   // 缩放时先逆变换 / inverse-map in scaled mode
         // Check if mouse is over favorites grid area
         int gridX = screenX + 4;
-        int gridY = screenY + FAV_Y + FAV_HEADER_H;
-        int gridH = FAV_VISIBLE_ROWS * CELL;
+        int gridY = screenY + FAV_Y + favHeaderH();
+        int gridH = favVisibleRows() * CELL;
         if (mx >= gridX && mx < gridX + GRID_W + SCROLLBAR_W && my >= gridY && my < gridY + gridH) {
             List<Integer> colors = RecentColors.getFavorites();
             int fcols = GRID_COLS - 3;
             int totalRows = (colors.size() + fcols - 1) / fcols;
-            int maxRow = Math.max(0, totalRows - FAV_VISIBLE_ROWS);
+            int maxRow = Math.max(0, totalRows - favVisibleRows());
             if (maxRow > 0) {
                 favScrollRow = Mth.clamp(favScrollRow - (int)Math.signum(delta), 0, maxRow);
             }
@@ -596,6 +625,7 @@ public class ColorPickerWidget {
     }
 
     public boolean mouseReleased(double mx, double my, int btn) {
+        mx = lx(mx); my = ly(my);   // 缩放时先逆变换 / inverse-map in scaled mode
         // Handle swatch drag drop
         if (draggingSwatch) {
             int targetFav = swatchIndexAt(mx, my, true);
@@ -678,7 +708,7 @@ public class ColorPickerWidget {
     private static boolean hit(double mx, double my, int x, int y, int w, int h) {
         return mx >= x && mx < x + w && my >= y && my < y + h;
     }
-    private boolean inBounds(double mx, double my) { return hit(mx, my, screenX, screenY, WIDTH, HEIGHT); }
+    private boolean inBounds(double mx, double my) { return hit(mx, my, screenX, screenY, WIDTH, height()); }
     private void updateSVFromMouse(double mx, double my) {
         saturation = Mth.clamp((float)(mx - screenX - SV_X) / SV_SIZE, 0f, 1f);
         brightness  = Mth.clamp(1f - (float)(my - screenY - SV_Y) / SV_SIZE, 0f, 1f);
@@ -703,6 +733,10 @@ public class ColorPickerWidget {
     }
     /** Set whether OK/confirm keeps the picker open (for multi-swatch panels). */
     public void setPersistent(boolean p) { this.persistent = p; }
+
+    /** hex 输入框是否聚焦（像素编辑器把键盘路由给它用）。
+     *  Whether the hex input has focus (the pixel editor routes keys to it). */
+    public boolean isHexFocused() { return hexInput.isFocused(); }
 
     /** Set a callback invoked when close() is called (ESC or click-outside). */
     public void setOnClose(Runnable cb) { this.onClose = cb; }

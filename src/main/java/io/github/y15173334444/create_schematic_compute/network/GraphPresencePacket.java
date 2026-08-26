@@ -196,7 +196,11 @@ public record GraphPresencePacket(
     public static void handleClient(GraphPresencePacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             var host = io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.getActiveHost();
-            if (host != null && host.getBlockPos().equals(pkt.pos)) {
+            // getEditor() 可能为 null：独立像素编辑器（PixelEditorScreen）也实现 Host，
+            // 但无节点图编辑器，不处理 presence —— 跳过即可。
+            // getEditor() can be null: the standalone pixel editor (PixelEditorScreen) also
+            // implements Host but has no node-graph editor — skip presence updates for it.
+            if (host != null && host.getBlockPos().equals(pkt.pos) && host.getEditor() != null) {
                 host.getEditor().storeRemotePresence(pkt);
             }
         });

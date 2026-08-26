@@ -422,6 +422,43 @@ public final class OpExecutor {
                 }
                 yield n;
             }
+            case REMOVE_IMAGE_FRAME -> {
+                // 删除 IMAGE_SEQUENCE 帧；保留至少一帧（最后一帧清空而非删除）。
+                // paramIndex=frameIndex（见 GraphOp.removeImageFrame）
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null && n.type == NodeType.IMAGE_SEQUENCE && n.imageSequenceFrames != null
+                    && !n.imageSequenceFrames.isEmpty()) {
+                    int fi = Math.max(0, Math.min(n.imageSequenceFrames.size() - 1, op.paramIndex()));
+                    if (n.imageSequenceFrames.size() > 1) {
+                        n.imageSequenceFrames.remove(fi);
+                    } else {
+                        // 最后一帧：清空而不是删光，保证帧列表永不空
+                        // Last frame: clear instead of removing, so the frame list never empties
+                        int[] blank = new int[n.imageWidth * n.imageHeight];
+                        java.util.Arrays.fill(blank, 0x00000000);
+                        n.imageSequenceFrames.set(0, blank);
+                    }
+                    if (!n.imageSequenceFrames.isEmpty())
+                        n.imagePixels = n.imageSequenceFrames.get(0);
+                    graph.bumpGeneration();
+                }
+                yield n;
+            }
+            case MOVE_IMAGE_FRAME -> {
+                // 重排 IMAGE_SEQUENCE 帧：remove(from) 后 insert(to)。
+                // paramIndex=from, keyIndex=to（见 GraphOp.moveImageFrame）
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null && n.type == NodeType.IMAGE_SEQUENCE && n.imageSequenceFrames != null) {
+                    int from = op.paramIndex(), to = op.keyIndex();
+                    int size = n.imageSequenceFrames.size();
+                    if (from >= 0 && from < size && to >= 0 && to < size && from != to) {
+                        int[] f = n.imageSequenceFrames.remove(from);
+                        n.imageSequenceFrames.add(to, f);
+                    }
+                    graph.bumpGeneration();
+                }
+                yield n;
+            }
             case SET_CTRL_POINTS -> {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null && n.type == NodeType.DEBUG_SIGNAL_GEN) {

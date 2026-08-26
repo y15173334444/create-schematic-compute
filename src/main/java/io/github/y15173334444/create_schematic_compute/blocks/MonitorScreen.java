@@ -2,8 +2,6 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.client.GeometryConstants;
-import io.github.y15173334444.create_schematic_compute.client.colorpicker.ColorPickerButton;
-import io.github.y15173334444.create_schematic_compute.client.colorpicker.RecentColors;
 import io.github.y15173334444.create_schematic_compute.graph.*;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
@@ -30,8 +28,21 @@ public class MonitorScreen extends AbstractGraphScreen {
     // ── Display mode state ──
     private boolean displayMode = false;
 
-    // ── Pixel editor overlay state ──
-    private PixelEditState pixelEdit = null;
+    // ── Pixel editor transfer (独立 PixelEditorScreen，v1.2.6+) ──
+    // 打开像素编辑器时置位：本次 onClose 跳过离开协作会话（像素编辑器屏不 join/leave，
+    // 会话保持不断开）；关闭像素编辑器后重建本屏时再正常 join。
+    // Set when opening the standalone pixel editor: this onClose skips leaving the collab
+    // session (the pixel-editor screen never joins/leaves, so membership must survive);
+    // the rebuilt MonitorScreen re-joins (idempotent) and leaves normally afterwards.
+    private boolean pixelEditorTransfer = false;
+
+    /** 打开像素编辑器（转移）时跳过离开协作会话；消费一次即复位。
+     *  Skip leaving the collab session when transferring to the pixel editor (consumed once). */
+    @Override protected boolean skipLeaveOnClose() {
+        boolean t = pixelEditorTransfer;
+        pixelEditorTransfer = false;
+        return t;
+    }
 
     // ── Double-click tracking ──
     private long lastClickTime = 0;
@@ -64,7 +75,6 @@ public class MonitorScreen extends AbstractGraphScreen {
     private boolean layerScrollbarDragging = false;
     private double layerScrollDragStartY = 0;
     private int layerScrollDragStartOff = 0;
-    private boolean pixelDragUndoCaptured = false;
 
     // ── Display mode inline editing ──
     private boolean editingS = false, editingR = false;
@@ -109,29 +119,6 @@ public class MonitorScreen extends AbstractGraphScreen {
     private static String ff1(float v) { return Float.toString((float)Math.round(v * 10) / 10); }
     private static String ff2(float v) { return Float.toString((float)Math.round(v * 100) / 100); }
     private static String ff3(float v) { return Float.toString((float)Math.round(v * 1000) / 1000); }
-    private static String hex8(int v) { String h = Integer.toHexString(v).toUpperCase(); return "00000000".substring(h.length()) + h; }
-
-    private static class PixelEditState {
-        GraphNode node;
-        int frameIndex; // -1 for IMAGE, 0+ for IMAGE_SEQUENCE
-        int selectedColor = 0xFFFFFFFF;
-        boolean open;
-        int gridOriginX, gridOriginY;
-        boolean painting = false; // for drag painting
-        boolean newFrameMenuOpen = false; // IMAGE_SEQUENCE "+New" dropdown
-        String hexInput = ""; // hex color being typed
-        boolean editingHex = false; // hex input active
-        ColorPickerButton colorButton; // replaces simple palette
-        // Pixel-only undo stacks (independent of graph-level undo)
-        java.util.List<int[]> pixelUndoStack = new java.util.ArrayList<>();
-        java.util.List<int[]> pixelRedoStack = new java.util.ArrayList<>();
-        // 并行元数据：-1=像素数组条目，N=帧数标记条目。
-        // 独立标记取代旧的 int[]{count}（其 length==1 判定与 1×1 画布的像素数组冲突）。
-        // Parallel metadata: -1 = pixel-array entry, N = frame-count marker. Replaces the old
-        // int[]{count} marker whose length==1 check collided with 1×1 canvas pixel arrays.
-        java.util.List<Integer> pixelUndoMeta = new java.util.ArrayList<>();
-        java.util.List<Integer> pixelRedoMeta = new java.util.ArrayList<>();
-    }
 
     public MonitorScreen(BlockPos pos) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".monitor"), pos);
@@ -195,125 +182,10 @@ public class MonitorScreen extends AbstractGraphScreen {
         } catch (Exception e) { SchematicCompute.LOGGER.error("Save", e); }
     }
 
-    /** Send current frame pixel data directly (no more Base64). */
-    private void sendFrameSync() {
-        if (pixelEdit == null || pixelEdit.node == null) return;
-        var node = pixelEdit.node;
-        int frameIdx = (node.type == NodeType.IMAGE_SEQUENCE) ? pixelEdit.frameIndex : 0;
-        int[] data = (node.imagePixels != null) ? node.imagePixels.clone()
-            : new int[node.imageWidth * node.imageHeight];
-        sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(
-            blockPos, -1, node.id, frameIdx, data, minecraft.player.getUUID()));
-    }
-
     @Override
     public void toggleRunning(boolean start) {
         MonitorBlockEntity be = getBE();
         if (be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
-    }
-
-    // ── Pixel editor undo/redo (pixel-level only; graph-level undo is handled by GraphEditor) ──
-    // 像素编辑器撤销/重做（仅像素级；图级撤销由 GraphEditor 处理）
-
-    @Override
-    public void pushUndoSnapshot() {
-        // Graph-level undo is now handled incrementally by GraphEditor.opUndo().
-        // 图级撤销现已由 GraphEditor.opUndo() 增量处理。
-        // This override exists only for Host interface compatibility; no longer used.
-    }
-
-    @Override
-    public void performUndo() {
-        // Only handle pixel editor undo here. Graph-level undo is handled by
-        // GraphEditor.keyPressed → opUndo() when Ctrl+Z passes through to it.
-        // 仅在此处理像素编辑器撤销。图级撤销由 GraphEditor.keyPressed → opUndo()
-        // 在 Ctrl+Z 传递到它时处理。
-        if (pixelEdit != null && pixelEdit.open) { performPixelUndo(); }
-    }
-
-    @Override
-    public void performRedo() {
-        if (pixelEdit != null && pixelEdit.open) { performPixelRedo(); }
-    }
-
-    private void performPixelUndo() {
-        if (pixelEdit == null || pixelEdit.pixelUndoStack.isEmpty()) return;
-        var be = getBE();
-        int[] top = pixelEdit.pixelUndoStack.remove(pixelEdit.pixelUndoStack.size() - 1);
-        int meta = pixelEdit.pixelUndoMeta.remove(pixelEdit.pixelUndoMeta.size() - 1);
-        if (meta >= 0) {
-            // Count marker: restore full frames list (new-frame undo)
-            int count = meta;
-            // Save current frames to redo
-            int curCount = pixelEdit.node.imageSequenceFrames.size();
-            for (int i = curCount - 1; i >= 0; i--) {
-                pixelEdit.pixelRedoStack.add(pixelEdit.node.imageSequenceFrames.get(i).clone());
-                pixelEdit.pixelRedoMeta.add(-1);
-            }
-            pixelEdit.pixelRedoStack.add(new int[]{curCount});
-            pixelEdit.pixelRedoMeta.add(curCount);
-            // Restore old frames
-            pixelEdit.node.imageSequenceFrames.clear();
-            for (int i = 0; i < count; i++) {
-                pixelEdit.node.imageSequenceFrames.add(0, pixelEdit.pixelUndoStack.remove(pixelEdit.pixelUndoStack.size() - 1));
-                pixelEdit.pixelUndoMeta.remove(pixelEdit.pixelUndoMeta.size() - 1);
-            }
-            if (pixelEdit.frameIndex >= pixelEdit.node.imageSequenceFrames.size())
-                pixelEdit.frameIndex = pixelEdit.node.imageSequenceFrames.size() - 1;
-            if (pixelEdit.frameIndex >= 0)
-                pixelEdit.node.imagePixels = pixelEdit.node.imageSequenceFrames.get(pixelEdit.frameIndex);
-        } else {
-            // Single frame undo (paint operation)
-            pixelEdit.pixelRedoStack.add(pixelEdit.node.imagePixels.clone());
-            pixelEdit.pixelRedoMeta.add(-1);
-            pixelEdit.node.imagePixels = top;
-            if (pixelEdit.frameIndex >= 0 && pixelEdit.node.type == NodeType.IMAGE_SEQUENCE
-                && pixelEdit.node.imageSequenceFrames != null
-                && pixelEdit.frameIndex < pixelEdit.node.imageSequenceFrames.size()) {
-                pixelEdit.node.imageSequenceFrames.set(pixelEdit.frameIndex, top);
-            }
-        }
-        if (be != null) be.graph.bumpGeneration();
-    }
-
-    private void performPixelRedo() {
-        if (pixelEdit == null || pixelEdit.pixelRedoStack.isEmpty()) return;
-        var be = getBE();
-        int[] top = pixelEdit.pixelRedoStack.remove(pixelEdit.pixelRedoStack.size() - 1);
-        int meta = pixelEdit.pixelRedoMeta.remove(pixelEdit.pixelRedoMeta.size() - 1);
-        if (meta >= 0) {
-            // Count marker: restore full frames list (new-frame redo)
-            int count = meta;
-            // Save current frames to undo
-            int curCount = pixelEdit.node.imageSequenceFrames.size();
-            for (int i = curCount - 1; i >= 0; i--) {
-                pixelEdit.pixelUndoStack.add(pixelEdit.node.imageSequenceFrames.get(i).clone());
-                pixelEdit.pixelUndoMeta.add(-1);
-            }
-            pixelEdit.pixelUndoStack.add(new int[]{curCount});
-            pixelEdit.pixelUndoMeta.add(curCount);
-            // Restore redo frames
-            pixelEdit.node.imageSequenceFrames.clear();
-            for (int i = 0; i < count; i++) {
-                pixelEdit.node.imageSequenceFrames.add(0, pixelEdit.pixelRedoStack.remove(pixelEdit.pixelRedoStack.size() - 1));
-                pixelEdit.pixelRedoMeta.remove(pixelEdit.pixelRedoMeta.size() - 1);
-            }
-            if (pixelEdit.frameIndex >= pixelEdit.node.imageSequenceFrames.size())
-                pixelEdit.frameIndex = pixelEdit.node.imageSequenceFrames.size() - 1;
-            if (pixelEdit.frameIndex >= 0)
-                pixelEdit.node.imagePixels = pixelEdit.node.imageSequenceFrames.get(pixelEdit.frameIndex);
-        } else {
-            // Single frame redo (paint operation)
-            pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone());
-            pixelEdit.pixelUndoMeta.add(-1);
-            pixelEdit.node.imagePixels = top;
-            if (pixelEdit.frameIndex >= 0 && pixelEdit.node.type == NodeType.IMAGE_SEQUENCE
-                && pixelEdit.node.imageSequenceFrames != null
-                && pixelEdit.frameIndex < pixelEdit.node.imageSequenceFrames.size()) {
-                pixelEdit.node.imageSequenceFrames.set(pixelEdit.frameIndex, pixelEdit.node.imagePixels);
-            }
-        }
-        if (be != null) be.graph.bumpGeneration();
     }
 
     @Override
@@ -331,10 +203,6 @@ public class MonitorScreen extends AbstractGraphScreen {
         } else {
             editor.renderBg(g, mx, my);
             renderDisplayToggleButton(g);
-        }
-        // Pixel editor overlay renders on top of either mode
-        if (pixelEdit != null && pixelEdit.open) {
-            renderPixelEditor(g, mx, my);
         }
         // Settings panel overlay
         if (showSettings) {
@@ -1272,144 +1140,37 @@ public class MonitorScreen extends AbstractGraphScreen {
         g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.display"), btnX + 6, btnY + 4, 0xFFFFFFFF, false);
     }
 
-    // ── Pixel editor overlay ──
-    private void renderPixelEditor(GuiGraphics g, int mx, int my) {
-        if (pixelEdit == null || pixelEdit.node == null) return;
-        var mc = Minecraft.getInstance();
-        int w = width, h = height;
-        int fh = Minecraft.getInstance().font.lineHeight;
+    // ── Pixel editor (独立 Screen / standalone PixelEditorScreen, v1.2.6+) ──
 
-        // Layout constants (2-column palette, hex input at top-right)
-        final int PAL_CELL = PALETTE_CELL, PAL_GAP = PALETTE_GAP, PAL_LEFT = PALETTE_LEFT, PAL_COLS = PALETTE_COLS;
-        int palNumColors = 23; // 22 colors + sentinel 0
-        int palRows = (palNumColors + PAL_COLS - 1) / PAL_COLS; // 12
-        int palH = palRows * (PAL_CELL + PAL_GAP);
-        int palW2 = 0; //
-        int palAreaW = 174;
-        int imgW = pixelEdit.node.imageWidth, imgH = pixelEdit.node.imageHeight;
-        int maxPx = (int)(Math.min((w - palAreaW) * 0.65f, (h - 40) * 0.72f));
-        int cellSize = Math.max(6, maxPx / Math.max(1, Math.max(imgW, imgH)));
-        int gridPx = cellSize * imgW;
-        int gridPy = cellSize * imgH;
-        int ox = palAreaW + (w - palAreaW - gridPx) / 2;
-        int palStartY = (h - palH) / 2;
-        int oy = (h - gridPy) / 2;
-
-        pixelEdit.gridOriginX = ox;
-        pixelEdit.gridOriginY = oy;
-
-        // Dim background
-        g.fill(0, 0, w, h, 0xAA000000);
-
-        // Grid background with border
-        g.fill(ox - 4, oy - 4, ox + gridPx + 4, oy + gridPy + 4, 0xFF2A2822);
-        g.renderOutline(ox - 4, oy - 4, gridPx + 8, gridPy + 8, 0xFF5A4D3A);
-
-        // Draw pixels with actual alpha (transparent → checkerboard visible)
-        int[] pixels = pixelEdit.node.imagePixels;
-        for (int py = 0; py < imgH; py++) {
-            for (int px = 0; px < imgW; px++) {
-                int idx = py * imgW + px;
-                int color = (idx < pixels.length) ? pixels[idx] : 0;
-                int x1 = ox + px * cellSize, y1 = oy + py * cellSize;
-                int x2 = x1 + cellSize, y2 = y1 + cellSize;
-                if ((color & 0xFF000000) == 0) {
-                    int ck = ((px + py) & 1) * 0x222222;
-                    g.fill(x1, y1, x2, y2, 0xFF222222 + ck);
-                } else {
-                    g.fill(x1, y1, x2, y2, color);
-                }
-                g.renderOutline(x1, y1, cellSize, cellSize, 0xFF444444);
-            }
-        }
-
-        // ColorPicker button replaces simple palette + hex input
-        int trX = w - 240, trY = 6;
-        if (pixelEdit.node.type == NodeType.IMAGE_SEQUENCE) {
-            String navTxt = "§7◀  " + pixelEdit.frameIndex + "  ▶";
-            g.drawString(Minecraft.getInstance().font, navTxt, trX, trY, 0xFFCCCCCC, false);
-            g.drawString(Minecraft.getInstance().font, "§a▸ " + I18n.get("gui.create_schematic_compute.monitor.pixel_new"), trX + 120, trY, 0xFFCCCCCC, false);
-            if (pixelEdit.newFrameMenuOpen) {
-                g.fill(trX + 110, trY + 12, trX + 210, trY + 34, 0xFF2A2822);
-                g.renderOutline(trX + 110, trY + 12, 100, 22, 0xFF5A4D3A);
-                g.drawString(Minecraft.getInstance().font, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_blank"), trX + 116, trY + 14, 0xFFCCCCCC, false);
-                g.drawString(Minecraft.getInstance().font, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_from_current"), trX + 116, trY + 24, 0xFFCCCCCC, false);
-            }
-        }
-        // Hex display (picker handles color selection, auto-opens on the left)
-        int hexTopY = pixelEdit.node.type == NodeType.IMAGE_SEQUENCE ? trY + 24 : trY;
-        g.drawString(Minecraft.getInstance().font, "§7#" + hex8(pixelEdit.selectedColor), trX, hexTopY, 0xFFCCCCCC, false);
-
-        // Close hint (bottom center)
-        String hint = "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_close_hint");
-        g.drawString(Minecraft.getInstance().font, hint, (w - Minecraft.getInstance().font.width(hint)) / 2, h - 20, 0xFF888888, false);
-    }
-
+    /** 双击 IMAGE/IMAGE_SEQUENCE 节点 → 打开独立像素编辑器 Screen（绘画软件式 UI）。
+     *  转移前置位 pixelEditorTransfer：本屏 onClose 跳过离开协作会话（像素编辑器屏
+     *  不 join/leave，会话保持不断开）；关闭像素编辑器后重建本屏时再正常 join（幂等）。
+     *  Double-click an IMAGE/IMAGE_SEQUENCE node → open the standalone pixel editor.
+     *  Sets pixelEditorTransfer so this screen's onClose skips leaving the collab
+     *  session (the pixel-editor screen never joins/leaves; membership must survive);
+     *  the rebuilt MonitorScreen re-joins idempotently. */
+    @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
     private void openPixelEditor(GraphNode node) {
         if (node.type != NodeType.IMAGE && node.type != NodeType.IMAGE_SEQUENCE) return;
-        var state = new PixelEditState();
-        state.node = node;
-        state.open = true;
-        state.frameIndex = -1;
-        state.colorButton = new ColorPickerButton(
-            () -> state.selectedColor,
-            c -> { state.selectedColor = c; closePixelEditorSynced(); },
-            editor.colorPicker,
-            true, // left-side
-            c -> state.selectedColor = c  // live update
-        );
-        // Pre-compute grid origin — leave room for the color picker (200px wide on left)
-        int palAreaW = 174; // picker width + margin
-        int imgW = node.imageWidth, imgH = node.imageHeight;
-        int maxPx = (int)(Math.min((width - palAreaW) * 0.65f, (height - 40) * 0.72f));
-        int cellSize = Math.max(8, maxPx / Math.max(1, Math.max(imgW, imgH)));
-        state.gridOriginX = palAreaW + (width - palAreaW - cellSize * imgW) / 2;
-        state.gridOriginY = (height - cellSize * imgH) / 2;
-        if (node.type == NodeType.IMAGE_SEQUENCE) {
-            state.frameIndex = 0;
-            if (node.imageSequenceFrames == null || node.imageSequenceFrames.isEmpty()) {
-                node.imageSequenceFrames = new java.util.ArrayList<>();
-                // Start with one frame
-                int[] frame = new int[node.imageWidth * node.imageHeight];
-                java.util.Arrays.fill(frame, 0x00000000);
-                node.imageSequenceFrames.add(frame);
-            }
-            // Link imagePixels to frame 0 so painting targets the correct array
-            node.imagePixels = node.imageSequenceFrames.get(0);
+        pixelEditorTransfer = true;
+        Minecraft.getInstance().setScreen(new io.github.y15173334444.create_schematic_compute.client.PixelEditorScreen(
+            blockPos, node, computePixelEditorReturn()));
+    }
+
+    /** 像素编辑器关闭后要恢复的界面：便携终端包装内 → 重建包装（内部换成新 MonitorScreen，
+     *  关闭后仍回到终端）；否则直接回到新 MonitorScreen（重新 join 会话，幂等）。
+     *  The screen to restore after the pixel editor closes: inside the portable-terminal
+     *  wrapper → rebuild the wrapper around a fresh MonitorScreen (still returns to the
+     *  terminal); otherwise a fresh MonitorScreen (re-joins the session, idempotent). */
+    private Screen computePixelEditorReturn() {
+        var mc = Minecraft.getInstance();
+        if (mc.screen instanceof io.github.y15173334444.create_schematic_compute.client.PortableTerminalScreen.HostWrapper w
+            && w.getInnerScreen() == this
+            && w.getTerminalScreen() instanceof io.github.y15173334444.create_schematic_compute.client.PortableTerminalScreen pts) {
+            return pts.wrapForEditing(new MonitorScreen(blockPos));
         }
-        pixelEdit = state;
-        // Auto-open picker with live update for real-time painting
-        editor.colorPicker.open(0, height / 2, state.selectedColor,
-            c -> { state.selectedColor = c; closePixelEditorSynced(); },
-            c -> state.selectedColor = c,
-            true,  // left-side
-            true); // show erase button
+        return new MonitorScreen(blockPos);
     }
-
-    /** 同步并关闭像素编辑器。所有关闭路径（点外部 / ESC / 颜色确认）必须经此：
-     *  否则画布内容只存在于本地，下一次整图同步（如显示区拖拽触发的 flagFullSync）
-     *  会用服务端的旧数据替换本地图，绘画内容被清空（"拖拽后图像变透明"的根因）。
-     *  只做定向同步（SET_IMAGE_PIXELS op），不再调用 saveGraph() 全量上传——全量
-     *  上传会把本客户端的整图快照覆盖到服务端，冲掉其他玩家并发的编辑操作；像素与
-     *  帧数据经 sendFrameSync 的定向 op 同步后，服务端应用并 flagFullSync 广播给
-     *  所有客户端，无需整图回传。
-     *  Close the pixel editor WITH sync. Every close path (click-outside, ESC, color
-     *  confirm) must go through here: otherwise the painting exists only locally and
-     *  the next full-graph sync (e.g. the flagFullSync triggered by a display drag)
-     *  replaces the local graph with stale server data, wiping the pixels.
-     *  Only the targeted sync (SET_IMAGE_PIXELS op) runs — no saveGraph() full upload,
-     *  which would overwrite the server graph with this client's snapshot and clobber
-     *  other players' concurrent edits; the targeted op is applied server-side and
-     *  flagFullSync-broadcast to all clients, so no whole-graph echo is needed. */
-    private void closePixelEditorSynced() {
-        if (pixelEdit == null) return;
-        sendFrameSync();
-        pixelEdit = null;
-        editor.colorPicker.close();
-    }
-
-    /** 像素编辑器是否打开（整图同步守卫用）。 */
-    @Override public boolean isPixelEditorOpen() { return pixelEdit != null && pixelEdit.open; }
 
     /** 显示区拖拽是否进行中（整图同步守卫用）。 */
     @Override public boolean isDisplayDragInProgress() { return draggedDisplayNode != null; }
@@ -1426,14 +1187,10 @@ public class MonitorScreen extends AbstractGraphScreen {
     // ── Input handling ──
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
-        // Color picker: only handle if click is inside picker; painting on canvas keeps it open
+        // Color picker: only handle if click is inside picker; otherwise let the graph editor use it
         if (editor.colorPicker.isVisible()) {
             if (editor.colorPicker.contains((int)mx, (int)my)) {
                 return editor.colorPicker.mouseClicked(mx, my, btn);
-            }
-            // Click outside picker — if pixel editor is open and click is on the pixel grid, let it paint
-            if (pixelEdit != null && pixelEdit.open) {
-                return handlePixelEditorClick(mx, my, btn);
             }
             // Delegate to GraphEditor first — comment color popup / theme panel may need the picker
             if (editor.mouseClicked(mx, my, btn)) return true;
@@ -1444,10 +1201,6 @@ public class MonitorScreen extends AbstractGraphScreen {
         // Settings panel takes priority
         if (showSettings) {
             return handleSettingsClick(mx, my, btn);
-        }
-        // Pixel editor takes priority
-        if (pixelEdit != null && pixelEdit.open) {
-            return handlePixelEditorClick(mx, my, btn);
         }
         if (displayMode) {
             // Check layer panel scrollbar thumb drag first
@@ -1715,32 +1468,6 @@ public class MonitorScreen extends AbstractGraphScreen {
             }
             return;
         }
-        if (pixelEdit != null && pixelEdit.open) {
-            if (pixelEdit.painting) {
-                // Recalculate grid (same as renderPixelEditor)
-                final int PAL_CELL = PALETTE_CELL, PAL_GAP = PALETTE_GAP, PAL_LEFT = PALETTE_LEFT, PAL_COLS = PALETTE_COLS;
-                int palW2 = 0; //
-                int palAreaW = 174;
-                int imgW = pixelEdit.node.imageWidth, imgH = pixelEdit.node.imageHeight;
-                int cs = Math.max(6, (int)(Math.min((width - palAreaW) * 0.65f, (height - 40) * 0.72f)) / Math.max(1, Math.max(imgW, imgH)));
-                int gp = cs * imgW;
-                int gpy = cs * imgH;
-                int ox = palAreaW + (width - palAreaW - gp) / 2, oy = (height - gpy) / 2;
-                if (mx >= ox && mx < ox + gp && my >= oy && my < oy + gpy) {
-                    int px = (int)((mx - ox) / cs);
-                    int py = (int)((my - oy) / cs);
-                    if (px >= 0 && px < imgW && py >= 0 && py < imgH) {
-                        int idx = py * imgW + px;
-                        if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
-                            if (!pixelDragUndoCaptured) { if (pixelEdit.pixelUndoStack.size() < 100) { pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone()); pixelEdit.pixelUndoMeta.add(-1); pixelEdit.pixelRedoStack.clear(); pixelEdit.pixelRedoMeta.clear(); } pixelDragUndoCaptured = true; }
-                            pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor; RecentColors.addRecent(pixelEdit.selectedColor);
-                            if (getBE() != null) getBE().graph.bumpGeneration();
-                        }
-                    }
-                }
-            }
-            return;
-        }
         if (displayMode) {
             // 记录最近鼠标屏幕坐标（存在包用）
             // Track the last mouse screen position for the presence packet
@@ -1824,7 +1551,6 @@ public class MonitorScreen extends AbstractGraphScreen {
     public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
         if (editor.colorPicker.isVisible() && editor.colorPicker.contains((int)mx, (int)my))
             return editor.colorPicker.mouseDragged(mx, my, btn, dx, dy);
-        if (pixelEdit != null && pixelEdit.open) return super.mouseDragged(mx, my, btn, dx, dy);
         if (displayMode) {
             // ── Layer drag-and-drop (same logic as mouseMoved) ──
             if (layerDragState == LayerDragState.PRESSED) {
@@ -1853,7 +1579,6 @@ public class MonitorScreen extends AbstractGraphScreen {
             editor.colorPicker.mouseReleased(mx, my, btn); return true;
         }
         if (layerScrollbarDragging) { layerScrollbarDragging = false; return true; }
-        if (pixelEdit != null && pixelEdit.open) { pixelEdit.painting = false; pixelDragUndoCaptured = false; return false; }
         if (displayMode) {
             if (layerDragState == LayerDragState.DRAGGING && layerDragNode != null) {
                 applyLayerReorder();
@@ -1882,7 +1607,6 @@ public class MonitorScreen extends AbstractGraphScreen {
     @Override
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         if (editor.colorPicker.isVisible() && editor.colorPicker.mouseScrolled(mx, my, sy)) return true;
-        if (pixelEdit != null && pixelEdit.open) return true;
         if (displayMode) {
             int px = width - LAYER_PANEL_W - LAYER_PANEL_PADDING;
             if (mx >= px && mx <= px + LAYER_PANEL_W) { layerScroll += (sy > 0) ? -1 : 1; }
@@ -1891,156 +1615,10 @@ public class MonitorScreen extends AbstractGraphScreen {
         return editor.mouseScrolled(mx, my, sx, sy);
     }
 
-    private boolean handlePixelEditorClick(double mx, double my, int btn) {
-        if (pixelEdit == null || !pixelEdit.open) return false;
-        if (btn != 0) return false;
-
-        // Recalculate layout (same as render)
-        final int PAL_CELL = PALETTE_CELL, PAL_GAP = PALETTE_GAP, PAL_LEFT = PALETTE_LEFT, PAL_COLS = PALETTE_COLS;
-        int palNumColors = 23;
-        int palRows = (palNumColors + PAL_COLS - 1) / PAL_COLS;
-        int palH = palRows * (PAL_CELL + PAL_GAP);
-        int palW2b = 0;
-        int palAreaW = 174;
-        int imgW = pixelEdit.node.imageWidth, imgH = pixelEdit.node.imageHeight;
-        int maxPx = (int)(Math.min((width - palAreaW) * 0.65f, (height - 40) * 0.72f));
-        int cellSize = Math.max(6, maxPx / Math.max(1, Math.max(imgW, imgH)));
-        int gridPx = cellSize * imgW;
-        int gridPy = cellSize * imgH;
-        int ox = palAreaW + (width - palAreaW - gridPx) / 2;
-        int oy = (height - gridPy) / 2;
-        int palStartY = (height - palH) / 2;
-
-        // Grid click → paint pixel
-        if (mx >= ox && mx < ox + gridPx && my >= oy && my < oy + gridPy) {
-            pixelEdit.newFrameMenuOpen = false;
-            int px = (int)((mx - ox) / cellSize);
-            int py = (int)((my - oy) / cellSize);
-            if (px >= 0 && px < imgW && py >= 0 && py < imgH) {
-                int idx = py * imgW + px;
-                if (pixelEdit.node.imagePixels != null && idx < pixelEdit.node.imagePixels.length) {
-                    if (!pixelDragUndoCaptured) { if (pixelEdit.pixelUndoStack.size() < 100) { pixelEdit.pixelUndoStack.add(pixelEdit.node.imagePixels.clone()); pixelEdit.pixelRedoStack.clear(); } pixelDragUndoCaptured = true; }
-                    pixelEdit.node.imagePixels[idx] = pixelEdit.selectedColor; RecentColors.addRecent(pixelEdit.selectedColor);
-                    pixelEdit.painting = true;
-                    if (getBE() != null) getBE().graph.bumpGeneration();
-                }
-            }
-            return true;
-        }
-
-        // Color picker handles color selection (auto-opens on left)
-
-        // Frame navigation (screen top-right, font-width based hit areas)
-        if (pixelEdit.node.type == NodeType.IMAGE_SEQUENCE) {
-            int navX = width - 240, navY = 6;
-            var fw = Minecraft.getInstance().font;
-            int prevW = fw.width("◀") + 2;
-            int numW = fw.width("" + pixelEdit.frameIndex);
-            int nextOff = navX + prevW + numW + 6;
-            int nextW = fw.width("▶") + 2;
-
-            // ◀ prev
-            if (mx >= navX && mx <= navX + prevW + 4 && my >= navY && my <= navY + 12) {
-                sendFrameSync(); // sync current frame before switching
-                pixelEdit.frameIndex = Math.max(0, pixelEdit.frameIndex - 1);
-                if (pixelEdit.frameIndex < pixelEdit.node.imageSequenceFrames.size())
-                    pixelEdit.node.imagePixels = pixelEdit.node.imageSequenceFrames.get(pixelEdit.frameIndex);
-                pixelEdit.newFrameMenuOpen = false;
-                return true;
-            }
-            // ▶ next
-            if (mx >= nextOff && mx <= nextOff + nextW + 4 && my >= navY && my <= navY + 12) {
-                sendFrameSync(); // sync current frame before switching
-                pixelEdit.frameIndex = Math.min(pixelEdit.node.imageSequenceFrames.size() - 1, pixelEdit.frameIndex + 1);
-                if (pixelEdit.frameIndex >= 0 && pixelEdit.frameIndex < pixelEdit.node.imageSequenceFrames.size())
-                    pixelEdit.node.imagePixels = pixelEdit.node.imageSequenceFrames.get(pixelEdit.frameIndex);
-                pixelEdit.newFrameMenuOpen = false;
-                return true;
-            }
-            // +New button → toggle dropdown
-            if (mx >= navX + 120 && mx <= navX + 175 && my >= navY && my <= navY + 12) {
-                pixelEdit.newFrameMenuOpen = !pixelEdit.newFrameMenuOpen;
-                return true;
-            }
-            // Dropdown: "Blank"
-            if (pixelEdit.newFrameMenuOpen && mx >= navX + 110 && mx <= navX + 210 && my >= navY + 14 && my <= navY + 24) {
-                // Save all current frames for undo
-                int frameCount = pixelEdit.node.imageSequenceFrames.size();
-                if (pixelEdit.pixelUndoStack.size() + frameCount < 100) {
-                    for (int i = frameCount - 1; i >= 0; i--) {
-                        pixelEdit.pixelUndoStack.add(pixelEdit.node.imageSequenceFrames.get(i).clone());
-                        pixelEdit.pixelUndoMeta.add(-1);
-                    }
-                    pixelEdit.pixelUndoStack.add(new int[]{frameCount}); // count marker
-                    pixelEdit.pixelUndoMeta.add(frameCount);
-                    pixelEdit.pixelRedoStack.clear();
-                    pixelEdit.pixelRedoMeta.clear();
-                }
-                int[] newFrame = new int[pixelEdit.node.imageWidth * pixelEdit.node.imageHeight];
-                java.util.Arrays.fill(newFrame, 0x00000000);
-                pixelEdit.node.imageSequenceFrames.add(newFrame);
-                pixelEdit.frameIndex = pixelEdit.node.imageSequenceFrames.size() - 1;
-                pixelEdit.node.imagePixels = newFrame;
-                pixelEdit.newFrameMenuOpen = false;
-                sendFrameSync();
-                return true;
-            }
-            // Dropdown: "From current"
-            if (pixelEdit.newFrameMenuOpen && mx >= navX + 110 && mx <= navX + 210 && my >= navY + 26 && my <= navY + 36) {
-                int frameCount = pixelEdit.node.imageSequenceFrames.size();
-                if (pixelEdit.pixelUndoStack.size() + frameCount < 100) {
-                    for (int i = frameCount - 1; i >= 0; i--) {
-                        pixelEdit.pixelUndoStack.add(pixelEdit.node.imageSequenceFrames.get(i).clone());
-                        pixelEdit.pixelUndoMeta.add(-1);
-                    }
-                    pixelEdit.pixelUndoStack.add(new int[]{frameCount}); // count marker
-                    pixelEdit.pixelUndoMeta.add(frameCount);
-                    pixelEdit.pixelRedoStack.clear();
-                    pixelEdit.pixelRedoMeta.clear();
-                }
-                int[] newFrame = pixelEdit.node.imagePixels.clone();
-                pixelEdit.node.imageSequenceFrames.add(newFrame);
-                pixelEdit.frameIndex = pixelEdit.node.imageSequenceFrames.size() - 1;
-                pixelEdit.node.imagePixels = newFrame;
-                pixelEdit.newFrameMenuOpen = false;
-                sendFrameSync();
-                return true;
-            }
-        }
-
-        // Close dropdown if clicking elsewhere
-        if (pixelEdit.newFrameMenuOpen) { pixelEdit.newFrameMenuOpen = false; return true; }
-
-        // Click outside → close
-        if (mx < ox - 20 || mx > ox + gridPx + 20 || my < oy - 20 || my > oy + gridPx + 40) {
-            closePixelEditorSynced();
-            return true;
-        }
-
-        return false;
-    }
-
     @Override
     public boolean keyPressed(int key, int sc, int mod) {
         if (editor.colorPicker.isVisible()) {
-            // Ctrl+Z/Y handled here before colorPicker eats the key (pixel editor undo/redo)
-            // Ctrl+Z/Y 在此处处理，优先于 colorPicker（像素编辑器撤销/重做）
-            if (net.minecraft.client.gui.screens.Screen.hasControlDown() && pixelEdit != null && pixelEdit.open) {
-                if (key == 90) { performPixelUndo(); return true; }
-                if (key == 89) { performPixelRedo(); return true; }
-            }
-            // ESC: close color picker AND pixel editor together (not just the picker)
-            // ESC：同时关闭调色板与像素编辑器
-            if (key == 256 && pixelEdit != null && pixelEdit.open) {
-                closePixelEditorSynced();
-                return true;
-            }
             return editor.colorPicker.keyPressed(key, sc, mod);
-        }
-        // ── Pixel-editor undo/redo when colorPicker is not visible ──
-        if (net.minecraft.client.gui.screens.Screen.hasControlDown() && pixelEdit != null && pixelEdit.open) {
-            if (key == 90) { performPixelUndo(); return true; }
-            if (key == 89) { performPixelRedo(); return true; }
         }
         if (showSettings) {
             for (var f : settingFields) if (f.isFocused()) {
@@ -2052,14 +1630,6 @@ public class MonitorScreen extends AbstractGraphScreen {
                 return f.keyPressed(key, sc, mod);
             }
             if (key == 256) { previewScreenW = -1; previewScreenL = -1; showSettings = false; settingsInited = false; return true; }
-        }
-        if (pixelEdit != null && pixelEdit.open) {
-            // Color picker handles hex input; no separate hex editing needed
-            if (key == 256) { // ESC
-                closePixelEditorSynced();
-                return true;
-            }
-            return true; // consume all keys while pixel editor is open
         }
         if (displayMode) {
             // ESC cancels layer drag
@@ -2126,9 +1696,6 @@ public class MonitorScreen extends AbstractGraphScreen {
             for (var f : hudSettingFields) if (f.isFocused()) return f.charTyped(ch, mod);
             return false;
         }
-        if (pixelEdit != null && pixelEdit.open) {
-            return false;
-        }
         if (displayMode) {
             if (editingS && (Character.isDigit(ch) || ch == '.' || ch == '-')) {
                 if (editSBuf.length() < 8) editSBuf += ch; return true;
@@ -2141,24 +1708,21 @@ public class MonitorScreen extends AbstractGraphScreen {
         return editor.charTyped(ch, mod) || super.charTyped(ch, mod);
     }
 
-    /** 关界面前钩子：只提交尚未同步的局部编辑（EditBox/busBox/频段改名/像素编辑器/
+    /** 关界面前钩子：只提交尚未同步的局部编辑（EditBox/busBox/频段改名/
      *  进行中的显示区拖拽），全部走定向 op——不再全量上传整图。全量上传会用本客户端
      *  旧快照覆盖服务端图，冲掉其他玩家期间并发的编辑；图数据本身早已由各定向 op
      *  实时同步，服务端才是最新真相。设置面板保持显式 Apply 提交契约（ESC/× 为放弃）。
      *  Pre-close hook: commit only unsynced in-progress edits (EditBox / busBox /
-     *  band renames / pixel editor / active display drag) via targeted ops — no
-     *  whole-graph upload, which would overwrite the server graph with this client's
-     *  stale snapshot and clobber other players' concurrent edits; the graph is
-     *  already kept in sync live by targeted ops, so the server holds the truth.
-     *  The settings panel keeps its explicit-Apply contract (ESC/× discards). */
+     *  band renames / active display drag) via targeted ops — no whole-graph upload,
+     *  which would overwrite the server graph with this client's stale snapshot and
+     *  clobber other players' concurrent edits; the graph is already kept in sync live
+     *  by targeted ops, so the server holds the truth. The settings panel keeps its
+     *  explicit-Apply contract (ESC/× discards). */
     @Override protected void preClose() {
         if (getBE() == null) return;
         // 图编辑区的未提交输入（聚焦 EditBox、TAB 切焦点遗留文本、busBox、频段改名）
         // Pending graph-editor inputs (focused EditBox, text left by TAB focus move, busBox, band renames)
         editor.commitPendingEditsForClose();
-        // 像素编辑器开着 → 先定向同步当前帧再关（未同步的笔迹只存在于本地）
-        // Pixel editor open → targeted frame sync first (unsynced strokes are local-only)
-        if (pixelEdit != null && pixelEdit.open) closePixelEditorSynced();
         // 显示模式：进行中的拖拽等不到 mouseReleased → 补发最终 op
         // Display mode: an in-progress drag never gets mouseReleased → flush the final op
         if (displayMode) {

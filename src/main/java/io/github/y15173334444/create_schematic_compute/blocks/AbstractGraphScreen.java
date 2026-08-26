@@ -83,9 +83,19 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
         editor.onClose();                         // 保存临时视角书签 / save temporary view bookmark
         editor.clearRemotePresences();
         // 离开多人协作编辑会话 / leave collaborative editing session
-        PacketDistributor.sendToServer(new GraphLeavePacket(blockPos));
+        // （像素编辑器转移时跳过：屏幕被独立 PixelEditorScreen 替换，但会话必须保持——
+        //  像素编辑器屏不 join/leave，关闭后重建本屏再正常 join，幂等）
+        // (skipped during pixel-editor transfer: the screen is replaced by the standalone
+        //  PixelEditorScreen but the session must stay alive — the pixel-editor screen never
+        //  joins/leaves; the rebuilt screen re-joins idempotently afterwards)
+        if (!skipLeaveOnClose())
+            PacketDistributor.sendToServer(new GraphLeavePacket(blockPos));
         super.onClose();
     }
+
+    /** 关闭时是否跳过离开协作会话（像素编辑器转移用）。默认 false。
+     *  Whether to skip leaving the edit session on close (pixel-editor transfer). Default false. */
+    protected boolean skipLeaveOnClose() { return false; }
 
     @Override
     public void render(GuiGraphics g, int mx, int my, float pt) {

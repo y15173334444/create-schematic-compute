@@ -31,6 +31,8 @@ public enum OpType {
     SET_HOTBAR_ITEM,
     SET_IMAGE_PIXELS,       // stringValue=Base64 pixels, paramIndex=frameIndex
     SET_IMAGE_SIZE,         // IMAGE 画布尺寸 / canvas size: paramIndex=w, keyIndex=h (1..32)
+    REMOVE_IMAGE_FRAME,     // 删除 IMAGE_SEQUENCE 帧 / remove frame: paramIndex=frameIndex
+    MOVE_IMAGE_FRAME,       // 重排 IMAGE_SEQUENCE 帧 / move frame: paramIndex=from, keyIndex=to
 
     // UI State
     EXPAND_NODE,

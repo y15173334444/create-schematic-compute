@@ -69,6 +69,17 @@ public class PortableTerminalScreen extends Screen {
     public interface HostWrapper {
         /** 获取被包装的内部屏幕 / Get the wrapped inner screen. */
         Screen getInnerScreen();
+        /** 获取包装器关闭后要恢复的终端界面（像素编辑器转移重建包装用），无则 null。
+         *  The terminal screen restored when the wrapper closes (used to rebuild the wrapper
+         *  after a pixel-editor transfer), or null when not applicable. */
+        default Screen getTerminalScreen() { return null; }
+    }
+
+    /** 把编辑界面包进终端包装器（像素编辑器关闭后重建包装用）。
+     *  Wrap an editor screen in the terminal wrapper (used to rebuild the wrapper after
+     *  the pixel editor closes). */
+    public Screen wrapForEditing(Screen inner) {
+        return new TerminalWrapper(inner, this);
     }
 
     /** Currently active instance of this screen, used by network packet handlers
@@ -748,5 +759,8 @@ public class PortableTerminalScreen extends Screen {
         /** Returns the inner screen for GraphEditor unwrapping /
          *  返回内部界面供 GraphEditor 解包 */
         @Override public Screen getInnerScreen() { return inner; }
+        /** Returns the terminal screen restored on close (pixel-editor transfer rebuild) /
+         *  返回关闭时恢复的终端界面（像素编辑器转移重建包装用） */
+        @Override public Screen getTerminalScreen() { return terminal; }
     }
 }

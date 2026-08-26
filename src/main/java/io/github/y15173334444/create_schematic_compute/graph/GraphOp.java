@@ -187,6 +187,29 @@ public record GraphOp(
             null, 0, 0, 0, 0, null, h, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
     }
 
+    /**
+     * 删除 IMAGE_SEQUENCE 帧。paramIndex=frameIndex。服务端保留至少一帧（清空而非删光）。
+     * Remove an IMAGE_SEQUENCE frame. paramIndex=frameIndex. The server keeps at least
+     * one frame (last frame is cleared rather than removed).
+     */
+    public static GraphOp removeImageFrame(BlockPos pos, int ownerNodeId, int nodeId,
+                                            int frameIndex, UUID actor) {
+        return new GraphOp(OpType.REMOVE_IMAGE_FRAME, pos, ownerNodeId, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, frameIndex, 0f,
+            null, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
+    /**
+     * 移动 IMAGE_SEQUENCE 帧（重排）。paramIndex=from, keyIndex=to。
+     * Move an IMAGE_SEQUENCE frame (reorder). paramIndex=from, keyIndex=to.
+     */
+    public static GraphOp moveImageFrame(BlockPos pos, int ownerNodeId, int nodeId,
+                                          int from, int to, UUID actor) {
+        return new GraphOp(OpType.MOVE_IMAGE_FRAME, pos, ownerNodeId, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, from, 0f,
+            null, 0, 0, 0, 0, null, to, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
     /** 添加共享视角书签。 stringValue=name, x=camX, y=camY, paramValue=zoom */
     public static GraphOp addBookmark(BlockPos pos, int ownerNodeId,
                                         String name, float camX, float camY, float zoom, UUID actor) {

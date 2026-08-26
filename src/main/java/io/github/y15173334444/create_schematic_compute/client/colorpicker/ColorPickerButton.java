@@ -24,33 +24,25 @@ public class ColorPickerButton {
     private final ColorPickerWidget picker;
     private final boolean leftSide;
     private final Consumer<Integer> liveUpdate;
-    private final boolean showErase;
     private boolean selected;
 
     public ColorPickerButton(Supplier<Integer> getter, Consumer<Integer> setter,
                              ColorPickerWidget picker) {
-        this(getter, setter, picker, false, null, false);
+        this(getter, setter, picker, false, null);
     }
 
     public ColorPickerButton(Supplier<Integer> getter, Consumer<Integer> setter,
                              ColorPickerWidget picker, boolean leftSide) {
-        this(getter, setter, picker, leftSide, null, false);
+        this(getter, setter, picker, leftSide, null);
     }
 
     public ColorPickerButton(Supplier<Integer> getter, Consumer<Integer> setter,
                              ColorPickerWidget picker, boolean leftSide, Consumer<Integer> liveUpdate) {
-        this(getter, setter, picker, leftSide, liveUpdate, false);
-    }
-
-    public ColorPickerButton(Supplier<Integer> getter, Consumer<Integer> setter,
-                             ColorPickerWidget picker, boolean leftSide, Consumer<Integer> liveUpdate,
-                             boolean showErase) {
         this.colorGetter = getter;
         this.colorSetter = setter;
         this.picker = picker;
         this.leftSide = leftSide;
         this.liveUpdate = liveUpdate;
-        this.showErase = showErase;
     }
 
     public void setPosition(int x, int y) {
@@ -96,7 +88,7 @@ public class ColorPickerButton {
             if (picker.isVisible()) {
                 picker.rebind(colorGetter.get(), selected -> colorSetter.accept(selected), liveUpdate);
             } else {
-                picker.open((int) mx, (int) my, colorGetter.get(), selected -> colorSetter.accept(selected), liveUpdate, leftSide, showErase);
+                picker.open((int) mx, (int) my, colorGetter.get(), selected -> colorSetter.accept(selected), liveUpdate, leftSide);
             }
             return true;
         }
