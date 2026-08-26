@@ -173,14 +173,14 @@ io.github.y15173334444.create_schematic_compute/
 `GraphOp` 应用执行器。服务端和客户端共享，确保变更逻辑单一定义。
 / Shared `GraphOp` executor used by both server and client — single source of truth for all mutations.
 
-**处理 29 种 OpType / Handles 29 OpTypes**：ADD_NODE_REQUEST, ADD_NODE, REMOVE_NODE, MOVE_NODE, ADD_CONN, REMOVE_CONN, SET_PARAM, SET_FORMULA, SET_COMMENT_TEXT, SET_COMMENT_COLORS, SET_COMMENT_SIZE, SET_DISPLAY_TEXT, SET_TEXT_COLOR, SET_BANDS, SET_ZORDER, SET_KEY_BINDING, SET_IMAGE_FRAME_TOGGLE, SET_DISPLAY_LAYOUT, TOGGLE_BOOL, SET_HOTBAR_ITEM, SET_IMAGE_PIXELS, EXPAND_NODE, COLLAPSE_NODE, ADD_BOOKMARK, REMOVE_BOOKMARK, RENAME_BOOKMARK, MOVE_BOOKMARK, SET_CTRL_POINTS, REJECT
+**处理 31 种 OpType / Handles 31 OpTypes**：ADD_NODE_REQUEST, ADD_NODE, REMOVE_NODE, MOVE_NODE, ADD_CONN, REMOVE_CONN, SET_PARAM, SET_FORMULA, SET_COMMENT_TEXT, SET_COMMENT_COLORS, SET_COMMENT_SIZE, SET_DISPLAY_TEXT, SET_TEXT_COLOR, SET_BANDS, SET_ZORDER, SET_KEY_BINDING, SET_IMAGE_FRAME_TOGGLE, SET_DISPLAY_LAYOUT, TOGGLE_BOOL, SET_HOTBAR_ITEM, SET_IMAGE_PIXELS, SET_IMAGE_SIZE, REMOVE_IMAGE_FRAME, MOVE_IMAGE_FRAME, EXPAND_NODE, COLLAPSE_NODE, ADD_BOOKMARK, REMOVE_BOOKMARK, RENAME_BOOKMARK, MOVE_BOOKMARK, SET_CTRL_POINTS, REJECT
 
 ### GraphOp / OpType
 `GraphOp`：**28 字段** record + **20 个静态方法**（19 个工厂 + `parseCtrlPoints` helper）。
 / 28-field record + 20 static methods (19 factories + 1 helper).
 - `blobRefId` — 非零 → 经 `BlobRegistry` 取大数据 / non-zero → BlobRegistry lookup
 - `imageData` — IMAGE 像素直接以 `int[]` 传输（替代 Base64 `stringValue`）/ direct pixel array
-- `OpType`：**29 种**操作枚举 / 29-operation enum
+- `OpType`：**31 种**操作枚举 / 31-operation enum
 
 ### DebugSignals
 DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
@@ -391,9 +391,10 @@ Sable 子层级兼容工具 / Sable sub-level compat utilities.
 | `GeometryConstants.java` | 统一布局常量 / Unified layout constants |
 | `MultiLineEditBox.java` | 多行文本编辑 / Multi-line text editing |
 | `PortableTerminalScreen.java` | 便携终端 UI / Portable terminal UI |
+| `PixelEditorScreen.java` | 独立像素编辑器（v1.2.6+，绘画软件式 UI：**响应式瓦片布局**——顶栏 + 左面板（PS 式单列工具列：紧贴左缘/右分隔线、无单独按钮边框、仅悬停/选中时整块高亮矩形，约 30px 宽；笔刷/透明度/当前色当前隐藏）+ 默认收起的右取色器面板已改为**内嵌式常驻右侧面板**（约 0.8x，面板铺满右缘到屏幕底部、无标题，常用/最近标题字放大+更多行，实心底+左分隔线、非浮空弹窗）+ 可缩放平移画布（无边框、无 scissor 遮罩，画布被组件用深度缓冲遮挡）+ 底部序列区（±/导航等按钮行紧靠在缩略图条上方，缩略图条紧贴屏幕底部、缩略图按宽高比动态缩放：高固定、宽动态、无边框）；每个面板内容约束在自身条带内、控件相对面板锚点定位，任何窗口尺寸不重叠；画布尺寸为「画布」按钮弹窗；另有 G 网格开关、Fit 缩放按钮、上下文状态栏与 B/E/F/I/L/R/H、1..7、`[`/`]` 快捷键；实现 `GraphEditor.Host` 使整图同步守卫与 sendOp 计数生效；双击 IMAGE/IMAGE_SEQUENCE 节点从 MonitorScreen 打开，关闭后恢复图编辑器或终端包装）/ Standalone pixel editor (painting-app UI: **responsive tile layout** — top bar + left panel (PS-style single-column tool rail: flush against the left edge and the right divider, no per-cell borders, only a full-cell highlight on hover/selected, ~30px wide; brush/opacity/current color currently hidden) + collapsed-by-default right color-picker panel replaced by an embedded always-on right panel (scaled ~0.8x, the panel fills the right band down to the screen bottom with no title, bigger section titles and more favorite/recent rows, solid bg + left divider, not a floating popup) + zoomable/pannable canvas (borderless, no scissor mask — the canvas is occluded by the panels via the depth buffer) + bottom sequence area (a button row with ◀/▶ nav, +New and Delete directly above a thumbnail strip that is flush against the bottom of the screen, with thumbnails scaled to the image aspect — fixed height, dynamic width, borderless); each panel keeps its content in its own strip and positions controls relative to its own anchor, so nothing overlaps at any window size; canvas size via a "Canvas" button popup; plus a G grid toggle, a Fit zoom button, a context status bar and B/E/F/I/L/R/H + 1..7 + `[`/`]` shortcuts; implements `GraphEditor.Host` so the full-sync guard and sendOp counting keep working; opened by double-clicking an IMAGE/IMAGE_SEQUENCE node, restores the graph editor or terminal wrapper on close) |
 | `RadarLockHandler.java` | 雷达锁定交互 / Radar lock interaction |
 | `colorpicker/ColorPickerButton.java` | 颜色选择按钮 / Color picker button |
-| `colorpicker/ColorPickerWidget.java` | 颜色选择器浮层 / Color picker overlay |
+| `colorpicker/ColorPickerWidget.java` | 颜色选择器组件：支持 `setScale`（缩放渲染 + 鼠标逆变换）与 `setEmbedded`（内嵌模式：无浮空外框、无标题、无「确定/橡皮擦」按钮、不随外部点击关闭；常用/最近 4 行、标题字放大、更高）供像素编辑器内嵌式常驻调色板停靠；**这些行数/高度/标题改动只在内嵌模式生效**，浮空模式（GraphEditor/MonitorScreen）保持原 2 行、246 高、确定键在原位；橡皮擦按钮及逻辑已整体移除；其余调用方仍作浮空弹窗使用（浮空模式保留「确定」按钮）/ Color picker widget: supports `setScale` (scaled render + inverse mouse mapping) and `setEmbedded` (embedded mode: no floating frame, no title, no OK/eraser buttons, no outside-click close; 4 favorite/recent rows, bigger titles, taller) for the pixel editor's embedded palette; **these row/height/title changes apply only in embedded mode** — floating mode (GraphEditor/MonitorScreen) keeps the original 2-row, 246px layout and OK position; the eraser button & logic were removed; other callers keep the floating-popup behaviour (floating mode retains the OK button) |
 | `colorpicker/ColorUtils.java` | 颜色工具 / Color utilities |
 | `colorpicker/RecentColors.java` | 最近使用颜色持久化 / Recent colors persistence |
 | `renderer/MonitorBlockEntityRenderer.java` | 全息显示器 3D 渲染 + HUD 虚像（近处玻璃 + 远处画布 + 相机空间深度锚定 + 手动字形文字）/ Holographic monitor 3D renderer + HUD virtual image (near glass + far canvas + camera-space depth anchor + manual-glyph text) |
