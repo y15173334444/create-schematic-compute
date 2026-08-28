@@ -584,7 +584,7 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 ## 📜 Changelog / 更新日志
 
 <details>
-<summary><b>v1.2.5</b> — 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / Formula Language Upgrade: Control Flow + vec3 + Budget Pool / GUI Architecture Migration / Pixel Editor</summary>
+<summary><b>v1.2.5</b> — 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 / Formula Language Upgrade: Control Flow + vec3 + Budget Pool / GUI Architecture Migration / Pixel Editor / Programmable Gearbox</summary>
 
 ### 🧮 公式语法升级 / Formula Syntax Upgrade
 
@@ -733,6 +733,18 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 | 🧪 编解码回归测试 / Codec regression test | 新增 `MonitorSettingsPacketCodecTest`：15 字段编解码往返逐字段一致 + 字段流顺序断言（vis 位于 HUD 组之后）/ New `MonitorSettingsPacketCodecTest`: 15-field codec round-trip + byte-stream order assertion (vis sits after the HUD group) |
 
 - 详见 [`docs/monitor-mode-settings-merge-plan.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/monitor-mode-settings-merge-plan.md)。
+
+### 🎯 可编程变速箱 + 数控齿轮箱 / Programmable Transmission + CNC Gearbox
+
+| Feature / 功能 | Description / 说明 |
+|----------------|-------------------|
+| ⚙️ 可编程变速器 / Programmable Transmission | 新方块 `programmable_transmission`：由节点图编程目标转速（`TX_OUT` 节点），经 `RotationPropagatorMixin` 以**绝对速度**传导到机械网络 / New block: programs an absolute target RPM from the node graph (`TX_OUT` node), conveyed to the kinetic network via `RotationPropagatorMixin` |
+| 🎛️ 数控齿轮箱 / CNC Gearbox | 新方块 `cnc_gearbox`：离合 + 运动配额（quota）——速度由上游变速器决定，运动方块只做接合/脱开 / New block: clutch + motion quota — speed comes from the upstream transmission; the motion block only clutches |
+| 📜 指令栈节点 / Command-stack nodes | `MOVE`（米）/ `ROTATE`（度）/ `WAIT`（tick）——触点上升沿入队；`CLUTCH` 保持常接合意图；`ENCODER` 报告位置/速度，带电平触发复位引脚 / Rising edge enqueues; `CLUTCH` keeps standing engagement; `ENCODER` reports position/velocity with a level-triggered reset pin |
+| 🧩 参数引脚 / Param pins | 运动类节点输入成为可编辑参数（可选连线覆盖），与 CLAMP min/max 同机制 / Motion-category node inputs become editable params with optional wire override |
+| 🧠 触发级内存 / Trigger-level memory | `nodeEdge` 状态跨重编译、BE 重建与存档重载存活 / survives recompiles, BE recreation and reloads |
+| 🐛 修复 / Fixes | 负方向网络不再卡死运动配额（quota 永续楔死）/ negative-direction networks no longer wedge the motion quota forever |
+| 📚 文档 / Docs | [`docs/programmable-gearbox-plan.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/programmable-gearbox-plan.md) · [`docs/programmable-gearbox-eval.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/programmable-gearbox-eval.md) · [`docs/programmable-gearbox-handoff.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/programmable-gearbox-handoff.md) · [`docs/graph-host-convergence-plan.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/graph-host-convergence-plan.md) |
 
 </details>
 
