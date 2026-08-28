@@ -4,5 +4,11 @@
     "compatibilityLevel": "JAVA_21",
     "client": [
         "LocalPlayerMixin"
+    ],
+    "mixins": [
+        "RotationPropagatorMixin"
+    ],
+    "server": [
+        "RotationPropagatorDiagnosticsMixin"
     ]
 }

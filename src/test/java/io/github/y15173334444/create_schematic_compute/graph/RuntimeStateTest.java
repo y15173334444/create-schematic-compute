@@ -356,4 +356,18 @@ class RuntimeStateTest {
         assertTrue(keys.contains(100099));
         assertTrue(keys.contains(200099));
     }
+
+    @Test
+    @DisplayName("nodeEdge persists through save/load (trigger-level memory survives reload)")
+    void nodeEdgeSaveLoadRoundTrip() {
+        var rs = new RuntimeState();
+        rs.nodeEdge.put(7, true);
+        rs.nodeEdge.put(9, false);
+        rs.pidState.put(7, 1.5f);
+
+        var restored = RuntimeState.load(rs.save());
+        assertEquals(Boolean.TRUE, restored.nodeEdge.get(7));
+        assertEquals(Boolean.FALSE, restored.nodeEdge.get(9));
+        assertEquals(1.5f, restored.pidState.get(7), 0.0001f);
+    }
 }

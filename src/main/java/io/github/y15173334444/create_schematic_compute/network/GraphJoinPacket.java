@@ -70,14 +70,11 @@ public record GraphJoinPacket(BlockPos pos) implements CustomPacketPayload {
             if (!(be instanceof GraphBlockEntity)) return;
             // 3. Safe to join — register player into the edit session and trigger full sync
             //    安全检查通过，将玩家注册到编辑会话中，并触发对应方块实体的全量同步
+            // （flagFullSync 走 GraphBlockEntity 接口，继承线与组合线宿主统一处理）
+            // (flagFullSync goes through the GraphBlockEntity interface — handles both
+            //  inheritance-line and composition-line hosts uniformly)
             EditSessionRegistry.join(sp.serverLevel(), pkt.pos, sp.getUUID());
-            if (be instanceof BlueprintBlockEntity bbe) bbe.flagFullSync();
-            else if (be instanceof MonitorBlockEntity mbe) mbe.flagFullSync();
-            else if (be instanceof RadarBlockEntity rbe) rbe.flagFullSync();
-            else if (be instanceof SensorBlockEntity sbe) sbe.flagFullSync();
-            else if (be instanceof ControlSeatBlockEntity cbe) cbe.flagFullSync();
-            else if (be instanceof SpeedProxyBlockEntity spbe) spbe.flagFullSync();
-            else if (be instanceof ProgramComputerBlockEntity pbe) pbe.flagFullSync();
+            ((GraphBlockEntity) be).flagFullSync();
             // Send the initial update packet to the joining player so their UI reflects current state
             // 向加入的玩家发送初始更新数据包，使其UI反映当前方块状态
             var update = be.getUpdatePacket();

@@ -52,6 +52,20 @@ public class SchematicCompute {
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<SpeedProxyBlockEntity>> SPEED_PROXY_BE =
             BLOCK_ENTITIES.register("speed_proxy", () -> BlockEntityType.Builder.of(SpeedProxyBlockEntity::new, SPEED_PROXY_BLOCK.get()).build(null));
 
+    // 数控齿轮箱（Kinetic 线 + 组合式图托管）
+    public static final DeferredHolder<Block, ProgrammableTransmissionBlock> TRANSMISSION_BLOCK =
+            BLOCKS.register("programmable_transmission", () -> new ProgrammableTransmissionBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
+    public static final DeferredHolder<Item, BlockItem> TRANSMISSION_ITEM =
+            ITEMS.register("programmable_transmission", () -> new BlockItem(TRANSMISSION_BLOCK.get(), new Item.Properties()));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<ProgrammableTransmissionBlockEntity>> TRANSMISSION_BE =
+            BLOCK_ENTITIES.register("programmable_transmission", () -> BlockEntityType.Builder.of(ProgrammableTransmissionBlockEntity::new, TRANSMISSION_BLOCK.get()).build(null));
+    public static final DeferredHolder<Block, CncGearboxBlock> CNC_GEARBOX_BLOCK =
+            BLOCKS.register("cnc_gearbox", () -> new CncGearboxBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
+    public static final DeferredHolder<Item, BlockItem> CNC_GEARBOX_ITEM =
+            ITEMS.register("cnc_gearbox", () -> new BlockItem(CNC_GEARBOX_BLOCK.get(), new Item.Properties()));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<CncGearboxBlockEntity>> CNC_GEARBOX_BE =
+            BLOCK_ENTITIES.register("cnc_gearbox", () -> BlockEntityType.Builder.of(CncGearboxBlockEntity::new, CNC_GEARBOX_BLOCK.get()).build(null));
+
     // 编程计算机
     public static final DeferredHolder<Block, ProgramComputerBlock> PROGRAM_BLOCK =
             BLOCKS.register("program_computer", () -> new ProgramComputerBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
@@ -117,6 +131,8 @@ public class SchematicCompute {
                 .displayItems((params, output) -> {
                     output.accept(BLUEPRINT_ITEM.get());
                     output.accept(SPEED_PROXY_ITEM.get());
+                    output.accept(TRANSMISSION_ITEM.get());
+                    output.accept(CNC_GEARBOX_ITEM.get());
                     output.accept(PROGRAM_ITEM.get());
                     output.accept(CONTROL_SEAT_ITEM.get());
                     output.accept(SENSOR_ITEM.get());
@@ -202,6 +218,8 @@ public class SchematicCompute {
         };
         SafeNbtWriterRegistry.REGISTRY.register(BLUEPRINT_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(SPEED_PROXY_BE.get(), writer);
+        SafeNbtWriterRegistry.REGISTRY.register(TRANSMISSION_BE.get(), writer);
+        SafeNbtWriterRegistry.REGISTRY.register(CNC_GEARBOX_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(PROGRAM_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(CONTROL_SEAT_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(SENSOR_BE.get(), writer);

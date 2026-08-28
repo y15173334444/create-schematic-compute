@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "axis=x": {
+      "model": "create_schematic_compute:block/transmission_x"
+    },
+    "axis=z": {
+      "model": "create_schematic_compute:block/transmission_z"
+    }
+  }
+}

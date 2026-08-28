@@ -91,6 +91,20 @@ public enum NodeType {
     ENCAP_OUTPUT("encap_output", "node.create_schematic_compute.encap_output", 1, 0, "name"),
     // Radar  /  Radar
     TARGET_OUT("target_out", "node.create_schematic_compute.target_out", 0, 5, ""),
+    // Kinetic 线宿主专用 / Kinetic-line hosts（变速器 / 数控齿轮箱）
+    // Programmable transmission: program target RPM (absolute, mixin-conveyed)
+    TX_OUT("tx_out", "node.create_schematic_compute.tx_out", 1, 1, ""),
+    // 指令栈节点：触点上升沿入队 / command-stack nodes: rising edge enqueues
+    // （触点=实引脚；数值为可编辑参数+可选连线覆盖 / trigger = real pin; value =
+    //   editable param with optional wire override，与 CLAMP min/max 同机制）
+    // （速度由上游变速器决定，运动方块只做离合 / speed comes from the upstream
+    //   transmission; the motion block only clutches）
+    MOVE("move", "node.create_schematic_compute.move", 1, 1, "meters"),
+    ROTATE("rotate", "node.create_schematic_compute.rotate", 1, 1, "degrees"),
+    WAIT("wait", "node.create_schematic_compute.wait", 1, 1, "ticks"),
+    // 常接合意图（离合保持）/ standing clutch intent
+    CLUTCH("clutch", "node.create_schematic_compute.clutch", 0, 1, "engaged"),
+    ENCODER("encoder", "node.create_schematic_compute.encoder", 0, 3, "reset"),
     // Debug tools / 调试工具
     DEBUG_SIGNAL_GEN("debug_signal_gen", "node.create_schematic_compute.debug_signal_gen", 0, 1, "setMode,outMode,speed,amplitude,inputX"),
     DEBUG_PROBE("debug_probe", "node.create_schematic_compute.debug_probe", 1, 1, "windowSize,autoScale"),
@@ -191,6 +205,8 @@ public enum NodeType {
         case IMAGE_SEQUENCE -> i == 0 ? pk("x") : i == 1 ? pk("y") : i == 2 ? pk("frame") : pk("rotation");
         case HUD_PITCH_LADDER -> i == 0 ? pk("pitch") : pk("roll");
         case DIRECTION -> i==0?pk("ax"):i==1?pk("ay"):i==2?pk("az"):i==3?pk("bx"):i==4?pk("by"):pk("bz");
+        case TX_OUT -> pk("rpm");
+        case MOVE, ROTATE, WAIT -> pk("trigger");
         case ENCAPSULATION -> pk("in"); // 动态标签，来自子图 ENCAP_INPUT 名称 / dynamic label from sub-graph ENCAP_INPUT name
         case ENCAP_OUTPUT -> pk("val");
         case RELAY_A, RELAY_B -> switch(i) { case 0 -> pk("relay_a_in"); case 1 -> pk("relay_b_in"); default -> pk("relay_contact"); };
@@ -237,6 +253,10 @@ public enum NodeType {
         case HUD_PITCH_LADDER -> i == 0 ? pk("pitch") : pk("roll");
         case RELAY_A -> switch(i) { case 0 -> pk("relay_a_out"); default -> pk("relay_b_out"); };
         case RELAY_B -> pk("relay_out");
+        case TX_OUT -> pk("rpm");
+        case CLUTCH -> pk("engaged");
+        case ENCODER -> i == 0 ? pk("pos_deg") : i == 1 ? pk("pos_m") : pk("vel");
+        case MOVE, ROTATE, WAIT -> pk("done");
         default -> "";
     };}
 }

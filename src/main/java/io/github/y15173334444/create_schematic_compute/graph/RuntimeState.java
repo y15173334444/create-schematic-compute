@@ -124,7 +124,21 @@ public class RuntimeState {
         pulseTimers.clear();
         debugTime.clear();
         subStates.clear();
+        nodeEdge.clear();
     }
+
+    /** MOVE/ROTATE/WAIT 触点的上一 tick 电平（键=节点 id）。上升沿检测用。
+     *  持久化（v2 起）：触发电平记忆若在存档重载/离合翻转导致的实体重建后丢失，
+     *  "常高"信号会被误判为新的上升沿 → 指令栈被反复重新入队（"输入指令后一直
+     *  在转"事故根因）。持久化后，重载时保持原电平，常高信号只在真正拉低再拉高
+     *  时触发。
+     *  Previous-tick trigger level for MOVE/ROTATE/WAIT (key = node id) for rising-
+     *  edge detection. Persisted (since v2): losing the level memory across saves or
+     *  block-entity recreations (clutch flips) misjudges a held-high signal as a NEW
+     *  rising edge and re-enqueues commands forever (the "command never stops" root
+     *  cause). Persisted, a held-high signal only fires after a real low→high
+     *  transition. */
+    public final java.util.Map<Integer, Boolean> nodeEdge = new java.util.HashMap<>();
 
     /** 从存活节点 ID 构建完整键集（含辅助槽位：flipflop 的 -(id+1)、ACCUMULATOR/INTEGRATOR 的 id+100000/id+200000）。
      *  Build the full key set from alive node IDs (incl. auxiliary slots: flipflop's
@@ -158,6 +172,7 @@ public class RuntimeState {
         pulseTimers.keySet().removeIf(k -> !keys.contains(k));
         debugTime.keySet().removeIf(k -> !keys.contains(k));
         subStates.keySet().removeIf(k -> !aliveIds.contains(k));
+        nodeEdge.keySet().removeIf(k -> !keys.contains(k));
     }
 
     // ── NBT 序列化 ──────────────────────────────────────────────────────
@@ -188,6 +203,13 @@ public class RuntimeState {
             for (var e : pidState.entrySet())
                 p.putFloat(String.valueOf(e.getKey()), e.getValue());
             tag.put("pid", p);
+        }
+        // 触发电平记忆（持久化语义见字段注释） / trigger level memory (see field doc)
+        if (!nodeEdge.isEmpty()) {
+            CompoundTag ne = new CompoundTag();
+            for (var e : nodeEdge.entrySet())
+                ne.putBoolean(String.valueOf(e.getKey()), e.getValue());
+            tag.put("nodeEdge", ne);
         }
         if (!delayQueues.isEmpty()) {
             CompoundTag d = new CompoundTag();
@@ -290,6 +312,11 @@ public class RuntimeState {
                 // 键从 String 解析回 Integer（节点 ID）
                 // Parse key from String back to Integer (node ID)
                 rs.pidState.put(Integer.parseInt(k), p.getFloat(k));
+        }
+        if (tag.contains("nodeEdge")) {
+            var ne = tag.getCompound("nodeEdge");
+            for (var k : ne.getAllKeys())
+                rs.nodeEdge.put(Integer.parseInt(k), ne.getBoolean(k));
         }
         if (tag.contains("delay")) {
             var d = tag.getCompound("delay");

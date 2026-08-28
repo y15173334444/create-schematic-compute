@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "BGB",
+    "CRC",
+    "BAB"
+  ],
+  "key": {
+    "B": {
+      "item": "create:brass_ingot"
+    },
+    "C": {
+      "item": "create:cogwheel"
+    },
+    "G": {
+      "item": "create:electron_tube"
+    },
+    "R": {
+      "item": "minecraft:comparator"
+    },
+    "A": {
+      "item": "create:andesite_casing"
+    }
+  },
+  "result": {
+    "id": "create_schematic_compute:cnc_gearbox"
+  }
+}

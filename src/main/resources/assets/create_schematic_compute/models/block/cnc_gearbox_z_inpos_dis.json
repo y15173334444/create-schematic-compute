@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "create_schematic_compute:block/sp_5",
+    "north": "minecraft:block/gray_concrete",
+    "south": "minecraft:block/blue_concrete",
+    "east": "create_schematic_compute:block/sp_5",
+    "west": "create_schematic_compute:block/sp_5",
+    "up": "create_schematic_compute:block/sp_5",
+    "down": "create_schematic_compute:block/sp_5"
+  }
+}

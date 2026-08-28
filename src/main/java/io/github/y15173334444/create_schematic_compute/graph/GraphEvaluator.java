@@ -33,6 +33,22 @@ public class GraphEvaluator {
     private final Map<Integer, float[]> outputs = new HashMap<>();
     private net.minecraft.core.BlockPos radarPos = null;
     public void setRadarPos(net.minecraft.core.BlockPos pos) { this.radarPos = pos; }
+    /** ENCODER 节点的宿主视图（由托管齿轮箱 BE 在重建求值器后注入；null 时输出 0）。
+     *  Host view for ENCODER nodes (injected by the hosting gearbox BE after evaluator
+     *  rebuilds; outputs 0 when null). */
+    private KineticEncoderView encoderView = null;
+    public void setEncoderView(KineticEncoderView view) { this.encoderView = view; }
+    /** 指令下沉引用（宿主齿轮箱在重建求值器后注入；MOVE/ROTATE/WAIT 上升沿入队）。
+     *  Command sink (host gearbox injects after evaluator rebuilds). */
+    private GearboxCommandSink commandSink = null;
+    public void setCommandSink(GearboxCommandSink sink) { this.commandSink = sink; }
+    /** 完成脉冲载体：指令完成时由宿主置为该指令的入队节点 ID，下一 tick 对应节点
+     *  o[0] 输出一帧 1，随后宿主清空。瞬态、不持久化。
+     *  Done-pulse carrier: set by the host when a command finishes; next tick the
+     *  matching node outputs a one-frame 1, then the host clears it. Transient. */
+    private Integer completedNodeId = null;
+    public void setCompletedNodeId(Integer nodeId) { this.completedNodeId = nodeId; }
+    public void clearCompletedNodeId() { this.completedNodeId = null; }
     // FORMULA script parsing is now unified through GraphNode.cachedScript.
     // The eval branch calls node.ensureScriptParsed() which checks sourceFormula
     // freshness (方案 A) — this guarantees the same ScriptParseResult is used for
@@ -852,6 +868,54 @@ public class GraphEvaluator {
             case TARGET_OUT -> {
                 var t = radarPos != null ? io.github.y15173334444.create_schematic_compute.radar.TargetAssignment.getTarget(radarPos, node.id) : null;
                 if (t != null) { o[0] = (float) t.x(); o[1] = (float) t.y(); o[2] = (float) t.z(); o[3] = t.entityId(); o[4] = t.distance(); }
+            }
+            case TX_OUT -> {
+                // 透传期望输出转速（RPM，绝对值）；真正的写入由宿主变速器在目标变更时
+                // 经官方拆建序列完成 —— 求值器本身不产生副作用。
+                // Passthrough desired output speed (RPM, absolute); the write happens in
+                // the host transmission via the official teardown sequence on target
+                // change — the evaluator itself has no side effects.
+                o[0] = graph.getInputValue(node.id, 0, outputs);
+            }
+            case CLUTCH -> {
+                // 常接合意图（>0.5 视为接合）：参数 EditBox 为默认值，连线覆盖。
+                // Standing clutch intent (>0.5 = engaged): the param EditBox is the
+                // default, a wire overrides it. The write happens in the host clutch
+                // state machine.
+                float v = graph.getInputValueOrDefault(node.id, 0, outputs,
+                        node.params.length > 0 ? node.params[0] : 0f);
+                o[0] = Float.isFinite(v) && v > 0.5f ? 1f : 0f;
+            }
+            case ENCODER -> {
+                // 读运动反馈：角度位置（度）、线性位置（米）、实际转速（RPM）。
+                // 复位电平触发（参数默认值/连线覆盖）：拉高即清零累计（持续拉高 = 持续保持零）。
+                // Motion feedback: angle (deg), linear position (m), actual speed (RPM).
+                // The reset is level-triggered (param default / wire override): high =
+                // zero the accumulators (held high = held at zero).
+                float rst = graph.getInputValueOrDefault(node.id, 0, outputs,
+                        node.params.length > 0 ? node.params[0] : 0f);
+                if (encoderView != null && Float.isFinite(rst) && rst > 0.5f)
+                    encoderView.resetEncoder();
+                o[0] = encoderView != null ? encoderView.encoderPosition() : 0;
+                o[1] = encoderView != null ? encoderView.encoderPositionMeters() : 0;
+                o[2] = encoderView != null ? encoderView.encoderVelocity() : 0;
+            }
+            case MOVE, ROTATE, WAIT -> {
+                // 触点上升沿 → 采样数值/rpm 入队；完成脉冲经 completedNodeId 一帧回放。
+                // Rising edge → snapshot value/rpm and enqueue; done pulse replays via completedNodeId.
+                float trig = graph.getInputValue(node.id, 0, outputs);
+                boolean cur = trig > 0.5f;
+                boolean prev = runtimeState != null && runtimeState.nodeEdge.getOrDefault(node.id, false);
+                if (cur && !prev && commandSink != null) {
+                    // 数值：参数 EditBox 为默认值，连线覆盖（上升沿当帧快照）。
+                    // Value: param EditBox default, wire overrides (snapshotted at edge).
+                    float val = graph.getInputValueOrDefault(node.id, 1, outputs,
+                            node.params.length > 0 ? node.params[0] : 0f);
+                    float rpmIn = node.type.inputs > 2 ? graph.getInputValue(node.id, 2, outputs) : 0f;
+                    commandSink.enqueue(new MotionCommand(node.type, val, rpmIn, node.id));
+                }
+                if (runtimeState != null) runtimeState.nodeEdge.put(node.id, cur);
+                o[0] = completedNodeId != null && completedNodeId == node.id ? 1f : 0f;
             }
             case ACCUMULATOR -> {
                 float inPlus = graph.getInputValue(node.id, 0, outputs);

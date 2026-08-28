@@ -198,6 +198,32 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     /** @return the node graph hosted by this BE / 此 BE 托管的节点图 */
     @Override public NodeGraph getNodeGraph() { return graph; }
 
+    // ── GraphBlockEntity 组合式成员的继承线桥接 ──
+    //     Bridges for the composition-oriented GraphBlockEntity members, so both the
+    //     inheritance line (this class) and the composition line (GraphHostCore-based
+    //     kinetic BEs) satisfy the same widened interface contract.
+
+    /** @see GraphBlockEntity#getPendingLocalOps */
+    @Override public int getPendingLocalOps() { return pendingLocalOps; }
+
+    /** @see GraphBlockEntity#setPendingLocalOps */
+    @Override public void setPendingLocalOps(int value) { pendingLocalOps = Math.max(0, value); }
+
+    /** @see GraphBlockEntity#getCachedEvalSnapshot */
+    @Override public EvalSnapshot getCachedEvalSnapshot() { return cachedEvalSnapshot; }
+
+    /** @see GraphBlockEntity#setCachedEvalSnapshot */
+    @Override public void setCachedEvalSnapshot(EvalSnapshot snapshot) { if (snapshot != null) cachedEvalSnapshot = snapshot; }
+
+    /** @see GraphBlockEntity#isGraphReady */
+    @Override public boolean isGraphReady() { return graphReady; }
+
+    /** @see GraphBlockEntity#peekSubStateFlipflops */
+    @Override public Map<Integer, Boolean> peekSubStateFlipflops(int encapNodeId) {
+        RuntimeState.SubState ss = runtimeState.subStates.get(encapNodeId);
+        return ss != null ? ss.flipflopStates : java.util.Collections.emptyMap();
+    }
+
     /** @return whether the graph evaluator is currently running / 图求值器当前是否在运行 */
     @Override public boolean isRunning() { return running; }
 
@@ -385,6 +411,7 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         Map<Integer, Integer> savedPulse = null;
         Map<Integer, Float> savedDebugTime = null;
         Map<Integer, RuntimeState.SubState> savedSubStates = null;
+        Map<Integer, Boolean> savedNodeEdge = null;
         NodeGraph oldGraph = lastEvaluatedGraph;
         if (oldGraph != null) {
             BusChannelHelper.syncDeletedBusNames(oldGraph, graph, worldPosition, level);
@@ -399,6 +426,7 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
             if (!runtimeState.subStates.isEmpty()) {
                 savedSubStates = new HashMap<>(runtimeState.subStates);
             }
+            savedNodeEdge = new HashMap<>(runtimeState.nodeEdge);
             runtimeState.clear();
         }
         unregisterRemovedBusOutNodes();
@@ -424,6 +452,7 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         // Restore main-graph sequential/integral state (pruned to alive nodes below).
         // 恢复主图时序/积分状态（下方按存活节点剪除）。
         if (savedPid != null) runtimeState.pidState.putAll(savedPid);
+        if (savedNodeEdge != null) runtimeState.nodeEdge.putAll(savedNodeEdge);
         if (savedDelay != null) runtimeState.delayQueues.putAll(savedDelay);
         if (savedFf != null) runtimeState.flipflopStates.putAll(savedFf);
         if (savedPulse != null) runtimeState.pulseTimers.putAll(savedPulse);
