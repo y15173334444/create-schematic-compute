@@ -79,7 +79,7 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
     public void onClose() {
         preClose();                               // 子类钩子：关界面前把 EditBox 输入写回 BE 等 / subclass hook: write EditBox input back to the BE etc.
         var be = getBE();
-        if (be != null) be.pendingLocalOps = 0;   // 复位本地编辑 op 守卫（对应 5892caa 的 pendingLocalOps 修复）/ reset pending-op guard
+        if (be != null) be.setPendingLocalOps(0);   // 复位本地编辑 op 守卫（对应 5892caa 的 pendingLocalOps 修复）/ reset pending-op guard
         editor.onClose();                         // 保存临时视角书签 / save temporary view bookmark
         editor.clearRemotePresences();
         // 离开多人协作编辑会话 / leave collaborative editing session
@@ -148,7 +148,7 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
     @Override public Screen asScreen() { return this; }
     @Override public void sendOp(GraphOp op) {
         var be = getBE();
-        if (be != null) be.pendingLocalOps++;     // 本地编辑 op 计数（回弹保护）/ count local edit op
+        if (be != null) be.setPendingLocalOps(be.getPendingLocalOps() + 1);     // 本地编辑 op 计数（回弹保护）/ count local edit op
         PacketDistributor.sendToServer(new GraphEditOpPacket(op));
     }
     @Override public void onRemoteOp(GraphOp op) { editor.onRemoteOp(op); }
@@ -163,10 +163,13 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
 
     /**
      * 返回当前客户端 BlockEntity，供 sendOp / onClose 访问 pendingLocalOps 守卫。
-     * 子类返回各自具体类型（协变返回即可）。
-     * Current client-side BlockEntity for the pendingLocalOps guard; subclasses return their concrete type (covariant).
+     * 子类返回各自具体类型（协变返回即可）。托管线放宽为 {@link GraphBlockEntity}，
+     * 使组合式 Kinetic 系方块实体（ProgrammableGearbox 等）也能打开图编辑器。
+     * Current client-side BlockEntity for the pendingLocalOps guard; subclasses return
+     * their concrete type (covariant). Widened to {@link GraphBlockEntity} so composition-based
+     * kinetic BEs (e.g. ProgrammableGearbox) can open graph editors too.
      */
-    protected abstract SyncedGraphBlockEntity getBE();
+    protected abstract GraphBlockEntity getBE();
 
     /**
      * 关界面前钩子：子类可在此把 EditBox 输入写回 BE（如 RadarScreen 的 applyInputs + hideInputs）。

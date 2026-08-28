@@ -913,9 +913,12 @@ public class GraphEditor {
         var be = host.getBlockPos() != null && net.minecraft.client.Minecraft.getInstance().level != null
             ? net.minecraft.client.Minecraft.getInstance().level.getBlockEntity(host.getBlockPos())
             : null;
-        if (be instanceof SyncedGraphBlockEntity sgbe) {
-            var ss = sgbe.runtimeState.subStates.get(encapsulationParent.id);
-            if (ss != null) return ss.flipflopStates;
+        // 面向 GraphBlockEntity 接口读取（支持继承线与组合线两类宿主）
+        // Read through the GraphBlockEntity interface (supports both inheritance-line and
+        // composition-line hosts).
+        if (be instanceof GraphBlockEntity gbe) {
+            var ff = gbe.peekSubStateFlipflops(encapsulationParent.id);
+            if (ff != null && !ff.isEmpty()) return ff;
         }
         return java.util.Collections.emptyMap();
     }
@@ -1007,8 +1010,8 @@ public class GraphEditor {
             // bounce-back guard doesn't stay latched. / 被拒 op 不会收到 ACK —— 递减待 ACK 计数。
             if (host.getBlockPos() != null
                 && net.minecraft.client.Minecraft.getInstance().level != null
-                && net.minecraft.client.Minecraft.getInstance().level.getBlockEntity(host.getBlockPos()) instanceof SyncedGraphBlockEntity sbe) {
-                sbe.pendingLocalOps = Math.max(0, sbe.pendingLocalOps - 1);
+                && net.minecraft.client.Minecraft.getInstance().level.getBlockEntity(host.getBlockPos()) instanceof GraphBlockEntity gbe) {
+                gbe.setPendingLocalOps(Math.max(0, gbe.getPendingLocalOps() - 1));
             }
             return;
         }

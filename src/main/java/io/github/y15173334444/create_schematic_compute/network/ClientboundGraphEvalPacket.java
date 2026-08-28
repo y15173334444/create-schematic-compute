@@ -171,8 +171,11 @@ public record ClientboundGraphEvalPacket(BlockPos pos, Map<Integer, float[]> out
             var level = ctx.player().level();
             if (level == null) return;
             var be = level.getBlockEntity(pos);
-            if (be instanceof io.github.y15173334444.create_schematic_compute.blocks.SyncedGraphBlockEntity sgbe) {
-                sgbe.cachedEvalSnapshot = new EvalSnapshot(outputs, debugTimes, subOutputs, subDebugTimes, formulaSpreads);
+            // 面向 GraphBlockEntity 接口写入（支持继承线与组合线两类宿主）
+            // Write through the GraphBlockEntity interface (supports both inheritance-line
+            // and composition-line hosts).
+            if (be instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity gbe) {
+                gbe.setCachedEvalSnapshot(new EvalSnapshot(outputs, debugTimes, subOutputs, subDebugTimes, formulaSpreads));
             }
         });
     }
