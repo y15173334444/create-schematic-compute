@@ -48,9 +48,9 @@
 | 1 | 运行时恢复不一致 | ✅ 阶段 0 抹平 |
 | 2 | nodeEdge 触发电平持久化语义 | ✅ 阶段 0 抹平 |
 | 3 | 老路径 `recompileEvaluator()` | ✅ 阶段 0 删除 |
-| 4 | 编辑回弹保护两处各写一份 | 📋 阶段 1 |
+| 4 | 编辑回弹保护两处各写一份 | ✅ 阶段 1 抹平 |
 | 5 | `subStates` 恢复策略相反（阶段 0 中新发现） | ✅ 阶段 0 抹平 |
-| 6 | Radar 覆写绕过编辑器回弹保护（阶段 0 中新发现） | 📋 阶段 1 |
+| 6 | Radar 覆写绕过编辑器回弹保护（阶段 0 中新发现） | ✅ 阶段 1 修复 |
 
 1. ~~**运行时恢复不一致**~~（✅ 已修）：`GraphHost.loadHostNBT` 完整恢复 pid/延时/触发器/
    脉冲/调试时间/nodeEdge；而 `SyncedGraphBlockEntity.loadAdditional` 只恢复 pidState。
@@ -61,14 +61,15 @@
 2. ~~nodeEdge 触发电平~~（✅ 已修）：持久化语义现由 `RuntimeStateRestoreTest` 覆盖，
    "常高信号重载后不重触发"与"拉低再拉高仍触发一次"均有断言。
 3. ~~老路径 `recompileEvaluator()`~~（✅ 已删）：ControlSeat / Radar / Sensor 迁移完毕。
-4. **编辑回弹保护**（pendingLocalOps / 像素编辑 / 显示拖拽查询）两处各写一份 → 阶段 1。
+4. ~~**编辑回弹保护**两处各写一份~~（✅ 阶段 1 已修）：判定收敛为
+   `GraphHostOwner.isGraphReplaceBlocked(pendingLocalOps)`（阶段 2 后并入
+   `GraphBlockEntity` 契约），继承线与组合线共用一份。
 5. **`subStates` 恢复策略相反**（阶段 0 新发现）：原生线的 Blueprint / ProgramComputer /
    Radar 一直**恢复** `subStates`，而 Kinetic 线的 `GraphHost` 不恢复——两线行为相反，
    文档原先未记录。阶段 0 统一为**恢复**（与 recompileEvaluatorFull 保留 subStates 的
    策略一致），`GraphHost` 随之补齐。
-6. **Radar 覆写绕过编辑器回弹保护**（阶段 0 新发现，未修）：`RadarBlockEntity.loadAdditional`
-   在自己的覆写里重复执行 `graph = NodeGraph.load(...)`，**不检查** `pendingLocalOps` /
-   像素编辑 / 显示拖拽，等于关掉了基类的三道回弹保护。属阶段 1 编辑回弹收敛范畴。
+6. ~~**Radar 覆写绕过编辑器回弹保护**~~（✅ 阶段 1 已修）：覆写里的重复
+   `graph = NodeGraph.load(...)` 已删除，图与 running 交回基类，三道回弹保护恢复生效。
 
 ## 三、目标架构
 
