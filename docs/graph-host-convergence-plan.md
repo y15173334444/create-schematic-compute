@@ -2,9 +2,11 @@
 
 > **目标**：统一成一个 BE 形态 = **两条继承线共享同一个 GraphHostCore 引擎 + 同一个
 > GraphBlockEntity 契约，各自只剩薄壳和类型钩子**。
-> **状态**：🚧 阶段 0 已完成；**阶段 1 代码完成**（2026-08-29）—— 合并逻辑上提 /
-> Radar 重复加载删除 / 回弹判定收敛 / 字段委托全部落地，编译 0 错误、337 例全绿；
-> §六 游戏内（多人实测等）验证仍待办（2026-08-28 立项）。
+> **状态**：🚧 **阶段 1 完成**（2026-08-29）—— 合并逻辑上提 / Radar 重复加载删除 /
+> 回弹判定收敛 / 字段委托全部落地，编译 0 错误、337 例全绿，双客户端联机 +
+> 服务端重启实测通过（无 BUS 回归、无每 tick 重建）；阶段 2 待办
+> （ControlSeat 输入链路 / 变速箱 RCON 矩阵 / nodeEdge 深项见 §六 未勾项）。
+> （2026-08-28 立项。）
 > 基线分支 `docs/programmable-gearbox`（`cfd1c5b`+），阶段 0 落地于 `main`。
 > **背景**：`GraphHost`（466 行）是从 `SyncedGraphBlockEntity` 移植的组合引擎，专为挂在
 > Create `KineticBlockEntity` 继承线上的方块实体服务（Java 单继承冲突，见
@@ -199,13 +201,18 @@
 - **测试基线**：337 例全绿（阶段 0 后为 332；阶段 1 期间 `MergeCompatibilityTest`
   随合并兼容性回归修复新增 5 例）。原生线运行时恢复的回归测试
   （`RuntimeStateRestoreTest`，7 例）已随阶段 0 落地，是阶段 0 的验收物。
-  沙箱内 `gradle test` 无法联网运行，离线验证方式见 §七。
+  验证方式见 §七：本机（有互联网）直接 `gradle test` / `runServer`；真离线沙箱用其备用链路。
 - nodeEdge 触发电平持久化语义（`dedaf73`）以本文档 §二.2 为准，两线统一后写回交接文档。
 
 ## 六、验证清单 / Verification
 
-- [ ] Blueprint：编辑 / 保存 / 存档重载 / 多人加入全量同步 / 编辑中 NBT 不回弹。
-- [ ] Monitor / Radar：快照渲染 + BUS 频道注册与注销（含删除节点的 unRegister）。
+- [x] Blueprint：编辑 / 保存 / 存档重载 / 多人加入全量同步 / 编辑中 NBT 不回弹。
+      **落地**（2026-08-29）：存档重载与多人加入由自动化联测覆盖（平台 Blueprint 的
+      `dt` 相位跨服务端重启精确恢复：存档 0.200007 → 重启后双读数 0.150/0.750 反推
+      回 0.200）；编辑/保存由用户游戏内复测。
+- [x] Monitor / Radar：快照渲染 + BUS 频道注册与注销（含删除节点的 unRegister）。
+      **落地**（2026-08-29）：双客户端实测无 BUS 回归；客户端编辑器实时收到快照
+      （探针读数/图像序列动画），世界内渲染正常。
 - [ ] ControlSeat：输入态（SeatInputState）全链路。
 - [ ] 变速器 / 数控齿轮箱：现有 RCON 矩阵重跑（§交接文档 二）。
 - [ ] 触发电平（nodeEdge）：两线"常高信号重载/重建后不误触发"一致。
@@ -213,18 +220,37 @@
       （字段 → 访问器 / 逻辑上提基类），**零逻辑变更**；编译通过且全量测试全绿
       （基线见 §五，当前 337 例）。**落地**（2026-08-29）：编译 0 错误、337/337 全绿
       （§七 离线链路实测）；子类 diff 逐文件核对为访问器/委托改写；三处次可见对齐见
-      §四披露。本清单其余游戏内项目（多人实测等）仍待办。
+      §四披露。游戏内复测（同日，用户）：双客户端 + 服务端重启联测通过——
+      **无 BUS 回归、无每 tick 重建**；本清单未勾项（ControlSeat 输入链路 /
+      变速箱 RCON 矩阵 / nodeEdge 深项）为对应阶段的专项验证，不阻塞阶段 1 合入。
       ~~原"diff 为空"不可达成~~——Java 无字段委托，`graph`/`running` 在 7/7 子类里被直接
       赋值，委托后必然编译失败；详见 §四的验收线修订说明。
-- [ ] 性能抽查：每 tick 无新增 GC 压力（委托桥直通字段）。
+- [ ] 性能抽查：每 tick 无新增 GC 压力（委托桥直通字段）。游戏内无每 tick 重建
+      与可感知卡顿（2026-08-29 用户复测）；分配面留待 profiler 抽查。
 
 **完成定义（DoD）**：两线所有图宿主 BE 均为薄壳 + 类型钩子；引擎与契约各自单点；
 337+ 测试全绿；两线 NBT 互通；本文件全部勾选并归档。
 
-## 七、沙箱内的离线验证 / Offline verification inside the sandbox
+## 七、验证环境：本机联机 + 真离线备用链路 / Verification: on-machine game runs & offline fallback
 
-本仓库的 `gradle build` / `gradle test` 在离线沙箱里会失败（NeoForge 要下载
-1.21.1 client.jar）。阶段 0 建立的替代链路，改代码后用它在本地完成编译 + 全量测试验证：
+**首选：本机（Windows 开发机）有互联网，gradle 全链路直接可用**（2026-08-29 实测）。
+`gradlew runServer` / `runClient` / `runClient2` 开箱即跑——首次运行自动下载
+1.21.1 client.jar（NeoGradle 缓存于 `.gradle/caches/minecraft/versions/`），
+**不要加 `--offline`**（会挡住这次下载，报 cacheVersionExecutableClient 失败）。
+联测环境已就绪：
+
+- 服务端：`runs/server/`（EULA 已接受、`online-mode=false`、世界 `world_fresh`、
+  RCON 开在 25575，密码见 server.properties）。
+- 双客户端：`gradlew runClient -Pusername=Alice` / `gradlew runClient2 -Pusername2=Bob`
+  （build.gradle 的 runs 块内置，各自独立游戏目录 `runs/client*/`）。
+- RCON 脚本：`rcon-send.ps1`（单命令）/ `rcon-batch.ps1 -Cmds "c1;c2"`（批量）/
+  `rcon-stop.ps1`（优雅停服）。
+- 阶段 1 联机实测（2026-08-29）：双客户端入服、服务端重启后运行时状态持久化
+  （`dt` 相位跨重启精确恢复，见 §六 Blueprint 注记）、断线重连、编辑器实时快照，
+  三侧日志零异常。
+
+**备用：真离线沙箱（无网，NeoForge 下载不了 client.jar）**——阶段 0 建立的
+javac 直编 + JUnit runner 链路，改代码后完成编译 + 全量测试验证：
 
 - **Minecraft 类**：`build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/packRecomp/output.jar`
   （joined + 已重映射，含 client 与 server 类，无需 client.jar）。
