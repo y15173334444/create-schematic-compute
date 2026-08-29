@@ -56,34 +56,52 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      * direct engine-field coupling is what the phase-2 contract convergence removes. */
     private final GraphHost host = new GraphHost(this);
 
-    // ── 同名访问器桥（字段 → 访问器的机械改写目标）/ same-name accessor bridges ──
+    // ── 同名访问器桥（过渡 API，阶段 3 删除）/ same-name accessor bridges (transitional) ──
     // 子类原先直接读写的托管字段，一律改为调用这些同名方法：`graph.nodes` →
     // `graph().nodes`、`rs.foo` → `rs().foo`。引擎字段的可见性不向子类开放。
     // Hosted fields subclasses used to touch directly are now reached through these
     // same-name methods: `graph.nodes` → `graph().nodes`, `rs.foo` → `rs().foo`.
     // Engine field visibility is not opened to subclasses.
+    //
+    // 【迁移指南 / migration guide】下列 @Deprecated 桥是阶段 1 的机械改写目标，
+    // 属过渡 API：阶段 3 薄壳化时随子类一起收缩删除。子类新代码请改走：
+    // · 数据读取 → GraphBlockEntity 契约（getNodeGraph/isRunning/getCachedEvalSnapshot/
+    //   getFlipflopStates/getPendingLocalOps...），或经引擎宿主回调；
+    // · 时序/求值操作（recompile、BUS 生命周期、graphChanged、onStopRunning、
+    //   广播/冲刷）→ 收敛进引擎的 tick 驱动（GraphHost），子类只保留类型钩子。
+    // These @Deprecated bridges were the phase-1 mechanical-rewrite targets and are
+    // transitional: phase-3 thin-shelling shrinks them away with the subclasses. New
+    // subclass code should use the GraphBlockEntity contract for data reads, and push
+    // timing/evaluation work into the engine's tick driver, keeping only type hooks.
 
     /** @see GraphHost#graph */
+    @Deprecated
     protected NodeGraph graph() { return host.graph; }
 
     /** 整体替换图（仅限图加载路径：加载前自行注销旧 BUS、加载后自行 bump/invalidate/rs.onLoad）。
      *  Wholesale graph replacement (graph-load paths only: unregister old BUS first,
      *  then bump/invalidate/rs.onLoad yourself after). */
+    @Deprecated
     protected void setGraph(NodeGraph g) { host.graph = g; }
 
     /** @see GraphHost#runtimeState */
+    @Deprecated
     protected RuntimeState runtimeState() { return host.runtimeState; }
 
     /** @see GraphHost#evaluator */
+    @Deprecated
     protected GraphEvaluator evaluator() { return host.evaluator; }
 
     /** @see GraphHost#rs */
+    @Deprecated
     protected RedstoneLinkHelper rs() { return host.rs; }
 
     /** @see GraphHost#lastBusHashMap */
+    @Deprecated
     protected HashMap<Integer, Integer> lastBusHashMap() { return host.lastBusHashMap; }
 
     /** @see GraphHost#invalidateEvaluator */
+    @Deprecated
     protected void invalidateEvaluator() { host.invalidateEvaluator(); }
 
     /**
@@ -324,42 +342,51 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
 
     /** Call at the start of each tick to guarantee BUS channels are registered at least once.
      *  在每个 tick 开始时调用，以确保 BUS 通道至少被注册一次。 */
+    @Deprecated
     protected void ensureBusRegistered() { host.ensureBusRegistered(); }
 
     /** Register all BUS_IN and BUS_OUT nodes in the current graph with the server's
      *  SignalBus. 向服务端 SignalBus 注册当前图中所有 BUS_IN 和 BUS_OUT 节点。 */
+    @Deprecated
     protected void registerBusChannels() { host.registerBusChannels(); }
 
     /** Clear client-side BUS band caches for all BUS_IN/BUS_OUT nodes in the graph.
      *  清除图中所有 BUS_IN/BUS_OUT 节点的客户端 BUS 频段缓存。
      *  @param g the graph whose BUS nodes to clean up / 要清理其 BUS 节点的图 */
+    @Deprecated
     protected void cleanupBusChannels(NodeGraph g) { host.cleanupBusChannels(g); }
 
     /** Unregister all BUS_IN and BUS_OUT channels from the server's SignalBus.
      *  从服务端 SignalBus 注销所有 BUS_IN 和 BUS_OUT 通道。
      *  @param g the graph whose BUS nodes to unregister / 要注销其 BUS 节点的图 */
+    @Deprecated
     protected void unregisterBusChannels(NodeGraph g) { host.unregisterBusChannels(g); }
 
     /** True when the evaluator needs rebuilding (graph changed since last check).
      *  当求值器需要重建时为 true（自上次检查以来图结构已更改）。 */
+    @Deprecated
     protected boolean graphChanged() { return host.graphChanged(); }
 
     /** Full rebuild that preserves all main-graph runtime state — sequential (DELAY
      *  queues, flipflops, pulse timers) and integral (PID/ACCUMULATOR/INTEGRATOR in
      *  pidState) — pruning only entries whose node was removed.
      *  完全重建，但保留主图全部运行时状态——时序与积分，仅剪除已被删除节点的条目。 */
+    @Deprecated
     protected void recompileEvaluatorFull() { host.recompileEvaluatorFull(); }
 
     /** Minimal rebuild (preserves debugTime only). Used by Monitor and SpeedProxy.
      *  最小化重建（仅保留 debugTime）。供 Monitor 和 SpeedProxy 使用。 */
+    @Deprecated
     protected void recompileEvaluatorLight() { host.recompileEvaluatorLight(); }
 
     /** Clear BUS_OUT maps and write empty redstone outputs when stopped.
      *  停止时清除 BUS_OUT 映射并写入空的红石输出。 */
+    @Deprecated
     protected void onStopRunning() { host.onStopRunning(); }
 
     /** Broadcast eval snapshot to tracking clients after evaluation completes.
      *  求值完成后向追踪客户端广播求值快照。 */
+    @Deprecated
     protected void broadcastEvalSnapshot() { host.broadcastEvalSnapshot(); }
 
     /** Deserialize and replace the current graph from compressed NBT bytes received
@@ -382,6 +409,7 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     /** Call from the BE tick (server side only): flushes a deferred full-sync request at
      *  most once per {@link GraphHost#FULL_SYNC_GRACE_TICKS}-tick grace window.
      *  在 BE tick 中调用（仅服务端）：按 40-tick grace 窗口合并冲刷延迟的全量同步请求。 */
+    @Deprecated
     protected void flushPendingFullSync() { host.flushPendingFullSync(); }
 
     // ── NBT save/load / NBT 保存/加载 ──
