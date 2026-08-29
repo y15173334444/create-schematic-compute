@@ -7,8 +7,5 @@
     ],
     "mixins": [
         "RotationPropagatorMixin"
-    ],
-    "server": [
-        "RotationPropagatorDiagnosticsMixin"
     ]
 }

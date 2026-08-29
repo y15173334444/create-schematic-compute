@@ -80,7 +80,7 @@
 
 ## 七、调试设施
 
-- DiagnosticsMixin（server 段）：[Prop] enter + [PropDestroy] 栈帧。生产前降级/移除。
+- ~~DiagnosticsMixin（server 段）：[Prop] enter + [PropDestroy] 栈帧~~ ✅ 已移除（2026-08-29，研究完成）。
 - `rcon-batch.ps1 -Cmds "c1;c2;..."` 批量 RCON（单连接）。**探针陷阱**：
   `execute ... run say X` 走服务端日志不走 RCON 响应；grep 到的"命令回显"≠执行结果，
   状态探测要看 `/tmp/csc-serverN.log` 或直接 `data get`。
@@ -97,11 +97,11 @@
 4. ~~ENCODER 语义~~ 已拍板（2026-08-28）：**保持恒积分**（空转读数由玩家自己承担，
    用户原话），ENCODER 节点新增**复位引脚**（电平触发：拉高清零角度+线性累计，
    持续拉高=持续保持零）。
-5. 诊断探针降级/移除；client 段 mixin 共存回归。
+5. ~~诊断探针降级/移除~~ ✅ 探针已移除（2026-08-29）；client 段 mixin 共存回归。
 6. 变速器拆建在玩家持续高频改速下的 flickerScore 长时压测。
 
 ## 九、运行环境现状（交接时刻）
 
-- 服务端：运行中（含 DiagnosticsMixin 探针 + RotationPropagatorMixin），RCON 127.0.0.1:25575。
+- 服务端：运行中（RotationPropagatorMixin 保留；DiagnosticsMixin 探针已于 2026-08-29 移除），RCON 127.0.0.1:25575。
 - 客户端：已停止（旧构建）；重启用 `gradlew runClient` / `runClient2`。
 - 世界残留：测试台架已清理；旧单方块在 (202,72,200)（BE 已跳过，方块随未注册消失）。
