@@ -108,24 +108,16 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         if (level == null) return;
         try {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
-            if (t != null && t.contains("graph")) {
-                unregisterBusChannels(graph()); // unregister old BUS channels before replacing graph
-                // Do NOT call cleanupBusChannels — it broadcasts empty band syncs to clients,
-                // permanently deleting BUS connections. Next tick's recompile restores correct bands.
-                setGraph(NodeGraph.load(t.getCompound("graph"), level.registryAccess()));
-                // Force generation bump so graphChanged() triggers recompile + BUS re-registration.
-                // 强制 bump 代数，确保下一 tick 重编译并重新注册 BUS 频道。
-                graph().bumpGeneration();
-                // 重置 lastGraphGeneration 为 -1（与基类/Blueprint 一致）：bump 到 1 可能
-                // 与上次重编译留下的 lastGraphGeneration=1 冲突，graphChanged() 为 false
-                // → 重编译（及 BUS 重注册）被跳过 → BUS_IN 读 0。
-                // Reset lastGraphGeneration to -1 (consistent with base/Blueprint): bumping
-                // to 1 can collide with the prior compile's lastGraphGeneration=1.
-                invalidateEvaluator();
-            }
+            // 先取本包内的屏幕设置段，再走引擎的编辑器保存路径（图替换 + 强制重编译 +
+            // 全量同步推送）—— 保证推送出去的 getUpdateTag 已带新屏幕设置。
+            // Take the monitor's settings section from the same packet first, then run
+            // the engine's editor-save path (graph replacement + forced recompile +
+            // full-sync push) — so the pushed getUpdateTag already carries the new
+            // screen settings. Phase 3: this override used to skip the full-sync push
+            // entirely (tracking clients kept a stale monitor graph after a save) and
+            // the sub-graph state clear; both come from the engine path now.
             if (t != null) loadSettings(t);
-            rs().onLoad(graph());
-            setChanged();
+            loadEditorTag(t);
         } catch (Exception e) {
             SchematicCompute.LOGGER.error("Failed to load monitor graph, resetting", e);
             setGraph(new NodeGraph());

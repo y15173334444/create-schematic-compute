@@ -9,8 +9,6 @@ import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtAccounter;
-import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
@@ -19,7 +17,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import javax.annotation.Nullable;
-import java.io.ByteArrayInputStream;
 import java.util.*;
 
 /**
@@ -584,41 +581,13 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         }
     }
 
-    /**
-     * Deserializes a node graph from compressed NBT bytes, typically received over
-     * the network from a client uploading a schematic or graph definition.
-     * On success, replaces the current graph and reinitializes the evaluator.
-     * On failure, resets to an empty graph to avoid a corrupted state.
-     *
-     * 从压缩 NBT 字节反序列化节点图，通常通过网络从客户端上传原理图或图定义时接收。
-     * 成功时替换当前图并重新初始化求值器。
-     * 失败时重置为空图以避免损坏状态。
-     *
-     * @param data compressed NBT data 压缩的 NBT 数据
-     */
-    public void loadGraphFromBytes(byte[] data) {
-        if (level == null) return;
-        try {
-            var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
-            if (t != null && t.contains("graph")) {
-                setGraph(NodeGraph.load(t.getCompound("graph"), level.registryAccess()));
-                // Force generation bump so graphChanged() triggers recompile + BUS re-registration.
-                // 强制 bump 代数，确保下一 tick 重编译并重新注册 BUS 频道。
-                graph().bumpGeneration();
-                // 重置 lastGraphGeneration 为 -1（与基类/Blueprint/Monitor 一致）：bump 到 1
-                // 可能与上次重编译留下的 lastGraphGeneration=1 冲突，graphChanged() 为 false
-                // → 重编译（及 BUS 重注册）被跳过 → BUS_IN 读 0。
-                // Reset lastGraphGeneration to -1 (consistent with base/Blueprint/Monitor).
-                invalidateEvaluator();
-                rs().onLoad(graph());
-            }
-            requestFullSync();
-            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        } catch (Exception e) {
-            SchematicCompute.LOGGER.error("Failed to load radar graph, resetting", e);
-            setGraph(new NodeGraph()); rs().onLoad(graph()); setChanged();
-        }
-    }
+    // loadGraphFromBytes 覆写已于阶段 3 删除 —— 统一走基类/引擎的
+    // loadGraphFromBytes → loadEditorTag。此前本覆写缺 BUS 注销（编辑保存后在
+    // SignalBus 泄漏旧图通道）与子图/触发器状态清理（封装内时序跨载残留），
+    // 对齐后一并修复。
+    // The loadGraphFromBytes override was removed in phase 3 — the base/engine path
+    // applies (this override used to skip BUS unregistration — leaking old channels in
+    // SignalBus across editor saves — and the sub-graph/flipflop clear).
 
     /**
      * Saves radar-specific data to NBT for persistence across world reloads.

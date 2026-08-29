@@ -3,22 +3,13 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
-import io.github.y15173334444.create_schematic_compute.network.RuntimeStateSyncPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.neoforge.network.PacketDistributor;
 import java.util.ArrayDeque;
 
 public class ProgramComputerBlockEntity extends SyncedGraphBlockEntity {
-    private java.util.Map<Integer, Boolean> lastSyncedFlipflopStates = null;
-    /** 已同步的子图 flipflop 基线（encapNodeId → sub-node flipflop），用于 diff 判断避免每 tick 广播。
-     *  Last-synced sub-graph flipflop baseline (encapNodeId → sub-node flipflop), diffed to avoid per-tick broadcasts. */
-    private java.util.Map<Integer, java.util.Map<Integer, Boolean>> lastSyncedSubFlipflopStates = null;
-
     public ProgramComputerBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.PROGRAM_BE.get(), pos, s); }
 
     // accept() 已上提至 SyncedGraphBlockEntity（阶段 1）——ProgramComputer 无类型特定
@@ -48,35 +39,7 @@ public class ProgramComputerBlockEntity extends SyncedGraphBlockEntity {
         rs().writeOutputs(results);
         broadcastEvalSnapshot(); // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
         BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
-        if (level instanceof ServerLevel sl) {
-            var currentFf = runtimeState().flipflopStates;
-            boolean changed = !currentFf.equals(lastSyncedFlipflopStates);
-            // 子图 flipflop 也做 diff（有基线），而不是「存在即变更」，避免每 tick 广播
-            // Diff sub-graph flipflop against its own baseline instead of treating
-            // presence as change — prevents per-tick RuntimeStateSyncPacket spam.
-            java.util.Map<Integer, java.util.Map<Integer, Boolean>> subFf = java.util.Collections.emptyMap();
-            if (!runtimeState().subStates.isEmpty()) {
-                var curSub = new java.util.HashMap<Integer, java.util.Map<Integer, Boolean>>();
-                for (var se : runtimeState().subStates.entrySet()) {
-                    if (!se.getValue().flipflopStates.isEmpty())
-                        curSub.put(se.getKey(), new java.util.HashMap<>(se.getValue().flipflopStates));
-                }
-                if (!curSub.equals(lastSyncedSubFlipflopStates)) {
-                    changed = true;
-                    subFf = curSub;
-                }
-            } else if (lastSyncedSubFlipflopStates != null && !lastSyncedSubFlipflopStates.isEmpty()) {
-                // 子图全部消失（封装被删除等）也视为变更，通知客户端清空
-                // All sub-states disappeared (e.g. encap removed) — also a change.
-                changed = true;
-            }
-            if (changed) {
-                lastSyncedFlipflopStates = new java.util.HashMap<>(currentFf);
-                lastSyncedSubFlipflopStates = subFf.isEmpty() ? null : subFf;
-                PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(worldPosition),
-                    new RuntimeStateSyncPacket(worldPosition, lastSyncedFlipflopStates, subFf));
-            }
-        }
+        broadcastFlipflopDiff();
         setChanged();
     }
 

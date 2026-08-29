@@ -3,22 +3,13 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
-import io.github.y15173334444.create_schematic_compute.network.RuntimeStateSyncPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.neoforge.network.PacketDistributor;
 import java.util.ArrayDeque;
 
 public class BlueprintBlockEntity extends SyncedGraphBlockEntity {
-    private java.util.Map<Integer, Boolean> lastSyncedFlipflopStates = null;
-    /** 已同步的子图 flipflop 基线（encapNodeId → sub-node flipflop），用于 diff 判断避免每 tick 广播。
-     *  Last-synced sub-graph flipflop baseline (encapNodeId → sub-node flipflop), diffed to avoid per-tick broadcasts. */
-    private java.util.Map<Integer, java.util.Map<Integer, Boolean>> lastSyncedSubFlipflopStates = null;
-
     public BlueprintBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.BLUEPRINT_BE.get(), pos, s); }
 
     // accept() 已上提至 SyncedGraphBlockEntity（阶段 1）——Blueprint 无类型特定字段，
@@ -51,69 +42,17 @@ public class BlueprintBlockEntity extends SyncedGraphBlockEntity {
         rs().writeOutputs(results);
         broadcastEvalSnapshot(); // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
         BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
-        if (level instanceof ServerLevel sl) {
-            var currentFf = runtimeState().flipflopStates;
-            boolean changed = !currentFf.equals(lastSyncedFlipflopStates);
-            // 子图 flipflop 也做 diff（有基线），而不是「存在即变更」，避免每 tick 广播
-            // Diff sub-graph flipflop against its own baseline instead of treating
-            // presence as change — prevents per-tick RuntimeStateSyncPacket spam.
-            java.util.Map<Integer, java.util.Map<Integer, Boolean>> subFf = java.util.Collections.emptyMap();
-            if (!runtimeState().subStates.isEmpty()) {
-                var curSub = new java.util.HashMap<Integer, java.util.Map<Integer, Boolean>>();
-                for (var se : runtimeState().subStates.entrySet()) {
-                    if (!se.getValue().flipflopStates.isEmpty())
-                        curSub.put(se.getKey(), new java.util.HashMap<>(se.getValue().flipflopStates));
-                }
-                if (!curSub.equals(lastSyncedSubFlipflopStates)) {
-                    changed = true;
-                    subFf = curSub;
-                }
-            } else if (lastSyncedSubFlipflopStates != null && !lastSyncedSubFlipflopStates.isEmpty()) {
-                // 子图全部消失（封装被删除等）也视为变更，通知客户端清空
-                // All sub-states disappeared (e.g. encap removed) — also a change.
-                changed = true;
-            }
-            if (changed) {
-                lastSyncedFlipflopStates = new java.util.HashMap<>(currentFf);
-                lastSyncedSubFlipflopStates = subFf.isEmpty() ? null : subFf;
-                PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(worldPosition),
-                    new RuntimeStateSyncPacket(worldPosition, lastSyncedFlipflopStates, subFf));
-            }
-        }
+        broadcastFlipflopDiff();
         setChanged();
     }
 
-    @Override public void loadGraphFromBytes(byte[] data) {
-        if (level == null) return;
-        try {
-            var t = net.minecraft.nbt.NbtIo.readCompressed(new java.io.ByteArrayInputStream(data), net.minecraft.nbt.NbtAccounter.create(2 * 1024 * 1024));
-            if (t != null && t.contains("graph")) {
-                unregisterBusChannels(graph()); // unregister old BUS channels before replacing graph
-                // Do NOT call cleanupBusChannels — it broadcasts empty band syncs to clients,
-                // permanently deleting BUS connections. Next tick's recompile restores correct bands.
-                setGraph(io.github.y15173334444.create_schematic_compute.graph.NodeGraph.load(t.getCompound("graph"), level.registryAccess()));
-                // Force generation bump so graphChanged() triggers recompile + BUS re-registration
-                // (see SyncedGraphBlockEntity.loadGraphFromBytes for the full rationale).
-                // 强制 bump 代数，确保下一 tick 重编译并重新注册 BUS 频道。
-                graph().bumpGeneration();
-                // 重置上次构建代数为 -1：bump 到 1 可能与上次重编译留下的 1 冲突，
-                // graphChanged() 为 false → 重编译（及 BUS 重注册）被跳过 → BUS_IN 读 0
-                //（回归审计：反复编译+运行失效）。经引擎的 invalidateEvaluator() 表达意图。
-                // Reset the last-built generation to -1 (via the engine's
-                // invalidateEvaluator()): bumping to 1 can collide with the prior compile's
-                // 1, making graphChanged() false — recompile (and BUS re-registration) is
-                // skipped -> BUS_IN reads 0.
-                invalidateEvaluator();
-                rs().onLoad(graph());
-            }
-            requestFullSync();
-            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        } catch (Exception e) {
-            SchematicCompute.LOGGER.error("Failed to load blueprint graph, resetting", e);
-            setGraph(new io.github.y15173334444.create_schematic_compute.graph.NodeGraph()); rs().onLoad(graph());
-            setChanged();
-        }
-    }
+    // loadGraphFromBytes 覆写已于阶段 3 删除 —— 统一走基类/引擎的
+    // loadGraphFromBytes → loadEditorTag（含 BUS 注销与子图/触发器状态清理，
+    // 此前本覆写缺这两步：编辑保存后泄漏 SignalBus 注册、封装内时序跨载残留）。
+    // The loadGraphFromBytes override was removed in phase 3 — the base/engine
+    // loadGraphFromBytes -> loadEditorTag path applies for all BEs (including BUS
+    // unregistration and the sub-graph/flipflop clear this override used to miss:
+    // a SignalBus leak and stale encapsulation state across editor saves).
 
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         // Blueprint preserves expanded node state across reloads
