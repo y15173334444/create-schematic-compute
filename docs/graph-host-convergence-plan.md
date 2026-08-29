@@ -97,18 +97,43 @@
       行为差异仅一处有意变更：三者的 `debugTime`（信号发生器相位）现在跨重编译保留，
       与 Monitor / SpeedProxy 的 Light 路径一致。
 
-### 阶段 1 · 状态收敛（SyncedGraphBlockEntity 薄壳化，7 个子类编译零改动为验收线）
+### 阶段 1 · 状态收敛（SyncedGraphBlockEntity 薄壳化）
+
+> **⚠️ 验收线已修订（2026-08-29 实测）**：原定"7 个存量子类编译零改动"**不可达成**。
+> Java 没有字段委托，而 `graph` / `running` 在 **7/7 子类里被直接赋值**（都在
+> `IMergeableBE.accept()` 里），`needsFullSync` 被 6 个子类赋值，`lastGraphGeneration`
+> 被 3 个子类赋值。字段一旦改为委托，这些赋值语句必然编译失败。
+> **新验收线**：子类 diff 仅限**机械改写**（字段 → 访问器 / 逻辑上提基类），
+> **零逻辑变更**，编译通过且 332 例测试全绿。
+> 子类引用面实测（行数，含注释与声明）：
+> `graph` 125 · `running` 31 · `rs.` 34 · `runtimeState` 23 · `evaluator` 19 ·
+> `needsFullSync` 7 · `lastBusHashMap` 5。
+> 另有约 15 处**外部类**直摸字段（`cachedEvalSnapshot` 8 处、`runtimeState.flipflopStates`
+> 6 处、`pendingLocalOps++` 1 处）—— 那部分归阶段 2 的契约收敛。
+
+- [x] **合并逻辑上提（新增项，先行）**：7 个子类各自覆写 `IMergeableBE.accept()`，逻辑
+      几乎逐字相同。上提到基类，类型段由新增的 `acceptTypeSpecific(src)` 钩子承载
+      （与 loadTypeSpecific/saveTypeSpecific 同构）；Blueprint / ControlSeat /
+      ProgramComputer / Sensor / SpeedProxy 五个直接删除覆写，Monitor / Radar 改为只覆写
+      钩子。**净删除 7 处 `graph` 赋值 + 7 处 `running` 赋值 + 7 处重复方法体。**
+      唯一行为变更：SpeedProxy 原本不发送 `sendBlockUpdated`，现在与其余六个对齐。
 - [ ] 抽象基类全部托管字段替换为 `private final GraphHost host`（或更名 GraphHostCore），
       原 public/protected 成员逐一改为委托桥，**子类可见 API 签名不变**。
 - [ ] 子类/工具类直摸字段处（`host.graph`、`runtimeState.*`、`cachedEvalSnapshot` 等）
       逐一盘点：能走契约的走契约，必须暴露的以委托属性保留。
 - [ ] `loadAdditional/saveAdditional` 委托 `host.loadHostNBT/saveHostNBT`，类型段由
       loadTypeSpecific/saveTypeSpecific 钩子继续承载。
-- [ ] 编辑回弹判断（Minecraft.getInstance().screen instanceof GraphEditor.Host …）抽为
+- [x] 编辑回弹判断（Minecraft.getInstance().screen instanceof GraphEditor.Host …）抽为
       GraphHostOwner 客户端钩子，删除引擎/基类内的重复实现。
-- [ ] **删除 `RadarBlockEntity.loadAdditional` 里的重复图加载**（§二.6）：它绕过基类的
+      **落地**：`GraphHostOwner` 新增 `isPixelEditorOpen()` / `isDisplayDragInProgress()`
+      两个 default 钩子 + 统一判定 `isGraphReplaceBlocked(pendingLocalOps)`；`GraphHost`
+      与 `SyncedGraphBlockEntity` 各删一份重复实现，改为共用。
+      `SyncedGraphBlockEntity` 顺带 implements `GraphHostOwner`（复用其 default 方法，
+      `getLevel`/`getBlockPos`/`setChanged` 由 BlockEntity 直接满足，只需补
+      `asBlockEntity()` 与 `sendBlockUpdated()`）—— 为后续字段委托铺路。
+- [x] **删除 `RadarBlockEntity.loadAdditional` 里的重复图加载**（§二.6）：它绕过基类的
       pendingLocalOps / 像素编辑 / 显示拖拽三道回弹保护。改为只保留 Radar 类型段，
-      图与 running 交给基类。
+      图与 running 交给基类。**落地**：删掉覆写里的两行重复加载，三道保护恢复生效。
 - [ ] 全量同步协议字段（needsFullSync / lastFullSyncGameTime / 40-tick grace）随字段入引擎，
       行为不变。
 
