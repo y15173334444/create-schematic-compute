@@ -2,11 +2,12 @@
 
 > **目标**：统一成一个 BE 形态 = **两条继承线共享同一个 GraphHostCore 引擎 + 同一个
 > GraphBlockEntity 契约，各自只剩薄壳和类型钩子**。
-> **状态**：🚧 **阶段 1 完成**（2026-08-29）—— 合并逻辑上提 / Radar 重复加载删除 /
-> 回弹判定收敛 / 字段委托全部落地，编译 0 错误、337 例全绿，双客户端联机 +
-> 服务端重启实测通过（无 BUS 回归、无每 tick 重建）；阶段 2 待办
-> （ControlSeat 输入链路 / 变速箱 RCON 矩阵 / nodeEdge 深项见 §六 未勾项）。
-> （2026-08-28 立项。）
+> **状态**：🚧 **阶段 1、2 完成**（2026-08-29）—— 阶段 1：合并上提 / Radar 重复加载
+> 删除 / 回弹收敛 / 字段委托；阶段 2：契约收敛（GraphHostOwner 并入
+> GraphBlockEntity、外部零具体类型依赖、委托桥 @Deprecated）。337 例全绿，
+> 双客户端联机 + 服务端重启实测通过（无 BUS 回归、无每 tick 重建）。
+> 阶段 3 薄壳化验收待办；ControlSeat 输入链路 / 变速箱 RCON 矩阵 / nodeEdge
+> 深项见 §六 未勾项。（2026-08-28 立项。）
 > 基线分支 `docs/programmable-gearbox`（`cfd1c5b`+），阶段 0 落地于 `main`。
 > **背景**：`GraphHost`（466 行）是从 `SyncedGraphBlockEntity` 移植的组合引擎，专为挂在
 > Create `KineticBlockEntity` 继承线上的方块实体服务（Java 单继承冲突，见
@@ -173,12 +174,25 @@
 > 旧路径此时只会 NPE）；(c) 屏幕侧乐观写 `be.running = start` 改走 `setRunning(start)`，
 > 客户端 BE 多一次无害 setChanged。
 
-### 阶段 2 · 契约收敛
-- [ ] `GraphBlockEntity` 补缺（以两线实际用到的成员面为准），SablePacketHelper / 两屏 /
+### 阶段 2 · 契约收敛 —— ✅ 已完成 2026-08-29
+
+- [x] `GraphBlockEntity` 补缺（以两线实际用到的成员面为准），SablePacketHelper / 两屏 /
       渲染快照读取改为**只依赖契约**，不再 instanceof SyncedGraphBlockEntity。
-- [ ] `GraphHostOwner` 并入 `GraphBlockEntity`（或拆成其服务端子接口 `GraphHostBinding`），
-      引擎构造参数类型随之统一。
-- [ ] 委托桥上标注 `@Deprecated`（子类迁移指南），阶段 3 后按 BE 逐个直连引擎再删。
+      **落地**：盘点发现阶段 1 完成后外部已零具体类型依赖——SablePacketHelper 只检查
+      契约（带跨类加载器回退），屏幕/渲染器/包类全部走契约方法；唯一残留是
+      PixelEditorScreen 的一条死 import（已删）。缺的成员面（`getFlipflopStates`）
+      已随阶段 1 合并兼容性修复补上。
+- [x] `GraphHostOwner` 并入 `GraphBlockEntity`（或拆成其服务端子接口 `GraphHostBinding`），
+      引擎构造参数类型随之统一。**落地**：盘点确认三个实现者全部是方块实体
+      （无非 BE 实现者，无需拆 Binding 子接口）——宿主绑定面（asBlockEntity /
+      getLevel / getBlockPos / setChanged / sendBlockUpdated / NBT 类型段钩子 /
+      像素编辑与拖拽查询 / isGraphReplaceBlocked 统一判定）直接成为契约成员；
+      `GraphHost` 构造参数改为 `GraphBlockEntity`；`GraphHostOwner` 删除，
+      两线 implements 列表同步收缩。
+- [x] 委托桥上标注 `@Deprecated`（子类迁移指南），阶段 3 后按 BE 逐个直连引擎再删。
+      **落地**：17 个过渡桥（7 个同名访问器 + 10 个引擎逻辑一行委托）全部标注；
+      桥区附迁移指南——新子类代码数据读走契约、时序/求值操作收敛进引擎 tick 驱动、
+      子类只保留类型钩子。契约覆写与类型钩子不标注（钩子是最终架构）。
 
 ### 阶段 3 · 薄壳化验收与清理
 - [ ] 7 个存量 BE + 2 个 Kinetic BE 全部"仅剩：类型注册 / 钩子 / 薄桥"。

@@ -247,11 +247,28 @@ field coupling (`host` is private).
 - `acceptTypeSpecific(src)` — 合并时复制类型特定字段的钩子，默认空实现；Monitor / Radar 覆写 / merge hook for type-specific fields; overridden by Monitor and Radar
 - `loadAdditional()` / `saveAdditional()` — 公共段委托 `host.loadHostNBT` / `host.saveHostNBT`（v1.2.5 阶段 1），类型段由 `loadTypeSpecific` / `saveTypeSpecific` 钩子承载，公共段 → 类型段顺序与 NBT 键不变；客户端回弹保护在引擎内判定，统一走 `GraphHostOwner.isGraphReplaceBlocked(pendingLocalOps)`（与组合线共用一份）/ the common sections delegate to `host.loadHostNBT` / `host.saveHostNBT` (v1.2.5 phase 1) with type sections carried by the `loadTypeSpecific` / `saveTypeSpecific` hooks — section order and NBT keys unchanged; the client bounce-back decision lives in the engine via `GraphHostOwner.isGraphReplaceBlocked(pendingLocalOps)` (shared with the composition line)
 
-**实现的接口 / Implemented interfaces**：`IMergeableBE`、`GraphBlockEntity`、`GraphHostOwner`
-（实现 `GraphHostOwner` 是为复用其 default 方法 —— 回弹判定 `isGraphReplaceBlocked` 与 NBT 类型段钩子 ——
-而非被 `GraphHost` 组合；`getLevel`/`getBlockPos`/`setChanged` 由 `BlockEntity` 直接满足，只需补
+**实现的接口 / Implemented interfaces**：`IMergeableBE`、`GraphBlockEntity`
+（v1.2.5 阶段 2 起 `GraphBlockEntity` 是**唯一契约** —— 数据面 + 原 `GraphHostOwner`
+的宿主绑定面已并入，`GraphHostOwner` 接口删除；`GraphHost` 引擎以契约为其构造参数，
+SablePacketHelper / 屏幕 / 渲染器 / 包类只依赖契约，不 instanceof 具体类型。
+`getLevel`/`getBlockPos`/`setChanged` 由 `BlockEntity` 直接满足，只需补
 `asBlockEntity()` 与 `sendBlockUpdated()`）
-/ Implements `GraphHostOwner` to reuse its default methods (the bounce-back check and the NBT hooks), not to be composed by `GraphHost`; `getLevel`/`getBlockPos`/`setChanged` come from `BlockEntity`, so only `asBlockEntity()` and `sendBlockUpdated()` are new.
+/ Implements `IMergeableBE` and `GraphBlockEntity`. Since v1.2.5 phase 2
+`GraphBlockEntity` is **the single contract** — data surface plus the host-binding
+surface merged in from the former `GraphHostOwner` (interface deleted); the
+`GraphHost` engine takes the contract as its constructor parameter, and
+SablePacketHelper / screens / renderers / packets depend on the contract only.
+`getLevel`/`getBlockPos`/`setChanged` come from `BlockEntity`, so only
+`asBlockEntity()` and `sendBlockUpdated()` are new.
+
+**过渡桥 @Deprecated / Transitional bridges @Deprecated**（v1.2.5 阶段 2 标注，阶段 3 随
+子类薄壳化删除）：7 个同名访问器桥（`graph()` / `setGraph()` / `runtimeState()` /
+`evaluator()` / `rs()` / `lastBusHashMap()` / `invalidateEvaluator()`）+ 10 个引擎逻辑
+一行委托（`ensureBusRegistered` / BUS 生命周期 / `graphChanged` / `recompileEvaluatorFull/Light` /
+`onStopRunning` / `broadcastEvalSnapshot` / `flushPendingFullSync`）。新子类代码数据读走契约、
+时序操作收敛进引擎；契约覆写与 loadTypeSpecific/saveTypeSpecific/acceptTypeSpecific 类型钩子
+**不是**过渡 API（钩子是最终架构）/ 17 transitional bridges deprecated in phase 2, deleted in
+phase 3; contract overrides and the type hooks are the final architecture, not transitional.
 
 **编辑回弹保护（三道护栏）/ Editor bounce-back protection (three guards)**
 
