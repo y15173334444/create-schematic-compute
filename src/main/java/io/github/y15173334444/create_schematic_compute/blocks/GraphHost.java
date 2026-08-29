@@ -32,10 +32,10 @@ import java.util.function.Consumer;
 
 /**
  * 组合式图托管核心 —— 让挂在 Create {@code KineticBlockEntity} 继承线上的方块实体
- * （如 ProgrammableGearbox）无需继承 {@link SyncedGraphBlockEntity}（原生 BlockEntity
+ * （如 ProgrammableTransmission / CncGearbox）无需继承 {@link SyncedGraphBlockEntity}（原生 BlockEntity
  * 线，Java 单继承冲突）即可获得完整的图托管能力。
  * Composition-based graph-hosting core — lets block entities on Create's
- * {@code KineticBlockEntity} inheritance line (e.g. ProgrammableGearbox) get full
+ * {@code KineticBlockEntity} inheritance line (e.g. ProgrammableTransmission / CncGearbox) get full
  * graph-hosting capability without extending {@link SyncedGraphBlockEntity} (vanilla
  * BlockEntity line — Java single-inheritance conflict).
  *

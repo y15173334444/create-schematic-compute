@@ -164,10 +164,10 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
     /**
      * 返回当前客户端 BlockEntity，供 sendOp / onClose 访问 pendingLocalOps 守卫。
      * 子类返回各自具体类型（协变返回即可）。托管线放宽为 {@link GraphBlockEntity}，
-     * 使组合式 Kinetic 系方块实体（ProgrammableGearbox 等）也能打开图编辑器。
+     * 使组合式 Kinetic 系方块实体（ProgrammableTransmission / CncGearbox 等）也能打开图编辑器。
      * Current client-side BlockEntity for the pendingLocalOps guard; subclasses return
      * their concrete type (covariant). Widened to {@link GraphBlockEntity} so composition-based
-     * kinetic BEs (e.g. ProgrammableGearbox) can open graph editors too.
+     * kinetic BEs (e.g. ProgrammableTransmission / CncGearbox) can open graph editors too.
      */
     protected abstract GraphBlockEntity getBE();
 

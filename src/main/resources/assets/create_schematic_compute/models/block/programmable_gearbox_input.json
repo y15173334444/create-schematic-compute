@@ -1,8 +1,0 @@
-{
-  "parent": "minecraft:block/cube_column",
-  "textures": {
-    "particle": "create_schematic_compute:block/sp_5",
-    "end": "create_schematic_compute:block/sp_front",
-    "side": "create_schematic_compute:block/sp_front_off"
-  }
-}
