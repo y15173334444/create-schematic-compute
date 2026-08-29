@@ -757,6 +757,16 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 | ⏱️ 信号发生器相位 / Generator phase **(行为变更)** | ControlSeat / Radar / Sensor 改用 `recompileEvaluatorFull()`，`debugTime`（信号发生器相位）跨重编译保留，与 Monitor / SpeedProxy 的 light 路径对齐；老路径 `recompileEvaluator()` 已删除 / these three now keep the generator phase across recompiles, matching the light path used by Monitor / SpeedProxy; the legacy `recompileEvaluator()` path is gone. |
 | 🧪 测试 / Tests | `RuntimeStateRestoreTest` 新增 7 例，含"只恢复 pid 必然重触发"的负例对照；全量 332 例通过 / 7 new cases including a negative guard that proves the old behaviour re-fires; full suite of 332 green. |
 
+### 🔀 图宿主收敛 · 阶段 1（合并逻辑与回弹保护）/ Graph Host Convergence · Phase 1
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🧩 合并逻辑上提 / Merge hoisted | 7 个 BE 各自覆写的 `IMergeableBE.accept()` 上提到 `SyncedGraphBlockEntity`，类型特定字段改由新增的 `acceptTypeSpecific()` 钩子承载（与 `loadTypeSpecific` 同构）。七个近乎逐字相同的实现删去六份半，**纯去重**（唯一例外见下条）/ Six and a half near-verbatim copies removed; pure de-duplication except for the item below. |
+| 📡 SpeedProxy 补发方块更新 **(行为变更)** | SpeedProxy 合并时原本**不**发送 `sendBlockUpdated`，客户端拿不到新的 `getUpdateTag`；现与其余六个 BE 对齐 / SpeedProxy used to skip it, so tracking clients never received a fresh update tag after a merge. |
+| 🛡️ Radar 回弹保护恢复 **(行为变更，bug 修复)** | Radar 的 `loadAdditional` 原先**重复**执行图加载，且**不检查** pendingLocalOps / 像素绘制 / 显示拖拽 —— 等于关掉基类三道回弹保护：编辑器打开、正在绘画或拖拽元素时，服务端同步包会砸掉本地图（孤儿化 `pixelEdit.node` / `draggedDisplayNode`，表现为"图像变透明""拖拽不跟手"）。现已恢复三道护栏 / Radar used to re-load the graph with none of the three guards, so a server sync could clobber in-progress edits (wiped pixels, drags that stop following the cursor). |
+| 🧭 回弹判定收敛 / Guard converged | 三道护栏的判定收敛到 `GraphHostOwner.isGraphReplaceBlocked(pendingLocalOps)` 一处，继承线与组合线（`GraphHost`）共用，不再各写一份导致判定漂移 / One shared implementation instead of two copies that could drift apart. |
+| 🤝 跨变体合并保持 / Cross-variant merge kept | 上提后的类型判定允许基类 ↔ Sable 兼容变体（`compat/*BlockEntitySable` 四个子类不覆写 `accept`）双向合并，与旧 `instanceof` 语义一致 —— 整合包中途加装/移除 Sable 时两种 BE 会在同一世界共存 / Base ↔ Sable variant merges still work, matching the old `instanceof` semantics; both kinds coexist when Sable is installed or removed mid-game. |
+
 </details>
 
 <details>

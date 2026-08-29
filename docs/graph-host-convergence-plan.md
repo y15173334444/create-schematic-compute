@@ -2,7 +2,8 @@
 
 > **目标**：统一成一个 BE 形态 = **两条继承线共享同一个 GraphHostCore 引擎 + 同一个
 > GraphBlockEntity 契约，各自只剩薄壳和类型钩子**。
-> **状态**：🚧 阶段 0 已完成（2026-08-29）；阶段 1+ 待办（2026-08-28 立项）。
+> **状态**：🚧 阶段 0 已完成（2026-08-29）；**阶段 1 进行中** —— 三项减法已落地
+> （合并逻辑上提 / Radar 重复加载删除 / 回弹判定收敛），剩余字段委托待办（2026-08-28 立项）。
 > 基线分支 `docs/programmable-gearbox`（`cfd1c5b`+），阶段 0 落地于 `main`。
 > **背景**：`GraphHost`（466 行）是从 `SyncedGraphBlockEntity` 移植的组合引擎，专为挂在
 > Create `KineticBlockEntity` 继承线上的方块实体服务（Java 单继承冲突，见
@@ -100,14 +101,15 @@
 ### 阶段 1 · 状态收敛（SyncedGraphBlockEntity 薄壳化）
 
 > **⚠️ 验收线已修订（2026-08-29 实测）**：原定"7 个存量子类编译零改动"**不可达成**。
-> Java 没有字段委托，而 `graph` / `running` 在 **7/7 子类里被直接赋值**（都在
-> `IMergeableBE.accept()` 里），`needsFullSync` 被 6 个子类赋值，`lastGraphGeneration`
-> 被 3 个子类赋值。字段一旦改为委托，这些赋值语句必然编译失败。
+> Java 没有字段委托，而 `graph` / `running` 在 **7/7 子类里被直接赋值**（上提前都在
+> `IMergeableBE.accept()` 里），`needsFullSync` 被 5 个子类赋值（7 处），
+> `lastGraphGeneration` 被 3 个子类赋值。字段一旦改为委托，这些赋值语句必然编译失败。
 > **新验收线**：子类 diff 仅限**机械改写**（字段 → 访问器 / 逻辑上提基类），
 > **零逻辑变更**，编译通过且 332 例测试全绿。
-> 子类引用面实测（行数，含注释与声明）：
-> `graph` 125 · `running` 31 · `rs.` 34 · `runtimeState` 23 · `evaluator` 19 ·
-> `needsFullSync` 7 · `lastBusHashMap` 5。
+> 子类引用面实测（**合并逻辑上提之后**的当前值，匹配行数，含注释与声明）：
+> `graph` 114 · `rs.` 33 · `running` 27 · `evaluator` 19 · `runtimeState` 16 ·
+> `needsFullSync` 7 · `lastBusHashMap` 5。（上提前为 graph 125 / running 31 / rs. 34 /
+> runtimeState 23，差值即本次删掉的 accept 重复代码。）
 > 另有约 15 处**外部类**直摸字段（`cachedEvalSnapshot` 8 处、`runtimeState.flipflopStates`
 > 6 处、`pendingLocalOps++` 1 处）—— 那部分归阶段 2 的契约收敛。
 
@@ -117,6 +119,14 @@
       ProgramComputer / Sensor / SpeedProxy 五个直接删除覆写，Monitor / Radar 改为只覆写
       钩子。**净删除 7 处 `graph` 赋值 + 7 处 `running` 赋值 + 7 处重复方法体。**
       唯一行为变更：SpeedProxy 原本不发送 `sendBlockUpdated`，现在与其余六个对齐。
+      **⚠️ 曾引入并已修复的回归（同日审查发现，务必留档）**：首版类型判定写成
+      `other.getClass() != getClass()`，**静默断掉了基类 ↔ Sable 变体的合并**。
+      `compat/` 下有 ControlSeatBlockEntitySable / MonitorBlockEntitySable /
+      RadarBlockEntitySable / SensorBlockEntitySable 四个子类，均继承对应基类且**都不覆写
+      accept**，旧行为靠各子类的 `other instanceof XxxBlockEntity` 双向放行；整合包中途
+      加装或移除 Sable 时，新旧两种 BE 会在同一世界共存，合并被跳过即丢图。
+      现判定改为"两个类存在继承关系（任一方向 `isInstance`）"，与旧语义等价。
+      **不要改回 `getClass()` 相等** —— 代码注释里也写了这条禁令。
 - [ ] 抽象基类全部托管字段替换为 `private final GraphHost host`（或更名 GraphHostCore），
       原 public/protected 成员逐一改为委托桥，**子类可见 API 签名不变**。
 - [ ] 子类/工具类直摸字段处（`host.graph`、`runtimeState.*`、`cachedEvalSnapshot` 等）
@@ -174,7 +184,10 @@
 - [ ] ControlSeat：输入态（SeatInputState）全链路。
 - [ ] 变速器 / 数控齿轮箱：现有 RCON 矩阵重跑（§交接文档 二）。
 - [ ] 触发电平（nodeEdge）：两线"常高信号重载/重建后不误触发"一致。
-- [ ] 编译零改动验收：阶段 1 合入时 7 个存量子类 diff 为空。
+- [ ] **阶段 1 合入验收**（§四已修订，以此条为准）：7 个存量子类的 diff **仅限机械改写**
+      （字段 → 访问器 / 逻辑上提基类），**零逻辑变更**；编译通过且 332 例测试全绿。
+      ~~原"diff 为空"不可达成~~——Java 无字段委托，`graph`/`running` 在 7/7 子类里被直接
+      赋值，委托后必然编译失败；详见 §四的验收线修订说明。
 - [ ] 性能抽查：每 tick 无新增 GC 压力（委托桥直通字段）。
 
 **完成定义（DoD）**：两线所有图宿主 BE 均为薄壳 + 类型钩子；引擎与契约各自单点；

@@ -232,7 +232,32 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
 - `broadcastEvalSnapshot()` — 广播 EvalSnapshot → ClientboundGraphEvalPacket
 - `getUpdateTag()` — 网络同步（始终发送完整图）/ Network sync (full graph, unconditional)
 - `flagFullSync()` — 触发完整图同步 / Trigger full graph sync
-- `loadAdditional()` — 客户端守卫 `!editorOpen || pendingLocalOps <= 0`：仅当本地玩家有未 ACK 编辑 op 时跳过图替换（回弹保护）；加入者/无编辑者总是应用服务端权威图 / Client guard: replace the graph unless the local editor has un-ACKed ops (bounce-back protection); joiners with no local edits always apply the authoritative graph
+- `accept(BlockEntity)` — IMergeableBE 合并（Create contraption 放置/粘贴）；v1.2.5 阶段 1 由 7 个子类上提，类型段走 `acceptTypeSpecific(src)` 钩子 / IMergeableBE merge; hoisted from the seven subclasses in v1.2.5 phase 1, type fields via the `acceptTypeSpecific(src)` hook
+  - 类型判定：**两类存在继承关系（任一方向 `isInstance`）** —— 必须放行基类 ↔ Sable 变体（`compat/*BlockEntitySable` 四个子类不覆写 accept），**不可用 `getClass()` 相等**（会静默丢图）/ the two classes must be in an inheritance relation either way: base ↔ Sable variant merges must pass; class equality would silently drop the graph
+- `acceptTypeSpecific(src)` — 合并时复制类型特定字段的钩子，默认空实现；Monitor / Radar 覆写 / merge hook for type-specific fields; overridden by Monitor and Radar
+- `loadAdditional()` — 客户端回弹保护，判定统一走 `GraphHostOwner.isGraphReplaceBlocked(pendingLocalOps)`（v1.2.5 阶段 1 收敛，与组合线 `GraphHost` 共用一份）/ client bounce-back protection, decided by `GraphHostOwner.isGraphReplaceBlocked(pendingLocalOps)` (converged in v1.2.5 phase 1 and shared with the composition line `GraphHost`)
+
+**实现的接口 / Implemented interfaces**：`IMergeableBE`、`GraphBlockEntity`、`GraphHostOwner`
+（实现 `GraphHostOwner` 是为复用其 default 方法 —— 回弹判定 `isGraphReplaceBlocked` 与 NBT 类型段钩子 ——
+而非被 `GraphHost` 组合；`getLevel`/`getBlockPos`/`setChanged` 由 `BlockEntity` 直接满足，只需补
+`asBlockEntity()` 与 `sendBlockUpdated()`）
+/ Implements `GraphHostOwner` to reuse its default methods (the bounce-back check and the NBT hooks), not to be composed by `GraphHost`; `getLevel`/`getBlockPos`/`setChanged` come from `BlockEntity`, so only `asBlockEntity()` and `sendBlockUpdated()` are new.
+
+**编辑回弹保护（三道护栏）/ Editor bounce-back protection (three guards)**
+
+存档或服务端同步包替换本地图之前，由 `GraphHostOwner.isGraphReplaceBlocked(pendingLocalOps)`
+统一判定 —— 继承线与组合线 `GraphHost` 共用同一份实现（v1.2.5 阶段 1 收敛；此前两处各写一份，
+判定漂移会让两条线行为不一致）：
+
+| # | 护栏 / Guard | 为什么需要 / Why |
+| - | ---- | ---- |
+| 1 | 未 ACK 的本地编辑 op：`pendingLocalOps > 0` 且编辑器已打开 | 本地有未落库的编辑，替换会回弹 / local edits not yet ACKed; a replacement bounces them |
+| 2 | 像素编辑器打开 / pixel editor open | 绘画**不逐笔发 op**，`pendingLocalOps` 守不住；替换会孤儿化 `pixelEdit.node`，下次 saveGraph 把旧数据推回服务端（"拖拽后图像变透明"）/ painting sends no per-stroke op, so the op guard cannot cover it |
+| 3 | 显示区元素拖拽中 / display drag in progress | 替换会孤儿化 `draggedDisplayNode`，元素冻结到松手才跳变（"拖拽不跟手、松手才同步"）/ orphans the node, freezing the element until release |
+
+服务端永远返回 `false`（服务端是权威，必须接受 NBT）；加入者 `pendingLocalOps == 0`，
+即使编辑器已打开也总是加载权威图 / the server is authoritative and always takes the NBT;
+joiners have no pending ops and always load the authoritative graph.
 
 ### 7 个方块类 / 7 Block Types
 
