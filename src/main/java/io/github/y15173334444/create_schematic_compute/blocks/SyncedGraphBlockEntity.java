@@ -39,7 +39,7 @@ import java.util.Map;
  * the phase-1 goal of the convergence refactor.</p>
  */
 public abstract class SyncedGraphBlockEntity extends BlockEntity
-        implements IMergeableBE, GraphBlockEntity, GraphHostOwner {
+        implements IMergeableBE, GraphBlockEntity {
 
     // ── 引擎 / engine ──
 
@@ -179,22 +179,22 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  @return the cached signal strength, or 0 if never set / 缓存的信号强度，从未设置则返回 0 */
     public int getRedstoneInput(long freqKey) { return rs().getInput(freqKey); }
 
-    // ── GraphHostOwner ───────────────────────────────────────────────────
-    //     本类实现 GraphHostOwner 是为了复用它的默认方法（编辑回弹判定
-    //     isGraphReplaceBlocked、NBT 类型段钩子），并把 this 交给引擎作宿主回调 ——
-    //     这条线走继承，组合线由 Kinetic BE 直接实现该接口。getLevel / getBlockPos /
-    //     setChanged 由 BlockEntity 直接提供，签名一致故无需覆写。
-    //     This class implements GraphHostOwner to reuse its default methods (the
-    //     bounce-back check isGraphReplaceBlocked and the NBT hooks) and to hand this
-    //     to the engine as its host callback — this line inherits, while the
-    //     composition line's kinetic BEs implement the interface directly.
+    // ── GraphBlockEntity 宿主绑定面 ─────────────────────────────────────
+    //     契约的宿主绑定面（编辑回弹判定 isGraphReplaceBlocked、NBT 类型段钩子、
+    //     asBlockEntity/sendBlockUpdated）已由 GraphBlockEntity 直接承载（阶段 2 并入，
+    //     原 GraphHostOwner 接口删除）；本类实现契约即同时满足引擎的宿主回调面。
+    //     getLevel / getBlockPos / setChanged 由 BlockEntity 直接提供，签名一致。
+    //     The contract's host-binding surface (bounce-back check, NBT hooks,
+    //     asBlockEntity/sendBlockUpdated) now lives on GraphBlockEntity itself
+    //     (merged in phase 2; the GraphHostOwner interface is gone). Implementing the
+    //     contract therefore also satisfies the engine's host-callback surface.
     //     getLevel / getBlockPos / setChanged come from BlockEntity with matching
-    //     signatures, so they need no override.
+    //     signatures.
 
-    /** @see GraphHostOwner#asBlockEntity */
+    /** @see GraphBlockEntity#asBlockEntity */
     @Override public BlockEntity asBlockEntity() { return this; }
 
-    /** @see GraphHostOwner#sendBlockUpdated */
+    /** @see GraphBlockEntity#sendBlockUpdated */
     @Override public void sendBlockUpdated() {
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }
@@ -403,12 +403,12 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  On the client side, if a GraphEditor is currently open for this BE, the graph
      *  replacement is skipped to avoid overwriting in-progress edits with server data
      *  (which would cause visible value bounce-back in the editor UI) — the guard is
-     *  {@link GraphHostOwner#isGraphReplaceBlocked(int)}, shared with the composition line.
+     *  {@link GraphBlockEntity#isGraphReplaceBlocked(int)}, shared with the composition line.
      *  BUS channels are NOT registered here — they are lazily registered on the first
      *  tick via {@link #ensureBusRegistered}.
      *  从 NBT 加载图、运行状态、运行时状态以及任何类型特定数据。
      *  在客户端，如果当前正为此 BE 打开 GraphEditor，则跳过图替换（回弹保护）——
-     *  判定走与组合线共用的 {@link GraphHostOwner#isGraphReplaceBlocked(int)}。
+     *  判定走与组合线共用的 {@link GraphBlockEntity#isGraphReplaceBlocked(int)}。
      *  BUS 通道不在此处注册 —— 在首次 tick 时通过 ensureBusRegistered 惰性注册。
      *  @param t the compound tag to read from / 要读取的复合标签
      *  @param r the holder lookup provider for registry access / 用于注册表访问的 HolderLookup.Provider */

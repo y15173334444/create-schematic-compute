@@ -51,8 +51,8 @@ public class GraphHost {
     /** 最小全量同步间隔 tick。 / Min ticks between consecutive full syncs. */
     private static final int FULL_SYNC_GRACE_TICKS = 40;
 
-    /** 宿主回调视图。 / Host callback view. */
-    private final GraphHostOwner owner;
+    /** 宿主回调视图（图宿主契约）。 / Host callback view (the graph-host contract). */
+    private final GraphBlockEntity owner;
 
     /** 托管节点图 —— 核心数据模型。 / Hosted node graph — core data model. */
     public NodeGraph graph = new NodeGraph();
@@ -92,7 +92,7 @@ public class GraphHost {
     @Nullable
     private Consumer<GraphEvaluator> evaluatorCustomizer;
 
-    public GraphHost(GraphHostOwner owner) {
+    public GraphHost(GraphBlockEntity owner) {
         this.owner = owner;
         this.rs = new RedstoneLinkHelper(owner.asBlockEntity());
     }
@@ -451,10 +451,10 @@ public class GraphHost {
     /**
      * 读取公共字段。客户端编辑保护（编辑器打开且有未 ACK 本地 op / 像素编辑中 /
      * 显示拖拽中时跳过本地图替换）统一走
-     * {@link GraphHostOwner#isGraphReplaceBlocked(int)}。
+     * {@link GraphBlockEntity#isGraphReplaceBlocked(int)}。
      * Reads common fields. Client editor-protection (skip local replacement while an
      * editor is open with un-ACKed ops, or during pixel painting / display dragging)
-     * now goes through {@link GraphHostOwner#isGraphReplaceBlocked(int)}.
+     * now goes through {@link GraphBlockEntity#isGraphReplaceBlocked(int)}.
      */
     public void loadHostNBT(CompoundTag t, HolderLookup.Provider r) {
         if (t.contains("graph")) {

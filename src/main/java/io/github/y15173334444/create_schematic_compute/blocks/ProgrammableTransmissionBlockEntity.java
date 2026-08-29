@@ -41,7 +41,7 @@ import java.util.Map;
  * 滚轮设定值（官方 SC 同款 ValueBox）。</p>
  */
 public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
-        implements GraphBlockEntity, GraphHostOwner {
+        implements GraphBlockEntity {
 
     /** 组合式图托管核心。 Composition-based graph hosting core. */
     public final GraphHost host;
@@ -334,7 +334,7 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
     @Override public Map<Integer, Boolean> peekSubStateFlipflops(int encapNodeId) { return host.peekSubStateFlipflops(encapNodeId); }
     @Override public Map<Integer, Boolean> getFlipflopStates() { return host.getFlipflopStates(); }
 
-    // ── GraphHostOwner 回调 / owner callbacks ──
+    // ── GraphBlockEntity 宿主绑定回调 / contract host-binding callbacks ──
 
     @Override public BlockEntity asBlockEntity() { return this; }
 

@@ -39,7 +39,7 @@ import java.util.Map;
  * 接合/分离走官方合并/失源路径（见 {@link CncGearboxBlock}）。</p>
  */
 public class CncGearboxBlockEntity extends KineticBlockEntity
-        implements GearboxCommandSink, GraphBlockEntity, GraphHostOwner, KineticEncoderView {
+        implements GearboxCommandSink, GraphBlockEntity, KineticEncoderView {
 
     /** 组合式图托管核心。 Composition-based graph hosting core. */
     public final GraphHost host;
@@ -333,7 +333,7 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
     @Override public Map<Integer, Boolean> peekSubStateFlipflops(int encapNodeId) { return host.peekSubStateFlipflops(encapNodeId); }
     @Override public Map<Integer, Boolean> getFlipflopStates() { return host.getFlipflopStates(); }
 
-    // ── GraphHostOwner 回调 / owner callbacks ──
+    // ── GraphBlockEntity 宿主绑定回调 / contract host-binding callbacks ──
 
     @Override public BlockEntity asBlockEntity() { return this; }
 

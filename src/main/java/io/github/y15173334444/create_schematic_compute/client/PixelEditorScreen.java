@@ -3,7 +3,6 @@ package io.github.y15173334444.create_schematic_compute.client;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphEditor;
 import io.github.y15173334444.create_schematic_compute.blocks.MonitorBlockEntity;
-import io.github.y15173334444.create_schematic_compute.blocks.SyncedGraphBlockEntity;
 import io.github.y15173334444.create_schematic_compute.client.colorpicker.ColorPickerWidget;
 import io.github.y15173334444.create_schematic_compute.client.colorpicker.RecentColors;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
