@@ -329,17 +329,33 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      * it now lives in the base class, with type-specific fields handled by the
      * {@link #acceptTypeSpecific} hook — mirroring loadTypeSpecific/saveTypeSpecific.
      *
-     * <p>类型检查用 {@code getClass() != getClass()} 而非 instanceof：合并只在同类型之间
-     * 有意义，且与原先各子类的 {@code other instanceof XxxBlockEntity} 等价（各 BE 均无子类）。
-     * Type check uses class equality rather than instanceof: merging only makes sense
-     * between identical types, and it is equivalent to each subclass's original
-     * {@code other instanceof XxxBlockEntity} (no BE here is ever subclassed).
+     * <p><b>类型判定必须允许跨变体合并。</b>原先各子类用 {@code other instanceof
+     * XxxBlockEntity} 检查，因此原生基类与其 Sable 兼容变体
+     * （{@code compat/ControlSeatBlockEntitySable}、{@code MonitorBlockEntitySable}、
+     * {@code RadarBlockEntitySable}、{@code SensorBlockEntitySable} —— 四者均继承对应基类
+     * 且都不覆写 accept）之间<em>双向</em>都可合并。整合包中途加装或移除 Sable 时，
+     * 新旧两种 BE 会真实共存，合并被静默跳过会丢图。
+     * 上提后改用"两个类存在继承关系（任一方向 isInstance）"：
+     * 基类↔变体放行、同类型放行、无关类型（Blueprint↔Monitor）跳过，
+     * 与旧的 instanceof 语义等价。<b>不要</b>改用 {@code getClass() != getClass()} ——
+     * 那会静默断掉全部跨变体合并。
+     * The type test must admit cross-variant merges. Each subclass used to check
+     * {@code other instanceof XxxBlockEntity}, so a native base BE and its Sable
+     * variant ({@code compat/ControlSeatBlockEntitySable}, {@code MonitorBlockEntitySable},
+     * {@code RadarBlockEntitySable}, {@code SensorBlockEntitySable} — all four extend the
+     * matching base class and none override accept) merged <em>both ways</em>. Installing
+     * or removing Sable mid-game leaves both kinds alive in one world, so a silently
+     * skipped merge loses the graph. The hoisted check asks whether the two classes are
+     * in an inheritance relation (isInstance in either direction): base↔variant passes,
+     * identical types pass, unrelated types (Blueprint↔Monitor) are skipped — equivalent
+     * to the old instanceof semantics. Do <b>not</b> switch to
+     * {@code getClass() != getClass()}; that silently breaks every cross-variant merge.
      *
      * @param other 被吸收的方块实体 / the block entity being absorbed
      */
     @Override public void accept(BlockEntity other) {
-        if (other == null || other.getClass() != getClass()) return;
-        var src = (SyncedGraphBlockEntity) other;
+        if (!(other instanceof SyncedGraphBlockEntity src)) return;
+        if (!isMergeCompatible(getClass(), other.getClass())) return;
         // 先注销旧图的 BUS 频道——旧节点即将被整体替换，不注销会在 SignalBus 留下残留
         // 引用（泄漏）。Unregister the old graph's BUS channels first: the nodes are
         // about to be replaced wholesale, so skipping this leaks references.
@@ -350,6 +366,35 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         acceptTypeSpecific(src);
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+    }
+
+    /**
+     * 两个 BE 类之间是否允许合并 —— 存在继承关系（任一方向）即可。
+     * Whether two BE classes may merge — an inheritance relation in either direction.
+     *
+     * <p><b>必须放行原生基类与其 Sable 兼容变体。</b>{@code compat/} 下的
+     * ControlSeatBlockEntitySable / MonitorBlockEntitySable / RadarBlockEntitySable /
+     * SensorBlockEntitySable 四个子类都继承对应基类，且**都不覆写 accept**；旧行为下各子类的
+     * {@code other instanceof XxxBlockEntity} 因此双向放行。整合包中途加装或移除 Sable 时，
+     * 新旧两种 BE 会在同一个世界共存，合并被静默跳过就是丢图。
+     * <b>Must admit a native base class and its Sable variant.</b> The four
+     * {@code compat/*BlockEntitySable} subclasses extend the matching base class and none
+     * overrides accept, so each subclass's old {@code other instanceof XxxBlockEntity} let
+     * them merge both ways. Installing or removing Sable mid-game leaves both kinds alive
+     * in one world; a silently skipped merge loses the graph.
+     *
+     * <p>抽成静态方法是为了让回归测试直接锁住这条语义 ——
+     * 用 {@code mine != theirs}（类相等）会静默断掉全部跨变体合并，已踩过一次。
+     * Static so a regression test can pin this down: using class equality
+     * ({@code mine != theirs}) silently breaks every cross-variant merge, which already
+     * happened once.
+     *
+     * @param mine   本 BE 的类 / this BE's class
+     * @param theirs 待合并 BE 的类 / the candidate BE's class
+     * @return true 表示允许合并 / true when the merge is allowed
+     */
+    static boolean isMergeCompatible(Class<?> mine, Class<?> theirs) {
+        return mine.isAssignableFrom(theirs) || theirs.isAssignableFrom(mine);
     }
 
     /**
