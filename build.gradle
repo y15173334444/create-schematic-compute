@@ -64,6 +64,12 @@ dependencies {
     compileOnly fileTree(dir: 'libs', include: '*.jar')
     runtimeOnly fileTree(dir: 'libs', include: '*.jar')
 
+    // Test compilation also needs the local jars (e.g. Create's IMergeableBE),
+    // otherwise javac cannot resolve BE types referenced from src/test.
+    // 测试编译同样需要本地 jar（如 Create 的 IMergeableBE），
+    // 否则 javac 无法解析 src/test 引用的 BE 类型。
+    testImplementation fileTree(dir: 'libs', include: '*.jar')
+
     // Mixin AP for processing @Mixin annotations
     annotationProcessor 'org.spongepowered:mixin:0.8.7:processor'
 
