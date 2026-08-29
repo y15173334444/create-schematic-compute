@@ -88,6 +88,8 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
 
     /** Scan result cache — populated each tick on the server and read by the client-side blip renderer. 扫描结果缓存（服务端每 tick 填充，渲染器读取）。 */
     public final List<TargetRecord> targets = new ArrayList<>();
+    /** 上次推送给客户端的目标快照（去重门控）。/ Last-pushed target snapshot (push gate). */
+    private List<TargetRecord> lastPushedTargets = new ArrayList<>();
 
     /** Client-side registry of all loaded radar block entities, used by RadarLockHandler to iterate radars for crosshair-lock UI. 客户端侧所有已加载雷达的注册表，用于 RadarLockHandler 遍历以支持准星锁定 UI。 */
     private static final java.util.Set<RadarBlockEntity> CLIENT_RADARS = new java.util.HashSet<>();
@@ -511,9 +513,18 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
         setChanged();
         // Force-sync targets to clients so the blip renderer stays up to date.
-        // 强制同步目标到客户端，确保 blip 渲染器数据实时更新。
-        if (level != null && !level.isClientSide())
+        // 目标列表有变化才推送。此处推送的是**完整 BE NBT**（含整张图），无条件每 tick
+        // 推送会让所有追踪客户端每 tick 重载图——雷达编辑器"图每次重建"的根因
+        // （雷达诞生起即如此，非收敛引入；blip 的实时数值本就走 EvalSnapshot 广播）。
+        // Push only when the target list changed. This push carries the FULL BE NBT
+        // (whole graph included); pushing it unconditionally every tick made every
+        // tracking client reload the graph per tick — the "radar graph rebuilds every
+        // time" root cause (present since the radar was born, not a convergence
+        // regression; live blip values already flow via the EvalSnapshot broadcast).
+        if (level != null && !level.isClientSide() && !targets.equals(lastPushedTargets)) {
+            lastPushedTargets = new ArrayList<>(targets);
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
     }
 
     // ── Sable 访问已迁移到 SablePoseHelper 编译期 API（专用服务器安全） ──

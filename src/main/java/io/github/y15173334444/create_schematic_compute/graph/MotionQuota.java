@@ -22,8 +22,17 @@ public final class MotionQuota {
 
     /** 官方角度换算：度/tick = speed × 0.3。 Official angular conversion. */
     public static final float DEG_PER_RPM_TICK = 0.3f;
-    /** 官方线性换算：米/tick = speed / 512 × dt(0.05)。 Official linear conversion. */
-    public static final float METERS_PER_RPM_TICK = 1f / 512f * 0.05f;
+    /** 官方线性换算：米/tick = speed / 512。与 Create
+     *  {@code KineticBlockEntity.convertToLinear} 一致（字节码核实：
+     *  MechanicalPiston.getMovementSpeed 以其为每 tick 位移，无 dt 因子）。
+     *  此前多乘的 dt(0.05) 让 MOVE 慢 20 倍 —— 90 米 @64RPM 要 12 分钟，
+     *  玩家体感即"触发指令后一直旋转"。
+     *  Official linear conversion: meters/tick = speed / 512, matching Create's
+     *  {@code KineticBlockEntity.convertToLinear} (verified against bytecode:
+     *  MechanicalPiston.getMovementSpeed uses it as per-tick displacement, no dt
+     *  factor). The extra dt(0.05) used to make MOVE 20x slower — 90 m at 64 RPM
+     *  took 12 minutes, which reads as "spins forever after triggering". */
+    public static final float METERS_PER_RPM_TICK = 1f / 512f;
 
     private float remaining;
 

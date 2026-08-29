@@ -906,6 +906,7 @@ public class GraphEvaluator {
                 float trig = graph.getInputValue(node.id, 0, outputs);
                 boolean cur = trig > 0.5f;
                 boolean prev = runtimeState != null && runtimeState.nodeEdge.getOrDefault(node.id, false);
+                if (cur && !prev)
                 if (cur && !prev && commandSink != null) {
                     // 数值：参数 EditBox 为默认值，连线覆盖（上升沿当帧快照）。
                     // Value: param EditBox default, wire overrides (snapshotted at edge).

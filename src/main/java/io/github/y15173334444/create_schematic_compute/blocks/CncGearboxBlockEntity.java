@@ -41,6 +41,7 @@ import java.util.Map;
 public class CncGearboxBlockEntity extends KineticBlockEntity
         implements GearboxCommandSink, GraphBlockEntity, KineticEncoderView {
 
+
     /** 组合式图托管核心。 Composition-based graph hosting core. */
     public final GraphHost host;
 

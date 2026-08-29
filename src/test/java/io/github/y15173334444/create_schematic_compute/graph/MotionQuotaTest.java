@@ -48,7 +48,7 @@ class MotionQuotaTest {
     }
 
     @Test
-    @DisplayName("1 meter at 16 RPM completes")
+    @DisplayName("1 meter at 16 RPM completes in 32 ticks")
     void moveOneMeterAt16RpmCompletes() {
         var q = MotionQuota.of(1f);
         int ticks = 0;
@@ -57,10 +57,29 @@ class MotionQuotaTest {
             ticks++;
         }
         assertTrue(q.done());
-        // 16 rpm → 16/512×0.05 = 0.0015625 m/tick → 640 ticks 理论值；
-        // 0.05f 的浮点尾差允许 641（dt 非精确表示）。
-        // 640 theoretical; the 0.05f float tail allows 641.
-        assertTrue(ticks == 640 || ticks == 641, "ticks=" + ticks);
+        // 官方线性换算（Create MechanicalPiston.getMovementSpeed = speed/512 格/tick）：
+        // 16 rpm → 16/512 = 0.03125 m/tick → 32 ticks。
+        // Official linear conversion: 16 rpm -> 0.03125 m/tick -> 32 ticks.
+        assertEquals(32, ticks, "ticks=" + ticks);
+    }
+
+    @Test
+    @DisplayName("MOVE 90 m at 64 RPM completes in 720 ticks (36 s) — the 'spins forever' report")
+    void move90At64RpmCompletes() {
+        // 用户报告：触发 MOVE 90 后"一直旋转"。探针实测 speed=64、配额消耗
+        // 0.00625 m/tick（=64/512×0.05）→ 14400 tick = 12 分钟；官方换算应为
+        // 0.125 m/tick → 720 tick = 36 秒。
+        // User report: MOVE 90 read as "spins forever". Probes measured speed=64
+        // consuming 0.00625 m/tick (64/512x0.05) = 14400 ticks = 12 min; the official
+        // conversion gives 0.125 m/tick = 720 ticks = 36 s.
+        var q = MotionQuota.of(90f);
+        int ticks = 0;
+        while (!q.done() && ticks < 100_000) {
+            q.consumeAbs(MotionQuota.metersPerTick(64f));
+            ticks++;
+        }
+        assertTrue(q.done());
+        assertEquals(720, ticks, "ticks=" + ticks);
     }
 
     @Test
@@ -101,6 +120,12 @@ class MotionQuotaTest {
     @DisplayName("conversion constants match the official Create formulas")
     void officialConversions() {
         assertEquals(0.3f, MotionQuota.degreesPerTick(1f), 1e-6f);
-        assertEquals(1f / 512f * 0.05f, MotionQuota.metersPerTick(1f), 1e-9f);
+        // 官方线性速度（Create 字节码核实）：convertToLinear(speed) = speed/512，
+        // MechanicalPiston.getMovementSpeed() 以其为每 tick 位移 —— 无 dt 因子。
+        // 此前多乘的 dt(0.05) 让 MOVE 慢 20 倍（"触发指令后一直旋转"的根因）。
+        // Official linear speed (verified against Create bytecode):
+        // convertToLinear(speed) = speed/512, used per tick by the mechanical piston
+        // — no dt factor. The extra dt(0.05) made MOVE 20x slower.
+        assertEquals(1f / 512f, MotionQuota.metersPerTick(1f), 1e-9f);
     }
 }
