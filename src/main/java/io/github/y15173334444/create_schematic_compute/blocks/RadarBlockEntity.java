@@ -586,7 +586,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
                     structCount++;
                 }
             }
-            SchematicCompute.LOGGER.info("Radar Sable scan done: {} structures", structCount);
+            SchematicCompute.LOGGER.debug("Radar Sable scan done: {} structures", structCount);
         } catch (Exception e) {
             SchematicCompute.LOGGER.error("Radar Sable scan error: {}", e.toString());
         }
