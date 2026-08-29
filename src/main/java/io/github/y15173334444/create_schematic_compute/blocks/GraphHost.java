@@ -366,27 +366,21 @@ public class GraphHost {
     }
 
     /**
-     * 读取公共字段。客户端编辑保护语义与 SyncedGraphBlockEntity.loadAdditional 一致：
-     * 编辑器打开且有未 ACK 本地 op、像素编辑中或显示拖拽中时跳过本地图替换。
-     * Reads common fields. Client editor-protection matches
-     * SyncedGraphBlockEntity.loadAdditional: skip local replacement while an editor is open
-     * with un-ACKed ops, or during pixel painting / display dragging.
+     * 读取公共字段。客户端编辑保护（编辑器打开且有未 ACK 本地 op / 像素编辑中 /
+     * 显示拖拽中时跳过本地图替换）统一走
+     * {@link GraphHostOwner#isGraphReplaceBlocked(int)}。
+     * Reads common fields. Client editor-protection (skip local replacement while an
+     * editor is open with un-ACKed ops, or during pixel painting / display dragging)
+     * now goes through {@link GraphHostOwner#isGraphReplaceBlocked(int)}.
      */
     public void loadHostNBT(CompoundTag t, HolderLookup.Provider r) {
         if (t.contains("graph")) {
-            var clientLvl = lvl();
-            boolean editorOpen = false;
-            boolean hostPixelEditing = false;
-            boolean hostDisplayDragging = false;
-            if (clientLvl != null && clientLvl.isClientSide()) {
-                var mc = net.minecraft.client.Minecraft.getInstance();
-                if (mc.screen instanceof GraphEditor.Host host && host.getBlockPos().equals(pos())) {
-                    editorOpen = true;
-                    hostPixelEditing = host.isPixelEditorOpen();
-                    hostDisplayDragging = host.isDisplayDragInProgress();
-                }
-            }
-            if ((!editorOpen || pendingLocalOps <= 0) && !hostPixelEditing && !hostDisplayDragging) {
+            // 阶段 1：判定收敛到 GraphHostOwner —— 原先此处与 SyncedGraphBlockEntity
+            // 各写一份，两线判定漂移会让客户端行为不一致。
+            // Phase 1: the check converged into GraphHostOwner — this site and
+            // SyncedGraphBlockEntity used to each keep a copy, and drift between them
+            // would make the two lines behave differently on the client.
+            if (!owner.isGraphReplaceBlocked(pendingLocalOps)) {
                 graph = NodeGraph.load(t.getCompound("graph"), r);
                 rs.onLoad(graph);
                 this.graphReady = true;

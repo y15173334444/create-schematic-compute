@@ -9,7 +9,6 @@ import net.createmod.catnip.data.Couple;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import java.util.UUID;
 
@@ -180,21 +179,9 @@ public class ControlSeatBlockEntity extends SyncedGraphBlockEntity {
     }
 
     /**
-     * EN: Called when a contraption is assembled and this BE is copied from another.
-     * Transfers graph state and bus channel registrations, then triggers a block update.
-     * ZH: 在机械装置组装、从另一个方块实体复制此 BE 时调用。
-     * 转移图状态和总线通道注册，然后触发方块更新。
-     *
-     * @param other EN: the source block entity being copied from / ZH: 被复制的源方块实体
-     */
-    @Override public void accept(BlockEntity other) {
-        if(other instanceof ControlSeatBlockEntity src) {
-            unregisterBusChannels(graph);
-            this.graph = src.graph; this.running = src.running; runtimeState.clear();
-            setChanged();
-            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
-    }
+    // accept() 已上提至 SyncedGraphBlockEntity（阶段 1）——ControlSeat 无类型特定字段。
+    // / accept() moved up to SyncedGraphBlockEntity (phase 1) — ControlSeat has no
+    // type-specific fields.
 
     /**
      * EN: Scan for nearby ControlSeatEntity and consume the first seated player's buffered input.

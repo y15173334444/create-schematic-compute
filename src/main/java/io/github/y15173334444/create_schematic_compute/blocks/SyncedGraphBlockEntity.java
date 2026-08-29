@@ -60,7 +60,7 @@ import java.util.Set;
  * </ul>
  */
 public abstract class SyncedGraphBlockEntity extends BlockEntity
-        implements IMergeableBE, GraphBlockEntity {
+        implements IMergeableBE, GraphBlockEntity, GraphHostOwner {
 
     // ── Common fields / 通用字段 ──
 
@@ -268,6 +268,25 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         BusChannelHelper.syncBandsFromServer(busName, bands, graph);
     }
 
+    // ── GraphHostOwner ───────────────────────────────────────────────────
+    //     本类实现 GraphHostOwner 是为了复用它的默认方法（编辑回弹判定
+    //     isGraphReplaceBlocked、NBT 类型段钩子），而不是为了被 GraphHost 组合 ——
+    //     这条线走继承，那条线走组合。getLevel / getBlockPos / setChanged 由
+    //     BlockEntity 直接提供，签名一致故无需覆写。
+    //     This class implements GraphHostOwner to reuse its default methods (the
+    //     bounce-back check isGraphReplaceBlocked and the NBT hooks), not to be
+    //     composed by GraphHost — this line inherits, the other composes.
+    //     getLevel / getBlockPos / setChanged come from BlockEntity with matching
+    //     signatures, so they need no override.
+
+    /** @see GraphHostOwner#asBlockEntity */
+    @Override public BlockEntity asBlockEntity() { return this; }
+
+    /** @see GraphHostOwner#sendBlockUpdated */
+    @Override public void sendBlockUpdated() {
+        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+    }
+
     // ── Redstone links lifecycle / 红石链接生命周期 ──
 
     /** Called when the block entity is added to the world.
@@ -297,6 +316,52 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  Performs full BUS channel teardown: client cleanup + server unregistration.
      *  方块从世界中移除时调用。执行完整的 BUS 通道拆除：客户端清理 + 服务端注销。 */
     @Override public void setRemoved() { cleanupBusChannels(graph); unregisterBusChannels(graph); rs.setRemoved(); super.setRemoved(); }
+
+    // ── IMergeableBE 合并（Create contraption / schematic 放置）────────────────
+    //     IMergeableBE merge (Create contraption / schematic placement)
+
+    /**
+     * 合并另一个同类型 BE 的状态（Create 在 contraption 放置/粘贴时调用）。
+     * 七个子类原先各写一份、逻辑几乎逐字相同，现上提到基类，类型特定字段由
+     * {@link #acceptTypeSpecific} 钩子承载 —— 与 loadTypeSpecific/saveTypeSpecific 同构。
+     * Merge another BE of the same type (called by Create on contraption placement /
+     * paste). The seven subclasses used to each carry a near-verbatim copy of this;
+     * it now lives in the base class, with type-specific fields handled by the
+     * {@link #acceptTypeSpecific} hook — mirroring loadTypeSpecific/saveTypeSpecific.
+     *
+     * <p>类型检查用 {@code getClass() != getClass()} 而非 instanceof：合并只在同类型之间
+     * 有意义，且与原先各子类的 {@code other instanceof XxxBlockEntity} 等价（各 BE 均无子类）。
+     * Type check uses class equality rather than instanceof: merging only makes sense
+     * between identical types, and it is equivalent to each subclass's original
+     * {@code other instanceof XxxBlockEntity} (no BE here is ever subclassed).
+     *
+     * @param other 被吸收的方块实体 / the block entity being absorbed
+     */
+    @Override public void accept(BlockEntity other) {
+        if (other == null || other.getClass() != getClass()) return;
+        var src = (SyncedGraphBlockEntity) other;
+        // 先注销旧图的 BUS 频道——旧节点即将被整体替换，不注销会在 SignalBus 留下残留
+        // 引用（泄漏）。Unregister the old graph's BUS channels first: the nodes are
+        // about to be replaced wholesale, so skipping this leaks references.
+        unregisterBusChannels(graph);
+        this.graph = src.graph;
+        this.running = src.running;
+        runtimeState.clear();
+        acceptTypeSpecific(src);
+        setChanged();
+        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+    }
+
+    /**
+     * 合并时复制类型特定字段的钩子，由 {@link #accept} 在图与运行状态接管之后调用。
+     * 默认空实现；Monitor 与 Radar 覆写它搬自己的类型字段。
+     * Hook for copying type-specific fields during a merge; called by {@link #accept}
+     * after the graph and running state have been taken over. Empty by default;
+     * Monitor and Radar override it to carry their own fields across.
+     *
+     * @param src 同类型的源 BE / the source BE, of the same type
+     */
+    protected void acceptTypeSpecific(SyncedGraphBlockEntity src) {}
 
     // ── BUS channel lifecycle (safe no-ops — BEs without BUS just inherit these)
     //      BUS 通道生命周期（安全空操作 —— 无 BUS 的 BE 直接继承即可） ──
@@ -688,30 +753,16 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
             // 否则永远拿不到权威图数据。
             // （回归审计：中途加入玩家无法获取最新图。便携终端路径 editorOpen 检测不命中 →
             // 总是加载，故不受此 bug 影响。）
-            boolean editorOpen = false;
-            boolean hostPixelEditing = false;
-            boolean hostDisplayDragging = false;
-            if (level != null && level.isClientSide()) {
-                var mc = net.minecraft.client.Minecraft.getInstance();
-                if (mc.screen instanceof GraphEditor.Host host
-                    && host.getBlockPos().equals(worldPosition)) {
-                    editorOpen = true;
-                    // 像素编辑器打开时禁止替换本地图：绘画不逐笔发 op（pendingLocalOps 守卫
-                    // 覆盖不到），此时替换会孤儿化 pixelEdit.node 并让下次 saveGraph 用旧数据
-                    // 覆盖服务端（"拖拽后图像变透明"的二次防线）。
-                    // Never replace the local graph while the pixel editor is open: painting
-                    // sends no per-stroke ops (the pendingLocalOps guard can't cover it), so a
-                    // replacement here orphans pixelEdit.node and the next saveGraph pushes
-                    // stale server data back — the second line of defense for the wiped-pixel bug.
-                    hostPixelEditing = host.isPixelEditorOpen();
-                    // 显示区拖拽中同样禁止替换：替换会孤儿化 draggedDisplayNode，实时更新落空，
-                    // 元素冻结到松手才跳变（"拖拽不跟手、松手才同步"的根因）。
-                    // Never replace mid-drag either: it orphans draggedDisplayNode, freezing
-                    // the element until the release op bounces back from the server.
-                    hostDisplayDragging = host.isDisplayDragInProgress();
-                }
-            }
-            if ((!editorOpen || pendingLocalOps <= 0) && !hostPixelEditing && !hostDisplayDragging) {
+            // 阶段 1：三道回弹保护（pendingLocalOps / 像素编辑 / 显示拖拽）的判定收敛到
+            // GraphHostOwner.isGraphReplaceBlocked()，与组合线 GraphHost 共用一份实现 ——
+            // 原两处各写一份，判定漂移会让两条线的客户端行为不一致。
+            // 保留其上的说明：像素编辑与拖拽都不逐笔发 op，pendingLocalOps 守卫覆盖不到，
+            // 只能靠独立的实时查询；替换会孤儿化 pixelEdit.node / draggedDisplayNode。
+            // Phase 1: the three bounce-back guards (pendingLocalOps / pixel painting /
+            // display dragging) converged into GraphHostOwner.isGraphReplaceBlocked(),
+            // shared with the composition line GraphHost — the two sites used to keep
+            // separate copies and could drift apart.
+            if (!isGraphReplaceBlocked(pendingLocalOps)) {
                 graph = NodeGraph.load(t.getCompound("graph"), r);
                 rs.onLoad(graph);
                 this.graphReady = true;

@@ -22,13 +22,11 @@ public class SpeedProxyBlockEntity extends SyncedGraphBlockEntity {
 
     public SpeedProxyBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.SPEED_PROXY_BE.get(), pos, s); }
 
-    @Override public void accept(BlockEntity other) {
-        if(other instanceof SpeedProxyBlockEntity src) {
-            unregisterBusChannels(graph); // 先注销旧图的 BUS 频道 / unregister old graph's BUS channels first
-            this.graph = src.graph; this.running = src.running; runtimeState.clear();
-            setChanged();
-        }
-    }
+    // accept() 已上提至 SyncedGraphBlockEntity（阶段 1）——SpeedProxy 无类型特定字段。
+    // 行为微调：基类在合并末了会 sendBlockUpdated，而原先此处不发送——与其他六个
+    // BE 对齐。/ accept() moved up to SyncedGraphBlockEntity (phase 1) — SpeedProxy has
+    // no type-specific fields. Small behaviour change: the base class ends the merge
+    // with sendBlockUpdated, which this one used to skip — now it matches the other six.
 
     public void tick() {
         if (level == null || level.isClientSide()) return;

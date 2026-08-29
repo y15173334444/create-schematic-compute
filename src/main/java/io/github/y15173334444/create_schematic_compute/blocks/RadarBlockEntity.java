@@ -16,7 +16,6 @@ import net.minecraft.network.protocol.game.ClientGamePacketListener;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import javax.annotation.Nullable;
@@ -147,19 +146,17 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
      *
      * @param other the source block entity to merge from 要合并的源方块实体
      */
-    @Override public void accept(BlockEntity other) {
-        if (other instanceof RadarBlockEntity src) {
-            unregisterBusChannels(graph);
-            this.graph = src.graph; this.running = src.running; runtimeState.clear();
-            this.scanRange = src.scanRange; this.scanMode = src.scanMode;
-            this.showPlayers = src.showPlayers; this.showMobs = src.showMobs; this.showSable = src.showSable;
-            this.excludeHost = src.excludeHost;
-            this.displayStyle = src.displayStyle;
-            this.lockDistance = src.lockDistance;
-            this.displayX = src.displayX; this.displayY = src.displayY; this.displayZ = src.displayZ;
-            setChanged();
-            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
+    /** 合并时只搬雷达自己的字段——图、运行状态与 BUS 注销已由基类的 accept() 接管。
+     *  On merge, carry over only the radar's own fields — the graph, running state and
+     *  BUS unregistration are handled by the base accept(). */
+    @Override protected void acceptTypeSpecific(SyncedGraphBlockEntity src) {
+        if (!(src instanceof RadarBlockEntity r)) return;
+        this.scanRange = r.scanRange; this.scanMode = r.scanMode;
+        this.showPlayers = r.showPlayers; this.showMobs = r.showMobs; this.showSable = r.showSable;
+        this.excludeHost = r.excludeHost;
+        this.displayStyle = r.displayStyle;
+        this.lockDistance = r.lockDistance;
+        this.displayX = r.displayX; this.displayY = r.displayY; this.displayZ = r.displayZ;
     }
 
     /**
@@ -696,14 +693,20 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
      * @param r registry access for deserialization 用于反序列化的注册表访问
      */
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
+        // 阶段 1：图与 running 的加载交回基类，本覆写只保留 Radar 类型段。
+        // 原先这里重复执行 `graph = NodeGraph.load(...)` 且**不检查** pendingLocalOps /
+        // 像素编辑 / 显示拖拽，等于关掉了基类的三道回弹保护——服务端同步包会在编辑器
+        // 打开、正在绘画或拖拽时砸掉本地图（孤儿化 pixelEdit.node / draggedDisplayNode）。
+        // 运行时状态的全量恢复也已于阶段 0 上移到基类。
+        // Phase 1: graph and running loading returns to the base class; this override
+        // keeps only the radar-specific section. It used to re-run
+        // `graph = NodeGraph.load(...)` **without** checking pendingLocalOps / pixel
+        // painting / display dragging, i.e. it disabled all three of the base class's
+        // bounce-back guards — a server sync could clobber the local graph while the
+        // editor was open or mid-paint/mid-drag (orphaning pixelEdit.node /
+        // draggedDisplayNode). Full runtime-state restore also moved to the base class
+        // in phase 0.
         super.loadAdditional(t, r);
-        if (t.contains("graph")) { graph = NodeGraph.load(t.getCompound("graph"), r); rs.onLoad(graph); }
-        if (t.contains("running")) running = t.getBoolean("running");
-        // 运行时状态全量恢复已上移到 SyncedGraphBlockEntity.loadAdditional（阶段 0）——
-        // 原先此处只补 pid/subStates，漏掉 delay/ff/pulse/debugTime/nodeEdge 五项。
-        // Full runtime-state restore moved up to SyncedGraphBlockEntity.loadAdditional
-        // (phase 0) — this site used to patch in only pid/subStates, missing delay, ff,
-        // pulse, debugTime and nodeEdge.
         if (t.contains("scanRange")) scanRange = t.getInt("scanRange");
         if (t.contains("scanMode")) scanMode = t.getInt("scanMode");
         if (t.contains("displayScale")) displayScale = t.getInt("displayScale");

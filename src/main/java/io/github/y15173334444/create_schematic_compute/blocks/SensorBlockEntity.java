@@ -5,7 +5,6 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
 /**
@@ -87,22 +86,9 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
     }
 
     /**
-     * Copies graph state and runtime configuration from another sensor block entity.
-     * Used when a sensor block is replaced or its data needs to be transferred.
-     * <p>
-     * 从另一个传感器方块实体复制计算图和运行时配置，用于方块替换或数据迁移场景。
-     *
-     * @param other the source block entity to copy from / 源方块实体
-     */
-    @Override public void accept(BlockEntity other) {
-        if(other instanceof SensorBlockEntity src) {
-            // 先注销旧的 bus 通道，避免残留引用导致数据泄漏
-            // Unregister old bus channels first to avoid stale references.
-            unregisterBusChannels(graph);
-            this.graph = src.graph; this.running = src.running; runtimeState.clear(); setChanged();
-            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
-    }
+    // accept() 已上提至 SyncedGraphBlockEntity（阶段 1）——Sensor 无类型特定字段。
+    // / accept() moved up to SyncedGraphBlockEntity (phase 1) — Sensor has no
+    // type-specific fields.
 
     /**
      * Updates the sensor's attitude (yaw/pitch/roll) and forward-direction angles

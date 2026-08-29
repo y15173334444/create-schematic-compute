@@ -11,7 +11,6 @@ import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.network.PacketDistributor;
 import java.io.ByteArrayInputStream;
@@ -64,19 +63,16 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         return new MonitorBlockEntity(pos, state);
     }
 
-    @Override public void accept(BlockEntity other) {
-        if(other instanceof MonitorBlockEntity src) {
-            unregisterBusChannels(graph); // 先注销旧图的 BUS 频道 / unregister old graph's BUS channels first
-            this.graph = src.graph; this.running = src.running;
-            this.screenWidth = src.screenWidth; this.screenLength = src.screenLength;
-            this.screenX = src.screenX; this.screenY = src.screenY; this.screenZ = src.screenZ;
-            this.screenRoll = src.screenRoll; this.screenPitch = src.screenPitch; this.screenYaw = src.screenYaw;
-            this.hudMode = src.hudMode;
-            this.virtualImageScale = src.virtualImageScale;
-            runtimeState.clear();
-            setChanged();
-            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
+    /** 合并时只搬显示器自己的字段——图、运行状态与 BUS 注销已由基类的 accept() 接管。
+     *  On merge, carry over only the monitor's own fields — the graph, running state
+     *  and BUS unregistration are handled by the base accept(). */
+    @Override protected void acceptTypeSpecific(SyncedGraphBlockEntity src) {
+        if (!(src instanceof MonitorBlockEntity m)) return;
+        this.screenWidth = m.screenWidth; this.screenLength = m.screenLength;
+        this.screenX = m.screenX; this.screenY = m.screenY; this.screenZ = m.screenZ;
+        this.screenRoll = m.screenRoll; this.screenPitch = m.screenPitch; this.screenYaw = m.screenYaw;
+        this.hudMode = m.hudMode;
+        this.virtualImageScale = m.virtualImageScale;
     }
 
     public void toggleRunning() { running = !running; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }

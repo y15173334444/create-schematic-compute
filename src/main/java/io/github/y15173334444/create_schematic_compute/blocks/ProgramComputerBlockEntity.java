@@ -9,7 +9,6 @@ import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.network.PacketDistributor;
 import java.util.ArrayDeque;
@@ -22,14 +21,9 @@ public class ProgramComputerBlockEntity extends SyncedGraphBlockEntity {
 
     public ProgramComputerBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.PROGRAM_BE.get(), pos, s); }
 
-    @Override public void accept(BlockEntity other) {
-        if(other instanceof ProgramComputerBlockEntity src) {
-            unregisterBusChannels(graph);
-            this.graph = src.graph; this.running = src.running; runtimeState.clear();
-            setChanged();
-            if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
-    }
+    // accept() 已上提至 SyncedGraphBlockEntity（阶段 1）——ProgramComputer 无类型特定
+    // 字段，合并只需基类那份。/ accept() moved up to SyncedGraphBlockEntity (phase 1) —
+    // ProgramComputer has no type-specific fields, so the base implementation is enough.
 
     public void tick() {
         if(level==null||level.isClientSide()) return;
