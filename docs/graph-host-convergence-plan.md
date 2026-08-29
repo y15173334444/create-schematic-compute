@@ -105,7 +105,7 @@
 > `IMergeableBE.accept()` 里），`needsFullSync` 被 5 个子类赋值（7 处），
 > `lastGraphGeneration` 被 3 个子类赋值。字段一旦改为委托，这些赋值语句必然编译失败。
 > **新验收线**：子类 diff 仅限**机械改写**（字段 → 访问器 / 逻辑上提基类），
-> **零逻辑变更**，编译通过且 332 例测试全绿。
+> **零逻辑变更**，编译通过且全量测试全绿（基线见 §五，当前 337 例）。
 > 子类引用面实测（**合并逻辑上提之后**的当前值，匹配行数，含注释与声明）：
 > `graph` 114 · `rs.` 33 · `running` 27 · `evaluator` 19 · `runtimeState` 16 ·
 > `needsFullSync` 7 · `lastBusHashMap` 5。（上提前为 graph 125 / running 31 / rs. 34 /
@@ -172,7 +172,8 @@
 - **多人协议不许回归**：pendingLocalOps 回弹保护 / flagFullSync / 40-tick grace 冲刷 /
   EvalSnapshot 广播，迁移前后逐一对比（两客户端实测）。
 - **每 tick 路径零新增分配**：委托桥不得在 tick 热路径 new 对象。
-- **测试基线**：332 例全绿（阶段 0 后）。原生线运行时恢复的回归测试
+- **测试基线**：337 例全绿（阶段 0 后为 332；阶段 1 期间 `MergeCompatibilityTest`
+  随合并兼容性回归修复新增 5 例）。原生线运行时恢复的回归测试
   （`RuntimeStateRestoreTest`，7 例）已随阶段 0 落地，是阶段 0 的验收物。
   沙箱内 `gradle test` 无法联网运行，离线验证方式见 §七。
 - nodeEdge 触发电平持久化语义（`dedaf73`）以本文档 §二.2 为准，两线统一后写回交接文档。
@@ -185,13 +186,14 @@
 - [ ] 变速器 / 数控齿轮箱：现有 RCON 矩阵重跑（§交接文档 二）。
 - [ ] 触发电平（nodeEdge）：两线"常高信号重载/重建后不误触发"一致。
 - [ ] **阶段 1 合入验收**（§四已修订，以此条为准）：7 个存量子类的 diff **仅限机械改写**
-      （字段 → 访问器 / 逻辑上提基类），**零逻辑变更**；编译通过且 332 例测试全绿。
+      （字段 → 访问器 / 逻辑上提基类），**零逻辑变更**；编译通过且全量测试全绿
+      （基线见 §五，当前 337 例）。
       ~~原"diff 为空"不可达成~~——Java 无字段委托，`graph`/`running` 在 7/7 子类里被直接
       赋值，委托后必然编译失败；详见 §四的验收线修订说明。
 - [ ] 性能抽查：每 tick 无新增 GC 压力（委托桥直通字段）。
 
 **完成定义（DoD）**：两线所有图宿主 BE 均为薄壳 + 类型钩子；引擎与契约各自单点；
-332+ 测试全绿；两线 NBT 互通；本文件全部勾选并归档。
+337+ 测试全绿；两线 NBT 互通；本文件全部勾选并归档。
 
 ## 七、沙箱内的离线验证 / Offline verification inside the sandbox
 
@@ -202,11 +204,18 @@
   （joined + 已重映射，含 client 与 server 类，无需 client.jar）。
 - **其余依赖**：`libs/*.jar`（Create / Sable / Ponder / aeronautics / catnip）+
   `~/.gradle/caches/modules-2/files-2.1` 下的全部 jar（含 neoforge-21.1.233-universal、
-  joml、netty、datafixerupper、junit 5.11.4）。
-- **两个坑**：
-  1. classpath 有 233 个 jar，**命令行会超长** —— 必须经 `@argfile` 传给 javac/java，
-     不能靠 `-cp` 内联。
+  joml、netty、datafixerupper、junit 5.11.4）+ `~/.gradle/caches/minecraft/libraries`
+  下的全部 jar（slf4j / jetbrains-annotations / javax.annotation / lwjgl / joml 实际
+  版本等 —— **只有 modules-2 不够，会缺约 260 个符号**）。
+- **三个坑**：
+  1. classpath 300+ 个 jar，**命令行会超长**；把 `-cp` 长串塞进 `@argfile` 在 Windows
+     上也不可靠（引号/反斜杠转义会让整条 `-cp` 静默失效，且报错数完全不变、极难察觉）
+     —— 用 **pathing jar**：一个只含 manifest `Class-Path`（全部依赖按 URI 形式列出）
+     的空 jar，`-cp` 只引用它。
   2. 必须加 `-proc:none`，否则 mixin 注解处理器报 "Mixin has no targets"。
 - **跑测试**：没有 `junit-platform-console-standalone`，用 `LauncherFactory` +
-  `SummaryGeneratingListener` 写个 20 行的 runner 即可。
-- 本文件 §五 的 332 例基线即由此链路测得（非 gradle 数字，但同一批测试）。
+  `SummaryGeneratingListener` 写个 20 行的 runner 即可（注意 1.11.x 的
+  `TestExecutionSummary` 只有 `getTestsSucceededCount/…`，没有
+  `getTotalTestsFoundCount`）。
+- 本文件 §五 的基线即由此链路测得（非 gradle 数字，但同一批测试；
+  2026-08-29 阶段 1 期间实测 337/337 全绿）。
