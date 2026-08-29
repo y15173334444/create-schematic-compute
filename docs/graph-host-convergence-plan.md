@@ -2,8 +2,9 @@
 
 > **目标**：统一成一个 BE 形态 = **两条继承线共享同一个 GraphHostCore 引擎 + 同一个
 > GraphBlockEntity 契约，各自只剩薄壳和类型钩子**。
-> **状态**：🚧 阶段 0 已完成（2026-08-29）；**阶段 1 进行中** —— 三项减法已落地
-> （合并逻辑上提 / Radar 重复加载删除 / 回弹判定收敛），剩余字段委托待办（2026-08-28 立项）。
+> **状态**：🚧 阶段 0 已完成；**阶段 1 代码完成**（2026-08-29）—— 合并逻辑上提 /
+> Radar 重复加载删除 / 回弹判定收敛 / 字段委托全部落地，编译 0 错误、337 例全绿；
+> §六 游戏内（多人实测等）验证仍待办（2026-08-28 立项）。
 > 基线分支 `docs/programmable-gearbox`（`cfd1c5b`+），阶段 0 落地于 `main`。
 > **背景**：`GraphHost`（466 行）是从 `SyncedGraphBlockEntity` 移植的组合引擎，专为挂在
 > Create `KineticBlockEntity` 继承线上的方块实体服务（Java 单继承冲突，见
@@ -127,12 +128,27 @@
       加装或移除 Sable 时，新旧两种 BE 会在同一世界共存，合并被跳过即丢图。
       现判定改为"两个类存在继承关系（任一方向 `isInstance`）"，与旧语义等价。
       **不要改回 `getClass()` 相等** —— 代码注释里也写了这条禁令。
-- [ ] 抽象基类全部托管字段替换为 `private final GraphHost host`（或更名 GraphHostCore），
-      原 public/protected 成员逐一改为委托桥，**子类可见 API 签名不变**。
-- [ ] 子类/工具类直摸字段处（`host.graph`、`runtimeState.*`、`cachedEvalSnapshot` 等）
-      逐一盘点：能走契约的走契约，必须暴露的以委托属性保留。
-- [ ] `loadAdditional/saveAdditional` 委托 `host.loadHostNBT/saveHostNBT`，类型段由
-      loadTypeSpecific/saveTypeSpecific 钩子继续承载。
+- [x] **抽象基类全部托管字段替换为 `private final GraphHost host`**（保留原名，更名
+      GraphHostCore 留给阶段 3 清理）。原 public/protected 成员改为**同名访问器桥**
+      （`graph()` / `setGraph(g)` / `runtimeState()` / `evaluator()` / `rs()` /
+      `lastBusHashMap()` / `invalidateEvaluator()` —— 方法名 = 旧字段名，子类机械改写
+      `graph.nodes` → `graph().nodes`）+ **引擎逻辑一行委托**（recompile Full/Light、
+      BUS 生命周期、graphChanged、全量同步、NBT 公共段、快照广播）；方法签名与方法体
+      全部不变。**落地**：引擎补 `recompileEvaluatorLight()`（自基类逐字移植）、
+      `invalidateEvaluator()`、`adoptFrom()`（accept 合并走引擎）、`getFlipflopStates()`；
+      基类从 938 行薄壳化，全仓净 −370 行；GraphHost 现为两线唯一实现。
+- [x] **子类/工具类直摸字段盘点完毕**：外部全部改走**已有契约**——7 个屏幕的
+      `getGraph`/`isRunning`/`setRunning`、8 处 `getCachedEvalSnapshot()`、
+      MonitorScreen 14 处 `getNodeGraph()`、PixelEditorScreen 的 pendingLocalOps
+      契约读写、两个渲染器与 RadarLockPacket 走 `getNodeGraph()`/`isRunning()`。
+      唯一契约补缺：**`GraphBlockEntity.getFlipflopStates()`**（default 空映射）——
+      编辑器 Host 的 6 处实现原先直摸 `runtimeState.flipflopStates`；引擎实现 +
+      两线转发（继承线基类 / Kinetic 两 BE 各一行）。子类对引擎字段的引用归零
+      （残留仅为注释文字）。
+- [x] `loadAdditional/saveAdditional` 委托 `host.loadHostNBT/saveHostNBT`，类型段由
+      loadTypeSpecific/saveTypeSpecific 钩子继续承载。**落地**：公共段 → 类型段顺序与
+      NBT 键不变；Blueprint / Radar / Monitor 三个 `loadGraphFromBytes` 覆写改用
+      `setGraph()` / `invalidateEvaluator()`，语义逐字保留。
 - [x] 编辑回弹判断（Minecraft.getInstance().screen instanceof GraphEditor.Host …）抽为
       GraphHostOwner 客户端钩子，删除引擎/基类内的重复实现。
       **落地**：`GraphHostOwner` 新增 `isPixelEditorOpen()` / `isDisplayDragInProgress()`
@@ -144,8 +160,16 @@
 - [x] **删除 `RadarBlockEntity.loadAdditional` 里的重复图加载**（§二.6）：它绕过基类的
       pendingLocalOps / 像素编辑 / 显示拖拽三道回弹保护。改为只保留 Radar 类型段，
       图与 running 交给基类。**落地**：删掉覆写里的两行重复加载，三道保护恢复生效。
-- [ ] 全量同步协议字段（needsFullSync / lastFullSyncGameTime / 40-tick grace）随字段入引擎，
-      行为不变。
+- [x] 全量同步协议字段（needsFullSync / lastFullSyncGameTime / 40-tick grace）随字段入引擎，
+      行为不变。**落地**：字段本就在 GraphHost；基类三个同步方法改一行委托；子类 7 处
+      `needsFullSync = true; setChanged()` → `requestFullSync()`（call-shape 等价：
+      requestFullSync = null 守卫 + 置位 + setChanged）。
+
+> **三处次可见对齐（均无害，如实披露）**：(a) 服务端 NBT 加载现在立即走引擎的
+> bump + 重置上次构建代数组合拳（原先只靠 onLoad bump，首 tick 强制重编译的结果相同）；
+> (b) `broadcastEvalSnapshot` 补上引擎已有的 evaluator 空守卫（调用点都在求值之后，
+> 旧路径此时只会 NPE）；(c) 屏幕侧乐观写 `be.running = start` 改走 `setRunning(start)`，
+> 客户端 BE 多一次无害 setChanged。
 
 ### 阶段 2 · 契约收敛
 - [ ] `GraphBlockEntity` 补缺（以两线实际用到的成员面为准），SablePacketHelper / 两屏 /
@@ -185,9 +209,11 @@
 - [ ] ControlSeat：输入态（SeatInputState）全链路。
 - [ ] 变速器 / 数控齿轮箱：现有 RCON 矩阵重跑（§交接文档 二）。
 - [ ] 触发电平（nodeEdge）：两线"常高信号重载/重建后不误触发"一致。
-- [ ] **阶段 1 合入验收**（§四已修订，以此条为准）：7 个存量子类的 diff **仅限机械改写**
+- [x] **阶段 1 合入验收**（§四已修订，以此条为准）：7 个存量子类的 diff **仅限机械改写**
       （字段 → 访问器 / 逻辑上提基类），**零逻辑变更**；编译通过且全量测试全绿
-      （基线见 §五，当前 337 例）。
+      （基线见 §五，当前 337 例）。**落地**（2026-08-29）：编译 0 错误、337/337 全绿
+      （§七 离线链路实测）；子类 diff 逐文件核对为访问器/委托改写；三处次可见对齐见
+      §四披露。本清单其余游戏内项目（多人实测等）仍待办。
       ~~原"diff 为空"不可达成~~——Java 无字段委托，`graph`/`running` 在 7/7 子类里被直接
       赋值，委托后必然编译失败；详见 §四的验收线修订说明。
 - [ ] 性能抽查：每 tick 无新增 GC 压力（委托桥直通字段）。

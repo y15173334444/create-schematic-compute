@@ -218,15 +218,25 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
 ## 2. `blocks/` — 方块与编辑器 / Blocks & Editor
 
 ### SyncedGraphBlockEntity (抽象基类 / abstract base class)
-统一 7 个 BE 的共享字段和生命周期 / Consolidates shared fields and lifecycle for all 7 BEs.
+GraphHost 引擎之上的**薄壳**（v1.2.5 阶段 1）：持有 `private final GraphHost host`，
+托管字段与图逻辑全部住在引擎里，与组合线（Kinetic BE 直接持有 GraphHost）共用同一实现。
+子类/外部一律经同名访问器桥与契约访问，不耦合引擎字段（`host` 为 private）。
+A thin shell over the GraphHost engine (v1.2.5 phase 1): it holds a
+`private final GraphHost host`; all hosted fields and graph logic live in the engine,
+shared with the composition line (kinetic BEs hold a GraphHost directly). Subclasses
+and outsiders go through same-name accessor bridges and the contract only — no engine
+field coupling (`host` is private).
 
-**共享字段 / Shared Fields**：`graph`, `running`, `runtimeState`, `evaluator`, `lastEvaluatedGraph`, `lastGraphGeneration`, `needsFullSync`, `cachedEvalSnapshot`, `graphReady`, `rs`（RedstoneLinkHelper）, `lastBusHashMap`, `lastBusOutKeys`, `busRegistrationPending`, `lastFullSyncGameTime`
+**托管字段（引擎 GraphHost 内）/ Hosted fields (inside the GraphHost engine)**：`graph`, `running`, `runtimeState`, `evaluator`, `lastEvaluatedGraph`, `lastGraphGeneration`, `needsFullSync`, `cachedEvalSnapshot`, `graphReady`, `rs`（RedstoneLinkHelper）, `lastBusHashMap`, `lastBusOutKeys`, `busRegistrationPending`, `lastFullSyncGameTime`, `pendingLocalOps`
+
+**同名访问器桥（基类 protected）/ Same-name accessor bridges (base, protected)**：`graph()` / `setGraph(g)` / `runtimeState()` / `evaluator()` / `rs()` / `lastBusHashMap()` / `invalidateEvaluator()` —— 子类把旧的字段读写机械改写为这些方法（`graph.nodes` → `graph().nodes`）/ subclasses mechanically rewrite old field accesses to these (`graph.nodes` → `graph().nodes`)
 
 **共享方法 / Shared Methods**：
+- 以下方法在基类均为**一行委托**（唯一实现在 `GraphHost`，与组合线共用）：`ensureBusRegistered` / `registerBusChannels` / `cleanupBusChannels` / `unregisterBusChannels` / `graphChanged` / `recompileEvaluatorFull` / `recompileEvaluatorLight` / `onStopRunning` / `broadcastEvalSnapshot` / `loadGraphFromBytes` / `flagFullSync` / `requestFullSync` / `flushPendingFullSync` / each base method is a **one-line delegate** (the single implementation lives in `GraphHost`, shared with the composition line)
 - `ensureBusRegistered()` — 首次 tick 注册 BUS 频道 / Register BUS on first tick
 - `recompileEvaluatorFull()` / `recompileEvaluatorLight()` — 两级求值器重建（老 `recompileEvaluator()` 已于 v1.2.5 阶段 0 删除，调用点全部迁 Full）/ Two-tier evaluator rebuild — the legacy `recompileEvaluator()` was removed in v1.2.5 phase 0 and every call site moved to Full
   - `recompileEvaluatorFull()` — 保留主图 + 子图全部运行时状态（含 `debugTime` 相位），剪除已删节点；Blueprint / ProgramComputer / Radar / Sensor / ControlSeat 使用 / preserves all main-graph and sub-graph runtime state (incl. the `debugTime` phase), pruning removed nodes
-  - `recompileEvaluatorLight()` — 无 BUS 生命周期操作，仅保留 `debugTime` 相位；Monitor / SpeedProxy 使用 / no BUS lifecycle work, keeps only the `debugTime` phase
+  - `recompileEvaluatorLight()` — 最小化重建：不 clear/restore 主图运行时状态（仅保留 `debugTime` 相位），仍做 diff 重注册；Monitor / SpeedProxy 使用 / minimal rebuild: never clears/restores the main-graph runtime maps (keeps only the `debugTime` phase), still diff-re-registers; used by Monitor / SpeedProxy
 - `onLoad()` — 服务端 `graph.bumpGeneration()` 强制首 tick 全量重编译 / Bump generation to force first-tick full recompile
 - `loadGraphFromBytes()` — 网络包加载完整图（v1.2.4.1：`bumpGeneration()` + `lastGraphGeneration = -1` 强制重编译，**跳过** `cleanupBusChannels`）/ Load full graph; force recompile, skip bus cleanup
 - `broadcastEvalSnapshot()` — 广播 EvalSnapshot → ClientboundGraphEvalPacket
@@ -235,7 +245,7 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
 - `accept(BlockEntity)` — IMergeableBE 合并（Create contraption 放置/粘贴）；v1.2.5 阶段 1 由 7 个子类上提，类型段走 `acceptTypeSpecific(src)` 钩子 / IMergeableBE merge; hoisted from the seven subclasses in v1.2.5 phase 1, type fields via the `acceptTypeSpecific(src)` hook
   - 类型判定：**两类存在继承关系（任一方向 `isInstance`）** —— 必须放行基类 ↔ Sable 变体（`compat/*BlockEntitySable` 四个子类不覆写 accept），**不可用 `getClass()` 相等**（会静默丢图）/ the two classes must be in an inheritance relation either way: base ↔ Sable variant merges must pass; class equality would silently drop the graph
 - `acceptTypeSpecific(src)` — 合并时复制类型特定字段的钩子，默认空实现；Monitor / Radar 覆写 / merge hook for type-specific fields; overridden by Monitor and Radar
-- `loadAdditional()` — 客户端回弹保护，判定统一走 `GraphHostOwner.isGraphReplaceBlocked(pendingLocalOps)`（v1.2.5 阶段 1 收敛，与组合线 `GraphHost` 共用一份）/ client bounce-back protection, decided by `GraphHostOwner.isGraphReplaceBlocked(pendingLocalOps)` (converged in v1.2.5 phase 1 and shared with the composition line `GraphHost`)
+- `loadAdditional()` / `saveAdditional()` — 公共段委托 `host.loadHostNBT` / `host.saveHostNBT`（v1.2.5 阶段 1），类型段由 `loadTypeSpecific` / `saveTypeSpecific` 钩子承载，公共段 → 类型段顺序与 NBT 键不变；客户端回弹保护在引擎内判定，统一走 `GraphHostOwner.isGraphReplaceBlocked(pendingLocalOps)`（与组合线共用一份）/ the common sections delegate to `host.loadHostNBT` / `host.saveHostNBT` (v1.2.5 phase 1) with type sections carried by the `loadTypeSpecific` / `saveTypeSpecific` hooks — section order and NBT keys unchanged; the client bounce-back decision lives in the engine via `GraphHostOwner.isGraphReplaceBlocked(pendingLocalOps)` (shared with the composition line)
 
 **实现的接口 / Implemented interfaces**：`IMergeableBE`、`GraphBlockEntity`、`GraphHostOwner`
 （实现 `GraphHostOwner` 是为复用其 default 方法 —— 回弹判定 `isGraphReplaceBlocked` 与 NBT 类型段钩子 ——
