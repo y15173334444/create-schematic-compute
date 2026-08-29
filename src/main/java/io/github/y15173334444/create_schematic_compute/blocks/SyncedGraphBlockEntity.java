@@ -349,50 +349,15 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         return evaluator == null || lastGraphGeneration != graph.graphGeneration;
     }
 
-    /** Rebuild evaluator and re-register BUS channels after a graph change.
-     *  Only clears pidState — subStates (ENCAPSULATION sub-graph state) is preserved
-     *  so that nested timing nodes retain their state across recompiles.
-     *  Uses diff-based BUS re-registration ({@link BusChannelHelper#reRegisterChannels})
-     *  to prevent newly-added BUS_OUT nodes from stealing channels from existing owners.
-     *  在图结构变更后重建求值器并重新注册 BUS 通道。
-     *  仅清除 pidState —— subStates（ENCAPSULATION 子图状态）会被保留，
-     *  使嵌套时序节点在重编译期间保持其状态。
-     *  使用基于差异的 BUS 重新注册（reRegisterChannels），防止新添加的 BUS_OUT 节点
-     *  从现有所有者窃取频道。 */
-    protected void recompileEvaluator() {
-        NodeGraph oldGraph = lastEvaluatedGraph;
-        if (oldGraph != null) {
-            BusChannelHelper.syncDeletedBusNames(oldGraph, graph, worldPosition, level);
-        }
-        // Explicitly unregister BUS_OUT nodes that were removed since the last recompile.
-        // Because lastEvaluatedGraph is a reference (not a copy), reRegisterChannels
-        // alone cannot detect removals when the graph is mutated in-place.
-        // 显式取消注册自上次重编译以来已删除的 BUS_OUT 节点。
-        // 因为 lastEvaluatedGraph 是引用（而非副本），仅靠 reRegisterChannels 无法在
-        // 就地修改图时检测到删除。
-        unregisterRemovedBusOutNodes();
-        evaluator = new GraphEvaluator(graph);
-        evaluator.restoreSubState(runtimeState);
-        lastEvaluatedGraph = graph;
-        lastGraphGeneration = graph.graphGeneration;
-        // 保留积分状态（PID/ACCUMULATOR/INTEGRATOR），仅剪除已删除节点——编辑不再清空积分
-        // Preserve integral state (PID/ACCUMULATOR/INTEGRATOR), prune only removed nodes —
-        // edits no longer wipe integrals.
-        pruneRuntimeStateToAlive();
-        // Use diff-based re-registration to preserve channel ownership.
-        // This prevents a newly-added BUS_OUT with the same signalName from
-        // stealing the channel from the existing owner during the recompile window.
-        // 使用基于差异的重新注册以保留频道所有权。
-        // 防止新添加的同名 BUS_OUT 在重编译窗口期间从现有所有者窃取频道。
-        if (BusChannelHelper.reRegisterChannels(graph, oldGraph, worldPosition, level)) {
-            needsFullSync = true;
-            setChanged();
-            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
-        // Snapshot current BUS_OUT keys for the next recompile's removal detection.
-        // 快照当前 BUS_OUT 键，供下次重编译的删除检测使用。
-        snapshotBusOutKeys();
-    }
+    // recompileEvaluator()（老路径）已于阶段 0 删除 —— 它与 recompileEvaluatorFull()
+    // 的唯一实质差异是不恢复 debugTime（信号发生器相位），使 ControlSeat / Radar /
+    // Sensor 在图编辑后丢失相位，与 Monitor / SpeedProxy 的 Light 路径语义不一致。
+    // 三个调用点已全部迁至 recompileEvaluatorFull()。
+    // recompileEvaluator() (the legacy path) was removed in phase 0 — its only material
+    // difference from recompileEvaluatorFull() was skipping the debugTime (signal-generator
+    // phase) restore, which dropped the phase after graph edits on ControlSeat / Radar /
+    // Sensor and disagreed with the Light path used by Monitor / SpeedProxy. All three
+    // call sites now use recompileEvaluatorFull().
 
     /** Full rebuild that preserves all main-graph runtime state — sequential (DELAY
      *  queues, flipflops, pulse timers) and integral (PID/ACCUMULATOR/INTEGRATOR in
@@ -506,8 +471,8 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         // Preserve integral state (PID/ACCUMULATOR/INTEGRATOR), prune only removed nodes —
         // edits no longer wipe integrals.
         pruneRuntimeStateToAlive();
-        // Use diff-based re-registration (same as recompileEvaluator) to preserve channel
-        // ownership across recompiles. 使用基于差异的重新注册（与 recompileEvaluator 相同），
+        // Use diff-based re-registration (same as recompileEvaluatorFull) to preserve channel
+        // ownership across recompiles. 使用基于差异的重新注册（与 recompileEvaluatorFull 相同），
         // 在重编译期间保留频道所有权。
         if (BusChannelHelper.reRegisterChannels(graph, oldGraph, worldPosition, level)) {
             needsFullSync = true;
@@ -760,8 +725,22 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
         }
         if (t.contains("running")) running = t.getBoolean("running");
         if (t.contains("runtime")) {
-            RuntimeState loaded = RuntimeState.load(t.getCompound("runtime"));
-            runtimeState.pidState.putAll(loaded.pidState);
+            // 运行时状态完整恢复（pid/延时/触发器/脉冲/调试时间/触发电平），与
+            // GraphHost.loadHostNBT 逐字段对齐（阶段 0 收敛项）。
+            // saveAdditional 写的是 runtimeState.save() 全量，此前只读回 pidState ——
+            // 存档重载后 flipflop/延时队列/脉冲计时/调试相位全部归零，且触发电平丢失
+            // 会把"常高"触发误判为新上升沿（重载后指令被反复重新入队）。
+            // 基类一次性恢复全部 7 类状态，子类不再各自打补丁（原先 Blueprint /
+            // ProgramComputer / Radar 三处各补一部分，遗漏项随 BE 而异 —— 正是本阶段要
+            // 抹平的分叉）。残留的已删除节点状态无需在此剪除：load 后 onLoad 必定
+            // bumpGeneration，下一 tick 的重编译末尾会按存活节点 prune 一次。
+            // The base class restores all seven categories in one place; subclasses no
+            // longer patch in partial restores (Blueprint / ProgramComputer / Radar each
+            // used to restore a different subset — exactly the divergence this phase
+            // removes). Stale entries for deleted nodes need no pruning here: onLoad
+            // always bumps the generation after a load, so the next tick's recompile
+            // prunes to alive nodes at its tail.
+            runtimeState.putAllFrom(RuntimeState.load(t.getCompound("runtime")));
         }
         loadTypeSpecific(t, r);
         setChanged();

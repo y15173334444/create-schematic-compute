@@ -175,6 +175,40 @@ public class RuntimeState {
         nodeEdge.keySet().removeIf(k -> !keys.contains(k));
     }
 
+    /**
+     * 把另一份状态的全部七类映射并入本状态（存档恢复的唯一入口）。
+     * Merge all seven map categories from another state into this one — the single
+     * entry point for save restore.
+     *
+     * <p>两线（继承线 {@code SyncedGraphBlockEntity} 与组合线 {@code GraphHost}）都必须
+     * 经此方法恢复，不能再各自挑几项 putAll —— 阶段 0 之前正是这种"各挑几项"造成
+     * Blueprint/ProgramComputer/Radar 与其余 BE 的恢复项各不相同。存盘侧
+     * {@link #save()} 写的是全量，恢复侧漏项会让时序与触发电平静默归零。
+     * Both lines (inheritance-based {@code SyncedGraphBlockEntity} and composition-based
+     * {@code GraphHost}) must restore through this method instead of hand-picking a few
+     * putAll calls — that per-BE cherry-picking is exactly what left Blueprint /
+     * ProgramComputer / Radar restoring a different subset from every other BE before
+     * phase 0. {@link #save()} persists the full payload, so a partial restore silently
+     * zeroes timing and trigger-level state.
+     *
+     * <p>合并语义（不清空本状态）：已删除节点的陈旧条目无需在此剪除，重编译末尾的
+     * {@link #pruneToAliveIds} 会按当前图清理。
+     * Merging semantics (this state is not cleared): stale entries for deleted nodes need
+     * no pruning here — {@link #pruneToAliveIds} at the tail of the next recompile cleans
+     * them against the current graph.
+     *
+     * @param src 由 {@link #load} 从存档 NBT 重建的状态 / the state rebuilt by {@link #load} from save NBT
+     */
+    public void putAllFrom(RuntimeState src) {
+        pidState.putAll(src.pidState);
+        delayQueues.putAll(src.delayQueues);
+        flipflopStates.putAll(src.flipflopStates);
+        pulseTimers.putAll(src.pulseTimers);
+        debugTime.putAll(src.debugTime);
+        nodeEdge.putAll(src.nodeEdge);
+        subStates.putAll(src.subStates);
+    }
+
     // ── NBT 序列化 ──────────────────────────────────────────────────────
     // ── NBT serialisation ──────────────────────────────────────────────────
 

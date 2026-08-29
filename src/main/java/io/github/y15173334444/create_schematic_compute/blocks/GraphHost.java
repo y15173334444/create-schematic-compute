@@ -408,21 +408,20 @@ public class GraphHost {
         }
         if (t.contains("running")) running = t.getBoolean("running");
         if (t.contains("runtime")) {
-            // 运行时状态完整恢复（pid/延时/触发器/脉冲/调试时间/触发电平）：
+            // 运行时状态完整恢复（pid/延时/触发器/脉冲/调试时间/触发电平/子图）：
             // 方块实体随状态翻转重建（如数控齿轮箱离合 setBlock）或存档重载时，
             // 只恢复 pid 会丢掉其余全部时序与触发电平——触发电平丢失会把"常高"
             // 触发误判为新上升沿，指令栈被无限重新入队。
+            // subStates 随阶段 0 一并补上：原生线（Blueprint/ProgramComputer/Radar）
+            // 一直恢复子图状态，本线漏掉会让封装内的时序节点跨重载归零。
             // Full runtime-state restore: block entities recreated by state flips
             // (e.g. the CNC clutch setBlock) or world reloads previously lost every
             // map except pid — losing the trigger-level memory re-fired held-high
             // triggers and re-enqueued commands forever.
-            RuntimeState loaded = RuntimeState.load(t.getCompound("runtime"));
-            runtimeState.pidState.putAll(loaded.pidState);
-            runtimeState.delayQueues.putAll(loaded.delayQueues);
-            runtimeState.flipflopStates.putAll(loaded.flipflopStates);
-            runtimeState.pulseTimers.putAll(loaded.pulseTimers);
-            runtimeState.debugTime.putAll(loaded.debugTime);
-            runtimeState.nodeEdge.putAll(loaded.nodeEdge);
+            // subStates added with phase 0: the native line (Blueprint /
+            // ProgramComputer / Radar) has always restored sub-graph state, and missing
+            // it here zeroed every timing node inside an encapsulation on reload.
+            runtimeState.putAllFrom(RuntimeState.load(t.getCompound("runtime")));
         }
         markDirty();
     }

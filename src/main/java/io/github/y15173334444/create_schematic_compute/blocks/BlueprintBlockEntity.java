@@ -2,7 +2,6 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
-import io.github.y15173334444.create_schematic_compute.graph.RuntimeState;
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.network.RuntimeStateSyncPacket;
 import net.minecraft.core.BlockPos;
@@ -127,13 +126,11 @@ public class BlueprintBlockEntity extends SyncedGraphBlockEntity {
         for (var n : graph.nodes) if (n.expanded) oldExpanded.put(n.id, true);
         super.loadAdditional(t, r);
         for (var n : graph.nodes) if (oldExpanded.containsKey(n.id)) n.expanded = true;
-        if (t.contains("runtime")) {
-            RuntimeState loaded = RuntimeState.load(t.getCompound("runtime"));
-            runtimeState.delayQueues.putAll(loaded.delayQueues);
-            runtimeState.flipflopStates.putAll(loaded.flipflopStates);
-            runtimeState.pulseTimers.putAll(loaded.pulseTimers);
-            runtimeState.subStates.putAll(loaded.subStates);
-        }
+        // 运行时状态全量恢复已上移到 SyncedGraphBlockEntity.loadAdditional（阶段 0）——
+        // 原先此处只补 delay/ff/pulse/subStates，漏掉 debugTime 与 nodeEdge。
+        // Full runtime-state restore moved up to SyncedGraphBlockEntity.loadAdditional
+        // (phase 0) — this site used to patch in only delay/ff/pulse/subStates, missing
+        // debugTime and nodeEdge.
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }
 }

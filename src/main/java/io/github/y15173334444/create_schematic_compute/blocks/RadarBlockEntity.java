@@ -386,7 +386,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
             level.setBlock(worldPosition, currentState.setValue(RadarBlock.LIT, shouldBeLit), 3);
 
         rs.checkGraphChanged(graph);
-        if (graphChanged()) recompileEvaluator();
+        if (graphChanged()) recompileEvaluatorFull();
         if (!running) {
             for (var n : graph.nodes) {
                 if (n.type == NodeType.BUS_OUT && n.busInternalMap != null) n.busInternalMap.clear();
@@ -699,11 +699,11 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         super.loadAdditional(t, r);
         if (t.contains("graph")) { graph = NodeGraph.load(t.getCompound("graph"), r); rs.onLoad(graph); }
         if (t.contains("running")) running = t.getBoolean("running");
-        if (t.contains("runtime")) {
-            RuntimeState loaded = RuntimeState.load(t.getCompound("runtime"));
-            runtimeState.pidState.putAll(loaded.pidState);
-            runtimeState.subStates.putAll(loaded.subStates);
-        }
+        // 运行时状态全量恢复已上移到 SyncedGraphBlockEntity.loadAdditional（阶段 0）——
+        // 原先此处只补 pid/subStates，漏掉 delay/ff/pulse/debugTime/nodeEdge 五项。
+        // Full runtime-state restore moved up to SyncedGraphBlockEntity.loadAdditional
+        // (phase 0) — this site used to patch in only pid/subStates, missing delay, ff,
+        // pulse, debugTime and nodeEdge.
         if (t.contains("scanRange")) scanRange = t.getInt("scanRange");
         if (t.contains("scanMode")) scanMode = t.getInt("scanMode");
         if (t.contains("displayScale")) displayScale = t.getInt("displayScale");

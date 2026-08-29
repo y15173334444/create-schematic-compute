@@ -226,7 +226,7 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
         // 检测图结构变化，必要时重新编译求值器
         // Check for graph structural changes; recompile the evaluator if needed.
         rs.checkGraphChanged(graph);
-        if(graphChanged()) recompileEvaluator();
+        if(graphChanged()) recompileEvaluatorFull();
 
         // 若未运行则执行停止回调并返回
         // If the graph is not running, invoke the stop callback and bail out.

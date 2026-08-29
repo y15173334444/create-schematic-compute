@@ -294,7 +294,7 @@ public class ControlSeatBlockEntity extends SyncedGraphBlockEntity {
         if(currentState.getValue(ControlSeatBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(ControlSeatBlock.LIT, shouldBeLit), 3);
         rs.checkGraphChanged(graph);
-        if(graphChanged()) recompileEvaluator();
+        if(graphChanged()) recompileEvaluatorFull();
         if(!running) { onStopRunning(); return; }
 
         rs.refreshInputs();
