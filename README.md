@@ -746,6 +746,17 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 | 🐛 修复 / Fixes | 负方向网络不再卡死运动配额（quota 永续楔死）/ negative-direction networks no longer wedge the motion quota forever |
 | 📚 文档 / Docs | [`docs/programmable-gearbox-plan.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/programmable-gearbox-plan.md) · [`docs/programmable-gearbox-eval.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/programmable-gearbox-eval.md) · [`docs/programmable-gearbox-handoff.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/programmable-gearbox-handoff.md) · [`docs/graph-host-convergence-plan.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/graph-host-convergence-plan.md) |
 
+### 💾 运行时状态跨存档重载存活 / Runtime State Survives World Reloads
+
+| Fix / 修复 | Description / 说明 |
+|------------|-------------------|
+| 🗃️ 全量恢复 / Full restore | 存档写入的始终是完整运行时状态，但恢复侧长期只读回 `pidState` 一项——`delayQueues`、`flipflopStates`、`pulseTimers`、`debugTime`、`nodeEdge`、`subStates` 六类在每次重载后静默归零。现由 `RuntimeState.putAllFrom()` 单点全量恢复，继承线与 Kinetic 线共用同一入口 / Saves always wrote the full runtime state, but the restore side read back only `pidState` — six more categories silently reset on every world reload. `RuntimeState.putAllFrom()` now restores all seven in one place, shared by the inheritance and the kinetic line. |
+| ⚠️ 触发误重触发 / Spurious re-trigger | 触发电平（`nodeEdge`）丢失会把"常高"信号误判为新的上升沿 → 存档重载或区块重载后 `MOVE`/`ROTATE`/`WAIT` 指令被反复重新入队（"输入一次指令后一直转"）。已修复并由回归测试守着 / Losing the trigger level re-fired held-high signals as fresh rising edges, re-enqueuing motion commands after every reload ("one command, spins forever"). Fixed and covered by regression tests. |
+| 🧩 分叉抹平 / Divergence removed | Blueprint / ProgramComputer / Radar 原先各自在子类里补**互不相同**的恢复子集，其余四种 BE 只有 pid；现统一上提到基类，子类不再打补丁 / those three used to patch in **different** subsets while four other BEs got pid only; it now happens once in the base class. |
+| ⚙️ Kinetic 线子图状态 / Kinetic-line sub-graph state **(行为变更)** | **可编程变速器 / 数控齿轮箱此前不恢复 `subStates`**——封装（ENCAPSULATION）内的 DELAY / LATCH / T_FLIPFLOP / PID 在存档重载或离合翻转导致的 BE 重建后归零。现与原生线一致恢复。**注意三线的性质不同**：原生线 Blueprint / ProgramComputer / Radar 原本就在恢复（保持行为），ControlSeat / Sensor / Monitor / SpeedProxy 为新增恢复，Kinetic 线为新增恢复（行为变更）/ The transmission and CNC gearbox used to skip `subStates`, so every timing node inside an encapsulation reset on world reload or on the BE recreation caused by a clutch flip. Now restored like the native line. **The three groups differ in kind**: Blueprint / ProgramComputer / Radar already restored it (behaviour kept), ControlSeat / Sensor / Monitor / SpeedProxy gain it, and the kinetic line gains it (a behaviour change). |
+| ⏱️ 信号发生器相位 / Generator phase **(行为变更)** | ControlSeat / Radar / Sensor 改用 `recompileEvaluatorFull()`，`debugTime`（信号发生器相位）跨重编译保留，与 Monitor / SpeedProxy 的 light 路径对齐；老路径 `recompileEvaluator()` 已删除 / these three now keep the generator phase across recompiles, matching the light path used by Monitor / SpeedProxy; the legacy `recompileEvaluator()` path is gone. |
+| 🧪 测试 / Tests | `RuntimeStateRestoreTest` 新增 7 例，含"只恢复 pid 必然重触发"的负例对照；全量 332 例通过 / 7 new cases including a negative guard that proves the old behaviour re-fires; full suite of 332 green. |
+
 </details>
 
 <details>

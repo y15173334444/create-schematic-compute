@@ -11,6 +11,9 @@ build/
 *.iml
 .vscode/
 
+# WorkBuddy（代理工作区数据，非项目源码 / agent workspace data, not project source）
+.workbuddy/
+
 # Minecraft dev
 runs/
 out/

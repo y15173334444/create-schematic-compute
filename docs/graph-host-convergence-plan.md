@@ -2,7 +2,8 @@
 
 > **目标**：统一成一个 BE 形态 = **两条继承线共享同一个 GraphHostCore 引擎 + 同一个
 > GraphBlockEntity 契约，各自只剩薄壳和类型钩子**。
-> **状态**：📋 待办（2026-08-28 立项）。基线分支 `docs/programmable-gearbox`（`cfd1c5b`+）。
+> **状态**：🚧 阶段 0 已完成（2026-08-29）；阶段 1+ 待办（2026-08-28 立项）。
+> 基线分支 `docs/programmable-gearbox`（`cfd1c5b`+），阶段 0 落地于 `main`。
 > **背景**：`GraphHost`（466 行）是从 `SyncedGraphBlockEntity` 移植的组合引擎，专为挂在
 > Create `KineticBlockEntity` 继承线上的方块实体服务（Java 单继承冲突，见
 > `programmable-gearbox-plan.md` §一.7"收敛重构按计划押后"）。两线并存至今，已出现实际分叉。
@@ -34,13 +35,33 @@
 | 契约 | 实现 GraphBlockEntity（抽象基类桥接） | 直接实现 GraphBlockEntity + GraphHostOwner |
 
 **已分叉点（收敛必须抹平）**：
-1. **运行时恢复不一致（今日 `dedaf73` 只修了 GraphHost 一侧）**：`GraphHost.loadHostNBT`
-   完整恢复 pid/延时/触发器/脉冲/调试时间/nodeEdge；`SyncedGraphBlockEntity.loadAdditional`
-   **仍只恢复 pidState**——flipflop/延时/触发电平在原生线重载即丢（含触发误重触发隐患）。
-2. nodeEdge 触发电平：两线的 recompileEvaluatorFull 均已保留（`dedaf73`），但持久化语义
-   文档只在运动块侧落地。
-3. 老路径 `recompileEvaluator()`（全清版）仍存在于原生线，调用点未清。
-4. 编辑回弹保护（pendingLocalOps / 像素编辑 / 显示拖拽查询）两处各写一份。
+
+| # | 分叉 | 状态 |
+| - | ---- | ---- |
+| 1 | 运行时恢复不一致 | ✅ 阶段 0 抹平 |
+| 2 | nodeEdge 触发电平持久化语义 | ✅ 阶段 0 抹平 |
+| 3 | 老路径 `recompileEvaluator()` | ✅ 阶段 0 删除 |
+| 4 | 编辑回弹保护两处各写一份 | 📋 阶段 1 |
+| 5 | `subStates` 恢复策略相反（阶段 0 中新发现） | ✅ 阶段 0 抹平 |
+| 6 | Radar 覆写绕过编辑器回弹保护（阶段 0 中新发现） | 📋 阶段 1 |
+
+1. ~~**运行时恢复不一致**~~（✅ 已修）：`GraphHost.loadHostNBT` 完整恢复 pid/延时/触发器/
+   脉冲/调试时间/nodeEdge；而 `SyncedGraphBlockEntity.loadAdditional` 只恢复 pidState。
+   实际情况比文档记录的更碎——Blueprint / ProgramComputer / Radar 各自在子类里补了
+   **不同的子集**（Blueprint 与 ProgramComputer 补 delay/ff/pulse/subStates，Radar 只补
+   pid/subStates），ControlSeat / Sensor / Monitor / SpeedProxy 则只有 pid。
+   现由 `RuntimeState.putAllFrom()` 单点承担，两线共用。
+2. ~~nodeEdge 触发电平~~（✅ 已修）：持久化语义现由 `RuntimeStateRestoreTest` 覆盖，
+   "常高信号重载后不重触发"与"拉低再拉高仍触发一次"均有断言。
+3. ~~老路径 `recompileEvaluator()`~~（✅ 已删）：ControlSeat / Radar / Sensor 迁移完毕。
+4. **编辑回弹保护**（pendingLocalOps / 像素编辑 / 显示拖拽查询）两处各写一份 → 阶段 1。
+5. **`subStates` 恢复策略相反**（阶段 0 新发现）：原生线的 Blueprint / ProgramComputer /
+   Radar 一直**恢复** `subStates`，而 Kinetic 线的 `GraphHost` 不恢复——两线行为相反，
+   文档原先未记录。阶段 0 统一为**恢复**（与 recompileEvaluatorFull 保留 subStates 的
+   策略一致），`GraphHost` 随之补齐。
+6. **Radar 覆写绕过编辑器回弹保护**（阶段 0 新发现，未修）：`RadarBlockEntity.loadAdditional`
+   在自己的覆写里重复执行 `graph = NodeGraph.load(...)`，**不检查** `pendingLocalOps` /
+   像素编辑 / 显示拖拽，等于关掉了基类的三道回弹保护。属阶段 1 编辑回弹收敛范畴。
 
 ## 三、目标架构
 
@@ -64,10 +85,17 @@
 
 ## 四、迁移步骤（按序勾选，每项独立可提交）
 
-### 阶段 0 · 对齐分叉（先行，独立于收敛）
-- [ ] `SyncedGraphBlockEntity.loadAdditional` 运行时**完整恢复**（对齐 `dedaf73` 的
+### 阶段 0 · 对齐分叉（先行，独立于收敛）—— ✅ 已完成 2026-08-29
+
+- [x] `SyncedGraphBlockEntity.loadAdditional` 运行时**完整恢复**（对齐 `dedaf73` 的
       GraphHost 修复：pid/delay/flipflop/pulse/debugTime/nodeEdge 全量 putAll），附回归测试。
-- [ ] 原生线 `recompileEvaluator()`（全清老路径）废弃或删除，调用点全部迁 `recompileEvaluatorFull()`。
+      **落地**：恢复逻辑上提为 `RuntimeState.putAllFrom(RuntimeState)`，两线共用同一入口；
+      顺带抹平了文档未记录的第 5 个分叉（见 §二.5）。回归测试
+      `RuntimeStateRestoreTest`（7 例，含"只恢复 pid 必然重触发"的负例对照）。
+- [x] 原生线 `recompileEvaluator()`（全清老路径）废弃或删除，调用点全部迁 `recompileEvaluatorFull()`。
+      **落地**：ControlSeat / Radar / Sensor 三处调用点迁移，老方法删除（无覆写、无外部引用）。
+      行为差异仅一处有意变更：三者的 `debugTime`（信号发生器相位）现在跨重编译保留，
+      与 Monitor / SpeedProxy 的 Light 路径一致。
 
 ### 阶段 1 · 状态收敛（SyncedGraphBlockEntity 薄壳化，7 个子类编译零改动为验收线）
 - [ ] 抽象基类全部托管字段替换为 `private final GraphHost host`（或更名 GraphHostCore），
@@ -78,6 +106,9 @@
       loadTypeSpecific/saveTypeSpecific 钩子继续承载。
 - [ ] 编辑回弹判断（Minecraft.getInstance().screen instanceof GraphEditor.Host …）抽为
       GraphHostOwner 客户端钩子，删除引擎/基类内的重复实现。
+- [ ] **删除 `RadarBlockEntity.loadAdditional` 里的重复图加载**（§二.6）：它绕过基类的
+      pendingLocalOps / 像素编辑 / 显示拖拽三道回弹保护。改为只保留 Radar 类型段，
+      图与 running 交给基类。
 - [ ] 全量同步协议字段（needsFullSync / lastFullSyncGameTime / 40-tick grace）随字段入引擎，
       行为不变。
 
@@ -98,12 +129,17 @@
 
 - **NBT 结构不变**：`graph`/`running`/`runtime`/… 字段名与结构保持，新旧存档双向兼容；
   类型段钩子顺序（公共段 → 类型段）不得调换。
-- **行为变更显式化**：阶段 0 让原生线运行时全量持久化是**有意变更**（flipflop/触发电平
-  跨重载存活）——与 `dedaf73` 在 Kinetic 线的语义对齐，README changelog 记录。
+- **行为变更显式化**：阶段 0 有两处有意变更，均需进 README changelog ——
+  (a) 原生线运行时全量持久化（flipflop/延时/脉冲/调试相位/触发电平跨重载存活），
+  与 `dedaf73` 在 Kinetic 线的语义对齐；
+  (b) ControlSeat / Radar / Sensor 的 `debugTime`（信号发生器相位）跨重编译保留，
+  与 Monitor / SpeedProxy 的 Light 路径对齐。
 - **多人协议不许回归**：pendingLocalOps 回弹保护 / flagFullSync / 40-tick grace 冲刷 /
   EvalSnapshot 广播，迁移前后逐一对比（两客户端实测）。
 - **每 tick 路径零新增分配**：委托桥不得在 tick 热路径 new 对象。
-- **测试基线**：325 例全绿；阶段 1 前先补"原生线运行时恢复"回归测试（阶段 0 的验收物）。
+- **测试基线**：332 例全绿（阶段 0 后）。原生线运行时恢复的回归测试
+  （`RuntimeStateRestoreTest`，7 例）已随阶段 0 落地，是阶段 0 的验收物。
+  沙箱内 `gradle test` 无法联网运行，离线验证方式见 §七。
 - nodeEdge 触发电平持久化语义（`dedaf73`）以本文档 §二.2 为准，两线统一后写回交接文档。
 
 ## 六、验证清单 / Verification
@@ -117,4 +153,22 @@
 - [ ] 性能抽查：每 tick 无新增 GC 压力（委托桥直通字段）。
 
 **完成定义（DoD）**：两线所有图宿主 BE 均为薄壳 + 类型钩子；引擎与契约各自单点；
-325+ 测试全绿；两线 NBT 互通；本文件全部勾选并归档。
+332+ 测试全绿；两线 NBT 互通；本文件全部勾选并归档。
+
+## 七、沙箱内的离线验证 / Offline verification inside the sandbox
+
+本仓库的 `gradle build` / `gradle test` 在离线沙箱里会失败（NeoForge 要下载
+1.21.1 client.jar）。阶段 0 建立的替代链路，改代码后用它在本地完成编译 + 全量测试验证：
+
+- **Minecraft 类**：`build/neoForm/neoFormJoined1.21.1-20240808.144430/steps/packRecomp/output.jar`
+  （joined + 已重映射，含 client 与 server 类，无需 client.jar）。
+- **其余依赖**：`libs/*.jar`（Create / Sable / Ponder / aeronautics / catnip）+
+  `~/.gradle/caches/modules-2/files-2.1` 下的全部 jar（含 neoforge-21.1.233-universal、
+  joml、netty、datafixerupper、junit 5.11.4）。
+- **两个坑**：
+  1. classpath 有 233 个 jar，**命令行会超长** —— 必须经 `@argfile` 传给 javac/java，
+     不能靠 `-cp` 内联。
+  2. 必须加 `-proc:none`，否则 mixin 注解处理器报 "Mixin has no targets"。
+- **跑测试**：没有 `junit-platform-console-standalone`，用 `LauncherFactory` +
+  `SummaryGeneratingListener` 写个 20 行的 runner 即可。
+- 本文件 §五 的 332 例基线即由此链路测得（非 gradle 数字，但同一批测试）。

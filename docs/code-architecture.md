@@ -145,9 +145,19 @@ io.github.y15173334444.create_schematic_compute/
 可序列化的运行时状态快照，由 BE 持有。
 / Serializable runtime state snapshot, owned by the BE.
 
-**持久化状态 / Persisted State**：`pidState`, `delayQueues`, `flipflopStates`, `pulseTimers`, `debugTime`
+**持久化状态 / Persisted State**：`pidState`, `delayQueues`, `flipflopStates`, `pulseTimers`, `debugTime`, `nodeEdge`（触发电平，v1.2.5 起持久化）/ Trigger level, persisted since v1.2.5
 **子图状态 / Sub-graph State**：`SubState` — 每个 ENCAPSULATION 节点独立的上述五类状态 / Independent state per encapsulation node
-**API**：`clear()`、`save()`/`load()`（NBT 键 `pid/delay/ff/pt/dt/sub`）、`getOrCreateSubState(id)`、`pruneToAliveIds(aliveIds)`（按存活节点剪除时序/积分状态含辅助槽 `-(id+1)`/`id+100000`/`id+200000`，重编译保留状态用）/ prune sequential/integral state to alive nodes incl. aux slots (used by recompiles to preserve state)
+**API**：`clear()`、`save()`/`load()`（NBT 键 `pid/nodeEdge/delay/ff/pt/dt/sub`）、`putAllFrom(src)`（存档恢复的唯一入口，继承线与 Kinetic 线共用）、`getOrCreateSubState(id)`、`pruneToAliveIds(aliveIds)`（按存活节点剪除时序/积分状态含辅助槽 `-(id+1)`/`id+100000`/`id+200000`，重编译保留状态用）/ prune sequential/integral state to alive nodes incl. aux slots (used by recompiles to preserve state)
+
+> **恢复语义（v1.2.5 阶段 0 统一）/ Restore semantics (unified in v1.2.5 phase 0)**：
+> `save()` 始终写全量七类，存档恢复必须经 `putAllFrom()` 一并恢复全部七类。此前各 BE 恢复项
+> 互不相同（Blueprint / ProgramComputer / Radar 各补不同子集，其余 BE 只有 `pidState`，
+> Kinetic 线又不恢复 `subStates`），导致延时/触发器/脉冲/相位/触发电平在重载后静默归零。
+> `save()` always writes all seven categories, and a save restore must go through
+> `putAllFrom()` to bring back all seven. Previously each BE restored a different subset
+> (Blueprint / ProgramComputer / Radar each patched in a different one, four BEs got only
+> `pidState`, and the kinetic line skipped `subStates`), so delay/flipflop/pulse/phase and
+> trigger-level state silently reset on every reload.
 
 ### FormulaParser
 数学表达式解析器。调车场算法编译中缀→RPN，支持多行脚本。
@@ -214,7 +224,9 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
 
 **共享方法 / Shared Methods**：
 - `ensureBusRegistered()` — 首次 tick 注册 BUS 频道 / Register BUS on first tick
-- `recompileEvaluator()` / `recompileEvaluatorFull()` / `recompileEvaluatorLight()` — 三级求值器重建 / Three-tier evaluator rebuild
+- `recompileEvaluatorFull()` / `recompileEvaluatorLight()` — 两级求值器重建（老 `recompileEvaluator()` 已于 v1.2.5 阶段 0 删除，调用点全部迁 Full）/ Two-tier evaluator rebuild — the legacy `recompileEvaluator()` was removed in v1.2.5 phase 0 and every call site moved to Full
+  - `recompileEvaluatorFull()` — 保留主图 + 子图全部运行时状态（含 `debugTime` 相位），剪除已删节点；Blueprint / ProgramComputer / Radar / Sensor / ControlSeat 使用 / preserves all main-graph and sub-graph runtime state (incl. the `debugTime` phase), pruning removed nodes
+  - `recompileEvaluatorLight()` — 无 BUS 生命周期操作，仅保留 `debugTime` 相位；Monitor / SpeedProxy 使用 / no BUS lifecycle work, keeps only the `debugTime` phase
 - `onLoad()` — 服务端 `graph.bumpGeneration()` 强制首 tick 全量重编译 / Bump generation to force first-tick full recompile
 - `loadGraphFromBytes()` — 网络包加载完整图（v1.2.4.1：`bumpGeneration()` + `lastGraphGeneration = -1` 强制重编译，**跳过** `cleanupBusChannels`）/ Load full graph; force recompile, skip bus cleanup
 - `broadcastEvalSnapshot()` — 广播 EvalSnapshot → ClientboundGraphEvalPacket
@@ -449,7 +461,8 @@ ServerLevel.tick()
   → BE.tick()
     → ensureBusRegistered()        [首次 tick / first tick]
     → recoverConflictedChannels()  [每 tick / every tick]
-    → graphChanged()? → recompileEvaluator()
+    → graphChanged()? → recompileEvaluatorFull()   [Blueprint / ProgramComputer / Radar / Sensor / ControlSeat]
+                      → recompileEvaluatorLight()  [Monitor / SpeedProxy]
     → evaluator.evaluate(inputs, pidState, dt)
       → topo order → eval(node) → outputs
         └ FORMULA:dedup 查表 → 未命中 → 解释器(刀5:循环边界挂起/续算、emit-on-done)
@@ -483,7 +496,7 @@ loadAdditional()/onLoad() → registerBusChannels() → registerChannels()
     → CHANNELS.putIfAbsent → ChannelEntry(map, owner, refCount=1)
   → n.busConflict = !ok
 
-recompileEvaluator()
+recompileEvaluatorFull()  [Light 路径同流程 / the Light path follows the same flow]
   → unregisterRemovedBusOutNodes()  [通过 lastBusOutKeys 检测移除 / detect removals]
   → reRegisterChannels(graph, oldGraph)
     → 移除的节点 / removed: unregisterChannel() → refCount-- → zero? → remove + clearBus
