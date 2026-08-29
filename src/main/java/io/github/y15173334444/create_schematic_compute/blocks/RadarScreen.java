@@ -46,11 +46,11 @@ public class RadarScreen extends AbstractGraphScreen {
             && minecraft.level.getBlockEntity(blockPos) instanceof RadarBlockEntity;
     }
 
-    @Override public NodeGraph getGraph() { RadarBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
-    @Override public boolean isRunning() { RadarBlockEntity be = getBE(); return be != null && be.running; }
+    @Override public NodeGraph getGraph() { RadarBlockEntity be = getBE(); return be != null ? be.getNodeGraph() : new NodeGraph(); }
+    @Override public boolean isRunning() { RadarBlockEntity be = getBE(); return be != null && be.isRunning(); }
     @Override public EvalSnapshot getCachedEvalSnapshot() {
         RadarBlockEntity be = getBE();
-        return be != null ? be.cachedEvalSnapshot : null;
+        return be != null ? be.getCachedEvalSnapshot() : null;
     }
     @Override public void saveGraph() {
         try {
@@ -65,7 +65,7 @@ public class RadarScreen extends AbstractGraphScreen {
     }
     @Override public void toggleRunning(boolean start) {
         RadarBlockEntity be = getBE();
-        if (be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
+        if (be != null) { be.setRunning(start); PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
 
     @Override protected void init() {

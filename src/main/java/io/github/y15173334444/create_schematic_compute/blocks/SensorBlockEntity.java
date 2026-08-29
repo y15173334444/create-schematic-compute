@@ -206,17 +206,17 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
         // Sync LIT state: lit when the graph is running and has nodes.
         var state = getBlockState();
         if (!state.hasProperty(SensorBlock.LIT)) return;
-        boolean lit = running && !graph.nodes.isEmpty();
+        boolean lit = isRunning() && !graph().nodes.isEmpty();
         if(state.getValue(SensorBlock.LIT)!=lit) level.setBlock(worldPosition, state.setValue(SensorBlock.LIT, lit), 3);
 
         // 检测图结构变化，必要时重新编译求值器
         // Check for graph structural changes; recompile the evaluator if needed.
-        rs.checkGraphChanged(graph);
+        rs().checkGraphChanged(graph());
         if(graphChanged()) recompileEvaluatorFull();
 
         // 若未运行则执行停止回调并返回
         // If the graph is not running, invoke the stop callback and bail out.
-        if(!running) { onStopRunning(); return; }
+        if(!isRunning()) { onStopRunning(); return; }
 
         updateAttitude();
 
@@ -234,18 +234,18 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
             prevRawVelX = rawVelX; prevRawVelY = rawVelY; prevRawVelZ = rawVelZ;
         }
 
-        rs.refreshInputs();
+        rs().refreshInputs();
 
         // 检查并修复 bus 通道冲突：若存在冲突通道则强制全量同步
         // Resolve bus channel conflicts; if any exist, force a full sync.
-        if (BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level)) {
-            needsFullSync = true; setChanged();
+        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
+            requestFullSync();
             if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
 
         // 构建图求值器的输入
         // Build inputs for the graph evaluator.
-        var in = rs.buildInputs(graph);
+        var in = rs().buildInputs(graph());
 
         // 方块世界朝向偏航角
         // Block's world-space facing yaw.
@@ -261,8 +261,8 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
             Float.isNaN(cachedSubWorldY) ? worldPosition.getY()+0.5f : cachedSubWorldY,
             Float.isNaN(cachedSubWorldZ) ? worldPosition.getZ()+0.5f : cachedSubWorldZ);
 
-        var results = evaluator.evaluate(in, runtimeState.pidState, 0.05f, si);
-        rs.writeOutputs(results);
+        var results = evaluator().evaluate(in, runtimeState().pidState, 0.05f, si);
+        rs().writeOutputs(results);
 
         // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
         // Broadcast EvalSnapshot to clients (used by DEBUG_PROBE for sampling).
@@ -270,7 +270,7 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
 
         // 若 band 通道映射发生变化则同步到客户端
         // Sync band channel mappings to clients if they changed.
-        BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
+        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
         setChanged();
     }
 }

@@ -55,12 +55,12 @@ public class ControlSeatScreen extends AbstractGraphScreen {
         return minecraft != null && minecraft.level != null
             && minecraft.level.getBlockEntity(blockPos) instanceof ControlSeatBlockEntity;
     }
-    @Override public NodeGraph getGraph() { ControlSeatBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
-    @Override public boolean isRunning() { ControlSeatBlockEntity be = getBE(); return be != null && be.running; }
-    @Override public Map<Integer, Boolean> getFlipflopStates() { ControlSeatBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public NodeGraph getGraph() { ControlSeatBlockEntity be = getBE(); return be != null ? be.getNodeGraph() : new NodeGraph(); }
+    @Override public boolean isRunning() { ControlSeatBlockEntity be = getBE(); return be != null && be.isRunning(); }
+    @Override public Map<Integer, Boolean> getFlipflopStates() { ControlSeatBlockEntity be = getBE(); return be != null ? be.getFlipflopStates() : null; }
     @Override public EvalSnapshot getCachedEvalSnapshot() {
         ControlSeatBlockEntity be = getBE();
-        return be != null ? be.cachedEvalSnapshot : null;
+        return be != null ? be.getCachedEvalSnapshot() : null;
     }
 
     @Override
@@ -78,6 +78,6 @@ public class ControlSeatScreen extends AbstractGraphScreen {
     @Override
     public void toggleRunning(boolean start) {
         ControlSeatBlockEntity be = getBE();
-        if(be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
+        if(be != null) { be.setRunning(start); PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
 }

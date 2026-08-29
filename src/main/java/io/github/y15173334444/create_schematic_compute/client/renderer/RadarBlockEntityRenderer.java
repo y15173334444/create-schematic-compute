@@ -29,7 +29,7 @@ public class RadarBlockEntityRenderer implements BlockEntityRenderer<RadarBlockE
 
         int scanRange = be.scanRange;
         int displayScale = be.displayScale;
-        boolean running = be.running;
+        boolean running = be.isRunning();
 
         ps.pushPose();
         var state = be.getBlockState();

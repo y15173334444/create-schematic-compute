@@ -91,7 +91,7 @@ public record RadarLockPacket(BlockPos pos, int entityId, boolean lock) implemen
                 // 统计图中 TARGET_OUT 类型节点的数量 —— 这些代表雷达的可用锁定槽位
                 // Count TARGET_OUT nodes in the graph —— these represent the radar's available lock slots
                 int nodeCount = 0;
-                for (var n : radar.graph.nodes)
+                for (var n : radar.getNodeGraph().nodes)
                     if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.TARGET_OUT) nodeCount++;
 
                 // 计算最大锁定数：精确模式（scanMode == 1）仅允许锁定 1 个目标，

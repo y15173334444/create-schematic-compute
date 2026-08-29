@@ -275,23 +275,23 @@ public class ControlSeatBlockEntity extends SyncedGraphBlockEntity {
         consumeInput(); adjustViewAngle();
         // EN: Only light the block when a graph is loaded AND running, so the player has visual feedback.
         // ZH: 仅在已加载计算图并运行时点亮方块，给予玩家视觉反馈。
-        boolean shouldBeLit = running && !graph.nodes.isEmpty();
+        boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
         var currentState = getBlockState();
         if (!currentState.hasProperty(ControlSeatBlock.LIT)) return;
         if(currentState.getValue(ControlSeatBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(ControlSeatBlock.LIT, shouldBeLit), 3);
-        rs.checkGraphChanged(graph);
+        rs().checkGraphChanged(graph());
         if(graphChanged()) recompileEvaluatorFull();
-        if(!running) { onStopRunning(); return; }
+        if(!isRunning()) { onStopRunning(); return; }
 
-        rs.refreshInputs();
+        rs().refreshInputs();
         // EN: If bus channels were in conflict, force a full sync so all peers see the resolution.
         // ZH: 如果总线通道存在冲突，强制执行全量同步，使所有对等端获知解决结果。
-        if (BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level)) {
-            needsFullSync = true; setChanged();
+        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
+            requestFullSync();
             if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
-        var in = rs.buildInputs(graph);
+        var in = rs().buildInputs(graph());
 
         // EN: Mode 1 = world-relative input. Convert view-relative yaw/pitch into world-relative
         // by adding the seat entity's rotation so downstream nodes see absolute direction.
@@ -332,12 +332,12 @@ public class ControlSeatBlockEntity extends SyncedGraphBlockEntity {
             Float.isNaN(cachedSubWorldY) ? worldPosition.getY()+0.5f : cachedSubWorldY,
             Float.isNaN(cachedSubWorldZ) ? worldPosition.getZ()+0.5f : cachedSubWorldZ);
 
-        var results = evaluator.evaluate(in, runtimeState.pidState, 0.05f, seatInput);
-        rs.writeOutputs(results);
+        var results = evaluator().evaluate(in, runtimeState().pidState, 0.05f, seatInput);
+        rs().writeOutputs(results);
         // EN: Broadcast EvalSnapshot to clients so DEBUG_PROBE nodes can sample node outputs.
         // ZH: 广播 EvalSnapshot 给客户端，供 DEBUG_PROBE 节点采样节点输出。
         broadcastEvalSnapshot();
-        BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
+        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
         setChanged();
     }
 }

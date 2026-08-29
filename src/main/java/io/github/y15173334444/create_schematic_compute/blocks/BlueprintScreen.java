@@ -59,12 +59,12 @@ public class BlueprintScreen extends AbstractGraphScreen {
             && minecraft.level.getBlockEntity(blockPos) instanceof BlueprintBlockEntity;
     }
 
-    @Override public NodeGraph getGraph() { BlueprintBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
-    @Override public boolean isRunning() { BlueprintBlockEntity be = getBE(); return be != null && be.running; }
-    @Override public Map<Integer, Boolean> getFlipflopStates() { BlueprintBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public NodeGraph getGraph() { BlueprintBlockEntity be = getBE(); return be != null ? be.getNodeGraph() : new NodeGraph(); }
+    @Override public boolean isRunning() { BlueprintBlockEntity be = getBE(); return be != null && be.isRunning(); }
+    @Override public Map<Integer, Boolean> getFlipflopStates() { BlueprintBlockEntity be = getBE(); return be != null ? be.getFlipflopStates() : null; }
     @Override public EvalSnapshot getCachedEvalSnapshot() {
         BlueprintBlockEntity be = getBE();
-        return be != null ? be.cachedEvalSnapshot : null;
+        return be != null ? be.getCachedEvalSnapshot() : null;
     }
 
     @Override
@@ -84,6 +84,6 @@ public class BlueprintScreen extends AbstractGraphScreen {
     @Override
     public void toggleRunning(boolean start) {
         BlueprintBlockEntity be = getBE();
-        if(be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
+        if(be != null) { be.setRunning(start); PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
 }

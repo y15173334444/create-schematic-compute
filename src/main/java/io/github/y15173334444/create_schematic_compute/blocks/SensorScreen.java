@@ -36,12 +36,12 @@ public class SensorScreen extends AbstractGraphScreen {
         return minecraft != null && minecraft.level != null
             && minecraft.level.getBlockEntity(blockPos) instanceof SensorBlockEntity;
     }
-    @Override public NodeGraph getGraph() { SensorBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
-    @Override public boolean isRunning() { SensorBlockEntity be = getBE(); return be != null && be.running; }
-    @Override public Map<Integer, Boolean> getFlipflopStates() { SensorBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public NodeGraph getGraph() { SensorBlockEntity be = getBE(); return be != null ? be.getNodeGraph() : new NodeGraph(); }
+    @Override public boolean isRunning() { SensorBlockEntity be = getBE(); return be != null && be.isRunning(); }
+    @Override public Map<Integer, Boolean> getFlipflopStates() { SensorBlockEntity be = getBE(); return be != null ? be.getFlipflopStates() : null; }
     @Override public EvalSnapshot getCachedEvalSnapshot() {
         SensorBlockEntity be = getBE();
-        return be != null ? be.cachedEvalSnapshot : null;
+        return be != null ? be.getCachedEvalSnapshot() : null;
     }
     @Override public void saveGraph() {
         try { SensorBlockEntity be = getBE();
@@ -52,5 +52,5 @@ public class SensorScreen extends AbstractGraphScreen {
             editor.saveFeedbackUntil = System.currentTimeMillis() + 1500;
         } catch(Exception e) { SchematicCompute.LOGGER.error("Save", e); }
     }
-    @Override public void toggleRunning(boolean start) { SensorBlockEntity be = getBE(); if(be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); } }
+    @Override public void toggleRunning(boolean start) { SensorBlockEntity be = getBE(); if(be != null) { be.setRunning(start); PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); } }
 }

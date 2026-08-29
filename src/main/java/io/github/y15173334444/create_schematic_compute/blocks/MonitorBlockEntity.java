@@ -75,28 +75,28 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         this.virtualImageScale = m.virtualImageScale;
     }
 
-    public void toggleRunning() { running = !running; setChanged(); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
+    public void toggleRunning() { setRunning(!isRunning()); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
 
     public void tick() {
         if(level == null || level.isClientSide()) return;
         ensureBusRegistered();
         flushPendingFullSync(); // 合并冲刷显示拖拽的延迟全量同步（约 0.5Hz）/ flush coalesced display-drag full syncs (~0.5Hz)
-        boolean shouldBeLit = running && !graph.nodes.isEmpty();
+        boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
         var currentState = getBlockState();
         if (!currentState.hasProperty(MonitorBlock.LIT)) return;
         if(currentState.getValue(MonitorBlock.LIT) != shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(MonitorBlock.LIT, shouldBeLit), 3);
-        rs.checkGraphChanged(graph);
-        if(!running) { onStopRunning(); return; }
+        rs().checkGraphChanged(graph());
+        if(!isRunning()) { onStopRunning(); return; }
         if(graphChanged()) recompileEvaluatorLight();
-        rs.refreshInputs();
-        var in = rs.buildInputs(graph);
+        rs().refreshInputs();
+        var in = rs().buildInputs(graph());
         float dt = 0.05f;
-        var results = evaluator.evaluate(in, runtimeState.pidState, dt);
-        rs.writeOutputs(results);
+        var results = evaluator().evaluate(in, runtimeState().pidState, dt);
+        rs().writeOutputs(results);
         // Sync redstone inputs + eval snapshot to tracking clients
         if (level instanceof ServerLevel sl) {
-            for (var e : rs.lastInputs().entrySet())
+            for (var e : rs().lastInputs().entrySet())
                 PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(worldPosition),
                     new MonitorRedstoneSyncPacket(worldPosition, e.getKey(), e.getValue()));
             broadcastEvalSnapshot();
@@ -109,27 +109,27 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         try {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) {
-                unregisterBusChannels(graph); // unregister old BUS channels before replacing graph
+                unregisterBusChannels(graph()); // unregister old BUS channels before replacing graph
                 // Do NOT call cleanupBusChannels — it broadcasts empty band syncs to clients,
                 // permanently deleting BUS connections. Next tick's recompile restores correct bands.
-                graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
+                setGraph(NodeGraph.load(t.getCompound("graph"), level.registryAccess()));
                 // Force generation bump so graphChanged() triggers recompile + BUS re-registration.
                 // 强制 bump 代数，确保下一 tick 重编译并重新注册 BUS 频道。
-                graph.bumpGeneration();
+                graph().bumpGeneration();
                 // 重置 lastGraphGeneration 为 -1（与基类/Blueprint 一致）：bump 到 1 可能
                 // 与上次重编译留下的 lastGraphGeneration=1 冲突，graphChanged() 为 false
                 // → 重编译（及 BUS 重注册）被跳过 → BUS_IN 读 0。
                 // Reset lastGraphGeneration to -1 (consistent with base/Blueprint): bumping
                 // to 1 can collide with the prior compile's lastGraphGeneration=1.
-                lastGraphGeneration = -1;
+                invalidateEvaluator();
             }
             if (t != null) loadSettings(t);
-            rs.onLoad(graph);
+            rs().onLoad(graph());
             setChanged();
         } catch (Exception e) {
             SchematicCompute.LOGGER.error("Failed to load monitor graph, resetting", e);
-            graph = new NodeGraph();
-            rs.onLoad(graph);
+            setGraph(new NodeGraph());
+            rs().onLoad(graph());
             setChanged();
         }
     }
@@ -176,7 +176,7 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
     @Override protected void saveTypeSpecific(CompoundTag t, HolderLookup.Provider r) {
         saveSettings(t);
         var inputs = new CompoundTag();
-        for(var e : rs.lastInputs().entrySet()) inputs.putInt(String.valueOf(e.getKey()), e.getValue());
+        for(var e : rs().lastInputs().entrySet()) inputs.putInt(String.valueOf(e.getKey()), e.getValue());
         t.put("rs_in", inputs);
     }
     @Override protected void loadTypeSpecific(CompoundTag t, HolderLookup.Provider r) {

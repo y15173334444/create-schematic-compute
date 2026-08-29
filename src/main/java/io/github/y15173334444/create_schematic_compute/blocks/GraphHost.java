@@ -150,6 +150,25 @@ public class GraphHost {
         return evaluator == null || lastGraphGeneration != graph.graphGeneration;
     }
 
+    /**
+     * 强制下一 tick 重编译：把"上次构建代数"重置为 -1。
+     * Force a recompile next tick by resetting the last-built generation to -1.
+     *
+     * <p>替换图的调用点（loadGraphFromBytes / 客户端包加载）在 {@code graph.bumpGeneration()}
+     * 之后必须调用本方法：NodeGraph.load 产生 generation=0 的新图，bump 一次到 1 可能与
+     * 上次重编译留下的 lastGraphGeneration=1 冲突，graphChanged() 为 false → 重编译（及
+     * BUS 重注册）被跳过 → BUS_IN 读 0（回归审计：反复编译+运行失效）。
+     * Call sites that replace the graph (loadGraphFromBytes / client packet loads) must
+     * call this after {@code graph.bumpGeneration()}: a fresh loaded graph starts at
+     * generation 0, and bumping once to 1 can collide with the prior compile's recorded
+     * 1, making graphChanged() false — the recompile (and BUS re-registration) is skipped
+     * and BUS_IN reads 0 (regression audit: repeated compile+run broke).
+     * <p><b>不要</b>直接写 {@code lastGraphGeneration} 字段 —— 用本方法表达意图。
+     * Do <b>not</b> poke the field directly; use this method to state the intent. */
+    public void invalidateEvaluator() {
+        lastGraphGeneration = -1;
+    }
+
     /** 完整重建：保留主图全部运行时状态（仅剪除已删除节点）；注入定制回调。
      *  Full rebuild preserving all main-graph runtime state (pruned to alive nodes);
      *  applies the evaluator customizer. */
@@ -219,6 +238,48 @@ public class GraphHost {
         runtimeState.pruneToAliveIds(alive);
     }
 
+    /** 最小化重建（保留 debugTime，不搬其余运行时状态）。供 Monitor / SpeedProxy 使用。
+     *  跨重建保留 debugTime（DEBUG_SIGNAL_GEN 相位累加器），使频率发生模式在图编辑后
+     *  平滑继续；同时检测并注销已删除的 BUS_OUT 节点，防止已删除频道泄漏。
+     *  与 Full 的实质差异：不 clear/restore 主图运行时状态（映射原样留存，
+     *  末尾按存活节点剪除）。
+     *  Minimal rebuild (preserves debugTime, moves no other runtime state); used by
+     *  Monitor and SpeedProxy. Keeps the DEBUG_SIGNAL_GEN phase accumulator across
+     *  rebuilds so frequency-generate mode continues smoothly after graph edits, and
+     *  unregisters removed BUS_OUT nodes so deleted channels don't leak. The material
+     *  difference from Full: it never clears/restores the main-graph runtime maps —
+     *  they persist as-is and are pruned to alive nodes at the tail.
+     *  <p>自 SyncedGraphBlockEntity.recompileEvaluatorLight 移植（阶段 1 收敛）；
+     *  无求值器定制回调（该路径的宿主用不到）。
+     *  Ported from SyncedGraphBlockEntity.recompileEvaluatorLight (phase 1 convergence);
+     *  no evaluator customizer (that path's hosts never used one). */
+    public void recompileEvaluatorLight() {
+        // 销毁旧求值器前保存 debugTime / save debugTime before destroying the old evaluator
+        if (evaluator != null) evaluator.saveDebugTimes(runtimeState);
+        NodeGraph oldGraph = lastEvaluatedGraph;
+        if (oldGraph != null) {
+            BusChannelHelper.syncDeletedBusNames(oldGraph, graph, pos(), lvl());
+        }
+        // 注销自上次重编译以来已删除的 BUS_OUT 节点 / unregister BUS_OUT nodes removed since last recompile
+        unregisterRemovedBusOutNodes();
+        evaluator = new GraphEvaluator(graph);
+        // 从 RuntimeState 恢复 debugTime，使频率模式相位保持 / restore debugTime so the phase persists
+        if (!runtimeState.debugTime.isEmpty()) evaluator.restoreDebugTimes(runtimeState.debugTime);
+        lastEvaluatedGraph = graph;
+        lastGraphGeneration = graph.graphGeneration;
+        // 保留积分状态（PID/ACCUMULATOR/INTEGRATOR），仅剪除已删除节点——编辑不再清空积分
+        // Preserve integral state, prune only removed nodes — edits no longer wipe integrals.
+        pruneRuntimeStateToAlive();
+        // 基于差异的重新注册以保留频道所有权 / diff-based re-registration to keep channel ownership
+        if (BusChannelHelper.reRegisterChannels(graph, oldGraph, pos(), lvl())) {
+            needsFullSync = true;
+            markDirty();
+            pushBlockUpdate();
+        }
+        // 快照当前 BUS_OUT 键供下次重编译检测删除 / snapshot BUS_OUT keys for next recompile's removal detection
+        snapshotBusOutKeys();
+    }
+
     /** 注销上次重编译后已删除节点的 BUS_OUT。 / Unregister removed BUS_OUT since last recompile. */
     private void unregisterRemovedBusOutNodes() {
         if (lvl() == null || lvl().isClientSide() || lastBusOutKeys.isEmpty()) return;
@@ -244,6 +305,28 @@ public class GraphHost {
         for (var n : graph.nodes)
             if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty())
                 lastBusOutKeys.add(n.signalName + "@" + n.id);
+    }
+
+    // ── 引擎间接管（继承线合并用）/ inter-engine adoption (inheritance-line merge) ──
+
+    /**
+     * 吸收另一个引擎的状态：注销本图 BUS 通道 → 整体接管 graph/running → 清空运行时状态。
+     * 由继承线（SyncedGraphBlockEntity）的 IMergeableBE.accept 在类型判定通过后调用；
+     * 类型特定字段由宿主 BE 的 acceptTypeSpecific 钩子另行搬运，不经此方法。
+     * Adopt another engine's state: unregister this graph's BUS channels, take over
+     * graph/running wholesale, clear runtime state. Called from the inheritance line's
+     * IMergeableBE.accept after the type check passes; type-specific fields are carried
+     * by the host BE's acceptTypeSpecific hook, not here.
+     *
+     * @param src 被吸收的引擎 / the engine being absorbed */
+    public void adoptFrom(GraphHost src) {
+        // 先注销旧图的 BUS 频道——旧节点即将被整体替换，不注销会在 SignalBus 留下残留
+        // 引用（泄漏）。Unregister the old graph's BUS channels first: the nodes are
+        // about to be replaced wholesale, so skipping this leaks references.
+        unregisterBusChannels(graph);
+        graph = src.graph;
+        running = src.running;
+        runtimeState.clear();
     }
 
     // ── 运行态收尾 / stop-running helper ──
@@ -471,6 +554,9 @@ public class GraphHost {
 
     /** @see GraphBlockEntity#isGraphReady */
     public boolean isGraphReady() { return graphReady; }
+
+    /** @see GraphBlockEntity#getFlipflopStates */
+    public Map<Integer, Boolean> getFlipflopStates() { return runtimeState.flipflopStates; }
 
     /** @see GraphBlockEntity#peekSubStateFlipflops */
     public Map<Integer, Boolean> peekSubStateFlipflops(int encapNodeId) {

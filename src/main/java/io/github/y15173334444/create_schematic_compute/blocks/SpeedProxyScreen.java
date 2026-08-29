@@ -39,12 +39,12 @@ public class SpeedProxyScreen extends AbstractGraphScreen {
             && minecraft.level.getBlockEntity(blockPos) instanceof SpeedProxyBlockEntity;
     }
 
-    @Override public NodeGraph getGraph() { SpeedProxyBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
-    @Override public boolean isRunning() { SpeedProxyBlockEntity be = getBE(); return be != null && be.running; }
-    @Override public Map<Integer, Boolean> getFlipflopStates() { SpeedProxyBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public NodeGraph getGraph() { SpeedProxyBlockEntity be = getBE(); return be != null ? be.getNodeGraph() : new NodeGraph(); }
+    @Override public boolean isRunning() { SpeedProxyBlockEntity be = getBE(); return be != null && be.isRunning(); }
+    @Override public Map<Integer, Boolean> getFlipflopStates() { SpeedProxyBlockEntity be = getBE(); return be != null ? be.getFlipflopStates() : null; }
     @Override public EvalSnapshot getCachedEvalSnapshot() {
         SpeedProxyBlockEntity be = getBE();
-        return be != null ? be.cachedEvalSnapshot : null;
+        return be != null ? be.getCachedEvalSnapshot() : null;
     }
 
     @Override
@@ -64,6 +64,6 @@ public class SpeedProxyScreen extends AbstractGraphScreen {
     @Override
     public void toggleRunning(boolean start) {
         SpeedProxyBlockEntity be = getBE();
-        if(be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
+        if(be != null) { be.setRunning(start); PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
 }

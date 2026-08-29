@@ -213,10 +213,10 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
 
     // ══════════════ GraphEditor.Host ══════════════
 
-    @Override public NodeGraph getGraph() { MonitorBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
+    @Override public NodeGraph getGraph() { MonitorBlockEntity be = getBE(); return be != null ? be.getNodeGraph() : new NodeGraph(); }
     @Override public void saveGraph() { /* 像素编辑器不做整图保存 / no full-graph save here */ }
     @Override public void toggleRunning(boolean start) { /* no-op */ }
-    @Override public boolean isRunning() { MonitorBlockEntity be = getBE(); return be != null && be.running; }
+    @Override public boolean isRunning() { MonitorBlockEntity be = getBE(); return be != null && be.isRunning(); }
     @Override public Screen asScreen() { return this; }
     @Override public BlockPos getBlockPos() { return blockPos; }
     @Override public UUID getPlayerUUID() {
@@ -229,7 +229,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
     @Override public GraphEditor getEditor() { return null; }
     @Override public void sendOp(GraphOp op) {
         var be = getBE();
-        if (be != null) be.pendingLocalOps++;
+        if (be != null) be.setPendingLocalOps(be.getPendingLocalOps() + 1);
         PacketDistributor.sendToServer(new GraphEditOpPacket(op));
     }
 
@@ -1123,7 +1123,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
 
     private void bump() {
         var be = getBE();
-        if (be != null) be.graph.bumpGeneration();
+        if (be != null) be.getNodeGraph().bumpGeneration();
     }
 
     @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
@@ -1532,7 +1532,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
             && frameIndex >= 0 && frameIndex < node.imageSequenceFrames.size())
             node.imagePixels = node.imageSequenceFrames.get(frameIndex);
         sendOp(GraphOp.setImageSize(blockPos, -1, node.id, newW, newH, getPlayerUUID()));
-        be.graph.bumpGeneration();
+        be.getNodeGraph().bumpGeneration();
     }
 
     /** 定向同步当前帧（SET_IMAGE_PIXELS）。 / Targeted current-frame sync. */

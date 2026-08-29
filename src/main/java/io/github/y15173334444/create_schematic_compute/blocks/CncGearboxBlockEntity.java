@@ -331,6 +331,7 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
     @Override public boolean isGraphReady() { return host.isGraphReady(); }
 
     @Override public Map<Integer, Boolean> peekSubStateFlipflops(int encapNodeId) { return host.peekSubStateFlipflops(encapNodeId); }
+    @Override public Map<Integer, Boolean> getFlipflopStates() { return host.getFlipflopStates(); }
 
     // ── GraphHostOwner 回调 / owner callbacks ──
 

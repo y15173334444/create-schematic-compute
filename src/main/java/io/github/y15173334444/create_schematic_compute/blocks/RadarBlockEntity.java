@@ -377,18 +377,18 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         ensureBusRegistered();
         Level scanLevel = getScanLevel();
 
-        boolean shouldBeLit = running && !graph.nodes.isEmpty();
+        boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
         var currentState = getBlockState();
         if (currentState.hasProperty(RadarBlock.LIT) && currentState.getValue(RadarBlock.LIT) != shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(RadarBlock.LIT, shouldBeLit), 3);
 
-        rs.checkGraphChanged(graph);
+        rs().checkGraphChanged(graph());
         if (graphChanged()) recompileEvaluatorFull();
-        if (!running) {
-            for (var n : graph.nodes) {
+        if (!isRunning()) {
+            for (var n : graph().nodes) {
                 if (n.type == NodeType.BUS_OUT && n.busInternalMap != null) n.busInternalMap.clear();
             }
-            rs.writeOutputs(Collections.emptyList());
+            rs().writeOutputs(Collections.emptyList());
             return;
         }
 
@@ -465,12 +465,12 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
             lockedTargets.removeIf(id -> !validIds.contains(id));
         }
         if (!targets.isEmpty()) {
-            SchematicCompute.LOGGER.debug("TICK: {} targets at {}, running={}", targets.size(), worldPosition, running);
+            SchematicCompute.LOGGER.debug("TICK: {} targets at {}, running={}", targets.size(), worldPosition, isRunning());
         }
 
         // ══ Assign targets / 分配目标 ══
         var targetOutNodes = new ArrayList<GraphNode>();
-        for (var n : graph.nodes) if (n.type == NodeType.TARGET_OUT) targetOutNodes.add(n);
+        for (var n : graph().nodes) if (n.type == NodeType.TARGET_OUT) targetOutNodes.add(n);
         targetOutNodes.sort(Comparator.comparingInt(n -> n.id));
         if (lockMode == 1) {
             TargetAssignment.assignLocked(worldPosition, targetOutNodes, targets, lockedTargets, scanMode, lockDistance);
@@ -486,13 +486,13 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         }
 
         // ══ Graph evaluation / 图评估 ══
-        rs.refreshInputs();
-        if (BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level)) {
-            needsFullSync = true; setChanged();
+        rs().refreshInputs();
+        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
+            requestFullSync();
             if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
-        var in = rs.buildInputs(graph);
-        evaluator.setRadarPos(worldPosition);
+        var in = rs().buildInputs(graph());
+        evaluator().setRadarPos(worldPosition);
         // Use Sable world-space coordinates if available, otherwise fall back to BlockPos center.
         // 如果有 Sable 世界坐标则使用，否则回退到 BlockPos 中心。
         float wx = Float.isNaN(cachedSubWorldX) ? worldPosition.getX() + 0.5f : cachedSubWorldX;
@@ -501,17 +501,17 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         var si = new GraphEvaluator.SeatInputState(
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, wx, wy, wz);
-        var results = evaluator.evaluate(in, runtimeState.pidState, 0.05f, si,
+        var results = evaluator().evaluate(in, runtimeState().pidState, 0.05f, si,
             new HashMap<>(), new HashMap<>(), new HashMap<>());
-        evaluator.setRadarPos(null);
+        evaluator().setRadarPos(null);
         // Write REDSTONE_OUT results back to Create's redstone-link network.
         // Regressed in 9c46fb9 (line deleted during comment rewrite) — restored.
         // 将 REDSTONE_OUT 结果写回 Create 红石链接网络。9c46fb9 误删，已恢复。
-        rs.writeOutputs(results);
+        rs().writeOutputs(results);
         // Broadcast EvalSnapshot to clients for DEBUG_PROBE sampling.
         // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）。
         broadcastEvalSnapshot();
-        BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
+        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
         setChanged();
         // Force-sync targets to clients so the blip renderer stays up to date.
         // 强制同步目标到客户端，确保 blip 渲染器数据实时更新。
@@ -601,22 +601,22 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         try {
             var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) {
-                graph = NodeGraph.load(t.getCompound("graph"), level.registryAccess());
+                setGraph(NodeGraph.load(t.getCompound("graph"), level.registryAccess()));
                 // Force generation bump so graphChanged() triggers recompile + BUS re-registration.
                 // 强制 bump 代数，确保下一 tick 重编译并重新注册 BUS 频道。
-                graph.bumpGeneration();
+                graph().bumpGeneration();
                 // 重置 lastGraphGeneration 为 -1（与基类/Blueprint/Monitor 一致）：bump 到 1
                 // 可能与上次重编译留下的 lastGraphGeneration=1 冲突，graphChanged() 为 false
                 // → 重编译（及 BUS 重注册）被跳过 → BUS_IN 读 0。
                 // Reset lastGraphGeneration to -1 (consistent with base/Blueprint/Monitor).
-                lastGraphGeneration = -1;
-                rs.onLoad(graph);
+                invalidateEvaluator();
+                rs().onLoad(graph());
             }
-            needsFullSync = true; setChanged();
+            requestFullSync();
             if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         } catch (Exception e) {
             SchematicCompute.LOGGER.error("Failed to load radar graph, resetting", e);
-            graph = new NodeGraph(); rs.onLoad(graph); setChanged();
+            setGraph(new NodeGraph()); rs().onLoad(graph()); setChanged();
         }
     }
 
@@ -635,9 +635,9 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
      */
     @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.saveAdditional(t, r);
-        t.put("graph", graph.save(r));
-        t.putBoolean("running", running);
-        t.put("runtime", runtimeState.save());
+        t.put("graph", graph().save(r));
+        t.putBoolean("running", isRunning());
+        t.put("runtime", runtimeState().save());
         t.putInt("scanRange", scanRange);
         t.putInt("scanMode", scanMode);
         t.putInt("displayScale", displayScale);
@@ -963,7 +963,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
     public int getMaxLocks() {
         if (scanMode == 1) return 1;
         int count = 0;
-        for (var n : graph.nodes) if (n.type == NodeType.TARGET_OUT) count++;
+        for (var n : graph().nodes) if (n.type == NodeType.TARGET_OUT) count++;
         return Math.max(1, count);
     }
 

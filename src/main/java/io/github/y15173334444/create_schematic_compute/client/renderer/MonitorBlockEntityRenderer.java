@@ -80,22 +80,22 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     @Override
     public void render(MonitorBlockEntity be, float partialTick, PoseStack poseStack,
                        MultiBufferSource buffer, int packedLight, int packedOverlay) {
-        if (be == null || be.graph == null) return;
+        if (be == null || be.getNodeGraph() == null) return;
         // HUD 模式：玻璃面板 + 内容直接绘制（见 renderHud——纯官方接口，无离屏 FBO）
         // HUD mode: glass panel + content drawn directly (see renderHud — official interfaces, no FBO)
         if (be.hudMode) { renderHud(be, poseStack, buffer); return; }
-        if (be.graph.nodes.isEmpty()) return;
+        if (be.getNodeGraph().nodes.isEmpty()) return;
 
         // Read server-authoritative evaluation snapshot (synced via ClientboundGraphEvalPacket).
         // When not running, snapshot is null — display-only nodes (IMAGE, TEXT) still render,
         // but DATA nodes and signal-driven IMAGE offsets are skipped.
         // 读取服务端权威评估快照。未运行时快照为 null——仅显示节点（IMAGE、TEXT）仍渲染，
         // DATA 节点和信号驱动 IMAGE 偏移需跳过。
-        var snapshot = be.cachedEvalSnapshot;
-        boolean evalAvailable = be.running && snapshot != null;
+        var snapshot = be.getCachedEvalSnapshot();
+        boolean evalAvailable = be.isRunning() && snapshot != null;
 
         boolean hasContent = false;
-        for (var n : be.graph.nodes)
+        for (var n : be.getNodeGraph().nodes)
             if (n.type == NodeType.TEXT || n.type == NodeType.DATA
                 || n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE)
                 { hasContent = true; break; }
@@ -147,14 +147,14 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         addThickLine(sceneBuf, m, l, b, l, t, 0.01, 0.0005f, BR, BG, BB, 1f);
         // Collect IMAGE/IMAGE_SEQUENCE nodes and sort by layerIndex (back→front)
         var imgNodes = new java.util.ArrayList<GraphNode>();
-        for (var n : be.graph.nodes) {
+        for (var n : be.getNodeGraph().nodes) {
             if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) imgNodes.add(n);
         }
         imgNodes.sort((n1, n2) -> Integer.compare(n1.layerIndex, n2.layerIndex));
         for (var n : imgNodes) {
             // X/Y/rotation signal offsets (0 when not running / 未运行时为 0)
-            float ox = evalAvailable ? be.graph.getInputValue(n.id, 0, snapshot.outputs()) : 0;
-            float oy = evalAvailable ? be.graph.getInputValue(n.id, 1, snapshot.outputs()) : 0;
+            float ox = evalAvailable ? be.getNodeGraph().getInputValue(n.id, 0, snapshot.outputs()) : 0;
+            float oy = evalAvailable ? be.getNodeGraph().getInputValue(n.id, 1, snapshot.outputs()) : 0;
             float msX = n.params.length > 0 ? n.params[0] : 0.01f;
             float msY = n.params.length > 1 ? n.params[1] : 0.01f;
             float rotScale = n.params.length > 2 ? n.params[2] : 1f;
@@ -166,14 +166,14 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             int[] pixels = n.imagePixels;
             int rotPin = n.type == NodeType.IMAGE_SEQUENCE ? 3 : 2;
             if (n.type == NodeType.IMAGE_SEQUENCE) {
-                int frameIdx = evalAvailable ? Math.round(be.graph.getInputValue(n.id, 2, snapshot.outputs())) : 0;
+                int frameIdx = evalAvailable ? Math.round(be.getNodeGraph().getInputValue(n.id, 2, snapshot.outputs())) : 0;
                 if (n.imageSequenceFrames != null && !n.imageSequenceFrames.isEmpty()) {
                     frameIdx = Math.max(0, Math.min(frameIdx, n.imageSequenceFrames.size() - 1));
                     pixels = n.imageSequenceFrames.get(frameIdx);
                 }
             }
             if (pixels == null || pixels.length != n.imageWidth * n.imageHeight) continue;
-            float rotInput = evalAvailable ? be.graph.getInputValue(n.id, rotPin, snapshot.outputs()) : 0;
+            float rotInput = evalAvailable ? be.getNodeGraph().getInputValue(n.id, rotPin, snapshot.outputs()) : 0;
             float effectiveRot = n.displayRotation + rotInput * rotScale;
             // Clamp the TOP-LEFT anchor so the rotated bounding box stays inside the content
             // area. layoutX/Y is the top-left corner (matching the editor's draw/drag/hit-test),
@@ -220,7 +220,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
 
         // ── Text (uses font's own RenderType, sort by layerIndex back→front) ──
         var textNodes = new java.util.ArrayList<GraphNode>();
-        for (var n : be.graph.nodes) {
+        for (var n : be.getNodeGraph().nodes) {
             if (n.type == NodeType.TEXT || n.type == NodeType.DATA) textNodes.add(n);
         }
         textNodes.sort((n1, n2) -> Integer.compare(n1.layerIndex, n2.layerIndex));
@@ -229,7 +229,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             float ny = cy - n.layoutY * ch;
             if (n.type == NodeType.DATA && !evalAvailable) continue; // need eval output / 需要评估输出
             String str = n.type == NodeType.DATA
-                ? String.format("%.1f", be.graph.getInputValue(n.id, 0, snapshot.outputs()))
+                ? String.format("%.1f", be.getNodeGraph().getInputValue(n.id, 0, snapshot.outputs()))
                 : n.displayText;
             if (str.isEmpty()) continue;
             int color = n.textColor != 0 ? n.textColor : (n.type == NodeType.DATA ? 0xFF88FF88 : 0xFFCCCCCC);
@@ -325,8 +325,8 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         float hw = be.screenWidth * 0.5f, hh = be.screenLength * 0.5f;
         var mc = Minecraft.getInstance();
         var font = mc.font;
-        var snapshot = be.cachedEvalSnapshot;
-        boolean evalAvailable = be.running && snapshot != null;
+        var snapshot = be.getCachedEvalSnapshot();
+        boolean evalAvailable = be.isRunning() && snapshot != null;
 
         poseStack.pushPose();
         // HUD 玻璃与 3D 悬浮屏幕共用同一套大小/位置/姿态（screen*）——定位变换与
@@ -451,7 +451,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         float vis = be.virtualImageScale;
         float cw = be.screenWidth * vis, ch = be.screenLength * vis;
         float cx = -cw * 0.5f, cy = ch * 0.5f;
-        var graph = be.graph;
+        var graph = be.getNodeGraph();
         // 虚像顶点收集到**独立 BufferBuilder**（TRIANGLES 模式，支撑遮罩裁剪的
         // 三角形扇）：绕开 Iris 的 FullyBufferedMultiBufferSource（其 endBatch 无法
         // 配合独立绘制），由 drawDepthAnchored 用官方 RenderType 冲刷。
@@ -757,8 +757,8 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         // Virtual-image scale: the caller already scaled the canvas (hw/hh); the
         // degree-label size must scale with it (§3.4).
         float vis = be.virtualImageScale;
-        float targetPitch = be.graph.getInputValue(n.id, 0, outputs);
-        float targetRoll = be.graph.getInputValue(n.id, 1, outputs);
+        float targetPitch = be.getNodeGraph().getInputValue(n.id, 0, outputs);
+        float targetRoll = be.getNodeGraph().getInputValue(n.id, 1, outputs);
         // 姿态平滑：20Hz 数据 → 60fps 指数插值（真实 HUD 姿态仪连续平滑，不跳变）。
         // Attitude smoothing: 20Hz data → 60fps exponential interpolation.
         float pitch, roll;
@@ -1457,11 +1457,11 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         // HUD 模式：玻璃始终可渲染（内容可为空），包围盒覆盖玻璃体积（面板大于方块时必做）
         // HUD mode: the glass always renders (content may be empty); the box must cover it
         if (be.hudMode) return hudGlassAabb(be);
-        if (be.graph == null || be.graph.nodes.isEmpty()) {
+        if (be.getNodeGraph() == null || be.getNodeGraph().nodes.isEmpty()) {
             return AABB.INFINITE;
         }
         boolean hasDisplayContent = false;
-        for (var n : be.graph.nodes) {
+        for (var n : be.getNodeGraph().nodes) {
             if (n.type == NodeType.TEXT || n.type == NodeType.DATA
                 || n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) {
                 hasDisplayContent = true;

@@ -28,39 +28,39 @@ public class BlueprintBlockEntity extends SyncedGraphBlockEntity {
     public void tick() {
         if(level==null||level.isClientSide()) return;
         ensureBusRegistered();
-        boolean shouldBeLit = running && !graph.nodes.isEmpty();
+        boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
         var currentState = getBlockState();
         if (!currentState.hasProperty(BlueprintBlock.LIT)) return;
         if(currentState.getValue(BlueprintBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, currentState.setValue(BlueprintBlock.LIT, shouldBeLit), 3);
-        rs.checkGraphChanged(graph);
+        rs().checkGraphChanged(graph());
         if (graphChanged()) recompileEvaluatorFull();
-        if(!running) {
+        if(!isRunning()) {
             onStopRunning();
             return;
         }
-        rs.refreshInputsActive();
-        if (BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level)) {
-            needsFullSync = true; setChanged();
+        rs().refreshInputsActive();
+        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
+            requestFullSync();
             if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
-        var in = rs.buildInputs(graph);
+        var in = rs().buildInputs(graph());
         float dt = 0.05f;
-        var results = evaluator.evaluate(in, runtimeState.pidState, dt,
-                runtimeState.delayQueues, runtimeState.flipflopStates, runtimeState.pulseTimers);
-        rs.writeOutputs(results);
+        var results = evaluator().evaluate(in, runtimeState().pidState, dt,
+                runtimeState().delayQueues, runtimeState().flipflopStates, runtimeState().pulseTimers);
+        rs().writeOutputs(results);
         broadcastEvalSnapshot(); // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
-        BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
+        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
         if (level instanceof ServerLevel sl) {
-            var currentFf = runtimeState.flipflopStates;
+            var currentFf = runtimeState().flipflopStates;
             boolean changed = !currentFf.equals(lastSyncedFlipflopStates);
             // 子图 flipflop 也做 diff（有基线），而不是「存在即变更」，避免每 tick 广播
             // Diff sub-graph flipflop against its own baseline instead of treating
             // presence as change — prevents per-tick RuntimeStateSyncPacket spam.
             java.util.Map<Integer, java.util.Map<Integer, Boolean>> subFf = java.util.Collections.emptyMap();
-            if (!runtimeState.subStates.isEmpty()) {
+            if (!runtimeState().subStates.isEmpty()) {
                 var curSub = new java.util.HashMap<Integer, java.util.Map<Integer, Boolean>>();
-                for (var se : runtimeState.subStates.entrySet()) {
+                for (var se : runtimeState().subStates.entrySet()) {
                     if (!se.getValue().flipflopStates.isEmpty())
                         curSub.put(se.getKey(), new java.util.HashMap<>(se.getValue().flipflopStates));
                 }
@@ -88,28 +88,29 @@ public class BlueprintBlockEntity extends SyncedGraphBlockEntity {
         try {
             var t = net.minecraft.nbt.NbtIo.readCompressed(new java.io.ByteArrayInputStream(data), net.minecraft.nbt.NbtAccounter.create(2 * 1024 * 1024));
             if (t != null && t.contains("graph")) {
-                unregisterBusChannels(graph); // unregister old BUS channels before replacing graph
+                unregisterBusChannels(graph()); // unregister old BUS channels before replacing graph
                 // Do NOT call cleanupBusChannels — it broadcasts empty band syncs to clients,
                 // permanently deleting BUS connections. Next tick's recompile restores correct bands.
-                graph = io.github.y15173334444.create_schematic_compute.graph.NodeGraph.load(t.getCompound("graph"), level.registryAccess());
+                setGraph(io.github.y15173334444.create_schematic_compute.graph.NodeGraph.load(t.getCompound("graph"), level.registryAccess()));
                 // Force generation bump so graphChanged() triggers recompile + BUS re-registration
                 // (see SyncedGraphBlockEntity.loadGraphFromBytes for the full rationale).
                 // 强制 bump 代数，确保下一 tick 重编译并重新注册 BUS 频道。
-                graph.bumpGeneration();
-                // 重置 lastGraphGeneration 为 -1：bump 到 1 可能与上次重编译留下的
-                // lastGraphGeneration=1 冲突，graphChanged() 为 false → 重编译（及 BUS
-                // 重注册）被跳过 → BUS_IN 读 0（回归审计：反复编译+运行失效）。
-                // Reset lastGraphGeneration to -1: bumping to 1 can collide with the
-                // prior compile's lastGraphGeneration=1, making graphChanged() false —
-                // recompile (and BUS re-registration) is skipped -> BUS_IN reads 0.
-                lastGraphGeneration = -1;
-                rs.onLoad(graph);
+                graph().bumpGeneration();
+                // 重置上次构建代数为 -1：bump 到 1 可能与上次重编译留下的 1 冲突，
+                // graphChanged() 为 false → 重编译（及 BUS 重注册）被跳过 → BUS_IN 读 0
+                //（回归审计：反复编译+运行失效）。经引擎的 invalidateEvaluator() 表达意图。
+                // Reset the last-built generation to -1 (via the engine's
+                // invalidateEvaluator()): bumping to 1 can collide with the prior compile's
+                // 1, making graphChanged() false — recompile (and BUS re-registration) is
+                // skipped -> BUS_IN reads 0.
+                invalidateEvaluator();
+                rs().onLoad(graph());
             }
-            needsFullSync = true; setChanged();
+            requestFullSync();
             if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         } catch (Exception e) {
             SchematicCompute.LOGGER.error("Failed to load blueprint graph, resetting", e);
-            graph = new io.github.y15173334444.create_schematic_compute.graph.NodeGraph(); rs.onLoad(graph);
+            setGraph(new io.github.y15173334444.create_schematic_compute.graph.NodeGraph()); rs().onLoad(graph());
             setChanged();
         }
     }
@@ -117,9 +118,9 @@ public class BlueprintBlockEntity extends SyncedGraphBlockEntity {
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         // Blueprint preserves expanded node state across reloads
         var oldExpanded = new java.util.HashMap<Integer, Boolean>();
-        for (var n : graph.nodes) if (n.expanded) oldExpanded.put(n.id, true);
+        for (var n : graph().nodes) if (n.expanded) oldExpanded.put(n.id, true);
         super.loadAdditional(t, r);
-        for (var n : graph.nodes) if (oldExpanded.containsKey(n.id)) n.expanded = true;
+        for (var n : graph().nodes) if (oldExpanded.containsKey(n.id)) n.expanded = true;
         // 运行时状态全量恢复已上移到 SyncedGraphBlockEntity.loadAdditional（阶段 0）——
         // 原先此处只补 delay/ff/pulse/subStates，漏掉 debugTime 与 nodeEdge。
         // Full runtime-state restore moved up to SyncedGraphBlockEntity.loadAdditional

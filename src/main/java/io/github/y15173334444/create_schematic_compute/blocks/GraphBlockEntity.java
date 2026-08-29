@@ -44,4 +44,11 @@ public interface GraphBlockEntity {
     /** 读取指定封装节点的子图 flipflop 状态（GraphEditor 渲染徽标用）。
      *  Sub-graph flipflop states of an encapsulation node (for GraphEditor badges). */
     default Map<Integer, Boolean> peekSubStateFlipflops(int encapNodeId) { return java.util.Collections.emptyMap(); }
+
+    /** 主图 flipflop 状态只读视图（GraphEditor / 屏幕徽标渲染用）。
+     *  返回引擎的活映射，调用方只读不写 —— 写路径走 syncFlipflopStates。
+     *  Read-only view of the main-graph flipflop states (GraphEditor / screen badge
+     *  rendering). The engine's live map is returned; treat it as read-only — the write
+     *  path is syncFlipflopStates. */
+    default Map<Integer, Boolean> getFlipflopStates() { return java.util.Collections.emptyMap(); }
 }

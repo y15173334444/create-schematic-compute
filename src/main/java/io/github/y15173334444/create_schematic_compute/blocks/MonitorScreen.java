@@ -160,12 +160,12 @@ public class MonitorScreen extends AbstractGraphScreen {
             && minecraft.level.getBlockEntity(blockPos) instanceof MonitorBlockEntity;
     }
     // ── GraphEditor.Host ──
-    @Override public NodeGraph getGraph() { MonitorBlockEntity be = getBE(); return be != null ? be.graph : new NodeGraph(); }
-    @Override public boolean isRunning() { MonitorBlockEntity be = getBE(); return be != null && be.running; }
-    @Override public Map<Integer, Boolean> getFlipflopStates() { MonitorBlockEntity be = getBE(); return be != null ? be.runtimeState.flipflopStates : null; }
+    @Override public NodeGraph getGraph() { MonitorBlockEntity be = getBE(); return be != null ? be.getNodeGraph() : new NodeGraph(); }
+    @Override public boolean isRunning() { MonitorBlockEntity be = getBE(); return be != null && be.isRunning(); }
+    @Override public Map<Integer, Boolean> getFlipflopStates() { MonitorBlockEntity be = getBE(); return be != null ? be.getFlipflopStates() : null; }
     @Override public io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot getCachedEvalSnapshot() {
         MonitorBlockEntity be = getBE();
-        return be != null ? be.cachedEvalSnapshot : null;
+        return be != null ? be.getCachedEvalSnapshot() : null;
     }
     @Override public Screen asScreen() { return this; }
 
@@ -186,7 +186,7 @@ public class MonitorScreen extends AbstractGraphScreen {
     @Override
     public void toggleRunning(boolean start) {
         MonitorBlockEntity be = getBE();
-        if (be != null) { be.running = start; PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
+        if (be != null) { be.setRunning(start); PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
 
     @Override
@@ -225,7 +225,7 @@ public class MonitorScreen extends AbstractGraphScreen {
         var presences = editor.getRemotePresences();
         if (presences.isEmpty()) return;
         var mc = Minecraft.getInstance();
-        var graph = getBE() != null ? getBE().graph : null;
+        var graph = getBE() != null ? getBE().getNodeGraph() : null;
         if (graph == null) return;
         var elements = collectDisplayElements(graph, getEvalOutputs());
         for (var p : presences.values()) {
@@ -308,7 +308,7 @@ public class MonitorScreen extends AbstractGraphScreen {
     private Map<Integer, float[]> getEvalOutputs() {
         var be = getBE();
         if (be == null) return java.util.Collections.emptyMap();
-        return be.cachedEvalSnapshot.outputs();
+        return be.getCachedEvalSnapshot().outputs();
     }
 
     private void renderDisplayArea(GuiGraphics g, int mx, int my) {
@@ -336,12 +336,12 @@ public class MonitorScreen extends AbstractGraphScreen {
         g.renderOutline(gi[0], gi[1], gi[2], gi[3], 0xFF5A4D3A);
 
         // Read server-authoritative evaluation outputs (synced via ClientboundGraphEvalPacket)
-        var graph = getBE() != null ? getBE().graph : new NodeGraph();
+        var graph = getBE() != null ? getBE().getNodeGraph() : new NodeGraph();
         var evalOutputs = getEvalOutputs();
 
         // Collect and render display elements (cached when graph is static — Phase 2)
         // When running, output values change each tick so we must rebuild.
-        boolean isRunning = getBE() != null && getBE().running;
+        boolean isRunning = getBE() != null && getBE().isRunning();
         float efsw = getEffectiveScreenW(), efsl = getEffectiveScreenL();
         int curGen = graph.graphGeneration;
         boolean displayChanged = curGen != lastDisplayGen || efsw != lastDisplaySW || efsl != lastDisplaySL
@@ -540,7 +540,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                     x + (size - tw) / 2, y + (size - 8) / 2, tc, false);
             }
             case DATA -> {
-                var graph = getBE() != null ? getBE().graph : new NodeGraph();
+                var graph = getBE() != null ? getBE().getNodeGraph() : new NodeGraph();
                 var evalOutputs2 = getEvalOutputs();
                 float val = graph.getInputValue(node.id, 0, evalOutputs2);
                 String valStr = ff1(val);
@@ -558,7 +558,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                 }
             }
             case IMAGE_SEQUENCE -> {
-                var graph = getBE() != null ? getBE().graph : new NodeGraph();
+                var graph = getBE() != null ? getBE().getNodeGraph() : new NodeGraph();
                 var evalOutputs3 = getEvalOutputs();
                 int frameIdx = Math.round(graph.getInputValue(node.id, 2, evalOutputs3));
                 int[] pixels = null;
@@ -595,7 +595,7 @@ public class MonitorScreen extends AbstractGraphScreen {
     }
 
     private void renderLayerPanel(GuiGraphics g, int mx, int my) {
-        var graph = getBE() != null ? getBE().graph : new NodeGraph();
+        var graph = getBE() != null ? getBE().getNodeGraph() : new NodeGraph();
         List<GraphNode> layers = getDisplayLayers(graph);
         if (layers.isEmpty()) return;
 
@@ -722,7 +722,7 @@ public class MonitorScreen extends AbstractGraphScreen {
         int px = width - LAYER_PANEL_W - LAYER_PANEL_PADDING;
         if (mx < px || mx > px + LAYER_PANEL_W) return -1;
 
-        var graph = getBE() != null ? getBE().graph : new NodeGraph();
+        var graph = getBE() != null ? getBE().getNodeGraph() : new NodeGraph();
         List<GraphNode> layers = getDisplayLayers(graph);
         if (layers.isEmpty()) return -1;
 
@@ -741,7 +741,7 @@ public class MonitorScreen extends AbstractGraphScreen {
     // ── Layer drag-and-drop helpers ──
 
     private void updateLayerDropIndex(double my) {
-        var graph = getBE() != null ? getBE().graph : new NodeGraph();
+        var graph = getBE() != null ? getBE().getNodeGraph() : new NodeGraph();
         List<GraphNode> layers = getDisplayLayers(graph);
         if (layers.isEmpty()) return;
 
@@ -778,7 +778,7 @@ public class MonitorScreen extends AbstractGraphScreen {
         long now = System.currentTimeMillis();
         if (now - lastAutoScrollTime < LAYER_AUTOSCROLL_TICK) return;
 
-        var graph = getBE() != null ? getBE().graph : new NodeGraph();
+        var graph = getBE() != null ? getBE().getNodeGraph() : new NodeGraph();
         List<GraphNode> layers = getDisplayLayers(graph);
         if (layers.isEmpty()) return;
 
@@ -793,7 +793,7 @@ public class MonitorScreen extends AbstractGraphScreen {
     }
 
     private void applyLayerReorder() {
-        var graph = getBE() != null ? getBE().graph : new NodeGraph();
+        var graph = getBE() != null ? getBE().getNodeGraph() : new NodeGraph();
         if (layerDragNode == null) return;
 
         List<GraphNode> layers = getDisplayLayers(graph);
@@ -1218,7 +1218,7 @@ public class MonitorScreen extends AbstractGraphScreen {
         }
         if (displayMode) {
             // Check layer panel scrollbar thumb drag first
-            var graph2 = getBE() != null ? getBE().graph : new NodeGraph();
+            var graph2 = getBE() != null ? getBE().getNodeGraph() : new NodeGraph();
             List<GraphNode> layers2 = getDisplayLayers(graph2);
             if (!layers2.isEmpty()) {
                 int px2 = width - LAYER_PANEL_W - LAYER_PANEL_PADDING;
@@ -1264,7 +1264,7 @@ public class MonitorScreen extends AbstractGraphScreen {
             long now = System.currentTimeMillis();
             GraphNode clicked = null;
             float hitSx = 0, hitSy = 0;
-            for (var n : getBE().graph.nodes) {
+            for (var n : getBE().getNodeGraph().nodes) {
                 if (n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE) continue;
                 float sx = editor.c2sX(n.x), sy = editor.c2sY(n.y);
                 float sw = GraphEditor.NW * editor.zoom, nh = (GraphEditor.HH + GraphEditor.PH * (n.inputs() + n.outputs())) * editor.zoom + 4;
@@ -1309,7 +1309,7 @@ public class MonitorScreen extends AbstractGraphScreen {
             // nowhere (frozen render, position lands on release) while the streamed ops carry
             // the orphan's position so remote clients still see movement.
             {
-                var liveGraph = getBE() != null ? getBE().graph : null;
+                var liveGraph = getBE() != null ? getBE().getNodeGraph() : null;
                 if (selectedDisplayNode != null && liveGraph != null) {
                     var curSel = liveGraph.findNode(selectedDisplayNode.id);
                     if (curSel != selectedDisplayNode) selectedDisplayNode = curSel;
@@ -1336,7 +1336,7 @@ public class MonitorScreen extends AbstractGraphScreen {
             }
 
             // Check for display element hits (scaled to rendered size)
-            var graph = getBE() != null ? getBE().graph : new NodeGraph();
+            var graph = getBE() != null ? getBE().getNodeGraph() : new NodeGraph();
             var evalOutputs4 = getEvalOutputs();
             var elements = collectDisplayElements(graph, evalOutputs4);
             float guiScale2 = da.w * FONT_BLOCK_SCALE / Math.max(getContentWorldW(), 0.01f);
@@ -1465,7 +1465,7 @@ public class MonitorScreen extends AbstractGraphScreen {
     public void mouseMoved(double mx, double my) {
         // Layer panel scrollbar drag
         if (layerScrollbarDragging) {
-            var graph3 = getBE() != null ? getBE().graph : new NodeGraph();
+            var graph3 = getBE() != null ? getBE().getNodeGraph() : new NodeGraph();
             List<GraphNode> layers3 = getDisplayLayers(graph3);
             if (!layers3.isEmpty()) {
                 int rowStartY3 = 26 + 12 + 2;

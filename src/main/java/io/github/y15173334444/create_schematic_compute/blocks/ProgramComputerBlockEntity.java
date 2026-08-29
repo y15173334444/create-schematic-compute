@@ -30,34 +30,34 @@ public class ProgramComputerBlockEntity extends SyncedGraphBlockEntity {
         ensureBusRegistered();
         var state = getBlockState();
         if (!state.hasProperty(ProgramComputerBlock.LIT)) return;
-        boolean shouldBeLit = running && !graph.nodes.isEmpty();
+        boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
         if(state.getValue(ProgramComputerBlock.LIT)!=shouldBeLit)
             level.setBlock(worldPosition, state.setValue(ProgramComputerBlock.LIT, shouldBeLit), 3);
-        rs.checkGraphChanged(graph);
+        rs().checkGraphChanged(graph());
         if(graphChanged()) recompileEvaluatorFull();
-        if(!running) { onStopRunning(); return; }
-        rs.refreshInputsActive();
-        if (BusChannelHelper.recoverConflictedChannels(graph, worldPosition, level)) {
-            needsFullSync = true; setChanged();
+        if(!isRunning()) { onStopRunning(); return; }
+        rs().refreshInputsActive();
+        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
+            requestFullSync();
             if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
-        var in = rs.buildInputs(graph);
+        var in = rs().buildInputs(graph());
         float dt = 0.05f;
-        var results = evaluator.evaluate(in, runtimeState.pidState, dt,
-                runtimeState.delayQueues, runtimeState.flipflopStates, runtimeState.pulseTimers);
-        rs.writeOutputs(results);
+        var results = evaluator().evaluate(in, runtimeState().pidState, dt,
+                runtimeState().delayQueues, runtimeState().flipflopStates, runtimeState().pulseTimers);
+        rs().writeOutputs(results);
         broadcastEvalSnapshot(); // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
-        BusChannelHelper.syncIfBandsChanged(graph, worldPosition, lastBusHashMap, level);
+        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
         if (level instanceof ServerLevel sl) {
-            var currentFf = runtimeState.flipflopStates;
+            var currentFf = runtimeState().flipflopStates;
             boolean changed = !currentFf.equals(lastSyncedFlipflopStates);
             // 子图 flipflop 也做 diff（有基线），而不是「存在即变更」，避免每 tick 广播
             // Diff sub-graph flipflop against its own baseline instead of treating
             // presence as change — prevents per-tick RuntimeStateSyncPacket spam.
             java.util.Map<Integer, java.util.Map<Integer, Boolean>> subFf = java.util.Collections.emptyMap();
-            if (!runtimeState.subStates.isEmpty()) {
+            if (!runtimeState().subStates.isEmpty()) {
                 var curSub = new java.util.HashMap<Integer, java.util.Map<Integer, Boolean>>();
-                for (var se : runtimeState.subStates.entrySet()) {
+                for (var se : runtimeState().subStates.entrySet()) {
                     if (!se.getValue().flipflopStates.isEmpty())
                         curSub.put(se.getKey(), new java.util.HashMap<>(se.getValue().flipflopStates));
                 }
