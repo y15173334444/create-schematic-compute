@@ -261,6 +261,13 @@ SablePacketHelper / screens / renderers / packets depend on the contract only.
 `getLevel`/`getBlockPos`/`setChanged` come from `BlockEntity`, so only
 `asBlockEntity()` and `sendBlockUpdated()` are new.
 
+**阶段 3 清理（2026-08-29）/ Phase-3 cleanup**：三个子类 `loadGraphFromBytes` 覆写
+（Blueprint / Radar 删除、Monitor 收缩为"解析一次 → 先取屏幕设置段 → 引擎路径"）统一走
+引擎编辑器保存路径，顺带修复 Radar 缺 BUS 注销（SignalBus 泄漏）与 Blueprint/Radar 缺
+子图状态清理两处分叉；Blueprint / ProgramComputer 的逐字 30 行 flipflop 差分广播孪生块
+上提为引擎 `broadcastFlipflopDiff()`（基线随引擎）。引擎新增两个非过渡操作：
+`loadEditorTag(tag)`（编辑器保存的 tag 级入口）与 `broadcastFlipflopDiff()`。
+
 **过渡桥 @Deprecated / Transitional bridges @Deprecated**（v1.2.5 阶段 2 标注，阶段 3 随
 子类薄壳化删除）：7 个同名访问器桥（`graph()` / `setGraph()` / `runtimeState()` /
 `evaluator()` / `rs()` / `lastBusHashMap()` / `invalidateEvaluator()`）+ 10 个引擎逻辑

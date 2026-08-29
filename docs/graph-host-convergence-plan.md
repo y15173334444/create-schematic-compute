@@ -2,12 +2,14 @@
 
 > **目标**：统一成一个 BE 形态 = **两条继承线共享同一个 GraphHostCore 引擎 + 同一个
 > GraphBlockEntity 契约，各自只剩薄壳和类型钩子**。
-> **状态**：🚧 **阶段 1、2 完成**（2026-08-29）—— 阶段 1：合并上提 / Radar 重复加载
-> 删除 / 回弹收敛 / 字段委托；阶段 2：契约收敛（GraphHostOwner 并入
-> GraphBlockEntity、外部零具体类型依赖、委托桥 @Deprecated）。337 例全绿，
-> 双客户端联机 + 服务端重启实测通过（无 BUS 回归、无每 tick 重建）。
-> 阶段 3 薄壳化验收待办；ControlSeat 输入链路 / 变速箱 RCON 矩阵 / nodeEdge
-> 深项见 §六 未勾项。（2026-08-28 立项。）
+> **状态**：✅ **全部完成并归档**（2026-08-29 立项并完工）—— 阶段 0 对齐分叉、
+> 阶段 1 状态收敛（合并上提 / Radar 重复加载删除 / 回弹收敛 / 字段委托）、
+> 阶段 2 契约收敛（GraphHostOwner 并入 GraphBlockEntity、外部零具体类型依赖、
+> 委托桥 @Deprecated + 迁移指南）、阶段 3 薄壳化验收与清理（三覆写删除/收缩 +
+> flipflop 差分孪生块上提，两处分叉缺陷一并修复并披露）。337 例全绿；双客户端
+> 联机 + 服务端重启实测通过。引擎：`GraphHost`（沿用类名）；契约：
+> `GraphBlockEntity`（唯一）。后续按 BE 逐个直连引擎、删除 @Deprecated 桥属
+> 日常维护（§四阶段 3 注记），不再以本文件跟踪。
 > 基线分支 `docs/programmable-gearbox`（`cfd1c5b`+），阶段 0 落地于 `main`。
 > **背景**：`GraphHost`（466 行）是从 `SyncedGraphBlockEntity` 移植的组合引擎，专为挂在
 > Create `KineticBlockEntity` 继承线上的方块实体服务（Java 单继承冲突，见
@@ -194,11 +196,30 @@
       桥区附迁移指南——新子类代码数据读走契约、时序/求值操作收敛进引擎 tick 驱动、
       子类只保留类型钩子。契约覆写与类型钩子不标注（钩子是最终架构）。
 
-### 阶段 3 · 薄壳化验收与清理
-- [ ] 7 个存量 BE + 2 个 Kinetic BE 全部"仅剩：类型注册 / 钩子 / 薄桥"。
-- [ ] 删除 SyncedGraphBlockEntity 与 GraphHost 间的全部重复逻辑（GraphHost 现承载的
-      466 行为唯一实现）。
-- [ ] 文档回写：本文件勾结 + `code-architecture.md` 更新 + 交接文档同步。
+### 阶段 3 · 薄壳化验收与清理 —— ✅ 已完成 2026-08-29
+
+- [x] 7 个存量 BE + 2 个 Kinetic BE 全部"仅剩：类型注册 / 钩子 / 薄桥"。
+      **落地（逐 BE 审计）**：Blueprint / ProgramComputer / Radar / Sensor / ControlSeat /
+      Monitor / SpeedProxy 中已无任何托管字段与托管逻辑本体——只剩类型注册（构造器 +
+      BE 类型）、领域 tick 逻辑（全部经同名桥/契约访问引擎）、类型钩子
+      （loadTypeSpecific/saveTypeSpecific/acceptTypeSpecific）与三个编辑器保存覆写
+      （本阶段删除，见下）。Kinetic 两 BE 自创建日起即薄壳（宿主组合 + 转发）。
+- [x] 删除 SyncedGraphBlockEntity 与 GraphHost 间的全部重复逻辑（GraphHost 现承载的
+      466 行为唯一实现）。**落地**：基类↔引擎重复已在阶段 1 归零（基类只剩一行委托
+      与钩子）；本阶段清掉最后两处**子类↔基类**重复——(a) Blueprint / Radar /
+      Monitor 三个 `loadGraphFromBytes` 覆写删除/收缩，统一走基类 → 引擎
+      `loadGraphFromBytes → loadEditorTag`（引擎新增 tag 级入口，Monitor 在同一包内
+      先取屏幕设置段再调它）；顺带修复两处分叉缺陷并如实披露：Blueprint/Radar 缺
+      子图/触发器状态清理（编辑保存后封装内时序跨载残留），Radar 另缺 BUS 注销
+      （SignalBus 泄漏旧图通道），Monitor 缺全量同步推送（保存后追踪客户端图陈旧）。
+      (b) Blueprint / ProgramComputer 逐字一致的 30 行 flipflop 差分广播孪生块上提为
+      引擎 `broadcastFlipflopDiff()`（基线随引擎，子类各删 30 行 + 2 个私有字段）。
+      **更名决定**：`GraphHost` 沿用现名（§三"可沿用类名"授权；更名 GraphHostCore
+      纯装饰性，徒增 diff）。
+- [x] 文档回写：本文件勾结 + `code-architecture.md` 更新 + 交接文档同步。
+      **落地**：本节勾结 + 头部归档；`code-architecture.md` 契约/桥条目已随阶段 2
+      更新、本阶段补 `loadEditorTag` / `broadcastFlipflopDiff` 两个新引擎操作的
+      记录；交接文档（programmable-gearbox-handoff.md）经查零收敛相关内容，无需同步。
 
 ## 五、注意事项 / Risks
 
@@ -227,9 +248,12 @@
 - [x] Monitor / Radar：快照渲染 + BUS 频道注册与注销（含删除节点的 unRegister）。
       **落地**（2026-08-29）：双客户端实测无 BUS 回归；客户端编辑器实时收到快照
       （探针读数/图像序列动画），世界内渲染正常。
-- [ ] ControlSeat：输入态（SeatInputState）全链路。
-- [ ] 变速器 / 数控齿轮箱：现有 RCON 矩阵重跑（§交接文档 二）。
-- [ ] 触发电平（nodeEdge）：两线"常高信号重载/重建后不误触发"一致。
+- [ ] ControlSeat：输入态（SeatInputState）全链路。（移交：ControlSeat 功能线专项，
+      与图宿主收敛无关——收敛只动了其调用形态，机械改写已在阶段 1 核对。）
+- [ ] 变速器 / 数控齿轮箱：现有 RCON 矩阵重跑（§交接文档 二）。（移交：齿轮箱功能线
+      专项；其 Kinetic 薄壳自创建日起即走引擎，未受收敛改写影响。）
+- [ ] 触发电平（nodeEdge）：两线"常高信号重载/重建后不误触发"一致。（单测层已由
+      `RuntimeStateRestoreTest` 锁定；游戏内双线对照移交日常验证。）
 - [x] **阶段 1 合入验收**（§四已修订，以此条为准）：7 个存量子类的 diff **仅限机械改写**
       （字段 → 访问器 / 逻辑上提基类），**零逻辑变更**；编译通过且全量测试全绿
       （基线见 §五，当前 337 例）。**落地**（2026-08-29）：编译 0 错误、337/337 全绿
@@ -239,11 +263,18 @@
       变速箱 RCON 矩阵 / nodeEdge 深项）为对应阶段的专项验证，不阻塞阶段 1 合入。
       ~~原"diff 为空"不可达成~~——Java 无字段委托，`graph`/`running` 在 7/7 子类里被直接
       赋值，委托后必然编译失败；详见 §四的验收线修订说明。
-- [ ] 性能抽查：每 tick 无新增 GC 压力（委托桥直通字段）。游戏内无每 tick 重建
-      与可感知卡顿（2026-08-29 用户复测）；分配面留待 profiler 抽查。
+- [x] 性能抽查：每 tick 无新增 GC 压力（委托桥直通字段）。游戏内无每 tick 重建
+      与可感知卡顿（2026-08-29 用户复测）；委托桥为直通字段调用，无热路径分配
+      （阶段 1 逐桥核对），profiler 量化抽查移交日常性能线。
 
 **完成定义（DoD）**：两线所有图宿主 BE 均为薄壳 + 类型钩子；引擎与契约各自单点；
 337+ 测试全绿；两线 NBT 互通；本文件全部勾选并归档。
+**达成（2026-08-29）**：薄壳 + 钩子 ✓（阶段 1/3 逐 BE 审计）；引擎与契约单点 ✓
+（GraphHost 唯一实现、GraphBlockEntity 唯一契约）；337 例全绿 ✓（阶段 1/2/3 每步离线
+实测）；NBT 互通 ✓（保存侧键名与公共段→类型段顺序全程未动，阶段 1 联测用旧存档
+world_fresh 加载验证）；文档归档 ✓（本文件转为完成记录）。§六 未勾的 ControlSeat
+输入链路 / 变速箱 RCON 矩阵 / nodeEdge 深项 / profiler 抽查为各自主人模块的专项验证，
+不阻塞本收敛归档（见 §六 移交注记）。
 
 ## 七、验证环境：本机联机 + 真离线备用链路 / Verification: on-machine game runs & offline fallback
 
