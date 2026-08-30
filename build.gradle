@@ -28,6 +28,10 @@ runs {
         if (project.hasProperty('username')) {
             arguments '--username', project.property('username').toString()
         }
+        // Auto-join: -Pquickplay=host:port passes vanilla quick-play through
+        if (project.hasProperty('quickplay')) {
+            arguments '--quickPlayMultiplayer', project.property('quickplay').toString()
+        }
     }
 
     client2 {
