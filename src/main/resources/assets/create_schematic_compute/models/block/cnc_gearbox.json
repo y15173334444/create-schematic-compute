@@ -2,37 +2,9 @@
 	"credit": "Made with Blockbench",
 	"textures": {
 		"0": "create_schematic_compute:block/cnc0",
-		"axis": "create:block/axis",
-		"axis_top": "create:block/axis_top",
 		"particle": "create_schematic_compute:block/cnc0"
 	},
 	"elements": [
-		{
-			"name": "ShaftFront",
-			"from": [6, 6, 0],
-			"to": [10, 10, 2],
-			"faces": {
-				"north": {"uv": [6, 6, 10, 10], "texture": "#axis_top"},
-				"east": {"uv": [6, 0, 10, 2], "texture": "#axis"},
-				"south": {"uv": [6, 6, 10, 10], "texture": "#axis_top"},
-				"west": {"uv": [6, 0, 10, 2], "texture": "#axis"},
-				"up": {"uv": [6, 0, 10, 2], "texture": "#axis"},
-				"down": {"uv": [6, 0, 10, 2], "texture": "#axis"}
-			}
-		},
-		{
-			"name": "ShaftRear",
-			"from": [6, 6, 14],
-			"to": [10, 10, 16],
-			"faces": {
-				"north": {"uv": [6, 6, 10, 10], "texture": "#axis_top"},
-				"east": {"uv": [6, 0, 10, 2], "texture": "#axis"},
-				"south": {"uv": [6, 6, 10, 10], "texture": "#axis_top"},
-				"west": {"uv": [6, 0, 10, 2], "texture": "#axis"},
-				"up": {"uv": [6, 0, 10, 2], "texture": "#axis"},
-				"down": {"uv": [6, 0, 10, 2], "texture": "#axis"}
-			}
-		},
 		{
 			"from": [2, 14, 0],
 			"to": [14, 16, 1],

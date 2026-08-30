@@ -22,6 +22,7 @@ public class ClientSetup {
     @net.neoforged.bus.api.SubscribeEvent
     public static void registerModels(ModelEvent.RegisterAdditional event) {
         event.register(SCANNER_MODEL);
+        event.register(CncGearboxRenderer.SHAFT_MODEL);
     }
     @net.neoforged.bus.api.SubscribeEvent
     public static void clientSetup(FMLClientSetupEvent event) {
@@ -33,6 +34,7 @@ public class ClientSetup {
     @net.neoforged.bus.api.SubscribeEvent
     public static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(SchematicCompute.CONTROL_SEAT_ENTITY.get(), NoRenderEntityRenderer::new);
+        event.registerBlockEntityRenderer(SchematicCompute.CNC_GEARBOX_BE.get(), CncGearboxRenderer::new);
     }
 
     /** 不渲染任何东西的实体渲染器 */
