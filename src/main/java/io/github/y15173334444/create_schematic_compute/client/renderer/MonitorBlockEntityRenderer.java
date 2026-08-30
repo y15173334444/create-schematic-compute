@@ -559,6 +559,18 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 maskImg[k * 2 + 1] = -px * sinR + py * cosR - halfH;
             }
             float[] maskImgAabb = polyAabb(maskImg);
+            // 掠射/侧视保护（2026-08-30）：可见区域若有顶点跑到相机后方（fz>0），
+            // emitAnchored 的 s=zAnchor/fz 会变负 → 顶点镜像到屏幕对侧 → 鬼影溢出。
+            // s 钳制拦不住（s 只是个量级不大的负数）。先整体判一次：常态（全在前方）
+            // 逐像素零额外开销，全在后方直接不画，只有跨越时才逐像素裁剪。
+            // Grazing/side-view guard: if any visible vertex lands behind the camera
+            // (fz>0), emitAnchored's s=zAnchor/fz goes negative and mirrors the vertex
+            // to the opposite side of the screen — a ghost image. The s clamp does not
+            // catch it (s is only a modest negative number). One up-front test keeps
+            // the normal case free: fully-in-front costs nothing per pixel, fully-
+            // behind skips the image entirely, and only a crossing pays for a clip.
+            int camState = cameraPlaneState(maskImg, 0f, m2, viewRot);
+            if (camState == CAM_BEHIND) { poseStack.popPose(); continue; }
             for (int py = 0; py < n.imageHeight; py++) {
                 for (int px = 0; px < n.imageWidth; px++) {
                     int idx = py * n.imageWidth + px;
@@ -568,21 +580,26 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                     if (a == 0) continue;
                     float x0 = px * cell, x1 = x0 + cell;
                     float y0 = -py * cell, y1 = y0 - cell;
+                    float[] pxQuad = {x0, y0, x1, y0, x1, y1, x0, y1};
+                    // 相机平面裁剪（仅跨越时）——裁剪在图像局部进行，与 emitAnchored
+                    // 同一变换路径（m2 → viewRot）。
+                    // Camera-plane clip (only when crossing) — in image-local space, over
+                    // the same transform path emitAnchored uses (m2 → viewRot).
+                    boolean camClipped = false;
+                    if (camState == CAM_CROSSING) {
+                        float[] cc = clipPolyToCameraPlane(pxQuad, 0f, m2, viewRot);
+                        if (cc.length / 2 < 3) continue;
+                        if (cc != pxQuad) { pxQuad = cc; camClipped = true; }
+                    }
                     // 4 边形遮罩：像素 quad 与玻璃投影 4 边形求交——全内直画、
                     // 全外跳过、相交则 Sutherland-Hodgman 裁剪 + 三角形扇。
-                    // （2026-08-24：不再做相机平面几何裁剪——画布巨大（×D），正常
-                    // 斜视时画布边缘 fz 也接近 0，几何裁剪会误切正常可见内容；掠射
-                    // 溢出由 emitAnchored 的 s 钳制防 float 溢出，GPU 视锥干净裁剪。）
                     // 4-gon mask: intersect the pixel quad with the glass-projection
                     // quad — fully-inside draws directly, fully-outside skips,
-                    // partial clips (Sutherland-Hodgman) + triangle fan. (No camera-
-                    // plane geometric clip since 2026-08-24: the canvas is huge (×D),
-                    // so ordinary oblique views put canvas-edge fz near 0 and a
-                    // geometric clip wrongly cuts visible content; grazing overflow
-                    // is handled by the s clamp in emitAnchored + the GPU frustum.)
+                    // partial clips (Sutherland-Hodgman) + triangle fan.
                     if (x1 <= maskImgAabb[0] || x0 >= maskImgAabb[2]
                         || y1 <= maskImgAabb[1] || y0 >= maskImgAabb[3]) continue; // 全外
-                    boolean allIn = pointInConvexQuad(x0, y0, maskImg)
+                    boolean allIn = !camClipped
+                        && pointInConvexQuad(x0, y0, maskImg)
                         && pointInConvexQuad(x1, y0, maskImg)
                         && pointInConvexQuad(x1, y1, maskImg)
                         && pointInConvexQuad(x0, y1, maskImg);
@@ -597,8 +614,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                         emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x1, y1, 0f, glassZ, rf, gf, bf, af);
                         emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x0, y1, 0f, glassZ, rf, gf, bf, af);
                     } else {
-                        float[] clipped = clipPolyToQuad(
-                            new float[]{x0, y0, x1, y0, x1, y1, x0, y1}, maskImg);
+                        float[] clipped = clipPolyToQuad(pxQuad, maskImg);
                         int nv = clipped.length / 2;
                         if (nv < 3) continue;
                         for (int i = 1; i < nv - 1; i++) {
@@ -947,8 +963,15 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         float fMax = Math.max(Math.max(va.z, vb.z), Math.max(vc.z, vd.z));
         if (fMin > 0f) return; // 整条线在相机后方 → 不显示
         boolean wasClipped = false;
-        if (fMax > 0f) {
-            quad = clipPolyByDepth(quad, new float[]{va.z, vb.z, vc.z, vd.z}, 0f);
+        // 2026-08-30：裁到**留边距**的相机平面（fz ≤ -CAM_PLANE_MARGIN）而不是 fz=0。
+        // 裁到 0 会让边界顶点正好落在相机平面上 → s=zAnchor/0 = -Infinity → 又被镜像，
+        // 且 s 钳制只按量级拦截，负号照样翻转。全在前方时原样返回，零开销。
+        // Clip to the camera plane **with a margin** (fz ≤ -CAM_PLANE_MARGIN), not to
+        // fz=0. Clipping to 0 puts the boundary vertex exactly on the camera plane →
+        // s=zAnchor/0 = -Infinity → mirrored again, and the s clamp only bounds the
+        // magnitude, never the sign. Returns as-is when everything is in front.
+        if (fMax > -CAM_PLANE_MARGIN) {
+            quad = clipPolyByDepth(quad, new float[]{va.z, vb.z, vc.z, vd.z}, -CAM_PLANE_MARGIN);
             wasClipped = true;
             if (quad.length / 2 < 3) return;
         }
@@ -1029,6 +1052,102 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         buf.addVertex(out.x, out.y, out.z).setColor(r, g, b, a);
     }
 
+    /** 空多边形（全被裁剪） / empty polygon (everything clipped away) */
+    private static final float[] EMPTY_POLY = new float[0];
+
+    /**
+     * 相机平面裁剪的**边距**（单位：格）：只保留 {@code fz <= -CAM_PLANE_MARGIN} 的几何。
+     * Camera-plane clip **margin** (blocks): only geometry at {@code fz <= -CAM_PLANE_MARGIN} survives.
+     *
+     * <p>不能裁到 fz=0：边界顶点会正好落在相机平面上，fz=0 → s=zAnchor/0 = ±Infinity，
+     * 其中 zAnchor<0 给出 **-Infinity** —— 又被镜像了（单元测试 cameraPlaneClipRemoves
+     * MirroredVertices 实测到这一点）。留 1 格边距后 |s| ≤ |zAnchor|/1，量级有限且
+     * **符号为正**：顶点落在正确一侧的远处，NDC 在视锥外由 GPU 干净裁剪，不会横跨屏幕。
+     * Clipping to fz=0 does not work: the boundary vertex lands exactly on the camera
+     * plane, fz=0 → s=zAnchor/0 = ±Infinity, and with zAnchor<0 that is **-Infinity** —
+     * mirrored again (caught by the cameraPlaneClipRemovesMirroredVertices unit test).
+     * With a 1-block margin, |s| ≤ |zAnchor| and, crucially, the **sign stays positive**:
+     * the vertex sits far out on the correct side, its NDC leaves the frustum, and the
+     * GPU clips it cleanly instead of stretching it across the screen.
+     */
+    private static final float CAM_PLANE_MARGIN = 1.0f;
+
+    /**
+     * 把多边形裁剪到相机平面（只保留 {@code fz <= threshold} 的部分）。
+     * Clip a polygon to the camera plane, keeping only {@code fz <= threshold}.
+     *
+     * <p>为什么必须有这一步：{@link #emitAnchored} 只钳制锚定比例 s 的**量级**，
+     * 从不看 fz 的**符号**。顶点跑到相机后方时 fz>0 → s=zAnchor/fz 变成**负数**
+     * → 锚定顶点 (fx·s, fy·s) 被镜像到屏幕对侧，画出一个鬼影（"部分视角渲染溢出"
+     * 的根因）。s 钳制拦不住它：fz 是正常量级的正值时 s 只是个小负数，远不到
+     * ±MAX_ANCHOR_S。{@link FacingOverflowDiagTest} 的 grazingSClamp 也明确写着
+     * "不覆盖镜像剔除"。
+     * Why this must exist: {@link #emitAnchored} clamps the anchor ratio s by
+     * *magnitude* only and never looks at the *sign* of fz. A vertex behind the camera
+     * has fz>0 → s=zAnchor/fz goes **negative** → the anchored vertex (fx·s, fy·s) is
+     * mirrored to the opposite side of the screen, drawing a ghost image (the root
+     * cause of the "overflow at some viewing angles" report). The s clamp cannot stop
+     * it: with an ordinary-magnitude positive fz, s is just a small negative number,
+     * nowhere near ±MAX_ANCHOR_S.
+     *
+     * <p>fz 必须走与 emitAnchored **完全相同的路径**（m 变换 → viewRot 变换），
+     * 否则会算出与锚定不一致的深度（手算矩阵元素在此处给过假值，见 942 行注释）。
+     * fz must be computed over the **exact same path** as emitAnchored (m transform →
+     * viewRot transform), or it disagrees with the depth actually used for anchoring.
+     *
+     * @param poly      画布局部坐标的凸多边形（x,y 交替） / convex polygon in canvas-local coords (x,y interleaved)
+     * @param zLocal    图层的画布局部 z / the layer's canvas-local z
+     * @return 裁剪后的多边形；长度 0 表示全部在相机后方 / clipped polygon; length 0 means fully behind the camera
+     */
+    static float[] clipPolyToCameraPlane(float[] poly, float zLocal,
+            org.joml.Matrix4f m, org.joml.Matrix4f viewRot) {
+        int n = poly.length / 2;
+        if (n < 3) return EMPTY_POLY;
+        float[] fz = new float[n];
+        float fMin = Float.MAX_VALUE, fMax = -Float.MAX_VALUE;
+        var v = new org.joml.Vector3f();
+        for (int i = 0; i < n; i++) {
+            v.set(poly[i * 2], poly[i * 2 + 1], zLocal);
+            m.transformPosition(v);
+            viewRot.transformPosition(v);
+            fz[i] = v.z;
+            if (v.z < fMin) fMin = v.z;
+            if (v.z > fMax) fMax = v.z;
+        }
+        if (fMin > 0f) return EMPTY_POLY;          // 整体在相机后方 → 丢弃
+        if (fMax <= -CAM_PLANE_MARGIN) return poly; // 整体离相机平面足够远 → 原样返回（零开销）
+        // 有顶点贴到/越过相机平面 → 裁到留边距的平面（不能裁到 0，见 CAM_PLANE_MARGIN 注释）
+        return clipPolyByDepth(poly, fz, -CAM_PLANE_MARGIN);
+    }
+
+    /** 多边形相对相机平面的位置。 / Where a polygon sits relative to the camera plane. */
+    static final int CAM_FRONT = 0, CAM_CROSSING = 1, CAM_BEHIND = 2;
+
+    /**
+     * 判断多边形是否跨越相机平面——用于给逐像素循环做**零开销短路**：
+     * 全部在前方时一个 fz 都不用算。
+     * Whether a polygon crosses the camera plane — used to short-circuit per-pixel
+     * loops at zero cost when everything is in front.
+     *
+     * @return {@link #CAM_FRONT} 全在前方 / {@link #CAM_CROSSING} 跨越 / {@link #CAM_BEHIND} 全在后方
+     */
+    static int cameraPlaneState(float[] poly, float zLocal,
+            org.joml.Matrix4f m, org.joml.Matrix4f viewRot) {
+        int n = poly.length / 2;
+        float fMin = Float.MAX_VALUE, fMax = -Float.MAX_VALUE;
+        var v = new org.joml.Vector3f();
+        for (int i = 0; i < n; i++) {
+            v.set(poly[i * 2], poly[i * 2 + 1], zLocal);
+            m.transformPosition(v);
+            viewRot.transformPosition(v);
+            if (v.z < fMin) fMin = v.z;
+            if (v.z > fMax) fMax = v.z;
+        }
+        if (fMin > 0f) return CAM_BEHIND;                 // 全在相机后方
+        if (fMax > -CAM_PLANE_MARGIN) return CAM_CROSSING; // 有顶点贴到/越过相机平面
+        return CAM_FRONT;
+    }
+
     // ── 手动字形锚定（2026-08-24 方案 X）：文字不走 Iris 包装的 MultiBufferSource，
     // 直接读 BakedGlyph 字形几何 + UV 生成 4 顶点，锚定到玻璃深度后写入独立 textBuf。
     // Manual glyph anchoring (plan X): text bypasses the Iris-wrapped MultiBufferSource;
@@ -1073,14 +1192,24 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             // Per-glyph partial mask: fully inside → draw whole; crossing the mask
             // edge → Sutherland-Hodgman clip + bilinear UV interpolation + triangle
             // fan (boundary glyphs show only their on-glass part).
-            boolean allIn = pointInConvexQuad(cx[0], cx[1], maskQuad)
+            // 掠射/侧视保护（2026-08-30）：字形若有顶点跑到相机后方（fz>0），锚定
+            // 比例 s=zAnchor/fz 会变负 → 顶点镜像到屏幕对侧 → 鬼影溢出（与图像
+            // 路径同源）。先裁到相机平面；全在后方 → 整个字形不画。
+            // Grazing/side-view guard: if a glyph corner lands behind the camera
+            // (fz>0), the anchor ratio s=zAnchor/fz goes negative and mirrors the
+            // vertex across the screen — the same ghosting as the image path. Clip to
+            // the camera plane first; fully behind → drop the whole glyph.
+            float[] base = clipPolyToCameraPlane(cx, 0f, m, viewRot);
+            if (base.length / 2 < 3) return;
+            boolean allIn = (base == cx)
+                && pointInConvexQuad(cx[0], cx[1], maskQuad)
                 && pointInConvexQuad(cx[2], cx[3], maskQuad)
                 && pointInConvexQuad(cx[4], cx[5], maskQuad)
                 && pointInConvexQuad(cx[6], cx[7], maskQuad);
             float[] clipped;
             if (allIn) clipped = cx;
             else {
-                clipped = clipPolyToQuad(cx, maskQuad);
+                clipped = clipPolyToQuad(base, maskQuad);
                 if (clipped.length / 2 < 3) return;
             }
             // UV 双线性插值（平行四边形仿射反演）：P0 角 (u0,v0)，e1 = P0→P1（v 增），

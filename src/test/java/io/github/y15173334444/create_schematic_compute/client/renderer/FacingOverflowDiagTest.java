@@ -192,4 +192,86 @@ class FacingOverflowDiagTest {
                 "clipped vertex must stay in front (x ≤ 0.5), got " + r3[k * 2]);
         }
     }
+
+    /**
+     * 相机后方顶点导致**镜像**的回归（2026-08-30 修复）。
+     * Regression for the **mirroring** caused by behind-camera vertices (fixed 2026-08-30).
+     *
+     * <p>{@code emitAnchored} 只按量级钳制 s（±MAX_ANCHOR_S=1e4），从不看 fz 的符号。
+     * 顶点跑到相机后方时 fz>0 → s=zAnchor/fz 变负 → 锚定顶点 (fx·s, fy·s) 被镜像到
+     * 屏幕对侧。实测（θ=60°，远未到掠射）：远端两角 fz=+33.99、s=-7.99e-02、
+     * ndcX=-5.85 —— |s| 只有 0.08，离 1e4 差五个数量级，s 钳制完全不介入。
+     * 于是 quad 的一条边从 ndcX +0.40 被拉到 -5.85，横扫整个屏幕 = 用户报的
+     * "部分视角渲染溢出"。
+     * emitAnchored clamps s by magnitude only (±MAX_ANCHOR_S=1e4) and never looks at
+     * the sign of fz. Behind the camera fz>0 → s=zAnchor/fz goes negative → the
+     * anchored vertex (fx·s, fy·s) is mirrored across the screen. Measured at θ=60°
+     * (nowhere near grazing): the two far corners sit at fz=+33.99, s=-7.99e-02,
+     * ndcX=-5.85 — |s| is 0.08, five orders of magnitude below 1e4, so the s clamp
+     * never engages. One quad edge is then stretched from ndcX +0.40 to -5.85,
+     * sweeping across the whole screen: the reported "overflow at some angles".
+     *
+     * <p>修复：渲染前用 {@code clipPolyToCameraPlane} 把几何裁到相机平面（只留 fz≤0），
+     * 镜像顶点根本不会进入 emitAnchored。本测试先证明镜像确实发生，再证明裁剪后
+     * 所有保留顶点的 s 都为正（无镜像）。
+     * Fix: geometry is clipped to the camera plane before emission, so mirrored
+     * vertices never reach emitAnchored. This test first proves the mirroring happens,
+     * then proves every surviving vertex keeps a positive s.
+     */
+    @Test
+    void cameraPlaneClipRemovesMirroredVertices() {
+        System.out.println("=== behind-camera mirror regression (fixed: camera-plane clip) ===");
+        float theta = 60f;                 // 远未到掠射，常见斜视就会触发 / ordinary oblique view
+        float facingYDeg = 180f;
+        Matrix4f rot = new Matrix4f().rotateY((float) Math.toRadians(-facingYDeg));
+        Vector3f localCenter = new Vector3f(0.5f, 0.5f, -0.5f - PANEL_DIST);
+        rot.transformPosition(localCenter);
+        float px = -localCenter.x, py = -localCenter.y, pz = 3f - localCenter.z;
+        Matrix4f m = new Matrix4f()
+            .translate(px, py, pz)
+            .translate(0.5f, 0.5f, 0.5f)
+            .rotateY((float) Math.toRadians(-facingYDeg))
+            .translate(0f, 0f, -(0.5f + PANEL_DIST));
+        Matrix4f m2 = new Matrix4f(m).translate(0f, 0f, -D).scale(D, D, -D);
+        Matrix4f viewRot = new Matrix4f().rotateY((float) Math.toRadians(180f - theta));
+        Vector3f glass = new Vector3f(0f, 0f, 0f);
+        m.transformPosition(glass);
+        viewRot.transformPosition(glass);
+        float zAnchor = glass.z - D * 0.001f;
+        float[] canvas = {-1f, -0.6f, 1f, -0.6f, 1f, 0.6f, -1f, 0.6f};
+
+        // (1) 未裁剪时确有角点在相机后方，且每个后方顶点的 s 都是负的（镜像）
+        //     Unclipped: some corners are behind the camera and every one mirrors (s<0).
+        int behind = 0, negativeS = 0;
+        for (int i = 0; i < 4; i++) {
+            Vector3f c = new Vector3f(canvas[i * 2], canvas[i * 2 + 1], 0f);
+            m2.transformPosition(c);
+            viewRot.transformPosition(c);
+            if (c.z > 0f) behind++;
+            if (zAnchor / c.z < 0f) negativeS++;
+            System.out.printf("raw corner(%+.1f,%+.1f) fz=%+.3f s=%+.4e%n",
+                canvas[i * 2], canvas[i * 2 + 1], c.z, zAnchor / c.z);
+        }
+        assertTrue(behind > 0, "at " + theta + "° some canvas corners must fall behind the camera");
+        assertEquals(behind, negativeS, "every behind-camera vertex must yield a mirrored (negative) s");
+
+        // (2) 状态判定必须是"跨越" / the state must read as crossing
+        assertEquals(MonitorBlockEntityRenderer.CAM_CROSSING,
+            MonitorBlockEntityRenderer.cameraPlaneState(canvas, 0f, m2, viewRot),
+            "canvas straddles the camera plane at " + theta + "°");
+
+        // (3) 裁剪后：保留顶点全部 fz<=0 且 s>0（无镜像），并且仍有可见内容
+        //     Clipped: every surviving vertex stays in front with a positive s.
+        float[] clipped = MonitorBlockEntityRenderer.clipPolyToCameraPlane(canvas, 0f, m2, viewRot);
+        assertTrue(clipped.length / 2 >= 3,
+            "crossing canvas must keep visible content, verts=" + clipped.length / 2);
+        for (int i = 0; i < clipped.length / 2; i++) {
+            Vector3f c = new Vector3f(clipped[i * 2], clipped[i * 2 + 1], 0f);
+            m2.transformPosition(c);
+            viewRot.transformPosition(c);
+            assertTrue(c.z <= 1e-3f, "clipped vertex must stay in front (fz<=0), got " + c.z);
+            assertTrue(zAnchor / c.z > 0f,
+                "clipped vertex must not mirror (s>0), got " + zAnchor / c.z);
+        }
+    }
 }
