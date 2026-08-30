@@ -19,6 +19,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.ArrayDeque;
 import java.util.List;
 import java.util.Map;
 
@@ -123,8 +124,95 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
 
     // ── 每 tick / per tick ──
 
+    /**
+     * 孤儿动力态预检（必须在 super.tick() 之前跑）：官方 validateKinetics 的清理顺序是
+     * removeSource → detachKinetics —— 先把自己的速度清 0，detach 再走 handleRemoved 时
+     * 因 getTheoreticalSpeed()==0 短路早退，**以我们为源的下游树不会被清洗**（下游残留
+     * 旧源+旧转速）。之后任何一次 attach 传播里，下游轴会经无源自驱引导把本变速器
+     * 反向收编（source 指向输出侧），随后 TX→上游边把绝对目标推向异号的上游速度，
+     * 触发官方 incompatible 守卫 destroyBlock（炸方块根因，2026-08-31 RCON 探针定位）。
+     * 趁自身速度仍非 0 先 detach，handleRemoved 正常清洗下游；此后的收编顺序
+     * （上游/下游谁先）都无害 —— 零速邻居被官方 fromSpeed==0 守卫跳过。
+     * Orphaned-kinetic-state pre-check (must run BEFORE super.tick()): official
+     * validateKinetics removes the source (zeroing our speed) before detaching, so
+     * handleRemoved early-returns on speed==0 and the downstream tree stays sourced
+     * to us and spinning. The next attach pass then lets the downstream claim us
+     * backwards (source on the output side) and the TX->upstream edge pushes the
+     * absolute target into an opposite-sign upstream speed — official incompatible
+     * guard destroys the block (root cause pinned via RCON probe, 2026-08-31).
+     * Detaching while our own speed is still non-zero lets handleRemoved clean the
+     * tree; afterwards the claim order (upstream vs downstream first) is harmless —
+     * zero-speed neighbours are skipped by the official fromSpeed==0 guard.
+     */
+    private void cleanOrphanedKineticState() {
+        if (level == null || level.isClientSide)
+            return;
+        if (hasSource()) {
+            if (level.getBlockEntity(source) instanceof KineticBlockEntity sourceBE
+                    && sourceBE.getSpeed() != 0)
+                return;   // 源健在且在转：无需处理 / healthy source, nothing to do
+            detachKinetics();   // 源已失速/丢失：趁速度非 0 清洗下游树 / source dead: clean tree now
+        } else if (getSpeed() != 0) {
+            detachKinetics();   // 幻影态（无源带速，如区块重载丢 source）：先清洗 / phantom speed: clean first
+        } else {
+            // 盲区：无源且速度 0，但下游树可能仍以我们为源挂在网上（NBT 重载/官方
+            // validate 顺序漏洞的终态）。attach 前不清掉，下游会在传播里触发官方
+            // epsilon-cycle（同网压制）或经依赖守卫外的路径炸方块。
+            // Blind spot: sourceless AND zero speed, yet the downstream tree may still
+            // be sourced to us (terminal state of the NBT reload / official validate
+            // order hole). Clean it before any attach pass or the propagation hits the
+            // official same-network epsilon-cycle guard.
+            if (hasDependentNeighbours())
+                forceCleanDependentTree();
+        }
+    }
+
+    /** 是否存在仍以我们为源的邻居 / whether any neighbour is still sourced to us. */
+    private boolean hasDependentNeighbours() {
+        for (Direction d : Direction.values()) {
+            if (level.getBlockEntity(worldPosition.relative(d)) instanceof KineticBlockEntity nb
+                    && nb.hasSource() && nb.source.equals(worldPosition))
+                return true;
+        }
+        return false;
+    }
+
+    /**
+     * 强制清洗仍以本方块为源的下游子树（官方 handleRemoved 在 getTheoreticalSpeed()==0
+     * 时短路早退，此状态下只能自walk）。逐节点调用官方 removeSource()（speed=0 +
+     * source=null + setNetwork(null)），与 propagateMissingSource 的清理语义一致；
+     * 不做潜在新源回搜 —— 随后的 attach 传播会按官方合并分支重建整棵树。
+     * Forcibly clean the downstream subtree still sourced to us (official handleRemoved
+     * early-returns at getTheoreticalSpeed()==0, so in that state we must walk
+     * ourselves). Each node gets the official removeSource() (speed=0 + source=null +
+     * setNetwork(null)) — same mutation semantics as propagateMissingSource, minus its
+     * potential-new-source search; the attach pass right after rebuilds the tree
+     * through the official merge branches anyway.
+     */
+    private void forceCleanDependentTree() {
+        ArrayDeque<BlockPos> frontier = new ArrayDeque<>();
+        java.util.HashSet<BlockPos> visited = new java.util.HashSet<>();
+        frontier.add(worldPosition);
+        visited.add(worldPosition);
+        while (!frontier.isEmpty()) {
+            BlockPos pos = frontier.poll();
+            for (Direction d : Direction.values()) {
+                BlockPos np = pos.relative(d);
+                if (!visited.add(np))
+                    continue;
+                if (!(level.getBlockEntity(np) instanceof KineticBlockEntity nb))
+                    continue;
+                if (nb.hasSource() && nb.source.equals(pos)) {
+                    nb.removeSource();
+                    frontier.add(np);
+                }
+            }
+        }
+    }
+
     @Override
     public void tick() {
+        cleanOrphanedKineticState();
         super.tick();
         if (level == null || level.isClientSide)
             return;
@@ -195,14 +283,45 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
         return desiredOutputSpeed;
     }
 
-    /** 官方 getDesiredOutputSpeed 逐行复刻（含无源自驱引导路径）。
-     *  Line-by-line replica of the official getDesiredOutputSpeed (including the
-     *  sourceless self-drive bootstrap). */
+    /**
+     * 官方 getDesiredOutputSpeed 逐行复刻（含无源自驱引导路径）。
+     * Line-by-line replica of the official getDesiredOutputSpeed (including the
+     * sourceless self-drive bootstrap).
+     *
+     * <p><b>依赖方守卫</b>：source 指向本变速器的邻居是<b>下游依赖方</b>，永远无权
+     * 经无源自驱引导反向收编我们（自环）。没有这条守卫时：本变速器一旦静默进入
+     * 无源态（官方 validateKinetics 的 removeSource→detach 顺序漏洞 / NBT 重载丢
+     * source），下游轴会在下一次 attach 传播里把本变速器收编（source 指到输出侧），
+     * 随后 TX→上游边把绝对目标推向异号的上游速度 → 官方 incompatible 守卫
+     * destroyBlock 炸方块（2026-08-31 RCON 探针定位，RCON 台架 T2=64→128 必炸）。</p>
+     * <p><b>Dependent guard</b>: a neighbour whose source points at us is a DOWNSTREAM
+     * DEPENDENT and may never claim us backwards via the sourceless bootstrap (that is
+     * a cycle). Without this, any silent sourceless state (official validateKinetics
+     * removeSource->detach order hole / NBT reload losing source) lets the spinning
+     * downstream shaft claim the TX on the next attach pass; the TX->upstream edge then
+     * pushes the absolute target into an opposite-sign upstream speed and the official
+     * incompatible guard destroys the block (pinned via RCON probe, 2026-08-31; the
+     * bench T2=64->128 used to detonate deterministically).</p>
+     */
     public static float getDesiredOutputSpeed(KineticBlockEntity from, ProgrammableTransmissionBlockEntity tx,
                                               boolean targetingController) {
         float targetSpeed = tx.appliedTarget;
         float speed = tx.getTheoreticalSpeed();
         float fromSpeed = from.getTheoreticalSpeed();
+
+        // 依赖方（source 指向我们）边必须完美 no-op：返回我们自己的当前转速，
+        // 使 newSpeed==邻速 → 官方 |差|≤1e-4 → continue。不能返回 0 —— 官方传播的
+        // 兜底重挂载块会在「无分支命中」时把邻居 setSpeed(newSpeed)+setSource(我们)，
+        // 返回 0 会让依赖方把我们静默改挂到自己名下（速度 0），随后在上游边触发
+        // epsilon/incompatible destroyBlock（2026-08-31 RCON 台架 T4 跨号实测）。
+        // A dependent (source pointing at us) edge must be a PERFECT no-op: return our
+        // own current speed so newSpeed==neighbour speed -> official |diff|<=1e-4 ->
+        // continue. Returning 0 is NOT safe: the official fall-through re-parent block
+        // sets neighbour.setSpeed(newSpeed)+setSource(us) when no branch hits, which
+        // silently re-parents us under the dependent at speed 0 and detonates the
+        // upstream edge (bench T4 sign-cross, 2026-08-31).
+        if (targetingController && from.hasSource() && from.source.equals(tx.getBlockPos()))
+            return speed;
 
         if (targetSpeed == 0)
             return 0;
