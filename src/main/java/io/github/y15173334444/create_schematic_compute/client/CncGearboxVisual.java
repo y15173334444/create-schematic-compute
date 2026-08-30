@@ -13,22 +13,24 @@ import dev.engine_room.flywheel.lib.instance.FlatLit;
 import dev.engine_room.flywheel.lib.model.Models;
 import dev.engine_room.flywheel.lib.model.baked.PartialModel;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.blocks.CncGearboxBlock;
 import io.github.y15173334444.create_schematic_compute.blocks.CncGearboxBlockEntity;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
 
 /**
  * 数控齿轮箱 Flywheel 视觉：两端传动轴是**两个独立的旋转体**（前端/后端各一个
- * RotatingInstance），各自按 BE 速度 setup —— 两端速度可不同（为变速器
- * "输入端=网络速度、输出端=绝对定速" 预留）；当前 CNC 两端同速（getSpeed）。
- * 角度演化由 Flywheel 引擎按 rotationalSpeed 累积，相位由
- * RotatingInstance.setup 的官方 rotationOffset 提供 —— 与官方轴完全同步。
+ * RotatingInstance），**独立运动**——输入端轴恒随网络速度旋转；输出端轴受离合
+ * 控制（ENGAGED 时随网络速度、分离时静止为 0），体现"CNC 独立输出"语义。
+ * 角度演化由 Flywheel 引擎按 rotationalSpeed 积分，相位由 RotatingInstance.setup
+ * 的官方 rotationOffset 提供——与官方轴完全同步。
  * CNC gearbox Flywheel visual: the two shaft ends are TWO independent rotating
- * bodies (front/rear RotatingInstance), each setup with the BE speed — the two
- * ends may run at different speeds (reserved for the transmission's input=network
- * speed / output=absolute target), while the CNC currently uses the same speed.
- * The engine integrates the angle from rotationalSpeed; the official
- * rotationOffset phase is applied inside RotatingInstance.setup.
+ * bodies (front/rear RotatingInstance) that move INDEPENDENTLY — the input shaft
+ * always spins at the network speed; the output shaft is clutch-controlled
+ * (network speed while ENGAGED, static 0 while disengaged), reflecting the
+ * "CNC outputs on its own" semantics. The engine integrates the angle from
+ * rotationalSpeed; the official rotationOffset phase comes from
+ * RotatingInstance.setup.
  */
 public class CncGearboxVisual extends KineticBlockEntityVisual<CncGearboxBlockEntity> {
 
@@ -41,9 +43,8 @@ public class CncGearboxVisual extends KineticBlockEntityVisual<CncGearboxBlockEn
     public CncGearboxVisual(VisualizationContext ctx, CncGearboxBlockEntity be, float partialTick) {
         super(ctx, be, partialTick);
         Direction dir = Direction.get(Direction.AxisDirection.POSITIVE, rotationAxis());
-        float speed = be.getSpeed();
-        front = createShaft(FRONT_SHAFT, dir, speed);
-        rear = createShaft(REAR_SHAFT, dir, speed);
+        front = createShaft(FRONT_SHAFT, dir, shaftSpeed(be, true));
+        rear = createShaft(REAR_SHAFT, dir, shaftSpeed(be, false));
     }
 
     private RotatingInstance createShaft(PartialModel model, Direction dir, float speed) {
@@ -58,9 +59,22 @@ public class CncGearboxVisual extends KineticBlockEntityVisual<CncGearboxBlockEn
 
     @Override
     public void update(float pt) {
-        float speed = blockEntity.getSpeed();
-        front.setup(blockEntity, speed).setChanged();
-        rear.setup(blockEntity, speed).setChanged();
+        front.setup(blockEntity, shaftSpeed(blockEntity, true)).setChanged();
+        rear.setup(blockEntity, shaftSpeed(blockEntity, false)).setChanged();
+    }
+
+    /**
+     * 每端轴的独立转速：输入面（由 INPUT_NEGATIVE 决定）恒为网络速度；
+     * 输出面仅在接合（ENGAGED）时随网络速度，分离时静止（0）。
+     * Per-end independent shaft speed: the input face (per INPUT_NEGATIVE) always
+     * runs at network speed; the output face spins at network speed only while
+     * ENGAGED and is static (0) while disengaged.
+     */
+    private static float shaftSpeed(CncGearboxBlockEntity be, boolean front) {
+        boolean inputFront = be.getBlockState().getValue(CncGearboxBlock.INPUT_NEGATIVE);
+        boolean engaged = be.getBlockState().getValue(CncGearboxBlock.ENGAGED);
+        boolean isInput = front == inputFront;
+        return isInput || engaged ? be.getSpeed() : 0f;
     }
 
     @Override

@@ -2,15 +2,15 @@
   "variants": {
     "axis=x,run_state=idle": {
       "model": "create_schematic_compute:block/cnc_gearbox",
-      "y": 90
+      "y": 270
     },
     "axis=x,run_state=run": {
       "model": "create_schematic_compute:block/cnc_gearbox_run",
-      "y": 90
+      "y": 270
     },
     "axis=x,run_state=command": {
       "model": "create_schematic_compute:block/cnc_gearbox_cmd",
-      "y": 90
+      "y": 270
     },
     "axis=z,run_state=idle": {
       "model": "create_schematic_compute:block/cnc_gearbox"

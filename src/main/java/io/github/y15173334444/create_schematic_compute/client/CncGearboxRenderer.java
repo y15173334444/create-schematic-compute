@@ -54,20 +54,32 @@ public class CncGearboxRenderer implements BlockEntityRenderer<CncGearboxBlockEn
             return;
 
         Direction.Axis axis = state.getValue(CncGearboxBlock.HORIZONTAL_AXIS);
-        float angle = getAngleForBe(be, axis);
+        boolean inputFront = state.getValue(CncGearboxBlock.INPUT_NEGATIVE);
+        boolean engaged = state.getValue(CncGearboxBlock.ENGAGED);
+        float inputSpeed = be.getSpeed();
+        // 输出端轴受离合控制：分离时静止（0），接合时随网络速度 —— 两端独立运动
+        float outputSpeed = engaged ? inputSpeed : 0f;
+        float inputAngle = getAngleForBe(be, axis, inputSpeed);
+        float outputAngle = getAngleForBe(be, axis, outputSpeed);
+        float frontAngle = inputFront ? inputAngle : outputAngle;
+        float rearAngle = inputFront ? outputAngle : inputAngle;
 
-        renderShaft(ms, buffer, state, front, axis, angle, light);
-        renderShaft(ms, buffer, state, rear, axis, angle, light);
+        renderShaft(ms, buffer, state, front, axis, frontAngle, light);
+        renderShaft(ms, buffer, state, rear, axis, rearAngle, light);
     }
 
     private static void renderShaft(PoseStack ms, MultiBufferSource buffer, BlockState state,
                                     BakedModel model, Direction.Axis axis, float angle, int light) {
         ms.pushPose();
         ms.translate(0.5, 0.5, 0.5);
-        if (axis == Direction.Axis.X)
-            ms.mulPose(new Quaternionf().rotateX(angle));
-        else
-            ms.mulPose(new Quaternionf().rotateZ(angle));
+        if (axis == Direction.Axis.X) {
+            // 模型沿 Z 源方向（同官方 SHAFT_HALF/SplitShaft 的 rotateToFace(SOUTH, dir) 语义）：
+            // 先对齐到 X（Z→X 的 rotateTo），再绕 X 自转。mulPose 后调用的先作用于顶点。
+            ms.mulPose(new Quaternionf().rotateX(angle));                     // spin：绕 X 自转
+            ms.mulPose(new Quaternionf().rotateTo(0, 0, 1, 1, 0, 0));         // align：+Z → +X
+        } else {
+            ms.mulPose(new Quaternionf().rotateZ(angle));                     // Z：模型已沿轴，直接自转
+        }
         ms.translate(-0.5, -0.5, -0.5);
 
         VertexConsumer vc = buffer.getBuffer(RenderType.cutoutMipped());
@@ -79,10 +91,10 @@ public class CncGearboxRenderer implements BlockEntityRenderer<CncGearboxBlockEn
     }
 
     /** 官方角度公式（含相位）：AnimationTickHolder 渲染时钟 * speed * 3/10 + rotationOffset，模 360 转弧度。 */
-    private static float getAngleForBe(CncGearboxBlockEntity be, Direction.Axis axis) {
+    private static float getAngleForBe(CncGearboxBlockEntity be, Direction.Axis axis, float speed) {
         float time = AnimationTickHolder.getRenderTime(be.getLevel());
         float offset = rotationOffset(be.getBlockState(), axis, be.getBlockPos());
-        return ((time * be.getSpeed() * 3f / 10f + offset) % 360f) / 180f * (float) Math.PI;
+        return ((time * speed * 3f / 10f + offset) % 360f) / 180f * (float) Math.PI;
     }
 
     /** 官方相位复刻（KineticBlockEntityVisual.rotationOffset）：棋盘格 22.5°/0°。 */
