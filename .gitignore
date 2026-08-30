@@ -37,3 +37,6 @@ logs/
 
 # Client run log captured for background launches (not covered by *.log)
 runclient_log.txt
+
+# Agent verify workspace (javac/tests scratch, not project source)
+.tmp-verify/
