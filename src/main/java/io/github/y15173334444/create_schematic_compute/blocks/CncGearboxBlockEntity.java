@@ -203,20 +203,24 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
     }
 
     /**
-     * 运行状态灯同步：ENGAGED=false → IDLE；接合且无指令 → RUN；接合且指令执行中 → COMMAND。
-     * 仅在变化时 setBlock（离合/指令边界，低频），驱动 blockstate 的 RUN_STATE 切换贴图
-     * （cnc0 初始 / cnc1 运行 / cnc2 运行+指令）。
-     * Run-state lamp sync: disengaged → IDLE; engaged w/o command → RUN; engaged executing
-     * → COMMAND. setBlock only on change (clutch/command boundaries, low frequency) so the
-     * blockstate's RUN_STATE switches the texture (cnc0 idle / cnc1 run / cnc2 command).
+     * 运行状态灯同步：图未运行 → IDLE；图运行且无指令 → RUN；图运行且指令执行中 → COMMAND。
+     * 仅在变化时 setBlock（图启停/指令边界，低频），驱动 blockstate 的 RUN_STATE 切换贴图
+     * （cnc0 初始 / cnc1 运行 / cnc2 运行+指令）。由图运行态驱动（而非离合接合）。
+     * Run-state lamp sync: graph not running → IDLE; running w/o command → RUN; running
+     * with a command executing → COMMAND. setBlock only on change (graph start/stop and
+     * command boundaries, low frequency) so the blockstate's RUN_STATE switches the
+     * texture (cnc0 idle / cnc1 run / cnc2 command). Driven by graph running state,
+     * not by clutch engagement.
      */
     private void updateRunState() {
         BlockState st = getBlockState();
         if (!st.hasProperty(CncGearboxBlock.RUN_STATE))
             return;
-        CncGearboxBlock.RunState desired = st.getValue(CncGearboxBlock.ENGAGED)
-            ? (currentCommand != null ? CncGearboxBlock.RunState.COMMAND : CncGearboxBlock.RunState.RUN)
-            : CncGearboxBlock.RunState.IDLE;
+        CncGearboxBlock.RunState desired = !host.running
+            ? CncGearboxBlock.RunState.IDLE
+            : (currentCommand != null
+                ? CncGearboxBlock.RunState.COMMAND
+                : CncGearboxBlock.RunState.RUN);
         if (st.getValue(CncGearboxBlock.RUN_STATE) != desired)
             level.setBlock(worldPosition, st.setValue(CncGearboxBlock.RUN_STATE, desired), 3);
     }
