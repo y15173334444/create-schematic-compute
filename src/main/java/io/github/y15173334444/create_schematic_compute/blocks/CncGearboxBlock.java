@@ -17,6 +17,7 @@ import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
+import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
 
 /**
@@ -43,6 +44,30 @@ public class CncGearboxBlock extends HorizontalAxisKineticBlock implements IBE<C
     public static final BooleanProperty INPUT_NEGATIVE = BooleanProperty.create("input_negative");
     /** 离合接合：true 时输出面带轴面。Clutch engaged: the output face carries a shaft. */
     public static final BooleanProperty ENGAGED = BooleanProperty.create("engaged");
+    /** 运行状态灯（材质切换）：IDLE=cnc0 / RUN=cnc1 / COMMAND=cnc2。
+     *  Run-state lamp (texture switch): IDLE=cnc0 / RUN=cnc1 / COMMAND=cnc2. */
+    public static final EnumProperty<RunState> RUN_STATE = EnumProperty.create("run_state", RunState.class);
+
+    /** 视觉运行档位 / visual run state. */
+    public enum RunState implements net.minecraft.util.StringRepresentable {
+        /** 初始/分离（贴图 cnc0） idle / disengaged (texture cnc0). */
+        IDLE("idle"),
+        /** 接合运行、无指令（贴图 cnc1） engaged running, no command (texture cnc1). */
+        RUN("run"),
+        /** 接合且指令执行中（贴图 cnc2） engaged with a command executing (texture cnc2). */
+        COMMAND("command");
+
+        private final String serializedName;
+
+        RunState(String serializedName) {
+            this.serializedName = serializedName;
+        }
+
+        @Override
+        public String getSerializedName() {
+            return serializedName;
+        }
+    }
 
     public CncGearboxBlock(Properties properties) {
         super(properties);
@@ -50,7 +75,7 @@ public class CncGearboxBlock extends HorizontalAxisKineticBlock implements IBE<C
 
     @Override
     protected void createBlockStateDefinition(StateDefinition.Builder<Block, BlockState> builder) {
-        builder.add(INPUT_NEGATIVE, ENGAGED);
+        builder.add(INPUT_NEGATIVE, ENGAGED, RUN_STATE);
         super.createBlockStateDefinition(builder);
     }
 
@@ -71,7 +96,7 @@ public class CncGearboxBlock extends HorizontalAxisKineticBlock implements IBE<C
             state = state.setValue(INPUT_NEGATIVE, false);
         else
             state = state.setValue(INPUT_NEGATIVE, true);   // 默认负端 / default negative
-        return state.setValue(ENGAGED, false);   // 空闲断开 / idle disengaged
+        return state.setValue(ENGAGED, false).setValue(RUN_STATE, RunState.IDLE);   // 空闲断开 / idle disengaged
     }
 
     /** 输入面恒有轴面；输出面仅接合时有。 Input face always carries a shaft; output only when engaged. */

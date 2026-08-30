@@ -1,28 +1,25 @@
 {
   "variants": {
-    "axis=x,input_negative=true,engaged=true": {
-      "model": "create_schematic_compute:block/cnc_gearbox_x_inneg_eng"
+    "axis=x,run_state=idle": {
+      "model": "create_schematic_compute:block/cnc_gearbox",
+      "y": 90
     },
-    "axis=x,input_negative=true,engaged=false": {
-      "model": "create_schematic_compute:block/cnc_gearbox_x_inneg_dis"
+    "axis=x,run_state=run": {
+      "model": "create_schematic_compute:block/cnc_gearbox_run",
+      "y": 90
     },
-    "axis=x,input_negative=false,engaged=true": {
-      "model": "create_schematic_compute:block/cnc_gearbox_x_inpos_eng"
+    "axis=x,run_state=command": {
+      "model": "create_schematic_compute:block/cnc_gearbox_cmd",
+      "y": 90
     },
-    "axis=x,input_negative=false,engaged=false": {
-      "model": "create_schematic_compute:block/cnc_gearbox_x_inpos_dis"
+    "axis=z,run_state=idle": {
+      "model": "create_schematic_compute:block/cnc_gearbox"
     },
-    "axis=z,input_negative=true,engaged=true": {
-      "model": "create_schematic_compute:block/cnc_gearbox_z_inneg_eng"
+    "axis=z,run_state=run": {
+      "model": "create_schematic_compute:block/cnc_gearbox_run"
     },
-    "axis=z,input_negative=true,engaged=false": {
-      "model": "create_schematic_compute:block/cnc_gearbox_z_inneg_dis"
-    },
-    "axis=z,input_negative=false,engaged=true": {
-      "model": "create_schematic_compute:block/cnc_gearbox_z_inpos_eng"
-    },
-    "axis=z,input_negative=false,engaged=false": {
-      "model": "create_schematic_compute:block/cnc_gearbox_z_inpos_dis"
+    "axis=z,run_state=command": {
+      "model": "create_schematic_compute:block/cnc_gearbox_cmd"
     }
   }
 }

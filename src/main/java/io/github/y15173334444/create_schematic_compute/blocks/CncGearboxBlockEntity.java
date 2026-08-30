@@ -110,6 +110,7 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
         }
 
         updateClutchState(clutchIntent);
+        updateRunState();
         setChanged();
     }
 
@@ -199,6 +200,25 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
         level.setBlock(worldPosition, st.setValue(CncGearboxBlock.ENGAGED, want), 3);
         if (want)
             attachKinetics();   // 主动重探：下游并入本网络 / re-probe: branch merges in
+    }
+
+    /**
+     * 运行状态灯同步：ENGAGED=false → IDLE；接合且无指令 → RUN；接合且指令执行中 → COMMAND。
+     * 仅在变化时 setBlock（离合/指令边界，低频），驱动 blockstate 的 RUN_STATE 切换贴图
+     * （cnc0 初始 / cnc1 运行 / cnc2 运行+指令）。
+     * Run-state lamp sync: disengaged → IDLE; engaged w/o command → RUN; engaged executing
+     * → COMMAND. setBlock only on change (clutch/command boundaries, low frequency) so the
+     * blockstate's RUN_STATE switches the texture (cnc0 idle / cnc1 run / cnc2 command).
+     */
+    private void updateRunState() {
+        BlockState st = getBlockState();
+        if (!st.hasProperty(CncGearboxBlock.RUN_STATE))
+            return;
+        CncGearboxBlock.RunState desired = st.getValue(CncGearboxBlock.ENGAGED)
+            ? (currentCommand != null ? CncGearboxBlock.RunState.COMMAND : CncGearboxBlock.RunState.RUN)
+            : CncGearboxBlock.RunState.IDLE;
+        if (st.getValue(CncGearboxBlock.RUN_STATE) != desired)
+            level.setBlock(worldPosition, st.setValue(CncGearboxBlock.RUN_STATE, desired), 3);
     }
 
     /** 扳手翻面前的切除钩子：接合状态下先分离（保留指令栈与镜像）。

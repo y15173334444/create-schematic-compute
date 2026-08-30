@@ -1,0 +1,7 @@
+{
+	"parent": "create_schematic_compute:block/cnc_gearbox",
+	"textures": {
+		"0": "create_schematic_compute:block/cnc1",
+		"particle": "create_schematic_compute:block/cnc1"
+	}
+}
