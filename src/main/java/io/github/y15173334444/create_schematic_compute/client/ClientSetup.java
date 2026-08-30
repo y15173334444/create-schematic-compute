@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.blocks.CncGearboxBlockEntity;
 import io.github.y15173334444.create_schematic_compute.entity.ControlSeatEntity;
 import io.github.y15173334444.create_schematic_compute.items.PortableTerminalItem;
 import io.github.y15173334444.create_schematic_compute.network.ScanSableResponsePacket;
@@ -22,13 +23,32 @@ public class ClientSetup {
     @net.neoforged.bus.api.SubscribeEvent
     public static void registerModels(ModelEvent.RegisterAdditional event) {
         event.register(SCANNER_MODEL);
-        event.register(CncGearboxRenderer.SHAFT_MODEL);
+        event.register(ModelResourceLocation.standalone(CncGearboxVisual.FRONT_SHAFT.modelLocation()));
+        event.register(ModelResourceLocation.standalone(CncGearboxVisual.REAR_SHAFT.modelLocation()));
     }
     @net.neoforged.bus.api.SubscribeEvent
     public static void clientSetup(FMLClientSetupEvent event) {
         event.enqueueWork(() -> {
             ScanSableResponsePacket.clientHandler = PortableTerminalScreen::onSableScanResult;
             PortableTerminalItem.screenOpener = p -> Minecraft.getInstance().setScreen(new PortableTerminalScreen(p));
+            // CNC 齿轮箱 Flywheel 视觉（两端独立旋转体）；Flywheel 不可用时 vanilla renderer 兜底
+            dev.engine_room.flywheel.api.visualization.VisualizerRegistry.setVisualizer(
+                SchematicCompute.CNC_GEARBOX_BE.get(),
+                new dev.engine_room.flywheel.api.visualization.BlockEntityVisualizer<>() {
+                    @Override
+                    public dev.engine_room.flywheel.api.visual.BlockEntityVisual<? super CncGearboxBlockEntity>
+                    createVisual(dev.engine_room.flywheel.api.visualization.VisualizationContext ctx,
+                                 CncGearboxBlockEntity be, float partialTick) {
+                        return new CncGearboxVisual(ctx, be, partialTick);
+                    }
+
+                    @Override
+                    public boolean skipVanillaRender(CncGearboxBlockEntity be) {
+                        return be.getLevel() != null
+                            && dev.engine_room.flywheel.api.visualization.VisualizationManager
+                                .supportsVisualization(be.getLevel());
+                    }
+                });
         });
     }
     @net.neoforged.bus.api.SubscribeEvent
