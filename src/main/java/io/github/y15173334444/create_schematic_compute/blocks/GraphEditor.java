@@ -159,6 +159,10 @@ public class GraphEditor {
     private final java.util.ArrayDeque<UndoEntry> undoStack2 = new java.util.ArrayDeque<>();
     private final java.util.ArrayDeque<UndoEntry> redoStack2 = new java.util.ArrayDeque<>();
     private static final int MAX_UNDO2 = 100;
+    /** 总线名/频段名输入框停止输入后、自动同步给协作者之前等待的 tick 数（约 0.5s）。
+     *  Ticks to wait after typing stops before auto-syncing a bus/band name to
+     *  collaborators (~0.5 s). See {@link #tickDebouncedBusEdits()}. */
+    private static final int BUS_EDIT_DEBOUNCE_TICKS = 10;
     private int batchDepth = 0;
     private final java.util.List<UndoEntry> currentBatch = new java.util.ArrayList<>();
 
@@ -333,31 +337,96 @@ public class GraphEditor {
     private void commitPendingBusEdits() {
         var pendingCommits = new java.util.ArrayList<>(nodeEditStatesById.values());
         for (var st : pendingCommits) {
+            // 先同步频段（不重建编辑区），再提交总线名——总线名提交会重建编辑区，
+            // 频段值已先落进 signalBands 才不会被冲掉。
+            // Sync bands first (no rebuild); the bus-name commit rebuilds the edit
+            // state, so the band values must reach signalBands before that happens.
+            syncBandBoxes(st);
             if (st.busBox != null && st.busNode != null
                 && !st.busBox.getValue().equals(st.busNode.signalName)) {
                 commitBusBox(st);
             }
-            // 同步频段 EditBox 的值 (Sync band EditBox values)
-            var node = st.busNode;
-            if (node != null && node.type == NodeType.BUS_OUT && st.fields.size() > 1) {
-                boolean changed = false;
-                for (int bi = 1; bi < st.fields.size(); bi++) {
-                    int sigIdx = bi - 1;
-                    if (sigIdx < node.signalBands.size()) {
-                        String val = st.fields.get(bi).getValue();
-                        if (!val.equals(node.signalBands.get(sigIdx))) {
-                            node.signalBands.set(sigIdx, val);
-                            node.bandsDirty = true;
-                            changed = true;
-                        }
-                    }
-                }
-                if (changed && !node.busConflict) {
-                    net.neoforged.neoforge.network.PacketDistributor.sendToServer(
-                        new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
-                            host.getBlockPos(), node.signalName, node.signalBands));
+        }
+    }
+
+    /** 频段 EditBox 的值是否与节点 signalBands 不一致（即有待同步的改名）。
+     *  True when any band EditBox differs from the node's signalBands. */
+    private boolean bandBoxesPending(EditState st) {
+        var node = st.busNode;
+        if (node == null || node.type != NodeType.BUS_OUT || st.fields.size() <= 1) return false;
+        for (int bi = 1; bi < st.fields.size(); bi++) {
+            int sigIdx = bi - 1;
+            if (sigIdx < node.signalBands.size()
+                && !st.fields.get(bi).getValue().equals(node.signalBands.get(sigIdx))) return true;
+        }
+        return false;
+    }
+
+    /** 把频段 EditBox 的值写回 signalBands 并上传服务端。
+     *  **不重建编辑区**，因此不会打断正在输入的用户。
+     *  Write band EditBox values back into signalBands and upload them. Never rebuilds
+     *  the edit state, so it cannot interrupt someone mid-typing.
+     *
+     * @return 是否有改动被同步 / whether anything was synced
+     */
+    private boolean syncBandBoxes(EditState st) {
+        var node = st.busNode;
+        if (node == null || node.type != NodeType.BUS_OUT || st.fields.size() <= 1) return false;
+        boolean changed = false;
+        for (int bi = 1; bi < st.fields.size(); bi++) {
+            int sigIdx = bi - 1;
+            if (sigIdx < node.signalBands.size()) {
+                String val = st.fields.get(bi).getValue();
+                if (!val.equals(node.signalBands.get(sigIdx))) {
+                    node.signalBands.set(sigIdx, val);
+                    node.bandsDirty = true;
+                    changed = true;
                 }
             }
+        }
+        if (changed && !node.busConflict) {
+            net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
+                    host.getBlockPos(), node.signalName, node.signalBands));
+        }
+        return changed;
+    }
+
+    /**
+     * 总线名 / 频段名的**防抖自动提交**（每 tick 调用）。
+     * Debounced auto-commit for bus-name / band-name edits (called each tick).
+     *
+     * <p>背景：这两个输入框既没有 responder 也不走 enterActions —— 注释写得很清楚，
+     * "由 recompile 批量同步"。结果就是协作者只有等编辑者点编译或关屏才能看到改名，
+     * 而 PRIVATE/TEXT 等同类命名框都是逐字符实时同步的，行为不一致。
+     * Background: neither box has a responder and neither goes through enterActions —
+     * the comments say so outright ("synced in batch by recompile"). Collaborators
+     * therefore only saw a rename once the editor hit compile or closed the screen,
+     * while the PRIVATE/TEXT name boxes synced on every keystroke.
+     *
+     * <p>为什么防抖而不是逐字符：总线名提交（{@link #commitBusBox}）要清旧频道的全局
+     * 数据、重评估冲突、按 BUS_IN/BUS_OUT 分别处理频段，最后还会重建编辑区。逐字符触发
+     * 会把"abc"打成"a"→"ab"→"abc"三次改名，中间名字全是无效频道，对端 BUS_IN 还会
+     * 反复跟着换频段定义。静止 {@value #BUS_EDIT_DEBOUNCE_TICKS} tick 后再提交，
+     * 一次只发最终值。
+     * Why debounce instead of per keystroke: committing a bus name clears the old
+     * channel's global data, re-evaluates conflicts, handles bands differently for
+     * BUS_IN vs BUS_OUT, and finally rebuilds the edit state. Per-keystroke would
+     * rename "a" then "ab" then "abc" — two throwaway channels in the middle, and the
+     * peer's BUS_IN would keep swapping its band definition. Waiting for
+     * {@value #BUS_EDIT_DEBOUNCE_TICKS} idle ticks sends only the final value.
+     */
+    private void tickDebouncedBusEdits() {
+        var states = new java.util.ArrayList<>(nodeEditStatesById.values());
+        for (var st : states) {
+            if (st.busBox == null || st.busNode == null) continue;
+            boolean namePending = !st.busBox.getValue().equals(st.busNode.signalName);
+            boolean bandsPending = bandBoxesPending(st);
+            if (!namePending && !bandsPending) { st.busEditIdleTicks = 0; continue; }
+            if (++st.busEditIdleTicks < BUS_EDIT_DEBOUNCE_TICKS) continue;
+            st.busEditIdleTicks = 0;
+            syncBandBoxes(st);
+            if (namePending) commitBusBox(st);
         }
     }
 
@@ -657,6 +726,10 @@ public class GraphEditor {
         /** BUS 总线名 EditBox（用于失焦/Enter 提交检测） (BUS name EditBox, for focus-lost / Enter commit detection) */
         public net.minecraft.client.gui.components.EditBox busBox;
         public GraphNode busNode;
+        /** 总线名/频段名输入框自检测到未同步改动以来经过的 tick，供防抖自动提交用。
+         *  Ticks elapsed since an unsynced bus-name / band-name edit was noticed, for
+         *  the debounced auto-commit. */
+        public int busEditIdleTicks = 0;
         /** ColorPickerButton for TEXT/DATA node color editing */
         public ColorPickerButton colorButton;
         /** Mode toggle pending confirmation state (DEBUG_SIGNAL_GEN) */
@@ -1875,6 +1948,11 @@ public class GraphEditor {
      *  Client tick (called by each Host Screen's containerTick). */
     public void clientTick() {
         advanceCameraTransition();
+        // 必须放在 snap 判空的 early-return 之前：图没运行时（snap 为空）也照样要
+        // 把用户敲进去的总线名同步出去。
+        // Must sit before the snap null-check early return: bus names must sync even
+        // when the graph isn't running (empty snapshot).
+        tickDebouncedBusEdits();
         var snap = host.getCachedEvalSnapshot();
         if (snap == null || snap == io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY) return;
         var graph = getGraph();
