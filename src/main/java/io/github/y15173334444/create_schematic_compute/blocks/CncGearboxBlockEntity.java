@@ -11,6 +11,7 @@ import io.github.y15173334444.create_schematic_compute.graph.MotionQuota;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -79,6 +80,7 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
         super.tick();
         if (level == null || level.isClientSide)
             return;
+        autoSenseInputFace();
         host.ensureBusRegistered();
         host.flushPendingFullSync();
 
@@ -183,6 +185,46 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
     }
 
     // ── 离合状态机 / clutch state machine ──
+
+    /**
+     * 输入面自动跟随（仅空闲态）：分离 + 无源 + 停转、本侧邻轴不转而对侧邻轴在转时，
+     * 自动把输入面翻向驱动侧并主动重探连接。用户「把动力换到另一侧」时方块会跟着
+     * 换输入端——旧逻辑里输入面只在放置时感知一次，动力换边后台块死锁在旧端
+     * （用户报的「内置轴输入/输出动画位置固定不随输入端变」）。
+     * 输入面有源或本方块在转时不翻（运行中/有驱动的方块不自动换向）；两侧都在转时
+     * 不翻（真歧义，交给扳手）。状态翻转后必须显式 attachKinetics——仅 setBlock
+     * 不会触发传播。
+     * Input-face auto-follow (idle only): disengaged + sourceless + stopped, current
+     * input-side neighbour not spinning while the OPPOSITE side spins -> flip the
+     * input face toward the drive and re-probe the connection. Moving the power to
+     * the other end now drags the input face with it — previously the face was only
+     * sensed at placement, so re-routing the chain left the block dead-ended on its
+     * old side (the reported "built-in shaft animation positions never follow the
+     * switched input end"). Never flips while sourced/spinning/engaged, nor when
+     * both sides spin (genuine ambiguity — use the wrench). The flip must call
+     * attachKinetics explicitly: a bare setBlock triggers no propagation.
+     */
+    private void autoSenseInputFace() {
+        BlockState st = getBlockState();
+        if (!st.hasProperty(CncGearboxBlock.INPUT_NEGATIVE) || !st.hasProperty(CncGearboxBlock.ENGAGED))
+            return;
+        if (hasSource() || getSpeed() != 0 || st.getValue(CncGearboxBlock.ENGAGED))
+            return;
+        Direction in = CncGearboxBlock.inputFace(st, worldPosition);
+        Direction out = in.getOpposite();
+        boolean inSpins = neighbourSpins(in);
+        boolean outSpins = neighbourSpins(out);
+        if (!outSpins || inSpins)
+            return;
+        level.setBlock(worldPosition, st.cycle(CncGearboxBlock.INPUT_NEGATIVE), 3);
+        attachKinetics();
+    }
+
+    /** 邻接方块实体是否在转 / whether the neighbour kinetic BE is spinning. */
+    private boolean neighbourSpins(Direction d) {
+        return level.getBlockEntity(worldPosition.relative(d)) instanceof KineticBlockEntity kbe
+                && kbe.getSpeed() != 0;
+    }
 
     /**
      * 接合/分离（官方路径）：分离 = detachKinetics（以下游失源收尾，自身仍被输入侧
