@@ -236,6 +236,28 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
         level.setBlock(worldPosition, st.setValue(CncGearboxBlock.ENGAGED, false), 3);
     }
 
+    /**
+     * 扳手翻面后的动力源重排：翻面改变了输入面，旧 source 现指向（无轴面的）输出
+     * 侧——不重排的话本方块会保持「从输出侧被驱动」的倒挂状态，输入/输出动画语义
+     * 与实际链条脱节（用户报的「翻面后两端动画对不上」）。走官方拆建序列重灌：
+     * 本方块作为从动件从新输入面重新认源，下游按新输出面重建。
+     * Post-flip kinetic re-source: flipping moved the input face, so the old source
+     * now points at the (shaft-less) output side — without this the block stays
+     * driven backwards and the input/output animation semantics disconnect from the
+     * actual chain (the reported "flipped ends don't animate right"). Official
+     * teardown sequence: re-attach as a driven member from the NEW input face.
+     */
+    public void resyncKineticsAfterFlip() {
+        if (level == null || level.isClientSide)
+            return;
+        if (hasNetwork())
+            getOrCreateNetwork().remove(this);
+        detachKinetics();   // 速度仍非 0 → handleRemoved 正常清洗下游 / speed non-zero: clean tree
+        removeSource();
+        attachKinetics();   // 从新输入面重新认源 / re-source from the new input face
+        setChanged();
+    }
+
     // ── GearboxCommandSink：指令栈入队 / 急停 ──
 
     @Override

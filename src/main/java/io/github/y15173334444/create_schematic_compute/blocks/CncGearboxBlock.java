@@ -82,9 +82,11 @@ public class CncGearboxBlock extends HorizontalAxisKineticBlock implements IBE<C
     @Override
     public BlockState getStateForPlacement(BlockPlaceContext context) {
         BlockState state = super.getStateForPlacement(context);
-        // 放置自动感知：哪端邻接传动方块，哪端设为输入面（默认负端）。
+        // 放置自动感知：哪端邻接传动方块，哪端设为输入面（默认负端）。两侧都有动力
+        // 邻居（放进运转中的链条缺口）时，取转速更强的邻居一侧作为输入面。
         // Placement auto-sense: whichever axis-end touches a kinetic neighbour becomes
-        // the input face (defaults to the negative end).
+        // the input face (defaults to the negative end). With kinetic neighbours on
+        // BOTH sides (placed into a running chain gap) the stronger-spinning side wins.
         BlockPos pos = context.getClickedPos();
         Direction.Axis axis = state.getValue(HORIZONTAL_AXIS);
         Direction neg = axis == Direction.Axis.X ? Direction.WEST : Direction.NORTH;
@@ -94,9 +96,18 @@ public class CncGearboxBlock extends HorizontalAxisKineticBlock implements IBE<C
         boolean posHas = level.getBlockEntity(pos.relative(pos2)) instanceof com.simibubi.create.content.kinetics.base.KineticBlockEntity;
         if (posHas && !negHas)
             state = state.setValue(INPUT_NEGATIVE, false);
+        else if (negHas && posHas)
+            state = state.setValue(INPUT_NEGATIVE,
+                    Math.abs(neighbourSpeed(level, pos.relative(neg))) >= Math.abs(neighbourSpeed(level, pos.relative(pos2))));
         else
             state = state.setValue(INPUT_NEGATIVE, true);   // 默认负端 / default negative
         return state.setValue(ENGAGED, false).setValue(RUN_STATE, RunState.IDLE);   // 空闲断开 / idle disengaged
+    }
+
+    /** 邻居实时转速（感知用）。Neighbour's live speed (for auto-sense). */
+    private static float neighbourSpeed(Level level, BlockPos pos) {
+        return level.getBlockEntity(pos) instanceof com.simibubi.create.content.kinetics.base.KineticBlockEntity kbe
+                ? kbe.getSpeed() : 0f;
     }
 
     /** 输入面恒有轴面；输出面仅接合时有。 Input face always carries a shaft; output only when engaged. */
@@ -122,21 +133,28 @@ public class CncGearboxBlock extends HorizontalAxisKineticBlock implements IBE<C
 
     /** 扳手右键：翻转输入端（先切除旧输出侧的离合关系）。翻面改变输出面朝向——
      *  分离状态下的翻面无需运动学处理；接合状态下先分离再翻。
+     *  翻面后必须重排动力源：旧 source 现在指向（已无轴面的）输出侧，本方块会
+     *  保持「从输出侧被驱动」的倒挂状态，动画语义与链条脱节。
      *  Wrench-right-click: flip the input end (severing the old output side's clutch
-     *  first — a flip with the clutch engaged would leave the old chain stale). */
+     *  first — a flip with the clutch engaged would leave the old chain stale).
+     *  The flip MUST re-source afterwards: the old source now points at the (shaft-less)
+     *  output side, leaving the block driven backwards with its animation semantics
+     *  disconnected from the chain. */
     @Override
     public InteractionResult onWrenched(BlockState state, UseOnContext context) {
         Level level = context.getLevel();
         BlockPos pos = context.getClickedPos();
         if (!level.isClientSide) {
-            if (level.getBlockEntity(pos) instanceof CncGearboxBlockEntity gearbox)
+            if (level.getBlockEntity(pos) instanceof CncGearboxBlockEntity gearbox) {
                 gearbox.disengageForFlip();
-            BlockState flipped = state.cycle(INPUT_NEGATIVE);
-            level.setBlock(pos, flipped, 3);
-            Player player = context.getPlayer();
-            if (player != null)
-                player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                    "input face: " + inputFace(flipped, pos)), true);
+                BlockState flipped = state.cycle(INPUT_NEGATIVE);
+                level.setBlock(pos, flipped, 3);
+                gearbox.resyncKineticsAfterFlip();
+                Player player = context.getPlayer();
+                if (player != null)
+                    player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                        "input face: " + inputFace(flipped, pos)), true);
+            }
         }
         return InteractionResult.SUCCESS;
     }
