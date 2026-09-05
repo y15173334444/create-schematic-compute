@@ -755,9 +755,20 @@ public class GraphEditor {
      *  name is pure visual data with none of commitBusBox's heavy side effects, so no
      *  debounce is needed). */
     private EditBox topBarNameEdit;
-    /** 设置弹窗开关（设置界面框架在后续步骤接入；占位）。
-     *  Settings dialog toggle (the dialog itself lands in a later step; placeholder). */
+    /** 设置弹窗开关（顶栏右侧按钮打开）。
+     *  Settings dialog toggle (opened from the top-bar button). */
     public boolean showSettings = false;
+    /** 设置弹窗当前 tab：0=界面颜色 1=键位绑定 2=节点指南。
+     *  Active settings tab: 0=colors, 1=key bindings, 2=node guide. */
+    private int settingsTab = 0;
+    /** tab 宽度与内容区 y（渲染时写入，命中读取）——同上，单一坐标来源。
+     *  Tab width and content-area y, written during render and read during hit
+     *  testing — same single-source-of-truth rule as the panel rect. */
+    private int settingsTabW, settingsContentY;
+    /** 设置弹窗面板的屏幕矩形（渲染时写入，点击命中读取）——避免渲染与命中各算一遍坐标漂移。
+     *  Screen rect of the settings panel, written during render and read during hit
+     *  testing — one source of truth instead of two coordinate computations drifting. */
+    private int settingsPanelX, settingsPanelY, settingsPanelW, settingsPanelH;
     /** EditBox → 提交动作（回车或失焦时执行） (EditBox → commit action, executed on Enter or focus loss) */
     private final java.util.Map<net.minecraft.client.gui.components.EditBox, Runnable> enterActions = new java.util.HashMap<>();
     // ── 颜色配置面板 (Color configuration panel) ──
@@ -2576,6 +2587,7 @@ public class GraphEditor {
         // 顶栏最后渲染 —— 固定在所有覆盖层之上（名称 + 设置）。
         // Top bar renders LAST — it sits above every other overlay (name + settings).
         renderTopBar(g, mx, my);
+        if (showSettings) renderSettingsPanel(g, mx, my);
         // 框选矩形 (Box-select rectangle)
         if (boxSelecting) {
             float x1 = Math.min(boxSX, boxEX), y1 = Math.min(boxSY, boxEY);
@@ -2739,6 +2751,37 @@ public class GraphEditor {
             return true;
         }
         if (topBarNameEdit != null && topBarNameEdit.isFocused()) topBarNameEdit.setFocused(false);
+        // ── 设置弹窗（在顶栏之下、其余 UI 之上）──
+        //    Settings dialog — below the top bar, above everything else.
+        if (showSettings) {
+            boolean inPanel = mx >= settingsPanelX && mx <= settingsPanelX + settingsPanelW
+                && my >= settingsPanelY && my <= settingsPanelY + settingsPanelH;
+            if (!inPanel) {
+                showSettings = false; // 点击外部关闭，落到下方正常处理 / close on outside click, fall through
+            } else {
+                int cbx = settingsPanelX + settingsPanelW - 18;
+                if (mx >= cbx && mx <= cbx + 16 && my >= settingsPanelY + 2 && my <= settingsPanelY + 18) {
+                    showSettings = false; return true;
+                }
+                int tabY = settingsPanelY + 24;
+                if (my >= tabY && my <= tabY + 18) {
+                    for (int i = 0; i < 3; i++) {
+                        int tx = settingsPanelX + 10 + i * (settingsTabW + 6);
+                        if (mx >= tx && mx <= tx + settingsTabW) { settingsTab = i; return true; }
+                    }
+                }
+                // 颜色 tab：打开既有 16 色面板（与工具栏按钮同一目标，零迁移）
+                // Colors tab: open the existing panel (same target as the toolbar button).
+                if (settingsTab == 0 && my >= settingsContentY && my <= settingsContentY + 18) {
+                    showSettings = false;
+                    showColorConfig = true;
+                    NodeRenderer.initStaging();
+                    openColorPickerForTheme(0);
+                    return true;
+                }
+                return true; // 弹窗内其它点击不穿透 / other clicks inside don't fall through
+            }
+        }
         // 命名对话框：点击外部取消
         if (editingBookmarkName) {
             int w = 280, h = 70;
@@ -4850,6 +4893,7 @@ public class GraphEditor {
         }
         // ESC closes open panels first, then falls through to close UI
         if (key == 256) {
+            if (showSettings) { showSettings = false; return true; }
             if (editingBookmarkName) { editingBookmarkName = false; editingBookmarkIndex = -1; return true; }
             if (showColorConfig) { showColorConfig = false; return true; }
             if (editingCommentColorNode != null && commentButtons != null) { closeCommentColorPopup(); return true; }
@@ -5188,6 +5232,60 @@ public class GraphEditor {
         g.fill(sbX, 3, sbX + 46, 19, hov ? 0xFF3A4A6A : 0xFF2A3A5A);
         g.renderOutline(sbX, 3, 46, 16, NodeRenderer.CSB());
         g.drawString(mc.font, I18n.get("gui.create_schematic_compute.topbar.settings"), sbX + 8, 7, 0xFFCCCCFF, false);
+    }
+
+    /** 设置弹窗：三 tab（界面颜色 / 键位绑定 / 节点指南）。颜色 tab 内嵌一个跳转按钮，
+     *  打开既有的 16 色主题面板（零迁移 —— 面板逻辑原样，只是多一个入口）；
+     *  键位与指南 tab 在后续步骤填充内容。
+     *  Settings dialog: three tabs (colors / key bindings / node guide). The colors
+     *  tab embeds a jump button that opens the existing 16-color theme panel — zero
+     *  migration, same panel, one more entry point. The keys and guide tabs get
+     *  their content in a later step. */
+    private void renderSettingsPanel(GuiGraphics g, int mx, int my) {
+        var mc = Minecraft.getInstance();
+        int w = 250, h = 130;
+        int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
+        settingsPanelX = cx; settingsPanelY = cy; settingsPanelW = w; settingsPanelH = h;
+
+        g.fill(cx, cy, cx + w, cy + h, 0xEE1A1A2A);
+        g.renderOutline(cx, cy, w, h, NodeRenderer.CSB());
+        g.fill(cx + 2, cy + 2, cx + w - 2, cy + 18, 0xFF4A3F28);
+        g.drawString(mc.font, "§6§l" + I18n.get("gui.create_schematic_compute.settings.title"), cx + 8, cy + 6, 0xFFFFFFFF, false);
+        g.fill(cx + w - 18, cy + 2, cx + w - 2, cy + 18, 0xFF4A3028);
+        g.renderOutline(cx + w - 18, cy + 2, 16, 16, 0xFF8B5333);
+        g.drawString(mc.font, "§cX", cx + w - 14, cy + 6, 0xFFFFFFFF, false);
+
+        // Tab 行 / tab row
+        int tabY = cy + 24;
+        String[] tabs = {
+            I18n.get("gui.create_schematic_compute.settings.tab.colors"),
+            I18n.get("gui.create_schematic_compute.settings.tab.keys"),
+            I18n.get("gui.create_schematic_compute.settings.tab.guide")};
+        int tabW = (w - 20) / 3 - 4;
+        settingsTabW = tabW;
+        for (int i = 0; i < 3; i++) {
+            int tx = cx + 10 + i * (tabW + 6);
+            boolean active = i == settingsTab;
+            g.fill(tx, tabY, tx + tabW, tabY + 18, active ? 0xFF2A3A5A : 0xFF222020);
+            g.renderOutline(tx, tabY, tabW, 18, active ? 0xFF5A7AAA : NodeRenderer.CSB());
+            g.drawString(mc.font, tabs[i], tx + 6, tabY + 5, active ? 0xFFAACCFF : 0xFFAAAAAA, false);
+        }
+        // 内容区 / content area
+        int contentY = tabY + 24;
+        settingsContentY = contentY;
+        if (settingsTab == 0) {
+            // 打开既有颜色面板的按钮（工具栏的按钮仍是快捷入口，两处入口同一个面板）
+            // Button that opens the existing color panel (the toolbar button stays as
+            // a shortcut — both entries open the same panel).
+            boolean hov = mx >= cx + 10 && mx <= cx + 120 && my >= contentY && my <= contentY + 18;
+            g.fill(cx + 10, contentY, cx + 120, contentY + 18, hov ? 0xFF3A4A6A : 0xFF2A3A5A);
+            g.renderOutline(cx + 10, contentY, 110, 18, NodeRenderer.CSB());
+            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.settings.open_colors"), cx + 16, contentY + 5, 0xFFCCCCFF, false);
+        } else if (settingsTab == 1) {
+            g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.settings.keys_todo"), cx + 12, contentY + 6, 0xFFCCCCCC, false);
+        } else {
+            g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.settings.guide_todo"), cx + 12, contentY + 6, 0xFFCCCCCC, false);
+        }
     }
 
     private void renderColorPanel(GuiGraphics g, int mx, int my) {
