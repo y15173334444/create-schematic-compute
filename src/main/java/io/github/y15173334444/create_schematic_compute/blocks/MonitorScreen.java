@@ -450,7 +450,7 @@ public class MonitorScreen extends AbstractGraphScreen {
                 pose.scale(s, s, 1);
                 pose.translate(-elemW / 2, -elemH / 2, 0);
                 int hx = -1, hy = -1, hw = (int)elemW + 2, hh = (int)elemH + 2;
-                g.renderOutline(hx, hy, hw, hh, 0xFFFFAA44);
+                g.renderOutline(hx, hy, hw, hh, NodeRenderer.ACC());
                 pose.popPose();
                 break;
             }
@@ -460,15 +460,15 @@ public class MonitorScreen extends AbstractGraphScreen {
         // Clears the editor top bar: same row as the base toolbar (TOP_BAR_H+2); in
         // display mode this full-width strip covers the base buttons, as before.
         int tbx = 4, tby = GraphEditor.TOP_BAR_H + 2, tbh = MONITOR_TOOLBAR_H;
-        g.fill(0, tby, width, tby + tbh, 0xFF2A2822);
+        g.fill(0, tby, width, tby + tbh, NodeRenderer.PBG());
         // < Graph
         g.fill(tbx, tby, tbx + 56, tby + tbh, 0xFF3A3832);
-        g.renderOutline(tbx, tby, 56, tbh, 0xFF8B7533);
+        g.renderOutline(tbx, tby, 56, tbh, NodeRenderer.CSB());
         g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.back_graph"), tbx + 6, tby + 5, 0xFFFFFFFF, false);
         tbx += 62;
         // Settings
         g.fill(tbx, tby, tbx + 56, tby + tbh, showSettings ? 0xFF3A5A2A : 0xFF3A3832);
-        g.renderOutline(tbx, tby, 56, tbh, 0xFF8B7533);
+        g.renderOutline(tbx, tby, 56, tbh, NodeRenderer.CSB());
         g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.settings"), tbx + 6, tby + 5, 0xFFFFFFFF, false);
         tbx += 62;
 
@@ -477,12 +477,12 @@ public class MonitorScreen extends AbstractGraphScreen {
             String sTxt = "§6S:";
             if (editingS) sTxt += "§e" + editSBuf + "▌";
             else sTxt += "§e" + ff1(selectedDisplayNode.displayScale);
-            g.drawString(Minecraft.getInstance().font, sTxt, tbx + 4, tby + 5, 0xFFFFAA44, false);
+            g.drawString(Minecraft.getInstance().font, sTxt, tbx + 4, tby + 5, NodeRenderer.ACC(), false);
             tbx += Minecraft.getInstance().font.width(sTxt) + 12;
             String rTxt = "§6R:";
             if (editingR) rTxt += "§e" + editRBuf + "▌";
             else rTxt += "§e" + ff0(selectedDisplayNode.displayRotation);
-            g.drawString(Minecraft.getInstance().font, rTxt, tbx + 4, tby + 5, 0xFFFFAA44, false);
+            g.drawString(Minecraft.getInstance().font, rTxt, tbx + 4, tby + 5, NodeRenderer.ACC(), false);
         }
 
         // Hover hints (use rotated AABB for accuracy, with bounding-box clamp)
@@ -533,7 +533,7 @@ public class MonitorScreen extends AbstractGraphScreen {
 
     private void renderLayerThumbnail(GuiGraphics g, GraphNode node, int x, int y, int size) {
         // Dark background
-        g.fill(x, y, x + size, y + size, 0xFF1A1814);
+        g.fill(x, y, x + size, y + size, NodeRenderer.PINS());
 
         switch (node.type) {
             case TEXT -> {
@@ -581,8 +581,8 @@ public class MonitorScreen extends AbstractGraphScreen {
                 int badgeX = x + size - 7;
                 int badgeY = y + 1;
                 g.fill(badgeX, badgeY, badgeX + 6, badgeY + 6, 0xFF3A3A3A);
-                g.renderOutline(badgeX, badgeY, 6, 6, 0xFF8B7533);
-                g.drawString(Minecraft.getInstance().font, "S", badgeX + 1, badgeY, 0xFFFFAA44, false);
+                g.renderOutline(badgeX, badgeY, 6, 6, NodeRenderer.CSB());
+                g.drawString(Minecraft.getInstance().font, "S", badgeX + 1, badgeY, NodeRenderer.ACC(), false);
             }
             case HUD_PITCH_LADDER -> {
                 // 缩略图：简化俯仰梯示意（中心地平线 + 上下刻度线）
@@ -623,11 +623,11 @@ public class MonitorScreen extends AbstractGraphScreen {
         g.renderOutline(px, py, LAYER_PANEL_W, ph, 0xFF6A6A4A);
 
         // Title bar
-        g.fill(px + 1, py + 1, px + LAYER_PANEL_W - 1, py + titleH + 1, 0xFF2A2822);
+        g.fill(px + 1, py + 1, px + LAYER_PANEL_W - 1, py + titleH + 1, NodeRenderer.PBG());
         String title = "Layers";
         int titleW = Minecraft.getInstance().font.width(title);
         g.drawString(Minecraft.getInstance().font, title,
-            px + (LAYER_PANEL_W - titleW) / 2, py + 2, 0xFF8B7533, false);
+            px + (LAYER_PANEL_W - titleW) / 2, py + 2, NodeRenderer.CSB(), false);
 
         int maxScroll = Math.max(0, layers.size() - maxRows);
         if (layerScroll < 0) layerScroll = 0;
@@ -644,7 +644,7 @@ public class MonitorScreen extends AbstractGraphScreen {
 
         // Draw drop indicator line (behind rows)
         if (dropIndicatorY >= rowStartY) {
-            g.fill(px + 2, dropIndicatorY - 1, px + LAYER_PANEL_W - 2, dropIndicatorY + 1, 0xFFFFAA44);
+            g.fill(px + 2, dropIndicatorY - 1, px + LAYER_PANEL_W - 2, dropIndicatorY + 1, NodeRenderer.ACC());
         }
 
         for (int vi = 0; vi < visibleRows; vi++) {
@@ -700,7 +700,7 @@ public class MonitorScreen extends AbstractGraphScreen {
             // Clamp within visible row area
             ghostY = Math.max(rowStartY, Math.min(ghostY, rowStartY + visibleRows * LAYER_ROW_H - LAYER_ROW_H));
             g.fill(px + 2, ghostY, px + LAYER_PANEL_W - 2, ghostY + LAYER_ROW_H, 0xBB3A3A38);
-            g.renderOutline(px + 2, ghostY, LAYER_PANEL_W - 4, LAYER_ROW_H, 0xFFFFAA44);
+            g.renderOutline(px + 2, ghostY, LAYER_PANEL_W - 4, LAYER_ROW_H, NodeRenderer.ACC());
             int ghostThumbX = px + LAYER_PANEL_PADDING;
             int ghostThumbY = ghostY + (LAYER_ROW_H - LAYER_THUMB_SIZE) / 2;
             renderLayerThumbnail(g, layerDragNode, ghostThumbX, ghostThumbY, LAYER_THUMB_SIZE);
@@ -718,10 +718,10 @@ public class MonitorScreen extends AbstractGraphScreen {
             int sbX = px + LAYER_PANEL_W - 8;
             int sbY = rowStartY;
             int sbH = visibleRows * LAYER_ROW_H;
-            g.fill(sbX, sbY, sbX + 6, sbY + sbH, 0xFF2A2822);
+            g.fill(sbX, sbY, sbX + 6, sbY + sbH, NodeRenderer.PBG());
             float thumbH = Math.max(20, (float) visibleRows / layers.size() * sbH);
             float thumbY = sbY + (float) layerScroll / maxScroll * (sbH - thumbH);
-            g.fill(sbX + 1, (int) thumbY, sbX + 5, (int) (thumbY + thumbH), 0xFF8B7533);
+            g.fill(sbX + 1, (int) thumbY, sbX + 5, (int) (thumbY + thumbH), NodeRenderer.CSB());
         }
     }
 
@@ -864,9 +864,9 @@ public class MonitorScreen extends AbstractGraphScreen {
         int rows = 4;
         int ph = 56 + 20 + rows * 20 + 30; // 标题行 + 首行(复选框+虚像缩放) + 3D 字段行 + 保存按钮
         int px = (width - pw) / 2, py = (height - ph) / 2;
-        g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
-        g.renderOutline(px, py, pw, ph, 0xFF5A4D3A);
-        g.fill(px + 2, py + 2, px + pw - 2, py + 18, 0xFF4A3F28);
+        g.fill(px, py, px + pw, py + ph, NodeRenderer.PBG());
+        g.renderOutline(px, py, pw, ph, NodeRenderer.PBR());
+        g.fill(px + 2, py + 2, px + pw - 2, py + 18, NodeRenderer.PHT());
         g.drawString(Minecraft.getInstance().font, "§6§l" + I18n.get("gui.create_schematic_compute.monitor.settings_title"), px + 6, py + 5, 0xFFFFFFFF, false);
         // Close
         g.fill(px + pw - 18, py + 2, px + pw - 2, py + 18, 0xFF4A3028);
@@ -1148,7 +1148,7 @@ public class MonitorScreen extends AbstractGraphScreen {
     private void drawBtn(GuiGraphics g, String label, int x, int y, int mx, int my) {
         boolean h = mx >= x && mx <= x + 14 && my >= y && my <= y + 14;
         g.fill(x, y, x + 14, y + 14, h ? 0xFF4A3F28 : 0xFF3A3832);
-        g.renderOutline(x, y, 14, 14, 0xFF5A4D3A);
+        g.renderOutline(x, y, 14, 14, NodeRenderer.PBR());
         g.drawString(Minecraft.getInstance().font, label, x + 1, y + 3, h ? 0xFFFFFF88 : 0xFFCCCCCC, false);
     }
 
@@ -1157,8 +1157,8 @@ public class MonitorScreen extends AbstractGraphScreen {
         var mc = Minecraft.getInstance();
         int btnX = width - 76, btnY = GraphEditor.TOP_BAR_H + 2, btnW = 60, btnH = 18;
         g.fill(btnX, btnY, btnX + btnW, btnY + btnH, 0xFF3A3832);
-        g.renderOutline(btnX, btnY, btnW, btnH, 0xFF8B7533);
-        g.renderOutline(btnX + 1, btnY + 1, btnW - 2, btnH - 2, 0xFF2A2822);
+        g.renderOutline(btnX, btnY, btnW, btnH, NodeRenderer.CSB());
+        g.renderOutline(btnX + 1, btnY + 1, btnW - 2, btnH - 2, NodeRenderer.PBG());
         g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.display"), btnX + 6, btnY + 4, 0xFFFFFFFF, false);
     }
 

@@ -354,7 +354,7 @@ public class EditPanel {
                 : (node.type == NodeType.DATA ? 0xFF88FF88 : 0xFFCCCCCC);
             g.fill(swatchX, swatchY, swatchX + 16, swatchY + 16, color);
             boolean hover = mx >= swatchX && mx <= swatchX + 16 && my >= swatchY && my <= swatchY + 16;
-            g.renderOutline(swatchX, swatchY, 16, 16, hover ? 0xFFFFAA44 : 0xFF888888);
+            g.renderOutline(swatchX, swatchY, 16, 16, hover ? NodeRenderer.ACC() : 0xFF888888);
             // Store position for mouse click detection (via EditState.colorButton)
             st.colorButton.setPosition(swatchX, swatchY);
             row++;
@@ -449,7 +449,7 @@ public class EditPanel {
             for (int i = 0; i < 2; i++) {
                 int bx = (int)st.freqSlotX + i * 24;
                 g.fill(bx, (int)st.freqSlotY, bx + 20, (int)st.freqSlotY + 20, 0xFF1A1814);
-                g.renderOutline(bx, (int)st.freqSlotY, 20, 20, st.freqSlotSelected >= 0 && i == st.freqSlotSelected ? 0xFFFFAA44 : NodeRenderer.CSB());
+                g.renderOutline(bx, (int)st.freqSlotY, 20, 20, st.freqSlotSelected >= 0 && i == st.freqSlotSelected ? NodeRenderer.ACC() : NodeRenderer.CSB());
                 if (node.itemParams != null && i < node.itemParams.length && !node.itemParams[i].isEmpty()) {
                     // ItemRenderer writes to depth buffer at Z≈250 (hardcoded in GuiGraphics).
                     // Disable depth writes so the 3D model doesn't block later 2D UI draws at Z=0.

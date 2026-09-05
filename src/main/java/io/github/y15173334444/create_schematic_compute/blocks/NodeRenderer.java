@@ -19,17 +19,20 @@ import java.util.Set;
  */
 public class NodeRenderer {
     // ── Color palette stored in a single volatile array for atomic read/write (Phase 1) ──
-    // Index constants for the 16 themeable colors
+    // Index constants for the 23 themeable colors (16 graph-editor semantic colors +
+    // 7 GUI chrome colors added with the settings theme extension)
     static final int _CG=0,_CGL=1,_CN=2,_CH=3,_CB=4,_CPI=5,_CPO=6,_CW=7,_CWD=8;
     static final int _CMN=9,_CMH=10,_CNT=11,_CCT=12,_CSB=13,_CPIB=14,_CPOB=15;
-    static final int _NUM_COLORS = 16;
+    static final int _PBG=16,_PHT=17,_PBR=18,_PINS=19,_ACC=20,_ERR=21,_HOV=22;
+    static final int _NUM_COLORS = 23;
 
     // Text and dim colors are constant across all themes
     static final int CT=0xFFFFFFFF, CD=0xFF888888;
 
     private static volatile int[] _c = {
         0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,
-        0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22};
+        0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,
+        0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428};
 
     // Inline accessors — JIT constant-folds the bounds checks
     static int CG() { return _c[_CG]; } static int CGL() { return _c[_CGL]; }
@@ -38,15 +41,25 @@ public class NodeRenderer {
     static int CPO() { return _c[_CPO]; } static int CW() { return _c[_CW]; }
     static int CWD() { return _c[_CWD]; } static int CMN() { return _c[_CMN]; }
     static int CMH() { return _c[_CMH]; } static int CNT() { return _c[_CNT]; }
-    static int CCT() { return _c[_CCT]; } static int CSB() { return _c[_CSB]; }
-    static int CPIB() { return _c[_CPIB]; } static int CPOB() { return _c[_CPOB]; }
+    static int CCT() { return _c[_CCT]; } static int CPIB() { return _c[_CPIB]; }
+    static int CPOB() { return _c[_CPOB]; }
+    // GUI-chrome colors (used across editor and peripheral screens; public for
+    // cross-package consumers in client.*)
+    public static int CSB() { return _c[_CSB]; }
+    public static int PBG() { return _c[_PBG]; }  // panel_bg    面板底
+    public static int PHT() { return _c[_PHT]; }  // panel_header 面板标题带
+    public static int PBR() { return _c[_PBR]; }  // panel_border 面板边框
+    public static int PINS() { return _c[_PINS]; }// inset_bg    内凹井底
+    public static int ACC() { return _c[_ACC]; }  // accent      强调色
+    public static int ERR() { return _c[_ERR]; }  // error       警示/错误
+    public static int HOV() { return _c[_HOV]; }  // hover       悬停高亮
 
     static final int[][] THEMES = {
-        // 16色: CG(),CGL(),CN(),CH(),CB(),CPI(),CPO(),CW(),CWD(),CMN(),CMH(),CNT(),CCT(),CSB(),CPIB(),CPOB()
-        {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22},
-        {0xFF0A1020,0xFF152040,0xFF1A2A4A,0xFF2A3A5A,0xFF3A5A7A,0xFF44AAFF,0xFFFFAA44,0xFF66BBFF,0xFFFFFF88,0xFF88AACC,0xFFFFDD77,0xFFFFDD77,0xFF88AACC,0xFF6688AA,0xFF2266AA,0xFFAA6622},
-        {0xFF0A0A0A,0xFF1A1A1A,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF00FF88,0xFFFF4466,0xFF888888,0xFFFFFF88,0xFFAAAAAA,0xFFCCCCCC,0xFFCCCCCC,0xFF888888,0xFF666666,0xFF444444,0xFF444444},
-        {0xFF1E1410,0xFF2A1C14,0xFF3A2820,0xFF4A3428,0xFF5A4438,0xFFFF8844,0xFFAA6633,0xFFDD8844,0xFFFFCC66,0xFFAA8866,0xFFFFCC77,0xFFFFCC77,0xFFAA8866,0xFF8B6B53,0xFF6B4A33,0xFF6B3A23},
+        // 23色: CG()…CPOB() + PBG(),PHT(),PBR(),PINS(),ACC(),ERR(),HOV()
+        {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428},
+        {0xFF0A1020,0xFF152040,0xFF1A2A4A,0xFF2A3A5A,0xFF3A5A7A,0xFF44AAFF,0xFFFFAA44,0xFF66BBFF,0xFFFFFF88,0xFF88AACC,0xFFFFDD77,0xFFFFDD77,0xFF88AACC,0xFF6688AA,0xFF2266AA,0xFFAA6622,0xFF141C2A,0xFF22304A,0xFF3A5A7A,0xFF0A1220,0xFFFFCC44,0xFFFF5544,0xFF2A3A5A},
+        {0xFF0A0A0A,0xFF1A1A1A,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF00FF88,0xFFFF4466,0xFF888888,0xFFFFFF88,0xFFAAAAAA,0xFFCCCCCC,0xFFCCCCCC,0xFF888888,0xFF666666,0xFF444444,0xFF444444,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF1A1A1A,0xFFFFDD00,0xFFFF5555,0xFF444444},
+        {0xFF1E1410,0xFF2A1C14,0xFF3A2820,0xFF4A3428,0xFF5A4438,0xFFFF8844,0xFFAA6633,0xFFDD8844,0xFFFFCC66,0xFFAA8866,0xFFFFCC77,0xFFFFCC77,0xFFAA8866,0xFF8B6B53,0xFF6B4A33,0xFF6B3A23,0xFF2A1C14,0xFF4A3428,0xFF5A4438,0xFF1E1410,0xFFFFCC66,0xFFFF6644,0xFF3A2820},
     };
     static int currentTheme = 0;
 
@@ -57,8 +70,8 @@ public class NodeRenderer {
     }
 
     static int[] currentColors() { return _c.clone(); }
-    static final int[] DEFAULT_COLORS = {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22};
-    static final String[] COLOR_KEYS = {"bg","grid","node","header","border","input","output","wire","drag","menu_text","menu_hover","node_title","cat_text","sys_border","input_border","output_border"};
+    static final int[] DEFAULT_COLORS = {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428};
+    static final String[] COLOR_KEYS = {"bg","grid","node","header","border","input","output","wire","drag","menu_text","menu_hover","node_title","cat_text","sys_border","input_border","output_border","panel_bg","panel_header","panel_border","inset_bg","accent","error","hover"};
     static int[] stagingColors = DEFAULT_COLORS.clone();
     static void initStaging() { stagingColors = currentColors(); }
 
@@ -373,14 +386,14 @@ public class NodeRenderer {
         // Border: brighter when editing
         int borderColor;
         if (editing) borderColor = 0xFFC0A060;                // warm tan = active editing
-        else if (isPrimary) borderColor = 0xFFFFAA00;          // gold = primary selection
-        else if (selected) borderColor = 0xFFE6C060;           // light gold = selected
+        else if (isPrimary) borderColor = ACC();               // gold = primary selection
+        else if (selected) borderColor = ACC();                // light gold = selected
         else borderColor = n.commentBorderColor;                // custom = normal
         g.renderOutline(isx, isy, (int) sw, (int) sh, borderColor);
         // Remote lock/selection indicator — golden border when another player has this comment selected
         // 远程锁定/选中指示器 — 其他玩家选中此注释时显示金色边框
         if (lockedBy != null && !lockedBy.isEmpty()) {
-            int lockCol = 0xFFD4A017;
+            int lockCol = ACC();
             g.renderOutline(isx - 2, isy - 2, (int) sw + 4, (int) sh + 4, lockCol);
             g.renderOutline(isx - 3, isy - 3, (int) sw + 6, (int) sh + 6, lockCol);
             int lw = Minecraft.getInstance().font.width(lockedBy);
@@ -646,12 +659,12 @@ public class NodeRenderer {
             int wx = (int)(sx + (sw - warnW * zoom) / 2);
             int wy = (int)(sy - warnH * zoom - 2);
             g.fill(wx, wy, (int)(wx + warnW * zoom), (int)(wy + warnH * zoom), 0xCC660000);
-            g.renderOutline(wx, wy, (int)(warnW * zoom), (int)(warnH * zoom), 0xFFFF4444);
+            g.renderOutline(wx, wy, (int)(warnW * zoom), (int)(warnH * zoom), ERR());
             var warnPose = g.pose();
             warnPose.pushPose();
             warnPose.translate(wx + 4 * zoom, wy + 1 * zoom, 0);
             warnPose.scale(zoom, zoom, 1);
-            drawStr(g, "§c⚠ " + warn, 0, 0, 0xFFFF8888);
+            drawStr(g, "§c⚠ " + warn, 0, 0, ERR());
             warnPose.popPose();
         }
         // ENCAPSULATION 节点数量超出警告 — 在节点上方渲染
@@ -664,12 +677,12 @@ public class NodeRenderer {
             int wx = (int)(sx + (sw - warnW * zoom) / 2);
             int wy = (int)(sy + yOff * zoom - warnH * zoom - 2);
             g.fill(wx, wy, (int)(wx + warnW * zoom), (int)(wy + warnH * zoom), 0xCC330000);
-            g.renderOutline(wx, wy, (int)(warnW * zoom), (int)(warnH * zoom), 0xFFFF4444);
+            g.renderOutline(wx, wy, (int)(warnW * zoom), (int)(warnH * zoom), ERR());
             var warnPose = g.pose();
             warnPose.pushPose();
             warnPose.translate(wx + 4 * zoom, wy + 1 * zoom, 0);
             warnPose.scale(zoom, zoom, 1);
-            drawStr(g, "§c" + warn, 0, 0, 0xFFFF8888);
+            drawStr(g, "§c" + warn, 0, 0, ERR());
             warnPose.popPose();
         }
         // Per-node buffer isolation: flush before drawing to ensure this node's
@@ -717,7 +730,7 @@ public class NodeRenderer {
         }
         boolean formulaHasIssues = formulaIssuesLive != null && !formulaIssuesLive.isEmpty();
         if (formulaHasIssues) {
-            drawStr(g, "§c⚠", nodeW - 30, 4, 0xFFFF4444);
+            drawStr(g, "§c⚠", nodeW - 30, 4, ERR());
         }
         // C=2: 展开指示器
         if (n.type == NodeType.FORMULA || n.type.paramNames.length > 0
@@ -740,7 +753,7 @@ public class NodeRenderer {
             int editLocalY = (int)(nh(n) + 4/zoom); // nh(n) 含图表区域高度，编辑区在图表之后
             var editSt = nodeEditStatesById.get(n.id);
             int editLocalH = io.github.y15173334444.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom, editSt);
-            g.fill(2, editLocalY - 2, nodeW - 2, editLocalY, 0xFF5A4D3A);
+            g.fill(2, editLocalY - 2, nodeW - 2, editLocalY, CB());
             g.fill(2, editLocalY, nodeW - 2, editLocalY + editLocalH, 0xFF2A2822);
             if (editSt != null) {
                 io.github.y15173334444.create_schematic_compute.blocks.EditPanel.renderAt(g, 0, editLocalY, nodeW, n, editSt, zoom, mx, my, flipflopStates);
@@ -755,7 +768,7 @@ public class NodeRenderer {
         }
         pose.popPose();
         // C=4: 边框
-        int borderColor = isPrimary ? 0xFFFFAA00 : selected ? 0xFFD4A017 : CB();
+        int borderColor = isPrimary ? ACC() : selected ? ACC() : CB();
         g.renderOutline((int)sx,(int)sy,(int)sw,(int)nh, borderColor);
         g.renderOutline((int)sx+1,(int)sy+1,(int)sw-2,(int)nh-2, 0xFF2A2822);
         // C=4.3: 手动曲线控制点（边框上方，屏幕空间）/ manual curve control points (above border, screen space)
@@ -901,7 +914,7 @@ public class NodeRenderer {
                 // (higher z) would cover the report box. GraphEditor flushes it above all nodes.
                 pendingOverlayLines = lines;
                 pendingOverlayX = tx; pendingOverlayY = ty; pendingOverlayW = tw; pendingOverlayH = th;
-                pendingOverlayBg = 0xDD1A0000; pendingOverlayBorder = 0xFFFF4444; pendingOverlayText = 0xFFFF8888;
+                pendingOverlayBg = 0xDD1A0000; pendingOverlayBorder = ERR(); pendingOverlayText = ERR();
             }
         }
         // Flush per-node to prevent text (font buffer) from later nodes'
@@ -1203,7 +1216,7 @@ public class NodeRenderer {
         // D: 搜索框 / search box
         int sbX = (int)menuRX + 6, sbY = (int)menuRY + 18, sbW = (int)menuW - 12, sbH = 12;
         g.fill(sbX, sbY, sbX + sbW, sbY + sbH, 0xFF1A1814);
-        g.renderOutline(sbX, sbY, sbW, sbH, menuSearchFocused ? 0xFFD4A017 : 0xFF5A4D3A);
+        g.renderOutline(sbX, sbY, sbW, sbH, menuSearchFocused ? ACC() : 0xFF5A4D3A);
         String shown = menuSearchText.isEmpty()
             ? I18n.get("gui.create_schematic_compute.search_hint")
             : menuSearchText + (menuSearchFocused && (System.currentTimeMillis() / 500 % 2 == 0) ? "_" : "");
@@ -1213,11 +1226,11 @@ public class NodeRenderer {
         String colsLabel = columnsLabel();
         int[] tb = columnsButtonRect();
         boolean tbHover = mx >= tb[0] && mx <= tb[0] + tb[2] && my >= tb[1] && my <= tb[1] + tb[3];
-        g.fill(tb[0], tb[1], tb[0] + tb[2], tb[1] + tb[3], tbHover ? 0xFF3A3428 : 0xFF1A1814);
+        g.fill(tb[0], tb[1], tb[0] + tb[2], tb[1] + tb[3], tbHover ? HOV() : 0xFF1A1814);
         // 开启（双列）时金色边框高亮 / gold border while two-column mode is active
-        g.renderOutline(tb[0], tb[1], tb[2], tb[3], menuTwoColumns ? 0xFFD4A017 : 0xFF5A4D3A);
+        g.renderOutline(tb[0], tb[1], tb[2], tb[3], menuTwoColumns ? ACC() : 0xFF5A4D3A);
         drawStr(g, colsLabel, tb[0] + 5, tb[1] + 2,
-            menuTwoColumns ? 0xFFD4A017 : 0xFF777777);
+            menuTwoColumns ? ACC() : 0xFF777777);
 
         NodeType hovered = null;
         // A: scissor 裁剪列表区 / scissor-clip list area (screen coords, y=0=top)
@@ -1248,7 +1261,7 @@ public class NodeRenderer {
                 int iy = cy + row * ih;
                 int itemRight = (int)Math.min(ix + colW - 4, hoverRight);
                 boolean h = mx >= ix && mx <= itemRight && my >= iy && my < iy + ih;
-                if (h) { g.fill(ix, iy, itemRight, iy + ih, 0xFF3A3428); hovered = nt; }
+                if (h) { g.fill(ix, iy, itemRight, iy + ih, HOV()); hovered = nt; }
                 drawStr(g, I18n.get(nt.displayName), ix + 4, iy + 2, h ? CMH() : CMN());
                 idx++;
             }
@@ -1261,7 +1274,7 @@ public class NodeRenderer {
                 int cols = exp ? effectiveCols(cat) : 1;
                 String title = (exp ? "▼ " : "▶ ") + net.minecraft.client.resources.language.I18n.get(cat.langKey);
                 boolean titleHover = mx >= menuRX + 2 && mx <= hoverRight && my >= cy && my < cy + ch;
-                if (titleHover) g.fill((int)menuRX + 2, cy, (int)(hoverRight), (int)(cy + ch), 0xFF3A3428);
+                if (titleHover) g.fill((int)menuRX + 2, cy, (int)(hoverRight), (int)(cy + ch), HOV());
                 drawStr(g, title, menuRX + 6, cy + 2, titleHover ? CMH() : CCT());
                 cy += ch;
                 if (!exp) continue;
@@ -1275,7 +1288,7 @@ public class NodeRenderer {
                     int iy = cy + row * ih;
                     int itemRight = (int)Math.min(ix + colW - 4, hoverRight);
                     boolean h = mx >= ix && mx <= itemRight && my >= iy && my < iy + ih;
-                    if (h) { g.fill(ix, iy, itemRight, iy + ih, 0xFF3A3428); hovered = nt; }
+                    if (h) { g.fill(ix, iy, itemRight, iy + ih, HOV()); hovered = nt; }
                     drawStr(g, I18n.get(nt.displayName), ix + 4, iy + 2, h ? CMH() : CMN());
                     itemIdx++;
                 }
@@ -1290,7 +1303,7 @@ public class NodeRenderer {
             int thumbH = Math.max(16, (int)((double)maxH / totalH * trackH));
             int thumbY = (int)menuRY + TOP_H + (int)((double)menuScrollOff / (totalH - maxH) * (trackH - thumbH));
             g.fill((int)(menuRX + menuW - SCROLLBAR_W - 2), thumbY,
-                   (int)(menuRX + menuW - 2), thumbY + thumbH, 0xFF5A4D3A);
+                   (int)(menuRX + menuW - 2), thumbY + thumbH, CB());
         }
         return hovered;
     }
@@ -1421,7 +1434,7 @@ public class NodeRenderer {
         int bmX = width - 22, bmY = height - 44, bmW = 18, bmH = 18;
         boolean bmOpen = showBookmarkPanel;
         g.fill(bmX, bmY, bmX+bmW, bmY+bmH, bmOpen ? 0xFF4A4A2A : 0xFF3A3832);
-        g.renderOutline(bmX, bmY, bmW, bmH, bmOpen ? 0xFFFFCC44 : CSB());
+        g.renderOutline(bmX, bmY, bmW, bmH, bmOpen ? ACC() : CSB());
         drawStr(g, bmOpen ? "§e★" : "§7☆", bmX+2, bmY+2, CT);
 
         // 右下角工具栏位置切换按钮

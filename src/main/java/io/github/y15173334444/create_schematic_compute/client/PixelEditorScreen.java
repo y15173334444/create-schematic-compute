@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.client;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphEditor;
 import io.github.y15173334444.create_schematic_compute.blocks.MonitorBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
 import io.github.y15173334444.create_schematic_compute.client.colorpicker.ColorPickerWidget;
 import io.github.y15173334444.create_schematic_compute.client.colorpicker.RecentColors;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
@@ -85,8 +86,8 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
     private static final int BA_SIZE = 16, BA_PITCH = 18;      // 笔刷大小档 / brush-size chip
 
     // ── 调色板（沿用基线配色）/ palette (baseline colours) ──
-    private static final int C_BG = 0xFF2A2822;                // 面板底 / panel bg
-    private static final int C_BORDER = 0xFF5A4D3A;            // 面板描边 / panel border
+    private static final int C_BG = NodeRenderer.PBG();                // 面板底 / panel bg
+    private static final int C_BORDER = NodeRenderer.PBR();            // 面板描边 / panel border
     private static final int C_BTN = 0xFF3A3428;               // 按钮底 / button bg
     private static final int C_HOVER = 0xFF5A4A3A;             // 悬停 / hover
     private static final int C_SEL = 0xFF3A5A2A;               // 选中 / selected
@@ -443,7 +444,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         g.fill(x, y, x + w, y + h, 0xF02A2822);
         g.renderOutline(x, y, w, h, C_BORDER);
         g.renderOutline(x + 1, y + 1, w - 2, h - 2, 0xFF444444);
-        g.fill(x, y, x + w, y + 18, 0xFF4A3F28);
+        g.fill(x, y, x + w, y + 18, NodeRenderer.PHT());
         g.drawString(f, "§e" + I18n.get("gui.create_schematic_compute.monitor.pixel_guide_title"), x + 8, y + 5, C_TXT_BRIGHT, false);
         g.drawString(f, "§7✕", x + w - 16, y + 5, C_TXT_DIM, false);
         int cy = y + 26;
@@ -831,13 +832,13 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
             int y = fy + 2;
             if (i == frameIndex) g.fill(x - 1, y - 1, x + tw + 1, y + THUMB + 1, 0xFF3A5A2A);
             else if (frameDrag == FrameDrag.DRAGGING && frameDragIndex == i) g.fill(x - 1, y - 1, x + tw + 1, y + THUMB + 1, 0xFF7A4A3A);
-            g.fill(x, y, x + tw, y + THUMB, 0xFF1A1814);
+            g.fill(x, y, x + tw, y + THUMB, NodeRenderer.PINS());
             renderThumb(g, frames.get(i), x, y, tw, THUMB);
         }
         // 拖拽落点指示 / drop indicator
         if (frameDrag == FrameDrag.DRAGGING && frameDropIndex >= 0 && frameDropIndex <= n) {
             int dx = tx + frameDropIndex * pitch - scroll * pitch - 2;
-            g.fill(dx, fy + 2, dx + 2, fy + THUMB + 2, 0xFFFFAA44);
+            g.fill(dx, fy + 2, dx + 2, fy + THUMB + 2, NodeRenderer.ACC());
         }
         // 滚动条 / scrollbar
         if (maxScroll > 0) {

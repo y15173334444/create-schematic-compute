@@ -1,5 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
+import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
 import io.github.y15173334444.create_schematic_compute.graph.FormulaParser;
 import io.github.y15173334444.create_schematic_compute.graph.FormulaParser.Token;
 import io.github.y15173334444.create_schematic_compute.graph.FormulaParser.TokType;
@@ -234,7 +235,7 @@ public class MultiLineEditBox extends EditBox {
         g.fill(getX(), getY(), getX() + getWidth(), getY() + getHeight(), backgroundColor);
         if (drawMleBorder) {
             int borderColor = isFocused()
-                ? (hasError ? 0xFFFF4444 : 0xFFFFFFFF)
+                ? (hasError ? NodeRenderer.ERR() : 0xFFFFFFFF)
                 : (hasError ? 0xFFAA3333 : 0xFFA0A0A0);
             g.fill(getX() - 1, getY() - 1, getX() + getWidth() + 1, getY(), borderColor);
             g.fill(getX() - 1, getY() + getHeight(), getX() + getWidth() + 1, getY() + getHeight() + 1, borderColor);
@@ -325,7 +326,7 @@ public class MultiLineEditBox extends EditBox {
                     String segText = chunk.substring(segStart, segEnd);
                     int segColor = (tk.type().ordinal() < palette.length) ? palette[tk.type().ordinal()] : textColor;
                     drawChunkSegment(g, font, segText, drawX, y, segColor,
-                        tk.type() == TokType.UNKNOWN ? 0xFFFF4444 : null, lineHeight(),
+                        tk.type() == TokType.UNKNOWN ? NodeRenderer.ERR() : null, lineHeight(),
                         selStartInChunk, selEndInChunk, posInChunk);
                     drawX += font.width(segText);
                     posInChunk = segEnd;

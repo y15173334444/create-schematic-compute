@@ -309,7 +309,7 @@ public class EditorSettingsScreen extends Screen {
         if (maxScroll > 0) {
             int[] sb = guideScrollbarThumb(rowRight);
             g.fill(sb[0], listTop, sb[0] + sb[2], listBot, 0xFF2A2822);
-            g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], 0xFF8B7533);
+            g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], NodeRenderer.CSB());
         }
         // 展开态：列表下方收起按钮 + 右侧详情面板 / expanded: collapse button under the list + the detail pane
         if (expanded) {
@@ -368,7 +368,7 @@ public class EditorSettingsScreen extends Screen {
             float thumbH = Math.max(10, trackH * (float) visible / lines.size());
             float thumbY = y + (trackH - thumbH) * guideDetailScroll / maxScroll;
             g.fill(px + pw - 8, y, px + pw - 4, innerBot, 0xFF2A2822);
-            g.fill(px + pw - 7, (int) thumbY, px + pw - 5, (int) (thumbY + thumbH), 0xFF8B7533);
+            g.fill(px + pw - 7, (int) thumbY, px + pw - 5, (int) (thumbY + thumbH), NodeRenderer.CSB());
         }
     }
 
@@ -657,14 +657,14 @@ public class EditorSettingsScreen extends Screen {
         minecraft.setScreen(parent);
     }
 
-    /** 颜色 tab 渲染：16 个可调颜色项（色块 + 名称 + 调整按钮）+ 恢复默认/应用；
+    /** 颜色 tab 渲染：23 个可调颜色项（色块 + 名称 + 调整按钮）+ 恢复默认/应用；
      *  调整模式下调色板停靠在右侧（随左滑动画腾出的空间）。
-     *  Colors tab rendering: 16 adjustable entries (swatch + name + adjust button)
+     *  Colors tab rendering: 23 adjustable entries (swatch + name + adjust button)
      *  plus defaults/apply; in adjust mode the palette docks on the right (in the
      *  space freed by the left slide). */
     private void renderColorsTab(GuiGraphics g, int mx, int my, int cx, int cy,
                                  int contentRight, int contentBottom, int contentW) {
-        // 进入颜色 tab 时一次性初始化暂存色（与旧 16 色面板行为一致：未应用的修改
+        // 进入颜色 tab 时一次性初始化暂存色（与旧 23 色面板行为一致：未应用的修改
         // 在下次进入时丢弃）。
         // Initialize staging colors once per colors-tab visit (same as the old panel:
         // unapplied edits are discarded on the next entry).
@@ -708,7 +708,7 @@ public class EditorSettingsScreen extends Screen {
         if (maxScroll > 0) {
             int[] sb = colorsScrollbarThumb(cx, contentW);
             g.fill(sb[0], listTop, sb[0] + sb[2], listBot, 0xFF2A2822);
-            g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], 0xFF8B7533);
+            g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], NodeRenderer.CSB());
         }
 
         // 底部常驻：收起/展开 + 恢复默认 / 应用
@@ -856,7 +856,7 @@ public class EditorSettingsScreen extends Screen {
         if (maxScroll > 0) {
             int[] sb = keysScrollbarThumb(listRight);
             g.fill(sb[0], listTop, sb[0] + sb[2], listBot, 0xFF2A2822);
-            g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], 0xFF8B7533);
+            g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], NodeRenderer.CSB());
         }
         // 冲突提示：收起态在列表底部；展开态移到操作条下方（contentBottom-12 处会被
         // 「收起」按钮盖住 —— 按钮后画）。

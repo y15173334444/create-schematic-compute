@@ -445,12 +445,12 @@ public class PortableTerminalScreen extends Screen {
         // 半透明背景遮罩将面板背后的世界变暗
         g.fill(0, 0, w, h, 0xAA000000);
         // Panel body — dark warm brown / 面板主体 — 深暖棕色
-        g.fill(cx, cy, cx + cw, cy + ch, 0xFF2A2822);
+        g.fill(cx, cy, cx + cw, cy + ch, NodeRenderer.PBG());
         // Panel border — gold-brown outline / 面板边框 — 金棕色轮廓
-        g.renderOutline(cx, cy, cw, ch, 0xFF8B7533);
+        g.renderOutline(cx, cy, cw, ch, NodeRenderer.CSB());
 
         // Title bar — slightly lighter warm tone / 标题栏 — 稍亮的暖色调
-        g.fill(cx + 2, cy + 2, cx + cw - 2, cy + 20, 0xFF4A3F28);
+        g.fill(cx + 2, cy + 2, cx + cw - 2, cy + 20, NodeRenderer.PHT());
         // Title text — gold bold / 标题文字 — 金色粗体
         g.drawString(mc.font, "§6§l" + title.getString(), cx + 6, cy + 6, 0xFFFFFFFF);
 
@@ -479,7 +479,7 @@ public class PortableTerminalScreen extends Screen {
         // Device list area / 设备列表区域
         int listY = tby + 28;
         int listH = ch - 58;
-        g.fill(cx + 4, listY, cx + cw - 4, listY + listH, 0xFF1A1814);
+        g.fill(cx + 4, listY, cx + cw - 4, listY + listH, NodeRenderer.PINS());
         g.renderOutline(cx + 4, listY, cw - 8, listH, 0xFF3A3832);
 
         var shown = filteredDevices();
@@ -525,12 +525,12 @@ public class PortableTerminalScreen extends Screen {
             if (maxScroll > 0) {
                 int sbX = cx + cw - 8, sbY = listY;
                 // Scrollbar track / 滚动条轨道
-                g.fill(sbX, sbY, sbX + 6, sbY + listH, 0xFF2A2822);
+                g.fill(sbX, sbY, sbX + 6, sbY + listH, NodeRenderer.PBG());
                 // Thumb size proportional to visible fraction, min 12px tall
                 // 滑块大小与可见比例成正比，最小 12px 高
                 float thumbH = Math.max(12, listH * (float) visItems / shown.size());
                 float thumbY = sbY + (float) scrollOff / maxScroll * (listH - thumbH);
-                g.fill(sbX + 1, (int) thumbY, sbX + 5, (int)(thumbY + thumbH), 0xFF8B7533);
+                g.fill(sbX + 1, (int) thumbY, sbX + 5, (int)(thumbY + thumbH), NodeRenderer.CSB());
             }
         }
     }

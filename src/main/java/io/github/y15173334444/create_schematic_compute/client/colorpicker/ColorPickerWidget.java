@@ -1,5 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.client.colorpicker;
 
+import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -214,7 +215,7 @@ public class ColorPickerWidget {
             g.fill(px, py, px + WIDTH, py + height(), 0xEE2A2822);
             g.renderOutline(px, py, WIDTH, height(), 0xFFD4A017);
             g.renderOutline(px + 1, py + 1, WIDTH - 2, height() - 2, 0xFF444444);
-            g.fill(px + 2, py + 2, px + WIDTH - 2, py + TITLE_H, 0xFF4A3F28);
+            g.fill(px + 2, py + 2, px + WIDTH - 2, py + TITLE_H, NodeRenderer.PHT());
             g.drawString(font, I18n.get("gui.create_schematic_compute.colorpicker.title"), px + 6, py + 3, 0xFFFFCC88, false);
         }
 
@@ -236,7 +237,7 @@ public class ColorPickerWidget {
         int prevX = px + HEX_X + HEX_W + 4;
         int prevW = (embedded ? WIDTH - 4 : OK_X - 4) - (HEX_X + HEX_W + 4);
         int prevY = py + bottomY();
-        g.fill(prevX, prevY, prevX + prevW, prevY + HEX_H, 0xFF2A2822);
+        g.fill(prevX, prevY, prevX + prevW, prevY + HEX_H, NodeRenderer.PBG());
         g.fill(prevX, prevY, prevX + prevW, prevY + HEX_H, currentArgb());
         g.renderOutline(prevX, prevY, prevW, HEX_H, 0xFF888888);
         // 确定键：仅浮空模式显示（内嵌常驻面板不显示）/ OK button only in floating mode (hidden when embedded)
@@ -256,7 +257,7 @@ public class ColorPickerWidget {
             g.fill(fx + (GRID_W - tw) / 2 - 3, fy + (CELL - font.lineHeight) / 2 - 1,
                    fx + (GRID_W + tw) / 2 + 3, fy + (CELL + font.lineHeight) / 2 + 1,
                    0xDD222222);
-            g.drawString(font, feedbackText, fx + (GRID_W - tw) / 2, fy + (CELL - font.lineHeight) / 2 + 1, 0xFFFFAA44, false);
+            g.drawString(font, feedbackText, fx + (GRID_W - tw) / 2, fy + (CELL - font.lineHeight) / 2 + 1, NodeRenderer.ACC(), false);
         }
         // Drag ghost — force full opacity and offset from cursor
         if (draggingSwatch) {
@@ -270,7 +271,7 @@ public class ColorPickerWidget {
                             ((cx / 4 + cy / 4) & 1) == 0 ? 0xFFCCCCCC : 0xFF888888);
             }
             g.fill(gx, gy, gx + 14, gy + 14, dragColor);
-            g.renderOutline(gx, gy, 14, 14, 0xFFFFAA44);
+            g.renderOutline(gx, gy, 14, 14, NodeRenderer.ACC());
         }
         g.pose().popPose();
     }

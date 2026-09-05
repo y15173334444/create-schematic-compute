@@ -2493,7 +2493,7 @@ public class GraphEditor {
                     int sbX = cx + w - 14, sbY = listY, sbH = visRows * 18;
                     g.fill(sbX, sbY, sbX + 8, sbY + sbH, 0xFF2A2822);
                     float thumbTop = sbY + (float) importScrollOff / maxScroll * (sbH - 12);
-                    g.fill(sbX + 1, (int) thumbTop, sbX + 7, (int) thumbTop + 12, 0xFF8B7533);
+                    g.fill(sbX + 1, (int) thumbTop, sbX + 7, (int) thumbTop + 12, NodeRenderer.CSB());
                 }
             }
             // 取消按钮 (Cancel)
@@ -2522,7 +2522,7 @@ public class GraphEditor {
                 for (int i = 0; i < 9; i++) {
                     int hx = px + 4 + i * 20;
                     g.fill(hx, py + 16, hx + 18, py + 34, 0xFF1A1814);
-                    g.renderOutline(hx, py + 16, 18, 18, 0xFF5A4D3A);
+                    g.renderOutline(hx, py + 16, 18, 18, NodeRenderer.CB());
                     var item = mc.player.getInventory().items.get(i);
                     if (!item.isEmpty()) { com.mojang.blaze3d.systems.RenderSystem.depthMask(false); g.renderItem(item, hx + 1, py + 17); com.mojang.blaze3d.systems.RenderSystem.depthMask(true); }
                 }
@@ -2539,7 +2539,7 @@ public class GraphEditor {
             int px = 8;
             int py = Math.max(4, (host.asScreen().height - ph) / 2);
             g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
-            g.renderOutline(px, py, pw, ph, 0xFFD4A017);
+            g.renderOutline(px, py, pw, ph, NodeRenderer.CSB());
             String[] labels = {
                 I18n.get("gui.create_schematic_compute.comment.bg_color"),
                 I18n.get("gui.create_schematic_compute.comment.border_color"),
@@ -2563,7 +2563,7 @@ public class GraphEditor {
             float x1 = Math.min(boxSX, boxEX), y1 = Math.min(boxSY, boxEY);
             float x2 = Math.max(boxSX, boxEX), y2 = Math.max(boxSY, boxEY);
             g.fill((int)x1, (int)y1, (int)x2, (int)y2, 0x22D4A017);
-            g.renderOutline((int)x1, (int)y1, (int)(x2-x1), (int)(y2-y1), 0xFFD4A017);
+            g.renderOutline((int)x1, (int)y1, (int)(x2-x1), (int)(y2-y1), NodeRenderer.ACC());
         }
         // GAMEPAD_BUTTON binding capture: poll gamepad each frame since gamepad buttons don't fire key events
         if (!nodeEditStatesById.isEmpty()) {
