@@ -316,16 +316,6 @@ public class PortableTerminalScreen extends Screen {
             d.sable ? d.sableDistance * d.sableDistance : d.pos.distSqr(playerPos)));
     }
 
-    /**
-     * Merges Sable network scan results into the device list.
-     * Removes all previously known Sable entries, then inserts the fresh results.
-     *
-     * 将 Sable 网络扫描结果合并到设备列表中。
-     * 移除所有之前已知的 Sable 条目，然后插入新的结果。
-     *
-     * @param results list of Sable device entries from the server /
-     *                来自服务器的 Sable 设备条目列表
-     */
     /** 按搜索框内容过滤设备列表（自定义名 / 类型名 / 坐标，不区分大小写；空查询返回全部）。
      *  渲染与点击命中必须共用本方法的输出，否则行号错位会打开错误的设备。
      *  Filter the device list by the search box (custom name / type name / coordinates,
@@ -344,6 +334,16 @@ public class PortableTerminalScreen extends Screen {
         return out;
     }
 
+    /**
+     * Merges Sable network scan results into the device list.
+     * Removes all previously known Sable entries, then inserts the fresh results.
+     *
+     * 将 Sable 网络扫描结果合并到设备列表中。
+     * 移除所有之前已知的 Sable 条目，然后插入新的结果。
+     *
+     * @param results list of Sable device entries from the server /
+     *                来自服务器的 Sable 设备条目列表
+     */
     private void mergeSableResults(List<SablePacketHelper.SableDeviceEntry> results) {
         // Remove all old Sable entries before inserting fresh ones —
         // the server always sends the complete set, not a delta.
@@ -357,6 +357,14 @@ public class PortableTerminalScreen extends Screen {
                 // subLevelId != 0 表示这是一个真正的 Sable（无线）条目
                 boolean isSable = se.subLevelId() != 0;
                 devices.add(new DeviceEntry(se.localPos(), se.name(), cls, isSable, se.distance(), se.subLevelId()));
+            } else {
+                // 未识别的设备类不得静默丢弃 —— 服务端明明扫到了，列表却没有，排查成本极高
+                // （变速器/齿轮箱就因此从结构列表里消失了很久）。
+                // Never silently drop unrecognized device classes — the server scanned them,
+                // yet they vanish from the list with no trace (the transmission/gearbox were
+                // missing from structure lists for a long time because of this).
+                SchematicCompute.LOGGER.warn("PortableTerminal: unknown Sable device class '{}' at {} skipped",
+                    se.beClassName(), se.localPos());
             }
         }
         BlockPos playerPos = player.blockPosition();
@@ -379,7 +387,10 @@ public class PortableTerminalScreen extends Screen {
      * @param name the class name from the packet / 来自数据包的类名
      * @return the resolved class, or null if unrecognized / 解析后的类，无法识别则返回 null
      */
-    private static Class<?> resolveBeClass(String name) {
+    /** 包内可见供回归测试锁定覆盖（新设备漏配会导致结构列表静默丢设备）。
+     *  Package-visible so a regression test can lock coverage (a missing entry makes
+     *  new devices silently vanish from structure lists). */
+    static Class<?> resolveBeClass(String name) {
         // Strip "Sable" suffix for wireless variants so they map to the same BE class
         // 去掉无线变体的 "Sable" 后缀，使其映射到相同的 BE 类
         if (name.endsWith("Sable")) name = name.substring(0, name.length() - 5);
@@ -391,6 +402,8 @@ public class PortableTerminalScreen extends Screen {
             case "ControlSeatBlockEntity"     -> ControlSeatBlockEntity.class;
             case "MonitorBlockEntity"         -> MonitorBlockEntity.class;
             case "RadarBlockEntity"           -> RadarBlockEntity.class;
+            case "ProgrammableTransmissionBlockEntity" -> ProgrammableTransmissionBlockEntity.class;
+            case "CncGearboxBlockEntity"      -> CncGearboxBlockEntity.class;
             default -> null;
         };
     }
@@ -555,7 +568,8 @@ public class PortableTerminalScreen extends Screen {
         int maxScroll = Math.max(0, shown.size() - visItems);
         if (maxScroll > 0) {
             int sbX = cx + cw - 8;
-            float thumbH = Math.max(12, listH * (float) visItems / devices.size());
+            // 与渲染一致：滑块几何按过滤后的列表计算 / matches the renderer: thumb geometry from the filtered list
+            float thumbH = Math.max(12, listH * (float) visItems / shown.size());
             float thumbY = listY + (float) scrollOff / maxScroll * (listH - thumbH);
             if (mx >= sbX && mx <= sbX + 6 && my >= thumbY && my <= thumbY + thumbH) {
                 scrollbarDragging = true;
@@ -691,19 +705,41 @@ public class PortableTerminalScreen extends Screen {
      * <p>每种设备类型有各自的屏幕/菜单对。通过子串包含来匹配简类名，
      * 使 Sable 变体（类名以 "Sable" 结尾）也能正确路由。
      */
+    /** 终端「编辑」按钮的路由表：BE 简单类名 → 命中子串（顺序敏感，先专后泛）。
+     *  为什么顺序敏感："ProgrammableTransmissionBlockEntity" 同时包含 "Transmission" 与
+     *  "Program" —— 历史上它被 "Program" 抢先命中而错路由到程序计算机界面，齿轮箱则
+     *  完全无命中而静默不打开；两分支已补齐，判定收敛到本表并由单测锁定覆盖与歧义。
+     *  Terminal edit-button routing table: BE simple name → matched substring
+     *  (order-sensitive, specific before generic). "ProgrammableTransmissionBlockEntity"
+     *  contains BOTH "Transmission" and "Program" — it used to be captured by "Program"
+     *  and mis-routed to the program-computer screen, while the CNC gearbox matched
+     *  nothing and silently failed to open. Both branches are now present; the decision
+     *  lives in this table, locked by a unit test for coverage and ambiguity. */
+    static final String[] ROUTE_KEYS = {
+        "Monitor", "Radar", "Blueprint", "Transmission", "Program",
+        "CncGearbox", "ControlSeat", "Sensor", "SpeedProxy" };
+
+    /** 返回设备类名应命中的路由键；无命中返回 null（openBlockUI 静默放弃）。
+     *  Returns the route key for a device class name, or null when nothing matches. */
+    static String routeKey(String beSimpleName) {
+        for (var k : ROUTE_KEYS) if (beSimpleName.contains(k)) return k;
+        return null;
+    }
+
     private void openBlockUI() {
         if (editingBeClass == null || editingPos == null) return;
-        String cn = editingBeClass.getSimpleName();
-        Screen inner = null;
-        // Match by substring so "MonitorSable" still routes to MonitorScreen
-        // 通过子串匹配使 "MonitorSable" 仍能路由到 MonitorScreen
-        if (cn.contains("Monitor"))       inner = new MonitorScreen(editingPos);
-        else if (cn.contains("Radar"))    inner = new RadarScreen(editingPos);
-        else if (cn.contains("Blueprint")) inner = new BlueprintScreen(editingPos);
-        else if (cn.contains("Program"))  inner = new ProgramComputerScreen(editingPos);
-        else if (cn.contains("ControlSeat")) inner = new ControlSeatScreen(editingPos);
-        else if (cn.contains("Sensor"))   inner = new SensorScreen(editingPos);
-        else if (cn.contains("SpeedProxy")) inner = new SpeedProxyScreen(editingPos);
+        Screen inner = switch (routeKey(editingBeClass.getSimpleName())) {
+            case "Monitor"    -> new MonitorScreen(editingPos);
+            case "Radar"      -> new RadarScreen(editingPos);
+            case "Blueprint"  -> new BlueprintScreen(editingPos);
+            case "Transmission" -> new TransmissionScreen(editingPos);
+            case "Program"    -> new ProgramComputerScreen(editingPos);
+            case "CncGearbox" -> new CncGearboxScreen(editingPos);
+            case "ControlSeat" -> new ControlSeatScreen(editingPos);
+            case "Sensor"     -> new SensorScreen(editingPos);
+            case "SpeedProxy" -> new SpeedProxyScreen(editingPos);
+            default -> null;
+        };
         if (inner == null) return;
 
         // Store reference for re-opening terminal after the inner screen closes
