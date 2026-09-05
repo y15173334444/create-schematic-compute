@@ -313,19 +313,20 @@ public class EditorSettingsScreen extends Screen {
                     }
                     ky += u + 3;
                 }
-                int barY = (int) ky + 6 + 14; // 与渲染同一布局：预览行 + 14 / same layout as render
-                int confirmX = width - 14 - 70, clearX = confirmX - 72, defX = clearX - 58, backX = defX - 72; // 与渲染同一右缘锚定 / same right anchor as render
+                int[] bar = keysBarGeometry(ky, listRight); // 与渲染同一几何 / same geometry as render
+                int barY = bar[1];
+                int confirmX = width - 14 - 66, clearX = confirmX - 62, defX = clearX - 62, backX = bar[0];
                 if (my >= barY && my <= barY + 16) {
-                    if (mx >= backX && mx <= backX + 64) { // 删一步 / step-back
+                    if (mx >= backX && mx <= backX + 58) { // 删一步 / step-back
                         if (!pendingSeq.isEmpty()) pendingSeq.remove(pendingSeq.size() - 1);
                         rebindConflict = null; return true;
                     }
-                    if (mx >= defX && mx <= defX + 50) { // 默认：恢复出厂绑定并重预填 / restore default and re-prefill
+                    if (mx >= defX && mx <= defX + 56) { // 默认：恢复出厂绑定并重预填 / restore default and re-prefill
                         EditorKeys.resetToDefault(actions[keybindTarget]);
                         selectKeybindRow(keybindTarget); return true;
                     }
-                    if (mx >= clearX && mx <= clearX + 64) { pendingSeq.clear(); latchedMods = 0; rebindConflict = null; return true; } // 清除 / clear
-                    if (mx >= confirmX && mx <= confirmX + 70) { confirmKeybind(); return true; }                                  // 确定 / bind
+                    if (mx >= clearX && mx <= clearX + 56) { pendingSeq.clear(); latchedMods = 0; rebindConflict = null; return true; } // 清除 / clear
+                    if (mx >= confirmX && mx <= confirmX + 66) { confirmKeybind(); return true; }                                  // 确定 / bind
                 }
             }
             // 滚动条：thumb 上按下 = 拖拽；thumb 上下轨道 = 翻 3 行（颜色列表同款）。
@@ -719,31 +720,34 @@ public class EditorSettingsScreen extends Screen {
         String preview = I18n.get("gui.create_schematic_compute.settings.bind_label") + ": " + seqText(pendingSeq)
             + (latchedMods != 0 ? (pendingSeq.isEmpty() ? "" : " → ") + EditorKeys.modsText(latchedMods) + "…" : "");
         g.drawString(font, "§e" + preview, (int) kx0, previewY, 0xFFFFFFFF, false);
-        // 操作条：删一步 / 默认 / 清除 / 确定绑定（右缘锚定 —— 操作条比鼠标键列宽）。
-        // Bar: step-back / default / clear / bind (right-anchored — the bar is wider
-        // than the mouse column).
-        int barY = previewY + 14;
-        int confirmX = width - 14 - 70;
-        int clearX = confirmX - 72;
-        int defX = clearX - 58;
-        int backX = defX - 72;
+        // 操作条：删一步 / 默认 / 清除 / 确定绑定 —— 宽度平衡、右缘锚定；左缘压到列表
+        // 滚动条时整条下移到滚动条下方（几何经 keysBarGeometry 与命中共用）。
+        // Bar: step-back / default / clear / bind — balanced widths, right-anchored;
+        // when its left edge would cover the list scrollbar the whole bar drops below
+        // the track (geometry shared with hit-testing via keysBarGeometry).
+        int[] bar = keysBarGeometry(ky, listRight);
+        int barY = bar[1];
+        int confirmX = width - 14 - 66;
+        int clearX = confirmX - 62;
+        int defX = clearX - 62;
+        int backX = bar[0];
         // 删一步（移除最后录入的步骤）/ step-back (remove the last recorded step)
-        boolean bHov = mx >= backX && mx <= backX + 64 && my >= barY && my <= barY + 16;
-        g.fill(backX, barY, backX + 64, barY + 16, bHov ? 0xFF4A5A2A : 0xFF3A3428);
-        g.renderOutline(backX, barY, 64, 16, 0xFF6A8A3A);
-        g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.bind_step_back"), backX + 8, barY + 4, 0xFFFFFFFF, false);
+        boolean bHov = mx >= backX && mx <= backX + 58 && my >= barY && my <= barY + 16;
+        g.fill(backX, barY, backX + 58, barY + 16, bHov ? 0xFF4A5A2A : 0xFF3A3428);
+        g.renderOutline(backX, barY, 58, 16, 0xFF6A8A3A);
+        g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.bind_step_back"), backX + 15, barY + 4, 0xFFFFFFFF, false);
         // 默认（恢复当前选中动作的出厂绑定，录入状态同步重预填）/ default (restore the
         // selected action's factory binding and re-prefill the recording from it)
-        boolean dHov = mx >= defX && mx <= defX + 50 && my >= barY && my <= barY + 16;
-        g.fill(defX, barY, defX + 50, barY + 16, dHov ? 0xFF4A5A2A : 0xFF3A3428);
-        g.renderOutline(defX, barY, 50, 16, 0xFF6A8A3A);
-        g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.reset_default"), defX + 16, barY + 4, 0xFFFFFFFF, false);
-        g.fill(clearX, barY, clearX + 64, barY + 16, 0xFF3A3428);
-        g.renderOutline(clearX, barY, 64, 16, NodeRenderer.CSB());
-        g.drawString(font, "§7" + I18n.get("gui.create_schematic_compute.settings.bind_clear"), clearX + 16, barY + 4, 0xFFFFFFFF, false);
-        g.fill(confirmX, barY, confirmX + 70, barY + 16, 0xFF3A5A2A);
-        g.renderOutline(confirmX, barY, 70, 16, 0xFF5A8A3A);
-        g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.bind_confirm"), confirmX + 8, barY + 4, 0xFFFFFFFF, false);
+        boolean dHov = mx >= defX && mx <= defX + 56 && my >= barY && my <= barY + 16;
+        g.fill(defX, barY, defX + 56, barY + 16, dHov ? 0xFF4A5A2A : 0xFF3A3428);
+        g.renderOutline(defX, barY, 56, 16, 0xFF6A8A3A);
+        g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.reset_default"), defX + 19, barY + 4, 0xFFFFFFFF, false);
+        g.fill(clearX, barY, clearX + 56, barY + 16, 0xFF3A3428);
+        g.renderOutline(clearX, barY, 56, 16, NodeRenderer.CSB());
+        g.drawString(font, "§7" + I18n.get("gui.create_schematic_compute.settings.bind_clear"), clearX + 19, barY + 4, 0xFFFFFFFF, false);
+        g.fill(confirmX, barY, confirmX + 66, barY + 16, 0xFF3A5A2A);
+        g.renderOutline(confirmX, barY, 66, 16, 0xFF5A8A3A);
+        g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.bind_confirm"), confirmX + 15, barY + 4, 0xFFFFFFFF, false);
         // 展开态冲突提示：紧跟操作条下方（键盘区左缘），不与「收起」按钮同域。
         // Expanded clash message: right below the bar at the keyboard's left edge.
         if (rebindConflict != null)
@@ -901,6 +905,19 @@ public class EditorSettingsScreen extends Screen {
         float delta = (float) (my - keysScrollbarDragStartY) / (trackH - thumbH);
         int newOff = keysScrollbarDragStartOff + Math.round(delta * maxScroll);
         keysScroll = Math.max(0, Math.min(maxScroll, newOff));
+    }
+
+    /** 键位操作条几何 {backX, barY}：宽度平衡（58/56/56/66 + 6px 间距，总 254）右缘锚定；
+     *  左缘压到列表滚动条（窄窗口）时整条下移到滚动条轨道之下。渲染与命中共用同一来源。
+     *  Key-bar geometry {backX, barY}: balanced widths (58/56/56/66 + 6px gaps, 254
+     *  total), right-anchored; when the left edge would cover the list scrollbar (narrow
+     *  windows) the whole bar drops below the track. One source shared by render and
+     *  hit-testing. */
+    private int[] keysBarGeometry(float ky, int listRight) {
+        int backX = width - 14 - 254;
+        int barY = (int) ky + 20;
+        if (backX < listRight + 6) barY = keysListBot() + 4;
+        return new int[]{backX, barY};
     }
 
     // ── 颜色列表几何（渲染 / 命中 / 拖拽共用单一来源） ──
