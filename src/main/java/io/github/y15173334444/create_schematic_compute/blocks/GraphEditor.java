@@ -770,6 +770,8 @@ public class GraphEditor {
     private int listeningBinding = -1;
     /** 重绑冲突提示（显示在弹窗底部，非空即显示）。 / Rebind clash message shown at the dialog bottom when non-null. */
     private String rebindConflict;
+    /** 节点指南列表的滚动偏移（行数）。 / Node-guide list scroll offset, in rows. */
+    private int settingsGuideScroll = 0;
     /** 设置弹窗面板的屏幕矩形（渲染时写入，点击命中读取）——避免渲染与命中各算一遍坐标漂移。
      *  Screen rect of the settings panel, written during render and read during hit
      *  testing — one source of truth instead of two coordinate computations drifting. */
@@ -2794,7 +2796,15 @@ public class GraphEditor {
                 // same settingsContentY/settingsRows source of truth).
                 if (settingsTab == 1 && my >= settingsContentY && my <= settingsContentY + settingsRows * settingsRowH) {
                     int idx = (int) ((my - settingsContentY) / settingsRowH);
-                    if (idx >= 0 && idx < settingsRows) { listeningBinding = idx; rebindConflict = null; return true; }
+                    if (idx >= 0 && idx < settingsRows) {
+                        // 右端"默认"按钮 → 恢复该动作的出厂绑定 / right-edge button → restore default
+                        int rbX = settingsPanelX + settingsPanelW - 36;
+                        if (mx >= rbX && mx <= rbX + 24) {
+                            EditorKeys.resetToDefault(EditorKeys.Action.values()[idx]);
+                            rebindConflict = null; return true;
+                        }
+                        listeningBinding = idx; rebindConflict = null; return true;
+                    }
                 }
                 // 颜色 tab：打开既有 16 色面板（与工具栏按钮同一目标，零迁移）
                 // Colors tab: open the existing panel (same target as the toolbar button).
@@ -4801,6 +4811,8 @@ public class GraphEditor {
         if (showMenu) { renderer.scrollMenu((float)(-sy * 14)); return true; }
         if (showImportDialog) { importScrollOff += (sy > 0) ? -1 : 1; if (importScrollOff < 0) importScrollOff = 0; return true; }
         if (showExportDialog || showColorConfig) return true;
+        // 设置弹窗节点指南滚轮 / settings node-guide scroll wheel
+        if (showSettings && settingsTab == 2) { settingsGuideScroll -= (int) Math.signum(sy); return true; }
         // 书签面板滚动 / bookmark panel scroll
         if (showBookmarkPanel) {
             int panelW = 180, maxRows = 5;
@@ -5301,7 +5313,7 @@ public class GraphEditor {
      *  their content in a later step. */
     private void renderSettingsPanel(GuiGraphics g, int mx, int my) {
         var mc = Minecraft.getInstance();
-        int w = 250, h = settingsTab == 1 ? 216 : 130;
+        int w = 250, h = settingsTab >= 1 ? 216 : 130;
         int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
         settingsPanelX = cx; settingsPanelY = cy; settingsPanelW = w; settingsPanelH = h;
 
@@ -5349,7 +5361,7 @@ public class GraphEditor {
             for (int i = 0; i < actions.length; i++) {
                 var a = actions[i];
                 boolean listening = listeningBinding == a.ordinal();
-                boolean hov = !listening && mx >= cx + 10 && mx <= cx + w - 20 && my >= rowY && my <= rowY + 15;
+                boolean hov = !listening && mx >= cx + 10 && mx <= cx + w - 40 && my >= rowY && my <= rowY + 15;
                 if (listening) g.fill(cx + 10, rowY, cx + w - 20, rowY + 15, 0xFF5A3A2A);
                 else if (hov) g.fill(cx + 10, rowY, cx + w - 20, rowY + 15, 0xFF3A4A3A);
                 String cur;
@@ -5362,12 +5374,57 @@ public class GraphEditor {
                     ? I18n.get("gui.create_schematic_compute.editorkeys.rebind_hint")
                     : I18n.get(a.langKey) + ":  " + cur;
                 g.drawString(mc.font, listening ? "§e" + text : text, cx + 14, rowY + 4, 0xFFCCCCCC, false);
+                // 每行右端"默认"按钮 —— 单动作恢复出厂绑定 / per-row reset-to-default button
+                boolean rbHov = mx >= cx + w - 36 && mx <= cx + w - 12 && my >= rowY + 1 && my <= rowY + 14;
+                g.fill(cx + w - 36, rowY + 1, cx + w - 12, rowY + 14, rbHov ? 0xFF4A5A2A : 0xFF3A3428);
+                g.renderOutline(cx + w - 36, rowY + 1, 24, 13, 0xFF6A8A3A);
+                g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.settings.reset_default"), cx + w - 34, rowY + 4, 0xFFFFFFFF, false);
                 rowY += 16;
             }
             if (rebindConflict != null)
                 g.drawString(mc.font, "§c" + rebindConflict, cx + 12, cy + h - 16, 0xFFFFFFFF, false);
         } else {
-            g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.settings.guide_todo"), cx + 12, contentY + 6, 0xFFCCCCCC, false);
+            // 节点指南：从 NodeType 元数据自动生成 —— 名称走既有 lang 键，引脚与参数
+            // 来自枚举字段，新增节点零成本跟上；说明文案（guide.* lang 键）按需补，
+            // 缺省自动隐藏，不写死 92 条文案。
+            // Node guide: generated from NodeType metadata — names come from the
+            // existing lang keys, pins and params from the enum fields, so new nodes
+            // show up for free. Descriptions (guide.* lang keys) appear only when
+            // present; no 92 hard-coded blurbs.
+            var types = NodeType.values();
+            int rowH2 = 15;
+            int listTop = contentY + 12;
+            int listBot = cy + h - 20;
+            int visible = Math.max(1, (listBot - listTop) / rowH2);
+            int maxScroll = Math.max(0, types.length - visible);
+            if (settingsGuideScroll < 0) settingsGuideScroll = 0;
+            if (settingsGuideScroll > maxScroll) settingsGuideScroll = maxScroll;
+            g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.settings.guide_hint"), cx + 12, contentY - 2, 0xFFCCCCCC, false);
+            g.enableScissor(cx + 4, listTop, cx + w - 14, listBot);
+            for (int i = settingsGuideScroll; i < types.length; i++) {
+                int ry = listTop + (i - settingsGuideScroll) * rowH2;
+                if (ry + rowH2 > listBot) break;
+                var t = types[i];
+                if (i % 2 == 0) g.fill(cx + 6, ry, cx + w - 16, ry + rowH2, 0xFF222020);
+                String name = I18n.get(t.displayName);
+                String pins = I18n.get("gui.create_schematic_compute.guide.inputs") + t.inputs
+                    + " → " + I18n.get("gui.create_schematic_compute.guide.outputs") + t.outputs;
+                g.drawString(mc.font, "§e" + name, cx + 10, ry + 3, 0xFFCCCCCC, false);
+                g.drawString(mc.font, "§7" + pins, cx + 128, ry + 3, 0xFF999999, false);
+                if (t.paramNames.length > 0) {
+                    String params = String.join(", ", t.paramNames);
+                    params = mc.font.plainSubstrByWidth("§8" + params, w - 220);
+                    g.drawString(mc.font, params, cx + 190, ry + 3, 0xFF888888, false);
+                }
+            }
+            g.disableScissor();
+            if (maxScroll > 0) {
+                int sbX = cx + w - 12;
+                g.fill(sbX, listTop, sbX + 6, listBot, 0xFF2A2822);
+                float thumbH = Math.max(12, (listBot - listTop) * (float) visible / types.length);
+                float thumbY = listTop + (float) settingsGuideScroll / maxScroll * ((listBot - listTop) - thumbH);
+                g.fill(sbX + 1, (int) thumbY, sbX + 5, (int) (thumbY + thumbH), 0xFF8B7533);
+            }
         }
     }
 
