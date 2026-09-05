@@ -315,6 +315,12 @@ public class NodeGraph {
         tag.putInt(NbtVersions.VERSION_KEY, NbtVersions.DATA_VERSION);
         tag.putInt("nextId", nextNodeId);
         tag.putInt("nextSortB", nextSortB);
+        // 可选键：旧档缺省 → 空名（回退到方块类型名），新档多一个键旧代码也直接忽略
+        // —— 双向兼容，无需 DATA_VERSION 迁移（同 MonitorBlockEntity.saveSettings 的先例）。
+        // Optional key: absent on legacy saves → empty name (falls back to the block
+        // type name); older code loading a newer save ignores it — compatible in both
+        // directions, no DATA_VERSION migration (same precedent as
+        // MonitorBlockEntity.saveSettings).
         if (!customName.isEmpty()) tag.putString("customName", customName);
         ListTag nl = new ListTag();
         for (GraphNode n : nodes) nl.add(n.save(registries));
