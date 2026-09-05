@@ -293,19 +293,21 @@ public class EditorSettingsScreen extends Screen {
                 }
                 float kx0 = chipsX - 12 - keysGridW(u);
                 float ky = cy() + 2;
+                float gap = keysGap(u);
                 for (var row : KEY_ROWS) {
                     float kx = kx0;
                     for (var c : row) {
                         float w = c.w() * u;
                         if (mx >= kx && mx <= kx + w && my >= ky && my <= ky + u) { handleKeycapClick(c); return true; }
-                        kx += w + 2;
+                        kx += w + gap;
                     }
                     ky += u + 3;
                 }
                 int barY = (int) ky + 8;
-                if (my >= barY && my <= barY + 16 && mx >= chipsX) {
-                    if (mx <= chipsX + 64) { pendingKey = 0; pendingMods = 0; rebindConflict = null; return true; } // 清除 / clear
-                    if (mx >= chipsX + 72 && mx <= chipsX + 142) { confirmKeybind(); return true; }                // 确定 / bind
+                int confirmX = width - 14 - 70, clearX = confirmX - 72; // 与渲染同一右缘锚定 / same right anchor as render
+                if (my >= barY && my <= barY + 16) {
+                    if (mx >= clearX && mx <= clearX + 64) { pendingKey = 0; pendingMods = 0; rebindConflict = null; return true; } // 清除 / clear
+                    if (mx >= confirmX && mx <= confirmX + 70) { confirmKeybind(); return true; }                                  // 确定 / bind
                 }
             }
             // 动作行：行 = 选中并展开键盘（渲染与命中共用同一行几何）；行尾按钮 = 恢复默认。
@@ -534,22 +536,26 @@ public class EditorSettingsScreen extends Screen {
     };
 
     /** 键位 tab 展开态：动作列表窄列宽 / 鼠标键列宽。 / expanded keys tab: narrow list width / mouse-column width. */
-    private int keysListW() { return Math.max(170, Math.min(260, width / 3)); }
+    private int keysListW() { return Math.max(110, Math.min(260, width / 3)); }
     private static final int KEYS_CHIPS_W = 72;
 
-    /** 键帽单位尺寸：可用宽度 ÷ 最宽行（≈15.5 单位），钳制 13..24（矮窗口自动缩小）。 / keycap unit: available width ÷ the widest row (~15.5 units), clamped 13..24. */
+    /** 键帽单位尺寸：可用宽度 ÷ 最宽行（≈15.5 单位），钳制 10..24（窄窗口自动缩小）。 / keycap unit: available width ÷ the widest row (~15.5 units), clamped 10..24. */
     private float keysUnit() {
         int avail = width - 14 - keysListW() - 12 - KEYS_CHIPS_W - 12 - 24;
-        return Math.max(13f, Math.min(24f, avail / 15.5f));
+        return Math.max(10f, Math.min(24f, avail / 15.5f));
     }
+
+    /** 键帽间距：小键帽缩到 1px 省宽（渲染与命中共用同一规则）。 / cap gap: 1px for small caps (shared by render and hit-testing). */
+    private static float keysGap(float u) { return u < 13f ? 1f : 2f; }
 
     /** 键盘网格总宽（像素，含键帽间距）。 / keyboard grid width in pixels (gaps included). */
     private static float keysGridW(float u) {
+        float gap = keysGap(u);
         float max = 0;
         for (var row : KEY_ROWS) {
             float w = 0;
-            for (var c : row) w += c.w() * u + 2;
-            max = Math.max(max, w - 2);
+            for (var c : row) w += c.w() * u + gap;
+            max = Math.max(max, w - gap);
         }
         return max;
     }
@@ -580,7 +586,11 @@ public class EditorSettingsScreen extends Screen {
             } else {
                 cur = EditorKeys.modsText(EditorKeys.keyModifiers(a)) + keyName(EditorKeys.keyCode(a));
             }
-            g.drawString(font, I18n.get(a.langKey) + ":  " + cur, cx + 6, rowY + 9, 0xFFCCCCCC, false);
+            // 动作名 + 当前绑定，超宽按窄列截断（展开态列表变窄时防止压进键盘区）。
+            // Action name + current binding, truncated to the (narrowed) list width.
+            String text = I18n.get("gui.create_schematic_compute." + a.langKey) + ":  " + cur;
+            text = font.plainSubstrByWidth(text, listRight - 34 - (cx + 6) - 4);
+            g.drawString(font, text, cx + 6, rowY + 9, 0xFFCCCCCC, false);
             // 行尾"默认"按钮 —— 单动作恢复出厂绑定 / row-end reset-to-default button
             boolean rbHov = mx >= listRight - 34 && mx <= listRight - 8 && my >= rowY + 4 && my <= rowY + rowH - 6;
             g.fill(listRight - 34, rowY + 4, listRight - 8, rowY + rowH - 6, rbHov ? 0xFF4A5A2A : 0xFF3A3428);
@@ -612,6 +622,7 @@ public class EditorSettingsScreen extends Screen {
         // Keyboard rows left-aligned with wide keys overhanging right, like a real board.
         float kx0 = chipsX - 12 - keysGridW(u);
         float ky = cy + 2;
+        float gap = keysGap(u);
         var target = actions[keybindTarget];
         for (var row : KEY_ROWS) {
             float kx = kx0;
@@ -627,22 +638,27 @@ public class EditorSettingsScreen extends Screen {
                 boolean boundMod = c.modBit() != 0 && (EditorKeys.keyModifiers(target) & c.modBit()) != 0;
                 g.renderOutline((int) kx, (int) ky, (int) w, (int) u, boundKey ? 0xFF5A8A3A : boundMod ? 0xFF5A7AAA : NodeRenderer.CSB());
                 g.drawString(font, c.label(), (int) (kx + w / 2 - font.width(c.label()) / 2), (int) (ky + u / 2 - 4), 0xFFCCCCCC, false);
-                kx += w + 2;
+                kx += w + gap;
             }
             ky += u + 3;
         }
 
-        // 底部操作条：实时预览 + 清除 + 确定绑定 / bottom bar: live preview + clear + bind
+        // 底部操作条：实时预览 + 清除 + 确定绑定（按钮右缘锚定屏幕右缘 —— 操作条比
+        // 鼠标键列宽，锚到 chipsX 会把「确定」推出屏幕外）。
+        // Bottom bar: live preview + clear + bind (right-anchored to the screen edge —
+        // the bar is wider than the mouse column; anchoring at chipsX pushed Bind off-screen).
         int barY = (int) ky + 8;
         String preview = I18n.get("gui.create_schematic_compute.settings.bind_label") + ": "
             + (pendingKey > 0 ? EditorKeys.modsText(pendingMods) + keyName(pendingKey) : "—");
         g.drawString(font, "§e" + preview, (int) kx0, barY + 4, 0xFFFFFFFF, false);
-        g.fill(chipsX, barY, chipsX + 64, barY + 16, 0xFF3A3428);
-        g.renderOutline(chipsX, barY, 64, 16, NodeRenderer.CSB());
-        g.drawString(font, "§7" + I18n.get("gui.create_schematic_compute.settings.bind_clear"), chipsX + 16, barY + 4, 0xFFFFFFFF, false);
-        g.fill(chipsX + 72, barY, chipsX + 142, barY + 16, 0xFF3A5A2A);
-        g.renderOutline(chipsX + 72, barY, 70, 16, 0xFF5A8A3A);
-        g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.bind_confirm"), chipsX + 80, barY + 4, 0xFFFFFFFF, false);
+        int confirmX = width - 14 - 70;
+        int clearX = confirmX - 72;
+        g.fill(clearX, barY, clearX + 64, barY + 16, 0xFF3A3428);
+        g.renderOutline(clearX, barY, 64, 16, NodeRenderer.CSB());
+        g.drawString(font, "§7" + I18n.get("gui.create_schematic_compute.settings.bind_clear"), clearX + 16, barY + 4, 0xFFFFFFFF, false);
+        g.fill(confirmX, barY, confirmX + 70, barY + 16, 0xFF3A5A2A);
+        g.renderOutline(confirmX, barY, 70, 16, 0xFF5A8A3A);
+        g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.bind_confirm"), confirmX + 8, barY + 4, 0xFFFFFFFF, false);
 
         // 收起按钮（列表列底部，与颜色 tab 的收起同款样式） / collapse button (list column bottom)
         int clY = cy + 2 + actions.length * rowH + 6;
