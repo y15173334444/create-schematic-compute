@@ -602,7 +602,11 @@ public class EditorSettingsScreen extends Screen {
             g.drawString(font, text, cx + 6, rowY + 9, 0xFFCCCCCC, false);
             rowY += rowH;
         }
-        if (rebindConflict != null)
+        // 冲突提示：收起态在列表底部；展开态移到操作条下方（contentBottom-12 处会被
+        // 「收起」按钮盖住 —— 按钮后画）。
+        // Clash message: list bottom when collapsed; below the bar when expanded (at
+        // contentBottom-12 it is painted over by the Collapse button, which draws later).
+        if (rebindConflict != null && !expanded)
             g.drawString(font, "§c" + rebindConflict, cx, contentBottom - 12, 0xFFFFFFFF, false);
         if (!expanded || keybindTarget < 0) return;
 
@@ -686,6 +690,10 @@ public class EditorSettingsScreen extends Screen {
         g.fill(confirmX, barY, confirmX + 70, barY + 16, 0xFF3A5A2A);
         g.renderOutline(confirmX, barY, 70, 16, 0xFF5A8A3A);
         g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.bind_confirm"), confirmX + 8, barY + 4, 0xFFFFFFFF, false);
+        // 展开态冲突提示：紧跟操作条下方（键盘区左缘），不与「收起」按钮同域。
+        // Expanded clash message: right below the bar at the keyboard's left edge.
+        if (rebindConflict != null)
+            g.drawString(font, "§c" + rebindConflict, (int) kx0, barY + 18, 0xFFFFFFFF, false);
 
         // 收起按钮（列表列底部，与颜色 tab 的收起同款样式） / collapse button (list column bottom)
         int clY = cy + 2 + actions.length * rowH + 6;
@@ -716,10 +724,14 @@ public class EditorSettingsScreen extends Screen {
             ? null : I18n.get("gui.create_schematic_compute.editorkeys.conflict");
     }
 
-    /** 「确定绑定」：把录入序列落到当前动作（前缀歧义拒绝）；成功后预览保持为生效序列。 / Bind: commit the recorded sequence (prefix-ambiguity refused); the preview then shows the live binding. */
+    /** 「确定绑定」：把录入序列落到当前动作（前缀歧义拒绝）；成功后预览保持为生效序列。
+     *  鼠标动作在键位点击时就已即时绑定 —— 确定对它是静默无操作。
+     *  Bind: commit the recorded sequence (prefix-ambiguity refused); the preview then
+     *  shows the live binding. Mouse actions bind on chip click, so Bind is a silent
+     *  no-op for them. */
     private void confirmKeybind() {
         var a = EditorKeys.Action.values()[keybindTarget];
-        if (a.mouse) { rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_mouse_only"); return; }
+        if (a.mouse) return;
         if (pendingSeq.isEmpty()) { rebindConflict = I18n.get("gui.create_schematic_compute.settings.bind_need_key"); return; }
         rebindConflict = EditorKeys.setSequence(a, List.copyOf(pendingSeq))
             ? null : I18n.get("gui.create_schematic_compute.editorkeys.conflict");
