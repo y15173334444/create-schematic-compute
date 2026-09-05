@@ -54,6 +54,12 @@ public class EditorSettingsScreen extends Screen {
     /** 挂起的修饰开关（点键帽随步骤入列后自动复位）。
      *  Latched modifier toggles (cleared automatically when a step is recorded). */
     private int latchedMods = 0;
+    /** 键位列表滚动偏移（行数）与滚动条拖拽状态（颜色列表同款交互）。
+     *  Key-list scroll offset (rows) and scrollbar drag state (same interaction as the colors list). */
+    private int keysScroll = 0;
+    private boolean keysScrollbarDrag = false;
+    private float keysScrollbarDragStartY = 0f;
+    private int keysScrollbarDragStartOff = 0;
     /** 重绑冲突提示（显示在内容区底部，非空即显示）。 / rebind clash message shown at the content bottom when non-null. */
     private String rebindConflict;
     /** 节点指南列表的滚动偏移（行数）。 / node-guide list scroll offset, in rows. */
@@ -283,7 +289,7 @@ public class EditorSettingsScreen extends Screen {
             var actions = EditorKeys.Action.values();
             int cx = TAB_W + 12 - shift;
             int listRight = expanded ? cx + keysListW() : width - 14 - shift;
-            int rowH = 22;
+            int listTop = keysListTop(), listBot = keysListBot();
             if (expanded && keybindTarget >= 0) {
                 // 展开态：先键盘区（键帽 / 鼠标键 / 清除·确定），后动作行。
                 // Expanded: keyboard region first (caps / mouse buttons / clear·bind), then rows.
@@ -322,16 +328,27 @@ public class EditorSettingsScreen extends Screen {
                     if (mx >= confirmX && mx <= confirmX + 70) { confirmKeybind(); return true; }                                  // 确定 / bind
                 }
             }
-            // 动作行：行 = 选中并展开键盘（渲染与命中共用同一行几何）。
-            int rowY = cy() + 2;
-            for (int i = 0; i < actions.length; i++) {
-                if (mx >= cx && mx <= listRight - 2 && my >= rowY && my <= rowY + rowH - 2) {
+            // 滚动条：thumb 上按下 = 拖拽；thumb 上下轨道 = 翻 3 行（颜色列表同款）。
+            // Scrollbar: press on the thumb = drag; track above/below = page by 3 rows.
+            if (keysMaxScroll() > 0) {
+                int[] sb = keysScrollbarThumb(listRight);
+                if (mx >= sb[0] && mx <= sb[0] + sb[2] && my >= listTop && my <= listBot) {
+                    if (my < sb[1]) { keysScroll = Math.max(0, keysScroll - 3); }
+                    else if (my > sb[1] + sb[3]) { keysScroll = Math.min(keysMaxScroll(), keysScroll + 3); }
+                    else { keysScrollbarDrag = true; keysScrollbarDragStartY = (float) my; keysScrollbarDragStartOff = keysScroll; }
+                    return true;
+                }
+            }
+            // 动作行（滚动窗口内）：行 = 选中并展开键盘（渲染与命中共用同一行几何与滚动偏移）。
+            for (int i = keysScroll; i < actions.length; i++) {
+                int ry = listTop + (i - keysScroll) * KEY_ROW_H;
+                if (ry + KEY_ROW_H > listBot) break;
+                if (mx >= cx && mx <= listRight - 2 && my >= ry && my <= ry + KEY_ROW_H - 2) {
                     selectKeybindRow(i); return true;
                 }
-                rowY += rowH;
             }
-            // 收起按钮 / collapse button
-            int clY = cy() + 2 + actions.length * rowH + 6;
+            // 收起按钮（列表下方固定位）/ collapse button (fixed below the list)
+            int clY = listBot + 4;
             if (expanded && mx >= cx && mx <= cx + 64 && my >= clY && my <= clY + 16) { collapseExpanded(); return true; }
             return true;
         }
@@ -388,6 +405,13 @@ public class EditorSettingsScreen extends Screen {
             if (colorScroll > colorsMaxScroll()) colorScroll = colorsMaxScroll();
             return true;
         }
+        // 键位列表滚轮 / key-list wheel
+        if (tab == 1) {
+            keysScroll -= (int) Math.signum(sy);
+            if (keysScroll < 0) keysScroll = 0;
+            if (keysScroll > keysMaxScroll()) keysScroll = keysMaxScroll();
+            return true;
+        }
         // 节点指南滚轮 —— 仅当光标在右侧内容区时消费 / node-guide wheel, content area only
         if (tab == 2 && mx >= TAB_W) {
             guideScroll -= (int) Math.signum(sy);
@@ -402,6 +426,7 @@ public class EditorSettingsScreen extends Screen {
         // Color-list scrollbar drag takes priority over the palette forward (the two
         // regions are disjoint; only one can be active at a time).
         if (colorScrollbarDrag) { applyColorScrollbarDrag(my); return true; }
+        if (keysScrollbarDrag) { applyKeysScrollbarDrag(my); return true; }
         // 调色板拖拽（SV / Hue / Alpha 渐变条）转发到组件 / forward SV/hue/alpha drags to the widget
         if (expanded && picker.isVisible()) return picker.mouseDragged(mx, my, btn, dx, dy);
         return true;
@@ -410,6 +435,7 @@ public class EditorSettingsScreen extends Screen {
     @Override
     public boolean mouseReleased(double mx, double my, int btn) {
         colorScrollbarDrag = false;
+        keysScrollbarDrag = false;
         if (expanded) picker.mouseReleased(mx, my, btn);
         return true;
     }
@@ -546,6 +572,16 @@ public class EditorSettingsScreen extends Screen {
 
     /** 键位 tab 展开态：动作列表窄列宽 / 鼠标键列宽。 / expanded keys tab: narrow list width / mouse-column width. */
     private int keysListW() { return Math.max(110, Math.min(260, width / 3)); }
+
+    // ── 键位列表几何（渲染 / 命中 / 拖拽共用单一来源） ──
+    // ── Key-list geometry (single source shared by render, hit-testing and dragging) ──
+
+    /** 列表顶部 y。 / list top y. */
+    private static int keysListTop() { return cy() + 2; }
+    /** 列表底部 y（内容区底再上提 24px，给「收起」按钮留固定位置）。 / list bottom y (24px above the content bottom, reserving a fixed slot for the Collapse button). */
+    private int keysListBot() { return height - 8 - 24; }
+    private int keysVisibleRows() { return Math.max(1, (keysListBot() - keysListTop()) / KEY_ROW_H); }
+    private int keysMaxScroll() { return Math.max(0, EditorKeys.Action.values().length - keysVisibleRows()); }
     private static final int KEYS_CHIPS_W = 72;
 
     /** 键帽单位尺寸：可用宽度 ÷ 最宽行（≈15.5 单位），钳制 10..24（窄窗口自动缩小）。 / keycap unit: available width ÷ the widest row (~15.5 units), clamped 10..24. */
@@ -580,27 +616,38 @@ public class EditorSettingsScreen extends Screen {
     private void renderKeysTab(GuiGraphics g, int mx, int my, int cx, int cy,
                                int contentRight, int contentBottom) {
         var actions = EditorKeys.Action.values();
-        int rowH = 22;
         int listRight = expanded ? cx + keysListW() : contentRight;
-        int rowY = cy + 2;
-        for (int i = 0; i < actions.length; i++) {
+        int listTop = keysListTop(), listBot = keysListBot();
+        int maxScroll = keysMaxScroll();
+        if (keysScroll < 0) keysScroll = 0;
+        if (keysScroll > maxScroll) keysScroll = maxScroll;
+        for (int i = keysScroll; i < actions.length; i++) {
+            int ry = listTop + (i - keysScroll) * KEY_ROW_H;
+            if (ry + KEY_ROW_H > listBot) break;
             var a = actions[i];
             boolean selected = expanded && keybindTarget == i;
-            boolean hov = !selected && mx >= cx && mx <= listRight - 2 && my >= rowY && my <= rowY + rowH - 2;
-            if (selected) g.fill(cx, rowY, listRight, rowY + rowH - 2, 0xFF2A3A5A);
-            else if (hov) g.fill(cx, rowY, listRight, rowY + rowH - 2, 0xFF3A4A3A);
+            boolean hov = !selected && mx >= cx && mx <= listRight - 2 && my >= ry && my <= ry + KEY_ROW_H - 2;
+            if (selected) g.fill(cx, ry, listRight, ry + KEY_ROW_H - 2, 0xFF2A3A5A);
+            else if (hov) g.fill(cx, ry, listRight, ry + KEY_ROW_H - 2, 0xFF3A4A3A);
             String cur;
             if (a.mouse) {
                 cur = I18n.get("gui.create_schematic_compute.editorkeys.mouse." + EditorKeys.mouseButton(a));
             } else {
                 cur = seqText(EditorKeys.sequence(a));
             }
-            // 动作名 + 当前绑定，超宽按窄列截断（展开态列表变窄时防止压进键盘区）。
-            // Action name + current binding, truncated to the (narrowed) list width.
+            // 动作名 + 当前绑定，超宽按窄列截断（预留滚动条条带；展开态列表变窄时防压进键盘区）。
+            // Action name + current binding, truncated to the narrowed list width (reserving
+            // the scrollbar strip).
             String text = I18n.get("gui.create_schematic_compute." + a.langKey) + ":  " + cur;
-            text = font.plainSubstrByWidth(text, listRight - (cx + 6) - 4);
-            g.drawString(font, text, cx + 6, rowY + 7, 0xFFCCCCCC, false);
-            rowY += rowH;
+            text = font.plainSubstrByWidth(text, listRight - (cx + 6) - 14);
+            g.drawString(font, text, cx + 6, ry + 7, 0xFFCCCCCC, false);
+        }
+        // 滚动条（thumb 可拖拽）——几何与命中/拖拽共用 keysScrollbarThumb。
+        // Scrollbar (draggable thumb) — geometry shared with hit-testing/dragging.
+        if (maxScroll > 0) {
+            int[] sb = keysScrollbarThumb(listRight);
+            g.fill(sb[0], listTop, sb[0] + sb[2], listBot, 0xFF2A2822);
+            g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], 0xFF8B7533);
         }
         // 冲突提示：收起态在列表底部；展开态移到操作条下方（contentBottom-12 处会被
         // 「收起」按钮盖住 —— 按钮后画）。
@@ -696,7 +743,7 @@ public class EditorSettingsScreen extends Screen {
             g.drawString(font, "§c" + rebindConflict, (int) kx0, barY + 18, 0xFFFFFFFF, false);
 
         // 收起按钮（列表列底部，与颜色 tab 的收起同款样式） / collapse button (list column bottom)
-        int clY = cy + 2 + actions.length * rowH + 6;
+        int clY = keysListBot() + 4; // 列表下方固定位，不随行数增长 / fixed below the list
         boolean clHov = mx >= cx && mx <= cx + 64 && my >= clY && my <= clY + 16;
         g.fill(cx, clY, cx + 64, clY + 16, clHov ? 0xFF3A4A5A : 0xFF2A3A5A);
         g.renderOutline(cx, clY, 64, 16, NodeRenderer.CSB());
@@ -822,6 +869,32 @@ public class EditorSettingsScreen extends Screen {
 
     /** 内容区起始 y（渲染与命中共用）。 / content-area top y (shared by render and hit-test). */
     private static int cy() { return 8; }
+
+    /** 键位列表行高。 / key-list row height. */
+    private static final int KEY_ROW_H = 22;
+
+    /** 键位列表滚动条 thumb {x, y, w, h}（x 依赖当次列表右缘；渲染与拖拽共用几何）。
+     *  Key-list scrollbar thumb {x, y, w, h} (x depends on the current list right edge;
+     *  geometry shared by render and dragging). */
+    private int[] keysScrollbarThumb(int listRight) {
+        int trackH = keysListBot() - keysListTop();
+        int thumbH = Math.max(12, trackH * keysVisibleRows() / EditorKeys.Action.values().length);
+        int maxScroll = keysMaxScroll();
+        int thumbY = keysListTop() + (maxScroll > 0 ? (trackH - thumbH) * keysScroll / maxScroll : 0);
+        return new int[]{listRight - 8, thumbY, 6, thumbH};
+    }
+
+    /** 拖拽推进键位列表：thumb 相对增量换算为行偏移（颜色列表同款）。 / Advance the key list by the dragged thumb delta (colors-list style). */
+    private void applyKeysScrollbarDrag(double my) {
+        int maxScroll = keysMaxScroll();
+        if (maxScroll <= 0) return;
+        int trackH = keysListBot() - keysListTop();
+        int thumbH = Math.max(12, trackH * keysVisibleRows() / EditorKeys.Action.values().length);
+        if (trackH - thumbH <= 0) return;
+        float delta = (float) (my - keysScrollbarDragStartY) / (trackH - thumbH);
+        int newOff = keysScrollbarDragStartOff + Math.round(delta * maxScroll);
+        keysScroll = Math.max(0, Math.min(maxScroll, newOff));
+    }
 
     // ── 颜色列表几何（渲染 / 命中 / 拖拽共用单一来源） ──
     // ── Color-list geometry (single source shared by render, hit-testing and dragging) ──
