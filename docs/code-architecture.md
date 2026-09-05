@@ -111,6 +111,7 @@ io.github.y15173334444.create_schematic_compute/
 - `topoVersion()` — 拓扑版本号 / Topology version
 - `copy()` — 深拷贝（新 ID）/ Deep copy with new IDs
 - `save()` / `load()` — NBT 序列化，带版本迁移 / NBT serialization with migration
+- `customName` — 图级玩家可见名称（编辑器顶栏编辑、便携终端按此查找；可选 NBT 键，空 = 回退到方块类型名，经 SET_BLOCK_NAME op 同步，纯视觉不 bump）/ Graph-level player-visible name (edited in the editor top bar, used by the portable terminal; optional NBT key, empty = fall back to the block type name; synced via the SET_BLOCK_NAME op, visual-only, no bump)
 - 书签 / Bookmarks — `List<Bookmark>` 记录（`addBookmark`/`moveBookmark`/`renameBookmark`/`removeBookmark` 经 op 同步）/ Bookmark list synced via ops
 
 ### GraphEvaluator
@@ -183,14 +184,15 @@ io.github.y15173334444.create_schematic_compute/
 `GraphOp` 应用执行器。服务端和客户端共享，确保变更逻辑单一定义。
 / Shared `GraphOp` executor used by both server and client — single source of truth for all mutations.
 
-**处理 31 种 OpType / Handles 31 OpTypes**：ADD_NODE_REQUEST, ADD_NODE, REMOVE_NODE, MOVE_NODE, ADD_CONN, REMOVE_CONN, SET_PARAM, SET_FORMULA, SET_COMMENT_TEXT, SET_COMMENT_COLORS, SET_COMMENT_SIZE, SET_DISPLAY_TEXT, SET_TEXT_COLOR, SET_BANDS, SET_ZORDER, SET_KEY_BINDING, SET_IMAGE_FRAME_TOGGLE, SET_DISPLAY_LAYOUT, TOGGLE_BOOL, SET_HOTBAR_ITEM, SET_IMAGE_PIXELS, SET_IMAGE_SIZE, REMOVE_IMAGE_FRAME, MOVE_IMAGE_FRAME, EXPAND_NODE, COLLAPSE_NODE, ADD_BOOKMARK, REMOVE_BOOKMARK, RENAME_BOOKMARK, MOVE_BOOKMARK, SET_CTRL_POINTS, REJECT
+**处理 34 种 OpType / Handles 34 OpTypes**：ADD_NODE_REQUEST, ADD_NODE, REMOVE_NODE, MOVE_NODE, ADD_CONN, REMOVE_CONN, SET_PARAM, SET_FORMULA, SET_COMMENT_TEXT, SET_COMMENT_COLORS, SET_COMMENT_SIZE, SET_DISPLAY_TEXT, SET_TEXT_COLOR, SET_BANDS, SET_BLOCK_NAME, SET_ZORDER, SET_LAYER_INDEX, SET_KEY_BINDING, SET_IMAGE_FRAME_TOGGLE, SET_DISPLAY_LAYOUT, TOGGLE_BOOL, SET_HOTBAR_ITEM, SET_IMAGE_PIXELS, SET_IMAGE_SIZE, REMOVE_IMAGE_FRAME, MOVE_IMAGE_FRAME, EXPAND_NODE, COLLAPSE_NODE, ADD_BOOKMARK, REMOVE_BOOKMARK, RENAME_BOOKMARK, MOVE_BOOKMARK, SET_CTRL_POINTS, REJECT
 
 ### GraphOp / OpType
-`GraphOp`：**28 字段** record + **20 个静态方法**（19 个工厂 + `parseCtrlPoints` helper）。
-/ 28-field record + 20 static methods (19 factories + 1 helper).
+`GraphOp`：**28 字段** record + **25 个静态方法**（24 个工厂 + `parseCtrlPoints` helper）。
+/ 28-field record + 25 static methods (24 factories + 1 helper).
 - `blobRefId` — 非零 → 经 `BlobRegistry` 取大数据 / non-zero → BlobRegistry lookup
 - `imageData` — IMAGE 像素直接以 `int[]` 传输（替代 Base64 `stringValue`）/ direct pixel array
-- `OpType`：**31 种**操作枚举 / 31-operation enum
+- `OpType`：**34 种**操作枚举 / 34-operation enum
+- `SET_BLOCK_NAME` — 图级 op（targetNodeId=0 忽略）：设置 `NodeGraph.customName`，纯视觉不 bump（同 SET_ZORDER）；已加入 EditSessionRegistry 的显示 op 白名单，未开编辑器的协作者也能收到 / Graph-level op (targetNodeId=0, ignored): sets `NodeGraph.customName`; visual-only, no bump (same as SET_ZORDER); whitelisted in EditSessionRegistry's display ops so collaborators without the editor open still receive it
 
 ### DebugSignals
 DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
@@ -205,9 +207,10 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
 / Immutable record for server→client broadcast. Sub-graph (ENCAP) outputs and debug times merged since v1.2.4; `formulaSpreads`（刀5）携带 FORMULA 节点 spread 渲染态进度（0=空闲、0..1=repeat 进度、-1=while 不定），仅渲染进度条、无数值。/ `formulaSpreads` (knife 5) carries FORMULA spread render-state progress (0 = idle, 0..1 = repeat progress, -1 = indeterminate while) — render-only, no values.
 
 ### GraphMigration / NbtVersions
-- `NbtVersions.DATA_VERSION = 4`（`VERSION_KEY = "data_version"`）/ Data format version 4
-- `GraphMigration.migrate(rawTag, registries)` — 顺序执行 V1→V2→V3→**V4** 迁移
+- `NbtVersions.DATA_VERSION = 5`（`VERSION_KEY = "data_version"`）/ Data format version 5
+- `GraphMigration.migrate(rawTag, registries)` — 顺序执行 V1→V2→V3→**V4**→**V5** 迁移
 - **V3→V4（v1.2.4）**：为每条连线派生稳定 `fPinId`/`tPinId`（FORMULA=变量名、ENCAP=子节点 ID、BUS=频段名）；pinId 无法映射的连线丢弃 / Derive stable pinIds; drop unmappable connections
+- **V4→V5（v1.2.5 AR HUD Phase 2）**：显示节点补 AR HUD 锚定字段默认值（`am`/`ay`/`ap`，仅显式盖章版本号），ENCAPSULATION 子图递归迁移 / Stamp AR HUD anchor defaults (`am`/`ay`/`ap`) and recurse into ENCAPSULATION sub-graphs
 
 ### SpatialIndex / ZOrder（v1.2.3 遮挡系统 / occlusion system）
 - `ZOrder` — A/B/C 三层遮挡记录（网格→注释→连线→节点→覆盖层→工具提示）/ Occlusion record
@@ -316,6 +319,9 @@ joiners have no pending ops and always load the authoritative graph.
 - Ctrl+D 复制 / Copy → `PendingCopyGroup` → `flushCopyGroup()`
 - 添加节点菜单搜索框 / Add-node menu search (`NodeRenderer.menuSearchText` + `appendMenuSearch`/`menuSearchBackspace`，双语 `search_hint`)/ Menu search box
 - 多人协作 Presence / Multiplayer presence (光标/节点锁/金色边框 / cursor/lock/golden border)
+- 顶栏 / Top bar (`TOP_BAR_H = 22`) — 左侧图名 EditBox（逐字符 SET_BLOCK_NAME 同步，便携终端按此查找）、右侧设置按钮；顶栏最后渲染、工具栏（顶/底两位置）与其余覆盖层必须让开它 / Left: graph-name EditBox (per-keystroke SET_BLOCK_NAME, the portable terminal looks devices up by it); right: settings button. The top bar renders last; the toolbar (both positions) and every other overlay must clear it
+- 设置弹窗 / Settings dialog (`showSettings`) — 三 tab：界面颜色（跳转既有 16 色面板，零迁移）、键位绑定（行内重绑 + 冲突提示 + 单行恢复默认）、节点指南（从 NodeType 元数据自动生成，说明文案走 `guide.<TYPE>` lang 键、缺键渲染为空）；面板矩形渲染时写入、命中时读取（单一坐标来源）/ Three tabs: colors (jumps to the existing 16-color panel, zero migration), key bindings (inline rebind + clash message + per-row reset), node guide (auto-generated from NodeType metadata; descriptions come from `guide.<TYPE>` lang keys, absent keys render nothing); the panel rect is written during render and read during hit-testing (one source of truth)
+- 画布交互键位 / Canvas-interaction bindings (`EditorKeys`) — 平移/上下文菜单/删除/撤销/重做/复制/重置视角/保存书签 共 8 个动作的「动作 → 键」单一来源，持久化到客户端 config（`editorKeys.` 前缀）；默认值与旧硬编码逐项一致 / Single source of truth for 8 action→key bindings, persisted into the client config (`editorKeys.` prefix); defaults replicate the old hardcodes exactly
 - 书签系统 / Bookmark system
 - BUS 冲突检测 / BUS conflict detection (`reevaluateBusConflicts`)
 - 调试工具交互 / Debug tool interaction (控制点拖拽、探针冻结 / control point drag, probe freeze)
