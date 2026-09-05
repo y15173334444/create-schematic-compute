@@ -53,6 +53,8 @@ public final class EditorKeys {
         CONTEXT_MENU(true, "editorkeys.context_menu"),
         /** 删除悬停节点 / delete the hovered node */
         DELETE_NODE(false, "editorkeys.delete"),
+        /** 删除选中节点（原 Backspace/Delete 硬编码，现默认 Delete） / delete the selected nodes (was hardcoded to Backspace/Delete; default is Delete now) */
+        DELETE_SELECTED(false, "editorkeys.delete_selected"),
         /** 撤销 / undo */
         UNDO(false, "editorkeys.undo"),
         /** 重做 / redo */
@@ -62,7 +64,9 @@ public final class EditorKeys {
         /** 重置视角 / reset the view */
         RESET_VIEW(false, "editorkeys.reset_view"),
         /** 保存视角书签 / save a view bookmark */
-        SAVE_BOOKMARK(false, "editorkeys.save_bookmark");
+        SAVE_BOOKMARK(false, "editorkeys.save_bookmark"),
+        /** 框选多选（按住生效；原 Tab 硬编码） / box-select mode (held; was hardcoded to Tab) */
+        BOX_SELECT(false, "editorkeys.box_select");
 
         /** true = 鼠标动作（绑定的是按键索引），false = 键盘动作（绑定键序列）。
          *  true = mouse action (bound to a button index); false = keyboard action
@@ -124,19 +128,21 @@ public final class EditorKeys {
         return switch (a) {
             case PAN -> 0;            // 左键拖动图 / left-drag pan
             case CONTEXT_MENU -> 1;   // 右键菜单 / right-click menu
-            case DELETE_NODE, UNDO, REDO, DUPLICATE, RESET_VIEW, SAVE_BOOKMARK -> -1;
+            case DELETE_NODE, DELETE_SELECTED, UNDO, REDO, DUPLICATE, RESET_VIEW, SAVE_BOOKMARK, BOX_SELECT -> -1;
         };
     }
 
     /** 键盘动作的出厂键码（-1 = 非键盘动作）。 / Factory keycode for a keyboard action (-1 = not a keyboard action). */
     private static int defaultKeyCode(Action a) {
         return switch (a) {
-            case DELETE_NODE -> 88;   // X
-            case UNDO -> 90;          // Ctrl+Z
-            case REDO -> 89;          // Ctrl+Y
-            case DUPLICATE -> 68;     // Ctrl+D
-            case RESET_VIEW -> 268;   // Home
-            case SAVE_BOOKMARK -> 77; // Ctrl+M
+            case DELETE_NODE -> 88;          // X
+            case DELETE_SELECTED -> 261;     // Delete
+            case UNDO -> 90;                 // Ctrl+Z
+            case REDO -> 89;                 // Ctrl+Y
+            case DUPLICATE -> 68;            // Ctrl+D
+            case RESET_VIEW -> 268;          // Home
+            case SAVE_BOOKMARK -> 77;        // Ctrl+M
+            case BOX_SELECT -> 258;          // Tab
             case PAN, CONTEXT_MENU -> -1;
         };
     }
@@ -144,7 +150,7 @@ public final class EditorKeys {
     /** 键盘动作的出厂修饰位。 / Factory modifier mask for a keyboard action. */
     private static int defaultKeyMods(Action a) {
         return switch (a) {
-            case DELETE_NODE, RESET_VIEW -> 0;
+            case DELETE_NODE, DELETE_SELECTED, RESET_VIEW, BOX_SELECT -> 0;
             case UNDO, REDO, DUPLICATE, SAVE_BOOKMARK -> MOD_CTRL;
             case PAN, CONTEXT_MENU -> 0;
         };

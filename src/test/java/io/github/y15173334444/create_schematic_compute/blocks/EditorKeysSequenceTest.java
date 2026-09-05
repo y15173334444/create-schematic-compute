@@ -45,6 +45,8 @@ class EditorKeysSequenceTest {
     void singleStepFires() {
         assertEquals(EditorKeys.Action.DELETE_NODE, EditorKeys.feedKey(88, 0, T));       // X
         assertEquals(EditorKeys.Action.RESET_VIEW, EditorKeys.feedKey(268, 0, T));       // Home
+        assertEquals(EditorKeys.Action.DELETE_SELECTED, EditorKeys.feedKey(261, 0, T)); // Delete
+        assertEquals(EditorKeys.Action.BOX_SELECT, EditorKeys.feedKey(258, 0, T));       // Tab
         assertFalse(EditorKeys.bufferActive());
     }
 

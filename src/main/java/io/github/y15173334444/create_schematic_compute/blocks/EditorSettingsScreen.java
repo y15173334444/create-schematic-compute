@@ -283,7 +283,7 @@ public class EditorSettingsScreen extends Screen {
             var actions = EditorKeys.Action.values();
             int cx = TAB_W + 12 - shift;
             int listRight = expanded ? cx + keysListW() : width - 14 - shift;
-            int rowH = 26;
+            int rowH = 22;
             if (expanded && keybindTarget >= 0) {
                 // 展开态：先键盘区（键帽 / 鼠标键 / 清除·确定），后动作行。
                 // Expanded: keyboard region first (caps / mouse buttons / clear·bind), then rows.
@@ -538,7 +538,7 @@ public class EditorSettingsScreen extends Screen {
           cap(";", 59, 1, 0), cap("'", 39, 1, 0), cap("Enter", 257, 2.25f, 0) },
         { cap("Shift", 0, 2.25f, EditorKeys.MOD_SHIFT), cap("Z", 90, 1, 0), cap("X", 88, 1, 0), cap("C", 67, 1, 0),
           cap("V", 86, 1, 0), cap("B", 66, 1, 0), cap("N", 78, 1, 0), cap("M", 77, 1, 0), cap(",", 44, 1, 0),
-          cap(".", 46, 1, 0), cap("/", 47, 1, 0), cap("Home", 268, 1.5f, 0), cap("▲", 265, 1, 0) },
+          cap(".", 46, 1, 0), cap("/", 47, 1, 0), cap("Home", 268, 1.5f, 0), cap("Del", 261, 1, 0), cap("▲", 265, 1, 0) },
         { cap("Ctrl", 0, 1.5f, EditorKeys.MOD_CTRL), cap("Alt", 0, 1.25f, EditorKeys.MOD_ALT), cap("Space", 32, 6, 0),
           cap("Alt", 0, 1.25f, EditorKeys.MOD_ALT), cap("Ctrl", 0, 1.5f, EditorKeys.MOD_CTRL),
           cap("◀", 263, 1, 0), cap("▼", 264, 1, 0), cap("▶", 262, 1, 0) },
@@ -551,7 +551,7 @@ public class EditorSettingsScreen extends Screen {
     /** 键帽单位尺寸：可用宽度 ÷ 最宽行（≈15.5 单位），钳制 10..24（窄窗口自动缩小）。 / keycap unit: available width ÷ the widest row (~15.5 units), clamped 10..24. */
     private float keysUnit() {
         int avail = width - 14 - keysListW() - 12 - KEYS_CHIPS_W - 12 - 24;
-        return Math.max(10f, Math.min(24f, avail / 15.5f));
+        return Math.max(10f, Math.min(24f, avail / 15.75f));
     }
 
     /** 键帽间距：小键帽缩到 1px 省宽（渲染与命中共用同一规则）。 / cap gap: 1px for small caps (shared by render and hit-testing). */
@@ -580,7 +580,7 @@ public class EditorSettingsScreen extends Screen {
     private void renderKeysTab(GuiGraphics g, int mx, int my, int cx, int cy,
                                int contentRight, int contentBottom) {
         var actions = EditorKeys.Action.values();
-        int rowH = 26;
+        int rowH = 22;
         int listRight = expanded ? cx + keysListW() : contentRight;
         int rowY = cy + 2;
         for (int i = 0; i < actions.length; i++) {
@@ -599,7 +599,7 @@ public class EditorSettingsScreen extends Screen {
             // Action name + current binding, truncated to the (narrowed) list width.
             String text = I18n.get("gui.create_schematic_compute." + a.langKey) + ":  " + cur;
             text = font.plainSubstrByWidth(text, listRight - (cx + 6) - 4);
-            g.drawString(font, text, cx + 6, rowY + 9, 0xFFCCCCCC, false);
+            g.drawString(font, text, cx + 6, rowY + 7, 0xFFCCCCCC, false);
             rowY += rowH;
         }
         // 冲突提示：收起态在列表底部；展开态移到操作条下方（contentBottom-12 处会被

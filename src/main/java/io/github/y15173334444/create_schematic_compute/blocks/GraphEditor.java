@@ -4887,7 +4887,12 @@ public class GraphEditor {
                 if (st.busBox != null && st.busBox.isFocused()) { commitBusBox(st); return true; }
             }
         }
-        if (key == 258) { // TAB — let popup consume first, otherwise use for box-select
+        // 框选键（BOX_SELECT 绑定，默认 Tab）按下时补全弹层优先 —— 弹层可见则由弹层消费，
+        // 不进入框选（原 258 硬编码行为；改绑后跟随绑定键）。
+        // While the box-select key (BOX_SELECT binding, Tab by default) is pressed, the
+        // suggestion popup takes priority — a visible popup consumes the key and no
+        // box-select starts (the old hardcoded-258 behavior; follows rebinds).
+        if (key == boxSelectKey()) {
             for (var st : nodeEditStatesById.values()) {
                 for (var f : st.fields) {
                     if (f.isFocused() && f instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mleBox) {
@@ -4900,7 +4905,6 @@ public class GraphEditor {
                     }
                 }
             }
-            tabHeld = true; return true;
         }
         // KEYBOARD 按键绑定捕获（GAMEPAD_BUTTON 由 renderBg 每帧轮询处理） (KEYBOARD key binding capture; GAMEPAD_BUTTON polled by renderBg each frame)
         if (!nodeEditStatesById.isEmpty()) {
@@ -4984,6 +4988,7 @@ public class GraphEditor {
             bookmarkNameDraft = "书签 " + (getGraph().bookmarks.size() + 1);
             return true;
         } else if (seqHit == EditorKeys.Action.RESET_VIEW) { startTransition(0, 0, 1f); return true; }
+        else if (seqHit == EditorKeys.Action.BOX_SELECT) { tabHeld = true; return true; } // 按住框选 / hold to box-select
         else if (seqHit == EditorKeys.Action.DUPLICATE && !selectedNodes.isEmpty()) {
             // 复制选中（支持多选）— 走服务端权威 ID 分配流程 / duplicate (multi-select) via server-authoritative IDs
             beginUndoBatch();
@@ -5039,10 +5044,9 @@ public class GraphEditor {
             pendingCopyGroups.put(groupId, group);
             return true;
         }
-        if (seqHit != null) return true; // 触发但前置不满足也消费（动作拥有该键）/ triggered with a failed precondition still consumes
-        if (EditorKeys.bufferActive()) return true; // 前缀等待：按键已被引擎消费 / prefix waiting: key consumed
-        // Delete 删除选中节点 (Delete key removes selected nodes)
-        if ((key == 259 || key == 261) && !selectedNodes.isEmpty()) {
+        else if (seqHit == EditorKeys.Action.DELETE_SELECTED && !selectedNodes.isEmpty()) {
+            // 删除选中节点（原 Backspace/Delete 硬编码，现可绑定，默认 Delete）
+            // Delete the selected nodes (was hardcoded to Backspace/Delete; bindable now, Delete by default)
             beginUndoBatch();
             for (var n : List.copyOf(selectedNodes)) {
                 if (isNodeLocked(n.id, ownerNodeId())) continue;
@@ -5075,6 +5079,8 @@ public class GraphEditor {
             selectedNode = null;
             return true;
         }
+        if (seqHit != null) return true; // 触发但前置不满足也消费（动作拥有该键）/ triggered with a failed precondition still consumes
+        if (EditorKeys.bufferActive()) return true; // 前缀等待：按键已被引擎消费 / prefix waiting: key consumed
         // C key: Create comment node around selection
         if (key == 67 && !net.minecraft.client.gui.screens.Screen.hasControlDown()
             && !selectedNodes.isEmpty()) {
@@ -5130,12 +5136,20 @@ public class GraphEditor {
         }
         return false;
     }
-    /** 处理按键释放——主要用于 TAB 键释放时退出框选模式。
-     *  Handle key release — mainly used to exit box-select mode when TAB is released.
+    /** 处理按键释放——主要用于框选键释放时退出框选模式（跟随 BOX_SELECT 绑定键）。
+     *  Handle key release — mainly used to exit box-select mode when the bound
+     *  BOX_SELECT key (follows rebinds) is released.
      *  @return true 如果事件被消费 / true if consumed */
     public boolean keyReleased(int key, int sc, int mod) {
-        if (key == 258) { tabHeld = false; return true; }
+        if (key == boxSelectKey()) { tabHeld = false; return true; }
         return false;
+    }
+
+    /** 框选键（BOX_SELECT 绑定序列末步的键，默认 Tab）。
+     *  The box-select key (last step of the BOX_SELECT binding, Tab by default). */
+    private static int boxSelectKey() {
+        var seq = EditorKeys.sequence(EditorKeys.Action.BOX_SELECT);
+        return seq.isEmpty() ? 258 : seq.get(seq.size() - 1).key();
     }
     /** 处理字符输入——菜单搜索、书签命名、EditBox 文本输入。
      *  Handle character input — menu search, bookmark naming, EditBox text input.
