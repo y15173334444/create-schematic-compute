@@ -43,8 +43,13 @@ public class EditorSettingsScreen extends Screen {
     /** 当前选项卡；初始值取 lastTab。 / active tab; initialized from lastTab. */
     private int tab = lastTab;
 
-    /** 正在等待重绑的动作 ordinal，-1 = 无。 / the action awaiting a rebind (ordinal), -1 = none. */
-    private int listeningBinding = -1;
+    /** 键位 tab：展开虚拟键盘后正在设置的动作 ordinal，-1 = 未选中/收起。
+     *  Keys tab: the action being set while the virtual keyboard is open, -1 = none/collapsed. */
+    private int keybindTarget = -1;
+    /** 主键单选槽（GLFW 键码，0 = 未选）。 / main-key slot (GLFW keycode, 0 = none). */
+    private int pendingKey = 0;
+    /** 挂起的修饰位（Ctrl/Shift/Alt 开关累积，EditorKeys.MOD_* 掩码）。 / pending modifier mask (latched Ctrl/Shift/Alt toggles). */
+    private int pendingMods = 0;
     /** 重绑冲突提示（显示在内容区底部，非空即显示）。 / rebind clash message shown at the content bottom when non-null. */
     private String rebindConflict;
     /** 节点指南列表的滚动偏移（行数）。 / node-guide list scroll offset, in rows. */
@@ -137,37 +142,7 @@ public class EditorSettingsScreen extends Screen {
         if (tab == 0) {
             renderColorsTab(g, mx, my, cx, cy, contentRight, contentBottom, contentW);
         } else if (tab == 1) {
-            // 键位绑定列表：点击行进入监听，随后按下的鼠标键 / 键盘键成为新绑定。
-            // Key-binding list: click a row to listen, then the next mouse button or
-            // key becomes the new binding.
-            var actions = EditorKeys.Action.values();
-            int rowH = 26;
-            int rowY = cy + 2;
-            for (int i = 0; i < actions.length; i++) {
-                var a = actions[i];
-                boolean listening = listeningBinding == a.ordinal();
-                boolean hov = !listening && mx >= cx && mx <= contentRight - 40 && my >= rowY && my <= rowY + rowH - 2;
-                if (listening) g.fill(cx, rowY, contentRight, rowY + rowH - 2, 0xFF5A3A2A);
-                else if (hov) g.fill(cx, rowY, contentRight, rowY + rowH - 2, 0xFF3A4A3A);
-                String cur;
-                if (a.mouse) {
-                    cur = I18n.get("gui.create_schematic_compute.editorkeys.mouse." + EditorKeys.mouseButton(a));
-                } else {
-                    cur = EditorKeys.modsText(EditorKeys.keyModifiers(a)) + keyName(EditorKeys.keyCode(a));
-                }
-                String text = listening
-                    ? I18n.get("gui.create_schematic_compute.editorkeys.rebind_hint")
-                    : I18n.get(a.langKey) + ":  " + cur;
-                g.drawString(font, listening ? "§e" + text : text, cx + 6, rowY + 9, 0xFFCCCCCC, false);
-                // 行尾"默认"按钮 —— 单动作恢复出厂绑定 / row-end reset-to-default button
-                boolean rbHov = mx >= contentRight - 34 && mx <= contentRight - 8 && my >= rowY + 4 && my <= rowY + rowH - 6;
-                g.fill(contentRight - 34, rowY + 4, contentRight - 8, rowY + rowH - 6, rbHov ? 0xFF4A5A2A : 0xFF3A3428);
-                g.renderOutline(contentRight - 34, rowY + 4, 26, rowH - 10, 0xFF6A8A3A);
-                g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.reset_default"), contentRight - 32, rowY + 9, 0xFFFFFFFF, false);
-                rowY += rowH;
-            }
-            if (rebindConflict != null)
-                g.drawString(font, "§c" + rebindConflict, cx, contentBottom - 12, 0xFFFFFFFF, false);
+            renderKeysTab(g, mx, my, cx, cy, contentRight, contentBottom);
         } else {
             // 节点指南：从 NodeType 元数据自动生成 —— 名称走既有 lang 键，引脚与参数
             // 来自枚举字段，新增节点零成本跟上；说明文案（guide.* lang 键）按需补，
@@ -232,20 +207,6 @@ public class EditorSettingsScreen extends Screen {
 
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
-        // 重绑监听（最高优先）：鼠标动作捕获本次按键。
-        // Rebind listening (top priority): mouse actions capture this button.
-        if (listeningBinding >= 0) {
-            var a = EditorKeys.Action.values()[listeningBinding];
-            if (!a.mouse) {
-                rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_mouse_only");
-            } else if (!EditorKeys.setMouseBinding(a, btn)) {
-                rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.conflict");
-            } else {
-                rebindConflict = null;
-            }
-            listeningBinding = -1;
-            return true;
-        }
         int shift = Math.round(TAB_W * slide);
         // ── 颜色 tab：调色板优先，其次完成/恢复默认/应用/行 ──
         //    Colors tab: palette first, then done/defaults/apply/rows.
@@ -254,16 +215,7 @@ public class EditorSettingsScreen extends Screen {
             // 此区域变成平移后的行列表（mx < TAB_W - shift 自然为空）。
             // While the tab column is on-screen it responds first — in adjust mode it
             // has slid off-screen and this region is the shifted row list instead.
-            if (mx < TAB_W - shift) {
-                int idx = (int) ((my - 36) / 30);
-                if (idx >= 0 && idx <= 3) {
-                    if (idx == 3) { onClose(); return true; } // 返回项 / back entry
-                    if (expanded) collapsePalette();
-                    if (idx != 0) stagingInited = false;
-                    tab = idx; lastTab = idx;
-                }
-                return true;
-            }
+            if (mx < TAB_W - shift) { tabColumnClick(my); return true; }
             if (expanded && picker.contains((int) mx, (int) my)) return picker.mouseClicked(mx, my, btn);
             // 确认按钮：把工作色填入槽位 —— 调色板保持展开，不自行关闭。
             // Confirm button: fills the working color into the slot — the palette
@@ -318,68 +270,93 @@ public class EditorSettingsScreen extends Screen {
             }
             return true;
         }
+        // ── 键位 tab：选项卡列 / 动作行 / 键帽 / 鼠标键 / 清除·确定 ──
+        //    Keys tab: tab column / action rows / keycaps / mouse buttons / clear·bind.
+        if (tab == 1) {
+            // 选项卡列仍可见时优先响应选项卡/返回点击 —— 展开态该列已滑出屏幕，
+            // 此区域变成平移后的列表区（mx < TAB_W - shift 自然为空）。
+            if (mx < TAB_W - shift) { tabColumnClick(my); return true; }
+            var actions = EditorKeys.Action.values();
+            int cx = TAB_W + 12 - shift;
+            int listRight = expanded ? cx + keysListW() : width - 14 - shift;
+            int rowH = 26;
+            if (expanded && keybindTarget >= 0) {
+                // 展开态：先键盘区（键帽 / 鼠标键 / 清除·确定），后动作行。
+                // Expanded: keyboard region first (caps / mouse buttons / clear·bind), then rows.
+                float u = keysUnit();
+                int chipsX = width - 14 - KEYS_CHIPS_W;
+                for (int m = 0; m < 3; m++) {
+                    int chy = cy() + 2 + m * 24;
+                    if (mx >= chipsX && mx <= chipsX + KEYS_CHIPS_W && my >= chy && my <= chy + 20) {
+                        handleChipClick(actions[keybindTarget], m); return true;
+                    }
+                }
+                float kx0 = chipsX - 12 - keysGridW(u);
+                float ky = cy() + 2;
+                for (var row : KEY_ROWS) {
+                    float kx = kx0;
+                    for (var c : row) {
+                        float w = c.w() * u;
+                        if (mx >= kx && mx <= kx + w && my >= ky && my <= ky + u) { handleKeycapClick(c); return true; }
+                        kx += w + 2;
+                    }
+                    ky += u + 3;
+                }
+                int barY = (int) ky + 8;
+                if (my >= barY && my <= barY + 16 && mx >= chipsX) {
+                    if (mx <= chipsX + 64) { pendingKey = 0; pendingMods = 0; rebindConflict = null; return true; } // 清除 / clear
+                    if (mx >= chipsX + 72 && mx <= chipsX + 142) { confirmKeybind(); return true; }                // 确定 / bind
+                }
+            }
+            // 动作行：行 = 选中并展开键盘（渲染与命中共用同一行几何）；行尾按钮 = 恢复默认。
+            int rowY = cy() + 2;
+            for (int i = 0; i < actions.length; i++) {
+                if (mx >= listRight - 34 && mx <= listRight - 8 && my >= rowY + 4 && my <= rowY + rowH - 6) {
+                    EditorKeys.resetToDefault(actions[i]); rebindConflict = null; return true;
+                }
+                if (mx >= cx && mx <= listRight - 40 && my >= rowY && my <= rowY + rowH - 2) {
+                    selectKeybindRow(i); return true;
+                }
+                rowY += rowH;
+            }
+            // 收起按钮 / collapse button
+            int clY = cy() + 2 + actions.length * rowH + 6;
+            if (expanded && mx >= cx && mx <= cx + 64 && my >= clY && my <= clY + 16) { collapseExpanded(); return true; }
+            return true;
+        }
         // 左侧选项卡列（列内空白也消费 —— 全屏界面不穿透）；末尾返回项关闭界面。
         // Left tab column (blank areas included — the full-screen GUI never falls
         // through); the trailing back entry closes the screen.
-        if (mx < TAB_W) {
-            int idx = (int) ((my - 36) / 30);
-            if (idx >= 0 && idx <= 3) {
-                if (idx == 3) { onClose(); return true; } // 返回项 / back entry
-                if (expanded) collapsePalette();             // 收起调色板 / collapse the palette
-                if (tab == 0 && idx != 0) stagingInited = false; // 离开颜色 tab 丢弃未应用暂存 / leaving colors discards unapplied staging
-                tab = idx; lastTab = idx;
-            }
-            return true;
-        }
-        // 键位行命中 → 进入监听（渲染与命中共用同一行几何）
-        // Key-binding row hit → start listening (render and hit-test share geometry).
-        if (tab == 1 && my >= cy() && my <= cy() + EditorKeys.Action.values().length * 26) {
-            int idx = (int) ((my - cy()) / 26);
-            if (idx >= 0 && idx < EditorKeys.Action.values().length) {
-                // 行尾"默认"按钮 → 恢复该动作的出厂绑定 / row-end button → restore default
-                int rbX = width - 48;
-                if (mx >= rbX && mx <= rbX + 26) {
-                    EditorKeys.resetToDefault(EditorKeys.Action.values()[idx]);
-                    rebindConflict = null; return true;
-                }
-                listeningBinding = idx; rebindConflict = null; return true;
-            }
-        }
+        if (mx < TAB_W) tabColumnClick(my);
         return true; // 全屏设置界面消费一切点击 / the full-screen settings GUI consumes all clicks
+    }
+
+    /** 选项卡列点击：末项返回界面；重复点击当前 tab 收起其展开区；切换 tab 先收起再切。
+     *  Tab-column click: the last entry goes back; re-clicking the active tab collapses
+     *  its expansion; switching tabs collapses first. */
+    private void tabColumnClick(double my) {
+        int idx = (int) ((my - 36) / 30);
+        if (idx < 0 || idx > 3) return;
+        if (idx == 3) { onClose(); return; } // 返回项 / back entry
+        if (expanded) collapseExpanded();
+        if (tab == 0 && idx != 0) stagingInited = false; // 离开颜色 tab 丢弃未应用暂存 / leaving colors discards unapplied staging
+        tab = idx; lastTab = idx;
     }
 
     @Override
     public boolean keyPressed(int key, int sc, int mod) {
-        // 重绑监听（最高优先）：键盘动作捕获本次按键（连修饰一起），ESC 取消。
-        // Rebind listening (top priority): keyboard actions capture this key together
-        // with the current modifiers; ESC cancels.
-        if (listeningBinding >= 0) {
-            if (key == 256) { listeningBinding = -1; return true; }
-            var a = EditorKeys.Action.values()[listeningBinding];
-            if (a.mouse) {
-                rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_key_only");
-            } else if (!EditorKeys.setKeyBinding(a, key,
-                (Screen.hasControlDown() ? EditorKeys.MOD_CTRL : 0)
-                | (Screen.hasShiftDown() ? EditorKeys.MOD_SHIFT : 0)
-                | (Screen.hasAltDown() ? EditorKeys.MOD_ALT : 0))) {
-                rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.conflict");
-            } else {
-                rebindConflict = null;
-            }
-            listeningBinding = -1;
-            return true;
-        }
         // 调色板 HEX 输入框聚焦时转发按键（退格/方向键等），ESC 仍归本界面。
         // While the palette's hex input is focused, forward keys (backspace/arrows);
         // ESC still belongs to this screen.
         if (expanded && picker.isHexFocused() && key != 256) return picker.keyPressed(key, sc, mod);
         if (key == 256) {
-            if (expanded) { collapsePalette(); return true; } // ESC 先收起调色板 / ESC collapses the palette first
+            if (expanded) { collapseExpanded(); return true; } // ESC 先收起展开区（调色板/键盘） / ESC collapses the open palette or keyboard first
             onClose(); return true;
         }
-        // 界面内没有文本输入框 —— 其余按键一律消费（不落到背后世界）。
-        // No text inputs inside — consume every other key (nothing leaks to the
-        // world behind).
+        // 物理键盘一律忽略 —— 键位绑定是纯屏幕操作（点键帽选择 + 确定落绑定）；
+        // 无其他文本输入，其余按键全部消费（不落到背后世界）。
+        // Physical keys are ignored — rebinding is a pure on-screen flow (pick caps,
+        // then Bind). No other text inputs: consume everything else (nothing leaks).
         return true;
     }
 
@@ -526,6 +503,202 @@ public class EditorSettingsScreen extends Screen {
         }
     }
 
+    /** 虚拟键帽：label 显示文本、code GLFW 键码（0 = 纯修饰开关）、w 宽度（键帽单位）、
+     *  modBit 非零 = 修饰开关（点击翻转该修饰位，不进主键槽）。
+     *  A virtual keycap: label, GLFW code (0 = pure modifier toggle), width in keycap
+     *  units, modBit != 0 = modifier toggle (clicks flip the bit, never the main-key slot). */
+    private record Keycap(String label, int code, float w, int modBit) { }
+
+    private static Keycap cap(String label, int code, float w, int modBit) { return new Keycap(label, code, w, modBit); }
+
+    /** 无 F 行紧凑配列：Esc + 数字行 + 三行字母 + 底部修饰行，右缘塞下 Home 与方向键。
+     *  Esc 键帽 = 清空当前选择（Esc 是编辑器保留键，不可绑）；L/R 修饰键帽共用同一开关位。
+     *  No-F-row compact layout. The Esc cap clears the selection (Esc is a reserved
+     *  editor key, not bindable); the L/R modifier caps share one toggle bit. */
+    private static final Keycap[][] KEY_ROWS = {
+        { cap("Esc", 256, 1, 0), cap("`", 96, 1, 0), cap("1", 49, 1, 0), cap("2", 50, 1, 0), cap("3", 51, 1, 0),
+          cap("4", 52, 1, 0), cap("5", 53, 1, 0), cap("6", 54, 1, 0), cap("7", 55, 1, 0), cap("8", 56, 1, 0),
+          cap("9", 57, 1, 0), cap("0", 48, 1, 0), cap("-", 45, 1, 0), cap("=", 61, 1, 0), cap("Bksp", 259, 2, 0) },
+        { cap("Tab", 258, 1.5f, 0), cap("Q", 81, 1, 0), cap("W", 87, 1, 0), cap("E", 69, 1, 0), cap("R", 82, 1, 0),
+          cap("T", 84, 1, 0), cap("Y", 89, 1, 0), cap("U", 85, 1, 0), cap("I", 73, 1, 0), cap("O", 79, 1, 0),
+          cap("P", 80, 1, 0), cap("[", 91, 1, 0), cap("]", 93, 1, 0), cap("\\", 92, 1.5f, 0) },
+        { cap("Caps", 280, 1.75f, 0), cap("A", 65, 1, 0), cap("S", 83, 1, 0), cap("D", 68, 1, 0), cap("F", 70, 1, 0),
+          cap("G", 71, 1, 0), cap("H", 72, 1, 0), cap("J", 74, 1, 0), cap("K", 75, 1, 0), cap("L", 76, 1, 0),
+          cap(";", 59, 1, 0), cap("'", 39, 1, 0), cap("Enter", 257, 2.25f, 0) },
+        { cap("Shift", 0, 2.25f, EditorKeys.MOD_SHIFT), cap("Z", 90, 1, 0), cap("X", 88, 1, 0), cap("C", 67, 1, 0),
+          cap("V", 86, 1, 0), cap("B", 66, 1, 0), cap("N", 78, 1, 0), cap("M", 77, 1, 0), cap(",", 44, 1, 0),
+          cap(".", 46, 1, 0), cap("/", 47, 1, 0), cap("Home", 268, 1.5f, 0), cap("▲", 265, 1, 0) },
+        { cap("Ctrl", 0, 1.5f, EditorKeys.MOD_CTRL), cap("Alt", 0, 1.25f, EditorKeys.MOD_ALT), cap("Space", 32, 6, 0),
+          cap("Alt", 0, 1.25f, EditorKeys.MOD_ALT), cap("Ctrl", 0, 1.5f, EditorKeys.MOD_CTRL),
+          cap("◀", 263, 1, 0), cap("▼", 264, 1, 0), cap("▶", 262, 1, 0) },
+    };
+
+    /** 键位 tab 展开态：动作列表窄列宽 / 鼠标键列宽。 / expanded keys tab: narrow list width / mouse-column width. */
+    private int keysListW() { return Math.max(170, Math.min(260, width / 3)); }
+    private static final int KEYS_CHIPS_W = 72;
+
+    /** 键帽单位尺寸：可用宽度 ÷ 最宽行（≈15.5 单位），钳制 13..24（矮窗口自动缩小）。 / keycap unit: available width ÷ the widest row (~15.5 units), clamped 13..24. */
+    private float keysUnit() {
+        int avail = width - 14 - keysListW() - 12 - KEYS_CHIPS_W - 12 - 24;
+        return Math.max(13f, Math.min(24f, avail / 15.5f));
+    }
+
+    /** 键盘网格总宽（像素，含键帽间距）。 / keyboard grid width in pixels (gaps included). */
+    private static float keysGridW(float u) {
+        float max = 0;
+        for (var row : KEY_ROWS) {
+            float w = 0;
+            for (var c : row) w += c.w() * u + 2;
+            max = Math.max(max, w - 2);
+        }
+        return max;
+    }
+
+    /** 键位 tab 渲染：收起态为全宽动作列表；点击行后界面左滑（展开态）—— 左侧窄列列表 +
+     *  右侧虚拟键盘 + 鼠标三键。选择语义：修饰键帽 = 开关可多选，非修饰键帽 = 主键单选槽；
+     *  底部实时预览，点「确定绑定」才落绑定（冲突检查）；选中动作的现值键帽描边显示。
+     *  Keys tab rendering: collapsed = full-width action list; clicking a row slides the
+     *  UI left (expanded) into a narrow list + virtual keyboard + three mouse buttons.
+     *  Modifier caps are toggles, non-modifier caps fill the single main-key slot; the
+     *  bottom bar previews live and only Bind commits (clash-checked); the action's
+     *  current binding caps are outlined. */
+    private void renderKeysTab(GuiGraphics g, int mx, int my, int cx, int cy,
+                               int contentRight, int contentBottom) {
+        var actions = EditorKeys.Action.values();
+        int rowH = 26;
+        int listRight = expanded ? cx + keysListW() : contentRight;
+        int rowY = cy + 2;
+        for (int i = 0; i < actions.length; i++) {
+            var a = actions[i];
+            boolean selected = expanded && keybindTarget == i;
+            boolean hov = !selected && mx >= cx && mx <= listRight - 40 && my >= rowY && my <= rowY + rowH - 2;
+            if (selected) g.fill(cx, rowY, listRight, rowY + rowH - 2, 0xFF2A3A5A);
+            else if (hov) g.fill(cx, rowY, listRight, rowY + rowH - 2, 0xFF3A4A3A);
+            String cur;
+            if (a.mouse) {
+                cur = I18n.get("gui.create_schematic_compute.editorkeys.mouse." + EditorKeys.mouseButton(a));
+            } else {
+                cur = EditorKeys.modsText(EditorKeys.keyModifiers(a)) + keyName(EditorKeys.keyCode(a));
+            }
+            g.drawString(font, I18n.get(a.langKey) + ":  " + cur, cx + 6, rowY + 9, 0xFFCCCCCC, false);
+            // 行尾"默认"按钮 —— 单动作恢复出厂绑定 / row-end reset-to-default button
+            boolean rbHov = mx >= listRight - 34 && mx <= listRight - 8 && my >= rowY + 4 && my <= rowY + rowH - 6;
+            g.fill(listRight - 34, rowY + 4, listRight - 8, rowY + rowH - 6, rbHov ? 0xFF4A5A2A : 0xFF3A3428);
+            g.renderOutline(listRight - 34, rowY + 4, 26, rowH - 10, 0xFF6A8A3A);
+            g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.reset_default"), listRight - 32, rowY + 9, 0xFFFFFFFF, false);
+            rowY += rowH;
+        }
+        if (rebindConflict != null)
+            g.drawString(font, "§c" + rebindConflict, cx, contentBottom - 12, 0xFFFFFFFF, false);
+        if (!expanded || keybindTarget < 0) return;
+
+        // ── 展开态：右侧虚拟键盘 + 鼠标三键 + 底部 预览/清除/确定 ──
+        // Expanded: virtual keyboard + mouse buttons on the right, preview/clear/bind bar.
+        float u = keysUnit();
+        int chipsX = width - 14 - KEYS_CHIPS_W;
+
+        // 鼠标三键（竖排；点击即直接绑定 —— 鼠标动作无修饰概念）。
+        // Mouse buttons (vertical; a click binds immediately — no modifier concept).
+        for (int m = 0; m < 3; m++) {
+            int chy = cy + 2 + m * 24;
+            boolean chov = mx >= chipsX && mx <= chipsX + KEYS_CHIPS_W && my >= chy && my <= chy + 20;
+            g.fill(chipsX, chy, chipsX + KEYS_CHIPS_W, chy + 20, chov ? 0xFF3A4A6A : 0xFF2A2A3A);
+            g.renderOutline(chipsX, chy, KEYS_CHIPS_W, 20, NodeRenderer.CSB());
+            g.drawString(font, I18n.get("gui.create_schematic_compute.editorkeys.mouse." + m),
+                chipsX + 8, chy + 6, 0xFFCCCCFF, false);
+        }
+
+        // 键盘（行左对齐，宽键向右伸出，真实配列观感）。
+        // Keyboard rows left-aligned with wide keys overhanging right, like a real board.
+        float kx0 = chipsX - 12 - keysGridW(u);
+        float ky = cy + 2;
+        var target = actions[keybindTarget];
+        for (var row : KEY_ROWS) {
+            float kx = kx0;
+            for (var c : row) {
+                float w = c.w() * u;
+                boolean hov = mx >= kx && mx <= kx + w && my >= ky && my <= ky + u;
+                int bg = hov ? 0xFF3A4A6A : 0xFF2A2832;
+                if (c.modBit() != 0 && (pendingMods & c.modBit()) != 0) bg = 0xFF2A4A6A; // 挂起修饰 / latched mod
+                if (c.code() > 0 && c.code() == pendingKey) bg = 0xFF2A5A3A;             // 主键槽 / main-key slot
+                g.fill((int) kx, (int) ky, (int) (kx + w), (int) (ky + u), bg);
+                // 选中动作现值的键帽描边（主键绿 / 修饰蓝） / outline the current binding caps (green key / blue mods)
+                boolean boundKey = !target.mouse && c.code() > 0 && c.code() == EditorKeys.keyCode(target);
+                boolean boundMod = c.modBit() != 0 && (EditorKeys.keyModifiers(target) & c.modBit()) != 0;
+                g.renderOutline((int) kx, (int) ky, (int) w, (int) u, boundKey ? 0xFF5A8A3A : boundMod ? 0xFF5A7AAA : NodeRenderer.CSB());
+                g.drawString(font, c.label(), (int) (kx + w / 2 - font.width(c.label()) / 2), (int) (ky + u / 2 - 4), 0xFFCCCCCC, false);
+                kx += w + 2;
+            }
+            ky += u + 3;
+        }
+
+        // 底部操作条：实时预览 + 清除 + 确定绑定 / bottom bar: live preview + clear + bind
+        int barY = (int) ky + 8;
+        String preview = I18n.get("gui.create_schematic_compute.settings.bind_label") + ": "
+            + (pendingKey > 0 ? EditorKeys.modsText(pendingMods) + keyName(pendingKey) : "—");
+        g.drawString(font, "§e" + preview, (int) kx0, barY + 4, 0xFFFFFFFF, false);
+        g.fill(chipsX, barY, chipsX + 64, barY + 16, 0xFF3A3428);
+        g.renderOutline(chipsX, barY, 64, 16, NodeRenderer.CSB());
+        g.drawString(font, "§7" + I18n.get("gui.create_schematic_compute.settings.bind_clear"), chipsX + 16, barY + 4, 0xFFFFFFFF, false);
+        g.fill(chipsX + 72, barY, chipsX + 142, barY + 16, 0xFF3A5A2A);
+        g.renderOutline(chipsX + 72, barY, 70, 16, 0xFF5A8A3A);
+        g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.bind_confirm"), chipsX + 80, barY + 4, 0xFFFFFFFF, false);
+
+        // 收起按钮（列表列底部，与颜色 tab 的收起同款样式） / collapse button (list column bottom)
+        int clY = cy + 2 + actions.length * rowH + 6;
+        boolean clHov = mx >= cx && mx <= cx + 64 && my >= clY && my <= clY + 16;
+        g.fill(cx, clY, cx + 64, clY + 16, clHov ? 0xFF3A4A5A : 0xFF2A3A5A);
+        g.renderOutline(cx, clY, 64, 16, NodeRenderer.CSB());
+        g.drawString(font, "§f" + I18n.get("gui.create_schematic_compute.settings.collapse"), cx + 16, clY + 4, 0xFFFFFFFF, false);
+    }
+
+    /** 键帽点击：修饰键帽翻转开关位；Esc 键帽清空选择；其余进主键单选槽（点新键替换旧键）。
+     *  Keycap click: modifier caps flip their toggle bit; the Esc cap clears the
+     *  selection; everything else fills the main-key slot (a new click replaces it). */
+    private void handleKeycapClick(Keycap c) {
+        if (c.modBit() != 0) { pendingMods ^= c.modBit(); return; }
+        if (c.code() == 256) { pendingKey = 0; pendingMods = 0; rebindConflict = null; return; }
+        var a = EditorKeys.Action.values()[keybindTarget];
+        if (a.mouse) { rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_key_only"); return; }
+        pendingKey = c.code();
+    }
+
+    /** 鼠标键点击：鼠标动作直接绑定该键（无修饰概念）；键盘动作不可绑鼠标键。 / Mouse-chip click: mouse actions bind immediately (no modifiers); keyboard actions refuse. */
+    private void handleChipClick(EditorKeys.Action a, int button) {
+        if (!a.mouse) { rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_mouse_only"); return; }
+        rebindConflict = EditorKeys.setMouseBinding(a, button)
+            ? null : I18n.get("gui.create_schematic_compute.editorkeys.conflict");
+    }
+
+    /** 「确定绑定」：把（主键 + 修饰位）落到当前动作，冲突拒绝；成功后清空选择便于连设下一个动作。 / Bind: commit (main key + mods) to the action, clash-checked; cleared on success for the next action. */
+    private void confirmKeybind() {
+        var a = EditorKeys.Action.values()[keybindTarget];
+        if (a.mouse) { rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_mouse_only"); return; }
+        if (pendingKey <= 0) { rebindConflict = I18n.get("gui.create_schematic_compute.settings.bind_need_key"); return; }
+        rebindConflict = EditorKeys.setKeyBinding(a, pendingKey, pendingMods)
+            ? null : I18n.get("gui.create_schematic_compute.editorkeys.conflict");
+        if (rebindConflict == null) { pendingKey = 0; pendingMods = 0; }
+    }
+
+    /** 选中动作行并展开虚拟键盘：预填该动作当前绑定（主键 + 修饰位），所见即所改。 / Select an action row and open the keyboard, pre-filled with the current binding. */
+    private void selectKeybindRow(int idx) {
+        keybindTarget = idx;
+        var a = EditorKeys.Action.values()[idx];
+        pendingKey = a.mouse ? 0 : EditorKeys.keyCode(a);
+        pendingMods = a.mouse ? 0 : EditorKeys.keyModifiers(a);
+        rebindConflict = null;
+        expanded = true;
+    }
+
+    /** 收起当前 tab 的展开区（颜色调色板 / 键位键盘）并清空各自的暂选状态。 / Collapse whichever expansion is open (palette / keyboard) and clear its pending state. */
+    private void collapseExpanded() {
+        if (tab == 0) { collapsePalette(); return; }
+        expanded = false;
+        keybindTarget = -1;
+        pendingKey = 0;
+        pendingMods = 0;
+    }
+
     /** 开始调整某个颜色槽：切换到展开形态（整个界面左滑），调色板绑定该槽的工作色
      *  —— 实时写入工作色，确认键才填入槽位。
      *  Begin adjusting a color slot: switch to the expanded form (UI slides left)
@@ -622,7 +795,7 @@ public class EditorSettingsScreen extends Screen {
         colorScroll = Math.max(0, Math.min(maxScroll, newOff));
     }
 
-    /** GLFW 键码的可读名（设置界面显示用）。 / Readable name for a GLFW keycode (settings UI). */
+    /** GLFW 键码的可读名（设置界面显示用，覆盖虚拟键盘全部键帽）。 / Readable name for a GLFW keycode (settings UI; covers every virtual cap). */
     private static String keyName(int k) {
         if (k >= 65 && k <= 90) return String.valueOf((char) ('A' + (k - 65)));
         if (k >= 48 && k <= 57) return String.valueOf((char) ('0' + (k - 48)));
@@ -630,7 +803,12 @@ public class EditorSettingsScreen extends Screen {
             case 256 -> "Esc"; case 257 -> "Enter"; case 258 -> "Tab"; case 259 -> "Backspace";
             case 260 -> "Ins"; case 261 -> "Del"; case 263 -> "Left"; case 262 -> "Right";
             case 265 -> "Up"; case 264 -> "Down"; case 266 -> "PgUp"; case 267 -> "PgDn";
-            case 268 -> "Home"; case 269 -> "End"; default -> "Key " + k;
+            case 268 -> "Home"; case 269 -> "End";
+            case 32 -> "Space"; case 280 -> "Caps";
+            case 39 -> "'"; case 44 -> ","; case 45 -> "-"; case 46 -> "."; case 47 -> "/";
+            case 59 -> ";"; case 61 -> "="; case 91 -> "["; case 92 -> "\\"; case 93 -> "]"; case 96 -> "`";
+            case 340, 344 -> "Shift"; case 341, 345 -> "Ctrl"; case 342, 346 -> "Alt";
+            default -> "Key " + k;
         };
     }
 }
