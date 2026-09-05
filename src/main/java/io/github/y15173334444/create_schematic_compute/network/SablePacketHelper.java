@@ -248,6 +248,49 @@ public class SablePacketHelper {
         return results;
     }
 
+    /** 设备显示名：自定义名（graph.customName，编辑器顶栏设置）优先，回退到方块类型名。
+     *  必须与客户端本地扫描（PortableTerminalScreen.scanNearbyBlocks）的取名逻辑一致，
+     *  否则两条路径产出的列表对不上、搜索行为不一致。
+     *  Device display name: the custom name (graph.customName, set in the editor top
+     *  bar) wins, falling back to the block type name. Must mirror the client-side
+     *  local scan (PortableTerminalScreen.scanNearbyBlocks), or the two paths produce
+     *  lists that disagree and search behaves inconsistently. */
+    private static String deviceDisplayName(BlockEntity be) {
+        String custom = resolveCustomName(be);
+        return custom != null && !custom.isEmpty() ? custom : be.getBlockState().getBlock().getName().getString();
+    }
+
+    /** 跨类加载器安全的自定义名读取（详见 {@link #findGraphInterface(Class)} 的背景）。
+     *  快路径：同加载器 instanceof（本地扫描 / 普通方块）。
+     *  慢路径：Sable 拷贝 —— 接口同 FQN 不同 Class，instanceof 恒 false，此处按
+     *  {@link #isGraphBlockEntity} 相同的 FQN 遍历定位接口后反射调用 getCustomName；
+     *  默认方法执行在拷贝自己的加载器里，返回的 String 全局共享，值可正常互通。
+     *  Cross-classloader-safe custom-name read. Fast path: same-loader instanceof
+     *  (local scan / ordinary blocks). Slow path: Sable copies — the interface has the
+     *  same FQN but is a different Class, so instanceof is always false; locate the
+     *  interface via the same FQN walk {@link #isGraphBlockEntity} uses and invoke
+     *  getCustomName reflectively. The default method runs in the copy's own loader
+     *  and the returned String is globally shared, so the value crosses safely. */
+    static String resolveCustomName(Object be) {
+        if (be instanceof GraphBlockEntity gbe) {
+            String custom = gbe.getCustomName();
+            return custom != null ? custom : "";
+        }
+        Class<?> iface = findGraphInterface(be.getClass());
+        if (iface != null) {
+            try {
+                Object r = iface.getMethod("getCustomName").invoke(be);
+                return r != null ? r.toString() : "";
+            } catch (Exception e) {
+                // 反射失败 → 视为无名，调用方回退到类型名（与旧行为一致，不中断扫描）。
+                // Reflection failure → treat as unnamed; the caller falls back to the
+                // type name (old behaviour), the scan is never interrupted.
+                SchematicCompute.LOGGER.warn("SablePacketHelper.resolveCustomName reflective read failed: {}", e.toString());
+            }
+        }
+        return "";
+    }
+
     /**
      * Checks if a BlockEntity implements {@link GraphBlockEntity}, handling
      * cross-classloader scenarios (e.g. when Sable copies block entities into
@@ -266,45 +309,44 @@ public class SablePacketHelper {
      * @param be the block entity to test / 要检查的方块实体
      * @return true if it is / implements GraphBlockEntity / 如果是 GraphBlockEntity 则返回 true
      */
-    /** 设备显示名：自定义名（graph.customName，编辑器顶栏设置）优先，回退到方块类型名。
-     *  必须与客户端本地扫描（PortableTerminalScreen.scanNearbyBlocks）的取名逻辑一致，
-     *  否则两条路径产出的列表对不上、搜索行为不一致。
-     *  Device display name: the custom name (graph.customName, set in the editor top
-     *  bar) wins, falling back to the block type name. Must mirror the client-side
-     *  local scan (PortableTerminalScreen.scanNearbyBlocks), or the two paths produce
-     *  lists that disagree and search behaves inconsistently. */
-    private static String deviceDisplayName(BlockEntity be) {
-        if (be instanceof GraphBlockEntity gbe) {
-            String custom = gbe.getCustomName();
-            if (custom != null && !custom.isEmpty()) return custom;
-        }
-        return be.getBlockState().getBlock().getName().getString();
-    }
-
     private static boolean isGraphBlockEntity(BlockEntity be) {
         // Fast path: direct instanceof works for same-classloader BEs
         // 快速路径：同 ClassLoader 下的 BE 直接 instanceof 即可
         if (be instanceof GraphBlockEntity) return true;
         // Slow path: check by interface name for cross-classloader BEs
         // 慢速路径：通过接口全限定名比较来匹配跨 ClassLoader 的 BE
-        for (Class<?> iface : be.getClass().getInterfaces()) {
-            if (iface.getName().equals("io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity"))
-                return true;
+        return findGraphInterface(be.getClass()) != null;
+    }
+
+    /** GraphBlockEntity 接口的 FQN（跨类加载器匹配只认字符串，Class 对象不可比）。 */
+    private static final String GRAPH_BE_FQN =
+        "io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity";
+
+    /**
+     * 在类自身接口与父类链上定位 FQN 匹配的 GraphBlockEntity 接口（跨类加载器场景下
+     * 返回的是<b>另一份</b> Class 对象），未找到返回 null。遍历顺序与包前缀剪枝与
+     * 原有慢速路径逐行一致。
+     * Locates the FQN-matching GraphBlockEntity interface across the class's own
+     * interfaces and the superclass chain (under cross-classloading the returned
+     * Class is the <b>other</b> copy), or null. Walk order and package-prefix pruning
+     * are identical to the original slow path.
+     */
+    private static Class<?> findGraphInterface(Class<?> cls) {
+        for (Class<?> iface : cls.getInterfaces()) {
+            if (iface.getName().equals(GRAPH_BE_FQN)) return iface;
         }
         // Also check superclass chain — the BE could extend a class that implements the interface.
         // 同时检查父类链 —— BE 可能继承了实现该接口的父类。
-        for (Class<?> c = be.getClass().getSuperclass(); c != null; c = c.getSuperclass()) {
-            if (c.getName().equals("io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity"))
-                return true;
+        for (Class<?> c = cls.getSuperclass(); c != null; c = c.getSuperclass()) {
+            if (c.getName().equals(GRAPH_BE_FQN)) return c;
             for (Class<?> iface : c.getInterfaces()) {
-                if (iface.getName().equals("io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity"))
-                    return true;
+                if (iface.getName().equals(GRAPH_BE_FQN)) return iface;
             }
-            // Stop traversing once we leave the mod's package — no point scanning java.lang.Object.
+            // Stop traversing once we leave the mod's package — no point scanning to java.lang.Object.
             // 离开本模组包名前缀后停止向上遍历 —— 没必要扫描到 java.lang.Object。
             if (!c.getName().startsWith("io.github.y15173334444.create_schematic_compute")) break;
         }
-        return false;
+        return null;
     }
 
     /**
