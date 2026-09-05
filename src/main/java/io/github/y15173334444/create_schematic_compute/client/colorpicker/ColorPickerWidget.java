@@ -227,6 +227,18 @@ public class ColorPickerWidget {
         hexInput.setX(px + HEX_X);
         hexInput.setY(py + bottomY());
         hexInput.render(g, mx, my, 0);
+        // 颜色预览：HEX 输入框右侧，实时反映当前颜色（含透明度 —— 半透明时以深色衬底）。
+        // 浮空模式让位给确定键（窄条），内嵌模式占满剩余宽度。
+        // Color preview: right of the hex input, live-reflecting the current color
+        // (alpha included — translucent colors render over a dark backing). In
+        // floating mode it yields to the OK button (narrow); embedded takes the full
+        // remaining width.
+        int prevX = px + HEX_X + HEX_W + 4;
+        int prevW = (embedded ? WIDTH - 4 : OK_X - 4) - (HEX_X + HEX_W + 4);
+        int prevY = py + bottomY();
+        g.fill(prevX, prevY, prevX + prevW, prevY + HEX_H, 0xFF2A2822);
+        g.fill(prevX, prevY, prevX + prevW, prevY + HEX_H, currentArgb());
+        g.renderOutline(prevX, prevY, prevW, HEX_H, 0xFF888888);
         // 确定键：仅浮空模式显示（内嵌常驻面板不显示）/ OK button only in floating mode (hidden when embedded)
         if (!embedded) {
             int okY = py + bottomY();
