@@ -294,14 +294,16 @@ public class PortableTerminalScreen extends Screen {
                     // Only GraphBlockEntity subclasses participate in the terminal ecosystem
                     // 只有 GraphBlockEntity 子类参与终端生态系统
                     if (be instanceof GraphBlockEntity gbe) {
-                        // 自定义名优先（编辑器顶栏设置），没有则回退到方块类型名；
-                        // 类型名去掉格式化代码（§.）获得干净的标签文字。
-                        // Custom name (set in the editor top bar) wins; fall back to the
-                        // block type name with formatting codes (§.) stripped.
+                        // 类型名恒显示（其他玩家据此知道设备原本是什么方块），
+                        // 自定义名（编辑器顶栏设置）跟在后面；类型名去掉格式化代码（§.）。
+                        // 格式必须与服务端 Sable 扫描（SablePacketHelper.deviceDisplayName）一致。
+                        // The block type name always shows (other players can tell what the
+                        // device originally was), with the custom name (editor top bar)
+                        // following; formatting codes (§.) stripped from the type name.
+                        // Must mirror the server Sable scan (SablePacketHelper.deviceDisplayName).
                         String custom = gbe.getCustomName();
-                        String name = (custom != null && !custom.isEmpty())
-                            ? custom
-                            : I18n.get(be.getBlockState().getBlock().getDescriptionId()).replaceAll("§.", "");
+                        String type = I18n.get(be.getBlockState().getBlock().getDescriptionId()).replaceAll("§.", "");
+                        String name = SablePacketHelper.formatDeviceDisplay(type, custom);
                         devices.add(new DeviceEntry(p.immutable(), name, be.getClass()));
                     }
                 }
@@ -501,9 +503,13 @@ public class PortableTerminalScreen extends Screen {
                 if (ri % 2 == 0) g.fill(cx + 6, iy, cx + cw - 6, iy + itemH, 0xFF222020);
                 // Sable devices show purple [Sable] tag and distance; local devices show coordinates
                 // Sable 设备显示紫色 [Sable] 标签和距离；本地设备显示坐标
+                // 名称过长时截断（类型名+自定义名拼接后变长），避免压到右侧编辑按钮/距离标注。
+                // Truncate over-long names (type name + custom name got longer) so they
+                // don't overrun the edit button / the distance tag.
+                String rowName = mc.font.plainSubstrByWidth(dev.name, Math.max(40, cw - 164));
                 String label = dev.sable
-                    ? "§d[Sable]§r " + dev.name + " §7(" + (int) dev.sableDistance + "m)"
-                    : dev.name + " §8" + dev.pos.getX() + ", " + dev.pos.getY() + ", " + dev.pos.getZ();
+                    ? "§d[Sable]§r " + rowName + " §7(" + (int) dev.sableDistance + "m)"
+                    : rowName + " §8" + dev.pos.getX() + ", " + dev.pos.getY() + ", " + dev.pos.getZ();
                 g.drawString(mc.font, label, cx + 10, iy + 5, 0xFFCCCCCC);
                 // Edit button per row / 每行的编辑按钮
                 int eX = cx + cw - 58, eY = iy + 2;

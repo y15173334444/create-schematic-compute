@@ -248,16 +248,26 @@ public class SablePacketHelper {
         return results;
     }
 
-    /** 设备显示名：自定义名（graph.customName，编辑器顶栏设置）优先，回退到方块类型名。
+    /** 设备显示名的拼装规则（两条取名路径共用，保持格式一致）：
+     *  类型名始终可见 —— 其他玩家据此知道设备原本是什么方块；有自定义名时跟在后面。
+     *  Display-name assembly shared by BOTH naming paths so the format stays
+     *  consistent: the block type name stays visible (other players can tell what
+     *  the device originally was), with the custom name following it when present. */
+    public static String formatDeviceDisplay(String typeName, String customName) {
+        if (customName == null || customName.isEmpty()) return typeName;
+        return typeName + " · " + customName;
+    }
+
+    /** 设备显示名：类型名恒显示，自定义名（graph.customName，编辑器顶栏设置）跟在后面。
      *  必须与客户端本地扫描（PortableTerminalScreen.scanNearbyBlocks）的取名逻辑一致，
      *  否则两条路径产出的列表对不上、搜索行为不一致。
-     *  Device display name: the custom name (graph.customName, set in the editor top
-     *  bar) wins, falling back to the block type name. Must mirror the client-side
-     *  local scan (PortableTerminalScreen.scanNearbyBlocks), or the two paths produce
-     *  lists that disagree and search behaves inconsistently. */
+     *  Device display name: the block type name always shows, followed by the custom
+     *  name (graph.customName, set in the editor top bar) when present. Must mirror
+     *  the client-side local scan (PortableTerminalScreen.scanNearbyBlocks), or the
+     *  two paths produce lists that disagree and search behaves inconsistently. */
     private static String deviceDisplayName(BlockEntity be) {
-        String custom = resolveCustomName(be);
-        return custom != null && !custom.isEmpty() ? custom : be.getBlockState().getBlock().getName().getString();
+        String type = be.getBlockState().getBlock().getName().getString();
+        return formatDeviceDisplay(type, resolveCustomName(be));
     }
 
     /** 跨类加载器安全的自定义名读取（详见 {@link #findGraphInterface(Class)} 的背景）。
