@@ -757,14 +757,10 @@ public class GraphEditor {
     private EditBox topBarNameEdit;
     /** EditBox → 提交动作（回车或失焦时执行） (EditBox → commit action, executed on Enter or focus loss) */
     private final java.util.Map<net.minecraft.client.gui.components.EditBox, Runnable> enterActions = new java.util.HashMap<>();
-    // ── 颜色配置面板 (Color configuration panel) ──
-    /** 颜色配置面板是否可见 / whether the color configuration panel is visible */
-    public boolean showColorConfig = false;
     private boolean suppressEditBoxResponder = false; // suppress SET_PARAM echo from remote ops (H3) (抑制远程SET_PARAM回显)
-    /** 颜色选择器控件 / the color picker widget instance */
+    /** 取色器控件（注释节点颜色编辑共用；界面主题色调整已移至 EditorSettingsScreen） / the color picker widget instance
+     *  (shared by the comment color popup; editor theme colors moved to EditorSettingsScreen) */
     public final ColorPickerWidget colorPicker = new ColorPickerWidget();
-    /** 主题颜色按钮组 / array of theme color swatch buttons */
-    private final ColorPickerButton[] themeButtons = new ColorPickerButton[NodeRenderer._NUM_COLORS];
     // ── 框选 + 多选拖拽状态 (Box-select + multi-drag state) ──
     /** TAB 键是否按下（进入框选/多选模式）/ whether TAB is held (box-select/multi-select mode) */
     private boolean tabHeld = false;
@@ -1778,22 +1774,13 @@ public class GraphEditor {
         markDirty();
     }
 
-    /** 构造编辑器实例，绑定到宿主屏幕，初始化节点渲染器、主题色按钮和临时视角。
-     *  Construct an editor instance bound to a host screen; initialize node renderer, theme color buttons, and temp view.
+    /** 构造编辑器实例，绑定到宿主屏幕，初始化节点渲染器和临时视角。
+     *  Construct an editor instance bound to a host screen; initialize node renderer and temp view.
      *  @param host 实现 Host 接口的宿主屏幕 / the host screen implementing the Host interface
      *  @param screen 当前 Minecraft Screen 实例 / the current Minecraft Screen instance */
     public GraphEditor(Host host, Screen screen) {
         this.host = host;
         this.renderer = new NodeRenderer(this::c2sX, this::c2sY, screen);
-        var mc = net.minecraft.client.Minecraft.getInstance();
-        for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) {
-            final int idx = i;
-            themeButtons[i] = new ColorPickerButton(
-                () -> NodeRenderer.stagingColors[idx],
-                c -> NodeRenderer.stagingColors[idx] = c,
-                colorPicker
-            );
-        }
         // 临时视角恢复（按方块位置，session 内同方块跨编辑器实例恢复）
         // temporary view restore (keyed by block position, cross-instance within session)
         var bp = host.getBlockPos();
@@ -2304,7 +2291,7 @@ public class GraphEditor {
             if (host instanceof BlueprintScreen) {
                 var mc = Minecraft.getInstance();
                 int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : TOP_BAR_H + 2;
-                int impX = 254, impW = 72, btnH = 18;
+                int impX = 196, impW = 72, btnH = 18;
                 // 仅选中单个封装节点时显示导出，否则显示导入 (Show export when single encapsulation node selected, otherwise show import)
                 boolean hasSingleEncap = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
                 if (hasSingleEncap) {
@@ -2541,8 +2528,6 @@ public class GraphEditor {
                 }
             }
         }
-        // 颜色配置面板 (Color configuration panel)
-        if (showColorConfig) renderColorPanel(g, mx, my);
         if(showMenu) { selectedMenuType = renderer.renderAddNodeMenu(g, menuX, menuY, mx, my, nodeFilter); }
         // ── A=5: Tooltips（公式报错报告框等延迟覆盖层——A/B/C 分层的工具提示层，节点与 A=4 覆盖层均无法遮挡）
         // ── A=5: Tooltips (deferred overlay such as the formula error report box — the layered-system
@@ -2743,7 +2728,6 @@ public class GraphEditor {
                 // panel; setScreen only fires this screen's removed() (no LeavePacket),
                 // so the edit session survives and returning re-joins idempotently.
                 showMenu = false;
-                showColorConfig = false;
                 colorPicker.close();
                 openSettingsScreen();
                 return true;
@@ -2989,19 +2973,8 @@ public class GraphEditor {
                     return true;
                 }
                 if(mx>=134&&mx<=192&&my>=btnY&&my<=btnY+18){gridSnapEnabled=!gridSnapEnabled;NodeRenderer.saveGridSnap(gridSnapEnabled);return true;}
-                if(mx>=196&&mx<=250&&my>=btnY&&my<=btnY+18){
-                    showMenu = false;
-                    showColorConfig = !showColorConfig;
-                    if (showColorConfig) {
-                        NodeRenderer.initStaging();
-                        openColorPickerForTheme(0);
-                    } else {
-                        
-                    }
-                    return true;
-                }
                 // 导入/导出封装节点按钮（仅蓝图计算机） (Import/export encapsulation node button, Blueprint computer only)
-                if (host instanceof BlueprintScreen && mx >= 254 && mx <= 326 && my >= btnY && my <= btnY + 18) {
+                if (host instanceof BlueprintScreen && mx >= 196 && mx <= 268 && my >= btnY && my <= btnY + 18) {
                     boolean hasEncapSelected = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
                     if (hasEncapSelected) {
                         showExportDialog = true;
@@ -3029,7 +3002,7 @@ public class GraphEditor {
               if(mx>=w-22&&mx<=w-4&&my>=h-44&&my<=h-26){
                 showBookmarkPanel = !showBookmarkPanel;
                 bookmarkScrollOff = 0;
-                if (showBookmarkPanel) { showColorConfig = false; colorPicker.close(); showExportDialog = false; showImportDialog = false; }
+                if (showBookmarkPanel) { colorPicker.close(); showExportDialog = false; showImportDialog = false; }
                 return true;
               } }
             // 右下角工具栏位置切换按钮（始终可见） (Bottom-right toolbar position toggle, always visible)
@@ -3065,7 +3038,6 @@ public class GraphEditor {
         // 上下文菜单键（默认右键，可重绑；查表）
         // Context-menu button (right by default, rebindable; looked up).
         if(btn == EditorKeys.mouseButton(EditorKeys.Action.CONTEXT_MENU)){
-            if (showColorConfig) return true; // 颜色面板打开时禁止操作 (Disable operations while color panel is open)
             menuX=(float)mx; menuY=(float)my; showMenu=true; renderer.resetMenuSearch(); return true;
         }
         // 热栏弹出交互 (Hotbar popup interaction)
@@ -3123,36 +3095,6 @@ public class GraphEditor {
                     }
                 }
             }
-        }
-        // Theme color panel: if picker is open and click is on it, skip panel entirely
-        if (showColorConfig && btn == 0 && !(colorPicker.isVisible() && colorPicker.contains((int)mx, (int)my))) {
-            var mc = Minecraft.getInstance();
-            int colW = 100, pw = colW * 2 + 22, ph = 36 + 8 * 18 + 24;
-            int px = 8, py = Math.max(4, (host.asScreen().height - ph) / 2); // left-aligned
-            // 点击面板外部 → 关闭 (Click outside panel → close)
-            if (mx < px || mx > px + pw || my < py || my > py + ph) { showColorConfig = false; colorPicker.close(); return true;
-            }
-            // 关闭按钮 (Close button)
-            if (mx >= px + pw - 18 && mx <= px + pw - 2 && my >= py + 2 && my <= py + 18) { showColorConfig = false; colorPicker.close(); return true; }
-            // Defaults
-            if (mx >= px + 8 && mx <= px + 72 && my >= py + ph - 22 && my <= py + ph - 6) {
-                NodeRenderer.stagingColors = NodeRenderer.DEFAULT_COLORS.clone();
-                return true;
-            }
-            // Apply
-            if (mx >= px + pw - 72 && mx <= px + pw - 8 && my >= py + ph - 22 && my <= py + ph - 6) {
-                NodeRenderer.setColors(NodeRenderer.stagingColors.clone());
-                NodeRenderer.saveColorConfig();
-                showColorConfig = false; colorPicker.close();
-                
-                return true;
-            }
-            // Theme color buttons — keep picker persistent in this context
-            colorPicker.setPersistent(true);
-            for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) {
-                if (themeButtons[i].mouseClicked(mx, my, btn)) return true;
-            }
-            return true;
         }
         // Color picker (after panels — absorbs clicks on picker, closes if outside)
         if (colorPicker.isVisible()) {
@@ -4801,7 +4743,7 @@ public class GraphEditor {
         if (colorPicker.isVisible() && colorPicker.mouseScrolled(mx, my, sy)) return true;
         if (showMenu) { renderer.scrollMenu((float)(-sy * 14)); return true; }
         if (showImportDialog) { importScrollOff += (sy > 0) ? -1 : 1; if (importScrollOff < 0) importScrollOff = 0; return true; }
-        if (showExportDialog || showColorConfig) return true;
+        if (showExportDialog) return true;
         // 书签面板滚动 / bookmark panel scroll
         if (showBookmarkPanel) {
             int panelW = 180, maxRows = 5;
@@ -4927,7 +4869,6 @@ public class GraphEditor {
             // ESC：同时关闭调色板与注释颜色面板
             if (key == 256) {
                 colorPicker.close();
-                if (showColorConfig) { showColorConfig = false; return true; }
                 if (editingCommentColorNode != null && commentButtons != null) { closeCommentColorPopup(); return true; }
                 return true;
             }
@@ -4936,7 +4877,6 @@ public class GraphEditor {
         // ESC closes open panels first, then falls through to close UI
         if (key == 256) {
             if (editingBookmarkName) { editingBookmarkName = false; editingBookmarkIndex = -1; return true; }
-            if (showColorConfig) { showColorConfig = false; return true; }
             if (editingCommentColorNode != null && commentButtons != null) { closeCommentColorPopup(); return true; }
         }
         if (key == 257) { // Enter: 提交当前聚焦的编辑框 (Enter: commit current focused edit box)
@@ -5140,7 +5080,7 @@ public class GraphEditor {
             for (var st : nodeEditStatesById.values())
                 for (var f : st.fields) if (f.isFocused()) { anyFocused = true; break; }
             if (anyFocused) return false;
-            if (showExportDialog || showImportDialog || showColorConfig) return false;
+            if (showExportDialog || showImportDialog) return false;
             beginUndoBatch();
             float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE;
             float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
@@ -5274,38 +5214,6 @@ public class GraphEditor {
         g.drawString(mc.font, I18n.get("gui.create_schematic_compute.topbar.settings"), sbX + 8, 7, 0xFFCCCCFF, false);
     }
 
-    private void renderColorPanel(GuiGraphics g, int mx, int my) {
-        var mc = net.minecraft.client.Minecraft.getInstance();
-        int itemsPerCol = 8, numRows = 8; // 16色分 8+8 两列 (16 colors split 8+8 in two columns)
-        int colW = 100, pw = colW * 2 + 22, ph = 36 + numRows * 18 + 24;
-        int px = 8, py = Math.max(4, (host.asScreen().height - ph) / 2); // left-aligned
-        g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
-        g.renderOutline(px, py, pw, ph, NodeRenderer.CSB());
-        g.fill(px + 2, py + 2, px + pw - 2, py + 18, 0xFF4A3F28);
-        g.drawString(mc.font, "§6§l" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.color.title"), px + 6, py + 5, 0xFFFFFFFF, false);
-        g.fill(px + pw - 18, py + 2, px + pw - 2, py + 18, 0xFF4A3028);
-        g.renderOutline(px + pw - 18, py + 2, 16, 16, 0xFF8B5333);
-        g.drawString(mc.font, "§cX", px + pw - 14, py + 5, 0xFFFFFFFF, false);
-        for (int i = 0; i < NodeRenderer._NUM_COLORS; i++) {
-            int col = i < itemsPerCol ? 0 : 1;
-            int row = i < itemsPerCol ? i : i - itemsPerCol;
-            int cx = px + 8 + col * (colW + 14);
-            int ry = py + 24 + row * 18;
-            // 色块按钮（预览暂存颜色） (Color swatch button, previewing staging color)
-            themeButtons[i].setPosition(cx + 2, ry + 2);
-            themeButtons[i].render(g, mx, my);
-            // 名称 (Name label)
-            g.drawString(mc.font, net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.color." + NodeRenderer.COLOR_KEYS[i]), cx + 22, ry + 2, 0xFFCCCCCC, false);
-        }
-        int by = py + ph - 22;
-        g.fill(px + 8, by, px + 72, by + 16, 0xFF3A3428);
-        g.renderOutline(px + 8, by, 64, 16, NodeRenderer.CSB());
-        g.drawString(mc.font, "§7" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.color.defaults"), px + 14, by + 3, 0xFFFFFFFF, false);
-        g.fill(px + pw - 72, by, px + pw - 8, by + 16, 0xFF3A5A2A);
-        g.renderOutline(px + pw - 72, by, 64, 16, 0xFF5A8A3A);
-        g.drawString(mc.font, "§a" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.color.apply"), px + pw - 62, by + 3, 0xFFFFFFFF, false);
-    }
-
     /** 重新编译图——自动折叠所有注释节点，同步未保存编辑，保存并重启运行状态。
      *  Recompile the graph — auto-close all COMMENT nodes, sync unsaved edits, save and restart running state.
      *  @param graph 待编译的图 / the graph to recompile */
@@ -5387,19 +5295,6 @@ public class GraphEditor {
         colorPicker.close();
     }
 
-    /** Open/rebind the color picker to a theme staging color. */
-    private void openColorPickerForTheme(int idx) {
-        Consumer<Integer> setter = c -> { NodeRenderer.stagingColors[idx] = c; };
-        colorPicker.setOnClose(() -> { showColorConfig = false; if (editingCommentColorNode != null) closeCommentColorPopup(); });
-        if (colorPicker.isVisible()) {
-            colorPicker.rebind(NodeRenderer.stagingColors[idx], setter);
-        } else {
-            int sw = Minecraft.getInstance().getWindow().getGuiScaledWidth();
-            colorPicker.open(sw - ColorPickerWidget.WIDTH / 2, Minecraft.getInstance().getWindow().getGuiScaledHeight() / 2,
-                NodeRenderer.stagingColors[idx], setter);
-        }
-    }
-
     /** Open/rebind the color picker to a comment color field (0=bg, 1=border, 2=text). */
     private void openColorPickerForComment(int field) {
         if (editingCommentColorNode == null) return;
@@ -5410,12 +5305,12 @@ public class GraphEditor {
             default -> 0xFF000000;
         };
         Consumer<Integer> setter = switch (field) {
-            case 0 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentBgColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); host.sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); showColorConfig = false; };
-            case 1 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentBorderColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); host.sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); showColorConfig = false; };
-            case 2 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentTextColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); host.sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); showColorConfig = false; };
+            case 0 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentBgColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); host.sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); };
+            case 1 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentBorderColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); host.sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); };
+            case 2 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentTextColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); host.sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); };
             default -> c -> {};
         };
-        colorPicker.setOnClose(() -> { showColorConfig = false; if (editingCommentColorNode != null) closeCommentColorPopup(); });
+        colorPicker.setOnClose(() -> { if (editingCommentColorNode != null) closeCommentColorPopup(); });
         if (colorPicker.isVisible()) {
             colorPicker.rebind(color, setter);
         } else {

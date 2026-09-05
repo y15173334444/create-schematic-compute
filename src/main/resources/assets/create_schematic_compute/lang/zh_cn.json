@@ -55,8 +55,6 @@
   "node.create_schematic_compute.floor": "向下取整/FLOOR",
   "gui.create_schematic_compute.grid": "网格",
   "gui.create_schematic_compute.grid_on": "网格",
-  "gui.create_schematic_compute.style": "样式",
-  "gui.create_schematic_compute.color.title": "颜色设置",
   "gui.create_schematic_compute.topbar.name": "名称",
   "gui.create_schematic_compute.topbar.settings": "设置",
   "gui.create_schematic_compute.topbar.search": "搜索设备…",

@@ -57,8 +57,6 @@
   "category.create_schematic_compute.sequential": "Sequential",
   "gui.create_schematic_compute.grid": "Grid",
   "gui.create_schematic_compute.grid_on": "Grid",
-  "gui.create_schematic_compute.style": "Style",
-  "gui.create_schematic_compute.color.title": "Color Settings",
   "gui.create_schematic_compute.topbar.name": "Name",
   "gui.create_schematic_compute.topbar.settings": "Settings",
   "gui.create_schematic_compute.topbar.search": "Search devices…",

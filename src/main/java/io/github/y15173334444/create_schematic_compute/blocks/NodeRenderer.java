@@ -1416,12 +1416,6 @@ public class NodeRenderer {
         g.renderOutline(cX4, btnY, cW4, btnH, CSB());
         g.renderOutline(cX4+1, btnY+1, cW4-2, btnH-2, 0xFF2A2822);
         drawStr(g, (gridSnap ? "§a" : "§7") + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.grid"), cX4+6, btnY+4, CT);
-        // 颜色配置按钮
-        int cX5 = 196, cW5 = 54;
-        g.fill(cX5, btnY, cX5+cW5, btnY+btnH, 0xFF3A3832);
-        g.renderOutline(cX5, btnY, cW5, btnH, CSB());
-        g.renderOutline(cX5+1, btnY+1, cW5-2, btnH-2, 0xFF2A2822);
-        drawStr(g, "§7" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.style"), cX5+8, btnY+4, CT);
 
         // 右下角书签按钮 / bottom-right bookmark button
         int bmX = width - 22, bmY = height - 44, bmW = 18, bmH = 18;
