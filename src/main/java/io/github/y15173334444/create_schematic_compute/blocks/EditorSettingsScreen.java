@@ -8,6 +8,8 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.resources.language.I18n;
 import net.minecraft.network.chat.Component;
 
+import java.util.List;
+
 /**
  * 编辑器设置：独立全屏 Screen —— 左侧选项卡列（界面颜色 / 键位绑定 / 节点指南），
  * 右侧内容区。从编辑器顶栏的设置按钮进入；关闭后返回编辑器。
@@ -46,10 +48,12 @@ public class EditorSettingsScreen extends Screen {
     /** 键位 tab：展开虚拟键盘后正在设置的动作 ordinal，-1 = 未选中/收起。
      *  Keys tab: the action being set while the virtual keyboard is open, -1 = none/collapsed. */
     private int keybindTarget = -1;
-    /** 主键单选槽（GLFW 键码，0 = 未选）。 / main-key slot (GLFW keycode, 0 = none). */
-    private int pendingKey = 0;
-    /** 挂起的修饰位（Ctrl/Shift/Alt 开关累积，EditorKeys.MOD_* 掩码）。 / pending modifier mask (latched Ctrl/Shift/Alt toggles). */
-    private int pendingMods = 0;
+    /** 录入中的序列（打开键盘时预填当前绑定，点键帽追加步骤）。
+     *  The sequence being recorded (pre-filled with the current binding on open; cap clicks append steps). */
+    private final java.util.ArrayList<EditorKeys.Step> pendingSeq = new java.util.ArrayList<>();
+    /** 挂起的修饰开关（点键帽随步骤入列后自动复位）。
+     *  Latched modifier toggles (cleared automatically when a step is recorded). */
+    private int latchedMods = 0;
     /** 重绑冲突提示（显示在内容区底部，非空即显示）。 / rebind clash message shown at the content bottom when non-null. */
     private String rebindConflict;
     /** 节点指南列表的滚动偏移（行数）。 / node-guide list scroll offset, in rows. */
@@ -303,14 +307,18 @@ public class EditorSettingsScreen extends Screen {
                     }
                     ky += u + 3;
                 }
-                int barY = (int) ky + 8;
-                int confirmX = width - 14 - 70, clearX = confirmX - 72, defX = clearX - 58; // 与渲染同一右缘锚定 / same right anchor as render
+                int barY = (int) ky + 6 + 14; // 与渲染同一布局：预览行 + 14 / same layout as render
+                int confirmX = width - 14 - 70, clearX = confirmX - 72, defX = clearX - 58, backX = defX - 72; // 与渲染同一右缘锚定 / same right anchor as render
                 if (my >= barY && my <= barY + 16) {
+                    if (mx >= backX && mx <= backX + 64) { // 删一步 / step-back
+                        if (!pendingSeq.isEmpty()) pendingSeq.remove(pendingSeq.size() - 1);
+                        rebindConflict = null; return true;
+                    }
                     if (mx >= defX && mx <= defX + 50) { // 默认：恢复出厂绑定并重预填 / restore default and re-prefill
                         EditorKeys.resetToDefault(actions[keybindTarget]);
                         selectKeybindRow(keybindTarget); return true;
                     }
-                    if (mx >= clearX && mx <= clearX + 64) { pendingKey = 0; pendingMods = 0; rebindConflict = null; return true; } // 清除 / clear
+                    if (mx >= clearX && mx <= clearX + 64) { pendingSeq.clear(); latchedMods = 0; rebindConflict = null; return true; } // 清除 / clear
                     if (mx >= confirmX && mx <= confirmX + 70) { confirmKeybind(); return true; }                                  // 确定 / bind
                 }
             }
@@ -585,7 +593,7 @@ public class EditorSettingsScreen extends Screen {
             if (a.mouse) {
                 cur = I18n.get("gui.create_schematic_compute.editorkeys.mouse." + EditorKeys.mouseButton(a));
             } else {
-                cur = EditorKeys.modsText(EditorKeys.keyModifiers(a)) + keyName(EditorKeys.keyCode(a));
+                cur = seqText(EditorKeys.sequence(a));
             }
             // 动作名 + 当前绑定，超宽按窄列截断（展开态列表变窄时防止压进键盘区）。
             // Action name + current binding, truncated to the (narrowed) list width.
@@ -629,32 +637,45 @@ public class EditorSettingsScreen extends Screen {
                 float w = c.w() * u;
                 boolean hov = mx >= kx && mx <= kx + w && my >= ky && my <= ky + u;
                 int bg = hov ? 0xFF3A4A6A : 0xFF2A2832;
-                if (c.modBit() != 0 && (pendingMods & c.modBit()) != 0) bg = 0xFF2A4A6A; // 挂起修饰 / latched mod
-                if (c.code() > 0 && c.code() == pendingKey) bg = 0xFF2A5A3A;             // 主键槽 / main-key slot
+                if (c.modBit() != 0 && (latchedMods & c.modBit()) != 0) bg = 0xFF2A4A6A; // 挂起修饰 / latched mod
                 g.fill((int) kx, (int) ky, (int) (kx + w), (int) (ky + u), bg);
-                // 选中动作现值的键帽描边（主键绿 / 修饰蓝） / outline the current binding caps (green key / blue mods)
-                boolean boundKey = !target.mouse && c.code() > 0 && c.code() == EditorKeys.keyCode(target);
-                boolean boundMod = c.modBit() != 0 && (EditorKeys.keyModifiers(target) & c.modBit()) != 0;
-                g.renderOutline((int) kx, (int) ky, (int) w, (int) u, boundKey ? 0xFF5A8A3A : boundMod ? 0xFF5A7AAA : NodeRenderer.CSB());
+                // 录入中序列的键帽绿描边（打开时预填 = 现绑定，录入后 = 已录步骤）。
+                // Caps of the recorded sequence get the green outline (pre-filled with the
+                // current binding on open, then the recorded steps).
+                boolean inSeq = !target.mouse && c.code() > 0;
+                if (inSeq) {
+                    inSeq = false;
+                    for (var st : pendingSeq) if (st.key() == c.code()) { inSeq = true; break; }
+                }
+                g.renderOutline((int) kx, (int) ky, (int) w, (int) u, inSeq ? 0xFF5A8A3A : NodeRenderer.CSB());
                 g.drawString(font, c.label(), (int) (kx + w / 2 - font.width(c.label()) / 2), (int) (ky + u / 2 - 4), 0xFFCCCCCC, false);
                 kx += w + gap;
             }
             ky += u + 3;
         }
 
-        // 底部操作条：实时预览 + 清除 + 确定绑定（按钮右缘锚定屏幕右缘 —— 操作条比
-        // 鼠标键列宽，锚到 chipsX 会把「确定」推出屏幕外）。
-        // Bottom bar: live preview + clear + bind (right-anchored to the screen edge —
-        // the bar is wider than the mouse column; anchoring at chipsX pushed Bind off-screen).
-        int barY = (int) ky + 8;
-        String preview = I18n.get("gui.create_schematic_compute.settings.bind_label") + ": "
-            + (pendingKey > 0 ? EditorKeys.modsText(pendingMods) + keyName(pendingKey) : "—");
-        g.drawString(font, "§e" + preview, (int) kx0, barY + 4, 0xFFFFFFFF, false);
+        // 预览行（键盘下方独立一行）：录入中的序列；挂起修饰以 … 收尾提示「下一步将带上」。
+        // Preview line under the keyboard: the recorded sequence; latched mods trail with
+        // an ellipsis ("the next step will carry them").
+        int previewY = (int) ky + 6;
+        String preview = I18n.get("gui.create_schematic_compute.settings.bind_label") + ": " + seqText(pendingSeq)
+            + (latchedMods != 0 ? (pendingSeq.isEmpty() ? "" : " → ") + EditorKeys.modsText(latchedMods) + "…" : "");
+        g.drawString(font, "§e" + preview, (int) kx0, previewY, 0xFFFFFFFF, false);
+        // 操作条：删一步 / 默认 / 清除 / 确定绑定（右缘锚定 —— 操作条比鼠标键列宽）。
+        // Bar: step-back / default / clear / bind (right-anchored — the bar is wider
+        // than the mouse column).
+        int barY = previewY + 14;
         int confirmX = width - 14 - 70;
         int clearX = confirmX - 72;
         int defX = clearX - 58;
-        // 默认（恢复当前选中动作的出厂绑定，选择状态同步重预填）/ default (restore the
-        // selected action's factory binding and re-prefill the selection from it)
+        int backX = defX - 72;
+        // 删一步（移除最后录入的步骤）/ step-back (remove the last recorded step)
+        boolean bHov = mx >= backX && mx <= backX + 64 && my >= barY && my <= barY + 16;
+        g.fill(backX, barY, backX + 64, barY + 16, bHov ? 0xFF4A5A2A : 0xFF3A3428);
+        g.renderOutline(backX, barY, 64, 16, 0xFF6A8A3A);
+        g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.bind_step_back"), backX + 8, barY + 4, 0xFFFFFFFF, false);
+        // 默认（恢复当前选中动作的出厂绑定，录入状态同步重预填）/ default (restore the
+        // selected action's factory binding and re-prefill the recording from it)
         boolean dHov = mx >= defX && mx <= defX + 50 && my >= barY && my <= barY + 16;
         g.fill(defX, barY, defX + 50, barY + 16, dHov ? 0xFF4A5A2A : 0xFF3A3428);
         g.renderOutline(defX, barY, 50, 16, 0xFF6A8A3A);
@@ -674,15 +695,18 @@ public class EditorSettingsScreen extends Screen {
         g.drawString(font, "§f" + I18n.get("gui.create_schematic_compute.settings.collapse"), cx + 16, clY + 4, 0xFFFFFFFF, false);
     }
 
-    /** 键帽点击：修饰键帽翻转开关位；Esc 键帽清空选择；其余进主键单选槽（点新键替换旧键）。
-     *  Keycap click: modifier caps flip their toggle bit; the Esc cap clears the
-     *  selection; everything else fills the main-key slot (a new click replaces it). */
+    /** 键帽点击：修饰键帽翻转挂起开关；Esc 键帽清空录入；其余追加为下一步
+     *  （挂起修饰随步骤入列，步数达上限提示）。
+     *  Keycap click: modifier caps flip the latched toggles; the Esc cap clears the
+     *  recording; everything else appends the next step (capped at MAX_STEPS). */
     private void handleKeycapClick(Keycap c) {
-        if (c.modBit() != 0) { pendingMods ^= c.modBit(); return; }
-        if (c.code() == 256) { pendingKey = 0; pendingMods = 0; rebindConflict = null; return; }
+        if (c.modBit() != 0) { latchedMods ^= c.modBit(); return; }
+        if (c.code() == 256) { pendingSeq.clear(); latchedMods = 0; rebindConflict = null; return; }
         var a = EditorKeys.Action.values()[keybindTarget];
         if (a.mouse) { rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_key_only"); return; }
-        pendingKey = c.code();
+        if (pendingSeq.size() >= EditorKeys.MAX_STEPS) { rebindConflict = I18n.get("gui.create_schematic_compute.settings.bind_max_steps"); return; }
+        pendingSeq.add(new EditorKeys.Step(c.code(), latchedMods));
+        latchedMods = 0; // 修饰随步骤入列复位 / mods clear with the recorded step
     }
 
     /** 鼠标键点击：鼠标动作直接绑定该键（无修饰概念）；键盘动作不可绑鼠标键。 / Mouse-chip click: mouse actions bind immediately (no modifiers); keyboard actions refuse. */
@@ -692,22 +716,25 @@ public class EditorSettingsScreen extends Screen {
             ? null : I18n.get("gui.create_schematic_compute.editorkeys.conflict");
     }
 
-    /** 「确定绑定」：把（主键 + 修饰位）落到当前动作，冲突拒绝；成功后清空选择便于连设下一个动作。 / Bind: commit (main key + mods) to the action, clash-checked; cleared on success for the next action. */
+    /** 「确定绑定」：把录入序列落到当前动作（前缀歧义拒绝）；成功后预览保持为生效序列。 / Bind: commit the recorded sequence (prefix-ambiguity refused); the preview then shows the live binding. */
     private void confirmKeybind() {
         var a = EditorKeys.Action.values()[keybindTarget];
         if (a.mouse) { rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_mouse_only"); return; }
-        if (pendingKey <= 0) { rebindConflict = I18n.get("gui.create_schematic_compute.settings.bind_need_key"); return; }
-        rebindConflict = EditorKeys.setKeyBinding(a, pendingKey, pendingMods)
+        if (pendingSeq.isEmpty()) { rebindConflict = I18n.get("gui.create_schematic_compute.settings.bind_need_key"); return; }
+        rebindConflict = EditorKeys.setSequence(a, List.copyOf(pendingSeq))
             ? null : I18n.get("gui.create_schematic_compute.editorkeys.conflict");
-        if (rebindConflict == null) { pendingKey = 0; pendingMods = 0; }
+        if (rebindConflict == null) pendingSeq.clear();
+        if (rebindConflict == null) pendingSeq.addAll(EditorKeys.sequence(a));
     }
 
-    /** 选中动作行并展开虚拟键盘：预填该动作当前绑定（主键 + 修饰位），所见即所改。 / Select an action row and open the keyboard, pre-filled with the current binding. */
+    /** 选中动作行并展开虚拟键盘：预填该动作当前绑定序列，所见即所改。
+     *  Select an action row and open the keyboard, pre-filled with the current sequence. */
     private void selectKeybindRow(int idx) {
         keybindTarget = idx;
         var a = EditorKeys.Action.values()[idx];
-        pendingKey = a.mouse ? 0 : EditorKeys.keyCode(a);
-        pendingMods = a.mouse ? 0 : EditorKeys.keyModifiers(a);
+        pendingSeq.clear();
+        pendingSeq.addAll(EditorKeys.sequence(a));
+        latchedMods = 0;
         rebindConflict = null;
         expanded = true;
     }
@@ -717,8 +744,8 @@ public class EditorSettingsScreen extends Screen {
         if (tab == 0) { collapsePalette(); return; }
         expanded = false;
         keybindTarget = -1;
-        pendingKey = 0;
-        pendingMods = 0;
+        pendingSeq.clear();
+        latchedMods = 0;
     }
 
     /** 开始调整某个颜色槽：切换到展开形态（整个界面左滑），调色板绑定该槽的工作色
@@ -815,6 +842,17 @@ public class EditorSettingsScreen extends Screen {
         float delta = (float) (my - colorScrollbarDragStartY) / (trackH - thumbH);
         int newOff = colorScrollbarDragStartOff + Math.round(delta * maxScroll);
         colorScroll = Math.max(0, Math.min(maxScroll, newOff));
+    }
+
+    /** 序列的可读文本（Ctrl+K → D；空 = —）。 / Readable sequence text (Ctrl+K → D; empty = —). */
+    private static String seqText(java.util.List<EditorKeys.Step> seq) {
+        if (seq.isEmpty()) return "—";
+        var sb = new StringBuilder();
+        for (var st : seq) {
+            if (sb.length() > 0) sb.append(" → ");
+            sb.append(EditorKeys.modsText(st.mods())).append(keyName(st.key()));
+        }
+        return sb.toString();
     }
 
     /** GLFW 键码的可读名（设置界面显示用，覆盖虚拟键盘全部键帽）。 / Readable name for a GLFW keycode (settings UI; covers every virtual cap). */

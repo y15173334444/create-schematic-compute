@@ -4946,8 +4946,15 @@ public class GraphEditor {
             return topBarNameEdit.keyPressed(key, sc, mod);
         }
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.keyPressed(key, sc, mod);
-        // X 键删除悬停节点（替代右键删除防误触） (X key deletes hovered node, replacing right-click delete to prevent accidental deletion)
-        if (EditorKeys.matchesKey(EditorKeys.Action.DELETE_NODE, key, modC, modS, modA)) { // 可重绑 / rebindable
+        // 键盘动作序列引擎（画布交互态 —— 输入框聚焦已在前转发 return）：
+        // 完整命中 → 分发执行；前缀推进 → 消费等待；无关键 → 落到后续硬编码键处理。
+        // Keyboard-action sequence engine (canvas state — focused inputs returned
+        // above): full match → dispatch, prefix advance → consumed while waiting,
+        // irrelevant keys fall through to the hardcoded handlers below.
+        int seqMods = (modC ? EditorKeys.MOD_CTRL : 0) | (modS ? EditorKeys.MOD_SHIFT : 0) | (modA ? EditorKeys.MOD_ALT : 0);
+        var seqHit = EditorKeys.feedKey(key, seqMods, System.currentTimeMillis());
+        if (seqHit == EditorKeys.Action.DELETE_NODE) {
+            // 删除悬停节点（替代右键删除防误触）/ delete the hovered node
             var g2 = getGraph();
             var hit = hitNode(lastMouseX, lastMouseY);
             if (hit != null && !isNodeLocked(hit.id, ownerNodeId())) {
@@ -4968,24 +4975,17 @@ public class GraphEditor {
                 if (selectedNode == hit) selectedNode = null;
                 return true;
             }
-        }
-        // Ctrl+Z / Ctrl+Y undo / redo
-        if (modC || modS || modA) {
-            if (EditorKeys.matchesKey(EditorKeys.Action.UNDO, key, modC, modS, modA)) { commitFocusedEditBox(); opUndo(); return true; }
-            if (EditorKeys.matchesKey(EditorKeys.Action.REDO, key, modC, modS, modA)) { commitFocusedEditBox(); opRedo(); return true; }
-            // 视角书签快捷键 / view bookmark shortcuts
-            if (EditorKeys.matchesKey(EditorKeys.Action.SAVE_BOOKMARK, key, modC, modS, modA)) { // 可重绑 / rebindable
-                editingBookmarkName = true;
-                editingBookmarkIndex = -1;
-                bookmarkNameDraft = "书签 " + (getGraph().bookmarks.size() + 1);
-                return true;
-            }
-        }
-        // Home: 重置视角 / reset view
-        if (EditorKeys.matchesKey(EditorKeys.Action.RESET_VIEW, key, modC, modS, modA)) { startTransition(0, 0, 1f); return true; }
-        // Ctrl+D 复制（支持多选） — 走服务端权威 ID 分配流程
-        // Ctrl+D duplicate (supports multi-select) — uses server-authoritative ID allocation
-        if(EditorKeys.matchesKey(EditorKeys.Action.DUPLICATE, key, modC, modS, modA)&&!selectedNodes.isEmpty()){
+            return true; // 触发即消费（悬空 / 锁定不满足也归引擎）/ triggered keys are consumed
+        } else if (seqHit == EditorKeys.Action.UNDO) { commitFocusedEditBox(); opUndo(); return true; }
+        else if (seqHit == EditorKeys.Action.REDO) { commitFocusedEditBox(); opRedo(); return true; }
+        else if (seqHit == EditorKeys.Action.SAVE_BOOKMARK) { // 视角书签快捷键 / view bookmark shortcut
+            editingBookmarkName = true;
+            editingBookmarkIndex = -1;
+            bookmarkNameDraft = "书签 " + (getGraph().bookmarks.size() + 1);
+            return true;
+        } else if (seqHit == EditorKeys.Action.RESET_VIEW) { startTransition(0, 0, 1f); return true; }
+        else if (seqHit == EditorKeys.Action.DUPLICATE && !selectedNodes.isEmpty()) {
+            // 复制选中（支持多选）— 走服务端权威 ID 分配流程 / duplicate (multi-select) via server-authoritative IDs
             beginUndoBatch();
             var idMap = new java.util.HashMap<Integer, Integer>();
             var newNodes = new java.util.ArrayList<GraphNode>();
@@ -5039,6 +5039,8 @@ public class GraphEditor {
             pendingCopyGroups.put(groupId, group);
             return true;
         }
+        if (seqHit != null) return true; // 触发但前置不满足也消费（动作拥有该键）/ triggered with a failed precondition still consumes
+        if (EditorKeys.bufferActive()) return true; // 前缀等待：按键已被引擎消费 / prefix waiting: key consumed
         // Delete 删除选中节点 (Delete key removes selected nodes)
         if ((key == 259 || key == 261) && !selectedNodes.isEmpty()) {
             beginUndoBatch();
