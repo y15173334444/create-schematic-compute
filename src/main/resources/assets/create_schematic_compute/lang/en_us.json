@@ -67,8 +67,6 @@
   "gui.create_schematic_compute.settings.tab.keys": "Key Bindings",
   "gui.create_schematic_compute.settings.tab.guide": "Node Guide",
   "gui.create_schematic_compute.settings.open_colors": "Open the color panel",
-  "gui.create_schematic_compute.settings.keys_todo": "Canvas interaction bindings arrive in a later version.",
-  "gui.create_schematic_compute.settings.guide_todo": "The node guide arrives in a later version.",
   "gui.create_schematic_compute.editorkeys.pan": "Pan canvas",
   "gui.create_schematic_compute.editorkeys.context_menu": "Context menu",
   "gui.create_schematic_compute.editorkeys.delete": "Delete hovered node",

@@ -2765,6 +2765,11 @@ public class GraphEditor {
                 && my >= settingsPanelY && my <= settingsPanelY + settingsPanelH;
             if (!inPanel) {
                 showSettings = false; // 点击外部关闭，落到下方正常处理 / close on outside click, fall through
+                // 关闭弹窗必须同时取消重绑监听，否则下一次按键会在弹窗外静默改绑。
+                // Closing the dialog must also cancel any pending rebind, or the next
+                // keypress silently rebinds while the dialog is already gone.
+                listeningBinding = -1;
+                rebindConflict = null;
             } else {
                 // 重绑监听（最高优先）：鼠标动作捕获本次按键。
                 // Rebind listening (top priority): mouse actions capture this button.
@@ -2782,7 +2787,11 @@ public class GraphEditor {
                 }
                 int cbx = settingsPanelX + settingsPanelW - 18;
                 if (mx >= cbx && mx <= cbx + 16 && my >= settingsPanelY + 2 && my <= settingsPanelY + 18) {
-                    showSettings = false; return true;
+                    showSettings = false;
+                    // 同上：X 关闭也必须清掉重绑监听 / same as above: the X button must cancel a pending rebind too
+                    listeningBinding = -1;
+                    rebindConflict = null;
+                    return true;
                 }
                 int tabY = settingsPanelY + 24;
                 if (my >= tabY && my <= tabY + 18) {
@@ -3031,14 +3040,7 @@ public class GraphEditor {
             if (e.getKey().isFocused()) { e.getValue().run(); committed = true; break; }
         }
         if (committed) markDirty();
-        // 平移键（默认左键，可在设置里改为中键）也进入选择/平移大分支：内部所有
-        // 交互子判断仍要求 btn==0，因此重绑后中键只会触发空白/注释体平移，
-        // 不会误触工具栏、编辑框或节点拖动。
-        // The pan button (left by default, rebindable to middle in settings) also
-        // enters the select/pan branch: every interactive sub-check inside still
-        // requires btn==0, so a rebound middle click can only start panning on blank
-        // canvas / comment bodies — never hit the toolbar, edit boxes or node drags.
-        if(btn==0 || (btn != 1 && btn == EditorKeys.mouseButton(EditorKeys.Action.PAN))){
+        if(btn==0){
             // ── 子图 Back 按钮 ──
             if (isInSubGraph()) {
                 int bw = 60, bh = 16;
@@ -3229,14 +3231,34 @@ public class GraphEditor {
         if (colorPicker.isVisible()) {
             return colorPicker.mouseClicked(mx, my, btn);
         }
-        if(btn==0){
+        // 左键 = 完整交互；重绑后的平移键（非左键）= 只允许在注释体或空白画布上启动平移，
+        // 下方所有交互子判断（编辑区 / 引脚 / 节点拖动 / 选中提交）全部跳过。
+        // Left button = full interaction; the rebound pan button (non-left) may only start
+        // panning on a comment body or blank canvas — every interactive sub-check below
+        // (edit areas, pins, node drags, selection & commits) is skipped.
+        boolean panOnlyClick = btn != 0 && btn == EditorKeys.mouseButton(EditorKeys.Action.PAN);
+        if(btn==0 || panOnlyClick){
             showMenu=false;
+            // 重绑平移键不作用于任何 chrome：工具栏 / 子图 Back / 右下角按钮上按下不平移。
+            // The rebound pan button never acts on chrome: no panning over the toolbar,
+            // the sub-graph Back button or the bottom-right corner buttons.
+            if (panOnlyClick) {
+                int scrW = host.asScreen().width, scrH = host.asScreen().height;
+                int toolY = NodeRenderer.isToolbarBottom() ? scrH - 22 : TOP_BAR_H + 2;
+                boolean overToolbar = !isInSubGraph() && my >= toolY && my <= toolY + 18 && mx >= 4
+                    && mx <= (host instanceof BlueprintScreen ? 326 : 250);
+                boolean overBack = isInSubGraph() && mx >= scrW - 68 && mx <= scrW - 8
+                    && my >= TOP_BAR_H + 2 && my <= TOP_BAR_H + 18;
+                boolean overCorner = mx >= scrW - 22 && my >= scrH - 44;
+                if (overToolbar || overBack || overCorner) return true;
+            }
             // 预计算 z-order 排序候选（供每个展开节点做遮挡判断） (Pre-compute z-order sorted candidates for occlusion checks on each expanded node)
             var clickCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my)).stream()
                 .sorted(GraphEditor::compareHitOrder)
                 .collect(java.util.stream.Collectors.toList());
             // 内联编辑区交互（局部坐标，与 pose 内渲染一致） (Inline edit-area interaction, local coords matching pose rendering)
             for (var en : getGraph().nodes) {
+                if (panOnlyClick) break; // 重绑平移键不进编辑区交互 / the rebound pan button never enters edit areas
                 if (!expandedNodeIds.contains(en.id)) continue;
                 if (isNodeLockedByOther(en.id, ownerNodeId())) continue; // soft lock (same scope only)
                 // 逐个检查：是否有更高 z-order 的非 Comment 节点实际遮挡了点击位置 (Check: does a higher-z non-Comment node actually occlude the click?)
@@ -3573,7 +3595,7 @@ public class GraphEditor {
                 }
             }
             // TAB+左键 → 连线删除 / 多选 / 框选 (TAB+left-click → connection delete / multi-select / box-select)
-            if (tabHeld) {
+            if (tabHeld && !panOnlyClick) {
                 var hc = hitConn(mx, my);
                 if (hc != null) {
                     graph.removeConnection(hc.fromId, hc.fromPin, hc.toId, hc.toPin);
@@ -3603,7 +3625,7 @@ public class GraphEditor {
                 return true;
             }
             // ▶/▼ 折叠展开按钮（优先检测，不依赖选中状态） (Expand/collapse button, checked first, independent of selection state)
-            var expandHit = hitExpandIndicator(mx, my, graph);
+            var expandHit = panOnlyClick ? null : hitExpandIndicator(mx, my, graph);
             if (expandHit != null) { toggleExpand(expandHit); return true; }
             // ── Comment node interaction / 注释节点交互 ──
             // Only handle clicks on COMMENT chrome (resize, color dot) or
@@ -3624,7 +3646,7 @@ public class GraphEditor {
                 boolean onResize = locX > n2.commentWidth - 22 && locY > n2.commentHeight - 22;
                 boolean onColorDot = locX < 18 && locY < 18;
                 // Scrollbar thumb drag — check before resize for better UX
-                if (!n2.displayText.isEmpty()) {
+                if (!panOnlyClick && !n2.displayText.isEmpty()) {
                     float headerH2 = Math.max(6f, 12f * zoom);
                     int sbXc = (int) (sx2 + sw2 - 10 * zoom);
                     int sbYc = (int) (sy2 + headerH2 + 4 * zoom);
@@ -3647,7 +3669,7 @@ public class GraphEditor {
                     }
                 }
                 // Resize handle (bottom-right) — checked after scrollbar
-                if (onResize) {
+                if (onResize && !panOnlyClick) {
                     resizingComment = n2; resizeStartW = n2.commentWidth; resizeStartH = n2.commentHeight;
                     // Capture contained node positions before resize for undo
                     resizeStartNodePositions.clear();
@@ -3658,7 +3680,7 @@ public class GraphEditor {
                     return true;
                 }
                 // Edit button (top-right 14x14) — open 3-color edit panel
-                if (onColorDot) {
+                if (onColorDot && !panOnlyClick) {
                     editingCommentColorNode = n2;
                     // Capture old colors for undo (saved per-change in recordOp)
                     // 捕获旧颜色用于撤销（每次变更时在 recordOp 中保存）
@@ -3712,7 +3734,7 @@ public class GraphEditor {
                 }
                 // Body double-click → toggle expand (works regardless of expand state)
                 long now2 = System.currentTimeMillis();
-                if (n2.id == lastClickNodeId && (now2 - lastClickTimeMs) < 400) {
+                if (!panOnlyClick && n2.id == lastClickNodeId && (now2 - lastClickTimeMs) < 400) {
                     toggleExpand(n2);
                     lastClickNodeId = -1;
                     return true;
@@ -3722,6 +3744,9 @@ public class GraphEditor {
                 if (hitIsNonComment) continue;
                 if (isNodeLockedByOther(n2.id, ownerNodeId())) continue; // soft lock (same scope only)
                 if (expandedNodeIds.contains(n2.id)) {
+                    // 展开注释的正文就是编辑区 —— 平移键既不平移也不选中。
+                    // An expanded comment's body IS its edit area — the pan button neither pans nor selects.
+                    if (panOnlyClick) continue;
                     // Keep this comment focused, don't let click fall through to nodes behind
                     if (selectedNode != n2) {
                         selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
@@ -3732,13 +3757,27 @@ public class GraphEditor {
                 float commentHeaderLocal = Math.max(6f / zoom, 12f);
                 boolean inCommentHeader = locY >= 0 && locY < commentHeaderLocal;
                 if (!inCommentHeader) {
-                    // Non-header click → select only, allow panning through
-                    if (selectedNode != n2) {
+                    // 非平移键（重绑后的左键）点正文：只选中，不平移。
+                    // Non-pan button (left click after a rebind): select only, no panning.
+                    if (btn != EditorKeys.mouseButton(EditorKeys.Action.PAN)) {
+                        if (selectedNode != n2) {
+                            selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
+                        }
+                        return true;
+                    }
+                    // 平移键（默认左键）点正文：选中并允许平移穿过；
+                    // 重绑后（panOnlyClick）只平移不选中。
+                    // Pan button (left by default): a body click selects and lets panning
+                    // through; when rebound (panOnlyClick) it pans without selecting.
+                    if (!panOnlyClick && selectedNode != n2) {
                         selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
                     }
                     panning = true; panLastX = (float) mx; panLastY = (float) my;
                     return true;
                 }
+                // 标题栏等 chrome 只认左键 —— 平移键不拖动注释。
+                // Header chrome is left-button only — the pan button never drags a comment.
+                if (panOnlyClick) continue;
                 // Header click → drag / select
                 if (!tabHeld) {
                     if (selectedNode != n2) { selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2); }
@@ -3746,7 +3785,15 @@ public class GraphEditor {
                     if (selectedNodes.contains(n2)) selectedNodes.remove(n2);
                     else selectedNodes.add(n2);
                     selectedNode = selectedNodes.isEmpty() ? null : selectedNodes.iterator().next();
-                    if (selectedNodes.isEmpty()) { panning = true; panLastX = (float)mx; panLastY = (float)my; return true; }
+                    if (selectedNodes.isEmpty()) {
+                        // 平移只在平移键上启动 —— 重绑后左键清空多选不再引发粘滞平移。
+                        // Panning starts on the pan button only — after a rebind, emptying the
+                        // multi-selection with left-click no longer causes sticky panning.
+                        if (btn == EditorKeys.mouseButton(EditorKeys.Action.PAN)) {
+                            panning = true; panLastX = (float)mx; panLastY = (float)my;
+                        }
+                        return true;
+                    }
                 }
                 // Start drag with parent-move snapshot + z-order top
                 beginUndoBatch(); // batch all contained-node moves + comment move as one undo unit
@@ -3775,7 +3822,9 @@ public class GraphEditor {
                 return true;
             }
             // BUS_IN edit area output pins — spatial-index aware for occlusion
+            // （重绑平移键：跳过引脚连线拖动 / rebound pan button: skip pin wire drags）
             var pinCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my));
+            if (panOnlyClick) pinCandidates.clear();
             pinCandidates.sort(GraphEditor::compareHitOrder);
             for (var node : pinCandidates) {
                 if (node.type != NodeType.BUS_IN || !expandedNodeIds.contains(node.id) || node.signalBands == null) continue;
@@ -3807,7 +3856,10 @@ public class GraphEditor {
                 }
             }
             // 点击节点（不含 ▶/▼ 区域） (Click node, excluding expand indicator area)
-            var hit=hitNode(mx,my);
+            // 重绑平移键：不选中不拖动节点 —— 命中与否由下方非空判断统一处理。
+            // Rebound pan button: never selects or drags a node — handled by the
+            // not-blank guard below.
+            var hit = panOnlyClick ? null : hitNode(mx,my);
             if(hit!=null && isNodeLockedByOther(hit.id, ownerNodeId())) hit = null; // soft lock (same scope only)
             if(hit!=null){
                 // 仅在非 ▶/▼ 区域允许拖拽 (Only allow drag outside the expand indicator area)
@@ -3829,6 +3881,9 @@ public class GraphEditor {
                 }
                 return true;
             }
+            // 重绑平移键停在节点/注释上（非空白、非注释体）→ 什么都不做。
+            // The rebound pan button over a node/comment (not blank, not a comment body) → no-op.
+            if (panOnlyClick && nonCommentHit != null) return true;
             // 点击空白区域 → 先提交未保存的 busBox（回车以外的提交途径），再取消选中。
             // 修复：原逻辑 syncEditStateToSelection 先清除所有控件 focus，导致后续
             // busBox.isFocused() 检查失败，点击空白处提交无反应。
@@ -3837,20 +3892,29 @@ public class GraphEditor {
             // control's focus first, so the later busBox.isFocused() check failed and
             // clicking empty did nothing. Use a snapshot copy because commitBusBox
             // rebuilds the edit state (modifies nodeEditStatesById) during iteration.
-            for (var st : java.util.List.copyOf(nodeEditStatesById.values())) {
-                // 不依赖 isFocused()：mouseClicked 更早的编辑框处理已 setFocused(false)。
-                // 只要 busBox 值 != 当前 signalName（用户改了名未提交），点击空白即提交。
-                // Do not rely on isFocused(): earlier edit-box handling in mouseClicked
-                // already cleared focus. Commit whenever the box value differs from the
-                // node's signalName (the user typed a new name but didn't Enter).
-                if (st.busBox != null && st.busNode != null
-                    && !st.busBox.getValue().equals(st.busNode.signalName)) {
-                    commitBusBox(st);
+            // （重绑平移键：跳过 busBox 提交与取消选中 —— 纯平移无副作用）
+            // (Rebound pan button: skip busBox commits & deselection — panning only, no side effects)
+            if (!panOnlyClick) {
+                for (var st : java.util.List.copyOf(nodeEditStatesById.values())) {
+                    // 不依赖 isFocused()：mouseClicked 更早的编辑框处理已 setFocused(false)。
+                    // 只要 busBox 值 != 当前 signalName（用户改了名未提交），点击空白即提交。
+                    // Do not rely on isFocused(): earlier edit-box handling in mouseClicked
+                    // already cleared focus. Commit whenever the box value differs from the
+                    // node's signalName (the user typed a new name but didn't Enter).
+                    if (st.busBox != null && st.busNode != null
+                        && !st.busBox.getValue().equals(st.busNode.signalName)) {
+                        commitBusBox(st);
+                    }
                 }
+                selectedNodes.clear(); selectedNode=null;
+                syncEditStateToSelection(); // 取消选中后，同步清掉所有节点的控件状态
             }
-            selectedNodes.clear(); selectedNode=null;
-            syncEditStateToSelection(); // 取消选中后，同步清掉所有节点的控件状态
-            panning=true; panLastX=(float)mx; panLastY=(float)my;
+            // 平移只在平移键上启动（默认左键，可重绑）——重绑后左键点空白不再平移。
+            // Panning starts on the pan button only (left by default, rebindable) — after a
+            // rebind, left-click on blank canvas no longer pans.
+            if (btn == EditorKeys.mouseButton(EditorKeys.Action.PAN)) {
+                panning=true; panLastX=(float)mx; panLastY=(float)my;
+            }
         }
         // busBox 失焦提交（在按钮处理之后，避免 createEditState 冲掉频段编辑） (busBox focus-lost commit, after button handling to avoid createEditState overwriting band edits)
         // 注：已提交的 busBox 不再 isFocused，此循环无副作用；保留以防其他路径需要。
@@ -4811,8 +4875,14 @@ public class GraphEditor {
         if (showMenu) { renderer.scrollMenu((float)(-sy * 14)); return true; }
         if (showImportDialog) { importScrollOff += (sy > 0) ? -1 : 1; if (importScrollOff < 0) importScrollOff = 0; return true; }
         if (showExportDialog || showColorConfig) return true;
-        // 设置弹窗节点指南滚轮 / settings node-guide scroll wheel
-        if (showSettings && settingsTab == 2) { settingsGuideScroll -= (int) Math.signum(sy); return true; }
+        // 设置弹窗节点指南滚轮 —— 仅当光标在弹窗内时消费，弹窗外滚轮继续滚动画布。
+        // Settings node-guide scroll wheel — consumed only with the cursor inside the
+        // dialog; outside it the wheel keeps scrolling the canvas.
+        if (showSettings && settingsTab == 2
+            && mx >= settingsPanelX && mx <= settingsPanelX + settingsPanelW
+            && my >= settingsPanelY && my <= settingsPanelY + settingsPanelH) {
+            settingsGuideScroll -= (int) Math.signum(sy); return true;
+        }
         // 书签面板滚动 / bookmark panel scroll
         if (showBookmarkPanel) {
             int panelW = 180, maxRows = 5;
@@ -4963,7 +5033,12 @@ public class GraphEditor {
         }
         // ESC closes open panels first, then falls through to close UI
         if (key == 256) {
-            if (showSettings) { showSettings = false; return true; }
+            if (showSettings) {
+                showSettings = false;
+                listeningBinding = -1; // 关闭弹窗清掉可能残留的重绑监听 / cancel any pending rebind on close
+                rebindConflict = null;
+                return true;
+            }
             if (editingBookmarkName) { editingBookmarkName = false; editingBookmarkIndex = -1; return true; }
             if (showColorConfig) { showColorConfig = false; return true; }
             if (editingCommentColorNode != null && commentButtons != null) { closeCommentColorPopup(); return true; }
@@ -5250,7 +5325,6 @@ public class GraphEditor {
         return false;
     }
 
-    /** 颜色配置面板（双列布局） (Color configuration panel, two-column layout) */
     /** 顶栏：固定在编辑器最上层的条 —— 左侧本图名称输入框（便携终端按此查找），
      *  右侧设置按钮。在 renderBg 的所有覆盖层之后调用，保证不被遮挡；工具栏顶/底
      *  两种位置都必须让开 {@link #TOP_BAR_H}。
@@ -5401,11 +5475,13 @@ public class GraphEditor {
             if (settingsGuideScroll > maxScroll) settingsGuideScroll = maxScroll;
             g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.settings.guide_hint"), cx + 12, contentY - 2, 0xFFCCCCCC, false);
             g.enableScissor(cx + 4, listTop, cx + w - 14, listBot);
+            NodeType hoveredGuide = null;
             for (int i = settingsGuideScroll; i < types.length; i++) {
                 int ry = listTop + (i - settingsGuideScroll) * rowH2;
                 if (ry + rowH2 > listBot) break;
                 var t = types[i];
                 if (i % 2 == 0) g.fill(cx + 6, ry, cx + w - 16, ry + rowH2, 0xFF222020);
+                if (mx >= cx + 6 && mx <= cx + w - 16 && my >= ry && my <= ry + rowH2) hoveredGuide = t;
                 String name = I18n.get(t.displayName);
                 String pins = I18n.get("gui.create_schematic_compute.guide.inputs") + t.inputs
                     + " → " + I18n.get("gui.create_schematic_compute.guide.outputs") + t.outputs;
@@ -5418,6 +5494,18 @@ public class GraphEditor {
                 }
             }
             g.disableScissor();
+            // 逐节点说明（guide.<TYPE> lang 键，TYPE 为枚举名）：悬停该行时显示在弹窗底部；
+            // 未配置的键不渲染任何内容 —— 后续补文案零代码改动。
+            // Per-node description (guide.<TYPE> lang key, TYPE = enum name): shown at the
+            // dialog bottom while hovering that row; absent keys render nothing — adding
+            // copy later needs no code change.
+            if (hoveredGuide != null) {
+                String descKey = "gui.create_schematic_compute.guide." + hoveredGuide.name();
+                if (I18n.exists(descKey)) {
+                    String desc = mc.font.plainSubstrByWidth(I18n.get(descKey), w - 24);
+                    g.drawString(mc.font, "§7" + desc, cx + 10, cy + h - 16, 0xFFCCCCCC, false);
+                }
+            }
             if (maxScroll > 0) {
                 int sbX = cx + w - 12;
                 g.fill(sbX, listTop, sbX + 6, listBot, 0xFF2A2822);

@@ -72,17 +72,53 @@ public final class EditorKeys {
     private static final int[] keyMods = new int[ACTION_COUNT];
 
     /** 默认绑定 —— 与重构前硬编码行为逐项一致（保持现有玩家习惯不变）。
-     *  Defaults — identical to the pre-refactor hardcodes, so nobody's habits change. */
+     *  取值经 defaultXxx 的 switch 表达式提供：编译器强制穷举所有枚举值，
+     *  新增动作漏配默认键是编译错误，而不是 ordinal 错位导致的静默错绑。
+     *  Defaults — identical to the pre-refactor hardcodes, so nobody's habits change.
+     *  Values come from the defaultXxx switch expressions: the compiler enforces
+     *  exhaustiveness, so adding an action without a default is a compile error,
+     *  never a silent mis-mapping via ordinals. */
     static {
-        mouseBindings[Action.PAN.ordinal()] = 0;            // 左键拖动图 / left-drag pan
-        mouseBindings[Action.CONTEXT_MENU.ordinal()] = 1;   // 右键菜单 / right-click menu
-        keyBindings[Action.DELETE_NODE.ordinal()] = 88;   keyMods[Action.DELETE_NODE.ordinal()] = 0;                  // X
-        keyBindings[Action.UNDO.ordinal()] = 90;          keyMods[Action.UNDO.ordinal()] = MOD_CTRL;                  // Ctrl+Z
-        keyBindings[Action.REDO.ordinal()] = 89;          keyMods[Action.REDO.ordinal()] = MOD_CTRL;                  // Ctrl+Y
-        keyBindings[Action.DUPLICATE.ordinal()] = 68;     keyMods[Action.DUPLICATE.ordinal()] = MOD_CTRL;             // Ctrl+D
-        keyBindings[Action.RESET_VIEW.ordinal()] = 268;   keyMods[Action.RESET_VIEW.ordinal()] = 0;                   // Home
-        keyBindings[Action.SAVE_BOOKMARK.ordinal()] = 77; keyMods[Action.SAVE_BOOKMARK.ordinal()] = MOD_CTRL;         // Ctrl+M
+        for (var a : Action.values()) {
+            if (a.mouse) mouseBindings[a.ordinal()] = defaultMouseButton(a);
+            else {
+                keyBindings[a.ordinal()] = defaultKeyCode(a);
+                keyMods[a.ordinal()] = defaultKeyMods(a);
+            }
+        }
         load();
+    }
+
+    /** 鼠标动作的出厂按键索引（-1 = 非鼠标动作）。
+     *  Factory button index for a mouse action (-1 = not a mouse action). */
+    private static int defaultMouseButton(Action a) {
+        return switch (a) {
+            case PAN -> 0;            // 左键拖动图 / left-drag pan
+            case CONTEXT_MENU -> 1;   // 右键菜单 / right-click menu
+            case DELETE_NODE, UNDO, REDO, DUPLICATE, RESET_VIEW, SAVE_BOOKMARK -> -1;
+        };
+    }
+
+    /** 键盘动作的出厂键码（-1 = 非键盘动作）。 / Factory keycode for a keyboard action (-1 = not a keyboard action). */
+    private static int defaultKeyCode(Action a) {
+        return switch (a) {
+            case DELETE_NODE -> 88;   // X
+            case UNDO -> 90;          // Ctrl+Z
+            case REDO -> 89;          // Ctrl+Y
+            case DUPLICATE -> 68;     // Ctrl+D
+            case RESET_VIEW -> 268;   // Home
+            case SAVE_BOOKMARK -> 77; // Ctrl+M
+            case PAN, CONTEXT_MENU -> -1;
+        };
+    }
+
+    /** 键盘动作的出厂修饰位。 / Factory modifier mask for a keyboard action. */
+    private static int defaultKeyMods(Action a) {
+        return switch (a) {
+            case DELETE_NODE, RESET_VIEW -> 0;
+            case UNDO, REDO, DUPLICATE, SAVE_BOOKMARK -> MOD_CTRL;
+            case PAN, CONTEXT_MENU -> 0;
+        };
     }
 
     private EditorKeys() {}
@@ -98,10 +134,26 @@ public final class EditorKeys {
     /** 键盘动作当前绑定的修饰位掩码。 / Modifier mask bound to a keyboard action. */
     public static int keyModifiers(Action a) { return keyMods[a.ordinal()]; }
 
-    /** 本次键盘事件是否命中某键盘动作。 / Does this keyboard event match the action? */
+    /** 本次键盘事件是否命中某键盘动作。
+     *  匹配规则：键码相等且按下的修饰位<b>包含</b>绑定的修饰位（按下 ⊇ 绑定）——
+     *  与重构前硬编码逐项一致：X / Home 不看修饰位，Ctrl+Z 在 Ctrl+Shift+Z 下同样命中
+     *  （旧代码只查 hasControlDown()）。精确相等会让 Home+Shift、Ctrl+Shift+Z 失效。
+     *  Does this keyboard event match the action? A match requires the key to equal AND
+     *  the pressed modifiers to <b>contain</b> the bound ones (pressed ⊇ bound) —
+     *  exactly the pre-refactor hardcodes: X / Home ignored modifiers, and Ctrl+Z also
+     *  fired as Ctrl+Shift+Z (the old code only checked hasControlDown()).
+     *  Exact equality would break Home+Shift and Ctrl+Shift+Z. */
     public static boolean matchesKey(Action a, int glfwKey, boolean ctrl, boolean shift, boolean alt) {
         int mods = (ctrl ? MOD_CTRL : 0) | (shift ? MOD_SHIFT : 0) | (alt ? MOD_ALT : 0);
-        return keyBindings[a.ordinal()] == glfwKey && keyMods[a.ordinal()] == mods;
+        int bound = keyMods[a.ordinal()];
+        return keyBindings[a.ordinal()] == glfwKey && (mods & bound) == bound;
+    }
+
+    /** 两个修饰位掩码是否存在事件歧义：任一方完全包含另一方（子集关系）即视为冲突。
+     *  Do two modifier masks create ambiguous events? Either one containing the other
+     *  (a subset relation) counts as a clash. */
+    private static boolean modsAmbiguous(int m1, int m2) {
+        return (m1 & m2) == m1 || (m1 & m2) == m2;
     }
 
     /** 修饰位掩码的可读文本（Ctrl+…），供设置界面显示。 / Readable modifier text for the settings UI. */
@@ -127,12 +179,16 @@ public final class EditorKeys {
     }
 
     /** 重绑键盘动作的 (键, 修饰位)。与其它键盘动作冲突时返回 false 并拒绝。
+     *  冲突判定与 {@link #matchesKey} 的包含语义一致：同键且修饰位互为子集即歧义
+     *  （Ctrl+Z 与 Ctrl+Shift+Z 同时存在时两者都会在 Ctrl+Z 按下时命中）。
      *  Rebind a keyboard action. Returns false and refuses on a clash with another
-     *  keyboard action. */
+     *  keyboard action. The clash rule mirrors matchesKey's containment semantics:
+     *  same key and subset-related masks are ambiguous (Ctrl+Z and Ctrl+Shift+Z would
+     *  both fire on a Ctrl+Z press). */
     public static boolean setKeyBinding(Action a, int glfwKey, int mods) {
         for (var other : Action.values())
             if (other != a && !other.mouse
-                && keyBindings[other.ordinal()] == glfwKey && keyMods[other.ordinal()] == mods) return false;
+                && keyBindings[other.ordinal()] == glfwKey && modsAmbiguous(mods, keyMods[other.ordinal()])) return false;
         keyBindings[a.ordinal()] = glfwKey;
         keyMods[a.ordinal()] = mods;
         save();
@@ -141,19 +197,13 @@ public final class EditorKeys {
 
     /** 恢复单个动作为默认绑定。 / Restore one action to its default binding. */
     public static void resetToDefault(Action a) {
-        // 默认值在 static 块里写死；重置即从一张同款默认表复制 —— 为避免维护两份，
-        // 用"临时清空再装回"不可行，这里直接重放默认值。
-        // Defaults live in the static block; replay them directly rather than keeping
-        // a second copy of the table.
-        switch (a) {
-            case PAN -> mouseBindings[0] = 0;
-            case CONTEXT_MENU -> mouseBindings[1] = 1;
-            case DELETE_NODE -> { keyBindings[2] = 88; keyMods[2] = 0; }
-            case UNDO -> { keyBindings[3] = 90; keyMods[3] = MOD_CTRL; }
-            case REDO -> { keyBindings[4] = 89; keyMods[4] = MOD_CTRL; }
-            case DUPLICATE -> { keyBindings[5] = 68; keyMods[5] = MOD_CTRL; }
-            case RESET_VIEW -> { keyBindings[6] = 268; keyMods[6] = 0; }
-            case SAVE_BOOKMARK -> { keyBindings[7] = 77; keyMods[7] = MOD_CTRL; }
+        // 与静态初始化共用 defaultXxx 查表 —— 单一数据来源，无 ordinal 硬编码。
+        // Shares the defaultXxx lookups with the static initializer — one source of
+        // truth, no hard-coded ordinals.
+        if (a.mouse) mouseBindings[a.ordinal()] = defaultMouseButton(a);
+        else {
+            keyBindings[a.ordinal()] = defaultKeyCode(a);
+            keyMods[a.ordinal()] = defaultKeyMods(a);
         }
         save();
     }

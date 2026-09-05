@@ -65,8 +65,6 @@
   "gui.create_schematic_compute.settings.tab.keys": "键位绑定",
   "gui.create_schematic_compute.settings.tab.guide": "节点指南",
   "gui.create_schematic_compute.settings.open_colors": "打开颜色设置面板",
-  "gui.create_schematic_compute.settings.keys_todo": "画布交互键位绑定将在后续版本加入。",
-  "gui.create_schematic_compute.settings.guide_todo": "节点及用法指南将在后续版本加入。",
   "gui.create_schematic_compute.editorkeys.pan": "平移画布",
   "gui.create_schematic_compute.editorkeys.context_menu": "上下文菜单",
   "gui.create_schematic_compute.editorkeys.delete": "删除悬停节点",
