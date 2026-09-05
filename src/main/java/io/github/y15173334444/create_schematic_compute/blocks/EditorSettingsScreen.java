@@ -679,6 +679,13 @@ public class EditorSettingsScreen extends Screen {
 
         // 键盘（行左对齐，宽键向右伸出，真实配列观感）。
         // Keyboard rows left-aligned with wide keys overhanging right, like a real board.
+        // 修饰键帽点亮 = 挂起开关 ∪ 已录末步的修饰 —— 只看挂起开关的话，打开键盘预填
+        // 现绑定（如 Ctrl+Z）时 Ctrl 不亮、追加步骤后（修饰随步入列）又立刻熄灭。
+        // Modifier caps light up = latched toggles ∪ the last recorded step's mods —
+        // latched alone would leave Ctrl dark on prefill (Ctrl+Z) and right after a
+        // step absorbs the latched mods.
+        int shownMods = latchedMods;
+        if (!pendingSeq.isEmpty()) shownMods |= pendingSeq.get(pendingSeq.size() - 1).mods();
         float kx0 = chipsX - 12 - keysGridW(u);
         float ky = cy + 2;
         float gap = keysGap(u);
@@ -688,7 +695,7 @@ public class EditorSettingsScreen extends Screen {
                 float w = c.w() * u;
                 boolean hov = mx >= kx && mx <= kx + w && my >= ky && my <= ky + u;
                 int bg = hov ? 0xFF3A4A6A : 0xFF2A2832;
-                if (c.modBit() != 0 && (latchedMods & c.modBit()) != 0) bg = 0xFF2A4A6A; // 挂起修饰 / latched mod
+                if (c.modBit() != 0 && (shownMods & c.modBit()) != 0) bg = 0xFF2A4A6A; // 挂起/末步修饰 / latched or last-step mods
                 g.fill((int) kx, (int) ky, (int) (kx + w), (int) (ky + u), bg);
                 // 录入中序列的键帽绿描边（打开时预填 = 现绑定，录入后 = 已录步骤）。
                 // Caps of the recorded sequence get the green outline (pre-filled with the
