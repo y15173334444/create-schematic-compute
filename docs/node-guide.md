@@ -16,10 +16,10 @@
 > 以下条目由代码调研标出，撰写文案时已按代码口径处理，仍有待人工复核或后续修复：
 > - BOOL 真值阈值为「>0」与 README 旧表述「>0.5」不符，以代码为准；其它布尔判定一律 >0.5。
 > - FUSE 实测可再触发间隔 = cooldown+1（README「≈2+cooldown」为近似措辞）；输出脉冲已修正为真正的 2 tick。
-> - ENCODER 生产侧宿主未见 setEncoderView 注入点，实机可能恒输出 0，疑似代码缺口（建议上报核对）。
+> - ENCODER 生产侧宿主此前漏接 setEncoderView 导致实机恒输出 0——已修复（齿轮箱构造器现注入编码器视图），若仍异常请复核。
 > - POSE_CONVERT 的旋转正方向 / A、B 坐标轴系对应未在代码中注释，文案只描述其数学变换。
 > - ACCELERATION / VELOCITY 的分量正方向与量纲（blocks/tick 系 vs m/s）代码口径不一，以实机为准。
-> - English: BOOL truth is `> 0` in code despite older README wording; FUSE re-fire interval measures cooldown+1; ENCODER may currently read 0 in game (missing host injection point); POSE_CONVERT axis conventions are uncommented; ACCELERATION/VELOCITY units follow the build.
+> - English: BOOL truth is `> 0` in code despite older README wording; FUSE re-fire interval measures cooldown+1; ENCODER previously read 0 in game because the gearbox never injected the encoder view — fixed by wiring `setEncoderView` in the constructor; POSE_CONVERT axis conventions are uncommented; ACCELERATION/VELOCITY units follow the build.
 
 ---
 

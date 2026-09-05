@@ -59,5 +59,5 @@ evaluator.restoreSubState(runtimeState);
 | 11 | 子图展开状态 | `enterSubGraph/exitSubGraph` 重置 `lastInitGeneration` |
 | 12 | Sable 重连 | `getPlot(chunkPos)` 安全返回子世界依赖 |
 | 13 | 封装子评估器陈旧 | `subGraphGenerations` 检测世代变化 |
-| 14 | BUS 信号快照 | `SignalBus.snapshot()` 冻结 tick 开始时的全局信号 |
+| 14 | BUS 信号快照（未采用） | ~~`SignalBus.snapshot()` 冻结 tick 开始时的全局信号~~——代码库从未实现该方法（全量搜索无任何 `snapshot()` 调用点/定义），清单更正为「未采用」；当前 BUS/PRIVATE 频道为即时读写共享表，跨方块传播按各宿主自身求值顺序生效 |
 | 15 | 重编译保留子图状态 | `recompileEvaluatorFull()` 保存/恢复 `subStates` |
