@@ -607,18 +607,21 @@ public class EditorSettingsScreen extends Screen {
             if (keysScroll > keysMaxScroll()) keysScroll = keysMaxScroll();
             return true;
         }
-        // 指南滚轮：展开态光标在详情面板 = 滚动说明行；其余（含收起态）滚动节点列表，
-        // 行数钳制在渲染时收敛。 / guide wheel: over the detail pane scrolls the
-        // description lines; elsewhere scrolls the node list (clamped during render).
+        // 指南滚轮：展开态光标在右侧详情面板内 = 滚动说明行；其余一律滚动左侧节点列表
+        // （含展开态左移后的整条列表——旧的 mx >= TAB_W 门槛是收起态列宽留下的判断，
+        // 展开后列表已贴到屏幕左缘，光标停在列表左侧时会被门槛吞掉导致无法滚动）。
+        // Guide wheel: over the right detail pane (expanded) it scrolls the description;
+        // everywhere else it scrolls the node list. The old `mx >= TAB_W` gate is gone —
+        // after the slide the list hugs the screen's left edge, so that gate used to
+        // swallow the wheel over the list's left half.
         if (tab == 2) {
             if (expanded && mx >= paneX()) {
                 guideDetailScroll -= (int) Math.signum(sy);
                 return true;
             }
-            if (mx >= TAB_W) {
-                guideScroll -= (int) Math.signum(sy);
-                return true;
-            }
+            guideScroll -= (int) Math.signum(sy);
+            if (guideScroll < 0) guideScroll = 0;
+            if (guideScroll > guideMaxScroll()) guideScroll = guideMaxScroll();
             return true; // 全屏界面消费一切滚轮 / the full-screen GUI consumes all wheels
         }
         return true;
