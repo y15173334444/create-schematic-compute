@@ -755,27 +755,6 @@ public class GraphEditor {
      *  name is pure visual data with none of commitBusBox's heavy side effects, so no
      *  debounce is needed). */
     private EditBox topBarNameEdit;
-    /** 设置弹窗开关（顶栏右侧按钮打开）。
-     *  Settings dialog toggle (opened from the top-bar button). */
-    public boolean showSettings = false;
-    /** 设置弹窗当前 tab：0=界面颜色 1=键位绑定 2=节点指南。
-     *  Active settings tab: 0=colors, 1=key bindings, 2=node guide. */
-    private int settingsTab = 0;
-    /** tab 宽度与内容区 y（渲染时写入，命中读取）——同上，单一坐标来源。
-     *  Tab width and content-area y, written during render and read during hit
-     *  testing — same single-source-of-truth rule as the panel rect. */
-    private int settingsTabW, settingsContentY;
-    /** 正在等待重绑的动作（EditorKeys.Action 的 ordinal），-1 = 无。
-     *  The action awaiting a rebind (ordinal into EditorKeys.Action), -1 = none. */
-    private int listeningBinding = -1;
-    /** 重绑冲突提示（显示在弹窗底部，非空即显示）。 / Rebind clash message shown at the dialog bottom when non-null. */
-    private String rebindConflict;
-    /** 节点指南列表的滚动偏移（行数）。 / Node-guide list scroll offset, in rows. */
-    private int settingsGuideScroll = 0;
-    /** 设置弹窗面板的屏幕矩形（渲染时写入，点击命中读取）——避免渲染与命中各算一遍坐标漂移。
-     *  Screen rect of the settings panel, written during render and read during hit
-     *  testing — one source of truth instead of two coordinate computations drifting. */
-    private int settingsPanelX, settingsPanelY, settingsPanelW, settingsPanelH;
     /** EditBox → 提交动作（回车或失焦时执行） (EditBox → commit action, executed on Enter or focus loss) */
     private final java.util.Map<net.minecraft.client.gui.components.EditBox, Runnable> enterActions = new java.util.HashMap<>();
     // ── 颜色配置面板 (Color configuration panel) ──
@@ -2594,7 +2573,6 @@ public class GraphEditor {
         // 顶栏最后渲染 —— 固定在所有覆盖层之上（名称 + 设置）。
         // Top bar renders LAST — it sits above every other overlay (name + settings).
         renderTopBar(g, mx, my);
-        if (showSettings) renderSettingsPanel(g, mx, my);
         // 框选矩形 (Box-select rectangle)
         if (boxSelecting) {
             float x1 = Math.min(boxSX, boxEX), y1 = Math.min(boxSY, boxEY);
@@ -2741,6 +2719,16 @@ public class GraphEditor {
      *  @param my 鼠标 Y（屏幕坐标）/ mouse Y (screen coords)
      *  @param btn 鼠标按键（0=左键, 1=右键）/ mouse button (0=left, 1=right)
      *  @return true 如果事件被消费 / true if the event was consumed */
+    /** 打开独立全屏设置界面（仅客户端 —— Screen 构造在专用服务器会崩，故经 @OnlyIn
+     *  方法隔离；会话语义见 EditorSettingsScreen 的类注释）。
+     *  Opens the standalone full-screen settings GUI (client only — constructing a
+     *  Screen would crash a dedicated server, hence the @OnlyIn method; session
+     *  semantics are documented on EditorSettingsScreen). */
+    @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
+    private void openSettingsScreen() {
+                Minecraft.getInstance().setScreen(new EditorSettingsScreen(host.asScreen()));
+    }
+
     public boolean mouseClicked(double mx, double my, int btn) {
         resetBatch(); // discard any incomplete batch to prevent undo stack freeze
         var graph = getGraph();
@@ -2749,7 +2737,15 @@ public class GraphEditor {
         if (topBarNameEdit != null && my < TOP_BAR_H) {
             int sbX = host.asScreen().width - 52;
             if (mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19) {
-                showSettings = true; // 设置界面在后续步骤接入 / settings dialog lands in a later step
+                // 打开独立全屏设置界面。收起其下所有浮层；setScreen 只触发本屏
+                // removed()（不发 LeavePacket），编辑会话保持，返回时 init 幂等重 join。
+                // Open the standalone full-screen settings GUI. Collapse every floating
+                // panel; setScreen only fires this screen's removed() (no LeavePacket),
+                // so the edit session survives and returning re-joins idempotently.
+                showMenu = false;
+                showColorConfig = false;
+                colorPicker.close();
+                openSettingsScreen();
                 return true;
             }
             for (var st : nodeEditStatesById.values()) for (var f : st.fields) f.setFocused(false);
@@ -2758,75 +2754,6 @@ public class GraphEditor {
             return true;
         }
         if (topBarNameEdit != null && topBarNameEdit.isFocused()) topBarNameEdit.setFocused(false);
-        // ── 设置弹窗（在顶栏之下、其余 UI 之上）──
-        //    Settings dialog — below the top bar, above everything else.
-        if (showSettings) {
-            boolean inPanel = mx >= settingsPanelX && mx <= settingsPanelX + settingsPanelW
-                && my >= settingsPanelY && my <= settingsPanelY + settingsPanelH;
-            if (!inPanel) {
-                showSettings = false; // 点击外部关闭，落到下方正常处理 / close on outside click, fall through
-                // 关闭弹窗必须同时取消重绑监听，否则下一次按键会在弹窗外静默改绑。
-                // Closing the dialog must also cancel any pending rebind, or the next
-                // keypress silently rebinds while the dialog is already gone.
-                listeningBinding = -1;
-                rebindConflict = null;
-            } else {
-                // 重绑监听（最高优先）：鼠标动作捕获本次按键。
-                // Rebind listening (top priority): mouse actions capture this button.
-                if (listeningBinding >= 0) {
-                    var a = EditorKeys.Action.values()[listeningBinding];
-                    if (!a.mouse) {
-                        rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_mouse_only");
-                    } else if (!EditorKeys.setMouseBinding(a, btn)) {
-                        rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.conflict");
-                    } else {
-                        rebindConflict = null;
-                    }
-                    listeningBinding = -1;
-                    return true;
-                }
-                int cbx = settingsPanelX + settingsPanelW - 18;
-                if (mx >= cbx && mx <= cbx + 16 && my >= settingsPanelY + 2 && my <= settingsPanelY + 18) {
-                    showSettings = false;
-                    // 同上：X 关闭也必须清掉重绑监听 / same as above: the X button must cancel a pending rebind too
-                    listeningBinding = -1;
-                    rebindConflict = null;
-                    return true;
-                }
-                int tabY = settingsPanelY + 24;
-                if (my >= tabY && my <= tabY + 18) {
-                    for (int i = 0; i < 3; i++) {
-                        int tx = settingsPanelX + 10 + i * (settingsTabW + 6);
-                        if (mx >= tx && mx <= tx + settingsTabW) { settingsTab = i; return true; }
-                    }
-                }
-                // 键位行命中 → 进入监听（渲染与命中共用 settingsContentY/Rows 单一来源）
-                // Key-binding row hit → start listening (render and hit-test share the
-                // same settingsContentY/settingsRows source of truth).
-                if (settingsTab == 1 && my >= settingsContentY && my <= settingsContentY + settingsRows * settingsRowH) {
-                    int idx = (int) ((my - settingsContentY) / settingsRowH);
-                    if (idx >= 0 && idx < settingsRows) {
-                        // 右端"默认"按钮 → 恢复该动作的出厂绑定 / right-edge button → restore default
-                        int rbX = settingsPanelX + settingsPanelW - 36;
-                        if (mx >= rbX && mx <= rbX + 24) {
-                            EditorKeys.resetToDefault(EditorKeys.Action.values()[idx]);
-                            rebindConflict = null; return true;
-                        }
-                        listeningBinding = idx; rebindConflict = null; return true;
-                    }
-                }
-                // 颜色 tab：打开既有 16 色面板（与工具栏按钮同一目标，零迁移）
-                // Colors tab: open the existing panel (same target as the toolbar button).
-                if (settingsTab == 0 && my >= settingsContentY && my <= settingsContentY + 18) {
-                    showSettings = false;
-                    showColorConfig = true;
-                    NodeRenderer.initStaging();
-                    openColorPickerForTheme(0);
-                    return true;
-                }
-                return true; // 弹窗内其它点击不穿透 / other clicks inside don't fall through
-            }
-        }
         // 命名对话框：点击外部取消
         if (editingBookmarkName) {
             int w = 280, h = 70;
@@ -4875,14 +4802,6 @@ public class GraphEditor {
         if (showMenu) { renderer.scrollMenu((float)(-sy * 14)); return true; }
         if (showImportDialog) { importScrollOff += (sy > 0) ? -1 : 1; if (importScrollOff < 0) importScrollOff = 0; return true; }
         if (showExportDialog || showColorConfig) return true;
-        // 设置弹窗节点指南滚轮 —— 仅当光标在弹窗内时消费，弹窗外滚轮继续滚动画布。
-        // Settings node-guide scroll wheel — consumed only with the cursor inside the
-        // dialog; outside it the wheel keeps scrolling the canvas.
-        if (showSettings && settingsTab == 2
-            && mx >= settingsPanelX && mx <= settingsPanelX + settingsPanelW
-            && my >= settingsPanelY && my <= settingsPanelY + settingsPanelH) {
-            settingsGuideScroll -= (int) Math.signum(sy); return true;
-        }
         // 书签面板滚动 / bookmark panel scroll
         if (showBookmarkPanel) {
             int panelW = 180, maxRows = 5;
@@ -4944,23 +4863,6 @@ public class GraphEditor {
         boolean modC = net.minecraft.client.gui.screens.Screen.hasControlDown();
         boolean modS = net.minecraft.client.gui.screens.Screen.hasShiftDown();
         boolean modA = net.minecraft.client.gui.screens.Screen.hasAltDown();
-        // 重绑监听（最高优先）：键盘动作捕获本次按键（连修饰一起），ESC 取消。
-        // Rebind listening (top priority): keyboard actions capture this key together
-        // with the current modifiers; ESC cancels.
-        if (listeningBinding >= 0) {
-            if (key == 256) { listeningBinding = -1; return true; }
-            var a = EditorKeys.Action.values()[listeningBinding];
-            if (a.mouse) {
-                rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_key_only");
-            } else if (!EditorKeys.setKeyBinding(a, key,
-                    (modC ? EditorKeys.MOD_CTRL : 0) | (modS ? EditorKeys.MOD_SHIFT : 0) | (modA ? EditorKeys.MOD_ALT : 0))) {
-                rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.conflict");
-            } else {
-                rebindConflict = null;
-            }
-            listeningBinding = -1;
-            return true;
-        }
         // D: 搜索框菜单键盘 / search box menu keyboard
         if (showMenu) {
             if (renderer.isMenuSearchFocused()) {
@@ -5033,12 +4935,6 @@ public class GraphEditor {
         }
         // ESC closes open panels first, then falls through to close UI
         if (key == 256) {
-            if (showSettings) {
-                showSettings = false;
-                listeningBinding = -1; // 关闭弹窗清掉可能残留的重绑监听 / cancel any pending rebind on close
-                rebindConflict = null;
-                return true;
-            }
             if (editingBookmarkName) { editingBookmarkName = false; editingBookmarkIndex = -1; return true; }
             if (showColorConfig) { showColorConfig = false; return true; }
             if (editingCommentColorNode != null && commentButtons != null) { closeCommentColorPopup(); return true; }
@@ -5376,159 +5272,6 @@ public class GraphEditor {
         g.fill(sbX, 3, sbX + 46, 19, hov ? 0xFF3A4A6A : 0xFF2A3A5A);
         g.renderOutline(sbX, 3, 46, 16, NodeRenderer.CSB());
         g.drawString(mc.font, I18n.get("gui.create_schematic_compute.topbar.settings"), sbX + 8, 7, 0xFFCCCCFF, false);
-    }
-
-    /** 设置弹窗：三 tab（界面颜色 / 键位绑定 / 节点指南）。颜色 tab 内嵌一个跳转按钮，
-     *  打开既有的 16 色主题面板（零迁移 —— 面板逻辑原样，只是多一个入口）；
-     *  键位与指南 tab 在后续步骤填充内容。
-     *  Settings dialog: three tabs (colors / key bindings / node guide). The colors
-     *  tab embeds a jump button that opens the existing 16-color theme panel — zero
-     *  migration, same panel, one more entry point. The keys and guide tabs get
-     *  their content in a later step. */
-    private void renderSettingsPanel(GuiGraphics g, int mx, int my) {
-        var mc = Minecraft.getInstance();
-        int w = 250, h = settingsTab >= 1 ? 216 : 130;
-        int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
-        settingsPanelX = cx; settingsPanelY = cy; settingsPanelW = w; settingsPanelH = h;
-
-        g.fill(cx, cy, cx + w, cy + h, 0xEE1A1A2A);
-        g.renderOutline(cx, cy, w, h, NodeRenderer.CSB());
-        g.fill(cx + 2, cy + 2, cx + w - 2, cy + 18, 0xFF4A3F28);
-        g.drawString(mc.font, "§6§l" + I18n.get("gui.create_schematic_compute.settings.title"), cx + 8, cy + 6, 0xFFFFFFFF, false);
-        g.fill(cx + w - 18, cy + 2, cx + w - 2, cy + 18, 0xFF4A3028);
-        g.renderOutline(cx + w - 18, cy + 2, 16, 16, 0xFF8B5333);
-        g.drawString(mc.font, "§cX", cx + w - 14, cy + 6, 0xFFFFFFFF, false);
-
-        // Tab 行 / tab row
-        int tabY = cy + 24;
-        String[] tabs = {
-            I18n.get("gui.create_schematic_compute.settings.tab.colors"),
-            I18n.get("gui.create_schematic_compute.settings.tab.keys"),
-            I18n.get("gui.create_schematic_compute.settings.tab.guide")};
-        int tabW = (w - 20) / 3 - 4;
-        settingsTabW = tabW;
-        for (int i = 0; i < 3; i++) {
-            int tx = cx + 10 + i * (tabW + 6);
-            boolean active = i == settingsTab;
-            g.fill(tx, tabY, tx + tabW, tabY + 18, active ? 0xFF2A3A5A : 0xFF222020);
-            g.renderOutline(tx, tabY, tabW, 18, active ? 0xFF5A7AAA : NodeRenderer.CSB());
-            g.drawString(mc.font, tabs[i], tx + 6, tabY + 5, active ? 0xFFAACCFF : 0xFFAAAAAA, false);
-        }
-        // 内容区 / content area
-        int contentY = tabY + 24;
-        settingsContentY = contentY;
-        if (settingsTab == 0) {
-            // 打开既有颜色面板的按钮（工具栏的按钮仍是快捷入口，两处入口同一个面板）
-            // Button that opens the existing color panel (the toolbar button stays as
-            // a shortcut — both entries open the same panel).
-            boolean hov = mx >= cx + 10 && mx <= cx + 120 && my >= contentY && my <= contentY + 18;
-            g.fill(cx + 10, contentY, cx + 120, contentY + 18, hov ? 0xFF3A4A6A : 0xFF2A3A5A);
-            g.renderOutline(cx + 10, contentY, 110, 18, NodeRenderer.CSB());
-            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.settings.open_colors"), cx + 16, contentY + 5, 0xFFCCCCFF, false);
-        } else if (settingsTab == 1) {
-            // 键位绑定列表：点击行进入监听，随后按下的鼠标键 / 键盘键成为新绑定。
-            // Key-binding list: click a row to listen, then the next mouse button or
-            // key becomes the new binding.
-            var actions = EditorKeys.Action.values();
-            settingsRows = actions.length;
-            int rowY = contentY;
-            for (int i = 0; i < actions.length; i++) {
-                var a = actions[i];
-                boolean listening = listeningBinding == a.ordinal();
-                boolean hov = !listening && mx >= cx + 10 && mx <= cx + w - 40 && my >= rowY && my <= rowY + 15;
-                if (listening) g.fill(cx + 10, rowY, cx + w - 20, rowY + 15, 0xFF5A3A2A);
-                else if (hov) g.fill(cx + 10, rowY, cx + w - 20, rowY + 15, 0xFF3A4A3A);
-                String cur;
-                if (a.mouse) {
-                    cur = I18n.get("gui.create_schematic_compute.editorkeys.mouse." + EditorKeys.mouseButton(a));
-                } else {
-                    cur = EditorKeys.modsText(EditorKeys.keyModifiers(a)) + keyName(EditorKeys.keyCode(a));
-                }
-                String text = listening
-                    ? I18n.get("gui.create_schematic_compute.editorkeys.rebind_hint")
-                    : I18n.get(a.langKey) + ":  " + cur;
-                g.drawString(mc.font, listening ? "§e" + text : text, cx + 14, rowY + 4, 0xFFCCCCCC, false);
-                // 每行右端"默认"按钮 —— 单动作恢复出厂绑定 / per-row reset-to-default button
-                boolean rbHov = mx >= cx + w - 36 && mx <= cx + w - 12 && my >= rowY + 1 && my <= rowY + 14;
-                g.fill(cx + w - 36, rowY + 1, cx + w - 12, rowY + 14, rbHov ? 0xFF4A5A2A : 0xFF3A3428);
-                g.renderOutline(cx + w - 36, rowY + 1, 24, 13, 0xFF6A8A3A);
-                g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.settings.reset_default"), cx + w - 34, rowY + 4, 0xFFFFFFFF, false);
-                rowY += 16;
-            }
-            if (rebindConflict != null)
-                g.drawString(mc.font, "§c" + rebindConflict, cx + 12, cy + h - 16, 0xFFFFFFFF, false);
-        } else {
-            // 节点指南：从 NodeType 元数据自动生成 —— 名称走既有 lang 键，引脚与参数
-            // 来自枚举字段，新增节点零成本跟上；说明文案（guide.* lang 键）按需补，
-            // 缺省自动隐藏，不写死 92 条文案。
-            // Node guide: generated from NodeType metadata — names come from the
-            // existing lang keys, pins and params from the enum fields, so new nodes
-            // show up for free. Descriptions (guide.* lang keys) appear only when
-            // present; no 92 hard-coded blurbs.
-            var types = NodeType.values();
-            int rowH2 = 15;
-            int listTop = contentY + 12;
-            int listBot = cy + h - 20;
-            int visible = Math.max(1, (listBot - listTop) / rowH2);
-            int maxScroll = Math.max(0, types.length - visible);
-            if (settingsGuideScroll < 0) settingsGuideScroll = 0;
-            if (settingsGuideScroll > maxScroll) settingsGuideScroll = maxScroll;
-            g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.settings.guide_hint"), cx + 12, contentY - 2, 0xFFCCCCCC, false);
-            g.enableScissor(cx + 4, listTop, cx + w - 14, listBot);
-            NodeType hoveredGuide = null;
-            for (int i = settingsGuideScroll; i < types.length; i++) {
-                int ry = listTop + (i - settingsGuideScroll) * rowH2;
-                if (ry + rowH2 > listBot) break;
-                var t = types[i];
-                if (i % 2 == 0) g.fill(cx + 6, ry, cx + w - 16, ry + rowH2, 0xFF222020);
-                if (mx >= cx + 6 && mx <= cx + w - 16 && my >= ry && my <= ry + rowH2) hoveredGuide = t;
-                String name = I18n.get(t.displayName);
-                String pins = I18n.get("gui.create_schematic_compute.guide.inputs") + t.inputs
-                    + " → " + I18n.get("gui.create_schematic_compute.guide.outputs") + t.outputs;
-                g.drawString(mc.font, "§e" + name, cx + 10, ry + 3, 0xFFCCCCCC, false);
-                g.drawString(mc.font, "§7" + pins, cx + 128, ry + 3, 0xFF999999, false);
-                if (t.paramNames.length > 0) {
-                    String params = String.join(", ", t.paramNames);
-                    params = mc.font.plainSubstrByWidth("§8" + params, w - 220);
-                    g.drawString(mc.font, params, cx + 190, ry + 3, 0xFF888888, false);
-                }
-            }
-            g.disableScissor();
-            // 逐节点说明（guide.<TYPE> lang 键，TYPE 为枚举名）：悬停该行时显示在弹窗底部；
-            // 未配置的键不渲染任何内容 —— 后续补文案零代码改动。
-            // Per-node description (guide.<TYPE> lang key, TYPE = enum name): shown at the
-            // dialog bottom while hovering that row; absent keys render nothing — adding
-            // copy later needs no code change.
-            if (hoveredGuide != null) {
-                String descKey = "gui.create_schematic_compute.guide." + hoveredGuide.name();
-                if (I18n.exists(descKey)) {
-                    String desc = mc.font.plainSubstrByWidth(I18n.get(descKey), w - 24);
-                    g.drawString(mc.font, "§7" + desc, cx + 10, cy + h - 16, 0xFFCCCCCC, false);
-                }
-            }
-            if (maxScroll > 0) {
-                int sbX = cx + w - 12;
-                g.fill(sbX, listTop, sbX + 6, listBot, 0xFF2A2822);
-                float thumbH = Math.max(12, (listBot - listTop) * (float) visible / types.length);
-                float thumbY = listTop + (float) settingsGuideScroll / maxScroll * ((listBot - listTop) - thumbH);
-                g.fill(sbX + 1, (int) thumbY, sbX + 5, (int) (thumbY + thumbH), 0xFF8B7533);
-            }
-        }
-    }
-
-    /** 键位行数与行高（渲染写入，命中读取）。 / key-binding row count & row height, written on render, read on hit-test. */
-    private int settingsRows, settingsRowH = 16;
-
-    /** GLFW 键码的可读名（设置界面显示用）。 / Readable name for a GLFW keycode (settings UI). */
-    private static String keyName(int k) {
-        if (k >= 65 && k <= 90) return String.valueOf((char) ('A' + (k - 65)));
-        if (k >= 48 && k <= 57) return String.valueOf((char) ('0' + (k - 48)));
-        return switch (k) {
-            case 256 -> "Esc"; case 257 -> "Enter"; case 258 -> "Tab"; case 259 -> "Backspace";
-            case 260 -> "Ins"; case 261 -> "Del"; case 263 -> "Left"; case 262 -> "Right";
-            case 265 -> "Up"; case 264 -> "Down"; case 266 -> "PgUp"; case 267 -> "PgDn";
-            case 268 -> "Home"; case 269 -> "End"; default -> "Key " + k;
-        };
     }
 
     private void renderColorPanel(GuiGraphics g, int mx, int my) {
