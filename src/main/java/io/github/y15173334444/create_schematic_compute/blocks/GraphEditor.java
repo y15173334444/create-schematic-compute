@@ -765,6 +765,11 @@ public class GraphEditor {
      *  Tab width and content-area y, written during render and read during hit
      *  testing — same single-source-of-truth rule as the panel rect. */
     private int settingsTabW, settingsContentY;
+    /** 正在等待重绑的动作（EditorKeys.Action 的 ordinal），-1 = 无。
+     *  The action awaiting a rebind (ordinal into EditorKeys.Action), -1 = none. */
+    private int listeningBinding = -1;
+    /** 重绑冲突提示（显示在弹窗底部，非空即显示）。 / Rebind clash message shown at the dialog bottom when non-null. */
+    private String rebindConflict;
     /** 设置弹窗面板的屏幕矩形（渲染时写入，点击命中读取）——避免渲染与命中各算一遍坐标漂移。
      *  Screen rect of the settings panel, written during render and read during hit
      *  testing — one source of truth instead of two coordinate computations drifting. */
@@ -2759,6 +2764,20 @@ public class GraphEditor {
             if (!inPanel) {
                 showSettings = false; // 点击外部关闭，落到下方正常处理 / close on outside click, fall through
             } else {
+                // 重绑监听（最高优先）：鼠标动作捕获本次按键。
+                // Rebind listening (top priority): mouse actions capture this button.
+                if (listeningBinding >= 0) {
+                    var a = EditorKeys.Action.values()[listeningBinding];
+                    if (!a.mouse) {
+                        rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_mouse_only");
+                    } else if (!EditorKeys.setMouseBinding(a, btn)) {
+                        rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.conflict");
+                    } else {
+                        rebindConflict = null;
+                    }
+                    listeningBinding = -1;
+                    return true;
+                }
                 int cbx = settingsPanelX + settingsPanelW - 18;
                 if (mx >= cbx && mx <= cbx + 16 && my >= settingsPanelY + 2 && my <= settingsPanelY + 18) {
                     showSettings = false; return true;
@@ -2769,6 +2788,13 @@ public class GraphEditor {
                         int tx = settingsPanelX + 10 + i * (settingsTabW + 6);
                         if (mx >= tx && mx <= tx + settingsTabW) { settingsTab = i; return true; }
                     }
+                }
+                // 键位行命中 → 进入监听（渲染与命中共用 settingsContentY/Rows 单一来源）
+                // Key-binding row hit → start listening (render and hit-test share the
+                // same settingsContentY/settingsRows source of truth).
+                if (settingsTab == 1 && my >= settingsContentY && my <= settingsContentY + settingsRows * settingsRowH) {
+                    int idx = (int) ((my - settingsContentY) / settingsRowH);
+                    if (idx >= 0 && idx < settingsRows) { listeningBinding = idx; rebindConflict = null; return true; }
                 }
                 // 颜色 tab：打开既有 16 色面板（与工具栏按钮同一目标，零迁移）
                 // Colors tab: open the existing panel (same target as the toolbar button).
@@ -2995,7 +3021,14 @@ public class GraphEditor {
             if (e.getKey().isFocused()) { e.getValue().run(); committed = true; break; }
         }
         if (committed) markDirty();
-        if(btn==0){
+        // 平移键（默认左键，可在设置里改为中键）也进入选择/平移大分支：内部所有
+        // 交互子判断仍要求 btn==0，因此重绑后中键只会触发空白/注释体平移，
+        // 不会误触工具栏、编辑框或节点拖动。
+        // The pan button (left by default, rebindable to middle in settings) also
+        // enters the select/pan branch: every interactive sub-check inside still
+        // requires btn==0, so a rebound middle click can only start panning on blank
+        // canvas / comment bodies — never hit the toolbar, edit boxes or node drags.
+        if(btn==0 || (btn != 1 && btn == EditorKeys.mouseButton(EditorKeys.Action.PAN))){
             // ── 子图 Back 按钮 ──
             if (isInSubGraph()) {
                 int bw = 60, bh = 16;
@@ -3090,7 +3123,9 @@ public class GraphEditor {
                     recordOp(addOp, 0, 0, added.id, null); // oldVal=localId for pre-ACK undo
                 }
             }showMenu=false;return true;}
-        if(btn==1){
+        // 上下文菜单键（默认右键，可重绑；查表）
+        // Context-menu button (right by default, rebindable; looked up).
+        if(btn == EditorKeys.mouseButton(EditorKeys.Action.CONTEXT_MENU)){
             if (showColorConfig) return true; // 颜色面板打开时禁止操作 (Disable operations while color panel is open)
             menuX=(float)mx; menuY=(float)my; showMenu=true; renderer.resetMenuSearch(); return true;
         }
@@ -4357,7 +4392,9 @@ public class GraphEditor {
                 endUndoBatch(); // close the batch started at drag begin
             rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping after drag
             draggingNode=null;
-        }if(btn==0&&panning)panning=false;
+        // 平移键松开 → 结束平移（按键可能被重绑，查表而非写死左键）
+        // Pan button released → stop panning (rebindable; look it up, don't hardcode).
+        }if(btn == EditorKeys.mouseButton(EditorKeys.Action.PAN)&&panning)panning=false;
     }
 
     // ── DEBUG_SIGNAL_GEN 控制点辅助方法 ──
@@ -4821,6 +4858,27 @@ public class GraphEditor {
      *  @return true 如果事件被消费 / true if consumed */
     public boolean keyPressed(int key, int sc, int mod) {
         var graph = getGraph();
+        // 键位绑定查表用的修饰键快照 / modifier snapshot for the binding lookups
+        boolean modC = net.minecraft.client.gui.screens.Screen.hasControlDown();
+        boolean modS = net.minecraft.client.gui.screens.Screen.hasShiftDown();
+        boolean modA = net.minecraft.client.gui.screens.Screen.hasAltDown();
+        // 重绑监听（最高优先）：键盘动作捕获本次按键（连修饰一起），ESC 取消。
+        // Rebind listening (top priority): keyboard actions capture this key together
+        // with the current modifiers; ESC cancels.
+        if (listeningBinding >= 0) {
+            if (key == 256) { listeningBinding = -1; return true; }
+            var a = EditorKeys.Action.values()[listeningBinding];
+            if (a.mouse) {
+                rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_key_only");
+            } else if (!EditorKeys.setKeyBinding(a, key,
+                    (modC ? EditorKeys.MOD_CTRL : 0) | (modS ? EditorKeys.MOD_SHIFT : 0) | (modA ? EditorKeys.MOD_ALT : 0))) {
+                rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.conflict");
+            } else {
+                rebindConflict = null;
+            }
+            listeningBinding = -1;
+            return true;
+        }
         // D: 搜索框菜单键盘 / search box menu keyboard
         if (showMenu) {
             if (renderer.isMenuSearchFocused()) {
@@ -4966,7 +5024,7 @@ public class GraphEditor {
         }
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.keyPressed(key, sc, mod);
         // X 键删除悬停节点（替代右键删除防误触） (X key deletes hovered node, replacing right-click delete to prevent accidental deletion)
-        if (key == 88) { // GLFW_KEY_X
+        if (EditorKeys.matchesKey(EditorKeys.Action.DELETE_NODE, key, modC, modS, modA)) { // 可重绑 / rebindable
             var g2 = getGraph();
             var hit = hitNode(lastMouseX, lastMouseY);
             if (hit != null && !isNodeLocked(hit.id, ownerNodeId())) {
@@ -4989,11 +5047,11 @@ public class GraphEditor {
             }
         }
         // Ctrl+Z / Ctrl+Y undo / redo
-        if (net.minecraft.client.gui.screens.Screen.hasControlDown()) {
-            if (key == 90) { commitFocusedEditBox(); opUndo(); return true; }  // Ctrl+Z
-            if (key == 89) { commitFocusedEditBox(); opRedo(); return true; }  // Ctrl+Y
+        if (modC || modS || modA) {
+            if (EditorKeys.matchesKey(EditorKeys.Action.UNDO, key, modC, modS, modA)) { commitFocusedEditBox(); opUndo(); return true; }
+            if (EditorKeys.matchesKey(EditorKeys.Action.REDO, key, modC, modS, modA)) { commitFocusedEditBox(); opRedo(); return true; }
             // 视角书签快捷键 / view bookmark shortcuts
-            if (key == 77) { // Ctrl+M: 保存书签 / Ctrl+M: save bookmark
+            if (EditorKeys.matchesKey(EditorKeys.Action.SAVE_BOOKMARK, key, modC, modS, modA)) { // 可重绑 / rebindable
                 editingBookmarkName = true;
                 editingBookmarkIndex = -1;
                 bookmarkNameDraft = "书签 " + (getGraph().bookmarks.size() + 1);
@@ -5001,10 +5059,10 @@ public class GraphEditor {
             }
         }
         // Home: 重置视角 / reset view
-        if (key == 268) { startTransition(0, 0, 1f); return true; }
+        if (EditorKeys.matchesKey(EditorKeys.Action.RESET_VIEW, key, modC, modS, modA)) { startTransition(0, 0, 1f); return true; }
         // Ctrl+D 复制（支持多选） — 走服务端权威 ID 分配流程
         // Ctrl+D duplicate (supports multi-select) — uses server-authoritative ID allocation
-        if(key==68&&net.minecraft.client.gui.screens.Screen.hasControlDown()&&!selectedNodes.isEmpty()){
+        if(EditorKeys.matchesKey(EditorKeys.Action.DUPLICATE, key, modC, modS, modA)&&!selectedNodes.isEmpty()){
             beginUndoBatch();
             var idMap = new java.util.HashMap<Integer, Integer>();
             var newNodes = new java.util.ArrayList<GraphNode>();
@@ -5243,7 +5301,7 @@ public class GraphEditor {
      *  their content in a later step. */
     private void renderSettingsPanel(GuiGraphics g, int mx, int my) {
         var mc = Minecraft.getInstance();
-        int w = 250, h = 130;
+        int w = 250, h = settingsTab == 1 ? 216 : 130;
         int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
         settingsPanelX = cx; settingsPanelY = cy; settingsPanelW = w; settingsPanelH = h;
 
@@ -5282,10 +5340,50 @@ public class GraphEditor {
             g.renderOutline(cx + 10, contentY, 110, 18, NodeRenderer.CSB());
             g.drawString(mc.font, I18n.get("gui.create_schematic_compute.settings.open_colors"), cx + 16, contentY + 5, 0xFFCCCCFF, false);
         } else if (settingsTab == 1) {
-            g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.settings.keys_todo"), cx + 12, contentY + 6, 0xFFCCCCCC, false);
+            // 键位绑定列表：点击行进入监听，随后按下的鼠标键 / 键盘键成为新绑定。
+            // Key-binding list: click a row to listen, then the next mouse button or
+            // key becomes the new binding.
+            var actions = EditorKeys.Action.values();
+            settingsRows = actions.length;
+            int rowY = contentY;
+            for (int i = 0; i < actions.length; i++) {
+                var a = actions[i];
+                boolean listening = listeningBinding == a.ordinal();
+                boolean hov = !listening && mx >= cx + 10 && mx <= cx + w - 20 && my >= rowY && my <= rowY + 15;
+                if (listening) g.fill(cx + 10, rowY, cx + w - 20, rowY + 15, 0xFF5A3A2A);
+                else if (hov) g.fill(cx + 10, rowY, cx + w - 20, rowY + 15, 0xFF3A4A3A);
+                String cur;
+                if (a.mouse) {
+                    cur = I18n.get("gui.create_schematic_compute.editorkeys.mouse." + EditorKeys.mouseButton(a));
+                } else {
+                    cur = EditorKeys.modsText(EditorKeys.keyModifiers(a)) + keyName(EditorKeys.keyCode(a));
+                }
+                String text = listening
+                    ? I18n.get("gui.create_schematic_compute.editorkeys.rebind_hint")
+                    : I18n.get(a.langKey) + ":  " + cur;
+                g.drawString(mc.font, listening ? "§e" + text : text, cx + 14, rowY + 4, 0xFFCCCCCC, false);
+                rowY += 16;
+            }
+            if (rebindConflict != null)
+                g.drawString(mc.font, "§c" + rebindConflict, cx + 12, cy + h - 16, 0xFFFFFFFF, false);
         } else {
             g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.settings.guide_todo"), cx + 12, contentY + 6, 0xFFCCCCCC, false);
         }
+    }
+
+    /** 键位行数与行高（渲染写入，命中读取）。 / key-binding row count & row height, written on render, read on hit-test. */
+    private int settingsRows, settingsRowH = 16;
+
+    /** GLFW 键码的可读名（设置界面显示用）。 / Readable name for a GLFW keycode (settings UI). */
+    private static String keyName(int k) {
+        if (k >= 65 && k <= 90) return String.valueOf((char) ('A' + (k - 65)));
+        if (k >= 48 && k <= 57) return String.valueOf((char) ('0' + (k - 48)));
+        return switch (k) {
+            case 256 -> "Esc"; case 257 -> "Enter"; case 258 -> "Tab"; case 259 -> "Backspace";
+            case 260 -> "Ins"; case 261 -> "Del"; case 263 -> "Left"; case 262 -> "Right";
+            case 265 -> "Up"; case 264 -> "Down"; case 266 -> "PgUp"; case 267 -> "PgDn";
+            case 268 -> "Home"; case 269 -> "End"; default -> "Key " + k;
+        };
     }
 
     private void renderColorPanel(GuiGraphics g, int mx, int my) {
