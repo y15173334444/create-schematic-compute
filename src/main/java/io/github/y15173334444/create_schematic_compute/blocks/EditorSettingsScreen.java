@@ -66,6 +66,11 @@ public class EditorSettingsScreen extends Screen {
     private int workingColor = 0xFF000000;
     /** 颜色列表滚动偏移（行数）。 / color list scroll offset, in rows. */
     private int colorScroll = 0;
+    /** 颜色列表滚动条拖拽中（thumb 上按下未松开）。 / the color-list scrollbar thumb is being dragged. */
+    private boolean colorScrollbarDrag = false;
+    /** 拖拽起点鼠标 y 与起始偏移（相对增量式，书签面板同款）。 / drag-start mouse y and start offset (relative delta, bookmark-panel style). */
+    private float colorScrollbarDragStartY = 0f;
+    private int colorScrollbarDragStartOff = 0;
     /** 是否已为本次进入颜色 tab 初始化暂存色。 / whether staging colors were initialized for this colors-tab visit. */
     private boolean stagingInited = false;
     /** 停靠在右侧的调色板（嵌入模式：无浮空外框、不随外部点击关闭）。 / the palette docked on the right (embedded: no floating frame, no outside-click close). */
@@ -269,12 +274,11 @@ public class EditorSettingsScreen extends Screen {
                 if (adjustIndex >= 0) NodeRenderer.stagingColors[adjustIndex] = workingColor;
                 return true;
             }
-            int cx = TAB_W + 12 - shift, cy = cy();
+            int cx = TAB_W + 12 - shift;
             int contentW = width - TAB_W - 26;
-            int btnRowY = height - 8 - 16;
-            int listTop = cy + 2, listBot = btnRowY - 6;
+            int listTop = colorsListTop(), listBot = colorsListBot();
             // 收起/展开 + 恢复默认 / 应用 / collapse toggle + defaults + apply
-            if (my >= btnRowY && my <= btnRowY + 16) {
+            if (my >= listBot + 6 && my <= listBot + 22) {
                 // 展开形态下点击 = 收起调色板；收起形态下点击 = 展开并绑定当前槽位。
                 // Clicking in the expanded form collapses the palette; in the collapsed
                 // form it expands and binds the current slot.
@@ -293,11 +297,22 @@ public class EditorSettingsScreen extends Screen {
                     return true;
                 }
             }
+            // 滚动条：thumb 上按下 = 拖拽；thumb 上下轨道 = 翻 3 行（书签面板同款）。
+            // Scrollbar: press on the thumb = drag; track above/below = page by 3 rows (bookmark-panel style).
+            if (colorsMaxScroll() > 0) {
+                int[] sb = colorsScrollbarThumb(cx, contentW);
+                if (mx >= sb[0] && mx <= sb[0] + sb[2] && my >= listTop && my <= listBot) {
+                    if (my < sb[1]) { colorScroll = Math.max(0, colorScroll - 3); }
+                    else if (my > sb[1] + sb[3]) { colorScroll = Math.min(colorsMaxScroll(), colorScroll + 3); }
+                    else { colorScrollbarDrag = true; colorScrollbarDragStartY = (float) my; colorScrollbarDragStartOff = colorScroll; }
+                    return true;
+                }
+            }
             // 颜色行：调整按钮 / color rows: adjust buttons
             if (my >= listTop && my < listBot) {
                 int idx = colorScroll + (int) ((my - listTop) / COLOR_ROW_H);
                 if (idx >= 0 && idx < NodeRenderer._NUM_COLORS) {
-                    int btnX = cx + contentW - 52;
+                    int btnX = cx + contentW - 62;
                     if (mx >= btnX && mx <= btnX + 44) { beginAdjust(idx); return true; }
                 }
             }
@@ -381,6 +396,8 @@ public class EditorSettingsScreen extends Screen {
         if (tab == 0) {
             if (expanded && picker.contains((int) mx, (int) my)) return picker.mouseScrolled(mx, my, sy);
             colorScroll -= (int) Math.signum(sy);
+            if (colorScroll < 0) colorScroll = 0;
+            if (colorScroll > colorsMaxScroll()) colorScroll = colorsMaxScroll();
             return true;
         }
         // 节点指南滚轮 —— 仅当光标在右侧内容区时消费 / node-guide wheel, content area only
@@ -393,6 +410,10 @@ public class EditorSettingsScreen extends Screen {
 
     @Override
     public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
+        // 颜色列表滚动条拖拽优先于调色板转发（两者区域互斥，同一时刻只有一个生效）。
+        // Color-list scrollbar drag takes priority over the palette forward (the two
+        // regions are disjoint; only one can be active at a time).
+        if (colorScrollbarDrag) { applyColorScrollbarDrag(my); return true; }
         // 调色板拖拽（SV / Hue / Alpha 渐变条）转发到组件 / forward SV/hue/alpha drags to the widget
         if (expanded && picker.isVisible()) return picker.mouseDragged(mx, my, btn, dx, dy);
         return true;
@@ -400,6 +421,7 @@ public class EditorSettingsScreen extends Screen {
 
     @Override
     public boolean mouseReleased(double mx, double my, int btn) {
+        colorScrollbarDrag = false;
         if (expanded) picker.mouseReleased(mx, my, btn);
         return true;
     }
@@ -424,21 +446,22 @@ public class EditorSettingsScreen extends Screen {
         // Initialize staging colors once per colors-tab visit (same as the old panel:
         // unapplied edits are discarded on the next entry).
         if (!stagingInited) { NodeRenderer.initStaging(); stagingInited = true; }
-        int listTop = cy + 2;
-        int btnRowY = contentBottom - 16;
-        int listBot = btnRowY - 6;
-        int visible = Math.max(1, (listBot - listTop) / COLOR_ROW_H);
-        int maxScroll = Math.max(0, NodeRenderer._NUM_COLORS - visible);
+        int listTop = colorsListTop();
+        int btnRowY = colorsListBot() + 6;
+        int listBot = colorsListBot();
+        int visible = colorsVisibleRows();
+        int maxScroll = colorsMaxScroll();
         if (colorScroll < 0) colorScroll = 0;
         if (colorScroll > maxScroll) colorScroll = maxScroll;
+        int rowRight = colorsRowRight(cx, contentW);
 
         for (int i = colorScroll; i < NodeRenderer._NUM_COLORS; i++) {
             int ri = i - colorScroll;
             int ry = listTop + ri * COLOR_ROW_H;
             if (ry + COLOR_ROW_H > listBot) break;
             boolean adjustingThis = expanded && adjustIndex == i;
-            if (adjustingThis) g.fill(cx, ry, cx + contentW, ry + COLOR_ROW_H - 2, 0xFF2A3A5A);
-            else if (ri % 2 == 0) g.fill(cx, ry, cx + contentW, ry + COLOR_ROW_H - 2, 0xFF222020);
+            if (adjustingThis) g.fill(cx, ry, rowRight, ry + COLOR_ROW_H - 2, 0xFF2A3A5A);
+            else if (ri % 2 == 0) g.fill(cx, ry, rowRight, ry + COLOR_ROW_H - 2, 0xFF222020);
             // 色块恒显示暂存色 —— 工作色仅在确认时填入（实时预览会让"确认"失去意义）。
             // The swatch always shows the staging color — the working color is filled
             // only on confirm (a live preview would make "confirm" meaningless).
@@ -448,13 +471,21 @@ public class EditorSettingsScreen extends Screen {
             g.drawString(font, I18n.get("gui.create_schematic_compute.color." + NodeRenderer.COLOR_KEYS[i]),
                 cx + 26, ry + 7, 0xFFCCCCCC, false);
             // 调整按钮 / adjust button
-            boolean hov = mx >= cx + contentW - 52 && mx <= cx + contentW - 8
+            boolean hov = mx >= rowRight - 52 && mx <= rowRight - 8
                 && my >= ry + 1 && my <= ry + COLOR_ROW_H - 3;
-            g.fill(cx + contentW - 52, ry + 1, cx + contentW - 8, ry + COLOR_ROW_H - 3,
+            g.fill(rowRight - 52, ry + 1, rowRight - 8, ry + COLOR_ROW_H - 3,
                 hov ? 0xFF3A4A6A : 0xFF2A3A5A);
-            g.renderOutline(cx + contentW - 52, ry + 1, 44, COLOR_ROW_H - 4, NodeRenderer.CSB());
+            g.renderOutline(rowRight - 52, ry + 1, 44, COLOR_ROW_H - 4, NodeRenderer.CSB());
             g.drawString(font, I18n.get("gui.create_schematic_compute.settings.adjust"),
-                cx + contentW - 48, ry + 7, 0xFFCCCCFF, false);
+                rowRight - 48, ry + 7, 0xFFCCCCFF, false);
+        }
+
+        // 滚动条（thumb 可拖拽）——几何与命中/拖拽共用 colorsScrollbarThumb。
+        // Scrollbar (draggable thumb) — geometry shared with hit-testing/dragging via colorsScrollbarThumb.
+        if (maxScroll > 0) {
+            int[] sb = colorsScrollbarThumb(cx, contentW);
+            g.fill(sb[0], listTop, sb[0] + sb[2], listBot, 0xFF2A2822);
+            g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], 0xFF8B7533);
         }
 
         // 底部常驻：收起/展开 + 恢复默认 / 应用
@@ -557,6 +588,39 @@ public class EditorSettingsScreen extends Screen {
 
     /** 内容区起始 y（渲染与命中共用）。 / content-area top y (shared by render and hit-test). */
     private static int cy() { return 8; }
+
+    // ── 颜色列表几何（渲染 / 命中 / 拖拽共用单一来源） ──
+    // ── Color-list geometry (single source shared by render, hit-testing and dragging) ──
+
+    /** 列表顶部 y。 / list top y. */
+    private static int colorsListTop() { return cy() + 2; }
+    /** 列表底部 y（底部按钮行上方 6px）。 / list bottom y (6px above the bottom button row). */
+    private int colorsListBot() { return height - 8 - 16 - 6; }
+    private int colorsVisibleRows() { return Math.max(1, (colorsListBot() - colorsListTop()) / COLOR_ROW_H); }
+    private int colorsMaxScroll() { return Math.max(0, NodeRenderer._NUM_COLORS - colorsVisibleRows()); }
+    /** 行区右缘：为滚动条预留 10px 条带。 / row right edge: a 10px strip is reserved for the scrollbar. */
+    private static int colorsRowRight(int cx, int contentW) { return cx + contentW - 10; }
+    /** 滚动条 thumb {x, y, w, h}；轨道与 thumb 同宽、纵跨列表全高。 / scrollbar thumb {x, y, w, h}; the track shares x/w and spans the full list height. */
+    private int[] colorsScrollbarThumb(int cx, int contentW) {
+        int trackH = colorsListBot() - colorsListTop();
+        int thumbH = Math.max(12, trackH * colorsVisibleRows() / NodeRenderer._NUM_COLORS);
+        int maxScroll = colorsMaxScroll();
+        int thumbY = colorsListTop() + (maxScroll > 0 ? (trackH - thumbH) * colorScroll / maxScroll : 0);
+        return new int[]{cx + contentW - 8, thumbY, 6, thumbH};
+    }
+
+    /** 拖拽推进颜色列表：thumb 相对增量换算为行偏移（书签 / 添加菜单滚动条同款）。
+     *  Advance the color list by the dragged thumb delta (bookmark / add-menu scrollbar style). */
+    private void applyColorScrollbarDrag(double my) {
+        int maxScroll = colorsMaxScroll();
+        if (maxScroll <= 0) return;
+        int trackH = colorsListBot() - colorsListTop();
+        int thumbH = Math.max(12, trackH * colorsVisibleRows() / NodeRenderer._NUM_COLORS);
+        if (trackH - thumbH <= 0) return;
+        float delta = (float) (my - colorScrollbarDragStartY) / (trackH - thumbH);
+        int newOff = colorScrollbarDragStartOff + Math.round(delta * maxScroll);
+        colorScroll = Math.max(0, Math.min(maxScroll, newOff));
+    }
 
     /** GLFW 键码的可读名（设置界面显示用）。 / Readable name for a GLFW keycode (settings UI). */
     private static String keyName(int k) {
