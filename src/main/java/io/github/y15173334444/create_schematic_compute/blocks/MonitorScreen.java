@@ -272,7 +272,9 @@ public class MonitorScreen extends AbstractGraphScreen {
     private record DisplayArea(int x, int y, int w, int h) {}
     private DisplayArea computeDisplayArea() {
         int margin = MONITOR_MARGIN;
-        int topOffset = MONITOR_TOOLBAR_H + 6; // toolbar + gap
+        // 工具条下方留白 + 编辑器顶栏（TOP_BAR_H 落地后显示区必须再让开它）。
+        // Toolbar gap + the editor top bar (the display area must clear it too).
+        int topOffset = MONITOR_TOOLBAR_H + 6 + GraphEditor.TOP_BAR_H;
         int availW = width - 2 * margin;
         int availH = height - margin - topOffset;
         float aspect = 16f / 9f;
@@ -454,7 +456,10 @@ public class MonitorScreen extends AbstractGraphScreen {
             }
         }
         // ── Toolbar at screen top (fixed position) ──
-        int tbx = 4, tby = 4, tbh = MONITOR_TOOLBAR_H;
+        // 让开编辑器顶栏：与基础工具栏同排（TOP_BAR_H+2），显示模式下整条覆盖基础按钮。
+        // Clears the editor top bar: same row as the base toolbar (TOP_BAR_H+2); in
+        // display mode this full-width strip covers the base buttons, as before.
+        int tbx = 4, tby = GraphEditor.TOP_BAR_H + 2, tbh = MONITOR_TOOLBAR_H;
         g.fill(0, tby, width, tby + tbh, 0xFF2A2822);
         // < Graph
         g.fill(tbx, tby, tbx + 56, tby + tbh, 0xFF3A3832);
@@ -600,7 +605,10 @@ public class MonitorScreen extends AbstractGraphScreen {
         if (layers.isEmpty()) return;
 
         int px = width - LAYER_PANEL_W - LAYER_PANEL_PADDING;
-        int py = 26;
+        // 让开编辑器顶栏 + 基础工具栏行（旧硬编码 26 是顶栏落地前的值）。
+        // Clears the editor top bar + the base toolbar row (the old hard-coded 26
+        // predated the top bar).
+        int py = GraphEditor.TOP_BAR_H + 24;
         int titleH = 12;
         int rowStartY = py + titleH + 2;
         // Calculate max visible rows below title
@@ -727,7 +735,7 @@ public class MonitorScreen extends AbstractGraphScreen {
         if (layers.isEmpty()) return -1;
 
         int titleH = 12;
-        int rowStartY = 26 + titleH + 2;
+        int rowStartY = GraphEditor.TOP_BAR_H + 24 + titleH + 2;
         int maxRows = Math.max(1, (height - rowStartY - 4) / LAYER_ROW_H);
         if (my < rowStartY || my > rowStartY + maxRows * LAYER_ROW_H) return -1;
 
@@ -746,7 +754,7 @@ public class MonitorScreen extends AbstractGraphScreen {
         if (layers.isEmpty()) return;
 
         int titleH = 12;
-        int rowStartY = 26 + titleH + 2;
+        int rowStartY = GraphEditor.TOP_BAR_H + 24 + titleH + 2;
         int maxRows = Math.max(1, (height - rowStartY - 4) / LAYER_ROW_H);
         int visibleRows = Math.min(layers.size(), maxRows);
 
@@ -772,7 +780,7 @@ public class MonitorScreen extends AbstractGraphScreen {
 
     private void handleLayerAutoScroll(double my) {
         int titleH = 12;
-        int rowStartY = 26 + titleH + 2;
+        int rowStartY = GraphEditor.TOP_BAR_H + 24 + titleH + 2;
         int maxRows = Math.max(1, (height - rowStartY - 4) / LAYER_ROW_H);
         int panelBottom = rowStartY + maxRows * LAYER_ROW_H;
         long now = System.currentTimeMillis();
@@ -1147,7 +1155,7 @@ public class MonitorScreen extends AbstractGraphScreen {
     // ── Display toggle button (graph editor mode) ──
     private void renderDisplayToggleButton(GuiGraphics g) {
         var mc = Minecraft.getInstance();
-        int btnX = width - 76, btnY = 4, btnW = 60, btnH = 18;
+        int btnX = width - 76, btnY = GraphEditor.TOP_BAR_H + 2, btnW = 60, btnH = 18;
         g.fill(btnX, btnY, btnX + btnW, btnY + btnH, 0xFF3A3832);
         g.renderOutline(btnX, btnY, btnW, btnH, 0xFF8B7533);
         g.renderOutline(btnX + 1, btnY + 1, btnW - 2, btnH - 2, 0xFF2A2822);
@@ -1222,7 +1230,7 @@ public class MonitorScreen extends AbstractGraphScreen {
             List<GraphNode> layers2 = getDisplayLayers(graph2);
             if (!layers2.isEmpty()) {
                 int px2 = width - LAYER_PANEL_W - LAYER_PANEL_PADDING;
-                int rowStartY2 = 26 + 12 + 2;
+                int rowStartY2 = GraphEditor.TOP_BAR_H + 24 + 12 + 2;
                 int maxRows2 = Math.max(1, (height - rowStartY2 - 4) / LAYER_ROW_H);
                 int visRows2 = Math.min(layers2.size(), maxRows2);
                 int maxScroll2 = Math.max(0, layers2.size() - maxRows2);
@@ -1254,7 +1262,8 @@ public class MonitorScreen extends AbstractGraphScreen {
             return handleDisplayAreaClick(mx, my, btn);
         }
         // Graph editor mode: check display toggle button first
-        if (btn == 0 && mx >= width - 76 && mx <= width - 16 && my >= 4 && my <= 22) {
+        if (btn == 0 && mx >= width - 76 && mx <= width - 16
+            && my >= GraphEditor.TOP_BAR_H + 2 && my <= GraphEditor.TOP_BAR_H + 20) {
             displayMode = true;
             return true;
         }
@@ -1291,7 +1300,7 @@ public class MonitorScreen extends AbstractGraphScreen {
     private boolean handleDisplayAreaClick(double mx, double my, int btn) {
         if (btn == 0) {
             var da = computeDisplayArea();
-            int tby = 4, tbh = MONITOR_TOOLBAR_H;
+            int tby = GraphEditor.TOP_BAR_H + 2, tbh = MONITOR_TOOLBAR_H;
             // < Graph
             if (mx >= 4 && mx <= 60 && my >= tby && my <= tby + tbh)
                 { displayMode = false; selectedDisplayNode = null; return true; }
@@ -1468,7 +1477,7 @@ public class MonitorScreen extends AbstractGraphScreen {
             var graph3 = getBE() != null ? getBE().getNodeGraph() : new NodeGraph();
             List<GraphNode> layers3 = getDisplayLayers(graph3);
             if (!layers3.isEmpty()) {
-                int rowStartY3 = 26 + 12 + 2;
+                int rowStartY3 = GraphEditor.TOP_BAR_H + 24 + 12 + 2;
                 int maxRows3 = Math.max(1, (height - rowStartY3 - 4) / LAYER_ROW_H);
                 int visRows3 = Math.min(layers3.size(), maxRows3);
                 int maxScroll3 = Math.max(0, layers3.size() - maxRows3);

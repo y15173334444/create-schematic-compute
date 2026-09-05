@@ -68,9 +68,20 @@ public class RadarScreen extends AbstractGraphScreen {
         if (be != null) { be.setRunning(start); PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
     }
 
+    /** 雷达工具行 y：紧贴基础工具栏下沿（顶置 = 顶栏 + 基础工具栏 + 4px 间距；
+     *  底置 = 基础工具栏上方）。旧硬编码 26 是顶栏（TOP_BAR_H）落地前的值，
+     *  顶栏加入后基础工具栏下移，雷达行与其重叠 —— 统一收敛到本方法。
+     *  Radar toolbar row y: hugs the base toolbar's edge (top: below the editor
+     *  top bar + base toolbar with a 4px gap; bottom: above the base toolbar).
+     *  The old hard-coded 26 predated the top bar and overlapped the base toolbar
+     *  once it moved down — all sites converge here. */
+    private int toolbarRowY() {
+        return NodeRenderer.isToolbarBottom() ? height - 44 : GraphEditor.TOP_BAR_H + 24;
+    }
+
     @Override protected void init() {
         super.init(); // Screen.init 清空 widget + 发送 GraphJoinPacket / clears widgets + sends GraphJoinPacket
-        int sy = (NodeRenderer.isToolbarBottom() ? height - 44 : 26) + 22;
+        int sy = toolbarRowY() + 22;
         rangeInput   = new EditBox(font, 0, sy, 36, 14, Component.literal("R"));
         scaleInput   = new EditBox(font, 0, sy, 36, 14, Component.literal("S"));
         lockDistInput = new EditBox(font, 0, sy, 36, 14, Component.literal("L"));
@@ -87,7 +98,7 @@ public class RadarScreen extends AbstractGraphScreen {
         editor.renderBg(g, mx, my);
         RadarBlockEntity be = getBE();
         if (be == null) return;
-        int y = NodeRenderer.isToolbarBottom() ? height - 44 : 26;
+        int y = toolbarRowY();
         renderRadarToolbar(g, mx, my, y, be);
         if (showDisplaySettings) renderDisplaySettings(g, mx, my, y, be);
     }
@@ -153,7 +164,7 @@ public class RadarScreen extends AbstractGraphScreen {
     private boolean inputsNeedInit = true;
 
     private void insureInputs(RadarBlockEntity be) {
-        int toolY = NodeRenderer.isToolbarBottom() ? height - 44 : 26;
+        int toolY = toolbarRowY();
         boolean bottom = NodeRenderer.isToolbarBottom();
         int px = 4, py = bottom ? toolY - 86 : toolY + 22;
         int iy = py + 22;
@@ -190,7 +201,7 @@ public class RadarScreen extends AbstractGraphScreen {
     @Override public boolean mouseClicked(double mx, double my, int btn) {
         RadarBlockEntity be = getBE();
         if (be != null && btn == 0) {
-            int y = NodeRenderer.isToolbarBottom() ? height - 44 : 26;
+            int y = toolbarRowY();
             // 设置面板保存按钮：右下角 42x18 区域
             if (showDisplaySettings) {
                 boolean bottom = NodeRenderer.isToolbarBottom();
