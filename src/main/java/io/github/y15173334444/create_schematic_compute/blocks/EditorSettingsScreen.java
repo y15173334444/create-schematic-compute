@@ -13,6 +13,8 @@ import java.util.List;
 /**
  * 编辑器设置：独立全屏 Screen —— 左侧选项卡列（界面颜色 / 键位绑定 / 节点指南），
  * 右侧内容区。从编辑器顶栏的设置按钮进入；关闭后返回编辑器。
+ * 界面 chrome（列底 / 行底 / 描边 / 强调字）全部取自主题色（NodeRenderer 的
+ * PBG/PINS/HOV/CSB/ACC 等），随「界面颜色」调整即时生效。
  *
  * <p>会话语义：{@code setScreen} 只触发旧屏的 {@code removed()}（不发 LeavePacket），
  * 编辑会话在设置期间保持；返回编辑器时 {@code init()} 幂等重 join（与像素编辑器
@@ -24,6 +26,8 @@ import java.util.List;
  * <p>Editor settings: a standalone full-screen Screen — vertical tab column on the
  * left (colors / key bindings / node guide), content on the right. Entered from the
  * editor's top-bar button; closing returns to the editor.
+ * The screen chrome (column bg / row bg / outlines / accent text) comes from the theme
+ * colors (NodeRenderer PBG/PINS/HOV/CSB/ACC…), so it follows the 界面颜色 settings.
  *
  * <p>Session semantics: {@code setScreen} only triggers the old screen's
  * {@code removed()} (no LeavePacket), so the edit session survives while settings are
@@ -127,9 +131,11 @@ public class EditorSettingsScreen extends Screen {
         int shift = Math.round(TAB_W * slide);
 
         // 全屏底 + 左侧选项卡列 / full-screen base + left tab column
-        g.fill(0, 0, w, h, 0xF0101018);
-        g.fill(-shift, 0, TAB_W - shift, h, 0xFF16141E);
-        g.fill(TAB_W - shift, 0, TAB_W - shift + 1, h, 0xFF3A3832);
+        // 遮罩用主题画布底 + 固定透明度：任何主题下都保持压暗可读，同时随主题变色。
+        // Scrim = theme canvas background at fixed alpha: readable under any theme yet follows it.
+        g.fill(0, 0, w, h, NodeRenderer.withAlpha(NodeRenderer.CG(), 0xF0));
+        g.fill(-shift, 0, TAB_W - shift, h, NodeRenderer.PBG()); // 列底随主题 panel_bg / column bg follows the theme
+        g.fill(TAB_W - shift, 0, TAB_W - shift + 1, h, NodeRenderer.PBR()); // 列右缘分隔线 = 面板边框 / column edge = panel border
         g.drawString(font, "§6§l" + I18n.get("gui.create_schematic_compute.settings.title"), 12 - shift, 12, 0xFFFFFFFF, false);
 
         // 选项卡（纵向）+ 末尾返回项 / vertical tabs + back entry at the end
@@ -140,16 +146,19 @@ public class EditorSettingsScreen extends Screen {
         for (int i = 0; i < tabs.length; i++) {
             int tx = 10 - shift, ty = 36 + i * 30;
             boolean active = i == tab;
-            g.fill(tx, ty, tx + TAB_W - 20, ty + 24, active ? 0xFF2A3A5A : 0xFF222020);
-            g.renderOutline(tx, ty, TAB_W - 20, 24, active ? 0xFF5A7AAA : NodeRenderer.CSB());
-            g.drawString(font, tabs[i], tx + 8, ty + 8, active ? 0xFFAACCFF : 0xFFAAAAAA, false);
+            // 激活 tab：悬停高亮底 + 强调字（描边与文字已区分选中态）；非激活 = 内凹井色。
+            // Active tab: hover-highlight fill + accent text (state is carried by text);
+            // inactive tabs are inset-well color.
+            g.fill(tx, ty, tx + TAB_W - 20, ty + 24, active ? NodeRenderer.HOV() : NodeRenderer.PINS());
+            g.renderOutline(tx, ty, TAB_W - 20, 24, NodeRenderer.CSB());
+            g.drawString(font, tabs[i], tx + 8, ty + 8, active ? NodeRenderer.ACC() : 0xFFAAAAAA, false);
         }
         // 返回项（书签列末尾，样式与选项卡一致、灰字表示动作而非状态）
         // Back entry (end of the tab column, tab-styled with gray text to read as an
         // action rather than a state).
         int btx = 10 - shift, bty = 36 + tabs.length * 30;
         boolean backHov = mx >= btx && mx <= btx + TAB_W - 20 && my >= bty && my <= bty + 24;
-        g.fill(btx, bty, btx + TAB_W - 20, bty + 24, backHov ? 0xFF3A4A6A : 0xFF2A2020);
+        g.fill(btx, bty, btx + TAB_W - 20, bty + 24, backHov ? NodeRenderer.HOV() : NodeRenderer.PINS());
         g.renderOutline(btx, bty, TAB_W - 20, 24, NodeRenderer.CSB());
         g.drawString(font, "§7" + I18n.get("gui.create_schematic_compute.back"), btx + 8, bty + 8, backHov ? 0xFFFFFFFF : 0xFFAAAAAA, false);
 
@@ -273,14 +282,14 @@ public class EditorSettingsScreen extends Screen {
             if (ry + rowH2 > listBot) break;
             var t = types[i];
             boolean selected = expanded && guideTarget == i;
-            if (selected) g.fill(cx, ry, rowRight, ry + rowH2, 0xFF2A3A5A);
-            else if (i % 2 == 0) g.fill(cx, ry, rowRight, ry + rowH2, 0xFF222020);
+            if (selected) g.fill(cx, ry, rowRight, ry + rowH2, NodeRenderer.HOV()); // 选中行 = 悬停高亮 / selected row = hover highlight
+            else if (i % 2 == 0) g.fill(cx, ry, rowRight, ry + rowH2, NodeRenderer.PINS());
             if (mx >= cx && mx <= rowRight && my >= ry && my <= ry + rowH2) hoveredGuide = t;
             String name = I18n.get(t.displayName);
             if (expanded) {
                 // 展开态只显示名称（右侧面板承载其余信息），超宽截断。
                 // Expanded rows show only the name, truncated; the pane carries the rest.
-                g.drawString(font, "§e" + name, cx + 4, ry + 4, selected ? 0xFFCCE0FF : 0xFFCCCCCC, false);
+                g.drawString(font, "§e" + name, cx + 4, ry + 4, selected ? NodeRenderer.ACC() : 0xFFCCCCCC, false);
                 continue;
             }
             g.drawString(font, "§e" + name, cx + 4, ry + 4, 0xFFCCCCCC, false);
@@ -308,14 +317,14 @@ public class EditorSettingsScreen extends Screen {
         // 滚动条（thumb 可拖拽）/ scrollbar (draggable thumb)
         if (maxScroll > 0) {
             int[] sb = guideScrollbarThumb(rowRight);
-            g.fill(sb[0], listTop, sb[0] + sb[2], listBot, 0xFF2A2822);
+            g.fill(sb[0], listTop, sb[0] + sb[2], listBot, NodeRenderer.PINS()); // 滚动条轨道 = 内凹井 / track = inset well
             g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], NodeRenderer.CSB());
         }
         // 展开态：列表下方收起按钮 + 右侧详情面板 / expanded: collapse button under the list + the detail pane
         if (expanded) {
             int clY = guideListBot() + 2;
             boolean clHov = mx >= cx && mx <= cx + 64 && my >= clY && my <= clY + 16;
-            g.fill(cx, clY, cx + 64, clY + 16, clHov ? 0xFF3A4A5A : 0xFF2A3A5A);
+            g.fill(cx, clY, cx + 64, clY + 16, clHov ? NodeRenderer.HOV() : NodeRenderer.PBG());
             g.renderOutline(cx, clY, 64, 16, NodeRenderer.CSB());
             g.drawString(font, "§f" + I18n.get("gui.create_schematic_compute.settings.collapse"), cx + 16, clY + 4, 0xFFFFFFFF, false);
             renderGuidePane(g, types);
@@ -329,7 +338,7 @@ public class EditorSettingsScreen extends Screen {
         NodeType t = types[guideTarget];
         int px = paneX(), pw = guidePaneW(), pb = paneBot();
         int top = paneTop();
-        g.fill(px, top - 4, px + pw, pb, 0xFF1E1C26);
+        g.fill(px, top - 4, px + pw, pb, NodeRenderer.PINS()); // 详情面板底 = 内凹井 / detail pane bg = inset well
         g.renderOutline(px, top - 4, pw, pb - (top - 4), NodeRenderer.CSB());
         int tx = px + 10;
         g.drawString(font, "§6" + I18n.get(t.displayName), tx, top, 0xFFFFFFFF, false);
@@ -345,7 +354,7 @@ public class EditorSettingsScreen extends Screen {
             g.drawString(font, "§7" + params, tx, y, 0xFF999999, false);
             y += 12;
         }
-        g.fill(px + 6, y, px + pw - 6, y + 1, 0xFF2A2832);
+        g.fill(px + 6, y, px + pw - 6, y + 1, NodeRenderer.PBG()); // 分区细线 = 面板底高光细线 / section rule = panel-bg hairline
         y += 6;
         var lines = guideDescLines(t);
         int innerRight = px + pw - 10;
@@ -367,7 +376,7 @@ public class EditorSettingsScreen extends Screen {
             int trackH = innerBot - y;
             float thumbH = Math.max(10, trackH * (float) visible / lines.size());
             float thumbY = y + (trackH - thumbH) * guideDetailScroll / maxScroll;
-            g.fill(px + pw - 8, y, px + pw - 4, innerBot, 0xFF2A2822);
+            g.fill(px + pw - 8, y, px + pw - 4, innerBot, NodeRenderer.PINS()); // 滚动条轨道 = 内凹井 / track = inset well
             g.fill(px + pw - 7, (int) thumbY, px + pw - 5, (int) (thumbY + thumbH), NodeRenderer.CSB());
         }
     }
@@ -683,8 +692,8 @@ public class EditorSettingsScreen extends Screen {
             int ry = listTop + ri * COLOR_ROW_H;
             if (ry + COLOR_ROW_H > listBot) break;
             boolean adjustingThis = expanded && adjustIndex == i;
-            if (adjustingThis) g.fill(cx, ry, rowRight, ry + COLOR_ROW_H - 2, 0xFF2A3A5A);
-            else if (ri % 2 == 0) g.fill(cx, ry, rowRight, ry + COLOR_ROW_H - 2, 0xFF222020);
+            if (adjustingThis) g.fill(cx, ry, rowRight, ry + COLOR_ROW_H - 2, NodeRenderer.HOV()); // 「调整中」行 = 悬停高亮 / adjusting row = hover highlight
+            else if (ri % 2 == 0) g.fill(cx, ry, rowRight, ry + COLOR_ROW_H - 2, NodeRenderer.PINS());
             // 色块恒显示暂存色 —— 工作色仅在确认时填入（实时预览会让"确认"失去意义）。
             // The swatch always shows the staging color — the working color is filled
             // only on confirm (a live preview would make "confirm" meaningless).
@@ -697,17 +706,17 @@ public class EditorSettingsScreen extends Screen {
             boolean hov = mx >= rowRight - 52 && mx <= rowRight - 8
                 && my >= ry + 1 && my <= ry + COLOR_ROW_H - 3;
             g.fill(rowRight - 52, ry + 1, rowRight - 8, ry + COLOR_ROW_H - 3,
-                hov ? 0xFF3A4A6A : 0xFF2A3A5A);
+                hov ? NodeRenderer.HOV() : NodeRenderer.PBG());
             g.renderOutline(rowRight - 52, ry + 1, 44, COLOR_ROW_H - 4, NodeRenderer.CSB());
             g.drawString(font, I18n.get("gui.create_schematic_compute.settings.adjust"),
-                rowRight - 48, ry + 7, 0xFFCCCCFF, false);
+                rowRight - 48, ry + 7, NodeRenderer.ACC(), false);
         }
 
         // 滚动条（thumb 可拖拽）——几何与命中/拖拽共用 colorsScrollbarThumb。
         // Scrollbar (draggable thumb) — geometry shared with hit-testing/dragging via colorsScrollbarThumb.
         if (maxScroll > 0) {
             int[] sb = colorsScrollbarThumb(cx, contentW);
-            g.fill(sb[0], listTop, sb[0] + sb[2], listBot, 0xFF2A2822);
+            g.fill(sb[0], listTop, sb[0] + sb[2], listBot, NodeRenderer.PINS()); // 滚动条轨道 = 内凹井 / track = inset well
             g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], NodeRenderer.CSB());
         }
 
@@ -716,10 +725,10 @@ public class EditorSettingsScreen extends Screen {
         String toggleLabel = I18n.get(expanded
             ? "gui.create_schematic_compute.settings.collapse"
             : "gui.create_schematic_compute.settings.expand");
-        g.fill(cx, btnRowY, cx + 64, btnRowY + 16, expanded ? 0xFF3A4A5A : 0xFF2A3A5A);
+        g.fill(cx, btnRowY, cx + 64, btnRowY + 16, expanded ? NodeRenderer.HOV() : NodeRenderer.PBG()); // 展开态=激活高亮 / expanded = active highlight
         g.renderOutline(cx, btnRowY, 64, 16, NodeRenderer.CSB());
         g.drawString(font, "§f" + toggleLabel, cx + 16, btnRowY + 4, 0xFFFFFFFF, false);
-        g.fill(cx + 72, btnRowY, cx + 142, btnRowY + 16, 0xFF3A3428);
+        g.fill(cx + 72, btnRowY, cx + 142, btnRowY + 16, NodeRenderer.PBG()); // 中性次按钮底 / neutral secondary button bg
         g.renderOutline(cx + 72, btnRowY, 70, 16, NodeRenderer.CSB());
         g.drawString(font, "§7" + I18n.get("gui.create_schematic_compute.color.defaults"), cx + 82, btnRowY + 4, 0xFFFFFFFF, false);
         g.fill(cx + 150, btnRowY, cx + 220, btnRowY + 16, 0xFF3A5A2A);
@@ -741,7 +750,7 @@ public class EditorSettingsScreen extends Screen {
             boolean fin = mx >= paletteX() && mx <= paletteX() + ColorPickerWidget.WIDTH
                 && my >= doneY && my <= doneY + 18;
             g.fill(paletteX(), doneY, paletteX() + ColorPickerWidget.WIDTH,
-                doneY + 18, fin ? 0xFF3A5A2A : 0xFF2A3A5A);
+                doneY + 18, fin ? 0xFF3A5A2A : NodeRenderer.PBG());
             g.renderOutline(paletteX(), doneY, ColorPickerWidget.WIDTH,
                 18, 0xFF5A8A3A);
             g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.color.done"),
@@ -836,8 +845,8 @@ public class EditorSettingsScreen extends Screen {
             var a = actions[i];
             boolean selected = expanded && keybindTarget == i;
             boolean hov = !selected && mx >= cx && mx <= listRight - 10 && my >= ry && my <= ry + KEY_ROW_H - 2;
-            if (selected) g.fill(cx, ry, listRight, ry + KEY_ROW_H - 2, 0xFF2A3A5A);
-            else if (hov) g.fill(cx, ry, listRight, ry + KEY_ROW_H - 2, 0xFF3A4A3A);
+            if (selected) g.fill(cx, ry, listRight, ry + KEY_ROW_H - 2, NodeRenderer.HOV()); // 选中行 = 悬停高亮 / selected row = hover highlight
+            else if (hov) g.fill(cx, ry, listRight, ry + KEY_ROW_H - 2, NodeRenderer.HOV());
             String cur;
             if (a.mouse) {
                 cur = I18n.get("gui.create_schematic_compute.editorkeys.mouse." + EditorKeys.mouseButton(a));
@@ -855,7 +864,7 @@ public class EditorSettingsScreen extends Screen {
         // Scrollbar (draggable thumb) — geometry shared with hit-testing/dragging.
         if (maxScroll > 0) {
             int[] sb = keysScrollbarThumb(listRight);
-            g.fill(sb[0], listTop, sb[0] + sb[2], listBot, 0xFF2A2822);
+            g.fill(sb[0], listTop, sb[0] + sb[2], listBot, NodeRenderer.PINS()); // 滚动条轨道 = 内凹井 / track = inset well
             g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], NodeRenderer.CSB());
         }
         // 冲突提示：收起态在列表底部；展开态移到操作条下方（contentBottom-12 处会被
@@ -880,10 +889,10 @@ public class EditorSettingsScreen extends Screen {
             int chy = cy + 2 + m * 24;
             boolean chov = mx >= chipsX && mx <= chipsX + KEYS_CHIPS_W && my >= chy && my <= chy + 20;
             boolean bound = target.mouse && EditorKeys.mouseButton(target) == m;
-            g.fill(chipsX, chy, chipsX + KEYS_CHIPS_W, chy + 20, chov ? 0xFF3A4A6A : 0xFF2A2A3A);
+            g.fill(chipsX, chy, chipsX + KEYS_CHIPS_W, chy + 20, chov ? NodeRenderer.HOV() : NodeRenderer.PINS());
             g.renderOutline(chipsX, chy, KEYS_CHIPS_W, 20, bound ? 0xFF5A8A3A : NodeRenderer.CSB());
             g.drawString(font, I18n.get("gui.create_schematic_compute.editorkeys.mouse." + m),
-                chipsX + 8, chy + 6, bound ? 0xFFCCFFCC : 0xFFCCCCFF, false);
+                chipsX + 8, chy + 6, bound ? 0xFFCCFFCC : NodeRenderer.ACC(), false);
         }
 
         // 键盘（行左对齐，宽键向右伸出，真实配列观感）。
@@ -903,8 +912,8 @@ public class EditorSettingsScreen extends Screen {
             for (var c : row) {
                 float w = c.w() * u;
                 boolean hov = mx >= kx && mx <= kx + w && my >= ky && my <= ky + u;
-                int bg = hov ? 0xFF3A4A6A : 0xFF2A2832;
-                if (c.modBit() != 0 && (shownMods & c.modBit()) != 0) bg = 0xFF2A4A6A; // 挂起/末步修饰 / latched or last-step mods
+                int bg = hov ? NodeRenderer.HOV() : NodeRenderer.PINS();
+                if (c.modBit() != 0 && (shownMods & c.modBit()) != 0) bg = NodeRenderer.HOV(); // 挂起/末步修饰点亮 / latched or last-step mods lit
                 g.fill((int) kx, (int) ky, (int) (kx + w), (int) (ky + u), bg);
                 // 录入中序列的键帽绿描边（打开时预填 = 现绑定，录入后 = 已录步骤）。
                 // Caps of the recorded sequence get the green outline (pre-filled with the
@@ -941,16 +950,16 @@ public class EditorSettingsScreen extends Screen {
         int backX = bar[0];
         // 删一步（移除最后录入的步骤）/ step-back (remove the last recorded step)
         boolean bHov = mx >= backX && mx <= backX + 58 && my >= barY && my <= barY + 16;
-        g.fill(backX, barY, backX + 58, barY + 16, bHov ? 0xFF4A5A2A : 0xFF3A3428);
+        g.fill(backX, barY, backX + 58, barY + 16, bHov ? 0xFF4A5A2A : NodeRenderer.PBG());
         g.renderOutline(backX, barY, 58, 16, 0xFF6A8A3A);
         g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.bind_step_back"), backX + 15, barY + 4, 0xFFFFFFFF, false);
         // 默认（恢复当前选中动作的出厂绑定，录入状态同步重预填）/ default (restore the
         // selected action's factory binding and re-prefill the recording from it)
         boolean dHov = mx >= defX && mx <= defX + 56 && my >= barY && my <= barY + 16;
-        g.fill(defX, barY, defX + 56, barY + 16, dHov ? 0xFF4A5A2A : 0xFF3A3428);
+        g.fill(defX, barY, defX + 56, barY + 16, dHov ? 0xFF4A5A2A : NodeRenderer.PBG());
         g.renderOutline(defX, barY, 56, 16, 0xFF6A8A3A);
         g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.reset_default"), defX + 19, barY + 4, 0xFFFFFFFF, false);
-        g.fill(clearX, barY, clearX + 56, barY + 16, 0xFF3A3428);
+        g.fill(clearX, barY, clearX + 56, barY + 16, NodeRenderer.PBG());
         g.renderOutline(clearX, barY, 56, 16, NodeRenderer.CSB());
         g.drawString(font, "§7" + I18n.get("gui.create_schematic_compute.settings.bind_clear"), clearX + 19, barY + 4, 0xFFFFFFFF, false);
         g.fill(confirmX, barY, confirmX + 66, barY + 16, 0xFF3A5A2A);
@@ -964,7 +973,7 @@ public class EditorSettingsScreen extends Screen {
         // 收起按钮（列表列底部，与颜色 tab 的收起同款样式） / collapse button (list column bottom)
         int clY = keysListBot() + 4; // 列表下方固定位，不随行数增长 / fixed below the list
         boolean clHov = mx >= cx && mx <= cx + 64 && my >= clY && my <= clY + 16;
-        g.fill(cx, clY, cx + 64, clY + 16, clHov ? 0xFF3A4A5A : 0xFF2A3A5A);
+        g.fill(cx, clY, cx + 64, clY + 16, clHov ? NodeRenderer.HOV() : NodeRenderer.PBG());
         g.renderOutline(cx, clY, 64, 16, NodeRenderer.CSB());
         g.drawString(font, "§f" + I18n.get("gui.create_schematic_compute.settings.collapse"), cx + 16, clY + 4, 0xFFFFFFFF, false);
     }

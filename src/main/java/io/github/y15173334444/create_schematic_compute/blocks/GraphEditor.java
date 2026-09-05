@@ -2300,7 +2300,7 @@ public class GraphEditor {
                     g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
                     g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.encap_export"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
                 } else {
-                    g.fill(impX, btnY, impX + impW, btnY + btnH, 0xFF2A2A3A);
+                    g.fill(impX, btnY, impX + impW, btnY + btnH, NodeRenderer.PBG());
                     g.renderOutline(impX, btnY, impW, btnH, NodeRenderer.CSB());
                     g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
                     g.drawString(mc.font, "§b" + I18n.get("gui.create_schematic_compute.encap_import"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
@@ -2337,7 +2337,7 @@ public class GraphEditor {
             var mc = Minecraft.getInstance();
             int w = 280, h = 80;
             int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
-            g.fill(cx, cy, cx + w, cy + h, 0xEE1A1A2A);
+            g.fill(cx, cy, cx + w, cy + h, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
             g.renderOutline(cx, cy, w, h, NodeRenderer.CSB());
             g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_export"), cx + 8, cy + 6, 0xFFFFCC88, false);
             exportNameEdit.setX(cx + 8);
@@ -2372,7 +2372,7 @@ public class GraphEditor {
             if (bookmarkScrollOff < 0) bookmarkScrollOff = 0;
             if (bookmarkScrollOff > Math.max(0, totalRows - maxRows)) bookmarkScrollOff = Math.max(0, totalRows - maxRows);
             // 面板背景 / panel background
-            g.fill(panelX, panelY, panelX + panelW, panelY + panelH, 0xEE1A1A2A);
+            g.fill(panelX, panelY, panelX + panelW, panelY + panelH, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
             g.renderOutline(panelX, panelY, panelW, panelH, NodeRenderer.CSB());
             // 标题 / title
             g.drawString(mc.font, I18n.get("gui.create_schematic_compute.bookmark.title"), panelX + 6, panelY + 4, 0xFFFFCC88, false);
@@ -2392,7 +2392,7 @@ public class GraphEditor {
             g.drawString(mc.font, "↺ " + I18n.get("gui.create_schematic_compute.bookmark.reset_view"), rstBX + 4, btnY + 4, 0xFFCCCCCC, false);
             // 分隔线 / separator
             int sepY = btnY + btnRowH + 2;
-            g.fill(panelX + 4, sepY, panelX + panelW - 4, sepY + 1, 0xFF3A3A5E);
+            g.fill(panelX + 4, sepY, panelX + panelW - 4, sepY + 1, NodeRenderer.PBR());
             // 书签列表 / bookmark list
             int listTopY = sepY + 3;
             for (int i = 0; i < visibleRows; i++) {
@@ -2402,7 +2402,7 @@ public class GraphEditor {
                 int ry = listTopY + i * rowH;
                 // 行背景（悬停高亮） / row hover highlight
                 boolean hover = mx >= panelX && mx < panelX + panelW - 10 && my >= ry && my < ry + rowH;
-                if (hover) g.fill(panelX + 2, ry, panelX + panelW - 2, ry + rowH, 0xFF3A3A5E);
+                if (hover) g.fill(panelX + 2, ry, panelX + panelW - 2, ry + rowH, NodeRenderer.HOV());
                 // 序号 + 名称 / index + name
                 int nameMaxW = panelW - 48;
                 String label = (idx < 9 ? (idx + 1) + ". " : "   ") + bm.name();
@@ -2440,11 +2440,11 @@ public class GraphEditor {
                 int sbX = panelX + panelW - 8;
                 int sbH = visibleRows * rowH;
                 int sbY = listTopY;
-                g.fill(sbX, sbY, sbX + 6, sbY + sbH, 0xFF2A2A4E);
+                g.fill(sbX, sbY, sbX + 6, sbY + sbH, NodeRenderer.PINS());
                 int thumbH = Math.max(10, sbH * maxRows / totalRows);
                 int maxOff = Math.max(1, totalRows - maxRows);
                 int thumbY = sbY + (sbH - thumbH) * bookmarkScrollOff / maxOff;
-                g.fill(sbX, thumbY, sbX + 6, thumbY + thumbH, 0xFF6A6A8E);
+                g.fill(sbX, thumbY, sbX + 6, thumbY + thumbH, NodeRenderer.CSB());
             }
         }
         // 书签命名对话框（在面板之后渲染，位于上方）/ bookmark name dialog (rendered after panel, on top)
@@ -2452,7 +2452,7 @@ public class GraphEditor {
             var mc = Minecraft.getInstance();
             int w = 280, h = 70;
             int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
-            g.fill(cx, cy, cx + w, cy + h, 0xEE1A1A2A);
+            g.fill(cx, cy, cx + w, cy + h, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
             g.renderOutline(cx, cy, w, h, NodeRenderer.CSB());
             g.drawString(mc.font, I18n.get("gui.create_schematic_compute.bookmark.name"), cx + 8, cy + 6, 0xFFFFCC88, false);
             g.fill(cx + 8, cy + 26, cx + w - 8, cy + 46, 0xFF000000);
@@ -2468,9 +2468,9 @@ public class GraphEditor {
             int listH = Math.min(fileCount, visRows) * 18;
             int h = 56 + listH + 30; // 标题 + 列表 + 按钮区 (Title + list + button area)
             int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
-            g.fill(cx, cy, cx + w, cy + h, 0xEE1A1A2A);
+            g.fill(cx, cy, cx + w, cy + h, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
             g.renderOutline(cx, cy, w, h, NodeRenderer.CSB());
-            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_import"), cx + 8, cy + 6, 0xFFCCCCFF, false);
+            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_import"), cx + 8, cy + 6, NodeRenderer.ACC(), false);
             if (fileCount == 0) {
                 g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.encap_import_failed"), cx + 8, cy + 30, 0xFFFFFFFF, false);
             } else {
@@ -2485,7 +2485,7 @@ public class GraphEditor {
                     if (name.endsWith(".nbt")) name = name.substring(0, name.length() - 4);
                     int ry = listY + (i - importScrollOff) * 18;
                     boolean hover = mx >= cx + 4 && mx <= cx + w - 20 && my >= ry && my <= ry + 16;
-                    if (hover) g.fill(cx + 4, ry, cx + w - 20, ry + 16, 0xFF3A4A6A);
+                    if (hover) g.fill(cx + 4, ry, cx + w - 20, ry + 16, NodeRenderer.HOV());
                     g.drawString(mc.font, (hover ? "§e" : "§7") + name, cx + 8, ry + 3, 0xFFFFFFFF, false);
                 }
                 // 右侧滚动条 (Right-side scrollbar)
@@ -5212,7 +5212,7 @@ public class GraphEditor {
         if (!topBarNameEdit.isFocused() && !topBarNameEdit.getValue().equals(getGraph().customName))
             topBarNameEdit.setValue(getGraph().customName);
 
-        g.fill(0, 0, sw, TOP_BAR_H, 0xEE1A1A2A);
+        g.fill(0, 0, sw, TOP_BAR_H, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
         g.fill(0, TOP_BAR_H - 1, sw, TOP_BAR_H, NodeRenderer.CSB());
         String label = I18n.get("gui.create_schematic_compute.topbar.name");
         g.drawString(mc.font, label, 6, 8, 0xFF888888, false);
@@ -5225,9 +5225,9 @@ public class GraphEditor {
         // 设置按钮（右侧） / settings button (right)
         int sbX = sw - 52;
         boolean hov = mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19;
-        g.fill(sbX, 3, sbX + 46, 19, hov ? 0xFF3A4A6A : 0xFF2A3A5A);
+        g.fill(sbX, 3, sbX + 46, 19, hov ? NodeRenderer.HOV() : NodeRenderer.PBG());
         g.renderOutline(sbX, 3, 46, 16, NodeRenderer.CSB());
-        g.drawString(mc.font, I18n.get("gui.create_schematic_compute.topbar.settings"), sbX + 8, 7, 0xFFCCCCFF, false);
+        g.drawString(mc.font, I18n.get("gui.create_schematic_compute.topbar.settings"), sbX + 8, 7, NodeRenderer.ACC(), false);
     }
 
     /** 重新编译图——自动折叠所有注释节点，同步未保存编辑，保存并重启运行状态。

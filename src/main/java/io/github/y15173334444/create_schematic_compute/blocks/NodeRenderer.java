@@ -54,6 +54,13 @@ public class NodeRenderer {
     public static int ERR() { return _c[_ERR]; }  // error       警示/错误
     public static int HOV() { return _c[_HOV]; }  // hover       悬停高亮
 
+    /** 主题色的半透明变体：保留 RGB、替换透明度（alpha 0..255）。跨屏同源遮罩/淡入用，
+     *  使叠层也随主题变色。 / Theme color with a given alpha (RGB kept, alpha 0..255);
+     *  keeps shared scrim/fade layers theme-reactive. */
+    public static int withAlpha(int color, int alpha) {
+        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
+    }
+
     static final int[][] THEMES = {
         // 23色: CG()…CPOB() + PBG(),PHT(),PBR(),PINS(),ACC(),ERR(),HOV()
         {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428},
