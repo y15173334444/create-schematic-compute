@@ -344,7 +344,7 @@ public class EditorSettingsScreen extends Screen {
             for (int i = keysScroll; i < actions.length; i++) {
                 int ry = listTop + (i - keysScroll) * KEY_ROW_H;
                 if (ry + KEY_ROW_H > listBot) break;
-                if (mx >= cx && mx <= listRight - 2 && my >= ry && my <= ry + KEY_ROW_H - 2) {
+                if (mx >= cx && mx <= listRight - 10 && my >= ry && my <= ry + KEY_ROW_H - 2) {
                     selectKeybindRow(i); return true;
                 }
             }
@@ -627,7 +627,7 @@ public class EditorSettingsScreen extends Screen {
             if (ry + KEY_ROW_H > listBot) break;
             var a = actions[i];
             boolean selected = expanded && keybindTarget == i;
-            boolean hov = !selected && mx >= cx && mx <= listRight - 2 && my >= ry && my <= ry + KEY_ROW_H - 2;
+            boolean hov = !selected && mx >= cx && mx <= listRight - 10 && my >= ry && my <= ry + KEY_ROW_H - 2;
             if (selected) g.fill(cx, ry, listRight, ry + KEY_ROW_H - 2, 0xFF2A3A5A);
             else if (hov) g.fill(cx, ry, listRight, ry + KEY_ROW_H - 2, 0xFF3A4A3A);
             String cur;
