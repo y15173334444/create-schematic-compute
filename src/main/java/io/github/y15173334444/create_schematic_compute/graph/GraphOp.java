@@ -131,6 +131,15 @@ public record GraphOp(
             null, 0, 0, 0, 0, bands, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
     }
 
+    /** 设置本图的玩家可见名称（编辑器顶栏；targetNodeId=0 —— 名称属于图，不属于任何节点）。
+     *  Set the player-visible graph name (editor top bar; targetNodeId=0 — the name
+     *  belongs to the graph, not to any node). */
+    public static GraphOp setBlockName(BlockPos pos, int ownerNodeId, String name, UUID actor) {
+        return new GraphOp(OpType.SET_BLOCK_NAME, pos, ownerNodeId, 0,
+            0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+            name, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
     public static GraphOp setZOrder(BlockPos pos, int ownerNodeId, int nodeId,
                                      int sortB, UUID actor) {
         return new GraphOp(OpType.SET_ZORDER, pos, ownerNodeId, nodeId,

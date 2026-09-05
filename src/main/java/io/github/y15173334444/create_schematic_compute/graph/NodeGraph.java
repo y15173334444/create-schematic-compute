@@ -21,6 +21,14 @@ public class NodeGraph {
     public int nextLayerIndex = 1;
     public int nextSortB = 1;
 
+    /** 本图的玩家可见名称（编辑器顶栏可编辑，便携终端按此查找；空 = 回退到方块类型名）。
+     *  随图序列化（save/load），走既有 op 同步链路 —— 不需要专门的同步包。
+     *  Player-visible name of this graph (editable in the editor top bar, used by the
+     *  portable terminal for lookup; empty = fall back to the block type name).
+     *  Serialized with the graph (save/load) and synced through the existing op
+     *  pipeline — no dedicated sync packet needed. */
+    public String customName = "";
+
     // 共享视角书签（存入 NBT，多人协作同步）
     // Shared view bookmarks (stored in NBT, synced via multiplayer collaboration)
     public final List<Bookmark> bookmarks = new ArrayList<>();
@@ -307,6 +315,7 @@ public class NodeGraph {
         tag.putInt(NbtVersions.VERSION_KEY, NbtVersions.DATA_VERSION);
         tag.putInt("nextId", nextNodeId);
         tag.putInt("nextSortB", nextSortB);
+        if (!customName.isEmpty()) tag.putString("customName", customName);
         ListTag nl = new ListTag();
         for (GraphNode n : nodes) nl.add(n.save(registries));
         tag.put("nodes", nl);
@@ -342,6 +351,7 @@ public class NodeGraph {
         NodeGraph g = new NodeGraph();
         g.nextNodeId = tag.getInt("nextId");
         g.nextSortB = tag.contains("nextSortB") ? tag.getInt("nextSortB") : 1;
+        g.customName = tag.contains("customName") ? tag.getString("customName") : "";
         ListTag nl = tag.getList("nodes", Tag.TAG_COMPOUND);
         for (int i = 0; i < nl.size(); i++) {
             GraphNode node = GraphNode.load(nl.getCompound(i), registries);

@@ -120,6 +120,10 @@ public class PortableTerminalScreen extends Screen {
     private int scanRange;
     /** Text field widget for entering the scan range / 输入扫描范围的文本框控件 */
     private EditBox rangeInput;
+    /** 设备搜索框：按自定义名 / 类型名 / 坐标过滤设备列表（不区分大小写）。
+     *  Device search box: filters the list by custom name / type name / coordinates
+     *  (case-insensitive). */
+    private EditBox searchInput;
     /** Persisted scan range across screen open/close cycles / 跨屏幕开关周期持久化的扫描范围 */
     private static int savedScanRange = 16;
     // Scroll state / 滚动状态
@@ -214,6 +218,11 @@ public class PortableTerminalScreen extends Screen {
         // 只允许最多 3 位数字，使值保持在有效范围（1–128）内
         rangeInput.setFilter(s -> s.matches("\\d{0,3}"));
         addRenderableWidget(rangeInput);
+        if (searchInput == null) {
+            searchInput = new EditBox(mc.font, 0, 0, 120, 14, Component.literal(""));
+            searchInput.setMaxLength(32);
+            addRenderableWidget(searchInput);
+        }
         if (needsRescan) scanNearbyBlocks();
     }
 
@@ -284,10 +293,15 @@ public class PortableTerminalScreen extends Screen {
                     BlockEntity be = level.getBlockEntity(p);
                     // Only GraphBlockEntity subclasses participate in the terminal ecosystem
                     // 只有 GraphBlockEntity 子类参与终端生态系统
-                    if (be instanceof GraphBlockEntity) {
-                        // Strip formatting codes (§.) from the display name for a clean label
-                        // 去除显示名称中的格式化代码（§.），获得干净的标签文字
-                        String name = I18n.get(be.getBlockState().getBlock().getDescriptionId()).replaceAll("§.", "");
+                    if (be instanceof GraphBlockEntity gbe) {
+                        // 自定义名优先（编辑器顶栏设置），没有则回退到方块类型名；
+                        // 类型名去掉格式化代码（§.）获得干净的标签文字。
+                        // Custom name (set in the editor top bar) wins; fall back to the
+                        // block type name with formatting codes (§.) stripped.
+                        String custom = gbe.getCustomName();
+                        String name = (custom != null && !custom.isEmpty())
+                            ? custom
+                            : I18n.get(be.getBlockState().getBlock().getDescriptionId()).replaceAll("§.", "");
                         devices.add(new DeviceEntry(p.immutable(), name, be.getClass()));
                     }
                 }
@@ -312,6 +326,24 @@ public class PortableTerminalScreen extends Screen {
      * @param results list of Sable device entries from the server /
      *                来自服务器的 Sable 设备条目列表
      */
+    /** 按搜索框内容过滤设备列表（自定义名 / 类型名 / 坐标，不区分大小写；空查询返回全部）。
+     *  渲染与点击命中必须共用本方法的输出，否则行号错位会打开错误的设备。
+     *  Filter the device list by the search box (custom name / type name / coordinates,
+     *  case-insensitive; an empty query returns everything). Rendering AND click
+     *  hit-testing must both consume this method's output, or row indices desync and
+     *  the wrong device opens. */
+    private java.util.List<DeviceEntry> filteredDevices() {
+        String q = searchInput != null ? searchInput.getValue().trim().toLowerCase() : "";
+        if (q.isEmpty()) return devices;
+        var out = new java.util.ArrayList<DeviceEntry>();
+        for (var d : devices) {
+            if (d.name.toLowerCase().contains(q)
+                || (d.pos.getX() + " " + d.pos.getY() + " " + d.pos.getZ()).contains(q))
+                out.add(d);
+        }
+        return out;
+    }
+
     private void mergeSableResults(List<SablePacketHelper.SableDeviceEntry> results) {
         // Remove all old Sable entries before inserting fresh ones —
         // the server always sends the complete set, not a delta.
@@ -424,13 +456,19 @@ public class PortableTerminalScreen extends Screen {
         // 如果有效且已更改，则更新 scanRange 并标记需要重新扫描。
         try { int v = Integer.parseInt(rangeInput.getValue()); if (v >= 1 && v <= 128 && v != scanRange) { scanRange = v; needsRescan = true; } } catch (NumberFormatException ignored) {}
 
+        // Search input — same row, right of the range input / 搜索框 — 同一行，范围输入右侧
+        int searchW = Math.max(80, cw - 40 - 44 - 130);
+        searchInput.setX(cx + 96); searchInput.setY(tby + 3); searchInput.setWidth(searchW);
+        searchInput.render(g, mx, my, pt);
+
         // Device list area / 设备列表区域
         int listY = tby + 28;
         int listH = ch - 58;
         g.fill(cx + 4, listY, cx + cw - 4, listY + listH, 0xFF1A1814);
         g.renderOutline(cx + 4, listY, cw - 8, listH, 0xFF3A3832);
 
-        if (devices.isEmpty()) {
+        var shown = filteredDevices();
+        if (shown.isEmpty()) {
             // Centered "no devices" message when the list is empty
             // 列表为空时居中显示"无设备"消息
             String msg = I18n.get("gui.create_schematic_compute.terminal.no_devices");
@@ -438,12 +476,12 @@ public class PortableTerminalScreen extends Screen {
         } else {
             int itemH = 22;
             int visItems = listH / itemH;
-            int maxScroll = Math.max(0, devices.size() - visItems);
+            int maxScroll = Math.max(0, shown.size() - visItems);
             // Clamp scroll offset to valid range / 将滚动偏移钳制在有效范围内
             if (scrollOff < 0) scrollOff = 0;
             if (scrollOff > maxScroll) scrollOff = maxScroll;
-            for (int i = scrollOff; i < Math.min(devices.size(), scrollOff + visItems); i++) {
-                var dev = devices.get(i);
+            for (int i = scrollOff; i < Math.min(shown.size(), scrollOff + visItems); i++) {
+                var dev = shown.get(i);
                 int ri = i - scrollOff;
                 int iy = listY + 2 + ri * itemH;
                 // Alternating row background for readability / 交替行背景以提高可读性
@@ -471,7 +509,7 @@ public class PortableTerminalScreen extends Screen {
                 g.fill(sbX, sbY, sbX + 6, sbY + listH, 0xFF2A2822);
                 // Thumb size proportional to visible fraction, min 12px tall
                 // 滑块大小与可见比例成正比，最小 12px 高
-                float thumbH = Math.max(12, listH * (float) visItems / devices.size());
+                float thumbH = Math.max(12, listH * (float) visItems / shown.size());
                 float thumbY = sbY + (float) scrollOff / maxScroll * (listH - thumbH);
                 g.fill(sbX + 1, (int) thumbY, sbX + 5, (int)(thumbY + thumbH), 0xFF8B7533);
             }
@@ -506,11 +544,15 @@ public class PortableTerminalScreen extends Screen {
         }
         int listY = cy + 54, listH = ch - 58, itemH = 22;
         int visItems = listH / itemH;
+        // Click hit-test must run against the SAME filtered list the renderer drew,
+        // or row indices desync and the wrong device opens.
+        // 命中测试必须针对与渲染相同的过滤后列表，否则行号错位会打开错误的设备。
+        var shown = filteredDevices();
         // Scrollbar thumb drag detection
         // Recalculate thumb geometry to perform hit test against it.
         // 滚动条滑块拖拽检测
         // 重新计算滑块几何信息以进行命中测试。
-        int maxScroll = Math.max(0, devices.size() - visItems);
+        int maxScroll = Math.max(0, shown.size() - visItems);
         if (maxScroll > 0) {
             int sbX = cx + cw - 8;
             float thumbH = Math.max(12, listH * (float) visItems / devices.size());
@@ -523,11 +565,11 @@ public class PortableTerminalScreen extends Screen {
             }
         }
         // Edit button hit test — iterate visible rows / 编辑按钮命中测试 — 遍历可见行
-        for (int i = scrollOff; i < Math.min(devices.size(), scrollOff + visItems); i++) {
+        for (int i = scrollOff; i < Math.min(shown.size(), scrollOff + visItems); i++) {
             int iy = listY + 2 + (i - scrollOff) * itemH;
             int eX = cx + cw - 58;
             if (mx >= eX && mx <= eX + 50 && my >= iy + 2 && my <= iy + 20) {
-                requestEdit(devices.get(i));
+                requestEdit(shown.get(i));
                 return true;
             }
         }
@@ -547,9 +589,11 @@ public class PortableTerminalScreen extends Screen {
         if (scrollbarDragging) {
             int listH = (int)(height * 0.8) - 58;
             int visItems = listH / 22;
-            int maxScroll = Math.max(0, devices.size() - visItems);
+            // Scrollbar geometry must match the filtered list too / 滚动条几何同样必须对齐过滤后的列表
+            int total = filteredDevices().size();
+            int maxScroll = Math.max(0, total - visItems);
             if (maxScroll > 0) {
-                float thumbH = Math.max(12, listH * (float) visItems / devices.size());
+                float thumbH = Math.max(12, listH * (float) visItems / total);
                 // Map mouse delta to scroll offset: the fraction of the track the
                 // mouse moved times the total scroll range.
                 // 将鼠标增量映射到滚动偏移：鼠标在轨道上移动的比例乘以总滚动范围。
@@ -605,6 +649,11 @@ public class PortableTerminalScreen extends Screen {
      */
     @Override
     public boolean keyPressed(int key, int sc, int mod) {
+        // 搜索框聚焦时 ESC 只失焦不关屏 / while the search box is focused, ESC
+        // unfocuses it instead of closing the screen
+        if (searchInput != null && searchInput.isFocused() && key == 256) {
+            searchInput.setFocused(false); return true;
+        }
         if (key == 256) { onClose(); return true; }
         return super.keyPressed(key, sc, mod);
     }

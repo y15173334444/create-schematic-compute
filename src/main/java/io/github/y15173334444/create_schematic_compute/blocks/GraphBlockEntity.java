@@ -40,6 +40,17 @@ public interface GraphBlockEntity {
     /** 暴露节点图供 packet handler 使用 / Expose the node graph for packet handlers. */
     default NodeGraph getNodeGraph() { return null; }
 
+    /** 本图玩家可见名称（编辑器顶栏可编辑，便携终端按此查找；空 = 回退到方块类型名）。
+     *  名称挂在 NodeGraph 上，随图走既有同步链路，故此只读视图即足够。
+     *  Player-visible name of this graph (editable in the editor top bar, used by the
+     *  portable terminal for lookup; empty = fall back to the block type name). The
+     *  name lives on the NodeGraph and rides the existing sync pipeline, so a
+     *  read-only view is all the contract needs. */
+    default String getCustomName() {
+        var g = getNodeGraph();
+        return g != null ? g.customName : "";
+    }
+
     void loadGraphFromBytes(byte[] data);
 
     default boolean isRunning() { return false; }

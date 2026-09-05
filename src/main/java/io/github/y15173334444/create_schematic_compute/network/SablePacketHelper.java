@@ -224,7 +224,7 @@ public class SablePacketHelper {
                         if (ds > rangeSq) continue;
 
                         results.add(new SableDeviceEntry(owPos.immutable(),
-                            be.getBlockState().getBlock().getName().getString(),
+                            deviceDisplayName(be),
                             be.getClass().getSimpleName(), (float)Math.sqrt(ds), subLevelId));
                         found++;
                     }
@@ -266,6 +266,21 @@ public class SablePacketHelper {
      * @param be the block entity to test / 要检查的方块实体
      * @return true if it is / implements GraphBlockEntity / 如果是 GraphBlockEntity 则返回 true
      */
+    /** 设备显示名：自定义名（graph.customName，编辑器顶栏设置）优先，回退到方块类型名。
+     *  必须与客户端本地扫描（PortableTerminalScreen.scanNearbyBlocks）的取名逻辑一致，
+     *  否则两条路径产出的列表对不上、搜索行为不一致。
+     *  Device display name: the custom name (graph.customName, set in the editor top
+     *  bar) wins, falling back to the block type name. Must mirror the client-side
+     *  local scan (PortableTerminalScreen.scanNearbyBlocks), or the two paths produce
+     *  lists that disagree and search behaves inconsistently. */
+    private static String deviceDisplayName(BlockEntity be) {
+        if (be instanceof GraphBlockEntity gbe) {
+            String custom = gbe.getCustomName();
+            if (custom != null && !custom.isEmpty()) return custom;
+        }
+        return be.getBlockState().getBlock().getName().getString();
+    }
+
     private static boolean isGraphBlockEntity(BlockEntity be) {
         // Fast path: direct instanceof works for same-classloader BEs
         // 快速路径：同 ClassLoader 下的 BE 直接 instanceof 即可

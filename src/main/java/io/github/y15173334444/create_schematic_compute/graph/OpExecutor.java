@@ -279,6 +279,17 @@ public final class OpExecutor {
                 yield n;
             }
 
+            case SET_BLOCK_NAME -> {
+                // 图级 op：名称挂在 NodeGraph 上（随图序列化/同步），不属于任何节点。
+                // 纯视觉 op —— 名称不参与求值，不 bump（与 SET_ZORDER 同理），避免无谓重编译。
+                // Graph-level op: the name lives on the NodeGraph (serialized and synced
+                // with it), not on any node. Visual-only — the name never feeds
+                // evaluation, so no bump (same reasoning as SET_ZORDER) and hence no
+                // pointless recompile.
+                graph.customName = op.stringValue() != null ? op.stringValue() : "";
+                yield null;
+            }
+
             case SET_ZORDER -> {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null) {

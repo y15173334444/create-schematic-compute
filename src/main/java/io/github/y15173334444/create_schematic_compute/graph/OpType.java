@@ -22,6 +22,9 @@ public enum OpType {
     SET_DISPLAY_TEXT,
     SET_TEXT_COLOR,
     SET_BANDS,
+    SET_BLOCK_NAME,         // 图级 op：stringValue=本图玩家可见名称（顶栏，targetNodeId=0 忽略）
+                            // graph-level op: stringValue = player-visible graph name
+                            // (editor top bar; targetNodeId=0 and ignored)
     SET_ZORDER,
     SET_LAYER_INDEX,        // 显示器图层序 / display layer index: sortB=layerIndex
     SET_KEY_BINDING,

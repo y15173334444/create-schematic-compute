@@ -740,6 +740,24 @@ public class GraphEditor {
     }
     /** 节点 ID → 编辑状态 的映射 / node ID → EditState mapping */
     public final java.util.Map<Integer, EditState> nodeEditStatesById = new java.util.HashMap<>();
+
+    // ── 顶栏（名称 + 设置） / top bar (name + settings) ─────────────────
+
+    /** 顶栏高度。工具栏与其余覆盖层在其下排布（顶/底两种工具栏位置都要让开它）。
+     *  Top-bar height. The toolbar and every other overlay must clear it in both
+     *  toolbar positions (top and bottom). */
+    public static final int TOP_BAR_H = 22;
+
+    /** 顶栏名称输入框：值提交到 {@code graph.customName}（SET_BLOCK_NAME op，逐字符同步
+     *  —— 与 PRIVATE/TEXT 命名框一致；名称是纯视觉数据，无 commitBusBox 那样的重副作用，
+     *  所以不需要防抖）。/ Top-bar name EditBox: commits to {@code graph.customName}
+     *  (SET_BLOCK_NAME, synced per keystroke — same as the PRIVATE/TEXT name boxes; the
+     *  name is pure visual data with none of commitBusBox's heavy side effects, so no
+     *  debounce is needed). */
+    private EditBox topBarNameEdit;
+    /** 设置弹窗开关（设置界面框架在后续步骤接入；占位）。
+     *  Settings dialog toggle (the dialog itself lands in a later step; placeholder). */
+    public boolean showSettings = false;
     /** EditBox → 提交动作（回车或失焦时执行） (EditBox → commit action, executed on Enter or focus loss) */
     private final java.util.Map<net.minecraft.client.gui.components.EditBox, Runnable> enterActions = new java.util.HashMap<>();
     // ── 颜色配置面板 (Color configuration panel) ──
@@ -2288,7 +2306,7 @@ public class GraphEditor {
             // 导入/导出封装节点按钮（仅蓝图计算机显示） (Import/export encapsulation node buttons, Blueprint computer only)
             if (host instanceof BlueprintScreen) {
                 var mc = Minecraft.getInstance();
-                int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : 4;
+                int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : TOP_BAR_H + 2;
                 int impX = 254, impW = 72, btnH = 18;
                 // 仅选中单个封装节点时显示导出，否则显示导入 (Show export when single encapsulation node selected, otherwise show import)
                 boolean hasSingleEncap = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
@@ -2555,6 +2573,9 @@ public class GraphEditor {
         }
         // Color picker popup — renders LAST to stay on top of all other overlays
         if (colorPicker.isVisible()) colorPicker.render(g, mx, my);
+        // 顶栏最后渲染 —— 固定在所有覆盖层之上（名称 + 设置）。
+        // Top bar renders LAST — it sits above every other overlay (name + settings).
+        renderTopBar(g, mx, my);
         // 框选矩形 (Box-select rectangle)
         if (boxSelecting) {
             float x1 = Math.min(boxSX, boxEX), y1 = Math.min(boxSY, boxEY);
@@ -2682,7 +2703,7 @@ public class GraphEditor {
         for (var p : remotePresences.values()) players.add(p.playerName());
         int maxW = 0;
         for (var name : players) maxW = Math.max(maxW, mc.font.width(name));
-        int lx = sw - maxW - 14, ly = 28;
+        int lx = sw - maxW - 14, ly = TOP_BAR_H + 24;
         g.fill(lx, ly, sw - 6, ly + 2 + players.size() * 12, 0xAA222222);
         for (int i = 0; i < players.size(); i++) {
             int color = i == 0 ? 0xFFFFFF88 : 0xFFCCCCCC;
@@ -2704,6 +2725,20 @@ public class GraphEditor {
     public boolean mouseClicked(double mx, double my, int btn) {
         resetBatch(); // discard any incomplete batch to prevent undo stack freeze
         var graph = getGraph();
+        // ── 顶栏（最上层，先于一切命中检测）──
+        //    Top bar (topmost layer — hit-tested before everything else).
+        if (topBarNameEdit != null && my < TOP_BAR_H) {
+            int sbX = host.asScreen().width - 52;
+            if (mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19) {
+                showSettings = true; // 设置界面在后续步骤接入 / settings dialog lands in a later step
+                return true;
+            }
+            for (var st : nodeEditStatesById.values()) for (var f : st.fields) f.setFocused(false);
+            topBarNameEdit.setFocused(true);
+            topBarNameEdit.mouseClicked(mx, my, btn);
+            return true;
+        }
+        if (topBarNameEdit != null && topBarNameEdit.isFocused()) topBarNameEdit.setFocused(false);
         // 命名对话框：点击外部取消
         if (editingBookmarkName) {
             int w = 280, h = 70;
@@ -2921,14 +2956,14 @@ public class GraphEditor {
             // ── 子图 Back 按钮 ──
             if (isInSubGraph()) {
                 int bw = 60, bh = 16;
-                int bx = host.asScreen().width - bw - 8, by = 4;
+                int bx = host.asScreen().width - bw - 8, by = TOP_BAR_H + 2;
                 if (mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) {
                     exitSubGraph(); return true;
                 }
             }
             // 工具栏按钮（子图模式下隐藏） (Toolbar buttons, hidden in sub-graph mode)
             if (!isInSubGraph()) {
-                int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : 4;
+                int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : TOP_BAR_H + 2;
                 if(mx>=4&&mx<=22&&my>=btnY&&my<=btnY+18){host.asScreen().onClose();return true;}
                 if(mx>=26&&mx<=78&&my>=btnY&&my<=btnY+18){recompile(graph);return true;}
                 if(mx>=82&&mx<=130&&my>=btnY&&my<=btnY+18){
@@ -4879,6 +4914,12 @@ public class GraphEditor {
                 }
             }
         }
+        // 顶栏名称框键盘（Esc/Enter 提交并失焦，其余交给 EditBox）
+        // Top-bar name box keyboard (Esc/Enter commit + unfocus, the rest to the EditBox).
+        if (topBarNameEdit != null && topBarNameEdit.isFocused()) {
+            if (key == 256 || key == 257) { topBarNameEdit.setFocused(false); return true; }
+            return topBarNameEdit.keyPressed(key, sc, mod);
+        }
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.keyPressed(key, sc, mod);
         // X 键删除悬停节点（替代右键删除防误触） (X key deletes hovered node, replacing right-click delete to prevent accidental deletion)
         if (key == 88) { // GLFW_KEY_X
@@ -5090,11 +5131,65 @@ public class GraphEditor {
         }
         if (colorPicker.isVisible()) return colorPicker.charTyped(ch, mod);
         if (showExportDialog && exportNameEdit != null) return exportNameEdit.charTyped(ch, mod);
+        if (topBarNameEdit != null && topBarNameEdit.isFocused()) return topBarNameEdit.charTyped(ch, mod);
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.charTyped(ch, mod);
         return false;
     }
 
     /** 颜色配置面板（双列布局） (Color configuration panel, two-column layout) */
+    /** 顶栏：固定在编辑器最上层的条 —— 左侧本图名称输入框（便携终端按此查找），
+     *  右侧设置按钮。在 renderBg 的所有覆盖层之后调用，保证不被遮挡；工具栏顶/底
+     *  两种位置都必须让开 {@link #TOP_BAR_H}。
+     *  Top bar: a fixed strip at the very top of the editor — the graph-name box on
+     *  the left (the portable terminal looks devices up by it), the settings button
+     *  on the right. Called after every other overlay in renderBg so nothing covers
+     *  it; both toolbar positions (top and bottom) must clear {@link #TOP_BAR_H}. */
+    private void renderTopBar(GuiGraphics g, int mx, int my) {
+        var mc = Minecraft.getInstance();
+        int sw = host.asScreen().width;
+        if (topBarNameEdit == null) {
+            topBarNameEdit = new EditBox(mc.font, 0, 0, 140, 16, Component.literal(""));
+            topBarNameEdit.setMaxLength(32);
+            topBarNameEdit.setValue(getGraph().customName);
+            // 逐字符同步（与 PRIVATE/TEXT 命名框同模式）：SET_BLOCK_NAME 是纯视觉 op，
+            // 无 commitBusBox 那样的重副作用，不需要防抖。
+            // Per-keystroke sync (same pattern as the PRIVATE/TEXT boxes):
+            // SET_BLOCK_NAME is a visual-only op with none of commitBusBox's heavy
+            // side effects, so no debounce.
+            topBarNameEdit.setResponder(text -> {
+                if (!text.equals(getGraph().customName)) {
+                    getGraph().customName = text;
+                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setBlockName(
+                        host.getBlockPos(), ownerNodeId(), text, host.getPlayerUUID()));
+                }
+            });
+        }
+        // 图被整体替换（重载/多人同步）后 customName 可能变化 —— 未聚焦时跟随权威值，
+        // 聚焦时绝不覆盖（用户正在输入）。
+        // After a whole-graph replacement (reload / multiplayer sync) customName may
+        // have changed — follow the authoritative value while unfocused, never while
+        // the user is typing.
+        if (!topBarNameEdit.isFocused() && !topBarNameEdit.getValue().equals(getGraph().customName))
+            topBarNameEdit.setValue(getGraph().customName);
+
+        g.fill(0, 0, sw, TOP_BAR_H, 0xEE1A1A2A);
+        g.fill(0, TOP_BAR_H - 1, sw, TOP_BAR_H, NodeRenderer.CSB());
+        String label = I18n.get("gui.create_schematic_compute.topbar.name");
+        g.drawString(mc.font, label, 6, 8, 0xFF888888, false);
+        int bx = 10 + mc.font.width(label);
+        int bw = Math.min(160, Math.max(80, sw / 4));
+        topBarNameEdit.setX(bx);
+        topBarNameEdit.setY(3);
+        topBarNameEdit.setWidth(bw);
+        topBarNameEdit.render(g, 0, 0, 0);
+        // 设置按钮（右侧） / settings button (right)
+        int sbX = sw - 52;
+        boolean hov = mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19;
+        g.fill(sbX, 3, sbX + 46, 19, hov ? 0xFF3A4A6A : 0xFF2A3A5A);
+        g.renderOutline(sbX, 3, 46, 16, NodeRenderer.CSB());
+        g.drawString(mc.font, I18n.get("gui.create_schematic_compute.topbar.settings"), sbX + 8, 7, 0xFFCCCCFF, false);
+    }
+
     private void renderColorPanel(GuiGraphics g, int mx, int my) {
         var mc = net.minecraft.client.Minecraft.getInstance();
         int itemsPerCol = 8, numRows = 8; // 16色分 8+8 两列 (16 colors split 8+8 in two columns)
