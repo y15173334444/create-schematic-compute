@@ -1,6 +1,6 @@
 # 代码结构文档 / Code Architecture
 
-> 更新日期 / Last Updated：2026-08-14
+> 更新日期 / Last Updated：2026-09-05
 > 版本 / Version：1.2.5
 
 ---
@@ -320,7 +320,7 @@ joiners have no pending ops and always load the authoritative graph.
 - 添加节点菜单搜索框 / Add-node menu search (`NodeRenderer.menuSearchText` + `appendMenuSearch`/`menuSearchBackspace`，双语 `search_hint`)/ Menu search box
 - 多人协作 Presence / Multiplayer presence (光标/节点锁/金色边框 / cursor/lock/golden border)
 - 顶栏 / Top bar (`TOP_BAR_H = 22`) — 左侧图名 EditBox（逐字符 SET_BLOCK_NAME 同步，便携终端按此查找）、右侧设置按钮；顶栏最后渲染、工具栏（顶/底两位置）与其余覆盖层必须让开它 / Left: graph-name EditBox (per-keystroke SET_BLOCK_NAME, the portable terminal looks devices up by it); right: settings button. The top bar renders last; the toolbar (both positions) and every other overlay must clear it
-- 设置弹窗 / Settings dialog (`showSettings`) — 三 tab：界面颜色（跳转既有 16 色面板，零迁移）、键位绑定（行内重绑 + 冲突提示 + 单行恢复默认）、节点指南（从 NodeType 元数据自动生成，说明文案走 `guide.<TYPE>` lang 键、缺键渲染为空）；面板矩形渲染时写入、命中时读取（单一坐标来源）/ Three tabs: colors (jumps to the existing 16-color panel, zero migration), key bindings (inline rebind + clash message + per-row reset), node guide (auto-generated from NodeType metadata; descriptions come from `guide.<TYPE>` lang keys, absent keys render nothing); the panel rect is written during render and read during hit-testing (one source of truth)
+- 独立设置界面 / Standalone settings screen (`EditorSettingsScreen`) — 顶栏设置按钮打开的**全屏独立 Screen**（左侧竖排 tab 列：界面颜色 / 键位绑定 / 节点指南 + 返回项；setScreen 只触发编辑器 `removed()`、编辑会话保持、返回幂等重 join）。**界面颜色内嵌调整**（16 项色板 + 默认/应用 + 停靠取色器，点「调整」滑出全宽形态）——编辑器工具栏的样式按钮与 16 色面板已移除，界面颜色以此界面为唯一入口；键位绑定（行内重绑 + 冲突提示 + 单行恢复默认）、节点指南（从 NodeType 元数据自动生成，说明文案走 `guide.<TYPE>` lang 键、缺键渲染为空）/ A standalone full-screen Screen opened from the top bar (vertical tab column: colors / key bindings / node guide + back; setScreen only fires the editor's `removed()` — the edit session survives and returning re-joins idempotently). Colors are adjusted **in place** (16 swatch entries + defaults/apply + a docked palette, expanding to full width via the adjust button) — the toolbar style button and the in-editor 16-color panel were removed, making this screen the single entry for UI colors; key bindings (inline rebind + clash message + per-row reset) and the node guide (auto-generated from NodeType metadata; descriptions come from `guide.<TYPE>` lang keys, absent keys render nothing)
 - 画布交互键位 / Canvas-interaction bindings (`EditorKeys`) — 平移/上下文菜单/删除/撤销/重做/复制/重置视角/保存书签 共 8 个动作的「动作 → 键」单一来源，持久化到客户端 config（`editorKeys.` 前缀）；默认值与旧硬编码逐项一致 / Single source of truth for 8 action→key bindings, persisted into the client config (`editorKeys.` prefix); defaults replicate the old hardcodes exactly
 - 书签系统 / Bookmark system
 - BUS 冲突检测 / BUS conflict detection (`reevaluateBusConflicts`)
