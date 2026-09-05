@@ -70,7 +70,13 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
     public CncGearboxBlockEntity(BlockPos pos, BlockState state) {
         super(SchematicCompute.CNC_GEARBOX_BE.get(), pos, state);
         this.host = new GraphHost(this);
-        this.host.setEvaluatorCustomizer(ev -> ev.setCommandSink(this));
+        // 注入两种求值器定制：指令栈 sink 与编码器视图（GraphHost 每次重建求值器都会重放此回调）。
+        // Inject both evaluator customizations: the command-stack sink and the encoder
+        // view (GraphHost replays this callback on every evaluator rebuild).
+        this.host.setEvaluatorCustomizer(ev -> {
+            ev.setCommandSink(this);
+            ev.setEncoderView(this);
+        });
     }
 
     // ── 每 tick / per tick ──

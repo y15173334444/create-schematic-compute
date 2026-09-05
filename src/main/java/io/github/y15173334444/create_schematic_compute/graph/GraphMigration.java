@@ -355,16 +355,17 @@ public final class GraphMigration {
     }
 
     // ── V4 → V5 ───────────────────────────────────────────────────────────
-    // Changes in v5 (v1.2.5, AR HUD Phase 2) / v5 中的变更（v1.2.5，AR HUD Phase 2）:
-    //   1. Display nodes gain AR HUD anchor fields: "am" (anchorMode: 0=on-glass,
-    //      1=on-world), "ay" (anchorYaw), "ap" (anchorPitch). Missing tags default
-    //      to on-glass / straight-ahead in GraphNode.load — this step only stamps
-    //      the version so the format is explicit.
-    //      显示节点获得 AR HUD 锚定字段："am"（锚定模式：0=贴玻璃，1=贴世界）、
-    //      "ay"（anchorYaw）、"ap"（anchorPitch）。GraphNode.load 对缺失字段默认
-    //      贴玻璃/正前方——本步骤仅盖章版本号，使格式显式。
-    //   2. Recursive migration for ENCAPSULATION sub-graphs.
+    // Changes in v5 (v1.2.5) / v5 中的变更（v1.2.5）:
+    //   1. Recursive migration for ENCAPSULATION sub-graphs.
     //      对 ENCAPSULATION 子图进行递归迁移。
+    //   (NOTE: an earlier draft also stamped per-node AR-HUD anchor tags "am"/"ay"/"ap"
+    //   with the intent of per-node on-glass/on-world anchoring. The anchor feature
+    //   never landed — GraphNode never reads or writes those keys and the renderer
+    //   anchors HUD content at the monitor level — so the stamping was removed again.
+    //   Do not re-add it without implementing the fields + renderer consumption.)
+    //   （注：早期草稿曾为每个节点盖章 "am"/"ay"/"ap"（贴玻璃/贴世界逐节点锚定）——
+    //   该功能从未落地：GraphNode 从不读写这些键，渲染也只在显示器级锚定 HUD 内容，
+    //   因此盖章已移除。未实现字段与渲染消费前不要重新加入。）
 
     /**
      * Migrate a graph tag from version 4 to version 5.
@@ -381,20 +382,14 @@ public final class GraphMigration {
         ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
         for (int i = 0; i < nodes.size(); i++) {
             CompoundTag n = nodes.getCompound(i);
-            // 1. Anchor fields default (on-glass, straight ahead) — explicit stamp
-            //    锚定字段默认值（贴玻璃、正前方）——显式盖章
-            if (!n.contains("am")) n.putInt("am", 0);
-            if (!n.contains("ay")) n.putFloat("ay", 0f);
-            if (!n.contains("ap")) n.putFloat("ap", 0f);
-
-            // 2. Recursively migrate subGraph (ENCAPSULATION nodes)
-            //    递归迁移子图（ENCAPSULATION 节点）
+            // Recursively migrate subGraph (ENCAPSULATION nodes)
+            // 递归迁移子图（ENCAPSULATION 节点）
             if (n.contains("subGraph")) {
                 n.put("subGraph", migrateV4toV5(n.getCompound("subGraph"), registries));
             }
         }
 
-        // 3. Stamp current version / 写入当前版本号
+        // Stamp current version / 写入当前版本号
         out.putInt(NbtVersions.VERSION_KEY, 5);
         return out;
     }
