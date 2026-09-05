@@ -824,6 +824,13 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 - **V4→V5 迁移移除死锚定盖章 / Dead per-node anchor stamping removed**：早期草稿给每个节点盖章 `am/ay/ap`（逐节点贴玻璃/贴世界锚定），该功能从未落地——`GraphNode` 从不读写这些键、渲染只做显示器级锚定，迁移注释承诺的 `GraphNode.load` 默认处理也不存在。现移除盖章（保留子图递归与版本号），注释留档原因与「不要无实现地重新加回」的警示 / An earlier draft stamped per-node AR-HUD anchor tags (`am`/`ay`/`ap`) for a feature that never landed — `GraphNode` never reads or writes them and rendering anchors at the monitor level. The stamping is removed (sub-graph recursion and the version stamp remain), with a comment recording why and warning not to re-add it without implementing the fields and renderer consumption.
 - **封装时序清单更正 / Encapsulation timing checklist corrected**：`docs/encapsulation-timing-state-reset.md` 第 14 项「BUS 信号快照 `SignalBus.snapshot()`」从未实现，标记为「未采用」并注明现状（BUS/PRIVATE 频道为即时读写共享表） / Checklist item 14 referenced a `SignalBus.snapshot()` that never existed in the codebase — marked "not adopted", noting the current immediate read/write shared-table behaviour.
 
+### 🎨 界面颜色主题扩容 16→23 并收编各屏 / Theme Extended to 23 Colors Across Screens
+
+- **新键 7 个 / 7 new theme keys**：`panel_bg / panel_header / panel_border / inset_bg / accent / error / hover`（默认 = 各屏现值，首屏零视觉变化），设置 → 界面颜色现共 **23 项**色板（旧配置缺失项自动回落默认，向后兼容） / Seven keys added with defaults matching current visuals; the Settings → Colors list now holds 23 swatches (legacy configs fall back per-key to defaults — backward compatible).
+- **编辑器漏网色接入 / Editor stragglers wired**：强调金（主选/次选、框选、焦点/开关开态、★激活）、悬停行高亮、警示红（公式错误徽章/报告框/警示条）、滚动条 thumb 与部分边框改走 `ACC()/HOV()/ERR()/CB()/CSB()`——换主题不再失配 / Selection gold, hover highlights, error reds and scrollbar thumbs now read from the theme — no more mismatch when switching themes.
+- **其它屏收编 / Peripheral screens absorbed**：显示器 / 便携终端 / 像素编辑器 / 取色器 的暖深棕面板 chrome（面板底/标题带/边框/内凹井底/金边）与强调色统一走主题访问器（`PBG/PHT/PBR/PINS/ACC/CSB`，跨包 public）；各屏画布/内容层、文字灰阶、success/danger 动作色与半透明变体保持本地 / The Monitor / Portable Terminal / Pixel editor / Color Picker warm-brown panel chrome now follows the theme via cross-package public accessors; canvas content layers, text greys, success/danger action colours and alpha variants stay local.
+- **MLE 聚焦错误 / MultiLineEditBox error state**：聚焦+错误边框与 UNKNOWN 下划线改走 `ERR()` / Focused-error border and the unknown-token underline use `ERR()`.
+
 </details>
 
 <details>
