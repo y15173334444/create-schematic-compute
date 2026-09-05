@@ -304,19 +304,20 @@ public class EditorSettingsScreen extends Screen {
                     ky += u + 3;
                 }
                 int barY = (int) ky + 8;
-                int confirmX = width - 14 - 70, clearX = confirmX - 72; // 与渲染同一右缘锚定 / same right anchor as render
+                int confirmX = width - 14 - 70, clearX = confirmX - 72, defX = clearX - 58; // 与渲染同一右缘锚定 / same right anchor as render
                 if (my >= barY && my <= barY + 16) {
+                    if (mx >= defX && mx <= defX + 50) { // 默认：恢复出厂绑定并重预填 / restore default and re-prefill
+                        EditorKeys.resetToDefault(actions[keybindTarget]);
+                        selectKeybindRow(keybindTarget); return true;
+                    }
                     if (mx >= clearX && mx <= clearX + 64) { pendingKey = 0; pendingMods = 0; rebindConflict = null; return true; } // 清除 / clear
                     if (mx >= confirmX && mx <= confirmX + 70) { confirmKeybind(); return true; }                                  // 确定 / bind
                 }
             }
-            // 动作行：行 = 选中并展开键盘（渲染与命中共用同一行几何）；行尾按钮 = 恢复默认。
+            // 动作行：行 = 选中并展开键盘（渲染与命中共用同一行几何）。
             int rowY = cy() + 2;
             for (int i = 0; i < actions.length; i++) {
-                if (mx >= listRight - 34 && mx <= listRight - 8 && my >= rowY + 4 && my <= rowY + rowH - 6) {
-                    EditorKeys.resetToDefault(actions[i]); rebindConflict = null; return true;
-                }
-                if (mx >= cx && mx <= listRight - 40 && my >= rowY && my <= rowY + rowH - 2) {
+                if (mx >= cx && mx <= listRight - 2 && my >= rowY && my <= rowY + rowH - 2) {
                     selectKeybindRow(i); return true;
                 }
                 rowY += rowH;
@@ -577,7 +578,7 @@ public class EditorSettingsScreen extends Screen {
         for (int i = 0; i < actions.length; i++) {
             var a = actions[i];
             boolean selected = expanded && keybindTarget == i;
-            boolean hov = !selected && mx >= cx && mx <= listRight - 40 && my >= rowY && my <= rowY + rowH - 2;
+            boolean hov = !selected && mx >= cx && mx <= listRight - 2 && my >= rowY && my <= rowY + rowH - 2;
             if (selected) g.fill(cx, rowY, listRight, rowY + rowH - 2, 0xFF2A3A5A);
             else if (hov) g.fill(cx, rowY, listRight, rowY + rowH - 2, 0xFF3A4A3A);
             String cur;
@@ -589,33 +590,32 @@ public class EditorSettingsScreen extends Screen {
             // 动作名 + 当前绑定，超宽按窄列截断（展开态列表变窄时防止压进键盘区）。
             // Action name + current binding, truncated to the (narrowed) list width.
             String text = I18n.get("gui.create_schematic_compute." + a.langKey) + ":  " + cur;
-            text = font.plainSubstrByWidth(text, listRight - 34 - (cx + 6) - 4);
+            text = font.plainSubstrByWidth(text, listRight - (cx + 6) - 4);
             g.drawString(font, text, cx + 6, rowY + 9, 0xFFCCCCCC, false);
-            // 行尾"默认"按钮 —— 单动作恢复出厂绑定 / row-end reset-to-default button
-            boolean rbHov = mx >= listRight - 34 && mx <= listRight - 8 && my >= rowY + 4 && my <= rowY + rowH - 6;
-            g.fill(listRight - 34, rowY + 4, listRight - 8, rowY + rowH - 6, rbHov ? 0xFF4A5A2A : 0xFF3A3428);
-            g.renderOutline(listRight - 34, rowY + 4, 26, rowH - 10, 0xFF6A8A3A);
-            g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.reset_default"), listRight - 32, rowY + 9, 0xFFFFFFFF, false);
             rowY += rowH;
         }
         if (rebindConflict != null)
             g.drawString(font, "§c" + rebindConflict, cx, contentBottom - 12, 0xFFFFFFFF, false);
         if (!expanded || keybindTarget < 0) return;
 
-        // ── 展开态：右侧虚拟键盘 + 鼠标三键 + 底部 预览/清除/确定 ──
-        // Expanded: virtual keyboard + mouse buttons on the right, preview/clear/bind bar.
+        // ── 展开态：右侧虚拟键盘 + 鼠标三键 + 底部 预览/默认/清除/确定 ──
+        // Expanded: virtual keyboard + mouse buttons on the right, preview/default/clear/bind bar.
         float u = keysUnit();
         int chipsX = width - 14 - KEYS_CHIPS_W;
+        var target = actions[keybindTarget];
 
-        // 鼠标三键（竖排；点击即直接绑定 —— 鼠标动作无修饰概念）。
-        // Mouse buttons (vertical; a click binds immediately — no modifier concept).
+        // 鼠标三键（竖排；点击即直接绑定 —— 鼠标动作无修饰概念）。当前绑定的键绿描边
+        // （与键帽的现值描边同语义）。
+        // Mouse buttons (vertical; a click binds immediately — no modifier concept). The
+        // currently bound button gets the green outline, same semantics as the keycaps.
         for (int m = 0; m < 3; m++) {
             int chy = cy + 2 + m * 24;
             boolean chov = mx >= chipsX && mx <= chipsX + KEYS_CHIPS_W && my >= chy && my <= chy + 20;
+            boolean bound = target.mouse && EditorKeys.mouseButton(target) == m;
             g.fill(chipsX, chy, chipsX + KEYS_CHIPS_W, chy + 20, chov ? 0xFF3A4A6A : 0xFF2A2A3A);
-            g.renderOutline(chipsX, chy, KEYS_CHIPS_W, 20, NodeRenderer.CSB());
+            g.renderOutline(chipsX, chy, KEYS_CHIPS_W, 20, bound ? 0xFF5A8A3A : NodeRenderer.CSB());
             g.drawString(font, I18n.get("gui.create_schematic_compute.editorkeys.mouse." + m),
-                chipsX + 8, chy + 6, 0xFFCCCCFF, false);
+                chipsX + 8, chy + 6, bound ? 0xFFCCFFCC : 0xFFCCCCFF, false);
         }
 
         // 键盘（行左对齐，宽键向右伸出，真实配列观感）。
@@ -623,7 +623,6 @@ public class EditorSettingsScreen extends Screen {
         float kx0 = chipsX - 12 - keysGridW(u);
         float ky = cy + 2;
         float gap = keysGap(u);
-        var target = actions[keybindTarget];
         for (var row : KEY_ROWS) {
             float kx = kx0;
             for (var c : row) {
@@ -653,6 +652,13 @@ public class EditorSettingsScreen extends Screen {
         g.drawString(font, "§e" + preview, (int) kx0, barY + 4, 0xFFFFFFFF, false);
         int confirmX = width - 14 - 70;
         int clearX = confirmX - 72;
+        int defX = clearX - 58;
+        // 默认（恢复当前选中动作的出厂绑定，选择状态同步重预填）/ default (restore the
+        // selected action's factory binding and re-prefill the selection from it)
+        boolean dHov = mx >= defX && mx <= defX + 50 && my >= barY && my <= barY + 16;
+        g.fill(defX, barY, defX + 50, barY + 16, dHov ? 0xFF4A5A2A : 0xFF3A3428);
+        g.renderOutline(defX, barY, 50, 16, 0xFF6A8A3A);
+        g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.settings.reset_default"), defX + 16, barY + 4, 0xFFFFFFFF, false);
         g.fill(clearX, barY, clearX + 64, barY + 16, 0xFF3A3428);
         g.renderOutline(clearX, barY, 64, 16, NodeRenderer.CSB());
         g.drawString(font, "§7" + I18n.get("gui.create_schematic_compute.settings.bind_clear"), clearX + 16, barY + 4, 0xFFFFFFFF, false);
