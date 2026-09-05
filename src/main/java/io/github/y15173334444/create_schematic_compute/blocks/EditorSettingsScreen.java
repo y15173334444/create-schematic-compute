@@ -64,6 +64,14 @@ public class EditorSettingsScreen extends Screen {
     private String rebindConflict;
     /** 节点指南列表的滚动偏移（行数）。 / node-guide list scroll offset, in rows. */
     private int guideScroll = 0;
+    /** 展开详情时选中的节点下标，-1 = 未选中（收起态恒为 -1）。 / node selected for the detail pane while expanded, -1 = none. */
+    private int guideTarget = -1;
+    /** 右侧详情面板说明文本的行滚动偏移。 / detail-pane description scroll offset, in lines. */
+    private int guideDetailScroll = 0;
+    /** 指南列表滚动条拖拽状态（颜色/键位列表同款交互）。 / guide-list scrollbar drag state (colors/keys-list style). */
+    private boolean guideScrollbarDrag = false;
+    private float guideScrollbarDragStartY = 0f;
+    private int guideScrollbarDragStartOff = 0;
 
     // ── 颜色调整状态 / color-adjustment state ──
 
@@ -155,59 +163,212 @@ public class EditorSettingsScreen extends Screen {
             renderKeysTab(g, mx, my, cx, cy, contentRight, contentBottom);
         } else {
             // 节点指南：从 NodeType 元数据自动生成 —— 名称走既有 lang 键，引脚与参数
-            // 来自枚举字段，新增节点零成本跟上；说明文案（guide.* lang 键）按需补，
-            // 缺省自动隐藏，不写死文案。
+            // 来自枚举字段；详细说明走 guide.* lang 键（悬停/详情面板共用）。
             // Node guide: generated from NodeType metadata — names from the existing
-            // lang keys, pins and params from the enum fields, so new nodes show up
-            // for free. Descriptions (guide.* lang keys) appear only when present.
-            var types = NodeType.values();
-            int rowH2 = 16;
-            int listTop = cy + 18;
-            int listBot = contentBottom - 18;
-            int visible = Math.max(1, (listBot - listTop) / rowH2);
-            int maxScroll = Math.max(0, types.length - visible);
-            if (guideScroll < 0) guideScroll = 0;
-            if (guideScroll > maxScroll) guideScroll = maxScroll;
-            g.drawString(font, "§7" + I18n.get("gui.create_schematic_compute.settings.guide_hint"), cx, cy, 0xFFCCCCCC, false);
-            g.enableScissor(cx, listTop, contentRight - 12, listBot);
-            NodeType hoveredGuide = null;
-            for (int i = guideScroll; i < types.length; i++) {
-                int ry = listTop + (i - guideScroll) * rowH2;
-                if (ry + rowH2 > listBot) break;
-                var t = types[i];
-                if (i % 2 == 0) g.fill(cx, ry, contentRight - 12, ry + rowH2, 0xFF222020);
-                if (mx >= cx && mx <= contentRight - 12 && my >= ry && my <= ry + rowH2) hoveredGuide = t;
-                String name = I18n.get(t.displayName);
-                String pins = I18n.get("gui.create_schematic_compute.guide.inputs") + t.inputs
-                    + " → " + I18n.get("gui.create_schematic_compute.guide.outputs") + t.outputs;
-                g.drawString(font, "§e" + name, cx + 4, ry + 4, 0xFFCCCCCC, false);
-                g.drawString(font, "§7" + pins, cx + 170, ry + 4, 0xFF999999, false);
-                if (t.paramNames.length > 0) {
-                    String params = String.join(", ", t.paramNames);
-                    params = font.plainSubstrByWidth("§8" + params, contentW - 300);
-                    g.drawString(font, params, cx + 260, ry + 4, 0xFF888888, false);
-                }
+            // lang keys, pins/params from the enum fields; long copy from guide.* keys.
+            renderGuideTab(g, mx, my, cx, contentBottom);
+        }
+    }
+
+    // ── 节点指南 tab（渲染与输入共用同一几何）──
+    //    Node-guide tab (render and input share one geometry).
+
+    /** 指南行高。 / guide row height. */
+    private static final int GUIDE_ROW_H = 16;
+
+    /** 列表顶部 y（提示行下方）。 / list top y (below the hint line). */
+    private static int guideListTop() { return cy() + 18; }
+    /** 列表底部 y。 / list bottom y. */
+    private int guideListBot() { return height - 8 - 18; }
+    private int guideVisibleRows() { return Math.max(1, (guideListBot() - guideListTop()) / GUIDE_ROW_H); }
+    private int guideMaxScroll() { return Math.max(0, NodeType.values().length - guideVisibleRows()); }
+
+    /** 行区右缘：展开态止于详情面板左侧（互不压叠），收起态到内容区右缘（预留滚动条条带）。
+     *  Row right edge: expanded stops before the detail pane (no overlap); collapsed
+     *  reaches the content right edge (minus the scrollbar strip). */
+    private int guideRowRight() {
+        return expanded ? paneX() - 12 : width - 14 - Math.round(TAB_W * slide) - 12;
+    }
+
+    /** 右侧详情面板宽度（随窗口自适应，钳制 300..520）。 / detail-pane width (window-adaptive, clamped 300..520). */
+    private int guidePaneW() { return Math.max(300, Math.min(520, width / 3)); }
+    /** 面板左缘：屏幕右侧锚定（与调色板 / 虚拟键盘停靠同一约定）。 / pane left edge: right-anchored like the palette/keyboard. */
+    private int paneX() { return width - 14 - guidePaneW(); }
+    /** 面板内说明文本的换行宽度。 / wrapped-text width inside the pane. */
+    private int paneTextW() { return guidePaneW() - 30; }
+    /** 面板内容顶部 y。 / pane content top y. */
+    private static int paneTop() { return 12; }
+    /** 面板内容底部 y。 / pane content bottom y. */
+    private int paneBot() { return height - 8; }
+
+    /** 指南列表滚动条 thumb {x, y, w, h}（轨道纵跨列表，几何与渲染/命中/拖拽共用）。
+     *  Guide-list scrollbar thumb {x, y, w, h} (track spans the list; shared by render,
+     *  hit-testing and dragging). */
+    private int[] guideScrollbarThumb(int rowRight) {
+        int trackH = guideListBot() - guideListTop();
+        int thumbH = Math.max(12, trackH * guideVisibleRows() / NodeType.values().length);
+        int maxScroll = guideMaxScroll();
+        int thumbY = guideListTop() + (maxScroll > 0 ? (trackH - thumbH) * guideScroll / maxScroll : 0);
+        return new int[]{rowRight - 8, thumbY, 6, thumbH};
+    }
+
+    /** 拖拽推进指南列表：thumb 相对增量换算为行偏移（颜色/键位列表同款）。 / Advance the guide list by the dragged thumb delta. */
+    private void applyGuideScrollbarDrag(double my) {
+        int maxScroll = guideMaxScroll();
+        if (maxScroll <= 0) return;
+        int trackH = guideListBot() - guideListTop();
+        int thumbH = Math.max(12, trackH * guideVisibleRows() / NodeType.values().length);
+        if (trackH - thumbH <= 0) return;
+        float delta = (float) (my - guideScrollbarDragStartY) / (trackH - thumbH);
+        guideScroll = Math.max(0, Math.min(maxScroll, guideScrollbarDragStartOff + Math.round(delta * maxScroll)));
+    }
+
+    /** 收起指南详情：退出展开态并清空选中/说明滚动。 / Collapse the guide detail: leave the expanded form, clear selection and description scroll. */
+    private void guideCollapse() {
+        expanded = false;
+        guideTarget = -1;
+        guideDetailScroll = 0;
+        guideScrollbarDrag = false;
+    }
+
+    /** 选中节点的说明文本逐行换行行。 / the selected node's description wrapped into lines. */
+    private java.util.List<String> guideDescLines(NodeType t) {
+        String descKey = "gui.create_schematic_compute.guide." + t.name();
+        String raw = I18n.exists(descKey) ? I18n.get(descKey)
+            : I18n.get("gui.create_schematic_compute.settings.guide_missing");
+        var out = new java.util.ArrayList<String>();
+        String remaining = raw;
+        int w = paneTextW();
+        while (!remaining.isEmpty()) {
+            String chunk = font.plainSubstrByWidth(remaining, w);
+            if (chunk.isEmpty()) break;
+            out.add(chunk);
+            if (chunk.length() >= remaining.length()) break;
+            remaining = remaining.substring(chunk.length());
+        }
+        return out;
+    }
+
+    /** 指南 tab 渲染：收起态 = 全宽节点列表，悬停行在底部显示一行截断说明；
+     *  点击行左滑展开 —— 左侧节点栏 + 可拖拽滚动条，右侧详情面板（元信息 + 换行说明）。
+     *  文案走 guide.<TYPE> lang 键；缺键时显示占位文案。
+     *  Guide tab: collapsed = full-width node list (hover shows a truncated one-line
+     *  description); a row click slides the UI left — node bar with a draggable
+     *  scrollbar left, a detail pane right (metadata + wrapped description). Copy from
+     *  guide.<TYPE> lang keys, with a placeholder when a key is missing. */
+    private void renderGuideTab(GuiGraphics g, int mx, int my, int cx, int contentBottom) {
+        var types = NodeType.values();
+        int rowH2 = GUIDE_ROW_H;
+        int listTop = guideListTop(), listBot = guideListBot();
+        int rowRight = guideRowRight();
+        int maxScroll = guideMaxScroll();
+        if (guideScroll < 0) guideScroll = 0;
+        if (guideScroll > maxScroll) guideScroll = maxScroll;
+        g.drawString(font, "§7" + I18n.get("gui.create_schematic_compute.settings.guide_hint"), cx, cy(), 0xFFCCCCCC, false);
+
+        NodeType hoveredGuide = null;
+        g.enableScissor(cx, listTop, rowRight, listBot);
+        for (int i = guideScroll; i < types.length; i++) {
+            int ry = listTop + (i - guideScroll) * rowH2;
+            if (ry + rowH2 > listBot) break;
+            var t = types[i];
+            boolean selected = expanded && guideTarget == i;
+            if (selected) g.fill(cx, ry, rowRight, ry + rowH2, 0xFF2A3A5A);
+            else if (i % 2 == 0) g.fill(cx, ry, rowRight, ry + rowH2, 0xFF222020);
+            if (mx >= cx && mx <= rowRight && my >= ry && my <= ry + rowH2) hoveredGuide = t;
+            String name = I18n.get(t.displayName);
+            if (expanded) {
+                // 展开态只显示名称（右侧面板承载其余信息），超宽截断。
+                // Expanded rows show only the name, truncated; the pane carries the rest.
+                g.drawString(font, "§e" + name, cx + 4, ry + 4, selected ? 0xFFCCE0FF : 0xFFCCCCCC, false);
+                continue;
             }
-            g.disableScissor();
-            // 逐节点说明（guide.<TYPE> lang 键，TYPE 为枚举名）：悬停该行时显示在内容区底部；
-            // 未配置的键不渲染任何内容 —— 后续补文案零代码改动。
-            // Per-node description (guide.<TYPE> lang key, TYPE = enum name): shown at the
-            // content bottom while hovering that row; absent keys render nothing — adding
-            // copy later needs no code change.
-            if (hoveredGuide != null) {
-                String descKey = "gui.create_schematic_compute.guide." + hoveredGuide.name();
-                if (I18n.exists(descKey)) {
-                    String desc = font.plainSubstrByWidth(I18n.get(descKey), contentW);
-                    g.drawString(font, "§7" + desc, cx, contentBottom - 12, 0xFFCCCCCC, false);
-                }
+            g.drawString(font, "§e" + name, cx + 4, ry + 4, 0xFFCCCCCC, false);
+            String pins = I18n.get("gui.create_schematic_compute.guide.inputs") + t.inputs
+                + " → " + I18n.get("gui.create_schematic_compute.guide.outputs") + t.outputs;
+            g.drawString(font, "§7" + pins, cx + 170, ry + 4, 0xFF999999, false);
+            if (t.paramNames.length > 0 && cx + 260 < rowRight - 12) {
+                String params = String.join(", ", t.paramNames);
+                params = font.plainSubstrByWidth("§8" + params, rowRight - (cx + 260) - 8);
+                g.drawString(font, params, cx + 260, ry + 4, 0xFF888888, false);
             }
-            if (maxScroll > 0) {
-                int sbX = contentRight - 8;
-                g.fill(sbX, listTop, sbX + 6, listBot, 0xFF2A2822);
-                float thumbH = Math.max(12, (listBot - listTop) * (float) visible / types.length);
-                float thumbY = listTop + (float) guideScroll / maxScroll * ((listBot - listTop) - thumbH);
-                g.fill(sbX + 1, (int) thumbY, sbX + 5, (int) (thumbY + thumbH), 0xFF8B7533);
+        }
+        g.disableScissor();
+
+        // 收起态：悬停行在底部给一行截断说明；展开态由右侧面板呈现完整文案。
+        // Collapsed: hovering shows a truncated one-line description at the bottom;
+        // expanded shows the full copy in the detail pane instead.
+        if (!expanded && hoveredGuide != null) {
+            String descKey = "gui.create_schematic_compute.guide." + hoveredGuide.name();
+            if (I18n.exists(descKey)) {
+                String desc = font.plainSubstrByWidth(I18n.get(descKey), rowRight - cx);
+                g.drawString(font, "§7" + desc, cx, contentBottom - 12, 0xFFCCCCCC, false);
             }
+        }
+        // 滚动条（thumb 可拖拽）/ scrollbar (draggable thumb)
+        if (maxScroll > 0) {
+            int[] sb = guideScrollbarThumb(rowRight);
+            g.fill(sb[0], listTop, sb[0] + sb[2], listBot, 0xFF2A2822);
+            g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], 0xFF8B7533);
+        }
+        // 展开态：列表下方收起按钮 + 右侧详情面板 / expanded: collapse button under the list + the detail pane
+        if (expanded) {
+            int clY = guideListBot() + 2;
+            boolean clHov = mx >= cx && mx <= cx + 64 && my >= clY && my <= clY + 16;
+            g.fill(cx, clY, cx + 64, clY + 16, clHov ? 0xFF3A4A5A : 0xFF2A3A5A);
+            g.renderOutline(cx, clY, 64, 16, NodeRenderer.CSB());
+            g.drawString(font, "§f" + I18n.get("gui.create_schematic_compute.settings.collapse"), cx + 16, clY + 4, 0xFFFFFFFF, false);
+            renderGuidePane(g, types);
+        }
+    }
+
+    /** 右侧详情面板：选中节点名 + 元信息（入/出/参数）+ 换行详述（超长可滚）。
+     *  Detail pane: node name + metadata (in/out/params) + wrapped description (scrollable). */
+    private void renderGuidePane(GuiGraphics g, NodeType[] types) {
+        if (guideTarget < 0 || guideTarget >= types.length) return;
+        NodeType t = types[guideTarget];
+        int px = paneX(), pw = guidePaneW(), pb = paneBot();
+        int top = paneTop();
+        g.fill(px, top - 4, px + pw, pb, 0xFF1E1C26);
+        g.renderOutline(px, top - 4, pw, pb - (top - 4), NodeRenderer.CSB());
+        int tx = px + 10;
+        g.drawString(font, "§6" + I18n.get(t.displayName), tx, top, 0xFFFFFFFF, false);
+        g.drawString(font, "§8" + t.name(), px + pw - 10 - font.width(t.name()), top, 0xFF888888, false);
+        int y = top + 12;
+        String meta = I18n.get("gui.create_schematic_compute.guide.inputs") + " " + t.inputs
+            + "    " + I18n.get("gui.create_schematic_compute.guide.outputs") + " " + t.outputs;
+        g.drawString(font, "§7" + meta, tx, y, 0xFFCCCCCC, false);
+        y += 12;
+        if (t.paramNames.length > 0) {
+            String params = I18n.get("gui.create_schematic_compute.settings.guide_params") + " "
+                + font.plainSubstrByWidth(String.join(", ", t.paramNames), pw - 36);
+            g.drawString(font, "§7" + params, tx, y, 0xFF999999, false);
+            y += 12;
+        }
+        g.fill(px + 6, y, px + pw - 6, y + 1, 0xFF2A2832);
+        y += 6;
+        var lines = guideDescLines(t);
+        int innerRight = px + pw - 10;
+        int innerBot = pb - 4;
+        int visible = Math.max(1, (innerBot - y) / 11);
+        int maxScroll = Math.max(0, lines.size() - visible);
+        if (guideDetailScroll < 0) guideDetailScroll = 0;
+        if (guideDetailScroll > maxScroll) guideDetailScroll = maxScroll;
+        g.enableScissor(tx, y, innerRight, innerBot);
+        int ly = y - guideDetailScroll * 11;
+        for (String ln : lines) {
+            g.drawString(font, "§7" + ln, tx, ly, 0xFFCCCCCC, false);
+            ly += 11;
+            if (ly > innerBot + 11) break;
+        }
+        g.disableScissor();
+        // 说明文本滚动指示条（滚轮滚动）/ description scroll indicator (wheel-scrolled)
+        if (maxScroll > 0) {
+            int trackH = innerBot - y;
+            float thumbH = Math.max(10, trackH * (float) visible / lines.size());
+            float thumbY = y + (trackH - thumbH) * guideDetailScroll / maxScroll;
+            g.fill(px + pw - 8, y, px + pw - 4, innerBot, 0xFF2A2822);
+            g.fill(px + pw - 7, (int) thumbY, px + pw - 5, (int) (thumbY + thumbH), 0xFF8B7533);
         }
     }
 
@@ -353,6 +514,39 @@ public class EditorSettingsScreen extends Screen {
             if (expanded && mx >= cx && mx <= cx + 64 && my >= clY && my <= clY + 16) { collapseExpanded(); return true; }
             return true;
         }
+        // ── 指南 tab：详情面板吞掉 / 收起按钮 / 滚动条 / 行选中（收起态点行即展开）──
+        //    Guide tab: pane swallows clicks / collapse button / scrollbar / row select
+        //    (a click expands the detail from the collapsed state).
+        if (tab == 2) {
+            if (mx < TAB_W - shift) { tabColumnClick(my); return true; }
+            int cx = TAB_W + 12 - shift;
+            int rowRight = guideRowRight();
+            int listTop = guideListTop(), listBot = guideListBot();
+            if (expanded && mx >= paneX()) return true; // 详情面板吞掉所有点击 / the detail pane swallows clicks
+            if (expanded) {
+                int clY = guideListBot() + 2;
+                if (mx >= cx && mx <= cx + 64 && my >= clY && my <= clY + 16) { guideCollapse(); return true; }
+            }
+            if (guideMaxScroll() > 0) {
+                int[] sb = guideScrollbarThumb(rowRight);
+                if (mx >= sb[0] && mx <= sb[0] + sb[2] && my >= listTop && my <= listBot) {
+                    if (my < sb[1]) { guideScroll = Math.max(0, guideScroll - 3); }
+                    else if (my > sb[1] + sb[3]) { guideScroll = Math.min(guideMaxScroll(), guideScroll + 3); }
+                    else { guideScrollbarDrag = true; guideScrollbarDragStartY = (float) my; guideScrollbarDragStartOff = guideScroll; }
+                    return true;
+                }
+            }
+            if (my >= listTop && my < listBot && mx >= cx && mx <= rowRight) {
+                int idx = guideScroll + (int) ((my - listTop) / GUIDE_ROW_H);
+                if (idx >= 0 && idx < NodeType.values().length) {
+                    guideTarget = idx;
+                    guideDetailScroll = 0;
+                    expanded = true; // 点击行 = 选中并展开详情 / a row click selects and expands the detail
+                    return true;
+                }
+            }
+            return true;
+        }
         // 左侧选项卡列（列内空白也消费 —— 全屏界面不穿透）；末尾返回项关闭界面。
         // Left tab column (blank areas included — the full-screen GUI never falls
         // through); the trailing back entry closes the screen.
@@ -413,12 +607,21 @@ public class EditorSettingsScreen extends Screen {
             if (keysScroll > keysMaxScroll()) keysScroll = keysMaxScroll();
             return true;
         }
-        // 节点指南滚轮 —— 仅当光标在右侧内容区时消费 / node-guide wheel, content area only
-        if (tab == 2 && mx >= TAB_W) {
-            guideScroll -= (int) Math.signum(sy);
-            return true;
+        // 指南滚轮：展开态光标在详情面板 = 滚动说明行；其余（含收起态）滚动节点列表，
+        // 行数钳制在渲染时收敛。 / guide wheel: over the detail pane scrolls the
+        // description lines; elsewhere scrolls the node list (clamped during render).
+        if (tab == 2) {
+            if (expanded && mx >= paneX()) {
+                guideDetailScroll -= (int) Math.signum(sy);
+                return true;
+            }
+            if (mx >= TAB_W) {
+                guideScroll -= (int) Math.signum(sy);
+                return true;
+            }
+            return true; // 全屏界面消费一切滚轮 / the full-screen GUI consumes all wheels
         }
-        return true; // 全屏界面消费一切滚轮 / the full-screen GUI consumes all wheels
+        return true;
     }
 
     @Override
@@ -428,6 +631,7 @@ public class EditorSettingsScreen extends Screen {
         // regions are disjoint; only one can be active at a time).
         if (colorScrollbarDrag) { applyColorScrollbarDrag(my); return true; }
         if (keysScrollbarDrag) { applyKeysScrollbarDrag(my); return true; }
+        if (guideScrollbarDrag) { applyGuideScrollbarDrag(my); return true; }
         // 调色板拖拽（SV / Hue / Alpha 渐变条）转发到组件 / forward SV/hue/alpha drags to the widget
         if (expanded && picker.isVisible()) return picker.mouseDragged(mx, my, btn, dx, dy);
         return true;
@@ -437,6 +641,7 @@ public class EditorSettingsScreen extends Screen {
     public boolean mouseReleased(double mx, double my, int btn) {
         colorScrollbarDrag = false;
         keysScrollbarDrag = false;
+        guideScrollbarDrag = false;
         if (expanded) picker.mouseReleased(mx, my, btn);
         return true;
     }
@@ -809,13 +1014,17 @@ public class EditorSettingsScreen extends Screen {
         expanded = true;
     }
 
-    /** 收起当前 tab 的展开区（颜色调色板 / 键位键盘）并清空各自的暂选状态。 / Collapse whichever expansion is open (palette / keyboard) and clear its pending state. */
+    /** 收起当前 tab 的展开区（颜色调色板 / 键位键盘 / 指南详情）并清空各自的暂选状态。
+     *  Collapse whichever expansion is open (palette / keyboard / guide detail) and clear its pending state. */
     private void collapseExpanded() {
         if (tab == 0) { collapsePalette(); return; }
         expanded = false;
         keybindTarget = -1;
         pendingSeq.clear();
         latchedMods = 0;
+        guideTarget = -1;
+        guideDetailScroll = 0;
+        guideScrollbarDrag = false;
     }
 
     /** 开始调整某个颜色槽：切换到展开形态（整个界面左滑），调色板绑定该槽的工作色
