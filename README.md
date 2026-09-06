@@ -1,8 +1,8 @@
 # Create: Schematic Compute
 
 <p align="center">
-  <b>🎮 7 Programmable Blocks · 86 Node Types · Formula Syntax Highlighting & Autocomplete · Multiplayer Collaboration</b><br>
-  <b>七种可编程方块 · 86种节点 · 公式语法高亮与自动补全 · 多人实时协作</b><br>
+  <b>🎮 9 Programmable Blocks · 86 Node Types · Formula Syntax Highlighting & Autocomplete · Multiplayer Collaboration</b><br>
+  <b>九种可编程方块 · 86种节点 · 公式语法高亮与自动补全 · 多人实时协作</b><br>
   <i>Drag, connect, and build logic — just like Unreal Engine Blueprints!</i><br>
   <i>拖拽连接，构建逻辑 — 像虚幻引擎蓝图一样直观！</i><br>
   <i>Created by <b>StarryNight_Luo</b> (y15173334444)</i>
@@ -21,9 +21,9 @@
 
 ## 📖 Overview / 简介
 
-**🇬🇧** Create: Schematic Compute is a **Create mod addon** that introduces **7 programmable blocks + 1 portable terminal** with a **visual node-based programming system**. Instead of writing complex redstone circuits, simply drag and connect nodes to build logic — just like Unreal Engine Blueprints or Blender Geometry Nodes. Each computer runs at **20Hz (every game tick)** for real-time control. **All 7 blocks support real-time multiplayer collaborative editing** with live cursor tracking and node lock protection. The **FORMULA script editor** features syntax highlighting (9 token colours), intelligent autocomplete (functions, variables, `@output`), real-time validation with error badges, and named constants `(PI)`/`(E)`.
+**🇬🇧** Create: Schematic Compute is a **Create mod addon** that introduces **9 programmable blocks + 1 portable terminal** with a **visual node-based programming system**. Instead of writing complex redstone circuits, simply drag and connect nodes to build logic — just like Unreal Engine Blueprints or Blender Geometry Nodes. Each computer runs at **20Hz (every game tick)** for real-time control. **All 7 blocks support real-time multiplayer collaborative editing** with live cursor tracking and node lock protection. The **FORMULA script editor** features syntax highlighting (9 token colours), intelligent autocomplete (functions, variables, `@output`), real-time validation with error badges, and named constants `(PI)`/`(E)`.
 
-**🇨🇳** **机械动力：蓝图计算机** 是一个机械动力附属模组，添加了**七种可编程方块和一个便携终端**，采用**可视化节点图编程系统**。无需搭建复杂红石电路，只需拖拽连接节点即可构建逻辑——就像虚幻引擎的蓝图系统或 Blender 的几何节点一样直观。每台设备拥有独立的节点图，以 **20Hz（每游戏刻）** 的频率运行，适合实时控制应用。**全部 7 种方块支持多人实时协作编辑**，带实时光标追踪和节点锁定保护。**FORMULA 公式脚本编辑器** 支持语法高亮（9 种词法颜色）、智能自动补全（函数、变量、`@output`）、实时校验与错误徽章、以及命名常量 `(PI)`/`(E)`。
+**🇨🇳** **机械动力：蓝图计算机** 是一个机械动力附属模组，添加了**九种可编程方块和一个便携终端**，采用**可视化节点图编程系统**。无需搭建复杂红石电路，只需拖拽连接节点即可构建逻辑——就像虚幻引擎的蓝图系统或 Blender 的几何节点一样直观。每台设备拥有独立的节点图，以 **20Hz（每游戏刻）** 的频率运行，适合实时控制应用。**全部 7 种方块支持多人实时协作编辑**，带实时光标追踪和节点锁定保护。**FORMULA 公式脚本编辑器** 支持语法高亮（9 种词法颜色）、智能自动补全（函数、变量、`@output`）、实时校验与错误徽章、以及命名常量 `(PI)`/`(E)`。
 
 ---
 
@@ -62,6 +62,32 @@
 |----------------|-------------------|
 | 🔄 Speed Control / 转速控制 | Set adjacent Speed Controller RPM (-256~256) / 设置相邻转速控制器RPM |
 | 🔗 Private Signal / 私有信号输入 | Named channel cross-computer coordination / 命名通道跨计算机联动 |
+
+---
+
+### ⚙️ Programmable Transmission / 可编程变速器
+**In-line programmable gearbox / 轴上可编程变速**
+
+| Feature / 功能 | Description / 说明 |
+|----------------|-------------------|
+| 🎚️ Target RPM / 目标转速 | Scroll-set absolute output RPM; graph TX_OUT node overrides while running / 滚轮设定绝对输出转速，图运行时由 TX_OUT 节点接管 |
+| 🔀 Face-Relative Direction / 面相对转向 | Output CW/CCW follows the placed face, creative-motor style / 输出逆/顺随放置面（创造马达同款语义） |
+| ↕️ 3-Axis Placement / 三向放置 | Horizontal or vertical in-line placement; wrench on side face rotates the axis / 水平/竖直线上放置，扳手点侧面换轴 |
+| ⚙️ Bearing Visuals / 轴承动画 | Two independent shaft stubs: input follows network, output follows target / 两端独立轴头动画：输入随网络、输出随目标 |
+| 🤝 Stress Network Member / 应力网络成员 | First-class driven member — no input power, no output / 官方应力网络一等成员，无输入动力则无输出 |
+
+---
+
+### 🔧 CNC Gearbox / 数控齿轮箱
+**Driven clutch + motion quota / 从动离合器 + 运动配额**
+
+| Feature / 功能 | Description / 说明 |
+|----------------|-------------------|
+| 🔌 Clutch / 离合器 | Output face carries a shaft only while engaged; idle auto-disengages / 仅接合时输出面对外传轴，空闲自动分离 |
+| 📜 Command Stack / 指令栈 | FIFO motion commands: rotate (degrees) / move (meters) / wait / FIFO 运动指令：旋转（度）/ 直线（米）/ 等待 |
+| 🎯 Motion Quota / 运动配额 | Open-loop travel booking, fires a completion pulse at zero / 开环行程记账，配额归零自动打完成脉冲 |
+| 🔄 Encoder / 编码器 | Rotary (degrees) + linear (meters) accumulation for graph readback / 旋转（度）+ 直线（米）累计供图读取 |
+| ↕️ 3-Axis + Wrench / 三向 + 扳手 | Wrench on end face flips the input, side face rotates the axis / 扳手点端面翻转输入端、点侧面换轴 |
 
 ---
 

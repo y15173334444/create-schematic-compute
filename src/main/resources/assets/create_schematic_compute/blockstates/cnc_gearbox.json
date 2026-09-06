@@ -1,5 +1,9 @@
 {
   "variants": {
+    "axis=x,run_state=command": {
+      "model": "create_schematic_compute:block/cnc_gearbox_cmd",
+      "y": 270
+    },
     "axis=x,run_state=idle": {
       "model": "create_schematic_compute:block/cnc_gearbox",
       "y": 270
@@ -8,18 +12,26 @@
       "model": "create_schematic_compute:block/cnc_gearbox_run",
       "y": 270
     },
-    "axis=x,run_state=command": {
+    "axis=y,run_state=command": {
       "model": "create_schematic_compute:block/cnc_gearbox_cmd",
-      "y": 270
+      "x": 90
+    },
+    "axis=y,run_state=idle": {
+      "model": "create_schematic_compute:block/cnc_gearbox",
+      "x": 90
+    },
+    "axis=y,run_state=run": {
+      "model": "create_schematic_compute:block/cnc_gearbox_run",
+      "x": 90
+    },
+    "axis=z,run_state=command": {
+      "model": "create_schematic_compute:block/cnc_gearbox_cmd"
     },
     "axis=z,run_state=idle": {
       "model": "create_schematic_compute:block/cnc_gearbox"
     },
     "axis=z,run_state=run": {
       "model": "create_schematic_compute:block/cnc_gearbox_run"
-    },
-    "axis=z,run_state=command": {
-      "model": "create_schematic_compute:block/cnc_gearbox_cmd"
     }
   }
 }

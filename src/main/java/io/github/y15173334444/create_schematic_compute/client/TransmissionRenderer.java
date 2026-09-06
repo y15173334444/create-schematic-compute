@@ -3,8 +3,8 @@ package io.github.y15173334444.create_schematic_compute.client;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import dev.engine_room.flywheel.api.visualization.VisualizationManager;
-import io.github.y15173334444.create_schematic_compute.blocks.CncGearboxBlock;
-import io.github.y15173334444.create_schematic_compute.blocks.CncGearboxBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.ProgrammableTransmissionBlock;
+import io.github.y15173334444.create_schematic_compute.blocks.ProgrammableTransmissionBlockEntity;
 import net.createmod.catnip.animation.AnimationTickHolder;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
@@ -19,27 +19,23 @@ import net.minecraft.world.level.block.state.BlockState;
 import org.joml.Quaternionf;
 
 /**
- * 数控齿轮箱渲染器（vanilla fallback）：仅在 Flywheel 不可用时渲染两端轴头——
- * 输入面（INPUT_NEGATIVE 决定哪端）恒随网络转速，输出面仅在接合（ENGAGED）时
- * 随网络速度、分离时静止（官方 SplitShaftVisual 分离侧归零同款，已按需求恢复）。
- * 角度用**官方的 AnimationTickHolder 渲染时钟** + 官方相位公式（renderTime *
- * speed * 3/10 + rotationOffset，mod 360），与官方轴在任意时刻的相位完全一致。
- * Flywheel 可用时由 {@link CncGearboxVisual} 接管。
- * CNC gearbox renderer (vanilla fallback): only renders when Flywheel is
- * unavailable — the two stubs move independently: the input face (per
- * INPUT_NEGATIVE) always at the network speed; the output face at the network
- * speed only while ENGAGED, static when disengaged (official SplitShaftVisual
- * semantics, restored per request). Uses the OFFICIAL AnimationTickHolder render
- * clock and the official phase formula (renderTime * speed * 3/10 +
- * rotationOffset, mod 360), so the phase matches official shafts exactly. When
- * Flywheel is available, {@link CncGearboxVisual} takes over.
+ * 可编程变速器渲染器（vanilla fallback，CNC 齿轮箱同款）：仅在 Flywheel 不可用时
+ * 渲染两端传动轴（正端/负端各一，独立旋转体）。角度用**官方的 AnimationTickHolder
+ * 渲染时钟** + 官方相位公式（renderTime * speed * 3/10 + rotationOffset，mod 360），
+ * 与官方轴在任意时刻的相位完全一致。Flywheel 可用时由 {@link TransmissionVisual} 接管。
+ * Programmable transmission renderer (vanilla fallback, CNC-gearbox-style): only
+ * renders when Flywheel is unavailable — two independent shaft-end bodies
+ * (positive/negative). Uses the OFFICIAL AnimationTickHolder render clock and the
+ * official phase formula (renderTime * speed * 3/10 + rotationOffset, mod 360), so
+ * the phase matches official shafts exactly. When Flywheel is available,
+ * {@link TransmissionVisual} takes over.
  */
-public class CncGearboxRenderer implements BlockEntityRenderer<CncGearboxBlockEntity> {
+public class TransmissionRenderer implements BlockEntityRenderer<ProgrammableTransmissionBlockEntity> {
 
-    public CncGearboxRenderer(BlockEntityRendererProvider.Context context) {}
+    public TransmissionRenderer(BlockEntityRendererProvider.Context context) {}
 
     @Override
-    public void render(CncGearboxBlockEntity be, float partialTick, PoseStack ms,
+    public void render(ProgrammableTransmissionBlockEntity be, float partialTick, PoseStack ms,
                        MultiBufferSource buffer, int light, int overlay) {
         if (be.getLevel() == null || be.isRemoved())
             return;
@@ -47,26 +43,24 @@ public class CncGearboxRenderer implements BlockEntityRenderer<CncGearboxBlockEn
         if (VisualizationManager.supportsVisualization(be.getLevel()))
             return;
         BlockState state = be.getBlockState();
-        if (!(state.getBlock() instanceof CncGearboxBlock))
+        if (!(state.getBlock() instanceof ProgrammableTransmissionBlock))
             return;
 
         Minecraft mc = Minecraft.getInstance();
+        BakedModel front = TransmissionVisual.FRONT_SHAFT.get();
+        BakedModel rear = TransmissionVisual.REAR_SHAFT.get();
         BakedModel missing = mc.getModelManager().getMissingModel();
-        BakedModel front = CncGearboxVisual.FRONT_SHAFT.get();
-        BakedModel rear = CncGearboxVisual.REAR_SHAFT.get();
         if (front == missing || rear == missing)
             return;
 
-        Direction.Axis axis = state.getValue(CncGearboxBlock.AXIS);
-        // 输入面（负端按 INPUT_NEGATIVE）恒随网络；输出面仅接合时随网络，分离静止。
-        // The input face (negative end per INPUT_NEGATIVE) always follows the network;
-        // the output face follows it only while engaged, static when disengaged.
-        boolean inputAtNegative = state.getValue(CncGearboxBlock.INPUT_NEGATIVE);
-        boolean engaged = state.getValue(CncGearboxBlock.ENGAGED);
-        float inputSpeed = be.getSpeed();
-        float outputSpeed = engaged ? inputSpeed : 0f;
-        float frontAngle = getAngleForBe(be, axis, inputAtNegative ? inputSpeed : outputSpeed);
-        float rearAngle = getAngleForBe(be, axis, inputAtNegative ? outputSpeed : inputSpeed);
+        Direction.Axis axis = state.getValue(ProgrammableTransmissionBlock.AXIS);
+        // 与 Flywheel 视觉共用同一分流函数（输入端=网络速度，输出端仅在驱动时随目标），
+        // 保证两条渲染路径的转速语义永不漂移。
+        // The Flywheel visual and this fallback share ONE speed-splitting helper, so
+        // the two render paths can never drift apart in speed semantics.
+        float frontAngle = getAngleForBe(be, axis, TransmissionVisual.shaftSpeed(be, true));
+        float rearAngle = getAngleForBe(be, axis, TransmissionVisual.shaftSpeed(be, false));
+
         renderShaft(ms, buffer, state, front, axis, frontAngle, light);
         renderShaft(ms, buffer, state, rear, axis, rearAngle, light);
     }
@@ -99,7 +93,7 @@ public class CncGearboxRenderer implements BlockEntityRenderer<CncGearboxBlockEn
     }
 
     /** 官方角度公式（含相位）：AnimationTickHolder 渲染时钟 * speed * 3/10 + rotationOffset，模 360 转弧度。 */
-    private static float getAngleForBe(CncGearboxBlockEntity be, Direction.Axis axis, float speed) {
+    private static float getAngleForBe(ProgrammableTransmissionBlockEntity be, Direction.Axis axis, float speed) {
         float time = AnimationTickHolder.getRenderTime(be.getLevel());
         float offset = rotationOffset(be.getBlockState(), axis, be.getBlockPos());
         return ((time * speed * 3f / 10f + offset) % 360f) / 180f * (float) Math.PI;

@@ -71,6 +71,13 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
         this.host = new GraphHost(this);
     }
 
+    /** 已应用目标转速只读取口（视觉层按此分流两端：输入端=网络速度，输出端=此值）。
+     *  Read-only accessor of the applied target (visuals split the two shaft ends:
+     *  input end = network speed, output end = this value). */
+    public int getAppliedTarget() {
+        return appliedTarget;
+    }
+
     @Override
     public void addBehaviours(List<BlockEntityBehaviour> behaviours) {
         super.addBehaviours(behaviours);
@@ -284,9 +291,22 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
     }
 
     /**
-     * 官方 getDesiredOutputSpeed 逐行复刻（含无源自驱引导路径）。
-     * Line-by-line replica of the official getDesiredOutputSpeed (including the
-     * sourceless self-drive bootstrap).
+     * 官方 getDesiredOutputSpeed 复刻（含无源自驱引导路径）+ **输出面相对符号语义**
+     * （官方创造马达 {@link KineticBlockEntity#convertToDirection} 同款）。
+     * Replica of the official getDesiredOutputSpeed (including the sourceless
+     * self-drive bootstrap) plus FACE-RELATIVE sign semantics for the target (the
+     * official creative motor's convertToDirection pattern).
+     *
+     * <p><b>符号约定</b>：{@code appliedTarget} 的正负以<b>输出面</b>为参考——
+     * +target = 与一台朝输出方向放置的创造马达相同的旋转手性，与方块贴着哪个面
+     * 放置、输出端在轴的正/负端无关。换算点有二：输出边（下游收到的世界符号速度）
+     * 与输入边/无源引导（本体收敛到与输出轴相同的世界手性）。</p>
+     * <p><b>Sign convention</b>: {@code appliedTarget} is interpreted RELATIVE TO THE
+     * OUTPUT FACE — +target = the rotation handedness of a creative motor facing the
+     * output direction, independent of which face the block was placed against or
+     * which axis end the output sits on. Converted at two points: the output edge
+     * (world-signed speed the downstream receives) and the input/bootstrap edge (the
+     * body converges to the output shafts' world handedness).</p>
      *
      * <p><b>依赖方守卫</b>：source 指向本变速器的邻居是<b>下游依赖方</b>，永远无权
      * 经无源自驱引导反向收编我们（自环）。没有这条守卫时：本变速器一旦静默进入
@@ -327,15 +347,38 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
             return 0;
         if (targetingController && fromSpeed == 0)
             return 0;
+
+        // ── 输出面相对符号（官方创造马达 convertToDirection 同款）──
+        // appliedTarget 的正负以「输出面」为参考：+target = 与一台朝输出方向放置的
+        // 创造马达相同的旋转手性，与贴哪个面放置、输出端在轴的正/负端无关。没有这
+        // 层换算时符号锁死在世界轴上（3 轴×2 符号共 6 种世界变化），输出面朝轴负端
+        // 时相对转向与正端放置相反。
+        // ── FACE-RELATIVE sign (official creative motor convertToDirection pattern):
+        // appliedTarget's sign is interpreted relative to the OUTPUT face — +target =
+        // the handedness of a motor facing the output direction, independent of which
+        // face the block was placed against or which axis end the output sits on.
+        // Without this the sign is world-axis-locked (3 axes × 2 signs = 6 world
+        // variants) and the visual direction flips on negative-end outputs.
+        Direction.Axis axis = tx.getBlockState().getValue(ProgrammableTransmissionBlock.AXIS);
+        BlockPos pos = tx.getBlockPos();
+        int step = axis == Direction.Axis.X ? from.getBlockPos().getX() - pos.getX()
+                 : axis == Direction.Axis.Z ? from.getBlockPos().getZ() - pos.getZ()
+                 : from.getBlockPos().getY() - pos.getY();
+        Direction faceToFrom = Direction.fromAxisAndDirection(axis,
+            step > 0 ? Direction.AxisDirection.POSITIVE : Direction.AxisDirection.NEGATIVE);
+
         if (!tx.hasSource()) {
             // 官方语义保留：无源时 targeting 方向自驱 targetSpeed —— 这正是放置时的
             // 引导路径（否则 conveyed=0 → 没人认领我们 → 永远无源，鸡生蛋死锁）。
             // 无发电机的网络由官方过载保护兜底（容量 0 → overStressed → 停转）。
+            // 换算成 worldTarget：本体收敛到与输出轴相同的世界手性（from 侧 = 输入面）。
             // Official semantics kept: sourceless self-drive bootstraps the initial
-            // drive-up (otherwise conveyed=0 → nobody claims us → sourceless forever).
-            // Networks without a generator are caught by the official over-stress guard.
+            // drive-up; networks without a generator are caught by the official
+            // over-stress guard. Converted to the world sign of the face-relative
+            // target so the body converges to the output shafts' handedness (the from
+            // side is the input face here).
             if (targetingController)
-                return targetSpeed;
+                return KineticBlockEntity.convertToDirection(targetSpeed, faceToFrom.getOpposite());
             return 0;
         }
 
@@ -343,13 +386,19 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
 
         if (fromPowersTx) {
             if (targetingController)
-                return targetSpeed;
+                // 输入边自驱：本体收敛到 worldTarget（输出面 = from 的对面）。
+                // Input edge self-drive: the body converges to the world target (the
+                // output face is opposite of `from`).
+                return KineticBlockEntity.convertToDirection(targetSpeed, faceToFrom.getOpposite());
             return fromSpeed;
         }
 
         if (targetingController)
             return speed;
-        return targetSpeed;
+        // 输出边：下游收到的世界符号速度 = 面相对目标经 convertToDirection 换算。
+        // Output edge: the downstream receives the face-relative target converted to a
+        // world-signed speed via convertToDirection.
+        return KineticBlockEntity.convertToDirection(targetSpeed, faceToFrom);
     }
 
     // ── 滚轮值盒变换（官方 ControllerValueBoxTransform 同款）──
@@ -365,7 +414,7 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
         protected boolean isSideActive(BlockState state, Direction direction) {
             if (direction.getAxis().isVertical())
                 return false;
-            return state.getValue(ProgrammableTransmissionBlock.HORIZONTAL_AXIS) != direction.getAxis();
+            return state.getValue(ProgrammableTransmissionBlock.AXIS) != direction.getAxis();
         }
 
         @Override

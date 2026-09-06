@@ -1,10 +1,15 @@
 {
   "variants": {
     "axis=x": {
-      "model": "create_schematic_compute:block/transmission_x"
+      "model": "create_schematic_compute:block/zhuansu",
+      "y": 90
+    },
+    "axis=y": {
+      "model": "create_schematic_compute:block/zhuansu",
+      "x": 90
     },
     "axis=z": {
-      "model": "create_schematic_compute:block/transmission_z"
+      "model": "create_schematic_compute:block/zhuansu"
     }
   }
 }

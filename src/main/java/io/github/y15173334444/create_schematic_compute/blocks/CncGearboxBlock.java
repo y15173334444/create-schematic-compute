@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
-import com.simibubi.create.content.kinetics.base.HorizontalAxisKineticBlock;
+import com.simibubi.create.content.equipment.wrench.IWrenchable;
+import com.simibubi.create.content.kinetics.base.RotatedPillarKineticBlock;
 import com.simibubi.create.foundation.block.IBE;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import net.minecraft.client.Minecraft;
@@ -38,7 +39,7 @@ import net.minecraft.world.phys.BlockHitResult;
  * path (the downstream joins our network at network speed). Idle (no command, no
  * CLUTCH intent) auto-disengages.</p>
  */
-public class CncGearboxBlock extends HorizontalAxisKineticBlock implements IBE<CncGearboxBlockEntity> {
+public class CncGearboxBlock extends RotatedPillarKineticBlock implements IWrenchable, IBE<CncGearboxBlockEntity> {
 
     /** 输入面位于轴负方向端（否则为正方向端）。Input face on the axis-negative end. */
     public static final BooleanProperty INPUT_NEGATIVE = BooleanProperty.create("input_negative");
@@ -88,8 +89,8 @@ public class CncGearboxBlock extends HorizontalAxisKineticBlock implements IBE<C
         // the input face (defaults to the negative end). With kinetic neighbours on
         // BOTH sides (placed into a running chain gap) the stronger-spinning side wins.
         BlockPos pos = context.getClickedPos();
-        Direction.Axis axis = state.getValue(HORIZONTAL_AXIS);
-        Direction neg = axis == Direction.Axis.X ? Direction.WEST : Direction.NORTH;
+        Direction.Axis axis = state.getValue(AXIS);
+        Direction neg = inputNegativeDir(axis);
         Direction pos2 = neg.getOpposite();
         Level level = context.getLevel();
         boolean negHas = level.getBlockEntity(pos.relative(neg)) instanceof com.simibubi.create.content.kinetics.base.KineticBlockEntity;
@@ -102,6 +103,15 @@ public class CncGearboxBlock extends HorizontalAxisKineticBlock implements IBE<C
         else
             state = state.setValue(INPUT_NEGATIVE, true);   // 默认负端 / default negative
         return state.setValue(ENGAGED, false).setValue(RUN_STATE, RunState.IDLE);   // 空闲断开 / idle disengaged
+    }
+
+    /** 轴负方向（X=西 / Z=北 / Y=下）。The axis-negative direction (X=west / Z=north / Y=down). */
+    public static Direction inputNegativeDir(Direction.Axis axis) {
+        return switch (axis) {
+            case X -> Direction.WEST;
+            case Z -> Direction.NORTH;
+            case Y -> Direction.DOWN;
+        };
     }
 
     /** 邻居实时转速（感知用）。Neighbour's live speed (for auto-sense). */
@@ -118,6 +128,11 @@ public class CncGearboxBlock extends HorizontalAxisKineticBlock implements IBE<C
         return state.getValue(ENGAGED) && face == outputFace(state, pos);
     }
 
+    @Override
+    public Direction.Axis getRotationAxis(BlockState state) {
+        return state.getValue(AXIS);
+    }
+
     /** 输出面方向（输入面的对面）。 Output face = opposite of the input face. */
     public static Direction outputFace(BlockState state, BlockPos pos) {
         return inputFace(state, pos).getOpposite();
@@ -125,38 +140,55 @@ public class CncGearboxBlock extends HorizontalAxisKineticBlock implements IBE<C
 
     /** 输入面方向（由方块状态推导）。 Input face direction derived from state. */
     public static Direction inputFace(BlockState state, BlockPos pos) {
-        Direction.Axis axis = state.getValue(HORIZONTAL_AXIS);
+        Direction.Axis axis = state.getValue(AXIS);
         boolean neg = state.getValue(INPUT_NEGATIVE);
-        return axis == Direction.Axis.X ? (neg ? Direction.WEST : Direction.EAST)
-                              : (neg ? Direction.NORTH : Direction.SOUTH);
+        return switch (axis) {
+            case X -> neg ? Direction.WEST : Direction.EAST;
+            case Z -> neg ? Direction.NORTH : Direction.SOUTH;
+            case Y -> neg ? Direction.DOWN : Direction.UP;
+        };
     }
 
-    /** 扳手右键：翻转输入端（先切除旧输出侧的离合关系）。翻面改变输出面朝向——
-     *  分离状态下的翻面无需运动学处理；接合状态下先分离再翻。
+    /** 扳手分流：点在**轴端面**（沿旋转轴的轴承面）→ 翻转输入端（先切除旧输出侧
+     *  的离合关系，并播放官方旋转音效）；点在**侧面** → 官方默认旋转（换轴，经
+     *  KineticBlockEntity.switchToBlockState 正确重建动力网络 + 旋转音效）。
+     *  潜行 + 扳手仍是官方拆除（onSneakWrenched 默认）。
+     *  翻面改变输出面朝向——分离状态下的翻面无需运动学处理；接合状态下先分离再翻。
      *  翻面后必须重排动力源：旧 source 现在指向（已无轴面的）输出侧，本方块会
      *  保持「从输出侧被驱动」的倒挂状态，动画语义与链条脱节。
-     *  Wrench-right-click: flip the input end (severing the old output side's clutch
-     *  first — a flip with the clutch engaged would leave the old chain stale).
-     *  The flip MUST re-source afterwards: the old source now points at the (shaft-less)
-     *  output side, leaving the block driven backwards with its animation semantics
+     *  Wrench split: clicking an axis-END face (the bearing faces along the rotation
+     *  axis) flips the input end (severing the old output side's clutch first, plus
+     *  the official rotate sound); clicking a SIDE face rotates the block (official
+     *  default: axis swap via KineticBlockEntity.switchToBlockState + rotate sound).
+     *  Sneak + wrench still dismantles (onSneakWrenched default). The flip MUST
+     *  re-source afterwards: the old source now points at the (shaft-less) output
+     *  side, leaving the block driven backwards with its animation semantics
      *  disconnected from the chain. */
     @Override
     public InteractionResult onWrenched(BlockState state, UseOnContext context) {
-        Level level = context.getLevel();
-        BlockPos pos = context.getClickedPos();
-        if (!level.isClientSide) {
-            if (level.getBlockEntity(pos) instanceof CncGearboxBlockEntity gearbox) {
-                gearbox.disengageForFlip();
-                BlockState flipped = state.cycle(INPUT_NEGATIVE);
-                level.setBlock(pos, flipped, 3);
-                gearbox.resyncKineticsAfterFlip();
-                Player player = context.getPlayer();
-                if (player != null)
-                    player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                        "input face: " + inputFace(flipped, pos)), true);
+        // 端面 = 翻转输入端 / end face = flip the input end
+        if (context.getClickedFace().getAxis() == state.getValue(AXIS)) {
+            Level level = context.getLevel();
+            BlockPos pos = context.getClickedPos();
+            if (!level.isClientSide) {
+                if (level.getBlockEntity(pos) instanceof CncGearboxBlockEntity gearbox) {
+                    gearbox.disengageForFlip();
+                    BlockState flipped = state.cycle(INPUT_NEGATIVE);
+                    level.setBlock(pos, flipped, 3);
+                    gearbox.resyncKineticsAfterFlip();
+                    Player player = context.getPlayer();
+                    if (player != null)
+                        player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                            "input face: " + inputFace(flipped, pos)), true);
+                    IWrenchable.playRotateSound(level, pos);
+                }
             }
+            return InteractionResult.SUCCESS;
         }
-        return InteractionResult.SUCCESS;
+        // 侧面 = 官方默认旋转换轴（IWrenchable 默认实现经由基类继承，super 调用即可）。
+        // Side face = official default axis rotation (the IWrenchable default arrives
+        // via the superclass, so a plain super call resolves it).
+        return super.onWrenched(state, context);
     }
 
     @Override
@@ -169,16 +201,34 @@ public class CncGearboxBlock extends HorizontalAxisKineticBlock implements IBE<C
         return SchematicCompute.CNC_GEARBOX_BE.get();
     }
 
-    /** 右键打开图编辑器（同款客户端直开屏样板）。 Right-click opens the graph editor. */
+    /** 右键交互（Create ElevatorContactBlock 同款三方分流）：
+     *  手持扳手 → 放行物品路径（IWrenchable.onWrenched 翻转输入端）；
+     *  点在轴面（两端出轴面）→ 放行物品路径（贴面放置轴/齿轮连接传动，不开 UI）；
+     *  点在侧面 → 打开图编辑器。
+     *  Right-click interaction (Create's ElevatorContactBlock pattern, three-way):
+     *  wrench in hand → pass to the item path (IWrenchable.onWrenched flips the
+     *  input end); click on a shaft face (either axis end) → pass to the item path
+     *  (place shafts/cogs against the face to connect the drive — no UI); click on
+     *  a side face → open the graph editor. */
     @Override
-    protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos,
-                                               Player player, BlockHitResult hitResult) {
+    protected net.minecraft.world.ItemInteractionResult useItemOn(
+            net.minecraft.world.item.ItemStack stack, BlockState state, Level level, BlockPos pos,
+            Player player, net.minecraft.world.InteractionHand hand, BlockHitResult hitResult) {
+        // 扳手永远让路：物品路径的 onWrenched 需要先于方块 UI。
+        // The wrench always yields: the item path's onWrenched must preempt the UI.
+        if (stack.getItem() instanceof com.simibubi.create.content.equipment.wrench.WrenchItem)
+            return net.minecraft.world.ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
+        // 轴面点击放行（传动连接面）——点击方向沿旋转轴即两端出轴面。
+        // Shaft-face clicks pass through (drive connection faces) — the click
+        // direction lies along the rotation axis.
+        if (hitResult.getDirection().getAxis() == state.getValue(AXIS))
+            return net.minecraft.world.ItemInteractionResult.PASS_TO_DEFAULT_BLOCK_INTERACTION;
         if (level.isClientSide()) {
             if (level.getBlockEntity(pos) instanceof CncGearboxBlockEntity)
                 openScreen(pos);
-            return InteractionResult.SUCCESS;
+            return net.minecraft.world.ItemInteractionResult.SUCCESS;
         }
-        return InteractionResult.CONSUME;
+        return net.minecraft.world.ItemInteractionResult.CONSUME;
     }
 
     @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)

@@ -19,18 +19,20 @@ import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
 
 /**
- * 数控齿轮箱 Flywheel 视觉：两端传动轴是**两个独立的旋转体**（前端/后端各一个
- * RotatingInstance），**独立运动**——输入端轴恒随网络速度旋转；输出端轴受离合
- * 控制（ENGAGED 时随网络速度、分离时静止为 0），体现"CNC 独立输出"语义。
+ * 数控齿轮箱 Flywheel 视觉：两端轴头独立运动——输入面（INPUT_NEGATIVE 决定哪端）
+ * **恒随网络转速**；输出面仅在离合接合（ENGAGED）时随网络速度，**分离时静止**
+ * （官方 SplitShaftVisual 分离侧转速修饰符归零的同款语义，已按需求恢复）。
+ * 离合状态的另一视觉指示是运行灯贴图（cnc0/1/2）。
  * 角度演化由 Flywheel 引擎按 rotationalSpeed 积分，相位由 RotatingInstance.setup
  * 的官方 rotationOffset 提供——与官方轴完全同步。
- * CNC gearbox Flywheel visual: the two shaft ends are TWO independent rotating
- * bodies (front/rear RotatingInstance) that move INDEPENDENTLY — the input shaft
- * always spins at the network speed; the output shaft is clutch-controlled
- * (network speed while ENGAGED, static 0 while disengaged), reflecting the
- * "CNC outputs on its own" semantics. The engine integrates the angle from
- * rotationalSpeed; the official rotationOffset phase comes from
- * RotatingInstance.setup.
+ * CNC gearbox Flywheel visual: the two shaft stubs move INDEPENDENTLY — the input
+ * face (which end is decided by INPUT_NEGATIVE) always spins at the network speed;
+ * the output face spins at the network speed only while ENGAGED and is STATIC when
+ * disengaged (same semantics as the official SplitShaftVisual zeroing the
+ * disengaged side's speed modifier — restored per request). The clutch state is
+ * also indicated by the run-state lamp textures (cnc0/1/2). The engine integrates
+ * the angle from rotationalSpeed; the official rotationOffset phase comes from
+ * RotatingInstance.setup — fully in sync with official shafts.
  */
 public class CncGearboxVisual extends KineticBlockEntityVisual<CncGearboxBlockEntity> {
 
@@ -64,17 +66,18 @@ public class CncGearboxVisual extends KineticBlockEntityVisual<CncGearboxBlockEn
     }
 
     /**
-     * 每端轴的独立转速：输入面（由 INPUT_NEGATIVE 决定）恒为网络速度；
-     * 输出面仅在接合（ENGAGED）时随网络速度，分离时静止（0）。
-     * Per-end independent shaft speed: the input face (per INPUT_NEGATIVE) always
-     * runs at network speed; the output face spins at network speed only while
+     * 每端轴头转速：输入面（INPUT_NEGATIVE 决定哪端）恒为网络速度；输出面仅在
+     * 接合（ENGAGED）时随网络速度，分离时静止（0）。
+     * Per-end stub speed: the input face (which end per INPUT_NEGATIVE) always runs
+     * at the network speed; the output face spins at the network speed only while
      * ENGAGED and is static (0) while disengaged.
      */
     private static float shaftSpeed(CncGearboxBlockEntity be, boolean front) {
-        boolean inputFront = be.getBlockState().getValue(CncGearboxBlock.INPUT_NEGATIVE);
-        boolean engaged = be.getBlockState().getValue(CncGearboxBlock.ENGAGED);
-        boolean isInput = front == inputFront;
-        return isInput || engaged ? be.getSpeed() : 0f;
+        float networkSpeed = be.getSpeed();
+        boolean isInput = front == be.getBlockState().getValue(CncGearboxBlock.INPUT_NEGATIVE);
+        if (isInput)
+            return networkSpeed;
+        return be.getBlockState().getValue(CncGearboxBlock.ENGAGED) ? networkSpeed : 0f;
     }
 
     @Override

@@ -2,6 +2,7 @@ package io.github.y15173334444.create_schematic_compute.client;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.CncGearboxBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.ProgrammableTransmissionBlockEntity;
 import io.github.y15173334444.create_schematic_compute.entity.ControlSeatEntity;
 import io.github.y15173334444.create_schematic_compute.items.PortableTerminalItem;
 import io.github.y15173334444.create_schematic_compute.network.ScanSableResponsePacket;
@@ -25,6 +26,8 @@ public class ClientSetup {
         event.register(SCANNER_MODEL);
         event.register(ModelResourceLocation.standalone(CncGearboxVisual.FRONT_SHAFT.modelLocation()));
         event.register(ModelResourceLocation.standalone(CncGearboxVisual.REAR_SHAFT.modelLocation()));
+        event.register(ModelResourceLocation.standalone(TransmissionVisual.FRONT_SHAFT.modelLocation()));
+        event.register(ModelResourceLocation.standalone(TransmissionVisual.REAR_SHAFT.modelLocation()));
     }
     @net.neoforged.bus.api.SubscribeEvent
     public static void clientSetup(FMLClientSetupEvent event) {
@@ -49,12 +52,32 @@ public class ClientSetup {
                                 .supportsVisualization(be.getLevel());
                     }
                 });
+            // 可编程变速器 Flywheel 视觉（CNC 同款轴承效果：两端独立旋转体，输入端随
+            // 网络、输出端随程序目标转速）；Flywheel 不可用时 vanilla renderer 兜底
+            dev.engine_room.flywheel.api.visualization.VisualizerRegistry.setVisualizer(
+                SchematicCompute.TRANSMISSION_BE.get(),
+                new dev.engine_room.flywheel.api.visualization.BlockEntityVisualizer<>() {
+                    @Override
+                    public dev.engine_room.flywheel.api.visual.BlockEntityVisual<? super ProgrammableTransmissionBlockEntity>
+                    createVisual(dev.engine_room.flywheel.api.visualization.VisualizationContext ctx,
+                                 ProgrammableTransmissionBlockEntity be, float partialTick) {
+                        return new TransmissionVisual(ctx, be, partialTick);
+                    }
+
+                    @Override
+                    public boolean skipVanillaRender(ProgrammableTransmissionBlockEntity be) {
+                        return be.getLevel() != null
+                            && dev.engine_room.flywheel.api.visualization.VisualizationManager
+                                .supportsVisualization(be.getLevel());
+                    }
+                });
         });
     }
     @net.neoforged.bus.api.SubscribeEvent
     public static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(SchematicCompute.CONTROL_SEAT_ENTITY.get(), NoRenderEntityRenderer::new);
         event.registerBlockEntityRenderer(SchematicCompute.CNC_GEARBOX_BE.get(), CncGearboxRenderer::new);
+        event.registerBlockEntityRenderer(SchematicCompute.TRANSMISSION_BE.get(), TransmissionRenderer::new);
     }
 
     /** 不渲染任何东西的实体渲染器 */
