@@ -4,6 +4,12 @@ build/
 *.jar
 !build/libs/*.jar
 !libs/*.jar
+# Create 系列的 jar 内含 All Rights Reserved 资产，不随本仓库分发（见 docs/third-party-licenses.md §3 O4）。
+# 放在上面两条 ! 之后，靠「后面的规则优先」生效 —— 即使有人把 jar 拷回 libs/ 也不会被误提交。
+# Create's jars carry All Rights Reserved assets and must not be redistributed here; this
+# guard wins over the negations above on purpose (last matching pattern wins).
+libs/create-1.21.1-*.jar
+libs/create-aeronautics-*.jar
 !gradle/wrapper/gradle-wrapper.jar
 
 # IDE
