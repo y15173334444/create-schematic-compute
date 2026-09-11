@@ -23,7 +23,7 @@ The jars in this directory are deliberately kept in version control (`.gitignore
 | `sable-neoforge-1.21.1-1.2.2.jar` | **PolyForm Shield 1.0.0** + natives Apache-2.0 + 内嵌 **Veil (LGPLv3)** / embedded **Veil (LGPLv3)** | RyanHCode / dimforge (Rapier) / amo, Cappin, Ocelot (Veil) | ✅ 必需 / required |
 | `flywheel-neoforge-1.21.1-1.0.6.jar` | MIT（纯 MIT，无 assets 保留条款） / MIT (plain, no asset carve-out) | (c) 2021-2024 Jozufozu | ✅ 必需 / required（javac 看不到 Create 内嵌的那份 / javac cannot see Create's nested copy） |
 | `ponder-neoforge-1.0.85+mc1.21.1.jar` | MIT | (c) 2022 The Create Team | ✅ 必需 / required（它 shade 了 catnip，源码用的 4 个 catnip 类由它提供 / it shades catnip and supplies all four catnip classes the source uses） |
-| `sable-companion-common-1.21.1-1.6.0.jar` | MIT | (c) 2026 RyanHCode | ⚠️ 保留：与 Sable 内嵌副本同哈希，但 `SableReflection.java:173` 有反射引用，需一次 dev 启动确认可删 / kept: identical to Sable's embedded copy, but a reflective reference at `SableReflection.java:173` means one dev launch must confirm before deleting |
+| `sable-companion-common-1.21.1-1.6.0.jar` | MIT | (c) 2026 RyanHCode | ✅ 必需：与 Sable 内嵌副本同哈希，但 javac 看不到嵌套 jar，且我们调用的 Sable API 签名里带 companion 类型 / required: same hash as Sable's embedded copy, but javac cannot see nested jars and the Sable API called here returns companion types |
 
 Create 不在这里了 —— 见 `build.gradle` 的 `maven.modrinth:create`（坐标版本在 `gradle.properties` 的 `create_maven_version`）。
 

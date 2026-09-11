@@ -110,23 +110,38 @@ jar 内 `LICENSE.md`（1538 B），双许可 / inside the jar, `LICENSE.md` (153
 
 **Key fact: Sable's `LICENSE.md` contains no copyright line, no `Required Notice:` line, and no `Licensor Line of Business:` line anywhere.** (Verified line by line across all 89 lines.) Each of those three absences has a legal consequence — see §3 O1 and O6.
 
-### 2.4 `sable-companion-common-1.21.1-1.6.0.jar`
+### 2.4 `sable-companion-common-1.21.1-1.6.0.jar` — 编译期必需 / required at compile time
 
 jar 内 `LICENSE`（1066 B）：MIT License，`Copyright (c) 2026 RyanHCode`。
 
 Inside the jar, `LICENSE` (1066 B): MIT License, `Copyright (c) 2026 RyanHCode`.
 
-**这份是重复副本**：`sable-neoforge` 的 jar 里内嵌了一份同名同版本的副本，SHA256 完全一致（`873633e3…3bed`，35,444 B）。
+**这不是冗余副本，而是编译期必需依赖 —— 2026-09-12 实测确认。** 内容确实与 `sable-neoforge` jar 内嵌的那份**逐字节相同**（SHA256 `873633e3…3bed`，35,444 B），但**内嵌的那份 javac 看不见**（与 Flywheel / Ponder 同一条规则：javac 看不到 `META-INF/jarjar/` 下的嵌套 jar）。
 
-**但它暂时保留 —— 有一处反射引用是我先前漏掉的。** `src/` 里确实没有任何 `sable.companion` 的 import，然而 `compat/SableReflection.java:173` 写着 `Class.forName("dev.ryanhcode.sable.companion.math.Pose3dc")` —— 字符串形式，import 扫描抓不到。它位于 `SableReflection` 初始化的**第二阶段**（位姿/向量/四元数，代码注释自己标了 "best-effort"）：一旦这个 `Class.forName` 抛异常，方法直接 `return`，第三阶段被跳过，`posePosition` / `poseOrientation` 保持 null。若 Sable jar 内嵌的那份在 dev 运行期对 `Class.forName` 可见，删掉这份独立副本毫无影响；但 CI 测不到这一点，而在意的那条路径正是姿态传感器（`docs/v1.2.4.1-regression-audit.md` 记的 2026-08-23 真 bug 就在那里）。
+把它从 `libs/` 移走后，`./gradlew runClient` 在 `:compileJava` 阶段失败，4 个错误、4 个不同的缺失类：
 
-**判定方法（一次 dev 启动即可）**：把 jar 移除后启动 dev 客户端，日志里应出现 `SableReflection: pose/vec/quat initialized OK`。若变成 `SableReflection: core init failed — …`，说明嵌套副本对 `Class.forName` 不可见，这份独立 jar 必须放回来。
+| 源文件:行 / Source:line | javac 找不到的类 / Missing class |
+| --- | --- |
+| `entity/ControlSeatEntity.java:124` | `dev.ryanhcode.sable.companion.SableCompanion` |
+| `client/ControlSeatInputHandler.java:141` | `dev.ryanhcode.sable.companion.ClientSubLevelAccess` |
+| `network/SablePacketHelper.java:77` | `dev.ryanhcode.sable.companion.SubLevelAccess` |
+| `compat/ControlSeatBlockEntitySable.java:181` | `dev.ryanhcode.sable.companion.math.Pose3d` |
 
-**This one is a duplicate**: an identical copy (same SHA256, `873633e3…3bed`, 35,444 B) is embedded in the `sable-neoforge` jar.
+**为什么 `import` 扫描和字符串搜索都找不到它们**：源码从**没有写出**这些类名。它们是我们直接调用的 Sable API 的**签名类型** —— 例如 `ControlSeatBlockEntitySable.java:181` 的 `subLevel.logicalPose()` 返回 `Pose3d`，源码用 `var` 接住，于是 `Pose3d` 从未出现在任何一行源码里；`SubLevelAccess` / `ClientSubLevelAccess` / `SableCompanion` 同理（返回值或参数类型）。javac 仍然必须能从编译期 classpath 解析它们。
 
-**It stays for now — there is a reflective reference I initially missed.** `src/` really does contain no `sable.companion` imports, but `compat/SableReflection.java:173` calls `Class.forName("dev.ryanhcode.sable.companion.math.Pose3dc")` — a string, which import scanning cannot see. It sits in **phase 2** of `SableReflection`'s initialisation (pose/vector/quaternion, marked "best-effort" in the code itself): if that `Class.forName` throws, the method returns early, phase 3 is skipped and `posePosition` / `poseOrientation` stay null. If the copy nested inside Sable's jar is visible to `Class.forName` at dev runtime, dropping the standalone jar changes nothing — but CI cannot tell us that, and the path at stake is the attitude-sensor one that carried a real bug on 2026-08-23.
+另有一条**独立的运行期路径**（不是上面这些错误的原因，但同样指向 companion）：`compat/SableReflection.java:173` 的 `Class.forName("dev.ryanhcode.sable.companion.math.Pose3dc")`（注意是接口 `Pose3dc`，与上面的类 `Pose3d` 不同）。它位于 `SableReflection` 初始化第二阶段（best-effort），失败会提前 `return` 并让 `posePosition` / `poseOrientation` 保持 null。
 
-**How to decide (one dev launch)**: remove the jar, start the dev client, and look for `SableReflection: pose/vec/quat initialized OK` in the log. If it instead says `SableReflection: core init failed — …`, the nested copy is not visible to `Class.forName` and this standalone jar has to come back.
+**结论：留在 `libs/`，不要动。** 当初把它标为"可删的重复项"是错的 —— 判断依据（无 import、与内嵌副本同哈希）漏掉了「签名类型对 javac 可见」这一层。
+
+**This is not a redundant duplicate — it is a required compile-time dependency, confirmed by test on 2026-09-12.** Its content is **byte-identical** to the copy embedded in the `sable-neoforge` jar (SHA256 `873633e3…3bed`, 35,444 B), but **javac cannot see the embedded one** (the same rule as Flywheel / Ponder: javac cannot see jars nested under `META-INF/jarjar/`).
+
+With the jar moved out of `libs/`, `./gradlew runClient` failed at `:compileJava` with four errors naming four distinct missing classes:
+
+**Why neither import scanning nor a string search finds them**: the source **never writes** these class names. They are **signature types** of the Sable API the source calls directly — `ControlSeatBlockEntitySable.java:181` does `subLevel.logicalPose()`, which returns `Pose3d`, and the source captures it with `var`, so `Pose3d` appears on no line of source at all; `SubLevelAccess`, `ClientSubLevelAccess` and `SableCompanion` are the same story (return or parameter types). javac still has to resolve them from the compile classpath.
+
+There is also a **separate runtime path** (not the cause of those errors, but pointing at the companion all the same): `compat/SableReflection.java:173` calls `Class.forName("dev.ryanhcode.sable.companion.math.Pose3dc")` — note the interface `Pose3dc`, not the class `Pose3d`. It sits in phase 2 of `SableReflection`'s init (best-effort); failing it returns early and leaves `posePosition` / `poseOrientation` null.
+
+**Verdict: it stays in `libs/`; do not touch it.** Labelling it a deletable duplicate was wrong — the evidence used (no imports, same hash as the embedded copy) missed the layer where signature types must be visible to javac.
 
 ### 2.5 `flywheel-neoforge-1.21.1-1.0.6.jar`
 
@@ -395,5 +410,10 @@ The Create Team (2022)。Create 从 Modrinth Maven 获取，本项目不再分�
    ~~Whether `create-aeronautics-bundled` is still used at all.~~ **Settled: removed from `libs/`** (2026-09-12). Static reference analysis shows no aeronautics / simulated / offroad imports in `src/`, so it contributes nothing to compilation; and the three dev instances `runs/{client,client2,server}/mods` each hold a local copy, so removal does not affect runtime. Note that the repo's own audit, `docs/v1.2.4.1-regression-audit.md:12-13`, already drew exactly this distinction: the mod is **required by the player environment** (keep it in `mods/`) while `src/main` has zero code dependency on it — so what was cleaned up is the `libs/` copy.
 5. **Veil 的 LGPLv3 是否要额外动作。** 目前只是原样转发 Sable 的 jar，许可文本与 `license="LGPLv3"` 都在 jar 内，粗看没有额外欠账。但若将来要**发行**任何内嵌 Sable 的产物（而非仅在 GitHub 上放依赖 jar），LGPL §4 的可替换性要求就需要单独评估。建议把这一条挂到"Sable 是否从 compileOnly 改为 bundling"那个决策上。
    **Does Veil's LGPLv3 require extra action?** For now we merely forward Sable's jar unchanged, with the license text and `license="LGPLv3"` both inside it, so on a first reading nothing further is owed. But if any artifact **embedding Sable** is ever **released** (rather than a dependency jar simply sitting on GitHub), the replaceability requirement in LGPL §4 needs its own assessment. Suggest attaching this item to the "should Sable move from compileOnly to bundling" decision.
-6. **`libs/` 里的重复副本。** `flywheel-neoforge-1.21.1-1.0.6.jar` 与 `sable-companion-common-1.21.1-1.6.0.jar` 都跟各自宿主 jar 内嵌的副本 **SHA256 完全相同**，但两者的结论不同：`flywheel` **必须留**（javac 看不到 Create jar 内 `META-INF/jarjar/` 的嵌套 jar，而源码 import 了 `dev.engine_room.flywheel.*`）；`catnip-only.jar` **已删**（2026-09-12，见 §2.7）；`sable-companion-common` 则**暂时保留** —— `compat/SableReflection.java:173` 有一处 `Class.forName("dev.ryanhcode.sable.companion.math.Pose3dc")` 的反射引用，删它需要一次 dev 启动来确认 Sable 内嵌副本对 `Class.forName` 可见（判定方法与日志行见 §2.4）。
-   **Duplicate jars in `libs/`.** `flywheel-neoforge-1.21.1-1.0.6.jar` and `sable-companion-common-1.21.1-1.6.0.jar` both have **identical SHA256** to the copies embedded in their host jars, but they end differently: `flywheel` **must stay** (javac cannot see the jar nested under Create's `META-INF/jarjar/`, and the source imports `dev.engine_room.flywheel.*`); `catnip-only.jar` is **deleted** (2026-09-12, see §2.7); `sable-companion-common` is **kept for now** — `compat/SableReflection.java:173` makes a reflective `Class.forName("dev.ryanhcode.sable.companion.math.Pose3dc")` call, so removing it needs one dev launch to confirm Sable's embedded copy is visible to `Class.forName` (the check and the log line are in §2.4).
+6. ~~`libs/` 里的重复副本。~~ **已结案（2026-09-12 实测）：`libs/` 里没有可删的重复副本。**
+   - `flywheel-neoforge-1.21.1-1.0.6.jar`：**必需** —— javac 看不到 Create jar 内 `META-INF/jarjar/` 的嵌套 jar，而源码 import 了 `dev.engine_room.flywheel.*`。
+   - `sable-companion-common-1.21.1-1.6.0.jar`：**同样必需**，尽管它与 Sable 内嵌副本同哈希。移走后 `:compileJava` 报 4 个缺失类（`SableCompanion`、`ClientSubLevelAccess`、`SubLevelAccess`、`Pose3d`），它们是我们直接调用的 Sable API 的**签名类型**，源码里从不出现这些名字 —— 详见 §2.4。
+   - `catnip-only.jar`：**已删**（2026-09-12，见 §2.7）。这是唯一真正冗余的那个。
+
+   **教训**：判断"重复 jar 能否删"不能只看 `import` 与哈希。javac 必须解析所调用方法的返回值/参数类型，即使这些类型从未被写进任何一行源码（源码用 `var` 接住时尤其如此）。
+   ~~Duplicate jars in `libs/`.~~ **Closed by test on 2026-09-12: there is no deletable duplicate in `libs/`.** `flywheel` is required (javac cannot see Create's nested jar and the source imports `dev.engine_room.flywheel.*`); `sable-companion-common` is **equally required** despite being identical in hash to Sable's embedded copy — removing it made `:compileJava` report four missing classes (`SableCompanion`, `ClientSubLevelAccess`, `SubLevelAccess`, `Pose3d`), all of them **signature types** of the Sable API the source calls, never written out in the source itself (§2.4). Only `catnip-only.jar` was genuinely redundant and it is deleted (§2.7). **Lesson**: deciding whether a duplicate jar can go takes more than imports and hashes — javac must resolve the return and parameter types of the methods being called, even when the source captures them with `var` and never names them.
