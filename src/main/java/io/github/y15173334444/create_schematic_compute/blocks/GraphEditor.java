@@ -1193,10 +1193,112 @@ public class GraphEditor {
         enterActions.put(eb, action);
     }
 
+    /** 把选中集与主选中节点重映射到**当前图实例**的节点对象。
+     *  选中判定在上层用对象相等（该行为属于既有渲染契约，改动面大），
+     *  所以在这里保证集合里始终是活实例：否则整图同步/重载替换节点实例后，
+     *  高亮会消失（且后续操作作用在孤儿节点上）。按 id 匹配，仅在对象不同时重建集合。
+     *  Remap the selection onto the live node objects of the current graph. Highlight
+     *  matching is by object identity upstream (existing renderer contract), so keep the
+     *  sets holding live instances: a whole-graph sync or reload otherwise replaced the
+     *  instances and the highlight vanished (and later ops hit orphan nodes). Matching is
+     *  by id; the set is rebuilt only when an object actually changed. */
+    private void remapSelectionToLiveGraph() {
+        if (selectedNode == null && selectedNodes.isEmpty()) return;
+        var g = getGraph();
+        if (g == null) return;
+        boolean nodeStale = selectedNode != null && (g.findNode(selectedNode.id) != selectedNode);
+        boolean anyStale = false;
+        for (var sn : selectedNodes) {
+            if (g.findNode(sn.id) != sn) { anyStale = true; break; }
+        }
+        if (!nodeStale && !anyStale) return;
+        var live = new java.util.HashSet<GraphNode>();
+        for (var sn : selectedNodes) {
+            var ln = g.findNode(sn.id);
+            if (ln != null) live.add(ln);
+        }
+        if (nodeStale) {
+            var ln = g.findNode(selectedNode.id);
+            if (ln != null) live.add(ln);
+        }
+        if (selectedNode == null && !live.isEmpty()) selectedNode = live.iterator().next();
+        if (!live.contains(selectedNode)) selectedNode = live.isEmpty() ? null : live.iterator().next();
+        selectedNodes.clear();
+        selectedNodes.addAll(live);
+    }
+
+    /** 展开节点的**结构指纹**：任何会改变输入框集合或含义的东西都要进指纹；
+     *  漏掉一项，那种变化就再也不会触发重建（反过来，无关变化不该进指纹，否则又会误重建）。
+     *  Structural fingerprint of an expanded node: everything that changes the set or the
+     *  meaning of its edit boxes. Omit a field here and that change stops rebuilding. */
+    private int editStateSignature(GraphNode n) {
+        int h = 1;
+        h = 31 * h + n.id;
+        h = 31 * h + n.type.ordinal();
+        h = 31 * h + (n.expanded ? 1 : 0);
+        h = 31 * h + n.type.inputs;
+        h = 31 * h + n.outputs();
+        h = 31 * h + n.inputs();
+        h = 31 * h + n.params.length;
+        for (float v : n.params) h = 31 * h + Float.floatToIntBits(v);
+        h = 31 * h + (n.signalName == null ? 0 : n.signalName.hashCode());
+        h = 31 * h + (n.signalBands == null ? 0 : n.signalBands.size());
+        h = 31 * h + (n.formula == null ? 0 : n.formula.hashCode());
+        h = 31 * h + n.bandCount();
+        if (n.subGraph != null) h = 31 * h + n.subGraph.nodes.size();
+        // 参数引脚连线会隐藏对应输入框（连线按稳定 pinId 绑定）
+        // A connection on a param pin hides that edit box (bound by stable pinId).
+        var g = getGraph();
+        if (g != null && g.connections != null) {
+            for (var c : g.connections) {
+                if (c.toId != n.id) continue;
+                int pi = (c.toPinId != null) ? n.inputPinIndex(c.toPinId) : c.toPin;
+                if (pi >= n.inputs()) h = 31 * h + pi + 101;
+            }
+        }
+        return h;
+    }
+
+    /** 清掉已离开图或不再展开的节点残留的编辑状态与指纹。返回是否发生了清理。
+     *  Drop edit states and signatures for nodes that left the graph or are no longer expanded. */
+    private boolean cullStaleEditStates(NodeGraph graph, java.util.Set<Integer> liveExpanded) {
+        boolean culled = false;
+        var it = nodeEditStatesById.entrySet().iterator();
+        while (it.hasNext()) {
+            var e = it.next();
+            if (graph.findNode(e.getKey()) == null || !liveExpanded.contains(e.getKey())) {
+                for (var f : e.getValue().fields) f.setFocused(false);
+                it.remove();
+                editStateSignatures.remove(e.getKey());
+                expandedNodeIds.remove(e.getKey());
+                culled = true;
+            }
+        }
+        editStateSignatures.keySet().retainAll(liveExpanded);
+        return culled;
+    }
+
     /** 创建节点的编辑状态 (Create the edit state for a node) */
     private EditState createEditState(GraphNode node) {
         // 保存旧状态引用（供 busBox 保留输入值） (Save old state ref for busBox value preservation)
         final var oldStRef = nodeEditStatesById.get(node.id);
+        // ── 焦点保留（1/2）：重建 EditState 会把所有输入框换成新实例，新实例默认未聚焦。
+        // 打字时本地 op 的服务器回声会走重建路径，焦点就被悄悄夺走。这里先记下聚焦字段的
+        // 下标与光标位置，重建后按下标还原（字段顺序确定：参数 → 总线名/频段 → 该类型文本框）。
+        // Focus preservation (1/2): a rebuild replaces every box and fresh boxes start
+        // unfocused, so the echo of the user own op steals focus mid-typing. Record the
+        // focused field index + caret and restore them on the rebuilt field of the same index.
+        int prevFocusIdx = -1;
+        int prevFocusCursor = -1;
+        if (oldStRef != null) {
+            for (int fi = 0; fi < oldStRef.fields.size(); fi++) {
+                if (oldStRef.fields.get(fi).isFocused()) {
+                    prevFocusIdx = fi;
+                    prevFocusCursor = oldStRef.fields.get(fi).getCursorPosition();
+                    break;
+                }
+            }
+        }
         // 先移除本节点的旧 EditState（避免旧 EditBox 仍在旧 state 中被保留） (Remove old EditState first to avoid stale EditBox references)
         nodeEditStatesById.remove(node.id);
         // 清除不再被任何 EditState 引用的旧 EditBox 的 enterActions (Clean up enterActions for old EditBoxes no longer referenced)
@@ -1446,7 +1548,11 @@ public class GraphEditor {
                     host.getBlockPos(), ownerNodeId(), node.id, 0, null, 0f, 0f,
                     0, 0, 0, 0, 0, 0f, t, 0, 0, 0, 0, null, 0, 0, 0,
                     net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID())); });
-            mle.setFocused(true); // auto-focus so user can type immediately
+            // 自动聚焦只用于「新建面板」；重建（oldStRef != null）不得抢焦点：
+            // 否则输入中的注释框会被 op 回声重建并夺走焦点，与 syncEditStateToSelection 的
+            // 「非选中节点不得持焦点」规则相争。
+            // Auto-focus only on a fresh panel; a rebuild must not steal focus (see 焦点保留).
+            if (oldStRef == null) mle.setFocused(true); // auto-focus so user can type immediately
             s.fields.add(mle);
         }
         if (node.type == NodeType.FORMULA) {
@@ -1556,6 +1662,18 @@ public class GraphEditor {
             });
             s.fields.add(nb);
             s.paramKeys = new String[]{"name"};
+        }
+        // ── 焦点保留（2/2）：按下标还原聚焦与光标。光标只对多行编辑器还原，且仅当文本仍够长
+        // —— 单行 EditBox 的光标是内部状态，图刷新后文本可能整体变值，越界光标会让插入抛异常。
+        // Restore focus (2/2). Caret is restored only on multi-line editors and only when the
+        // text is still long enough (an out-of-range caret makes TextFieldHelper.insert throw).
+        if (prevFocusIdx >= 0 && prevFocusIdx < s.fields.size()) {
+            var fb = s.fields.get(prevFocusIdx);
+            fb.setFocused(true);
+            if (fb instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox
+                && prevFocusCursor >= 0 && prevFocusCursor <= fb.getValue().length()) {
+                fb.setCursorPosition(prevFocusCursor);
+            }
         }
         return s;
     }
@@ -1909,6 +2027,19 @@ public class GraphEditor {
     //  A=5: Tooltips / right-click menu
     private boolean expandedInitDone = false;
     private int lastInitGeneration = -1;
+    /** 上次恢复展开状态时所用的**图实例**：代际计数是 per-instance 的，跨实例比较必然误判
+     *  （实测出现 1 -&gt; 2 -&gt; 3 -&gt; 4 -&gt; 1 循环），会退化成「每次都有变化」→ 输入框被反复整批重建。
+     *  The graph instance the expanded-state restore last ran against. Generations are
+     *  per-instance, so comparing a single int across instances always looks "changed" — the
+     *  runtime trace showed 1-2-3-4-1 cycling, which rebuilt every edit box over and over. */
+    private NodeGraph lastInitGraph = null;
+    /** 图代际变化时置位：下一帧做一次「按节点结构指纹」的增量重建，而不是整批重建。
+     *  Set when the current graph generation moved: the next frame performs an incremental,
+     *  per-node rebuild instead of recreating every expanded node edit state. */
+    private boolean editStatesNeedRebuild = false;
+    /** 节点 id → 结构指纹；指纹未变则跳过该节点的输入框重建。
+     *  node id -> structural fingerprint; an unchanged fingerprint skips that rebuild. */
+    private final java.util.Map<Integer, Integer> editStateSignatures = new java.util.HashMap<>();
     /** 本方块通过 syncBusBands 实际注册过的频道名（用于区分自身和跨方块冲突） (Bus names actually registered by this BE via syncBusBands; distinguishes self from cross-BE conflicts) */
     private final java.util.Set<String> localBusNames = new java.util.HashSet<>();
 
@@ -2121,19 +2252,39 @@ public class GraphEditor {
     public void renderBg(GuiGraphics g, int mx, int my) {
         advanceCameraTransition(); // 每帧推进视角过渡动画 / advance camera transition per frame
         var graph = getGraph();
-        if (lastInitGeneration != graph.graphGeneration) {
-            lastInitGeneration = graph.graphGeneration;
-            expandedInitDone = false;
+        // 代际比较必须**绑定同一个图实例**：多实例（主图/子图/重载后的新实例）各有自己的计数器，
+        // 跨实例用裸 int 比较会一直「看起来变了」，把展开节点的输入框整批重建（见分析文档第二节取证）。
+        // The generation compare is bound to the graph instance: generations are per-instance, so
+        // an int-only compare always looks changed and rebuilt every edit box (see the doc).
+        if (lastInitGraph != graph) {
+            lastInitGraph = graph;
+            lastInitGeneration = -1;
+            editStatesNeedRebuild = true;
+        } else if (lastInitGeneration != graph.graphGeneration) {
+            editStatesNeedRebuild = true;
         }
-        // 首次渲染时从 NBT 恢复展开状态 (Restore expand state from NBT on first render)
-        if (!expandedInitDone) {
+        lastInitGeneration = graph.graphGeneration;
+        // 首次渲染时从 NBT 恢复展开状态；此后只做增量重建（指纹未变则完全不动输入框）。
+        // First render restores expanded state; afterwards only incremental rebuilds happen.
+        if (!expandedInitDone || editStatesNeedRebuild) {
+            boolean firstInit = !expandedInitDone;
+            expandedInitDone = true;
+            editStatesNeedRebuild = false;
+            java.util.HashSet<Integer> liveExpanded = new java.util.HashSet<>();
             for (var n : graph.nodes) {
                 if (n.expanded && n.type != NodeType.ENCAPSULATION && shouldOpenPanel(n)) {
+                    liveExpanded.add(n.id);
                     expandedNodeIds.add(n.id);
+                    int sig = editStateSignature(n);
+                    Integer prev = editStateSignatures.get(n.id);
+                    // 指纹未变且已有状态 → 不重建（这正是「输入中被换掉输入框」的根因对策）
+                    // Unchanged fingerprint + existing state -> no rebuild.
+                    if (!firstInit && prev != null && prev == sig && nodeEditStatesById.containsKey(n.id)) continue;
+                    editStateSignatures.put(n.id, sig);
                     nodeEditStatesById.put(n.id, createEditState(n));
                 }
             }
-            expandedInitDone = true;
+            editStatesNeedRebuild |= cullStaleEditStates(graph, liveExpanded);
         }
 
         // Phase 2: update render generation tracking (used by MonitorScreen cache)
@@ -2172,6 +2323,14 @@ public class GraphEditor {
                     if (id > 0) lockedNodes.put(id, rp.playerName());
             }
         }
+
+        // 渲染前把选中重映射到当前图实例：NodeRenderer 用「对象相等」判定高亮
+        // （selectedNodes.contains(n) / n == primaryNode），一旦图刷新替换了节点实例，
+        // 旧实例就再也匹配不上 —— 表现为高亮框消失、下一个 op 又替换回来时回弹。
+        // Remap the selection onto the live graph instances before rendering: the renderer
+        // decides highlights by object identity, so a refreshed graph (new node instances)
+        // silently loses the highlight until the next op swaps the instances back.
+        remapSelectionToLiveGraph();
 
         // ── A=1: Complete COMMENT nodes (bg, border, text) — container mats behind connections ──
         Map<Integer, Boolean> flipflopStates = isInSubGraph()
