@@ -21,6 +21,8 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
+import static io.github.y15173334444.create_schematic_compute.client.PixelEditorToolRail.Tool;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -61,7 +63,7 @@ import java.util.UUID;
  * SET_IMAGE_PIXELS op on close/frame switch. Canvas size moved into a "Canvas" button popup
  * with separate Apply/Cancel.
  */
-public class PixelEditorScreen extends Screen implements GraphEditor.Host, PixelEditorFrameStrip.Host {
+public class PixelEditorScreen extends Screen implements GraphEditor.Host, PixelEditorFrameStrip.Host, PixelEditorToolRail.Host {
 
     // ── 布局常量 / layout constants (tiled, non-overlapping) ──
     private static final int TOP_H = 30;                       // 顶栏高（容纳两行）/ top bar height (holds two rows)
@@ -72,14 +74,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     private static final int FRAME_STRIP_H = 44;               // 序列缩略图条高（紧贴屏幕底部、更紧凑）/ sequence thumbnail-strip height (flush to the bottom, compact)
     private static final int FS_BTN_H = 20;                    // 序列按钮行高（紧邻缩略图条上方、更紧凑）/ sequence button-row height (directly above the thumbnail strip, compact)
     private static final float MIN_ZOOM = 0.4f, MAX_ZOOM = 8f;
-    /** 临时隐藏左面板的笔刷大小/透明度/当前色，工具栏只放工具（改回 true 即恢复）。/
-     *  Temporarily hide the brush-size/opacity/current-color controls in the left panel so the
-     *  toolbar shows only the tools; flip back to true to restore them. */
-    private static final boolean SHOW_BRUSH_CONTROLS = false;
 
-    // 左面板内部成员 / left-panel inner geometry
-    private static final int TOOL_BTN = 22, TOOL_GAP = 4;      // 工具按钮（缩小）/ tool button (compact)
-    private static final int BA_SIZE = 16, BA_PITCH = 18;      // 笔刷大小档 / brush-size chip
 
     // ── 调色板（沿用基线配色）/ palette (baseline colours) ──
     private static final int C_BG = NodeRenderer.PBG();                // 面板底 / panel bg
@@ -94,17 +89,15 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     private static final int C_CELL = 0xFF3A3830;              // 单元格描边 / cell outline
     private static final int C_OPACITY = 0xFF8A9A5A;           // 透明度滑杆填充 / opacity fill
 
-    // ── 工具 / tools ──
-    private enum Tool { BRUSH, ERASER, FILL, EYEDROPPER, LINE, RECT, HAND }
-    /** 工具栏固定顺序（快捷键 1..7 与字母键都按此映射）。/ fixed tool rail order (1..7 & letter keys map by this). */
-    private static final Tool[] TOOLS = {Tool.BRUSH, Tool.ERASER, Tool.FILL, Tool.EYEDROPPER, Tool.LINE, Tool.RECT, Tool.HAND};
+    // ── 工具（枚举与列序在 PixelEditorToolRail；当前工具归屏幕 —— 画布/快捷键/顶栏共用）──
+    //    Tools (the enum and rail order live in PixelEditorToolRail; the active tool stays on
+    //    the screen — canvas, shortcuts and the top bar all use it).
     private Tool tool = Tool.BRUSH;
     private int brushSize = 1;
     /** 笔刷大小范围（滑块与 [ / ] 快捷键共用）。/ brush-size range (shared by the slider and the [ / ] keys). */
     private static final int BRUSH_MIN = 1, BRUSH_MAX = 32;
     /** 笔刷透明度 0..1（与现有像素 alpha 混合；左面板滑杆调节）/ brush opacity */
     private float brushOpacity = 1f;
-    private boolean opacityDragging = false;
     /** 顶栏第二行右侧笔刷大小滑块拖动中 / brush-size slider (top-bar row 2) being dragged */
     private boolean brushSizeDragging = false;
     private int selectedColor = 0xFFFFFFFF;
@@ -134,6 +127,9 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     //    tool/brush size/opacity) stays here and is passed in per call.
     private final PixelEditorKernel kernel = new PixelEditorKernel();
     private boolean strokeUndoCaptured = false;
+    /** 左侧工具列视图（同批拆分）：渲染与点击，工具选择经 Host 读写回屏幕。
+     *  Left tool-rail view (same batch): render + clicks; tool selection round-trips through its Host. */
+    private final PixelEditorToolRail toolRail = new PixelEditorToolRail(this);
 
     // ── 取色器 / color picker (docked into the right band; collapsed by default) ──
     private final ColorPickerWidget colorPicker = new ColorPickerWidget();
@@ -231,6 +227,19 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     @Override public GraphNode node() { return node; }
     @Override public BlockPos blockPos() { return blockPos; }
     @Override public UUID playerUUID() { return getPlayerUUID(); }
+
+    // ══════════════ PixelEditorToolRail.Host（工具列接缝）/ tool-rail host seam ══════════════
+
+    @Override public Tool tool() { return tool; }
+    @Override public void setTool(Tool t) { tool = t; }
+    @Override public int brushSize() { return brushSize; }
+    @Override public void setBrushSize(int v) { brushSize = v; }
+    @Override public float brushOpacity() { return brushOpacity; }
+    @Override public void setBrushOpacity(float v) { brushOpacity = v; }
+    @Override public int selectedColor() { return selectedColor; }
+    @Override public int topH() { return TOP_H; }
+    @Override public int leftW() { return LEFT_W; }
+    @Override public int leftPad() { return LEFT_PAD; }
 
     // ══════════════ 生命周期 / lifecycle ══════════════
 
@@ -333,29 +342,9 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         return new int[]{(int)Math.floor((mx - ox) / cell), (int)Math.floor((my - oy) / cell)};
     }
 
-    // ── 左面板内部几何 / left-panel inner geometry ──
-    private int toolsGridTop() { return TOP_H + 8; }
-    /** 工具按钮坐标（单列、整列紧贴左缘与右缘）：[x, y, w, h]。/
-     *  tool cell (single column, flush against the left edge and stopping just left of the divider). */
-    private int[] toolCell(int i) {
-        int x = 0;
-        int y = toolsGridTop() + i * (TOOL_BTN + TOOL_GAP);
-        return new int[]{x, y, LEFT_W - 1, TOOL_BTN};
-    }
-    private int brushSectionY() { return toolsGridTop() + TOOLS.length * (TOOL_BTN + TOOL_GAP) + 8; }
-    private int brushBtnY() { return brushSectionY() + 18; }
-    private int opacityLabelY() { return brushSectionY() + 40; }
-    private int opacitySliderY() { return opacityLabelY() + 16; }
-    private int previewY() { return opacitySliderY() + 26; }
-    private int[] opacitySliderGeom() {
-        int x = LEFT_PAD + 2;
-        int w = LEFT_W - 2 * LEFT_PAD - 6;
-        return new int[]{x, opacitySliderY(), w, 6};
-    }
-
-    private void setOpacityFromX(double mx, int[] os) {
-        brushOpacity = Math.max(0f, Math.min(1f, (float)((mx - os[0]) / os[2])));
-    }
+    // ── 左面板内部几何（已随 PixelEditorToolRail 拆出；屏幕保留布局常量供其余面板使用）──
+    //    Left-panel inner geometry moved with PixelEditorToolRail; the layout constants stay
+    //    for the other panels.
 
     private static boolean hit(double mx, double my, int x, int y, int w, int h) {
         return mx >= x && mx < x + w && my >= y && my < y + h;
@@ -375,7 +364,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         g.pose().pushPose();
         g.pose().translate(0f, 0f, 100f);
         renderTopBar(g, mx, my);
-        renderLeftPanel(g, mx, my);
+        toolRail.render(g, mx, my);
         g.pose().pushPose();
         g.pose().translate(0f, 0f, -50f);
         renderCanvas(g, mx, my);
@@ -572,125 +561,6 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         g.drawString(f, "§7" + label, x + (w - f.width("§7" + label)) / 2, y + (h - f.lineHeight) / 2, C_TXT_DIM, false);
     }
 
-    /** 左面板：PS 式单列工具列（`SHOW_BRUSH_CONTROLS` 为 false 时只放工具，隐藏笔刷大小/透明度/当前色）。
-     *  Left panel: PS-style single-column tool rail (hides brush-size/opacity/current-color when
-     *  `SHOW_BRUSH_CONTROLS` is false, leaving only the tools).
-     *  工具主体都落在 x∈[0,LEFT_W] 内；唯一例外是悬停时在其右侧浮出的提示框（近深度，遮住画布）。
-     *  The tools themselves stay within x∈[0,LEFT_W]; the only exception is the floating tooltip
-     *  shown to the right on hover (near depth, so it occludes the canvas beneath). */
-    private void renderLeftPanel(GuiGraphics g, int mx, int my) {
-        g.fill(0, TOP_H, LEFT_W, height, C_BG);
-        // 分界线从顶栏底部（TOP_H）贯通到屏幕底部，让左侧一整列、且不再穿过顶栏横线。
-        // the divider runs from the top bar's bottom (TOP_H) to the screen bottom so the rail reads
-        // as one full-height column without crossing the top bar's horizontal line.
-        g.fill(LEFT_W - 1, TOP_H, LEFT_W, height, C_BORDER);
-        var f = Minecraft.getInstance().font;
-        // ── 工具列 / tool rail ──
-        Tool[] order = TOOLS;
-        for (int i = 0; i < order.length; i++) {
-            int[] c = toolCell(i);
-            boolean hov = hit(mx, my, c[0], c[1], c[2], c[3]);
-            boolean sel = tool == order[i];
-            // PS 式：默认无单独按钮填充/边框，仅悬停或选中时高亮整块矩形。
-            // PS style: no per-cell fill or border by default; only hover/selected highlight the whole cell.
-            if (sel || hov)
-                g.fill(c[0], c[1], c[0] + c[2], c[1] + c[3], sel ? C_SEL : C_HOVER);
-            int icX = (LEFT_W - 12) / 2;                // 图标在整列宽内居中 / centre icon in rail width
-            int icY = (TOOL_BTN - 12) / 2;              // 图标在单元格高内居中 / centre icon in cell height
-            drawToolIcon(g, c[0] + icX, c[1] + icY, order[i]);
-            if (hov) {
-                // PS 式浮动提示：小背景框 + 文字（近深度，遮住下方画布）。
-                // PS-style floating tooltip: small bg box + text, drawn at near depth over the canvas.
-                String tip = "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_tool_" + order[i].name().toLowerCase());
-                int tw = f.width(tip), tx = c[0] + c[2] + 6, ty = c[1];
-                g.fill(tx, ty, tx + tw + 10, ty + 15, C_BG);
-                g.renderOutline(tx, ty, tw + 10, 15, C_BORDER);
-                g.drawString(f, tip, tx + 5, ty + 4, C_TXT_DIM, false);
-            }
-        }
-        if (SHOW_BRUSH_CONTROLS) {
-            // ── 笔刷大小 / brush size ──
-            g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_brush_size") + ":", LEFT_PAD + 2, brushSectionY(), C_TXT_DIM, false);
-            for (int s = 1; s <= 5; s++) {
-                int bx = LEFT_PAD + 2 + (s - 1) * BA_PITCH, by = brushBtnY();
-                boolean hov = hit(mx, my, bx, by, BA_SIZE, BA_SIZE);
-                g.fill(bx, by, bx + BA_SIZE, by + BA_SIZE, s == brushSize ? C_SEL : hov ? C_HOVER : C_BTN);
-                g.renderOutline(bx, by, BA_SIZE, BA_SIZE, C_BORDER);
-                int d = Math.min(12, s * 2 + 1);
-                g.fill(bx + BA_SIZE / 2 - d / 2, by + BA_SIZE / 2 - d / 2, bx + BA_SIZE / 2 - d / 2 + d, by + BA_SIZE / 2 - d / 2 + d, C_TXT_DIM);
-            }
-            // ── 透明度滑杆 / opacity slider ──
-            g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_opacity") + ":", LEFT_PAD + 2, opacityLabelY(), C_TXT_DIM, false);
-            int[] os = opacitySliderGeom();
-            g.fill(os[0], os[1], os[0] + os[2], os[1] + os[3], C_CANVAS);
-            g.renderOutline(os[0], os[1], os[2], os[3], C_BORDER);
-            g.fill(os[0], os[1], os[0] + (int)(os[2] * brushOpacity), os[1] + os[3], C_OPACITY);
-            int thumbX = os[0] + (int)(os[2] * brushOpacity) - 3;
-            g.fill(thumbX, os[1] - 2, thumbX + 6, os[1] + os[3] + 2, C_TXT_DIM);
-            g.drawString(f, "§7" + Math.round(brushOpacity * 100) + "%", LEFT_PAD + 2, opacitySliderY() + 9, C_TXT_DIM, false);
-            // ── 当前色 + 笔刷预览 / current color + brush preview ──
-            g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_current_color") + ":", LEFT_PAD + 2, previewY(), C_TXT_DIM, false);
-            int sw = 26;
-            g.fill(LEFT_PAD + 2, previewY() + 12, LEFT_PAD + 2 + sw, previewY() + 12 + sw, selectedColor);
-            g.renderOutline(LEFT_PAD + 2, previewY() + 12, sw, sw, C_BORDER);
-        }
-    }
-
-    private void drawToolIcon(GuiGraphics g, int x, int y, Tool t) {
-        int P = 0xFFD8D8D8, A = 0xFF8A8A8A;   // 主体亮色 / 描边暗色 (primary / accent)
-        switch (t) {
-            case BRUSH -> {
-                // 斜向画笔：手柄(accent) 下行到左下的亮色笔尖 / diagonal brush, handle then bright bristle
-                for (int i = 0; i < 5; i++) g.fill(x + 8 - i, y + 2 + i, x + 10 - i, y + 4 + i, A);
-                g.fill(x + 3, y + 6, x + 6, y + 9, P);
-                g.fill(x + 2, y + 8, x + 5, y + 11, P);
-            }
-            case ERASER -> {
-                // 斜置橡皮块：亮顶面 + 两条错位的主体 / slanted eraser block with a bright top face
-                g.fill(x + 3, y + 4, x + 10, y + 7, A);
-                g.fill(x + 2, y + 7, x + 9, y + 10, A);
-                g.fill(x + 4, y + 2, x + 11, y + 5, P);
-            }
-            case FILL -> {
-                // 油漆桶：提手 + 向下变宽的桶身 + 倾倒口 / paint bucket: rim + widening body + spout
-                g.fill(x + 3, y + 2, x + 10, y + 4, A);
-                for (int r = 0; r < 6; r++) { int half = r / 2; g.fill(x + 6 - half, y + 4 + r, x + 8 + half, y + 6 + r, P); }
-                g.fill(x + 6, y + 8, x + 8, y + 11, P);
-                g.fill(x + 9, y + 11, x + 10, y + 12, P);
-            }
-            case EYEDROPPER -> {
-                // 吸管：顶部球泡 + 斜向管身 + 尖端 / eyedropper: bulb + diagonal barrel + tip
-                g.fill(x + 4, y + 2, x + 7, y + 5, P);
-                g.fill(x + 6, y + 4, x + 9, y + 7, A);
-                g.fill(x + 8, y + 7, x + 10, y + 9, A);
-                g.fill(x + 9, y + 9, x + 11, y + 11, P);
-            }
-            case LINE -> {
-                // 2px 粗斜线（亮芯 + 暗边）/ 2px-thick diagonal line (bright core + accent edge)
-                for (int i = 0; i < 6; i++) {
-                    g.fill(x + 2 + i, y + 2 + i, x + 4 + i, y + 4 + i, A);
-                    g.fill(x + 3 + i, y + 3 + i, x + 5 + i, y + 5 + i, P);
-                }
-            }
-            case RECT -> {
-                // 空心矩形 + 加粗的顶/左边缘 / hollow rect with a thickened top & left edge
-                g.renderOutline(x + 2, y + 2, 8, 8, P);
-                g.fill(x + 2, y + 2, x + 10, y + 3, P);
-                g.fill(x + 2, y + 2, x + 3, y + 10, P);
-            }
-            case HAND -> {
-                // 抓手：四指 + 掌部（亮色掌、暗色指缝）/ hand: four fingers + palm (bright palm, dark gaps)
-                g.fill(x + 2, y + 3, x + 3, y + 7, P);   // 小指 / pinky
-                g.fill(x + 4, y + 1, x + 5, y + 8, P);   // 无名指 / ring
-                g.fill(x + 6, y + 1, x + 7, y + 8, P);   // 中指 / middle
-                g.fill(x + 8, y + 2, x + 9, y + 7, P);   // 食指 / index
-                g.fill(x + 2, y + 7, x + 9, y + 9, A);   // 指缝底 / web between fingers
-                g.fill(x + 2, y + 7, x + 9, y + 11, P);  // 掌部 / palm
-                g.fill(x + 9, y + 8, x + 11, y + 10, P); // 拇指 / thumb
-            }
-        }
-    }
-
     private void renderCanvas(GuiGraphics g, int mx, int my) {
         int[] ge = gridGeom();
         int ox = ge[0], oy = ge[1], cell = ge[2];
@@ -829,7 +699,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
             return colorPicker.mouseClicked(mx, my, btn);
         if (sizeDialogOpen) return handleSizeDialogClick(mx, my, btn);
         if (my <= TOP_H) return handleTopBarClick(mx, my, btn);
-        if (mx < LEFT_W) return handleLeftPanelClick(mx, my, btn);
+        if (mx < LEFT_W) return toolRail.handleClick(mx, my, btn);
         if (isSeq() && my >= frameBtnY()) return frameStrip.handleClick(mx, my, btn);
         // 取色器展开时，点击其保留带（不含组件）一律吞掉，避免落入画布
         // When the palette is expanded, swallow clicks in its reserved band so they never
@@ -863,24 +733,6 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
             brushSizeDragging = true;
             setBrushSizeFromX(mx);
             return true;
-        }
-        return false;
-    }
-
-    private boolean handleLeftPanelClick(double mx, double my, int btn) {
-        if (btn != 0) return false;
-        Tool[] order = TOOLS;
-        for (int i = 0; i < order.length; i++) {
-            int[] c = toolCell(i);
-            if (hit(mx, my, c[0], c[1], c[2], c[3])) { tool = order[i]; return true; }
-        }
-        if (SHOW_BRUSH_CONTROLS) {
-            for (int s = 1; s <= 5; s++) {
-                int bx = LEFT_PAD + 2 + (s - 1) * BA_PITCH, by = brushBtnY();
-                if (hit(mx, my, bx, by, BA_SIZE, BA_SIZE)) { brushSize = s; return true; }
-            }
-            int[] os = opacitySliderGeom();
-            if (hit(mx, my, os[0], os[1], os[2], os[3])) { opacityDragging = true; setOpacityFromX(mx, os); return true; }
         }
         return false;
     }
@@ -958,8 +810,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
             if (sizeWField.isFocused()) return sizeWField.mouseDragged(mx, my, btn, dx, dy);
             if (sizeHField.isFocused()) return sizeHField.mouseDragged(mx, my, btn, dx, dy);
         }
-        if (opacityDragging) {
-            setOpacityFromX(mx, opacitySliderGeom());
+        if (toolRail.handleOpacityDragged(mx)) {
             return true;
         }
         if (brushSizeDragging) {
@@ -1016,7 +867,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
             colorPicker.mouseReleased(mx, my, btn);
             return true;
         }
-        if (opacityDragging) { opacityDragging = false; return true; }
+        if (toolRail.releaseOpacityDrag()) return true;
         if (brushSizeDragging) { brushSizeDragging = false; return true; }
         if (frameStrip.releaseScrollbar()) return true;
         if (panning) { panning = false; return true; }
@@ -1081,7 +932,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         }
         // PS 风格快捷键：1..7 按工具列顺序、B/E/F/I/L/R/H 工具、[ / ] 笔刷大小、G 网格开关。
         // PS-style shortcuts: 1..7 (rail order), B/E/F/I/L/R/H (tools), [ / ] (brush size), G (grid).
-        if (key >= 49 && key <= 55) { tool = TOOLS[key - 49]; return true; }
+        if (key >= 49 && key <= 55) { tool = PixelEditorToolRail.TOOLS[key - 49]; return true; }
         switch (key) {
             case 66: tool = Tool.BRUSH; return true;           // B
             case 69: tool = Tool.ERASER; return true;          // E
