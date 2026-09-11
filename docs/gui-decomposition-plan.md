@@ -249,6 +249,15 @@ Step 7  小文件批量归位                           ⚪ 择机
 屏幕在 `settingsOpen()` 时直接路由。drag/release/scroll 与键盘路径经与 `origin/main`
 对照确认无同类问题（原实现本就没有设置分支）。
 
+**游戏内实测再捕获一处（同为「漏调用点」陷阱，2026-09-11）**：原显示分支在滚动条按下与
+`handleDisplayAreaClick` 之间还有 `handleLayerPanelClick` 行命中 + 拖拽发起块
+（`layerDragState = PRESSED` 等六行），拆分时被**整块遗漏**——`handleLayerPanelClick` 沦为
+零调用死方法，图层面板行点不中（选中失效）也拖不动（PRESSED 永不置位）。实施记录第二条
+陷阱（「漏改 handleClick 里的调用」）当时只抓到滚动条一处；此块经步骤 2 验收清单的
+游戏内手动回归才暴露。已按原始顺序补回 `handleDisplayAreaClick` 内滚动条之后。
+教训：**"调用点 vs 定义"成对核对必须覆盖搬迁分支里的每一行，而不是每一个方法**；
+「待游戏内手动回归」的清单项不能跳过。
+
 **实施中发现（四条，供后续步骤复用）**：
 
 1. **隐式外层访问要用带排除的 token 级重写**。`blockPos → host.blockPos()` 这类简单 `String.Replace`
