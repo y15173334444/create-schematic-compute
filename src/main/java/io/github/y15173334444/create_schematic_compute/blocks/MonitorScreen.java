@@ -70,38 +70,6 @@ public class MonitorScreen extends AbstractGraphScreen implements MonitorDisplay
     @Override public void sendOp(GraphOp op) { MonitorScreen.super.sendOp(op); }
     @Override public UUID playerUUID() { return getPlayerUUID(); }
 
-    /** 显示模式工具栏条：< Graph / Settings / S,R 编辑项 / 切换按钮（绘制顺序与原实现一致）。
-     *  Display-mode toolbar strip: < Graph / Settings / S,R editors / toggle button. */
-    @Override public void drawToolbarStrip(GuiGraphics g) {
-        int tbx = 4, tby = GraphEditor.TOP_BAR_H + 2, tbh = MONITOR_TOOLBAR_H;
-        g.fill(0, tby, width, tby + tbh, NodeRenderer.PBG());
-        // < Graph
-        g.fill(tbx, tby, tbx + 56, tby + tbh, 0xFF3A3832);
-        g.renderOutline(tbx, tby, 56, tbh, NodeRenderer.CSB());
-        g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.back_graph"), tbx + 6, tby + 5, 0xFFFFFFFF, false);
-        tbx += 62;
-        // Settings
-        g.fill(tbx, tby, tbx + 56, tby + tbh, displayEditor.settingsOpen() ? 0xFF3A5A2A : 0xFF3A3832);
-        g.renderOutline(tbx, tby, 56, tbh, NodeRenderer.CSB());
-        g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.settings"), tbx + 6, tby + 5, 0xFFFFFFFF, false);
-        tbx += 62;
-        // Selected element editing (clickable S/R values, geometry matches the click test)
-        GraphNode sel = displayEditor.selectedNode();
-        if (sel != null) {
-            String sTxt = displayEditor.editingScale()
-                ? "\u00a76S:\u00a7e" + displayEditor.editScaleBuf() + "\u258c"
-                : "\u00a76S:\u00a7e" + MonitorDisplayEditor.ff1(sel.displayScale);
-            g.drawString(Minecraft.getInstance().font, sTxt, tbx + 4, tby + 5, NodeRenderer.ACC(), false);
-            tbx += Minecraft.getInstance().font.width(sTxt) + 12;
-            String rTxt = displayEditor.editingRotation()
-                ? "\u00a76R:\u00a7e" + displayEditor.editRotationBuf() + "\u258c"
-                : "\u00a76R:\u00a7e" + MonitorDisplayEditor.ff0(sel.displayRotation);
-            g.drawString(Minecraft.getInstance().font, rTxt, tbx + 4, tby + 5, NodeRenderer.ACC(), false);
-        }
-        // 切换按钮（显示模式下覆盖基础按钮行）/ display toggle button
-        renderDisplayToggleButton(g);
-    }
-
     @Override public boolean screenMouseDragged(double mx, double my, int btn, double dx, double dy) {
         return MonitorScreen.super.mouseDragged(mx, my, btn, dx, dy);
     }

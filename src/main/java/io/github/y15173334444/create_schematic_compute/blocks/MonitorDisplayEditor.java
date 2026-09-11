@@ -32,13 +32,13 @@ import static io.github.y15173334444.create_schematic_compute.client.GeometryCon
  * delegates to this class while display mode is active.</p>
  *
  * <p><b>行为零变更</b>：本次拆分是纯搬迁 + 机械引用重写——原来经由内部类隐式访问的屏幕状态
- * （{@code width}/{@code height}/{@code blockPos}/{@code editor}）改为经 {@link Host} 接缝获取；
- * 唯一结构性调整是显示模式的工具栏条改由屏幕侧绘制（{@link Host#drawToolbarStrip}），
- * 以保证该行原有的按钮与切换按钮保持同一绘制顺序。</p>
+ * （{@code width}/{@code height}/{@code blockPos}/{@code editor}）改为经 {@link Host} 接缝获取。
+ * 显示模式的工具栏条（&lt; Graph / Settings / S,R）仍由 {@code renderDisplayArea} 内部绘制，
+ * 与原实现逐字一致；切换按钮依旧只在节点图模式绘制。</p>
  * <p><b>Behaviour-preserving</b>: a pure move with mechanical rewrites of the implicit
- * outer-class accesses into the {@link Host} seam. The only structural adjustment is that the
- * display-mode toolbar strip is drawn by the screen ({@link Host#drawToolbarStrip}) so the
- * original draw order of that row is preserved.</p>
+ * outer-class accesses into the {@link Host} seam. The display-mode toolbar strip (&lt; Graph /
+ * Settings / S,R) is still drawn inside {@code renderDisplayArea}, verbatim from the original;
+ * the display toggle button remains graph-mode-only, as before.</p>
  */
 public final class MonitorDisplayEditor {
 
@@ -51,9 +51,6 @@ public final class MonitorDisplayEditor {
         BlockPos blockPos();
         void sendOp(GraphOp op);
         UUID playerUUID();
-        /** 显示模式工具栏：绘制切换按钮所在的整条工具栏条（屏幕侧持有该绘制）。
-         *  Draw the whole toolbar strip the display toggle sits on (screen-owned). */
-        void drawToolbarStrip(GuiGraphics g);
         /** mouseDragged 未被显示模式消费时的屏幕级兜底 / screen-level mouse fallthrough. */
         boolean screenMouseDragged(double mx, double my, int btn, double dx, double dy);
         /** 打开独立像素编辑器（v1.2.6+）/ open the standalone pixel editor. */
@@ -97,13 +94,6 @@ public final class MonitorDisplayEditor {
     public float presenceCursorX() { return active ? lastDisplayMouseX : -1f; }
     public float presenceCursorY() { return active ? lastDisplayMouseY : -1f; }
     public int presenceDraggedNodeId() { return draggedDisplayNode != null ? draggedDisplayNode.id : -1; }
-
-    /** 工具条 S/R 编辑项所需的只读状态 / read-only state for the toolbar S,R editors. */
-    public GraphNode selectedNode() { return selectedDisplayNode; }
-    public boolean editingScale() { return editingS; }
-    public String editScaleBuf() { return editSBuf; }
-    public boolean editingRotation() { return editingR; }
-    public String editRotationBuf() { return editRBuf; }
 
     /** 显示区整帧渲染入口（屏幕 renderGraphCanvas 调用）/ display-area render entry. */
     public void render(GuiGraphics g, int mx, int my) {
