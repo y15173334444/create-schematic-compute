@@ -202,7 +202,14 @@ public class MonitorScreen extends AbstractGraphScreen implements MonitorDisplay
             editor.colorPicker.close();
             return true;
         }
-        // Settings panel takes priority
+        // 设置面板优先（与拆分前一致，与模式无关）：面板在离开显示模式后并不关闭，
+        // 节点图模式下它仍然渲染，点击必须先归它，否则关闭/保存按钮与输入框不可点。
+        // Settings panel takes priority (as before the split, regardless of mode): the panel
+        // stays open after leaving display mode and still renders in graph mode, so its
+        // clicks must come first or the close/save buttons and EditBoxes are unreachable.
+        if (displayEditor.settingsOpen()) {
+            return displayEditor.handleSettingsClick(mx, my, btn);
+        }
         if (displayEditor.active()) {
             return displayEditor.handleClick(mx, my, btn);
         }

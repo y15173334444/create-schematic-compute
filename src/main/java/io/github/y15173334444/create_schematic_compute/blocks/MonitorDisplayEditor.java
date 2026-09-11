@@ -1181,7 +1181,10 @@ public final class MonitorDisplayEditor {
         PacketDistributor.sendToServer(pkt);
     }
 
-    private boolean handleSettingsClick(double mx, double my, int btn) {
+    /** 设置面板点击（显示模式由 handleClick 转发；节点图模式下面板打开时由屏幕直接路由）。
+     *  Settings-panel click: forwarded by handleClick in display mode, routed directly by
+     *  the screen when only the panel is open (graph mode keeps it visible). */
+    public boolean handleSettingsClick(double mx, double my, int btn) {
         if (btn != 0) return false;
         int pw = MONITOR_SETTINGS_PANEL_W;
         int rows = 4; // 平衡布局：3D 8 项分两列（4+4），首行含复选框+虚像缩放
