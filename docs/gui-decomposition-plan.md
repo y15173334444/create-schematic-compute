@@ -5,12 +5,12 @@
 > **步骤 2 已完成**（`23ec19d`）：显示编辑 GUI 迁至 `MonitorDisplayEditor`，1767 → 368 行；
 > 同日评审修复（未推送批次审查）后 `MonitorScreen` 现 **348 行**（移除从未接线的 `drawToolbarStrip` 缝、
 > 恢复设置面板在节点图模式的点击路由，见步骤 2 实施记录的更正）。
-> **步骤 3 完成三分之二**：指南 tab（`e3cacdf`）与颜色 tab（`fb5eddf`）已拆出，键位 tab 仍待实施。
+> **步骤 3 已完成**：指南（`e3cacdf`）/ 颜色（`fb5eddf`）/ 键位 三个 tab 全部拆出。
 > Status: 🔶 **in progress.** Drafted 2026-09-11 against `dfedbef`; step 1 landed in `c8643fd`;
 > step 2 landed in `23ec19d` (`MonitorScreen` now **348 lines** after the same-day review fixes:
 > the never-wired `drawToolbarStrip` seam removed, the settings-panel click routing in graph mode
-> restored — see the step-2 record correction); step 3 is two-thirds done (guide `e3cacdf`, colours
-> `fb5eddf`), the key-bindings tab is still pending.
+> restored — see the step-2 record correction); step 3 is done — all three tabs extracted
+> (guide `e3cacdf`, colours `fb5eddf`, keys this pass).
 > **目标 / Goal**：把 GUI/渲染层的巨型类按**单一职责边界**拆成可独立阅读、可独立回归的文件，
 > 首选交付物是**把全息显示器的显示编辑 GUI 从图编辑器中剥离**（见 §3 步骤 2）。
 > **约束 / Constraint**：GUI 层**零自动化测试兜底**（见 §1.3），因此每步必须"可编译 + 行为零变更 + 可手动回归"，
@@ -117,7 +117,7 @@ GUI 层几乎不可单测，但有两处**纯逻辑**可以在拆分时**顺手�
 ```
 Step 1  MonitorBlockEntityRenderer 裁剪数学      ✅ 已完成 c8643fd（390 测试全绿）
 Step 2  MonitorScreen 显示编辑 GUI 脱离          ✅ 已完成 23ec19d（1767 → 368 行；评审修复后现 348）
-Step 3  EditorSettingsScreen 按 tab 拆分         🔶 进行中（指南+颜色已拆 e3cacdf/fb5eddf，键位 tab 待拆）
+Step 3  EditorSettingsScreen 按 tab 拆分         ✅ 已完成（指南/颜色/键位 三 tab 全部拆出）
 Step 4  PixelEditorScreen 内核 / 帧条拆分        🟡 中（可补单测）
 Step 5  NodeRenderer 按渲染品类拆（保门面）      🟡 中（引用最广）
 Step 6  GraphEditor 五刀 + 内部方法级拆解        🔴 高（最热文件，需冻结窗口）
@@ -317,45 +317,32 @@ Step 7  小文件批量归位                           ⚪ 择机
 （列表滚动、滚动条拖拽、调整→停靠取色器、实时预览、确认填充、默认值重绑、收起）
 已由报告者实机确认。
 
-#### 🔶 待办 · 键位 tab（依赖图已摸清，未实施）
+#### ✅ 实施记录 · 键位 tab（本刀完成，步骤 3 闭环）
 
-**为什么单独留下它**：这是步骤 3 里唯一**牵动键盘输入分发**的一块，而 GUI 层零测试兜底；
-本会话在同类改动上已两次踩坑（显示器拆分遗漏返回值语义 → 吞键；颜色 tab 脚本端点算错 → 删掉仍被引用的方法）。
-实施时**必须**：先干跑（算出"删除后哪些成员失去定义"）→ 写入 → 编译逐轮验证。
+`EditorSettingsScreen` 893 → **514 行**；新增 `EditorSettingsKeysTab.java`（381 行，包级
+final，构造注入 Host）。屏幕保留 tab 列、共享布局与输入分发，35 处调用点改走
+`keysTab.*` 或 `EditorSettingsKeysTab.*` 常量。
 
-**实现块（当前行号，893 行的文件里）**：
-
-| 区间 | 内容 |
+| 变更 | 说明 |
 |------|------|
-| 495–566 | `Keycap` record + `cap()` + `KEY_ROWS` + `keysListW` + `keysListTop/Bot/VisibleRows/MaxScroll` + `KEYS_CHIPS_W` + `keysUnit/keysGap/keysGridW`（含各自 javadoc）|
-| 561–714 | `renderKeysTab` |
-| 716–762 | `handleKeycapClick` / `handleChipClick` / `confirmKeybind` / `selectKeybindRow` |
-| 793–794 | `KEY_ROW_H` |
-| 796–864 | `keysScrollbarThumb` + `applyKeysScrollbarDrag` + `keysBarGeometry` |
+| 搬入 tab 类 | `Keycap` record + `cap()` + `KEY_ROWS` + `keysListW` + `keysListTop/Bot/VisibleRows/MaxScroll` + `KEYS_CHIPS_W` + `keysUnit/keysGap/keysGridW` + `KEY_ROW_H` + `keysScrollbarThumb` + `applyKeysScrollbarDrag` + `keysBarGeometry` + `renderKeysTab` + `handleKeycapClick` / `handleChipClick` / `confirmKeybind` / `selectKeybindRow` |
+| 状态随迁 | `keybindTarget` / `pendingSeq` / `latchedMods` / `keysScroll` / `keysScrollbarDrag(StartY/StartOff)` / `rebindConflict`，配包级访问器（指南 tab 样式）；`collapseExpanded()` 的键位半边收进 `collapseRebind()` |
+| 留在父类 | tab 列、共享布局、输入分发、`collapseExpanded()`（三 tab 共享的展开标志） |
 
-**同时被父类输入分发引用的几何/常量 → 必须经 Host 暴露**（这是本刀的主要工作量）：
+**与原方案的三处偏差（均有据）**：
 
-| 成员 | 父类引用行 |
-|------|-----------|
-| `keysListW` | 282（mouseClicked 计算 listRight）|
-| `keysUnit` / `keysGap` / `keysGridW` | 287 / 297 / 295 |
-| `keysBarGeometry` | 307 |
-| `keysScrollbarThumb` | 326 |
-| `keysMaxScroll` | 325、329、437 |
-| `KEY_ROW_H` | 336–338、578–584 等 10 处 |
-| `KEYS_CHIPS_W` | 288、291 |
+1. 原方案「几何/常量必经 Host 暴露」成文于指南/颜色 tab 落地之前——键位几何只被键位用，
+   按指南 tab 的既成模式搬进 tab 类，屏幕分发经具体字段 `keysTab.*` 调用（Host 零新增）。
+2. 颜色拆分时加进 Host 的 15 个键位状态访问器（`keysScroll`/`keybindTarget`/…）全仓
+   **零调用**，搬迁后直接移除而非改指向。
+3. `seqText`/`keyName` 按本节预留的备选方案**下沉 `EditorKeys`**（挨着 `modsText`）——
+   搬迁时仅键位渲染还在用它们，「留在父类/跨 tab 共享」的前提已消失。
 
-**留在父类**：`seqText` / `keyName`（866–892，跨 tab 共享；也可下沉 `EditorKeys`，勿在 tab 内复制）、
-`collapseExpanded()`（764–781，同时清颜色/键位/指南，保留在父类）。
-
-**状态随迁**：`keysScroll`、`keysScrollbarDrag(StartY/StartOff)`、`keybindTarget`、`latchedMods`、`rebindConflict`、`pendingSeq`
-→ 搬入 tab 类并配访问器（父类输入分发约 25 处读写改走 `keysTab.*`）。
-
-**父类调用点**：`renderKeysTab`(195)、`handleKeycapClick`(302)、`handleChipClick`(292)、`confirmKeybind`(320)、
-`selectKeybindRow`(317、339)、`applyKeysScrollbarDrag`(466)。
-
-**更保守的替代切法（若想进一步降风险）**：只搬 `renderKeysTab` 与 `handle*` 四个交互方法，
-几何/常量/状态全部留父类经 Host 暴露——收益约 −200 行，但避开输入分发里那 25 个点的大改。
+**顺手修复**：屏幕内指南/颜色拆分遗留的 4 处残根注释（截断 / 重复 / 孤儿 javadoc）与一个无用 import。
+**验证**：干跑（搬迁成员零裸引用）+ `compileJava` + `test`；游戏内手动回归待执行——
+清单：列表滚动（滚轮 + 滚动条拖拽/翻页）、行选中展开键盘、键帽录入（修饰开关 / Esc 清空 /
+步数上限提示）、鼠标三键绑定、删一步/默认/清除/确定、冲突提示（收起/展开两种位置）、
+收起按钮、ESC 收起、切换 tab 状态复位。
 
 
 - **现状**：1,204 行 / **只有 2 个文件引用它、7 处**，是全仓最孤立的千行 GUI 类；内部已是 3 个 tab：
