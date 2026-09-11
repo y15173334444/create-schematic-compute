@@ -29,12 +29,12 @@ GitHub Issues，外部 PR 也作为 triage 需求来源。见 `docs/agents/issue
 - 一次提交聚焦一件事；文档与代码改动分开提交。
 
 ### 文档规范 / Docs Convention
-- README 是**权威变更日志**：每个版本一个 `<details>` 块，发布前更新。
+- `CHANGELOG.md` 是**权威变更日志**：每个版本一个 `<details>` 块，发布前更新；README 的 Changelog 小节只保留链接。
 - `docs/` 规划/分析文档双语，带状态横幅（✅ 已解决 / 🔶 待办）与交叉引用。
 - 架构文档见 `docs/code-architecture.md`；改动架构时同步更新。
 
 ### 版本管理 / Versioning
-- 升版本需同步三处：`gradle.properties` 的 `mod_version` + `build.gradle` 的 `version` + README changelog。
+- 升版本需同步三处：`gradle.properties` 的 `mod_version` + `build.gradle` 的 `version` + `CHANGELOG.md`（README 的 Changelog 小节在版本标题变化时同步）。
 - NBT 数据格式变更：提升 `NbtVersions.DATA_VERSION`，在 `GraphMigration` 添加迁移步骤并保持向后兼容。
 
 ### 测试规范 / Testing
