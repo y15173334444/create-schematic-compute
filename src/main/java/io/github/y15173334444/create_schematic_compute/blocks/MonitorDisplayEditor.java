@@ -209,6 +209,15 @@ public final class MonitorDisplayEditor {
             }
             if (key == 256) { previewScreenW = -1; previewScreenL = -1; showSettings = false; settingsInited = false; return true; }
         }
+        // ── 仅设置面板打开（未处于显示布局模式）时，这里只允许"面板自己消化掉"的按键到此为止：
+        // 其余按键必须交还屏幕 → 节点图编辑区，否则节点图的输入框会完全收不到按键
+        // （设置面板在离开显示模式后并不关闭，所以只有显示器这个设备会持续触发）。
+        // 这与原 MonitorScreen 的语义一致：原代码在 displayMode == false 时会继续往下走到
+        // editor.keyPressed(...)，而拆分后这里曾无条件返回 true，把按键吞掉了。
+        // When only the settings panel is open (not display mode), return null for anything the
+        // panel did not consume so the screen can forward it to the node-graph editor. The panel
+        // stays open after leaving display mode, which is why only the monitor misbehaved.
+        if (!active) return null;
         // ESC cancels an in-progress layer drag
         if (key == 256 && layerDragState == LayerDragState.DRAGGING) {
             resetLayerDragState();
@@ -252,7 +261,10 @@ public final class MonitorDisplayEditor {
         if (showSettings) {
             for (var f : settingFields) if (f.isFocused()) return f.charTyped(ch, mod);
             for (var f : hudSettingFields) if (f.isFocused()) return f.charTyped(ch, mod);
-            return false;
+            // 面板开着但没字段聚焦：显示模式下字符不外泄，否则交还屏幕给节点图输入框。
+            // Panel open with no focused field: swallow in display mode, otherwise hand the
+            // character back to the screen so node-graph edit boxes receive it.
+            if (active) return false;
         }
         if (editingS && (Character.isDigit(ch) || ch == '.' || ch == '-')) {
             if (editSBuf.length() < 8) editSBuf += ch; return true;

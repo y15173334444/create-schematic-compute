@@ -339,8 +339,14 @@ public class MonitorScreen extends AbstractGraphScreen implements MonitorDisplay
 
     @Override public boolean charTyped(char ch, int mod) {
         if (editor.colorPicker.isVisible()) return editor.colorPicker.charTyped(ch, mod);
-        if (displayEditor.active()) {
-            return displayEditor.handleCharTyped(ch, mod);
+        // 与 keyPressed 同一条件：显示模式**或**设置面板打开时，先让显示编辑器处理；
+        // 面板开着但没字段聚焦时它返回 false，字符再落到下面的节点图编辑区。
+        // Same condition as keyPressed: let the display editor try first while display mode is
+        // active OR the settings panel is open; when the panel has no focused field it returns
+        // false and the character falls through to the node-graph edit boxes below.
+        if (displayEditor.active() || displayEditor.settingsOpen()) {
+            boolean r = displayEditor.handleCharTyped(ch, mod);
+            if (r) return true;
         }
         return editor.charTyped(ch, mod) || super.charTyped(ch, mod);
     }
