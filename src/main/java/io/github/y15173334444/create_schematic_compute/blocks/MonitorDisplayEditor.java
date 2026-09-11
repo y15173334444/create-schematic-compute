@@ -1355,6 +1355,24 @@ public int getPresenceDraggedNodeId() { return draggedDisplayNode != null ? drag
             // Layer-panel scrollbar thumb press comes first (it used to sit in
             // MonitorScreen.mouseClicked's display branch, ahead of the row hit-test).
             if (handleLayerScrollbarPress(mx, my)) return true;
+            // 图层面板行命中 + 拖拽发起（同样原在屏幕侧显示分支里、滚动条之后）。拆分时此
+            // 调用点被整块遗漏，handleLayerPanelClick 沦为无调用死方法：图层面板行点不了
+            // （选中失效）也拖不动（PRESSED 状态永远不会置位）。按原始顺序补回到这里。
+            // Layer-panel row hit + drag initiation (also used to sit in the screen's display
+            // branch, right after the scrollbar press). The split dropped this call site
+            // entirely, leaving handleLayerPanelClick dead: rows could neither be selected
+            // (click) nor dragged (PRESSED was never set). Restored here in the original order.
+            int clickedLayerIdx = handleLayerPanelClick(mx, my);
+            if (clickedLayerIdx >= 0) {
+                // Initiate potential drag
+                layerDragState = LayerDragState.PRESSED;
+                layerDragNode = selectedDisplayNode;
+                layerDragOrigIndex = clickedLayerIdx;
+                layerDropIndex = clickedLayerIdx;
+                layerDragStartMy = my;
+                layerDragPressTime = System.currentTimeMillis();
+                return true;
+            }
             var da = computeDisplayArea();
             int tby = GraphEditor.TOP_BAR_H + 2, tbh = MONITOR_TOOLBAR_H;
             // < Graph
