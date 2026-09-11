@@ -192,9 +192,14 @@ public final class SableReflection {
 
             SchematicCompute.LOGGER.info("SableReflection: pose/vec/quat initialized OK");
         } catch (Exception e) {
-            // 以下可选组件也不能用了，直接返回
-            // Optional parts below also won't work, so stop here
-            SchematicCompute.LOGGER.warn("SableReflection: core init failed — {}", e.toString());
+            // 第二阶段失败：pose/vec/quat 反射不可用，位姿访问器会保持 null。
+            // 核心仍然是 available 的 —— 所以这里的文案不能写成 core init failed，
+            // 否则排查时会被误导成「Sable 整个没起来」。异常文本本身已含缺失的类名。
+            // Phase 2 failed: pose/vec/quat reflection is unavailable and the pose
+            // accessors stay null. The core is STILL available, so this message must not
+            // claim a core failure — that misleads anyone reading the log. The exception
+            // text already names the missing class.
+            SchematicCompute.LOGGER.warn("SableReflection: pose/vec/quat init failed (pose accessors stay null) — {}", e.toString());
             return;
         }
 
