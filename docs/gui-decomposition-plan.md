@@ -395,6 +395,27 @@ final，构造注入 Host）。屏幕保留 tab 列、共享布局与输入分�
 
 ### 步骤 5 · `NodeRenderer` 按渲染品类拆分（**保门面**）
 
+#### ✅ 实施记录（2026-09-11，三刀全部落地；门面零改动——17 个引用文件的调用点一行未变）
+
+- **第一刀 · 添加节点菜单**（`669b47a`）：`blocks/NodeAddMenu.java`（331 行）——分类列表 /
+  搜索框 / 滚动条 / 双列开关及全部菜单状态。NodeRenderer 保留全部门面方法委托（渲染 /
+  handleCategoryClick / scroll / appendMenuSearch 等），调用方零改动；主题色仍取 NodeRenderer
+  包级访问器（色板不随本刀搬移）。
+- **第二刀 · 注释节点**（`ac1546c`）：`blocks/NodeCommentRenderer.java`（343 行）——
+  renderCommentNodes / drawCommentNode / markdown 文本管线（getEditStateText /
+  countWrappedLinesLocal / plainText / renderMarkdownLine / inlineMarkdown）。编辑态文本与
+  展开集合镜像字段仅渲染路径内部使用，随实现搬入；`isSelectedById` / `isPrimaryById` 放宽为
+  包级静态（两个渲染器共用一份来源）。
+- **第三刀 · 连线**（`6231003`）：`blocks/NodeWireRenderer.java`（115 行）——renderConnections
+  （视口裁剪 + BUS 引脚动态定位）/ renderDraggingWire / 逐像素批跑的 bezier。
+- **色板与主题未搬**：硬约束「对外签名与静态色访问器一律不变」意味着 `_c` 数组与全部访问器
+  必须留在 NodeRenderer——主题管理本就是它的对外职责，本步不拆（风险登记处也标注波及最广）。
+- **验证**：三刀各自 compileJava + test（393 绿）；实机回归待执行——清单：添加节点菜单
+  （分类折叠 / 搜索 / 双列开关 / 滚动条拖拽 / 点选生成）、注释节点（编辑 / markdown / 滚动 /
+  手柄 / 多人锁边框）、连线渲染（普通 / BUS / 拖拽悬线）。
+
+#### 原始计划（存档）
+
 - **现状**：1,500 行，**235 处引用 / 15 个文件**，全仓被引用最广。品类：注释节点渲染、
   添加节点菜单（`renderAddNodeMenu` + 搜索框 + 滚动 + 分类）、连线/引脚渲染、调色板与主题
   （`PBG` / `PBR` / `ACC` / `PINS` / `PHT` / `CSB` 等被 15 个文件直接读的静态色 + `_NUM_COLORS`）。

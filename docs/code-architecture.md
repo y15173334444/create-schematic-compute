@@ -326,9 +326,12 @@ joiners have no pending ops and always load the authoritative graph.
 - BUS 冲突检测 / BUS conflict detection (`reevaluateBusConflicts`)
 - 调试工具交互 / Debug tool interaction (控制点拖拽、探针冻结 / control point drag, probe freeze)
 
-### NodeRenderer
-节点图渲染器：`renderNodes()`、`drawNode()`、添加节点菜单（多列 + 搜索框 + scissor 裁剪 + 高度封顶）、`SpatialIndex` 命中过滤、A/B/C 遮挡排序。
-/ Graph renderer: nodes, add-node menu (multi-column + search + scissor + height cap), spatial culling, occlusion ordering.
+### NodeRenderer（门面 + 主节点绘制；步骤 5 已拆出三件，见下）
+节点图渲染器：`renderNodes()` / `drawNode()`、调试图表、`SpatialIndex` 命中过滤、A/B/C 遮挡排序，以及**主题色板单一来源**（`PBG`/`CSB`/`ACC` 等静态访问器 + 配置持久化——对外签名不变，17 个引用文件零改动）。添加节点菜单、注释节点、连线三件已拆至下列同类（门面委托）。
+/ Graph renderer: `renderNodes()` / `drawNode()`, debug charts, spatial culling, occlusion ordering, and the **single-source theme palette** (the `PBG`/`CSB`/`ACC` static accessors + config persistence — signatures unchanged, zero caller changes). The add-node menu, comment nodes and wires are split into the classes below behind facade delegates.
+- `NodeAddMenu` — 添加节点菜单（分类列表 / 搜索框 / 滚动条 / 双列开关，状态随类）/ The add-node menu (categories / search / scrollbar / two-column toggle, state moves with it)
+- `NodeCommentRenderer` — 注释节点（便签样式 / markdown 正文 / 缩放手柄 / 多人锁描边）/ Comment nodes (sticky-note style, markdown body, resize handle, multiplayer lock outline)
+- `NodeWireRenderer` — 连线（贝塞尔 + 视口裁剪 + BUS 引脚动态定位 + 拖拽悬线）/ Wires (bezier + viewport culling + dynamic BUS pins + the dragging wire)
 
 ### 设置界面 tab 拆分 / Settings-screen tab split (v1.2.5.1, docs/gui-decomposition-plan.md 步骤 3)
 
