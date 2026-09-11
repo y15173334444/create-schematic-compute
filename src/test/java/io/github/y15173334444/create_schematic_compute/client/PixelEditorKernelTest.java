@@ -226,6 +226,13 @@ class PixelEditorKernelTest {
         assertEquals(3, n.imageSequenceFrames.size());
         assertEquals(2, fi);                                // 3 超出恢复后的 3 帧 → 钳到 2
 
+        // 帧顺序还原（旧实现 add(0, ...) 前插 + 逆序入栈 = 双重颠倒，帧被镜像）
+        // Frame order restored (the old front-insert plus the reverse push mirrored the list).
+        assertEquals(0xFF000001, n.imageSequenceFrames.get(0)[0]);
+        assertEquals(0xFF000002, n.imageSequenceFrames.get(1)[0]);
+        assertEquals(0xFF000003, n.imageSequenceFrames.get(2)[0]);
+        assertEquals(0xFF000003, n.imagePixels[0]);         // pixels = frames.get(2)
+
         fi = k.performRedo(n, fi);
         assertEquals(4, n.imageSequenceFrames.size());
         assertEquals(2, fi);            // frameIndex 不自动跳到末帧（原实现语义）/ frameIndex is not auto-advanced (as in the original)

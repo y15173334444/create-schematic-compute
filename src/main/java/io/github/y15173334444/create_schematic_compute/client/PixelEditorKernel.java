@@ -207,7 +207,12 @@ public final class PixelEditorKernel {
             List<int[]> frames = ensureFrames(node);
             frames.clear();
             for (int i = 0; i < count; i++) {
-                frames.add(0, undoStack.remove(undoStack.size() - 1));
+                // 快照按逆序入栈（pushFramesUndo 先 push 末帧），弹出顺序即原始顺序 → 追加还原。
+                // 旧实现 add(0, ...) 前插 + 逆序入栈 = 双重颠倒，撤销后帧列表被反转（实测 bug）。
+                // Snapshots are pushed last-frame-first, so pop order IS the original order ->
+                // append restores it. The old add(0, ...) front-insert plus the reverse push
+                // double-reversed the list (frames came back mirrored — in-game bug).
+                frames.add(undoStack.remove(undoStack.size() - 1));
                 undoMeta.remove(undoMeta.size() - 1);
             }
             if (frameIndex >= frames.size()) frameIndex = frames.size() - 1;
@@ -245,7 +250,10 @@ public final class PixelEditorKernel {
             List<int[]> frames = ensureFrames(node);
             frames.clear();
             for (int i = 0; i < count; i++) {
-                frames.add(0, redoStack.remove(redoStack.size() - 1));
+                // 同 performUndo：弹出顺序即原始顺序，追加还原（旧实现前插导致反转）。
+                // Same as performUndo: pop order is the original order, so append (the old
+                // front-insert mirrored the list).
+                frames.add(redoStack.remove(redoStack.size() - 1));
                 redoMeta.remove(redoMeta.size() - 1);
             }
             if (frameIndex >= frames.size()) frameIndex = frames.size() - 1;
@@ -290,7 +298,10 @@ public final class PixelEditorKernel {
             List<int[]> frames = node.imageSequenceFrames;
             frames.clear();
             for (int i = 0; i < count; i++) {
-                frames.add(0, popFromStack.remove(popFromStack.size() - 1));
+                // 同 performUndo：弹出顺序即原始顺序，追加还原（旧实现前插导致反转）。
+                // Same as performUndo: pop order is the original order, so append (the old
+                // front-insert mirrored the list).
+                frames.add(popFromStack.remove(popFromStack.size() - 1));
                 popFromMeta.remove(popFromMeta.size() - 1);
             }
             if (frameIndex >= frames.size()) frameIndex = frames.size() - 1;
