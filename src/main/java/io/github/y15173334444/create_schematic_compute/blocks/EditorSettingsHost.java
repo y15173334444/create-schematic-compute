@@ -45,22 +45,6 @@ interface EditorSettingsHost {
         int colorsMaxScroll();
         int colorsRowRight(int cx, int contentW);
         int[] colorsScrollbarThumb(int cx, int contentW);
-        /** 键位列表状态。 */
-        int keysScroll();
-        void setKeysScroll(int v);
-        boolean keysScrollbarDrag();
-        void setKeysScrollbarDrag(boolean v);
-        float keysScrollbarDragStartY();
-        int keysScrollbarDragStartOff();
-        void setKeysScrollbarDragStart(float y, int off);
-        void applyKeysScrollbarDrag(double my);
-        int keybindTarget();
-        void setKeybindTarget(int v);
-        int latchedMods();
-        void setLatchedMods(int v);
-        String rebindConflict();
-        void setRebindConflict(String v);
-        java.util.ArrayList<EditorKeys.Step> pendingSeq();
         void collapseExpanded();
         /** 内容区起始 y（渲染与命中共用）。 */
         int cy();

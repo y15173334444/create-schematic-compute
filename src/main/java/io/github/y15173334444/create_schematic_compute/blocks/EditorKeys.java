@@ -180,6 +180,34 @@ public final class EditorKeys {
         return sb.toString();
     }
 
+    /** 序列的可读文本（Ctrl+K → D；空 = —）。 / Readable sequence text (Ctrl+K → D; empty = —). */
+    public static String seqText(java.util.List<Step> seq) {
+        if (seq.isEmpty()) return "—";
+        var sb = new StringBuilder();
+        for (var st : seq) {
+            if (sb.length() > 0) sb.append(" → ");
+            sb.append(modsText(st.mods())).append(keyName(st.key()));
+        }
+        return sb.toString();
+    }
+
+    /** GLFW 键码的可读名（设置界面显示用，覆盖虚拟键盘全部键帽）。 / Readable name for a GLFW keycode (settings UI; covers every virtual cap). */
+    public static String keyName(int k) {
+        if (k >= 65 && k <= 90) return String.valueOf((char) ('A' + (k - 65)));
+        if (k >= 48 && k <= 57) return String.valueOf((char) ('0' + (k - 48)));
+        return switch (k) {
+            case 256 -> "Esc"; case 257 -> "Enter"; case 258 -> "Tab"; case 259 -> "Backspace";
+            case 260 -> "Ins"; case 261 -> "Del"; case 263 -> "Left"; case 262 -> "Right";
+            case 265 -> "Up"; case 264 -> "Down"; case 266 -> "PgUp"; case 267 -> "PgDn";
+            case 268 -> "Home"; case 269 -> "End";
+            case 32 -> "Space"; case 280 -> "Caps";
+            case 39 -> "'"; case 44 -> ","; case 45 -> "-"; case 46 -> "."; case 47 -> "/";
+            case 59 -> ";"; case 61 -> "="; case 91 -> "["; case 92 -> "\\"; case 93 -> "]"; case 96 -> "`";
+            case 340, 344 -> "Shift"; case 341, 345 -> "Ctrl"; case 342, 346 -> "Alt";
+            default -> "Key " + k;
+        };
+    }
+
     // ── 序列匹配引擎 / sequence matcher ─────────────────────────────────
 
     /** 喂入一次键盘事件（仅在画布交互态调用 —— 输入框聚焦时不要喂）。
