@@ -326,6 +326,27 @@ public class NodeRenderer {
 
     /** A=1: Render complete COMMENT nodes (background, border, text, handles) behind connections.
      *  Comment nodes act as container mats — everything renders at A=1, sorted by B. */
+    /** 某个节点是否在选中集里（**按 id** 判定）。
+     *  历史上这里用对象相等（selectedNodes.contains(n)），一旦整图同步/重载替换了节点实例，
+     *  旧实例就再也匹配不上 → 高亮框消失、下一个 op 又回弹（用户实测）。按 id 判定与
+     *  GraphNode.id 的既有语义一致，且不依赖实例存活。
+     *  Whether a node is selected, matched **by id**. This used to be object identity: a
+     *  whole-graph sync or reload replaced the node instances, the old instances never matched
+     *  again and the highlight vanished (then bounced back on the next op). Id matching is
+     *  stable across instance replacement and matches how the rest of the code keys nodes. */
+    private static boolean isSelectedById(java.util.Set<GraphNode> selectedNodes, GraphNode n) {
+        if (selectedNodes == null || selectedNodes.isEmpty()) return false;
+        for (var sn : selectedNodes) {
+            if (sn != null && sn.id == n.id) return true;
+        }
+        return false;
+    }
+
+    /** 主选中节点判定（**按 id**）。 / Primary-selection test, matched by id. */
+    private static boolean isPrimaryById(GraphNode primaryNode, GraphNode n) {
+        return primaryNode != null && primaryNode.id == n.id;
+    }
+
     public void renderCommentNodes(GuiGraphics g, List<GraphNode> nodes, Set<GraphNode> selectedNodes,
                                     GraphNode primaryNode, java.util.Set<Integer> editNodeIds,
                                     java.util.Map<Integer, io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState> editStates,
@@ -343,7 +364,7 @@ public class NodeRenderer {
             float sh = n.commentHeight * zoom;
             if (sx + sw < -margin || sx > w + margin || sy + sh < -margin || sy > h + margin)
                 continue;
-            drawCommentNode(g, n, selectedNodes.contains(n), n == primaryNode,
+            drawCommentNode(g, n, isSelectedById(selectedNodes, n), isPrimaryById(primaryNode, n),
                 expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, false,
                 lockedNodes != null ? lockedNodes.get(n.id) : null);
         }
@@ -367,7 +388,7 @@ public class NodeRenderer {
                 nh += io.github.y15173334444.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom) * zoom;
             if (sx + sw < -margin || sx > w + margin || sy + nh < -margin || sy > h + margin)
                 continue;
-            drawNode(g, n, selectedNodes.contains(n), n == primaryNode, expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
+            drawNode(g, n, isSelectedById(selectedNodes, n), isPrimaryById(primaryNode, n), expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
         }
     }
 

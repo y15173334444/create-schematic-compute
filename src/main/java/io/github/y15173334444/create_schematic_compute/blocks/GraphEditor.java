@@ -1193,40 +1193,6 @@ public class GraphEditor {
         enterActions.put(eb, action);
     }
 
-    /** 把选中集与主选中节点重映射到**当前图实例**的节点对象。
-     *  选中判定在上层用对象相等（该行为属于既有渲染契约，改动面大），
-     *  所以在这里保证集合里始终是活实例：否则整图同步/重载替换节点实例后，
-     *  高亮会消失（且后续操作作用在孤儿节点上）。按 id 匹配，仅在对象不同时重建集合。
-     *  Remap the selection onto the live node objects of the current graph. Highlight
-     *  matching is by object identity upstream (existing renderer contract), so keep the
-     *  sets holding live instances: a whole-graph sync or reload otherwise replaced the
-     *  instances and the highlight vanished (and later ops hit orphan nodes). Matching is
-     *  by id; the set is rebuilt only when an object actually changed. */
-    private void remapSelectionToLiveGraph() {
-        if (selectedNode == null && selectedNodes.isEmpty()) return;
-        var g = getGraph();
-        if (g == null) return;
-        boolean nodeStale = selectedNode != null && (g.findNode(selectedNode.id) != selectedNode);
-        boolean anyStale = false;
-        for (var sn : selectedNodes) {
-            if (g.findNode(sn.id) != sn) { anyStale = true; break; }
-        }
-        if (!nodeStale && !anyStale) return;
-        var live = new java.util.HashSet<GraphNode>();
-        for (var sn : selectedNodes) {
-            var ln = g.findNode(sn.id);
-            if (ln != null) live.add(ln);
-        }
-        if (nodeStale) {
-            var ln = g.findNode(selectedNode.id);
-            if (ln != null) live.add(ln);
-        }
-        if (selectedNode == null && !live.isEmpty()) selectedNode = live.iterator().next();
-        if (!live.contains(selectedNode)) selectedNode = live.isEmpty() ? null : live.iterator().next();
-        selectedNodes.clear();
-        selectedNodes.addAll(live);
-    }
-
     /** 展开节点的**结构指纹**：任何会改变输入框集合或含义的东西都要进指纹；
      *  漏掉一项，那种变化就再也不会触发重建（反过来，无关变化不该进指纹，否则又会误重建）。
      *  Structural fingerprint of an expanded node: everything that changes the set or the
@@ -2324,13 +2290,6 @@ public class GraphEditor {
             }
         }
 
-        // 渲染前把选中重映射到当前图实例：NodeRenderer 用「对象相等」判定高亮
-        // （selectedNodes.contains(n) / n == primaryNode），一旦图刷新替换了节点实例，
-        // 旧实例就再也匹配不上 —— 表现为高亮框消失、下一个 op 又替换回来时回弹。
-        // Remap the selection onto the live graph instances before rendering: the renderer
-        // decides highlights by object identity, so a refreshed graph (new node instances)
-        // silently loses the highlight until the next op swaps the instances back.
-        remapSelectionToLiveGraph();
 
         // ── A=1: Complete COMMENT nodes (bg, border, text) — container mats behind connections ──
         Map<Integer, Boolean> flipflopStates = isInSubGraph()
