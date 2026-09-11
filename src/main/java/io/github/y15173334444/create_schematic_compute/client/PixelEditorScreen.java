@@ -21,7 +21,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -75,7 +74,6 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
     private static final int FS_BTN = 16;                      // 序列按钮高（紧凑）/ sequence button height (compact)
     private static final int THUMB = 36, THUMB_GAP = 6;        // 缩略图高 / 间距（宽按宽高比动态、贴底紧凑）/ thumbnail height & gap (dynamic width, flush bottom)
     private static final float MIN_ZOOM = 0.4f, MAX_ZOOM = 8f;
-    private static final int MAX_UNDO = 100;
     /** 临时隐藏左面板的笔刷大小/透明度/当前色，工具栏只放工具（改回 true 即恢复）。/
      *  Temporarily hide the brush-size/opacity/current-color controls in the left panel so the
      *  toolbar shows only the tools; flip back to true to restore them. */
@@ -133,11 +131,10 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
     private int shapeStartX = -1, shapeStartY = -1;
     private int shapeCurX = -1, shapeCurY = -1;
 
-    // ── 像素撤销/重做（meta：-1=像素数组，N≥0=帧数标记，-2=尺寸标记）/ pixel undo/redo ──
-    private final List<int[]> undoStack = new ArrayList<>();
-    private final List<Integer> undoMeta = new ArrayList<>();
-    private final List<int[]> redoStack = new ArrayList<>();
-    private final List<Integer> redoMeta = new ArrayList<>();
+    // ── 像素内核（绘制算法 + 撤销栈，已拆出，docs/gui-decomposition-plan.md 步骤 4）──
+    //    Pixel kernel (painting algorithms + undo stacks, split out). View state (zoom/pan/
+    //    tool/brush size/opacity) stays here and is passed in per call.
+    private final PixelEditorKernel kernel = new PixelEditorKernel();
     private boolean strokeUndoCaptured = false;
 
     // ── 取色器 / color picker (docked into the right band; collapsed by default) ──
@@ -1090,7 +1087,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         switch (tool) {
             case BRUSH, ERASER -> {
                 captureStrokeUndo();
-                paintBrush(cx, cy, erasing ? 0x00000000 : selectedColor);
+                PixelEditorKernel.paintBrush(node, cx, cy, erasing ? 0x00000000 : selectedColor, brushSize, brushOpacity);
                 if (!erasing) RecentColors.addRecent(selectedColor);
                 paintingStroke = true;
                 bump();
@@ -1098,7 +1095,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
             case FILL -> {
                 if (btn == 1) return;
                 captureStrokeUndo();
-                floodFill(cx, cy, erasing ? 0x00000000 : selectedColor);
+                PixelEditorKernel.floodFill(node, cx, cy, erasing ? 0x00000000 : selectedColor, brushOpacity);
                 bump();
             }
             case EYEDROPPER -> {
@@ -1177,7 +1174,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
             if (c[0] >= 0) {
                 boolean erasing = (btn == 1) || tool == Tool.ERASER;
                 captureStrokeUndo();
-                paintBrush(c[0], c[1], erasing ? 0x00000000 : selectedColor);
+                PixelEditorKernel.paintBrush(node, c[0], c[1], erasing ? 0x00000000 : selectedColor, brushSize, brushOpacity);
                 if (!erasing) RecentColors.addRecent(selectedColor);
                 bump();
             }
@@ -1193,7 +1190,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
             if (c[0] >= 0) {
                 boolean erasing = tool == Tool.ERASER;
                 captureStrokeUndo();
-                paintBrush(c[0], c[1], erasing ? 0x00000000 : selectedColor);
+                PixelEditorKernel.paintBrush(node, c[0], c[1], erasing ? 0x00000000 : selectedColor, brushSize, brushOpacity);
                 if (!erasing) RecentColors.addRecent(selectedColor);
                 bump();
             }
@@ -1226,8 +1223,8 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         if (shapeInProgress && (tool == Tool.LINE || tool == Tool.RECT)) {
             captureStrokeUndo();
             int color = selectedColor;
-            if (tool == Tool.LINE) drawLineCells(shapeStartX, shapeStartY, shapeCurX, shapeCurY, color);
-            else drawRectCells(shapeStartX, shapeStartY, shapeCurX, shapeCurY, color);
+            if (tool == Tool.LINE) PixelEditorKernel.drawLineCells(node, shapeStartX, shapeStartY, shapeCurX, shapeCurY, color, brushSize, brushOpacity);
+            else PixelEditorKernel.drawRectCells(node, shapeStartX, shapeStartY, shapeCurX, shapeCurY, color, brushSize, brushOpacity);
             RecentColors.addRecent(color);
             shapeInProgress = false;
             bump();
@@ -1317,83 +1314,6 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         return false;
     }
 
-    // ══════════════ 绘制工具 / painting tools ══════════════
-
-    private void paintBrush(int cx, int cy, int color) {
-        int[] px = node.imagePixels;
-        if (px == null) return;
-        int imgW = node.imageWidth, imgH = node.imageHeight;
-        int half = brushSize / 2;
-        boolean full = brushOpacity >= 0.999f;
-        for (int dy = -half; dy < brushSize - half; dy++)
-            for (int dx = -half; dx < brushSize - half; dx++) {
-                int x = cx + dx, y = cy + dy;
-                if (x >= 0 && x < imgW && y >= 0 && y < imgH) {
-                    int idx = y * imgW + x;
-                    px[idx] = full ? color : blendAlpha(px[idx], color, brushOpacity);
-                }
-            }
-    }
-
-    /** alpha-over 混合：out = src·o + dst·(1−o)，各通道含 alpha（透明度滑杆用）。
-     *  Alpha-over blend per channel (incl. alpha) for the opacity slider. */
-    private static int blendAlpha(int dst, int src, float o) {
-        int sa = (src >>> 24) & 0xFF, sr = (src >>> 16) & 0xFF, sg = (src >>> 8) & 0xFF, sb = src & 0xFF;
-        int da = (dst >>> 24) & 0xFF, dr = (dst >>> 16) & 0xFF, dg = (dst >>> 8) & 0xFF, db = dst & 0xFF;
-        int a = Math.round(sa * o + da * (1 - o));
-        int r = Math.round(sr * o + dr * (1 - o));
-        int g = Math.round(sg * o + dg * (1 - o));
-        int b = Math.round(sb * o + db * (1 - o));
-        return (a << 24) | (r << 16) | (g << 8) | b;
-    }
-
-    private void floodFill(int sx, int sy, int color) {
-        int[] px = node.imagePixels;
-        if (px == null) return;
-        int imgW = node.imageWidth, imgH = node.imageHeight;
-        int target = px[sy * imgW + sx];
-        if (target == color) return;
-        boolean full = brushOpacity >= 0.999f;
-        // 透明度过小（含 0）时混合结果可能舍入回原色：填充无视觉变化且会无限入栈，直接跳过
-        // Tiny/zero opacity can round the blend back to the target color: the fill would be a
-        // no-op yet keep re-pushing neighbours forever — bail out instead.
-        if (!full && blendAlpha(target, color, brushOpacity) == target) return;
-        ArrayDeque<int[]> stack = new ArrayDeque<>();
-        stack.push(new int[]{sx, sy});
-        while (!stack.isEmpty()) {
-            int[] p = stack.pop();
-            int x = p[0], y = p[1];
-            if (x < 0 || x >= imgW || y < 0 || y >= imgH) continue;
-            int idx = y * imgW + x;
-            if (px[idx] != target) continue;
-            px[idx] = full ? color : blendAlpha(px[idx], color, brushOpacity);
-            stack.push(new int[]{x + 1, y});
-            stack.push(new int[]{x - 1, y});
-            stack.push(new int[]{x, y + 1});
-            stack.push(new int[]{x, y - 1});
-        }
-    }
-
-    private void drawLineCells(int x0, int y0, int x1, int y1, int color) {
-        int dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
-        int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-        int err = dx - dy;
-        while (true) {
-            paintBrush(x0, y0, color);
-            if (x0 == x1 && y0 == y1) break;
-            int e2 = 2 * err;
-            if (e2 > -dy) { err -= dy; x0 += sx; }
-            if (e2 < dx) { err += dx; y0 += sy; }
-        }
-    }
-
-    private void drawRectCells(int x0, int y0, int x1, int y1, int color) {
-        int minX = Math.min(x0, x1), maxX = Math.max(x0, x1);
-        int minY = Math.min(y0, y1), maxY = Math.max(y0, y1);
-        for (int x = minX; x <= maxX; x++) { paintBrush(x, minY, color); paintBrush(x, maxY, color); }
-        for (int y = minY; y <= maxY; y++) { paintBrush(minX, y, color); paintBrush(maxX, y, color); }
-    }
-
     // ══════════════ 帧操作 / frame ops ══════════════
 
     private void switchFrame(int newIndex) {
@@ -1411,8 +1331,8 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     private void addFrame(boolean blank) {
-        List<int[]> frames = ensureFrames();
-        pushFramesUndo();
+        List<int[]> frames = PixelEditorKernel.ensureFrames(node);
+        kernel.pushFramesUndo(node);
         int[] f;
         if (blank) {
             f = new int[node.imageWidth * node.imageHeight];
@@ -1429,9 +1349,9 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     private void deleteFrame() {
-        List<int[]> frames = ensureFrames();
+        List<int[]> frames = PixelEditorKernel.ensureFrames(node);
         if (frames.isEmpty()) return;
-        pushFramesUndo();
+        kernel.pushFramesUndo(node);
         int removed = frameIndex;
         if (frames.size() > 1) {
             frames.remove(removed);
@@ -1477,7 +1397,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         int to = frameDropIndex;
         if (to > from) to--;
         if (from == to) return;
-        pushFramesUndo();
+        kernel.pushFramesUndo(node);
         int[] f = frames.remove(from);
         if (to < 0) to = 0;
         if (to > frames.size()) to = frames.size();
@@ -1494,16 +1414,6 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         frameDropIndex = -1;
         frameDragStartX = 0;
         frameDragPressTime = 0;
-    }
-
-    private List<int[]> ensureFrames() {
-        if (node.imageSequenceFrames == null) {
-            node.imageSequenceFrames = new ArrayList<>();
-            int[] f = new int[node.imageWidth * node.imageHeight];
-            java.util.Arrays.fill(f, 0x00000000);
-            node.imageSequenceFrames.add(f);
-        }
-        return node.imageSequenceFrames;
     }
 
     // ══════════════ 画布尺寸 / canvas size ══════════════
@@ -1526,7 +1436,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         if (be == null) return;
         int oldW = node.imageWidth, oldH = node.imageHeight;
         if (newW == oldW && newH == oldH) return;
-        pushResizeUndo(oldW, oldH);
+        kernel.pushResizeUndo(node, oldW, oldH);
         GraphNode.resizeImagePixels(node, newW, newH);
         if (node.type == NodeType.IMAGE_SEQUENCE && node.imageSequenceFrames != null
             && frameIndex >= 0 && frameIndex < node.imageSequenceFrames.size())
@@ -1545,162 +1455,29 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         sendOp(GraphOp.setImagePixels(blockPos, -1, node.id, frameIdx, data, getPlayerUUID()));
     }
 
-    // ══════════════ 撤销/重做 / undo & redo ══════════════
+    // ══════════════ 撤销/重做 / undo & redo（实现 Host 接口；状态机在 PixelEditorKernel）══════════════
 
-    /** 捕获一次笔划撤销快照（整帧克隆，一次笔划一条）。 / Capture a stroke undo snapshot. */
+    /** 捕获一次笔划撤销快照（整帧克隆，一次笔划一条；幂等标志属笔划生命周期，随 mouseReleased 复位）。
+     *  Capture a stroke undo snapshot (full-frame clone, one per stroke; the idempotence flag belongs
+     *  to the stroke lifecycle and resets in mouseReleased). */
     private void captureStrokeUndo() {
         if (strokeUndoCaptured) return;
-        if (undoStack.size() < MAX_UNDO) {
-            undoStack.add(node.imagePixels.clone());
-            undoMeta.add(-1);
-            redoStack.clear();
-            redoMeta.clear();
-        }
+        kernel.captureStrokeUndo(node.imagePixels);
         strokeUndoCaptured = true;
     }
 
-    /** 帧数变更（新建/删除/重排）的撤销快照：全部帧 + 帧数标记。 / Frames-list undo snapshot. */
-    private void pushFramesUndo() {
-        List<int[]> frames = ensureFrames();
-        int n = frames.size();
-        if (undoStack.size() + n + 1 > MAX_UNDO) return;
-        for (int i = n - 1; i >= 0; i--) {
-            undoStack.add(frames.get(i).clone());
-            undoMeta.add(-1);
-        }
-        undoStack.add(new int[]{n});
-        undoMeta.add(n);
-        redoStack.clear();
-        redoMeta.clear();
-    }
-
-    /** 尺寸变更撤销快照（meta=-2 标记 {oldW,oldH} + 全部帧）。 / Resize undo snapshot. */
-    private void pushResizeUndo(int oldW, int oldH) {
-        int count = 1;
-        if (node.type == NodeType.IMAGE_SEQUENCE && node.imageSequenceFrames != null) {
-            count = node.imageSequenceFrames.size();
-        } else if (node.imagePixels == null) {
-            count = 0;
-        }
-        if (undoStack.size() + count + 1 > MAX_UNDO) return;
-        for (int i = count - 1; i >= 0; i--) {
-            int[] f = node.type == NodeType.IMAGE_SEQUENCE
-                ? node.imageSequenceFrames.get(i) : node.imagePixels;
-            undoStack.add(f.clone());
-            undoMeta.add(-1);
-        }
-        undoStack.add(new int[]{oldW, oldH});
-        undoMeta.add(-2);
-        redoStack.clear();
-        redoMeta.clear();
-    }
-
-    /** 像素级撤销（实现 Host.performUndo，供 Host 接口/顶栏按钮调用）。
-     *  Pixel-level undo (implements Host.performUndo). */
+    /** 像素级撤销（实现 Host.performUndo，供 Host 接口/顶栏按钮调用；无操作时不 bump）。
+     *  Pixel-level undo (implements Host.performUndo; a no-op does not bump). */
     @Override public void performUndo() {
-        if (undoStack.isEmpty()) return;
-        int[] top = undoStack.remove(undoStack.size() - 1);
-        int meta = undoMeta.remove(undoMeta.size() - 1);
-        if (meta >= 0) {
-            int count = meta;
-            int curCount = node.imageSequenceFrames != null ? node.imageSequenceFrames.size() : 0;
-            for (int i = curCount - 1; i >= 0; i--) {
-                redoStack.add(node.imageSequenceFrames.get(i).clone());
-                redoMeta.add(-1);
-            }
-            redoStack.add(new int[]{curCount});
-            redoMeta.add(curCount);
-            List<int[]> frames = ensureFrames();
-            frames.clear();
-            for (int i = 0; i < count; i++) {
-                frames.add(0, undoStack.remove(undoStack.size() - 1));
-                undoMeta.remove(undoMeta.size() - 1);
-            }
-            if (frameIndex >= frames.size()) frameIndex = frames.size() - 1;
-            if (frameIndex >= 0 && !frames.isEmpty()) node.imagePixels = frames.get(frameIndex);
-        } else if (meta == -2) {
-            applyResizeUndoRedo(top, redoStack, redoMeta, undoStack, undoMeta);
-        } else {
-            redoStack.add(node.imagePixels.clone());
-            redoMeta.add(-1);
-            node.imagePixels = top;
-            if (node.type == NodeType.IMAGE_SEQUENCE && node.imageSequenceFrames != null
-                && frameIndex >= 0 && frameIndex < node.imageSequenceFrames.size()) {
-                node.imageSequenceFrames.set(frameIndex, top);
-            }
-        }
+        if (!kernel.canUndo()) return;
+        frameIndex = kernel.performUndo(node, frameIndex);
         bump();
     }
 
     /** 像素级重做（实现 Host.performRedo）。 / Pixel-level redo (implements Host.performRedo). */
     @Override public void performRedo() {
-        if (redoStack.isEmpty()) return;
-        int[] top = redoStack.remove(redoStack.size() - 1);
-        int meta = redoMeta.remove(redoMeta.size() - 1);
-        if (meta >= 0) {
-            int count = meta;
-            int curCount = node.imageSequenceFrames != null ? node.imageSequenceFrames.size() : 0;
-            for (int i = curCount - 1; i >= 0; i--) {
-                undoStack.add(node.imageSequenceFrames.get(i).clone());
-                undoMeta.add(-1);
-            }
-            undoStack.add(new int[]{curCount});
-            undoMeta.add(curCount);
-            List<int[]> frames = ensureFrames();
-            frames.clear();
-            for (int i = 0; i < count; i++) {
-                frames.add(0, redoStack.remove(redoStack.size() - 1));
-                redoMeta.remove(redoMeta.size() - 1);
-            }
-            if (frameIndex >= frames.size()) frameIndex = frames.size() - 1;
-            if (frameIndex >= 0 && !frames.isEmpty()) node.imagePixels = frames.get(frameIndex);
-        } else if (meta == -2) {
-            applyResizeUndoRedo(top, undoStack, undoMeta, redoStack, redoMeta);
-        } else {
-            undoStack.add(node.imagePixels.clone());
-            undoMeta.add(-1);
-            node.imagePixels = top;
-            if (node.type == NodeType.IMAGE_SEQUENCE && node.imageSequenceFrames != null
-                && frameIndex >= 0 && frameIndex < node.imageSequenceFrames.size()) {
-                node.imageSequenceFrames.set(frameIndex, node.imagePixels);
-            }
-        }
+        if (!kernel.canRedo()) return;
+        frameIndex = kernel.performRedo(node, frameIndex);
         bump();
-    }
-
-    /** 尺寸标记（meta=-2）恢复：当前状态存对侧栈，从本侧栈恢复旧尺寸与全部帧。
-     *  Resize marker restore: save current state to the opposite stack, restore old size + frames. */
-    private void applyResizeUndoRedo(int[] sizeMarker,
-                                     List<int[]> saveToStack, List<Integer> saveToMeta,
-                                     List<int[]> popFromStack, List<Integer> popFromMeta) {
-        int count = 1;
-        if (node.type == NodeType.IMAGE_SEQUENCE && node.imageSequenceFrames != null) {
-            count = node.imageSequenceFrames.size();
-        } else if (node.imagePixels == null) {
-            count = 0;
-        }
-        int curW = node.imageWidth, curH = node.imageHeight;
-        for (int i = count - 1; i >= 0; i--) {
-            int[] f = node.type == NodeType.IMAGE_SEQUENCE
-                ? node.imageSequenceFrames.get(i) : node.imagePixels;
-            saveToStack.add(f.clone());
-            saveToMeta.add(-1);
-        }
-        saveToStack.add(new int[]{curW, curH});
-        saveToMeta.add(-2);
-        node.imageWidth = sizeMarker[0]; node.imageHeight = sizeMarker[1];
-        if (node.type == NodeType.IMAGE_SEQUENCE && node.imageSequenceFrames != null) {
-            List<int[]> frames = node.imageSequenceFrames;
-            frames.clear();
-            for (int i = 0; i < count; i++) {
-                frames.add(0, popFromStack.remove(popFromStack.size() - 1));
-                popFromMeta.remove(popFromMeta.size() - 1);
-            }
-            if (frameIndex >= frames.size()) frameIndex = frames.size() - 1;
-            if (frameIndex >= 0 && frameIndex < frames.size()) node.imagePixels = frames.get(frameIndex);
-        } else if (count > 0) {
-            node.imagePixels = popFromStack.remove(popFromStack.size() - 1);
-            popFromMeta.remove(popFromMeta.size() - 1);
-        }
     }
 }
