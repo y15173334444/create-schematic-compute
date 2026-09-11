@@ -247,6 +247,53 @@ S/R 编辑项所需状态经 `selectedNode()` / `editingScale()` / `editScaleBuf
 
 ### 步骤 3 · `EditorSettingsScreen` 按 tab 拆分
 
+#### ✅ 实施记录 · 指南 tab（已完成 `e3cacdf`）
+
+`EditorSettingsScreen` 1204 → **1031 行**；新增 `EditorSettingsGuideTab.java`（242 行）与
+`EditorSettingsHost.java`（62 行，tab 视图的宿主接口）。
+
+| 变更 | 说明 |
+|------|------|
+| 搬入 tab 类 | `renderGuideTab` / `renderGuidePane` / `guideDescLines` / `guideListTop`·`guideListBot`·`guideVisibleRows`·`guideMaxScroll`·`guideRowRight`·`guidePaneW`·`paneX`·`paneTextW`·`paneBot` / `guideScrollbarThumb` / `applyGuideScrollbarDrag` / `guideCollapse` |
+| 状态随迁 | `guideScroll` / `guideTarget` / `guideDetailScroll` / `guideScrollbarDrag(StartY/StartOff)` 搬入 tab 类，父类经访问器读写 |
+| 父类保留 | tab 列、公共布局、输入分发（16 处改为 `guideTab.*` 转发）、`expanded`（三 tab 共享） |
+
+**两个必须记住的坑（已写进代码注释）**：
+
+1. **`Host` 不能写成嵌套接口** —— 实现方正是 `EditorSettingsScreen` 自身，嵌套声明构成
+   `javac: cyclic inheritance`；必须是**独立顶层接口** `EditorSettingsHost`。
+2. **`cy()` 由 `static` 变为实例方法**（Host 需要实例面），而 `keysListTop()` / `colorsListTop()`
+   这两个**静态**几何方法仍在调它 → 编译失败。处理：在这两处内联常量 `8` 并注释说明（行为不变）。
+
+另外父类的 `paletteX/Y/Scale/DoneY`、`tabColumnClick`、`collapseExpanded`、`beginAdjust`、
+`collapsePalette`、`rebindPicker`、`applyKeysScrollbarDrag`、`applyColorScrollbarDrag`
+已提升为 `public @Override`（实现 Host 所需）。
+
+#### 🔶 待办 · 颜色 tab（方案已定，未实施，**新行号**）
+
+- **渲染簇**：`renderColorsTab`（498–583，逐字搬迁）
+- **几何**：`colorsListTop/Bot/VisibleRows/MaxScroll/RowRight`（974–991）+ `colorsScrollbarThumb` + `applyColorScrollbarDrag`（993–1002）
+- **调色板逻辑**：`beginAdjust`（872–891）/ `fillWorkingColor`（895–898）/ `collapsePalette`（901–904）/ `rebindPicker`（907–912）
+- **状态随迁**：`colorScroll`、`colorScrollbarDrag(StartY/StartOff)`、`adjustIndex`、`workingColor`、`stagingInited`
+  （父类输入分发 16 处读写需改走访问器）
+- **共享不搬**：`expanded`（与键位 tab 共享，Host 已提供 getter/setter）
+- **风险点**：调色板绑定（`picker.open/rebind` 双回调）与 `adjustIndex` 生命周期；`expanded` 同时受键位分支影响
+
+#### 🔶 待办 · 键位 tab（方案已定，未实施，**新行号**）
+
+- **实现块是碎片化的**（这是它比指南 tab 难的原因）：
+  `Keycap` + `cap` + `KEY_ROWS`（589–620）、`keysListTop/Bot/VisibleRows/MaxScroll` + `KEYS_CHIPS_W`（622–628）、
+  `keysUnit/keysGap/keysGridW`（631–657）、`renderKeysTab`（659–806）、
+  `handleKeycapClick` / `handleChipClick` / `confirmKeybind` / `selectKeybindRow`（810–853）、
+  `KEY_ROW_H`（932）、`keysScrollbarThumb` + `applyKeysScrollbarDrag`（937–957）、`keysBarGeometry`（963–1003）
+- **共享工具**：`seqText` / `keyName`（1005–1030）被键位 tab 使用 → 建议**留在父类并经 Host 暴露**
+  （或下沉到 `EditorKeys`），不要在 tab 里复制一份
+- **共享状态**：`collapseExpanded()`（856–864）同时清颜色 / 键位 / 指南三处 → **保留在父类**，
+  各 tab 提供"只清自己"的方法供其调用（指南已是 `guideCollapse()` 这个形状）
+- **状态随迁**：`keysScroll`、`keysScrollbarDrag(StartY/StartOff)`、`keybindTarget`、`latchedMods`、`rebindConflict`、`pendingSeq`
+- **父类改动**：`renderKeysTab` 调用点 + 输入分发读写（约 25 处）
+
+
 - **现状**：1,204 行 / **只有 2 个文件引用它、7 处**，是全仓最孤立的千行 GUI 类；内部已是 3 个 tab：
   颜色（`renderColorsTab` 674–764 + `beginAdjust` / `fillWorkingColor` / `collapsePalette` / `rebindPicker` 1047–1095
   + 颜色列表几何 1144–1177）、键位（`renderKeysTab` 834–984 + `Keycap` / `KEY_ROWS` 765–833 +
