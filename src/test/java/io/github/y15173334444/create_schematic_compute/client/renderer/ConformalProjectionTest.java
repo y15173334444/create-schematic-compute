@@ -24,14 +24,14 @@ class ConformalProjectionTest {
     @DisplayName("ladderCanvasY: level flight (pitch=0) puts horizon at canvas center")
     void testLadderCenterLevel() {
         // pitch=0, θ=0 → y = -K·tan(0) = 0
-        assertEquals(0, MonitorBlockEntityRenderer.ladderCanvasY(0, 0, 0.6), 1e-9);
+        assertEquals(0, MonitorClipMath.ladderCanvasY(0, 0, 0.6), 1e-9);
     }
 
     @Test
     @DisplayName("ladderCanvasY: nose-up pitch shifts the horizon down (y negative)")
     void testLadderPitchShift() {
         // pitch=+10°（抬头）→ 地平线（θ=0）下移：y = -K·tan(10°) < 0（y-up）
-        double y = MonitorBlockEntityRenderer.ladderCanvasY(10, 0, 0.6);
+        double y = MonitorClipMath.ladderCanvasY(10, 0, 0.6);
         assertTrue(y < 0);
         // 2026-08-24 修复（反向叠加）：抬头 10° 的地平线位置 == 平飞时 -10° 刻度
         // 位置（地平线下移 = 下方负角）；+10° 刻度平飞时在中心上方（y > 0）
@@ -39,9 +39,9 @@ class ConformalProjectionTest {
         // -10° tick at level flight (horizon down = negative below); the +10° tick
         // sits above center at level flight (y > 0).
         assertEquals(
-            MonitorBlockEntityRenderer.ladderCanvasY(10, 0, 0.6),
-            MonitorBlockEntityRenderer.ladderCanvasY(0, -10, 0.6), 1e-9);
-        assertTrue(MonitorBlockEntityRenderer.ladderCanvasY(0, 10, 0.6) > 0,
+            MonitorClipMath.ladderCanvasY(10, 0, 0.6),
+            MonitorClipMath.ladderCanvasY(0, -10, 0.6), 1e-9);
+        assertTrue(MonitorClipMath.ladderCanvasY(0, 10, 0.6) > 0,
             "+10° tick must be above center at level flight");
     }
 
@@ -50,9 +50,9 @@ class ConformalProjectionTest {
     void testLadderTanPerspective() {
         // 距地平线等角距的刻度，靠近地平线的更密：|y(20°)-y(10°)| < |y(30°)-y(20°)|
         double hh = 0.6;
-        double y10 = Math.abs(MonitorBlockEntityRenderer.ladderCanvasY(0, 10, hh));
-        double y20 = Math.abs(MonitorBlockEntityRenderer.ladderCanvasY(0, 20, hh));
-        double y30 = Math.abs(MonitorBlockEntityRenderer.ladderCanvasY(0, 30, hh));
+        double y10 = Math.abs(MonitorClipMath.ladderCanvasY(0, 10, hh));
+        double y20 = Math.abs(MonitorClipMath.ladderCanvasY(0, 20, hh));
+        double y30 = Math.abs(MonitorClipMath.ladderCanvasY(0, 30, hh));
         assertTrue((y20 - y10) < (y30 - y20));
     }
 
@@ -60,14 +60,14 @@ class ConformalProjectionTest {
     @DisplayName("ladderCanvasY: beyond ±90° the tick leaves the canvas (tan → ∞)")
     void testLadderOutOfCanvas() {
         // θ=90°（pitch=0）：tan(90°) → ∞ → |y| 远超画布半高 → 裁剪后不可见
-        double y = MonitorBlockEntityRenderer.ladderCanvasY(0, 90, 0.6);
+        double y = MonitorClipMath.ladderCanvasY(0, 90, 0.6);
         assertTrue(Math.abs(y) > 10); // far outside any panel
         // 2026-08-24：tan 周期 180° 使 pitch=90° 时 ±90° 刻度 y 相同（0）——重叠由
         // drawPitchLadder 档线分侧（正角度左段、负角度右段）解决，纯函数不负责。
         // tan's 180° period: at pitch=90° the ±90 ticks share y=0 — the overlap is
         // resolved by the side-split bars in drawPitchLadder, not this function.
-        assertEquals(0, MonitorBlockEntityRenderer.ladderCanvasY(90, 90, 0.6), 1e-9);
-        assertEquals(0, MonitorBlockEntityRenderer.ladderCanvasY(90, -90, 0.6), 1e-9);
+        assertEquals(0, MonitorClipMath.ladderCanvasY(90, 90, 0.6), 1e-9);
+        assertEquals(0, MonitorClipMath.ladderCanvasY(90, -90, 0.6), 1e-9);
     }
 
     // ── renderHud 几何（2026-08-20 调试）：面板/虚像世界位置 vs 玩家视角 ──
@@ -129,7 +129,7 @@ class ConformalProjectionTest {
         // 玩家正对玻璃中心（ex=ey=0, ez=3），hw=1, hh=0.6, D=100：
         // t=(100+3)/3≈34.33；mask 内容局部 = 玻璃角×t/D
         float t = 103f / 3f;
-        float[] q = MonitorBlockEntityRenderer.projectGlassCornersToCanvas(0f, 0f, 3f, 1f, 0.6f, 100f);
+        float[] q = MonitorClipMath.projectGlassCornersToCanvas(0f, 0f, 3f, 1f, 0.6f, 100f);
         assertEquals(-1f * t / 100f, q[0], 1e-4f);
         assertEquals(-0.6f * t / 100f, q[1], 1e-4f);
         assertEquals(1f * t / 100f, q[2], 1e-4f);
@@ -144,7 +144,7 @@ class ConformalProjectionTest {
     @DisplayName("projectGlassCornersToCanvas: player off to +X → mask shifts opposite")
     void testMaskOffCenter() {
         // 玩家偏右（ex=1）：mask 中心 x = ex*(1-t)/D < 0（视线锥向左偏）
-        float[] q = MonitorBlockEntityRenderer.projectGlassCornersToCanvas(1f, 0f, 3f, 1f, 0.6f, 100f);
+        float[] q = MonitorClipMath.projectGlassCornersToCanvas(1f, 0f, 3f, 1f, 0.6f, 100f);
         float t = 103f / 3f;
         float centerX = (q[0] + q[2] + q[4] + q[6]) / 4f;
         float expect = (1f - t) / 100f; // ex*(1-t)/D
@@ -156,10 +156,10 @@ class ConformalProjectionTest {
     @DisplayName("pointInConvexQuad: inside / outside / corner")
     void testPointInQuad() {
         float[] q = {-1f, -1f, 1f, -1f, 1f, 1f, -1f, 1f};
-        assertTrue(MonitorBlockEntityRenderer.pointInConvexQuad(0f, 0f, q));
-        assertTrue(MonitorBlockEntityRenderer.pointInConvexQuad(0.99f, 0.99f, q));
-        assertFalse(MonitorBlockEntityRenderer.pointInConvexQuad(1.01f, 0f, q));
-        assertFalse(MonitorBlockEntityRenderer.pointInConvexQuad(0f, -1.01f, q));
+        assertTrue(MonitorClipMath.pointInConvexQuad(0f, 0f, q));
+        assertTrue(MonitorClipMath.pointInConvexQuad(0.99f, 0.99f, q));
+        assertFalse(MonitorClipMath.pointInConvexQuad(1.01f, 0f, q));
+        assertFalse(MonitorClipMath.pointInConvexQuad(0f, -1.01f, q));
     }
 
     @Test
@@ -168,16 +168,16 @@ class ConformalProjectionTest {
         float[] mask = {-1f, -1f, 1f, -1f, 1f, 1f, -1f, 1f};
         // 全内：quad 不变
         float[] inner = {0f, 0f, 0.5f, 0f, 0.5f, 0.5f, 0f, 0.5f};
-        float[] c1 = MonitorBlockEntityRenderer.clipPolyToQuad(inner, mask);
+        float[] c1 = MonitorClipMath.clipPolyToQuad(inner, mask);
         assertEquals(8, c1.length);
         assertEquals(0f, c1[0], 1e-4f); // 首顶点 (0,0) 保留
         // 全外：空
         float[] outer = {2f, 2f, 3f, 2f, 3f, 3f, 2f, 3f};
-        float[] c2 = MonitorBlockEntityRenderer.clipPolyToQuad(outer, mask);
+        float[] c2 = MonitorClipMath.clipPolyToQuad(outer, mask);
         assertEquals(0, c2.length);
         // 部分：跨越右边界（x∈[0.5,1.5]）→ 裁剪后 x ≤ 1
         float[] cross = {0.5f, -0.5f, 1.5f, -0.5f, 1.5f, 0.5f, 0.5f, 0.5f};
-        float[] c3 = MonitorBlockEntityRenderer.clipPolyToQuad(cross, mask);
+        float[] c3 = MonitorClipMath.clipPolyToQuad(cross, mask);
         assertTrue(c3.length >= 8);
         for (int i = 0; i < c3.length; i += 2) {
             assertTrue(c3[i] <= 1f + 1e-4f, "clipped x must stay ≤ 1, got " + c3[i]);
@@ -189,7 +189,7 @@ class ConformalProjectionTest {
     @DisplayName("polyAabb: min/max of a polygon")
     void testPolyAabb() {
         float[] p = {2f, -3f, -5f, 4f, 1f, 6f};
-        float[] aabb = MonitorBlockEntityRenderer.polyAabb(p);
+        float[] aabb = MonitorClipMath.polyAabb(p);
         assertEquals(-5f, aabb[0], 1e-6f);
         assertEquals(-3f, aabb[1], 1e-6f);
         assertEquals(2f, aabb[2], 1e-6f);
@@ -200,13 +200,13 @@ class ConformalProjectionTest {
     @DisplayName("rotatedAabb: zero rotation keeps the rect; 90° swaps extents")
     void testRotatedAabb() {
         // 绕原点旋转 0°：AABB = 原矩形
-        float[] a0 = MonitorBlockEntityRenderer.rotatedAabb(-1f, -2f, 1f, 2f, 0f, 0f, 1f, 0f);
+        float[] a0 = MonitorClipMath.rotatedAabb(-1f, -2f, 1f, 2f, 0f, 0f, 1f, 0f);
         assertEquals(-1f, a0[0], 1e-4f);
         assertEquals(-2f, a0[1], 1e-4f);
         assertEquals(1f, a0[2], 1e-4f);
         assertEquals(2f, a0[3], 1e-4f);
         // 绕原点旋转 90°：宽高互换
-        float[] a90 = MonitorBlockEntityRenderer.rotatedAabb(-1f, -2f, 1f, 2f, 0f, 0f, 0f, 1f);
+        float[] a90 = MonitorClipMath.rotatedAabb(-1f, -2f, 1f, 2f, 0f, 0f, 0f, 1f);
         assertEquals(-2f, a90[0], 1e-4f);
         assertEquals(-1f, a90[1], 1e-4f);
         assertEquals(2f, a90[2], 1e-4f);
