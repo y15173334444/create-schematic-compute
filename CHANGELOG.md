@@ -28,15 +28,17 @@
 |-----------|-------------------|
 | ⌨️ 输入中途丢焦点 / Focus lost mid-typing | 重建 `EditState` 会把整批 `EditBox` 换成新实例并丢掉焦点；现在重建前记录聚焦字段下标与光标，重建后按下标还原（光标仅多行编辑器且文本仍够长时还原）/ An `EditState` rebuild replaced every box and dropped focus; the focused field index and caret are now captured and restored |
 | 🔁 显示编辑器吞键 / Display editor swallowed keys | `MonitorDisplayEditor.handleKeyPressed` 曾无条件 `return true`，设置面板打开时（离开显示模式后并不关闭）节点图输入框完全收不到按键；改为「仅面板打开且未消费 → 返回 null」把输入交还屏幕（`charTyped` 同步修正）/ The display editor consumed every key unconditionally, so node-graph edit boxes got nothing while the settings panel was open |
+| 🖱️ 设置面板点击穿透 / Settings-panel clicks fell through | 拆分丢失了「设置面板点击优先」与模式无关的语义：在显示模式点开设置面板后回到节点图，面板仍渲染但点击穿透到底下图编辑区（关闭/保存按钮、输入框不可点）；现恢复面板打开即优先——`handleSettingsClick` 提为 public，屏幕在面板打开时直接路由 / The split lost the mode-independent settings-panel click priority: a panel opened in display mode kept rendering in graph mode while clicks fell through to the graph editor (close/save buttons and EditBoxes unreachable). Priority is restored — the screen routes to the now-public `handleSettingsClick` whenever the panel is open |
 | 🖼️ 选中高亮消失 / 回弹 / Highlight vanished or bounced | 高亮判定原用对象相等，整图同步或重载替换节点实例后旧实例再也匹配不上；改为按 id 判定（`isSelectedById` / `isPrimaryById`）/ Highlight matching is now by id instead of object identity |
 | ⚡ 每秒数次整批重建 / Edit boxes rebuilt several times per second | 图代际是 per-instance 的，跨实例用裸 int 比较永远「看起来变了」（实测 1→2→3→4→1 循环）；改为绑定图实例 + 按节点结构指纹增量重建，无结构变化即零重建 / The generation compare is bound to the graph instance and rebuilds are incremental per node |
+| 📝 折叠丢未提交输入 / Collapse dropped uncommitted input | 增量重建引入的清理曾把「折叠但仍在图」的节点编辑状态一并删除，整图同步导致的折叠后再展开会丢 busBox 未提交文本；现只清已离开图的节点，折叠节点保留状态与指纹、仅退出展开集合 / The cull added with the incremental rebuild also dropped collapsed-but-present nodes' edit states, so a collapse arriving via a whole-graph sync lost uncommitted busBox text on re-expand; only nodes that left the graph are culled now |
 
 ### 🧩 GUI 巨型文件拆分 / GUI Decomposition（步骤 1–3）
 
 | Refactor / 重构 | Result / 结果 |
 |-----------------|---------------|
 | ✂️ HUD 裁剪数学抽出 / HUD clip math extracted | `MonitorBlockEntityRenderer` 1742 → 1465 行，新增 `MonitorClipMath`（纯几何/裁剪/投影，可单测）/ New `MonitorClipMath`, behaviour-preserving |
-| 🖥️ 显示器显示编辑 GUI 脱离 / Display-layout editor extracted | `MonitorScreen` 1767 → 367 行，新增 `MonitorDisplayEditor`（显示区/图层面板/设置面板/协作存在包）/ Display-mode GUI, layer panel, settings panel and presence moved out |
+| 🖥️ 显示器显示编辑 GUI 脱离 / Display-layout editor extracted | `MonitorScreen` 1767 → 348 行，新增 `MonitorDisplayEditor`（显示区/图层面板/设置面板/协作存在包）；评审时移除从未接线的 `drawToolbarStrip` 死缝（工具栏条仍由编辑器内部绘制，与原实现一致）/ Display-mode GUI, layer panel, settings panel and presence moved out; the review pass removed the never-wired `drawToolbarStrip` seam (the toolbar strip stays drawn inside the editor, as in the original) |
 | ⚙️ 设置界面按 tab 拆分 / Settings screen split by tab | `EditorSettingsScreen` 1204 → 893 行；新增 `EditorSettingsGuideTab`、`EditorSettingsColorsTab`、`EditorSettingsHost`；键位 tab 待办（计划见 `docs/gui-decomposition-plan.md`）/ Guide + colours tabs extracted; the keys tab remains, with its plan documented |
 
 **新增文档 / New docs**
