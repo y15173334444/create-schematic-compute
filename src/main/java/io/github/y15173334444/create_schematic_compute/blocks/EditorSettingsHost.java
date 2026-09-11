@@ -38,6 +38,13 @@ interface EditorSettingsHost {
         int colorScrollbarDragStartOff();
         void setColorScrollbarDragStart(float y, int off);
         void applyColorScrollbarDrag(double my);
+        /** 颜色列表几何（渲染/命中/拖拽共用同一来源，故留在屏幕侧）。 */
+        int colorsListTop();
+        int colorsListBot();
+        int colorsVisibleRows();
+        int colorsMaxScroll();
+        int colorsRowRight(int cx, int contentW);
+        int[] colorsScrollbarThumb(int cx, int contentW);
         /** 键位列表状态。 */
         int keysScroll();
         void setKeysScroll(int v);

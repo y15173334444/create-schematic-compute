@@ -69,6 +69,8 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
 
     /** 指南 tab 视图（自本类拆分，docs/gui-decomposition-plan.md 步骤 3）；指南状态随实现搬入该类。 */
     private final EditorSettingsGuideTab guideTab = new EditorSettingsGuideTab(this);
+    /** 颜色 tab 视图（同批拆分）；颜色状态随实现搬入该类。 */
+    private final EditorSettingsColorsTab colorsTab = new EditorSettingsColorsTab();
 
     /** tab 视图的宿主接口：几何、控件与少量跨 tab 状态。
 
@@ -80,21 +82,8 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
     private boolean expanded = false;
     /** 左滑动画进度 0..1（渲染每帧推进）。 / slide animation progress 0..1 (advanced per render frame). */
     private float slide = 0f;
-    /** 正在调整的颜色槽（NodeRenderer.stagingColors 下标），-1 = 无。 / the color slot being adjusted (index into NodeRenderer.stagingColors), -1 = none. */
-    private int adjustIndex = -1;
     /** 调色板的工作色：实时跟随调色板操作，点击确认键才填入 adjustIndex 槽位。
      *  The palette's working color: follows the palette live, filled into the
-     *  adjustIndex slot only when the confirm button is pressed. */
-    private int workingColor = 0xFF000000;
-    /** 颜色列表滚动偏移（行数）。 / color list scroll offset, in rows. */
-    private int colorScroll = 0;
-    /** 颜色列表滚动条拖拽中（thumb 上按下未松开）。 / the color-list scrollbar thumb is being dragged. */
-    private boolean colorScrollbarDrag = false;
-    /** 拖拽起点鼠标 y 与起始偏移（相对增量式，书签面板同款）。 / drag-start mouse y and start offset (relative delta, bookmark-panel style). */
-    private float colorScrollbarDragStartY = 0f;
-    private int colorScrollbarDragStartOff = 0;
-    /** 是否已为本次进入颜色 tab 初始化暂存色。 / whether staging colors were initialized for this colors-tab visit. */
-    private boolean stagingInited = false;
     /** 停靠在右侧的调色板（嵌入模式：无浮空外框、不随外部点击关闭）。 / the palette docked on the right (embedded: no floating frame, no outside-click close). */
     private final ColorPickerWidget picker = new ColorPickerWidget();
 
@@ -106,6 +95,7 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
     public EditorSettingsScreen(Screen parent) {
         super(Component.translatable("gui.create_schematic_compute.settings.title"));
         this.parent = parent;
+        colorsTab.bind(this);   // 颜色 tab 的宿主（列表几何经 Host 取，颜色状态在 tab 内）
     }
 
     @Override protected void init() { }
@@ -122,13 +112,20 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
     @Override public boolean expanded() { return expanded; }
     @Override public void setExpanded(boolean v) { expanded = v; }
     @Override public int slide() { return Math.round(TAB_W * slide); }
-    @Override public int colorScroll() { return colorScroll; }
-    @Override public void setColorScroll(int v) { colorScroll = v; }
-    @Override public boolean colorScrollbarDrag() { return colorScrollbarDrag; }
-    @Override public void setColorScrollbarDrag(boolean v) { colorScrollbarDrag = v; }
-    @Override public float colorScrollbarDragStartY() { return colorScrollbarDragStartY; }
-    @Override public int colorScrollbarDragStartOff() { return colorScrollbarDragStartOff; }
-    @Override public void setColorScrollbarDragStart(float y, int off) { colorScrollbarDragStartY = y; colorScrollbarDragStartOff = off; }
+    // 颜色状态随实现搬入 EditorSettingsColorsTab，这里只转发 / colour state lives in the tab now
+    /** 调色板重绑定（实现体在 EditorSettingsColorsTab）。 / palette rebind, implemented in the tab. */
+    /** 开始调整颜色槽（实现体在 EditorSettingsColorsTab）。 / begin adjusting a colour slot, implemented in the tab. */
+    @Override public void beginAdjust(int idx) { colorsTab.beginAdjust(idx); }
+    /** 收起调色板（实现体在 EditorSettingsColorsTab）。 / collapse the palette, implemented in the tab. */
+    @Override public void collapsePalette() { colorsTab.collapsePalette(); }
+    @Override public void rebindPicker() { colorsTab.rebindPicker(); }
+    @Override public int colorScroll() { return colorsTab.colorScroll(); }
+    @Override public void setColorScroll(int v) { colorsTab.setColorScroll(v); }
+    @Override public boolean colorScrollbarDrag() { return colorsTab.colorScrollbarDrag(); }
+    @Override public void setColorScrollbarDrag(boolean v) { colorsTab.setColorScrollbarDrag(v); }
+    @Override public float colorScrollbarDragStartY() { return colorsTab.colorScrollbarDragStartY(); }
+    @Override public int colorScrollbarDragStartOff() { return colorsTab.colorScrollbarDragStartOff(); }
+    @Override public void setColorScrollbarDragStart(float y, int off) { colorsTab.setColorScrollbarDragStart(y, off); }
     @Override public int keysScroll() { return keysScroll; }
     @Override public void setKeysScroll(int v) { keysScroll = v; }
     @Override public boolean keysScrollbarDrag() { return keysScrollbarDrag; }
@@ -193,7 +190,7 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
         int contentRight = w - 14 - shift, contentBottom = h - 8;
         int contentW = contentRight - cx;
         if (tab == 0) {
-            renderColorsTab(g, mx, my, cx, cy, contentRight, contentBottom, contentW);
+            colorsTab.renderColorsTab(g, mx, my, cx, cy, contentRight, contentBottom, contentW);
         } else if (tab == 1) {
             renderKeysTab(g, mx, my, cx, cy, contentRight, contentBottom);
         } else {
@@ -227,7 +224,7 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
             int doneY = paletteDoneY();
             if (expanded && mx >= paletteX() && mx <= paletteX() + ColorPickerWidget.WIDTH
                 && my >= doneY && my <= doneY + 18) {
-                if (adjustIndex >= 0) NodeRenderer.stagingColors[adjustIndex] = workingColor;
+                if (colorsTab.adjustIndex() >= 0) NodeRenderer.stagingColors[colorsTab.adjustIndex()] = colorsTab.workingColor();
                 return true;
             }
             int cx = TAB_W + 12 - shift;
@@ -239,13 +236,13 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
                 // Clicking in the expanded form collapses the palette; in the collapsed
                 // form it expands and binds the current slot.
                 if (mx >= cx && mx <= cx + 64) {
-                    if (expanded) collapsePalette();
-                    else beginAdjust(adjustIndex >= 0 ? adjustIndex : 0);
+                    if (expanded) colorsTab.collapsePalette();
+                    else colorsTab.beginAdjust(colorsTab.adjustIndex() >= 0 ? colorsTab.adjustIndex() : 0);
                     return true;
                 }
                 if (mx >= cx + 72 && mx <= cx + 142) {
                     NodeRenderer.stagingColors = NodeRenderer.DEFAULT_COLORS.clone();
-                    rebindPicker(); return true;
+                    colorsTab.rebindPicker(); return true;
                 }
                 if (mx >= cx + 150 && mx <= cx + 220) {
                     NodeRenderer.setColors(NodeRenderer.stagingColors.clone());
@@ -258,18 +255,18 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
             if (colorsMaxScroll() > 0) {
                 int[] sb = colorsScrollbarThumb(cx, contentW);
                 if (mx >= sb[0] && mx <= sb[0] + sb[2] && my >= listTop && my <= listBot) {
-                    if (my < sb[1]) { colorScroll = Math.max(0, colorScroll - 3); }
-                    else if (my > sb[1] + sb[3]) { colorScroll = Math.min(colorsMaxScroll(), colorScroll + 3); }
-                    else { colorScrollbarDrag = true; colorScrollbarDragStartY = (float) my; colorScrollbarDragStartOff = colorScroll; }
+                    if (my < sb[1]) { colorsTab.setColorScroll(Math.max(0, colorsTab.colorScroll() - 3)); }
+                    else if (my > sb[1] + sb[3]) { colorsTab.setColorScroll(Math.min(colorsMaxScroll(), colorsTab.colorScroll() + 3)); }
+                    else { colorsTab.setColorScrollbarDrag(true); colorsTab.setColorScrollbarDragStart((float) my, colorsTab.colorScroll()); }
                     return true;
                 }
             }
             // 颜色行：调整按钮 / color rows: adjust buttons
             if (my >= listTop && my < listBot) {
-                int idx = colorScroll + (int) ((my - listTop) / COLOR_ROW_H);
+                int idx = colorsTab.colorScroll() + (int) ((my - listTop) / EditorSettingsColorsTab.COLOR_ROW_H);
                 if (idx >= 0 && idx < NodeRenderer._NUM_COLORS) {
                     int btnX = cx + contentW - 62;
-                    if (mx >= btnX && mx <= btnX + 44) { beginAdjust(idx); return true; }
+                    if (mx >= btnX && mx <= btnX + 44) { colorsTab.beginAdjust(idx); return true; }
                 }
             }
             return true;
@@ -395,7 +392,7 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
         if (idx < 0 || idx > 3) return;
         if (idx == 3) { onClose(); return; } // 返回项 / back entry
         if (expanded) collapseExpanded();
-        if (tab == 0 && idx != 0) stagingInited = false; // 离开颜色 tab 丢弃未应用暂存 / leaving colors discards unapplied staging
+        if (tab == 0 && idx != 0) colorsTab.setStagingInited(false); // 离开颜色 tab 丢弃未应用暂存 / leaving colors discards unapplied staging
         tab = idx; lastTab = idx;
     }
 
@@ -428,9 +425,9 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
         // 颜色 tab：调色板内部滚动（收藏色）优先，其次颜色列表 / colors tab: palette-internal scroll first, then the color list
         if (tab == 0) {
             if (expanded && picker.contains((int) mx, (int) my)) return picker.mouseScrolled(mx, my, sy);
-            colorScroll -= (int) Math.signum(sy);
-            if (colorScroll < 0) colorScroll = 0;
-            if (colorScroll > colorsMaxScroll()) colorScroll = colorsMaxScroll();
+            colorsTab.setColorScroll(colorsTab.colorScroll() - (int) Math.signum(sy));
+            if (colorsTab.colorScroll() < 0) colorsTab.setColorScroll(0);
+            if (colorsTab.colorScroll() > colorsMaxScroll()) colorsTab.setColorScroll(colorsMaxScroll());
             return true;
         }
         // 键位列表滚轮 / key-list wheel
@@ -465,7 +462,7 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
         // 颜色列表滚动条拖拽优先于调色板转发（两者区域互斥，同一时刻只有一个生效）。
         // Color-list scrollbar drag takes priority over the palette forward (the two
         // regions are disjoint; only one can be active at a time).
-        if (colorScrollbarDrag) { applyColorScrollbarDrag(my); return true; }
+        if (colorsTab.colorScrollbarDrag()) { applyColorScrollbarDrag(my); return true; }
         if (keysScrollbarDrag) { applyKeysScrollbarDrag(my); return true; }
         if (guideTab.scrollbarDrag()) { guideTab.applyGuideScrollbarDrag(my); return true; }
         // 调色板拖拽（SV / Hue / Alpha 渐变条）转发到组件 / forward SV/hue/alpha drags to the widget
@@ -475,7 +472,7 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
 
     @Override
     public boolean mouseReleased(double mx, double my, int btn) {
-        colorScrollbarDrag = false;
+        colorsTab.setColorScrollbarDrag(false);
         keysScrollbarDrag = false;
         guideTab.setScrollbarDrag(false);
         if (expanded) picker.mouseReleased(mx, my, btn);
@@ -494,93 +491,6 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
      *  调整模式下调色板停靠在右侧（随左滑动画腾出的空间）。
      *  Colors tab rendering: 23 adjustable entries (swatch + name + adjust button)
      *  plus defaults/apply; in adjust mode the palette docks on the right (in the
-     *  space freed by the left slide). */
-    private void renderColorsTab(GuiGraphics g, int mx, int my, int cx, int cy,
-                                 int contentRight, int contentBottom, int contentW) {
-        // 进入颜色 tab 时一次性初始化暂存色（与旧 23 色面板行为一致：未应用的修改
-        // 在下次进入时丢弃）。
-        // Initialize staging colors once per colors-tab visit (same as the old panel:
-        // unapplied edits are discarded on the next entry).
-        if (!stagingInited) { NodeRenderer.initStaging(); stagingInited = true; }
-        int listTop = colorsListTop();
-        int btnRowY = colorsListBot() + 6;
-        int listBot = colorsListBot();
-        int visible = colorsVisibleRows();
-        int maxScroll = colorsMaxScroll();
-        if (colorScroll < 0) colorScroll = 0;
-        if (colorScroll > maxScroll) colorScroll = maxScroll;
-        int rowRight = colorsRowRight(cx, contentW);
-
-        for (int i = colorScroll; i < NodeRenderer._NUM_COLORS; i++) {
-            int ri = i - colorScroll;
-            int ry = listTop + ri * COLOR_ROW_H;
-            if (ry + COLOR_ROW_H > listBot) break;
-            boolean adjustingThis = expanded && adjustIndex == i;
-            if (adjustingThis) g.fill(cx, ry, rowRight, ry + COLOR_ROW_H - 2, NodeRenderer.HOV()); // 「调整中」行 = 悬停高亮 / adjusting row = hover highlight
-            else if (ri % 2 == 0) g.fill(cx, ry, rowRight, ry + COLOR_ROW_H - 2, NodeRenderer.PINS());
-            // 色块恒显示暂存色 —— 工作色仅在确认时填入（实时预览会让"确认"失去意义）。
-            // The swatch always shows the staging color — the working color is filled
-            // only on confirm (a live preview would make "confirm" meaningless).
-            g.fill(cx + 2, ry + 4, cx + 18, ry + 18, NodeRenderer.stagingColors[i]);
-            g.renderOutline(cx + 2, ry + 4, 16, 14, 0xFF888888);
-            // 名称 / name
-            g.drawString(font, I18n.get("gui.create_schematic_compute.color." + NodeRenderer.COLOR_KEYS[i]),
-                cx + 26, ry + 7, 0xFFCCCCCC, false);
-            // 调整按钮 / adjust button
-            boolean hov = mx >= rowRight - 52 && mx <= rowRight - 8
-                && my >= ry + 1 && my <= ry + COLOR_ROW_H - 3;
-            g.fill(rowRight - 52, ry + 1, rowRight - 8, ry + COLOR_ROW_H - 3,
-                hov ? NodeRenderer.HOV() : NodeRenderer.PBG());
-            g.renderOutline(rowRight - 52, ry + 1, 44, COLOR_ROW_H - 4, NodeRenderer.CSB());
-            g.drawString(font, I18n.get("gui.create_schematic_compute.settings.adjust"),
-                rowRight - 48, ry + 7, NodeRenderer.ACC(), false);
-        }
-
-        // 滚动条（thumb 可拖拽）——几何与命中/拖拽共用 colorsScrollbarThumb。
-        // Scrollbar (draggable thumb) — geometry shared with hit-testing/dragging via colorsScrollbarThumb.
-        if (maxScroll > 0) {
-            int[] sb = colorsScrollbarThumb(cx, contentW);
-            g.fill(sb[0], listTop, sb[0] + sb[2], listBot, NodeRenderer.PINS()); // 滚动条轨道 = 内凹井 / track = inset well
-            g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], NodeRenderer.CSB());
-        }
-
-        // 底部常驻：收起/展开 + 恢复默认 / 应用
-        // bottom row: collapse/expand + defaults + apply
-        String toggleLabel = I18n.get(expanded
-            ? "gui.create_schematic_compute.settings.collapse"
-            : "gui.create_schematic_compute.settings.expand");
-        g.fill(cx, btnRowY, cx + 64, btnRowY + 16, expanded ? NodeRenderer.HOV() : NodeRenderer.PBG()); // 展开态=激活高亮 / expanded = active highlight
-        g.renderOutline(cx, btnRowY, 64, 16, NodeRenderer.CSB());
-        g.drawString(font, "§f" + toggleLabel, cx + 16, btnRowY + 4, 0xFFFFFFFF, false);
-        g.fill(cx + 72, btnRowY, cx + 142, btnRowY + 16, NodeRenderer.PBG()); // 中性次按钮底 / neutral secondary button bg
-        g.renderOutline(cx + 72, btnRowY, 70, 16, NodeRenderer.CSB());
-        g.drawString(font, "§7" + I18n.get("gui.create_schematic_compute.color.defaults"), cx + 82, btnRowY + 4, 0xFFFFFFFF, false);
-        g.fill(cx + 150, btnRowY, cx + 220, btnRowY + 16, 0xFF3A5A2A);
-        g.renderOutline(cx + 150, btnRowY, 70, 16, 0xFF5A8A3A);
-        g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.color.apply"), cx + 166, btnRowY + 4, 0xFFFFFFFF, false);
-
-        // 展开形态：调色板停靠右侧（小窗口按高度缩放）。填色由调色板自带的确认键完成
-        // （persistent —— 只填色不关闭）。
-        // Expanded form: docked palette (scaled down on short windows). Filling is done
-        // by the palette's own confirm key (persistent — fills without closing).
-        if (expanded) {
-            picker.setScale(paletteScale(height));
-            picker.setPosition(paletteX(), paletteY());
-            picker.render(g, mx, my);
-            // 确认按钮：把工作色填入槽位 —— 调色板保持展开，不自行关闭。
-            // Confirm button: fills the working color into the slot — the palette
-            // stays open and never collapses on its own.
-            int doneY = paletteDoneY();
-            boolean fin = mx >= paletteX() && mx <= paletteX() + ColorPickerWidget.WIDTH
-                && my >= doneY && my <= doneY + 18;
-            g.fill(paletteX(), doneY, paletteX() + ColorPickerWidget.WIDTH,
-                doneY + 18, fin ? 0xFF3A5A2A : NodeRenderer.PBG());
-            g.renderOutline(paletteX(), doneY, ColorPickerWidget.WIDTH,
-                18, 0xFF5A8A3A);
-            g.drawString(font, "§a" + I18n.get("gui.create_schematic_compute.color.done"),
-                paletteX() + 66, doneY + 5, 0xFFFFFFFF, false);
-        }
-    }
 
     /** 虚拟键帽：label 显示文本、code GLFW 键码（0 = 纯修饰开关）、w 宽度（键帽单位）、
      *  modBit 非零 = 修饰开关（点击翻转该修饰位，不进主键槽）。
@@ -854,7 +764,7 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
     /** 收起当前 tab 的展开区（颜色调色板 / 键位键盘 / 指南详情）并清空各自的暂选状态。
      *  Collapse whichever expansion is open (palette / keyboard / guide detail) and clear its pending state. */
     @Override public void collapseExpanded() {
-        if (tab == 0) { collapsePalette(); return; }
+        if (tab == 0) { colorsTab.collapsePalette(); return; }
         expanded = false;
         keybindTarget = -1;
         pendingSeq.clear();
@@ -863,54 +773,6 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
         guideTab.setDetailScroll(0);
         guideTab.setScrollbarDrag(false);
     }
-
-    /** 开始调整某个颜色槽：切换到展开形态（整个界面左滑），调色板绑定该槽的工作色
-     *  —— 实时写入工作色，确认键才填入槽位。
-     *  Begin adjusting a color slot: switch to the expanded form (UI slides left)
-     *  and bind the palette to that slot's working color — tweaks write the working
-     *  color live, the confirm button fills it into the slot. */
-    @Override public void beginAdjust(int idx) {
-        adjustIndex = idx;
-        workingColor = NodeRenderer.stagingColors[idx];
-        if (!expanded) {
-            expanded = true;
-            picker.setEmbedded(true);
-            picker.setScale(paletteScale(height));
-            // 双回调：liveUpdate 实时预览工作色；onSelect（组件确认键）把颜色填入槽位。
-            // setPersistent 让组件确认键不自行关闭。
-            // Dual callbacks: liveUpdate previews the working color; onSelect (the
-            // widget's confirm key) fills it into the slot. setPersistent keeps the
-            // widget's confirm from closing itself.
-            picker.setPersistent(true);
-            picker.open(0, 0, workingColor, c -> fillWorkingColor(c), c -> workingColor = c, false);
-            picker.setPosition(paletteX(), paletteY());
-        } else {
-            picker.rebind(workingColor, c -> fillWorkingColor(c), c -> workingColor = c);
-        }
-    }
-
-    /** 填色：更新工作色并落入当前调整的槽位（调色板确认键调用）。
-     *  Fill: update the working color and stamp it into the slot being adjusted
-     *  (invoked by the palette's confirm key). */
-    private void fillWorkingColor(int c) {
-        workingColor = c;
-        if (adjustIndex >= 0) NodeRenderer.stagingColors[adjustIndex] = c;
-    }
-
-    /** 收起调色板：切回收起形态（界面滑回，选项卡列恢复）。 / Collapse the palette: switch back to the collapsed form (the UI slides back, tab column returns). */
-    @Override public void collapsePalette() {
-        expanded = false;
-        picker.close();
-    }
-
-    /** Defaults/暂存重置后，把展开中的调色板重新绑定到当前槽位色。 / After a staging reset, rebind the open palette to the current slot's color. */
-    @Override public void rebindPicker() {
-        if (expanded && adjustIndex >= 0) {
-            workingColor = NodeRenderer.stagingColors[adjustIndex];
-            picker.rebind(workingColor, c -> fillWorkingColor(c), c -> workingColor = c);
-        }
-    }
-
     /** 调色板停靠位置（内容区右侧）。 / docked palette position (right side of the content area). */
     @Override public int paletteX() { return width - ColorPickerWidget.WIDTH - 14; }
     @Override public int paletteY() { return 10; }
@@ -971,20 +833,20 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
     // ── Color-list geometry (single source shared by render, hit-testing and dragging) ──
 
     /** 列表顶部 y。 / list top y. */
-    private static int colorsListTop() { // cy() 恒为 8；静态几何里内联（原为静态方法，现由 Host 提供实例方法）
+    @Override public int colorsListTop() { // cy() 恒为 8；静态几何里内联（原为静态方法，现由 Host 提供实例方法）
         return 8 + 2; }
     /** 列表底部 y（底部按钮行上方 6px）。 / list bottom y (6px above the bottom button row). */
-    private int colorsListBot() { return height - 8 - 16 - 6; }
-    private int colorsVisibleRows() { return Math.max(1, (colorsListBot() - colorsListTop()) / COLOR_ROW_H); }
-    private int colorsMaxScroll() { return Math.max(0, NodeRenderer._NUM_COLORS - colorsVisibleRows()); }
+    @Override public int colorsListBot() { return height - 8 - 16 - 6; }
+    @Override public int colorsVisibleRows() { return Math.max(1, (colorsListBot() - colorsListTop()) / COLOR_ROW_H); }
+    @Override public int colorsMaxScroll() { return Math.max(0, NodeRenderer._NUM_COLORS - colorsVisibleRows()); }
     /** 行区右缘：为滚动条预留 10px 条带。 / row right edge: a 10px strip is reserved for the scrollbar. */
-    private static int colorsRowRight(int cx, int contentW) { return cx + contentW - 10; }
+    @Override public int colorsRowRight(int cx, int contentW) { return cx + contentW - 10; }
     /** 滚动条 thumb {x, y, w, h}；轨道与 thumb 同宽、纵跨列表全高。 / scrollbar thumb {x, y, w, h}; the track shares x/w and spans the full list height. */
-    private int[] colorsScrollbarThumb(int cx, int contentW) {
+    @Override public int[] colorsScrollbarThumb(int cx, int contentW) {
         int trackH = colorsListBot() - colorsListTop();
         int thumbH = Math.max(12, trackH * colorsVisibleRows() / NodeRenderer._NUM_COLORS);
         int maxScroll = colorsMaxScroll();
-        int thumbY = colorsListTop() + (maxScroll > 0 ? (trackH - thumbH) * colorScroll / maxScroll : 0);
+        int thumbY = colorsListTop() + (maxScroll > 0 ? (trackH - thumbH) * colorsTab.colorScroll() / maxScroll : 0);
         return new int[]{cx + contentW - 8, thumbY, 6, thumbH};
     }
 
@@ -996,9 +858,9 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
         int trackH = colorsListBot() - colorsListTop();
         int thumbH = Math.max(12, trackH * colorsVisibleRows() / NodeRenderer._NUM_COLORS);
         if (trackH - thumbH <= 0) return;
-        float delta = (float) (my - colorScrollbarDragStartY) / (trackH - thumbH);
-        int newOff = colorScrollbarDragStartOff + Math.round(delta * maxScroll);
-        colorScroll = Math.max(0, Math.min(maxScroll, newOff));
+        float delta = (float) (my - colorsTab.colorScrollbarDragStartY()) / (trackH - thumbH);
+        int newOff = colorsTab.colorScrollbarDragStartOff() + Math.round(delta * maxScroll);
+        colorsTab.setColorScroll(Math.max(0, Math.min(maxScroll, newOff)));
     }
 
     /** 序列的可读文本（Ctrl+K → D；空 = —）。 / Readable sequence text (Ctrl+K → D; empty = —). */
