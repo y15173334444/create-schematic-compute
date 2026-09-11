@@ -6,6 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
+| [v1.2.5.1](#v1251) | 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
 | [v1.2.4](#v124) | 多人协作 + 调试工具链 + 公式编辑器体验 |
@@ -17,6 +18,33 @@
 | [v1.0.0](#v100) | 初始发布 / Initial Release |
 
 ---
+
+<details>
+<summary><b>v1.2.5.1</b> — 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）/ Editor Input Focus &amp; Highlight Fixes · GUI Decomposition (HUD Clip Math / Display Editor / Settings Tabs)</summary>
+
+### 🎯 编辑器输入与选中修复 / Editor Input &amp; Selection Fixes
+
+| Fix / 修复 | Description / 说明 |
+|-----------|-------------------|
+| ⌨️ 输入中途丢焦点 / Focus lost mid-typing | 重建 `EditState` 会把整批 `EditBox` 换成新实例并丢掉焦点；现在重建前记录聚焦字段下标与光标，重建后按下标还原（光标仅多行编辑器且文本仍够长时还原）/ An `EditState` rebuild replaced every box and dropped focus; the focused field index and caret are now captured and restored |
+| 🔁 显示编辑器吞键 / Display editor swallowed keys | `MonitorDisplayEditor.handleKeyPressed` 曾无条件 `return true`，设置面板打开时（离开显示模式后并不关闭）节点图输入框完全收不到按键；改为「仅面板打开且未消费 → 返回 null」把输入交还屏幕（`charTyped` 同步修正）/ The display editor consumed every key unconditionally, so node-graph edit boxes got nothing while the settings panel was open |
+| 🖼️ 选中高亮消失 / 回弹 / Highlight vanished or bounced | 高亮判定原用对象相等，整图同步或重载替换节点实例后旧实例再也匹配不上；改为按 id 判定（`isSelectedById` / `isPrimaryById`）/ Highlight matching is now by id instead of object identity |
+| ⚡ 每秒数次整批重建 / Edit boxes rebuilt several times per second | 图代际是 per-instance 的，跨实例用裸 int 比较永远「看起来变了」（实测 1→2→3→4→1 循环）；改为绑定图实例 + 按节点结构指纹增量重建，无结构变化即零重建 / The generation compare is bound to the graph instance and rebuilds are incremental per node |
+
+### 🧩 GUI 巨型文件拆分 / GUI Decomposition（步骤 1–3）
+
+| Refactor / 重构 | Result / 结果 |
+|-----------------|---------------|
+| ✂️ HUD 裁剪数学抽出 / HUD clip math extracted | `MonitorBlockEntityRenderer` 1742 → 1465 行，新增 `MonitorClipMath`（纯几何/裁剪/投影，可单测）/ New `MonitorClipMath`, behaviour-preserving |
+| 🖥️ 显示器显示编辑 GUI 脱离 / Display-layout editor extracted | `MonitorScreen` 1767 → 367 行，新增 `MonitorDisplayEditor`（显示区/图层面板/设置面板/协作存在包）/ Display-mode GUI, layer panel, settings panel and presence moved out |
+| ⚙️ 设置界面按 tab 拆分 / Settings screen split by tab | `EditorSettingsScreen` 1204 → 893 行；新增 `EditorSettingsGuideTab`、`EditorSettingsColorsTab`、`EditorSettingsHost`；键位 tab 待办（计划见 `docs/gui-decomposition-plan.md`）/ Guide + colours tabs extracted; the keys tab remains, with its plan documented |
+
+**新增文档 / New docs**
+
+- [`docs/gui-decomposition-plan.md`](gui-decomposition-plan.md) — GUI 巨型文件拆分路线图（含实施记录与两条拆分裂缝经验）
+- [`docs/editor-focus-selection-loss.md`](editor-focus-selection-loss.md) — 输入焦点/选中丢失的根因分析与运行取证
+
+</details>
 
 <details>
 <summary><b>v1.2.5</b> — 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 / Formula Language Upgrade: Control Flow + vec3 + Budget Pool / GUI Architecture Migration / Pixel Editor / Programmable Gearbox</summary>

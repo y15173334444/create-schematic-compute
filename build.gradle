@@ -14,8 +14,7 @@ base {
 }
 
 group = 'io.github.y15173334444'
-version = '1.2.5'
-
+version = '1.2.5.1'
 runs {
     configureEach {
         systemProperty 'forge.logging.console.level', 'info'

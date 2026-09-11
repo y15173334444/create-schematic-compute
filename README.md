@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/y15173334444/create-schematic-compute"><img src="https://img.shields.io/badge/GitHub-y15173334444/create--schematic--compute-blue?style=flat-square&logo=github" alt="GitHub"></a>
   <a href="https://github.com/y15173334444/create-schematic-compute/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License"></a>
-  <a href="https://github.com/y15173334444/create-schematic-compute/releases"><img src="https://img.shields.io/badge/Version-1.2.5-blue?style=flat-square" alt="Version"></a>
+  <a href="https://github.com/y15173334444/create-schematic-compute/releases"><img src="https://img.shields.io/badge/Version-1.2.5.1-blue?style=flat-square" alt="Version"></a>
   <a href="https://neoforged.net/"><img src="https://img.shields.io/badge/NeoForge-21.1.233-orange?style=flat-square" alt="NeoForge"></a>
   <a href="https://modrinth.com/mod/create"><img src="https://img.shields.io/badge/Create-6.0.10-brightgreen?style=flat-square" alt="Create"></a>
   <a href="https://www.minecraft.net/"><img src="https://img.shields.io/badge/Minecraft-1.21.1-8B4513?style=flat-square" alt="MC"></a>
@@ -614,6 +614,7 @@ The full changelog now lives in **[`CHANGELOG.md`](https://github.com/y151733344
 
 | Version | 标题 / Title |
 |---------|--------------|
+| [v1.2.5.1](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1251) | 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
 | [v1.2.4](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v124) | 多人协作 + 调试工具链 + 公式编辑器体验 |
