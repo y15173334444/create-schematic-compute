@@ -1225,22 +1225,40 @@ public class GraphEditor {
         return h;
     }
 
-    /** 清掉已离开图或不再展开的节点残留的编辑状态与指纹。返回是否发生了清理。
-     *  Drop edit states and signatures for nodes that left the graph or are no longer expanded. */
+    /** 清掉已离开图的节点残留的编辑状态与指纹；折叠但仍在图中的节点保留状态与指纹
+     *  （再展开时按指纹复用，或经 createEditState 的旧状态引用保住 busBox 未提交文本），
+     *  只把它移出展开集合。返回是否发生了真正移除（需要下一帧再跑一次恢复块）。
+     *  Drop edit states and signatures for nodes that LEFT the graph; a collapsed-but-present
+     *  node keeps its state and fingerprint (re-expanding then reuses the state via the
+     *  fingerprint fast path, or preserves uncommitted busBox text through createEditState's
+     *  old-state reference) and only leaves the expanded set. Returns whether anything was
+     *  truly removed (another restore pass is needed next frame). */
     private boolean cullStaleEditStates(NodeGraph graph, java.util.Set<Integer> liveExpanded) {
         boolean culled = false;
         var it = nodeEditStatesById.entrySet().iterator();
         while (it.hasNext()) {
             var e = it.next();
-            if (graph.findNode(e.getKey()) == null || !liveExpanded.contains(e.getKey())) {
+            if (graph.findNode(e.getKey()) == null) {
                 for (var f : e.getValue().fields) f.setFocused(false);
                 it.remove();
                 editStateSignatures.remove(e.getKey());
                 expandedNodeIds.remove(e.getKey());
                 culled = true;
+            } else if (!liveExpanded.contains(e.getKey())) {
+                // 折叠但仍在图里：状态不删（删了会让再展开丢 busBox 未提交文本），
+                // 只退出展开集合；这是幂等操作，不需要触发下一帧恢复。
+                // Collapsed but still in the graph: keep the state (dropping it would lose
+                // uncommitted busBox text on re-expand), just leave the expanded set;
+                // idempotent, so no extra restore pass is triggered.
+                expandedNodeIds.remove(e.getKey());
             }
         }
-        editStateSignatures.keySet().retainAll(liveExpanded);
+        // 指纹按「仍在图中」保留而不是按展开集合——折叠节点再展开时才能命中指纹复用。
+        // Keep fingerprints for nodes still in the graph (not just the expanded ones) so a
+        // re-expanded node can hit the fingerprint fast path.
+        var liveIds = new java.util.HashSet<Integer>();
+        for (var n : graph.nodes) liveIds.add(n.id);
+        editStateSignatures.keySet().retainAll(liveIds);
         return culled;
     }
 
