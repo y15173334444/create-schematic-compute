@@ -2,7 +2,7 @@
 
 > **状态**：🔶 **进行中**。起草于 2026-09-11，基线 `dfedbef`。
 > **步骤 1 已完成**（`c8643fd`）：`MonitorClipMath` 已拆出，1742 → 1465 行，390 测试全绿。
-> **步骤 2 进行中**：`MonitorScreen` 显示编辑 GUI 脱离。
+> **步骤 2 已完成**（`23ec19d`）：显示编辑 GUI 迁至 `MonitorDisplayEditor`，1767 → 368 行。
 > Status: 🔶 **in progress.** Drafted 2026-09-11 against `dfedbef`; step 1 landed in `c8643fd`.
 > **目标 / Goal**：把 GUI/渲染层的巨型类按**单一职责边界**拆成可独立阅读、可独立回归的文件，
 > 首选交付物是**把全息显示器的显示编辑 GUI 从图编辑器中剥离**（见 §3 步骤 2）。
@@ -109,7 +109,7 @@ GUI 层几乎不可单测，但有两处**纯逻辑**可以在拆分时**顺手�
 
 ```
 Step 1  MonitorBlockEntityRenderer 裁剪数学      ✅ 已完成 c8643fd（390 测试全绿）
-Step 2  MonitorScreen 显示编辑 GUI 脱离          🔄 进行中（DP 首选交付）★
+Step 2  MonitorScreen 显示编辑 GUI 脱离          ✅ 已完成 23ec19d（1767 → 368 行）
 Step 3  EditorSettingsScreen 按 tab 拆分         🟢 低风险（最孤立）
 Step 4  PixelEditorScreen 内核 / 帧条拆分        🟡 中（可补单测）
 Step 5  NodeRenderer 按渲染品类拆（保门面）      🟡 中（引用最广）
@@ -212,6 +212,38 @@ Step 7  小文件批量归位                           ⚪ 择机
   2. 抽取两模式共用的**屏幕几何助手**（`computeDisplayArea` / content 区换算）。
   3. 按面板二次拆（图层面板 / 设置面板成为新类的内部协作对象或独立文件）——**可选**，视第 1 刀后的文件大小决定。
 - **验证**：见 §4 手动回归清单 A（**含双客户端协作项**）。
+
+#### ✅ 实施记录 / Implementation record（已落地 `23ec19d`，待游戏内手动回归）
+
+落地为 `blocks/MonitorDisplayEditor.java`（1,579 行，`public final`，构造注入 `Host` 接缝）。
+`MonitorScreen` **1767 → 368 行**：保留节点图模式、`GraphEditor.Host` 样板、像素编辑器双击入口与显示切换按钮，
+并实现 `MonitorDisplayEditor.Host`。
+
+| 搬迁内容 | 说明 |
+|---------|------|
+| 显示区渲染 | `DisplayArea` 几何、`renderDisplayArea`、元素收集 + Phase-2 渲染缓存、`renderPixels` |
+| 图层面板 | 缩略图、行命中、拖拽排序、自动滚动、滚动条（按下 + 拖动两条路径） |
+| 设置面板 | 屏幕 8 参数 + HUD 模式 + 虚像缩放、实时预览、保存/应用 |
+| 输入路由 | `handleClick` / `handleMouseMoved` / `handleMouseDragged` / `handleMouseReleased` / `handleMouseScrolled` / `handleKeyPressed` / `handleCharTyped` |
+| 协作叠加层 | 显示模式队友光标 + 拖拽描边、存在包模式覆写点 |
+| 转移与收尾 | `pixelEditorTransfer` 标记、`preClose` 拖拽补发 |
+
+**结构性调整（唯一一处非机械改动，已写进提交信息）**：显示模式的**工具栏条**改由屏幕侧绘制
+（`Host#drawToolbarStrip`），以保持原来"基础按钮先画、切换按钮覆盖其上"的绘制顺序；
+S/R 编辑项所需状态经 `selectedNode()` / `editingScale()` / `editScaleBuf()` 等只读访问器暴露。
+
+**实施中发现（四条，供后续步骤复用）**：
+
+1. **隐式外层访问要用带排除的 token 级重写**。`blockPos → host.blockPos()` 这类简单 `String.Replace`
+   会把替换结果再替换一次（`host.host.blockPos()()`）；`width` 又会命中 `font.width(`。必须用
+   `(?<![\w.])width(?!\s*\()` 形式，并在完成后断言 `host.host.` 出现次数为 0。
+2. **搬迁会"漏"父类里与已移动方法同名的作用域**。首次抽取把 `handleLayerScrollbarPress` 的定义搬进新类，
+   却**漏改 `handleClick` 里的调用**，导致滚动条拇指按下在两端都没有实现——静态"调用点 vs 定义"核对才发现。
+   教训：**GUI 层零测试，"编译通过"不等于"没丢逻辑"**，必须成对核对调用与定义。
+3. **跨类使用要提可见性，且会撞名**。`MAX_ANCHOR_S` / `ff0..ff3` 需要 `public`；
+   字段名与访问器同名会自相冲突（本次踩到：字段保留 `showSettings`，访问器改名 `settingsOpen()`）。
+4. **模式开关不能只改一半**。设置面板在**两个模式下都会渲染**（图模式是覆盖层），因此 `keyPressed`
+   的委托条件必须是 `active() || settingsOpen()`，否则"离开显示模式后面板还在、但按键失效"。
 
 ### 步骤 3 · `EditorSettingsScreen` 按 tab 拆分
 
