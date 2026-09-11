@@ -279,19 +279,45 @@ S/R 编辑项所需状态经 `selectedNode()` / `editingScale()` / `editScaleBuf
 - **共享不搬**：`expanded`（与键位 tab 共享，Host 已提供 getter/setter）
 - **风险点**：调色板绑定（`picker.open/rebind` 双回调）与 `adjustIndex` 生命周期；`expanded` 同时受键位分支影响
 
-#### 🔶 待办 · 键位 tab（方案已定，未实施，**新行号**）
+#### 🔶 待办 · 键位 tab（依赖图已摸清，未实施）
 
-- **实现块是碎片化的**（这是它比指南 tab 难的原因）：
-  `Keycap` + `cap` + `KEY_ROWS`（589–620）、`keysListTop/Bot/VisibleRows/MaxScroll` + `KEYS_CHIPS_W`（622–628）、
-  `keysUnit/keysGap/keysGridW`（631–657）、`renderKeysTab`（659–806）、
-  `handleKeycapClick` / `handleChipClick` / `confirmKeybind` / `selectKeybindRow`（810–853）、
-  `KEY_ROW_H`（932）、`keysScrollbarThumb` + `applyKeysScrollbarDrag`（937–957）、`keysBarGeometry`（963–1003）
-- **共享工具**：`seqText` / `keyName`（1005–1030）被键位 tab 使用 → 建议**留在父类并经 Host 暴露**
-  （或下沉到 `EditorKeys`），不要在 tab 里复制一份
-- **共享状态**：`collapseExpanded()`（856–864）同时清颜色 / 键位 / 指南三处 → **保留在父类**，
-  各 tab 提供"只清自己"的方法供其调用（指南已是 `guideCollapse()` 这个形状）
-- **状态随迁**：`keysScroll`、`keysScrollbarDrag(StartY/StartOff)`、`keybindTarget`、`latchedMods`、`rebindConflict`、`pendingSeq`
-- **父类改动**：`renderKeysTab` 调用点 + 输入分发读写（约 25 处）
+**为什么单独留下它**：这是步骤 3 里唯一**牵动键盘输入分发**的一块，而 GUI 层零测试兜底；
+本会话在同类改动上已两次踩坑（显示器拆分遗漏返回值语义 → 吞键；颜色 tab 脚本端点算错 → 删掉仍被引用的方法）。
+实施时**必须**：先干跑（算出"删除后哪些成员失去定义"）→ 写入 → 编译逐轮验证。
+
+**实现块（当前行号，893 行的文件里）**：
+
+| 区间 | 内容 |
+|------|------|
+| 495–566 | `Keycap` record + `cap()` + `KEY_ROWS` + `keysListW` + `keysListTop/Bot/VisibleRows/MaxScroll` + `KEYS_CHIPS_W` + `keysUnit/keysGap/keysGridW`（含各自 javadoc）|
+| 561–714 | `renderKeysTab` |
+| 716–762 | `handleKeycapClick` / `handleChipClick` / `confirmKeybind` / `selectKeybindRow` |
+| 793–794 | `KEY_ROW_H` |
+| 796–864 | `keysScrollbarThumb` + `applyKeysScrollbarDrag` + `keysBarGeometry` |
+
+**同时被父类输入分发引用的几何/常量 → 必须经 Host 暴露**（这是本刀的主要工作量）：
+
+| 成员 | 父类引用行 |
+|------|-----------|
+| `keysListW` | 282（mouseClicked 计算 listRight）|
+| `keysUnit` / `keysGap` / `keysGridW` | 287 / 297 / 295 |
+| `keysBarGeometry` | 307 |
+| `keysScrollbarThumb` | 326 |
+| `keysMaxScroll` | 325、329、437 |
+| `KEY_ROW_H` | 336–338、578–584 等 10 处 |
+| `KEYS_CHIPS_W` | 288、291 |
+
+**留在父类**：`seqText` / `keyName`（866–892，跨 tab 共享；也可下沉 `EditorKeys`，勿在 tab 内复制）、
+`collapseExpanded()`（764–781，同时清颜色/键位/指南，保留在父类）。
+
+**状态随迁**：`keysScroll`、`keysScrollbarDrag(StartY/StartOff)`、`keybindTarget`、`latchedMods`、`rebindConflict`、`pendingSeq`
+→ 搬入 tab 类并配访问器（父类输入分发约 25 处读写改走 `keysTab.*`）。
+
+**父类调用点**：`renderKeysTab`(195)、`handleKeycapClick`(302)、`handleChipClick`(292)、`confirmKeybind`(320)、
+`selectKeybindRow`(317、339)、`applyKeysScrollbarDrag`(466)。
+
+**更保守的替代切法（若想进一步降风险）**：只搬 `renderKeysTab` 与 `handle*` 四个交互方法，
+几何/常量/状态全部留父类经 Host 暴露——收益约 −200 行，但避开输入分发里那 25 个点的大改。
 
 
 - **现状**：1,204 行 / **只有 2 个文件引用它、7 处**，是全仓最孤立的千行 GUI 类；内部已是 3 个 tab：
