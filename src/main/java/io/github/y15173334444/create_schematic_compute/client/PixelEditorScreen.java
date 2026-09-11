@@ -61,7 +61,7 @@ import java.util.UUID;
  * SET_IMAGE_PIXELS op on close/frame switch. Canvas size moved into a "Canvas" button popup
  * with separate Apply/Cancel.
  */
-public class PixelEditorScreen extends Screen implements GraphEditor.Host {
+public class PixelEditorScreen extends Screen implements GraphEditor.Host, PixelEditorFrameStrip.Host {
 
     // ── 布局常量 / layout constants (tiled, non-overlapping) ──
     private static final int TOP_H = 30;                       // 顶栏高（容纳两行）/ top bar height (holds two rows)
@@ -71,8 +71,6 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
     private static final float PALETTE_SCALE = 0.8f;       // 常驻右侧取色器缩放 / always-on palette scale
     private static final int FRAME_STRIP_H = 44;               // 序列缩略图条高（紧贴屏幕底部、更紧凑）/ sequence thumbnail-strip height (flush to the bottom, compact)
     private static final int FS_BTN_H = 20;                    // 序列按钮行高（紧邻缩略图条上方、更紧凑）/ sequence button-row height (directly above the thumbnail strip, compact)
-    private static final int FS_BTN = 16;                      // 序列按钮高（紧凑）/ sequence button height (compact)
-    private static final int THUMB = 36, THUMB_GAP = 6;        // 缩略图高 / 间距（宽按宽高比动态、贴底紧凑）/ thumbnail height & gap (dynamic width, flush bottom)
     private static final float MIN_ZOOM = 0.4f, MAX_ZOOM = 8f;
     /** 临时隐藏左面板的笔刷大小/透明度/当前色，工具栏只放工具（改回 true 即恢复）。/
      *  Temporarily hide the brush-size/opacity/current-color controls in the left panel so the
@@ -146,19 +144,10 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
     /** 操作指南弹窗是否显示 / operation-guide popup visible */
     private boolean showGuide = false;
 
-    // ── 帧条（IMAGE_SEQUENCE）/ frame strip ──
-    private int frameIndex = 0;
-    private int frameScroll = 0;
-    private boolean frameMenuOpen = false;
-    private enum FrameDrag { IDLE, PRESSED, DRAGGING }
-    private FrameDrag frameDrag = FrameDrag.IDLE;
-    private int frameDragIndex = -1, frameDropIndex = -1;
-    private double frameDragStartX = 0;
-    private long frameDragPressTime = 0;
-    private boolean frameScrollbarDragging = false;
-    private double frameSbDragStartX = 0;
-    private int frameSbDragStartOff = 0;
-    private long lastFrameAutoScroll = 0;
+    // ── 帧条（IMAGE_SEQUENCE，已拆分，docs/gui-decomposition-plan.md 步骤 4）──
+    //    Frame strip (split out): frame state (index/scroll/drag/+New menu) lives in the
+    //    strip; strip geometry, persistence and sync come back through its Host.
+    private final PixelEditorFrameStrip frameStrip = new PixelEditorFrameStrip(this, kernel);
 
     public PixelEditorScreen(BlockPos pos, GraphNode node, Screen returnScreen) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".monitor"));
@@ -172,7 +161,6 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
                 java.util.Arrays.fill(frame, 0x00000000);
                 node.imageSequenceFrames.add(frame);
             }
-            frameIndex = 0;
             node.imagePixels = node.imageSequenceFrames.get(0);
         }
         sizeWField = new EditBox(Minecraft.getInstance().font, 0, 0, 44, 16, Component.literal(""));
@@ -236,6 +224,14 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         return null;
     }
 
+    // ══════════════ PixelEditorFrameStrip.Host（帧条接缝）/ frame-strip host seam ══════════════
+    // sendOp(GraphOp) 已由上方 GraphEditor.Host 实现承担 / sendOp is already implemented for GraphEditor.Host above.
+
+    @Override public int height() { return height; }
+    @Override public GraphNode node() { return node; }
+    @Override public BlockPos blockPos() { return blockPos; }
+    @Override public UUID playerUUID() { return getPlayerUUID(); }
+
     // ══════════════ 生命周期 / lifecycle ══════════════
 
     @Override public void tick() {
@@ -270,14 +266,15 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
     /** 中央列左缘（左面板右缘）。/ central column left edge (right edge of the left panel). */
     private int centralLeft() { return LEFT_W + LEFT_PAD; }
     /** 取色器面板展开时的左缘；收起时等于右缘。/ palette panel left edge when expanded (else screen right). */
-    private int paletteLeft() { return width - (colorPicker.isVisible() ? PAL_W : 0); }
+    @Override public int paletteLeft() { return width - (colorPicker.isVisible() ? PAL_W : 0); }
     /** 中央列右缘（取色器左缘减内边距）。/ central column right edge. */
     private int centralRight() { return Math.max(centralLeft() + 20, paletteLeft() - LEFT_PAD); }
     private int canvasY() { return TOP_H + LEFT_PAD; }
     /** 序列缩略图条顶部（紧贴屏幕底部，条从这延续到 height）。/ thumbnail strip top (flush to the bottom; the strip spans here..height). */
-    private int frameStripY() { return height - FRAME_STRIP_H; }
+    @Override public int frameStripY() { return height - FRAME_STRIP_H; }
     /** 序列按钮行顶部（紧挨在缩略图条上方）。/ sequence button-row top (directly above the thumbnail strip). */
     private int frameBtnY() { return frameStripY() - FS_BTN_H; }
+    @Override public int frameBtnH() { return FS_BTN_H; }
     private int canvasBottom() { return isSeq() ? frameBtnY() : height - LEFT_PAD; }
 
     /** 画布视口矩形：[x, y, w, h]。/ canvas viewport rect. */
@@ -291,35 +288,16 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         return new int[]{x, y, w, h};
     }
 
-    /** 序列缩略图条矩形（紧贴屏幕底部、横跨左工具列与右调色板之间）：[x, y, w, h]。/
-     *  sequence thumbnail-strip rect (flush to the bottom, spans between the left rail & the palette). */
-    private int[] frameStripRect() {
-        return new int[]{LEFT_W, frameStripY(), paletteLeft() - LEFT_W, FRAME_STRIP_H};
-    }
-
     /** 序列按钮行矩形（紧邻缩略图条上方、同样横跨）：[x, y, w, h]。/
      *  sequence button-row rect (directly above the strip, same full span). */
-    private int[] frameBtnRect() {
+    @Override public int[] frameBtnRect() {
         return new int[]{LEFT_W, frameBtnY(), paletteLeft() - LEFT_W, FS_BTN_H};
     }
 
-    /** 帧条缩略图起始 x（紧贴左工具列右缘）。/ first-thumbnail x (right beside the left rail). */
-    private int thumbStartX() { return LEFT_W + 8; }
-    /** 帧条右缘（紧贴右调色板左缘）。/ frame strip right edge (right beside the palette). */
-    private int frameStripRight() { return paletteLeft(); }
+    /** 帧条首缩略图 x（紧贴左工具列右缘）。/ first-thumbnail x (right beside the left rail). */
+    @Override public int thumbStartX() { return LEFT_W + 8; }
 
-    /** 缩略图动态宽度：高度固定 THUMB，宽度随图像宽高比（上下不变、左右动态）。/
-     *  thumbnail dynamic width (fixed THUMB height, width follows the image aspect). */
-    private int thumbW() {
-        return Math.max(2, Math.round(THUMB * (float)Math.max(1, node.imageWidth) / Math.max(1, node.imageHeight)));
-    }
-    /** 缩略图步进（动态宽 + 间距）。/ thumbnail pitch (dynamic width + gap). */
-    private int thumbPitch() { return thumbW() + THUMB_GAP; }
-
-    private int maxVisibleThumbs() {
-        int avail = frameStripRight() - thumbStartX();
-        return Math.max(1, avail / thumbPitch());
-    }
+    // ── 左面板内部几何 / left-panel inner geometry ──
 
     /** 归一化基准格（zoom=1 时恰好适配视口）。/ base cell size (zoom=1 fits the viewport). */
     private int baseCell() {
@@ -408,7 +386,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         if (isSeq()) {
             g.pose().pushPose();
             g.pose().translate(0f, 0f, -50f);
-            renderFrameStrip(g, mx, my);
+            frameStrip.render(g, mx, my);
             g.pose().popPose();
         }
         // 取色器：内嵌式常驻右侧面板，面板铺满右缘到屏幕底部；标题字放大、常用/最近更多行。
@@ -492,7 +470,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         var fb = new StringBuilder();
         int[] c = cellAt(mx, my);
         fb.append("§7坐标 (").append(c[0] >= 0 ? c[0] + ", " + c[1] : "—, —").append(")");
-        if (isSeq()) fb.append("  F").append(frameIndex + 1).append("/").append(node.imageSequenceFrames.size());
+        if (isSeq()) fb.append("  F").append(frameStrip.frameIndex() + 1).append("/").append(node.imageSequenceFrames.size());
         fb.append("  ").append(gridGeom()[2]).append("px");
         fb.append("  ").append(showGrid ? "Grid" : "No grid");
         g.drawString(f, fitRowText(f, fb.toString(), statusMaxW), 10, 20, C_TXT_DIM, false);
@@ -779,105 +757,6 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
             }
     }
 
-    // ── 帧条 / frame strip ──
-    private void renderFrameStrip(GuiGraphics g, int mx, int my) {
-        int[] br = frameBtnRect();                    // 按钮行 / button row
-        int[] sr = frameStripRect();                  // 缩略图条 / thumbnail strip
-        int fl = br[0], frr = br[0] + br[2];
-        int btnY = br[1];
-        int fy = sr[1];
-        // 整个序列区背景（按钮行 + 缩略图条），底部紧贴屏幕底 / whole frame-area bg (button row + strip), flush to the bottom.
-        g.fill(fl, btnY, frr, height, C_BG);
-        // 按钮行顶部与画布的分隔线；按钮行与缩略图条之间的分隔线 / border above the row and between the row & strip.
-        g.fill(fl, btnY, frr, btnY + 1, C_BORDER);
-        g.fill(fl, fy, frr, fy + 1, C_BORDER);
-        var f = Minecraft.getInstance().font;
-        List<int[]> frames = node.imageSequenceFrames;
-        if (frames == null || frames.isEmpty()) return;
-        int n = frames.size();
-        int by = btnY + (FS_BTN_H - FS_BTN) / 2;      // 按钮行内垂直居中 / centred in the row
-        // 导航 / nav (relative to fl)
-        boolean pH = hit(mx, my, fl + 8, by, 18, FS_BTN);
-        g.fill(fl + 8, by, fl + 26, by + FS_BTN, pH ? C_HOVER : C_BTN);
-        g.renderOutline(fl + 8, by, 18, FS_BTN, C_BORDER);
-        g.drawString(f, "§7◀", fl + 13, by + 3, C_TXT_DIM, false);
-        boolean nH = hit(mx, my, fl + 30, by, 18, FS_BTN);
-        g.fill(fl + 30, by, fl + 48, by + FS_BTN, nH ? C_HOVER : C_BTN);
-        g.renderOutline(fl + 30, by, 18, FS_BTN, C_BORDER);
-        g.drawString(f, "§7▶", fl + 35, by + 3, C_TXT_DIM, false);
-        g.drawString(f, "§7" + (frameIndex + 1) + "/" + n, fl + 54, by + 3, C_TXT_DIM, false);
-        // 新建 / +New
-        boolean newH = hit(mx, my, fl + 94, by, 44, FS_BTN);
-        g.fill(fl + 94, by, fl + 138, by + FS_BTN, newH ? C_HOVER : C_BTN);
-        g.renderOutline(fl + 94, by, 44, FS_BTN, C_BORDER);
-        g.drawString(f, "§a" + I18n.get("gui.create_schematic_compute.monitor.pixel_new"), fl + 100, by + 3, C_TXT_DIM, false);
-        // 删除 / delete
-        boolean delH = hit(mx, my, fl + 146, by, 48, FS_BTN);
-        g.fill(fl + 146, by, fl + 194, by + FS_BTN, delH ? C_DEL : C_BTN);
-        g.renderOutline(fl + 146, by, 48, FS_BTN, 0xFF8A5A4A);
-        g.drawString(f, "§c" + I18n.get("gui.create_schematic_compute.monitor.pixel_delete"), fl + 150, by + 3, C_TXT_DIM, false);
-        // 缩略图 / thumbnails（高度固定、宽度随宽高比动态；去边框，选中帧用底色高亮）
-        int tx = thumbStartX();
-        int tw = thumbW();
-        int pitch = thumbPitch();
-        int maxScroll = Math.max(0, n - maxVisibleThumbs());
-        int scroll = Math.max(0, Math.min(maxScroll, frameScroll));
-        frameScroll = scroll;
-        for (int i = 0; i < n; i++) {
-            int x = tx + i * pitch - scroll * pitch;
-            if (x + tw < fl || x > frr) continue;
-            int y = fy + 2;
-            if (i == frameIndex) g.fill(x - 1, y - 1, x + tw + 1, y + THUMB + 1, 0xFF3A5A2A);
-            else if (frameDrag == FrameDrag.DRAGGING && frameDragIndex == i) g.fill(x - 1, y - 1, x + tw + 1, y + THUMB + 1, 0xFF7A4A3A);
-            g.fill(x, y, x + tw, y + THUMB, NodeRenderer.PINS());
-            renderThumb(g, frames.get(i), x, y, tw, THUMB);
-        }
-        // 拖拽落点指示 / drop indicator
-        if (frameDrag == FrameDrag.DRAGGING && frameDropIndex >= 0 && frameDropIndex <= n) {
-            int dx = tx + frameDropIndex * pitch - scroll * pitch - 2;
-            g.fill(dx, fy + 2, dx + 2, fy + THUMB + 2, NodeRenderer.ACC());
-        }
-        // 滚动条 / scrollbar
-        if (maxScroll > 0) {
-            int sbW = frr - tx;
-            int sbX = tx;
-            float sbThumbW = Math.max(18, (float)maxVisibleThumbs() / n * sbW);
-            float thumbX = sbX + (float)scroll / maxScroll * (sbW - sbThumbW);
-            g.fill(sbX, height - 5, sbX + sbW, height - 3, C_BTN);
-            g.fill((int)thumbX, height - 5, (int)(thumbX + sbThumbW), height - 3, 0xFF8A7A5A);
-        }
-        // 新建菜单（Blank / From current）最后画，浮在缩略图条上方 / draw the "+New" menu last so it floats above the strip.
-        if (frameMenuOpen) {
-            g.fill(fl + 94, by + 18, fl + 184, by + 40, C_BG);
-            g.renderOutline(fl + 94, by + 18, 90, 22, C_BORDER);
-            g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_blank"), fl + 100, by + 20, C_TXT_DIM, false);
-            g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_from_current"), fl + 100, by + 30, C_TXT_DIM, false);
-        }
-    }
-
-    private void renderThumb(GuiGraphics g, int[] frame, int x, int y, int w, int h) {
-        if (frame == null || frame.length == 0) return;
-        int imgW = node.imageWidth, imgH = node.imageHeight;
-        if (imgW <= 0 || imgH <= 0) return;
-        // 缩放到填满 w×h（保持宽高比），采用像素级整数矩形（支持放大/缩小）/ scale to fill w×h preserving aspect via per-pixel integer rects.
-        float cf = Math.min((float)h / imgH, (float)w / imgW);
-        float offX = x + (w - imgW * cf) / 2f, offY = y + (h - imgH * cf) / 2f;
-        for (int py = 0; py < imgH; py++)
-            for (int px = 0; px < imgW; px++) {
-                int idx = py * imgW + px;
-                int c = (idx < frame.length) ? frame[idx] : 0;
-                int x1 = Math.round(offX + px * cf), y1 = Math.round(offY + py * cf);
-                int x2 = Math.max(x1 + 1, Math.round(offX + (px + 1) * cf));
-                int y2 = Math.max(y1 + 1, Math.round(offY + (py + 1) * cf));
-                if ((c & 0xFF000000) == 0) {
-                    int ck = ((px + py) & 1) * 0x222222;
-                    g.fill(x1, y1, x2, y2, 0xFF333333 + ck);
-                } else {
-                    g.fill(x1, y1, x2, y2, c);
-                }
-            }
-    }
-
     // ══════════════ 画布尺寸弹窗 / canvas-size dialog ══════════════
 
     private int[] sizeDialogRect() {
@@ -951,7 +830,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         if (sizeDialogOpen) return handleSizeDialogClick(mx, my, btn);
         if (my <= TOP_H) return handleTopBarClick(mx, my, btn);
         if (mx < LEFT_W) return handleLeftPanelClick(mx, my, btn);
-        if (isSeq() && my >= frameBtnY()) return handleFrameStripClick(mx, my, btn);
+        if (isSeq() && my >= frameBtnY()) return frameStrip.handleClick(mx, my, btn);
         // 取色器展开时，点击其保留带（不含组件）一律吞掉，避免落入画布
         // When the palette is expanded, swallow clicks in its reserved band so they never
         // reach the canvas.
@@ -1027,60 +906,6 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         return true;  // 弹窗内非按钮点击吞掉 / swallow clicks inside the dialog
     }
 
-    private boolean handleFrameStripClick(double mx, double my, int btn) {
-        int fl = LEFT_W;                                    // 与渲染的按钮行锚点一致（br[0]）/ match the render anchor (br[0])
-        int fy = frameStripY();
-        int by = frameBtnY() + (FS_BTN_H - FS_BTN) / 2;   // 按钮行内垂直居中 / centred in the row
-        List<int[]> frames = node.imageSequenceFrames;
-        if (frames == null || frames.isEmpty()) return false;
-        int n = frames.size();
-        if (btn == 0) {
-            if (hit(mx, my, fl + 8, by, 18, FS_BTN)) { switchFrame(frameIndex - 1); return true; }
-            if (hit(mx, my, fl + 30, by, 18, FS_BTN)) { switchFrame(frameIndex + 1); return true; }
-            if (hit(mx, my, fl + 94, by, 44, FS_BTN)) { frameMenuOpen = !frameMenuOpen; return true; }
-            if (frameMenuOpen && mx >= fl + 94 && mx <= fl + 184 && my >= by + 18 && my <= by + 40) {
-                boolean blank = my <= by + 28;
-                addFrame(blank);
-                frameMenuOpen = false;
-                return true;
-            }
-            if (hit(mx, my, fl + 146, by, 48, FS_BTN)) { deleteFrame(); return true; }
-            // 缩略图点击 / thumbnail clicks
-            int tx = thumbStartX();
-            int frr = frameStripRight();
-            for (int i = 0; i < n; i++) {
-                int x = tx + i * thumbPitch() - frameScroll * thumbPitch();
-                if (x + thumbW() < fl || x > frr) continue;
-                if (hit(mx, my, x, fy + 2, thumbW(), THUMB)) {
-                    if (frameDrag != FrameDrag.DRAGGING) {
-                        frameDrag = FrameDrag.PRESSED;
-                        frameDragIndex = i;
-                        frameDropIndex = i;
-                        frameDragStartX = mx;
-                        frameDragPressTime = System.currentTimeMillis();
-                    }
-                    return true;
-                }
-            }
-            // 滚动条 / scrollbar
-            int maxScroll = Math.max(0, n - maxVisibleThumbs());
-            if (maxScroll > 0 && my >= height - 5 && my <= height - 3) {
-                int sbW = frr - tx;
-                float sbThumbW = Math.max(18, (float)maxVisibleThumbs() / n * sbW);
-                float thumbX = tx + (float)frameScroll / maxScroll * (sbW - sbThumbW);
-                if (mx >= thumbX && mx <= thumbX + sbThumbW) {
-                    frameScrollbarDragging = true;
-                    frameSbDragStartX = mx;
-                    frameSbDragStartOff = frameScroll;
-                    return true;
-                }
-            }
-        } else if (btn == 1) {
-            return false;
-        }
-        return false;
-    }
-
     private void applyToolClick(int cx, int cy, int btn) {
         // 右键 = 直接擦除（任何工具下）；形状工具忽略右键（RMB reserved for erase; shape tools ignore it）
         boolean erasing = (btn == 1) || (tool == Tool.ERASER && btn == 0);
@@ -1118,7 +943,9 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         }
     }
 
-    private void bump() {
+    /** 图代际 +1（绘画 / 帧操作 / 撤销重做后调用；帧条 Host 接缝）。
+     *  Bump the graph generation (after painting / frame ops / undo-redo; the frame-strip Host seam). */
+    @Override public void bump() {
         var be = getBE();
         if (be != null) be.getNodeGraph().bumpGeneration();
     }
@@ -1139,31 +966,13 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
             setBrushSizeFromX(mx);
             return true;
         }
-        if (frameScrollbarDragging) {
-            int n = node.imageSequenceFrames.size();
-            int maxScroll = Math.max(0, n - maxVisibleThumbs());
-            int tx = thumbStartX();
-            int sbW = frameStripRight() - tx;
-            float sbThumbW = Math.max(18, (float)maxVisibleThumbs() / n * sbW);
-            float delta = (float)(mx - frameSbDragStartX) / (sbW - sbThumbW);
-            frameScroll = Math.max(0, Math.min(maxScroll, frameSbDragStartOff + Math.round(delta * maxScroll)));
-            return true;
-        }
+        if (isSeq() && frameStrip.handleScrollbarDragged(mx)) return true;
         if (panning) {
             panX += (float)dx;
             panY += (float)dy;
             return true;
         }
-        if (isSeq() && frameDrag == FrameDrag.PRESSED) {
-            if (Math.abs(mx - frameDragStartX) > 5 || System.currentTimeMillis() - frameDragPressTime > 200) {
-                frameDrag = FrameDrag.DRAGGING;
-            }
-        }
-        if (isSeq() && frameDrag == FrameDrag.DRAGGING && frameDragIndex >= 0) {
-            updateFrameDropIndex(mx);
-            frameAutoScroll(mx);
-            return true;
-        }
+        if (isSeq() && frameStrip.handleDragged(mx, my)) return true;
         if (shapeInProgress && (tool == Tool.LINE || tool == Tool.RECT)) {
             int[] c = cellAt(mx, my);
             if (c[0] >= 0) { shapeCurX = c[0]; shapeCurY = c[1]; }
@@ -1184,7 +993,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     @Override public void mouseMoved(double mx, double my) {
-        if (panning || frameDrag == FrameDrag.DRAGGING) return;
+        if (panning || frameStrip.isDragging()) return;
         if (paintingStroke && (tool == Tool.BRUSH || tool == Tool.ERASER)) {
             int[] c = cellAt(mx, my);
             if (c[0] >= 0) {
@@ -1209,17 +1018,9 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         }
         if (opacityDragging) { opacityDragging = false; return true; }
         if (brushSizeDragging) { brushSizeDragging = false; return true; }
-        if (frameScrollbarDragging) { frameScrollbarDragging = false; return true; }
+        if (frameStrip.releaseScrollbar()) return true;
         if (panning) { panning = false; return true; }
-        if (frameDrag == FrameDrag.DRAGGING && frameDragIndex >= 0) {
-            applyFrameReorder();
-            resetFrameDrag();
-            return true;
-        }
-        if (frameDrag == FrameDrag.PRESSED) {
-            switchFrame(frameDragIndex);
-            resetFrameDrag();
-        }
+        if (frameStrip.releaseDrag()) return true;
         if (shapeInProgress && (tool == Tool.LINE || tool == Tool.RECT)) {
             captureStrokeUndo();
             int color = selectedColor;
@@ -1239,12 +1040,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         if (showGuide) return true;
         if (colorPicker.isVisible() && colorPicker.mouseScrolled(mx, my, sy)) return true;
         // 帧条上滚动帧 / scroll the frame strip
-        if (isSeq() && my >= frameBtnY()) {
-            int n = node.imageSequenceFrames.size();
-            int maxScroll = Math.max(0, n - maxVisibleThumbs());
-            frameScroll = Math.max(0, Math.min(maxScroll, frameScroll + (sy > 0 ? -1 : 1)));
-            return true;
-        }
+        if (isSeq() && my >= frameBtnY()) return frameStrip.handleScrolled(sy);
         // 画布上缩放（以光标为锚点）/ zoom anchored at the cursor
         int[] cr = canvasRect();
         if (mx >= cr[0] && mx <= cr[0] + cr[2] && my >= cr[1] && my <= cr[1] + cr[3]) {
@@ -1314,108 +1110,6 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         return false;
     }
 
-    // ══════════════ 帧操作 / frame ops ══════════════
-
-    private void switchFrame(int newIndex) {
-        List<int[]> frames = node.imageSequenceFrames;
-        if (frames == null || frames.isEmpty()) return;
-        if (newIndex < 0 || newIndex >= frames.size()) return;
-        sendFrameSync();
-        frameIndex = newIndex;
-        node.imagePixels = frames.get(frameIndex);
-        int maxScroll = Math.max(0, frames.size() - maxVisibleThumbs());
-        if (frameIndex < frameScroll) frameScroll = frameIndex;
-        else if (frameIndex > frameScroll + maxVisibleThumbs() - 1) frameScroll = frameIndex - maxVisibleThumbs() + 1;
-        frameScroll = Math.max(0, Math.min(maxScroll, frameScroll));
-        frameMenuOpen = false;
-    }
-
-    private void addFrame(boolean blank) {
-        List<int[]> frames = PixelEditorKernel.ensureFrames(node);
-        kernel.pushFramesUndo(node);
-        int[] f;
-        if (blank) {
-            f = new int[node.imageWidth * node.imageHeight];
-            java.util.Arrays.fill(f, 0x00000000);
-        } else {
-            f = node.imagePixels.clone();
-        }
-        frames.add(f);
-        frameIndex = frames.size() - 1;
-        node.imagePixels = f;
-        frameMenuOpen = false;
-        sendFrameSync();
-        bump();
-    }
-
-    private void deleteFrame() {
-        List<int[]> frames = PixelEditorKernel.ensureFrames(node);
-        if (frames.isEmpty()) return;
-        kernel.pushFramesUndo(node);
-        int removed = frameIndex;
-        if (frames.size() > 1) {
-            frames.remove(removed);
-        } else {
-            int[] blank = new int[node.imageWidth * node.imageHeight];
-            java.util.Arrays.fill(blank, 0x00000000);
-            frames.set(0, blank);
-        }
-        if (frameIndex >= frames.size()) frameIndex = frames.size() - 1;
-        node.imagePixels = frames.get(Math.max(0, Math.min(frameIndex, frames.size() - 1)));
-        sendOp(GraphOp.removeImageFrame(blockPos, -1, node.id, removed, getPlayerUUID()));
-        bump();
-    }
-
-    private void updateFrameDropIndex(double mx) {
-        List<int[]> frames = node.imageSequenceFrames;
-        if (frames == null || frames.isEmpty()) return;
-        int tx = thumbStartX();
-        int target = (int)Math.floor((mx - tx + frameScroll * thumbPitch()) / thumbPitch());
-        target = Math.max(0, Math.min(frames.size(), target));
-        frameDropIndex = target;
-    }
-
-    private void frameAutoScroll(double mx) {
-        List<int[]> frames = node.imageSequenceFrames;
-        if (frames == null) return;
-        int maxScroll = Math.max(0, frames.size() - maxVisibleThumbs());
-        long now = System.currentTimeMillis();
-        if (now - lastFrameAutoScroll < 100) return;
-        if (mx < thumbStartX() + thumbW() + 4 && frameScroll > 0) {
-            frameScroll = Math.max(0, frameScroll - 1);
-            lastFrameAutoScroll = now;
-        } else if (mx > frameStripRight() - thumbW() - 20 && frameScroll < maxScroll) {
-            frameScroll = Math.min(maxScroll, frameScroll + 1);
-            lastFrameAutoScroll = now;
-        }
-    }
-
-    private void applyFrameReorder() {
-        List<int[]> frames = node.imageSequenceFrames;
-        if (frames == null || frameDragIndex < 0) return;
-        int from = frameDragIndex;
-        int to = frameDropIndex;
-        if (to > from) to--;
-        if (from == to) return;
-        kernel.pushFramesUndo(node);
-        int[] f = frames.remove(from);
-        if (to < 0) to = 0;
-        if (to > frames.size()) to = frames.size();
-        frames.add(to, f);
-        frameIndex = to;
-        node.imagePixels = frames.get(to);
-        sendOp(GraphOp.moveImageFrame(blockPos, -1, node.id, from, to, getPlayerUUID()));
-        bump();
-    }
-
-    private void resetFrameDrag() {
-        frameDrag = FrameDrag.IDLE;
-        frameDragIndex = -1;
-        frameDropIndex = -1;
-        frameDragStartX = 0;
-        frameDragPressTime = 0;
-    }
-
     // ══════════════ 画布尺寸 / canvas size ══════════════
 
     private void commitSizeFields() {
@@ -1439,17 +1133,17 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
         kernel.pushResizeUndo(node, oldW, oldH);
         GraphNode.resizeImagePixels(node, newW, newH);
         if (node.type == NodeType.IMAGE_SEQUENCE && node.imageSequenceFrames != null
-            && frameIndex >= 0 && frameIndex < node.imageSequenceFrames.size())
-            node.imagePixels = node.imageSequenceFrames.get(frameIndex);
+            && frameStrip.frameIndex() >= 0 && frameStrip.frameIndex() < node.imageSequenceFrames.size())
+            node.imagePixels = node.imageSequenceFrames.get(frameStrip.frameIndex());
         sendOp(GraphOp.setImageSize(blockPos, -1, node.id, newW, newH, getPlayerUUID()));
         be.getNodeGraph().bumpGeneration();
     }
 
-    /** 定向同步当前帧（SET_IMAGE_PIXELS）。 / Targeted current-frame sync. */
-    private void sendFrameSync() {
+    /** 定向同步当前帧（SET_IMAGE_PIXELS；帧条 Host 接缝）。 / Targeted current-frame sync (frame-strip Host seam). */
+    @Override public void sendFrameSync() {
         var be = getBE();
         if (be == null) return;
-        int frameIdx = node.type == NodeType.IMAGE_SEQUENCE ? frameIndex : 0;
+        int frameIdx = node.type == NodeType.IMAGE_SEQUENCE ? frameStrip.frameIndex() : 0;
         int[] data = node.imagePixels != null ? node.imagePixels.clone()
             : new int[node.imageWidth * node.imageHeight];
         sendOp(GraphOp.setImagePixels(blockPos, -1, node.id, frameIdx, data, getPlayerUUID()));
@@ -1470,14 +1164,14 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host {
      *  Pixel-level undo (implements Host.performUndo; a no-op does not bump). */
     @Override public void performUndo() {
         if (!kernel.canUndo()) return;
-        frameIndex = kernel.performUndo(node, frameIndex);
+        frameStrip.setFrameIndex(kernel.performUndo(node, frameStrip.frameIndex()));
         bump();
     }
 
     /** 像素级重做（实现 Host.performRedo）。 / Pixel-level redo (implements Host.performRedo). */
     @Override public void performRedo() {
         if (!kernel.canRedo()) return;
-        frameIndex = kernel.performRedo(node, frameIndex);
+        frameStrip.setFrameIndex(kernel.performRedo(node, frameStrip.frameIndex()));
         bump();
     }
 }
