@@ -1,7 +1,7 @@
 # 编辑器输入框丢焦点 / 丢选中 —— 根因分析与修复 / Editor Input Focus & Selection Loss — Root Cause
 
-> **状态**：🔶 **根因已定位并取证，修复待实施**（2026-09-11）。取证基线 `856b9f8` + 工作区改动。
-> Status: 🔶 **root cause identified with runtime evidence; fix pending.** 2026-09-11.
+> **状态**：✅ **已实施**（2026-09-11）。步骤 1–3 与焦点修复落地于 `db38d34`，步骤 5 落地于 `1e1a6a6`，步骤 6 键盘路径同期修复；同日评审补充鼠标路径与 `cullStaleEditStates` 保留调整（见「同日补充」）。`compileJava` + `./gradlew test` 通过；**第四节实机验收仍待执行**。
+> Status: ✅ **implemented** (2026-09-11). Steps 1–3 and the focus fix landed in `db38d34`, step 5 in `1e1a6a6`, the step-6 keyboard path fixed in the same batch; a same-day review pass added the mouse path and the `cullStaleEditStates` retention adjustment (see "Same-day addenda"). `compileJava` + `./gradlew test` pass; the **in-game acceptance in section 4 is still pending**.
 > **现象**：在节点输入框里输入时，**焦点/节点选中会突然消失**，但输入框本身还在；有时"吞一个字符后节点才重新被选中"。
 > **关联**：[`gui-decomposition-plan.md`](gui-decomposition-plan.md)（步骤 2 拆出 `MonitorDisplayEditor` 后开始关注输入路径）、
 > [`code-architecture.md`](code-architecture.md)（编辑界面与 `GraphEditor` 契约）。
@@ -130,6 +130,32 @@ if (!expandedInitDone) {
 
 > **教训**：跨类拆分时，**返回值的语义（谁消费、谁下落）与被搬运的代码同等重要**。
 > 拆分清单里应包含"每个 boolean/Boolean 返回值在无匹配分支下应当是什么"。
+
+### 同日补充（评审修复，2026-09-11）/ Same-day addenda (review fixes, 2026-09-11)
+
+1. **步骤 6 的鼠标补丁 / mouse patch for step 6**：步骤 6 只修了键盘路径；同状态的**鼠标**路径有同样的洞。
+   原 `MonitorScreen.mouseClicked` 的 `if (showSettings) return handleSettingsClick(...)` 与模式无关，
+   拆分后屏幕侧只剩 `if (displayEditor.active())`——节点图模式下面板渲染着却点击穿透到图编辑区
+   （关闭/保存按钮、输入框全部不可点）。修法：`MonitorDisplayEditor.handleSettingsClick` 提为 public，
+   屏幕在 `settingsOpen()` 时直接路由（显示模式经 `handleClick` 的原转发语义不变）。
+   / Step 6 fixed the keyboard path only; the **mouse** path had the same hole for the same state.
+   The split dropped the mode-independent `if (showSettings)` click priority, so in graph mode the
+   visible panel let clicks fall through to the graph editor (close/save buttons and EditBoxes
+   unreachable). Fix: make `handleSettingsClick` public and route it from the screen whenever
+   `settingsOpen()` (display mode keeps its original `handleClick` forwarding).
+2. **`cullStaleEditStates` 折叠保留 / collapsed-state retention in cullStaleEditStates**：
+   随步骤 2 机制引入的清理原本把「折叠但仍在图」的节点状态也一并删除。用户点击折叠
+   （`toggleExpand`）本来就会删状态（前后一致），但**整图同步替换实例导致的折叠**原本保留旧状态，
+   再展开时经 `createEditState` 的旧状态引用保住 busBox 未提交文本——cull 把这条路也断了。
+   现改回：cull 只清「已离开图」的节点；折叠节点保留状态与指纹、只退出展开集合（幂等，不触发
+   下一帧恢复）。指纹保留范围从「展开集合」改为「仍在图中」。
+   / The cull added with the step-2 machinery also dropped states of collapsed-but-present nodes.
+   A user-initiated collapse already drops the state (unchanged), but a collapse arriving via a
+   whole-graph sync used to keep the old state, preserving uncommitted busBox text on re-expand
+   through `createEditState`'s old-state reference — the cull cut that path too. Restored: the
+   cull only drops nodes that left the graph; collapsed nodes keep their state and fingerprint
+   and only leave the expanded set (idempotent, no extra restore pass). Fingerprints are now
+   retained for nodes still in the graph rather than only the expanded ones.
 
 ---
 

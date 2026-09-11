@@ -2,8 +2,15 @@
 
 > **状态**：🔶 **进行中**。起草于 2026-09-11，基线 `dfedbef`。
 > **步骤 1 已完成**（`c8643fd`）：`MonitorClipMath` 已拆出，1742 → 1465 行，390 测试全绿。
-> **步骤 2 已完成**（`23ec19d`）：显示编辑 GUI 迁至 `MonitorDisplayEditor`，1767 → 368 行。
-> Status: 🔶 **in progress.** Drafted 2026-09-11 against `dfedbef`; step 1 landed in `c8643fd`.
+> **步骤 2 已完成**（`23ec19d`）：显示编辑 GUI 迁至 `MonitorDisplayEditor`，1767 → 368 行；
+> 同日评审修复（未推送批次审查）后 `MonitorScreen` 现 **348 行**（移除从未接线的 `drawToolbarStrip` 缝、
+> 恢复设置面板在节点图模式的点击路由，见步骤 2 实施记录的更正）。
+> **步骤 3 完成三分之二**：指南 tab（`e3cacdf`）与颜色 tab（`fb5eddf`）已拆出，键位 tab 仍待实施。
+> Status: 🔶 **in progress.** Drafted 2026-09-11 against `dfedbef`; step 1 landed in `c8643fd`;
+> step 2 landed in `23ec19d` (`MonitorScreen` now **348 lines** after the same-day review fixes:
+> the never-wired `drawToolbarStrip` seam removed, the settings-panel click routing in graph mode
+> restored — see the step-2 record correction); step 3 is two-thirds done (guide `e3cacdf`, colours
+> `fb5eddf`), the key-bindings tab is still pending.
 > **目标 / Goal**：把 GUI/渲染层的巨型类按**单一职责边界**拆成可独立阅读、可独立回归的文件，
 > 首选交付物是**把全息显示器的显示编辑 GUI 从图编辑器中剥离**（见 §3 步骤 2）。
 > **约束 / Constraint**：GUI 层**零自动化测试兜底**（见 §1.3），因此每步必须"可编译 + 行为零变更 + 可手动回归"，
@@ -109,8 +116,8 @@ GUI 层几乎不可单测，但有两处**纯逻辑**可以在拆分时**顺手�
 
 ```
 Step 1  MonitorBlockEntityRenderer 裁剪数学      ✅ 已完成 c8643fd（390 测试全绿）
-Step 2  MonitorScreen 显示编辑 GUI 脱离          ✅ 已完成 23ec19d（1767 → 368 行）
-Step 3  EditorSettingsScreen 按 tab 拆分         🟢 低风险（最孤立）
+Step 2  MonitorScreen 显示编辑 GUI 脱离          ✅ 已完成 23ec19d（1767 → 368 行；评审修复后现 348）
+Step 3  EditorSettingsScreen 按 tab 拆分         🔶 进行中（指南+颜色已拆 e3cacdf/fb5eddf，键位 tab 待拆）
 Step 4  PixelEditorScreen 内核 / 帧条拆分        🟡 中（可补单测）
 Step 5  NodeRenderer 按渲染品类拆（保门面）      🟡 中（引用最广）
 Step 6  GraphEditor 五刀 + 内部方法级拆解        🔴 高（最热文件，需冻结窗口）
@@ -228,9 +235,19 @@ Step 7  小文件批量归位                           ⚪ 择机
 | 协作叠加层 | 显示模式队友光标 + 拖拽描边、存在包模式覆写点 |
 | 转移与收尾 | `pixelEditorTransfer` 标记、`preClose` 拖拽补发 |
 
-**结构性调整（唯一一处非机械改动，已写进提交信息）**：显示模式的**工具栏条**改由屏幕侧绘制
-（`Host#drawToolbarStrip`），以保持原来"基础按钮先画、切换按钮覆盖其上"的绘制顺序；
-S/R 编辑项所需状态经 `selectedNode()` / `editingScale()` / `editScaleBuf()` 等只读访问器暴露。
+**结构性调整（更正，2026-09-11 评审）**：原记录声称显示模式的**工具栏条**改由屏幕侧绘制
+（`Host#drawToolbarStrip`）——**与事实不符**：该缝从未被调用，工具栏条实际仍由编辑器
+`renderDisplayArea` 内部绘制（与原实现逐字一致，切换按钮也和原来一样只在节点图模式绘制）。
+评审时已删除这个死缝（接口方法 + 屏幕侧死实现 + 为它而设的 S/R 只读访问器），
+`MonitorDisplayEditor` 类文档同步更正。`MonitorScreen` 现 **348 行**（拆分落地时 368，
+之后另有微小漂移与本次评审增删，以当前文件为准）。
+
+**同日评审还修了一处拆分回归**：原 `MonitorScreen.mouseClicked` 的设置面板优先分支
+（`if (showSettings) return handleSettingsClick(...)`）与模式无关，拆分后被写成
+`if (displayEditor.active())` —— 「显示模式点开设置面板 → 回节点图」后，面板渲染着却点击
+穿透到图编辑区（关闭/保存按钮、输入框不可点）。修法：`handleSettingsClick` 提为 public，
+屏幕在 `settingsOpen()` 时直接路由。drag/release/scroll 与键盘路径经与 `origin/main`
+对照确认无同类问题（原实现本就没有设置分支）。
 
 **实施中发现（四条，供后续步骤复用）**：
 
@@ -269,15 +286,26 @@ S/R 编辑项所需状态经 `selectedNode()` / `editingScale()` / `editScaleBuf
 `collapsePalette`、`rebindPicker`、`applyKeysScrollbarDrag`、`applyColorScrollbarDrag`
 已提升为 `public @Override`（实现 Host 所需）。
 
-#### 🔶 待办 · 颜色 tab（方案已定，未实施，**新行号**）
+#### ✅ 实施记录 · 颜色 tab（已完成 `fb5eddf`）
 
-- **渲染簇**：`renderColorsTab`（498–583，逐字搬迁）
-- **几何**：`colorsListTop/Bot/VisibleRows/MaxScroll/RowRight`（974–991）+ `colorsScrollbarThumb` + `applyColorScrollbarDrag`（993–1002）
-- **调色板逻辑**：`beginAdjust`（872–891）/ `fillWorkingColor`（895–898）/ `collapsePalette`（901–904）/ `rebindPicker`（907–912）
-- **状态随迁**：`colorScroll`、`colorScrollbarDrag(StartY/StartOff)`、`adjustIndex`、`workingColor`、`stagingInited`
-  （父类输入分发 16 处读写需改走访问器）
-- **共享不搬**：`expanded`（与键位 tab 共享，Host 已提供 getter/setter）
-- **风险点**：调色板绑定（`picker.open/rebind` 双回调）与 `adjustIndex` 生命周期；`expanded` 同时受键位分支影响
+`EditorSettingsScreen` 1031 → **893 行**；新增 `EditorSettingsColorsTab.java`（184 行）。
+16 个调用点（输入分发、tab 切换、滚动/拖拽处理）改走 `colorsTab`；`beginAdjust` /
+`collapsePalette` / `rebindPicker` 成为宿主转发器；颜色几何助手提升为 `public @Override`
+（原为 private/static）。
+
+| 变更 | 说明 |
+|------|------|
+| 搬入 tab 类 | `renderColorsTab`（逐字搬迁）+ 调色板逻辑 `beginAdjust` / `fillWorkingColor` / `collapsePalette` / `rebindPicker` |
+| 状态随迁 | `colorScroll` / `colorScrollbarDrag(StartY/StartOff)` / `adjustIndex` / `workingColor` / `stagingInited` |
+| 共享不搬 | `expanded`（与键位 tab 共享）；**色表几何留在屏幕侧**（偏差，见下） |
+
+**与方案的偏差（记录在案）**：方案把 `colorsListTop/Bot/...` 几何列为「搬入 tab 类」，
+实际几何留在父类作 `EditorSettingsHost` 的 `@Override`——与指南 tab 的 `guideListTop` 等一致，
+保持「渲染 / 命中 / 拖拽单一来源」在屏幕侧声明；语义未破坏，只是归属与原方案不同。
+另：实施中编译器拦下两处错误（删除范围过宽删掉了输入分发仍引用的方法；全局替换误改
+`private boolean <字段>` 声明），均在提交前修正。编译 + 测试通过；颜色 tab 全交互
+（列表滚动、滚动条拖拽、调整→停靠取色器、实时预览、确认填充、默认值重绑、收起）
+已由报告者实机确认。
 
 #### 🔶 待办 · 键位 tab（依赖图已摸清，未实施）
 
