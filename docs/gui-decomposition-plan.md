@@ -357,6 +357,28 @@ final，构造注入 Host）。屏幕保留 tab 列、共享布局与输入分�
   `rebinding` 状态跨 tab（重绑监听 + ESC 优先）需明确归属。
 - **PR 拆分**：3 个提交（一 tab 一刀），第 3 刀后再决定是否引入 tab 接口。
 
+#### ✅ 实施记录（2026-09-11，三刀全部落地）
+
+- **第一刀 · 内核**（`208947f` + 修复 `f0d3abc`）：`client/PixelEditorKernel.java` —— 绘制算法
+  （`blendAlpha` / `paintBrush` / `floodFill` / `drawLineCells` / `drawRectCells`，static 纯函数，
+  brushSize / opacity 作参数）+ 撤销/重做状态机（笔划 / 帧 / 尺寸快照，meta -1 / N / -2）。
+  视图状态不进内核：zoom / pan / tool / brushSize / opacity 留屏幕；`frameIndex` 由调用方传入、
+  undo/redo 返回钳制值；`bump()` 留屏幕（无操作撤销不 bump）。**新增 `PixelEditorKernelTest`
+  并当场抓到一个真 bug：帧列表 / 尺寸撤销重做把帧顺序镜像**（快照逆序入栈 + `add(0,…)` 前插 =
+  双重颠倒；空帧内容相同从未暴露）——`f0d3abc` 改为追加还原并补内容断言。1706 → ~1460。
+- **第二刀 · 帧条**（`4851086`）：`PixelEditorFrameStrip`（缩略图条 + 按钮行渲染、点击 / 滚轮 /
+  拖拽重排、帧操作）。帧状态随迁；条带几何（按钮行矩形 / 条顶 / 首缩略图 x / 取色器左缘）与
+  落库同步（sendOp / sendFrameSync / bump）经 Host；kernel 注入供帧撤销快照。屏幕输入在原位置
+  路由——滚动条拖拽/释放仍在平移判断之前，保持 PRESSED 释放落到形状/笔刷的穿透语义。
+  `frameIndex` 迁入帧条：顶栏帧号 / sendFrameSync / 尺寸路径 / undo-redo 回写经访问器。~1460 → 1177。
+- **第三刀 · 工具列**（`08b63ea`）：`PixelEditorToolRail`（图标 / 悬停提示 / 几何 / 点击 + 默认
+  隐藏的笔刷区块）。`Tool` 枚举与列序随迁；**tool 状态留屏幕**（画布 / 快捷键 / 顶栏共用）经
+  Host 读写。**与原方案分组的偏差**：`applyToolClick` 留在屏幕 —— 它是画布交互调度（形状状态 /
+  笔划标志 / 取色器重绑），非面板逻辑。1177 → **1028**。
+- **验证**：三刀各自 compileJava + test（393 绿，含 11 个新内核用例）；实机回归待执行——
+  清单：画 / 擦 / 填 / 吸管 / 直线 / 矩形 / 抓手，快捷键 1..7、B/E/F/I/L/R/H、[ ]，G 网格，
+  撤销重做（像素 / 帧 / 尺寸三类往返 + **帧顺序**），帧条滚动与拖拽重排，尺寸弹窗，顶栏滑块。
+
 ### 步骤 4 · `PixelEditorScreen` 拆"内核 / 工具面板 / 帧条"
 
 - **现状**：1,706 行，三个可分离块：
