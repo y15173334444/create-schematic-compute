@@ -1,7 +1,7 @@
 # 第三方依赖许可清单 / Third-Party Licenses
 
 > 日期 / Date：2026-09-12
-> 范围 / Scope：`libs/` 下 6 个已入库 jar；`assets/` 与 `texture_reference/`（未入库，仅本地参考）/ 6 tracked jars under `libs/`; `assets/` and `texture_reference/` (untracked, local reference only)
+> 范围 / Scope：`libs/` 下 4 个已入库 jar；`assets/` 与 `texture_reference/`（未入库，仅本地参考）/ 4 tracked jars under `libs/`; `assets/` and `texture_reference/` (untracked, local reference only)
 > 仓库可见性 / Repository visibility：**公开**（2026-09-12 由仓库所有者确认）/ **public** (confirmed by the repository owner, 2026-09-12)
 > 证据来源 / Evidence：直接读取 jar 内 `LICENSE*` 条目原文，非二手转述 / read verbatim from the `LICENSE*` entries inside the jars, not second-hand
 
@@ -18,7 +18,7 @@
 | 1（最严 / strictest） | ~~create / create-aeronautics~~ | 代码 MIT + **assets ARR** / MIT code + **ARR assets** | ✅ **2026-09-12 已解决 / resolved**：aeronautics 删除、create 改走 Modrinth Maven，见 §3 O4 / aeronautics deleted, create now via Modrinth Maven — see §3 O4 |
 | 2 | sable | **PolyForm Shield 1.0.0** | 可以分发（须带条款或 URL），不得做竞品 / may distribute (terms or URL required), must not compete |
 | 3 | sable 内 Rapier natives / Rapier natives inside sable | Apache-2.0 | 可以，须原样保留许可与修改声明 / allowed, keep license and modification notice intact |
-| 4 | flywheel / ponder / sable-companion / catnip | MIT | 可以，须保留版权与许可声明 / allowed, keep copyright and license notices |
+| 4 | flywheel / ponder / sable-companion | MIT | 可以，须保留版权与许可声明 / allowed, keep copyright and license notices |
 | — | **veil**（内嵌在 Sable 里 / embedded in Sable） | **LGPLv3** | 唯一的 copyleft 项，见 §2.8 / the only copyleft item — see §2.8 |
 
 **2026-09-12 更新**：ARR 缺口已消除 —— `create-aeronautics-bundled` 删除、`create` 改由 Modrinth Maven 拉取（§2.2 / §3 O4），`libs/` 入库体积 66 MB → 13.8 MB，且不再含任何 ARR 资产。
@@ -37,9 +37,9 @@ There is one more level: Sable's jar embeds **Veil**, licensed **LGPLv3**. Any i
 
 Line 6 of `.gitignore` says `!libs/*.jar`, so every jar under `libs/` gets tracked. Committing a jar into the repository amounts to **redistributing** that third-party software, which triggers its license obligations. This document records each dependency's actual license, our obligations, and the things we already get right.
 
-截至 2026-09-12，`libs/` 入库 5 个 jar（约 13.8 MB）：Sable、Flywheel、Ponder、Sable Companion、catnip-only。**Create 与 Create Aeronautics 已不在其中**，原因与处置见 §3 O4。
+截至 2026-09-12，`libs/` 入库 4 个 jar（约 13.8 MB）：Sable、Flywheel、Ponder、Sable Companion。**Create、Create Aeronautics 与 catnip-only 已不在其中**，原因与处置见 §3 O4 与 §2.7。
 
-As of 2026-09-12, `libs/` tracks 5 jars (~13.8 MB): Sable, Flywheel, Ponder, Sable Companion, catnip-only. **Create and Create Aeronautics are no longer among them** — see §3 O4 for the reasons and the remediation.
+As of 2026-09-12, `libs/` tracks 4 jars (~13.8 MB): Sable, Flywheel, Ponder, Sable Companion. **Create, Create Aeronautics and catnip-only are no longer among them** — see §3 O4 and §2.7.
 
 已经做对、需要保持的两条 / Two things already correct that must stay correct：
 
@@ -116,9 +116,17 @@ jar 内 `LICENSE`（1066 B）：MIT License，`Copyright (c) 2026 RyanHCode`。
 
 Inside the jar, `LICENSE` (1066 B): MIT License, `Copyright (c) 2026 RyanHCode`.
 
-**这份是重复副本**：`sable-neoforge` 的 jar 里内嵌了一份同名同版本的副本，SHA256 完全一致（`873633e3…3bed`，35,444 B）。而且 `src/` 里没有任何 `sable.companion` 的 import —— 见 §2.8。
+**这份是重复副本**：`sable-neoforge` 的 jar 里内嵌了一份同名同版本的副本，SHA256 完全一致（`873633e3…3bed`，35,444 B）。
 
-**This one is a duplicate**: a copy of the same name and version is embedded inside the `sable-neoforge` jar, with an identical SHA256 (`873633e3…3bed`, 35,444 B). Moreover `src/` contains no `sable.companion` imports at all — see §2.8.
+**但它暂时保留 —— 有一处反射引用是我先前漏掉的。** `src/` 里确实没有任何 `sable.companion` 的 import，然而 `compat/SableReflection.java:173` 写着 `Class.forName("dev.ryanhcode.sable.companion.math.Pose3dc")` —— 字符串形式，import 扫描抓不到。它位于 `SableReflection` 初始化的**第二阶段**（位姿/向量/四元数，代码注释自己标了 "best-effort"）：一旦这个 `Class.forName` 抛异常，方法直接 `return`，第三阶段被跳过，`posePosition` / `poseOrientation` 保持 null。若 Sable jar 内嵌的那份在 dev 运行期对 `Class.forName` 可见，删掉这份独立副本毫无影响；但 CI 测不到这一点，而在意的那条路径正是姿态传感器（`docs/v1.2.4.1-regression-audit.md` 记的 2026-08-23 真 bug 就在那里）。
+
+**判定方法（一次 dev 启动即可）**：把 jar 移除后启动 dev 客户端，日志里应出现 `SableReflection: pose/vec/quat initialized OK`。若变成 `SableReflection: core init failed — …`，说明嵌套副本对 `Class.forName` 不可见，这份独立 jar 必须放回来。
+
+**This one is a duplicate**: an identical copy (same SHA256, `873633e3…3bed`, 35,444 B) is embedded in the `sable-neoforge` jar.
+
+**It stays for now — there is a reflective reference I initially missed.** `src/` really does contain no `sable.companion` imports, but `compat/SableReflection.java:173` calls `Class.forName("dev.ryanhcode.sable.companion.math.Pose3dc")` — a string, which import scanning cannot see. It sits in **phase 2** of `SableReflection`'s initialisation (pose/vector/quaternion, marked "best-effort" in the code itself): if that `Class.forName` throws, the method returns early, phase 3 is skipped and `posePosition` / `poseOrientation` stay null. If the copy nested inside Sable's jar is visible to `Class.forName` at dev runtime, dropping the standalone jar changes nothing — but CI cannot tell us that, and the path at stake is the attitude-sensor one that carried a real bug on 2026-08-23.
+
+**How to decide (one dev launch)**: remove the jar, start the dev client, and look for `SableReflection: pose/vec/quat initialized OK` in the log. If it instead says `SableReflection: core init failed — …`, the nested copy is not visible to `Class.forName` and this standalone jar has to come back.
 
 ### 2.5 `flywheel-neoforge-1.21.1-1.0.6.jar`
 
@@ -151,9 +159,11 @@ Inside the jar, `LICENSE_Ponder` (1072 B, no extension): MIT License, `Copyright
 
 Version comparison: Create 6.0.10 embeds **1.0.82** (820,109 B) while `libs/` holds **1.0.85** (820,193 B). Create's JIJ metadata declares the open-ended range `[1.0.82+mc1.21.1,)`, so 1.0.85 is valid.
 
-### 2.7 `catnip-only.jar`（6,492 B）— 冗余，可以删 / redundant, safe to delete
+### 2.7 `catnip-only.jar`（6,492 B）— **已删除（2026-09-12）/ deleted (2026-09-12)**
 
-全部条目只有 4 个 / only four entries in total：
+**2026-09-12 从 `libs/` 移除**（`git rm`）。该 jar 的全部条目如下：
+
+**Removed from `libs/` on 2026-09-12** (`git rm`). Its complete entry list:
 
 ```
 META-INF/
@@ -166,9 +176,21 @@ net/createmod/catnip/data/Pair.class
 
 This is a compile stub for two data classes from Create's `catnip` utility library. The content belongs to Create's MIT portion, so there is no rights problem; but the jar itself carries no license text or copyright line.
 
-**结论：它完全没有必要存在。** §2.6 已确认 `ponder` jar 提供了 `Couple` 与 `Pair`（以及 CSC 另外两个 catnip 依赖），而 Create 的 jar 里一个 `net/createmod/catnip` 条目都没有。删掉它即可，本清单也就少掉唯一的"来源可推断、义务未声明"项。
+**为何可以直接删：**
 
-**Conclusion: it has no reason to exist.** §2.6 confirms that the `ponder` jar supplies `Couple` and `Pair` (plus the other two catnip classes CSC depends on), while Create's jar contains not a single `net/createmod/catnip` entry. Delete it, and this inventory loses its only "provenance inferable, obligations undeclared" item.
+1. §2.6 已确认 `ponder` jar 提供了 `Couple` 与 `Pair`（以及 CSC 另外两个 catnip 依赖），而 Create 的 jar 里一个 `net/createmod/catnip` 条目都没有；
+2. 源码实际只用到一个类：`Couple`（`ControlSeatBlockEntity.java:8` 与 `RedstoneLinkHelper.java:10`，后者还出现在 `getNetworkKey()` 的签名里），`Pair` **一次都没用**；
+3. **决定性理由**：这个 stub 只存在于本仓库的 `libs/` 里 —— 玩家的安装里从来没有它。所以生产环境里 `Couple` 本来就是由 `ponder` shade 的那份提供的（Create 用 JIJ 内嵌 ponder）。删掉它反而让 dev 的 classpath 更接近生产，而不是更远。
+
+顺带，本清单也就少掉唯一的"来源可推断、义务未声明"项。
+
+**Why it can go:**
+
+1. §2.6 confirms the `ponder` jar supplies `Couple` and `Pair` (plus the other two catnip classes CSC depends on), while Create's jar has not a single `net/createmod/catnip` entry;
+2. the source uses exactly one of them: `Couple` (`ControlSeatBlockEntity.java:8` and `RedstoneLinkHelper.java:10`, the latter in the signature of `getNetworkKey()`); `Pair` is **never used**;
+3. **the decisive point**: this stub only ever existed in this repo's `libs/` — a player's install never had it. In production `Couple` has therefore always come from ponder's shaded copy (Create embeds ponder through JIJ). Removing it moves the dev classpath *closer* to production, not further away.
+
+As a bonus the inventory loses its only "provenance inferable, obligations undeclared" item.
 
 ### 2.8 内嵌依赖（Jar-in-Jar）：一个 jar ≠ 一份许可 / Embedded Dependencies (Jar-in-Jar): One Jar ≠ One License
 
@@ -363,8 +385,8 @@ The Create Team (2022)。Create 从 Modrinth Maven 获取，本项目不再分�
 
 ## 5. 未决项 / Open Items
 
-1. ~~`catnip-only.jar` 的来源与用途~~ **已定论：可以直接删**（依据见 §2.7）。`ponder` 的 jar 提供了 CSC 需要的全部四个 catnip 类，而 Create 的 jar 里一个 catnip 类都没有。
-   ~~The provenance and purpose of `catnip-only.jar`~~ **settled: safe to delete** (basis in §2.7). The `ponder` jar supplies all four catnip classes CSC needs, and Create's jar has none.
+1. ~~`catnip-only.jar` 的来源与用途~~ **已删除**（2026-09-12，依据见 §2.7）。`ponder` 的 jar 提供了 CSC 用到的 catnip 类；该 stub 只在 `libs/` 里存在过，玩家安装里从来没有它。
+   ~~The provenance and purpose of `catnip-only.jar`~~ **deleted** (2026-09-12, basis in §2.7). The `ponder` jar supplies the catnip class CSC uses; the stub only ever existed in `libs/` and was never part of a player's install.
 2. ~~仓库可见性未确认。~~ **已确认公开**（2026-09-12，仓库所有者）。因此 O4 从"条件性风险"变为现存缺口 —— 处置方案、已验证的 Modrinth Maven 替换坐标与两个待实测点见 §3 O4。
    ~~Repository visibility unconfirmed.~~ **Confirmed public** (2026-09-12, repository owner). That turned O4 from a conditional risk into an existing gap — see §3 O4 for the remediation, the verified Modrinth Maven replacement coordinates and the two points that had to be tested first.
 3. **Sable 的署名人。** `LICENSE.md` 里没有版权行，"licensor"只能从 mod 元数据确定（包名 `dev.ryanhcode.sable`，Modrinth 名 RyanHCode，与 `sable-companion` 的 `Copyright (c) 2026 RyanHCode` 一致）。要在文档里写署名，用 `neoforge.mods.toml` / Modrinth 的官方写法，不要自己编。
@@ -373,5 +395,5 @@ The Create Team (2022)。Create 从 Modrinth Maven 获取，本项目不再分�
    ~~Whether `create-aeronautics-bundled` is still used at all.~~ **Settled: removed from `libs/`** (2026-09-12). Static reference analysis shows no aeronautics / simulated / offroad imports in `src/`, so it contributes nothing to compilation; and the three dev instances `runs/{client,client2,server}/mods` each hold a local copy, so removal does not affect runtime. Note that the repo's own audit, `docs/v1.2.4.1-regression-audit.md:12-13`, already drew exactly this distinction: the mod is **required by the player environment** (keep it in `mods/`) while `src/main` has zero code dependency on it — so what was cleaned up is the `libs/` copy.
 5. **Veil 的 LGPLv3 是否要额外动作。** 目前只是原样转发 Sable 的 jar，许可文本与 `license="LGPLv3"` 都在 jar 内，粗看没有额外欠账。但若将来要**发行**任何内嵌 Sable 的产物（而非仅在 GitHub 上放依赖 jar），LGPL §4 的可替换性要求就需要单独评估。建议把这一条挂到"Sable 是否从 compileOnly 改为 bundling"那个决策上。
    **Does Veil's LGPLv3 require extra action?** For now we merely forward Sable's jar unchanged, with the license text and `license="LGPLv3"` both inside it, so on a first reading nothing further is owed. But if any artifact **embedding Sable** is ever **released** (rather than a dependency jar simply sitting on GitHub), the replaceability requirement in LGPL §4 needs its own assessment. Suggest attaching this item to the "should Sable move from compileOnly to bundling" decision.
-6. **`libs/` 里的重复副本与冗余 jar。** 已确认 `flywheel-neoforge-1.21.1-1.0.6.jar` 与 `sable-companion-common-1.21.1-1.6.0.jar` 跟各自宿主 jar 内嵌的副本 **SHA256 完全相同**。其中 `flywheel` **必须留**（javac 看不到 Create jar 内 `META-INF/jarjar/` 的嵌套 jar，而源码 import 了 `dev.engine_room.flywheel.*`）；**可删的两个**：`sable-companion-common`（源码零引用，且 Sable 内已有一份同哈希副本）与 `catnip-only.jar`（`ponder` 已提供 CSC 用到的全部四个 catnip 类，见 §2.7）。删除它们共可再省约 42 KB 与两个清单项，但会动到编译 classpath，**建议与第一次 build 验证一起做**，别单独提交。
-   **Duplicate and redundant jars in `libs/`.** `flywheel-neoforge-1.21.1-1.0.6.jar` and `sable-companion-common-1.21.1-1.6.0.jar` are confirmed to have **identical SHA256** to the copies embedded in their respective host jars. Of these, `flywheel` **must stay** (javac cannot see the jar nested under Create's `META-INF/jarjar/`, and the source imports `dev.engine_room.flywheel.*`); the **two deletable ones** are `sable-companion-common` (zero source references, and Sable embeds an identical-hash copy) and `catnip-only.jar` (`ponder` already supplies all four catnip classes CSC uses — see §2.7). Deleting both saves roughly another 42 KB and two inventory rows, but it touches the compile classpath, so **do it together with the first build verification** rather than as a separate commit.
+6. **`libs/` 里的重复副本。** `flywheel-neoforge-1.21.1-1.0.6.jar` 与 `sable-companion-common-1.21.1-1.6.0.jar` 都跟各自宿主 jar 内嵌的副本 **SHA256 完全相同**，但两者的结论不同：`flywheel` **必须留**（javac 看不到 Create jar 内 `META-INF/jarjar/` 的嵌套 jar，而源码 import 了 `dev.engine_room.flywheel.*`）；`catnip-only.jar` **已删**（2026-09-12，见 §2.7）；`sable-companion-common` 则**暂时保留** —— `compat/SableReflection.java:173` 有一处 `Class.forName("dev.ryanhcode.sable.companion.math.Pose3dc")` 的反射引用，删它需要一次 dev 启动来确认 Sable 内嵌副本对 `Class.forName` 可见（判定方法与日志行见 §2.4）。
+   **Duplicate jars in `libs/`.** `flywheel-neoforge-1.21.1-1.0.6.jar` and `sable-companion-common-1.21.1-1.6.0.jar` both have **identical SHA256** to the copies embedded in their host jars, but they end differently: `flywheel` **must stay** (javac cannot see the jar nested under Create's `META-INF/jarjar/`, and the source imports `dev.engine_room.flywheel.*`); `catnip-only.jar` is **deleted** (2026-09-12, see §2.7); `sable-companion-common` is **kept for now** — `compat/SableReflection.java:173` makes a reflective `Class.forName("dev.ryanhcode.sable.companion.math.Pose3dc")` call, so removing it needs one dev launch to confirm Sable's embedded copy is visible to `Class.forName` (the check and the log line are in §2.4).

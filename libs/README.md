@@ -10,9 +10,9 @@ The jars in this directory are deliberately kept in version control (`.gitignore
 
 > **2026-09-12 变更 / Change**
 >
-> Create 与 Create Aeronautics 已从此目录移除：它们的 `assets/**` 是 All Rights Reserved，而本仓库是公开的。Create 改由 Modrinth Maven 拉取；Create Aeronautics 直接删除（源码零引用）。
+> Create 与 Create Aeronautics 已从此目录移除：它们的 `assets/**` 是 All Rights Reserved，而本仓库是公开的。Create 改由 Modrinth Maven 拉取；Create Aeronautics 直接删除（源码零引用）。`catnip-only.jar` 也已删除 —— `ponder` 已 shade 全部 catnip 类，而这个 stub 只在 `libs/` 里存在过，玩家安装里从来没有它。
 >
-> Create and Create Aeronautics were removed from this directory: their `assets/**` are All Rights Reserved and this repository is public. Create now comes from Modrinth Maven; Create Aeronautics was deleted outright (zero source references).
+> Create and Create Aeronautics were removed from this directory: their `assets/**` are All Rights Reserved and this repository is public. Create now comes from Modrinth Maven; Create Aeronautics was deleted outright (zero source references). `catnip-only.jar` is gone too — `ponder` already shades the catnip classes, and the stub only ever existed in `libs/`, never in a player's install.
 
 ---
 
@@ -23,8 +23,7 @@ The jars in this directory are deliberately kept in version control (`.gitignore
 | `sable-neoforge-1.21.1-1.2.2.jar` | **PolyForm Shield 1.0.0** + natives Apache-2.0 + 内嵌 **Veil (LGPLv3)** / embedded **Veil (LGPLv3)** | RyanHCode / dimforge (Rapier) / amo, Cappin, Ocelot (Veil) | ✅ 必需 / required |
 | `flywheel-neoforge-1.21.1-1.0.6.jar` | MIT（纯 MIT，无 assets 保留条款） / MIT (plain, no asset carve-out) | (c) 2021-2024 Jozufozu | ✅ 必需 / required（javac 看不到 Create 内嵌的那份 / javac cannot see Create's nested copy） |
 | `ponder-neoforge-1.0.85+mc1.21.1.jar` | MIT | (c) 2022 The Create Team | ✅ 必需 / required（它 shade 了 catnip，源码用的 4 个 catnip 类由它提供 / it shades catnip and supplies all four catnip classes the source uses） |
-| `sable-companion-common-1.21.1-1.6.0.jar` | MIT | (c) 2026 RyanHCode | ❌ 零引用，且 Sable 内已有一份同哈希副本 / zero references, and Sable embeds an identical copy |
-| `catnip-only.jar` | 无许可文件（内容属 Create 的 MIT 部分） / no license file (content is Create's MIT part) | The Create Team | ❌ 冗余，可删 / redundant, can be deleted |
+| `sable-companion-common-1.21.1-1.6.0.jar` | MIT | (c) 2026 RyanHCode | ⚠️ 保留：与 Sable 内嵌副本同哈希，但 `SableReflection.java:173` 有反射引用，需一次 dev 启动确认可删 / kept: identical to Sable's embedded copy, but a reflective reference at `SableReflection.java:173` means one dev launch must confirm before deleting |
 
 Create 不在这里了 —— 见 `build.gradle` 的 `maven.modrinth:create`（坐标版本在 `gradle.properties` 的 `create_maven_version`）。
 
