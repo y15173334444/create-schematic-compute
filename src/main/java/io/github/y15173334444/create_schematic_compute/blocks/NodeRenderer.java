@@ -324,8 +324,6 @@ public class NodeRenderer {
     public java.util.Map<Integer, String> encapOccupants = java.util.Collections.emptyMap();
     public boolean showBookmarkPanel = false;
 
-    /** A=1: Render complete COMMENT nodes (background, border, text, handles) behind connections.
-     *  Comment nodes act as container mats — everything renders at A=1, sorted by B. */
     /** 某个节点是否在选中集里（**按 id** 判定）。
      *  历史上这里用对象相等（selectedNodes.contains(n)），一旦整图同步/重载替换了节点实例，
      *  旧实例就再也匹配不上 → 高亮框消失、下一个 op 又回弹（用户实测）。按 id 判定与
@@ -347,6 +345,8 @@ public class NodeRenderer {
         return primaryNode != null && primaryNode.id == n.id;
     }
 
+    /** A=1: Render complete COMMENT nodes (background, border, text, handles) behind connections.
+     *  Comment nodes act as container mats — everything renders at A=1, sorted by B. */
     public void renderCommentNodes(GuiGraphics g, List<GraphNode> nodes, Set<GraphNode> selectedNodes,
                                     GraphNode primaryNode, java.util.Set<Integer> editNodeIds,
                                     java.util.Map<Integer, io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState> editStates,
