@@ -1,7 +1,7 @@
 # 编辑器输入框丢焦点 / 丢选中 —— 根因分析与修复 / Editor Input Focus & Selection Loss — Root Cause
 
-> **状态**：✅ **已实施**（2026-09-11）。步骤 1–3 与焦点修复落地于 `db38d34`，步骤 5 落地于 `1e1a6a6`，步骤 6 键盘路径同期修复；同日评审补充鼠标路径与 `cullStaleEditStates` 保留调整（见「同日补充」）。`compileJava` + `./gradlew test` 通过；**第四节实机验收仍待执行**。
-> Status: ✅ **implemented** (2026-09-11). Steps 1–3 and the focus fix landed in `db38d34`, step 5 in `1e1a6a6`, the step-6 keyboard path fixed in the same batch; a same-day review pass added the mouse path and the `cullStaleEditStates` retention adjustment (see "Same-day addenda"). `compileJava` + `./gradlew test` pass; the **in-game acceptance in section 4 is still pending**.
+> **状态**：✅ **已实施并实机验收**（2026-09-11）。步骤 1–3 与焦点修复落地于 `db38d34`，步骤 5 落地于 `1e1a6a6`，步骤 6 键盘路径同期修复；同日评审补充鼠标路径与 `cullStaleEditStates` 保留调整（见「同日补充」）。`compileJava` + `./gradlew test` 通过；第四节实机验收已由报告者以单客户端执行，修复项确认生效、未再发现回归（**双人同改等多人协作项仍待双开验证**）。
+> Status: ✅ **implemented and verified in-game** (2026-09-11). Steps 1–3 and the focus fix landed in `db38d34`, step 5 in `1e1a6a6`, the step-6 keyboard path fixed in the same batch; a same-day review pass added the mouse path and the `cullStaleEditStates` retention adjustment (see "Same-day addenda"). `compileJava` + `./gradlew test` pass; the section-4 in-game acceptance was executed by the reporter with a single client — the fixes verified, no further regressions found (**multiplayer items such as concurrent editing still await a two-client run**).
 > **现象**：在节点输入框里输入时，**焦点/节点选中会突然消失**，但输入框本身还在；有时"吞一个字符后节点才重新被选中"。
 > **关联**：[`gui-decomposition-plan.md`](gui-decomposition-plan.md)（步骤 2 拆出 `MonitorDisplayEditor` 后开始关注输入路径）、
 > [`code-architecture.md`](code-architecture.md)（编辑界面与 `GraphEditor` 契约）。
