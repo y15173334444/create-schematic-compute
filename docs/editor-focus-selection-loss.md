@@ -95,19 +95,23 @@ if (!expandedInitDone) {
 避免重建时"抢焦点"，与 `syncEditStateToSelection()` 的
 「非选中节点不得持焦点」规则相冲突。
 
-### 步骤 5（已实施）：把选中重映射到**当前图实例**（修"高亮框消失/回弹"）
-`NodeRenderer` 的高亮判定是**对象相等**（`selectedNodes.contains(n)` / `n == primaryNode`，`NodeRenderer:346/370`）。
+### 步骤 5（已实施）：渲染侧**按 id** 判定选中（修"高亮框消失/回弹"）
+`NodeRenderer` 的高亮判定原本是**对象相等**（`selectedNodes.contains(n)` / `n == primaryNode`，原 `:346/370`）。
 整图同步或存档重载会替换节点实例，旧实例于是永远匹配不上 →
 **高亮框消失**；下一个 op 把实例换回来时又**回弹**（用户实测："高亮框消失，有时输入时还会被覆盖/回弹"，
 而**字符仍能正常输入**，与埋点数据 `focusCount` 始终为 1 完全吻合）。
 
-**修法（零 API 变更）**：`GraphEditor.remapSelectionToLiveGraph()` —— 每次渲染前按 **id** 把
-`selectedNode` / `selectedNodes` 重映射到当前图的活动实例，仅在对象确实不同时重建集合；
-顺带修掉"选中集指向孤儿节点导致操作错对象"的隐患。
+**修法（最终版：按 id 判定）**：两处判定改为
+`NodeRenderer.isSelectedById(Set<GraphNode>, GraphNode)`（遍历选中集按 `sn.id == n.id`）
+与 `NodeRenderer.isPrimaryById(GraphNode primary, GraphNode n)`（`primary.id == n.id`）。
+下游 `drawNode` / `drawCommentNode` 本来就用 `n.id` 做后续判断（如 `expandedNodeIds.contains(n.id)`），
+所以这两处是**唯一**的实例相等依赖点。
 
-> 选用重映射而非改渲染判定，是因为改动面更小且不动既有渲染契约
-> （`renderNodes/renderCommentNodes` 的 `Set<GraphNode>` 签名被多处使用）。
-> 若后续仍见实例抖动，可再评估把判定改为按 id。
+> **演进记录**：最初采用"每次渲染前把选中集重映射到活动实例"
+> （`GraphEditor.remapSelectionToLiveGraph()`）。它能修好症状，但属于**绕路**——
+> 把"实例可能失效"这一前提固化进了渲染循环。改为按 id 判定后，重映射已**整体删除**
+> （方法 + 每帧调用），依赖更少、语义更直接：`selectedNode` / `selectedNodes` 即使短暂持有
+> 已离开图的实例，高亮判定也只依赖 id，不再需要每帧修补。
 
 ### 步骤 6（已实施）：修掉拆分回归 —— 设置面板开着时按键被吞
 **症状定位**：用户实测"**只有全息显示器**的方块图里丢焦点"。
