@@ -209,12 +209,27 @@ public class NodeRenderer {
     private final NodeAddMenu addMenu;
     /** 注释节点渲染器（已拆至 NodeCommentRenderer，同批第二刀）。 / Comment-node renderer (extracted, second cut). */
     private final NodeCommentRenderer commentRenderer;
+    /** 连线渲染器（已拆至 NodeWireRenderer，同批第三刀）。 / Wire renderer (extracted, third cut). */
+    private final NodeWireRenderer wireRenderer;
 
     public NodeRenderer(CoordMapper c2sX, CoordMapper c2sY, net.minecraft.client.gui.screens.Screen screen) {
         this.c2sX = c2sX; this.c2sY = c2sY;
         this.screen = screen;
         this.addMenu = new NodeAddMenu(screen);
         this.commentRenderer = new NodeCommentRenderer(c2sX, c2sY, screen);
+        this.wireRenderer = new NodeWireRenderer(c2sX, c2sY, screen);
+    }
+
+    // ══════════════ 连线门面（实现已拆至 NodeWireRenderer，docs/gui-decomposition-plan.md 步骤 5）══════════════
+    // ══════════════ Wire facade (the implementation lives in NodeWireRenderer) ══════════════
+
+    public void renderConnections(GuiGraphics g, NodeGraph graph, float camX, float camY, float zoom) {
+        wireRenderer.renderConnections(g, graph, camX, camY, zoom);
+    }
+
+    public void renderDraggingWire(GuiGraphics g, NodeGraph graph, int wireFromNode, int wireFromPin,
+                                    float wireEndX, float wireEndY, float camX, float camY, float zoom) {
+        wireRenderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
     }
 
     public void renderGrid(GuiGraphics g, float camX, float camY, float zoom, int width, int height) {
@@ -224,57 +239,6 @@ public class NodeRenderer {
         for(float y=height/2f+oy; y<height; y+=GS*zoom) { int iy=Math.round(y); g.fill(0,iy,width,iy+1,CGL()); }
         for(float x=width/2f+ox; x>=0; x-=GS*zoom) { int ix=Math.round(x); g.fill(ix,0,ix+1,height,CGL()); }
         for(float y=height/2f+oy; y>=0; y-=GS*zoom) { int iy=Math.round(y); g.fill(0,iy,width,iy+1,CGL()); }
-    }
-
-    public void renderConnections(GuiGraphics g, NodeGraph graph, float camX, float camY, float zoom) {
-        int sw = screen.width, sh = screen.height;
-        // viewport in world coords (with generous margin for bezier curves that extend beyond endpoints)
-        float vpLeft = -sw / (2f * zoom) - camX - 100 / zoom, vpRight = sw / (2f * zoom) - camX + 100 / zoom;
-        float vpTop = -sh / (2f * zoom) - camY - 100 / zoom, vpBottom = sh / (2f * zoom) - camY + 100 / zoom;
-        for(NodeConnection c : graph.connections) {
-            GraphNode fn = graph.findNode(c.fromId);
-            GraphNode tn = graph.findNode(c.toId);
-            if(fn==null||tn==null) continue;
-            // cull: both endpoints outside viewport edge
-            float wx1 = fn.x + nw(fn), wx2 = tn.x;
-            if ((wx1 < vpLeft && wx2 < vpLeft) || (wx1 > vpRight && wx2 > vpRight)) continue;
-            // 输出引脚Y（BUS_IN 编辑区引脚动态计算）
-            float wy1;
-            if (fn.type == NodeType.BUS_IN) {
-                wy1 = fn.y + GraphEditor.bandPinY(fn, c.fromPin, zoom);
-            } else {
-                wy1 = fn.y + HH + PH*(fn.functionalInputs() + c.fromPin) + PH/2f;
-            }
-            // 输入引脚Y（BUS_OUT 编辑区引脚动态计算）
-            float wy2;
-            if (tn.type == NodeType.BUS_OUT) {
-                wy2 = tn.y + GraphEditor.bandPinY(tn, c.toPin, zoom);
-            } else if (c.toPin < tn.functionalInputs()) {
-                wy2 = tn.y + HH + PH*c.toPin + PH/2f;
-            } else {
-                int paramIdx = c.toPin - tn.functionalInputs();
-                wy2 = tn.y + HH + PH*(tn.functionalInputs() + tn.outputs()) + 4/zoom + paramIdx*18 + 12;
-            }
-            if ((wy1 < vpTop && wy2 < vpTop) || (wy1 > vpBottom && wy2 > vpBottom)) continue;
-            float x1 = c2sX.apply(wx1), y1 = c2sY.apply(wy1);
-            float x2 = c2sX.apply(wx2), y2 = c2sY.apply(wy2);
-            bezier(g, x1, y1, x2, y2, CW());
-        }
-    }
-
-    public void renderDraggingWire(GuiGraphics g, NodeGraph graph, int wireFromNode, int wireFromPin,
-                                    float wireEndX, float wireEndY, float camX, float camY, float zoom) {
-        var fn = graph.findNode(wireFromNode);
-        if(fn==null) return;
-        float y1;
-        if (fn.type == NodeType.BUS_IN) {
-            y1 = c2sY.apply(fn.y + GraphEditor.bandPinY(fn, wireFromPin, zoom));
-        } else {
-            y1 = c2sY.apply(fn.y+HH+PH*(fn.functionalInputs() + wireFromPin)+PH/2f);
-        }
-        float x1 = c2sX.apply(fn.x + nw(fn));
-        float x2 = c2sX.apply(wireEndX), y2 = c2sY.apply(wireEndY);
-        bezier(g, x1, y1, x2, y2, CWD());
     }
 
     // 编辑区高度（像素，本地坐标空间）
@@ -950,38 +914,5 @@ public class NodeRenderer {
 
     void drawStr(GuiGraphics g, String t, float x, float y, int c) {
         g.drawString(Minecraft.getInstance().font, t, (int)x, (int)y, c, false);
-    }
-
-    private void bezier(GuiGraphics g, float x1, float y1, float x2, float y2, int c) {
-        float dx = Math.abs(x2-x1)*0.4f;
-        float dist = (float)Math.sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
-        int steps = Math.max(10, (int)(dist*0.15f));
-        float px=x1, py=y1;
-        for(int i=1; i<=steps; i++) {
-            float t = i/(float)steps, inv = 1-t;
-            float nx = inv*inv*inv*x1 + 3*inv*inv*t*(x1+dx) + 3*inv*t*t*(x2-dx) + t*t*t*x2;
-            float ny = inv*inv*inv*y1 + 3*inv*inv*t*y1 + 3*inv*t*t*y2 + t*t*t*y2;
-            int sx = (int)px, sy = (int)py, ex = (int)nx, ey = (int)ny;
-            int sdx = ex - sx, sdy = ey - sy;
-            int segLen = Math.max(Math.abs(sdx), Math.abs(sdy));
-            if (segLen == 0) {
-                g.fill(sx, sy, sx + 1, sy + 1, c);
-            } else {
-                // batch same-row pixels into horizontal runs → 1-pixel-thick line at any slope
-                int runStart = sx, runY = sy;
-                for (int j = 1; j <= segLen; j++) {
-                    int cx = sx + sdx * j / segLen;
-                    int cy = sy + sdy * j / segLen;
-                    if (cy != runY || j == segLen) {
-                        int endX = (j == segLen) ? ex : (sx + sdx * (j - 1) / segLen);
-                        int x1_ = Math.min(runStart, endX), x2_ = Math.max(runStart, endX);
-                        g.fill(x1_, runY, x2_ + 1, runY + 1, c);
-                        runStart = cx;
-                        runY = cy;
-                    }
-                }
-            }
-            px=nx; py=ny;
-        }
     }
 }
