@@ -267,6 +267,16 @@ public final class BusChannelHelper {
      *  remains; the result is cached per channel name for this pass (only a BUS_OUT can be a
      *  definition source, so the "self" exclusion is irrelevant here). Removal semantics match
      *  {@code SET_BANDS}: connections on bands that actually disappeared are pruned.</p>
+     *  <p><b>Absence is not a definition</b> (transient-publisher guard): when the resolution comes
+     *  back empty <i>and</i> {@link SignalBus#getChannel} holds no entry for the name, no loaded
+     *  publisher currently owns the channel. The empty list is then an inference from absence, not
+     *  an authoritative value — converging on it pruned every input connection of the BUS_IN and
+     *  persisted the loss while the publisher was merely out of sight (its chunk unloaded, its host
+     *  ticking later on a fresh server, the block broken). Such channels are <b>skipped</b> and the
+     *  current list is kept: the authoritative {@code SET_BANDS} a rename ships already empties a
+     *  BUS_IN just pointed at a dead name (issue #11), and convergence resumes — pruning only
+     *  genuinely-removed bands — once a publisher registers again. A <i>loaded</i> publisher that
+     *  defines zero bands still converges to empty: its CHANNELS entry proves the empty definition.</p>
      *  <p>Network-free — the caller notifies clients (see {@link #syncIfBandsChanged}).</p>
      *  让每个 BUS_IN 的频段列表等于频道定义 —— issue #15 背后的服务端不变量。
      *  <p>BUS_IN 的列表**就是**它暴露的引脚结构。它过去只在「发起变更的那个方块」里被刷新
@@ -276,6 +286,13 @@ public final class BusChannelHelper {
      *  <p>解析仍统一走 {@link #resolveBusInBands}，保证只有一条解析规则；本轮按频道名缓存解析结果
      *  （只有 BUS_OUT 能当定义来源，因此「排除自身」在这里无实际作用）。移除语义与
      *  {@code SET_BANDS} 一致：真正消失的频段上的连线会被剪掉。</p>
+     *  <p>**缺席不是定义**（发布方瞬时缺席守卫）：解析为空**且** {@link SignalBus#getChannel} 无该
+     *  名字条目时，当前没有任何已加载的发布方持有该频道 —— 此时的「空」是从缺席推出的结论，
+     *  **不是权威值**；曾因照常收敛，把发布方只是暂时不在场（所在区块被卸载、重启首 tick 注册
+     *  顺序靠后、方块被拆除）的 BUS_IN 输入连线全部剪掉并落盘。这类频道本轮**跳过**、保留原列表：
+     *  改名路径下发的权威 {@code SET_BANDS} 已负责把刚指到死名上的 BUS_IN 清空（issue #11）；
+     *  等发布方重新注册、定义重新可证明时收敛自动恢复 —— 且只剪真正消失的频段。**已加载**的
+     *  发布方定义了零频段仍收敛为空：它的 CHANNELS 条目证明了「空定义」本身。</p>
      *  <p>不涉及网络 —— 返回**变化了的频道名 → 收敛后的列表**，由调用方经**节点数据通道**
      *  （{@code BusBandSyncPacket}，按方块 + 频道名推、客户端只改匹配节点）下发；
      *  **不要**改用整图 NBT 推送，那会冲掉正在进行的编辑。</p>
@@ -285,12 +302,33 @@ public final class BusChannelHelper {
         Map<String, List<String>> changed = new LinkedHashMap<>();
         if (graph == null) return changed;
         Map<String, List<String>> resolvedByChannel = null;
+        Set<String> absentChannels = null;
         for (var n : graph.nodes) {
             if (n.type != NodeType.BUS_IN || n.signalName == null || n.signalName.isEmpty()) continue;
+            // 缺席守卫：本轮已判定「无已加载发布方」的频道直接跳过。 / Absence guard: channels already
+            if (absentChannels != null && absentChannels.contains(n.signalName)) continue;
+            // judged publisher-less this pass are skipped outright.
             if (resolvedByChannel == null) resolvedByChannel = new HashMap<>();
             List<String> want = resolvedByChannel.get(n.signalName);
             if (want == null) {
                 want = resolveBusInBands(graph, null, n.signalName);
+                // 缺席不是定义：解析为空且 CHANNELS 里没有该名字 ⇒ 当前没有已加载的发布方，
+                // 「空」证明不了。照常收敛会把 BUS_IN 剪成空列表并按索引剪光输入连线且落盘
+                // （发布方区块卸载 / 重启首 tick 注册顺序靠后 / 方块被拆除都会造成这种瞬时缺席），
+                // 发布方回归后频段恢复而连线永久丢失。跳过、保留原列表——改名的权威 SET_BANDS
+                // 仍负责清空死名（issue #11），这里只守住后台不变量不越权。
+                // Absence is not a definition: an empty resolution with no CHANNELS entry means no
+                // loaded publisher — the emptiness is unprovable. Converging anyway emptied the
+                // BUS_IN, pruned every input connection by index and persisted the loss whenever the
+                // publisher was transiently out of sight (chunk unload / late first-tick registration
+                // order after a restart / broken block); the bands came back but the wires did not.
+                // Skip and keep the list — the rename path's authoritative SET_BANDS still empties a
+                // dead name (issue #11); this only keeps the background invariant from overreaching.
+                if (want.isEmpty() && SignalBus.getChannel(n.signalName) == null) {
+                    if (absentChannels == null) absentChannels = new HashSet<>();
+                    absentChannels.add(n.signalName);
+                    continue;
+                }
                 resolvedByChannel.put(n.signalName, want);
             }
             if (want.equals(n.signalBands)) continue;

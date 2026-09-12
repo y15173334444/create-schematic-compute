@@ -9,8 +9,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -32,9 +34,15 @@ import static org.junit.jupiter.api.Assertions.*;
  * The caller ships that over the <b>node-data channel</b> ({@code BusBandSyncPacket}) — never as a
  * whole-graph NBT push, which would clobber edits in flight.</p>
  *
- * <p>These tests drive the (network-free, Minecraft-free) convergence core directly. Pruning uses
- * {@code SET_BANDS} semantics plus the legacy index fallback, because a BUS_IN's input pins are
- * index-bound rather than name-bound.</p>
+ * <p>These tests drive the network-free convergence core directly ({@link SignalBus} is manipulated
+ * as the process-wide static it is — no Minecraft bootstrap). One constraint keeps it that way:
+ * {@link SignalBus#registerChannel} logs through the mod class, whose static init needs the
+ * Minecraft registries, so a test that needs a CHANNELS entry plants it reflectively (see
+ * {@code plantChannel}). Pruning uses {@code SET_BANDS} semantics plus the legacy index fallback,
+ * because a BUS_IN's input pins are index-bound rather than name-bound. One guard shapes the whole
+ * suite: <b>absence is not a definition</b> — a channel with no <i>loaded</i> publisher is skipped
+ * (a publisher between chunk loads must not cost the BUS_IN its wires), while a loaded publisher
+ * defining zero bands still converges to empty.</p>
  */
 class BusInBandConvergenceTest {
 
@@ -56,6 +64,22 @@ class BusInBandConvergenceTest {
         n.signalName = name;
         n.signalBands = new ArrayList<>(List.of(bands));
         return n;
+    }
+
+    /** Plant a CHANNELS entry directly — {@link SignalBus#registerChannel} would log through the
+     *  mod class, whose static init needs the Minecraft bootstrap (unavailable in unit tests).
+     *  The owner's BlockPos stays null on purpose: instantiating one would likewise touch
+     *  Minecraft's registry statics. */
+    private static void plantChannel(String name) {
+        try {
+            var field = SignalBus.class.getDeclaredField("CHANNELS");
+            field.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            var channels = (ConcurrentHashMap<String, ChannelEntry>) field.get(null);
+            channels.put(name, new ChannelEntry(new HashMap<>(), new ChannelOwner(null, 1)));
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("failed to plant a CHANNELS entry for " + name, e);
+        }
     }
 
     // ══════════ 1. The invariant itself / 不变量本身 ══════════
@@ -85,15 +109,46 @@ class BusInBandConvergenceTest {
     }
 
     @Test
-    @DisplayName("a name with no publisher at all converges to empty")
-    void testDeadNameConvergesToEmpty() {
-        GraphNode in = busIn("DEAD", "leftover_0");
+    @DisplayName("a name with no loaded publisher is left alone — absence is not a definition")
+    void testPublisherAbsenceKeepsListAndWires() {
+        // No BAND_REGISTRY entry and no CHANNELS entry: the publisher's chunk may be unloaded, its
+        // host may tick later on a fresh server, or the block may be gone — none of that proves the
+        // definition is empty. Converging anyway used to empty the list, prune every input wire by
+        // index and persist the loss; when the publisher returned, the bands came back but the
+        // wires did not. (A BUS_IN renamed onto a dead name is still emptied — by the rename path's
+        // authoritative SET_BANDS, covered by BusInBandResolutionTest — not by this invariant.)
+        GraphNode src = graph.addNode(NodeType.CONST, 0, 0);
+        GraphNode in = busIn("DEAD", "leftover_0", "leftover_1");
+        assertTrue(graph.addConnection(src.id, 0, in.id, 0));
+        assertTrue(graph.addConnection(src.id, 0, in.id, 1));
+
+        assertTrue(BusChannelHelper.convergeBusInBands(graph).isEmpty(),
+            "absence ⇒ the pass skips the channel entirely; nothing is reported");
+
+        assertEquals(List.of("leftover_0", "leftover_1"), in.signalBands,
+            "the stale-but-consistent list survives until a definition is provable again");
+        assertEquals(2, graph.connections.size(),
+            "no wire may be touched while the publisher is merely absent");
+    }
+
+    @Test
+    @DisplayName("a loaded publisher that defines zero bands still converges the BUS_IN to empty")
+    void testLoadedPublisherZeroBandsConvergesToEmpty() {
+        // A CHANNELS entry proves the publisher is loaded right now, so an empty definition from
+        // it is authoritative (the user deleted every band on the BUS_OUT) — converge and prune.
+        plantChannel("CH");
+        GraphNode src = graph.addNode(NodeType.CONST, 0, 0);
+        GraphNode in = busIn("CH", "band_0", "band_1");
+        assertTrue(graph.addConnection(src.id, 0, in.id, 0));
+        assertTrue(graph.addConnection(src.id, 0, in.id, 1));
 
         Map<String, List<String>> changed = BusChannelHelper.convergeBusInBands(graph);
 
-        assertTrue(in.signalBands.isEmpty(), "no publisher ⇒ no bands (the agreed semantics)");
-        assertTrue(changed.containsKey("DEAD"), "the emptied list must be pushed too");
-        assertTrue(changed.get("DEAD").isEmpty());
+        assertTrue(in.signalBands.isEmpty(), "a loaded publisher's empty definition is authoritative");
+        assertTrue(changed.containsKey("CH"), "the emptied list must still be pushed");
+        assertTrue(changed.get("CH").isEmpty());
+        assertTrue(graph.connections.isEmpty(),
+            "with the definition provably empty, the SET_BANDS pruning semantics apply in full");
     }
 
     @Test
@@ -137,15 +192,23 @@ class BusInBandConvergenceTest {
         SignalBus.registerBands("CH", List.of("keep"));
         GraphNode src = graph.addNode(NodeType.CONST, 0, 0);
         GraphNode in = busIn("CH", "keep", "gone");
-        assertTrue(graph.addConnection(src.id, 0, in.id, 0)); // binds pinId "keep"
-        assertTrue(graph.addConnection(src.id, 0, in.id, 1)); // binds pinId "gone"
+        // A BUS_IN's input pins are INDEX-bound: GraphNode.inputPinId returns a band name only for
+        // BUS_OUT (a BUS_IN resolves no input pinId at all — inputs() is not band-driven), so the
+        // name-matched prune can never catch these connections. The legacy index fallback
+        // (toPin >= keptCount) is what actually prunes band "gone" — the same treatment
+        // releaseOldBusName already applies. BUS_IN 的输入引脚是索引绑定的：按名剪线抓不到，
+        // 真正剪掉 "gone" 的是 legacy 索引回退（与 releaseOldBusName 一致）。
+        assertTrue(graph.addConnection(src.id, 0, in.id, 0));
+        assertTrue(graph.addConnection(src.id, 0, in.id, 1));
         assertEquals(2, graph.connections.size());
 
         assertFalse(BusChannelHelper.convergeBusInBands(graph).isEmpty());
 
         assertEquals(List.of("keep"), in.signalBands);
         assertEquals(1, graph.connections.size(),
-            "only the connection on the band that actually disappeared goes away");
+            "only the connection whose index fell out of the converged list goes away");
+        assertEquals(0, graph.connections.get(0).toPin,
+            "the surviving wire is the one on the band that stayed (\"keep\")");
     }
 
     // ══════════ 4. Edges / 边界 ══════════

@@ -129,14 +129,21 @@ class BusInBandResolutionTest {
     }
 
     @Test
-    @DisplayName("resolveBusInBands ignores the node itself (never self-adopts its own list)")
+    @DisplayName("resolveBusInBands never adopts the querying node's own list")
     void testResolverExcludesSelf() {
-        GraphNode busIn = graph.addNode(NodeType.BUS_IN, 0, 0);
-        busIn.signalName = "CH";
-        busIn.signalBands = new ArrayList<>(List.of("own_0"));
+        // Today's only caller passes a BUS_IN (which can never be a source anyway, per
+        // testResolverRejectsBusInAsSource), so pin the n != self guard with the one node kind that
+        // could ever look like a source: a non-conflicted BUS_OUT carrying the only bands for the
+        // name. Drop the guard and this self-adoption returns — the test then fails.
+        // 今天的调用方只传 BUS_IN（它本就当不了来源，见 testResolverRejectsBusInAsSource），
+        // 因此用唯一可能被误当来源的节点种类来钉住 n != self 守卫：持有该名下唯一频段的
+        // 非冲突 BUS_OUT。删掉守卫，这里就会自我采纳而失败。
+        GraphNode busOut = graph.addNode(NodeType.BUS_OUT, 0, 0);
+        busOut.signalName = "CH";
+        busOut.signalBands = new ArrayList<>(List.of("own_0"));
 
-        // Only the node itself carries bands for "CH" — the resolver must not read them back.
-        assertTrue(BusChannelHelper.resolveBusInBands(graph, busIn, "CH").isEmpty());
+        assertTrue(BusChannelHelper.resolveBusInBands(graph, busOut, "CH").isEmpty(),
+            "self must be skipped even when it is the only same-graph node holding bands");
     }
 
     @Test

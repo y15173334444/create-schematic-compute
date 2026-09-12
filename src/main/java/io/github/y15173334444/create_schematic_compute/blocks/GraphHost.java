@@ -130,12 +130,15 @@ public class GraphHost {
             registerBusChannels();
         }
         // issue #15：把本图 BUS_IN 的频段列表收敛到频道定义，**只有真的变了才发**节点数据。
+        // 频道**无已加载发布方**时整轮跳过 —— 缺席不是定义，见 convergeBusInBands。
         // 走 **BusBandSyncPacket**（按方块 + 频道名推，客户端只改匹配节点的频段列表）——
         // **绝不能**改用整图 NBT 推送（flagFullSync），那会冲掉正在进行的编辑。
         // 挂在这里是因为**每个**图宿主每 tick 都会调用本方法（9 个宿主统一），无需在各宿主里
         // 重复挂接；只挂在 syncIfBandsChanged 上会漏掉 Monitor / 变速箱 / 可编程变速箱 / SpeedProxy。
         // issue #15: converge this graph's BUS_IN bands to the channel definition and send node
-        // data only when that actually changed something. It travels as a **BusBandSyncPacket**
+        // data only when that actually changed something. Channels with **no loaded publisher**
+        // are skipped for the pass — absence is not a definition; see convergeBusInBands.
+        // It travels as a **BusBandSyncPacket**
         // (per block + channel name; the client only rewrites the matching nodes' band lists) —
         // never as a whole-graph NBT push (flagFullSync), which would clobber edits in flight.
         // This hook lives here because **every** graph host calls this method each tick (all nine
