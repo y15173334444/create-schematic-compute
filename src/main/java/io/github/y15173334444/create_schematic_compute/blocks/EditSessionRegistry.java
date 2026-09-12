@@ -375,39 +375,64 @@ public final class EditSessionRegistry {
                 && !renamed.signalName.isEmpty()) {
                 var resolved = io.github.y15173334444.create_schematic_compute.network.BusChannelHelper
                     .resolveBusInBands(targetGraph, renamed, renamed.signalName);
-                var bandApply = new GraphOp(
-                    OpType.SET_BANDS, op.graphPos(), op.ownerNodeId(), renamed.id,
-                    0, null, 0f, 0f,
-                    0, 0, 0, 0,
-                    0, 0f, null,
-                    0, 0, 0,
-                    0, resolved, 0, 0,
-                    0, net.minecraft.world.item.ItemStack.EMPTY, 0L, op.actor()
-                );
-                // Apply locally first (same path as clients), then broadcast with a real version.
-                // 先在服务端本地应用（与客户端同一条路径），再用真实版本号广播。
-                OpExecutor.apply(targetGraph, bandApply);
-                long bandVersion = nextVersion(gk);
-                var bandBroadcast = new GraphOp(
-                    OpType.SET_BANDS, op.graphPos(), op.ownerNodeId(), renamed.id,
-                    0, null, 0f, 0f,
-                    0, 0, 0, 0,
-                    0, 0f, null,
-                    0, 0, 0,
-                    0, resolved, 0, 0,
-                    0, net.minecraft.world.item.ItemStack.EMPTY, bandVersion, op.actor()
-                );
-                var bandPkt = new GraphEditOpSyncPacket(bandBroadcast);
-                for (var editorId : editorsOuter) {
-                    // 注意：这里**不跳过发起者** —— 该值是服务端算出来的，发起者本地并没有
-                    // 算出同一个值，必须收到它以完成收敛。
-                    // Note: the originator is deliberately NOT skipped here — this value is
-                    // computed by the server, so the originator has not computed the same value
-                    // and must receive it in order to converge.
-                    var editorPlayer = level.getServer().getPlayerList().getPlayer(editorId);
-                    if (editorPlayer != null) PacketDistributor.sendToPlayer(editorPlayer, bandPkt);
+                var current = renamed.signalBands != null ? renamed.signalBands : java.util.List.of();
+                // 只在改名真的导致频段变化时才产生权威 SET_BANDS —— #11 的原话就是「改名导致
+                // 频段变化时」。列表相同时 OpExecutor 的未变守卫本来就会把应用变成空操作，
+                // 但版本号 bump、操作日志与给全部编辑者的广播照付不误，整段链路是浪费。
+                // Produce the authoritative SET_BANDS only when the rename actually changes the
+                // bands — literally what #11 asks for. With an identical list, OpExecutor's
+                // unchanged-guard would turn the apply into a no-op anyway, yet the version bump,
+                // the log entry and the broadcast to every editor would all still be paid.
+                if (!resolved.equals(current)) {
+                    var bandApply = new GraphOp(
+                        OpType.SET_BANDS, op.graphPos(), op.ownerNodeId(), renamed.id,
+                        0, null, 0f, 0f,
+                        0, 0, 0, 0,
+                        0, 0f, null,
+                        0, 0, 0,
+                        0, resolved, 0, 0,
+                        0, net.minecraft.world.item.ItemStack.EMPTY, 0L, op.actor()
+                    );
+                    // Apply locally first (same path as clients), then broadcast with a real version.
+                    // 先在服务端本地应用（与客户端同一条路径），再用真实版本号广播。
+                    OpExecutor.apply(targetGraph, bandApply);
+                    long bandVersion = nextVersion(gk);
+                    var bandBroadcast = new GraphOp(
+                        OpType.SET_BANDS, op.graphPos(), op.ownerNodeId(), renamed.id,
+                        0, null, 0f, 0f,
+                        0, 0, 0, 0,
+                        0, 0f, null,
+                        0, 0, 0,
+                        0, resolved, 0, 0,
+                        0, net.minecraft.world.item.ItemStack.EMPTY, bandVersion, op.actor()
+                    );
+                    var bandPkt = new GraphEditOpSyncPacket(bandBroadcast);
+                    for (var editorId : editorsOuter) {
+                        // 注意：这里**不跳过发起者** —— 该值是服务端算出来的，发起者本地并没有
+                        // 算出同一个值，必须收到它以完成收敛。
+                        // Note: the originator is deliberately NOT skipped here — this value is
+                        // computed by the server, so the originator has not computed the same value
+                        // and must receive it in order to converge.
+                        var editorPlayer = level.getServer().getPlayerList().getPlayer(editorId);
+                        if (editorPlayer != null) PacketDistributor.sendToPlayer(editorPlayer, bandPkt);
+                    }
+                    appendToLog(gk, bandBroadcast);
                 }
-                appendToLog(gk, bandBroadcast);
+                // 非编辑者的图副本没有 op 通道（改名 op 只在会话内广播）：改名与新频段统一由
+                // **合并版全量同步**带过去。这与第 10 步对显示类 op 的既有处理一致 —— 那里只覆盖
+                // Monitor 宿主，这里把 BUS_IN 改名补齐到全部宿主。收敛（convergeBusInBands）此刻
+                // 对服务端副本无 diff 可推（SET_BANDS 已直接更新了它）—— 正是审查指出的
+                // 「非编辑者过期到下次整图同步」缝隙的补法；requestFullSync 按 40 tick 宽限合并，
+                // 连续改名不会炸带宽。
+                // Non-editors' graph copies have no op channel (the rename op only broadcasts
+                // inside the session): the rename and its new bands reach them through a
+                // **coalesced full sync** instead. This mirrors step 10's existing treatment of
+                // display-affecting ops — which covers only the Monitor host — and extends it to
+                // every host for BUS_IN renames. The convergence has no diff left to push (the
+                // SET_BANDS above already updated the server copy) — this closes the "stale until
+                // the next whole-graph sync" gap the review flagged; requestFullSync coalesces
+                // over the 40-tick grace, so rename bursts cost nothing.
+                gbe.requestFullSync();
             }
         }
 
