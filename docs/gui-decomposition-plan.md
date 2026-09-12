@@ -9,8 +9,9 @@
 > **步骤 6 进行中**：刀 6a 编辑态工厂已落地（`a4695cd`），`GraphEditor` 5807 → 5231 行；
 > 刀 6b 协作 presence 已落地（`4ce1257`），5231 → 5049 行；刀 6e 视角书签+相机已落地
 > （`f914dd6`），5049 → 4742 行；刀 6d 总线编辑已落地（`c270a6f`），4742 → 4523 行；
-> 刀 6c op 历史 + 远端应用已落地（`0bea539`），4523 → 4085 行（风险最高的一刀完成）。
-> 清单 D 双人回归 D1–D4、D7 已通过（见实施记录）。仅剩 6f（文件内方法级拆解）。
+> 刀 6c op 历史 + 远端应用已落地（`0bea539`），4523 → 4085 行（风险最高的一刀完成）；
+> 刀 6f 第一部分：mouseClicked 分解（`47bf362`，1055 → 69 行，文件 4085 → 4188 含新方法签名）。
+> 清单 D 双人回归 D1–D4、D7 已通过（见实施记录）。6f 余下部分：renderBg / keyPressed。
 > Status: 🔶 **in progress.** Drafted 2026-09-11 against `dfedbef`; step 1 landed in `c8643fd`;
 > step 2 landed in `23ec19d` (`MonitorScreen` now **348 lines** after the same-day review fixes:
 > the never-wired `drawToolbarStrip` seam removed, the settings-panel click routing in graph mode
@@ -612,6 +613,37 @@ OpExecutor.apply（移动动画）、远程 REMOVE_NODE 的 UI 清理、数据 o
 **验证**：客观校验（8 个搬迁符号残留 = 0、花括号平衡）+ `compileJava` + `test` 全绿
 （**389**，含 issue #11 修复新增的 7 个测试）。游戏内回归建议：单人撤销/重做各类 op 往返
 （含批量组）、双人下对方编辑实时出现、临时 ID 重映射后撤销指向正确节点。
+
+#### 🔶 实施记录 · 刀 6f（第一部分）· mouseClicked 分解（`47bf362`）
+
+`mouseClicked` **1055 → 69 行**：方法体只剩按命中目标顺序的 15 个私有方法调用 + 少量胶水
+（上下文菜单右键、折叠指示器、colorPicker 吸收、busBox 失焦提交）。全部为**逐字块搬迁**，
+布尔"已消费"返回值保持原控制流与判定顺序。
+
+| 私有方法 | 覆盖原块 |
+|----------|----------|
+| `tryTopBarClick` | 顶栏设置按钮 + 图名 EditBox 聚焦/失焦 |
+| `tryDebugChartClick` | 控制点命中/拖拽、x 标记线、双击加控制点/探针冻结、右键删点 |
+| `tryCommentColorPopupClick` | 注释取色弹窗外点关闭 + 按钮委托 |
+| `tryExportDialogClick` / `tryImportDialogClick` | 导出/导入封装对话框 |
+| `commitFocusedEnterActions` | enterActions 失焦提交（void） |
+| `tryChromeClick` | 子图 Back、工具栏五按钮、导入导出入口、书签开关、工具栏位置切换 |
+| `tryAddMenuClick` | 菜单滚动条/分类折叠/建节点（含 MAX_NODES 上限） |
+| `tryHotbarPopupClick` | 热栏弹窗（物品拾取 + 内外点击关闭） |
+| `cancelKeyboardBinding` | KEYBOARD 监听中点击取消 |
+| `tryExpandedEditAreaClicks` | 展开节点编辑区大循环（频段槽/BOOL 等五种开关/FORMULA 温启动/BUS 频段 ±/IMAGE 帧开关/KEYBOARD/DSG 模式切换/MLE+候选框/通用字段+色钮） |
+| `tryTabInteractions` | TAB+左键连线删除/多选/框选 |
+| `tryCommentClick` | 注释交互（滚动条/缩放/色点/双击折叠/标题拖拽 + 包含节点 B 层钉扎） |
+| `tryWirePinClick` | BUS_IN 与节点输出引脚连线拖起 |
+| `tryNodeClickAndBlank` | 节点选中/拖拽起点 + 空白处 busBox 提交/取消选中/平移 |
+
+**实施方式**：按行号精确切割的脚本手术（块边界取自通读标注），统一减缩进；编译器拦下
+三类机械错误（`tryTabInteractions` 漏传 `panOnlyClick`、`tryCommentClick` 内部重复声明与
+调用点缺声明——原 2219 行的 `nonCommentHit` 声明随块迁入方法体与参数冲突）。
+`renderBg`（~405 行）与 `keyPressed`（~324 行）的同类分解留待 6f 第二部分。
+
+**验证**：调用序列与原判定顺序逐项一致 + 花括号平衡 + `compileJava` + `test` 全绿（389）。
+行为回归面 = 鼠标点击全部交互路径，建议实机点检：工具栏/菜单建节点/注释交互/频段 ±/撤销。
 
 #### 清单 D · 步骤 6 刀次回归（6a 编辑态 + 6b presence 合并验收）
 
