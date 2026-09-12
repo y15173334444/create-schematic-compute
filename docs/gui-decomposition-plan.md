@@ -6,7 +6,8 @@
 > 同日评审修复（未推送批次审查）后 `MonitorScreen` 现 **348 行**（移除从未接线的 `drawToolbarStrip` 缝、
 > 恢复设置面板在节点图模式的点击路由，见步骤 2 实施记录的更正）。
 > **步骤 3 已完成**：指南（`e3cacdf`）/ 颜色（`fb5eddf`）/ 键位 三个 tab 全部拆出。
-> **步骤 6 进行中**：刀 6a 编辑态工厂已落地（`a4695cd`），`GraphEditor` 5807 → 5231 行。
+> **步骤 6 进行中**：刀 6a 编辑态工厂已落地（`a4695cd`），`GraphEditor` 5807 → 5231 行；
+> 刀 6b 协作 presence 已落地（`4ce1257`），5231 → 5049 行。
 > Status: 🔶 **in progress.** Drafted 2026-09-11 against `dfedbef`; step 1 landed in `c8643fd`;
 > step 2 landed in `23ec19d` (`MonitorScreen` now **348 lines** after the same-day review fixes:
 > the never-wired `drawToolbarStrip` seam removed, the settings-panel click routing in graph mode
@@ -121,7 +122,7 @@ Step 2  MonitorScreen 显示编辑 GUI 脱离          ✅ 已完成 23ec19d（1
 Step 3  EditorSettingsScreen 按 tab 拆分         ✅ 已完成（指南/颜色/键位 三 tab 全部拆出）
 Step 4  PixelEditorScreen 内核 / 帧条拆分        🟡 中（可补单测）
 Step 5  NodeRenderer 按渲染品类拆（保门面）      🟡 中（引用最广）
-Step 6  GraphEditor 五刀 + 内部方法级拆解        🟡 进行中（6a `a4695cd` 已落地；剩余刀次需冻结窗口）
+Step 6  GraphEditor 五刀 + 内部方法级拆解        🟡 进行中（6a `a4695cd`、6b `4ce1257` 已落地）
 Step 7  小文件批量归位                           ⚪ 择机
 ```
 
@@ -472,8 +473,52 @@ final，构造注入 Host）。屏幕保留 tab 列、共享布局与输入分�
 
 **区间手术事故（已修复）**：抽取时 `toggleExpand` 的签名受损，提交前已逐字恢复——
 大方法切块搬迁后必须核对签名完整，不能只看编译过（受损签名若恰好也是合法 Java 就会静默过编译）。
-**验证**：`compileJava` + `test`（393 绿）；焦点保留语义（重建后按下标还原聚焦字段与光标）
-经逐字搬迁保持不变，编辑态展开面板行为待游戏内回归确认（见下方 6b 后合并回归清单）。
+**验证**：`compileJava` + `test` 全绿（JUnit XML 实测 382；见 6b 记录末尾的计数更正）；
+焦点保留语义（重建后按下标还原聚焦字段与光标）经逐字搬迁保持不变，
+编辑态展开面板行为待游戏内回归确认（见下方清单 D）。
+
+#### ✅ 实施记录 · 刀 6b · 协作 presence（已完成 `4ce1257`）
+
+落地为 `blocks/GraphPresenceTracker.java`（261 行，包级 `final`，构造注入编辑器引用）。
+P2 presence 集群整体迁入；`GraphEditor` **5231 → 5049 行**，保留全部门面委托。
+
+| 变更 | 说明 |
+|------|------|
+| 搬入跟踪器 | 远端临场存储 + 30s 过期清理、软锁查询（`isNodeLocked` / `isNodeLockedByOther` / `isDisplayNodeLocked`）、节流上报（`sendPresenceIfNeeded`，120ms、模式感知）、图模式协作叠加层（`renderPresenceOverlay`：光标 smoothstep 插值 / 远端拖拽悬线 / 在线玩家列表） |
+| 状态随迁 | `remotePresences` / `remotePresenceTimestamps` / `cursorLerp` / `lastPresenceSendTime` / `PRESENCE_INTERVAL_MS` / `PRESENCE_TIMEOUT_MS` |
+| **未随迁** | `lastDragSendTime` / `DRAG_SEND_INTERVAL_MS`（50ms）——虽写在原 presence 注释块内，实为拖拽路径 sendOp 限频，与 presence 无关，留在 `GraphEditor` |
+| 可见性放宽 | 仅 `lastMouseX` / `lastMouseY`（`private` → 包级，临场光标取用）；坐标系转换、`ownerNodeId()`、`getGraph()`、`TOP_BAR_H`、`host` 等本已是 public/包级，零放宽 |
+| 留在 `renderBg` | 软锁表与封装占用者表两段内联构建逻辑**未搬**（它们是渲染编排而非 presence 职责），仅把映射来源换成 `presence.getRemotePresences()`（同一活实例，行为不变） |
+| 门面保留 | 8 个 public 委托；`isNodeLockedByOther` 的 5 处内部调用点改走 `presence.`（同包包级方法） |
+
+**外部契约零改动**（调用方一行未动）：包处理器 `host.getEditor().storeRemotePresence(pkt)`、
+`MonitorDisplayEditor` 的 `sendPresenceIfNeeded` / `cleanupStalePresences` / `getRemotePresences` /
+`isDisplayNodeLocked`、`AbstractGraphScreen` 关闭时的 `clearRemotePresences`。
+
+**搬迁陷阱又一次应验（本次靠客观校验拦下）**：`renderPresenceOverlay` 与前一块 presence 方法
+不相邻（隔了整个 `renderBg`），首遍替换只覆盖了相邻块——残留的原方法体与新增委托构成重复定义，
+被"残留符号必须为 0"的 grep 断言当场抓获，编译前修正。教训重申：**搬迁断言要覆盖每一个被搬
+符号，而不是第一个块。**
+
+**测试计数更正**：本文档与 6a 提交说明中的"393 绿"为误计——测试集自 `f0d3abc`（步骤 4 修复）
+后零变动，6a/6b 均未增删测试，实际为 **382**（JUnit XML 汇总：382 tests / 0 failures / 0 skipped）。
+后续记录以 XML 汇总为准。
+
+**验证**：`compileJava` + `test` 全绿（382）。游戏内回归待报告者执行（presence 属协作行为，
+完整验证需双客户端，见下方清单 D）。
+
+#### 清单 D · 步骤 6 刀次回归（6a 编辑态 + 6b presence 合并验收）
+
+| # | 操作 | 期望 |
+|---|------|------|
+| D1 | 单客户端：点开各类型节点的展开面板改参数（含公式编辑器、频段、文本、取色） | 面板与原行为一致；**打字过程中输入框不丢焦点**（6a 焦点保留语义） |
+| D2 | 调试信号发生器节点切换模式 | 条件面板按模式正确出现/消失（6a 模式切换状态机） |
+| D3 | 双客户端同图：两人光标互见 | 光标平滑插值跟随（非瞬移）、名字标注正确（6b） |
+| D4 | 双客户端：一人选中/展开节点，另一人视角 | 对方节点显示软锁描边（金色边框 + 名字）；封装节点上有"谁在编辑"占用标注 |
+| D5 | 双客户端：一人拖拽连线，另一人视角 | 远端拖拽悬线实时渲染 |
+| D6 | 双客户端：一人进入显示器显示布局模式拖拽组件，另一人在图模式 | 图模式不渲染显示模式光标；显示器侧组件有拖拽描边（软锁） |
+| D7 | 右上在线玩家列表 | 列出本地（黄色）+ 所有远端玩家；一端退出编辑器后 30s 内消失 |
+| D8 | `Esc` 关闭编辑器再重开 | 无残留临场数据（clearRemotePresences 生效），重开即正常 |
 
 ### 步骤 7 · 小文件批量归位（⚪ 择机）
 
