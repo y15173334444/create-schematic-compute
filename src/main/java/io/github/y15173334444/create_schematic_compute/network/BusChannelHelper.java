@@ -237,6 +237,15 @@ public final class BusChannelHelper {
                             (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
                             (c.toId == n.id && removedBand.equals(c.toPinId)));
                     }
+                    // legacy 索引回退：BUS_IN 的输入引脚是**索引绑定**的（GraphNode.inputPinId 只对
+                    // BUS_OUT 返回频段名），因此频段减少后落到新范围之外的连线要按索引清掉
+                    // ——与 releaseOldBusName / convergeBusInBands 的既有做法一致。
+                    // Legacy index fallback: a BUS_IN's input pins are **index-bound**
+                    // (GraphNode.inputPinId returns a band name only for BUS_OUT), so connections
+                    // whose index fell outside the new range are dropped — consistent with
+                    // releaseOldBusName and convergeBusInBands.
+                    final int keptCount = n.signalBands.size();
+                    graph.connections.removeIf(c -> c.toId == n.id && c.toPin >= keptCount);
                     graph.rebuildNodeMap(); // invalidate inputCache / 刷新 inputCache
                     graph.rebuildInputCache();
                 }
@@ -267,11 +276,14 @@ public final class BusChannelHelper {
      *  <p>解析仍统一走 {@link #resolveBusInBands}，保证只有一条解析规则；本轮按频道名缓存解析结果
      *  （只有 BUS_OUT 能当定义来源，因此「排除自身」在这里无实际作用）。移除语义与
      *  {@code SET_BANDS} 一致：真正消失的频段上的连线会被剪掉。</p>
-     *  <p>不涉及网络 —— 通知客户端由调用方负责（见 {@link #syncIfBandsChanged}）。</p>
-     *  @return true if any node was changed / 有节点被改写则返回 true */
-    public static boolean convergeBusInBands(NodeGraph graph) {
-        if (graph == null) return false;
-        boolean changed = false;
+     *  <p>不涉及网络 —— 返回**变化了的频道名 → 收敛后的列表**，由调用方经**节点数据通道**
+     *  （{@code BusBandSyncPacket}，按方块 + 频道名推、客户端只改匹配节点）下发；
+     *  **不要**改用整图 NBT 推送，那会冲掉正在进行的编辑。</p>
+     *  @return 发生变化的频道名 → 收敛后的频段列表；空表示无变化
+     *  the channels that changed, mapped to their converged list; empty = nothing changed */
+    public static Map<String, List<String>> convergeBusInBands(NodeGraph graph) {
+        Map<String, List<String>> changed = new LinkedHashMap<>();
+        if (graph == null) return changed;
         Map<String, List<String>> resolvedByChannel = null;
         for (var n : graph.nodes) {
             if (n.type != NodeType.BUS_IN || n.signalName == null || n.signalName.isEmpty()) continue;
@@ -302,9 +314,9 @@ public final class BusChannelHelper {
             // treatment releaseOldBusName already applies.
             final int newCount = n.signalBands.size();
             graph.connections.removeIf(c -> c.toId == n.id && c.toPin >= newCount);
-            changed = true;
+            changed.put(n.signalName, new ArrayList<>(want));
         }
-        if (changed) {
+        if (!changed.isEmpty()) {
             graph.rebuildNodeMap();     // invalidate inputCache / 刷新 inputCache
             graph.rebuildInputCache();
         }

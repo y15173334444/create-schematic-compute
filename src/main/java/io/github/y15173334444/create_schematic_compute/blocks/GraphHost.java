@@ -6,6 +6,7 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.graph.RuntimeState;
+import io.github.y15173334444.create_schematic_compute.network.BusBandSyncPacket;
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.network.ChannelOwner;
 import io.github.y15173334444.create_schematic_compute.network.ClientboundGraphEvalPacket;
@@ -128,18 +129,27 @@ public class GraphHost {
             busRegistrationPending = false;
             registerBusChannels();
         }
-        // issue #15：把本图 BUS_IN 的频段列表收敛到频道定义，**只有真的变了才推**这个方块
-        // （flagFullSync = markDirty + sendBlockUpdated）。挂在这里是因为**每个**图宿主每 tick
-        // 都会调用本方法（9 个宿主统一），无需在各宿主里重复挂接；只挂在 syncIfBandsChanged 上
-        // 会漏掉 Monitor / 变速箱 / 可编程变速箱 / SpeedProxy 这四个宿主。
-        // issue #15: converge this graph's BUS_IN bands to the channel definition and push this
-        // block only when that actually changed something (flagFullSync = markDirty +
-        // sendBlockUpdated). This hook lives here because **every** graph host calls this method
-        // each tick (all nine of them); hanging it only off syncIfBandsChanged would miss Monitor,
-        // the gearbox, the programmable transmission and SpeedProxy.
-        if (lvl() != null && !lvl().isClientSide()
-            && BusChannelHelper.convergeBusInBands(graph)) {
-            flagFullSync();
+        // issue #15：把本图 BUS_IN 的频段列表收敛到频道定义，**只有真的变了才发**节点数据。
+        // 走 **BusBandSyncPacket**（按方块 + 频道名推，客户端只改匹配节点的频段列表）——
+        // **绝不能**改用整图 NBT 推送（flagFullSync），那会冲掉正在进行的编辑。
+        // 挂在这里是因为**每个**图宿主每 tick 都会调用本方法（9 个宿主统一），无需在各宿主里
+        // 重复挂接；只挂在 syncIfBandsChanged 上会漏掉 Monitor / 变速箱 / 可编程变速箱 / SpeedProxy。
+        // issue #15: converge this graph's BUS_IN bands to the channel definition and send node
+        // data only when that actually changed something. It travels as a **BusBandSyncPacket**
+        // (per block + channel name; the client only rewrites the matching nodes' band lists) —
+        // never as a whole-graph NBT push (flagFullSync), which would clobber edits in flight.
+        // This hook lives here because **every** graph host calls this method each tick (all nine
+        // of them); hanging it only off syncIfBandsChanged would miss Monitor, the gearbox, the
+        // programmable transmission and SpeedProxy.
+        if (lvl() instanceof ServerLevel sl) {
+            var changedChannels = BusChannelHelper.convergeBusInBands(graph);
+            if (!changedChannels.isEmpty()) {
+                markDirty();   // 收敛结果要落盘 / persist the converged lists
+                for (var e : changedChannels.entrySet()) {
+                    PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(pos()),
+                        new BusBandSyncPacket(pos(), e.getKey(), e.getValue()));
+                }
+            }
         }
     }
 

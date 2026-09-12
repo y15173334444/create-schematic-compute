@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -27,9 +28,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * 过期列表；客户端靠按自己的频段表重新推导来遮掩 —— 而那正是 issue #11 去掉的分叉源。遮掩没了
  * 之后，过期就处处可见，而且重开编辑器也没用，因为**服务端自己那份就是旧的**。</p>
  *
+ * <p>{@code convergeBusInBands} returns the channels that changed, mapped to their converged list.
+ * The caller ships that over the <b>node-data channel</b> ({@code BusBandSyncPacket}) — never as a
+ * whole-graph NBT push, which would clobber edits in flight.</p>
+ *
  * <p>These tests drive the (network-free, Minecraft-free) convergence core directly. Pruning uses
- * the same semantics as {@code SET_BANDS}: only connections on bands that actually disappeared are
- * removed.</p>
+ * {@code SET_BANDS} semantics plus the legacy index fallback, because a BUS_IN's input pins are
+ * index-bound rather than name-bound.</p>
  */
 class BusInBandConvergenceTest {
 
@@ -56,22 +61,26 @@ class BusInBandConvergenceTest {
     // ══════════ 1. The invariant itself / 不变量本身 ══════════
 
     @Test
-    @DisplayName("a stale BUS_IN band list is converged to the channel definition")
+    @DisplayName("a stale BUS_IN band list is converged and the channel is reported as changed")
     void testStaleListConverged() {
         SignalBus.registerBands("CH", List.of("b0", "b1", "b2"));
         GraphNode in = busIn("CH", "old_0", "old_1");
 
-        assertTrue(BusChannelHelper.convergeBusInBands(graph), "a mismatch must be reported");
+        Map<String, List<String>> changed = BusChannelHelper.convergeBusInBands(graph);
+
         assertEquals(List.of("b0", "b1", "b2"), in.signalBands);
+        assertEquals(List.of("b0", "b1", "b2"), changed.get("CH"),
+            "the caller needs the converged list to ship over the node-data channel");
     }
 
     @Test
-    @DisplayName("an already-matching list is left alone and reports no change")
+    @DisplayName("an already-matching list is left alone and nothing is reported")
     void testMatchingListUntouched() {
         SignalBus.registerBands("CH", List.of("b0"));
         GraphNode in = busIn("CH", "b0");
 
-        assertFalse(BusChannelHelper.convergeBusInBands(graph), "no change ⇒ no push upstream");
+        assertTrue(BusChannelHelper.convergeBusInBands(graph).isEmpty(),
+            "no change ⇒ no packet is sent");
         assertEquals(List.of("b0"), in.signalBands);
     }
 
@@ -80,20 +89,26 @@ class BusInBandConvergenceTest {
     void testDeadNameConvergesToEmpty() {
         GraphNode in = busIn("DEAD", "leftover_0");
 
-        assertTrue(BusChannelHelper.convergeBusInBands(graph));
+        Map<String, List<String>> changed = BusChannelHelper.convergeBusInBands(graph);
+
         assertTrue(in.signalBands.isEmpty(), "no publisher ⇒ no bands (the agreed semantics)");
+        assertTrue(changed.containsKey("DEAD"), "the emptied list must be pushed too");
+        assertTrue(changed.get("DEAD").isEmpty());
     }
 
     @Test
-    @DisplayName("several BUS_INs on the same channel all converge to the same list")
+    @DisplayName("several BUS_INs on the same channel converge to one reported entry")
     void testSameChannelConvergesAll() {
         SignalBus.registerBands("CH", List.of("b0", "b1"));
         GraphNode a = busIn("CH", "stale_a");
         GraphNode b = busIn("CH", "stale_b", "stale_c", "stale_d");
 
-        assertTrue(BusChannelHelper.convergeBusInBands(graph));
+        Map<String, List<String>> changed = BusChannelHelper.convergeBusInBands(graph);
+
         assertEquals(List.of("b0", "b1"), a.signalBands);
         assertEquals(List.of("b0", "b1"), b.signalBands);
+        assertEquals(1, changed.size(), "one channel ⇒ one packet, not one per node");
+        assertEquals(List.of("b0", "b1"), changed.get("CH"));
     }
 
     // ══════════ 2. Definition source rules (issue #14) hold here too ══════════
@@ -109,7 +124,7 @@ class BusInBandConvergenceTest {
 
         GraphNode in = busIn("DUP", "whatever");
 
-        assertTrue(BusChannelHelper.convergeBusInBands(graph));
+        assertFalse(BusChannelHelper.convergeBusInBands(graph).isEmpty());
         assertEquals(List.of("winner_0"), in.signalBands,
             "a conflicted BUS_OUT owns nothing — the registry's (winner's) list must win");
     }
@@ -126,7 +141,7 @@ class BusInBandConvergenceTest {
         assertTrue(graph.addConnection(src.id, 0, in.id, 1)); // binds pinId "gone"
         assertEquals(2, graph.connections.size());
 
-        assertTrue(BusChannelHelper.convergeBusInBands(graph));
+        assertFalse(BusChannelHelper.convergeBusInBands(graph).isEmpty());
 
         assertEquals(List.of("keep"), in.signalBands);
         assertEquals(1, graph.connections.size(),
@@ -138,12 +153,12 @@ class BusInBandConvergenceTest {
     @Test
     @DisplayName("null graph is safe and a nameless BUS_IN is not ours to converge")
     void testNullSafeAndNamelessIgnored() {
-        assertFalse(BusChannelHelper.convergeBusInBands(null));
+        assertTrue(BusChannelHelper.convergeBusInBands(null).isEmpty());
 
         GraphNode nameless = graph.addNode(NodeType.BUS_IN, 0, 0); // signalName stays ""
         nameless.signalBands = new ArrayList<>(List.of("x"));
 
-        assertFalse(BusChannelHelper.convergeBusInBands(graph));
+        assertTrue(BusChannelHelper.convergeBusInBands(graph).isEmpty());
         assertEquals(List.of("x"), nameless.signalBands,
             "without a channel name there is nothing to converge to");
     }
