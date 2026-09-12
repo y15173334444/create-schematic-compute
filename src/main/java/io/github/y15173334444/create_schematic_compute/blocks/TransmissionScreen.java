@@ -16,8 +16,10 @@ import java.io.ByteArrayOutputStream;
 import java.util.Map;
 
 /**
- * 可编程变速器图编辑器。节点白名单 = 通用逻辑 + TX_OUT（目标转速输出）。
- * Transmission graph editor. Whitelist = general logic + TX_OUT (target speed output).
+ * 可编程变速器图编辑器。节点白名单与转速代理控制器同款（自身输出节点换成 TX_OUT）：
+ * TX_OUT + CONST / REDSTONE_IN / PRIVATE_IN / BUS_IN + COMMENT / DEBUG。
+ * Transmission graph editor. The whitelist mirrors the Speed Proxy's set with its own
+ * output node (TX_OUT): TX_OUT + CONST / REDSTONE_IN / PRIVATE_IN / BUS_IN + COMMENT / DEBUG.
  */
 public class TransmissionScreen extends AbstractGraphScreen {
 
@@ -25,20 +27,13 @@ public class TransmissionScreen extends AbstractGraphScreen {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".programmable_transmission"), pos);
         setNodeFilter(nt ->
             nt == NodeType.TX_OUT
-            || nt == NodeType.CONST || nt == NodeType.REDSTONE_IN || nt == NodeType.REDSTONE_OUT
-            || nt == NodeType.ADD || nt == NodeType.SUB || nt == NodeType.MUL || nt == NodeType.DIV
-            || nt == NodeType.ABS || nt == NodeType.ROUND || nt == NodeType.CLAMP || nt == NodeType.MAP
-            || nt == NodeType.GT || nt == NodeType.LT || nt == NodeType.EQ || nt == NodeType.GE
-            || nt == NodeType.LE || nt == NodeType.BOOL || nt == NodeType.GATE || nt == NodeType.OR
-            || nt == NodeType.SPLIT
-            || nt == NodeType.PID || nt == NodeType.PID_POWER || nt == NodeType.ACCUMULATOR
-            || nt == NodeType.INTEGRATOR || nt == NodeType.DELAY || nt == NodeType.LATCH
-            || nt == NodeType.T_FLIPFLOP || nt == NodeType.PULSE_EXTEND || nt == NodeType.LOOP
-            || nt == NodeType.FUSE || nt == NodeType.FORMULA
-            || nt == NodeType.PRIVATE_IN || nt == NodeType.PRIVATE_OUT
-            || nt == NodeType.BUS_IN || nt == NodeType.BUS_OUT
-            || nt == NodeType.DEBUG_SIGNAL_GEN || nt == NodeType.DEBUG_PROBE
-            || nt == NodeType.COMMENT);
+            || nt == NodeType.CONST
+            || nt == NodeType.REDSTONE_IN
+            || nt == NodeType.PRIVATE_IN
+            || nt == NodeType.BUS_IN
+            || nt == NodeType.COMMENT
+            || nt == NodeType.DEBUG_SIGNAL_GEN
+            || nt == NodeType.DEBUG_PROBE);
     }
 
     @Override protected ProgrammableTransmissionBlockEntity getBE() {

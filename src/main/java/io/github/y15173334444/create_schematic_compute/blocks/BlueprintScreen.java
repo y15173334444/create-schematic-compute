@@ -45,7 +45,18 @@ public class BlueprintScreen extends AbstractGraphScreen {
             && nt != NodeType.IMAGE_SEQUENCE
             && !nt.isMonitorOnly()
             && nt != NodeType.ENCAP_INPUT
-            && nt != NodeType.ENCAP_OUTPUT);
+            && nt != NodeType.ENCAP_OUTPUT
+            // 齿轮箱/变速器专属节点：运动指令仅数控齿轮箱图、TX_OUT 仅变速器图
+            // （docs/node-guide.md 早已如此声明，这里把菜单与文档对齐）。
+            // Gearbox/transmission-only nodes: motion commands are CNC-gearbox-only and
+            // TX_OUT is transmission-only (docs/node-guide.md already said so — align the
+            // add-node menu with the docs).
+            && nt != NodeType.MOVE
+            && nt != NodeType.ROTATE
+            && nt != NodeType.WAIT
+            && nt != NodeType.CLUTCH
+            && nt != NodeType.ENCODER
+            && nt != NodeType.TX_OUT);
     }
 
     @Override protected BlueprintBlockEntity getBE() {
