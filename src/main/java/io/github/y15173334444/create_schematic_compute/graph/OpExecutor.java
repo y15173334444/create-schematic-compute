@@ -223,7 +223,6 @@ public final class OpExecutor {
             case SET_DISPLAY_TEXT -> {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null) {
-                    String oldName = n.signalName;
                     n.displayText = op.stringValue() != null ? op.stringValue() : "";
                     // 同时更新 PRIVATE_IN/OUT/BUS/REDSTONE 节点的 signalName
                     // Also update signalName for PRIVATE_IN/OUT/BUS/REDSTONE nodes
@@ -231,29 +230,13 @@ public final class OpExecutor {
                         || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT
                         || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT)
                         n.signalName = n.displayText;
-                    // 改名 band 处理（与客户端 commitBusBox 一致）：
-                    // - BUS_OUT：保留自身 band 与连线（用户期望改名不丢图）
-                    // - BUS_IN：采用新频道的 band 定义（读取方需匹配频道 key 才能读到值）
-                    // Rename band handling (consistent with client commitBusBox):
-                    // - BUS_OUT: keep its own bands and connections (rename must not lose the graph)
-                    // - BUS_IN: adopt the new channel's band definition (reader must match keys)
-                    if ((n.type == NodeType.BUS_IN) && !n.signalName.isEmpty() && !n.signalName.equals(oldName)) {
-                        boolean found = false;
-                        for (var other : graph.nodes) {
-                            if (other != n && other.signalName.equals(n.signalName)
-                                && other.bandCount() > 0) {
-                                n.signalBands = new java.util.ArrayList<>(other.signalBands);
-                                found = true; break;
-                            }
-                        }
-                        if (!found) {
-                            var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(n.signalName);
-                            n.signalBands = (gb != null && !gb.isEmpty())
-                                ? new java.util.ArrayList<>(gb)
-                                : new java.util.ArrayList<>();
-                        }
-                        n.bandsDirty = true;
-                    }
+                    // 频段列表的解析**刻意不在这里做**（issue #11）：改名后 BUS_IN 的新频段列表由
+                    // 服务端**唯一解析**，并作为一条权威 SET_BANDS 下发给全部编辑者（含发起者）。
+                    // 客户端与服务端因此都走同一条 SET_BANDS 应用路径，结果不可能分岔。
+                    // Band-list resolution deliberately does NOT happen here (issue #11): after a
+                    // rename, a BUS_IN's new list is resolved once on the server and delivered to
+                    // every editor (including the originator) as an authoritative SET_BANDS. Both
+                    // sides then apply it through the same SET_BANDS path, so they cannot diverge.
                     graph.bumpGeneration();
                 }
                 yield n;
@@ -271,10 +254,17 @@ public final class OpExecutor {
             case SET_BANDS -> {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null && op.bands() != null) {
-                    n.signalBands = new java.util.ArrayList<>(op.bands());
-                    n.bandsDirty = true;
-                    graph.rebuildInputCache(); // prune connections to removed bands by pinId
-                    graph.bumpGeneration();
+                    // 列表未变时不改写、不剪线、不 bump（issue #11）：改名后服务端会无条件下发一条
+                    // 权威 SET_BANDS，此守卫让「本来就持有同一个值」的那些端成为无副作用的空操作。
+                    // No-op when the list is unchanged (issue #11): a rename always pushes an
+                    // authoritative SET_BANDS, and this guard makes sides that already hold the same
+                    // value take no action at all.
+                    if (!op.bands().equals(n.signalBands)) {
+                        n.signalBands = new java.util.ArrayList<>(op.bands());
+                        n.bandsDirty = true;
+                        graph.rebuildInputCache(); // prune connections to removed bands by pinId
+                        graph.bumpGeneration();
+                    }
                 }
                 yield n;
             }

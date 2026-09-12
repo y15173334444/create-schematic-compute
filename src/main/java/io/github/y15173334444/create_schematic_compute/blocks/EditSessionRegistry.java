@@ -358,6 +358,59 @@ public final class EditSessionRegistry {
             if (editorPlayer != null) PacketDistributor.sendToPlayer(editorPlayer, syncPkt);
         }
 
+        // 6b. BUS_IN 改名：频段列表由服务端**唯一解析**，并作为一条权威 SET_BANDS 下发给
+        //     **全部编辑者（含发起者）**。各端于是只应用同一个值，不再各自查本地频段注册表
+        //     —— 这正是「同一 BUS_IN 在不同客户端显示不同频段图」的成因（issue #11）。
+        //     服务端也走同一条 SET_BANDS 应用路径，因此服务端与客户端的剪线行为一致。
+        //     BUS_IN rename: the band list is resolved once here (the single server-side
+        //     resolution point) and pushed to **every editor including the originator** as an
+        //     authoritative SET_BANDS, so all sides apply the same value instead of each
+        //     resolving against its own band registry — the cause of "the same BUS_IN shows a
+        //     different band graph on different clients" (issue #11). The server also goes
+        //     through the same SET_BANDS path, so its connection pruning matches the clients'.
+        if (op.type() == OpType.SET_DISPLAY_TEXT && targetGraph != null) {
+            var renamed = targetGraph.findNode(op.targetNodeId());
+            if (renamed != null
+                && renamed.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN
+                && !renamed.signalName.isEmpty()) {
+                var resolved = io.github.y15173334444.create_schematic_compute.network.BusChannelHelper
+                    .resolveBusInBands(targetGraph, renamed, renamed.signalName);
+                var bandApply = new GraphOp(
+                    OpType.SET_BANDS, op.graphPos(), op.ownerNodeId(), renamed.id,
+                    0, null, 0f, 0f,
+                    0, 0, 0, 0,
+                    0, 0f, null,
+                    0, 0, 0,
+                    0, resolved, 0, 0,
+                    0, net.minecraft.world.item.ItemStack.EMPTY, 0L, op.actor()
+                );
+                // Apply locally first (same path as clients), then broadcast with a real version.
+                // 先在服务端本地应用（与客户端同一条路径），再用真实版本号广播。
+                OpExecutor.apply(targetGraph, bandApply);
+                long bandVersion = nextVersion(gk);
+                var bandBroadcast = new GraphOp(
+                    OpType.SET_BANDS, op.graphPos(), op.ownerNodeId(), renamed.id,
+                    0, null, 0f, 0f,
+                    0, 0, 0, 0,
+                    0, 0f, null,
+                    0, 0, 0,
+                    0, resolved, 0, 0,
+                    0, net.minecraft.world.item.ItemStack.EMPTY, bandVersion, op.actor()
+                );
+                var bandPkt = new GraphEditOpSyncPacket(bandBroadcast);
+                for (var editorId : editorsOuter) {
+                    // 注意：这里**不跳过发起者** —— 该值是服务端算出来的，发起者本地并没有
+                    // 算出同一个值，必须收到它以完成收敛。
+                    // Note: the originator is deliberately NOT skipped here — this value is
+                    // computed by the server, so the originator has not computed the same value
+                    // and must receive it in order to converge.
+                    var editorPlayer = level.getServer().getPlayerList().getPlayer(editorId);
+                    if (editorPlayer != null) PacketDistributor.sendToPlayer(editorPlayer, bandPkt);
+                }
+                appendToLog(gk, bandBroadcast);
+            }
+        }
+
         // 7. Ack to originator / 确认给发起者
         PacketDistributor.sendToPlayer(actor,
             new GraphEditAckPacket(pos, 0, 0, version));

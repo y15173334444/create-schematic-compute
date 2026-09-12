@@ -89,32 +89,15 @@ final class GraphBusEditor {
         // Re-evaluate all BUS_OUT conflict state (renaming may create or resolve conflicts).
         // 重新评估所有 BUS_OUT 冲突状态（改名可能产生或解决冲突）。
         reevaluateBusConflicts(ed.getGraph());
-        // 改名 band 处理：
+        // 改名频段处理：客户端**不再自行解析**频段列表（issue #11）。
         // - BUS_OUT：保留自身 band + 连线（用户期望改名不丢图）
-        // - BUS_IN：采用新频道的 band 定义（从同频道节点或 BAND_REGISTRY 复制）。
-        //   BUS_IN 是读取方，其 band 列表必须匹配频道定义才能读到值；若保留旧 band，
-        //   改名后 key 与频道不匹配 → 读 0（回归审计：BUS_IN 改名不替换图）。
-        // Rename band handling:
-        // - BUS_OUT: keep its own bands + connections (user wants rename not to lose the graph)
-        // - BUS_IN: adopt the new channel's band definition (copy from a same-channel node or
-        //   BAND_REGISTRY). BUS_IN is a reader; its band list must match the channel definition
-        //   to read values; keeping the old bands would mismatch the channel keys -> reads 0.
-        if (node.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN && !t.isEmpty()) {
-            boolean synced = false;
-            for (var n : ed.getGraph().nodes) {
-                if (n != node && n.signalName.equals(t) && n.bandCount() > 0) {
-                    node.signalBands = new java.util.ArrayList<>(n.signalBands);
-                    node.bandsDirty = true; synced = true; break;
-                }
-            }
-            if (!synced) {
-                var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(t);
-                node.signalBands = (gb != null && !gb.isEmpty())
-                    ? new java.util.ArrayList<>(gb)
-                    : new java.util.ArrayList<>();
-                node.bandsDirty = true;
-            }
-        }
+        // - BUS_IN：新频段列表由服务端**唯一解析**，并以权威 SET_BANDS 下发给全部编辑者，
+        //   各端只应用同一个值 —— 避免各端查各自的频段注册表得出不同结果。
+        // Rename band handling: the client no longer resolves the band list itself (issue #11).
+        // - BUS_OUT: keep its own bands + connections (rename must not lose the graph).
+        // - BUS_IN: the new list is resolved *once on the server* and pushed to every editor
+        //   as an authoritative SET_BANDS, so all sides apply the same value instead of each
+        //   resolving against its own band registry.
         // 重建编辑区（在最后调用，确保所有状态已更新） (Rebuild edit state last, ensuring all state is up to date)
         ed.nodeEditStatesById.put(node.id, NodeEditStateFactory.create(ed, node));
     }

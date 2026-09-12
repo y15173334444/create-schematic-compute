@@ -1064,19 +1064,11 @@ public class GraphEditor {
                 if (affected.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT) {
                     bus.reevaluateBusConflicts(graph);
                 }
-                // Sync bands from BAND_REGISTRY when BUS_IN/BUS_OUT is renamed
-                // BUS_IN/BUS_OUT 改名时从 BAND_REGISTRY 同步频段
-                if ((affected.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN
-                    || affected.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT)
-                    && !affected.signalName.isEmpty()) {
-                    var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(affected.signalName);
-                    if (gb != null && !gb.isEmpty()) {
-                        if (!gb.equals(affected.signalBands)) {
-                            affected.signalBands = new java.util.ArrayList<>(gb);
-                            affected.bandsDirty = true;
-                        }
-                    }
-                }
+                // 频段**不再**在此按频段注册表同步（issue #11）：BUS_IN 改名后的权威频段列表由
+                // 服务端唯一解析，并作为一条权威 SET_BANDS 下发到本端 —— 本端只应用那个值。
+                // Bands are no longer synced from the band registry here (issue #11): a renamed
+                // BUS_IN's authoritative list is resolved once on the server and delivered to this
+                // side as an authoritative SET_BANDS op; this side only applies that value.
                 // Refresh edit state (conflict warning may change appearance for BUS_OUT)
                 // 刷新编辑状态（BUS_OUT 冲突警告可能改变外观）
                 if (expandedNodeIds.contains(affected.id))
@@ -1611,34 +1603,17 @@ public class GraphEditor {
             g.drawString(mc.font, backLabel, bx + (bw - tw) / 2, by + 4, 0xFFCCCCCC);
         }
 
-        // 从全局 BAND_REGISTRY 同步 BUS_IN 的频段（BUS_OUT 自己定义，不同步） (Sync BUS_IN bands from global BAND_REGISTRY; BUS_OUT self-defines, not synced)
-        for (var n : graph.nodes) {
-            if (n.type != NodeType.BUS_IN) continue;
-            if (n.signalName.isEmpty()) continue;
-            var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(n.signalName);
-            if (gb != null && !gb.isEmpty() && !gb.equals(n.signalBands)) {
-                // Collect removed band names (pinIds) before replacing
-                // 在替换前收集被删除的频段名（pinId）
-                var oldBands = n.signalBands != null ? n.signalBands : java.util.Collections.<String>emptyList();
-                var newBands = new java.util.ArrayList<>(gb);
-                var removed = new java.util.ArrayList<>(oldBands);
-                removed.removeAll(newBands);
-                for (String removedBand : removed) {
-                    graph.connections.removeIf(c ->
-                        (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
-                        (c.toId == n.id && removedBand.equals(c.toPinId)));
-                }
-                n.signalBands = newBands;
-                graph.rebuildInputCache();
-            // Note: we deliberately do NOT clear BUS_IN bands when BAND_REGISTRY is empty.
-            // Registry may be empty transiently (e.g. during recompile after a rename) or
-            // when the channel has BUS_IN readers but no BUS_OUT writer — clearing would
-            // destroy bands and connections on still-valid BUS_IN nodes.
-            // 注意：当 BAND_REGISTRY 为空时，刻意不清除 BUS_IN 频段。
-            // 注册表可能短暂为空（如改名触发重编译窗口），或频道仅有 BUS_IN 读取者而无 BUS_OUT——
-            // 清除会摧毁仍然有效的 BUS_IN 节点的频段和连线。
-            }
-        }
+        // BUS_IN 的频段**不再**在这里按全局注册表同步（issue #11）。这段代码每帧运行，
+        // 会把每个 BUS_IN 的频段改回**本端**注册表那一份并剪掉多余的连线——于是各端注册表
+        // 一旦分叉，分岔就会被每帧重新坐实，连服务端下发的权威值也会被它立刻覆盖掉。
+        // 现在 BUS_IN 的频段是服务端权威数据：改名时由服务端解析并以 SET_BANDS 下发，
+        // 其余时刻随图同步（打开编辑器会拉取权威图）。
+        // BUS_IN bands are no longer synced from the global registry here (issue #11). This ran
+        // every frame and rewrote each BUS_IN's bands from the **local** registry (pruning the
+        // surplus connections), so once registries diverged the divergence was re-asserted every
+        // frame — even overwriting the server's authoritative value. A BUS_IN's bands are now
+        // authoritative server data: resolved and pushed as SET_BANDS on rename, and otherwise
+        // delivered with the graph (opening the editor pulls the authoritative graph).
         // BUS_IN/OUT 展开面板刷新：比较 band 数量 + 内容是否与 EditState 一致 (BUS_IN/OUT expand panel refresh: compare band count + content against EditState)
         for (var n : graph.nodes) {
             if ((n.type != NodeType.BUS_IN && n.type != NodeType.BUS_OUT)

@@ -159,21 +159,13 @@ final class NodeEditStateFactory {
                     }
                 }
             }
-            // BUS_IN 展开时自动同步频段（先本地 BUS_OUT，后全局注册表） (Auto-sync bands when BUS_IN expands: local BUS_OUT first, then global registry)
-            if (node.type == NodeType.BUS_IN && !node.signalName.isEmpty() && node.signalBands.isEmpty()) {
-                boolean synced = false;
-                // 先从同图内 BUS_OUT 同步 (Sync from local BUS_OUT in same graph first)
-                for (var n : ed.getGraph().nodes) {
-                    if (n.type == NodeType.BUS_OUT && n.signalName.equals(node.signalName) && n.bandCount() > 0) {
-                        node.signalBands = new java.util.ArrayList<>(n.signalBands); synced = true; break;
-                    }
-                }
-                // 本地没有则从全局注册表同步 (Fallback: sync from global registry)
-                if (!synced) {
-                    var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(node.signalName);
-                    if (gb != null && !gb.isEmpty()) node.signalBands = new java.util.ArrayList<>(gb);
-                }
-            }
+            // BUS_IN 展开时**不再**本地解析频段（issue #11）：频段列表是服务端权威数据，
+            // 随图一起下发（打开编辑器会向服务端拉取权威图），展开时无需再从本地频段注册表
+            // 或同图 BUS_OUT 推算 —— 那正是各端得出不同结果的来源。
+            // No local band resolution when a BUS_IN expands (issue #11): the band list is
+            // authoritative server data delivered with the graph (opening the editor pulls the
+            // authoritative graph). Resolving it locally from the band registry or a same-graph
+            // BUS_OUT was exactly what let different sides disagree.
             var busBox = new EditBox(mc.font, 0, 0, 120, 16, Component.literal(""));
             busBox.setMaxLength(32); busBox.setValue(node.signalName);
             // busBox 不通过 enterActions 提交；保留旧聚焦 busBox 的输入值 (busBox not committed via enterActions; preserve old focused busBox input)
