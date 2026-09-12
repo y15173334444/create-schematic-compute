@@ -160,4 +160,41 @@ class BusInBandResolutionTest {
         assertEquals(g0, graph.graphGeneration,
             "an authoritative SET_BANDS that carries the value a side already holds must be a no-op");
     }
+
+    // ══════════ 4. Who may serve as the definition source / 谁能当定义来源 ══════════
+
+    @Test
+    @DisplayName("a conflicted BUS_OUT is never the definition source — the registry wins")
+    void testResolverSkipsConflictedBusOut() {
+        // The losing block's own BUS_OUT is conflicted: it owns nothing, so its list must not be
+        // adopted. Without this guard the BUS_IN inside the losing block showed the loser's band
+        // graph while every other block resolved the winner's.
+        GraphNode loser = graph.addNode(NodeType.BUS_OUT, 0, 0);
+        loser.signalName = "DUP";
+        loser.signalBands = new ArrayList<>(List.of("bandsBelongingToTheLoser"));
+        loser.busConflict = true;
+
+        SignalBus.registerBands("DUP", List.of("winner_0", "winner_1"));
+
+        GraphNode busIn = graph.addNode(NodeType.BUS_IN, 0, 0);
+        busIn.signalName = "DUP";
+
+        assertEquals(List.of("winner_0", "winner_1"),
+            BusChannelHelper.resolveBusInBands(graph, busIn, "DUP"),
+            "a conflicted BUS_OUT holds no channel — the registry's (winner's) list must win");
+    }
+
+    @Test
+    @DisplayName("only a BUS_OUT can be a definition source — another BUS_IN is not")
+    void testResolverRejectsBusInAsSource() {
+        GraphNode otherIn = graph.addNode(NodeType.BUS_IN, 0, 0);
+        otherIn.signalName = "CH";
+        otherIn.signalBands = new ArrayList<>(List.of("notADefinition"));
+
+        GraphNode busIn = graph.addNode(NodeType.BUS_IN, 0, 0);
+        busIn.signalName = "CH";
+
+        // No BUS_OUT ⇒ no in-graph definition ⇒ the registry decides (empty here: no publisher).
+        assertTrue(BusChannelHelper.resolveBusInBands(graph, busIn, "CH").isEmpty());
+    }
 }

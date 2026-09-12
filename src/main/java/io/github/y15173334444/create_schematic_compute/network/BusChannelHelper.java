@@ -134,22 +134,33 @@ public final class BusChannelHelper {
 
     /** Resolve the band list a BUS_IN must adopt for {@code channelName} — the **single**
      *  resolution point for this question (issue #11).
-     *  <p>Order: a same-name node that already has bands in the <b>same graph</b> wins (this
-     *  input is replicated graph data, so every side would compute the same thing), otherwise
-     *  the global band registry (a per-side cache — this is the input that used to let sides
-     *  disagree), otherwise empty (a name with no publisher at all).</p>
+     *  <p>Order: a <b>non-conflicted BUS_OUT</b> with the same name in the <b>same graph</b> wins —
+     *  it is the channel's definition owner, and that input is replicated graph data so every side
+     *  would compute the same thing. Otherwise the global band registry (a per-side cache — the
+     *  input that used to let sides disagree), otherwise empty (a name with no publisher).</p>
+     *  <p>A <b>conflicted</b> BUS_OUT must never serve as the source: it does not own the channel
+     *  (it neither registers bands nor publishes values), so its list is <b>not</b> the channel's
+     *  definition. Letting it through made a BUS_IN inside the losing block adopt the loser's band
+     *  graph while every other block resolved the winner's — one graph state, two answers.
+     *  Only a BUS_OUT can be a definition source; any other same-name node falls through to the
+     *  registry.</p>
      *  <p><b>Callers must be server-side.</b> The result is pushed to every editor as an
      *  authoritative {@code SET_BANDS}, so clients never resolve it themselves.</p>
      *  解析 BUS_IN 应为某个频道名采用的频段列表 —— 该问题的**唯一**解析点（issue #11）。
-     *  <p>顺序：**同图**内已有频段的同名节点优先（该输入是被复制的图数据，各端本就一致），
-     *  其次全局频段注册表（每端一份的缓存 —— 正是它曾让各端得出不同结果），都没有则为空
-     *  （该名字完全没有发布方）。</p>
+     *  <p>顺序：**同图**内同名的**非冲突 BUS_OUT** 优先 —— 它是频道定义的持有者，且该输入是被
+     *  复制的图数据，各端本就一致；其次全局频段注册表（每端一份的缓存 —— 正是它曾让各端得出
+     *  不同结果）；都没有则为空（该名字完全没有发布方）。</p>
+     *  <p>**冲突的 BUS_OUT 绝不能当来源**：它并不拥有该频道（既不注册频段也不发布值），其列表
+     *  **不是**频道定义。放它进来会让「输了的那一侧」图内的 BUS_IN 采纳输家的频段图，而其他方块
+     *  解析到赢家的 —— 同一份图状态得出两个答案。只有 BUS_OUT 能当定义来源，其他同名节点一律
+     *  回落到注册表。</p>
      *  <p><b>调用方必须是服务端。</b>结果会作为权威 SET_BANDS 下发给全部编辑者，
      *  客户端不再自行解析。</p> */
     public static List<String> resolveBusInBands(NodeGraph graph, @Nullable GraphNode self, String channelName) {
         if (graph == null || channelName == null || channelName.isEmpty()) return new ArrayList<>();
         for (var n : graph.nodes) {
-            if (n != self && n.signalName.equals(channelName) && n.bandCount() > 0)
+            if (n != self && n.type == NodeType.BUS_OUT && !n.busConflict
+                && n.signalName.equals(channelName) && n.bandCount() > 0)
                 return new ArrayList<>(n.signalBands);
         }
         var gb = SignalBus.getBands(channelName);
