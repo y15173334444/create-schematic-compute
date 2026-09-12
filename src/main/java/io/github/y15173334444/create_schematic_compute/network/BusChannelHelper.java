@@ -314,25 +314,13 @@ public final class BusChannelHelper {
     // ── Tick-time band-change detection / Tick 时刻频段变更检测 ────────────────────
 
     /** Check every non-conflicted BUS_OUT node for band-list changes since the last tick
-     *  and broadcast a {@link BusBandSyncPacket} when a change is detected. Also converges this
-     *  block's BUS_IN band lists first (issue #15) and pushes the block when that changed anything.
+     *  and broadcast a {@link BusBandSyncPacket} when a change is detected.
      *  {@code lastHashMap} maps node id → (signalName.hashCode()*31 + bandCount).
      *  检查每个无冲突的 BUS_OUT 节点自上次 tick 以来的频段列表变更，检测到变更时广播 BusBandSyncPacket。
-     *  并先收敛本方块 BUS_IN 的频段列表（issue #15），有变化时推送该方块。
      *  lastHashMap 映射 节点id → (signalName.hashCode()*31 + bandCount)。 */
     public static void syncIfBandsChanged(NodeGraph graph, BlockPos pos,
                                            Map<Integer, Integer> lastHashMap, @Nullable Level level) {
         if (!(level instanceof ServerLevel sl) || graph == null) return;
-        // issue #15：先把本图的 BUS_IN 频段收敛到频道定义；**只有真的变了才推送该方块**
-        // （markDirty + sendBlockUpdated，经 GraphBlockEntity.flagFullSync）。
-        // 过去只有「发起变更」的那个方块会被刷新，其它方块里的旧 BUS_IN 永远不刷新。
-        // issue #15: converge this graph's BUS_IN bands first, and push the block only when that
-        // actually changed something (markDirty + sendBlockUpdated via GraphBlockEntity.flagFullSync).
-        // Previously only the block that initiated a change was ever refreshed.
-        if (convergeBusInBands(graph)
-            && sl.getBlockEntity(pos) instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity gbe) {
-            gbe.flagFullSync();
-        }
         for (var n : graph.nodes) {
             if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty() && !n.busConflict) {
                 int h = n.signalName.hashCode() * 31 + n.bandCount();

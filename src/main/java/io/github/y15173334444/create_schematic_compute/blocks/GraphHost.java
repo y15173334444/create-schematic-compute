@@ -119,12 +119,27 @@ public class GraphHost {
 
     // ── BUS 生命周期 / BUS lifecycle ──
 
-    /** 每个 tick 开始调用：保证 BUS 通道至少注册一次（旧存档自动修复）。
-     *  Call at tick start: guarantees channels register at least once (auto-repairs old saves). */
+    /** 每个 tick 开始调用：保证 BUS 通道至少注册一次（旧存档自动修复），并维护
+     *  「BUS_IN 的频段列表 = 频道定义」这条不变量（issue #15）。
+     *  Call at tick start: guarantees channels register at least once (auto-repairs old saves) and
+     *  maintains the invariant "a BUS_IN's band list equals the channel definition" (issue #15). */
     public void ensureBusRegistered() {
         if (busRegistrationPending) {
             busRegistrationPending = false;
             registerBusChannels();
+        }
+        // issue #15：把本图 BUS_IN 的频段列表收敛到频道定义，**只有真的变了才推**这个方块
+        // （flagFullSync = markDirty + sendBlockUpdated）。挂在这里是因为**每个**图宿主每 tick
+        // 都会调用本方法（9 个宿主统一），无需在各宿主里重复挂接；只挂在 syncIfBandsChanged 上
+        // 会漏掉 Monitor / 变速箱 / 可编程变速箱 / SpeedProxy 这四个宿主。
+        // issue #15: converge this graph's BUS_IN bands to the channel definition and push this
+        // block only when that actually changed something (flagFullSync = markDirty +
+        // sendBlockUpdated). This hook lives here because **every** graph host calls this method
+        // each tick (all nine of them); hanging it only off syncIfBandsChanged would miss Monitor,
+        // the gearbox, the programmable transmission and SpeedProxy.
+        if (lvl() != null && !lvl().isClientSide()
+            && BusChannelHelper.convergeBusInBands(graph)) {
+            flagFullSync();
         }
     }
 
