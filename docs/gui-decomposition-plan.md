@@ -553,6 +553,15 @@ tempView 虽小，一并归入此类（书签跳转即相机操作，同一关�
 BUS_OUT 时 forget）——不属于总线编辑块，按最小改动暴露 `removeLocalBusName(String)` 小方法，
 而非把整个删除块搬走或放宽集合可见性。
 
+> **后记（2026-09-13）/ Postscript**：本刀迁入的 `localBusNames` 与 `reevaluateBusConflictsForBus`
+> 网络钩子已随后续 **issue #12**（`2f108cb`）删除——频段同步包不再参与冲突判定，本地冲突推断
+> 收敛为 `BusChannelHelper.mergeLocalBusConflicts` 的「只增不减」合并；`reevaluateBusConflicts`
+> 保留为委托，语义从「本地赋值」改为「只合并本地可证明部分」。`localBusNames` 及其删除路径
+> 的 `removeLocalBusName` 一并消失。/ The `localBusNames` state and the `reevaluateBusConflictsForBus`
+> network hook moved in by this cut were later removed by **issue #12** (`2f108cb`): band-sync packets
+> no longer feed conflict evaluation, local inference collapsed into `mergeLocalBusConflicts`
+> (raise-only), and `reevaluateBusConflicts` survives only as that delegate.
+
 **验证**：客观校验（裸引用 = 0、花括号平衡、调用点计数 6 commit + 3 syncBands + 1 remove +
 委托）+ `compileJava` + `test` 全绿（382）。游戏内回归建议：BUS_IN/BUS_OUT 改名不丢图、
 频段 ± 按钮与同步、BUS_OUT 冲突提示、快捷键防抖提交（0.5s 静止后同步）。
@@ -617,7 +626,9 @@ CH1244444×6 频段、BUS_IN ×2、3 个书签、图名）被销毁。**恢复**
 **过程经验（补充）**：④ 超长 RCON 命令（>~1400 字节，跨 TCP MSS 分段）会被服务端 RCON
 读取循环**静默丢弃**（无响应）——大 SNBT 写入须压缩到单段以内；⑤ SNBT 内含 `;`（int 数组）
 时不可按分号切分命令，用单命令模式（`rcon.py <file>`）发送；⑥ PowerShell 经 Git Bash 传参
-会吞 `$变量`，调试脚本一律落盘为 .ps1。`runs/rcon.py` 为本轮新增的 Python RCON 发送器。
+会吞 `$变量`，调试脚本一律落盘为 .ps1。`runs/rcon.py` 为本轮新增的 Python RCON 发送器
+（`runs/` 目录**不入库**，此工具仅存于本机 / the `runs/` directory is untracked — this helper
+exists only on this machine）。
 
 #### ✅ 实施记录 · 刀 6c · op 历史 + 远端应用（已完成 `0bea539`，风险最高的一刀）
 
