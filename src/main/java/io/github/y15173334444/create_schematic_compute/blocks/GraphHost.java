@@ -292,6 +292,12 @@ public class GraphHost {
         // 注销自上次重编译以来已删除的 BUS_OUT 节点 / unregister BUS_OUT nodes removed since last recompile
         unregisterRemovedBusOutNodes();
         evaluator = new GraphEvaluator(graph);
+        // 定制回调（encoderView / commandSink 等）必须在每条重建路径上重放——与 Full 一致；
+        // 只挂 Full 时，未来用 Light 的宿主会重演「ENCODER 恒 0」。
+        // The evaluator customizer must replay on EVERY rebuild path — same as Full;
+        // hanging it off Full only would re-run the "ENCODER pinned at 0" bug for any
+        // future Light host that carries a customizer.
+        if (evaluatorCustomizer != null) evaluatorCustomizer.accept(evaluator);
         // 从 RuntimeState 恢复 debugTime，使频率模式相位保持 / restore debugTime so the phase persists
         if (!runtimeState.debugTime.isEmpty()) evaluator.restoreDebugTimes(runtimeState.debugTime);
         lastEvaluatedGraph = graph;

@@ -1148,6 +1148,17 @@ public class GraphEvaluator {
                 var subEval = subEvaluators.get(node.id);
                 if (subEval == null) {
                     subEval = new GraphEvaluator(node.subGraph);
+                    // 宿主注入必须传给子图求值器：封装内的 ENCODER 读不到视图会恒输出 0，
+                    // MOVE/ROTATE/WAIT/CLUTCH 的指令入栈会被静默丢弃，雷达节点同样退化
+                    // —— 与宿主 BE 在重建求值器后向顶层求值器注入的机制对齐。
+                    // Host injections must reach sub-graph evaluators: an encapsulated
+                    // ENCODER otherwise reads a null view (pinned at 0), motion-command
+                    // enqueues are silently dropped, and radar lookups degrade — same
+                    // contract as the host BE injecting into the top-level evaluator
+                    // after every rebuild.
+                    subEval.setEncoderView(this.encoderView);
+                    subEval.setCommandSink(this.commandSink);
+                    subEval.setRadarPos(this.radarPos);
                     subEvaluators.put(node.id, subEval);
                     if (runtimeState != null) {
                         RuntimeState.SubState ss = runtimeState.subStates.get(node.id);

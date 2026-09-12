@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -141,5 +142,41 @@ class GearboxNodesEvalTest {
             new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
         assertEquals(0f, evaluator.getNodeOutput(enc.id, 0), 0.0001f);
         assertEquals(0f, positionDeg[0], 0.0001f);
+    }
+
+    @Test
+    @DisplayName("ENCODER inside an encapsulation reads the host view (sub-evaluator inherits injections)")
+    void testEncoderInsideEncapsulationReadsHostView() {
+        // 宿主注入（encoderView 等）只发生在顶层求值器上；子图求值器若不继承，
+        // 封装内的 ENCODER 恒输出 0 —— 实机反馈的正是这个症状。
+        // Host injections land on the top-level evaluator only; unless sub-graph
+        // evaluators inherit them, an encapsulated ENCODER reads a null view and
+        // outputs zeros — the exact in-game symptom.
+        var graph = new NodeGraph();
+        var encap = graph.addNode(NodeType.ENCAPSULATION, 0, 0);
+        encap.subGraph = new NodeGraph();
+        var enc = encap.subGraph.addNode(NodeType.ENCODER, 0, 0);
+        var encapOut = encap.subGraph.addNode(NodeType.ENCAP_OUTPUT, 0, 0);
+        encap.subGraph.addConnection(enc.id, 0, encapOut.id, 0);
+
+        var evaluator = new GraphEvaluator(graph);
+        evaluator.setEncoderView(new KineticEncoderView() {
+            @Override public float encoderPosition() { return 90f; }
+            @Override public float encoderPositionMeters() { return 0f; }
+            @Override public float encoderVelocity() { return -32f; }
+            @Override public void resetEncoder() { }
+        });
+
+        evaluator.evaluate(List.of(), Map.of(), 0.05f,
+            new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+
+        // 断言走快照通道 —— 那是客户端实际显示的子图输出路径。
+        // Assert through the snapshot channel — what the client actually displays
+        // for sub-graph nodes.
+        var sub = evaluator.captureSnapshot().subOutputs().get(encap.id);
+        assertNotNull(sub, "the sub-graph evaluator must report its outputs");
+        assertNotNull(sub.get(enc.id), "the encapsulated ENCODER must produce outputs");
+        assertEquals(90f, sub.get(enc.id)[0], 0.0001f, "position pin must read the injected host view");
+        assertEquals(-32f, sub.get(enc.id)[2], 0.0001f, "velocity pin must read the injected host view");
     }
 }

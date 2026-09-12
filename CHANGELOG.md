@@ -36,6 +36,12 @@
 | 🏷️ 方块名输入框透明化 + 图名软锁 / Transparent block-name box + graph-name soft lock | 顶栏方块名输入框背景改为透明（聚焦时以细底边提示可编辑区）；新增**图名软锁**：一人改名时其余玩家的名字框自动只读并交出焦点，名字框显示金色描边与编辑者名字，防止两人同时改名；焦点翻转立即上报（键盘编辑不触发鼠标移动，锁的广播与释放不等 30s 过期）/ The top-bar block-name box is now transparent (a thin underline marks the editable region while focused); a **graph-name soft lock** makes everyone else's box read-only and unfocused with a golden outline and the editor's name shown, preventing simultaneous renames; focus flips broadcast immediately — keyboard editing never moves the mouse, so the lock no longer waits out the 30 s presence expiry |
 | 🗂️ 添加菜单节点分类按方块收敛 / Add-menu node categories scoped per block | 蓝图计算机的黑名单漏掉了齿轮箱分类——运动节点（移动/转动/等待/离合/编码器）与目标转速混进了蓝图菜单；现**变速箱**白名单与**转速代理控制器**同款（输出节点为 TX_OUT）、**CNC 齿轮箱** = **编程计算机**同款 + 五个运动节点、蓝图不再出现齿轮箱分类（与 node-guide 的「仅数控齿轮箱图 / 仅变速器图」声明对齐）。只影响添加菜单，旧存档中已放置的节点不受影响 / The blueprint blacklist missed the gearbox category — motion nodes (move/rotate/wait/clutch/encoder) and TX_OUT leaked into its menu; the **transmission** now mirrors the **Speed Proxy's** set (with TX_OUT as its output), the **CNC gearbox** = the **Program Computer's** set + the five motion nodes, and the blueprint menu no longer shows the gearbox category (matching node-guide's "CNC-graph-only / transmission-graph-only" claims). Menu-only: nodes already placed in old saves are unaffected |
 
+### ⚙️ 图求值修复 / Graph Evaluation Fixes
+
+| Fix / 修复 | Description / 说明 |
+|-----------|-------------------|
+| 🎛️ 封装内的齿轮箱节点丢失宿主注入 / Gearbox nodes inside encapsulations lost host access | 子图求值器不继承宿主注入（encoderView / commandSink / radarPos）：**封装内的 ENCODER 恒输出 0**、MOVE/ROTATE/WAIT/CLUTCH 的指令入栈被静默丢弃、雷达节点同样退化——这正是「编码器输出 0」的根因（宿主构造器的注入只到顶层求值器）。现子图求值器创建时继承全部宿主注入（`GearboxNodesEvalTest` 新增回归用例），并补上 `recompileEvaluatorLight` 漏掉的定制回调重放 / Sub-graph evaluators did not inherit host injections (encoderView / commandSink / radarPos): an **encapsulated ENCODER read a null view — pinned at 0** — motion-command enqueues inside encapsulations were silently dropped, radar likewise; this is the root cause of the "encoder outputs 0" report (the constructor injection only ever reached the top-level evaluator). Sub-evaluators now inherit every host injection (regression test in `GearboxNodesEvalTest`), and the missed customizer replay in `recompileEvaluatorLight` is restored |
+
 ### 🧩 GUI 巨型文件拆分 / GUI Decomposition（步骤 1–3）
 
 | Refactor / 重构 | Result / 结果 |
