@@ -46,6 +46,15 @@
 - [`docs/gui-decomposition-plan.md`](gui-decomposition-plan.md) — GUI 巨型文件拆分路线图（含实施记录与两条拆分裂缝经验）
 - [`docs/editor-focus-selection-loss.md`](editor-focus-selection-loss.md) — 输入焦点/选中丢失的根因分析与运行取证
 
+### 🚌 总线频段解析改为服务端唯一权威 / Bus Band Resolution Now Server-Authoritative
+
+| Fix / 修复 | Description / 说明 |
+|-----------|-------------------|
+| 🎛️ 同一个 BUS_IN 在不同客户端显示不同频段图 / Same BUS_IN showed a different band graph per client | BUS_IN 的频段列表过去**不随操作传递**，而是每一侧各自查自己那份全局频段注册表解析。某个频道名失去发布方时，服务端会清掉自己那份定义却**不通知客户端**，各端缓存因此分叉 —— 实测同一次改名得到「服务端空 / 一个客户端空 / 另一个客户端 6 个频段」三种结果。现在解析只发生在**服务端一处**，结果作为一条权威 `SET_BANDS` 下发给该图**全部编辑者（含发起者）**，各端只应用同一个值 / The list was resolved independently on each side against a per-side cache; the server pruned a dead channel name without telling clients, so the caches diverged (one rename produced three different answers). Resolution now happens once on the server and ships as an authoritative `SET_BANDS` to every editor, originator included |
+| 🧹 客户端不再自行解析频段 / Clients no longer resolve bands themselves | 移除客户端三处解析：改名提交处、展开 BUS_IN 时的自动同步、收到改名 op 后按注册表同步 / Three client-side resolution sites removed |
+| ⚠️ **语义变更**：采用到无发布方的频道名会清除该节点频段上的连线 / **Behaviour change**: adopting a name with no publisher prunes that node's band connections | 统一走 `SET_BANDS` 的剪线语义后，把一个 BUS_IN 改名到一个**无定义的频道名**会让频段归空，从而**删除该节点频段上的连线，且不可撤销**（撤销只恢复名字与频段列表）。改名到**有定义**的频道名不受影响 / Uniform pruning via `SET_BANDS` means renaming a BUS_IN to a name with no publisher empties its bands and deletes the connections on them, with no undo (Ctrl+Z restores the name and band list only). Renaming to a defined name is unaffected |
+| 🧪 新增回归测试 / New regression tests | `BusInBandResolutionTest` —— 改名不得触碰频段、解析顺序（同图节点 → 注册表 → 空）、解析不读自身、`SET_BANDS` 值未变时为空操作 / Rename must not touch bands; documented resolution order; no self-adoption; unchanged `SET_BANDS` is a no-op |
+
 </details>
 
 <details>
