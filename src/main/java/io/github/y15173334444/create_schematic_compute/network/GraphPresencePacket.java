@@ -54,6 +54,7 @@ import java.util.UUID;
  * @param selectedNodeIds  all selected node IDs for multi-select lock / 所有选中节点 ID 用于多选锁定
  * @param mode              editing mode: 0 = node graph editor, 1 = monitor display layout editor / 编辑模式：0=节点图编辑器，1=显示器布局编辑器
  * @param displayDraggedNodeId  node currently being dragged in the display layout editor, or -1 / 显示布局编辑器中正在拖拽的节点 id，-1 为无
+ * @param editingGraphName  true while the sender is editing the top-bar block-name box — the graph-name soft lock / 发送者正在编辑顶栏方块名框时为 true —— 图名软锁
  */
 public record GraphPresencePacket(
     BlockPos pos, UUID player, String playerName,
@@ -62,7 +63,8 @@ public record GraphPresencePacket(
     int wireFromNode, int wireFromPin, float wireEndX, float wireEndY,
     int[] selectedNodeIds,  // all selected node IDs for multi-select lock / 所有选中节点 ID 用于多选锁定
     byte mode,              // 0=node graph editor, 1=display layout editor
-    int displayDraggedNodeId // node dragged in the display layout editor, -1 = none
+    int displayDraggedNodeId, // node dragged in the display layout editor, -1 = none
+    boolean editingGraphName // graph-name soft lock flag / 图名软锁标志
 ) implements CustomPacketPayload {
 
     /**
@@ -112,7 +114,9 @@ public record GraphPresencePacket(
                 // Editing mode + display-drag node (appended at the end for order compatibility)
                 byte mode = b.readByte();
                 int dragId = b.readVarInt();
-                return new GraphPresencePacket(pos, player, name, owner, cx, cy, sel, edit, wfn, wfp, wex, wey, selIds, mode, dragId);
+                // 图名软锁标志（同样追加在末尾 / appended at the end as well）
+                boolean nameEdit = b.readBoolean();
+                return new GraphPresencePacket(pos, player, name, owner, cx, cy, sel, edit, wfn, wfp, wex, wey, selIds, mode, dragId, nameEdit);
             }
             @Override public void encode(ByteBuf buf, GraphPresencePacket p) {
                 var b = new FriendlyByteBuf(buf);
@@ -136,6 +140,7 @@ public record GraphPresencePacket(
                 for (int id : ids) b.writeVarInt(id);
                 b.writeByte(p.mode);
                 b.writeVarInt(p.displayDraggedNodeId);
+                b.writeBoolean(p.editingGraphName);
             }
         };
 

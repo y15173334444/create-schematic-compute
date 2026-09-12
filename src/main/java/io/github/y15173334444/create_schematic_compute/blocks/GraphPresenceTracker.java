@@ -6,14 +6,15 @@ import net.minecraft.client.gui.GuiGraphics;
 /**
  * 多人协作临场（presence）跟踪器（自 {@link GraphEditor} 拆分，docs/gui-decomposition-plan.md 步骤 6b）：
  * 远端玩家临场数据（GraphPresencePacket）的存储 / 过期清理（30 秒超时）/ 软锁查询
- * （节点被他人选中或编辑、显示布局组件被他人拖拽）、本地临场数据的节流上报（120ms 间隔，
- * 模式感知——显示布局模式下光标与拖拽组件由 Host 提供），以及节点图模式的协作叠加层渲染
- * （远端光标 smoothstep 插值、远端拖拽悬线、右侧在线玩家列表）。
+ * （节点被他人选中或编辑、显示布局组件被他人拖拽、方块名被他人改名）、本地临场数据的节流上报（120ms 间隔，
+ * 模式感知——显示布局模式下光标与拖拽组件由 Host 提供；方块名焦点翻转绕过节流立即发送），以及节点图模式的
+ * 协作叠加层渲染（远端光标 smoothstep 插值、远端拖拽悬线、右侧在线玩家列表）。
  * The multiplayer presence tracker (split out of {@link GraphEditor}, roadmap step 6b): stores
  * remote presences (GraphPresencePacket), expires stale ones (30 s), answers the soft-lock queries
  * (a node selected/edited by someone else, a display-layout component being dragged by someone
- * else), throttles the local presence upload (120 ms; mode-aware — in display-layout mode the
- * cursor and dragged component come from the Host), and renders the graph-mode collaboration
+ * else, the block name being renamed by someone else), throttles the local presence upload (120 ms;
+ * mode-aware — in display-layout mode the cursor and dragged component come from the Host; a
+ * graph-name focus flip bypasses the throttle), and renders the graph-mode collaboration
  * overlay (smoothstep-lerped remote cursors, remote dragging wires, the online player list).
  *
  * <p><b>行为零变更</b>：方法体逐字搬迁。编辑器内部状态（选中集 / 连线拖拽 / 鼠标坐标 /
@@ -44,6 +45,8 @@ final class GraphPresenceTracker {
     private long lastPresenceSendTime = 0;
     private static final long PRESENCE_INTERVAL_MS = 120;
     private static final long PRESENCE_TIMEOUT_MS = 30_000; // 30s timeout for disconnected players
+    /** 上次上报的「方块名编辑中」状态（翻转时绕过节流立即发送）。 / Last-sent graph-name-editing state (a flip bypasses the throttle). */
+    private boolean lastNameEditingSent = false;
 
     GraphPresenceTracker(GraphEditor ed) {
         this.ed = ed;
@@ -107,6 +110,22 @@ final class GraphPresenceTracker {
         return false;
     }
 
+    /** 方块名软锁：是否有其他玩家正在编辑顶栏的方块名框。
+     *  Graph-name soft lock: is another player editing the top-bar block-name box right now? */
+    public boolean isGraphNameLocked() {
+        for (var p : remotePresences.values())
+            if (p.editingGraphName()) return true;
+        return false;
+    }
+
+    /** 正在编辑方块名的那位玩家（无人编辑时为 null）—— 供锁定提示显示。
+     *  The player editing the block name (null when nobody is) — for the lock hint. */
+    public String graphNameEditingBy() {
+        for (var p : remotePresences.values())
+            if (p.editingGraphName()) return p.playerName();
+        return null;
+    }
+
     /** Remove stale remote presences that haven't been updated within the timeout window.
      *  Public so the monitor screen's display-mode presence overlay can also clean up. */
     public void cleanupStalePresences() {
@@ -143,7 +162,13 @@ final class GraphPresenceTracker {
      *  MonitorScreen.renderGraphCanvas 调用，保证显示模式也持续发送。 */
     public void sendPresenceIfNeeded() {
         long now = System.currentTimeMillis();
-        if (now - lastPresenceSendTime < PRESENCE_INTERVAL_MS) return;
+        // 方块名焦点翻转绕过节流立即发送 —— 键盘编辑不产生 mouseMoved，锁必须及时广播与释放。
+        // A graph-name focus flip bypasses the throttle — keyboard editing never fires
+        // mouseMoved, so the lock must broadcast and release immediately.
+        boolean nameEdit = ed.isGraphNameEditing();
+        boolean force = nameEdit != lastNameEditingSent;
+        lastNameEditingSent = nameEdit;
+        if (!force && now - lastPresenceSendTime < PRESENCE_INTERVAL_MS) return;
         lastPresenceSendTime = now;
         int selId = ed.selectedNode != null ? ed.selectedNode.id : -1;
         int editId = (ed.selectedNode != null && ed.expandedNodeIds.contains(ed.selectedNode.id)) ? ed.selectedNode.id : -1;
@@ -165,7 +190,7 @@ final class GraphPresenceTracker {
             new io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket(
                 ed.host.getBlockPos(), ed.host.getPlayerUUID(), ed.host.getPlayerName(),
                 ed.ownerNodeId(), cx, cy,
-                selId, editId, wfn, wfp, wex, wey, selIds, (byte)mode, dragId));
+                selId, editId, wfn, wfp, wex, wey, selIds, (byte)mode, dragId, nameEdit));
     }
 
     /** Render remote cursors and online player list. Called from renderBg + MonitorScreen.displayMode.

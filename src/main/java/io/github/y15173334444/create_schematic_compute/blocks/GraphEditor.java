@@ -445,6 +445,9 @@ public class GraphEditor {
      *  name is pure visual data with none of commitBusBox's heavy side effects, so no
      *  debounce is needed). */
     private EditBox topBarNameEdit;
+    /** 顶栏方块名框是否正在编辑（图名软锁上报用，GraphPresenceTracker 读取）。
+     *  Whether the top-bar block-name box is being edited (read by GraphPresenceTracker for the graph-name soft lock). */
+    boolean isGraphNameEditing() { return topBarNameEdit != null && topBarNameEdit.isFocused(); }
     /** EditBox → 提交动作（回车或失焦时执行） (EditBox → commit action, executed on Enter or focus loss) */
     final java.util.Map<net.minecraft.client.gui.components.EditBox, Runnable> enterActions = new java.util.HashMap<>();
     boolean suppressEditBoxResponder = false; // suppress SET_PARAM echo from remote ops (H3) (抑制远程SET_PARAM回显)
@@ -2606,8 +2609,15 @@ public class GraphEditor {
             return true;
         }
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) f.setFocused(false);
-        topBarNameEdit.setFocused(true);
-        topBarNameEdit.mouseClicked(mx, my, btn);
+        // 方块名被他人软锁时不夺取焦点（renderTopBar 的强制只读也会在下一帧交出焦点，
+        // 这里直接不进入，避免一帧闪烁）。
+        // While the block name is soft-locked by someone else, don't steal focus here (the
+        // read-only enforcement in renderTopBar would drop it next frame anyway) — avoids a
+        // one-frame flicker.
+        if (!presence.isGraphNameLocked()) {
+            topBarNameEdit.setFocused(true);
+            topBarNameEdit.mouseClicked(mx, my, btn);
+        }
         return true;
     }
     if (topBarNameEdit != null && topBarNameEdit.isFocused()) topBarNameEdit.setFocused(false);
@@ -3709,6 +3719,10 @@ public class GraphEditor {
         if (topBarNameEdit == null) {
             topBarNameEdit = new EditBox(mc.font, 0, 0, 140, 16, Component.literal(""));
             topBarNameEdit.setMaxLength(32);
+            // 透明背景：顶栏自身就是底色，去掉 EditBox 自带的黑底与边框
+            // Transparent background: the top bar is the backing — drop the EditBox's
+            // built-in black fill and border.
+            topBarNameEdit.setBordered(false);
             topBarNameEdit.setValue(getGraph().customName);
             // 逐字符同步（与 PRIVATE/TEXT 命名框同模式）：SET_BLOCK_NAME 是纯视觉 op，
             // 无 commitBusBox 那样的重副作用，不需要防抖。
@@ -3723,6 +3737,19 @@ public class GraphEditor {
                 }
             });
         }
+        // 方块名软锁：他人正在改名 → 本端输入框只读并交出焦点（防止两人同时改名）；锁释放后恢复。
+        // 失焦后下方「未聚焦跟随权威值」逻辑会把文本拉回服务端真值。
+        // Graph-name soft lock: while someone else is renaming, the local box goes read-only and
+        // loses focus; editable again once the lock clears. After the blur, the
+        // follow-authoritative-value logic below snaps the text back to the server's truth.
+        boolean nameLocked = presence.isGraphNameLocked();
+        if (nameLocked && topBarNameEdit.isFocused()) topBarNameEdit.setFocused(false);
+        topBarNameEdit.setEditable(!nameLocked);
+        // 方块名编辑期间 presence 持续流动（键盘输入不触发 mouseMoved；焦点翻转在
+        // sendPresenceIfNeeded 内绕过 120ms 节流立即发送）。
+        // Keep presence flowing while renaming (keyboard input never fires mouseMoved; a focus
+        // flip bypasses the 120 ms throttle inside sendPresenceIfNeeded).
+        presence.sendPresenceIfNeeded();
         // 图被整体替换（重载/多人同步）后 customName 可能变化 —— 未聚焦时跟随权威值，
         // 聚焦时绝不覆盖（用户正在输入）。
         // After a whole-graph replacement (reload / multiplayer sync) customName may
@@ -3741,12 +3768,26 @@ public class GraphEditor {
         topBarNameEdit.setY(3);
         topBarNameEdit.setWidth(bw);
         topBarNameEdit.render(g, 0, 0, 0);
+        // 透明背景下，聚焦时补一条细底边作为「可编辑」提示 / with the transparent background,
+        // a thin underline marks the editable region while focused
+        if (topBarNameEdit.isFocused())
+            g.fill(bx, 20, bx + bw, 21, NodeRenderer.CSB());
         // 设置按钮（右侧） / settings button (right)
         int sbX = sw - 52;
         boolean hov = mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19;
         g.fill(sbX, 3, sbX + 46, 19, hov ? NodeRenderer.HOV() : NodeRenderer.PBG());
         g.renderOutline(sbX, 3, 46, 16, NodeRenderer.CSB());
         g.drawString(mc.font, I18n.get("gui.create_schematic_compute.topbar.settings"), sbX + 8, 7, NodeRenderer.ACC(), false);
+        // 方块名软锁提示：他人改名中 → 名字框金色描边 + 编辑者名字（右侧放得下才画）。
+        // Graph-name soft-lock hint: someone else is renaming — golden outline around the name
+        // box plus the editor's name (drawn only when it fits before the settings button).
+        if (nameLocked) {
+            g.renderOutline(bx - 1, 2, bw + 2, 18, 0xFFFFCC44);
+            String who = "✎ " + presence.graphNameEditingBy();
+            int wx = bx + bw + 6;
+            if (wx + mc.font.width(who) < sbX - 4)
+                g.drawString(mc.font, who, wx, 7, 0xFFFFCC44, false);
+        }
     }
 
     /** 重新编译图——自动折叠所有注释节点，同步未保存编辑，保存并重启运行状态。
