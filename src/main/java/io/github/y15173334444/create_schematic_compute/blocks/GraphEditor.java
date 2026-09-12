@@ -778,8 +778,9 @@ public class GraphEditor {
     /** 多选拖拽时每个节点的起始位置 / per-node starting positions during multi-drag */
     private final java.util.Map<GraphNode, float[]> multiDragOrigins = new java.util.HashMap<>();
     // ── 鼠标坐标缓存（供 X 键删除用） (Cached mouse coords for X-key deletion) ──
-    /** 上次记录的鼠标坐标（图空间）/ last recorded mouse position (graph space) */
-    private double lastMouseX, lastMouseY;
+    /** 上次记录的鼠标坐标（图空间）/ last recorded mouse position (graph space)
+     *  （包级：GraphPresenceTracker 上报临场光标时取用 / package level: read by GraphPresenceTracker for the presence cursor） */
+    double lastMouseX, lastMouseY;
 
     // ── Z-order (B-layer) drag state ──
     private int preDragSortB = 0;
@@ -795,135 +796,43 @@ public class GraphEditor {
     private float preDragX, preDragY;
     private final java.util.Map<Integer, float[]> preDragPositions = new java.util.HashMap<>(); // H7: per-node pre-drag coords (每节点拖动前坐标)
 
-    // ── P2 Presence ──
-    private final java.util.Map<java.util.UUID, io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket> remotePresences = new java.util.HashMap<>();
-    private final java.util.Map<java.util.UUID, Long> remotePresenceTimestamps = new java.util.HashMap<>();
-    // Cursor smoothstep lerp: {startX, startY, targetX, targetY, t}
-    private final java.util.Map<java.util.UUID, float[]> cursorLerp = new java.util.HashMap<>();
-    private long lastPresenceSendTime = 0;
-    private static final long PRESENCE_INTERVAL_MS = 120;
+    // ── P2 Presence（已拆至 GraphPresenceTracker，下方保留门面委托 / split into GraphPresenceTracker; thin facade delegates below）──
+    final GraphPresenceTracker presence = new GraphPresenceTracker(this);
+    // 拖拽 op 限频（非 presence——供拖拽路径的 sendOp 节流） (Drag op-send throttle, not presence — used by the drag paths)
     private long lastDragSendTime = 0;
     private static final long DRAG_SEND_INTERVAL_MS = 50;
-    private static final long PRESENCE_TIMEOUT_MS = 30_000; // 30s timeout for disconnected players
 
     /** True if any remote player is currently editing the given node (pixel editor etc).
-     *  owner = 当前作用域（-1=主图，>0=封装节点 ID）/ current scope (-1=main graph, >0=encap node ID). */
-    public boolean isNodeLocked(int nodeId, int owner) {
-        for (var p : remotePresences.values()) {
-            if (p.ownerNodeId() != owner) continue;
-            if (p.editingNodeId() == nodeId) return true;
-            if (p.selectedNodeIds() != null) {
-                for (int id : p.selectedNodeIds())
-                    if (id == nodeId) return true;
-            }
-        }
-        return false;
-    }
+     *  节点软锁（实现见 GraphPresenceTracker）。/ Node soft lock (see GraphPresenceTracker). */
+    public boolean isNodeLocked(int nodeId, int owner) { return presence.isNodeLocked(nodeId, owner); }
 
     /** Store a remote player's presence. Called from packet handler.
-     *  Empty playerName = player left → remove immediately. */
-    public void storeRemotePresence(io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket pkt) {
-        if (pkt.playerName() == null || pkt.playerName().isEmpty()) {
-            remotePresences.remove(pkt.player());
-            remotePresenceTimestamps.remove(pkt.player());
-            cursorLerp.remove(pkt.player());
-            return;
-        }
-        remotePresences.put(pkt.player(), pkt);
-        remotePresenceTimestamps.put(pkt.player(), System.currentTimeMillis());
-        float tx = c2sX(pkt.cursorX()), ty = c2sY(pkt.cursorY());
-        var cl = cursorLerp.get(pkt.player());
-        if (cl == null) {
-            cursorLerp.put(pkt.player(), new float[]{tx, ty, tx, ty, 1f});
-        } else {
-            cl[2] = tx; cl[3] = ty; cl[4] = 0f; // target + reset t
-            cl[0] = cl[0] + (tx - cl[0]) * 0.3f; // gentle start from current display
-        }
-    }
+     *  包处理器入口（实现见 GraphPresenceTracker）。 */
+    public void storeRemotePresence(io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket pkt) { presence.storeRemotePresence(pkt); }
 
-    /** Clear all remote presences (called when editor closes). */
-    public void clearRemotePresences() {
-        remotePresences.clear();
-        remotePresenceTimestamps.clear();
-        cursorLerp.clear();
-    }
+    /** Clear all remote presences (called when editor closes). 编辑器关闭时清空。 */
+    public void clearRemotePresences() { presence.clearRemotePresences(); }
 
     /** 远端临场数据访问器（显示器布局界面的协作叠加层用）。
      *  Accessor for remote presences (used by the monitor screen's display-mode overlay). */
     public java.util.Map<java.util.UUID, io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket> getRemotePresences() {
-        return remotePresences;
+        return presence.getRemotePresences();
     }
 
     /** 显示布局组件的软锁：是否有其他玩家正在显示布局模式拖拽该组件。
-     *  Display-layout component soft lock: is another player dragging this component
-     *  in the display layout editor right now? */
-    public boolean isDisplayNodeLocked(int nodeId) {
-        for (var p : remotePresences.values()) {
-            if (p.mode() == 1 && p.displayDraggedNodeId() == nodeId) return true;
-        }
-        return false;
-    }
+     *  Display-layout component soft lock (see GraphPresenceTracker). */
+    public boolean isDisplayNodeLocked(int nodeId) { return presence.isDisplayNodeLocked(nodeId); }
 
-    /** Remove stale remote presences that haven't been updated within the timeout window.
-     *  Public so the monitor screen's display-mode presence overlay can also clean up. */
-    public void cleanupStalePresences() {
-        long now = System.currentTimeMillis();
-        var it = remotePresenceTimestamps.entrySet().iterator();
-        while (it.hasNext()) {
-            var e = it.next();
-            if (now - e.getValue() > PRESENCE_TIMEOUT_MS) {
-                remotePresences.remove(e.getKey());
-                cursorLerp.remove(e.getKey());
-                it.remove();
-            }
-        }
-    }
+    /** Remove stale remote presences (>30s). 过期清理（显示器显示模式叠加层也调用）。 */
+    public void cleanupStalePresences() { presence.cleanupStalePresences(); }
 
-    /** Check if a node is selected/edited by another player in the same scope (soft lock).
-     *  owner = 当前作用域（-1=主图，>0=封装节点 ID）/ current scope (-1=main graph, >0=encap node ID). */
-    private boolean isNodeLockedByOther(int nodeId, int owner) {
-        for (var rp : remotePresences.values()) {
-            if (rp.ownerNodeId() != owner) continue;
-            if (rp.selectedNodeId() == nodeId || rp.editingNodeId() == nodeId) return true;
-            if (rp.selectedNodeIds() != null) {
-                for (int id : rp.selectedNodeIds())
-                    if (id == nodeId) return true;
-            }
-        }
-        return false;
-    }
+    /** Send local presence to server (throttled). mouseMoved 与 renderBg 心跳、显示器显示模式
+     *  持续调用（实现见 GraphPresenceTracker）。 */
+    public void sendPresenceIfNeeded() { presence.sendPresenceIfNeeded(); }
 
-    /** Send local presence to server (throttled). Called from mouseMoved and — for the monitor
-     *  display layout editor — from MonitorScreen.renderGraphCanvas so presence keeps flowing
-     *  in display mode too (the graph-mode renderBg does not run there).
-     *  发送本地临场数据到服务端（节流）。由 mouseMoved 调用；显示器布局模式下由
-     *  MonitorScreen.renderGraphCanvas 调用，保证显示模式也持续发送。 */
-    public void sendPresenceIfNeeded() {
-        long now = System.currentTimeMillis();
-        if (now - lastPresenceSendTime < PRESENCE_INTERVAL_MS) return;
-        lastPresenceSendTime = now;
-        int selId = selectedNode != null ? selectedNode.id : -1;
-        int editId = (selectedNode != null && expandedNodeIds.contains(selectedNode.id)) ? selectedNode.id : -1;
-        int wfn = draggingWire ? wireFromNode : -1;
-        int wfp = draggingWire ? wireFromPin : -1;
-        float wex = draggingWire ? wireEndX : 0;
-        float wey = draggingWire ? wireEndY : 0;
-        // Collect all selected node IDs for multi-select lock display
-        int[] selIds = selectedNodes.stream().mapToInt(n -> n.id).toArray();
-        // 编辑模式感知：显示布局模式下光标与拖拽节点由 Host 提供
-        // Mode-aware presence: in the display layout editor the cursor and dragged node come from the Host
-        int mode = host.getPresenceMode();
-        float pcx = host.getPresenceCursorX();
-        float pcy = host.getPresenceCursorY();
-        float cx = pcx >= 0 ? pcx : s2cX(lastMouseX);
-        float cy = pcy >= 0 ? pcy : s2cY(lastMouseY);
-        int dragId = host.getPresenceDraggedNodeId();
-        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
-            new io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket(
-                host.getBlockPos(), host.getPlayerUUID(), host.getPlayerName(),
-                ownerNodeId(), cx, cy,
-                selId, editId, wfn, wfp, wex, wey, selIds, (byte)mode, dragId));
-    }
+    /** Render remote cursors and online player list (graph-mode overlay; see GraphPresenceTracker).
+     *  渲染远程光标与在线玩家列表（图模式协作叠加层），由 renderBg 调用。 */
+    public void renderPresenceOverlay(GuiGraphics g) { presence.renderPresenceOverlay(g); }
 
     // ── Comment node interaction state ──
     private long lastClickTimeMs = 0;
@@ -1276,7 +1185,7 @@ public class GraphEditor {
 
     /** 切换节点展开/折叠（封装节点双击进入子图编辑，其余节点内联展开） (Toggle node expand/collapse; encapsulation nodes enter sub-graph, others inline-expand) */
     private void toggleExpand(GraphNode node) {
-        if (isNodeLockedByOther(node.id, ownerNodeId())) return; // soft lock (same scope only)
+        if (presence.isNodeLockedByOther(node.id, ownerNodeId())) return; // soft lock (same scope only)
         if (node.type == NodeType.ENCAPSULATION) {
             enterSubGraph(node);
             return;
@@ -1722,7 +1631,7 @@ public class GraphEditor {
         // Build soft-lock map: selected or editing by another player (same scope only)
         var lockedNodes = new java.util.HashMap<Integer, String>();
         int myOwner = ownerNodeId();
-        for (var rp : remotePresences.values()) {
+        for (var rp : presence.getRemotePresences().values()) {
             if (rp.ownerNodeId() != myOwner) continue; // 不同作用域不显示锁 / skip different scopes
             if (rp.selectedNodeId() > 0) lockedNodes.put(rp.selectedNodeId(), rp.playerName());
             if (rp.editingNodeId() > 0) lockedNodes.put(rp.editingNodeId(), rp.playerName());
@@ -1829,9 +1738,9 @@ public class GraphEditor {
         renderer.currentEncapId = isInSubGraph() ? encapsulationParent.id : -1;
         // 构建封装占用者表（主图中哪些封装节点内有玩家在编辑）
         // Build encapsulation occupant map (which encap nodes have players editing inside)
-        if (!isInSubGraph() && !remotePresences.isEmpty()) {
+        if (!isInSubGraph() && !presence.getRemotePresences().isEmpty()) {
             var occ = new java.util.HashMap<Integer, String>();
-            for (var rp : remotePresences.values()) {
+            for (var rp : presence.getRemotePresences().values()) {
                 int oid = rp.ownerNodeId();
                 if (oid <= 0) continue;
                 String cur = occ.get(oid);
@@ -2160,97 +2069,6 @@ public class GraphEditor {
         // ── P2 Presence ──
         sendPresenceIfNeeded(); // periodic keep-alive even without mouse movement
         renderPresenceOverlay(g);
-    }
-
-    /** Render remote cursors and online player list. Called from renderBg + MonitorScreen.displayMode.
-     *  渲染远程光标和在线玩家列表。由 renderBg 和 MonitorScreen.displayMode 调用。
-     *  <p>
-     *  Draws remote player cursors with smoothstep interpolation, remote dragging wires,
-     *  and a player list overlay on the right side. Stale presences (>30s) are cleaned up.
-     *  使用 smoothstep 插值绘制远程玩家光标、远程拖拽中的连线，以及右侧的玩家列表叠加层。
-     *  过期（>30 秒）的在线状态会被清理。
-     *  @param g GuiGraphics 渲染上下文 / rendering context */
-    public void renderPresenceOverlay(GuiGraphics g) {
-        cleanupStalePresences();
-        if (remotePresences.isEmpty()) return;
-        var mc = Minecraft.getInstance();
-        int sw = host.asScreen().width;
-        // Render remote dragging wires (same scope only)
-        for (var e : remotePresences.entrySet()) {
-            var p = e.getValue();
-            if (p.wireFromNode() < 0) continue;
-            if (p.ownerNodeId() != ownerNodeId()) continue; // 不同作用域不画 / skip different scopes
-            var graph = getGraph();
-            var fn = graph.findNode(p.wireFromNode());
-            if (fn == null) continue;
-            int h = p.player().hashCode();
-            int color = 0xFF000000 | (((h >> 16) & 0xFF) << 16) | (((h >> 8) & 0xFF) << 8) | (h & 0xFF) | 0xFF000000;
-            float fromX = c2sX(fn.x + io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(fn));
-            float fromY = c2sY(fn.y + NodeRenderer.HH + NodeRenderer.PH * (fn.functionalInputs() + p.wireFromPin()) + NodeRenderer.PH / 2f);
-            float toX = c2sX(p.wireEndX()), toY = c2sY(p.wireEndY());
-            float dx = Math.abs(toX - fromX) * 0.4f;
-            float dist = (float)Math.sqrt((toX-fromX)*(toX-fromX)+(toY-fromY)*(toY-fromY));
-            int steps = Math.max(10, (int)(dist * 0.15f));
-            float px = fromX, py = fromY;
-            for (int i = 1; i <= steps; i++) {
-                float t = i / (float)steps, inv = 1 - t;
-                float nx = inv*inv*inv*fromX + 3*inv*inv*t*(fromX+dx) + 3*inv*t*t*(toX-dx) + t*t*t*toX;
-                float ny = inv*inv*inv*fromY + 3*inv*inv*t*fromY + 3*inv*t*t*toY + t*t*t*toY;
-                int sdx = (int)nx - (int)px, sdy = (int)ny - (int)py;
-                int segLen = Math.max(Math.abs(sdx), Math.abs(sdy));
-                if (segLen == 0) g.fill((int)px, (int)py, (int)px + 1, (int)py + 1, color);
-                else {
-                    int runStart = (int)px, runY = (int)py;
-                    for (int j = 1; j <= segLen; j++) {
-                        int cx2 = (int)px + sdx * j / segLen;
-                        int cy2 = (int)py + sdy * j / segLen;
-                        if (cy2 != runY || j == segLen) {
-                            int endX = j == segLen ? (int)nx : (int)px + sdx * (j - 1) / segLen;
-                            int x1 = Math.min(runStart, endX), x2 = Math.max(runStart, endX);
-                            g.fill(x1, runY, x2 + 1, runY + 1, color);
-                            runStart = cx2; runY = cy2;
-                        }
-                    }
-                }
-                px = nx; py = ny;
-            }
-        }
-        // Render remote cursors (same scope only; skip display-layout presences — the monitor
-        // screen renders those on its own display-area overlay)
-        // 渲染远端光标（仅同作用域；跳过显示布局的临场数据——由显示器界面自行渲染）
-        for (var e : remotePresences.entrySet()) {
-            var p = e.getValue();
-            if (p.ownerNodeId() != ownerNodeId()) continue; // 不同作用域不显示光标 / skip different scopes
-            if (p.mode() == 1) continue; // 显示布局模式的光标由 MonitorScreen 渲染 / display-mode cursors render on MonitorScreen
-            var cl = cursorLerp.get(p.player());
-            if (cl == null) { cl = new float[]{0,0,0,0,1f}; cursorLerp.put(p.player(), cl); }
-            // Smoothstep cursor lerp (same algorithm as node move)
-            if (cl[4] < 1f) {
-                cl[4] = Math.min(1f, cl[4] + 0.1f);
-                float t2 = cl[4] * cl[4] * (3f - 2f * cl[4]);
-                cl[0] = cl[0] + (cl[2] - cl[0]) * t2 * 0.5f + (cl[2] - cl[0]) * 0.15f;
-                cl[1] = cl[1] + (cl[3] - cl[1]) * t2 * 0.5f + (cl[3] - cl[1]) * 0.15f;
-            }
-            float sx = cl[0], sy = cl[1]; // render from lerped position
-            if (sx < -20 || sx > sw + 20 || sy < -20 || sy > host.asScreen().height + 20) continue;
-            int h = p.player().hashCode();
-            int color = 0xFF000000 | (((h >> 16) & 0xFF) << 16) | (((h >> 8) & 0xFF) << 8) | (h & 0xFF);
-            g.fill((int)sx - 6, (int)sy - 1, (int)sx + 7, (int)sy, color);
-            g.fill((int)sx - 1, (int)sy - 6, (int)sx, (int)sy + 7, color);
-            g.drawString(mc.font, p.playerName(), (int)sx + 8, (int)sy - 4, color);
-        }
-        // Online player list — right side, below toolbar, vertical
-        var players = new java.util.ArrayList<String>();
-        players.add("● " + host.getPlayerName());
-        for (var p : remotePresences.values()) players.add(p.playerName());
-        int maxW = 0;
-        for (var name : players) maxW = Math.max(maxW, mc.font.width(name));
-        int lx = sw - maxW - 14, ly = TOP_BAR_H + 24;
-        g.fill(lx, ly, sw - 6, ly + 2 + players.size() * 12, 0xAA222222);
-        for (int i = 0; i < players.size(); i++) {
-            int color = i == 0 ? 0xFFFFFF88 : 0xFFCCCCCC;
-            g.drawString(mc.font, players.get(i), lx + 4, ly + 2 + i * 12, color);
-        }
     }
 
     /** 处理鼠标点击事件——节点选择、拖拽、连线、菜单、按钮等所有点击交互。
@@ -2689,7 +2507,7 @@ public class GraphEditor {
             for (var en : getGraph().nodes) {
                 if (panOnlyClick) break; // 重绑平移键不进编辑区交互 / the rebound pan button never enters edit areas
                 if (!expandedNodeIds.contains(en.id)) continue;
-                if (isNodeLockedByOther(en.id, ownerNodeId())) continue; // soft lock (same scope only)
+                if (presence.isNodeLockedByOther(en.id, ownerNodeId())) continue; // soft lock (same scope only)
                 // 逐个检查：是否有更高 z-order 的非 Comment 节点实际遮挡了点击位置 (Check: does a higher-z non-Comment node actually occlude the click?)
                 boolean occluded = false;
                 for (var n : clickCandidates) {
@@ -3171,7 +2989,7 @@ public class GraphEditor {
                 lastClickTimeMs = now2; lastClickNodeId = n2.id;
                 // Only drag by header bar; expanded comments stay expanded — absorb click
                 if (hitIsNonComment) continue;
-                if (isNodeLockedByOther(n2.id, ownerNodeId())) continue; // soft lock (same scope only)
+                if (presence.isNodeLockedByOther(n2.id, ownerNodeId())) continue; // soft lock (same scope only)
                 if (expandedNodeIds.contains(n2.id)) {
                     // 展开注释的正文就是编辑区 —— 平移键既不平移也不选中。
                     // An expanded comment's body IS its edit area — the pan button neither pans nor selects.
@@ -3289,7 +3107,7 @@ public class GraphEditor {
             // Rebound pan button: never selects or drags a node — handled by the
             // not-blank guard below.
             var hit = panOnlyClick ? null : hitNode(mx,my);
-            if(hit!=null && isNodeLockedByOther(hit.id, ownerNodeId())) hit = null; // soft lock (same scope only)
+            if(hit!=null && presence.isNodeLockedByOther(hit.id, ownerNodeId())) hit = null; // soft lock (same scope only)
             if(hit!=null){
                 // 仅在非 ▶/▼ 区域允许拖拽 (Only allow drag outside the expand indicator area)
                 float sy=c2sY(hit.y);
@@ -5006,7 +4824,7 @@ public class GraphEditor {
             // Comments can nest — don't push aside other comments (they move with their own parent)
             // 注释可以嵌套 — 不推开其他注释（它们随自己的父级移动）
             if (n.type == NodeType.COMMENT) continue;
-            if (isNodeLockedByOther(n.id, ownerNodeId())) continue;
+            if (presence.isNodeLockedByOther(n.id, ownerNodeId())) continue;
             float nw = NodeRenderer.nw(n);
             float nh = fullNodeHeight(n);
             // Skip nodes that were already pushed aside by this drag session
