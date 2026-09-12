@@ -113,13 +113,15 @@ final class NodeEditStateFactory {
             sb.setResponder(text -> {
                 if (!text.equals(lastSig[0])) {
                     node.signalName = text;
-                    // Sync bands from new channel's BAND_REGISTRY (or clear if none)
-                    // 从新频道 BAND_REGISTRY 同步频段（无则清空）
-                    var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(text);
-                    node.signalBands = (gb != null && !gb.isEmpty())
-                        ? new java.util.ArrayList<>(gb)
-                        : new java.util.ArrayList<>();
-                    node.bandsDirty = true;
+                    // PRIVATE 信号没有频段定义（BAND_REGISTRY 是 BUS 频道的表），这里过去还会
+                    // 逐键按客户端本地 BAND_REGISTRY 重写 signalBands —— 正是 #11/#15 铲掉的
+                    // 「各端各自查表推导」模式的最后一处残留。PRIVATE 节点不暴露频段引脚，
+                    // 服务端副本从来不做这种推导；客户端不得本端重算权威值，删。
+                    // PRIVATE signals carry no band definition (BAND_REGISTRY belongs to BUS
+                    // channels); this used to also rewrite signalBands from the client's local
+                    // registry on every keystroke — the last leftover of the per-side derivation
+                    // pattern #11/#15 removed. PRIVATE nodes expose no band pins and the server's
+                    // copy never derived them; the client must not re-derive authoritative values.
                     var op = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                         io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 0, null, 0f, 0f,
