@@ -1503,315 +1503,25 @@ public class GraphEditor {
     public boolean mouseClicked(double mx, double my, int btn) {
         history.resetBatch(); // discard any incomplete batch to prevent undo stack freeze
         var graph = getGraph();
-        // ── 顶栏（最上层，先于一切命中检测）──
-        //    Top bar (topmost layer — hit-tested before everything else).
-        if (topBarNameEdit != null && my < TOP_BAR_H) {
-            int sbX = host.asScreen().width - 52;
-            if (mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19) {
-                // 打开独立全屏设置界面。收起其下所有浮层；setScreen 只触发本屏
-                // removed()（不发 LeavePacket），编辑会话保持，返回时 init 幂等重 join。
-                // Open the standalone full-screen settings GUI. Collapse every floating
-                // panel; setScreen only fires this screen's removed() (no LeavePacket),
-                // so the edit session survives and returning re-joins idempotently.
-                showMenu = false;
-                colorPicker.close();
-                openSettingsScreen();
-                return true;
-            }
-            for (var st : nodeEditStatesById.values()) for (var f : st.fields) f.setFocused(false);
-            topBarNameEdit.setFocused(true);
-            topBarNameEdit.mouseClicked(mx, my, btn);
-            return true;
-        }
-        if (topBarNameEdit != null && topBarNameEdit.isFocused()) topBarNameEdit.setFocused(false);
+        if (tryTopBarClick(mx, my, btn)) return true;
         // 命名对话框：点击外部取消（已拆至 GraphViewBookmarks / split into GraphViewBookmarks）
         if (viewBookmarks.handleClickOutsideNameDialog(mx, my)) return true;
         // 书签面板交互（仅在面板显示、无弹窗、无命名对话框时；门禁随方法内迁）
         if (viewBookmarks.handlePanelClick(mx, my, btn)) return true;
-        // DEBUG_SIGNAL_GEN 控制点交互（仅在无弹窗时）
-        if (!showExportDialog && !showImportDialog && !colorPicker.isVisible() && editingCommentColorNode == null) {
-            if (btn == 0) {
-                // 1. 控制点命中 → 开始拖拽
-                int[] cpHit = hitControlPoint(mx, my);
-                if (cpHit != null) {
-                    draggingCtrlNode = cpHit[0];
-                    draggingCtrlIdx = cpHit[1];
-                    // Save pre-drag control points for undo / 保存拖拽前控制点用于撤销
-                    GraphNode pcn = graph.findNode(cpHit[0]);
-                    if (pcn != null && pcn.debugCtrlX != null)
-                        preDragCtrlStr = encodeCtrlPoints(pcn.debugCtrlX, pcn.debugCtrlY);
-                    ctrlPointsChanged = true;
-                    lastClickMs = 0;
-                    return true;
-                }
-                // 1.5. x 标记线命中（OUT_INPUT 模式）→ 开始拖拽
-                int xmNode = hitXMarker(mx, my);
-                if (xmNode >= 0) {
-                    draggingXMarkerNode = xmNode;
-                    lastClickMs = 0;
-                    return true;
-                }
-                // 2. 双击空白处添加控制点（仅在 XY 图区域内）
-                long now = System.currentTimeMillis();
-                boolean isDoubleClick = (now - lastClickMs < 300);
-                lastClickMs = now;
-                if (isDoubleClick) {
-                    GraphNode hover = hitNode(mx, my);
-                    if (hover != null && hover.type == NodeType.DEBUG_SIGNAL_GEN) {
-                        int hsetMode = hover.params.length > 0 ? (int) hover.params[0] : 0;
-                        if (hsetMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL) {
-                            // 仅在 XY 图区域内添加控制点 / only add within chart area
-                            if (isInChartArea(hover, mx, my)) {
-                                addControlPoint(hover, mx, my);
-                                return true;
-                            }
-                        }
-                    }
-                    // DEBUG_PROBE 双击切换冻结
-                    if (hover != null && hover.type == NodeType.DEBUG_PROBE) {
-                        hover.probeFrozen = !hover.probeFrozen;
-                        return true;
-                    }
-                }
-            }
-            if (btn == 1) {
-                int[] cpHit = hitControlPoint(mx, my);
-                if (cpHit != null) {
-                    removeControlPoint(graph.findNode(cpHit[0]), cpHit[1]);
-                    return true;
-                }
-            }
-        }
-        // ── Comment color edit popup (handled BEFORE picker so buttons can rebind) ──
-        // Comment popup: skip if picker is open and click is on it
-        if (editingCommentColorNode != null && commentButtons != null && btn == 0
-            && !(colorPicker.isVisible() && colorPicker.contains((int)mx, (int)my))) {
-            int pw = 200, ph = 74;
-            int px = 8;
-            int py = Math.max(4, (host.asScreen().height - ph) / 2);
-            if (mx < px || mx > px + pw || my < py || my > py + ph) {
-                closeCommentColorPopup();
-                return true;
-            }
-            // Click inside → delegate to comment buttons, keep picker persistent
-            colorPicker.setPersistent(true);
-            for (int ci = 0; ci < 3; ci++) {
-                if (commentButtons[ci].mouseClicked(mx, my, btn)) return true;
-            }
-            return true;
-        }
-        // ── 导出对话框处理 (Export dialog handling) ──
-        if (showExportDialog && btn == 0) {
-            int w = 280, h = 80;
-            int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
-            // Save 按钮 (Save button)
-            if (mx >= cx + w - 60 && mx <= cx + w - 10 && my >= cy + 24 && my <= cy + 44) {
-                if (exportNameEdit != null && selectedNode != null) {
-                    String name = exportNameEdit.getValue().trim();
-                    if (!name.isEmpty()) exportEncapNode(selectedNode, name);
-                }
-                showExportDialog = false; exportNameEdit = null; return true;
-            }
-            // Cancel 按钮
-            if (mx >= cx + 8 && mx <= cx + 58 && my >= cy + 50 && my <= cy + 68) {
-                showExportDialog = false; exportNameEdit = null; return true;
-            }
-            // 点击对话框外部 → 关闭 (Click outside dialog → close)
-            if (mx < cx || mx > cx + w || my < cy || my > cy + h) {
-                showExportDialog = false; exportNameEdit = null; return true;
-            }
-            if (exportNameEdit != null) { exportNameEdit.mouseClicked(mx, my, btn); }
-            return true;
-        }
-        // ── 导入对话框处理 ──
-        if (showImportDialog && btn == 0) {
-            int w = 280, visRows = 8;
-            int fileCount = importFiles != null ? importFiles.size() : 0;
-            int listH = Math.min(fileCount, visRows) * 18;
-            int h = 56 + listH + 30;
-            int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
-            // Cancel 按钮
-            int cby = cy + h - 22;
-            if (mx >= cx + 8 && mx <= cx + 58 && my >= cby && my <= cby + 16) {
-                showImportDialog = false; importFiles = null; return true;
-            }
-            // 点击对话框外部 (Click outside dialog)
-            if (mx < cx || mx > cx + w || my < cy || my > cy + h) {
-                showImportDialog = false; importFiles = null; return true;
-            }
-            // 滚动条拖动 (Scrollbar drag)
-            if (fileCount > 0) {
-                int listY2 = cy + 28, sbX2 = cx + w - 14;
-                int maxScroll2 = Math.max(0, fileCount - visRows);
-                if (maxScroll2 > 0) {
-                    int sbH2 = visRows * 18;
-                    float thumbY2 = listY2 + (float) importScrollOff / maxScroll2 * (sbH2 - 12);
-                    if (mx >= sbX2 && mx <= sbX2 + 8 && my >= (int) thumbY2 && my <= (int) thumbY2 + 12) {
-                        scrollingImport = true;
-                        scrollDragStartY = (float) my;
-                        scrollDragStartOff = importScrollOff;
-                        return true;
-                    }
-                }
-            }
-            // 文件列表点击（留出滚动条区域） (File list click, leaving room for scrollbar)
-            if (fileCount > 0) {
-                int endIdx = Math.min(fileCount, importScrollOff + visRows);
-                for (int i = importScrollOff; i < endIdx; i++) {
-                    int ry = cy + 28 + (i - importScrollOff) * 18;
-                    if (mx >= cx + 4 && mx <= cx + w - 20 && my >= ry && my <= ry + 16) {
-                        importEncapNode(importFiles.get(i));
-                        showImportDialog = false; importFiles = null; return true;
-                    }
-                }
-            }
-            return true;
-        }
-        // 失焦提交：enterActions（频段 EditBox 等通过 enterActions 注册的控件） (Focus-lost commit via enterActions for band EditBoxes etc. registered via enterActions)
-        boolean committed = false;
-        for (var e : enterActions.entrySet()) {
-            if (e.getKey().isFocused()) { e.getValue().run(); committed = true; break; }
-        }
-        if (committed) markDirty();
-        if(btn==0){
-            // ── 子图 Back 按钮 ──
-            if (isInSubGraph()) {
-                int bw = 60, bh = 16;
-                int bx = host.asScreen().width - bw - 8, by = TOP_BAR_H + 2;
-                if (mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) {
-                    exitSubGraph(); return true;
-                }
-            }
-            // 工具栏按钮（子图模式下隐藏） (Toolbar buttons, hidden in sub-graph mode)
-            if (!isInSubGraph()) {
-                int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : TOP_BAR_H + 2;
-                if(mx>=4&&mx<=22&&my>=btnY&&my<=btnY+18){host.asScreen().onClose();return true;}
-                if(mx>=26&&mx<=78&&my>=btnY&&my<=btnY+18){recompile(graph);return true;}
-                if(mx>=82&&mx<=130&&my>=btnY&&my<=btnY+18){
-                    boolean ws=!host.isRunning();
-                    if(ws && graph.hasCycles()){cycleWarning=I18n.get("gui.create_schematic_compute.cycle_detected");return true;}
-                    cycleWarning=null;
-                    host.toggleRunning(ws);
-                    return true;
-                }
-                if(mx>=134&&mx<=192&&my>=btnY&&my<=btnY+18){gridSnapEnabled=!gridSnapEnabled;NodeRenderer.saveGridSnap(gridSnapEnabled);return true;}
-                // 导入/导出封装节点按钮（仅蓝图计算机） (Import/export encapsulation node button, Blueprint computer only)
-                if (host instanceof BlueprintScreen && mx >= 196 && mx <= 268 && my >= btnY && my <= btnY + 18) {
-                    boolean hasEncapSelected = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
-                    if (hasEncapSelected) {
-                        showExportDialog = true;
-                        String defName = selectedNode.displayText.isEmpty() ? "encap" : selectedNode.displayText;
-                        exportNameEdit = new EditBox(Minecraft.getInstance().font, host.asScreen().width / 2 - 80, host.asScreen().height / 2 - 10, 160, 20, Component.literal(defName));
-                        exportNameEdit.setValue(defName);
-                        exportNameEdit.setFocused(true);
-                    } else {
-                        showImportDialog = true;
-                        importScrollOff = 0;
-                        try {
-                            var dir = getExportPath().getParent();
-                            if (Files.exists(dir)) {
-                                try (var s = Files.list(dir)) {
-                                    importFiles = s.filter(p -> p.toString().endsWith(".nbt")).sorted().toList();
-                                }
-                            } else importFiles = java.util.Collections.emptyList();
-                        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.warn("Failed to list import files: {}", e.getMessage()); importFiles = java.util.Collections.emptyList(); }
-                    }
-                    return true;
-                }
-            }
-            // 右下角书签按钮（在三角形上方；已拆至 GraphViewBookmarks / split into GraphViewBookmarks）
-            if (viewBookmarks.handleBookmarkButtonToggle(mx, my)) return true;
-            // 右下角工具栏位置切换按钮（始终可见） (Bottom-right toolbar position toggle, always visible)
-            { int w = host.asScreen().width, h = host.asScreen().height;
-              if(mx>=w-22&&mx<=w-4&&my>=h-22&&my<=h-4){NodeRenderer.toggleToolbarBottom();return true;} }
-        }
-        if(showMenu&&btn==0){
-            // 菜单滚动条拖拽优先（参考书签UI实现）/ menu scrollbar drag first (matching bookmark UI pattern)
-            if (renderer.menuHasScrollbar()) {
-                int[] track = renderer.menuScrollbarTrack();
-                int[] thumb = renderer.menuScrollbarThumb();
-                int maxOff = renderer.menuMaxScrollOff();
-                if (mx >= track[0] && mx <= track[0] + track[2] && my >= track[1] && my <= track[1] + track[3]) {
-                    if (my < thumb[0]) { renderer.setMenuScrollOff(renderer.menuScrollOff() - 3 * 14); return true; }
-                    else if (my > thumb[0] + thumb[1]) { renderer.setMenuScrollOff(renderer.menuScrollOff() + 3 * 14); return true; }
-                    else { scrollingMenu = true; menuScrollDragStartY = (float)my; menuScrollDragStartOff = (int)renderer.menuScrollOff(); return true; }
-                }
-            }
-            if(renderer.handleCategoryClick((int)mx, (int)my)) return true;
-            if(selectedMenuType!=null){
-                if(graph.nodes.size()>=MAX_NODES){
-                    cycleWarning=I18n.get("gui.create_schematic_compute.node_limit");
-                }else{
-                    var added = graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));
-                    rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping
-                    var addOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(
-                        host.getBlockPos(), ownerNodeId(), added.id,
-                        selectedMenuType, s2cX(mx), s2cY(my), host.getPlayerUUID());
-                    host.sendOp(addOp);
-                    recordOp(addOp, 0, 0, added.id, null); // oldVal=localId for pre-ACK undo
-                }
-            }showMenu=false;return true;}
+        if (tryDebugChartClick(mx, my, btn, graph)) return true;
+        if (tryCommentColorPopupClick(mx, my, btn)) return true;
+        if (tryExportDialogClick(mx, my, btn)) return true;
+        if (tryImportDialogClick(mx, my, btn)) return true;
+        commitFocusedEnterActions();
+        if (tryChromeClick(mx, my, btn, graph)) return true;
+        if (tryAddMenuClick(mx, my, btn, graph)) return true;
         // 上下文菜单键（默认右键，可重绑；查表）
         // Context-menu button (right by default, rebindable; looked up).
         if(btn == EditorKeys.mouseButton(EditorKeys.Action.CONTEXT_MENU)){
             menuX=(float)mx; menuY=(float)my; showMenu=true; renderer.resetMenuSearch(); return true;
         }
-        // 热栏弹出交互 (Hotbar popup interaction)
-        if (hotbarNode != null && btn == 0) {
-            var mc2 = Minecraft.getInstance();
-            var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
-            float nsx2 = c2sX(hotbarNode.x), nsy2 = c2sY(hotbarNode.y);
-            float nch2 = (HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()))*zoom+4;
-            int numRows2 = st != null ? st.fields.size() : 0;
-            int editLocalY2 = (int)(HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()) + 4/zoom);
-            int freqLocalY2 = editLocalY2 + 4 + numRows2 * 18;
-            float popupY2 = nsy2 + nch2 + (freqLocalY2 - editLocalY2 + 20 + 4) * zoom;
-            int pw2 = 196, ph2 = 36;
-            int px2 = (int)(nsx2 + NW*zoom/2 - pw2/2);
-            int py2 = (int)popupY2;
-            // 点击热栏面板内部 (Click inside hotbar panel)
-            if (mx >= px2 && mx <= px2 + pw2 && my >= py2 && my <= py2 + ph2) {
-                int si = (int)((mx - px2 - 4) / 20);
-                if (si >= 0 && si < 9 && mc2.player != null && hotbarNode.itemParams != null && st != null
-                    && st.freqSlotSelected >= 0 && st.freqSlotSelected < hotbarNode.itemParams.length) {
-                    var inv = mc2.player.getInventory().items.get(si);
-                    var is = inv.isEmpty() ? ItemStack.EMPTY : inv.copy();
-                    if (!inv.isEmpty()) is.setCount(1);
-                    // Save old item for undo / 保存旧物品用于撤销
-                    var oldItem = hotbarNode.itemParams[st.freqSlotSelected];
-                    String oldItemNbt = oldItem.isEmpty() ? "" :
-                        oldItem.saveOptional(mc2.level.registryAccess()).toString();
-                    hotbarNode.itemParams[st.freqSlotSelected] = is;
-                    var hoOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setHotbarItem(
-                        host.getBlockPos(), ownerNodeId(), hotbarNode.id, st.freqSlotSelected, is, host.getPlayerUUID());
-                    host.sendOp(hoOp); recordOp(hoOp, 0, 0, 0, oldItemNbt);
-                }
-                hotbarNode = null; // 点击面板内始终关闭 (Always close on click inside panel)
-                return true;
-            }
-            hotbarNode = null; // 点击面板外部 → 关闭 (Click outside panel → close)
-        }
-        // KEYBOARD 绑定监听中 → 点击任何地方取消绑定（点击绑定区域本身除外，那里由 edit 区处理） (KEYBOARD binding active → click anywhere to cancel, except on the binding area itself handled by edit panel)
-        if (btn == 0 && !nodeEditStatesById.isEmpty()) {
-            boolean anyListening = false;
-            for (var st : nodeEditStatesById.values()) if (st.listeningForKey) { anyListening = true; break; }
-            if (anyListening) {
-                // 检查是否点击了 KEYBOARD 编辑区域的内联范围 (Check if click is within KEYBOARD's inline edit area)
-                // 如果不是，取消所有监听 (If not, cancel all listening)
-                for (var en : getGraph().nodes) {
-                    if (!expandedNodeIds.contains(en.id)) continue;
-                    var st = nodeEditStatesById.get(en.id);
-                    if (st == null || !st.listeningForKey) continue;
-                    float nsx = c2sX(en.x), nsy = c2sY(en.y);
-                    int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
-                    int editLocalY = (int)(HH + PH*(en.functionalInputs() + en.outputs()) + 4/zoom);
-                    int kbLocalY = editLocalY + 4;
-                    if (!(lmx >= 4 && lmx <= NW && lmy >= kbLocalY && lmy <= kbLocalY + 18)) {
-                        st.listeningForKey = false;
-                    }
-                }
-            }
-        }
+        if (tryHotbarPopupClick(mx, my, btn)) return true;
+        cancelKeyboardBinding(mx, my, btn);
         // Color picker (after panels — absorbs clicks on picker, closes if outside)
         if (colorPicker.isVisible()) {
             return colorPicker.mouseClicked(mx, my, btn);
@@ -1841,665 +1551,15 @@ public class GraphEditor {
             var clickCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my)).stream()
                 .sorted(GraphEditor::compareHitOrder)
                 .collect(java.util.stream.Collectors.toList());
-            // 内联编辑区交互（局部坐标，与 pose 内渲染一致） (Inline edit-area interaction, local coords matching pose rendering)
-            for (var en : getGraph().nodes) {
-                if (panOnlyClick) break; // 重绑平移键不进编辑区交互 / the rebound pan button never enters edit areas
-                if (!expandedNodeIds.contains(en.id)) continue;
-                if (presence.isNodeLockedByOther(en.id, ownerNodeId())) continue; // soft lock (same scope only)
-                // 逐个检查：是否有更高 z-order 的非 Comment 节点实际遮挡了点击位置 (Check: does a higher-z non-Comment node actually occlude the click?)
-                boolean occluded = false;
-                for (var n : clickCandidates) {
-                    if (n == en) break; // 到达当前节点，上方无遮挡 (Reached current node, no occluder above)
-                    if (n.type == NodeType.COMMENT) continue;
-                    float sx = c2sX(n.x), sy = c2sY(n.y);
-                    float sw = NodeRenderer.nw(n) * zoom;
-                    float nh = NodeRenderer.nh(n) * zoom + 4; // 使用 nh() 含图表区域 / use nh() to include chart area
-                    if (expandedNodeIds.contains(n.id)) nh += EditPanel.calcRenderHeight(n, zoom) * zoom;
-                    if (mx >= sx && mx <= sx + sw && my >= sy && my <= sy + nh) {
-                        occluded = true;
-                        break;
-                    }
-                }
-                if (occluded) {
-                    var st0 = nodeEditStatesById.get(en.id);
-                    if (st0 != null) for (var b : st0.fields) b.setFocused(false);
-                    continue;
-                }
-                var st = nodeEditStatesById.get(en.id);
-                if (st == null) continue;
-                float nsx = c2sX(en.x), nsy = c2sY(en.y);
-                int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
-                int editLocalY = (int)(NodeRenderer.nh(en) + 4/zoom); // 使用 nh() 含图表区域 / use nh() to include chart area
-                int numRows = st.fields.size();
-                // Frequency slots only exist for REDSTONE_IN/OUT nodes
-                if (en.type == NodeType.REDSTONE_IN || en.type == NodeType.REDSTONE_OUT) {
-                    int freqLocalY = editLocalY + 8 + numRows * 18;
-                    for (int fi = 0; fi < 2; fi++) {
-                        int bx = 4 + fi * 24;
-                        if (lmx >= bx && lmx <= bx + 20 && lmy >= freqLocalY && lmy <= freqLocalY + 20)
-                        {
-                            // 切换热栏弹窗时，先复位旧节点的高亮态 (Reset old node's highlight when switching hotbar)
-                            if (hotbarNode != null && hotbarNode != en) {
-                                var old = nodeEditStatesById.get(hotbarNode.id);
-                                if (old != null) old.freqSlotSelected = -1;
-                            }
-                            st.freqSlotSelected = fi;
-                            hotbarNode = (hotbarNode == en) ? null : en;
-                            return true;
-                        }
-                    }
-                }
-                if (en.type == NodeType.BOOL && en.params.length > 0) {
-                    int boolLocalY = editLocalY + 4 + numRows * 18;
-                    if (lmx >= 4 && lmx <= NW - 4 && lmy >= boolLocalY && lmy <= boolLocalY + 16)
-                    { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
-                    var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                        io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
-                        host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-                    host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
-                    return true; }}
-                if (en.type == NodeType.MOUSE_JOYSTICK && en.params.length > 0) {
-                    // Toggle absolute/incremental mode via TOGGLE_BOOL op (same pipeline as BOOL)
-                    int mjLocalY = editLocalY + 4 + numRows * 18;
-                    if (lmx >= 4 && lmx <= NW - 4 && lmy >= mjLocalY && lmy <= mjLocalY + 16)
-                    { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
-                    var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                        io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
-                        host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-                    host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
-                    return true; }
-                }
-                if (en.type == NodeType.GATE && en.params.length > 0) {
-                    int gateLocalY = editLocalY + 4 + numRows * 18;
-                    if (lmx >= 4 && lmx <= NW - 4 && lmy >= gateLocalY && lmy <= gateLocalY + 16)
-                    { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
-                    var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                        io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
-                        host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-                    host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
-                    return true; }
-                }
-                if (en.type == NodeType.T_FLIPFLOP && en.params.length > 0) {
-                    int ffLocalY = editLocalY + 4 + numRows * 18;
-                    if (lmx >= 4 && lmx <= NW - 4 && lmy >= ffLocalY && lmy <= ffLocalY + 16)
-                    { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
-                    var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                        io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
-                        host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-                    host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
-                    return true; }
-                }
-                if (en.type == NodeType.LATCH && en.params.length > 0) {
-                    int latchLocalY = editLocalY + 4 + numRows * 18;
-                    if (lmx >= 4 && lmx <= NW - 4 && lmy >= latchLocalY && lmy <= latchLocalY + 16)
-                    { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
-                    var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                        io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
-                        host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-                    host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
-                    return true; }
-                }
-                // FORMULA warm 两段式切换（刀5）：摘要行后第一行；求值策略设置、无引脚。
-                // 左半=严格冻结(0)、右半=温启动(1)，SET_PARAM 精确设值（信号发生器模式切换同款 op）。
-                // FORMULA warm segmented toggle (knife 5): first row after the summary; pinless eval-policy
-                // setting. Left = strict freeze (0), right = warm (1) — exact-value SET_PARAM (same op as the
-                // signal generator's mode switch).
-                if (en.type == NodeType.FORMULA && en.params.length > 0) {
-                    int warmLocalY = editLocalY + 4 + 18; // 摘要行(row 0)之后 / after the summary row
-                    int warmW = NodeRenderer.nw(en); // FORMULA = WIDE_NW / wide node panel width
-                    int gap = 4, btnW = (warmW - 12 - gap) / 2;
-                    for (int i = 0; i < 2; i++) {
-                        int bx = 4 + i * (btnW + gap);
-                        if (lmy >= warmLocalY && lmy <= warmLocalY + 16 && lmx >= bx && lmx <= bx + btnW) {
-                            int target = i; // 0=严格冻结 1=温启动 / 0 = strict freeze, 1 = warm
-                            if ((en.params[0] > 0.5f ? 1 : 0) != target) {
-                                float oldWarm = en.params[0];
-                                en.params[0] = target;
-                                var wOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
-                                    host.getBlockPos(), ownerNodeId(), en.id, 0, (float) target, host.getPlayerUUID());
-                                host.sendOp(wOp); recordOp(wOp, 0, 0, oldWarm, null);
-                            }
-                            return true;
-                        }
-                    }
-                }
-                // BUS_IN/OUT 频段 +/- 按钮（先提交未保存的 busBox，防止名称丢失） (BUS_IN/OUT band +/- buttons; commit unsaved busBox first to avoid name loss)
-                if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
-                    // 提交当前节点的 busBox（如有未保存的频道名编辑） (Commit current node's busBox if unsaved channel name edits exist)
-                    if (st.busBox != null && st.busNode != null
-                        && !st.busBox.getValue().equals(st.busNode.signalName))
-                        bus.commitBusBox(st);
-                }
-                if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
-                    if (lmx >= st.bandAddBtnX && lmx <= st.bandAddBtnX + st.bandAddBtnW
-                        && lmy >= st.bandAddBtnY && lmy <= st.bandAddBtnY + st.bandAddBtnH) {
-                        // + 按钮：添加新频段，同步同总线名节点 (+ button: add new band, sync same-bus-name nodes)
-                        if (en.signalBands == null) en.signalBands = new java.util.ArrayList<>();
-                        String name = "band_" + en.signalBands.size();
-                        en.signalBands.add(name);
-                        en.bandsDirty = true;
-                        bus.syncBusBands(en);
-                        if (!en.busConflict)
-                            net.neoforged.neoforge.network.PacketDistributor.sendToServer(
-                                new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
-                                    host.getBlockPos(), en.signalName, en.signalBands));
-                        nodeEditStatesById.put(en.id, createEditState(en));
-                        return true;
-                    }
-                    if (lmx >= st.bandRemoveBtnX && lmx <= st.bandRemoveBtnX + st.bandRemoveBtnW
-                        && lmy >= st.bandRemoveBtnY && lmy <= st.bandRemoveBtnY + st.bandRemoveBtnH) {
-                        if (en.signalBands != null && !en.signalBands.isEmpty()) {
-                            int removedPin = en.signalBands.size() - 1;
-                            String removedBand = en.signalBands.get(removedPin);
-                            // Remove connections by pinId (band name), not by index.
-                            // 按 pinId（频段名）而非索引清理连线。
-                            graph.connections.removeIf(c ->
-                                (c.fromId == en.id && removedBand.equals(c.fromPinId))
-                                || (c.toId == en.id && removedBand.equals(c.toPinId)));
-                            // Legacy fallback: also remove by index for unmigrated connections
-                            graph.connections.removeIf(c ->
-                                (c.fromId == en.id && c.fromPin == removedPin && c.fromPinId == null)
-                                || (c.toId == en.id && c.toPin == removedPin && c.toPinId == null));
-                            graph.rebuildNodeMap();
-                            graph.rebuildInputCache();
-                            en.signalBands.remove(removedPin);
-                            en.bandsDirty = true;
-                            bus.syncBusBands(en);
-                            if (!en.busConflict)
-                                net.neoforged.neoforge.network.PacketDistributor.sendToServer(
-                                    new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
-                                        host.getBlockPos(), en.signalName, en.signalBands));
-                            nodeEditStatesById.put(en.id, createEditState(en));
-                        }
-                        return true;
-                    }
-                }
-                if ((en.type == NodeType.IMAGE || en.type == NodeType.IMAGE_SEQUENCE) && en.params.length > 3) {
-                    for (int ti = 0; ti < 2; ti++) {
-                        int tgY = editLocalY + 4 + (numRows + ti) * 18;
-                        if (lmx >= 4 && lmx <= NW - 4 && lmy >= tgY && lmy <= tgY + 14) {
-                            en.params[3 + ti] = en.params[3 + ti] > 0.5f ? 0 : 1;
-                            var toggleOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_FRAME_TOGGLE,
-                                host.getBlockPos(), ownerNodeId(), en.id, 0, null, 0f, 0f,
-                                0, 0, 0, 0, 0, 0f, null, 0, 0, 0, 0, null, 0, ti, 0,
-                                net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
-                            host.sendOp(toggleOp); recordOp(toggleOp, 0, 0, 0, null);
-                            return true; }
-                    }
-                }
-                if (en.type == NodeType.KEYBOARD || en.type == NodeType.GAMEPAD_BUTTON) {
-                    int kbLocalY = editLocalY + 4;
-                    if (EditPanel.handleKeyboardClick(en, st, lmx, lmy - kbLocalY, io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(en))) return true;
-                }
-                // DEBUG_SIGNAL_GEN mode toggle buttons
-                if (en.type == NodeType.DEBUG_SIGNAL_GEN) {
-                    String hit = EditPanel.hitModeToggle(0, editLocalY, NodeRenderer.nw(en), en, lmx, lmy);
-                    if (hit != null) {
-                        handleModeToggleClick(en, st, hit);
-                        return true;
-                    }
-                }
-                // FORMULA multi-line editor: single MultiLineEditBox covers full edit panel height
-                int enW = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(en);
-                // EditBox focus/click
-                // FORMULA / COMMENT multi-line editor: MultiLineEditBox covers full edit panel height
-                if (en.type == NodeType.FORMULA || en.type == NodeType.COMMENT) {
-                    // 刀5:FORMULA 的 MLE 在摘要行 + warm 参数行之后,偏移 = 4 + (1 + 参数行数) * 18
-                    // Knife 5: FORMULA's MLE sits below the summary + warm param rows; offset = 4 + (1 + paramRows) * 18
-                    int mleRowOff = en.type == NodeType.FORMULA ? 4 + (1 + en.type.editableParamCount()) * 18 : -1;
-                    for (int fi = 0; fi < st.fields.size(); fi++) {
-                        var b = st.fields.get(fi);
-                        // Check suggestion popup first (rendered on top of the MLE)
-                        if (b instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mleBox) {
-                            var popup = mleBox.getSuggestPopup();
-                            if (popup.isVisible()) {
-                                // popup rendered at C=5.5 in screen space → use screen coords
-                                // 候选框在 C=5.5 屏幕空间渲染 → 使用屏幕坐标
-                                String accepted = popup.mouseClicked((int)mx, (int)my);
-                                if (accepted != null) {
-                                    b.setFocused(true);
-                                    mleBox.replaceCurrentWordForPopup(accepted);
-                                    return true;
-                                }
-                                // Click outside popup but on MLE: close popup, don't steal focus
-                                int mleY2, mleH2;
-                                if (en.type == NodeType.COMMENT) {
-                                    mleY2 = 6;
-                                    mleH2 = Math.round(en.commentHeight) - 12;
-                                } else {
-                                    mleY2 = editLocalY + mleRowOff;
-                                    mleH2 = Math.max(b.getHeight(), 18);
-                                }
-                                if (lmx >= 0 && lmx <= enW && lmy >= mleY2 && lmy <= mleY2 + mleH2) {
-                                    popup.close();
-                                    // fall through: let normal MLE handling below focus & position cursor
-                                } else {
-                                    continue; // click outside both popup and MLE
-                                }
-                            }
-                        }
-                        int mleY, mleH;
-                        if (en.type == NodeType.COMMENT) {
-                            // MLE fills body minus edit button: X=6..w-18, Y=6, H=body-12
-                            mleY = 6;
-                            mleH = Math.round(en.commentHeight) - 12;
-                            enW = Math.round(en.commentWidth) - 28; // leave room for left button
-                        } else {
-                            mleY = editLocalY + mleRowOff;
-                            mleH = Math.max(b.getHeight(), 18);
-                        }
-                        if (lmx >= 0 && lmx <= enW && lmy >= mleY && lmy <= mleY + mleH) {
-                            b.setFocused(true);
-                            // MLE coordinates are graph-space; convert mouse to graph-space
-                            // MLE 坐标为图空间，将鼠标转换为图空间坐标
-                            float gx = (float)((mx - nsx) / zoom), gy = (float)((my - nsy) / zoom);
-                            if (b.mouseClicked(gx, gy, 0)) editBoxDragNodeId = en.id;
-                            if (!tabHeld && selectedNode != en) {
-                                selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
-                            }
-                        } else b.setFocused(false);
-                    }
-                } else if (en.type == NodeType.DEBUG_SIGNAL_GEN) {
-                    // EditBox positions match EditPanel.renderAt layout: mode toggles (2 rows) + conditional fields
-                    int dsgFieldRow = 2; // mode toggle rows come first
-                    int setMode = en.params.length > 0 ? (int) en.params[0] : 0;
-                    int outMode = en.params.length > 1 ? (int) en.params[1] : 0;
-                    int fieldIdx = 0;
-                    // formula field (if SET_FORMULA)
-                    if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_FORMULA) {
-                        if (fieldIdx < st.fields.size()) {
-                            var b = st.fields.get(fieldIdx);
-                            int fy = editLocalY + 4 + dsgFieldRow * 18;
-                            if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + 18) {
-                                b.setFocused(true); b.mouseClicked(mx, my, 0);
-                                if (!tabHeld && selectedNode != en) {
-                                    selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
-                                }
-                            } else b.setFocused(false);
-                            fieldIdx++;
-                        }
-                        dsgFieldRow++;
-                    }
-                    // speed (manual+OUT_FREQ), amplitude (manual only)
-                    for (int ci = 0; ci < 2; ci++) {
-                        boolean visible = switch (ci) {
-                            case 0 -> setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL
-                                && outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ;
-                            case 1 -> setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL;
-                            default -> false;
-                        };
-                        if (!visible) continue;
-                        if (fieldIdx < st.fields.size()) {
-                            var b = st.fields.get(fieldIdx);
-                            int fy = editLocalY + 4 + dsgFieldRow * 18;
-                            if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + 18) {
-                                b.setFocused(true); b.mouseClicked(mx, my, 0);
-                                if (!tabHeld && selectedNode != en) {
-                                    selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
-                                }
-                            } else b.setFocused(false);
-                            fieldIdx++;
-                        }
-                        dsgFieldRow++;
-                    }
-                    // Unfocus remaining fields
-                    while (fieldIdx < st.fields.size()) {
-                        st.fields.get(fieldIdx).setFocused(false);
-                        fieldIdx++;
-                    }
-                } else if (en.type != NodeType.COMMENT) {
-                    // Color button click for TEXT/DATA nodes
-                    if ((en.type == NodeType.TEXT || en.type == NodeType.DATA) && st.colorButton != null) {
-                        // Color swatch is rendered after the generic fields, at row = st.fields.size()
-                        int colorFieldRow = st.fields.size();
-                        int swatchLabelW = Minecraft.getInstance().font.width(
-                            net.minecraft.client.resources.language.I18n.get("param.create_schematic_compute.color") + ":") + 6;
-                        int swatchX = 4 + swatchLabelW;
-                        int swatchY = editLocalY + 4 + colorFieldRow * 18;
-                        int swatchSize = 16;
-                        if (lmx >= swatchX && lmx <= swatchX + swatchSize
-                            && lmy >= swatchY && lmy <= swatchY + swatchSize) {
-                            st.colorButton.setPosition(swatchX, swatchY);
-                            st.colorButton.mouseClicked(lmx, lmy, 0);
-                            return true;
-                        }
-                    }
-                    for (int fi = 0; fi < st.fields.size(); fi++) {
-                        var b = st.fields.get(fi);
-                        int fy = editLocalY + 4 + fi * 18;
-                        if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + 18) {
-                            b.setFocused(true); b.mouseClicked(mx, my, 0);
-                            // 点击编辑区时自动选中所属节点 (auto-select owning node on edit-area click)
-                            if (!tabHeld && selectedNode != en) {
-                                selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
-                            }
-                        }
-                        else b.setFocused(false);
-                    }
-                }
-            }
-            // TAB+左键 → 连线删除 / 多选 / 框选 (TAB+left-click → connection delete / multi-select / box-select)
-            if (tabHeld && !panOnlyClick) {
-                var hc = hitConn(mx, my);
-                if (hc != null) {
-                    graph.removeConnection(hc.fromId, hc.fromPin, hc.toId, hc.toPin);
-                    var rcOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(
-                        host.getBlockPos(), ownerNodeId(), hc.fromId, hc.fromPin, hc.toId, hc.toPin, host.getPlayerUUID());
-                    host.sendOp(rcOp); recordOp(rcOp, hc.fromId, hc.fromPin, hc.toId, null);
-                    // 删除参数引脚连线后刷新编辑区（恢复输入框） (Refresh edit area after removing param pin connection, restoring input box)
-                    var tn = graph.findNode(hc.toId);
-                    if (tn != null && hc.toPin >= tn.functionalInputs() && expandedNodeIds.contains(hc.toId)) {
-                        nodeEditStatesById.remove(hc.toId);
-                        nodeEditStatesById.put(hc.toId, createEditState(tn));
-                    }
-                    return true;
-                }
-                var hit = hitNode(mx, my);
-                if (hit != null && selectedNodes.contains(hit)) {
-                    multiDragging = true; multiClickedNode = hit; multiDragOrigins.clear();
-                    multiCenterX = 0; multiCenterY = 0;
-                    for (var sn : selectedNodes) { multiCenterX += sn.x; multiCenterY += sn.y; }
-                    multiCenterX /= selectedNodes.size(); multiCenterY /= selectedNodes.size();
-                    for (var sn : selectedNodes) multiDragOrigins.put(sn, new float[]{sn.x, sn.y});
-                    dragOffX = s2cX(mx) - multiCenterX; dragOffY = s2cY(my) - multiCenterY;
-                    return true;
-                }
-                if (hit != null) { selectedNodes.add(hit); selectedNode = hit; return true; }
-                boxSelecting = true; boxSX = boxEX = (float)mx; boxSY = boxEY = (float)my;
-                return true;
-            }
+        if (tryExpandedEditAreaClicks(mx, my, panOnlyClick, clickCandidates, graph)) return true;
+        if (tryTabInteractions(mx, my, panOnlyClick, graph)) return true;
             // ▶/▼ 折叠展开按钮（优先检测，不依赖选中状态） (Expand/collapse button, checked first, independent of selection state)
             var expandHit = panOnlyClick ? null : hitExpandIndicator(mx, my, graph);
             if (expandHit != null) { toggleExpand(expandHit); return true; }
-            // ── Comment node interaction / 注释节点交互 ──
-            // Only handle clicks on COMMENT chrome (resize, color dot) or
-            // body clicks — spatial-index candidates sorted by compareHitOrder
-            // (A=3 nodes first, then A=1 comments by B descending = innermost first)
-            var nonCommentHit = hitNode(mx, my);
-            boolean hitIsNonComment = nonCommentHit != null && nonCommentHit.type != NodeType.COMMENT;
-            var commentCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my)).stream()
-                .filter(n -> n.type == NodeType.COMMENT)
-                .sorted(GraphEditor::compareHitOrder)
-                .collect(java.util.stream.Collectors.toList());
-            for (var n2 : commentCandidates) {
-                float sx2 = c2sX(n2.x), sy2 = c2sY(n2.y);
-                float sw2 = n2.commentWidth * zoom, sh2 = n2.commentHeight * zoom;
-                if (mx < sx2 || mx > sx2 + sw2 || my < sy2 || my > sy2 + sh2) continue;
-                float locX = (float)(mx - sx2) / zoom;
-                float locY = (float)(my - sy2) / zoom;
-                boolean onResize = locX > n2.commentWidth - 22 && locY > n2.commentHeight - 22;
-                boolean onColorDot = locX < 18 && locY < 18;
-                // Scrollbar thumb drag — check before resize for better UX
-                if (!panOnlyClick && !n2.displayText.isEmpty()) {
-                    float headerH2 = Math.max(6f, 12f * zoom);
-                    int sbXc = (int) (sx2 + sw2 - 10 * zoom);
-                    int sbYc = (int) (sy2 + headerH2 + 4 * zoom);
-                    int sbHc = (int) (sh2 - headerH2 - 8 * zoom);
-                    int maxTextW2 = Math.max(1, (int) ((sw2 - 26 * zoom) / zoom));
-                    int visibleH2 = Math.max(1, (int) ((sh2 - 16 * zoom) / zoom));
-                    int maxVis2b = Math.max(1, visibleH2 / 12);
-                    int totalWraps2b = countWrappedLines(n2.displayText, maxTextW2);
-                    int scrollMax2b = Math.max(0, totalWraps2b - maxVis2b);
-                    if (scrollMax2b > 0 && mx >= sbXc && mx <= sbXc + Math.max(2, (int)(6 * zoom))
-                        && my >= sbYc && my <= sbYc + sbHc) {
-                        float thumbH2b = Math.max(12 * zoom, (float) maxVis2b / totalWraps2b * sbHc);
-                        float thumbYc = sbYc + (float) n2.commentScrollOff / scrollMax2b * (sbHc - thumbH2b);
-                        if (my >= thumbYc && my <= thumbYc + thumbH2b) {
-                            scrollingComment = n2;
-                            scrollDragStartY = (float) my;
-                            scrollDragStartOff = n2.commentScrollOff;
-                            return true;
-                        }
-                    }
-                }
-                // Resize handle (bottom-right) — checked after scrollbar
-                if (onResize && !panOnlyClick) {
-                    resizingComment = n2; resizeStartW = n2.commentWidth; resizeStartH = n2.commentHeight;
-                    // Capture contained node positions before resize for undo
-                    resizeStartNodePositions.clear();
-                    var depthMap2 = new java.util.HashMap<GraphNode, Integer>();
-                    collectContainedNodesDepth(n2, depthMap2, 0);
-                    for (var cn2 : depthMap2.keySet())
-                        resizeStartNodePositions.put(cn2.id, new float[]{cn2.x, cn2.y});
-                    return true;
-                }
-                // Edit button (top-right 14x14) — open 3-color edit panel
-                if (onColorDot && !panOnlyClick) {
-                    editingCommentColorNode = n2;
-                    // Capture old colors for undo (saved per-change in recordOp)
-                    // 捕获旧颜色用于撤销（每次变更时在 recordOp 中保存）
-                    final int[] oldColors = {
-                        n2.commentBgColor, n2.commentBorderColor, n2.commentTextColor
-                    };
-                    commentButtons = new ColorPickerButton[3];
-                    for (int ci = 0; ci < 3; ci++) {
-                        final int idx = ci;
-                        commentButtons[ci] = new ColorPickerButton(
-                            () -> {
-                                if (editingCommentColorNode == null) return 0xFF000000;
-                                return switch (idx) {
-                                    case 0 -> editingCommentColorNode.commentBgColor;
-                                    case 1 -> editingCommentColorNode.commentBorderColor;
-                                    case 2 -> editingCommentColorNode.commentTextColor;
-                                    default -> 0xFF000000;
-                                };
-                            },
-                            c -> {
-                                if (editingCommentColorNode == null) return;
-                                // Save pre-change color for undo / 保存变更前颜色用于撤销
-                                int oldC = switch (idx) {
-                                    case 0 -> editingCommentColorNode.commentBgColor;
-                                    case 1 -> editingCommentColorNode.commentBorderColor;
-                                    case 2 -> editingCommentColorNode.commentTextColor;
-                                    default -> 0;
-                                };
-                                switch (idx) {
-                                    case 0 -> editingCommentColorNode.commentBgColor = c;
-                                    case 1 -> editingCommentColorNode.commentBorderColor = c;
-                                    case 2 -> editingCommentColorNode.commentTextColor = c;
-                                }
-                                markDirty();
-                                var ccOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(
-                                    host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id,
-                                    editingCommentColorNode.commentBgColor,
-                                    editingCommentColorNode.commentBorderColor,
-                                    editingCommentColorNode.commentTextColor,
-                                    host.getPlayerUUID());
-                                host.sendOp(ccOp); recordOp(ccOp,
-                                    oldColors[0], oldColors[1], oldColors[2], null);
-                            },
-                            colorPicker
-                        );
-                    }
-                    // Auto-open picker alongside comment popup
-                    openColorPickerForComment(0);
-                    lastClickNodeId = -1;
-                    return true;
-                }
-                // Body double-click → toggle expand (works regardless of expand state)
-                long now2 = System.currentTimeMillis();
-                if (!panOnlyClick && n2.id == lastClickNodeId && (now2 - lastClickTimeMs) < 400) {
-                    toggleExpand(n2);
-                    lastClickNodeId = -1;
-                    return true;
-                }
-                lastClickTimeMs = now2; lastClickNodeId = n2.id;
-                // Only drag by header bar; expanded comments stay expanded — absorb click
-                if (hitIsNonComment) continue;
-                if (presence.isNodeLockedByOther(n2.id, ownerNodeId())) continue; // soft lock (same scope only)
-                if (expandedNodeIds.contains(n2.id)) {
-                    // 展开注释的正文就是编辑区 —— 平移键既不平移也不选中。
-                    // An expanded comment's body IS its edit area — the pan button neither pans nor selects.
-                    if (panOnlyClick) continue;
-                    // Keep this comment focused, don't let click fall through to nodes behind
-                    if (selectedNode != n2) {
-                        selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
-                    }
-                    return true;
-                }
-                // Header bar in local coords: headerH/zoom pixels from the top edge
-                float commentHeaderLocal = Math.max(6f / zoom, 12f);
-                boolean inCommentHeader = locY >= 0 && locY < commentHeaderLocal;
-                if (!inCommentHeader) {
-                    // 非平移键（重绑后的左键）点正文：只选中，不平移。
-                    // Non-pan button (left click after a rebind): select only, no panning.
-                    if (btn != EditorKeys.mouseButton(EditorKeys.Action.PAN)) {
-                        if (selectedNode != n2) {
-                            selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
-                        }
-                        return true;
-                    }
-                    // 平移键（默认左键）点正文：选中并允许平移穿过；
-                    // 重绑后（panOnlyClick）只平移不选中。
-                    // Pan button (left by default): a body click selects and lets panning
-                    // through; when rebound (panOnlyClick) it pans without selecting.
-                    if (!panOnlyClick && selectedNode != n2) {
-                        selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
-                    }
-                    panning = true; panLastX = (float) mx; panLastY = (float) my;
-                    return true;
-                }
-                // 标题栏等 chrome 只认左键 —— 平移键不拖动注释。
-                // Header chrome is left-button only — the pan button never drags a comment.
-                if (panOnlyClick) continue;
-                // Header click → drag / select
-                if (!tabHeld) {
-                    if (selectedNode != n2) { selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2); }
-                } else {
-                    if (selectedNodes.contains(n2)) selectedNodes.remove(n2);
-                    else selectedNodes.add(n2);
-                    selectedNode = selectedNodes.isEmpty() ? null : selectedNodes.iterator().next();
-                    if (selectedNodes.isEmpty()) {
-                        // 平移只在平移键上启动 —— 重绑后左键清空多选不再引发粘滞平移。
-                        // Panning starts on the pan button only — after a rebind, emptying the
-                        // multi-selection with left-click no longer causes sticky panning.
-                        if (btn == EditorKeys.mouseButton(EditorKeys.Action.PAN)) {
-                            panning = true; panLastX = (float)mx; panLastY = (float)my;
-                        }
-                        return true;
-                    }
-                }
-                // Start drag with parent-move snapshot + z-order top
-                beginUndoBatch(); // batch all contained-node moves + comment move as one undo unit
-                preDragSortB = n2.sortB;
-                // Pin contained nodes with depth-based B: outermost=lowest B
-                // (rendered first=behind), innermost=highest B (rendered last=on top)
-                preDragSortBs.clear();
-                containedDragNodes.clear();
-                containedOrigins.clear();
-                var depthMap = new java.util.HashMap<GraphNode, Integer>();
-                collectContainedNodesDepth(n2, depthMap, 1);
-                containedDragNodes.addAll(depthMap.keySet());
-                for (var cn : depthMap.keySet())
-                    containedOrigins.put(cn.id, new float[]{cn.x, cn.y});
-                int maxDepth = depthMap.values().stream().mapToInt(Integer::intValue).max().orElse(0);
-                for (var e : depthMap.entrySet()) {
-                    GraphNode cn = e.getKey();
-                    int depth = e.getValue();
-                    preDragSortBs.put(cn, cn.sortB);  // save original
-                    cn.sortB = Integer.MAX_VALUE - (maxDepth - depth + 1);
-                }
-                // Outermost comment = lowest B (MAX_VALUE - maxDepth - 1)
-                n2.sortB = Integer.MAX_VALUE - maxDepth - 2;
-                draggingNode = n2; dragOffX = n2.x - s2cX(mx); dragOffY = n2.y - s2cY(my);
-                preDragX = n2.x; preDragY = n2.y; // for undo
-                return true;
-            }
-            // BUS_IN edit area output pins — spatial-index aware for occlusion
-            // （重绑平移键：跳过引脚连线拖动 / rebound pan button: skip pin wire drags）
-            var pinCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my));
-            if (panOnlyClick) pinCandidates.clear();
-            pinCandidates.sort(GraphEditor::compareHitOrder);
-            for (var node : pinCandidates) {
-                if (node.type != NodeType.BUS_IN || !expandedNodeIds.contains(node.id) || node.signalBands == null) continue;
-                float sx = c2sX(node.x), sy = c2sY(node.y);
-                int nw = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(node);
-                for (int i = 0; i < node.signalBands.size(); i++) {
-                    float py = sy + bandPinY(node, i, zoom) * zoom;
-                    float pinCenterX = sx + (nw - 12) * zoom; // EditPanel 引脚绘于 px+pw-12=128 (EditPanel pin drawn at px+pw-12)
-                    if (Math.abs(mx - pinCenterX) < 8 && Math.abs(my - py) < PH * zoom / 2f + 2) {
-                        draggingWire = true; wireFromNode = node.id; wireFromPin = i;
-                        wireEndX = s2cX(mx); wireEndY = s2cY(my); return true;
-                    }
-                }
-            }
-            // Wire drag — node body output pins, z-order aware
-            for (var node : pinCandidates) {
-                // 渲染器不绘制 SPEED_CTRL/DEBUG_PROBE 的输出引脚,命中检测必须一致——否则出现可拖连线的隐形引脚
-                // The renderer draws no output pins for SPEED_CTRL/DEBUG_PROBE — hit testing must match,
-                // otherwise an invisible pin could start a wire drag
-                if (node.type == NodeType.SPEED_CTRL || node.type == NodeType.DEBUG_PROBE) continue;
-                float sx = c2sX(node.x), sy = c2sY(node.y);
-                int nw = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(node);
-                for (int i = 0; i < node.outputs(); i++) {
-                    float py = sy + HH * zoom + PH * zoom * (node.functionalInputs() + i) + PH * zoom / 2f;
-                    if (Math.abs(mx - (sx + nw * zoom)) < 8 && Math.abs(my - py) < PH * zoom / 2f + 2) {
-                        draggingWire = true; wireFromNode = node.id; wireFromPin = i;
-                        wireEndX = s2cX(mx); wireEndY = s2cY(my); return true;
-                    }
-                }
-            }
-            // 点击节点（不含 ▶/▼ 区域） (Click node, excluding expand indicator area)
-            // 重绑平移键：不选中不拖动节点 —— 命中与否由下方非空判断统一处理。
-            // Rebound pan button: never selects or drags a node — handled by the
-            // not-blank guard below.
-            var hit = panOnlyClick ? null : hitNode(mx,my);
-            if(hit!=null && presence.isNodeLockedByOther(hit.id, ownerNodeId())) hit = null; // soft lock (same scope only)
-            if(hit!=null){
-                // 仅在非 ▶/▼ 区域允许拖拽 (Only allow drag outside the expand indicator area)
-                float sy=c2sY(hit.y);
-                boolean inHeader = my>=sy && my<=sy+HH*zoom+4;
-                if (inHeader) {
-                    preDragSortB = hit.sortB;
-                    hit.sortB = Integer.MAX_VALUE;
-                    draggingNode=hit; dragOffX=hit.x-s2cX(mx); dragOffY=hit.y-s2cY(my);
-                    preDragX = hit.x; preDragY = hit.y; // for undo
-                    preDragPositions.clear();
-                    for (var sn : selectedNodes) {
-                        if (sn != hit) preDragPositions.put(sn.id, new float[]{sn.x, sn.y});
-                    }
-                }
-                if (selectedNode != hit) {
-                    selectedNode=hit; selectedNodes.clear(); selectedNodes.add(hit);
-                    syncEditStateToSelection(); // 切换选中节点后，清掉旧节点的控件状态（新节点保持聚焦）
-                }
-                return true;
-            }
-            // 重绑平移键停在节点/注释上（非空白、非注释体）→ 什么都不做。
-            // The rebound pan button over a node/comment (not blank, not a comment body) → no-op.
-            if (panOnlyClick && nonCommentHit != null) return true;
-            // 点击空白区域 → 先提交未保存的 busBox（回车以外的提交途径），再取消选中。
-            // 修复：原逻辑 syncEditStateToSelection 先清除所有控件 focus，导致后续
-            // busBox.isFocused() 检查失败，点击空白处提交无反应。
-            // Click empty area -> commit any unsaved busBox FIRST (the non-Enter commit
-            // path), then deselect. Fix: syncEditStateToSelection used to clear every
-            // control's focus first, so the later busBox.isFocused() check failed and
-            // clicking empty did nothing. Use a snapshot copy because commitBusBox
-            // rebuilds the edit state (modifies nodeEditStatesById) during iteration.
-            // （重绑平移键：跳过 busBox 提交与取消选中 —— 纯平移无副作用）
-            // (Rebound pan button: skip busBox commits & deselection — panning only, no side effects)
-            if (!panOnlyClick) {
-                for (var st : java.util.List.copyOf(nodeEditStatesById.values())) {
-                    // 不依赖 isFocused()：mouseClicked 更早的编辑框处理已 setFocused(false)。
-                    // 只要 busBox 值 != 当前 signalName（用户改了名未提交），点击空白即提交。
-                    // Do not rely on isFocused(): earlier edit-box handling in mouseClicked
-                    // already cleared focus. Commit whenever the box value differs from the
-                    // node's signalName (the user typed a new name but didn't Enter).
-                    if (st.busBox != null && st.busNode != null
-                        && !st.busBox.getValue().equals(st.busNode.signalName)) {
-                        bus.commitBusBox(st);
-                    }
-                }
-                selectedNodes.clear(); selectedNode=null;
-                syncEditStateToSelection(); // 取消选中后，同步清掉所有节点的控件状态
-            }
-            // 平移只在平移键上启动（默认左键，可重绑）——重绑后左键点空白不再平移。
-            // Panning starts on the pan button only (left by default, rebindable) — after a
-            // rebind, left-click on blank canvas no longer pans.
-            if (btn == EditorKeys.mouseButton(EditorKeys.Action.PAN)) {
-                panning=true; panLastX=(float)mx; panLastY=(float)my;
-            }
+        var nonCommentHit = hitNode(mx, my);
+        if (tryCommentClick(mx, my, btn, panOnlyClick, nonCommentHit)) return true;
+        if (tryWirePinClick(mx, my, panOnlyClick)) return true;
+        if (tryNodeClickAndBlank(mx, my, btn, panOnlyClick, nonCommentHit)) return true;
         }
         // busBox 失焦提交（在按钮处理之后，避免 createEditState 冲掉频段编辑） (busBox focus-lost commit, after button handling to avoid createEditState overwriting band edits)
         // 注：已提交的 busBox 不再 isFocused，此循环无副作用；保留以防其他路径需要。
@@ -2507,6 +1567,1049 @@ public class GraphEditor {
             if (st.busBox != null && st.busBox.isFocused() && !st.busBox.getValue().equals(st.busNode.signalName))
                 { bus.commitBusBox(st); break; }
         }
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryNodeClickAndBlank(double mx, double my, int btn, boolean panOnlyClick, GraphNode nonCommentHit) {
+    // 点击节点（不含 ▶/▼ 区域） (Click node, excluding expand indicator area)
+    // 重绑平移键：不选中不拖动节点 —— 命中与否由下方非空判断统一处理。
+    // Rebound pan button: never selects or drags a node — handled by the
+    // not-blank guard below.
+    var hit = panOnlyClick ? null : hitNode(mx,my);
+    if(hit!=null && presence.isNodeLockedByOther(hit.id, ownerNodeId())) hit = null; // soft lock (same scope only)
+    if(hit!=null){
+        // 仅在非 ▶/▼ 区域允许拖拽 (Only allow drag outside the expand indicator area)
+        float sy=c2sY(hit.y);
+        boolean inHeader = my>=sy && my<=sy+HH*zoom+4;
+        if (inHeader) {
+            preDragSortB = hit.sortB;
+            hit.sortB = Integer.MAX_VALUE;
+            draggingNode=hit; dragOffX=hit.x-s2cX(mx); dragOffY=hit.y-s2cY(my);
+            preDragX = hit.x; preDragY = hit.y; // for undo
+            preDragPositions.clear();
+            for (var sn : selectedNodes) {
+                if (sn != hit) preDragPositions.put(sn.id, new float[]{sn.x, sn.y});
+            }
+        }
+        if (selectedNode != hit) {
+            selectedNode=hit; selectedNodes.clear(); selectedNodes.add(hit);
+            syncEditStateToSelection(); // 切换选中节点后，清掉旧节点的控件状态（新节点保持聚焦）
+        }
+        return true;
+    }
+    // 重绑平移键停在节点/注释上（非空白、非注释体）→ 什么都不做。
+    // The rebound pan button over a node/comment (not blank, not a comment body) → no-op.
+    if (panOnlyClick && nonCommentHit != null) return true;
+    // 点击空白区域 → 先提交未保存的 busBox（回车以外的提交途径），再取消选中。
+    // 修复：原逻辑 syncEditStateToSelection 先清除所有控件 focus，导致后续
+    // busBox.isFocused() 检查失败，点击空白处提交无反应。
+    // Click empty area -> commit any unsaved busBox FIRST (the non-Enter commit
+    // path), then deselect. Fix: syncEditStateToSelection used to clear every
+    // control's focus first, so the later busBox.isFocused() check failed and
+    // clicking empty did nothing. Use a snapshot copy because commitBusBox
+    // rebuilds the edit state (modifies nodeEditStatesById) during iteration.
+    // （重绑平移键：跳过 busBox 提交与取消选中 —— 纯平移无副作用）
+    // (Rebound pan button: skip busBox commits & deselection — panning only, no side effects)
+    if (!panOnlyClick) {
+        for (var st : java.util.List.copyOf(nodeEditStatesById.values())) {
+            // 不依赖 isFocused()：mouseClicked 更早的编辑框处理已 setFocused(false)。
+            // 只要 busBox 值 != 当前 signalName（用户改了名未提交），点击空白即提交。
+            // Do not rely on isFocused(): earlier edit-box handling in mouseClicked
+            // already cleared focus. Commit whenever the box value differs from the
+            // node's signalName (the user typed a new name but didn't Enter).
+            if (st.busBox != null && st.busNode != null
+                && !st.busBox.getValue().equals(st.busNode.signalName)) {
+                bus.commitBusBox(st);
+            }
+        }
+        selectedNodes.clear(); selectedNode=null;
+        syncEditStateToSelection(); // 取消选中后，同步清掉所有节点的控件状态
+    }
+    // 平移只在平移键上启动（默认左键，可重绑）——重绑后左键点空白不再平移。
+    // Panning starts on the pan button only (left by default, rebindable) — after a
+    // rebind, left-click on blank canvas no longer pans.
+    if (btn == EditorKeys.mouseButton(EditorKeys.Action.PAN)) {
+        panning=true; panLastX=(float)mx; panLastY=(float)my;
+    }
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryWirePinClick(double mx, double my, boolean panOnlyClick) {
+    // BUS_IN edit area output pins — spatial-index aware for occlusion
+    // （重绑平移键：跳过引脚连线拖动 / rebound pan button: skip pin wire drags）
+    var pinCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my));
+    if (panOnlyClick) pinCandidates.clear();
+    pinCandidates.sort(GraphEditor::compareHitOrder);
+    for (var node : pinCandidates) {
+        if (node.type != NodeType.BUS_IN || !expandedNodeIds.contains(node.id) || node.signalBands == null) continue;
+        float sx = c2sX(node.x), sy = c2sY(node.y);
+        int nw = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(node);
+        for (int i = 0; i < node.signalBands.size(); i++) {
+            float py = sy + bandPinY(node, i, zoom) * zoom;
+            float pinCenterX = sx + (nw - 12) * zoom; // EditPanel 引脚绘于 px+pw-12=128 (EditPanel pin drawn at px+pw-12)
+            if (Math.abs(mx - pinCenterX) < 8 && Math.abs(my - py) < PH * zoom / 2f + 2) {
+                draggingWire = true; wireFromNode = node.id; wireFromPin = i;
+                wireEndX = s2cX(mx); wireEndY = s2cY(my); return true;
+            }
+        }
+    }
+    // Wire drag — node body output pins, z-order aware
+    for (var node : pinCandidates) {
+        // 渲染器不绘制 SPEED_CTRL/DEBUG_PROBE 的输出引脚,命中检测必须一致——否则出现可拖连线的隐形引脚
+        // The renderer draws no output pins for SPEED_CTRL/DEBUG_PROBE — hit testing must match,
+        // otherwise an invisible pin could start a wire drag
+        if (node.type == NodeType.SPEED_CTRL || node.type == NodeType.DEBUG_PROBE) continue;
+        float sx = c2sX(node.x), sy = c2sY(node.y);
+        int nw = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(node);
+        for (int i = 0; i < node.outputs(); i++) {
+            float py = sy + HH * zoom + PH * zoom * (node.functionalInputs() + i) + PH * zoom / 2f;
+            if (Math.abs(mx - (sx + nw * zoom)) < 8 && Math.abs(my - py) < PH * zoom / 2f + 2) {
+                draggingWire = true; wireFromNode = node.id; wireFromPin = i;
+                wireEndX = s2cX(mx); wireEndY = s2cY(my); return true;
+            }
+        }
+    }
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryCommentClick(double mx, double my, int btn, boolean panOnlyClick, GraphNode nonCommentHit) {
+    // ── Comment node interaction / 注释节点交互 ──
+    // Only handle clicks on COMMENT chrome (resize, color dot) or
+    // body clicks — spatial-index candidates sorted by compareHitOrder
+    // (A=3 nodes first, then A=1 comments by B descending = innermost first)
+    boolean hitIsNonComment = nonCommentHit != null && nonCommentHit.type != NodeType.COMMENT;
+    var commentCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my)).stream()
+        .filter(n -> n.type == NodeType.COMMENT)
+        .sorted(GraphEditor::compareHitOrder)
+        .collect(java.util.stream.Collectors.toList());
+    for (var n2 : commentCandidates) {
+        float sx2 = c2sX(n2.x), sy2 = c2sY(n2.y);
+        float sw2 = n2.commentWidth * zoom, sh2 = n2.commentHeight * zoom;
+        if (mx < sx2 || mx > sx2 + sw2 || my < sy2 || my > sy2 + sh2) continue;
+        float locX = (float)(mx - sx2) / zoom;
+        float locY = (float)(my - sy2) / zoom;
+        boolean onResize = locX > n2.commentWidth - 22 && locY > n2.commentHeight - 22;
+        boolean onColorDot = locX < 18 && locY < 18;
+        // Scrollbar thumb drag — check before resize for better UX
+        if (!panOnlyClick && !n2.displayText.isEmpty()) {
+            float headerH2 = Math.max(6f, 12f * zoom);
+            int sbXc = (int) (sx2 + sw2 - 10 * zoom);
+            int sbYc = (int) (sy2 + headerH2 + 4 * zoom);
+            int sbHc = (int) (sh2 - headerH2 - 8 * zoom);
+            int maxTextW2 = Math.max(1, (int) ((sw2 - 26 * zoom) / zoom));
+            int visibleH2 = Math.max(1, (int) ((sh2 - 16 * zoom) / zoom));
+            int maxVis2b = Math.max(1, visibleH2 / 12);
+            int totalWraps2b = countWrappedLines(n2.displayText, maxTextW2);
+            int scrollMax2b = Math.max(0, totalWraps2b - maxVis2b);
+            if (scrollMax2b > 0 && mx >= sbXc && mx <= sbXc + Math.max(2, (int)(6 * zoom))
+                && my >= sbYc && my <= sbYc + sbHc) {
+                float thumbH2b = Math.max(12 * zoom, (float) maxVis2b / totalWraps2b * sbHc);
+                float thumbYc = sbYc + (float) n2.commentScrollOff / scrollMax2b * (sbHc - thumbH2b);
+                if (my >= thumbYc && my <= thumbYc + thumbH2b) {
+                    scrollingComment = n2;
+                    scrollDragStartY = (float) my;
+                    scrollDragStartOff = n2.commentScrollOff;
+                    return true;
+                }
+            }
+        }
+        // Resize handle (bottom-right) — checked after scrollbar
+        if (onResize && !panOnlyClick) {
+            resizingComment = n2; resizeStartW = n2.commentWidth; resizeStartH = n2.commentHeight;
+            // Capture contained node positions before resize for undo
+            resizeStartNodePositions.clear();
+            var depthMap2 = new java.util.HashMap<GraphNode, Integer>();
+            collectContainedNodesDepth(n2, depthMap2, 0);
+            for (var cn2 : depthMap2.keySet())
+                resizeStartNodePositions.put(cn2.id, new float[]{cn2.x, cn2.y});
+            return true;
+        }
+        // Edit button (top-right 14x14) — open 3-color edit panel
+        if (onColorDot && !panOnlyClick) {
+            editingCommentColorNode = n2;
+            // Capture old colors for undo (saved per-change in recordOp)
+            // 捕获旧颜色用于撤销（每次变更时在 recordOp 中保存）
+            final int[] oldColors = {
+                n2.commentBgColor, n2.commentBorderColor, n2.commentTextColor
+            };
+            commentButtons = new ColorPickerButton[3];
+            for (int ci = 0; ci < 3; ci++) {
+                final int idx = ci;
+                commentButtons[ci] = new ColorPickerButton(
+                    () -> {
+                        if (editingCommentColorNode == null) return 0xFF000000;
+                        return switch (idx) {
+                            case 0 -> editingCommentColorNode.commentBgColor;
+                            case 1 -> editingCommentColorNode.commentBorderColor;
+                            case 2 -> editingCommentColorNode.commentTextColor;
+                            default -> 0xFF000000;
+                        };
+                    },
+                    c -> {
+                        if (editingCommentColorNode == null) return;
+                        // Save pre-change color for undo / 保存变更前颜色用于撤销
+                        int oldC = switch (idx) {
+                            case 0 -> editingCommentColorNode.commentBgColor;
+                            case 1 -> editingCommentColorNode.commentBorderColor;
+                            case 2 -> editingCommentColorNode.commentTextColor;
+                            default -> 0;
+                        };
+                        switch (idx) {
+                            case 0 -> editingCommentColorNode.commentBgColor = c;
+                            case 1 -> editingCommentColorNode.commentBorderColor = c;
+                            case 2 -> editingCommentColorNode.commentTextColor = c;
+                        }
+                        markDirty();
+                        var ccOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(
+                            host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id,
+                            editingCommentColorNode.commentBgColor,
+                            editingCommentColorNode.commentBorderColor,
+                            editingCommentColorNode.commentTextColor,
+                            host.getPlayerUUID());
+                        host.sendOp(ccOp); recordOp(ccOp,
+                            oldColors[0], oldColors[1], oldColors[2], null);
+                    },
+                    colorPicker
+                );
+            }
+            // Auto-open picker alongside comment popup
+            openColorPickerForComment(0);
+            lastClickNodeId = -1;
+            return true;
+        }
+        // Body double-click → toggle expand (works regardless of expand state)
+        long now2 = System.currentTimeMillis();
+        if (!panOnlyClick && n2.id == lastClickNodeId && (now2 - lastClickTimeMs) < 400) {
+            toggleExpand(n2);
+            lastClickNodeId = -1;
+            return true;
+        }
+        lastClickTimeMs = now2; lastClickNodeId = n2.id;
+        // Only drag by header bar; expanded comments stay expanded — absorb click
+        if (hitIsNonComment) continue;
+        if (presence.isNodeLockedByOther(n2.id, ownerNodeId())) continue; // soft lock (same scope only)
+        if (expandedNodeIds.contains(n2.id)) {
+            // 展开注释的正文就是编辑区 —— 平移键既不平移也不选中。
+            // An expanded comment's body IS its edit area — the pan button neither pans nor selects.
+            if (panOnlyClick) continue;
+            // Keep this comment focused, don't let click fall through to nodes behind
+            if (selectedNode != n2) {
+                selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
+            }
+            return true;
+        }
+        // Header bar in local coords: headerH/zoom pixels from the top edge
+        float commentHeaderLocal = Math.max(6f / zoom, 12f);
+        boolean inCommentHeader = locY >= 0 && locY < commentHeaderLocal;
+        if (!inCommentHeader) {
+            // 非平移键（重绑后的左键）点正文：只选中，不平移。
+            // Non-pan button (left click after a rebind): select only, no panning.
+            if (btn != EditorKeys.mouseButton(EditorKeys.Action.PAN)) {
+                if (selectedNode != n2) {
+                    selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
+                }
+                return true;
+            }
+            // 平移键（默认左键）点正文：选中并允许平移穿过；
+            // 重绑后（panOnlyClick）只平移不选中。
+            // Pan button (left by default): a body click selects and lets panning
+            // through; when rebound (panOnlyClick) it pans without selecting.
+            if (!panOnlyClick && selectedNode != n2) {
+                selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
+            }
+            panning = true; panLastX = (float) mx; panLastY = (float) my;
+            return true;
+        }
+        // 标题栏等 chrome 只认左键 —— 平移键不拖动注释。
+        // Header chrome is left-button only — the pan button never drags a comment.
+        if (panOnlyClick) continue;
+        // Header click → drag / select
+        if (!tabHeld) {
+            if (selectedNode != n2) { selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2); }
+        } else {
+            if (selectedNodes.contains(n2)) selectedNodes.remove(n2);
+            else selectedNodes.add(n2);
+            selectedNode = selectedNodes.isEmpty() ? null : selectedNodes.iterator().next();
+            if (selectedNodes.isEmpty()) {
+                // 平移只在平移键上启动 —— 重绑后左键清空多选不再引发粘滞平移。
+                // Panning starts on the pan button only — after a rebind, emptying the
+                // multi-selection with left-click no longer causes sticky panning.
+                if (btn == EditorKeys.mouseButton(EditorKeys.Action.PAN)) {
+                    panning = true; panLastX = (float)mx; panLastY = (float)my;
+                }
+                return true;
+            }
+        }
+        // Start drag with parent-move snapshot + z-order top
+        beginUndoBatch(); // batch all contained-node moves + comment move as one undo unit
+        preDragSortB = n2.sortB;
+        // Pin contained nodes with depth-based B: outermost=lowest B
+        // (rendered first=behind), innermost=highest B (rendered last=on top)
+        preDragSortBs.clear();
+        containedDragNodes.clear();
+        containedOrigins.clear();
+        var depthMap = new java.util.HashMap<GraphNode, Integer>();
+        collectContainedNodesDepth(n2, depthMap, 1);
+        containedDragNodes.addAll(depthMap.keySet());
+        for (var cn : depthMap.keySet())
+            containedOrigins.put(cn.id, new float[]{cn.x, cn.y});
+        int maxDepth = depthMap.values().stream().mapToInt(Integer::intValue).max().orElse(0);
+        for (var e : depthMap.entrySet()) {
+            GraphNode cn = e.getKey();
+            int depth = e.getValue();
+            preDragSortBs.put(cn, cn.sortB);  // save original
+            cn.sortB = Integer.MAX_VALUE - (maxDepth - depth + 1);
+        }
+        // Outermost comment = lowest B (MAX_VALUE - maxDepth - 1)
+        n2.sortB = Integer.MAX_VALUE - maxDepth - 2;
+        draggingNode = n2; dragOffX = n2.x - s2cX(mx); dragOffY = n2.y - s2cY(my);
+        preDragX = n2.x; preDragY = n2.y; // for undo
+        return true;
+    }
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryTabInteractions(double mx, double my, boolean panOnlyClick, NodeGraph graph) {
+    // TAB+左键 → 连线删除 / 多选 / 框选 (TAB+left-click → connection delete / multi-select / box-select)
+    if (tabHeld && !panOnlyClick) {
+        var hc = hitConn(mx, my);
+        if (hc != null) {
+            graph.removeConnection(hc.fromId, hc.fromPin, hc.toId, hc.toPin);
+            var rcOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(
+                host.getBlockPos(), ownerNodeId(), hc.fromId, hc.fromPin, hc.toId, hc.toPin, host.getPlayerUUID());
+            host.sendOp(rcOp); recordOp(rcOp, hc.fromId, hc.fromPin, hc.toId, null);
+            // 删除参数引脚连线后刷新编辑区（恢复输入框） (Refresh edit area after removing param pin connection, restoring input box)
+            var tn = graph.findNode(hc.toId);
+            if (tn != null && hc.toPin >= tn.functionalInputs() && expandedNodeIds.contains(hc.toId)) {
+                nodeEditStatesById.remove(hc.toId);
+                nodeEditStatesById.put(hc.toId, createEditState(tn));
+            }
+            return true;
+        }
+        var hit = hitNode(mx, my);
+        if (hit != null && selectedNodes.contains(hit)) {
+            multiDragging = true; multiClickedNode = hit; multiDragOrigins.clear();
+            multiCenterX = 0; multiCenterY = 0;
+            for (var sn : selectedNodes) { multiCenterX += sn.x; multiCenterY += sn.y; }
+            multiCenterX /= selectedNodes.size(); multiCenterY /= selectedNodes.size();
+            for (var sn : selectedNodes) multiDragOrigins.put(sn, new float[]{sn.x, sn.y});
+            dragOffX = s2cX(mx) - multiCenterX; dragOffY = s2cY(my) - multiCenterY;
+            return true;
+        }
+        if (hit != null) { selectedNodes.add(hit); selectedNode = hit; return true; }
+        boxSelecting = true; boxSX = boxEX = (float)mx; boxSY = boxEY = (float)my;
+        return true;
+    }
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryExpandedEditAreaClicks(double mx, double my, boolean panOnlyClick, java.util.List<GraphNode> clickCandidates, NodeGraph graph) {
+    // 内联编辑区交互（局部坐标，与 pose 内渲染一致） (Inline edit-area interaction, local coords matching pose rendering)
+    for (var en : getGraph().nodes) {
+        if (panOnlyClick) break; // 重绑平移键不进编辑区交互 / the rebound pan button never enters edit areas
+        if (!expandedNodeIds.contains(en.id)) continue;
+        if (presence.isNodeLockedByOther(en.id, ownerNodeId())) continue; // soft lock (same scope only)
+        // 逐个检查：是否有更高 z-order 的非 Comment 节点实际遮挡了点击位置 (Check: does a higher-z non-Comment node actually occlude the click?)
+        boolean occluded = false;
+        for (var n : clickCandidates) {
+            if (n == en) break; // 到达当前节点，上方无遮挡 (Reached current node, no occluder above)
+            if (n.type == NodeType.COMMENT) continue;
+            float sx = c2sX(n.x), sy = c2sY(n.y);
+            float sw = NodeRenderer.nw(n) * zoom;
+            float nh = NodeRenderer.nh(n) * zoom + 4; // 使用 nh() 含图表区域 / use nh() to include chart area
+            if (expandedNodeIds.contains(n.id)) nh += EditPanel.calcRenderHeight(n, zoom) * zoom;
+            if (mx >= sx && mx <= sx + sw && my >= sy && my <= sy + nh) {
+                occluded = true;
+                break;
+            }
+        }
+        if (occluded) {
+            var st0 = nodeEditStatesById.get(en.id);
+            if (st0 != null) for (var b : st0.fields) b.setFocused(false);
+            continue;
+        }
+        var st = nodeEditStatesById.get(en.id);
+        if (st == null) continue;
+        float nsx = c2sX(en.x), nsy = c2sY(en.y);
+        int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
+        int editLocalY = (int)(NodeRenderer.nh(en) + 4/zoom); // 使用 nh() 含图表区域 / use nh() to include chart area
+        int numRows = st.fields.size();
+        // Frequency slots only exist for REDSTONE_IN/OUT nodes
+        if (en.type == NodeType.REDSTONE_IN || en.type == NodeType.REDSTONE_OUT) {
+            int freqLocalY = editLocalY + 8 + numRows * 18;
+            for (int fi = 0; fi < 2; fi++) {
+                int bx = 4 + fi * 24;
+                if (lmx >= bx && lmx <= bx + 20 && lmy >= freqLocalY && lmy <= freqLocalY + 20)
+                {
+                    // 切换热栏弹窗时，先复位旧节点的高亮态 (Reset old node's highlight when switching hotbar)
+                    if (hotbarNode != null && hotbarNode != en) {
+                        var old = nodeEditStatesById.get(hotbarNode.id);
+                        if (old != null) old.freqSlotSelected = -1;
+                    }
+                    st.freqSlotSelected = fi;
+                    hotbarNode = (hotbarNode == en) ? null : en;
+                    return true;
+                }
+            }
+        }
+        if (en.type == NodeType.BOOL && en.params.length > 0) {
+            int boolLocalY = editLocalY + 4 + numRows * 18;
+            if (lmx >= 4 && lmx <= NW - 4 && lmy >= boolLocalY && lmy <= boolLocalY + 16)
+            { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
+            var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
+                host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
+            host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+            return true; }}
+        if (en.type == NodeType.MOUSE_JOYSTICK && en.params.length > 0) {
+            // Toggle absolute/incremental mode via TOGGLE_BOOL op (same pipeline as BOOL)
+            int mjLocalY = editLocalY + 4 + numRows * 18;
+            if (lmx >= 4 && lmx <= NW - 4 && lmy >= mjLocalY && lmy <= mjLocalY + 16)
+            { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
+            var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
+                host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
+            host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+            return true; }
+        }
+        if (en.type == NodeType.GATE && en.params.length > 0) {
+            int gateLocalY = editLocalY + 4 + numRows * 18;
+            if (lmx >= 4 && lmx <= NW - 4 && lmy >= gateLocalY && lmy <= gateLocalY + 16)
+            { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
+            var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
+                host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
+            host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+            return true; }
+        }
+        if (en.type == NodeType.T_FLIPFLOP && en.params.length > 0) {
+            int ffLocalY = editLocalY + 4 + numRows * 18;
+            if (lmx >= 4 && lmx <= NW - 4 && lmy >= ffLocalY && lmy <= ffLocalY + 16)
+            { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
+            var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
+                host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
+            host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+            return true; }
+        }
+        if (en.type == NodeType.LATCH && en.params.length > 0) {
+            int latchLocalY = editLocalY + 4 + numRows * 18;
+            if (lmx >= 4 && lmx <= NW - 4 && lmy >= latchLocalY && lmy <= latchLocalY + 16)
+            { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
+            var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
+                host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
+            host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+            return true; }
+        }
+        // FORMULA warm 两段式切换（刀5）：摘要行后第一行；求值策略设置、无引脚。
+        // 左半=严格冻结(0)、右半=温启动(1)，SET_PARAM 精确设值（信号发生器模式切换同款 op）。
+        // FORMULA warm segmented toggle (knife 5): first row after the summary; pinless eval-policy
+        // setting. Left = strict freeze (0), right = warm (1) — exact-value SET_PARAM (same op as the
+        // signal generator's mode switch).
+        if (en.type == NodeType.FORMULA && en.params.length > 0) {
+            int warmLocalY = editLocalY + 4 + 18; // 摘要行(row 0)之后 / after the summary row
+            int warmW = NodeRenderer.nw(en); // FORMULA = WIDE_NW / wide node panel width
+            int gap = 4, btnW = (warmW - 12 - gap) / 2;
+            for (int i = 0; i < 2; i++) {
+                int bx = 4 + i * (btnW + gap);
+                if (lmy >= warmLocalY && lmy <= warmLocalY + 16 && lmx >= bx && lmx <= bx + btnW) {
+                    int target = i; // 0=严格冻结 1=温启动 / 0 = strict freeze, 1 = warm
+                    if ((en.params[0] > 0.5f ? 1 : 0) != target) {
+                        float oldWarm = en.params[0];
+                        en.params[0] = target;
+                        var wOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                            host.getBlockPos(), ownerNodeId(), en.id, 0, (float) target, host.getPlayerUUID());
+                        host.sendOp(wOp); recordOp(wOp, 0, 0, oldWarm, null);
+                    }
+                    return true;
+                }
+            }
+        }
+        // BUS_IN/OUT 频段 +/- 按钮（先提交未保存的 busBox，防止名称丢失） (BUS_IN/OUT band +/- buttons; commit unsaved busBox first to avoid name loss)
+        if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
+            // 提交当前节点的 busBox（如有未保存的频道名编辑） (Commit current node's busBox if unsaved channel name edits exist)
+            if (st.busBox != null && st.busNode != null
+                && !st.busBox.getValue().equals(st.busNode.signalName))
+                bus.commitBusBox(st);
+        }
+        if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
+            if (lmx >= st.bandAddBtnX && lmx <= st.bandAddBtnX + st.bandAddBtnW
+                && lmy >= st.bandAddBtnY && lmy <= st.bandAddBtnY + st.bandAddBtnH) {
+                // + 按钮：添加新频段，同步同总线名节点 (+ button: add new band, sync same-bus-name nodes)
+                if (en.signalBands == null) en.signalBands = new java.util.ArrayList<>();
+                String name = "band_" + en.signalBands.size();
+                en.signalBands.add(name);
+                en.bandsDirty = true;
+                bus.syncBusBands(en);
+                if (!en.busConflict)
+                    net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                        new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
+                            host.getBlockPos(), en.signalName, en.signalBands));
+                nodeEditStatesById.put(en.id, createEditState(en));
+                return true;
+            }
+            if (lmx >= st.bandRemoveBtnX && lmx <= st.bandRemoveBtnX + st.bandRemoveBtnW
+                && lmy >= st.bandRemoveBtnY && lmy <= st.bandRemoveBtnY + st.bandRemoveBtnH) {
+                if (en.signalBands != null && !en.signalBands.isEmpty()) {
+                    int removedPin = en.signalBands.size() - 1;
+                    String removedBand = en.signalBands.get(removedPin);
+                    // Remove connections by pinId (band name), not by index.
+                    // 按 pinId（频段名）而非索引清理连线。
+                    graph.connections.removeIf(c ->
+                        (c.fromId == en.id && removedBand.equals(c.fromPinId))
+                        || (c.toId == en.id && removedBand.equals(c.toPinId)));
+                    // Legacy fallback: also remove by index for unmigrated connections
+                    graph.connections.removeIf(c ->
+                        (c.fromId == en.id && c.fromPin == removedPin && c.fromPinId == null)
+                        || (c.toId == en.id && c.toPin == removedPin && c.toPinId == null));
+                    graph.rebuildNodeMap();
+                    graph.rebuildInputCache();
+                    en.signalBands.remove(removedPin);
+                    en.bandsDirty = true;
+                    bus.syncBusBands(en);
+                    if (!en.busConflict)
+                        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                            new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
+                                host.getBlockPos(), en.signalName, en.signalBands));
+                    nodeEditStatesById.put(en.id, createEditState(en));
+                }
+                return true;
+            }
+        }
+        if ((en.type == NodeType.IMAGE || en.type == NodeType.IMAGE_SEQUENCE) && en.params.length > 3) {
+            for (int ti = 0; ti < 2; ti++) {
+                int tgY = editLocalY + 4 + (numRows + ti) * 18;
+                if (lmx >= 4 && lmx <= NW - 4 && lmy >= tgY && lmy <= tgY + 14) {
+                    en.params[3 + ti] = en.params[3 + ti] > 0.5f ? 0 : 1;
+                    var toggleOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                        io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_FRAME_TOGGLE,
+                        host.getBlockPos(), ownerNodeId(), en.id, 0, null, 0f, 0f,
+                        0, 0, 0, 0, 0, 0f, null, 0, 0, 0, 0, null, 0, ti, 0,
+                        net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
+                    host.sendOp(toggleOp); recordOp(toggleOp, 0, 0, 0, null);
+                    return true; }
+            }
+        }
+        if (en.type == NodeType.KEYBOARD || en.type == NodeType.GAMEPAD_BUTTON) {
+            int kbLocalY = editLocalY + 4;
+            if (EditPanel.handleKeyboardClick(en, st, lmx, lmy - kbLocalY, io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(en))) return true;
+        }
+        // DEBUG_SIGNAL_GEN mode toggle buttons
+        if (en.type == NodeType.DEBUG_SIGNAL_GEN) {
+            String hit = EditPanel.hitModeToggle(0, editLocalY, NodeRenderer.nw(en), en, lmx, lmy);
+            if (hit != null) {
+                handleModeToggleClick(en, st, hit);
+                return true;
+            }
+        }
+        // FORMULA multi-line editor: single MultiLineEditBox covers full edit panel height
+        int enW = io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(en);
+        // EditBox focus/click
+        // FORMULA / COMMENT multi-line editor: MultiLineEditBox covers full edit panel height
+        if (en.type == NodeType.FORMULA || en.type == NodeType.COMMENT) {
+            // 刀5:FORMULA 的 MLE 在摘要行 + warm 参数行之后,偏移 = 4 + (1 + 参数行数) * 18
+            // Knife 5: FORMULA's MLE sits below the summary + warm param rows; offset = 4 + (1 + paramRows) * 18
+            int mleRowOff = en.type == NodeType.FORMULA ? 4 + (1 + en.type.editableParamCount()) * 18 : -1;
+            for (int fi = 0; fi < st.fields.size(); fi++) {
+                var b = st.fields.get(fi);
+                // Check suggestion popup first (rendered on top of the MLE)
+                if (b instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mleBox) {
+                    var popup = mleBox.getSuggestPopup();
+                    if (popup.isVisible()) {
+                        // popup rendered at C=5.5 in screen space → use screen coords
+                        // 候选框在 C=5.5 屏幕空间渲染 → 使用屏幕坐标
+                        String accepted = popup.mouseClicked((int)mx, (int)my);
+                        if (accepted != null) {
+                            b.setFocused(true);
+                            mleBox.replaceCurrentWordForPopup(accepted);
+                            return true;
+                        }
+                        // Click outside popup but on MLE: close popup, don't steal focus
+                        int mleY2, mleH2;
+                        if (en.type == NodeType.COMMENT) {
+                            mleY2 = 6;
+                            mleH2 = Math.round(en.commentHeight) - 12;
+                        } else {
+                            mleY2 = editLocalY + mleRowOff;
+                            mleH2 = Math.max(b.getHeight(), 18);
+                        }
+                        if (lmx >= 0 && lmx <= enW && lmy >= mleY2 && lmy <= mleY2 + mleH2) {
+                            popup.close();
+                            // fall through: let normal MLE handling below focus & position cursor
+                        } else {
+                            continue; // click outside both popup and MLE
+                        }
+                    }
+                }
+                int mleY, mleH;
+                if (en.type == NodeType.COMMENT) {
+                    // MLE fills body minus edit button: X=6..w-18, Y=6, H=body-12
+                    mleY = 6;
+                    mleH = Math.round(en.commentHeight) - 12;
+                    enW = Math.round(en.commentWidth) - 28; // leave room for left button
+                } else {
+                    mleY = editLocalY + mleRowOff;
+                    mleH = Math.max(b.getHeight(), 18);
+                }
+                if (lmx >= 0 && lmx <= enW && lmy >= mleY && lmy <= mleY + mleH) {
+                    b.setFocused(true);
+                    // MLE coordinates are graph-space; convert mouse to graph-space
+                    // MLE 坐标为图空间，将鼠标转换为图空间坐标
+                    float gx = (float)((mx - nsx) / zoom), gy = (float)((my - nsy) / zoom);
+                    if (b.mouseClicked(gx, gy, 0)) editBoxDragNodeId = en.id;
+                    if (!tabHeld && selectedNode != en) {
+                        selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
+                    }
+                } else b.setFocused(false);
+            }
+        } else if (en.type == NodeType.DEBUG_SIGNAL_GEN) {
+            // EditBox positions match EditPanel.renderAt layout: mode toggles (2 rows) + conditional fields
+            int dsgFieldRow = 2; // mode toggle rows come first
+            int setMode = en.params.length > 0 ? (int) en.params[0] : 0;
+            int outMode = en.params.length > 1 ? (int) en.params[1] : 0;
+            int fieldIdx = 0;
+            // formula field (if SET_FORMULA)
+            if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_FORMULA) {
+                if (fieldIdx < st.fields.size()) {
+                    var b = st.fields.get(fieldIdx);
+                    int fy = editLocalY + 4 + dsgFieldRow * 18;
+                    if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + 18) {
+                        b.setFocused(true); b.mouseClicked(mx, my, 0);
+                        if (!tabHeld && selectedNode != en) {
+                            selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
+                        }
+                    } else b.setFocused(false);
+                    fieldIdx++;
+                }
+                dsgFieldRow++;
+            }
+            // speed (manual+OUT_FREQ), amplitude (manual only)
+            for (int ci = 0; ci < 2; ci++) {
+                boolean visible = switch (ci) {
+                    case 0 -> setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL
+                        && outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ;
+                    case 1 -> setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL;
+                    default -> false;
+                };
+                if (!visible) continue;
+                if (fieldIdx < st.fields.size()) {
+                    var b = st.fields.get(fieldIdx);
+                    int fy = editLocalY + 4 + dsgFieldRow * 18;
+                    if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + 18) {
+                        b.setFocused(true); b.mouseClicked(mx, my, 0);
+                        if (!tabHeld && selectedNode != en) {
+                            selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
+                        }
+                    } else b.setFocused(false);
+                    fieldIdx++;
+                }
+                dsgFieldRow++;
+            }
+            // Unfocus remaining fields
+            while (fieldIdx < st.fields.size()) {
+                st.fields.get(fieldIdx).setFocused(false);
+                fieldIdx++;
+            }
+        } else if (en.type != NodeType.COMMENT) {
+            // Color button click for TEXT/DATA nodes
+            if ((en.type == NodeType.TEXT || en.type == NodeType.DATA) && st.colorButton != null) {
+                // Color swatch is rendered after the generic fields, at row = st.fields.size()
+                int colorFieldRow = st.fields.size();
+                int swatchLabelW = Minecraft.getInstance().font.width(
+                    net.minecraft.client.resources.language.I18n.get("param.create_schematic_compute.color") + ":") + 6;
+                int swatchX = 4 + swatchLabelW;
+                int swatchY = editLocalY + 4 + colorFieldRow * 18;
+                int swatchSize = 16;
+                if (lmx >= swatchX && lmx <= swatchX + swatchSize
+                    && lmy >= swatchY && lmy <= swatchY + swatchSize) {
+                    st.colorButton.setPosition(swatchX, swatchY);
+                    st.colorButton.mouseClicked(lmx, lmy, 0);
+                    return true;
+                }
+            }
+            for (int fi = 0; fi < st.fields.size(); fi++) {
+                var b = st.fields.get(fi);
+                int fy = editLocalY + 4 + fi * 18;
+                if (lmx >= 0 && lmx <= enW && lmy >= fy && lmy <= fy + 18) {
+                    b.setFocused(true); b.mouseClicked(mx, my, 0);
+                    // 点击编辑区时自动选中所属节点 (auto-select owning node on edit-area click)
+                    if (!tabHeld && selectedNode != en) {
+                        selectedNode = en; selectedNodes.clear(); selectedNodes.add(en);
+                    }
+                }
+                else b.setFocused(false);
+            }
+        }
+    }
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private void cancelKeyboardBinding(double mx, double my, int btn) {
+    // KEYBOARD 绑定监听中 → 点击任何地方取消绑定（点击绑定区域本身除外，那里由 edit 区处理） (KEYBOARD binding active → click anywhere to cancel, except on the binding area itself handled by edit panel)
+    if (btn == 0 && !nodeEditStatesById.isEmpty()) {
+        boolean anyListening = false;
+        for (var st : nodeEditStatesById.values()) if (st.listeningForKey) { anyListening = true; break; }
+        if (anyListening) {
+            // 检查是否点击了 KEYBOARD 编辑区域的内联范围 (Check if click is within KEYBOARD's inline edit area)
+            // 如果不是，取消所有监听 (If not, cancel all listening)
+            for (var en : getGraph().nodes) {
+                if (!expandedNodeIds.contains(en.id)) continue;
+                var st = nodeEditStatesById.get(en.id);
+                if (st == null || !st.listeningForKey) continue;
+                float nsx = c2sX(en.x), nsy = c2sY(en.y);
+                int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
+                int editLocalY = (int)(HH + PH*(en.functionalInputs() + en.outputs()) + 4/zoom);
+                int kbLocalY = editLocalY + 4;
+                if (!(lmx >= 4 && lmx <= NW && lmy >= kbLocalY && lmy <= kbLocalY + 18)) {
+                    st.listeningForKey = false;
+                }
+            }
+        }
+    }
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryHotbarPopupClick(double mx, double my, int btn) {
+    // 热栏弹出交互 (Hotbar popup interaction)
+    if (hotbarNode != null && btn == 0) {
+        var mc2 = Minecraft.getInstance();
+        var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
+        float nsx2 = c2sX(hotbarNode.x), nsy2 = c2sY(hotbarNode.y);
+        float nch2 = (HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()))*zoom+4;
+        int numRows2 = st != null ? st.fields.size() : 0;
+        int editLocalY2 = (int)(HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()) + 4/zoom);
+        int freqLocalY2 = editLocalY2 + 4 + numRows2 * 18;
+        float popupY2 = nsy2 + nch2 + (freqLocalY2 - editLocalY2 + 20 + 4) * zoom;
+        int pw2 = 196, ph2 = 36;
+        int px2 = (int)(nsx2 + NW*zoom/2 - pw2/2);
+        int py2 = (int)popupY2;
+        // 点击热栏面板内部 (Click inside hotbar panel)
+        if (mx >= px2 && mx <= px2 + pw2 && my >= py2 && my <= py2 + ph2) {
+            int si = (int)((mx - px2 - 4) / 20);
+            if (si >= 0 && si < 9 && mc2.player != null && hotbarNode.itemParams != null && st != null
+                && st.freqSlotSelected >= 0 && st.freqSlotSelected < hotbarNode.itemParams.length) {
+                var inv = mc2.player.getInventory().items.get(si);
+                var is = inv.isEmpty() ? ItemStack.EMPTY : inv.copy();
+                if (!inv.isEmpty()) is.setCount(1);
+                // Save old item for undo / 保存旧物品用于撤销
+                var oldItem = hotbarNode.itemParams[st.freqSlotSelected];
+                String oldItemNbt = oldItem.isEmpty() ? "" :
+                    oldItem.saveOptional(mc2.level.registryAccess()).toString();
+                hotbarNode.itemParams[st.freqSlotSelected] = is;
+                var hoOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setHotbarItem(
+                    host.getBlockPos(), ownerNodeId(), hotbarNode.id, st.freqSlotSelected, is, host.getPlayerUUID());
+                host.sendOp(hoOp); recordOp(hoOp, 0, 0, 0, oldItemNbt);
+            }
+            hotbarNode = null; // 点击面板内始终关闭 (Always close on click inside panel)
+            return true;
+        }
+        hotbarNode = null; // 点击面板外部 → 关闭 (Click outside panel → close)
+    }
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryAddMenuClick(double mx, double my, int btn, NodeGraph graph) {
+    if(showMenu&&btn==0){
+        // 菜单滚动条拖拽优先（参考书签UI实现）/ menu scrollbar drag first (matching bookmark UI pattern)
+        if (renderer.menuHasScrollbar()) {
+            int[] track = renderer.menuScrollbarTrack();
+            int[] thumb = renderer.menuScrollbarThumb();
+            int maxOff = renderer.menuMaxScrollOff();
+            if (mx >= track[0] && mx <= track[0] + track[2] && my >= track[1] && my <= track[1] + track[3]) {
+                if (my < thumb[0]) { renderer.setMenuScrollOff(renderer.menuScrollOff() - 3 * 14); return true; }
+                else if (my > thumb[0] + thumb[1]) { renderer.setMenuScrollOff(renderer.menuScrollOff() + 3 * 14); return true; }
+                else { scrollingMenu = true; menuScrollDragStartY = (float)my; menuScrollDragStartOff = (int)renderer.menuScrollOff(); return true; }
+            }
+        }
+        if(renderer.handleCategoryClick((int)mx, (int)my)) return true;
+        if(selectedMenuType!=null){
+            if(graph.nodes.size()>=MAX_NODES){
+                cycleWarning=I18n.get("gui.create_schematic_compute.node_limit");
+            }else{
+                var added = graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));
+                rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping
+                var addOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(
+                    host.getBlockPos(), ownerNodeId(), added.id,
+                    selectedMenuType, s2cX(mx), s2cY(my), host.getPlayerUUID());
+                host.sendOp(addOp);
+                recordOp(addOp, 0, 0, added.id, null); // oldVal=localId for pre-ACK undo
+            }
+        }showMenu=false;return true;}
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryChromeClick(double mx, double my, int btn, NodeGraph graph) {
+    if(btn==0){
+        // ── 子图 Back 按钮 ──
+        if (isInSubGraph()) {
+            int bw = 60, bh = 16;
+            int bx = host.asScreen().width - bw - 8, by = TOP_BAR_H + 2;
+            if (mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) {
+                exitSubGraph(); return true;
+            }
+        }
+        // 工具栏按钮（子图模式下隐藏） (Toolbar buttons, hidden in sub-graph mode)
+        if (!isInSubGraph()) {
+            int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : TOP_BAR_H + 2;
+            if(mx>=4&&mx<=22&&my>=btnY&&my<=btnY+18){host.asScreen().onClose();return true;}
+            if(mx>=26&&mx<=78&&my>=btnY&&my<=btnY+18){recompile(graph);return true;}
+            if(mx>=82&&mx<=130&&my>=btnY&&my<=btnY+18){
+                boolean ws=!host.isRunning();
+                if(ws && graph.hasCycles()){cycleWarning=I18n.get("gui.create_schematic_compute.cycle_detected");return true;}
+                cycleWarning=null;
+                host.toggleRunning(ws);
+                return true;
+            }
+            if(mx>=134&&mx<=192&&my>=btnY&&my<=btnY+18){gridSnapEnabled=!gridSnapEnabled;NodeRenderer.saveGridSnap(gridSnapEnabled);return true;}
+            // 导入/导出封装节点按钮（仅蓝图计算机） (Import/export encapsulation node button, Blueprint computer only)
+            if (host instanceof BlueprintScreen && mx >= 196 && mx <= 268 && my >= btnY && my <= btnY + 18) {
+                boolean hasEncapSelected = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
+                if (hasEncapSelected) {
+                    showExportDialog = true;
+                    String defName = selectedNode.displayText.isEmpty() ? "encap" : selectedNode.displayText;
+                    exportNameEdit = new EditBox(Minecraft.getInstance().font, host.asScreen().width / 2 - 80, host.asScreen().height / 2 - 10, 160, 20, Component.literal(defName));
+                    exportNameEdit.setValue(defName);
+                    exportNameEdit.setFocused(true);
+                } else {
+                    showImportDialog = true;
+                    importScrollOff = 0;
+                    try {
+                        var dir = getExportPath().getParent();
+                        if (Files.exists(dir)) {
+                            try (var s = Files.list(dir)) {
+                                importFiles = s.filter(p -> p.toString().endsWith(".nbt")).sorted().toList();
+                            }
+                        } else importFiles = java.util.Collections.emptyList();
+                    } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.warn("Failed to list import files: {}", e.getMessage()); importFiles = java.util.Collections.emptyList(); }
+                }
+                return true;
+            }
+        }
+        // 右下角书签按钮（在三角形上方；已拆至 GraphViewBookmarks / split into GraphViewBookmarks）
+        if (viewBookmarks.handleBookmarkButtonToggle(mx, my)) return true;
+        // 右下角工具栏位置切换按钮（始终可见） (Bottom-right toolbar position toggle, always visible)
+        { int w = host.asScreen().width, h = host.asScreen().height;
+          if(mx>=w-22&&mx<=w-4&&my>=h-22&&my<=h-4){NodeRenderer.toggleToolbarBottom();return true;} }
+    }
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private void commitFocusedEnterActions() {
+    // 失焦提交：enterActions（频段 EditBox 等通过 enterActions 注册的控件） (Focus-lost commit via enterActions for band EditBoxes etc. registered via enterActions)
+    boolean committed = false;
+    for (var e : enterActions.entrySet()) {
+        if (e.getKey().isFocused()) { e.getValue().run(); committed = true; break; }
+    }
+    if (committed) markDirty();
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryImportDialogClick(double mx, double my, int btn) {
+    // ── 导入对话框处理 ──
+    if (showImportDialog && btn == 0) {
+        int w = 280, visRows = 8;
+        int fileCount = importFiles != null ? importFiles.size() : 0;
+        int listH = Math.min(fileCount, visRows) * 18;
+        int h = 56 + listH + 30;
+        int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
+        // Cancel 按钮
+        int cby = cy + h - 22;
+        if (mx >= cx + 8 && mx <= cx + 58 && my >= cby && my <= cby + 16) {
+            showImportDialog = false; importFiles = null; return true;
+        }
+        // 点击对话框外部 (Click outside dialog)
+        if (mx < cx || mx > cx + w || my < cy || my > cy + h) {
+            showImportDialog = false; importFiles = null; return true;
+        }
+        // 滚动条拖动 (Scrollbar drag)
+        if (fileCount > 0) {
+            int listY2 = cy + 28, sbX2 = cx + w - 14;
+            int maxScroll2 = Math.max(0, fileCount - visRows);
+            if (maxScroll2 > 0) {
+                int sbH2 = visRows * 18;
+                float thumbY2 = listY2 + (float) importScrollOff / maxScroll2 * (sbH2 - 12);
+                if (mx >= sbX2 && mx <= sbX2 + 8 && my >= (int) thumbY2 && my <= (int) thumbY2 + 12) {
+                    scrollingImport = true;
+                    scrollDragStartY = (float) my;
+                    scrollDragStartOff = importScrollOff;
+                    return true;
+                }
+            }
+        }
+        // 文件列表点击（留出滚动条区域） (File list click, leaving room for scrollbar)
+        if (fileCount > 0) {
+            int endIdx = Math.min(fileCount, importScrollOff + visRows);
+            for (int i = importScrollOff; i < endIdx; i++) {
+                int ry = cy + 28 + (i - importScrollOff) * 18;
+                if (mx >= cx + 4 && mx <= cx + w - 20 && my >= ry && my <= ry + 16) {
+                    importEncapNode(importFiles.get(i));
+                    showImportDialog = false; importFiles = null; return true;
+                }
+            }
+        }
+        return true;
+    }
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryExportDialogClick(double mx, double my, int btn) {
+    // ── 导出对话框处理 (Export dialog handling) ──
+    if (showExportDialog && btn == 0) {
+        int w = 280, h = 80;
+        int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
+        // Save 按钮 (Save button)
+        if (mx >= cx + w - 60 && mx <= cx + w - 10 && my >= cy + 24 && my <= cy + 44) {
+            if (exportNameEdit != null && selectedNode != null) {
+                String name = exportNameEdit.getValue().trim();
+                if (!name.isEmpty()) exportEncapNode(selectedNode, name);
+            }
+            showExportDialog = false; exportNameEdit = null; return true;
+        }
+        // Cancel 按钮
+        if (mx >= cx + 8 && mx <= cx + 58 && my >= cy + 50 && my <= cy + 68) {
+            showExportDialog = false; exportNameEdit = null; return true;
+        }
+        // 点击对话框外部 → 关闭 (Click outside dialog → close)
+        if (mx < cx || mx > cx + w || my < cy || my > cy + h) {
+            showExportDialog = false; exportNameEdit = null; return true;
+        }
+        if (exportNameEdit != null) { exportNameEdit.mouseClicked(mx, my, btn); }
+        return true;
+    }
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryCommentColorPopupClick(double mx, double my, int btn) {
+    // ── Comment color edit popup (handled BEFORE picker so buttons can rebind) ──
+    // Comment popup: skip if picker is open and click is on it
+    if (editingCommentColorNode != null && commentButtons != null && btn == 0
+        && !(colorPicker.isVisible() && colorPicker.contains((int)mx, (int)my))) {
+        int pw = 200, ph = 74;
+        int px = 8;
+        int py = Math.max(4, (host.asScreen().height - ph) / 2);
+        if (mx < px || mx > px + pw || my < py || my > py + ph) {
+            closeCommentColorPopup();
+            return true;
+        }
+        // Click inside → delegate to comment buttons, keep picker persistent
+        colorPicker.setPersistent(true);
+        for (int ci = 0; ci < 3; ci++) {
+            if (commentButtons[ci].mouseClicked(mx, my, btn)) return true;
+        }
+        return true;
+    }
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryDebugChartClick(double mx, double my, int btn, NodeGraph graph) {
+    // DEBUG_SIGNAL_GEN 控制点交互（仅在无弹窗时）
+    if (!showExportDialog && !showImportDialog && !colorPicker.isVisible() && editingCommentColorNode == null) {
+        if (btn == 0) {
+            // 1. 控制点命中 → 开始拖拽
+            int[] cpHit = hitControlPoint(mx, my);
+            if (cpHit != null) {
+                draggingCtrlNode = cpHit[0];
+                draggingCtrlIdx = cpHit[1];
+                // Save pre-drag control points for undo / 保存拖拽前控制点用于撤销
+                GraphNode pcn = graph.findNode(cpHit[0]);
+                if (pcn != null && pcn.debugCtrlX != null)
+                    preDragCtrlStr = encodeCtrlPoints(pcn.debugCtrlX, pcn.debugCtrlY);
+                ctrlPointsChanged = true;
+                lastClickMs = 0;
+                return true;
+            }
+            // 1.5. x 标记线命中（OUT_INPUT 模式）→ 开始拖拽
+            int xmNode = hitXMarker(mx, my);
+            if (xmNode >= 0) {
+                draggingXMarkerNode = xmNode;
+                lastClickMs = 0;
+                return true;
+            }
+            // 2. 双击空白处添加控制点（仅在 XY 图区域内）
+            long now = System.currentTimeMillis();
+            boolean isDoubleClick = (now - lastClickMs < 300);
+            lastClickMs = now;
+            if (isDoubleClick) {
+                GraphNode hover = hitNode(mx, my);
+                if (hover != null && hover.type == NodeType.DEBUG_SIGNAL_GEN) {
+                    int hsetMode = hover.params.length > 0 ? (int) hover.params[0] : 0;
+                    if (hsetMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL) {
+                        // 仅在 XY 图区域内添加控制点 / only add within chart area
+                        if (isInChartArea(hover, mx, my)) {
+                            addControlPoint(hover, mx, my);
+                            return true;
+                        }
+                    }
+                }
+                // DEBUG_PROBE 双击切换冻结
+                if (hover != null && hover.type == NodeType.DEBUG_PROBE) {
+                    hover.probeFrozen = !hover.probeFrozen;
+                    return true;
+                }
+            }
+        }
+        if (btn == 1) {
+            int[] cpHit = hitControlPoint(mx, my);
+            if (cpHit != null) {
+                removeControlPoint(graph.findNode(cpHit[0]), cpHit[1]);
+                return true;
+            }
+        }
+    }
+        return false;
+    }
+
+    /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
+     *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    private boolean tryTopBarClick(double mx, double my, int btn) {
+    // ── 顶栏（最上层，先于一切命中检测）──
+    //    Top bar (topmost layer — hit-tested before everything else).
+    if (topBarNameEdit != null && my < TOP_BAR_H) {
+        int sbX = host.asScreen().width - 52;
+        if (mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19) {
+            // 打开独立全屏设置界面。收起其下所有浮层；setScreen 只触发本屏
+            // removed()（不发 LeavePacket），编辑会话保持，返回时 init 幂等重 join。
+            // Open the standalone full-screen settings GUI. Collapse every floating
+            // panel; setScreen only fires this screen's removed() (no LeavePacket),
+            // so the edit session survives and returning re-joins idempotently.
+            showMenu = false;
+            colorPicker.close();
+            openSettingsScreen();
+            return true;
+        }
+        for (var st : nodeEditStatesById.values()) for (var f : st.fields) f.setFocused(false);
+        topBarNameEdit.setFocused(true);
+        topBarNameEdit.mouseClicked(mx, my, btn);
+        return true;
+    }
+    if (topBarNameEdit != null && topBarNameEdit.isFocused()) topBarNameEdit.setFocused(false);
         return false;
     }
 
