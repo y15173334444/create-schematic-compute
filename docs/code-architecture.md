@@ -1,6 +1,6 @@
 # 代码结构文档 / Code Architecture
 
-> 更新日期 / Last Updated：2026-09-11
+> 更新日期 / Last Updated：2026-09-13
 > 版本 / Version：1.2.5.1
 
 ---
@@ -308,17 +308,15 @@ joiners have no pending ops and always load the authoritative graph.
 | `SpeedProxyBlockEntity` | 转速代理 / Speed Proxy | Create SpeedController 直控 / Direct speed controller access |
 | `ProgramComputerBlockEntity` | 编程计算机 / Program Computer | 时序逻辑专用 / Sequential logic only |
 
-### GraphEditor (~4100 行 / lines；步骤 6 各刀持续缩小 / shrinking via roadmap step-6 cuts)
+### GraphEditor (~4200 行 / lines；步骤 6 各刀持续缩小 / shrinking via roadmap step-6 cuts)
 核心节点图编辑器。承载所有渲染/输入/交互逻辑。
 / Core node graph editor. All rendering, input, and interaction logic.
 
 **关键子系统 / Key Subsystems**：
 - 节点渲染 / Node rendering — `renderBg()` 委托 `renderer.renderNodes(...)`（`NodeRenderer`）/ Node drawing lives in NodeRenderer
 - A=0~A=5 六层遮挡 / Six-layer occlusion (A=0 Grid → A=1 Comment backgrounds → A=2 Connections → A=3 Node bodies + edit areas → A=4 Overlays → A=5 Tooltips/menu)
-- `undoStack2` / `redoStack2`（per-instance `ArrayDeque<UndoEntry>`，`MAX_UNDO2 = 100`）/ Per-instance op undo/redo
 - Ctrl+D 复制 / Copy → `PendingCopyGroup` → `flushCopyGroup()`
 - 添加节点菜单搜索框 / Add-node menu search (`NodeRenderer.menuSearchText` + `appendMenuSearch`/`menuSearchBackspace`，双语 `search_hint`)/ Menu search box
-- 多人协作 Presence / Multiplayer presence (光标/节点锁/金色边框 / cursor/lock/golden border)
 - 顶栏 / Top bar (`TOP_BAR_H = 22`) — 左侧图名 EditBox（逐字符 SET_BLOCK_NAME 同步，便携终端按此查找）、右侧设置按钮；顶栏最后渲染、工具栏（顶/底两位置）与其余覆盖层必须让开它 / Left: graph-name EditBox (per-keystroke SET_BLOCK_NAME, the portable terminal looks devices up by it); right: settings button. The top bar renders last; the toolbar (both positions) and every other overlay must clear it
 - 独立设置界面 / Standalone settings screen (`EditorSettingsScreen`) — 顶栏设置按钮打开的**全屏独立 Screen**（左侧竖排 tab 列：界面颜色 / 键位绑定 / 节点指南 + 返回项；setScreen 只触发编辑器 `removed()`、编辑会话保持、返回幂等重 join）。**界面颜色内嵌调整**（23 项色板 = 16 图语义色 + 7 界面色 panel_bg/panel_header/panel_border/inset_bg/accent/error/hover；默认/应用 + 停靠取色器，点「调整」滑出全宽形态）——编辑器工具栏的样式按钮与 16 色面板已移除，界面颜色以此界面为唯一入口；主题访问器同时收编了**设置界面自身 chrome、图编辑顶栏/封装与书签等弹窗、显示器/终端/像素编辑器等屏**的暖深棕面板 chrome（跨包公共访问器 CSB/PBG/PHT/PBR/PINS/ACC/ERR/HOV + `withAlpha()` 遮罩取主题背景色），颜色列表带**可拖动滚动条**（thumb 拖拽 + 轨道 ±3 行翻页，几何为渲染/命中/拖拽单一来源）；节点指南（从 NodeType 元数据自动生成，93 个类型已配中英双语说明并写入 `guide.<TYPE>` lang 键、缺键显示占位文案；点击节点行左滑展开——左侧节点栏带可拖拽滚动条、右侧详情面板，收起态悬停行在底部预览一行截断说明）；键位绑定点击动作行展开**屏幕虚拟键盘**（无 F 行紧凑配列 + 鼠标三键，旧的物理键监听流程退役），绑定是**键序序列**（每动作一条 1~4 步、每步 = 键+修饰位）：点键帽追加步骤、操作条 = 删一步/默认/清除/确定，`feedKey` 引擎逐键推进（完整命中触发 / 前缀缓冲 1.5s 超时 / 无匹配 vim 式重开，输入框聚焦不推进）；冲突规则 —— 等长键序全同必拒，不等长时短者键前缀且短者修饰 ⊆ 长者才拒（`Ctrl+D` 单步与 `D→K` 连招可共存）；持久化新格式 `editorKeys.<动作>.seq = "键,修饰;…"`，旧 `key/mods` 回退为单步序列；鼠标动作不参与序列保持单键；**v1.2.5.1 拆分**：指南 tab → `EditorSettingsGuideTab`、颜色 tab → `EditorSettingsColorsTab`，经顶层 `EditorSettingsHost` 接缝由屏幕实现（见下节）；键位 → `EditorSettingsKeysTab` 随后拆出，三 tab 全部完成 / A standalone full-screen Screen opened from the top bar (vertical tab column: colors / key bindings / node guide + back; setScreen only fires the editor's `removed()` — the edit session survives and returning re-joins idempotently). Colors are adjusted **in place** (16 swatch entries + defaults/apply + a docked palette) — the toolbar style button and the in-editor 16-color panel were removed, making this screen the single entry for UI colors; the palette now holds 23 swatch entries (16 graph colors + 7 UI-chrome colors: panel_bg/panel_header/panel_border/inset_bg/accent/error/hover), and the same cross-package theme accessors (CSB/PBG/PHT/PBR/PINS/ACC/ERR/HOV, plus `withAlpha()` for scrims) also absorb the warm-brown panel chrome of the settings screen itself, the graph-editor top bar and its encapsulation/bookmark dialogs, and the Monitor/Terminal/Pixel-editor screens; the color list has a **draggable scrollbar** (thumb drag + ±3-row track paging; one geometry source shared by render, hit-testing and dragging); the node guide is auto-generated from NodeType metadata, with all 93 types now carrying bilingual copy in the `guide.<TYPE>` lang keys (a placeholder shows when a key is missing); a row click slides the UI left into a node bar with a draggable scrollbar and a right-hand detail pane, and hovering a row in the collapsed list previews a truncated one-liner; the key-bindings tab expands an **on-screen virtual keyboard** from an action-row click (no-F-row compact layout + mouse buttons; the old physical-key listening flow is retired), and bindings are **key sequences** (one per action, 1–4 steps of key+mods): cap clicks append steps, the bar is Del-step/Default/Clear/Bind, and the `feedKey` engine advances per keystroke (full match fires / prefix buffers with a 1.5 s timeout / a miss restarts vim-style; focused inputs never advance it). Conflicts: equal-length identical key sequences are always refused; different lengths only when the shorter is a key-prefix with its mods contained in the longer's (a `Ctrl+D` single step and a `D→K` combo coexist). Persistence: new `editorKeys.<ACTION>.seq = "key,mods;…"` format, legacy `key/mods` falls back to a single-step sequence; mouse actions stay single-button; **v1.2.5.1 split**: the guide tab → `EditorSettingsGuideTab` and the colours tab → `EditorSettingsColorsTab`, and the key-bindings tab → `EditorSettingsKeysTab` (landed right after) behind a top-level `EditorSettingsHost` seam implemented by the screen (see below)
 - 画布交互键位 / Canvas-interaction bindings (`EditorKeys`) — 平移/上下文菜单/删除/撤销/重做/复制/重置视角/保存书签 共 8 个动作的「动作 → 键」单一来源，持久化到客户端 config（`editorKeys.` 前缀）；默认值与旧硬编码逐项一致 / Single source of truth for 8 action→key bindings, persisted into the client config (`editorKeys.` prefix); defaults replicate the old hardcodes exactly
@@ -465,6 +463,9 @@ BUS 频道生命周期管理器 / BUS channel lifecycle manager.
 - `syncIfBandsChanged()` — tick 级频段变更检测 / Per-tick band change detection
 - `cleanupClientBands(graph, pos, level)` — 卸载/销毁前清空 BUS_OUT 频段同步 + PRIVATE_OUT / Clear client bands before unload
 - `syncDeletedBusNames(oldGraph, newGraph, pos, level)` — 旧图有而新图无的 BUS_OUT 名发空同步 / Sync deleted bus names
+- `resolveBusInBands(graph, self, name)` — BUS_IN 频段的**服务端唯一解析点**（issue #11）：同图非冲突 BUS_OUT → 全局频段注册表 → 空；冲突的 BUS_OUT 绝不当来源（issue #14）/ The **single** server-side resolution point for a BUS_IN's bands: same-graph non-conflicted BUS_OUT → global band registry → empty; a conflicted BUS_OUT is never a source
+- `mergeLocalBusConflicts(graph)` — 客户端唯一的冲突推断（issue #12）：只由同图重名**抬高** `busConflict`，绝不下调服务端同步来的权威值 / The only client-side conflict inference: raised only by same-graph duplicates — never lowers the server-synced flag
+- `convergeBusInBands(graph)` — 服务端不变量（issue #15）：把本图每个 BUS_IN 的频段列表收敛到频道定义，返回变化了的频道 → 列表，由调用方经 `BusBandSyncPacket`（节点数据通道）下发；解析为空**且** CHANNELS 无该名字条目（无已加载发布方）时**跳过**——缺席不是定义，照常收敛会把瞬时缺席当成空定义剪光输入连线 / Server-side invariant: converge every BUS_IN's band list to the channel definition, returning changed channels for the caller to ship over `BusBandSyncPacket`; a channel that resolves empty **and** has no CHANNELS entry (no loaded publisher) is **skipped** — absence is not a definition, and converging on it would prune every input wire of a transiently absent publisher
 
 > **v1.2.4.1 行为要点 / Behavior note**：`loadGraphFromBytes` **跳过** `cleanupBusChannels`（避免向客户端广播空频段、永久删除连线），并**跳过立即重编译**——通过 `graph.bumpGeneration()` + `lastGraphGeneration = -1` 推迟到下一 tick 重编译时恢复频段。
 > / loadGraphFromBytes skips bus cleanup and immediate recompile; next-tick recompile restores correct bands.
@@ -554,7 +555,10 @@ v1.2.4.1 起访问机制为**编译期桥 + 反射混合**：入口 `SubLevelCon
 ServerLevel.tick()
   → FormulaCompute.beginTick()     [ServerTickEvent.Pre:轮转 N_heavy_prev、清 dedup 表]
   → BE.tick()
-    → ensureBusRegistered()        [首次 tick / first tick]
+    → ensureBusRegistered()        [首 tick 注册 BUS；每 tick 收敛 BUS_IN 频段到频道定义（issue #15），
+                                    变化才经 BusBandSyncPacket 下发；无已加载发布方的频道跳过 / first-tick
+                                    registration; per-tick BUS_IN band convergence, shipped via
+                                    BusBandSyncPacket only on change; publisher-less channels skipped]
     → recoverConflictedChannels()  [每 tick / every tick]
     → graphChanged()? → recompileEvaluatorFull()   [Blueprint / ProgramComputer / Radar / Sensor / ControlSeat]
                       → recompileEvaluatorLight()  [Monitor / SpeedProxy]
