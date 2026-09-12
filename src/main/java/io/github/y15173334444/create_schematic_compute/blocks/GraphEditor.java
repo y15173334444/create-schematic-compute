@@ -1504,8 +1504,9 @@ public class GraphEditor {
         history.resetBatch(); // discard any incomplete batch to prevent undo stack freeze
         var graph = getGraph();
         if (tryTopBarClick(mx, my, btn)) return true;
-        // 命名对话框：点击外部取消（已拆至 GraphViewBookmarks / split into GraphViewBookmarks）
-        if (viewBookmarks.handleClickOutsideNameDialog(mx, my)) return true;
+        // 命名对话框：确认/取消按钮、框内点击消费（模态）、点击外部取消（已拆至 GraphViewBookmarks）
+        // Name dialog: Confirm/Cancel buttons, in-dialog clicks consumed (modal), outside click cancels
+        if (viewBookmarks.handleNameDialogClick(mx, my)) return true;
         // 书签面板交互（仅在面板显示、无弹窗、无命名对话框时；门禁随方法内迁）
         if (viewBookmarks.handlePanelClick(mx, my, btn)) return true;
         if (tryDebugChartClick(mx, my, btn, graph)) return true;

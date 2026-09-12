@@ -204,32 +204,98 @@ final class GraphViewBookmarks {
                 g.fill(sbX, thumbY, sbX + 6, thumbY + thumbH, NodeRenderer.CSB());
             }
         }
-        // 书签命名对话框（在面板之后渲染，位于上方）/ bookmark name dialog (rendered after panel, on top)
+        // 书签命名对话框（在面板之后渲染，位于上方；底部 确认/取消 按钮 —— 纯鼠标可完成，
+        // Enter/Esc 键盘路径保留）/ bookmark name dialog (rendered after panel, on top; the
+        // Confirm/Cancel buttons at the bottom make it mouse-only — Enter/Esc keep working)
         if (editingBookmarkName) {
             var mc = Minecraft.getInstance();
-            int w = 280, h = 70;
-            int cx = (ed.host.asScreen().width - w) / 2, cy = (ed.host.asScreen().height - h) / 2;
-            g.fill(cx, cy, cx + w, cy + h, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
-            g.renderOutline(cx, cy, w, h, NodeRenderer.CSB());
+            int cx = dlgX(), cy = dlgY();
+            g.fill(cx, cy, cx + DLG_W, cy + DLG_H, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
+            g.renderOutline(cx, cy, DLG_W, DLG_H, NodeRenderer.CSB());
             g.drawString(mc.font, I18n.get("gui.create_schematic_compute.bookmark.name"), cx + 8, cy + 6, 0xFFFFCC88, false);
-            g.fill(cx + 8, cy + 26, cx + w - 8, cy + 46, 0xFF000000);
-            g.renderOutline(cx + 8, cy + 26, w - 16, 20, 0xFF6A6A6A);
+            g.fill(cx + 8, cy + 26, cx + DLG_W - 8, cy + 46, 0xFF000000);
+            g.renderOutline(cx + 8, cy + 26, DLG_W - 16, 20, 0xFF6A6A6A);
             g.drawString(mc.font, bookmarkNameDraft + "_", cx + 12, cy + 31, 0xFFFFFFFF, false);
-            g.drawString(mc.font, "§7Enter §r确认 | §7Esc §r取消", cx + 8, cy + 52, 0xFFAAAAAA, false);
+            int[] cr = confirmRect(), xr = cancelRect();
+            boolean cHover = mx >= cr[0] && mx < cr[0] + cr[2] && my >= cr[1] && my < cr[1] + cr[3];
+            g.fill(cr[0], cr[1], cr[0] + cr[2], cr[1] + cr[3], cHover ? 0xFF3A6A3A : 0xFF2A4A2A);
+            g.renderOutline(cr[0], cr[1], cr[2], cr[3], NodeRenderer.CSB());
+            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.bookmark.confirm"), cr[0] + 4, cr[1] + 5, 0xFFAAFFAA, false);
+            boolean xHover = mx >= xr[0] && mx < xr[0] + xr[2] && my >= xr[1] && my < xr[1] + xr[3];
+            g.fill(xr[0], xr[1], xr[0] + xr[2], xr[1] + xr[3], xHover ? 0xFF6A3A3A : 0xFF4A2A2A);
+            g.renderOutline(xr[0], xr[1], xr[2], xr[3], NodeRenderer.CSB());
+            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.bookmark.cancel"), xr[0] + 4, xr[1] + 5, 0xFFFFAAAA, false);
+            g.drawString(mc.font, "§7Enter §r确认 | §7Esc §r取消", cx + 8, cy + 78, 0xFFAAAAAA, false);
         }
     }
 
-    /** 命名对话框：点击外部取消（mouseClicked 首个书签检查）。返回 true 表示已消费。
-     *  Name dialog: click outside cancels. Returns true if consumed. */
-    boolean handleClickOutsideNameDialog(double mx, double my) {
-        if (editingBookmarkName) {
-            int w = 280, h = 70;
-            int cx = (ed.host.asScreen().width - w) / 2, cy = (ed.host.asScreen().height - h) / 2;
-            if (mx < cx || mx > cx + w || my < cy || my > cy + h) {
-                editingBookmarkName = false; editingBookmarkIndex = -1; return true;
+    /** 命名对话框尺寸（渲染与命中共用单一来源）。 / Name-dialog size (one source for render and hit-testing). */
+    private static final int DLG_W = 280, DLG_H = 92;
+    /** 按钮尺寸（确认/取消共用高度）。 / Button size (Confirm/Cancel share the height). */
+    private static final int DLG_BTN_W = (DLG_W - 24) / 2, DLG_BTN_H = 18;
+
+    /** 对话框左上角。 / Dialog top-left corner. */
+    private int dlgX() { return (ed.host.asScreen().width - DLG_W) / 2; }
+    private int dlgY() { return (ed.host.asScreen().height - DLG_H) / 2; }
+    /** 确认/取消按钮矩形 {x,y,w,h}（并排于对话框底部）。 / Confirm/Cancel button rects {x,y,w,h} (side by side at the bottom). */
+    private int[] confirmRect() { return new int[]{dlgX() + 8, dlgY() + 54, DLG_BTN_W, DLG_BTN_H}; }
+    private int[] cancelRect() { return new int[]{dlgX() + DLG_W - 8 - DLG_BTN_W, dlgY() + 54, DLG_BTN_W, DLG_BTN_H}; }
+
+    /** 提交命名对话框（新建/重命名）——与 Enter 完全同路径：空名仅关闭不保存。
+     *  Commit the name dialog (add/rename) — exactly the Enter path: an empty draft just closes. */
+    private void confirmNameDialog() {
+        if (!bookmarkNameDraft.isEmpty()) {
+            var bmGraph = ed.getGraph();
+            if (editingBookmarkIndex >= 0) {
+                // 重命名：本地先应用 / rename: apply locally first
+                var bks = bmGraph.bookmarks;
+                if (editingBookmarkIndex >= 0 && editingBookmarkIndex < bks.size()) {
+                    var old = bks.get(editingBookmarkIndex);
+                    bks.set(editingBookmarkIndex, new io.github.y15173334444.create_schematic_compute.graph.NodeGraph.Bookmark(bookmarkNameDraft, old.camX(), old.camY(), old.zoom()));
+                    bmGraph.bumpGeneration();
+                }
+                ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.renameBookmark(
+                    ed.host.getBlockPos(), ed.ownerNodeId(), editingBookmarkIndex, bookmarkNameDraft, ed.host.getPlayerUUID()));
+            } else {
+                // 新建：本地先应用 / add: apply locally first
+                bmGraph.bookmarks.add(new io.github.y15173334444.create_schematic_compute.graph.NodeGraph.Bookmark(bookmarkNameDraft, ed.camX, ed.camY, ed.zoom));
+                bmGraph.bumpGeneration();
+                ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addBookmark(
+                    ed.host.getBlockPos(), ed.ownerNodeId(), bookmarkNameDraft, ed.camX, ed.camY, ed.zoom, ed.host.getPlayerUUID()));
             }
         }
-        return false;
+        editingBookmarkName = false;
+        editingBookmarkIndex = -1;
+    }
+
+    /** 关闭命名对话框不保存 —— 与 Esc 完全同路径。 / Close the name dialog without saving — exactly the Esc path. */
+    private void cancelNameDialog() {
+        editingBookmarkName = false;
+        editingBookmarkIndex = -1;
+    }
+
+    /** 命名对话框点击（mouseClicked 早段）：确认/取消按钮提交或关闭；框内其余点击消费
+     *  （模态，不再穿透到画布）；点击外部取消。返回 true 表示已消费。
+     *  Name-dialog clicks (early in mouseClicked): the Confirm/Cancel buttons commit or close,
+     *  clicks elsewhere inside the dialog are consumed (modal — no fall-through to the canvas),
+     *  clicking outside cancels. Returns true if consumed. */
+    boolean handleNameDialogClick(double mx, double my) {
+        if (!editingBookmarkName) return false;
+        int cx = dlgX(), cy = dlgY();
+        if (mx < cx || mx > cx + DLG_W || my < cy || my > cy + DLG_H) {
+            cancelNameDialog();
+            return true;
+        }
+        int[] cr = confirmRect(), xr = cancelRect();
+        if (mx >= cr[0] && mx < cr[0] + cr[2] && my >= cr[1] && my < cr[1] + cr[3]) {
+            confirmNameDialog();
+            return true;
+        }
+        if (mx >= xr[0] && mx < xr[0] + xr[2] && my >= xr[1] && my < xr[1] + xr[3]) {
+            cancelNameDialog();
+            return true;
+        }
+        return true;
     }
 
     /** 书签面板交互（仅在面板显示、无弹窗、无命名对话框时）。返回 true 表示已消费。
@@ -395,29 +461,8 @@ final class GraphViewBookmarks {
      *  Returns true if consumed. */
     boolean handleKey(int key) {
         if (editingBookmarkName) {
-            if (key == 257) { // Enter: 提交（新建/重命名）/ submit (add or rename)
-                if (!bookmarkNameDraft.isEmpty()) {
-                    var bmGraph = ed.getGraph();
-                    if (editingBookmarkIndex >= 0) {
-                        // 重命名：本地先应用 / rename: apply locally first
-                        var bks = bmGraph.bookmarks;
-                        if (editingBookmarkIndex >= 0 && editingBookmarkIndex < bks.size()) {
-                            var old = bks.get(editingBookmarkIndex);
-                            bks.set(editingBookmarkIndex, new io.github.y15173334444.create_schematic_compute.graph.NodeGraph.Bookmark(bookmarkNameDraft, old.camX(), old.camY(), old.zoom()));
-                            bmGraph.bumpGeneration();
-                        }
-                        ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.renameBookmark(
-                            ed.host.getBlockPos(), ed.ownerNodeId(), editingBookmarkIndex, bookmarkNameDraft, ed.host.getPlayerUUID()));
-                    } else {
-                        // 新建：本地先应用 / add: apply locally first
-                        bmGraph.bookmarks.add(new io.github.y15173334444.create_schematic_compute.graph.NodeGraph.Bookmark(bookmarkNameDraft, ed.camX, ed.camY, ed.zoom));
-                        bmGraph.bumpGeneration();
-                        ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addBookmark(
-                            ed.host.getBlockPos(), ed.ownerNodeId(), bookmarkNameDraft, ed.camX, ed.camY, ed.zoom, ed.host.getPlayerUUID()));
-                    }
-                }
-                editingBookmarkName = false;
-                editingBookmarkIndex = -1;
+            if (key == 257) { // Enter: 提交（与 确认 按钮同路径）/ submit (same path as the Confirm button)
+                confirmNameDialog();
                 return true;
             }
             if (key == 259 && !bookmarkNameDraft.isEmpty()) { // Backspace
@@ -432,7 +477,7 @@ final class GraphViewBookmarks {
     /** ESC 关闭命名对话框（keyPressed 的 Esc 链）。返回 true 表示已消费。
      *  ESC closes the name dialog (the Esc chain in keyPressed). Returns true if consumed. */
     boolean handleEscClose() {
-        if (editingBookmarkName) { editingBookmarkName = false; editingBookmarkIndex = -1; return true; }
+        if (editingBookmarkName) { cancelNameDialog(); return true; }
         return false;
     }
 

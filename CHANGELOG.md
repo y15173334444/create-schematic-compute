@@ -32,6 +32,7 @@
 | 🖼️ 选中高亮消失 / 回弹 / Highlight vanished or bounced | 高亮判定原用对象相等，整图同步或重载替换节点实例后旧实例再也匹配不上；改为按 id 判定（`isSelectedById` / `isPrimaryById`）/ Highlight matching is now by id instead of object identity |
 | ⚡ 每秒数次整批重建 / Edit boxes rebuilt several times per second | 图代际是 per-instance 的，跨实例用裸 int 比较永远「看起来变了」（实测 1→2→3→4→1 循环）；改为绑定图实例 + 按节点结构指纹增量重建，无结构变化即零重建 / The generation compare is bound to the graph instance and rebuilds are incremental per node |
 | 📝 折叠丢未提交输入 / Collapse dropped uncommitted input | 增量重建引入的清理曾把「折叠但仍在图」的节点编辑状态一并删除，整图同步导致的折叠后再展开会丢 busBox 未提交文本；现只清已离开图的节点，折叠节点保留状态与指纹、仅退出展开集合 / The cull added with the incremental rebuild also dropped collapsed-but-present nodes' edit states, so a collapse arriving via a whole-graph sync lost uncommitted busBox text on re-expand; only nodes that left the graph are culled now |
+| 🔖 书签命名对话框加确认/取消按钮 / Bookmark name dialog gains Confirm/Cancel buttons | 新建/重命名对话框底部新增 **确认/取消** 按钮，纯鼠标即可完成，不再必须按 Enter/Esc；键盘路径保持不变（确认与 Enter 同路径，取消与 Esc 同路径）；对话框内点击改为模态消费，不再穿透到底下画布 / The add/rename dialog gains **Confirm/Cancel** buttons for a mouse-only flow — Enter/Esc are no longer required and keep working (Confirm shares the Enter path, Cancel the Esc path); clicks inside the dialog are consumed modally instead of falling through to the canvas |
 
 ### 🧩 GUI 巨型文件拆分 / GUI Decomposition（步骤 1–3）
 
