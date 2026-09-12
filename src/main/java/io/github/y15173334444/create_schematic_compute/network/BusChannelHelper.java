@@ -244,16 +244,95 @@ public final class BusChannelHelper {
         }
     }
 
+    // ── BUS_IN band convergence (the server-side invariant) / BUS_IN 频段收敛（服务端不变量） ──
+
+    /** Keep every BUS_IN's band list equal to the channel definition — the server-side invariant
+     *  behind issue #15.
+     *  <p>A BUS_IN's list <b>is</b> the pin structure it exposes. It used to be refreshed only in
+     *  the block where a change was initiated (a band upload or a rename); everything else relied
+     *  on the client re-deriving it from its own band registry — precisely the divergence issue #11
+     *  removed. Without that crutch a stale list stayed stale in every other block forever, and
+     *  reopening the editor did not help because the <b>server's own copy</b> was stale
+     *  (issue #15).</p>
+     *  <p>Resolution still goes through {@link #resolveBusInBands}, so exactly one resolution rule
+     *  remains; the result is cached per channel name for this pass (only a BUS_OUT can be a
+     *  definition source, so the "self" exclusion is irrelevant here). Removal semantics match
+     *  {@code SET_BANDS}: connections on bands that actually disappeared are pruned.</p>
+     *  <p>Network-free — the caller notifies clients (see {@link #syncIfBandsChanged}).</p>
+     *  让每个 BUS_IN 的频段列表等于频道定义 —— issue #15 背后的服务端不变量。
+     *  <p>BUS_IN 的列表**就是**它暴露的引脚结构。它过去只在「发起变更的那个方块」里被刷新
+     *  （频段上传或改名）；其余位置靠客户端按自己的频段表重新推导来遮掩 —— 而那正是 issue #11
+     *  去掉的分叉源。去掉之后，其它方块里的过期列表就永远过期，且重开编辑器也没用，因为
+     *  **服务端自己那份就是旧的**（issue #15）。</p>
+     *  <p>解析仍统一走 {@link #resolveBusInBands}，保证只有一条解析规则；本轮按频道名缓存解析结果
+     *  （只有 BUS_OUT 能当定义来源，因此「排除自身」在这里无实际作用）。移除语义与
+     *  {@code SET_BANDS} 一致：真正消失的频段上的连线会被剪掉。</p>
+     *  <p>不涉及网络 —— 通知客户端由调用方负责（见 {@link #syncIfBandsChanged}）。</p>
+     *  @return true if any node was changed / 有节点被改写则返回 true */
+    public static boolean convergeBusInBands(NodeGraph graph) {
+        if (graph == null) return false;
+        boolean changed = false;
+        Map<String, List<String>> resolvedByChannel = null;
+        for (var n : graph.nodes) {
+            if (n.type != NodeType.BUS_IN || n.signalName == null || n.signalName.isEmpty()) continue;
+            if (resolvedByChannel == null) resolvedByChannel = new HashMap<>();
+            List<String> want = resolvedByChannel.get(n.signalName);
+            if (want == null) {
+                want = resolveBusInBands(graph, null, n.signalName);
+                resolvedByChannel.put(n.signalName, want);
+            }
+            if (want.equals(n.signalBands)) continue;
+            var removed = new ArrayList<>(n.signalBands != null ? n.signalBands : Collections.<String>emptyList());
+            removed.removeAll(want);
+            n.signalBands = new ArrayList<>(want);
+            n.bandsDirty = true;
+            // 按 pinId（频段名）剪线 —— BUS_OUT 的输入引脚是名字绑定的。
+            // Prune by pinId (band name) — BUS_OUT input pins are name-bound.
+            for (String removedBand : removed) {
+                graph.connections.removeIf(c ->
+                    (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
+                    (c.toId == n.id && removedBand.equals(c.toPinId)));
+            }
+            // legacy 索引回退：BUS_IN 的输入引脚是**索引绑定**的（GraphNode.inputPinId 只对
+            // BUS_OUT 返回频段名），因此频段减少后落到新范围之外的连线要按索引清掉
+            // ——与 releaseOldBusName 的既有做法一致。
+            // Legacy index fallback: a BUS_IN's input pins are **index-bound**
+            // (GraphNode.inputPinId returns a band name only for BUS_OUT), so after the list
+            // shrank, connections whose index fell outside the new range are dropped — the same
+            // treatment releaseOldBusName already applies.
+            final int newCount = n.signalBands.size();
+            graph.connections.removeIf(c -> c.toId == n.id && c.toPin >= newCount);
+            changed = true;
+        }
+        if (changed) {
+            graph.rebuildNodeMap();     // invalidate inputCache / 刷新 inputCache
+            graph.rebuildInputCache();
+        }
+        return changed;
+    }
+
     // ── Tick-time band-change detection / Tick 时刻频段变更检测 ────────────────────
 
     /** Check every non-conflicted BUS_OUT node for band-list changes since the last tick
-     *  and broadcast a {@link BusBandSyncPacket} when a change is detected.
+     *  and broadcast a {@link BusBandSyncPacket} when a change is detected. Also converges this
+     *  block's BUS_IN band lists first (issue #15) and pushes the block when that changed anything.
      *  {@code lastHashMap} maps node id → (signalName.hashCode()*31 + bandCount).
      *  检查每个无冲突的 BUS_OUT 节点自上次 tick 以来的频段列表变更，检测到变更时广播 BusBandSyncPacket。
+     *  并先收敛本方块 BUS_IN 的频段列表（issue #15），有变化时推送该方块。
      *  lastHashMap 映射 节点id → (signalName.hashCode()*31 + bandCount)。 */
     public static void syncIfBandsChanged(NodeGraph graph, BlockPos pos,
                                            Map<Integer, Integer> lastHashMap, @Nullable Level level) {
         if (!(level instanceof ServerLevel sl) || graph == null) return;
+        // issue #15：先把本图的 BUS_IN 频段收敛到频道定义；**只有真的变了才推送该方块**
+        // （markDirty + sendBlockUpdated，经 GraphBlockEntity.flagFullSync）。
+        // 过去只有「发起变更」的那个方块会被刷新，其它方块里的旧 BUS_IN 永远不刷新。
+        // issue #15: converge this graph's BUS_IN bands first, and push the block only when that
+        // actually changed something (markDirty + sendBlockUpdated via GraphBlockEntity.flagFullSync).
+        // Previously only the block that initiated a change was ever refreshed.
+        if (convergeBusInBands(graph)
+            && sl.getBlockEntity(pos) instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity gbe) {
+            gbe.flagFullSync();
+        }
         for (var n : graph.nodes) {
             if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty() && !n.busConflict) {
                 int h = n.signalName.hashCode() * 31 + n.bandCount();
