@@ -42,6 +42,10 @@ runs {
         } else {
             arguments '--username', 'Dev2'
         }
+        // Auto-join: -Pquickplay=host:port (mirrors runClient) / 与 runClient 对称的自动进服
+        if (project.hasProperty('quickplay')) {
+            arguments '--quickPlayMultiplayer', project.property('quickplay').toString()
+        }
     }
 
     server {
