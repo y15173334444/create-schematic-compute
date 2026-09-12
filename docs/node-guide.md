@@ -1335,11 +1335,11 @@ Clutch: CNC gearbox standing-engagement intent — an output above 0.5 keeps the
 
 **说明（中文）**
 
-编码器：数控齿轮箱运动反馈节点——报告角度位置（0-360度）、线性位置（米）与实际转速（RPM、带符号，无动力/过载为 0）。两个位置是对转速的开环积分，打滑或外力扳动会漂移；reset 电平触发复位（默认 0，可编辑或连线覆盖），持续拉高会一直保持归零。仅数控齿轮箱图。
+编码器：数控齿轮箱运动反馈节点——报告角度位置（0-360度）、线性位置（米）与实际转速（RPM、带符号，无动力/过载为 0）。**只在离合接合时计量**：接合期间对转速开环积分（打滑或外力扳动会漂移），分离/空闲时位置保持、转速读 0——没有指令且图中无 CLUTCH 拉高时齿轮箱自动分离，编码器随之保持不计数。reset 电平触发复位（默认 0，可编辑或连线覆盖），持续拉高会一直保持归零。仅数控齿轮箱图。
 
 **Description (English)**
 
-Encoder: CNC gearbox motion feedback — angle position (0-360 degrees), linear position (metres) and live signed RPM (0 when unpowered or overloaded). The two positions are an open-loop integration of shaft speed, so slip or forced movement drifts them; a high reset (editable or wire-overridable, default 0) zeroes both instantly and stays zero while held. Gearbox graphs only.
+Encoder: CNC gearbox motion feedback — angle position (0-360 degrees), linear position (metres) and live signed RPM (0 when unpowered or overloaded). **Measured only while the clutch is ENGAGED**: the positions integrate shaft speed in an open loop while engaged (slip or forced movement drifts them) and hold, with RPM reading 0, whenever the gearbox is disengaged/idle — with no commands and no CLUTCH held high the gearbox disengages automatically and the encoder stops counting. A high reset (editable or wire-overridable, default 0) zeroes both instantly and stays zero while held. Gearbox graphs only.
 
 ---
 

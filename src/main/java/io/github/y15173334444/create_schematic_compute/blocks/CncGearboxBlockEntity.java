@@ -92,9 +92,21 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
 
         // 编码器积分跟随实际转速（过载自动冻结，官方语义）
         // Encoder integral follows the actual speed; overstress freezes automatically.
-        positionDeg += getSpeed() * MotionQuota.DEG_PER_RPM_TICK;
-        positionDeg -= (float) Math.floor(positionDeg / 360f) * 360f;
-        positionMeters += getSpeed() * MotionQuota.METERS_PER_RPM_TICK;
+        // 编码器只计量实际传递到输出侧的运动：接合时才积分输入转速，分离时位置保持、
+        // 转速读 0。此前无条件积分输入网络转速——没有指令、离合已分离甚至图已停止时
+        // 编码器仍在计数（「没有指令也在动」）。指令配额的记账口径与此一致
+        // （MotionQuota 同样只在执行期间消耗 |getSpeed()|）。
+        // The encoder only accounts for motion actually transmitted to the output side:
+        // integrate the input speed while ENGAGED, hold position and read zero velocity
+        // while disengaged. It used to integrate the input network speed unconditionally
+        // — counting even with no commands, a detached clutch or a stopped graph
+        // ("moves without commands"). Matches the quota bookkeeping, which also burns
+        // |getSpeed()| only while a command executes.
+        if (getBlockState().getValue(CncGearboxBlock.ENGAGED)) {
+            positionDeg += getSpeed() * MotionQuota.DEG_PER_RPM_TICK;
+            positionDeg -= (float) Math.floor(positionDeg / 360f) * 360f;
+            positionMeters += getSpeed() * MotionQuota.METERS_PER_RPM_TICK;
+        }
 
         host.rs.checkGraphChanged(host.graph);
         if (host.graphChanged())
@@ -332,7 +344,12 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
 
     @Override public float encoderPositionMeters() { return positionMeters; }
 
-    @Override public float encoderVelocity() { return getSpeed(); }
+    @Override public float encoderVelocity() {
+        // 分离时输出侧并未转动 —— 速度读 0，与位置积分的接合门控一致。
+        // While disengaged the output side is not turning — report 0, matching the
+        // engagement-gated position integration.
+        return getBlockState().getValue(CncGearboxBlock.ENGAGED) ? getSpeed() : 0f;
+    }
 
     /** 复位引脚（电平触发）：角度与线性累计同时清零。
      *  Reset pin (level-triggered): zero both accumulators. */
