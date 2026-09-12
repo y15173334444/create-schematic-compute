@@ -90,24 +90,6 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
         host.ensureBusRegistered();
         host.flushPendingFullSync();
 
-        // 编码器积分跟随实际转速（过载自动冻结，官方语义）
-        // Encoder integral follows the actual speed; overstress freezes automatically.
-        // 编码器只计量实际传递到输出侧的运动：接合时才积分输入转速，分离时位置保持、
-        // 转速读 0。此前无条件积分输入网络转速——没有指令、离合已分离甚至图已停止时
-        // 编码器仍在计数（「没有指令也在动」）。指令配额的记账口径与此一致
-        // （MotionQuota 同样只在执行期间消耗 |getSpeed()|）。
-        // The encoder only accounts for motion actually transmitted to the output side:
-        // integrate the input speed while ENGAGED, hold position and read zero velocity
-        // while disengaged. It used to integrate the input network speed unconditionally
-        // — counting even with no commands, a detached clutch or a stopped graph
-        // ("moves without commands"). Matches the quota bookkeeping, which also burns
-        // |getSpeed()| only while a command executes.
-        if (getBlockState().getValue(CncGearboxBlock.ENGAGED)) {
-            positionDeg += getSpeed() * MotionQuota.DEG_PER_RPM_TICK;
-            positionDeg -= (float) Math.floor(positionDeg / 360f) * 360f;
-            positionMeters += getSpeed() * MotionQuota.METERS_PER_RPM_TICK;
-        }
-
         host.rs.checkGraphChanged(host.graph);
         if (host.graphChanged())
             host.recompileEvaluatorFull();
@@ -127,6 +109,25 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
             host.broadcastEvalSnapshot();
             host.evaluator.clearCompletedNodeId();
             clutchIntent = runMotionControl();
+        }
+
+        // 编码器积分必须与配额记账**同一 tick 对齐**：runMotionControl 里配额刚按
+        // |getSpeed()| 消耗过，这里以本 tick 的接合决策（clutchIntent）作门控积分——
+        // 分离/空闲时位置保持、不计（「没有指令也在动」的修复），指令执行期间逐 tick
+        // 与配额同量。此前门控读的是积分时刻的方块状态：ENGAGED 翻转（状态刷新）晚于
+        // 配额消费一个 tick 时序，指令起止边界各丢一个 tick 的行程——256rpm 下一个
+        // tick 就是 76.8°，ROTATE 90° 会只读出 ~13°（「状态刷新导致编码器输出不正确」）。
+        // The encoder integral must be tick-aligned with the quota bookkeeping:
+        // runMotionControl just burned |getSpeed()| against the quota, so integrate here
+        // gated on THIS tick's engagement decision (clutchIntent) — hold when
+        // disengaged/idle (the "moves without commands" fix), tick-for-tick equal to the
+        // quota while executing. Gating on the blockstate instead lags the quota by one
+        // tick across every ENGAGED flip (state refresh): at 256 rpm one tick is 76.8°,
+        // so ROTATE 90° read back only ~13°.
+        if (clutchIntent) {
+            positionDeg += getSpeed() * MotionQuota.DEG_PER_RPM_TICK;
+            positionDeg -= (float) Math.floor(positionDeg / 360f) * 360f;
+            positionMeters += getSpeed() * MotionQuota.METERS_PER_RPM_TICK;
         }
 
         updateClutchState(clutchIntent);
