@@ -308,7 +308,7 @@ joiners have no pending ops and always load the authoritative graph.
 | `SpeedProxyBlockEntity` | 转速代理 / Speed Proxy | Create SpeedController 直控 / Direct speed controller access |
 | `ProgramComputerBlockEntity` | 编程计算机 / Program Computer | 时序逻辑专用 / Sequential logic only |
 
-### GraphEditor (~5300 行 / lines)
+### GraphEditor (~5200 行 / lines；步骤 6 各刀持续缩小 / shrinking via roadmap step-6 cuts)
 核心节点图编辑器。承载所有渲染/输入/交互逻辑。
 / Core node graph editor. All rendering, input, and interaction logic.
 
@@ -325,6 +325,7 @@ joiners have no pending ops and always load the authoritative graph.
 - 书签系统 / Bookmark system
 - BUS 冲突检测 / BUS conflict detection (`reevaluateBusConflicts`)
 - 调试工具交互 / Debug tool interaction (控制点拖拽、探针冻结 / control point drag, probe freeze)
+- `NodeEditStateFactory` — 编辑态工厂（步骤 6a 拆出）：按节点类型构建展开面板 `EditState` 与调试信号发生器模式切换状态机；编辑器内部成员经传入引用触达（同包包级访问），编辑器保留薄委托 / The edit-state factory (step 6a): builds the expanded-panel `EditState` per node type plus the debug signal generator's mode-toggle state machine; editor internals are reached through the passed-in reference (package-private, same package), the editor keeps thin delegates
 
 ### NodeRenderer（门面 + 主节点绘制；步骤 5 已拆出三件，见下）
 节点图渲染器：`renderNodes()` / `drawNode()`、调试图表、`SpatialIndex` 命中过滤、A/B/C 遮挡排序，以及**主题色板单一来源**（`PBG`/`CSB`/`ACC` 等静态访问器 + 配置持久化——对外签名不变，17 个引用文件零改动）。添加节点菜单、注释节点、连线三件已拆至下列同类（门面委托）。

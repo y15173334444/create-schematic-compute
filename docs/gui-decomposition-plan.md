@@ -6,6 +6,7 @@
 > 同日评审修复（未推送批次审查）后 `MonitorScreen` 现 **348 行**（移除从未接线的 `drawToolbarStrip` 缝、
 > 恢复设置面板在节点图模式的点击路由，见步骤 2 实施记录的更正）。
 > **步骤 3 已完成**：指南（`e3cacdf`）/ 颜色（`fb5eddf`）/ 键位 三个 tab 全部拆出。
+> **步骤 6 进行中**：刀 6a 编辑态工厂已落地（`a4695cd`），`GraphEditor` 5807 → 5231 行。
 > Status: 🔶 **in progress.** Drafted 2026-09-11 against `dfedbef`; step 1 landed in `c8643fd`;
 > step 2 landed in `23ec19d` (`MonitorScreen` now **348 lines** after the same-day review fixes:
 > the never-wired `drawToolbarStrip` seam removed, the settings-panel click routing in graph mode
@@ -120,7 +121,7 @@ Step 2  MonitorScreen 显示编辑 GUI 脱离          ✅ 已完成 23ec19d（1
 Step 3  EditorSettingsScreen 按 tab 拆分         ✅ 已完成（指南/颜色/键位 三 tab 全部拆出）
 Step 4  PixelEditorScreen 内核 / 帧条拆分        🟡 中（可补单测）
 Step 5  NodeRenderer 按渲染品类拆（保门面）      🟡 中（引用最广）
-Step 6  GraphEditor 五刀 + 内部方法级拆解        🔴 高（最热文件，需冻结窗口）
+Step 6  GraphEditor 五刀 + 内部方法级拆解        🟡 进行中（6a `a4695cd` 已落地；剩余刀次需冻结窗口）
 Step 7  小文件批量归位                           ⚪ 择机
 ```
 
@@ -453,6 +454,26 @@ final，构造注入 Host）。屏幕保留 tab 列、共享布局与输入分�
   **建议**：① 先完成步骤 1–5（都不碰它）；② 挑功能平静期动 6 步；③ 6 步期间冻结其它 GUI 改动；
   ④ 6f 可随时做（不引入冲突面）。
 - **顺序建议**：6a → 6b → 6e → 6d → 6c → 6f（独立度递减；6f 无外部影响可随时插入）。
+
+#### ✅ 实施记录 · 刀 6a · 编辑态工厂（已完成 `a4695cd`）
+
+落地为 `blocks/NodeEditStateFactory.java`（619 行，包级 `final` + 私有构造）：
+`createEditState` / `createDebugSignalGenEditState` 与 DEBUG_SIGNAL_GEN 模式切换状态机
+以 `static` 方法逐字搬入，编辑器实例作 `ed` 参数传入。`GraphEditor` **5807 → 5231 行**
+（基线 `dfedbef` 时 5,671——等待冻结窗口期间功能开发又使其增长，印证了"垫后"的判断）。
+
+| 变更 | 说明 |
+|------|------|
+| 搬入工厂 | 按节点类型构建展开面板 `EditState`（参数框 / 信号名 / 频段 / 文本 / 取色按钮 / 公式编辑器 / 调试信号发生器条件面板）+ 模式切换状态机 |
+| 经 `ed` 入参触达 | lambda 捕获的 op 记录/发送（`recordOp` / `host.sendOp`）、`enterActions` 注册、回声抑制标志，以及视图/画笔参数（`zoom` / `colorPicker`） |
+| 可见性放宽 | 7 个成员 `private` → 包级：`host` / `recordOp` / `encodeCtrlPoints` / `enterActions` / `suppressEditBoxResponder` / `ownerNodeId` / `registerEnter` |
+| 随迁 | `hasErrors`（唯一调用方是 formula 分支） |
+| 留在门面 | `GraphEditor` 保留薄委托；返回的 `EditState` 仍由编辑器持有（`nodeEditStatesById`） |
+
+**区间手术事故（已修复）**：抽取时 `toggleExpand` 的签名受损，提交前已逐字恢复——
+大方法切块搬迁后必须核对签名完整，不能只看编译过（受损签名若恰好也是合法 Java 就会静默过编译）。
+**验证**：`compileJava` + `test`（393 绿）；焦点保留语义（重建后按下标还原聚焦字段与光标）
+经逐字搬迁保持不变，编辑态展开面板行为待游戏内回归确认（见下方 6b 后合并回归清单）。
 
 ### 步骤 7 · 小文件批量归位（⚪ 择机）
 
