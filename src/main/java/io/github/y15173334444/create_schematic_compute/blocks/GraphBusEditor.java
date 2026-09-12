@@ -6,15 +6,15 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
  * 总线编辑器（自 {@link GraphEditor} 拆分，docs/gui-decomposition-plan.md 步骤 6d）：
  * 总线频道名提交（{@code commitBusBox}——清旧频道全局数据、按 BUS_IN/BUS_OUT 分别处理频段、
  * 重建编辑区）、旧频道释放（{@code releaseOldBusName}——清全局数据与旧 band 连线，不折叠编辑区）、
- * 节点清空（{@code clearBusNode}）、BUS_OUT 冲突重评估（{@code reevaluateBusConflicts}——本地
- * 同名冲突 + 跨方块冲突，{@code localBusNames} 区分自身回声）、频段列表同步
+ * 节点清空（{@code clearBusNode}）、BUS_OUT 冲突合并（{@code reevaluateBusConflicts}——只合并
+ * **本地可证明**的同图重名，跨方块归属一律以服务端同步来的值为准，见 issue #12）、频段列表同步
  * （{@code syncBusBands}——同频道节点对齐 + 上传 BAND_REGISTRY + 清理被删频段连线）。
  * The bus editor (split out of {@link GraphEditor}, roadmap step 6d): commits the bus channel
  * name (clears the old channel's global data, handles bands per BUS_IN/BUS_OUT, rebuilds the
  * edit state), releases an old channel (global data + old-band connections, no panel collapse),
- * clears a bus node, re-evaluates BUS_OUT conflicts (local same-name + cross-block, with
- * {@code localBusNames} distinguishing our own echoes), and syncs band lists across same-channel
- * nodes (BAND_REGISTRY upload + removed-band connection cleanup).
+ * clears a bus node, merges BUS_OUT conflicts (only the locally provable same-graph duplicate;
+ * cross-block ownership is always taken from the server-synced value — issue #12), and syncs
+ * band lists across same-channel nodes (BAND_REGISTRY upload + removed-band connection cleanup).
  *
  * <p><b>行为零变更</b>：方法体逐字搬迁，编辑器状态经传入的 {@code ed} 引用访问（同包）。
  * 防抖编排（{@code tickDebouncedBusEdits}）留在编辑器的 clientTick，仅引用本类的
@@ -24,11 +24,8 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
  * ({@code tickDebouncedBusEdits}) stays in the editor's clientTick and only references this
  * class's {@link #BUS_EDIT_DEBOUNCE_TICKS}.</p>
  *
- * <p>外部契约不变：{@code GraphEditor.reevaluateBusConflictsForBus}（BusBandSyncPacket 处理器
- * 调用）保留为公共委托。{@code clearBusNode} 当前无调用点（为节点删除/清空路径保留）。
- * External contracts unchanged: {@code GraphEditor.reevaluateBusConflictsForBus} (called by the
- * BusBandSyncPacket handler) remains as a public delegate. {@code clearBusNode} currently has no
- * callers (kept for the node deletion/clear paths).</p>
+ * <p>{@code clearBusNode} 当前无调用点（为节点删除/清空路径保留）。
+ * {@code clearBusNode} currently has no callers (kept for the node deletion/clear paths).</p>
  */
 final class GraphBusEditor {
 
@@ -42,13 +39,6 @@ final class GraphBusEditor {
      *  Ticks to wait after typing stops before auto-syncing a bus/band name to
      *  collaborators (~0.5 s). */
     static final int BUS_EDIT_DEBOUNCE_TICKS = 10;
-
-    /** 本方块通过 syncBusBands 实际注册过的频道名（用于区分自身和跨方块冲突） (Bus names actually registered by this BE via syncBusBands; distinguishes self from cross-BE conflicts) */
-    private final java.util.Set<String> localBusNames = new java.util.HashSet<>();
-
-    /** 节点删除路径：忘记本方块曾注册过的频道名（配合 SignalBus.clearBus 调用方）。
-     *  Node-deletion path: forget a channel name this block had registered (caller pairs it with SignalBus.clearBus). */
-    void removeLocalBusName(String name) { localBusNames.remove(name); }
 
     /** 提交 busBox 的值到 node.signalName (Commit busBox value to node.signalName) */
     void commitBusBox(GraphEditor.EditState st) {
@@ -77,13 +67,12 @@ final class GraphBusEditor {
                 }
             }
             if (!othersUseOldName) {
-                // 只清全局旧频道数据 + 同步 localBusNames；不调 releaseOldBusName（它会清空
+                // 只清全局旧频道数据；不调 releaseOldBusName（它会清空
                 // signalBands 并删除旧 band 连线——"携带的图丢失"根因）。
-                // Clear only the global old-channel data + localBusNames; do NOT call
+                // Clear only the global old-channel data; do NOT call
                 // releaseOldBusName (it wipes signalBands and deletes old-band connections —
                 // the "carried graph lost" root cause).
                 io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(oldName);
-                localBusNames.remove(oldName);
             }
         }
         // Re-evaluate all BUS_OUT conflict state (renaming may create or resolve conflicts).
@@ -109,11 +98,6 @@ final class GraphBusEditor {
     void releaseOldBusName(GraphNode n, String oldName) {
         if (oldName == null || oldName.isEmpty()) return;
         io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(oldName);
-        // 保持 localBusNames 与 BAND_REGISTRY 同步，防止改名后残留旧名
-        // 掩盖后续同名频道上的真实跨 block 冲突（回归审计补充）。
-        // Keep localBusNames in sync with BAND_REGISTRY so a stale entry cannot
-        // mask a genuine later cross-block conflict on the reused name.
-        localBusNames.remove(oldName);
         // 在清空前捕获旧频段名和数量，用于连线清理 (Capture old band names and count before clearing)
         java.util.List<String> oldBands = n.signalBands != null
             ? new java.util.ArrayList<>(n.signalBands) : java.util.List.of();
@@ -146,76 +130,20 @@ final class GraphBusEditor {
         n.expanded = false;
     }
 
-    /** Re-evaluate busConflict for all BUS_OUT nodes in the given graph.
-     *  <p>重新评估给定图中所有 BUS_OUT 节点的 busConflict 状态。</p>
-     *  <p>Called both from local edits ({@link #commitBusBox}) and from remote op handling
-     *  (the editor's onRemoteOp) so that all players see conflict warnings in real time.
-     *  同时从本地编辑（commitBusBox）和远程操作处理（编辑器的 onRemoteOp）中调用，
-     *  使所有玩家都能实时看到冲突警告。</p> */
+    /** 合并 BUS_OUT 冲突标志（issue #12）。
+     *  <p>只合并**本地可证明**的部分（同图同名 BUS_OUT），跨方块归属一律以随图同步来的服务端
+     *  值为准 —— 客户端无法区分「服务端广播回来的自身回声」与「对端已占用频道」，此前用全局
+     *  频段表去猜正是假冲突的来源。标志在这里**只增不减**，绝不下调权威值。</p>
+     *  <p>调用点：本地改名提交（{@link #commitBusBox}）与远端 op 应用（GraphRemoteApplier）。</p>
+     *  Merge BUS_OUT conflict flags (issue #12). Only the locally provable part is merged (a
+     *  same-name duplicate in this graph); cross-block ownership is always taken from the
+     *  server-synced value — a client cannot tell its own echo from a peer's claim, and guessing
+     *  from the global band registry is what used to produce false conflicts. The flag is only
+     *  ever raised here, never lowered.</p>
+     *  <p>Callers: local rename commit ({@link #commitBusBox}) and remote op application
+     *  (GraphRemoteApplier).</p> */
     void reevaluateBusConflicts(io.github.y15173334444.create_schematic_compute.graph.NodeGraph graph) {
-        for (var n : graph.nodes) {
-            if (n.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT || n.signalName.isEmpty()) {
-                n.busConflict = false;
-                continue;
-            }
-            // Check for local conflict (another BUS_OUT in the same graph with the same signalName)
-            // 检查本地冲突（同一图中另一个同 signalName 的 BUS_OUT）
-            boolean localConflict = false;
-            for (var other : graph.nodes) {
-                if (other != n && other.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
-                    && other.signalName.equals(n.signalName)) {
-                    localConflict = true; break;
-                }
-            }
-            // Check for cross-block conflict (band registry knows about this name from another block).
-            // localBusNames distinguishes THIS block's own synced band definitions from another
-            // block's: if this editor ran syncBusBands for the name, it's our own echo (no conflict);
-            // otherwise BAND_REGISTRY carries a peer's bands (cross-block conflict).
-            // 检查跨方块冲突（频段注册表知道此名称来自另一个方块）。
-            // localBusNames 区分本 block 自己同步的频段定义与另一个 block 的：
-            // 若本编辑器为此名运行过 syncBusBands，则是自己的回声（无冲突）；
-            // 否则 BAND_REGISTRY 携带的是其他方块的频段（跨方块冲突）。
-            // （原 anyBusOutOwns 循环缺少 other != n 守卫，匹配到节点自身导致
-            // crossConflict 恒 false——死代码，已删除。回归审计：客户端从不显示跨 block 冲突。）
-            // 跨 block 冲突：仅当本图完全没有同名 BUS_OUT（含自身）且 BAND_REGISTRY 有该名
-            // bands 时成立。若本图有同名 BUS_OUT，BAND_REGISTRY 的 bands 可能是本 block 的
-            // 自身 echo（服务端广播回来）——不构成跨 block 冲突（回归审计：加载后的
-            // BUS_OUT 名字不在 localBusNames，导致自身 echo 被误标冲突）。
-            // Cross-block conflict only when this graph has NO same-name BUS_OUT at all
-            // (including itself) AND BAND_REGISTRY has the name. If the graph has one,
-            // BAND_REGISTRY's bands may be this block's own echo — not a conflict.
-            boolean crossConflict = false;
-            boolean anyLocalSameName = false;
-            for (var any : graph.nodes) {
-                if (any.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
-                    && any.signalName.equals(n.signalName)) {
-                    anyLocalSameName = true; break;
-                }
-            }
-            if (!localConflict && !anyLocalSameName && !localBusNames.contains(n.signalName)) {
-                var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(n.signalName);
-                if (gb != null && !gb.isEmpty()) crossConflict = true;
-            }
-            n.busConflict = localConflict || crossConflict;
-        }
-    }
-
-    /** 网络钩子：远端 BusBandSyncPacket 更新 BAND_REGISTRY 后，刷新本编辑器图中
-     *  busName 相关节点的冲突状态。若图中无该 bus 的 BUS_OUT 则为 no-op。
-     *  Network hook: after a remote BusBandSyncPacket updated BAND_REGISTRY, refresh
-     *  the conflict state of nodes for {@code busName}. No-op when this editor's
-     *  graph has no BUS_OUT for that name. */
-    void reevaluateBusConflictsForBus(String busName) {
-        if (busName == null || busName.isEmpty()) return;
-        var graph = ed.getGraph();
-        if (graph == null) return;
-        for (var n : graph.nodes) {
-            if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
-                && n.signalName.equals(busName)) {
-                reevaluateBusConflicts(graph);
-                return;
-            }
-        }
+        io.github.y15173334444.create_schematic_compute.network.BusChannelHelper.mergeLocalBusConflicts(graph);
     }
 
     /** 同步所有同总线名的 BUS 节点的频段列表 (Sync band lists of all BUS nodes sharing the same bus name) */
@@ -226,7 +154,6 @@ final class GraphBusEditor {
         var bands = src.signalBands;
         if (src.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT) {
             io.github.y15173334444.create_schematic_compute.network.SignalBus.registerBands(src.signalName, bands);
-            localBusNames.add(src.signalName);
         }
         var g = ed.getGraph();
         for (var n : ed.getGraph().nodes) {

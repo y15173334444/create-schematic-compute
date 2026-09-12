@@ -156,6 +156,42 @@ public final class BusChannelHelper {
         return (gb != null && !gb.isEmpty()) ? new ArrayList<>(gb) : new ArrayList<>();
     }
 
+    // ── Local BUS_OUT conflict merge (the only client-side conflict inference) ──
+    // ── 本地 BUS_OUT 冲突合并（客户端唯一的冲突推断） ────────────────────────────
+
+    /** Merge the **locally provable** part of BUS_OUT conflict state into {@code graph} (issue #12).
+     *  <p>A BUS_OUT's channel can also be owned by a <b>peer block</b> — but that is knowable only
+     *  on the server, so it is <b>never inferred here</b>. A client cannot distinguish the band
+     *  registry's own echo from a peer's claim, and the earlier attempt to guess from that registry
+     *  produced false conflicts — which is why the flag is only ever <b>raised</b> by a same-graph
+     *  duplicate name, and the server-synced value is never lowered.</p>
+     *  <p>Locally provable: anything that is not a named BUS_OUT cannot hold a channel, so its flag
+     *  is cleared.</p>
+     *  把 BUS_OUT 冲突状态中**本地可证明**的部分合并进 {@code graph}（issue #12）。
+     *  <p>一个 BUS_OUT 的频道也可能被**对端方块**占用 —— 但那只有服务端知道，这里**绝不推断**。
+     *  客户端无法区分频段表里的条目是自身回声还是对端声明，此前正是这种猜测产生了假冲突；
+     *  因此标志仅由同图重名**抬高**，绝不下调服务端同步来的值。</p>
+     *  <p>本地可证明：不是「有名字的 BUS_OUT」的节点不可能持有频道，标志清零。</p> */
+    public static void mergeLocalBusConflicts(NodeGraph graph) {
+        if (graph == null) return;
+        for (var n : graph.nodes) {
+            if (n.type != NodeType.BUS_OUT || n.signalName == null || n.signalName.isEmpty()) {
+                n.busConflict = false;
+                continue;
+            }
+            boolean sameGraphDuplicate = false;
+            for (var other : graph.nodes) {
+                if (other != n && other.type == NodeType.BUS_OUT && n.signalName.equals(other.signalName)) {
+                    sameGraphDuplicate = true;
+                    break;
+                }
+            }
+            // 只增不减：绝不下调随图同步来的服务端权威值。
+            // Raise only — never lower the authoritative value that arrived with the graph.
+            n.busConflict = n.busConflict || sameGraphDuplicate;
+        }
+    }
+
     // ── Client graph sync / 客户端图同步 ──────────────────────────────────
 
     /** Apply a server-pushed band list to matching BUS_IN / BUS_OUT nodes in the local graph.

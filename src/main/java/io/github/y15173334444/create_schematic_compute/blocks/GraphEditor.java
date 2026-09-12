@@ -2616,9 +2616,11 @@ public class GraphEditor {
     // commitBusBox / releaseOldBusName / clearBusNode / reevaluateBusConflicts / syncBusBands
     // 已拆至 GraphBusEditor（docs/gui-decomposition-plan.md 步骤 6d），调用点经 bus.* 转发。
     // Split into GraphBusEditor (step 6d); call sites go through bus.*.
-    /** 网络钩子委托：远端 BusBandSyncPacket 更新 BAND_REGISTRY 后刷新冲突状态（处理器调用）。
-     *  Network-hook delegate: refresh conflict state after a remote band sync (BusBandSyncPacket). */
-    public void reevaluateBusConflictsForBus(String busName) { bus.reevaluateBusConflictsForBus(busName); }
+    // 原 reevaluateBusConflictsForBus 公共委托已随 issue #12 删除：频段同步包不再参与冲突判定
+    //（冲突状态改由服务端权威值随图同步；客户端只合并可本地证明的「同图重名」）。
+    // The reevaluateBusConflictsForBus delegate was removed with issue #12: a band-sync packet no
+    // longer takes part in conflict evaluation (the state now comes from the authoritative
+    // server value synced with the graph; the client only merges locally provable duplicate names).
 
     /** 子类可重写定义哪些节点左键打开编辑面板 (Override to define which nodes open edit panel on left-click) */
 
@@ -3578,7 +3580,6 @@ public class GraphEditor {
                     }
                     if (!hasOther) {
                         io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(n.signalName);
-                        bus.removeLocalBusName(n.signalName);
                     }
                 }
                 var savedX = n.x; var savedY = n.y; var savedType = n.type.ordinal();
