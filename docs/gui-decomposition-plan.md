@@ -8,7 +8,8 @@
 > **步骤 3 已完成**：指南（`e3cacdf`）/ 颜色（`fb5eddf`）/ 键位 三个 tab 全部拆出。
 > **步骤 6 进行中**：刀 6a 编辑态工厂已落地（`a4695cd`），`GraphEditor` 5807 → 5231 行；
 > 刀 6b 协作 presence 已落地（`4ce1257`），5231 → 5049 行；刀 6e 视角书签+相机已落地
-> （`f914dd6`），5049 → 4742 行。清单 D 双人回归 D1–D4、D7 已通过（见实施记录）。
+> （`f914dd6`），5049 → 4742 行；刀 6d 总线编辑已落地（`c270a6f`），4742 → 4523 行。
+> 清单 D 双人回归 D1–D4、D7 已通过（见实施记录）。
 > Status: 🔶 **in progress.** Drafted 2026-09-11 against `dfedbef`; step 1 landed in `c8643fd`;
 > step 2 landed in `23ec19d` (`MonitorScreen` now **348 lines** after the same-day review fixes:
 > the never-wired `drawToolbarStrip` seam removed, the settings-panel click routing in graph mode
@@ -123,7 +124,7 @@ Step 2  MonitorScreen 显示编辑 GUI 脱离          ✅ 已完成 23ec19d（1
 Step 3  EditorSettingsScreen 按 tab 拆分         ✅ 已完成（指南/颜色/键位 三 tab 全部拆出）
 Step 4  PixelEditorScreen 内核 / 帧条拆分        🟡 中（可补单测）
 Step 5  NodeRenderer 按渲染品类拆（保门面）      🟡 中（引用最广）
-Step 6  GraphEditor 五刀 + 内部方法级拆解        🟡 进行中（6a/6b/6e 已落地；下一刀 6d）
+Step 6  GraphEditor 五刀 + 内部方法级拆解        🟡 进行中（6a/6b/6e/6d 已落地；剩 6c、6f）
 Step 7  小文件批量归位                           ⚪ 择机
 ```
 
@@ -533,6 +534,26 @@ tempView 虽小，一并归入此类（书签跳转即相机操作，同一关�
 **验证**：客观校验（13 个搬迁符号残留 = 0、花括号平衡、裸 `startTransition` 调用 = 0）+
 `compileJava` + `test` 全绿（382）。游戏内回归：书签面板交互（D1–D4、D7 相邻项）见清单 D
 自动化记录；建议报告者下次回归时顺带点一遍书签面板（增删/重命名/跳转/拖拽排序/快捷键 Ctrl+M）。
+
+#### ✅ 实施记录 · 刀 6d · 总线编辑（已完成 `c270a6f`）
+
+落地为 `blocks/GraphBusEditor.java`（277 行，包级 `final`，构造注入编辑器引用）。
+总线域方法整体迁入；`GraphEditor` **4742 → 4523 行**，11 处调用点改为一行 `bus.*` 转发。
+
+| 变更 | 说明 |
+|------|------|
+| 搬入 | `commitBusBox`（频道改名：清旧频道全局数据、按 BUS_IN/BUS_OUT 分别处理频段、重建编辑区）、`releaseOldBusName`（清全局数据 + 旧 band 连线，不折叠面板）、`clearBusNode`（删除/清空路径保留，当前零调用）、`reevaluateBusConflicts`（本地同名 + 跨方块冲突）、`reevaluateBusConflictsForBus`（网络钩子）、`syncBusBands`（同频道对齐 + BAND_REGISTRY 上传 + 被删频段连线清理） |
+| 状态随迁 | `localBusNames`（本方块注册过的频道名，冲突判定用）+ `BUS_EDIT_DEBOUNCE_TICKS` |
+| 留在编辑器 | 防抖编排 `tickDebouncedBusEdits`（clientTick 编排职责）与 `syncBandBoxes` / `bandBoxesPending`（频段 EditBox 值同步，计划未列）；防抖循环改引用 `GraphBusEditor.BUS_EDIT_DEBOUNCE_TICKS` |
+| 外部契约 | `GraphEditor.reevaluateBusConflictsForBus`（BusBandSyncPacket 处理器调用）保留公共委托，调用方零改动 |
+
+**搬迁陷阱复用**：`localBusNames` 有一处调用点在节点删除路径（4135 行，删除最后一个同名
+BUS_OUT 时 forget）——不属于总线编辑块，按最小改动暴露 `removeLocalBusName(String)` 小方法，
+而非把整个删除块搬走或放宽集合可见性。
+
+**验证**：客观校验（裸引用 = 0、花括号平衡、调用点计数 6 commit + 3 syncBands + 1 remove +
+委托）+ `compileJava` + `test` 全绿（382）。游戏内回归建议：BUS_IN/BUS_OUT 改名不丢图、
+频段 ± 按钮与同步、BUS_OUT 冲突提示、快捷键防抖提交（0.5s 静止后同步）。
 
 #### 清单 D · 步骤 6 刀次回归（6a 编辑态 + 6b presence 合并验收）
 
