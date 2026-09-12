@@ -7,7 +7,8 @@
 > 恢复设置面板在节点图模式的点击路由，见步骤 2 实施记录的更正）。
 > **步骤 3 已完成**：指南（`e3cacdf`）/ 颜色（`fb5eddf`）/ 键位 三个 tab 全部拆出。
 > **步骤 6 进行中**：刀 6a 编辑态工厂已落地（`a4695cd`），`GraphEditor` 5807 → 5231 行；
-> 刀 6b 协作 presence 已落地（`4ce1257`），5231 → 5049 行。
+> 刀 6b 协作 presence 已落地（`4ce1257`），5231 → 5049 行；刀 6e 视角书签+相机已落地
+> （`f914dd6`），5049 → 4742 行。清单 D 双人回归 D1–D4、D7 已通过（见实施记录）。
 > Status: 🔶 **in progress.** Drafted 2026-09-11 against `dfedbef`; step 1 landed in `c8643fd`;
 > step 2 landed in `23ec19d` (`MonitorScreen` now **348 lines** after the same-day review fixes:
 > the never-wired `drawToolbarStrip` seam removed, the settings-panel click routing in graph mode
@@ -122,7 +123,7 @@ Step 2  MonitorScreen 显示编辑 GUI 脱离          ✅ 已完成 23ec19d（1
 Step 3  EditorSettingsScreen 按 tab 拆分         ✅ 已完成（指南/颜色/键位 三 tab 全部拆出）
 Step 4  PixelEditorScreen 内核 / 帧条拆分        🟡 中（可补单测）
 Step 5  NodeRenderer 按渲染品类拆（保门面）      🟡 中（引用最广）
-Step 6  GraphEditor 五刀 + 内部方法级拆解        🟡 进行中（6a `a4695cd`、6b `4ce1257` 已落地）
+Step 6  GraphEditor 五刀 + 内部方法级拆解        🟡 进行中（6a/6b/6e 已落地；下一刀 6d）
 Step 7  小文件批量归位                           ⚪ 择机
 ```
 
@@ -506,6 +507,32 @@ P2 presence 集群整体迁入；`GraphEditor` **5231 → 5049 行**，保留全
 
 **验证**：`compileJava` + `test` 全绿（382）。游戏内回归待报告者执行（presence 属协作行为，
 完整验证需双客户端，见下方清单 D）。
+
+#### ✅ 实施记录 · 刀 6e · 视角书签 + 相机过渡（已完成 `f914dd6`）
+
+落地为 `blocks/GraphViewBookmarks.java`（454 行，包级 `final`，构造注入编辑器引用）。
+"视角书签"关注点整体迁入；`GraphEditor` **5049 → 4742 行**，各输入方法仅留一行调用点。
+
+| 变更 | 说明 |
+|------|------|
+| 搬入 | 书签列表面板渲染（滚动条 / 行按钮 ✎→× / 拖拽幽灵行）、命名对话框、右下角面板开关 |
+| 搬入 | 相机过渡动画（200ms ease-in-out；书签跳转 / 重置视角共用）+ `lerp` |
+| 搬入 | 临时视角（按方块位置存取：关闭时保存、构造时恢复）+ 静态 `clearTempView` |
+| 控制流 | 输入块改布尔"已消费"方法；`mouseDragged` 的顺序（书签拖拽 → 菜单滚动条 → 书签滚动条）在两个独立方法 + 调用点位置中保持 |
+| 可见性放宽 | 仅 `editingCommentColorNode`、`scrollDragStartY/Off`（后者为注释/导入/书签滚动条**共享**的拖拽状态，留在编辑器）；`camX/camY/zoom`、`colorPicker`、弹窗标志本就 public |
+| 外部契约 | `GraphEditor.clearTempView()`（SchematicCompute 调用）保留为静态委托，调用方零改动 |
+
+**与方案偏差**：计划估 ~150 行，实际 454 行——"书签面板"的渲染 + 五类输入处理 + 命名对话框
+是一个完整交互闭环，按"纯搬迁"原则整体迁入（拆散渲染与交互反而割裂内聚）。相机过渡与
+tempView 虽小，一并归入此类（书签跳转即相机操作，同一关注点）。
+
+**搬迁陷阱复用**：`scrollDragStartY/Off` 表面像书签私有状态（写在书签点击块里），实际被
+注释/导入/书签三个滚动条拖拽共享——grep 全部引用后才决定保留在编辑器并放宽包级，避免
+把共享状态错搬进新类。
+
+**验证**：客观校验（13 个搬迁符号残留 = 0、花括号平衡、裸 `startTransition` 调用 = 0）+
+`compileJava` + `test` 全绿（382）。游戏内回归：书签面板交互（D1–D4、D7 相邻项）见清单 D
+自动化记录；建议报告者下次回归时顺带点一遍书签面板（增删/重命名/跳转/拖拽排序/快捷键 Ctrl+M）。
 
 #### 清单 D · 步骤 6 刀次回归（6a 编辑态 + 6b presence 合并验收）
 
