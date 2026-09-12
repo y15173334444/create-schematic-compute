@@ -308,7 +308,7 @@ joiners have no pending ops and always load the authoritative graph.
 | `SpeedProxyBlockEntity` | 转速代理 / Speed Proxy | Create SpeedController 直控 / Direct speed controller access |
 | `ProgramComputerBlockEntity` | 编程计算机 / Program Computer | 时序逻辑专用 / Sequential logic only |
 
-### GraphEditor (~4500 行 / lines；步骤 6 各刀持续缩小 / shrinking via roadmap step-6 cuts)
+### GraphEditor (~4100 行 / lines；步骤 6 各刀持续缩小 / shrinking via roadmap step-6 cuts)
 核心节点图编辑器。承载所有渲染/输入/交互逻辑。
 / Core node graph editor. All rendering, input, and interaction logic.
 
@@ -325,6 +325,8 @@ joiners have no pending ops and always load the authoritative graph.
 - 书签系统 / Bookmark system（`GraphViewBookmarks` — 视角书签面板 + 命名对话框 + 相机过渡动画 + 临时视角，步骤 6e 拆出；输入块变为"是否消费"方法，编辑器保留原控制流 / the view-bookmark panel + name dialog + camera transition animation + temp view, split in step 6e; input blocks became consumed-style methods, the editor keeps the original control flow）
 - BUS 冲突检测 / BUS conflict detection（`GraphBusEditor` — 总线编辑集群：频道名提交 `commitBusBox` / 旧频道释放 / 冲突重评估 / 频段同步 `syncBusBands`，步骤 6d 拆出；防抖编排 `tickDebouncedBusEdits` 留在编辑器 clientTick / the bus editing cluster — channel rename, old-channel release, conflict re-evaluation, band sync — split in step 6d; the debounce orchestration stays in the editor's clientTick）
 - 调试工具交互 / Debug tool interaction (控制点拖拽、探针冻结 / control point drag, probe freeze)
+- `GraphOpHistory` — op 撤销/重做历史（步骤 6c 拆出）：撤销/重做栈、批量组、反向 op、服务端 ID 重映射（Host handleAck 经编辑器委托触达）；recordOp 经编辑器一行委托保持工厂与输入处理器调用点零改动 / The op undo/redo history (step 6c): stacks, batch groups, reverse ops, server ID remapping (Host handleAck goes through the editor's delegate); recordOp keeps a one-line editor delegate so factory and input-handler call sites are untouched
+- `GraphRemoteApplier` — 远端编辑 op 应用器（步骤 6c 拆出）：展开/折叠 UI 态、REJECT 回滚 + 待 ACK 计数、子图定位 + OpExecutor 应用、远端删除的 UI 清理、编辑面板刷新与 BUS 冲突重评估；GraphEditOpSyncPacket 经编辑器公共委托触达 / The remote op applier (step 6c): expand/collapse UI state, REJECT rollback + pending-ACK count, sub-graph resolution + OpExecutor apply, remote-remove UI cleanup, edit-panel refresh and bus conflict re-evaluation; GraphEditOpSyncPacket reaches it through the editor's public delegate
 - `NodeEditStateFactory` — 编辑态工厂（步骤 6a 拆出）：按节点类型构建展开面板 `EditState` 与调试信号发生器模式切换状态机；编辑器内部成员经传入引用触达（同包包级访问），编辑器保留薄委托 / The edit-state factory (step 6a): builds the expanded-panel `EditState` per node type plus the debug signal generator's mode-toggle state machine; editor internals are reached through the passed-in reference (package-private, same package), the editor keeps thin delegates
 - `GraphPresenceTracker` — 多人协作临场跟踪器（步骤 6b 拆出）：远端临场存储 / 30s 过期清理 / 节点软锁与显示布局软锁查询、本地临场节流上报（模式感知）与图模式协作叠加层（远端光标 / 拖拽悬线 / 在线列表）；包处理器、显示器显示编辑器与屏幕关闭仍走 `GraphEditor` 门面委托，调用方零改动 / The multiplayer presence tracker (step 6b): remote-presence storage with 30 s expiry, node & display-layout soft-lock queries, the throttled mode-aware local upload, and the graph-mode collaboration overlay (remote cursors / dragging wires / player list); the packet handler, the monitor display editor and screen teardown still go through `GraphEditor` delegates with zero caller changes
 

@@ -8,8 +8,9 @@
 > **步骤 3 已完成**：指南（`e3cacdf`）/ 颜色（`fb5eddf`）/ 键位 三个 tab 全部拆出。
 > **步骤 6 进行中**：刀 6a 编辑态工厂已落地（`a4695cd`），`GraphEditor` 5807 → 5231 行；
 > 刀 6b 协作 presence 已落地（`4ce1257`），5231 → 5049 行；刀 6e 视角书签+相机已落地
-> （`f914dd6`），5049 → 4742 行；刀 6d 总线编辑已落地（`c270a6f`），4742 → 4523 行。
-> 清单 D 双人回归 D1–D4、D7 已通过（见实施记录）。
+> （`f914dd6`），5049 → 4742 行；刀 6d 总线编辑已落地（`c270a6f`），4742 → 4523 行；
+> 刀 6c op 历史 + 远端应用已落地（`0bea539`），4523 → 4085 行（风险最高的一刀完成）。
+> 清单 D 双人回归 D1–D4、D7 已通过（见实施记录）。仅剩 6f（文件内方法级拆解）。
 > Status: 🔶 **in progress.** Drafted 2026-09-11 against `dfedbef`; step 1 landed in `c8643fd`;
 > step 2 landed in `23ec19d` (`MonitorScreen` now **348 lines** after the same-day review fixes:
 > the never-wired `drawToolbarStrip` seam removed, the settings-panel click routing in graph mode
@@ -124,7 +125,7 @@ Step 2  MonitorScreen 显示编辑 GUI 脱离          ✅ 已完成 23ec19d（1
 Step 3  EditorSettingsScreen 按 tab 拆分         ✅ 已完成（指南/颜色/键位 三 tab 全部拆出）
 Step 4  PixelEditorScreen 内核 / 帧条拆分        🟡 中（可补单测）
 Step 5  NodeRenderer 按渲染品类拆（保门面）      🟡 中（引用最广）
-Step 6  GraphEditor 五刀 + 内部方法级拆解        🟡 进行中（6a/6b/6e/6d 已落地；剩 6c、6f）
+Step 6  GraphEditor 五刀 + 内部方法级拆解        🟡 进行中（6a/6b/6e/6d/6c 全部落地；仅剩 6f）
 Step 7  小文件批量归位                           ⚪ 择机
 ```
 
@@ -585,6 +586,32 @@ BUS_OUT 时 forget）——不属于总线编辑块，按最小改动暴露 `rem
 **过程经验**：① 双人 GUI 自动化时两窗口前台会漂移，raw 点击按屏幕坐标路由、CUA 前台不匹配
 会拒绝并要求重新激活——每个关键动作前重新激活 + 观察；② 贴窗口底边的节点拖拽/展开不可靠，
 先最大化窗口再操作；③ 服务端已在运行时二次启动会因世界锁快速退出，先查端口 25565 占用。
+
+#### ✅ 实施记录 · 刀 6c · op 历史 + 远端应用（已完成 `0bea539`，风险最高的一刀）
+
+拆为**两个类**（远端应用与撤销历史是不同的关注点，强行合并会互相污染）：
+
+**`blocks/GraphOpHistory.java`**（363 行）：per-player 撤销/重做栈（`UndoEntry` 内嵌类、上限
+100）、批量撤销组（`beginUndoBatch` / `endUndoBatch` / `resetBatch`）、反向 op 生成
+（`reverseOp`——18 个 OpType 逐个求逆）、执行（`opUndo` / `opRedo`——OpExecutor.apply +
+sendOp）、服务端 ID 重映射（`remapNodeId` / `remapEntryOp` / `withTargetId` / `withFromToId`，
+ACK 把临时 ID 跨栈、选中集、展开集、编辑态、拖拽状态全部改写）；`restoreItemFromNbt` 随迁。
+
+**`blocks/GraphRemoteApplier.java`**（157 行）：`applyRemote`（原 `onRemoteOp`）——展开/折叠
+UI 态 op、REJECT 回滚 + 待 ACK 计数归还（整图同步守卫）、按 ownerNodeId 定位子图 +
+OpExecutor.apply（移动动画）、远程 REMOVE_NODE 的 UI 清理、数据 op 的编辑面板刷新（SET_PARAM
+回显抑制、DEBUG_SIGNAL_GEN 模式切换重建）、BUS_OUT 冲突重评估（issue #11 语义）。
+
+| 变更 | 说明 |
+|------|------|
+| 外部契约 | `GraphEditor` 保留一行委托：`recordOp` / `beginUndoBatch` / `endUndoBatch`（编辑器内部 ~14 处 + NodeEditStateFactory ~17 处调用**零改动**）、`remapNodeId`（Host handleAck）、`onRemoteOp`（GraphEditOpSyncPacket） |
+| 可见性放宽 | 仅 `encapsulationParent`、`resizingComment`（重映射与远端清理触达）；`encodeCtrlPoints` / `saveNodeNbt` 留在编辑器（调用方在输入处理器与工厂） |
+| 调用点改写 | 仅 3 处：keyPressed 的 UNDO/REDO → `history.opUndo/opRedo`、`resetBatch` → `history.resetBatch` |
+| 交付插曲 | 首次编译漏建 `remapNodeId` 公共委托（Host handleAck 引用），编译期当场暴露补齐 |
+
+**验证**：客观校验（8 个搬迁符号残留 = 0、花括号平衡）+ `compileJava` + `test` 全绿
+（**389**，含 issue #11 修复新增的 7 个测试）。游戏内回归建议：单人撤销/重做各类 op 往返
+（含批量组）、双人下对方编辑实时出现、临时 ID 重映射后撤销指向正确节点。
 
 #### 清单 D · 步骤 6 刀次回归（6a 编辑态 + 6b presence 合并验收）
 
