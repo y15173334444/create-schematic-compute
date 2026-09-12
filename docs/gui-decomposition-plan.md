@@ -602,7 +602,7 @@ BUS_OUT 时 forget）——不属于总线编辑块，按最小改动暴露 `rem
 | Ctrl+Z / Ctrl+Y | ✅ 建节点撤销→消失；重做→以服务端 ID 重建 | GraphOpHistory（6c） |
 | 书签开关（★） | ✅ 面板开/关 | `tryChromeClick`→`handleBookmarkButtonToggle` |
 | 顶栏图名框聚焦 | ✅ 白框+光标 | `tryTopBarClick` |
-| TAB 删线/框选、注释交互、导入导出对话框 | ⬜ 未自动化（需按键组合或对象不在视野） | |
+| TAB 删线/框选、注释交互、导入导出对话框 | ✅ **报告者实测通过**（2026-09-12，覆盖 tryTabInteractions / tryCommentClick / tryExport·ImportDialogClick） | |
 
 **⚠️ 数据事故与恢复（如实记录）**：测试前的"场地重置"脚本对旧测试位 (208,81,202) 执行了
 `fill ... air`——**该填充把玩家正在使用的蓝图方块一并替换**（输出"filled 1 block"未引起注意），
@@ -671,7 +671,13 @@ OpExecutor.apply（移动动画）、远程 REMOVE_NODE 的 UI 清理、数据 o
 **实施方式**：按行号精确切割的脚本手术（块边界取自通读标注），统一减缩进；编译器拦下
 三类机械错误（`tryTabInteractions` 漏传 `panOnlyClick`、`tryCommentClick` 内部重复声明与
 调用点缺声明——原 2219 行的 `nonCommentHit` 声明随块迁入方法体与参数冲突）。
-`renderBg`（~405 行）与 `keyPressed`（~324 行）的同类分解留待 6f 第二部分。
+
+**6f 第二部分（renderBg ~405 行 + keyPressed ~324 行）：尝试后回滚，未落地。**
+脚本化多块原位搬迁在这两个方法上连续四次产生结构性错位（行号基准在多次修改间漂移、
+else-if 链头部处理、跨 TCP 的长命令转义等多因叠加），最终 `git checkout` 回滚到 6f-1
+提交态。**结论**：剩余两方法的分解应改用 IDE 的 extract-method 重构（逐块、即改即编译），
+或在功能冻结窗口手工进行；脚本批量手术不再尝试。步骤 6 的核心目标（mouseClicked 千行
+巨怪分解）已达成且实机回归通过。
 
 **验证**：调用序列与原判定顺序逐项一致 + 花括号平衡 + `compileJava` + `test` 全绿（389）。
 行为回归面 = 鼠标点击全部交互路径，建议实机点检：工具栏/菜单建节点/注释交互/频段 ±/撤销。
