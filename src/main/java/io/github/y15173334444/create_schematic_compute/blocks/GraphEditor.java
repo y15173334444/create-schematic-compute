@@ -131,148 +131,32 @@ public class GraphEditor {
     /** 每个图的最大节点数上限（含主图和每个封装子图） (Max nodes per graph, including main graph and each encapsulated sub-graph) */
     public static final int MAX_NODES = 1024;
 
-    // ── Per-instance op-based undo (collaboration-safe) ──
-    // 基于 op 的每实例撤销（协作安全）
-
-    /**
-     * A single undo entry — either a single GraphOp or a batch of ops treated as one atomic unit.
-     * 单个撤销条目 —— 要么是单条 GraphOp，要么是作为原子单元处理的批量 op。
-     * <p>
-     * Op references are mutable (for server-assigned ID remapping). Old values (x, y, val, str)
-     * are captured at record time so the reverse op can restore prior state without re-reading the graph.
-     * Op 引用是可变的（用于服务端分配的 ID 重映射）。旧值（x, y, val, str）在记录时捕获，
-     * 使反向 op 无需重新读取图即可恢复先前状态。
-     */
-    private static final class UndoEntry {
-        io.github.y15173334444.create_schematic_compute.graph.GraphOp op; // mutable for ID remapping
-        final float oldX, oldY, oldVal;
-        final String oldStr;
-        final java.util.List<UndoEntry> batch; // null = single op; non-null = batch marker
-        UndoEntry(io.github.y15173334444.create_schematic_compute.graph.GraphOp op,
-                  float oldX, float oldY, float oldVal, String oldStr) {
-            this.op = op; this.oldX = oldX; this.oldY = oldY; this.oldVal = oldVal; this.oldStr = oldStr;
-            this.batch = null;
-        }
-        UndoEntry(java.util.List<UndoEntry> batch) { this.op = null; this.oldX = this.oldY = this.oldVal = 0; this.oldStr = null; this.batch = batch; }
-        boolean isBatch() { return batch != null; }
-    }
-    private final java.util.ArrayDeque<UndoEntry> undoStack2 = new java.util.ArrayDeque<>();
-    private final java.util.ArrayDeque<UndoEntry> redoStack2 = new java.util.ArrayDeque<>();
-    private static final int MAX_UNDO2 = 100;
-    private int batchDepth = 0;
-    private final java.util.List<UndoEntry> currentBatch = new java.util.ArrayList<>();
-
-    /** Start a batch undo group. All recordOp calls between begin/end are
-     *  treated as one atomic undo unit (one Ctrl+Z undoes the whole group).
-     *  开始批量撤销组。begin/end 之间的所有 recordOp 调用被视为一个原子撤销单元。 */
-    void beginUndoBatch() {
-        if (batchDepth > 0) { batchDepth = 0; currentBatch.clear(); } // safety: discard stale batch
-        batchDepth++;
-    }
-    /** End a batch undo group. / 结束批量撤销组。 */
-    void endUndoBatch() {
-        if (batchDepth <= 0) return;
-        batchDepth--;
-        if (batchDepth == 0 && !currentBatch.isEmpty()) {
-            undoStack2.add(new UndoEntry(new java.util.ArrayList<>(currentBatch)));
-            while (undoStack2.size() > MAX_UNDO2) undoStack2.removeFirst();
-            currentBatch.clear();
-            redoStack2.clear();
-        }
-    }
-    /** Abandon any incomplete batch (called at start of new actions to prevent stack freeze).
-     *  丢弃任何未完成的批量组（在新操作开始时调用，防止栈冻结）。 */
-    private void resetBatch() {
-        if (batchDepth > 0) { batchDepth = 0; currentBatch.clear(); }
-    }
+    // ── op 撤销/重做历史（已拆至 GraphOpHistory，步骤 6c；编辑器与 NodeEditStateFactory 的
+    //    recordOp / beginUndoBatch / endUndoBatch 调用点经下列一行委托转发 / op undo/redo history
+    //    split into GraphOpHistory (step 6c); the editor's and NodeEditStateFactory's calls go
+    //    through the one-line delegates below）──
+    final GraphOpHistory history = new GraphOpHistory(this);
+    // ── 远端编辑 op 应用器（onRemoteOp，步骤 6c 拆出 / remote op applier split in step 6c）──
+    final GraphRemoteApplier remoteApplier = new GraphRemoteApplier(this);
 
     /** Record an emitted op for per-player undo. Call AFTER sendOp.
      *  If inside a batch, the op is deferred until endUndoBatch(). */
     void recordOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op,
                           float oldX, float oldY, float oldVal, String oldStr) {
-        var entry = new UndoEntry(op, oldX, oldY, oldVal, oldStr);
-        if (batchDepth > 0) {
-            currentBatch.add(entry);
-        } else {
-            undoStack2.add(entry);
-            while (undoStack2.size() > MAX_UNDO2) undoStack2.removeFirst();
-            redoStack2.clear();
-        }
+        history.recordOp(op, oldX, oldY, oldVal, oldStr);
+    }
+    /** Start a batch undo group. All recordOp calls between begin/end are
+     *  treated as one atomic undo unit (one Ctrl+Z undoes the whole group).
+     *  开始批量撤销组。begin/end 之间的所有 recordOp 调用被视为一个原子撤销单元。 */
+    void beginUndoBatch() { history.beginUndoBatch(); }
+    /** End a batch undo group. / 结束批量撤销组。 */
+    void endUndoBatch() { history.endUndoBatch(); }
+    /** Remap a client-assigned temp node ID to the server-assigned real ID（Host handleAck 调用，
+     *  实现见 GraphOpHistory / called by the Host's handleAck; see GraphOpHistory). */
+    public void remapNodeId(io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket ack) {
+        history.remapNodeId(ack);
     }
 
-    /** Generate the reverse op for an undo entry, or null if not reversible. */
-    private io.github.y15173334444.create_schematic_compute.graph.GraphOp reverseOp(UndoEntry e) {
-        var op = e.op;
-        var bp = op.graphPos();
-        int oid = op.ownerNodeId();
-        var uid = op.actor();
-        return switch (op.type()) {
-            case ADD_NODE -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE, bp, oid, op.targetNodeId(), uid);
-            case ADD_NODE_REQUEST -> {
-                // Use targetNodeId if ACK has remapped it; fall back to oldVal (local node id)
-                // 如果 ACK 已重映射则用 targetNodeId；否则用 oldVal（本地节点 ID）
-                int nid = op.targetNodeId() > 0 ? op.targetNodeId() : (int)e.oldVal;
-                yield new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                    io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE, bp, oid, nid, uid);
-            }
-            case REMOVE_NODE -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE, bp, oid, op.targetNodeId(),
-                op.tempId(), io.github.y15173334444.create_schematic_compute.graph.NodeType.values()[(int)e.oldVal],
-                e.oldX, e.oldY, 0, 0, 0, 0, 0, 0f,
-                e.oldStr, 0, 0, 0, 0, null, 0, 0, 0,
-                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
-            case MOVE_NODE -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(bp, oid, op.targetNodeId(), e.oldX, e.oldY, uid);
-            case ADD_CONN -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(bp, oid, op.fromId(), op.fromPin(), op.toId(), op.toPin(), uid);
-            case REMOVE_CONN -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(bp, oid,
-                (int)e.oldX, (int)e.oldY, (int)e.oldVal, op.toPin(), uid);
-            case SET_PARAM -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(bp, oid, op.targetNodeId(), op.paramIndex(), e.oldVal, uid);
-            case SET_FORMULA -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(bp, oid, op.targetNodeId(), e.oldStr, uid);
-            case SET_DISPLAY_TEXT -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT, bp, oid, op.targetNodeId(),
-                0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-                e.oldStr, 0, 0, 0, 0, null, 0, 0, 0,
-                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
-            case SET_COMMENT_SIZE -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
-                bp, oid, op.targetNodeId(), e.oldX, e.oldY, uid);
-            case SET_COMMENT_TEXT -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_TEXT, bp, oid, op.targetNodeId(), 0, null, 0f, 0f,
-                0, 0, 0, 0, 0, 0f, e.oldStr, 0, 0, 0, 0, null, 0, 0, 0,
-                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
-            case SET_COMMENT_COLORS -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_COLORS, bp, oid, op.targetNodeId(),
-                0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-                null, (int)e.oldX, (int)e.oldY, (int)e.oldVal, 0, null, 0, 0, 0,
-                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
-            case SET_HOTBAR_ITEM -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setHotbarItem(
-                bp, oid, op.targetNodeId(), op.hotbarSlot(),
-                restoreItemFromNbt(e.oldStr), uid);
-            case SET_IMAGE_FRAME_TOGGLE -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_FRAME_TOGGLE, bp, oid, op.targetNodeId(),
-                0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-                null, 0, 0, 0, 0, null, 0, op.imageFrameIndex(), 0,
-                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
-            case SET_IMAGE_SIZE -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImageSize(
-                bp, oid, op.targetNodeId(), (int)e.oldX, (int)e.oldY, uid);
-            case SET_KEY_BINDING -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_KEY_BINDING, bp, oid, op.targetNodeId(),
-                0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-                null, 0, 0, 0, 0, null, (int)e.oldVal, 0, 0,
-                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
-            case SET_TEXT_COLOR -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setTextColor(
-                bp, oid, op.targetNodeId(), (int)e.oldVal, uid);
-            case SET_CTRL_POINTS -> {
-                float[][] parsed = io.github.y15173334444.create_schematic_compute.graph.GraphOp.parseCtrlPoints(e.oldStr);
-                yield parsed != null
-                    ? io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
-                        bp, oid, op.targetNodeId(), parsed[0], parsed[1], uid)
-                    : null;
-            }
-            case TOGGLE_BOOL -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL, bp, oid, op.targetNodeId(), uid);
-            default -> null;
-        };
-    }
 
     /** Encode control point arrays to a string (x0,y0;x1,y1;...), same format as GraphOp.setCtrlPoints.
      *  将控制点数组编码为字符串 (x0,y0;x1,y1;...)，与 GraphOp.setCtrlPoints 格式相同。
@@ -288,22 +172,6 @@ public class GraphEditor {
         return sb.toString();
     }
 
-    /** Parse an ItemStack from its NBT string representation (saved via saveOptional).
-     *  从 NBT 字符串表示中解析 ItemStack（通过 saveOptional 保存的）。
-     *  @param nbtStr NBT 字符串 / NBT string
-     *  @return 解析出的 ItemStack，失败时返回 EMPTY / parsed ItemStack, or EMPTY on failure */
-    private static net.minecraft.world.item.ItemStack restoreItemFromNbt(String nbtStr) {
-        if (nbtStr == null || nbtStr.isEmpty()) return net.minecraft.world.item.ItemStack.EMPTY;
-        try {
-            var tag = net.minecraft.nbt.TagParser.parseTag(nbtStr);
-            if (tag instanceof net.minecraft.nbt.CompoundTag ct)
-                return net.minecraft.world.item.ItemStack.parseOptional(
-                    net.minecraft.client.Minecraft.getInstance().level.registryAccess(), ct);
-        } catch (Exception e) {
-            io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("restoreItemFromNbt failed", e);
-        }
-        return net.minecraft.world.item.ItemStack.EMPTY;
-    }
 
     /** Save a node to NBT string for undo snapshot (REMOVE_NODE restore).
      *  将节点保存为 NBT 字符串，用于撤销快照（REMOVE_NODE 恢复）。 */
@@ -442,172 +310,6 @@ public class GraphEditor {
             e.getValue().run();
         }
         commitPendingBusEdits();
-    }
-
-    /** Undo last entry (single op or batch). One Ctrl+Z = one call.
-     *  撤销最后一个条目（单条 op 或批量组）。一次 Ctrl+Z = 一次调用。 */
-    private void opUndo() {
-        var entry = undoStack2.pollLast();
-        if (entry == null) return;
-        if (entry.isBatch()) {
-            // Undo batch in reverse order (newest op first so positions cascade correctly)
-            // 逆序撤销批量组中的 op（最新 op 先撤销，使位置级联正确）
-            var batch = entry.batch;
-            var redone = new java.util.ArrayList<UndoEntry>();
-            for (int i = batch.size() - 1; i >= 0; i--) {
-                var e = batch.get(i);
-                var rev = reverseOp(e);
-                if (rev != null) {
-                    redone.add(e);
-                    io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), rev);
-                    host.sendOp(rev);
-                }
-            }
-            // Push entire batch as one redo entry
-            java.util.Collections.reverse(redone);
-            redoStack2.add(new UndoEntry(redone));
-        } else {
-            var rev = reverseOp(entry);
-            if (rev != null) {
-                redoStack2.add(entry);
-                io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), rev);
-                host.sendOp(rev);
-            }
-        }
-    }
-
-    /** Redo last undone entry (single op or batch).
-     *  重做上一个被撤销的条目（单条 op 或批量组）。
-     *  Re-applies the most recent entry from the redo stack to the graph, and syncs via sendOp. */
-    private void opRedo() {
-        var entry = redoStack2.pollLast();
-        if (entry == null) return;
-        if (entry.isBatch()) {
-            var batch = entry.batch;
-            var redone = new java.util.ArrayList<UndoEntry>();
-            for (var e : batch) {
-                redone.add(e);
-                io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), e.op);
-                host.sendOp(e.op);
-            }
-            undoStack2.add(new UndoEntry(redone));
-        } else {
-            undoStack2.add(entry);
-            io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), entry.op);
-            host.sendOp(entry.op);
-        }
-    }
-
-    /** Remap a client-assigned temp node ID to the server-assigned real ID
-     *  (ACK for ADD_NODE_REQUEST). Updates every reference: nodes, connections,
-     *  undo/redo stacks, and UI selections.
-     *  将客户端分配的临时节点 ID 重映射为服务端分配的真实 ID（ADD_NODE_REQUEST 的 ACK）。
-     *  更新所有引用：节点、连线、撤销/重做栈和 UI 选择。
-     *  @param ack 服务端发送的 ACK 包，包含 tempId 和 assignedId / server ACK packet with tempId and assignedId */
-    void remapNodeId(io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket ack) {
-        int tid = ack.tempId(), rid = ack.assignedId();
-        if (tid == rid) return;
-        var graph = getGraph();
-        var node = graph.findNode(tid);
-        if (node == null) return; // already gone or already remapped
-        // Update the node itself
-        graph.nodeMap().remove(tid);
-        node.id = rid;
-        graph.nodeMap().put(rid, node);
-        // 防止客户端 nextNodeId 漂移：服务端分配的 rid 可能比本地计数器大
-        // Prevent client nextNodeId drift: server-assigned rid may be larger than local counter
-        graph.nextNodeId = Math.max(graph.nextNodeId, rid + 1);
-        // Rewire connections referencing the tempId
-        for (var c : graph.connections) {
-            if (c.fromId == tid) c.fromId = rid;
-            if (c.toId == tid) c.toId = rid;
-        }
-        // Update undo/redo stacks (ops targeting or referencing this temp node ID)
-        // ADD_NODE_REQUEST entries store the temp ID in op.tempId(), not op.targetNodeId().
-        // 更新 undo/redo 栈（目标或引用此临时节点 ID 的操作）。
-        // ADD_NODE_REQUEST 条目将临时 ID 存储在 op.tempId() 中，而非 op.targetNodeId()。
-        for (var entry : undoStack2) {
-            if (entry.isBatch()) {
-                for (var be : entry.batch) {
-                    remapEntryOp(be, tid, rid);
-                }
-            } else {
-                remapEntryOp(entry, tid, rid);
-            }
-        }
-        for (var entry : redoStack2) {
-            if (entry.isBatch()) {
-                for (var be : entry.batch) {
-                    remapEntryOp(be, tid, rid);
-                }
-            } else {
-                remapEntryOp(entry, tid, rid);
-            }
-        }
-        // UI selections
-        if (selectedNode != null && selectedNode.id == tid) selectedNode = node;
-        selectedNodes.removeIf(n -> n.id == tid);
-        selectedNodes.add(node); // add with remapped node identity
-        var expand = expandedNodeIds.remove(tid);
-        if (expand) expandedNodeIds.add(rid);
-        var state = nodeEditStatesById.remove(tid);
-        if (state != null) nodeEditStatesById.put(rid, state);
-        if (draggingNode != null && draggingNode.id == tid) draggingNode = node;
-        if (wireFromNode == tid) wireFromNode = rid;
-        if (encapsulationParent != null && encapsulationParent.id == tid) encapsulationParent = node;
-        if (resizingComment != null && resizingComment.id == tid) resizingComment = node;
-        graph.rebuildInputCache();
-        graph.bumpGeneration();
-    }
-
-    /** Return a copy of {@code op} with {@code targetNodeId} replaced.
-     *  返回 op 的副本，将其 targetNodeId 替换为指定值。
-     *  @param op 原始操作 / original operation
-     *  @param newId 新的目标节点 ID / new target node ID
-     *  @return 修改了 targetNodeId 的操作副本 / copy of op with targetNodeId replaced */
-    private static io.github.y15173334444.create_schematic_compute.graph.GraphOp withTargetId(
-        io.github.y15173334444.create_schematic_compute.graph.GraphOp op, int newId) {
-        return new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-            op.type(), op.graphPos(), op.ownerNodeId(), newId,
-            op.tempId(), op.nodeType(), op.x(), op.y(),
-            op.fromId(), op.fromPin(), op.toId(), op.toPin(),
-            op.paramIndex(), op.paramValue(), op.stringValue(),
-            op.colorBg(), op.colorBorder(), op.colorText(),
-            op.sortB(), op.bands(), op.keyIndex(), op.imageFrameIndex(),
-            op.hotbarSlot(), op.itemStack(), op.editVersion(), op.actor());
-    }
-
-    /** Return a copy of {@code op} with {@code fromId}/{@code toId} replaced.
-     *  返回 op 的副本，将其 fromId/toId 替换为指定值。
-     *  @param op 原始操作 / original operation
-     *  @param newFromId 新的来源节点 ID / new source node ID
-     *  @param newToId 新的目标节点 ID / new target node ID
-     *  @return 修改了 fromId/toId 的操作副本 / copy of op with fromId/toId replaced */
-    private static io.github.y15173334444.create_schematic_compute.graph.GraphOp withFromToId(
-        io.github.y15173334444.create_schematic_compute.graph.GraphOp op, int newFromId, int newToId) {
-        return new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-            op.type(), op.graphPos(), op.ownerNodeId(), op.targetNodeId(),
-            op.tempId(), op.nodeType(), op.x(), op.y(),
-            newFromId, op.fromPin(), newToId, op.toPin(),
-            op.paramIndex(), op.paramValue(), op.stringValue(),
-            op.colorBg(), op.colorBorder(), op.colorText(),
-            op.sortB(), op.bands(), op.keyIndex(), op.imageFrameIndex(),
-            op.hotbarSlot(), op.itemStack(), op.editVersion(), op.actor());
-    }
-
-    /** Remap one UndoEntry's op when the server assigns real ID for temp ID.
-     *  当服务器为临时 ID 分配真实 ID 时，重映射单个 UndoEntry 的操作。 */
-    private static void remapEntryOp(UndoEntry be, int tid, int rid) {
-        var op = be.op;
-        // ADD_NODE_REQUEST: temp ID is in tempId(), targetNodeId is 0 placeholder
-        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE_REQUEST
-            && op.tempId() == tid) {
-            be.op = withTargetId(op, rid);
-            return;
-        }
-        if (op.targetNodeId() == tid) be.op = withTargetId(op, rid);
-        if (op.fromId() == tid) be.op = withFromToId(op, rid, op.toId());
-        if (op.toId() == tid) be.op = withFromToId(op, op.fromId(), rid);
     }
 
     // ── 编辑状态 (Edit state) ──
@@ -825,7 +527,9 @@ public class GraphEditor {
     // ── Comment node interaction state ──
     private long lastClickTimeMs = 0;
     private int lastClickNodeId = -1;
-    private GraphNode resizingComment = null;
+    /** 正在调整大小的注释节点（包级：GraphOpHistory / GraphRemoteApplier 的 ID 重映射触达 /
+     * package level: reached by GraphOpHistory / GraphRemoteApplier ID remapping) */
+    GraphNode resizingComment = null;
     private float resizeStartW, resizeStartH;
     private final java.util.Map<Integer, float[]> resizeStartNodePositions = new java.util.HashMap<>();
     /** 正在编辑颜色弹窗的注释节点（包级：GraphViewBookmarks 书签面板点击门禁读取 /
@@ -876,7 +580,8 @@ public class GraphEditor {
                                    float camX, float camY, float zoom) {}
     /** 子图编辑栈，支持嵌套封装节点 / sub-graph edit stack, supports nested encapsulation nodes */
     private final java.util.Deque<GraphEditState> graphStack = new java.util.ArrayDeque<>();
-    private GraphNode encapsulationParent; // 当前正在编辑的封装节点（null = 编辑主图） (Currently edited encapsulation node; null = editing main graph)
+    /** 当前正在编辑的封装节点（null = 编辑主图）；包级：历史重映射与远端清理触达 (Currently edited encapsulation node, null = main graph; package level: reached by history remap and remote cleanup) */
+    GraphNode encapsulationParent;
     private Predicate<NodeType> mainNodeFilter; // 进入子图前保存的主图过滤器 (Main graph filter saved before entering sub-graph)
 
     /** 是否正在编辑封装节点的子图（而非主图）。
@@ -952,129 +657,11 @@ public class GraphEditor {
         host.saveGraph();
     }
 
-    /** Apply a remote edit op received from the server (multiplayer collaboration). */
+    /** Apply a remote edit op received from the server (multiplayer collaboration).
+     *  （已拆至 GraphRemoteApplier，步骤 6c；此处保留公共委托 / split into GraphRemoteApplier in
+     *  step 6c; kept as the public delegate for GraphEditOpSyncPacket.） */
     public void onRemoteOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
-        // Handle UI-state ops before graph-level apply
-        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.EXPAND_NODE) {
-            var n = host.getGraph().findNode(op.targetNodeId());
-            if (n != null && !expandedNodeIds.contains(n.id)) {
-                expandedNodeIds.add(n.id);
-                nodeEditStatesById.put(n.id, createEditState(n));
-                n.expanded = true;
-            }
-            return;
-        }
-        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.COLLAPSE_NODE) {
-            var n = host.getGraph().findNode(op.targetNodeId());
-            if (n != null) {
-                expandedNodeIds.remove(n.id);
-                nodeEditStatesById.remove(n.id);
-                n.expanded = false;
-            }
-            return;
-        }
-        var graph = (op.ownerNodeId() >= 0 && isInSubGraph())
-            ? getGraph()
-            : host.getGraph();
-        if (op.ownerNodeId() >= 0) {
-            var encap = host.getGraph().findNode(op.ownerNodeId());
-            if (encap == null) return; // 封装节点不存在 / encap node doesn't exist
-            if (encap.subGraph == null) encap.subGraph = new io.github.y15173334444.create_schematic_compute.graph.NodeGraph();
-            graph = encap.subGraph;
-        }
-        // REJECT: roll back the locally-applied change that the server refused
-        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.REJECT) {
-            // The op carries the rejected ADD_CONN details — remove the local connection.
-            // For non-originator editors this is a no-op (they never applied it).
-            graph.removeConnection(op.fromId(), op.fromPin(), op.toId(), op.toPin());
-            // A rejected op never receives an ACK — decrement the pending-op counter so the
-            // bounce-back guard doesn't stay latched. / 被拒 op 不会收到 ACK —— 递减待 ACK 计数。
-            if (host.getBlockPos() != null
-                && net.minecraft.client.Minecraft.getInstance().level != null
-                && net.minecraft.client.Minecraft.getInstance().level.getBlockEntity(host.getBlockPos()) instanceof GraphBlockEntity gbe) {
-                gbe.setPendingLocalOps(Math.max(0, gbe.getPendingLocalOps() - 1));
-            }
-            return;
-        }
-        io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(graph, op, /*animateMoves=*/true);
-        // After a sub-graph edit, rebuild the parent graph's input cache so that
-        // external connections on the ENCAPSULATION node follow the correct pin
-        // positions (ENCAP_INPUT/OUTPUT ordering may have changed due to MOVE/ADD/REMOVE).
-        // 子图编辑后重建父图的输入缓存，使封装节点上的外部连线跟随正确的引脚位置
-        //（ENCAP_INPUT/OUTPUT 的顺序可能因 MOVE/ADD/REMOVE 而改变）。
-        if (op.ownerNodeId() >= 0 && host.getGraph() != null) {
-            host.getGraph().rebuildInputCache();
-        }
-        // Clean up UI state for remote REMOVE_NODE (local delete path does this manually) (M5)
-        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE) {
-            int rid = op.targetNodeId();
-            if (selectedNode != null && selectedNode.id == rid) selectedNode = null;
-            selectedNodes.removeIf(n -> n.id == rid);
-            expandedNodeIds.remove(rid);
-            nodeEditStatesById.remove(rid);
-            if (draggingNode != null && draggingNode.id == rid) draggingNode = null;
-            if (encapsulationParent != null && encapsulationParent.id == rid) encapsulationParent = null;
-            if (resizingComment != null && resizingComment.id == rid) resizingComment = null;
-            if (wireFromNode == rid) { wireFromNode = -1; wireFromPin = 0; }
-        }
-        // Refresh edit panel UI for data changes
-        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM
-            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT
-            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_FORMULA
-            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_TEXT
-            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_TEXT_COLOR
-            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_COLORS
-            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_SIZE
-            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_SIZE
-            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL
-            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_CTRL_POINTS) {
-            var st = nodeEditStatesById.get(op.targetNodeId());
-            if (st != null && op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM
-                && op.paramIndex() < st.fieldParamIndices.size()) {
-                int fi = st.fieldParamIndices.get(op.paramIndex());
-                if (fi < st.fields.size() && st.fields.get(fi) instanceof net.minecraft.client.gui.components.EditBox eb) {
-                    suppressEditBoxResponder = true;
-                    eb.setValue(ff3(op.paramValue()));
-                    suppressEditBoxResponder = false;
-                }
-            } else if (st != null && op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM) {
-                // DEBUG_SIGNAL_GEN: setMode/outMode changes → recreate EditState to update visible fields
-                var n = graph.findNode(op.targetNodeId());
-                if (n != null && n.type == NodeType.DEBUG_SIGNAL_GEN && (op.paramIndex() == 0 || op.paramIndex() == 1)) {
-                    suppressEditBoxResponder = true;
-                    nodeEditStatesById.put(n.id, createEditState(n));
-                    suppressEditBoxResponder = false;
-                }
-            } else if (st == null || op.type() != io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM) {
-                // Recreate entire EditState for non-param ops or if expanded.
-                var n = graph.findNode(op.targetNodeId());
-                if (n != null && expandedNodeIds.contains(n.id))
-                    nodeEditStatesById.put(n.id, createEditState(n));
-            }
-        }
-        // When a remote player edits a BUS_OUT signalName (SET_DISPLAY_TEXT) or band list
-        // (SET_BANDS), re-evaluate busConflict so all editors see the conflict warning in
-        // real time — not just the player who made the edit.
-        // 当远程玩家编辑 BUS_OUT 的 signalName（SET_DISPLAY_TEXT）或频段列表（SET_BANDS）时，
-        // 重新评估 busConflict 使所有编辑者实时看到冲突警告 —— 而不仅是进行编辑的玩家。
-        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT
-            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_BANDS) {
-            var affected = graph.findNode(op.targetNodeId());
-            if (affected != null) {
-                if (affected.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT) {
-                    bus.reevaluateBusConflicts(graph);
-                }
-                // 频段**不再**在此按频段注册表同步（issue #11）：BUS_IN 改名后的权威频段列表由
-                // 服务端唯一解析，并作为一条权威 SET_BANDS 下发到本端 —— 本端只应用那个值。
-                // Bands are no longer synced from the band registry here (issue #11): a renamed
-                // BUS_IN's authoritative list is resolved once on the server and delivered to this
-                // side as an authoritative SET_BANDS op; this side only applies that value.
-                // Refresh edit state (conflict warning may change appearance for BUS_OUT)
-                // 刷新编辑状态（BUS_OUT 冲突警告可能改变外观）
-                if (expandedNodeIds.contains(affected.id))
-                    nodeEditStatesById.put(affected.id, createEditState(affected));
-            }
-        }
+        remoteApplier.applyRemote(op);
     }
 
     /** 注册 Enter/失焦提交动作 (Register Enter/focus-lost commit action) */
@@ -1914,7 +1501,7 @@ public class GraphEditor {
     }
 
     public boolean mouseClicked(double mx, double my, int btn) {
-        resetBatch(); // discard any incomplete batch to prevent undo stack freeze
+        history.resetBatch(); // discard any incomplete batch to prevent undo stack freeze
         var graph = getGraph();
         // ── 顶栏（最上层，先于一切命中检测）──
         //    Top bar (topmost layer — hit-tested before everything else).
@@ -3812,8 +3399,8 @@ public class GraphEditor {
                 return true;
             }
             return true; // 触发即消费（悬空 / 锁定不满足也归引擎）/ triggered keys are consumed
-        } else if (seqHit == EditorKeys.Action.UNDO) { commitFocusedEditBox(); opUndo(); return true; }
-        else if (seqHit == EditorKeys.Action.REDO) { commitFocusedEditBox(); opRedo(); return true; }
+        } else if (seqHit == EditorKeys.Action.UNDO) { commitFocusedEditBox(); history.opUndo(); return true; }
+        else if (seqHit == EditorKeys.Action.REDO) { commitFocusedEditBox(); history.opRedo(); return true; }
         else if (seqHit == EditorKeys.Action.SAVE_BOOKMARK) { // 视角书签快捷键 / view bookmark shortcut
             viewBookmarks.beginKeybindDraft();
             return true;
