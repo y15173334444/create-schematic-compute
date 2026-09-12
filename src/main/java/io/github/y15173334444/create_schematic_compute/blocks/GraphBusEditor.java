@@ -159,6 +159,19 @@ final class GraphBusEditor {
         for (var n : ed.getGraph().nodes) {
             if (n != src && (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN || n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT)
                 && n.signalName.equals(src.signalName)) {
+                // 冲突的 BUS_OUT **目标不参与对齐**：它并不拥有这个频道（issue #14 定下的规则），
+                // 把 owner 的列表复制进去会**毁掉它自己的频段图** —— 而原 owner 一旦被删除，
+                // 它接替成为 owner 时就会带着**别人的图**上线。
+                // 实测复现：两个同名 BUS_OUT，删掉第一个（owner）后，接替者的图变成第一个的。
+                // 其它同名对齐路径（syncBandsFromServer / BusBandUploadPacket / convergeBusInBands）
+                // 都已有这条守卫，此处是遗漏。
+                // A conflicted BUS_OUT **target is never aligned**: it does not own the channel
+                // (the rule settled in issue #14), and copying the owner's list into it destroys
+                // its own band graph — so once the original owner is deleted and this node takes
+                // over, it comes online carrying someone else's graph. Every other same-channel
+                // alignment path (syncBandsFromServer / BusBandUploadPacket / convergeBusInBands)
+                // already has this guard; this one was missing it.
+                if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT && n.busConflict) continue;
                 // Collect removed band names (pinIds) before replacing the list
                 // 在替换列表前收集被删除的频段名（pinId）
                 var oldBands = n.signalBands != null ? n.signalBands : java.util.Collections.<String>emptyList();
