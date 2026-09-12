@@ -452,7 +452,18 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
     @Override
     protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.write(tag, registries, clientPacket);
-        host.saveHostNBT(tag, registries);
+        // 与 CncGearboxBlockEntity.write 同口径：客户端数据包只在**显式全量同步挂起**时
+        // 携带整图（join / flagFullSync）——Create 每次转速变化/状态翻转都 sendData，
+        // 整图随包曾让打开编辑器的客户端反复整图重建。
+        // Same policy as CncGearboxBlockEntity.write: client packets carry the full graph
+        // only while an explicit full sync is pending (join / flagFullSync) — Create fires
+        // sendData on every speed change / state flip, and graph-in-every-packet made open
+        // editors rebuild wholesale.
+        if (!clientPacket || host.isFullSyncPending()) {
+            host.saveHostNBT(tag, registries);
+        } else {
+            tag.putBoolean("running", host.running);
+        }
         tag.putInt("CscTxApplied", appliedTarget);
         tag.putInt("CscTxScroll", scrollTarget());
     }

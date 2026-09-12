@@ -405,6 +405,11 @@ public class GraphHost {
         markDirty();
     }
 
+    /** 全量同步是否仍处于挂起状态（BE 的 clientPacket 写入据此决定是否携带整图）。
+     *  Whether a full sync is still pending (the BE's clientPacket write uses this to decide
+     *  whether to ship the graph at all). */
+    public boolean isFullSyncPending() { return needsFullSync; }
+
     /** 服务端 tick 调用：按 grace 间隔冲刷待同步请求。 / Flush pending request per grace interval (server tick). */
     public void flushPendingFullSync() {
         var l = lvl();
@@ -412,8 +417,12 @@ public class GraphHost {
         long now = l.getGameTime();
         if (now - lastFullSyncGameTime < FULL_SYNC_GRACE_TICKS) return;
         lastFullSyncGameTime = now;
-        needsFullSync = false;
+        // 先推送再清标志：clientPacket 写入在 pushBlockUpdated 内同步序列化，
+        // 必须仍能看到挂起标志才会在数据包里携带整图。
+        // Push first, clear after: the clientPacket write serializes synchronously inside
+        // pushBlockUpdated and must still see the pending flag to ship the graph.
         pushBlockUpdate();
+        needsFullSync = false;
     }
 
     // ── 生命周期转发（由宿主 BE 的对应方法调用）/ lifecycle forwarding ──

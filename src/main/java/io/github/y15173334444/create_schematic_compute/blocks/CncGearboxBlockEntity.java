@@ -391,7 +391,20 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
     @Override
     protected void write(CompoundTag tag, HolderLookup.Provider registries, boolean clientPacket) {
         super.write(tag, registries, clientPacket);
-        host.saveHostNBT(tag, registries);
+        // 客户端数据包只在**显式全量同步挂起**时携带整图（join / flagFullSync）：Create
+        // 在每次转速变化/状态翻转都会 sendData，整图随包曾让打开编辑器的客户端反复整图
+        // 重建（「断动力还在刷新图」）。图变化本就走 op 通道（编辑者）/ NBT 落盘（存档）；
+        // running 等轻量字段照常随包同步。
+        // Client packets ship the full graph only while an explicit full sync is pending
+        // (join / flagFullSync): Create fires sendData on every speed change / state flip,
+        // and graph-in-every-packet made open editors rebuild wholesale ("the graph
+        // refreshes when power stops"). Graph changes travel as ops (editors) / NBT
+        // (saves); light fields keep flowing in routine packets.
+        if (!clientPacket || host.isFullSyncPending()) {
+            host.saveHostNBT(tag, registries);
+        } else {
+            tag.putBoolean("running", host.running);
+        }
         tag.put("CmdStack", MotionCommand.saveStack(commandStack));
         tag.putFloat("CscPosDeg", positionDeg);
         tag.putFloat("CscPosM", positionMeters);
