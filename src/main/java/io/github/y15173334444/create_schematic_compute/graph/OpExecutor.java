@@ -64,19 +64,19 @@ public final class OpExecutor {
                 // S→C broadcast to non-originator editors: server-assigned ID is authoritative.
                 var node = graph.addNode(op.nodeType(), op.x(), op.y());
                 node.id = op.targetNodeId();
-                // Newly placed BUS_IN has empty signalBands; if the channel already has a
-                // band definition in the global registry (owned by a BUS_OUT, possibly in
-                // another block), initialize the bands so this BUS_IN can read them right
-                // away. Fixes "BUS_OUT writes but BUS_IN reads 0" when the BUS_IN is placed
-                // after the channel definition exists.
-                // 新建 BUS_IN 的 signalBands 为空；若频道在全局注册表中已有 band 定义
-                // （由 BUS_OUT 拥有，可能在另一个方块），立即初始化 band，使此 BUS_IN
-                // 马上能读取。修复频道定义已存在后才放置 BUS_IN 时的 "写入但读 0"。
-                if (node.type == NodeType.BUS_IN && !node.signalName.isEmpty()) {
-                    var gb = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(node.signalName);
-                    if (gb != null && !gb.isEmpty())
-                        node.signalBands = new java.util.ArrayList<>(gb);
-                }
+                // 这里**不要**再加「按本地频段表给新建 BUS_IN 初始化频段」（issue #13）：
+                // 新建节点的 signalName 必为空（NodeGraph.addNode 不设名字），
+                // 因此 `!node.signalName.isEmpty()` 这类条件永假——该分支曾经存在但不可达。
+                // 它声称要修的「BUS_OUT 写入但 BUS_IN 读 0」实际由评估器的「注册表优先 key 查询」
+                // 解决（求值不依赖节点自身的频段列表，见 GraphEvaluator）；节点自身那份列表是
+                // **引脚结构**，由服务端唯一解析后下发（issue #11）。
+                // Do NOT re-add a local-registry seeding for a new BUS_IN here (issue #13): a freshly
+                // created node's signalName is always empty (NodeGraph.addNode assigns no name), so a
+                // guard like `!node.signalName.isEmpty()` could never pass — the branch used to exist
+                // but was unreachable. The "BUS_OUT writes but BUS_IN reads 0" problem it claimed to
+                // fix is handled by the evaluator's registry-first key lookup (evaluation does not
+                // depend on the node's own band list, see GraphEvaluator); the node's own list is the
+                // *pin structure*, resolved once on the server and pushed to every editor (issue #11).
                 // Undo of REMOVE_NODE: restore full node data from NBT snapshot stored in stringValue
                 // REMOVE_NODE 撤销：从 stringValue 中存储的 NBT 快照恢复完整节点数据
                 if (op.stringValue() != null && !op.stringValue().isEmpty() && op.stringValue().charAt(0) == '{') {
