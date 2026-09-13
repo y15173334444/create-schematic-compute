@@ -21,7 +21,7 @@ import java.util.*;
 /**
  * Portable Terminal Screen — a handheld-device GUI that scans for nearby
  * compatible block entities (radar, monitor, blueprint, program-computer,
- * control-seat, sensor, speed-proxy) and allows the player to remotely open
+ * control-seat, sensor, speed-proxy, kinetic-gauge) and allows the player to remotely open
  * their configuration UIs.
  *
  * <p>Supports two discovery modes:
@@ -393,6 +393,9 @@ public class PortableTerminalScreen extends Screen {
      *  Package-visible so a regression test can lock coverage (a missing entry makes
      *  new devices silently vanish from structure lists). */
     static Class<?> resolveBeClass(String name) {
+        // null 防护：包/存档里缺类名时不能 NPE（String 操作与 switch 都会炸）。
+        // Null guard: a missing class name must not NPE (both the String ops and the switch would).
+        if (name == null || name.isEmpty()) return null;
         // Strip "Sable" suffix for wireless variants so they map to the same BE class
         // 去掉无线变体的 "Sable" 后缀，使其映射到相同的 BE 类
         if (name.endsWith("Sable")) name = name.substring(0, name.length() - 5);
@@ -406,6 +409,7 @@ public class PortableTerminalScreen extends Screen {
             case "RadarBlockEntity"           -> RadarBlockEntity.class;
             case "ProgrammableTransmissionBlockEntity" -> ProgrammableTransmissionBlockEntity.class;
             case "CncGearboxBlockEntity"      -> CncGearboxBlockEntity.class;
+            case "KineticGaugeBlockEntity"    -> KineticGaugeBlockEntity.class;
             default -> null;
         };
     }
@@ -723,7 +727,7 @@ public class PortableTerminalScreen extends Screen {
      *  lives in this table, locked by a unit test for coverage and ambiguity. */
     static final String[] ROUTE_KEYS = {
         "Monitor", "Radar", "Blueprint", "Transmission", "Program",
-        "CncGearbox", "ControlSeat", "Sensor", "SpeedProxy" };
+        "CncGearbox", "ControlSeat", "Sensor", "SpeedProxy", "KineticGauge" };
 
     /** 返回设备类名应命中的路由键；无命中返回 null（openBlockUI 静默放弃）。
      *  Returns the route key for a device class name, or null when nothing matches. */
@@ -734,7 +738,15 @@ public class PortableTerminalScreen extends Screen {
 
     private void openBlockUI() {
         if (editingBeClass == null || editingPos == null) return;
-        Screen inner = switch (routeKey(editingBeClass.getSimpleName())) {
+        // **先判 null 再 switch**：Java 对 String 做 switch 时，选择子为 null 会直接 NPE，
+        // `default -> null` 分支根本来不及执行（2026-09-13 实测崩溃：便携终端里点动力传感器，
+        // 它实现了 GraphBlockEntity 因而出现在列表里，却当时还没进路由表）。
+        // Null-check BEFORE the switch: a String switch on a null selector throws NPE and the
+        // `default` branch never runs (crash report 2026-09-13 — clicking the kinetic gauge in the
+        // terminal: it implements GraphBlockEntity so it is listed, but had no route key yet).
+        String key = routeKey(editingBeClass.getSimpleName());
+        if (key == null) return;
+        Screen inner = switch (key) {
             case "Monitor"    -> new MonitorScreen(editingPos);
             case "Radar"      -> new RadarScreen(editingPos);
             case "Blueprint"  -> new BlueprintScreen(editingPos);
@@ -744,6 +756,7 @@ public class PortableTerminalScreen extends Screen {
             case "ControlSeat" -> new ControlSeatScreen(editingPos);
             case "Sensor"     -> new SensorScreen(editingPos);
             case "SpeedProxy" -> new SpeedProxyScreen(editingPos);
+            case "KineticGauge" -> new KineticGaugeScreen(editingPos);
             default -> null;
         };
         if (inner == null) return;

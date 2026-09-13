@@ -41,6 +41,12 @@ class TerminalRoutingTest {
         {"ProgrammableTransmissionBlockEntity", "Transmission"},
         {"CncGearboxBlockEntity", "CncGearbox"},
         {"SpeedProxyBlockEntity", "SpeedProxy"},
+        // 2026-09-13：动力仪表实现了 GraphBlockEntity 因而会出现在终端列表里，
+        // 但当时没进路由表 —— routeKey 返回 null，openBlockUI 对 null 做 String switch 直接 NPE 崩溃。
+        // 2026-09-13: the kinetic gauge implements GraphBlockEntity so it is listed, but had no route
+        // key — routeKey returned null and openBlockUI's String switch on null crashed the game.
+        {"KineticGaugeBlockEntity", "KineticGauge"},
+        {"KineticGaugeBlockEntitySable", "KineticGauge"},
     };
 
     @Test
@@ -64,9 +70,16 @@ class TerminalRoutingTest {
     @Test
     @DisplayName("非设备类名返回 null（不打开任何界面）")
     void nonDeviceNamesYieldNull() {
+        // 崩溃锚点（2026-09-13）：openBlockUI 曾直接 switch(routeKey(...))，未知名返回 null →
+        // String switch 遇 null 直接 NPE 崩溃（动力仪表当时不在路由表里）。本断言钉住"返回 null"
+        // 这个契约，让"先判 null 再 switch"成为调用方的义务。
+        // Crash anchor: openBlockUI used to switch directly on routeKey(...), which returns null for
+        // unknown devices → a String switch on null NPEs. This pins the contract so callers must
+        // null-check first.
         assertNull(PortableTerminalScreen.routeKey("ChestBlockEntity"));
         assertNull(PortableTerminalScreen.routeKey("BannerBlockEntity"));
         assertNull(PortableTerminalScreen.routeKey(""));
+        assertNull(PortableTerminalScreen.routeKey("UnknownGadgetBlockEntity"));
     }
 
     // ── Sable 设备类名解析（resolveBeClass）────────────────────────────
@@ -80,10 +93,12 @@ class TerminalRoutingTest {
             "BlueprintBlockEntity", "ProgramComputerBlockEntity", "SpeedProxyBlockEntity",
             "SensorBlockEntity", "ControlSeatBlockEntity", "MonitorBlockEntity",
             "RadarBlockEntity", "ProgrammableTransmissionBlockEntity", "CncGearboxBlockEntity",
+            "KineticGaugeBlockEntity",
             // Sable 变体：去后缀后必须映射到同一 BE 类
             "MonitorBlockEntitySable", "ControlSeatBlockEntitySable",
             "RadarBlockEntitySable", "SensorBlockEntitySable",
             "ProgrammableTransmissionBlockEntitySable", "CncGearboxBlockEntitySable",
+            "KineticGaugeBlockEntitySable",
         };
         for (String n : known)
             assertNotNull(PortableTerminalScreen.resolveBeClass(n),
