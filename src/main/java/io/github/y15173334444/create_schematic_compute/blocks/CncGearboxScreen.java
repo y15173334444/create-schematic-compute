@@ -17,7 +17,8 @@ import java.util.Map;
 
 /**
  * 数控齿轮箱（运动块）图编辑器。节点白名单 = 编程计算机同款 + 运动专属
- * （MOVE/ROTATE/WAIT/CLUTCH/ENCODER）。速度不属于本方块的职责 —— 没有 rpm 类节点。
+ * （MOVE/ROTATE/WAIT/CLUTCH/ENCODER）+ 动力网络读数（STRESS/RPM，
+ * 经 KineticNetworkView 宿主注入读取本方块所在网络）。
  * CNC gearbox (motion block) graph editor. Whitelist = the Program Computer's set plus
  * the motion nodes (MOVE/ROTATE/WAIT/CLUTCH/ENCODER). Speed is not this block's job —
  * no rpm nodes.
@@ -30,7 +31,8 @@ public class CncGearboxScreen extends AbstractGraphScreen {
         // Mirrors ProgramComputerScreen entry by entry (keep the two in sync), plus the
         // five motion nodes.
         setNodeFilter(nt ->
-            nt == NodeType.MOVE || nt == NodeType.ROTATE || nt == NodeType.WAIT
+            nt == NodeType.STRESS || nt == NodeType.RPM
+            || nt == NodeType.MOVE || nt == NodeType.ROTATE || nt == NodeType.WAIT
             || nt == NodeType.CLUTCH || nt == NodeType.ENCODER
             || nt == NodeType.CONST
             || nt == NodeType.REDSTONE_IN

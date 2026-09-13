@@ -26,7 +26,8 @@ public class TransmissionScreen extends AbstractGraphScreen {
     public TransmissionScreen(BlockPos pos) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".programmable_transmission"), pos);
         setNodeFilter(nt ->
-            nt == NodeType.TX_OUT
+            nt == NodeType.STRESS || nt == NodeType.RPM
+            || nt == NodeType.TX_OUT
             || nt == NodeType.CONST
             || nt == NodeType.REDSTONE_IN
             || nt == NodeType.PRIVATE_IN

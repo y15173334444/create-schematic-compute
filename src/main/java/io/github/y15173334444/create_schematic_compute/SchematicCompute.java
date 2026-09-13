@@ -109,6 +109,14 @@ public class SchematicCompute {
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<RadarBlockEntity>> RADAR_BE =
             BLOCK_ENTITIES.register("radar", () -> BlockEntityType.Builder.of(RadarBlockEntity::create, RADAR_BLOCK.get()).build(null));
 
+    // 动力仪表（Create 官方表同款 3 轴放置 + 动力网络读数 + 图宿主）
+    public static final DeferredHolder<Block, KineticGaugeBlock> KINETIC_GAUGE_BLOCK =
+            BLOCKS.register("kinetic_gauge", () -> new KineticGaugeBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
+    public static final DeferredHolder<Item, BlockItem> KINETIC_GAUGE_ITEM =
+            ITEMS.register("kinetic_gauge", () -> new BlockItem(KINETIC_GAUGE_BLOCK.get(), new Item.Properties()));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<KineticGaugeBlockEntity>> KINETIC_GAUGE_BE =
+            BLOCK_ENTITIES.register("kinetic_gauge", () -> BlockEntityType.Builder.of(KineticGaugeBlockEntity::new, KINETIC_GAUGE_BLOCK.get()).build(null));
+
     // v1.2.2: 便携终端物品
     public static final DeferredHolder<Item, PortableTerminalItem> PORTABLE_TERMINAL =
             ITEMS.register("portable_terminal", () -> new PortableTerminalItem(new Item.Properties()));
@@ -138,6 +146,7 @@ public class SchematicCompute {
                     output.accept(SENSOR_ITEM.get());
                     output.accept(MONITOR_ITEM.get());
                     output.accept(RADAR_ITEM.get());
+                    output.accept(KINETIC_GAUGE_ITEM.get());
                     output.accept(PORTABLE_TERMINAL.get());
                 }).build());
 
@@ -158,6 +167,10 @@ public class SchematicCompute {
                 net.minecraft.client.renderer.blockentity.BlockEntityRenderers.register(
                     RADAR_BE.get(),
                     io.github.y15173334444.create_schematic_compute.client.renderer.RadarBlockEntityRenderer::new
+                );
+                net.minecraft.client.renderer.blockentity.BlockEntityRenderers.register(
+                    KINETIC_GAUGE_BE.get(),
+                    io.github.y15173334444.create_schematic_compute.client.renderer.KineticGaugeRenderer::new
                 );
             });
         });
@@ -225,6 +238,7 @@ public class SchematicCompute {
         SafeNbtWriterRegistry.REGISTRY.register(SENSOR_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(MONITOR_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(RADAR_BE.get(), writer);
+        SafeNbtWriterRegistry.REGISTRY.register(KINETIC_GAUGE_BE.get(), writer);
         LOGGER.info("Registered SafeNbtWriters for all computers");
     }
 }

@@ -624,5 +624,16 @@
   "param.create_schematic_compute.meters": "Meters",
   "param.create_schematic_compute.degrees": "Degrees",
   "param.create_schematic_compute.engaged": "Engaged",
-  "param.create_schematic_compute.reset": "Reset"
+  "param.create_schematic_compute.reset": "Reset",
+  "block.create_schematic_compute.kinetic_gauge": "Kinetic Gauge",
+  "container.create_schematic_compute.kinetic_gauge": "Kinetic Gauge Editor",
+  "category.create_schematic_compute.kinetic": "Kinetic Readings",
+  "node.create_schematic_compute.stress": "Stress Status",
+  "node.create_schematic_compute.rpm": "Speed (RPM)",
+  "pin.create_schematic_compute.pct": "ratio",
+  "pin.create_schematic_compute.used": "used",
+  "pin.create_schematic_compute.unused": "unused",
+  "pin.create_schematic_compute.left": "left",
+  "gui.create_schematic_compute.guide.STRESS": "Stress Status: reads the kinetic network attached to this block through four pins — ratio (used/capacity, 0-1, >1 while overstressed), used (SU), unused (1-ratio, 0-1) and left (capacity-used, SU). All pins read 0 with no network or zero capacity. Kinetic host graphs only (kinetic gauge, transmission, CNC gearbox).",
+  "gui.create_schematic_compute.guide.RPM": "Speed (RPM): outputs this block's network rotation speed, signed (negative = reversed); 0 when unpowered or overloaded — same semantics as the encoder's vel pin. Kinetic host graphs only (kinetic gauge, transmission, CNC gearbox)."
 }

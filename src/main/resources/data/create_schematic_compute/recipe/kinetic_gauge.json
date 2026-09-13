@@ -1,0 +1,24 @@
+{
+	"type": "minecraft:crafting_shaped",
+	"category": "misc",
+	"pattern": [
+		"ISI",
+		"SCS",
+		"ISI"
+	],
+	"key": {
+		"I": {
+			"item": "minecraft:iron_ingot"
+		},
+		"S": {
+			"item": "create:shaft"
+		},
+		"C": {
+			"item": "create:brass_casing"
+		}
+	},
+	"result": {
+		"id": "create_schematic_compute:kinetic_gauge",
+		"count": 1
+	}
+}

@@ -40,7 +40,7 @@ import java.util.Map;
  * 接合/分离走官方合并/失源路径（见 {@link CncGearboxBlock}）。</p>
  */
 public class CncGearboxBlockEntity extends KineticBlockEntity
-        implements GearboxCommandSink, GraphBlockEntity, KineticEncoderView {
+        implements GearboxCommandSink, GraphBlockEntity, KineticEncoderView, io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView {
 
 
     /** 组合式图托管核心。 Composition-based graph hosting core. */
@@ -76,6 +76,7 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
         this.host.setEvaluatorCustomizer(ev -> {
             ev.setCommandSink(this);
             ev.setEncoderView(this);
+            ev.setKineticNetworkView(this);
         });
     }
 
@@ -360,6 +361,17 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
         positionMeters = 0f;
         setChanged();
     }
+
+    // ── KineticNetworkView（STRESS / RPM 节点宿主视图）/ host view for STRESS / RPM ──
+    // 读数 = 本方块所在网络的实时状态（不区分离合 —— 网络读数与输出侧是否传轴无关）。
+    // Readings = the live state of OUR network (clutch-agnostic — network readings
+    // are independent of whether the output side carries the shaft).
+
+    @Override public float kineticSpeed() { return getSpeed(); }
+
+    @Override public float kineticStress() { return stress; }
+
+    @Override public float kineticCapacity() { return capacity; }
 
     // ── goggle 面板 / goggle overlay ──
 

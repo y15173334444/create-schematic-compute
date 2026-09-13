@@ -110,7 +110,19 @@ public enum NodeType {
     DEBUG_PROBE("debug_probe", "node.create_schematic_compute.debug_probe", 1, 1, "windowSize,autoScale"),
     RELAY_A("relay_a", "node.create_schematic_compute.relay_a", 3, 2, ""),
     RELAY_B("relay_b", "node.create_schematic_compute.relay_b", 3, 1, ""),
-    COMMENT("comment", "node.create_schematic_compute.comment", 0, 0, "");
+    COMMENT("comment", "node.create_schematic_compute.comment", 0, 0, ""),
+    // ⚠️ 新节点只能追加在枚举末尾（此处之后）：REMOVE_NODE 的撤销记录按序号
+    //    存储节点类型，中途插入会错位历史数据（NBT 用字符串 id 不受影响）。
+    // ⚠️ New node types may ONLY be appended at the end (after this point): REMOVE_NODE
+    //    undo entries store the node type by ordinal — inserting mid-enum corrupts
+    //    history data (NBT uses stable string ids and is unaffected).
+
+    // ── 动力网络读数（动力仪表宿主注入）/ Kinetic network readings (kinetic gauge host) ──
+    // 应力状态：占比 / 已用 / 未用 / 剩余（0..1 比值与 SU 绝对值各一对）
+    // Stress status: ratio / used / unused / remaining (one 0..1 pair, one SU pair)
+    STRESS("stress", "node.create_schematic_compute.stress", 0, 4, ""),
+    // 转速：网络转速（RPM，带符号） Speed: network rotation speed (RPM, signed)
+    RPM("rpm", "node.create_schematic_compute.rpm", 0, 1, "");
 
     /** NBT 序列化的稳定字符串标识符 — 永远不要修改这些值。 / Stable string identifier for NBT serialisation — never change these. */
     public final String id;
@@ -257,6 +269,8 @@ public enum NodeType {
         case CLUTCH -> pk("engaged");
         case ENCODER -> i == 0 ? pk("pos_deg") : i == 1 ? pk("pos_m") : pk("vel");
         case MOVE, ROTATE, WAIT -> pk("done");
+        case STRESS -> i == 0 ? pk("pct") : i == 1 ? pk("used") : i == 2 ? pk("unused") : pk("left");
+        case RPM -> pk("rpm");
         default -> "";
     };}
 }

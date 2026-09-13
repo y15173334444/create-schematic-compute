@@ -6,7 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
-| [v1.2.5.1](#v1251) | 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
+| [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
 | [v1.2.4](#v124) | 多人协作 + 调试工具链 + 公式编辑器体验 |
@@ -20,7 +20,7 @@
 ---
 
 <details>
-<summary><b>v1.2.5.1</b> — 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）/ Editor Input Focus &amp; Highlight Fixes · GUI Decomposition (HUD Clip Math / Display Editor / Settings Tabs)</summary>
+<summary><b>v1.2.5.1</b> — 动力传感器（Create 表同款 3 轴放置 · STRESS/RPM 节点 · 蓝屏显示）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分 / Kinetic Gauge (Create-style 3-axis Placement · STRESS/RPM Nodes · Blue Screen) · Editor Input Focus &amp; Highlight Fixes · GUI Decomposition</summary>
 
 ### 🎯 编辑器输入与选中修复 / Editor Input &amp; Selection Fixes
 
@@ -76,6 +76,41 @@
 | 🛡️ 收敛跳过「无已加载发布方」的频道（#15 后续修正）/ Convergence skips channels with no loaded publisher | 缺席不是定义：发布方块区块卸载、服务器重启首 tick 的注册顺序、方块被拆除，都会让频道暂时无主——照常收敛会把 BUS_IN 收敛为空、按索引剪光输入连线并落盘，发布方回归后频段恢复而连线**永久丢失**。现解析为空且 CHANNELS 无该名字条目时整轮跳过、保留原列表；改名到死名仍由改名路径的权威 SET_BANDS 清空（#11 语义不变）/ Absence is not a definition: an unloaded publisher chunk, a restart's registration order or a broken block leaves the channel momentarily ownerless — converging then emptied the BUS_IN, pruned every input wire by index and persisted the loss; the bands returned but the wires never did. The pass now skips channels whose name resolves empty with no CHANNELS entry and keeps the list; renaming onto a dead name is still emptied by the rename path's authoritative SET_BANDS (#11 semantics unchanged) |
 | 🧬 接替的 BUS_OUT 不再带着别人的频段图上线（#16）/ A successor BUS_OUT no longer comes online with someone else's bands | 同名对齐路径（GraphBusEditor.syncBusBands）只检查了来源、没检查目标：拥有者的频段图被复制进冲突 BUS_OUT，拥有者被删后接替者带着别人的图上线。现来源与目标都过资格检查 / The same-name alignment path checked the source but not the target: the owner's band graph was copied into the conflicted BUS_OUT, and when the owner was deleted the successor came online carrying it. Source and target are now both eligibility-checked |
 | 🧹 改名链路收尾（审查跟进）/ Rename-path cleanups (review follow-up) | ① BUS_IN 改名只在**频段真的变化**时才产生权威 `SET_BANDS`（相同值不再白付版本号 bump、日志与全员广播）；② 改名与新频段经**合并版全量同步**（40 tick 宽限）带给非编辑者客户端——此前该通道仅 Monitor 宿主存在，其余宿主的非编辑者会过期到下次整图同步；③ PRIVATE 名框不再逐键按客户端本地 BAND_REGISTRY 重写频段——各端自行推导模式的最后一处残留，PRIVATE 节点本无频段引脚 / ① the authoritative `SET_BANDS` is emitted only when a rename actually changes the bands (no version bump / log / broadcast for an identical value); ② the rename and its bands reach non-editor clients through the coalesced full sync on every host (only the Monitor had that channel before, and the convergence had no diff left to push); ③ the PRIVATE name box no longer rewrites bands from the client's local registry per keystroke — the last leftover of per-side derivation, on nodes that have no band pins anyway |
+
+
+
+### 🎛️ 新方块：动力传感器 / New Block: Kinetic Gauge (`create_schematic_compute:kinetic_gauge`)
+
+- **3 轴多状态放置**（Create 官方应力表/转速表同款语义）：`facing`（显示面朝向，恒为水平）+ `axis_along_first`；贴着带轴的面放置时自动对齐轴。**放置朝向对官方表有一处有意偏离**：官方表把 `facing` 取成点击面，贴地/贴顶时点击面是竖直的，只剩 `axis_along_first` 一个自由度 —— 2 个状态换不出 4 个偏航角，屏幕只能朝西或朝北（2026-09-13 实测报告）；故贴地/贴顶改为"显示面水平正对玩家"（四向可选），代价是贴顶安装时斜板朝上翘进天花板。贴墙仍保持官方语义（显示面 = 点击面）。回归测试 `KineticGaugePlacementTest`。扳手：点击**轴端面**或**显示面**时，面板绕轴 90° 循环（轴与连接不动，即机械动力对轴端旋转的标准 90° 循环）；点击其余两个侧面则整表刚性旋转一步（轴绕点击轴换向、显示随动，同可编程变速器的换轴）；潜行拆除走官方默认；自身沿旋转轴贯通传轴。
+  **3-axis multi-state placement** (Create gauge semantics): `facing` (display direction, always horizontal) + `axis_along_first`; auto-aligns against shaft-bearing faces. **One intentional deviation from the official gauge**: it takes `facing` from the clicked face, and a floor/ceiling click is vertical — leaving only `axis_along_first`, so two states cannot encode four yaws and the screen could only face west or north (in-game report, 2026-09-13). Floor/ceiling placement therefore points the display horizontally at the player (all four directions selectable); the cost is that a ceiling-mounted gauge tilts its panel up into the ceiling. Wall placement keeps the official semantics (display = clicked face). Regression test: `KineticGaugePlacementTest`. Wrench rotation: the **shaft end face** and the **display face** cycle the panel 90° around the shaft (the shaft and its connections never move — Create's standard 90° end-face rotation); the two remaining side faces rigidly rotate the whole gauge one step (the shaft pivots onto the clicked axis and the display follows — same as the transmission's axis cycling). Deliberately NOT Create's default for this family ("click the display face = cycle `axis_along_first`"), which would flip the rotation axis between horizontal and vertical, jump to the `_shaft_y` variant and disconnect the gauge from its shaft. Sneak-dismantle keeps the official default; the block passes rotation through along its axis.
+- **模型双变体**：基础变体（用户手工建模，讲台式屏幕法线上仰 45°，传动轴沿水平方向）覆盖 8 个水平轴状态；`_shaft_y` 变体（机架滚转 + 西面竖直平板屏）覆盖 4 个竖直轴状态——数学上单一网格无法同时覆盖（屏幕法线⊥轴是旋转不变量），竖直轴状态的屏幕由 BER 复刻 blockstate 旋转绘制，文字永远直立可读。
+  **Two model variants**: the base (hand-made lectern screen tilted 45° up) covers the 8 horizontal-shaft states; `_shaft_y` (rolled frame + flat west panel) covers the 4 vertical-shaft states — a single mesh provably cannot (screen normal ⊥ shaft is rotation-invariant). The BER replays the blockstate rotation, so text is always upright.
+- **蓝屏显示**（与全息显示器同机制）：图里有 DATA/TEXT 节点 → 逐行显示它们（服务端求值快照权威）；否则显示内置读数——转速数字 + 应力比例条（绿→黄→红，超载闪烁，对齐 Create 的 1.125 约定）+ 百分比。全部自发光。
+  **Blue-screen display** (same mechanism as the holographic monitor): DATA/TEXT nodes when present (server eval snapshot); otherwise the built-in readout — speed digits + stress bar (green→yellow→red, overload blink aligned with Create's 1.125 convention) + percentage. Fully emissive.
+- **读数自适应排版**：内置读数只使用面板**未被边框遮挡**的窗口（脚本从模型几何推导），窄竖屏把标签与数值上下堆叠、进度条为百分比预留空间；文字/数字比例对齐全息显示器（`GeometryConstants.FONT_BLOCK_SCALE`，约 0.24 模型单位/像素）。转速或应力变化时主动同步读数（Create 默认只在转速变化时同步），无需重开界面即可刷新。
+  **Adaptive readout layout**: the built-in readout stays inside the panel's bezel-unoccluded window (derived from model geometry by script); on the narrow vertical panel the label stacks above the digits and the bar reserves room for the percentage; glyph scale matches the holographic monitor (`GeometryConstants.FONT_BLOCK_SCALE`, ≈0.24 model units/px). The readout is pushed when speed *or* stress changes (Create by default only syncs on speed changes), so it live-updates without reopening the UI.
+- **传动轴绘制**：BER 用共享的 `KineticShaftRenderer` 按 `AnimationTickHolder` 相位绘制前后两段轴，转速/相位与相邻的 Create 轴一致。
+  **Shaft rendering**: the BER draws the front and rear shaft segments through the shared `KineticShaftRenderer` using the `AnimationTickHolder` phase, matching neighbouring Create shafts in speed and phase.
+
+### 📊 新节点：动力网络读数 / New Nodes: Kinetic Network Readings
+
+- **STRESS（应力状态）**：0 入 4 出——占比（0-1，超载 >1）、已用（SU）、未用（0-1）、剩余（SU）；无网络/零容量全 0。
+  **STRESS**: 0-in/4-out — ratio (0-1, >1 overloaded), used (SU), unused (0-1), left (SU); all 0 offline.
+- **RPM（转速）**：0 入 1 出——网络转速（RPM 带符号，过载/无动力为 0）。
+  **RPM**: 0-in/1-out — network speed (signed RPM, 0 when unpowered/overloaded).
+- 经新宿主注入视图 `KineticNetworkView` 读取（求值器保持纯净），ENCAPSULATION 子图求值器同 propagate；动力传感器/可编程变速器/数控齿轮箱三个动力宿主的图均可使用（新增「动力读数」分类）。
+  Read through the new host-injected `KineticNetworkView` (evaluator stays pure), propagated into ENCAPSULATION sub-evaluators; available in all three kinetic hosts (new "Kinetic Readings" category).
+
+### 🧪 质量与接入 / Quality & Integration
+
+- 新增 `KineticNodesEvalTest`（视图注入、无注入零退化、封装传播、超载/零容量守卫，6 用例）；全仓 421 测试通过。
+  Added `KineticNodesEvalTest` (6 cases: injection, zero degradation, encapsulation propagation, overload/zero-capacity guards); all 421 tests pass.
+- **模型流水线入库**：手工 Blockbench 工程放在 `assets-src/kinetic_gauge/`（基础变体 + 竖直变体及各自贴图），由 `tools/gen_gauge_assets.py` 生成并校验方块模型/贴图/方块状态；校验项含命名契约（必须有 `screen` 元素、`bezel*` 建议）、元素旋转后的包围盒、贴图覆盖率与屏幕面未遮挡跨度，`--check` 模式可随时复验。
+  **Model pipeline in-repo**: the hand-made Blockbench projects live in `assets-src/kinetic_gauge/` (both variants and their own textures) and `tools/gen_gauge_assets.py` generates and validates the block models, textures and blockstate; checks cover the naming contract (a `screen` element is required, `bezel*` recommended), rotation-aware element bounds, texture coverage and the screen face's unoccluded span — `--check` re-verifies at any time.
+- **便携终端接入修复**：终端对未登记路由的方块（如刚放置、路由表尚未命中的新设备）执行"编辑"时不再抛空指针崩溃，本方块已在便携终端设备表登记（`TerminalRoutingTest` 覆盖）。
+  **Portable terminal routing fix**: "Edit" on a block the terminal has no route for (e.g. a freshly placed device not yet matched by the route table) no longer crashes with a null pointer, and this block is registered in the terminal's device table (`TerminalRoutingTest` covers it).
+- 右键（非扳手、非轴端面）打开图编辑器；护目镜悬停显示转速/应力读数；创造标签页、战利品表、配方（黄铜外壳+轴+铁）、Create 蓝图 SafeNbt 全套接入。
+  Right-click (non-wrench, non-axis face) opens the graph editor; goggles show live readings; creative tab, loot table, recipe (brass casing + shafts + iron) and Create schematic SafeNbt all wired.
 
 </details>
 

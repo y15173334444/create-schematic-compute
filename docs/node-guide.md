@@ -1417,3 +1417,33 @@ Relay B (selector): outputs B when the contact is high (>0.5), otherwise A. Pure
 Comment: a multi-line text box on the canvas — draggable and resizable, with editable background, border and text colours. No pins and no evaluation; it never renders on the Monitor. Allowed in virtually every editor, including sub-graphs.
 
 ---
+
+---
+
+## 94. 应力状态 / Stress Status
+
+- **枚举名 / Type**: `STRESS` · 稳定 id: `stress`
+- **接口 / Interface**: 0 入 in → 4 出 out
+
+**说明（中文）**
+
+应力状态：读取本方块所在动力网络的应力，四个输出引脚——占比（已用/容量，0-1，超载时大于 1）、已用（SU）、未用（1-占比，0-1）、剩余（容量-已用，SU）。无网络或容量为 0 时全部输出 0。读数随网络实时自愈（发电机拆装、网络合并/分裂后下一 tick 自动正确）。仅动力宿主图（动力传感器、可编程变速器、数控齿轮箱）。
+
+**Description (English)**
+
+Stress Status: reads the kinetic network attached to this block through four pins — ratio (used/capacity, 0-1, >1 while overstressed), used (SU), unused (1-ratio, 0-1) and left (capacity-used, SU). All pins read 0 with no network or zero capacity. Readings self-heal with the network (generators removed, networks merged/split — correct the next tick). Kinetic host graphs only (kinetic gauge, programmable transmission, CNC gearbox).
+
+---
+
+## 95. 转速/RPM / Speed (RPM)
+
+- **枚举名 / Type**: `RPM` · 稳定 id: `rpm`
+- **接口 / Interface**: 0 入 in → 1 出 out
+
+**说明（中文）**
+
+转速/RPM：输出本方块所在网络的转速（RPM、带符号，反转输出负值），无动力/过载时为 0——与编码器 vel 引脚同语义（但编码器只在离合接合时计数，本节点恒读网络）。仅动力宿主图（动力传感器、可编程变速器、数控齿轮箱）。
+
+**Description (English)**
+
+Speed (RPM): outputs this block's network rotation speed, signed (negative = reversed); 0 when unpowered or overloaded — same semantics as the encoder's vel pin (but the encoder counts only while the clutch is engaged, while this node always reads the network). Kinetic host graphs only (kinetic gauge, programmable transmission, CNC gearbox).

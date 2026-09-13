@@ -42,6 +42,8 @@ final class NodeAddMenu {
         new NodeCategory("category.create_schematic_compute.control", new NodeType[]{NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP}),
         // 数控齿轮箱运动反馈 / Programmable gearbox motion feedback
         new NodeCategory("category.create_schematic_compute.gearbox", new NodeType[]{NodeType.MOVE, NodeType.ROTATE, NodeType.WAIT, NodeType.CLUTCH, NodeType.ENCODER, NodeType.TX_OUT}),
+        // 动力网络读数（动力仪表宿主注入）/ Kinetic network readings (kinetic gauge host)
+        new NodeCategory("category.create_schematic_compute.kinetic", new NodeType[]{NodeType.STRESS, NodeType.RPM}),
         new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL, NodeType.BUS_OUT}),
         new NodeCategory("category.create_schematic_compute.sequential", new NodeType[]{NodeType.DELAY, NodeType.LATCH, NodeType.T_FLIPFLOP, NodeType.PULSE_EXTEND, NodeType.LOOP, NodeType.FUSE, NodeType.ACCUMULATOR, NodeType.INTEGRATOR}),
         // F: input_ctrl + input_sensor 合并 / merged

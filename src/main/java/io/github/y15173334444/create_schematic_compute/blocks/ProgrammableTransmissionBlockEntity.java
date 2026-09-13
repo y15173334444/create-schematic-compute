@@ -42,7 +42,7 @@ import java.util.Map;
  * 滚轮设定值（官方 SC 同款 ValueBox）。</p>
  */
 public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
-        implements GraphBlockEntity {
+        implements GraphBlockEntity, io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView {
 
     /** 组合式图托管核心。 Composition-based graph hosting core. */
     public final GraphHost host;
@@ -69,7 +69,18 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
     public ProgrammableTransmissionBlockEntity(BlockPos pos, BlockState state) {
         super(SchematicCompute.TRANSMISSION_BE.get(), pos, state);
         this.host = new GraphHost(this);
+        // 注入动力网络视图（STRESS / RPM 节点；GraphHost 每次重建求值器都会重放）。
+        // Inject the kinetic-network view (STRESS / RPM nodes; replayed on every rebuild).
+        this.host.setEvaluatorCustomizer(ev -> ev.setKineticNetworkView(this));
     }
+
+    // ── KineticNetworkView（STRESS / RPM 节点宿主视图）/ host view for STRESS / RPM ──
+
+    @Override public float kineticSpeed() { return getSpeed(); }
+
+    @Override public float kineticStress() { return stress; }
+
+    @Override public float kineticCapacity() { return capacity; }
 
     /** 已应用目标转速只读取口（视觉层按此分流两端：输入端=网络速度，输出端=此值）。
      *  Read-only accessor of the applied target (visuals split the two shaft ends:

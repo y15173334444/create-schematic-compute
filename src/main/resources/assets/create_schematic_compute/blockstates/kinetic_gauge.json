@@ -1,0 +1,50 @@
+{
+	"variants": {
+		"facing=north,axis_along_first=true": {
+			"model": "create_schematic_compute:block/kinetic_gauge",
+			"y": 90
+		},
+		"facing=north,axis_along_first=false": {
+			"model": "create_schematic_compute:block/kinetic_gauge_shaft_y",
+			"y": 90
+		},
+		"facing=south,axis_along_first=true": {
+			"model": "create_schematic_compute:block/kinetic_gauge",
+			"y": 270
+		},
+		"facing=south,axis_along_first=false": {
+			"model": "create_schematic_compute:block/kinetic_gauge_shaft_y",
+			"y": 270
+		},
+		"facing=east,axis_along_first=false": {
+			"model": "create_schematic_compute:block/kinetic_gauge",
+			"y": 180
+		},
+		"facing=east,axis_along_first=true": {
+			"model": "create_schematic_compute:block/kinetic_gauge_shaft_y",
+			"y": 180
+		},
+		"facing=west,axis_along_first=false": {
+			"model": "create_schematic_compute:block/kinetic_gauge"
+		},
+		"facing=west,axis_along_first=true": {
+			"model": "create_schematic_compute:block/kinetic_gauge_shaft_y"
+		},
+		"facing=up,axis_along_first=false": {
+			"model": "create_schematic_compute:block/kinetic_gauge"
+		},
+		"facing=up,axis_along_first=true": {
+			"model": "create_schematic_compute:block/kinetic_gauge",
+			"y": 90
+		},
+		"facing=down,axis_along_first=false": {
+			"model": "create_schematic_compute:block/kinetic_gauge",
+			"x": 180
+		},
+		"facing=down,axis_along_first=true": {
+			"model": "create_schematic_compute:block/kinetic_gauge",
+			"x": 180,
+			"y": 90
+		}
+	}
+}

@@ -38,6 +38,11 @@ public class GraphEvaluator {
      *  rebuilds; outputs 0 when null). */
     private KineticEncoderView encoderView = null;
     public void setEncoderView(KineticEncoderView view) { this.encoderView = view; }
+    /** STRESS / RPM 节点的宿主视图（动力仪表等动力宿主 BE 在重建求值器后注入；null 时输出 0）。
+     *  Host view for STRESS / RPM nodes (injected by the kinetic gauge's host BE after
+     *  evaluator rebuilds; outputs 0 when null). */
+    private KineticNetworkView kineticNetworkView = null;
+    public void setKineticNetworkView(KineticNetworkView view) { this.kineticNetworkView = view; }
     /** 指令下沉引用（宿主齿轮箱在重建求值器后注入；MOVE/ROTATE/WAIT 上升沿入队）。
      *  Command sink (host gearbox injects after evaluator rebuilds). */
     private GearboxCommandSink commandSink = null;
@@ -900,6 +905,32 @@ public class GraphEvaluator {
                 o[1] = encoderView != null ? encoderView.encoderPositionMeters() : 0;
                 o[2] = encoderView != null ? encoderView.encoderVelocity() : 0;
             }
+            case STRESS -> {
+                // 读动力网络应力：占比（0..1）、已用（SU）、未用（0..1）、剩余（SU）。
+                // 无网络/容量为 0 时全部输出 0（除以容量前先判零，且未用/剩余在无
+                // 网络时置 0 而非容量值 —— 「没有网络」不能看起来像「满容量空闲」）。
+                // Kinetic network stress: ratio (0..1), used (SU), unused (0..1),
+                // remaining (SU). All zero without a network / zero capacity (guard the
+                // division, and zero unused/remaining when offline — "no network" must
+                // not look like "full idle capacity").
+                float used = kineticNetworkView != null ? Math.max(0f, kineticNetworkView.kineticStress()) : 0f;
+                float cap = kineticNetworkView != null ? Math.max(0f, kineticNetworkView.kineticCapacity()) : 0f;
+                if (cap <= 0f) {
+                    o[0] = 0; o[1] = 0; o[2] = 0; o[3] = 0;
+                } else {
+                    float ratio = Math.min(used / cap, Float.MAX_VALUE);
+                    o[0] = ratio;
+                    o[1] = used;
+                    o[2] = Math.max(0f, 1f - ratio);
+                    o[3] = Math.max(0f, cap - used);
+                }
+            }
+            case RPM -> {
+                // 读网络转速（RPM，带符号；过载/无动力时为 0，与 ENCODER vel 同语义）。
+                // Network rotation speed (RPM, signed; 0 when overstressed/unpowered —
+                // same semantics as ENCODER's vel pin).
+                o[0] = kineticNetworkView != null ? kineticNetworkView.kineticSpeed() : 0;
+            }
             case MOVE, ROTATE, WAIT -> {
                 // 触点上升沿 → 采样数值/rpm 入队；完成脉冲经 completedNodeId 一帧回放。
                 // Rising edge → snapshot value/rpm and enqueue; done pulse replays via completedNodeId.
@@ -1159,6 +1190,7 @@ public class GraphEvaluator {
                     subEval.setEncoderView(this.encoderView);
                     subEval.setCommandSink(this.commandSink);
                     subEval.setRadarPos(this.radarPos);
+                    subEval.setKineticNetworkView(this.kineticNetworkView);
                     subEvaluators.put(node.id, subEval);
                     if (runtimeState != null) {
                         RuntimeState.SubState ss = runtimeState.subStates.get(node.id);

@@ -624,5 +624,16 @@
   "param.create_schematic_compute.meters": "米",
   "param.create_schematic_compute.degrees": "度",
   "param.create_schematic_compute.engaged": "接合",
-  "param.create_schematic_compute.reset": "复位"
+  "param.create_schematic_compute.reset": "复位",
+  "block.create_schematic_compute.kinetic_gauge": "动力传感器",
+  "container.create_schematic_compute.kinetic_gauge": "动力传感器编辑器",
+  "category.create_schematic_compute.kinetic": "动力读数",
+  "node.create_schematic_compute.stress": "应力状态",
+  "node.create_schematic_compute.rpm": "转速/RPM",
+  "pin.create_schematic_compute.pct": "占比",
+  "pin.create_schematic_compute.used": "已用",
+  "pin.create_schematic_compute.unused": "未用",
+  "pin.create_schematic_compute.left": "剩余",
+  "gui.create_schematic_compute.guide.STRESS": "应力状态：读取本方块所在动力网络的应力，四个输出引脚——占比（已用/容量，0-1，超载时大于 1）、已用（SU）、未用（1-占比，0-1）、剩余（容量-已用，SU）。无网络或容量为 0 时全部输出 0。仅动力宿主图（动力传感器、可编程变速器、数控齿轮箱）。",
+  "gui.create_schematic_compute.guide.RPM": "转速/RPM：输出本方块所在网络的转速（RPM、带符号，反转输出负值），无动力/过载时为 0——与编码器 vel 引脚同语义。仅动力宿主图（动力传感器、可编程变速器、数控齿轮箱）。"
 }
