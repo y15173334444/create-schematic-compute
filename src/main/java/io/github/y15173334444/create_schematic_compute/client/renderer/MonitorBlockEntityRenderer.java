@@ -43,6 +43,10 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     private static final Field BG_LEFT, BG_RIGHT, BG_UP, BG_DOWN, BG_U0, BG_U1, BG_V0, BG_V1;
     private static java.lang.reflect.Method FONT_GET_FONT_SET;
     private static net.minecraft.client.gui.font.FontSet HUD_FONT_SET; // 缓存 / cached
+    /** 上面缓存对应的 Font 实例 —— 实例变了说明字体被重建，缓存必须重取。
+     *  The Font instance the cache above belongs to; a new one means the font was
+     *  rebuilt and the cache must be refreshed. */
+    private static Font HUD_FONT_SET_OWNER;
     static {
         Field sb = null, fb = null, sh = null, lst = null;
         try {
@@ -79,13 +83,27 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         BG_U0 = u0; BG_U1 = u1; BG_V0 = v0; BG_V1 = v1;
     }
 
-    /** 取 HUD 文字字体集合（Font.getFontSet 包私有 → 反射，缓存一次）。
-     *  HUD FontSet via package-private Font.getFontSet (reflected, cached). */
+    /** 取 HUD 文字字体集合（Font.getFontSet 包私有 → 反射）。
+     *  HUD FontSet via package-private Font.getFontSet (reflected).
+     *
+     *  <p>缓存**绑定 Font 实例**：在主界面切换游戏语言（或任何资源重载）时 Minecraft
+     *  会重建 {@code Font}/{@code FontSet}，旧实例的字形几何与 UV 仍指向已被替换的
+     *  atlas —— 只按 {@code == null} 缓存一次的话，手动字形路径会一直读失效字形，
+     *  把文字画成一团乱线（2026-09-19 修复）。owner（Font 实例）一变就重取。
+     *  The cache is **bound to the Font instance**: switching the game language (or any
+     *  resource reload) rebuilds {@code Font}/{@code FontSet}, and a stale instance's
+     *  glyph geometry/UV still point at the replaced atlas — caching on {@code == null}
+     *  alone made the manual-glyph path draw garbled lines (fixed 2026-09-19). A new
+     *  owner means a fresh lookup. */
     private static net.minecraft.client.gui.font.FontSet hudFontSet(Font font) {
-        if (HUD_FONT_SET == null && FONT_GET_FONT_SET != null) {
-            try {
-                HUD_FONT_SET = (net.minecraft.client.gui.font.FontSet) FONT_GET_FONT_SET.invoke(font, net.minecraft.client.Minecraft.DEFAULT_FONT);
-            } catch (Exception e) { SchematicCompute.LOGGER.error("Monitor getFontSet failed", e); }
+        if (HUD_FONT_SET == null || HUD_FONT_SET_OWNER != font) {
+            HUD_FONT_SET_OWNER = font;
+            HUD_FONT_SET = null;
+            if (FONT_GET_FONT_SET != null) {
+                try {
+                    HUD_FONT_SET = (net.minecraft.client.gui.font.FontSet) FONT_GET_FONT_SET.invoke(font, net.minecraft.client.Minecraft.DEFAULT_FONT);
+                } catch (Exception e) { SchematicCompute.LOGGER.error("Monitor getFontSet failed", e); }
+            }
         }
         return HUD_FONT_SET;
     }
@@ -318,11 +336,22 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     private static ByteBufferBuilder HUD_TEXT_BYTES;
 
     /** 每帧首个字形的 RenderType（2026-08-24：用于 drawTextAnchored 冲刷——绑定
-     *  正确字体 atlas；同 FontSet 所有字形共享）。跨帧缓存，资源重载后自动更新。
+     *  正确字体 atlas；同 FontSet 所有字形共享）。
      *  First glyph's RenderType of the frame (used by drawTextAnchored — binds the
-     *  correct font atlas; shared by all glyphs of the same FontSet). Cached across
-     *  frames; refreshed after a resource reload. */
+     *  correct font atlas; shared by all glyphs of the same FontSet).
+     *
+     *  <p>与 {@link #HUD_FONT_SET} 同理，缓存**绑定 FontSet 实例**：RenderType 里含
+     *  字体 atlas 的纹理 id，切换语言 / 资源重载后 atlas 被替换，旧的 RenderType 会绑到
+     *  失效纹理。旧代码只判 {@code == null}，注释却写着"资源重载后自动更新" —— 注释是
+     *  错的，实现从不刷新（2026-09-19 一并修复）。
+     *  Like {@link #HUD_FONT_SET}, the cache is **bound to the FontSet instance**: the
+     *  RenderType carries the font atlas's texture id, so a language switch / reload
+     *  replaces the atlas and a stale RenderType binds a dead texture. The old code
+     *  only checked {@code == null} while the comment claimed "refreshed after a
+     *  resource reload" — the comment was wrong, it never refreshed (fixed 2026-09-19). */
     private static RenderType hudTextRenderType;
+    /** 上面 RenderType 对应的 FontSet 实例。 / The FontSet instance the RenderType above belongs to. */
+    private static net.minecraft.client.gui.font.FontSet HUD_TEXT_RT_OWNER;
 
     /**
      * 重建 Minecraft 施加到投影矩阵上的视角摇晃（view bob）变换。
@@ -1141,7 +1170,13 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         if (BG_LEFT == null || fontSet == null) return;
         net.minecraft.client.gui.font.glyphs.BakedGlyph glyph = fontSet.getGlyph(code);
         if (glyph == null) return;
-        if (hudTextRenderType == null) hudTextRenderType = glyph.renderType(Font.DisplayMode.NORMAL);
+        // FontSet 一变（切换语言 / 资源重载）就重取：RenderType 绑的是字体 atlas 纹理
+        // A new FontSet (language switch / reload) means a fresh RenderType — it binds
+        // the font atlas texture.
+        if (hudTextRenderType == null || HUD_TEXT_RT_OWNER != fontSet) {
+            HUD_TEXT_RT_OWNER = fontSet;
+            hudTextRenderType = glyph.renderType(Font.DisplayMode.NORMAL);
+        }
         try {
             float left = BG_LEFT.getFloat(glyph), right = BG_RIGHT.getFloat(glyph);
             float up = BG_UP.getFloat(glyph), down = BG_DOWN.getFloat(glyph);
