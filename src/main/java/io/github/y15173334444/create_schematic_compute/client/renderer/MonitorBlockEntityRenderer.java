@@ -42,11 +42,15 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     // BakedGlyph private-field reflection (manual-glyph anchoring; MC pinned to 1.21.1)
     private static final Field BG_LEFT, BG_RIGHT, BG_UP, BG_DOWN, BG_U0, BG_U1, BG_V0, BG_V1;
     private static java.lang.reflect.Method FONT_GET_FONT_SET;
-    private static net.minecraft.client.gui.font.FontSet HUD_FONT_SET; // 缓存 / cached
-    /** 上面缓存对应的 Font 实例 —— 实例变了说明字体被重建，缓存必须重取。
-     *  The Font instance the cache above belongs to; a new one means the font was
-     *  rebuilt and the cache must be refreshed. */
-    private static Font HUD_FONT_SET_OWNER;
+    /** 字形 RenderType 缓存 —— 绑定**取到的 FontSet 实例**（见 {@link #hudFontSet}：
+     *  FontSet 每次实取，重载后是新实例）。注意 RenderType 本身是按 atlas 的
+     *  ResourceLocation 绑定、绘制时经 TextureManager 解析，所以这个缓存主要是省掉重复
+     *  构造，重载安全由 FontSet 身份比对兜住。
+     *  Glyph RenderType cache — bound to the **fetched FontSet instance** (FontSet is
+     *  fetched fresh; a reload yields a new instance). The RenderType itself binds the
+     *  atlas by ResourceLocation and resolves through TextureManager at draw time, so
+     *  this cache mainly avoids rebuilding it; reload safety is covered by the FontSet
+     *  identity check. */
     static {
         Field sb = null, fb = null, sh = null, lst = null;
         try {
@@ -86,26 +90,32 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     /** 取 HUD 文字字体集合（Font.getFontSet 包私有 → 反射）。
      *  HUD FontSet via package-private Font.getFontSet (reflected).
      *
-     *  <p>缓存**绑定 Font 实例**：在主界面切换游戏语言（或任何资源重载）时 Minecraft
-     *  会重建 {@code Font}/{@code FontSet}，旧实例的字形几何与 UV 仍指向已被替换的
-     *  atlas —— 只按 {@code == null} 缓存一次的话，手动字形路径会一直读失效字形，
-     *  把文字画成一团乱线（2026-09-19 修复）。owner（Font 实例）一变就重取。
-     *  The cache is **bound to the Font instance**: switching the game language (or any
-     *  resource reload) rebuilds {@code Font}/{@code FontSet}, and a stale instance's
-     *  glyph geometry/UV still point at the replaced atlas — caching on {@code == null}
-     *  alone made the manual-glyph path draw garbled lines (fixed 2026-09-19). A new
-     *  owner means a fresh lookup. */
+     *  <p>**每次实取，不做缓存** —— {@code Font.getFontSet} 只是 {@code this.fonts.apply(id)}
+     *  一次 map 查找的委托，成本可忽略。
+     *  **Fetched fresh every time** — {@code Font.getFontSet} is just
+     *  {@code this.fonts.apply(id)}, a map lookup; the cost is negligible.
+     *
+     *  <p>这里**绝不能**按 {@code Font} 实例做缓存守卫：{@code Minecraft.font} 只在构造器
+     *  赋值一次（{@code Minecraft.java}: {@code this.font = this.fontManager.createFont()}），
+     *  注册为重载监听器的是 {@code fontManager} 而不是 font —— 所以语言切换 / 资源重载时
+     *  **Font 实例不变**，被重建的是 FontManager 内部的 {@code FontSet}
+     *  （{@code FontManager.reload}：{@code fontSets.clear()} 后 {@code new FontSet}，
+     *  旧对象已 {@code close()} 释放纹理）。绑 Font 的守卫永远不会再次触发，于是会一直
+     *  返回已失效的 FontSet，字形几何与 UV 仍指向旧 atlas → 文字乱线（本修复的第一版就
+     *  踩了这个坑，2026-09-19 按审查改到 FontSet 粒度）。
+     *  Never guard this cache on the {@code Font} instance: {@code Minecraft.font} is
+     *  assigned once in the constructor, and it is {@code fontManager} — not font — that
+     *  is registered as the reload listener. So a language switch / reload leaves the
+     *  Font instance untouched and rebuilds the {@code FontSet} inside FontManager
+     *  ({@code fontSets.clear()} then {@code new FontSet}; the old one is closed). A
+     *  Font-bound guard would never fire again, handing back a stale FontSet whose
+     *  geometry/UV still point at the old atlas → garbled text (the first version of this
+     *  fix tripped on exactly that; moved to FontSet granularity after review). */
     private static net.minecraft.client.gui.font.FontSet hudFontSet(Font font) {
-        if (HUD_FONT_SET == null || HUD_FONT_SET_OWNER != font) {
-            HUD_FONT_SET_OWNER = font;
-            HUD_FONT_SET = null;
-            if (FONT_GET_FONT_SET != null) {
-                try {
-                    HUD_FONT_SET = (net.minecraft.client.gui.font.FontSet) FONT_GET_FONT_SET.invoke(font, net.minecraft.client.Minecraft.DEFAULT_FONT);
-                } catch (Exception e) { SchematicCompute.LOGGER.error("Monitor getFontSet failed", e); }
-            }
-        }
-        return HUD_FONT_SET;
+        if (FONT_GET_FONT_SET == null) return null;
+        try {
+            return (net.minecraft.client.gui.font.FontSet) FONT_GET_FONT_SET.invoke(font, net.minecraft.client.Minecraft.DEFAULT_FONT);
+        } catch (Exception e) { SchematicCompute.LOGGER.error("Monitor getFontSet failed", e); return null; }
     }
 
     public MonitorBlockEntityRenderer(BlockEntityRendererProvider.Context ctx) {}
