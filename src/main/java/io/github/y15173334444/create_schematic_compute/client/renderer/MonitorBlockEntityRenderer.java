@@ -1091,44 +1091,23 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
     }
 
     /** 顶点级深度锚定（2026-08-21 几何等效；2026-09-19 修订：改沿 **bob 后**射线
-     *  锚定）：画布局部点 (x,y,zLocal) 经画布矩阵 m2 到世界（相机相对）坐标，再经
-     *  bobViewRot（= B·viewRot，B 是 GameRenderer 乘进投影矩阵的视角摇晃变换）到
-     *  **bob 后相机空间**，沿该射线锚定到深度 zAnchor：W = (vx·s, vy·s, zAnchor)，
-     *  s = zAnchor/vz（钳制到 ±MAX_ANCHOR_S）。屏幕位置保持远处画布投影在 bob 下的
-     *  样子（平移视差按 D+gz 除，只剩与全世界一致的旋转分量），深度 = zAnchor
-     *  （玻璃平面 + 图层偏移）→ 前方遮挡/后方不遮挡。发射坐标 = emitMat·W
-     *  （emitMat = viewRotInv·B⁻¹）：GPU 先 viewRot 再 bob，
-     *  viewRot·(viewRotInv·B⁻¹·W) = B⁻¹·W，乘 bob 恰好落回 W —— bob 被逐顶点抵消。
-     *  无自定义 shader、无运行时 uniform——纯官方接口。
+     *  锚定）：数学在 {@link MonitorClipMath#anchoredEmit}（纯函数、可单测），本方法
+     *  只负责把发射顶点写进 BufferBuilder。参数语义（2026-09-19 起）：
+     *  bobViewRot = B·viewRot（内容矩阵 → bob 后相机空间）、emitMat =
+     *  viewRotInv·B⁻¹（GPU 先 viewRot 再 bob，发射顶点精确落在期望视图位置，
+     *  bob 被抵消）——见 renderHud 的 bob 复合矩阵注释。
      *  Vertex-level depth anchor (2026-08-21 geometric equivalent; 2026-09-19
-     *  revision: anchoring now runs along the **post-bob** ray): the canvas-local
-     *  point (x,y,zLocal) goes through the canvas matrix m2 into world
-     *  (camera-relative) coords, then bobViewRot (= B·viewRot, B being the
-     *  view-bob transform GameRenderer folds into the projection matrix) into
-     *  **post-bob camera space**, and anchors along that ray at depth zAnchor:
-     *  W = (vx·s, vy·s, zAnchor), s = zAnchor/vz clamped to ±MAX_ANCHOR_S. The
-     *  screen position keeps the far-canvas projection under bob (translation
-     *  parallax divides at D+gz; only the world-rotation sway remains) while depth
-     *  lands on zAnchor (glass plane + layer offset) → near occludes / far does
-     *  not. Emission = emitMat·W with emitMat = viewRotInv·B⁻¹: the GPU applies
-     *  viewRot then bob, so viewRot·(viewRotInv·B⁻¹·W) = B⁻¹·W and bob lands it
-     *  exactly on W — bob cancelled per vertex. No custom shader, no runtime
-     *  uniform — official interfaces only. */
+     *  revision: anchoring now runs along the **post-bob** ray): the math lives in
+     *  {@link MonitorClipMath#anchoredEmit} (pure, unit-testable); this method only
+     *  writes the emitted vertex into the BufferBuilder. Parameter semantics since
+     *  the 2026-09-19 revision: bobViewRot = B·viewRot (content matrices → post-bob
+     *  camera space), emitMat = viewRotInv·B⁻¹ (the GPU applies viewRot then bob,
+     *  so the emitted vertex lands exactly on the desired view position — bob
+     *  cancelled) — see the bob composite-matrix note in renderHud. */
     private static void emitAnchored(BufferBuilder buf, org.joml.Matrix4f m2,
             org.joml.Matrix4f bobViewRot, org.joml.Matrix4f emitMat,
             float x, float y, float zLocal, float zAnchor, float r, float g, float b, float a) {
-        var v = new org.joml.Vector3f(x, y, zLocal);
-        m2.transformPosition(v);          // 世界（相机相对）/ world (camera-relative)
-        bobViewRot.transformPosition(v);  // bob 后相机空间 / post-bob camera space
-        float s = zAnchor / v.z;
-        // 掠射钳制：fz→0⁻ 时 s→∞ → Inf/NaN 顶点 → 撕裂；钳到有限值，坐标 float 精确、
-        // NDC 视锥外 → GPU 干净裁剪。
-        // Clamp s: at grazing fz→0⁻ → s→∞ → Inf/NaN vertices → tearing. Finite s
-        // keeps coords float-exact and NDC out of the frustum → clean GPU clip.
-        if (s > MAX_ANCHOR_S) s = MAX_ANCHOR_S;
-        else if (s < -MAX_ANCHOR_S) s = -MAX_ANCHOR_S;
-        var out = new org.joml.Vector3f(v.x * s, v.y * s, zAnchor); // 期望的最终视图坐标 W / desired final view pos
-        emitMat.transformPosition(out);   // → 世界（相机相对）发射坐标 / world emission
+        var out = MonitorClipMath.anchoredEmit(m2, bobViewRot, emitMat, x, y, zLocal, zAnchor);
         buf.addVertex(out.x, out.y, out.z).setColor(r, g, b, a);
     }
 
@@ -1242,22 +1221,17 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         return new float[]{u0 + s * (u1 - u0), v0 + t * (v1 - v0)};
     }
 
-    /** 单个字形顶点（画布内容坐标直通）：数学同 emitAnchored（2026-09-19 修订：
-     *  沿 bob 后射线锚定到玻璃深度），本方法只补 UV/光照写入 textBuf。
-     *  One glyph vertex (canvas-content coords): same math as emitAnchored
-     *  (2026-09-19 revision: anchor along the post-bob ray at glass depth); this
-     *  method only adds the UV/lightmap writes into textBuf. */
+    /** 单个字形顶点（画布内容坐标直通）：数学同 {@link MonitorClipMath#anchoredEmit}
+     *  （2026-09-19 修订：沿 bob 后射线锚定到玻璃深度），本方法只补 UV/光照写入
+     *  textBuf。
+     *  One glyph vertex (canvas-content coords): the math is
+     *  {@link MonitorClipMath#anchoredEmit} (2026-09-19 revision: anchor along the
+     *  post-bob ray at glass depth); this method only adds the UV/lightmap writes
+     *  into textBuf. */
     private static void anchorTextVertex(BufferBuilder buf, org.joml.Matrix4f m,
             org.joml.Matrix4f bobViewRot, org.joml.Matrix4f emitMat, float glassZ,
             float x, float y, float u, float v, float r, float g, float b, float a) {
-        var p = new org.joml.Vector3f(x, y, 0f);
-        m.transformPosition(p);           // 世界（相机相对）/ world (camera-relative)
-        bobViewRot.transformPosition(p);  // bob 后相机空间 / post-bob camera space
-        float s = glassZ / p.z;
-        if (s > MAX_ANCHOR_S) s = MAX_ANCHOR_S;
-        else if (s < -MAX_ANCHOR_S) s = -MAX_ANCHOR_S;
-        var out = new org.joml.Vector3f(p.x * s, p.y * s, glassZ);
-        emitMat.transformPosition(out);   // 回世界坐标输出 / back to world for emission
+        var out = MonitorClipMath.anchoredEmit(m, bobViewRot, emitMat, x, y, 0f, glassZ);
         buf.addVertex(out.x, out.y, out.z).setColor(r, g, b, a).setUv(u, v).setLight(0xF000F0);
     }
 

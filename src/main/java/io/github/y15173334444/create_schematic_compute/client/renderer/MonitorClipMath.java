@@ -178,6 +178,70 @@ public final class MonitorClipMath {
     /** 点是否在凸四边形内（maskQuad 8 floats，顶点顺序一致）。纯函数——可单测。
      *  Is a point inside the convex quad (maskQuad 8 floats, consistent winding)?
      *  Pure function. */
+    /** 深度锚定发射坐标（2026-09-19 重设计：沿 **bob 后**的射线锚定）。
+     *  画布/内容局部点 (x,y,zLocal) 经内容矩阵 contentMat 到世界（相机相对）坐标，
+     *  再经 bobViewRot（= bob·viewRot，bob 是 GameRenderer 乘进投影矩阵的视角摇晃
+     *  变换）到 **bob 后相机空间**，沿该射线锚定到深度 zAnchor：
+     *  W = (vx·s, vy·s, zAnchor)，s = zAnchor/vz（钳制到 ±{@link #MAX_ANCHOR_S}）。
+     *
+     *  <p>为什么先乘 bob 再锚定（2026-09-19 修订，用户实测否决了 93e3530 的"锚定跟随
+     *  bob"）：GPU 侧还会把 bob 乘回发射顶点（bob 在投影矩阵里），若先在预 bob
+     *  坐标锚定，bob 的视空间平移会按**玻璃深度**（近！）做透视除 → 内容按近物
+     *  视差随玻璃晃动（行走时 HUD 虚像晃动，即 93e3530 前后的用户报告）。先乘 bob
+     *  再锚定后，屏幕位置 = 远处画布投影在 bob 下的位置（平移按 D+gz 除，小 30+
+     *  倍；只剩与全世界一致的旋转分量），而深度仍落在 zAnchor（玻璃平面 + 图层
+     *  偏移）——远处虚像的物理行为 + 近处遮挡关系，两者兼得。
+     *
+     *  <p>发射坐标 = emitMat·W，其中 emitMat = viewRotInv·B⁻¹：GPU 先乘 viewRot
+     *  再乘 bob，viewRot·(viewRotInv·B⁻¹·W) = B⁻¹·W，再乘 bob 恰好落回 W —— bob
+     *  被精确抵消，屏幕位置逐帧稳定。遮罩眼须用**视觉眼** B⁻¹·0（真正的视线束
+     *  汇聚点）投影玻璃角点，窗口才贴住玻璃（ViewBobWobbleDiagTest 数值实证：
+     *  POST+TRUE 窗口落差 0.0000，PRE+UNBOB 内容摆幅 0.038 NDC）。
+     *
+     *  Depth-anchored emission coordinates (2026-09-19 redesign: anchor along the
+     *  **post-bob** ray). The canvas/content-local point (x,y,zLocal) goes through
+     *  the content matrix contentMat into world (camera-relative) coords, then
+     *  bobViewRot (= bob·viewRot; bob is the view-bob transform GameRenderer folds
+     *  into the projection matrix) into **post-bob camera space**, and anchors along
+     *  that ray at depth zAnchor: W = (vx·s, vy·s, zAnchor), s = zAnchor/vz clamped
+     *  to ±{@link #MAX_ANCHOR_S}.
+     *
+     *  <p>Why bob first, then anchor (2026-09-19 revision; 93e3530's "anchor follows bob"
+     *  behaviour was rejected by in-game testing): the GPU multiplies bob into the
+     *  emitted vertex again (bob lives in the projection matrix), so anchoring in
+     *  pre-bob coords makes bob's view-space translation divide at the **glass
+     *  depth** (near!) — the content sways with near parallax, glued to the glass
+     *  (the "HUD wobbles while walking" reports around 93e3530). Anchoring after
+     *  bob keeps the screen position equal to the far-canvas projection under bob
+     *  (translation divides at D+gz — 30+× steadier; only the world-rotation sway
+     *  remains, same as everything in the world) while the depth still lands on
+     *  zAnchor (glass plane + layer offset) — far-image physics AND near-glass
+     *  occlusion, both preserved.
+     *
+     *  <p>Emission = emitMat·W with emitMat = viewRotInv·B⁻¹: the GPU applies
+     *  viewRot then bob, so viewRot·(viewRotInv·B⁻¹·W) = B⁻¹·W, and bob lands it
+     *  exactly back on W — bob is precisely cancelled, screen position stable
+     *  per frame. The mask eye must be the **visual eye** B⁻¹·0 (where the bobed
+     *  view rays actually converge) so the clip window tracks the glass
+     *  (ViewBobWobbleDiagTest: POST+TRUE window gap 0.0000; PRE+UNBOB content sway
+     *  0.038 NDC). Pure function — unit-testable. */
+    public static org.joml.Vector3f anchoredEmit(org.joml.Matrix4f contentMat,
+            org.joml.Matrix4f bobViewRot, org.joml.Matrix4f emitMat,
+            float x, float y, float zLocal, float zAnchor) {
+        var v = new org.joml.Vector3f(x, y, zLocal);
+        contentMat.transformPosition(v);
+        bobViewRot.transformPosition(v);   // bob 后相机空间 / post-bob camera space
+        float s = zAnchor / v.z;
+        if (s > MAX_ANCHOR_S) s = MAX_ANCHOR_S;
+        else if (s < -MAX_ANCHOR_S) s = -MAX_ANCHOR_S;
+        v.set(v.x * s, v.y * s, zAnchor);  // 期望的最终视图坐标 W / desired final view pos
+        emitMat.transformPosition(v);      // → 世界（相机相对）发射坐标 / world emission
+        return v;
+    }
+
+    /** 点是否在凸四边形内（maskQuad 8 floats，顶点顺序一致）。纯函数——可单测。
+     *  Is a point inside the convex quad (maskQuad 8 floats, consistent winding)?
+     *  Pure function. */
     public static boolean pointInConvexQuad(float px, float py, float[] q) {
         boolean sign = false;
         for (int i = 0; i < 4; i++) {
