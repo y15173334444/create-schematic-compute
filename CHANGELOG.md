@@ -6,7 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
-| [v1.2.5.2](#v1252) | 修复：行走时视角摇晃（view bob）导致全息显示器 HUD 虚像晃动 |
+| [v1.2.5.2](#v1252) | 修复：行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 |
 | [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
@@ -21,13 +21,15 @@
 ---
 
 <details>
-<summary><b>v1.2.5.2</b> — 修复：行走时视角摇晃导致 HUD 虚像晃动 / Fix: View Bobbing Made the HUD Virtual Image Wobble</summary>
+<summary><b>v1.2.5.2</b> — 修复：行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 / Fix: View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch</summary>
 
 ### 🖥️ HUD 虚像与视角摇晃 / HUD Virtual Image &amp; View Bobbing
 
 | Fix / 修复 | Description / 说明 |
 |-----------|-------------------|
 | 🚶 行走时虚像晃动 **(bug 修复)** | Minecraft 把 `bobHurt`/`bobView` 写进一个 PoseStack 后**乘进投影矩阵**（`GameRenderer.renderLevel`： `matrix4f.mul(posestack.last().pose())`），它作用于 view space，从不进入 BER 的 poseStack。行走时 HUD 虚像内容随之晃动（关闭视频设置里的「视角摇晃」即完全消失，已实测确认）。数值诊断（`ViewBobWobbleDiagTest`，16 相位采样整圈步态）定位根因：深度锚定在预 bob 坐标上做，GPU 侧把 bob 乘回顶点时，bob 的视空间平移按**玻璃深度**（近，~3 格）做透视除 → 虚像按近物视差随玻璃晃动（0.038 NDC ≈ 1.3°），与设计文档 §9.1「无限远聚焦」矛盾。修复（用户 2026-09-19 选定方案 C「远处虚像」）：锚定改为沿 **bob 后**射线（`MonitorClipMath.anchoredEmit`，先乘 bob 再锚定，发射时预乘 `viewRotInv·B⁻¹` 让 GPU 的 bob 恰好抵消）——屏幕位置保持远处画布投影（平移视差按 D+gz 除，小 30+ 倍），只剩与全世界一致的旋转分量（0.0113 NDC，共形下限 0.0123）；玩家屏幕定位遮罩的投影眼改为**视觉眼** `B⁻¹·0`（bob 后视线束在预 bob 视空间的汇聚点）——裁剪窗口与玻璃的落差精确为 **0.0000**，窗口贴住玻璃；深度仍落玻璃平面，遮挡关系不变。文字字形路径（`anchorTextVertex`）同步修改，锚定数学迁入 `MonitorClipMath` 纯函数 / Minecraft folds bob into the PROJECTION matrix, acting in view space; it never reaches the BER poseStack — and the HUD virtual-image content wobbled while walking (disabling "View Bobbing" removes it entirely, confirmed). Numeric diagnosis (ViewBobWobbleDiagTest, 16-phase sampling of a full gait cycle) found the root cause: anchoring in pre-bob coords makes the GPU-side bob translation perspective-divide at the **glass depth** (near, ~3 blocks) → the image swayed with near parallax, glued to the glass (0.038 NDC ≈ 1.3°), contradicting design-doc §9.1 infinite focus. Fix (user-chosen option C, "far virtual image"): anchor along the **post-bob** ray (MonitorClipMath.anchoredEmit — apply bob first, then anchor; emit premultiplied by viewRotInv·B⁻¹ so the GPU's bob lands exactly on the desired view position) — the screen position keeps the far-canvas projection (translation parallax divides at D+gz, 30+× steadier) and only the world-rotation sway remains (0.0113 NDC, conformal floor 0.0123); the player-screen mask now projects from the **visual eye** B⁻¹·0 (where the bobed view rays converge) — the clip window tracks the glass with a gap of exactly **0.0000**; depth still lands on the glass plane, occlusion unchanged. The text-glyph path (anchorTextVertex) is fixed the same way, and the anchoring math moved into MonitorClipMath pure functions. |
+
+| 🔤 切语言后 HUD 文字变乱线 **(bug 修复)** | 手动字形路径（不走 MultiBufferSource，直接读 `BakedGlyph` 几何/UV 生成顶点）把 `FontSet` 与字形 `RenderType` 各缓存了一份，且只判 `== null` —— 在主界面切换游戏语言（或任何资源重载）时 Minecraft 会重建字体与 atlas，旧缓存的字形几何、UV 和纹理 id 全部指向已被替换的资源，文字画成一团乱线。现在两份缓存都**绑定所属实例**（`Font` / `FontSet`），实例一变就重取 / The manual-glyph path cached the `FontSet` and the glyph `RenderType` on `== null` only; switching the game language rebuilds the font and its atlas, so the stale geometry/UV/texture id pointed at replaced resources and the text turned into garbled lines. Both caches are now bound to their owning instance and refresh when it changes. |
 
 > **设计决策（用户 2026-09-19 选定，钉在 `ViewBobWobbleDiagTest` / `ViewBobAnchorTest`）**
 > **Design decisions (user-chosen 2026-09-19, pinned in ViewBobWobbleDiagTest / ViewBobAnchorTest)**
