@@ -27,18 +27,24 @@
 
 | Fix / 修复 | Description / 说明 |
 |-----------|-------------------|
-| 🚶 行走时虚像晃动 **(bug 修复)** | Minecraft 把 `bobHurt`/`bobView` 写进一个 PoseStack 后**乘进投影矩阵**（`GameRenderer.renderLevel`： `matrix4f.mul(posestack.last().pose())`），它作用于 view space，从不进入 BER 的 poseStack —— 也就是说相机的**视觉位置**被 bob 平移了。玩家屏幕定位遮罩（mask）却仍按未平移的眼睛投影，于是内容随 bob 一起动、裁剪边界不动 → 玻璃上的内容相对边界滑动 = 行走时虚像看着在晃（关闭视频设置里的「视角摇晃」即完全消失，已实测确认）。现在遮罩用的 eye 带上 bob 的平移 / Minecraft folds bob into the PROJECTION matrix, so the camera's **visual** position is translated. The player-screen mask still projected from an untranslated eye, so the content moved with bob while the clip boundary did not → the image slid relative to the boundary = wobbling while walking (disabling "View Bobbing" removes it entirely, confirmed). The mask eye now carries bob's translation. |
+| 🚶 行走时虚像晃动 **(bug 修复)** | Minecraft 把 `bobHurt`/`bobView` 写进一个 PoseStack 后**乘进投影矩阵**（`GameRenderer.renderLevel`： `matrix4f.mul(posestack.last().pose())`），它作用于 view space，从不进入 BER 的 poseStack。行走时 HUD 虚像内容随之晃动（关闭视频设置里的「视角摇晃」即完全消失，已实测确认）。数值诊断（`ViewBobWobbleDiagTest`，16 相位采样整圈步态）定位根因：深度锚定在预 bob 坐标上做，GPU 侧把 bob 乘回顶点时，bob 的视空间平移按**玻璃深度**（近，~3 格）做透视除 → 虚像按近物视差随玻璃晃动（0.038 NDC ≈ 1.3°），与设计文档 §9.1「无限远聚焦」矛盾。修复（用户 2026-09-19 选定方案 C「远处虚像」）：锚定改为沿 **bob 后**射线（`MonitorClipMath.anchoredEmit`，先乘 bob 再锚定，发射时预乘 `viewRotInv·B⁻¹` 让 GPU 的 bob 恰好抵消）——屏幕位置保持远处画布投影（平移视差按 D+gz 除，小 30+ 倍），只剩与全世界一致的旋转分量（0.0113 NDC，共形下限 0.0123）；玩家屏幕定位遮罩的投影眼改为**视觉眼** `B⁻¹·0`（bob 后视线束在预 bob 视空间的汇聚点）——裁剪窗口与玻璃的落差精确为 **0.0000**，窗口贴住玻璃；深度仍落玻璃平面，遮挡关系不变。文字字形路径（`anchorTextVertex`）同步修改，锚定数学迁入 `MonitorClipMath` 纯函数 / Minecraft folds bob into the PROJECTION matrix, acting in view space; it never reaches the BER poseStack — and the HUD virtual-image content wobbled while walking (disabling "View Bobbing" removes it entirely, confirmed). Numeric diagnosis (ViewBobWobbleDiagTest, 16-phase sampling of a full gait cycle) found the root cause: anchoring in pre-bob coords makes the GPU-side bob translation perspective-divide at the **glass depth** (near, ~3 blocks) → the image swayed with near parallax, glued to the glass (0.038 NDC ≈ 1.3°), contradicting design-doc §9.1 infinite focus. Fix (user-chosen option C, "far virtual image"): anchor along the **post-bob** ray (MonitorClipMath.anchoredEmit — apply bob first, then anchor; emit premultiplied by viewRotInv·B⁻¹ so the GPU's bob lands exactly on the desired view position) — the screen position keeps the far-canvas projection (translation parallax divides at D+gz, 30+× steadier) and only the world-rotation sway remains (0.0113 NDC, conformal floor 0.0123); the player-screen mask now projects from the **visual eye** B⁻¹·0 (where the bobed view rays converge) — the clip window tracks the glass with a gap of exactly **0.0000**; depth still lands on the glass plane, occlusion unchanged. The text-glyph path (anchorTextVertex) is fixed the same way, and the anchoring math moved into MonitorClipMath pure functions. |
 
-> **两条实测得出的约束（已写入 `ViewBobAnchorTest`，请勿凭直觉改回）**
-> **Two measured constraints (pinned in `ViewBobAnchorTest`; don't reverse them on intuition)**
-> 1. 深度锚定要**跟随** bob，不要"补偿"它 —— 补偿后虚像与玻璃的屏幕漂移反而大 3.7 倍
->    （0.007 → 0.025 NDC）。直觉上"让虚像不受 bob 影响"似乎更对，但玻璃自身被 bob 搬动
->    的幅度远大于虚像与玻璃之间那点差异，补偿掉等于把虚像从玻璃上撕开。
->    The depth anchor must FOLLOW bob — compensating it drifts 3.7× more (0.007 → 0.025
->    NDC). Making the image ignore bob sounds right, but bob moves the glass far more
->    than the image-to-glass difference, so compensating tears the image off the glass.
-> 2. 站定时（amp=0）bob 变换是单位矩阵，整条路径与修复前逐字节一致 —— 不走路就没有任何变化。
->    Standing still (amp=0) makes bob the identity: the path is unchanged.
+> **设计决策（用户 2026-09-19 选定，钉在 `ViewBobWobbleDiagTest` / `ViewBobAnchorTest`）**
+> **Design decisions (user-chosen 2026-09-19, pinned in ViewBobWobbleDiagTest / ViewBobAnchorTest)**
+> 1. 虚像内容 = 远处物体：行走时只随全世界一起转（bob 的旋转分量，远物参照 0.0123 NDC），
+>    bob 平移分量必须消失。开发中曾先尝试只把遮罩眼挪到 `+B·0`，实测否决——遮罩眼与
+>    锚定方式必须**配对**（沿 bob 后射线锚定 ↔ 视觉眼 `B⁻¹·0`；预 bob 锚定 ↔ 原点眼），
+>    `+B·0` 与任何锚定都不封闭（Y 向窗口滑差 0.046 NDC），且它没触及内容摆动的根因。
+>    The virtual image behaves as a far object: only the world-rotation sway remains; the
+>    mask eye must be PAIRED with the anchoring (post-bob anchor ↔ visual eye B⁻¹·0;
+>    pre-bob anchor ↔ the origin eye) — the earlier +B·0 attempt closed with nothing
+>    (Y window slide 0.046 NDC) and never touched the root cause.
+> 2. 「补偿更差 3.7 倍」的旧测量是稻草人对比：拿静态内容对比摇晃玻璃，量到的本就是
+>    玻璃自己的晃动，不是虚像的性质。
+>    The old "compensating drifts 3.7× more" measurement was a strawman: static content
+>    measured against a bobbing glass captures the glass's own motion, not the image's.
+> 3. 站定（amp=0）时 B = I，路径与修复前逐字节一致。
+>    Standing still (amp=0) keeps bob the identity: the path is unchanged.
 
 > **已知范围外 / Known limitation**: 同一 PoseStack 里的 `bobHurt`（受伤抖动）依赖
 > GameRenderer 私有的 `hurtTime`，无法从外部重建，受伤瞬间那一下抖动不在本次修复范围
