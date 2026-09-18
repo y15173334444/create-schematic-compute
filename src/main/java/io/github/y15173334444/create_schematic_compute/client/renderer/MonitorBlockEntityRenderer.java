@@ -431,17 +431,38 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         // NORTH/SOUTH fine).
         var cam = Minecraft.getInstance().gameRenderer.getMainCamera();
         Quaternionf camRotInv = cam.rotation().conjugate(new Quaternionf());
-        // 注意：不要把 bob 折进这里的 viewRot —— 实测（ViewBobAnchorTest）那样反而更差：
-        // 虚像"不跟随"bob 时漂移 0.025 NDC，而跟随时只有 0.007 NDC，因为玻璃自身被 bob
-        // 搬动的幅度远大于虚像与玻璃之间的那点差异。真正受 bob 影响的是下方 mask 用的
-        // eye（相机的视觉位置被 bob 平移了），补偿放在那里。
-        // Do NOT fold bob into viewRot here — measurement (ViewBobAnchorTest) shows it
-        // is worse: making the image "not follow" bob drifts 0.025 NDC vs 0.007 when it
-        // follows, because bob moves the glass itself far more than the image-to-glass
-        // difference. What bob really breaks is the eye used for the mask below (the
-        // camera's visual position is translated by bob); the compensation goes there.
         org.joml.Matrix4f viewRot = new org.joml.Matrix4f().rotation(camRotInv);  // 世界→相机空间
         org.joml.Matrix4f viewRotInv = new org.joml.Matrix4f(viewRot).invert();   // 相机空间→世界
+        // bob = GameRenderer 乘进投影矩阵的视角摇晃变换（B = 平移 + 双旋转，作用于
+        // view space，从不进入 BER poseStack）。锚定管线用两个复合矩阵（2026-09-19
+        // 修订，替代 93e3530 的"锚定跟随 bob"——用户实测内容仍随 bob 晃动）：
+        //   bobViewRot = B·viewRot —— 内容矩阵 → **bob 后**相机空间：锚定沿 bob 后
+        //     射线做，屏幕位置保持远处画布投影（平移视差按 D+gz 除，小 30+ 倍），
+        //     只剩与全世界一致的旋转晃动（MonitorClipMath.anchoredEmit）；
+        //   emitMat = viewRotInv·B⁻¹ —— GPU 侧对发射顶点先乘 viewRot 再乘 bob，
+        //     viewRot·(viewRotInv·B⁻¹·W) = B⁻¹·W → 乘 bob 恰好落回期望位置 W
+        //     （bob 被逐顶点精确抵消）。
+        // 站定（amp=0）时 B = I，两个矩阵退化为 viewRot/viewRotInv，路径与修复前
+        // 完全一致。
+        // bob = the view-bob transform GameRenderer folds into the projection matrix
+        // (B = translation + two rotations, in view space; it never enters the BER
+        // poseStack). The anchoring pipeline uses two composite matrices (2026-09-19,
+        // revision — replaces 93e3530's "anchor follows bob", which in-game testing
+        // rejected: the content still swayed with bob):
+        //   bobViewRot = B·viewRot — content matrices → **post-bob** camera space:
+        //     anchoring runs along the post-bob ray, so the screen position keeps the
+        //     far-canvas projection (translation parallax divides at D+gz — 30+×
+        //     steadier) and only the world-rotation sway remains
+        //     (MonitorClipMath.anchoredEmit);
+        //   emitMat = viewRotInv·B⁻¹ — the GPU applies viewRot then bob to every
+        //     emitted vertex: viewRot·(viewRotInv·B⁻¹·W) = B⁻¹·W → bob lands it
+        //     exactly on the desired view position W (bob cancelled per vertex).
+        // Standing still (amp=0) gives B = I: both matrices degrade to
+        // viewRot/viewRotInv and the path is byte-for-byte what it was.
+        org.joml.Matrix4f bobM = computeBobMatrix(cam.getPartialTickTime());
+        org.joml.Matrix4f bobInv = bobM.invert(new org.joml.Matrix4f());
+        org.joml.Matrix4f bobViewRot = new org.joml.Matrix4f(bobM).mul(viewRot);   // B·viewRot
+        org.joml.Matrix4f emitMat = new org.joml.Matrix4f(viewRotInv).mul(bobInv); // viewRotInv·B⁻¹
         // 玻璃面板中心 → 相机空间深度 gz（顶点级深度锚定目标，2026-08-21 几何等效；
         // 2026-08-24：先经 poseStack 到世界（相机相对），再经相机旋转到视线深度）。
         // Glass panel center → camera-space depth gz (the vertex-level depth-anchor
@@ -457,25 +478,26 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         // (camera origin through the inverse panel matrix; ez>0 = in front of the
         // glass); the glass 4 corners project onto the canvas plane → content-local
         // 4-gon + AABB.
-        // 眼睛（相机原点）→ 面板局部坐标，**必须带上 bob 的平移**（2026-09-18）：
-        // GameRenderer 把 bob 乘进投影矩阵，等于把相机的**视觉位置**也挪了。这里的遮罩
-        // 是按"眼睛看玻璃"投影出来的，眼睛若不跟着挪，遮罩边界就会相对内容滑动 ——
-        // 玻璃上的内容随 bob 一起动、裁剪边界却不动，于是行走时虚像看着在晃（关掉
-        // "视角摇晃"即消失，用户已实测确认）。深度锚定本身反而不该动（见上方注释）。
-        // Eye (camera origin) → panel-local coords; it MUST carry bob's translation:
-        // GameRenderer folds bob into the projection matrix, which moves the camera's
-        // VISUAL position too. The mask is projected from "the eye looking at the
-        // glass", so if the eye doesn't move as well the mask edge slides relative to
-        // the content — the content on the glass moves with bob while the clip boundary
-        // does not, which reads as the image wobbling while walking (disabling "View
-        // Bobbing" removes it; confirmed by the user). The depth anchor itself must
-        // stay untouched (see the note above).
+        // 遮罩眼 = **视觉眼** B⁻¹·0（2026-09-19 修订）：bob 乘进投影矩阵后，视线束
+        // 在预 bob 视空间里从 B⁻¹·0 汇聚。内容沿 bob 后射线锚定后，"内容像素恰好出现
+        // 在玻璃角上"的画布点 = 视觉眼看玻璃角的射线与画布平面的交点（仿射 B 不保比
+        // 例，须从视觉眼投影；ViewBobWobbleDiagTest 数值实证：POST+TRUE 窗口落差
+        // 0.0000）。v1.2.5.2 用的 +B·0（"原点被 bob 搬到哪"）方向正好相反，与任何
+        // 锚定方式都不封闭 —— Y 向窗口滑差被放大到 0.046 NDC（用户实测"内容还是晃"）。
+        // Mask eye = the **visual eye** B⁻¹·0 (2026-09-19 revision): with bob folded
+        // into the projection matrix, the view rays converge at B⁻¹·0 in pre-bob view
+        // space. With content anchored along the post-bob ray, the canvas point that
+        // lands exactly on a glass corner is the visual-eye ray's canvas intersection
+        // (the affine B does not preserve ratios, so the projection MUST start from
+        // the visual eye; ViewBobWobbleDiagTest: POST+TRUE window gap 0.0000).
+        // v1.2.5.2 used +B·0 ("where the origin gets carried") — the opposite side,
+        // which closes with no anchoring and amplified the Y window slide to
+        // 0.046 NDC (the user's "content still wobbles" report).
         var mInv = new org.joml.Matrix4f(m).invert();
-        org.joml.Matrix4f bobM = computeBobMatrix(cam.getPartialTickTime());
         var eye = new org.joml.Vector4f(0f, 0f, 0f, 1f);
-        bobM.transform(eye);                                        // 相机空间：bob 平移后的原点
+        bobInv.transform(eye);                                      // 视觉眼 B⁻¹·0 / the visual eye
         var eyeRel = new org.joml.Vector3f(eye.x, eye.y, eye.z);
-        new org.joml.Matrix4f().rotation(camRotInv).invert().transformPosition(eyeRel); // 相机空间→世界方向
+        viewRotInv.transformPosition(eyeRel);                       // 相机空间→世界 / camera→world
         var eyeLocal = new org.joml.Vector4f(eyeRel.x, eyeRel.y, eyeRel.z, 1f);
         mInv.transform(eyeLocal);
         float[] maskQuad = projectGlassCornersToCanvas(eyeLocal.x, eyeLocal.y, eyeLocal.z, hw, hh, VIRTUAL_IMAGE_D);
@@ -496,28 +518,33 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         addThickLine(tintBuf, m, hw, hh, -hw, hh, 0.01, 0.0005f, 0.1f, 0.6f, 0.2f, 0.5f);
         addThickLine(tintBuf, m, -hw, hh, -hw, -hh, 0.01, 0.0005f, 0.1f, 0.6f, 0.2f, 0.5f);
 
-        // ── 远处虚像画布 + 顶点级深度锚定 + 4 边形遮罩（2026-08-21 最终方案）──
+        // ── 远处虚像画布 + 顶点级深度锚定 + 4 边形遮罩（2026-08-21 方案；2026-09-19 锚定改沿 bob 后射线）──
         // 虚像内容画在远处画布（面板局部 z=-D、×D 缩放——远处虚像「浮起」视觉）。
-        // 深度锚定 = 顶点数学（emitAnchored）：顶点构造为 V'=(fx·gz/fz, fy·gz/fz,
-        // gz)——屏幕位置保持远处画布投影、深度 = 玻璃平面 gz → 前方物体遮挡、后方
-        // 不遮挡（官方接口，无自定义 shader——Veil 4.0 拦截自定义 ShaderInstance）。
+        // 深度锚定 = 顶点数学（MonitorClipMath.anchoredEmit，经 emitAnchored）：沿
+        // **bob 后**射线锚定到深度 gz → 屏幕位置保持远处画布投影在 bob 下的样子
+        // （内容只随全世界一起转，不随 bob 平移晃）、深度 = 玻璃平面 → 前方物体
+        // 遮挡、后方不遮挡（官方接口，无自定义 shader——Veil 4.0 拦截自定义
+        // ShaderInstance）。
         // 「显示区域」= 玩家屏幕定位 4 边形遮罩（projectGlassCornersToCanvas）：
-        // 玻璃面板 4 角点从玩家眼睛投影到画布平面，内容与 4 边形求交（clipPolyToQuad
-        // Sutherland-Hodgman）——内容只在玩家透过玻璃看到的区域内显示。组件级剔除
-        // 已全部移除（2026-08-21：GPU 省不了多少、CPU 开销大）。
+        // 玻璃面板 4 角点从**视觉眼**（B⁻¹·0，见上方遮罩眼注释）投影到画布平面，
+        // 内容与 4 边形求交（clipPolyToQuad Sutherland-Hodgman）——内容只在玩家透过
+        // 玻璃看到的区域内显示。组件级剔除已全部移除（2026-08-21：GPU 省不了多少、
+        // CPU 开销大）。
         // ── Far virtual-image canvas + vertex-level depth anchor + 4-gon mask
-        //    (2026-08-21 final) ──
+        //    (2026-08-21 design; 2026-09-19 anchoring moved to the post-bob ray) ──
         // Content draws on the far canvas (panel-local z=-D, ×D scale — the "floating
-        // far away" look). Depth anchoring = vertex math (emitAnchored): V'=(fx·gz/fz,
-        // fy·gz/fz, gz) keeps the far-canvas screen projection while depth lands on
-        // the glass plane gz → near occludes / far does not (official interfaces, no
-        // custom shader — Veil 4.0 intercepts custom ShaderInstances).
+        // far away" look). Depth anchoring = vertex math (MonitorClipMath.anchoredEmit
+        // via emitAnchored): anchor along the **post-bob** ray at depth gz → the screen
+        // position keeps the far-canvas projection under bob (the content sways only
+        // with the whole world's rotation, not with bob's translation) while depth
+        // lands on the glass plane → near occludes / far does not (official
+        // interfaces, no custom shader — Veil 4.0 intercepts custom ShaderInstances).
         // "Display region" = the player-screen-positioned 4-gon mask
         // (projectGlassCornersToCanvas): the glass panel's 4 corners project from the
-        // player's eye onto the canvas plane; content intersects the 4-gon
-        // (clipPolyToQuad Sutherland-Hodgman) — content shows only inside the region
-        // seen through the glass. Component-level culling was removed entirely
-        // (2026-08-21: negligible GPU savings, heavy CPU cost).
+        // **visual eye** (B⁻¹·0 — see the mask-eye note above) onto the canvas plane;
+        // content intersects the 4-gon (clipPolyToQuad Sutherland-Hodgman) — content
+        // shows only inside the region seen through the glass. Component-level culling
+        // was removed entirely (2026-08-21: negligible GPU savings, heavy CPU cost).
         poseStack.pushPose();
         poseStack.translate(0, 0, -VIRTUAL_IMAGE_D);
         poseStack.scale(VIRTUAL_IMAGE_D, VIRTUAL_IMAGE_D, -VIRTUAL_IMAGE_D);
@@ -649,7 +676,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             // catch it (s is only a modest negative number). One up-front test keeps
             // the normal case free: fully-in-front costs nothing per pixel, fully-
             // behind skips the image entirely, and only a crossing pays for a clip.
-            int camState = cameraPlaneState(maskImg, 0f, m2, viewRot);
+            int camState = cameraPlaneState(maskImg, 0f, m2, bobViewRot);
             if (camState == CAM_BEHIND) { poseStack.popPose(); continue; }
             for (int py = 0; py < n.imageHeight; py++) {
                 for (int px = 0; px < n.imageWidth; px++) {
@@ -662,12 +689,12 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                     float y0 = -py * cell, y1 = y0 - cell;
                     float[] pxQuad = {x0, y0, x1, y0, x1, y1, x0, y1};
                     // 相机平面裁剪（仅跨越时）——裁剪在图像局部进行，与 emitAnchored
-                    // 同一变换路径（m2 → viewRot）。
+                    // 同一变换路径（m2 → bobViewRot）。
                     // Camera-plane clip (only when crossing) — in image-local space, over
-                    // the same transform path emitAnchored uses (m2 → viewRot).
+                    // the same transform path emitAnchored uses (m2 → bobViewRot).
                     boolean camClipped = false;
                     if (camState == CAM_CROSSING) {
-                        float[] cc = clipPolyToCameraPlane(pxQuad, 0f, m2, viewRot);
+                        float[] cc = clipPolyToCameraPlane(pxQuad, 0f, m2, bobViewRot);
                         if (cc.length / 2 < 3) continue;
                         if (cc != pxQuad) { pxQuad = cc; camClipped = true; }
                     }
@@ -687,20 +714,20 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                     if (allIn) {
                         // 顶点级深度锚定：屏幕位置保持远处画布投影、深度 = 玻璃平面 gz
                         // (Vertex-level depth anchor: far-canvas projection, glass depth)
-                        emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x0, y0, 0f, glassZ, rf, gf, bf, af);
-                        emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x1, y0, 0f, glassZ, rf, gf, bf, af);
-                        emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x1, y1, 0f, glassZ, rf, gf, bf, af);
-                        emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x0, y0, 0f, glassZ, rf, gf, bf, af);
-                        emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x1, y1, 0f, glassZ, rf, gf, bf, af);
-                        emitAnchored(canvasBuf, m2, viewRot, viewRotInv, x0, y1, 0f, glassZ, rf, gf, bf, af);
+                        emitAnchored(canvasBuf, m2, bobViewRot, emitMat, x0, y0, 0f, glassZ, rf, gf, bf, af);
+                        emitAnchored(canvasBuf, m2, bobViewRot, emitMat, x1, y0, 0f, glassZ, rf, gf, bf, af);
+                        emitAnchored(canvasBuf, m2, bobViewRot, emitMat, x1, y1, 0f, glassZ, rf, gf, bf, af);
+                        emitAnchored(canvasBuf, m2, bobViewRot, emitMat, x0, y0, 0f, glassZ, rf, gf, bf, af);
+                        emitAnchored(canvasBuf, m2, bobViewRot, emitMat, x1, y1, 0f, glassZ, rf, gf, bf, af);
+                        emitAnchored(canvasBuf, m2, bobViewRot, emitMat, x0, y1, 0f, glassZ, rf, gf, bf, af);
                     } else {
                         float[] clipped = clipPolyToQuad(pxQuad, maskImg);
                         int nv = clipped.length / 2;
                         if (nv < 3) continue;
                         for (int i = 1; i < nv - 1; i++) {
-                            emitAnchored(canvasBuf, m2, viewRot, viewRotInv, clipped[0], clipped[1], 0f, glassZ, rf, gf, bf, af);
-                            emitAnchored(canvasBuf, m2, viewRot, viewRotInv, clipped[i * 2], clipped[i * 2 + 1], 0f, glassZ, rf, gf, bf, af);
-                            emitAnchored(canvasBuf, m2, viewRot, viewRotInv, clipped[(i + 1) * 2], clipped[(i + 1) * 2 + 1], 0f, glassZ, rf, gf, bf, af);
+                            emitAnchored(canvasBuf, m2, bobViewRot, emitMat, clipped[0], clipped[1], 0f, glassZ, rf, gf, bf, af);
+                            emitAnchored(canvasBuf, m2, bobViewRot, emitMat, clipped[i * 2], clipped[i * 2 + 1], 0f, glassZ, rf, gf, bf, af);
+                            emitAnchored(canvasBuf, m2, bobViewRot, emitMat, clipped[(i + 1) * 2], clipped[(i + 1) * 2 + 1], 0f, glassZ, rf, gf, bf, af);
                         }
                     }
                 }
@@ -761,7 +788,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                     .rotateZ((float) Math.toRadians(-n.displayRotation))
                     .scale(s, -s, s)
                     .translate(-fw / 2f + adv - cwCh, -fh / 2f, 0f);
-                emitTextGlyph(textBuf, fontSet, str.charAt(ci), canvasM, viewRot, viewRotInv,
+                emitTextGlyph(textBuf, fontSet, str.charAt(ci), canvasM, bobViewRot, emitMat,
                     glassZ, charMat, maskQuad, color);
             }
         }
@@ -776,7 +803,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             for (var n : hudNodes) {
                 // 姿态仪画布随虚像缩放（内容整体放大，merge-plan §3.4）
                 // The ladder canvas follows the virtual-image scale (§3.4)
-                drawPitchLadder(n, be, poseStack, canvasBuf, textBuf, hw * vis, hh * vis, glassZ, viewRot, viewRotInv,
+                drawPitchLadder(n, be, poseStack, canvasBuf, textBuf, hw * vis, hh * vis, glassZ, bobViewRot, emitMat,
                     maskQuad, maskAabb, font, snapshot.outputs());
             }
         }
@@ -816,7 +843,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  by the player-screen 4-gon mask (addThickLineAnchored / glyph AABB quick reject). */
     private void drawPitchLadder(GraphNode n, MonitorBlockEntity be, PoseStack poseStack,
             BufferBuilder buf, BufferBuilder textBuf, float hw, float hh, float glassZ,
-            org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
+            org.joml.Matrix4f bobViewRot, org.joml.Matrix4f emitMat,
             float[] maskQuad, float[] maskAabb, Font font,
             java.util.Map<Integer, float[]> outputs) {
         // 虚像缩放系数：姿态仪画布（hw/hh）已由调用方放大，标注字号需同乘（§3.4）
@@ -858,10 +885,10 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         // ① white 4-segment hollow cross boresight (fixed; hollow radius, segment
         // length; 2026-08-24 shrunk to 1/3 per user request)
         float bsGap = hw * 0.04f / 3f, bsLen = hw * 0.12f / 3f;
-        addThickLineAnchored(buf, m, -bsLen, 0, -bsGap, 0, wFine, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
-        addThickLineAnchored(buf, m, bsGap, 0, bsLen, 0, wFine, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
-        addThickLineAnchored(buf, m, 0, bsGap, 0, bsLen, wFine, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
-        addThickLineAnchored(buf, m, 0, -bsLen, 0, -bsGap, wFine, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
+        addThickLineAnchored(buf, m, -bsLen, 0, -bsGap, 0, wFine, z, glassZ, bobViewRot, emitMat, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
+        addThickLineAnchored(buf, m, bsGap, 0, bsLen, 0, wFine, z, glassZ, bobViewRot, emitMat, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
+        addThickLineAnchored(buf, m, 0, bsGap, 0, bsLen, wFine, z, glassZ, bobViewRot, emitMat, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
+        addThickLineAnchored(buf, m, 0, -bsLen, 0, -bsGap, wFine, z, glassZ, bobViewRot, emitMat, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
         // ②③ 档族 + 白色地平线（tan 透视，绕画布中心旋转，经 4 边形遮罩裁剪）
         // ②③ bar family + white horizon (tan perspective, rotated about the canvas
         // center, clipped by the 4-gon mask) — bars outside the glass view are cut.
@@ -874,9 +901,9 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 // ② white horizon (moves with pitch, **two segments** — center gap
                 // clears the boresight, 2026-08-24; opaque)
                 addThickLineAnchored(buf, m, -horizonW * cr - y * sr, -horizonW * sr + y * cr,
-                    -gap * cr - y * sr, -gap * sr + y * cr, wBar, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
+                    -gap * cr - y * sr, -gap * sr + y * cr, wBar, z, glassZ, bobViewRot, emitMat, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
                 addThickLineAnchored(buf, m, gap * cr - y * sr, gap * sr + y * cr,
-                    horizonW * cr - y * sr, horizonW * sr + y * cr, wBar, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
+                    horizonW * cr - y * sr, horizonW * sr + y * cr, wBar, z, glassZ, bobViewRot, emitMat, canvasRect, maskQuad, 1f, 1f, 1f, 1f);
             } else {
                 // ③ 绿色两段式中空档（SC 绿，不透明）——左右两段都画（2026-08-24：
                 //    档线不砍半；±90 数字由标注分侧「一边一个」解决重叠）。
@@ -887,8 +914,8 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 double lx1 = -gap * cr - y * sr, ly1 = -gap * sr + y * cr;
                 double rx0 = gap * cr - y * sr, ry0 = gap * sr + y * cr;
                 double rx1 = halfLineW * cr - y * sr, ry1 = halfLineW * sr + y * cr;
-                addThickLineAnchored(buf, m, lx0, ly0, lx1, ly1, wBar, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 0.2f, 1f, 0.4f, 1f);
-                addThickLineAnchored(buf, m, rx0, ry0, rx1, ry1, wBar, z, glassZ, viewRot, viewRotInv, canvasRect, maskQuad, 0.2f, 1f, 0.4f, 1f);
+                addThickLineAnchored(buf, m, lx0, ly0, lx1, ly1, wBar, z, glassZ, bobViewRot, emitMat, canvasRect, maskQuad, 0.2f, 1f, 0.4f, 1f);
+                addThickLineAnchored(buf, m, rx0, ry0, rx1, ry1, wBar, z, glassZ, bobViewRot, emitMat, canvasRect, maskQuad, 0.2f, 1f, 0.4f, 1f);
             }
             // ④ 度数标注：±10° 起每 10°，白色小字，档线两端外侧，随档组旋转
             // ④ degree labels: ±10° onward every 10°, white small text at the outer
@@ -900,7 +927,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 // side (tan-period overlap); other degrees keep both ends.
                 int absDeg = Math.abs(Math.round(theta));
                 int side = absDeg == 90 ? (theta > 0 ? 0 : 1) : -1;
-                drawLadderLabel(textBuf, font, m, viewRot, viewRotInv, glassZ,
+                drawLadderLabel(textBuf, font, m, bobViewRot, emitMat, glassZ,
                     Math.round(theta), y, cr, sr, halfLineW, maskAabb, canvasRect, maskQuad, side, vis);
             }
         }
@@ -914,7 +941,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  ends rotating with the group; glyph AABB quick reject vs the canvas rect then
      *  the player-screen 4-gon mask (hidden outside the glass). */
     private void drawLadderLabel(BufferBuilder textBuf, Font font,
-            org.joml.Matrix4f m, org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
+            org.joml.Matrix4f m, org.joml.Matrix4f bobViewRot, org.joml.Matrix4f emitMat,
             float glassZ, int deg, double y, double cr, double sr, double halfLineW,
             float[] maskAabb, float[] canvasRect, float[] maskQuad, int side, float vis) {
         String label = Integer.toString(deg);
@@ -954,7 +981,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                     .rotateZ(rollRad)
                     .scale(s, -s, s)
                     .translate(-fw * 0.5f + advL - cwCh, -fh * 0.5f, 0f);
-                emitTextGlyph(textBuf, fontSet, label.charAt(ci), m, viewRot, viewRotInv,
+                emitTextGlyph(textBuf, fontSet, label.charAt(ci), m, bobViewRot, emitMat,
                     glassZ, charMat, maskQuad, 0xFFFFFFFF);
             }
         }
@@ -976,7 +1003,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  triangle fan). */
     private static void addThickLineAnchored(BufferBuilder buf, org.joml.Matrix4f m,
             double x0, double y0, double x1, double y1, double w, float z,
-            float glassZ, org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
+            float glassZ, org.joml.Matrix4f bobViewRot, org.joml.Matrix4f emitMat,
             float[] canvasRect, float[] maskQuad, float r, float g, float b, float a) {
         double dx = x1 - x0, dy = y1 - y0;
         double len = Math.sqrt(dx * dx + dy * dy);
@@ -1005,10 +1032,10 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         // **fz must come from transformPosition** (same path as emitAnchored) —
         // hand-deriving m20/m21/m23 under JOML column-major layout disagrees with
         // transformPosition (measured: m20=m21=m23=0 yet transform gives fz=-103.5).
-        var va = new org.joml.Vector3f(q0x, q0y, z); m.transformPosition(va); viewRot.transformPosition(va);
-        var vb = new org.joml.Vector3f(q1x, q1y, z); m.transformPosition(vb); viewRot.transformPosition(vb);
-        var vc = new org.joml.Vector3f(q2x, q2y, z); m.transformPosition(vc); viewRot.transformPosition(vc);
-        var vd = new org.joml.Vector3f(q3x, q3y, z); m.transformPosition(vd); viewRot.transformPosition(vd);
+        var va = new org.joml.Vector3f(q0x, q0y, z); m.transformPosition(va); bobViewRot.transformPosition(va);
+        var vb = new org.joml.Vector3f(q1x, q1y, z); m.transformPosition(vb); bobViewRot.transformPosition(vb);
+        var vc = new org.joml.Vector3f(q2x, q2y, z); m.transformPosition(vc); bobViewRot.transformPosition(vc);
+        var vd = new org.joml.Vector3f(q3x, q3y, z); m.transformPosition(vd); bobViewRot.transformPosition(vd);
         float fMin = Math.min(Math.min(va.z, vb.z), Math.min(vc.z, vd.z));
         float fMax = Math.max(Math.max(va.z, vb.z), Math.max(vc.z, vd.z));
         if (fMin > 0f) return; // 整条线在相机后方 → 不显示
@@ -1045,60 +1072,63 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             && pointInConvexQuad(q2x, q2y, maskQuad)
             && pointInConvexQuad(q3x, q3y, maskQuad);
         if (allIn) {
-            emitAnchored(buf, m, viewRot, viewRotInv, q0x, q0y, z, zAnchor, r, g, b, a);
-            emitAnchored(buf, m, viewRot, viewRotInv, q1x, q1y, z, zAnchor, r, g, b, a);
-            emitAnchored(buf, m, viewRot, viewRotInv, q2x, q2y, z, zAnchor, r, g, b, a);
-            emitAnchored(buf, m, viewRot, viewRotInv, q0x, q0y, z, zAnchor, r, g, b, a);
-            emitAnchored(buf, m, viewRot, viewRotInv, q2x, q2y, z, zAnchor, r, g, b, a);
-            emitAnchored(buf, m, viewRot, viewRotInv, q3x, q3y, z, zAnchor, r, g, b, a);
+            emitAnchored(buf, m, bobViewRot, emitMat, q0x, q0y, z, zAnchor, r, g, b, a);
+            emitAnchored(buf, m, bobViewRot, emitMat, q1x, q1y, z, zAnchor, r, g, b, a);
+            emitAnchored(buf, m, bobViewRot, emitMat, q2x, q2y, z, zAnchor, r, g, b, a);
+            emitAnchored(buf, m, bobViewRot, emitMat, q0x, q0y, z, zAnchor, r, g, b, a);
+            emitAnchored(buf, m, bobViewRot, emitMat, q2x, q2y, z, zAnchor, r, g, b, a);
+            emitAnchored(buf, m, bobViewRot, emitMat, q3x, q3y, z, zAnchor, r, g, b, a);
         } else {
             float[] clipped = clipPolyToQuad(quad, maskQuad);
             int nv = clipped.length / 2;
             if (nv < 3) return;
             for (int i = 1; i < nv - 1; i++) {
-                emitAnchored(buf, m, viewRot, viewRotInv, clipped[0], clipped[1], z, zAnchor, r, g, b, a);
-                emitAnchored(buf, m, viewRot, viewRotInv, clipped[i * 2], clipped[i * 2 + 1], z, zAnchor, r, g, b, a);
-                emitAnchored(buf, m, viewRot, viewRotInv, clipped[(i + 1) * 2], clipped[(i + 1) * 2 + 1], z, zAnchor, r, g, b, a);
+                emitAnchored(buf, m, bobViewRot, emitMat, clipped[0], clipped[1], z, zAnchor, r, g, b, a);
+                emitAnchored(buf, m, bobViewRot, emitMat, clipped[i * 2], clipped[i * 2 + 1], z, zAnchor, r, g, b, a);
+                emitAnchored(buf, m, bobViewRot, emitMat, clipped[(i + 1) * 2], clipped[(i + 1) * 2 + 1], z, zAnchor, r, g, b, a);
             }
         }
     }
 
-    /** 顶点级深度锚定（2026-08-21 几何等效 + 2026-08-24 相机空间修复）：
-     *  画布局部点 (x,y,zLocal) 经画布矩阵 m2 到世界（相机相对）坐标，再经相机旋转
-     *  viewRot 到**真正的相机空间** V_cam=(fx,fy,fz)（fz = 视线深度）——BER 的
-     *  poseStack 只含相机平移，直接取 z 分量是世界 Z 分量，玩家面朝东西时 fz≈0
-     *  → s 爆炸（溢出根因，见 renderHud 相机旋转注释）。构造锚定顶点
-     *  V'=(fx·zAnchor/fz, fy·zAnchor/fz, zAnchor)：屏幕投影 x'/(-z') = fx/(-fz)
-     *  与远处画布一致（角尺寸保持），深度 = zAnchor（玻璃平面 + 图层偏移）→ 前方
-     *  遮挡/后方不遮挡；再经 viewRotInv 转回世界坐标输出（shader 侧会再乘相机
-     *  旋转）。无自定义 shader、无运行时 uniform——纯官方接口。
-     *  Vertex-level depth anchor (2026-08-21 geometric equivalent + 2026-08-24
-     *  camera-space fix): the canvas-local point (x,y,zLocal) goes through the
-     *  canvas matrix m2 to world (camera-relative) coords, then the camera rotation
-     *  viewRot into **true camera space** V_cam=(fx,fy,fz) (fz = view depth) — the
-     *  BER poseStack carries only the camera translation, so taking the raw z is a
-     *  world-Z component; facing EAST/WEST fz≈0 → s blows up (the overflow root
-     *  cause; see the camera-rotation note in renderHud). The anchored vertex
-     *  V'=(fx·zAnchor/fz, fy·zAnchor/fz, zAnchor) keeps the far-canvas screen
-     *  projection (x'/z' ratio) while depth lands on zAnchor (glass plane + layer
-     *  offset) → near occludes / far does not; then viewRotInv maps it back to
-     *  world coords for emission (the shader applies the camera rotation again).
-     *  No custom shader, no runtime uniform — official interfaces only. */
+    /** 顶点级深度锚定（2026-08-21 几何等效；2026-09-19 修订：改沿 **bob 后**射线
+     *  锚定）：画布局部点 (x,y,zLocal) 经画布矩阵 m2 到世界（相机相对）坐标，再经
+     *  bobViewRot（= B·viewRot，B 是 GameRenderer 乘进投影矩阵的视角摇晃变换）到
+     *  **bob 后相机空间**，沿该射线锚定到深度 zAnchor：W = (vx·s, vy·s, zAnchor)，
+     *  s = zAnchor/vz（钳制到 ±MAX_ANCHOR_S）。屏幕位置保持远处画布投影在 bob 下的
+     *  样子（平移视差按 D+gz 除，只剩与全世界一致的旋转分量），深度 = zAnchor
+     *  （玻璃平面 + 图层偏移）→ 前方遮挡/后方不遮挡。发射坐标 = emitMat·W
+     *  （emitMat = viewRotInv·B⁻¹）：GPU 先 viewRot 再 bob，
+     *  viewRot·(viewRotInv·B⁻¹·W) = B⁻¹·W，乘 bob 恰好落回 W —— bob 被逐顶点抵消。
+     *  无自定义 shader、无运行时 uniform——纯官方接口。
+     *  Vertex-level depth anchor (2026-08-21 geometric equivalent; 2026-09-19
+     *  revision: anchoring now runs along the **post-bob** ray): the canvas-local
+     *  point (x,y,zLocal) goes through the canvas matrix m2 into world
+     *  (camera-relative) coords, then bobViewRot (= B·viewRot, B being the
+     *  view-bob transform GameRenderer folds into the projection matrix) into
+     *  **post-bob camera space**, and anchors along that ray at depth zAnchor:
+     *  W = (vx·s, vy·s, zAnchor), s = zAnchor/vz clamped to ±MAX_ANCHOR_S. The
+     *  screen position keeps the far-canvas projection under bob (translation
+     *  parallax divides at D+gz; only the world-rotation sway remains) while depth
+     *  lands on zAnchor (glass plane + layer offset) → near occludes / far does
+     *  not. Emission = emitMat·W with emitMat = viewRotInv·B⁻¹: the GPU applies
+     *  viewRot then bob, so viewRot·(viewRotInv·B⁻¹·W) = B⁻¹·W and bob lands it
+     *  exactly on W — bob cancelled per vertex. No custom shader, no runtime
+     *  uniform — official interfaces only. */
     private static void emitAnchored(BufferBuilder buf, org.joml.Matrix4f m2,
-            org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
+            org.joml.Matrix4f bobViewRot, org.joml.Matrix4f emitMat,
             float x, float y, float zLocal, float zAnchor, float r, float g, float b, float a) {
         var v = new org.joml.Vector3f(x, y, zLocal);
         m2.transformPosition(v);          // 世界（相机相对）/ world (camera-relative)
-        viewRot.transformPosition(v);     // 相机空间：fz = 视线深度 / camera space: fz = view depth
+        bobViewRot.transformPosition(v);  // bob 后相机空间 / post-bob camera space
         float s = zAnchor / v.z;
-        // 2026-08-24：钳制 s 上界——掠射时 fz→0⁻ → s→∞ → 顶点 Inf/NaN → 撕裂。
-        // 钳到有限值：坐标有界（float 精确）、NDC 视锥外 → GPU 干净裁剪。
+        // 掠射钳制：fz→0⁻ 时 s→∞ → Inf/NaN 顶点 → 撕裂；钳到有限值，坐标 float 精确、
+        // NDC 视锥外 → GPU 干净裁剪。
         // Clamp s: at grazing fz→0⁻ → s→∞ → Inf/NaN vertices → tearing. Finite s
         // keeps coords float-exact and NDC out of the frustum → clean GPU clip.
         if (s > MAX_ANCHOR_S) s = MAX_ANCHOR_S;
         else if (s < -MAX_ANCHOR_S) s = -MAX_ANCHOR_S;
-        var out = new org.joml.Vector3f(v.x * s, v.y * s, zAnchor); // 相机空间锚定顶点
-        viewRotInv.transformPosition(out); // 回世界坐标输出 / back to world for emission
+        var out = new org.joml.Vector3f(v.x * s, v.y * s, zAnchor); // 期望的最终视图坐标 W / desired final view pos
+        emitMat.transformPosition(out);   // → 世界（相机相对）发射坐标 / world emission
         buf.addVertex(out.x, out.y, out.z).setColor(r, g, b, a);
     }
 
@@ -1127,7 +1157,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  BakedGlyph.render). charMat replicates the original drawInBatch character
      *  transform chain so winding/flip/UV match the original path exactly. */
     private static void emitTextGlyph(BufferBuilder buf, net.minecraft.client.gui.font.FontSet fontSet,
-            int code, org.joml.Matrix4f m, org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv,
+            int code, org.joml.Matrix4f m, org.joml.Matrix4f bobViewRot, org.joml.Matrix4f emitMat,
             float glassZ, org.joml.Matrix4f charMat, float[] maskQuad, int color) {
         if (BG_LEFT == null || fontSet == null) return;
         net.minecraft.client.gui.font.glyphs.BakedGlyph glyph = fontSet.getGlyph(code);
@@ -1165,7 +1195,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             // (fz>0), the anchor ratio s=zAnchor/fz goes negative and mirrors the
             // vertex across the screen — the same ghosting as the image path. Clip to
             // the camera plane first; fully behind → drop the whole glyph.
-            float[] base = clipPolyToCameraPlane(cx, 0f, m, viewRot);
+            float[] base = clipPolyToCameraPlane(cx, 0f, m, bobViewRot);
             if (base.length / 2 < 3) return;
             boolean allIn = (base == cx)
                 && pointInConvexQuad(cx[0], cx[1], maskQuad)
@@ -1189,9 +1219,9 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 float[] uvA = interpGlyphUv(clipped[0], clipped[1], cx, e1x, e1y, e3x, e3y, det, u0, u1, v0, v1);
                 float[] uvB = interpGlyphUv(clipped[i * 2], clipped[i * 2 + 1], cx, e1x, e1y, e3x, e3y, det, u0, u1, v0, v1);
                 float[] uvC = interpGlyphUv(clipped[i * 2 + 2], clipped[i * 2 + 3], cx, e1x, e1y, e3x, e3y, det, u0, u1, v0, v1);
-                anchorTextVertex(buf, m, viewRot, viewRotInv, glassZ, clipped[0], clipped[1], uvA[0], uvA[1], r, g, b, a);
-                anchorTextVertex(buf, m, viewRot, viewRotInv, glassZ, clipped[i * 2], clipped[i * 2 + 1], uvB[0], uvB[1], r, g, b, a);
-                anchorTextVertex(buf, m, viewRot, viewRotInv, glassZ, clipped[i * 2 + 2], clipped[i * 2 + 3], uvC[0], uvC[1], r, g, b, a);
+                anchorTextVertex(buf, m, bobViewRot, emitMat, glassZ, clipped[0], clipped[1], uvA[0], uvA[1], r, g, b, a);
+                anchorTextVertex(buf, m, bobViewRot, emitMat, glassZ, clipped[i * 2], clipped[i * 2 + 1], uvB[0], uvB[1], r, g, b, a);
+                anchorTextVertex(buf, m, bobViewRot, emitMat, glassZ, clipped[i * 2 + 2], clipped[i * 2 + 3], uvC[0], uvC[1], r, g, b, a);
             }
         } catch (IllegalAccessException e) {
             SchematicCompute.LOGGER.error("Monitor BakedGlyph field read failed", e);
@@ -1212,20 +1242,22 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         return new float[]{u0 + s * (u1 - u0), v0 + t * (v1 - v0)};
     }
 
-    /** 单个字形顶点（画布内容坐标直通）：画布矩阵 m → 相机空间 → 锚定到玻璃深度
-     *  → 回世界 → textBuf。One glyph vertex (canvas-content coords): canvas matrix m
-     *  → camera space → anchor to glass depth → back to world → textBuf. */
+    /** 单个字形顶点（画布内容坐标直通）：数学同 emitAnchored（2026-09-19 修订：
+     *  沿 bob 后射线锚定到玻璃深度），本方法只补 UV/光照写入 textBuf。
+     *  One glyph vertex (canvas-content coords): same math as emitAnchored
+     *  (2026-09-19 revision: anchor along the post-bob ray at glass depth); this
+     *  method only adds the UV/lightmap writes into textBuf. */
     private static void anchorTextVertex(BufferBuilder buf, org.joml.Matrix4f m,
-            org.joml.Matrix4f viewRot, org.joml.Matrix4f viewRotInv, float glassZ,
+            org.joml.Matrix4f bobViewRot, org.joml.Matrix4f emitMat, float glassZ,
             float x, float y, float u, float v, float r, float g, float b, float a) {
         var p = new org.joml.Vector3f(x, y, 0f);
-        m.transformPosition(p);          // 世界（相机相对）
-        viewRot.transformPosition(p);    // 相机空间：fz = 视线深度
+        m.transformPosition(p);           // 世界（相机相对）/ world (camera-relative)
+        bobViewRot.transformPosition(p);  // bob 后相机空间 / post-bob camera space
         float s = glassZ / p.z;
         if (s > MAX_ANCHOR_S) s = MAX_ANCHOR_S;
         else if (s < -MAX_ANCHOR_S) s = -MAX_ANCHOR_S;
         var out = new org.joml.Vector3f(p.x * s, p.y * s, glassZ);
-        viewRotInv.transformPosition(out); // 回世界
+        emitMat.transformPosition(out);   // 回世界坐标输出 / back to world for emission
         buf.addVertex(out.x, out.y, out.z).setColor(r, g, b, a).setUv(u, v).setLight(0xF000F0);
     }
 
