@@ -6,6 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
+| [v1.2.5.2](#v1252) | 修复：行走时视角摇晃（view bob）导致全息显示器 HUD 虚像晃动 |
 | [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
@@ -18,6 +19,34 @@
 | [v1.0.0](#v100) | 初始发布 / Initial Release |
 
 ---
+
+<details>
+<summary><b>v1.2.5.2</b> — 修复：行走时视角摇晃导致 HUD 虚像晃动 / Fix: View Bobbing Made the HUD Virtual Image Wobble</summary>
+
+### 🖥️ HUD 虚像与视角摇晃 / HUD Virtual Image &amp; View Bobbing
+
+| Fix / 修复 | Description / 说明 |
+|-----------|-------------------|
+| 🚶 行走时虚像晃动 **(bug 修复)** | Minecraft 把 `bobHurt`/`bobView` 写进一个 PoseStack 后**乘进投影矩阵**（`GameRenderer.renderLevel`： `matrix4f.mul(posestack.last().pose())`），它作用于 view space，从不进入 BER 的 poseStack —— 也就是说相机的**视觉位置**被 bob 平移了。玩家屏幕定位遮罩（mask）却仍按未平移的眼睛投影，于是内容随 bob 一起动、裁剪边界不动 → 玻璃上的内容相对边界滑动 = 行走时虚像看着在晃（关闭视频设置里的「视角摇晃」即完全消失，已实测确认）。现在遮罩用的 eye 带上 bob 的平移 / Minecraft folds bob into the PROJECTION matrix, so the camera's **visual** position is translated. The player-screen mask still projected from an untranslated eye, so the content moved with bob while the clip boundary did not → the image slid relative to the boundary = wobbling while walking (disabling "View Bobbing" removes it entirely, confirmed). The mask eye now carries bob's translation. |
+
+> **两条实测得出的约束（已写入 `ViewBobAnchorTest`，请勿凭直觉改回）**
+> **Two measured constraints (pinned in `ViewBobAnchorTest`; don't reverse them on intuition)**
+> 1. 深度锚定要**跟随** bob，不要"补偿"它 —— 补偿后虚像与玻璃的屏幕漂移反而大 3.7 倍
+>    （0.007 → 0.025 NDC）。直觉上"让虚像不受 bob 影响"似乎更对，但玻璃自身被 bob 搬动
+>    的幅度远大于虚像与玻璃之间那点差异，补偿掉等于把虚像从玻璃上撕开。
+>    The depth anchor must FOLLOW bob — compensating it drifts 3.7× more (0.007 → 0.025
+>    NDC). Making the image ignore bob sounds right, but bob moves the glass far more
+>    than the image-to-glass difference, so compensating tears the image off the glass.
+> 2. 站定时（amp=0）bob 变换是单位矩阵，整条路径与修复前逐字节一致 —— 不走路就没有任何变化。
+>    Standing still (amp=0) makes bob the identity: the path is unchanged.
+
+> **已知范围外 / Known limitation**: 同一 PoseStack 里的 `bobHurt`（受伤抖动）依赖
+> GameRenderer 私有的 `hurtTime`，无法从外部重建，受伤瞬间那一下抖动不在本次修复范围
+> （持续不到 1 秒、幅度小）。
+> `bobHurt` sits in the same PoseStack but depends on GameRenderer's private `hurtTime`
+> and cannot be rebuilt from outside; that brief hurt wobble is out of scope.
+
+</details>
 
 <details>
 <summary><b>v1.2.5.1</b> — 动力传感器（Create 表同款 3 轴放置 · STRESS/RPM 节点 · 蓝屏显示）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分 / Kinetic Gauge (Create-style 3-axis Placement · STRESS/RPM Nodes · Blue Screen) · Editor Input Focus &amp; Highlight Fixes · GUI Decomposition</summary>

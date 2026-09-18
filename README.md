@@ -642,6 +642,7 @@ The full changelog now lives in **[`CHANGELOG.md`](https://github.com/y151733344
 
 | Version | 标题 / Title |
 |---------|--------------|
+| [v1.2.5.2](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1252) | 修复：行走时视角摇晃（view bob）导致全息显示器 HUD 虚像晃动 |
 | [v1.2.5.1](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1251) | 动力传感器（kinetic_gauge，Create 表同款 3 轴放置 · STRESS/RPM 节点 · 蓝屏显示）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
