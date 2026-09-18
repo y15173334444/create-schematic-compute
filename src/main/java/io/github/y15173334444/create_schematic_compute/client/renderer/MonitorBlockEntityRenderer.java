@@ -324,6 +324,56 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  frames; refreshed after a resource reload. */
     private static RenderType hudTextRenderType;
 
+    /**
+     * 重建 Minecraft 施加到投影矩阵上的视角摇晃（view bob）变换。
+     * Reconstruct the view-bob transform Minecraft folds into the projection matrix.
+     *
+     * <p>逐行对应 {@code GameRenderer.bobView}（1.21.1）：平移 + 绕 Z 的 roll + 绕 X 的
+     * 摆动，参数取自玩家的 {@code walkDist / walkDistO / oBob / bob}，受"视角摇晃"设置
+     * 开关控制。站定时 amp=0 → 返回单位矩阵，路径与修复前完全一致。
+     * Mirrors {@code GameRenderer.bobView}: a translation plus a Z roll and an X
+     * wobble, driven by the player's {@code walkDist/walkDistO/oBob/bob} and gated by
+     * the "View Bobbing" option. Standing still gives amp=0, so this returns the
+     * identity and the path is byte-for-byte what it was before the fix.
+     *
+     * <p>同一个 PoseStack 里还有 {@code bobHurt}（受伤抖动），它依赖 GameRenderer 私有的
+     * {@code hurtTime}，无法从外部重建 —— 受伤瞬间那一下抖动不在本次修复范围内（持续
+     * 不到 1 秒、幅度小），已在注释中记账。
+     * {@code bobHurt} sits in the same PoseStack but depends on GameRenderer's private
+     * {@code hurtTime} and cannot be rebuilt from outside; that brief hurt wobble is
+     * out of scope (under a second, small).
+     */
+    private static org.joml.Matrix4f computeBobMatrix(float partialTick) {
+        var out = new org.joml.Matrix4f();
+        var mc = Minecraft.getInstance();
+        if (!mc.options.bobView().get()) return out;
+        if (!(mc.getCameraEntity() instanceof net.minecraft.world.entity.player.Player player)) return out;
+        float walkDelta = player.walkDist - player.walkDistO;
+        float bob = -(player.walkDist + walkDelta * partialTick);
+        float amp = net.minecraft.util.Mth.lerp(partialTick, player.oBob, player.bob);
+        return bobTransform(bob, amp);
+    }
+
+    /**
+     * 视角摇晃的纯数学（对应 {@code GameRenderer.bobView}），与 Minecraft 实例解耦以便单测。
+     * Pure view-bob math (mirrors {@code GameRenderer.bobView}), kept free of the
+     * Minecraft instance so it can be unit-tested.
+     *
+     * @param bob 相位（MC 用 {@code -(walkDist + Δ·partialTick)}）/ phase
+     * @param amp 幅度（MC 用 {@code lerp(partialTick, oBob, bob)}，站定为 0）
+     *            amplitude (MC's {@code lerp(partialTick, oBob, bob)}; 0 when standing still)
+     */
+    static org.joml.Matrix4f bobTransform(float bob, float amp) {
+        var out = new org.joml.Matrix4f();
+        out.translate(
+            net.minecraft.util.Mth.sin(bob * (float) Math.PI) * amp * 0.5F,
+            -Math.abs(net.minecraft.util.Mth.cos(bob * (float) Math.PI) * amp),
+            0.0F);
+        out.rotate((float) Math.toRadians(net.minecraft.util.Mth.sin(bob * (float) Math.PI) * amp * 3.0F), 0f, 0f, 1f);
+        out.rotate((float) Math.toRadians(Math.abs(net.minecraft.util.Mth.cos(bob * (float) Math.PI - 0.2F) * amp) * 5.0F), 1f, 0f, 0f);
+        return out;
+    }
+
     private void renderHud(MonitorBlockEntity be, PoseStack poseStack, MultiBufferSource buffer) {
         float hw = be.screenWidth * 0.5f, hh = be.screenLength * 0.5f;
         var mc = Minecraft.getInstance();
@@ -381,6 +431,15 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         // NORTH/SOUTH fine).
         var cam = Minecraft.getInstance().gameRenderer.getMainCamera();
         Quaternionf camRotInv = cam.rotation().conjugate(new Quaternionf());
+        // 注意：不要把 bob 折进这里的 viewRot —— 实测（ViewBobAnchorTest）那样反而更差：
+        // 虚像"不跟随"bob 时漂移 0.025 NDC，而跟随时只有 0.007 NDC，因为玻璃自身被 bob
+        // 搬动的幅度远大于虚像与玻璃之间的那点差异。真正受 bob 影响的是下方 mask 用的
+        // eye（相机的视觉位置被 bob 平移了），补偿放在那里。
+        // Do NOT fold bob into viewRot here — measurement (ViewBobAnchorTest) shows it
+        // is worse: making the image "not follow" bob drifts 0.025 NDC vs 0.007 when it
+        // follows, because bob moves the glass itself far more than the image-to-glass
+        // difference. What bob really breaks is the eye used for the mask below (the
+        // camera's visual position is translated by bob); the compensation goes there.
         org.joml.Matrix4f viewRot = new org.joml.Matrix4f().rotation(camRotInv);  // 世界→相机空间
         org.joml.Matrix4f viewRotInv = new org.joml.Matrix4f(viewRot).invert();   // 相机空间→世界
         // 玻璃面板中心 → 相机空间深度 gz（顶点级深度锚定目标，2026-08-21 几何等效；
@@ -398,10 +457,28 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         // (camera origin through the inverse panel matrix; ez>0 = in front of the
         // glass); the glass 4 corners project onto the canvas plane → content-local
         // 4-gon + AABB.
+        // 眼睛（相机原点）→ 面板局部坐标，**必须带上 bob 的平移**（2026-09-18）：
+        // GameRenderer 把 bob 乘进投影矩阵，等于把相机的**视觉位置**也挪了。这里的遮罩
+        // 是按"眼睛看玻璃"投影出来的，眼睛若不跟着挪，遮罩边界就会相对内容滑动 ——
+        // 玻璃上的内容随 bob 一起动、裁剪边界却不动，于是行走时虚像看着在晃（关掉
+        // "视角摇晃"即消失，用户已实测确认）。深度锚定本身反而不该动（见上方注释）。
+        // Eye (camera origin) → panel-local coords; it MUST carry bob's translation:
+        // GameRenderer folds bob into the projection matrix, which moves the camera's
+        // VISUAL position too. The mask is projected from "the eye looking at the
+        // glass", so if the eye doesn't move as well the mask edge slides relative to
+        // the content — the content on the glass moves with bob while the clip boundary
+        // does not, which reads as the image wobbling while walking (disabling "View
+        // Bobbing" removes it; confirmed by the user). The depth anchor itself must
+        // stay untouched (see the note above).
         var mInv = new org.joml.Matrix4f(m).invert();
+        org.joml.Matrix4f bobM = computeBobMatrix(cam.getPartialTickTime());
         var eye = new org.joml.Vector4f(0f, 0f, 0f, 1f);
-        mInv.transform(eye);
-        float[] maskQuad = projectGlassCornersToCanvas(eye.x, eye.y, eye.z, hw, hh, VIRTUAL_IMAGE_D);
+        bobM.transform(eye);                                        // 相机空间：bob 平移后的原点
+        var eyeRel = new org.joml.Vector3f(eye.x, eye.y, eye.z);
+        new org.joml.Matrix4f().rotation(camRotInv).invert().transformPosition(eyeRel); // 相机空间→世界方向
+        var eyeLocal = new org.joml.Vector4f(eyeRel.x, eyeRel.y, eyeRel.z, 1f);
+        mInv.transform(eyeLocal);
+        float[] maskQuad = projectGlassCornersToCanvas(eyeLocal.x, eyeLocal.y, eyeLocal.z, hw, hh, VIRTUAL_IMAGE_D);
         float[] maskAabb = polyAabb(maskQuad);
         // 屏幕边框（画布边界可见；不再画半透明 tint 底色——双重半透明（tint + NO_DEPTH
         // 虚像）在 Sodium/Veil 透明通道排序下会遮蔽虚像，只保留边框做「屏幕」轮廓）。
