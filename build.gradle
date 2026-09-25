@@ -14,7 +14,9 @@ base {
 }
 
 group = 'io.github.y15173334444'
-version = '1.2.5.1'
+// 单一真相源 = gradle.properties 的 mod_version（历史上双写漂移过：build.gradle 1.2.5.1 vs mod_version 1.2.5.2）
+// Single source of truth = gradle.properties mod_version (the dual write already drifted once).
+version = mod_version
 runs {
     configureEach {
         systemProperty 'forge.logging.console.level', 'info'
