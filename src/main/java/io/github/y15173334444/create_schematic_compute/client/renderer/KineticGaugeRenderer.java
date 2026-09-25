@@ -42,8 +42,9 @@ import java.util.Locale;
  * {@link KineticGaugeStates} —— 它又必须与 {@code blockstates/kinetic_gauge.json}
  * （由 {@code tools/gen_gauge_assets.py} 生成）逐项一致，由
  * {@code KineticGaugeStatesTest} 钉死。BER 只负责复刻那套旋转（原版约定：从正轴看
- * 顺时针 = JOML 负角），再在模型空间里按锚点绘制 —— 文字永远与屏幕共面、朝向正确，
- * 「竖向放置时文字旋转」由同一套旋转自动解决。</p>
+ * 顺时针 = JOML 负角），再在模型空间里按 {@link KineticGaugeStates#displayPanel}
+ * 的锚点绘制 —— 文字与屏幕共面；{@code facing=DOWN} 时锚点自带 180° 字形翻正，
+ * 避免倒置挂墙时读数上下颠倒。</p>
  * <p><b>Orientation contract (single source of truth = {@link KineticGaugeStates})</b>:
  * two authored variants — base (floor/wall lectern screen, normal tilted 45° up) and
  * {@code _shaft_y} (vertical shaft, hand-modelled 45°-yawed vertical panel facing north-west).
@@ -95,8 +96,9 @@ public class KineticGaugeRenderer implements BlockEntityRenderer<KineticGaugeBlo
         // through it, phase-aligned with neighbouring official shafts.
         renderGaugeShafts(be, poseStack, buffer, state, light);
 
-        KineticGaugeStates.Panel panel = KineticGaugeStates.useShaftYVariant(facing, alongFirst)
-            ? KineticGaugeStates.PANEL_SHAFT_Y : KineticGaugeStates.PANEL_BASE;
+        // displayPanel：变体选择 + facing=DOWN 时把字形在面板平面内转 180°（抵消 x:180 的文字倒置）。
+        // displayPanel: variant pick + a 180° in-plane glyph spin on facing=DOWN (cancel x:180).
+        KineticGaugeStates.Panel panel = KineticGaugeStates.displayPanel(facing, alongFirst);
 
         // 复刻 blockstate 旋转：先 x 后 y，原版顺时针 = JOML 负角。
         // （q = Ry·Rx：顶点先被 Rx 再被 Ry 变换 —— 与 blockstate 的应用顺序一致。）
@@ -106,7 +108,7 @@ public class KineticGaugeRenderer implements BlockEntityRenderer<KineticGaugeBlo
         poseStack.translate(0.5, 0.5, 0.5);
         Quaternionf q = new Quaternionf()
             .rotationY((float) Math.toRadians(-KineticGaugeStates.yRotation(facing, alongFirst)));
-        q.mul(new Quaternionf().rotationX((float) Math.toRadians(-KineticGaugeStates.xRotation(facing))));
+        q.mul(new Quaternionf().rotationX((float) Math.toRadians(-KineticGaugeStates.xRotation(facing, alongFirst))));
         poseStack.mulPose(q);
         // 进入「模型单位」空间：模型 0..16 单位 = 1 方块 → ×1/16。
         // 面板锚点与字形比例都以模型单位给出；不换算的话文字会比方块大 16 倍、并被推到离方块

@@ -17,7 +17,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -82,7 +84,7 @@ class KineticGaugeStatesTest {
                     ? "kinetic_gauge_shaft_y" : "kinetic_gauge";
                 expected.put("facing=" + facing.getSerializedName() + ",axis_along_first=" + alongFirst,
                     NS + ":block/" + model
-                        + "|x=" + KineticGaugeStates.xRotation(facing)
+                        + "|x=" + KineticGaugeStates.xRotation(facing, alongFirst)
                         + "|y=" + KineticGaugeStates.yRotation(facing, alongFirst));
             }
         }
@@ -90,6 +92,37 @@ class KineticGaugeStatesTest {
         assertEquals(expected, actual,
             "blockstate 表与 KineticGaugeStates 不一致（12 态必须无缺无余）——"
                 + "改了 blockstates/kinetic_gauge.json 或哪一处表，另一处必须同步");
+    }
+
+    /**
+     * 同一旋转轴的 4 个状态必须是 4 个互不重合的 (model,x,y)。撞车的后果是扳手绕轴循环
+     * 「转了但看起来没变」（2026-09 实测：up+false 与 west+false 同为 x=0,y=0，循环里
+     * 连着两步长得一样，用户报「右上→右上→左下→右下」）。
+     * The four states sharing a shaft axis must be four distinct (model,x,y) triples —
+     * collisions make a wrench roll around the shaft stutter (two identical steps in a row).
+     */
+    @Test
+    @DisplayName("Each shaft axis must map its 4 states to 4 distinct model+x+y rotations")
+    void eachShaftAxisHasFourDistinctRotations() {
+        Map<Direction.Axis, Set<String>> byShaft = new LinkedHashMap<>();
+        for (Direction facing : Direction.values()) {
+            for (boolean alongFirst : new boolean[]{true, false}) {
+                Direction.Axis shaft = switch (facing.getAxis()) {
+                    case X -> alongFirst ? Direction.Axis.Y : Direction.Axis.Z;
+                    case Y -> alongFirst ? Direction.Axis.X : Direction.Axis.Z;
+                    case Z -> alongFirst ? Direction.Axis.X : Direction.Axis.Y;
+                };
+                String key = (KineticGaugeStates.useShaftYVariant(facing, alongFirst) ? "shaft_y" : "base")
+                    + "|x=" + KineticGaugeStates.xRotation(facing, alongFirst)
+                    + "|y=" + KineticGaugeStates.yRotation(facing, alongFirst);
+                byShaft.computeIfAbsent(shaft, k -> new LinkedHashSet<>()).add(key);
+            }
+        }
+        for (Direction.Axis shaft : Direction.Axis.values()) {
+            assertEquals(4, byShaft.get(shaft).size(),
+                "旋转轴 " + shaft + " 的 4 个状态撞成了 " + byShaft.get(shaft)
+                    + " —— 同轴状态的 (model,x,y) 必须互不重合，否则扳手循环会卡步");
+        }
     }
 
     @Test

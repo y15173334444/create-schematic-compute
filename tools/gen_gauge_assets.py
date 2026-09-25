@@ -370,9 +370,14 @@ def validate_variant(model, label, tex_src):
 
 # ─────────────────────────── 其余产物 / remaining products ───────────────────────────
 
-# facing = 显示面朝向（恒为水平，见 KineticGaugeStates#facingForPlacement）；
+# facing = 显示面朝向（见 KineticGaugeStates#facingForPlacement）；
 # axis_along_first 按 DirectionalAxisKineticBlock.getRotationAxis 决定轴。
 # 竖直轴 4 态（north/south A=false、east/west A=true）用 _shaft_y 变体。
+# 同一旋转轴的 4 态必须 4 个互不重合的 (x,y)（KineticGaugeStates 有同样约束），
+# 否则扳手绕轴循环会出现「转了但看起来没变」。
+# The four states sharing a shaft axis need four distinct (x,y) pairs.
+# 横置 W/N/E/S 全部 x=0 上仰（点上/下偏航四步都朝玩家）；UP/DOWN 用 x=180。
+# 同轴四态 (x,y) 互不重合。See KineticGaugeStates.xRotation/yRotation.
 BS = {
     "facing=north,axis_along_first=true":  (BASE_MODEL, 0, 90),
     "facing=north,axis_along_first=false": (SHAFT_Y_MODEL, 0, 90),
@@ -382,10 +387,10 @@ BS = {
     "facing=east,axis_along_first=true":   (SHAFT_Y_MODEL, 0, 180),
     "facing=west,axis_along_first=false":  (BASE_MODEL, 0, 0),
     "facing=west,axis_along_first=true":   (SHAFT_Y_MODEL, 0, 0),
-    "facing=up,axis_along_first=false":    (BASE_MODEL, 0, 0),
-    "facing=up,axis_along_first=true":     (BASE_MODEL, 0, 90),
+    "facing=up,axis_along_first=false":    (BASE_MODEL, 180, 180),
+    "facing=up,axis_along_first=true":     (BASE_MODEL, 180, 90),
     "facing=down,axis_along_first=false":  (BASE_MODEL, 180, 0),
-    "facing=down,axis_along_first=true":   (BASE_MODEL, 180, 90),
+    "facing=down,axis_along_first=true":   (BASE_MODEL, 180, 270),
 }
 
 

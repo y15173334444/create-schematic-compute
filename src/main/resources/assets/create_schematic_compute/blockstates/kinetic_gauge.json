@@ -31,10 +31,13 @@
 			"model": "create_schematic_compute:block/kinetic_gauge_shaft_y"
 		},
 		"facing=up,axis_along_first=false": {
-			"model": "create_schematic_compute:block/kinetic_gauge"
+			"model": "create_schematic_compute:block/kinetic_gauge",
+			"x": 180,
+			"y": 180
 		},
 		"facing=up,axis_along_first=true": {
 			"model": "create_schematic_compute:block/kinetic_gauge",
+			"x": 180,
 			"y": 90
 		},
 		"facing=down,axis_along_first=false": {
@@ -44,7 +47,7 @@
 		"facing=down,axis_along_first=true": {
 			"model": "create_schematic_compute:block/kinetic_gauge",
 			"x": 180,
-			"y": 90
+			"y": 270
 		}
 	}
 }

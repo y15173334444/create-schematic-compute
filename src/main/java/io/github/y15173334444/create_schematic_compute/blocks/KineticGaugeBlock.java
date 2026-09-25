@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import com.simibubi.create.content.equipment.wrench.IWrenchable;
 import com.simibubi.create.content.kinetics.base.DirectionalAxisKineticBlock;
 import com.simibubi.create.content.kinetics.base.IRotate;
+import com.simibubi.create.content.kinetics.base.RotatedPillarKineticBlock;
 import com.simibubi.create.foundation.block.IBE;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import net.minecraft.client.Minecraft;
@@ -22,11 +23,14 @@ import net.minecraft.world.phys.BlockHitResult;
 
 /**
  * 动力仪表方块：Create 官方表（应力表/转速表）同款的 3 轴多状态放置 ——
- * {@code facing}（显示面朝向：平视放置为水平、俯视/仰视放置为 up/down，即"竖置"可直接放出）+
+ * {@code facing}（显示面朝向：**放置恒为水平**——贴墙=点击面、贴地/贴顶=正对玩家；
+ * up/down 竖置态由扳手滚转环可达）+
  * {@code axis_along_first}
  * （旋转轴的正交分解，见 {@link DirectionalAxisKineticBlock#getRotationAxis}）。
  * Kinetic gauge block: Create-gauge-style 3-axis multi-state placement —
- * {@code facing} (display direction, always horizontal) +
+ * {@code facing} (display direction; placement is always horizontal — wall = clicked
+ * face, floor/ceiling = toward the player; the up/down vertical states are reached via
+ * the wrench roll rings) +
  * {@code axis_along_first} (rotation-axis decomposition, see
  * {@link DirectionalAxisKineticBlock#getRotationAxis}).
  *
@@ -42,35 +46,21 @@ import net.minecraft.world.phys.BlockHitResult;
  * that a ceiling-mounted gauge tilts its panel up into the ceiling.</p>
  *
  * <p>放在有轴的面上时自动对齐轴（与 Create {@code GaugeBlock#getStateForPlacement}
- * 逐行同构）；自身沿旋转轴贯通传轴（基类 {@code hasShaftTowards}）。扳手语义对齐
- * 本模组变速箱家族（见下），潜行拆除走 Create 官方 {@link IWrenchable} 默认路径。
- * 两个轴端面放行物品（贴面接轴），其余面右键打开图编辑器。</p>
- * <p>Shaft-bearing faces auto-align the axis at placement (line-for-line Create
- * {@code GaugeBlock#getStateForPlacement}); the block passes rotation through along
- * its rotation axis (base {@code hasShaftTowards}). Wrench semantics align with this
- * mod's kinetic-block family (see below); sneak-dismantle keeps Create's official
- * {@link IWrenchable} default. The two axis-end faces pass item clicks through
- * (butt shafts/cogs against them); any other face opens the graph editor on
- * right-click.</p>
- *
- * <p><b>扳手旋转（对齐变速箱家族）/ Wrench rotation (kinetic-family semantics)</b>：
- * 不用 Create 默认的「点显示面 = 翻 {@code axis_along_first}」——那一翻会把旋转轴
- * 在水平/竖直之间切换，模型跳到 {@code _shaft_y} 变体且与相邻轴断开。两种点击语义
- * （判定集中在 {@link KineticGaugeStates#wrenchAction}）：
- * ① 点<b>轴端面</b>（点击轴 ∥ 旋转轴）**或** <b>屏幕正前方</b>
- * （{@link KineticGaugeStates#isDisplayFace}，45° 倾斜/斜偏的面板会有**两个**面同时正对屏幕）→
- * 屏幕绕<b>轴</b>循环 90°：轴与传动连接都不动，{@code axis_along_first} 按新朝向重算以保证轴不变。
- * **与 Create 一致**：Create 点端面就是绕轴 90° 转（作者 2026-09-13 指正）；
- * ② 点<b>其余两个面</b> → 整表刚性旋转一格：旋转轴绕点击轴转 90°（与变速器的轴循环同语义），
- * 显示面绕同一轴同步转 90°。</p>
- * <p><b>Wrench rotation</b>: NOT Create's default "click the display face = cycle
- * {@code axis_along_first}" — that flips the rotation axis between horizontal and vertical, jumps the
- * model to the {@code _shaft_y} variant and disconnects the gauge from its shaft. Two semantics (all
- * classified in {@link KineticGaugeStates#wrenchAction}): ① the <b>shaft end face</b> or the
- * <b>display side</b> (a 45°-tilted or yawed panel has two qualifying faces) cycles the display 90°
- * around the shaft, keeping the shaft and the drive connection — <b>matching Create</b>, which rotates
- * a block 90° around its end face; ② the remaining two faces rigidly rotate the whole gauge one step
- * (the transmission's axis cycling).</p>
+ * 逐行同构）；自身沿旋转轴贯通传轴（基类 {@code hasShaftTowards}）。扳手三语义
+ * （详见 {@link #getRotatedBlockState}，环表在 {@link KineticGaugeStates}）：
+ * <b>轴端面</b> → 同轴四态按角点序滚转 90°（轴不动，对官方的有意偏离——官方会翻轴断连）；
+ * <b>点上/下</b> → 沿当前倾侧偏航 90°（屏不翻面，另一处有意偏离）；
+ * <b>其余面</b> → 与 Create {@link IWrenchable#getRotatedBlockState} 默认逐字相同。
+ * 潜行拆除同样走 {@link IWrenchable} 默认。两个轴端面放行物品，其余面右键开图编辑器。</p>
+ * <p>Shaft-bearing faces auto-align at placement (line-for-line Create
+ * {@code GaugeBlock#getStateForPlacement}); rotation passes through along the shaft
+ * (base {@code hasShaftTowards}). Three wrench semantics (see {@link #getRotatedBlockState},
+ * rings in {@link KineticGaugeStates}): a <b>shaft-end</b> click rolls through the four
+ * same-shaft states in corner order (shaft fixed — a deliberate deviation, official
+ * pivots the shaft); a <b>Y-face</b> click yaws 90° staying on the current tilt (second
+ * deviation); <b>every other face</b> is verbatim Create's
+ * {@link IWrenchable#getRotatedBlockState} default. Sneak-dismantle also keeps
+ * the {@link IWrenchable} default. The two axis-end faces pass item clicks through.</p>
  */
 public class KineticGaugeBlock extends DirectionalAxisKineticBlock implements IBE<KineticGaugeBlockEntity> {
 
@@ -109,83 +99,113 @@ public class KineticGaugeBlock extends DirectionalAxisKineticBlock implements IB
             return toPlace;
         }
 
-        // 空地放置：屏幕朝向点击面（贴哪面朝哪面），轴按基类默认逻辑选择。
-        // Free placement: display faces the clicked face; axis per the base default.
+        // 贴地/贴顶：**结构轴优先**（变速箱 RotatedPillarKineticBlock#getPreferredAxis）——
+        // 邻居轴一致则对齐；无邻居轴时用 **nearest-looking**（Sable 会 mixin
+        // orderedByNearest 到子世界局部系，getXRot 世界俯仰角在旋转结构上会错，
+        // 2026-09 实机确认）。nearest 轴为 Y → 竖置，否则横置。
+        // Floor/ceiling: **structure axis first** (transmission's getPreferredAxis);
+        // when free-standing use **nearest-looking** — Sable mixins orderedByNearest
+        // into sublevel-local space, while getXRot() is world pitch and wrong on
+        // rotated physical structures. Y nearest axis → vertical, else horizontal.
+        if (face.getAxis() == Axis.Y) {
+            Direction facing = KineticGaugeStates.facingForPlacement(
+                    face, context.getNearestLookingDirection(), context.getHorizontalDirection());
+            Axis preferred = RotatedPillarKineticBlock.getPreferredAxis(context);
+            boolean alongFirst;
+            if (preferred != null) {
+                alongFirst = alongFirstFor(facing.getAxis(), preferred);
+            } else {
+                boolean steep = context.getNearestLookingDirection().getAxis().isVertical();
+                alongFirst = steep
+                        ? KineticGaugeStates.alongFirstForVerticalShaft(facing)
+                        : facing.getAxis() == Axis.Z;
+            }
+            return defaultBlockState()
+                    .setValue(FACING, facing)
+                    .setValue(AXIS_ALONG_FIRST_COORDINATE, alongFirst);
+        }
+
+        // 贴墙空放：屏幕朝向点击面，轴按基类默认逻辑选择。
+        // Wall free placement: display faces the clicked face; axis per the base default.
         return super.getStateForPlacement(context);
+    }
+
+    /** 由（显示面轴、旋转轴）反解 axis_along_first —— 与基类 getRotationAxis 互逆。 */
+    private static boolean alongFirstFor(Axis facingAxis, Axis shaft) {
+        return switch (facingAxis) {
+            case X -> shaft == Axis.Y;
+            case Y -> shaft == Axis.X;
+            case Z -> shaft == Axis.X;
+        };
     }
 
     @Override
     protected Direction getFacingForPlacement(BlockPlaceContext context) {
-        // 放置朝向的单一真相源：贴墙=点击面；贴地/贴顶=视线反向（平视→水平朝向玩家，俯视/仰视→
-        // 显示面朝上/朝下，"竖置"可直接放出）。
+        // 放置朝向的单一真相源：贴墙=点击面；贴地/贴顶=水平正对玩家
+        // （竖置与否由下方 along_first 的陡视门控决定，facing 恒水平）。
         // Single source of truth for the placement direction — see KineticGaugeStates.
         return KineticGaugeStates.facingForPlacement(context.getClickedFace(),
-                context.getNearestLookingDirection());
+                context.getNearestLookingDirection(), context.getHorizontalDirection());
     }
 
-    // 注意：**故意不覆盖** getAxisAlignmentForPlacement —— 竖直朝向（俯视/仰视放置得到的 up/down）
-    // 下基类会走自己的竖直分支并用基类默认规则（horizontalDir 轴 == X）挑轴，本类不再另行覆盖。
-    // 该分支自 2026-09-13 起重新可达（此前"恒为水平"的写法让竖置放不出来）。
-    // Note: getAxisAlignmentForPlacement is deliberately NOT overridden — for the vertical facings
-    // (up/down, obtained by a steep look) the base class uses its own default rule.
+    // 放置恒为水平 facing，基类的竖直分支（及 getAxisAlignmentForPlacement）自放置路径不可达；
+    // 仍不覆盖它 —— 竖置态只经扳手滚转环出现，不参与放置选轴。
+    // Placement always yields a horizontal facing, so the base class's vertical branch (and
+    // getAxisAlignmentForPlacement) is unreachable from placement; left un-overridden — the
+    // vertical states only appear via the wrench roll rings.
 
-    // ── 扳手旋转（变速箱家族语义）/ wrench rotation (kinetic-family semantics) ──
+    // ── 扳手旋转 / wrench rotation ──
 
     /**
-     * 扳手旋转（三种点击面语义，详见类注释）：
-     * <ul>
-     *   <li>点**显示面** → 显示面绕**轴**循环 90°（轴不动、保持传动连接）——修掉"点屏幕结果整表转走"的意外；</li>
-     *   <li>点**轴承面**（轴穿过的端面）→ 在轴上翻 180°；</li>
-     *   <li>点**其它侧面** → 整表刚性旋转一格（变速器同款轴循环）。</li>
-     * </ul>
-     * Wrench rotation (three click semantics; full rationale in the class javadoc): clicking the
-     * **display face** cycles the display 90° around the shaft (shaft untouched, connection kept);
-     * clicking a **bearing face** flips it 180°; clicking any other side rigidly rotates the gauge.
+     * 三语义：① <b>轴端面</b>（点击轴 ∥ 旋转轴）→ 同轴四态按角点序滚转 90°，轴不动
+     * （环表见 {@link KineticGaugeStates#nextInShaftRoll}）；② <b>点上/下</b> → 沿当前
+     * 倾侧偏航 90°，屏幕保持朝上/朝下不翻面（{@link KineticGaugeStates#nextInYaw}）；
+     * ③ <b>其余面</b> → Create {@link IWrenchable#getRotatedBlockState} 默认逐字内联
+     * （接口 default 无法 super 调用；本态下仅 facing 同轴面可达，走 cycle along_first）。
+     * ①② 是对官方的有意偏离（官方轴端面会翻轴断连、Y 面会跳倾侧）。
+     * Three semantics: ① shaft-end → 90° corner-order roll, shaft fixed; ② Y-face → yaw
+     * staying on the current tilt; ③ everything else verbatim-inlines Create's default
+     * (a default method cannot be super-called; for our states only the facing-axis faces
+     * reach it, cycling along_first). ①② are deliberate deviations.
      */
     @Override
     public BlockState getRotatedBlockState(BlockState originalState, Direction targetedFace) {
         Direction facing = originalState.getValue(FACING);
         boolean alongFirst = originalState.getValue(AXIS_ALONG_FIRST_COORDINATE);
         Axis shaft = getRotationAxis(originalState);
-        Axis click = targetedFace.getAxis();
-        if (KineticGaugeStates.wrenchAction(shaft, facing, alongFirst, targetedFace)
-                == KineticGaugeStates.WrenchAction.CYCLE_DISPLAY) {
-            // 轴端面 **或** 屏幕正前方（可能是两个方块面，见 isDisplayFace）→ 屏幕绕轴循环 90°：
-            // 轴与传动连接都不动，只有朝向转一格（axis_along_first 按新朝向重算，保证轴不变）。
-            // **与 Create 一致**：Create 点端面就是绕轴 90° 转（作者 2026-09-13 指正）。
-            // Shaft end face OR the display side (possibly two block faces — see isDisplayFace) ->
-            // cycle the display 90° around the shaft, keeping the shaft and the drive connection.
-            // **Matches Create**: Create rotates a block 90° around its end face.
-            Direction turned = facing.getClockWise(shaft);
-            return originalState.setValue(FACING, turned)
-                    .setValue(AXIS_ALONG_FIRST_COORDINATE, alongFirstFor(turned.getAxis(), shaft));
+
+        // 轴端面 → 同轴四态按角点序滚转（右上→右下→左下→左上，轴不动）。
+        if (targetedFace.getAxis() == shaft) {
+            KineticGaugeStates.WrenchTarget next =
+                    KineticGaugeStates.nextInShaftRoll(facing, alongFirst, shaft);
+            if (next != null) {
+                return originalState.setValue(FACING, next.facing())
+                        .setValue(AXIS_ALONG_FIRST_COORDINATE, next.alongFirst());
+            }
+            // 不在环上（不应发生：三环按轴划分 12 态）→ Create 默认一步兜底。
+            // Off-ring (cannot happen: the three rings partition the 12 states by shaft)
+            // → one official getClockWise step as insurance.
+            return originalState.setValue(FACING, facing.getClockWise(shaft))
+                    .setValue(AXIS_ALONG_FIRST_COORDINATE, alongFirst);
         }
-        // 其它侧面 = 刚性旋转：轴绕点击轴 90°，显示面同轴跟转。
-        // Any other side face = rigid rotation: the shaft pivots around the clicked axis, the
-        // display turns along.
-        Direction newFacing = facing.getClockWise(click);
-        Axis newShaft = rotateAxisAround(shaft, click);
-        return originalState.setValue(FACING, newFacing)
-                .setValue(AXIS_ALONG_FIRST_COORDINATE, alongFirstFor(newFacing.getAxis(), newShaft));
-    }
-
-    /** 绕 click 轴把 shaft 转 90°：平行则不动，垂直则转到第三条轴。 */
-    private static Direction.Axis rotateAxisAround(Direction.Axis shaft, Direction.Axis click) {
-        if (shaft == click)
-            return shaft;
-        for (Direction.Axis a : Direction.Axis.values())
-            if (a != shaft && a != click)
-                return a;
-        throw new IllegalStateException("unreachable");
-    }
-
-    /** 由（显示面轴、旋转轴）反解 axis_along_first —— 与基类 {@link #getRotationAxis} 互逆。 */
-    private static boolean alongFirstFor(Direction.Axis facingAxis, Direction.Axis shaft) {
-        return switch (facingAxis) {
-            case X -> shaft == Direction.Axis.Y;   // X -> alongFirst ? Y : Z
-            case Y -> shaft == Direction.Axis.X;   // Y -> alongFirst ? X : Z
-            case Z -> shaft == Direction.Axis.X;   // Z -> alongFirst ? X : Y
-        };
+        // 点上/下 → 沿当前倾侧偏航 90°（两环同为 W→N→E→S 视觉方向）；倒置屏不会翻回朝上。
+        if (targetedFace.getAxis() == Axis.Y) {
+            KineticGaugeStates.WrenchTarget next = KineticGaugeStates.nextInYaw(facing, alongFirst);
+            return originalState.setValue(FACING, next.facing())
+                    .setValue(AXIS_ALONG_FIRST_COORDINATE, next.alongFirst());
+        }
+        // 其余 = Create IWrenchable 默认（间接接口 super 不可调，逐行内联）。
+        Axis click = targetedFace.getAxis();
+        if (facing.getAxis() == click)
+            return originalState.cycle(AXIS_ALONG_FIRST_COORDINATE);
+        BlockState newState = originalState;
+        do {
+            newState = newState.setValue(FACING,
+                    newState.getValue(FACING).getClockWise(click));
+            if (click == Axis.Y)
+                newState = newState.cycle(AXIS_ALONG_FIRST_COORDINATE);
+        } while (newState.getValue(FACING).getAxis() == click);
+        return newState;
     }
 
     // ── 交互 / interaction ──

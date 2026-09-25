@@ -13,9 +13,12 @@ import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -55,99 +58,176 @@ class KineticGaugePlacementTest {
         Direction.NORTH, Direction.SOUTH, Direction.EAST, Direction.WEST};
 
     @Test
-    @DisplayName("Floor/ceiling placement must reach 4 screen directions, each facing the player")
-    void floorAndCeilingPlacementReachFourPlayerFacingDirections() {
+    @DisplayName("Floor/ceiling: level look = horizontal lectern, steep look = vertical shaft")
+    void floorCeilingSplitOnLookPitch() {
         JsonObject variants = readJson(ASSET_ROOT + "blockstates/kinetic_gauge.json")
             .getAsJsonObject("variants");
+
+        // 俯仰判定用 nearest-looking（Sable 会变换到子世界局部系；getXRot 世界角会错）
+        // Steep = nearest-looking axis is vertical (Sable-aware), not raw world pitch.
+        assertTrue(Direction.UP.getAxis().isVertical());
+        assertTrue(Direction.DOWN.getAxis().isVertical());
+        assertFalse(Direction.NORTH.getAxis().isVertical());
 
         for (Direction clicked : new Direction[]{Direction.UP, Direction.DOWN}) {
             Set<Direction> reached = new LinkedHashSet<>();
             for (Direction look : HORIZONTAL_LOOKS) {
-                Direction facing = KineticGaugeStates.facingForPlacement(clicked, look);
-                boolean alongFirst = axisAlongFirst(facing);
-                Direction display = dominantHorizontal(worldScreenNormal(variants, facing, alongFirst));
-                assertNotNull(display, "屏幕法线没有水平分量：clicked=" + clicked
-                    + " look=" + look + " facing=" + facing + " alongFirst=" + alongFirst);
-                assertEquals(look.getOpposite(), display,
-                    "贴 " + clicked + " 放置、视线朝 " + look + " 时，屏幕必须正对玩家（"
-                        + look.getOpposite() + "），实测朝 " + display
-                        + "（facing=" + facing + ", axis_along_first=" + alongFirst + "）");
-                reached.add(display);
+                Direction facing = KineticGaugeStates.facingForPlacement(clicked, look, look);
+                assertTrue(facing.getAxis().isHorizontal(), "平视放置 facing 须水平: " + facing);
+                boolean alongFirst = facing.getAxis() == Direction.Axis.Z;
+                Direction.Axis shaft = shaftOf(facing, alongFirst);
+                assertTrue(shaft != Direction.Axis.Y,
+                    "平视放置必须是横置（轴非 Y），实测轴 " + shaft);
+                double[] n = worldScreenNormal(variants, facing, alongFirst);
+                Direction want = look.getOpposite();
+                assertTrue(dotHorizontal(n, want) > 0.5,
+                    "平视贴 " + clicked + " 视线 " + look + "：屏幕须朝 " + want);
+                reached.add(want);
             }
-            assertEquals(4, reached.size(),
-                "贴 " + clicked + " 放置只得到 " + reached.size() + " 个屏幕朝向：" + reached
-                    + " —— facing 若落在竖直轴上，2 个状态换不出 4 个偏航角");
+            assertEquals(4, reached.size());
         }
+
+        // 俯视/仰视（nearestLooking 轴竖直）→ 竖置（轴 Y，facing 仍水平正对玩家）
+        Direction facing = KineticGaugeStates.facingForPlacement(Direction.UP, Direction.DOWN, Direction.NORTH);
+        assertEquals(Direction.SOUTH, facing, "俯视地面放置应朝南（玩家水平朝北）");
+        assertFalse(KineticGaugeStates.alongFirstForVerticalShaft(facing));
+        assertEquals(Direction.Axis.Y, shaftOf(facing, KineticGaugeStates.alongFirstForVerticalShaft(facing)),
+            "俯视放置必须是竖直轴");
+        facing = KineticGaugeStates.facingForPlacement(Direction.DOWN, Direction.UP, Direction.EAST);
+        assertEquals(Direction.WEST, facing, "仰视天花板放置应朝西（玩家水平朝东）");
+        assertTrue(KineticGaugeStates.alongFirstForVerticalShaft(facing));
+        assertEquals(Direction.Axis.Y, shaftOf(facing, KineticGaugeStates.alongFirstForVerticalShaft(facing)),
+            "仰视放置必须是竖直轴");
+    }
+
+    private static Direction.Axis shaftOf(Direction facing, boolean alongFirst) {
+        return switch (facing.getAxis()) {
+            case X -> alongFirst ? Direction.Axis.Y : Direction.Axis.Z;
+            case Y -> alongFirst ? Direction.Axis.X : Direction.Axis.Z;
+            case Z -> alongFirst ? Direction.Axis.X : Direction.Axis.Y;
+        };
+    }
+
+    private static double dotHorizontal(double[] n, Direction dir) {
+        return n[0] * dir.getStepX() + n[2] * dir.getStepZ();
     }
 
     @Test
-    @DisplayName("Placement facing follows the look: level look -> horizontal, steep look -> up/down")
-    void placementFacingFollowsTheLook() {
-        // 平视（nearestLooking 为水平）→ 显示面水平（四向可选）
-        for (Direction clicked : Direction.values()) {
-            for (Direction look : HORIZONTAL_LOOKS) {
-                Direction facing = KineticGaugeStates.facingForPlacement(clicked, look);
-                assertTrue(facing.getAxis().isHorizontal(),
-                    "平视放置得到水平朝向（clicked=" + clicked + " look=" + look + " → " + facing + "）");
+    @DisplayName("displayPanel keeps text upright in world space on every state (facing=DOWN included)")
+    void displayPanelKeepsWorldTextUpright() {
+        // facing=DOWN 走 blockstate x:180，若不做字形 180° 翻正，倒置挂墙/朝下时读数会上下颠倒。
+        // facing=DOWN applies x:180; without the in-plane glyph spin the inverted mount shows
+        // the readout upside-down (in-game report).
+        for (Direction facing : Direction.values()) {
+            for (boolean alongFirst : new boolean[]{true, false}) {
+                KineticGaugeStates.Panel p = KineticGaugeStates.displayPanel(facing, alongFirst);
+                double[] up = rotateVanillaY(
+                    rotateVanillaX(new double[]{p.ux(), p.uy(), p.uz()},
+                        KineticGaugeStates.xRotation(facing, alongFirst)),
+                    KineticGaugeStates.yRotation(facing, alongFirst));
+                assertTrue(up[1] > 0.5,
+                    "facing=" + facing + ",A=" + alongFirst + " 的世界空间文字上方向 Y=" + up[1]
+                        + " 必须朝上（倒置态文字才不会颠倒）");
+                // 右手系在翻正后仍成立：right × up = normal
+                double[] r = {p.rx(), p.ry(), p.rz()};
+                double[] u = {p.ux(), p.uy(), p.uz()};
+                double[] n = {p.nx(), p.ny(), p.nz()};
+                double[] cross = {
+                    r[1] * u[2] - r[2] * u[1],
+                    r[2] * u[0] - r[0] * u[2],
+                    r[0] * u[1] - r[1] * u[0]};
+                assertEquals(1.0, cross[0] * n[0] + cross[1] * n[1] + cross[2] * n[2], 1e-3,
+                    "facing=" + facing + ",A=" + alongFirst + " 翻正后面板基仍须右手系");
             }
         }
-        // 俯视地面 / 仰视天花板 → 显示面朝上 / 朝下：**竖置状态可直接放出**
-        // （2026-09-13 实测回归：改前用水平视线取反，竖置只能靠扳手转出来）
-        assertEquals(Direction.UP, KineticGaugeStates.facingForPlacement(Direction.UP, Direction.DOWN),
-            "俯视地面放置必须得到 facing=up（屏幕朝上）");
-        assertEquals(Direction.DOWN, KineticGaugeStates.facingForPlacement(Direction.DOWN, Direction.UP),
-            "仰视天花板放置必须得到 facing=down（屏幕朝下）");
     }
 
     @Test
-    @DisplayName("Wrench: shaft end face + display side cycle 90° (Create semantics); the other two rigid-rotate")
-    void wrenchFacesClassifyCorrectly() {
-        // 基础讲台屏（facing=up,A=false → 轴 Z、屏幕正前方 = up 与 west）
-        // Base lectern (facing=up,A=false → shaft Z; display side = up + west)
-        assertEquals(KineticGaugeStates.WrenchAction.CYCLE_DISPLAY,
-            KineticGaugeStates.wrenchAction(Direction.Axis.Z, Direction.UP, false, Direction.NORTH),
-            "轴端面必须绕轴 90° 循环 —— Create 点端面就是 90° 绕轴转（作者 2026-09-13 指正）");
-        assertEquals(KineticGaugeStates.WrenchAction.CYCLE_DISPLAY,
-            KineticGaugeStates.wrenchAction(Direction.Axis.Z, Direction.UP, false, Direction.SOUTH));
-        assertEquals(KineticGaugeStates.WrenchAction.CYCLE_DISPLAY,
-            KineticGaugeStates.wrenchAction(Direction.Axis.Z, Direction.UP, false, Direction.UP));
-        assertEquals(KineticGaugeStates.WrenchAction.CYCLE_DISPLAY,
-            KineticGaugeStates.wrenchAction(Direction.Axis.Z, Direction.UP, false, Direction.WEST));
-        assertEquals(KineticGaugeStates.WrenchAction.RIGID_ROTATE,
-            KineticGaugeStates.wrenchAction(Direction.Axis.Z, Direction.UP, false, Direction.EAST));
-        assertEquals(KineticGaugeStates.WrenchAction.RIGID_ROTATE,
-            KineticGaugeStates.wrenchAction(Direction.Axis.Z, Direction.UP, false, Direction.DOWN));
-
-        // 手绘竖版（facing=west,A=true → 轴 Y、屏幕正前方 = west 与 north）
-        // Hand-drawn vertical variant (facing=west,A=true → shaft Y; display side = west + north)
-        for (Direction f : new Direction[]{Direction.UP, Direction.DOWN}) {
-            assertEquals(KineticGaugeStates.WrenchAction.CYCLE_DISPLAY,
-                KineticGaugeStates.wrenchAction(Direction.Axis.Y, Direction.WEST, true, f),
-                "竖置状态的轴端面（上/下面）同样绕轴 90° 循环：" + f);
+    @DisplayName("Horizontal yaw (Y-face wrench) keeps the lectern up-tilted on all 4 directions")
+    void horizontalYawKeepsLecternUpTilted() {
+        // 点上/下偏航 W→N→E→S：四步都必须是上仰讲台（法线 Y>0.5），否则会有两步屏幕朝下反了。
+        // The four horizontal facings must all be up-tilted lectern poses (normal Y > 0.5).
+        for (Direction facing : new Direction[]{Direction.WEST, Direction.NORTH, Direction.EAST, Direction.SOUTH}) {
+            // 该偏航环上的状态：W/N→沿 Z 或 X 交替（Create 默认 Y 点击即此环）
+            boolean alongFirst = facing.getAxis() == Direction.Axis.Z;
+            double[] n = normalD(facing, alongFirst);
+            assertTrue(n[1] > 0.5,
+                "facing=" + facing + ",A=" + alongFirst + " 的屏幕法线 Y=" + n[1]
+                    + " 必须朝上（偏航四步不许出现朝下反面）");
         }
-        assertEquals(KineticGaugeStates.WrenchAction.CYCLE_DISPLAY,
-            KineticGaugeStates.wrenchAction(Direction.Axis.Y, Direction.WEST, true, Direction.NORTH));
-        assertEquals(KineticGaugeStates.WrenchAction.RIGID_ROTATE,
-            KineticGaugeStates.wrenchAction(Direction.Axis.Y, Direction.WEST, true, Direction.SOUTH));
-        assertEquals(KineticGaugeStates.WrenchAction.RIGID_ROTATE,
-            KineticGaugeStates.wrenchAction(Direction.Axis.Y, Direction.WEST, true, Direction.EAST));
     }
 
     @Test
-    @DisplayName("Display-side faces follow the panel normal (a 45° panel has TWO display faces)")
-    void displayFacesFollowThePanelNormal() {
-        // 基础讲台屏（法线上仰 45° 朝西）：up 与 west 都正对屏幕
-        assertTrue(KineticGaugeStates.isDisplayFace(Direction.UP, false, Direction.UP));
-        assertTrue(KineticGaugeStates.isDisplayFace(Direction.UP, false, Direction.WEST));
-        assertFalse(KineticGaugeStates.isDisplayFace(Direction.UP, false, Direction.EAST));
-        assertFalse(KineticGaugeStates.isDisplayFace(Direction.UP, false, Direction.DOWN));
-        // 手绘竖版（法线朝西北，state facing=west,A=true）：north 与 west 都正对屏幕
-        // —— 2026-09-13 实测回归：只认 clickedFace==facing 时，另一个面会触发整表刚性旋转
-        //（轴跟着转），用户感知为"竖置状态用扳手转屏幕只能 180°"
-        assertTrue(KineticGaugeStates.isDisplayFace(Direction.WEST, true, Direction.WEST));
-        assertTrue(KineticGaugeStates.isDisplayFace(Direction.WEST, true, Direction.NORTH));
-        assertFalse(KineticGaugeStates.isDisplayFace(Direction.WEST, true, Direction.SOUTH));
-        assertFalse(KineticGaugeStates.isDisplayFace(Direction.WEST, true, Direction.EAST));
+    @DisplayName("Shaft-end wrench roll: 90° steps about the shaft, getClockWise sense, closed 4-cycle")
+    void shaftRollCyclesAreNinetyDegreeSteps() {
+        JsonObject variants = readJson(ASSET_ROOT + "blockstates/kinetic_gauge.json")
+            .getAsJsonObject("variants");
+        // 2026-09-26 实机回归：Y 环曾写成 NW→SW→NE→SE，第 2/4 步为 180° 对角跳 ——
+        // 「互不重合」钉子查不出顺序错，必须把每步的视觉法线钉在绕轴 90° + getClockWise 同向上。
+        // 2026-09-26 in-game regression: the Y ring was NW→SW→NE→SE, hopping 180° on steps
+        // 2 and 4. Distinctness pins cannot catch a mis-ORDER, so every step's visual normal
+        // is pinned to a 90° getClockWise rotation about the shaft.
+        for (Direction.Axis shaft : Direction.Axis.values()) {
+            List<KineticGaugeStates.WrenchTarget> members = new ArrayList<>();
+            for (Direction facing : Direction.values()) {
+                for (boolean alongFirst : new boolean[]{true, false}) {
+                    if (shaftOf(facing, alongFirst) != shaft) continue;
+                    KineticGaugeStates.WrenchTarget next = KineticGaugeStates.nextInShaftRoll(
+                        facing, alongFirst, shaft);
+                    assertNotNull(next, shaft + " 环缺 " + facing + "+" + alongFirst
+                        + "（三环必须按轴划分 12 态）");
+                    members.add(new KineticGaugeStates.WrenchTarget(facing, alongFirst));
+                    assertEquals(shaft, shaftOf(next.facing(), next.alongFirst()),
+                        "滚转不许改轴：" + facing + "+" + alongFirst);
+                    double[] before = worldScreenNormal(variants, facing, alongFirst);
+                    double[] after = worldScreenNormal(variants, next.facing(), next.alongFirst());
+                    assertArrayEquals(rotateAboutAxisCw(before, shaft), after, 1e-3,
+                        shaft + " 环 " + facing + "+" + alongFirst + " → " + next.facing()
+                            + "+" + next.alongFirst() + "：法线必须绕轴恰转 90°（防 180° 对角跳）");
+                }
+            }
+            // 环闭合：从任一成员走 4 步回到起点，且途经 4 个互异状态。
+            KineticGaugeStates.WrenchTarget cur = members.get(0);
+            Set<KineticGaugeStates.WrenchTarget> seen = new LinkedHashSet<>();
+            for (int i = 0; i < 4; i++) {
+                cur = KineticGaugeStates.nextInShaftRoll(cur.facing(), cur.alongFirst(), shaft);
+                seen.add(cur);
+            }
+            assertEquals(4, seen.size(), shaft + " 环 4 步必须历经 4 个互异状态：" + seen);
+            assertEquals(members.get(0), cur, shaft + " 环走 4 步必须回到起点");
+        }
+    }
+
+    @Test
+    @DisplayName("Y-face wrench yaw: 90° steps around Y staying on the current tilt, both rings")
+    void yawRingsPreserveTiltAndFollowClockwise() {
+        JsonObject variants = readJson(ASSET_ROOT + "blockstates/kinetic_gauge.json")
+            .getAsJsonObject("variants");
+        // 点上/下：沿当前倾侧（朝上 x=0 环 / 朝下 x=180 环）偏航 90°、随 getClockWise(Y)；
+        // 倒置屏不许翻回朝上（2026-09 实机）。平板态的 Y 面是轴端面，走滚转，不在环上。
+        for (Direction facing : Direction.values()) {
+            for (boolean alongFirst : new boolean[]{true, false}) {
+                if (KineticGaugeStates.useShaftYVariant(facing, alongFirst)) continue;
+                KineticGaugeStates.WrenchTarget next = KineticGaugeStates.nextInYaw(facing, alongFirst);
+                double[] before = worldScreenNormal(variants, facing, alongFirst);
+                double[] after = worldScreenNormal(variants, next.facing(), next.alongFirst());
+                assertArrayEquals(rotateAboutAxisCw(before, Direction.Axis.Y), after, 1e-3,
+                    "点上/下 " + facing + "+" + alongFirst + " → " + next.facing() + "+"
+                        + next.alongFirst() + "：法线必须绕 Y 恰转 90°");
+                assertEquals(before[1] > 0, after[1] > 0,
+                    "偏航必须保持倾侧（朝上环恒朝上、朝下环恒朝下）：" + facing + "+" + alongFirst);
+            }
+        }
+        // 两环各自 4 步闭合。
+        for (boolean downTilt : new boolean[]{false, true}) {
+            KineticGaugeStates.WrenchTarget cur = downTilt
+                ? new KineticGaugeStates.WrenchTarget(Direction.DOWN, false)
+                : new KineticGaugeStates.WrenchTarget(Direction.WEST, false);
+            KineticGaugeStates.WrenchTarget start = cur;
+            for (int i = 0; i < 4; i++)
+                cur = KineticGaugeStates.nextInYaw(cur.facing(), cur.alongFirst());
+            assertEquals(start, cur, (downTilt ? "朝下" : "朝上") + "环走 4 步必须回到起点");
+        }
     }
 
     @Test
@@ -157,21 +237,6 @@ class KineticGaugePlacementTest {
             assertEquals(clicked, KineticGaugeStates.facingForPlacement(clicked, clicked.getOpposite()),
                 "贴墙放置：显示面应保持 = 点击面（官方表语义）");
         }
-    }
-
-    // ── 放置判定之外的参考规则 / reference rule outside our placement hook ──
-
-    /**
-     * 自由放置时 {@code axis_along_first} 的取值：Create
-     * {@code DirectionalAxisKineticBlock.getStateForPlacement} 的水平分支默认
-     * {@code alongFirst = (facing 轴 == Z)}（字节码 20-47；有相邻传动轴时会翻成
-     * {@code axis == X}，本测试按"空地上放置"取默认值）。
-     * 竖直分支不在此处建模 —— 修复后 {@code facing} 恒为水平，
-     * 由 {@link #placementFacingIsAlwaysHorizontal()} 守住该不变量。
-     * Default {@code axis_along_first} for free placement, straight from the base class.
-     */
-    private static boolean axisAlongFirst(Direction facing) {
-        return facing.getAxis() == Direction.Axis.Z;
     }
 
     // ── 状态 → 世界空间屏幕法线 / state -> world-space screen normal ──
@@ -215,11 +280,41 @@ class KineticGaugePlacementTest {
         };
     }
 
-    /** 屏幕法线的水平主方向（+X=东, +Z=南）；法线带仰角，但水平分量只有一个轴非零。 */
-    private static Direction dominantHorizontal(double[] n) {
-        if (Math.abs(n[0]) < 1e-6 && Math.abs(n[2]) < 1e-6) return null;
-        if (Math.abs(n[0]) >= Math.abs(n[2])) return n[0] > 0 ? Direction.EAST : Direction.WEST;
-        return n[2] > 0 ? Direction.SOUTH : Direction.NORTH;
+    // ── 扳手环表几何 / wrench ring geometry ──
+
+    /** {@link KineticGaugeStates#panelNormalWorld} 的 double 视图。 */
+    private static double[] normalD(Direction facing, boolean alongFirst) {
+        float[] n = KineticGaugeStates.panelNormalWorld(facing, alongFirst);
+        return new double[]{n[0], n[1], n[2]};
+    }
+
+    /**
+     * 绕坐标轴把向量转 90°，方向取自**原版 {@link Direction#getClockWise(axis) 的方向循环}**
+     * （与生产环表的约定同源、独立推导）：轴上基向量不动，另两个基向量各沿方向循环走一步。
+     * Rotate a vector 90° about a coordinate axis, derived independently from vanilla's
+     * {@code getClockWise(axis)} direction cycles: the axial basis vector stays, the other
+     * two each advance one step.
+     */
+    private static double[] rotateAboutAxisCw(double[] v, Direction.Axis axis) {
+        Direction d1 = switch (axis) {
+            case X -> Direction.UP; case Y -> Direction.EAST; case Z -> Direction.UP;
+        };
+        Direction d2 = switch (axis) {
+            case X -> Direction.SOUTH; case Y -> Direction.SOUTH; case Z -> Direction.EAST;
+        };
+        double[] r1 = unit(d1.getClockWise(axis));
+        double[] r2 = unit(d2.getClockWise(axis));
+        int ia = iAxis(axis), i1 = iAxis(d1.getAxis()), i2 = iAxis(d2.getAxis());
+        double[] out = new double[3];
+        for (int i = 0; i < 3; i++) out[i] = v[i1] * r1[i] + v[i2] * r2[i];
+        out[ia] = v[ia]; // 轴向分量绕自身旋转不动
+        return out;
+    }
+
+    private static int iAxis(Direction.Axis a) { return a == Direction.Axis.X ? 0 : a == Direction.Axis.Y ? 1 : 2; }
+
+    private static double[] unit(Direction d) {
+        return new double[]{d.getStepX(), d.getStepY(), d.getStepZ()};
     }
 
     // ── 资源读取 / resource loading ──
