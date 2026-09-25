@@ -6,8 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
-| Unreleased | 节点分类重构：分类白名单 + 类内黑名单 / Node category allowlist refactor |
-| [v1.2.5.2](#v1252) | 修复：行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 |
+| [v1.2.5.2](#v1252) | 修复：行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 |
 | [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
@@ -22,7 +21,7 @@
 ---
 
 <details>
-<summary><b>Unreleased</b> — 节点分类重构：分类白名单 + 类内黑名单 / Node categories: category allowlist + in-category exclusions</summary>
+<summary><b>v1.2.5.2</b> — 修复：行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 / Fix: View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit</summary>
 
 ### 🗂️ 节点分类与方块名单 / Node Categories &amp; Per-Block Allowances
 
@@ -32,14 +31,14 @@
 | 📋 名单机制 | 10 处逐节点枚举改为 `NodeCategory` + `NodeAllowance`（分类白名单 + 类内黑名单）；新增节点落入已允许分类即自动可用。 |
 | ➕ 能力补齐 | 程序计算机 / 数控齿轮箱净增 23 项：基础运算 11（`ADD`…`ROUND`）、比较与 `OR` 6、`FORMULA`/`INTERP`、控制类 4（`PID`/`PID_POWER`/`CLAMP`/`MAP`）。传感器净增 `POSE_CONVERT`/`SPLIT`。 |
 | ➖ 能力收紧 | 蓝图计算机失去 `STRESS`/`RPM`（对齐文档「仅动力宿主图」）；已有图中节点不删除，仅不能新建。 |
-| 🐛 添加节点菜单命中 **(bug 修复)** | 菜单面板（含压在顶栏上的顶部）内点击归菜单，不再被顶栏改名框/设置钮误吞；菜单改为最后渲染、盖在顶栏上，与命中顺序一致。 |
-| 🐛 展开节点视口裁剪 **(bug 修复)** | 节点体滚出屏幕、编辑区仍在画面时不再整节点剔除：体/编辑区分别判交；展开高度取有/无 `EditState` 的较大值（FORMULA MLE 动态行、ACCUMULATOR 动态字段）。 |
 | 🧪 回归 | `NodeAllowanceMigrationTest`：覆盖比对 + 允许集差异必须等于声明变更 + 例外最小化。 |
 
-</details>
+### 🖱️ 图编辑器命中与裁剪 / Graph Editor Hit &amp; Cull
 
-<details>
-<summary><b>v1.2.5.2</b> — 修复：行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 / Fix: View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch</summary>
+| Fix / 修复 | Description / 说明 |
+|-----------|-------------------|
+| 🐛 添加节点菜单命中 **(bug 修复)** | 菜单面板（含压在顶栏上的顶部）内点击归菜单，不再被顶栏改名框/设置钮误吞；菜单改为最后渲染、盖在顶栏上，与命中顺序一致。 |
+| 🐛 展开节点视口裁剪 **(bug 修复)** | 节点体滚出屏幕、编辑区仍在画面时不再整节点剔除：体/编辑区分别判交；展开高度取有/无 `EditState` 的较大值（FORMULA MLE 动态行、ACCUMULATOR 动态字段）。 |
 
 ### 🖥️ HUD 虚像与视角摇晃 / HUD Virtual Image &amp; View Bobbing
 
