@@ -6,7 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
-| [v1.2.5.2](#v1252) | 修复：行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 |
+| [v1.2.5.2](#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 |
 | [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
@@ -21,7 +21,29 @@
 ---
 
 <details>
-<summary><b>v1.2.5.2</b> — 修复：行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 / Fix: View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit</summary>
+<summary><b>v1.2.5.2</b> — 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 / Fix: Kinetic Gauge Wrench Rotation (Shaft Roll · Tilt-Preserving Yaw) · Floor Placement · Inverted Mount Text Upright · View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit</summary>
+
+### 🔧 动力传感器扳手 / Kinetic Gauge Wrench
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🧰 **行为变更**：三语义 | ① <b>轴端面</b>（点击轴 ∥ 旋转轴）→ 同轴四态按角点序（右上→右下→左下→左上）滚转 90°，**轴不动**——对官方的有意偏离（官方端面点击会翻轴断连）；② <b>点上/下</b> → 沿当前倾侧偏航 90°，屏幕保持朝上/朝下不翻面（第二处偏离）；③ <b>其余面</b> → 与 Create `IWrenchable` 默认逐字相同（绕所点面的轴转；facing 同轴面翻 `axis_along_first`）。环表提纯在 `KineticGaugeStates.nextInShaftRoll`/`nextInYaw`（纯函数），`KineticGaugePlacementTest` 钉死每步绕轴 90°、`getClockWise` 同向、4 步闭合 / ① shaft-end: roll through the four same-shaft states in corner order, 90° per step, shaft fixed (deliberate deviation — official pivots the shaft); ② Y-face: yaw staying on the current tilt (second deviation); ③ other faces verbatim Create's `IWrenchable` default. Rings are pure functions in `KineticGaugeStates`, pinned for 90° steps, getClockWise sense and 4-cycle closure. |
+| 🐛 Y 轴滚转环序 **(bug 修复)** | 竖置轴的滚转环曾写成 NW→SW→NE→SE——第 2/4 步是 180° 对角跳（「互不重合」钉子查不出顺序错）。现改为 getClockWise 环（NW→NE→SE→SW），并由环序钉子（每步法线绕轴恰转 90°）锁死 / The vertical-shaft roll ring hopped 180° on steps 2 and 4; now a getClockWise cycle, locked by ring-order pins. |
+| 🐛 横置点上/下偏航 **(bug 修复)** | ① 竖置 facing 点上/下以前只在两个 `along_first` 态来回 → 现沿朝下环保倾偏航（倒置屏不翻回朝上）；② 四个横置朝向里有两个屏幕朝下反了 → 重排 blockstate：**W/N/E/S 全部 x=0 上仰讲台**（up-west/north/east/south），偏航四步屏幕都朝玩家。`KineticGaugePlacementTest` 钉死 / Vertical-facing Y-click used to toggle two states; horizontal yaw had two inverted screens. Table now gives all four horizontals an up-tilted lectern pose. |
+| 🐛 同轴四态旋转重合 **(bug 修复)** | `up+false` 与 `west+false` 曾同为 `x=0,y=0`，`north+true` 与 `up+true` 同为 `x=0,y=90` —— 扳手绕轴循环里连着两步长得一样（实测「右上→右上→左下→右下」）。现同一旋转轴的 4 个状态落到 4 个互不重合的 `(model,x,y)`（轴 Z：`(0,0)/(0,180)/(180,180)/(180,0)`；轴 X：`y∈{90,270}×x∈{0,180}`），与 `Direction.getClockWise` 同向；`KineticGaugeStatesTest.eachShaftAxisHasFourDistinctRotations` 钉死 / Two states used to share `x=0,y=0` (and another pair `x=0,y=90`), so a wrench roll around the shaft stuttered. Each shaft axis now maps its 4 states to 4 distinct `(model,x,y)` triples, matching `getClockWise`; pinned by `eachShaftAxisHasFourDistinctRotations`. |
+| 🧹 清理 | `wrenchAction` 分类纯函数与中版的刚体反查（`rigidSideTarget`/`isDisplayFace`/`isSteepLook`）删除；环表提纯为 `KineticGaugeStates` 纯函数并补环序钉子 / The classifier and the interim rigid-lookup helpers are gone; the rings are pure functions with order pins. |
+
+### 🧭 贴地/贴顶放置 / Floor &amp; Ceiling Placement
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🧭 **放置重排** | `facing` **恒为水平**（贴墙=点击面，贴地/贴顶=水平正对玩家，不再因陡视变 up/down——2 态换不出 4 偏航角）；横置/竖置由 `axis_along_first` 承担：平视=横置讲台，**陡视（nearestLooking 轴竖直）=竖直轴平板**；有结构轴时优先对齐（`RotatedPillarKineticBlock.getPreferredAxis`）。俯仰判定用 nearest-looking 而非 `getXRot`——Sable 会把 orderedByNearest mixin 到子世界局部系，世界俯仰角在旋转结构上会错（2026-09 实机） / Facing is always horizontal on placement; lectern vs vertical-shaft is the steep-look gate on `axis_along_first`; structure axis preferred when present; nearest-looking instead of world pitch for Sable-rotated structures. |
+
+### 🖥️ 倒置屏幕读数 / Inverted Mount Readout
+
+| Fix / 修复 | Description / 说明 |
+|-----------|-------------------|
+| 🙃 倒置/朝下读数翻正 **(bug 修复)** | `facing=DOWN` 走 blockstate `x:180`，蓝屏正确朝下，但动态读数随整机一起颠倒（倒置挂墙/朝下时上下翻转）。渲染入口改为 `KineticGaugeStates.displayPanel`：`x:180` 时把字形右/上在面板平面内再转 180°（法线不动、右手系保持），从屏幕外侧看文字恢复正立；12 个状态的世界空间文字上方向 Y>0 由 `KineticGaugePlacementTest` 钉死 / `facing=DOWN` applies blockstate `x:180`, so the blue face correctly points down but the dynamic readout flipped with the whole unit. Rendering now goes through `KineticGaugeStates.displayPanel`, which spins the glyph right/up another 180° in the panel plane on `x:180` (normal untouched, still right-handed) so text reads upright from outside. All 12 states' world-space text-up Y>0 is pinned in `KineticGaugePlacementTest`. |
 
 ### 🗂️ 节点分类与方块名单 / Node Categories &amp; Per-Block Allowances
 

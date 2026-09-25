@@ -163,7 +163,7 @@
 | 📈 STRESS / 应力状态 | 4 outputs — ratio (0-1, >1 overloaded), used (SU), unused (0-1), left (SU) / 四个输出——占比、已用（SU）、未用、剩余（SU） |
 | ⚡ RPM / 转速 | 1 output — signed network speed (0 unpowered/overloaded) / 一个输出——带符号网络转速（无动力/过载为 0） |
 | 🔄 3-Axis Placement / 三轴放置 | Floor/ceiling placement points the display at the player (all 4 yaws, vertical state placeable directly); wall placement uses the clicked face; auto-aligns to a shaft-bearing face / 贴地贴顶正对玩家（四向可选，竖置可直接放出）；贴墙用点击面；贴轴自动对齐 |
-| 🔧 Wrench / 扳手 | Shaft end face + display side: cycle the panel 90° around the shaft (shaft untouched); the other two faces: rigid rotate (shaft re-points) / 轴端面+显示面：面板绕轴 90° 循环（轴不动）；其余两面：整表旋转（轴换向） |
+| 🔧 Wrench / 扳手 | Shaft end: roll 90° through the four same-shaft poses (shaft fixed); top/bottom: yaw 90° keeping the current tilt; other faces: Create's IWrenchable default / 轴端面：同轴四态滚转 90°（轴不动）；点上/下：保持当前俯仰偏航 90°；其余面：Create 官方默认 |
 | ⚙️ Shaft Pass-Through / 贯通传轴 | Passes rotation along its own axis and reads the network it sits in / 自身沿旋转轴贯通传轴，并读取所在动力网络的转速与应力 |
 | 🧩 Two Model Variants / 双模型变体 | Lectern panel for horizontal shafts, flat panel for vertical shafts; text always upright / 水平轴用讲台面板，竖直轴用平板屏，文字永远直立 |
 
@@ -615,7 +615,7 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 | Hand break / 空手破坏 | Drops without NBT / 掉落无NBT |
 | Wrench right-click / 扳手右键 | Rotate FACING / 旋转方向 |
 | Wrench Shift+right-click / 扳手Shift+右键 | Pick up with full NBT / 收回保留NBT |
-| 🎛️ Kinetic Gauge wrench / 动力传感器扳手 | Shaft end face + display side: cycle the display 90° around the shaft; the other two faces: rigid rotate (shaft re-points) / 轴端面+显示面：显示绕轴 90° 循环；其余两面：整表旋转（轴换向） |
+| 🎛️ Kinetic Gauge wrench / 动力传感器扳手 | Shaft end: roll through the 4 same-shaft poses (shaft fixed); top/bottom: tilt-preserving yaw; others: Create's default / 轴端面：同轴四态滚转（轴不动）；点上/下：保倾偏航；其余面：官方默认 |
 
 ---
 
@@ -642,7 +642,7 @@ The full changelog now lives in **[`CHANGELOG.md`](https://github.com/y151733344
 
 | Version | 标题 / Title |
 |---------|--------------|
-| [v1.2.5.2](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1252) | 修复：行走时视角摇晃（view bob）导致全息显示器 HUD 虚像晃动 · 语言切换后 HUD 乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 |
+| [v1.2.5.2](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃（view bob）导致全息显示器 HUD 虚像晃动 · 语言切换后 HUD 乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 |
 | [v1.2.5.1](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1251) | 动力传感器（kinetic_gauge，Create 表同款 3 轴放置 · STRESS/RPM 节点 · 蓝屏显示）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
