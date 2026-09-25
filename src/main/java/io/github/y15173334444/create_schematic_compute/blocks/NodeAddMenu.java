@@ -1,5 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
+import io.github.y15173334444.create_schematic_compute.graph.NodeCategory;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -29,35 +30,9 @@ final class NodeAddMenu {
 
     NodeAddMenu(Screen screen) { this.screen = screen; }
 
-    /** 分类 = lang 键 + 节点类型 + 列数。 / A category = lang key + node types + column count. */
-    private record NodeCategory(String langKey, NodeType[] types, int columns) {
-        NodeCategory(String langKey, NodeType[] types) { this(langKey, types, 1); }
-    }
-    private static final NodeCategory[] CATEGORIES = {
-        new NodeCategory("category.create_schematic_compute.values", new NodeType[]{NodeType.CONST, NodeType.REDSTONE_IN, NodeType.PRIVATE_IN, NodeType.BUS_IN}),
-        new NodeCategory("category.create_schematic_compute.math_basic", new NodeType[]{NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD, NodeType.POW, NodeType.ROOT, NodeType.ABS, NodeType.CEIL, NodeType.FLOOR}),
-        new NodeCategory("category.create_schematic_compute.math_advanced", new NodeType[]{NodeType.FORMULA, NodeType.POSE_CONVERT, NodeType.SPLIT, NodeType.INTERP, NodeType.ROUND}),
-        new NodeCategory("category.create_schematic_compute.trig", new NodeType[]{NodeType.SIN, NodeType.COS, NodeType.TAN, NodeType.ASIN, NodeType.ACOS, NodeType.ATAN2, NodeType.SINH, NodeType.COSH, NodeType.SQRT, NodeType.LN, NodeType.LOG, NodeType.EXP, NodeType.SEC, NodeType.CSC, NodeType.COT, NodeType.ANGLE_UNWRAP, NodeType.DIRECTION}),
-        new NodeCategory("category.create_schematic_compute.logic", new NodeType[]{NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ, NodeType.BOOL, NodeType.GATE, NodeType.OR, NodeType.RELAY_A, NodeType.RELAY_B}),
-        new NodeCategory("category.create_schematic_compute.control", new NodeType[]{NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP}),
-        // 数控齿轮箱运动反馈 / Programmable gearbox motion feedback
-        new NodeCategory("category.create_schematic_compute.gearbox", new NodeType[]{NodeType.MOVE, NodeType.ROTATE, NodeType.WAIT, NodeType.CLUTCH, NodeType.ENCODER, NodeType.TX_OUT}),
-        // 动力网络读数（动力仪表宿主注入）/ Kinetic network readings (kinetic gauge host)
-        new NodeCategory("category.create_schematic_compute.kinetic", new NodeType[]{NodeType.STRESS, NodeType.RPM}),
-        new NodeCategory("category.create_schematic_compute.output", new NodeType[]{NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.SPEED_CTRL, NodeType.BUS_OUT}),
-        new NodeCategory("category.create_schematic_compute.sequential", new NodeType[]{NodeType.DELAY, NodeType.LATCH, NodeType.T_FLIPFLOP, NodeType.PULSE_EXTEND, NodeType.LOOP, NodeType.FUSE, NodeType.ACCUMULATOR, NodeType.INTEGRATOR}),
-        // F: input_ctrl + input_sensor 合并 / merged
-        new NodeCategory("category.create_schematic_compute.input",
-            new NodeType[]{NodeType.KEYBOARD, NodeType.MOUSE_BUTTON, NodeType.MOUSE_JOYSTICK, NodeType.GAMEPAD_JOYSTICK, NodeType.GAMEPAD_BUTTON, NodeType.GAMEPAD_TRIGGER,
-                           NodeType.VIEW_ANGLE, NodeType.WORLD_VIEW, NodeType.ATTITUDE, NodeType.FORWARD, NodeType.ACCELERATION, NodeType.VELOCITY, NodeType.POSITION, NodeType.TARGET_OUT}),
-        // F: COMMENT 并入 display / COMMENT merged into display
-        new NodeCategory("category.create_schematic_compute.display",
-            new NodeType[]{NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE, NodeType.HUD_PITCH_LADDER}),
-        // F: encap_io 并入 structure / encap_io merged into structure
-        new NodeCategory("category.create_schematic_compute.structure",
-            new NodeType[]{NodeType.ENCAPSULATION, NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT}),
-        new NodeCategory("category.create_schematic_compute.debug", new NodeType[]{NodeType.DEBUG_SIGNAL_GEN, NodeType.DEBUG_PROBE, NodeType.COMMENT}),
-    };
+    /** 分类表唯一真相源在 {@link NodeCategory}（graph 包），此处只做渲染。
+     *  Category table lives in {@link NodeCategory}; this class only renders it. */
+    private static final NodeCategory[] CATEGORIES = NodeCategory.values();
     private final java.util.Map<Integer, Boolean> catExpanded = new java.util.HashMap<>();
     private float menuRX, menuRY;
     private java.util.function.Predicate<NodeType> currentFilter = null;
@@ -90,7 +65,7 @@ final class NodeAddMenu {
 
     /** 当前生效列数：手动双列开关开启时全部分类双列，否则单列。
      *  Effective column count: two columns for every category while the manual toggle is on, otherwise one. */
-    private int effectiveCols(NodeCategory cat) { return menuTwoColumns ? 2 : cat.columns; }
+    private int effectiveCols() { return menuTwoColumns ? 2 : 1; }
 
     NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my, java.util.function.Predicate<NodeType> filter) {
         // D: 组合外部 filter + 搜索文本 / combine external filter + search text
@@ -109,7 +84,7 @@ final class NodeAddMenu {
         for (int ci = 0; ci < CATEGORIES.length; ci++) {
             if (visibleCount(CATEGORIES[ci], combined) == 0) continue;
             if (catExpanded.getOrDefault(ci, false))
-                maxCols = Math.max(maxCols, effectiveCols(CATEGORIES[ci]));
+                maxCols = Math.max(maxCols, effectiveCols());
         }
         menuW = 16 + maxCols * colW;
         boolean searching = !menuSearchText.isEmpty();
@@ -126,7 +101,7 @@ final class NodeAddMenu {
                 if (visibleCount(CATEGORIES[ci], combined) == 0) continue;
                 totalH += ch;
                 if (catExpanded.getOrDefault(ci, false)) {
-                    int cols = effectiveCols(CATEGORIES[ci]);
+                    int cols = effectiveCols();
                     int items = visibleCount(CATEGORIES[ci], combined);
                     totalH += (int)Math.ceil((double)items / cols) * ih;
                 }
@@ -204,7 +179,7 @@ final class NodeAddMenu {
                 int vis = visibleCount(cat, combined);
                 if (vis == 0) continue;
                 boolean exp = catExpanded.getOrDefault(ci, false);
-                int cols = exp ? effectiveCols(cat) : 1;
+                int cols = exp ? effectiveCols() : 1;
                 String title = (exp ? "▼ " : "▶ ") + net.minecraft.client.resources.language.I18n.get(cat.langKey);
                 boolean titleHover = mx >= menuRX + 2 && mx <= hoverRight && my >= cy && my < cy + ch;
                 if (titleHover) g.fill((int)menuRX + 2, cy, (int)(hoverRight), (int)(cy + ch), NodeRenderer.HOV());
@@ -268,7 +243,7 @@ final class NodeAddMenu {
             }
             cy += ch;
             if (!catExpanded.getOrDefault(ci, false)) continue;
-            int cols = effectiveCols(CATEGORIES[ci]);
+            int cols = effectiveCols();
             cy += (int)Math.ceil((double)vis / cols) * ih;
         }
         return false;
