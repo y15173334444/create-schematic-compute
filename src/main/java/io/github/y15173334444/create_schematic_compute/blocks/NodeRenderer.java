@@ -837,6 +837,8 @@ public class NodeRenderer {
     }
     /** Handle category expand/collapse click + search box focus. Returns true if consumed. */
     public boolean handleCategoryClick(int mx, int my) { return addMenu.handleCategoryClick(mx, my); }
+    /** 点击是否落在添加节点菜单面板内 / whether the click is on the add-node menu panel */
+    public boolean isMenuHit(double mx, double my) { return addMenu.containsClick(mx, my); }
     /** 切换添加节点菜单的双列布局（搜索列表同步跟随）。 / Toggle the add-node menu's two-column layout. */
     public void toggleMenuColumns() { addMenu.toggleMenuColumns(); }
     /** @return 双列布局是否开启 / whether two-column layout is on */

@@ -293,6 +293,21 @@ final class NodeAddMenu {
     int menuScrollOff() { return (int)menuScrollOff; }
     int menuMaxScrollOff() { return Math.max(0, menuTotalH - menuMaxH); }
     void setMenuScrollOff(int off) { menuScrollOff = Math.max(0, Math.min(off, menuMaxScrollOff())); }
+
+    /** 点击是否落在菜单面板内（含标题/搜索/列表/滚动条）。
+     *  菜单最后渲染、盖在顶栏上，面板内点击须先于顶栏——与视觉层级一致。
+     *  Whether the click lands on the menu panel (title/search/list/scrollbar).
+     *  The menu renders last, covering the top bar; in-panel clicks must win. */
+    boolean containsClick(double mx, double my) {
+        return rectContains(mx, my, menuRX, menuRY, menuW, menuMaxH);
+    }
+
+    /** 矩形命中（纯函数，供 containsClick 与测试共用）/ rectangle hit-test (pure, shared with tests). */
+    static boolean rectContains(double mx, double my, float rx, float ry, float rw, float rh) {
+        return rw > 0 && rh > 0
+            && mx >= rx && mx <= rx + rw
+            && my >= ry && my <= ry + rh;
+    }
     void appendMenuSearch(char c) { menuSearchText += c; }
     void menuSearchBackspace() {
         if (!menuSearchText.isEmpty()) menuSearchText = menuSearchText.substring(0, menuSearchText.length() - 1);

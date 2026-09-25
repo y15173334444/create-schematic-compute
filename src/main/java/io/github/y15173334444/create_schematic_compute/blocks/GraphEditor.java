@@ -1407,7 +1407,6 @@ public class GraphEditor {
                 }
             }
         }
-        if(showMenu) { selectedMenuType = renderer.renderAddNodeMenu(g, menuX, menuY, mx, my, nodeFilter); }
         // ── A=5: Tooltips（公式报错报告框等延迟覆盖层——A/B/C 分层的工具提示层，节点与 A=4 覆盖层均无法遮挡）
         // ── A=5: Tooltips (deferred overlay such as the formula error report box — the layered-system
         //     tooltip tier; no node body or A=4 overlay can cover it)
@@ -1434,9 +1433,13 @@ public class GraphEditor {
         }
         // Color picker popup — renders LAST to stay on top of all other overlays
         if (colorPicker.isVisible()) colorPicker.render(g, mx, my);
-        // 顶栏最后渲染 —— 固定在所有覆盖层之上（名称 + 设置）。
-        // Top bar renders LAST — it sits above every other overlay (name + settings).
+        // 顶栏（名称 + 设置）固定在节点/工具栏之上。
+        // Top bar (name + settings) sits above nodes and the toolbar.
         renderTopBar(g, mx, my);
+        // 添加节点菜单最后画在顶栏之上：菜单是最高优先级浮层（命中顺序与此一致）。
+        // Add-node menu draws last, above the top bar: it is the topmost overlay
+        // (hit-testing follows the same order).
+        if(showMenu) { selectedMenuType = renderer.renderAddNodeMenu(g, menuX, menuY, mx, my, nodeFilter); }
         // 框选矩形 (Box-select rectangle)
         if (boxSelecting) {
             float x1 = Math.min(boxSX, boxEX), y1 = Math.min(boxSY, boxEY);
@@ -1505,6 +1508,19 @@ public class GraphEditor {
     public boolean mouseClicked(double mx, double my, int btn) {
         history.resetBatch(); // discard any incomplete batch to prevent undo stack freeze
         var graph = getGraph();
+        // 添加节点菜单面板内点击优先于顶栏/工具栏——菜单最后渲染、盖在顶栏上，
+        // 命中顺序与视觉层级一致。面板内非左键也吞掉（含右键：不再重开/定位菜单）。
+        // In-panel add-menu clicks beat the top bar / toolbar — the menu renders last,
+        // covering the top bar, and hits follow that stack. Non-left clicks are absorbed
+        // too (including right-click: it no longer re-opens/repositions the menu).
+        if (showMenu && renderer.isMenuHit(mx, my)) {
+            // 先提交失焦编辑框，再交菜单（旧路径在菜单前有一轮 commitFocusedEnterActions）
+            // Commit unfocused edit boxes first (the old path ran commitFocusedEnterActions
+            // before the menu).
+            commitFocusedEnterActions();
+            tryAddMenuClick(mx, my, btn, graph);
+            return true;
+        }
         if (tryTopBarClick(mx, my, btn)) return true;
         // 命名对话框：确认/取消按钮、框内点击消费（模态）、点击外部取消（已拆至 GraphViewBookmarks）
         // Name dialog: Confirm/Cancel buttons, in-dialog clicks consumed (modal), outside click cancels
