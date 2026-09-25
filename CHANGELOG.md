@@ -6,6 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
+| Unreleased | 节点分类重构：分类白名单 + 类内黑名单 / Node category allowlist refactor |
 | [v1.2.5.2](#v1252) | 修复：行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 |
 | [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
@@ -19,6 +20,21 @@
 | [v1.0.0](#v100) | 初始发布 / Initial Release |
 
 ---
+
+<details>
+<summary><b>Unreleased</b> — 节点分类重构：分类白名单 + 类内黑名单 / Node categories: category allowlist + in-category exclusions</summary>
+
+### 🗂️ 节点分类与方块名单 / Node Categories &amp; Per-Block Allowances
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🗂️ 分类 14→21 **(UI 变更)** | 节点菜单分组重划：`input` 拆为 `input_ctrl`/`input_view`/`input_motion`/`input_pose`，`sequential` 拆为 `sequential_acc`/`sequential_state`；新增 `transmission`/`speed`/`radar`。`ROUND` 归 `math_basic`，`SQRT/LN/LOG/EXP` 移出三角，`POSE_CONVERT`/`SPLIT` 归 `input_pose`。 |
+| 📋 名单机制 | 10 处逐节点枚举改为 `NodeCategory` + `NodeAllowance`（分类白名单 + 类内黑名单）；新增节点落入已允许分类即自动可用。 |
+| ➕ 能力补齐 | 程序计算机 / 数控齿轮箱净增 23 项：基础运算 11（`ADD`…`ROUND`）、比较与 `OR` 6、`FORMULA`/`INTERP`、控制类 4（`PID`/`PID_POWER`/`CLAMP`/`MAP`）。传感器净增 `POSE_CONVERT`/`SPLIT`。 |
+| ➖ 能力收紧 | 蓝图计算机失去 `STRESS`/`RPM`（对齐文档「仅动力宿主图」）；已有图中节点不删除，仅不能新建。 |
+| 🧪 回归 | `NodeAllowanceMigrationTest`：覆盖比对 + 允许集差异必须等于声明变更 + 例外最小化。 |
+
+</details>
 
 <details>
 <summary><b>v1.2.5.2</b> — 修复：行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 / Fix: View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch</summary>

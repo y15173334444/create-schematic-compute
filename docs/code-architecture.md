@@ -373,7 +373,9 @@ joiners have no pending ops and always load the authoritative graph.
 > / The opener cannot inline `new XxxScreen(...)` in common block code — the dedicated server fails class verification with `invalid dist`. Each block calls a private `@OnlyIn(Dist.CLIENT) openScreen(pos)` helper whose body the runtime dist cleaner strips on the server.
 
 **`AbstractGraphScreen` 基类职责 / Base class responsibilities**：
-- 持有 `blockPos` + `GraphEditor`，构造器 `(Component title, BlockPos pos)`；子类通过 `setNodeFilter()` 设置节点过滤器 / Holds blockPos + GraphEditor; subclasses set node filters
+- 持有 `blockPos` + `GraphEditor`，构造器 `(Component title, BlockPos pos)`；子类通过 `setNodeAllowance(NodeAllowance)` 设置分类白名单+类内黑名单（`BlockNodeAllowances`），一次性谓词（子图）仍用 `setNodeFilter()` / Holds blockPos + GraphEditor; subclasses set a category allowlist via `setNodeAllowance` (`BlockNodeAllowances`); one-off predicates (sub-graph) still use `setNodeFilter`
+- `graph/NodeCategory` — 21 类节点分类（菜单分组唯一真相源，每 `NodeType` 恰好一类）/ 21 node categories (single source for add-menu grouping; each `NodeType` in exactly one)
+- `graph/NodeAllowance` + `graph/BlockNodeAllowances` — 方块准入 = 分类白名单 + 类内黑名单；10 方块名单集中在此 / Per-block allowance = category allowlist + in-category exclusions; the ten lists live here
 - `init()` 发送 `GraphJoinPacket`；`onClose()` 依次执行 `preClose()` 钩子 → `pendingLocalOps=0` 复位（`5892caa` 守卫）→ `editor.onClose()` → `clearRemotePresences()` → 发送 `GraphLeavePacket` / Full close lifecycle
 - `tick()` 通过子类 `isBlockEntityValid()` 检查 BE，失效自动 `onClose()` / Auto-close on BE invalidation
 - `render()` 契约：`renderBackground` → `renderGraphCanvas()` 钩子（默认 `editor.renderBg`，Radar 叠加工具栏、Monitor 切换显示模式画布）→ `renderables` widget → tooltip 由编辑器自绘 / Canvas hook for per-screen overlays
