@@ -4078,7 +4078,9 @@ public class GraphEditor {
         candidates.sort(GraphEditor::compareHitOrder);
         for (var n : candidates) {
             float sx=c2sX(n.x), sy=c2sY(n.y), sw=NodeRenderer.nw(n)*zoom;
-            float nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
+            // 与渲染同源：nh() 含调试图表（DEBUG_SIGNAL_GEN/PROBE 的 XY 图区）
+            // Same source as rendering: nh() includes the debug chart area.
+            float nh = NodeRenderer.nh(n) * zoom + 4;
             if (n.type == NodeType.COMMENT) nh = n.commentHeight * zoom;
             if (expandedNodeIds.contains(n.id) && n.type != NodeType.COMMENT)
                 nh += EditPanel.expandedEditHeight(n, nodeEditStatesById.get(n.id)) * zoom;
