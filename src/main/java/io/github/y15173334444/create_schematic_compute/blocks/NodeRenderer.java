@@ -301,12 +301,18 @@ public class NodeRenderer {
         for(var n : nodes) {
             if (n.type == NodeType.COMMENT) continue; // rendered at A=1 by renderCommentNodes
             float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
-            float sw = nw(n)*zoom, nh = NodeRenderer.nh(n)*zoom+4;
-            if (expandedNodeIds.contains(n.id) && n.type != NodeType.COMMENT)
-                nh += io.github.y15173334444.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom) * zoom;
-            if (sx + sw < -margin || sx > w + margin || sy + nh < -margin || sy > h + margin)
+            float sw = nw(n)*zoom;
+            float bodyH = NodeRenderer.nh(n)*zoom+4;
+            float editH = 0;
+            boolean expanded = expandedNodeIds.contains(n.id) && n.type != NodeType.COMMENT;
+            if (expanded) {
+                // 与 drawNode 同源的保守高度（含 EditState 动态行），体/编辑区分别判交
+                // Conservative height shared with drawNode; body and edit panel each tested.
+                editH = EditPanel.expandedEditHeight(n, nodeEditStatesById.get(n.id)) * zoom;
+            }
+            if (!EditPanel.isOnScreen(sx, sy, sw, bodyH, editH, w, h, margin))
                 continue;
-            drawNode(g, n, isSelectedById(selectedNodes, n), isPrimaryById(primaryNode, n), expandedNodeIds.contains(n.id), camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
+            drawNode(g, n, isSelectedById(selectedNodes, n), isPrimaryById(primaryNode, n), expanded, camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
         }
     }
 

@@ -861,8 +861,7 @@ public class GraphEditor {
     private float fullNodeHeight(GraphNode n) {
         float h = NodeRenderer.nh(n);
         if (expandedNodeIds.contains(n.id)) {
-            h += io.github.y15173334444.create_schematic_compute.blocks.EditPanel
-                .calcRenderHeight(n, 1.0f);
+            h += EditPanel.expandedEditHeight(n, nodeEditStatesById.get(n.id));
         }
         return h;
     }
@@ -1930,8 +1929,9 @@ public class GraphEditor {
             if (n.type == NodeType.COMMENT) continue;
             float sx = c2sX(n.x), sy = c2sY(n.y);
             float sw = NodeRenderer.nw(n) * zoom;
-            float nh = NodeRenderer.nh(n) * zoom + 4; // 使用 nh() 含图表区域 / use nh() to include chart area
-            if (expandedNodeIds.contains(n.id)) nh += EditPanel.calcRenderHeight(n, zoom) * zoom;
+            float nh = NodeRenderer.nh(n) * zoom + 4; // nh() 含图表区域 / includes chart area
+            if (expandedNodeIds.contains(n.id))
+                nh += EditPanel.expandedEditHeight(n, nodeEditStatesById.get(n.id)) * zoom;
             if (mx >= sx && mx <= sx + sw && my >= sy && my <= sy + nh) {
                 occluded = true;
                 break;
@@ -3629,7 +3629,7 @@ public class GraphEditor {
                 float nh = NodeRenderer.nh(n);
                 if (expandedNodeIds.contains(n.id)) {
                     var es = nodeEditStatesById.get(n.id);
-                    nh += EditPanel.calcRenderHeight(n, 1f, es) + 4;
+                    nh += EditPanel.expandedEditHeight(n, es) + 4;
                 }
                 if (n.x < minX) minX = n.x;
                 if (n.y < minY) minY = n.y;
@@ -4077,11 +4077,11 @@ public class GraphEditor {
         if (candidates.isEmpty()) return null;
         candidates.sort(GraphEditor::compareHitOrder);
         for (var n : candidates) {
-            float sx=c2sX(n.x), sy=c2sY(n.y), sw=io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(n)*zoom;
+            float sx=c2sX(n.x), sy=c2sY(n.y), sw=NodeRenderer.nw(n)*zoom;
             float nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
             if (n.type == NodeType.COMMENT) nh = n.commentHeight * zoom;
             if (expandedNodeIds.contains(n.id) && n.type != NodeType.COMMENT)
-                nh += EditPanel.calcRenderHeight(n, zoom) * zoom;
+                nh += EditPanel.expandedEditHeight(n, nodeEditStatesById.get(n.id)) * zoom;
             if(mx>=sx&&mx<=sx+sw&&my>=sy&&my<=sy+nh) return n;
         }
         return null;

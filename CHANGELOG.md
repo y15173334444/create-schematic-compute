@@ -32,6 +32,7 @@
 | 📋 名单机制 | 10 处逐节点枚举改为 `NodeCategory` + `NodeAllowance`（分类白名单 + 类内黑名单）；新增节点落入已允许分类即自动可用。 |
 | ➕ 能力补齐 | 程序计算机 / 数控齿轮箱净增 23 项：基础运算 11（`ADD`…`ROUND`）、比较与 `OR` 6、`FORMULA`/`INTERP`、控制类 4（`PID`/`PID_POWER`/`CLAMP`/`MAP`）。传感器净增 `POSE_CONVERT`/`SPLIT`。 |
 | ➖ 能力收紧 | 蓝图计算机失去 `STRESS`/`RPM`（对齐文档「仅动力宿主图」）；已有图中节点不删除，仅不能新建。 |
+| 🐛 展开节点视口裁剪 **(bug 修复)** | 节点体滚出屏幕、编辑区仍在画面时不再整节点剔除：体/编辑区分别判交；展开高度取有/无 `EditState` 的较大值（FORMULA MLE 动态行、ACCUMULATOR 动态字段）。 |
 | 🧪 回归 | `NodeAllowanceMigrationTest`：覆盖比对 + 允许集差异必须等于声明变更 + 例外最小化。 |
 
 </details>

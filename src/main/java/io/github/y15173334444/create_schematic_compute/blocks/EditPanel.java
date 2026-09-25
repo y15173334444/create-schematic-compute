@@ -82,6 +82,48 @@ public class EditPanel {
         return h;
     }
 
+    /**
+     * 展开编辑区的保守高度（图空间）：取「无 EditState」与「有 EditState」的较大值。
+     * 裁剪 / 命中 / 遮挡 AABB 必须用它——否则 FORMULA 的 MLE 实际行高、ACCUMULATOR 的
+     * 动态字段数会大于估算，编辑区仍在画面内却被整节点剔除。
+     * Conservative expanded edit height (graph space): max of the with/without-EditState
+     * estimates. Viewport culls, hit-tests and occlusion AABBs must use this — otherwise a
+     * FORMULA MLE's real line count or an ACCUMULATOR's dynamic field count exceeds the
+     * estimate and the still-visible edit panel gets culled with the off-screen body.
+     */
+    public static int expandedEditHeight(GraphNode n,
+                                         io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState st) {
+        if (n == null) return 0;
+        int without = calcRenderHeight(n, 1f);
+        if (st == null) return without;
+        return Math.max(without, calcRenderHeight(n, 1f, st));
+    }
+
+    /**
+     * 节点是否与视口相交：节点体或展开编辑区任一进入画面即返回 true。
+     * 节点体滚出屏幕、编辑区仍可见时不得剔除（docs：编辑区在画面中仍被剔除的修复）。
+     * Whether a node intersects the viewport: true if the body OR the expanded edit panel
+     * is on-screen. A body scrolled off-screen with a still-visible edit panel must NOT
+     * be culled.
+     *
+     * @param sx/sy   节点左上角（屏幕像素）/ node top-left in screen pixels
+     * @param sw      节点宽（屏幕像素）/ node width in screen pixels
+     * @param bodyH   节点体高（含 4px 缝，屏幕像素）/ body height incl. the 4px gap, screen px
+     * @param editH   编辑区高（屏幕像素，未展开传 0）/ edit panel height in screen px (0 if collapsed)
+     * @param screenW/H 视口尺寸 / viewport size
+     * @param margin  额外容差 / extra slack
+     */
+    public static boolean isOnScreen(float sx, float sy, float sw, float bodyH, float editH,
+                                     float screenW, float screenH, float margin) {
+        boolean bodyIn = sx + sw >= -margin && sx <= screenW + margin
+            && sy + bodyH >= -margin && sy <= screenH + margin;
+        if (bodyIn) return true;
+        if (editH <= 0) return false;
+        float editY = sy + bodyH;
+        return sx + sw >= -margin && sx <= screenW + margin
+            && editY + editH >= -margin && editY <= screenH + margin;
+    }
+
     /** 在局部坐标中渲染编辑控件（由 drawNode 在 pose 内调用，自动随缩放） */
     public static void renderAt(GuiGraphics g, int px, int py, int pw, GraphNode node,
                                  io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState st,

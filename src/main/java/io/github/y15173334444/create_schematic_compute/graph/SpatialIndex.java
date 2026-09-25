@@ -46,8 +46,13 @@ public class SpatialIndex {
             float w = n.type == NodeType.COMMENT ? n.commentWidth : nwStatic(n);
             float h = n.type == NodeType.COMMENT ? n.commentHeight : nhStatic(n);
             if (expandedIds != null && expandedIds.contains(n.id)) {
+                // 与旧 calcRenderHeight(n, 1f) 等价：此处拿不到 EditState（GraphEditor 内部类），
+                // 故仍是无状态估算。动态多出的编辑行可能不在索引内——既有局限，非本入口能解。
+                // Same as the old calcRenderHeight(n, 1f): EditState (GraphEditor's inner class)
+                // is unavailable here, so this stays the bare estimate. Extra dynamic edit rows
+                // may miss the index — a pre-existing limit this entry point cannot fix.
                 h += io.github.y15173334444.create_schematic_compute.blocks.EditPanel
-                    .calcRenderHeight(n, 1.0f);
+                    .expandedEditHeight(n, null);
             }
             int minCX = cellCoord(n.x);
             int minCY = cellCoord(n.y);
