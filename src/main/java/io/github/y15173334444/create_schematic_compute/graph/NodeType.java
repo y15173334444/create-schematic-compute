@@ -180,11 +180,13 @@ public enum NodeType {
         return this == DEBUG_SIGNAL_GEN || this == DEBUG_PROBE;
     }
 
-    /** 是否仅显示器可用（AR HUD 组件：只在 Monitor 的 HUD 模式下渲染；其他方块
-     *  的图编辑器应过滤掉）。新 HUD_* 类型在此登记。
-     *  Whether this node is monitor-only (AR HUD components: rendered only in the
-     *  Monitor's HUD mode; other blocks' graph editors should filter them out).
-     *  Register new HUD_* types here. */
+    /** 是否为显示器 HUD 专用组件（AR HUD：只在 Monitor 的 HUD 模式下渲染）。
+     *  现仅作类型标记：菜单过滤已由 {@link NodeCategory#DISPLAY} 承担
+     *  （只有 {@code BlockNodeAllowances.MONITOR} 放行该类）。新 HUD_* 类型请归入 DISPLAY。
+     *  Whether this is a monitor-only HUD component (AR HUD: rendered only in the
+     *  Monitor's HUD mode). Type marker only — menu filtering is now owned by
+     *  {@link NodeCategory#DISPLAY} (only {@code BlockNodeAllowances.MONITOR} allows it).
+     *  Put new HUD_* types in DISPLAY. */
     public boolean isMonitorOnly() {
         return this == HUD_PITCH_LADDER;
     }

@@ -1,9 +1,9 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
 import net.minecraft.core.BlockPos;
@@ -16,25 +16,15 @@ import java.io.ByteArrayOutputStream;
 import java.util.Map;
 
 /**
- * 可编程变速器图编辑器。节点白名单与转速代理控制器同款（自身输出节点换成 TX_OUT）：
- * TX_OUT + CONST / REDSTONE_IN / PRIVATE_IN / BUS_IN + COMMENT / DEBUG。
- * Transmission graph editor. The whitelist mirrors the Speed Proxy's set with its own
- * output node (TX_OUT): TX_OUT + CONST / REDSTONE_IN / PRIVATE_IN / BUS_IN + COMMENT / DEBUG.
+ * 可编程变速器图编辑器。节点白名单 = 值 + 动力读数 + 变速输出 + 调试
+ * （见 BlockNodeAllowances.TRANSMISSION）。
+ * Transmission graph editor. Allowance = values + kinetic readings + TX_OUT + debug.
  */
 public class TransmissionScreen extends AbstractGraphScreen {
 
     public TransmissionScreen(BlockPos pos) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".programmable_transmission"), pos);
-        setNodeFilter(nt ->
-            nt == NodeType.STRESS || nt == NodeType.RPM
-            || nt == NodeType.TX_OUT
-            || nt == NodeType.CONST
-            || nt == NodeType.REDSTONE_IN
-            || nt == NodeType.PRIVATE_IN
-            || nt == NodeType.BUS_IN
-            || nt == NodeType.COMMENT
-            || nt == NodeType.DEBUG_SIGNAL_GEN
-            || nt == NodeType.DEBUG_PROBE);
+        setNodeAllowance(BlockNodeAllowances.TRANSMISSION);
     }
 
     @Override protected ProgrammableTransmissionBlockEntity getBE() {

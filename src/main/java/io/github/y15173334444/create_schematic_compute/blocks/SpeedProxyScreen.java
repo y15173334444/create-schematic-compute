@@ -1,9 +1,9 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
 import net.minecraft.core.BlockPos;
@@ -18,14 +18,7 @@ public class SpeedProxyScreen extends AbstractGraphScreen {
 
     public SpeedProxyScreen(BlockPos pos) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".speed_proxy"), pos);
-        setNodeFilter(nt -> nt == NodeType.SPEED_CTRL
-            || nt == NodeType.CONST
-            || nt == NodeType.REDSTONE_IN
-            || nt == NodeType.PRIVATE_IN
-            || nt == NodeType.BUS_IN
-            || nt == NodeType.COMMENT
-            || nt == NodeType.DEBUG_SIGNAL_GEN
-            || nt == NodeType.DEBUG_PROBE);
+        setNodeAllowance(BlockNodeAllowances.SPEED_PROXY);
     }
 
     @Override protected SpeedProxyBlockEntity getBE() {

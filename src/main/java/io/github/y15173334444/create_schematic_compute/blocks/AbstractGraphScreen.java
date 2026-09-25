@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket;
 import io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket;
@@ -38,9 +39,16 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
         this.editor = new GraphEditor(this, this);
     }
 
-    /** 子类在构造器中调用，设置节点过滤器 / called from subclass constructors to set the node filter */
+    /** 子类在构造器中调用，设置节点过滤器（子图等一次性谓词仍走这里）。
+     *  Called from subclass constructors; one-off predicates (sub-graph) still use this. */
     protected void setNodeFilter(Predicate<NodeType> filter) {
         editor.setNodeFilter(filter);
+    }
+
+    /** 子类在构造器中调用，按分类白名单 + 类内黑名单设置节点准入。
+     *  Called from subclass constructors: category allowlist + in-category exclusions. */
+    protected void setNodeAllowance(NodeAllowance allowance) {
+        editor.setNodeFilter(allowance::allows);
     }
 
     // ── Screen 生命周期 / lifecycle ──

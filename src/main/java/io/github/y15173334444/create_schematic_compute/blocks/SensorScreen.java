@@ -1,9 +1,9 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
 import net.minecraft.core.BlockPos;
@@ -15,16 +15,11 @@ import java.io.ByteArrayOutputStream;
 import java.util.Map;
 
 public class SensorScreen extends AbstractGraphScreen {
-    private static boolean isAllowed(NodeType nt) {
-        return nt == NodeType.ATTITUDE || nt == NodeType.FORWARD || nt == NodeType.ACCELERATION || nt == NodeType.VELOCITY || nt == NodeType.POSITION || nt == NodeType.BUS_OUT
-            || nt == NodeType.REDSTONE_OUT || nt == NodeType.PRIVATE_OUT
-            || nt == NodeType.COMMENT
-            || nt == NodeType.DEBUG_SIGNAL_GEN
-            || nt == NodeType.DEBUG_PROBE;
-    }
     public SensorScreen(BlockPos pos) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".sensor"), pos);
-        setNodeFilter(SensorScreen::isAllowed);
+        // input_motion + input_pose + output + debug（相对旧名单净增 POSE_CONVERT / SPLIT）
+        // input_motion + input_pose + output + debug (gains POSE_CONVERT / SPLIT vs the old list)
+        setNodeAllowance(BlockNodeAllowances.SENSOR);
     }
     @Override protected SensorBlockEntity getBE() {
         if (minecraft != null && minecraft.level != null) {

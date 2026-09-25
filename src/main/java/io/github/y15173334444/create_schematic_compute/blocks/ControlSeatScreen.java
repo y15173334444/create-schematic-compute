@@ -1,9 +1,9 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
 import net.minecraft.core.BlockPos;
@@ -16,33 +16,11 @@ import java.util.Map;
 
 public class ControlSeatScreen extends AbstractGraphScreen {
 
-    /** 控制座椅允许的节点类型 */
-    private static boolean isAllowedNode(NodeType nt) {
-        return nt == NodeType.KEYBOARD
-            || nt == NodeType.MOUSE_JOYSTICK
-            || nt == NodeType.VIEW_ANGLE
-            || nt == NodeType.MOUSE_BUTTON
-            || nt == NodeType.GAMEPAD_JOYSTICK
-            || nt == NodeType.GAMEPAD_BUTTON
-            || nt == NodeType.GAMEPAD_TRIGGER
-            || nt == NodeType.WORLD_VIEW
-            || nt == NodeType.ATTITUDE
-            || nt == NodeType.ACCELERATION
-            || nt == NodeType.VELOCITY
-            || nt == NodeType.POSITION
-            || nt == NodeType.BUS_OUT
-            || nt == NodeType.POSE_CONVERT
-            || nt == NodeType.SPLIT
-            || nt == NodeType.REDSTONE_OUT
-            || nt == NodeType.PRIVATE_OUT
-            || nt == NodeType.COMMENT
-            || nt == NodeType.DEBUG_SIGNAL_GEN
-            || nt == NodeType.DEBUG_PROBE;
-    }
-
     public ControlSeatScreen(BlockPos pos) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".control_seat"), pos);
-        setNodeFilter(ControlSeatScreen::isAllowedNode);
+        // FORWARD 由类内黑名单排除（文档注明控制椅菜单不列出）
+        // FORWARD is in-category excluded (docs say the control seat menu omits it)
+        setNodeAllowance(BlockNodeAllowances.CONTROL_SEAT);
     }
 
     @Override protected ControlSeatBlockEntity getBE() {

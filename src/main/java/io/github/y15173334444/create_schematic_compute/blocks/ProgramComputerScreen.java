@@ -1,9 +1,9 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
 import net.minecraft.core.BlockPos;
@@ -18,45 +18,7 @@ public class ProgramComputerScreen extends AbstractGraphScreen {
 
     public ProgramComputerScreen(BlockPos pos) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".program_computer"), pos);
-        setNodeFilter(nt -> nt == NodeType.CONST
-            || nt == NodeType.REDSTONE_IN
-            || nt == NodeType.REDSTONE_OUT
-            || nt == NodeType.PRIVATE_IN
-            || nt == NodeType.PRIVATE_OUT
-            || nt == NodeType.BUS_IN
-            || nt == NodeType.BUS_OUT
-            || nt == NodeType.DELAY
-            || nt == NodeType.LATCH
-            || nt == NodeType.T_FLIPFLOP
-            || nt == NodeType.PULSE_EXTEND
-            || nt == NodeType.LOOP
-            || nt == NodeType.FUSE
-            || nt == NodeType.BOOL
-            || nt == NodeType.ACCUMULATOR
-            || nt == NodeType.INTEGRATOR
-            || nt == NodeType.GATE
-            || nt == NodeType.SIN
-            || nt == NodeType.COS
-            || nt == NodeType.TAN
-            || nt == NodeType.ASIN
-            || nt == NodeType.ACOS
-            || nt == NodeType.ATAN2
-            || nt == NodeType.SINH
-            || nt == NodeType.COSH
-            || nt == NodeType.SQRT
-            || nt == NodeType.LN
-            || nt == NodeType.LOG
-            || nt == NodeType.EXP
-            || nt == NodeType.SEC
-            || nt == NodeType.CSC
-            || nt == NodeType.COT
-            || nt == NodeType.ANGLE_UNWRAP
-            || nt == NodeType.DIRECTION
-            || nt == NodeType.COMMENT
-            || nt == NodeType.DEBUG_SIGNAL_GEN
-            || nt == NodeType.DEBUG_PROBE
-            || nt == NodeType.RELAY_A
-            || nt == NodeType.RELAY_B);
+        setNodeAllowance(BlockNodeAllowances.PROGRAM_COMPUTER);
     }
 
     @Override protected ProgramComputerBlockEntity getBE() {

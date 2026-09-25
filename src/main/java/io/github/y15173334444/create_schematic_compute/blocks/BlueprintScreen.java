@@ -1,9 +1,9 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
 import net.minecraft.core.BlockPos;
@@ -18,45 +18,9 @@ public class BlueprintScreen extends AbstractGraphScreen {
 
     public BlueprintScreen(BlockPos pos) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".blueprint"), pos);
-        setNodeFilter(nt -> nt != NodeType.SPEED_CTRL
-            && nt != NodeType.DELAY
-            && nt != NodeType.LATCH
-            && nt != NodeType.T_FLIPFLOP
-            && nt != NodeType.PULSE_EXTEND
-            && nt != NodeType.LOOP
-            && nt != NodeType.FUSE
-            && nt != NodeType.KEYBOARD
-            && nt != NodeType.MOUSE_JOYSTICK
-            && nt != NodeType.MOUSE_BUTTON
-            && nt != NodeType.GAMEPAD_JOYSTICK
-            && nt != NodeType.GAMEPAD_BUTTON
-            && nt != NodeType.GAMEPAD_TRIGGER
-            && nt != NodeType.VIEW_ANGLE
-            && nt != NodeType.WORLD_VIEW
-            && nt != NodeType.ATTITUDE
-            && nt != NodeType.FORWARD
-            && nt != NodeType.ACCELERATION
-            && nt != NodeType.VELOCITY
-            && nt != NodeType.POSITION
-            && nt != NodeType.TARGET_OUT
-            && nt != NodeType.TEXT
-            && nt != NodeType.DATA
-            && nt != NodeType.IMAGE
-            && nt != NodeType.IMAGE_SEQUENCE
-            && !nt.isMonitorOnly()
-            && nt != NodeType.ENCAP_INPUT
-            && nt != NodeType.ENCAP_OUTPUT
-            // 齿轮箱/变速器专属节点：运动指令仅数控齿轮箱图、TX_OUT 仅变速器图
-            // （docs/node-guide.md 早已如此声明，这里把菜单与文档对齐）。
-            // Gearbox/transmission-only nodes: motion commands are CNC-gearbox-only and
-            // TX_OUT is transmission-only (docs/node-guide.md already said so — align the
-            // add-node menu with the docs).
-            && nt != NodeType.MOVE
-            && nt != NodeType.ROTATE
-            && nt != NodeType.WAIT
-            && nt != NodeType.CLUTCH
-            && nt != NodeType.ENCODER
-            && nt != NodeType.TX_OUT);
+        // 分类白名单见 BlockNodeAllowances.BLUEPRINT（docs/node-category-allowance-plan.md §3）
+        // Category allowlist: BlockNodeAllowances.BLUEPRINT (docs/node-category-allowance-plan.md §3)
+        setNodeAllowance(BlockNodeAllowances.BLUEPRINT);
     }
 
     @Override protected BlueprintBlockEntity getBE() {

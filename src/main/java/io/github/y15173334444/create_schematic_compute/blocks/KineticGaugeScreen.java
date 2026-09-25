@@ -1,9 +1,9 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
 import net.minecraft.core.BlockPos;
@@ -31,30 +31,11 @@ public class KineticGaugeScreen extends AbstractGraphScreen {
 
     public KineticGaugeScreen(BlockPos pos) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".kinetic_gauge"), pos);
-        // 名单（2026-09-13 与作者确认）：动力读数 + 输出类 + 值/输入 + **比较与逻辑** + 调试/注释。
-        // 剩余分类**刻意移出**，分两类理由：
-        //   · 能力不足（加进去也是死的）：input（键盘/鼠标/手柄/姿态/速度/位置/目标）与 gearbox
-        //     （MOVE/ROTATE/WAIT/CLUTCH/ENCODER/TX_OUT）读的是"座舱/运动"状态（GraphEvaluator 全部走
-        //     SeatInputState），仪表宿主不提供 → 恒 0；SPEED_CTRL 改的是宿主的**目标转速**，仪表没有
-        //     这个概念 → 无效。
-        //   · 作者取舍（可用但暂不提供）：显示（TEXT/DATA 上蓝屏）、数学（基础/高级）、三角、控制
-        //     （PID/CLAMP/MAP）、时序、结构/子图 —— 想要时说一声即可加回。
-        // 注意：这只是**新增节点菜单**的白名单；已有存档图里的节点照常求值与显示。
-        // Whitelist for the ADD-NODE MENU only: kinetic readings + outputs + values/inputs +
-        // comparison/logic + debug/comment. The rest is out either by capability (input/gearbox read
-        // seat/motion state the gauge never provides; SPEED_CTRL drives a target speed it has no
-        // concept of) or by the author's choice (display/math/trig/control/sequential/structure).
-        // Nodes already in saved graphs keep evaluating and rendering.
-        setNodeFilter(nt ->
-            nt == NodeType.STRESS || nt == NodeType.RPM
-            || nt == NodeType.REDSTONE_OUT || nt == NodeType.PRIVATE_OUT || nt == NodeType.BUS_OUT
-            || nt == NodeType.CONST || nt == NodeType.REDSTONE_IN
-            || nt == NodeType.PRIVATE_IN || nt == NodeType.BUS_IN
-            || nt == NodeType.GT || nt == NodeType.LT || nt == NodeType.GE
-            || nt == NodeType.LE || nt == NodeType.EQ || nt == NodeType.BOOL
-            || nt == NodeType.GATE || nt == NodeType.OR
-            || nt == NodeType.RELAY_A || nt == NodeType.RELAY_B
-            || nt == NodeType.DEBUG_SIGNAL_GEN || nt == NodeType.DEBUG_PROBE || nt == NodeType.COMMENT);
+        // 分类白名单见 BlockNodeAllowances.KINETIC_GAUGE（values + logic + kinetic + output + debug）
+        // 能力边界理由（为何排除 input/gearbox/SPEED_CTRL）写在该常量的 javadoc。
+        // Category allowlist: BlockNodeAllowances.KINETIC_GAUGE; capability-boundary
+        // rationale (why input/gearbox/SPEED_CTRL are out) lives on that constant.
+        setNodeAllowance(BlockNodeAllowances.KINETIC_GAUGE);
     }
 
     @Override protected KineticGaugeBlockEntity getBE() {

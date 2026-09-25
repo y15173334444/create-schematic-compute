@@ -1,9 +1,9 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
 import io.github.y15173334444.create_schematic_compute.network.RadarSettingsPacket;
@@ -22,17 +22,9 @@ public class RadarScreen extends AbstractGraphScreen {
     private EditBox rangeInput, scaleInput, lockDistInput, offXInput, offYInput, offZInput;
     private static final int H = 18;
 
-    private static boolean isAllowedNode(NodeType nt) {
-        return nt == NodeType.TARGET_OUT || nt == NodeType.REDSTONE_OUT
-            || nt == NodeType.PRIVATE_OUT || nt == NodeType.BUS_OUT
-            || nt == NodeType.COMMENT
-            || nt == NodeType.DEBUG_SIGNAL_GEN
-            || nt == NodeType.DEBUG_PROBE;
-    }
-
     public RadarScreen(BlockPos pos) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".radar"), pos);
-        setNodeFilter(RadarScreen::isAllowedNode);
+        setNodeAllowance(BlockNodeAllowances.RADAR);
     }
 
     @Override protected RadarBlockEntity getBE() {

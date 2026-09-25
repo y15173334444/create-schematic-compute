@@ -1,9 +1,9 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
 import net.minecraft.core.BlockPos;
@@ -16,7 +16,7 @@ import java.io.ByteArrayOutputStream;
 import java.util.Map;
 
 /**
- * 数控齿轮箱（运动块）图编辑器。节点白名单 = 编程计算机同款 + 运动专属
+ * 数控齿轮箱（运动块）图编辑器。节点白名单 = 程序计算机同款 + 运动专属
  * （MOVE/ROTATE/WAIT/CLUTCH/ENCODER）+ 动力网络读数（STRESS/RPM，
  * 经 KineticNetworkView 宿主注入读取本方块所在网络）。
  * CNC gearbox (motion block) graph editor. Whitelist = the Program Computer's set plus
@@ -27,52 +27,9 @@ public class CncGearboxScreen extends AbstractGraphScreen {
 
     public CncGearboxScreen(BlockPos pos) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".cnc_gearbox"), pos);
-        // 与 ProgramComputerScreen 逐项一致（改其一须同步另一个），外加五个运动节点。
-        // Mirrors ProgramComputerScreen entry by entry (keep the two in sync), plus the
-        // five motion nodes.
-        setNodeFilter(nt ->
-            nt == NodeType.STRESS || nt == NodeType.RPM
-            || nt == NodeType.MOVE || nt == NodeType.ROTATE || nt == NodeType.WAIT
-            || nt == NodeType.CLUTCH || nt == NodeType.ENCODER
-            || nt == NodeType.CONST
-            || nt == NodeType.REDSTONE_IN
-            || nt == NodeType.REDSTONE_OUT
-            || nt == NodeType.PRIVATE_IN
-            || nt == NodeType.PRIVATE_OUT
-            || nt == NodeType.BUS_IN
-            || nt == NodeType.BUS_OUT
-            || nt == NodeType.DELAY
-            || nt == NodeType.LATCH
-            || nt == NodeType.T_FLIPFLOP
-            || nt == NodeType.PULSE_EXTEND
-            || nt == NodeType.LOOP
-            || nt == NodeType.FUSE
-            || nt == NodeType.BOOL
-            || nt == NodeType.ACCUMULATOR
-            || nt == NodeType.INTEGRATOR
-            || nt == NodeType.GATE
-            || nt == NodeType.SIN
-            || nt == NodeType.COS
-            || nt == NodeType.TAN
-            || nt == NodeType.ASIN
-            || nt == NodeType.ACOS
-            || nt == NodeType.ATAN2
-            || nt == NodeType.SINH
-            || nt == NodeType.COSH
-            || nt == NodeType.SQRT
-            || nt == NodeType.LN
-            || nt == NodeType.LOG
-            || nt == NodeType.EXP
-            || nt == NodeType.SEC
-            || nt == NodeType.CSC
-            || nt == NodeType.COT
-            || nt == NodeType.ANGLE_UNWRAP
-            || nt == NodeType.DIRECTION
-            || nt == NodeType.COMMENT
-            || nt == NodeType.DEBUG_SIGNAL_GEN
-            || nt == NodeType.DEBUG_PROBE
-            || nt == NodeType.RELAY_A
-            || nt == NodeType.RELAY_B);
+        // 分类白名单见 BlockNodeAllowances.CNC_GEARBOX（含 gearbox + kinetic）
+        // Category allowlist: BlockNodeAllowances.CNC_GEARBOX (gearbox + kinetic)
+        setNodeAllowance(BlockNodeAllowances.CNC_GEARBOX);
     }
 
     @Override protected CncGearboxBlockEntity getBE() {

@@ -46,17 +46,9 @@ public class MonitorScreen extends AbstractGraphScreen implements MonitorDisplay
         // 设置面板的 EditBox 由 MonitorDisplayEditor 持有（打开面板时装载数值，settingsInited 标志）
         // Settings EditBoxes live in MonitorDisplayEditor (values load when the panel opens).
 
-        // node filter: only input and display nodes
-        editor.setNodeFilter(nt -> nt == NodeType.CONST
-            || nt == NodeType.REDSTONE_IN
-            || nt == NodeType.PRIVATE_IN
-            || nt == NodeType.BUS_IN
-            || nt == NodeType.TEXT || nt == NodeType.DATA
-            || nt == NodeType.IMAGE || nt == NodeType.IMAGE_SEQUENCE
-            || nt == NodeType.HUD_PITCH_LADDER
-            || nt == NodeType.COMMENT
-            || nt == NodeType.DEBUG_SIGNAL_GEN
-            || nt == NodeType.DEBUG_PROBE);
+        // values + display + debug（见 BlockNodeAllowances.MONITOR）
+        // values + display + debug (see BlockNodeAllowances.MONITOR)
+        setNodeAllowance(BlockNodeAllowances.MONITOR);
     }
 
     // ══════ MonitorDisplayEditor.Host 实现（屏幕侧最小接口）══════
