@@ -194,22 +194,36 @@ class EditorKeysPixelAndWireTest {
     }
 
     @Test
-    @DisplayName("legacy marker-less configs reset to factory / 无格式标记的旧配置整表回出厂")
-    void legacyConfigHeals() throws Exception {
-        // 历史构造漏洞产物：未初始化鼠标槽默认 0=左键 并写盘（截图里一堆「/ 左键」的来源）。
-        // The historical construction-bug product: uninitialized mouse slots defaulted
-        // to 0 = left button and leaked into configs (the source of the screenshot's
-        // pile of "/ left-click" rows).
+    @DisplayName("legacy marker-less configs carry seq values over; .mouse slots are dropped / 无标记旧配置的 seq 键序原样保留，.mouse 槽字段弃用")
+    void legacyConfigCarryOver() throws Exception {
+        // 旧版 save() 从不写 format 标记 —— 现网所有真实配置都没有它，整表重置会
+        // 静默丢光用户的键序绑定。seq 值原样保留；历史脏数据（未初始化鼠标槽默认
+        // 0=左键泄漏进保存）只在 .mouse 槽字段里 —— 读取时忽略、保存时移除并写回
+        // 标记；只有 .mouse 没有 .seq 的动作保持出厂键。
+        // The old save() never wrote a format marker - every real-world config lacks
+        // it, and a wholesale reset would silently wipe the user's key-sequence
+        // bindings. Seq values carry over verbatim; the historical dirty data
+        // (uninitialized mouse slots defaulting to 0 = left button leaking into
+        // saves) lived only in the .mouse slot fields - ignored on load, removed on
+        // save with the marker written back; actions holding only a .mouse field
+        // keep their factory keys.
         java.nio.file.Files.writeString(tempDir.resolve("config.properties"),
-            "editorKeys.UNDO.mouse=0\neditorKeys.UNDO.seq=90,1\n"
+            "editorKeys.UNDO.mouse=0\neditorKeys.UNDO.seq=75,1\n"
             + "editorKeys.DELETE_WIRE.mouse=-1\neditorKeys.DELETE_WIRE.seq=87,0\n"
             + "editorKeys.PIXEL_BRUSH.mouse=0\n");
         EditorKeys.reloadForTest();
-        assertEquals(List.of(new EditorKeys.Step(90, EditorKeys.MOD_CTRL)), EditorKeys.sequence(EditorKeys.Action.UNDO), "factory undo restored");
-        assertEquals(List.of(new EditorKeys.Step(258, 0), mouse(0)), EditorKeys.sequence(EditorKeys.Action.DELETE_WIRE), "the Tab → left factory chord is restored");
-        // 重载后的首次保存写回标记，新绑定自此可信持久。 / The first save after the reload writes the marker; new bindings persist trusted.
-        assertTrue(EditorKeys.setSequence(EditorKeys.Action.UNDO, List.of(new EditorKeys.Step(90, EditorKeys.MOD_CTRL))));
+        assertEquals(List.of(new EditorKeys.Step(75, EditorKeys.MOD_CTRL)), EditorKeys.sequence(EditorKeys.Action.UNDO), "the legacy undo binding carries over verbatim");
+        assertEquals(List.of(new EditorKeys.Step(87, 0)), EditorKeys.sequence(EditorKeys.Action.DELETE_WIRE), "the legacy W key trigger carries over verbatim");
+        assertEquals(List.of(new EditorKeys.Step(66, 0)), EditorKeys.sequence(EditorKeys.Action.PIXEL_BRUSH), "factory B kept - the .mouse field is never read");
+        // 首次保存写回标记并移除 .mouse 槽字段；此后重载逐字往返。
+        // The first save writes the marker and drops the .mouse slot fields; later
+        // reloads roundtrip verbatim.
+        assertTrue(EditorKeys.setSequence(EditorKeys.Action.UNDO, List.of(new EditorKeys.Step(75, EditorKeys.MOD_CTRL))));
+        String content = java.nio.file.Files.readString(tempDir.resolve("config.properties"));
+        assertTrue(content.contains("editorKeys.format=2"), "the marker is written back");
+        assertFalse(content.contains(".mouse"), "the stray .mouse fields are removed on save");
         EditorKeys.reloadForTest();
-        assertEquals(List.of(new EditorKeys.Step(90, EditorKeys.MOD_CTRL)), EditorKeys.sequence(EditorKeys.Action.UNDO));
+        assertEquals(List.of(new EditorKeys.Step(75, EditorKeys.MOD_CTRL)), EditorKeys.sequence(EditorKeys.Action.UNDO));
+        assertEquals(List.of(new EditorKeys.Step(87, 0)), EditorKeys.sequence(EditorKeys.Action.DELETE_WIRE));
     }
 }

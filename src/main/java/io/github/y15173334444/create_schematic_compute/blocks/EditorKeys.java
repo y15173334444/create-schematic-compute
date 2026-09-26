@@ -57,43 +57,41 @@ import java.util.Properties;
  * trigger (opens at the cursor on the bound key).
  *
  * <p>冲突规则（同域内校验，跨域事件流不同可共存）：同域两条序列经
- * {@link #prefixAmbiguous} 判定——等长逐位相同必拒（事件同时命中、引擎只触发枚举序
- * 靠前的一条）；不等长时短者是长者的键前缀且修饰 ⊆ 才拒。鼠标首步同按钮即同域
- * 冲突（两次点击都被消费）。加 PAN 抓图键独占（对所有序列的键步，键相同即拒）。
+ * {@link #prefixAmbiguous} 判定——等长逐位键相同必拒（并集修饰事件会同时命中、
+ * 引擎只触发枚举序靠前的一条）；不等长时短者是长者的键前缀且修饰 ⊆ 才拒，修饰可
+ * 区分的不等长对可共存（Ctrl+左键 与 左键→右键 各自只在己方修饰态命中，同理）。
+ * 鼠标步没有额外规则：判定按键码走（负键码 = 按钮），共享首按钮的两条队列靠后续
+ * 步骤区分（左键→右键 与 左键→A 各等自己的第二事件）；只有等长全同对与修饰 ⊆
+ * 前缀对才拒。再加 PAN 抓图键独占（对所有序列的键步，键相同即拒）。
  * Conflict rules (checked within a domain; cross-domain event streams coexist): two
  * same-domain sequences go through {@link #prefixAmbiguous} — equal length with
- * identical steps is always refused (both would fire; the engine keeps only the
- * enum-first); for different lengths the shorter must be a key-prefix of the longer
- * with its mods contained. A shared first MOUSE button is a same-domain clash (both
- * would consume the click). Plus PAN's grab-key exclusivity (against the key steps of
- * all sequences, key equality suffices).
- *
- * <p>冲突规则：等长且逐位键相同的两条键盘序列必歧义（并集修饰事件会同时命中，引擎
- * 只触发枚举序靠前的一条，另一条永远失效）→ 拒绝；不等长时，短者是长者的键前缀且
- * 短者每步修饰 ⊆ 长者对应步才歧义（完成长者的任何按键都会先在短者处触发）——否则
- * 两者可按修饰状态区分、允许共存（如 Ctrl+D 单步 与 D→K 连招）。外加 PAN 按住键独占
- * （双向，键相同即拒）。鼠标动作之间按键唯一。
- * Conflict rule: two equal-length keyboard sequences with per-step equal keys are
- * always ambiguous (the union-modifier event matches both; the engine fires only the
- * enum-first, leaving the other dead) → refused. For different lengths, the shorter
- * must be a key-prefix of the longer with its per-step mods contained in the longer's
- * (any completion of the longer would fire the shorter first) — otherwise they are
- * distinguishable by modifier state and may coexist (a Ctrl+D single step vs a D→K
- * combo). Plus the PAN hold-key exclusivity (bidirectional, key equality suffices).
- * Mouse actions need distinct buttons.
+ * per-step equal keys is always refused (the union-modifier event matches both; the
+ * engine keeps only the enum-first); for different lengths the shorter must be a
+ * key-prefix of the longer with its mods contained — modifier-distinguishable pairs
+ * coexist (Ctrl+left-click vs left-click → right-click each fire only in their own
+ * modifier state). Mouse steps carry no extra rule: the check keys off the keycode
+ * (a negative keycode = a button); two queues sharing the first button stay
+ * distinguishable by their later steps (left→right vs left→A each await their own
+ * second event); only equal-length all-equal pairs and mods-contained prefixes are
+ * refused. Plus PAN's grab-key exclusivity (against the key steps of all sequences,
+ * key equality suffices).
  *
  * <p>持久化复用既有客户端配置文件
  * {@code config/create_schematic_compute-client.properties}
  * （与 NodeRenderer 的颜色 / 网格吸附 / 工具栏位置同一机制）。格式
  * {@code editorKeys.<动作>.seq = "键,修饰;键,修饰"}（负键码 = 鼠标步），由
- * {@code editorKeys.format=2} 标记；无标记的旧配置经手过「未初始化鼠标槽默认
- * 0=左键」的构造漏洞，整表作废、直接回出厂（首次保存写回标记）。
+ * {@code editorKeys.format=2} 标记。旧版保存从不写标记——无标记≠脏表：seq 键序
+ * 值原样保留；历史脏数据只在旧 {@code .mouse} 鼠标槽字段（未初始化槽默认 0=左键
+ * 泄漏进保存），读取时忽略、保存时移除并写回标记。更老的 key/mods 单键配置没有
+ * seq 值可读，自然落回出厂。
  * Persisted into the existing client config file, same mechanism NodeRenderer uses.
  * Format: {@code editorKeys.<ACTION>.seq = "key,mods;key,mods"} (a negative keycode =
- * a mouse step), stamped {@code editorKeys.format=2}. Marker-less (pre-model) configs
- * went through the "uninitialized mouse slot defaults to 0 = left button" construction
- * bug, so their whole table is discarded in favour of the factory defaults (the marker
- * is written back on the first save).
+ * a mouse step), stamped {@code editorKeys.format=2}. The old save() never wrote a
+ * marker — marker-less does NOT mean dirty: seq values carry over verbatim; the
+ * historical dirty data lived only in the legacy {@code .mouse} slot fields
+ * (uninitialized slots defaulted to 0 = left button and leaked into saves), which
+ * are ignored on load, removed on save, with the marker written back. Older
+ * key/mods configs hold no seq values at all and fall back to the factory defaults.
  */
 public final class EditorKeys {
 
@@ -629,16 +627,22 @@ public final class EditorKeys {
             var path = java.nio.file.Path.of(CONFIG_PATH);
             if (java.nio.file.Files.exists(path))
                 try (var in = java.nio.file.Files.newInputStream(path)) { props.load(in); }
-            // 格式标记：v2 = 单触发组合键模型（写入前经过完整的同类冲突校验，整表可信）。
-            // 无标记的旧配置经手过「未初始化鼠标槽默认 0=左键」的构造漏洞，整表不可信
-            // → 全部回出厂（static init 已填好默认表，直接跳过读取），首次保存写回标记。
+            // 格式标记：v2 = 单触发组合键模型（写入前经过完整的同类冲突校验）。旧版
+            // 保存从不写标记，「无标记」是现网配置的常态而非脏表——seq 键序值照常
+            // 读取、原样保留（历史脏数据只在 .mouse 槽字段，本就不读；更老的
+            // key/mods 配置没有 seq 值，自然落回出厂）。只有出现未知的新标记值才跳过
+            // 读取（向前兼容，防 v3 语法被当 v2 误解析），首次保存写回标记。
             // Format marker: v2 = the one-trigger combo model (every write passed the
-            // full same-kind clash checks, the table is trusted). Marker-less configs
-            // went through the "uninitialized mouse slot defaults to 0 = left button"
-            // construction bug — the whole table is untrustworthy and is discarded in
-            // favour of the factory defaults (the static init filled them; skip the
-            // read), and the marker is written back on the first save.
-            if (!"2".equals(props.getProperty(PREFIX + "format"))) return;
+            // full same-kind clash checks). The old save() never wrote a marker, so a
+            // missing marker is the norm for real-world configs, not a dirty table —
+            // seq values are read and carried over verbatim (the historical dirty data
+            // lived only in the .mouse slot fields, which are never read; older
+            // key/mods configs hold no seq values and fall back to the factory
+            // defaults). Only an unknown future marker skips the read (forward compat,
+            // so v3 syntax is never mis-parsed as v2); the marker is written back on
+            // the first save.
+            String format = props.getProperty(PREFIX + "format");
+            if (format != null && !"2".equals(format)) return;
             for (var a : Action.values()) {
                 // 统一序列模型：触发全在 seq（负键码 = 鼠标步），旧 .mouse 字段不再读取
                 // （保存时移除）。
