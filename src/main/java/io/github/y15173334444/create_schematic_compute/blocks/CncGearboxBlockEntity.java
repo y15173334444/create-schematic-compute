@@ -1,6 +1,8 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import com.simibubi.create.content.kinetics.transmission.SplitShaftBlockEntity;
+import net.minecraft.core.Direction;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.GearboxCommandSink;
@@ -37,9 +39,16 @@ import java.util.Map;
  * impossible.</p>
  *
  * <p><b>离合</b>：指令执行中或 CLUTCH 节点意图为真 → 接合；空闲 → 分离。
- * 接合/分离走官方合并/失源路径（见 {@link CncGearboxBlock}）。</p>
+ * 接合/分离走官方合并/失源路径（见 {@link CncGearboxBlock}）。两端轴面恒在
+ * （放置吸附始终有效）；分离时的转速隔离由 {@link #getRotationSpeedModifier}
+ * 在输出面返回 0 实现（官方 Clutch/SplitShaft 同款），不再抽掉输出轴面。</p>
+ * <p><b>Clutch</b>: command executing or CLUTCH node intent → engage; idle →
+ * disengage, via the official merge / missing-source paths. Both shaft faces stay
+ * present (placement snap always works); while disengaged, speed isolation is
+ * {@link #getRotationSpeedModifier} returning 0 on the output face (official
+ * Clutch/SplitShaft) instead of removing the output shaft face.</p>
  */
-public class CncGearboxBlockEntity extends KineticBlockEntity
+public class CncGearboxBlockEntity extends SplitShaftBlockEntity
         implements GearboxCommandSink, GraphBlockEntity, KineticEncoderView, io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView {
 
 
@@ -78,6 +87,27 @@ public class CncGearboxBlockEntity extends KineticBlockEntity
             ev.setEncoderView(this);
             ev.setKineticNetworkView(this);
         });
+    }
+
+    /**
+     * 官方 SplitShaft 转速修饰：输入面恒 1，输出面接合 1 / 分离 0。
+     * 两端轴面已恒在（见 {@link CncGearboxBlock#hasShaftTowards}），分离时靠这里
+     * 把输出面的传动比打成 0——{@code RotationPropagator.getAxisModifier} 只对
+     * {@code SplitShaftBlockEntity} 调本方法，邻居再贴上来也不会把输出并进输入网。
+     * Official SplitShaft speed modifier: always 1 on the input face; 1 engaged /
+     * 0 disengaged on the output face. Both shaft faces stay present, so isolation
+     * is this zero — {@code RotationPropagator.getAxisModifier} only calls this for
+     * {@code SplitShaftBlockEntity}, and a shaft placed against the output will not
+     * merge into the input network while disengaged.
+     */
+    @Override
+    public float getRotationSpeedModifier(Direction face) {
+        BlockState st = getBlockState();
+        if (face == CncGearboxBlock.inputFace(st, worldPosition))
+            return 1f;
+        if (face == CncGearboxBlock.outputFace(st, worldPosition))
+            return st.getValue(CncGearboxBlock.ENGAGED) ? 1f : 0f;
+        return 1f;
     }
 
     // ── 每 tick / per tick ──

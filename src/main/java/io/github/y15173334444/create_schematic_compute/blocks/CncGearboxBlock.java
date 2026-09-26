@@ -43,7 +43,8 @@ public class CncGearboxBlock extends RotatedPillarKineticBlock implements IWrenc
 
     /** 输入面位于轴负方向端（否则为正方向端）。Input face on the axis-negative end. */
     public static final BooleanProperty INPUT_NEGATIVE = BooleanProperty.create("input_negative");
-    /** 离合接合：true 时输出面带轴面。Clutch engaged: the output face carries a shaft. */
+    /** 离合接合：true 时输出面传速（轴面恒在，见 {@link #hasShaftTowards}）。
+     *  Clutch engaged: the output face transmits speed (shaft face always present). */
     public static final BooleanProperty ENGAGED = BooleanProperty.create("engaged");
     /** 运行状态灯（材质切换）：IDLE=cnc0 / RUN=cnc1 / COMMAND=cnc2。
      *  Run-state lamp (texture switch): IDLE=cnc0 / RUN=cnc1 / COMMAND=cnc2. */
@@ -120,12 +121,21 @@ public class CncGearboxBlock extends RotatedPillarKineticBlock implements IWrenc
                 ? kbe.getSpeed() : 0f;
     }
 
-    /** 输入面恒有轴面；输出面仅接合时有。 Input face always carries a shaft; output only when engaged. */
+    /**
+     * 两端轴面恒在（官方 SplitShaft / AbstractEncasedShaftBlock 同款，只看轴向）。
+     * 分离不再靠「抽掉输出轴面」——那会连带关掉放置吸附与邻居耦合，贴上去的传动轴
+     * 接不上。离合隔离改由 {@link CncGearboxBlockEntity#getRotationSpeedModifier}
+     * （输出面分离时 0）+ 既有的 detach/attachKinetics 负责。
+     * Both axis ends always carry a shaft face (official SplitShaft /
+     * AbstractEncasedShaftBlock — axis-only). Isolation no longer removes the output
+     * face (that also killed placement snap and neighbour coupling, so shafts placed
+     * against the block would not attach); the clutch is enforced by
+     * {@link CncGearboxBlockEntity#getRotationSpeedModifier} (0 on the output face
+     * while disengaged) plus the existing detach/attachKinetics.
+     */
     @Override
     public boolean hasShaftTowards(LevelReader level, BlockPos pos, BlockState state, Direction face) {
-        if (face == inputFace(state, pos))
-            return true;
-        return state.getValue(ENGAGED) && face == outputFace(state, pos);
+        return face.getAxis() == state.getValue(AXIS);
     }
 
     @Override
