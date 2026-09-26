@@ -309,6 +309,7 @@
   "node.create_schematic_compute.encap_input": "封装输入",
   "node.create_schematic_compute.encap_output": "封装输出",
   "gui.create_schematic_compute.encap_mode": "封装编辑模式",
+  "gui.create_schematic_compute.encap_occupied": "无法删除：该封装内有玩家正在编辑",
   "pin.create_schematic_compute.a": "A",
   "pin.create_schematic_compute.b": "B",
   "pin.create_schematic_compute.pv": "当前值/PV",

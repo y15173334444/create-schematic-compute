@@ -510,6 +510,22 @@ public class GraphEditor {
      *  节点软锁（实现见 GraphPresenceTracker）。/ Node soft lock (see GraphPresenceTracker). */
     public boolean isNodeLocked(int nodeId, int owner) { return presence.isNodeLocked(nodeId, owner); }
 
+    /** 删除守卫：封装节点内有其他玩家正在编辑（presence 建议性软锁，与 isNodeLocked 同层
+     *  —— 服务端对 presence 是纯中继，权威守卫须待服务端存储落地）。
+     *  Delete guard: the encapsulation has players editing inside (advisory presence soft
+     *  lock, same tier as isNodeLocked — the server merely relays presence, so an
+     *  authoritative guard would need a server-side store first). */
+    private boolean encapOccupiedByOthers(GraphNode n) {
+        return n.type == NodeType.ENCAPSULATION && presence.encapOccupied(n.id);
+    }
+
+    /** 占用删除提示（动作栏）。 / Occupied-deletion hint (action bar). */
+    private void hintEncapOccupied() {
+        var p = Minecraft.getInstance().player;
+        if (p != null) p.displayClientMessage(net.minecraft.network.chat.Component.literal(
+            "§c⚠ " + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.encap_occupied")), true);
+    }
+
     /** Store a remote player's presence. Called from packet handler.
      *  包处理器入口（实现见 GraphPresenceTracker）。 */
     public void storeRemotePresence(io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket pkt) { presence.storeRemotePresence(pkt); }
@@ -3557,6 +3573,10 @@ public class GraphEditor {
             var g2 = getGraph();
             var hit = hitNode(lastMouseX, lastMouseY);
             if (hit != null && !isNodeLocked(hit.id, ownerNodeId())) {
+                // 有玩家在该封装子图内编辑 → 禁删并提示（防把正在编辑的对端连人带图拽出来）。
+                // Players editing inside this encapsulation → refuse the delete with a hint
+                // (don't yank their editor out from under them).
+                if (encapOccupiedByOthers(hit)) { hintEncapOccupied(); return true; }
                 beginUndoBatch();
                 var savedX = hit.x; var savedY = hit.y; var savedType = hit.type.ordinal();
                 var savedNbt = saveNodeNbt(hit); // snapshot for undo restore
@@ -3640,9 +3660,11 @@ public class GraphEditor {
         else if (seqHit == EditorKeys.Action.DELETE_SELECTED && !selectedNodes.isEmpty()) {
             // 删除选中节点（原 Backspace/Delete 硬编码，现可绑定，默认 Delete）
             // Delete the selected nodes (was hardcoded to Backspace/Delete; bindable now, Delete by default)
+            boolean skippedOccupiedEncap = false; // 有玩家在子图内编辑的封装被跳过 / an occupied encapsulation was skipped
             beginUndoBatch();
             for (var n : List.copyOf(selectedNodes)) {
                 if (isNodeLocked(n.id, ownerNodeId())) continue;
+                if (encapOccupiedByOthers(n)) { skippedOccupiedEncap = true; continue; }
                 if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
                     boolean hasOther = false;
                     for (var other : graph.nodes) {
@@ -3663,6 +3685,7 @@ public class GraphEditor {
                 recordOp(removeOp, savedX, savedY, savedType, savedNbt);
             }
             endUndoBatch();
+            if (skippedOccupiedEncap) hintEncapOccupied();
             if (selectedNode != null) {
                 expandedNodeIds.remove(selectedNode.id);
                 nodeEditStatesById.remove(selectedNode.id);

@@ -100,6 +100,24 @@ final class GraphPresenceTracker {
         return remotePresences;
     }
 
+    /** 封装占用判定：是否有其他玩家（节点编辑模式）正以 {@code encapId} 为所在作用域
+     *  —— 删除封装节点前的守卫依据（与节点软锁同为建议性 presence 数据，服务端是纯中继）。
+     *  Encapsulation occupancy: is any other player (node-editor mode) rooted inside
+     *  {@code encapId} — the guard input for deleting an encapsulation node (same advisory
+     *  presence trust level as the node soft lock; the server is a pure relay). */
+    static boolean encapOccupied(java.util.Map<java.util.UUID, io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket> presences, int encapId) {
+        if (encapId <= 0) return false;
+        for (var p : presences.values()) {
+            // 只认节点编辑模式（mode 0）；显示布局模式的 ownerNodeId 语义不同。
+            // Node-editor mode only (mode 0); ownerNodeId means something else in display mode.
+            if (p.mode() == 0 && p.ownerNodeId() == encapId) return true;
+        }
+        return false;
+    }
+
+    /** 实例便捷入口：按当前远端临场表判定。 / Instance convenience over the current table. */
+    boolean encapOccupied(int encapId) { return encapOccupied(remotePresences, encapId); }
+
     /** 显示布局组件的软锁：是否有其他玩家正在显示布局模式拖拽该组件。
      *  Display-layout component soft lock: is another player dragging this component
      *  in the display layout editor right now? */

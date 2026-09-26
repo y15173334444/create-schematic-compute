@@ -279,6 +279,7 @@
   "node.create_schematic_compute.encap_input": "Input",
   "node.create_schematic_compute.encap_output": "Output",
   "gui.create_schematic_compute.encap_mode": "Encapsulation Edit Mode",
+  "gui.create_schematic_compute.encap_occupied": "Cannot delete: players are editing inside this encapsulation",
   "gui.create_schematic_compute.monitor.pixel_from_current": "From current",
   "gui.create_schematic_compute.monitor.pixel_size": "Canvas",
   "gui.create_schematic_compute.monitor.pixel_undo": "Undo",

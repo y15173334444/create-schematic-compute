@@ -130,4 +130,39 @@ class EncapSubGraphExpandSyncTest {
         assertFalse(f.ed().expandedNodeIds.contains(f.x().id),
             "a remotely-collapsed node must not appear expanded after entering the sub-graph");
     }
+
+    // ══════════ 删除守卫：封装占用判定 / delete guard: encapsulation occupancy ══════════
+
+    /** 造一条远端临场记录（纯 record，无头可构造）。 / A remote presence entry (plain record). */
+    private static io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket presence(
+        int ownerNodeId, byte mode) {
+        return new io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket(
+            net.minecraft.core.BlockPos.ZERO, java.util.UUID.randomUUID(), "Dev2",
+            ownerNodeId, 0f, 0f, -1, -1, -1, 0, 0f, 0f, null, mode, -1, false);
+    }
+
+    @Test
+    @DisplayName("encapOccupied: node-editor presence inside the encap counts / 子图内有节点编辑临场即占用")
+    void encapOccupiedByNodeEditorPresence() {
+        var map = new java.util.HashMap<java.util.UUID, io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket>();
+        map.put(java.util.UUID.randomUUID(), presence(7, (byte) 0));
+        assertTrue(GraphPresenceTracker.encapOccupied(map, 7),
+            "a player rooted inside encap 7 must block its deletion");
+        assertFalse(GraphPresenceTracker.encapOccupied(map, 8),
+            "a different encap is not occupied");
+    }
+
+    @Test
+    @DisplayName("encapOccupied: mode/non-owner/empty/invalid all clear / 显示模式、异作用域、空表、非法 id 均不占用")
+    void encapOccupiedNegativeCases() {
+        var map = new java.util.HashMap<java.util.UUID, io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket>();
+        assertFalse(GraphPresenceTracker.encapOccupied(map, 7), "empty table → not occupied");
+        // 显示布局模式（mode 1）的 ownerNodeId 语义不同，不得当占用判定
+        // Display-layout mode (1) gives ownerNodeId a different meaning — never counts.
+        map.put(java.util.UUID.randomUUID(), presence(7, (byte) 1));
+        assertFalse(GraphPresenceTracker.encapOccupied(map, 7), "display-mode presence is not an occupant");
+        // 非法 id（主图 -1 / 0）直接不判定
+        assertFalse(GraphPresenceTracker.encapOccupied(map, -1), "main-graph sentinel is never occupied");
+        assertFalse(GraphPresenceTracker.encapOccupied(map, 0), "id 0 is never occupied");
+    }
 }
