@@ -174,14 +174,32 @@ final class NodeEditStateFactory {
             // authoritative graph). Resolving it locally from the band registry or a same-graph
             // BUS_OUT was exactly what let different sides disagree.
             var busBox = new EditBox(mc.font, 0, 0, 120, 16, Component.literal(""));
-            busBox.setMaxLength(32); busBox.setValue(node.signalName);
+            busBox.setMaxLength(32);
+            // 装入文本（初值 / 保留草稿）不得标 dirty —— 只有用户敲键才允许提交（issue #10）
+            // Programmatic loads (initial value / preserved draft) must not mark dirty —
+            // only real keystrokes may commit (issue #10).
+            ed.suppressEditBoxResponder = true;
+            busBox.setValue(node.signalName);
+            ed.suppressEditBoxResponder = false;
+            busBox.setResponder(text -> {
+                s.busNameUserDirty = GraphBusEditor.dirtyAfterResponder(
+                    ed.suppressEditBoxResponder, s.busNameUserDirty);
+            });
             // busBox 不通过 enterActions 提交；保留旧聚焦 busBox 的输入值 (busBox not committed via enterActions; preserve old focused busBox input)
             var oldSt = oldStRef;
             s.busNode = node;
             if (oldSt != null && oldSt.busBox != null && oldSt.busBox.isFocused()) {
+                // 保留草稿本身没问题（不打断打字），但绝不能继承 dirty —— 否则防抖会把
+                // 改名前的旧文本写回服务端（#10 已确证路径）。
+                // Keeping the draft is fine (don't interrupt typing), but dirty must NOT
+                // be inherited — otherwise the debounce writes the pre-rename text back
+                // (the confirmed #10 path).
+                ed.suppressEditBoxResponder = true;
                 busBox.setValue(oldSt.busBox.getValue()); // 保留用户正在输入的内容 (Preserve user's in-progress input)
+                ed.suppressEditBoxResponder = false;
                 busBox.setFocused(true);
             }
+            s.busNameUserDirty = GraphBusEditor.dirtyAfterProgrammaticLoad();
             s.busBox = busBox;
             s.fields.add(busBox);
             s.fieldParamIndices.add(-1);
@@ -338,10 +356,14 @@ final class NodeEditStateFactory {
                 // 全角/中文符号兜底转换(insertText 已实时转换,此处覆盖 setValue/撤销等路径)
                 // Full-width fallback conversion (insertText already converts live; this covers setValue/undo paths)
                 String sanitized = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.sanitizeFullwidth(t);
-                // Re-fetch from current graph — the graph reference may have been
-                // replaced by an NBT sync between keystrokes.
-                // 每次按键重新获取图引用——NBT 同步可能在两次按键之间替换了图对象。
-                var cur = ed.host.getGraph().findNode(formulaNodeId);
+                // Re-fetch from the graph this node actually lives in (sub-graph aware).
+                // host.getGraph() is always the top-level graph — using it dropped formula
+                // edits inside encapsulation sub-graphs (or wrote them onto a colliding
+                // main-graph id) and skipped the SET_FORMULA op entirely (issue: subgraph sync).
+                // 从节点所在的图重新取引用（子图感知）。host.getGraph() 永远是主图 ——
+                // 封装子图里的公式编辑会被静默丢掉（或写到撞号的主图节点上），且不发 SET_FORMULA。
+                var liveGraph = ed.getGraph();
+                var cur = liveGraph.findNode(formulaNodeId);
                 if (cur == null || cur.type != NodeType.FORMULA) return;
                 cur.formula = sanitized;
                 var res = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.parseScript(sanitized);
@@ -357,7 +379,7 @@ final class NodeEditStateFactory {
                 // default output labels ("out0" vs "") and cachedScript-based resolution.
                 // 使用 pinIndex 解析判断（而非 list.contains），正确处理默认输出标签
                 // （"out0" vs ""）以及基于 cachedScript 的解析。
-                ed.host.getGraph().connections.removeIf(c -> {
+                liveGraph.connections.removeIf(c -> {
                     if (c.toId == cur.id) {
                         if (c.toPinId != null) return cur.inputPinIndex(c.toPinId) < 0;
                         else return c.toPin >= cur.inputs(); // legacy fallback
@@ -368,7 +390,7 @@ final class NodeEditStateFactory {
                     }
                     return false;
                 });
-                ed.host.getGraph().rebuildInputCache();
+                liveGraph.rebuildInputCache();
 
                 // ── Real-time validation (client-side only) ──
                 cur.formulaIssues = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(sanitized);

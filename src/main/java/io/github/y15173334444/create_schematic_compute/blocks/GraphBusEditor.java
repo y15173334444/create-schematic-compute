@@ -40,13 +40,57 @@ final class GraphBusEditor {
      *  collaborators (~0.5 s). */
     static final int BUS_EDIT_DEBOUNCE_TICKS = 10;
 
-    /** 提交 busBox 的值到 node.signalName (Commit busBox value to node.signalName) */
+    /** 频道名是否允许提交：必须是用户敲键标脏的改动（issue #10）。
+     *  Whether a channel-name edit may commit: it must be a user-keystroke dirty change (issue #10). */
+    static boolean shouldCommitBusName(boolean userDirty, String boxText, String nodeName) {
+        return userDirty && !boxText.equals(nodeName);
+    }
+
+    /** 程序装入/保留草稿后的脏标记：一律 false（issue #10）。
+     *  Dirty flag after a programmatic load / preserved draft: always false. */
+    static boolean dirtyAfterProgrammaticLoad() {
+        return false;
+    }
+
+    /** EditBox 响应器的脏标记：仅非 suppress（用户敲键）置 true；suppress 时保持原值。
+     *  Dirty flag from the EditBox responder: only a non-suppressed (user keystroke) call
+     *  sets true; suppressed programmatic setValue leaves the flag unchanged. */
+    static boolean dirtyAfterResponder(boolean suppress, boolean dirtyBefore) {
+        return suppress ? dirtyBefore : true;
+    }
+
+    /** 提交 busBox 的值到 node.signalName (Commit busBox value to node.signalName)
+     *
+     *  <p>issue #10：只有**用户敲键**标脏的文本才允许提交。面板重建保留的旧草稿 /
+     *  远端改名后的残留文本一律丢弃并提示，防止把别人的改名或服务端权威名顶回去。</p>
+     *  <p>issue #10: only text marked dirty by a real user keystroke may commit.
+     *  Drafts preserved across panel rebuilds or left over after a remote rename are
+     *  discarded with a hint — never written back over the authoritative name.</p> */
     void commitBusBox(GraphEditor.EditState st) {
         if (st == null || st.busBox == null || st.busNode == null) return;
         var node = st.busNode;
         String oldName = node.signalName;
         String t = st.busBox.getValue();
-        if (t.equals(oldName)) return;
+        if (t.equals(oldName)) {
+            st.busNameUserDirty = false;
+            return;
+        }
+        if (!shouldCommitBusName(st.busNameUserDirty, t, oldName)) {
+            // 非用户敲键装入的草稿：丢弃 + 同步回权威名 + 提示
+            // Non-keystroke draft: discard, snap back to the authoritative name, hint.
+            ed.suppressEditBoxResponder = true;
+            st.busBox.setValue(oldName);
+            ed.suppressEditBoxResponder = false;
+            st.busNameUserDirty = false;
+            st.busEditIdleTicks = 0;
+            var p = net.minecraft.client.Minecraft.getInstance().player;
+            if (p != null) {
+                p.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                    "§e⚠ 已丢弃未确认的频道名草稿（非手动输入，避免覆盖最新名称）"), false);
+            }
+            return;
+        }
+        st.busNameUserDirty = false;
         node.signalName = t;
         ed.host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
             io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,

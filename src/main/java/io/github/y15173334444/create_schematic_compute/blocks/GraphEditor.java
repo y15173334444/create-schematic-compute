@@ -206,6 +206,8 @@ public class GraphEditor {
             // Sync bands first (no rebuild); the bus-name commit rebuilds the edit
             // state, so the band values must reach signalBands before that happens.
             syncBandBoxes(st);
+            // 有差异就交给 commitBusBox 裁决：dirty 才落库，否则丢弃并提示（#10）
+            // Hand any diff to commitBusBox: dirty commits, otherwise discard + hint (#10).
             if (st.busBox != null && st.busNode != null
                 && !st.busBox.getValue().equals(st.busNode.signalName)) {
                 bus.commitBusBox(st);
@@ -285,7 +287,10 @@ public class GraphEditor {
         var states = new java.util.ArrayList<>(nodeEditStatesById.values());
         for (var st : states) {
             if (st.busBox == null || st.busNode == null) continue;
-            boolean namePending = !st.busBox.getValue().equals(st.busNode.signalName);
+            // 只推进用户敲键产生的改名；非 dirty 的差异不进入防抖（#10）
+            // Only user-keystroke renames enter the debounce; non-dirty diffs do not (#10).
+            boolean namePending = bus.shouldCommitBusName(
+                st.busNameUserDirty, st.busBox.getValue(), st.busNode.signalName);
             boolean bandsPending = bandBoxesPending(st);
             if (!namePending && !bandsPending) { st.busEditIdleTicks = 0; continue; }
             if (++st.busEditIdleTicks < GraphBusEditor.BUS_EDIT_DEBOUNCE_TICKS) continue;
@@ -416,6 +421,12 @@ public class GraphEditor {
         /** BUS 总线名 EditBox（用于失焦/Enter 提交检测） (BUS name EditBox, for focus-lost / Enter commit detection) */
         public net.minecraft.client.gui.components.EditBox busBox;
         public GraphNode busNode;
+        /** 频道名是否由**用户敲键**产生待提交改动。程序装入的文本（面板重建保留草稿 /
+         *  远端 SET_DISPLAY_TEXT 刷新）一律不得回写服务端（issue #10）。
+         *  Whether the pending channel-name edit came from a real user keystroke.
+         *  Programmatically loaded text (preserved draft on panel rebuild, remote
+         *  SET_DISPLAY_TEXT refresh) must never be written back (issue #10). */
+        public boolean busNameUserDirty = false;
         /** 总线名/频段名输入框自检测到未同步改动以来经过的 tick，供防抖自动提交用。
          *  Ticks elapsed since an unsynced bus-name / band-name edit was noticed, for
          *  the debounced auto-commit. */
@@ -1087,6 +1098,38 @@ public class GraphEditor {
         viewBookmarks.saveTempView();
     }
 
+    /** 首次渲染/代际变化时从图数据恢复展开集合与编辑状态；此后只做增量重建（指纹未变则完全
+     *  不动输入框）。自 renderBg 逐字抽出（含 expandedInitDone/editStatesNeedRebuild 门），
+     *  包级供回归测试在无头环境驱动「进入子图 → 恢复展开状态」全链路。
+     *  Restores the expanded set + edit states from graph data on first render / generation
+     *  bump; afterwards only incremental rebuilds (unchanged fingerprint → untouched edit
+     *  boxes). Moved verbatim out of renderBg (including the expandedInitDone /
+     *  editStatesNeedRebuild gate), package-private so regression tests can drive the full
+     *  enter-sub-graph → restore chain headlessly. */
+    void restoreOrRebuildEditStates() {
+        var graph = getGraph();
+        if (!expandedInitDone || editStatesNeedRebuild) {
+            boolean firstInit = !expandedInitDone;
+            expandedInitDone = true;
+            editStatesNeedRebuild = false;
+            java.util.HashSet<Integer> liveExpanded = new java.util.HashSet<>();
+            for (var n : graph.nodes) {
+                if (n.expanded && n.type != NodeType.ENCAPSULATION && shouldOpenPanel(n)) {
+                    liveExpanded.add(n.id);
+                    expandedNodeIds.add(n.id);
+                    int sig = editStateSignature(n);
+                    Integer prev = editStateSignatures.get(n.id);
+                    // 指纹未变且已有状态 → 不重建（这正是「输入中被换掉输入框」的根因对策）
+                    // Unchanged fingerprint + existing state -> no rebuild.
+                    if (!firstInit && prev != null && prev == sig && nodeEditStatesById.containsKey(n.id)) continue;
+                    editStateSignatures.put(n.id, sig);
+                    nodeEditStatesById.put(n.id, createEditState(n));
+                }
+            }
+            editStatesNeedRebuild |= cullStaleEditStates(graph, liveExpanded);
+        }
+    }
+
     /** 渲染编辑器背景（网格、连线、节点、叠加层/UI 等全部内容）。
      *  Render the editor background — grid, connections, nodes, overlays, UI, everything.
      *  <p>
@@ -1112,28 +1155,7 @@ public class GraphEditor {
             editStatesNeedRebuild = true;
         }
         lastInitGeneration = graph.graphGeneration;
-        // 首次渲染时从 NBT 恢复展开状态；此后只做增量重建（指纹未变则完全不动输入框）。
-        // First render restores expanded state; afterwards only incremental rebuilds happen.
-        if (!expandedInitDone || editStatesNeedRebuild) {
-            boolean firstInit = !expandedInitDone;
-            expandedInitDone = true;
-            editStatesNeedRebuild = false;
-            java.util.HashSet<Integer> liveExpanded = new java.util.HashSet<>();
-            for (var n : graph.nodes) {
-                if (n.expanded && n.type != NodeType.ENCAPSULATION && shouldOpenPanel(n)) {
-                    liveExpanded.add(n.id);
-                    expandedNodeIds.add(n.id);
-                    int sig = editStateSignature(n);
-                    Integer prev = editStateSignatures.get(n.id);
-                    // 指纹未变且已有状态 → 不重建（这正是「输入中被换掉输入框」的根因对策）
-                    // Unchanged fingerprint + existing state -> no rebuild.
-                    if (!firstInit && prev != null && prev == sig && nodeEditStatesById.containsKey(n.id)) continue;
-                    editStateSignatures.put(n.id, sig);
-                    nodeEditStatesById.put(n.id, createEditState(n));
-                }
-            }
-            editStatesNeedRebuild |= cullStaleEditStates(graph, liveExpanded);
-        }
+        restoreOrRebuildEditStates();
 
         // Phase 2: update render generation tracking (used by MonitorScreen cache)
         lastRenderedGen = graph.graphGeneration;
