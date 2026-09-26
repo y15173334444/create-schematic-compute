@@ -127,6 +127,62 @@ class CompileResetAndBusNameGateTest {
             assertEquals(99f, rot.params[1], 0f, "non-trigger param 1 untouched");
     }
 
+    // ══════════ 参数输入框同步 — ff3 / 草稿文本 / param box sync ══════════
+
+    @Test
+    @DisplayName("ff3 must not saturate at Integer.MAX_VALUE/1000 / ff3 不得把大数压成 2147483.x")
+    void testFf3DoesNotClampLargeMagnitudes() {
+        // 旧实现 Math.round(float)→int 在 |v|>2147483.647 时饱和，显示成 2147483.8
+        // Old Math.round(float)->int saturated above 2147483.647 and displayed 2147483.8
+        String big = GraphEditor.ff3(999999995904f);
+        assertFalse(big.startsWith("2147483"), "large param must not crush to Integer.MAX_VALUE/1000, got " + big);
+        // 旧实现下 mid 恰为 2147483.8 —— 断言必须能区分新旧
+        // Under the old ff3 this mid value printed exactly 2147483.8 — assert that.
+        assertEquals("2147483.8", GraphEditor.ff3(2147483.8f), "mid-range keeps ordinary formatting");
+        assertEquals("1.5", GraphEditor.ff3(1.5f), "ordinary values still format");
+    }
+
+    @Test
+    @DisplayName("empty/partial input keeps the last committed number / 空/半截输入保持上次已提交数")
+    void testResolveParamDraftValueKeepsLastOnInvalid() {
+        assertEquals(5f, NodeEditStateFactory.resolveParamDraftValue("", 5f), 0f, "cleared box");
+        assertEquals(5f, NodeEditStateFactory.resolveParamDraftValue("  ", 5f), 0f, "whitespace");
+        assertEquals(5f, NodeEditStateFactory.resolveParamDraftValue("1e", 5f), 0f, "partial exponent");
+        assertEquals(5f, NodeEditStateFactory.resolveParamDraftValue("abc", 5f), 0f, "unparseable keeps last");
+        assertEquals(12f, NodeEditStateFactory.resolveParamDraftValue("12.", 5f), 0f, "trailing dot parses");
+        assertEquals(0f, NodeEditStateFactory.resolveParamDraftValue("000", 5f), 0f, "000 is a real zero");
+    }
+
+    @Test
+    @DisplayName("SET_PARAM carries raw draft text for peers / SET_PARAM 携带草稿原文")
+    void testSetParamCarriesDraftText() {
+        // 钉 record 的 stringValue 槽（工厂 GraphOp.setParam(..., draftText, ...) 也写这一槽）。
+        // 7 参工厂内部用 ItemStack.EMPTY，其 <clinit> 需注册表引导，纯 JUnit 不可调；
+        // 这里用 28 参直构 + null itemStack 等价钉住同一字段。
+        // Pins the record's stringValue slot (the setParam factory writes the same field).
+        // The 7-arg factory needs ItemStack.EMPTY's registry bootstrap, so plain JUnit
+        // builds the canonical 28-arg form with null itemStack instead.
+        var uuid = java.util.UUID.randomUUID();
+        var withDraft = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM,
+            net.minecraft.core.BlockPos.ZERO, -1, 3, 0, null, 0f, 0f,
+            0, 0, 0, 0, 0, 0f, "", 0, 0, 0, 0, null, 0, 0, 0,
+            (net.minecraft.world.item.ItemStack) null, 0L, uuid, 0, null);
+        assertEquals("", withDraft.stringValue(), "cleared box must ship empty draft");
+        var typed = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM,
+            net.minecraft.core.BlockPos.ZERO, -1, 3, 0, null, 0f, 0f,
+            0, 0, 0, 0, 0, 999999995904f, "999999999999", 0, 0, 0, 0, null, 0, 0, 0,
+            (net.minecraft.world.item.ItemStack) null, 0L, uuid, 0, null);
+        assertEquals("999999999999", typed.stringValue(), "in-progress text ships verbatim");
+        var noDraft = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM,
+            net.minecraft.core.BlockPos.ZERO, -1, 3, 0, null, 0f, 0f,
+            0, 0, 0, 0, 0, 1f, null, 0, 0, 0, 0, null, 0, 0, 0,
+            (net.minecraft.world.item.ItemStack) null, 0L, uuid, 0, null);
+        assertNull(noDraft.stringValue(), "ops without a draft fall back to ff3 on peers");
+    }
+
     // ══════════ 封装子图同步 — 字段反查 / subgraph sync field reverse-lookup ══════════
 
     @Test
@@ -139,9 +195,69 @@ class CompileResetAndBusNameGateTest {
         assertEquals(1, GraphRemoteApplier.fieldIndexOf(idx, 1), "param 1 → second field slot");
         assertEquals(-1, GraphRemoteApplier.fieldIndexOf(idx, 7), "missing param → -1, never fields.get(-1)");
         // 反查结果若为 -1，调用方必须跳过 —— 旧实现 get(paramIndex) 在 fi==-1 时 IOOBE
+        // A -1 result must be skipped by the caller — the old get(paramIndex) IOOBE'd on fi==-1.
         assertTrue(GraphRemoteApplier.fieldIndexOf(idx, 99) < 0, "guard: negative slot must not index fields");
         // busBox 占位 -1 不可被参数下标命中；param 0 落到其后的首个 0 槽
+        // The busBox(-1) slot is never a param target; param 0 lands on the next 0 slot.
         assertEquals(1, GraphRemoteApplier.fieldIndexOf(java.util.List.of(-1, 0), 0),
             "param 0 skips the busBox(-1) slot");
+    }
+
+    @Test
+    @DisplayName("SET_PARAM unchanged value must not bump generation / 值相同不得 bump 代际")
+    void testSetParamUnchangedSkipsBump() {
+        // 草稿-only op（paramValue 不变、stringValue 变）每键到达 OpExecutor；若写值+bump，
+        // 服务端会全量重编译并 runtimeState.clear()，打断 DELAY/触发器/PID。
+        // Draft-only ops keep paramValue; a write+bump forces full recompile + state clear.
+        var g = new io.github.y15173334444.create_schematic_compute.graph.NodeGraph();
+        var n = g.addNode(NodeType.CONST, 0, 0);
+        n.params[0] = 5f;
+        int genBefore = g.graphGeneration;
+        var sameValue = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM,
+            net.minecraft.core.BlockPos.ZERO, -1, n.id, 0, null, 0f, 0f,
+            0, 0, 0, 0, 0, 5f, "", 0, 0, 0, 0, null, 0, 0, 0,
+            (net.minecraft.world.item.ItemStack) null, 0L, java.util.UUID.randomUUID(), 0, null);
+        io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(g, sameValue, false);
+        assertEquals(5f, n.params[0], 0f, "value unchanged");
+        assertEquals(genBefore, g.graphGeneration, "draft-only op must not bump generation");
+        var changed = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM,
+            net.minecraft.core.BlockPos.ZERO, -1, n.id, 0, null, 0f, 0f,
+            0, 0, 0, 0, 0, 7f, "7", 0, 0, 0, 0, null, 0, 0, 0,
+            (net.minecraft.world.item.ItemStack) null, 0L, java.util.UUID.randomUUID(), 0, null);
+        io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(g, changed, false);
+        assertEquals(7f, n.params[0], 0f, "real change applies");
+        assertEquals(genBefore + 1, g.graphGeneration, "real change still bumps");
+    }
+
+    @Test
+    @DisplayName("param values must not enter the edit-state fingerprint / 参数值不得进编辑状态指纹")
+    void testParamValuesNotInEditStateSignature() {
+        // 指纹含参数值时，SET_PARAM 一变就 createEditState → ff3 把草稿 "000" 刷成 "0.0"。
+        // 用反射调用私有 editStateSignature：改 params[0] 后指纹必须不变。
+        // If values were in the fingerprint, SET_PARAM rebuilds the panel and ff3 wipes drafts.
+        var g = new io.github.y15173334444.create_schematic_compute.graph.NodeGraph();
+        var n = g.addNode(NodeType.CONST, 0, 0);
+        n.params[0] = 0f;
+        // 无头 GraphEditor：Host 桩只供图引用
+        var host = new GraphEditor.Host() {
+            @Override public io.github.y15173334444.create_schematic_compute.graph.NodeGraph getGraph() { return g; }
+            @Override public void saveGraph() {}
+            @Override public void toggleRunning(boolean start) {}
+            @Override public boolean isRunning() { return false; }
+            @Override public net.minecraft.client.gui.screens.Screen asScreen() { return null; }
+        };
+        var ed = new GraphEditor(host, null);
+        try {
+            var m = GraphEditor.class.getDeclaredMethod("editStateSignature", GraphNode.class);
+            m.setAccessible(true);
+            int before = (int) m.invoke(ed, n);
+            n.params[0] = 1.0E12f;
+            int after = (int) m.invoke(ed, n);
+            assertEquals(before, after, "changing a param value must not change the fingerprint");
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError("editStateSignature must stay accessible for this pin", e);
+        }
     }
 }
