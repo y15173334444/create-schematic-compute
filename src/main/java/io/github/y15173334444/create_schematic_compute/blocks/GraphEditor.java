@@ -2000,7 +2000,7 @@ public class GraphEditor {
         if (encapOccupiedByOthers(hit)) { hintEncapOccupied(); return false; }
         beginUndoBatch();
         var savedX = hit.x; var savedY = hit.y; var savedType = hit.type.ordinal();
-        var savedNbt = saveNodeNbt(hit); // snapshot for undo restore
+        var savedNbt = saveNodeNbt(hit); // 撤销恢复用快照 / snapshot for undo restore
         g2.removeNode(hit.id);
         rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping
         var removeOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
@@ -2039,7 +2039,7 @@ public class GraphEditor {
                 }
             }
             var savedX = n.x; var savedY = n.y; var savedType = n.type.ordinal();
-            var savedNbt = saveNodeNbt(n); // snapshot for undo restore
+            var savedNbt = saveNodeNbt(n); // 撤销恢复用快照 / snapshot for undo restore
             graph.removeNode(n.id);
             var removeOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE,
@@ -2142,7 +2142,7 @@ public class GraphEditor {
 
     /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
      *  6f extraction: a verbatim inline block of the former mouseClicked. */
-    private boolean tryTabInteractions(double mx, double my, int btn, boolean panOnlyClick, NodeGraph graph) {    // TAB+左键 → 多选 / 框选（连线删除已并入统一序列引擎的鼠标步——DELETE_WIRE 的 Tab → 左键）
+    private boolean tryTabInteractions(double mx, double my, int btn, boolean panOnlyClick, NodeGraph graph) {    // TAB+左键 → 多选 / 框选，连线删除已并入统一序列引擎的鼠标步 (TAB+left-click → multi-select / box-select; wire delete moved into the unified sequence engine's mouse step — DELETE_WIRE's Tab → left-click)
     if (tabHeld && !panOnlyClick && btn == 0) {
         var hit = hitNode(mx, my);
         if (hit != null && selectedNodes.contains(hit)) {
@@ -3662,6 +3662,15 @@ public class GraphEditor {
      *  @param mod 修饰键位掩码 / modifier bitmask
      *  @return true 如果事件被消费 / true if consumed */
     public boolean keyPressed(int key, int sc, int mod) {
+        // 键序开菜单的吞字符标志只对紧随其后的 charTyped 有效：任何后续按键事件
+        // （含路由进搜索框 / 编辑框的）先作废旧标志——开菜单键不产生字符（如 Home）
+        // 时标志不会滞留、不会误吞下一个输入。开菜单分支随后重新置位。
+        // The menu-opened-by-key swallow flag is only valid for the charTyped that
+        // immediately follows: any later key event (including ones routed into the
+        // search box / edit boxes) voids a stale flag first — a char-less opener
+        // (e.g. Home) can't linger and eat the next input. The menu-open branch sets
+        // it again right after.
+        menuOpenedByKey = false;
         var graph = getGraph();
         // 键位绑定查表用的修饰键快照 / modifier snapshot for the binding lookups
         boolean modC = net.minecraft.client.gui.screens.Screen.hasControlDown();
@@ -3804,7 +3813,12 @@ public class GraphEditor {
             EditorKeys.clearBuffer();
             return true;
         }
-        var seqHit = EditorKeys.feedKey(key, seqMods, System.currentTimeMillis());
+        // 菜单打开时引擎不喂键（模态菜单持有键盘）：搜索框打字不得误触动作（打
+        // "x" 删悬停节点、打 "c" 建注释节点）或重开菜单。
+        // While the menu is open the engine is not fed (the modal menu owns the
+        // keyboard): typing in the search box must not mis-fire actions ("x"
+        // deleting the hovered node, "c" creating a comment node) or reopen the menu.
+        var seqHit = showMenu ? null : EditorKeys.feedKey(key, seqMods, System.currentTimeMillis());
         if (seqHit == EditorKeys.Action.DELETE_NODE) {
             // 删除悬停节点（替代右键删除防误触）/ delete the hovered node
             deleteHoveredNode(lastMouseX, lastMouseY);
@@ -3844,8 +3858,8 @@ public class GraphEditor {
         }
         if (seqHit != null) return true; // 触发但前置不满足也消费（动作拥有该键）/ triggered with a failed precondition still consumes
         if (EditorKeys.bufferActive() || EditorKeys.mixedBufferActive()) return true; // 前缀等待：按键已被引擎消费 / prefix waiting: key consumed
-        // C key: Create comment node around selection
-        if (key == 67 && !net.minecraft.client.gui.screens.Screen.hasControlDown()
+        // C key: Create comment node around selection（菜单打开时不建——模态 / not while the menu is open — the menu is modal）
+        if (!showMenu && key == 67 && !net.minecraft.client.gui.screens.Screen.hasControlDown()
             && !selectedNodes.isEmpty()) {
             boolean anyFocused = false;
             for (var st : nodeEditStatesById.values())
@@ -3931,9 +3945,14 @@ public class GraphEditor {
      *  @param mod 修饰键位掩码 / modifier bitmask
      *  @return true 如果事件被消费 / true if consumed */
     public boolean charTyped(char ch, int mod) {
-        // 键序刚打开的菜单吞掉开菜单键的字符（防搜索框吃到一部分输入）。
+        // 键序刚打开的菜单吞掉开菜单键的字符（防搜索框吃到一部分输入）。标志只在
+        // 紧随其后的本次 charTyped 有效——keyPressed 入口已先行作废旧标志，开菜单
+        // 键不产生字符（如 Home）也不会滞留误吞下一个输入。
         // A menu just opened by a key sequence swallows the opening key's character
-        // (the search box never eats part of the input).
+        // (the search box never eats part of the input). The flag is valid only for
+        // the charTyped immediately following - the keyPressed entry already voided
+        // any stale flag, so a char-less opener (e.g. Home) can't linger and eat the
+        // next input.
         if (showMenu && menuOpenedByKey) { menuOpenedByKey = false; return true; }
         // D: 菜单搜索输入 / menu search input
         if (showMenu) {

@@ -306,12 +306,13 @@ final class EditorSettingsKeysTab {
     }
 
     /** 键帽点击：修饰键帽翻转挂起开关；Esc 键帽清空整条录入队列（键序 + 鼠标末步）；
-     *  其余追加为下一步（挂起修饰随步骤入列）。菜单纯鼠标不开放键盘；PAN 是按住抓图
-     *  组合键，录满一步后再点键帽提示单步上限。
+     *  其余追加为下一步（挂起修饰随步骤入列）。菜单键步、鼠标步皆可（键序触发已
+     *  恢复）；PAN 是按住抓图组合键，录满一步后再点键帽提示单步上限。
      *  Keycap click: modifier caps flip the latched toggles; the Esc cap clears the
      *  whole recording queue (key steps + the pending mouse step); everything else
-     *  appends the next step (mods latch with the step). The menu is mouse-only; PAN
-     *  is a hold-grab combo — a cap click past the first step hints the single-step cap. */
+     *  appends the next step (mods latch with the step). The menu takes key and mouse
+     *  steps (its key-sequence trigger is back); PAN is a hold-grab combo — a cap
+     *  click past the first step hints the single-step cap. */
     void handleKeycapClick(Keycap c) {
         if (c.modBit() != 0) { latchedMods ^= c.modBit(); return; }
         if (c.code() == 256) { pendingSeq.clear(); latchedMods = 0; rebindConflict = null; return; }
