@@ -6,6 +6,7 @@ import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket;
 import io.github.y15173334444.create_schematic_compute.network.GraphJoinPacket;
 import io.github.y15173334444.create_schematic_compute.network.GraphLeavePacket;
+import io.github.y15173334444.create_schematic_compute.network.GraphSaveRequestPacket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
@@ -160,6 +161,21 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
         PacketDistributor.sendToServer(new GraphEditOpPacket(op));
     }
     @Override public void onRemoteOp(GraphOp op) { editor.onRemoteOp(op); }
+
+    /**
+     * 保存/编译：只向服务端发**保存请求**，由服务端在自己的权威图上执行编译语义并落盘。
+     * 不再上传客户端整图快照 —— 那会在客户端副本过期时把服务端回退（issue #17）。
+     * Save/compile: send a save <b>request</b> only; the server runs compile semantics
+     * on its own authoritative graph and persists. No client full-graph upload — that
+     * rolled the server back whenever the client copy was stale (issue #17).
+     */
+    @Override
+    public void saveGraph() {
+        var be = getBE();
+        if (be == null) return;
+        PacketDistributor.sendToServer(new GraphSaveRequestPacket(be.getBlockPos()));
+        editor.saveFeedbackUntil = System.currentTimeMillis() + 1500;
+    }
 
     // ── 子类覆盖点 / subclass hooks ──
 

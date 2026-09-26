@@ -15,8 +15,6 @@ import io.github.y15173334444.create_schematic_compute.network.SignalBus;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtAccounter;
-import net.minecraft.nbt.NbtIo;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -24,7 +22,6 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import javax.annotation.Nullable;
-import java.io.ByteArrayInputStream;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -183,11 +180,11 @@ public class GraphHost {
      * 强制下一 tick 重编译：把"上次构建代数"重置为 -1。
      * Force a recompile next tick by resetting the last-built generation to -1.
      *
-     * <p>替换图的调用点（loadGraphFromBytes / 客户端包加载）在 {@code graph.bumpGeneration()}
+     * <p>替换图的调用点（{@link #loadHostNBT} / 客户端包加载）在 {@code graph.bumpGeneration()}
      * 之后必须调用本方法：NodeGraph.load 产生 generation=0 的新图，bump 一次到 1 可能与
      * 上次重编译留下的 lastGraphGeneration=1 冲突，graphChanged() 为 false → 重编译（及
      * BUS 重注册）被跳过 → BUS_IN 读 0（回归审计：反复编译+运行失效）。
-     * Call sites that replace the graph (loadGraphFromBytes / client packet loads) must
+     * Call sites that replace the graph (loadHostNBT / client packet loads) must
      * call this after {@code graph.bumpGeneration()}: a fresh loaded graph starts at
      * generation 0, and bumping once to 1 can collide with the prior compile's recorded
      * 1, making graphChanged() false — the recompile (and BUS re-registration) is skipped
@@ -448,61 +445,6 @@ public class GraphHost {
         rs.setRemoved();
     }
 
-    // ── 编辑器保存包（服务端替换图）/ editor save packet ──
-
-    /** 从压缩 NBT 字节整体替换图（多人文档协议入口）。
-     *  Replace the graph from compressed NBT bytes (collab protocol entry). */
-    public void loadGraphFromBytes(byte[] data) {
-        var l = lvl();
-        if (l == null) return;
-        try {
-            var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
-            loadEditorTag(t);
-        } catch (Exception e) {
-            SchematicCompute.LOGGER.error("Failed to load graph for {} at {}, resetting",
-                owner.asBlockEntity().getClass().getSimpleName(), pos(), e);
-            graph = new NodeGraph();
-            rs.onLoad(graph);
-            markDirty();
-        }
-    }
-
-    /**
-     * 从已解析的 NBT 应用编辑器保存：整体替换图 + 强制重编译组合拳 + 清空子图/触发器
-     * 状态（旧图节点 ID 在新图中无意义）+ rs.onLoad + 全量同步推送。宿主 BE 若要在
-     * 同一包里附带类型段（如 Monitor 的屏幕设置），覆写 loadGraphFromBytes 解析一次、
-     * 先取类型段再调本方法，避免二次解析与推送顺序错位。
-     * Applies a parsed editor-save tag: wholesale graph replacement + the forced-recompile
-     * combo + sub-graph/flipflop state clear (old node IDs mean nothing in the new graph)
-     * + rs.onLoad + full-sync push. Hosts that carry a type section in the same packet
-     * (e.g. Monitor screen settings) override loadGraphFromBytes, parse once, take their
-     * section first and then call this — avoiding a second parse and push-ordering traps.
-     *
-     * @param t 已解析的包 NBT（可为 null） / the parsed packet NBT (may be null) */
-    public void loadEditorTag(@Nullable CompoundTag t) {
-        if (t != null && t.contains("graph")) {
-            unregisterBusChannels(graph);
-            graph = NodeGraph.load(t.getCompound("graph"), lvl().registryAccess());
-            // bump + 重置 lastGraphGeneration 保证下次 graphChanged()==true
-            // （回归审计：bump 到 1 可能与上次重编译留下的 1 冲突，重编译与 BUS
-            // 重注册被跳过 → BUS_IN 读 0）。
-            // bump + reset guarantee graphChanged()==true next tick (regression audit:
-            // bumping to 1 can collide with the prior compile's 1, skipping the recompile
-            // and BUS re-registration -> BUS_IN reads 0).
-            graph.bumpGeneration();
-            invalidateEvaluator();
-            // 图被整体替换——清空子图与触发器运行时状态，旧图节点 ID 在新图中无意义。
-            // The graph was replaced wholesale — clear sub-graph/flipflop runtime state;
-            // old-graph node IDs mean nothing in the new graph.
-            runtimeState.subStates.clear();
-            runtimeState.flipflopStates.clear();
-            rs.onLoad(graph);
-        }
-        needsFullSync = true;
-        markDirty();
-        pushBlockUpdate();
-    }
-
     // ── flipflop 差分广播 / flipflop diff broadcast ──
 
     /** 已同步的主图触发器基线（差分避免每 tick 广播）。/ Last-synced main flipflop baseline. */
@@ -582,11 +524,11 @@ public class GraphHost {
                     graph.bumpGeneration();
                 } else {
                     // 服务端路径（NBT 加载 / /data merge）：新实例 gen 与上次重编译记录
-                    // 可能同为 0，graphChanged() 将永远为假、求值器冻死在旧图上 —— 与
-                    // loadGraphFromBytes 相同的组合拳强制下一 tick 重编译。
+                    // 可能同为 0，graphChanged() 将永远为假、求值器冻死在旧图上 ——
+                    // bump + 置 lastGraphGeneration = -1 强制下一 tick 重编译。
                     // Server path (world load / data merge): a fresh instance can collide
                     // with the recorded generation at 0, freezing the old evaluator
-                    // forever — same forced-recompile combo as loadGraphFromBytes.
+                    // forever — bump + lastGraphGeneration = -1 forces next-tick recompile.
                     graph.bumpGeneration();
                     lastGraphGeneration = -1;
                 }

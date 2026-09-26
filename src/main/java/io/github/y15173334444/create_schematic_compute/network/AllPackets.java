@@ -10,10 +10,12 @@ public class AllPackets {
     @net.neoforged.bus.api.SubscribeEvent
     public static void register(final RegisterPayloadHandlersEvent event) {
         final PayloadRegistrar registrar = event.registrar(SchematicCompute.MOD_ID);
+        // 保存/编译：只带坐标的请求，服务端在权威图上执行编译语义——不再上传整图（issue #17）
+        // Save/compile: position-only request; the server runs compile semantics on its own graph (issue #17)
         registrar.playToServer(
-                BlueprintSavePacket.TYPE,
-                BlueprintSavePacket.CODEC,
-                BlueprintSavePacket::handle
+                GraphSaveRequestPacket.TYPE,
+                GraphSaveRequestPacket.CODEC,
+                GraphSaveRequestPacket::handle
         );
         registrar.playToServer(
                 BlueprintTogglePacket.TYPE,

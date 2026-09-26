@@ -104,28 +104,6 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         setChanged();
     }
 
-    @Override public void loadGraphFromBytes(byte[] data) {
-        if (level == null) return;
-        try {
-            var t = NbtIo.readCompressed(new ByteArrayInputStream(data), NbtAccounter.create(2 * 1024 * 1024));
-            // 先取本包内的屏幕设置段，再走引擎的编辑器保存路径（图替换 + 强制重编译 +
-            // 全量同步推送）—— 保证推送出去的 getUpdateTag 已带新屏幕设置。
-            // Take the monitor's settings section from the same packet first, then run
-            // the engine's editor-save path (graph replacement + forced recompile +
-            // full-sync push) — so the pushed getUpdateTag already carries the new
-            // screen settings. Phase 3: this override used to skip the full-sync push
-            // entirely (tracking clients kept a stale monitor graph after a save) and
-            // the sub-graph state clear; both come from the engine path now.
-            if (t != null) loadSettings(t);
-            loadEditorTag(t);
-        } catch (Exception e) {
-            SchematicCompute.LOGGER.error("Failed to load monitor graph, resetting", e);
-            setGraph(new NodeGraph());
-            rs().onLoad(graph());
-            setChanged();
-        }
-    }
-
     public void applySettings(float w, float l, float x, float y, float z, float r, float p, float yw,
                               boolean hudMode, float vis) {
         this.screenWidth = Math.max(0.1f, Math.min(10f, w)); this.screenLength = Math.max(0.1f, Math.min(10f, l));

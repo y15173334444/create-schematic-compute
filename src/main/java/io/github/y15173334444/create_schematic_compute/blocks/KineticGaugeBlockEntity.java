@@ -189,8 +189,6 @@ public class KineticGaugeBlockEntity extends KineticBlockEntity
 
     // ── GraphBlockEntity 桥接 / interface bridges ──
 
-    @Override public void loadGraphFromBytes(byte[] data) { host.loadGraphFromBytes(data); }
-
     @Override public NodeGraph getNodeGraph() { return host.graph; }
 
     @Override public boolean isRunning() { return host.isRunning(); }

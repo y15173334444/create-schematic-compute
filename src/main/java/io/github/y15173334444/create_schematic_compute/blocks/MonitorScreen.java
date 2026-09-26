@@ -3,7 +3,6 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.client.GeometryConstants;
 import io.github.y15173334444.create_schematic_compute.graph.*;
-import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
 
 import net.minecraft.client.Minecraft;
@@ -12,12 +11,9 @@ import net.minecraft.client.gui.components.Checkbox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.resources.language.I18n;
 import net.minecraft.core.BlockPos;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 import com.mojang.math.Axis;
-import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -91,20 +87,6 @@ public class MonitorScreen extends AbstractGraphScreen implements MonitorDisplay
     @Override public Screen asScreen() { return this; }
 
     @Override
-    public void saveGraph() {
-        try {
-            MonitorBlockEntity be = getBE();
-            if (be == null || be.getLevel() == null) return;
-            var tag = new CompoundTag();
-            tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
-            var baos = new ByteArrayOutputStream();
-            NbtIo.writeCompressed(tag, baos);
-            PacketDistributor.sendToServer(new BlueprintSavePacket(be.getBlockPos(), baos.toByteArray()));
-            editor.saveFeedbackUntil = System.currentTimeMillis() + 1500;
-        } catch (Exception e) { SchematicCompute.LOGGER.error("Save", e); }
-    }
-
-    @Override
     public void toggleRunning(boolean start) {
         MonitorBlockEntity be = getBE();
         if (be != null) { be.setRunning(start); PacketDistributor.sendToServer(new BlueprintTogglePacket(be.getBlockPos(), start)); }
@@ -167,7 +149,6 @@ public class MonitorScreen extends AbstractGraphScreen implements MonitorDisplay
         }
         return new MonitorScreen(blockPos);
     }
-
 
     /** 显示区拖拽是否进行中（整图同步守卫用）。 */
     @Override public boolean isDisplayDragInProgress() { return displayEditor.displayDragInProgress(); }

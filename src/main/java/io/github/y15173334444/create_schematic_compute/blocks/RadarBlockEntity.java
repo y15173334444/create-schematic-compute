@@ -592,13 +592,8 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         }
     }
 
-    // loadGraphFromBytes 覆写已于阶段 3 删除 —— 统一走基类/引擎的
-    // loadGraphFromBytes → loadEditorTag。此前本覆写缺 BUS 注销（编辑保存后在
-    // SignalBus 泄漏旧图通道）与子图/触发器状态清理（封装内时序跨载残留），
-    // 对齐后一并修复。
-    // The loadGraphFromBytes override was removed in phase 3 — the base/engine path
-    // applies (this override used to skip BUS unregistration — leaking old channels in
-    // SignalBus across editor saves — and the sub-graph/flipflop clear).
+    // 整图保存已随 issue #17 退役；世界加载走 loadHostNBT。
+    // Whole-graph save retired with issue #17; world load goes through loadHostNBT.
 
     /**
      * Saves radar-specific data to NBT for persistence across world reloads.

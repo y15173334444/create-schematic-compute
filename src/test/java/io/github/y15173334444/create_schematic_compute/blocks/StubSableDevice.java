@@ -29,8 +29,6 @@ public class StubSableDevice implements GraphBlockEntity {
 
     @Override public NodeGraph getNodeGraph() { return graph; }
 
-    @Override public void loadGraphFromBytes(byte[] data) { }
-
     @Override public net.minecraft.world.level.block.entity.BlockEntity asBlockEntity() { return null; }
 
     @Nullable @Override public Level getLevel() { return null; }

@@ -46,13 +46,9 @@ public class BlueprintBlockEntity extends SyncedGraphBlockEntity {
         setChanged();
     }
 
-    // loadGraphFromBytes 覆写已于阶段 3 删除 —— 统一走基类/引擎的
-    // loadGraphFromBytes → loadEditorTag（含 BUS 注销与子图/触发器状态清理，
-    // 此前本覆写缺这两步：编辑保存后泄漏 SignalBus 注册、封装内时序跨载残留）。
-    // The loadGraphFromBytes override was removed in phase 3 — the base/engine
-    // loadGraphFromBytes -> loadEditorTag path applies for all BEs (including BUS
-    // unregistration and the sub-graph/flipflop clear this override used to miss:
-    // a SignalBus leak and stale encapsulation state across editor saves).
+    // 整图保存已随 issue #17 退役；世界加载走 loadHostNBT，保存请求不再替换图。
+    // Whole-graph save retired with issue #17; world load goes through loadHostNBT.
+    // Save requests no longer replace the graph.
 
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         // Blueprint preserves expanded node state across reloads

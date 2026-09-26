@@ -51,13 +51,47 @@ public interface GraphBlockEntity {
         return g != null ? g.customName : "";
     }
 
-    void loadGraphFromBytes(byte[] data);
-
     default boolean isRunning() { return false; }
 
     default void setRunning(boolean running) {}
 
     default boolean graphHasCycles() { return false; }
+
+    /**
+     * 编译语义：触发器当前态回归初始态（GATE / T_FLIPFLOP / LATCH 的 {@code params[1] = params[0]}），
+     * 递归含子图。原先在客户端本地改完后靠整图上传捎带（issue #17 已移除该上传）；
+     * 现由服务端在自己的权威图上执行（{@code GraphSaveRequestPacket}）。
+     * Compile semantics: flip-flop current state resets to initial
+     * ({@code params[1] = params[0]} for GATE / T_FLIPFLOP / LATCH), recursively into
+     * sub-graphs. Used to be a client-local mutation hitchhiking on the full-graph
+     * upload (removed with issue #17); the server now applies it on its own
+     * authoritative graph via {@code GraphSaveRequestPacket}.
+     */
+    default void applyCompileReset() {
+        applyCompileReset(getNodeGraph());
+    }
+
+    private static void applyCompileReset(NodeGraph g) {
+        if (g == null) return;
+        for (var n : g.nodes) {
+            if ((n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.GATE
+                || n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.T_FLIPFLOP
+                || n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.LATCH)
+                && n.params != null && n.params.length > 1) {
+                n.params[1] = n.params[0];
+            }
+            if (n.subGraph != null) applyCompileReset(n.subGraph);
+        }
+    }
+
+    /**
+     * 保存/编译后的落盘 + 全量同步（不替换图）：markDirty + flagFullSync。
+     * Persist + full-sync after save/compile (no graph replace): markDirty + flagFullSync.
+     */
+    default void markDirtyAndSyncGraph() {
+        setChanged();
+        flagFullSync();
+    }
 
     default void clearPidState() {}
 

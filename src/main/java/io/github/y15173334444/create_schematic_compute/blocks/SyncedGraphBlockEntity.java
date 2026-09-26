@@ -389,22 +389,6 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     @Deprecated
     protected void broadcastEvalSnapshot() { host.broadcastEvalSnapshot(); }
 
-    /** Deserialize and replace the current graph from compressed NBT bytes received
-     *  over the network (typically from a client-side editor save).
-     *  从通过网络接收的压缩 NBT 字节（通常来自客户端编辑器保存）反序列化并替换当前图。 */
-    public void loadGraphFromBytes(byte[] data) { host.loadGraphFromBytes(data); }
-
-    /** Apply an already-parsed editor-save tag (graph replacement + forced recompile +
-     *  sub-state clear + rs.onLoad + full-sync push). Extension point for hosts whose
-     *  editor packet carries a type section alongside the graph (e.g. Monitor screen
-     *  settings): parse once, take the type section, then call this — see
-     *  {@link GraphHost#loadEditorTag}. Not a transitional bridge; it is the tag-level
-     *  entry of the editor-save path.
-     *  应用已解析的编辑器保存 NBT。宿主编辑包若在图之外还携带类型段（如 Monitor 屏幕
-     *  设置），解析一次、先取类型段再调本方法 —— 见 {@link GraphHost#loadEditorTag}。
-     *  非过渡桥：这是编辑器保存路径的 tag 级入口。 */
-    protected void loadEditorTag(CompoundTag t) { host.loadEditorTag(t); }
-
     /** Server-tick flipflop diff broadcast — main- and sub-graph flipflop states are
      *  diffed against baselines and RuntimeStateSyncPacket is sent only on change.
      *  服务端 tick 的触发器差分广播 —— 相对基线 diff，有变化才发 RuntimeStateSyncPacket。 */

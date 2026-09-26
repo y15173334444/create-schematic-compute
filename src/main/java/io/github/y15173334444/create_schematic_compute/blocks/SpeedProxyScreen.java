@@ -4,14 +4,10 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
 import net.minecraft.core.BlockPos;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
-import java.io.ByteArrayOutputStream;
 import java.util.Map;
 
 public class SpeedProxyScreen extends AbstractGraphScreen {
@@ -38,20 +34,6 @@ public class SpeedProxyScreen extends AbstractGraphScreen {
     @Override public EvalSnapshot getCachedEvalSnapshot() {
         SpeedProxyBlockEntity be = getBE();
         return be != null ? be.getCachedEvalSnapshot() : null;
-    }
-
-    @Override
-    public void saveGraph() {
-        try {
-            SpeedProxyBlockEntity be = getBE();
-            if(be==null||be.getLevel()==null) return;
-            var tag = new CompoundTag();
-            tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
-            var baos = new ByteArrayOutputStream();
-            NbtIo.writeCompressed(tag, baos);
-            PacketDistributor.sendToServer(new BlueprintSavePacket(be.getBlockPos(), baos.toByteArray()));
-            editor.saveFeedbackUntil = System.currentTimeMillis() + 1500;
-        } catch(Exception e) { SchematicCompute.LOGGER.error("Save", e); }
     }
 
     @Override

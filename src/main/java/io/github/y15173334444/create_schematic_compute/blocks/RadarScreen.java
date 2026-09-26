@@ -4,19 +4,14 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.network.BlueprintSavePacket;
 import io.github.y15173334444.create_schematic_compute.network.BlueprintTogglePacket;
 import io.github.y15173334444.create_schematic_compute.network.RadarSettingsPacket;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.resources.language.I18n;
 import net.minecraft.core.BlockPos;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.NbtIo;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
-import java.io.ByteArrayOutputStream;
-
 public class RadarScreen extends AbstractGraphScreen {
     private boolean showDisplaySettings;
     private EditBox rangeInput, scaleInput, lockDistInput, offXInput, offYInput, offZInput;
@@ -45,15 +40,9 @@ public class RadarScreen extends AbstractGraphScreen {
         return be != null ? be.getCachedEvalSnapshot() : null;
     }
     @Override public void saveGraph() {
-        try {
-            RadarBlockEntity be = getBE();
-            if (be == null || be.getLevel() == null) return;
-            applyInputs(be); send(be); // 先同步设置 / sync settings first
-            var tag = new CompoundTag(); tag.put("graph", getGraph().save(be.getLevel().registryAccess()));
-            var baos = new ByteArrayOutputStream(); NbtIo.writeCompressed(tag, baos);
-            PacketDistributor.sendToServer(new BlueprintSavePacket(be.getBlockPos(), baos.toByteArray()));
-            editor.saveFeedbackUntil = System.currentTimeMillis() + 1500;
-        } catch (Exception e) { SchematicCompute.LOGGER.error("Save", e); }
+        RadarBlockEntity be = getBE();
+        if (be != null) { applyInputs(be); send(be); } // 先同步设置 / sync settings first
+        super.saveGraph();
     }
     @Override public void toggleRunning(boolean start) {
         RadarBlockEntity be = getBE();
