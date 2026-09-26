@@ -19,6 +19,21 @@ class MotionQuotaTest {
     private static final float DT = 0.05f;
 
     @Test
+    @DisplayName("Negative amount books |value| — sign is direction only (was: clamp to 0 = instant done)")
+    void negativeAmountUsesAbs() {
+        var q = MotionQuota.of(-90f);
+        assertFalse(q.done(), "negative ROTATE/MOVE must book the same travel as positive");
+        assertEquals(90f, q.remaining(), 0.0001f);
+        int ticks = 0;
+        while (!q.done() && ticks < 10_000) {
+            q.consumeAbs(MotionQuota.degreesPerTick(64f));
+            ticks++;
+        }
+        assertTrue(q.done());
+        assertEquals(5, ticks);
+    }
+
+    @Test
     @DisplayName("90° at 64 RPM completes (legacy window sampling never did: min miss 3.6°)")
     void rotate90At64RpmCompletes() {
         var q = MotionQuota.of(90f);

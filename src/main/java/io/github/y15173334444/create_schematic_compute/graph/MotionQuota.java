@@ -37,10 +37,18 @@ public final class MotionQuota {
     private float remaining;
 
     private MotionQuota(float amount) {
-        this.remaining = Math.max(0f, amount);
+        // 行程量恒取绝对值：符号只表示方向（负 = 反转，见 CncGearboxBlockEntity 的
+        // getRotationSpeedModifier）。此前 Math.max(0f, amount) 把负数配额打成 0 →
+        // 指令当帧完成、负数 ROTATE/MOVE 恒无效（「负数恒为假」）。
+        // Amount is always |value|: the sign only encodes direction (negative =
+        // reverse — see CncGearboxBlockEntity.getRotationSpeedModifier). The old
+        // Math.max(0f, amount) zeroed negative quotas → instant done, so negative
+        // ROTATE/MOVE never ran ("negative always false").
+        this.remaining = Math.abs(amount);
     }
 
-    /** 建立配额：ROTATE=度、MOVE=米、WAIT 不使用本类。 Amount: degrees (ROTATE) or meters (MOVE). */
+    /** 建立配额：ROTATE=度、MOVE=米（符号=方向，量取绝对值）。WAIT 不使用本类。
+     *  Amount: degrees (ROTATE) or meters (MOVE); sign = direction, magnitude is the travel. */
     public static MotionQuota of(float amount) {
         return new MotionQuota(amount);
     }
