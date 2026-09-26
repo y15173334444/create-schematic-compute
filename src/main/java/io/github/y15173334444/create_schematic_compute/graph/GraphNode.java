@@ -66,6 +66,11 @@ public class GraphNode {
     // Remote move interpolation (for smooth multiplayer drag)  /  远程移动插值（多人拖动平滑过渡）
     public transient float remoteLerpT = 1f;
     public transient float remoteStartX, remoteStartY, remoteTargetX, remoteTargetY;
+    // 显示布局的远端拖拽平滑（SET_DISPLAY_LAYOUT）——与上方节点 x/y 的 remote* 同一套 smoothstep。
+    // Display-layout remote drag smoothing (SET_DISPLAY_LAYOUT) — the same smoothstep scheme
+    // as the node x/y remote* fields above.
+    public transient float layoutLerpT = 1f;
+    public transient float layoutStartX, layoutStartY, layoutTargetX, layoutTargetY;
 
     // ── DEBUG_SIGNAL_GEN 控制点（持久化，多人协作同步）──
     // Control points for DEBUG_SIGNAL_GEN; persisted, synced via SET_CTRL_POINTS.

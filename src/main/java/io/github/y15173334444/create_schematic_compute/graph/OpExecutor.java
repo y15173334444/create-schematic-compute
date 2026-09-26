@@ -334,6 +334,19 @@ public final class OpExecutor {
             case SET_DISPLAY_LAYOUT -> {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null) {
+                    // 远端拖拽平滑（与 MOVE_NODE 同款）：位置变化超过阈值时启动 smoothstep
+                    // 插值（客户端每帧推进 layoutX/Y），权威坐标仍然立即落地；缩放/旋转不插值。
+                    // Remote drag smoothing (same as MOVE_NODE): a position change past the
+                    // threshold starts the smoothstep interpolation (the client advances
+                    // layoutX/Y per frame) while the authoritative position still lands
+                    // immediately; scale/rotation don't lerp.
+                    float dx = Math.abs(n.layoutX - op.x());
+                    float dy = Math.abs(n.layoutY - op.y());
+                    if (animateMoves && (dx >= 0.005f || dy >= 0.005f)) {
+                        n.layoutStartX = n.layoutX; n.layoutStartY = n.layoutY;
+                        n.layoutTargetX = op.x(); n.layoutTargetY = op.y();
+                        n.layoutLerpT = 0f;
+                    }
                     n.layoutX = op.x();
                     n.layoutY = op.y();
                     n.displayScale = op.paramValue();

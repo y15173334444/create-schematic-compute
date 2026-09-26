@@ -412,6 +412,28 @@ public final class MonitorDisplayEditor {
     public static String ff2(float v) { return Float.toString((float)Math.round(v * 100) / 100); }
     public static String ff3(float v) { return Float.toString((float)Math.round(v * 1000) / 1000); }
 
+    /** 每帧推进显示布局的远端插值（与节点模式 renderBg 的 remote* 同款 smoothstep，步进 0.12）。
+     *  @return 是否仍有元素在插值中（调用方据此在本帧强制重建元素缓存——插值不 bump 代际，
+     *  缓存若不强制重建会把插值吞掉）。
+     *  Advances the display-layout remote interpolation per frame (the same smoothstep as
+     *  the node mode's remote* pass, 0.12 per frame).
+     *  @return true while any element is still interpolating (the caller force-rebuilds the
+     *  element cache this frame — a lerp doesn't bump the generation, so without the forced
+     *  rebuild the cache would swallow the interpolation). */
+    static boolean advanceLayoutLerp(NodeGraph graph) {
+        boolean active = false;
+        for (var n : graph.nodes) {
+            if (n.layoutLerpT < 1f) {
+                n.layoutLerpT = Math.min(1f, n.layoutLerpT + 0.12f);
+                float t = n.layoutLerpT * n.layoutLerpT * (3f - 2f * n.layoutLerpT);
+                n.layoutX = n.layoutStartX + (n.layoutTargetX - n.layoutStartX) * t;
+                n.layoutY = n.layoutStartY + (n.layoutTargetY - n.layoutStartY) * t;
+                active = true;
+            }
+        }
+        return active;
+    }
+
     private void renderDisplayPresence(GuiGraphics g) {
         host.editor().cleanupStalePresences();
         var presences = host.editor().getRemotePresences();
@@ -542,11 +564,12 @@ public final class MonitorDisplayEditor {
 
         // Collect and render display elements (cached when graph is static — Phase 2)
         // When running, output values change each tick so we must rebuild.
+        boolean layoutLerpActive = advanceLayoutLerp(graph);
         boolean isRunning = host.be() != null && host.be().isRunning();
         float efsw = getEffectiveScreenW(), efsl = getEffectiveScreenL();
         int curGen = graph.graphGeneration;
         boolean displayChanged = curGen != lastDisplayGen || efsw != lastDisplaySW || efsl != lastDisplaySL
-            || isRunning || draggedDisplayNode != null;
+            || isRunning || draggedDisplayNode != null || layoutLerpActive;
         if (displayChanged || cachedDisplayElements == null) {
             lastDisplayGen = curGen; lastDisplaySW = efsw; lastDisplaySL = efsl;
             cachedDisplayElements = collectDisplayElements(graph, evalOutputs);
