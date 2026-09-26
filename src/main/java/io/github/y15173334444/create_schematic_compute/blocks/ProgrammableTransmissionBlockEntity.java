@@ -161,16 +161,34 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
      * Detaching while our own speed is still non-zero lets handleRemoved clean the
      * tree; afterwards the claim order (upstream vs downstream first) is harmless —
      * zero-speed neighbours are skipped by the official fromSpeed==0 guard.
+     *
+     * <p><b>过载误判（2026-09-26）</b>：源健康判定必须用 {@code getTheoreticalSpeed()}
+     * （= {@code speed} 字段，官方 {@code validateKinetics} 同款），不能用 {@code getSpeed()}。
+     * 后者在 {@code overStressed} 时恒为 0 —— 整网过载（输出端负载超容）会把源打成
+     * 「失速」，于是每 tick 都走 detach，把输出侧子树拆掉（「过载后自动断开应力」）。
+     * 输入端应力恢复后 {@code getSpeed()} 变回非 0，预检认为源健康而早退，**不会**
+     * 把已拆的下游接回来；只有改转速触发 {@link #updateTargetRotation} 全量拆建才恢复
+     * （「改转速才可以刷新输出」）。</p>
+     * <p><b>Overload false-positive (2026-09-26)</b>: source health must use
+     * {@code getTheoreticalSpeed()} (the raw {@code speed} field — official
+     * {@code validateKinetics} does the same), never {@code getSpeed()}. The latter
+     * is hard-zeroed while {@code overStressed}, so a network-wide overload (output
+     * load past capacity) marks a live source as dead and every tick detaches,
+     * tearing down the output subtree ("stress auto-disconnects after overload").
+     * Once input capacity recovers, {@code getSpeed()} is non-zero again and the
+     * pre-check early-returns as "healthy" — it never re-attaches what it tore
+     * down; only a target change's {@link #updateTargetRotation} full rebuild does
+     * ("changing RPM is what refreshes the output").</p>
      */
     private void cleanOrphanedKineticState() {
         if (level == null || level.isClientSide)
             return;
         if (hasSource()) {
             if (level.getBlockEntity(source) instanceof KineticBlockEntity sourceBE
-                    && sourceBE.getSpeed() != 0)
-                return;   // 源健在且在转：无需处理 / healthy source, nothing to do
+                    && sourceBE.getTheoreticalSpeed() != 0)
+                return;   // 源健在（含过载压速）：勿动 / healthy source (incl. overload-gated): leave alone
             detachKinetics();   // 源已失速/丢失：趁速度非 0 清洗下游树 / source dead: clean tree now
-        } else if (getSpeed() != 0) {
+        } else if (getTheoreticalSpeed() != 0) {
             detachKinetics();   // 幻影态（无源带速，如区块重载丢 source）：先清洗 / phantom speed: clean first
         } else {
             // 盲区：无源且速度 0，但下游树可能仍以我们为源挂在网上（NBT 重载/官方
