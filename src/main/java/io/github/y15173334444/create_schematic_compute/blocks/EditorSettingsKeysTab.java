@@ -161,12 +161,12 @@ final class EditorSettingsKeysTab {
             boolean hov = !selected && mx >= cx && mx <= listRight - 10 && my >= ry && my <= ry + KEY_ROW_H - 2;
             if (selected) g.fill(cx, ry, listRight, ry + KEY_ROW_H - 2, NodeRenderer.HOV()); // 选中行 = 悬停高亮 / selected row = hover highlight
             else if (hov) g.fill(cx, ry, listRight, ry + KEY_ROW_H - 2, NodeRenderer.HOV());
-            String cur;
-            if (a.mouse) {
-                cur = I18n.get("gui.create_schematic_compute.editorkeys.mouse." + EditorKeys.mouseButton(a));
-            } else {
-                cur = EditorKeys.seqText(EditorKeys.sequence(a));
-            }
+            // 行文本 = 该动作唯一触发（统一序列，鼠标步照渲染）：Ctrl+Z、右键、
+            // Tab → 左键、Tab → 左键 → A → 右键，未绑为「—」。
+            // Row text = the action's single trigger (the unified sequence, mouse steps
+            // rendered as-is): Ctrl+Z, right-click, Tab → left-click,
+            // Tab → left-click → A → right-click; "—" when unbound.
+            String cur = EditorKeys.seqText(EditorKeys.sequence(a), EditorKeysTabMouseNames);
             // 动作名 + 当前绑定，超宽按窄列截断（预留滚动条条带；展开态列表变窄时防压进键盘区）。
             // Action name + current binding, truncated to the narrowed list width (reserving
             // the scrollbar strip).
@@ -195,18 +195,29 @@ final class EditorSettingsKeysTab {
         int chipsX = h.w() - 14 - KEYS_CHIPS_W;
         var target = actions[keybindTarget];
 
-        // 鼠标三键（竖排；点击即直接绑定 —— 鼠标动作无修饰概念）。当前绑定的键绿描边
-        // （与键帽的现值描边同语义）。
-        // Mouse buttons (vertical; a click binds immediately — no modifier concept). The
-        // currently bound button gets the green outline, same semantics as the keycaps.
-        for (int m = 0; m < 3; m++) {
-            int chy = cy + 2 + m * 24;
-            boolean chov = mx >= chipsX && mx <= chipsX + KEYS_CHIPS_W && my >= chy && my <= chy + 20;
-            boolean bound = target.mouse && EditorKeys.mouseButton(target) == m;
-            g.fill(chipsX, chy, chipsX + KEYS_CHIPS_W, chy + 20, chov ? NodeRenderer.HOV() : NodeRenderer.PINS());
-            g.renderOutline(chipsX, chy, KEYS_CHIPS_W, 20, bound ? 0xFF5A8A3A : NodeRenderer.CSB());
-            g.drawString(h.font(), I18n.get("gui.create_schematic_compute.editorkeys.mouse." + m),
-                chipsX + 8, chy + 6, bound ? 0xFFCCFFCC : NodeRenderer.ACC(), false);
+        // 鼠标三键（竖排；点击 = 鼠标步进/出录入队列，与键帽步骤自由交错）。
+        // 仅 mouseStepAllowed 动作显示；当前触发/待录含该按钮时绿描边（与键帽现值描边同语义）。
+        // Mouse buttons (vertical; a click moves the button in/out of the recording
+        // queue, interleaving freely with keycap steps). Shown for mouseStepAllowed
+        // actions only; green outline when the live trigger or the pending queue holds
+        // the button, same semantics as the keycaps.
+        if (EditorKeys.mouseStepAllowed(target)) {
+            for (int m = 0; m < 3; m++) {
+                int btn = m; // lambda 捕获需实际最终变量 / lambdas need an effectively-final copy
+                int chy = cy + 2 + m * 24;
+                boolean chov = mx >= chipsX && mx <= chipsX + KEYS_CHIPS_W && my >= chy && my <= chy + 20;
+                // 绿描边 = 当前触发或待录队列含有该按钮的鼠标步（待录与现值同语义高亮，
+                // 再次点击取消）。
+                // Green outline = the live trigger or the pending queue holds a mouse
+                // step of this button (pending highlights like the live value; a second
+                // click cancels it).
+                boolean bound = EditorKeys.sequence(target).stream().anyMatch(s -> s.key() < 0 && -1 - s.key() == btn)
+                    || pendingSeq.stream().anyMatch(s -> s.key() < 0 && -1 - s.key() == btn);
+                g.fill(chipsX, chy, chipsX + KEYS_CHIPS_W, chy + 20, chov ? NodeRenderer.HOV() : NodeRenderer.PINS());
+                g.renderOutline(chipsX, chy, KEYS_CHIPS_W, 20, bound ? 0xFF5A8A3A : NodeRenderer.CSB());
+                g.drawString(h.font(), I18n.get("gui.create_schematic_compute.editorkeys.mouse." + m),
+                    chipsX + 8, chy + 6, bound ? 0xFFCCFFCC : NodeRenderer.ACC(), false);
+            }
         }
 
         // 键盘（行左对齐，宽键向右伸出，真实配列观感）。
@@ -232,7 +243,7 @@ final class EditorSettingsKeysTab {
                 // 录入中序列的键帽绿描边（打开时预填 = 现绑定，录入后 = 已录步骤）。
                 // Caps of the recorded sequence get the green outline (pre-filled with the
                 // current binding on open, then the recorded steps).
-                boolean inSeq = !target.mouse && c.code() > 0;
+                boolean inSeq = c.code() > 0;
                 if (inSeq) {
                     inSeq = false;
                     for (var st : pendingSeq) if (st.key() == c.code()) { inSeq = true; break; }
@@ -244,11 +255,13 @@ final class EditorSettingsKeysTab {
             ky += u + 3;
         }
 
-        // 预览行（键盘下方独立一行）：录入中的序列；挂起修饰以 … 收尾提示「下一步将带上」。
-        // Preview line under the keyboard: the recorded sequence; latched mods trail with
-        // an ellipsis ("the next step will carry them").
+        // 预览行（键盘下方独立一行）：录入中的队列（键步/鼠标步交错，「绑定：
+        // Tab → 左键 → A → 右键」）；挂起修饰以 … 收尾提示「下一步将带上」。
+        // Preview line under the keyboard: the recording queue (key/mouse steps
+        // interleaved, "Bind: Tab → left-click → A → right-click"); latched mods trail
+        // with an ellipsis ("the next step will carry them").
         int previewY = (int) ky + 6;
-        String preview = I18n.get("gui.create_schematic_compute.settings.bind_label") + ": " + EditorKeys.seqText(pendingSeq)
+        String preview = I18n.get("gui.create_schematic_compute.settings.bind_label") + ": " + EditorKeys.seqText(pendingSeq, EditorKeysTabMouseNames)
             + (latchedMods != 0 ? (pendingSeq.isEmpty() ? "" : " → ") + EditorKeys.modsText(latchedMods) + "…" : "");
         g.drawString(h.font(), "§e" + preview, (int) kx0, previewY, 0xFFFFFFFF, false);
         // 操作条：删一步 / 默认 / 清除 / 确定绑定 —— 宽度平衡、右缘锚定；左缘压到列表
@@ -292,44 +305,78 @@ final class EditorSettingsKeysTab {
         g.drawString(h.font(), "§f" + I18n.get("gui.create_schematic_compute.settings.collapse"), cx + 16, clY + 4, 0xFFFFFFFF, false);
     }
 
-    /** 键帽点击：修饰键帽翻转挂起开关；Esc 键帽清空录入；其余追加为下一步
-     *  （挂起修饰随步骤入列，步数达上限提示）。
+    /** 键帽点击：修饰键帽翻转挂起开关；Esc 键帽清空整条录入队列（键序 + 鼠标末步）；
+     *  其余追加为下一步（挂起修饰随步骤入列）。菜单纯鼠标不开放键盘；PAN 是按住抓图
+     *  组合键，录满一步后再点键帽提示单步上限。
      *  Keycap click: modifier caps flip the latched toggles; the Esc cap clears the
-     *  recording; everything else appends the next step (capped at MAX_STEPS). */
+     *  whole recording queue (key steps + the pending mouse step); everything else
+     *  appends the next step (mods latch with the step). The menu is mouse-only; PAN
+     *  is a hold-grab combo — a cap click past the first step hints the single-step cap. */
     void handleKeycapClick(Keycap c) {
         if (c.modBit() != 0) { latchedMods ^= c.modBit(); return; }
         if (c.code() == 256) { pendingSeq.clear(); latchedMods = 0; rebindConflict = null; return; }
         var a = EditorKeys.Action.values()[keybindTarget];
-        if (a.mouse) { rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_key_only"); return; }
+        if (a == EditorKeys.Action.PAN && !pendingSeq.isEmpty()) {
+            rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.pan_hold_single");
+            return;
+        }
         if (pendingSeq.size() >= EditorKeys.MAX_STEPS) { rebindConflict = I18n.get("gui.create_schematic_compute.settings.bind_max_steps"); return; }
         pendingSeq.add(new EditorKeys.Step(c.code(), latchedMods));
         latchedMods = 0; // 修饰随步骤入列复位 / mods clear with the recorded step
     }
 
-    /** 鼠标键点击：鼠标动作直接绑定该键（无修饰概念）；键盘动作不可绑鼠标键。 / Mouse-chip click: mouse actions bind immediately (no modifiers); keyboard actions refuse. */
+    /** 鼠标键点击 = 把该按钮作为<b>鼠标步</b>加入录入队列——队列里已有该按钮的
+     *  鼠标步则<b>移除最后一处</b>（再次点击取消），否则追加到队尾；键帽步骤与鼠标步
+     *  可自由交错（Tab → 左键 → A → 右键），挂起修饰随步入列。像素动作与 BOX_SELECT
+     *  独占鼠标，拒绝。真正的绑定在「确定绑定」时整条提交。
+     *  Mouse-chip click = add the button as a <b>mouse step</b> to the recording
+     *  queue — if the queue already holds a mouse step of this button, <b>remove the
+     *  last one</b> (a second click cancels), else append at the tail; key steps and
+     *  mouse steps interleave freely (Tab → left-click → A → right-click) and latched
+     *  mods ride with the step. The pixel actions and BOX_SELECT own the mouse and
+     *  refuse. The actual binding is committed wholesale by Bind. */
     void handleChipClick(EditorKeys.Action a, int button) {
-        if (!a.mouse) { rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_mouse_only"); return; }
-        rebindConflict = EditorKeys.setMouseBinding(a, button)
-            ? null : I18n.get("gui.create_schematic_compute.editorkeys.conflict");
+        if (!EditorKeys.mouseStepAllowed(a)) { rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.rebind_key_only"); return; }
+        for (int i = pendingSeq.size() - 1; i >= 0; i--) {
+            if (pendingSeq.get(i).key() < 0 && -1 - pendingSeq.get(i).key() == button) {
+                pendingSeq.remove(i);
+                rebindConflict = null;
+                return;
+            }
+        }
+        pendingSeq.add(new EditorKeys.Step(EditorKeys.mouseStepKey(button), latchedMods));
+        latchedMods = 0; // 修饰随步入列复位 / mods clear with the recorded step
     }
 
-    /** 「确定绑定」：把录入序列落到当前动作（前缀歧义拒绝）；成功后预览保持为生效序列。
-     *  鼠标动作在键位点击时就已即时绑定 —— 确定对它是静默无操作。
-     *  Bind: commit the recorded sequence (prefix-ambiguity refused); the preview then
-     *  shows the live binding. Mouse actions bind on chip click, so Bind is a silent
-     *  no-op for them. */
+    /** 「确定绑定」：把录入队列整条落为该动作的唯一触发（统一序列——键步/鼠标步
+     *  任意交错，纯键序、纯鼠标、键鼠组合、四步交错都是同一种东西）；PAN 恒单步
+     *  （键步=按住抓图、鼠标步=按钮拖动，混录或多步提示）。前缀歧义 / 同域按钮冲突 /
+     *  能力越界拒绝。成功后预填当前生效触发（所见即所改）。
+     *  Bind: commit the recording queue wholesale as the action's single trigger (the
+     *  unified sequence — key/mouse steps interleave freely; a pure key sequence, a
+     *  pure mouse gesture, a key+mouse combo and a 4-step interleave are all the same
+     *  thing); PAN is always single-step (a key step = the hold-grab, a mouse step =
+     *  button-drag; mixing or multi-step is hinted). Prefix ambiguity / same-domain
+     *  button clashes / capability overruns are refused. On success the live trigger
+     *  pre-fills the recording (what you see is what you bound). */
     void confirmKeybind() {
         var a = EditorKeys.Action.values()[keybindTarget];
-        if (a.mouse) return;
         if (pendingSeq.isEmpty()) { rebindConflict = I18n.get("gui.create_schematic_compute.settings.bind_need_key"); return; }
+        if (a == EditorKeys.Action.PAN && pendingSeq.size() > 1) {
+            rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.pan_hold_single");
+            return;
+        }
         rebindConflict = EditorKeys.setSequence(a, List.copyOf(pendingSeq))
             ? null : I18n.get("gui.create_schematic_compute.editorkeys.conflict");
-        if (rebindConflict == null) pendingSeq.clear();
-        if (rebindConflict == null) pendingSeq.addAll(EditorKeys.sequence(a));
+        if (rebindConflict == null) {
+            pendingSeq.clear();
+            pendingSeq.addAll(EditorKeys.sequence(a));
+        }
     }
 
-    /** 选中动作行并展开虚拟键盘：预填该动作当前绑定序列，所见即所改。
-     *  Select an action row and open the keyboard, pre-filled with the current sequence. */
+    /** 选中动作行并展开虚拟键盘：预填该动作当前触发序列（含鼠标步），所见即所改。
+     *  Select an action row and open the keyboard, pre-filled with the current trigger
+     *  sequence (mouse steps included). */
     void selectKeybindRow(int idx) {
         keybindTarget = idx;
         var a = EditorKeys.Action.values()[idx];
@@ -378,4 +425,9 @@ final class EditorSettingsKeysTab {
         if (backX < listRight + 6) barY = keysListBot() + 4;
         return new int[]{backX, barY};
     }
+
+    /** seqText 的鼠标步显示名解析器（按钮索引 → I18n 标签：左键/右键/中键）。
+     *  The mouse-step label resolver for seqText (button index → I18n label). */
+    private static final java.util.function.IntFunction<String> EditorKeysTabMouseNames =
+        b -> I18n.get("gui.create_schematic_compute.editorkeys.mouse." + b);
 }

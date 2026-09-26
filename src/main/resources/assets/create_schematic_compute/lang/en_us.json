@@ -89,7 +89,7 @@
   "gui.create_schematic_compute.editorkeys.mouse.0": "Left",
   "gui.create_schematic_compute.editorkeys.mouse.1": "Right",
   "gui.create_schematic_compute.editorkeys.mouse.2": "Middle",
-  "gui.create_schematic_compute.editorkeys.rebind_mouse_only": "This action binds to a mouse button",
+  "gui.create_schematic_compute.editorkeys.pan_hold_single": "Pan is a hold-combo: one key only - hold it and move the mouse to drag the canvas",
   "gui.create_schematic_compute.editorkeys.rebind_key_only": "This action binds to a keyboard key",
   "gui.create_schematic_compute.editorkeys.conflict": "Clashes with another action; binding refused",
   "gui.create_schematic_compute.settings.bind_label": "Bind",

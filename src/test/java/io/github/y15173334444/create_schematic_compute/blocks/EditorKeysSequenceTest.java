@@ -146,11 +146,31 @@ class EditorKeysSequenceTest {
     }
 
     @Test
-    @DisplayName("鼠标动作不参与序列 —— setSequence 拒绝，单键绑定照常")
-    void mouseActionsExcluded() {
-        assertFalse(EditorKeys.setSequence(EditorKeys.Action.PAN, List.of(step(75, 0))));
-        assertTrue(EditorKeys.setMouseBinding(EditorKeys.Action.PAN, 2));
-        assertEquals(2, EditorKeys.mouseButton(EditorKeys.Action.PAN));
-        assertNull(EditorKeys.feedKey(75, 0, T)); // 键序引擎不理会鼠标动作
+    @DisplayName("PAN 按住组合键 —— 单步可绑、press 引擎永不触发、多步拒绝；CONTEXT_MENU 键盘与鼠标槽照常")
+    void panHoldCombo() {
+        // PAN 绑定单步按住键（A）——按下 A 不触发动作（由手势拦截启动平移，feedKey 返回 null）。
+        // PAN binds a single hold key (A) - pressing it fires nothing (the gesture
+        // intercepts it to start panning; feedKey returns null).
+        assertTrue(EditorKeys.setSequence(EditorKeys.Action.PAN, List.of(step(65, 0))));
+        assertNull(EditorKeys.feedKey(65, 0, T));
+        assertFalse(EditorKeys.bufferActive());
+        assertFalse(EditorKeys.mixedBufferActive());
+        assertTrue(EditorKeys.matchesPanHold(65, 0));
+        assertTrue(EditorKeys.matchesPanHold(65, EditorKeys.MOD_SHIFT), "修饰包含语义 / mods containment");
+        assertFalse(EditorKeys.matchesPanHold(66, 0));
+        assertTrue(EditorKeys.isPanHoldKey(65));
+        assertFalse(EditorKeys.isPanHoldKey(66));
+        // 按住语义无连招：多步拒绝且数据不动。 / A hold has no combos: multi-step refused, data untouched.
+        assertFalse(EditorKeys.setSequence(EditorKeys.Action.PAN, List.of(step(75, 0), step(68, 0))));
+        assertEquals(List.of(step(65, 0)), EditorKeys.sequence(EditorKeys.Action.PAN));
+        // 菜单恢复键序触发（按绑定键在光标处打开）。 / The menu regains its key trigger (opens at the cursor on the bound key).
+        assertTrue(EditorKeys.setSequence(EditorKeys.Action.CONTEXT_MENU, List.of(step(75, 0))));
+        assertEquals(EditorKeys.Action.CONTEXT_MENU, EditorKeys.feedKey(75, 0, T));
+        // 鼠标步形态 = 按钮拖动（panMouseButton 落位、panKeyBound 复位）。
+        // The mouse-step shape = button-drag (panMouseButton lands, panKeyBound resets).
+        assertTrue(EditorKeys.setSequence(EditorKeys.Action.PAN,
+            List.of(new EditorKeys.Step(EditorKeys.mouseStepKey(2), 0))));
+        assertFalse(EditorKeys.panKeyBound());
+        assertEquals(2, EditorKeys.panMouseButton());
     }
 }

@@ -353,6 +353,15 @@ public class GraphEditor {
     public boolean panning=false;
     /** 平移起始鼠标坐标 / pan start mouse position */
     public float panLastX, panLastY;
+    /** 本次平移由 PAN 按住组合键启动（非鼠标拖动）——keyReleased 负责结束，
+     *  mouseReleased 不得误停；鼠标拖动平移时为 false。
+     *  The current pan was started by PAN's hold-combo key (not a mouse drag):
+     *  keyReleased ends it and mouseReleased must not; false for button-drag pans. */
+    private boolean panByKey=false;
+    /** 菜单刚由键序触发打开——下一个字符输入吞掉（防搜索框吃到开菜单的键）。
+     *  The menu was just opened by a key-sequence trigger — the next character input
+     *  is swallowed (the search box never eats the opening key). */
+    private boolean menuOpenedByKey=false;
     /** 是否正在拖拽连线 / whether a wire is being dragged */
     public boolean draggingWire=false;
     /** 连线源节点和引脚索引 / wire source node and pin index */
@@ -1574,11 +1583,19 @@ public class GraphEditor {
         commitFocusedEnterActions();
         if (tryChromeClick(mx, my, btn, graph)) return true;
         if (tryAddMenuClick(mx, my, btn, graph)) return true;
-        // 上下文菜单键（默认右键，可重绑；查表）
-        // Context-menu button (right by default, rebindable; looked up).
-        if(btn == EditorKeys.mouseButton(EditorKeys.Action.CONTEXT_MENU)){
-            menuX=(float)mx; menuY=(float)my; showMenu=true; renderer.resetMenuSearch(); return true;
-        }
+        // 统一序列引擎的鼠标步：feedClick 完整命中某含鼠标步的序列即派发（单鼠标步
+        // = 右键菜单/中键撤销等；键前置组合在 keyPressed 时已入混合缓冲）。未命中走
+        // 常规点击管线；PAN 由下方拖拽管线消费（绑了按住抓图键后停用）。
+        // The unified sequence engine's mouse step: feedClick firing a mouse-step
+        // sequence dispatches it (a single mouse step = right-click menu / middle undo
+        // etc.; key-armed combos entered the mixed buffer at keyPressed). Misses fall
+        // through to the normal click pipeline; PAN is consumed by the drag pipeline
+        // below (disabled once a hold-grab key is bound).
+        int clickMods = (net.minecraft.client.gui.screens.Screen.hasControlDown() ? EditorKeys.MOD_CTRL : 0)
+            | (net.minecraft.client.gui.screens.Screen.hasShiftDown() ? EditorKeys.MOD_SHIFT : 0)
+            | (net.minecraft.client.gui.screens.Screen.hasAltDown() ? EditorKeys.MOD_ALT : 0);
+        var clickHit = EditorKeys.feedClick(btn, clickMods, System.currentTimeMillis());
+        if (clickHit != null && clickHit != EditorKeys.Action.PAN && dispatchActionByMouse(clickHit, mx, my)) return true;
         if (tryHotbarPopupClick(mx, my, btn)) return true;
         cancelKeyboardBinding(mx, my, btn);
         // Color picker (after panels — absorbs clicks on picker, closes if outside)
@@ -1587,10 +1604,17 @@ public class GraphEditor {
         }
         // 左键 = 完整交互；重绑后的平移键（非左键）= 只允许在注释体或空白画布上启动平移，
         // 下方所有交互子判断（编辑区 / 引脚 / 节点拖动 / 选中提交）全部跳过。
+        // 平移按钮仅在未绑按住组合键时生效（绑键后组合键是该动作唯一触发）。
         // Left button = full interaction; the rebound pan button (non-left) may only start
         // panning on a comment body or blank canvas — every interactive sub-check below
         // (edit areas, pins, node drags, selection & commits) is skipped.
-        boolean panOnlyClick = btn != 0 && btn == EditorKeys.mouseButton(EditorKeys.Action.PAN);
+        // The pan button is live only while no hold-combo key is bound (the combo is the
+        // action's only trigger then).
+        boolean panOnlyClick = btn != 0 && btn == EditorKeys.panMouseButton()
+            && !EditorKeys.panKeyBound();
+        // 组合触发的按钮（如 DELETE_WIRE 的 Tab+左键改绑中键后的中键）也进画布交互管线。
+        // Combo-trigger buttons (e.g. middle after DELETE_WIRE's Tab+left rebind) enter
+        // the canvas-interaction pipeline too.
         if(btn==0 || panOnlyClick){
             showMenu=false;
             // 重绑平移键不作用于任何 chrome：工具栏 / 子图 Back / 右下角按钮上按下不平移。
@@ -1611,7 +1635,7 @@ public class GraphEditor {
                 .sorted(GraphEditor::compareHitOrder)
                 .collect(java.util.stream.Collectors.toList());
         if (tryExpandedEditAreaClicks(mx, my, panOnlyClick, clickCandidates, graph)) return true;
-        if (tryTabInteractions(mx, my, panOnlyClick, graph)) return true;
+        if (tryTabInteractions(mx, my, btn, panOnlyClick, graph)) return true;
             // ▶/▼ 折叠展开按钮（优先检测，不依赖选中状态） (Expand/collapse button, checked first, independent of selection state)
             var expandHit = panOnlyClick ? null : hitExpandIndicator(mx, my, graph);
             if (expandHit != null) { toggleExpand(expandHit); return true; }
@@ -1686,10 +1710,12 @@ public class GraphEditor {
         selectedNodes.clear(); selectedNode=null;
         syncEditStateToSelection(); // 取消选中后，同步清掉所有节点的控件状态
     }
-    // 平移只在平移键上启动（默认左键，可重绑）——重绑后左键点空白不再平移。
+    // 平移只在平移键上启动（默认左键，可重绑）——重绑后左键点空白不再平移；
+    // 绑定按住组合键后按钮拖动整体停用（组合键是唯一触发）。
     // Panning starts on the pan button only (left by default, rebindable) — after a
-    // rebind, left-click on blank canvas no longer pans.
-    if (btn == EditorKeys.mouseButton(EditorKeys.Action.PAN)) {
+    // rebind, left-click on blank canvas no longer pans; with a hold-combo key bound
+    // the button drag is disabled entirely (the combo is the only trigger).
+    if (btn == EditorKeys.panMouseButton() && !EditorKeys.panKeyBound()) {
         panning=true; panLastX=(float)mx; panLastY=(float)my;
     }
         return false;
@@ -1868,8 +1894,11 @@ public class GraphEditor {
         boolean inCommentHeader = locY >= 0 && locY < commentHeaderLocal;
         if (!inCommentHeader) {
             // 非平移键（重绑后的左键）点正文：只选中，不平移。
+            // 绑了按住组合键后左键同样只选中（组合键是唯一触发）。
             // Non-pan button (left click after a rebind): select only, no panning.
-            if (btn != EditorKeys.mouseButton(EditorKeys.Action.PAN)) {
+            // With a hold-combo key bound, left-click selects only as well (the combo is
+            // the only trigger).
+            if (btn != EditorKeys.panMouseButton() || EditorKeys.panKeyBound()) {
                 if (selectedNode != n2) {
                     selectedNode = n2; selectedNodes.clear(); selectedNodes.add(n2);
                 }
@@ -1896,10 +1925,12 @@ public class GraphEditor {
             else selectedNodes.add(n2);
             selectedNode = selectedNodes.isEmpty() ? null : selectedNodes.iterator().next();
             if (selectedNodes.isEmpty()) {
-                // 平移只在平移键上启动 —— 重绑后左键清空多选不再引发粘滞平移。
+                // 平移只在平移键上启动 —— 重绑后左键清空多选不再引发粘滞平移；
+                // 绑了按住组合键后按钮拖动整体停用。
                 // Panning starts on the pan button only — after a rebind, emptying the
-                // multi-selection with left-click no longer causes sticky panning.
-                if (btn == EditorKeys.mouseButton(EditorKeys.Action.PAN)) {
+                // multi-selection with left-click no longer causes sticky panning; with
+                // a hold-combo key bound the button drag is disabled entirely.
+                if (btn == EditorKeys.panMouseButton() && !EditorKeys.panKeyBound()) {
                     panning = true; panLastX = (float)mx; panLastY = (float)my;
                 }
                 return true;
@@ -1934,6 +1965,160 @@ public class GraphEditor {
         return false;
     }
 
+    /** 鼠标事件完成序列后的动作派发（feedClick 完整命中）：与按键路径共用同一实现。
+     *  返回 true = 已消费。PAN 不在此表（拖拽管线）。
+     *  Dispatch for an action completed by a mouse event (feedClick full match):
+     *  shares the exact implementations with the key paths. Returns true = consumed.
+     *  PAN is not routed here (drag pipeline). */
+    private boolean dispatchActionByMouse(EditorKeys.Action a, double mx, double my) {
+        return switch (a) {
+            case CONTEXT_MENU -> { menuX=(float)mx; menuY=(float)my; showMenu=true; renderer.resetMenuSearch(); yield true; }
+            case DELETE_NODE -> deleteHoveredNode(mx, my);
+            case DELETE_WIRE -> deleteHoveredWire(mx, my);
+            case DELETE_SELECTED -> { if (selectedNodes.isEmpty()) yield false; deleteSelectedNodes(); yield true; }
+            case DUPLICATE -> duplicateSelection();
+            case UNDO -> { commitFocusedEditBox(); history.opUndo(); yield true; }
+            case REDO -> { commitFocusedEditBox(); history.opRedo(); yield true; }
+            case RESET_VIEW -> { viewBookmarks.startTransition(0, 0, 1f); yield true; }
+            case SAVE_BOOKMARK -> { viewBookmarks.beginKeybindDraft(); yield true; }
+            default -> false;
+        };
+    }
+
+    /** 删除悬停节点——「删除节点」键（默认 X）触发。
+     *  返回是否真的删除（悬空 / 软锁 / 占用封装 = false，调用方按键路径照常消费）。
+     *  Deletes the hovered node — fired by the Delete-Node key (default X). Returns
+     *  whether a node was actually deleted (null hover / soft lock / occupied
+     *  encapsulation = false; the key path consumes regardless). */
+    private boolean deleteHoveredNode(double mx, double my) {
+        var g2 = getGraph();
+        var hit = hitNode(mx, my);
+        if (hit == null || isNodeLocked(hit.id, ownerNodeId())) return false;
+        // 有玩家在该封装子图内编辑 → 禁删并提示（防把正在编辑的对端连人带图拽出来）。
+        // Players editing inside this encapsulation → refuse the delete with a hint
+        // (don't yank their editor out from under them).
+        if (encapOccupiedByOthers(hit)) { hintEncapOccupied(); return false; }
+        beginUndoBatch();
+        var savedX = hit.x; var savedY = hit.y; var savedType = hit.type.ordinal();
+        var savedNbt = saveNodeNbt(hit); // snapshot for undo restore
+        g2.removeNode(hit.id);
+        rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping
+        var removeOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE,
+            host.getBlockPos(), ownerNodeId(), hit.id, host.getPlayerUUID());
+        host.sendOp(removeOp);
+        recordOp(removeOp, savedX, savedY, savedType, savedNbt);
+        endUndoBatch();
+        expandedNodeIds.remove(hit.id);
+        nodeEditStatesById.remove(hit.id);
+        selectedNodes.remove(hit);
+        if (selectedNode == hit) selectedNode = null;
+        return true;
+    }
+
+    /** 删除选中节点——「删除选中」键（默认 Delete）触发
+     *  （软锁 / 占用封装跳过，跳过时动作栏提示）。
+     *  Deletes the selected nodes — fired by the Delete-Selected key (default Delete)
+     *  (soft-locked / occupied encapsulations skipped with an action-bar hint when any
+     *  were skipped). */
+    private void deleteSelectedNodes() {
+        var graph = getGraph();
+        boolean skippedOccupiedEncap = false; // 有玩家在子图内编辑的封装被跳过 / an occupied encapsulation was skipped
+        beginUndoBatch();
+        for (var n : List.copyOf(selectedNodes)) {
+            if (isNodeLocked(n.id, ownerNodeId())) continue;
+            if (encapOccupiedByOthers(n)) { skippedOccupiedEncap = true; continue; }
+            if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
+                boolean hasOther = false;
+                for (var other : graph.nodes) {
+                    if (other != n && other.type == NodeType.BUS_OUT && other.signalName.equals(n.signalName))
+                        { hasOther = true; break; }
+                }
+                if (!hasOther) {
+                    io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(n.signalName);
+                }
+            }
+            var savedX = n.x; var savedY = n.y; var savedType = n.type.ordinal();
+            var savedNbt = saveNodeNbt(n); // snapshot for undo restore
+            graph.removeNode(n.id);
+            var removeOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE,
+                host.getBlockPos(), ownerNodeId(), n.id, host.getPlayerUUID());
+            host.sendOp(removeOp);
+            recordOp(removeOp, savedX, savedY, savedType, savedNbt);
+        }
+        endUndoBatch();
+        if (skippedOccupiedEncap) hintEncapOccupied();
+        if (selectedNode != null) {
+            expandedNodeIds.remove(selectedNode.id);
+            nodeEditStatesById.remove(selectedNode.id);
+        }
+        selectedNodes.clear();
+        selectedNode = null;
+    }
+
+    /** 复制选中——「复制」键（默认 Ctrl+D）触发（服务端权威 ID 分配的两阶段协议）。
+     *  返回是否执行（无选中 = false，调用方回落常规点击处理）。
+     *  Duplicates the selection — fired by the Duplicate key (default Ctrl+D; the
+     *  server-authoritative two-phase ID protocol). Returns whether it ran (empty
+     *  selection = false; the caller falls back to normal clicks). */
+    private boolean duplicateSelection() {
+        if (selectedNodes.isEmpty()) return false;
+        var graph = getGraph();
+        beginUndoBatch();
+        var idMap = new java.util.HashMap<Integer, Integer>();
+        var newNodes = new java.util.ArrayList<GraphNode>();
+        float ofs = 30;
+        var uid = host.getPlayerUUID();
+        var gpos = host.getBlockPos();
+        int oid = ownerNodeId();
+        var group = new PendingCopyGroup(oid, gpos, uid);
+        // 克隆所有选中节点（含子图等所有字段） / Clone all selected nodes (incl. sub-graphs, all fields)
+        for (var n : selectedNodes) {
+            int tempId = graph.nextNodeId++;
+            var dup = n.shallowCopyWithNewId(tempId);
+            dup.x += ofs; dup.y += ofs;
+            // BUS_OUT 复制后清空频道名（防止两个 BUS_OUT 同频道冲突）。
+            // BUS_IN 保留频道名——多个 BUS_IN 读同一频道是合法场景。
+            // Clear channel name on BUS_OUT duplicate to prevent conflicts.
+            // BUS_IN keeps its name — multiple readers on the same channel is valid.
+            if (dup.type == NodeType.BUS_OUT) {
+                dup.signalName = "";
+                dup.displayText = "";
+            }
+            graph.adoptNode(dup);
+            idMap.put(n.id, dup.id);
+            newNodes.add(dup);
+            group.nodes.add(dup);
+            group.tempToReal.put(tempId, -1); // pending
+            // 复制展开状态（本地） / Copy expand state (local only)
+            if (n.expanded) {
+                expandedNodeIds.add(dup.id);
+                nodeEditStatesById.put(dup.id, createEditState(dup));
+            }
+            // 发送 ADD_NODE_REQUEST（服务端分配真实 ID）/ Send ADD_NODE_REQUEST (server assigns real ID)
+            var anOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(gpos, oid, tempId, dup.type, dup.x, dup.y, uid);
+            host.sendOp(anOp); recordOp(anOp, 0, 0, dup.id, null); // oldVal=localId
+        }
+        // 复制选中节点之间的连接（本地 + 待发送）/ Copy connections between selected nodes (local + pending)
+        for (var c : List.copyOf(graph.connections)) {
+            if (idMap.containsKey(c.fromId) && idMap.containsKey(c.toId)) {
+                graph.addConnection(idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin);
+                group.conns.add(new int[]{idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin});
+            }
+        }
+        endUndoBatch();
+        // 更新选中为新节点 / Update selection to new nodes
+        selectedNodes.clear();
+        selectedNodes.addAll(newNodes);
+        selectedNode = newNodes.isEmpty() ? null : newNodes.get(0);
+        // 注册待发送组 — handleAck 在所有节点获得服务端真实 ID 后批量发送数据 op
+        // Register pending group — handleAck flushes data ops once all nodes have real IDs
+        int groupId = nextCopyGroupId++;
+        pendingCopyGroups.put(groupId, group);
+        return true;
+    }
+
     /** 删除悬停连线——「删除连线」键（默认 W）与旧的 Tab+左键 组合共用这一条路径
      *  （语义 / 撤销 / op 流完全一致）。
      *  Deletes the hovered connection — one path shared by the Delete-Wire key (default W)
@@ -1957,9 +2142,8 @@ public class GraphEditor {
 
     /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
      *  6f extraction: a verbatim inline block of the former mouseClicked. */
-    private boolean tryTabInteractions(double mx, double my, boolean panOnlyClick, NodeGraph graph) {    // TAB+左键 → 连线删除 / 多选 / 框选 (TAB+left-click → connection delete / multi-select / box-select)
-    if (tabHeld && !panOnlyClick) {
-        if (deleteHoveredWire(mx, my)) return true;
+    private boolean tryTabInteractions(double mx, double my, int btn, boolean panOnlyClick, NodeGraph graph) {    // TAB+左键 → 多选 / 框选（连线删除已并入统一序列引擎的鼠标步——DELETE_WIRE 的 Tab → 左键）
+    if (tabHeld && !panOnlyClick && btn == 0) {
         var hit = hitNode(mx, my);
         if (hit != null && selectedNodes.contains(hit)) {
             multiDragging = true; multiClickedNode = hit; multiDragOrigins.clear();
@@ -3020,9 +3204,12 @@ public class GraphEditor {
                 endUndoBatch(); // close the batch started at drag begin
             rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping after drag
             draggingNode=null;
-        // 平移键松开 → 结束平移（按键可能被重绑，查表而非写死左键）
+        // 平移键松开 → 结束平移（按键可能被重绑，查表而非写死左键）。按住组合键启动的
+        // 平移不受鼠标释放影响（panByKey 区分，松键才结束）。
         // Pan button released → stop panning (rebindable; look it up, don't hardcode).
-        }if(btn == EditorKeys.mouseButton(EditorKeys.Action.PAN)&&panning)panning=false;
+        // A pan started by the hold-combo key is untouched by mouse releases (panByKey
+        // tells the routes apart; only the key release ends it).
+        }if(btn == EditorKeys.panMouseButton()&&panning&&!panByKey)panning=false;
     }
 
     // ── DEBUG_SIGNAL_GEN 控制点辅助方法 ──
@@ -3347,6 +3534,22 @@ public class GraphEditor {
             }
             return;
         }
+        if(panning){
+            // 按键平移自愈：keyReleased 可能不送达（按住组合键时点设置按钮切屏、窗口
+            // 失焦等）——移动时轮询物理键态（同 mouseScrolled 轮询 Ctrl 的手法），键已
+            // 抬起即结束平移，防止无键悬空平移卡死。
+            // Key-pan self-heal: keyReleased may never arrive (switching to settings or
+            // losing focus while holding the combo key) — poll the physical key state on
+            // move (same trick as mouseScrolled polling Ctrl) and end the pan once the
+            // key is up, so a keyless floating pan can never stick.
+            if (panByKey) {
+                int pk = EditorKeys.panHoldKey();
+                long win = Minecraft.getInstance().getWindow().getWindow();
+                if (pk < 0 || org.lwjgl.glfw.GLFW.glfwGetKey(win, pk) != org.lwjgl.glfw.GLFW.GLFW_PRESS) {
+                    panning = false; panByKey = false;
+                }
+            }
+        }
         if(panning){camX+=(float)(mx-panLastX)/zoom;camY+=(float)(my-panLastY)/zoom;panLastX=(float)mx;panLastY=(float)my;}
         if(draggingNode!=null){
             float nx=s2cX(mx)+dragOffX, ny=s2cY(my)+dragOffY;
@@ -3584,39 +3787,43 @@ public class GraphEditor {
         // above): full match → dispatch, prefix advance → consumed while waiting,
         // irrelevant keys fall through to the hardcoded handlers below.
         int seqMods = (modC ? EditorKeys.MOD_CTRL : 0) | (modS ? EditorKeys.MOD_SHIFT : 0) | (modA ? EditorKeys.MOD_ALT : 0);
+        // PAN 按住组合键（键盘绑定路）：按住绑定键移动鼠标即拖动图（出厂未绑，默认仍
+        // 是左键拖动）。按下时锚定当前光标、由 mouseMoved 持续平移，keyReleased 松键
+        // 结束（panByKey 区分两条启动路，防鼠标释放误停）。菜单打开时不启动；键重复
+        // 事件重锚定增量为 0 无害；缓冲顺手清空（该键被手势消费，半截连招作废）。
+        // PAN hold-combo (keyboard route): hold the bound key (unbound by factory — the
+        // default pan stays left-drag) and move the mouse to drag the canvas. Press
+        // anchors at the cursor, mouseMoved pans while held, keyReleased ends it
+        // (panByKey tells the two start routes apart so a mouse release can't stop a
+        // key pan). Not started while the menu is open; key repeats re-anchor with a
+        // zero delta; the sequence buffer is cleared (the key is consumed by the
+        // gesture, voiding any partial combo).
+        if (!showMenu && EditorKeys.matchesPanHold(key, seqMods)) {
+            panning = true; panByKey = true;
+            panLastX = (float) lastMouseX; panLastY = (float) lastMouseY;
+            EditorKeys.clearBuffer();
+            return true;
+        }
         var seqHit = EditorKeys.feedKey(key, seqMods, System.currentTimeMillis());
         if (seqHit == EditorKeys.Action.DELETE_NODE) {
             // 删除悬停节点（替代右键删除防误触）/ delete the hovered node
-            var g2 = getGraph();
-            var hit = hitNode(lastMouseX, lastMouseY);
-            if (hit != null && !isNodeLocked(hit.id, ownerNodeId())) {
-                // 有玩家在该封装子图内编辑 → 禁删并提示（防把正在编辑的对端连人带图拽出来）。
-                // Players editing inside this encapsulation → refuse the delete with a hint
-                // (don't yank their editor out from under them).
-                if (encapOccupiedByOthers(hit)) { hintEncapOccupied(); return true; }
-                beginUndoBatch();
-                var savedX = hit.x; var savedY = hit.y; var savedType = hit.type.ordinal();
-                var savedNbt = saveNodeNbt(hit); // snapshot for undo restore
-                g2.removeNode(hit.id);
-                rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping
-                var removeOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                    io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE,
-                    host.getBlockPos(), ownerNodeId(), hit.id, host.getPlayerUUID());
-                host.sendOp(removeOp);
-                recordOp(removeOp, savedX, savedY, savedType, savedNbt);
-                endUndoBatch();
-                expandedNodeIds.remove(hit.id);
-                nodeEditStatesById.remove(hit.id);
-                selectedNodes.remove(hit);
-                if (selectedNode == hit) selectedNode = null;
-                return true;
-            }
+            deleteHoveredNode(lastMouseX, lastMouseY);
             return true; // 触发即消费（悬空 / 锁定不满足也归引擎）/ triggered keys are consumed
         } else if (seqHit == EditorKeys.Action.DELETE_WIRE) {
             // 删除悬停连线（默认 W；原 Tab+左键 组合路径保留） / delete the hovered wire
             // (default W; the legacy Tab+click chord stays)
             if (deleteHoveredWire(lastMouseX, lastMouseY)) return true;
             return true; // 触发即消费（悬空不满足也归引擎）/ triggered keys are consumed
+        } else if (seqHit == EditorKeys.Action.CONTEXT_MENU) {
+            // 上下文菜单键序触发：开在光标当前位置；吞掉本次按键的字符输入，
+            // 防菜单搜索框吃到开菜单的键（如 D 开菜单 → 搜索框出现 "d"）。
+            // Context-menu via key sequence: opens at the cursor; swallow the opening
+            // key's character so the menu search box never sees it (D opens the menu
+            // without landing "d" in the search field).
+            menuX = (float) lastMouseX; menuY = (float) lastMouseY;
+            showMenu = true; renderer.resetMenuSearch();
+            menuOpenedByKey = true;
+            return true;
         } else if (seqHit == EditorKeys.Action.UNDO) { commitFocusedEditBox(); history.opUndo(); return true; }
         else if (seqHit == EditorKeys.Action.REDO) { commitFocusedEditBox(); history.opRedo(); return true; }
         else if (seqHit == EditorKeys.Action.SAVE_BOOKMARK) { // 视角书签快捷键 / view bookmark shortcut
@@ -3626,98 +3833,17 @@ public class GraphEditor {
         else if (seqHit == EditorKeys.Action.BOX_SELECT) { tabHeld = true; return true; } // 按住框选 / hold to box-select
         else if (seqHit == EditorKeys.Action.DUPLICATE && !selectedNodes.isEmpty()) {
             // 复制选中（支持多选）— 走服务端权威 ID 分配流程 / duplicate (multi-select) via server-authoritative IDs
-            beginUndoBatch();
-            var idMap = new java.util.HashMap<Integer, Integer>();
-            var newNodes = new java.util.ArrayList<GraphNode>();
-            float ofs = 30;
-            var uid = host.getPlayerUUID();
-            var gpos = host.getBlockPos();
-            int oid = ownerNodeId();
-            var group = new PendingCopyGroup(oid, gpos, uid);
-            // 克隆所有选中节点（含子图等所有字段） / Clone all selected nodes (incl. sub-graphs, all fields)
-            for (var n : selectedNodes) {
-                int tempId = graph.nextNodeId++;
-                var dup = n.shallowCopyWithNewId(tempId);
-                dup.x += ofs; dup.y += ofs;
-                // BUS_OUT 复制后清空频道名（防止两个 BUS_OUT 同频道冲突）。
-                // BUS_IN 保留频道名——多个 BUS_IN 读同一频道是合法场景。
-                // Clear channel name on BUS_OUT duplicate to prevent conflicts.
-                // BUS_IN keeps its name — multiple readers on the same channel is valid.
-                if (dup.type == NodeType.BUS_OUT) {
-                    dup.signalName = "";
-                    dup.displayText = "";
-                }
-                graph.adoptNode(dup);
-                idMap.put(n.id, dup.id);
-                newNodes.add(dup);
-                group.nodes.add(dup);
-                group.tempToReal.put(tempId, -1); // pending
-                // 复制展开状态（本地） / Copy expand state (local only)
-                if (n.expanded) {
-                    expandedNodeIds.add(dup.id);
-                    nodeEditStatesById.put(dup.id, createEditState(dup));
-                }
-                // 发送 ADD_NODE_REQUEST（服务端分配真实 ID）/ Send ADD_NODE_REQUEST (server assigns real ID)
-                var anOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(gpos, oid, tempId, dup.type, dup.x, dup.y, uid);
-                host.sendOp(anOp); recordOp(anOp, 0, 0, dup.id, null); // oldVal=localId
-            }
-            // 复制选中节点之间的连接（本地 + 待发送）/ Copy connections between selected nodes (local + pending)
-            for (var c : List.copyOf(graph.connections)) {
-                if (idMap.containsKey(c.fromId) && idMap.containsKey(c.toId)) {
-                    graph.addConnection(idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin);
-                    group.conns.add(new int[]{idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin});
-                }
-            }
-            endUndoBatch();
-            // 更新选中为新节点 / Update selection to new nodes
-            selectedNodes.clear();
-            selectedNodes.addAll(newNodes);
-            selectedNode = newNodes.isEmpty() ? null : newNodes.get(0);
-            // 注册待发送组 — handleAck 在所有节点获得服务端真实 ID 后批量发送数据 op
-            // Register pending group — handleAck flushes data ops once all nodes have real IDs
-            int groupId = nextCopyGroupId++;
-            pendingCopyGroups.put(groupId, group);
+            duplicateSelection();
             return true;
         }
         else if (seqHit == EditorKeys.Action.DELETE_SELECTED && !selectedNodes.isEmpty()) {
             // 删除选中节点（原 Backspace/Delete 硬编码，现可绑定，默认 Delete）
             // Delete the selected nodes (was hardcoded to Backspace/Delete; bindable now, Delete by default)
-            boolean skippedOccupiedEncap = false; // 有玩家在子图内编辑的封装被跳过 / an occupied encapsulation was skipped
-            beginUndoBatch();
-            for (var n : List.copyOf(selectedNodes)) {
-                if (isNodeLocked(n.id, ownerNodeId())) continue;
-                if (encapOccupiedByOthers(n)) { skippedOccupiedEncap = true; continue; }
-                if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
-                    boolean hasOther = false;
-                    for (var other : graph.nodes) {
-                        if (other != n && other.type == NodeType.BUS_OUT && other.signalName.equals(n.signalName))
-                            { hasOther = true; break; }
-                    }
-                    if (!hasOther) {
-                        io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(n.signalName);
-                    }
-                }
-                var savedX = n.x; var savedY = n.y; var savedType = n.type.ordinal();
-                var savedNbt = saveNodeNbt(n); // snapshot for undo restore
-                graph.removeNode(n.id);
-                var removeOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                    io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE,
-                    host.getBlockPos(), ownerNodeId(), n.id, host.getPlayerUUID());
-                host.sendOp(removeOp);
-                recordOp(removeOp, savedX, savedY, savedType, savedNbt);
-            }
-            endUndoBatch();
-            if (skippedOccupiedEncap) hintEncapOccupied();
-            if (selectedNode != null) {
-                expandedNodeIds.remove(selectedNode.id);
-                nodeEditStatesById.remove(selectedNode.id);
-            }
-            selectedNodes.clear();
-            selectedNode = null;
+            deleteSelectedNodes();
             return true;
         }
         if (seqHit != null) return true; // 触发但前置不满足也消费（动作拥有该键）/ triggered with a failed precondition still consumes
-        if (EditorKeys.bufferActive()) return true; // 前缀等待：按键已被引擎消费 / prefix waiting: key consumed
+        if (EditorKeys.bufferActive() || EditorKeys.mixedBufferActive()) return true; // 前缀等待：按键已被引擎消费 / prefix waiting: key consumed
         // C key: Create comment node around selection
         if (key == 67 && !net.minecraft.client.gui.screens.Screen.hasControlDown()
             && !selectedNodes.isEmpty()) {
@@ -3773,20 +3899,31 @@ public class GraphEditor {
         }
         return false;
     }
-    /** 处理按键释放——主要用于框选键释放时退出框选模式（跟随 BOX_SELECT 绑定键）。
-     *  Handle key release — mainly used to exit box-select mode when the bound
-     *  BOX_SELECT key (follows rebinds) is released.
+    /** 处理按键释放——框选键释放时退出框选模式（跟随 BOX_SELECT 绑定键）；PAN 按住
+     *  组合键释放时结束按键平移（仅结束由按键启动的平移，panByKey 区分）。
+     *  Handle key release — exits box-select mode when the bound BOX_SELECT key
+     *  (follows rebinds) is released, and ends a key-pan when PAN's hold-combo key is
+     *  released (only ends a key-started pan, per panByKey).
      *  @return true 如果事件被消费 / true if consumed */
     public boolean keyReleased(int key, int sc, int mod) {
+        if (EditorKeys.isPanHoldKey(key)) {
+            // 只结束按键平移：鼠标拖动平移期间松开该键不应打断（键可被随意敲击）。
+            // Only ends a key-pan: tapping the key during a button-drag pan must not
+            // interrupt it.
+            if (panByKey) { panning = false; panByKey = false; }
+            return true;
+        }
         if (key == boxSelectKey()) { tabHeld = false; return true; }
         return false;
     }
 
-    /** 框选键（BOX_SELECT 绑定序列末步的键，默认 Tab）。
-     *  The box-select key (last step of the BOX_SELECT binding, Tab by default). */
+    /** 框选键（BOX_SELECT 绑定序列末步的键，默认 Tab）——单一来源在
+     *  {@link EditorKeys#boxSelectHoldKey}（设置界面展示「框选键+左键」组合同用）。
+     *  The box-select key (last step of the BOX_SELECT binding, Tab by default) — the
+     *  single source is {@link EditorKeys#boxSelectHoldKey} (the settings tab's
+     *  "box-select key + left-click" chord display shares it). */
     private static int boxSelectKey() {
-        var seq = EditorKeys.sequence(EditorKeys.Action.BOX_SELECT);
-        return seq.isEmpty() ? 258 : seq.get(seq.size() - 1).key();
+        return EditorKeys.boxSelectHoldKey();
     }
     /** 处理字符输入——菜单搜索、书签命名、EditBox 文本输入。
      *  Handle character input — menu search, bookmark naming, EditBox text input.
@@ -3794,6 +3931,10 @@ public class GraphEditor {
      *  @param mod 修饰键位掩码 / modifier bitmask
      *  @return true 如果事件被消费 / true if consumed */
     public boolean charTyped(char ch, int mod) {
+        // 键序刚打开的菜单吞掉开菜单键的字符（防搜索框吃到一部分输入）。
+        // A menu just opened by a key sequence swallows the opening key's character
+        // (the search box never eats part of the input).
+        if (showMenu && menuOpenedByKey) { menuOpenedByKey = false; return true; }
         // D: 菜单搜索输入 / menu search input
         if (showMenu) {
             if (renderer.isMenuSearchFocused() || java.lang.Character.isLetterOrDigit(ch)

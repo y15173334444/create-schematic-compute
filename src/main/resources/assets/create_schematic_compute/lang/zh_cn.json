@@ -87,7 +87,7 @@
   "gui.create_schematic_compute.editorkeys.mouse.0": "左键",
   "gui.create_schematic_compute.editorkeys.mouse.1": "右键",
   "gui.create_schematic_compute.editorkeys.mouse.2": "中键",
-  "gui.create_schematic_compute.editorkeys.rebind_mouse_only": "此动作使用鼠标键绑定",
+  "gui.create_schematic_compute.editorkeys.pan_hold_single": "平移是按住键组合：只绑一个键，按住它移动鼠标即拖动画布",
   "gui.create_schematic_compute.editorkeys.rebind_key_only": "此动作用键盘键绑定",
   "gui.create_schematic_compute.editorkeys.conflict": "与其它动作冲突，绑定被拒绝",
   "gui.create_schematic_compute.settings.bind_label": "绑定",
