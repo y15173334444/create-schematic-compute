@@ -7,10 +7,8 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.context.BlockPlaceContext;
-import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
@@ -159,47 +157,11 @@ public class CncGearboxBlock extends RotatedPillarKineticBlock implements IWrenc
         };
     }
 
-    /** 扳手分流：点在**轴端面**（沿旋转轴的轴承面）→ 翻转输入端（先切除旧输出侧
-     *  的离合关系，并播放官方旋转音效）；点在**侧面** → 官方默认旋转（换轴，经
-     *  KineticBlockEntity.switchToBlockState 正确重建动力网络 + 旋转音效）。
-     *  潜行 + 扳手仍是官方拆除（onSneakWrenched 默认）。
-     *  翻面改变输出面朝向——分离状态下的翻面无需运动学处理；接合状态下先分离再翻。
-     *  翻面后必须重排动力源：旧 source 现在指向（已无轴面的）输出侧，本方块会
-     *  保持「从输出侧被驱动」的倒挂状态，动画语义与链条脱节。
-     *  Wrench split: clicking an axis-END face (the bearing faces along the rotation
-     *  axis) flips the input end (severing the old output side's clutch first, plus
-     *  the official rotate sound); clicking a SIDE face rotates the block (official
-     *  default: axis swap via KineticBlockEntity.switchToBlockState + rotate sound).
-     *  Sneak + wrench still dismantles (onSneakWrenched default). The flip MUST
-     *  re-source afterwards: the old source now points at the (shaft-less) output
-     *  side, leaving the block driven backwards with its animation semantics
-     *  disconnected from the chain. */
-    @Override
-    public InteractionResult onWrenched(BlockState state, UseOnContext context) {
-        // 端面 = 翻转输入端 / end face = flip the input end
-        if (context.getClickedFace().getAxis() == state.getValue(AXIS)) {
-            Level level = context.getLevel();
-            BlockPos pos = context.getClickedPos();
-            if (!level.isClientSide) {
-                if (level.getBlockEntity(pos) instanceof CncGearboxBlockEntity gearbox) {
-                    gearbox.disengageForFlip();
-                    BlockState flipped = state.cycle(INPUT_NEGATIVE);
-                    level.setBlock(pos, flipped, 3);
-                    gearbox.resyncKineticsAfterFlip();
-                    Player player = context.getPlayer();
-                    if (player != null)
-                        player.displayClientMessage(net.minecraft.network.chat.Component.literal(
-                            "input face: " + inputFace(flipped, pos)), true);
-                    IWrenchable.playRotateSound(level, pos);
-                }
-            }
-            return InteractionResult.SUCCESS;
-        }
-        // 侧面 = 官方默认旋转换轴（IWrenchable 默认实现经由基类继承，super 调用即可）。
-        // Side face = official default axis rotation (the IWrenchable default arrives
-        // via the superclass, so a plain super call resolves it).
-        return super.onWrenched(state, context);
-    }
+    // 扳手不再翻输入端：输入/输出面由放置感知 + autoSenseInputFace 自动识别（官方
+    // 从动件同款）。端面/侧面扳手都走 IWrenchable 默认旋转（换轴重建动力网）。
+    // Wrench no longer flips the input end — the input/output faces are auto-sensed
+    // (placement + autoSenseInputFace), like a vanilla driven member. Wrenching any
+    // face is the official IWrenchable rotate (axis swap + kinetic rebuild).
 
     @Override
     public Class<CncGearboxBlockEntity> getBlockEntityClass() {
@@ -212,12 +174,12 @@ public class CncGearboxBlock extends RotatedPillarKineticBlock implements IWrenc
     }
 
     /** 右键交互（Create ElevatorContactBlock 同款三方分流）：
-     *  手持扳手 → 放行物品路径（IWrenchable.onWrenched 翻转输入端）；
+     *  手持扳手 → 放行物品路径（IWrenchable 官方旋转）；
      *  点在轴面（两端出轴面）→ 放行物品路径（贴面放置轴/齿轮连接传动，不开 UI）；
      *  点在侧面 → 打开图编辑器。
      *  Right-click interaction (Create's ElevatorContactBlock pattern, three-way):
-     *  wrench in hand → pass to the item path (IWrenchable.onWrenched flips the
-     *  input end); click on a shaft face (either axis end) → pass to the item path
+     *  wrench in hand → pass to the item path (official IWrenchable rotate);
+     *  click on a shaft face (either axis end) → pass to the item path
      *  (place shafts/cogs against the face to connect the drive — no UI); click on
      *  a side face → open the graph editor. */
     @Override

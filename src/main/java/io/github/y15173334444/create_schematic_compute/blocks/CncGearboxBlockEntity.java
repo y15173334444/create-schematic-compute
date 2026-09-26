@@ -242,7 +242,7 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
      * 换输入端——旧逻辑里输入面只在放置时感知一次，动力换边后台块死锁在旧端
      * （用户报的「内置轴输入/输出动画位置固定不随输入端变」）。
      * 输入面有源或本方块在转时不翻（运行中/有驱动的方块不自动换向）；两侧都在转时
-     * 不翻（真歧义，交给扳手）。状态翻转后必须显式 attachKinetics——仅 setBlock
+     * 不翻（真歧义，保持现状）。状态翻转后必须显式 attachKinetics——仅 setBlock
      * 不会触发传播。
      * Input-face auto-follow (idle only): disengaged + sourceless + stopped, current
      * input-side neighbour not spinning while the OPPOSITE side spins -> flip the
@@ -251,7 +251,7 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
      * sensed at placement, so re-routing the chain left the block dead-ended on its
      * old side (the reported "built-in shaft animation positions never follow the
      * switched input end"). Never flips while sourced/spinning/engaged, nor when
-     * both sides spin (genuine ambiguity — use the wrench). The flip must call
+     * both sides spin (genuine ambiguity — stay put). The flip must call
      * attachKinetics explicitly: a bare setBlock triggers no propagation.
      */
     private void autoSenseInputFace() {
@@ -315,39 +315,6 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
                 : CncGearboxBlock.RunState.RUN);
         if (st.getValue(CncGearboxBlock.RUN_STATE) != desired)
             level.setBlock(worldPosition, st.setValue(CncGearboxBlock.RUN_STATE, desired), 3);
-    }
-
-    /** 扳手翻面前的切除钩子：接合状态下先分离（保留指令栈与镜像）。
-     *  Pre-flip sever hook: disengage first when engaged (stack preserved). */
-    public void disengageForFlip() {
-        BlockState st = getBlockState();
-        if (level == null || level.isClientSide || !st.hasProperty(CncGearboxBlock.ENGAGED)
-                || !st.getValue(CncGearboxBlock.ENGAGED))
-            return;
-        detachKinetics();
-        level.setBlock(worldPosition, st.setValue(CncGearboxBlock.ENGAGED, false), 3);
-    }
-
-    /**
-     * 扳手翻面后的动力源重排：翻面改变了输入面，旧 source 现指向（无轴面的）输出
-     * 侧——不重排的话本方块会保持「从输出侧被驱动」的倒挂状态，输入/输出动画语义
-     * 与实际链条脱节（用户报的「翻面后两端动画对不上」）。走官方拆建序列重灌：
-     * 本方块作为从动件从新输入面重新认源，下游按新输出面重建。
-     * Post-flip kinetic re-source: flipping moved the input face, so the old source
-     * now points at the (shaft-less) output side — without this the block stays
-     * driven backwards and the input/output animation semantics disconnect from the
-     * actual chain (the reported "flipped ends don't animate right"). Official
-     * teardown sequence: re-attach as a driven member from the NEW input face.
-     */
-    public void resyncKineticsAfterFlip() {
-        if (level == null || level.isClientSide)
-            return;
-        if (hasNetwork())
-            getOrCreateNetwork().remove(this);
-        detachKinetics();   // 速度仍非 0 → handleRemoved 正常清洗下游 / speed non-zero: clean tree
-        removeSource();
-        attachKinetics();   // 从新输入面重新认源 / re-source from the new input face
-        setChanged();
     }
 
     // ── GearboxCommandSink：指令栈入队 / 急停 ──
