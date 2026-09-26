@@ -180,8 +180,12 @@ public final class EditorKeys {
             case PIXEL_RECT -> 82;           // R
             case PIXEL_HAND -> 72;           // H
             case PIXEL_GRID -> 71;           // G
-            case PIXEL_BRUSH_SMALLER -> 219; // [
-            case PIXEL_BRUSH_BIGGER -> 221;  // ]
+            // [ ] 用 GLFW 键码 91/93 —— 旧硬编码的 219/221 是 Windows VK 码，经 GLFW
+            // keyPressed 永远不命中（[ ] 快捷键此前形同虚设）。
+            // [ / ] use the GLFW codes 91/93 - the old hardcode's 219/221 were Windows VK
+            // codes that GLFW's keyPressed never delivers, so those shortcuts never fired.
+            case PIXEL_BRUSH_SMALLER -> 91;  // [
+            case PIXEL_BRUSH_BIGGER -> 93;   // ]
             case PAN, CONTEXT_MENU -> -1;
         };
     }

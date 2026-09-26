@@ -45,8 +45,8 @@ class EditorKeysPixelAndWireTest {
         assertEquals(EditorKeys.Action.PIXEL_RECT, EditorKeys.feedKey(82, 0, T));           // R
         assertEquals(EditorKeys.Action.PIXEL_HAND, EditorKeys.feedKey(72, 0, T));           // H
         assertEquals(EditorKeys.Action.PIXEL_GRID, EditorKeys.feedKey(71, 0, T));           // G
-        assertEquals(EditorKeys.Action.PIXEL_BRUSH_SMALLER, EditorKeys.feedKey(219, 0, T)); // [
-        assertEquals(EditorKeys.Action.PIXEL_BRUSH_BIGGER, EditorKeys.feedKey(221, 0, T));  // ]
+        assertEquals(EditorKeys.Action.PIXEL_BRUSH_SMALLER, EditorKeys.feedKey(91, 0, T));  // [ (GLFW 91, not the old broken VK 219)
+        assertEquals(EditorKeys.Action.PIXEL_BRUSH_BIGGER, EditorKeys.feedKey(93, 0, T));  // ] (GLFW 93, not the old broken VK 221)
         assertFalse(EditorKeys.bufferActive());
     }
 
