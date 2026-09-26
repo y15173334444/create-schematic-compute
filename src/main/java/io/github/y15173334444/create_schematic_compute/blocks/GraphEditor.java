@@ -630,6 +630,10 @@ public class GraphEditor {
         var parentFilter = mainNodeFilter != null ? mainNodeFilter : nodeFilter;
         graphStack.push(new GraphEditState(encapNode, parentFilter, camX, camY, zoom));
         encapsulationParent = encapNode;
+        // 子图顶栏没有名称框：进入时交出焦点，避免隐藏的输入框继续吃键盘。
+        // The sub-graph top bar has no name box: release focus on entry so the hidden
+        // EditBox keeps eating keystrokes.
+        if (topBarNameEdit != null) topBarNameEdit.setFocused(false);
         camX = 0; camY = 0; zoom = 1f;
         expandedNodeIds.clear(); nodeEditStatesById.clear();
         lastInitGeneration = -1; // force re-init for sub-graph expanded nodes
@@ -1212,17 +1216,8 @@ public class GraphEditor {
         renderer.renderCommentNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds,
             nodeEditStatesById, camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
 
-        // ── 子图 Back 按钮 ──
-        if (isInSubGraph()) {
-            int bw = 60, bh = 16;
-            int bx = host.asScreen().width - bw - 8, by = 4;
-            g.fill(bx - 1, by - 1, bx + bw + 1, by + bh + 1, 0xFF3A3A3A);
-            g.fill(bx, by, bx + bw, by + bh, 0xFF2A2822);
-            var mc = Minecraft.getInstance();
-            String backLabel = "← " + I18n.get("gui.create_schematic_compute.back");
-            int tw = mc.font.width(backLabel);
-            g.drawString(mc.font, backLabel, bx + (bw - tw) / 2, by + 4, 0xFFCCCCCC);
-        }
+        // ── 子图 Back 按钮：已合并进顶栏（renderTopBar 子图分支）──
+        // Sub-graph Back button: merged into the top bar (renderTopBar sub branch).
 
         // BUS_IN 的频段**不再**在这里按全局注册表同步（issue #11）。这段代码每帧运行，
         // 会把每个 BUS_IN 的频段改回**本端**注册表那一份并剪掉多余的连线——于是各端注册表
@@ -1321,23 +1316,10 @@ public class GraphEditor {
                     g.drawString(mc.font, "§b" + I18n.get("gui.create_schematic_compute.encap_import"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
                 }
             }
-        } else {
-            // 封装模式标识 (替换按钮栏) (Encapsulation mode indicator, replaces button bar)
-            var mc2 = Minecraft.getInstance();
-            int nodeCount = getGraph().nodes.size();
-            boolean overLimit = nodeCount > MAX_NODES;
-            int barH = overLimit ? 36 : 22;
-            g.fill(2, 2, host.asScreen().width - 2, barH, 0xFF3A2A1A);
-            String countStr = " (" + nodeCount + "/" + MAX_NODES + ")" + (overLimit ? " §c⚠" : "");
-            String modeText = "◈ " + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.encap_mode") + " ◈" + countStr;
-            int mtw = mc2.font.width(modeText);
-            g.drawString(mc2.font, modeText, (host.asScreen().width - mtw) / 2, 6, overLimit ? 0xFFFF6666 : 0xFFFFCC88);
-            if (overLimit) {
-                String warn = net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.encap_node_limit");
-                int ww = mc2.font.width(warn);
-                g.drawString(mc2.font, warn, (host.asScreen().width - ww) / 2, 22, 0xFFFF4444);
-            }
         }
+        // 封装模式标识已合并进顶栏（renderTopBar 子图分支）——不再在这里画压在顶栏上的横条。
+        // The encapsulation-mode indicator is merged into the top bar (renderTopBar sub
+        // branch) — no more separate strip drawn over it here.
         // 导入/导出反馈文字 (Import/export feedback text)
         if (System.currentTimeMillis() < importFeedbackUntil && !saveFeedbackText.isEmpty()) {
             var mc = Minecraft.getInstance();
@@ -1593,8 +1575,8 @@ public class GraphEditor {
                 int toolY = NodeRenderer.isToolbarBottom() ? scrH - 22 : TOP_BAR_H + 2;
                 boolean overToolbar = !isInSubGraph() && my >= toolY && my <= toolY + 18 && mx >= 4
                     && mx <= (host instanceof BlueprintScreen ? 326 : 250);
-                boolean overBack = isInSubGraph() && mx >= scrW - 68 && mx <= scrW - 8
-                    && my >= TOP_BAR_H + 2 && my <= TOP_BAR_H + 18;
+                boolean overBack = isInSubGraph() && mx >= scrW - 52 && mx <= scrW - 6
+                    && my >= 3 && my <= 19;
                 boolean overCorner = mx >= scrW - 22 && my >= scrH - 44;
                 if (overToolbar || overBack || overCorner) return true;
             }
@@ -2434,14 +2416,9 @@ public class GraphEditor {
      *  6f extraction: a verbatim inline block of the former mouseClicked. */
     private boolean tryChromeClick(double mx, double my, int btn, NodeGraph graph) {
     if(btn==0){
-        // ── 子图 Back 按钮 ──
-        if (isInSubGraph()) {
-            int bw = 60, bh = 16;
-            int bx = host.asScreen().width - bw - 8, by = TOP_BAR_H + 2;
-            if (mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) {
-                exitSubGraph(); return true;
-            }
-        }
+        // 子图 Back 点击已合并进顶栏（tryTopBarClick 子图分支，几何与渲染一致）。
+        // Sub-graph Back click lives in the top bar now (tryTopBarClick sub branch,
+        // geometry matches the rendering).
         // 工具栏按钮（子图模式下隐藏） (Toolbar buttons, hidden in sub-graph mode)
         if (!isInSubGraph()) {
             int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : TOP_BAR_H + 2;
@@ -2667,6 +2644,17 @@ public class GraphEditor {
     private boolean tryTopBarClick(double mx, double my, int btn) {
     // ── 顶栏（最上层，先于一切命中检测）──
     //    Top bar (topmost layer — hit-tested before everything else).
+    // 子图：Back 占用设置按钮的同一槽位（与 renderTopBar 的子图分支几何一致）；
+    // 其余顶栏点击整体吞掉，图名框不参与（子图顶栏没有名称框）。
+    // Sub-graph: Back occupies the settings slot (geometry matches renderTopBar's sub
+    // branch); all other top-bar clicks are consumed and the name box takes no part.
+    if (isInSubGraph() && my < TOP_BAR_H) {
+        int sbX = host.asScreen().width - 52;
+        if (mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19) {
+            exitSubGraph();
+        }
+        return true;
+    }
     if (topBarNameEdit != null && my < TOP_BAR_H) {
         int sbX = host.asScreen().width - 52;
         if (mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19) {
@@ -3785,9 +3773,44 @@ public class GraphEditor {
      *  the left (the portable terminal looks devices up by it), the settings button
      *  on the right. Called after every other overlay in renderBg so nothing covers
      *  it; both toolbar positions (top and bottom) must clear {@link #TOP_BAR_H}. */
+    /** 合并顶栏：主图 = 名称 + 设置；封装子图 = 模式标识 + Back。两作用域共用同一根顶栏
+     *  （同底色、同高度、右侧同一按钮槽位），子图不再另画压在顶栏上的模式横条。
+     *  Merged top bar: main graph = name + settings; encapsulation sub-graph = mode indicator
+     *  + Back. Both scopes share the one bar (same background, height and right-hand button
+     *  slot); the sub-graph no longer draws a separate strip over it. */
     private void renderTopBar(GuiGraphics g, int mx, int my) {
         var mc = Minecraft.getInstance();
         int sw = host.asScreen().width;
+        int sbX = sw - 52;
+        // 子图分支：模式标识（含节点数/超限）+ Back。Back 占用主图设置按钮的同一槽位，
+        // 几何与命中（tryTopBarClick）一致 —— 旧实现画在 y=4 但命中在 TOP_BAR_H+2，两处脱节。
+        // Sub-graph branch: mode indicator (node count / over-limit) + Back. Back takes the
+        // settings button's slot with matching geometry — the old code drew it at y=4 but
+        // hit-tested it at TOP_BAR_H+2.
+        if (isInSubGraph()) {
+            g.fill(0, 0, sw, TOP_BAR_H, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
+            g.fill(0, TOP_BAR_H - 1, sw, TOP_BAR_H, NodeRenderer.CSB());
+            int nodeCount = getGraph().nodes.size();
+            boolean overLimit = nodeCount > MAX_NODES;
+            String countStr = " (" + nodeCount + "/" + MAX_NODES + ")" + (overLimit ? " §c⚠" : "");
+            String modeText = "◈ " + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.encap_mode") + " ◈" + countStr;
+            g.drawString(mc.font, modeText, 6, 8, overLimit ? 0xFFFF6666 : 0xFFFFCC88, false);
+            if (overLimit) {
+                // 完整超限提示在 Back 左侧放得下才画；放不下时左侧的红色 ⚠ 兜底。
+                // Full over-limit text only when it fits left of Back; otherwise the red ⚠ stands.
+                String warn = net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.encap_node_limit");
+                int wx = 6 + mc.font.width(modeText) + 12;
+                if (wx + mc.font.width(warn) < sbX - 6)
+                    g.drawString(mc.font, warn, wx, 8, 0xFFFF4444, false);
+            }
+            boolean hovBack = mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19;
+            g.fill(sbX, 3, sbX + 46, 19, hovBack ? NodeRenderer.HOV() : NodeRenderer.PBG());
+            g.renderOutline(sbX, 3, 46, 16, NodeRenderer.CSB());
+            String backLabel = "← " + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.back");
+            int btw = mc.font.width(backLabel);
+            g.drawString(mc.font, backLabel, sbX + (46 - btw) / 2, 7, 0xFFCCCCCC, false);
+            return;
+        }
         if (topBarNameEdit == null) {
             topBarNameEdit = new EditBox(mc.font, 0, 0, 140, 16, Component.literal(""));
             topBarNameEdit.setMaxLength(32);
@@ -3844,8 +3867,8 @@ public class GraphEditor {
         // a thin underline marks the editable region while focused
         if (topBarNameEdit.isFocused())
             g.fill(bx, 20, bx + bw, 21, NodeRenderer.CSB());
-        // 设置按钮（右侧） / settings button (right)
-        int sbX = sw - 52;
+        // 设置按钮（右侧，子图作用域该槽位为 Back） / settings button (right; Back takes
+        // this slot in the sub-graph scope)
         boolean hov = mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19;
         g.fill(sbX, 3, sbX + 46, 19, hov ? NodeRenderer.HOV() : NodeRenderer.PBG());
         g.renderOutline(sbX, 3, 46, 16, NodeRenderer.CSB());
