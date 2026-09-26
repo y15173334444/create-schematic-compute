@@ -415,13 +415,31 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         for (String ln : guideLines()) { g.drawString(f, ln, x + 10, cy, C_TXT_DIM, false); cy += 12; }
     }
 
-    /** 操作指南内容行：纯当前语言（随语言切换，只显示对应语言）。/ guide lines: localized to the current language only. */
+    /** 操作指南内容行：纯当前语言（随语言切换，只显示对应语言）；键位部分**动态读取
+     *  当前绑定**（EditorKeys）——重绑后指南与实际按键保持一致。工具行按
+     *  画笔/橡皮/填充/取色/直线/矩形/抓手 固定顺序；1..7 轨道顺序与 Space 平移保持固定
+     *  （不在绑定系统内）。
+     *  Guide lines: current language only; the key parts READ THE LIVE BINDINGS
+     *  (EditorKeys) so the guide tracks rebinds. Tool row order is fixed
+     *  brush/eraser/fill/eyedropper/line/rect/hand; the 1..7 rail order and Space pan
+     *  stay fixed (not part of the binding system). */
     private List<String> guideLines() {
+        String brush = EditorKeys.seqText(EditorKeys.sequence(EditorKeys.Action.PIXEL_BRUSH));
+        String eraser = EditorKeys.seqText(EditorKeys.sequence(EditorKeys.Action.PIXEL_ERASER));
+        String fill = EditorKeys.seqText(EditorKeys.sequence(EditorKeys.Action.PIXEL_FILL));
+        String eyedropper = EditorKeys.seqText(EditorKeys.sequence(EditorKeys.Action.PIXEL_EYEDROPPER));
+        String line = EditorKeys.seqText(EditorKeys.sequence(EditorKeys.Action.PIXEL_LINE));
+        String rect = EditorKeys.seqText(EditorKeys.sequence(EditorKeys.Action.PIXEL_RECT));
+        String hand = EditorKeys.seqText(EditorKeys.sequence(EditorKeys.Action.PIXEL_HAND));
+        String smaller = EditorKeys.seqText(EditorKeys.sequence(EditorKeys.Action.PIXEL_BRUSH_SMALLER));
+        String bigger = EditorKeys.seqText(EditorKeys.sequence(EditorKeys.Action.PIXEL_BRUSH_BIGGER));
+        String grid = EditorKeys.seqText(EditorKeys.sequence(EditorKeys.Action.PIXEL_GRID));
         return List.of(
-            I18n.get("gui.create_schematic_compute.monitor.pixel_guide_tools"),
+            String.format(I18n.get("gui.create_schematic_compute.monitor.pixel_guide_tools"),
+                brush, eraser, fill, eyedropper, line, rect, hand),
             I18n.get("gui.create_schematic_compute.monitor.pixel_guide_order"),
-            I18n.get("gui.create_schematic_compute.monitor.pixel_guide_size"),
-            I18n.get("gui.create_schematic_compute.monitor.pixel_guide_grid"),
+            String.format(I18n.get("gui.create_schematic_compute.monitor.pixel_guide_size"), smaller, bigger),
+            String.format(I18n.get("gui.create_schematic_compute.monitor.pixel_guide_grid"), grid),
             I18n.get("gui.create_schematic_compute.monitor.pixel_guide_undo"),
             I18n.get("gui.create_schematic_compute.monitor.pixel_guide_zoom_pan"),
             I18n.get("gui.create_schematic_compute.monitor.pixel_guide_erase"),
