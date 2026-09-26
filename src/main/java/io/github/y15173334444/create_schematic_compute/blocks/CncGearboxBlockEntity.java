@@ -40,13 +40,15 @@ import java.util.Map;
  *
  * <p><b>离合</b>：指令执行中或 CLUTCH 节点意图为真 → 接合；空闲 → 分离。
  * 接合/分离走官方合并/失源路径（见 {@link CncGearboxBlock}）。两端轴面恒在
- * （放置吸附始终有效）；分离时的转速隔离由 {@link #getRotationSpeedModifier}
- * 在输出面返回 0 实现（官方 Clutch/SplitShaft 同款），不再抽掉输出轴面。</p>
+ * （放置吸附始终有效）；输出面转速修饰 {@link #getRotationSpeedModifier}：
+ * 分离 0 / 负行程指令 -1（反转）/ 否则 1（官方 Clutch/SplitShaft 同款），不再抽掉
+ * 输出轴面。</p>
  * <p><b>Clutch</b>: command executing or CLUTCH node intent → engage; idle →
  * disengage, via the official merge / missing-source paths. Both shaft faces stay
- * present (placement snap always works); while disengaged, speed isolation is
- * {@link #getRotationSpeedModifier} returning 0 on the output face (official
- * Clutch/SplitShaft) instead of removing the output shaft face.</p>
+ * present (placement snap always works); the output face's
+ * {@link #getRotationSpeedModifier} is 0 disengaged / -1 on a negative-travel
+ * command (reverse) / 1 otherwise (official Clutch/SplitShaft) instead of
+ * removing the output shaft face.</p>
  */
 public class CncGearboxBlockEntity extends SplitShaftBlockEntity
         implements GearboxCommandSink, GraphBlockEntity, KineticEncoderView, io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView {
@@ -100,14 +102,38 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
      * {@code SplitShaftBlockEntity}, and a shaft placed against the output will not
      * merge into the input network while disengaged.
      */
+    /**
+     * 官方 SplitShaft 转速修饰：输入面恒 1；输出面分离 0、接合且指令为负行程 -1、否则 1。
+     * 负 ROTATE/MOVE = 输出相对输入反转（官方 Gearshift 的 -1 语义）；符号在入栈当帧
+     * 快照，执行期间不跟引脚变（见 MotionCommand）。
+     * Official SplitShaft speed modifier: always 1 on the input face; on the output
+     * face — 0 disengaged, -1 while executing a NEGATIVE travel command (official
+     * Gearshift reverse), 1 otherwise. The sign is snapshotted at enqueue and does
+     * not follow the pin mid-command (see MotionCommand).
+     */
     @Override
     public float getRotationSpeedModifier(Direction face) {
         BlockState st = getBlockState();
         if (face == CncGearboxBlock.inputFace(st, worldPosition))
             return 1f;
-        if (face == CncGearboxBlock.outputFace(st, worldPosition))
-            return st.getValue(CncGearboxBlock.ENGAGED) ? 1f : 0f;
+        if (face == CncGearboxBlock.outputFace(st, worldPosition)) {
+            if (!st.getValue(CncGearboxBlock.ENGAGED))
+                return 0f;
+            return isOutputReversed() ? -1f : 1f;
+        }
         return 1f;
+    }
+
+    /**
+     * 当前执行中的 ROTATE/MOVE 是否为负行程（反转）。WAIT / 空闲 / CLUTCH 常接合
+     * 不反转 —— 反转跟着「正在做的动作」的入栈符号走。
+     * Whether the executing ROTATE/MOVE books a negative travel (reverse). WAIT /
+     * idle / standing CLUTCH never reverse — the sign follows the enqueued action.
+     */
+    private boolean isOutputReversed() {
+        return currentCommand != null
+            && (currentCommand.kind() == NodeType.ROTATE || currentCommand.kind() == NodeType.MOVE)
+            && currentCommand.value() < 0f;
     }
 
     // ── 每 tick / per tick ──
@@ -156,9 +182,13 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
         // tick across every ENGAGED flip (state refresh): at 256 rpm one tick is 76.8°,
         // so ROTATE 90° read back only ~13°.
         if (clutchIntent) {
-            positionDeg += getSpeed() * MotionQuota.DEG_PER_RPM_TICK;
+            // 反转指令期间输出轴与网络反向：编码器按输出轴符号累计（与 modifier=-1 一致）。
+            // While a reverse command runs the output shaft is opposite the network —
+            // the encoder books the OUTPUT sign (matches modifier=-1).
+            float signedSpeed = isOutputReversed() ? -getSpeed() : getSpeed();
+            positionDeg += signedSpeed * MotionQuota.DEG_PER_RPM_TICK;
             positionDeg -= (float) Math.floor(positionDeg / 360f) * 360f;
-            positionMeters += getSpeed() * MotionQuota.METERS_PER_RPM_TICK;
+            positionMeters += signedSpeed * MotionQuota.METERS_PER_RPM_TICK;
         }
 
         updateClutchState(clutchIntent);
@@ -344,10 +374,12 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
     @Override public float encoderPositionMeters() { return positionMeters; }
 
     @Override public float encoderVelocity() {
-        // 分离时输出侧并未转动 —— 速度读 0，与位置积分的接合门控一致。
-        // While disengaged the output side is not turning — report 0, matching the
-        // engagement-gated position integration.
-        return getBlockState().getValue(CncGearboxBlock.ENGAGED) ? getSpeed() : 0f;
+        // 分离时输出侧并未转动 —— 速度读 0；反转指令期间输出轴与网络反向，读负号。
+        // While disengaged the output side is not turning — report 0; during a reverse
+        // command the output shaft is opposite the network — report the flipped sign.
+        if (!getBlockState().getValue(CncGearboxBlock.ENGAGED))
+            return 0f;
+        return isOutputReversed() ? -getSpeed() : getSpeed();
     }
 
     /** 复位引脚（电平触发）：角度与线性累计同时清零。

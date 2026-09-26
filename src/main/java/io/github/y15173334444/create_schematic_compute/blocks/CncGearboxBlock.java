@@ -123,13 +123,13 @@ public class CncGearboxBlock extends RotatedPillarKineticBlock implements IWrenc
      * 两端轴面恒在（官方 SplitShaft / AbstractEncasedShaftBlock 同款，只看轴向）。
      * 分离不再靠「抽掉输出轴面」——那会连带关掉放置吸附与邻居耦合，贴上去的传动轴
      * 接不上。离合隔离改由 {@link CncGearboxBlockEntity#getRotationSpeedModifier}
-     * （输出面分离时 0）+ 既有的 detach/attachKinetics 负责。
+     * （输出面：分离 0 / 负行程 -1 / 否则 1）+ 既有的 detach/attachKinetics 负责。
      * Both axis ends always carry a shaft face (official SplitShaft /
      * AbstractEncasedShaftBlock — axis-only). Isolation no longer removes the output
      * face (that also killed placement snap and neighbour coupling, so shafts placed
      * against the block would not attach); the clutch is enforced by
-     * {@link CncGearboxBlockEntity#getRotationSpeedModifier} (0 on the output face
-     * while disengaged) plus the existing detach/attachKinetics.
+     * {@link CncGearboxBlockEntity#getRotationSpeedModifier} (output face: 0
+     * disengaged, -1 reverse travel, else 1) plus the existing detach/attachKinetics.
      */
     @Override
     public boolean hasShaftTowards(LevelReader level, BlockPos pos, BlockState state, Direction face) {
