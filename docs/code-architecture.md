@@ -236,13 +236,14 @@ field coupling (`host` is private).
 **同名访问器桥（基类 protected）/ Same-name accessor bridges (base, protected)**：`graph()` / `setGraph(g)` / `runtimeState()` / `evaluator()` / `rs()` / `lastBusHashMap()` / `invalidateEvaluator()` —— 子类把旧的字段读写机械改写为这些方法（`graph.nodes` → `graph().nodes`）/ subclasses mechanically rewrite old field accesses to these (`graph.nodes` → `graph().nodes`)
 
 **共享方法 / Shared Methods**：
-- 以下方法在基类均为**一行委托**（唯一实现在 `GraphHost`，与组合线共用）：`ensureBusRegistered` / `registerBusChannels` / `cleanupBusChannels` / `unregisterBusChannels` / `graphChanged` / `recompileEvaluatorFull` / `recompileEvaluatorLight` / `onStopRunning` / `broadcastEvalSnapshot` / `loadGraphFromBytes` / `flagFullSync` / `requestFullSync` / `flushPendingFullSync` / each base method is a **one-line delegate** (the single implementation lives in `GraphHost`, shared with the composition line)
+- 以下方法在基类均为**一行委托**（唯一实现在 `GraphHost`，与组合线共用）：`ensureBusRegistered` / `registerBusChannels` / `cleanupBusChannels` / `unregisterBusChannels` / `graphChanged` / `recompileEvaluatorFull` / `recompileEvaluatorLight` / `onStopRunning` / `broadcastEvalSnapshot` / `flagFullSync` / `requestFullSync` / `flushPendingFullSync` / each base method is a **one-line delegate** (the single implementation lives in `GraphHost`, shared with the composition line)
 - `ensureBusRegistered()` — 首次 tick 注册 BUS 频道 / Register BUS on first tick
 - `recompileEvaluatorFull()` / `recompileEvaluatorLight()` — 两级求值器重建（老 `recompileEvaluator()` 已于 v1.2.5 阶段 0 删除，调用点全部迁 Full）/ Two-tier evaluator rebuild — the legacy `recompileEvaluator()` was removed in v1.2.5 phase 0 and every call site moved to Full
   - `recompileEvaluatorFull()` — 保留主图 + 子图全部运行时状态（含 `debugTime` 相位），剪除已删节点；Blueprint / ProgramComputer / Radar / Sensor / ControlSeat 使用 / preserves all main-graph and sub-graph runtime state (incl. the `debugTime` phase), pruning removed nodes
   - `recompileEvaluatorLight()` — 最小化重建：不 clear/restore 主图运行时状态（仅保留 `debugTime` 相位），仍做 diff 重注册；Monitor / SpeedProxy 使用 / minimal rebuild: never clears/restores the main-graph runtime maps (keeps only the `debugTime` phase), still diff-re-registers; used by Monitor / SpeedProxy
 - `onLoad()` — 服务端 `graph.bumpGeneration()` 强制首 tick 全量重编译 / Bump generation to force first-tick full recompile
-- `loadGraphFromBytes()` — 网络包加载完整图（v1.2.4.1：`bumpGeneration()` + `lastGraphGeneration = -1` 强制重编译，**跳过** `cleanupBusChannels`）/ Load full graph; force recompile, skip bus cleanup
+- `loadHostNBT()` — 世界加载 / 存档恢复读公共段（graph/running/runtime）；客户端回弹保护统一走 `isGraphReplaceBlocked` / World load / save restore reads the common section; client bounce-back via `isGraphReplaceBlocked`
+- `applyCompileReset()` / `markDirtyAndSyncGraph()` — 编译语义（触发器当前态回归初始态，含子图）与保存落盘 + 全量同步（issue #17：`GraphSaveRequestPacket` 服务端钩子，不再整图覆盖） / Compile semantics (flip-flop current→initial, incl. sub-graphs) and save persist + full sync (server hook, no whole-graph overwrite)
 - `broadcastEvalSnapshot()` — 广播 EvalSnapshot → ClientboundGraphEvalPacket
 - `getUpdateTag()` — 网络同步（始终发送完整图）/ Network sync (full graph, unconditional)
 - `flagFullSync()` — 触发完整图同步 / Trigger full graph sync
@@ -269,8 +270,12 @@ SablePacketHelper / screens / renderers / packets depend on the contract only.
 （Blueprint / Radar 删除、Monitor 收缩为"解析一次 → 先取屏幕设置段 → 引擎路径"）统一走
 引擎编辑器保存路径，顺带修复 Radar 缺 BUS 注销（SignalBus 泄漏）与 Blueprint/Radar 缺
 子图状态清理两处分叉；Blueprint / ProgramComputer 的逐字 30 行 flipflop 差分广播孪生块
-上提为引擎 `broadcastFlipflopDiff()`（基线随引擎）。引擎新增两个非过渡操作：
-`loadEditorTag(tag)`（编辑器保存的 tag 级入口）与 `broadcastFlipflopDiff()`。
+上提为引擎 `broadcastFlipflopDiff()`（基线随引擎）。引擎曾新增 `loadEditorTag(tag)`
+（编辑器保存的 tag 级入口）——**已随 issue #17 整图保存退役**（连同 `loadGraphFromBytes`
+链）；世界加载/存档恢复走 `loadHostNBT`，保存请求走 `GraphSaveRequestPacket` +
+`applyCompileReset`/`markDirtyAndSyncGraph`。
+`broadcastFlipflopDiff()` 保留 / Phase-3 cleanup hoisted flipflop diff broadcast;
+`loadEditorTag` was retired with issue #17 along with the `loadGraphFromBytes` chain.
 
 **过渡桥 @Deprecated / Transitional bridges @Deprecated**（v1.2.5 阶段 2 标注，阶段 3 随
 子类薄壳化删除）：7 个同名访问器桥（`graph()` / `setGraph()` / `runtimeState()` /
@@ -335,7 +340,7 @@ joiners have no pending ops and always load the authoritative graph.
 - BUS 冲突检测 / BUS conflict detection（`GraphBusEditor` — 总线编辑集群：频道名提交 `commitBusBox` / 旧频道释放 / 冲突重评估 / 频段同步 `syncBusBands`，步骤 6d 拆出；防抖编排 `tickDebouncedBusEdits` 留在编辑器 clientTick / the bus editing cluster — channel rename, old-channel release, conflict re-evaluation, band sync — split in step 6d; the debounce orchestration stays in the editor's clientTick）
 - 调试工具交互 / Debug tool interaction (控制点拖拽、探针冻结 / control point drag, probe freeze)
 - `GraphOpHistory` — op 撤销/重做历史（步骤 6c 拆出）：撤销/重做栈、批量组、反向 op、服务端 ID 重映射（Host handleAck 经编辑器委托触达）；recordOp 经编辑器一行委托保持工厂与输入处理器调用点零改动 / The op undo/redo history (step 6c): stacks, batch groups, reverse ops, server ID remapping (Host handleAck goes through the editor's delegate); recordOp keeps a one-line editor delegate so factory and input-handler call sites are untouched
-- `GraphRemoteApplier` — 远端编辑 op 应用器（步骤 6c 拆出）：展开/折叠 UI 态、REJECT 回滚 + 待 ACK 计数、子图定位 + OpExecutor 应用、远端删除的 UI 清理、编辑面板刷新与 BUS 冲突重评估；GraphEditOpSyncPacket 经编辑器公共委托触达 / The remote op applier (step 6c): expand/collapse UI state, REJECT rollback + pending-ACK count, sub-graph resolution + OpExecutor apply, remote-remove UI cleanup, edit-panel refresh and bus conflict re-evaluation; GraphEditOpSyncPacket reaches it through the editor's public delegate
+- `GraphRemoteApplier` — 远端编辑 op 应用器（步骤 6c 拆出）：展开/折叠 op 拆**数据半边**（`n.expanded` 恒应用——它是图数据、随 NBT 持久化，也是进子图时 init 恢复的唯一依据，跨作用域也要落到子图副本）与 **UI 半边**（展开集合/编辑状态仅同作用域）、REJECT 回滚 + 待 ACK 计数、子图定位 + OpExecutor 应用、远端删除的 UI 清理、编辑面板刷新与 BUS 冲突重评估；GraphEditOpSyncPacket 经编辑器公共委托触达 / The remote op applier (step 6c): expand/collapse ops split into a **data half** (`n.expanded` always applies — it is NBT-persisted graph data and the sole input of the sub-graph entry init-restore, so it must land on the sub-graph copy even cross-scope) and a **UI half** (expanded set/edit states are same-scope only), REJECT rollback + pending-ACK count, sub-graph resolution + OpExecutor apply, remote-remove UI cleanup, edit-panel refresh and bus conflict re-evaluation; GraphEditOpSyncPacket reaches it through the editor's public delegate
 - `NodeEditStateFactory` — 编辑态工厂（步骤 6a 拆出）：按节点类型构建展开面板 `EditState` 与调试信号发生器模式切换状态机；编辑器内部成员经传入引用触达（同包包级访问），编辑器保留薄委托 / The edit-state factory (step 6a): builds the expanded-panel `EditState` per node type plus the debug signal generator's mode-toggle state machine; editor internals are reached through the passed-in reference (package-private, same package), the editor keeps thin delegates
 - `GraphPresenceTracker` — 多人协作临场跟踪器（步骤 6b 拆出）：远端临场存储 / 30s 过期清理 / 节点软锁与显示布局软锁查询、本地临场节流上报（模式感知）与图模式协作叠加层（远端光标 / 拖拽悬线 / 在线列表）；包处理器、显示器显示编辑器与屏幕关闭仍走 `GraphEditor` 门面委托，调用方零改动 / The multiplayer presence tracker (step 6b): remote-presence storage with 30 s expiry, node & display-layout soft-lock queries, the throttled mode-aware local upload, and the graph-mode collaboration overlay (remote cursors / dragging wires / player list); the packet handler, the monitor display editor and screen teardown still go through `GraphEditor` delegates with zero caller changes
 
@@ -425,7 +430,7 @@ joiners have no pending ops and always load the authoritative graph.
 | C→S | `GraphEditOpPacket` | 编辑操作（含安全校验）/ Edit with validation |
 | C→S | `GraphJoinPacket` / `GraphLeavePacket` | 加入/离开编辑会话 / Join/leave edit session |
 | C→S | `GraphPresencePacket` | 光标/选区位置 / Cursor/selection position |
-| C→S | `BlueprintSavePacket` | 完整图覆盖（兼容路径）/ Full graph overwrite (legacy) |
+| C→S | `GraphSaveRequestPacket` | 保存/编译请求（服务端在权威图上执行编译复位 + 环检测 + 落盘；**不再**上传整图 — issue #17）/ Save/compile request (server runs compile reset + cycle check + persist on its own graph; **no** whole-graph upload — issue #17) |
 | C→S | `BlueprintTogglePacket` | 启动/停止执行 / Start/stop execution |
 | C→S | `BusBandUploadPacket` | BUS 频段上传 / BUS band upload |
 | C→S | `BlobDataPacket` | 分片大数据上传（≤30KB/片）/ Chunked bulk data upload |
@@ -616,10 +621,13 @@ recompileEvaluatorFull()  [Light 路径同流程 / the Light path follows the sa
     → 新增的节点 / new: registerChannel()      [首次注册 / first registration]
   → snapshotBusOutKeys()  [保存当前快照 / save current snapshot]
 
-loadGraphFromBytes()（v1.2.4.1）
-  → unregisterBusChannels(graph)
-  → 跳过 cleanupBusChannels [不向客户端广播空频段 / no empty band syncs]
-  → graph.bumpGeneration() + lastGraphGeneration = -1 [下一 tick 重编译恢复频段 / next-tick recompile restores bands]
+loadHostNBT()（世界加载 / 存档恢复）
+  → NodeGraph.load + rs.onLoad
+  → graph.bumpGeneration() + lastGraphGeneration = -1 [下一 tick 重编译 / next-tick recompile]
+
+GraphSaveRequestPacket（issue #17：仅坐标，不替换图）
+  → applyCompileReset() [GATE/T_FLIPFLOP/LATCH 当前态回归初始态，含子图]
+  → 环检测 + markDirtyAndSyncGraph() [落盘 + flagFullSync]
 
 onChunkUnloaded / setRemoved
   → cleanupBusChannels()  [清空 BusBandSync / clear band syncs]

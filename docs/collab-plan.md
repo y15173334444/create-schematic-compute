@@ -12,7 +12,7 @@
 通过阅读 `graph/`、`blocks/`、`network/`、`client/` 与 `GraphEditor`，现状可概括为：
 
 - **单人、客户端权威编辑模型**：`BlueprintScreen` 把鼠标 / 键盘事件直接转发给 `GraphEditor`，`GraphEditor` 直接 `mutate` 客户端的 `NodeGraph` / `GraphNode`（无中间 Controller 层）。
-- **整图保存**：编辑结果只在点击「Recompile」时，经 `BlueprintScreen.saveGraph()` → `BlueprintSavePacket(pos, byte[])`（整张 `NodeGraph` 压缩 NBT，上限 256 KB）→ 服务端 `loadGraphFromBytes` **整体替换** `graph`。
+- **保存/编译**：编辑结果经定向 op 实时同步；点击「Recompile」时发 `GraphSaveRequestPacket(pos)`（仅坐标），服务端在**自己的权威图**上执行编译语义并落盘。**不再**整图上传（原 `BlueprintSavePacket` 已退役 — issue #17） / Edits sync as targeted ops; Recompile sends a position-only save request and the server runs compile semantics on its own graph. No whole-graph upload (issue #17).
 - **服务端是求值权威，不是编辑权威**：`BlueprintBlockEntity.tick()` 仅在 `ServerLevel` 跑 `GraphEvaluator.evaluate`，客户端 BE 只持副本、不求值。
 - **无会话 / 权限 / 锁**：`GraphBlockEntity` 接口被 8 个 BE 实现（`Blueprint`/`ControlSeat`/`Monitor`/`ProgramComputer`/`Radar`/`Sensor`/`SpeedProxy`…），全仓无 `owner/permission/accessor` 概念；任何人打开同一 BE 都能编辑，服务端不感知「谁在编辑」。
 - **节点 ID 自增**：`NodeGraph.nextNodeId` 是 `int` 自增分配器，是多人协作的首要冲突源（两人同时 `addNode` 会得到相同 id）。
@@ -145,7 +145,7 @@ record GraphOp(
 - **广播分发**：照搬 `RuntimeStateSyncPacket` / `BusBandSyncPacket` 已有的「`sendToPlayersTrackingChunk(chunkPos, packet)`」模式，只发给追踪该图所在 chunk 的玩家（其余玩家不关心，省带宽）。
 - **大小**：单 op 通常 < 200 B，远优于 256 KB 整图上限；大批量操作（如粘贴）可合成单条 `ADD_NODES` 批量 op。
 
-> 保留 `BlueprintSavePacket` 整图通道作为「导入 / 兼容 / 单人 Recompile」路径，实时编辑走增量 op，二者不冲突。
+> `BlueprintSavePacket` 整图通道已退役（issue #17）：保存/编译改为 `GraphSaveRequestPacket`（仅坐标），服务端在权威图上执行编译语义；实时编辑走增量 op。
 
 ---
 

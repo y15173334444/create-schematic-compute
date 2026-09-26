@@ -75,7 +75,6 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     private static final int FS_BTN_H = 20;                    // 序列按钮行高（紧邻缩略图条上方、更紧凑）/ sequence button-row height (directly above the thumbnail strip, compact)
     private static final float MIN_ZOOM = 0.4f, MAX_ZOOM = 8f;
 
-
     // ── 调色板（沿用基线配色）/ palette (baseline colours) ──
     private static final int C_BG = NodeRenderer.PBG();                // 面板底 / panel bg
     private static final int C_BORDER = NodeRenderer.PBR();            // 面板描边 / panel border

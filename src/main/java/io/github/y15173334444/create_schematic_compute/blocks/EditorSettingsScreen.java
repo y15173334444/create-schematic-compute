@@ -473,7 +473,6 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
     /** 确认按钮 y：调色板底缘（含缩放）+ 2px 间距。 / confirm-button y: palette bottom (scaled) + 2px gap. */
     @Override public int paletteDoneY() { return paletteY() + (int) (310 * paletteScale(height)) + 2; }
 
-
     /** 内容区起始 y（渲染与命中共用，三个 tab 同源）。 / content-area top y. */
     @Override public int cy() { return 8; }
 

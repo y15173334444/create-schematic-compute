@@ -103,7 +103,11 @@ public class ColorPickerWidget {
     private boolean updatingHexFromPicker;
 
     public ColorPickerWidget() {
-        this.font = Minecraft.getInstance().font;
+        // 无客户端环境（单元测试）下 Minecraft 为 null —— font 只在渲染期真正使用，
+        // 构造期不硬崩即可。
+        // Headless-safe (unit tests): Minecraft is null outside the client; the font is
+        // only dereferenced at render time.
+        this.font = Minecraft.getInstance() != null ? Minecraft.getInstance().font : null;
         this.hexInput = new EditBox(font, 0, 0, HEX_W, HEX_H, Component.literal(""));
         this.hexInput.setMaxLength(8);
         this.hexInput.setResponder(this::onHexChanged);
