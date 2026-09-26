@@ -313,10 +313,10 @@ joiners have no pending ops and always load the authoritative graph.
 | 类 / Class | 基类 / Extends | 要点 / Notes |
 |----|------|---------|
 | `ProgrammableTransmissionBlockEntity` | `KineticBlockEntity` | SpeedController 语义复刻；`getConveyedSpeed` 经 `RotationPropagatorMixin`；源健康判 `getTheoreticalSpeed()`（过载压速下 `getSpeed()` 恒 0 会误拆下游） |
-| `CncGearboxBlockEntity` | **`SplitShaftBlockEntity`**（v1.2.5.2 起） | 两端轴面恒在（`hasShaftTowards` 只看轴向）；离合隔离 = `getRotationSpeedModifier` 输出面分离时 0 + detach/attachKinetics；扳手不再翻输入端（放置感知 + `autoSenseInputFace` 自动识别） |
+| `CncGearboxBlockEntity` | **`SplitShaftBlockEntity`**（v1.2.5.2 起） | 两端轴面恒在（`hasShaftTowards` 只看轴向）；`getRotationSpeedModifier` 输出面：分离 0 / 负行程指令 -1（反转）/ 否则 1 + detach/attachKinetics；扳手不再翻输入端（放置感知 + `autoSenseInputFace` 自动识别） |
 | `KineticGaugeBlockEntity` | `KineticBlockEntity` | 仪表只读网络 |
 
-/ Kinetic composition-line BEs. The CNC gearbox extends Create's `SplitShaftBlockEntity` so `RotationPropagator.getAxisModifier` calls its `getRotationSpeedModifier` (0 on the output face while disengaged) — shaft faces stay present for placement snap, isolation is the modifier. The transmission's orphaned-state pre-check must use `getTheoreticalSpeed()` (raw field), never `getSpeed()` (zeroed while overStressed).
+/ Kinetic composition-line BEs. The CNC gearbox extends Create's `SplitShaftBlockEntity` so `RotationPropagator.getAxisModifier` calls its `getRotationSpeedModifier` (output face: 0 disengaged, -1 while a negative-travel ROTATE/MOVE executes = reverse, else 1) — shaft faces stay present for placement snap, isolation is the modifier. The transmission's orphaned-state pre-check must use `getTheoreticalSpeed()` (raw field), never `getSpeed()` (zeroed while overStressed).
 
 ### GraphEditor (~4200 行 / lines；步骤 6 各刀持续缩小 / shrinking via roadmap step-6 cuts)
 核心节点图编辑器。承载所有渲染/输入/交互逻辑。

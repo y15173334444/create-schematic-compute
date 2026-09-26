@@ -6,7 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
-| [v1.2.5.2](#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 |
+| [v1.2.5.2](#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 |
 | [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
@@ -21,7 +21,7 @@
 ---
 
 <details>
-<summary><b>v1.2.5.2</b> — 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 / Fix: Kinetic Gauge Wrench Rotation (Shaft Roll · Tilt-Preserving Yaw) · Floor Placement · Inverted Mount Text Upright · View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit · CNC Gearbox Shaft Faces Always Present / Wrench Back to Official · Transmission Output Recovers After Overload</summary>
+<summary><b>v1.2.5.2</b> — 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 / Fix: Kinetic Gauge Wrench Rotation (Shaft Roll · Tilt-Preserving Yaw) · Floor Placement · Inverted Mount Text Upright · View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit · CNC Gearbox Shaft Faces Always Present / Wrench Back to Official · Transmission Output Recovers After Overload · Output-Command Forward-Reverse &amp; Negative Travel</summary>
 
 ### 🔧 动力传感器扳手 / Kinetic Gauge Wrench
 
@@ -44,6 +44,14 @@
 | Fix / 修复 | Description / 说明 |
 |-----------|-------------------|
 | 🙃 倒置/朝下读数翻正 **(bug 修复)** | `facing=DOWN` 走 blockstate `x:180`，蓝屏正确朝下，但动态读数随整机一起颠倒（倒置挂墙/朝下时上下翻转）。渲染入口改为 `KineticGaugeStates.displayPanel`：`x:180` 时把字形右/上在面板平面内再转 180°（法线不动、右手系保持），从屏幕外侧看文字恢复正立；12 个状态的世界空间文字上方向 Y>0 由 `KineticGaugePlacementTest` 钉死 / `facing=DOWN` applies blockstate `x:180`, so the blue face correctly points down but the dynamic readout flipped with the whole unit. Rendering now goes through `KineticGaugeStates.displayPanel`, which spins the glyph right/up another 180° in the panel plane on `x:180` (normal untouched, still right-handed) so text reads upright from outside. All 12 states' world-space text-up Y>0 is pinned in `KineticGaugePlacementTest`. |
+
+### 🎛️ 输出指令正/反转与负行程 / Output-Command Forward-Reverse & Negative Travel
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🐛 负数恒无效 **(bug 修复)** | `MotionQuota.of` 用 `Math.max(0f, amount)` 把负行程打成 0 配额 → 负数 ROTATE/MOVE 当帧完成、形同假值。现行程量取 `Math.abs`，符号只表示方向 / Negative ROTATE/MOVE quotas were clamped to 0 and completed instantly. Travel is now `Math.abs`; the sign only encodes direction. |
+| 🔄 负行程 = 反转 | ROTATE/MOVE 入栈快照的负数值 → 执行期间输出面 `getRotationSpeedModifier = -1`（官方 Gearshift 反转语义），编码器积分/瞬时速度同步取输出符号；WAIT / 空闲 / CLUTCH 常接合不反转 / A snapshotted negative ROTATE/MOVE runs the output face at modifier -1 (official Gearshift reverse) and the encoder books the output sign; WAIT / idle / standing CLUTCH never reverse. |
+| 🔘 正/反转按钮 | 位移 / 旋转 / 目标转速 / 转速控制编辑区新增「正转/反转」独立 `rev` 开关（**不改数值 EditBox**——数值可被引脚覆盖）：MOVE/ROTATE 在入栈时对快照值取反；TX_OUT/SPEED_CTRL 在求值结果上取反（与 SPEED_CTRL 的 dir 引脚 XOR）/ Independent `rev` toggle on Move/Rotate/Target RPM/Speed Control that does **not** edit the value EditBox (the value is wire-overridable). MOVE/ROTATE negate the snapshotted value at enqueue; TX_OUT/SPEED_CTRL negate the eval result (XOR with SPEED_CTRL's dir pin). |
 
 ### 🔧 数控齿轮箱扳手回归官方 / CNC Gearbox Wrench Back to Official
 
