@@ -429,10 +429,16 @@ public final class MonitorDisplayEditor {
             g.fill((int)sx - 6, (int)sy - 1, (int)sx + 7, (int)sy, color);
             g.fill((int)sx - 1, (int)sy - 6, (int)sx, (int)sy + 7, color);
             g.drawString(mc.font, p.playerName(), (int)sx + 8, (int)sy - 4, color);
-            // 队友正在拖拽的元素：彩色描边（软锁视觉）+ 名字标注
-            // Element the teammate is dragging: colored outline (soft-lock visual) + name tag
-            if (p.displayDraggedNodeId() >= 0) {
-                var elem = findInElements(elements, p.displayDraggedNodeId());
+            // 队友正在拖拽**或选中**的元素：彩色描边（软锁视觉）+ 名字标注。
+            // 可视化与 isDisplayNodeLocked 的判定保持一致（锁跟随选择）——只画拖拽会让
+            // 「选中占锁」在队友屏幕上不可见，看起来像无锁可抢。
+            // Element a teammate is dragging OR has selected: colored outline (soft-lock
+            // visual) + name tag. The visual must match isDisplayNodeLocked (the lock
+            // follows the selection) — drawing only the drag would make a selection-held
+            // lock invisible, looking grabbable.
+            int lockedId = p.displayDraggedNodeId() >= 0 ? p.displayDraggedNodeId() : p.selectedNodeId();
+            if (lockedId >= 0) {
+                var elem = findInElements(elements, lockedId);
                 if (elem != null) {
                     var da = computeDisplayArea();
                     var ci = getContentArea(da);
