@@ -91,9 +91,24 @@ public record GraphOp(
 
     public static GraphOp setParam(BlockPos pos, int ownerNodeId, int nodeId,
                                     int paramIdx, float value, UUID actor) {
+        return setParam(pos, ownerNodeId, nodeId, paramIdx, value, null, actor);
+    }
+
+    /**
+     * SET_PARAM，可携带输入框草稿原文（{@code stringValue}）。
+     * <p>数值权威仍走 {@code paramValue}；{@code draftText} 只驱动对端 EditBox 显示，
+     * 使协作方看到的字符串与正在输入的完全一致（含清空 / 未完成输入）。{@code null} = 无草稿，
+     * 对端回退 {@code ff3(paramValue)}。</p>
+     * SET_PARAM with optional raw EditBox draft text ({@code stringValue}).
+     * The authoritative number stays in {@code paramValue}; {@code draftText} only drives
+     * the peer's box display so collaborators see the exact in-progress string (including
+     * empty / partial input). {@code null} = no draft, peer falls back to {@code ff3(paramValue)}.
+     */
+    public static GraphOp setParam(BlockPos pos, int ownerNodeId, int nodeId,
+                                    int paramIdx, float value, String draftText, UUID actor) {
         return new GraphOp(OpType.SET_PARAM, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, paramIdx, value,
-            null, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+            draftText, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
     }
 
     public static GraphOp setFormula(BlockPos pos, int ownerNodeId, int nodeId,

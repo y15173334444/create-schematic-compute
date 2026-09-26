@@ -30,6 +30,19 @@ final class NodeEditStateFactory {
 
     private NodeEditStateFactory() { }
 
+    /**
+     * 解析参数框文本：成功返回新数值，空/半截返回上次已提交数（issue：输入框同步）。
+     * Parse param-box text: a valid number wins; empty/partial keeps the last committed value.
+     */
+    static float resolveParamDraftValue(String text, float lastCommitted) {
+        try {
+            return Float.parseFloat(text.trim());
+        } catch (Exception e) {
+            // 空/未完成输入：权威值保持上次已提交数 / empty or partial: keep the last committed number
+            return lastCommitted;
+        }
+    }
+
     static GraphEditor.EditState create(GraphEditor ed, GraphNode node) {
         // 保存旧状态引用（供 busBox 保留输入值） (Save old state ref for busBox value preservation)
         final var oldStRef = ed.nodeEditStatesById.get(node.id);
@@ -88,22 +101,48 @@ final class NodeEditStateFactory {
             b.setValue(GraphEditor.ff3(node.params[i]));
             final float[] preEditParam = {node.params[idx]}; // captured before edit session / 编辑会话开始前捕获
             final float[] lastSentParam = {node.params[idx]};
-            b.setResponder(text -> { try {
+            final String[] lastSentDraft = {GraphEditor.ff3(node.params[idx])};
+            b.setResponder(text -> {
                 if (ed.suppressEditBoxResponder) return; // remote SET_PARAM setValue → don't echo back
-                float newV = Float.parseFloat(text.trim());
-                if (Math.abs(newV - lastSentParam[0]) > 0.0001f) {
-                    node.params[idx] = newV;
-                    var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, newV, ed.host.getPlayerUUID());
+                // 空 / 未完成输入：权威值保持上次已提交数，只同步草稿文本——对端必须看到
+                // 与本地完全相同的字符串（含清空），而不是默认值或 ff3 回退（issue：输入框同步）。
+                // Empty / partial input: keep the last committed number and sync the draft
+                // string only — peers must see the exact same text (including clear).
+                // 空/未完成输入：resolveParamDraftValue 回落 lastSentParam，权威值不变
+                // Empty / partial: resolveParamDraftValue falls back to lastSentParam.
+                float newV = resolveParamDraftValue(text, lastSentParam[0]);
+                node.params[idx] = newV;
+                boolean valueChanged = Math.abs(newV - lastSentParam[0]) > 0.0001f;
+                boolean draftChanged = !text.equals(lastSentDraft[0]);
+                if (valueChanged || draftChanged) {
+                    var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, newV, text, ed.host.getPlayerUUID());
                     ed.host.sendOp(op); // sync to server, undo recorded on commit / 同步到服务器，撤销在提交时记录
-                    lastSentParam[0] = newV;
+                    if (valueChanged) lastSentParam[0] = newV;
+                    lastSentDraft[0] = text;
                 }
-            } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
+            });
             ed.enterActions.put(b, () -> {
                 if (Math.abs(lastSentParam[0] - preEditParam[0]) > 0.0001f) {
-                    var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, lastSentParam[0], ed.host.getPlayerUUID());
+                    var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, lastSentParam[0], lastSentDraft[0], ed.host.getPlayerUUID());
                     ed.recordOp(op, 0, 0, preEditParam[0], null);
                     preEditParam[0] = lastSentParam[0];
                 }
+                // 失焦归位：显示改回规范格式（ff3），**不改权威值**；同步规范文本给对端，
+                // 使双方在提交后看到同一字符串。空/半截草稿在这里被归位成上次已提交数。
+                // Blur normalization: reformat the display to canonical ff3 without touching
+                // the authoritative value; sync that text so peers match after commit. Empty /
+                // partial drafts snap back to the last committed number here.
+                String canonical = GraphEditor.ff3(lastSentParam[0]);
+                if (!canonical.equals(lastSentDraft[0])) {
+                    ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, lastSentParam[0], canonical, ed.host.getPlayerUUID()));
+                    lastSentDraft[0] = canonical;
+                }
+                ed.suppressEditBoxResponder = true;
+                b.setValue(canonical);
+                ed.suppressEditBoxResponder = false;
             });
             s.fields.add(b);
             s.fieldParamIndices.add(i);

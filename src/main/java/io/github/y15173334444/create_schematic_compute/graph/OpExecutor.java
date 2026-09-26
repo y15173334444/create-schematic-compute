@@ -148,8 +148,17 @@ public final class OpExecutor {
             case SET_PARAM -> {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null && op.paramIndex() >= 0 && op.paramIndex() < n.params.length) {
-                    n.params[op.paramIndex()] = op.paramValue();
-                    graph.bumpGeneration();
+                    // 未变守卫：值相同不写、不 bumpGeneration。草稿-only op（清空/半截输入，
+                    // stringValue 变、paramValue 不变）每键都会到达这里；bump 会触发服务端
+                    // 全量重编译 + runtimeState.clear()，打断 DELAY/触发器/PID。
+                    // Unchanged guard: same value skips the write and the generation bump.
+                    // Draft-only ops (clear / partial text, stringValue changes while
+                    // paramValue does not) arrive every keystroke; a bump forces a full
+                    // recompile + runtimeState.clear() and wipes DELAY/flipflop/PID state.
+                    if (Float.compare(n.params[op.paramIndex()], op.paramValue()) != 0) {
+                        n.params[op.paramIndex()] = op.paramValue();
+                        graph.bumpGeneration();
+                    }
                 }
                 yield n;
             }

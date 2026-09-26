@@ -146,9 +146,19 @@ final class GraphRemoteApplier {
                 // Reverse lookup must be indexOf; get(paramIndex) treats a slot as a param id.
                 int fi = fieldIndexOf(st.fieldParamIndices, op.paramIndex());
                 if (fi >= 0 && fi < st.fields.size() && st.fields.get(fi) instanceof net.minecraft.client.gui.components.EditBox eb) {
-                    ed.suppressEditBoxResponder = true;
-                    eb.setValue(GraphEditor.ff3(op.paramValue()));
-                    ed.suppressEditBoxResponder = false;
+                    // 本端正聚焦输入时不覆盖（与 busBox 同策略），避免冲掉正在打的草稿
+                    // Skip while the local box is focused (same policy as busBox) so an
+                    // in-progress keystroke sequence is not overwritten.
+                    if (!eb.isFocused()) {
+                        ed.suppressEditBoxResponder = true;
+                        // 优先显示草稿原文（与正在输入的字符串一致，含清空）；无草稿才 ff3
+                        // Prefer the raw draft string (matches in-progress text, incl. clear);
+                        // fall back to ff3 only when the op carries no draft.
+                        String draft = op.stringValue();
+                        if (draft != null) eb.setValue(draft);
+                        else eb.setValue(GraphEditor.ff3(op.paramValue()));
+                        ed.suppressEditBoxResponder = false;
+                    }
                 }
             } else if (st != null && op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM) {
                 // DEBUG_SIGNAL_GEN: setMode/outMode changes → recreate EditState to update visible fields

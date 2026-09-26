@@ -685,8 +685,13 @@ public class GraphEditor {
 
     /** 展开节点的**结构指纹**：任何会改变输入框集合或含义的东西都要进指纹；
      *  漏掉一项，那种变化就再也不会触发重建（反过来，无关变化不该进指纹，否则又会误重建）。
+     *  <p><b>契约例外</b>：参数<b>数值</b>不进指纹——值一变就重建会把草稿刷成 {@code ff3}
+     *  （{@code "000"}→{@code "0.0"}）。数值同步走 SET_PARAM 草稿 + 失焦归位。</p>
      *  Structural fingerprint of an expanded node: everything that changes the set or the
-     *  meaning of its edit boxes. Omit a field here and that change stops rebuilding. */
+     *  meaning of its edit boxes. Omit a field here and that change stops rebuilding.
+     *  <p><b>Contract exception</b>: param <i>values</i> are excluded — a value change
+     *  rebuilds the panel and {@code ff3} wipes drafts ({@code "000"}→{@code "0.0"}).
+     *  Value sync rides SET_PARAM drafts + blur normalization instead.</p> */
     private int editStateSignature(GraphNode n) {
         int h = 1;
         h = 31 * h + n.id;
@@ -696,7 +701,12 @@ public class GraphEditor {
         h = 31 * h + n.outputs();
         h = 31 * h + n.inputs();
         h = 31 * h + n.params.length;
-        for (float v : n.params) h = 31 * h + Float.floatToIntBits(v);
+        // **不要**把参数数值编进指纹：值一变就 createEditState → setValue(ff3)，
+        // 会把正在输入/对端草稿（"000"→"0.0"、"999999999"→"1.0E9"）刷成规范格式。
+        // 数值同步走 SET_PARAM 的 stringValue 草稿 + 失焦归位，不经结构重建。
+        // Do NOT fold param *values* into the fingerprint: a value change rebuilds
+        // the EditState and setValue(ff3) wipes in-progress / peer drafts ("000"→"0.0").
+        // Value sync rides SET_PARAM's draft string + blur normalization instead.
         h = 31 * h + (n.signalName == null ? 0 : n.signalName.hashCode());
         h = 31 * h + (n.signalBands == null ? 0 : n.signalBands.size());
         h = 31 * h + (n.formula == null ? 0 : n.formula.hashCode());
@@ -4288,8 +4298,14 @@ public class GraphEditor {
 
     // ── Fast number formatting to avoid String.format allocation (Phase 1) ──
     // 快速数字格式化，避免 String.format 分配开销
-    /** 格式化浮点数为 3 位小数（四舍五入）/ format float to 3 decimal places (rounded) */
-    static String ff3(float v) { return Float.toString((float)Math.round(v * 1000) / 1000); }
+    /** 格式化浮点数为 3 位小数（四舍五入）/ format float to 3 decimal places (rounded)。
+     *  <p>必须用 double 做 {@code Math.round}：float 重载返回 {@code int}，{@code |v|>2147483.647}
+     *  时饱和成 {@code Integer.MAX_VALUE}，大数会被「压缩」成 2147483.x（issue：输入框同步）。
+     *  Must round in double: the float overload of {@code Math.round} returns {@code int} and
+     *  saturates at {@code Integer.MAX_VALUE}, crushing large magnitudes to 2147483.x. */
+    static String ff3(float v) {
+        return Float.toString((float) (Math.round((double) v * 1000.0) / 1000.0));
+    }
     /** 格式化 int 为 8 位大写十六进制（前导零补齐）/ format int to 8-char uppercase hex (zero-padded) */
     static String hex8(int v) { String h = Integer.toHexString(v).toUpperCase(); return "00000000".substring(h.length()) + h; }
 }
