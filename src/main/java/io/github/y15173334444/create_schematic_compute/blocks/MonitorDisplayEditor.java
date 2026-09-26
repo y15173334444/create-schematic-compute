@@ -94,6 +94,10 @@ public final class MonitorDisplayEditor {
     public float presenceCursorX() { return active ? lastDisplayMouseX : -1f; }
     public float presenceCursorY() { return active ? lastDisplayMouseY : -1f; }
     public int presenceDraggedNodeId() { return draggedDisplayNode != null ? draggedDisplayNode.id : -1; }
+    /** 当前选中元素的节点 id（-1 = 无）—— 经 presence 上报，锁跟随选择而非仅拖动。
+     *  The selected element's node id (-1 = none) — reported via presence so the lock
+     *  follows the selection, not just the drag. */
+    public int presenceSelectedNodeId() { return selectedDisplayNode != null ? selectedDisplayNode.id : -1; }
 
     /** 显示区整帧渲染入口（屏幕 renderGraphCanvas 调用）/ display-area render entry. */
     public void render(GuiGraphics g, int mx, int my) {

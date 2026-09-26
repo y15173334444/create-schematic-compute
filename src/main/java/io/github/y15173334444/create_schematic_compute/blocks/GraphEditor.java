@@ -121,6 +121,10 @@ public class GraphEditor {
         /** 显示布局编辑器中正在拖拽的节点 id（-1 = 无）。
          *  Node currently dragged in the display layout editor, or -1. */
         default int getPresenceDraggedNodeId() { return -1; }
+        /** 显示布局编辑器中当前选中的元素节点 id（-1 = 无）—— 锁跟随选择而非仅拖动。
+         *  Currently selected element node id in the display layout editor (-1 = none) —
+         *  the soft lock follows the selection, not just the drag. */
+        default int getPresenceSelectedNodeId() { return -1; }
     }
 
     final Host host;
@@ -1216,6 +1220,12 @@ public class GraphEditor {
         int myOwner = ownerNodeId();
         for (var rp : presence.getRemotePresences().values()) {
             if (rp.ownerNodeId() != myOwner) continue; // 不同作用域不显示锁 / skip different scopes
+            // 显示布局模式（mode 1）的 selectedNodeId 是**显示元素**的 id —— 撞上相同 id 的
+            // 节点图节点会画出假锁；节点图锁叠加层只认节点编辑模式。
+            // In display-layout mode (mode 1) selectedNodeId is a DISPLAY element id — it
+            // would plant a phantom lock on a same-id graph node; this overlay only honours
+            // node-editor presences.
+            if (rp.mode() == 1) continue;
             if (rp.selectedNodeId() > 0) lockedNodes.put(rp.selectedNodeId(), rp.playerName());
             if (rp.editingNodeId() > 0) lockedNodes.put(rp.editingNodeId(), rp.playerName());
             if (rp.selectedNodeIds() != null) {

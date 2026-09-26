@@ -161,6 +161,8 @@ public class MonitorScreen extends AbstractGraphScreen implements MonitorDisplay
     @Override public float getPresenceCursorY() { return displayEditor.presenceCursorY(); }
     /** 显示布局编辑器中正在拖拽的节点 id。 */
     @Override public int getPresenceDraggedNodeId() { return displayEditor.presenceDraggedNodeId(); }
+    /** 显示布局编辑器中当前选中的元素节点 id（锁跟随选择）。 */
+    @Override public int getPresenceSelectedNodeId() { return displayEditor.presenceSelectedNodeId(); }
 
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {

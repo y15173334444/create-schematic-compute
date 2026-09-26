@@ -118,12 +118,23 @@ final class GraphPresenceTracker {
     /** 实例便捷入口：按当前远端临场表判定。 / Instance convenience over the current table. */
     boolean encapOccupied(int encapId) { return encapOccupied(remotePresences, encapId); }
 
-    /** 显示布局组件的软锁：是否有其他玩家正在显示布局模式拖拽该组件。
-     *  Display-layout component soft lock: is another player dragging this component
-     *  in the display layout editor right now? */
-    public boolean isDisplayNodeLocked(int nodeId) {
-        for (var p : remotePresences.values()) {
-            if (p.mode() == 1 && p.displayDraggedNodeId() == nodeId) return true;
+    /** 显示布局组件的软锁：其他玩家正在拖拽**或选中**该元素。
+     *  选中即持锁（与节点模式「选中 = 软锁」语义一致）——此前只有拖动才锁、松手即解锁，
+     *  但本端选择框还在，队友看到的是「无锁可抢」。
+     *  Display-layout component soft lock: another player is dragging OR has selected the
+     *  element. Selection holds the lock (matching the node editor's selection-lock
+     *  semantics) — previously only a drag locked, release unlocked, while the local
+     *  selection box was still up, so teammates saw a grabbable element. */
+    public boolean isDisplayNodeLocked(int nodeId) { return displayNodeLocked(remotePresences, nodeId); }
+
+    /** 静态判定（无头可测）：mode 1 的拖拽 id 或选中 id 命中即锁；非法 id 恒不锁。
+     *  Static policy (headless-testable): a mode-1 presence's dragged or selected id
+     *  matching locks; invalid ids never lock. */
+    static boolean displayNodeLocked(java.util.Map<java.util.UUID, io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket> presences, int nodeId) {
+        if (nodeId <= 0) return false;
+        for (var p : presences.values()) {
+            if (p.mode() != 1) continue;
+            if (p.displayDraggedNodeId() == nodeId || p.selectedNodeId() == nodeId) return true;
         }
         return false;
     }
@@ -204,11 +215,26 @@ final class GraphPresenceTracker {
         float cx = pcx >= 0 ? pcx : ed.s2cX(ed.lastMouseX);
         float cy = pcy >= 0 ? pcy : ed.s2cY(ed.lastMouseY);
         int dragId = ed.host.getPresenceDraggedNodeId();
+        // 显示模式（mode 1）下节点图字段一律置空：选择/多选/连线拖拽是节点图语义，
+        // 带进显示模式的 presence 会以假锁污染节点模式的锁判定与锁列表叠加层。
+        // 显示元素的选中经 selectedNodeId 上报——锁跟随选择而非仅拖动。
+        // In display mode (mode 1) the node-graph fields are zeroed: selection,
+        // multi-select and wire drag are node-graph semantics; carrying them over would
+        // plant phantom locks in the node editor's lock queries and lock overlay. The
+        // display element's selection rides selectedNodeId — the lock follows the
+        // selection, not just the drag.
+        boolean displayMode = mode == 1;
+        int packetSelId = displayMode ? ed.host.getPresenceSelectedNodeId() : selId;
+        int packetEditId = displayMode ? -1 : editId;
+        int packetWfn = displayMode ? -1 : wfn, packetWfp = displayMode ? -1 : wfp;
+        float packetWex = displayMode ? 0f : wex, packetWey = displayMode ? 0f : wey;
+        int[] packetSelIds = displayMode ? null : selIds;
         net.neoforged.neoforge.network.PacketDistributor.sendToServer(
             new io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket(
                 ed.host.getBlockPos(), ed.host.getPlayerUUID(), ed.host.getPlayerName(),
                 ed.ownerNodeId(), cx, cy,
-                selId, editId, wfn, wfp, wex, wey, selIds, (byte)mode, dragId, nameEdit));
+                packetSelId, packetEditId, packetWfn, packetWfp, packetWex, packetWey,
+                packetSelIds, (byte)mode, dragId, nameEdit));
     }
 
     /** Render remote cursors and online player list. Called from renderBg + MonitorScreen.displayMode.
