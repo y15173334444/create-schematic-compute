@@ -257,6 +257,7 @@
   "category.create_schematic_compute.display": "Display",
   "gui.create_schematic_compute.monitor.display": "Display",
   "gui.create_schematic_compute.monitor.back_graph": "< Graph",
+  "gui.create_schematic_compute.monitor.display_mode": "Display Layout Edit",
   "gui.create_schematic_compute.monitor.settings": "Settings",
   "gui.create_schematic_compute.monitor.settings_title": "Display Settings",
   "gui.create_schematic_compute.monitor.block_screen": "Block Screen",

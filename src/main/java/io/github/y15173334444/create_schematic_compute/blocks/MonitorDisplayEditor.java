@@ -289,7 +289,7 @@ public final class MonitorDisplayEditor {
         var graph3 = host.be() != null ? host.be().getNodeGraph() : new NodeGraph();
         List<GraphNode> layers3 = getDisplayLayers(graph3);
         if (!layers3.isEmpty()) {
-            int rowStartY3 = GraphEditor.TOP_BAR_H + 24 + 12 + 2;
+            int rowStartY3 = GraphEditor.TOP_BAR_H + 4 + 12 + 2;
             int maxRows3 = Math.max(1, (host.screenHeight() - rowStartY3 - 4) / LAYER_ROW_H);
             int visRows3 = Math.min(layers3.size(), maxRows3);
             int maxScroll3 = Math.max(0, layers3.size() - maxRows3);
@@ -313,7 +313,7 @@ public final class MonitorDisplayEditor {
         List<GraphNode> layers2 = getDisplayLayers(graph2);
         if (layers2.isEmpty()) return false;
         int px2 = host.screenWidth() - LAYER_PANEL_W - LAYER_PANEL_PADDING;
-        int rowStartY2 = GraphEditor.TOP_BAR_H + 24 + 12 + 2;
+        int rowStartY2 = GraphEditor.TOP_BAR_H + 4 + 12 + 2;
         int maxRows2 = Math.max(1, (host.screenHeight() - rowStartY2 - 4) / LAYER_ROW_H);
         int visRows2 = Math.min(layers2.size(), maxRows2);
         int maxScroll2 = Math.max(0, layers2.size() - maxRows2);
@@ -460,9 +460,10 @@ public final class MonitorDisplayEditor {
     private record DisplayArea(int x, int y, int w, int h) {}
     private DisplayArea computeDisplayArea() {
         int margin = MONITOR_MARGIN;
-        // 工具条下方留白 + 编辑器顶栏（TOP_BAR_H 落地后显示区必须再让开它）。
-        // Toolbar gap + the editor top bar (the display area must clear it too).
-        int topOffset = MONITOR_TOOLBAR_H + 6 + GraphEditor.TOP_BAR_H;
+        // 模式条并入顶栏后，显示区只让出顶栏本体 + 4px 边距（原工具条占位行已收回）。
+        // With the strip merged into the top bar, the display area clears only the bar
+        // itself + a 4px margin (the old toolbar row is reclaimed).
+        int topOffset = GraphEditor.TOP_BAR_H + 4;
         int availW = host.screenWidth() - 2 * margin;
         int availH = host.screenHeight() - margin - topOffset;
         float aspect = 16f / 9f;
@@ -643,34 +644,42 @@ public final class MonitorDisplayEditor {
                 break;
             }
         }
-        // ── Toolbar at screen top (fixed position) ──
-        // 让开编辑器顶栏：与基础工具栏同排（TOP_BAR_H+2），显示模式下整条覆盖基础按钮。
-        // Clears the editor top bar: same row as the base toolbar (TOP_BAR_H+2); in
-        // display mode this full-host.screenWidth() strip covers the base buttons, as before.
-        int tbx = 4, tby = GraphEditor.TOP_BAR_H + 2, tbh = MONITOR_TOOLBAR_H;
-        g.fill(0, tby, host.screenWidth(), tby + tbh, NodeRenderer.PBG());
-        // < Graph
-        g.fill(tbx, tby, tbx + 56, tby + tbh, 0xFF3A3832);
-        g.renderOutline(tbx, tby, 56, tbh, NodeRenderer.CSB());
-        g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.back_graph"), tbx + 6, tby + 5, 0xFFFFFFFF, false);
-        tbx += 62;
-        // Settings
-        g.fill(tbx, tby, tbx + 56, tby + tbh, showSettings ? 0xFF3A5A2A : 0xFF3A3832);
-        g.renderOutline(tbx, tby, 56, tbh, NodeRenderer.CSB());
-        g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.settings"), tbx + 6, tby + 5, 0xFFFFFFFF, false);
-        tbx += 62;
+        // ── 合并顶栏（显示模式；与图编辑器同一根条） ──
+        // 同底色/同高度/右侧同款 46 宽按钮槽：左 = 模式标识 +（选中元素时）S/R 内联编辑；
+        // 右 = 设置（面板开关）+ 返回（退出显示模式）。旧的 TOP_BAR_H+2 独立工具条并入这里，
+        // 其占位行由显示区（computeDisplayArea）与图层面板收回。
+        // ── Merged top bar (display mode; same bar as the graph editor's) ──
+        // Same background/height/right-hand 46-wide button slots: left = mode indicator +
+        // (when an element is selected) the S/R inline editors; right = Settings (panel
+        // toggle) + Back (leave display mode). The old TOP_BAR_H+2 strip is merged in here
+        // and its reserved row reclaimed by the display area and the layer panel.
+        int sw = host.screenWidth();
+        int backX = sw - 52, settingsX = backX - 52;
+        g.fill(0, 0, sw, GraphEditor.TOP_BAR_H, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
+        g.fill(0, GraphEditor.TOP_BAR_H - 1, sw, GraphEditor.TOP_BAR_H, NodeRenderer.CSB());
+        String modeText = "◈ " + I18n.get("gui.create_schematic_compute.monitor.display_mode") + " ◈";
+        g.drawString(Minecraft.getInstance().font, modeText, 6, 8, 0xFFFFCC88, false);
+        boolean hovBack = mx >= backX && mx <= backX + 46 && my >= 3 && my <= 19;
+        g.fill(backX, 3, backX + 46, 19, hovBack ? NodeRenderer.HOV() : NodeRenderer.PBG());
+        g.renderOutline(backX, 3, 46, 16, NodeRenderer.CSB());
+        g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.back_graph"), backX + 6, 7, 0xFFFFFFFF, false);
+        boolean hovSettings = mx >= settingsX && mx <= settingsX + 46 && my >= 3 && my <= 19;
+        g.fill(settingsX, 3, settingsX + 46, 19, showSettings ? 0xFF3A5A2A : (hovSettings ? NodeRenderer.HOV() : NodeRenderer.PBG()));
+        g.renderOutline(settingsX, 3, 46, 16, NodeRenderer.CSB());
+        g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.settings"), settingsX + 6, 7, 0xFFFFFFFF, false);
 
         // Selected element editing (clickable S/R values)
         if (selectedDisplayNode != null) {
+            int srx = 6 + Minecraft.getInstance().font.width(modeText) + 12;
             String sTxt = "§6S:";
             if (editingS) sTxt += "§e" + editSBuf + "▌";
             else sTxt += "§e" + ff1(selectedDisplayNode.displayScale);
-            g.drawString(Minecraft.getInstance().font, sTxt, tbx + 4, tby + 5, NodeRenderer.ACC(), false);
-            tbx += Minecraft.getInstance().font.width(sTxt) + 12;
+            g.drawString(Minecraft.getInstance().font, sTxt, srx, 8, NodeRenderer.ACC(), false);
+            srx += Minecraft.getInstance().font.width(sTxt) + 12;
             String rTxt = "§6R:";
             if (editingR) rTxt += "§e" + editRBuf + "▌";
             else rTxt += "§e" + ff0(selectedDisplayNode.displayRotation);
-            g.drawString(Minecraft.getInstance().font, rTxt, tbx + 4, tby + 5, NodeRenderer.ACC(), false);
+            g.drawString(Minecraft.getInstance().font, rTxt, srx, 8, NodeRenderer.ACC(), false);
         }
 
         // Hover hints (use rotated AABB for accuracy, with bounding-box clamp)
@@ -793,10 +802,10 @@ public final class MonitorDisplayEditor {
         if (layers.isEmpty()) return;
 
         int px = host.screenWidth() - LAYER_PANEL_W - LAYER_PANEL_PADDING;
-        // 让开编辑器顶栏 + 基础工具栏行（旧硬编码 26 是顶栏落地前的值）。
-        // Clears the editor top bar + the base toolbar row (the old hard-coded 26
-        // predated the top bar).
-        int py = GraphEditor.TOP_BAR_H + 24;
+        // 让开编辑器顶栏 + 4px 边距（模式条并入顶栏后基础工具栏行已收回）。
+        // Clears the editor top bar + a 4px margin (the base-toolbar row is reclaimed now
+        // that the strip is merged into the top bar).
+        int py = GraphEditor.TOP_BAR_H + 4;
         int titleH = 12;
         int rowStartY = py + titleH + 2;
         // Calculate max visible rows below title
@@ -923,7 +932,7 @@ public final class MonitorDisplayEditor {
         if (layers.isEmpty()) return -1;
 
         int titleH = 12;
-        int rowStartY = GraphEditor.TOP_BAR_H + 24 + titleH + 2;
+        int rowStartY = GraphEditor.TOP_BAR_H + 4 + titleH + 2;
         int maxRows = Math.max(1, (host.screenHeight() - rowStartY - 4) / LAYER_ROW_H);
         if (my < rowStartY || my > rowStartY + maxRows * LAYER_ROW_H) return -1;
 
@@ -942,7 +951,7 @@ public final class MonitorDisplayEditor {
         if (layers.isEmpty()) return;
 
         int titleH = 12;
-        int rowStartY = GraphEditor.TOP_BAR_H + 24 + titleH + 2;
+        int rowStartY = GraphEditor.TOP_BAR_H + 4 + titleH + 2;
         int maxRows = Math.max(1, (host.screenHeight() - rowStartY - 4) / LAYER_ROW_H);
         int visibleRows = Math.min(layers.size(), maxRows);
 
@@ -968,7 +977,7 @@ public final class MonitorDisplayEditor {
 
     private void handleLayerAutoScroll(double my) {
         int titleH = 12;
-        int rowStartY = GraphEditor.TOP_BAR_H + 24 + titleH + 2;
+        int rowStartY = GraphEditor.TOP_BAR_H + 4 + titleH + 2;
         int maxRows = Math.max(1, (host.screenHeight() - rowStartY - 4) / LAYER_ROW_H);
         int panelBottom = rowStartY + maxRows * LAYER_ROW_H;
         long now = System.currentTimeMillis();
@@ -1374,12 +1383,14 @@ public int getPresenceDraggedNodeId() { return draggedDisplayNode != null ? drag
                 return true;
             }
             var da = computeDisplayArea();
-            int tby = GraphEditor.TOP_BAR_H + 2, tbh = MONITOR_TOOLBAR_H;
-            // < Graph
-            if (mx >= 4 && mx <= 60 && my >= tby && my <= tby + tbh)
+            // 合并顶栏的按钮命中（几何与 renderDisplayArea 的顶栏分支一致）。
+            // Merged-top-bar button hits (geometry matches renderDisplayArea's top bar).
+            int backX = host.screenWidth() - 52, settingsX = backX - 52;
+            // Back（退出显示模式）/ Back (leave display mode)
+            if (mx >= backX && mx <= backX + 46 && my >= 3 && my <= 19)
                 { setActive(false); selectedDisplayNode = null; return true; }
             // Settings
-            if (mx >= 66 && mx <= 122 && my >= tby && my <= tby + tbh)
+            if (mx >= settingsX && mx <= settingsX + 46 && my >= 3 && my <= 19)
                 { openSettings(); return true; }
 
             // 整图同步替换后 selectedDisplayNode 可能指向旧图的孤儿节点——按 id 重映射到当前图。
@@ -1399,20 +1410,21 @@ public int getPresenceDraggedNodeId() { return draggedDisplayNode != null ? drag
                 }
             }
 
-            // S/R editable value clicks (compute positions matching toolbar render)
+            // S/R editable value clicks（位置与顶栏渲染按同一表达式计算）
+            // S/R editable value clicks (positions computed exactly like the top-bar render)
             if (selectedDisplayNode != null) {
                 var fw = Minecraft.getInstance().font;
-                int sx = 128, sy = tby;
+                int sx = 6 + fw.width("◈ " + I18n.get("gui.create_schematic_compute.monitor.display_mode") + " ◈") + 12, sy = 3;
                 String sVal = editingS ? editSBuf : ff1(selectedDisplayNode.displayScale);
                 int sEnd = sx + fw.width("§6S:§e" + sVal + "▌") + 12;
-                if (mx >= sx && mx <= sEnd && my >= sy && my <= sy + tbh) {
+                if (mx >= sx && mx <= sEnd && my >= sy && my <= sy + 16) {
                     editingS = true; editingR = false; editSBuf = ff1(selectedDisplayNode.displayScale);
                     return true;
                 }
                 int rx = sEnd;
                 String rVal = editingR ? editRBuf : ff0(selectedDisplayNode.displayRotation);
                 int rEnd = rx + fw.width("§6R:§e" + rVal + "▌") + 4;
-                if (mx >= rx && mx <= rEnd && my >= sy && my <= sy + tbh) {
+                if (mx >= rx && mx <= rEnd && my >= sy && my <= sy + 16) {
                     editingR = true; editingS = false; editRBuf = ff0(selectedDisplayNode.displayRotation);
                     return true;
                 }

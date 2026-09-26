@@ -257,6 +257,7 @@
   "category.create_schematic_compute.display": "显示",
   "gui.create_schematic_compute.monitor.display": "显示",
   "gui.create_schematic_compute.monitor.back_graph": "< 编辑",
+  "gui.create_schematic_compute.monitor.display_mode": "显示布局编辑",
   "gui.create_schematic_compute.monitor.settings": "设置",
   "gui.create_schematic_compute.monitor.settings_title": "显示设置",
   "gui.create_schematic_compute.monitor.block_screen": "方块屏幕",
