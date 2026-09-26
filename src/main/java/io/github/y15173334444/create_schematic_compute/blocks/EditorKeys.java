@@ -66,7 +66,31 @@ public final class EditorKeys {
         /** 保存视角书签 / save a view bookmark */
         SAVE_BOOKMARK(false, "editorkeys.save_bookmark"),
         /** 框选多选（按住生效；原 Tab 硬编码） / box-select mode (held; was hardcoded to Tab) */
-        BOX_SELECT(false, "editorkeys.box_select");
+        BOX_SELECT(false, "editorkeys.box_select"),
+        /** 删除悬停连线（原 Tab+左键 点连线；该组合路径保留） / delete the hovered wire (was Tab+left-click; that chord path stays) */
+        DELETE_WIRE(false, "editorkeys.delete_wire"),
+
+        // ── 像素编辑器 / pixel editor (PS-style hardcodes, now bindable) ──
+        /** 像素编辑：画笔工具 / pixel editor: brush tool */
+        PIXEL_BRUSH(false, "editorkeys.pixel_brush"),
+        /** 像素编辑：橡皮工具 / pixel editor: eraser tool */
+        PIXEL_ERASER(false, "editorkeys.pixel_eraser"),
+        /** 像素编辑：填充工具 / pixel editor: fill tool */
+        PIXEL_FILL(false, "editorkeys.pixel_fill"),
+        /** 像素编辑：取色工具 / pixel editor: eyedropper tool */
+        PIXEL_EYEDROPPER(false, "editorkeys.pixel_eyedropper"),
+        /** 像素编辑：直线工具 / pixel editor: line tool */
+        PIXEL_LINE(false, "editorkeys.pixel_line"),
+        /** 像素编辑：矩形工具 / pixel editor: rect tool */
+        PIXEL_RECT(false, "editorkeys.pixel_rect"),
+        /** 像素编辑：抓手工具 / pixel editor: hand (pan) tool */
+        PIXEL_HAND(false, "editorkeys.pixel_hand"),
+        /** 像素编辑：网格开关 / pixel editor: toggle the grid */
+        PIXEL_GRID(false, "editorkeys.pixel_grid"),
+        /** 像素编辑：笔刷变小（原 [ 硬编码） / pixel editor: smaller brush (was hardcoded to [) */
+        PIXEL_BRUSH_SMALLER(false, "editorkeys.pixel_brush_smaller"),
+        /** 像素编辑：笔刷变大（原 ] 硬编码） / pixel editor: bigger brush (was hardcoded to ]) */
+        PIXEL_BRUSH_BIGGER(false, "editorkeys.pixel_brush_bigger");
 
         /** true = 鼠标动作（绑定的是按键索引），false = 键盘动作（绑定键序列）。
          *  true = mouse action (bound to a button index); false = keyboard action
@@ -128,7 +152,10 @@ public final class EditorKeys {
         return switch (a) {
             case PAN -> 0;            // 左键拖动图 / left-drag pan
             case CONTEXT_MENU -> 1;   // 右键菜单 / right-click menu
-            case DELETE_NODE, DELETE_SELECTED, UNDO, REDO, DUPLICATE, RESET_VIEW, SAVE_BOOKMARK, BOX_SELECT -> -1;
+            case DELETE_NODE, DELETE_SELECTED, DELETE_WIRE, UNDO, REDO, DUPLICATE, RESET_VIEW,
+                 SAVE_BOOKMARK, BOX_SELECT, PIXEL_BRUSH, PIXEL_ERASER, PIXEL_FILL, PIXEL_EYEDROPPER,
+                 PIXEL_LINE, PIXEL_RECT, PIXEL_HAND, PIXEL_GRID, PIXEL_BRUSH_SMALLER,
+                 PIXEL_BRUSH_BIGGER -> -1;
         };
     }
 
@@ -143,6 +170,18 @@ public final class EditorKeys {
             case RESET_VIEW -> 268;          // Home
             case SAVE_BOOKMARK -> 77;        // Ctrl+M
             case BOX_SELECT -> 258;          // Tab
+            case DELETE_WIRE -> 87;          // W
+            // 像素编辑器出厂键 = 原 PS 式硬编码 / pixel editor factory keys = the old PS-style hardcodes
+            case PIXEL_BRUSH -> 66;          // B
+            case PIXEL_ERASER -> 69;         // E
+            case PIXEL_FILL -> 70;           // F
+            case PIXEL_EYEDROPPER -> 73;     // I
+            case PIXEL_LINE -> 76;           // L
+            case PIXEL_RECT -> 82;           // R
+            case PIXEL_HAND -> 72;           // H
+            case PIXEL_GRID -> 71;           // G
+            case PIXEL_BRUSH_SMALLER -> 219; // [
+            case PIXEL_BRUSH_BIGGER -> 221;  // ]
             case PAN, CONTEXT_MENU -> -1;
         };
     }
@@ -153,6 +192,9 @@ public final class EditorKeys {
             case DELETE_NODE, DELETE_SELECTED, RESET_VIEW, BOX_SELECT -> 0;
             case UNDO, REDO, DUPLICATE, SAVE_BOOKMARK -> MOD_CTRL;
             case PAN, CONTEXT_MENU -> 0;
+            case DELETE_WIRE, PIXEL_BRUSH, PIXEL_ERASER, PIXEL_FILL, PIXEL_EYEDROPPER,
+                 PIXEL_LINE, PIXEL_RECT, PIXEL_HAND, PIXEL_GRID, PIXEL_BRUSH_SMALLER,
+                 PIXEL_BRUSH_BIGGER -> 0;
         };
     }
 

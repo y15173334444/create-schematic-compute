@@ -1934,25 +1934,32 @@ public class GraphEditor {
         return false;
     }
 
+    /** 删除悬停连线——「删除连线」键（默认 W）与旧的 Tab+左键 组合共用这一条路径
+     *  （语义 / 撤销 / op 流完全一致）。
+     *  Deletes the hovered connection — one path shared by the Delete-Wire key (default W)
+     *  and the legacy Tab+click chord (identical semantics, undo and op flow). */
+    private boolean deleteHoveredWire(double mx, double my) {
+        var graph = getGraph();
+        var hc = hitConn(mx, my);
+        if (hc == null) return false;
+        graph.removeConnection(hc.fromId, hc.fromPin, hc.toId, hc.toPin);
+        var rcOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(
+            host.getBlockPos(), ownerNodeId(), hc.fromId, hc.fromPin, hc.toId, hc.toPin, host.getPlayerUUID());
+        host.sendOp(rcOp); recordOp(rcOp, hc.fromId, hc.fromPin, hc.toId, null);
+        // 删除参数引脚连线后刷新编辑区（恢复输入框） (Refresh edit area after removing param pin connection, restoring input box)
+        var tn = graph.findNode(hc.toId);
+        if (tn != null && hc.toPin >= tn.functionalInputs() && expandedNodeIds.contains(hc.toId)) {
+            nodeEditStatesById.remove(hc.toId);
+            nodeEditStatesById.put(hc.toId, createEditState(tn));
+        }
+        return true;
+    }
+
     /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
      *  6f extraction: a verbatim inline block of the former mouseClicked. */
-    private boolean tryTabInteractions(double mx, double my, boolean panOnlyClick, NodeGraph graph) {
-    // TAB+左键 → 连线删除 / 多选 / 框选 (TAB+left-click → connection delete / multi-select / box-select)
+    private boolean tryTabInteractions(double mx, double my, boolean panOnlyClick, NodeGraph graph) {    // TAB+左键 → 连线删除 / 多选 / 框选 (TAB+left-click → connection delete / multi-select / box-select)
     if (tabHeld && !panOnlyClick) {
-        var hc = hitConn(mx, my);
-        if (hc != null) {
-            graph.removeConnection(hc.fromId, hc.fromPin, hc.toId, hc.toPin);
-            var rcOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(
-                host.getBlockPos(), ownerNodeId(), hc.fromId, hc.fromPin, hc.toId, hc.toPin, host.getPlayerUUID());
-            host.sendOp(rcOp); recordOp(rcOp, hc.fromId, hc.fromPin, hc.toId, null);
-            // 删除参数引脚连线后刷新编辑区（恢复输入框） (Refresh edit area after removing param pin connection, restoring input box)
-            var tn = graph.findNode(hc.toId);
-            if (tn != null && hc.toPin >= tn.functionalInputs() && expandedNodeIds.contains(hc.toId)) {
-                nodeEditStatesById.remove(hc.toId);
-                nodeEditStatesById.put(hc.toId, createEditState(tn));
-            }
-            return true;
-        }
+        if (deleteHoveredWire(mx, my)) return true;
         var hit = hitNode(mx, my);
         if (hit != null && selectedNodes.contains(hit)) {
             multiDragging = true; multiClickedNode = hit; multiDragOrigins.clear();
@@ -3605,6 +3612,11 @@ public class GraphEditor {
                 return true;
             }
             return true; // 触发即消费（悬空 / 锁定不满足也归引擎）/ triggered keys are consumed
+        } else if (seqHit == EditorKeys.Action.DELETE_WIRE) {
+            // 删除悬停连线（默认 W；原 Tab+左键 组合路径保留） / delete the hovered wire
+            // (default W; the legacy Tab+click chord stays)
+            if (deleteHoveredWire(lastMouseX, lastMouseY)) return true;
+            return true; // 触发即消费（悬空不满足也归引擎）/ triggered keys are consumed
         } else if (seqHit == EditorKeys.Action.UNDO) { commitFocusedEditBox(); history.opUndo(); return true; }
         else if (seqHit == EditorKeys.Action.REDO) { commitFocusedEditBox(); history.opRedo(); return true; }
         else if (seqHit == EditorKeys.Action.SAVE_BOOKMARK) { // 视角书签快捷键 / view bookmark shortcut

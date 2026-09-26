@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.blocks.EditorKeys;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphEditor;
 import io.github.y15173334444.create_schematic_compute.blocks.MonitorBlockEntity;
 import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
@@ -929,21 +930,32 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
             if (key == 256) { onClose(); return true; }
             return colorPicker.keyPressed(key, sc, mod);
         }
-        // PS 风格快捷键：1..7 按工具列顺序、B/E/F/I/L/R/H 工具、[ / ] 笔刷大小、G 网格开关。
-        // PS-style shortcuts: 1..7 (rail order), B/E/F/I/L/R/H (tools), [ / ] (brush size), G (grid).
-        if (key >= 49 && key <= 55) { tool = PixelEditorToolRail.TOOLS[key - 49]; return true; }
-        switch (key) {
-            case 66: tool = Tool.BRUSH; return true;           // B
-            case 69: tool = Tool.ERASER; return true;          // E
-            case 70: tool = Tool.FILL; return true;            // F
-            case 73: tool = Tool.EYEDROPPER; return true;      // I
-            case 76: tool = Tool.LINE; return true;            // L
-            case 82: tool = Tool.RECT; return true;            // R
-            case 72: tool = Tool.HAND; return true;            // H 抓手 / hand
-            case 71: showGrid = !showGrid; return true;        // G 网格开关 / grid toggle
-            case 219: if (brushSize > BRUSH_MIN) brushSize--; return true;   // [ 更小笔刷 / smaller brush
-            case 221: if (brushSize < BRUSH_MAX) brushSize++; return true;  // ] 更大笔刷 / bigger brush
+        // PS 风格快捷键改走共享键位绑定系统（选工具 / 网格 / 笔刷大小，出厂键与旧硬编码一致）；
+        // 非像素动作（图编辑器/全局）不在此消费。1..7 按工具列顺序选工具保持固定，置于派发之后。
+        // PS-style shortcuts now flow through the shared EditorKeys binding system (tool
+        // select / grid / brush size — factory keys identical to the old hardcodes);
+        // non-pixel actions are not consumed here. The 1..7 rail-order picks stay fixed,
+        // checked after the dispatch.
+        int seqMods = (net.minecraft.client.gui.screens.Screen.hasControlDown() ? EditorKeys.MOD_CTRL : 0)
+            | (net.minecraft.client.gui.screens.Screen.hasShiftDown() ? EditorKeys.MOD_SHIFT : 0)
+            | (net.minecraft.client.gui.screens.Screen.hasAltDown() ? EditorKeys.MOD_ALT : 0);
+        var seqHit = EditorKeys.feedKey(key, seqMods, System.currentTimeMillis());
+        if (seqHit != null) {
+            switch (seqHit) {
+                case PIXEL_BRUSH -> tool = Tool.BRUSH;
+                case PIXEL_ERASER -> tool = Tool.ERASER;
+                case PIXEL_FILL -> tool = Tool.FILL;
+                case PIXEL_EYEDROPPER -> tool = Tool.EYEDROPPER;
+                case PIXEL_LINE -> tool = Tool.LINE;
+                case PIXEL_RECT -> tool = Tool.RECT;
+                case PIXEL_HAND -> tool = Tool.HAND;
+                case PIXEL_GRID -> showGrid = !showGrid;
+                case PIXEL_BRUSH_SMALLER -> { if (brushSize > BRUSH_MIN) brushSize--; }
+                case PIXEL_BRUSH_BIGGER -> { if (brushSize < BRUSH_MAX) brushSize++; }
+                default -> { /* 图编辑器/全局动作不归像素编辑器消费 / not this screen's action */ }
+            }
         }
+        if (key >= 49 && key <= 55) { tool = PixelEditorToolRail.TOOLS[key - 49]; return true; } // 1..7 轨道顺序 / rail order
         if (key == 256) { onClose(); return true; } // ESC
         return super.keyPressed(key, sc, mod);
     }
