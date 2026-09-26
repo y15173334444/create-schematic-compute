@@ -6,7 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
-| Unreleased | 修复：频道名旧草稿回写（#10）· 去掉整图保存覆盖（#17）· 封装子图节点数据同步 · 封装子图展开状态跨玩家同步 / Fix: channel-name stale-draft write-back (#10) · drop whole-graph save overwrite (#17) · sub-graph node data sync · sub-graph expansion state sync across players |
+| Unreleased | 修复：频道名旧草稿回写（#10）· 去掉整图保存覆盖（#17）· 封装子图节点数据同步 · 封装子图展开状态跨玩家同步 · 参数输入框实时同步 / Fix: channel-name stale-draft write-back (#10) · drop whole-graph save overwrite (#17) · sub-graph node data sync · sub-graph expansion state sync · live param-box sync |
 | [v1.2.5.2](#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 · 编码器清零改节点体引脚 |
 | [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
@@ -22,7 +22,7 @@
 ---
 
 <details>
-<summary><b>Unreleased</b> — 修复：频道名旧草稿回写（#10）· 去掉整图保存覆盖（#17）· 封装子图节点数据同步 · 封装子图展开状态跨玩家同步 / Fix: channel-name stale-draft write-back (#10) · drop whole-graph save overwrite (#17) · sub-graph node data sync · sub-graph expansion state sync across players</summary>
+<summary><b>Unreleased</b> — 修复：频道名旧草稿回写（#10）· 去掉整图保存覆盖（#17）· 封装子图节点数据同步 · 封装子图展开状态跨玩家同步 · 参数输入框实时同步 / Fix: channel-name stale-draft write-back (#10) · drop whole-graph save overwrite (#17) · sub-graph node data sync · sub-graph expansion state sync across players · live param-box sync</summary>
 
 | Change / 变更 | Description / 说明 |
 |---------------|-------------------|
@@ -30,7 +30,8 @@
 | 🐛 **#17 整图保存覆盖 (bug 修复)** | 编译/保存原先是 `BlueprintSavePacket` 整图 NBT 整体替换服务端图——客户端副本一旧就把服务端回退，静默冲掉并发编辑。现改为 `GraphSaveRequestPacket`（只带坐标）：服务端在**自己的权威图**上执行编译复位（GATE/T_FLIPFLOP/LATCH `params[1]=params[0]`，含子图）+ 环检测 + 落盘 + 全量同步。`BlueprintSavePacket` 与孤儿 `loadGraphFromBytes` / `loadEditorTag` 链一并退役删除 / Save/compile used to replace the server graph with the client snapshot. It is now a position-only request; the server runs compile semantics on its own graph. `BlueprintSavePacket` and the orphaned `loadGraphFromBytes` / `loadEditorTag` chain are retired. |
 | 🐛 **封装子图节点数据同步 (bug 修复)** | 子图内编辑公式时，响应器用 `host.getGraph().findNode`（主图）找节点——找不到就静默 return，**SET_FORMULA 根本不发送**，本地框却仍显示输入；两端因此各显示各的公式/参数。另：远端 SET_PARAM 刷新用 `fieldParamIndices.get(paramIndex)` 把字段位次当下标，`fi==-1`（busBox 槽）时 `fields.get(-1)` 抛 IOOBE 中断刷新；UI 刷新未校验 `ownerNodeId` 作用域，子图/主图同 id 互相污染。现改为 `ed.getGraph()` + `indexOf` 反查 + 同作用域才刷 UI / Sub-graph formula edits silently dropped (wrong graph lookup), remote SET_PARAM UI refresh crashed on field-slot reverse lookup, and UI refresh ignored scope. |
 | 🐛 **封装子图展开状态跨玩家同步 (bug 修复)** | 远端 `EXPAND_NODE`/`COLLAPSE_NODE` 把图数据字段 `n.expanded`（随 NBT 持久化，也是**进入子图时 init 恢复的唯一依据**）一起门在 `sameScope` 里——玩家停在主图时收到的子图展开/折叠 op 被整条忽略，随后进入子图就恢复出过期状态（别人展开的显示折叠、已折叠的显示展开）。现拆**数据半边**（`n.expanded` 恒应用到自己子图副本）与 **UI 半边**（展开集合/编辑状态仍仅同作用域） / Cross-scope remote expand/collapse ops left the local sub-graph copy's `n.expanded` stale (the flag was gated behind the same-scope UI guard), so entering the sub-graph restored the wrong expansion state. The data half now always applies; the UI half stays scope-gated. |
-| 🧪 测试 | `CompileResetAndBusNameGateTest` 钉死 dirty 门闩（含工厂装入/保留/响应器执行路径）与编译复位（含子图递归）+ `fieldIndexOf` 反查；`EncapSubGraphExpandSyncTest` 钉死展开状态跨作用域数据同步与「进入子图 → init 恢复」全链路（renderBg 恢复块抽为 `restoreOrRebuildEditStates` 作测试缝隙）/ Pins the dirty gate (including the factory load/preserve/responder path), compile reset (with sub-graph recursion) and field reverse-lookup; `EncapSubGraphExpandSyncTest` pins cross-scope expansion data sync plus the full enter-sub-graph → restore chain (the renderBg restore block extracted as `restoreOrRebuildEditStates`). |
+| 🐛 **参数输入框实时同步 (bug 修复)** | ① 远端只回显 `ff3(float)`，与正在输入的字符串不一致；② 清空/未完成输入 `parseFloat` 失败被吞、**不发包**，对端停在默认值；③ `ff3` 用 `Math.round(float)`（返回 `int`），`\|v\|>2147483.647` 时饱和成 `Integer.MAX_VALUE`，大数被压成 `2147483.x`。现：SET_PARAM 携带草稿原文（含空串）驱动对端 EditBox 显示（本端聚焦时不覆盖）；空/半截输入保持上次权威值只同步草稿；**参数值不再进编辑状态指纹**（值一变就 `createEditState`+`ff3` 会把 `000` 刷成 `0.0`、大数刷成科学计数）；**失焦才归位**为 `ff3` 规范格式并同步给对端，不改权威值；`ff3` 改 double 舍入；OpExecutor 对值相同的 SET_PARAM 跳过 `bumpGeneration` / Peers showed `ff3(float)` instead of the in-progress string; empty/partial input never shipped; `ff3`'s `Math.round(float)` saturated large magnitudes. SET_PARAM now carries the raw draft (incl. clear); empty input keeps the last committed number; param *values* are out of the edit-state fingerprint so drafts survive rebuilds; blur normalizes to `ff3` without changing the value; OpExecutor skips `bumpGeneration` when unchanged. |
+| 🧪 测试 | `CompileResetAndBusNameGateTest` 钉死 dirty 门闩（含工厂装入/保留/响应器执行路径）与编译复位（含子图递归）+ `fieldIndexOf` 反查 + `ff3` 大数不饱和 + 草稿文本随 op；`EncapSubGraphExpandSyncTest` 钉死展开状态跨作用域数据同步与「进入子图 → init 恢复」全链路（renderBg 恢复块抽为 `restoreOrRebuildEditStates` 作测试缝隙）/ Pins the dirty gate (including the factory load/preserve/responder path), compile reset (with sub-graph recursion) and field reverse-lookup, `ff3` large-magnitude safety and draft text on ops; `EncapSubGraphExpandSyncTest` pins cross-scope expansion data sync plus the full enter-sub-graph → restore chain (the renderBg restore block extracted as `restoreOrRebuildEditStates`). |
 
 </details>
 

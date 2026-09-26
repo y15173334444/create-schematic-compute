@@ -187,11 +187,12 @@ io.github.y15173334444.create_schematic_compute/
 **处理 34 种 OpType / Handles 34 OpTypes**：ADD_NODE_REQUEST, ADD_NODE, REMOVE_NODE, MOVE_NODE, ADD_CONN, REMOVE_CONN, SET_PARAM, SET_FORMULA, SET_COMMENT_TEXT, SET_COMMENT_COLORS, SET_COMMENT_SIZE, SET_DISPLAY_TEXT, SET_TEXT_COLOR, SET_BANDS, SET_BLOCK_NAME, SET_ZORDER, SET_LAYER_INDEX, SET_KEY_BINDING, SET_IMAGE_FRAME_TOGGLE, SET_DISPLAY_LAYOUT, TOGGLE_BOOL, SET_HOTBAR_ITEM, SET_IMAGE_PIXELS, SET_IMAGE_SIZE, REMOVE_IMAGE_FRAME, MOVE_IMAGE_FRAME, EXPAND_NODE, COLLAPSE_NODE, ADD_BOOKMARK, REMOVE_BOOKMARK, RENAME_BOOKMARK, MOVE_BOOKMARK, SET_CTRL_POINTS, REJECT
 
 ### GraphOp / OpType
-`GraphOp`：**28 字段** record + **25 个静态方法**（24 个工厂 + `parseCtrlPoints` helper）。
-/ 28-field record + 25 static methods (24 factories + 1 helper).
+`GraphOp`：**28 字段** record + **26 个静态方法**（25 个工厂 + `parseCtrlPoints` helper）。
+/ 28-field record + 26 static methods (25 factories + 1 helper).
 - `blobRefId` — 非零 → 经 `BlobRegistry` 取大数据 / non-zero → BlobRegistry lookup
 - `imageData` — IMAGE 像素直接以 `int[]` 传输（替代 Base64 `stringValue`）/ direct pixel array
 - `OpType`：**34 种**操作枚举 / 34-operation enum
+- `SET_PARAM` — `stringValue` 可携带输入框**草稿原文**（含空串），只驱动对端 EditBox 显示；权威数值在 `paramValue`。OpExecutor 对值相同的写入跳过 `bumpGeneration`（草稿-only op 不触发全量重编译）/ `stringValue` may carry the raw EditBox draft (incl. clear) for peer display only; the authoritative number is `paramValue`. OpExecutor skips `bumpGeneration` when the value is unchanged so draft-only ops do not force a full recompile.
 - `SET_BLOCK_NAME` — 图级 op（targetNodeId=0 忽略）：设置 `NodeGraph.customName`，纯视觉不 bump（同 SET_ZORDER）；已加入 EditSessionRegistry 的显示 op 白名单，未开编辑器的协作者也能收到 / Graph-level op (targetNodeId=0, ignored): sets `NodeGraph.customName`; visual-only, no bump (same as SET_ZORDER); whitelisted in EditSessionRegistry's display ops so collaborators without the editor open still receive it
 
 ### DebugSignals
