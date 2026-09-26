@@ -63,6 +63,11 @@ final class NodeEditStateFactory {
         s.paramKeys = node.type.paramNames.clone();
         var mc = Minecraft.getInstance();
         for (int i = 0; i < node.params.length; i++) {
+            // 仅 editableParamCount 以内的参数走 EditBox；rev 等按钮参数不在此列
+            // Only params within editableParamCount get an EditBox; rev and other
+            // button params are excluded here.
+            if (i >= node.type.editableParamCount()
+                && node.type != NodeType.ACCUMULATOR && node.type != NodeType.INTEGRATOR) continue;
             if (node.type == NodeType.BOOL || node.type == NodeType.GATE || node.type == NodeType.T_FLIPFLOP || node.type == NodeType.LATCH || node.type == NodeType.KEYBOARD || node.type == NodeType.GAMEPAD_BUTTON
                 || node.type == NodeType.ENCAP_INPUT || node.type == NodeType.ENCAP_OUTPUT
                 || node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE

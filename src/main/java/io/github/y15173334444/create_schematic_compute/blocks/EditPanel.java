@@ -31,14 +31,18 @@ public class EditPanel {
         int h = 6;
         if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL && n.type != NodeType.GATE && n.type != NodeType.T_FLIPFLOP
             && n.type != NodeType.LATCH && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE
-            && n.type != NodeType.DEBUG_SIGNAL_GEN && n.type != NodeType.MOUSE_JOYSTICK) {
+            && n.type != NodeType.DEBUG_SIGNAL_GEN && n.type != NodeType.MOUSE_JOYSTICK
+            && n.type != NodeType.TX_OUT && n.type != NodeType.SPEED_CTRL) {
             if (n.type == NodeType.KEYBOARD || n.type == NodeType.GAMEPAD_BUTTON) {
                 h += 24;
             } else if (n.type == NodeType.ACCUMULATOR || n.type == NodeType.INTEGRATOR) {
                 h += (st != null ? st.fields.size() : n.params.length) * 18;
-            } else h += n.params.length * 18;
+            } else h += n.type.editableParamCount() * 18;   // rev 等按钮参数不占 EditBox 行 / button-only params take no EditBox row
         }
         if (n.type == NodeType.BOOL && n.params.length > 0) h += 16;
+        // 正/反转按钮（输出指令类）/ forward-reverse toggle (output-command nodes)
+        if (n.type == NodeType.MOVE || n.type == NodeType.ROTATE
+            || n.type == NodeType.TX_OUT || n.type == NodeType.SPEED_CTRL) h += 18;
         if (n.type == NodeType.MOUSE_JOYSTICK && n.params.length > 0) h += 16;
         if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 32; // 初始按钮 + 当前只读
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
@@ -409,6 +413,28 @@ public class EditPanel {
             g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
             g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
             g.drawString(Minecraft.getInstance().font, inverted ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.inverted") : "§7" + I18n.get("gui.create_schematic_compute.edit.not_inverted"), bx+4, by+2, 0xFFFFFFFF, false);
+            row++;
+        }
+        // 正/反转：独立 rev 开关（不改数值 EditBox——数值可被引脚覆盖）。
+        // MOVE/ROTATE 在入栈时对快照值取反；TX_OUT/SPEED_CTRL 在求值结果上取反。
+        // Forward/reverse: an independent rev toggle (does NOT touch the value
+        // EditBox — the value can be wire-overridden). MOVE/ROTATE negate the
+        // snapshotted value at enqueue; TX_OUT/SPEED_CTRL negate the eval result.
+        if (node.type == NodeType.MOVE || node.type == NodeType.ROTATE
+            || node.type == NodeType.TX_OUT || node.type == NodeType.SPEED_CTRL) {
+            // rev 槽位：MOVE/ROTATE 在 params[1]，TX_OUT/SPEED_CTRL 在 params[0]
+            // rev slot: params[1] for MOVE/ROTATE, params[0] for TX_OUT/SPEED_CTRL
+            int revIdx = (node.type == NodeType.MOVE || node.type == NodeType.ROTATE) ? 1 : 0;
+            boolean reverse = node.params.length > revIdx && node.params[revIdx] > 0.5f;
+            int bx = px + 4, by = py + 4 + row * 18;
+            int bw = pw - 8, bh = 16;
+            g.fill(bx, by, bx + bw, by + bh, reverse ? 0xFF3A5A2A : 0xFF3A3428);
+            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
+            g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
+            g.drawString(Minecraft.getInstance().font,
+                reverse ? "§a◀ " + I18n.get("gui.create_schematic_compute.edit.reverse")
+                        : "§7▶ " + I18n.get("gui.create_schematic_compute.edit.forward"),
+                bx+4, by+2, 0xFFFFFFFF, false);
             row++;
         }
         if (node.type == NodeType.MOUSE_JOYSTICK && node.params.length > 0) {

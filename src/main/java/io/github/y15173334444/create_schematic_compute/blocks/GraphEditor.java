@@ -2032,6 +2032,30 @@ public class GraphEditor {
             host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
             return true; }
         }
+        // 正/反转按钮：只翻 rev 槽（SET_PARAM 精确写 0/1），不改数值 EditBox——数值可被
+        // 引脚覆盖，翻符号会改到一个运行时被忽略的陈旧值。MOVE/ROTATE 的 rev 在 params[1]
+        // （params[0] 是可接线的行程数）。
+        // Forward/reverse: SET_PARAM only on the rev slot (exact 0/1) — never touches
+        // the value EditBox (wire-overridable; flipping its sign would edit a value
+        // the runtime ignores). MOVE/ROTATE keep rev at params[1] (params[0] is the
+        // wireable travel amount).
+        if (en.type == NodeType.MOVE || en.type == NodeType.ROTATE
+            || en.type == NodeType.TX_OUT || en.type == NodeType.SPEED_CTRL) {
+            int revLocalY = editLocalY + 4 + numRows * 18;
+            if (lmx >= 4 && lmx <= NW - 4 && lmy >= revLocalY && lmy <= revLocalY + 16) {
+                int revIdx = (en.type == NodeType.MOVE || en.type == NodeType.ROTATE) ? 1 : 0;
+                if (en.params.length > revIdx) {
+                    float oldR = en.params[revIdx];
+                    float newR = oldR > 0.5f ? 0f : 1f;
+                    en.params[revIdx] = newR;
+                    var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                        host.getBlockPos(), ownerNodeId(), en.id, revIdx, newR, host.getPlayerUUID());
+                    host.sendOp(sOp);
+                    recordOp(sOp, 0, 0, oldR, null);
+                }
+                return true;
+            }
+        }
         // FORMULA warm 两段式切换（刀5）：摘要行后第一行；求值策略设置、无引脚。
         // 左半=严格冻结(0)、右半=温启动(1)，SET_PARAM 精确设值（信号发生器模式切换同款 op）。
         // FORMULA warm segmented toggle (knife 5): first row after the summary; pinless eval-policy

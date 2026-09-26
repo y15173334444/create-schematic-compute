@@ -769,7 +769,11 @@ public class GraphEvaluator {
             case SPEED_CTRL -> {
                 float speed = graph.getInputValue(node.id, 0, outputs);
                 float dir = graph.getInputValue(node.id, 1, outputs);
-                o[0] = dir > 0.5 ? -speed : speed;
+                // dir 引脚与 rev 参数（正/反转按钮）同号才反：两个开关都取反 = 恢复正向。
+                // dir pin XOR rev toggle: both on = forward again.
+                float sign = (dir > 0.5f ? -1f : 1f)
+                    * (node.params.length > 0 && node.params[0] > 0.5f ? -1f : 1f);
+                o[0] = sign * speed;
             }
             case PRIVATE_IN -> o[0] = SignalBus.get(node.signalName);
             case PRIVATE_OUT -> SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
@@ -875,12 +879,15 @@ public class GraphEvaluator {
                 if (t != null) { o[0] = (float) t.x(); o[1] = (float) t.y(); o[2] = (float) t.z(); o[3] = t.entityId(); o[4] = t.distance(); }
             }
             case TX_OUT -> {
-                // 透传期望输出转速（RPM，绝对值）；真正的写入由宿主变速器在目标变更时
-                // 经官方拆建序列完成 —— 求值器本身不产生副作用。
-                // Passthrough desired output speed (RPM, absolute); the write happens in
-                // the host transmission via the official teardown sequence on target
+                // 透传期望输出转速；rev 参数（正/反转按钮）在结果上取反。
+                // 宿主变速器在目标变更时经官方拆建序列写入 —— 求值器无副作用。
+                // Passthrough desired output speed; the rev toggle negates the result.
+                // The host transmission writes it via the official teardown on target
                 // change — the evaluator itself has no side effects.
-                o[0] = graph.getInputValue(node.id, 0, outputs);
+                float rpm = graph.getInputValue(node.id, 0, outputs);
+                if (node.params.length > 0 && node.params[0] > 0.5f)
+                    rpm = -rpm;
+                o[0] = rpm;
             }
             case CLUTCH -> {
                 // 常接合意图（>0.5 视为接合）：参数 EditBox 为默认值，连线覆盖。
@@ -940,9 +947,14 @@ public class GraphEvaluator {
                 if (cur && !prev)
                 if (cur && !prev && commandSink != null) {
                     // 数值：参数 EditBox 为默认值，连线覆盖（上升沿当帧快照）。
+                    // rev 按钮独立于数值（不改 EditBox）：入栈时对快照值取反。
                     // Value: param EditBox default, wire overrides (snapshotted at edge).
+                    // The rev toggle is independent of the value (does not touch the
+                    // EditBox): negates the snapshotted value at enqueue.
                     float val = graph.getInputValueOrDefault(node.id, 1, outputs,
                             node.params.length > 0 ? node.params[0] : 0f);
+                    if (node.params.length > 1 && node.params[1] > 0.5f)
+                        val = -val;
                     float rpmIn = node.type.inputs > 2 ? graph.getInputValue(node.id, 2, outputs) : 0f;
                     commandSink.enqueue(new MotionCommand(node.type, val, rpmIn, node.id));
                 }

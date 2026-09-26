@@ -29,7 +29,7 @@ public enum NodeType {
     PID_POWER("pid_power", "node.create_schematic_compute.pid_power", 3, 1, "kp,ki,kd,ilimit"),
     CLAMP("clamp", "node.create_schematic_compute.clamp", 1, 1, "min,max"),
     MAP("map", "node.create_schematic_compute.map", 1, 1, "in_min,in_max,out_min,out_max"),
-    SPEED_CTRL("speed_ctrl", "node.create_schematic_compute.speed_ctrl", 2, 1, ""),
+    SPEED_CTRL("speed_ctrl", "node.create_schematic_compute.speed_ctrl", 2, 1, "rev"),
     BOOL("bool", "node.create_schematic_compute.bool", 1, 1, "inverted"),
     GATE("gate", "node.create_schematic_compute.gate", 4, 1, "default"),
     OR("or", "node.create_schematic_compute.or", 2, 1, ""),
@@ -93,14 +93,14 @@ public enum NodeType {
     TARGET_OUT("target_out", "node.create_schematic_compute.target_out", 0, 5, ""),
     // Kinetic 线宿主专用 / Kinetic-line hosts（变速器 / 数控齿轮箱）
     // Programmable transmission: program target RPM (absolute, mixin-conveyed)
-    TX_OUT("tx_out", "node.create_schematic_compute.tx_out", 1, 1, ""),
+    TX_OUT("tx_out", "node.create_schematic_compute.tx_out", 1, 1, "rev"),
     // 指令栈节点：触点上升沿入队 / command-stack nodes: rising edge enqueues
     // （触点=实引脚；数值为可编辑参数+可选连线覆盖 / trigger = real pin; value =
     //   editable param with optional wire override，与 CLAMP min/max 同机制）
     // （速度由上游变速器决定，运动方块只做离合 / speed comes from the upstream
     //   transmission; the motion block only clutches）
-    MOVE("move", "node.create_schematic_compute.move", 1, 1, "meters"),
-    ROTATE("rotate", "node.create_schematic_compute.rotate", 1, 1, "degrees"),
+    MOVE("move", "node.create_schematic_compute.move", 1, 1, "meters,rev"),
+    ROTATE("rotate", "node.create_schematic_compute.rotate", 1, 1, "degrees,rev"),
     WAIT("wait", "node.create_schematic_compute.wait", 1, 1, "ticks"),
     // 常接合意图（离合保持）/ standing clutch intent
     CLUTCH("clutch", "node.create_schematic_compute.clutch", 0, 1, "engaged"),
@@ -167,7 +167,12 @@ public enum NodeType {
         return switch (this) {
             case BOOL, GATE, T_FLIPFLOP, KEYBOARD, GAMEPAD_BUTTON, LATCH,
                  ENCAP_INPUT, ENCAP_OUTPUT, IMAGE, IMAGE_SEQUENCE,
-                 BUS_IN, BUS_OUT, DEBUG_SIGNAL_GEN, MOUSE_JOYSTICK, HUD_PITCH_LADDER -> 0;
+                 BUS_IN, BUS_OUT, DEBUG_SIGNAL_GEN, MOUSE_JOYSTICK, HUD_PITCH_LADDER,
+                 // rev = 正/反转开关（编辑区按钮，不走 EditBox / toggle button, not an EditBox）
+                 TX_OUT, SPEED_CTRL -> 0;
+            // MOVE/ROTATE：只有 meters/degrees 走 EditBox+引脚；rev 是按钮，不占引脚
+            // MOVE/ROTATE: only meters/degrees get an EditBox+pin; rev is a button
+            case MOVE, ROTATE -> 1;
             default -> paramNames.length;
         };
     }
