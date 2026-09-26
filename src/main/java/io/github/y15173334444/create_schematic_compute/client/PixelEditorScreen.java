@@ -435,11 +435,15 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         String bigger = EditorKeys.seqText(EditorKeys.sequence(EditorKeys.Action.PIXEL_BRUSH_BIGGER));
         String grid = EditorKeys.seqText(EditorKeys.sequence(EditorKeys.Action.PIXEL_GRID));
         return List.of(
-            String.format(I18n.get("gui.create_schematic_compute.monitor.pixel_guide_tools"),
+            // %s 模板必须走 I18n.get(key, args...) 带参重载 —— 无参 I18n.get(key) 会先做一次
+            // 零参 String.format，抛异常后整行渲染成 "Format error: ..."。
+            // %s templates must use the parameterized I18n.get(key, args...) - the no-arg
+            // overload formats with zero args first and renders "Format error: ..." on throw.
+            I18n.get("gui.create_schematic_compute.monitor.pixel_guide_tools",
                 brush, eraser, fill, eyedropper, line, rect, hand),
             I18n.get("gui.create_schematic_compute.monitor.pixel_guide_order"),
-            String.format(I18n.get("gui.create_schematic_compute.monitor.pixel_guide_size"), smaller, bigger),
-            String.format(I18n.get("gui.create_schematic_compute.monitor.pixel_guide_grid"), grid),
+            I18n.get("gui.create_schematic_compute.monitor.pixel_guide_size", smaller, bigger),
+            I18n.get("gui.create_schematic_compute.monitor.pixel_guide_grid", grid),
             I18n.get("gui.create_schematic_compute.monitor.pixel_guide_undo"),
             I18n.get("gui.create_schematic_compute.monitor.pixel_guide_zoom_pan"),
             I18n.get("gui.create_schematic_compute.monitor.pixel_guide_erase"),
