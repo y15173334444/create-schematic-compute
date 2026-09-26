@@ -207,10 +207,11 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
 / Immutable record for server→client broadcast. Sub-graph (ENCAP) outputs and debug times merged since v1.2.4; `formulaSpreads`（刀5）携带 FORMULA 节点 spread 渲染态进度（0=空闲、0..1=repeat 进度、-1=while 不定），仅渲染进度条、无数值。/ `formulaSpreads` (knife 5) carries FORMULA spread render-state progress (0 = idle, 0..1 = repeat progress, -1 = indeterminate while) — render-only, no values.
 
 ### GraphMigration / NbtVersions
-- `NbtVersions.DATA_VERSION = 5`（`VERSION_KEY = "data_version"`）/ Data format version 5
-- `GraphMigration.migrate(rawTag, registries)` — 顺序执行 V1→V2→V3→**V4**→**V5** 迁移
+- `NbtVersions.DATA_VERSION = 6`（`VERSION_KEY = "data_version"`）/ Data format version 6
+- `GraphMigration.migrate(rawTag, registries)` — 顺序执行 V1→V2→V3→**V4**→**V5**→**V6** 迁移
 - **V3→V4（v1.2.4）**：为每条连线派生稳定 `fPinId`/`tPinId`（FORMULA=变量名、ENCAP=子节点 ID、BUS=频段名）；pinId 无法映射的连线丢弃 / Derive stable pinIds; drop unmappable connections
-- **V4→V5（v1.2.5 AR HUD Phase 2）**：显示节点补 AR HUD 锚定字段默认值（`am`/`ay`/`ap`，仅显式盖章版本号），ENCAPSULATION 子图递归迁移 / Stamp AR HUD anchor defaults (`am`/`ay`/`ap`) and recurse into ENCAPSULATION sub-graphs
+- **V4→V5（v1.2.5）**：ENCAPSULATION 子图递归迁移。（早期草稿曾盖章 AR HUD 锚定 `am`/`ay`/`ap`——该功能从未落地，已移除；未实现字段与渲染消费前不要加回）/ Recurse into ENCAPSULATION sub-graphs. (An earlier draft stamped AR-HUD anchors `am`/`ay`/`ap` — never landed, removed again; do not re-add without implementing the fields + renderer.)
+- **V5→V6**：ENCODER 清零从编辑区参数改为节点体 0 号输入——旧连线 `tPinId="0"` 显式钉死，清掉过期 `reset` 参数 / ENCODER reset moves to body input 0 — pin old `tPinId="0"` wires explicitly and drop the stale `reset` param
 
 ### SpatialIndex / ZOrder（v1.2.3 遮挡系统 / occlusion system）
 - `ZOrder` — A/B/C 三层遮挡记录（网格→注释→连线→节点→覆盖层→工具提示）/ Occlusion record

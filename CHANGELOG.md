@@ -6,7 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
-| [v1.2.5.2](#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 |
+| [v1.2.5.2](#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 · 编码器清零改节点体引脚 |
 | [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
@@ -21,7 +21,7 @@
 ---
 
 <details>
-<summary><b>v1.2.5.2</b> — 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 / Fix: Kinetic Gauge Wrench Rotation (Shaft Roll · Tilt-Preserving Yaw) · Floor Placement · Inverted Mount Text Upright · View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit · CNC Gearbox Shaft Faces Always Present / Wrench Back to Official · Transmission Output Recovers After Overload · Output-Command Forward-Reverse &amp; Negative Travel</summary>
+<summary><b>v1.2.5.2</b> — 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 · 编码器清零改节点体引脚 / Fix: Kinetic Gauge Wrench Rotation (Shaft Roll · Tilt-Preserving Yaw) · Floor Placement · Inverted Mount Text Upright · View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit · CNC Gearbox Shaft Faces Always Present / Wrench Back to Official · Transmission Output Recovers After Overload · Output-Command Forward-Reverse &amp; Negative Travel · Encoder Reset on the Node Body</summary>
 
 ### 🔧 动力传感器扳手 / Kinetic Gauge Wrench
 
@@ -44,6 +44,12 @@
 | Fix / 修复 | Description / 说明 |
 |-----------|-------------------|
 | 🙃 倒置/朝下读数翻正 **(bug 修复)** | `facing=DOWN` 走 blockstate `x:180`，蓝屏正确朝下，但动态读数随整机一起颠倒（倒置挂墙/朝下时上下翻转）。渲染入口改为 `KineticGaugeStates.displayPanel`：`x:180` 时把字形右/上在面板平面内再转 180°（法线不动、右手系保持），从屏幕外侧看文字恢复正立；12 个状态的世界空间文字上方向 Y>0 由 `KineticGaugePlacementTest` 钉死 / `facing=DOWN` applies blockstate `x:180`, so the blue face correctly points down but the dynamic readout flipped with the whole unit. Rendering now goes through `KineticGaugeStates.displayPanel`, which spins the glyph right/up another 180° in the panel plane on `x:180` (normal untouched, still right-handed) so text reads upright from outside. All 12 states' world-space text-up Y>0 is pinned in `KineticGaugePlacementTest`. |
+
+### 🔌 编码器清零改节点体引脚 / Encoder Reset on the Node Body
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🔌 **行为变更** | ENCODER 的清零从**编辑区参数**改为**节点体输入引脚**（电平触发语义不变：拉高清零、持续拉高保持归零；未接线 = 0）。旧连线 pinId 本就是索引 `"0"`，V6 迁移显式钉到 0 号输入并清掉过期 `reset` 参数 / The ENCODER reset moves from an edit-area parameter to a **body input pin** (level-triggered semantics unchanged; unwired = 0). Old wires already carry pinId `"0"`; the V6 migration pins them to input 0 and drops the stale `reset` param. |
 
 ### 🎛️ 输出指令正/反转与负行程 / Output-Command Forward-Reverse & Negative Travel
 
