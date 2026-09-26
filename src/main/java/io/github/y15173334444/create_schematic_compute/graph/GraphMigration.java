@@ -48,6 +48,7 @@ public final class GraphMigration {
             GraphMigration::migrateV2toV3,
             GraphMigration::migrateV3toV4,
             GraphMigration::migrateV4toV5,
+            GraphMigration::migrateV5toV6,
     };
 
     /**
@@ -391,6 +392,68 @@ public final class GraphMigration {
 
         // Stamp current version / 写入当前版本号
         out.putInt(NbtVersions.VERSION_KEY, 5);
+        return out;
+    }
+
+    // ── V5 → V6 ───────────────────────────────────────────────────────────
+    // Changes in v6 / v6 中的变更:
+    //   1. ENCODER's "reset" moves from an edit-area parameter pin to body input
+    //      pin 0. Generic pinIds are decimal indices, so a wire that targeted the
+    //      old param pin already carries tPinId="0" — pin it explicitly and drop
+    //      the stale reset param so the edit area no longer offers an EditBox.
+    //      ENCODER 的清零从编辑区参数引脚改为节点体 0 号输入。通用 pinId 是十进制
+    //      索引，旧参数引脚连线本就带 tPinId="0"——此处显式钉死并清掉过期 reset
+    //      参数，编辑区不再出现该 EditBox。
+
+    /**
+     * Migrate a graph tag from version 5 to version 6.
+     *
+     * 将图标签从版本 5 迁移到版本 6。
+     *
+     * @param tag        the v5 graph tag / v5 版本的图标签
+     * @param registries Minecraft holder lookup provider / Minecraft Holder 查找提供器
+     * @return the migrated v6 tag / 迁移后的 v6 标签
+     */
+    private static CompoundTag migrateV5toV6(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+        CompoundTag out = tag.copy();
+        ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
+
+        // Collect ENCODER node ids and strip the obsolete reset param.
+        // 记录 ENCODER 节点 id，并清掉过期的 reset 参数。
+        var encoderIds = new java.util.HashSet<Integer>();
+        for (int i = 0; i < nodes.size(); i++) {
+            CompoundTag n = nodes.getCompound(i);
+            if ("encoder".equals(n.getString("type"))) {
+                encoderIds.add(n.getInt("id"));
+                n.putInt("pcount", 0);
+                n.remove("p0");
+            }
+            if (n.contains("subGraph")) {
+                n.put("subGraph", migrateV5toV6(n.getCompound("subGraph"), registries));
+            }
+        }
+
+        // Pin every connection into an ENCODER's reset onto body input 0.
+        // 把所有进入 ENCODER 的连线钉到节点体 0 号输入。
+        ListTag conns = out.getList("conns", Tag.TAG_COMPOUND);
+        for (int i = 0; i < conns.size(); i++) {
+            CompoundTag c = conns.getCompound(i);
+            int toId = c.getInt("to");
+            if (!encoderIds.contains(toId))
+                continue;
+            int tPin = c.getInt("tPin");
+            String tPinId = c.contains("tPinId") ? c.getString("tPinId") : null;
+            // 旧参数引脚 = 索引 0 / pinId "0"（写入方即 inputPinId）；"reset" 分支为
+            // 防御性、无已知写入方。→ 统一为 0
+            // Old param pin = index 0 / pinId "0" (what inputPinId writes); the
+            // "reset" branch is defensive with no known writer. → unify to 0
+            if (tPin == 0 || "0".equals(tPinId) || "reset".equals(tPinId)) {
+                c.putInt("tPin", 0);
+                c.putString("tPinId", "0");
+            }
+        }
+
+        out.putInt(NbtVersions.VERSION_KEY, 6);
         return out;
     }
 

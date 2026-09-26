@@ -104,7 +104,10 @@ public enum NodeType {
     WAIT("wait", "node.create_schematic_compute.wait", 1, 1, "ticks"),
     // 常接合意图（离合保持）/ standing clutch intent
     CLUTCH("clutch", "node.create_schematic_compute.clutch", 0, 1, "engaged"),
-    ENCODER("encoder", "node.create_schematic_compute.encoder", 0, 3, "reset"),
+    // 清零 = 节点体输入引脚（电平触发；旧「编辑区 reset 参数」连线经 V6 迁移钉在 0 号输入）
+    // Reset is a body input pin (level-triggered; old edit-area "reset" param wires
+    // are pinned to input 0 by the V6 migration).
+    ENCODER("encoder", "node.create_schematic_compute.encoder", 1, 3, ""),
     // Debug tools / 调试工具
     DEBUG_SIGNAL_GEN("debug_signal_gen", "node.create_schematic_compute.debug_signal_gen", 0, 1, "setMode,outMode,speed,amplitude,inputX"),
     DEBUG_PROBE("debug_probe", "node.create_schematic_compute.debug_probe", 1, 1, "windowSize,autoScale"),
@@ -226,6 +229,7 @@ public enum NodeType {
         case DIRECTION -> i==0?pk("ax"):i==1?pk("ay"):i==2?pk("az"):i==3?pk("bx"):i==4?pk("by"):pk("bz");
         case TX_OUT -> pk("rpm");
         case MOVE, ROTATE, WAIT -> pk("trigger");
+        case ENCODER -> pk("reset");
         case ENCAPSULATION -> pk("in"); // 动态标签，来自子图 ENCAP_INPUT 名称 / dynamic label from sub-graph ENCAP_INPUT name
         case ENCAP_OUTPUT -> pk("val");
         case RELAY_A, RELAY_B -> switch(i) { case 0 -> pk("relay_a_in"); case 1 -> pk("relay_b_in"); default -> pk("relay_contact"); };

@@ -900,12 +900,14 @@ public class GraphEvaluator {
             }
             case ENCODER -> {
                 // 读运动反馈：角度位置（度）、线性位置（米）、实际转速（RPM）。
-                // 复位电平触发（参数默认值/连线覆盖）：拉高即清零累计（持续拉高 = 持续保持零）。
+                // 清零 = 节点体 0 号输入引脚，电平触发：拉高即清零累计（持续拉高 =
+                // 持续保持零）；未接线 = 0（不清零）。旧编辑区 reset 参数连线由
+                // V6 迁移钉到该引脚。
                 // Motion feedback: angle (deg), linear position (m), actual speed (RPM).
-                // The reset is level-triggered (param default / wire override): high =
-                // zero the accumulators (held high = held at zero).
-                float rst = graph.getInputValueOrDefault(node.id, 0, outputs,
-                        node.params.length > 0 ? node.params[0] : 0f);
+                // Reset is body input pin 0, level-triggered: high = zero the
+                // accumulators (held high = held at zero); unwired = 0 (no reset).
+                // Old edit-area "reset" param wires are pinned here by the V6 migration.
+                float rst = graph.getInputValue(node.id, 0, outputs);
                 if (encoderView != null && Float.isFinite(rst) && rst > 0.5f)
                     encoderView.resetEncoder();
                 o[0] = encoderView != null ? encoderView.encoderPosition() : 0;
