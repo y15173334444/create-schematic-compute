@@ -6,7 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
-| [v1.2.5.2](#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 |
+| [v1.2.5.2](#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 |
 | [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
@@ -21,7 +21,7 @@
 ---
 
 <details>
-<summary><b>v1.2.5.2</b> — 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 / Fix: Kinetic Gauge Wrench Rotation (Shaft Roll · Tilt-Preserving Yaw) · Floor Placement · Inverted Mount Text Upright · View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit</summary>
+<summary><b>v1.2.5.2</b> — 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 / Fix: Kinetic Gauge Wrench Rotation (Shaft Roll · Tilt-Preserving Yaw) · Floor Placement · Inverted Mount Text Upright · View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit · CNC Gearbox Shaft Faces Always Present / Wrench Back to Official · Transmission Output Recovers After Overload</summary>
 
 ### 🔧 动力传感器扳手 / Kinetic Gauge Wrench
 
@@ -44,6 +44,24 @@
 | Fix / 修复 | Description / 说明 |
 |-----------|-------------------|
 | 🙃 倒置/朝下读数翻正 **(bug 修复)** | `facing=DOWN` 走 blockstate `x:180`，蓝屏正确朝下，但动态读数随整机一起颠倒（倒置挂墙/朝下时上下翻转）。渲染入口改为 `KineticGaugeStates.displayPanel`：`x:180` 时把字形右/上在面板平面内再转 180°（法线不动、右手系保持），从屏幕外侧看文字恢复正立；12 个状态的世界空间文字上方向 Y>0 由 `KineticGaugePlacementTest` 钉死 / `facing=DOWN` applies blockstate `x:180`, so the blue face correctly points down but the dynamic readout flipped with the whole unit. Rendering now goes through `KineticGaugeStates.displayPanel`, which spins the glyph right/up another 180° in the panel plane on `x:180` (normal untouched, still right-handed) so text reads upright from outside. All 12 states' world-space text-up Y>0 is pinned in `KineticGaugePlacementTest`. |
+
+### 🔧 数控齿轮箱扳手回归官方 / CNC Gearbox Wrench Back to Official
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🧹 **行为变更** | 扳手点轴端面「翻转输入端」与 action bar 字幕（`input face: …`）已移除——输入/输出面由放置感知 + `autoSenseInputFace` 自动识别（官方从动件同款）。任意面扳手走 `IWrenchable` 默认旋转；`disengageForFlip` / `resyncKineticsAfterFlip` 一并删除 / Wrench-on-end-face "flip input end" and its action-bar subtitle are gone — input/output faces are auto-sensed (placement + `autoSenseInputFace`), like a vanilla driven member. Wrenching any face is the official `IWrenchable` rotate; `disengageForFlip` / `resyncKineticsAfterFlip` deleted with it. |
+
+### 🎛️ 变速器过载后输出不恢复 / Transmission Output Stays Dead After Overload
+
+| Fix / 修复 | Description / 说明 |
+|-----------|-------------------|
+| 🐛 过载拆输出 **(bug 修复)** | 输出端负载超容 → 整网 `overStressed`，官方 `getSpeed()` 恒 0。`cleanOrphanedKineticState` 用 `getSpeed()` 判源死活，把仍在转的源打成失速，**每 tick detach** 拆掉输出侧子树（「过载后自动断开应力」）。输入端应力恢复后 `getSpeed()` 变回非 0，预检早退认为健康，**不会接回**已拆下游；只有改转速触发 `updateTargetRotation` 全量拆建才恢复（「改转速才可以刷新输出」）。现源健康/幻影速判定改用 `getTheoreticalSpeed()`（= `speed` 字段，官方 `validateKinetics` 同款）/ Output load past capacity trips network-wide `overStressed`, and official `getSpeed()` is hard-zeroed. The orphaned-state pre-check used `getSpeed()` for source health, so a live source looked dead and every tick detached, tearing down the output subtree. Once capacity recovered the pre-check saw a spinning source and early-returned — never re-attaching what it tore down; only a target change's full rebuild did. Health/phantom checks now use `getTheoreticalSpeed()` (the raw field, matching official `validateKinetics`). |
+
+### ⚙️ 数控齿轮箱输出端轴面常在 / CNC Gearbox Output Shaft Face Always Present
+
+| Fix / 修复 | Description / 说明 |
+|-----------|-------------------|
+| 🐛 放轴不吸附 **(bug 修复)** | 无指令/空闲自动分离时 `hasShaftTowards` 把输出端轴面整段否掉——Create 的放置吸附（`RotatedPillarKineticBlock.getPreferredAxis`）与传动耦合（`RotationPropagator` 要求双方轴面）都认它，贴上去的传动轴**不吸、不连**。现改为官方 `AbstractEncasedShaftBlock` 同款：两端轴面恒在（只看轴向）；离合隔离改走官方 `SplitShaftBlockEntity.getRotationSpeedModifier`（输出面分离时 0）+ 既有 detach/attachKinetics。BE 基类升为 `SplitShaftBlockEntity` / While idle the clutch used to return false from `hasShaftTowards` on the output face, which Create's placement snap and axis coupling both consult — shafts placed against the block would not attach. Now axis-only like official `AbstractEncasedShaftBlock`; isolation moves to official `SplitShaftBlockEntity.getRotationSpeedModifier` (0 on the output face while disengaged) plus the existing detach/attachKinetics. The BE base class is now `SplitShaftBlockEntity`. |
 
 ### 🗂️ 节点分类与方块名单 / Node Categories &amp; Per-Block Allowances
 

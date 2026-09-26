@@ -1,7 +1,7 @@
 # 代码结构文档 / Code Architecture
 
-> 更新日期 / Last Updated：2026-09-13
-> 版本 / Version：1.2.5.1
+> 更新日期 / Last Updated：2026-09-26
+> 版本 / Version：1.2.5.2
 
 ---
 
@@ -307,6 +307,16 @@ joiners have no pending ops and always load the authoritative graph.
 | `SensorBlockEntity` | 姿态传感器 / Attitude Sensor | Sable 子世界姿态读取 / Sable sub-level pose reading |
 | `SpeedProxyBlockEntity` | 转速代理 / Speed Proxy | Create SpeedController 直控 / Direct speed controller access |
 | `ProgramComputerBlockEntity` | 编程计算机 / Program Computer | 时序逻辑专用 / Sequential logic only |
+
+### 动力组合线 BE / Kinetic composition-line BEs（v1.2.5+）
+
+| 类 / Class | 基类 / Extends | 要点 / Notes |
+|----|------|---------|
+| `ProgrammableTransmissionBlockEntity` | `KineticBlockEntity` | SpeedController 语义复刻；`getConveyedSpeed` 经 `RotationPropagatorMixin`；源健康判 `getTheoreticalSpeed()`（过载压速下 `getSpeed()` 恒 0 会误拆下游） |
+| `CncGearboxBlockEntity` | **`SplitShaftBlockEntity`**（v1.2.5.2 起） | 两端轴面恒在（`hasShaftTowards` 只看轴向）；离合隔离 = `getRotationSpeedModifier` 输出面分离时 0 + detach/attachKinetics；扳手不再翻输入端（放置感知 + `autoSenseInputFace` 自动识别） |
+| `KineticGaugeBlockEntity` | `KineticBlockEntity` | 仪表只读网络 |
+
+/ Kinetic composition-line BEs. The CNC gearbox extends Create's `SplitShaftBlockEntity` so `RotationPropagator.getAxisModifier` calls its `getRotationSpeedModifier` (0 on the output face while disengaged) — shaft faces stay present for placement snap, isolation is the modifier. The transmission's orphaned-state pre-check must use `getTheoreticalSpeed()` (raw field), never `getSpeed()` (zeroed while overStressed).
 
 ### GraphEditor (~4200 行 / lines；步骤 6 各刀持续缩小 / shrinking via roadmap step-6 cuts)
 核心节点图编辑器。承载所有渲染/输入/交互逻辑。
