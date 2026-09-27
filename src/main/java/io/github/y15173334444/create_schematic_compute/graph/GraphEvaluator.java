@@ -692,11 +692,18 @@ public class GraphEvaluator {
                 float kd = node.params.length > 2 ? node.params[2] : 0.05f;
                 float s = node.params.length > 3 ? node.params[3] : 1.0f;
                 float ilimit = node.params.length > 4 ? node.params[4] : 3.0f;
+                // 积分死区：|err|≤deadband 时积分**保持**（不增长也不清除）。
+                // 默认 0.001 —— 取代旧的「|err|≤0.001 清零」。
+                // Integral deadband: when |err| ≤ deadband the integral **holds**
+                // (neither grows nor clears). Default 0.001 — replaces the old
+                // "clear when |err| ≤ 0.001".
+                float deadband = node.params.length > 5 ? node.params[5] : 0.001f;
+                if (!Float.isFinite(deadband) || deadband < 0) deadband = 0;
                 float err = sp - pv;
                 int ik = node.id;
                 float integral = pidState.getOrDefault(ik, 0f);
-                if (Math.abs(err) > 0.001f) integral += err * dt;
-                else integral = 0;
+                if (Math.abs(err) > deadband) integral += err * dt;
+                // else: hold — 不增长也不清除 / neither grow nor clear
                 // ilimit 直接限制 I 项输出贡献  /  ilimit directly clamps I-term output contribution
                 float iContrib = ki * integral;
                 if (iContrib > ilimit) iContrib = ilimit;
@@ -724,11 +731,13 @@ public class GraphEvaluator {
                 float ki = node.params.length > 1 ? node.params[1] : 0.1f;
                 float kd = node.params.length > 2 ? node.params[2] : 0.05f;
                 float ilimit = node.params.length > 3 ? node.params[3] : 3.0f;
+                // 同 PID：死区内积分保持 / same as PID: integral holds inside the deadband
+                float deadband = node.params.length > 4 ? node.params[4] : 0.001f;
+                if (!Float.isFinite(deadband) || deadband < 0) deadband = 0;
                 float err = sp - pv;
                 int ik = node.id;
                 float integral = pidState.getOrDefault(ik, 0f);
-                if (Math.abs(err) > 0.001f) integral += err * dt;
-                else integral = 0;
+                if (Math.abs(err) > deadband) integral += err * dt;
                 // ilimit 直接限制 I 项输出贡献  /  ilimit directly clamps I-term output contribution
                 float iContrib = ki * integral;
                 if (iContrib > ilimit) iContrib = ilimit;

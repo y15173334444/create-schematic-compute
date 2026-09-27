@@ -405,12 +405,14 @@ public class GraphNode {
             this.params[2] = 0.05f;  // kd
             this.params[3] = 1.0f;   // scale
             this.params[4] = 3.0f;   // ilimit
+            this.params[5] = 0.001f; // deadband（|err|≤此值时积分保持）/ deadband (integral holds when |err| ≤ this)
         }
         if (type == NodeType.PID_POWER) {
             this.params[0] = 2.0f;   // kp
             this.params[1] = 0.05f;  // ki
             this.params[2] = 3.0f;   // kd
             this.params[3] = 3.0f;   // ilimit
+            this.params[4] = 0.001f; // deadband
         }
         if (type == NodeType.T_FLIPFLOP) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // 默认关，当前关 / default off, current off
         if (type == NodeType.LATCH) { this.params = new float[2]; this.params[0] = 0f; this.params[1] = 0f; } // 默认复位，当前复位 / default reset, current reset

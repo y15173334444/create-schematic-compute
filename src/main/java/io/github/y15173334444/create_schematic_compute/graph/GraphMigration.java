@@ -404,6 +404,11 @@ public final class GraphMigration {
     //      ENCODER 的清零从编辑区参数引脚改为节点体 0 号输入。通用 pinId 是十进制
     //      索引，旧参数引脚连线本就带 tPinId="0"——此处显式钉死并清掉过期 reset
     //      参数，编辑区不再出现该 EditBox。
+    //   2. PID / PID_POWER gain a trailing "deadband" param (integral holds when
+    //      |err| ≤ deadband — neither grows nor clears). Default 0.001, which
+    //      reuses the old clear threshold as the hold threshold.
+    //      PID / PID_POWER 末尾追加 deadband 参数（|err|≤deadband 时积分保持，
+    //      不增长也不清除）。默认 0.001 —— 旧「清零阈值」改为「保持阈值」。
 
     /**
      * Migrate a graph tag from version 5 to version 6.
@@ -418,15 +423,24 @@ public final class GraphMigration {
         CompoundTag out = tag.copy();
         ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
 
-        // Collect ENCODER node ids and strip the obsolete reset param.
-        // 记录 ENCODER 节点 id，并清掉过期的 reset 参数。
+        // Collect ENCODER node ids, strip the obsolete reset param, and fill the
+        // PID/PID_POWER deadband slot.
+        // 记录 ENCODER 节点 id、清掉过期 reset 参数，并补 PID/PID_POWER 的 deadband 槽。
         var encoderIds = new java.util.HashSet<Integer>();
         for (int i = 0; i < nodes.size(); i++) {
             CompoundTag n = nodes.getCompound(i);
-            if ("encoder".equals(n.getString("type"))) {
+            String type = n.getString("type");
+            if ("encoder".equals(type)) {
                 encoderIds.add(n.getInt("id"));
                 n.putInt("pcount", 0);
                 n.remove("p0");
+            }
+            // 只补缺失槽位，不覆盖用户已设值（含设为 0 的死区）。
+            // Only fill the missing slot — never overwrite a user-set value (incl. 0).
+            if ("pid".equals(type)) {
+                ensureDeadbandParam(n, 5);
+            } else if ("pid_power".equals(type)) {
+                ensureDeadbandParam(n, 4);
             }
             if (n.contains("subGraph")) {
                 n.put("subGraph", migrateV5toV6(n.getCompound("subGraph"), registries));
@@ -455,6 +469,15 @@ public final class GraphMigration {
 
         out.putInt(NbtVersions.VERSION_KEY, 6);
         return out;
+    }
+
+    /** 给 PID/PID_POWER 补上缺失的 deadband 槽（默认 0.001）并抬高 pcount。
+     *  Fill in a missing deadband slot (default 0.001) and raise pcount. */
+    private static void ensureDeadbandParam(CompoundTag n, int deadbandIdx) {
+        int pc = n.getInt("pcount");
+        if (pc > deadbandIdx) return; // 已有该槽（含用户设的 0）/ slot already present (incl. user-set 0)
+        n.putFloat("p" + deadbandIdx, 0.001f);
+        n.putInt("pcount", deadbandIdx + 1);
     }
 
     /**
