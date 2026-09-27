@@ -642,7 +642,7 @@ The full changelog now lives in **[`CHANGELOG.md`](https://github.com/y151733344
 
 | Version | 标题 / Title |
 |---------|--------------|
-| [v1.2.5.2](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃（view bob）导致全息显示器 HUD 虚像晃动 · 语言切换后 HUD 乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 |
+| [v1.2.5.2](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃（view bob）导致全息显示器 HUD 虚像晃动 · 语言切换后 HUD 乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 频道名旧草稿回写（#10）· 去掉整图保存覆盖（#17）· 封装子图节点数据同步 · 封装子图展开状态跨玩家同步 · 参数输入框实时同步 · 封装子图顶栏合并 · 占用封装禁删 · 键位系统扩容（删除连线 + 像素编辑器动作）· 统一键鼠序列绑定 · 旧键位配置迁移 · 删节点撤销/重做恢复连线（pinId + 占用检测）· 变速器代理态显示（值盒「(代理)」+ 滚轮拒收） |
 | [v1.2.5.1](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1251) | 动力传感器（kinetic_gauge，Create 表同款 3 轴放置 · STRESS/RPM 节点 · 蓝屏显示）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
