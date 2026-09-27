@@ -1,7 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
-import com.simibubi.create.content.kinetics.motor.KineticScrollValueBehaviour;
 import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour;
 import com.simibubi.create.foundation.blockEntity.behaviour.ValueBoxTransform;
 import com.simibubi.create.infrastructure.config.AllConfigs;
@@ -14,6 +13,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.chat.Component;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -40,6 +40,18 @@ import java.util.Map;
  *
  * <p><b>目标来源</b>：图运行且存在 {@code TX_OUT} 节点时取节点输出；否则回落
  * 滚轮设定值（官方 SC 同款 ValueBox）。</p>
+ *
+ * <p><b>代理态显示（2026-09-27）</b>：谁在控制这个值必须让玩家看得见 —— 图在代理时滚轮
+ * 拒收输入（{@code TransmissionScrollValueBehaviour.acceptsValueSettings}），值盒显示
+ * 「已应用目标 (代理)」，悬停提示第一行改说「由节点控制」。代理态判定与目标取值
+ * <b>同一处</b>发生（见 {@link #tick()}），并随方块实体包同步（{@code CscTxProxy}）——
+ * 客户端只消费这个权威值，不自己按本地图推导（本地图会被未 ACK 的编辑带偏）。</p>
+ * <p><b>Proxy display (2026-09-27)</b>: who owns the value must be visible — while the graph
+ * drives it the wheel refuses input, the value box reads "applied target (proxy)" and the hover
+ * tip's first line says node-controlled. The proxy flag and the target are decided at the same
+ * site (see {@link #tick()}) and shipped in the block-entity packet ({@code CscTxProxy}); the
+ * client consumes that authoritative value instead of deriving it from its local graph copy,
+ * which local un-ACKed edits can skew.</p>
  */
 public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
         implements GraphBlockEntity, io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView {
@@ -56,9 +68,23 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
     /** 期望目标（每 tick 对账）。 Desired target (reconciled per tick). */
     private int desiredTarget = 0;
 
-    /** 滚轮行为（官方 SC 同款；behaviour 自带 NBT 持久化）。
-     *  Scroll behaviour (official SC-style; self-persisted by the behaviour). */
-    public KineticScrollValueBehaviour scrollBehaviour;
+    /** 节点图是否正在代理控制目标（服务端判定、随包同步；客户端只读）。
+     *  Whether the node graph currently drives the target (server-decided, packet-synced;
+     *  read-only on the client). */
+    private boolean proxyControlled = false;
+
+    /** 值盒标签两版：手动态 / 代理态。代理态那版把 Create 删不掉的「按住以编辑」提示
+     *  在第一行纠正回来（代理态下滚轮是拒收的）。
+     *  Two value-box labels: manual / proxied. The proxied one corrects Create's unremovable
+     *  "hold to edit" tip line, since the wheel refuses input in that state. */
+    private static final Component SCROLL_LABEL = Component.translatable(
+            "container.create_schematic_compute.transmission.scroll");
+    private static final Component SCROLL_LABEL_PROXIED = Component.translatable(
+            "container.create_schematic_compute.transmission.scroll.proxied");
+
+    /** 滚轮行为（官方 SC 同款 + 代理态闸门/显示；behaviour 自带 NBT 持久化）。
+     *  Scroll behaviour (official SC-style + proxy gate/display; self-persisted by the behaviour). */
+    public TransmissionScrollValueBehaviour scrollBehaviour;
 
     /** 拆建冷却（tick）：限频保护官方 flickerScore（>128 炸方块）。
      *  Teardown cooldown (ticks): rate-limits to protect the official flickerScore
@@ -93,10 +119,8 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
     public void addBehaviours(List<BlockEntityBehaviour> behaviours) {
         super.addBehaviours(behaviours);
         int max = AllConfigs.server().kinetics.maxRotationSpeed.get();
-        scrollBehaviour = new KineticScrollValueBehaviour(
-                net.minecraft.network.chat.Component.translatable(
-                        "container.create_schematic_compute.transmission.scroll"),
-                this, new TransmissionValueBoxTransform());
+        scrollBehaviour = new TransmissionScrollValueBehaviour(SCROLL_LABEL, this,
+                new TransmissionValueBoxTransform());
         scrollBehaviour.between(-max, max);
         scrollBehaviour.value = 0;
         scrollBehaviour.withCallback(i -> this.updateTargetRotation());
@@ -250,6 +274,7 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
     public void tick() {
         cleanOrphanedKineticState();
         super.tick();
+        refreshScrollLabel();
         if (level == null || level.isClientSide)
             return;
         host.ensureBusRegistered();
@@ -259,10 +284,13 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
         if (host.graphChanged())
             host.recompileEvaluatorFull();
 
+        boolean wasProxy = proxyControlled;
+        int appliedBefore = appliedTarget;
         int target;
         if (!host.running) {
             host.onStopRunning();
             target = scrollTarget();   // 停机回落滚轮值 / stopped: fall back to the scroll value
+            proxyControlled = false;
         } else {
             host.rs.refreshInputsActive();
             var in = host.rs.buildInputs(host.graph);
@@ -271,20 +299,58 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
             host.rs.writeOutputs(results);
             host.broadcastEvalSnapshot();
 
-            float max = AllConfigs.server().kinetics.maxRotationSpeed.get();
-            target = scrollTarget();
-            for (var n : host.graph.nodes) {
-                if (n.type == NodeType.TX_OUT) {
-                    float raw = host.evaluator.getNodeOutput(n.id, 0);
-                    raw = Float.isFinite(raw) ? raw : 0;
-                    target = Mth.clamp(Math.round(raw), (int) -max, (int) max);
-                    break;   // 拓扑序首个 TX_OUT / first TX_OUT in topo order
-                }
+            // 控制来源与代理态在**同一处**判定：图运行时以存储序首个 TX_OUT 为准，否则回落
+            // 滚轮值。两处分开写会长出「盒里写(代理)、实际听滚轮」这类死守卫式分叉。
+            // Control source and proxy flag are decided HERE, once: the first TX_OUT in node
+            // order while the graph runs, else the scroll value. Deciding them at two sites
+            // grows the classic dead-guard drift ("box says proxied, wheel still wins").
+            int txNodeId = host.graph.firstNodeIdOfType(NodeType.TX_OUT);
+            if (txNodeId >= 0) {
+                float max = AllConfigs.server().kinetics.maxRotationSpeed.get();
+                float raw = host.evaluator.getNodeOutput(txNodeId, 0);
+                raw = Float.isFinite(raw) ? raw : 0;
+                target = Mth.clamp(Math.round(raw), (int) -max, (int) max);
+                proxyControlled = true;
+            } else {
+                target = scrollTarget();
+                proxyControlled = false;
             }
         }
         desiredTarget = target;
         reconcileTarget();
+        // 客户端要画「谁在控制 + 生效值」：只在两者真的变了时发包。appliedTarget 受 4 tick
+        // 拆建冷却限频（最多每 4 tick 变一次），与官方 setValue→sendData 同量级。
+        // The client renders "who is in control + the effective value": ship a packet only when
+        // either actually changed. appliedTarget is cooldown-limited to at most one change per
+        // 4 ticks — the same order as the official setValue->sendData.
+        if (proxyControlled != wasProxy || appliedTarget != appliedBefore)
+            sendData();
         setChanged();
+    }
+
+    /** 值盒标签随代理态切换（双端都跑：客户端读包同步来的代理态）。
+     *  Switch the value-box label with the proxy state (both sides run this; the client reads
+     *  the packet-synced flag). */
+    private void refreshScrollLabel() {
+        if (scrollBehaviour == null)
+            return;
+        Component want = proxyControlled ? SCROLL_LABEL_PROXIED : SCROLL_LABEL;
+        // 引用比较**仅因** want 恒为上面两个 static 常量之一才成立（同一实例复用）。
+        // 将来若标签改成动态构造（带参数的 translatable / 拼字符串），这里会退化为每 tick
+        // 都调 setLabel —— 失效方向是白做功，不是死守卫；但那时应改成比较代理态布尔。
+        // The reference compare is valid ONLY because want is always one of the two static
+        // constants above. If the label ever becomes dynamically built (parameterised
+        // translatable / concatenation) this degrades to setLabel every tick — wasted work, not
+        // a dead guard; at that point compare the proxy boolean instead.
+        if (scrollBehaviour.label != want)
+            scrollBehaviour.setLabel(want);
+    }
+
+    /** 节点图是否正在代理控制目标（服务端判定、随包同步的只读视图，供值盒与闸门使用）。
+     *  Whether the node graph currently drives the target — server-decided, packet-synced
+     *  read-only view consumed by the value box and the input gate. */
+    public boolean isProxyControlled() {
+        return proxyControlled;
     }
 
     /** 滚轮当前值（behaviour 可能尚未注册——首 tick 前）。
@@ -495,6 +561,11 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
         }
         tag.putInt("CscTxApplied", appliedTarget);
         tag.putInt("CscTxScroll", scrollTarget());
+        // 代理态随包同步（值盒文本 / 标签 / 输入闸门都读它）——与上面两个字段同口径，
+        // 存在与否都向后兼容（旧存档无此键 → false = 手动态）。
+        // The proxy flag rides the packet (the box text, label and input gate all read it) —
+        // same shape as the two fields above and backward compatible (absent key = manual).
+        tag.putBoolean("CscTxProxy", proxyControlled);
     }
 
     @Override
@@ -503,6 +574,7 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
         host.loadHostNBT(tag, registries);
         appliedTarget = tag.contains("CscTxApplied") ? tag.getInt("CscTxApplied") : 0;
         if (tag.contains("CscTxScroll")) scrollTarget = tag.getInt("CscTxScroll");
+        proxyControlled = tag.contains("CscTxProxy") && tag.getBoolean("CscTxProxy");
     }
 
     // ── GraphBlockEntity 桥接 / interface bridges ──

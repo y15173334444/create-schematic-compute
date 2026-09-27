@@ -638,6 +638,8 @@
   "container.create_schematic_compute.programmable_transmission": "Programmable Transmission Editor",
   "container.create_schematic_compute.cnc_gearbox": "CNC Gearbox Editor",
   "container.create_schematic_compute.transmission.scroll": "Target speed",
+  "container.create_schematic_compute.transmission.scroll.proxied": "Target speed · Node-controlled",
+  "container.create_schematic_compute.transmission.proxy": "(proxy)",
   "node.create_schematic_compute.tx_out": "Target Speed",
   "node.create_schematic_compute.clutch": "Clutch",
   "pin.create_schematic_compute.pos_deg": "deg",

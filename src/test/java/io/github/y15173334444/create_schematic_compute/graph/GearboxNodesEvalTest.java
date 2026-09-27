@@ -179,4 +179,39 @@ class GearboxNodesEvalTest {
         assertEquals(90f, sub.get(enc.id)[0], 0.0001f, "position pin must read the injected host view");
         assertEquals(-32f, sub.get(enc.id)[2], 0.0001f, "velocity pin must read the injected host view");
     }
+
+    @Test
+    @DisplayName("firstNodeIdOfType: first TX_OUT in storage order drives the target (proxy rule)")
+    void testFirstTxOutDrivesTarget() {
+        // 变速器用这一条挑选驱动节点，并且让**代理态判定与目标取值同源**
+        // （ProgrammableTransmissionBlockEntity.tick）。多 TX_OUT 时以存储序首个为准 ——
+        // 与旧的内联遍历语义逐字相同，不能改成"最后一个"或"图里任意一个"。
+        // The transmission picks its driver through this one rule so the proxy flag and the
+        // target value share a single decision. With several TX_OUTs the first in storage order
+        // wins — byte-for-byte the semantics of the old inline scan.
+        var graph = new NodeGraph();
+        var first = graph.addNode(NodeType.TX_OUT, 0, 0);
+        var second = graph.addNode(NodeType.TX_OUT, 0, 0);
+        assertEquals(first.id, graph.firstNodeIdOfType(NodeType.TX_OUT));
+        assertEquals(first.id, graph.firstNodeIdOfType(NodeType.TX_OUT),
+            "repeated calls must stay stable (no reordering side effect)");
+
+        // 无 TX_OUT（只有别的节点）= 手动态：滚轮值生效、值盒不写 (代理)。
+        // No TX_OUT (other node types only) = manual mode: the wheel wins and the box shows a
+        // bare number.
+        var manual = new NodeGraph();
+        manual.addNode(NodeType.CONST, 0, 0);
+        assertEquals(-1, manual.firstNodeIdOfType(NodeType.TX_OUT));
+        assertEquals(-1, new NodeGraph().firstNodeIdOfType(NodeType.TX_OUT),
+            "an empty graph has no driver");
+
+        // 删掉首个 TX_OUT → 次个顶上来（代理态不因"驱动节点没了"而莫名退回手动）。
+        // Remove the first TX_OUT and the second takes over — losing the driver must hand over
+        // to the next one, not silently fall back to manual.
+        graph.removeNode(first.id);
+        assertEquals(second.id, graph.firstNodeIdOfType(NodeType.TX_OUT));
+        graph.removeNode(second.id);
+        assertEquals(-1, graph.firstNodeIdOfType(NodeType.TX_OUT),
+            "with every TX_OUT gone the block falls back to the scroll value (manual mode)");
+    }
 }

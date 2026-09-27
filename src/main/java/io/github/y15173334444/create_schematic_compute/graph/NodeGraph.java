@@ -87,6 +87,20 @@ public class NodeGraph {
         return nodeMap.get(id);  // O(1) 查找  /  O(1) lookup
     }
 
+    /** 存储序中首个指定类型的节点 id；无则 -1。
+     *  变速器用它挑「谁在驱动目标」（首个 TX_OUT），并让**代理态判定与目标取值同源**
+     *  —— 两条路径各写一遍遍历就会漂移成「盒里写(代理)、实际听滚轮」。
+     *  Id of the first node of the given type in storage order, or -1 when absent. The
+     *  transmission uses it to pick which node drives the target (first TX_OUT) and to keep the
+     *  proxy flag and the target value derived from the SAME decision — two hand-rolled scans
+     *  would drift into "the box says proxied, the wheel still wins". */
+    public int firstNodeIdOfType(NodeType type) {
+        for (var n : nodes) {
+            if (n.type == type) return n.id;
+        }
+        return -1;
+    }
+
     /** 重建节点查找映射（在外部修改节点列表后必须调用）。
      *  Rebuild the node lookup map (required after external node list mutation). */
     public void rebuildNodeMap() {
