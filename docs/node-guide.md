@@ -315,11 +315,11 @@ Less-or-equal: outputs 1 when A<=B; closed, so A=B → 1. Bounds that include th
 
 **说明（中文）**
 
-闭环 PID 控制器：sp 为目标值、pv 为当前值，输出控制量 ctrl = (kp*err + 积分项 + kd*微分项)*scale。误差 |err|<=0.001 时积分清零；积分贡献钳在 +/-ilimit（抗饱和），输出本身不限幅。kp/ki/kd/scale/ilimit 均可展开编辑或连线覆盖，默认 1/0.1/0.05/1/3。每张图建议不超过 5-6 个。
+闭环 PID 控制器：sp 为目标值、pv 为当前值，输出控制量 ctrl = (kp*err + 积分项 + kd*微分项)*scale。**积分死区 deadband**（默认 0.001）：|err|≤deadband 时积分**保持**（不增长也不清除），|err|>deadband 时正常积分；积分贡献钳在 +/-ilimit（抗饱和），输出本身不限幅。kp/ki/kd/scale/ilimit/deadband 均可展开编辑或连线覆盖，默认 1/0.1/0.05/1/3/0.001。每张图建议不超过 5-6 个。
 
 **Description (English)**
 
-Closed-loop PID controller: sp is the setpoint and pv the measured value, producing ctrl = (kp*err + integral + kd*derivative)*scale. The integral clears when |err| <= 0.001 and its contribution is clamped to +/-ilimit (anti-windup); the output itself is not clamped. kp/ki/kd/scale/ilimit are editable and wire-overridable (defaults 1/0.1/0.05/1/3). Keep to about 5-6 per graph.
+Closed-loop PID controller: sp is the setpoint and pv the measured value, producing ctrl = (kp*err + integral + kd*derivative)*scale. **Integral deadband** (default 0.001): when |err| <= deadband the integral holds (neither grows nor clears); outside it integrates normally. The integral contribution is clamped to +/-ilimit (anti-windup); the output itself is not clamped. kp/ki/kd/scale/ilimit/deadband are editable and wire-overridable (defaults 1/0.1/0.05/1/3/0.001). Keep to about 5-6 per graph.
 
 ---
 
@@ -330,11 +330,11 @@ Closed-loop PID controller: sp is the setpoint and pv the measured value, produc
 
 **说明（中文）**
 
-带基准功率的动力 PID：输出 power = base + kp*err + 积分项 + kd*微分项——base 作为前馈直加，不经增益也不限幅。无 scale 参数；sp/pv/base 任一非有限按 0 处理。kp/ki/kd/ilimit 可编辑或连线覆盖，默认 2/0.05/3/3。适合直接生成动力类指令。
+带基准功率的动力 PID：输出 power = base + kp*err + 积分项 + kd*微分项——base 作为前馈直加，不经增益也不限幅。无 scale 参数；sp/pv/base 任一非有限按 0 处理。**积分死区 deadband**（默认 0.001）：|err|≤deadband 时积分**保持**（不增长也不清除）。kp/ki/kd/ilimit/deadband 可编辑或连线覆盖，默认 2/0.05/3/3/0.001。适合直接生成动力类指令。
 
 **Description (English)**
 
-PID with a base-power feed-forward: power = base + kp*err + integral + kd*derivative, where base adds directly with no gain or limiting. There is no scale parameter; a non-finite sp/pv/base is treated as 0. kp/ki/kd/ilimit are editable/wire-overridable (defaults 2/0.05/3/3). Drive-level power commands.
+PID with a base-power feed-forward: power = base + kp*err + integral + kd*derivative, where base adds directly with no gain or limiting. There is no scale parameter; a non-finite sp/pv/base is treated as 0. **Integral deadband** (default 0.001): when |err| <= deadband the integral holds (neither grows nor clears). kp/ki/kd/ilimit/deadband are editable/wire-overridable (defaults 2/0.05/3/3/0.001). Drive-level power commands.
 
 ---
 

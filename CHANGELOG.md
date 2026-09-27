@@ -7,7 +7,7 @@
 | Version | 标题 / Title |
 |---------|--------------|
 | Unreleased | 修复：频道名旧草稿回写（#10）· 去掉整图保存覆盖（#17）· 封装子图节点数据同步 · 封装子图展开状态跨玩家同步 · 参数输入框实时同步 · 封装子图顶栏合并 · 占用封装禁删 · 显示布局模式并入合并顶栏 · 键位系统扩容（删除连线 + 像素编辑器动作）· 统一键鼠序列绑定 · 旧键位配置迁移 · 删节点撤销/重做恢复连线（pinId + 占用检测） / Fix: channel-name stale-draft write-back (#10) · drop whole-graph save overwrite (#17) · sub-graph node data sync · sub-graph expansion state sync · live param-box sync · sub-graph top-bar merge · occupied-encapsulation delete guard · display-mode top-bar merge · display lock follows selection · smooth remote display-layout drags · key-binding system gains delete-wire and pixel-editor actions · unified sequence bindings (key/mouse steps interleave freely — Tab → left-click → A → right-click; delete-wire ships as the Tab → left chord; the menu opens by key again; legacy key-binding configs migrate) · undo/redo node-delete restores wires (pinId + occupancy check) |
-| [v1.2.5.2](#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 · 编码器清零改节点体引脚 |
+| [v1.2.5.2](#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 · 编码器清零改节点体引脚 · PID/PID_POWER 积分死区 |
 | [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
 | [v1.2.4.1](#v1241) | 回归审计 · 总线系统 · 封装状态 · 公式一致性 · Sable 加固 |
@@ -43,7 +43,7 @@
 </details>
 
 <details>
-<summary><b>v1.2.5.2</b> — 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 · 编码器清零改节点体引脚 / Fix: Kinetic Gauge Wrench Rotation (Shaft Roll · Tilt-Preserving Yaw) · Floor Placement · Inverted Mount Text Upright · View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit · CNC Gearbox Shaft Faces Always Present / Wrench Back to Official · Transmission Output Recovers After Overload · Output-Command Forward-Reverse &amp; Negative Travel · Encoder Reset on the Node Body</summary>
+<summary><b>v1.2.5.2</b> — 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 · 编码器清零改节点体引脚 · PID/PID_POWER 积分死区 / Fix: Kinetic Gauge Wrench Rotation (Shaft Roll · Tilt-Preserving Yaw) · Floor Placement · Inverted Mount Text Upright · View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit · CNC Gearbox Shaft Faces Always Present / Wrench Back to Official · Transmission Output Recovers After Overload · Output-Command Forward-Reverse &amp; Negative Travel · Encoder Reset on the Node Body · PID/PID_POWER Integral Deadband</summary>
 
 ### 🔧 动力传感器扳手 / Kinetic Gauge Wrench
 
@@ -71,7 +71,13 @@
 
 | Change / 变更 | Description / 说明 |
 |---------------|-------------------|
-| 🔌 **行为变更** | ENCODER 的清零从**编辑区参数**改为**节点体输入引脚**（电平触发语义不变：拉高清零、持续拉高保持归零；未接线 = 0）。旧连线 pinId 本就是索引 `"0"`，V6 迁移显式钉到 0 号输入并清掉过期 `reset` 参数 / The ENCODER reset moves from an edit-area parameter to a **body input pin** (level-triggered semantics unchanged; unwired = 0). Old wires already carry pinId `"0"`; the V6 migration pins them to input 0 and drops the stale `reset` param. |
+| 🔌 **行为变更** | ENCODER 的清零从**编辑区参数**改为**节点体输入引脚**（电平触发语义不变：拉高清零、持续拉高保持归零；未接线 = 0）。旧连线 pinId 本就是索引 `"0"`，V5→V6 迁移显式钉到 0 号输入并清掉过期 `reset` 参数 / The ENCODER reset moves from an edit-area parameter to a **body input pin** (level-triggered semantics unchanged; unwired = 0). Old wires already carry pinId `"0"`; the V5→V6 migration pins them to input 0 and drops the stale `reset` param. |
+
+### 🎛️ PID / PID_POWER 积分死区 / Integral Deadband
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🎛️ **积分死区 deadband** | 新增可编辑/可连线参数 `deadband`（默认 **0.001**）：`|err|≤deadband` 时积分**保持**——不增长也不清除；`|err|>deadband` 时正常积分。取代旧的「|err|≤0.001 清零」语义（近零误差不再冲掉 I 项）。PID 参数表变为 `kp,ki,kd,scale,ilimit,deadband`，PID_POWER 为 `kp,ki,kd,ilimit,deadband`。**V5→V6 迁移**（与编码器清零同一步）自动为旧节点补默认 0.001（用户已设值含 0 不覆盖），递归处理封装子图。测试：`PidDeadbandTest` / New editable/wire-overridable `deadband` param (default **0.001**): when \|err\| ≤ deadband the integral **holds** (neither grows nor clears); outside it integrates normally — replacing the old "clear when \|err\| ≤ 0.001" so a near-zero error no longer wipes the I term. PID params become `kp,ki,kd,scale,ilimit,deadband`; PID_POWER `kp,ki,kd,ilimit,deadband`. The **V5→V6 migration** (same step as the encoder reset pin) fills the default 0.001 on legacy nodes (user-set values incl. 0 survive), recursing into sub-graphs. |
 
 ### 🎛️ 输出指令正/反转与负行程 / Output-Command Forward-Reverse & Negative Travel
 
