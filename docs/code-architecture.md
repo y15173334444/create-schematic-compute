@@ -108,6 +108,7 @@ io.github.y15173334444.create_schematic_compute/
 - `wouldCreateCycle(fromId, toId)` — BFS 预检测 / BFS pre-check
 - `bumpGeneration()` / `graphGeneration` — 图代际号（求值器重建判定）/ Generation counter for evaluator recompile
 - `findNode(id)` / `adoptNode(node)` / `rebuildNodeMap()` — 节点查找与归属 / Node lookup / adoption
+- `firstNodeIdOfType(type)` — 存储序首个指定类型节点的 id（无则 -1）。跨层共享 API：变速器用它**同一处**决定「哪个 TX_OUT 驱动目标」与「是否代理中」，两条路径各写一遍遍历必然漂移 / Id of the first node of a type in storage order (-1 when absent). Cross-layer API: the transmission derives **both** "which TX_OUT drives the target" and "are we proxied" from this one call; two hand-rolled scans would drift
 - `topoVersion()` — 拓扑版本号 / Topology version
 - `copy()` — 深拷贝（新 ID）/ Deep copy with new IDs
 - `save()` / `load()` — NBT 序列化，带版本迁移 / NBT serialization with migration
@@ -319,11 +320,12 @@ joiners have no pending ops and always load the authoritative graph.
 
 | 类 / Class | 基类 / Extends | 要点 / Notes |
 |----|------|---------|
-| `ProgrammableTransmissionBlockEntity` | `KineticBlockEntity` | SpeedController 语义复刻；`getConveyedSpeed` 经 `RotationPropagatorMixin`；源健康判 `getTheoreticalSpeed()`（过载压速下 `getSpeed()` 恒 0 会误拆下游） |
+| `ProgrammableTransmissionBlockEntity` | `KineticBlockEntity` | SpeedController 语义复刻；`getConveyedSpeed` 经 `RotationPropagatorMixin`；源健康判 `getTheoreticalSpeed()`（过载压速下 `getSpeed()` 恒 0 会误拆下游）；**代理态**（2026-09-27）：`tick()` 单点判 `firstNodeIdOfType(TX_OUT)` 同时定目标与 `proxyControlled`，随包同步 `CscTxProxy`（仅标志/`CscTxApplied` 真变时 `sendData`），值盒标签双态 |
 | `CncGearboxBlockEntity` | **`SplitShaftBlockEntity`**（v1.2.5.2 起） | 两端轴面恒在（`hasShaftTowards` 只看轴向）；`getRotationSpeedModifier` 输出面：分离 0 / 负行程指令 -1（反转）/ 否则 1 + detach/attachKinetics；扳手不再翻输入端（放置感知 + `autoSenseInputFace` 自动识别） |
 | `KineticGaugeBlockEntity` | `KineticBlockEntity` | 仪表只读网络 |
+| `TransmissionScrollValueBehaviour` | Create `KineticScrollValueBehaviour` | 滚轮行为的代理态变体：`acceptsValueSettings()` = 非代理（Create 在客户端输入 / 服务端收包 / 剪贴板读写**三处**真检查，堵住剪贴板回灌旁路）；`formatValue()` = 手动态滚轮值 / 代理态 `CscTxApplied` + 本地化后缀（`TransmissionScrollDisplay` 纯函数）；只读 BE 的 `isProxyControlled()`，不自行推导 |
 
-/ Kinetic composition-line BEs. The CNC gearbox extends Create's `SplitShaftBlockEntity` so `RotationPropagator.getAxisModifier` calls its `getRotationSpeedModifier` (output face: 0 disengaged, -1 while a negative-travel ROTATE/MOVE executes = reverse, else 1) — shaft faces stay present for placement snap, isolation is the modifier. The transmission's orphaned-state pre-check must use `getTheoreticalSpeed()` (raw field), never `getSpeed()` (zeroed while overStressed).
+/ Kinetic composition-line BEs. The CNC gearbox extends Create's `SplitShaftBlockEntity` so `RotationPropagator.getAxisModifier` calls its `getRotationSpeedModifier` (output face: 0 disengaged, -1 while a negative-travel ROTATE/MOVE executes = reverse, else 1) — shaft faces stay present for placement snap, isolation is the modifier. The transmission's orphaned-state pre-check must use `getTheoreticalSpeed()` (raw field), never `getSpeed()` (zeroed while overStressed). **Proxy state (2026-09-27)**: `tick()` resolves `firstNodeIdOfType(TX_OUT)` once and derives both the target and `proxyControlled` from it; the flag rides the block-entity packet as `CscTxProxy` (`sendData` only when the flag or `CscTxApplied` actually changed), and `TransmissionScrollValueBehaviour` reads that synced flag for its input gate and value-box text instead of deriving anything locally.
 
 ### GraphEditor (~4200 行 / lines；步骤 6 各刀持续缩小 / shrinking via roadmap step-6 cuts)
 核心节点图编辑器。承载所有渲染/输入/交互逻辑。

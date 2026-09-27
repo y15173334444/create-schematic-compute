@@ -1260,11 +1260,15 @@ Target output: radar graphs only. Each tick the radar assigns targets, then broa
 
 **说明（中文）**
 
-目标转速：可编程变速器（Programmable Transmission）图专用。把输入 rpm 四舍五入并钳到服务器最大转速（默认 +/-256）后写到输出轴；图停止时回落为滚轮设定值。图中存在多张时只取遍历到的第一张生效。仅变速器图。
+目标转速：可编程变速器（Programmable Transmission）图专用。把输入 rpm 四舍五入并钳到服务器最大转速（默认 +/-256）后写到输出轴；图停止时回落为滚轮设定值。图中存在多张时只取**存储序首个** `TX_OUT` 生效（该规则由 `NodeGraph.firstNodeIdOfType` 一处提供，同时决定「谁是驱动节点」与「是否代理中」）。仅变速器图。
+
+**代理态（2026-09-27）**：图运行且存在 `TX_OUT` 时，变速器进入**代理态**——滚轮拒收输入（客户端输入 / 服务端收包 / 剪贴板三处闸门共用 `acceptsValueSettings`），值盒显示「已应用目标 **(代理)**」，悬停提示第一行改为「目标转速 · 由节点控制」。代理态由**服务端判定**并随方块实体包同步（`CscTxProxy`），客户端不按本地图推导。图停止、或图中没有 `TX_OUT` 节点时回到手动态：盒内裸数字（绝对值，官方口径）、滚轮生效。代理态下盒内数字取**已应用**目标（受 4 tick 拆建冷却与包延迟影响，可能短暂滞后于节点当前输出）；**闸门本身也滞后**——手动态→代理态翻转后、包到达前客户端仍按旧值放行片刻，玩家可能看到一瞬可编辑的假象，但值不会落地（服务端按权威值再查一次闸门）。
 
 **Description (English)**
 
-Target RPM: programmable-transmission graphs only. Rounds the input rpm, clamps it to the server's max rotation speed (default +/-256) and drives the output shaft; when the graph stops it falls back to the wheel setting. If several TX_OUT nodes exist, only the first in traversal order acts. Transmission graphs only.
+Target RPM: programmable-transmission graphs only. Rounds the input rpm, clamps it to the server's max rotation speed (default +/-256) and drives the output shaft; when the graph stops it falls back to the wheel setting. If several TX_OUT nodes exist, only the **first in storage order** acts (that one rule lives in `NodeGraph.firstNodeIdOfType` and decides both "which node drives" and "are we proxied"). Transmission graphs only.
+
+**Proxied state (2026-09-27)**: while the graph runs with a `TX_OUT` node the transmission is **proxied** — the scroll wheel refuses input (client input / server packet handler / clipboard all share the `acceptsValueSettings` gate), the value box reads "applied target **(proxy)**" and the hover tip's first line becomes "Target speed · Node-controlled". The state is **server-decided** and shipped in the block-entity packet (`CscTxProxy`); the client never derives it from its local graph. With the graph stopped, or with no `TX_OUT` node at all, the block returns to manual mode: a bare magnitude in the box (official behaviour) and a live wheel. While proxied the box shows the **applied** target, which the 4-tick rebuild cooldown and packet latency can briefly lag behind the node's current output. **The gate lags the same way**: between the manual→proxied flip and the packet's arrival the client still lets the interaction through, so the box can look briefly editable — nothing lands, since the server re-checks the gate against its authoritative flag.
 
 ---
 
