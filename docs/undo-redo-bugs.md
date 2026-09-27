@@ -38,11 +38,11 @@ Ctrl+Z → opUndo() → reverseOp() → OpExecutor.apply (本地还原)
 | 操作类型 | OpType | 触发时机 | 粒度 |
 |---------|--------|---------|------|
 | 添加节点 | `ADD_NODE_REQUEST` | 菜单点击/Ctrl+D | 单条（ACK 前 oldVal=本地 ID 兜底） |
-| 删除节点 | `REMOVE_NODE` | X 键/Delete | 单条+NBT 快照 |
+| 删除节点 | `REMOVE_NODE` + 同批 `REMOVE_CONN`×N | X 键/Delete | 批量组：先摘连线（含 pinId）再删节点；NBT 快照仅节点本体 |
 | 多选移动 | `MOVE_NODE` | `multiDragging` mouseReleased | 批量组（一次 Ctrl+Z 全部归位） |
 | 注释移动 | `MOVE_NODE` | comment drag mouseReleased | 批量组（注释+内节点一次归位） |
-| 添加连线 | `ADD_CONN` | 拖拽释放 | 单条 |
-| 删除连线 | `REMOVE_CONN` | Tab+左键 | 单条 |
+| 添加连线 | `ADD_CONN` | 拖拽释放 | 单条（携带 pinId） |
+| 删除连线 | `REMOVE_CONN` | Tab+左键 / 删除连线键 | 单条（携带 pinId） |
 | 数值参数 | `SET_PARAM` | 失焦/回车/Ctrl+Z 前 | 整个编辑会话=1条 |
 | 短文本 | `SET_DISPLAY_TEXT` | 失焦/回车/Ctrl+Z 前 | 整个编辑会话=1条 |
 | 文本颜色 | `SET_TEXT_COLOR` | 颜色选择器变更 | 单条 |
@@ -75,10 +75,10 @@ Ctrl+Z → opUndo() → reverseOp() → OpExecutor.apply (本地还原)
 |--------|------|---------|
 | `ADD_NODE` | → `REMOVE_NODE` | — |
 | `ADD_NODE_REQUEST` | → `REMOVE_NODE` | targetNodeId（ACK 后）；fallback oldVal（本地 ID） |
-| `REMOVE_NODE` | → `ADD_NODE` | oldStr=NBT 快照完整恢复 |
+| `REMOVE_NODE` | → `ADD_NODE` | oldStr=NBT 快照完整恢复（**不含连线**——连线由同批 `REMOVE_CONN` 单独记） |
 | `MOVE_NODE` | → `MOVE_NODE` | oldX/oldY=旧坐标 |
-| `ADD_CONN` | → `REMOVE_CONN` | fromId/fromPin/toId/toPin |
-| `REMOVE_CONN` | → `ADD_CONN` | oldX/oldY/oldVal=from/pin/to, op.toPin() |
+| `ADD_CONN` | → `REMOVE_CONN` | fromId/fromPin/toId/toPin + `stringValue` 中的稳定 pinId |
+| `REMOVE_CONN` | → `ADD_CONN` | oldX/oldY/oldVal=from/pin/to, op.toPin() + `stringValue` 中的稳定 pinId |
 | `SET_PARAM` | → `SET_PARAM` | oldVal=旧值 |
 | `SET_DISPLAY_TEXT` | → `SET_DISPLAY_TEXT` | oldStr=旧文本 |
 | `SET_TEXT_COLOR` | → `SET_TEXT_COLOR` | oldVal=旧颜色 |
@@ -90,6 +90,23 @@ Ctrl+Z → opUndo() → reverseOp() → OpExecutor.apply (本地还原)
 | `SET_CTRL_POINTS` | → `SET_CTRL_POINTS` | oldStr=旧控制点编码 |
 | `TOGGLE_BOOL` | → `TOGGLE_BOOL` | 自逆 |
 | 其他 | → null | 不入栈 |
+
+### 删节点恢复连线（pinId + 占用检测）/ Node-delete wire restore
+
+> ✅ **已实现**（X 单删 + Delete 多选，含多选节点间互连）。
+
+- **捕获**：`removeNode` 之前，把触及被删节点集的连线（按 pinId 去重，互连只记一次）逐条记为
+  `REMOVE_CONN`（`GraphOp.removeConn(..., fromPinId, toPinId, ...)`）+ `sendOp`，与 `REMOVE_NODE` 同一 undo batch。
+- **pinId 载体**：编入 op `stringValue`（`GraphOp.packConnPinIds` / `parseConnPinIds`，分隔符 U+0001）——协议零扩面。
+- **撤销顺序**：batch 逆序 = 先 `ADD_NODE`（NBT 恢复节点）再 `ADD_CONN`（接线）。
+- **占用/失效**：`OpExecutor.ADD_CONN` 有 pinId 编码（**哪怕只有一端**）时整条走 pinId 路径——
+  缺的一端从当前节点补全；补不齐、pinId 解析不到或**输入脚已被占用**则静默跳过（不整数回落，
+  避免引脚漂移接错脚）。无 pinId 编码才走整数引脚（同样有占用检查）。
+- **去重键**：被删节点集的连线按字段 List（id + pinId + 索引）去重，不用字符串拼接
+  （pinId 可能含 `>` 等任意字符）。
+- **重做**：正向重放 `REMOVE_CONN`（`removeConnectionByPinIds`）+ `REMOVE_NODE`。
+- **附带**：删线（Tab+左键 / 删除连线键）、拖线创建、Ctrl+D 复制内部连线、子图同步
+  均携带 pinId，删除/撤销按 pinId 绑定。
 
 ---
 
@@ -112,6 +129,10 @@ Ctrl+Z → opUndo() → reverseOp() → OpExecutor.apply (本地还原)
 - 删除节点时调用 `saveNodeNbt()` 保存完整节点 NBT 到 `oldStr`
 - `reverseOp` 产生 `ADD_NODE` 时把 NBT 放入 `stringValue`
 - `OpExecutor.apply` 检测 `stringValue` 以 `{` 开头则调用 `restoreNodeFromNbt` 恢复所有字段
+- **连线不在 NBT 快照里**：由同批 `REMOVE_CONN` 单独记，撤销时在节点恢复之后按 pinId 接回
+  （见下文「删节点恢复连线」）
+- Connections are NOT in the node NBT snapshot — they ride separate `REMOVE_CONN` batch
+  entries and are rewired by pinId after the node comes back.
 
 ### 4. MonitorScreen 与 GraphEditor 的撤销分离
 
