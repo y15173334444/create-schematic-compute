@@ -136,12 +136,58 @@ public final class OpExecutor {
             }
 
             case ADD_CONN -> {
-                graph.addConnection(op.fromId(), op.fromPin(), op.toId(), op.toPin());
+                // pinId 编码存在（哪怕只有一端）→ 整条走 pinId 路径：缺的一端从当前节点补全，
+                // 补不齐或解析不到/输入脚已占用则静默跳过（不整数回落，避免引脚漂移接错脚）。
+                // 无 pinId 编码 → 整数引脚旧路径（同样有占用检查）。
+                // Any pinId encoding (even one-sided) → pinId path for the whole wire: fill
+                // the missing end from the live node; skip silently when incomplete,
+                // unresolvable, or the input pin is occupied (no integer fallback — drifted
+                // indices would land on the wrong pin). No encoding → legacy integer path
+                // (same occupancy check).
+                var pids = GraphOp.parseConnPinIds(op.stringValue());
+                if (pids != null) {
+                    String fPid = pids[0];
+                    String tPid = pids[1];
+                    if (fPid == null) {
+                        var fn = graph.findNode(op.fromId());
+                        if (fn != null) fPid = fn.outputPinId(op.fromPin());
+                    }
+                    if (tPid == null) {
+                        var tn = graph.findNode(op.toId());
+                        if (tn != null) tPid = tn.inputPinId(op.toPin());
+                    }
+                    if (fPid != null && tPid != null) {
+                        graph.addConnectionWithPinIds(op.fromId(), fPid, op.toId(), tPid);
+                    }
+                    // 缺一端 / 解析失败 → 跳过，不覆盖 / incomplete or unresolvable → skip, never clobber
+                } else {
+                    graph.addConnection(op.fromId(), op.fromPin(), op.toId(), op.toPin());
+                }
                 yield null;
             }
 
             case REMOVE_CONN -> {
-                graph.removeConnection(op.fromId(), op.fromPin(), op.toId(), op.toPin());
+                // 同 ADD_CONN：有 pinId 编码就整条走 pinId（缺端从节点补全），否则整数路径。
+                // Same as ADD_CONN: any pinId encoding routes the whole wire through pinIds
+                // (missing end filled from the live node); otherwise the integer path.
+                var pids = GraphOp.parseConnPinIds(op.stringValue());
+                if (pids != null) {
+                    String fPid = pids[0];
+                    String tPid = pids[1];
+                    if (fPid == null) {
+                        var fn = graph.findNode(op.fromId());
+                        if (fn != null) fPid = fn.outputPinId(op.fromPin());
+                    }
+                    if (tPid == null) {
+                        var tn = graph.findNode(op.toId());
+                        if (tn != null) tPid = tn.inputPinId(op.toPin());
+                    }
+                    if (fPid != null && tPid != null) {
+                        graph.removeConnectionByPinIds(op.fromId(), fPid, op.toId(), tPid);
+                    }
+                } else {
+                    graph.removeConnection(op.fromId(), op.fromPin(), op.toId(), op.toPin());
+                }
                 yield null;
             }
 

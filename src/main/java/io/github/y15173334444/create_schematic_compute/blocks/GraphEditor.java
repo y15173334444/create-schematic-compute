@@ -604,9 +604,12 @@ public class GraphEditor {
      * 这避免了因本地 ID 过期导致的数据丢失。
      */
     private static class PendingCopyGroup {
+        /** 待发送连线：tempIds + 稳定 pinId / pending wire: tempIds + stable pinIds */
+        record PendingConn(int fromId, String fromPinId, int fromPin,
+                           int toId, String toPinId, int toPin) {}
         final java.util.Map<Integer, Integer> tempToReal = new java.util.HashMap<>(); // tempId → realId (-1 = pending)
         final java.util.List<GraphNode> nodes = new java.util.ArrayList<>();
-        final java.util.List<int[]> conns = new java.util.ArrayList<>(); // {fromId, fromPin, toId, toPin} (tempIds)
+        final java.util.List<PendingConn> conns = new java.util.ArrayList<>(); // tempIds + pinIds
         final int oid; final net.minecraft.core.BlockPos gpos; final java.util.UUID uid;
         PendingCopyGroup(int oid, net.minecraft.core.BlockPos gpos, java.util.UUID uid) {
             this.oid = oid; this.gpos = gpos; this.uid = uid;
@@ -1074,12 +1077,14 @@ public class GraphEditor {
             if (dup.expanded) host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.EXPAND_NODE, g.gpos, g.oid, realId, g.uid));
         }
-        // 发送内部连接 / send internal connections (with remapped IDs)
-        for (int[] c : g.conns) {
-            int fromReal = g.tempToReal.getOrDefault(c[0], -1);
-            int toReal = g.tempToReal.getOrDefault(c[2], -1);
+        // 发送内部连接（重映射 ID + 稳定 pinId）/ send internal connections (remapped IDs + stable pinIds)
+        for (var c : g.conns) {
+            int fromReal = g.tempToReal.getOrDefault(c.fromId(), -1);
+            int toReal = g.tempToReal.getOrDefault(c.toId(), -1);
             if (fromReal >= 0 && toReal >= 0) {
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(g.gpos, g.oid, fromReal, c[1], toReal, c[3], g.uid));
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
+                    g.gpos, g.oid, fromReal, c.fromPin(), toReal, c.toPin(),
+                    c.fromPinId(), c.toPinId(), g.uid));
             }
         }
         // 封装节点含子图时，递归发送子图内所有节点/连线/数据
@@ -1130,9 +1135,11 @@ public class GraphEditor {
                 sendSubGraphOps(sn.subGraph, sn.id, gpos, uid);
             }
         }
-        // 再发所有连线 / then send all connections
+        // 再发所有连线（带稳定 pinId）/ then send all connections (with stable pinIds)
         for (var sc : subGraph.connections) {
-            host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(gpos, ownerNodeId, sc.fromId, sc.fromPin, sc.toId, sc.toPin, uid));
+            host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
+                gpos, ownerNodeId, sc.fromId, sc.fromPin, sc.toId, sc.toPin,
+                sc.fromPinId, sc.toPinId, uid));
         }
     }
 
@@ -1985,6 +1992,47 @@ public class GraphEditor {
         };
     }
 
+    /** 把触及给定节点集的连线逐条摘下，并以 REMOVE_CONN（携带稳定 pinId）入同一撤销批 +
+     *  同步协作者。必须在 removeNode **之前**调用——removeNode 会静默剪线、丢掉 pinId。
+     *  多选删除时先收集成一条去重列表再摘，避免两节点互连被记两次。
+     *  撤销时 batch 逆序 = 先 ADD_NODE 恢复节点、再 ADD_CONN 按 pinId 接线；
+     *  pinId 解析不到或输入脚已被占用则静默跳过该条（见 OpExecutor.ADD_CONN）。
+     *  Drop every connection touching the given node ids, recording each as a pinId-carrying
+     *  REMOVE_CONN in the current undo batch and syncing collaborators. MUST run before
+     *  {@code removeNode} — which silently prunes wires and loses their pinIds. Multi-delete
+     *  collects a de-duplicated list first so an A↔B wire is recorded once. Undo's reverse
+     *  batch order restores nodes first, then rewires by pinId; unresolvable / occupied
+     *  input pins are skipped silently (see OpExecutor.ADD_CONN). */
+    private void removeAndRecordDoomedConnections(java.util.Collection<Integer> doomedIds) {
+        if (doomedIds.isEmpty()) return;
+        var graph = getGraph();
+        // 去重键：List 作 key（equals/hashCode 天然按字段比较），pinId 为 null 时以索引参与，
+        // 不用字符串拼接——pinId 可能含任意字符（如 '>'），拼接会碰撞漏捕获。
+        // Dedupe key: a field-wise List key (null-safe equals/hashCode). Avoid string
+        // concatenation — pinIds may contain arbitrary chars (e.g. '>') and would collide.
+        var seen = new java.util.HashSet<java.util.List<Object>>();
+        var doomed = new java.util.ArrayList<io.github.y15173334444.create_schematic_compute.graph.NodeConnection>();
+        for (var c : List.copyOf(graph.connections)) {
+            if (!doomedIds.contains(c.fromId) && !doomedIds.contains(c.toId)) continue;
+            java.util.List<Object> key = java.util.Arrays.asList(c.fromId, c.fromPinId, c.fromPin, c.toId, c.toPinId, c.toPin);
+            if (!seen.add(key)) continue;
+            doomed.add(c);
+        }
+        for (var c : doomed) {
+            if (c.fromPinId != null && c.toPinId != null) {
+                graph.removeConnectionByPinIds(c.fromId, c.fromPinId, c.toId, c.toPinId);
+            } else {
+                graph.removeConnection(c.fromId, c.fromPin, c.toId, c.toPin);
+            }
+            var rcOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(
+                host.getBlockPos(), ownerNodeId(),
+                c.fromId, c.fromPin, c.toId, c.toPin,
+                c.fromPinId, c.toPinId, host.getPlayerUUID());
+            host.sendOp(rcOp);
+            recordOp(rcOp, c.fromId, c.fromPin, c.toId, null);
+        }
+    }
+
     /** 删除悬停节点——「删除节点」键（默认 X）触发。
      *  返回是否真的删除（悬空 / 软锁 / 占用封装 = false，调用方按键路径照常消费）。
      *  Deletes the hovered node — fired by the Delete-Node key (default X). Returns
@@ -1999,6 +2047,9 @@ public class GraphEditor {
         // (don't yank their editor out from under them).
         if (encapOccupiedByOthers(hit)) { hintEncapOccupied(); return false; }
         beginUndoBatch();
+        // 先记连线再删节点：撤销逆序 = 先恢复节点、再按 pinId 接回连线。
+        // Record wires before the node: undo's reverse order restores the node first, then rewires by pinId.
+        removeAndRecordDoomedConnections(java.util.Set.of(hit.id));
         var savedX = hit.x; var savedY = hit.y; var savedType = hit.type.ordinal();
         var savedNbt = saveNodeNbt(hit); // 撤销恢复用快照 / snapshot for undo restore
         g2.removeNode(hit.id);
@@ -2025,9 +2076,20 @@ public class GraphEditor {
         var graph = getGraph();
         boolean skippedOccupiedEncap = false; // 有玩家在子图内编辑的封装被跳过 / an occupied encapsulation was skipped
         beginUndoBatch();
+        // 先筛出真正要删的节点，再统一摘连线（互连只记一次），最后删节点。
+        // 撤销逆序 = 先恢复全部节点、再按 pinId 接回连线（含多选节点间互连）。
+        // Filter the doomed set first, drop wires once (A↔B recorded once), then remove nodes.
+        // Undo's reverse order restores all nodes first, then rewires by pinId (incl. inter-node wires).
+        var doomed = new java.util.ArrayList<io.github.y15173334444.create_schematic_compute.graph.GraphNode>();
         for (var n : List.copyOf(selectedNodes)) {
             if (isNodeLocked(n.id, ownerNodeId())) continue;
             if (encapOccupiedByOthers(n)) { skippedOccupiedEncap = true; continue; }
+            doomed.add(n);
+        }
+        var doomedIds = new java.util.ArrayList<Integer>(doomed.size());
+        for (var n : doomed) doomedIds.add(n.id);
+        removeAndRecordDoomedConnections(doomedIds);
+        for (var n : doomed) {
             if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
                 boolean hasOther = false;
                 for (var other : graph.nodes) {
@@ -2100,11 +2162,19 @@ public class GraphEditor {
             var anOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(gpos, oid, tempId, dup.type, dup.x, dup.y, uid);
             host.sendOp(anOp); recordOp(anOp, 0, 0, dup.id, null); // oldVal=localId
         }
-        // 复制选中节点之间的连接（本地 + 待发送）/ Copy connections between selected nodes (local + pending)
+        // 复制选中节点之间的连接（本地 + 待发送，带稳定 pinId）
+        // Copy connections between selected nodes (local + pending, with stable pinIds)
         for (var c : List.copyOf(graph.connections)) {
             if (idMap.containsKey(c.fromId) && idMap.containsKey(c.toId)) {
-                graph.addConnection(idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin);
-                group.conns.add(new int[]{idMap.get(c.fromId), c.fromPin, idMap.get(c.toId), c.toPin});
+                int fromNew = idMap.get(c.fromId);
+                int toNew = idMap.get(c.toId);
+                if (c.fromPinId != null && c.toPinId != null) {
+                    graph.addConnectionWithPinIds(fromNew, c.fromPinId, toNew, c.toPinId);
+                } else {
+                    graph.addConnection(fromNew, c.fromPin, toNew, c.toPin);
+                }
+                group.conns.add(new PendingCopyGroup.PendingConn(
+                    fromNew, c.fromPinId, c.fromPin, toNew, c.toPinId, c.toPin));
             }
         }
         endUndoBatch();
@@ -2128,8 +2198,11 @@ public class GraphEditor {
         var hc = hitConn(mx, my);
         if (hc == null) return false;
         graph.removeConnection(hc.fromId, hc.fromPin, hc.toId, hc.toPin);
+        // 带上稳定 pinId：撤销接回时按 pinId 解析，占用/失效静默跳过（OpExecutor.ADD_CONN）。
+        // Carry stable pinIds: undo rewires by pinId and skips occupied/unresolvable pins.
         var rcOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(
-            host.getBlockPos(), ownerNodeId(), hc.fromId, hc.fromPin, hc.toId, hc.toPin, host.getPlayerUUID());
+            host.getBlockPos(), ownerNodeId(), hc.fromId, hc.fromPin, hc.toId, hc.toPin,
+            hc.fromPinId, hc.toPinId, host.getPlayerUUID());
         host.sendOp(rcOp); recordOp(rcOp, hc.fromId, hc.fromPin, hc.toId, null);
         // 删除参数引脚连线后刷新编辑区（恢复输入框） (Refresh edit area after removing param pin connection, restoring input box)
         var tn = graph.findNode(hc.toId);
@@ -3105,8 +3178,15 @@ public class GraphEditor {
             if(bestNodeId<0){for(int nid:expandedNodeIds){var n=graph.findNode(nid);if(n==null||n.type!=NodeType.BUS_OUT||n.signalBands==null)continue;float sx=c2sX(n.x),sy2=c2sY(n.y);for(int bi=0;bi<n.signalBands.size();bi++){float py2=sy2+bandPinY(n,bi,zoom)*zoom;float px2=sx+10*zoom;float dx2=(float)Math.abs(mx-px2),dy2=(float)Math.abs(my-py2);if(dx2<16*zoom&&dy2<10*zoom&&wireFromNode!=nid){float dist2=dx2+dy2;if(dist2<bestDist){bestDist=dist2;bestNodeId=nid;bestPin=bi;}}}}}
             if(bestNodeId>=0){
                 graph.addConnection(wireFromNode,wireFromPin,bestNodeId,bestPin);
+                // 记下创建时的稳定 pinId，撤销删除/重做接回时按 pinId 解析。
+                // Capture the stable pinIds at creation so undo/redo rewire by pinId.
+                var fromN = graph.findNode(wireFromNode);
+                var toN = graph.findNode(bestNodeId);
+                String fPid = fromN != null ? fromN.outputPinId(wireFromPin) : null;
+                String tPid = toN != null ? toN.inputPinId(bestPin) : null;
                 var connOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
-                    host.getBlockPos(), ownerNodeId(), wireFromNode, wireFromPin, bestNodeId, bestPin, host.getPlayerUUID());
+                    host.getBlockPos(), ownerNodeId(), wireFromNode, wireFromPin, bestNodeId, bestPin,
+                    fPid, tPid, host.getPlayerUUID());
                 host.sendOp(connOp);
                 recordOp(connOp, 0, 0, 0, null);
                 // 参数引脚连线后刷新编辑区（隐藏对应输入框） (Refresh edit area after param pin connection, hiding the corresponding input box)

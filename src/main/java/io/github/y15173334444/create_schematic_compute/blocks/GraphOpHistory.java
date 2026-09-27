@@ -127,9 +127,22 @@ final class GraphOpHistory {
                 e.oldStr, 0, 0, 0, 0, null, 0, 0, 0,
                 net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
             case MOVE_NODE -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(bp, oid, op.targetNodeId(), e.oldX, e.oldY, uid);
-            case ADD_CONN -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(bp, oid, op.fromId(), op.fromPin(), op.toId(), op.toPin(), uid);
-            case REMOVE_CONN -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(bp, oid,
-                (int)e.oldX, (int)e.oldY, (int)e.oldVal, op.toPin(), uid);
+            case ADD_CONN -> {
+                var pids = io.github.y15173334444.create_schematic_compute.graph.GraphOp.parseConnPinIds(op.stringValue());
+                yield io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(bp, oid,
+                    op.fromId(), op.fromPin(), op.toId(), op.toPin(),
+                    pids != null ? pids[0] : null, pids != null ? pids[1] : null, uid);
+            }
+            case REMOVE_CONN -> {
+                // 旧值：oldX=fromId, oldY=fromPin, oldVal=toId；toPin 在 op 上。
+                // pinId 在 op.stringValue()（与正向 REMOVE_CONN 同一编码）。
+                // Old values: oldX=fromId, oldY=fromPin, oldVal=toId; toPin rides on the op.
+                // pinIds live in op.stringValue() (same encoding as the forward REMOVE_CONN).
+                var pids = io.github.y15173334444.create_schematic_compute.graph.GraphOp.parseConnPinIds(op.stringValue());
+                yield io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(bp, oid,
+                    (int)e.oldX, (int)e.oldY, (int)e.oldVal, op.toPin(),
+                    pids != null ? pids[0] : null, pids != null ? pids[1] : null, uid);
+            }
             case SET_PARAM -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(bp, oid, op.targetNodeId(), op.paramIndex(), e.oldVal, uid);
             case SET_FORMULA -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(bp, oid, op.targetNodeId(), e.oldStr, uid);
             case SET_DISPLAY_TEXT -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(

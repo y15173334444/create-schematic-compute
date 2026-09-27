@@ -152,6 +152,21 @@ public class NodeGraph {
         bumpGeneration();
     }
 
+    /** 按稳定 pinId 删除连线（撤销恢复 / REMOVE_CONN 携带 pinId 时用）。两端 pinId 都须非空。
+     *  Remove a connection by stable pinIds (undo restore / pinId-carrying REMOVE_CONN).
+     *  Both pinIds must be non-null. Returns whether a connection was removed. */
+    public boolean removeConnectionByPinIds(int fromId, String fromPinId, int toId, String toPinId) {
+        if (fromPinId == null || toPinId == null) return false;
+        boolean removed = connections.removeIf(c ->
+            c.fromId == fromId && c.toId == toId
+            && fromPinId.equals(c.fromPinId) && toPinId.equals(c.toPinId));
+        if (removed) {
+            invalidateTopo();
+            bumpGeneration();
+        }
+        return removed;
+    }
+
     /** 获取拓扑排序（缓存，仅在连接变化时重算）。
      *  Get topological order (cached, recomputed only on connection changes). */
     public List<Integer> getTopoOrder() {

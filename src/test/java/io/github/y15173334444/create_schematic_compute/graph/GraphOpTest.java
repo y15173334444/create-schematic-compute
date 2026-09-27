@@ -66,4 +66,53 @@ class GraphOpTest {
         assertEquals(0.5f, result[0][1], 0.0001f);
         assertEquals(3.0f, result[1][1], 0.0001f);
     }
+
+    // ══════════════════ packConnPinIds / parseConnPinIds ══════════════════
+
+    @Test
+    @DisplayName("packConnPinIds: both-null stays null (legacy integer-pin path)")
+    void testPackConnPinIdsBothNull() {
+        assertNull(GraphOp.packConnPinIds(null, null));
+        assertNull(GraphOp.parseConnPinIds(null));
+        assertNull(GraphOp.parseConnPinIds(""));
+    }
+
+    @Test
+    @DisplayName("packConnPinIds: roundtrips both ends")
+    void testPackConnPinIdsRoundtrip() {
+        String packed = GraphOp.packConnPinIds("A", "band_0");
+        assertNotNull(packed);
+        String[] pids = GraphOp.parseConnPinIds(packed);
+        assertNotNull(pids);
+        assertEquals("A", pids[0]);
+        assertEquals("band_0", pids[1]);
+    }
+
+    @Test
+    @DisplayName("packConnPinIds: empty slots parse back to null")
+    void testPackConnPinIdsPartial() {
+        String[] pids = GraphOp.parseConnPinIds(GraphOp.packConnPinIds(null, "0"));
+        assertNotNull(pids);
+        assertNull(pids[0]);
+        assertEquals("0", pids[1]);
+        pids = GraphOp.parseConnPinIds(GraphOp.packConnPinIds("out0", null));
+        assertNotNull(pids);
+        assertEquals("out0", pids[0]);
+        assertNull(pids[1]);
+    }
+
+    @Test
+    @DisplayName("parseConnPinIds: malformed input returns null")
+    void testParseConnPinIdsMalformed() {
+        assertNull(GraphOp.parseConnPinIds("no-separator"));
+        assertNull(GraphOp.parseConnPinIds("just-a-var-name"));
+    }
+
+    @Test
+    @DisplayName("parseConnPinIds: multiple separators are malformed (not a garbage toPinId)")
+    void testParseConnPinIdsMultiSeparator() {
+        String sep = String.valueOf((char) 1);
+        assertNull(GraphOp.parseConnPinIds("A" + sep + "B" + sep + "C"));
+        assertNull(GraphOp.parseConnPinIds(sep + sep + "x"));
+    }
 }

@@ -77,16 +77,61 @@ public record GraphOp(
 
     public static GraphOp addConn(BlockPos pos, int ownerNodeId,
                                    int fromId, int fromPin, int toId, int toPin, UUID actor) {
+        return addConn(pos, ownerNodeId, fromId, fromPin, toId, toPin, null, null, actor);
+    }
+
+    /** ADD_CONN，携带稳定 pinId（v1.2.4+）。pinId 编入 stringValue，协议零扩面。
+     *  ADD_CONN carrying stable pinIds (v1.2.4+). Packed into stringValue — no wire change. */
+    public static GraphOp addConn(BlockPos pos, int ownerNodeId,
+                                   int fromId, int fromPin, int toId, int toPin,
+                                   String fromPinId, String toPinId, UUID actor) {
         return new GraphOp(OpType.ADD_CONN, pos, ownerNodeId, 0,
             0, null, 0f, 0f, fromId, fromPin, toId, toPin, 0, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+            packConnPinIds(fromPinId, toPinId), 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
     }
 
     public static GraphOp removeConn(BlockPos pos, int ownerNodeId,
                                       int fromId, int fromPin, int toId, int toPin, UUID actor) {
+        return removeConn(pos, ownerNodeId, fromId, fromPin, toId, toPin, null, null, actor);
+    }
+
+    /** REMOVE_CONN，携带稳定 pinId（v1.2.4+）。pinId 编入 stringValue，协议零扩面。
+     *  REMOVE_CONN carrying stable pinIds (v1.2.4+). Packed into stringValue — no wire change. */
+    public static GraphOp removeConn(BlockPos pos, int ownerNodeId,
+                                      int fromId, int fromPin, int toId, int toPin,
+                                      String fromPinId, String toPinId, UUID actor) {
         return new GraphOp(OpType.REMOVE_CONN, pos, ownerNodeId, 0,
             0, null, 0f, 0f, fromId, fromPin, toId, toPin, 0, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+            packConnPinIds(fromPinId, toPinId), 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, 0, null);
+    }
+
+    /** pinId 打包分隔符（U+0001）。pinId 是变量名/频段名/十进制索引，不会包含它。
+     *  PinId pack separator (U+0001). PinIds are var names / band names / decimal indices — never contain it. */
+    private static final char CONN_PINID_SEP = 1;
+
+    /** 把连线的稳定 pinId 打进 stringValue（ADD_CONN / REMOVE_CONN 专用）。
+     *  两端都为空时返回 null（走整数引脚旧路径）。
+     *  Pack a connection's stable pinIds into stringValue (ADD_CONN / REMOVE_CONN only).
+     *  Returns null when both ends are null (legacy integer-pin path). */
+    public static String packConnPinIds(String fromPinId, String toPinId) {
+        if (fromPinId == null && toPinId == null) return null;
+        return (fromPinId == null ? "" : fromPinId) + CONN_PINID_SEP + (toPinId == null ? "" : toPinId);
+    }
+
+    /** 解析 {@link #packConnPinIds} 的编码。返回 {fromPinId, toPinId}，空串还原为 null；
+     *  无编码、分隔符缺失或出现多于一个分隔符（畸形串）返回 null（调用方回落整数引脚）。
+     *  Parse {@link #packConnPinIds}. Returns {fromPinId, toPinId} with empty slots as null;
+     *  null when absent, missing separator, or more than one separator (malformed — caller
+     *  falls back to integer pins). */
+    public static String[] parseConnPinIds(String packed) {
+        if (packed == null || packed.isEmpty()) return null;
+        int sep = packed.indexOf(CONN_PINID_SEP);
+        if (sep < 0) return null;
+        // 多于一个分隔符 = 畸形串，不把垃圾尾巴当 toPinId / more than one separator = malformed
+        if (packed.indexOf(CONN_PINID_SEP, sep + 1) >= 0) return null;
+        String f = packed.substring(0, sep);
+        String t = packed.substring(sep + 1);
+        return new String[]{ f.isEmpty() ? null : f, t.isEmpty() ? null : t };
     }
 
     public static GraphOp setParam(BlockPos pos, int ownerNodeId, int nodeId,
