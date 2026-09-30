@@ -1,22 +1,29 @@
-# GUI 巨型文件拆分路线图 / GUI Decomposition Plan — TODO
+# GUI 巨型文件拆分路线图 / GUI Decomposition Plan — ✅ 已收束 / Closed
 
-> **状态**：🔶 **进行中**。起草于 2026-09-11，基线 `dfedbef`。
+> **状态**：✅ **已收束（可执行部分全部落地）**。起草于 2026-09-11，基线 `dfedbef`；**2026-09-30 复核收束**。
 > **步骤 1 已完成**（`c8643fd`）：`MonitorClipMath` 已拆出，1742 → 1465 行，390 测试全绿。
 > **步骤 2 已完成**（`23ec19d`）：显示编辑 GUI 迁至 `MonitorDisplayEditor`，1767 → 368 行；
-> 同日评审修复（未推送批次审查）后 `MonitorScreen` 现 **348 行**（移除从未接线的 `drawToolbarStrip` 缝、
-> 恢复设置面板在节点图模式的点击路由，见步骤 2 实施记录的更正）。
+> 同日评审修复（未推送批次审查）后 `MonitorScreen` 348 行（移除从未接线的 `drawToolbarStrip` 缝、
+> 恢复设置面板在节点图模式的点击路由，见步骤 2 实施记录的更正）；2026-09-30 复核 **323 行**。
 > **步骤 3 已完成**：指南（`e3cacdf`）/ 颜色（`fb5eddf`）/ 键位 三个 tab 全部拆出。
-> **步骤 6 进行中**：刀 6a 编辑态工厂已落地（`a4695cd`），`GraphEditor` 5807 → 5231 行；
-> 刀 6b 协作 presence 已落地（`4ce1257`），5231 → 5049 行；刀 6e 视角书签+相机已落地
-> （`f914dd6`），5049 → 4742 行；刀 6d 总线编辑已落地（`c270a6f`），4742 → 4523 行；
-> 刀 6c op 历史 + 远端应用已落地（`0bea539`），4523 → 4085 行（风险最高的一刀完成）；
-> 刀 6f 第一部分：mouseClicked 分解（`47bf362`，1055 → 69 行，文件 4085 → 4188 含新方法签名）。
-> 清单 D 双人回归 D1–D4、D7 已通过（见实施记录）。6f 余下部分：renderBg / keyPressed。
-> Status: 🔶 **in progress.** Drafted 2026-09-11 against `dfedbef`; step 1 landed in `c8643fd`;
-> step 2 landed in `23ec19d` (`MonitorScreen` now **348 lines** after the same-day review fixes:
-> the never-wired `drawToolbarStrip` seam removed, the settings-panel click routing in graph mode
-> restored — see the step-2 record correction); step 3 is done — all three tabs extracted
-> (guide `e3cacdf`, colours `fb5eddf`, keys this pass).
+> **步骤 4 已完成**：像素内核 / 帧条 / 工具轨 独立成 `client/PixelEditorKernel` / `PixelEditorFrameStrip` /
+> `PixelEditorToolRail`，`PixelEditorScreen` 1706 → **1,061 行**。
+> **步骤 5 已完成**：`NodeRenderer` 三刀（首刀 `669b47a` → `blocks/NodeAddMenu`），门面零改动、
+> 17 个引用文件的调用点一行未变，1,500 → **926 行**。
+> **步骤 6 已收束**：刀 6a 编辑态工厂（`a4695cd`，5807 → 5231 行）、刀 6b 协作 presence（`4ce1257`，→ 5049）、
+> 刀 6e 视角书签 + 相机（`f914dd6`，→ 4742）、刀 6d 总线编辑（`c270a6f`，→ 4523）、
+> 刀 6c op 历史 + 远端应用（`0bea539`，→ 4085，风险最高的一刀）；
+> 刀 6f 前半 `mouseClicked` 分解（`47bf362`，1055 → 69 行）。
+> **6f 后半（`renderBg` / `keyPressed`）不在本计划范围内**：脚本化搬迁尝试后回滚，已按 `64af1b4`
+> 的记录**主动延后到 IDE extract-method 重构**；**步骤 7（小文件批量归位）为"择机"、从未排期**。
+> 清单 D 双人回归 D1–D4、D7 已通过（见实施记录）。收束依据与遗留债见 §「计划收束」。
+> **Status**: ✅ **closed (executable scope).** Drafted 2026-09-11 against `dfedbef`. Steps 1–5 landed
+> (1 `c8643fd`; 2 `23ec19d` — `MonitorScreen` 348 lines after the same-day review fixes, 323 as re-checked;
+> 3 guide / colours / keys; 4 `PixelEditorKernel` + `FrameStrip` + `ToolRail`; 5 `NodeRenderer` cuts with the
+> facade frozen). Step 6 landed cuts 6a `a4695cd`, 6b `4ce1257`, 6e `f914dd6`, 6d `c270a6f`, 6c `0bea539`,
+> plus 6f part 1 `47bf362` (`mouseClicked`, 1055 → 69 lines).
+> **6f part 2 (`renderBg` / `keyPressed`) is out of scope by decision** — attempted, rolled back, and deferred
+> to IDE extract-method refactoring (`64af1b4`); step 7 was never scheduled. See "Plan closure" below.
 > **目标 / Goal**：把 GUI/渲染层的巨型类按**单一职责边界**拆成可独立阅读、可独立回归的文件，
 > 首选交付物是**把全息显示器的显示编辑 GUI 从图编辑器中剥离**（见 §3 步骤 2）。
 > **约束 / Constraint**：GUI 层**零自动化测试兜底**（见 §1.3），因此每步必须"可编译 + 行为零变更 + 可手动回归"，
@@ -54,6 +61,16 @@
 | 14 | 655 | 39 KB | `blocks/EditPanel.java` |
 | 15 | 632 | 33 KB | `blocks/GraphHost.java` |
 | 16 | 628 | 33 KB | `graph/OpExecutor.java` |
+
+> **2026-09-30 复核 / Re-check**：`src/main/java` 现 **161 文件 / 45,326 行**（基线 131 / 35,857 —— 文件数增长
+> 主要来自本计划拆出的新类与同期的功能提交）。拆分产物均在库：`blocks/MonitorDisplayEditor`(1,646)、
+> `blocks/NodeEditStateFactory`(679)、`blocks/GraphPresenceTracker`(330)、`blocks/GraphOpHistory`(376)、
+> `blocks/GraphViewBookmarks`(499)、`blocks/NodeAddMenu`(323)、`blocks/EditorSettings{Guide,Colors,Keys}Tab`、
+> `client/PixelEditorKernel`(315) / `PixelEditorFrameStrip`(438) / `PixelEditorToolRail`(266)。
+> **主要文件现况**：`GraphEditor` **4,619**（基线 5,671）· `MonitorBlockEntityRenderer` **1,592**（1,742）·
+> `MonitorScreen` **323**（1,767）· `PixelEditorScreen` **1,061**（1,706）· `NodeRenderer` **926**（1,500）·
+> `EditorSettingsScreen` **512**（1,204）。
+> ⚠️ `GraphEditor` 仍是全仓最大文件——拆分腾出的空间已被后续功能开发填回（见「计划收束」的遗留债）。
 
 > **行号口径警告**：本文所有行号由上述口径得出；代码编辑后再读会偏移。
 > **实施时以方法名 / 记录名为主锚点，行号仅作快速定位。**
@@ -124,10 +141,10 @@ GUI 层几乎不可单测，但有两处**纯逻辑**可以在拆分时**顺手�
 Step 1  MonitorBlockEntityRenderer 裁剪数学      ✅ 已完成 c8643fd（390 测试全绿）
 Step 2  MonitorScreen 显示编辑 GUI 脱离          ✅ 已完成 23ec19d（1767 → 368 行；评审修复后现 348）
 Step 3  EditorSettingsScreen 按 tab 拆分         ✅ 已完成（指南/颜色/键位 三 tab 全部拆出）
-Step 4  PixelEditorScreen 内核 / 帧条拆分        🟡 中（可补单测）
-Step 5  NodeRenderer 按渲染品类拆（保门面）      🟡 中（引用最广）
-Step 6  GraphEditor 五刀 + 内部方法级拆解        🟡 进行中（6a/6b/6e/6d/6c 全部落地；仅剩 6f）
-Step 7  小文件批量归位                           ⚪ 择机
+Step 4  PixelEditorScreen 内核 / 帧条拆分        ✅ 已完成（内核 / 帧条 / 工具轨 已独立成文件）
+Step 5  NodeRenderer 按渲染品类拆（保门面）      ✅ 已完成（三刀全部落地，门面零改动）
+Step 6  GraphEditor 五刀 + 内部方法级拆解        ✅ 已收束（6a–6e + 6f 前半；6f 后半延后到 IDE 重构）
+Step 7  小文件批量归位                           ⚪ 未排期（择机；从未进入执行）
 ```
 
 ### 步骤 1 · `MonitorBlockEntityRenderer` 抽出 HUD 裁剪/投影数学
@@ -453,12 +470,15 @@ final，构造注入 Host）。屏幕保留 tab 列、共享布局与输入分�
 | 6c | 远端 op 应用 + 撤销/重做栈：`onRemoteOp` / `opUndo` / `opRedo` / `recordOp` / `reverseOp` / `withTargetId` / `withFromToId` / `remapNodeId` / `resetBatch` / `beginUndoBatch` / `endUndoBatch` | ~430 | 中 | 与 `pendingLocalOps`、`GraphOp`、`EditState` 强耦合——**风险最高的一刀** |
 | 6d | 总线编辑：`commitBusBox` / `releaseOldBusName` / `clearBusNode` / `reevaluateBusConflicts*` / `syncBusBands` + `BUS_EDIT_DEBOUNCE_TICKS` 去抖 | ~250 | 中 | 与 `localBusNames` / `EditState` 耦合 |
 | 6e | 相机与视图：`startTransition` / `advanceCameraTransition` / 书签面板 / `tempViewByPos` | ~150 | 高 | 状态自包含 |
-| 6f | **本文件内**方法级拆解：`mouseClicked`（1081 行）按命中目标分发为私有方法；`renderBg`（492 行）、`keyPressed`（341 行）同理 | — | 最低 | **不动跨类边界**，纯私有方法重排 |
+| 6f | **本文件内**方法级拆解：`mouseClicked`（1081 行）按命中目标分发为私有方法；`renderBg`（492 行）、`keyPressed`（341 行）同理 | — | 最低 | **不动跨类边界**，纯私有方法重排。**结果：前半 `mouseClicked` 已落地（`47bf362`，1055 → 69）；后半 `renderBg` / `keyPressed` 尝试后回滚、延后到 IDE extract-method（`64af1b4`）** |
 
 - **风险（必须写进提交说明）**：近 60 天 **58 次提交** 触碰此文件——跨类拆分期间任何功能改动都会与之冲突。
   **建议**：① 先完成步骤 1–5（都不碰它）；② 挑功能平静期动 6 步；③ 6 步期间冻结其它 GUI 改动；
   ④ 6f 可随时做（不引入冲突面）。
 - **顺序建议**：6a → 6b → 6e → 6d → 6c → 6f（独立度递减；6f 无外部影响可随时插入）。
+- **执行结果（2026-09-30 回填）**：6a–6e 全部按此顺序落地；6f 前半按 ④ 在无冲突窗口内落地（`47bf362`）。
+  **6f 后半的脚本化搬迁连续四次结构性错位，最终回滚**（`64af1b4`）→ 手段改为"IDE extract-method
+  逐块、即改即编译"，脚本批量手术不再尝试；**该项已移出本计划**。
 
 #### ✅ 实施记录 · 刀 6a · 编辑态工厂（已完成 `a4695cd`）
 
@@ -656,7 +676,7 @@ OpExecutor.apply（移动动画）、远程 REMOVE_NODE 的 UI 清理、数据 o
 （**389**，含 issue #11 修复新增的 7 个测试）。游戏内回归建议：单人撤销/重做各类 op 往返
 （含批量组）、双人下对方编辑实时出现、临时 ID 重映射后撤销指向正确节点。
 
-#### 🔶 实施记录 · 刀 6f（第一部分）· mouseClicked 分解（`47bf362`）
+#### ✅ 实施记录 · 刀 6f（前半）· mouseClicked 分解（`47bf362`）
 
 `mouseClicked` **1055 → 69 行**：方法体只剩按命中目标顺序的 15 个私有方法调用 + 少量胶水
 （上下文菜单右键、折叠指示器、colorPicker 吸收、busBox 失焦提交）。全部为**逐字块搬迁**，
@@ -692,6 +712,33 @@ else-if 链头部处理、跨 TCP 的长命令转义等多因叠加），最终 
 
 **验证**：调用序列与原判定顺序逐项一致 + 花括号平衡 + `compileJava` + `test` 全绿（389）。
 行为回归面 = 鼠标点击全部交互路径，建议实机点检：工具栏/菜单建节点/注释交互/频段 ±/撤销。
+
+#### ✅ 计划收束 / Plan closure（2026-09-30 复核）
+
+**本计划的可执行部分全部落地，无遗留工作项**：
+
+| 步骤 | 结果 |
+|------|------|
+| 1–5 | 全部完成（提交见状态横幅；产物与现况行数见 §1.1 复核） |
+| 6a–6e | `a4695cd` / `4ce1257` / `f914dd6` / `c270a6f` / `0bea539`；`GraphEditor` 5,807 → 4,085 行 |
+| 6f 前半 | `47bf362`：`mouseClicked` 1,055 → 69 行，实机点击回归通过 |
+| 6f 后半 | **不做**：尝试后回滚，按 `64af1b4` 的结论**主动延后到 IDE extract-method 重构** |
+| 7 | **未排期**：`⚪ 择机`，从未进入执行 |
+
+**横幅由 🔶 改 ✅ 的依据**：本文件早已记录 6f 后半的回滚与延后决定（`64af1b4`），
+但横幅一直停在"进行中"。2026-09-30 复核时发现，这个过期状态**已经导致外部排期判断误判**
+（把本计划当成"仍然存在的并行工作面"，进而按"要不要等它"来排后续重构）。
+**教训：状态横幅是排期输入，必须与实施记录同步。**
+
+**收束后遗留的已知债（不在本计划范围内，另行跟踪）**：
+
+- `GraphEditor` 现 **4,619 行** —— 拆分腾出的空间已被后续功能开发填回，仍是全仓最大文件；
+- `renderBg` / `keyPressed` 两个方法仍未分解（6f 后半）；
+- 步骤 7 的小文件（`EditPanel` / `MultiLineEditBox` / `ColorPickerWidget` / `PortableTerminalScreen` /
+  `RadarBlockEntity` / `GraphHost`）从未整理。
+
+**后续路径**：拆解手段从"脚本批量手术"改为 **IDE extract-method（逐块、即改即编译）**；
+若要继续收敛 `GraphEditor`，**另立文档**（本仓 `docs/` 的既定做法），不复活本路线图。
 
 #### 清单 D · 步骤 6 刀次回归（6a 编辑态 + 6b presence 合并验收）
 
@@ -732,11 +779,13 @@ else-if 链头部处理、跨 TCP 的长命令转义等多因叠加），最终 
 3. 收尾：两客户端正常关窗退出（存档保存），服务端 `save-all` + `stop`（RCON）优雅关闭——
    测试期间世界无强杀。
 
-### 步骤 7 · 小文件批量归位（⚪ 择机）
+### 步骤 7 · 小文件批量归位（⚪ **未排期** / not scheduled）
 
-`EditPanel`(655) / `MultiLineEditBox`(775) / `ColorPickerWidget`(763) / `PortableTerminalScreen`(857) /
-`RadarBlockEntity`(1,006) / `GraphHost`(632)。等 1–5 步把边界理顺后再评估；其中
-`RadarBlockEntity` 属 BE 而非 GUI，若拆分应先核对 `graph-host-convergence-plan.md` 的收敛结论。
+`EditPanel`(723) / `MultiLineEditBox`(775) / `ColorPickerWidget`(767) / `PortableTerminalScreen`(870) /
+`RadarBlockEntity`(1,001) / `GraphHost`(617) —— 行数为 **2026-09-30 复核**（与基线不同）。
+**本步从未排期**（原文"等 1–5 步把边界理顺后再评估"），随本计划收束一并归档为"择机"；
+其中 `RadarBlockEntity` 属 BE 而非 GUI，若将来要拆，先核对 `graph-host-convergence-plan.md`
+的收敛结论（该收敛已归档完成）。
 
 ---
 
@@ -798,7 +847,7 @@ C4 帧条增删/切换/拖拽排序；C5 关闭后主图与节点数据完好。
 | 风险 | 影响 | 缓解 |
 |------|------|------|
 | GUI 无自动化测试 | 回归只能靠肉眼，漏测成本高 | 每步一张手动清单；优先选可单测的切口（步骤 1、4 内核） |
-| `GraphEditor` 高频改动（58 次/60 天） | 拆分与功能开发持续冲突 | 步骤 6 垫后 + 功能冻结窗口 + 6f 先行（无冲突面） |
+| `GraphEditor` 高频改动（58 次/60 天） | 拆分与功能开发持续冲突 | 步骤 6 垫后 + 功能冻结窗口 + 6f 先行（无冲突面）。**结果：6f 前半按此落地（`47bf362`）；6f 后半脚本化搬迁四次错位后回滚（`64af1b4`），改由 IDE 重构接手** |
 | `NodeRenderer` 235 处引用 | 签名一变外溢 15 个文件 | 只抽内部实现、门面签名冻结 |
 | 协作行为只在大改动下暴露 | 单人测试通过、联机才炸 | 清单含双客户端项（A3/A4/A8），必要时 `runs/server` 起服务端用 `runClient` + `runClient2` |
 | 几何被裂成两份 | 点击热区与画面对不上 | 原则 3：几何单一来源，搬迁时逐处核对 |
@@ -806,11 +855,16 @@ C4 帧条增删/切换/拖拽排序；C5 关闭后主图与节点数据完好。
 
 ---
 
-## 七、待拍板的开放问题 / Open Questions
+## 七、开放问题 / Open Questions（**收束复核已全部定案**）
 
 1. **新文件组织**：显示编辑器用"单个 `MonitorDisplayEditor` 类" vs "显示编辑器 + 图层面板 + 设置面板 三个类"？
-   （倾向：第 1 刀单类，第 3 刀视体量再拆。）
+   ~~（倾向：第 1 刀单类，第 3 刀视体量再拆。）~~
+   **已定（按倾向执行）**：落地为**单类** `blocks/MonitorDisplayEditor`（现 1,646 行），未再细分。
 2. **tab 是否引入接口**：`EditorSettingsScreen` 三个 tab 拆出后是否定义 `EditorTab` 接口统一 render/click？
-   （倾向：先不引入——三个 tab 的输入契约差异较大，接口会变成"什么都传"的参数包。）
-3. **步骤 6e 之后是否继续**：`GraphEditor` 拆到 6c 后仍可能 >3,000 行，是否接受"部分收敛"作为终点？
+   ~~（倾向：先不引入——三个 tab 的输入契约差异较大，接口会变成"什么都传"的参数包。）~~
+   **已定（按倾向执行）**：拆成 `EditorSettingsGuideTab` / `EditorSettingsColorsTab` / `EditorSettingsKeysTab`
+   + 共享 `EditorSettingsHost`，**未引入 `EditorTab` 接口**。
+3. ~~**步骤 6e 之后是否继续**：`GraphEditor` 拆到 6c 后仍可能 >3,000 行，是否接受"部分收敛"作为终点？~~
+   **已定（2026-09-30 收束复核）**：**接受"部分收敛"作为终点** —— 6f 前半落地后停手，
+   6f 后半按 `64af1b4` 延后到 IDE 重构，其余收敛另立文档。`GraphEditor` 现 4,619 行（见「计划收束」）。
 4. **是否补 GUI 冒烟测试**：是否值得为像素内核（§1.4）写单测作为本路线图的副产品？
