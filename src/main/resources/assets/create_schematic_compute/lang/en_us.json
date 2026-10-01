@@ -426,6 +426,8 @@
   "gui.create_schematic_compute.edit.latch_default_reset": "Default: Reset",
   "gui.create_schematic_compute.edit.latch_cur_set": "Current: Set",
   "gui.create_schematic_compute.edit.latch_cur_reset": "Current: Reset",
+  "gui.create_schematic_compute.edit.range": "Range",
+  "gui.create_schematic_compute.edit.interval": "Interval",
   "gui.create_schematic_compute.edit.invert_x": "Invert X",
   "gui.create_schematic_compute.edit.invert_y": "Invert Y",
   "gui.create_schematic_compute.back": "Back",

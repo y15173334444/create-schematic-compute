@@ -43,6 +43,8 @@ public class EditPanel {
         // 正/反转按钮（输出指令类）/ forward-reverse toggle (output-command nodes)
         if (n.type == NodeType.MOVE || n.type == NodeType.ROTATE
             || n.type == NodeType.TX_OUT || n.type == NodeType.SPEED_CTRL) h += 18;
+        // HUD 俯仰梯：范围/间隔两行步进 / pitch ladder: range & interval stepper rows
+        if (n.type == NodeType.HUD_PITCH_LADDER) h += 36;
         if (n.type == NodeType.MOUSE_JOYSTICK && n.params.length > 0) h += 16;
         if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 32; // 初始按钮 + 当前只读
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
@@ -511,6 +513,26 @@ public class EditPanel {
                 g.drawString(Minecraft.getInstance().font, (on ? "§a✔ " : "§7") + I18n.get(key), bx+4, by+1, 0xFFFFFFFF, false);
                 row++;
             }
+        }
+        // ── HUD 俯仰梯编辑区 / pitch ladder edit panel ──
+        // 几何必须与 GraphEditor 编辑区点击段一致（editLocalY + 4 + numRows*18 起，每行 16px）。
+        if (node.type == NodeType.HUD_PITCH_LADDER && node.params.length > 1) {
+            // 范围/间隔 两行步进（左减右加）/ range & interval steppers (minus left, plus right)
+            String[] labels = {I18n.get("gui.create_schematic_compute.edit.range"),
+                               I18n.get("gui.create_schematic_compute.edit.interval")};
+            for (int r = 0; r < 2; r++) {
+                int v = (int) node.params[r];
+                String lbl = labels[r] + (r == 0 ? " ±" + v + "°" : " " + v + "°");
+                int bx = px + 4, by = py + 4 + (row + r) * 18, bw = pw - 8, bh = 16;
+                g.fill(bx, by, bx + bw, by + bh, 0xFF3A3428);
+                g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
+                g.fill(bx + 1, by + 1, bx + 17, by + bh - 1, 0xFF2A2620);
+                g.fill(bx + bw - 17, by + 1, bx + bw - 1, by + bh - 1, 0xFF2A2620);
+                g.drawString(font, "◀", bx + 5, by + 3, 0xFFCCCCCC, false);
+                g.drawString(font, "▶", bx + bw - 11, by + 3, 0xFFCCCCCC, false);
+                g.drawString(font, lbl, bx + (bw - font.width(lbl)) / 2, by + 3, 0xFFFFFFFF, false);
+            }
+            row += 2;
         }
         if (node.type == NodeType.REDSTONE_IN || node.type == NodeType.REDSTONE_OUT) {
             st.freqSlotX = px + 4; st.freqSlotY = py + 8 + row * 18;

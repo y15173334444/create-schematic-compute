@@ -2360,6 +2360,28 @@ public class GraphEditor {
                 return true;
             }
         }
+        // ── HUD 俯仰梯编辑区按钮 / pitch ladder edit-panel steppers ──
+        // 几何与 EditPanel.renderAt 对应段落逐行对齐（editLocalY + 4 + numRows*18 起）。
+        if (en.type == NodeType.HUD_PITCH_LADDER && en.params.length > 1) {
+            for (int r = 0; r < 2; r++) {
+                int rowY = editLocalY + 4 + (numRows + r) * 18;
+                if (lmx >= 4 && lmx <= NW - 4 && lmy >= rowY && lmy <= rowY + 16) {
+                    int dir = lmx <= 20 ? -1 : (lmx >= NW - 20 ? 1 : 0);
+                    if (dir != 0) {
+                        int cur = (int) en.params[r];
+                        int lo = r == 0 ? 5 : 1, hi = r == 0 ? 90 : 30;
+                        int newV = Math.max(lo, Math.min(hi, cur + dir * (r == 0 ? 5 : 1)));
+                        if (newV != cur) {
+                            en.params[r] = newV;
+                            var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                                host.getBlockPos(), ownerNodeId(), en.id, r, newV, host.getPlayerUUID());
+                            host.sendOp(sOp); recordOp(sOp, 0, 0, cur, null);
+                        }
+                    }
+                    return true;
+                }
+            }
+        }
         // FORMULA warm 两段式切换（刀5）：摘要行后第一行；求值策略设置、无引脚。
         // 左半=严格冻结(0)、右半=温启动(1)，SET_PARAM 精确设值（信号发生器模式切换同款 op）。
         // FORMULA warm segmented toggle (knife 5): first row after the summary; pinless eval-policy

@@ -426,6 +426,8 @@
   "gui.create_schematic_compute.edit.latch_default_reset": "初始状态: 复位",
   "gui.create_schematic_compute.edit.latch_cur_set": "当前状态: 置位",
   "gui.create_schematic_compute.edit.latch_cur_reset": "当前状态: 复位",
+  "gui.create_schematic_compute.edit.range": "范围",
+  "gui.create_schematic_compute.edit.interval": "间隔",
   "gui.create_schematic_compute.edit.invert_x": "反转X",
   "gui.create_schematic_compute.edit.invert_y": "反转Y",
   "gui.create_schematic_compute.back": "返回",
