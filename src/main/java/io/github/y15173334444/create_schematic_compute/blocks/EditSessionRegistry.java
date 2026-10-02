@@ -324,6 +324,14 @@ public final class EditSessionRegistry {
         }
 
         // 5. Execute / 执行
+        // SET_SONG：曲目字节住 BlobRegistry（op 只带引用），执行会 poll 消费——
+        // 先 peek 留底，供 6 步广播给其他编辑者（同引用 blobId，先分片后 op）。
+        // SET_SONG: song bytes live in BlobRegistry (the op carries only the reference) and
+        // apply consumes them via poll — peek a copy first for the step-6 broadcast to other
+        // editors (same blobId reference; chunks go out before the referencing op).
+        byte[] songBytes = op.type() == OpType.SET_SONG
+            ? io.github.y15173334444.create_schematic_compute.network.BlobRegistry.peek(op.blobRefId())
+            : null;
         OpExecutor.apply(targetGraph, op);
         // After sub-graph edits, rebuild parent graph's input cache so that
         // the server-side evaluator uses correct ENCAP pin→index mappings.
@@ -355,7 +363,14 @@ public final class EditSessionRegistry {
         for (var editorId : editorsOuter) {
             if (editorId.equals(actor.getUUID())) continue;
             var editorPlayer = level.getServer().getPlayerList().getPlayer(editorId);
-            if (editorPlayer != null) PacketDistributor.sendToPlayer(editorPlayer, syncPkt);
+            if (editorPlayer == null) continue;
+            // SET_SONG：先补发曲目分片（同 blobId 供接收端重组），再发引用它的 op
+            // SET_SONG: forward the song chunks first (same blobId for reassembly), then the op
+            if (songBytes != null) {
+                io.github.y15173334444.create_schematic_compute.network.BlobPacketHandler.sendChunksTo(
+                    editorPlayer, pos, op.targetNodeId(), op.blobRefId(), songBytes);
+            }
+            PacketDistributor.sendToPlayer(editorPlayer, syncPkt);
         }
 
         // 6b. BUS_IN 改名：频段列表由服务端**唯一解析**，并作为一条权威 SET_BANDS 下发给

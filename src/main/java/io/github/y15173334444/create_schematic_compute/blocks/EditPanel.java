@@ -43,8 +43,11 @@ public class EditPanel {
         // 正/反转按钮（输出指令类）/ forward-reverse toggle (output-command nodes)
         if (n.type == NodeType.MOVE || n.type == NodeType.ROTATE
             || n.type == NodeType.TX_OUT || n.type == NodeType.SPEED_CTRL) h += 18;
-        // HUD 俯仰梯：范围/间隔两行步进 / pitch ladder: range & interval stepper rows
-        if (n.type == NodeType.HUD_PITCH_LADDER) h += 36;
+        // v1.2.6 音频节点按钮行 + HUD 范围/间隔步进行 / audio-node button rows + HUD stepper rows
+        if (n.type == NodeType.MUSIC) h += 18;            // loop 循环开关 / loop toggle
+        if (n.type == NodeType.CHANNEL) h += 18;          // 声道数步进 / channel-count stepper
+        if (n.type == NodeType.SPEAKER_PLAY) h += 18;     // 播放声道三段 / playback channel segments
+        if (n.type == NodeType.HUD_PITCH_LADDER) h += 36; // 范围/间隔两行 / range & interval steppers
         if (n.type == NodeType.MOUSE_JOYSTICK && n.params.length > 0) h += 16;
         if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 32; // 初始按钮 + 当前只读
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
@@ -514,8 +517,47 @@ public class EditPanel {
                 row++;
             }
         }
-        // ── HUD 俯仰梯编辑区 / pitch ladder edit panel ──
-        // 几何必须与 GraphEditor 编辑区点击段一致（editLocalY + 4 + numRows*18 起，每行 16px）。
+        // ── v1.2.6 音频节点编辑区 / audio-node edit panels ──
+        // 几何必须与 GraphEditor 编辑区点击段一致（editLocalY + 4 + numRows*18 起，每行 16px + 2px 间隔）。
+        if (node.type == NodeType.MUSIC && node.params.length > 0) {
+            boolean loop = node.params[0] > 0.5f;
+            int bx = px + 4, by = py + 4 + row * 18, bw = pw - 8, bh = 16;
+            g.fill(bx, by, bx + bw, by + bh, loop ? 0xFF3A5A2A : 0xFF3A3428);
+            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
+            g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
+            g.drawString(font, loop ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.loop_on")
+                                    : "§7" + I18n.get("gui.create_schematic_compute.edit.loop_off"), bx+4, by+2, 0xFFFFFFFF, false);
+            row++;
+        }
+        if (node.type == NodeType.CHANNEL && node.params.length > 0) {
+            int cnt = Math.max(1, Math.min(NodeType.CHANNEL_PIN_IDS.length, (int) node.params[0]));
+            int bx = px + 4, by = py + 4 + row * 18, bw = pw - 8, bh = 16;
+            g.fill(bx, by, bx + bw, by + bh, 0xFF3A3428);
+            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
+            g.fill(bx + 1, by + 1, bx + 17, by + bh - 1, 0xFF2A2620);
+            g.fill(bx + bw - 17, by + 1, bx + bw - 1, by + bh - 1, 0xFF2A2620);
+            g.drawString(font, "◀", bx + 5, by + 3, 0xFFCCCCCC, false);
+            g.drawString(font, "▶", bx + bw - 11, by + 3, 0xFFCCCCCC, false);
+            String lbl = I18n.get("gui.create_schematic_compute.edit.channel_count") + ": " + cnt;
+            g.drawString(font, lbl, bx + (bw - font.width(lbl)) / 2, by + 3, 0xFFFFFFFF, false);
+            row++;
+        }
+        if (node.type == NodeType.SPEAKER_PLAY && node.params.length > 0) {
+            int ch = (int) node.params[0]; // 0=聚合 1=左 2=右 / mix, left, right
+            int gap = 4;
+            int btnW = (pw - 12 - 2 * gap) / 3;
+            String[] keys = {"ch_mix", "ch_l", "ch_r"};
+            for (int i = 0; i < 3; i++) {
+                int bx = px + 4 + i * (btnW + gap);
+                boolean active = ch == i;
+                g.fill(bx, py + 4 + row * 18, bx + btnW, py + 4 + row * 18 + 16, active ? 0xFF2A4A2A : 0xFF2A2A2A);
+                g.renderOutline(bx, py + 4 + row * 18, btnW, 16, active ? 0xFF88FF88 : 0xFF666666);
+                String lbl = I18n.get("pin.create_schematic_compute." + keys[i]);
+                int tw = font.width(lbl);
+                g.drawString(font, lbl, bx + (btnW - tw) / 2, py + 4 + row * 18 + 3, active ? 0xFFAAFFAA : 0xFF888888, false);
+            }
+            row++;
+        }
         if (node.type == NodeType.HUD_PITCH_LADDER && node.params.length > 1) {
             // 范围/间隔 两行步进（左减右加）/ range & interval steppers (minus left, plus right)
             String[] labels = {I18n.get("gui.create_schematic_compute.edit.range"),

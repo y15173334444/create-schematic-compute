@@ -83,4 +83,20 @@ public final class BlockNodeAllowances {
     public static final NodeAllowance TRANSMISSION = NodeAllowance.of(
         EnumSet.of(NodeCategory.VALUES, NodeCategory.KINETIC, NodeCategory.TRANSMISSION,
             NodeCategory.DEBUG));
+
+    /** 功放电脑：程序计算机能力（含时序，供 play/stop 触发与延时编排）+ 音频类 + 总线/私有控制面。
+     *  Amplifier computer: program-computer capability + AUDIO + bus/private control plane. */
+    public static final NodeAllowance AMPLIFIER = NodeAllowance.of(
+        EnumSet.of(NodeCategory.VALUES, NodeCategory.MATH_BASIC, NodeCategory.MATH_ADVANCED,
+            NodeCategory.TRIG, NodeCategory.LOGIC, NodeCategory.CONTROL,
+            NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_ACC, NodeCategory.SEQUENTIAL_STATE,
+            NodeCategory.AUDIO, NodeCategory.DEBUG));
+
+    /** 音响（音频图）：AUDIO 类（含音频频段 BUS_IN/收发）+ VALUES（BUS_IN/CONST 等，通信/控制）
+     *  + DEBUG，但不含曲目宿主/频段发布（MUSIC/AUDIO_OUT 是功放侧）。
+     *  Speaker (audio graph): AUDIO + VALUES (BUS_IN/CONST for communication & control) + DEBUG,
+     *  minus MUSIC/AUDIO_OUT (those live on the amplifier). */
+    public static final NodeAllowance SPEAKER = NodeAllowance.of(
+        EnumSet.of(NodeCategory.AUDIO, NodeCategory.VALUES, NodeCategory.DEBUG),
+        NodeType.MUSIC, NodeType.AUDIO_OUT);
 }

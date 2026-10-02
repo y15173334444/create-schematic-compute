@@ -51,4 +51,14 @@ public final class BlobPacketHandler {
                 new ChunkPos(pos), new BlobDataSyncPacket(chunk));
         }
     }
+
+    /** 将服务端字节的 blob 分片定向发给一名编辑者（SET_SONG 协作广播：先分片、后 op）。
+     *  Send raw-byte blob chunks to one editor (SET_SONG collaboration broadcast:
+     *  chunks first, the referencing op follows). */
+    public static void sendChunksTo(net.minecraft.server.level.ServerPlayer sp, BlockPos pos,
+                                    int nodeId, int blobId, byte[] bytes) {
+        for (var chunk : BlobDataPacket.fromBytes(pos, blobId, nodeId, bytes)) {
+            PacketDistributor.sendToPlayer(sp, new BlobDataSyncPacket(chunk));
+        }
+    }
 }

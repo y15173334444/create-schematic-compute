@@ -4,7 +4,8 @@ package io.github.y15173334444.create_schematic_compute.network;
 public enum BlobType {
     IMAGE_PIXELS(0),      // int[] pixel data
     ITEMSTACK_NBT(1),     // ItemStack NBT
-    RAW_BYTES(2);         // extension point
+    RAW_BYTES(2),         // extension point
+    SONG_BYTES(3);        // NBS v5 曲目字节（MUSIC 节点数据面）/ NBS v5 song bytes (MUSIC node data plane)
 
     public final int id;
 

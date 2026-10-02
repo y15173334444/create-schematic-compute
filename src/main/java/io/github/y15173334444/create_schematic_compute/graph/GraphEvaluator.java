@@ -54,6 +54,37 @@ public class GraphEvaluator {
     private Integer completedNodeId = null;
     public void setCompletedNodeId(Integer nodeId) { this.completedNodeId = nodeId; }
     public void clearCompletedNodeId() { this.completedNodeId = null; }
+
+    // ── 音频（功放/音响宿主）/ Audio (amplifier & speaker hosts) ──
+    /** 音频输出引用表：{@code pack(nodeId, 输出引脚)} → {@link AudioRef}（类型化音源，非浮点）。
+     *  每 tick 重建；音频连线经 {@link NodeGraph#getAudioInputRef} 解析到上游引用。
+     *  MUSIC 产 AudioRef → AMP 改增益 → CHANNEL 按声像拆声道 → sink（AUDIO_OUT/SPEAKER_PLAY）消费。
+     *  拓扑序保证源在汇前。 Typed audio-output refs keyed by (nodeId, output pin). */
+    private final java.util.Map<Long, AudioRef> audioRefs = new java.util.HashMap<>();
+    private static long audioKey(int nodeId, int pin) { return ((long) nodeId << 16) | (pin & 0xFFFF); }
+
+    /** 音频频段消费者身份（宿主坐标 + 节点 id）：AudioBands 的 exactly-once 游标按它去重
+     *  （跨 BE tick 顺序翻转时同批发布防重播）。 */
+    private String consumerKey(GraphNode node) {
+        return (audioHostPos != null ? audioHostPos.asLong() : 0L) + "#" + node.id;
+    }
+    /** MUSIC 传输状态表（nodeId → 传输），由宿主 BE 注入并经类型段 NBT 持久化。
+     *  Per-MUSIC-node transport, injected + persisted by the host BE. */
+    private java.util.Map<Integer, MusicTransport> audioTransports = null;
+    public void setAudioTransports(java.util.Map<Integer, MusicTransport> map) { this.audioTransports = map; }
+    /** 音频宿主方块坐标（AUDIO_OUT 频道 owner = 坐标 + 节点 id）。
+     *  Host block position for AUDIO_OUT channel ownership. */
+    private net.minecraft.core.BlockPos audioHostPos = null;
+    public void setAudioHostPos(net.minecraft.core.BlockPos pos) { this.audioHostPos = pos; }
+    /** 播放下沉（SPEAKER_PLAY）：宿主音响 BE 注入；SPEAKER_PLAY 把音源交给宿主发声。
+     *  Speaker playback sink injected by the hosting speaker BE. */
+    private SpeakerSink speakerSink = null;
+    public void setSpeakerSink(SpeakerSink sink) { this.speakerSink = sink; }
+    /** 本 tick 的 game time（宿主 BE 每 tick 注入）——音频频段读取的新鲜度门控基准：
+     *  AudioBands 只认本刻/上一刻发布的引用，发布方停机/卸载后陈旧事件自愈失效。
+     *  Current game time injected by the host BE each tick; freshness gate for AudioBands reads. */
+    private long audioTickStamp = 0L;
+    public void setAudioTickStamp(long tick) { this.audioTickStamp = tick; }
     // FORMULA script parsing is now unified through GraphNode.cachedScript.
     // The eval branch calls node.ensureScriptParsed() which checks sourceFormula
     // freshness (方案 A) — this guarantees the same ScriptParseResult is used for
@@ -146,6 +177,7 @@ public class GraphEvaluator {
 
     public List<OutputResult> evaluate(List<InputSource> inputs, Map<Integer, Float> pidState, float dt, SeatInputState seat) {
         outputs.clear();
+        audioRefs.clear();
         // 使用缓存的拓扑排序  /  Use cached topological order
         List<Integer> sorted = graph.getTopoOrder();
         for (int id : sorted) {
@@ -252,6 +284,7 @@ public class GraphEvaluator {
                                         Map<Integer, Boolean> flipflopStates,
                                         Map<Integer, Integer> pulseTimers) {
         outputs.clear();
+        audioRefs.clear();
         List<Integer> sorted = graph.getTopoOrder();
         for (int id : sorted) {
             GraphNode n = graph.findNode(id);
@@ -441,6 +474,25 @@ public class GraphEvaluator {
         }
         node.params = origParams; // 恢复参数（可能被连线值临时覆盖）  /  Restore params (may have been temporarily overwritten by wired values)
         outputs.put(node.id, o.clone());
+    }
+
+    /** CHANNEL 声道拆分：按声像把音源拆到单个声道（聚合=mix 全量 / 左=l / 右=r，等功率声像；
+     *  其他环绕声道 MVP 暂取全量）。返回该声道的 {@link AudioRef}。
+     *  Split a source into one channel by panning (mix=full / l / r, equal-power; other
+     *  surround channels fall back to full for now). */
+    private static AudioRef channelRef(AudioRef in, String channel) {
+        if (in == null || in.isEmpty() || channel == null) return AudioRef.EMPTY;
+        if ("mix".equals(channel)) return in;
+        boolean left = "l".equals(channel), right = "r".equals(channel);
+        if (!left && !right) return in; // 中置/环绕/低音 MVP 暂取全量
+        List<NoteEvent> out = new ArrayList<>(in.events().size());
+        for (NoteEvent e : in.events()) {
+            float panNorm = e.panning() / 200f; // 0=左 .. 0.5=中 .. 1=右
+            float w = left ? (float) Math.cos(panNorm * Math.PI / 2)
+                           : (float) Math.sin(panNorm * Math.PI / 2);
+            out.add(e.withGain(e.gain() * w));
+        }
+        return new AudioRef(out, in.gain());
     }
 
     private void eval(GraphNode node, List<InputSource> inputs, Map<Integer, Float> pidState, float dt, SeatInputState seat) {
@@ -787,6 +839,14 @@ public class GraphEvaluator {
             case PRIVATE_IN -> o[0] = SignalBus.get(node.signalName);
             case PRIVATE_OUT -> SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
             case BUS_IN -> {
+                // 音频频段引脚：仅当本节点的输出接了音频线（下游 AUDIO 域引脚）才走音频分支——
+                // 避免同名浮点频段被音频发布方劫持；读取带新鲜度门控（陈旧/缺席视为空音源）。
+                if (graph.hasAudioSinkConnection(node.id)) {
+                    AudioRef aref = io.github.y15173334444.create_schematic_compute.network.AudioBands
+                        .get(consumerKey(node), node.signalName, audioTickStamp);
+                    for (int bi = 0; bi < node.bandCount(); bi++) audioRefs.put(audioKey(node.id, bi), aref);
+                    break;
+                }
                 if (node.signalName.isEmpty()) break; // 空名称不允许通信  /  Empty name disallows communication
                 int bc = node.bandCount();
                 if (bc > 0) {
@@ -859,7 +919,14 @@ public class GraphEvaluator {
                         }
                         for (int bi = 0; bi < bc; bi++) {
                             String bandName = node.signalBands.get(bi);
-                            node.busInternalMap.put(bandName, pinValues.getOrDefault(bandName, 0f));
+                            // 音频频段引脚：接音频线 → 发到 AudioBands（单引脚多声道，跨方块，带发布时刻）
+                            AudioRef aref = graph.getAudioInputRef(node.id, bi, audioRefs);
+                            if (aref != null) {
+                                io.github.y15173334444.create_schematic_compute.network.AudioBands
+                                    .publish(node.signalName, aref, audioTickStamp);
+                            } else {
+                                node.busInternalMap.put(bandName, pinValues.getOrDefault(bandName, 0f));
+                            }
                         }
                     }
                 }
@@ -1178,6 +1245,86 @@ public class GraphEvaluator {
             // 显示节点 — 无浮点输出；数据由渲染器从 GraphNode 字段读取
             // Display nodes — no float output; data read from GraphNode fields by renderer
             case TEXT, DATA, IMAGE, IMAGE_SEQUENCE, COMMENT -> {}
+            // ── 音频（功放电脑）/ Audio (amplifier computer) ──
+            case MUSIC -> {
+                // 输入：play/stop 触点（上升沿）、seek 数值（值变化当帧快照跳转，含回 0）。
+                // 输出：audio(handle)、playing、tick、seconds、done。
+                MusicTransport tr;
+                if (audioTransports != null) {
+                    tr = audioTransports.get(node.id);
+                    if (tr == null) { tr = new MusicTransport(); audioTransports.put(node.id, tr); }
+                } else {
+                    tr = new MusicTransport();
+                }
+                float playIn = graph.getInputValue(node.id, 0, outputs);
+                float stopIn = graph.getInputValue(node.id, 1, outputs);
+                float seekIn = graph.getInputValueOrDefault(node.id, 2, outputs, 0f);
+                NbsSong song = node.song;
+                // seek：值变化即当帧快照跳转；上次值记 pidState 辅助槽位 id+300000（随运行时状态
+                // 持久化，重载/重编译不误跳；剪除由 aliveStateKeys 的同款辅助槽位覆盖）。
+                float seekLast = (runtimeState != null)
+                    ? runtimeState.pidState.getOrDefault(node.id + 300000, 0f) : 0f;
+                if (runtimeState != null) runtimeState.pidState.put(node.id + 300000, seekIn);
+                if (Math.round(seekIn) != Math.round(seekLast)) tr.seek(Math.round(seekIn));
+                boolean playCur = playIn > 0.5f, stopCur = stopIn > 0.5f;
+                boolean playPrev = runtimeState != null && runtimeState.nodeEdge.getOrDefault(node.id, false);
+                boolean stopPrev = runtimeState != null && runtimeState.nodeEdge.getOrDefault(node.id + 100000, false);
+                if (playCur && !playPrev) tr.playFromHead(song); // seek 已先行；头在曲尾则回头重播
+                if (stopCur && !stopPrev) tr.stop();
+                if (runtimeState != null) {
+                    runtimeState.nodeEdge.put(node.id, playCur);
+                    runtimeState.nodeEdge.put(node.id + 100000, stopCur);
+                }
+                // 预播提前量：提前 PREROLL_SECONDS 展开、事件带目标时刻（delaySeconds）
+                List<NoteEvent> events = (song != null)
+                    ? tr.advance(song, dt, MusicTransport.PREROLL_SECONDS) : List.of();
+                boolean done = tr.consumeFinishedPulse();
+                audioRefs.put(audioKey(node.id, 0), new AudioRef(events, 1f));
+                o[0] = 0; // 音频引脚经 audioRefs（类型化，非浮点）
+                o[1] = tr.isPlaying() ? 1f : 0f;
+                o[2] = tr.headTick();
+                o[3] = (song != null) ? tr.headSeconds(song) : 0f;
+                o[4] = done ? 1f : 0f;
+            }
+            case AMP -> {
+                AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
+                float gainIn = graph.getInputValueOrDefault(node.id, 1, outputs,
+                    node.params.length > 0 ? node.params[0] : 1f);
+                float gain = Math.max(0f, Math.min(4f, gainIn));
+                audioRefs.put(audioKey(node.id, 0), (in != null) ? in.withGain(in.gain() * gain) : AudioRef.EMPTY);
+            }
+            case CHANNEL -> {
+                // 声道拆分：audio 入 → 各声道出（聚合/左/右…，signalBands）。
+                AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
+                int chCount = node.signalBands != null ? node.signalBands.size() : 0;
+                for (int ci = 0; ci < chCount; ci++)
+                    audioRefs.put(audioKey(node.id, ci), channelRef(in, node.signalBands.get(ci)));
+            }
+            case AUDIO_OUT -> {
+                // 单引脚多声道：audio 入（多声道 AudioRef）→ 发布到音频频段（band=signalName，带发布时刻）。
+                AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
+                if (audioHostPos != null)
+                    io.github.y15173334444.create_schematic_compute.network.AudioBands
+                        .publish(node.signalName, in != null ? in : AudioRef.EMPTY, audioTickStamp);
+            }
+            case AUDIO_IN -> {
+                // 单引脚多声道：从音频频段读（band=signalName）→ audio 出（多声道 AudioRef）。
+                // 新鲜度门控：发布方停机/卸载后陈旧引用自动失效为空音源。
+                AudioRef r = io.github.y15173334444.create_schematic_compute.network.AudioBands
+                    .get(consumerKey(node), node.signalName, audioTickStamp);
+                audioRefs.put(audioKey(node.id, 0), r != null ? r : AudioRef.EMPTY);
+            }
+            case SPEAKER_PLAY -> {
+                // 播放 sink：把音源交给宿主音响 BE，在其坐标发声（R1-3/R1-D）。
+                // 单引脚多声道：编辑区选声道（聚合/左/右），按声像过滤后播放。
+                AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
+                if (in != null && speakerSink != null) {
+                    int ch = node.params.length > 0 ? (int) node.params[0] : 0;
+                    String chName = ch == 1 ? "l" : ch == 2 ? "r" : "mix";
+                    AudioRef sel = channelRef(in, chName);
+                    speakerSink.play(sel.events(), sel.gain());
+                }
+            }
             case ENCAPSULATION -> {
                 if (node.subGraph == null) break;
                 var outNodes = node.getSubNodes(NodeType.ENCAP_OUTPUT);
@@ -1214,6 +1361,10 @@ public class GraphEvaluator {
                     subEval.setCommandSink(this.commandSink);
                     subEval.setRadarPos(this.radarPos);
                     subEval.setKineticNetworkView(this.kineticNetworkView);
+                    subEval.setAudioTransports(this.audioTransports);
+                    subEval.setAudioHostPos(this.audioHostPos);
+                    subEval.setSpeakerSink(this.speakerSink);
+                    subEval.setAudioTickStamp(this.audioTickStamp);
                     subEvaluators.put(node.id, subEval);
                     if (runtimeState != null) {
                         RuntimeState.SubState ss = runtimeState.subStates.get(node.id);

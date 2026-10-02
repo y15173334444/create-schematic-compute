@@ -346,15 +346,17 @@ class RuntimeStateTest {
     @DisplayName("aliveStateKeys: expands ids with all auxiliary slot families")
     void testAliveStateKeys() {
         var keys = RuntimeState.aliveStateKeys(java.util.Set.of(7, 99));
-        assertEquals(4 + 4, keys.size()); // 2 ids × (id, -(id+1), id+100000, id+200000)
+        assertEquals(5 + 5, keys.size()); // 2 ids × (id, -(id+1), id+100000, id+200000, id+300000)
         assertTrue(keys.contains(7));
         assertTrue(keys.contains(-8));
         assertTrue(keys.contains(100007));
         assertTrue(keys.contains(200007));
+        assertTrue(keys.contains(300007));   // MUSIC 上次 seek 值槽位
         assertTrue(keys.contains(99));
         assertTrue(keys.contains(-100));
         assertTrue(keys.contains(100099));
         assertTrue(keys.contains(200099));
+        assertTrue(keys.contains(300099));
     }
 
     @Test

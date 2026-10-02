@@ -58,6 +58,10 @@ public enum NodeCategory {
     KINETIC("category.create_schematic_compute.kinetic", NodeType.STRESS, NodeType.RPM),
     OUTPUT("category.create_schematic_compute.output",
         NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.BUS_OUT),
+    /** 音频（功放/音响宿主）：曲目/增益/声道拆分/频段发布/播放 / audio (amplifier & speaker hosts) */
+    AUDIO("category.create_schematic_compute.audio",
+        NodeType.MUSIC, NodeType.AMP, NodeType.AUDIO_OUT,
+        NodeType.CHANNEL, NodeType.AUDIO_IN, NodeType.SPEAKER_PLAY),
     RADAR("category.create_schematic_compute.radar", NodeType.TARGET_OUT),
     DISPLAY("category.create_schematic_compute.display",
         NodeType.TEXT, NodeType.DATA, NodeType.IMAGE, NodeType.IMAGE_SEQUENCE,

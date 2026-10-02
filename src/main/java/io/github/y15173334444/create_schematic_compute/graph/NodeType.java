@@ -125,7 +125,30 @@ public enum NodeType {
     // Stress status: ratio / used / unused / remaining (one 0..1 pair, one SU pair)
     STRESS("stress", "node.create_schematic_compute.stress", 0, 4, ""),
     // 转速：网络转速（RPM，带符号） Speed: network rotation speed (RPM, signed)
-    RPM("rpm", "node.create_schematic_compute.rpm", 0, 1, "");
+    RPM("rpm", "node.create_schematic_compute.rpm", 0, 1, ""),
+    // ── 音频（功放电脑宿主）/ Audio (amplifier computer host) ──
+    // 曲目宿主：数据住节点（NBS 二进制）；play/stop 上升沿生效、seek 上升沿当帧快照、done 尾脉冲。
+    // Song host: data lives on the node (NBS binary); play/stop fire on rising edge,
+    // seek snapshots on rising edge, done pulses at end of a non-looping play-through.
+    MUSIC("music", "node.create_schematic_compute.music", 3, 5, "loop"),
+    // 「功放」增益：audio（AUDIO 域）→ audio（AUDIO 域），gain 浮点引脚（钳 0..4，可接图信号自动化）。
+    // Gain stage: audio (AUDIO domain) → audio (AUDIO domain); gain float pin (clamped 0..4).
+    AMP("amp", "node.create_schematic_compute.amp", 1, 1, "gain"),
+    // 频段发布（单引脚多声道）：audio 入（多声道 AudioRef）→ 发布到音频频段（band=signalName）。
+    // Band publish (single-pin multi-channel): audio in (multi-channel AudioRef) → audio band.
+    AUDIO_OUT("audio_out", "node.create_schematic_compute.audio_out", 1, 0, ""),
+    // ── R1 多声道 / 音响图 / R1 multi-channel & speaker graph ──
+    // 声道拆分（多引脚）：audio 入 → 多个声道出（聚合/左/右…），编辑区选输出声道数。
+    // Channel split (multi-pin): audio in → per-channel outputs (mix/left/right…),
+    // output channel count chosen in the edit panel.
+    CHANNEL("channel", "node.create_schematic_compute.channel", 1, 0, "channelCount"),
+    // 频段读取（单引脚多声道）：从音频频段读（band=signalName）→ audio 出（多声道 AudioRef）。
+    // Band read (single-pin multi-channel): audio band → audio out (multi-channel AudioRef).
+    AUDIO_IN("audio_in", "node.create_schematic_compute.audio_in", 0, 1, ""),
+    // 播放 sink（音响图）：在本坐标播放音源；编辑区选声道（聚合/左/右，单引脚多声道里的选声道）。
+    // Playback sink (speaker graph): plays the source at this block's position; the edit
+    // panel selects the channel (mix/left/right) from the single multi-channel pin.
+    SPEAKER_PLAY("speaker_play", "node.create_schematic_compute.speaker_play", 1, 0, "channel");
 
     /** NBT 序列化的稳定字符串标识符 — 永远不要修改这些值。 / Stable string identifier for NBT serialisation — never change these. */
     public final String id;
@@ -164,6 +187,39 @@ public enum NodeType {
         return (ordinal >= 0 && ordinal < vals.length) ? vals[ordinal] : null;
     }
 
+    /** 引脚信号域：FLOAT（普通浮点）/ AUDIO（音源句柄）。AUDIO 域引脚只连 AUDIO 域。
+     *  Pin signal domain: FLOAT (plain float) / AUDIO (source handle). AUDIO pins connect
+     *  only to AUDIO pins ("音频域特殊连线"). */
+    public enum PinDomain { FLOAT, AUDIO }
+
+    /** 输入引脚 i 的信号域。AMP 的 audio 入、AUDIO_OUT 的全部频道入、CHANNEL/SPEAKER_PLAY 的
+     *  audio 入为 AUDIO，其余 FLOAT。 Signal domain of input pin i. */
+    public PinDomain inputDomain(int i) {
+        if (this == AMP && i == 0) return PinDomain.AUDIO;
+        if (this == AUDIO_OUT) return PinDomain.AUDIO;
+        if (this == CHANNEL && i == 0) return PinDomain.AUDIO;
+        if (this == SPEAKER_PLAY && i == 0) return PinDomain.AUDIO;
+        return PinDomain.FLOAT;
+    }
+
+    /** 输出引脚 i 的信号域。MUSIC 的 audio 出、AMP 的 audio 出、CHANNEL 的全部声道出、
+     *  AUDIO_IN 的 audio 出为 AUDIO，其余 FLOAT。 Signal domain of output pin i. */
+    public PinDomain outputDomain(int i) {
+        if (this == MUSIC && i == 0) return PinDomain.AUDIO;
+        if (this == AMP && i == 0) return PinDomain.AUDIO;
+        if (this == CHANNEL) return PinDomain.AUDIO;
+        if (this == AUDIO_IN && i == 0) return PinDomain.AUDIO;
+        return PinDomain.FLOAT;
+    }
+
+    /** 声道稳定 pinId（有序）：聚合/左/右/中置/左环绕/右环绕/低音。
+     *  Stable per-channel pin ids (ordered): mix/left/right/center/ls/rs/sub. */
+    public static final String[] CHANNEL_PIN_IDS = {"mix", "l", "r", "c", "ls", "rs", "sub"};
+
+    /** 声道 pinId → 显示 i18n 键（pin.create_schematic_compute.ch_*）。
+     *  Channel pin id → display i18n key. */
+    public static String channelDisplayKey(String pinId) { return pk("ch_" + pinId); }
+
     /** 数值 EditBox 参数的数量（这些参数获得额外输入引脚）。返回 0 表示无。
      *  Number of numeric EditBox params (these params get additional input pins). Returns 0 if none. */
     public int editableParamCount() {
@@ -171,6 +227,11 @@ public enum NodeType {
             case BOOL, GATE, T_FLIPFLOP, KEYBOARD, GAMEPAD_BUTTON, LATCH,
                  ENCAP_INPUT, ENCAP_OUTPUT, IMAGE, IMAGE_SEQUENCE,
                  BUS_IN, BUS_OUT, DEBUG_SIGNAL_GEN, MOUSE_JOYSTICK, HUD_PITCH_LADDER,
+                 // loop = 循环开关（编辑区按钮，不走 EditBox）/ loop = toggle button, not an EditBox
+                 // AUDIO_OUT 频道引脚由 signalBands 决定，同 BUS_OUT / channel pins from signalBands, like BUS_OUT
+                 // CHANNEL 的「输出声道数」= 编辑区按钮（非引脚）/ channelCount = edit-panel control, not a pin
+                 // SPEAKER_PLAY 的「声道」= 编辑区按钮 / channel = edit-panel button
+                 MUSIC, AUDIO_OUT, CHANNEL, AUDIO_IN, SPEAKER_PLAY,
                  // rev = 正/反转开关（编辑区按钮，不走 EditBox / toggle button, not an EditBox）
                  TX_OUT, SPEED_CTRL -> 0;
             // MOVE/ROTATE：只有 meters/degrees 走 EditBox+引脚；rev 是按钮，不占引脚
@@ -233,6 +294,9 @@ public enum NodeType {
         case ENCAPSULATION -> pk("in"); // 动态标签，来自子图 ENCAP_INPUT 名称 / dynamic label from sub-graph ENCAP_INPUT name
         case ENCAP_OUTPUT -> pk("val");
         case RELAY_A, RELAY_B -> switch(i) { case 0 -> pk("relay_a_in"); case 1 -> pk("relay_b_in"); default -> pk("relay_contact"); };
+        case MUSIC -> i==0?pk("play"):i==1?pk("stop"):pk("seek");
+        case AMP -> i==0?pk("audio"):pk("gain");
+        case CHANNEL, SPEAKER_PLAY -> pk("audio");
         default -> pk("in");
     };}
     public String outputLabel(int i) { return switch(this){
@@ -282,6 +346,9 @@ public enum NodeType {
         case MOVE, ROTATE, WAIT -> pk("done");
         case STRESS -> i == 0 ? pk("pct") : i == 1 ? pk("used") : i == 2 ? pk("unused") : pk("left");
         case RPM -> pk("rpm");
+        case MUSIC -> i==0?pk("audio"):i==1?pk("playing"):i==2?pk("tick"):i==3?pk("seconds"):pk("done");
+        case AMP -> pk("audio");
+        case AUDIO_IN, CHANNEL -> pk("audio"); // CHANNEL 声道名由 GraphNode.outputLabel 覆盖（聚合/左/右）
         default -> "";
     };}
 }

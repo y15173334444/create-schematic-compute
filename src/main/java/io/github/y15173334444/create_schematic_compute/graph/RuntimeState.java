@@ -140,15 +140,18 @@ public class RuntimeState {
      *  transition. */
     public final java.util.Map<Integer, Boolean> nodeEdge = new java.util.HashMap<>();
 
-    /** 从存活节点 ID 构建完整键集（含辅助槽位：flipflop 的 -(id+1)、ACCUMULATOR/INTEGRATOR 的 id+100000/id+200000）。
+    /** 从存活节点 ID 构建完整键集（含辅助槽位：flipflop 的 -(id+1)、ACCUMULATOR/INTEGRATOR 的
+     *  id+100000/id+200000、MUSIC 上次 seek 值的 id+300000）。
      *  Build the full key set from alive node IDs (incl. auxiliary slots: flipflop's
-     *  -(id+1), ACCUMULATOR/INTEGRATOR's id+100000/id+200000). */
+     *  -(id+1), ACCUMULATOR/INTEGRATOR's id+100000/id+200000, MUSIC last-seek value's
+     *  id+300000). */
     public static java.util.Set<Integer> aliveStateKeys(java.util.Set<Integer> aliveIds) {
         java.util.Set<Integer> keys = new java.util.HashSet<>(aliveIds);
         for (int id : aliveIds) {
             keys.add(-(id + 1));
             keys.add(id + 100000);
             keys.add(id + 200000);
+            keys.add(id + 300000);
         }
         return keys;
     }

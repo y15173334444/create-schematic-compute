@@ -1,5 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
+import io.github.y15173334444.create_schematic_compute.network.BlobRegistry;
 import net.minecraft.world.item.ItemStack;
 
 /**
@@ -525,6 +526,26 @@ public final class OpExecutor {
                         n.imageSequenceFrames.add(to, f);
                     }
                     graph.bumpGeneration();
+                }
+                yield n;
+            }
+            case SET_SONG -> {
+                // 曲目写入/替换（plan §3.5 数据面）：字节从 BlobRegistry 按 blobRefId 取走，
+                // 解析失败/超限拒存（保留原曲不炸节点，与节点 NBT 解析同口径）。
+                // Song write/replace (plan §3.5): bytes are consumed from BlobRegistry by
+                // blobRefId; oversized or malformed data is rejected (the old song stays,
+                // the node never breaks — same policy as the node-NBT parse).
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null && n.type == NodeType.MUSIC && op.blobRefId() != 0) {
+                    byte[] data = BlobRegistry.poll(op.blobRefId());
+                    if (data != null && data.length <= NbsSong.MAX_BYTES) {
+                        try {
+                            n.song = NbsSong.read(data);
+                            graph.bumpGeneration();
+                        } catch (IllegalArgumentException ignored) {
+                            // 坏数据：保留原曲 / malformed: keep the old song
+                        }
+                    }
                 }
                 yield n;
             }

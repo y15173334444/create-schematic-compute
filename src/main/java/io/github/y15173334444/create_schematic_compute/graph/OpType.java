@@ -51,5 +51,12 @@ public enum OpType {
     SET_CTRL_POINTS,        // imageData=ctrlX (float→int bits), blobRefId=ctrlY bits
 
     // Meta
-    REJECT
+    REJECT,
+
+    // 曲目数据（NBS）。注意：网络序号 = 枚举序（GraphEditOpPacket 以 ordinal 编码），
+    // 新值只能追加在尾部，插中间会错位所有后续 op。
+    // Song data (NBS). Note: the wire ordinal is the enum order (GraphEditOpPacket encodes
+    // ordinals) — new values must be appended at the end, never inserted.
+    SET_SONG                // 曲目写入/替换：blobRefId = BlobRegistry 分片重组句柄，字节 = NBS v5
+                            // song write/replace: blobRefId = BlobRegistry reassembly handle, bytes = NBS v5
 }

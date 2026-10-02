@@ -114,12 +114,22 @@ public class NodeGraph {
         // Resolve pinIds from nodes
         GraphNode fromNode = nodeMap.get(fromId);
         GraphNode toNode = nodeMap.get(toId);
+        if (fromNode != null && toNode != null && !pinDomainsMatch(fromNode, fromPin, toNode, toPin)) return false;
         String fPid = fromNode != null ? fromNode.outputPinId(fromPin) : null;
         String tPid = toNode != null ? toNode.inputPinId(toPin) : null;
         connections.add(new NodeConnection(fromId, fPid, fromPin, toId, tPid, toPin));
         invalidateTopo();
         bumpGeneration();
         return true;
+    }
+
+    /** 引脚域兼容：AUDIO 域引脚只连 AUDIO 域，FLOAT 只连 FLOAT；但 BUS_OUT/BUS_IN 频段引脚
+     *  接受任意域（音频可走「总线/私有信号频段」，接上后引脚自动变音频 pinId 引脚）。
+     *  Pin-domain compatibility: AUDIO↔AUDIO, FLOAT↔FLOAT; but BUS_OUT/BUS_IN band pins
+     *  accept either domain so audio can route through bus/private bands. */
+    private static boolean pinDomainsMatch(GraphNode fromNode, int fromPin, GraphNode toNode, int toPin) {
+        if (toNode.type == NodeType.BUS_OUT || fromNode.type == NodeType.BUS_IN) return true;
+        return fromNode.type.outputDomain(fromPin) == toNode.type.inputDomain(toPin);
     }
 
     /** Add a connection using stable pinIds. The int indices are resolved from the
@@ -132,6 +142,7 @@ public class NodeGraph {
         int fromPin = fromNode.outputPinIndex(fromPinId);
         int toPin = toNode.inputPinIndex(toPinId);
         if (fromPin < 0 || toPin < 0) return false;
+        if (!pinDomainsMatch(fromNode, fromPin, toNode, toPin)) return false;
         if (inputCache.containsKey(key(toId, toPin))) return false;
         if (fromId == toId) return false;
         connections.add(new NodeConnection(fromId, fromPinId, fromPin, toId, toPinId, toPin));
@@ -287,6 +298,28 @@ public class NodeGraph {
     /** O(1) 检查指定输入引脚是否有连线 / O(1) check whether the specified input pin has a connection */
     public boolean hasInputConnection(int nodeId, int pinIdx) {
         return inputCache.containsKey(key(nodeId, pinIdx));
+    }
+
+    /** O(1) 取音频输入引脚的上游音源引用（{@link AudioRef}）；无连线返回 null。
+     *  Audio wires carry a typed {@link AudioRef} (not a float) — resolved via the connection
+     *  to the upstream node's audio output ref. */
+    public AudioRef getAudioInputRef(int nodeId, int pinIdx, Map<Long, AudioRef> audioRefs) {
+        NodeConnection c = inputCache.get(key(nodeId, pinIdx));
+        return c != null ? audioRefs.get(key(c.fromId, c.fromPin)) : null;
+    }
+
+    /** 该节点的输出是否接了音频线（任一出线指向 AUDIO 域输入引脚）。
+     *  供 BUS_IN 的音频分支判定——只有挂了音频线的 BUS_IN 才读音频频段，
+     *  避免同名浮点频段被音频发布方劫持。
+     *  Whether any outgoing wire of this node feeds an AUDIO-domain input pin.
+     *  Gates the BUS_IN audio branch: a BUS_IN reads audio bands only when audio-wired. */
+    public boolean hasAudioSinkConnection(int fromNodeId) {
+        for (NodeConnection c : connections) {
+            if (c.fromId != fromNodeId) continue;
+            GraphNode to = nodeMap.get(c.toId);
+            if (to != null && to.type.inputDomain(c.toPin) == NodeType.PinDomain.AUDIO) return true;
+        }
+        return false;
     }
 
     public boolean hasCycles() {

@@ -1060,6 +1060,10 @@ public class GraphEditor {
                         host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(g.gpos, g.oid, realId, fi, frame, g.uid));
                 }
             }
+            // 曲目数据 / song data (MUSIC 节点数据面；SET_SONG 走 blob 分片 + 引用 op)
+            if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.MUSIC && dup.song != null)
+                io.github.y15173334444.create_schematic_compute.network.SongSync.upload(
+                    g.gpos, g.oid, realId, dup.song, g.uid, host::sendOp);
             // DEBUG 控制点 / DEBUG control points
             if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_SIGNAL_GEN && dup.debugCtrlX != null && dup.debugCtrlY != null
                 && dup.debugCtrlX.length > 0)
@@ -2360,8 +2364,55 @@ public class GraphEditor {
                 return true;
             }
         }
-        // ── HUD 俯仰梯编辑区按钮 / pitch ladder edit-panel steppers ──
+        // ── v1.2.6 音频节点编辑区按钮 / audio-node edit-panel buttons ──
         // 几何与 EditPanel.renderAt 对应段落逐行对齐（editLocalY + 4 + numRows*18 起）。
+        if (en.type == NodeType.MUSIC && en.params.length > 0) {
+            int rowY = editLocalY + 4 + numRows * 18;
+            if (lmx >= 4 && lmx <= NW - 4 && lmy >= rowY && lmy <= rowY + 16) {
+                float oldV = en.params[0];
+                float newV = oldV > 0.5f ? 0f : 1f;
+                en.params[0] = newV;
+                var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                    host.getBlockPos(), ownerNodeId(), en.id, 0, newV, host.getPlayerUUID());
+                host.sendOp(sOp); recordOp(sOp, 0, 0, oldV, null);
+                return true;
+            }
+        }
+        if (en.type == NodeType.CHANNEL && en.params.length > 0) {
+            int rowY = editLocalY + 4 + numRows * 18;
+            if (lmx >= 4 && lmx <= NW - 4 && lmy >= rowY && lmy <= rowY + 16) {
+                int dir = lmx <= 20 ? -1 : (lmx >= NW - 20 ? 1 : 0);
+                if (dir != 0) {
+                    int cur = (int) en.params[0];
+                    int newV = Math.max(1, Math.min(NodeType.CHANNEL_PIN_IDS.length, cur + dir));
+                    if (newV != cur) {
+                        en.params[0] = newV;
+                        var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                            host.getBlockPos(), ownerNodeId(), en.id, 0, newV, host.getPlayerUUID());
+                        host.sendOp(sOp); recordOp(sOp, 0, 0, cur, null);
+                    }
+                }
+                return true;
+            }
+        }
+        if (en.type == NodeType.SPEAKER_PLAY && en.params.length > 0) {
+            int rowY = editLocalY + 4 + numRows * 18;
+            int gap = 4;
+            int btnW = (NW - 12 - 2 * gap) / 3;
+            for (int i = 0; i < 3; i++) {
+                int bx = 4 + i * (btnW + gap);
+                if (lmy >= rowY && lmy <= rowY + 16 && lmx >= bx && lmx <= bx + btnW) {
+                    if ((int) en.params[0] != i) {
+                        float oldV = en.params[0];
+                        en.params[0] = i;
+                        var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                            host.getBlockPos(), ownerNodeId(), en.id, 0, i, host.getPlayerUUID());
+                        host.sendOp(sOp); recordOp(sOp, 0, 0, oldV, null);
+                    }
+                    return true;
+                }
+            }
+        }
         if (en.type == NodeType.HUD_PITCH_LADDER && en.params.length > 1) {
             for (int r = 0; r < 2; r++) {
                 int rowY = editLocalY + 4 + (numRows + r) * 18;
@@ -4557,12 +4608,28 @@ public class GraphEditor {
             .resolve("create_schematic_compute").resolve("exports").resolve("encap_export.nbt");
     }
 
+    /** 文件名消毒：平台非法字符（Windows：{@code <>:"/\\|?*} 与控制符）替换为 _，尾随点/空格去掉。
+     *  节点显示名/曲目名可含这类字符（如 DECO*27），直接当文件名会炸 {@code Path.resolve}
+     *  （InvalidPathException 是 RuntimeException，IOException 兜不住）。
+     *  File-name sanitiser: platform-illegal characters become '_', trailing dots/spaces stripped. */
+    static String sanitizeFileName(String name) {
+        String s = name.replaceAll("[<>:\"/\\\\|?*\\u0000-\\u001F]", "_").trim();
+        while (s.endsWith(".") || s.endsWith(" ")) s = s.substring(0, s.length() - 1);
+        return s;
+    }
+
     /** 将封装节点导出为 NBT 文件。自动跳过重名文件（追加序号），导出时移除调试节点。
      *  Export an encapsulation node as an NBT file. Auto-renames to avoid overwrites, strips debug nodes.
      *  @param node 待导出的封装节点 / the encapsulation node to export
      *  @param name 导出文件名（不含 .nbt 后缀）/ export filename (without .nbt extension) */
     private void exportEncapNode(GraphNode node, String name) {
         if (node.type != NodeType.ENCAPSULATION) return;
+        name = sanitizeFileName(name);
+        if (name.isEmpty()) {
+            importFeedbackUntil = System.currentTimeMillis() + 3000;
+            saveFeedbackText = "§c" + I18n.get("gui.create_schematic_compute.encap_export_failed");
+            return;
+        }
         try {
             var level = Minecraft.getInstance().level;
             if (level == null) return;
@@ -4591,7 +4658,8 @@ public class GraphEditor {
             NbtIo.writeCompressed(tag, file);
             importFeedbackUntil = System.currentTimeMillis() + 3000;
             saveFeedbackText = "§a" + I18n.get("gui.create_schematic_compute.encap_exported") + ": " + finalName;
-        } catch (IOException e) {
+        } catch (Exception e) {
+            // 含 InvalidPathException（文件名非法字符）——一律反馈，不崩游戏
             importFeedbackUntil = System.currentTimeMillis() + 3000;
             saveFeedbackText = "§c" + e.getMessage();
         }

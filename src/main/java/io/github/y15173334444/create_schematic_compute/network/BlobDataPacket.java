@@ -87,6 +87,12 @@ public record BlobDataPacket(
         return pixels;
     }
 
+    /** 按原始字节切片（曲目等非像素负载用）。 / chunk raw bytes (songs and other non-pixel payloads). */
+    public static java.util.List<BlobDataPacket> fromBytes(BlockPos pos, int blobId,
+                                                           int nodeId, byte[] raw) {
+        return chunkBytes(pos, blobId, BlobType.SONG_BYTES, nodeId, raw);
+    }
+
     private static java.util.List<BlobDataPacket> chunkBytes(BlockPos pos, int blobId,
                                                               BlobType blobType, int nodeId, byte[] raw) {
         int total = (raw.length + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE;

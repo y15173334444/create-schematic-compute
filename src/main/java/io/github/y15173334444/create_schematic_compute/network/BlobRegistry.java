@@ -19,7 +19,17 @@ public final class BlobRegistry {
     private BlobRegistry() {}
 
     private static final ConcurrentHashMap<Integer, PendingBlob> PENDING = new ConcurrentHashMap<>();
+    /** 已重组完成的 blob（{@code GraphOp.blobRefId} 按引用取用；30 秒过期自清）。
+     *  Reassembled blobs, consumed by reference from {@code GraphOp.blobRefId} (self-expiring after 30 s). */
+    private static final ConcurrentHashMap<Integer, CompletedBlob> COMPLETED = new ConcurrentHashMap<>();
     private static final long TIMEOUT_MS = 30_000;
+
+    private static final class CompletedBlob {
+        final byte[] data;
+        final long expiresAt;
+        CompletedBlob(byte[] data) { this.data = data; this.expiresAt = System.currentTimeMillis() + TIMEOUT_MS; }
+        boolean isExpired() { return System.currentTimeMillis() > expiresAt; }
+    }
 
     private static class PendingBlob {
         final BlockPos pos;
@@ -60,9 +70,31 @@ public final class BlobRegistry {
 
         if (pending.received == pending.chunks.length) {
             PENDING.remove(id);
-            return reassemble(pending.chunks);
+            byte[] full = reassemble(pending.chunks);
+            COMPLETED.put(id, new CompletedBlob(full));
+            return full;
         }
         return null;
+    }
+
+    /**
+     * 按句柄取已重组完成的字节（不消费；过期未取返回 null）。
+     * Fetch a reassembled blob by handle without consuming it (null once expired).
+     */
+    public static byte[] peek(int blobId) {
+        CompletedBlob b = COMPLETED.get(blobId);
+        if (b == null) return null;
+        if (b.isExpired()) { COMPLETED.remove(blobId); return null; }
+        return b.data;
+    }
+
+    /**
+     * 按句柄取走已重组完成的字节（取后删除）。
+     * Fetch and remove a reassembled blob by handle.
+     */
+    public static byte[] poll(int blobId) {
+        CompletedBlob b = COMPLETED.remove(blobId);
+        return b == null || b.isExpired() ? null : b.data;
     }
 
     /** Remove expired incomplete blobs. Call periodically (e.g. each tick). / 移除过期的未完成 blob。周期性调用（如每 tick）。 */
@@ -74,6 +106,10 @@ public final class BlobRegistry {
                 SchematicCompute.LOGGER.debug("BlobRegistry: expired blob {}", e.getKey());
                 it.remove();
             }
+        }
+        var it2 = COMPLETED.entrySet().iterator();
+        while (it2.hasNext()) {
+            if (it2.next().getValue().isExpired()) it2.remove();
         }
     }
 

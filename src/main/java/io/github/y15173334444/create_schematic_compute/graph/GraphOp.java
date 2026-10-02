@@ -246,6 +246,20 @@ public record GraphOp(
     }
 
     /**
+     * 曲目写入/替换（plan §3.5 数据面）：blobRefId 指向 {@code BlobRegistry} 里已重组的
+     * NBS v5 字节（分片走 {@code BlobDataPacket}，op 只带引用——C2S 单包 32 KB 上限装不下曲目）。
+     * Song write/replace (plan §3.5 data plane): blobRefId references NBS v5 bytes reassembled
+     * in {@code BlobRegistry} (chunks ride {@code BlobDataPacket}; the op carries only the
+     * reference — songs don't fit the 32 KB single-packet C2S cap).
+     */
+    public static GraphOp setSong(BlockPos pos, int ownerNodeId, int nodeId,
+                                  int blobRefId, UUID actor) {
+        return new GraphOp(OpType.SET_SONG, pos, ownerNodeId, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+            null, 0, 0, 0, 0, null, 0, 0, 0, ItemStack.EMPTY, 0L, actor, blobRefId, null);
+    }
+
+    /**
      * 设置 IMAGE/IMAGE_SEQUENCE 画布尺寸（1..32）。paramIndex=w, keyIndex=h。
      * Set the IMAGE/IMAGE_SEQUENCE canvas size (1..32). paramIndex=w, keyIndex=h.
      */

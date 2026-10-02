@@ -50,6 +50,9 @@ public class GraphNode {
     public int[] imagePixels;                      // IMAGE 节点：ARGB 像素（延迟分配，尺寸=imageWidth×imageHeight）/ IMAGE node: ARGB pixels (lazy, size=imageWidth×imageHeight)
     public int imageWidth = 16, imageHeight = 16;  // IMAGE 节点画布尺寸（默认 16×16，可长方形 1..32）/ IMAGE canvas size (default 16×16, rectangular 1..32 allowed)
     public java.util.List<int[]> imageSequenceFrames; // IMAGE_SEQUENCE 帧（延迟分配）/ IMAGE_SEQUENCE frames (lazy)
+    /** MUSIC 节点：NBS 曲目数据（IMAGE 像素同款数据面，直存节点 NBT）。MVP 空曲默认分配。
+     *  MUSIC node: NBS song data (IMAGE-pixel-style data plane, stored in node NBT). */
+    public NbsSong song;
     public float layoutX = 0.5f, layoutY = 0.5f;  // 显示区域中的归一化 [0,1] 坐标 / normalized [0,1] position in display area
     public float displayScale = 1.0f;              // 大小倍数 / size multiplier
     public float displayRotation = 0f;             // 旋转角度（度）/ rotation (degrees)
@@ -109,6 +112,7 @@ public class GraphNode {
         // Knife 5: warm is an evaluation-policy setting configured via the edit-panel button — no input pin
         if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicInputCount, 26));
         if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_INPUT);
+
         return type.inputs + type.editableParamCount();
     }
     /** 节点主体上的功能输入引脚数（不含编辑区参数引脚，BUS_OUT 引脚仅在编辑区）。
@@ -127,7 +131,21 @@ public class GraphNode {
     public int outputs() {
         if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicOutputCount, 16));
         if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_OUTPUT);
+        // CHANNEL：每声道一个动态输出引脚（pinId = 声道名，signalBands）/ one dynamic output pin per channel
+        if (type == NodeType.CHANNEL) { ensureChannelBands(); return signalBands != null ? signalBands.size() : 0; }
+
         return type.outputs;
+    }
+
+    /** CHANNEL：由「输出声道数」（params[0]）派生声道 pinId 列表（聚合/左/右…，规范表）。
+     *  Derive the channel pinId list (mix/left/right…) from the output-channel-count param. */
+    public void ensureChannelBands() {
+        if (type != NodeType.CHANNEL) return;
+        int n = params.length > 0 ? (int) params[0] : 3;
+        n = Math.max(1, Math.min(NodeType.CHANNEL_PIN_IDS.length, n));
+        if (signalBands != null && signalBands.size() == n) return;
+        signalBands = new java.util.ArrayList<>();
+        for (int i = 0; i < n; i++) signalBands.add(NodeType.CHANNEL_PIN_IDS[i]);
     }
     private int countSubNodes(NodeType t) {
         int n = 0;
@@ -215,7 +233,7 @@ public class GraphNode {
                 if (pinId.equals(String.valueOf(ins.get(i).id))) return i;
             return -1;
         }
-        if (type == NodeType.BUS_OUT && signalBands != null) {
+        if ((type == NodeType.BUS_OUT) && signalBands != null) {
             for (int i = 0; i < signalBands.size(); i++)
                 if (pinId.equals(signalBands.get(i))) return i;
             return -1;
@@ -256,7 +274,7 @@ public class GraphNode {
                 if (pinId.equals(String.valueOf(outs.get(i).id))) return i;
             return -1;
         }
-        if (type == NodeType.BUS_IN && signalBands != null) {
+        if ((type == NodeType.BUS_IN || type == NodeType.CHANNEL) && signalBands != null) {
             for (int i = 0; i < signalBands.size(); i++)
                 if (pinId.equals(signalBands.get(i))) return i;
             return -1;
@@ -294,7 +312,7 @@ public class GraphNode {
             if (index < ins.size()) return String.valueOf(ins.get(index).id);
             return null;
         }
-        if (type == NodeType.BUS_OUT && signalBands != null) {
+        if ((type == NodeType.BUS_OUT) && signalBands != null) {
             if (index < signalBands.size()) return signalBands.get(index);
             return null;
         }
@@ -325,7 +343,7 @@ public class GraphNode {
             if (index < outs.size()) return String.valueOf(outs.get(index).id);
             return null;
         }
-        if (type == NodeType.BUS_IN && signalBands != null) {
+        if ((type == NodeType.BUS_IN || type == NodeType.CHANNEL) && signalBands != null) {
             if (index < signalBands.size()) return signalBands.get(index);
             return null;
         }
@@ -339,7 +357,7 @@ public class GraphNode {
      *  band names for BUS_OUT).
      *  NOTE: 不再有副作用——调用者需先调用 ensureScriptParsed()。 / No side effects — caller must call ensureScriptParsed() first. */
     public String inputLabel(int i) {
-        if (type == NodeType.BUS_OUT && signalBands != null && i < signalBands.size())
+        if ((type == NodeType.BUS_OUT) && signalBands != null && i < signalBands.size())
             return signalBands.get(i);
         if (type == NodeType.FORMULA && !formula.isEmpty() && cachedScript != null) {
             if (i < cachedScript.inputVars.size()) return cachedScript.inputVars.get(i);
@@ -362,6 +380,8 @@ public class GraphNode {
      *  band names for BUS_IN).
      *  NOTE: 不再有副作用——调用者需先调用 ensureScriptParsed()。 / No side effects — caller must call ensureScriptParsed() first. */
     public String outputLabel(int i) {
+        if ((type == NodeType.CHANNEL) && signalBands != null && i < signalBands.size())
+            return NodeType.channelDisplayKey(signalBands.get(i)); // 聚合/左/右…（本地化）
         if (type == NodeType.BUS_IN && signalBands != null && i < signalBands.size())
             return signalBands.get(i);
         if (type == NodeType.FORMULA && !formula.isEmpty() && cachedScript != null) {
@@ -399,6 +419,8 @@ public class GraphNode {
             this.itemParams = new ItemStack[]{ItemStack.EMPTY, ItemStack.EMPTY};
         // 设置基于参数的节点的默认值 / Set defaults for param-based nodes
         if (type == NodeType.CONST) this.params[0] = 1.0f;
+        // CHANNEL：新建默认三声道（聚合/左/右）；0 会被 ensureChannelBands 钳成 1，故必须显式给 3
+        if (type == NodeType.CHANNEL) this.params[0] = 3.0f;
         if (type == NodeType.PID) {
             this.params[0] = 1.0f;   // kp
             this.params[1] = 0.1f;   // ki
@@ -449,6 +471,11 @@ public class GraphNode {
             this.dynamicOutputCount = 1;
             this.outputLabels = java.util.List.of("");
         }
+        // MUSIC：默认分配空曲（数据面；曲目字节见 save/load 的 "song" 键）
+        // MUSIC: allocate an empty song (data plane; bytes under the NBT "song" key)
+        if (type == NodeType.MUSIC) {
+            this.song = new NbsSong();
+        }
         // DEBUG_SIGNAL_GEN：默认手动曲线 + 频率发生
         // DEBUG_SIGNAL_GEN: default manual curve + frequency generate
         if (type == NodeType.DEBUG_SIGNAL_GEN) {
@@ -491,6 +518,7 @@ public class GraphNode {
         n.displayText = displayText;
         n.textColor = textColor;
         if (imagePixels != null) n.imagePixels = imagePixels.clone();
+        if (song != null) n.song = song.copy();
         n.imageWidth = imageWidth; n.imageHeight = imageHeight;
         if (debugCtrlX != null) n.debugCtrlX = debugCtrlX.clone();
         if (debugCtrlY != null) n.debugCtrlY = debugCtrlY.clone();
@@ -582,6 +610,11 @@ public class GraphNode {
             }
             tag.put("iframes", framesTag);
         }
+        // MUSIC：曲目 NBS 二进制直存节点 NBT（IMAGE 像素同款；可选键，旧档无感）
+        // MUSIC: song bytes stored directly in node NBT (IMAGE-pixel style; optional key)
+        if (type == NodeType.MUSIC && song != null) {
+            tag.putByteArray("song", song.write());
+        }
         tag.putFloat("lx", layoutX);
         tag.putFloat("ly", layoutY);
         tag.putFloat("ds", displayScale);
@@ -669,6 +702,15 @@ public class GraphNode {
             node.imageSequenceFrames = new java.util.ArrayList<>();
             for (int i = 0; i < framesTag.size(); i++) {
                 node.imageSequenceFrames.add(framesTag.getIntArray(i));
+            }
+        }
+        // MUSIC：曲目字节（可选键）；解析失败保留默认空曲，不破坏节点
+        // MUSIC: song bytes (optional key); parse failure keeps an empty song, never breaks the node
+        if (node.type == NodeType.MUSIC && tag.contains("song")) {
+            try {
+                node.song = NbsSong.read(tag.getByteArray("song"));
+            } catch (RuntimeException e) {
+                node.song = new NbsSong();
             }
         }
         if (tag.contains("lx")) node.layoutX = tag.getFloat("lx");

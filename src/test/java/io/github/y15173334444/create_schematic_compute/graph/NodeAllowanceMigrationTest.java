@@ -15,7 +15,11 @@ class NodeAllowanceMigrationTest {
     // ── 迁移前允许集（2026-09-25 从旧 setNodeFilter 固化）──
     // Pre-migration allowed sets, frozen from the old setNodeFilter predicates.
 
-    /** 蓝图旧黑名单取反：全类型 − 34 项排除。 */
+    /** 蓝图旧黑名单取反：全类型 − 34 项排除。
+     *  再减「迁移后新增」类型（如音频节点）：它们晚于 2026-09-25 迁移，不属于迁移对照，
+     *  蓝图本就不含（AUDIO 类只给功放），不应算作蓝图「失去」的节点。
+     *  Blueprint old blocklist negated: all types − 34 exclusions, minus post-migration
+     *  additions (e.g. audio nodes) which postdate the 2026-09-25 migration baseline. */
     private static EnumSet<NodeType> oldBlueprint() {
         EnumSet<NodeType> s = EnumSet.allOf(NodeType.class);
         s.removeAll(EnumSet.of(
@@ -32,7 +36,10 @@ class NodeAllowanceMigrationTest {
             NodeType.HUD_PITCH_LADDER, // isMonitorOnly()
             NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT,
             NodeType.MOVE, NodeType.ROTATE, NodeType.WAIT, NodeType.CLUTCH, NodeType.ENCODER,
-            NodeType.TX_OUT));
+            NodeType.TX_OUT,
+            // 迁移后新增（音频类，功放/音响专属）/ post-migration audio nodes
+            NodeType.MUSIC, NodeType.AMP, NodeType.AUDIO_OUT,
+            NodeType.CHANNEL, NodeType.AUDIO_IN, NodeType.SPEAKER_PLAY));
         return s;
     }
 
