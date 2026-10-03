@@ -71,7 +71,8 @@ final class NodeWireRenderer {
     }
 
     void renderDraggingWire(GuiGraphics g, NodeGraph graph, int wireFromNode, int wireFromPin,
-                                    float wireEndX, float wireEndY, float camX, float camY, float zoom) {
+                                    float wireEndX, float wireEndY, float camX, float camY, float zoom,
+                                    boolean targetAudio) {
         var fn = graph.findNode(wireFromNode);
         if(fn==null) return;
         float y1;
@@ -83,10 +84,15 @@ final class NodeWireRenderer {
         float x1 = c2sX.apply(fn.x + NodeRenderer.nw(fn));
         float x2 = c2sX.apply(wireEndX), y2 = c2sY.apply(wireEndY);
         // 拖拽预览同规则；拖拽源固定在输出侧，只查输出域（查输入域会误伤 AMP 这类
-        // 「输入 0 = AUDIO、输出 0 = FLOAT」的节点）/ Drag preview follows the same rule; the
-        // drag source is always an output pin, so only outputDomain applies (inputDomain
-        // would misflag AMP-style nodes whose input 0 is AUDIO but output 0 is FLOAT).
-        boolean audio = fn.type.outputDomain(wireFromPin) == NodeType.PinDomain.AUDIO;
+        // 「输入 0 = AUDIO、输出 0 = FLOAT」的节点）。频段源（BUS_IN/PRIVATE_IN，任意域输出）
+        // 的预览色由悬停目标决定——目标 AUDIO 域引脚 → 青，数值目标 → 黄（GraphEditor
+        // 按释放同款几何检测，BUS_OUT 频段引脚任意域记 false）。
+        // Drag preview follows the same rule; the drag source is always an output pin, so only
+        // outputDomain applies (inputDomain would misflag AMP-style nodes whose input 0 is AUDIO
+        // but output 0 is FLOAT). For any-domain band sources (BUS_IN/PRIVATE_IN) the hover
+        // target decides - an AUDIO-domain target tints teal, a float one stays yellow
+        // (GraphEditor detects the hover with the release hit geometry).
+        boolean audio = fn.type.outputDomain(wireFromPin) == NodeType.PinDomain.AUDIO || targetAudio;
         bezier(g, x1, y1, x2, y2, audio ? NodeRenderer.CWA() : NodeRenderer.CWD());
     }
 

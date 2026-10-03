@@ -1317,7 +1317,7 @@ public class GraphEditor {
 
         // ── A=2: Connections (bezier curves) ──
         renderer.renderConnections(g, graph, camX, camY, zoom);
-        if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
+        if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom, dragTargetAudio(mx, my));
 
         // ── A=3: Regular node bodies (sorted by B ascending, comments excluded — rendered at A=1) ──
         renderer.evalSnapshot = host.getCachedEvalSnapshot();
@@ -1730,6 +1730,50 @@ public class GraphEditor {
         panning=true; panLastX=(float)mx; panLastY=(float)my;
     }
         return false;
+    }
+
+    /** 拖拽预览的目标域感知：按释放同款的命中几何找鼠标悬停的最近输入引脚，返回其是否
+     *  AUDIO 域。BUS_OUT 编辑区频段引脚是任意域 → 记 false（预览色由起点域决定）；参数引脚
+     *  恒为浮点 → 无需检测。无悬停目标 → false（预览按起点域）。
+     *  Target-domain awareness for the drag preview: nearest hovered input pin by the same
+     *  hit geometry as release; returns whether it is AUDIO-domain. BUS_OUT edit-area band
+     *  pins are any-domain → false (source domain decides); param pins are float-only and
+     *  need no check; no target → false. */
+    private boolean dragTargetAudio(double mx, double my) {
+        var graph = getGraph();
+        int bestNodeId = -1, bestPin = -1;
+        float bestDist = Float.MAX_VALUE;
+        float xTol = 20;
+        for (var node : graph.nodes) {
+            float sx = c2sX(node.x), sy = c2sY(node.y);
+            for (int i = 0; i < node.functionalInputs(); i++) {
+                float py = sy + HH*zoom + PH*zoom*i + PH*zoom/2f;
+                float dx = (float)Math.abs(mx - sx), dy = (float)Math.abs(my - py);
+                if (dx < xTol && dy < PH*zoom/2f + 2 && wireFromNode != node.id) {
+                    float dist = dx + dy;
+                    if (dist < bestDist) { bestDist = dist; bestNodeId = node.id; bestPin = i; }
+                }
+            }
+        }
+        if (bestNodeId < 0) {
+            for (int nid : expandedNodeIds) {
+                var n = graph.findNode(nid);
+                if (n == null || n.type != NodeType.BUS_OUT || n.signalBands == null) continue;
+                float sx = c2sX(n.x), sy = c2sY(n.y);
+                for (int bi = 0; bi < n.signalBands.size(); bi++) {
+                    float py = sy + bandPinY(n, bi, zoom) * zoom;
+                    float px = sx + 10*zoom;
+                    float dx = (float)Math.abs(mx - px), dy = (float)Math.abs(my - py);
+                    if (dx < 16*zoom && dy < 10*zoom && wireFromNode != nid) {
+                        float dist = dx + dy;
+                        if (dist < bestDist) { bestDist = dist; bestNodeId = nid; bestPin = bi; }
+                    }
+                }
+            }
+        }
+        if (bestNodeId < 0) return false;
+        var tn = graph.findNode(bestNodeId);
+        return tn != null && tn.type.inputDomain(bestPin) == NodeType.PinDomain.AUDIO;
     }
 
     /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
@@ -3261,6 +3305,14 @@ public class GraphEditor {
                 var toN = graph.findNode(bestNodeId);
                 String fPid = fromN != null ? fromN.outputPinId(wireFromPin) : null;
                 String tPid = toN != null ? toN.inputPinId(bestPin) : null;
+                // 本地即时建立（与上方 BUS_OUT 目标段同款乐观模式）：op 广播跳过发起者，
+                // 只发 op 不本地加的话，本地图要等重开编辑区拉权威图才有这条连线——引脚
+                // 变色/连线渲染全部延迟到重开。服务端权威回流经 onRemoteOp 的占用判定幂等跳过。
+                // Build locally right away (same optimistic pattern as the BUS_OUT target
+                // branch above): the op broadcast skips the originator, so send-only left the
+                // local graph without the wire until the editor re-pulled the authoritative
+                // graph. The authoritative echo idempotently no-ops via occupancy checks.
+                graph.addConnection(wireFromNode, wireFromPin, bestNodeId, bestPin);
                 var connOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
                     host.getBlockPos(), ownerNodeId(), wireFromNode, wireFromPin, bestNodeId, bestPin,
                     fPid, tPid, host.getPlayerUUID());

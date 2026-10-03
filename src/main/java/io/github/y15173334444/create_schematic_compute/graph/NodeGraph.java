@@ -213,8 +213,15 @@ public class NodeGraph {
      *  transfer hops read at a glance. */
     private static final EnumSet<NodeType> TRANSFER_TYPES =
         EnumSet.of(NodeType.BUS_IN, NodeType.BUS_OUT, NodeType.PRIVATE_IN, NodeType.PRIVATE_OUT);
+    /** 输出侧频段节点（其输出引脚可承载音频）/ output-side band nodes (their output pins can carry audio). */
+    private static final EnumSet<NodeType> BAND_SOURCE_TYPES =
+        EnumSet.of(NodeType.BUS_IN, NodeType.PRIVATE_IN);
+    /** 输入侧频段节点（其输入引脚可承载音频）/ input-side band nodes (their input pins can carry audio). */
+    private static final EnumSet<NodeType> BAND_SINK_TYPES =
+        EnumSet.of(NodeType.BUS_OUT, NodeType.PRIVATE_OUT);
     private int transferPinVersion = -1;
     private final Set<Long> transferWiredPins = new HashSet<>();
+    private final Set<Long> bandAudioPins = new HashSet<>();
 
     /** 该 (节点, 引脚) 是否连着总线/私有传输节点（编辑器引脚着色用）。
      *  缓存按拓扑版本失效——加/删连线/节点都会 bump 版本号，O(E) 重建摊销到首次查询。
@@ -224,6 +231,7 @@ public class NodeGraph {
     public boolean isTransferWired(int nodeId, int pin, boolean output) {
         if (topoVersion != transferPinVersion) {
             transferWiredPins.clear();
+            bandAudioPins.clear();
             for (NodeConnection c : connections) {
                 GraphNode fn = nodeMap.get(c.fromId);
                 GraphNode tn = nodeMap.get(c.toId);
@@ -232,10 +240,30 @@ public class NodeGraph {
                     transferWiredPins.add(transferPinKey(c.fromId, true, c.fromPin));
                     transferWiredPins.add(transferPinKey(c.toId, false, c.toPin));
                 }
+                // 频段节点自身的引脚承载音频 = 对端引脚是 AUDIO 域（BUS_IN/PRIVATE_IN 的输出接
+                // 音频输入、BUS_OUT/PRIVATE_OUT 的输入接音频输出）——引脚随连线变音频色。
+                // A band node's own pin carries audio when its peer pin is AUDIO-domain
+                // (BUS_IN/PRIVATE_IN outputs into audio inputs, audio outputs into
+                // BUS_OUT/PRIVATE_OUT inputs) — the pin tints with its wires.
+                if (BAND_SOURCE_TYPES.contains(fn.type)
+                        && tn.type.inputDomain(c.toPin) == NodeType.PinDomain.AUDIO)
+                    bandAudioPins.add(transferPinKey(c.fromId, true, c.fromPin));
+                if (BAND_SINK_TYPES.contains(tn.type)
+                        && fn.type.outputDomain(c.fromPin) == NodeType.PinDomain.AUDIO)
+                    bandAudioPins.add(transferPinKey(c.toId, false, c.toPin));
             }
             transferPinVersion = topoVersion;
         }
         return transferWiredPins.contains(transferPinKey(nodeId, output, pin));
+    }
+
+    /** 该 (频段节点, 引脚) 的连线对端是否音频域（BUS_IN/PRIVATE_IN 输出、BUS_OUT/PRIVATE_OUT
+     *  输入的音频着色用）。缓存与 {@link #isTransferWired} 同版本同生命周期。
+     *  Whether a band node's pin peers an AUDIO-domain pin (tinting BUS_IN/PRIVATE_IN outputs
+     *  and BUS_OUT/PRIVATE_OUT inputs); shares isTransferWired's cache lifecycle. */
+    public boolean isBandPinAudio(int nodeId, int pin, boolean output) {
+        isTransferWired(nodeId, pin, output); // ensure cache rebuilt for the current topology
+        return bandAudioPins.contains(transferPinKey(nodeId, output, pin));
     }
 
     private static long transferPinKey(int nodeId, boolean output, int pin) {

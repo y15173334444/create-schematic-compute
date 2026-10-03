@@ -21,20 +21,12 @@ public class NodeRenderer {
     // ── Color palette stored in a single volatile array for atomic read/write (Phase 1) ──
     // Index constants for the 23 themeable colors (16 graph-editor semantic colors +
     // 7 GUI chrome colors added with the settings theme extension)
-    static final int _CG=0,_CGL=1,_CN=2,_CH=3,_CB=4,_CPI=5,_CPO=6,_CW=7,_CWA=8,_CAP=9,_CAPB=10,_CWD=11;
-    static final int _CMN=12,_CMH=13,_CNT=14,_CCT=15,_CSB=16,_CPIB=17,_CPOB=18;
+    static final int _CG=0,_CGL=1,_CN=2,_CH=3,_CB=4,_CPI=5,_CPO=6,_CW=7,_CWA=8,_CAP=9,_CAPB=10,_CWD=11;    static final int _CMN=12,_CMH=13,_CNT=14,_CCT=15,_CSB=16,_CPIB=17,_CPOB=18;
     static final int _PBG=19,_PHT=20,_PBR=21,_PINS=22,_ACC=23,_ERR=24,_HOV=25;
     static final int _NUM_COLORS = 26;
 
     // Text and dim colors are constant across all themes
     static final int CT=0xFFFFFFFF, CD=0xFF888888;
-    /** 总线/私有传输连线的引脚着色：普通节点引脚接入 BUS/PRIVATE 传输后自动变为此色
-     *  （与暖金色常规引脚、音频青色区分；硬编码——不在配色面板暴露，需要时再提色板键）。
-     *  Pin tint for transfer-wired pins: a node pin wired into a BUS/PRIVATE transfer
-     *  auto-shifts to this cool teal-gray (distinct from the warm gold pins and the audio
-     *  wire teal; hardcoded — not exposed in the colour panel unless asked for). */
-    static final int TRANSFER_PIN = 0xFF7B9E99;
-
     private static volatile int[] _c = {
         0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,
         0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,
@@ -235,8 +227,9 @@ public class NodeRenderer {
     }
 
     public void renderDraggingWire(GuiGraphics g, NodeGraph graph, int wireFromNode, int wireFromPin,
-                                    float wireEndX, float wireEndY, float camX, float camY, float zoom) {
-        wireRenderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom);
+                                    float wireEndX, float wireEndY, float camX, float camY, float zoom,
+                                    boolean targetAudio) {
+        wireRenderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom, targetAudio);
     }
 
     public void renderGrid(GuiGraphics g, float camX, float camY, float zoom, int width, int height) {
@@ -444,6 +437,14 @@ public class NodeRenderer {
             g.fill(2, editLocalY - 2, nodeW - 2, editLocalY, CB());
             g.fill(2, editLocalY, nodeW - 2, editLocalY + editLocalH, 0xFF2A2822);
             if (editSt != null) {
+                // 每帧对齐当前图实例：BE 数据同步会整体替换客户端图（音响每 tick setChanged +
+                // sendBlockUpdated），EditState 创建时捕获的 st.graph 会变成孤儿快照——编辑区
+                // 里依赖图的判定（频段引脚着色/已连接）必须查当前图，否则要重开编辑器才更新。
+                // Re-point the edit state at the live graph every frame: BE data syncs replace
+                // the client graph wholesale (the speaker ticks setChanged + sendBlockUpdated),
+                // so the snapshot captured at EditState creation goes stale and edit-area
+                // graph queries (band-pin tint / connected) lag until the editor reopens.
+                editSt.graph = graph;
                 io.github.y15173334444.create_schematic_compute.blocks.EditPanel.renderAt(g, 0, editLocalY, nodeW, n, editSt, zoom, mx, my, flipflopStates);
             }
         }
@@ -490,28 +491,39 @@ public class NodeRenderer {
         pinPose.translate(sx,sy,0);
         pinPose.scale(zoom,zoom,1);
         int funcInputs = n.functionalInputs();
+        // 频段节点（BUS/PRIVATE）引脚是任意域——承载音频（对端为 AUDIO 引脚）时按音频引脚着色。
+        // Band (BUS/PRIVATE) pins are any-domain — they tint as audio pins while carrying audio
+        // (peer pin is AUDIO-domain).
+        boolean bandIn = n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT;
+        boolean bandOut = n.type == NodeType.BUS_IN || n.type == NodeType.PRIVATE_IN;
         for(int i=0; i<funcInputs; i++) {
             float py = HH+PH*i+PH/2f;
             int r = PR;
-            // 着色优先级：总线/私有传输连线 > 音频域引脚 > 常规引脚色（边框按引脚域分类）
-            // Priority: transfer wiring > AUDIO-domain pin > the regular pin colour
-            // (borders are categorised by pin domain).
+            // 引脚色只按域（音频域/承载音频的频段引脚 = 青，其余金）——不随连接状态变：
+            // 传输灰已退役（作者口径 2026-10-03：连接变色蔓延到普通引脚，读作 bug；音频域
+            // 识别由连线青色承担）。
+            // Pin colour follows the domain only (AUDIO-domain or audio-carrying band pin =
+            // teal, otherwise gold) — never the connection state: the transfer tint is retired
+            // (it read as a bug spreading onto ordinary pins; audio domains are told apart by
+            // the wire colour).
+            boolean inAudio = n.type.inputDomain(i) == NodeType.PinDomain.AUDIO
+                || (bandIn && graph != null && graph.isBandPinAudio(n.id, i, false));
             g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1),
-                n.type.inputDomain(i) == NodeType.PinDomain.AUDIO ? CAPB() : CPIB());
+                inAudio ? CAPB() : CPIB());
             g.fill(-r, (int)(py - r), r, (int)(py + r),
-                graph != null && graph.isTransferWired(n.id, i, false) ? TRANSFER_PIN
-                    : n.type.inputDomain(i) == NodeType.PinDomain.AUDIO ? CAP() : CPI());
+                inAudio ? CAP() : CPI());
             String inlbl = n.inputLabel(i);
             drawStr(g, (n.type == NodeType.BUS_OUT || n.type == NodeType.FORMULA || n.type == NodeType.ENCAPSULATION) ? inlbl : I18n.get(inlbl), 10, py-3, CD);
         }
         for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL && n.type != NodeType.DEBUG_PROBE; i++) {
             float py = HH+PH*(funcInputs + i)+PH/2f;
             int r = PR;
+            boolean outAudio = n.type.outputDomain(i) == NodeType.PinDomain.AUDIO
+                || (bandOut && graph != null && graph.isBandPinAudio(n.id, i, true));
             g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1),
-                n.type.outputDomain(i) == NodeType.PinDomain.AUDIO ? CAPB() : CPOB());
+                outAudio ? CAPB() : CPOB());
             g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r),
-                graph != null && graph.isTransferWired(n.id, i, true) ? TRANSFER_PIN
-                    : n.type.outputDomain(i) == NodeType.PinDomain.AUDIO ? CAP() : CPO());
+                outAudio ? CAP() : CPO());
             String rawOutLbl = n.outputLabel(i);
             String outlbl = (n.type == NodeType.BUS_IN || n.type == NodeType.ENCAPSULATION) ? rawOutLbl : I18n.get(rawOutLbl);
             int olw = Minecraft.getInstance().font.width(outlbl);

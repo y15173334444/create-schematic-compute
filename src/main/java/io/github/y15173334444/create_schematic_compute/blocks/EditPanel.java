@@ -187,8 +187,16 @@ public class EditPanel {
             }
             int pinY = py + 4 + row * 18 + 8;
             if (st.bandPinY != null && bi - 1 < st.bandPinY.length) st.bandPinY[bi - 1] = pinY;
-            g.fill(pinX - pinR - 1, pinY - pinR - 1, pinX + pinR + 1, pinY + pinR + 1, NodeRenderer.CPIB());
-            g.fill(pinX - pinR, pinY - pinR, pinX + pinR, pinY + pinR, pinConnected ? 0xFF666644 : isBusIn ? NodeRenderer.CPO() : NodeRenderer.CPI());
+            // 频段引脚承载音频（对端为 AUDIO 引脚，如 MUSIC→BUS_OUT / BUS_IN→SPEAKER_PLAY）时
+            // 按音频引脚着色；浮点连线保持暗金，未连接保持常规金。
+            // A band pin carrying audio (peer pin AUDIO-domain) tints as an audio pin; float
+            // wires keep the dim gold, unconnected stays regular.
+            boolean audioPin = st.graph != null && st.graph.isBandPinAudio(node.id, pinIdx, isBusIn);
+            g.fill(pinX - pinR - 1, pinY - pinR - 1, pinX + pinR + 1, pinY + pinR + 1,
+                audioPin ? NodeRenderer.CAPB() : NodeRenderer.CPIB());
+            g.fill(pinX - pinR, pinY - pinR, pinX + pinR, pinY + pinR,
+                audioPin ? NodeRenderer.CAP()
+                    : pinConnected ? 0xFF666644 : isBusIn ? NodeRenderer.CPO() : NodeRenderer.CPI());
             // 频段名（BUS_IN 只读文本，BUS_OUT EditBox 可编辑）
             if (isBusIn) {
                 String bandName = st.fields.get(bi).getValue();
@@ -365,14 +373,16 @@ public class EditPanel {
             var b = st.fields.get(i);
             boolean hasParamPin = i < st.fieldParamIndices.size();
             boolean pinConnected = false;
-            // 渲染参数输入引脚（始终可见，连线时变暗）
+            // 渲染参数输入引脚（始终可见；颜色不随连接状态变——与主体引脚同口径，连线
+            // 与否由输入框隐藏表达）/ Always visible; the colour never follows the
+            // connection state (same rule as body pins — the hidden EditBox shows the wiring).
             if (hasParamPin) {
                 int paramIdx = st.fieldParamIndices.get(i);
                 int pinIdx = node.type.inputs + paramIdx;
                 pinConnected = st.graph != null && st.graph.hasInputConnection(node.id, pinIdx);
                 int pinX = px + 6 + r, pinY = py + 4 + row * 18 + 8;
                 g.fill(pinX - r - 1, pinY - r - 1, pinX + r + 1, pinY + r + 1, NodeRenderer.CPIB());
-                g.fill(pinX - r, pinY - r, pinX + r, pinY + r, pinConnected ? 0xFF666644 : NodeRenderer.CPI());
+                g.fill(pinX - r, pinY - r, pinX + r, pinY + r, NodeRenderer.CPI());
             }
 
             String label = i < st.paramKeys.length ? I18n.get("param.create_schematic_compute." + st.paramKeys[i]) + ":" :
