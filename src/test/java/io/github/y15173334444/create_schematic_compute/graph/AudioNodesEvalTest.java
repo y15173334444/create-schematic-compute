@@ -185,6 +185,48 @@ class AudioNodesEvalTest {
     }
 
     @Test
+    @DisplayName("私有频段音频：PRIVATE_OUT 发布 → PRIVATE_IN 读取 / private band audio: publish then read")
+    void privateBandAudio() {
+        // 图 1：MUSIC→AMP→PRIVATE_OUT("px")——音频线接私有频段引脚（域特判放行）
+        NodeGraph g1 = new NodeGraph();
+        GraphNode constPlay1 = g1.addNode(NodeType.CONST, 0, 0);
+        constPlay1.params[0] = 1f;
+        GraphNode music = g1.addNode(NodeType.MUSIC, 100, 0);
+        music.song = song(45);
+        GraphNode amp = g1.addNode(NodeType.AMP, 200, 0);
+        amp.params[0] = 1f;
+        GraphNode pout = g1.addNode(NodeType.PRIVATE_OUT, 300, 0);
+        pout.signalName = "px";
+        assertTrue(g1.addConnection(constPlay1.id, 0, music.id, 0));
+        assertTrue(g1.addConnection(music.id, 0, amp.id, 0));
+        assertTrue(g1.addConnection(amp.id, 0, pout.id, 0), "audio wire into PRIVATE_OUT accepted (band-pin domain rule)");
+
+        GraphEvaluator ev1 = new GraphEvaluator(g1);
+        ev1.restoreSubState(new RuntimeState());
+        ev1.setAudioTransports(new HashMap<>());
+        ev1.setAudioHostPos(new BlockPos(0, 0, 0));
+        ev1.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+
+        // 图 2：PRIVATE_IN("px")→AUDIO_OUT("rx")——私有读取走 exactly-once 游标，再发布到 rx
+        NodeGraph g2 = new NodeGraph();
+        GraphNode pin = g2.addNode(NodeType.PRIVATE_IN, 0, 0);
+        pin.signalName = "px";
+        GraphNode out = g2.addNode(NodeType.AUDIO_OUT, 100, 0);
+        out.signalName = "rx";
+        assertTrue(g2.addConnection(pin.id, 0, out.id, 0), "PRIVATE_OUT wire into an audio pin accepted");
+
+        GraphEvaluator ev2 = new GraphEvaluator(g2);
+        ev2.restoreSubState(new RuntimeState());
+        ev2.setAudioTransports(new HashMap<>());
+        ev2.setAudioHostPos(new BlockPos(0, 0, 0));
+        ev2.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+
+        var events = AudioBands.get("rx", 0L).events();
+        assertEquals(1, events.size(), "the note crosses the private band end to end");
+        assertEquals(45, events.get(0).key());
+    }
+
+    @Test
     @DisplayName("5.1 布局求值：六个声道各走各的频段 / 5.1 evaluation: six channels route to their own bands")
     void surround51Routing() {
         NbsSong s = new NbsSong();

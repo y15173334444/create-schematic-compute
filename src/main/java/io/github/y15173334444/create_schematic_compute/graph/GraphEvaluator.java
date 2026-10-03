@@ -817,8 +817,34 @@ public class GraphEvaluator {
                     * (node.params.length > 0 && node.params[0] > 0.5f ? -1f : 1f);
                 o[0] = sign * speed;
             }
-            case PRIVATE_IN -> o[0] = SignalBus.get(node.signalName);
-            case PRIVATE_OUT -> SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
+            case PRIVATE_IN -> {
+                // 私有频段音频分支（R1-2 完整落地）：输出接了音频线（下游 AUDIO 域引脚）→ 按
+                // consumerKey 读 AudioBands（exactly-once 游标 + 新鲜度门控，与 BUS_IN 同款；
+                // 空名/缺席/陈旧均为空音源）；否则走浮点 SIGNALS。
+                // Private-band audio branch: output wired to an audio pin reads AudioBands
+                // (same cursor/freshness discipline as BUS_IN); otherwise float SIGNALS.
+                if (graph.hasAudioSinkConnection(node.id)) {
+                    audioRefs.put(audioKey(node.id, 0),
+                        io.github.y15173334444.create_schematic_compute.network.AudioBands
+                            .get(consumerKey(node), node.signalName, audioTickStamp));
+                    break;
+                }
+                o[0] = SignalBus.get(node.signalName);
+            }
+            case PRIVATE_OUT -> {
+                // 私有频段音频分支（R1-2）：输入来自音频线 → 发布 AudioRef 到 AudioBands
+                //（名字 = signalName，owner/冲突纪律与 AUDIO_OUT 同款，空名不发布）；否则浮点。
+                // Private-band audio branch: audio input publishes the AudioRef to AudioBands
+                // (owner/conflict discipline as AUDIO_OUT); otherwise float.
+                AudioRef aref = graph.getAudioInputRef(node.id, 0, audioRefs);
+                if (aref != null) {
+                    node.audioConflict = !node.signalName.isEmpty()
+                        && !io.github.y15173334444.create_schematic_compute.network.AudioBands
+                            .publish(node.signalName, aref, audioTickStamp, consumerKey(node));
+                    break;
+                }
+                SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
+            }
             case BUS_IN -> {
                 // 音频频段引脚：仅当本节点的输出接了音频线（下游 AUDIO 域引脚）才走音频分支——
                 // 避免同名浮点频段被音频发布方劫持；读取带新鲜度门控（陈旧/缺席视为空音源）。

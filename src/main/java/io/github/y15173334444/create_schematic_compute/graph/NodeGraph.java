@@ -126,12 +126,13 @@ public class NodeGraph {
         return true;
     }
 
-    /** 引脚域兼容：AUDIO 域引脚只连 AUDIO 域，FLOAT 只连 FLOAT；但 BUS_OUT/BUS_IN 频段引脚
-     *  接受任意域（音频可走「总线/私有信号频段」，接上后引脚自动变音频 pinId 引脚）。
-     *  Pin-domain compatibility: AUDIO↔AUDIO, FLOAT↔FLOAT; but BUS_OUT/BUS_IN band pins
-     *  accept either domain so audio can route through bus/private bands. */
+    /** 引脚域兼容：AUDIO 域引脚只连 AUDIO 域，FLOAT 只连 FLOAT；但 BUS_OUT/BUS_IN/PRIVATE_OUT/
+     *  PRIVATE_IN 频段引脚接受任意域（音频可走「总线/私有信号频段」，R1-2；接上后求值器走音频分支）。
+     *  Pin-domain compatibility: AUDIO↔AUDIO, FLOAT↔FLOAT; but BUS/PRIVATE band pins
+     *  accept either domain so audio can route through bus/private bands (R1-2). */
     private static boolean pinDomainsMatch(GraphNode fromNode, int fromPin, GraphNode toNode, int toPin) {
-        if (toNode.type == NodeType.BUS_OUT || fromNode.type == NodeType.BUS_IN) return true;
+        if (toNode.type == NodeType.BUS_OUT || fromNode.type == NodeType.BUS_IN
+            || toNode.type == NodeType.PRIVATE_OUT || fromNode.type == NodeType.PRIVATE_IN) return true;
         return fromNode.type.outputDomain(fromPin) == toNode.type.inputDomain(toPin);
     }
 

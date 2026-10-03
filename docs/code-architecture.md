@@ -143,8 +143,13 @@ io.github.y15173334444.create_schematic_compute/
 > 音频五节点（MUSIC / AMP / AUDIO_OUT / CHANNEL / SPEAKER_PLAY）在 `eval()` switch 内求值；频段读取无
 > 专属节点——`BUS_IN` 输出接音频线即走音频分支读 `AudioBands`（2026-10-03 移除 AUDIO_IN）；`BUS_OUT`
 > 也有音频分支（仅当其输出线接入 AUDIO 域引脚时才走，`NodeGraph.hasAudioSinkConnection` 判定）。
+> **私有频段同权（R1-2 完整落地）**：`PRIVATE_IN`（输出接音频线 → 按消费者游标读）/ `PRIVATE_OUT`
+>（音频输入 → 发布，owner 冲突纪律同 AUDIO_OUT）有同款音频分支，连线校验对四个频段节点统一放行
+> 任意域（`pinDomainsMatch`）；私有与总线共用同一张 `AudioBands` 表（键 = 频段名）。
 > / The six audio nodes evaluate inside the `eval()` switch; BUS_IN/BUS_OUT have audio branches taken only when
-> their output lines enter AUDIO-domain pins (`NodeGraph.hasAudioSinkConnection`).
+> their output lines enter AUDIO-domain pins (`NodeGraph.hasAudioSinkConnection`). PRIVATE_IN/PRIVATE_OUT
+> carry the same branches (R1-2 completed) — all four band nodes accept either pin domain, sharing one
+> AudioBands table keyed by band name.
 
 > CHANNEL 布局预设（R3，`ChannelLayout` 纯类）：`params[0]` = 布局序号（mix / 2.0 / 4.0 / 5.1 / 7.1），
 > 引脚集合由布局表整体决定（`CHANNEL_PIN_IDS` 九值：mix,l,r,c,sub,ls,rs,sl,sr，顺序兼作 SPEAKER_PLAY
