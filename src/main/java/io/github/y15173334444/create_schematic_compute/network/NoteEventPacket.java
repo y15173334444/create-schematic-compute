@@ -53,8 +53,10 @@ public record NoteEventPacket(BlockPos speakerPos, float radius, long dispatchGa
             int n = buf.readVarInt();
             List<NoteEvent> list = new ArrayList<>(n);
             for (int i = 0; i < n; i++) {
-                list.add(new NoteEvent(buf.readByte(), buf.readByte(), buf.readByte(),
-                    buf.readByte(), buf.readShort(), buf.readFloat(), buf.readFloat()));
+                // 乐器 0–255、声像 0–200 超有符号字节范围，按无符号读回（写侧本就是裸字节）
+                // / instrument and panning span past a signed byte — read them unsigned.
+                list.add(new NoteEvent(buf.readUnsignedByte(), buf.readByte(), buf.readByte(),
+                    buf.readUnsignedByte(), buf.readShort(), buf.readFloat(), buf.readFloat()));
             }
             return new NoteEventPacket(pos, radius, dispatchGameTick, list);
         });
