@@ -3,7 +3,7 @@
 > **状态：🟢 核心 + 编辑器已实现（2026-10-01 起实施；音频后端 + 两方块 + 播放调度 + NBS 钢琴卷帘编辑器落地并测试全绿）**
 > **交接现状与代码审查结论见开发交接文档（作者本地保存，AI 接手文档不入仓库）。**
 > **已实现**（见 CHANGELOG Unreleased）：`NbsSong`（NBS v1–v5 解析/写出 v5/编辑）、`NoteEvent`（键位映射 F1/G3）、
-> `MusicTransport`（传输推进/音符展开/层音量/循环/尾脉冲）、`AudioBands`（音频频段层，R1-2 并入频段路由）、
+> `MusicTransport`（传输推进/音符展开/层音量/层声像/循环/尾脉冲）、`AudioBands`（音频频段层，R1-2 并入频段路由）、
 > `NodeType` MUSIC/AMP/AUDIO_OUT/CHANNEL/SPEAKER_PLAY + 引脚域（FLOAT/AUDIO）+ `NodeCategory.AUDIO` +
 > `BlockNodeAllowances.AMPLIFIER/SPEAKER`、
 > `GraphNode` 曲目字段/pinId、`GraphEvaluator` 音源引用表（AudioRef）+ 五节点求值 + 宿主注入 + 边沿去重、
@@ -13,8 +13,8 @@
 > （`NbsEditorKernel` 内核 / `NbsPianoRoll` 卷帘 / `NbsEditorScreen` 屏幕，双击 MUSIC 节点打开，plan §3.2）。
 > 单测：NbsSongTest / AudioNodeModelTest / NoteEventTest / MusicTransportTest / AudioNodesEvalTest /
 > NbsEditorKernelTest / SongWriteOpTest。
-> **待实现**（后续）：逐音协作 op、音频连线特殊渲染样式、层声像烘焙（R1-5）。（D13 声音事件路线已被引擎取代；
-> 预播提前量已落地，见 R2 补。）
+> **待实现**（后续）：逐音协作 op。（D13 声音事件路线已被引擎取代；预播提前量、音频连线特殊渲染样式、
+> 层声像烘焙（R1-5，G2 = NBS Calculations 同式）均已落地，见 R2 补与 CHANGELOG。）
 >
 > **实现期决策补记（2026-10-01，编辑器落地时定）**：
 > ① **曲目传输 = Blob 分片**：C2S 自定义负载单包上限 32 KB（`ServerboundCustomPayloadPacket.MAX_PAYLOAD_SIZE`
