@@ -917,13 +917,17 @@ public class GraphEvaluator {
                                 }
                             }
                         }
+                        // 音频频段引脚：接音频线 → 发到 AudioBands（单引脚多声道，跨方块，带发布时刻）。
+                        // owner = 宿主坐标+节点 id（R1-2 冲突纪律，与 AUDIO_OUT 同款）；
+                        // 混载频道任一音频频段冲突即置旗标，无音频的频段不影响旗标。
+                        node.audioConflict = false;
                         for (int bi = 0; bi < bc; bi++) {
                             String bandName = node.signalBands.get(bi);
-                            // 音频频段引脚：接音频线 → 发到 AudioBands（单引脚多声道，跨方块，带发布时刻）
                             AudioRef aref = graph.getAudioInputRef(node.id, bi, audioRefs);
                             if (aref != null) {
-                                io.github.y15173334444.create_schematic_compute.network.AudioBands
-                                    .publish(node.signalName, aref, audioTickStamp);
+                                if (!io.github.y15173334444.create_schematic_compute.network.AudioBands
+                                    .publish(node.signalName, aref, audioTickStamp, consumerKey(node)))
+                                    node.audioConflict = true;
                             } else {
                                 node.busInternalMap.put(bandName, pinValues.getOrDefault(bandName, 0f));
                             }
@@ -1302,17 +1306,14 @@ public class GraphEvaluator {
             }
             case AUDIO_OUT -> {
                 // 单引脚多声道：audio 入（多声道 AudioRef）→ 发布到音频频段（band=signalName，带发布时刻）。
+                // owner = 宿主坐标+节点 id（R1-2 冲突纪律）：同名双发布方 → 双方旗标、整体静默；
+                // 空名无可发布对象，不算冲突。
                 AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
-                if (audioHostPos != null)
-                    io.github.y15173334444.create_schematic_compute.network.AudioBands
-                        .publish(node.signalName, in != null ? in : AudioRef.EMPTY, audioTickStamp);
-            }
-            case AUDIO_IN -> {
-                // 单引脚多声道：从音频频段读（band=signalName）→ audio 出（多声道 AudioRef）。
-                // 新鲜度门控：发布方停机/卸载后陈旧引用自动失效为空音源。
-                AudioRef r = io.github.y15173334444.create_schematic_compute.network.AudioBands
-                    .get(consumerKey(node), node.signalName, audioTickStamp);
-                audioRefs.put(audioKey(node.id, 0), r != null ? r : AudioRef.EMPTY);
+                if (audioHostPos != null) {
+                    node.audioConflict = !node.signalName.isEmpty()
+                        && !io.github.y15173334444.create_schematic_compute.network.AudioBands
+                            .publish(node.signalName, in != null ? in : AudioRef.EMPTY, audioTickStamp, consumerKey(node));
+                }
             }
             case SPEAKER_PLAY -> {
                 // 播放 sink：把音源交给宿主音响 BE，在其坐标发声（R1-3/R1-D）。

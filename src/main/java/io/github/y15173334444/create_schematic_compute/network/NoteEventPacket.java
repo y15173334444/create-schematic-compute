@@ -73,6 +73,9 @@ public record NoteEventPacket(BlockPos speakerPos, float radius, long dispatchGa
         long lateTicks = 0;
         var mc = net.minecraft.client.Minecraft.getInstance();
         if (mc.level != null) lateTicks = mc.level.getGameTime() - dispatchGameTick;
+        // 批次级探针：区分服务端下发停顿 / 客户端主线程积压 / 迟到校正时钟歪斜
+        // (堵塞归因的数据面——[TimelineDiag] DISPATCH-GAP / CLIENT-DELAY / LATE-CORR-SPIKE)
+        CscAudioEngine.noteDispatchBatch(dispatchGameTick, events.size(), lateTicks);
         for (NoteEvent e : events) playAt(e, x, y, z, radius, lateTicks * 0.05f);
     }
 

@@ -4,9 +4,9 @@
 > **交接现状与代码审查结论见开发交接文档（作者本地保存，AI 接手文档不入仓库）。**
 > **已实现**（见 CHANGELOG Unreleased）：`NbsSong`（NBS v1–v5 解析/写出 v5/编辑）、`NoteEvent`（键位映射 F1/G3）、
 > `MusicTransport`（传输推进/音符展开/层音量/循环/尾脉冲）、`AudioBands`（音频频段层，R1-2 并入频段路由）、
-> `NodeType` MUSIC/AMP/AUDIO_OUT/CHANNEL/AUDIO_IN/SPEAKER_PLAY + 引脚域（FLOAT/AUDIO）+ `NodeCategory.AUDIO` +
+> `NodeType` MUSIC/AMP/AUDIO_OUT/CHANNEL/SPEAKER_PLAY + 引脚域（FLOAT/AUDIO）+ `NodeCategory.AUDIO` +
 > `BlockNodeAllowances.AMPLIFIER/SPEAKER`、
-> `GraphNode` 曲目字段/pinId、`GraphEvaluator` 音源引用表（AudioRef）+ 六节点求值 + 宿主注入 + 边沿去重、
+> `GraphNode` 曲目字段/pinId、`GraphEvaluator` 音源引用表（AudioRef）+ 五节点求值 + 宿主注入 + 边沿去重、
 > `AmplifierComputerBlock(+Entity+Screen)`/`SpeakerBlock(+Entity+Screen)` + 注册 + 资源/语言、
 > `NoteEventPacket`/`SpeakerSettingsPacket` + 频段分发 + 客户端世界发声（原版音符盒 16 音色 = D13 回退）；
 > **曲目写入/替换 op（`SET_SONG`，blob 分片 + 引用 op）与 NBS 钢琴卷帘编辑器**
@@ -91,12 +91,13 @@
 
 **R1-3 音响 = 音频专用图宿主**
 - 音响 = `SyncedGraphBlockEntity` 图宿主 + **音频专用图编辑器**。
-- 图节点集（音频专用）：`AUDIO_IN`（从频段读音源，自动引脚）→ `AMP`/混合 → **`SPEAKER_PLAY`（在本坐标播放 sink）**。
+- 图节点集（音频专用）：`BUS_IN`（频段读——输出接音频线走音频分支；**2026-10-03 修订：AUDIO_IN 移除**，
+  频段读取由走总线/私有频段路由的音频连线承担）→ `AMP`/混合 → **`SPEAKER_PLAY`（在本坐标播放 sink）**。
 - 处理后的音源在音响坐标发声；红石静音兜底保留。
 
 **R1-4 节点集（修订）**
 - 功放图：`MUSIC`（曲目宿主，产 AudioRef）/ `AMP`（增益，产 AudioRef）/ `AUDIO_OUT`（把音源发布到总线/私有频段）。
-- 音响图：`AUDIO_IN`（频段读，自动引脚）/ `SPEAKER_PLAY`（本坐标播放 sink）+ 少量处理（AMP/混合）。
+- 音响图：`BUS_IN`（频段读——输出接音频线走音频分支）/ `SPEAKER_PLAY`（本坐标播放 sink）+ 少量处理（AMP/混合）。
 - 全部归 `NodeCategory.AUDIO`；功放准入 = 通用+AUDIO，音响准入 = 音频专用（AUDIO 类 + 播放 sink）。
 
 **R1-5 多声道 / 声道（channel）—— 已定稿**

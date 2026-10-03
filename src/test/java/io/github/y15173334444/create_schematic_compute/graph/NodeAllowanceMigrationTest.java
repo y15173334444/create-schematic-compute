@@ -37,9 +37,9 @@ class NodeAllowanceMigrationTest {
             NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT,
             NodeType.MOVE, NodeType.ROTATE, NodeType.WAIT, NodeType.CLUTCH, NodeType.ENCODER,
             NodeType.TX_OUT,
-            // 迁移后新增（音频类，功放/音响专属）/ post-migration audio nodes
+            // 迁移后新增（音频类，功放/音响专属；频段读取由 BUS_IN 音频分支承担，无专属读取节点）
             NodeType.MUSIC, NodeType.AMP, NodeType.AUDIO_OUT,
-            NodeType.CHANNEL, NodeType.AUDIO_IN, NodeType.SPEAKER_PLAY));
+            NodeType.CHANNEL, NodeType.SPEAKER_PLAY));
         return s;
     }
 

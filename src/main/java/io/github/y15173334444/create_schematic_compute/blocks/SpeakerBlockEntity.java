@@ -21,17 +21,18 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 音响 BE（R1-3）：<b>音频专用图宿主</b>（{@code SyncedGraphBlockEntity}），图 = {@code AUDIO_IN → SPEAKER_PLAY}。
- * <p>从音频频段读（band→AUDIO_IN.signalName，引脚自动收敛），经 {@code SPEAKER_PLAY} 在自身坐标发声
+ * 音响 BE（R1-3）：<b>音频专用图宿主</b>（{@code SyncedGraphBlockEntity}），图 = {@code BUS_IN --音频线--> SPEAKER_PLAY}。
+ * <p>从音频频段读（band→音频 BUS_IN.signalName，经求值器 BUS_IN 音频分支读 AudioBands），
+ * 经 {@code SPEAKER_PLAY} 在自身坐标发声
  * （实现 {@link SpeakerSink}）。增益/半径/静音为播放设置；红石高电平静音兜底。</p>
- * <p>Speaker BE: an audio-only graph host ({@code AUDIO_IN → SPEAKER_PLAY}) that reads an
+ * <p>Speaker BE: an audio-only graph host ({@code BUS_IN --audio wire--> SPEAKER_PLAY}) that reads an
  * audio band and plays at its own position via {@link SpeakerSink}.</p>
  */
 public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements SpeakerSink {
 
-    /** 音频频段名（band，路由）→ AUDIO_IN.signalName。 */
+    /** 音频频段名（band，路由）→ 音频 BUS_IN.signalName（求值器音频分支按它读 AudioBands）。 */
     public String channelBand = "speaker";
-    /** 播放声道（channel pinId：聚合/左/右…）→ 默认图里 AUDIO_IN.该声道 → SPEAKER_PLAY。 */
+    /** 播放声道（channel pinId：聚合/左/右…）→ 默认图里 SPEAKER_PLAY 的声道参数。 */
     public String channelName = "mix";
     /** 播放增益（叠加在音源增益链上）。 */
     public float gain = 1f;
@@ -56,9 +57,11 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
         redstoneMuted = level.hasNeighborSignal(worldPosition);
         // 与 ProgramComputer/功放同款门控：运行开关关闭时不求值、不发声。
         if (!isRunning()) { onStopRunning(); return; }
-        // 默认图：AUDIO_IN(band) → SPEAKER_PLAY(声道)（仅空图时建立）
+        // 默认图：BUS_IN(band) --音频线--> SPEAKER_PLAY(声道)（仅空图时建立；频段读取走
+        // BUS_IN 音频分支——输出接音频线即读 AudioBands，2026-10-03 起 AUDIO_IN 节点已移除）
         if (graph().nodes.isEmpty()) createDefaultGraph();
-        for (GraphNode n : graph().nodes) if (n.type == NodeType.AUDIO_IN) n.signalName = channelBand;
+        for (GraphNode n : graph().nodes)
+            if (n.type == NodeType.BUS_IN && graph().hasAudioSinkConnection(n.id)) n.signalName = channelBand;
         rs().checkGraphChanged(graph());
         if (graphChanged()) recompileEvaluatorFull();
         evaluator().setAudioTransports(audioTransports);
@@ -73,13 +76,15 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
         setChanged();
     }
 
-    /** 默认音频图：AUDIO_IN(band) → SPEAKER_PLAY(选声道)。单引脚多声道。 */
+    /** 默认音频图：BUS_IN(band) --音频线--> SPEAKER_PLAY(选声道)。单引脚多声道；
+     *  频段读取由 BUS_IN 音频分支承担（signalBands ≥1 条保 bandCount≥1，音频引用才落到引脚 0）。 */
     private void createDefaultGraph() {
-        GraphNode in = graph().addNode(NodeType.AUDIO_IN, 0, 0);
+        GraphNode in = graph().addNode(NodeType.BUS_IN, 0, 0);
         in.signalName = channelBand;
+        in.signalBands = new ArrayList<>(List.of(channelBand));
         GraphNode play = graph().addNode(NodeType.SPEAKER_PLAY, 220, 0);
         play.params[0] = channelParam(channelName);
-        graph().addConnectionWithPinIds(in.id, "0", play.id, "0");
+        graph().addConnection(in.id, 0, play.id, 0); // pinId 自动派生（BUS 出 = 频段名）
         graph().bumpGeneration();
         setChanged();
     }
@@ -113,10 +118,15 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
             if (graph().nodes.isEmpty()) {
                 createDefaultGraph();
             } else {
-                // 原位改：AUDIO_IN 换频段、SPEAKER_PLAY 换声道；用户加的节点/连线全保留。
+                // 原位改：音频 BUS_IN 换频段、SPEAKER_PLAY 换声道；用户加的节点/连线全保留。
+                // 只动「输出接了音频线」的 BUS_IN（音频读取者），用户的浮点 BUS_IN 不受影响。
                 for (GraphNode n : graph().nodes) {
-                    if (n.type == NodeType.AUDIO_IN) n.signalName = channelBand;
-                    else if (n.type == NodeType.SPEAKER_PLAY) n.params[0] = channelParam(channelName);
+                    if (n.type == NodeType.BUS_IN && graph().hasAudioSinkConnection(n.id)) {
+                        n.signalName = channelBand;
+                        n.signalBands = new ArrayList<>(List.of(channelBand));
+                    } else if (n.type == NodeType.SPEAKER_PLAY) {
+                        n.params[0] = channelParam(channelName);
+                    }
                 }
                 graph().bumpGeneration();
             }

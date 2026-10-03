@@ -142,12 +142,12 @@ public enum NodeType {
     // Channel split (multi-pin): audio in → per-channel outputs (mix/left/right…),
     // output channel count chosen in the edit panel.
     CHANNEL("channel", "node.create_schematic_compute.channel", 1, 0, "channelCount"),
-    // 频段读取（单引脚多声道）：从音频频段读（band=signalName）→ audio 出（多声道 AudioRef）。
-    // Band read (single-pin multi-channel): audio band → audio out (multi-channel AudioRef).
-    AUDIO_IN("audio_in", "node.create_schematic_compute.audio_in", 0, 1, ""),
     // 播放 sink（音响图）：在本坐标播放音源；编辑区选声道（聚合/左/右，单引脚多声道里的选声道）。
     // Playback sink (speaker graph): plays the source at this block's position; the edit
     // panel selects the channel (mix/left/right) from the single multi-channel pin.
+    // （频段读取无专属节点：BUS_IN 输出接音频线即走音频分支读 AudioBands，2026-10-03 移除 AUDIO_IN）
+    // (No dedicated band-read node: a BUS_IN output wired to an audio pin reads AudioBands
+    // via the evaluator's audio branch — AUDIO_IN removed 2026-10-03.)
     SPEAKER_PLAY("speaker_play", "node.create_schematic_compute.speaker_play", 1, 0, "channel");
 
     /** NBT 序列化的稳定字符串标识符 — 永远不要修改这些值。 / Stable string identifier for NBT serialisation — never change these. */
@@ -202,13 +202,12 @@ public enum NodeType {
         return PinDomain.FLOAT;
     }
 
-    /** 输出引脚 i 的信号域。MUSIC 的 audio 出、AMP 的 audio 出、CHANNEL 的全部声道出、
-     *  AUDIO_IN 的 audio 出为 AUDIO，其余 FLOAT。 Signal domain of output pin i. */
+    /** 输出引脚 i 的信号域。MUSIC 的 audio 出、AMP 的 audio 出、CHANNEL 的全部声道出
+     *  为 AUDIO，其余 FLOAT。 Signal domain of output pin i. */
     public PinDomain outputDomain(int i) {
         if (this == MUSIC && i == 0) return PinDomain.AUDIO;
         if (this == AMP && i == 0) return PinDomain.AUDIO;
         if (this == CHANNEL) return PinDomain.AUDIO;
-        if (this == AUDIO_IN && i == 0) return PinDomain.AUDIO;
         return PinDomain.FLOAT;
     }
 
@@ -231,7 +230,7 @@ public enum NodeType {
                  // AUDIO_OUT 频道引脚由 signalBands 决定，同 BUS_OUT / channel pins from signalBands, like BUS_OUT
                  // CHANNEL 的「输出声道数」= 编辑区按钮（非引脚）/ channelCount = edit-panel control, not a pin
                  // SPEAKER_PLAY 的「声道」= 编辑区按钮 / channel = edit-panel button
-                 MUSIC, AUDIO_OUT, CHANNEL, AUDIO_IN, SPEAKER_PLAY,
+                 MUSIC, AUDIO_OUT, CHANNEL, SPEAKER_PLAY,
                  // rev = 正/反转开关（编辑区按钮，不走 EditBox / toggle button, not an EditBox）
                  TX_OUT, SPEED_CTRL -> 0;
             // MOVE/ROTATE：只有 meters/degrees 走 EditBox+引脚；rev 是按钮，不占引脚
@@ -348,7 +347,7 @@ public enum NodeType {
         case RPM -> pk("rpm");
         case MUSIC -> i==0?pk("audio"):i==1?pk("playing"):i==2?pk("tick"):i==3?pk("seconds"):pk("done");
         case AMP -> pk("audio");
-        case AUDIO_IN, CHANNEL -> pk("audio"); // CHANNEL 声道名由 GraphNode.outputLabel 覆盖（聚合/左/右）
+        case CHANNEL -> pk("audio"); // 声道名由 GraphNode.outputLabel 覆盖（聚合/左/右）
         default -> "";
     };}
 }

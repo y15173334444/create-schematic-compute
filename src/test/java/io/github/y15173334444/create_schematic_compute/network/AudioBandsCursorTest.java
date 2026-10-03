@@ -2,6 +2,7 @@ package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.graph.AudioRef;
 import io.github.y15173334444.create_schematic_compute.graph.NoteEvent;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +24,13 @@ class AudioBandsCursorTest {
 
     @BeforeEach
     void reset() {
+        AudioBands.clear();
+    }
+
+    @AfterEach
+    void cleanup() {
+        // 全局静态表跨类共享：stamp 残留会让后续测试类相对 tick 0 的发布判为陈旧/冲突
+        // The global static tables leak across classes; stale stamps poison the next class.
         AudioBands.clear();
     }
 

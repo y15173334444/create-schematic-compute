@@ -8,10 +8,13 @@ import net.minecraft.nbt.Tag;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 
 /** 完整的节点图：节点 + 连接。 / The complete node graph: nodes + connections. */
 public class NodeGraph {
@@ -202,6 +205,41 @@ public class NodeGraph {
     /** 返回拓扑版本号，供外部判断图是否变化。
      *  Return the topological version number for external callers to detect graph changes. */
     public int topoVersion() { return topoVersion; }
+
+    // ── 传输连线引脚缓存（编辑器渲染着色用）/ transfer-wired pin cache (editor tinting) ──
+    /** 总线/私有传输节点类型：与这些节点相连的引脚在编辑器中自动变色（长距传输一眼可辨）。
+     *  Transfer node types: pins wired to these auto-tint in the editor so long-range
+     *  transfer hops read at a glance. */
+    private static final EnumSet<NodeType> TRANSFER_TYPES =
+        EnumSet.of(NodeType.BUS_IN, NodeType.BUS_OUT, NodeType.PRIVATE_IN, NodeType.PRIVATE_OUT);
+    private int transferPinVersion = -1;
+    private final Set<Long> transferWiredPins = new HashSet<>();
+
+    /** 该 (节点, 引脚) 是否连着总线/私有传输节点（编辑器引脚着色用）。
+     *  缓存按拓扑版本失效——加/删连线/节点都会 bump 版本号，O(E) 重建摊销到首次查询。
+     *  Whether this (node, pin) is wired to a BUS/PRIVATE transfer node (editor pin tinting).
+     *  The cache invalidates with the topology version — every add/remove bumps it, and the
+     *  O(E) rebuild amortises into the first query after a change. */
+    public boolean isTransferWired(int nodeId, int pin, boolean output) {
+        if (topoVersion != transferPinVersion) {
+            transferWiredPins.clear();
+            for (NodeConnection c : connections) {
+                GraphNode fn = nodeMap.get(c.fromId);
+                GraphNode tn = nodeMap.get(c.toId);
+                if (fn == null || tn == null) continue;
+                if (TRANSFER_TYPES.contains(fn.type) || TRANSFER_TYPES.contains(tn.type)) {
+                    transferWiredPins.add(transferPinKey(c.fromId, true, c.fromPin));
+                    transferWiredPins.add(transferPinKey(c.toId, false, c.toPin));
+                }
+            }
+            transferPinVersion = topoVersion;
+        }
+        return transferWiredPins.contains(transferPinKey(nodeId, output, pin));
+    }
+
+    private static long transferPinKey(int nodeId, boolean output, int pin) {
+        return ((long) nodeId << 20) | ((output ? 1L : 0L) << 19) | (pin & 0xFFFFF);
+    }
 
     private void invalidateTopo() {
         topoOrder = null;

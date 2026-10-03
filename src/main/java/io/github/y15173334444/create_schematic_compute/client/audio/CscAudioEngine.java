@@ -52,6 +52,15 @@ public final class CscAudioEngine {
     private static boolean attachedOnce;
     /** 时间线诊断（「推迟/挤堆」定量定位，plan R2 排查工具）。 */
     private static final AudioTimelineDiag DIAG = new AudioTimelineDiag();
+
+    /** 下发批次观测（NoteEventPacket 主线程执行时刻调用）：批次级区分「服务端下发停顿」
+     *  与「客户端主线程积压」，并盯迟到校正偏移的时钟歪斜签名。见 AudioTimelineDiag。
+     *  Dispatch-batch observation (called when a NoteEventPacket runs on the client main
+     *  thread): batch-level classification of server dispatch stalls vs client queueing,
+     *  plus the late-correction clock-skew signature. */
+    public static void noteDispatchBatch(long dispatchGameTick, int events, long lateTicks) {
+        DIAG.onDispatchBatch(dispatchGameTick, events, lateTicks, System.nanoTime());
+    }
     /** 墙钟锚点（帧 + 时刻成对更新/成对读取，见 targetFrameFor）：
      *  最近一次渲染完成时的渲染游标帧 + 对应墙钟。 */
     private static final Object ANCHOR_LOCK = new Object();

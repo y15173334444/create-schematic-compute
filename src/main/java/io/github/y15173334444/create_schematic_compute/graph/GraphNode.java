@@ -28,6 +28,12 @@ public class GraphNode {
     /** 冲突持续 tick 数，用于 recoverConflictedChannels 的超时机制。
      *  Number of ticks this node has been in conflict, used by recoverConflictedChannels timeout. */
     public int busConflictTicks = 0;
+    /** 运行时标记（transient，不进 NBT）：此节点的音频发布与另一发布方同名冲突（AudioBands 冲突纪律）——
+     *  冲突双方旗标同亮、频道整体静默；每 tick 由求值器按发布返回值重算，持久化只会带进陈旧值。
+     *  Runtime flag (transient): this node's audio publish collides with another publisher on
+     *  the same band name — both sides flag and the band serves silence; recomputed per eval
+     *  tick from the publish result, so persisting would only carry stale state. */
+    public boolean audioConflict;
     /** 频段列表是否已变更（用于避免每 tick 重复调用 registerBands）。
      *  Whether the band list has changed (avoids redundant registerBands calls per tick). */
     public boolean bandsDirty = true;
@@ -539,6 +545,7 @@ public class GraphNode {
         n.expanded = expanded;
         n.busConflict = busConflict;
         n.busConflictTicks = 0; // runtime counter, reset on copy
+        n.audioConflict = false; // transient runtime flag, recomputed per eval tick
         n.bandsDirty = bandsDirty;
         return n;
     }

@@ -73,4 +73,43 @@ class AudioTimelineDiagTest {
         assertNull(d.episode(ms(60), 0.12f, 300, t0 + ms(500)), "within 2 s the batch stays quiet");
         assertNotNull(d.episode(ms(60), 0.12f, 300, t0 + ms(2100)), "the next episode window logs again");
     }
+
+    @Test
+    void dispatchGapClassifiesServerStall() {
+        AudioTimelineDiag d = new AudioTimelineDiag();
+        long t0 = System.nanoTime();
+        d.onSchedule(100, 100, t0);                  // 激活报告窗口 / keep the report window non-idle
+        d.onDispatchBatch(1000, 5, 0, t0);
+        // 服务端隔 12 tick 才下发下一批（节奏差 600 ms），到达同步晚到 → 客户端无额外延迟
+        d.onDispatchBatch(1012, 5, 0, t0 + ms(600));
+        String rep = d.reportIfDue(t0 + ms(5100));
+        assertNotNull(rep);
+        assertTrue(rep.contains("dGapMax=600ms"), "server pacing jump shows: " + rep);
+        assertTrue(rep.contains("cDelayMax=0ms"), "no client-side extra: " + rep);
+    }
+
+    @Test
+    void clientQueueingDelayClassified() {
+        AudioTimelineDiag d = new AudioTimelineDiag();
+        long t0 = System.nanoTime();
+        d.onSchedule(100, 100, t0);
+        d.onDispatchBatch(1000, 5, 0, t0);
+        // 服务端节奏 1 tick（50 ms），到达却隔 300 ms → 客户端额外 250 ms（主线程积压）
+        d.onDispatchBatch(1001, 5, 0, t0 + ms(300));
+        String rep = d.reportIfDue(t0 + ms(5100));
+        assertTrue(rep.contains("dGapMax=50ms"), rep);
+        assertTrue(rep.contains("cDelayMax=250ms"), "client-side extra isolated: " + rep);
+    }
+
+    @Test
+    void lateCorrectionSpikeTracked() {
+        AudioTimelineDiag d = new AudioTimelineDiag();
+        long t0 = System.nanoTime();
+        d.onSchedule(100, 100, t0);
+        d.onDispatchBatch(1000, 5, 0, t0);
+        d.onDispatchBatch(1001, 5, 3, t0 + ms(50));   // lateTicks=3 → 计数 + 峰值
+        d.onDispatchBatch(1002, 5, 0, t0 + ms(100));  // 归零不计
+        String rep = d.reportIfDue(t0 + ms(5100));
+        assertTrue(rep.contains("lateTick=3(1)"), "peak with per-window spike count: " + rep);
+    }
 }

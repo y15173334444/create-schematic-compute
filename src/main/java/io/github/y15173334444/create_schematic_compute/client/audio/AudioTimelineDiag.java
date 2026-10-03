@@ -106,6 +106,73 @@ final class AudioTimelineDiag {
         LOG.warn("[TimelineDiag] REATTACH #{} (output channel re-created — underrun/reload evidence)", reattachCount);
     }
 
+    // ── 下发批次侧 / dispatch-batch side ──
+    private long lastDispatchTick = Long.MIN_VALUE;
+    private long lastDispatchArrivalNanos;
+    private long dispatchGapMaxMs;   // 相邻批次 dispatchGameTick 差 ×50——服务端下发节奏的最大跳变
+    private long clientExtraMaxMs;   // 到达间隔 − 服务端节奏差——客户端主线程积压/网络抖动的峰值
+    private long lateTickMax;        // 迟到校正偏移（客户端 level 时间 − 服务端 tick）峰值
+    private long lateSpikeCount;     // lateTicks ≥ 2 的批次计数（时钟歪斜/停顿签名）
+
+    /** 一次下发批次到达（一个 NoteEventPacket 在客户端主线程被执行的时刻）。
+     *  <ul>
+     *    <li>{@code serverGapMs}：相邻批次 dispatchGameTick 差 ×50ms——服务端下发节奏
+     *        （集成服停顿/展开卡顿会在这里跳变）；</li>
+     *    <li>{@code clientExtraMs}：到达间隔 − serverGapMs——客户端主线程积压
+     *        （enqueueWork 排队）或网络抖动；</li>
+     *    <li>{@code lateTicks}：迟到校正偏移 = 客户端 level 时间 − 服务端下发 tick。
+     *        两台钟可能歪斜，峰值 ≥2 = 校正本身可能在制造推迟（堵塞嫌疑，需警惕）。</li>
+     *  </ul>
+     *  One dispatch batch arrival (the moment a NoteEventPacket runs on the client main
+     *  thread): server pacing = dispatch-tick delta ×50 ms; client extra = arrival gap minus
+     *  server pacing (main-thread queueing / network jitter); lateTicks = the late-correction
+     *  offset — a spike ≥2 means the correction itself may be deferring notes. */
+    synchronized void onDispatchBatch(long dispatchGameTick, int events, long lateTicks, long nowNanos) {
+        if (events > 0 && lastDispatchTick != Long.MIN_VALUE) {
+            long serverGapMs = Math.max(0, dispatchGameTick - lastDispatchTick) * 50;
+            long arrivalGapMs = (nowNanos - lastDispatchArrivalNanos) / 1_000_000;
+            long clientExtraMs = Math.max(0, arrivalGapMs - serverGapMs);
+            dispatchGapMaxMs = Math.max(dispatchGapMaxMs, serverGapMs);
+            clientExtraMaxMs = Math.max(clientExtraMaxMs, clientExtraMs);
+            if (serverGapMs > DISPATCH_GAP_EPISODE_MS) {
+                String ep = dispatchEpisode(String.format(Locale.ROOT,
+                    "[TimelineDiag] DISPATCH-GAP serverGap=%.0fms tick %d→%d (server-side dispatch stall)",
+                    (double) serverGapMs, lastDispatchTick, dispatchGameTick), nowNanos);
+                if (ep != null) LOG.warn(ep);
+            }
+            if (clientExtraMs > CLIENT_DELAY_EPISODE_MS) {
+                String ep = dispatchEpisode(String.format(Locale.ROOT,
+                    "[TimelineDiag] CLIENT-DELAY extra=%.0fms events=%d (main-thread queueing/network)",
+                    (double) clientExtraMs, events), nowNanos);
+                if (ep != null) LOG.warn(ep);
+            }
+        }
+        if (events > 0) {
+            lastDispatchTick = dispatchGameTick;
+            lastDispatchArrivalNanos = nowNanos;
+        }
+        if (lateTicks >= 2) {
+            lateSpikeCount++;
+            lateTickMax = Math.max(lateTickMax, lateTicks);
+            String ep = dispatchEpisode(String.format(Locale.ROOT,
+                "[TimelineDiag] LATE-CORR-SPIKE lateTicks=%d events=%d (client/server clock skew — correction may defer)",
+                lateTicks, events), nowNanos);
+            if (ep != null) LOG.warn(ep);
+        }
+    }
+
+    /** 下发侧发作取证限频（与钳制/停顿共窗口）。 */
+    private String dispatchEpisode(String line, long nowNanos) {
+        if (nowNanos - lastEpisodeNanos < EPISODE_NS) return null;
+        lastEpisodeNanos = nowNanos;
+        return line;
+    }
+
+    /** 服务端下发停顿取证阈值（≥5 tick）。 */
+    private static final long DISPATCH_GAP_EPISODE_MS = 250;
+    /** 客户端额外延迟取证阈值（约预播上限）。 */
+    private static final long CLIENT_DELAY_EPISODE_MS = 200;
+
     /** 混音块限幅增益采样（<1 即抽吸中）；窗口取最小值。 */
     synchronized void onLimiterGain(float gain) {
         limiterGainMin = Math.min(limiterGainMin, gain);
@@ -150,8 +217,9 @@ final class AudioTimelineDiag {
             renderCount == 0 ? 0 : renderNanosSum / (double) renderCount / 1e6,
             renderNanosMax / 1e6, renderGapMax / 1e6, voicesPeak));
         sb.append(String.format(Locale.ROOT,
-            " | limiterMin=%.2f reattach=%d batchSpan=%.3fs",
-            limiterGainMin, reattachCount, batchSpanMax));
+            " | limiterMin=%.2f reattach=%d batchSpan=%.3fs dGapMax=%dms cDelayMax=%dms lateTick=%d(%d)",
+            limiterGainMin, reattachCount, batchSpanMax,
+            dispatchGapMaxMs, clientExtraMaxMs, lateTickMax, lateSpikeCount));
         return sb.toString();
     }
 
@@ -168,6 +236,8 @@ final class AudioTimelineDiag {
         voicesPeak = 0;
         limiterGainMin = 1f;
         batchSpanMax = 0;
+        dispatchGapMaxMs = clientExtraMaxMs = 0;
+        lateTickMax = lateSpikeCount = 0;
         windowStartNanos = nowNanos;
     }
 

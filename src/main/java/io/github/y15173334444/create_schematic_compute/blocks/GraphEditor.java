@@ -1338,7 +1338,7 @@ public class GraphEditor {
         } else {
             renderer.encapOccupants = java.util.Collections.emptyMap();
         }
-        renderer.renderNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
+        renderer.renderNodes(g, graph, sortedByB, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
             camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
         if (!isInSubGraph()) {
             renderer.showBookmarkPanel = viewBookmarks.panelVisible();

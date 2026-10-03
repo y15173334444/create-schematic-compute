@@ -61,7 +61,12 @@ final class NodeWireRenderer {
             if ((wy1 < vpTop && wy2 < vpTop) || (wy1 > vpBottom && wy2 > vpBottom)) continue;
             float x1 = c2sX.apply(wx1), y1 = c2sY.apply(wy1);
             float x2 = c2sX.apply(wx2), y2 = c2sY.apply(wy2);
-            bezier(g, x1, y1, x2, y2, NodeRenderer.CW());
+            // 音频连线用专属色（任一端点是 AUDIO 域引脚；域校验保证两端同域，双查只为稳妥）
+            // Audio wires take the dedicated colour (either endpoint AUDIO-domain; the domain
+            // guard already forces same-domain — checking both is just belt-and-braces).
+            boolean audio = fn.type.outputDomain(c.fromPin) == NodeType.PinDomain.AUDIO
+                || tn.type.inputDomain(c.toPin) == NodeType.PinDomain.AUDIO;
+            bezier(g, x1, y1, x2, y2, audio ? NodeRenderer.CWA() : NodeRenderer.CW());
         }
     }
 
@@ -77,7 +82,12 @@ final class NodeWireRenderer {
         }
         float x1 = c2sX.apply(fn.x + NodeRenderer.nw(fn));
         float x2 = c2sX.apply(wireEndX), y2 = c2sY.apply(wireEndY);
-        bezier(g, x1, y1, x2, y2, NodeRenderer.CWD());
+        // 拖拽预览同规则；拖拽源固定在输出侧，只查输出域（查输入域会误伤 AMP 这类
+        // 「输入 0 = AUDIO、输出 0 = FLOAT」的节点）/ Drag preview follows the same rule; the
+        // drag source is always an output pin, so only outputDomain applies (inputDomain
+        // would misflag AMP-style nodes whose input 0 is AUDIO but output 0 is FLOAT).
+        boolean audio = fn.type.outputDomain(wireFromPin) == NodeType.PinDomain.AUDIO;
+        bezier(g, x1, y1, x2, y2, audio ? NodeRenderer.CWA() : NodeRenderer.CWD());
     }
 
     private void bezier(GuiGraphics g, float x1, float y1, float x2, float y2, int c) {

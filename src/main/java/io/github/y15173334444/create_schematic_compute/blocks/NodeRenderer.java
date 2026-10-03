@@ -21,16 +21,22 @@ public class NodeRenderer {
     // ── Color palette stored in a single volatile array for atomic read/write (Phase 1) ──
     // Index constants for the 23 themeable colors (16 graph-editor semantic colors +
     // 7 GUI chrome colors added with the settings theme extension)
-    static final int _CG=0,_CGL=1,_CN=2,_CH=3,_CB=4,_CPI=5,_CPO=6,_CW=7,_CWD=8;
-    static final int _CMN=9,_CMH=10,_CNT=11,_CCT=12,_CSB=13,_CPIB=14,_CPOB=15;
-    static final int _PBG=16,_PHT=17,_PBR=18,_PINS=19,_ACC=20,_ERR=21,_HOV=22;
-    static final int _NUM_COLORS = 23;
+    static final int _CG=0,_CGL=1,_CN=2,_CH=3,_CB=4,_CPI=5,_CPO=6,_CW=7,_CWA=8,_CAP=9,_CAPB=10,_CWD=11;
+    static final int _CMN=12,_CMH=13,_CNT=14,_CCT=15,_CSB=16,_CPIB=17,_CPOB=18;
+    static final int _PBG=19,_PHT=20,_PBR=21,_PINS=22,_ACC=23,_ERR=24,_HOV=25;
+    static final int _NUM_COLORS = 26;
 
     // Text and dim colors are constant across all themes
     static final int CT=0xFFFFFFFF, CD=0xFF888888;
+    /** 总线/私有传输连线的引脚着色：普通节点引脚接入 BUS/PRIVATE 传输后自动变为此色
+     *  （与暖金色常规引脚、音频青色区分；硬编码——不在配色面板暴露，需要时再提色板键）。
+     *  Pin tint for transfer-wired pins: a node pin wired into a BUS/PRIVATE transfer
+     *  auto-shifts to this cool teal-gray (distinct from the warm gold pins and the audio
+     *  wire teal; hardcoded — not exposed in the colour panel unless asked for). */
+    static final int TRANSFER_PIN = 0xFF7B9E99;
 
     private static volatile int[] _c = {
-        0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,
+        0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,
         0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,
         0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428};
 
@@ -39,8 +45,9 @@ public class NodeRenderer {
     static int CN() { return _c[_CN]; } static int CH() { return _c[_CH]; }
     static int CB() { return _c[_CB]; } static int CPI() { return _c[_CPI]; }
     static int CPO() { return _c[_CPO]; } static int CW() { return _c[_CW]; }
-    static int CWD() { return _c[_CWD]; } static int CMN() { return _c[_CMN]; }
-    static int CMH() { return _c[_CMH]; } static int CNT() { return _c[_CNT]; }
+    static int CWA() { return _c[_CWA]; } static int CAP() { return _c[_CAP]; }
+    static int CAPB() { return _c[_CAPB]; } static int CWD() { return _c[_CWD]; }
+    static int CMN() { return _c[_CMN]; } static int CMH() { return _c[_CMH]; } static int CNT() { return _c[_CNT]; }
     static int CCT() { return _c[_CCT]; } static int CPIB() { return _c[_CPIB]; }
     static int CPOB() { return _c[_CPOB]; }
     // GUI-chrome colors (used across editor and peripheral screens; public for
@@ -62,11 +69,11 @@ public class NodeRenderer {
     }
 
     static final int[][] THEMES = {
-        // 23色: CG()…CPOB() + PBG(),PHT(),PBR(),PINS(),ACC(),ERR(),HOV()
-        {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428},
-        {0xFF0A1020,0xFF152040,0xFF1A2A4A,0xFF2A3A5A,0xFF3A5A7A,0xFF44AAFF,0xFFFFAA44,0xFF66BBFF,0xFFFFFF88,0xFF88AACC,0xFFFFDD77,0xFFFFDD77,0xFF88AACC,0xFF6688AA,0xFF2266AA,0xFFAA6622,0xFF141C2A,0xFF22304A,0xFF3A5A7A,0xFF0A1220,0xFFFFCC44,0xFFFF5544,0xFF2A3A5A},
-        {0xFF0A0A0A,0xFF1A1A1A,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF00FF88,0xFFFF4466,0xFF888888,0xFFFFFF88,0xFFAAAAAA,0xFFCCCCCC,0xFFCCCCCC,0xFF888888,0xFF666666,0xFF444444,0xFF444444,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF1A1A1A,0xFFFFDD00,0xFFFF5555,0xFF444444},
-        {0xFF1E1410,0xFF2A1C14,0xFF3A2820,0xFF4A3428,0xFF5A4438,0xFFFF8844,0xFFAA6633,0xFFDD8844,0xFFFFCC66,0xFFAA8866,0xFFFFCC77,0xFFFFCC77,0xFFAA8866,0xFF8B6B53,0xFF6B4A33,0xFF6B3A23,0xFF2A1C14,0xFF4A3428,0xFF5A4438,0xFF1E1410,0xFFFFCC66,0xFFFF6644,0xFF3A2820},
+        // 26色: CG()…CPOB() + PBG(),PHT(),PBR(),PINS(),ACC(),ERR(),HOV()（_CWA=8 音频连线、_CAP=9 音频引脚、_CAPB=10 音频引脚边框）
+        {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428},
+        {0xFF0A1020,0xFF152040,0xFF1A2A4A,0xFF2A3A5A,0xFF3A5A7A,0xFF44AAFF,0xFFFFAA44,0xFF66BBFF,0xFF40E0C8,0xFF6FEBD8,0xFF2E9C8A,0xFFFFFF88,0xFF88AACC,0xFFFFDD77,0xFFFFDD77,0xFF88AACC,0xFF6688AA,0xFF2266AA,0xFFAA6622,0xFF141C2A,0xFF22304A,0xFF3A5A7A,0xFF0A1220,0xFFFFCC44,0xFFFF5544,0xFF2A3A5A},
+        {0xFF0A0A0A,0xFF1A1A1A,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF00FF88,0xFFFF4466,0xFF888888,0xFF00DDCC,0xFF35F0DC,0xFF0E8F82,0xFFFFFF88,0xFFAAAAAA,0xFFCCCCCC,0xFFCCCCCC,0xFF888888,0xFF666666,0xFF444444,0xFF444444,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF1A1A1A,0xFFFFDD00,0xFFFF5555,0xFF444444},
+        {0xFF1E1410,0xFF2A1C14,0xFF3A2820,0xFF4A3428,0xFF5A4438,0xFFFF8844,0xFFAA6633,0xFFDD8844,0xFF4FC3B7,0xFF79DCCF,0xFF2E9484,0xFFFFCC66,0xFFAA8866,0xFFFFCC77,0xFFFFCC77,0xFFAA8866,0xFF8B6B53,0xFF6B4A33,0xFF6B3A23,0xFF2A1C14,0xFF4A3428,0xFF5A4438,0xFF1E1410,0xFFFFCC66,0xFFFF6644,0xFF3A2820},
     };
     static int currentTheme = 0;
 
@@ -77,8 +84,8 @@ public class NodeRenderer {
     }
 
     static int[] currentColors() { return _c.clone(); }
-    static final int[] DEFAULT_COLORS = {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428};
-    static final String[] COLOR_KEYS = {"bg","grid","node","header","border","input","output","wire","drag","menu_text","menu_hover","node_title","cat_text","sys_border","input_border","output_border","panel_bg","panel_header","panel_border","inset_bg","accent","error","hover"};
+    static final int[] DEFAULT_COLORS = {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428};
+    static final String[] COLOR_KEYS = {"bg","grid","node","header","border","input","output","wire","wire_audio","pin_audio","pin_audio_border","drag","menu_text","menu_hover","node_title","cat_text","sys_border","input_border","output_border","panel_bg","panel_header","panel_border","inset_bg","accent","error","hover"};
     static int[] stagingColors = DEFAULT_COLORS.clone();
     static void initStaging() { stagingColors = currentColors(); }
 
@@ -288,7 +295,7 @@ public class NodeRenderer {
             camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
     }
 
-    public void renderNodes(GuiGraphics g, List<GraphNode> nodes, Set<GraphNode> selectedNodes,
+    public void renderNodes(GuiGraphics g, NodeGraph graph, List<GraphNode> nodes, Set<GraphNode> selectedNodes,
                              GraphNode primaryNode, java.util.Set<Integer> editNodeIds,
                              java.util.Map<Integer, io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState> editStates,
                              float camX, float camY, float zoom, int mx, int my,
@@ -312,12 +319,12 @@ public class NodeRenderer {
             }
             if (!EditPanel.isOnScreen(sx, sy, sw, bodyH, editH, w, h, margin))
                 continue;
-            drawNode(g, n, isSelectedById(selectedNodes, n), isPrimaryById(primaryNode, n), expanded, camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
+            drawNode(g, n, graph, isSelectedById(selectedNodes, n), isPrimaryById(primaryNode, n), expanded, camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
         }
     }
 
 
-    private void drawNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary, boolean editing,
+    private void drawNode(GuiGraphics g, GraphNode n, NodeGraph graph, boolean selected, boolean isPrimary, boolean editing,
                            float camX, float camY, float zoom, int mx, int my,
                            Map<Integer, Boolean> flipflopStates,
                            Map<Integer, String> lockedNodes) {
@@ -486,16 +493,25 @@ public class NodeRenderer {
         for(int i=0; i<funcInputs; i++) {
             float py = HH+PH*i+PH/2f;
             int r = PR;
-            g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1), CPIB());
-            g.fill(-r, (int)(py - r), r, (int)(py + r), CPI());
+            // 着色优先级：总线/私有传输连线 > 音频域引脚 > 常规引脚色（边框按引脚域分类）
+            // Priority: transfer wiring > AUDIO-domain pin > the regular pin colour
+            // (borders are categorised by pin domain).
+            g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1),
+                n.type.inputDomain(i) == NodeType.PinDomain.AUDIO ? CAPB() : CPIB());
+            g.fill(-r, (int)(py - r), r, (int)(py + r),
+                graph != null && graph.isTransferWired(n.id, i, false) ? TRANSFER_PIN
+                    : n.type.inputDomain(i) == NodeType.PinDomain.AUDIO ? CAP() : CPI());
             String inlbl = n.inputLabel(i);
             drawStr(g, (n.type == NodeType.BUS_OUT || n.type == NodeType.FORMULA || n.type == NodeType.ENCAPSULATION) ? inlbl : I18n.get(inlbl), 10, py-3, CD);
         }
         for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL && n.type != NodeType.DEBUG_PROBE; i++) {
             float py = HH+PH*(funcInputs + i)+PH/2f;
             int r = PR;
-            g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1), CPOB());
-            g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r), CPO());
+            g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1),
+                n.type.outputDomain(i) == NodeType.PinDomain.AUDIO ? CAPB() : CPOB());
+            g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r),
+                graph != null && graph.isTransferWired(n.id, i, true) ? TRANSFER_PIN
+                    : n.type.outputDomain(i) == NodeType.PinDomain.AUDIO ? CAP() : CPO());
             String rawOutLbl = n.outputLabel(i);
             String outlbl = (n.type == NodeType.BUS_IN || n.type == NodeType.ENCAPSULATION) ? rawOutLbl : I18n.get(rawOutLbl);
             int olw = Minecraft.getInstance().font.width(outlbl);

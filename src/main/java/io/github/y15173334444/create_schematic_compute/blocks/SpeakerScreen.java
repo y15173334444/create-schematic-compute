@@ -12,9 +12,10 @@ import java.util.Map;
 
 /**
  * 音响图编辑器（R1-E）：{@code AbstractGraphScreen}，节点准入 = 音频专用（SPEAKER）。
- * 图 = {@code AUDIO_IN(频段) → SPEAKER_PLAY(选声道)}；在编辑器里拖线、选频段/声道。
+ * 图 = {@code BUS_IN(频段) --音频线--> SPEAKER_PLAY(选声道)}；在编辑器里拖线、选频段/声道。
  * <p>Speaker graph editor: an {@link AbstractGraphScreen} with the audio-only SPEAKER
- * allowance. Drag {@code AUDIO_IN → SPEAKER_PLAY} and pick the band/channel.</p>
+ * allowance. Drag {@code BUS_IN → SPEAKER_PLAY} (the BUS_IN audio branch reads the band)
+ * and pick the band/channel.</p>
  */
 public class SpeakerScreen extends AbstractGraphScreen {
 
