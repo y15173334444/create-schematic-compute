@@ -1,0 +1,16 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "pattern": [
+    "N",
+    "C",
+    "W"
+  ],
+  "key": {
+    "N": { "item": "minecraft:note_block" },
+    "C": { "item": "minecraft:copper_block" },
+    "W": { "item": "minecraft:white_wool" }
+  },
+  "result": {
+    "id": "create_schematic_compute:speaker"
+  }
+}

@@ -117,6 +117,22 @@ public class SchematicCompute {
     public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<KineticGaugeBlockEntity>> KINETIC_GAUGE_BE =
             BLOCK_ENTITIES.register("kinetic_gauge", () -> BlockEntityType.Builder.of(KineticGaugeBlockEntity::new, KINETIC_GAUGE_BLOCK.get()).build(null));
 
+    // v1.2.6: 功放电脑（图宿主 + NBS 编辑器 + 音频频道发布）
+    public static final DeferredHolder<Block, AmplifierComputerBlock> AMPLIFIER_COMPUTER_BLOCK =
+            BLOCKS.register("amplifier_computer", () -> new AmplifierComputerBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
+    public static final DeferredHolder<Item, BlockItem> AMPLIFIER_COMPUTER_ITEM =
+            ITEMS.register("amplifier_computer", () -> new BlockItem(AMPLIFIER_COMPUTER_BLOCK.get(), new Item.Properties()));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<AmplifierComputerBlockEntity>> AMPLIFIER_COMPUTER_BE =
+            BLOCK_ENTITIES.register("amplifier_computer", () -> BlockEntityType.Builder.of(AmplifierComputerBlockEntity::new, AMPLIFIER_COMPUTER_BLOCK.get()).build(null));
+
+    // v1.2.6: 音响（哑端点，绑定频道在自身坐标发声）
+    public static final DeferredHolder<Block, SpeakerBlock> SPEAKER_BLOCK =
+            BLOCKS.register("speaker", () -> new SpeakerBlock(BlockBehaviour.Properties.of().strength(1.0f).noOcclusion()));
+    public static final DeferredHolder<Item, BlockItem> SPEAKER_ITEM =
+            ITEMS.register("speaker", () -> new BlockItem(SPEAKER_BLOCK.get(), new Item.Properties()));
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<SpeakerBlockEntity>> SPEAKER_BE =
+            BLOCK_ENTITIES.register("speaker", () -> BlockEntityType.Builder.of(SpeakerBlockEntity::new, SPEAKER_BLOCK.get()).build(null));
+
     // v1.2.2: 便携终端物品
     public static final DeferredHolder<Item, PortableTerminalItem> PORTABLE_TERMINAL =
             ITEMS.register("portable_terminal", () -> new PortableTerminalItem(new Item.Properties()));
@@ -147,6 +163,8 @@ public class SchematicCompute {
                     output.accept(MONITOR_ITEM.get());
                     output.accept(RADAR_ITEM.get());
                     output.accept(KINETIC_GAUGE_ITEM.get());
+                    output.accept(AMPLIFIER_COMPUTER_ITEM.get());
+                    output.accept(SPEAKER_ITEM.get());
                     output.accept(PORTABLE_TERMINAL.get());
                 }).build());
 
@@ -181,6 +199,7 @@ public class SchematicCompute {
                 ControlSeatBlockEntity.clearAllInputs();
                 io.github.y15173334444.create_schematic_compute.radar.TargetAssignment.clearAll();
                 io.github.y15173334444.create_schematic_compute.network.SignalBus.clear();
+                io.github.y15173334444.create_schematic_compute.network.AudioBands.clear();
                 io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.clearAll();
                 io.github.y15173334444.create_schematic_compute.graph.FormulaCompute.clearAll();
                 LOGGER.info("{} cleared static state for server shutdown", MOD_ID);
@@ -239,6 +258,8 @@ public class SchematicCompute {
         SafeNbtWriterRegistry.REGISTRY.register(MONITOR_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(RADAR_BE.get(), writer);
         SafeNbtWriterRegistry.REGISTRY.register(KINETIC_GAUGE_BE.get(), writer);
+        SafeNbtWriterRegistry.REGISTRY.register(AMPLIFIER_COMPUTER_BE.get(), writer);
+        SafeNbtWriterRegistry.REGISTRY.register(SPEAKER_BE.get(), writer);
         LOGGER.info("Registered SafeNbtWriters for all computers");
     }
 }

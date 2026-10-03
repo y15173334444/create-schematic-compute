@@ -58,6 +58,11 @@ public class AllPackets {
                 RadarSettingsPacket::handle
         );
         registrar.playToServer(
+                SpeakerSettingsPacket.TYPE,
+                SpeakerSettingsPacket.CODEC,
+                SpeakerSettingsPacket::handle
+        );
+        registrar.playToServer(
                 RadarLockPacket.TYPE,
                 RadarLockPacket.CODEC,
                 RadarLockPacket::handle
@@ -76,6 +81,8 @@ public class AllPackets {
         registrar.playToServer(GraphLeavePacket.TYPE, GraphLeavePacket.CODEC, GraphLeavePacket::handle);
         // v1.2.4+: Server-authoritative evaluation sync
         registrar.playToClient(ClientboundGraphEvalPacket.TYPE, ClientboundGraphEvalPacket.CODEC, ClientboundGraphEvalPacket::handle);
+        // v1.2.6: audio note-event dispatch (S→C)
+        registrar.playToClient(NoteEventPacket.TYPE, NoteEventPacket.CODEC, NoteEventPacket::handle);
         // v1.2.4+: Blob data channel (C→S and S→C use separate types per NeoForge requirement)
         registrar.playToServer(BlobDataPacket.TYPE, BlobDataPacket.CODEC, BlobPacketHandler::handleServer);
         registrar.playToClient(BlobDataSyncPacket.TYPE, BlobDataSyncPacket.CODEC,

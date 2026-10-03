@@ -1,7 +1,7 @@
 # 代码结构文档 / Code Architecture
 
-> 更新日期 / Last Updated：2026-09-26
-> 版本 / Version：1.2.5.2
+> 更新日期 / Last Updated：2026-10-02
+> 版本 / Version：1.2.6（WIP）
 
 ---
 
@@ -11,15 +11,16 @@
 io.github.y15173334444.create_schematic_compute/
 ├── SchematicCompute.java          ← @Mod 入口 / @Mod entry point
 ├── ModUtils.java                  ← 工具方法 / Utility methods
-├── graph/          (16 files)     ← 节点图核心引擎 / Node graph core engine
-├── blocks/         (42 files)     ← 方块·BE·Screen·编辑器 / Blocks, BEs, Screens, Editor
-├── network/        (31 files)     ← 网络包·BUS 总线·Sable 兼容 / Packets, BUS, Sable compat
-├── client/         (21 files)     ← 客户端渲染·颜色选择器·便携终端 / Client rendering
-├── compat/          (6 files)     ← Sable 物理引擎兼容层 / Sable physics compat layer
+├── graph/          (33 files)     ← 节点图核心引擎 + 音频纯类 / Node graph core engine + audio pure classes
+├── blocks/         (64 files)     ← 方块·BE·Screen·编辑器 / Blocks, BEs, Screens, Editor
+├── network/        (35 files)     ← 网络包·BUS 总线·音频频段表 / Packets, BUS, audio bands
+├── client/         (34 files)     ← 客户端渲染·编辑器·NBS/像素编辑器·音频引擎 / Rendering, editors, audio engine
+│   ├── (20 根目录 / root)  ├── colorpicker/ (4)  ├── renderer/ (5)  └── audio/ (5)
+├── compat/          (8 files)     ← Sable 物理引擎兼容层 / Sable physics compat layer
 ├── radar/           (2 files)     ← 雷达目标管理 / Radar target management
 ├── entity/          (1 file)      ← 控制座椅隐形实体 / Control seat invisible entity
 ├── items/           (1 file)      ← 便携终端物品 / Portable terminal item
-└── mixin/           (2 files)     ← Mixin 注入 / Mixin injection
+└── mixin/           (5 files)     ← Mixin 注入 / Mixin injection
 ```
 
 ---
@@ -27,8 +28,8 @@ io.github.y15173334444.create_schematic_compute/
 ## 1. `graph/` — 节点图核心引擎 / Node Graph Core Engine
 
 ### NodeType (enum)
-95 种节点类型枚举，定义每种节点的 `id`（稳定 NBT 字符串）、输入/输出引脚数、参数名列表。
-/ 86 node-type enum defining the stable NBT `id`, input/output pin counts, and parameter names for each type.
+101 种节点类型枚举，定义每种节点的 `id`（稳定 NBT 字符串）、输入/输出引脚数、参数名列表。
+/ 101 node types defining the stable NBT `id`, input/output pin counts, and parameter names for each type.
 
 | 分类 / Category | 节点 / Nodes |
 |------|------|
@@ -41,6 +42,7 @@ io.github.y15173334444.create_schematic_compute/
 | 时序 / Sequential | DELAY, LATCH, T_FLIPFLOP, PULSE_EXTEND, LOOP, FUSE, ACCUMULATOR, INTEGRATOR |
 | 输入 / Input | KEYBOARD, MOUSE_JOYSTICK, VIEW_ANGLE, MOUSE_BUTTON, GAMEPAD_JOYSTICK, GAMEPAD_BUTTON, GAMEPAD_TRIGGER, WORLD_VIEW, ATTITUDE, FORWARD, ACCELERATION, VELOCITY, POSITION, TARGET_OUT |
 | 显示 / Display | TEXT, DATA, IMAGE, IMAGE_SEQUENCE |
+| 音频 / Audio | MUSIC, AMP, AUDIO_OUT, CHANNEL, AUDIO_IN, SPEAKER_PLAY |
 | 结构 / Structure | ENCAPSULATION, ENCAP_INPUT, ENCAP_OUTPUT |
 | 调试 / Debug | DEBUG_SIGNAL_GEN, DEBUG_PROBE, COMMENT |
 
@@ -61,6 +63,7 @@ io.github.y15173334444.create_schematic_compute/
 - `busConflict` / `busConflictTicks` / `bandsDirty` — BUS 冲突标记与脏检查 / BUS conflict flags
 - `outputValues[]` — 运行时计算值（由 GraphEvaluator 填充）/ Runtime values filled by evaluator
 - `displayText, textColor, imagePixels[]` — 显示节点数据 / Display node data
+- `song` — MUSIC 节点曲目（NBS 原始字节，NBT 键 `song`；坏数据降级空曲不炸节点）/ Song bytes for MUSIC nodes (NBT key `song`; malformed data degrades to an empty song)
 - `layerIndex, imageSequenceFrames, layoutX, layoutY, displayScale, displayRotation, moveScale` — IMAGE 显示布局 / Image display layout
 - `commentWidth, commentHeight, commentBgColor, commentBorderColor, commentTextColor, commentScrollOff` — COMMENT 节点样式 / Comment node styling
 - `subGraph` — ENCAPSULATION 子图（递归嵌套）/ Nested sub-graph
@@ -133,6 +136,12 @@ io.github.y15173334444.create_schematic_compute/
 - `debugTime` — DEBUG_SIGNAL_GEN 相位时间 / Phase time (persisted via RuntimeState)
 - `runtimeState` — 运行时状态引用（读写子图状态持久化）/ RuntimeState reference
 - `radarPos` — 雷达扫描位置上下文 / Radar scan position context
+- `audioRefs` — AUDIO 域音源表（(节点 id, 引脚) → `AudioRef`，沿拓扑序传递，与浮点输出数组隔离）/ AUDIO-domain source table (per node id + pin), passed along the topo order, isolated from the float outputs
+
+> 音频六节点（MUSIC / AMP / AUDIO_OUT / CHANNEL / AUDIO_IN / SPEAKER_PLAY）在 `eval()` switch 内求值；
+> `BUS_IN` / `BUS_OUT` 各有音频分支（仅当其输出线接入 AUDIO 域引脚时才走，`NodeGraph.hasAudioSinkConnection` 判定）。
+> / The six audio nodes evaluate inside the `eval()` switch; BUS_IN/BUS_OUT have audio branches taken only when
+> their output lines enter AUDIO-domain pins (`NodeGraph.hasAudioSinkConnection`).
 
 > 主图时序状态（`pidState`/`delayQueues`/`flipflopStates`/`pulseTimers`）**不是**求值器字段——由 `RuntimeState` 持有，作为 `evaluate()` 参数传入并回写。
 > / Main-graph sequential state is NOT a field — it lives in `RuntimeState` and is passed into `evaluate()`.
@@ -185,16 +194,17 @@ io.github.y15173334444.create_schematic_compute/
 `GraphOp` 应用执行器。服务端和客户端共享，确保变更逻辑单一定义。
 / Shared `GraphOp` executor used by both server and client — single source of truth for all mutations.
 
-**处理 34 种 OpType / Handles 34 OpTypes**：ADD_NODE_REQUEST, ADD_NODE, REMOVE_NODE, MOVE_NODE, ADD_CONN, REMOVE_CONN, SET_PARAM, SET_FORMULA, SET_COMMENT_TEXT, SET_COMMENT_COLORS, SET_COMMENT_SIZE, SET_DISPLAY_TEXT, SET_TEXT_COLOR, SET_BANDS, SET_BLOCK_NAME, SET_ZORDER, SET_LAYER_INDEX, SET_KEY_BINDING, SET_IMAGE_FRAME_TOGGLE, SET_DISPLAY_LAYOUT, TOGGLE_BOOL, SET_HOTBAR_ITEM, SET_IMAGE_PIXELS, SET_IMAGE_SIZE, REMOVE_IMAGE_FRAME, MOVE_IMAGE_FRAME, EXPAND_NODE, COLLAPSE_NODE, ADD_BOOKMARK, REMOVE_BOOKMARK, RENAME_BOOKMARK, MOVE_BOOKMARK, SET_CTRL_POINTS, REJECT
+**处理 35 种 OpType / Handles 35 OpTypes**：ADD_NODE_REQUEST, ADD_NODE, REMOVE_NODE, MOVE_NODE, ADD_CONN, REMOVE_CONN, SET_PARAM, SET_FORMULA, SET_COMMENT_TEXT, SET_COMMENT_COLORS, SET_COMMENT_SIZE, SET_DISPLAY_TEXT, SET_TEXT_COLOR, SET_BANDS, SET_BLOCK_NAME, SET_ZORDER, SET_LAYER_INDEX, SET_KEY_BINDING, SET_IMAGE_FRAME_TOGGLE, SET_DISPLAY_LAYOUT, TOGGLE_BOOL, SET_HOTBAR_ITEM, SET_IMAGE_PIXELS, SET_IMAGE_SIZE, REMOVE_IMAGE_FRAME, MOVE_IMAGE_FRAME, EXPAND_NODE, COLLAPSE_NODE, ADD_BOOKMARK, REMOVE_BOOKMARK, RENAME_BOOKMARK, MOVE_BOOKMARK, SET_CTRL_POINTS, SET_SONG, REJECT
 
 ### GraphOp / OpType
 `GraphOp`：**28 字段** record + **26 个静态方法**（25 个工厂 + `parseCtrlPoints` helper）。
 / 28-field record + 26 static methods (25 factories + 1 helper).
 - `blobRefId` — 非零 → 经 `BlobRegistry` 取大数据 / non-zero → BlobRegistry lookup
 - `imageData` — IMAGE 像素直接以 `int[]` 传输（替代 Base64 `stringValue`）/ direct pixel array
-- `OpType`：**34 种**操作枚举 / 34-operation enum
+- `OpType`：**35 种**操作枚举（新值只追加在枚举尾——枚举序 = 网络序）/ 35-operation enum (new values append only — ordinal order is the wire order)
 - `SET_PARAM` — `stringValue` 可携带输入框**草稿原文**（含空串），只驱动对端 EditBox 显示；权威数值在 `paramValue`。OpExecutor 对值相同的写入跳过 `bumpGeneration`（草稿-only op 不触发全量重编译）/ `stringValue` may carry the raw EditBox draft (incl. clear) for peer display only; the authoritative number is `paramValue`. OpExecutor skips `bumpGeneration` when the value is unchanged so draft-only ops do not force a full recompile.
 - `SET_BLOCK_NAME` — 图级 op（targetNodeId=0 忽略）：设置 `NodeGraph.customName`，纯视觉不 bump（同 SET_ZORDER）；已加入 EditSessionRegistry 的显示 op 白名单，未开编辑器的协作者也能收到 / Graph-level op (targetNodeId=0, ignored): sets `NodeGraph.customName`; visual-only, no bump (same as SET_ZORDER); whitelisted in EditSessionRegistry's display ops so collaborators without the editor open still receive it
+- `SET_SONG` — MUSIC 曲目写入/替换：`blobRefId` 经 `BlobRegistry` 取重组字节应用，坏数据/超限拒存保原曲 / Song write/replace: reassembled bytes come from `BlobRegistry`; malformed/oversized data is rejected and the original song kept
 
 ### DebugSignals
 DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
@@ -304,7 +314,7 @@ phase 3; contract overrides and the type hooks are the final architecture, not t
 即使编辑器已打开也总是加载权威图 / the server is authoritative and always takes the NBT;
 joiners have no pending ops and always load the authoritative graph.
 
-### 7 个方块类 / 7 Block Types
+### 9 个方块类 / 9 Block Types
 
 | 类 / Class | 功能 / Function | 特殊能力 / Special Capability |
 |----|------|---------|
@@ -315,6 +325,8 @@ joiners have no pending ops and always load the authoritative graph.
 | `SensorBlockEntity` | 姿态传感器 / Attitude Sensor | Sable 子世界姿态读取 / Sable sub-level pose reading |
 | `SpeedProxyBlockEntity` | 转速代理 / Speed Proxy | Create SpeedController 直控 / Direct speed controller access |
 | `ProgramComputerBlockEntity` | 编程计算机 / Program Computer | 时序逻辑专用 / Sequential logic only |
+| `AmplifierComputerBlockEntity` | 功放电脑 / Amplifier Computer | 音频图宿主：MUSIC/AMP/AUDIO_OUT 求值 + 频段发布 + 传输表持久化（每 tick 剪除死节点条目）；双击 MUSIC 节点开 NBS 编辑器 / Audio graph host: evaluates MUSIC/AMP/AUDIO_OUT, publishes bands, persists transport state (pruned per tick); double-click a MUSIC node for the NBS editor |
+| `SpeakerBlockEntity` | 音响 / Speaker | 音频专用图宿主（默认图 `AUDIO_IN(band) → SPEAKER_PLAY(ch)`）：SPEAKER_PLAY 经 `SpeakerSink` 交付本 tick 音符事件，`NoteEventPacket` 发追踪玩家；gain/radius/mute/红石静音（运行时门控不写回）/ Audio-only graph host (default graph `AUDIO_IN(band) → SPEAKER_PLAY(ch)`): SPEAKER_PLAY hands note events to the BE via `SpeakerSink`, shipped as `NoteEventPacket` to tracking players; gain/radius/mute settings with redstone as a runtime gate (never written back) |
 
 ### 动力组合线 BE / Kinetic composition-line BEs（v1.2.5+）
 
@@ -373,10 +385,10 @@ joiners have no pending ops and always load the authoritative graph.
 - `MonitorScreen` 保留：节点图模式、`GraphEditor.Host` 管线、像素编辑器双击入口、显示模式切换按钮，并实现 `MonitorDisplayEditor.Host`（屏幕几何、BE、`sendOp`、玩家 UUID、`screenMouseDragged` 兜底、`openPixelEditor`）/ `MonitorScreen` keeps the node-graph mode, the `GraphEditor.Host` plumbing, the pixel-editor double-click entry and the display toggle button, implementing `MonitorDisplayEditor.Host` (screen geometry, BE, `sendOp`, player UUID, `screenMouseDragged` fallthrough, `openPixelEditor`)
 - **跨模式不变式 / Cross-mode invariants**：设置面板 overlay 两种模式都渲染（面板在离开显示模式后不关闭）；设置面板打开时点击与键盘输入优先归面板（显示模式经 `handleClick` 转发，节点图模式由屏幕直接路由 `handleSettingsClick`）；显示模式的工具栏条（< Graph / Settings / S,R）仍由编辑器 `renderDisplayArea` 内部绘制，切换按钮只在节点图模式绘制 / The settings overlay renders in both modes (the panel stays open after leaving display mode); while it is open its clicks and keys take priority (forwarded by `handleClick` in display mode, routed by the screen straight to `handleSettingsClick` in graph mode); the display-mode toolbar strip (< Graph / Settings / S,R) is still drawn inside the editor's `renderDisplayArea`, and the toggle button remains graph-mode-only
 
-### 7 个编辑界面 / The 7 Editor Screens（无 Menu 架构 / menu-less, v1.2.5）
+### 9 个编辑界面 / The 9 Editor Screens（无 Menu 架构 / menu-less, v1.2.5）
 
-自 v1.2.5 起，7 个编辑界面全部继承 **`AbstractGraphScreen`**（`extends Screen implements GraphEditor.Host`），不再使用 `AbstractContainerScreen`/`Menu` 体系。
-/ Since v1.2.5 all 7 editors extend `AbstractGraphScreen`; the container-screen/menu system is gone.
+自 v1.2.5 起，编辑界面全部继承 **`AbstractGraphScreen`**（`extends Screen implements GraphEditor.Host`），不再使用 `AbstractContainerScreen`/`Menu` 体系。
+/ Since v1.2.5 all editors extend `AbstractGraphScreen`; the container-screen/menu system is gone.
 
 | Screen | BlockEntity | 打开方式 / Opened by |
 |--------|-------------|----------------------|
@@ -387,14 +399,16 @@ joiners have no pending ops and always load the authoritative graph.
 | `ControlSeatScreen` | `ControlSeatBlockEntity` | Shift+右键 → `setScreen` / Shift+RMB |
 | `MonitorScreen` | `MonitorBlockEntity` | 同上 / same |
 | `RadarScreen` | `RadarBlockEntity` | Shift+右键 → `setScreen` / Shift+RMB |
+| `AmplifierComputerScreen` | `AmplifierComputerBlockEntity` | 右键 → `setScreen`；双击 MUSIC 节点 → `NbsEditorScreen` / RMB → setScreen; double-click a MUSIC node → NbsEditorScreen |
+| `SpeakerScreen` | `SpeakerBlockEntity` | 右键 → `setScreen`（运行开关 + 播放设置）/ RMB → setScreen (run toggle + playback settings) |
 
 > **dist 边界 / dist boundary**：打开动作不能把客户端类的 `new` 指令写进公共 Block 代码——专用服务端校验公共类时会尝试加载 `Screen` 导致 `invalid dist DEDICATED_SERVER` 崩溃。每个 Block 的 `useWithoutItem` 调用私有 `@OnlyIn(Dist.CLIENT) openScreen(pos)` 助手，方法体由 `runtimedistcleaner` 在专用服务端剥离（`0f033a2`）。
 > / The opener cannot inline `new XxxScreen(...)` in common block code — the dedicated server fails class verification with `invalid dist`. Each block calls a private `@OnlyIn(Dist.CLIENT) openScreen(pos)` helper whose body the runtime dist cleaner strips on the server.
 
 **`AbstractGraphScreen` 基类职责 / Base class responsibilities**：
 - 持有 `blockPos` + `GraphEditor`，构造器 `(Component title, BlockPos pos)`；子类通过 `setNodeAllowance(NodeAllowance)` 设置分类白名单+类内黑名单（`BlockNodeAllowances`），一次性谓词（子图）仍用 `setNodeFilter()` / Holds blockPos + GraphEditor; subclasses set a category allowlist via `setNodeAllowance` (`BlockNodeAllowances`); one-off predicates (sub-graph) still use `setNodeFilter`
-- `graph/NodeCategory` — 21 类节点分类（菜单分组唯一真相源，每 `NodeType` 恰好一类）/ 21 node categories (single source for add-menu grouping; each `NodeType` in exactly one)
-- `graph/NodeAllowance` + `graph/BlockNodeAllowances` — 方块准入 = 分类白名单 + 类内黑名单；10 方块名单集中在此 / Per-block allowance = category allowlist + in-category exclusions; the ten lists live here
+- `graph/NodeCategory` — 22 类节点分类（菜单分组唯一真相源，每 `NodeType` 恰好一类）/ 22 node categories (single source for add-menu grouping; each `NodeType` in exactly one)
+- `graph/NodeAllowance` + `graph/BlockNodeAllowances` — 方块准入 = 分类白名单 + 类内黑名单；12 方块名单集中在此 / Per-block allowance = category allowlist + in-category exclusions; the twelve lists live here
 - `init()` 发送 `GraphJoinPacket`；`onClose()` 依次执行 `preClose()` 钩子 → `pendingLocalOps=0` 复位（`5892caa` 守卫）→ `editor.onClose()` → `clearRemotePresences()` → 发送 `GraphLeavePacket` / Full close lifecycle
 - `tick()` 通过子类 `isBlockEntityValid()` 检查 BE，失效自动 `onClose()` / Auto-close on BE invalidation
 - `render()` 契约：`renderBackground` → `renderGraphCanvas()` 钩子（默认 `editor.renderBg`，Radar 叠加工具栏、Monitor 切换显示模式画布）→ `renderables` widget → tooltip 由编辑器自绘 / Canvas hook for per-screen overlays
@@ -426,7 +440,7 @@ joiners have no pending ops and always load the authoritative graph.
 
 ### 网络包分类 / Packet Catalog
 
-**注册中枢 / Registration hub**：`AllPackets`（`@EventBusSubscriber`）注册 **13 个 C→S + 9 个 S→C = 22 个**包。
+**注册中枢 / Registration hub**：`AllPackets`（`@EventBusSubscriber`）注册 **14 个 C→S + 10 个 S→C = 24 个**包。
 
 | 方向 / Dir | 包 / Packet | 用途 / Purpose |
 |------|-----|------|
@@ -440,6 +454,7 @@ joiners have no pending ops and always load the authoritative graph.
 | C→S | `ControlSeatInputPacket` | 座椅输入 / Seat input |
 | C→S | `RadarSettingsPacket` / `RadarLockPacket` | 雷达设置/锁定 / Radar settings/lock |
 | C→S | `MonitorSettingsPacket` | 屏幕参数 / Monitor screen params |
+| C→S | `SpeakerSettingsPacket` | 音响播放设置（gain/radius/mute 等，reach 校验）/ Speaker playback settings with reach validation |
 | C→S | `ScanSablePacket` | 便携终端扫描请求 / Portable terminal scan request |
 | S→C | `GraphEditOpSyncPacket` | 远程编辑操作同步 / Remote edit sync |
 | S→C | `GraphEditAckPacket` | ADD_NODE_REQUEST 回执 / Server ID allocation ack |
@@ -449,9 +464,10 @@ joiners have no pending ops and always load the authoritative graph.
 | S→C | `RuntimeStateSyncPacket` | 时序组件状态同步（含子图 flipflop）/ Sequential state sync (incl. sub-graph flipflop) |
 | S→C | `BlobDataSyncPacket` | Blob 数据转发 / Blob data relay |
 | S→C | `MonitorRedstoneSyncPacket` | Monitor 红石输入同步 / Monitor redstone input sync |
+| S→C | `NoteEventPacket` | 音符事件（音响/听者坐标 + 本 tick 事件 + radius；`dispatchGameTick` 供迟到校正）；发声委托 `CscAudioEngine` / Note events (speaker or listener pos + this tick's events + radius; `dispatchGameTick` for late-dispatch correction); playback delegates to `CscAudioEngine` |
 | S→C | `ScanSableResponsePacket` | 便携终端扫描结果 / Terminal scan response |
 
-**辅助类型 / Helper types**：`BlobPacketHandler`（Blob 收发）、`BlobType`（IMAGE_PIXELS/ITEMSTACK_NBT/RAW_BYTES）、`ChannelEntry`（CHANNELS 值类型，含 refCount）、`ChannelOwner`（`BlockPos+nodeId` 所有者标识）
+**辅助类型 / Helper types**：`BlobPacketHandler`（Blob 收发）、`BlobType`（IMAGE_PIXELS/ITEMSTACK_NBT/RAW_BYTES/SONG_BYTES）、`ChannelEntry`（CHANNELS 值类型，含 refCount）、`ChannelOwner`（`BlockPos+nodeId` 所有者标识）、`AudioBands`（音频频段表，见下）、`SongSync`（曲目上传编排：NBS 字节分片 + `SET_SONG` 引用 op，分片先转发其他编辑者再广播 op）
 
 **安全校验 / Security**：双重验证（距离 + 编辑会话成员）**仅适用于编辑类包**（`GraphEditOpPacket`、`BlobDataPacket`）。
 / Dual validation (distance + editor-membership) applies only to edit-type packets.
@@ -472,6 +488,14 @@ joiners have no pending ops and always load the authoritative graph.
 - `updateChannel(name, map, owner)` — 更新 map 引用不改变 refCount / Update map ref without touching refCount
 - `unregisterChannel(name, owner)` — refCount--，归零时移除 + clearBus / Decrement ref; remove + clearBus at zero
 - `registerBands(name, bands)` / `getBands(name)` / `clearBus(name)`
+
+### AudioBands
+音频频段表（全局静态，与 SignalBus 同款跨维度共享性质；发布 = 覆盖写）。
+/ Audio band table (global static, same cross-dimensional sharing as SignalBus; publish = overwrite).
+
+- `publish(band, ref, gameTick)` — AUDIO_OUT 每 tick 重写（含空引用 = 自然表达「停了」）/ per-tick rewrite (an empty ref naturally expresses "stopped")
+- **新鲜度门控 / Freshness gate**：引用带发布 game-time 戳，读取只认 `戳 ≥ 当前刻 − 1`（跨 BE tick 顺序容忍 1 刻）——发布方停机/卸载后陈旧引用自愈失效，消费端无需清理配合 / reads accept this- or previous-tick stamps only; stale refs self-heal when the publisher stops or unloads
+- **消费者游标 / Consumer cursors**：`(consumer, band)` 记已读戳，读取 exactly-once——BE tick 顺序翻转不再同批重播 / per (consumer, band) cursors make reads exactly-once across BE tick-order flips
 
 ### BusChannelHelper
 BUS 频道生命周期管理器 / BUS channel lifecycle manager.
@@ -521,6 +545,14 @@ Sable 子层级兼容工具 / Sable sub-level compat utilities.
 | `PixelEditorFrameStrip.java` | 序列**帧条**（第二刀）：缩略图条 + 按钮行渲染、点击 / 滚轮 / 拖拽重排、帧操作（切换 / 新建 / 删除 / 重排）；帧状态（当前帧号 / 滚动 / 拖拽 / 新建菜单）随类，条带几何与落库同步经 Host，kernel 注入供帧撤销 / The sequence **frame strip** (second cut): thumbnail strip + button row, click / wheel / drag-reorder, frame ops; frame state moves with the class, strip geometry and persistence/sync via Host, kernel injected for frames-list undo |
 | `PixelEditorToolRail.java` | 左侧**工具列**（第三刀）：PS 式单列（图标 / 悬停提示 / 点击选择 + 默认隐藏的笔刷区块）；`Tool` 枚举随迁，当前工具与画笔参数留屏幕经 Host 读写 / The left **tool rail** (third cut): the PS-style column (icons, tooltips, click selection + the hidden brush section); the `Tool` enum moves with it, the active tool and brush parameters stay on the screen behind the Host |
 | `RadarLockHandler.java` | 雷达锁定交互 / Radar lock interaction |
+| `NbsEditorKernel.java` | NBS 钢琴卷帘**纯内核**：曲目编辑操作 + 撤销/重做状态机（精确逆操作 + 结构级快照、笔划分组、dirty 标记）；无 MC 依赖，`NbsEditorKernelTest` 覆盖 / Piano-roll **pure kernel**: song edit ops + undo/redo state machine (exact inverse ops + structural snapshots, stroke grouping, dirty flag); MC-free, covered by `NbsEditorKernelTest` |
+| `NbsPianoRoll.java` | tick×键卷帘渲染：点放 / 擦除 / 拖拽涂抹 / 缩放滚动 / Tick×key piano-roll rendering: place / erase / drag-paint / zoom & scroll |
+| `NbsEditorScreen.java` | NBS 编辑器屏幕：层面板（名称/音量/声像/锁定）+ 传输条 + 试听（按听者位置发声）+ 导入/导出 .nbs（目录 `<gameDir>/create_schematic_compute/nbs/`）+ 指南弹窗；实现 `GraphEditor.Host` / The NBS editor screen: layer panel, transport bar, listener-positioned audition, .nbs import/export, guide dialog; implements `GraphEditor.Host` |
+| `audio/AudioMixer.java` | 纯混音核心：调度 / 重采样变调 / 等功率声像 / 线性距离衰减 / 密度增益分级（≤24 不缩放）/ 块级包络限幅；`MAX_VOICES=1024` 超出优先剥夺最轻；`AudioMixerTest` 覆盖 / Pure mixing core: scheduling, resampling pitch, equal-power pan, linear distance attenuation, density-scaled gain, block envelope limiter; quietest-first voice stealing past MAX_VOICES=1024 |
+| `audio/SampleBank.java` | 原版 16 音色 JOrbis 运行时解码缓存（引用 ≠ 再分发，jar 零资产；显式不做峰值归一化）/ Vanilla 16-timbre runtime decode cache (reference not redistribution, no bundled assets; explicitly no peak normalisation) |
+| `audio/CscAudioStream.java` | `AudioStream`：混音渲染 → 立体声 16-bit LE PCM；80 ms 回填粒度（4 块预填 ≈ 320 ms 余量）；**必须 direct buffer**（堆缓冲喂 `alBufferData` 原生崩溃）/ Mixer output as stereo 16-bit LE PCM; 80 ms refill quanta (4-buffer pre-fill ≈ 320 ms cushion); **direct buffers only** — heap buffers crash natively in `alBufferData` |
+| `audio/CscAudioEngine.java` | 引擎入口：世界发声/试听唯一入口；通道生命周期自愈（惰性挂接 / `isStopped` 重建 / 按渲染帧补泵）；**绝对帧落点调度**（锚点（帧, 时刻）成对更新）+ 预播提前量 / Engine entry: the single world/audition playback path; channel self-healing (lazy attach, isStopped rebuild, render-frame pumping); absolute-frame scheduling with paired (frame, time) anchors + pre-roll |
+| `audio/AudioTimelineDiag.java` | 时序诊断：`[TimelineDiag]` 周期聚合日志（限幅/重挂/批次跨度）+ `REPLAY-Blocked` 限频告警 / Timing diagnostician: periodic `[TimelineDiag]` aggregate logs (limiter/reattach/batch span) + rate-limited `REPLAY-Blocked` warnings |
 | `colorpicker/ColorPickerButton.java` | 颜色选择按钮 / Color picker button |
 | `colorpicker/ColorPickerWidget.java` | 颜色选择器组件：支持 `setScale`（缩放渲染 + 鼠标逆变换）与 `setEmbedded`（内嵌模式：无浮空外框、无标题、无「确定/橡皮擦」按钮、不随外部点击关闭；常用/最近 4 行、标题字放大、更高）供像素编辑器内嵌式常驻调色板停靠；**这些行数/高度/标题改动只在内嵌模式生效**，浮空模式（GraphEditor/MonitorScreen）保持原 2 行、246 高、确定键在原位；橡皮擦按钮及逻辑已整体移除；其余调用方仍作浮空弹窗使用（浮空模式保留「确定」按钮）/ Color picker widget: supports `setScale` (scaled render + inverse mouse mapping) and `setEmbedded` (embedded mode: no floating frame, no title, no OK/eraser buttons, no outside-click close; 4 favorite/recent rows, bigger titles, taller) for the pixel editor's embedded palette; **these row/height/title changes apply only in embedded mode** — floating mode (GraphEditor/MonitorScreen) keeps the original 2-row, 246px layout and OK position; the eraser button & logic were removed; other callers keep the floating-popup behaviour (floating mode retains the OK button) |
 | `colorpicker/ColorUtils.java` | 颜色工具 / Color utilities |
@@ -564,6 +596,9 @@ v1.2.4.1 起访问机制为**编译期桥 + 反射混合**：入口 `SubLevelCon
 | 类 / Class | 目标 / Target | 功能 / Function | 配置 / Config |
 |----|------|---------|------|
 | `LocalPlayerMixin.java` | `Entity.turn()` | 摇杆抑制 + 鼠标增量导出（HEAD 拦截）/ Joystick suppression + raw mouse delta export | `create_schematic_compute.mixins.json` (client) |
+| `SoundManagerAccessor.java` | `SoundManager` | accessor：直取 `SoundEngine`（音频引擎通道自愈链入口）/ Accessor: reach the `SoundEngine` | `create_schematic_compute.mixins.json` (client) |
+| `SoundEngineAccessor.java` | `SoundEngine` | accessor：直取 `ChannelAccess`（STREAMING 声部挂 `CscAudioStream`）/ Accessor: reach `ChannelAccess` to attach `CscAudioStream` to a STREAMING voice | `create_schematic_compute.mixins.json` (client) |
+| `RotationPropagatorMixin.java` | Create `RotationPropagator` | 变速器 `getConveyedSpeed` 语义接入转速传播链 / Lets the transmission's conveyed-speed semantics ride kinetic propagation | `create_schematic_compute.mixins.json` (common) |
 | `ControlSeatCameraMixin.java` | Sable 相机 | 禁用 Sable 相机旋转防双重旋转 / Disable Sable camera rotation to prevent double-rotation | `create_schematic_compute.sable.mixins.json` (`required:false`) |
 
 ---
@@ -593,6 +628,20 @@ ServerLevel.tick()
 
 > 刀5 挂起时 FORMULA 输出冻结（emit-on-done），spread 进度经 `EvalSnapshot.formulaSpreads` 同步客户端渲染进度条。
 > / On knife-5 suspension the FORMULA outputs stay frozen (emit-on-done); spread progress syncs to clients via `EvalSnapshot.formulaSpreads` for the render bar.
+
+### 音频链（每 tick / Audio Chain, per tick）
+
+```
+功放 BE tick（服务端 / server）
+  → GraphEvaluator：MUSIC 展开（MusicTransport 推进 + delaySeconds 目标时刻）→ AMP → AUDIO_OUT
+  → AudioBands.publish(band, AudioRef, gameTick)
+音响 BE tick（服务端 / server）
+  → AUDIO_IN / BUS_IN(音频分支) 读频段（新鲜度门控 + 消费者游标 exactly-once）→ SPEAKER_PLAY
+  → SpeakerSink 交付 → NoteEventPacket（坐标 + 事件 + radius + dispatchGameTick）→ 追踪玩家 / tracking players
+客户端 / client
+  → CscAudioEngine：绝对帧落点调度（预播 0.2 s）→ AudioMixer（混音/密度增益分级/限幅）
+  → CscAudioStream（80 ms × 4 direct buffer）→ OpenAL STREAMING 声部
+```
 
 ### 编辑操作流程 / Edit Operation Flow
 

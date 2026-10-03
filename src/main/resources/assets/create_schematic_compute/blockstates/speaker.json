@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "create_schematic_compute:block/speaker", "y": 0 },
+    "facing=east":  { "model": "create_schematic_compute:block/speaker", "y": 90 },
+    "facing=south": { "model": "create_schematic_compute:block/speaker", "y": 180 },
+    "facing=west":  { "model": "create_schematic_compute:block/speaker", "y": 270 }
+  }
+}

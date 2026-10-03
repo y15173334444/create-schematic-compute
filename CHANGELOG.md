@@ -21,6 +21,33 @@
 ---
 
 <details>
+<summary><b>Unreleased（v1.2.6 WIP）</b> — 功放电脑 + 音响 + NBS 钢琴卷帘编辑器（核心 + 编辑器已实现） / Amplifier Computer + Speaker + NBS Piano Roll Editor (core + editor implemented)</summary>
+
+### 🎵 v1.2.6 WIP：功放电脑 + 音响 / Amplifier Computer + Speaker
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🎛️ **新增方块**：功放电脑 | 图宿主（继承 `SyncedGraphBlockEntity`）+ 音频节点求值 + 频段发布；屏幕节点准入 = 通用 + AUDIO 类。/ New graph-host block with audio-node evaluation + band publish. |
+| 🔊 **新增方块**：音响 | 音频专用图宿主（R1-3）：默认图 `AUDIO_IN(频段) → SPEAKER_PLAY(声道)`，在本坐标发声；增益/半径/红石静音为播放设置。/ Audio-only graph host: default graph `AUDIO_IN(band) → SPEAKER_PLAY(channel)`, playing at its own position; gain/radius/redstone-mute as playback settings. |
+| 🎹 **曲目数据面** `NbsSong` | NBS v1–v5 解析、写出 v5、编辑操作（纯函数，可单测）。/ NBS parse (v1–v5), write (v5), edit ops — pure, unit-tested. |
+| 🎼 **音频节点** | `MUSIC`（曲目宿主+传输）/ `AMP`（增益钳 0..4）/ `AUDIO_OUT`（频段发布）/ `CHANNEL`（声道拆分）/ `AUDIO_IN`（频段读取）/ `SPEAKER_PLAY`（播放 sink）；引脚域 FLOAT/AUDIO 只连同域；单引脚多声道。/ New AUDIO-category nodes with pin-domain enforcement and single-pin multi-channel audio. |
+| 🔁 **播放调度** | 服务端排程 → 音符展开（键 33–57 精确、窗口外钳制、层音量烘焙、循环/尾脉冲）→ 频段路由 → `NoteEventPacket` → 客户端世界发声（原版音符盒 16 音色 = D13 回退）。/ Server-side scheduling → note expansion → band routing → client world playback. |
+| 🔊 **CSC 音频引擎**（自管混音层） | 高密度曲目丢音根治（F6）：`AudioMixer` 把任意多音符合成进一条 PCM 流（重采样变调 + 等功率声像 + 线性距离衰减，`radius` 字段生效），经 STREAMING 池一个声部输出——并发与声部池无关；原版 16 音色采样运行时引用（jar 零资产）；世界发声/编辑器试听统一入口。/ Self-mixed audio engine: folds any number of notes into one PCM stream (one output voice), fixing dense-song voice drops; vanilla timbres decoded at runtime (no bundled assets); single playback entry for world + audition. |
+| 🎼 **引擎对齐 Note Block Studio**（参照 OpenNBS 播放模型） | ① **乐器索引序修正**：改用 NBS 格式序（1=bass、2=basedrum…），原先按原版枚举序映射导致 1–7 号乐器放错音色；② **全音域播放**：音高公式与 NBS 同式（基准键 45），键 0–87 全部发声、窗口 33–57 仍为零拉伸精确区（原「窗口外钳制」取消）；③ **破音修复**：块级包络限幅（attack 即时/release ≈250 ms）替代逐样本软限幅，保留乐器原始相对响度（不做归一化）；④ **调度墙钟锚定 + 预播提前量**：音符落点按真实到达间隔铺开；服务端提前 0.2 s 下发带目标时刻（delaySeconds），到达抖动（tick 过载时「晚点/成批」）被提前量吸收，客户端按目标定点播。NBS 自带采样经哈希比对确认含 MC 提取物（MIT 只覆盖代码），**不采用**、维持运行时引用原版。/ Engine aligned with Note Block Studio's playback model: fixed instrument index order (1–7 played the wrong timbre), full-range pitch (same formula as NBS, base key 45), clipping fixed via block envelope limiting while keeping natural inter-instrument loudness (no normalisation); wall-clock anchored scheduling plus a 0.2 s pre-roll with absolute targets absorbs arrival jitter under dense-song tick overruns. NBS's bundled samples hash-match Minecraft assets (MIT covers code only) — not bundled; vanilla runtime reference kept. |
+| ⏱ **时序/听感打磨链**（六轮实测驱动） | ① **绝对帧落点**：调度锚点（帧, 时刻）成对更新，渲染与调度共锁不再漂移（密集段落「推迟/挤堆」的客户端侧根因）；② **密度增益分级**：并发 ≤24 不缩放、超出按 √(N) 降增益，消除限幅器抽吸（实测 −10dB）；③ **消费者游标 exactly-once**：`AudioBands` 按（消费者, 频段）记已读戳，BE tick 顺序翻转不再同批重播；④ **下发迟到校正**：服务端晚点 1:1 转客户端推迟，断档后段落不再叠着响；⑤ 输出缓冲 80 ms × 4 ≈ 320 ms 余量，扛 GC 级停顿；⑥ `AudioTimelineDiag` 常驻时序诊断（`[TimelineDiag]` 日志）。/ Timing & dynamics polish chain from six rounds of in-game testing: absolute frame placement (paired anchor updates), density-scaled gain (no limiter pumping at low density), exactly-once consumer cursors (no replay on BE tick-order flips), late-dispatch correction (late ticks convert 1:1 to client-side deferral), an 80 ms × 4 output cushion against GC hitches, and a resident timing diagnostician. |
+| 🐛 **导出崩溃修复** | .nbs 导出文件名含非法字符（如 `DECO*27` 的 `*`）时 `Path.resolve` 抛 `InvalidPathException` 崩游戏——文件名消毒（非法字符 → `_`）+ catch 放宽；`GraphEditor.exportEncapNode` 同类隐患一并修。/ Export crash fix: illegal filename characters (e.g. the `*` in `DECO*27`) made `Path.resolve` throw `InvalidPathException` and crash the game — filenames are sanitised (illegal chars → `_`) and the catch widened; the same hazard in `GraphEditor.exportEncapNode` is fixed too. |
+| 🎹 **NBS 钢琴卷帘编辑器** | 双击 MUSIC 节点打开（像素编辑器同款管线）：钢琴卷帘点放/擦除/拖拽涂抹 + 层面板（名称/音量/声像/锁定）+ 传输条（播放/停止/循环/速度）+ 试听（同款播放路径，按听者位置发声）+ 导入/导出 .nbs；三件拆分（纯内核 `NbsEditorKernel` / 卷帘 `NbsPianoRoll` / 屏幕 `NbsEditorScreen`），内核撤销/重做可单测。/ NBS piano-roll editor opened by double-clicking a MUSIC node (pixel-editor pipeline): place / erase / drag-paint, layer panel, transport bar with audition, .nbs import/export; split into kernel / roll / screen with a unit-tested undo stack. |
+| 📨 **曲目写入/替换 op**（`SET_SONG`） | 曲目字节经 `BlobDataPacket` 分片（C2S 单包 32 KB 上限）+ 引用 op 走操作执行器；256 KB 上限，坏数据拒存保原曲；Ctrl+D 复制节点同步曲目；导入替换可撤销。/ Song write/replace op: chunked blob transfer plus a referencing op through the op executor; 256 KB cap, malformed data rejected, copy-paste keeps songs, import replace is undoable. |
+| 🧪 **测试** | NbsSongTest / AudioNodeModelTest / NoteEventTest / MusicTransportTest / AudioNodesEvalTest / NbsEditorKernelTest / SongWriteOpTest / AudioMixerTest / AudioBandsCursorTest / AudioTimelineDiagTest 全绿（595 例）。/ Ten audio/editor test classes green (595 tests total). |
+
+> **待续 / Pending**：自有声音事件 + 定制衰减距离（D13 主路线）、预播提前量/子 tick 精度抛光、
+> 逐音协作 op（多人同编曲目）、音频连线特殊渲染样式、层声像烘焙（R1-5）。
+> **已删临时件（2026-10-01）**：内置测试曲（ARR 许可，不可再分发）与自动建图/灌曲/开机测试架、
+> `[AudioProbe]` 诊断探针随编辑器落地成组删除。
+
+</details>
+
+<details>
 <summary><b>v1.2.5.2</b> — 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 · 编码器清零改节点体引脚 · PID/PID_POWER 积分死区 · 频道名旧草稿回写（#10）· 去掉整图保存覆盖（#17）· 封装子图节点数据同步 · 封装子图展开状态跨玩家同步 · 参数输入框实时同步 · 封装子图顶栏合并 · 占用封装禁删 · 键位系统扩容（删除连线 + 像素编辑器动作）· 统一键鼠序列绑定 · 旧键位配置迁移 · 删节点撤销/重做恢复连线（pinId + 占用检测）· 变速器代理态显示（值盒「(代理)」+ 滚轮拒收） / Fix: Kinetic Gauge Wrench Rotation (Shaft Roll · Tilt-Preserving Yaw) · Floor Placement · Inverted Mount Text Upright · View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit · CNC Gearbox Shaft Faces Always Present / Wrench Back to Official · Transmission Output Recovers After Overload · Output-Command Forward-Reverse &amp; Negative Travel · Encoder Reset on the Node Body · PID/PID_POWER Integral Deadband · channel-name stale-draft write-back (#10) · drop whole-graph save overwrite (#17) · sub-graph node data sync · sub-graph expansion state sync across players · live param-box sync · sub-graph top-bar merge · occupied-encapsulation delete guard · display-mode top-bar merge · display lock follows selection · smooth remote display-layout drags · key-binding system gains delete-wire and pixel-editor actions · unified sequence bindings (legacy key-binding configs migrate) · undo/redo node-delete restores wires (pinId + occupancy check) · transmission proxy display (value-box "(proxy)" + wheel refused while node-driven)</summary>
 
 ### 🔧 动力传感器扳手 / Kinetic Gauge Wrench
