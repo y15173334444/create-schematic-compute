@@ -45,8 +45,8 @@ public class EditPanel {
             || n.type == NodeType.TX_OUT || n.type == NodeType.SPEED_CTRL) h += 18;
         // v1.2.6 音频节点按钮行 + HUD 范围/间隔步进行 / audio-node button rows + HUD stepper rows
         if (n.type == NodeType.MUSIC) h += 18;            // loop 循环开关 / loop toggle
-        if (n.type == NodeType.CHANNEL) h += 18;          // 声道数步进 / channel-count stepper
-        if (n.type == NodeType.SPEAKER_PLAY) h += 18;     // 播放声道三段 / playback channel segments
+        if (n.type == NodeType.CHANNEL) h += 36;          // 布局预设两行（3+2）/ layout presets, two rows
+        if (n.type == NodeType.SPEAKER_PLAY) h += 54;     // 全声道选择三行 / full channel picker, three rows
         if (n.type == NodeType.HUD_PITCH_LADDER) h += 36; // 范围/间隔两行 / range & interval steppers
         if (n.type == NodeType.MOUSE_JOYSTICK && n.params.length > 0) h += 16;
         if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 32; // 初始按钮 + 当前只读
@@ -530,33 +530,40 @@ public class EditPanel {
             row++;
         }
         if (node.type == NodeType.CHANNEL && node.params.length > 0) {
-            int cnt = Math.max(1, Math.min(NodeType.CHANNEL_PIN_IDS.length, (int) node.params[0]));
-            int bx = px + 4, by = py + 4 + row * 18, bw = pw - 8, bh = 16;
-            g.fill(bx, by, bx + bw, by + bh, 0xFF3A3428);
-            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
-            g.fill(bx + 1, by + 1, bx + 17, by + bh - 1, 0xFF2A2620);
-            g.fill(bx + bw - 17, by + 1, bx + bw - 1, by + bh - 1, 0xFF2A2620);
-            g.drawString(font, "◀", bx + 5, by + 3, 0xFFCCCCCC, false);
-            g.drawString(font, "▶", bx + bw - 11, by + 3, 0xFFCCCCCC, false);
-            String lbl = I18n.get("gui.create_schematic_compute.edit.channel_count") + ": " + cnt;
-            g.drawString(font, lbl, bx + (bw - font.width(lbl)) / 2, by + 3, 0xFFFFFFFF, false);
-            row++;
-        }
-        if (node.type == NodeType.SPEAKER_PLAY && node.params.length > 0) {
-            int ch = (int) node.params[0]; // 0=聚合 1=左 2=右 / mix, left, right
+            // 布局预设两行（3+2）：mix/stereo/quad + 5.1/7.1（R3，几何与 GraphEditor 点击段一致）
+            int layout = (int) node.params[0];
             int gap = 4;
             int btnW = (pw - 12 - 2 * gap) / 3;
-            String[] keys = {"ch_mix", "ch_l", "ch_r"};
-            for (int i = 0; i < 3; i++) {
-                int bx = px + 4 + i * (btnW + gap);
-                boolean active = ch == i;
-                g.fill(bx, py + 4 + row * 18, bx + btnW, py + 4 + row * 18 + 16, active ? 0xFF2A4A2A : 0xFF2A2A2A);
-                g.renderOutline(bx, py + 4 + row * 18, btnW, 16, active ? 0xFF88FF88 : 0xFF666666);
-                String lbl = I18n.get("pin.create_schematic_compute." + keys[i]);
-                int tw = font.width(lbl);
-                g.drawString(font, lbl, bx + (btnW - tw) / 2, py + 4 + row * 18 + 3, active ? 0xFFAAFFAA : 0xFF888888, false);
+            String[] keys = {"layout_mix", "layout_stereo", "layout_quad", "layout_5_1", "layout_7_1"};
+            for (int idx = 0; idx < keys.length; idx++) {
+                int r = idx / 3, col = idx % 3;
+                int bx = px + 4 + col * (btnW + gap);
+                int by = py + 4 + (row + r) * 18;
+                boolean active = layout == idx;
+                g.fill(bx, by, bx + btnW, by + 16, active ? 0xFF2A4A2A : 0xFF2A2A2A);
+                g.renderOutline(bx, by, btnW, 16, active ? 0xFF88FF88 : 0xFF666666);
+                String lbl = I18n.get("gui.create_schematic_compute." + keys[idx]);
+                g.drawString(font, lbl, bx + (btnW - font.width(lbl)) / 2, by + 3, active ? 0xFFAAFFAA : 0xFF888888, false);
             }
-            row++;
+            row += 2;
+        }
+        if (node.type == NodeType.SPEAKER_PLAY && node.params.length > 0) {
+            // 全声道选择（CHANNEL_PIN_IDS 序）3 行 × 3 段（R3）/ full channel picker, 3 rows of 3
+            int ch = (int) node.params[0];
+            int gap = 4;
+            int btnW = (pw - 12 - 2 * gap) / 3;
+            String[] ids = NodeType.CHANNEL_PIN_IDS;
+            for (int i = 0; i < ids.length; i++) {
+                int r = i / 3, col = i % 3;
+                int bx = px + 4 + col * (btnW + gap);
+                int by = py + 4 + (row + r) * 18;
+                boolean active = ch == i;
+                g.fill(bx, by, bx + btnW, by + 16, active ? 0xFF2A4A2A : 0xFF2A2A2A);
+                g.renderOutline(bx, by, btnW, 16, active ? 0xFF88FF88 : 0xFF666666);
+                String lbl = I18n.get(NodeType.channelDisplayKey(ids[i]));
+                g.drawString(font, lbl, bx + (btnW - font.width(lbl)) / 2, by + 3, active ? 0xFFAAFFAA : 0xFF888888, false);
+            }
+            row += (ids.length + 2) / 3;
         }
         if (node.type == NodeType.HUD_PITCH_LADDER && node.params.length > 1) {
             // 范围/间隔 两行步进（左减右加）/ range & interval steppers (minus left, plus right)

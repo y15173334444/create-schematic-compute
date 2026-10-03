@@ -2379,28 +2379,32 @@ public class GraphEditor {
             }
         }
         if (en.type == NodeType.CHANNEL && en.params.length > 0) {
-            int rowY = editLocalY + 4 + numRows * 18;
-            if (lmx >= 4 && lmx <= NW - 4 && lmy >= rowY && lmy <= rowY + 16) {
-                int dir = lmx <= 20 ? -1 : (lmx >= NW - 20 ? 1 : 0);
-                if (dir != 0) {
-                    int cur = (int) en.params[0];
-                    int newV = Math.max(1, Math.min(NodeType.CHANNEL_PIN_IDS.length, cur + dir));
-                    if (newV != cur) {
-                        en.params[0] = newV;
+            // 布局预设两行（3+2）点击段，几何与 EditPanel 一致 / layout presets, two rows
+            int gap = 4;
+            int btnW = (NW - 12 - 2 * gap) / 3;
+            for (int idx = 0; idx < io.github.y15173334444.create_schematic_compute.graph.ChannelLayout.layoutCount(); idx++) {
+                int bx = 4 + (idx % 3) * (btnW + gap);
+                int rowY = editLocalY + 4 + (numRows + idx / 3) * 18;
+                if (lmy >= rowY && lmy <= rowY + 16 && lmx >= bx && lmx <= bx + btnW) {
+                    if ((int) en.params[0] != idx) {
+                        float oldV = en.params[0];
+                        en.params[0] = idx;
                         var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
-                            host.getBlockPos(), ownerNodeId(), en.id, 0, newV, host.getPlayerUUID());
-                        host.sendOp(sOp); recordOp(sOp, 0, 0, cur, null);
+                            host.getBlockPos(), ownerNodeId(), en.id, 0, idx, host.getPlayerUUID());
+                        host.sendOp(sOp); recordOp(sOp, 0, 0, oldV, null);
                     }
+                    return true;
                 }
-                return true;
             }
         }
         if (en.type == NodeType.SPEAKER_PLAY && en.params.length > 0) {
-            int rowY = editLocalY + 4 + numRows * 18;
+            // 全声道选择（CHANNEL_PIN_IDS 序）3 行 × 3 段点击段 / full channel picker, 3 rows of 3
             int gap = 4;
             int btnW = (NW - 12 - 2 * gap) / 3;
-            for (int i = 0; i < 3; i++) {
-                int bx = 4 + i * (btnW + gap);
+            String[] ids = NodeType.CHANNEL_PIN_IDS;
+            for (int i = 0; i < ids.length; i++) {
+                int bx = 4 + (i % 3) * (btnW + gap);
+                int rowY = editLocalY + 4 + (numRows + i / 3) * 18;
                 if (lmy >= rowY && lmy <= rowY + 16 && lmx >= bx && lmx <= bx + btnW) {
                     if ((int) en.params[0] != i) {
                         float oldV = en.params[0];
