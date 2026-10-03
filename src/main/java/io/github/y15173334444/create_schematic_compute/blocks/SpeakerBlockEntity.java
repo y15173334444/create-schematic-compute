@@ -31,9 +31,11 @@ import java.util.Map;
  */
 public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements SpeakerSink {
 
-    /** 音频频段名（band，路由）→ 音频 BUS_IN.signalName（求值器音频分支按它读 AudioBands）。 */
+    /** 默认图初始频段名。运行时以图内 BUS_IN 的名字为准（编辑器可改、随节点 NBT 持久化）。
+     *  Initial band name for the default graph only — the graph's BUS_IN name rules at runtime. */
     public String channelBand = "speaker";
-    /** 播放声道（channel pinId：聚合/左/右…）→ 默认图里 SPEAKER_PLAY 的声道参数。 */
+    /** 默认图初始声道（channel pinId：聚合/左/右…）→ 默认图里 SPEAKER_PLAY 的声道参数。
+     *  Initial channel for the default graph only — runtime channel lives on the SPEAKER_PLAY node. */
     public String channelName = "mix";
     /** 播放增益（叠加在音源增益链上）。 */
     public float gain = 1f;
@@ -61,8 +63,12 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
         // 默认图：BUS_IN(band) --音频线--> SPEAKER_PLAY(声道)（仅空图时建立；频段读取走
         // BUS_IN 音频分支——输出接音频线即读 AudioBands，2026-10-03 起 AUDIO_IN 节点已移除）
         if (graph().nodes.isEmpty()) createDefaultGraph();
-        for (GraphNode n : graph().nodes)
-            if (n.type == NodeType.BUS_IN && graph().hasAudioSinkConnection(n.id)) n.signalName = channelBand;
+        // BUS_IN 的频段名归图所有（用户在编辑器里改、随节点 NBT 持久化）——旧版此处每 tick
+        // 把音频 BUS_IN 强制写回 channelBand 字段（默认图时代遗留），用户改名字总被重置为
+        // "speaker"。订阅哪个频段 = 图里那根总线输入的名字，BE 不再覆盖。
+        // BUS_IN band names belong to the graph (edited in the editor, persisted in node
+        // NBT) — the old per-tick re-point to the channelBand field was a default-graph-era
+        // leftover that kept resetting user edits.
         rs().checkGraphChanged(graph());
         if (graphChanged()) recompileEvaluatorFull();
         evaluator().setAudioTransports(audioTransports);
@@ -109,29 +115,19 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
             new ChunkPos(worldPosition), new NoteEventPacket(worldPosition, radius, level.getGameTime(), evs));
     }
 
-    /** 应用设置（C2S 设置包）。频段/声道改动**原位**更新既有图节点，不清空用户布线。 */
+    /** 应用设置（C2S 设置包）：gain/radius/mute 是 BE 播放设置；频段/声道归图节点
+     *  （BUS_IN 名字在编辑器里改、SPEAKER_PLAY 声道走节点选择器），此处不再重写图。
+     *  Apply settings (C2S packet): gain/radius/mute are BE playback settings; band/channel
+     *  live on graph nodes (BUS_IN name in the editor, SPEAKER_PLAY via the node picker) —
+     *  no graph rewrite here. */
     public void applySettings(String band, String channel, float g, int rad, boolean m) {
         this.channelBand = band == null ? "" : band;
         this.channelName = channel == null ? "" : channel;
         this.gain = Math.max(0f, Math.min(4f, g));
         this.radius = Math.max(0, rad);
         this.mute = m;
-        if (level != null && !level.isClientSide()) {
-            if (graph().nodes.isEmpty()) {
-                createDefaultGraph();
-            } else {
-                // 原位改：音频 BUS_IN 换频段、SPEAKER_PLAY 换声道；用户加的节点/连线全保留。
-                // 只动「输出接了音频线」的 BUS_IN（音频读取者），用户的浮点 BUS_IN 不受影响。
-                for (GraphNode n : graph().nodes) {
-                    if (n.type == NodeType.BUS_IN && graph().hasAudioSinkConnection(n.id)) {
-                        n.signalName = channelBand;
-                        n.signalBands = new ArrayList<>(List.of(channelBand));
-                    } else if (n.type == NodeType.SPEAKER_PLAY) {
-                        n.params[0] = channelParam(channelName);
-                    }
-                }
-                graph().bumpGeneration();
-            }
+        if (level != null && !level.isClientSide() && graph().nodes.isEmpty()) {
+            createDefaultGraph();
         }
         setChanged();
         if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
