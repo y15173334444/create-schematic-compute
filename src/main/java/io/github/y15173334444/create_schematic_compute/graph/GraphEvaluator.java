@@ -476,25 +476,6 @@ public class GraphEvaluator {
         outputs.put(node.id, o.clone());
     }
 
-    /** CHANNEL 声道拆分：按声像把音源拆到单个声道（聚合=mix 全量 / 左=l / 右=r，等功率声像；
-     *  其他环绕声道 MVP 暂取全量）。返回该声道的 {@link AudioRef}。
-     *  Split a source into one channel by panning (mix=full / l / r, equal-power; other
-     *  surround channels fall back to full for now). */
-    private static AudioRef channelRef(AudioRef in, String channel) {
-        if (in == null || in.isEmpty() || channel == null) return AudioRef.EMPTY;
-        if ("mix".equals(channel)) return in;
-        boolean left = "l".equals(channel), right = "r".equals(channel);
-        if (!left && !right) return in; // 中置/环绕/低音 MVP 暂取全量
-        List<NoteEvent> out = new ArrayList<>(in.events().size());
-        for (NoteEvent e : in.events()) {
-            float panNorm = e.panning() / 200f; // 0=左 .. 0.5=中 .. 1=右
-            float w = left ? (float) Math.cos(panNorm * Math.PI / 2)
-                           : (float) Math.sin(panNorm * Math.PI / 2);
-            out.add(e.withGain(e.gain() * w));
-        }
-        return new AudioRef(out, in.gain());
-    }
-
     private void eval(GraphNode node, List<InputSource> inputs, Map<Integer, Float> pidState, float dt, SeatInputState seat) {
         float[] o = node.outputValues;
 
@@ -1298,11 +1279,14 @@ public class GraphEvaluator {
                 audioRefs.put(audioKey(node.id, 0), (in != null) ? in.withGain(in.gain() * gain) : AudioRef.EMPTY);
             }
             case CHANNEL -> {
-                // 声道拆分：audio 入 → 各声道出（聚合/左/右…，signalBands）。
+                // 声道拆分：audio 入 → 各声道出（引脚集合 = 布局表；拆分口径见 ChannelLayout）。
                 AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
                 int chCount = node.signalBands != null ? node.signalBands.size() : 0;
+                boolean hasCenter = ChannelLayout.hasCenter(
+                    node.params.length > 0 ? (int) node.params[0] : ChannelLayout.STEREO);
                 for (int ci = 0; ci < chCount; ci++)
-                    audioRefs.put(audioKey(node.id, ci), channelRef(in, node.signalBands.get(ci)));
+                    audioRefs.put(audioKey(node.id, ci),
+                        ChannelLayout.channelRef(in, node.signalBands.get(ci), hasCenter));
             }
             case AUDIO_OUT -> {
                 // 单引脚多声道：audio 入（多声道 AudioRef）→ 发布到音频频段（band=signalName，带发布时刻）。
@@ -1317,12 +1301,13 @@ public class GraphEvaluator {
             }
             case SPEAKER_PLAY -> {
                 // 播放 sink：把音源交给宿主音响 BE，在其坐标发声（R1-3/R1-D）。
-                // 单引脚多声道：编辑区选声道（聚合/左/右），按声像过滤后播放。
+                // 单引脚多声道：编辑区选声道（全声道序号，CHANNEL_PIN_IDS 序），按拆分口径过滤后播放。
+                // 直连全带源（MUSIC/AMP）时选任意声道；接已拆声道的 CHANNEL 输出时保持 mix（恒等），
+                // 否则会二次衰减。hasCenter=false：无布局语境，l/r 走等功率对。
                 AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
                 if (in != null && speakerSink != null) {
                     int ch = node.params.length > 0 ? (int) node.params[0] : 0;
-                    String chName = ch == 1 ? "l" : ch == 2 ? "r" : "mix";
-                    AudioRef sel = channelRef(in, chName);
+                    AudioRef sel = ChannelLayout.channelRef(in, ChannelLayout.channelName(ch), false);
                     speakerSink.play(sel.events(), sel.gain());
                 }
             }

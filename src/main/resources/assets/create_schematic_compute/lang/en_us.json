@@ -694,6 +694,8 @@
   "pin.create_schematic_compute.ch_ls": "left surround",
   "pin.create_schematic_compute.ch_rs": "right surround",
   "pin.create_schematic_compute.ch_sub": "sub-bass",
+  "pin.create_schematic_compute.ch_sl": "left side",
+  "pin.create_schematic_compute.ch_sr": "right side",
   "gui.create_schematic_compute.guide.MUSIC": "Song host: NBS track data lives on the node; outputs audio (typed source), playing / tick / seconds status and a done pulse at the end of a non-looping play-through. play & stop fire on rising edge; seek jumps whenever its value changes. Double-click opens the NBS piano-roll editor.",
   "gui.create_schematic_compute.guide.AMP": "Gain stage: scales the incoming audio source by 0..4 (param pin, can be wired for volume automation). Audio pins only connect to audio pins.",
   "gui.create_schematic_compute.guide.AUDIO_OUT": "Band publish: hands this tick's audio source to the named audio band (band = signal name) for cross-block routing. Publish is overwrite-per-tick; consumers read by name.",

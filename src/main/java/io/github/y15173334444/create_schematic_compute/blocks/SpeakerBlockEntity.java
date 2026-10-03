@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.ChannelLayout;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.MusicTransport;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
@@ -89,9 +90,10 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
         setChanged();
     }
 
-    /** 声道名 → SPEAKER_PLAY 声道参数（聚合 0 / 左 1 / 右 2）。 */
+    /** 声道名 → SPEAKER_PLAY 声道参数（CHANNEL_PIN_IDS 序号：mix 0 / l 1 / r 2 / c 3 / sub 4 / ls 5 / rs 6 / sl 7 / sr 8，未知兜底 mix）。
+     *  Channel name → SPEAKER_PLAY channel param (CHANNEL_PIN_IDS ordinal; unknown falls back to mix). */
     private static float channelParam(String channel) {
-        return "l".equals(channel) ? 1f : "r".equals(channel) ? 2f : 0f;
+        return ChannelLayout.channelIndex(channel);
     }
 
     /** SPEAKER_PLAY 播放下沉：在自身坐标发声（套用音响增益/静音）。 */

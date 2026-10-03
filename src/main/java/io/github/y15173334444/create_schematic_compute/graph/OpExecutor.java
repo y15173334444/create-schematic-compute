@@ -204,6 +204,14 @@ public final class OpExecutor {
                     // recompile + runtimeState.clear() and wipes DELAY/flipflop/PID state.
                     if (Float.compare(n.params[op.paramIndex()], op.paramValue()) != 0) {
                         n.params[op.paramIndex()] = op.paramValue();
+                        // CHANNEL 布局变化 → 引脚集合整体替换（布局表），失效输出连线交给
+                        // rebuildInputCache 的 stale 剪枝收走（与 SET_BANDS 同路）。
+                        // CHANNEL layout change → the pin set is replaced wholesale; stale
+                        // output wires are pruned by rebuildInputCache (same path as SET_BANDS).
+                        if (n.type == NodeType.CHANNEL) {
+                            n.ensureChannelBands();
+                            graph.rebuildInputCache();
+                        }
                         graph.bumpGeneration();
                     }
                 }

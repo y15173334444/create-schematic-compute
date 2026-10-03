@@ -117,4 +117,45 @@ class AudioNodeModelTest {
         assertEquals("pin.create_schematic_compute.audio", NodeType.AMP.inputLabel(0));
         assertEquals("pin.create_schematic_compute.gain", NodeType.AMP.inputLabel(1));
     }
+
+    @Test
+    @DisplayName("CHANNEL 布局：默认立体声、布局派生引脚 / CHANNEL layout: default stereo, layout-derived pins")
+    void channelLayoutPins() {
+        GraphNode ch = new GraphNode(1, NodeType.CHANNEL, 0, 0);
+        assertEquals((float) ChannelLayout.STEREO, ch.params[0], "new CHANNEL nodes default to stereo");
+        assertEquals(2, ch.outputs());
+        assertEquals("l", ch.outputPinId(0));
+        assertEquals("r", ch.outputPinId(1));
+        // 布局切换整体替换引脚集合
+        ch.params[0] = (float) ChannelLayout.SURROUND_5_1;
+        ch.ensureChannelBands();
+        assertEquals(6, ch.outputs());
+        assertEquals("c", ch.outputPinId(2));
+        assertEquals("sub", ch.outputPinId(3));
+    }
+
+    @Test
+    @DisplayName("CHANNEL 旧数据迁移：前 N 模式 → 布局预设 / CHANNEL legacy migration at NBT load")
+    void channelLegacyMigration() {
+        // 旧默认三声道（mix/l/r）→ STEREO，引脚重建为 [l, r]
+        GraphNode legacy3 = new GraphNode(1, NodeType.CHANNEL, 0, 0);
+        legacy3.params[0] = 3f;
+        legacy3.signalBands = new ArrayList<>(List.of("mix", "l", "r"));
+        GraphNode loaded3 = GraphNode.load(legacy3.save(null), null);
+        assertEquals((float) ChannelLayout.STEREO, loaded3.params[0]);
+        assertEquals(List.of("l", "r"), loaded3.signalBands, "bands rebuilt from the layout table");
+
+        // 旧七声道（去掉 mix 恰为 5.1 全集）→ SURROUND_5_1
+        GraphNode legacy7 = new GraphNode(2, NodeType.CHANNEL, 0, 0);
+        legacy7.params[0] = 7f;
+        legacy7.signalBands = new ArrayList<>(List.of("mix", "l", "r", "c", "ls", "rs", "sub"));
+        GraphNode loaded7 = GraphNode.load(legacy7.save(null), null);
+        assertEquals((float) ChannelLayout.SURROUND_5_1, loaded7.params[0]);
+        assertEquals(List.of("l", "r", "c", "sub", "ls", "rs"), loaded7.signalBands);
+
+        // 新布局数据原样通过（stereo 的 [l, r] 不是旧前缀模式）
+        GraphNode fresh = new GraphNode(3, NodeType.CHANNEL, 0, 0);
+        GraphNode loadedFresh = GraphNode.load(fresh.save(null), null);
+        assertEquals((float) ChannelLayout.STEREO, loadedFresh.params[0]);
+    }
 }

@@ -694,6 +694,8 @@
   "pin.create_schematic_compute.ch_ls": "左环绕",
   "pin.create_schematic_compute.ch_rs": "右环绕",
   "pin.create_schematic_compute.ch_sub": "低音",
+  "pin.create_schematic_compute.ch_sl": "左侧环绕",
+  "pin.create_schematic_compute.ch_sr": "右侧环绕",
   "gui.create_schematic_compute.guide.MUSIC": "曲目宿主：NBS 曲目数据住节点上；输出音频（类型化音源）、playing/tick/seconds 状态与非循环播到尾的 done 脉冲。play/stop 上升沿生效；seek 值变化即当帧快照跳转。双击节点打开 NBS 钢琴卷帘编辑器。",
   "gui.create_schematic_compute.guide.AMP": "增益级：把输入音源按 0..4 缩放（参数引脚，可接图信号做音量自动化）。音频引脚只连音频引脚。",
   "gui.create_schematic_compute.guide.AUDIO_OUT": "频段发布：把本 tick 音源交给指定名称的音频频段（频段名 = 信号名）跨方块路由。每 tick 覆盖写；消费端按名读取。",

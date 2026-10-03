@@ -143,15 +143,18 @@ public class GraphNode {
         return type.outputs;
     }
 
-    /** CHANNEL：由「输出声道数」（params[0]）派生声道 pinId 列表（聚合/左/右…，规范表）。
-     *  Derive the channel pinId list (mix/left/right…) from the output-channel-count param. */
+    /** CHANNEL：由布局预设（params[0] = ChannelLayout 序号）派生声道 pinId 列表——引脚集合
+     *  由布局表整体决定，不再是「前 N 个」。旧数据已在 load 时迁移。
+     *  Derive the channel pinId list from the layout preset in params[0] (ChannelLayout
+     *  ordinal) — the pin set comes from the layout table as a whole; legacy data is
+     *  migrated at load time. */
     public void ensureChannelBands() {
         if (type != NodeType.CHANNEL) return;
-        int n = params.length > 0 ? (int) params[0] : 3;
-        n = Math.max(1, Math.min(NodeType.CHANNEL_PIN_IDS.length, n));
-        if (signalBands != null && signalBands.size() == n) return;
-        signalBands = new java.util.ArrayList<>();
-        for (int i = 0; i < n; i++) signalBands.add(NodeType.CHANNEL_PIN_IDS[i]);
+        int layout = params.length > 0 ? (int) params[0] : ChannelLayout.STEREO;
+        String[] pinIds = ChannelLayout.pins(layout);
+        if (signalBands != null && signalBands.size() == pinIds.length
+                && signalBands.equals(java.util.Arrays.asList(pinIds))) return;
+        signalBands = new java.util.ArrayList<>(java.util.Arrays.asList(pinIds));
     }
     private int countSubNodes(NodeType t) {
         int n = 0;
@@ -425,8 +428,8 @@ public class GraphNode {
             this.itemParams = new ItemStack[]{ItemStack.EMPTY, ItemStack.EMPTY};
         // 设置基于参数的节点的默认值 / Set defaults for param-based nodes
         if (type == NodeType.CONST) this.params[0] = 1.0f;
-        // CHANNEL：新建默认三声道（聚合/左/右）；0 会被 ensureChannelBands 钳成 1，故必须显式给 3
-        if (type == NodeType.CHANNEL) this.params[0] = 3.0f;
+        // CHANNEL：新建默认立体声（l/r）；params[0] = ChannelLayout 布局序号
+        if (type == NodeType.CHANNEL) this.params[0] = (float) ChannelLayout.STEREO;
         if (type == NodeType.PID) {
             this.params[0] = 1.0f;   // kp
             this.params[1] = 0.1f;   // ki
@@ -663,6 +666,14 @@ public class GraphNode {
             node.signalBands = new java.util.ArrayList<>();
             for (int i = 0; i < bandsTag.size(); i++)
                 node.signalBands.add(bandsTag.getString(i));
+        }
+        // CHANNEL 迁移：旧「输出声道数」前缀模式（mix 开头的旧序连续前缀）→ 布局预设 + 引脚重建
+        //（立即重建，保证迁移后 NBT 自洽）/ CHANNEL migration: legacy first-N pin pattern →
+        // layout preset with immediate pin rebuild (NBT self-consistent right after load).
+        if (node.type == NodeType.CHANNEL && ChannelLayout.isLegacyPrefix(node.signalBands)) {
+            node.params[0] = (float) ChannelLayout.fromLegacyCount(node.signalBands.size());
+            node.signalBands = null;
+            node.ensureChannelBands();
         }
         if (node.type == NodeType.BUS_OUT && tag.contains("busData")) {
             CompoundTag busData = tag.getCompound("busData");

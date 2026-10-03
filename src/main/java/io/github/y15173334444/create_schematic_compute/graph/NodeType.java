@@ -138,10 +138,12 @@ public enum NodeType {
     // Band publish (single-pin multi-channel): audio in (multi-channel AudioRef) → audio band.
     AUDIO_OUT("audio_out", "node.create_schematic_compute.audio_out", 1, 0, ""),
     // ── R1 多声道 / 音响图 / R1 multi-channel & speaker graph ──
-    // 声道拆分（多引脚）：audio 入 → 多个声道出（聚合/左/右…），编辑区选输出声道数。
-    // Channel split (multi-pin): audio in → per-channel outputs (mix/left/right…),
-    // output channel count chosen in the edit panel.
-    CHANNEL("channel", "node.create_schematic_compute.channel", 1, 0, "channelCount"),
+    // 声道拆分（多引脚）：audio 入 → 多个声道出；编辑区选标准布局（聚合/2.0/4.0/5.1/7.1，
+    // 见 ChannelLayout——引脚集合由布局表整体决定，不再是「前 N 个」）。
+    // Channel split (multi-pin): audio in → per-channel outputs; the edit panel picks a
+    // standard layout (mix/2.0/4.0/5.1/7.1, see ChannelLayout — the pin set comes from the
+    // layout table as a whole, not "first N").
+    CHANNEL("channel", "node.create_schematic_compute.channel", 1, 0, "layout"),
     // 播放 sink（音响图）：在本坐标播放音源；编辑区选声道（聚合/左/右，单引脚多声道里的选声道）。
     // Playback sink (speaker graph): plays the source at this block's position; the edit
     // panel selects the channel (mix/left/right) from the single multi-channel pin.
@@ -211,9 +213,11 @@ public enum NodeType {
         return PinDomain.FLOAT;
     }
 
-    /** 声道稳定 pinId（有序）：聚合/左/右/中置/左环绕/右环绕/低音。
-     *  Stable per-channel pin ids (ordered): mix/left/right/center/ls/rs/sub. */
-    public static final String[] CHANNEL_PIN_IDS = {"mix", "l", "r", "c", "ls", "rs", "sub"};
+    /** 声道稳定 pinId（有序）：聚合/左/右/中置/低音/左后环绕/右后环绕/左侧环绕/右侧环绕。
+     *  顺序即 SPEAKER_PLAY params[0] 的序号语义（旧值 0/1/2 = mix/l/r 不变）。
+     *  Stable per-channel pin ids (ordered): mix/left/right/center/sub/rear-L/rear-R/side-L/side-R.
+     *  The order doubles as the SPEAKER_PLAY params[0] ordinal (legacy 0/1/2 = mix/l/r unchanged). */
+    public static final String[] CHANNEL_PIN_IDS = {"mix", "l", "r", "c", "sub", "ls", "rs", "sl", "sr"};
 
     /** 声道 pinId → 显示 i18n 键（pin.create_schematic_compute.ch_*）。
      *  Channel pin id → display i18n key. */
@@ -228,7 +232,7 @@ public enum NodeType {
                  BUS_IN, BUS_OUT, DEBUG_SIGNAL_GEN, MOUSE_JOYSTICK, HUD_PITCH_LADDER,
                  // loop = 循环开关（编辑区按钮，不走 EditBox）/ loop = toggle button, not an EditBox
                  // AUDIO_OUT 频道引脚由 signalBands 决定，同 BUS_OUT / channel pins from signalBands, like BUS_OUT
-                 // CHANNEL 的「输出声道数」= 编辑区按钮（非引脚）/ channelCount = edit-panel control, not a pin
+                 // CHANNEL 的「布局」= 编辑区按钮（非引脚）/ layout = edit-panel control, not a pin
                  // SPEAKER_PLAY 的「声道」= 编辑区按钮 / channel = edit-panel button
                  MUSIC, AUDIO_OUT, CHANNEL, SPEAKER_PLAY,
                  // rev = 正/反转开关（编辑区按钮，不走 EditBox / toggle button, not an EditBox）
