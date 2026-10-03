@@ -150,6 +150,37 @@ public class GraphHost {
                         new BusBandSyncPacket(pos(), e.getKey(), e.getValue()));
                 }
             }
+            pushAudioFlagChanges(sl);
+        }
+    }
+
+    /** 每频道上次推送的标志版本（pushAudioFlagChanges 的去重缓存；宿主实例生命周期）。
+     *  Per-channel last-pushed flag version (pushAudioFlagChanges dedup cache; host lifetime). */
+    private final java.util.Map<String, Integer> pushedAudioFlags = new java.util.HashMap<>();
+
+    /** 频段音频标志推送：本图引用的每个频道，标志版本与上次推送不同就重发频段定义 + 标志。
+     *  发布方求值器负责把标志写入 SignalBus（拓扑判定），这里只管变化检测与投递。
+     *  Push per-band audio flags: for every channel this graph references, resend the band
+     *  definition + flags when the flag version moved past the last push. The publisher's
+     *  evaluator writes the flags into SignalBus (topology-derived); this only detects and ships. */
+    private void pushAudioFlagChanges(ServerLevel sl) {
+        var busNames = new java.util.HashSet<String>();
+        for (var n : graph.nodes) {
+            if ((n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) && !n.signalName.isEmpty())
+                busNames.add(n.signalName);
+        }
+        for (String busName : busNames) {
+            int stamp = io.github.y15173334444.create_schematic_compute.network.SignalBus.audioStamp(busName);
+            Integer sent = pushedAudioFlags.get(busName);
+            if (sent != null && sent == stamp) continue;
+            var bands = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(busName);
+            if (bands == null || bands.isEmpty()) { pushedAudioFlags.put(busName, stamp); continue; }
+            var audio = io.github.y15173334444.create_schematic_compute.network.SignalBus.getAudioBands(busName);
+            var flags = new java.util.ArrayList<Boolean>(bands.size());
+            for (String band : bands) flags.add(audio.contains(band));
+            PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(pos()),
+                new BusBandSyncPacket(pos(), busName, bands, flags));
+            pushedAudioFlags.put(busName, stamp);
         }
     }
 

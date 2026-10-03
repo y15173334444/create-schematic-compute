@@ -84,15 +84,23 @@ final class NodeWireRenderer {
         float x1 = c2sX.apply(fn.x + NodeRenderer.nw(fn));
         float x2 = c2sX.apply(wireEndX), y2 = c2sY.apply(wireEndY);
         // 拖拽预览同规则；拖拽源固定在输出侧，只查输出域（查输入域会误伤 AMP 这类
-        // 「输入 0 = AUDIO、输出 0 = FLOAT」的节点）。频段源（BUS_IN/PRIVATE_IN，任意域输出）
-        // 的预览色由悬停目标决定——目标 AUDIO 域引脚 → 青，数值目标 → 黄（GraphEditor
-        // 按释放同款几何检测，BUS_OUT 频段引脚任意域记 false）。
+        // 「输入 0 = AUDIO、输出 0 = FLOAT」的节点）。频段源（BUS_IN/PRIVATE_IN）是任意域
+        // 直通，引脚自身无固有域——预览色**以频段自身属性优先**（同步来的定义标志 ∨ 该引脚
+        // 本地音频线），悬停目标域只作无属性时的兜底。
         // Drag preview follows the same rule; the drag source is always an output pin, so only
-        // outputDomain applies (inputDomain would misflag AMP-style nodes whose input 0 is AUDIO
-        // but output 0 is FLOAT). For any-domain band sources (BUS_IN/PRIVATE_IN) the hover
-        // target decides - an AUDIO-domain target tints teal, a float one stays yellow
-        // (GraphEditor detects the hover with the release hit geometry).
-        boolean audio = fn.type.outputDomain(wireFromPin) == NodeType.PinDomain.AUDIO || targetAudio;
+        // outputDomain applies. Band sources (BUS_IN/PRIVATE_IN) are any-domain passthroughs
+        // with no intrinsic pin domain — the preview leads with the band's own property (the
+        // synced definition flag ∨ the pin's local audio wire); the hover target only fills in
+        // when the source has no property of its own.
+        boolean sourceAudio = fn.type.outputDomain(wireFromPin) == NodeType.PinDomain.AUDIO;
+        if (!sourceAudio && (fn.type == NodeType.BUS_IN || fn.type == NodeType.PRIVATE_IN)) {
+            boolean synced = fn.type == NodeType.BUS_IN && fn.signalBands != null
+                && wireFromPin < fn.signalBands.size()
+                && io.github.y15173334444.create_schematic_compute.network.SignalBus
+                    .isAudioBand(fn.signalName, fn.signalBands.get(wireFromPin));
+            sourceAudio = synced || graph.isBandPinAudio(fn.id, wireFromPin, true);
+        }
+        boolean audio = sourceAudio || targetAudio;
         bezier(g, x1, y1, x2, y2, audio ? NodeRenderer.CWA() : NodeRenderer.CWD());
     }
 

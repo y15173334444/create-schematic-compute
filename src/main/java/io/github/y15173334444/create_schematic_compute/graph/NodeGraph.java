@@ -196,9 +196,21 @@ public class NodeGraph {
         return removed;
     }
 
+    /** 该 (节点, 输出引脚) 是否接到了 AUDIO 域输入（BUS_IN 按频段走音频分支的判据——
+     *  只看这一根引脚的连线，不是节点级）。
+     *  Whether this (node, output pin) feeds an AUDIO-domain input (the per-band criterion
+     *  for BUS_IN's audio branch — this pin's wires only, not node-level). */
+    public boolean isAudioWired(int fromNodeId, int fromPin) {
+        for (NodeConnection c : connections) {
+            if (c.fromId != fromNodeId || c.fromPin != fromPin) continue;
+            var to = nodeMap.get(c.toId);
+            if (to != null && to.type.inputDomain(c.toPin) == NodeType.PinDomain.AUDIO) return true;
+        }
+        return false;
+    }
+
     /** 获取拓扑排序（缓存，仅在连接变化时重算）。
-     *  Get topological order (cached, recomputed only on connection changes). */
-    public List<Integer> getTopoOrder() {
+     *  Get topological order (cached, recomputed only on connection changes). */    public List<Integer> getTopoOrder() {
         if (topoOrder != null) return topoOrder;
         return computeTopoOrder();
     }

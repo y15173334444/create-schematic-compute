@@ -23,6 +23,14 @@ public class SignalBus {
     /** BUS band registry: busName → band name list (cross-computer shared band definitions) / BUS 频段注册表：bus名 → band名列表（跨计算机共享频段定义） */
     private static final ConcurrentHashMap<String, List<String>> BAND_REGISTRY = new ConcurrentHashMap<>();
 
+    /** 频段音频标志：bus名 → 承载音频的频段名集合（发布方按引脚对端域判定，随频段定义同步到
+     *  订阅方，编辑器着色用）/ Per-band audio flags: busName → band names carrying audio
+     *  (decided by the publisher's pin peers, synced with the band definition for editor tinting). */
+    private static final ConcurrentHashMap<String, java.util.Set<String>> AUDIO_BANDS = new ConcurrentHashMap<>();
+    /** 每频道的标志版本号（变更即自增）——宿主推送缓存据此判断要不要重发 / Per-channel flag version
+     *  (bumped on every change) — host push caches compare this to decide on a resend. */
+    private static final ConcurrentHashMap<String, Integer> AUDIO_STAMPS = new ConcurrentHashMap<>();
+
     // ── PRIVATE_IN/OUT API (unchanged) / PRIVATE_IN/OUT API（不变） ──────────────────────
 
     public static void put(String channel, float value) {
@@ -51,6 +59,37 @@ public class SignalBus {
     /** Get BUS band list / 获取 BUS 频段列表 */
     public static List<String> getBands(String busName) {
         return BAND_REGISTRY.get(busName);
+    }
+
+    /** 更新频段音频标志（内容变化才写 + 自增版本）。返回是否发生变化。
+     *  Update the per-band audio flags (write + version bump only on change); returns whether it changed. */
+    public static boolean setAudioBands(String busName, java.util.Set<String> audioBandNames) {
+        var current = AUDIO_BANDS.get(busName);
+        if (audioBandNames == null || audioBandNames.isEmpty()) {
+            if (current == null) return false;
+            AUDIO_BANDS.remove(busName);
+            AUDIO_STAMPS.merge(busName, 1, Integer::sum);
+            return true;
+        }
+        if (current != null && current.equals(audioBandNames)) return false;
+        AUDIO_BANDS.put(busName, new java.util.HashSet<>(audioBandNames));
+        AUDIO_STAMPS.merge(busName, 1, Integer::sum);
+        return true;
+    }
+
+    /** 频段音频标志（只读；无定义返回空集）/ The channel's audio band flags (empty when undefined). */
+    public static java.util.Set<String> getAudioBands(String busName) {
+        return AUDIO_BANDS.getOrDefault(busName, java.util.Set.of());
+    }
+
+    /** 某频段当前是否音频（订阅方着色用）/ Whether a specific band carries audio (subscriber tinting). */
+    public static boolean isAudioBand(String busName, String bandName) {
+        return AUDIO_BANDS.getOrDefault(busName, java.util.Set.of()).contains(bandName);
+    }
+
+    /** 标志版本号（无定义 0）/ The channel's flag version stamp (0 when undefined). */
+    public static int audioStamp(String busName) {
+        return AUDIO_STAMPS.getOrDefault(busName, 0);
     }
 
     // ── BUS channel registration API (new) / BUS 频道注册 API（新增） ──────────────────────
@@ -173,12 +212,16 @@ public class SignalBus {
         String prefix = busName + "\0";
         SIGNALS.keySet().removeIf(k -> k.startsWith(prefix));
         BAND_REGISTRY.remove(busName);
+        AUDIO_BANDS.remove(busName);
+        AUDIO_STAMPS.remove(busName);
     }
 
     /** Clear all signals, channel registrations, and band registries (called on server shutdown) / 清除所有信号、频道注册和频段注册表（服务器关闭时调用） */
     public static void clear() {
         SIGNALS.clear();
         BAND_REGISTRY.clear();
+        AUDIO_BANDS.clear();
+        AUDIO_STAMPS.clear();
         CHANNELS.clear();
     }
 }

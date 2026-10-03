@@ -75,8 +75,16 @@ public final class AudioBands {
      *
      * @return false 也用于空频段名（无可发布对象）/ false also covers an empty band name
      */
-    public static boolean publish(String band, AudioRef ref, long gameTick, String owner) {
-        if (band == null || band.isEmpty()) return false;
+    /** 频段键：`频道名\0频段名`（BUS 频段按频道限定，默认频段名跨频道不互撞）；
+     *  AUDIO_OUT 等独立发布方退化为 `名字\0名字`（发布与订阅两侧都用本助手构造）。
+     *  Band key: `channel\0band` (bus-scoped, so default band names never collide across
+     *  channels); standalone publishers like AUDIO_OUT degrade to `name\0name` — both sides
+     *  build keys through this helper. */
+    public static String bandKey(String channel, String band) {
+        return channel + "\0" + band;
+    }
+
+    public static boolean publish(String band, AudioRef ref, long gameTick, String owner) {        if (band == null || band.isEmpty()) return false;
         String prevOwner = owner == null ? null : OWNERS.get(band);
         Long prevStamp = prevOwner == null ? null : STAMPS.get(band);
         if (prevOwner != null && !prevOwner.equals(owner)

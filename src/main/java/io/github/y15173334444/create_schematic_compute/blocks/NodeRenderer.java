@@ -518,8 +518,19 @@ public class NodeRenderer {
         for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL && n.type != NodeType.DEBUG_PROBE; i++) {
             float py = HH+PH*(funcInputs + i)+PH/2f;
             int r = PR;
+            // 读取侧频段引脚（BUS_IN/PRIVATE_IN）= 频段定义同步来的音频标志（跟频段走）
+            // ∨ 该引脚本地接了音频线（按频段分流，读取与显示一致）；PRIVATE 无频段定义，
+            // 只有本地接线。发布侧（BUS_OUT/PRIVATE_OUT）在输入循环按对端域判定。
+            // Read-side band pins (BUS_IN/PRIVATE_IN) = the definition-synced per-band flag
+            // ∨ this pin's own local audio wire (per-band routing — display matches
+            // semantics); PRIVATE has no band definitions, local wiring only.
+            boolean syncedBandAudio = n.type == NodeType.BUS_IN && n.signalBands != null
+                && i < n.signalBands.size()
+                && io.github.y15173334444.create_schematic_compute.network.SignalBus
+                    .isAudioBand(n.signalName, n.signalBands.get(i));
             boolean outAudio = n.type.outputDomain(i) == NodeType.PinDomain.AUDIO
-                || (bandOut && graph != null && graph.isBandPinAudio(n.id, i, true));
+                || (bandOut && graph != null
+                    && (syncedBandAudio || graph.isBandPinAudio(n.id, i, true)));
             g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1),
                 outAudio ? CAPB() : CPOB());
             g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r),

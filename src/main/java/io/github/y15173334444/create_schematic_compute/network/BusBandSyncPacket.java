@@ -13,11 +13,20 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 服务端→客户端：同步 BUS 频段列表变化 */
-public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands) implements CustomPacketPayload {
+/** 服务端→客户端：同步 BUS 频段列表变化 + 各频段是否音频（发布方引脚对端域判定，
+ *  编辑器着色用；audioFlags 为空 = 本包不带标志信息，客户端保留现值）。
+ *  Server→client: band-list changes plus per-band audio flags (decided by the publisher's
+ *  pin peers, for editor tinting; empty audioFlags = no flag info, keep current). */
+public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands, List<Boolean> audioFlags) implements CustomPacketPayload {
 
     public static final Type<BusBandSyncPacket> TYPE =
         new Type<>(ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "bus_band_sync"));
+
+    /** 不带标志信息的便捷构造（标志未知/不更新的发送方用）。
+     *  Convenience constructor for senders without flag info (flags left untouched). */
+    public BusBandSyncPacket(BlockPos pos, String busName, List<String> bands) {
+        this(pos, busName, bands, java.util.List.of());
+    }
 
     public static final StreamCodec<ByteBuf, BusBandSyncPacket> CODEC = new StreamCodec<>() {
         @Override public BusBandSyncPacket decode(ByteBuf buf) {
@@ -27,7 +36,10 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
             int count = b.readVarInt();
             var list = new ArrayList<String>();
             for (int i = 0; i < count; i++) list.add(b.readUtf());
-            return new BusBandSyncPacket(p, name, list);
+            int flagCount = b.readVarInt();
+            var flags = new ArrayList<Boolean>(flagCount);
+            for (int i = 0; i < flagCount; i++) flags.add(b.readBoolean());
+            return new BusBandSyncPacket(p, name, list, flags);
         }
         @Override public void encode(ByteBuf buf, BusBandSyncPacket pkt) {
             var b = new FriendlyByteBuf(buf);
@@ -36,6 +48,9 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
             var bands = pkt.bands;
             b.writeVarInt(bands != null ? bands.size() : 0);
             if (bands != null) for (String s : bands) b.writeUtf(s);
+            var flags = pkt.audioFlags;
+            b.writeVarInt(flags != null ? flags.size() : 0);
+            if (flags != null) for (Boolean f : flags) b.writeBoolean(f);
         }
     };
 
@@ -46,6 +61,14 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
             var be = ctx.player().level().getBlockEntity(pos);
             if (bands != null && !bands.isEmpty()) {
                 SignalBus.registerBands(busName, bands);
+                // 频段音频标志随定义走（空列表 = 发送方不带标志，保留现值）。
+                // Audio flags ride the definition (empty list = sender carries none, keep current).
+                if (audioFlags != null && !audioFlags.isEmpty()) {
+                    var set = new java.util.HashSet<String>();
+                    for (int i = 0; i < bands.size() && i < audioFlags.size(); i++)
+                        if (audioFlags.get(i)) set.add(bands.get(i));
+                    SignalBus.setAudioBands(busName, set);
+                }
             } else {
                 SignalBus.clearBus(busName);
             }

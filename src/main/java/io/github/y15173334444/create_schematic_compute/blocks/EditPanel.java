@@ -187,11 +187,19 @@ public class EditPanel {
             }
             int pinY = py + 4 + row * 18 + 8;
             if (st.bandPinY != null && bi - 1 < st.bandPinY.length) st.bandPinY[bi - 1] = pinY;
-            // 频段引脚承载音频（对端为 AUDIO 引脚，如 MUSIC→BUS_OUT / BUS_IN→SPEAKER_PLAY）时
-            // 按音频引脚着色；浮点连线保持暗金，未连接保持常规金。
-            // A band pin carrying audio (peer pin AUDIO-domain) tints as an audio pin; float
-            // wires keep the dim gold, unconnected stays regular.
-            boolean audioPin = st.graph != null && st.graph.isBandPinAudio(node.id, pinIdx, isBusIn);
+            // 频段引脚承载音频时按音频引脚着色，**属性跟频段走**：读取侧（BUS_IN）= 频段定义
+            // 同步来的音频标志 ∨ 该引脚本地接了音频线（按频段分流读取，读取语义与显示一致）；
+            // 发布侧（BUS_OUT）逐引脚按对端域。
+            // Band pins tint as audio while carrying audio, and the property rides the band:
+            // the read side (BUS_IN) = the definition-synced audio flag ∨ this pin's own local
+            // audio wire (per-band routing — display matches semantics); the publish side
+            // (BUS_OUT) judges per pin by peer domain.
+            boolean bandAudioFlag = isBusIn && node.signalBands != null && pinIdx < node.signalBands.size()
+                && io.github.y15173334444.create_schematic_compute.network.SignalBus
+                    .isAudioBand(node.signalName, node.signalBands.get(pinIdx));
+            boolean audioPin = (isBusIn
+                ? bandAudioFlag || (st.graph != null && st.graph.isBandPinAudio(node.id, pinIdx, true))
+                : st.graph != null && st.graph.isBandPinAudio(node.id, pinIdx, false));
             g.fill(pinX - pinR - 1, pinY - pinR - 1, pinX + pinR + 1, pinY + pinR + 1,
                 audioPin ? NodeRenderer.CAPB() : NodeRenderer.CPIB());
             g.fill(pinX - pinR, pinY - pinR, pinX + pinR, pinY + pinR,

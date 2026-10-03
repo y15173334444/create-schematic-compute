@@ -64,10 +64,10 @@ class AudioNodesEvalTest {
     void chainPublishes() {
         Fixture f = build(song(45), 2f);
         f.ev().evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-        var events = AudioBands.get("B", 0L).events();
+        var events = AudioBands.get(AudioBands.bandKey("B", "B"), 0L).events();
         assertEquals(1, events.size());
         assertEquals(45, events.get(0).key());
-        assertEquals(2f, AudioBands.get("B", 0L).gain(), 1e-6, "AMP gain applied to the source chain");
+        assertEquals(2f, AudioBands.get(AudioBands.bandKey("B", "B"), 0L).gain(), 1e-6, "AMP gain applied to the source chain");
     }
 
     @Test
@@ -76,12 +76,12 @@ class AudioNodesEvalTest {
         Fixture f = build(song(40, 50), 1f);
         var seat = new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
         f.ev().evaluate(List.of(), Map.of(), DT, seat);
-        var evs = AudioBands.get("B", 0L).events();
+        var evs = AudioBands.get(AudioBands.bandKey("B", "B"), 0L).events();
         assertEquals(2, evs.size(), "ticks 0-1 both fire within the pre-roll window");
         assertEquals(40, evs.get(0).key(), "tick 0 first");
         assertEquals(50, evs.get(1).key(), "tick 1 pre-rolled with its target time");
         f.ev().evaluate(List.of(), Map.of(), DT, seat);
-        assertTrue(AudioBands.get("B", 0L).events().isEmpty(),
+        assertTrue(AudioBands.get(AudioBands.bandKey("B", "B"), 0L).events().isEmpty(),
             "held-high play neither restarts nor re-fires pre-rolled ticks");
     }
 
@@ -99,12 +99,12 @@ class AudioNodesEvalTest {
 
         var seat = new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
         f.ev().evaluate(List.of(), Map.of(), DT, seat);
-        var events = AudioBands.get("B", 0L).events();
+        var events = AudioBands.get(AudioBands.bandKey("B", "B"), 0L).events();
         assertEquals(1, events.size(), "only the tick-5 note fires (tick 0 skipped by the seek)");
         assertEquals(50, events.get(0).key());
         // seek 值保持不变 → 不再跳转，正常前进到 tick 6（无音符 → 空事件）
         f.ev().evaluate(List.of(), Map.of(), DT, seat);
-        assertTrue(AudioBands.get("B", 0L).events().isEmpty(), "held seek value must not re-jump");
+        assertTrue(AudioBands.get(AudioBands.bandKey("B", "B"), 0L).events().isEmpty(), "held seek value must not re-jump");
     }
 
     @Test
@@ -129,7 +129,7 @@ class AudioNodesEvalTest {
     void gainClamped() {
         Fixture f = build(song(45), 10f);
         f.ev().evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-        assertEquals(4f, AudioBands.get("B", 0L).gain(), 1e-6);
+        assertEquals(4f, AudioBands.get(AudioBands.bandKey("B", "B"), 0L).gain(), 1e-6);
     }
 
     @Test
@@ -221,8 +221,83 @@ class AudioNodesEvalTest {
         ev2.setAudioHostPos(new BlockPos(0, 0, 0));
         ev2.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
 
-        var events = AudioBands.get("rx", 0L).events();
+        var events = AudioBands.get(AudioBands.bandKey("rx", "rx"), 0L).events();
         assertEquals(1, events.size(), "the note crosses the private band end to end");
+        assertEquals(45, events.get(0).key());
+    }
+
+    @Test
+    @DisplayName("频段音频标志：BUS_OUT 按引脚对端域写入 SignalBus / band audio flags: BUS_OUT derives them from pin peers")
+    void bandAudioFlagsPublished() {
+        NodeGraph g = new NodeGraph();
+        GraphNode constPlay = g.addNode(NodeType.CONST, 0, 0);
+        constPlay.params[0] = 1f;
+        GraphNode music = g.addNode(NodeType.MUSIC, 100, 0);
+        music.song = song(45);
+        GraphNode busOut = g.addNode(NodeType.BUS_OUT, 200, 0);
+        busOut.signalName = "fb";
+        busOut.signalBands = new ArrayList<>(List.of("ba", "bb"));
+        assertTrue(g.addConnection(constPlay.id, 0, music.id, 0));
+        assertTrue(g.addConnection(music.id, 0, busOut.id, 0), "MUSIC feeds band ba (audio)");
+
+        GraphEvaluator ev = new GraphEvaluator(g);
+        ev.restoreSubState(new RuntimeState());
+        ev.setAudioTransports(new HashMap<>());
+        ev.setAudioHostPos(new BlockPos(0, 0, 0));
+        ev.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+
+        assertTrue(io.github.y15173334444.create_schematic_compute.network.SignalBus.isAudioBand("fb", "ba"),
+            "band ba has an audio peer");
+        assertFalse(io.github.y15173334444.create_schematic_compute.network.SignalBus.isAudioBand("fb", "bb"),
+            "band bb has no wire");
+        int stamp = io.github.y15173334444.create_schematic_compute.network.SignalBus.audioStamp("fb");
+
+        // 拆掉音频连线后再求值：标志翻 false、版本自增（宿主推送据此重发）
+        g.removeConnection(music.id, 0, busOut.id, 0);
+        ev.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+        assertFalse(io.github.y15173334444.create_schematic_compute.network.SignalBus.isAudioBand("fb", "ba"));
+        assertTrue(io.github.y15173334444.create_schematic_compute.network.SignalBus.audioStamp("fb") > stamp,
+            "the flag version moved so hosts push the new definition");
+    }
+
+    @Test
+    @DisplayName("频段隔离：BUS_IN 按频段读各自的音频键 / per-band isolation: BUS_IN reads each band's own key")
+    void busInPerBandIsolation() {
+        // 发布方：MUSIC→BUS_OUT("fb") 的 ba（音频）；bb 无音频输入（浮点）
+        NodeGraph g1 = new NodeGraph();
+        GraphNode constPlay = g1.addNode(NodeType.CONST, 0, 0);
+        constPlay.params[0] = 1f;
+        GraphNode music = g1.addNode(NodeType.MUSIC, 100, 0);
+        music.song = song(45);
+        GraphNode busOut = g1.addNode(NodeType.BUS_OUT, 200, 0);
+        busOut.signalName = "fb";
+        busOut.signalBands = new ArrayList<>(List.of("ba", "bb"));
+        assertTrue(g1.addConnection(constPlay.id, 0, music.id, 0));
+        assertTrue(g1.addConnection(music.id, 0, busOut.id, 0));
+
+        GraphEvaluator ev1 = new GraphEvaluator(g1);
+        ev1.restoreSubState(new RuntimeState());
+        ev1.setAudioTransports(new HashMap<>());
+        ev1.setAudioHostPos(new BlockPos(0, 0, 0));
+        ev1.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+
+        // 订阅方：BUS_IN("fb") 的 ba → AUDIO_OUT；bb 不接
+        NodeGraph g2 = new NodeGraph();
+        GraphNode busIn = g2.addNode(NodeType.BUS_IN, 0, 0);
+        busIn.signalName = "fb";
+        busIn.signalBands = new ArrayList<>(List.of("ba", "bb"));
+        GraphNode rx = g2.addNode(NodeType.AUDIO_OUT, 100, 0);
+        rx.signalName = "rx";
+        assertTrue(g2.addConnection(busIn.id, 0, rx.id, 0), "band ba wired to an audio consumer");
+
+        GraphEvaluator ev2 = new GraphEvaluator(g2);
+        ev2.restoreSubState(new RuntimeState());
+        ev2.setAudioTransports(new HashMap<>());
+        ev2.setAudioHostPos(new BlockPos(0, 0, 0));
+        ev2.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+
+        var events = AudioBands.get(AudioBands.bandKey("rx", "rx"), 0L).events();
+        assertEquals(1, events.size(), "band ba's note arrives through the subscriber");
         assertEquals(45, events.get(0).key());
     }
 
@@ -264,19 +339,19 @@ class AudioNodesEvalTest {
         ev.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
 
         // l：极左全增益；中心/右侧在 LCR 下权重 0 不进
-        var l = AudioBands.get("ch_l", 0L).events();
+        var l = AudioBands.get(AudioBands.bandKey("ch_l", "ch_l"), 0L).events();
         assertEquals(1, l.size()); assertEquals(45, l.get(0).key()); assertEquals(1f, l.get(0).gain(), 1e-6);
         // r：极右全增益
-        var r = AudioBands.get("ch_r", 0L).events();
+        var r = AudioBands.get(AudioBands.bandKey("ch_r", "ch_r"), 0L).events();
         assertEquals(1, r.size()); assertEquals(47, r.get(0).key()); assertEquals(1f, r.get(0).gain(), 1e-6);
         // c：中心 pan 的三个非低音音符（中心 harp、bass、低键）
-        var c = AudioBands.get("ch_c", 0L).events();
+        var c = AudioBands.get(AudioBands.bandKey("ch_c", "ch_c"), 0L).events();
         assertEquals(3, c.size());
         // sub：bass 乐器 + 低键，与 pan 无关
-        var sub = AudioBands.get("ch_sub", 0L).events();
+        var sub = AudioBands.get(AudioBands.bandKey("ch_sub", "ch_sub"), 0L).events();
         assertEquals(2, sub.size());
         // ls/rs：极左/极右溢出带各收一枚
-        assertEquals(1, AudioBands.get("ch_ls", 0L).events().size());
-        assertEquals(1, AudioBands.get("ch_rs", 0L).events().size());
+        assertEquals(1, AudioBands.get(AudioBands.bandKey("ch_ls", "ch_ls"), 0L).events().size());
+        assertEquals(1, AudioBands.get(AudioBands.bandKey("ch_rs", "ch_rs"), 0L).events().size());
     }
 }
