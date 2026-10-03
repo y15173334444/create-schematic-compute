@@ -481,7 +481,7 @@
 | 🧩 参数引脚 / Param pins | 运动类节点输入成为可编辑参数（可选连线覆盖），与 CLAMP min/max 同机制 / Motion-category node inputs become editable params with optional wire override |
 | 🧠 触发级内存 / Trigger-level memory | `nodeEdge` 状态跨重编译、BE 重建与存档重载存活 / survives recompiles, BE recreation and reloads |
 | 🐛 修复 / Fixes | 负方向网络不再卡死运动配额（quota 永续楔死）/ negative-direction networks no longer wedge the motion quota forever |
-| 📚 文档 / Docs | [`docs/programmable-gearbox-plan.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/programmable-gearbox-plan.md) · [`docs/programmable-gearbox-eval.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/programmable-gearbox-eval.md) · [`docs/programmable-gearbox-handoff.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/programmable-gearbox-handoff.md) · [`docs/graph-host-convergence-plan.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/graph-host-convergence-plan.md) |
+| 📚 文档 / Docs | [`docs/programmable-gearbox-plan.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/programmable-gearbox-plan.md) · [`docs/programmable-gearbox-eval.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/programmable-gearbox-eval.md) · [`docs/graph-host-convergence-plan.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/graph-host-convergence-plan.md) |
 
 ### 💾 运行时状态跨存档重载存活 / Runtime State Survives World Reloads
 
