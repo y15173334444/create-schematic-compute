@@ -9,8 +9,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * MUSIC 传输状态机 + 音符展开测试：起播展开、跨 tick 展开、层音量烘焙、非循环尾脉冲、循环回绕、停止。
- * MusicTransport tests: start-tick expansion, cross-tick expansion, layer-volume baking,
+ * MUSIC 传输状态机 + 音符展开测试：起播展开、跨 tick 展开、层音量/声像烘焙、非循环尾脉冲、循环回绕、停止。
+ * MusicTransport tests: start-tick expansion, cross-tick expansion, layer-volume/panning baking,
  * non-loop finish pulse, loop wrap, and stop.
  */
 class MusicTransportTest {
@@ -63,6 +63,50 @@ class MusicTransportTest {
         List<NoteEvent> evs = tr.advance(s, DT);
         assertEquals(1, evs.size());
         assertEquals(50, evs.get(0).velocity(), "layer 50 × note 100 / 100 = 50");
+    }
+
+    /** 单音符曲目展开后的声像（层声像 = layerPan，音符声像 = notePan）。 */
+    private static int bakedPan(int layerPan, int notePan) {
+        NbsSong s = new NbsSong();
+        s.tempo = 1000;
+        s.layers.clear();
+        NbsSong.Layer l0 = new NbsSong.Layer();
+        l0.panning = layerPan;
+        s.layers.add(l0);
+        s.putNote(0, 0, 2, 45, 100, notePan, 0);
+        MusicTransport tr = new MusicTransport();
+        tr.play(0);
+        List<NoteEvent> evs = tr.advance(s, DT);
+        assertEquals(1, evs.size());
+        return evs.get(0).panning();
+    }
+
+    @Test
+    @DisplayName("层声像烘焙：层居中取音符声像 / a centred layer keeps the note panning")
+    void layerPanningCenterTakesNote() {
+        assertEquals(160, bakedPan(100, 160), "layer 100 (centre) leaves the note panning untouched");
+    }
+
+    @Test
+    @DisplayName("层声像烘焙：层偏置与音符取平均（G2）/ an off-centre layer averages with the note")
+    void layerPanningOffCenterAverages() {
+        assertEquals(100, bakedPan(0, 200), "full-left layer + full-right note = centre");
+        assertEquals(150, bakedPan(200, 100), "full-right layer + centred note = midpoint 150");
+        assertEquals(26, bakedPan(0, 51), "average rounds half-up (25.5 → 26)");
+    }
+
+    @Test
+    @DisplayName("缺层回退音符声像 / a missing layer falls back to the note panning")
+    void layerPanningMissingLayer() {
+        NbsSong s = new NbsSong();
+        s.tempo = 1000;
+        s.putNote(0, 0, 2, 45, 100, 160, 0);
+        s.layers.clear(); // 坏数据路径：音符引用的层不存在
+        MusicTransport tr = new MusicTransport();
+        tr.play(0);
+        List<NoteEvent> evs = tr.advance(s, DT);
+        assertEquals(1, evs.size());
+        assertEquals(160, evs.get(0).panning(), "missing layer behaves like a centred one");
     }
 
     @Test

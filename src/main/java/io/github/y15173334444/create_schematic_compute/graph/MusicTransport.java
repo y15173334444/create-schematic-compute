@@ -7,7 +7,7 @@ import java.util.List;
  * MUSIC 节点的传输状态机 + 音符展开。**纯逻辑，无 MC 依赖**（可单测）。
  * <p>Transport state machine + note expansion for the MUSIC node. Pure, unit-testable.</p>
  * <p>推进模型（plan §3.5）：每服务端 tick 由 {@code dt} 推进 {@code delta = tempo/100 × dt} 个
- * NBS tick；越过的整数 tick 上的音符被展开为 {@link NoteEvent}（烘焙层音量，gain=1），子 tick
+ * NBS tick；越过的整数 tick 上的音符被展开为 {@link NoteEvent}（烘焙层音量与层声像，gain=1），子 tick
  * 偏移 = 音符在本 tick 窗口内的分数位置。非循环播到尾置 finished 脉冲；循环回绕到 loopStart。</p>
  * <p>传输状态（playing/head/nextFire）由宿主 BE 经类型段 NBT 持久化并注入求值器。</p>
  */
@@ -114,7 +114,8 @@ public final class MusicTransport {
                 float lv = layerVolume(song, n.layer);
                 int vel = (int) Math.round(lv * n.velocity / 100f);
                 vel = Math.max(0, Math.min(100, vel));
-                out.add(new NoteEvent(n.instrument, n.key, vel, n.panning, n.pitch, 1f, delaySeconds));
+                int pan = bakePanning(layerPanning(song, n.layer), n.panning);
+                out.add(new NoteEvent(n.instrument, n.key, vel, pan, n.pitch, 1f, delaySeconds));
             }
             nextFire = t + 1;
         }
@@ -138,5 +139,18 @@ public final class MusicTransport {
     private static float layerVolume(NbsSong song, int layer) {
         if (layer < 0 || layer >= song.layers.size()) return 100f;
         return song.layers.get(layer).volume;
+    }
+
+    /** 层声像（0..200、100=居中；越界/缺层取 100）。 */
+    private static int layerPanning(NbsSong song, int layer) {
+        if (layer < 0 || layer >= song.layers.size()) return 100;
+        return song.layers.get(layer).panning;
+    }
+
+    /** 层/音符声像混合（G2，NBS Calculations 同式）：层居中（100）取音符声像；否则取两者平均
+     *  （四舍五入）。结果钳 0–200（本事件是播放副本，不回写曲目）。 */
+    private static int bakePanning(int layerPan, int notePan) {
+        int mixed = layerPan == 100 ? notePan : (int) Math.round((layerPan + notePan) / 2.0);
+        return Math.max(0, Math.min(200, mixed));
     }
 }
