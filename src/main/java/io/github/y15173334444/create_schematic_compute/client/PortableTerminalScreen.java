@@ -222,8 +222,15 @@ public class PortableTerminalScreen extends Screen {
         if (searchInput == null) {
             searchInput = new EditBox(mc.font, 0, 0, 120, 14, Component.literal(""));
             searchInput.setMaxLength(32);
-            addRenderableWidget(searchInput);
         }
+        // rebuildWidgets（设备返回 / 窗口 resize）会清空 children：仅守卫创建会让旧实例
+        // 留在事件分发树外——渲染路径仍手动绘制它（看似正常）而点击/键盘永不可达，
+        // 所以保留实例（跨重建保住已输入文本）之外必须无条件重挂。
+        // rebuildWidgets (returning from a device editor, window resize) clears children:
+        // guarding creation alone leaves the old instance outside the dispatch tree - still
+        // drawn every frame (the render path renders it manually) yet never clickable.
+        // Keep the instance (typed text survives rebuilds) but re-add it unconditionally.
+        addRenderableWidget(searchInput);
         if (needsRescan) scanNearbyBlocks();
     }
 
