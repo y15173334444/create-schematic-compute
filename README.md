@@ -536,7 +536,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | Connect / 连接 | Drag output pin → input pin / 拖拽输出→输入 |
 | Delete node / 删除节点 | Hover + `X` / 悬停+`X` |
 | Delete connection / 删除连线 | `TAB` + Left-click / `TAB`+左键点击 |
-| Delete selected / 删除选中 | `Delete` / `Backspace` |
+| Delete selected / 删除选中 | `Delete` |
 | Box select / 框选 | `TAB` + drag / `TAB`+拖拽 |
 | Duplicate / 复制 | `Ctrl + D` |
 | Undo / 撤回 | `Ctrl + Z` |
@@ -546,7 +546,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | Resize Comment / 调整注释大小 | Drag bottom-right corner / 拖动右下角 |
 | Scroll Comment / 滚动注释 | `Ctrl` + Scroll / `Ctrl`+滚轮 |
 | Zoom / 缩放 | Scroll wheel / 滚轮 |
-| Pan / 平移 | Right-click drag / 右键拖拽 |
+| Pan / 平移 | Left-drag blank canvas (drag on a node = move it) / 左键拖拽空白处（节点上拖拽=移动节点） |
 | Open editor (most blocks) / 打开编辑器 | Right-click / 右键 |
 | **Control Seat — Sit / 乘坐** | Right-click (empty hand) / 右键（空手） |
 | **Control Seat/Radar — Editor / 编辑器** | `Shift` + Right-click / `Shift`+右键 |
@@ -567,6 +567,8 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | **Bookmark — Jump / 跳转** | Click → or name / 点击→或名称 |
 | **Bookmark — Reorder / 拖拽排序** | Drag name area to new position / 拖拽名称区域到新位置 |
 | **Bookmark — Reset view / 重置视角** | `[↺]` in panel or `Home` key / 面板`[↺]`或`Home`键 |
+
+> All editor actions above are rebindable — editor settings (top-right button) → **Keys** tab. / 上表编辑器动作均可在编辑器设置（右上角按钮）→「键位」标签页重绑。
 
 ---
 
