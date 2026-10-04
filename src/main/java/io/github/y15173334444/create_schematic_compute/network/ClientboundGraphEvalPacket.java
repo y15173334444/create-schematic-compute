@@ -177,12 +177,6 @@ public record ClientboundGraphEvalPacket(BlockPos pos, Map<Integer, float[]> out
             if (be instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity gbe) {
                 gbe.setCachedEvalSnapshot(new EvalSnapshot(outputs, debugTimes, subOutputs, subDebugTimes, formulaSpreads));
             }
-            // 音响：快照到达 = 主线程刷新波形整形 LUT 的挂点（图代数守护，未变零开销）。
-            // Speaker: snapshot arrival is the main-thread hook to refresh the waveshaper
-            // LUT (generation-guarded, zero cost when unchanged).
-            if (be instanceof io.github.y15173334444.create_schematic_compute.blocks.SpeakerBlockEntity sp) {
-                sp.refreshWaveLut();
-            }
         });
     }
 }

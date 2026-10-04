@@ -1356,21 +1356,29 @@ public class GraphEvaluator {
                         var shaped = new java.util.ArrayList<NoteEvent>(in.events().size());
                         for (NoteEvent e : in.events())
                             shaped.add(e.withGain(AudioCurve.eval(node.curveX, node.curveY, e.gain())));
-                        in = new AudioRef(shaped, in.gain(), in.stopSignal());
+                        in = new AudioRef(shaped, in.gain(), in.stopSignal(), in.waveLut());
                     }
                     audioRefs.put(audioKey(node.id, 0), in.withGain(in.gain() * gain));
                 }
             }
             case WSHAPE -> {
-                // 波形整形：服务端恒等直通（纯客户端效果标记）——曲线经音响图同步到客户端，
-                // 由 CscAudioEngine 按音响 tag 取 LUT 在混音器逐样本应用（v1 仅音响图允许，
-                // LUT 送达即此路径；源图版需要版本化 LUT 随频段同步，二期）。
-                // Wave shaper: identity passthrough server-side (a client-effect marker) —
-                // the curve syncs to the client with the speaker graph; CscAudioEngine applies
-                // its LUT per voice keyed by the speaker tag (v1 speaker-graphs only; the
-                // source-graph variant needs versioned LUT sync — phase 2).
+                // 波形整形：把自身曲线的 LUT 复合进引用（输入已有 LUT 则串联 g∘f），随
+                // AudioRef → 频段表 → NoteEventPacket 送达客户端混音器逐样本应用。事件与
+                // 标量原样——服务端不做任何采样级处理（v1 起功放图与音响图均可放）。
+                // Wave shaper: compose this node's curve LUT into the ref (g∘f when the
+                // input already carries one) — it rides the AudioRef → band table → note
+                // packet to the client mixer for per-sample application. Events and the
+                // scalar pass untouched (no server-side sample processing); allowed in
+                // both amplifier and speaker graphs.
                 AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
-                audioRefs.put(audioKey(node.id, 0), in != null ? in : AudioRef.EMPTY);
+                if (in == null) {
+                    audioRefs.put(audioKey(node.id, 0), AudioRef.EMPTY);
+                } else {
+                    float[] own = AudioCurve.buildLut(node.curveX, node.curveY);
+                    float[] composed = (in.waveLut() == null)
+                        ? own : AudioCurve.composeLut(in.waveLut(), own);
+                    audioRefs.put(audioKey(node.id, 0), in.withWaveLut(composed));
+                }
             }
             case CHANNEL -> {
                 // 声道拆分：audio 入 → 各声道出（引脚集合 = 布局表；拆分口径见 ChannelLayout）。
@@ -1408,7 +1416,7 @@ public class GraphEvaluator {
                 AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
                 if (in != null && speakerSink != null) {
                     if (in.stopSignal()) speakerSink.stopPlayback();
-                    else speakerSink.play(in.events(), in.gain());
+                    else speakerSink.play(in.events(), in.gain(), in.waveLut());
                 }
             }
             case ENCAPSULATION -> {

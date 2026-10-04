@@ -18,21 +18,34 @@ import java.util.List;
  * and the marker rides the pipeline unchanged (AMP/CHANNEL/AUDIO_OUT/band table) to the sink,
  * whose host tells the client to cancel that speaker's queued unplayed voices — without it a
  * widened pre-roll leaves a tail up to one window long after a stop.</p>
+ * <p>{@code waveLut} = 波形整形 LUT（WSHAPE 节点产生，257 点等距网格 x=|采样| 0..1 → y=输出
+ * 幅度）：沿管线穿透到 sink，随 {@code NoteEventPacket} 送达客户端混音器逐样本应用。
+ * / {@code waveLut} is a waveshaper LUT (produced by WSHAPE nodes; 257-entry even grid,
+ * x = |sample| 0..1 → y = output magnitude) riding the pipeline to the sink and on to the
+ * client mixer for per-sample application via the note packet.</p>
  */
-public record AudioRef(List<NoteEvent> events, float gain, boolean stopSignal) {
+public record AudioRef(List<NoteEvent> events, float gain, boolean stopSignal, float[] waveLut) {
 
-    /** 兼容构造：普通音源引用（非停止标记）。 / compat ctor: a plain source ref (not a stop marker). */
-    public AudioRef(List<NoteEvent> events, float gain) { this(events, gain, false); }
+    /** 兼容构造：普通音源引用（非停止标记、无波形整形）。 / compat ctor: plain source ref. */
+    public AudioRef(List<NoteEvent> events, float gain) { this(events, gain, false, null); }
+
+    /** 兼容构造：带停止标记。 / compat ctor: with stop marker. */
+    public AudioRef(List<NoteEvent> events, float gain, boolean stopSignal) { this(events, gain, stopSignal, null); }
 
     /** 空音源（无事件）。 */
-    public static final AudioRef EMPTY = new AudioRef(List.of(), 1f, false);
+    public static final AudioRef EMPTY = new AudioRef(List.of(), 1f, false, null);
 
     /** 停止标记（一次性；事件恒空）。 / the stop marker (one-shot; events always empty). */
-    public static final AudioRef STOP = new AudioRef(List.of(), 1f, true);
+    public static final AudioRef STOP = new AudioRef(List.of(), 1f, true, null);
 
-    /** 返回替换增益后的副本（保留事件与停止标记）。 */
+    /** 返回替换增益后的副本（保留事件、停止标记与 LUT）。 */
     public AudioRef withGain(float newGain) {
-        return new AudioRef(events, newGain, stopSignal);
+        return new AudioRef(events, newGain, stopSignal, waveLut);
+    }
+
+    /** 返回替换波形整形 LUT 后的副本。 / a copy with a new waveshaper LUT. */
+    public AudioRef withWaveLut(float[] lut) {
+        return new AudioRef(events, gain, stopSignal, lut);
     }
 
     /** 是否为空（无事件）。 */

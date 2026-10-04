@@ -16,16 +16,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 音符事件下发（S→C）：某只音响坐标 + 衰减半径 + 本 tick 事件。客户端经
- * {@link CscAudioEngine}（自管混音引擎）在世界位置播出。
+ * 音符事件下发（S→C）：某只音响坐标 + 衰减半径 + 本 tick 事件 + 波形整形 LUT（可选）。
+ * 客户端经 {@link CscAudioEngine}（自管混音引擎）在世界位置播出。
  * <p>Note-event dispatch (server→client): a speaker position + attenuation radius + this tick's
- * events. The client plays them through {@link CscAudioEngine} (the self-mixed engine) at the
- * speaker's world position (plan §3.5).</p>
+ * events + an optional waveshaper LUT. The client plays them through {@link CscAudioEngine}
+ * (the self-mixed engine) at the speaker's world position (plan §3.5).</p>
+ * <p>LUT 口径：257 字节等距网格（x=|采样| 0..1 → y=输出幅度，量化 y/127.5，字节 255=2.0），
+ * 来自源图 WSHAPE 节点的 AudioRef 随批下发；空数组 = 无整形。每批自包含、无版本协商。
+ * <p>LUT contract: 257 quantized bytes on an even grid (x = |sample| 0..1 → y = output
+ * magnitude, y/127.5 with byte 255 = 2.0), from source-graph WSHAPE nodes via the AudioRef;
+ * an empty array means no shaping. Every batch is self-contained — no version negotiation.</p>
  * <p>精度口径：±1 游戏刻 + 子 tick 偏移尽力（到达即播 + 引擎输出预填 ≈200 ms，预播提前量后续）。</p>
  * <p>音色：原版音符盒 16 音色采样（运行时引用原版资源，D13 口径）；自定义乐器降级为 harp。</p>
  */
 public record NoteEventPacket(BlockPos speakerPos, float radius, long dispatchGameTick,
-                              List<NoteEvent> events) implements CustomPacketPayload {
+                              List<NoteEvent> events, byte[] waveLut) implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<NoteEventPacket> TYPE =
         new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "note_event"));
@@ -45,6 +50,16 @@ public record NoteEventPacket(BlockPos speakerPos, float radius, long dispatchGa
                 buf.writeFloat(e.gain());
                 buf.writeFloat(e.delaySeconds());
             }
+            // LUT 量化：y∈[0,2] → 0..255（255=2.0）；null → 空数组（无整形）。
+            // LUT quantization: y∈[0,2] → 0..255 (255 = 2.0); null ships as an empty array.
+            boolean hasLut = pkt.waveLut != null && pkt.waveLut.length > 0;
+            if (hasLut) {
+                buf.writeVarInt(pkt.waveLut.length);
+                for (float v : pkt.waveLut)
+                    buf.writeByte((int) Math.round(Math.max(0f, Math.min(2f, v)) * 127.5f));
+            } else {
+                buf.writeVarInt(0);
+            }
         },
         buf -> {
             BlockPos pos = buf.readBlockPos();
@@ -58,7 +73,10 @@ public record NoteEventPacket(BlockPos speakerPos, float radius, long dispatchGa
                 list.add(new NoteEvent(buf.readUnsignedByte(), buf.readByte(), buf.readByte(),
                     buf.readUnsignedByte(), buf.readShort(), buf.readFloat(), buf.readFloat()));
             }
-            return new NoteEventPacket(pos, radius, dispatchGameTick, list);
+            int lutLen = buf.readVarInt();
+            byte[] lutBytes = new byte[lutLen];
+            for (int i = 0; i < lutLen; i++) lutBytes[i] = buf.readByte();
+            return new NoteEventPacket(pos, radius, dispatchGameTick, list, lutBytes);
         });
 
     @Override public CustomPacketPayload.Type<? extends CustomPacketPayload> type() { return TYPE; }
@@ -90,22 +108,32 @@ public record NoteEventPacket(BlockPos speakerPos, float radius, long dispatchGa
         // 批次级探针：区分服务端下发停顿 / 客户端主线程积压 / 迟到校正时钟歪斜
         // (堵塞归因的数据面——[TimelineDiag] DISPATCH-GAP / CLIENT-DELAY / LATE-CORR-SPIKE)
         CscAudioEngine.noteDispatchBatch(dispatchGameTick, events.size(), lateTicks);
-        for (NoteEvent e : events) playAt(e, x, y, z, radius, lateTicks * 0.05f, speakerPos.asLong());
+        // 波形整形 LUT 解量化（字节 0..255 → y 0..2）；空数组 = 无整形。
+        // Dequantize the waveshaper LUT (bytes 0..255 → y 0..2); empty = no shaping.
+        float[] batchWaveLut = null;
+        if (waveLut() != null && waveLut().length > 0) {
+            batchWaveLut = new float[waveLut().length];
+            for (int i = 0; i < waveLut().length; i++)
+                batchWaveLut[i] = (waveLut()[i] & 0xFF) / 127.5f;
+        }
+        for (NoteEvent e : events) playAt(e, x, y, z, radius, lateTicks * 0.05f, speakerPos.asLong(), batchWaveLut);
     }
 
     /**
      * 在世界坐标播一条音符事件。客户端发声的唯一入口：服务端下发与 NBS 编辑器试听
      * （{@link CscAudioEngine#playAtListener}）共用同款播放路径（plan §3.2）——
      * 委托 {@link CscAudioEngine}（自管混音，声部消耗与音符密度无关）。
-     * {@code speakerTag} = 音响坐标 asLong，停止标记按它清除该音响未播声部。
+     * {@code speakerTag} = 音响坐标 asLong，停止标记按它清除该音响未播声部；
+     * {@code waveLut} = 本批波形整形 LUT（null = 无）。
      * <p>Play one note event at a world position. The single client playback entry: server
      * dispatch and the NBS editor's audition share this same path (plan §3.2) — delegated to
      * {@link CscAudioEngine} (self-mixed; voice usage is independent of note density).
-     * {@code speakerTag} = the speaker position's asLong, the key stop markers cancel by.</p>
+     * {@code speakerTag} = the speaker position's asLong, the key stop markers cancel by;
+     * {@code waveLut} = this batch's waveshaper LUT (null = none).</p>
      */
     @OnlyIn(Dist.CLIENT)
     public static void playAt(NoteEvent e, double x, double y, double z, double radius,
-                              float lateSeconds, long speakerTag) {
-        CscAudioEngine.play(e, x, y, z, radius, lateSeconds, speakerTag);
+                              float lateSeconds, long speakerTag, float[] waveLut) {
+        CscAudioEngine.play(e, x, y, z, radius, lateSeconds, speakerTag, waveLut);
     }
 }

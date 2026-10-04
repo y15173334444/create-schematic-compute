@@ -188,12 +188,12 @@ class AudioNodesEvalTest {
     }
 
     @Test
-    @DisplayName("WSHAPE 服务端恒等直通：曲线不由服务端应用 / WSHAPE passes through identically server-side")
+    @DisplayName("WSHAPE：LUT 挂上引用随管线流动，事件原样 / WSHAPE: the LUT rides the ref, events pass untouched")
     void wshapePassthrough() {
         Fixture f = build(song(45), 1f);
         GraphNode ws = f.graph().addNode(NodeType.WSHAPE, 350, 0);
         ws.curveX = new float[]{0f, 1f};
-        ws.curveY = new float[]{0f, 2f};   // 若服务端应用会 ×2 —— 不应发生
+        ws.curveY = new float[]{0f, 2f};   // LUT y=2x：客户端逐样本应用，服务端事件不动
         f.graph().connections.removeIf(c -> c.toId == f.audioOut().id);
         assertTrue(f.graph().addConnection(f.amp().id, 0, ws.id, 0));
         assertTrue(f.graph().addConnection(ws.id, 0, f.audioOut().id, 0));
@@ -202,8 +202,35 @@ class AudioNodesEvalTest {
         var ref = AudioBands.get(AudioBands.bandKey("B", "B"), 0L);
         assertEquals(1, ref.events().size());
         assertEquals(1f, ref.events().get(0).gain(), 1e-6,
-            "the shaping curve is client-side; events pass through untouched");
+            "shaping is client-side; events pass through untouched");
         assertEquals(1f, ref.gain(), 1e-6);
+        assertNotNull(ref.waveLut(), "the composed LUT rides the ref into the band table");
+        assertEquals(2f, ref.waveLut()[AudioCurve.LUT_SIZE - 1], 1e-5, "the LUT carries the curve (y=2x)");
+    }
+
+    @Test
+    @DisplayName("WSHAPE → CHANNEL：LUT 穿过拆分节点不丢失 / WSHAPE through CHANNEL: the LUT survives the split")
+    void wshapeLutSurvivesChannel() {
+        NbsSong s = new NbsSong();
+        s.tempo = 1000;
+        s.putNote(0, 0, 2, 45, 100, 100, 0);
+        Fixture f = build(s, 1f);
+        GraphNode ws = f.graph().addNode(NodeType.WSHAPE, 350, 0);
+        ws.curveX = new float[]{0f, 1f};
+        ws.curveY = new float[]{0f, 2f};
+        GraphNode ch = f.graph().addNode(NodeType.CHANNEL, 400, 0); // 默认 STEREO → l/r
+        ch.ensureChannelBands();             // 派生布局引脚表 / derive the layout pin table
+        // 断开 amp→audioOut，改走 amp→WSHAPE→CHANNEL(l)→audioOut
+        f.graph().connections.removeIf(c -> c.toId == f.audioOut().id);
+        assertTrue(f.graph().addConnection(f.amp().id, 0, ws.id, 0));
+        assertTrue(f.graph().addConnection(ws.id, 0, ch.id, 0));
+        assertTrue(f.graph().addConnection(ch.id, 0, f.audioOut().id, 0));
+        f.ev().evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+
+        var ref = AudioBands.get(AudioBands.bandKey("B", "B"), 0L);
+        assertEquals(1, ref.events().size(), "only the l-channel notes reach band B");
+        assertNotNull(ref.waveLut(), "the LUT survives CHANNEL's per-channel re-wrap");
+        assertEquals(2f, ref.waveLut()[AudioCurve.LUT_SIZE - 1], 1e-5);
     }
 
     @Test

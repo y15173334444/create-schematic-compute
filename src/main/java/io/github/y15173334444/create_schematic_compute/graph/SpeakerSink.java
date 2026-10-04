@@ -12,6 +12,15 @@ public interface SpeakerSink {
     /** 播放本 tick 音源（事件 + 累计增益）；宿主在其世界坐标发声。 */
     void play(List<NoteEvent> events, float gain);
 
+    /** 带波形整形 LUT 的播放（WSHAPE 节点产生；null = 无整形）。default 委托给两参版本，
+     *  让测试的 lambda sink 与不关心 LUT 的宿主免改——关心 LUT 的宿主（音响 BE）覆写本方法。
+     *  Playback with a waveshaper LUT (produced by WSHAPE nodes; null = none). The default
+     *  delegates to the two-arg version so test lambda sinks stay source-compatible; hosts
+     *  that care about the LUT (the speaker BE) override this. */
+    default void play(List<NoteEvent> events, float gain, float[] waveLut) {
+        play(events, gain);
+    }
+
     /** 停止标记（一次性）：MUSIC 停止/跳转沿随音频引用到达——预播窗口内已下发未播的音符
      *  已失效，宿主应通知客户端清除该音响排队的未播声部。default 空实现让测试的 lambda
      *  sink 免改。

@@ -85,16 +85,15 @@ public final class BlockNodeAllowances {
             NodeCategory.DEBUG));
 
     /** 功放电脑：程序计算机能力（含时序，供 play/stop 触发与延时编排）+ 音频类 + 总线/私有控制面。
-     *  排除 WSHAPE（v1：LUT 送达按音响 tag 结算，源图里的波形整形无法作用——二期做版本化同步）。
+     *  WSHAPE 可用：其 LUT 挂在 AudioRef 上随频段表 → 音符包送达客户端，不限宿主图。
      *  Amplifier computer: program-computer capability + AUDIO + bus/private control plane.
-     *  WSHAPE excluded (v1: LUT delivery resolves per speaker tag; a source-graph waveshaper
-     *  has no effect — versioned sync is phase 2). */
+     *  WSHAPE allowed: its LUT rides the AudioRef through the band table into the note
+     *  packet, so it works from any host graph. */
     public static final NodeAllowance AMPLIFIER = NodeAllowance.of(
         EnumSet.of(NodeCategory.VALUES, NodeCategory.MATH_BASIC, NodeCategory.MATH_ADVANCED,
             NodeCategory.TRIG, NodeCategory.LOGIC, NodeCategory.CONTROL,
             NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_ACC, NodeCategory.SEQUENTIAL_STATE,
-            NodeCategory.AUDIO, NodeCategory.DEBUG),
-        NodeType.WSHAPE);
+            NodeCategory.AUDIO, NodeCategory.DEBUG));
 
     /** 音响（音频图）：AUDIO 类（含音频频段 BUS_IN/收发）+ VALUES（BUS_IN/CONST 等，通信/控制）
      *  + DEBUG，但不含曲目宿主/频段发布（MUSIC/AUDIO_OUT 是功放侧）。
