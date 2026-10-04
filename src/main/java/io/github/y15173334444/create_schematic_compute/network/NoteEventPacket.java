@@ -63,8 +63,20 @@ public record NoteEventPacket(BlockPos speakerPos, float radius, long dispatchGa
 
     @Override public CustomPacketPayload.Type<? extends CustomPacketPayload> type() { return TYPE; }
 
+    /** 网络线程直处理（不再 enqueueWork 跳主线程）：playClient 只读标量/不可变状态（mc.level
+     *  游戏刻、监听器变换、音量浮点），引擎自身全锁（mixer/锚点/诊断 synchronized）。客户端
+     *  主线程的停顿由此退出音频延迟路径——主线程卡住时音符照常进混音器、由声音引擎线程渲染。
+     *  必须与 {@link MusicStopPacket} 同线程同序（两包都在网络线程按到达顺序处理，一个直处理
+     *  一个跳主线程会破坏停止标记与音符批次的先后）。
+     *  Handle directly on the network thread (no enqueueWork hop to main): playClient reads only
+     *  scalars/immutable state (mc.level game time, listener transform, volume floats) and the
+     *  engine is self-locked (mixer/anchor/diag synchronized). Client main-thread hitches leave
+     *  the audio latency path — notes reach the mixer on time and render on the sound engine
+     *  thread while the main thread is stuck. Must stay on the same thread in the same order as
+     *  {@link MusicStopPacket} (both arrive sequentially on the network loop; mixing one direct
+     *  with one enqueued would reorder stops against note batches). */
     public void handle(IPayloadContext ctx) {
-        ctx.enqueueWork(this::playClient);
+        playClient();
     }
 
     @OnlyIn(Dist.CLIENT)

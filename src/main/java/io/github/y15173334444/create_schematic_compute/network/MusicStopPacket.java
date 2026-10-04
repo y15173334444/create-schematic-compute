@@ -34,7 +34,12 @@ public record MusicStopPacket(BlockPos pos) implements CustomPacketPayload {
 
     @Override public Type<? extends CustomPacketPayload> type() { return TYPE; }
 
+    /** 网络线程直处理：与 {@link NoteEventPacket} 同线程同序（见其 handle 注释）——
+     *  取消只碰 mixer 的 synchronized 队列，主线程无关。
+     *  Handled directly on the network thread: same thread and order as
+     *  {@link NoteEventPacket} (see its handle comment) — the cancel only touches the
+     *  mixer's synchronized queue, nothing main-thread. */
     public void handle(IPayloadContext ctx) {
-        ctx.enqueueWork(() -> CscAudioEngine.cancelFutureForSpeaker(pos.asLong()));
+        CscAudioEngine.cancelFutureForSpeaker(pos.asLong());
     }
 }
