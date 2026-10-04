@@ -135,31 +135,6 @@ class AudioNodeModelTest {
     }
 
     @Test
-    @DisplayName("CHANNEL 旧数据迁移：前 N 模式 → 布局预设 / CHANNEL legacy migration at NBT load")
-    void channelLegacyMigration() {
-        // 旧默认三声道（mix/l/r）→ STEREO，引脚重建为 [l, r]
-        GraphNode legacy3 = new GraphNode(1, NodeType.CHANNEL, 0, 0);
-        legacy3.params[0] = 3f;
-        legacy3.signalBands = new ArrayList<>(List.of("mix", "l", "r"));
-        GraphNode loaded3 = GraphNode.load(legacy3.save(null), null);
-        assertEquals((float) ChannelLayout.STEREO, loaded3.params[0]);
-        assertEquals(List.of("l", "r"), loaded3.signalBands, "bands rebuilt from the layout table");
-
-        // 旧七声道（去掉 mix 恰为 5.1 全集）→ SURROUND_5_1
-        GraphNode legacy7 = new GraphNode(2, NodeType.CHANNEL, 0, 0);
-        legacy7.params[0] = 7f;
-        legacy7.signalBands = new ArrayList<>(List.of("mix", "l", "r", "c", "ls", "rs", "sub"));
-        GraphNode loaded7 = GraphNode.load(legacy7.save(null), null);
-        assertEquals((float) ChannelLayout.SURROUND_5_1, loaded7.params[0]);
-        assertEquals(List.of("l", "r", "c", "sub", "ls", "rs"), loaded7.signalBands);
-
-        // 新布局数据原样通过（stereo 的 [l, r] 不是旧前缀模式）
-        GraphNode fresh = new GraphNode(3, NodeType.CHANNEL, 0, 0);
-        GraphNode loadedFresh = GraphNode.load(fresh.save(null), null);
-        assertEquals((float) ChannelLayout.STEREO, loadedFresh.params[0]);
-    }
-
-    @Test
     @DisplayName("频段引脚承载音频:对端 AUDIO 域时着色标记翻转 / band pins carry audio: tint flag follows peer domain")
     void bandPinAudioTint() {
         NodeGraph g = new NodeGraph();

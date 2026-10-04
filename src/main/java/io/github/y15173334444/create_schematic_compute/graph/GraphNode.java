@@ -146,10 +146,9 @@ public class GraphNode {
     }
 
     /** CHANNEL：由布局预设（params[0] = ChannelLayout 序号）派生声道 pinId 列表——引脚集合
-     *  由布局表整体决定，不再是「前 N 个」。旧数据已在 load 时迁移。
+     *  由布局表整体决定。
      *  Derive the channel pinId list from the layout preset in params[0] (ChannelLayout
-     *  ordinal) — the pin set comes from the layout table as a whole; legacy data is
-     *  migrated at load time. */
+     *  ordinal) — the pin set comes from the layout table as a whole. */
     public void ensureChannelBands() {
         if (type != NodeType.CHANNEL) return;
         int layout = params.length > 0 ? (int) params[0] : ChannelLayout.STEREO;
@@ -668,14 +667,6 @@ public class GraphNode {
             node.signalBands = new java.util.ArrayList<>();
             for (int i = 0; i < bandsTag.size(); i++)
                 node.signalBands.add(bandsTag.getString(i));
-        }
-        // CHANNEL 迁移：旧「输出声道数」前缀模式（mix 开头的旧序连续前缀）→ 布局预设 + 引脚重建
-        //（立即重建，保证迁移后 NBT 自洽）/ CHANNEL migration: legacy first-N pin pattern →
-        // layout preset with immediate pin rebuild (NBT self-consistent right after load).
-        if (node.type == NodeType.CHANNEL && ChannelLayout.isLegacyPrefix(node.signalBands)) {
-            node.params[0] = (float) ChannelLayout.fromLegacyCount(node.signalBands.size());
-            node.signalBands = null;
-            node.ensureChannelBands();
         }
         if (node.type == NodeType.BUS_OUT && tag.contains("busData")) {
             CompoundTag busData = tag.getCompound("busData");

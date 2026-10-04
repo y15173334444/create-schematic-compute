@@ -154,11 +154,9 @@ io.github.y15173334444.create_schematic_compute/
 > CHANNEL 布局预设（R3，`ChannelLayout` 纯类）：`params[0]` = 布局序号（mix / 2.0 / 4.0 / 5.1 / 7.1），
 > 引脚集合由布局表整体决定（`CHANNEL_PIN_IDS` 九值：mix,l,r,c,sub,ls,rs,sl,sr，顺序兼作 SPEAKER_PLAY
 > 声道序号）；拆分口径——mix 恒等、l/r 等功率对（含 c 布局改 LCR 能量守恒三角）、c=中心分量、
-> sub=低音乐器或 key<24、ls/rs=极左/极右溢出带、sl/sr 同 ls/rs；旧「前 N」节点在 NBT 载入时迁移
-> （1→mix、2/3→2.0、4..7→5.1），布局切换经 `rebuildInputCache` 剪除失效连线。
+> sub=低音乐器或 key<24、ls/rs=极左/极右溢出带、sl/sr 同 ls/rs；布局切换经 `rebuildInputCache` 剪除失效连线。
 > / CHANNEL layout presets (R3, the `ChannelLayout` pure class): params[0] is the layout ordinal; the pin
-> set comes from the layout table wholesale; split laws as above; legacy first-N nodes migrate at NBT load
-> and layout changes prune stale wires via `rebuildInputCache`.
+> set comes from the layout table wholesale; split laws as above; layout changes prune stale wires via `rebuildInputCache`.
 
 > 主图时序状态（`pidState`/`delayQueues`/`flipflopStates`/`pulseTimers`）**不是**求值器字段——由 `RuntimeState` 持有，作为 `evaluate()` 参数传入并回写。
 > / Main-graph sequential state is NOT a field — it lives in `RuntimeState` and is passed into `evaluate()`.

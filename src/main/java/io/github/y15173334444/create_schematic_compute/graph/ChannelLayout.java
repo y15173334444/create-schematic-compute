@@ -33,12 +33,6 @@ import java.util.List;
  *       空间感靠对应音响的摆放位置实现。</li>
  *   <li>未知名兜底全量（与旧 MVP 行为一致，向前兼容）。</li>
  * </ul>
- *
- * <p>迁移：旧版 CHANNEL 的 params[0] 是「输出声道数 1..7」（引脚 = 旧序
- * {@code mix,l,r,c,ls,rs,sub} 的前 N 个）。{@link #isLegacyPrefix} 识别旧前缀模式，
- * {@link #fromLegacyCount} 给出目标布局（1→MIX；2/3→STEREO；4..7→SURROUND_5_1——旧 7 去掉
- * mix 恰为 5.1 全集）。v1.2.6 未发布，迁移只保语义不保连线：消失的 mix 引脚连线由
- * 引脚重建后的 stale 剪枝收走。</p>
  */
 public final class ChannelLayout {
 
@@ -84,26 +78,6 @@ public final class ChannelLayout {
     public static String channelName(int index) {
         String[] ids = NodeType.CHANNEL_PIN_IDS;
         return ids[Math.max(0, Math.min(ids.length - 1, index))];
-    }
-
-    /** 旧「输出声道数」1..7 → 目标布局。Legacy channel count → target layout. */
-    public static int fromLegacyCount(int legacyCount) {
-        return switch (legacyCount) {
-            case 1 -> MIX;
-            case 2, 3 -> STEREO;
-            default -> SURROUND_5_1; // 4..7：旧 7 去掉 mix 恰为 5.1 全集，取并集最近邻
-        };
-    }
-
-    /** 旧「前 N」模式识别：bands 恰为旧序 {@code mix,l,r,c,ls,rs,sub} 的连续前缀（mix 开头）。
-     *  新布局引脚表无一以 mix 开头（除单引脚 MIX 布局，其迁移结果与自身相同，无害）。
-     *  Detects the legacy first-N pin pattern; new layout tables never start with mix
-     *  (except the single-pin MIX layout, whose migration is a no-op). */
-    public static boolean isLegacyPrefix(List<String> bands) {
-        String[] legacy = {"mix", "l", "r", "c", "ls", "rs", "sub"};
-        if (bands == null || bands.isEmpty() || bands.size() > legacy.length) return false;
-        for (int i = 0; i < bands.size(); i++) if (!legacy[i].equals(bands.get(i))) return false;
-        return true;
     }
 
     /**

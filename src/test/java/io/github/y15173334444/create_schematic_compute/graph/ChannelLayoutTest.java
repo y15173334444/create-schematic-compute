@@ -52,32 +52,6 @@ class ChannelLayoutTest {
         assertArrayEquals(ChannelLayout.pins(ChannelLayout.SURROUND_7_1), ChannelLayout.pins(99));
     }
 
-    // ── 旧数据迁移 / legacy migration ──
-
-    @Test
-    @DisplayName("旧声道数迁移表 / legacy count migration table")
-    void legacyMigration() {
-        assertEquals(ChannelLayout.MIX, ChannelLayout.fromLegacyCount(1));
-        assertEquals(ChannelLayout.STEREO, ChannelLayout.fromLegacyCount(2));
-        assertEquals(ChannelLayout.STEREO, ChannelLayout.fromLegacyCount(3));
-        assertEquals(ChannelLayout.SURROUND_5_1, ChannelLayout.fromLegacyCount(4));
-        assertEquals(ChannelLayout.SURROUND_5_1, ChannelLayout.fromLegacyCount(5));
-        assertEquals(ChannelLayout.SURROUND_5_1, ChannelLayout.fromLegacyCount(6));
-        assertEquals(ChannelLayout.SURROUND_5_1, ChannelLayout.fromLegacyCount(7));
-    }
-
-    @Test
-    @DisplayName("旧前缀模式识别 / legacy prefix detection")
-    void legacyPrefixDetection() {
-        assertTrue(ChannelLayout.isLegacyPrefix(List.of("mix")));
-        assertTrue(ChannelLayout.isLegacyPrefix(List.of("mix", "l", "r")));
-        assertTrue(ChannelLayout.isLegacyPrefix(List.of("mix", "l", "r", "c", "ls", "rs", "sub")));
-        assertFalse(ChannelLayout.isLegacyPrefix(List.of("l", "r")), "new STEREO pins do not start with mix");
-        assertFalse(ChannelLayout.isLegacyPrefix(List.of("l", "r", "c", "sub", "ls", "rs")));
-        assertFalse(ChannelLayout.isLegacyPrefix(List.of()));
-        assertFalse(ChannelLayout.isLegacyPrefix(null));
-    }
-
     // ── 拆分权重 / split weights ──
 
     @Test
