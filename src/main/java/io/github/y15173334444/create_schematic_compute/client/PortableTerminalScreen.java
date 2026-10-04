@@ -14,6 +14,7 @@ import org.lwjgl.glfw.GLFW;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.*;
@@ -267,14 +268,17 @@ public class PortableTerminalScreen extends Screen {
      * Performs a local block scan within the configured range, then sends a
      * {@link ScanSablePacket} to the server to discover wireless devices.
      *
-     * <p>The local scan iterates a cubic volume centered on the player —
-     * O(r^3) in chunk-loaded blocks. Results are sorted with Sable devices
-     * first (by distance), then local devices by squared distance.
+     * <p>The local scan enumerates the loaded chunks overlapping the scan
+     * cube and walks each chunk's block-entity map, filtering entries to the
+     * cube — O(chunks + block entities), not O(r^3) per-block probing.
+     * Results are sorted with Sable devices first (by distance), then local
+     * devices by squared distance.
      *
      * 在配置范围内执行本地方块扫描，然后向服务器发送
      * {@link ScanSablePacket} 以发现无线设备。
      *
-     * <p>本地扫描遍历以玩家为中心的立方体区域，复杂度为已加载区块的 O(r^3)。
+     * <p>本地扫描枚举与扫描立方体相交的已加载区块并遍历其方块实体表，
+     * 逐轴过滤到立方体内——成本为 O(区块数 + BE 数)，而非 O(r^3) 的逐格探测。
      * 结果按 Sable 设备优先（按距离排序），然后按本地设备的距离平方排序。
      */
     private void scanNearbyBlocks() {
@@ -282,15 +286,27 @@ public class PortableTerminalScreen extends Screen {
         Level level = player.level();
         BlockPos playerPos = player.blockPosition();
         int r = scanRange;
-        // Triple-nested loop over a cube of side 2r+1 centered on the player.
-        // Vanilla's getBlockEntity is O(1) per call, so this is tolerable for r ≤ 128.
-        // 以玩家为中心遍历边长为 2r+1 的立方体。
-        // 原版 getBlockEntity 每次调用为 O(1)，所以 r ≤ 128 时性能可接受。
-        for (int dx = -r; dx <= r; dx++)
-            for (int dy = -r; dy <= r; dy++)
-                for (int dz = -r; dz <= r; dz++) {
-                    BlockPos p = playerPos.offset(dx, dy, dz);
-                    BlockEntity be = level.getBlockEntity(p);
+        // 按已加载区块枚举，而非逐格探测：旧实现遍历 (2r+1)³ 立方体逐格调 getBlockEntity，
+        // r=128 时 ≈1697 万次同步调用占满渲染线程一整帧（开屏卡帧）。方块实体只存在于
+        // 已加载区块，从区块 BE 表反向枚举结果集相同而成本为区块数级（r=128 约 289 次查找）。
+        // Enumerate loaded chunks instead of probing every position: the old triple loop
+        // issued (2r+1)^3 getBlockEntity calls (≈17M at r=128), stalling one whole frame
+        // on open. Block entities only exist in loaded chunks, so walking each chunk's BE
+        // map yields the identical result set at chunk-count cost (~289 lookups at r=128).
+        int minCX = (playerPos.getX() - r) >> 4, maxCX = (playerPos.getX() + r) >> 4;
+        int minCZ = (playerPos.getZ() - r) >> 4, maxCZ = (playerPos.getZ() + r) >> 4;
+        for (int cx = minCX; cx <= maxCX; cx++)
+            for (int cz = minCZ; cz <= maxCZ; cz++) {
+                LevelChunk chunk = level.getChunkSource().getChunkNow(cx, cz);
+                if (chunk == null) continue;
+                for (var e : chunk.getBlockEntities().entrySet()) {
+                    BlockPos p = e.getKey();
+                    // 区块可能只与扫描立方体部分相交，BE 仍需逐轴过滤
+                    // A chunk may only partially overlap the cube, so filter per axis
+                    if (Math.abs(p.getX() - playerPos.getX()) > r
+                        || Math.abs(p.getY() - playerPos.getY()) > r
+                        || Math.abs(p.getZ() - playerPos.getZ()) > r) continue;
+                    BlockEntity be = e.getValue();
                     // Only GraphBlockEntity subclasses participate in the terminal ecosystem
                     // 只有 GraphBlockEntity 子类参与终端生态系统
                     if (be instanceof GraphBlockEntity gbe) {
@@ -307,6 +323,7 @@ public class PortableTerminalScreen extends Screen {
                         devices.add(new DeviceEntry(p.immutable(), name, be.getClass()));
                     }
                 }
+            }
         // Fire-and-forget network request for Sable (wireless/cross-dim) devices
         // 发送即发即忘的网络请求，获取 Sable（无线/跨维度）设备
         PacketDistributor.sendToServer(new ScanSablePacket(playerPos, scanRange));
