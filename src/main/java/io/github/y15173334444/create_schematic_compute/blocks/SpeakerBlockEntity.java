@@ -40,8 +40,8 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
     public String channelName = "mix";
     /** 播放增益（叠加在音源增益链上）。 */
     public float gain = 1f;
-    /** 半径覆盖（0 = 跟随声音定义）。 */
-    public int radius = 0;
+    /** 可听半径（格，1–4096，默认 48）。 / Audible radius in blocks (1-4096, default 48). */
+    public int radius = 48;
     /** 静音（用户设置，持久化）。红石高电平只做**运行时**门控，不写回本字段。 */
     public boolean mute;
 
@@ -141,7 +141,7 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
         this.channelBand = band == null ? "" : band;
         this.channelName = channel == null ? "" : channel;
         this.gain = Math.max(0f, Math.min(4f, g));
-        this.radius = Math.max(0, rad);
+        this.radius = Math.max(1, rad);
         this.mute = m;
         if (level != null && !level.isClientSide() && graph().nodes.isEmpty()) {
             createDefaultGraph();

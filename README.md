@@ -548,6 +548,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | Zoom / 缩放 | Scroll wheel / 滚轮 |
 | Pan / 平移 | Left-drag blank canvas (drag on a node = move it) / 左键拖拽空白处（节点上拖拽=移动节点） |
 | Open editor (most blocks) / 打开编辑器 | Right-click / 右键 |
+| **Speaker — Playback settings (gain/radius/mute) / 播放设置（音量/半径/静音）** | Second-row button in the speaker editor / 音响编辑器第二行按钮 |
 | **Control Seat — Sit / 乘坐** | Right-click (empty hand) / 右键（空手） |
 | **Control Seat/Radar — Editor / 编辑器** | `Shift` + Right-click / `Shift`+右键 |
 | **Control Seat — Dismount / 下马** | `~` |

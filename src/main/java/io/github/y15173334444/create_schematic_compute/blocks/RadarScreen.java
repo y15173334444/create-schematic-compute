@@ -196,6 +196,14 @@ public class RadarScreen extends AbstractGraphScreen {
                         be.displayX, be.displayY, be.displayZ, be.excludeHost, be.displayStyle, be.lockDistance));
                     showDisplaySettings = false; hideInputs(); return true;
                 }
+                // 面板矩形吞掉区域内一切点击（空隙不穿透到画布节点），
+                // 输入框聚焦经 super 分发给 children。与 SpeakerScreen 面板同款守卫。
+                // The panel rect swallows every click inside it (gaps never reach the nodes
+                // behind); box focus still happens via the super dispatch to children.
+                if (mx >= 4 && mx <= 4 + 340 && my >= py && my <= py + 80) {
+                    super.mouseClicked(mx, my, btn);
+                    return true;
+                }
             }
             if (handleToolbarClick((int)mx, (int)my, y, be)) return true;
         }

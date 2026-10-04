@@ -28,11 +28,11 @@ import net.neoforged.api.distmarker.OnlyIn;
  * (the STREAMING pool) — voice usage is constantly 1, independent of note density.</p>
  *
  * <p>衰减/声像（F7 + D13 口径）：{@code gain = 1 − dist/radius} 线性衰减，radius 取音响
- * {@code radius} 覆盖（&gt;0）或默认 {@link AudioMixer#DEFAULT_RADIUS}（48 格）——
+ * {@code radius}（≥1；≤0 由 {@link AudioMixer#DEFAULT_RADIUS} 兜底）——
  * {@code radius} 字段自此有了消费者；声像 = 听者右手系横向分量的等功率声像。音量 =
  * 主音量 × 唱片类音量（与原版唱片/音符盒同滑条，plan 风险 7）。
  * <p>Attenuation/panning (F7 + D13): linear {@code gain = 1 − dist/radius}, radius from the
- * speaker's {@code radius} override (&gt;0) or {@link AudioMixer#DEFAULT_RADIUS} (48 blocks) —
+ * speaker's {@code radius} (≥1; ≤0 falls back to {@link AudioMixer#DEFAULT_RADIUS}) —
  * the {@code radius} field finally has a consumer; equal-power pan from the listener-right
  * component. Volume = master × records (shared slider with vanilla record players, plan risk 7).</p>
  *
