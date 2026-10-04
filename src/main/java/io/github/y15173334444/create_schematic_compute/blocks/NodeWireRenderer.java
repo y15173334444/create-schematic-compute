@@ -94,10 +94,12 @@ final class NodeWireRenderer {
         // when the source has no property of its own.
         boolean sourceAudio = fn.type.outputDomain(wireFromPin) == NodeType.PinDomain.AUDIO;
         if (!sourceAudio && (fn.type == NodeType.BUS_IN || fn.type == NodeType.PRIVATE_IN)) {
-            boolean synced = fn.type == NodeType.BUS_IN && fn.signalBands != null
-                && wireFromPin < fn.signalBands.size()
-                && io.github.y15173334444.create_schematic_compute.network.SignalBus
-                    .isAudioBand(fn.signalName, fn.signalBands.get(wireFromPin));
+            boolean synced = fn.type == NodeType.BUS_IN
+                ? fn.signalBands != null && wireFromPin < fn.signalBands.size()
+                    && io.github.y15173334444.create_schematic_compute.network.SignalBus
+                        .isAudioBand(fn.signalName, fn.signalBands.get(wireFromPin))
+                : io.github.y15173334444.create_schematic_compute.network.SignalBus
+                    .isPrivateAudio(fn.signalName);
             sourceAudio = synced || graph.isBandPinAudio(fn.id, wireFromPin, true);
         }
         boolean audio = sourceAudio || targetAudio;

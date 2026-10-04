@@ -332,8 +332,8 @@ public class NodeRenderer {
         float extraH = editing ? io.github.y15173334444.create_schematic_compute.blocks.EditPanel.calcRenderHeight(n, zoom,
             editing ? nodeEditStatesById.get(n.id) : null) * zoom : 0;
         float nh = contentH + extraH;
-        // BUS_OUT 通道冲突警告 — 在节点上方渲染
-        if (n.type == NodeType.BUS_OUT && n.busConflict) {
+        // 发布频道冲突警告（BUS_OUT / PRIVATE_OUT 同徽章）— 在节点上方渲染
+        if ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && n.busConflict) {
             String warn = net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.bus_conflict");
             int warnW = Minecraft.getInstance().font.width(warn) + 20;
             int warnH = 14;
@@ -353,8 +353,8 @@ public class NodeRenderer {
             String warn = I18n.get("gui.create_schematic_compute.encap_node_limit");
             int warnW = Minecraft.getInstance().font.width(warn) + 20;
             int warnH = 14;
-            // 避开已有的 BUS_OUT 冲突警告（如果同时存在则移到更上方）
-            int yOff = (n.type == NodeType.BUS_OUT && n.busConflict) ? -(warnH + 6) : 0;
+            // 避开已有的发布频道冲突警告（如果同时存在则移到更上方）
+            int yOff = ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && n.busConflict) ? -(warnH + 6) : 0;
             int wx = (int)(sx + (sw - warnW * zoom) / 2);
             int wy = (int)(sy + yOff * zoom - warnH * zoom - 2);
             g.fill(wx, wy, (int)(wx + warnW * zoom), (int)(wy + warnH * zoom), 0xCC330000);
@@ -518,19 +518,24 @@ public class NodeRenderer {
         for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL && n.type != NodeType.DEBUG_PROBE; i++) {
             float py = HH+PH*(funcInputs + i)+PH/2f;
             int r = PR;
-            // 读取侧频段引脚（BUS_IN/PRIVATE_IN）= 频段定义同步来的音频标志（跟频段走）
-            // ∨ 该引脚本地接了音频线（按频段分流，读取与显示一致）；PRIVATE 无频段定义，
-            // 只有本地接线。发布侧（BUS_OUT/PRIVATE_OUT）在输入循环按对端域判定。
-            // Read-side band pins (BUS_IN/PRIVATE_IN) = the definition-synced per-band flag
-            // ∨ this pin's own local audio wire (per-band routing — display matches
-            // semantics); PRIVATE has no band definitions, local wiring only.
+            // 读取侧频段引脚（BUS_IN/PRIVATE_IN）= 定义同步来的音频标志（跟频道/频段走）
+            // ∨ 该引脚本地接了音频线（按频段分流，读取与显示一致）。私有频道的定义标志由
+            // 发布方拓扑判定、经 PrivateChannelAudioPacket 同步（BUS 同款，属性跟频道走）。
+            // 发布侧（BUS_OUT/PRIVATE_OUT）在输入循环按对端域判定。
+            // Read-side band pins (BUS_IN/PRIVATE_IN) = the definition-synced flag (riding the
+            // channel/band) ∨ this pin's own local audio wire. A private channel's definition is
+            // topology-derived by the publisher and synced via PrivateChannelAudioPacket — the
+            // BUS discipline. Publishers (BUS_OUT/PRIVATE_OUT) judge per pin by peer domain.
             boolean syncedBandAudio = n.type == NodeType.BUS_IN && n.signalBands != null
                 && i < n.signalBands.size()
                 && io.github.y15173334444.create_schematic_compute.network.SignalBus
                     .isAudioBand(n.signalName, n.signalBands.get(i));
+            boolean syncedPrivateAudio = n.type == NodeType.PRIVATE_IN
+                && io.github.y15173334444.create_schematic_compute.network.SignalBus
+                    .isPrivateAudio(n.signalName);
             boolean outAudio = n.type.outputDomain(i) == NodeType.PinDomain.AUDIO
                 || (bandOut && graph != null
-                    && (syncedBandAudio || graph.isBandPinAudio(n.id, i, true)));
+                    && (syncedBandAudio || syncedPrivateAudio || graph.isBandPinAudio(n.id, i, true)));
             g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1),
                 outAudio ? CAPB() : CPOB());
             g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r),

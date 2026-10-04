@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
+import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.graph.RuntimeState;
@@ -10,6 +11,7 @@ import io.github.y15173334444.create_schematic_compute.network.BusBandSyncPacket
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.network.ChannelOwner;
 import io.github.y15173334444.create_schematic_compute.network.ClientboundGraphEvalPacket;
+import io.github.y15173334444.create_schematic_compute.network.PrivateChannelAudioPacket;
 import io.github.y15173334444.create_schematic_compute.network.RuntimeStateSyncPacket;
 import io.github.y15173334444.create_schematic_compute.network.SignalBus;
 import net.minecraft.core.BlockPos;
@@ -162,25 +164,38 @@ public class GraphHost {
      *  发布方求值器负责把标志写入 SignalBus（拓扑判定），这里只管变化检测与投递。
      *  Push per-band audio flags: for every channel this graph references, resend the band
      *  definition + flags when the flag version moved past the last push. The publisher's
-     *  evaluator writes the flags into SignalBus (topology-derived); this only detects and ships. */
+     *  evaluator writes the flags into SignalBus (topology-derived); this only detects and ships.
+     *  <p>私有频道同款（引脚类型变换的同步面）：本图引用的私有名，定义版本变了就推
+     *  {@link PrivateChannelAudioPacket}。缓存键带表前缀——BUS 与私有分表，同名各自计版。</p> */
     private void pushAudioFlagChanges(ServerLevel sl) {
         var busNames = new java.util.HashSet<String>();
+        var privateNames = new java.util.HashSet<String>();
         for (var n : graph.nodes) {
-            if ((n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) && !n.signalName.isEmpty())
-                busNames.add(n.signalName);
+            if (n.signalName.isEmpty()) continue;
+            if (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) busNames.add(n.signalName);
+            else if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) privateNames.add(n.signalName);
         }
         for (String busName : busNames) {
             int stamp = io.github.y15173334444.create_schematic_compute.network.SignalBus.audioStamp(busName);
-            Integer sent = pushedAudioFlags.get(busName);
+            Integer sent = pushedAudioFlags.get("B:" + busName);
             if (sent != null && sent == stamp) continue;
             var bands = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(busName);
-            if (bands == null || bands.isEmpty()) { pushedAudioFlags.put(busName, stamp); continue; }
+            if (bands == null || bands.isEmpty()) { pushedAudioFlags.put("B:" + busName, stamp); continue; }
             var audio = io.github.y15173334444.create_schematic_compute.network.SignalBus.getAudioBands(busName);
             var flags = new java.util.ArrayList<Boolean>(bands.size());
             for (String band : bands) flags.add(audio.contains(band));
             PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(pos()),
                 new BusBandSyncPacket(pos(), busName, bands, flags));
-            pushedAudioFlags.put(busName, stamp);
+            pushedAudioFlags.put("B:" + busName, stamp);
+        }
+        for (String name : privateNames) {
+            int stamp = io.github.y15173334444.create_schematic_compute.network.SignalBus.privateAudioStamp(name);
+            Integer sent = pushedAudioFlags.get("P:" + name);
+            if (sent != null && sent == stamp) continue;
+            PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(pos()),
+                new PrivateChannelAudioPacket(name,
+                    io.github.y15173334444.create_schematic_compute.network.SignalBus.isPrivateAudio(name)));
+            pushedAudioFlags.put("P:" + name, stamp);
         }
     }
 
@@ -343,31 +358,44 @@ public class GraphHost {
         snapshotBusOutKeys();
     }
 
-    /** 注销上次重编译后已删除节点的 BUS_OUT。 / Unregister removed BUS_OUT since last recompile. */
+    /** 注销上次重编译后已删除节点的 BUS_OUT / 私有发布节点（改名 = 旧名移除，占用与值随之释放）。
+     *  Unregister BUS_OUT / private publishers removed since last recompile (a rename counts
+     *  as removing the old name, releasing its occupancy and value). */
     private void unregisterRemovedBusOutNodes() {
         if (lvl() == null || lvl().isClientSide() || lastBusOutKeys.isEmpty()) return;
         Set<String> currentKeys = new HashSet<>();
         for (var n : graph.nodes)
-            if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty())
-                currentKeys.add(n.signalName + "@" + n.id);
+            if ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && !n.signalName.isEmpty())
+                currentKeys.add(snapshotKey(n));
         for (var key : lastBusOutKeys) {
             if (!currentKeys.contains(key)) {
-                int at = key.lastIndexOf('@');
+                boolean priv = key.startsWith("P:");
+                String rest = key.substring(2);
+                int at = rest.lastIndexOf('@');
                 if (at > 0) {
-                    String name = key.substring(0, at);
-                    int nodeId = Integer.parseInt(key.substring(at + 1));
-                    SignalBus.unregisterChannel(name, new ChannelOwner(pos(), nodeId));
+                    String name = rest.substring(0, at);
+                    int nodeId = Integer.parseInt(rest.substring(at + 1));
+                    var owner = new ChannelOwner(pos(), nodeId);
+                    if (priv) SignalBus.unregisterPrivateChannel(name, owner);
+                    else SignalBus.unregisterChannel(name, owner);
                 }
             }
         }
     }
 
-    /** 快照当前 BUS_OUT 键集。 / Snapshot current BUS_OUT key set. */
+    /** 发布节点快照键：类型前缀 + 名@id——节点移除后类型无从查起，键集必须自带表别
+     * （BUS 与私有分表，同名互不冲突）。/ Publisher snapshot key: type tag + name@id —
+     * the node type is unrecoverable once the node is gone, so the key carries the table. */
+    private static String snapshotKey(GraphNode n) {
+        return (n.type == NodeType.PRIVATE_OUT ? "P:" : "B:") + n.signalName + "@" + n.id;
+    }
+
+    /** 快照当前发布节点（BUS_OUT / 私有）键集。 / Snapshot current publisher key set. */
     private void snapshotBusOutKeys() {
         lastBusOutKeys.clear();
         for (var n : graph.nodes)
-            if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty())
-                lastBusOutKeys.add(n.signalName + "@" + n.id);
+            if ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && !n.signalName.isEmpty())
+                lastBusOutKeys.add(snapshotKey(n));
     }
 
     // ── 引擎间接管（继承线合并用）/ inter-engine adoption (inheritance-line merge) ──

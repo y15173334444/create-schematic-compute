@@ -61,6 +61,15 @@ public final class BusChannelHelper {
                             new BusBandSyncPacket(pos, n.signalName, n.signalBands));
                     }
                 }
+            } else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty()) {
+                // 私有频道占用（BUS 同款）：首个注册者获胜，被其他 owner 占用即标冲突旗标——
+                // 冲突节点不写值、不算定义，写入权属于首个注册者。
+                // Private channel occupancy (BUS discipline): first registrant wins; a name held
+                // by another owner flags the node — a conflicted node writes nothing and defines
+                // nothing.
+                boolean ok = SignalBus.registerPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
+                if (n.busConflict != !ok) anyConflict = true;
+                n.busConflict = !ok;
             }
         }
         return anyConflict;
@@ -72,6 +81,9 @@ public final class BusChannelHelper {
         for (var n : graph.nodes) {
             if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
                 SignalBus.unregisterChannel(n.signalName, new ChannelOwner(pos, n.id));
+                n.busConflict = false;
+            } else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty()) {
+                SignalBus.unregisterPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
                 n.busConflict = false;
             }
         }
@@ -92,7 +104,10 @@ public final class BusChannelHelper {
             for (var n : graph.nodes) {
                 if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) names.add(n.signalName);
                 else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty())
-                    SignalBus.clearSignal(n.signalName);
+                    // 按 owner 释放（值 + 占用 + 定义）——冲突节点（名被对端占用）不得清掉对端的频道
+                    // Owner-checked release (value + occupancy + definition) — a conflicted node
+                    // must never nuke the peer's channel of the same name.
+                    SignalBus.unregisterPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
             }
             for (var name : names) {
                 PacketDistributor.sendToPlayersTrackingChunk(sl,
@@ -186,13 +201,17 @@ public final class BusChannelHelper {
     public static void mergeLocalBusConflicts(NodeGraph graph) {
         if (graph == null) return;
         for (var n : graph.nodes) {
-            if (n.type != NodeType.BUS_OUT || n.signalName == null || n.signalName.isEmpty()) {
+            boolean publisher = n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT;
+            if (!publisher || n.signalName == null || n.signalName.isEmpty()) {
                 n.busConflict = false;
                 continue;
             }
             boolean sameGraphDuplicate = false;
             for (var other : graph.nodes) {
-                if (other != n && other.type == NodeType.BUS_OUT && n.signalName.equals(other.signalName)) {
+                // 重名判定只在同表内（BUS 与私有机制上分表隔离，跨表同名不是冲突）
+                // Duplicates are per table — the tables are isolated, so a cross-table
+                // name match is not a conflict.
+                if (other != n && other.type == n.type && n.signalName.equals(other.signalName)) {
                     sameGraphDuplicate = true;
                     break;
                 }
@@ -420,19 +439,23 @@ public final class BusChannelHelper {
         boolean anyConflict = false;
 
         // Build a set of (signalName, nodeId) keys that exist in the new graph
-        // 构建新图中存在的 (signalName, nodeId) 键集合
+        // 构建新图中存在的 (signalName, nodeId) 键集合（BUS_OUT 与私有发布节点同键空间——节点 id 全图唯一）
         var newKeys = new HashSet<String>();
         for (var n : newGraph.nodes)
-            if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty())
+            if ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && !n.signalName.isEmpty())
                 newKeys.add(n.signalName + "@" + n.id);
 
         // Step 1: Unregister only REMOVED nodes (in oldGraph but not in newGraph)
-        // 步骤1：仅取消注册已移除的节点（在 oldGraph 中但不在 newGraph 中）
+        // 步骤1：仅取消注册已移除的节点（在 oldGraph 中但不在 newGraph 中）——改名即
+        //「旧名节点移除」，旧名的占用/值/定义由此释放，同名竞争者可接管。
         if (oldGraph != null) {
             for (var n : oldGraph.nodes) {
                 if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()
                     && !newKeys.contains(n.signalName + "@" + n.id)) {
                     SignalBus.unregisterChannel(n.signalName, new ChannelOwner(pos, n.id));
+                } else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty()
+                    && !newKeys.contains(n.signalName + "@" + n.id)) {
+                    SignalBus.unregisterPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
                 }
             }
         }
@@ -444,7 +467,7 @@ public final class BusChannelHelper {
         var oldKeys = new HashSet<String>();
         if (oldGraph != null) {
             for (var n : oldGraph.nodes)
-                if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty())
+                if ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && !n.signalName.isEmpty())
                     oldKeys.add(n.signalName + "@" + n.id);
         }
 
@@ -490,6 +513,12 @@ public final class BusChannelHelper {
                             new BusBandSyncPacket(pos, n.signalName, n.signalBands));
                     }
                 }
+            } else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty()) {
+                // 私有频道占用（BUS 同款）：同 owner 重注册为幂等，被占即标冲突。
+                // Private occupancy (BUS discipline): same-owner re-registration is idempotent.
+                boolean ok = SignalBus.registerPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
+                if (n.busConflict != !ok) anyConflict = true;
+                n.busConflict = !ok;
             }
         }
         return anyConflict;
@@ -497,81 +526,78 @@ public final class BusChannelHelper {
 
     // ── Conflict auto-recovery / 冲突自动恢复 ─────────────────────────────
 
-    /** Check every conflicted BUS_OUT node: if the previous channel owner is gone
-     *  (CHANNELS has no entry for that name), this node takes over.
-     *  Also applies a tick-based timeout (200 ticks = 10 s): if the conflicted
-     *  node's channel is held by an owner whose chunk is not loaded, force takeover.
-     *  Call once per tick before the evaluator runs.
-     *  检查每个冲突的 BUS_OUT 节点：若原频道所有者已消失（CHANNELS 中无该名称条目），则由此节点接管。
-     *  同时应用基于 tick 的超时机制（200 tick = 10 秒）：若冲突节点的频道被一个所在区块未加载的
-     *  owner 持有，则强制接管。
-     *  每 tick 在评估器运行前调用一次。
+    /** Check every conflicted publisher (BUS_OUT / PRIVATE_OUT): if the previous channel owner
+     *  is gone, this node takes over; residual owners are reclaimed by timeout.
+     *  检查每个冲突的发布节点（BUS_OUT / PRIVATE_OUT）：原 owner 消失即接管；残留 owner 按超时回收。
+     *  Call once per tick before the evaluator runs. / 每 tick 在评估器运行前调用一次。
      *  @return true if at least one node recovered (caller should trigger a full sync) / 若至少有一个节点恢复则返回 true（调用方应触发完整同步） */
     public static boolean recoverConflictedChannels(NodeGraph graph, BlockPos pos, @Nullable Level level) {
         if (level == null || level.isClientSide() || graph == null) return false;
         boolean anyRecovered = false;
         for (var n : graph.nodes) {
-            if (n.type == NodeType.BUS_OUT && n.busConflict
-                && !n.signalName.isEmpty() && n.bandCount() > 0) {
+            if (!n.busConflict || n.signalName.isEmpty()) continue;
+            if (n.type == NodeType.BUS_OUT) {
+                if (n.bandCount() <= 0) continue;
                 var entry = SignalBus.getChannel(n.signalName);
                 if (entry == null) {
                     // EN: First owner is gone → take over the channel and immediately sync bands to clients
                     // 首个 owner 已消失 → 接管频道并立即同步 bands 到客户端
                     takeoverChannel(n, pos, level);
                     anyRecovered = true;
-                } else if (level instanceof ServerLevel sl) {
-                    // Channel is still held — check whether the current owner is actually alive.
-                    // Liveness = the owner's chunk is loaded AND a graph-hosting block entity
-                    // still exists at the owner's position. If the chunk is loaded but the
-                    // block is gone (removed without channel cleanup), reclaim after a SHORT
-                    // timeout instead of waiting for the chunk to unload (which may never
-                    // happen). The short timeout (rather than immediate takeover) gives a
-                    // safety buffer for Sable sub-level cases where the block entity position
-                    // may transiently not resolve via overworld coordinates — we never steal
-                    // from a possibly-live owner.
-                    // 频道仍被持有 — 检查当前 owner 是否真正存活。
-                    // 存活判定 = owner 区块已加载 且 该坐标仍存在图宿主方块实体。
-                    // 若区块已加载但方块已消失（移除时未清理频道），用一个较短超时回收，
-                    // 而不是等待区块卸载（可能永远不会发生）。
-                    // 用短超时而非立即接管，是为 Sable 子关卡场景留缓冲：子关卡方块坐标
-                    // 可能瞬时无法通过主世界坐标解析——绝不从可能存活的 owner 处强夺。
-                    int cx = entry.owner.pos().getX() >> 4;
-                    int cz = entry.owner.pos().getZ() >> 4;
-                    boolean ownerChunkLoaded = sl.getChunkSource().getChunkNow(cx, cz) != null;
-                    if (ownerChunkLoaded) {
-                        boolean ownerBeAlive = sl.getBlockEntity(entry.owner.pos())
-                            instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
-                        if (ownerBeAlive) {
-                            n.busConflictTicks = 0; // owner is alive, reset counter
-                        } else {
-                            // Owner's chunk is loaded but no graph BE at that position — the
-                            // channel is likely a stale residue. Use a short timeout (40 ticks
-                            // ≈ 2 s) before reclaiming, to tolerate transient Sable lookups.
-                            // owner 区块已加载但该位置无图宿主 BE — 频道很可能是残留。
-                            // 用短超时（40 tick ≈ 2 秒）后再回收，容忍 Sable 瞬时查询失败。
-                            n.busConflictTicks++;
-                            if (n.busConflictTicks > 40) {
-                                SignalBus.unregisterChannel(n.signalName, entry.owner);
-                                takeoverChannel(n, pos, level);
-                                anyRecovered = true;
-                            }
-                        }
-                    } else {
-                        n.busConflictTicks++;
-                        // After 200 ticks (~10 s) with owner chunk unloaded, force takeover
-                        // 200 tick（约 10 秒）owner 区块持续未加载后，强制接管
-                        if (n.busConflictTicks > 200) {
-                            // Force-unregister the stale owner, then take over
-                            // 强制注销过期的 owner，然后接管
-                            SignalBus.unregisterChannel(n.signalName, entry.owner);
-                            takeoverChannel(n, pos, level);
-                            anyRecovered = true;
-                        }
-                    }
+                } else if (level instanceof ServerLevel sl
+                    && staleOwnerReclaim(n, entry.owner.pos(), sl)) {
+                    SignalBus.unregisterChannel(n.signalName, entry.owner);
+                    takeoverChannel(n, pos, level);
+                    anyRecovered = true;
+                }
+            } else if (n.type == NodeType.PRIVATE_OUT) {
+                var owner = SignalBus.getPrivateOwner(n.signalName);
+                if (owner == null) {
+                    takeoverPrivateChannel(n, pos);
+                    anyRecovered = true;
+                } else if (level instanceof ServerLevel sl
+                    && staleOwnerReclaim(n, owner.pos(), sl)) {
+                    SignalBus.unregisterPrivateChannel(n.signalName, owner);
+                    takeoverPrivateChannel(n, pos);
+                    anyRecovered = true;
                 }
             }
         }
         return anyRecovered;
+    }
+
+    /** 冲突节点的 owner 存活判定（BUS 与私有共用）：owner 区块已加载且该坐标仍有图宿主 BE →
+     *  重置计数、绝不回收（绝不从可能存活的 owner 处强夺）；区块已加载但方块已消失（移除时
+     *  未清理频道）→ 短超时（40 tick ≈ 2 s，容忍 Sable 子关卡坐标瞬时解析失败）后回收；
+     *  区块未加载 → 长超时（200 tick ≈ 10 s）后回收。返回 true = 应回收接管。
+     *  Owner-liveness verdict for a conflicted node (shared by BUS and private channels): a
+     *  loaded chunk holding a live graph BE never reclaims — we never steal from a
+     *  possibly-live owner; a loaded chunk without one reclaims after a short timeout (40t);
+     *  an unloaded chunk after a long one (200t ≈ 10 s). */
+    private static boolean staleOwnerReclaim(GraphNode n, BlockPos ownerPos, ServerLevel sl) {
+        int cx = ownerPos.getX() >> 4;
+        int cz = ownerPos.getZ() >> 4;
+        boolean ownerChunkLoaded = sl.getChunkSource().getChunkNow(cx, cz) != null;
+        if (!ownerChunkLoaded) {
+            n.busConflictTicks++;
+            return n.busConflictTicks > 200;
+        }
+        boolean ownerBeAlive = sl.getBlockEntity(ownerPos)
+            instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+        if (ownerBeAlive) {
+            n.busConflictTicks = 0;
+            return false;
+        }
+        n.busConflictTicks++;
+        return n.busConflictTicks > 40;
+    }
+
+    /** 接管私有频道：注册为 owner、清冲突旗标（值/定义从本节点的求值重新建立）。
+     *  Take over a private channel: register as owner and clear the conflict flag. */
+    private static void takeoverPrivateChannel(GraphNode n, BlockPos pos) {
+        SignalBus.registerPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
+        n.busConflict = false;
+        n.busConflictTicks = 0;
     }
 
     /** Take over the channel: register this node as owner, clear conflict flag, sync bands.

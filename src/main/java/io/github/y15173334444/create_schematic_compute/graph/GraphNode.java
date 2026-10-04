@@ -21,9 +21,11 @@ public class GraphNode {
      *  BUS_OUT internal band→value map. Once registered with SignalBus.CHANNELS,
      *  this reference is shared with the global table — eval writes are immediately visible. */
     public java.util.Map<String, Float> busInternalMap;
-    /** 运行时标记：此 BUS_OUT 的频道名被另一个 BUS_OUT 占用（registerChannel 返回 false）。
-     *  Runtime flag: this BUS_OUT's channel name is taken by another BUS_OUT
-     *  (registerChannel returned false). */
+    /** 运行时标记：此发布节点（BUS_OUT / PRIVATE_OUT）的频道名被另一个 owner 占用
+     * （registerChannel / registerPrivateChannel 返回 false）——冲突方不写值、不算定义。
+     *  Runtime flag: this publisher's (BUS_OUT / PRIVATE_OUT) channel name is taken by another
+     *  owner (registerChannel / registerPrivateChannel returned false) — a conflicted node
+     *  writes no values and defines nothing. */
     public boolean busConflict;
     /** 冲突持续 tick 数，用于 recoverConflictedChannels 的超时机制。
      *  Number of ticks this node has been in conflict, used by recoverConflictedChannels timeout. */

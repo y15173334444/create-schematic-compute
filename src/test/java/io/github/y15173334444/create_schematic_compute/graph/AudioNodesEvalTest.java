@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
 import io.github.y15173334444.create_schematic_compute.network.AudioBands;
+import io.github.y15173334444.create_schematic_compute.network.SignalBus;
 import net.minecraft.core.BlockPos;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,7 +23,7 @@ class AudioNodesEvalTest {
 
     private static final float DT = 0.1f; // tempo 1000 (10 t/s) ⇒ delta 1.0 NBS tick
 
-    @AfterEach void cleanup() { AudioBands.clear(); }
+    @AfterEach void cleanup() { AudioBands.clear(); SignalBus.clear(); }
 
     private record Fixture(NodeGraph graph, GraphEvaluator ev, GraphNode music, GraphNode amp,
                            GraphNode audioOut, Map<Integer, MusicTransport> transports) {}
@@ -353,5 +354,63 @@ class AudioNodesEvalTest {
         // ls/rs：极左/极右溢出带各收一枚
         assertEquals(1, AudioBands.get(AudioBands.bandKey("ch_ls", "ch_ls"), 0L).events().size());
         assertEquals(1, AudioBands.get(AudioBands.bandKey("ch_rs", "ch_rs"), 0L).events().size());
+    }
+
+    @Test
+    @DisplayName("私有频道定义：音频输入定义为音频、浮点输入定义为浮点（引脚类型变换的属性源）/ the channel definition follows the input pin's peer domain")
+    void privateChannelDefinitionFollowsPeerDomain() {
+        // 音频输入：MUSIC→AMP→PRIVATE_OUT("pd") → 定义为音频
+        NodeGraph g1 = new NodeGraph();
+        GraphNode constPlay = g1.addNode(NodeType.CONST, 0, 0);
+        constPlay.params[0] = 1f;
+        GraphNode music = g1.addNode(NodeType.MUSIC, 100, 0);
+        music.song = song(45);
+        GraphNode amp = g1.addNode(NodeType.AMP, 200, 0);
+        amp.params[0] = 1f;
+        GraphNode pout = g1.addNode(NodeType.PRIVATE_OUT, 300, 0);
+        pout.signalName = "pd";
+        assertTrue(g1.addConnection(constPlay.id, 0, music.id, 0));
+        assertTrue(g1.addConnection(music.id, 0, amp.id, 0));
+        assertTrue(g1.addConnection(amp.id, 0, pout.id, 0));
+        GraphEvaluator ev1 = new GraphEvaluator(g1);
+        ev1.restoreSubState(new RuntimeState());
+        ev1.setAudioTransports(new HashMap<>());
+        ev1.setAudioHostPos(new BlockPos(0, 0, 0));
+        ev1.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+        assertTrue(SignalBus.isPrivateAudio("pd"), "an audio pin peer defines the channel as audio");
+
+        // 浮点输入：CONST→PRIVATE_OUT("pf") → 定义为浮点
+        NodeGraph g2 = new NodeGraph();
+        GraphNode c = g2.addNode(NodeType.CONST, 0, 0);
+        c.params[0] = 5f;
+        GraphNode pout2 = g2.addNode(NodeType.PRIVATE_OUT, 100, 0);
+        pout2.signalName = "pf";
+        assertTrue(g2.addConnection(c.id, 0, pout2.id, 0));
+        GraphEvaluator ev2 = new GraphEvaluator(g2);
+        ev2.restoreSubState(new RuntimeState());
+        ev2.setAudioTransports(new HashMap<>());
+        ev2.setAudioHostPos(new BlockPos(0, 0, 0));
+        ev2.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+        assertFalse(SignalBus.isPrivateAudio("pf"), "a float pin peer defines the channel as float");
+        assertEquals(5f, SignalBus.get("pf"), 1e-6);
+    }
+
+    @Test
+    @DisplayName("冲突门控：冲突的 PRIVATE_OUT 不写值、不算定义 / a conflicted PRIVATE_OUT writes nothing and defines nothing")
+    void conflictedPrivateOutIsInert() {
+        NodeGraph g = new NodeGraph();
+        GraphNode c = g.addNode(NodeType.CONST, 0, 0);
+        c.params[0] = 5f;
+        GraphNode pout = g.addNode(NodeType.PRIVATE_OUT, 100, 0);
+        pout.signalName = "pc";
+        assertTrue(g.addConnection(c.id, 0, pout.id, 0));
+        GraphEvaluator ev = new GraphEvaluator(g);
+        ev.restoreSubState(new RuntimeState());
+        ev.setAudioTransports(new HashMap<>());
+        ev.setAudioHostPos(new BlockPos(0, 0, 0));
+        pout.busConflict = true; // 名被其他 owner 占用（注册路径置位）/ the name is held by another owner
+        ev.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+        assertEquals(0f, SignalBus.get("pc"), "a conflicted writer never lands");
+        assertFalse(SignalBus.isPrivateAudio("pc"), "a conflicted node defines nothing");
     }
 }

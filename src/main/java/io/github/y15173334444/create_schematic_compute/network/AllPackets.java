@@ -47,6 +47,11 @@ public class AllPackets {
                 BusBandSyncPacket.CODEC,
                 BusBandSyncPacket::handle
         );
+        registrar.playToClient(
+                PrivateChannelAudioPacket.TYPE,
+                PrivateChannelAudioPacket.CODEC,
+                PrivateChannelAudioPacket::handle
+        );
         registrar.playToServer(
                 BusBandUploadPacket.TYPE,
                 BusBandUploadPacket.CODEC,

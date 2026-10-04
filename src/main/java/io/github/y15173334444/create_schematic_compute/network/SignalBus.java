@@ -31,6 +31,19 @@ public class SignalBus {
      *  (bumped on every change) — host push caches compare this to decide on a resend. */
     private static final ConcurrentHashMap<String, Integer> AUDIO_STAMPS = new ConcurrentHashMap<>();
 
+    /** 私有频道占用表：name → owner（与 BUS {@link #CHANNELS} 同款占用语义——首个注册者获胜，
+     *  同名不同 owner 注册失败、由调用方标冲突旗标；写入权属于 owner）。
+     *  Private channel occupancy: name → owner — the same first-registrant-wins discipline as
+     *  the BUS channel registry; a different owner's registration fails and the caller flags it. */
+    private static final ConcurrentHashMap<String, ChannelOwner> PRIVATE_OWNERS = new ConcurrentHashMap<>();
+
+    /** 私有频道定义标志：name → 该频道当前是否承载音频（发布方按输入引脚对端域的拓扑判定，
+     *  随版本戳同步给订阅方做引脚类型变换——BUS 频段音频标志同款，属性跟频道走）。
+     *  Private channel definition flag: whether the channel carries audio (topology-derived by
+     *  the publisher's pin peer, version-stamped and synced to subscribers for pin typing). */
+    private static final ConcurrentHashMap<String, Boolean> PRIVATE_AUDIO = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Integer> PRIVATE_AUDIO_STAMPS = new ConcurrentHashMap<>();
+
     // ── PRIVATE_IN/OUT API (unchanged) / PRIVATE_IN/OUT API（不变） ──────────────────────
 
     public static void put(String channel, float value) {
@@ -41,9 +54,70 @@ public class SignalBus {
         return SIGNALS.getOrDefault(channel, 0f);
     }
 
-    /** Clear a signal name (called when a PRIVATE_OUT node is destroyed, prevents SIGNALS map leak) / 清理指定信号名（PRIVATE_OUT 节点销毁时调用，防止 SIGNALS map 泄漏） */
+    /** 清理指定信号名（值 + 占用 + 定义一起撤）：PRIVATE_OUT 节点销毁/改名/宿主卸载的统一释放，
+     *  防止 SIGNALS/PRIVATE_OWNERS 泄漏与陈旧 owner 永久占名。
+     *  Clear a signal name (value + occupancy + definition together) — the unified release for
+     *  PRIVATE_OUT destroy / rename / host unload, so maps never leak and a stale owner can't
+     *  hold a name forever. */
     public static void clearSignal(String channel) {
         SIGNALS.remove(channel);
+        PRIVATE_OWNERS.remove(channel);
+        if (PRIVATE_AUDIO.remove(channel) != null) PRIVATE_AUDIO_STAMPS.merge(channel, 1, Integer::sum);
+    }
+
+    // ── PRIVATE channel occupancy API / 私有频道占用 API ──────────────────────
+
+    /**
+     * 注册私有频道占用（BUS {@link #registerChannel} 占用语义同款）：首个注册者获胜；
+     *  同一 owner 可重复注册；不同 owner 使用同名 → 冲突，返回 false 且不动现有占用。
+     *  Register a private channel's occupancy (same discipline as the BUS registry):
+     *  first registrant wins, the same owner may re-register, a different owner is refused.
+     *  @return true 注册成功（或本就是该 owner），false 被其他 owner 占用
+     */
+    public static boolean registerPrivateChannel(String channel, ChannelOwner owner) {
+        ChannelOwner prev = PRIVATE_OWNERS.putIfAbsent(channel, owner);
+        return prev == null || prev.equals(owner);
+    }
+
+    /**
+     * 释放私有频道占用（owner 必须匹配才动）：占用、值与定义一并撤——发布方离去即撤频道，
+     *  同名竞争者随后可经 {@link #registerPrivateChannel} 接管（自愈同 BUS）。
+     *  Release a private channel (owner must match): occupancy, value and definition go together
+     *  — the channel dies with its publisher and a contender takes over (BUS-style self-heal).
+     *  @return true 已释放（含本就无占用的空名），false 被其他 owner 占用、未动
+     */
+    public static boolean unregisterPrivateChannel(String channel, ChannelOwner owner) {
+        ChannelOwner cur = PRIVATE_OWNERS.get(channel);
+        if (cur != null && !cur.equals(owner)) return false;
+        clearSignal(channel);
+        return true;
+    }
+
+    /** 当前占用者（无占用返回 null；冲突恢复的存活判定用）/ The current owner (null when free). */
+    public static ChannelOwner getPrivateOwner(String channel) {
+        return PRIVATE_OWNERS.get(channel);
+    }
+
+    // ── Private channel definition API / 私有频道定义 API ──────────────────────
+
+    /** 更新私有频道定义标志（内容变化才写 + 自增版本）。返回是否发生变化。
+     *  Update the private channel's definition flag (write + version bump only on change). */
+    public static boolean setPrivateAudio(String channel, boolean audio) {
+        Boolean cur = PRIVATE_AUDIO.get(channel);
+        if (cur != null && cur == audio) return false;
+        PRIVATE_AUDIO.put(channel, audio);
+        PRIVATE_AUDIO_STAMPS.merge(channel, 1, Integer::sum);
+        return true;
+    }
+
+    /** 私有频道当前是否承载音频（订阅方引脚类型变换用）/ Whether the private channel carries audio. */
+    public static boolean isPrivateAudio(String channel) {
+        return PRIVATE_AUDIO.getOrDefault(channel, false);
+    }
+
+    /** 私有频道定义版本号（无定义 0）/ The private channel's definition version stamp (0 when none). */
+    public static int privateAudioStamp(String channel) {
+        return PRIVATE_AUDIO_STAMPS.getOrDefault(channel, 0);
     }
 
     // ── BUS band-name sync API (unchanged) / BUS 频段名同步 API（不变） ──────────────────────
@@ -223,5 +297,8 @@ public class SignalBus {
         AUDIO_BANDS.clear();
         AUDIO_STAMPS.clear();
         CHANNELS.clear();
+        PRIVATE_OWNERS.clear();
+        PRIVATE_AUDIO.clear();
+        PRIVATE_AUDIO_STAMPS.clear();
     }
 }

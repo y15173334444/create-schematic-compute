@@ -836,6 +836,14 @@ public class GraphEvaluator {
                 //（名字 = signalName，owner/冲突纪律与 AUDIO_OUT 同款，空名不发布）；否则浮点。
                 // Private-band audio branch: audio input publishes the AudioRef to AudioBands
                 // (owner/conflict discipline as AUDIO_OUT); otherwise float.
+                // 频道定义（引脚类型变换的属性源）：输入对端是音频 → 频道承载音频，随版本戳
+                // 同步给订阅方着色；属性跟频道走（拓扑判定、稳态零开销），冲突节点不算定义。
+                // Channel definition (the property behind pin typing): an audio pin peer makes
+                // the channel audio-carrying, version-synced to subscribers; the property rides
+                // the channel (topology-derived), and a conflicted node defines nothing.
+                if (!node.busConflict && !node.signalName.isEmpty()) {
+                    SignalBus.setPrivateAudio(node.signalName, graph.isBandPinAudio(node.id, 0, false));
+                }
                 AudioRef aref = graph.getAudioInputRef(node.id, 0, audioRefs);
                 if (aref != null) {
                     node.audioConflict = !node.signalName.isEmpty()
@@ -843,7 +851,10 @@ public class GraphEvaluator {
                             .publish(node.signalName, aref, audioTickStamp, consumerKey(node));
                     break;
                 }
-                SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
+                // 浮点写入（占用检测，BUS 同款）：冲突节点不写——写入权属于首个注册者
+                // Float write (BUS-parity occupancy): a conflicted node writes nothing —
+                // write rights belong to the first registrant.
+                if (!node.busConflict) SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
             }
             case BUS_IN -> {
                 // 按频段分流（属性跟频段走）：某频段的输出接了音频线 → 该频段读自己的

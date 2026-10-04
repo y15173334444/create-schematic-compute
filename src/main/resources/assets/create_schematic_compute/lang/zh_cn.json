@@ -505,7 +505,7 @@
   "node.create_schematic_compute.position": "世界坐标/POSITION",
   "category.create_schematic_compute.trig": "三角函数",
   "gui.create_schematic_compute.edit.bus_name": "总线/Bus",
-  "gui.create_schematic_compute.bus_conflict": "总线通道已占用",
+  "gui.create_schematic_compute.bus_conflict": "频道已占用",
   "gui.create_schematic_compute.bus_upload": "上传",
   "gui.create_schematic_compute.bus_sync": "同步",
   "gui.create_schematic_compute.node_limit": "已达到节点上限 (1024)！",
