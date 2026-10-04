@@ -450,11 +450,11 @@ Private signal input: reads a single float from a process-wide table by channel 
 
 **说明（中文）**
 
-私有信号输出：每个 tick 把图内值写入同名频道（覆盖式写入），供任意宿主上的同名 PRIVATE_IN 读取。频道是单值、无频段结构，多个同名输出共享同一频道属正常现象（不是冲突）。方块卸载时频道会被清理。
+私有信号输出：每个 tick 把图内值写入同名频道（覆盖式写入），供任意宿主上的同名 PRIVATE_IN 读取。频道是单值、无频段结构，**频道名带占用检测（与 BUS 同款）**：同一时刻只属于一个发布方（首个注册者获胜），同名的其他发布方亮「频道已占用」徽标且不写值、不算定义；原发布方删除/改名/卸载后由竞争者接管（自愈）。频道属性（浮点/音频）由发布方输入引脚对端域决定，随定义同步给订阅方，PRIVATE_IN 引脚的类型与颜色随之变换。方块卸载时频道会被清理。
 
 **Description (English)**
 
-Private signal output: writes the graph value into the named channel every tick (overwrite semantics), readable by any same-named PRIVATE_IN on any host. Channels hold a single value with no band structure, so several same-named outputs sharing one channel is normal, not a conflict. Channels are cleaned up when the block unloads.
+Private signal output: writes the graph value into the named channel every tick (overwrite semantics), readable by any same-named PRIVATE_IN on any host. Channels hold a single value with no band structure, and **channel names carry BUS-parity occupancy detection**: a name belongs to one publisher at a time (first registrant wins); any other same-named publisher shows the "Channel Occupied" badge and writes neither values nor definitions, taking over only once the original is deleted, renamed or unloaded (self-healing). The channel's property (float/audio) follows the publisher's input-pin peer and syncs to subscribers, so PRIVATE_IN pins transform their type and colour with it. Channels are cleaned up when the block unloads.
 
 ---
 

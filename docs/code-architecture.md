@@ -499,11 +499,15 @@ joiners have no pending ops and always load the authoritative graph.
 - `SIGNALS` — PRIVATE_IN/OUT 信号 / Private signals (`name → float`)
 - `CHANNELS` — BUS_OUT 频道 / BUS output channels (`name → ChannelEntry`)
 - `BAND_REGISTRY` — 频段定义 / Band definitions (`name → List<String>`)
+- `PRIVATE_OWNERS` — 私有频道占用（BUS 同款占用检测）/ Private channel occupancy (BUS-parity) (`name → ChannelOwner`)
+- `PRIVATE_AUDIO` / `PRIVATE_AUDIO_STAMPS` — 私有频道定义标志（浮点/音频）+ 版本戳 / Private channel definition flag + version stamp
 
 **核心方法 / Core Methods**：
 - `registerChannel(name, map, owner)` — 首次注册创建（refCount=1）；**同 owner 重注册不递增 refCount**，仅更新 map 引用并保留原计数；不同 owner 返回 false / First registration creates; same-owner re-registration preserves ref-count; different owner → conflict (false)
 - `updateChannel(name, map, owner)` — 更新 map 引用不改变 refCount / Update map ref without touching refCount
 - `unregisterChannel(name, owner)` — refCount--，归零时移除 + clearBus / Decrement ref; remove + clearBus at zero
+- `registerPrivateChannel(name, owner)` / `unregisterPrivateChannel(name, owner)` — 私有频道占用（BUS 同款：首个注册者获胜，同名不同 owner 拒注册；owner 校验释放，值/占用/定义一起撤，竞争者随后接管）/ Private occupancy (BUS discipline: first registrant wins; owner-checked release takes value+occupancy+definition together, contenders take over)
+- `setPrivateAudio(name, audio)` / `isPrivateAudio(name)` / `privateAudioStamp(name)` — 私有频道定义（发布方按输入引脚对端域拓扑判定；变化才自增版本，宿主据此推送同步）/ Private channel definition (topology-derived by the publisher; version bumps only on change, hosts push on change)
 - `registerBands(name, bands)` / `getBands(name)` / `clearBus(name)`
 
 ### AudioBands
@@ -518,16 +522,16 @@ joiners have no pending ops and always load the authoritative graph.
 ### BusChannelHelper
 BUS 频道生命周期管理器 / BUS channel lifecycle manager.
 
-- `registerChannels()` — 注册所有 BUS_OUT，设置 busConflict，同步 bands / Register all, set conflict flag, sync bands
-- `unregisterChannels()` — 注销所有 BUS_OUT / Unregister all
+- `registerChannels()` — 注册所有 BUS_OUT / 私有发布节点（PRIVATE_OUT），设置 busConflict，同步 bands / Register all publishers (BUS_OUT + PRIVATE_OUT), set conflict flag, sync bands
+- `unregisterChannels()` — 注销所有 BUS_OUT / 私有发布节点（owner 校验释放私有频道）/ Unregister all publishers (owner-checked release for private channels)
 - `reRegisterChannels()` — 差异式重注册（只注销移除的，保留现有的）/ Diff-based: unregister removed only
-- `recoverConflictedChannels()` — 原 owner 消失时接管频道 / Take over when original owner gone
+- `recoverConflictedChannels()` — 原 owner 消失时接管频道（BUS 与私有同款：存活判定 + 40t/200t 超时回收）/ Take over when the original owner is gone (BUS and private alike: liveness + 40t/200t timeout reclamation)
 - `syncBandsFromServer()` — 服务端推送频段到客户端图（仅断开实际删除的频段，保留重排频段）/ Push bands; disconnect only actually-removed bands
 - `syncIfBandsChanged()` — tick 级频段变更检测 / Per-tick band change detection
 - `cleanupClientBands(graph, pos, level)` — 卸载/销毁前清空 BUS_OUT 频段同步 + PRIVATE_OUT / Clear client bands before unload
 - `syncDeletedBusNames(oldGraph, newGraph, pos, level)` — 旧图有而新图无的 BUS_OUT 名发空同步 / Sync deleted bus names
 - `resolveBusInBands(graph, self, name)` — BUS_IN 频段的**服务端唯一解析点**（issue #11）：同图非冲突 BUS_OUT → 全局频段注册表 → 空；冲突的 BUS_OUT 绝不当来源（issue #14）/ The **single** server-side resolution point for a BUS_IN's bands: same-graph non-conflicted BUS_OUT → global band registry → empty; a conflicted BUS_OUT is never a source
-- `mergeLocalBusConflicts(graph)` — 客户端唯一的冲突推断（issue #12）：只由同图重名**抬高** `busConflict`，绝不下调服务端同步来的权威值 / The only client-side conflict inference: raised only by same-graph duplicates — never lowers the server-synced flag
+- `mergeLocalBusConflicts(graph)` — 客户端唯一的冲突推断（issue #12）：只由同表同图重名**抬高** `busConflict`（BUS 与私有分表，跨表同名不算冲突），绝不下调服务端同步来的权威值 / The only client-side conflict inference: raised only by same-table same-graph duplicates (the tables are isolated — cross-table names never collide) — never lowers the server-synced flag
 - `convergeBusInBands(graph)` — 服务端不变量（issue #15）：把本图每个 BUS_IN 的频段列表收敛到频道定义，返回变化了的频道 → 列表，由调用方经 `BusBandSyncPacket`（节点数据通道）下发；解析为空**且** CHANNELS 无该名字条目（无已加载发布方）时**跳过**——缺席不是定义，照常收敛会把瞬时缺席当成空定义剪光输入连线 / Server-side invariant: converge every BUS_IN's band list to the channel definition, returning changed channels for the caller to ship over `BusBandSyncPacket`; a channel that resolves empty **and** has no CHANNELS entry (no loaded publisher) is **skipped** — absence is not a definition, and converging on it would prune every input wire of a transiently absent publisher
 
 > **v1.2.4.1 行为要点 / Behavior note**：`loadGraphFromBytes` **跳过** `cleanupBusChannels`（避免向客户端广播空频段、永久删除连线），并**跳过立即重编译**——通过 `graph.bumpGeneration()` + `lastGraphGeneration = -1` 推迟到下一 tick 重编译时恢复频段。
