@@ -53,6 +53,21 @@ public class NodeRenderer {
     public static int ERR() { return _c[_ERR]; }  // error       警示/错误
     public static int HOV() { return _c[_HOV]; }  // hover       悬停高亮
 
+    /** 连接态暗化系数：编辑区频段引脚连接后填充变暗的明暗变换。
+     *  Connected-state darkening factor for edit-panel band-pin fills. */
+    static final float CONNECTED_DIM = 0.55f;
+
+    /** 连接态暗化：对配置色做明暗变换（RGB × {@link #CONNECTED_DIM}，alpha 与色相不动）——
+     *  主题自适应；旧硬编码暗橄榄（0xFF666644）退役，自定义配色不再脱节。
+     *  Connected-state darken: scale the configured colour's brightness (RGB only), hue and
+     *  alpha kept — theme-adaptive; the old hardcoded khaki is retired. */
+    static int dimColor(int argb) {
+        int r = (int) (((argb >> 16) & 0xFF) * CONNECTED_DIM);
+        int g = (int) (((argb >> 8) & 0xFF) * CONNECTED_DIM);
+        int b = (int) ((argb & 0xFF) * CONNECTED_DIM);
+        return (argb & 0xFF000000) | (r << 16) | (g << 8) | b;
+    }
+
     /** 主题色的半透明变体：保留 RGB、替换透明度（alpha 0..255）。跨屏同源遮罩/淡入用，
      *  使叠层也随主题变色。 / Theme color with a given alpha (RGB kept, alpha 0..255);
      *  keeps shared scrim/fade layers theme-reactive. */

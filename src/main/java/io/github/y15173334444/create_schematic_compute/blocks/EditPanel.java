@@ -202,9 +202,14 @@ public class EditPanel {
                 : st.graph != null && st.graph.isBandPinAudio(node.id, pinIdx, false));
             g.fill(pinX - pinR - 1, pinY - pinR - 1, pinX + pinR + 1, pinY + pinR + 1,
                 audioPin ? NodeRenderer.CAPB() : NodeRenderer.CPIB());
+            // 填充基色 = 配置色（input/output/pin_audio），连接态做明暗变换（含音频引脚）——
+            // 「占用暗化」与「音频着色」正交；旧硬编码暗橄榄退役（脱离自定义配色）。
+            // Fill base = the configured colour (input/output/pin_audio); the connected state
+            // darkens it (audio pins included) — occupancy dim and audio tint are orthogonal;
+            // the old hardcoded khaki is retired (it ignored custom palettes).
+            int baseFill = audioPin ? NodeRenderer.CAP() : isBusIn ? NodeRenderer.CPO() : NodeRenderer.CPI();
             g.fill(pinX - pinR, pinY - pinR, pinX + pinR, pinY + pinR,
-                audioPin ? NodeRenderer.CAP()
-                    : pinConnected ? 0xFF666644 : isBusIn ? NodeRenderer.CPO() : NodeRenderer.CPI());
+                pinConnected ? NodeRenderer.dimColor(baseFill) : baseFill);
             // 频段名（BUS_IN 只读文本，BUS_OUT EditBox 可编辑）
             if (isBusIn) {
                 String bandName = st.fields.get(bi).getValue();
