@@ -348,6 +348,75 @@ public class NodeGraph {
         if (anyIndexChanged) bumpGeneration();
     }
 
+    /** 频段列表对齐的**唯一规则**（改名不丢线）：新表与旧表**同长度**、且每个变化的槽位都是
+     *  「双射换名」（旧名从新表消失、新名未在旧表出现）时，判定为槽位改名——旧名 pinId 上的
+     *  连线原地改绑到新名（索引不动），一条线都不剪；本方法同时写回 {@code signalBands} 与
+     *  {@code bandsDirty}。其余情况（增删频段、改名与重排混在一次提交的歧义）维持既有语义：
+     *  按名字差集剪掉真正消失频段上的连线（BUS_IN 输入侧的索引兜底由调用方负责）。
+     *  <p>四条对齐路径共用本方法——SET_BANDS op、BusBandUploadPacket、convergeBusInBands、
+     *  syncBandsFromServer——改名因此在任一路径、任意图（含跨方块订阅方经收敛传播）都保线。
+     *  判定只需新旧两份列表的状态，不需要专门的 rename 事件在包与方块之间搬运——
+     *  「自愈式不变量优于一次性事件推送」。</p>
+     *  The single band-list alignment rule (renames keep their wires): when the new list has the
+     *  SAME length and every changed slot is a bijective rename (the old name is absent from the
+     *  new list, the new name absent from the old), the slot was renamed in place - connections
+     *  bound to the old name's pinId are rewritten to the new name (indices do not move) and
+     *  nothing is pruned; {@code signalBands} and {@code bandsDirty} are written here. Everything
+     *  else (additions, deletions, renames mixed with reordering in one commit) keeps the existing
+     *  semantics: connections on genuinely-removed band names are pruned (the BUS_IN input-side
+     *  index fallback stays with the callers).
+     *  <p>All four alignment paths share this method - SET_BANDS op, BusBandUploadPacket,
+     *  convergeBusInBands, syncBandsFromServer - so a rename keeps its wires on every path and in
+     *  every graph, including cross-block subscribers reached through convergence. The decision
+     *  needs nothing but the two lists' state; no dedicated rename event is ferried between
+     *  packets and blocks - the self-healing-invariant-over-event-push discipline.</p>
+     *  @param n 目标节点（BUS_OUT / BUS_IN / PRIVATE_* 等带 signalBands 的节点）
+     *            the node whose signalBands list is being aligned */
+    public void reconcileBands(GraphNode n, List<String> newBands) {
+        var want = new java.util.ArrayList<String>(newBands != null ? newBands : java.util.Collections.<String>emptyList());
+        var old = n.signalBands != null ? n.signalBands : java.util.Collections.<String>emptyList();
+        if (old.size() == want.size()) {
+            // 双射换名判定：旧名∉新表 且 新名∉旧表，且同一旧名不得映射到两个新名。
+            // Bijective-rename test: old name gone from the new list, new name unseen in the
+            // old list, and no old name renamed two different ways.
+            var renames = new java.util.LinkedHashMap<String, String>();
+            var newSet = new java.util.HashSet<>(want);
+            var oldSet = new java.util.HashSet<>(old);
+            boolean pureRename = true;
+            for (int i = 0; i < old.size() && pureRename; i++) {
+                String o = old.get(i), w = want.get(i);
+                if (o.equals(w)) continue;
+                if (newSet.contains(o) || oldSet.contains(w) || renames.put(o, w) != null) pureRename = false;
+            }
+            if (pureRename) {
+                for (NodeConnection c : connections) {
+                    if (c.fromId == n.id && c.fromPinId != null) {
+                        String nn = renames.get(c.fromPinId);
+                        if (nn != null) c.fromPinId = nn;
+                    }
+                    if (c.toId == n.id && c.toPinId != null) {
+                        String nn = renames.get(c.toPinId);
+                        if (nn != null) c.toPinId = nn;
+                    }
+                }
+                n.signalBands = want;
+                n.bandsDirty = true;
+                return;
+            }
+        }
+        // 既有语义：按名字差集剪掉真正被删除频段上的连线。
+        // Existing semantics: prune connections on genuinely-removed band names.
+        var removed = new java.util.ArrayList<>(old);
+        removed.removeAll(want);
+        n.signalBands = want;
+        n.bandsDirty = true;
+        for (String removedBand : removed) {
+            connections.removeIf(c ->
+                (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
+                (c.toId == n.id && removedBand.equals(c.toPinId)));
+        }
+    }
+
     private static long key(int nodeId, int pinIdx) {
         return ((long) nodeId << 16) | (pinIdx & 0xFFFF);
     }

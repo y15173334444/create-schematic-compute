@@ -59,21 +59,13 @@ public record BusBandUploadPacket(BlockPos pos, String busName, List<String> ban
                             // skip it so it cannot hijack the original owner's BAND_REGISTRY.
                             if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
                                 && n.busConflict) continue;
-                            // Collect removed band names (pinIds) before replacing
-                            // 在替换前收集被删除的频段名（pinId）
-                            var oldBands = n.signalBands != null ? n.signalBands : java.util.Collections.<String>emptyList();
+                            // 频段对齐唯一规则（NodeGraph.reconcileBands）：改名重绑 pinId 不剪线，
+                            // 增删按名剪除 —— 与 SET_BANDS/收敛/客户端同步共用同一实现。
+                            // The single band alignment rule: renames rebind pinIds (wires kept),
+                            // additions/removals prune by name - shared with SET_BANDS,
+                            // convergence and client-sync paths.
                             java.util.List<String> newBands = bands != null ? new ArrayList<>(bands) : new ArrayList<>();
-                            var removed = new java.util.ArrayList<>(oldBands);
-                            removed.removeAll(newBands);
-                            n.signalBands = newBands;
-                            n.bandsDirty = true;
-                            // Remove connections only on actually-deleted bands, matched by pinId
-                            // 仅删除实际被移除频段上的连接（按 pinId 匹配）
-                            for (String removedBand : removed) {
-                                graph.connections.removeIf(c ->
-                                    (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
-                                    (c.toId == n.id && removedBand.equals(c.toPinId)));
-                            }
+                            graph.reconcileBands(n, newBands);
                             graph.rebuildNodeMap(); // invalidate inputCache
                             graph.rebuildInputCache();
                         }

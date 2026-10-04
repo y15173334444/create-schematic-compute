@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
+import io.github.y15173334444.create_schematic_compute.graph.NodeConnection;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import org.junit.jupiter.api.AfterEach;
@@ -224,5 +225,31 @@ class BusInBandConvergenceTest {
         assertTrue(BusChannelHelper.convergeBusInBands(graph).isEmpty());
         assertEquals(List.of("x"), nameless.signalBands,
             "without a channel name there is nothing to converge to");
+    }
+
+    @Test
+    @DisplayName("a band RENAME in the definition rebinds the BUS_IN's wires instead of pruning them")
+    void renameRebindsBusInWires() {
+        GraphNode out = graph.addNode(NodeType.BUS_OUT, 50, 0);
+        out.signalName = "CH";
+        out.signalBands = new ArrayList<>(List.of("a", "b"));
+        GraphNode in = busIn("CH", "a", "b");
+        GraphNode sink = graph.addNode(NodeType.ADD, 150, 0);
+        // BUS_IN 频段输出引脚按频段名绑定（fromPinId = "a"）。
+        // The BUS_IN band output pin is name-bound (fromPinId = "a").
+        graph.connections.add(new NodeConnection(in.id, "a", 0, sink.id, "0", 0));
+
+        // 发布方把频段 a 原地改名为 x（同槽位）；收敛必须跟随改名，而不是当成删除剪线。
+        // The publisher renames band a → x in place; convergence must follow the rename,
+        // not treat it as a deletion.
+        out.signalBands = new ArrayList<>(List.of("x", "b"));
+
+        Map<String, List<String>> changed = BusChannelHelper.convergeBusInBands(graph);
+
+        assertEquals(List.of("x", "b"), in.signalBands);
+        assertEquals(1, graph.connections.size());
+        assertEquals("x", graph.connections.get(0).fromPinId,
+            "the renamed band keeps its subscriber wire, rebound to the new name");
+        assertTrue(changed.containsKey("CH"));
     }
 }

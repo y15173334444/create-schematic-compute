@@ -239,23 +239,13 @@ public final class BusChannelHelper {
                 // 不要覆盖冲突的 BUS_OUT —— 其频段属于自身，不属于广播此同步的频道所有者。
                 if (n.type == NodeType.BUS_OUT && n.busConflict) continue;
                 if (!newBands.equals(n.signalBands)) {
-                    // Collect removed band names (pinIds) by comparing old vs new
-                    // 通过对比新旧集合，收集被删除的频段名（pinId）
-                    var oldBands = n.signalBands != null ? n.signalBands : Collections.<String>emptyList();
-                    var removed = new ArrayList<>(oldBands);
-                    removed.removeAll(newBands);
-                    n.signalBands = new ArrayList<>(newBands);
-                    n.bandsDirty = true;
-                    // Only remove connections on bands that were actually deleted,
-                    // matched by band name (= pinId). This preserves connections
-                    // on bands that were merely reordered.
-                    // 仅删除实际被移除频段上的连接（按频段名 = pinId 匹配）。
-                    // 仅被重排的频段上的连接得以保留。
-                    for (String removedBand : removed) {
-                        graph.connections.removeIf(c ->
-                            (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
-                            (c.toId == n.id && removedBand.equals(c.toPinId)));
-                    }
+                    // 频段对齐唯一规则（NodeGraph.reconcileBands）：改名重绑 pinId 不剪线，
+                    // 增删按名剪除 —— 与 SET_BANDS/上传/收敛共用同一实现。重排依旧保线
+                    //（名字集合未变）。
+                    // The single band alignment rule: renames rebind pinIds (wires kept),
+                    // additions/removals prune by name - shared with SET_BANDS, the upload
+                    // and convergence. Reordering still keeps wires (the name set is unchanged).
+                    graph.reconcileBands(n, newBands);
                     // legacy 索引回退：BUS_IN 的输入引脚是**索引绑定**的（GraphNode.inputPinId 只对
                     // BUS_OUT 返回频段名），因此频段减少后落到新范围之外的连线要按索引清掉
                     // ——与 releaseOldBusName / convergeBusInBands 的既有做法一致。
@@ -351,17 +341,12 @@ public final class BusChannelHelper {
                 resolvedByChannel.put(n.signalName, want);
             }
             if (want.equals(n.signalBands)) continue;
-            var removed = new ArrayList<>(n.signalBands != null ? n.signalBands : Collections.<String>emptyList());
-            removed.removeAll(want);
-            n.signalBands = new ArrayList<>(want);
-            n.bandsDirty = true;
-            // 按 pinId（频段名）剪线 —— BUS_OUT 的输入引脚是名字绑定的。
-            // Prune by pinId (band name) — BUS_OUT input pins are name-bound.
-            for (String removedBand : removed) {
-                graph.connections.removeIf(c ->
-                    (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
-                    (c.toId == n.id && removedBand.equals(c.toPinId)));
-            }
+            // 频段对齐唯一规则（NodeGraph.reconcileBands）：改名重绑 pinId 不剪线，
+            // 增删按名剪除 —— 与 SET_BANDS/上传/客户端同步共用同一实现。
+            // The single band alignment rule: renames rebind pinIds (wires kept),
+            // additions/removals prune by name - shared with SET_BANDS, the upload
+            // and the client-sync path.
+            graph.reconcileBands(n, want);
             // legacy 索引回退：BUS_IN 的输入引脚是**索引绑定**的（GraphNode.inputPinId 只对
             // BUS_OUT 返回频段名），因此频段减少后落到新范围之外的连线要按索引清掉
             // ——与 releaseOldBusName 的既有做法一致。

@@ -324,9 +324,13 @@ public final class OpExecutor {
                     // authoritative SET_BANDS, and this guard makes sides that already hold the same
                     // value take no action at all.
                     if (!op.bands().equals(n.signalBands)) {
-                        n.signalBands = new java.util.ArrayList<>(op.bands());
-                        n.bandsDirty = true;
-                        graph.rebuildInputCache(); // prune connections to removed bands by pinId
+                        // 频段对齐唯一规则（NodeGraph.reconcileBands）：改名重绑 pinId 不剪线，
+                        // 增删按名剪除 —— 与上传/收敛/客户端同步共用同一实现。
+                        // The single band alignment rule: renames rebind pinIds (wires kept),
+                        // additions/removals prune by name - shared with the upload,
+                        // convergence and client-sync paths.
+                        graph.reconcileBands(n, op.bands());
+                        graph.rebuildInputCache(); // re-resolve pinIds (rename: same index; removal: caches refresh)
                         graph.bumpGeneration();
                     }
                 }
