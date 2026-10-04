@@ -243,18 +243,41 @@ public final class AudioMixer {
     }
 
     /**
-     * 落点帧（纯函数）：base + 墙钟增量 + （delaySeconds − 预播 − 迟到）。
+     * 落点帧（纯函数），按音符的下发时机分两种状态：
+     * <ul>
+     *   <li><b>提前下发</b>（delaySeconds ≥ 预播，稳态常规）：落点 = base + 墙钟增量 +
+     *       （delaySeconds − 预播 − 迟到）——音符在目标前一个预播窗口发出，客户端等到点；</li>
+     *   <li><b>按时下发</b>（delaySeconds &lt; 预播，传输起播/跳转后的第一批）：窗口内来不及
+     *       提前，音符本来就「到点才发」——落点 = base + 墙钟增量 + （delaySeconds − 迟到），
+     *       <b>不减预播</b>。若仍按稳态公式减预播，这批音符的落点会落到过去、被混音器钳到
+     *       同一帧——起播后前一个预播窗口的整段音乐挤成一瞬（「开头没了」）。分支以
+     *       delaySeconds ≷ 预播无缝衔接（= 时两式同值）。</li>
+     * </ul>
      * delaySeconds 自<b>下发时刻</b>起算——到达迟到（lateSeconds）必须扣除，否则迟到 1:1 转成
      * 播出推迟，积压段与后续段重叠（「积压音频挤在一起」）。
-     * <p>Placement frame (pure): base + wall advance + (delaySeconds − pre-roll − lateness).
-     * {@code delaySeconds} is measured from <b>dispatch</b>; arrival lateness must be subtracted.</p>
+     * <p>Placement frame (pure), two regimes by dispatch timing:
+     * <ul>
+     *   <li><b>Dispatched early</b> (delaySeconds ≥ pre-roll, the steady state): base + wall
+     *       advance + (delaySeconds − pre-roll − lateness) — the note arrives a window early
+     *       and waits for its frame;</li>
+     *   <li><b>Dispatched on time</b> (delaySeconds &lt; pre-roll, the first batch after a
+     *       transport start/seek — there was no window to dispatch early): base + wall advance
+     *       + (delaySeconds − lateness), <b>no pre-roll subtraction</b>. Applying the steady
+     *       formula here lands those notes in the past; the mixer clamps them onto one frame
+     *       and the whole first window plays as a single instant ("the song's opening is
+     *       gone"). The branches meet seamlessly at delaySeconds = pre-roll.</li>
+     * </ul>
+     * {@code delaySeconds} is measured from <b>dispatch</b>; arrival lateness must be
+     * subtracted.</p>
      */
     public static long placementFrames(long baseFrames, long wallAdvanceFrames,
                                        float delaySeconds, float lateSeconds, float prerollSeconds) {
         long lateFrames = Math.round(Math.max(0f, lateSeconds) * SAMPLE_RATE);
+        float targetOffset = (delaySeconds >= prerollSeconds)
+            ? delaySeconds - prerollSeconds
+            : delaySeconds;
         return baseFrames + wallAdvanceFrames
-            + Math.round(delaySeconds * SAMPLE_RATE)
-            - Math.round(prerollSeconds * SAMPLE_RATE)
+            + Math.round(targetOffset * SAMPLE_RATE)
             - lateFrames;
     }
 }

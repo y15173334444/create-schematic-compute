@@ -214,6 +214,23 @@ class AudioMixerTest {
     }
 
     @Test
+    void placementFramesKeepsStaggerForOnTimeDispatch() {
+        int rate = AudioMixer.SAMPLE_RATE;
+        // 起播/跳转后的第一批：delaySeconds < 预播 → 不减预播，按 delay 排帧——
+        // 若按稳态公式减预播，这批落点全为负、被混音器钳到同一帧（「开头没了」）。
+        // First batch after a start/seek (delaySeconds < pre-roll): no pre-roll subtraction,
+        // so the batch keeps its intra-batch stagger instead of clamping onto one frame.
+        long first = AudioMixer.placementFrames(1000, 2205, 0.1f, 0f, 2.0f);
+        long second = AudioMixer.placementFrames(1000, 2205, 1.7f, 0f, 2.0f);
+        assertEquals(1000 + 2205 + Math.round(0.1f * rate), first, 2);
+        assertEquals(first + Math.round(1.6f * rate), second, 2,
+            "on-time dispatch keeps musical distance between notes");
+        // 边界无缝：delay == 预播时两式同值
+        long boundary = AudioMixer.placementFrames(1000, 2205, 2.0f, 0f, 2.0f);
+        assertEquals(1000 + 2205, boundary, 2);
+    }
+
+    @Test
     void limiterRecoversAfterLoudChord() {
         AudioMixer m = new AudioMixer();
         float[] sample = new float[64];
