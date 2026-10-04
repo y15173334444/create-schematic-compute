@@ -1323,7 +1323,13 @@ public class GraphEvaluator {
                 List<NoteEvent> events = (song != null)
                     ? tr.advance(song, dt, MusicTransport.PREROLL_SECONDS) : List.of();
                 boolean done = tr.consumeFinishedPulse();
-                audioRefs.put(audioKey(node.id, 0), new AudioRef(events, 1f));
+                // 停止/跳转沿（且未同 tick 续播）→ 一次性停止标记穿透管线到 sink：
+                // 客户端清除该音响预播窗口内已下发未播的声部，加宽窗口才不会留尾巴。
+                // Stop/seek edge (no same-tick resume) → a one-shot stop marker rides the
+                // pipeline to the sink: the client cancels this speaker's dispatched-but-
+                // unplayed voices, so a widened pre-roll leaves no tail after a stop.
+                boolean flush = tr.consumeFlushPulse() && !tr.isPlaying();
+                audioRefs.put(audioKey(node.id, 0), new AudioRef(events, 1f, flush));
                 o[0] = 0; // 音频引脚经 audioRefs（类型化，非浮点）
                 o[1] = tr.isPlaying() ? 1f : 0f;
                 o[2] = tr.headTick();
@@ -1369,7 +1375,8 @@ public class GraphEvaluator {
                 if (in != null && speakerSink != null) {
                     int ch = node.params.length > 0 ? (int) node.params[0] : 0;
                     AudioRef sel = ChannelLayout.channelRef(in, ChannelLayout.channelName(ch), false);
-                    speakerSink.play(sel.events(), sel.gain());
+                    if (sel.stopSignal()) speakerSink.stopPlayback();
+                    else speakerSink.play(sel.events(), sel.gain());
                 }
             }
             case ENCAPSULATION -> {

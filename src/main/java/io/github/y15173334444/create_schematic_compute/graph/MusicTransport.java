@@ -15,8 +15,14 @@ public final class MusicTransport {
 
     /** 预播提前量（秒）：服务端提前展开这段窗口内的音符、事件带目标时刻（delaySeconds），
      *  客户端按目标定点播——服务端 tick 过载/进程停顿时的「晚点/成批」到达由此吸收。
-     *  0.2 s 与客户端输出余量（4×80 ms）配对：预发与预填同增，恒定净延迟持平。 */
-    public static final float PREROLL_SECONDS = 0.2f;
+     *  2 s 覆盖实测的服务端停顿（750–950 ms）并留一倍余量；播放时刻由客户端墙钟定点，
+     *  加宽只增加吸收带宽、不推迟任何音符；代价（停止/跳转后已下发未播的尾巴）由
+     *  {@link #consumeFlushPulse()} 驱动的停止清队列机制抵消。
+     *  2 s covers the measured server-side stalls (750–950 ms) with double headroom; the
+     *  client places every note on its own wall clock, so widening only adds absorption
+     *  band and delays nothing; the cost (a tail of dispatched-but-unplayed notes after a
+     *  stop/seek) is cancelled by the flush mechanism driven by {@link #consumeFlushPulse()}. */
+    public static final float PREROLL_SECONDS = 2.0f;
 
     /** 是否正在播放。 */
     public boolean playing;
@@ -26,6 +32,13 @@ public final class MusicTransport {
     public int nextFire;
     /** 本步是否刚非循环播到尾（consumed 一次后清零）。 */
     private boolean finishedPulse;
+    /** 本步是否刚发生停止/跳转沿（consumed 一次后清零）：预播窗口内已下发未播的音符
+     *  因传输状态变化而失效，求值器据此在音频引用里打一次性停止标记，穿透管线到
+     *  客户端清除排队声部。
+     *  A stop/seek edge happened this step (consumed once): notes already dispatched inside
+     *  the pre-roll window are stale; the evaluator stamps a one-shot stop marker onto the
+     *  audio ref so the client cancels its queued voices. */
+    private boolean flushPulse;
 
     public MusicTransport() {}
 
@@ -50,21 +63,35 @@ public final class MusicTransport {
         nextFire = (int) Math.ceil(head);
     }
 
-    /** 停止（复位播放头到 0 不做；仅停）。 */
+    /** 停止（复位播放头到 0 不做；仅停）。置 flush 脉冲：窗口内已下发未播的音符失效。 */
     public void stop() {
         playing = false;
+        flushPulse = true;
     }
 
-    /** 跳转到 tick（重定位播放头，不展开该 tick 音符）。 */
+    /** 跳转到 tick（重定位播放头，不展开该 tick 音符）。置 flush 脉冲：跳走前已下发的
+     *  未播音符属于旧位置，客户端要清掉。 */
     public void seek(int tick) {
         head = Math.max(0, tick);
         nextFire = (int) Math.ceil(head);
+        flushPulse = true;
     }
 
     /** 本步非循环播到尾则返回 true（一次性，读后清零）。 */
     public boolean consumeFinishedPulse() {
         boolean f = finishedPulse;
         finishedPulse = false;
+        return f;
+    }
+
+    /** 本步是否刚发生停止/跳转沿（一次性，读后清零）。求值器在「停止后未续播」时把标记
+     *  打进音频引用；同 tick 停止又续播则吞掉标记（新位置的音符不能被清）。
+     *  A stop/seek edge this step (consumed once). The evaluator stamps the marker onto the
+     *  audio ref only when playback did NOT resume the same tick — a same-tick resume must
+     *  not have its fresh notes cancelled. */
+    public boolean consumeFlushPulse() {
+        boolean f = flushPulse;
+        flushPulse = false;
         return f;
     }
 

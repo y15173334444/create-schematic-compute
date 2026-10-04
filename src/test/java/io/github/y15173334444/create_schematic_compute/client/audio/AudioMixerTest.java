@@ -60,6 +60,29 @@ class AudioMixerTest {
     }
 
     @Test
+    void cancelFutureRemovesOnlyTaggedUnstartedVoices() {
+        AudioMixer m = new AudioMixer();
+        float[] sample = new float[64];
+        java.util.Arrays.fill(sample, 1f);
+        m.schedule(50, sample, AudioMixer.SAMPLE_RATE, 1.0, 1f, 1f, 7L, false);  // speaker 7
+        m.schedule(50, sample, AudioMixer.SAMPLE_RATE, 1.0, 1f, 1f, 9L, false);  // speaker 9
+        m.schedule(100, sample, AudioMixer.SAMPLE_RATE, 1.0, 1f, 1f, 0L, true);  // audition, still future
+
+        assertEquals(1, m.cancelFuture(7L), "only speaker 7's unstarted voices go");
+
+        float[] head = new float[50 * 2];
+        m.render(head, 50);  // advance 50 frames: speaker 9's first voice has started
+        m.schedule(10, sample, AudioMixer.SAMPLE_RATE, 1.0, 1f, 1f, 9L, false);
+        assertEquals(1, m.cancelFuture(9L),
+            "the sounding voice survives its stop; only the future one goes");
+        assertEquals(1, m.cancelListenerFuture(), "the audition voice is still future and goes");
+
+        float[] tail = new float[10 * 2];
+        m.render(tail, 10);
+        assertTrue(peak(tail) > 0f, "a voice that had started keeps ringing through the stop");
+    }
+
+    @Test
     void pitchRatioSpeedsUpPlayback() {
         AudioMixer m = new AudioMixer();
         float[] sample = ramp(1000);

@@ -7,6 +7,7 @@ import io.github.y15173334444.create_schematic_compute.graph.MusicTransport;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.graph.NoteEvent;
 import io.github.y15173334444.create_schematic_compute.graph.SpeakerSink;
+import io.github.y15173334444.create_schematic_compute.network.MusicStopPacket;
 import io.github.y15173334444.create_schematic_compute.network.NoteEventPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -113,6 +114,22 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
         for (var e : events) evs.add(e.withGain(e.gain() * sgain));
         PacketDistributor.sendToPlayersTrackingChunk((ServerLevel) level,
             new ChunkPos(worldPosition), new NoteEventPacket(worldPosition, radius, level.getGameTime(), evs));
+    }
+
+    /** 停止标记（一次性，MUSIC 停止/跳转沿随音频引用到达）：通知追踪玩家清除本音响
+     *  排队的未播声部——预播窗口加宽后没有它，传输停止会拖一个窗口长的尾巴。
+     *  与 play 不同，静音/红石静音<b>不拦截</b>停止标记：静音期间本无排程音符，
+     *  多发一条空清除无害；漏发则恢复播放前的旧尾巴会残留。
+     *  Stop marker (one-shot, arrives with the audio ref on a MUSIC stop/seek edge): tell
+     *  tracking players to cancel this speaker's queued unplayed voices — without it a
+     *  widened pre-roll drags a one-window tail after a transport stop. Unlike play, mute /
+     *  redstone-mute do NOT gate the marker: a muted speaker has nothing queued (an extra
+     *  empty cancel is harmless), while a suppressed one would leave a stale tail. */
+    @Override
+    public void stopPlayback() {
+        if (level == null || level.isClientSide()) return;
+        PacketDistributor.sendToPlayersTrackingChunk((ServerLevel) level,
+            new ChunkPos(worldPosition), new MusicStopPacket(worldPosition));
     }
 
     /** 应用设置（C2S 设置包）：gain/radius/mute 是 BE 播放设置；频段/声道归图节点

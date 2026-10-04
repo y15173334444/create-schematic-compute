@@ -202,4 +202,20 @@ class MusicTransportTest {
         assertEquals(0, tr.headTick(), "head restarted at 0");
         assertEquals(1, tr.advance(s, DT).size(), "tick 0 fires again on the replay");
     }
+
+    @Test
+    @DisplayName("停止/跳转置一次性 flush 脉冲，续播不置 / stop and seek set a one-shot flush pulse, resume does not")
+    void flushPulseOnStopAndSeek() {
+        NbsSong s = song(0, 5);
+        MusicTransport tr = new MusicTransport();
+        tr.play(0);
+        assertFalse(tr.consumeFlushPulse(), "plain playback raises no pulse");
+        tr.stop();
+        assertTrue(tr.consumeFlushPulse(), "stop marks dispatched-but-unplayed notes stale");
+        assertFalse(tr.consumeFlushPulse(), "the pulse is one-shot");
+        tr.seek(3);
+        assertTrue(tr.consumeFlushPulse(), "seek marks the old position's in-flight notes stale");
+        tr.playFromHead(s);
+        assertFalse(tr.consumeFlushPulse(), "resuming raises no pulse of its own");
+    }
 }

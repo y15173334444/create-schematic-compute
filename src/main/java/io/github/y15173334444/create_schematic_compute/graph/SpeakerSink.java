@@ -11,4 +11,13 @@ import java.util.List;
 public interface SpeakerSink {
     /** 播放本 tick 音源（事件 + 累计增益）；宿主在其世界坐标发声。 */
     void play(List<NoteEvent> events, float gain);
+
+    /** 停止标记（一次性）：MUSIC 停止/跳转沿随音频引用到达——预播窗口内已下发未播的音符
+     *  已失效，宿主应通知客户端清除该音响排队的未播声部。default 空实现让测试的 lambda
+     *  sink 免改。
+     *  One-shot stop marker arriving with the audio ref (MUSIC stop/seek edge): notes already
+     *  dispatched inside the pre-roll window are stale; the host must tell the client to
+     *  cancel the speaker's queued unplayed voices. Default no-op keeps test lambda sinks
+     *  source-compatible. */
+    default void stopPlayback() {}
 }

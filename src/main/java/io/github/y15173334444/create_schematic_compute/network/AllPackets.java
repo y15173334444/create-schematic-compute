@@ -88,6 +88,8 @@ public class AllPackets {
         registrar.playToClient(ClientboundGraphEvalPacket.TYPE, ClientboundGraphEvalPacket.CODEC, ClientboundGraphEvalPacket::handle);
         // v1.2.6: audio note-event dispatch (S→C)
         registrar.playToClient(NoteEventPacket.TYPE, NoteEventPacket.CODEC, NoteEventPacket::handle);
+        // v1.2.6: music stop marker (S→C) — cancel the speaker's queued unplayed voices
+        registrar.playToClient(MusicStopPacket.TYPE, MusicStopPacket.CODEC, MusicStopPacket::handle);
         // v1.2.4+: Blob data channel (C→S and S→C use separate types per NeoForge requirement)
         registrar.playToServer(BlobDataPacket.TYPE, BlobDataPacket.CODEC, BlobPacketHandler::handleServer);
         registrar.playToClient(BlobDataSyncPacket.TYPE, BlobDataSyncPacket.CODEC,

@@ -114,7 +114,9 @@ public final class ChannelLayout {
      * (float noise like cos(π/2)) are dropped.
      */
     public static AudioRef channelRef(AudioRef in, String channel, boolean hasCenter) {
-        if (in == null || in.isEmpty() || channel == null) return AudioRef.EMPTY;
+        if (in == null) return AudioRef.EMPTY;
+        if (in.stopSignal()) return in; // 停止标记原样穿透（事件恒空）/ the stop marker passes unchanged
+        if (in.isEmpty() || channel == null) return AudioRef.EMPTY;
         if ("mix".equals(channel)) return in;
         if (!isKnownChannel(channel)) return in;
         List<NoteEvent> out = new ArrayList<>(in.events().size());
@@ -122,7 +124,7 @@ public final class ChannelLayout {
             float w = weight(e, channel, hasCenter);
             if (w > WEIGHT_FLOOR) out.add(e.withGain(e.gain() * w));
         }
-        return new AudioRef(List.copyOf(out), in.gain());
+        return new AudioRef(List.copyOf(out), in.gain(), in.stopSignal());
     }
 
     /** 权重地板：低于此值视为数值噪声（−80 dB），不进该声道。

@@ -4,6 +4,7 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphEditor;
 import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
+import io.github.y15173334444.create_schematic_compute.client.audio.CscAudioEngine;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
 import io.github.y15173334444.create_schematic_compute.graph.MusicTransport;
@@ -495,7 +496,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         int x = 4;
         if (inRect(x, y + 4, 48, 18, mx, my)) { togglePlay(); return true; }
         x += 52;
-        if (inRect(x, y + 4, 38, 18, mx, my)) { preview.stop(); preview.seek(0); return true; }
+        if (inRect(x, y + 4, 38, 18, mx, my)) { preview.stop(); preview.seek(0); CscAudioEngine.cancelListenerFuture(); return true; }
         x += 42;
         if (inRect(x, y + 4, 44, 18, mx, my)) {
             var s = kernel.song();
@@ -526,6 +527,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private void togglePlay() {
         if (preview.isPlaying()) {
             preview.stop();
+            CscAudioEngine.cancelListenerFuture(); // 预播窗口内已调度未播的试听音符一并清除
         } else {
             applyPendingInputs();
             preview.playFromHead(kernel.song());
@@ -667,6 +669,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             NbsSong parsed = NbsSong.read(bytes);
             preview.stop();
             preview.seek(0);
+            CscAudioEngine.cancelListenerFuture();
             kernel.replaceSong(parsed);     // 导入可撤销（plan：导入 .nbs + 撤销）
             syncSongToServer();
             feedback(I18n.get("gui.create_schematic_compute.nbs_imported"));

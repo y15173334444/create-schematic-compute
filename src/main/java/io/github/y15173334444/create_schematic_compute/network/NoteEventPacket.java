@@ -78,19 +78,22 @@ public record NoteEventPacket(BlockPos speakerPos, float radius, long dispatchGa
         // 批次级探针：区分服务端下发停顿 / 客户端主线程积压 / 迟到校正时钟歪斜
         // (堵塞归因的数据面——[TimelineDiag] DISPATCH-GAP / CLIENT-DELAY / LATE-CORR-SPIKE)
         CscAudioEngine.noteDispatchBatch(dispatchGameTick, events.size(), lateTicks);
-        for (NoteEvent e : events) playAt(e, x, y, z, radius, lateTicks * 0.05f);
+        for (NoteEvent e : events) playAt(e, x, y, z, radius, lateTicks * 0.05f, speakerPos.asLong());
     }
 
     /**
      * 在世界坐标播一条音符事件。客户端发声的唯一入口：服务端下发与 NBS 编辑器试听
      * （{@link CscAudioEngine#playAtListener}）共用同款播放路径（plan §3.2）——
      * 委托 {@link CscAudioEngine}（自管混音，声部消耗与音符密度无关）。
+     * {@code speakerTag} = 音响坐标 asLong，停止标记按它清除该音响未播声部。
      * <p>Play one note event at a world position. The single client playback entry: server
      * dispatch and the NBS editor's audition share this same path (plan §3.2) — delegated to
-     * {@link CscAudioEngine} (self-mixed; voice usage is independent of note density).</p>
+     * {@link CscAudioEngine} (self-mixed; voice usage is independent of note density).
+     * {@code speakerTag} = the speaker position's asLong, the key stop markers cancel by.</p>
      */
     @OnlyIn(Dist.CLIENT)
-    public static void playAt(NoteEvent e, double x, double y, double z, double radius, float lateSeconds) {
-        CscAudioEngine.play(e, x, y, z, radius, lateSeconds);
+    public static void playAt(NoteEvent e, double x, double y, double z, double radius,
+                              float lateSeconds, long speakerTag) {
+        CscAudioEngine.play(e, x, y, z, radius, lateSeconds, speakerTag);
     }
 }

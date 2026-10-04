@@ -51,6 +51,8 @@ public final class AudioMixer {
         double step;            // 每输出帧前进量（变调）
         float gainL, gainR;
         long startFrame;        // 起音的全局输出帧
+        long tag;               // 来源标签（世界播放 = 音响坐标 asLong）/ source tag (world = speaker pos.asLong)
+        boolean listener;       // 试听声部（编辑器，无坐标）/ audition voice (editor, position-less)
     }
 
     private final ArrayList<Voice> voices = new ArrayList<>();
@@ -71,7 +73,15 @@ public final class AudioMixer {
      */
     public synchronized void schedule(long delayFrames, float[] sample, int srcRate,
                                       double pitchRatio, float gainL, float gainR) {
-        scheduleAtFrame(renderedFrames + Math.max(0, delayFrames), sample, srcRate, pitchRatio, gainL, gainR);
+        schedule(delayFrames, sample, srcRate, pitchRatio, gainL, gainR, 0L, false);
+    }
+
+    /** 带来源标签的调度变体：标签供 {@link #cancelFuture} 按来源清除未播声部。 */
+    public synchronized void schedule(long delayFrames, float[] sample, int srcRate,
+                                      double pitchRatio, float gainL, float gainR,
+                                      long sourceTag, boolean listener) {
+        scheduleAtFrame(renderedFrames + Math.max(0, delayFrames), sample, srcRate,
+            pitchRatio, gainL, gainR, sourceTag, listener);
     }
 
     /**
@@ -88,6 +98,12 @@ public final class AudioMixer {
      */
     public synchronized long scheduleAtFrame(long absoluteFrame, float[] sample, int srcRate,
                                              double pitchRatio, float gainL, float gainR) {
+        return scheduleAtFrame(absoluteFrame, sample, srcRate, pitchRatio, gainL, gainR, 0L, false);
+    }
+
+    public synchronized long scheduleAtFrame(long absoluteFrame, float[] sample, int srcRate,
+                                             double pitchRatio, float gainL, float gainR,
+                                             long sourceTag, boolean listener) {
         if (sample == null || sample.length < 2) return renderedFrames;
         if (gainL == 0f && gainR == 0f) return renderedFrames;
         if (voices.size() >= MAX_VOICES) {
@@ -107,8 +123,32 @@ public final class AudioMixer {
         v.gainL = gainL * density;
         v.gainR = gainR * density;
         v.startFrame = Math.max(renderedFrames, absoluteFrame);
+        v.tag = sourceTag;
+        v.listener = listener;
         voices.add(v);
         return v.startFrame;
+    }
+
+    /**
+     * 清除某来源<b>尚未起音</b>的声部（停止标记语义）：已起音的声部自然衰减不受影响——
+     * 停止要安静的是「还没响的」，而不是掐断正在响的尾巴。
+     * Cancel a source's <b>not-yet-started</b> voices (stop-marker semantics): voices already
+     * sounding keep their natural release — a stop silences the future, not the ringing present.
+     *
+     * @param sourceTag 来源标签（世界播放 = 音响坐标 {@code BlockPos.asLong()}） / the source tag
+     * @return 被清除的声部数 / the number of voices removed
+     */
+    public synchronized int cancelFuture(long sourceTag) {
+        int before = voices.size();
+        voices.removeIf(v -> !v.listener && v.tag == sourceTag && v.startFrame > renderedFrames);
+        return before - voices.size();
+    }
+
+    /** 清除试听（听者）尚未起音的声部（编辑器传输停止）。 / cancel the audition's not-yet-started voices (editor transport stop). */
+    public synchronized int cancelListenerFuture() {
+        int before = voices.size();
+        voices.removeIf(v -> v.listener && v.startFrame > renderedFrames);
+        return before - voices.size();
     }
 
     /** 密度增益：活跃声部 ≤ {@link #DENSITY_REF} 时 1，超出按 √(REF/N) 收拢（纯函数，可单测）。 */

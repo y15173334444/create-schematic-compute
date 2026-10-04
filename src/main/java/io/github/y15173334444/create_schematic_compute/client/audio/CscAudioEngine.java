@@ -92,8 +92,10 @@ public final class CscAudioEngine {
     /**
      * 世界发声：在 (x,y,z) 播一条音符事件（衰减/声像按听者几何）。
      * radius ≤ 0 取默认 48 格。来自 {@code NoteEventPacket}（服务端下发）。
+     * {@code speakerTag} = 音响坐标 {@code BlockPos.asLong()}，供停止标记按来源清除未播声部。
      */
-    public static void play(NoteEvent e, double x, double y, double z, double radius, float lateSeconds) {
+    public static void play(NoteEvent e, double x, double y, double z, double radius,
+                            float lateSeconds, long speakerTag) {
         var mc = Minecraft.getInstance();
         if (mc.level == null || e == null) return;
         float vol = masterRecordsVolume();
@@ -108,7 +110,7 @@ public final class CscAudioEngine {
             var right = lt.right();
             pan = (float) ((dx * right.x + dy * right.y + dz * right.z) / dist);
         }
-        schedule(e, pan, distGain, vol, lateSeconds);
+        schedule(e, pan, distGain, vol, lateSeconds, speakerTag, false);
     }
 
     /**
@@ -120,10 +122,11 @@ public final class CscAudioEngine {
         if (mc.level == null || e == null) return;
         float vol = masterRecordsVolume();
         if (vol <= 0f) return;
-        schedule(e, 0f, 1f, vol, 0f);   // 本地试听无网络迟到 / audition is local
+        schedule(e, 0f, 1f, vol, 0f, 0L, true);   // 本地试听无网络迟到 / audition is local
     }
 
-    private static void schedule(NoteEvent e, float pan, float distGain, float vol, float lateSeconds) {
+    private static void schedule(NoteEvent e, float pan, float distGain, float vol, float lateSeconds,
+                                 long sourceTag, boolean listener) {
         float[] sample = SampleBank.sample(e.mappedInstrument());
         if (sample == null) return;
         int rate = SampleBank.rate(e.mappedInstrument());
@@ -133,7 +136,8 @@ public final class CscAudioEngine {
         AudioMixer.panGains(pan, lr);
         ensureChannel();
         long target = targetFrameFor(e, lateSeconds);
-        long placed = mixer.scheduleAtFrame(target, sample, rate, e.pitchMultiplier(), gain * lr[0], gain * lr[1]);
+        long placed = mixer.scheduleAtFrame(target, sample, rate, e.pitchMultiplier(),
+            gain * lr[0], gain * lr[1], sourceTag, listener);
         long now = System.nanoTime();
         DIAG.onSchedule(target, placed, now);
         DIAG.onBatch(e.delaySeconds(), now);
@@ -144,6 +148,19 @@ public final class CscAudioEngine {
             String ep = DIAG.episode(drift, e.delaySeconds(), mixer.activeVoices(), now);
             if (ep != null) SchematicCompute.LOGGER.warn(ep);
         }
+    }
+
+    /** 停止标记入口（{@code MusicStopPacket}）：清除某台音响未播的排队声部——
+     *  预播窗口内的音符因传输停止/跳转而失效。引擎未挂载时无排队可清，静默返回。
+     *  Stop-marker entry ({@code MusicStopPacket}): cancel a speaker's queued unplayed
+     *  voices, stale after a transport stop/seek inside the pre-roll window. */
+    public static void cancelFutureForSpeaker(long speakerTag) {
+        if (mixer != null) mixer.cancelFuture(speakerTag);
+    }
+
+    /** 编辑器试听停止：清除试听未播的排队声部。 / editor audition stop: cancel the audition's queued unplayed voices. */
+    public static void cancelListenerFuture() {
+        if (mixer != null) mixer.cancelListenerFuture();
     }
 
     /** 限幅增益诊断回调（声音引擎线程）。 */

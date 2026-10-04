@@ -413,4 +413,59 @@ class AudioNodesEvalTest {
         assertEquals(0f, SignalBus.get("pc"), "a conflicted writer never lands");
         assertFalse(SignalBus.isPrivateAudio("pc"), "a conflicted node defines nothing");
     }
+
+    @Test
+    @DisplayName("停止沿：一次性停止标记随音频引用到达 sink / a stop edge ships a one-shot stop marker to the sink")
+    void stopEdgeShipsOneShotMarker() {
+        // 自建图：CONST.play / CONST.stop → MUSIC → AMP → AUDIO_OUT(B) + SPEAKER_PLAY → sink
+        NodeGraph g = new NodeGraph();
+        GraphNode constPlay = g.addNode(NodeType.CONST, 0, 0);
+        GraphNode constStop = g.addNode(NodeType.CONST, 30, 0);
+        GraphNode music = g.addNode(NodeType.MUSIC, 100, 0);
+        music.song = song(45);
+        GraphNode amp = g.addNode(NodeType.AMP, 200, 0);
+        GraphNode audioOut = g.addNode(NodeType.AUDIO_OUT, 300, 0);
+        audioOut.signalName = "B";
+        GraphNode play = g.addNode(NodeType.SPEAKER_PLAY, 400, 0);
+        assertTrue(g.addConnection(constPlay.id, 0, music.id, 0));
+        assertTrue(g.addConnection(constStop.id, 0, music.id, 1));
+        assertTrue(g.addConnection(music.id, 0, amp.id, 0));
+        assertTrue(g.addConnection(amp.id, 0, audioOut.id, 0));
+        assertTrue(g.addConnection(amp.id, 0, play.id, 0));
+
+        Map<Integer, MusicTransport> transports = new HashMap<>();
+        GraphEvaluator ev = new GraphEvaluator(g);
+        ev.restoreSubState(new RuntimeState());
+        ev.setAudioTransports(transports);
+        ev.setAudioHostPos(new BlockPos(0, 0, 0));
+        List<NoteEvent> played = new ArrayList<>();
+        List<Boolean> stops = new ArrayList<>();
+        ev.setSpeakerSink(new SpeakerSink() {
+            @Override public void play(List<NoteEvent> events, float gain) { played.addAll(events); }
+            @Override public void stopPlayback() { stops.add(Boolean.TRUE); }
+        });
+        var seat = new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
+
+        constPlay.params[0] = 1f; constStop.params[0] = 0f;
+        ev.evaluate(List.of(), Map.of(), DT, seat);
+        assertTrue(stops.isEmpty(), "playing: no stop marker");
+        assertEquals(1, played.size());
+
+        // play 撤 + stop 升 → 停止沿：恰好一条标记到达 sink，本 tick 不再发音符
+        constPlay.params[0] = 0f; constStop.params[0] = 1f;
+        ev.evaluate(List.of(), Map.of(), DT, seat);
+        assertEquals(1, stops.size(), "the stop edge ships exactly one stop marker");
+
+        // 标记一次性：电平保持/撤除都不再发
+        constStop.params[0] = 0f;
+        ev.evaluate(List.of(), Map.of(), DT, seat);
+        assertEquals(1, stops.size(), "the marker is one-shot, not level-held");
+
+        // 同 tick play+stop 双沿：既有代码序 = play 先、stop 后 → stop 赢，标记照发
+        //（传输保持停止、无新音符）。吞标记的活路径是 seek/stop 后未续播。
+        constPlay.params[0] = 1f; constStop.params[0] = 1f;
+        ev.evaluate(List.of(), Map.of(), DT, seat);
+        assertEquals(2, stops.size(), "stop wins the same-tick play+stop race (existing edge order)");
+        assertEquals(1, played.size(), "the transport ends up stopped: no new notes");
+    }
 }
