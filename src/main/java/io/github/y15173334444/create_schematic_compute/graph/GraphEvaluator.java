@@ -1374,18 +1374,19 @@ public class GraphEvaluator {
             }
             case WSHAPE -> {
                 // 波形整形：把自身曲线（控制点对）追加进引用的整形链（应用序；客户端烘 LUT 时
-                // 按序合成 g∘f），随 AudioRef → 频段表 → NoteEventPacket 送达客户端混音器逐样本
-                // 应用——控制点直达，无烘焙量化失真。恒等曲线 = 真旁路（不入链、不进包，
-                // 与没动过逐位一致）。事件与标量原样——服务端不做任何采样级处理
-                //（功放图与音响图均可放）。
+                // 按序合成 g∘f），随 AudioRef → 频段表 → NoteEventPacket 送达客户端——起音时
+                // 保号整形固化进采样（整形先于重采样插值，混音内环零附加成本）；控制点直达，
+                // 无烘焙量化失真。恒等曲线 = 真旁路（不入链、不进包，与没动过逐位一致）。
+                // 事件与标量原样——服务端不做任何采样级处理（功放图与音响图均可放）。
                 // Wave shaper: appends this node's curve (control-point pairs) to the ref's
                 // shaping chain (application order; the client composes g∘f when baking) —
-                // it rides the AudioRef → band table → note packet to the client mixer for
-                // per-sample application, points delivered raw (no bake-quantization
-                // distortion). An identity curve is a true bypass (never enters the chain
-                // or the wire — bit-identical to untouched). Events and the scalar pass
-                // untouched (no server-side sample processing); works in amplifier and
-                // speaker graphs alike.
+                // it rides the AudioRef → band table → note packet to the client, which bakes
+                // the sign-preserving shape into the sample at voice start (shaping precedes
+                // resampling interpolation; zero cost in the mix inner loop), points
+                // delivered raw (no bake-quantization distortion). An identity curve is a
+                // true bypass (never enters the chain or the wire — bit-identical to
+                // untouched). Events and the scalar pass untouched (no server-side sample
+                // processing); works in amplifier and speaker graphs alike.
                 AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
                 if (in == null) {
                     audioRefs.put(audioKey(node.id, 0), AudioRef.EMPTY);

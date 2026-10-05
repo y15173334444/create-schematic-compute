@@ -23,11 +23,13 @@ import java.util.List;
  * events + an optional waveshaper curve chain. The client plays them through {@link CscAudioEngine}
  * (the self-mixed engine) at the speaker's world position (plan §3.5).</p>
  * <p>整形口径：控制点对原样随批下发（X 递增 0..1，float 全精度），客户端按应用序烘 LUT
- * （{@link AudioCurve#bakeLut}，零量化失真）逐样本应用；空链 = 无整形。每批自包含、无版本
- * 协商。/ Shaping contract: control-point pairs ship raw per batch (X ascending 0..1, full
- * float precision) and the client bakes the LUT in application order ({@link AudioCurve#bakeLut},
- * zero quantization) for per-sample application; an empty chain means no shaping. Every batch is
- * self-contained — no version negotiation.</p>
+ * （{@link AudioCurve#bakeLut}，零量化失真）、起音时保号整形固化进采样（整形先于重采样
+ * 插值）；空链 = 无整形。每批自包含、无版本协商。/ Shaping contract: control-point pairs
+ * ship raw per batch (X ascending 0..1, full float precision); the client bakes the LUT in
+ * application order ({@link AudioCurve#bakeLut}, zero quantization) and bakes the
+ * sign-preserving shape into the sample at voice start (shaping precedes resampling
+ * interpolation); an empty chain means no shaping. Every batch is self-contained — no
+ * version negotiation.</p>
  * <p>精度口径：±1 游戏刻 + 子 tick 偏移尽力（到达即播 + 引擎输出预填 ≈200 ms，预播提前量后续）。</p>
  * <p>音色：原版音符盒 16 音色采样（运行时引用原版资源，D13 口径）；自定义乐器降级为 harp。</p>
  */

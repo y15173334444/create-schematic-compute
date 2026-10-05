@@ -21,10 +21,12 @@ import java.util.List;
  * widened pre-roll leaves a tail up to one window long after a stop.</p>
  * <p>{@code waveCurves} = 波形整形曲线链（WSHAPE 节点产生，按应用序追加；恒等曲线旁路不入链）：
  * 控制点对沿管线穿透到 sink，随 {@code NoteEventPacket} 送达客户端，客户端以 float 精度烘
- * LUT（零量化失真）逐样本应用。/ {@code waveCurves} is the waveshaper curve chain (appended
- * by WSHAPE nodes in application order; identity curves bypass and never enter): control-point
- * pairs ride the pipeline to the sink and on through {@code NoteEventPacket} to the client,
- * which bakes the LUT at float precision (zero quantization) for per-sample application.</p>
+ * LUT（零量化失真）、起音时保号整形固化进采样（整形先于重采样插值）。/ {@code waveCurves} is
+ * the waveshaper curve chain (appended by WSHAPE nodes in application order; identity curves
+ * bypass and never enter): control-point pairs ride the pipeline to the sink and on through
+ * {@code NoteEventPacket} to the client, which bakes the LUT at float precision (zero
+ * quantization) and bakes the sign-preserving shape into the sample at voice start (shaping
+ * precedes resampling interpolation).</p>
  */
 public record AudioRef(List<NoteEvent> events, float gain, boolean stopSignal,
                        List<AudioCurve.Curve> waveCurves) {

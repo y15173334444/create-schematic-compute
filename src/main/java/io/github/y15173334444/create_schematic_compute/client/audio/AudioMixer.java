@@ -48,15 +48,62 @@ public final class AudioMixer {
     public static final int DENSITY_REF = 24;
 
     private static final class Voice {
-        float[] sample;         // 单声道样本（-1..1）
+        float[] sample;         // 单声道样本（-1..1）；带整形时 = 起音预烘的整形副本
         double pos;             // 样本内浮点游标
         double step;            // 每输出帧前进量（变调）
         float gainL, gainR;
         long startFrame;        // 起音的全局输出帧
         long tag;               // 来源标签（世界播放 = 音响坐标 asLong）/ source tag (world = speaker pos.asLong)
         boolean listener;       // 试听声部（编辑器，无坐标）/ audition voice (editor, position-less)
-        float[] waveLut;        // 波形整形 LUT（null = 不整形；x=|采样| 0..1，保号对称）
-                                // waveshaper LUT (null = off; x = |sample| 0..1, sign-preserving)
+    }
+
+    /** 起音整形缓存的键：源样本按引用（乐器样本池共享），LUT 按内容（每批新烘的 LUT 数组
+     *  内容相同即命中）。 / cache key: source sample by identity (the instrument pool shares
+     *  arrays), LUT by content (freshly baked per batch but content-stable). */
+    private static final class ShapeKey {
+        final float[] sample, lut;
+        final int hash;
+        ShapeKey(float[] sample, float[] lut) {
+            this.sample = sample;
+            this.lut = lut;
+            this.hash = System.identityHashCode(sample) * 31 + Arrays.hashCode(lut);
+        }
+        @Override public int hashCode() { return hash; }
+        @Override public boolean equals(Object o) {
+            return o instanceof ShapeKey k && k.sample == sample && Arrays.equals(k.lut, lut);
+        }
+    }
+
+    /** 起音整形缓存：(源样本, LUT) → 整形样本副本。每对只整形一次（乐器×曲线组合数有限），
+     *  上限 32 项逐出最久未用——每项 = 一个样本长的 float 副本。
+     *  Voice-start shaping cache: one bake per (sample, LUT) pair; 32 entries LRU, each a
+     *  sample-length float copy. */
+    private final java.util.LinkedHashMap<ShapeKey, float[]> shapedCache =
+        new java.util.LinkedHashMap<>(32, 0.75f, true) {
+            @Override protected boolean removeEldestEntry(java.util.Map.Entry<ShapeKey, float[]> e) {
+                return size() > 32;
+            }
+        };
+
+    /** 取（或烘）整形样本：保号整形在**起音时**固化进源样本副本——整形先于重采样插值，
+     *  同乐器+曲线在全键盘音色统一（作者口径 2026-10-05，换取渲染内环零附加成本）。
+     *  数学同 {@link AudioCurve#evalLut}。 / fetch or bake the shaped sample: the
+     *  sign-preserving shape is baked into a source copy at voice start — shaping precedes
+     *  resampling interpolation (uniform timbre across the keyboard for one instrument+curve;
+     *  author call 2026-10-05, buying a render inner loop with zero shaping overhead). */
+    private float[] shapedSample(float[] sample, float[] lut) {
+        ShapeKey key = new ShapeKey(sample, lut);
+        float[] hit = shapedCache.get(key);
+        if (hit != null) return hit;
+        float[] copy = new float[sample.length];
+        for (int i = 0; i < sample.length; i++) {
+            float s = sample[i];
+            float mag = Math.abs(s);
+            if (mag > 1f) mag = 1f;
+            copy[i] = Math.copySign(AudioCurve.evalLut(lut, mag), s);
+        }
+        shapedCache.put(key, copy);
+        return copy;
     }
 
     private final ArrayList<Voice> voices = new ArrayList<>();
@@ -127,7 +174,7 @@ public final class AudioMixer {
             voices.remove(worst);
         }
         Voice v = new Voice();
-        v.sample = sample;
+        v.sample = (waveLut == null || waveLut.length == 0) ? sample : shapedSample(sample, waveLut);
         v.pos = 0;
         v.step = pitchRatio <= 0 ? 1.0 : pitchRatio * srcRate / (double) SAMPLE_RATE;
         float density = densityGain(voices.size() + 1);
@@ -136,7 +183,6 @@ public final class AudioMixer {
         v.startFrame = Math.max(renderedFrames, absoluteFrame);
         v.tag = sourceTag;
         v.listener = listener;
-        v.waveLut = waveLut;
         voices.add(v);
         return v.startFrame;
     }
@@ -203,24 +249,26 @@ public final class AudioMixer {
         for (int i = voices.size() - 1; i >= 0; i--) {
             Voice v = voices.get(i);
             int startF = (int) Math.max(0, v.startFrame - base);
-            int len = v.sample.length;
+            final float[] sample = v.sample;
+            int len = sample.length;
+            // 循环不变量提局部：pos/step/增益走寄存器，不让字段回写把内环串行化。
+            // Hoist invariants to locals: the pos chain and gains live in registers, so a
+            // field round-trip cannot serialise the inner loop. 波形整形不在此环——
+            // 起音时已烘进样本（shapedSample），内环永远是纯插值。
+            double pos = v.pos;
+            final double step = v.step;
+            final float gainL = v.gainL, gainR = v.gainR;
             for (int f = startF; f < frames; f++) {
-                int idx = (int) v.pos;
+                int idx = (int) pos;
                 if (idx >= len - 1) break;                   // 播完 / sample exhausted
-                float frac = (float) (v.pos - idx);
-                float s = v.sample[idx] * (1f - frac) + v.sample[idx + 1] * frac;
-                if (v.waveLut != null) {
-                    // 波形整形（保号对称）：x=|s| 查 LUT 得输出幅度，符号保留——
-                    // 正负半周同形（v1 不做非对称失真）。 / sign-preserving magnitude shaping.
-                    float mag = s < 0 ? -s : s;
-                    float shaped = AudioCurve.evalLut(v.waveLut, mag);
-                    s = s < 0 ? -shaped : shaped;
-                }
-                out[f * 2] += s * v.gainL;
-                out[f * 2 + 1] += s * v.gainR;
-                v.pos += v.step;
+                float frac = (float) (pos - idx);
+                float s = sample[idx] * (1f - frac) + sample[idx + 1] * frac;
+                out[f * 2] += s * gainL;
+                out[f * 2 + 1] += s * gainR;
+                pos += step;
             }
-            if (v.pos >= len - 1 && v.startFrame < base + frames) voices.remove(i);
+            v.pos = pos;
+            if (pos >= len - 1 && v.startFrame < base + frames) voices.remove(i);
         }
         renderedFrames = base + frames;
 

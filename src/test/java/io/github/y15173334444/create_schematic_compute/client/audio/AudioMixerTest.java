@@ -248,6 +248,27 @@ class AudioMixerTest {
     }
 
     @Test
+    void shapingBakesBeforeResampling() {
+        // 语义钉（作者口径 2026-10-05）：整形固化在源采样上、先于重采样插值——
+        // 变调位置取的是整形点的插值，不是插值点的整形（后者是 0.5625）。
+        // Semantic pin (author call 2026-10-05): the shape is baked into the source
+        // samples before resampling interpolation - a resampled frame reads the lerp of
+        // shaped points, not the shape of the lerp (which would be 0.5625 here).
+        AudioMixer m = new AudioMixer();
+        float[] sample = {0f, 0.5f, 1f};
+        float[] lut = new float[257];
+        for (int i = 0; i <= 256; i++) lut[i] = (i / 256f) * (i / 256f); // y = x²
+        m.schedule(0, sample, AudioMixer.SAMPLE_RATE, 1.5, 1f, 1f, 0L, false, lut); // step=1.5
+        float[] out = new float[2 * 2];
+        m.render(out, 2);
+        // f=0：pos=0 → 0² = 0；f=1：pos=1.5 → lerp(0.5², 1², 0.5) = 0.625（经软限幅）
+        float expected = AudioMixer.softClip(0.625f);
+        assertEquals(expected, out[2], 0.005f,
+            "resampled frames read the lerp of shaped points (0.625 pre-clip), not sh(lerp) = 0.5625");
+        assertNotEquals(AudioMixer.softClip(0.5625f), out[2], 0.01f, "the two semantics must stay distinguishable");
+    }
+
+    @Test
     void limiterRecoversAfterLoudChord() {
         AudioMixer m = new AudioMixer();
         float[] sample = new float[64];
