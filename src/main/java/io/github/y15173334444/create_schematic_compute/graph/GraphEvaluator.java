@@ -1,8 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
 import io.github.y15173334444.create_schematic_compute.graph.FreqItems;
-import io.github.y15173334444.create_schematic_compute.network.ChannelEntry;
-import io.github.y15173334444.create_schematic_compute.network.SignalBus;
 import net.minecraft.world.item.ItemStack;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -37,6 +35,28 @@ public class GraphEvaluator {
      *  wires radar.TargetAssignment::getTarget); unwired = never a target. */
     private TargetLookup targetLookup = (pos, id) -> null;
     public void setTargetLookup(TargetLookup lookup) { this.targetLookup = lookup != null ? lookup : (pos, id) -> null; }
+    /** 信号总线端口（接口下沉，宿主接 network.SignalBus.PORT）；未接线 = 频道恒缺席。
+     *  Signal bus port (interface sinking; the host wires network.SignalBus.PORT);
+     *  unwired = every channel reads as absent. */
+    private SignalBusPort signalBus = new SignalBusPort() {
+        @Override public float get(String channel) { return 0f; }
+        @Override public void put(String channel, float value) {}
+        @Override public void setPrivateAudio(String channel, boolean audio) {}
+        @Override public void setAudioBands(String busName, java.util.Set<String> audioBandNames) {}
+        @Override public void registerBands(String busName, java.util.List<String> bands) {}
+        @Override public java.util.List<String> getBands(String busName) { return null; }
+        @Override public java.util.Map<String, Float> channelMap(String channel) { return null; }
+    };
+    public void setSignalBus(SignalBusPort port) { if (port != null) this.signalBus = port; }
+    /** 音频频段端口（接口下沉，宿主接 network.AudioBands.PORT）；未接线 = 恒空音源。
+     *  Audio band port (interface sinking; the host wires network.AudioBands.PORT);
+     *  unwired = permanently the empty source. */
+    private AudioBandsPort audioBands = new AudioBandsPort() {
+        @Override public String bandKey(String channel, String band) { return channel + " " + band; }
+        @Override public boolean publish(String bandKey, AudioRef ref, long gameTick, String owner) { return true; }
+        @Override public AudioRef get(String consumer, String bandKey, long nowTick) { return AudioRef.EMPTY; }
+    };
+    public void setAudioBands(AudioBandsPort port) { if (port != null) this.audioBands = port; }
     /** ENCODER 节点的宿主视图（由托管齿轮箱 BE 在重建求值器后注入；null 时输出 0）。
      *  Host view for ENCODER nodes (injected by the hosting gearbox BE after evaluator
      *  rebuilds; outputs 0 when null). */
@@ -840,11 +860,11 @@ public class GraphEvaluator {
                 // (same cursor/freshness discipline as BUS_IN); otherwise float SIGNALS.
                 if (graph.hasAudioSinkConnection(node.id)) {
                     audioRefs.put(audioKey(node.id, 0),
-                        io.github.y15173334444.create_schematic_compute.network.AudioBands
+                        audioBands
                             .get(consumerKey(node), node.signalName, audioTickStamp));
                     break;
                 }
-                o[0] = SignalBus.get(node.signalName);
+                o[0] = signalBus.get(node.signalName);
             }
             case PRIVATE_OUT -> {
                 // 私有频段音频分支（R1-2）：输入来自音频线 → 发布 AudioRef 到 AudioBands
@@ -857,19 +877,19 @@ public class GraphEvaluator {
                 // the channel audio-carrying, version-synced to subscribers; the property rides
                 // the channel (topology-derived), and a conflicted node defines nothing.
                 if (!node.busConflict && !node.signalName.isEmpty()) {
-                    SignalBus.setPrivateAudio(node.signalName, graph.isBandPinAudio(node.id, 0, false));
+                    signalBus.setPrivateAudio(node.signalName, graph.isBandPinAudio(node.id, 0, false));
                 }
                 AudioRef aref = graph.getAudioInputRef(node.id, 0, audioRefs);
                 if (aref != null) {
                     node.audioConflict = !node.signalName.isEmpty()
-                        && !io.github.y15173334444.create_schematic_compute.network.AudioBands
+                        && !audioBands
                             .publish(node.signalName, aref, audioTickStamp, consumerKey(node));
                     break;
                 }
                 // 浮点写入（占用检测，BUS 同款）：冲突节点不写——写入权属于首个注册者
                 // Float write (BUS-parity occupancy): a conflicted node writes nothing —
                 // write rights belong to the first registrant.
-                if (!node.busConflict) SignalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
+                if (!node.busConflict) signalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
             }
             case BUS_IN -> {
                 // 按频段分流（属性跟频段走）：某频段的输出接了音频线 → 该频段读自己的
@@ -897,8 +917,8 @@ public class GraphEvaluator {
                     // 写入一致，修复跨方块 "BUS_OUT 写入但 BUS_IN 读 0"。输出数组大小仍
                     // 遵循节点自身 bandCount（引脚数由节点定义）；注册表更长时只读前几个，
                     // 更短时其余回退到节点自身名称。
-                    var registered = SignalBus.getBands(node.signalName);
-                    ChannelEntry entry = SignalBus.getChannel(node.signalName);
+                    var registered = signalBus.getBands(node.signalName);
+                    var chanMap = signalBus.channelMap(node.signalName);
                     for (int bi = 0; bi < bc; bi++) {
                         String key;
                         if (registered != null && bi < registered.size())
@@ -912,18 +932,18 @@ public class GraphEvaluator {
                         // ticks, absent in pure-eval contexts).
                         if (graph.isAudioWired(node.id, bi)) {
                             audioRefs.put(audioKey(node.id, bi),
-                                io.github.y15173334444.create_schematic_compute.network.AudioBands
+                                audioBands
                                     .get(consumerKey(node),
-                                        io.github.y15173334444.create_schematic_compute.network.AudioBands
+                                        audioBands
                                             .bandKey(node.signalName, key), audioTickStamp));
                             continue;
                         }
-                        o[bi] = entry != null ? entry.internalMap.getOrDefault(key, 0f) : 0f;
+                        o[bi] = chanMap != null ? chanMap.getOrDefault(key, 0f) : 0f;
                     }
                 } else {
                     if (o.length < 1) { o = new float[1]; node.outputValues = o; }
-                    ChannelEntry entry = SignalBus.getChannel(node.signalName);
-                    o[0] = (entry != null) ? entry.internalMap.getOrDefault("", 0f) : 0;
+                    var chanMap = signalBus.channelMap(node.signalName);
+                    o[0] = (chanMap != null) ? chanMap.getOrDefault("", 0f) : 0;
                 }
             }
             case BUS_OUT -> {
@@ -936,7 +956,7 @@ public class GraphEvaluator {
                     // Conflicting nodes skip band registration to prevent BAND_REGISTRY hijacking
                     // bandsDirty avoids redundant ArrayList allocations per tick in steady state
                     if (!node.busConflict && node.bandsDirty) {
-                        SignalBus.registerBands(node.signalName, node.signalBands);
+                        signalBus.registerBands(node.signalName, node.signalBands);
                         node.bandsDirty = false;
                     }
                     // 冲突节点跳过 busInternalMap 写入 — MAP 修改权属于首个注册的 BUS_OUT
@@ -965,12 +985,11 @@ public class GraphEvaluator {
                         // isBandPinAudio 走拓扑版本缓存，稳态零开销）。冲突节点不算定义。
                         // Per-band audio flags (topology-based via pin peers, synced with the
                         // band definition for subscriber tinting); conflicting nodes define nothing.
-                        var audioBands = new java.util.HashSet<String>();
+                        var audioBandSet = new java.util.HashSet<String>();
                         for (int bi = 0; bi < bc; bi++)
                             if (graph.isBandPinAudio(node.id, bi, false))
-                                audioBands.add(node.signalBands.get(bi));
-                        io.github.y15173334444.create_schematic_compute.network.SignalBus
-                            .setAudioBands(node.signalName, audioBands);
+                                audioBandSet.add(node.signalBands.get(bi));
+                        signalBus.setAudioBands(node.signalName, audioBandSet);
                         for (int bi = 0; bi < bc; bi++) {
                             String bandName = node.signalBands.get(bi);
                             AudioRef aref = graph.getAudioInputRef(node.id, bi, audioRefs);
@@ -978,8 +997,8 @@ public class GraphEvaluator {
                                 // 频段键 = 频道\0频段：每个频段独立占用/冲突/游标，互不覆盖。
                                 // Per-band key = channel\0band: independent ownership, conflict
                                 // and cursor per band — no cross-band overwrites.
-                                if (!io.github.y15173334444.create_schematic_compute.network.AudioBands
-                                    .publish(io.github.y15173334444.create_schematic_compute.network.AudioBands
+                                if (!audioBands
+                                    .publish(audioBands
                                             .bandKey(node.signalName, bandName),
                                         aref, audioTickStamp, consumerKey(node)))
                                     node.audioConflict = true;
@@ -1429,8 +1448,8 @@ public class GraphEvaluator {
                 AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
                 if (audioHostPos != null) {
                     node.audioConflict = !node.signalName.isEmpty()
-                        && !io.github.y15173334444.create_schematic_compute.network.AudioBands
-                            .publish(io.github.y15173334444.create_schematic_compute.network.AudioBands
+                        && !audioBands
+                            .publish(audioBands
                                     .bandKey(node.signalName, node.signalName),
                                 in != null ? in : AudioRef.EMPTY, audioTickStamp, consumerKey(node));
                 }
@@ -1487,6 +1506,8 @@ public class GraphEvaluator {
                     subEval.setCommandSink(this.commandSink);
                     subEval.setRadarPos(this.radarPos);
                     subEval.setTargetLookup(this.targetLookup);
+                    subEval.setSignalBus(this.signalBus);
+                    subEval.setAudioBands(this.audioBands);
                     subEval.setKineticNetworkView(this.kineticNetworkView);
                     subEval.setAudioTransports(this.audioTransports);
                     subEval.setAudioHostPos(this.audioHostPos);

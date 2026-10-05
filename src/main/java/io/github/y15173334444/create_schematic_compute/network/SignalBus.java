@@ -301,4 +301,21 @@ public class SignalBus {
         PRIVATE_AUDIO.clear();
         PRIVATE_AUDIO_STAMPS.clear();
     }
+
+    /** graph 端口实现（接口下沉）：求值器经 {@code SignalBusPort} 走本表，graph 不直连
+     *  网络包。 / the graph-side port (interface sinking): the evaluator reaches this
+     *  table through {@code SignalBusPort}, never through the network package directly. */
+    public static final io.github.y15173334444.create_schematic_compute.graph.SignalBusPort PORT =
+        new io.github.y15173334444.create_schematic_compute.graph.SignalBusPort() {
+            @Override public float get(String channel) { return SignalBus.get(channel); }
+            @Override public void put(String channel, float value) { SignalBus.put(channel, value); }
+            @Override public void setPrivateAudio(String channel, boolean audio) { SignalBus.setPrivateAudio(channel, audio); }
+            @Override public void setAudioBands(String busName, java.util.Set<String> audioBandNames) { SignalBus.setAudioBands(busName, audioBandNames); }
+            @Override public void registerBands(String busName, java.util.List<String> bands) { SignalBus.registerBands(busName, bands); }
+            @Override public java.util.List<String> getBands(String busName) { return SignalBus.getBands(busName); }
+            @Override public java.util.Map<String, Float> channelMap(String channel) {
+                ChannelEntry e = SignalBus.getChannel(channel);
+                return e != null ? e.internalMap : null;
+            }
+        };
 }

@@ -178,4 +178,18 @@ public final class AudioBands {
         OWNERS.clear();
         CONFLICTS.clear();
     }
+
+    /** graph 端口实现（接口下沉）：求值器经 {@code AudioBandsPort} 走本表，graph 不直连
+     *  网络包。 / the graph-side port (interface sinking): the evaluator reaches this
+     *  table through {@code AudioBandsPort}, never through the network package directly. */
+    public static final io.github.y15173334444.create_schematic_compute.graph.AudioBandsPort PORT =
+        new io.github.y15173334444.create_schematic_compute.graph.AudioBandsPort() {
+            @Override public String bandKey(String channel, String band) { return AudioBands.bandKey(channel, band); }
+            @Override public boolean publish(String bandKey, io.github.y15173334444.create_schematic_compute.graph.AudioRef ref, long gameTick, String owner) {
+                return AudioBands.publish(bandKey, ref, gameTick, owner);
+            }
+            @Override public io.github.y15173334444.create_schematic_compute.graph.AudioRef get(String consumer, String bandKey, long nowTick) {
+                return AudioBands.get(consumer, bandKey, nowTick);
+            }
+        };
 }

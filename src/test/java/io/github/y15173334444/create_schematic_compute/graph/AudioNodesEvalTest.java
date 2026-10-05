@@ -46,6 +46,8 @@ class AudioNodesEvalTest {
 
         Map<Integer, MusicTransport> transports = new HashMap<>();
         GraphEvaluator ev = new GraphEvaluator(g);
+        ev.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        ev.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         ev.restoreSubState(new RuntimeState());
         ev.setAudioTransports(transports);
         ev.setAudioHostPos(new BlockPos(0, 0, 0));
@@ -272,6 +274,8 @@ class AudioNodesEvalTest {
         assertTrue(g1.addConnection(amp.id, 0, pout.id, 0), "audio wire into PRIVATE_OUT accepted (band-pin domain rule)");
 
         GraphEvaluator ev1 = new GraphEvaluator(g1);
+        ev1.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        ev1.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         ev1.restoreSubState(new RuntimeState());
         ev1.setAudioTransports(new HashMap<>());
         ev1.setAudioHostPos(new BlockPos(0, 0, 0));
@@ -286,6 +290,8 @@ class AudioNodesEvalTest {
         assertTrue(g2.addConnection(pin.id, 0, out.id, 0), "PRIVATE_OUT wire into an audio pin accepted");
 
         GraphEvaluator ev2 = new GraphEvaluator(g2);
+        ev2.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        ev2.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         ev2.restoreSubState(new RuntimeState());
         ev2.setAudioTransports(new HashMap<>());
         ev2.setAudioHostPos(new BlockPos(0, 0, 0));
@@ -311,6 +317,8 @@ class AudioNodesEvalTest {
         assertTrue(g.addConnection(music.id, 0, busOut.id, 0), "MUSIC feeds band ba (audio)");
 
         GraphEvaluator ev = new GraphEvaluator(g);
+        ev.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        ev.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         ev.restoreSubState(new RuntimeState());
         ev.setAudioTransports(new HashMap<>());
         ev.setAudioHostPos(new BlockPos(0, 0, 0));
@@ -346,6 +354,8 @@ class AudioNodesEvalTest {
         assertTrue(g1.addConnection(music.id, 0, busOut.id, 0));
 
         GraphEvaluator ev1 = new GraphEvaluator(g1);
+        ev1.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        ev1.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         ev1.restoreSubState(new RuntimeState());
         ev1.setAudioTransports(new HashMap<>());
         ev1.setAudioHostPos(new BlockPos(0, 0, 0));
@@ -361,6 +371,8 @@ class AudioNodesEvalTest {
         assertTrue(g2.addConnection(busIn.id, 0, rx.id, 0), "band ba wired to an audio consumer");
 
         GraphEvaluator ev2 = new GraphEvaluator(g2);
+        ev2.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        ev2.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         ev2.restoreSubState(new RuntimeState());
         ev2.setAudioTransports(new HashMap<>());
         ev2.setAudioHostPos(new BlockPos(0, 0, 0));
@@ -403,6 +415,8 @@ class AudioNodesEvalTest {
         }
 
         GraphEvaluator ev = new GraphEvaluator(g);
+        ev.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        ev.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         ev.restoreSubState(new RuntimeState());
         ev.setAudioTransports(new HashMap<>());
         ev.setAudioHostPos(new BlockPos(0, 0, 0));
@@ -442,6 +456,8 @@ class AudioNodesEvalTest {
         assertTrue(g1.addConnection(music.id, 0, amp.id, 0));
         assertTrue(g1.addConnection(amp.id, 0, pout.id, 0));
         GraphEvaluator ev1 = new GraphEvaluator(g1);
+        ev1.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        ev1.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         ev1.restoreSubState(new RuntimeState());
         ev1.setAudioTransports(new HashMap<>());
         ev1.setAudioHostPos(new BlockPos(0, 0, 0));
@@ -456,6 +472,8 @@ class AudioNodesEvalTest {
         pout2.signalName = "pf";
         assertTrue(g2.addConnection(c.id, 0, pout2.id, 0));
         GraphEvaluator ev2 = new GraphEvaluator(g2);
+        ev2.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        ev2.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         ev2.restoreSubState(new RuntimeState());
         ev2.setAudioTransports(new HashMap<>());
         ev2.setAudioHostPos(new BlockPos(0, 0, 0));
@@ -474,6 +492,8 @@ class AudioNodesEvalTest {
         pout.signalName = "pc";
         assertTrue(g.addConnection(c.id, 0, pout.id, 0));
         GraphEvaluator ev = new GraphEvaluator(g);
+        ev.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        ev.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         ev.restoreSubState(new RuntimeState());
         ev.setAudioTransports(new HashMap<>());
         ev.setAudioHostPos(new BlockPos(0, 0, 0));
@@ -504,6 +524,8 @@ class AudioNodesEvalTest {
 
         Map<Integer, MusicTransport> transports = new HashMap<>();
         GraphEvaluator ev = new GraphEvaluator(g);
+        ev.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        ev.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         ev.restoreSubState(new RuntimeState());
         ev.setAudioTransports(transports);
         ev.setAudioHostPos(new BlockPos(0, 0, 0));

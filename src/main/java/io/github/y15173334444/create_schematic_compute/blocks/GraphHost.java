@@ -271,6 +271,8 @@ public class GraphHost {
         }
         unregisterRemovedBusOutNodes();
         evaluator = new GraphEvaluator(graph);
+        evaluator.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        evaluator.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         if (savedSubStates != null) {
             var aliveIds = new HashSet<Integer>();
             for (var n : graph.nodes)
@@ -335,6 +337,8 @@ public class GraphHost {
         // 注销自上次重编译以来已删除的 BUS_OUT 节点 / unregister BUS_OUT nodes removed since last recompile
         unregisterRemovedBusOutNodes();
         evaluator = new GraphEvaluator(graph);
+        evaluator.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+        evaluator.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
         // 定制回调（encoderView / commandSink 等）必须在每条重建路径上重放——与 Full 一致；
         // 只挂 Full 时，未来用 Light 的宿主会重演「ENCODER 恒 0」。
         // The evaluator customizer must replay on EVERY rebuild path — same as Full;
