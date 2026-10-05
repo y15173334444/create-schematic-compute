@@ -2,6 +2,7 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.graph.SpatialIndex;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
@@ -21,73 +22,23 @@ public class EditPanel {
         return "Btn" + idx;
     }
 
-    /** 计算编辑区高度 */
+    /** 计算编辑区高度（几何数学在 {@link SpatialIndex}——节点几何单一真相源）。
+     *  Edit-panel height; the geometry maths lives in {@link SpatialIndex} (single source). */
     public static int calcRenderHeight(GraphNode n, float zoom) {
         return calcRenderHeight(n, zoom, null);
     }
-    /** 计算编辑区高度（可传入 EditState 以根据连线状态动态调整） */
+    /** 计算编辑区高度（可传入 EditState：动态字段数与脚本框实测高交几何真相源）。
+     *  Edit-panel height (with an EditState: the dynamic field count and the measured
+     *  script-box height feed the geometry source). */
     public static int calcRenderHeight(GraphNode n, float zoom, io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.EditState st) {
         if (n == null) return 0;
-        int h = 6;
-        if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL && n.type != NodeType.GATE && n.type != NodeType.T_FLIPFLOP
-            && n.type != NodeType.LATCH && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE
-            && n.type != NodeType.DEBUG_SIGNAL_GEN && n.type != NodeType.MOUSE_JOYSTICK
-            && n.type != NodeType.TX_OUT && n.type != NodeType.SPEED_CTRL) {
-            if (n.type == NodeType.KEYBOARD || n.type == NodeType.GAMEPAD_BUTTON) {
-                h += 24;
-            } else if (n.type == NodeType.ACCUMULATOR || n.type == NodeType.INTEGRATOR) {
-                h += (st != null ? st.fields.size() : n.params.length) * 18;
-            } else h += n.type.editableParamCount() * 18;   // rev 等按钮参数不占 EditBox 行 / button-only params take no EditBox row
-        }
-        if (n.type == NodeType.BOOL && n.params.length > 0) h += 16;
-        // 正/反转按钮（输出指令类）/ forward-reverse toggle (output-command nodes)
-        if (n.type == NodeType.MOVE || n.type == NodeType.ROTATE
-            || n.type == NodeType.TX_OUT || n.type == NodeType.SPEED_CTRL) h += 18;
-        // v1.2.6 音频节点按钮行 + HUD 范围/间隔步进行 / audio-node button rows + HUD stepper rows
-        if (n.type == NodeType.MUSIC) h += 18;            // loop 循环开关 / loop toggle
-        if (n.type == NodeType.CHANNEL) h += 36;          // 布局预设两行（3+2）/ layout presets, two rows
-        if (n.type == NodeType.HUD_PITCH_LADDER) h += 36; // 范围/间隔两行 / range & interval steppers
-        if (n.type == NodeType.MOUSE_JOYSTICK && n.params.length > 0) h += 16;
-        if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 32; // 初始按钮 + 当前只读
-        if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
-        if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) h += 22;
-        if (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) {
-            int bands = n.signalBands != null ? n.signalBands.size() : 0;
-            h += 22 + bands * 18 + 20;
-        }
-        if (n.type == NodeType.COMMENT) {
-            h += Math.round(n.commentHeight) - 12;
-        }
-        if (n.type == NodeType.FORMULA) {
-            // 摘要行 + 参数行(warm 等,刀5) + 脚本编辑区高度 / summary + param rows (warm etc., knife 5) + script box height
-            int paramRows = n.type.editableParamCount();
-            io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mle = null;
-            if (st != null) for (var f : st.fields)
-                if (f instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox m) { mle = m; break; }
-            // Height based on visual lines (word-wrap aware); 刀5 起 fields[0] 是 warm 参数框,MLE 须按类型查找
-            // Since knife 5 fields[0] is the warm param box — the MLE is located by type
-            if (mle != null) {
-                h += 22 + paramRows * 18 + mle.getContentHeight() + 12;
-            } else {
-                int lineCount = n.formula.isEmpty() ? 1 : Math.max(1, n.formula.split("\n", -1).length);
-                h += 22 + paramRows * 18 + Math.max(1, Math.min(lineCount, 32)) * 12 + 12;
-            }
-        }
-        if (n.type == NodeType.TEXT) h += 22;
-        if (n.type == NodeType.DEBUG_SIGNAL_GEN) {
-            // 模式切换行（始终可见）+ 条件 EditBox / mode toggle rows (always) + conditional EditBoxes
-            h += 36; // 2 toggle rows: setMode + outMode
-            int setMode = n.params.length > 0 ? (int) n.params[0] : 0;
-            int outMode = n.params.length > 1 ? (int) n.params[1] : 0;
-            if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_FORMULA) h += 18; // formula EditBox
-            if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL
-                && outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ) h += 18; // speed (manual+frequency only)
-            if (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL) h += 18; // amplitude (manual only)
-        }
-        if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) h += 54 + 36 + 32; // 3 move/rot fields + 2 canvas-size fields + 2 toggles
-        if (n.type == NodeType.TEXT || n.type == NodeType.DATA) h += 22;
-        if (n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT) h += 22;
-        return h;
+        if (st == null) return SpatialIndex.editHeight(n);
+        // 刀5 起 fields[0] 是 warm 参数框，MLE 须按类型查找 / since knife 5 fields[0] is
+        // the warm param box - the multi-line editor is located by type
+        int mleH = -1;
+        for (var f : st.fields)
+            if (f instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox m) { mleH = m.getContentHeight(); break; }
+        return SpatialIndex.editHeight(n, st.fields.size(), mleH);
     }
 
     /**
