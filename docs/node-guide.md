@@ -315,11 +315,11 @@ Less-or-equal: outputs 1 when A<=B; closed, so A=B → 1. Bounds that include th
 
 **说明（中文）**
 
-闭环 PID 控制器：sp 为目标值、pv 为当前值，输出控制量 ctrl = (kp*err + 积分项 + kd*微分项)*scale。积分死区 deadband（默认 0.001）：|err|<=deadband 时积分保持（不增长也不清除），|err|>deadband 时正常积分；积分贡献钳在 +/-ilimit（抗饱和），输出本身不限幅。kp/ki/kd/scale/ilimit/deadband 均可展开编辑或连线覆盖，默认 1/0.1/0.05/1/3/0.001。每张图建议不超过 5-6 个。
+闭环 PID 控制器：sp 为目标值、pv 为当前值，输出控制量 ctrl = (kp*err + 积分项 + kd*微分项)*scale。积分死区 deadband（默认 0.001）：|err|<=deadband 时积分保持（不增长也不清除），|err|>deadband 时正常积分；积分贡献钳在 +/-ilimit（抗饱和），输出本身不限幅。kp/ki/kd/scale/ilimit/deadband 均可展开编辑或连线覆盖，默认 1/0.1/0.05/1/3/0.001。性能参考（2026-09 实测）：稳态求值为 O(节点数)，巨量普通节点同跑每 tick 仍 <1ms，8 路 PID 同跑属舒适区——无需刻意压缩 PID 数量。
 
 **Description (English)**
 
-Closed-loop PID controller: sp is the setpoint and pv the measured value, producing ctrl = (kp*err + integral + kd*derivative)*scale. Integral deadband (default 0.001): when |err| <= deadband the integral holds (neither grows nor clears); outside it integrates normally. The integral contribution is clamped to +/-ilimit (anti-windup); the output itself is not clamped. kp/ki/kd/scale/ilimit/deadband are editable and wire-overridable (defaults 1/0.1/0.05/1/3/0.001). Keep to about 5-6 per graph.
+Closed-loop PID controller: sp is the setpoint and pv the measured value, producing ctrl = (kp*err + integral + kd*derivative)*scale. Integral deadband (default 0.001): when |err| <= deadband the integral holds (neither grows nor clears); outside it integrates normally. The integral contribution is clamped to +/-ilimit (anti-windup); the output itself is not clamped. kp/ki/kd/scale/ilimit/deadband are editable and wire-overridable (defaults 1/0.1/0.05/1/3/0.001). Performance note (measured 2026-09): steady-state evaluation is O(node count); graphs with huge numbers of plain nodes still stay under 1 ms per tick and 8 simultaneous PIDs are comfortably within budget — there is no need to ration PIDs.
 
 ---
 
