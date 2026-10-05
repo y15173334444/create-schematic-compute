@@ -256,37 +256,38 @@ Vector functions: `vec3 length normalize dot cross dist yaw pitch`; component ac
 
 ### 🎯 火控弹道解算示例 / Fire-Control Ballistic Solver Example
 
-Newton-iteration aim solver ported from a Python reference (CreateBigCannons ballistic model: semi-implicit Euler dt=1/20, linear/quadratic drag), verified against four reference scenarios.
-牛顿迭代弹道反解，移植自 Python 参考实现（CreateBigCannons 弹道模型：半隐式欧拉 dt=1/20、线性/二次阻力），四组场景对拍通过。
-Full paste-ready script: [`docs/examples/ballistic_solver.formula`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/examples/ballistic_solver.formula) — ~600k interpreter iterations per solve, spread across ticks by the budget pool with a progress bar.
-完整可粘贴脚本：[`docs/examples/ballistic_solver.formula`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/examples/ballistic_solver.formula)（约 60 万次迭代，由预算池跨 tick 分摊、带进度条）。
+Segment-collision aim solver aligned with the CreateBigCannons 5.11.x ballistic model (semi-implicit Euler dt=1/20, linear drag, per-tick segment hit test matching the in-game raycast), validated against the CBC tick-model golden reference — landing error ≤ 0.24 blocks across five scenarios.
+弹道反解火控，对齐 CreateBigCannons 5.11.x 弹道模型（半隐式欧拉 dt=1/20、线性阻力、逐 tick 线段碰撞判定，与游戏内 raycast 同语义），对照 CBC tick 模型金标准五组场景对拍通过（落点误差 ≤ 0.24 格）。
+Full paste-ready script: [`docs/examples/ballistic_solver.formula`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/examples/ballistic_solver.formula) — ~2.5k–9k interpreter steps per solve (~65–250× leaner than the v1 600k-step Newton solver), spread across ticks by the budget pool with a progress bar. Parameters baked in for a size-7 barrel · 8 charges · HE/AP shell (v0=160 b/s, g=20 b/s², fd=0.2); the script header table shows how to re-derive them for other charges or shell types.
+完整可粘贴脚本：[`docs/examples/ballistic_solver.formula`](https://github.com/y15173334444/create-schematic-compute/blob/main/docs/examples/ballistic_solver.formula)（每次解算约 2.5k–9k 步，较 v1 的 60 万步牛顿法精简 65–250 倍，由预算池跨 tick 分摊、带进度条）。参数已内化：7 系炮管 · 8 装药 · HE/AP 弹（v0=160、g=20、fd=0.2），脚本头部表格给出换装药/弹种的换算方法。
 
 ```
--- 输入:mx,my,mz 炮口 / tx,ty,tz 目标 / v0 初速 / g 重力(正) / fd 阻力系数 / qd 二次阻力 / den 密度
--- inputs: mx,my,mz muzzle / tx,ty,tz target / v0 speed / g gravity(+) / fd drag / qd quadratic drag / den density
+-- 输入:mx,my,mz 炮口 / tx,ty,tz 目标(参数已内化,见脚本头部参数表)
+-- inputs: mx,my,mz muzzle / tx,ty,tz target (ballistic params baked in, see the header table)
 -- 输出:ay 射向角[0,360) / ap 射角 / hit 可达 / vx0,vy0,vz0 初速向量
 -- outputs: ay aim yaw [0,360) / ap aim pitch / hit reachable / vx0,vy0,vz0 velocity vector
 ay = atan2(tx - mx, 0 - (tz - mz))
 if (ay < 0) ay = ay + 360
 cy = cos(ay)
 sy = sin(ay)
--- 俯仰粗扫描(361 点)+ 轨迹模拟(半隐式欧拉 dt=1/20,阻力/重力积分,记录最近距离)
--- pitch coarse scan (361 points) + trajectory simulation (semi-implicit Euler dt=1/20, drag/gravity integration, track closest distance)
+-- 俯仰粗扫描(46 点 × 4°,记录低伸首谷+全局最优谷)+ 线段碰撞弹道模拟(半隐式欧拉 dt=1/20,距离持续增大 20 步提前终止)
+-- pitch coarse scan (46 pts × 4°, flat-first + best valleys) + segment-collision simulation (semi-implicit Euler dt=1/20, early exit after 20 steps of increasing distance)
 p = -89.899
-bestd = 1000000
-repeat 361 {
+bestwd = 1000000
+repeat 46 {
   vx = v0 * cos(p) * sy
   vy = v0 * sin(p)
   vz = v0 * cos(p) * (0 - cy)
-  -- ... 1200 步轨迹模拟(完整脚本见上方链接) ... / 1200-step simulation (full script linked above)
-  p = p + 0.49944
+  -- ... 400 步线段碰撞模拟(完整脚本见上方链接) ... / 400-step segment simulation (full script linked above)
+  p = p + 4
 }
--- 牛顿迭代精化(≤50 轮,中心差分,阻尼 0.5) / Newton refinement (≤50 rounds, central difference, damping 0.5)
+-- 细扫(0.5° × 17 点)+ 割线精化(≤10 轮),先低伸解、失败回退高抛解
+-- fine scan (0.5° × 17 pts) + secant refinement (≤10 rounds), flat-first with high-arc fallback
 @output ay
 @output ap
 @output hit
 ```
-→ **11 inputs + 6 outputs / 11输入 + 6输出**
+→ **6 inputs + 6 outputs / 6输入 + 6输出**
 
 ### 🎨 Syntax Highlighting / 语法高亮
 Real-time colour-coded editing with 9 token categories.
