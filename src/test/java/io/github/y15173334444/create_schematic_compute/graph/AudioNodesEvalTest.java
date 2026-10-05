@@ -169,6 +169,44 @@ class AudioNodesEvalTest {
     }
 
     @Test
+    @DisplayName("AMP 力度曲线：逐事件塑形，链上标量后叠加 / AMP dynamics curve shapes events; the chain scalar applies after")
+    void ampDynamicsCurve() {
+        NbsSong s = new NbsSong();
+        s.tempo = 1000;
+        s.putNote(0, 0, 2, 45, 100, 100, 0);  // e.gain = 1.0
+        s.putNote(1, 0, 2, 47, 50, 100, 0);   // e.gain = 0.5
+        Fixture f = build(s, 2f);             // AMP 标量 2（曲线后叠加）
+        f.amp().curveX = new float[]{0f, 0.5f, 1f};
+        f.amp().curveY = new float[]{0f, 0.75f, 0.75f}; // 压缩：0.5→0.75、1.0→0.75
+        f.ev().evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+
+        var ref = AudioBands.get(AudioBands.bandKey("B", "B"), 0L);
+        assertEquals(2, ref.events().size());
+        assertEquals(0.75f, ref.events().get(0).gain(), 1e-6, "curve(1.0) = 0.75 (compressed down)");
+        assertEquals(0.75f, ref.events().get(1).gain(), 1e-6, "curve(0.5) = 0.75 (compressed up)");
+        assertEquals(2f, ref.gain(), 1e-6, "the chain scalar rides the ref, applied after the curve");
+    }
+
+    @Test
+    @DisplayName("WSHAPE 服务端恒等直通：曲线不由服务端应用 / WSHAPE passes through identically server-side")
+    void wshapePassthrough() {
+        Fixture f = build(song(45), 1f);
+        GraphNode ws = f.graph().addNode(NodeType.WSHAPE, 350, 0);
+        ws.curveX = new float[]{0f, 1f};
+        ws.curveY = new float[]{0f, 2f};   // 若服务端应用会 ×2 —— 不应发生
+        f.graph().connections.removeIf(c -> c.toId == f.audioOut().id);
+        assertTrue(f.graph().addConnection(f.amp().id, 0, ws.id, 0));
+        assertTrue(f.graph().addConnection(ws.id, 0, f.audioOut().id, 0));
+        f.ev().evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+
+        var ref = AudioBands.get(AudioBands.bandKey("B", "B"), 0L);
+        assertEquals(1, ref.events().size());
+        assertEquals(1f, ref.events().get(0).gain(), 1e-6,
+            "the shaping curve is client-side; events pass through untouched");
+        assertEquals(1f, ref.gain(), 1e-6);
+    }
+
+    @Test
     @DisplayName("私有频段音频：PRIVATE_OUT 发布 → PRIVATE_IN 读取 / private band audio: publish then read")
     void privateBandAudio() {
         // 图 1：MUSIC→AMP→PRIVATE_OUT("px")——音频线接私有频段引脚（域特判放行）

@@ -578,7 +578,7 @@ public class GraphEvaluator {
                 if (setMode == DebugSignals.SET_FORMULA && node.debugFormulaRpn == null) {
                     node.debugFormulaRpn = DebugSignals.compileFormula(node.formula);
                 }
-                o[0] = amp * DebugSignals.computeCurve(setMode, x, node.debugCtrlX, node.debugCtrlY, node.formula, node.debugFormulaRpn);
+                o[0] = amp * DebugSignals.computeCurve(setMode, x, node.curveX, node.curveY, node.formula, node.debugFormulaRpn);
             }
             case DEBUG_PROBE -> {
                 // pass-through：输出 = 输入，供客户端从 EvalSnapshot 读取
@@ -1341,7 +1341,36 @@ public class GraphEvaluator {
                 float gainIn = graph.getInputValueOrDefault(node.id, 1, outputs,
                     node.params.length > 0 ? node.params[0] : 1f);
                 float gain = Math.max(0f, Math.min(4f, gainIn));
-                audioRefs.put(audioKey(node.id, 0), (in != null) ? in.withGain(in.gain() * gain) : AudioRef.EMPTY);
+                if (in == null) {
+                    audioRefs.put(audioKey(node.id, 0), AudioRef.EMPTY);
+                } else {
+                    // 力度曲线（方案一，2026-10-05 作者拍板）：x = 音符自身力度（速度×层音量，0..1），
+                    // y = 输出力度——曲线管形状、链上标量（含引脚）在曲线后线性叠加管电平，
+                    // 两者正交；恒等曲线 = 原行为。曲线点间线性插值，端点钳制。
+                    // Dynamics curve (option 1, author call): x = the note's own loudness
+                    // (velocity × layer, 0..1), y = output level — the curve shapes, the chain
+                    // scalar (incl. the pin) scales afterwards; the two are orthogonal. Identity
+                    // curve = old behaviour. Linear interpolation between points, clamped ends.
+                    if (node.isCurveNode() && node.curveX != null && node.curveY != null
+                        && in.events() != null && !in.events().isEmpty()) {
+                        var shaped = new java.util.ArrayList<NoteEvent>(in.events().size());
+                        for (NoteEvent e : in.events())
+                            shaped.add(e.withGain(AudioCurve.eval(node.curveX, node.curveY, e.gain())));
+                        in = new AudioRef(shaped, in.gain(), in.stopSignal());
+                    }
+                    audioRefs.put(audioKey(node.id, 0), in.withGain(in.gain() * gain));
+                }
+            }
+            case WSHAPE -> {
+                // 波形整形：服务端恒等直通（纯客户端效果标记）——曲线经音响图同步到客户端，
+                // 由 CscAudioEngine 按音响 tag 取 LUT 在混音器逐样本应用（v1 仅音响图允许，
+                // LUT 送达即此路径；源图版需要版本化 LUT 随频段同步，二期）。
+                // Wave shaper: identity passthrough server-side (a client-effect marker) —
+                // the curve syncs to the client with the speaker graph; CscAudioEngine applies
+                // its LUT per voice keyed by the speaker tag (v1 speaker-graphs only; the
+                // source-graph variant needs versioned LUT sync — phase 2).
+                AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
+                audioRefs.put(audioKey(node.id, 0), in != null ? in : AudioRef.EMPTY);
             }
             case CHANNEL -> {
                 // 声道拆分：audio 入 → 各声道出（引脚集合 = 布局表；拆分口径见 ChannelLayout）。

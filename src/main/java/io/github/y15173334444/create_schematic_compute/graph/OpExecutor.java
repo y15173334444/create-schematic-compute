@@ -563,14 +563,14 @@ public final class OpExecutor {
             }
             case SET_CTRL_POINTS -> {
                 var n = graph.findNode(op.targetNodeId());
-                if (n != null && n.type == NodeType.DEBUG_SIGNAL_GEN) {
+                if (n != null && n.isCurveNode()) {
                     float[][] parsed = GraphOp.parseCtrlPoints(op.stringValue());
                     if (parsed != null) {
                         // 服务端按 X 排序，保证多人协作时点不会因竞态条件乱序
                         // Server-side X-sort: guarantees point order survives race conditions
                         sortByX(parsed[0], parsed[1]);
-                        n.debugCtrlX = parsed[0];
-                        n.debugCtrlY = parsed[1];
+                        n.curveX = parsed[0];
+                        n.curveY = parsed[1];
                         graph.bumpGeneration();
                     }
                 }
@@ -708,11 +708,11 @@ public final class OpExecutor {
         if (tag.contains("dcx") && tag.contains("dcy")) {
             int[] dcx = tag.getIntArray("dcx");
             int[] dcy = tag.getIntArray("dcy");
-            node.debugCtrlX = new float[dcx.length];
-            node.debugCtrlY = new float[dcy.length];
+            node.curveX = new float[dcx.length];
+            node.curveY = new float[dcy.length];
             for (int i = 0; i < dcx.length; i++) {
-                node.debugCtrlX[i] = Float.intBitsToFloat(dcx[i]);
-                node.debugCtrlY[i] = Float.intBitsToFloat(dcy[i]);
+                node.curveX[i] = Float.intBitsToFloat(dcx[i]);
+                node.curveY[i] = Float.intBitsToFloat(dcy[i]);
             }
         }
     }

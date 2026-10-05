@@ -108,18 +108,25 @@ public class SpatialIndex {
 
     // — Static helpers for node dimensions (mirrors NodeRenderer.nw/nh) —
 
-    static float nwStatic(GraphNode n) {
+    /** 节点几何的**唯一权威**（渲染 NodeRenderer.nw/nh 委托到这里）——新增宽体/图表类节点
+     *  只改此处，命中索引与渲染天然同步（曾有第二份手工镜像漏加曲线节点导致触摸宽度不符）。
+     *  The single source of truth for node geometry (NodeRenderer.nw/nh delegate here) -
+     *  add wide/chart node kinds here only; hit index and rendering stay in sync (a second
+     *  hand-mirrored copy once missed the curve nodes and broke touch width). */
+    public static float nwStatic(GraphNode n) {
         if (n.type == NodeType.COMMENT) return n.commentWidth;
-        if (n.type == NodeType.FORMULA) return 240f; // WIDE_NW
-        if (n.type == NodeType.DEBUG_SIGNAL_GEN || n.type == NodeType.DEBUG_PROBE) return 240f; // WIDE_NW
-        return 140f; // NW
+        if (n.type == NodeType.FORMULA) return 240f; // = NodeRenderer.WIDE_NW
+        if (n.type == NodeType.DEBUG_SIGNAL_GEN || n.type == NodeType.DEBUG_PROBE) return 240f;
+        if (n.isCurveNode()) return 240f; // AMP/WSHAPE：曲线图表宽体 / curve chart wide body
+        return 140f; // = NodeRenderer.NW
     }
 
-    static float nhStatic(GraphNode n) {
+    public static float nhStatic(GraphNode n) {
         if (n.type == NodeType.COMMENT) return n.commentHeight;
-        float base = 18f + 16f * (n.functionalInputs() + n.outputs()); // HH + PH * rows
-        if (n.type == NodeType.DEBUG_SIGNAL_GEN) return base + 84f; // XY 图区域
+        float base = 18f + 16f * (n.functionalInputs() + n.outputs()); // = HH + PH * rows
+        if (n.type == NodeType.DEBUG_SIGNAL_GEN) return base + 84f; // XY 图区域 / chart band
         if (n.type == NodeType.DEBUG_PROBE) return base + 64f;       // 数值 + 趋势图
+        if (n.isCurveNode()) return base + 84f;                      // AMP/WSHAPE 曲线图区域
         return base;
     }
 }

@@ -4,6 +4,7 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeConnection;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.graph.SpatialIndex;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 
@@ -197,19 +198,15 @@ public class NodeRenderer {
     /** Dynamic node width: FORMULA gets 240px for long expressions, COMMENT uses its own width */
     public static int nw(GraphNode n) {
         if (n == null) return NW;
-        if (n.type == NodeType.COMMENT) return Math.round(n.commentWidth);
-        if (n.type == NodeType.FORMULA) return WIDE_NW;
-        if (n.type == NodeType.DEBUG_SIGNAL_GEN || n.type == NodeType.DEBUG_PROBE) return WIDE_NW;
-        return NW;
+        // 委托到 SpatialIndex.nwStatic（节点几何唯一权威）——渲染与命中索引天然同步。
+        // Delegate to SpatialIndex.nwStatic (the single geometry source) so rendering and
+        // the hit index can never drift apart.
+        return Math.round(SpatialIndex.nwStatic(n));
     }
     /** Node body height in graph-space pixels (excluding edit panel expansion). */
     public static float nh(GraphNode n) {
         if (n == null) return HH + PH * 2;
-        if (n.type == NodeType.COMMENT) return n.commentHeight;
-        float base = HH + PH * (n.functionalInputs() + n.outputs());
-        if (n.type == NodeType.DEBUG_SIGNAL_GEN) return base + 84; // XY 图区域
-        if (n.type == NodeType.DEBUG_PROBE) return base + 64;      // 数值 + 趋势图
-        return base;
+        return SpatialIndex.nhStatic(n);
     }
 
     // 坐标转换接口
@@ -465,8 +462,10 @@ public class NodeRenderer {
         }
         // C=3.5: 调试节点图表区域（graph space，坐标相对于节点左上角）
         java.util.List<float[]> debugCtrlPoints = null;
-        if (n.type == NodeType.DEBUG_SIGNAL_GEN) {
-            debugCtrlPoints = renderDebugSignalGenChart(g, n, nodeW);
+        if (n.isCurveNode()) {
+            debugCtrlPoints = (n.type == NodeType.DEBUG_SIGNAL_GEN)
+                ? renderDebugSignalGenChart(g, n, nodeW)
+                : renderCurveChart(g, n, nodeW);
         } else if (n.type == NodeType.DEBUG_PROBE) {
             renderDebugProbeChart(g, n, nodeW);
         }
@@ -703,7 +702,7 @@ public class NodeRenderer {
 
         // ── 计算 Y 范围（自动缩放）/ compute Y range (auto-scale) ──
         float[] visRange = io.github.y15173334444.create_schematic_compute.graph.DebugSignals.computeVisibleRange(
-            setMode, n.debugCtrlX, n.debugCtrlY, n.formula, n.debugFormulaRpn);
+            setMode, n.curveX, n.curveY, n.formula, n.debugFormulaRpn);
         float minV = visRange[0], maxV = visRange[1], range = visRange[2];
         float scale = chartH / range;
 
@@ -730,7 +729,7 @@ public class NodeRenderer {
         for (int i = 0; i <= samples; i++) {
             float x = (float) i / samples;
             float v = io.github.y15173334444.create_schematic_compute.graph.DebugSignals.computeCurve(
-                setMode, x, n.debugCtrlX, n.debugCtrlY, n.formula, n.debugFormulaRpn);
+                setMode, x, n.curveX, n.curveY, n.formula, n.debugFormulaRpn);
             boolean discontinuity = prevValid && Math.abs(v - prevV) > range * 1.5f;
             int px = chartX + (int) (x * chartW);
             int py = chartY + chartH - (int) ((v - minV) * scale);
@@ -745,11 +744,11 @@ public class NodeRenderer {
         // Collect control point positions (manual curve only) — rendered above border
         java.util.List<float[]> ctrlPoints = null;
         boolean showCtrl = (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL);
-        if (showCtrl && n.debugCtrlX != null) {
+        if (showCtrl && n.curveX != null) {
             ctrlPoints = new java.util.ArrayList<>();
-            for (int i = 0; i < n.debugCtrlX.length; i++) {
-                float cpx = chartX + n.debugCtrlX[i] * chartW;
-                float cpy = chartY + chartH - (n.debugCtrlY[i] - minV) * scale;
+            for (int i = 0; i < n.curveX.length; i++) {
+                float cpx = chartX + n.curveX[i] * chartW;
+                float cpy = chartY + chartH - (n.curveY[i] - minV) * scale;
                 ctrlPoints.add(new float[]{cpx, cpy});
             }
         }
@@ -775,6 +774,61 @@ public class NodeRenderer {
             chartX + 4, chartY + 2, 0xFFCCCCCC);
         // Y 轴范围标注（右上角）/ Y-axis range label (top-right)
         String rangeStr = String.format("%.1f … %.1f", minV, maxV);
+        int rangeW = Minecraft.getInstance().font.width(rangeStr);
+        drawStr(g, rangeStr, chartX + chartW - rangeW - 3, chartY + 2, 0xFF888899);
+        return ctrlPoints;
+    }
+
+    /** AMP/WSHAPE：力度/整形曲线图（固定值域：AMP 0..1；WSHAPE 0..2 允许过驱）。
+     *  返回控制点本地坐标（供边框上方渲染），语义与 DEBUG 图表一致。
+     *  AMP/WSHAPE dynamics/shaping chart (fixed Y range: AMP 0..1; WSHAPE 0..2 allows
+     *  overdrive). Returns control point local coords, same contract as the DEBUG chart. */
+    private java.util.List<float[]> renderCurveChart(GuiGraphics g, GraphNode n, int nodeW) {
+        float bodyH = HH + PH * (n.functionalInputs() + n.outputs());
+        int chartX = 2, chartY = (int) bodyH, chartW = nodeW - 4, chartH = 80;
+        float yMax = n.type == NodeType.WSHAPE ? 2f : 1f;
+        int samples = 60;
+
+        g.fill(chartX, chartY, chartX + chartW, chartY + chartH, 0xFF1A1A2E);
+        // 网格线（每 1/4 一条）/ grid lines every quarter
+        for (int i = 1; i < 4; i++) {
+            int gx = chartX + chartW * i / 4;
+            g.fill(gx, chartY, gx + 1, chartY + chartH, 0xFF2A2A4E);
+            int gy = chartY + chartH * i / 4;
+            g.fill(chartX, gy, chartX + chartW, gy + 1, 0xFF2A2A4E);
+        }
+        // 恒等参考线（y=x，仅 AMP 值域 0..1 内可见）/ identity reference (visible in AMP range)
+        if (n.type == NodeType.AMP) {
+            for (int i = 0; i < chartW; i += 2) {
+                int ix = chartX + i, iy = chartY + chartH - i * chartH / chartW;
+                g.fill(ix, iy, ix + 1, iy + 1, 0xFF3A3A6E);
+            }
+        }
+
+        // 曲线（AudioCurve 线性插值，与求值/LUT 同一实现）/ the curve (same interp as eval/LUT)
+        int prevPX = -1, prevPY = -1;
+        for (int i = 0; i <= samples; i++) {
+            float x = (float) i / samples;
+            float v = io.github.y15173334444.create_schematic_compute.graph.AudioCurve
+                .eval(n.curveX, n.curveY, x);
+            int px2 = chartX + (int) (x * chartW);
+            int py2 = chartY + chartH - (int) ((v / yMax) * chartH);
+            py2 = Math.max(chartY, Math.min(chartY + chartH - 1, py2));
+            if (prevPX >= 0) drawLine(g, prevPX, prevPY, px2, py2, 0xFF4ADE80);
+            prevPX = px2; prevPY = py2;
+        }
+
+        // 控制点位置收集（边框上方渲染）/ collect control points for above-border rendering
+        java.util.List<float[]> ctrlPoints = new java.util.ArrayList<>();
+        if (n.curveX != null) {
+            for (int i = 0; i < n.curveX.length; i++) {
+                float cpx = chartX + n.curveX[i] * chartW;
+                float cpy = chartY + chartH - (n.curveY[i] / yMax) * chartH;
+                ctrlPoints.add(new float[]{cpx, cpy});
+            }
+        }
+        // Y 轴范围标注（右上角）/ Y-axis range label (top-right)
+        String rangeStr = String.format("%.1f … %.1f", 0f, yMax);
         int rangeW = Minecraft.getInstance().font.width(rangeStr);
         drawStr(g, rangeStr, chartX + chartW - rangeW - 3, chartY + 2, 0xFF888899);
         return ctrlPoints;

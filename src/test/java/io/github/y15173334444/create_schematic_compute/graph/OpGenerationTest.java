@@ -143,9 +143,9 @@ class OpGenerationTest {
         GraphNode n = graph.addNode(NodeType.DEBUG_SIGNAL_GEN, 0, 0);
         int g0 = gen();
         OpExecutor.apply(graph, op(OpType.SET_CTRL_POINTS, n.id, 0, 0, 0, 0f, "0.0,0.0;0.5,1.0;1.0,0.0", 0, null, 0, 0, 0));
-        assertNotNull(n.debugCtrlX);
-        assertEquals(3, n.debugCtrlX.length);
-        assertEquals(0.5f, n.debugCtrlX[1], 0.0001f);
+        assertNotNull(n.curveX);
+        assertEquals(3, n.curveX.length);
+        assertEquals(0.5f, n.curveX[1], 0.0001f);
         assertTrue(gen() > g0, "control points change DEBUG_SIGNAL_GEN output — must bump");
     }
 

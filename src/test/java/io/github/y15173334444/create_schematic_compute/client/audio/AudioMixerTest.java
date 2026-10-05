@@ -231,6 +231,23 @@ class AudioMixerTest {
     }
 
     @Test
+    void waveLutShapesSamples() {
+        AudioMixer m = new AudioMixer();
+        float[] sample = new float[64];
+        for (int i = 0; i < 64; i++) sample[i] = (i % 2 == 0) ? 0.5f : -0.5f; // 双极性 / bipolar
+        float[] lut = new float[257];
+        for (int i = 0; i <= 256; i++) lut[i] = (i / 256f) * (i / 256f); // y = x²
+        m.schedule(0, sample, AudioMixer.SAMPLE_RATE, 1.0, 1f, 1f, 0L, false, lut);
+        float[] out = new float[16 * 2];
+        m.render(out, 16);
+        assertEquals(0.25f, peak(out), 0.02f, "0.5 through the square curve lands at 0.25 (sign preserved)");
+        // 负半周保号对称：-0.5 → -0.25
+        float min = 0f;
+        for (float v : out) min = Math.min(min, v);
+        assertEquals(-0.25f, min, 0.02f, "the negative half mirrors through the sign-preserving shape");
+    }
+
+    @Test
     void limiterRecoversAfterLoudChord() {
         AudioMixer m = new AudioMixer();
         float[] sample = new float[64];

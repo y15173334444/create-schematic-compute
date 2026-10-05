@@ -1,5 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.client.audio;
 
+import io.github.y15173334444.create_schematic_compute.graph.AudioCurve;
+
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -53,6 +55,8 @@ public final class AudioMixer {
         long startFrame;        // 起音的全局输出帧
         long tag;               // 来源标签（世界播放 = 音响坐标 asLong）/ source tag (world = speaker pos.asLong)
         boolean listener;       // 试听声部（编辑器，无坐标）/ audition voice (editor, position-less)
+        float[] waveLut;        // 波形整形 LUT（null = 不整形；x=|采样| 0..1，保号对称）
+                                // waveshaper LUT (null = off; x = |sample| 0..1, sign-preserving)
     }
 
     private final ArrayList<Voice> voices = new ArrayList<>();
@@ -73,15 +77,22 @@ public final class AudioMixer {
      */
     public synchronized void schedule(long delayFrames, float[] sample, int srcRate,
                                       double pitchRatio, float gainL, float gainR) {
-        schedule(delayFrames, sample, srcRate, pitchRatio, gainL, gainR, 0L, false);
+        schedule(delayFrames, sample, srcRate, pitchRatio, gainL, gainR, 0L, false, null);
     }
 
     /** 带来源标签的调度变体：标签供 {@link #cancelFuture} 按来源清除未播声部。 */
     public synchronized void schedule(long delayFrames, float[] sample, int srcRate,
                                       double pitchRatio, float gainL, float gainR,
                                       long sourceTag, boolean listener) {
+        schedule(delayFrames, sample, srcRate, pitchRatio, gainL, gainR, sourceTag, listener, null);
+    }
+
+    /** 带波形整形 LUT 的调度变体。 / scheduling variant carrying a waveshaper LUT. */
+    public synchronized void schedule(long delayFrames, float[] sample, int srcRate,
+                                      double pitchRatio, float gainL, float gainR,
+                                      long sourceTag, boolean listener, float[] waveLut) {
         scheduleAtFrame(renderedFrames + Math.max(0, delayFrames), sample, srcRate,
-            pitchRatio, gainL, gainR, sourceTag, listener);
+            pitchRatio, gainL, gainR, sourceTag, listener, waveLut);
     }
 
     /**
@@ -98,12 +109,12 @@ public final class AudioMixer {
      */
     public synchronized long scheduleAtFrame(long absoluteFrame, float[] sample, int srcRate,
                                              double pitchRatio, float gainL, float gainR) {
-        return scheduleAtFrame(absoluteFrame, sample, srcRate, pitchRatio, gainL, gainR, 0L, false);
+        return scheduleAtFrame(absoluteFrame, sample, srcRate, pitchRatio, gainL, gainR, 0L, false, null);
     }
 
     public synchronized long scheduleAtFrame(long absoluteFrame, float[] sample, int srcRate,
                                              double pitchRatio, float gainL, float gainR,
-                                             long sourceTag, boolean listener) {
+                                             long sourceTag, boolean listener, float[] waveLut) {
         if (sample == null || sample.length < 2) return renderedFrames;
         if (gainL == 0f && gainR == 0f) return renderedFrames;
         if (voices.size() >= MAX_VOICES) {
@@ -125,6 +136,7 @@ public final class AudioMixer {
         v.startFrame = Math.max(renderedFrames, absoluteFrame);
         v.tag = sourceTag;
         v.listener = listener;
+        v.waveLut = waveLut;
         voices.add(v);
         return v.startFrame;
     }
@@ -197,6 +209,13 @@ public final class AudioMixer {
                 if (idx >= len - 1) break;                   // 播完 / sample exhausted
                 float frac = (float) (v.pos - idx);
                 float s = v.sample[idx] * (1f - frac) + v.sample[idx + 1] * frac;
+                if (v.waveLut != null) {
+                    // 波形整形（保号对称）：x=|s| 查 LUT 得输出幅度，符号保留——
+                    // 正负半周同形（v1 不做非对称失真）。 / sign-preserving magnitude shaping.
+                    float mag = s < 0 ? -s : s;
+                    float shaped = AudioCurve.evalLut(v.waveLut, mag);
+                    s = s < 0 ? -shaped : shaped;
+                }
                 out[f * 2] += s * v.gainL;
                 out[f * 2 + 1] += s * v.gainR;
                 v.pos += v.step;

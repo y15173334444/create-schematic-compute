@@ -619,8 +619,8 @@ final class NodeEditStateFactory {
             float oldSpeed = node.params.length > 2 ? node.params[2] : 1f / 20f;
             float oldAmp = node.params.length > 3 ? node.params[3] : 1f;
             String oldFormula = node.formula != null ? node.formula : "";
-            float[] oldCtrlX = node.debugCtrlX;
-            float[] oldCtrlY = node.debugCtrlY;
+            float[] oldCtrlX = node.curveX;
+            float[] oldCtrlY = node.curveY;
             node.params[paramIdx] = targetVal;
             if (isSetMode) {
                 // 切换设置模式 → 清空原模式数据 + 重置参数为默认，同步
@@ -642,11 +642,11 @@ final class NodeEditStateFactory {
                     ed.host.sendOp(opAmp); ed.recordOp(opAmp, 0, 0, oldAmp, null);
                 } else {
                     // 切换到 f(x) → 重置控制点为默认，speed/amp 恢复默认
-                    node.debugCtrlX = new float[]{0f, 1f};
-                    node.debugCtrlY = new float[]{0f, 0f};
+                    node.curveX = new float[]{0f, 1f};
+                    node.curveY = new float[]{0f, 0f};
                     String oldCtrlStr = oldCtrlX != null ? GraphEditor.encodeCtrlPoints(oldCtrlX, oldCtrlY) : "";
                     var opCp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
-                        ed.host.getBlockPos(), ed.ownerNodeId(), node.id, node.debugCtrlX, node.debugCtrlY, ed.host.getPlayerUUID());
+                        ed.host.getBlockPos(), ed.ownerNodeId(), node.id, node.curveX, node.curveY, ed.host.getPlayerUUID());
                     ed.host.sendOp(opCp); ed.recordOp(opCp, 0, 0, 0, oldCtrlStr);
                     node.params[2] = 1f / 20f;
                     node.params[3] = 1f;

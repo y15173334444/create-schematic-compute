@@ -83,11 +83,17 @@ public class GraphNode {
     public transient float layoutLerpT = 1f;
     public transient float layoutStartX, layoutStartY, layoutTargetX, layoutTargetY;
 
-    // ── DEBUG_SIGNAL_GEN 控制点（持久化，多人协作同步）──
-    // Control points for DEBUG_SIGNAL_GEN; persisted, synced via SET_CTRL_POINTS.
-    // X 固定排序递增（0~1），Y 为信号值。默认两点：起点 (0,0)、终点 (1,0)。
-    public float[] debugCtrlX = new float[]{0f, 1f};
-    public float[] debugCtrlY = new float[]{0f, 0f};
+    // ── 曲线控制点（DEBUG_SIGNAL_GEN / AMP / WSHAPE；持久化，多人协作同步）──
+    // Control points for the curve nodes; persisted, synced via SET_CTRL_POINTS.
+    // X 固定排序递增（0~1），Y 含义随类型（DEBUG=信号值；AMP=输出力度；WSHAPE=输出幅度）。
+    // 默认两点：DEBUG (0,0)→(1,0)（零信号）；AMP/WSHAPE (0,0)→(1,1)（恒等）。
+    public float[] curveX = new float[]{0f, 1f};
+    public float[] curveY = new float[]{0f, 0f};
+    /** 本节点是否携带可编辑曲线（DEBUG_SIGNAL_GEN 手动曲线 / AMP 力度曲线 / WSHAPE 整形曲线）。
+     *  Whether this node owns an editable curve. */
+    public boolean isCurveNode() {
+        return type == NodeType.DEBUG_SIGNAL_GEN || type == NodeType.AMP || type == NodeType.WSHAPE;
+    }
     // 自定义公式编译缓存（避免每 tick 重新编译）
     public transient java.util.List<Object> debugFormulaRpn;
 
@@ -429,6 +435,11 @@ public class GraphNode {
             this.itemParams = new ItemStack[]{ItemStack.EMPTY, ItemStack.EMPTY};
         // 设置基于参数的节点的默认值 / Set defaults for param-based nodes
         if (type == NodeType.CONST) this.params[0] = 1.0f;
+        // AMP：新建默认单位增益（0 = 静音陷阱——插入链路即无声）。
+        // AMP: fresh nodes default to unity gain (0 would silence the chain on insert).
+        if (type == NodeType.AMP) this.params[0] = 1.0f;
+        // AMP/WSHAPE：曲线默认恒等（45° 线）= 现行为。 / identity curve by default = current behaviour.
+        if (type == NodeType.AMP || type == NodeType.WSHAPE) { this.curveY = new float[]{0f, 1f}; }
         // CHANNEL：新建默认立体声（l/r）；params[0] = ChannelLayout 布局序号
         if (type == NodeType.CHANNEL) this.params[0] = (float) ChannelLayout.STEREO;
         if (type == NodeType.PID) {
@@ -530,8 +541,8 @@ public class GraphNode {
         if (imagePixels != null) n.imagePixels = imagePixels.clone();
         if (song != null) n.song = song.copy();
         n.imageWidth = imageWidth; n.imageHeight = imageHeight;
-        if (debugCtrlX != null) n.debugCtrlX = debugCtrlX.clone();
-        if (debugCtrlY != null) n.debugCtrlY = debugCtrlY.clone();
+        if (curveX != null) n.curveX = curveX.clone();
+        if (curveY != null) n.curveY = curveY.clone();
         if (imageSequenceFrames != null) {
             n.imageSequenceFrames = new java.util.ArrayList<>();
             for (int[] f : imageSequenceFrames) n.imageSequenceFrames.add(f.clone());
@@ -582,13 +593,13 @@ public class GraphNode {
             tag.put("busData", busData);
         }
         if (!formula.isEmpty()) tag.putString("formula", formula);
-        // 控制点持久化（DEBUG_SIGNAL_GEN 手动曲线模式）
-        // Control point persistence (DEBUG_SIGNAL_GEN manual curve mode)
-        if (type == NodeType.DEBUG_SIGNAL_GEN && debugCtrlX != null && debugCtrlY != null) {
-            int[] dcx = new int[debugCtrlX.length];
-            int[] dcy = new int[debugCtrlY.length];
-            for (int i = 0; i < debugCtrlX.length; i++) dcx[i] = Float.floatToRawIntBits(debugCtrlX[i]);
-            for (int i = 0; i < debugCtrlY.length; i++) dcy[i] = Float.floatToRawIntBits(debugCtrlY[i]);
+        // 控制点持久化（曲线节点：DEBUG 手动曲线 / AMP 力度曲线 / WSHAPE 整形曲线）
+        // Control point persistence (curve nodes: DEBUG manual / AMP dynamics / WSHAPE shape)
+        if (isCurveNode() && curveX != null && curveY != null) {
+            int[] dcx = new int[curveX.length];
+            int[] dcy = new int[curveY.length];
+            for (int i = 0; i < curveX.length; i++) dcx[i] = Float.floatToRawIntBits(curveX[i]);
+            for (int i = 0; i < curveY.length; i++) dcy[i] = Float.floatToRawIntBits(curveY[i]);
             tag.putIntArray("dcx", dcx);
             tag.putIntArray("dcy", dcy);
         }
@@ -695,17 +706,17 @@ public class GraphNode {
         if (tag.contains("iw")) node.imageWidth = Math.max(1, Math.min(32, tag.getInt("iw")));
         if (tag.contains("ih")) node.imageHeight = Math.max(1, Math.min(32, tag.getInt("ih")));
         // 控制点加载（DEBUG_SIGNAL_GEN 手动曲线模式）
-        // Control point loading (DEBUG_SIGNAL_GEN manual curve mode)
-        if (node.type == NodeType.DEBUG_SIGNAL_GEN) {
+        // Control point loading (curve nodes: DEBUG manual / AMP dynamics / WSHAPE shape)
+        if (node.isCurveNode()) {
             if (tag.contains("dcx")) {
                 int[] dcx = tag.getIntArray("dcx");
-                node.debugCtrlX = new float[dcx.length];
-                for (int i = 0; i < dcx.length; i++) node.debugCtrlX[i] = Float.intBitsToFloat(dcx[i]);
+                node.curveX = new float[dcx.length];
+                for (int i = 0; i < dcx.length; i++) node.curveX[i] = Float.intBitsToFloat(dcx[i]);
             }
             if (tag.contains("dcy")) {
                 int[] dcy = tag.getIntArray("dcy");
-                node.debugCtrlY = new float[dcy.length];
-                for (int i = 0; i < dcy.length; i++) node.debugCtrlY[i] = Float.intBitsToFloat(dcy[i]);
+                node.curveY = new float[dcy.length];
+                for (int i = 0; i < dcy.length; i++) node.curveY[i] = Float.intBitsToFloat(dcy[i]);
             }
         }
         if (tag.contains("iframes")) {

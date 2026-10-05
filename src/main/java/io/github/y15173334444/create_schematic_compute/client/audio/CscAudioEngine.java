@@ -136,8 +136,11 @@ public final class CscAudioEngine {
         AudioMixer.panGains(pan, lr);
         ensureChannel();
         long target = targetFrameFor(e, lateSeconds);
+        // 波形整形：按来源 tag 取该音响的 LUT（无注册 = 不整形）。
+        // Waveshaper: the source tag keys the speaker's LUT (unregistered = no shaping).
+        float[] waveLut = listener ? null : WAVE_LUTS.get(sourceTag);
         long placed = mixer.scheduleAtFrame(target, sample, rate, e.pitchMultiplier(),
-            gain * lr[0], gain * lr[1], sourceTag, listener);
+            gain * lr[0], gain * lr[1], sourceTag, listener, waveLut);
         long now = System.nanoTime();
         DIAG.onSchedule(target, placed, now);
         DIAG.onBatch(e.delaySeconds(), now);
@@ -156,6 +159,27 @@ public final class CscAudioEngine {
      *  voices, stale after a transport stop/seek inside the pre-roll window. */
     public static void cancelFutureForSpeaker(long speakerTag) {
         if (mixer != null) mixer.cancelFuture(speakerTag);
+    }
+
+    // ══════════════ 波形整形 LUT 注册表 / waveshaper LUT registry ══════════════
+
+    /** 音响 tag → 波形整形 LUT（null/缺 = 不整形）。键由客户端音响 BE 在主线程维护
+     * （图代数守护重建），网络线程调度时只读——ConcurrentHashMap 保证安全发布。
+     * Speaker tag → waveshaper LUT (null/absent = no shaping). The client speaker BE
+     * maintains entries on the main thread (guarded by graph generation); the network
+     * thread only reads at schedule time — ConcurrentHashMap publishes safely. */
+    private static final java.util.concurrent.ConcurrentHashMap<Long, float[]> WAVE_LUTS =
+        new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** 客户端音响 BE 回写本机 LUT（null = 该音响无整形）。 / client BE pushes its composed LUT (null = none). */
+    public static void setSpeakerWaveLut(long speakerTag, float[] lut) {
+        if (lut == null) WAVE_LUTS.remove(speakerTag);
+        else WAVE_LUTS.put(speakerTag, lut);
+    }
+
+    /** 编辑器关闭/BE 卸载时清注册（防跨存档污染）。 / clear on editor close / BE unload. */
+    public static void clearSpeakerWaveLut(long speakerTag) {
+        WAVE_LUTS.remove(speakerTag);
     }
 
     /** 编辑器试听停止：清除试听未播的排队声部。 / editor audition stop: cancel the audition's queued unplayed voices. */

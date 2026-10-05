@@ -1065,9 +1065,9 @@ public class GraphEditor {
                 io.github.y15173334444.create_schematic_compute.network.SongSync.upload(
                     g.gpos, g.oid, realId, dup.song, g.uid, host::sendOp);
             // DEBUG 控制点 / DEBUG control points
-            if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_SIGNAL_GEN && dup.debugCtrlX != null && dup.debugCtrlY != null
-                && dup.debugCtrlX.length > 0)
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(g.gpos, g.oid, realId, dup.debugCtrlX, dup.debugCtrlY, g.uid));
+            if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_SIGNAL_GEN && dup.curveX != null && dup.curveY != null
+                && dup.curveX.length > 0)
+                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(g.gpos, g.oid, realId, dup.curveX, dup.curveY, g.uid));
             // 显示布局 / display layout (layoutX, layoutY, displayScale, displayRotation, moveScale)
             host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
                 g.gpos, g.oid, realId,
@@ -2983,8 +2983,8 @@ public class GraphEditor {
                 draggingCtrlIdx = cpHit[1];
                 // Save pre-drag control points for undo / 保存拖拽前控制点用于撤销
                 GraphNode pcn = graph.findNode(cpHit[0]);
-                if (pcn != null && pcn.debugCtrlX != null)
-                    preDragCtrlStr = encodeCtrlPoints(pcn.debugCtrlX, pcn.debugCtrlY);
+                if (pcn != null && pcn.curveX != null)
+                    preDragCtrlStr = encodeCtrlPoints(pcn.curveX, pcn.curveY);
                 ctrlPointsChanged = true;
                 lastClickMs = 0;
                 return true;
@@ -3002,9 +3002,13 @@ public class GraphEditor {
             lastClickMs = now;
             if (isDoubleClick) {
                 GraphNode hover = hitNode(mx, my);
-                if (hover != null && hover.type == NodeType.DEBUG_SIGNAL_GEN) {
-                    int hsetMode = hover.params.length > 0 ? (int) hover.params[0] : 0;
-                    if (hsetMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL) {
+                if (hover != null && hover.isCurveNode()) {
+                    // DEBUG 仅手动曲线模式加点；AMP/WSHAPE 恒可编辑。
+                    // DEBUG adds points in manual mode only; AMP/WSHAPE are always editable.
+                    boolean editable = hover.type != NodeType.DEBUG_SIGNAL_GEN
+                        || (hover.params.length > 0
+                            && (int) hover.params[0] == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL);
+                    if (editable) {
                         // 仅在 XY 图区域内添加控制点 / only add within chart area
                         if (isInChartArea(hover, mx, my)) {
                             addControlPoint(hover, mx, my);
@@ -3129,9 +3133,9 @@ public class GraphEditor {
         // 清除 DEBUG_SIGNAL_GEN 控制点拖拽状态 — 若有变更则同步
         if (draggingCtrlNode >= 0 && ctrlPointsChanged) {
             GraphNode cn = graph.findNode(draggingCtrlNode);
-            if (cn != null && cn.debugCtrlX != null && cn.debugCtrlY != null) {
+            if (cn != null && cn.curveX != null && cn.curveY != null) {
                 var cpOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
-                    host.getBlockPos(), ownerNodeId(), cn.id, cn.debugCtrlX, cn.debugCtrlY, host.getPlayerUUID());
+                    host.getBlockPos(), ownerNodeId(), cn.id, cn.curveX, cn.curveY, host.getPlayerUUID());
                 host.sendOp(cpOp);
                 if (!preDragCtrlStr.isEmpty()) {
                     recordOp(cpOp, 0, 0, 0, preDragCtrlStr);
@@ -3410,9 +3414,15 @@ public class GraphEditor {
     private float[] yScale(GraphNode n) {
         float bodyH = NodeRenderer.HH + NodeRenderer.PH * (n.functionalInputs() + n.outputs());
         int chartY = (int) bodyH, chartH = 80;
+        // AMP/WSHAPE：固定值域（AMP 0..1；WSHAPE 0..2 允许过驱），无自动缩放。
+        // AMP/WSHAPE: fixed ranges (AMP 0..1; WSHAPE 0..2 allows overdrive), no auto-scale.
+        if (n.type == NodeType.AMP || n.type == NodeType.WSHAPE) {
+            float yMax = n.type == NodeType.WSHAPE ? 2f : 1f;
+            return new float[]{0f, chartH / yMax, chartY, chartH};
+        }
         int setMode = n.params.length > 0 ? (int) n.params[0] : 0;
         float[] vr = io.github.y15173334444.create_schematic_compute.graph.DebugSignals.computeVisibleRange(
-            setMode, n.debugCtrlX, n.debugCtrlY, n.formula, n.debugFormulaRpn);
+            setMode, n.curveX, n.curveY, n.formula, n.debugFormulaRpn);
         return new float[]{vr[0], chartH / vr[2], chartY, chartH};
     }
 
@@ -3429,16 +3439,19 @@ public class GraphEditor {
     /** 检测鼠标是否命中控制点。返回 [nodeId, ctrlIdx] 或 null。 */
     private int[] hitControlPoint(double mx, double my) {
         for (GraphNode n : getGraph().nodes) {
-            if (n.type != NodeType.DEBUG_SIGNAL_GEN) continue;
-            int setMode = n.params.length > 0 ? (int) n.params[0] : 0;
-            if (setMode != io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL || n.debugCtrlX == null) continue;
+            if (!n.isCurveNode() || n.curveX == null) continue;
+            if (n.type == NodeType.DEBUG_SIGNAL_GEN) {
+                // DEBUG 仅手动曲线模式可拖点 / DEBUG points are draggable in manual mode only
+                int setMode = n.params.length > 0 ? (int) n.params[0] : 0;
+                if (setMode != io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL) continue;
+            }
             float sx = c2sX(n.x), sy = c2sY(n.y);
             int nodeW = NodeRenderer.WIDE_NW;
             float[] ys = yScale(n);
             int chartX = 2, chartW = nodeW - 4;
-            for (int i = 0; i < n.debugCtrlX.length; i++) {
-                float cpx = sx + (chartX + n.debugCtrlX[i] * chartW) * zoom;
-                float cpy = sy + valueToScreenY(ys, n.debugCtrlY[i]) * zoom;
+            for (int i = 0; i < n.curveX.length; i++) {
+                float cpx = sx + (chartX + n.curveX[i] * chartW) * zoom;
+                float cpy = sy + valueToScreenY(ys, n.curveY[i]) * zoom;
                 if (Math.abs(mx - cpx) <= 5 * zoom && Math.abs(my - cpy) <= 5 * zoom) {
                     return new int[]{n.id, i};
                 }
@@ -3501,17 +3514,17 @@ public class GraphEditor {
         int chartX = 2, chartW = nodeW - 4;
         // Y: 自动缩放范围
         float graphY = (float) ((my - sy) / zoom);
-        n.debugCtrlY[idx] = screenYToValue(ys, graphY);
+        n.curveY[idx] = screenYToValue(ys, graphY);
         // Y: 钳制在可见范围内 / Y: clamp to visible range
         float minV = ys[0], maxV = ys[0] + ys[3] / ys[1];
-        if (n.debugCtrlY[idx] < minV) n.debugCtrlY[idx] = minV;
-        if (n.debugCtrlY[idx] > maxV) n.debugCtrlY[idx] = maxV;
+        if (n.curveY[idx] < minV) n.curveY[idx] = minV;
+        if (n.curveY[idx] > maxV) n.curveY[idx] = maxV;
         // X: 夹在前后点之间（首点≥0，末点≤1）
         float graphX = (float) ((mx - sx) / zoom);
         float t = (graphX - chartX) / chartW;
-        float minX = (idx > 0) ? n.debugCtrlX[idx - 1] : 0f;
-        float maxX = (idx < n.debugCtrlX.length - 1) ? n.debugCtrlX[idx + 1] : 1f;
-        n.debugCtrlX[idx] = Math.max(minX, Math.min(maxX, t));
+        float minX = (idx > 0) ? n.curveX[idx - 1] : 0f;
+        float maxX = (idx < n.curveX.length - 1) ? n.curveX[idx + 1] : 1f;
+        n.curveX[idx] = Math.max(minX, Math.min(maxX, t));
     }
 
     /** 在鼠标位置添加控制点（按 X 升序插入）。 */
@@ -3530,25 +3543,25 @@ public class GraphEditor {
         if (v > maxV) v = maxV;
         t = Math.max(0f, Math.min(1f, t));
         int idx = 0;
-        while (idx < n.debugCtrlX.length && n.debugCtrlX[idx] < t) idx++;
-        var oldCtrlStr = encodeCtrlPoints(n.debugCtrlX, n.debugCtrlY);
-        n.debugCtrlX = insertFloat(n.debugCtrlX, idx, t);
-        n.debugCtrlY = insertFloat(n.debugCtrlY, idx, v);
+        while (idx < n.curveX.length && n.curveX[idx] < t) idx++;
+        var oldCtrlStr = encodeCtrlPoints(n.curveX, n.curveY);
+        n.curveX = insertFloat(n.curveX, idx, t);
+        n.curveY = insertFloat(n.curveY, idx, v);
         ctrlPointsChanged = true;
         var cpOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
-            host.getBlockPos(), ownerNodeId(), n.id, n.debugCtrlX, n.debugCtrlY, host.getPlayerUUID());
+            host.getBlockPos(), ownerNodeId(), n.id, n.curveX, n.curveY, host.getPlayerUUID());
         host.sendOp(cpOp); recordOp(cpOp, 0, 0, 0, oldCtrlStr);
     }
 
     /** 删除指定控制点（保留至少 2 个）。 */
     private void removeControlPoint(GraphNode n, int idx) {
-        if (n == null || n.debugCtrlX == null || n.debugCtrlX.length <= 2) return;
-        var oldCtrlStr = encodeCtrlPoints(n.debugCtrlX, n.debugCtrlY);
-        n.debugCtrlX = removeFloat(n.debugCtrlX, idx);
-        n.debugCtrlY = removeFloat(n.debugCtrlY, idx);
+        if (n == null || n.curveX == null || n.curveX.length <= 2) return;
+        var oldCtrlStr = encodeCtrlPoints(n.curveX, n.curveY);
+        n.curveX = removeFloat(n.curveX, idx);
+        n.curveY = removeFloat(n.curveY, idx);
         ctrlPointsChanged = true;
         var cpOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
-            host.getBlockPos(), ownerNodeId(), n.id, n.debugCtrlX, n.debugCtrlY, host.getPlayerUUID());
+            host.getBlockPos(), ownerNodeId(), n.id, n.curveX, n.curveY, host.getPlayerUUID());
         host.sendOp(cpOp); recordOp(cpOp, 0, 0, 0, oldCtrlStr);
     }
 
@@ -3767,7 +3780,7 @@ public class GraphEditor {
         // DEBUG_SIGNAL_GEN 控制点拖拽（X 被夹在相邻点之间 / X clamped between neighbors）
         if (draggingCtrlNode >= 0 && draggingCtrlIdx >= 0) {
             GraphNode cn = getGraph().findNode(draggingCtrlNode);
-            if (cn != null && cn.debugCtrlY != null && draggingCtrlIdx < cn.debugCtrlY.length) {
+            if (cn != null && cn.curveY != null && draggingCtrlIdx < cn.curveY.length) {
                 updateControlPoint(cn, draggingCtrlIdx, mx, my);
                 ctrlPointsChanged = true;
             }

@@ -62,7 +62,7 @@ public enum NodeCategory {
      *  audio (amplifier & speaker hosts): song/gain/channel split/band publish/playback
      *  (band reads ride the BUS_IN audio branch) */
     AUDIO("category.create_schematic_compute.audio",
-        NodeType.MUSIC, NodeType.AMP, NodeType.AUDIO_OUT,
+        NodeType.MUSIC, NodeType.AMP, NodeType.WSHAPE, NodeType.AUDIO_OUT,
         NodeType.CHANNEL, NodeType.SPEAKER_PLAY),
     RADAR("category.create_schematic_compute.radar", NodeType.TARGET_OUT),
     DISPLAY("category.create_schematic_compute.display",

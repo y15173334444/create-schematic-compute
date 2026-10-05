@@ -134,6 +134,12 @@ public enum NodeType {
     // 「功放」增益：audio（AUDIO 域）→ audio（AUDIO 域），gain 浮点引脚（钳 0..4，可接图信号自动化）。
     // Gain stage: audio (AUDIO domain) → audio (AUDIO domain); gain float pin (clamped 0..4).
     AMP("amp", "node.create_schematic_compute.amp", 1, 1, "gain"),
+    // 波形整形（客户端逐样本 LUT，音响图专属 v1）：audio 入 → audio 出，恒等直通——
+    // 曲线在客户端按音响 tag 应用到声部（CurveLut 注册表），服务端只承载曲线数据。
+    // Wave shaper (client per-sample LUT, speaker graphs only in v1): audio in → audio out,
+    // identity passthrough — the curve applies to voices client-side keyed by speaker;
+    // the server side only carries the curve data.
+    WSHAPE("wshape", "node.create_schematic_compute.wshape", 1, 1, ""),
     // 频段发布（单引脚多声道）：audio 入（多声道 AudioRef）→ 发布到音频频段（band=signalName）。
     // Band publish (single-pin multi-channel): audio in (multi-channel AudioRef) → audio band.
     AUDIO_OUT("audio_out", "node.create_schematic_compute.audio_out", 1, 0, ""),
@@ -150,7 +156,7 @@ public enum NodeType {
     // （频段读取无专属节点：BUS_IN 输出接音频线即走音频分支读 AudioBands，2026-10-03 移除 AUDIO_IN）
     // (No dedicated band-read node: a BUS_IN output wired to an audio pin reads AudioBands
     // via the evaluator's audio branch — AUDIO_IN removed 2026-10-03.)
-    SPEAKER_PLAY("speaker_play", "node.create_schematic_compute.speaker_play", 1, 0, "channel");
+    SPEAKER_PLAY("speaker_play", "node.create_schematic_compute.speaker_play", 1, 0, "");
 
     /** NBT 序列化的稳定字符串标识符 — 永远不要修改这些值。 / Stable string identifier for NBT serialisation — never change these. */
     public final String id;
@@ -198,6 +204,7 @@ public enum NodeType {
      *  audio 入为 AUDIO，其余 FLOAT。 Signal domain of input pin i. */
     public PinDomain inputDomain(int i) {
         if (this == AMP && i == 0) return PinDomain.AUDIO;
+        if (this == WSHAPE) return PinDomain.AUDIO;
         if (this == AUDIO_OUT) return PinDomain.AUDIO;
         if (this == CHANNEL && i == 0) return PinDomain.AUDIO;
         if (this == SPEAKER_PLAY && i == 0) return PinDomain.AUDIO;
@@ -209,6 +216,7 @@ public enum NodeType {
     public PinDomain outputDomain(int i) {
         if (this == MUSIC && i == 0) return PinDomain.AUDIO;
         if (this == AMP && i == 0) return PinDomain.AUDIO;
+        if (this == WSHAPE) return PinDomain.AUDIO;
         if (this == CHANNEL) return PinDomain.AUDIO;
         return PinDomain.FLOAT;
     }
@@ -233,7 +241,7 @@ public enum NodeType {
                  // loop = 循环开关（编辑区按钮，不走 EditBox）/ loop = toggle button, not an EditBox
                  // AUDIO_OUT 频道引脚由 signalBands 决定，同 BUS_OUT / channel pins from signalBands, like BUS_OUT
                  // CHANNEL 的「布局」= 编辑区按钮（非引脚）/ layout = edit-panel control, not a pin
-                 MUSIC, AUDIO_OUT, CHANNEL, SPEAKER_PLAY,
+                 MUSIC, AUDIO_OUT, CHANNEL, SPEAKER_PLAY, WSHAPE,
                  // rev = 正/反转开关（编辑区按钮，不走 EditBox / toggle button, not an EditBox）
                  TX_OUT, SPEED_CTRL -> 0;
             // MOVE/ROTATE：只有 meters/degrees 走 EditBox+引脚；rev 是按钮，不占引脚

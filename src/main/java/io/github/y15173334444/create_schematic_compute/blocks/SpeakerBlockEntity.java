@@ -47,6 +47,38 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
 
     private final Map<Integer, MusicTransport> audioTransports = new HashMap<>();
 
+    // ── 客户端波形整形 LUT / client-side waveshaper LUT ──
+    /** 合成 LUT 缓存 + 构建时的图版本（null = 图内无 WSHAPE）。 / composed LUT cache + its graph generation (null = no WSHAPE). */
+    private float[] waveLut;
+    private long waveLutGen = Long.MIN_VALUE;
+
+    /** 客户端：图版本变化后重建本机波形整形 LUT（图内全部 WSHAPE 按节点序串联），
+     *  并按音响 tag 推进引擎注册表（{@code CscAudioEngine} 网络线程调度时只读）。
+     *  主线程调用（求值快照到达路径）；图代数守护，未变化时零开销。
+     *  已知边界：非会话玩家的客户端图不含实时曲线编辑（图 op 只发会话成员）——
+     *  其听到的整形特征以自己那份图快照为准，重进区块刷新。
+     *  Client: rebuild this speaker's composed waveshaper LUT after graph changes (all
+     *  WSHAPE nodes chained in node order) and push it into the engine registry keyed by
+     *  this speaker's tag (CscAudioEngine reads it on the network thread). Main-thread
+     *  only (eval-snapshot arrival path); guarded by graph generation, zero cost when
+     *  unchanged. Known edge: non-session players' client graphs miss live curve edits
+     *  (graph ops ship to session members only) — their shaping follows their own graph
+     *  snapshot until a chunk refresh. */
+    public void refreshWaveLut() {
+        long gen = graph().graphGeneration;
+        if (gen == waveLutGen) return;
+        waveLutGen = gen;
+        float[] acc = null;
+        for (var n : graph().nodes) {
+            if (n.type != NodeType.WSHAPE || n.curveX == null || n.curveY == null) continue;
+            float[] l = io.github.y15173334444.create_schematic_compute.graph.AudioCurve.buildLut(n.curveX, n.curveY);
+            acc = (acc == null) ? l : io.github.y15173334444.create_schematic_compute.graph.AudioCurve.composeLut(acc, l);
+        }
+        waveLut = acc;
+        io.github.y15173334444.create_schematic_compute.client.audio.CscAudioEngine
+            .setSpeakerWaveLut(worldPosition.asLong(), acc);
+    }
+
     public SpeakerBlockEntity(BlockPos pos, BlockState s) {
         super(SchematicCompute.SPEAKER_BE.get(), pos, s);
     }
