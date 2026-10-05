@@ -150,10 +150,18 @@ public class SchematicCompute {
         container.registerConfig(ModConfig.Type.SERVER, Config.SPEC);
 
         // FORMULA 预算接线：graph 侧不直连 Config（接口下沉），根包把预算毫秒接进求值预算门面。
+        // 配置未加载窗口（注册后、SERVER 配置装载前）get() 抛 IllegalStateException，与旧实现一致回退 3.0ms。
         // FORMULA budget wiring: graph does not reach into Config (interface sinking); the
-        // root feeds the budget-ms source into the eval budget facade.
+        // root feeds the budget-ms source into the eval budget facade. In the pre-load window
+        // get() throws IllegalStateException — fall back to 3.0ms, matching the old reader.
         io.github.y15173334444.create_schematic_compute.graph.FormulaCompute
-            .setBudgetMsSource(() -> Config.FORMULA_BUDGET_MS.get().doubleValue());
+            .setBudgetMsSource(() -> {
+                try {
+                    return Config.FORMULA_BUDGET_MS.get().doubleValue();
+                } catch (IllegalStateException e) {
+                    return 3.0; // ModConfigSpec 未加载时 get() 抛 IllegalStateException / ModConfigSpec throws before load
+                }
+            });
         // SET_SONG 的 blob 字节同理接线（graph 不直连 BlobRegistry）。
         // Same sinking for SET_SONG's blob bytes (graph never touches BlobRegistry).
         io.github.y15173334444.create_schematic_compute.graph.OpExecutor
