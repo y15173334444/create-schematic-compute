@@ -154,6 +154,10 @@ public class SchematicCompute {
         // root feeds the budget-ms source into the eval budget facade.
         io.github.y15173334444.create_schematic_compute.graph.FormulaCompute
             .setBudgetMsSource(() -> Config.FORMULA_BUDGET_MS.get().doubleValue());
+        // SET_SONG 的 blob 字节同理接线（graph 不直连 BlobRegistry）。
+        // Same sinking for SET_SONG's blob bytes (graph never touches BlobRegistry).
+        io.github.y15173334444.create_schematic_compute.graph.OpExecutor
+            .setBlobStore(io.github.y15173334444.create_schematic_compute.network.BlobRegistry::poll);
 
         TABS.register("main", () -> CreativeModeTab.builder()
                 .title(Component.translatable("itemGroup." + MOD_ID))

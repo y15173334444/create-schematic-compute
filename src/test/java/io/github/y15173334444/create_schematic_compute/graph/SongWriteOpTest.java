@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.graph;
 import io.github.y15173334444.create_schematic_compute.network.BlobDataPacket;
 import io.github.y15173334444.create_schematic_compute.network.BlobRegistry;
 import net.minecraft.core.BlockPos;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -18,6 +19,12 @@ class SongWriteOpTest {
 
     private static final UUID ACTOR = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final BlockPos POS = new BlockPos(1, 2, 3);
+
+    /** 接线 blob 字节源（接口下沉后由注入方提供；生产由根包接 BlobRegistry::poll）。 */
+    @BeforeAll
+    static void wireBlobStore() {
+        OpExecutor.setBlobStore(BlobRegistry::poll);
+    }
 
     /** SET_SONG op；itemStack 置 null（不读它，避免依赖 Minecraft 的 ItemStack.EMPTY）。 */
     private static GraphOp setSongOp(int nodeId, int blobId) {

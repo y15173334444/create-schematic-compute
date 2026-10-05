@@ -1,6 +1,5 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
-import io.github.y15173334444.create_schematic_compute.network.BlobRegistry;
 import net.minecraft.world.item.ItemStack;
 
 /**
@@ -18,6 +17,18 @@ import net.minecraft.world.item.ItemStack;
 public final class OpExecutor {
 
     private OpExecutor() {}
+
+    /** Blob 字节来源（接口下沉，根包注入 network.BlobRegistry::poll）；未接线 = 恒 null，
+     *  SET_SONG 按坏数据拒存原曲。 / blob byte source (interface sinking; the root wires
+     *  network.BlobRegistry::poll); unwired yields null forever and SET_SONG rejects the
+     *  data, keeping the old song. */
+    private static BlobStore blobStore = id -> null;
+
+    /** 注入 blob 字节来源（根包在模组构造时接线）。 / inject the blob byte source (wired
+     *  by the root at mod construction). */
+    public static void setBlobStore(BlobStore store) {
+        blobStore = store != null ? store : id -> null;
+    }
 
     /** 按 X 升序排列控制点对（冒泡排序，数组很小）。 */
     private static void sortByX(float[] cx, float[] cy) {
@@ -549,7 +560,7 @@ public final class OpExecutor {
                 // the node never breaks — same policy as the node-NBT parse).
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null && n.type == NodeType.MUSIC && op.blobRefId() != 0) {
-                    byte[] data = BlobRegistry.poll(op.blobRefId());
+                    byte[] data = blobStore.poll(op.blobRefId());
                     if (data != null && data.length <= NbsSong.MAX_BYTES) {
                         try {
                             n.song = NbsSong.read(data);
