@@ -169,21 +169,22 @@ class AudioNodesEvalTest {
     }
 
     @Test
-    @DisplayName("AMP 力度曲线：逐事件塑形，链上标量后叠加 / AMP dynamics curve shapes events; the chain scalar applies after")
+    @DisplayName("AMP 力度曲线：按力度塑形（x=实例音量），链上标量后叠加 / AMP dynamics curve shapes by loudness (x = instance volume); the chain scalar applies after")
     void ampDynamicsCurve() {
         NbsSong s = new NbsSong();
         s.tempo = 1000;
-        s.putNote(0, 0, 2, 45, 100, 100, 0);  // e.gain = 1.0
-        s.putNote(1, 0, 2, 47, 50, 100, 0);   // e.gain = 0.5
+        s.putNote(0, 0, 2, 45, 100, 0, 0);  // 力度 100 → 实例音量 1.0
+        s.putNote(1, 0, 2, 47, 50, 0, 0);   // 力度 50 → 实例音量 0.5
         Fixture f = build(s, 2f);             // AMP 标量 2（曲线后叠加）
         f.amp().curveX = new float[]{0f, 0.5f, 1f};
-        f.amp().curveY = new float[]{0f, 0.75f, 0.75f}; // 压缩：0.5→0.75、1.0→0.75
+        f.amp().curveY = new float[]{0f, 0.2f, 0.9f}; // 非比例曲线：0.5→0.2、1.0→0.9
         f.ev().evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
 
         var ref = AudioBands.get(AudioBands.bandKey("B", "B"), 0L);
         assertEquals(2, ref.events().size());
-        assertEquals(0.75f, ref.events().get(0).gain(), 1e-6, "curve(1.0) = 0.75 (compressed down)");
-        assertEquals(0.75f, ref.events().get(1).gain(), 1e-6, "curve(0.5) = 0.75 (compressed up)");
+        assertEquals(0.9f, ref.events().get(0).instanceVolume(), 1e-6, "curve(1.0) = 0.9");
+        assertEquals(0.2f, ref.events().get(1).instanceVolume(), 1e-6,
+            "curve(0.5) = 0.2 —— 曲线看到的是音符力度而非常数增益（x 取 instanceVolume）");
         assertEquals(2f, ref.gain(), 1e-6, "the chain scalar rides the ref, applied after the curve");
     }
 

@@ -31,6 +31,15 @@ public record NoteEvent(int instrument, int key, int velocity, int panning, int 
         return new NoteEvent(instrument, key, velocity, panning, pitch, newGain, delaySeconds);
     }
 
+    /** 返回替换实例音量后的副本（实例音量 = 力度/100 × 增益，反解增益写回；力度为 0 的音符
+     *  本就无声、增益不动）。 / a copy with the instance volume replaced (volume =
+     *  velocity/100 × gain, solved back into the gain; a zero-velocity note is silent
+     *  regardless, so its gain stays). */
+    public NoteEvent withInstanceVolume(float volume) {
+        if (velocity <= 0) return this;
+        return withGain(volume * 100f / velocity);
+    }
+
     /** 原版乐器（0–15）；自定义乐器（≥16）或越界降级为 0（harp）。 */
     public int mappedInstrument() {
         return (instrument >= 0 && instrument < 16) ? instrument : 0;

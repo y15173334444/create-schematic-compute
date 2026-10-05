@@ -1344,18 +1344,25 @@ public class GraphEvaluator {
                 if (in == null) {
                     audioRefs.put(audioKey(node.id, 0), AudioRef.EMPTY);
                 } else {
-                    // 力度曲线（方案一，2026-10-05 作者拍板）：x = 音符自身力度（速度×层音量，0..1），
-                    // y = 输出力度——曲线管形状、链上标量（含引脚）在曲线后线性叠加管电平，
-                    // 两者正交；恒等曲线 = 原行为。曲线点间线性插值，端点钳制。
+                    // 力度曲线（方案一，2026-10-05 作者拍板）：x = 音符自身力度（速度×层音量 =
+                    // 实例音量，0..1），y = 输出力度（写回实例音量）——曲线管形状、链上标量（含引脚）
+                    // 在曲线后线性叠加管电平，两者正交；恒等曲线 = 原行为。曲线点间线性插值，端点钳制。
+                    // x 不是 gain 字段：运输层把速度×层音量烘焙进 velocity、gain 恒 1，
+                    // 响度住在 instanceVolume()——用 gain 当 x 会让曲线只见常数、塑不到力度。
                     // Dynamics curve (option 1, author call): x = the note's own loudness
-                    // (velocity × layer, 0..1), y = output level — the curve shapes, the chain
-                    // scalar (incl. the pin) scales afterwards; the two are orthogonal. Identity
-                    // curve = old behaviour. Linear interpolation between points, clamped ends.
+                    // (velocity × layer = the instance volume, 0..1), y = output level written
+                    // back as the instance volume — the curve shapes, the chain scalar (incl.
+                    // the pin) scales afterwards; the two are orthogonal. Identity curve = old
+                    // behaviour. Linear interpolation between points, clamped ends. Note x is
+                    // NOT the gain field: the transport bakes velocity × layer into velocity and
+                    // fixes gain at 1, so loudness lives in instanceVolume() — using gain as x
+                    // would show the curve a constant and shape no dynamics at all.
                     if (node.isCurveNode() && node.curveX != null && node.curveY != null
                         && in.events() != null && !in.events().isEmpty()) {
                         var shaped = new java.util.ArrayList<NoteEvent>(in.events().size());
                         for (NoteEvent e : in.events())
-                            shaped.add(e.withGain(AudioCurve.eval(node.curveX, node.curveY, e.gain())));
+                            shaped.add(e.withInstanceVolume(
+                                AudioCurve.eval(node.curveX, node.curveY, e.instanceVolume())));
                         in = new AudioRef(shaped, in.gain(), in.stopSignal(), in.waveLut());
                     }
                     audioRefs.put(audioKey(node.id, 0), in.withGain(in.gain() * gain));
