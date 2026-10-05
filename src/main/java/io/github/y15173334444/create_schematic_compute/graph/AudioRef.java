@@ -1,5 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -18,34 +19,41 @@ import java.util.List;
  * and the marker rides the pipeline unchanged (AMP/CHANNEL/AUDIO_OUT/band table) to the sink,
  * whose host tells the client to cancel that speaker's queued unplayed voices — without it a
  * widened pre-roll leaves a tail up to one window long after a stop.</p>
- * <p>{@code waveLut} = 波形整形 LUT（WSHAPE 节点产生，257 点等距网格 x=|采样| 0..1 → y=输出
- * 幅度）：沿管线穿透到 sink，随 {@code NoteEventPacket} 送达客户端混音器逐样本应用。
- * / {@code waveLut} is a waveshaper LUT (produced by WSHAPE nodes; 257-entry even grid,
- * x = |sample| 0..1 → y = output magnitude) riding the pipeline to the sink and on to the
- * client mixer for per-sample application via the note packet.</p>
+ * <p>{@code waveCurves} = 波形整形曲线链（WSHAPE 节点产生，按应用序追加；恒等曲线旁路不入链）：
+ * 控制点对沿管线穿透到 sink，随 {@code NoteEventPacket} 送达客户端，客户端以 float 精度烘
+ * LUT（零量化失真）逐样本应用。/ {@code waveCurves} is the waveshaper curve chain (appended
+ * by WSHAPE nodes in application order; identity curves bypass and never enter): control-point
+ * pairs ride the pipeline to the sink and on through {@code NoteEventPacket} to the client,
+ * which bakes the LUT at float precision (zero quantization) for per-sample application.</p>
  */
-public record AudioRef(List<NoteEvent> events, float gain, boolean stopSignal, float[] waveLut) {
+public record AudioRef(List<NoteEvent> events, float gain, boolean stopSignal,
+                       List<AudioCurve.Curve> waveCurves) {
 
     /** 兼容构造：普通音源引用（非停止标记、无波形整形）。 / compat ctor: plain source ref. */
-    public AudioRef(List<NoteEvent> events, float gain) { this(events, gain, false, null); }
+    public AudioRef(List<NoteEvent> events, float gain) { this(events, gain, false, List.of()); }
 
     /** 兼容构造：带停止标记。 / compat ctor: with stop marker. */
-    public AudioRef(List<NoteEvent> events, float gain, boolean stopSignal) { this(events, gain, stopSignal, null); }
+    public AudioRef(List<NoteEvent> events, float gain, boolean stopSignal) { this(events, gain, stopSignal, List.of()); }
 
     /** 空音源（无事件）。 */
-    public static final AudioRef EMPTY = new AudioRef(List.of(), 1f, false, null);
+    public static final AudioRef EMPTY = new AudioRef(List.of(), 1f, false, List.of());
 
     /** 停止标记（一次性；事件恒空）。 / the stop marker (one-shot; events always empty). */
-    public static final AudioRef STOP = new AudioRef(List.of(), 1f, true, null);
+    public static final AudioRef STOP = new AudioRef(List.of(), 1f, true, List.of());
 
-    /** 返回替换增益后的副本（保留事件、停止标记与 LUT）。 */
+    /** 返回替换增益后的副本（保留事件、停止标记与整形曲线链）。 */
     public AudioRef withGain(float newGain) {
-        return new AudioRef(events, newGain, stopSignal, waveLut);
+        return new AudioRef(events, newGain, stopSignal, waveCurves);
     }
 
-    /** 返回替换波形整形 LUT 后的副本。 / a copy with a new waveshaper LUT. */
-    public AudioRef withWaveLut(float[] lut) {
-        return new AudioRef(events, gain, stopSignal, lut);
+    /** 返回追加一条整形曲线后的副本（链尾 = 最后作用；多 WSHAPE 按节点序入链）。
+     *  / a copy with one shaping curve appended (tail = applied last; WSHAPE nodes
+     *  append in node order). */
+    public AudioRef withWaveCurve(AudioCurve.Curve curve) {
+        var chain = new ArrayList<AudioCurve.Curve>(waveCurves.size() + 1);
+        chain.addAll(waveCurves);
+        chain.add(curve);
+        return new AudioRef(events, gain, stopSignal, List.copyOf(chain));
     }
 
     /** 是否为空（无事件）。 */

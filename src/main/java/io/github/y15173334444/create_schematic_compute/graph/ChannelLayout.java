@@ -84,7 +84,7 @@ public final class ChannelLayout {
             float w = weight(e, channel, hasCenter);
             if (w > WEIGHT_FLOOR) out.add(e.withGain(e.gain() * w));
         }
-        return new AudioRef(List.copyOf(out), in.gain(), in.stopSignal(), in.waveLut());
+        return new AudioRef(List.copyOf(out), in.gain(), in.stopSignal(), in.waveCurves());
     }
 
     /** 权重地板：低于此值视为数值噪声（−80 dB），不进该声道。

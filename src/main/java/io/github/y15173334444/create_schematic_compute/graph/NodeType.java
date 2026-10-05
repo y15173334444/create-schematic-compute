@@ -134,11 +134,13 @@ public enum NodeType {
     // 「功放」增益：audio（AUDIO 域）→ audio（AUDIO 域），gain 浮点引脚（钳 0..4，可接图信号自动化）。
     // Gain stage: audio (AUDIO domain) → audio (AUDIO domain); gain float pin (clamped 0..4).
     AMP("amp", "node.create_schematic_compute.amp", 1, 1, "gain"),
-    // 波形整形（客户端逐样本 LUT，音响图专属 v1）：audio 入 → audio 出，恒等直通——
-    // 曲线在客户端按音响 tag 应用到声部（CurveLut 注册表），服务端只承载曲线数据。
-    // Wave shaper (client per-sample LUT, speaker graphs only in v1): audio in → audio out,
-    // identity passthrough — the curve applies to voices client-side keyed by speaker;
-    // the server side only carries the curve data.
+    // 波形整形（客户端逐样本 LUT）：audio 入 → audio 出，恒等直通——曲线控制点骑 AudioRef
+    // 随频段表/音符包送达客户端，按序烘 LUT 逐样本应用；恒等曲线 = 真旁路（不入链不进包）。
+    // 功放图与音响图均可放。/ Wave shaper (client per-sample LUT): audio in → audio out,
+    // identity passthrough — curve control points ride the AudioRef through the band table
+    // into the note packet, baked and composed client-side for per-sample application; an
+    // identity curve is a true bypass (never enters the chain or the wire). Works in
+    // amplifier and speaker graphs alike.
     WSHAPE("wshape", "node.create_schematic_compute.wshape", 1, 1, ""),
     // 频段发布（单引脚多声道）：audio 入（多声道 AudioRef）→ 发布到音频频段（band=signalName）。
     // Band publish (single-pin multi-channel): audio in (multi-channel AudioRef) → audio band.

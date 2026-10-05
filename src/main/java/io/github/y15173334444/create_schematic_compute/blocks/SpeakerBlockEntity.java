@@ -1,7 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
-import io.github.y15173334444.create_schematic_compute.graph.ChannelLayout;
+import io.github.y15173334444.create_schematic_compute.graph.AudioCurve;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.MusicTransport;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
@@ -97,31 +97,26 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
     /** SPEAKER_PLAY 播放下沉：在自身坐标发声（套用音响增益/静音）。 */
     @Override
     public void play(List<NoteEvent> events, float gain) {
-        play(events, gain, null);
+        play(events, gain, List.of());
     }
 
-    /** 带波形整形 LUT 的播放：LUT 量化为字节（257 点，y∈[0,2] → 0..255）随
-     *  {@link NoteEventPacket} 下发，客户端混音器逐样本应用；null = 无整形。
-     *  Playback with a waveshaper LUT: quantized to bytes (257 points, y∈[0,2] → 0..255)
-     *  and shipped inside the note packet; the client mixer applies it per sample.
-     *  null = no shaping. */
+    /** 带波形整形曲线链的播放：控制点对随 {@link NoteEventPacket} 原样下发（无量化——
+     *  客户端以 float 精度烘 LUT 逐样本应用），空链 = 无整形。
+     *  Playback with a waveshaper curve chain: control-point pairs ship inside the note
+     *  packet raw (no quantization — the client bakes the LUT at float precision and
+     *  applies it per sample); an empty chain means no shaping. */
     @Override
-    public void play(List<NoteEvent> events, float gain, float[] waveLut) {
+    public void play(List<NoteEvent> events, float gain, List<AudioCurve.Curve> waveCurves) {
         if (level == null || level.isClientSide() || events == null || events.isEmpty()) return;
         if (mute) return;
         if (redstoneMuted) return;
         float sgain = gain * this.gain;
         List<NoteEvent> evs = new ArrayList<>(events.size());
         for (var e : events) evs.add(e.withGain(e.gain() * sgain));
-        byte[] lutBytes = null;
-        if (waveLut != null && waveLut.length > 0) {
-            lutBytes = new byte[waveLut.length];
-            for (int i = 0; i < waveLut.length; i++)
-                lutBytes[i] = (byte) Math.round(Math.max(0f, Math.min(2f, waveLut[i])) * 127.5f);
-        }
         PacketDistributor.sendToPlayersTrackingChunk((ServerLevel) level,
             new ChunkPos(worldPosition),
-            new NoteEventPacket(worldPosition, radius, level.getGameTime(), evs, lutBytes));
+            new NoteEventPacket(worldPosition, radius, level.getGameTime(), evs,
+                waveCurves == null ? List.of() : waveCurves));
     }
 
     /** 停止标记（一次性，MUSIC 停止/跳转沿随音频引用到达）：通知追踪玩家清除本音响

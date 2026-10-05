@@ -1357,34 +1357,43 @@ public class GraphEvaluator {
                     // NOT the gain field: the transport bakes velocity × layer into velocity and
                     // fixes gain at 1, so loudness lives in instanceVolume() — using gain as x
                     // would show the curve a constant and shape no dynamics at all.
+                    // 恒等曲线 = 真旁路（不参与，与没动过逐位一致）——「默认」随时可达，
+                    // 不是一次性状态。Identity curve = true bypass (bit-identical to
+                    // untouched), so the default is always reachable, not one-shot.
                     if (node.isCurveNode() && node.curveX != null && node.curveY != null
+                        && !AudioCurve.isIdentity(node.curveX, node.curveY)
                         && in.events() != null && !in.events().isEmpty()) {
                         var shaped = new java.util.ArrayList<NoteEvent>(in.events().size());
                         for (NoteEvent e : in.events())
                             shaped.add(e.withInstanceVolume(
                                 AudioCurve.eval(node.curveX, node.curveY, e.instanceVolume())));
-                        in = new AudioRef(shaped, in.gain(), in.stopSignal(), in.waveLut());
+                        in = new AudioRef(shaped, in.gain(), in.stopSignal(), in.waveCurves());
                     }
                     audioRefs.put(audioKey(node.id, 0), in.withGain(in.gain() * gain));
                 }
             }
             case WSHAPE -> {
-                // 波形整形：把自身曲线的 LUT 复合进引用（输入已有 LUT 则串联 g∘f），随
-                // AudioRef → 频段表 → NoteEventPacket 送达客户端混音器逐样本应用。事件与
-                // 标量原样——服务端不做任何采样级处理（v1 起功放图与音响图均可放）。
-                // Wave shaper: compose this node's curve LUT into the ref (g∘f when the
-                // input already carries one) — it rides the AudioRef → band table → note
-                // packet to the client mixer for per-sample application. Events and the
-                // scalar pass untouched (no server-side sample processing); allowed in
-                // both amplifier and speaker graphs.
+                // 波形整形：把自身曲线（控制点对）追加进引用的整形链（应用序；客户端烘 LUT 时
+                // 按序合成 g∘f），随 AudioRef → 频段表 → NoteEventPacket 送达客户端混音器逐样本
+                // 应用——控制点直达，无烘焙量化失真。恒等曲线 = 真旁路（不入链、不进包，
+                // 与没动过逐位一致）。事件与标量原样——服务端不做任何采样级处理
+                //（功放图与音响图均可放）。
+                // Wave shaper: appends this node's curve (control-point pairs) to the ref's
+                // shaping chain (application order; the client composes g∘f when baking) —
+                // it rides the AudioRef → band table → note packet to the client mixer for
+                // per-sample application, points delivered raw (no bake-quantization
+                // distortion). An identity curve is a true bypass (never enters the chain
+                // or the wire — bit-identical to untouched). Events and the scalar pass
+                // untouched (no server-side sample processing); works in amplifier and
+                // speaker graphs alike.
                 AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
                 if (in == null) {
                     audioRefs.put(audioKey(node.id, 0), AudioRef.EMPTY);
+                } else if (AudioCurve.isIdentity(node.curveX, node.curveY)) {
+                    audioRefs.put(audioKey(node.id, 0), in);
                 } else {
-                    float[] own = AudioCurve.buildLut(node.curveX, node.curveY);
-                    float[] composed = (in.waveLut() == null)
-                        ? own : AudioCurve.composeLut(in.waveLut(), own);
-                    audioRefs.put(audioKey(node.id, 0), in.withWaveLut(composed));
+                    audioRefs.put(audioKey(node.id, 0),
+                        in.withWaveCurve(new AudioCurve.Curve(node.curveX, node.curveY)));
                 }
             }
             case CHANNEL -> {
@@ -1423,7 +1432,7 @@ public class GraphEvaluator {
                 AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
                 if (in != null && speakerSink != null) {
                     if (in.stopSignal()) speakerSink.stopPlayback();
-                    else speakerSink.play(in.events(), in.gain(), in.waveLut());
+                    else speakerSink.play(in.events(), in.gain(), in.waveCurves());
                 }
             }
             case ENCAPSULATION -> {

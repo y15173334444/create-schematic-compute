@@ -189,12 +189,12 @@ class AudioNodesEvalTest {
     }
 
     @Test
-    @DisplayName("WSHAPE：LUT 挂上引用随管线流动，事件原样 / WSHAPE: the LUT rides the ref, events pass untouched")
+    @DisplayName("WSHAPE：曲线入整形链随引用流动，事件原样 / WSHAPE: the curve joins the ref's chain, events pass untouched")
     void wshapePassthrough() {
         Fixture f = build(song(45), 1f);
         GraphNode ws = f.graph().addNode(NodeType.WSHAPE, 350, 0);
         ws.curveX = new float[]{0f, 1f};
-        ws.curveY = new float[]{0f, 2f};   // LUT y=2x：客户端逐样本应用，服务端事件不动
+        ws.curveY = new float[]{0f, 2f};   // y=2x：客户端逐样本应用，服务端事件不动
         f.graph().connections.removeIf(c -> c.toId == f.audioOut().id);
         assertTrue(f.graph().addConnection(f.amp().id, 0, ws.id, 0));
         assertTrue(f.graph().addConnection(ws.id, 0, f.audioOut().id, 0));
@@ -205,13 +205,33 @@ class AudioNodesEvalTest {
         assertEquals(1f, ref.events().get(0).gain(), 1e-6,
             "shaping is client-side; events pass through untouched");
         assertEquals(1f, ref.gain(), 1e-6);
-        assertNotNull(ref.waveLut(), "the composed LUT rides the ref into the band table");
-        assertEquals(2f, ref.waveLut()[AudioCurve.LUT_SIZE - 1], 1e-5, "the LUT carries the curve (y=2x)");
+        assertEquals(1, ref.waveCurves().size(), "the curve rides the ref into the band table");
+        var c = ref.waveCurves().get(0);
+        assertArrayEquals(new float[]{0f, 1f}, c.xs(), 1e-6f);
+        assertArrayEquals(new float[]{0f, 2f}, c.ys(), 1e-6f, "the points carry the curve (y=2x)");
     }
 
     @Test
-    @DisplayName("WSHAPE → CHANNEL：LUT 穿过拆分节点不丢失 / WSHAPE through CHANNEL: the LUT survives the split")
-    void wshapeLutSurvivesChannel() {
+    @DisplayName("WSHAPE 恒等曲线 = 真旁路（链上无整形）/ WSHAPE identity curve is a true bypass")
+    void wshapeIdentityBypass() {
+        Fixture f = build(song(45), 1f);
+        GraphNode ws = f.graph().addNode(NodeType.WSHAPE, 350, 0);
+        ws.curveX = new float[]{0f, 1f};
+        ws.curveY = new float[]{0f, 1f};   // 恒等（新建默认即此）：不入链、不进包
+        f.graph().connections.removeIf(c -> c.toId == f.audioOut().id);
+        assertTrue(f.graph().addConnection(f.amp().id, 0, ws.id, 0));
+        assertTrue(f.graph().addConnection(ws.id, 0, f.audioOut().id, 0));
+        f.ev().evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+
+        var ref = AudioBands.get(AudioBands.bandKey("B", "B"), 0L);
+        assertEquals(1, ref.events().size());
+        assertTrue(ref.waveCurves().isEmpty(),
+            "identity = bypass: nothing rides the ref, identical to not having the node");
+    }
+
+    @Test
+    @DisplayName("WSHAPE → CHANNEL：曲线链穿过拆分节点不丢失 / WSHAPE through CHANNEL: the chain survives the split")
+    void wshapeCurveSurvivesChannel() {
         NbsSong s = new NbsSong();
         s.tempo = 1000;
         s.putNote(0, 0, 2, 45, 100, 100, 0);
@@ -230,8 +250,8 @@ class AudioNodesEvalTest {
 
         var ref = AudioBands.get(AudioBands.bandKey("B", "B"), 0L);
         assertEquals(1, ref.events().size(), "only the l-channel notes reach band B");
-        assertNotNull(ref.waveLut(), "the LUT survives CHANNEL's per-channel re-wrap");
-        assertEquals(2f, ref.waveLut()[AudioCurve.LUT_SIZE - 1], 1e-5);
+        assertEquals(1, ref.waveCurves().size(), "the chain survives CHANNEL's per-channel re-wrap");
+        assertEquals(2f, ref.waveCurves().get(0).ys()[1], 1e-6);
     }
 
     @Test

@@ -12,12 +12,12 @@ public interface SpeakerSink {
     /** 播放本 tick 音源（事件 + 累计增益）；宿主在其世界坐标发声。 */
     void play(List<NoteEvent> events, float gain);
 
-    /** 带波形整形 LUT 的播放（WSHAPE 节点产生；null = 无整形）。default 委托给两参版本，
-     *  让测试的 lambda sink 与不关心 LUT 的宿主免改——关心 LUT 的宿主（音响 BE）覆写本方法。
-     *  Playback with a waveshaper LUT (produced by WSHAPE nodes; null = none). The default
-     *  delegates to the two-arg version so test lambda sinks stay source-compatible; hosts
-     *  that care about the LUT (the speaker BE) override this. */
-    default void play(List<NoteEvent> events, float gain, float[] waveLut) {
+    /** 带波形整形曲线链的播放（WSHAPE 节点产生；空链 = 无整形）。default 委托给两参版本，
+     *  让测试的 lambda sink 与不关心整形的宿主免改——关心的宿主（音响 BE）覆写本方法。
+     *  Playback with a waveshaper curve chain (produced by WSHAPE nodes; empty = none). The
+     *  default delegates to the two-arg version so test lambda sinks stay source-compatible;
+     *  hosts that care (the speaker BE) override this. */
+    default void play(List<NoteEvent> events, float gain, List<AudioCurve.Curve> waveCurves) {
         play(events, gain);
     }
 

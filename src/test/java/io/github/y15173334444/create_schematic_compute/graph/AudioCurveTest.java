@@ -54,4 +54,40 @@ class AudioCurveTest {
         assertEquals(0.25f, AudioCurve.evalLut(composed, 0.25f), 1e-5);
         assertEquals(0.5f, AudioCurve.evalLut(composed, 0.5f), 1e-5);
     }
+
+    @Test
+    @DisplayName("恒等判据：y=x 且覆盖 [0,1] / identity means y = x covering [0,1]")
+    void isIdentityCheck() {
+        assertTrue(AudioCurve.isIdentity(null, null), "no curve = identity (bypass)");
+        assertTrue(AudioCurve.isIdentity(new float[]{0f, 1f}, new float[]{0f, 1f}));
+        assertTrue(AudioCurve.isIdentity(new float[]{0f, 0.5f, 1f}, new float[]{0f, 0.5f, 1f}),
+            "collinear points on y=x are still identity");
+        assertFalse(AudioCurve.isIdentity(new float[]{0f, 1f}, new float[]{0f, 2f}));
+        assertFalse(AudioCurve.isIdentity(new float[]{0f, 0.5f, 1f}, new float[]{0f, 0.4f, 1f}),
+            "off-line points are a real shape");
+        assertFalse(AudioCurve.isIdentity(new float[]{0.2f, 1f}, new float[]{0.2f, 1f}),
+            "not covering x < 0.2: the clamp end is not identity");
+    }
+
+    @Test
+    @DisplayName("链烘 LUT 按应用序合成，空链无整形 / baking a chain composes in application order; an empty chain is none")
+    void bakeChainInOrder() {
+        var f = new AudioCurve.Curve(new float[]{0f, 1f}, new float[]{0f, 2f});    // y = 2x
+        var g = new AudioCurve.Curve(new float[]{0f, 1f}, new float[]{0f, 0.5f});  // y = x/2
+        float[] lut = AudioCurve.bakeLut(java.util.List.of(f, g));
+        assertEquals(0.5f, AudioCurve.evalLut(lut, 0.5f), 1e-5, "g(f(0.5)) = g(1.0) = 0.5");
+        assertEquals(0.25f, AudioCurve.evalLut(lut, 0.25f), 1e-5, "g(f(0.25)) = g(0.5) = 0.25");
+        assertNull(AudioCurve.bakeLut(java.util.List.of()), "an empty chain bakes to nothing");
+    }
+
+    @Test
+    @DisplayName("Curve 数组防御复制 + 值相等 / Curve snapshots its arrays and compares by content")
+    void curveSnapshotAndEquality() {
+        float[] xs = {0f, 1f}, ys = {0f, 2f};
+        var c = new AudioCurve.Curve(xs, ys);
+        ys[1] = 0.5f;                                  // 改动源数组不影响已建曲线 / mutate source
+        assertEquals(2f, c.ys()[1], 1e-6, "the curve holds a snapshot");
+        assertEquals(new AudioCurve.Curve(new float[]{0f, 1f}, new float[]{0f, 2f}), c,
+            "equal content is equal, arrays compared by content");
+    }
 }
