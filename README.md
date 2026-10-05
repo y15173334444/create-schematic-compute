@@ -388,6 +388,20 @@ Global named-channel communication across computers. Like publish-subscribe mess
 </details>
 
 <details>
+<summary><b>⚙️ Transmission & Gearbox / 变速器·齿轮箱</b> (Programmable Transmission + CNC Gearbox / 可编程变速器·数控齿轮箱)</summary>
+
+| Node / 节点 | Description / 说明 |
+|-------------|-------------------|
+| Target Speed / 目标转速 | Passthrough desired output RPM; the rev toggle negates it and the host transmission writes the target / 透传期望输出转速，rev 取反，宿主变速器写入目标 |
+| Move / 移动 | Command stack: rising edge enqueues "move N meters" (value = param, wire-overridable) / 指令栈：上升沿入队「移动 N 米」（数值=参数，可连线覆盖） |
+| Rotate / 转动 | Command stack: rising edge enqueues "rotate N degrees" / 指令栈：上升沿入队「转动 N 度」 |
+| Wait / 等待 | Command stack: rising edge enqueues "wait N ticks" / 指令栈：上升沿入队「等待 N 刻」 |
+| Clutch / 离合 | Standing clutch intent / 常接合意图 |
+| Encoder / 编码器 | Motion feedback: angle (deg) · linear position (m) · actual speed (RPM); reset is body input pin 0 (level-triggered) / 运动反馈：角度（度）·线性位置（米）·实际转速（RPM）；清零为节点体 0 号输入引脚（电平触发） |
+
+</details>
+
+<details>
 <summary><b>🔢 Basic Math / 基础运算</b></summary>
 
 | Node / 节点 | Description / 说明 |
@@ -503,7 +517,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 </details>
 
 <details>
-<summary><b>🖼️ Display / 显示</b> (Monitor only / 仅全息显示器)</summary>
+<summary><b>🖼️ Display / 显示</b> (Monitor + Control Seat HUD / 全息显示器+控制座椅抬头显示)</summary>
 
 | Node / 节点 | Description / 说明 |
 |-------------|-------------------|
@@ -511,6 +525,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | Data Display / 数值显示 | Float value display / 数值显示 |
 | Image / 图像 | 16×16 pixel image, signal-driven position / 像素图片 |
 | Image Sequence / 图像序列 | Multi-frame animation, signal-driven frame / 多帧动画 |
+| Pitch Ladder / 俯仰梯 | AR HUD pitch ladder (Control Seat), range & interval params / AR HUD 俯仰梯（控制座椅），range/interval 参数 |
 
 </details>
 
