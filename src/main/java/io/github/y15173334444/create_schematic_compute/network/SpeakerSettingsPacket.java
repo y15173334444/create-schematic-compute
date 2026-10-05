@@ -13,10 +13,12 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 /**
- * 音响设置（C→S）：频道名/增益/半径/静音。应用到 {@link SpeakerBlockEntity}。
- * <p>Speaker settings (client→server): channel name / gain / radius / mute.</p>
+ * 音响设置（C→S）：频段名/增益/半径/静音。应用到 {@link SpeakerBlockEntity}。
+ * band 仅作空图默认图的初始频段名（运行时频段名归图节点）。
+ * <p>Speaker settings (client→server): band / gain / radius / mute. The band only seeds
+ * the default graph's BUS_IN name — the runtime band name belongs to the graph node.</p>
  */
-public record SpeakerSettingsPacket(BlockPos pos, String band, String channel, float gain, int radius, boolean mute)
+public record SpeakerSettingsPacket(BlockPos pos, String band, float gain, int radius, boolean mute)
         implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<SpeakerSettingsPacket> TYPE =
@@ -25,7 +27,6 @@ public record SpeakerSettingsPacket(BlockPos pos, String band, String channel, f
     public static final StreamCodec<RegistryFriendlyByteBuf, SpeakerSettingsPacket> CODEC = StreamCodec.composite(
         BlockPos.STREAM_CODEC, SpeakerSettingsPacket::pos,
         ByteBufCodecs.STRING_UTF8, SpeakerSettingsPacket::band,
-        ByteBufCodecs.STRING_UTF8, SpeakerSettingsPacket::channel,
         ByteBufCodecs.FLOAT, SpeakerSettingsPacket::gain,
         ByteBufCodecs.VAR_INT, SpeakerSettingsPacket::radius,
         ByteBufCodecs.BOOL, SpeakerSettingsPacket::mute,
@@ -39,7 +40,7 @@ public record SpeakerSettingsPacket(BlockPos pos, String band, String channel, f
             if (!(sp.level() instanceof ServerLevel sl)) return;
             if (!SablePacketHelper.isWithinReachableRange(sp, pos, 16384.0)) return;
             if (sl.getBlockEntity(pos) instanceof SpeakerBlockEntity be) {
-                be.applySettings(band, channel, gain, radius, mute);
+                be.applySettings(band, gain, radius, mute);
             }
         });
     }

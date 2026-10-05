@@ -148,10 +148,11 @@ public class SpeakerScreen extends AbstractGraphScreen {
     private void send(SpeakerBlockEntity be) {
         be.gain = Math.max(0f, Math.min(4f, be.gain));
         be.radius = Math.max(1, Math.min(4096, be.radius));
-        // band/channel 原样回传（applySettings 只把它们当默认图种子存档，不重写图）。
-        // band/channel echo back untouched (applySettings only seeds them for an empty graph).
+        // band 仅作空图默认图种子；SPEAKER_PLAY 恒等直通（2026-10-04 起无声道参数）。
+        // The band only seeds an empty graph's default; SPEAKER_PLAY passes through
+        // identically (no channel param since 2026-10-04).
         PacketDistributor.sendToServer(new SpeakerSettingsPacket(
-            be.getBlockPos(), be.channelBand, be.channelName, be.gain, be.radius, be.mute));
+            be.getBlockPos(), be.channelBand, be.gain, be.radius, be.mute));
     }
 
     // ── Clicks ──

@@ -214,9 +214,9 @@ public enum NodeType {
     }
 
     /** 声道稳定 pinId（有序）：聚合/左/右/中置/低音/左后环绕/右后环绕/左侧环绕/右侧环绕。
-     *  顺序即 SPEAKER_PLAY params[0] 的序号语义（旧值 0/1/2 = mix/l/r 不变）。
+     *  顺序即 CHANNEL 布局引脚表的成员序（布局表是它的裁剪前缀视图）。
      *  Stable per-channel pin ids (ordered): mix/left/right/center/sub/rear-L/rear-R/side-L/side-R.
-     *  The order doubles as the SPEAKER_PLAY params[0] ordinal (legacy 0/1/2 = mix/l/r unchanged). */
+     *  The order is the CHANNEL layout tables' member order (each layout trims it from the tail). */
     public static final String[] CHANNEL_PIN_IDS = {"mix", "l", "r", "c", "sub", "ls", "rs", "sl", "sr"};
 
     /** 声道 pinId → 显示 i18n 键（pin.create_schematic_compute.ch_*）。
@@ -233,7 +233,6 @@ public enum NodeType {
                  // loop = 循环开关（编辑区按钮，不走 EditBox）/ loop = toggle button, not an EditBox
                  // AUDIO_OUT 频道引脚由 signalBands 决定，同 BUS_OUT / channel pins from signalBands, like BUS_OUT
                  // CHANNEL 的「布局」= 编辑区按钮（非引脚）/ layout = edit-panel control, not a pin
-                 // SPEAKER_PLAY 的「声道」= 编辑区按钮 / channel = edit-panel button
                  MUSIC, AUDIO_OUT, CHANNEL, SPEAKER_PLAY,
                  // rev = 正/反转开关（编辑区按钮，不走 EditBox / toggle button, not an EditBox）
                  TX_OUT, SPEED_CTRL -> 0;

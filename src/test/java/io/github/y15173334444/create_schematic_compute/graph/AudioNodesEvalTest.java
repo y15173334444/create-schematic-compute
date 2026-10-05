@@ -143,46 +143,29 @@ class AudioNodesEvalTest {
     }
 
     @Test
-    @DisplayName("SPEAKER_PLAY 选声道（左/右按声像）播放 / SPEAKER_PLAY selects a channel by panning")
-    void speakerPlayChannelSelect() {
+    @DisplayName("SPEAKER_PLAY 恒等直通：不二次选路（拆分归上游 CHANNEL）/ SPEAKER_PLAY passes through identically - no consumer-side re-picking")
+    void speakerPlayPassthrough() {
         NbsSong s = new NbsSong();
         s.tempo = 1000;
         s.putNote(0, 0, 2, 40, 100, 0, 0);     // 全左
         s.putNote(0, 1, 2, 50, 100, 150, 0);   // 偏右
         Fixture f = build(s, 1f);
         GraphNode play = f.graph().addNode(NodeType.SPEAKER_PLAY, 400, 0);
-        play.params[0] = 1f;                   // 选「左」
         assertTrue(f.graph().addConnection(f.amp().id, 0, play.id, 0));
 
         List<NoteEvent> got = new ArrayList<>();
         f.ev().setSpeakerSink((events, gain) -> got.addAll(events));
         f.ev().evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
 
+        // 直通：全部事件原样到达 sink（声道拆分是上游 CHANNEL 的职责，发布方拆好后
+        // 每路一个频道；音响图哑终端 playback）。
+        // Passthrough: every event reaches the sink untouched (splitting is the upstream
+        // CHANNEL's job - one band per channel; the speaker graph is a dumb terminal).
         assertEquals(2, got.size());
-        assertEquals(40, got.get(0).key()); assertEquals(1f, got.get(0).gain(), 1e-6);
+        assertEquals(40, got.get(0).key());
         assertEquals(50, got.get(1).key());
-        assertEquals((float) Math.cos(0.75 * Math.PI / 2), got.get(1).gain(), 1e-6, "pan 150 keeps its equal-power L weight");
-    }
-
-    @Test
-    @DisplayName("SPEAKER_PLAY 全声道序号：sub 按低音路由 / SPEAKER_PLAY full channel ordinals: sub routes bass")
-    void speakerPlaySubChannel() {
-        NbsSong s = new NbsSong();
-        s.tempo = 1000;
-        s.putNote(0, 0, 1, 45, 100, 100, 0);   // bass 乐器（pan 中心）
-        s.putNote(0, 1, 0, 60, 100, 100, 0);   // harp 中键（不进 sub）
-        Fixture f = build(s, 1f);
-        GraphNode play = f.graph().addNode(NodeType.SPEAKER_PLAY, 400, 0);
-        play.params[0] = (float) ChannelLayout.channelIndex("sub"); // 4
-        assertTrue(f.graph().addConnection(f.amp().id, 0, play.id, 0));
-
-        List<NoteEvent> got = new ArrayList<>();
-        f.ev().setSpeakerSink((events, gain) -> got.addAll(events));
-        f.ev().evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-
-        assertEquals(1, got.size(), "only the bass instrument reaches sub");
-        assertEquals(45, got.get(0).key());
         assertEquals(1f, got.get(0).gain(), 1e-6);
+        assertEquals(1f, got.get(1).gain(), 1e-6, "no channel weighting at the sink");
     }
 
     @Test

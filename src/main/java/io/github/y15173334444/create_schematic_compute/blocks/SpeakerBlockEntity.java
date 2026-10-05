@@ -35,9 +35,6 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
     /** 默认图初始频段名。运行时以图内 BUS_IN 的名字为准（编辑器可改、随节点 NBT 持久化）。
      *  Initial band name for the default graph only — the graph's BUS_IN name rules at runtime. */
     public String channelBand = "speaker";
-    /** 默认图初始声道（channel pinId：聚合/左/右…）→ 默认图里 SPEAKER_PLAY 的声道参数。
-     *  Initial channel for the default graph only — runtime channel lives on the SPEAKER_PLAY node. */
-    public String channelName = "mix";
     /** 播放增益（叠加在音源增益链上）。 */
     public float gain = 1f;
     /** 可听半径（格，1–4096，默认 48）。 / Audible radius in blocks (1-4096, default 48). */
@@ -84,23 +81,17 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
         setChanged();
     }
 
-    /** 默认音频图：BUS_IN(band) --音频线--> SPEAKER_PLAY(选声道)。单引脚多声道；
-     *  频段读取由 BUS_IN 音频分支承担（signalBands ≥1 条保 bandCount≥1，音频引用才落到引脚 0）。 */
+    /** 默认音频图：BUS_IN(band) --音频线--> SPEAKER_PLAY（恒等直通，2026-10-04 起无声道选择——
+     *  拆分归上游 CHANNEL，音响是哑终端）。单引脚多声道；频段读取由 BUS_IN 音频分支承担
+     * （signalBands ≥1 条保 bandCount≥1，音频引用才落到引脚 0）。 */
     private void createDefaultGraph() {
         GraphNode in = graph().addNode(NodeType.BUS_IN, 0, 0);
         in.signalName = channelBand;
         in.signalBands = new ArrayList<>(List.of(channelBand));
         GraphNode play = graph().addNode(NodeType.SPEAKER_PLAY, 220, 0);
-        play.params[0] = channelParam(channelName);
         graph().addConnection(in.id, 0, play.id, 0); // pinId 自动派生（BUS 出 = 频段名）
         graph().bumpGeneration();
         setChanged();
-    }
-
-    /** 声道名 → SPEAKER_PLAY 声道参数（CHANNEL_PIN_IDS 序号：mix 0 / l 1 / r 2 / c 3 / sub 4 / ls 5 / rs 6 / sl 7 / sr 8，未知兜底 mix）。
-     *  Channel name → SPEAKER_PLAY channel param (CHANNEL_PIN_IDS ordinal; unknown falls back to mix). */
-    private static float channelParam(String channel) {
-        return ChannelLayout.channelIndex(channel);
     }
 
     /** SPEAKER_PLAY 播放下沉：在自身坐标发声（套用音响增益/静音）。 */
@@ -132,14 +123,15 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
             new ChunkPos(worldPosition), new MusicStopPacket(worldPosition));
     }
 
-    /** 应用设置（C2S 设置包）：gain/radius/mute 是 BE 播放设置；频段/声道归图节点
-     *  （BUS_IN 名字在编辑器里改、SPEAKER_PLAY 声道走节点选择器），此处不再重写图。
-     *  Apply settings (C2S packet): gain/radius/mute are BE playback settings; band/channel
-     *  live on graph nodes (BUS_IN name in the editor, SPEAKER_PLAY via the node picker) —
-     *  no graph rewrite here. */
-    public void applySettings(String band, String channel, float g, int rad, boolean m) {
+    /** 应用设置（C2S 设置包）：gain/radius/mute 是 BE 播放设置；band 仅作空图默认图的初始
+     *  频段名（运行时频段名归图节点，编辑器里改），此处不再重写图。SPEAKER_PLAY 恒等直通
+     * （2026-10-04 起无声道参数——拆分归上游 CHANNEL）。
+     *  Apply settings (C2S packet): gain/radius/mute are BE playback settings; band only seeds
+     *  an empty graph's BUS_IN name (the runtime band name belongs to the graph node) — no
+     *  graph rewrite here. SPEAKER_PLAY passes through identically (no channel param since
+     *  2026-10-04 — splitting belongs to the upstream CHANNEL). */
+    public void applySettings(String band, float g, int rad, boolean m) {
         this.channelBand = band == null ? "" : band;
-        this.channelName = channel == null ? "" : channel;
         this.gain = Math.max(0f, Math.min(4f, g));
         this.radius = Math.max(1, rad);
         this.mute = m;
@@ -153,7 +145,6 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
     @Override
     protected void saveTypeSpecific(CompoundTag t, HolderLookup.Provider r) {
         t.putString("band", channelBand);
-        t.putString("channel", channelName);
         t.putFloat("gain", gain);
         t.putInt("radius", radius);
         t.putBoolean("mute", mute);
@@ -162,7 +153,6 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
     @Override
     protected void loadTypeSpecific(CompoundTag t, HolderLookup.Provider r) {
         if (t.contains("band")) channelBand = t.getString("band");
-        if (t.contains("channel")) channelName = t.getString("channel");
         if (t.contains("gain")) gain = t.getFloat("gain");
         if (t.contains("radius")) radius = t.getInt("radius");
         if (t.contains("mute")) mute = t.getBoolean("mute");
@@ -172,7 +162,6 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
     protected void acceptTypeSpecific(SyncedGraphBlockEntity src) {
         if (!(src instanceof SpeakerBlockEntity s)) return;
         this.channelBand = s.channelBand;
-        this.channelName = s.channelName;
         this.gain = s.gain;
         this.radius = s.radius;
         this.mute = s.mute;

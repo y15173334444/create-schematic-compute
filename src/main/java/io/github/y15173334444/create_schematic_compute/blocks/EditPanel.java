@@ -46,7 +46,6 @@ public class EditPanel {
         // v1.2.6 音频节点按钮行 + HUD 范围/间隔步进行 / audio-node button rows + HUD stepper rows
         if (n.type == NodeType.MUSIC) h += 18;            // loop 循环开关 / loop toggle
         if (n.type == NodeType.CHANNEL) h += 36;          // 布局预设两行（3+2）/ layout presets, two rows
-        if (n.type == NodeType.SPEAKER_PLAY) h += 54;     // 全声道选择三行 / full channel picker, three rows
         if (n.type == NodeType.HUD_PITCH_LADDER) h += 36; // 范围/间隔两行 / range & interval steppers
         if (n.type == NodeType.MOUSE_JOYSTICK && n.params.length > 0) h += 16;
         if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 32; // 初始按钮 + 当前只读
@@ -569,24 +568,6 @@ public class EditPanel {
                 g.drawString(font, lbl, bx + (btnW - font.width(lbl)) / 2, by + 3, active ? 0xFFAAFFAA : 0xFF888888, false);
             }
             row += 2;
-        }
-        if (node.type == NodeType.SPEAKER_PLAY && node.params.length > 0) {
-            // 全声道选择（CHANNEL_PIN_IDS 序）3 行 × 3 段（R3）/ full channel picker, 3 rows of 3
-            int ch = (int) node.params[0];
-            int gap = 4;
-            int btnW = (pw - 12 - 2 * gap) / 3;
-            String[] ids = NodeType.CHANNEL_PIN_IDS;
-            for (int i = 0; i < ids.length; i++) {
-                int r = i / 3, col = i % 3;
-                int bx = px + 4 + col * (btnW + gap);
-                int by = py + 4 + (row + r) * 18;
-                boolean active = ch == i;
-                g.fill(bx, by, bx + btnW, by + 16, active ? 0xFF2A4A2A : 0xFF2A2A2A);
-                g.renderOutline(bx, by, btnW, 16, active ? 0xFF88FF88 : 0xFF666666);
-                String lbl = I18n.get(NodeType.channelDisplayKey(ids[i]));
-                g.drawString(font, lbl, bx + (btnW - font.width(lbl)) / 2, by + 3, active ? 0xFFAAFFAA : 0xFF888888, false);
-            }
-            row += (ids.length + 2) / 3;
         }
         if (node.type == NodeType.HUD_PITCH_LADDER && node.params.length > 1) {
             // 范围/间隔 两行步进（左减右加）/ range & interval steppers (minus left, plus right)

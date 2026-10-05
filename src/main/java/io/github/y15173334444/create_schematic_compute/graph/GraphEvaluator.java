@@ -1368,15 +1368,18 @@ public class GraphEvaluator {
             }
             case SPEAKER_PLAY -> {
                 // 播放 sink：把音源交给宿主音响 BE，在其坐标发声（R1-3/R1-D）。
-                // 单引脚多声道：编辑区选声道（全声道序号，CHANNEL_PIN_IDS 序），按拆分口径过滤后播放。
-                // 直连全带源（MUSIC/AMP）时选任意声道；接已拆声道的 CHANNEL 输出时保持 mix（恒等），
-                // 否则会二次衰减。hasCenter=false：无布局语境，l/r 走等功率对。
+                // 单引脚多声道、**恒等直通**（2026-10-04 作者口径：声道拆分归上游 CHANNEL——
+                // 每路一个频道、音响是哑终端；单音响放不了聚合以上的多声道摆放，
+                // 消费端二次选路是职责错位）。低音炮等单路需求 = 上游 CHANNEL 拆分后发布成频道。
+                // Playback sink: hand the source to the host speaker BE (R1-3/R1-D).
+                // Single-pin multi-channel, **identity passthrough** (author call 2026-10-04:
+                // splitting belongs to the upstream CHANNEL - one band per channel, the speaker
+                // is a dumb terminal; a single physical speaker cannot place multi-channel
+                // audio, so a consumer-side re-pick is a responsibility leak).
                 AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
                 if (in != null && speakerSink != null) {
-                    int ch = node.params.length > 0 ? (int) node.params[0] : 0;
-                    AudioRef sel = ChannelLayout.channelRef(in, ChannelLayout.channelName(ch), false);
-                    if (sel.stopSignal()) speakerSink.stopPlayback();
-                    else speakerSink.play(sel.events(), sel.gain());
+                    if (in.stopSignal()) speakerSink.stopPlayback();
+                    else speakerSink.play(in.events(), in.gain());
                 }
             }
             case ENCAPSULATION -> {

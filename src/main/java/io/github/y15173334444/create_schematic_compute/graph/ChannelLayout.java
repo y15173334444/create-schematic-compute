@@ -66,20 +66,6 @@ public final class ChannelLayout {
     /** 布局是否含中置声道（决定 l/r 用等功率对还是 LCR）。Whether the layout has a center channel. */
     public static boolean hasCenter(int layout) { return layout == SURROUND_5_1 || layout == SURROUND_7_1; }
 
-    /** 声道名 → SPEAKER_PLAY params[0] 序号（与 CHANNEL_PIN_IDS 同序；未知返回 0=mix 兜底）。
-     *  Channel name → SPEAKER_PLAY param ordinal (same order as CHANNEL_PIN_IDS; unknown → 0/mix). */
-    public static int channelIndex(String name) {
-        String[] ids = NodeType.CHANNEL_PIN_IDS;
-        for (int i = 0; i < ids.length; i++) if (ids[i].equals(name)) return i;
-        return 0;
-    }
-
-    /** SPEAKER_PLAY params[0] 序号 → 声道名（越界钳回 mix）。Ordinal → channel name (clamped to mix). */
-    public static String channelName(int index) {
-        String[] ids = NodeType.CHANNEL_PIN_IDS;
-        return ids[Math.max(0, Math.min(ids.length - 1, index))];
-    }
-
     /**
      * 声道拆分：把多声道音源按声道名拆出单个声道（mix 恒等；权重口径见类注）。
      * 权重低于 −80 dB（数值噪声级，如 cos(π/2) 的 6e-17）的音符不进入结果（筛选语义，

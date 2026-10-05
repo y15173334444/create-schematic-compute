@@ -2441,26 +2441,6 @@ public class GraphEditor {
                 }
             }
         }
-        if (en.type == NodeType.SPEAKER_PLAY && en.params.length > 0) {
-            // 全声道选择（CHANNEL_PIN_IDS 序）3 行 × 3 段点击段 / full channel picker, 3 rows of 3
-            int gap = 4;
-            int btnW = (NW - 12 - 2 * gap) / 3;
-            String[] ids = NodeType.CHANNEL_PIN_IDS;
-            for (int i = 0; i < ids.length; i++) {
-                int bx = 4 + (i % 3) * (btnW + gap);
-                int rowY = editLocalY + 4 + (numRows + i / 3) * 18;
-                if (lmy >= rowY && lmy <= rowY + 16 && lmx >= bx && lmx <= bx + btnW) {
-                    if ((int) en.params[0] != i) {
-                        float oldV = en.params[0];
-                        en.params[0] = i;
-                        var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
-                            host.getBlockPos(), ownerNodeId(), en.id, 0, i, host.getPlayerUUID());
-                        host.sendOp(sOp); recordOp(sOp, 0, 0, oldV, null);
-                    }
-                    return true;
-                }
-            }
-        }
         if (en.type == NodeType.HUD_PITCH_LADDER && en.params.length > 1) {
             for (int r = 0; r < 2; r++) {
                 int rowY = editLocalY + 4 + (numRows + r) * 18;
