@@ -1,7 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
 import io.github.y15173334444.create_schematic_compute.ModUtils;
-import io.github.y15173334444.create_schematic_compute.client.ControlSeatInputHandler;
 import io.github.y15173334444.create_schematic_compute.network.ChannelEntry;
 import io.github.y15173334444.create_schematic_compute.network.SignalBus;
 import net.minecraft.world.item.ItemStack;
@@ -165,6 +164,17 @@ public class GraphEvaluator {
         float accelX, float accelY, float accelZ,
         float velX, float velY, float velZ,
         float worldX, float worldY, float worldZ) {
+
+        /** 原始摇杆量 → 归一摇杆（-1..1）的缩放契约：备制方与消费方共用此值。
+         *  满偏约 3°/tick (60°/s)，匹配旧版 dx*0.05 手感。
+         *  Scaling contract from raw stick deltas to normalised stick (-1..1): the preparer
+         *  (input handler) and the consumer (evaluator) share these; ~3°/tick at full
+         *  deflection (~60°/s), matching the legacy dx*0.05 feel. */
+        public static final float JOYSTICK_SCALE = 1.0f / 3.0f;
+        /** 绝对位移模式的每 tick 累积系数（比增量缓和，避免过冲）。 / absolute-mode
+         *  per-tick accumulation scale, gentler than incremental to avoid overshoot. */
+        public static final float ABS_SCALE = 1.0f / 6.0f;
+
         public SeatInputState(long keyBits, float mouseX, float mouseY, float yaw, float pitch) {
             this(keyBits, mouseX, mouseY, yaw, pitch, yaw, pitch, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
         }
@@ -496,10 +506,10 @@ public class GraphEvaluator {
                 // 绝对值模式：累积鼠标增量 → 带记忆的摇杆位置。
                 // 增量模式：直接输出鼠标增量，停手归零。
                 if (node.params.length > 0 && node.params[0] > 0.5f) {
-                    float rawDx = seat.mouseX() / ControlSeatInputHandler.JOYSTICK_SCALE;
-                    float rawDy = seat.mouseY() / ControlSeatInputHandler.JOYSTICK_SCALE;
-                    node.runtimeStickX += rawDx * ControlSeatInputHandler.ABS_SCALE;
-                    node.runtimeStickY += rawDy * ControlSeatInputHandler.ABS_SCALE;
+                    float rawDx = seat.mouseX() / SeatInputState.JOYSTICK_SCALE;
+                    float rawDy = seat.mouseY() / SeatInputState.JOYSTICK_SCALE;
+                    node.runtimeStickX += rawDx * SeatInputState.ABS_SCALE;
+                    node.runtimeStickY += rawDy * SeatInputState.ABS_SCALE;
                     node.runtimeStickX = Math.max(-1f, Math.min(1f, node.runtimeStickX));
                     node.runtimeStickY = Math.max(-1f, Math.min(1f, node.runtimeStickY));
                     o[0] = node.runtimeStickX;

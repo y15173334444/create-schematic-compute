@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.client;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.ControlSeatBlock;
 import io.github.y15173334444.create_schematic_compute.entity.ControlSeatEntity;
+import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.network.ControlSeatInputPacket;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -56,12 +57,9 @@ public class ControlSeatInputHandler {
     };
     private static final int TOTAL_KEYS = KEY_INDEX_TO_GLFW.length;
 
-    /** Joystick scale: ~3°/tick at full deflection (~60°/s), matches legacy dx*0.05 feel.
-     *  摇杆比例系数：满偏约 3°/tick (60°/s)，匹配旧版手感。 */
-    public static final float JOYSTICK_SCALE = 1.0f / 3.0f;
-    /** Absolute-mode accumulation scale (per-tick), slower than incremental to avoid overshoot.
-     *  绝对值模式每tick累积系数，比增量模式更缓和，避免过冲。 */
-    public static final float ABS_SCALE = 1.0f / 6.0f;
+    /** 缩放契约在 {@link GraphEvaluator.SeatInputState}（备制方与消费方共用，单一真相源）。
+     *  The scaling contract lives on {@link GraphEvaluator.SeatInputState} (single source
+     *  shared by the preparer and the consumer). */
 
     // ── State fields / 状态字段 ──
     private static volatile boolean suppressMouseTurn = false;
@@ -246,8 +244,8 @@ public class ControlSeatInputHandler {
 
         // ── FIXED mode: accumulate joystick delta from raw mouse input ──
         // ── FIXED 模式：从原始鼠标增量累积摇杆值 ──
-        joystickX = (float) Math.max(-1.0, Math.min(1.0, rawMouseDYaw * JOYSTICK_SCALE));
-        joystickY = (float) Math.max(-1.0, Math.min(1.0, rawMouseDPitch * JOYSTICK_SCALE));
+        joystickX = (float) Math.max(-1.0, Math.min(1.0, rawMouseDYaw * GraphEvaluator.SeatInputState.JOYSTICK_SCALE));
+        joystickY = (float) Math.max(-1.0, Math.min(1.0, rawMouseDPitch * GraphEvaluator.SeatInputState.JOYSTICK_SCALE));
     }
 
     // ════════════════════════════════════════════════════════════════
