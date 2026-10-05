@@ -149,6 +149,12 @@ public class SchematicCompute {
         // Server config registration (SERVER config auto-syncs to clients; foundation for settings/debug panels)
         container.registerConfig(ModConfig.Type.SERVER, Config.SPEC);
 
+        // FORMULA 预算接线：graph 侧不直连 Config（接口下沉），根包把预算毫秒接进求值预算门面。
+        // FORMULA budget wiring: graph does not reach into Config (interface sinking); the
+        // root feeds the budget-ms source into the eval budget facade.
+        io.github.y15173334444.create_schematic_compute.graph.FormulaCompute
+            .setBudgetMsSource(() -> Config.FORMULA_BUDGET_MS.get().doubleValue());
+
         TABS.register("main", () -> CreativeModeTab.builder()
                 .title(Component.translatable("itemGroup." + MOD_ID))
                 .icon(() -> new ItemStack(BLUEPRINT_ITEM.get()))

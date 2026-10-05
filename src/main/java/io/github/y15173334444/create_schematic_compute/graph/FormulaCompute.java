@@ -1,7 +1,5 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
-import io.github.y15173334444.create_schematic_compute.Config;
-
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -59,19 +57,22 @@ public final class FormulaCompute {
     }
 
     /**
-     * 预算总量(纳秒),来自 Config.formulaBudgetMs。
-     * Total budget (ns), from Config.formulaBudgetMs.
-     * 配置未加载时(单元测试环境)回退默认 3.0ms;游戏运行时配置在服务器启动时已加载。
-     * Falls back to the 3.0ms default when config isn't loaded (unit tests); in-game the config is loaded at server start.
+     * 预算总量(纳秒)。预算毫秒数由宿主注入（{@link #setBudgetMsSource}——根包把
+     * Config.formulaBudgetMs 接进来）；未注入时(单元测试环境)回退默认 3.0ms。
+     * Total budget (ns). The budget in ms arrives via {@link #setBudgetMsSource} (the root
+     * wires Config.formulaBudgetMs in); falls back to the 3.0ms default when not wired
+     * (unit tests).
      */
+    private static java.util.function.DoubleSupplier budgetMsSource = () -> 3.0;
+
+    /** 注入预算毫秒来源（根包在配置就绪时接线；读取保持实时）。 / inject the budget-ms
+     *  source (the root wires it once config is ready; reads stay live). */
+    public static void setBudgetMsSource(java.util.function.DoubleSupplier source) {
+        budgetMsSource = source != null ? source : () -> 3.0;
+    }
+
     public static long budgetNs() {
-        double ms;
-        try {
-            ms = Config.FORMULA_BUDGET_MS.get();
-        } catch (IllegalStateException e) {
-            ms = 3.0; // ModConfigSpec 未加载时 get() 抛 IllegalStateException / ModConfigSpec throws before load
-        }
-        return (long) (ms * 1_000_000L);
+        return (long) (budgetMsSource.getAsDouble() * 1_000_000L);
     }
 
     /** 单节点 slice(纳秒)= 预算 / max(1, 上一 tick yield 的重节点数)。 / Per-node slice (ns) = budget / max(1, last tick's heavy yield count). */
