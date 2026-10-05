@@ -1,186 +1,239 @@
--- ===== 弹道反解火控 v1(对齐 CreateBigCannons 弹道模型:半隐式欧拉 dt=1/20,线性/二次阻力) =====
--- 输入引脚:mx,my,mz 炮口坐标 / tx,ty,tz 目标坐标 / v0 初速 / g 重力(正值) / fd 阻力系数 / qd 二次阻力(0/1) / den 介质密度
+-- ===== 弹道反解火控 v2(对齐 CreateBigCannons 5.11.x 弹道模型:半隐式欧拉 dt=1/20,线性阻力,逐 tick 线段碰撞判定) =====
+-- 输入引脚:mx,my,mz 炮口坐标 / tx,ty,tz 目标坐标
 -- 输出引脚:ay 射向角(度,[0,360)) / ap 射角(度,正=上抬) / hit 可达(1/0) / vx0,vy0,vz0 初速向量
--- 算法:俯仰粗扫描(361 点锁定低伸区间)+ 牛顿迭代(≤50 轮,中心差分,阻尼 0.5),全部角度制
+-- 算法:俯仰粗扫描(46 点,4° 步长,记低伸首谷+全局最优谷)→ 细扫(17 点,0.5°)→ 割线精化(≤10 轮),先低伸解、失败回退高抛解
+--   距离判定与游戏碰撞同语义:逐 tick 炮口线段(px,py,pz)→(px+vx·DT+ax·DT²/2, ...) 对目标解析求最近距离(采样端点会漏判,炮弹每 tick 飞 8 格)
+--
+-- ★ CBC 参数表(已按 7 系炮管 · 8 装药 · HE/AP 弹填入;换档位按下表改常数) ★
+--   CBC tick 制 → 本脚本秒制(DT=0.05s)换算:
+--   v0 初速(b/s) = 装药数 × 20      —— CBC shoot() 初速=药包数(b/tick);HE/AP 弹 added_charge_power=0。8 药=160、4 药=80、1 药=20
+--   g  重力(b/s²) = |gravity| × 400 —— 大口径弹组(HE/AP/shot/shrapnel/fluid/smoke/坠地迫击炮弹) gravity=0.05 → g=20
+--                                     机炮弹组(机炮 AP/flak、机枪弹、迫击炮石) gravity=0.025 → g=12.5
+--   fd 线性阻力(1/s) = drag × 20    —— 全弹种 drag=0.01、quadratic_drag=false → fd=0.2(den=1 主世界;水下按维度 dragMultiplier 加大 den)
+--   二次阻力:CBC 当前全部弹种均为线性,已省略 v1 的 qd 分支
 DT = 0.05
 HIT = 0.5
 P0 = -89.899
 P1 = 89.899
-STEP = 179.798 / 360
 BIG = 1000000
+v0 = 160
+g = 20
+fd = 0.2
+den = 1
 ay = atan2(tx - mx, 0 - (tz - mz))
 if (ay < 0) ay = ay + 360
 cy = cos(ay)
 sy = sin(ay)
 
--- ---- 1) 粗扫描 ----
-bestd = BIG
-bestp = P0
-firstp = P0
-hitf = 0
+-- ---- 1) 粗扫描:46 点 × 4°,记录全局最优谷 bestw 与低角侧首个近谷 firstw ----
+bestw = P0
+bestwd = BIG
+firstw = P0
+firstf = BIG
 p = P0
-repeat 361 {
-  vx = v0 * cos(p) * sy
-  vy = v0 * sin(p)
-  vz = v0 * cos(p) * (0 - cy)
+repeat 46 {
   px = mx
   py = my
   pz = mz
+  vx = v0 * cos(p) * sy
+  vy = v0 * sin(p)
+  vz = v0 * cos(p) * (0 - cy)
   mind = BIG
-  repeat 1200 {
+  still = 0
+  repeat 400 {
     sp = sqrt(vx*vx + vy*vy + vz*vz)
-    if (sp < 0.000000001) { ax = 0; acy = 0 - g; az = 0 } else {
-      dr = fd * den * sp
-      if (qd > 0.5) dr = dr * sp
-      if (dr > sp) dr = sp
+    dr = fd * den * sp
+    cap = sp * 20
+    if (dr > cap) dr = cap
+    ax = 0
+    acy = 0 - g
+    az = 0
+    if (sp > 0.000000001) {
       ax = 0 - vx / sp * dr
-      acy = 0 - g - vy / sp * dr
+      acy = acy - vy / sp * dr
       az = 0 - vz / sp * dr
     }
+    ox = px
+    oy = py
+    oz = pz
     px = px + vx * DT + ax * 0.5 * DT * DT
     py = py + vy * DT + acy * 0.5 * DT * DT
     pz = pz + vz * DT + az * 0.5 * DT * DT
     vx = vx + ax * DT
     vy = vy + acy * DT
     vz = vz + az * DT
-    d = dist(vec3(px,py,pz), vec3(tx,ty,tz))
-    if (d < mind) mind = d
-    if (py < ty - 60) break
+    ddx = px - ox
+    ddy = py - oy
+    ddz = pz - oz
+    dd = ddx*ddx + ddy*ddy + ddz*ddz
+    if (dd > 0.0000000001) {
+      u = ((tx - ox) * ddx + (ty - oy) * ddy + (tz - oz) * ddz) / dd
+      if (u < 0) u = 0
+      if (u > 1) u = 1
+      qx = ox + u * ddx - tx
+      qy = oy + u * ddy - ty
+      qz = oz + u * ddz - tz
+      d = sqrt(qx*qx + qy*qy + qz*qz)
+      if (d < mind) { mind = d; still = 0 } else { still = still + 1 }
+      if (still > 20) break
+    }
   }
-  if (mind < bestd) { bestd = mind; bestp = p }
-  if (hitf == 0 && mind < HIT) { firstp = p; hitf = 1 }
-  p = p + STEP
+  if (mind < bestwd) { bestwd = mind; bestw = p }
+  if (firstf > 30) {
+    if (mind < 30) { firstf = mind; firstw = p }
+  }
+  p = p + 4
+  if (p > P1) p = P1
 }
 
--- ---- 2) 牛顿迭代(最小化最近距离) ----
-ap = bestp
+-- ---- 2) 细扫 + 割线:先低伸谷 firstw,失败回退全局最优谷 bestw ----
 hit = 0
-if (hitf == 1) {
-  p = firstp
-  h = 0.0573
-  repeat 50 {
-    vx = v0 * cos(p) * sy
-    vy = v0 * sin(p)
-    vz = v0 * cos(p) * (0 - cy)
-    px = mx
-    py = my
-    pz = mz
-    mind = BIG
-    repeat 1200 {
-      sp = sqrt(vx*vx + vy*vy + vz*vz)
-      if (sp < 0.000000001) { ax = 0; acy = 0 - g; az = 0 } else {
+ap = bestw
+bestp2 = bestw
+bestf2 = BIG
+cen = firstw
+rnd = 0
+repeat 2 {
+  if (hit < 0.5) {
+    if (rnd > 0.5) cen = bestw
+    bestp2 = cen
+    bestf2 = BIG
+    pa = cen
+    fa = BIG
+    pb = cen
+    fb = BIG
+    k2 = 0
+    repeat 17 {
+      p = cen - 4 + k2 * 0.5
+      if (p < P0) p = P0
+      if (p > P1) p = P1
+      px = mx
+      py = my
+      pz = mz
+      vx = v0 * cos(p) * sy
+      vy = v0 * sin(p)
+      vz = v0 * cos(p) * (0 - cy)
+      mind = BIG
+      still = 0
+      repeat 400 {
+        sp = sqrt(vx*vx + vy*vy + vz*vz)
         dr = fd * den * sp
-        if (qd > 0.5) dr = dr * sp
-        if (dr > sp) dr = sp
-        ax = 0 - vx / sp * dr
-        acy = 0 - g - vy / sp * dr
-        az = 0 - vz / sp * dr
+        cap = sp * 20
+        if (dr > cap) dr = cap
+        ax = 0
+        acy = 0 - g
+        az = 0
+        if (sp > 0.000000001) {
+          ax = 0 - vx / sp * dr
+          acy = acy - vy / sp * dr
+          az = 0 - vz / sp * dr
+        }
+        ox = px
+        oy = py
+        oz = pz
+        px = px + vx * DT + ax * 0.5 * DT * DT
+        py = py + vy * DT + acy * 0.5 * DT * DT
+        pz = pz + vz * DT + az * 0.5 * DT * DT
+        vx = vx + ax * DT
+        vy = vy + acy * DT
+        vz = vz + az * DT
+        ddx = px - ox
+        ddy = py - oy
+        ddz = pz - oz
+        dd = ddx*ddx + ddy*ddy + ddz*ddz
+        if (dd > 0.0000000001) {
+          u = ((tx - ox) * ddx + (ty - oy) * ddy + (tz - oz) * ddz) / dd
+          if (u < 0) u = 0
+          if (u > 1) u = 1
+          qx = ox + u * ddx - tx
+          qy = oy + u * ddy - ty
+          qz = oz + u * ddz - tz
+          d = sqrt(qx*qx + qy*qy + qz*qz)
+          if (d < mind) { mind = d; still = 0 } else { still = still + 1 }
+          if (still > 20) break
+        }
       }
-      px = px + vx * DT + ax * 0.5 * DT * DT
-      py = py + vy * DT + acy * 0.5 * DT * DT
-      pz = pz + vz * DT + az * 0.5 * DT * DT
-      vx = vx + ax * DT
-      vy = vy + acy * DT
-      vz = vz + az * DT
-      d = dist(vec3(px,py,pz), vec3(tx,ty,tz))
-      if (d < mind) mind = d
-      if (py < ty - 60) break
-    }
-    f = mind
-    if (f < 0.001) break
-    vx = v0 * cos(p + h) * sy
-    vy = v0 * sin(p + h)
-    vz = v0 * cos(p + h) * (0 - cy)
-    px = mx
-    py = my
-    pz = mz
-    mind = BIG
-    repeat 1200 {
-      sp = sqrt(vx*vx + vy*vy + vz*vz)
-      if (sp < 0.000000001) { ax = 0; acy = 0 - g; az = 0 } else {
-        dr = fd * den * sp
-        if (qd > 0.5) dr = dr * sp
-        if (dr > sp) dr = sp
-        ax = 0 - vx / sp * dr
-        acy = 0 - g - vy / sp * dr
-        az = 0 - vz / sp * dr
+      if (mind < bestf2) { bestf2 = mind; bestp2 = p }
+      if (k2 < 0.5) { pa = p; fa = mind }
+      if (k2 > 0.5) {
+        if (k2 < 1.5) { pb = p; fb = mind }
+        if (k2 > 1.5) { pa = pb; fa = fb; pb = p; fb = mind }
       }
-      px = px + vx * DT + ax * 0.5 * DT * DT
-      py = py + vy * DT + acy * 0.5 * DT * DT
-      pz = pz + vz * DT + az * 0.5 * DT * DT
-      vx = vx + ax * DT
-      vy = vy + acy * DT
-      vz = vz + az * DT
-      d = dist(vec3(px,py,pz), vec3(tx,ty,tz))
-      if (d < mind) mind = d
-      if (py < ty - 60) break
+      k2 = k2 + 1
     }
-    fplus = mind
-    vx = v0 * cos(p - h) * sy
-    vy = v0 * sin(p - h)
-    vz = v0 * cos(p - h) * (0 - cy)
-    px = mx
-    py = my
-    pz = mz
-    mind = BIG
-    repeat 1200 {
-      sp = sqrt(vx*vx + vy*vy + vz*vz)
-      if (sp < 0.000000001) { ax = 0; acy = 0 - g; az = 0 } else {
-        dr = fd * den * sp
-        if (qd > 0.5) dr = dr * sp
-        if (dr > sp) dr = sp
-        ax = 0 - vx / sp * dr
-        acy = 0 - g - vy / sp * dr
-        az = 0 - vz / sp * dr
+    if (bestf2 < HIT) { hit = 1; ap = bestp2 }
+    repeat 10 {
+      if (hit < 0.5) {
+        df = fb - fa
+        if (df * df > 0.000000000001) {
+          p2 = pb - fb * (pb - pa) / df
+          guard = 1
+          if (p2 <= P0) guard = 0
+          if (p2 >= P1) guard = 0
+          dp = p2 - pb
+          if (dp < 0) dp = 0 - dp
+          if (dp > 10) guard = 0
+          if (guard > 0.5) {
+            px = mx
+            py = my
+            pz = mz
+            vx = v0 * cos(p2) * sy
+            vy = v0 * sin(p2)
+            vz = v0 * cos(p2) * (0 - cy)
+            mind = BIG
+            still = 0
+            repeat 400 {
+              sp = sqrt(vx*vx + vy*vy + vz*vz)
+              dr = fd * den * sp
+              cap = sp * 20
+              if (dr > cap) dr = cap
+              ax = 0
+              acy = 0 - g
+              az = 0
+              if (sp > 0.000000001) {
+                ax = 0 - vx / sp * dr
+                acy = acy - vy / sp * dr
+                az = 0 - vz / sp * dr
+              }
+              ox = px
+              oy = py
+              oz = pz
+              px = px + vx * DT + ax * 0.5 * DT * DT
+              py = py + vy * DT + acy * 0.5 * DT * DT
+              pz = pz + vz * DT + az * 0.5 * DT * DT
+              vx = vx + ax * DT
+              vy = vy + acy * DT
+              vz = vz + az * DT
+              ddx = px - ox
+              ddy = py - oy
+              ddz = pz - oz
+              dd = ddx*ddx + ddy*ddy + ddz*ddz
+              if (dd > 0.0000000001) {
+                u = ((tx - ox) * ddx + (ty - oy) * ddy + (tz - oz) * ddz) / dd
+                if (u < 0) u = 0
+                if (u > 1) u = 1
+                qx = ox + u * ddx - tx
+                qy = oy + u * ddy - ty
+                qz = oz + u * ddz - tz
+                d = sqrt(qx*qx + qy*qy + qz*qz)
+                if (d < mind) { mind = d; still = 0 } else { still = still + 1 }
+                if (still > 20) break
+              }
+            }
+            if (mind < bestf2) { bestf2 = mind; bestp2 = p2 }
+            if (mind < HIT) { hit = 1; ap = p2 }
+            pa = pb
+            fa = fb
+            pb = p2
+            fb = mind
+          }
+        }
       }
-      px = px + vx * DT + ax * 0.5 * DT * DT
-      py = py + vy * DT + acy * 0.5 * DT * DT
-      pz = pz + vz * DT + az * 0.5 * DT * DT
-      vx = vx + ax * DT
-      vy = vy + acy * DT
-      vz = vz + az * DT
-      d = dist(vec3(px,py,pz), vec3(tx,ty,tz))
-      if (d < mind) mind = d
-      if (py < ty - 60) break
     }
-    fminus = mind
-    fp = (fplus - fminus) / (2 * h)
-    if (fp * fp < 0.000000000000000001) break
-    pn = p - f / fp * 0.5
-    if (pn <= P0 || pn >= P1) break
-    p = pn
   }
-  vx = v0 * cos(p) * sy
-  vy = v0 * sin(p)
-  vz = v0 * cos(p) * (0 - cy)
-  px = mx
-  py = my
-  pz = mz
-  mind = BIG
-  repeat 1200 {
-    sp = sqrt(vx*vx + vy*vy + vz*vz)
-    if (sp < 0.000000001) { ax = 0; acy = 0 - g; az = 0 } else {
-      dr = fd * den * sp
-      if (qd > 0.5) dr = dr * sp
-      if (dr > sp) dr = sp
-      ax = 0 - vx / sp * dr
-      acy = 0 - g - vy / sp * dr
-      az = 0 - vz / sp * dr
-    }
-    px = px + vx * DT + ax * 0.5 * DT * DT
-    py = py + vy * DT + acy * 0.5 * DT * DT
-    pz = pz + vz * DT + az * 0.5 * DT * DT
-    vx = vx + ax * DT
-    vy = vy + acy * DT
-    vz = vz + az * DT
-    d = dist(vec3(px,py,pz), vec3(tx,ty,tz))
-    if (d < mind) mind = d
-    if (py < ty - 60) break
-  }
-  f = mind
-  if (f < HIT) { hit = 1; ap = p }
+  rnd = rnd + 1
 }
-
+if (bestf2 < HIT) { hit = 1; ap = bestp2 }
 vx0 = v0 * cos(ap) * sy
 vy0 = v0 * sin(ap)
 vz0 = v0 * cos(ap) * (0 - cy)
