@@ -32,6 +32,11 @@ public class GraphEvaluator {
     private final Map<Integer, float[]> outputs = new HashMap<>();
     private net.minecraft.core.BlockPos radarPos = null;
     public void setRadarPos(net.minecraft.core.BlockPos pos) { this.radarPos = pos; }
+    /** 雷达目标查询（接口下沉，宿主雷达注入 radar.TargetAssignment::getTarget）；
+     *  未接线 = 恒无目标。 / radar target lookup (interface sinking; the hosting radar
+     *  wires radar.TargetAssignment::getTarget); unwired = never a target. */
+    private TargetLookup targetLookup = (pos, id) -> null;
+    public void setTargetLookup(TargetLookup lookup) { this.targetLookup = lookup != null ? lookup : (pos, id) -> null; }
     /** ENCODER 节点的宿主视图（由托管齿轮箱 BE 在重建求值器后注入；null 时输出 0）。
      *  Host view for ENCODER nodes (injected by the hosting gearbox BE after evaluator
      *  rebuilds; outputs 0 when null). */
@@ -1005,7 +1010,7 @@ public class GraphEvaluator {
                 o[0] = wx; o[1] = wy; o[2] = wz;
             }
             case TARGET_OUT -> {
-                var t = radarPos != null ? io.github.y15173334444.create_schematic_compute.radar.TargetAssignment.getTarget(radarPos, node.id) : null;
+                var t = radarPos != null ? targetLookup.get(radarPos, node.id) : null;
                 if (t != null) { o[0] = (float) t.x(); o[1] = (float) t.y(); o[2] = (float) t.z(); o[3] = t.entityId(); o[4] = t.distance(); }
             }
             case TX_OUT -> {
@@ -1481,6 +1486,7 @@ public class GraphEvaluator {
                     subEval.setEncoderView(this.encoderView);
                     subEval.setCommandSink(this.commandSink);
                     subEval.setRadarPos(this.radarPos);
+                    subEval.setTargetLookup(this.targetLookup);
                     subEval.setKineticNetworkView(this.kineticNetworkView);
                     subEval.setAudioTransports(this.audioTransports);
                     subEval.setAudioHostPos(this.audioHostPos);

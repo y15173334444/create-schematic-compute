@@ -2,7 +2,7 @@ package io.github.y15173334444.create_schematic_compute.client.renderer;
 
 import io.github.y15173334444.create_schematic_compute.blocks.RadarBlockEntity;
 import io.github.y15173334444.create_schematic_compute.client.ClientSetup;
-import io.github.y15173334444.create_schematic_compute.radar.TargetRecord;
+import io.github.y15173334444.create_schematic_compute.graph.TargetRecord;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import net.minecraft.client.Minecraft;

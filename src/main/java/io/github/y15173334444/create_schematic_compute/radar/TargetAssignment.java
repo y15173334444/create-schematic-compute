@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.radar;
 
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
+import io.github.y15173334444.create_schematic_compute.graph.TargetRecord;
 import net.minecraft.core.BlockPos;
 
 import java.util.*;

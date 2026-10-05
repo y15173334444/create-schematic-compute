@@ -1,4 +1,4 @@
-package io.github.y15173334444.create_schematic_compute.radar;
+package io.github.y15173334444.create_schematic_compute.graph;
 
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;

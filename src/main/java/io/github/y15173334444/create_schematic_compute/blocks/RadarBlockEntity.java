@@ -4,7 +4,7 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.*;
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.radar.TargetAssignment;
-import io.github.y15173334444.create_schematic_compute.radar.TargetRecord;
+import io.github.y15173334444.create_schematic_compute.graph.TargetRecord;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -492,6 +492,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         }
         var in = rs().buildInputs(graph());
         evaluator().setRadarPos(worldPosition);
+        evaluator().setTargetLookup(io.github.y15173334444.create_schematic_compute.radar.TargetAssignment::getTarget);
         // Use Sable world-space coordinates if available, otherwise fall back to BlockPos center.
         // 如果有 Sable 世界坐标则使用，否则回退到 BlockPos 中心。
         float wx = Float.isNaN(cachedSubWorldX) ? worldPosition.getX() + 0.5f : cachedSubWorldX;
