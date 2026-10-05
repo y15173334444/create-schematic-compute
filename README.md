@@ -1,8 +1,8 @@
 # Create: Schematic Compute
 
 <p align="center">
-  <b>🎮 9 Programmable Blocks · 86 Node Types · Formula Syntax Highlighting & Autocomplete · Multiplayer Collaboration</b><br>
-  <b>九种可编程方块 · 86种节点 · 公式语法高亮与自动补全 · 多人实时协作</b><br>
+  <b>🎮 12 Programmable Blocks · 101 Node Types · Formula Syntax Highlighting & Autocomplete · Multiplayer Collaboration</b><br>
+  <b>十二种可编程方块 · 101种节点 · 公式语法高亮与自动补全 · 多人实时协作</b><br>
   <i>Drag, connect, and build logic — just like Unreal Engine Blueprints!</i><br>
   <i>拖拽连接，构建逻辑 — 像虚幻引擎蓝图一样直观！</i><br>
   <i>Created by <b>StarryNight_Luo</b> (y15173334444)</i>
@@ -21,9 +21,9 @@
 
 ## 📖 Overview / 简介
 
-**🇬🇧** Create: Schematic Compute is a **Create mod addon** that introduces **10 programmable blocks + 1 portable terminal** with a **visual node-based programming system**. Instead of writing complex redstone circuits, simply drag and connect nodes to build logic — just like Unreal Engine Blueprints or Blender Geometry Nodes. Each computer runs at **20Hz (every game tick)** for real-time control. **All 10 blocks support real-time multiplayer collaborative editing** with live cursor tracking and node lock protection. The **FORMULA script editor** features syntax highlighting (9 token colours), intelligent autocomplete (functions, variables, `@output`), real-time validation with error badges, and named constants `(PI)`/`(E)`.
+**🇬🇧** Create: Schematic Compute is a **Create mod addon** that introduces **12 programmable blocks + 1 portable terminal** with a **visual node-based programming system**. Instead of writing complex redstone circuits, simply drag and connect nodes to build logic — just like Unreal Engine Blueprints or Blender Geometry Nodes. Each computer runs at **20Hz (every game tick)** for real-time control. **All 12 blocks support real-time multiplayer collaborative editing** with live cursor tracking and node lock protection. The **FORMULA script editor** features syntax highlighting (9 token colours), intelligent autocomplete (functions, variables, `@output`), real-time validation with error badges, and named constants `(PI)`/`(E)`.
 
-**🇨🇳** **机械动力：蓝图计算机** 是一个机械动力附属模组，添加了**十种可编程方块和一个便携终端**，采用**可视化节点图编程系统**。无需搭建复杂红石电路，只需拖拽连接节点即可构建逻辑——就像虚幻引擎的蓝图系统或 Blender 的几何节点一样直观。每台设备拥有独立的节点图，以 **20Hz（每游戏刻）** 的频率运行，适合实时控制应用。**全部 10 种方块支持多人实时协作编辑**，带实时光标追踪和节点锁定保护。**FORMULA 公式脚本编辑器** 支持语法高亮（9 种词法颜色）、智能自动补全（函数、变量、`@output`）、实时校验与错误徽章、以及命名常量 `(PI)`/`(E)`。
+**🇨🇳** **机械动力：蓝图计算机** 是一个机械动力附属模组，添加了**十二种可编程方块和一个便携终端**，采用**可视化节点图编程系统**。无需搭建复杂红石电路，只需拖拽连接节点即可构建逻辑——就像虚幻引擎的蓝图系统或 Blender 的几何节点一样直观。每台设备拥有独立的节点图，以 **20Hz（每游戏刻）** 的频率运行，适合实时控制应用。**全部 12 种方块支持多人实时协作编辑**，带实时光标追踪和节点锁定保护。**FORMULA 公式脚本编辑器** 支持语法高亮（9 种词法颜色）、智能自动补全（函数、变量、`@output`）、实时校验与错误徽章、以及命名常量 `(PI)`/`(E)`。
 
 ---
 
@@ -148,7 +148,7 @@
 |----------------|-------------------|
 | 📡 Device Scan / 设备扫描 | Scan 1-128 blocks for programmable blocks / 扫描1-128格可编程方块 |
 | ✏️ One-Click Edit / 一键编辑 | Open native GUI instantly / 即时打开原生GUI |
-| 📦 All 10 Blocks / 全10方块 | Monitor, Blueprint, Program, Radar, Seat, Sensor, SpeedProxy, Transmission, CNC Gearbox, Kinetic Gauge |
+| 📦 All 12 Blocks / 全12方块 | Monitor, Blueprint, Program, Radar, Seat, Sensor, SpeedProxy, Transmission, CNC Gearbox, Kinetic Gauge, Amplifier, Speaker |
 | 🔄 Sable Compatible / Sable兼容 | Sub-level scanning with rotation correction / 子世界扫描+旋转修正 |
 
 ---
@@ -169,10 +169,37 @@
 
 ---
 
+### 🎛️ Amplifier Computer / 功放计算机
+
+**Audio graph host with program-computer timing / 音频图宿主 + 编程计算机时序**
+
+| Feature / 功能 | Description / 说明 |
+|----------------|-------------------|
+| 🎵 Audio Nodes / 音频节点 | MUSIC · AMP · WSHAPE · AUDIO_OUT · CHANNEL · SPEAKER_PLAY / 曲目 · 功放 · 波形整形 · 频段发布 · 声道拆分 · 播放 |
+| 🎚️ Dynamics Curve / 力度曲线 | XY curve on the AMP node: note loudness → output level, chain gain applies after / AMP 节点 XY 曲线：音符力度→输出力度，链上增益随后叠加 |
+| 🌊 Wave Shaper / 波形整形 | Per-sample shaping curve, identity curve = true bypass / 逐采样整形曲线，恒等曲线 = 真旁路 |
+| 📡 Band Publish / 频段发布 | Publish audio to bus / private bands for speaker graphs to subscribe / 发布音频到总线/私有频段，供电音图订阅 |
+| ⏱️ Timing / 时序 | Program-computer capability for play/stop triggers and delay staging / 编程计算机能力，供起停触发与延时编排 |
+
+---
+
+### 🔊 Speaker / 音响
+
+**Band-subscribed playback terminal / 频段订阅式播放终端**
+
+| Feature / 功能 | Description / 说明 |
+|----------------|-------------------|
+| 🔉 Dumb Terminal / 哑终端 | Default graph `BUS_IN --audio wire--> SPEAKER_PLAY` passes through identically; channel splitting belongs to the upstream CHANNEL / 默认图 `BUS_IN --音频线--> SPEAKER_PLAY` 恒等直通，声道拆分归上游 CHANNEL |
+| 🔊 World Playback / 世界发声 | Plays the subscribed band at its own position / 在自身坐标播放订阅频段 |
+| ⚙️ Playback Settings / 播放设置 | Gain (0-4) · audible radius (1-4096, default 48) · mute, in the editor panel / 编辑器面板设增益（0-4）、可听半径（1-4096，默认 48）、静音 |
+| 🔴 Redstone Mute / 红石静音 | Redstone high silences the speaker / 红石高电平静音 |
+
+---
+
 ## 👥 Multiplayer Collaboration / 多人协作（v1.2.4+）
 
-Real-time collaborative graph editing for all 7 block types. Multiple players can edit the same graph simultaneously.
-全部 7 种方块支持多人实时协作编辑同一节点图。
+Real-time collaborative graph editing for all 12 block types. Multiple players can edit the same graph simultaneously.
+全部 12 种方块支持多人实时协作编辑同一节点图。
 
 | Feature / 功能 | Description / 说明 |
 |----------------|-------------------|
@@ -336,7 +363,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 
 ---
 
-## 🧩 Node Reference / 节点参考（95 种）
+## 🧩 Node Reference / 节点参考（101 种）
 
 <details>
 <summary><b>📦 Values / 数值</b></summary>
@@ -488,6 +515,20 @@ Global named-channel communication across computers. Like publish-subscribe mess
 </details>
 
 <details>
+<summary><b>🎵 Audio / 音频</b> (Amplifier Computer + Speaker / 功放计算机·音响)</summary>
+
+| Node / 节点 | Description / 说明 |
+|-------------|-------------------|
+| Music / 曲目 | Song host + transport: NBS playback, loop, play/stop / 曲目宿主+传输：NBS 播放、循环、起停 |
+| Amplifier / 功放 | Gain 0-4 plus a dynamics curve (note loudness → output level) / 增益 0-4 + 力度曲线（音符力度→输出力度） |
+| Wave Shaper / 波形整形 | Per-sample shaping curve; identity curve = true bypass / 逐采样整形曲线；恒等曲线 = 真旁路 |
+| Audio Output / 音频输出 | Publish audio to a named band / 发布音频到命名频段 |
+| Channel Split / 声道拆分 | Split multi-channel audio to standard layouts (stereo/quad/5.1/7.1) / 多声道音频按标准布局拆分（立体声/四声道/5.1/7.1） |
+| Speaker Play / 播放 | Playback sink: hands the source to the host speaker / 播放下沉：把音源交给宿主音响发声 |
+
+</details>
+
+<details>
 <summary><b>📦 Structure / 结构</b></summary>
 
 | Node / 节点 | Description / 说明 |
@@ -588,7 +629,7 @@ Deep integration with Sable physics engine for rotating structures. / 与Sable�
 
 ## 💾 Schematic Support / 蓝图兼容
 
-All 10 blocks support **Create's Schematicannon** — graphs and state fully preserved. / 全部十种方块支持**蓝图大炮**，图与状态完整保留。
+All 12 blocks support **Create's Schematicannon** — graphs and state fully preserved. / 全部十二种方块支持**蓝图大炮**，图与状态完整保留。
 
 Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 
@@ -660,7 +701,7 @@ Older releases (v1.2.3 and earlier): see [`CHANGELOG.md`](https://github.com/y15
 
 <details>
 <summary><b>Node editor laggy? / 节点编辑器卡顿？</b></summary>
-Too many nodes or complex PID. Keep PIDs reasonable. / 节点过多或PID复杂，单计算机PID不宜超过5-6个。
+Editor drawing is viewport-culled (v1.2.5.2): only on-screen nodes cost render time. 1024 nodes on screen runs fine — node count and PID count are no longer practical limits. / v1.2.5.2 起编辑器绘制做了视口裁剪（只画屏内节点）：同屏 1024 个节点也无压力，节点数量与 PID 数量不再是实际限制。
 </details>
 
 <details>
