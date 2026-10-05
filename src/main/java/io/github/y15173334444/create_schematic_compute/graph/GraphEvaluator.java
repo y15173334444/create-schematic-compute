@@ -1,6 +1,5 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
-import io.github.y15173334444.create_schematic_compute.graph.FreqItems;
 import net.minecraft.world.item.ItemStack;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
