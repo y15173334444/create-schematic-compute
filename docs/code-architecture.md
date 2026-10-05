@@ -1,6 +1,6 @@
 # 代码结构文档 / Code Architecture
 
-> 更新日期 / Last Updated：2026-10-02
+> 更新日期 / Last Updated：2026-10-05
 > 版本 / Version：1.2.6（WIP）
 
 ---
@@ -10,14 +10,14 @@
 ```
 io.github.y15173334444.create_schematic_compute/
 ├── SchematicCompute.java          ← @Mod 入口 / @Mod entry point
-├── ModUtils.java                  ← 工具方法 / Utility methods
-├── graph/          (33 files)     ← 节点图核心引擎 + 音频纯类 / Node graph core engine + audio pure classes
+├── Config.java                    ← 服务端配置定义 / Server config spec
+├── graph/          (41 files)     ← 节点图核心引擎 + 音频纯类（零非平台依赖，平台能力经端口注入）/ Node graph core engine + audio pure classes (zero non-platform dependencies; platform capabilities arrive via injected ports)
 ├── blocks/         (64 files)     ← 方块·BE·Screen·编辑器 / Blocks, BEs, Screens, Editor
-├── network/        (35 files)     ← 网络包·BUS 总线·音频频段表 / Packets, BUS, audio bands
+├── network/        (37 files)     ← 网络包·BUS 总线·音频频段表 / Packets, BUS, audio bands
 ├── client/         (34 files)     ← 客户端渲染·编辑器·NBS/像素编辑器·音频引擎 / Rendering, editors, audio engine
 │   ├── (20 根目录 / root)  ├── colorpicker/ (4)  ├── renderer/ (5)  └── audio/ (5)
 ├── compat/          (8 files)     ← Sable 物理引擎兼容层 / Sable physics compat layer
-├── radar/           (2 files)     ← 雷达目标管理 / Radar target management
+├── radar/           (1 file)      ← 雷达目标管理 / Radar target management
 ├── entity/          (1 file)      ← 控制座椅隐形实体 / Control seat invisible entity
 ├── items/           (1 file)      ← 便携终端物品 / Portable terminal item
 └── mixin/           (5 files)     ← Mixin 注入 / Mixin injection
@@ -167,6 +167,16 @@ io.github.y15173334444.create_schematic_compute/
 **FORMULA 内联门控 / FORMULA Inline Gating (v1.2.5 刀5)**：FORMULA 在拓扑位置原地求值（无中央队列、无 1-tick 延迟）；循环边界协作超时（每 16 迭代墙钟检查，超 `FormulaCompute.sliceNs()` 即挂起存 carrier 于 `GraphNode.formulaCarrier`，下 tick 寻径续算）；emit-on-done——spread 期间输出冻结，done 才写新值；done 且输入未变整节点跳过（1e-3 容差）；输入变更默认严格冻结、`warm` 参数 opt-in 温启动；MAX_ITER 1M 按 spread 累计兜底 shed；tick 级去重（脚本,输入）由 `FormulaCompute` 提供。
 / FORMULA evaluates in place at its topological position (no central queue, no added tick latency); cooperative timeout at loop boundaries (wall clock every 16 iterations, suspends past `FormulaCompute.sliceNs()` with a carrier on `GraphNode.formulaCarrier`, resumed next tick via seek execution); emit-on-done — outputs frozen during spread, fresh on done; done nodes skip while inputs unchanged (1e-3); input change = strict freeze by default, warm restart opt-in via the `warm` param; MAX_ITER 1M spread-wide sheds pathological loops; per-tick (script, inputs) dedup via `FormulaCompute`.
 
+### 求值依赖注入 / Injected Eval Dependencies（v1.2.6）
+
+graph 包对平台/宿主包**零出边**——求值期需要的平台能力经构造注入：宿主在每次求值器构建后接线，ENCAP 子求值器逐层携带；未接线即走「缺席语义」（频道不存在、频段为空源、无目标、数据拒绝）。
+/ The graph package has zero outbound edges to platform/host packages — platform capabilities needed during evaluation are injected at construction: the host wires them after every evaluator build and ENCAP sub-evaluators carry them down; an unwired evaluator runs the absence semantics (channels absent, bands empty sources, no target, data rejected).
+
+- `SignalBusPort` / `AudioBandsPort` — 浮点面与音频面各一个端口：前者供 BUS/PRIVATE 信号 get/put 与频道活动映射，后者供频段注册、消费者游标读与 owner 冲突纪律发布。`network.SignalBus.PORT` / `network.AudioBands.PORT` 适配器把调用委托给静态表——求值器只见活动映射，不再接触 `ChannelEntry` / one port per plane: the float plane (BUS/PRIVATE signal get/put + the live channel map) and the audio plane (band registration, consumer-cursor reads, owner-disciplined publishes); the `network.SignalBus.PORT` / `network.AudioBands.PORT` adapters delegate to the statics — the evaluator sees only the live map, never `ChannelEntry`
+- `TargetLookup` — TARGET_OUT 的目标查询（radar 侧接线 `TargetAssignment::getTarget`，与 `setRadarPos` 同点）；目标值类型 `TargetRecord`（纯数据）随之沉入 graph / TARGET_OUT's target lookup (radar wires `TargetAssignment::getTarget` alongside `setRadarPos`); the target value type `TargetRecord` (pure data) sank into graph with it
+- `BlobStore` — OpExecutor 的 SET_SONG 分片字节源（根包接 `BlobRegistry::poll`）；未接线返回 null → op 拒收数据保原曲（既有坏数据策略）/ SET_SONG's blob-byte source for OpExecutor (the root wires `BlobRegistry::poll`); unwired yields null → the op rejects the data and keeps the old song (the existing bad-data policy)
+- `FormulaCompute.setBudgetMsSource(DoubleSupplier)` — 预算毫秒来源（根包接 `Config.FORMULA_BUDGET_MS`，读取保持实时、配置重载即时生效）；未接线或配置未加载窗口回退 3.0ms / the budget-ms source (the root wires `Config.FORMULA_BUDGET_MS`; reads stay live so config reloads apply immediately); falls back to 3.0ms when unwired or before config load
+
 ### RuntimeState
 可序列化的运行时状态快照，由 BE 持有。
 / Serializable runtime state snapshot, owned by the BE.
@@ -203,7 +213,7 @@ io.github.y15173334444.create_schematic_compute/
 
 ### FormulaInterpreter / FormulaCompute（v1.2.5 刀3/刀5）
 - `FormulaInterpreter` — AST 语句解释器：控制流语句级执行、表达式走 `evaluateValue` 栈机；循环边界协作超时（`CHECK_EVERY=16` 墙钟检查）挂起 `SuspendSignal` 携 carrier（循环栈计数 + Env 快照），续算**寻径执行**跳过已快照化前缀；`MAX_ITER=1M` 按 spread 累计 → `ShedSignal`。/ AST statement interpreter with cooperative suspend at loop boundaries and seek-execution resume.
-- `FormulaCompute` — 预算门面（刀1）：`beginTick()`（ServerTickEvent.Pre 单点复位 + 轮转 `N_heavy_prev` + 清 dedup 表）、`sliceNs() = budgetMs / max(1, N_heavy_prev)`、`reportYield()`、tick 级去重缓存。/ Budget facade: per-tick reset/rotate/dedup-clear, adaptive slice, tick-level dedup.
+- `FormulaCompute` — 预算门面（刀1）：`beginTick()`（ServerTickEvent.Pre 单点复位 + 轮转 `N_heavy_prev` + 清 dedup 表）、`sliceNs() = budgetMs / max(1, N_heavy_prev)`、`reportYield()`、tick 级去重缓存；预算来源经 `setBudgetMsSource` 注入（见「求值依赖注入」），graph 不直连 Config。/ Budget facade: per-tick reset/rotate/dedup-clear, adaptive slice, tick-level dedup; the budget source is injected via `setBudgetMsSource` (see "Injected Eval Dependencies") — graph never touches Config directly.
 
 ### OpExecutor
 `GraphOp` 应用执行器。服务端和客户端共享，确保变更逻辑单一定义。
@@ -214,12 +224,12 @@ io.github.y15173334444.create_schematic_compute/
 ### GraphOp / OpType
 `GraphOp`：**28 字段** record + **26 个静态方法**（25 个工厂 + `parseCtrlPoints` helper）。
 / 28-field record + 26 static methods (25 factories + 1 helper).
-- `blobRefId` — 非零 → 经 `BlobRegistry` 取大数据 / non-zero → BlobRegistry lookup
+- `blobRefId` — 非零 → 经注入的 `BlobStore` 端口取大数据（生产由根包接 `BlobRegistry::poll`，见「求值依赖注入」）/ non-zero → large data via the injected `BlobStore` port (production wires `BlobRegistry::poll`; see "Injected Eval Dependencies")
 - `imageData` — IMAGE 像素直接以 `int[]` 传输（替代 Base64 `stringValue`）/ direct pixel array
 - `OpType`：**35 种**操作枚举（新值只追加在枚举尾——枚举序 = 网络序）/ 35-operation enum (new values append only — ordinal order is the wire order)
 - `SET_PARAM` — `stringValue` 可携带输入框**草稿原文**（含空串），只驱动对端 EditBox 显示；权威数值在 `paramValue`。OpExecutor 对值相同的写入跳过 `bumpGeneration`（草稿-only op 不触发全量重编译）/ `stringValue` may carry the raw EditBox draft (incl. clear) for peer display only; the authoritative number is `paramValue`. OpExecutor skips `bumpGeneration` when the value is unchanged so draft-only ops do not force a full recompile.
 - `SET_BLOCK_NAME` — 图级 op（targetNodeId=0 忽略）：设置 `NodeGraph.customName`，纯视觉不 bump（同 SET_ZORDER）；已加入 EditSessionRegistry 的显示 op 白名单，未开编辑器的协作者也能收到 / Graph-level op (targetNodeId=0, ignored): sets `NodeGraph.customName`; visual-only, no bump (same as SET_ZORDER); whitelisted in EditSessionRegistry's display ops so collaborators without the editor open still receive it
-- `SET_SONG` — MUSIC 曲目写入/替换：`blobRefId` 经 `BlobRegistry` 取重组字节应用，坏数据/超限拒存保原曲 / Song write/replace: reassembled bytes come from `BlobRegistry`; malformed/oversized data is rejected and the original song kept
+- `SET_SONG` — MUSIC 曲目写入/替换：`blobRefId` 经注入的 `BlobStore` 取重组字节应用，坏数据/超限拒存保原曲 / Song write/replace: reassembled bytes come from the injected `BlobStore`; malformed/oversized data is rejected and the original song kept
 
 ### DebugSignals
 DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
@@ -242,7 +252,7 @@ DEBUG_SIGNAL_GEN 信号计算（无状态静态方法）。
 
 ### SpatialIndex / ZOrder（v1.2.3 遮挡系统 / occlusion system）
 - `ZOrder` — A/B/C 三层遮挡记录（网格→注释→连线→节点→覆盖层→工具提示）/ Occlusion record
-- `SpatialIndex` — 网格空间哈希（`CELL_SIZE=256`），O(k) 命中过滤 / Grid spatial hash used by the editor
+- `SpatialIndex` — 网格空间哈希（`CELL_SIZE=256`），O(k) 命中过滤；也是**节点几何单一真相源**——`nwStatic`/`nhStatic`/`editHeight`（原 `EditPanel.calcRenderHeight` 的静态估计）住在这里，`EditState` 实测值（动态字段数、脚本文本框高）作参数传入，`EditPanel` 只做提取并委托，渲染与命中测试共享同一几何 / Grid spatial hash for O(k) hit filtering; also the **single geometry source for node size** — `nwStatic`/`nhStatic`/`editHeight` (the static estimate formerly in `EditPanel.calcRenderHeight`) live here with the `EditState`-measured values (dynamic field count, script-box height) passed in as parameters; `EditPanel` extracts and delegates, so rendering and hit-testing share one geometry
 
 ---
 
@@ -507,6 +517,7 @@ joiners have no pending ops and always load the authoritative graph.
 - `registerPrivateChannel(name, owner)` / `unregisterPrivateChannel(name, owner)` — 私有频道占用（BUS 同款：首个注册者获胜，同名不同 owner 拒注册；owner 校验释放，值/占用/定义一起撤，竞争者随后接管）/ Private occupancy (BUS discipline: first registrant wins; owner-checked release takes value+occupancy+definition together, contenders take over)
 - `setPrivateAudio(name, audio)` / `isPrivateAudio(name)` / `privateAudioStamp(name)` — 私有频道定义（发布方按输入引脚对端域拓扑判定；变化才自增版本，宿主据此推送同步）/ Private channel definition (topology-derived by the publisher; version bumps only on change, hosts push on change)
 - `registerBands(name, bands)` / `getBands(name)` / `clearBus(name)`
+- `PORT` — `graph.SignalBusPort` 适配器：信号 get/put 与频道活动映射委托给静态表，供 graph 依赖下沉后注入求值器 / adapter for `graph.SignalBusPort`: delegates signal get/put and the live channel map to the statics for injection into the evaluator
 
 ### AudioBands
 音频频段表（全局静态，与 SignalBus 同款跨维度共享性质；发布 = 覆盖写）。
@@ -516,6 +527,7 @@ joiners have no pending ops and always load the authoritative graph.
 - **新鲜度门控 / Freshness gate**：引用带发布 game-time 戳，读取只认 `戳 ≥ 当前刻 − 1`（跨 BE tick 顺序容忍 1 刻）——发布方停机/卸载后陈旧引用自愈失效，消费端无需清理配合 / reads accept this- or previous-tick stamps only; stale refs self-heal when the publisher stops or unloads
 - **消费者游标 / Consumer cursors**：`(consumer, band)` 记已读戳，读取 exactly-once——BE tick 顺序翻转不再同批重播 / per (consumer, band) cursors make reads exactly-once across BE tick-order flips
 - **owner 与冲突（R1-2）/ Ownership & conflict**：带 owner 发布（宿主坐标+节点 id）；同名不同 owner 在新鲜窗内相撞 → 后到者拒写、双方 `GraphNode.audioConflict` 旗标同亮、频道静默；新鲜窗自愈，原所有者消失越窗后后到者接管 / owned publishes; a same-name collision inside the freshness window rejects the newcomer, lights both node flags and silences the band; freshness-window self-healing with newcomer takeover
+- `PORT` — `graph.AudioBandsPort` 适配器：频段注册、游标读与冲突纪律发布委托给静态表，供 graph 依赖下沉后注入求值器 / adapter for `graph.AudioBandsPort`: delegates band registration, cursor reads and disciplined publishes to the statics for injection into the evaluator
 
 ### BusChannelHelper
 BUS 频道生命周期管理器 / BUS channel lifecycle manager.
@@ -554,7 +566,7 @@ Sable 子层级兼容工具 / Sable sub-level compat utilities.
 | 类 / Class | 功能 / Function |
 |----|------|
 | `ClientSetup.java` | 客户端初始化 / Client init |
-| `ControlSeatInputHandler.java` | 座椅 GLFW 原始输入 / Raw GLFW input bypassing MC keybindings |
+| `ControlSeatInputHandler.java` | 座椅 GLFW 原始输入；原始→归一化摇杆缩放常量（JOYSTICK_SCALE/ABS_SCALE）随快照类型住 `graph.SeatInputState`（预备者与消费者的契约） / Raw GLFW input bypassing MC keybindings; the raw→normalized stick scaling constants (JOYSTICK_SCALE/ABS_SCALE) live on the snapshot type `graph.SeatInputState` — the preparer↔consumer contract |
 | `FormulaCompletion.java` | FORMULA 编辑器自动补全候选构建 / Autocomplete candidate builder |
 | `FormulaSuggestPopup.java` | 自动补全浮层（光标附近，z 层 C=5.5）/ Suggestion dropdown overlay |
 | `GeometryConstants.java` | 统一布局常量 / Unified layout constants |
