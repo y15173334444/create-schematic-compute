@@ -311,30 +311,30 @@ Less-or-equal: outputs 1 when A<=B; closed, so A=B → 1. Bounds that include th
 ## 20. PID 控制器/PID / PID Controller
 
 - **枚举名 / Type**: `PID` · 稳定 id: `pid`
-- **接口 / Interface**: 2 入 in → 1 出 out · 参数 params: `kp, ki, kd, scale, ilimit`
+- **接口 / Interface**: 2 入 in → 1 出 out · 参数 params: `kp, ki, kd, scale, ilimit, deadband`
 
 **说明（中文）**
 
-闭环 PID 控制器：sp 为目标值、pv 为当前值，输出控制量 ctrl = (kp*err + 积分项 + kd*微分项)*scale。**积分死区 deadband**（默认 0.001）：|err|≤deadband 时积分**保持**（不增长也不清除），|err|>deadband 时正常积分；积分贡献钳在 +/-ilimit（抗饱和），输出本身不限幅。kp/ki/kd/scale/ilimit/deadband 均可展开编辑或连线覆盖，默认 1/0.1/0.05/1/3/0.001。每张图建议不超过 5-6 个。
+闭环 PID 控制器：sp 为目标值、pv 为当前值，输出控制量 ctrl = (kp*err + 积分项 + kd*微分项)*scale。积分死区 deadband（默认 0.001）：|err|<=deadband 时积分保持（不增长也不清除），|err|>deadband 时正常积分；积分贡献钳在 +/-ilimit（抗饱和），输出本身不限幅。kp/ki/kd/scale/ilimit/deadband 均可展开编辑或连线覆盖，默认 1/0.1/0.05/1/3/0.001。每张图建议不超过 5-6 个。
 
 **Description (English)**
 
-Closed-loop PID controller: sp is the setpoint and pv the measured value, producing ctrl = (kp*err + integral + kd*derivative)*scale. **Integral deadband** (default 0.001): when |err| <= deadband the integral holds (neither grows nor clears); outside it integrates normally. The integral contribution is clamped to +/-ilimit (anti-windup); the output itself is not clamped. kp/ki/kd/scale/ilimit/deadband are editable and wire-overridable (defaults 1/0.1/0.05/1/3/0.001). Keep to about 5-6 per graph.
+Closed-loop PID controller: sp is the setpoint and pv the measured value, producing ctrl = (kp*err + integral + kd*derivative)*scale. Integral deadband (default 0.001): when |err| <= deadband the integral holds (neither grows nor clears); outside it integrates normally. The integral contribution is clamped to +/-ilimit (anti-windup); the output itself is not clamped. kp/ki/kd/scale/ilimit/deadband are editable and wire-overridable (defaults 1/0.1/0.05/1/3/0.001). Keep to about 5-6 per graph.
 
 ---
 
 ## 21. 动力 PID/PID_POWER / Power PID
 
 - **枚举名 / Type**: `PID_POWER` · 稳定 id: `pid_power`
-- **接口 / Interface**: 3 入 in → 1 出 out · 参数 params: `kp, ki, kd, ilimit`
+- **接口 / Interface**: 3 入 in → 1 出 out · 参数 params: `kp, ki, kd, ilimit, deadband`
 
 **说明（中文）**
 
-带基准功率的动力 PID：输出 power = base + kp*err + 积分项 + kd*微分项——base 作为前馈直加，不经增益也不限幅。无 scale 参数；sp/pv/base 任一非有限按 0 处理。**积分死区 deadband**（默认 0.001）：|err|≤deadband 时积分**保持**（不增长也不清除）。kp/ki/kd/ilimit/deadband 可编辑或连线覆盖，默认 2/0.05/3/3/0.001。适合直接生成动力类指令。
+带基准功率的动力 PID：输出 power = base + kp*err + 积分项 + kd*微分项——base 作为前馈直加，不经增益也不限幅。无 scale 参数；sp/pv/base 任一非有限按 0 处理。积分死区 deadband（默认 0.001）：|err|<=deadband 时积分保持（不增长也不清除）。kp/ki/kd/ilimit/deadband 可编辑或连线覆盖，默认 2/0.05/3/3/0.001。适合直接生成动力类指令。
 
 **Description (English)**
 
-PID with a base-power feed-forward: power = base + kp*err + integral + kd*derivative, where base adds directly with no gain or limiting. There is no scale parameter; a non-finite sp/pv/base is treated as 0. **Integral deadband** (default 0.001): when |err| <= deadband the integral holds (neither grows nor clears). kp/ki/kd/ilimit/deadband are editable/wire-overridable (defaults 2/0.05/3/3/0.001). Drive-level power commands.
+PID with a base-power feed-forward: power = base + kp*err + integral + kd*derivative, where base adds directly with no gain or limiting. There is no scale parameter; a non-finite sp/pv/base is treated as 0. Integral deadband (default 0.001): when |err| <= deadband the integral holds (neither grows nor clears). kp/ki/kd/ilimit/deadband are editable/wire-overridable (defaults 2/0.05/3/3/0.001). Drive-level power commands.
 
 ---
 
@@ -371,15 +371,15 @@ Map: linearly remaps [in_min, in_max] onto [out_min, out_max]. A non-finite valu
 ## 24. 转速控制 / Speed Control
 
 - **枚举名 / Type**: `SPEED_CTRL` · 稳定 id: `speed_ctrl`
-- **接口 / Interface**: 2 入 in → 1 出 out
+- **接口 / Interface**: 2 入 in → 1 出 out · 参数 params: `rev`
 
 **说明（中文）**
 
-转速控制：Speed Proxy（转速代理控制器）图专用，把目标转速直接写到相邻的 Create 转速控制器。speed 为目标转速；dir 大于 0.5 时反转（对 speed 取反号），未接线的 dir 视为正转。其声明输出在编辑器中不渲染、不可连线——宿主每 tick 直接读取，并把转速钳制在 +/-256，只作用于相邻 6 面的控制器。
+转速控制：Speed Proxy（转速代理控制器）图专用，把目标转速直接写到相邻的 Create 转速控制器。speed 为目标转速；dir 大于 0.5 时反转（对 speed 取反号），未接线的 dir 视为正转。编辑区「正转/反转」按钮与 dir 同号才反（两个都开 = 恢复正向）。其声明输出在编辑器中不渲染、不可连线——宿主每 tick 直接读取，并把转速钳制在 +/-256，只作用于相邻 6 面的控制器。
 
 **Description (English)**
 
-Speed control: available only inside a Speed Proxy graph; writes a target RPM straight to an adjacent Create Speed Controller. speed is the target; dir > 0.5 reverses the sign (an unwired dir reads forward). Its declared output is not rendered or wireable — the host reads it each tick, clamps to +/-256, and applies it to controllers on the six neighbouring faces.
+Speed control: available only inside a Speed Proxy graph; writes a target RPM straight to an adjacent Create Speed Controller. speed is the target; dir > 0.5 reverses the sign (an unwired dir reads forward). The Forward/Reverse button XORs with dir (both on = forward again). Its declared output is not rendered or wireable — the host reads it each tick, clamps to +/-256, and applies it to controllers on the six neighbouring faces.
 
 ---
 
@@ -450,11 +450,11 @@ Private signal input: reads a single float from a process-wide table by channel 
 
 **说明（中文）**
 
-私有信号输出：每个 tick 把图内值写入同名频道（覆盖式写入），供任意宿主上的同名 PRIVATE_IN 读取。频道是单值、无频段结构，**频道名带占用检测（与 BUS 同款）**：同一时刻只属于一个发布方（首个注册者获胜），同名的其他发布方亮「频道已占用」徽标且不写值、不算定义；原发布方删除/改名/卸载后由竞争者接管（自愈）。频道属性（浮点/音频）由发布方输入引脚对端域决定，随定义同步给订阅方，PRIVATE_IN 引脚的类型与颜色随之变换。方块卸载时频道会被清理。
+私有信号输出：每个 tick 把图内值写入同名频道（覆盖式写入），供任意宿主上的同名 PRIVATE_IN 读取。频道是单值、无频段结构，多个同名输出共享同一频道属正常现象（不是冲突）。方块卸载时频道会被清理。
 
 **Description (English)**
 
-Private signal output: writes the graph value into the named channel every tick (overwrite semantics), readable by any same-named PRIVATE_IN on any host. Channels hold a single value with no band structure, and **channel names carry BUS-parity occupancy detection**: a name belongs to one publisher at a time (first registrant wins); any other same-named publisher shows the "Channel Occupied" badge and writes neither values nor definitions, taking over only once the original is deleted, renamed or unloaded (self-healing). The channel's property (float/audio) follows the publisher's input-pin peer and syncs to subscribers, so PRIVATE_IN pins transform their type and colour with it. Channels are cleaned up when the block unloads.
+Private signal output: writes the graph value into the named channel every tick (overwrite semantics), readable by any same-named PRIVATE_IN on any host. Channels hold a single value with no band structure, so several same-named outputs sharing one channel is normal, not a conflict. Channels are cleaned up when the block unloads.
 
 ---
 
@@ -1256,49 +1256,45 @@ Target output: radar graphs only. Each tick the radar assigns targets, then broa
 ## 83. 目标转速 / Target Speed
 
 - **枚举名 / Type**: `TX_OUT` · 稳定 id: `tx_out`
-- **接口 / Interface**: 1 入 in → 1 出 out
+- **接口 / Interface**: 1 入 in → 1 出 out · 参数 params: `rev`
 
 **说明（中文）**
 
-目标转速：可编程变速器（Programmable Transmission）图专用。把输入 rpm 四舍五入并钳到服务器最大转速（默认 +/-256）后写到输出轴；图停止时回落为滚轮设定值。图中存在多张时只取**存储序首个** `TX_OUT` 生效（该规则由 `NodeGraph.firstNodeIdOfType` 一处提供，同时决定「谁是驱动节点」与「是否代理中」）。仅变速器图。
-
-**代理态（2026-09-27）**：图运行且存在 `TX_OUT` 时，变速器进入**代理态**——滚轮拒收输入（客户端输入 / 服务端收包 / 剪贴板三处闸门共用 `acceptsValueSettings`），值盒显示「已应用目标 **(代理)**」，悬停提示第一行改为「目标转速 · 由节点控制」。代理态由**服务端判定**并随方块实体包同步（`CscTxProxy`），客户端不按本地图推导。图停止、或图中没有 `TX_OUT` 节点时回到手动态：盒内裸数字（绝对值，官方口径）、滚轮生效。代理态下盒内数字取**已应用**目标（受 4 tick 拆建冷却与包延迟影响，可能短暂滞后于节点当前输出）；**闸门本身也滞后**——手动态→代理态翻转后、包到达前客户端仍按旧值放行片刻，玩家可能看到一瞬可编辑的假象，但值不会落地（服务端按权威值再查一次闸门）。
+目标转速：可编程变速器（Programmable Transmission）图专用。把输入 rpm 四舍五入并钳到服务器最大转速（默认 +/-256）后写到输出轴；图停止时回落为滚轮设定值。编辑区「正转/反转」按钮在输出上取反。图中存在多张时只取遍历到的第一张生效。仅变速器图。
 
 **Description (English)**
 
-Target RPM: programmable-transmission graphs only. Rounds the input rpm, clamps it to the server's max rotation speed (default +/-256) and drives the output shaft; when the graph stops it falls back to the wheel setting. If several TX_OUT nodes exist, only the **first in storage order** acts (that one rule lives in `NodeGraph.firstNodeIdOfType` and decides both "which node drives" and "are we proxied"). Transmission graphs only.
-
-**Proxied state (2026-09-27)**: while the graph runs with a `TX_OUT` node the transmission is **proxied** — the scroll wheel refuses input (client input / server packet handler / clipboard all share the `acceptsValueSettings` gate), the value box reads "applied target **(proxy)**" and the hover tip's first line becomes "Target speed · Node-controlled". The state is **server-decided** and shipped in the block-entity packet (`CscTxProxy`); the client never derives it from its local graph. With the graph stopped, or with no `TX_OUT` node at all, the block returns to manual mode: a bare magnitude in the box (official behaviour) and a live wheel. While proxied the box shows the **applied** target, which the 4-tick rebuild cooldown and packet latency can briefly lag behind the node's current output. **The gate lags the same way**: between the manual→proxied flip and the packet's arrival the client still lets the interaction through, so the box can look briefly editable — nothing lands, since the server re-checks the gate against its authoritative flag.
+Target RPM: programmable-transmission graphs only. Rounds the input rpm, clamps it to the server's max rotation speed (default +/-256) and drives the output shaft; when the graph stops it falls back to the wheel setting. The Forward/Reverse button negates the output. If several TX_OUT nodes exist, only the first in traversal order acts. Transmission graphs only.
 
 ---
 
 ## 84. 移动 / Move
 
 - **枚举名 / Type**: `MOVE` · 稳定 id: `move`
-- **接口 / Interface**: 1 入 in → 1 出 out · 参数 params: `meters`
+- **接口 / Interface**: 1 入 in → 1 出 out · 参数 params: `meters, rev`
 
 **说明（中文）**
 
-移动：数控齿轮箱指令节点——触点上升沿把「移动 X 米」压入指令栈，由齿轮箱逐条执行，完成那一帧 done 输出 1。数值（米）默认 0，可编辑或连线覆盖；速度跟随输入轴，无动力时配额不消耗（指令冻结），恢复动力后续跑。仅数控齿轮箱图。
+移动：数控齿轮箱指令节点——触点上升沿把「移动 X 米」压入指令栈，由齿轮箱逐条执行，完成那一帧 done 输出 1。数值（米）默认 0，可编辑或连线覆盖；「正转/反转」是独立开关（不改数值），反转时输出轴相对输入反转、行程按绝对值记账。速度跟随输入轴，无动力时配额不消耗（指令冻结），恢复动力后续跑。仅数控齿轮箱图。
 
 **Description (English)**
 
-Move: CNC gearbox command node — a rising edge on the trigger enqueues "move X metres" onto the command stack; the gearbox runs commands one by one and done pulses 1 for the frame each finishes. The distance (metres) is editable or wire-overridable (default 0). Speed follows the input shaft: without power the quota stops consuming (commands freeze) and resumes when power returns. Gearbox graphs only.
+Move: CNC gearbox command node — a rising edge on the trigger enqueues "move X metres" onto the command stack; the gearbox runs commands one by one and done pulses 1 for the frame each finishes. The distance (metres) is editable or wire-overridable (default 0). Forward/Reverse is an independent toggle (it does not edit the value) — reverse runs the output shaft opposite the input and books |value| of travel. Speed follows the input shaft: without power the quota stops consuming (commands freeze) and resumes when power returns. Gearbox graphs only.
 
 ---
 
 ## 85. 转动 / Rotate
 
 - **枚举名 / Type**: `ROTATE` · 稳定 id: `rotate`
-- **接口 / Interface**: 1 入 in → 1 出 out · 参数 params: `degrees`
+- **接口 / Interface**: 1 入 in → 1 出 out · 参数 params: `degrees, rev`
 
 **说明（中文）**
 
-转动：数控齿轮箱指令节点——触点上升沿把「转 X 度」压入指令栈，执行期间离合保持接合，完成那一帧 done 输出 1。角度（度）默认 0，可编辑或连线覆盖；实际消耗按 |转速|*0.3/每 tick 折算。仅数控齿轮箱图。
+转动：数控齿轮箱指令节点——触点上升沿把「转 X 度」压入指令栈，执行期间离合保持接合，完成那一帧 done 输出 1。角度（度）默认 0，可编辑或连线覆盖；「正转/反转」是独立开关（不改数值），反转时输出轴相对输入反转、行程按绝对值记账。实际消耗按 |转速|*0.3/每 tick 折算。仅数控齿轮箱图。
 
 **Description (English)**
 
-Rotate: CNC gearbox command node — a rising edge on the trigger enqueues "turn X degrees". The clutch stays engaged while running and done pulses 1 for the frame it completes. The angle (degrees) is editable or wire-overridable (default 0); travel consumes |speed|*0.3 per tick. Gearbox graphs only.
+Rotate: CNC gearbox command node — a rising edge on the trigger enqueues "turn X degrees". The clutch stays engaged while running and done pulses 1 for the frame it completes. The angle (degrees) is editable or wire-overridable (default 0). Forward/Reverse is an independent toggle (it does not edit the value) — reverse runs the output shaft opposite the input and books |value| of travel. Travel consumes |speed|*0.3 per tick. Gearbox graphs only.
 
 ---
 
@@ -1335,15 +1331,15 @@ Clutch: CNC gearbox standing-engagement intent — an output above 0.5 keeps the
 ## 88. 编码器 / Encoder
 
 - **枚举名 / Type**: `ENCODER` · 稳定 id: `encoder`
-- **接口 / Interface**: 1 入 in（`reset`）→ 3 出 out · 无参数 params
+- **接口 / Interface**: 1 入 in → 3 出 out
 
 **说明（中文）**
 
-编码器：数控齿轮箱运动反馈节点——报告角度位置（0-360度）、线性位置（米）与实际转速（RPM、带符号，无动力/过载为 0）。**只在离合接合时计量**：接合期间对转速开环积分（打滑或外力扳动会漂移），分离/空闲时位置保持、转速读 0——没有指令且图中无 CLUTCH 拉高时齿轮箱自动分离，编码器随之保持不计数。清零是节点体输入引脚（电平触发）：拉高即清零累计，持续拉高会一直保持归零；未接线为 0。仅数控齿轮箱图。
+编码器：数控齿轮箱运动反馈节点——报告角度位置（0-360度）、线性位置（米）与实际转速（RPM、带符号，无动力/过载为 0）。两个位置是对转速的开环积分，打滑或外力扳动会漂移。清零是节点体输入引脚（电平触发）：拉高即清零累计，持续拉高会一直保持归零；未接线为 0。仅数控齿轮箱图。
 
 **Description (English)**
 
-Encoder: CNC gearbox motion feedback — angle position (0-360 degrees), linear position (metres) and live signed RPM (0 when unpowered or overloaded). **Measured only while the clutch is ENGAGED**: the positions integrate shaft speed in an open loop while engaged (slip or forced movement drifts them) and hold, with RPM reading 0, whenever the gearbox is disengaged/idle — with no commands and no CLUTCH held high the gearbox disengages automatically and the encoder stops counting. Reset is a body input pin (level-triggered): high zeroes both instantly and stays zero while held; unwired reads 0. Gearbox graphs only.
+Encoder: CNC gearbox motion feedback — angle position (0-360 degrees), linear position (metres) and live signed RPM (0 when unpowered or overloaded). The two positions are an open-loop integration of shaft speed, so slip or forced movement drifts them. Reset is a body input pin (level-triggered): high zeroes both instantly and stays zero while held; unwired reads 0. Gearbox graphs only.
 
 ---
 
@@ -1422,8 +1418,6 @@ Comment: a multi-line text box on the canvas — draggable and resizable, with e
 
 ---
 
----
-
 ## 94. 应力状态 / Stress Status
 
 - **枚举名 / Type**: `STRESS` · 稳定 id: `stress`
@@ -1431,11 +1425,11 @@ Comment: a multi-line text box on the canvas — draggable and resizable, with e
 
 **说明（中文）**
 
-应力状态：读取本方块所在动力网络的应力，四个输出引脚——占比（已用/容量，0-1，超载时大于 1）、已用（SU）、未用（1-占比，0-1）、剩余（容量-已用，SU）。无网络或容量为 0 时全部输出 0。读数随网络实时自愈（发电机拆装、网络合并/分裂后下一 tick 自动正确）。仅动力宿主图（动力传感器、可编程变速器、数控齿轮箱）。
+应力状态：读取本方块所在动力网络的应力，四个输出引脚——占比（已用/容量，0-1，超载时大于 1）、已用（SU）、未用（1-占比，0-1）、剩余（容量-已用，SU）。无网络或容量为 0 时全部输出 0。仅动力宿主图（动力传感器、可编程变速器、数控齿轮箱）。
 
 **Description (English)**
 
-Stress Status: reads the kinetic network attached to this block through four pins — ratio (used/capacity, 0-1, >1 while overstressed), used (SU), unused (1-ratio, 0-1) and left (capacity-used, SU). All pins read 0 with no network or zero capacity. Readings self-heal with the network (generators removed, networks merged/split — correct the next tick). Kinetic host graphs only (kinetic gauge, programmable transmission, CNC gearbox).
+Stress Status: reads the kinetic network attached to this block through four pins — ratio (used/capacity, 0-1, >1 while overstressed), used (SU), unused (1-ratio, 0-1) and left (capacity-used, SU). All pins read 0 with no network or zero capacity. Kinetic host graphs only (kinetic gauge, transmission, CNC gearbox).
 
 ---
 
@@ -1446,8 +1440,100 @@ Stress Status: reads the kinetic network attached to this block through four pin
 
 **说明（中文）**
 
-转速/RPM：输出本方块所在网络的转速（RPM、带符号，反转输出负值），无动力/过载时为 0——与编码器 vel 引脚同语义（但编码器只在离合接合时计数，本节点恒读网络）。仅动力宿主图（动力传感器、可编程变速器、数控齿轮箱）。
+转速/RPM：输出本方块所在网络的转速（RPM、带符号，反转输出负值），无动力/过载时为 0——与编码器 vel 引脚同语义。仅动力宿主图（动力传感器、可编程变速器、数控齿轮箱）。
 
 **Description (English)**
 
-Speed (RPM): outputs this block's network rotation speed, signed (negative = reversed); 0 when unpowered or overloaded — same semantics as the encoder's vel pin (but the encoder counts only while the clutch is engaged, while this node always reads the network). Kinetic host graphs only (kinetic gauge, programmable transmission, CNC gearbox).
+Speed (RPM): outputs this block's network rotation speed, signed (negative = reversed); 0 when unpowered or overloaded — same semantics as the encoder's vel pin. Kinetic host graphs only (kinetic gauge, transmission, CNC gearbox).
+
+---
+
+## 96. 曲目 / Music
+
+- **枚举名 / Type**: `MUSIC` · 稳定 id: `music`
+- **接口 / Interface**: 3 入 in → 5 出 out · 参数 params: `loop`
+
+**说明（中文）**
+
+曲目宿主：NBS 曲目数据住节点上；输出音频（类型化音源）、playing/tick/seconds 状态与非循环播到尾的 done 脉冲。play/stop 上升沿生效；seek 值变化即当帧快照跳转。双击节点打开 NBS 钢琴卷帘编辑器。
+
+**Description (English)**
+
+Song host: NBS track data lives on the node; outputs audio (typed source), playing / tick / seconds status and a done pulse at the end of a non-looping play-through. play & stop fire on rising edge; seek jumps whenever its value changes. Double-click opens the NBS piano-roll editor.
+
+---
+
+## 97. 功放（增益） / Amplifier (Gain)
+
+- **枚举名 / Type**: `AMP` · 稳定 id: `amp`
+- **接口 / Interface**: 1 入 in → 1 出 out · 参数 params: `gain`
+
+**说明（中文）**
+
+增益级：把输入音源按 0..4 缩放（参数引脚，可接图信号做音量自动化）。音频引脚只连音频引脚。
+
+**Description (English)**
+
+Gain stage: scales the incoming audio source by 0..4 (param pin, can be wired for volume automation). Audio pins only connect to audio pins.
+
+---
+
+## 98. 波形整形 / Wave Shaper
+
+- **枚举名 / Type**: `WSHAPE` · 稳定 id: `wshape`
+- **接口 / Interface**: 1 入 in → 1 出 out
+
+**说明（中文）**
+
+波形整形：把节点曲线（控制点对）按应用序追加进音源的整形链，随音频引用、频段表、音符包送达客户端，起音时保号整形固化进采样（先于重采样插值，混音内环零附加成本）；控制点直达客户端，无烘焙量化失真。曲线在节点 XY 图上双击加点，恒可编辑（无需手动模式），y 域固定 0..2（允许过驱）。恒等曲线 = 真旁路：不入链、不进包，与未加整形逐位一致。音符事件与标量原样透传，服务端不做采样级处理。功放图与音响图均可放置。
+
+**Description (English)**
+
+Wave shaper: appends this node's curve (control-point pairs) to the audio source's shaping chain in application order; the chain rides the audio reference, band table and note packet to the client, which bakes the sign-preserving shape into the sample at voice start (before resampling interpolation, zero extra cost in the mix inner loop); control points are delivered raw, so there is no bake-quantization distortion. Add points by double-clicking the node's XY chart; the curve is always editable (no manual mode needed) and its y range is fixed at 0..2 (overdrive allowed). An identity curve is a true bypass: it never enters the chain or the wire and is bit-identical to no shaping. Note events and scalars pass untouched; the server does no sample-level processing. Works in amplifier and speaker graphs alike.
+
+---
+
+## 99. 音频输出 / Audio Out
+
+- **枚举名 / Type**: `AUDIO_OUT` · 稳定 id: `audio_out`
+- **接口 / Interface**: 1 入 in → 0 出 out
+
+**说明（中文）**
+
+频段发布：把本 tick 音源交给指定名称的音频频段（频段名 = 信号名）跨方块路由。每 tick 覆盖写；消费端按名读取。
+
+**Description (English)**
+
+Band publish: hands this tick's audio source to the named audio band (band = signal name) for cross-block routing. Publish is overwrite-per-tick; consumers read by name.
+
+---
+
+## 100. 声道拆分 / Channel Split
+
+- **枚举名 / Type**: `CHANNEL` · 稳定 id: `channel`
+- **接口 / Interface**: 1 入 in → 0 出 out · 参数 params: `layout`
+
+**说明（中文）**
+
+声道拆分：把输入的多声道音源按音符声像拆成各声道输出（聚合/左/右/…，等功率）。输出声道数在编辑区选择。
+
+**Description (English)**
+
+Channel split: splits the incoming multi-channel source into per-channel outputs (mix / left / right / ... by note panning, equal-power). Output channel count is chosen in the edit panel.
+
+---
+
+## 101. 播放 / Speaker Play
+
+- **枚举名 / Type**: `SPEAKER_PLAY` · 稳定 id: `speaker_play`
+- **接口 / Interface**: 1 入 in → 0 出 out
+
+**说明（中文）**
+
+播放 sink：在本音响坐标播放所选声道（聚合/左/右）的音源。受音响增益、静音与红石静音约束。
+
+**Description (English)**
+
+Playback sink: plays the selected channel (mix / left / right) of the incoming source at this speaker's world position. Honors the speaker's gain, mute and redstone-mute.
+
+---
