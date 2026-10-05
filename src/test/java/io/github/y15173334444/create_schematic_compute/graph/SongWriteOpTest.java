@@ -20,7 +20,8 @@ class SongWriteOpTest {
     private static final UUID ACTOR = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final BlockPos POS = new BlockPos(1, 2, 3);
 
-    /** 接线 blob 字节源（接口下沉后由注入方提供；生产由根包接 BlobRegistry::poll）。 */
+    /** 接线 blob 字节源（接口下沉后由注入方提供；生产由根包接 BlobRegistry::poll）。
+     *  Wires the blob-byte source (injected since the interface sinking; production wires BlobRegistry::poll in the root). */
     @BeforeAll
     static void wireBlobStore() {
         OpExecutor.setBlobStore(BlobRegistry::poll);
