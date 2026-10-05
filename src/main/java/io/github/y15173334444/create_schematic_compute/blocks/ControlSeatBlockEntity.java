@@ -1,6 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
-import io.github.y15173334444.create_schematic_compute.ModUtils;
+import io.github.y15173334444.create_schematic_compute.graph.FreqItems;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;

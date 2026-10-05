@@ -1,6 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
-import io.github.y15173334444.create_schematic_compute.ModUtils;
+import io.github.y15173334444.create_schematic_compute.graph.FreqItems;
 import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
@@ -80,7 +80,7 @@ public class RedstoneLinkHelper {
                 var item2 = n.itemParams != null && n.itemParams.length > 1 ? n.itemParams[1] : ItemStack.EMPTY;
                 var f1 = !item1.isEmpty() ? RedstoneLinkNetworkHandler.Frequency.of(item1) : EMPTY;
                 var f2 = !item2.isEmpty() ? RedstoneLinkNetworkHandler.Frequency.of(item2) : EMPTY;
-                var freqKey = ModUtils.freqKey(item1, item2);
+                var freqKey = FreqItems.freqKey(item1, item2);
                 var isIn = n.type == NodeType.REDSTONE_IN;
                 addLink(isIn, freqKey, f1, f2);
             }
@@ -161,7 +161,7 @@ public class RedstoneLinkHelper {
         var in = new ArrayList<GraphEvaluator.InputSource>();
         for (var n : graph.nodes) {
             if (n.type == NodeType.REDSTONE_IN) {
-                long fk = ModUtils.freqKey(n.itemParams);
+                long fk = FreqItems.freqKey(n.itemParams);
                 in.add(new GraphEvaluator.InputSource(fk, lastInputs.getOrDefault(fk, 0)));
             }
         }
@@ -175,7 +175,7 @@ public class RedstoneLinkHelper {
         if (level == null) return;
         lastOutputs.clear();
         for (var r : results) {
-            long freqKey = ModUtils.freqKey(r.freq1(), r.freq2());
+            long freqKey = FreqItems.freqKey(r.freq1(), r.freq2());
             lastOutputs.put(freqKey, r.signal());
             for (var fl : freqLinks)
                 if (fl.freqKey() == freqKey)

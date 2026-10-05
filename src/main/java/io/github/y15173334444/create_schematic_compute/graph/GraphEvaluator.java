@@ -1,6 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
-import io.github.y15173334444.create_schematic_compute.ModUtils;
+import io.github.y15173334444.create_schematic_compute.graph.FreqItems;
 import io.github.y15173334444.create_schematic_compute.network.ChannelEntry;
 import io.github.y15173334444.create_schematic_compute.network.SignalBus;
 import net.minecraft.world.item.ItemStack;
@@ -595,7 +595,7 @@ public class GraphEvaluator {
                 o[0] = graph.getInputValue(node.id, 0, outputs);
             }
             case REDSTONE_IN -> {
-                long nodeKey = ModUtils.freqKey(node.itemParams);
+                long nodeKey = FreqItems.freqKey(node.itemParams);
                 int sig = 0;
                 for (InputSource s : inputs) if (s.freqKey == nodeKey) { sig = s.signal; break; }
                 o[0] = sig;

@@ -1,12 +1,20 @@
-package io.github.y15173334444.create_schematic_compute;
+package io.github.y15173334444.create_schematic_compute.graph;
 
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.item.ItemStack;
 
-/** 共享工具方法 */
-public class ModUtils {
+/** 频率物品工具（REDSTONE_IN/OUT 的频率绑定；blocks/network 共用）——原根包 ModUtils
+ *  整体迁入 graph：graph 侧只需频率键，不再为此反向依赖根包。
+ *  Frequency-item helpers behind the redstone frequency binding (shared with blocks and
+ *  network) - moved wholesale from the root ModUtils so the graph package stops reaching
+ *  into the root just for key maths.
+ */
+public final class FreqItems {
 
-    /** 获取有效的频率物品：优先槽位#1，回退到槽位#2 */
+    private FreqItems() {}
+
+    /** 获取有效的频率物品：优先槽位#1，回退到槽位#2。
+     *  The effective frequency item: slot #1 first, slot #2 as fallback. */
     public static ItemStack getFreq(ItemStack[] itemParams) {
         if (itemParams == null) return ItemStack.EMPTY;
         if (itemParams.length > 0 && !itemParams[0].isEmpty()) return itemParams[0];
@@ -14,27 +22,29 @@ public class ModUtils {
         return ItemStack.EMPTY;
     }
 
-    /** 获取物品的频率颜色（基于 DYED_COLOR 组件），无颜色时返回 -1 */
+    /** 获取物品的频率颜色（基于 DYED_COLOR 组件），无颜色时返回 -1。
+     *  The item's frequency colour (DYED_COLOR component), -1 when uncoloured. */
     public static int freqColor(ItemStack stack) {
         if (stack.isEmpty()) return -1;
         var color = stack.get(DataComponents.DYED_COLOR);
         return color != null ? color.rgb() : -1;
     }
 
-    /** ItemStack 的带颜色哈希（用于 Map 键 — 区分不同频段） */
+    /** ItemStack 的带颜色哈希（用于 Map 键 — 区分不同频段）。
+     *  Colour-aware hash of an ItemStack (Map key - separates frequency bands). */
     public static int hash(ItemStack s) {
         if (s.isEmpty()) return 0;
         return s.getItem().hashCode() * 31 ^ freqColor(s);
     }
 
-    /** 基于两个频率物品的组合键 */
+    /** 基于两个频率物品的组合键。 / combined key of two frequency items. */
     public static long freqKey(ItemStack s1, ItemStack s2) {
         int h1 = hash(s1);
         int h2 = hash(s2);
         return ((long)h1 << 32) | (h2 & 0xFFFFFFFFL);
     }
 
-    /** 基于节点参数数组的组合键 */
+    /** 基于节点参数数组的组合键。 / combined key of a node's item params. */
     public static long freqKey(ItemStack[] itemParams) {
         ItemStack s1 = (itemParams != null && itemParams.length > 0) ? itemParams[0] : ItemStack.EMPTY;
         ItemStack s2 = (itemParams != null && itemParams.length > 1) ? itemParams[1] : ItemStack.EMPTY;
