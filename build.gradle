@@ -144,3 +144,21 @@ tasks.withType(ProcessResources).configureEach {
 java {
     withSourcesJar()
 }
+
+// MIT 合规：许可文本随分发件进包——MIT 要求所有副本携带版权声明与许可文本，
+// 1.0.0–1.2.5.2 的 jar 缺失（仅仓库根有 LICENSE），自此补齐。
+// MIT compliance: the license text ships inside the distributed jars - MIT requires
+// the copyright and permission notices in all copies; releases 1.0.0-1.2.5.2 carried
+// none (repo root only), fixed from here on.
+tasks.named('jar') {
+    from('LICENSE') {
+        into('META-INF')
+        rename('LICENSE', 'LICENSE.txt')
+    }
+}
+tasks.named('sourcesJar') {
+    from('LICENSE') {
+        into('META-INF')
+        rename('LICENSE', 'LICENSE.txt')
+    }
+}
