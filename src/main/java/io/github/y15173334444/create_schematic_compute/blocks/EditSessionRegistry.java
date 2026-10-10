@@ -342,6 +342,10 @@ public final class EditSessionRegistry {
         // SET_SONG: song bytes live in BlobRegistry (the op carries only the reference) and
         // apply consumes them via poll — peek a copy first for the step-6 broadcast to other
         // editors (same blobId reference; chunks go out before the referencing op).
+        // SET_DISPLAY_TEXT：记下改名前的频道名 —— 应用后做 BUS_OUT 频道迁移（6c）。
+        // Capture the pre-rename channel name — the BUS_OUT channel migration (6c) runs after apply.
+        var renameTarget = op.type() == OpType.SET_DISPLAY_TEXT ? targetGraph.findNode(op.targetNodeId()) : null;
+        String preRenameName = renameTarget != null ? renameTarget.signalName : null;
         byte[] songBytes = op.type() == OpType.SET_SONG
             ? io.github.y15173334444.create_schematic_compute.network.BlobRegistry.peek(op.blobRefId())
             : null;
@@ -351,6 +355,22 @@ public final class EditSessionRegistry {
         // 子图编辑后重建父图的输入缓存，使服务端评估器使用正确的 ENCAP 引脚→索引映射。
         if (op.ownerNodeId() >= 0 && gbe.getNodeGraph() != null) {
             gbe.getNodeGraph().rebuildInputCache();
+        }
+        // 6c. BUS_OUT 改名/首次命名：频道条目与频段定义随名字迁移（用户症状：改名后有时丢频道
+        //     致 BUS_IN 查找不到，重拉权威图名称仍在 —— 名称在节点上，丢的是频道注册）。
+        //     注册只在宿主首 tick 跑一次，不迁移则 CHANNELS 新名无条目；"" → 新名 同样覆盖
+        //     （新建 BUS_OUT 后首次命名是同一根因）。
+        // BUS_OUT rename / first naming: migrate the channel entry and band definitions with the
+        // name (user symptom: the channel is sometimes lost after a rename and BUS_IN cannot find
+        // it, yet re-pulling the authoritative graph shows the name intact — the name lives on the
+        // node; what is lost is the channel registration). Registration runs once per host
+        // lifetime, so without a migration the new name has no CHANNELS entry; "" → new is the
+        // same root cause (naming a freshly added BUS_OUT).
+        if (renameTarget != null && renameTarget.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
+            && preRenameName != null && !preRenameName.equals(renameTarget.signalName)) {
+            var reg = io.github.y15173334444.create_schematic_compute.network.BusChannelHelper
+                .applyBusOutRename(targetGraph, pos, renameTarget, preRenameName, level);
+            if (reg.anyConflictChanged()) gbe.requestFullSync();
         }
         // Assign version AFTER applying — the op is already committed to graph
         // state, so the version reflects the definitive order.

@@ -27,6 +27,11 @@ public final class BusChannelHelper {
 
     // ── Channel registration / unregistration / 频道注册 / 取消注册 ──────────────
 
+    /** 频道注册结果：冲突旗标是否有变化（调用方触发全量同步）+ 需要广播频段定义的频道名。
+     *  Channel registration result: whether any conflict flag changed (caller triggers a full
+     *  sync) and the channel names whose band definitions need broadcasting. */
+    public record ChannelRegistration(boolean anyConflictChanged, java.util.List<String> bandBroadcasts) {}
+
     /** Register every BUS_OUT node in {@code graph} with {@link SignalBus#registerChannel}.
      *  将 graph 中每个 BUS_OUT 节点注册到 SignalBus.registerChannel。
      *  On success also immediately syncs bands to {@code BAND_REGISTRY} so that
@@ -35,7 +40,19 @@ public final class BusChannelHelper {
      *  @return true if at least one node changed conflict state (caller should trigger a full sync) / 若至少一个节点的冲突状态变化则返回 true（调用方应触发完整同步） */
     public static boolean registerChannels(NodeGraph graph, BlockPos pos, @Nullable Level level) {
         if (level == null || level.isClientSide() || graph == null) return false;
+        var reg = registerGraphChannels(graph, pos);
+        if (level instanceof ServerLevel sl) broadcastBandDefinitions(sl, pos, reg.bandBroadcasts());
+        return reg.anyConflictChanged();
+    }
+
+    /** 注册内核（无 Level 判定、无客户端广播）：供首 tick 注册与 BUS_OUT 改名迁移共用，
+     *  幂等 —— 同 owner 同 map 重复注册无副作用。返回需广播的频段频道名与冲突旗标变化。
+     *  Registration core (no level gate, no client broadcast): shared by the first-tick
+     *  registration and the BUS_OUT rename migration; idempotent — a same-owner same-map
+     *  re-registration is a no-op. Returns the band broadcasts and conflict-flag changes. */
+    static ChannelRegistration registerGraphChannels(NodeGraph graph, BlockPos pos) {
         boolean anyConflict = false;
+        var broadcasts = new java.util.ArrayList<String>();
         for (var n : graph.nodes) {
             if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
                 if (n.busInternalMap == null) n.busInternalMap = new HashMap<>();
@@ -55,11 +72,7 @@ public final class BusChannelHelper {
                 if (ok && n.signalBands != null && !n.signalBands.isEmpty()) {
                     SignalBus.registerBands(n.signalName, n.signalBands);
                     n.bandsDirty = false;
-                    if (level instanceof ServerLevel sl) {
-                        PacketDistributor.sendToPlayersTrackingChunk(sl,
-                            new ChunkPos(pos),
-                            new BusBandSyncPacket(pos, n.signalName, n.signalBands));
-                    }
+                    broadcasts.add(n.signalName);
                 }
             } else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty()) {
                 // 私有频道占用（BUS 同款）：首个注册者获胜，被其他 owner 占用即标冲突旗标——
@@ -72,7 +85,68 @@ public final class BusChannelHelper {
                 n.busConflict = !ok;
             }
         }
-        return anyConflict;
+        return new ChannelRegistration(anyConflict, broadcasts);
+    }
+
+    /**
+     * BUS_OUT 改名迁移（用户症状：改名后 BUS_IN 查找不到频道，重新拉取权威图名称仍在）。
+     * <p>频道注册只在宿主首 tick 跑一次（{@code busRegistrationPending}），改名后
+     * {@code CHANNELS} 条目仍挂旧名、新名无条目 —— BUS_IN 读 {@code channelMap(新名)} 为
+     * null，{@code BAND_REGISTRY} 新名也没有频段定义。这里按 owner 撤掉旧名条目、按同图
+     * 无他人引用时清理旧名残留，并重跑图内注册（幂等）——频段定义与冲突旗标随名字落地。
+     * BUS_OUT rename migration (user symptom: after a rename BUS_IN cannot find the channel,
+     * yet re-pulling the authoritative graph shows the name intact). Channel registration runs
+     * once per host lifetime ({@code busRegistrationPending}); after a rename the CHANNELS entry
+     * still hangs on the old name and the new name has none — BUS_IN reads
+     * {@code channelMap(new)} as null and BAND_REGISTRY has no definition under the new name.
+     * This drops the old-name entry by owner, clears the old name's residue when no same-graph
+     * node still uses it, and re-runs the graph registration (idempotent) — band definitions and
+     * the conflict flag land on the new name.
+     *
+     * @param renamed 已改名的 BUS_OUT（signalName 为新名）/ the renamed BUS_OUT (signalName = new name)
+     * @param oldName 改名前的频道名 / the channel name before the rename
+     * @return 注册结果（调用方按需广播频段定义 / registration result for the caller to broadcast)
+     */
+    public static ChannelRegistration applyBusOutRename(NodeGraph graph, BlockPos pos, GraphNode renamed,
+                                                        String oldName, @Nullable Level level) {
+        if (graph == null || renamed == null) return new ChannelRegistration(false, java.util.List.of());
+        String newName = renamed.signalName;
+        if (oldName != null && !oldName.isEmpty() && !oldName.equals(newName)) {
+            // 按 owner 撤旧名条目（refCount 归零即顺带清残留；他人条目不动 —— 同名共用靠冲突纪律）
+            // Drop the old-name entry by owner (ref-count zero clears its residue; a foreign entry
+            // is left alone — same-name sharing is the conflict discipline's business).
+            SignalBus.unregisterChannel(oldName, new ChannelOwner(pos, renamed.id));
+            // 与 commitBusBox 同口径：同图还有他人引用旧名就不清全局残留
+            // Same rule as commitBusBox: don't clear the global residue while a same-graph node
+            // still references the old name.
+            boolean othersUseOld = false;
+            for (var n : graph.nodes) {
+                if (n == renamed) continue;
+                if ((n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
+                    && oldName.equals(n.signalName)) { othersUseOld = true; break; }
+            }
+            if (!othersUseOld) SignalBus.clearBus(oldName);
+        }
+        // 重跑图内注册（幂等）：新名条目 + 频段定义 + 冲突旗标随名字落地。
+        // "" → 新名 也走这里（新建 BUS_OUT 后首次命名同样丢频道 —— 同一根因）。
+        // Re-run the graph registration (idempotent): the new-name entry, band definitions and
+        // the conflict flag land with the name. "" → new goes through here too (naming a freshly
+        // added BUS_OUT loses the channel the same way — same root cause).
+        var reg = registerGraphChannels(graph, pos);
+        renamed.bandsDirty = true; // 评估器下轮重算音频标志 / evaluator recomputes audio flags next tick
+        if (level instanceof ServerLevel sl) broadcastBandDefinitions(sl, pos, reg.bandBroadcasts());
+        return reg;
+    }
+
+    /** 把频段定义广播给追踪客户端（首 tick 注册与改名迁移共用）。 / Broadcast band definitions
+     *  to tracking clients (shared by the first-tick registration and the rename migration). */
+    private static void broadcastBandDefinitions(ServerLevel sl, BlockPos pos, java.util.List<String> names) {
+        for (var name : names) {
+            var bands = SignalBus.getBands(name);
+            PacketDistributor.sendToPlayersTrackingChunk(sl,
+                new ChunkPos(pos),
+                new BusBandSyncPacket(pos, name, bands != null ? bands : Collections.emptyList()));
+        }
     }
 
     /** Unregister every BUS_OUT node in {@code graph} from {@link SignalBus#unregisterChannel}. / 将 graph 中每个 BUS_OUT 节点从 SignalBus.unregisterChannel 取消注册。 */

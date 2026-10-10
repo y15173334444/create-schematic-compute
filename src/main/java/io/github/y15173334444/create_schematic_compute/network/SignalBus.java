@@ -1,10 +1,11 @@
 package io.github.y15173334444.create_schematic_compute.network;
 
-import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Global signal bus — transports float values by string name.
  *  <p>全局信号总线 — 通过字符串名称传输浮点数。</p>
@@ -15,6 +16,13 @@ import java.util.concurrent.ConcurrentHashMap;
  *  </ul>
  */
 public class SignalBus {
+    /** 同名独立 logger：**不引用** @Mod 类 —— 其静态初始化需要 MC 注册表，纯 JUnit 起不来
+     *  （BusInBandConvergenceTest 为此只能反射种条目）。日志名与输出完全不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries and cannot boot in plain JUnit (which is why
+     *  BusInBandConvergenceTest had to plant entries reflectively). Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
+
     private static final ConcurrentHashMap<String, Float> SIGNALS = new ConcurrentHashMap<>();
 
     /** BUS channel registry: busName → ChannelEntry (holding BUS_OUT busInternalMap reference) / BUS 频道注册表：bus名 → ChannelEntry（持有 BUS_OUT 的 busInternalMap 引用） */
@@ -190,7 +198,7 @@ public class SignalBus {
             ChannelEntry created = new ChannelEntry(internalMap, owner);
             ChannelEntry raced = CHANNELS.putIfAbsent(channelName, created);
             if (raced == null) {
-                SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' registered by {}", channelName, owner);
+                LOGGER.debug("[SignalBus] Channel '{}' registered by {}", channelName, owner);
                 return true;
             }
             existing = raced; // EN: Lost the race, process according to existing entry / 竞态失败，按已有条目处理
@@ -199,7 +207,7 @@ public class SignalBus {
         // 同一 owner → 更新引用；替换 internalMap 时保留引用计数。
         if (existing.owner.equals(owner)) {
             if (existing.internalMap != internalMap) {
-                SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' map reference updated by {}", channelName, owner);
+                LOGGER.debug("[SignalBus] Channel '{}' map reference updated by {}", channelName, owner);
                 // Preserve ref-count when replacing the entry with a new map reference.
                 // Old values belong to the previous graph state; each BUS_OUT starts fresh.
                 // 替换条目时保留引用计数。旧值属于之前的图状态，每个 BUS_OUT 重新开始。
@@ -212,7 +220,7 @@ public class SignalBus {
         }
         // EN: Different owner → conflict
         // 不同 owner → 冲突
-        SchematicCompute.LOGGER.warn("[SignalBus] Channel '{}' already owned by {} — rejected registration by {}",
+        LOGGER.warn("[SignalBus] Channel '{}' already owned by {} — rejected registration by {}",
             channelName, existing.owner, owner);
         return false;
     }
@@ -228,17 +236,17 @@ public class SignalBus {
     public static boolean unregisterChannel(String channelName, ChannelOwner owner) {
         ChannelEntry existing = CHANNELS.get(channelName);
         if (existing == null) {
-            SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' not found for unregistration by {}", channelName, owner);
+            LOGGER.debug("[SignalBus] Channel '{}' not found for unregistration by {}", channelName, owner);
             return false;
         }
         if (!existing.owner.equals(owner)) {
-            SchematicCompute.LOGGER.warn("[SignalBus] Channel '{}' unregistration by {} rejected — owned by {}",
+            LOGGER.warn("[SignalBus] Channel '{}' unregistration by {} rejected — owned by {}",
                 channelName, owner, existing.owner);
             return false;
         }
         int remaining = existing.decrementRef();
         if (remaining <= 0) {
-            SchematicCompute.LOGGER.debug("[SignalBus] Channel '{}' removed (refCount reached 0)", channelName);
+            LOGGER.debug("[SignalBus] Channel '{}' removed (refCount reached 0)", channelName);
             CHANNELS.remove(channelName, existing);
             // Clear residual signal data so the channel doesn't pollute the next registrant
             // 清除残留信号数据，防止频道污染下一个注册者

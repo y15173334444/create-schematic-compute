@@ -102,7 +102,18 @@ final class GraphBusEditor {
         // Rename: keep the node's own bands and connections — only change the channel
         // name. Only clear the old channel's GLOBAL data (SIGNALS/BAND_REGISTRY residue),
         // never the node's signalBands or its band connections.
-        if (!oldName.isEmpty()) {
+        if (node.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT) {
+            // 改名迁移：频道条目 + 频段定义随名字走（否则新名查不到 —— 用户症状：改名后有时
+            // 丢频道致 BUS_IN 查找不到）；服务端 applyOp 会再迁移一次（幂等）。旧名清理在
+            // 迁移内按同口径处理；不调 releaseOldBusName（它会清空 signalBands 并删除旧
+            // band 连线——"携带的图丢失"根因）。
+            // Rename migration: the channel entry and band definitions ride the name (otherwise
+            // the new name is unfindable — the user symptom). The server migrates again on applyOp
+            // (idempotent). Old-name cleanup happens inside the migration with the same rule; do
+            // NOT call releaseOldBusName (it wipes signalBands and cuts old-band wires).
+            io.github.y15173334444.create_schematic_compute.network.BusChannelHelper
+                .applyBusOutRename(ed.getGraph(), ed.host.getBlockPos(), node, oldName, null);
+        } else if (!oldName.isEmpty()) {
             boolean othersUseOldName = false;
             for (var n : ed.getGraph().nodes) {
                 if (n != node && (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN || n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT)
