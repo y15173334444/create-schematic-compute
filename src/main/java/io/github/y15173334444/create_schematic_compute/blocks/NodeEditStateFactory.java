@@ -98,10 +98,10 @@ final class NodeEditStateFactory {
             int idx = i;
             var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
-            b.setValue(GraphEditor.ff3(node.params[i]));
+            b.setValue(GraphEditor.ff3Faithful(node.params[i]));
             final float[] preEditParam = {node.params[idx]}; // captured before edit session / 编辑会话开始前捕获
             final float[] lastSentParam = {node.params[idx]};
-            final String[] lastSentDraft = {GraphEditor.ff3(node.params[idx])};
+            final String[] lastSentDraft = {GraphEditor.ff3Faithful(node.params[idx])};
             b.setResponder(text -> {
                 if (ed.suppressEditBoxResponder) return; // remote SET_PARAM setValue → don't echo back
                 // 空 / 未完成输入：权威值保持上次已提交数，只同步草稿文本——对端必须看到
@@ -112,31 +112,41 @@ final class NodeEditStateFactory {
                 // Empty / partial: resolveParamDraftValue falls back to lastSentParam.
                 float newV = resolveParamDraftValue(text, lastSentParam[0]);
                 node.params[idx] = newV;
-                boolean valueChanged = Math.abs(newV - lastSentParam[0]) > 0.0001f;
+                // 变化判定用精确比较，且**只要发了 op 就更新账本**：旧的 0.0001 阈值会让
+                // 小数值变化（ki/kd=0.0001 这类）不更新 lastSentParam，失焦归位随即用旧值
+                // 把服务端覆盖回去——逐字输入 0.0001 被回滚成 0 的根因（问题：输入框丢）。
+                // Exact compare for change detection, and the ledger updates whenever an op
+                // goes out: the old 0.0001 epsilon left lastSentParam stale on small changes
+                // (ki/kd = 0.0001 and the like), and the blur normalization then overwrote the
+                // server with the old value — the root cause of typing 0.0001 and getting 0 back.
+                boolean valueChanged = Float.compare(newV, lastSentParam[0]) != 0;
                 boolean draftChanged = !text.equals(lastSentDraft[0]);
                 if (valueChanged || draftChanged) {
                     var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, newV, text, ed.host.getPlayerUUID());
-                    ed.host.sendOp(op); // sync to server, undo recorded on commit / 同步到服务器，撤销在提交时记录
-                    if (valueChanged) lastSentParam[0] = newV;
+                    ed.sendOp(op); // sync to server, undo recorded on commit / 同步到服务器，撤销在提交时记录
+                    lastSentParam[0] = newV;
                     lastSentDraft[0] = text;
                 }
             });
             ed.enterActions.put(b, () -> {
-                if (Math.abs(lastSentParam[0] - preEditParam[0]) > 0.0001f) {
+                if (Float.compare(lastSentParam[0], preEditParam[0]) != 0) {
                     var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, lastSentParam[0], lastSentDraft[0], ed.host.getPlayerUUID());
                     ed.recordOp(op, 0, 0, preEditParam[0], null);
                     preEditParam[0] = lastSentParam[0];
                 }
-                // 失焦归位：显示改回规范格式（ff3），**不改权威值**；同步规范文本给对端，
-                // 使双方在提交后看到同一字符串。空/半截草稿在这里被归位成上次已提交数。
-                // Blur normalization: reformat the display to canonical ff3 without touching
-                // the authoritative value; sync that text so peers match after commit. Empty /
-                // partial drafts snap back to the last committed number here.
-                String canonical = GraphEditor.ff3(lastSentParam[0]);
+                // 失焦归位：显示改回规范格式（ff3，失真时保真展开——值编辑器不得显示与
+                // 权威值不符的文本），**不改权威值**；同步规范文本给对端，使双方在提交后
+                // 看到同一字符串。空/半截草稿在这里被归位成上次已提交数。
+                // Blur normalization: reformat the display to canonical ff3 (falling back to
+                // the faithful expansion when ff3 would lie — a value editor must never show
+                // text that disagrees with the authoritative value) without touching the value;
+                // sync that text so peers match after commit. Empty / partial drafts snap back
+                // to the last committed number here.
+                String canonical = GraphEditor.ff3Faithful(lastSentParam[0]);
                 if (!canonical.equals(lastSentDraft[0])) {
-                    ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                    ed.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, lastSentParam[0], canonical, ed.host.getPlayerUUID()));
                     lastSentDraft[0] = canonical;
                 }
@@ -171,7 +181,7 @@ final class NodeEditStateFactory {
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 0, null, 0f, 0f,
                         0, 0, 0, 0, 0, 0f, text, 0, 0, 0, 0, null, 0, 0, 0,
                         net.minecraft.world.item.ItemStack.EMPTY, 0L, ed.host.getPlayerUUID());
-                    ed.host.sendOp(op); // sync, undo recorded on commit / 同步，撤销在提交时记录
+                    ed.sendOp(op); // sync, undo recorded on commit / 同步，撤销在提交时记录
                     lastSig[0] = text;
                 }
             });
@@ -278,7 +288,7 @@ final class NodeEditStateFactory {
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 0, null, 0f, 0f,
                         0, 0, 0, 0, 0, 0f, text, 0, 0, 0, 0, null, 0, 0, 0,
                         net.minecraft.world.item.ItemStack.EMPTY, 0L, ed.host.getPlayerUUID());
-                    ed.host.sendOp(op); // sync, undo recorded on commit / 同步，撤销在提交时记录
+                    ed.sendOp(op); // sync, undo recorded on commit / 同步，撤销在提交时记录
                     lastText[0] = text;
                 }
             });
@@ -303,7 +313,7 @@ final class NodeEditStateFactory {
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 0, null, 0f, 0f,
                         0, 0, 0, 0, 0, 0f, null, 0, 0, c, 0, null, 0, 0, 0,
                         net.minecraft.world.item.ItemStack.EMPTY, 0L, ed.host.getPlayerUUID());
-                    ed.host.sendOp(tcOp); ed.recordOp(tcOp, 0, 0, oldC, null); },
+                    ed.sendOp(tcOp); ed.recordOp(tcOp, 0, 0, oldC, null); },
                 ed.colorPicker
             );
             s.paramKeys = new String[]{"text", "color"};
@@ -318,7 +328,7 @@ final class NodeEditStateFactory {
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 0, null, 0f, 0f,
                         0, 0, 0, 0, 0, 0f, null, 0, 0, c, 0, null, 0, 0, 0,
                         net.minecraft.world.item.ItemStack.EMPTY, 0L, ed.host.getPlayerUUID());
-                    ed.host.sendOp(tcOp); ed.recordOp(tcOp, 0, 0, oldC, null); },
+                    ed.sendOp(tcOp); ed.recordOp(tcOp, 0, 0, oldC, null); },
                 ed.colorPicker
             );
             s.paramKeys = new String[]{"color"};
@@ -328,8 +338,56 @@ final class NodeEditStateFactory {
             for (int pi = 0; pi < 3; pi++) {
                 int idx = pi;
                 var b = new EditBox(mc.font, 0, 0, 50, 16, Component.literal(""));
-                b.setMaxLength(8); b.setValue(GraphEditor.ff3(node.params.length > idx ? node.params[idx] : defaults[idx]));
-                int iidx = idx; ed.registerEnter(b, () -> { try { if (node.params.length > iidx) node.params[iidx] = Float.parseFloat(b.getValue().trim()); } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
+                b.setMaxLength(8);
+                float initial = node.params.length > idx ? node.params[idx] : defaults[idx];
+                b.setValue(GraphEditor.ff3Faithful(initial));
+                // 与通用参数框同口径（问题：编辑区输入上传失败）：此前只在 enterAction 里写
+                // 本地 node.params，从不发 op —— 编辑 → 重开图编辑器 → 全量同步把值冲回原参数。
+                // 现走 SET_PARAM 草稿 + 失焦归位：逐键同步（responder）+ 提交记录撤销（enterAction）。
+                // Same pattern as the generic param boxes (issue: edit-panel input upload fails):
+                // this used to write local node.params in the enterAction only, never emitting an
+                // op — so edit → reopen the graph editor → the full sync reverted the values.
+                // Now rides SET_PARAM draft + blur normalization: per-keystroke sync (responder)
+                // + undo recording on commit (enterAction).
+                final float[] preEditParam = {initial};
+                final float[] lastSentParam = {initial};
+                final String[] lastSentDraft = {GraphEditor.ff3Faithful(initial)};
+                b.setResponder(text -> {
+                    if (ed.suppressEditBoxResponder) return;
+                    if (node.params.length <= idx) return; // 旧存档缺参：无处可写 / legacy save with fewer params
+                    float newV = resolveParamDraftValue(text, lastSentParam[0]);
+                    node.params[idx] = newV;
+                    // 精确比较 + 发出即记账（同通用参数框：0.0001 阈值会吞掉小数值变化）
+                    // Exact compare + ledger updates on send (same as the generic boxes)
+                    boolean valueChanged = Float.compare(newV, lastSentParam[0]) != 0;
+                    boolean draftChanged = !text.equals(lastSentDraft[0]);
+                    if (valueChanged || draftChanged) {
+                        var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                            ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, newV, text, ed.host.getPlayerUUID());
+                        ed.sendOp(op); // sync to server, undo recorded on commit
+                        lastSentParam[0] = newV;
+                        lastSentDraft[0] = text;
+                    }
+                });
+                ed.enterActions.put(b, () -> {
+                    if (Float.compare(lastSentParam[0], preEditParam[0]) != 0) {
+                        var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                            ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, lastSentParam[0], lastSentDraft[0], ed.host.getPlayerUUID());
+                        ed.recordOp(op, 0, 0, preEditParam[0], null);
+                        preEditParam[0] = lastSentParam[0];
+                    }
+                    // 失焦归位：显示改回规范格式（不改权威值），同步规范文本给对端。
+                    // Blur normalization: canonical display without touching the value.
+                    String canonical = GraphEditor.ff3Faithful(lastSentParam[0]);
+                    if (!canonical.equals(lastSentDraft[0])) {
+                        ed.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                            ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, lastSentParam[0], canonical, ed.host.getPlayerUUID()));
+                        lastSentDraft[0] = canonical;
+                    }
+                    ed.suppressEditBoxResponder = true;
+                    b.setValue(canonical);
+                    ed.suppressEditBoxResponder = false;
+                });
                 s.fields.add(b);
             }
             // 画布尺寸 W/H 已移入像素编辑器（双击 IMAGE/IMAGE_SEQUENCE 打开，顶部 Canvas W/H 输入框），
@@ -350,7 +408,7 @@ final class NodeEditStateFactory {
             mle.setCursorColor(node.commentTextColor);
             mle.setDrawBorder(false);
             mle.setResponder(t -> { node.displayText = t;
-                ed.host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                ed.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                     io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_TEXT,
                     ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 0, null, 0f, 0f,
                     0, 0, 0, 0, 0, 0f, t, 0, 0, 0, 0, null, 0, 0, 0,
@@ -435,7 +493,7 @@ final class NodeEditStateFactory {
                 cur.formulaIssues = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(sanitized);
                 mle.setHasError(hasErrors(cur.formulaIssues));
 
-                ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(
+                ed.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(
                     ed.host.getBlockPos(), ed.ownerNodeId(), formulaNodeId, sanitized, ed.host.getPlayerUUID()));
             });
             s.fields.add(mle);
@@ -456,7 +514,7 @@ final class NodeEditStateFactory {
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 0, null, 0f, 0f,
                         0, 0, 0, 0, 0, 0f, text, 0, 0, 0, 0, null, 0, 0, 0,
                         net.minecraft.world.item.ItemStack.EMPTY, 0L, ed.host.getPlayerUUID());
-                    ed.host.sendOp(op); // sync, undo recorded on commit / 同步，撤销在提交时记录
+                    ed.sendOp(op); // sync, undo recorded on commit / 同步，撤销在提交时记录
                     lastName[0] = text;
                 }
             });
@@ -520,7 +578,7 @@ final class NodeEditStateFactory {
                 if (!sanitized.equals(t)) { fe.setValue(sanitized); return; }
                 node.formula = sanitized;
                 node.debugFormulaRpn = null;
-                ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(
+                ed.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(
                     ed.host.getBlockPos(), ed.ownerNodeId(), node.id, sanitized, ed.host.getPlayerUUID()));
             });
             s.fields.add(fe);
@@ -532,21 +590,23 @@ final class NodeEditStateFactory {
             int idx = 2;
             var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
-            b.setValue(GraphEditor.ff3(node.params.length > idx ? node.params[idx] : (1f / 20f)));
+            b.setValue(GraphEditor.ff3Faithful(node.params.length > idx ? node.params[idx] : (1f / 20f)));
             final float[] preEditSpd = {node.params.length > idx ? node.params[idx] : (1f / 20f)};
             final float[] lastSentSpd = {preEditSpd[0]};
             b.setResponder(text -> { try {
                 if (ed.suppressEditBoxResponder) return;
                 float newV = Float.parseFloat(text.trim());
-                if (Math.abs(newV - lastSentSpd[0]) > 0.0001f) {
+                // 精确比较：0.0001 阈值会把小数值变化整条链路吞掉（不发 op、不写本地值）
+                // Exact compare: the 0.0001 epsilon swallowed small changes entirely (no op, no local write)
+                if (Float.compare(newV, lastSentSpd[0]) != 0) {
                     if (node.params.length > idx) node.params[idx] = newV;
-                    ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                    ed.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, newV, ed.host.getPlayerUUID()));
                     lastSentSpd[0] = newV;
                 }
             } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
             ed.enterActions.put(b, () -> {
-                if (Math.abs(lastSentSpd[0] - preEditSpd[0]) > 0.0001f) {
+                if (Float.compare(lastSentSpd[0], preEditSpd[0]) != 0) {
                     var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, lastSentSpd[0], ed.host.getPlayerUUID());
                     ed.recordOp(op, 0, 0, preEditSpd[0], null);
                     preEditSpd[0] = lastSentSpd[0];
@@ -560,21 +620,22 @@ final class NodeEditStateFactory {
             int idx = 3;
             var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
             b.setMaxLength(12);
-            b.setValue(GraphEditor.ff3(node.params.length > idx ? node.params[idx] : 1f));
+            b.setValue(GraphEditor.ff3Faithful(node.params.length > idx ? node.params[idx] : 1f));
             final float[] preEditAmp = {node.params.length > idx ? node.params[idx] : 1f};
             final float[] lastSentAmp = {preEditAmp[0]};
             b.setResponder(text -> { try {
                 if (ed.suppressEditBoxResponder) return;
                 float newV = Float.parseFloat(text.trim());
-                if (Math.abs(newV - lastSentAmp[0]) > 0.0001f) {
+                // 精确比较（同 speed）/ exact compare (same as speed)
+                if (Float.compare(newV, lastSentAmp[0]) != 0) {
                     if (node.params.length > idx) node.params[idx] = newV;
-                    ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                    ed.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, newV, ed.host.getPlayerUUID()));
                     lastSentAmp[0] = newV;
                 }
             } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
             ed.enterActions.put(b, () -> {
-                if (Math.abs(lastSentAmp[0] - preEditAmp[0]) > 0.0001f) {
+                if (Float.compare(lastSentAmp[0], preEditAmp[0]) != 0) {
                     var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, lastSentAmp[0], ed.host.getPlayerUUID());
                     ed.recordOp(op, 0, 0, preEditAmp[0], null);
                     preEditAmp[0] = lastSentAmp[0];
@@ -631,15 +692,15 @@ final class NodeEditStateFactory {
                     node.debugFormulaRpn = null;
                     var opF = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, "", ed.host.getPlayerUUID());
-                    ed.host.sendOp(opF); ed.recordOp(opF, 0, 0, 0, oldFormula);
+                    ed.sendOp(opF); ed.recordOp(opF, 0, 0, 0, oldFormula);
                     node.params[2] = 1f / 20f; // speed 默认
                     node.params[3] = 1f;       // amplitude 默认
                     var opSp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 2, 1f / 20f, ed.host.getPlayerUUID());
-                    ed.host.sendOp(opSp); ed.recordOp(opSp, 0, 0, oldSpeed, null);
+                    ed.sendOp(opSp); ed.recordOp(opSp, 0, 0, oldSpeed, null);
                     var opAmp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 3, 1f, ed.host.getPlayerUUID());
-                    ed.host.sendOp(opAmp); ed.recordOp(opAmp, 0, 0, oldAmp, null);
+                    ed.sendOp(opAmp); ed.recordOp(opAmp, 0, 0, oldAmp, null);
                 } else {
                     // 切换到 f(x) → 重置控制点为默认，speed/amp 恢复默认
                     node.curveX = new float[]{0f, 1f};
@@ -647,21 +708,21 @@ final class NodeEditStateFactory {
                     String oldCtrlStr = oldCtrlX != null ? GraphEditor.encodeCtrlPoints(oldCtrlX, oldCtrlY) : "";
                     var opCp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, node.curveX, node.curveY, ed.host.getPlayerUUID());
-                    ed.host.sendOp(opCp); ed.recordOp(opCp, 0, 0, 0, oldCtrlStr);
+                    ed.sendOp(opCp); ed.recordOp(opCp, 0, 0, 0, oldCtrlStr);
                     node.params[2] = 1f / 20f;
                     node.params[3] = 1f;
                     var opSp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 2, 1f / 20f, ed.host.getPlayerUUID());
-                    ed.host.sendOp(opSp); ed.recordOp(opSp, 0, 0, oldSpeed, null);
+                    ed.sendOp(opSp); ed.recordOp(opSp, 0, 0, oldSpeed, null);
                     var opAmp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 3, 1f, ed.host.getPlayerUUID());
-                    ed.host.sendOp(opAmp); ed.recordOp(opAmp, 0, 0, oldAmp, null);
+                    ed.sendOp(opAmp); ed.recordOp(opAmp, 0, 0, oldAmp, null);
                 }
             }
             // 发送 SET_PARAM op
             var modeOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                 ed.host.getBlockPos(), ed.ownerNodeId(), node.id, paramIdx, (float) targetVal, ed.host.getPlayerUUID());
-            ed.host.sendOp(modeOp); ed.recordOp(modeOp, 0, 0, oldMode, null);
+            ed.sendOp(modeOp); ed.recordOp(modeOp, 0, 0, oldMode, null);
             ed.endUndoBatch();
             // 清除待确认状态
             if (isSetMode) { st.pendingSetMode = -1; st.pendingSetModeExpireMs = 0; }

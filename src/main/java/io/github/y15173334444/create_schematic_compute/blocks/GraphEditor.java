@@ -159,6 +159,121 @@ public class GraphEditor {
      *  实现见 GraphOpHistory / called by the Host's handleAck; see GraphOpHistory). */
     public void remapNodeId(io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket ack) {
         history.remapNodeId(ack);
+        flushDeferredOpsFor(ack.tempId(), ack.assignedId());
+    }
+
+    // ── temp-id 窗口守卫（问题：新节点 ACK 未回时的编辑被服务端静默丢弃）
+    //     Temp-id window guard (issue: edits made before the node-ID ACK were silently dropped)
+    //
+    // ADD_NODE_REQUEST 用客户端本地计数器当 tempId，服务端按自己的计数器分配真实 id。
+    // 两者漂移时，ACK 回来之前发出的 SET_PARAM/ADD_CONN 都带着 tempId —— 服务端
+    // findNode(tempId) 为 null，静默丢弃（applyOp 还照发 ACK）。用户症状：新建节点后
+    // 立刻输入参数，编辑 → 重开图编辑器 → 回到默认参数。修法：凡引用了待 ACK 临时 id
+    // 的 op 一律先挂起，remapNodeId 收到 ACK 后改写 id 补发（Ctrl+D 复制流的
+    // pendingCopyGroups 是同一思想的既有实现）。
+    // ADD_NODE_REQUEST uses the client's local counter as tempId while the server allocates
+    // from its own. When they drift, every op sent before the ACK carries the tempId — the
+    // server's findNode(tempId) is null and the op is dropped silently (applyOp still ACKs).
+    // Symptom: type params into a just-added node, edit → reopen → back to defaults. Fix:
+    // ops referencing a pending temp id are held here and re-sent with rewritten ids once
+    // remapNodeId receives the ACK (the Ctrl+D pendingCopyGroups flow is the same idea).
+    private final java.util.Map<Integer, Integer> pendingTempIds = new java.util.HashMap<>(); // tempId → 该节点所在图的 ownerNodeId
+    private final java.util.List<io.github.y15173334444.create_schematic_compute.graph.GraphOp> deferredOps = new java.util.ArrayList<>();
+
+    /** 统一 op 出口：引用了待 ACK 临时 id 的 op 先挂起，其余直发。ADD_NODE_REQUEST 在此
+     *  登记它的 tempId。所有编辑 op 发送都应走这里（而不是 host.sendOp）。
+     *  Unified op outlet: ops referencing a not-yet-ACKed temp id are held; everything else
+     *  goes straight out. ADD_NODE_REQUEST registers its tempId here. All edit ops must leave
+     *  through here rather than host.sendOp. */
+    void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
+        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE_REQUEST
+            && op.tempId() > 0) {
+            pendingTempIds.put(op.tempId(), op.ownerNodeId());
+            host.sendOp(op);
+            return;
+        }
+        if (referencesPendingTempId(op)) {
+            deferredOps.add(op);
+            return;
+        }
+        host.sendOp(op);
+    }
+
+    /** op 是否引用了任一**同图**的待 ACK 临时节点 id（目标/连线两端），或是待 ACK 节点的
+     *  子图宿主。主图与子图的节点计数器各自独立、id 必然撞号，因此 target/from/to 只在
+     *  op 与临时节点同图（ownerNodeId 相同）时才算引用。
+     *  Whether the op references any pending temp id of its own graph (target / wire ends),
+     *  or lives inside a pending node's sub-graph. Main- and sub-graph node counters are
+     *  independent and their ids do collide, so target/from/to only count as a reference when
+     *  the op shares the temp node's graph (same ownerNodeId). */
+    private boolean referencesPendingTempId(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
+        for (var e : pendingTempIds.entrySet()) {
+            int t = e.getKey(), scope = e.getValue();
+            if (op.ownerNodeId() == t) return true;       // op 在 t 的子图内 / op lives inside t's sub-graph
+            if (scope != op.ownerNodeId()) continue;      // 异图 id 撞号不算引用 / ids from another graph don't count
+            if (op.targetNodeId() == t || op.fromId() == t || op.toId() == t) return true;
+        }
+        return false;
+    }
+
+    /** ACK 到达：tempId → realId 改写挂起 op 并补发已解析完毕的（引用的 id 全部落地）。
+     *  On ACK: rewrite deferred ops tempId → realId and flush those whose ids all resolved. */
+    private void flushDeferredOpsFor(int tempId, int realId) {
+        Integer scope = pendingTempIds.remove(tempId);
+        if (scope != null && tempId != realId) {
+            for (int i = 0; i < deferredOps.size(); i++)
+                deferredOps.set(i, remapOpIds(deferredOps.get(i), tempId, realId, scope));
+        }
+        var it = deferredOps.iterator();
+        while (it.hasNext()) {
+            var op = it.next();
+            if (!referencesPendingTempId(op)) {
+                it.remove();
+                host.sendOp(op);
+            }
+        }
+    }
+
+    /** 返回把 tempId 引用改写为 realId 的 op 副本。target/from/to 仅在 op 与 tempId 同图
+     *  （ownerNodeId == scope）时改写；ownerNodeId == tempId 时改写宿主（op 在该节点子图内）。
+     *  Copy of the op with tempId references rewritten to realId. target/from/to are rewritten
+     *  only for ops in the temp node's graph (ownerNodeId == scope); the owner is rewritten when
+     *  the op lives inside that node's sub-graph. */
+    private static io.github.y15173334444.create_schematic_compute.graph.GraphOp remapOpIds(
+        io.github.y15173334444.create_schematic_compute.graph.GraphOp op, int tempId, int realId, int scope) {
+        int owner = op.ownerNodeId() == tempId ? realId : op.ownerNodeId();
+        boolean sameGraph = op.ownerNodeId() == scope;
+        int target = sameGraph && op.targetNodeId() == tempId ? realId : op.targetNodeId();
+        int from = sameGraph && op.fromId() == tempId ? realId : op.fromId();
+        int to = sameGraph && op.toId() == tempId ? realId : op.toId();
+        return new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            op.type(), op.graphPos(), owner, target,
+            op.tempId(), op.nodeType(), op.x(), op.y(),
+            from, op.fromPin(), to, op.toPin(),
+            op.paramIndex(), op.paramValue(), op.stringValue(),
+            op.colorBg(), op.colorBorder(), op.colorText(),
+            op.sortB(), op.bands(), op.keyIndex(), op.imageFrameIndex(),
+            op.hotbarSlot(), op.itemStack(), op.editVersion(), op.actor(),
+            op.blobRefId(), op.imageData());
+    }
+
+    /** KEYBOARD / GAMEPAD_BUTTON 绑定提交（键盘捕获与手柄轮询共用）：写本地 params[0] 并发
+     *  SET_KEY_BINDING。手柄捕获路径此前只写本地值、从不发 op —— 绑定上传失败（问题：
+     *  节点编辑区输入数据时上传失败）。itemStack 传 null：SET_KEY_BINDING 不读它。
+     *  Key-binding commit shared by the keyboard capture and the gamepad poll: writes local
+     *  params[0] and emits SET_KEY_BINDING. The gamepad path used to write the local value
+     *  only, never emitting an op — the binding never uploaded (issue: edit-panel input
+     *  upload fails). itemStack is null: SET_KEY_BINDING never reads it. */
+    void commitKeyBinding(io.github.y15173334444.create_schematic_compute.graph.GraphNode en, int idx) {
+        if (en == null || en.params.length == 0) return;
+        var oldIdx = (int) en.params[0]; // save for undo
+        en.params[0] = idx;
+        var kbOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            io.github.y15173334444.create_schematic_compute.graph.OpType.SET_KEY_BINDING,
+            host.getBlockPos(), ownerNodeId(), en.id, 0, null, 0f, 0f,
+            0, 0, 0, 0, 0, 0f, null, 0, 0, 0, 0, null, idx, 0, 0,
+            null, 0L, host.getPlayerUUID());
+        sendOp(kbOp); recordOp(kbOp, 0, 0, oldIdx, null);
     }
 
 
@@ -823,13 +938,13 @@ public class GraphEditor {
             if (st != null && st.blockCollapse) return;
             expandedNodeIds.remove(node.id); nodeEditStatesById.remove(node.id);
             node.expanded = false;
-            host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.COLLAPSE_NODE,
                 host.getBlockPos(), ownerNodeId(), node.id, host.getPlayerUUID()));
         } else {
             expandedNodeIds.add(node.id); nodeEditStatesById.put(node.id, createEditState(node));
             node.expanded = true;
-            host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.EXPAND_NODE,
                 host.getBlockPos(), ownerNodeId(), node.id, host.getPlayerUUID()));
         }
@@ -1017,68 +1132,68 @@ public class GraphEditor {
             // 参数 / params
             if (dup.params != null) {
                 for (int pi = 0; pi < dup.params.length; pi++) {
-                    if (dup.params[pi] != 0) host.sendOp(
+                    if (dup.params[pi] != 0) sendOp(
                         io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(g.gpos, g.oid, realId, pi, dup.params[pi], g.uid));
                 }
             }
             // 公式 / formula
             if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.FORMULA && dup.formula != null && !dup.formula.isEmpty())
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(g.gpos, g.oid, realId, dup.formula, g.uid));
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(g.gpos, g.oid, realId, dup.formula, g.uid));
             // 显示文本 / displayText
-            if (dup.displayText != null && !dup.displayText.isEmpty()) host.sendOp(
+            if (dup.displayText != null && !dup.displayText.isEmpty()) sendOp(
                 new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                     io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT, g.gpos, g.oid, realId,
                     0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f, dup.displayText, 0, 0, 0, 0, null, 0, 0, 0,
                     net.minecraft.world.item.ItemStack.EMPTY, 0L, g.uid));
             // 文字颜色 / text color
-            if (dup.textColor != 0) host.sendOp(
+            if (dup.textColor != 0) sendOp(
                 io.github.y15173334444.create_schematic_compute.graph.GraphOp.setTextColor(g.gpos, g.oid, realId, dup.textColor, g.uid));
             // 物品栏 / hotbar items
             if (dup.itemParams != null) {
                 for (int si = 0; si < dup.itemParams.length; si++) {
                     if (!dup.itemParams[si].isEmpty())
-                        host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setHotbarItem(g.gpos, g.oid, realId, si, dup.itemParams[si], g.uid));
+                        sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setHotbarItem(g.gpos, g.oid, realId, si, dup.itemParams[si], g.uid));
                 }
             }
             // 信号频段 / signal bands
             if (dup.signalBands != null && !dup.signalBands.isEmpty())
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setBands(g.gpos, g.oid, realId, dup.signalBands, g.uid));
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setBands(g.gpos, g.oid, realId, dup.signalBands, g.uid));
             // 注释节点 / comment node
             if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(g.gpos, g.oid, realId, dup.commentWidth, dup.commentHeight, g.uid));
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(g.gpos, g.oid, realId, dup.commentBgColor, dup.commentBorderColor, dup.commentTextColor, g.uid));
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(g.gpos, g.oid, realId, dup.commentWidth, dup.commentHeight, g.uid));
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(g.gpos, g.oid, realId, dup.commentBgColor, dup.commentBorderColor, dup.commentTextColor, g.uid));
             }
             // 图像像素 / image pixels
             if ((dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.IMAGE || dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.IMAGE_SEQUENCE) && dup.imagePixels != null)
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(g.gpos, g.oid, realId, 0, dup.imagePixels, g.uid));
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(g.gpos, g.oid, realId, 0, dup.imagePixels, g.uid));
             // 图像序列剩余帧 / remaining image sequence frames
             if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.IMAGE_SEQUENCE
                 && dup.imageSequenceFrames != null && dup.imageSequenceFrames.size() > 1) {
                 for (int fi = 1; fi < dup.imageSequenceFrames.size(); fi++) {
                     int[] frame = dup.imageSequenceFrames.get(fi);
                     if (frame != null)
-                        host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(g.gpos, g.oid, realId, fi, frame, g.uid));
+                        sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setImagePixels(g.gpos, g.oid, realId, fi, frame, g.uid));
                 }
             }
             // 曲目数据 / song data (MUSIC 节点数据面；SET_SONG 走 blob 分片 + 引用 op)
             if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.MUSIC && dup.song != null)
                 io.github.y15173334444.create_schematic_compute.network.SongSync.upload(
-                    g.gpos, g.oid, realId, dup.song, g.uid, host::sendOp);
+                    g.gpos, g.oid, realId, dup.song, g.uid, this::sendOp);
             // DEBUG 控制点 / DEBUG control points
             if (dup.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.DEBUG_SIGNAL_GEN && dup.curveX != null && dup.curveY != null
                 && dup.curveX.length > 0)
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(g.gpos, g.oid, realId, dup.curveX, dup.curveY, g.uid));
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(g.gpos, g.oid, realId, dup.curveX, dup.curveY, g.uid));
             // 显示布局 / display layout (layoutX, layoutY, displayScale, displayRotation, moveScale)
-            host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
+            sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
                 g.gpos, g.oid, realId,
                 dup.layoutX, dup.layoutY,
                 dup.displayScale, dup.displayRotation,
                 dup.moveScale, g.uid));
             // Z 序 / z-order (sortB)
-            if (dup.sortB != 0) host.sendOp(
+            if (dup.sortB != 0) sendOp(
                 io.github.y15173334444.create_schematic_compute.graph.GraphOp.setZOrder(g.gpos, g.oid, realId, dup.sortB, g.uid));
             // 展开状态 / expand state
-            if (dup.expanded) host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            if (dup.expanded) sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.EXPAND_NODE, g.gpos, g.oid, realId, g.uid));
         }
         // 发送内部连接（重映射 ID + 稳定 pinId）/ send internal connections (remapped IDs + stable pinIds)
@@ -1086,7 +1201,7 @@ public class GraphEditor {
             int fromReal = g.tempToReal.getOrDefault(c.fromId(), -1);
             int toReal = g.tempToReal.getOrDefault(c.toId(), -1);
             if (fromReal >= 0 && toReal >= 0) {
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
                     g.gpos, g.oid, fromReal, c.fromPin(), toReal, c.toPin(),
                     c.fromPinId(), c.toPinId(), g.uid));
             }
@@ -1110,7 +1225,7 @@ public class GraphEditor {
                                   int ownerNodeId, net.minecraft.core.BlockPos gpos, java.util.UUID uid) {
         // 先发所有节点 / send all nodes first
         for (var sn : subGraph.nodes) {
-            host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE,
                 gpos, ownerNodeId, sn.id, sn.id, sn.type, sn.x, sn.y, 0, 0, 0, 0, 0, 0f,
                 null, 0, 0, 0, 0, null, 0, 0, 0,
@@ -1118,20 +1233,20 @@ public class GraphEditor {
             // 节点数据 / node data
             if (sn.params != null) {
                 for (int pi = 0; pi < sn.params.length; pi++) {
-                    if (sn.params[pi] != 0) host.sendOp(
+                    if (sn.params[pi] != 0) sendOp(
                         io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(gpos, ownerNodeId, sn.id, pi, sn.params[pi], uid));
                 }
             }
             if (sn.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.FORMULA && sn.formula != null && !sn.formula.isEmpty())
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(gpos, ownerNodeId, sn.id, sn.formula, uid));
-            if (sn.displayText != null && !sn.displayText.isEmpty()) host.sendOp(
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(gpos, ownerNodeId, sn.id, sn.formula, uid));
+            if (sn.displayText != null && !sn.displayText.isEmpty()) sendOp(
                 new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                     io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT, gpos, ownerNodeId, sn.id,
                     0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f, sn.displayText, 0, 0, 0, 0, null, 0, 0, 0,
                     net.minecraft.world.item.ItemStack.EMPTY, 0L, uid));
             if (sn.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(gpos, ownerNodeId, sn.id, sn.commentWidth, sn.commentHeight, uid));
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(gpos, ownerNodeId, sn.id, sn.commentBgColor, sn.commentBorderColor, sn.commentTextColor, uid));
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(gpos, ownerNodeId, sn.id, sn.commentWidth, sn.commentHeight, uid));
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(gpos, ownerNodeId, sn.id, sn.commentBgColor, sn.commentBorderColor, sn.commentTextColor, uid));
             }
             // 递归处理嵌套封装 / recurse into nested encapsulations
             if (sn.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.ENCAPSULATION
@@ -1141,7 +1256,7 @@ public class GraphEditor {
         }
         // 再发所有连线（带稳定 pinId）/ then send all connections (with stable pinIds)
         for (var sc : subGraph.connections) {
-            host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
+            sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
                 gpos, ownerNodeId, sc.fromId, sc.fromPin, sc.toId, sc.toPin,
                 sc.fromPinId, sc.toPinId, uid));
         }
@@ -1150,6 +1265,10 @@ public class GraphEditor {
     /** 编辑器关闭时调用，按方块位置保存临时视角。 / Called when editor closes, saves temporary view keyed by block position. */
     public void onClose() {
         viewBookmarks.saveTempView();
+        // 丢弃未冲刷的 temp-id 挂起队列：下次打开编辑器会从服务端全量同步
+        // Drop unfushed temp-id deferred ops: reopening the editor full-syncs from the server.
+        pendingTempIds.clear();
+        deferredOps.clear();
     }
 
     /** 首次渲染/代际变化时从图数据恢复展开集合与编辑状态；此后只做增量重建（指纹未变则完全
@@ -1528,7 +1647,9 @@ public class GraphEditor {
                 long rising = curBtns & ~prevGpadButtons; // edge detect: 0→1
                 if (rising != 0) {
                     int bi = Long.numberOfTrailingZeros(rising);
-                    for (var en : gamepadNodes) { en.params[0] = bi; }
+                    // 经 commitKeyBinding 走 SET_KEY_BINDING 上传（此前只写本地值，绑定不上服务器）
+                    // Upload via commitKeyBinding / SET_KEY_BINDING (used to be local-only)
+                    for (var en : gamepadNodes) { commitKeyBinding(en, bi); }
                     for (var en : gamepadNodes) {
                         var es = nodeEditStatesById.get(en.id);
                         if (es != null) es.listeningForKey = false;
@@ -1912,7 +2033,7 @@ public class GraphEditor {
                             editingCommentColorNode.commentBorderColor,
                             editingCommentColorNode.commentTextColor,
                             host.getPlayerUUID());
-                        host.sendOp(ccOp); recordOp(ccOp,
+                        sendOp(ccOp); recordOp(ccOp,
                             oldColors[0], oldColors[1], oldColors[2], null);
                     },
                     colorPicker
@@ -2076,7 +2197,7 @@ public class GraphEditor {
                 host.getBlockPos(), ownerNodeId(),
                 c.fromId, c.fromPin, c.toId, c.toPin,
                 c.fromPinId, c.toPinId, host.getPlayerUUID());
-            host.sendOp(rcOp);
+            sendOp(rcOp);
             recordOp(rcOp, c.fromId, c.fromPin, c.toId, null);
         }
     }
@@ -2105,7 +2226,7 @@ public class GraphEditor {
         var removeOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
             io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE,
             host.getBlockPos(), ownerNodeId(), hit.id, host.getPlayerUUID());
-        host.sendOp(removeOp);
+        sendOp(removeOp);
         recordOp(removeOp, savedX, savedY, savedType, savedNbt);
         endUndoBatch();
         expandedNodeIds.remove(hit.id);
@@ -2154,7 +2275,7 @@ public class GraphEditor {
             var removeOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE,
                 host.getBlockPos(), ownerNodeId(), n.id, host.getPlayerUUID());
-            host.sendOp(removeOp);
+            sendOp(removeOp);
             recordOp(removeOp, savedX, savedY, savedType, savedNbt);
         }
         endUndoBatch();
@@ -2208,7 +2329,7 @@ public class GraphEditor {
             }
             // 发送 ADD_NODE_REQUEST（服务端分配真实 ID）/ Send ADD_NODE_REQUEST (server assigns real ID)
             var anOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(gpos, oid, tempId, dup.type, dup.x, dup.y, uid);
-            host.sendOp(anOp); recordOp(anOp, 0, 0, dup.id, null); // oldVal=localId
+            sendOp(anOp); recordOp(anOp, 0, 0, dup.id, null); // oldVal=localId
         }
         // 复制选中节点之间的连接（本地 + 待发送，带稳定 pinId）
         // Copy connections between selected nodes (local + pending, with stable pinIds)
@@ -2251,7 +2372,7 @@ public class GraphEditor {
         var rcOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(
             host.getBlockPos(), ownerNodeId(), hc.fromId, hc.fromPin, hc.toId, hc.toPin,
             hc.fromPinId, hc.toPinId, host.getPlayerUUID());
-        host.sendOp(rcOp); recordOp(rcOp, hc.fromId, hc.fromPin, hc.toId, null);
+        sendOp(rcOp); recordOp(rcOp, hc.fromId, hc.fromPin, hc.toId, null);
         // 删除参数引脚连线后刷新编辑区（恢复输入框） (Refresh edit area after removing param pin connection, restoring input box)
         var tn = graph.findNode(hc.toId);
         if (tn != null && hc.toPin >= tn.functionalInputs() && expandedNodeIds.contains(hc.toId)) {
@@ -2341,7 +2462,7 @@ public class GraphEditor {
             var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
                 host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-            host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+            sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
             return true; }}
         if (en.type == NodeType.MOUSE_JOYSTICK && en.params.length > 0) {
             // Toggle absolute/incremental mode via TOGGLE_BOOL op (same pipeline as BOOL)
@@ -2351,7 +2472,7 @@ public class GraphEditor {
             var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
                 host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-            host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+            sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
             return true; }
         }
         if (en.type == NodeType.GATE && en.params.length > 0) {
@@ -2361,7 +2482,7 @@ public class GraphEditor {
             var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
                 host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-            host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+            sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
             return true; }
         }
         if (en.type == NodeType.T_FLIPFLOP && en.params.length > 0) {
@@ -2371,7 +2492,7 @@ public class GraphEditor {
             var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
                 host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-            host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+            sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
             return true; }
         }
         if (en.type == NodeType.LATCH && en.params.length > 0) {
@@ -2381,7 +2502,7 @@ public class GraphEditor {
             var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
                 host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-            host.sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+            sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
             return true; }
         }
         // 正/反转按钮：只翻 rev 槽（SET_PARAM 精确写 0/1），不改数值 EditBox——数值可被
@@ -2402,7 +2523,7 @@ public class GraphEditor {
                     en.params[revIdx] = newR;
                     var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                         host.getBlockPos(), ownerNodeId(), en.id, revIdx, newR, host.getPlayerUUID());
-                    host.sendOp(sOp);
+                    sendOp(sOp);
                     recordOp(sOp, 0, 0, oldR, null);
                 }
                 return true;
@@ -2418,7 +2539,7 @@ public class GraphEditor {
                 en.params[0] = newV;
                 var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                     host.getBlockPos(), ownerNodeId(), en.id, 0, newV, host.getPlayerUUID());
-                host.sendOp(sOp); recordOp(sOp, 0, 0, oldV, null);
+                sendOp(sOp); recordOp(sOp, 0, 0, oldV, null);
                 return true;
             }
         }
@@ -2435,7 +2556,7 @@ public class GraphEditor {
                         en.params[0] = idx;
                         var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                             host.getBlockPos(), ownerNodeId(), en.id, 0, idx, host.getPlayerUUID());
-                        host.sendOp(sOp); recordOp(sOp, 0, 0, oldV, null);
+                        sendOp(sOp); recordOp(sOp, 0, 0, oldV, null);
                     }
                     return true;
                 }
@@ -2454,7 +2575,7 @@ public class GraphEditor {
                             en.params[r] = newV;
                             var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                                 host.getBlockPos(), ownerNodeId(), en.id, r, newV, host.getPlayerUUID());
-                            host.sendOp(sOp); recordOp(sOp, 0, 0, cur, null);
+                            sendOp(sOp); recordOp(sOp, 0, 0, cur, null);
                         }
                     }
                     return true;
@@ -2479,7 +2600,7 @@ public class GraphEditor {
                         en.params[0] = target;
                         var wOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                             host.getBlockPos(), ownerNodeId(), en.id, 0, (float) target, host.getPlayerUUID());
-                        host.sendOp(wOp); recordOp(wOp, 0, 0, oldWarm, null);
+                        sendOp(wOp); recordOp(wOp, 0, 0, oldWarm, null);
                     }
                     return true;
                 }
@@ -2546,7 +2667,7 @@ public class GraphEditor {
                         host.getBlockPos(), ownerNodeId(), en.id, 0, null, 0f, 0f,
                         0, 0, 0, 0, 0, 0f, null, 0, 0, 0, 0, null, 0, ti, 0,
                         net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
-                    host.sendOp(toggleOp); recordOp(toggleOp, 0, 0, 0, null);
+                    sendOp(toggleOp); recordOp(toggleOp, 0, 0, 0, null);
                     return true; }
             }
         }
@@ -2761,7 +2882,7 @@ public class GraphEditor {
                 hotbarNode.itemParams[st.freqSlotSelected] = is;
                 var hoOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setHotbarItem(
                     host.getBlockPos(), ownerNodeId(), hotbarNode.id, st.freqSlotSelected, is, host.getPlayerUUID());
-                host.sendOp(hoOp); recordOp(hoOp, 0, 0, 0, oldItemNbt);
+                sendOp(hoOp); recordOp(hoOp, 0, 0, 0, oldItemNbt);
             }
             hotbarNode = null; // 点击面板内始终关闭 (Always close on click inside panel)
             return true;
@@ -2796,7 +2917,7 @@ public class GraphEditor {
                 var addOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(
                     host.getBlockPos(), ownerNodeId(), added.id,
                     selectedMenuType, s2cX(mx), s2cY(my), host.getPlayerUUID());
-                host.sendOp(addOp);
+                sendOp(addOp);
                 recordOp(addOp, 0, 0, added.id, null); // oldVal=localId for pre-ACK undo
             }
         }showMenu=false;return true;}
@@ -3136,7 +3257,7 @@ public class GraphEditor {
             if (cn != null && cn.curveX != null && cn.curveY != null) {
                 var cpOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
                     host.getBlockPos(), ownerNodeId(), cn.id, cn.curveX, cn.curveY, host.getPlayerUUID());
-                host.sendOp(cpOp);
+                sendOp(cpOp);
                 if (!preDragCtrlStr.isEmpty()) {
                     recordOp(cpOp, 0, 0, 0, preDragCtrlStr);
                     preDragCtrlStr = "";
@@ -3150,7 +3271,7 @@ public class GraphEditor {
         if (draggingXMarkerNode >= 0) {
             GraphNode xn = graph.findNode(draggingXMarkerNode);
             if (xn != null && xn.params.length > 4) {
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                     host.getBlockPos(), ownerNodeId(), xn.id, 4, xn.params[4], host.getPlayerUUID()));
             }
         }
@@ -3163,14 +3284,14 @@ public class GraphEditor {
                 var csOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
                     host.getBlockPos(), ownerNodeId(), resizingComment.id,
                     resizingComment.commentWidth, resizingComment.commentHeight, host.getPlayerUUID());
-                host.sendOp(csOp); recordOp(csOp, resizeStartW, resizeStartH, 0, null);
+                sendOp(csOp); recordOp(csOp, resizeStartW, resizeStartH, 0, null);
                 // Sync positions of nodes that were pushed/contained by the resize
                 var pushed = new java.util.HashMap<GraphNode, Integer>();
                 collectContainedNodesDepth(resizingComment, pushed, 0);
                 for (var cn : pushed.keySet()) {
                     var mnOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                         host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID());
-                    host.sendOp(mnOp);
+                    sendOp(mnOp);
                     float[] old = resizeStartNodePositions.get(cn.id);
                     if (old != null) recordOp(mnOp, old[0], old[1], 0, null);
                 }
@@ -3206,7 +3327,7 @@ public class GraphEditor {
                     if (orig == null) continue;
                     var mop = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                         host.getBlockPos(), ownerNodeId(), sn.id, sn.x, sn.y, host.getPlayerUUID());
-                    host.sendOp(mop);
+                    sendOp(mop);
                     recordOp(mop, orig[0], orig[1], 0, null);
                 }
                 endUndoBatch();
@@ -3300,7 +3421,7 @@ public class GraphEditor {
                 var connOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
                     host.getBlockPos(), ownerNodeId(), wireFromNode, wireFromPin, bestNodeId, bestPin,
                     fPid, tPid, host.getPlayerUUID());
-                host.sendOp(connOp);
+                sendOp(connOp);
                 recordOp(connOp, 0, 0, 0, null);
                 // 参数引脚连线后刷新编辑区（隐藏对应输入框） (Refresh edit area after param pin connection, hiding the corresponding input box)
                 var targetNode = graph.findNode(bestNodeId);
@@ -3346,7 +3467,7 @@ public class GraphEditor {
                 for (var cn : preDragSortBs.keySet()) {
                     var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                         host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID());
-                    host.sendOp(op);
+                    sendOp(op);
                     float[] orig = containedOrigins.get(cn.id);
                     if (orig != null) recordOp(op, orig[0], orig[1], 0, null);
                 }
@@ -3359,7 +3480,7 @@ public class GraphEditor {
             // 被撞开节点不随 Ctrl+Z 归位 —— 设计如此：若被其他玩家软锁，撤回会令人困惑。
             if (draggingNode.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
                 for (var pn : pushedDragNodes) {
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                         host.getBlockPos(), ownerNodeId(), pn.id, pn.x, pn.y, host.getPlayerUUID()));
                 }
             }
@@ -3369,7 +3490,7 @@ public class GraphEditor {
             preDragSortBs.clear();
             markDirty();
             // Sync Z-order to other editors
-            host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.SET_ZORDER,
                 host.getBlockPos(), ownerNodeId(), draggingNode.id, 0, null, 0f, 0f,
                 0, 0, 0, 0, 0, 0f, null, 0, 0, 0, draggingNode.sortB, null, 0, 0, 0,
@@ -3378,14 +3499,14 @@ public class GraphEditor {
             var moved = draggingNode;
             var moveOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                 host.getBlockPos(), ownerNodeId(), moved.id, moved.x, moved.y, host.getPlayerUUID());
-            host.sendOp(moveOp);
+            sendOp(moveOp);
             recordOp(moveOp, preDragX, preDragY, 0, null);
             if (selectedNodes.size() > 1) {
                 for (var sn : selectedNodes) {
                     if (sn != moved) {
                         var mop = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                             host.getBlockPos(), ownerNodeId(), sn.id, sn.x, sn.y, host.getPlayerUUID());
-                        host.sendOp(mop);
+                        sendOp(mop);
                         var rec = preDragPositions.get(sn.id);
                         float oldX = rec != null ? rec[0] : preDragX;
                         float oldY = rec != null ? rec[1] : preDragY;
@@ -3550,7 +3671,7 @@ public class GraphEditor {
         ctrlPointsChanged = true;
         var cpOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
             host.getBlockPos(), ownerNodeId(), n.id, n.curveX, n.curveY, host.getPlayerUUID());
-        host.sendOp(cpOp); recordOp(cpOp, 0, 0, 0, oldCtrlStr);
+        sendOp(cpOp); recordOp(cpOp, 0, 0, 0, oldCtrlStr);
     }
 
     /** 删除指定控制点（保留至少 2 个）。 */
@@ -3562,7 +3683,7 @@ public class GraphEditor {
         ctrlPointsChanged = true;
         var cpOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCtrlPoints(
             host.getBlockPos(), ownerNodeId(), n.id, n.curveX, n.curveY, host.getPlayerUUID());
-        host.sendOp(cpOp); recordOp(cpOp, 0, 0, 0, oldCtrlStr);
+        sendOp(cpOp); recordOp(cpOp, 0, 0, 0, oldCtrlStr);
     }
 
     /** 在浮点数组指定索引处插入值，返回新数组。 / Insert a float into an array at the given index, returns a new array. */
@@ -3605,7 +3726,7 @@ public class GraphEditor {
             long nowRs = System.currentTimeMillis();
             if (nowRs - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
                 lastDragSendTime = nowRs;
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
                     host.getBlockPos(), ownerNodeId(), resizingComment.id, newW, newH, host.getPlayerUUID()));
             }
             markDirty();
@@ -3681,13 +3802,13 @@ public class GraphEditor {
             long now3 = System.currentTimeMillis();
             if (now3 - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
                 lastDragSendTime = now3;
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                     host.getBlockPos(), ownerNodeId(), draggingNode.id, nx, ny, host.getPlayerUUID()));
                 for (var cn : containedDragNodes)
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                         host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID()));
                 for (var pn : pushedDragNodes)
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                         host.getBlockPos(), ownerNodeId(), pn.id, pn.x, pn.y, host.getPlayerUUID()));
             }
             // 不在此处 markDirty()：拖拽中每帧 bump 代际会触发 renderBg 重建全部展开节点的
@@ -3730,7 +3851,7 @@ public class GraphEditor {
             if (nowMulti - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
                 lastDragSendTime = nowMulti;
                 for (var sn : selectedNodes) {
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                         host.getBlockPos(), ownerNodeId(), sn.id, sn.x, sn.y, host.getPlayerUUID()));
                 }
             }
@@ -3762,7 +3883,7 @@ public class GraphEditor {
             long now2 = System.currentTimeMillis();
             if (now2 - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
                 lastDragSendTime = now2;
-                host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                     host.getBlockPos(), ownerNodeId(), draggingNode.id, nx, ny, host.getPlayerUUID()));
             }
         }if(draggingWire){wireEndX=s2cX(mx);wireEndY=s2cY(my);}
@@ -3969,14 +4090,7 @@ public class GraphEditor {
                         for (var en : getGraph().nodes) {
                             var es = nodeEditStatesById.get(en.id);
                             if (es == st && en.params.length > 0) {
-                                var oldIdx = (int)en.params[0]; // save for undo
-                                en.params[0] = idx;
-                                var kbOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                                    io.github.y15173334444.create_schematic_compute.graph.OpType.SET_KEY_BINDING,
-                                    host.getBlockPos(), ownerNodeId(), en.id, 0, null, 0f, 0f,
-                                    0, 0, 0, 0, 0, 0f, null, 0, 0, 0, 0, null, idx, 0, 0,
-                                    net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
-                                host.sendOp(kbOp); recordOp(kbOp, 0, 0, oldIdx, null);
+                                commitKeyBinding(en, idx);
                                 break; }
                         }
                         st.listeningForKey = false;
@@ -4106,10 +4220,10 @@ public class GraphEditor {
                 comment.id, NodeType.COMMENT, minX - padding, minY - padding, 0, 0, 0, 0, 0, 0f,
                 null, 0, 0, 0, 0, null, 0, 0, 0,
                 net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
-            host.sendOp(addOp); recordOp(addOp, 0, 0, 0, null);
+            sendOp(addOp); recordOp(addOp, 0, 0, 0, null);
             var szOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
                 host.getBlockPos(), ownerNodeId(), comment.id, cw, ch, host.getPlayerUUID());
-            host.sendOp(szOp); recordOp(szOp, 0, 0, 0, null);
+            sendOp(szOp); recordOp(szOp, 0, 0, 0, null);
             endUndoBatch();
             return true;
         }
@@ -4234,7 +4348,7 @@ public class GraphEditor {
             topBarNameEdit.setResponder(text -> {
                 if (!text.equals(getGraph().customName)) {
                     getGraph().customName = text;
-                    host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setBlockName(
+                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setBlockName(
                         host.getBlockPos(), ownerNodeId(), text, host.getPlayerUUID()));
                 }
             });
@@ -4383,9 +4497,9 @@ public class GraphEditor {
             default -> 0xFF000000;
         };
         Consumer<Integer> setter = switch (field) {
-            case 0 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentBgColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); host.sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); };
-            case 1 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentBorderColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); host.sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); };
-            case 2 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentTextColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); host.sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); };
+            case 0 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentBgColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); };
+            case 1 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentBorderColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); };
+            case 2 -> c -> { int oldBg = editingCommentColorNode.commentBgColor, oldBr = editingCommentColorNode.commentBorderColor, oldTx = editingCommentColorNode.commentTextColor; editingCommentColorNode.commentTextColor = c; markDirty(); var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id, editingCommentColorNode.commentBgColor, editingCommentColorNode.commentBorderColor, editingCommentColorNode.commentTextColor, host.getPlayerUUID()); sendOp(op); recordOp(op, oldBg, oldBr, oldTx, null); };
             default -> c -> {};
         };
         colorPicker.setOnClose(() -> { if (editingCommentColorNode != null) closeCommentColorPopup(); });
@@ -4752,6 +4866,23 @@ public class GraphEditor {
      *  saturates at {@code Integer.MAX_VALUE}, crushing large magnitudes to 2147483.x. */
     static String ff3(float v) {
         return Float.toString((float) (Math.round((double) v * 1000.0) / 1000.0));
+    }
+
+    /** ff3 的**显示保真**版：ff3 只留 3 位小数，会把 0.0001 这类值显示成 0.0（输入框看着像丢了）。
+     *  当 ff3 串解析回不到原值时回退到十进制展开（Float.toString 最短往返 + BigDecimal 展开，
+     *  避免科学计数法）。参数输入框的显示一律用这个，值编辑器不得显示与权威值不符的文本。
+     *  Display-faithful variant of ff3: ff3 keeps 3 decimals and would show e.g. 0.0001 as
+     *  0.0 (the input box looks like it lost the input). When the ff3 string doesn't parse
+     *  back to the value, fall back to the plain decimal expansion (shortest round-trip via
+     *  Float.toString, expanded out of scientific notation). Param boxes must never display
+     *  text that disagrees with the authoritative value. */
+    static String ff3Faithful(float v) {
+        if (!Float.isFinite(v)) return Float.toString(v);
+        String s = ff3(v);
+        if (Float.compare(Float.parseFloat(s), v) == 0) return s;
+        // stripTrailingZeros：Float.toString(0.0001f) = "1.0E-4"，直接展开会保留有效数字
+        // 的尾零（"0.00010"）/ BigDecimal keeps significant-digit trailing zeros ("0.00010")
+        return new java.math.BigDecimal(Float.toString(v)).stripTrailingZeros().toPlainString();
     }
     /** 格式化 int 为 8 位大写十六进制（前导零补齐）/ format int to 8-char uppercase hex (zero-padded) */
     static String hex8(int v) { String h = Integer.toHexString(v).toUpperCase(); return "00000000".substring(h.length()) + h; }

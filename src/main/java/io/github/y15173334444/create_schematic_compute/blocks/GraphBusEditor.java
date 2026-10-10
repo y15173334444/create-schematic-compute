@@ -92,7 +92,7 @@ final class GraphBusEditor {
         }
         st.busNameUserDirty = false;
         node.signalName = t;
-        ed.host.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+        ed.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
             io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,
             ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 0, null, 0f, 0f,
             0, 0, 0, 0, 0, 0f, t, 0, 0, 0, 0, null, 0, 0, 0,

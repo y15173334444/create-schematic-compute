@@ -224,7 +224,7 @@ final class GraphOpHistory {
                 if (rev != null) {
                     redone.add(e);
                     io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(ed.getGraph(), rev);
-                    ed.host.sendOp(rev);
+                    ed.sendOp(rev);
                 }
             }
             // Push entire batch as one redo entry
@@ -235,7 +235,7 @@ final class GraphOpHistory {
             if (rev != null) {
                 redoStack2.add(entry);
                 io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(ed.getGraph(), rev);
-                ed.host.sendOp(rev);
+                ed.sendOp(rev);
             }
         }
     }
@@ -252,13 +252,13 @@ final class GraphOpHistory {
             for (var e : batch) {
                 redone.add(e);
                 io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(ed.getGraph(), e.op);
-                ed.host.sendOp(e.op);
+                ed.sendOp(e.op);
             }
             undoStack2.add(new UndoEntry(redone));
         } else {
             undoStack2.add(entry);
             io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(ed.getGraph(), entry.op);
-            ed.host.sendOp(entry.op);
+            ed.sendOp(entry.op);
         }
     }
 

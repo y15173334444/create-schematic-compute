@@ -64,6 +64,15 @@ public final class MonitorDisplayEditor {
     /** 打开像素编辑器时置位：本次 onClose 跳过离开协作会话 / set while transferring to the pixel editor. */
     private boolean transferToPixelEditor = false;
 
+    /** 统一 op 出口：经 GraphEditor 的 temp-id 漏斗（host.sendOp 直连传输层会绕过挂起守卫）。
+     *  Unified op outlet: through the GraphEditor temp-id funnel (host.sendOp hits the transport
+     *  directly and would bypass the pending-id guard). */
+    private void sendOp(GraphOp op) {
+        var ed = host.editor();
+        if (ed != null) ed.sendOp(op);
+        else host.sendOp(op);
+    }
+
     public MonitorDisplayEditor(Host host) {
         this.host = host;
         var mc = Minecraft.getInstance();
@@ -173,7 +182,7 @@ public final class MonitorDisplayEditor {
         }
         if (layerDragState == LayerDragState.PRESSED) resetLayerDragState();
         if (draggedDisplayNode != null) {
-            host.sendOp(GraphOp.setDisplayLayout(
+            sendOp(GraphOp.setDisplayLayout(
                 host.blockPos(), -1, draggedDisplayNode.id,
                 draggedDisplayNode.layoutX, draggedDisplayNode.layoutY,
                 draggedDisplayNode.displayScale, draggedDisplayNode.displayRotation,
@@ -222,7 +231,7 @@ public final class MonitorDisplayEditor {
             if (key == 257 || key == 335) {
                 try { selectedDisplayNode.displayScale = Math.max(0.01f, Float.parseFloat(editSBuf)); }
                 catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
-                host.sendOp(GraphOp.setDisplayLayout(
+                sendOp(GraphOp.setDisplayLayout(
                     host.blockPos(), -1, selectedDisplayNode.id,
                     selectedDisplayNode.layoutX, selectedDisplayNode.layoutY,
                     selectedDisplayNode.displayScale, selectedDisplayNode.displayRotation,
@@ -237,7 +246,7 @@ public final class MonitorDisplayEditor {
             if (key == 257 || key == 335) {
                 try { selectedDisplayNode.displayRotation = Float.parseFloat(editRBuf) % 360f; }
                 catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
-                host.sendOp(GraphOp.setDisplayLayout(
+                sendOp(GraphOp.setDisplayLayout(
                     host.blockPos(), -1, selectedDisplayNode.id,
                     selectedDisplayNode.layoutX, selectedDisplayNode.layoutY,
                     selectedDisplayNode.displayScale, selectedDisplayNode.displayRotation,
@@ -277,7 +286,7 @@ public final class MonitorDisplayEditor {
             applyLayerReorder();
         }
         if (draggedDisplayNode != null) {
-            host.sendOp(GraphOp.setDisplayLayout(
+            sendOp(GraphOp.setDisplayLayout(
                 host.blockPos(), -1, draggedDisplayNode.id,
                 draggedDisplayNode.layoutX, draggedDisplayNode.layoutY,
                 draggedDisplayNode.displayScale, draggedDisplayNode.displayRotation,
@@ -1068,7 +1077,7 @@ public final class MonitorDisplayEditor {
         // edits with a whole-graph snapshot.
         var uid = host.playerUUID();
         for (var ln : layers) {
-            host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setLayerIndex(
+            sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setLayerIndex(
                 host.blockPos(), -1, ln.id, ln.layerIndex, uid));
         }
     }
@@ -1632,7 +1641,7 @@ public int getPresenceDraggedNodeId() { return draggedDisplayNode != null ? drag
         long nowMs = System.currentTimeMillis();
         if (nowMs - lastDisplayDragSendTime >= DISPLAY_DRAG_SEND_INTERVAL_MS) {
             lastDisplayDragSendTime = nowMs;
-            host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
+            sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
                 host.blockPos(), -1, draggedDisplayNode.id,
                 draggedDisplayNode.layoutX, draggedDisplayNode.layoutY,
                 draggedDisplayNode.displayScale, draggedDisplayNode.displayRotation,
