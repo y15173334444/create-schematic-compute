@@ -93,13 +93,73 @@ class BandUploadOwnershipTest {
         BusChannelHelper.applyBusOutRename(serverGraph, POS, c, "abc", null);
         assertFalse(c.busConflict, "改名到自由名后不再冲突");
 
-        // 服务端把定义广播给客户端（含发起者）/ the server broadcasts the definition to clients
+        // 定义侧必须携带用户的编辑 / the definition must carry the user's edits
+        assertEquals(java.util.List.of("x", "y"), SignalBus.getBands("def"),
+            "夺权注册的定义必须是用户的频段");
+
+        // 客户端从**旧状态**出发，只信同步链路送达用户的编辑（不手工预置期望值）
+        // The client starts from the STALE state and only the sync chain may deliver the
+        // user's edits (no hand-preloading the expected value).
         var clientGraph = NodeGraph.load(serverGraph.save(null), null);
         var clientNode = clientGraph.findNode(c.id);
-        clientNode.signalBands = new ArrayList<>(java.util.List.of("x", "y")); // 客户端带着用户的编辑
+        clientNode.signalBands = new ArrayList<>(java.util.List.of("b0", "b1")); // 旧状态 / stale
         BusChannelHelper.syncBandsFromServer("def", SignalBus.getBands("def"), clientGraph);
 
         assertEquals(java.util.List.of("x", "y"), clientNode.signalBands,
-            "改名后广播灌回的必须是用户的频段 —— 编辑区频段不得回退");
+            "同步链路必须把用户的频段送达 —— 编辑区频段不得回退");
+    }
+
+    @Test
+    @DisplayName("统一释放：删除（确证离开）退役死名，旧名订阅者清图；他人数据不碰")
+    void releaseChannelRetiresForProvableDeparture() {
+        // 发布方持有 'abc'，同图订阅者 + 跨图订阅者 / the publisher and two subscribers
+        var pubGraph = new NodeGraph();
+        var pub = pubGraph.addNode(NodeType.BUS_OUT, 0, 0);
+        pub.signalName = "abc";
+        pub.signalBands = new ArrayList<>(List.of("b0", "b1"));
+        BusChannelHelper.registerGraphChannels(pubGraph, POS);
+
+        var subGraph = new NodeGraph();
+        var sub = subGraph.addNode(NodeType.BUS_IN, 0, 0);
+        sub.signalName = "abc";
+        sub.signalBands = new ArrayList<>(List.of("x", "y"));
+
+        // 删除路径：统一释放 / the delete path: unified release
+        assertTrue(SignalBus.releaseChannel("abc", new ChannelOwner(POS, pub.id)));
+        assertEquals(List.of(), SignalBus.getBands("abc"), "确证离开须退役定义（已定义为空）");
+        assertNull(SignalBus.getChannel("abc"), "频道条目须随删除释放");
+        BusChannelHelper.convergeBusInBands(subGraph);
+        assertEquals(List.of(), sub.signalBands, "死名订阅者须清掉旧图（含剪线，issue #11 语义）");
+
+        // 他人持有时不碰 / a foreign owner's data is untouched
+        var foreignGraph = new NodeGraph();
+        var f = foreignGraph.addNode(NodeType.BUS_OUT, 0, 0);
+        f.signalName = "zzz";
+        f.signalBands = new ArrayList<>(List.of("q0"));
+        BusChannelHelper.registerGraphChannels(foreignGraph, new BlockPos(9, 9, 9));
+        SignalBus.releaseChannel("zzz", new ChannelOwner(POS, pub.id)); // 非 owner 的释放请求
+        assertEquals(List.of("q0"), SignalBus.getBands("zzz"), "他人定义不得被退役");
+        assertNotNull(SignalBus.getChannel("zzz"), "他人频道不得被释放");
+    }
+
+    @Test
+    @DisplayName("同图订阅者同样清图：改名退役不再被同图 BUS_IN 引用阻拦")
+    void sameGraphSubscriberDropsStaleList() {
+        var graph = new NodeGraph();
+        var pub = graph.addNode(NodeType.BUS_OUT, 0, 0);
+        pub.signalName = "abc";
+        pub.signalBands = new ArrayList<>(List.of("b0", "b1"));
+        var sub = graph.addNode(NodeType.BUS_IN, 50, 0);
+        sub.signalName = "abc";
+        sub.signalBands = new ArrayList<>(List.of("x", "y"));
+        BusChannelHelper.registerGraphChannels(graph, POS);
+
+        OpExecutor.apply(graph, new GraphOp(OpType.SET_DISPLAY_TEXT, POS, -1, pub.id, 0,
+            null, 0f, 0f, 0, 0, 0, 0, 0, 0f, "def", 0, 0, 0, 0, null, 0, 0, 0,
+            null, 0L, java.util.UUID.randomUUID(), 0, null));
+        BusChannelHelper.applyBusOutRename(graph, POS, pub, "abc", null);
+        BusChannelHelper.convergeBusInBands(graph);
+        assertEquals(List.of(), sub.signalBands,
+            "同图订阅者也要清掉死名旧图（统一规则：确证离开 → retire）");
     }
 }

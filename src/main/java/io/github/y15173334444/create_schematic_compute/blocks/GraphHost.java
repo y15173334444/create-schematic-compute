@@ -381,7 +381,10 @@ public class GraphHost {
                     int nodeId = Integer.parseInt(rest.substring(at + 1));
                     var owner = new ChannelOwner(pos(), nodeId);
                     if (priv) SignalBus.unregisterPrivateChannel(name, owner);
-                    else SignalBus.unregisterChannel(name, owner);
+                    // 删除 = 确证离开：统一释放（owner 门控 + 死名退役），旧名 BUS_IN 得以清旧图
+                    // Delete = provable departure: unified release (owner-gated + dead-name
+                    // retirement) so old-name BUS_INs drop their stale lists.
+                    else SignalBus.releaseChannel(name, owner);
                 }
             }
         }

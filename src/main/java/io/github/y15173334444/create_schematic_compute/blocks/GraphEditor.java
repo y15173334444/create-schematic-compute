@@ -1441,7 +1441,9 @@ public class GraphEditor {
                 boolean nameOnlyChange = st.fields.size() - 1 == n.bandCount() && n.bandCount() > 0;
                 nodeEditStatesById.put(n.id, createEditState(n));
                 // 纯名称变化时同步到同总线名节点并上传服务器 (On name-only change, sync to same-bus-name nodes and upload to server)
-                if (nameOnlyChange && n.type == NodeType.BUS_OUT && !n.busConflict) {
+                // 结构上传不因冲突跳过（全路径一致：服务端按结构/定义两层仲裁）
+                // Structure uploads never skip for conflicts (all paths: the server arbitrates)
+                if (nameOnlyChange && n.type == NodeType.BUS_OUT) {
                     bus.syncBusBands(n);
                     net.neoforged.neoforge.network.PacketDistributor.sendToServer(
                         new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
@@ -2643,10 +2645,10 @@ public class GraphEditor {
                 en.signalBands.add(name);
                 en.bandsDirty = true;
                 bus.syncBusBands(en);
-                if (!en.busConflict)
-                    net.neoforged.neoforge.network.PacketDistributor.sendToServer(
-                        new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
-                            host.getBlockPos(), en.signalName, en.signalBands, en.id));
+                // 结构上传不因冲突跳过（服务端按结构/定义两层仲裁）/ server arbitrates
+                net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                    new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
+                        host.getBlockPos(), en.signalName, en.signalBands, en.id));
                 nodeEditStatesById.put(en.id, createEditState(en));
                 return true;
             }
@@ -2669,10 +2671,10 @@ public class GraphEditor {
                     en.signalBands.remove(removedPin);
                     en.bandsDirty = true;
                     bus.syncBusBands(en);
-                    if (!en.busConflict)
-                        net.neoforged.neoforge.network.PacketDistributor.sendToServer(
-                            new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
-                                host.getBlockPos(), en.signalName, en.signalBands, en.id));
+                    // 结构上传不因冲突跳过（服务端按结构/定义两层仲裁）/ server arbitrates
+                    net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                        new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
+                            host.getBlockPos(), en.signalName, en.signalBands, en.id));
                     nodeEditStatesById.put(en.id, createEditState(en));
                 }
                 return true;

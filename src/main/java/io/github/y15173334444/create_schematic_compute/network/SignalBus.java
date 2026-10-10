@@ -159,6 +159,31 @@ public class SignalBus {
         BAND_REGISTRY.put(busName, new ArrayList<>());
     }
 
+    /**
+     * 发布方**确证离开**（改名走人 / 节点删除 / 显式清空频道）的统一释放：按 owner 撤频道
+     * 条目，并在名下无主时退役频段定义（{@link #retireBands}）。只动属于该 owner 的数据 ——
+     * 他人条目与定义不碰（跨 owner 破坏防线）。**瞬时缺席**（宿主卸载 / 区块 unloaded）
+     * 不走此路：那要保持「未定义」，由「缺席不是定义」守卫保订阅者连线。
+     * <p>统一规则（一处写清）：确证离开 → retire（已定义为空，死名收敛清图）；
+     * 瞬时缺席 → 保持未定义（跳过收敛，保线）。</p>
+     * Unified release for a **provable** departure (rename-away / node delete / explicit
+     * channel retirement): drops the channel entry by owner and, when the name is left
+     * unowned, retires the band definition (defined-empty). Only that owner's data is touched
+     * — a foreign entry or definition is never nulled (the cross-owner damage guard).
+     * **Transient absence** (host unload / chunk unloaded) does not go through here: it must
+     * stay "undefined" so the "absence is not a definition" guard preserves subscribers' wires.
+     *
+     * @return true if this owner's entry was released
+     */
+    public static boolean releaseChannel(String busName, ChannelOwner owner) {
+        boolean released = unregisterChannel(busName, owner);
+        if (released || getChannel(busName) == null) {
+            if (!released) clearBus(busName);
+            retireBands(busName);
+        }
+        return released;
+    }
+
     /** 更新频段音频标志（内容变化才写 + 自增版本）。返回是否发生变化。
      *  Update the per-band audio flags (write + version bump only on change); returns whether it changed. */
     public static boolean setAudioBands(String busName, java.util.Set<String> audioBandNames) {

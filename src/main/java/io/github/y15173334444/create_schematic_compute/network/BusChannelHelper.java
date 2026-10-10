@@ -112,32 +112,14 @@ public final class BusChannelHelper {
         if (graph == null || renamed == null) return new ChannelRegistration(false, java.util.List.of());
         String newName = renamed.signalName;
         if (oldName != null && !oldName.isEmpty() && !oldName.equals(newName)) {
-            // 按 owner 撤旧名条目（refCount 归零即顺带清残留；他人条目不动 —— 同名共用靠冲突纪律）
-            // Drop the old-name entry by owner (ref-count zero clears its residue; a foreign entry
-            // is left alone — same-name sharing is the conflict discipline's business).
-            boolean released = SignalBus.unregisterChannel(oldName, new ChannelOwner(pos, renamed.id));
-            // 与 commitBusBox 同口径：同图还有他人引用旧名就不清全局残留。
-            // **owner 门控**：本就不是我们的名（冲突节点改名走人）绝不清全局数据 ——
-            // 旧逻辑的 clearBus 会把真正 owner 的频段定义与值一并抹掉（跨 owner 破坏）。
-            // Same rule as commitBusBox: don't clear the global residue while a same-graph node
-            // still references the old name. **Ownership-gated**: if the name was never ours
-            // (a conflicted node renaming away), never touch the global data — the old clearBus
-            // wiped the real owner's band definitions and values along with it.
-            boolean othersUseOld = false;
-            for (var n : graph.nodes) {
-                if (n == renamed) continue;
-                if ((n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
-                    && oldName.equals(n.signalName)) { othersUseOld = true; break; }
-            }
-            if (!othersUseOld && (released || SignalBus.getChannel(oldName) == null)) {
-                SignalBus.clearBus(oldName);
-                // 死名标记：发布方确证离开 → 旧名 BUS_IN 收敛成空（issue #11 清空死名），
-                // 与「未定义」（瞬时缺席，跳过收敛保连线）严格区分。
-                // Dead-name marker: the publisher provably left → BUS_INs on the old name converge
-                // to empty (issue #11's dead-name cleanup), strictly distinct from "undefined"
-                // (transient absence, skipped to preserve wires).
-                SignalBus.retireBands(oldName);
-            }
+            // 确证离开的统一释放（SignalBus.releaseChannel 一处写清）：按 owner 撤条目 +
+            // 名下无主时退役定义。同图 BUS_IN 引用不再阻拦退役 —— 死名清理对同图订阅者
+            // 同样生效；他人条目与定义不碰（跨 owner 破坏防线）。
+            // Unified release for a provable departure (one rule in SignalBus.releaseChannel):
+            // drop the entry by owner and retire the definition when the name is left unowned.
+            // A same-graph BUS_IN reference no longer blocks retirement — dead-name cleanup
+            // reaches same-graph subscribers too; a foreign entry/definition is never touched.
+            SignalBus.releaseChannel(oldName, new ChannelOwner(pos, renamed.id));
         }
         // 重跑图内注册（幂等）：新名条目 + 频段定义 + 冲突旗标随名字落地。
         // "" → 新名 也走这里（新建 BUS_OUT 后首次命名同样丢频道 —— 同一根因）。
@@ -387,9 +369,14 @@ public final class BusChannelHelper {
         if (!newBands.isEmpty()) {
             SignalBus.registerBands(busName, newBands);
         } else {
-            SignalBus.unregisterChannel(busName, new ChannelOwner(pos, target.id));
-            SignalBus.clearBus(busName);
-            SignalBus.retireBands(busName); // 空频段 = 已定义为空（死名标记）/ empty bands = defined-empty
+            // 空频段 = 显式清空频道（确证离开）：统一释放，**按 owner 门控** —— 旗标过期时
+            // 他人已抢注的名不碰。retire 的既定后果在此明示：死名收敛会让旧名 BUS_IN 清列表
+            // 并按频段对齐规则剪线（issue #11 语义）。
+            // Empty bands = explicit channel retirement (provable departure): unified release,
+            // ownership-gated — a name claimed by another after a stale flag is left alone.
+            // Declared consequence of retiring: dead-name convergence clears old-name BUS_INs
+            // and prunes their wires by the band-alignment rule (issue #11 semantics).
+            SignalBus.releaseChannel(busName, new ChannelOwner(pos, target.id));
         }
         if (level instanceof ServerLevel sl) {
             PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(pos),
@@ -579,7 +566,8 @@ public final class BusChannelHelper {
             for (var n : oldGraph.nodes) {
                 if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()
                     && !newKeys.contains(n.signalName + "@" + n.id)) {
-                    SignalBus.unregisterChannel(n.signalName, new ChannelOwner(pos, n.id));
+                    // 移除 = 确证离开：统一释放（含死名退役）/ removal = provable departure
+                    SignalBus.releaseChannel(n.signalName, new ChannelOwner(pos, n.id));
                 } else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty()
                     && !newKeys.contains(n.signalName + "@" + n.id)) {
                     SignalBus.unregisterPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
