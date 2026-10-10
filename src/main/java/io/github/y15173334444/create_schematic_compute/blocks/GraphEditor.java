@@ -184,8 +184,9 @@ public class GraphEditor {
      *  登记它的 tempId。所有编辑 op 发送都应走这里（而不是 host.sendOp）。
      *  Unified op outlet: ops referencing a not-yet-ACKed temp id are held; everything else
      *  goes straight out. ADD_NODE_REQUEST registers its tempId here. All edit ops must leave
-     *  through here rather than host.sendOp. */
-    void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
+     *  through here rather than host.sendOp — public so out-of-package UI (the pixel editor)
+     *  can honour the same guard. */
+    public void sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
         if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE_REQUEST
             && op.tempId() > 0) {
             pendingTempIds.put(op.tempId(), op.ownerNodeId());
@@ -214,6 +215,18 @@ public class GraphEditor {
             if (op.targetNodeId() == t || op.fromId() == t || op.toId() == t) return true;
         }
         return false;
+    }
+
+    /** ADD_NODE_REQUEST 被拒（REJECT 回执，评审 Spec-2b）：清掉该临时 id 的挂起登记，并丢弃
+     *  引用它的挂起 op —— 否则它们会一直挂到关屏，等同挂起队列要防的那种丢失。
+     *  On an ADD_NODE_REQUEST rejection (REJECT receipt): drop the pending registration and
+     *  any deferred ops referencing that temp id — otherwise they hang until the editor closes,
+     *  which is the very loss this queue exists to prevent. */
+    void onAddNodeRejected(int tempId) {
+        Integer scope = pendingTempIds.remove(tempId);
+        deferredOps.removeIf(op -> op.ownerNodeId() == tempId
+            || (scope != null && op.ownerNodeId() == scope
+                && (op.targetNodeId() == tempId || op.fromId() == tempId || op.toId() == tempId)));
     }
 
     /** ACK 到达：tempId → realId 改写挂起 op 并补发已解析完毕的（引用的 id 全部落地）。

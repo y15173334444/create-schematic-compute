@@ -254,13 +254,13 @@ final class GraphViewBookmarks {
                     bks.set(editingBookmarkIndex, new io.github.y15173334444.create_schematic_compute.graph.NodeGraph.Bookmark(bookmarkNameDraft, old.camX(), old.camY(), old.zoom()));
                     bmGraph.bumpGeneration();
                 }
-                ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.renameBookmark(
+                ed.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.renameBookmark(
                     ed.host.getBlockPos(), ed.ownerNodeId(), editingBookmarkIndex, bookmarkNameDraft, ed.host.getPlayerUUID()));
             } else {
                 // 新建：本地先应用 / add: apply locally first
                 bmGraph.bookmarks.add(new io.github.y15173334444.create_schematic_compute.graph.NodeGraph.Bookmark(bookmarkNameDraft, ed.camX, ed.camY, ed.zoom));
                 bmGraph.bumpGeneration();
-                ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addBookmark(
+                ed.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.addBookmark(
                     ed.host.getBlockPos(), ed.ownerNodeId(), bookmarkNameDraft, ed.camX, ed.camY, ed.zoom, ed.host.getPlayerUUID()));
             }
         }
@@ -345,7 +345,7 @@ final class GraphViewBookmarks {
                     if (idx >= 0 && idx < totalRows) {
                         if (mx >= panelX + panelW - 26) {
                             bks.remove(idx); graph.bumpGeneration();
-                            ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeBookmark(
+                            ed.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeBookmark(
                                 ed.host.getBlockPos(), ed.ownerNodeId(), idx, ed.host.getPlayerUUID()));
                         } else if (mx >= panelX + panelW - 58 && mx < panelX + panelW - 44) {
                             editingBookmarkName = true; editingBookmarkIndex = idx;
@@ -423,7 +423,7 @@ final class GraphViewBookmarks {
                     var bm = bks.remove(draggingBookmarkIdx);
                     bks.add(toIdx, bm);
                     ed.getGraph().bumpGeneration();
-                    ed.host.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveBookmark(
+                    ed.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveBookmark(
                         ed.host.getBlockPos(), ed.ownerNodeId(), draggingBookmarkIdx, toIdx, ed.host.getPlayerUUID()));
                 } else {
                     // 未移动 → 跳转 / not moved → jump

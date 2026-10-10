@@ -278,22 +278,28 @@ public final class EditSessionRegistry {
             // REMOVE_NODE from another editor may have deleted them.
             // 两个端点必须仍然存在于当前图中 — 其他编辑者并发的 REMOVE_NODE 可能已将其删除。
             if (targetGraph.findNode(op.toId()) == null || targetGraph.findNode(op.fromId()) == null) {
-                var reject = new GraphOp(OpType.REJECT, pos, op.ownerNodeId(), op.targetNodeId(),
-                    0, null, 0f, 0f, op.fromId(), op.fromPin(), op.toId(), op.toPin(),
-                    0, 0f, null, 0, 0, 0, 0, null, 0, 0, 0, net.minecraft.world.item.ItemStack.EMPTY, 0L, op.actor());
-                PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(reject));
+                PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(GraphOp.reject(op, actor.getUUID())));
                 return;
             }
             // Prevent introducing directed cycles — the graph must remain a DAG
             // for correct topological evaluation order.
             // 防止引入有向环 — 图必须保持为有向无环图（DAG）以保证正确的拓扑求值顺序。
             if (targetGraph.wouldCreateCycle(op.fromId(), op.toId())) {
-                var reject = new GraphOp(OpType.REJECT, pos, op.ownerNodeId(), op.targetNodeId(),
-                    0, null, 0f, 0f, op.fromId(), op.fromPin(), op.toId(), op.toPin(),
-                    0, 0f, null, 0, 0, 0, 0, null, 0, 0, 0, net.minecraft.world.item.ItemStack.EMPTY, 0L, op.actor());
-                PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(reject));
+                PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(GraphOp.reject(op, actor.getUUID())));
                 return;
             }
+        }
+
+        // 3b. 执行器层同一纪律（评审 Standards-2）：引用不存在目标节点的 op 不再静默 no-op 照发 ACK，
+        //     一律 REJECT —— 客户端据此归还待 ACK 计数并按类型回滚本地乐观态。ADD_NODE /
+        //     ADD_NODE_REQUEST 的语义就是创建节点，不适用目标存在性检查。
+        // Executor-level discipline: an op whose target node is missing no longer no-ops with an
+        // ACK — it is REJECTED so the client returns the pending count and rolls back per type.
+        // ADD_NODE / ADD_NODE_REQUEST create the node, so the existence check does not apply.
+        if (op.type() != OpType.ADD_NODE && op.type() != OpType.ADD_NODE_REQUEST
+            && op.targetNodeId() > 0 && targetGraph.findNode(op.targetNodeId()) == null) {
+            PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(GraphOp.reject(op, actor.getUUID())));
+            return;
         }
 
         // 4. ADD_NODE_REQUEST: server allocates real ID → ACK originator → broadcast to others

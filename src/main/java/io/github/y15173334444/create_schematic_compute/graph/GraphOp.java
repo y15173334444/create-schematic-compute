@@ -135,16 +135,21 @@ public record GraphOp(
     }
 
     /**
-     * 服务端拒绝回执：回显被拒 op 的连线两端与目标节点。客户端 REJECT 处理器（GraphRemoteApplier）
-     * 据此回滚本地连线，并归还待 ACK 计数 —— 静默丢弃会让计数永远挂着，整图同步守卫闩死。
-     * Server rejection receipt: echoes the refused op's wire ends and target node. The client
-     * REJECT handler (GraphRemoteApplier) rolls back the local connection and returns the
-     * pending-ACK count — a silent drop would latch the counter and wedge the full-sync guard.
+     * 服务端拒绝回执：回显被拒 op 的**类型**（打包进 paramIndex —— REJECT 自身的类型无法承载它，
+     * 与 pinId 打包 stringValue 同一惯例）、tempId（ADD_NODE_REQUEST 的临时 id）与连线两端。
+     * 客户端 REJECT 处理器（GraphRemoteApplier）按类型回滚本地乐观态（连线回滚连线、被拒加点
+     * 清挂起队列），并归还待 ACK 计数 —— 静默丢弃会让计数永远挂着，整图同步守卫闩死。
+     * Server rejection receipt: echoes the refused op's <b>type</b> (packed into paramIndex —
+     * the REJECT's own type cannot carry it, same packing convention as pinIds into stringValue),
+     * its tempId (ADD_NODE_REQUEST's temporary id) and the wire ends. The client REJECT handler
+     * (GraphRemoteApplier) rolls back the local optimistic state per type — wires roll back as
+     * wires, a rejected add clears the pending queue — and returns the pending-ACK count; a
+     * silent drop would latch the counter and wedge the full-sync guard.
      */
     public static GraphOp reject(GraphOp refused, UUID actor) {
         return new GraphOp(OpType.REJECT, refused.graphPos(), refused.ownerNodeId(), refused.targetNodeId(),
-            0, null, 0f, 0f, refused.fromId(), refused.fromPin(), refused.toId(), refused.toPin(),
-            0, 0f, null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor);
+            refused.tempId(), refused.nodeType(), 0f, 0f, refused.fromId(), refused.fromPin(), refused.toId(), refused.toPin(),
+            refused.type().ordinal(), 0f, null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor);
     }
 
     public static GraphOp setParam(BlockPos pos, int ownerNodeId, int nodeId,

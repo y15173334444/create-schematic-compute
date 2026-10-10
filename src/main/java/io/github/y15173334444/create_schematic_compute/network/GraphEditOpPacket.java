@@ -282,7 +282,7 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
             // and the edit panel's "upload failed" leaves no trace. Send REJECT to return the
             // counter and log it (issue: edit-panel input upload fails).
             if (!io.github.y15173334444.create_schematic_compute.network.SablePacketHelper.isWithinReachableRange(sp, pos, MAX_EDIT_DIST_SQ)) {
-                io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug(
+                io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.info(
                     "[GraphEditOp] dropped (out of range) op={} from {}", pkt.op.type(), sp.getName().getString());
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
                     new GraphEditOpSyncPacket(io.github.y15173334444.create_schematic_compute.graph.GraphOp.reject(pkt.op, sp.getUUID())));
@@ -290,7 +290,7 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
             }
             // Security: reject if the player is not a registered editor of this session / 安全检查：玩家不是此编辑会话的已注册编辑者则拒绝
             if (!EditSessionRegistry.getEditors(sl, pos).contains(sp.getUUID())) {
-                io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug(
+                io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.info(
                     "[GraphEditOp] dropped (not a registered editor) op={} from {}", pkt.op.type(), sp.getName().getString());
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
                     new GraphEditOpSyncPacket(io.github.y15173334444.create_schematic_compute.graph.GraphOp.reject(pkt.op, sp.getUUID())));

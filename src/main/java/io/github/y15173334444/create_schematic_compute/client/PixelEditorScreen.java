@@ -207,8 +207,22 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         return minecraft != null && minecraft.player != null ? minecraft.player.getName().getString() : "";
     }
     @Override public boolean isPixelEditorOpen() { return true; }
-    @Override public GraphEditor getEditor() { return null; }
+    // 出口收口（评审 Spec-1）：像素编辑器与来源屏同属一个编辑会话（skipLeaveOnClose），temp-id
+    // 挂起/ACK 重映射必须共享来源屏编辑器的漏斗实例——否则帧条 op（携带节点 id）在新节点 ACK
+    // 未回的窗口内直发，正是挂起队列要防的服务端静默丢弃。
+    // Outlet convergence (review Spec-1): the pixel editor and its origin share one editing
+    // session (skipLeaveOnClose), so the temp-id stash and ACK remap must share the originating
+    // editor's funnel instance — otherwise frame-strip ops (they carry node ids) leave directly
+    // and are silently dropped server-side inside a fresh node's pre-ACK window.
+    @Override public GraphEditor getEditor() {
+        return returnScreen instanceof GraphEditor.Host h ? h.getEditor() : null;
+    }
     @Override public void sendOp(GraphOp op) {
+        var ed = getEditor();
+        if (ed != null) {
+            ed.sendOp(op); // 统一出口：temp-id 挂起守卫 + 来源屏的 pendingLocalOps 计数 / the funnel
+            return;
+        }
         var be = getBE();
         if (be != null) be.setPendingLocalOps(be.getPendingLocalOps() + 1);
         PacketDistributor.sendToServer(new GraphEditOpPacket(op));

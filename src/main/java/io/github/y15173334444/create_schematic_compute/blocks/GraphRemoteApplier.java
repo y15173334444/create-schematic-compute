@@ -93,9 +93,25 @@ final class GraphRemoteApplier {
         }
         // REJECT: roll back the locally-applied change that the server refused
         if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.REJECT) {
-            // The op carries the rejected ADD_CONN details — remove the local connection.
-            // For non-originator editors this is a no-op (they never applied it).
-            graph.removeConnection(op.fromId(), op.fromPin(), op.toId(), op.toPin());
+            // 被拒 op 的类型经 paramIndex 回显、临时 id 经 tempId 回显（GraphOp.reject 打包）。
+            // 按类型回滚本地乐观态：连线回滚连线；被拒的加点清挂起队列（否则其挂起编辑会挂到
+            // 关屏，等同修复前的丢失）；其余被拒 op 只归还待 ACK 计数。
+            // The refused op's type arrives packed in paramIndex and its temp id in tempId
+            // (GraphOp.reject). Roll back per type: wires roll back as wires; a rejected add
+            // clears the pending queue (its deferred edits would otherwise hang until close —
+            // the very loss being fixed); other refused ops only return the pending count.
+            var refusedType = op.paramIndex() >= 0
+                    && op.paramIndex() < io.github.y15173334444.create_schematic_compute.graph.OpType.values().length
+                ? io.github.y15173334444.create_schematic_compute.graph.OpType.values()[op.paramIndex()]
+                : io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_CONN; // 旧回执无类型：按连线处理 / legacy receipts carry no type
+            if (refusedType == io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_CONN) {
+                // The op carries the rejected ADD_CONN details — remove the local connection.
+                // For non-originator editors this is a no-op (they never applied it).
+                graph.removeConnection(op.fromId(), op.fromPin(), op.toId(), op.toPin());
+            } else if (refusedType == io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE_REQUEST
+                && op.tempId() > 0) {
+                ed.onAddNodeRejected(op.tempId());
+            }
             // A rejected op never receives an ACK — decrement the pending-op counter so the
             // bounce-back guard doesn't stay latched. / 被拒 op 不会收到 ACK —— 递减待 ACK 计数。
             if (ed.host.getBlockPos() != null

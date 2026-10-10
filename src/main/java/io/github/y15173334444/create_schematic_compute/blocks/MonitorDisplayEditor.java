@@ -65,8 +65,13 @@ public final class MonitorDisplayEditor {
     private boolean transferToPixelEditor = false;
 
     /** 统一 op 出口：经 GraphEditor 的 temp-id 漏斗（host.sendOp 直连传输层会绕过挂起守卫）。
+     *  回退分支仅在无编辑器时可达 —— 无编辑器即无编辑会话、也没有临时 id 在途，无挂起可守；
+     *  生产宿主（MonitorScreen）始终提供编辑器。
      *  Unified op outlet: through the GraphEditor temp-id funnel (host.sendOp hits the transport
-     *  directly and would bypass the pending-id guard). */
+     *  directly and would bypass the pending-id guard). The fallback is reachable only without
+     *  an editor — and without an editor there is no editing session and no temp id in flight,
+     *  so there is no pending state to guard; the production host (MonitorScreen) always
+     *  provides the editor. */
     private void sendOp(GraphOp op) {
         var ed = host.editor();
         if (ed != null) ed.sendOp(op);
