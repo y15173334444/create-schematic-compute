@@ -12,7 +12,7 @@
 | # | 标题 / Title | 症状一句话 / One-line symptom | 修复建议 / Fix direction | 状态 / Status |
 |---|--------------|------------------------------|--------------------------|---------------|
 | 1 | temp-id 挂起队列随关屏丢弃 | 加点后立刻输入、一个 RTT 内关界面 → 重开回到默认值 | op 日志回放（另立项） | 待立项 |
-| 2 | 删除 BUS_OUT 幽灵占名 | 删除后同名重建被误标「频道已占用」并静默 | 双端删除路径撤频道条目 + 撤销/重做语义（单独一轮） | 待修 |
+| 2 | 频道释放依赖快照路径（含别名死守卫） | 删除/改名的频道释放靠重编译快照兜底，旧图 diff 双守卫恒空转 | 消除别名死守卫 + 收窄释放窗口（撤销/重做语义随做） | 🔶 待办（机制已修正 2026-10-10，影响面降级） |
 
 ---
 
@@ -57,36 +57,37 @@
 
 ---
 
-## 2. 删除 BUS_OUT 幽灵占名（频道条目不随删除释放）
+## 2. 频道释放依赖快照路径（含别名死守卫）
 
-范围 / Scope：`GraphEditor`（客户端删点路径）、`OpExecutor`（`REMOVE_NODE` 应用）、`SignalBus`（`CHANNELS` 引用计数）、`BusChannelHelper`（频道生命周期）
+范围 / Scope：`GraphHost`（重编译期频道生命周期）、`BusChannelHelper`（`reRegisterChannels` / `syncDeletedBusNames` / 注册内核）、`SignalBus`（`CHANNELS` 引用计数）
+
+> 🔶 机制已于 2026-10-10 按代码核实修正（本条初版的「幽灵占名持续到服务端重启」不成立，见下）；
+> 改名一侧已由 `BusChannelHelper.applyBusOutRename` 当场迁移（见 CHANGELOG「BUS_OUT 改名/首次命名丢频道」）。
 
 ### 症状 / Symptom
 
-删除一个 BUS_OUT 节点后，新建**同名** BUS_OUT 会被误标「频道已占用」（`busConflict` 徽章）；冲突纪律使它不写值、不算定义，表现为该频道静默。注意与「BUS_IN 查找不到」是两种病：后者是改名丢频道（已由 `BusChannelHelper.applyBusOutRename` 修复），这里是**误标冲突**。
+删除（或改名）BUS_OUT 后的短窗口内，同名查询/重建会看到旧状态：同名新建的 BUS_OUT 可能被误标「频道已占用」（`busConflict`）而静默。窗口远小于初版登记的「直到服务端重启」——但窗口的存在与守卫的脆弱性仍值得登记。
 
-### 机制 / Mechanism
+### 机制 / Mechanism（修正版 / corrected）
 
-频道注册（`CHANNELS` 表，引用计数，owner = 宿主坐标 + 节点 id）的释放只发生在宿主卸载时（`unregisterChannels` 按图内**现存**节点逐个撤）。而删除节点的两条路径——客户端删点的本地清理、服务端 `REMOVE_NODE` 的应用——都只清全局数据（值/频段定义残留），**不撤 `CHANNELS` 条目**：
+频道生命周期维护实际有四个挂点：宿主首 tick 注册（`registerChannels`）；**每次 graphChanged 重编译**（`recompileEvaluatorFull`/`Light`）按 `name@id` 快照差集释放已删除/已改名的发布者（`unregisterRemovedBusOutNodes`）并做差集重注册（`reRegisterChannels`）；宿主卸载时注销；以及 op 应用时的改名迁移（`applyBusOutRename`，2026-10-10 起）。因此：
 
-- 幽灵条目以已删节点的 owner 继续占名；
-- 同名新 BUS_OUT 的注册被「首个注册者获胜」拒绝并标 `busConflict`；
-- 幽灵不随区块重载消失（重载只按当前图内节点注册/注销，图里已找不到那个节点），直到服务端重启或 `SignalBus.clear`。
+- **删除会在下一次重编译（约一 tick）释放**，改名亦然（快照键含名字，旧键消失即按 owner 注销）——初版「幽灵占用持续到服务端重启」的描述**不成立**；
+- 真正的残留问题是**别名死守卫**：`reRegisterChannels` 的「旧图 diff」（仅注销被移除节点）与 `syncDeletedBusNames`（删除名的客户端清表推送）拿的 `oldGraph = lastEvaluatedGraph` 与当前 `graph` 是**同一个对象**（图被原地修改），diff 两边恒相等、两守卫在编辑会话中**从不生效**（CLAUDE.md「死守卫」警示的形态）——移除/改名清理实际完全押在 `lastBusOutKeys` 快照路径上，一旦该路径缺席（如首 tick 注册后、首个快照落位前删除节点）即泄漏 `CHANNELS` 条目，且**旧名的客户端 BAND_REGISTRY 残留无人清**（`syncDeletedBusNames` 空转的直接后果）；
+- 另有一个一 tick 级窗口：op 落地到下一次重编译之间，查表仍见旧状态（改名侧已由迁移当场关闭）。
 
 ### 触发条件 / Trigger
 
-删除 BUS_OUT → 同一会话内重建同名 BUS_OUT。跨方块的同名占用判定本身是预期行为（issue #12/#14 的占用纪律），不受影响；问题仅在「占名者已经不存在」的幽灵残留。
+删除/改名 BUS_OUT 后立刻（同一 tick 内）同名查询或重建；或在「首 tick 注册后、首个重编译快照前」的窄窗内删除。跨方块同名占用判定本身是预期行为（issue #12/#14），不在此列。
 
 ### 影响面 / Impact
 
-删除后同名重建的节点被误标冲突而静默；玩家只能换名或重启服务端绕过。撤销/重做路径同样暴露（撤销删除会恢复节点，频道条目的再注册语义需一并处理）。
+一 tick 级的查表/重建不一致；窄窗删除泄漏的 `CHANNELS` 条目会造成同名重建被误标冲突（需重启或等残留 owner 回收）；客户端 `BAND_REGISTRY` 的旧名残留仅影响编辑器着色/定义显示，不影响求值。
 
 ### 修复方向 / Fix direction
 
-删除路径按 owner 调用 `SignalBus.unregisterChannel`（引用计数归零顺带清残留），客户端删点与服务端 `REMOVE_NODE` 应用各一处；同时补齐撤销语义——撤销删除经 `restoreNodeFromNbt` 把节点加回时，频道条目需随恢复重新注册（或走既有首 tick 注册的等价补注册路径）。
-
-与改名迁移（`BusChannelHelper.applyBusOutRename`）同族：复用其 owner 纪律与幂等注册内核 `registerGraphChannels`。牵扯撤销/重做恢复语义，建议单独开一轮修。
+让移除/改名清理不依赖单一路径：给 `reRegisterChannels` / `syncDeletedBusNames` 传入**真正的旧图快照**（或改用不别名的键集差集，与 `lastBusOutKeys` 同源），消除死守卫；删除路径顺带补撤销语义（撤销删除恢复节点时频道条目随恢复注册，与 `applyBusOutRename` 同一 owner 纪律与幂等内核）。
 
 ### 状态 / Status
 
-**待修。** 相邻参照：`BusOutRenameChannelTest`（改名迁移的占用纪律与幂等回归，修复本条时可扩展其用例族）。
+🔶 待办。已落地部分：改名迁移（`applyBusOutRename`，服务端/客户端幂等双跑）与 REJECT 化的 op 静默丢弃修复；回归参照 `BusOutRenameChannelTest`。初版登记的「同名重建被误标占用」症状保留为窄窗形态。
