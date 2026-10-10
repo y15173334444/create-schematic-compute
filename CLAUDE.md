@@ -37,6 +37,11 @@ GitHub Issues，外部 PR 也作为 triage 需求来源。见 `docs/agents/issue
 - **同一规则一处写清、全路径一致**：例如「冲突的 BUS_OUT 不拥有频道」这条同时出现在解析、对齐、求值、上传、推送等多条路径上；新增同类路径时必须带上同样的守卫 —— 也要警惕**条件永假**的「死守卫」（看起来有保护，实际从未生效）。
 - **动手前自问三句**：这个值由谁权威决定？我发出去的数据是否刚好等于这个变化？我本端算的东西会不会覆盖别人算的？
 
+### 方块数据保留 / Block Data Retention
+- **扳手收回保存 NBT 走模组自有通道**：持久化用户数据（节点图等）的方块必须覆写 `IWrenchable#onSneakWrenched` —— `Block.getDrops` 后对 BlockItem 掉落物调 `be.saveToItem(stack, registryAccess)`（`AmplifierComputerBlock` 模板，全部方块同款）。**不走** Create 的战利品表 `minecraft:copy_components` 路线——那要求 BE 数据组件化（`collectImplicitComponents`），改造大且与既有 9 块不一致。
+- **新方块自查两处**：战利品表（掉落本体）+ `onSneakWrenched` 覆写（NBT 随物品）。缺任一即挖掉/搬动丢数据；每个注册方块都要有对应战利品表。
+- **双路径是设计意图，不是缺陷**：扳手（潜行+右键）= **搬迁**，NBT 随物品保留；镐挖/爆炸 = **拆除**，掉不带 NBT 的纯物品——对玩家侧合理（拆毁即弃）。不要把后者当 bug 修复。
+
 ### 提交规范 / Commit Convention
 - Conventional Commits 风格，英文 subject：`fix:` / `feat:` / `docs:` / `test:` / `refactor:` / `revert:` / `test+fix:`。
 - 需要版本标注时可加 `vX.Y.Z: ...` 前缀。
