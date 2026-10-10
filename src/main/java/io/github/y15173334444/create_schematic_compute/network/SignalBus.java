@@ -143,6 +143,22 @@ public class SignalBus {
         return BAND_REGISTRY.get(busName);
     }
 
+    /**
+     * 把频段定义标记为「已定义为空」——发布方**确证离开**（改名走人 / 显式清空频道）时清理死名用。
+     * <p>与「未定义」（条目缺席，见 {@link #clearBus}）语义不同：收敛方会把已定义为空收敛成空列表
+     * （issue #11 的死名清理），而条目缺席被「缺席不是定义」守卫跳过（发布方区块卸载等瞬时缺席
+     * 不得剪掉 BUS_IN 的连线）。</p>
+     * Mark the band definition as <b>defined empty</b> — used to clean up a dead name when its
+     * publisher has provably left (renamed away / explicitly retired the channel).
+     * <p>Distinct from <b>undefined</b> (absent entry, see {@link #clearBus}): convergence turns a
+     * defined-empty channel into an empty list (issue #11's dead-name cleanup), while an absent
+     * entry is skipped by the "absence is not a definition" guard (transient absence such as the
+     * publisher's chunk unloading must never prune a BUS_IN's wires).</p>
+     */
+    public static void retireBands(String busName) {
+        BAND_REGISTRY.put(busName, new ArrayList<>());
+    }
+
     /** 更新频段音频标志（内容变化才写 + 自增版本）。返回是否发生变化。
      *  Update the per-band audio flags (write + version bump only on change); returns whether it changed. */
     public static boolean setAudioBands(String busName, java.util.Set<String> audioBandNames) {

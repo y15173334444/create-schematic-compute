@@ -115,17 +115,29 @@ public final class BusChannelHelper {
             // 按 owner 撤旧名条目（refCount 归零即顺带清残留；他人条目不动 —— 同名共用靠冲突纪律）
             // Drop the old-name entry by owner (ref-count zero clears its residue; a foreign entry
             // is left alone — same-name sharing is the conflict discipline's business).
-            SignalBus.unregisterChannel(oldName, new ChannelOwner(pos, renamed.id));
-            // 与 commitBusBox 同口径：同图还有他人引用旧名就不清全局残留
+            boolean released = SignalBus.unregisterChannel(oldName, new ChannelOwner(pos, renamed.id));
+            // 与 commitBusBox 同口径：同图还有他人引用旧名就不清全局残留。
+            // **owner 门控**：本就不是我们的名（冲突节点改名走人）绝不清全局数据 ——
+            // 旧逻辑的 clearBus 会把真正 owner 的频段定义与值一并抹掉（跨 owner 破坏）。
             // Same rule as commitBusBox: don't clear the global residue while a same-graph node
-            // still references the old name.
+            // still references the old name. **Ownership-gated**: if the name was never ours
+            // (a conflicted node renaming away), never touch the global data — the old clearBus
+            // wiped the real owner's band definitions and values along with it.
             boolean othersUseOld = false;
             for (var n : graph.nodes) {
                 if (n == renamed) continue;
                 if ((n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
                     && oldName.equals(n.signalName)) { othersUseOld = true; break; }
             }
-            if (!othersUseOld) SignalBus.clearBus(oldName);
+            if (!othersUseOld && (released || SignalBus.getChannel(oldName) == null)) {
+                SignalBus.clearBus(oldName);
+                // 死名标记：发布方确证离开 → 旧名 BUS_IN 收敛成空（issue #11 清空死名），
+                // 与「未定义」（瞬时缺席，跳过收敛保连线）严格区分。
+                // Dead-name marker: the publisher provably left → BUS_INs on the old name converge
+                // to empty (issue #11's dead-name cleanup), strictly distinct from "undefined"
+                // (transient absence, skipped to preserve wires).
+                SignalBus.retireBands(oldName);
+            }
         }
         // 重跑图内注册（幂等）：新名条目 + 频段定义 + 冲突旗标随名字落地。
         // "" → 新名 也走这里（新建 BUS_OUT 后首次命名同样丢频道 —— 同一根因）。
@@ -407,7 +419,13 @@ public final class BusChannelHelper {
                 // order after a restart / broken block); the bands came back but the wires did not.
                 // Skip and keep the list — the rename path's authoritative SET_BANDS still empties a
                 // dead name (issue #11); this only keeps the background invariant from overreaching.
-                if (want.isEmpty() && SignalBus.getChannel(n.signalName) == null) {
+                // 「已定义为空」（retireBands 的死名标记）不是缺席：照常收敛为空——发布方改名
+                // 走人后旧名 BUS_IN 必须清掉旧图（issue #11）；只有条目整个缺席（瞬时缺席）才跳过。
+                // A defined-empty entry (retireBands' dead-name marker) is NOT absence: converge
+                // it to empty — a BUS_IN on the old name must drop its stale list once the
+                // publisher renamed away (issue #11); only a fully absent entry (transient) skips.
+                if (want.isEmpty() && SignalBus.getChannel(n.signalName) == null
+                    && SignalBus.getBands(n.signalName) == null) {
                     if (absentChannels == null) absentChannels = new HashSet<>();
                     absentChannels.add(n.signalName);
                     continue;

@@ -72,7 +72,8 @@ class BusOutRenameChannelTest {
         assertSame(liveMap, entry.internalMap, "新名条目必须持有 BUS_OUT 的实时映射");
         assertNull(SignalBus.getChannel("abc"), "旧名条目残留会占名（幽灵占用）");
         assertEquals(List.of("x", "y"), SignalBus.getBands("def"), "频段定义须随名字迁移");
-        assertNull(SignalBus.getBands("abc"), "旧名频段定义残留");
+        assertEquals(List.of(), SignalBus.getBands("abc"),
+            "旧名频段定义应为「已定义为空」（死名标记，供旧名 BUS_IN 清旧图），而非残留或缺席");
         assertFalse(reg.anyConflictChanged(), "无冲突时不应触发全量同步");
     }
 
@@ -114,5 +115,116 @@ class BusOutRenameChannelTest {
         assertSame(out.busInternalMap, entry.internalMap);
         assertEquals(List.of("x"), SignalBus.getBands("def"));
         assertFalse(out.busConflict);
+    }
+
+    // ── 玩家复现（2026-10-11）：改名后 BUS_IN 的图不刷新 + 新建改回旧名报冲突 ──
+    //   Player repro: BUS_IN's list never refreshes after the rename, and a fresh BUS_OUT
+    //   renamed back to the old name conflicts.
+
+    /** 建一个带频段的 BUS_OUT 并走真实命名路径（SET_DISPLAY_TEXT + 迁移）。 */
+    private static GraphNode nameBusOut(NodeGraph graph, BlockPos pos, GraphNode n, String from, String to) {
+        applyRename(graph, n, to);
+        BusChannelHelper.applyBusOutRename(graph, pos, n, from, null);
+        return n;
+    }
+
+    @Test
+    @DisplayName("Bug A-旧名：发布方改名后，旧名 BUS_IN 必须拿到权威刷新（清空死名），不得留旧图")
+    void deadNameBusInRefreshesAfterRename() {
+        var pubGraph = new NodeGraph();
+        var pub = pubGraph.addNode(NodeType.BUS_OUT, 0, 0);
+        pub.signalName = "abc";
+        pub.signalBands = new ArrayList<>(List.of("b0", "b1"));
+        BusChannelHelper.registerGraphChannels(pubGraph, POS);
+
+        var subGraph = new NodeGraph();
+        var sub = subGraph.addNode(NodeType.BUS_IN, 0, 0);
+        sub.signalName = "abc";
+        sub.signalBands = new ArrayList<>(List.of("x", "y", "z")); // 旧图 / stale list
+
+        applyRename(pubGraph, pub, "def");
+        BusChannelHelper.applyBusOutRename(pubGraph, POS, pub, "abc", null);
+        // 服务端每 tick 收敛（BUS_IN 的图应跟着频道定义走）
+        var converged = BusChannelHelper.convergeBusInBands(subGraph);
+        assertNotNull(converged);
+        assertEquals(List.of(), sub.signalBands,
+            "发布方改名走后，旧名 BUS_IN 的图必须清空（issue #11 的死名清理），不得留旧图");
+    }
+
+    @Test
+    @DisplayName("Bug A-新名：发布方改名后，新名 BUS_IN 必须收敛到发布方频段")
+    void newNameBusInConvergesToPublisher() {
+        var pubGraph = new NodeGraph();
+        var pub = pubGraph.addNode(NodeType.BUS_OUT, 0, 0);
+        pub.signalName = "abc";
+        pub.signalBands = new ArrayList<>(List.of("b0", "b1"));
+        BusChannelHelper.registerGraphChannels(pubGraph, POS);
+
+        var subGraph = new NodeGraph();
+        var sub = subGraph.addNode(NodeType.BUS_IN, 0, 0);
+        sub.signalName = "def";
+        sub.signalBands = new ArrayList<>(List.of("x"));
+
+        applyRename(pubGraph, pub, "def");
+        BusChannelHelper.applyBusOutRename(pubGraph, POS, pub, "abc", null);
+        BusChannelHelper.convergeBusInBands(subGraph);
+        assertEquals(List.of("b0", "b1"), sub.signalBands,
+            "改名落地后新名 BUS_IN 必须收敛到发布方的频段（不得留旧图）");
+    }
+
+    @Test
+    @DisplayName("Bug B：改名释放旧名后，新建 BUS_OUT 改回旧名不得报冲突")
+    void freedOldNameReclaimable() {
+        var graphA = new NodeGraph();
+        var a = graphA.addNode(NodeType.BUS_OUT, 0, 0);
+        a.signalName = "abc";
+        a.signalBands = new ArrayList<>(List.of("b0"));
+        BusChannelHelper.registerGraphChannels(graphA, POS);
+
+        applyRename(graphA, a, "def");
+        BusChannelHelper.applyBusOutRename(graphA, POS, a, "abc", null);
+
+        // 新建 BUS_OUT 改回旧名 / a fresh BUS_OUT renamed back to the old name
+        var graphB = new NodeGraph();
+        var b = graphB.addNode(NodeType.BUS_OUT, 0, 0);
+        var posB = new BlockPos(9, 9, 9);
+        applyRename(graphB, b, "abc");
+        BusChannelHelper.applyBusOutRename(graphB, posB, b, "", null);
+
+        assertFalse(b.busConflict, "旧名已随改名释放，新发布方不得被误标冲突");
+        var entry = SignalBus.getChannel("abc");
+        assertNotNull(entry, "新发布方应持有旧名频道");
+        assertTrue(entry.owner.pos().equals(posB) && entry.owner.nodeId() == b.id,
+            "旧名频道应归新发布方");
+        assertNotNull(SignalBus.getChannel("def"), "原发布方改名后应持有新名频道");
+        assertEquals(List.of("b0"), SignalBus.getBands("def"), "频段定义随名字走");
+    }
+
+    @Test
+    @DisplayName("跨 owner 保护：冲突节点改名不得清掉真正 owner 的频段定义与值")
+    void conflictedRenameMustNotNukeOwnersDefinition() {
+        // owner1 先注册 'abc' / owner1 legitimately holds 'abc'
+        var graphX = new NodeGraph();
+        var owner1 = graphX.addNode(NodeType.BUS_OUT, 0, 0);
+        owner1.signalName = "abc";
+        owner1.signalBands = new ArrayList<>(List.of("b0", "b1"));
+        owner1.busInternalMap = new HashMap<>();
+        BusChannelHelper.registerGraphChannels(graphX, new BlockPos(1, 1, 1));
+        SignalBus.put("abc\0b0", 3.5f);
+
+        // 冲突者：同名注册被拒后改名走人 / the conflicted node renames away
+        var graphY = new NodeGraph();
+        var c = graphY.addNode(NodeType.BUS_OUT, 0, 0);
+        c.signalName = "abc";
+        BusChannelHelper.registerGraphChannels(graphY, POS);
+        assertTrue(c.busConflict, "夹具前提：c 与 owner1 撞名");
+        applyRename(graphY, c, "zzz");
+        BusChannelHelper.applyBusOutRename(graphY, POS, c, "abc", null);
+
+        assertEquals(List.of("b0", "b1"), SignalBus.getBands("abc"),
+            "冲突节点改名不得清掉真正 owner 的频段定义");
+        assertNotNull(SignalBus.getChannel("abc"), "真正 owner 的频道不得被动");
+        assertEquals(3.5f, SignalBus.get("abc\0b0"), 0f,
+            "冲突节点改名不得清掉真正 owner 的值");
     }
 }
