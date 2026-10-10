@@ -91,3 +91,16 @@
 ### 状态 / Status
 
 🔶 待办。已落地部分：改名迁移（`applyBusOutRename`，服务端/客户端幂等双跑）与 REJECT 化的 op 静默丢弃修复；回归参照 `BusOutRenameChannelTest`。初版登记的「同名重建被误标占用」症状保留为窄窗形态。
+
+> 🔧 2026-10-11 补注（评审轮）：「确证离开 → 退役定义」规则已统一到 `SignalBus.releaseChannel`
+> 一处，覆盖改名 / 删除 / 显式清空三条产生路径（本批补上了删除路径与空上传的 owner 门控，
+> 「改名 retire / 删除 unregister」的不对称已消除）；瞬时缺席（宿主卸载 / 区块 unloaded）保持
+> 「未定义」语义不动。残留两条：① 已定义为空的 `BAND_REGISTRY` 条目**无终局清理**，退役后
+> 名字若永不再用会滞留到停机；② 频段上传路径不 `setChanged`（对比收敛路径显式落盘）——
+> 既有现状、非回归。/ Uniform rule "provable departure -> retire the definition" now lives in
+> `SignalBus.releaseChannel` across rename / delete / explicit-empty (this batch closed the
+> delete-path and empty-upload gaps; the rename-retire/delete-unregister asymmetry is gone);
+> transient absence keeps its "undefined" semantics. Two residuals: retired BAND_REGISTRY
+> entries have no final cleanup (they linger until shutdown if the name is never reused), and
+> the band-upload path does not call setChanged (the convergence path persists explicitly) —
+> pre-existing, not a regression.
