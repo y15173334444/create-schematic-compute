@@ -6,13 +6,21 @@ import com.simibubi.create.foundation.block.IBE;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
+
+import java.util.List;
 
 /**
  * 可编程变速器：沿轴（x/y/z 三向，官方 RotatedPillarKineticBlock 放置语义）两端出轴的
@@ -85,5 +93,34 @@ public class ProgrammableTransmissionBlock extends RotatedPillarKineticBlock
     @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
     private static void openScreen(BlockPos pos) {
         Minecraft.getInstance().setScreen(new TransmissionScreen(pos));
+    }
+
+    /** 扳手潜行收回 = 搬迁：掉落物携带 BE NBT（节点图等随物品保留）；镐挖/爆炸 = 拆除，掉不带数据的纯物品 / sneak-wrench moves the block with its BE NBT; pickaxe/explosion dismantles to a plain item */
+    @Override
+    public InteractionResult onSneakWrenched(BlockState state, UseOnContext context) {
+        Level level = context.getLevel();
+        BlockPos pos = context.getClickedPos();
+        Player player = context.getPlayer();
+        if (!(level instanceof ServerLevel serverLevel)) return InteractionResult.SUCCESS;
+        BlockEntity be = level.getBlockEntity(pos);
+        List<ItemStack> drops = Block.getDrops(state, serverLevel, pos, be, player, context.getItemInHand());
+        if (be != null) {
+            for (ItemStack stack : drops) {
+                if (!stack.isEmpty() && stack.getItem() instanceof BlockItem) {
+                    be.saveToItem(stack, level.registryAccess());
+                    break;
+                }
+            }
+        }
+        for (ItemStack stack : drops) {
+            if (!stack.isEmpty()) {
+                if (player != null) player.getInventory().placeItemBackInInventory(stack);
+                else Block.popResource(level, pos, stack);
+            }
+        }
+        state.spawnAfterBreak(serverLevel, pos, ItemStack.EMPTY, true);
+        level.destroyBlock(pos, false);
+        IWrenchable.playRemoveSound(level, pos);
+        return InteractionResult.SUCCESS;
     }
 }

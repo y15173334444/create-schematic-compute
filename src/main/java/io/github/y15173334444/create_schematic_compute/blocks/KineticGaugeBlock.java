@@ -11,15 +11,23 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Direction.Axis;
 import net.minecraft.core.Direction.AxisDirection;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.ItemInteractionResult;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.pathfinder.PathComputationType;
 import net.minecraft.world.phys.BlockHitResult;
+
+import java.util.List;
 
 /**
  * 动力仪表方块：Create 官方表（应力表/转速表）同款的 3 轴多状态放置 ——
@@ -51,7 +59,7 @@ import net.minecraft.world.phys.BlockHitResult;
  * <b>轴端面</b> → 同轴四态按角点序滚转 90°（轴不动，对官方的有意偏离——官方会翻轴断连）；
  * <b>点上/下</b> → 沿当前倾侧偏航 90°（屏不翻面，另一处有意偏离）；
  * <b>其余面</b> → 与 Create {@link IWrenchable#getRotatedBlockState} 默认逐字相同。
- * 潜行拆除同样走 {@link IWrenchable} 默认。两个轴端面放行物品，其余面右键开图编辑器。</p>
+ * 潜行拆除与其余图方块同款：覆写 {@link #onSneakWrenched}，节点图随掉落物保留。两个轴端面放行物品，其余面右键开图编辑器。</p>
  * <p>Shaft-bearing faces auto-align at placement (line-for-line Create
  * {@code GaugeBlock#getStateForPlacement}); rotation passes through along the shaft
  * (base {@code hasShaftTowards}). Three wrench semantics (see {@link #getRotatedBlockState},
@@ -59,8 +67,9 @@ import net.minecraft.world.phys.BlockHitResult;
  * same-shaft states in corner order (shaft fixed — a deliberate deviation, official
  * pivots the shaft); a <b>Y-face</b> click yaws 90° staying on the current tilt (second
  * deviation); <b>every other face</b> is verbatim Create's
- * {@link IWrenchable#getRotatedBlockState} default. Sneak-dismantle also keeps
- * the {@link IWrenchable} default. The two axis-end faces pass item clicks through.</p>
+ * {@link IWrenchable#getRotatedBlockState} default. Sneak-dismantle keeps the graph
+ * with the drop (same per-block {@link #onSneakWrenched} + saveToItem override). The
+ * two axis-end faces pass item clicks through.</p>
  */
 public class KineticGaugeBlock extends DirectionalAxisKineticBlock implements IBE<KineticGaugeBlockEntity> {
 
@@ -233,6 +242,35 @@ public class KineticGaugeBlock extends DirectionalAxisKineticBlock implements IB
     @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
     private static void openScreen(BlockPos pos) {
         Minecraft.getInstance().setScreen(new KineticGaugeScreen(pos));
+    }
+
+    /** 扳手潜行收回 = 搬迁：掉落物携带 BE NBT（节点图随物品保留）；镐挖/爆炸 = 拆除，掉不带数据的纯物品 / sneak-wrench moves the block with its BE NBT; pickaxe/explosion dismantles to a plain item */
+    @Override
+    public InteractionResult onSneakWrenched(BlockState state, UseOnContext context) {
+        Level level = context.getLevel();
+        BlockPos pos = context.getClickedPos();
+        Player player = context.getPlayer();
+        if (!(level instanceof ServerLevel serverLevel)) return InteractionResult.SUCCESS;
+        BlockEntity be = level.getBlockEntity(pos);
+        List<ItemStack> drops = Block.getDrops(state, serverLevel, pos, be, player, context.getItemInHand());
+        if (be != null) {
+            for (ItemStack stack : drops) {
+                if (!stack.isEmpty() && stack.getItem() instanceof BlockItem) {
+                    be.saveToItem(stack, level.registryAccess());
+                    break;
+                }
+            }
+        }
+        for (ItemStack stack : drops) {
+            if (!stack.isEmpty()) {
+                if (player != null) player.getInventory().placeItemBackInInventory(stack);
+                else Block.popResource(level, pos, stack);
+            }
+        }
+        state.spawnAfterBreak(serverLevel, pos, ItemStack.EMPTY, true);
+        level.destroyBlock(pos, false);
+        IWrenchable.playRemoveSound(level, pos);
+        return InteractionResult.SUCCESS;
     }
 
     @Override

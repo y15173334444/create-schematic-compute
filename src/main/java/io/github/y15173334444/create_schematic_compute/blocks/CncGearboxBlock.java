@@ -7,17 +7,25 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.context.BlockPlaceContext;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.LevelReader;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.level.block.state.properties.EnumProperty;
 import net.minecraft.world.phys.BlockHitResult;
+
+import java.util.List;
 
 /**
  * 数控齿轮箱（运动块）：串在轴线上的**从动件 + 离合器**——输入面始终直通上游，
@@ -206,5 +214,34 @@ public class CncGearboxBlock extends RotatedPillarKineticBlock implements IWrenc
     @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
     private static void openScreen(BlockPos pos) {
         Minecraft.getInstance().setScreen(new CncGearboxScreen(pos));
+    }
+
+    /** 扳手潜行收回 = 搬迁：掉落物携带 BE NBT（节点图等随物品保留）；镐挖/爆炸 = 拆除，掉不带数据的纯物品 / sneak-wrench moves the block with its BE NBT; pickaxe/explosion dismantles to a plain item */
+    @Override
+    public InteractionResult onSneakWrenched(BlockState state, UseOnContext context) {
+        Level level = context.getLevel();
+        BlockPos pos = context.getClickedPos();
+        Player player = context.getPlayer();
+        if (!(level instanceof ServerLevel serverLevel)) return InteractionResult.SUCCESS;
+        BlockEntity be = level.getBlockEntity(pos);
+        List<ItemStack> drops = Block.getDrops(state, serverLevel, pos, be, player, context.getItemInHand());
+        if (be != null) {
+            for (ItemStack stack : drops) {
+                if (!stack.isEmpty() && stack.getItem() instanceof BlockItem) {
+                    be.saveToItem(stack, level.registryAccess());
+                    break;
+                }
+            }
+        }
+        for (ItemStack stack : drops) {
+            if (!stack.isEmpty()) {
+                if (player != null) player.getInventory().placeItemBackInInventory(stack);
+                else Block.popResource(level, pos, stack);
+            }
+        }
+        state.spawnAfterBreak(serverLevel, pos, ItemStack.EMPTY, true);
+        level.destroyBlock(pos, false);
+        IWrenchable.playRemoveSound(level, pos);
+        return InteractionResult.SUCCESS;
     }
 }
