@@ -276,9 +276,26 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
             if (!(sp.level() instanceof ServerLevel sl)) return;
             var pos = pkt.op.graphPos();
             // Security: reject if the player is too far from the edit target / 安全检查：玩家距离编辑目标过远则拒绝
-            if (!io.github.y15173334444.create_schematic_compute.network.SablePacketHelper.isWithinReachableRange(sp, pos, MAX_EDIT_DIST_SQ)) return;
+            // 静默丢弃 = 客户端永远收不到 ACK，pendingLocalOps 计数泄漏、编辑区"上传失败"无迹可查：
+            // 回 REJECT 归还计数并打日志（问题：节点编辑区输入数据时上传失败）。
+            // A silent drop means no ACK ever arrives: the client's pendingLocalOps counter leaks
+            // and the edit panel's "upload failed" leaves no trace. Send REJECT to return the
+            // counter and log it (issue: edit-panel input upload fails).
+            if (!io.github.y15173334444.create_schematic_compute.network.SablePacketHelper.isWithinReachableRange(sp, pos, MAX_EDIT_DIST_SQ)) {
+                io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug(
+                    "[GraphEditOp] dropped (out of range) op={} from {}", pkt.op.type(), sp.getName().getString());
+                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
+                    new GraphEditOpSyncPacket(io.github.y15173334444.create_schematic_compute.graph.GraphOp.reject(pkt.op, sp.getUUID())));
+                return;
+            }
             // Security: reject if the player is not a registered editor of this session / 安全检查：玩家不是此编辑会话的已注册编辑者则拒绝
-            if (!EditSessionRegistry.getEditors(sl, pos).contains(sp.getUUID())) return;
+            if (!EditSessionRegistry.getEditors(sl, pos).contains(sp.getUUID())) {
+                io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug(
+                    "[GraphEditOp] dropped (not a registered editor) op={} from {}", pkt.op.type(), sp.getName().getString());
+                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
+                    new GraphEditOpSyncPacket(io.github.y15173334444.create_schematic_compute.graph.GraphOp.reject(pkt.op, sp.getUUID())));
+                return;
+            }
             // Rebuild the GraphOp with the server-authoritative actor UUID -- the client-supplied
             // UUID in the packet is intentionally overwritten to prevent spoofing.
             // 使用服务端权威的操作者 UUID 重建 GraphOp——数据包中客户端提供的 UUID 被有意覆盖以防止伪造。

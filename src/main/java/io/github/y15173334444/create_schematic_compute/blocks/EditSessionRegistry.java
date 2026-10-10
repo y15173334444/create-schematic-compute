@@ -241,15 +241,28 @@ public final class EditSessionRegistry {
         var gk = key(level, pos);
 
         // 1. Get BE and graph / 获取方块实体和图
-        if (!(level.getBlockEntity(pos) instanceof GraphBlockEntity gbe)) return;
+        // 早退不再静默：回 REJECT 让客户端归还待 ACK 计数（静默丢弃会把整图同步守卫闩死，
+        // 并让"上传失败"无迹可查）。
+        // Early-outs are no longer silent: send REJECT so the client returns its pending-ACK
+        // count (a silent drop latches the full-sync guard and leaves "upload failed" untraceable).
+        if (!(level.getBlockEntity(pos) instanceof GraphBlockEntity gbe)) {
+            PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(GraphOp.reject(op, actor.getUUID())));
+            return;
+        }
         var graph = gbe.getNodeGraph();
-        if (graph == null) return;
+        if (graph == null) {
+            PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(GraphOp.reject(op, actor.getUUID())));
+            return;
+        }
 
         // 2. Route to sub-graph / 路由到子图
         var targetGraph = graph;
         if (op.ownerNodeId() >= 0) {
             var encap = graph.findNode(op.ownerNodeId());
-            if (encap == null) return; // 封装节点不存在 / encap node doesn't exist
+            if (encap == null) { // 封装节点不存在 / encap node doesn't exist
+                PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(GraphOp.reject(op, actor.getUUID())));
+                return;
+            }
             if (encap.subGraph == null) encap.subGraph = new io.github.y15173334444.create_schematic_compute.graph.NodeGraph();
             targetGraph = encap.subGraph;
         }

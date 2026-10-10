@@ -134,6 +134,19 @@ public record GraphOp(
         return new String[]{ f.isEmpty() ? null : f, t.isEmpty() ? null : t };
     }
 
+    /**
+     * 服务端拒绝回执：回显被拒 op 的连线两端与目标节点。客户端 REJECT 处理器（GraphRemoteApplier）
+     * 据此回滚本地连线，并归还待 ACK 计数 —— 静默丢弃会让计数永远挂着，整图同步守卫闩死。
+     * Server rejection receipt: echoes the refused op's wire ends and target node. The client
+     * REJECT handler (GraphRemoteApplier) rolls back the local connection and returns the
+     * pending-ACK count — a silent drop would latch the counter and wedge the full-sync guard.
+     */
+    public static GraphOp reject(GraphOp refused, UUID actor) {
+        return new GraphOp(OpType.REJECT, refused.graphPos(), refused.ownerNodeId(), refused.targetNodeId(),
+            0, null, 0f, 0f, refused.fromId(), refused.fromPin(), refused.toId(), refused.toPin(),
+            0, 0f, null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor);
+    }
+
     public static GraphOp setParam(BlockPos pos, int ownerNodeId, int nodeId,
                                     int paramIdx, float value, UUID actor) {
         return setParam(pos, ownerNodeId, nodeId, paramIdx, value, null, actor);
