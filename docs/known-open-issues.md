@@ -4,6 +4,11 @@
 > 版本 / Version：1.2.6（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
 > 状态 / Status：🔶 待办 2 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
+> **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
+> 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
+> GitHub auto-links `#N` to the repository's real issues (`issue #10/#11/#12/#15/#17` are the real
+> ones); the `## 1./## 2.` headings here are local numbering only.
 
 ---
 
