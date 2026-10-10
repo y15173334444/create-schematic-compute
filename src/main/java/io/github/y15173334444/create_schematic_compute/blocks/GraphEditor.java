@@ -382,10 +382,18 @@ public class GraphEditor {
                 }
             }
         }
-        if (changed && !node.busConflict) {
+        if (changed) {
+            // 结构上传不因冲突跳过 —— 服务端按两层语义处理：结构落盘、定义仍归 owner
+            //（旧闸值把冲突者的频段编辑永久锁在本地，服务端副本变旧，改名夺回定义权时
+            // 旧频段经广播灌回 —— 「编辑区频段回退」的根因）。
+            // Structure uploads are never skipped for conflicts — the server splits the two
+            // layers (structure writes through, definition stays with the owner). The old gate
+            // locked a conflicted node's band edits client-side forever, leaving the server
+            // copy stale; the moment a rename handed it definition rights, the stale bands
+            // broadcast back down — the "edit-panel bands revert" root cause.
             net.neoforged.neoforge.network.PacketDistributor.sendToServer(
                 new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
-                    host.getBlockPos(), node.signalName, node.signalBands));
+                    host.getBlockPos(), node.signalName, node.signalBands, node.id));
         }
         return changed;
     }
@@ -1437,7 +1445,7 @@ public class GraphEditor {
                     bus.syncBusBands(n);
                     net.neoforged.neoforge.network.PacketDistributor.sendToServer(
                         new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
-                            host.getBlockPos(), n.signalName, n.signalBands));
+                            host.getBlockPos(), n.signalName, n.signalBands, n.id));
                 }
             }
         }
@@ -2638,7 +2646,7 @@ public class GraphEditor {
                 if (!en.busConflict)
                     net.neoforged.neoforge.network.PacketDistributor.sendToServer(
                         new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
-                            host.getBlockPos(), en.signalName, en.signalBands));
+                            host.getBlockPos(), en.signalName, en.signalBands, en.id));
                 nodeEditStatesById.put(en.id, createEditState(en));
                 return true;
             }
@@ -2664,7 +2672,7 @@ public class GraphEditor {
                     if (!en.busConflict)
                         net.neoforged.neoforge.network.PacketDistributor.sendToServer(
                             new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
-                                host.getBlockPos(), en.signalName, en.signalBands));
+                                host.getBlockPos(), en.signalName, en.signalBands, en.id));
                     nodeEditStatesById.put(en.id, createEditState(en));
                 }
                 return true;

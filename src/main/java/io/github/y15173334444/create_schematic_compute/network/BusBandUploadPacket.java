@@ -13,8 +13,13 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import java.util.ArrayList;
 import java.util.List;
 
-/** Client→Server: upload BUS band changes (does not trigger compilation) / 客户端→服务端：上传 BUS 频段变更（不触发编译） */
-public record BusBandUploadPacket(BlockPos pos, String busName, List<String> bands) implements CustomPacketPayload {
+/** Client→Server: upload BUS band changes (does not trigger compilation) / 客户端→服务端：上传 BUS 频段变更（不触发编译）。
+ *  <p>携带来源节点 id：频段是节点的**引脚结构**（结构归节点，冲突者也照常落盘），而频道**定义**
+ *  归 owner —— 服务端按两层语义分开处理（{@link BusChannelHelper#applyBandUpload}）。</p>
+ *  <p>Carries the source node id: bands are the node's <b>pin structure</b> (structure belongs to
+ *  the node — even a conflicted one writes it), while the channel <b>definition</b> belongs to the
+ *  owner; the server handles the two layers separately.</p> */
+public record BusBandUploadPacket(BlockPos pos, String busName, List<String> bands, int nodeId) implements CustomPacketPayload {
 
     public static final Type<BusBandUploadPacket> TYPE =
         new Type<>(ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "bus_band_upload"));
@@ -23,13 +28,14 @@ public record BusBandUploadPacket(BlockPos pos, String busName, List<String> ban
         @Override public BusBandUploadPacket decode(ByteBuf buf) {
             var b = new FriendlyByteBuf(buf);
             return new BusBandUploadPacket(b.readBlockPos(), b.readUtf(),
-                b.readList(FriendlyByteBuf::readUtf));
+                b.readList(FriendlyByteBuf::readUtf), b.readVarInt());
         }
         @Override public void encode(ByteBuf buf, BusBandUploadPacket pkt) {
             var b = new FriendlyByteBuf(buf);
             b.writeBlockPos(pkt.pos);
             b.writeUtf(pkt.busName);
             b.writeCollection(pkt.bands != null ? pkt.bands : List.of(), FriendlyByteBuf::writeUtf);
+            b.writeVarInt(pkt.nodeId);
         }
     };
 
@@ -45,62 +51,11 @@ public record BusBandUploadPacket(BlockPos pos, String busName, List<String> ban
                 return;
             var be = ctx.player().level().getBlockEntity(pos);
             if (be instanceof GraphBlockEntity gbe) {
-                // EN: Update signalBands of BUS_OUT/BUS_IN in the server-side graph
-                // 更新服务端图中 BUS_OUT/BUS_IN 的 signalBands
                 var graph = gbe.getNodeGraph();
                 if (graph != null) {
-                    for (var n : graph.nodes) {
-                        if ((n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
-                            || n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN)
-                            && n.signalName.equals(busName)) {
-                            // 冲突的 BUS_OUT 无权定义频道 band——跳过其覆盖，防止
-                            // 劫持原 owner 的 BAND_REGISTRY（回归审计：创建同名自动同步干扰）。
-                            // A conflicted BUS_OUT may not define the channel band list —
-                            // skip it so it cannot hijack the original owner's BAND_REGISTRY.
-                            if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
-                                && n.busConflict) continue;
-                            // 频段对齐唯一规则（NodeGraph.reconcileBands）：改名重绑 pinId 不剪线，
-                            // 增删按名剪除 —— 与 SET_BANDS/收敛/客户端同步共用同一实现。
-                            // The single band alignment rule: renames rebind pinIds (wires kept),
-                            // additions/removals prune by name - shared with SET_BANDS,
-                            // convergence and client-sync paths.
-                            java.util.List<String> newBands = bands != null ? new ArrayList<>(bands) : new ArrayList<>();
-                            graph.reconcileBands(n, newBands);
-                            graph.rebuildNodeMap(); // invalidate inputCache
-                            graph.rebuildInputCache();
-                        }
-                    }
-                }
-                // Bump generation so the evaluator recompiles with updated band counts.
-                // Without this, BUS_IN band changes are synced to the graph but the
-                // evaluator may use stale cached state.
-                // 递增代数使评测器用更新后的频段数重编译。
-                graph.bumpGeneration();
-                // EN: Register to global table; unregister via ref-count when bands are empty
-                // 注册到全局表；空频段时通过引用计数取消注册
-                if (bands != null && !bands.isEmpty()) {
-                    SignalBus.registerBands(busName, bands);
-                } else {
-                    SignalBus.clearBus(busName);
-                    // EN: Unregister this BUS_OUT's channel (via ref-count cleanup, doesn't affect other BUS_OUT with the same name)
-                    // 取消注册此 BUS_OUT 的频道（通过引用计数清理，不影响其他同名 BUS_OUT）
-                    for (var n : graph.nodes) {
-                        if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
-                            && n.signalName.equals(busName)) {
-                            SignalBus.unregisterChannel(busName,
-                                new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(pos, n.id));
-                        }
-                    }
-                }
-                // EN: Notify all clients (including sender, so BUS_IN nodes in other blocks update)
-                // 通知所有客户端（含发送者，以便更新其他方块中的 BUS_IN 节点）
-                if (be instanceof net.minecraft.world.level.block.entity.BlockEntity bet) {
-                    var level = bet.getLevel();
-                    if (level instanceof net.minecraft.server.level.ServerLevel sl) {
-                        net.neoforged.neoforge.network.PacketDistributor.sendToPlayersTrackingChunk(sl,
-                            new net.minecraft.world.level.ChunkPos(pos),
-                            new BusBandSyncPacket(pos, busName, bands));
-                    }
+                    // 结构/定义两层语义在 applyBandUpload / structure vs definition split there
+                    io.github.y15173334444.create_schematic_compute.network.BusChannelHelper
+                        .applyBandUpload(graph, pos, nodeId, busName, bands, serverLevel);
                 }
             }
         });

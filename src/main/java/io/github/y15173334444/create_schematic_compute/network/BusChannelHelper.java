@@ -348,6 +348,56 @@ public final class BusChannelHelper {
         }
     }
 
+    /**
+     * 频段上传的两层语义（服务端）：<b>结构归节点、定义归 owner</b>。
+     * <p>频段列表是节点的引脚结构 —— 目标节点（按 id 定位）的结构<b>总是</b>落盘，冲突者也一样
+     * （用户对自己引脚的编辑不因频道占用而丢）；而频道定义（BAND_REGISTRY）、同名对齐与客户端
+     * 广播<b>只归 owner</b>（未冲突的 BUS_OUT），防夺取纪律不变。</p>
+     * Two-tier band-upload semantics (server): <b>structure belongs to the node, definition to
+     * the owner</b>. The band list is the node's pin structure — the target node (located by id)
+     * always gets its structure written, conflicted or not; the channel definition (BAND_REGISTRY),
+     * same-name alignment and client broadcast belong to the owner alone (an un-conflicted BUS_OUT),
+     * keeping the anti-hijack discipline intact.
+     */
+    public static boolean applyBandUpload(NodeGraph graph, BlockPos pos, int nodeId, String busName,
+                                          java.util.List<String> bands, @Nullable Level level) {
+        if (graph == null || busName == null || busName.isEmpty()) return false;
+        var target = graph.findNode(nodeId);
+        if (target == null || target.type != NodeType.BUS_OUT || !busName.equals(target.signalName))
+            return false; // 节点已删/已改名：上传尽力而为，放弃 / node gone or renamed: best-effort drop
+        java.util.List<String> newBands = bands != null ? new ArrayList<>(bands) : new ArrayList<>();
+        // 结构归节点：目标节点的频段（= 引脚结构）**总是**落盘，冲突者也不例外
+        // Structure to the node: the target's bands (= its pin structure) always land, conflict or not
+        graph.reconcileBands(target, newBands);
+        graph.rebuildInputCache();
+        graph.bumpGeneration();
+        if (target.busConflict) return true; // 冲突者只更新自己的结构：不算定义、不对齐、不广播 / structure only
+        // 定义归 owner：同名对齐（冲突的 BUS_OUT 目标仍不参与）+ BAND_REGISTRY + 广播
+        // Definition to the owner: same-name alignment (conflicted BUS_OUT targets still skip) +
+        // BAND_REGISTRY + broadcast
+        for (var n : graph.nodes) {
+            if (n == target) continue;
+            if ((n.type == NodeType.BUS_OUT || n.type == NodeType.BUS_IN)
+                && n.signalName.equals(busName)) {
+                if (n.type == NodeType.BUS_OUT && n.busConflict) continue;
+                graph.reconcileBands(n, newBands);
+                graph.rebuildInputCache();
+            }
+        }
+        if (!newBands.isEmpty()) {
+            SignalBus.registerBands(busName, newBands);
+        } else {
+            SignalBus.unregisterChannel(busName, new ChannelOwner(pos, target.id));
+            SignalBus.clearBus(busName);
+            SignalBus.retireBands(busName); // 空频段 = 已定义为空（死名标记）/ empty bands = defined-empty
+        }
+        if (level instanceof ServerLevel sl) {
+            PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(pos),
+                new BusBandSyncPacket(pos, busName, newBands));
+        }
+        return true;
+    }
+
     // ── BUS_IN band convergence (the server-side invariant) / BUS_IN 频段收敛（服务端不变量） ──
 
     /** Keep every BUS_IN's band list equal to the channel definition — the server-side invariant
