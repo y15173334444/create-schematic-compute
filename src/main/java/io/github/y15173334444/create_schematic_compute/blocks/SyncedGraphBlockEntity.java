@@ -6,6 +6,7 @@ import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.RuntimeState;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.GlobalPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.Packet;
@@ -241,11 +242,24 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     }
 
     /** Called when the block is removed from the world.
-     *  Performs full BUS channel teardown: client cleanup + server unregistration.
-     *  方块从世界中移除时调用。执行完整的 BUS 通道拆除：客户端清理 + 服务端注销。 */
+     *  Performs full BUS channel teardown: client cleanup + server unregistration,
+     *  plus reclaiming this position's edit session (P2-10).
+     *  方块从世界中移除时调用。执行完整的 BUS 通道拆除：客户端清理 + 服务端注销，
+     *  并回收本坐标的编辑会话（P2-10）。 */
     @Override public void setRemoved() {
         cleanupBusChannels(graph());
         unregisterBusChannels(graph());
+        // P2-10(a)：拆除/替换时回收本坐标的编辑会话（editors/editVersions/opLogs），
+        // 否则残留"幽灵编辑者"（op 广播发给没开界面的人）并跨会话慢泄漏；同坐标的新方块
+        // 在 join 时自然重建会话。仅服务端执行——单人模式下客户端拆除路径会误清集成
+        // 服务端仍在使用的会话表。
+        // P2-10(a): reclaim this position's edit session when the block is broken or
+        // replaced - otherwise ghost editors linger (op broadcasts to players with no
+        // screen open) and the maps leak across sessions; a new block at the same
+        // position naturally rebuilds its session on join. Server-side only - in single
+        // player the client-side removal path would wipe the integrated server's live table.
+        if (level != null && !level.isClientSide())
+            EditSessionRegistry.dropBlock(GlobalPos.of(level.dimension(), worldPosition));
         rs().setRemoved();
         super.setRemoved();
     }
@@ -408,8 +422,18 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
 
     /** Call from the BE tick (server side only): flushes a deferred full-sync request at
      *  most once per {@link GraphHost#FULL_SYNC_GRACE_TICKS}-tick grace window.
-     *  在 BE tick 中调用（仅服务端）：按 40-tick grace 窗口合并冲刷延迟的全量同步请求。 */
-    @Deprecated
+     *  在 BE tick 中调用（仅服务端）：按 40-tick grace 窗口合并冲刷延迟的全量同步请求。
+     *
+     *  <p><b>有意不标 {@code @Deprecated}</b>（P1-8 补线说明）：这是规范 15 步 tick 编排的
+     *  第 ⑮ 步，K23 tick 收敛落地前每个宿主每 tick 都必须调用；而继承线子类无法触及私有
+     *  {@code host} 字段，本桥是唯一可调用路径——给唯一路径标弃用只会误导。与同为每 tick
+     *  编排步的 {@link #broadcastFlipflopDiff()} 同等待遇；阶段 3 收敛时随 tick 驱动一并吸收。</p>
+     *  <p><b>Deliberately NOT {@code @Deprecated}</b> (P1-8 wiring note): this is step ⑮ of
+     *  the canonical 15-step tick orchestration — every host must call it per tick until the
+     *  K23 tick-driver convergence lands, and inheritance-line subclasses cannot reach the
+     *  private {@code host} field, so this bridge is the only callable path. Deprecating the
+     *  only path would just mislead. Treated the same as {@link #broadcastFlipflopDiff()},
+     *  the other per-tick orchestration bridge; phase 3 absorbs both together.</p> */
     protected void flushPendingFullSync() { host.flushPendingFullSync(); }
 
     // ── NBT save/load / NBT 保存/加载 ──

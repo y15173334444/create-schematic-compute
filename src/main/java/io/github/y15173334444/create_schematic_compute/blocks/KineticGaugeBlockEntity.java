@@ -5,6 +5,7 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
+import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -76,6 +77,15 @@ public class KineticGaugeBlockEntity extends KineticBlockEntity
             return;
         }
         host.rs.refreshInputs();
+        // 第 ⑦ 步（P2-12 补线）：冲突频道自愈与其他宿主同款（Blueprint 样板：refreshInputs
+        // 之后、buildInputs 之前）；有恢复才 requestFullSync + 立即发包。
+        // Step ⑦ (P2-12 wiring): conflicted-channel self-heal, same as every other host
+        // (Blueprint style: after refreshInputs, before buildInputs); requestFullSync +
+        // immediate push only when something recovered.
+        if (BusChannelHelper.recoverConflictedChannels(host.graph, worldPosition, level)) {
+            host.requestFullSync();
+            sendBlockUpdated();
+        }
         var in = host.rs.buildInputs(host.graph);
         var results = host.evaluator.evaluate(in, host.runtimeState.pidState, 0.05f);
         host.rs.writeOutputs(results);

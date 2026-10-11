@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
+import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.network.MonitorRedstoneSyncPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -14,6 +15,8 @@ import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.network.PacketDistributor;
 import java.io.ByteArrayInputStream;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MonitorBlockEntity extends SyncedGraphBlockEntity {
     // Display settings (units in blocks)
@@ -90,18 +93,70 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         if(!isRunning()) { onStopRunning(); return; }
         if(graphChanged()) recompileEvaluatorLight();
         rs().refreshInputs();
+        // 第 ⑦ 步（P2-12 补线）：冲突频道自愈与其他宿主同款——原 owner 消失即接管、
+        // 残留 owner 按超时回收；有恢复才 requestFullSync + 立即发包（Blueprint 样板）。
+        // Step ⑦ (P2-12 wiring): conflicted-channel self-heal, same as every other host —
+        // takeover when the previous owner is gone, stale-owner reclaim by timeout;
+        // requestFullSync + immediate push only when something recovered (Blueprint style).
+        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
+            requestFullSync();
+            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        }
         var in = rs().buildInputs(graph());
         float dt = 0.05f;
         var results = evaluator().evaluate(in, runtimeState().pidState, dt);
         rs().writeOutputs(results);
-        // Sync redstone inputs + eval snapshot to tracking clients
+        // Sync redstone inputs + eval snapshot to tracking clients.
+        // 红石输入同步（P2-17 去重）：此前每 tick 对每条链路无条件发包（N 条链路 × 20 包/秒）。
+        // 现按"变化才推"（KineticGauge.pushReadoutIfChanged 同款口径）：lastPushedRedstone 缓存
+        // 上次推送值，缺席 = 从未推过 → 初推必发；链路注销消失的键同步清缓存（重加回时重推初值）。
+        // Redstone input sync (P2-17 dedup): this used to fire an unconditional packet per link
+        // per tick (N links × 20 pkt/s). Now push-on-change (same discipline as
+        // KineticGauge.pushReadoutIfChanged): lastPushedRedstone caches the last pushed value,
+        // an absent key = never pushed → the first push always ships; keys that vanished with
+        // their link are dropped so a re-added link re-pushes its initial value.
         if (level instanceof ServerLevel sl) {
-            for (var e : rs().lastInputs().entrySet())
+            var lastInputs = rs().lastInputs();
+            var toPush = redstonePushDiff(lastPushedRedstone, lastInputs);
+            for (var e : toPush.entrySet())
                 PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(worldPosition),
                     new MonitorRedstoneSyncPacket(worldPosition, e.getKey(), e.getValue()));
+            lastPushedRedstone.putAll(toPush);
+            prunePushedKeys(lastPushedRedstone, lastInputs);
             broadcastEvalSnapshot();
         }
         setChanged();
+    }
+
+    // ── 红石推送去重（P2-17）/ redstone push dedup (P2-17) ──
+
+    /** 上次推给客户端的红石输入（freqKey → 信号）；键缺席 = 从未推过（初推必发）。
+     *  不持久化：BE 重载后首 tick 全量重推一次，与客户端重载后的空缓存对齐。
+     *  Last redstone input pushed to clients (freqKey → signal); absent key = never pushed
+     *  (first push always ships). Not persisted: after a BE reload the first tick re-pushes
+     *  everything once, matching the client's own freshly-emptied cache. */
+    private final Map<Long, Integer> lastPushedRedstone = new HashMap<>();
+
+    /** 差异计算（纯函数，便于单测）：返回本轮必须推送的键值——上次推送后值有变、或从未推过的键。
+     *  Diff (pure, unit-testable): entries that must ship this pass — changed since the last
+     *  push, or never pushed at all. */
+    static Map<Long, Integer> redstonePushDiff(Map<Long, Integer> lastPushed, Map<Long, Integer> current) {
+        var out = new HashMap<Long, Integer>();
+        for (var e : current.entrySet()) {
+            Integer prev = lastPushed.get(e.getKey());
+            int value = e.getValue();
+            if (prev == null || prev != value) out.put(e.getKey(), value);
+        }
+        return out;
+    }
+
+    /** 缓存修剪（纯函数，便于单测）：链路注销后从 lastInputs 消失的键同步清出推送缓存，
+     *  使该键下次重新出现时按"从未推过"重推初值（而不是被旧缓存挡住静默不推）。
+     *  Cache prune (pure, unit-testable): drop cache keys whose link vanished from
+     *  lastInputs, so a re-registered link re-pushes its initial value instead of being
+     *  silently suppressed by a stale cache entry. */
+    static void prunePushedKeys(Map<Long, Integer> lastPushed, Map<Long, Integer> current) {
+        lastPushed.keySet().removeIf(k -> !current.containsKey(k));
     }
 
     public void applySettings(float w, float l, float x, float y, float z, float r, float p, float yw,

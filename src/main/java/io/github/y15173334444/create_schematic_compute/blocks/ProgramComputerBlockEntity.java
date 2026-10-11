@@ -19,6 +19,12 @@ public class ProgramComputerBlockEntity extends SyncedGraphBlockEntity {
     public void tick() {
         if(level==null||level.isClientSide()) return;
         ensureBusRegistered();
+        // 第 ⑮ 步（P1-8 补线）：挂起全量同步按 grace 窗口冲刷；必须在所有早退之前，
+        // 停机宿主也要能把图推给新加入的编辑者（Blueprint 同款）。
+        // Step ⑮ (P1-8 wiring): flush the pending full sync within the grace window; must
+        // sit before every early return so a stopped host still ships its graph to a newly
+        // joined editor (same as Blueprint).
+        flushPendingFullSync();
         var state = getBlockState();
         if (!state.hasProperty(ProgramComputerBlock.LIT)) return;
         boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
@@ -50,6 +56,12 @@ public class ProgramComputerBlockEntity extends SyncedGraphBlockEntity {
         // Full runtime-state restore moved up to SyncedGraphBlockEntity.loadAdditional
         // (phase 0) — this site used to patch in only delay/ff/pulse/subStates, missing
         // debugTime and nodeEdge.
-        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        // 加载即发包已删（P3-N13 口径统一，Blueprint 同款）：客户端加载区块时随区块包即收
+        // getUpdateTag 全量数据，加载期再发一份整图包是前全量同步机制时代的替代品；运行中
+        // 的全量同步统一走 needsFullSync + tick 里的 flushPendingFullSync（上方第 ⑮ 步）。
+        // Load-time push removed (P3-N13 unified, same as Blueprint): clients already get
+        // the getUpdateTag data with the chunk packet on load — the extra whole-graph packet
+        // was a pre-full-sync-machinery substitute; runtime full syncs travel through
+        // needsFullSync + the tick's flushPendingFullSync (step ⑮ above).
     }
 }

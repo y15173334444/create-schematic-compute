@@ -12,6 +12,7 @@ import io.github.y15173334444.create_schematic_compute.graph.MotionCommand;
 import io.github.y15173334444.create_schematic_compute.graph.MotionQuota;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
@@ -159,11 +160,28 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
             status = Status.IDLE;
         } else {
             host.rs.refreshInputsActive();
+            // 第 ⑦ 步（P2-12 补线）：冲突频道自愈与其他宿主同款（Blueprint 样板：refreshInputs
+            // 之后、buildInputs 之前）；有恢复才 requestFullSync + 立即发包。
+            // Step ⑦ (P2-12 wiring): conflicted-channel self-heal, same as every other host
+            // (Blueprint style: after refreshInputs, before buildInputs); requestFullSync +
+            // immediate push only when something recovered.
+            if (BusChannelHelper.recoverConflictedChannels(host.graph, worldPosition, level)) {
+                host.requestFullSync();
+                sendBlockUpdated();
+            }
             var in = host.rs.buildInputs(host.graph);
             var results = host.evaluator.evaluate(in, host.runtimeState.pidState, 0.05f,
                     host.runtimeState.delayQueues, host.runtimeState.flipflopStates, host.runtimeState.pulseTimers);
             host.rs.writeOutputs(results);
             host.broadcastEvalSnapshot();
+            // 第 ⑬ 步（P2-13 补线）：6 参档求值里 GATE/T_FLIPFLOP/LATCH 真实演进，但此前从不
+            // 广播差分——图内触发器状态永不同步到客户端（编辑器徽标死值）。GraphHost 内部按
+            // 基线去重，无变化零发包（AmplifierComputer/Speaker 同位置）。
+            // Step ⑬ (P2-13 wiring): the 6-arg evaluate genuinely evolves GATE/T_FLIPFLOP/LATCH
+            // state, but no diff was ever broadcast — in-graph flipflop state never reached the
+            // client (dead editor badges). GraphHost diffs against its baseline, so no packets
+            // while unchanged (same position as AmplifierComputer/Speaker).
+            host.broadcastFlipflopDiff();
             host.evaluator.clearCompletedNodeId();
             clutchIntent = runMotionControl();
         }

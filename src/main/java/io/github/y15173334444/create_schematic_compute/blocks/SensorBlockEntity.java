@@ -138,18 +138,20 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
         while (forwardYaw > 180) forwardYaw -= 360; while (forwardYaw < -180) forwardYaw += 360;
     }
 
-    // ── Sable reflection — delegated to shared SableReflection helper ──
-    // ── Sable 反射 — 委托给共享的 SableReflection 工具类 ──
+    // ── Sable access — via the compile-time SablePoseHelper bridge ──
+    // ── Sable 访问 — 走编译期 SablePoseHelper 桥 ──
 
     /**
      * Retrieves the orientation quaternion of the sub-level (e.g. Sable ship)
-     * that contains this block entity, via reflection-based Sable API access.
+     * that contains this block entity, via {@code SablePoseHelper} (compile-time
+     * Sable API access; the old SableReflection layer was retired in 1.3.0).
      * <p>
-     * Returns {@code null} if the block is not inside a sub-level, Sable is not
-     * loaded, or any reflection step fails.
+     * Returns {@code null} if the block is not inside a sub-level or Sable is
+     * not loaded.
      * <p>
-     * 通过反射访问 Sable API 获取包含本方块的子关卡（如 Sable 舰船）的朝向四元数。
-     * 如果方块不在子关卡中、Sable 未加载或反射调用失败，返回 {@code null}。
+     * 通过 {@code SablePoseHelper}（编译期 Sable API 访问；旧 SableReflection 反射层
+     * 已于 1.3.0 退役）获取包含本方块的子关卡（如 Sable 舰船）的朝向四元数。
+     * 如果方块不在子关卡中或 Sable 未加载，返回 {@code null}。
      *
      * @param level         the world level / 世界关卡
      * @param worldPosition the block position of this sensor / 本传感器方块坐标
@@ -201,6 +203,13 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
         if(level==null||level.isClientSide()) return;
 
         ensureBusRegistered();
+
+        // 第 ⑮ 步（P1-8 补线）：挂起全量同步按 grace 窗口冲刷；必须在所有早退之前，
+        // 停机宿主也要能把图推给新加入的编辑者（Blueprint 同款）。
+        // Step ⑮ (P1-8 wiring): flush the pending full sync within the grace window; must
+        // sit before every early return so a stopped host still ships its graph to a newly
+        // joined editor (same as Blueprint).
+        flushPendingFullSync();
 
         // 同步 LIT 状态：计算图运行且有节点时点亮
         // Sync LIT state: lit when the graph is running and has nodes.
