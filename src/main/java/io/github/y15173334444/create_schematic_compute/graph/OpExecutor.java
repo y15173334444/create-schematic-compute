@@ -18,6 +18,47 @@ public final class OpExecutor {
 
     private OpExecutor() {}
 
+    /** 玩家热栏实际槽数（0..8）。K15 上界：SET_HOTBAR_ITEM 的槽位声明超出即拒绝 ——
+     *  原实现按 {@code new ItemStack[slot + 1]} 无界扩容，单个声明 2³¹-1 的 op 即
+     *  数十 GB 数组分配。
+     *  <p>Real player hotbar size (0..8). K15 cap: a SET_HOTBAR_ITEM slot beyond it is
+     *  refused — the old {@code new ItemStack[slot + 1]} expanded unbounded from the declared
+     *  index, so one op claiming 2³¹-1 allocated a tens-of-GB array.</p> */
+    public static final int HOTBAR_SLOTS = 9;
+
+    /** IMAGE_SEQUENCE 帧列表扩容上限。K15 上界：帧仅由用户在像素编辑器手动逐帧添加
+     *  （PixelEditorKernel/PixelEditorFrameStrip 无硬上限，实际动画为个位数到几十帧），
+     *  64 已远超正常用量；原实现的 {@code while (size <= fi) add(blank)} 按声明索引无界
+     *  扩容（每帧 w×h int[]），单个 op 可打爆内存/冻住 tick。
+     *  <p>IMAGE_SEQUENCE frame-list expansion cap. K15 cap: frames are only added one by one
+     *  by the user in the pixel editor (PixelEditorKernel/PixelEditorFrameStrip impose no hard
+     *  cap; real animations run single-digit to a few dozen frames), so 64 far exceeds normal
+     *  use; the old {@code while (size <= fi) add(blank)} expanded unbounded from the declared
+     *  index (one blank w×h int[] per iteration) — one op could blow memory / freeze the tick.</p> */
+    public static final int MAX_SEQUENCE_FRAMES = 64;
+
+    /**
+     * 注册表访问提供者（P2-6）：网络层在应用 op 时注入（服务端
+     * {@code GraphEditOpPacket.handleServer} / 客户端 {@code GraphEditOpSyncPacket.handle}），
+     * 供撤销恢复 ENCAPSULATION 子图时反序列化子节点物品（与 {@link BlobStore} 同款
+     * 注入模式 —— graph 层不直连注册表，headless 测试无需引导）。未接线 = null →
+     * 跳过子图恢复（节点保持空壳，与其他 NBT 解析失败同口径）。
+     * <p>Registry-access provider (P2-6): injected by the network layer when applying ops
+     * (server {@code GraphEditOpPacket.handleServer} / client
+     * {@code GraphEditOpSyncPacket.handle}) so the undo restore can deserialize sub-node
+     * ItemStacks inside an ENCAPSULATION sub-graph (same injection pattern as
+     * {@link BlobStore} — the graph layer never touches registries directly, and headless
+     * tests need no bootstrap). Unwired = null → the subGraph restore is skipped (the node
+     * stays a bare shell, same policy as other NBT parse failures).</p>
+     */
+    private static volatile net.minecraft.core.HolderLookup.Provider registryAccess = null;
+
+    /** 注入注册表访问提供者（每次应用 op 前由网络层刷新）。/ Inject the registry-access
+     *  provider (refreshed by the network layer before each op application). */
+    public static void setRegistryAccess(net.minecraft.core.HolderLookup.Provider provider) {
+        registryAccess = provider;
+    }
+
     /** Blob 字节来源（接口下沉，根包注入 network.BlobRegistry::poll）；未接线 = 恒 null，
      *  SET_SONG 按坏数据拒存原曲。 / blob byte source (interface sinking; the root wires
      *  network.BlobRegistry::poll); unwired yields null forever and SET_SONG rejects the
@@ -469,7 +510,12 @@ public final class OpExecutor {
 
             case SET_HOTBAR_ITEM -> {
                 var n = graph.findNode(op.targetNodeId());
-                if (n != null && op.hotbarSlot() >= 0) {
+                // K15 槽位上界：热栏实际 9 格（0..8），越界 = 拒绝（不扩容、不写入）；
+                // 服务端在 handleServer 的 K15 预检中以 REJECT 回执，此处为纵深防御。
+                // K15 slot cap: the hotbar is really 9 slots (0..8); beyond is refused (no
+                // expansion, no write). The server answers such ops with a REJECT receipt via
+                // the K15 pre-check in handleServer; this remains as defense in depth.
+                if (n != null && op.hotbarSlot() >= 0 && op.hotbarSlot() < HOTBAR_SLOTS) {
                     // Ensure itemParams is large enough; resize if needed (handles legacy nodes and edge cases)
                     // 确保 itemParams 足够大；必要时扩容（处理旧节点和边缘情况）
                     if (n.itemParams == null) n.itemParams = new ItemStack[0];
@@ -488,36 +534,50 @@ public final class OpExecutor {
             case SET_IMAGE_PIXELS -> {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null && op.imageData() != null && op.imageData().length > 0) {
-                    // 按节点画布尺寸规整像素数组（旧客户端/竞态可能送来长度不符的帧）
-                    // Normalize pixel data to the node's canvas size (stale/racing peers may
-                    // send mismatched lengths, which the renderer would otherwise skip).
-                    int[] pixels = GraphNode.fitPixelArray(op.imageData(), n.imageWidth * n.imageHeight);
-                    n.imagePixels = pixels;
-                    if (n.type == NodeType.IMAGE_SEQUENCE) {
-                        // Lazily initialize imageSequenceFrames if this is the first
-                        // pixel data arriving (e.g. from remote ADD_NODE + flushCopyGroup).
-                        // Without this, imageSequenceFrames stays null forever, causing
-                        // save to skip frames and display to render nothing.
-                        // 延迟初始化 imageSequenceFrames（首次像素数据到达时）。
-                        // 否则 imageSequenceFrames 永远为 null，导致保存跳过帧且显示为空。
-                        if (n.imageSequenceFrames == null) {
-                            n.imageSequenceFrames = new java.util.ArrayList<>();
+                    // K15 帧索引上界：paramIndex 承载 IMAGE_SEQUENCE 帧索引（见
+                    // GraphOp.setImagePixels），越界（负值原会 IOOBE 崩 apply，超限原会按
+                    // 声明索引无界扩容帧列表）一律视为拒绝输入 —— 节点原样不动；服务端在
+                    // handleServer 的 K15 预检中以 REJECT 回执，此处为纵深防御。
+                    // K15 frame-index cap: paramIndex carries the IMAGE_SEQUENCE frame index
+                    // (see GraphOp.setImagePixels). Out of range (negative used to IOOBE-crash
+                    // apply; oversized used to expand the frame list unbounded from the declared
+                    // index) — treated as refused input, the node is left untouched. The server
+                    // answers such ops with a REJECT receipt via the K15 pre-check in
+                    // handleServer; this remains as defense in depth.
+                    boolean frameIndexLegal = n.type != NodeType.IMAGE_SEQUENCE
+                        || (op.paramIndex() >= 0 && op.paramIndex() < MAX_SEQUENCE_FRAMES);
+                    if (frameIndexLegal) {
+                        // 按节点画布尺寸规整像素数组（旧客户端/竞态可能送来长度不符的帧）
+                        // Normalize pixel data to the node's canvas size (stale/racing peers may
+                        // send mismatched lengths, which the renderer would otherwise skip).
+                        int[] pixels = GraphNode.fitPixelArray(op.imageData(), n.imageWidth * n.imageHeight);
+                        n.imagePixels = pixels;
+                        if (n.type == NodeType.IMAGE_SEQUENCE) {
+                            // Lazily initialize imageSequenceFrames if this is the first
+                            // pixel data arriving (e.g. from remote ADD_NODE + flushCopyGroup).
+                            // Without this, imageSequenceFrames stays null forever, causing
+                            // save to skip frames and display to render nothing.
+                            // 延迟初始化 imageSequenceFrames（首次像素数据到达时）。
+                            // 否则 imageSequenceFrames 永远为 null，导致保存跳过帧且显示为空。
+                            if (n.imageSequenceFrames == null) {
+                                n.imageSequenceFrames = new java.util.ArrayList<>();
+                            }
+                            // Expand frames list to accommodate the incoming frame index
+                            // 扩展帧列表以容纳传入的帧索引
+                            int fi = op.paramIndex();
+                            while (n.imageSequenceFrames.size() <= fi) {
+                                int[] blank = new int[n.imageWidth * n.imageHeight];
+                                java.util.Arrays.fill(blank, 0x00000000);
+                                n.imageSequenceFrames.add(blank);
+                            }
+                            n.imageSequenceFrames.set(fi, pixels.clone());
+                            // Re-link imagePixels to the current frame so painting works
+                            // 将 imagePixels 重新链接到当前帧，确保绘制正常
+                            if (fi >= 0 && fi < n.imageSequenceFrames.size())
+                                n.imagePixels = n.imageSequenceFrames.get(fi);
                         }
-                        // Expand frames list to accommodate the incoming frame index
-                        // 扩展帧列表以容纳传入的帧索引
-                        int fi = op.paramIndex();
-                        while (n.imageSequenceFrames.size() <= fi) {
-                            int[] blank = new int[n.imageWidth * n.imageHeight];
-                            java.util.Arrays.fill(blank, 0x00000000);
-                            n.imageSequenceFrames.add(blank);
-                        }
-                        n.imageSequenceFrames.set(fi, pixels.clone());
-                        // Re-link imagePixels to the current frame so painting works
-                        // 将 imagePixels 重新链接到当前帧，确保绘制正常
-                        if (fi >= 0 && fi < n.imageSequenceFrames.size())
-                            n.imagePixels = n.imageSequenceFrames.get(fi);
+                        graph.bumpGeneration();
                     }
-                    graph.bumpGeneration();
                 }
                 yield n;
             }
@@ -661,6 +721,17 @@ public final class OpExecutor {
      * 从 NBT 快照恢复节点字段（REMOVE_NODE 撤销）。
      * 不恢复 itemParams（需要 registries）或 transient 字段。
      * 连线由调用方单独恢复。
+     *
+     * <p>P2-6：恢复清单补 {@code song}（MUSIC 曲目，NBS 字节直解，无需注册表）与
+     * {@code subGraph}（ENCAPSULATION 嵌套 CompoundTag 原样经 {@link NodeGraph#load} 恢复，
+     * 子节点物品需要 {@link #registryAccess}，未接线/解析失败时跳过 —— 快照里明明有数据，
+     * 此前 Ctrl+Z 看似成功而整段封装/整首曲目静默丢失）。</p>
+     * <p>P2-6: the restore list now covers {@code song} (MUSIC track — NBS bytes parsed
+     * directly, no registries needed) and {@code subGraph} (the ENCAPSULATION nested
+     * CompoundTag restored as-is via {@link NodeGraph#load}; sub-node ItemStacks need
+     * {@link #registryAccess}, and an unwired/failed load is skipped). The snapshot always
+     * carried the data — Ctrl+Z used to look successful while the whole encapsulation / whole
+     * song was silently lost.</p>
      */
     private static void restoreNodeFromNbt(GraphNode node, net.minecraft.nbt.CompoundTag tag) {
         // params
@@ -743,6 +814,33 @@ public final class OpExecutor {
             for (int i = 0; i < dcx.length; i++) {
                 node.curveX[i] = Float.intBitsToFloat(dcx[i]);
                 node.curveY[i] = Float.intBitsToFloat(dcy[i]);
+            }
+        }
+        // P2-6：MUSIC 曲目恢复（NBS 字节 → NbsSong.read；无需注册表）。
+        // P2-6: MUSIC song restore (NBS bytes → NbsSong.read; no registries needed).
+        if (node.type == NodeType.MUSIC && tag.contains("song")) {
+            try {
+                node.song = NbsSong.read(tag.getByteArray("song"));
+            } catch (RuntimeException e) {
+                // 坏数据：保留新节点的空曲，不破坏节点（与 GraphNode.load 同口径）
+                // Malformed: keep the fresh node's empty song, never break the node (same
+                // policy as GraphNode.load)
+            }
+        }
+        // P2-6：ENCAPSULATION 子图恢复（嵌套 CompoundTag 原样走 NodeGraph.load；
+        // 子节点物品反序列化需要 registryAccess —— 网络层在应用 op 前注入，未接线或
+        // 解析失败时保留空子图，节点不破坏）。
+        // P2-6: ENCAPSULATION sub-graph restore (the nested CompoundTag goes through
+        // NodeGraph.load as-is; deserializing sub-node ItemStacks needs registryAccess —
+        // injected by the network layer before applying ops; an unwired or failed load keeps
+        // an empty sub-graph and never breaks the node).
+        if (node.type == NodeType.ENCAPSULATION && tag.contains("subGraph")) {
+            try {
+                node.subGraph = NodeGraph.load(tag.getCompound("subGraph"), registryAccess);
+            } catch (RuntimeException e) {
+                // 未接线注册表 / 坏数据：保留空子图（节点空壳可被后续 op 填充）
+                // Unwired registry / malformed data: keep an empty sub-graph (the bare-shell
+                // node can be filled by subsequent ops)
             }
         }
     }

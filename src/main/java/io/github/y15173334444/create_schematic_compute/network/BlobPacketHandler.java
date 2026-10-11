@@ -20,7 +20,14 @@ public final class BlobPacketHandler {
 
     /** Server receives blob chunks from a client. After reassembly the data
      *  is available for the corresponding {@code GraphOp} to apply.
-     *  服务端接收来自客户端的 blob 分片。重组后数据可供相应的 GraphOp 使用。 */
+     *  服务端接收来自客户端的 blob 分片。重组后数据可供相应的 GraphOp 使用。
+     *  <p>P0-2 归属：把已认证的提交者 UUID 记入注册表 —— 取用方（{@code SET_SONG} 的
+     *  poll / 广播的 peek）在 {@code GraphEditOpPacket.handleServer} 绑定的归属作用域内
+     *  只能取到**同一提交者**的条目，同 id 跨玩家串包投毒被消除。
+     *  <p>P0-2 ownership: the authenticated submitter UUID is recorded into the registry —
+     *  consumers (SET_SONG's poll / the broadcast's peek) resolve within the ownership scope
+     *  bound by {@code GraphEditOpPacket.handleServer} and only see entries submitted by the
+     *  <b>same</b> player, eliminating same-id cross-player poisoning. */
     public static void handleServer(BlobDataPacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             // 安全校验：距离检查 + 编辑会话成员检查
@@ -29,7 +36,7 @@ public final class BlobPacketHandler {
             if (!io.github.y15173334444.create_schematic_compute.network.SablePacketHelper.isWithinReachableRange(sp, pkt.pos(), 16384.0)) return;
             if (!io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.getEditors(sl, pkt.pos()).contains(sp.getUUID()))
                 return;
-            BlobRegistry.receive(pkt);
+            BlobRegistry.receive(pkt, sp.getUUID());
         });
     }
 

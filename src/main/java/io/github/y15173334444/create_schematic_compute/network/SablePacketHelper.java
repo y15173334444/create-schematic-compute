@@ -230,8 +230,11 @@ public class SablePacketHelper {
                     }
                 }
                 // Diagnostic log — helps debug scan coverage in production.
-                // 诊断日志 —— 有助于在生产环境中调试扫描覆盖情况。
-                SchematicCompute.LOGGER.info("SablePacketHelper: sub-level at {} plotCtr=({},{},{}) chunks={} BEs={} graph={}",
+                // P1-3：每包两条 INFO 会随反复扫描刷盘，降 DEBUG（诊断价值保留）。
+                // Diagnostic log — helps debug scan coverage in production.
+                // P1-3: two INFOs per packet flood the log under repeated scans; downgraded to
+                // DEBUG (diagnostic value kept).
+                SchematicCompute.LOGGER.debug("SablePacketHelper: sub-level at {} plotCtr=({},{},{}) chunks={} BEs={} graph={}",
                     origin, cbx, cby, cbz, scannedChunks, scannedBEs, found);
             }
         } catch (Exception e) {
@@ -244,7 +247,8 @@ public class SablePacketHelper {
         // 按距离升序排序；限制结果数量以避免过大的数据包。
         results.sort(Comparator.comparingDouble(SableDeviceEntry::distance));
         if (results.size() > 50) results = new ArrayList<>(results.subList(0, 50));
-        SchematicCompute.LOGGER.info("SablePacketHelper.scanDevices: {} total device(s)", results.size());
+        // P1-3：同上，每次扫描一条 INFO → DEBUG。/ P1-3: same as above, one INFO per scan → DEBUG.
+        SchematicCompute.LOGGER.debug("SablePacketHelper.scanDevices: {} total device(s)", results.size());
         return results;
     }
 

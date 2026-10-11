@@ -40,6 +40,21 @@ public record BlobDataPacket(
     /** Max payload per chunk: 30 KB (Minecraft 32 KB limit minus headers). / 每片最大负载：30KB（Minecraft 32KB 限制减去头部）。 */
     public static final int MAX_CHUNK_SIZE = 30 * 1024;
 
+    /**
+     * 分片总数的解码上限（协议错误阈值，非业务截断）。合法最大负载由 SET_SONG 的
+     * {@code NbsSong.MAX_BYTES}（1 MB）推导：1 MB ÷ 30 KB ≈ 35 片，钳到 64 略超即可。
+     * 超限 = 畸形/恶意包，抛 DecoderException 断开该连接——绝不按声明值分配
+     * {@code byte[totalChunks][]} 引用数组（P0-2：varint 可声明至 2³¹-1，直接 new 即
+     * 数 GB 分配，worker 线程单包 OOM）。
+     * <p>Decode cap for the chunk count (a protocol-error threshold, not a business
+     * truncation). The legitimate maximum derives from SET_SONG's {@code NbsSong.MAX_BYTES}
+     * (1 MB): 1 MB ÷ 30 KB ≈ 35 chunks; 64 leaves headroom. Over-limit = malformed/malicious
+     * packet → DecoderException drops the connection; the {@code byte[totalChunks][]} reference
+     * array is never allocated at the declared value (P0-2: a varint can claim up to 2³¹-1,
+     * so a bare {@code new} lets one packet allocate gigabytes and OOM the worker thread).</p>
+     */
+    public static final int MAX_TOTAL_CHUNKS = 64;
+
     public static final StreamCodec<ByteBuf, BlobDataPacket> CODEC = new StreamCodec<>() {
         @Override
         public BlobDataPacket decode(ByteBuf buf) {
@@ -49,7 +64,22 @@ public record BlobDataPacket(
             int nodeId = VarInt.read(buf);
             int seq = VarInt.read(buf);
             int total = VarInt.read(buf);
+            // P0-2 安全钳制：分片总数先校验后分配（见 MAX_TOTAL_CHUNKS）。
+            // P0-2 safety clamp: validate the chunk count before allocating (see MAX_TOTAL_CHUNKS).
+            if (total < 0 || total > MAX_TOTAL_CHUNKS)
+                throw new io.netty.handler.codec.DecoderException(
+                    "BlobDataPacket: totalChunks out of bounds: " + total
+                        + " (limit " + MAX_TOTAL_CHUNKS + ")");
             int len = VarInt.read(buf);
+            // P0-1 安全钳制：分片长度先校验后分配。合法分片 ≤ MAX_CHUNK_SIZE（30 KB），
+            // 超限 = 协议错误（DecoderException），不静默截断。
+            // P0-1 safety clamp: validate the chunk length before allocating. Legitimate chunks
+            // are ≤ MAX_CHUNK_SIZE (30 KB); over-limit is a protocol error (DecoderException),
+            // never silently truncated.
+            if (len < 0 || len > MAX_CHUNK_SIZE)
+                throw new io.netty.handler.codec.DecoderException(
+                    "BlobDataPacket: chunk length out of bounds: " + len
+                        + " (limit " + MAX_CHUNK_SIZE + ")");
             byte[] data = new byte[len];
             buf.readBytes(data);
             return new BlobDataPacket(pos, blobId, type, nodeId, seq, total, data);
