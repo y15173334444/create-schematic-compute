@@ -18,6 +18,8 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import javax.annotation.Nullable;
 import java.util.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Server-side radar block entity that scans for entities and Sable structures,
@@ -33,6 +35,12 @@ import java.util.*;
  * 同时将扫描结果同步到客户端供全息 blip 渲染器使用。
  */
 public class RadarBlockEntity extends SyncedGraphBlockEntity {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     // Scan settings / 扫描设置
     /** Scan range in blocks. 扫描范围（格）。 */
@@ -137,13 +145,13 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
             if (net.neoforged.fml.ModList.get().isLoaded("sable")) {
                 Class<?> cls = Class.forName("io.github.y15173334444.create_schematic_compute.compat.RadarBlockEntitySable");
                 RadarBlockEntity be = (RadarBlockEntity) cls.getConstructor(BlockPos.class, BlockState.class).newInstance(pos, state);
-                SchematicCompute.LOGGER.info("Radar: created Sable-compatible instance for {}", pos);
+                LOGGER.info("Radar: created Sable-compatible instance for {}", pos);
                 return be;
             }
         } catch (Exception e) {
-            SchematicCompute.LOGGER.warn("Radar: Sable factory failed for {}: {}", pos, e.toString());
+            LOGGER.warn("Radar: Sable factory failed for {}: {}", pos, e.toString());
         }
-        SchematicCompute.LOGGER.info("Radar: created plain instance for {}", pos);
+        LOGGER.info("Radar: created plain instance for {}", pos);
         return new RadarBlockEntity(pos, state);
     }
 
@@ -331,7 +339,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
             cachedSubPitch = (float) Math.toDegrees(euler.x);
             cachedSubRoll  = (float) Math.toDegrees(euler.z);
         } catch (Exception e) {
-            SchematicCompute.LOGGER.warn("Radar Sable bootstrap failed: {}", e.toString());
+            LOGGER.warn("Radar Sable bootstrap failed: {}", e.toString());
         }
     }
 
@@ -475,9 +483,9 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         // on always-on radars with many entities). These SABLE-SCAN logs exist to debug Sable
         // coordinate issues; the content is kept behind one isDebugEnabled guard — enabling
         // DEBUG restores the full diagnostic, disabling it costs nothing.
-        boolean debugScan = SchematicCompute.LOGGER.isDebugEnabled();
+        boolean debugScan = LOGGER.isDebugEnabled();
         if (debugScan) {
-            SchematicCompute.LOGGER.debug("SABLE-SCAN: onSable={} sc=({},{},{}) wp=({},{},{}) subWorld=({},{},{}) subOrigin=({},{},{}) sableYPR=({},{},{}) sqw={} scanLevel={}",
+            LOGGER.debug("SABLE-SCAN: onSable={} sc=({},{},{}) wp=({},{},{}) subWorld=({},{},{}) subOrigin=({},{},{}) sableYPR=({},{},{}) sqw={} scanLevel={}",
                 onSable,
                 scx, scy, scz, worldPosition.getX(), worldPosition.getY(), worldPosition.getZ(),
                 cachedSubWorldX, cachedSubWorldY, cachedSubWorldZ,
@@ -493,7 +501,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
                 boolean inBox = scanBox.contains(e.getX(), e.getY(), e.getZ());
                 if (debugScan) {
                     double dx = e.getX() - scx, dy = e.getY() - scy, dz = e.getZ() - scz;
-                    SchematicCompute.LOGGER.debug("SABLE-SCAN: player at ({},{},{}) sc=({},{},{}) inBox={} dist={}",
+                    LOGGER.debug("SABLE-SCAN: player at ({},{},{}) sc=({},{},{}) inBox={} dist={}",
                         e.getX(), e.getY(), e.getZ(), scx, scy, scz, inBox,
                         Math.sqrt(dx * dx + dy * dy + dz * dz));
                 }
@@ -508,7 +516,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
                 boolean inBox = scanBox.contains(e.getX(), e.getY(), e.getZ());
                 if (debugScan) {
                     double dx = e.getX() - scx, dy = e.getY() - scy, dz = e.getZ() - scz;
-                    SchematicCompute.LOGGER.debug("SABLE-SCAN: mob at ({},{},{}) sc=({},{},{}) inBox={} dist={}",
+                    LOGGER.debug("SABLE-SCAN: mob at ({},{},{}) sc=({},{},{}) inBox={} dist={}",
                         e.getX(), e.getY(), e.getZ(), scx, scy, scz, inBox,
                         Math.sqrt(dx * dx + dy * dy + dz * dz));
                 }
@@ -519,7 +527,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
             }
         }
         if (debugScan) {
-            SchematicCompute.LOGGER.debug("SABLE-SCAN: main scan found {} players, {} mobs (onSable={})",
+            LOGGER.debug("SABLE-SCAN: main scan found {} players, {} mobs (onSable={})",
                 playerCount, mobCount, onSable);
         }
         // Always scan sub-world entities; structure blip insertion checks showSable internally.
@@ -536,7 +544,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
             lockedTargets.removeIf(id -> !validIds.contains(id));
         }
         if (debugScan && !targets.isEmpty()) {
-            SchematicCompute.LOGGER.debug("TICK: {} targets at {}, running={}", targets.size(), worldPosition, isRunning());
+            LOGGER.debug("TICK: {} targets at {}, running={}", targets.size(), worldPosition, isRunning());
         }
 
         // ══ Assign targets / 分配目标 ══
@@ -747,11 +755,11 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
                 }
             }
             // P2-16：同为每 tick 急切 debug，一并守卫。/ Also per-tick eager debug — guarded too (P2-16).
-            if (SchematicCompute.LOGGER.isDebugEnabled()) {
-                SchematicCompute.LOGGER.debug("Radar Sable scan done: {} structures", structCount);
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug("Radar Sable scan done: {} structures", structCount);
             }
         } catch (Exception e) {
-            SchematicCompute.LOGGER.error("Radar Sable scan error: {}", e.toString());
+            LOGGER.error("Radar Sable scan error: {}", e.toString());
         }
     }
 

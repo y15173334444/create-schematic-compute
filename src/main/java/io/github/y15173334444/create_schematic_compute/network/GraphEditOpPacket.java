@@ -21,6 +21,8 @@ import io.netty.buffer.ByteBuf;
 
 import java.util.ArrayList;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A custom network payload that carries a single {@link GraphOp} from the client to the server.
@@ -40,6 +42,12 @@ import java.util.UUID;
  * @see EditSessionRegistry#applyOp(ServerLevel, BlockPos, GraphOp, ServerPlayer)
  */
 public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements CustomPacketPayload {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     /**
      * 常规构造（op 类型已知）：未知序号哨兵 = -1。
@@ -352,7 +360,7 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
             // ordinal so a newer client can locate the refused type in its own enum). Never
             // disconnect, never apply.
             if (pkt.unknownWireOrdinal() >= 0) {
-                SchematicCompute.LOGGER.debug(
+                LOGGER.debug(
                     "[GraphEditOp] unknown op ordinal {} from {}", pkt.unknownWireOrdinal(),
                     sp.getName().getString());
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
@@ -368,7 +376,7 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
             // per type); the matching executor-side caps stay as defense in depth.
             String boundsViolation = opBoundsViolation(pkt.op());
             if (boundsViolation != null) {
-                SchematicCompute.LOGGER.debug(
+                LOGGER.debug(
                     "[GraphEditOp] rejected ({}: {}) op={} from {}", boundsViolation, pos,
                     pkt.op.type(), sp.getName().getString());
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
@@ -385,7 +393,7 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
             // P2-11: drop-path logs downgraded to DEBUG — with K21's unthrottled streams an
             // INFO-per-packet floods the log/disk.
             if (!io.github.y15173334444.create_schematic_compute.network.SablePacketHelper.isWithinReachableRange(sp, pos, MAX_EDIT_DIST_SQ)) {
-                SchematicCompute.LOGGER.debug(
+                LOGGER.debug(
                     "[GraphEditOp] dropped (out of range) op={} from {}", pkt.op.type(), sp.getName().getString());
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
                     new GraphEditOpSyncPacket(io.github.y15173334444.create_schematic_compute.graph.GraphOp.reject(pkt.op, sp.getUUID())));
@@ -393,7 +401,7 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
             }
             // Security: reject if the player is not a registered editor of this session / 安全检查：玩家不是此编辑会话的已注册编辑者则拒绝
             if (!EditSessionRegistry.getEditors(sl, pos).contains(sp.getUUID())) {
-                SchematicCompute.LOGGER.debug(
+                LOGGER.debug(
                     "[GraphEditOp] dropped (not a registered editor) op={} from {}", pkt.op.type(), sp.getName().getString());
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
                     new GraphEditOpSyncPacket(io.github.y15173334444.create_schematic_compute.graph.GraphOp.reject(pkt.op, sp.getUUID())));

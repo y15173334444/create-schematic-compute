@@ -4,7 +4,6 @@ import dev.ryanhcode.sable.companion.math.Pose3dc;
 import dev.ryanhcode.sable.sublevel.SubLevel;
 import dev.ryanhcode.sable.sublevel.plot.LevelPlot;
 import dev.ryanhcode.sable.sublevel.plot.PlotChunkHolder;
-import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 import io.github.y15173334444.create_schematic_compute.compat.SableAccess;
 import io.github.y15173334444.create_schematic_compute.compat.SablePoseHelper;
@@ -20,6 +19,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Shared Sable sub-level lookup and server-side device scanning.
@@ -59,6 +60,12 @@ import java.util.List;
  * 扫描子层级中的图连接设备、以及通过 Sable 坐标变换验证玩家到方块的可达性。
  */
 public class SablePacketHelper {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     /**
      * Checks whether the Sable mod is loaded in the current environment.
@@ -112,7 +119,7 @@ public class SablePacketHelper {
         } catch (Exception e) {
             // Log the failure but don't crash — sub-level lookup is best-effort.
             // 记录异常但不崩溃 —— 子层级查询是尽力而为的。
-            SchematicCompute.LOGGER.warn("SablePacketHelper.findSubLevel failed: {}", e.toString());
+            LOGGER.warn("SablePacketHelper.findSubLevel failed: {}", e.toString());
         }
         return null;
     }
@@ -277,13 +284,13 @@ public class SablePacketHelper {
                 // Diagnostic log — helps debug scan coverage in production.
                 // P1-3: two INFOs per packet flood the log under repeated scans; downgraded to
                 // DEBUG (diagnostic value kept).
-                SchematicCompute.LOGGER.debug("SablePacketHelper: sub-level at {} plotCtr=({},{},{}) chunks={} BEs={} graph={}",
+                LOGGER.debug("SablePacketHelper: sub-level at {} plotCtr=({},{},{}) chunks={} BEs={} graph={}",
                     origin, cbx, cby, cbz, scannedChunks, scannedBEs, found);
             }
         } catch (Exception e) {
             // Catch-all: scanning is best-effort; never let an exception escape.
             // 兜底捕获：扫描是尽力而为的，不允许异常向外传播。
-            SchematicCompute.LOGGER.warn("SablePacketHelper.scanDevices(Sable) failed: {}", e.toString());
+            LOGGER.warn("SablePacketHelper.scanDevices(Sable) failed: {}", e.toString());
         }
 
         // Sort by distance ascending; cap results to avoid oversized packets.
@@ -291,7 +298,7 @@ public class SablePacketHelper {
         results.sort(Comparator.comparingDouble(SableDeviceEntry::distance));
         if (results.size() > 50) results = new ArrayList<>(results.subList(0, 50));
         // P1-3：同上，每次扫描一条 INFO → DEBUG。/ P1-3: same as above, one INFO per scan → DEBUG.
-        SchematicCompute.LOGGER.debug("SablePacketHelper.scanDevices: {} total device(s)", results.size());
+        LOGGER.debug("SablePacketHelper.scanDevices: {} total device(s)", results.size());
         return results;
     }
 
@@ -342,7 +349,7 @@ public class SablePacketHelper {
                 // 反射失败 → 视为无名，调用方回退到类型名（与旧行为一致，不中断扫描）。
                 // Reflection failure → treat as unnamed; the caller falls back to the
                 // type name (old behaviour), the scan is never interrupted.
-                SchematicCompute.LOGGER.warn("SablePacketHelper.resolveCustomName reflective read failed: {}", e.toString());
+                LOGGER.warn("SablePacketHelper.resolveCustomName reflective read failed: {}", e.toString());
             }
         }
         return "";

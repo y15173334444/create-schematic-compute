@@ -30,12 +30,20 @@ import java.util.function.Predicate;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 节点图编辑器 — 封装两屏共享的编辑、渲染、输入逻辑
  * Node graph editor — encapsulates editing, rendering, and input logic shared across screens
  */
 public class GraphEditor {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     /**
      * Resolve the active Host, unwrapping portable terminal wrapper screens.
@@ -312,7 +320,7 @@ public class GraphEditor {
             var lvl = net.minecraft.client.Minecraft.getInstance().level;
             if (lvl != null) return node.save(lvl.registryAccess()).toString();
         } catch (Exception e) {
-            io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("saveNodeNbt failed", e);
+            LOGGER.debug("saveNodeNbt failed", e);
         }
         return "";
     }
@@ -3000,7 +3008,7 @@ public class GraphEditor {
                                 importFiles = s.filter(p -> p.toString().endsWith(".nbt")).sorted().toList();
                             }
                         } else importFiles = java.util.Collections.emptyList();
-                    } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.warn("Failed to list import files: {}", e.getMessage()); importFiles = java.util.Collections.emptyList(); }
+                    } catch (Exception e) { LOGGER.warn("Failed to list import files: {}", e.getMessage()); importFiles = java.util.Collections.emptyList(); }
                 }
                 return true;
             }

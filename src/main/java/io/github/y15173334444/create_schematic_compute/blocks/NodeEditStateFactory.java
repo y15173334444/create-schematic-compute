@@ -6,6 +6,8 @@ import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.network.chat.Component;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 节点编辑状态工厂（自 {@link GraphEditor} 拆分，docs/gui-decomposition-plan.md 步骤 6a）：
@@ -27,6 +29,12 @@ import net.minecraft.network.chat.Component;
  * is still owned by the editor (nodeEditStatesById).</p>
  */
 final class NodeEditStateFactory {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     private NodeEditStateFactory() { }
 
@@ -618,7 +626,7 @@ final class NodeEditStateFactory {
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, newV, ed.host.getPlayerUUID()));
                     lastSentSpd[0] = newV;
                 }
-            } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
+            } catch (Exception e) { LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
             ed.enterActions.put(b, () -> {
                 if (Float.compare(lastSentSpd[0], preEditSpd[0]) != 0) {
                     var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, lastSentSpd[0], ed.host.getPlayerUUID());
@@ -647,7 +655,7 @@ final class NodeEditStateFactory {
                         ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, newV, ed.host.getPlayerUUID()));
                     lastSentAmp[0] = newV;
                 }
-            } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
+            } catch (Exception e) { LOGGER.debug("Invalid float in EditBox: {}", b.getValue().trim()); } });
             ed.enterActions.put(b, () -> {
                 if (Float.compare(lastSentAmp[0], preEditAmp[0]) != 0) {
                     var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, lastSentAmp[0], ed.host.getPlayerUUID());

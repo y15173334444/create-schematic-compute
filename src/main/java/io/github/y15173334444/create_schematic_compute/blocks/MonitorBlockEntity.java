@@ -17,8 +17,16 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import java.io.ByteArrayInputStream;
 import java.util.HashMap;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class MonitorBlockEntity extends SyncedGraphBlockEntity {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
     // Display settings (units in blocks)
     public float screenWidth = 1.5f, screenLength = 1.2f;
     public float screenX = 0f, screenY = 2.0f, screenZ = 0f;
@@ -61,7 +69,7 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
                 return (MonitorBlockEntity) cls.getConstructor(BlockPos.class, BlockState.class).newInstance(pos, state);
             }
         } catch (Exception e) {
-            SchematicCompute.LOGGER.warn("Monitor: Sable factory failed for {}: {}", pos, e.toString());
+            LOGGER.warn("Monitor: Sable factory failed for {}: {}", pos, e.toString());
         }
         return new MonitorBlockEntity(pos, state);
     }

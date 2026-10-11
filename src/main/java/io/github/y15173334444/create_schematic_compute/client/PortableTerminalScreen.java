@@ -1,6 +1,5 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
-import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.*;
 import io.github.y15173334444.create_schematic_compute.network.*;
 import net.minecraft.client.Minecraft;
@@ -18,6 +17,8 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Portable Terminal Screen — a handheld-device GUI that scans for nearby
@@ -59,6 +60,12 @@ import java.util.*;
  * 这样关闭内部界面后玩家会回到此终端界面而非游戏世界。
  */
 public class PortableTerminalScreen extends Screen {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     /** Marker interface — wrapper screens that delegate to a GraphEditor.Host inner screen.
      *  Used by {@link io.github.y15173334444.create_schematic_compute.blocks.GraphEditor#getActiveHost()}
@@ -389,7 +396,7 @@ public class PortableTerminalScreen extends Screen {
                 // Never silently drop unrecognized device classes — the server scanned them,
                 // yet they vanish from the list with no trace (the transmission/gearbox were
                 // missing from structure lists for a long time because of this).
-                SchematicCompute.LOGGER.warn("PortableTerminal: unknown Sable device class '{}' at {} skipped",
+                LOGGER.warn("PortableTerminal: unknown Sable device class '{}' at {} skipped",
                     se.beClassName(), se.localPos());
             }
         }

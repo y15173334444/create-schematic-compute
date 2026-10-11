@@ -1,6 +1,5 @@
 package io.github.y15173334444.create_schematic_compute.client.renderer;
 
-import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.client.GeometryConstants;
 import io.github.y15173334444.create_schematic_compute.blocks.MonitorBlock;
 import io.github.y15173334444.create_schematic_compute.blocks.MonitorBlockEntity;
@@ -35,8 +34,16 @@ import static io.github.y15173334444.create_schematic_compute.client.renderer.Mo
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBlockEntity> {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
     private static final Field STARTED_BUILDERS, FIXED_BUFFERS, SHARED_BUFFER, LAST_SHARED_TYPE;
     // BakedGlyph 私有字段反射（2026-08-24 手动字形锚定方案；模组锁定 MC 1.21.1，稳定）
     // BakedGlyph private-field reflection (manual-glyph anchoring; MC pinned to 1.21.1)
@@ -63,7 +70,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                     case "lastSharedType" -> { lst = f; lst.setAccessible(true); }
                 }
             }
-        } catch (Exception e) { SchematicCompute.LOGGER.error("MonitorRenderer reflection init", e); }
+        } catch (Exception e) { LOGGER.error("MonitorRenderer reflection init", e); }
         STARTED_BUILDERS = sb; FIXED_BUFFERS = fb; SHARED_BUFFER = sh; LAST_SHARED_TYPE = lst;
         Field lf = null, rf = null, uf = null, df = null, u0 = null, u1 = null, v0 = null, v1 = null;
         try {
@@ -82,7 +89,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             }
             FONT_GET_FONT_SET = Font.class.getDeclaredMethod("getFontSet", net.minecraft.resources.ResourceLocation.class);
             FONT_GET_FONT_SET.setAccessible(true);
-        } catch (Exception e) { SchematicCompute.LOGGER.error("MonitorRenderer BakedGlyph reflection init", e); }
+        } catch (Exception e) { LOGGER.error("MonitorRenderer BakedGlyph reflection init", e); }
         BG_LEFT = lf; BG_RIGHT = rf; BG_UP = uf; BG_DOWN = df;
         BG_U0 = u0; BG_U1 = u1; BG_V0 = v0; BG_V1 = v1;
     }
@@ -115,7 +122,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
         if (FONT_GET_FONT_SET == null) return null;
         try {
             return (net.minecraft.client.gui.font.FontSet) FONT_GET_FONT_SET.invoke(font, net.minecraft.client.Minecraft.DEFAULT_FONT);
-        } catch (Exception e) { SchematicCompute.LOGGER.error("Monitor getFontSet failed", e); return null; }
+        } catch (Exception e) { LOGGER.error("Monitor getFontSet failed", e); return null; }
     }
 
     public MonitorBlockEntityRenderer(BlockEntityRendererProvider.Context ctx) {}
@@ -1248,7 +1255,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 anchorTextVertex(buf, m, bobViewRot, emitMat, glassZ, clipped[i * 2 + 2], clipped[i * 2 + 3], uvC[0], uvC[1], r, g, b, a);
             }
         } catch (IllegalAccessException e) {
-            SchematicCompute.LOGGER.error("Monitor BakedGlyph field read failed", e);
+            LOGGER.error("Monitor BakedGlyph field read failed", e);
         }
     }
 
@@ -1306,7 +1313,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             RenderSystem.enableCull();
             rt.clearRenderState();
         } catch (Exception e) {
-            SchematicCompute.LOGGER.error("Monitor depth-anchored text draw failed", e);
+            LOGGER.error("Monitor depth-anchored text draw failed", e);
         }
     }
 
@@ -1364,7 +1371,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                 if (!(o instanceof MultiBufferSource)) break;
                 unwrapped = (MultiBufferSource) o;
             } catch (Exception e) {
-                SchematicCompute.LOGGER.error("Monitor unwrap BufferSourceWrapper failed", e);
+                LOGGER.error("Monitor unwrap BufferSourceWrapper failed", e);
                 break;
             }
         }
@@ -1400,7 +1407,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
                     if (lt == type || (lt != null && lt.equals(type))) LAST_SHARED_TYPE.set(bs, null);
                 }
             }
-        } catch (Exception e) { SchematicCompute.LOGGER.error("Monitor flushTextNoCull failed", e); }
+        } catch (Exception e) { LOGGER.error("Monitor flushTextNoCull failed", e); }
     }
 
     /** 深度锚定绘制（2026-08-21 几何等效，官方接口）：冲刷独立 BufferBuilder 中的
@@ -1427,7 +1434,7 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             BufferUploader.drawWithShader(data);
             MonitorRenderTypes.HUD_DEPTH_ANCHOR.clearRenderState();
         } catch (Exception e) {
-            SchematicCompute.LOGGER.error("Monitor depth-anchored draw failed", e);
+            LOGGER.error("Monitor depth-anchored draw failed", e);
         }
     }
 

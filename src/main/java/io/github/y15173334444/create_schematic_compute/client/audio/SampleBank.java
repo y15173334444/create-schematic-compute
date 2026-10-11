@@ -1,6 +1,5 @@
 package io.github.y15173334444.create_schematic_compute.client.audio;
 
-import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.sounds.JOrbisAudioStream;
 import net.minecraft.resources.ResourceLocation;
@@ -9,6 +8,8 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 音色采样库：原版音符盒 16 音色的 PCM 解码缓存（运行时从原版资源读取——**引用 ≠ 再分发**，
@@ -22,6 +23,12 @@ import java.util.concurrent.ConcurrentHashMap;
  * 解码失败返回 null（引擎侧跳过该音符），绝不抛穿到调用方。</p>
  */
 public final class SampleBank {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     /**
      * 16 原版音色，**按 NBS 格式乐器索引序**（0=harp, 1=bass(双低音), 2=basedrum(底鼓),
@@ -77,7 +84,7 @@ public final class SampleBank {
             var weighed = mc.getSoundManager().getSoundEvent(event);
             var sound = weighed == null ? null : weighed.getSound(net.minecraft.util.RandomSource.create());
             if (sound == null) {
-                SchematicCompute.LOGGER.warn("SampleBank: no sound event {}", event);
+                LOGGER.warn("SampleBank: no sound event {}", event);
                 return FAILED;
             }
             ResourceLocation file = sound.getPath();
@@ -105,7 +112,7 @@ public final class SampleBank {
                 return new Decoded(mono, rate > 0 ? rate : AudioMixer.SAMPLE_RATE);
             }
         } catch (Exception e) {
-            SchematicCompute.LOGGER.warn("SampleBank: failed to decode {}: {}", INSTRUMENTS[instrument], e.toString());
+            LOGGER.warn("SampleBank: failed to decode {}: {}", INSTRUMENTS[instrument], e.toString());
             return FAILED;
         }
     }
