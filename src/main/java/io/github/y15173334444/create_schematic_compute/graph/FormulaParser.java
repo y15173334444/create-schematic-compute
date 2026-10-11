@@ -556,7 +556,9 @@ public class FormulaParser {
         // ── 13) 类型感知检查(AST 模式,复用 parseScript 的类型检查结果)/ type-aware checks (AST mode) ──
         try {
             var parsed = parseScript(s);
-            if (parsed.ast != null) {
+            // P1-6:嵌套超限的降级结果 ast==null 但携带 ERROR issue —— 同样要透出给徽章。
+            // P1-6: a depth-degraded parse has ast==null but carries ERROR issues — surface them too.
+            if (parsed.ast != null || !parsed.issues.isEmpty()) {
                 issues.addAll(parsed.issues);
                 // ── 14) 输出引脚 16 上限(vec3 展开后,节点 UI 上限)/ pin cap 16 (post vec3 expansion) ──
                 if (parsed.outputLabels.size() > 16) {
@@ -995,8 +997,47 @@ public class FormulaParser {
     }
 
     /**
+     * AST 语句嵌套深度上限（P1-6）。parseStatement/parseKeywordStmt/parseBody/
+     * parseBlockStatements 的互相递归以往无守卫：恶意/坏档脚本能以千层嵌套 if 打出
+     * StackOverflowError —— Error 不被 eval 分支的 {@code catch (Exception)} 拦截，
+     * 且 SO 发生在 {@code cachedScript} 赋值前 → 下个 tick 重解析再 SO，崩溃循环。
+     * 该上限同时约束解释器递归（AST 只能由本解析器产生，AST 深度 ≤ 此上限）。
+     * AST statement nesting limit (P1-6). The mutual recursion among parseStatement/
+     * parseKeywordStmt/parseBody/parseBlockStatements used to be unguarded: a malicious
+     * or corrupt-save script with thousands of nested ifs produced a StackOverflowError —
+     * an Error the eval branch's {@code catch (Exception)} cannot intercept, and since the
+     * SO fired before {@code cachedScript} was assigned, the next tick re-parsed and SO'd
+     * again (crash loop). This limit also bounds the interpreter's recursion (ASTs are only
+     * produced by this parser, so AST depth ≤ this limit).
+     */
+    public static final int MAX_PARSE_DEPTH = 128;
+
+    /**
+     * 受控深度超限异常（Exception 族，P1-6）：解析嵌套超过 {@link #MAX_PARSE_DEPTH}
+     * 时由语句递归链抛出。{@link #parseScript} 在 AST 模式入口捕获并降级为
+     * 「输出恒 0 + ERROR issue」的解析结果 —— 求值、SET_FORMULA op、GraphMigration
+     * 世界加载三条暴露路径都由此收敛为公式错误，绝不以 StackOverflowError 逃逸。
+     * Controlled depth-exceeded exception (Exception family, P1-6): thrown by the
+     * statement recursion chain when nesting exceeds {@link #MAX_PARSE_DEPTH}.
+     * {@link #parseScript} catches it at the AST-mode entry and degrades to a
+     * "pinned-to-0 output + ERROR issue" parse result — the three exposure paths
+     * (server eval, SET_FORMULA op, GraphMigration world load) all converge into a
+     * formula error, never escaping as a StackOverflowError.
+     */
+    public static final class FormulaTooDeepException extends RuntimeException {
+        public FormulaTooDeepException(int depth) {
+            super("script nesting exceeds " + MAX_PARSE_DEPTH + " levels (depth " + depth + ")");
+        }
+    }
+
+    /**
      * 解析 formula 文本，返回结构化的脚本解析结果。
      * 自动检测旧版单行表达式模式（无换行、无 =、无 @output）并保持向后兼容。
+     * <p>嵌套超过 {@link #MAX_PARSE_DEPTH} 时不抛出：降级为输出恒 0 的结果并附
+     * ERROR issue（编辑器徽章可见）—— 解析层兜住求值/op/世界加载三条路径（P1-6）。
+     * Does not throw on nesting beyond {@link #MAX_PARSE_DEPTH}: degrades to a
+     * pinned-to-0 result with an ERROR issue (visible as the editor badge) — the parse
+     * layer backstops all three paths: eval / op / world load (P1-6).
      */
     public static ScriptParseResult parseScript(String formula) {
         final String originalFormula = formula;
@@ -1078,7 +1119,26 @@ public class FormulaParser {
         for (String l : lines) {
             for (Token t : tokenize(l)) {
                 if (isAstTrigger(t)) {
-                    return parseScriptAst(lines, lineSources, originalFormula);
+                    // P1-6:嵌套超限 → 受控异常 → 降级为「输出恒 0 + ERROR issue」。
+                    // 三条暴露路径（求值/SET_FORMULA op/GraphMigration 世界加载）都只经
+                    // 本方法拿解析结果，降级即全部兜住，绝不让 StackOverflowError 逃逸。
+                    // P1-6: nesting over the limit → controlled exception → degrade to a
+                    // pinned-to-0 result with an ERROR issue. All three exposure paths (eval /
+                    // SET_FORMULA op / GraphMigration world load) obtain parse results only
+                    // through this method, so the degradation backstops them all; a
+                    // StackOverflowError never escapes.
+                    try {
+                        return parseScriptAst(lines, lineSources, originalFormula);
+                    } catch (FormulaTooDeepException e) {
+                        LOGGER.debug("AST parse abandoned: {}", e.getMessage());
+                        return new ScriptParseResult(
+                            List.of(), List.of(""), List.of(java.util.List.of(0.0)), List.of(),
+                            false, originalFormula, null, Set.of(),
+                            List.of(new FormulaIssue(0, 0, 0, Severity.ERROR,
+                                "脚本嵌套超过 " + MAX_PARSE_DEPTH + " 层，已放弃解析，输出恒 0"
+                                + " / script nesting exceeds the " + MAX_PARSE_DEPTH
+                                + "-level limit; parse abandoned, outputs pinned to 0")));
+                    }
                 }
             }
         }
@@ -1252,7 +1312,7 @@ public class FormulaParser {
         var srcLines = new ArrayList<SrcLine>();
         for (int i = 0; i < lines.size(); i++) srcLines.add(new SrcLine(lines.get(i), tokenize(lines.get(i)), lineSources.get(i)));
         var out = new AstParseOut();
-        parseBlockStatements(new LineCursor(srcLines), out, true);
+        parseBlockStatements(new LineCursor(srcLines), out, true, 0);
 
         // 输出:无 @output → 顶层末行独立表达式为默认输出(与旧模式一致)
         if (out.outputLabels.isEmpty()) {
@@ -1309,16 +1369,23 @@ public class FormulaParser {
     }
 
     /** 解析语句块,直到 RBRACE 或输入结束。topLevel=true 时末行独立表达式计入默认输出候选。
-     *  Parse statements until RBRACE or end of input. Only top-level standalone exprs count as default output. */
-    private static void parseBlockStatements(LineCursor cur, AstParseOut out, boolean topLevel) {
+     *  depth = 语句嵌套深度（P1-6 守卫,超 {@link #MAX_PARSE_DEPTH} 抛受控异常）。
+     *  Parse statements until RBRACE or end of input. Only top-level standalone exprs count
+     *  as default output. depth = statement nesting depth (P1-6 guard; over
+     *  {@link #MAX_PARSE_DEPTH} throws the controlled exception). */
+    private static void parseBlockStatements(LineCursor cur, AstParseOut out, boolean topLevel, int depth) {
         while (true) {
             Token t = cur.peek();
             if (t == null || t.type() == TokType.RBRACE) return;
-            parseStatement(cur, out, topLevel);
+            parseStatement(cur, out, topLevel, depth);
         }
     }
 
-    private static void parseStatement(LineCursor cur, AstParseOut out, boolean topLevel) {
+    private static void parseStatement(LineCursor cur, AstParseOut out, boolean topLevel, int depth) {
+        // P1-6:递归入口统一守卫 —— 语句每深一层 depth + 1（parseBody 进体时 +1）。
+        // P1-6: single guard at the recursion entry — each nesting level passes depth + 1
+        // (parseBody increments when entering a body).
+        if (depth > MAX_PARSE_DEPTH) throw new FormulaTooDeepException(depth);
         Token t = cur.next();
         if (t.type() == TokType.AT_OUTPUT) {
             // 解析期 hoist:@output <标识符|表达式>(决策 §3.6:块内同样 hoist)
@@ -1344,7 +1411,7 @@ public class FormulaParser {
             consumeSemicolon(cur);
             return;
         }
-        if (t.type() == TokType.KEYWORD) { parseKeywordStmt(cur, out, t); consumeSemicolon(cur); return; }
+        if (t.type() == TokType.KEYWORD) { parseKeywordStmt(cur, out, t, depth); consumeSemicolon(cur); return; }
         // 赋值或独立表达式
         int srcLine = cur.currentSrcLine();
         var rest = consumeToSemicolon(cur);
@@ -1384,13 +1451,13 @@ public class FormulaParser {
         if (t != null && t.type() == TokType.SEMICOLON) cur.next();
     }
 
-    private static void parseKeywordStmt(LineCursor cur, AstParseOut out, Token kw) {
+    private static void parseKeywordStmt(LineCursor cur, AstParseOut out, Token kw, int depth) {
         switch (kw.text()) {
             case "repeat" -> {
                 Token num = cur.next();
                 long count = (num != null && num.type() == TokType.NUMBER)
                     ? (long) Double.parseDouble(num.text()) : 1;
-                var body = parseBody(cur, out);
+                var body = parseBody(cur, out, depth);
                 out.stmts.add(new FormulaAst.RepeatStmt(Math.max(0, count), body));
             }
             case "while" -> {
@@ -1399,7 +1466,7 @@ public class FormulaParser {
                 int col = condTokens.isEmpty() ? kw.start() : condTokens.get(0).start();
                 var condRpn = compileTokens(condTokens);
                 out.rpnSites.add(new AstParseOut.RpnSite(condRpn, srcLine, col));
-                var body = parseBody(cur, out);
+                var body = parseBody(cur, out, depth);
                 out.stmts.add(new FormulaAst.WhileStmt(condRpn, body));
             }
             case "if" -> {
@@ -1408,13 +1475,13 @@ public class FormulaParser {
                 int col = condTokens.isEmpty() ? kw.start() : condTokens.get(0).start();
                 var condRpn = compileTokens(condTokens);
                 out.rpnSites.add(new AstParseOut.RpnSite(condRpn, srcLine, col));
-                var body = parseBody(cur, out);
+                var body = parseBody(cur, out, depth);
                 List<FormulaAst.Stmt> elseBody = List.of();
                 // else 紧跟同一行 / else must follow on the same line
                 Token t = cur.peek();
                 if (t != null && t.type() == TokType.KEYWORD && t.text().equals("else")) {
                     cur.next();
-                    elseBody = parseBody(cur, out);
+                    elseBody = parseBody(cur, out, depth);
                 }
                 out.stmts.add(new FormulaAst.IfStmt(condRpn, body, elseBody));
             }
@@ -1425,15 +1492,17 @@ public class FormulaParser {
     }
 
     /** 解析循环/分支体:带大括号的块,或无大括号的单语句体(如 if (c) break)。
-     *  Parse a loop/branch body: a braced block, or a brace-less single statement (e.g. if (c) break). */
-    private static List<FormulaAst.Stmt> parseBody(LineCursor cur, AstParseOut out) {
+     *  depth+1 = 进入一层体（P1-6 深度计数）。
+     *  Parse a loop/branch body: a braced block, or a brace-less single statement (e.g.
+     *  if (c) break). depth+1 = one body level deeper (P1-6 depth counting). */
+    private static List<FormulaAst.Stmt> parseBody(LineCursor cur, AstParseOut out, int depth) {
         Token t = cur.peek();
         if (t == null) return List.of();
         if (t.type() == TokType.LBRACE) {
             cur.next();
             var body = new ArrayList<FormulaAst.Stmt>();
             var nested = new AstParseOut();
-            parseBlockStatements(cur, nested, false);
+            parseBlockStatements(cur, nested, false, depth + 1);
             body.addAll(nested.stmts);
             hoistNested(out, nested);
             Token close = cur.peek();
@@ -1442,7 +1511,7 @@ public class FormulaParser {
         }
         // 无大括号:单语句体 / brace-less single-statement body
         var nested = new AstParseOut();
-        parseStatement(cur, nested, false);
+        parseStatement(cur, nested, false, depth + 1);
         hoistNested(out, nested);
         return nested.stmts;
     }

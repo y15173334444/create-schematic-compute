@@ -144,8 +144,30 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         return minecraft != null && minecraft.player != null ? minecraft.player.getName().getString() : "";
     }
     @Override public boolean isPixelEditorOpen() { return true; }
-    @Override public GraphEditor getEditor() { return null; }
+    // 出口收口（P1-10，与 PixelEditorScreen 同款）：NBS 与来源屏同属一个编辑会话
+    //（transferToNbsEditor 跳过离开），temp-id 挂起/ACK 重映射必须经来源屏编辑器的
+    // 漏斗实例 —— 否则"新增 MUSIC 节点后一个 RTT 内打开 NBS 保存"的 SET_SONG 携带
+    // 未 ACK 的临时 id，服务端 findNode 落空静默丢弃，整首曲目丢失。便携终端包装
+    // 屏（HostWrapper）本身不是 GraphEditor.Host，向内解一层拿被包装的来源屏。
+    // Outlet convergence (P1-10, same shape as PixelEditorScreen): the NBS editor and
+    // its origin share one editing session (transferToNbsEditor skips the leave), so the
+    // temp-id stash and ACK remap must go through the originating editor's funnel —
+    // otherwise a SET_SONG saved within one RTT after adding the MUSIC node still carries
+    // the un-ACKed temp id, the server's findNode misses and silently drops it, losing
+    // the whole song. The portable-terminal wrapper (HostWrapper) is not itself a
+    // GraphEditor.Host — unwrap one level to the wrapped origin screen.
+    @Override public GraphEditor getEditor() {
+        if (returnScreen instanceof GraphEditor.Host h) return h.getEditor();
+        if (returnScreen instanceof PortableTerminalScreen.HostWrapper w
+            && w.getInnerScreen() instanceof GraphEditor.Host h) return h.getEditor();
+        return null;
+    }
     @Override public void sendOp(GraphOp op) {
+        var ed = getEditor();
+        if (ed != null) {
+            ed.sendOp(op); // 统一出口：temp-id 挂起守卫 + 来源屏的 pendingLocalOps 计数 / the funnel
+            return;
+        }
         var be = getBE();
         if (be != null) be.setPendingLocalOps(be.getPendingLocalOps() + 1);
         PacketDistributor.sendToServer(new GraphEditOpPacket(op));

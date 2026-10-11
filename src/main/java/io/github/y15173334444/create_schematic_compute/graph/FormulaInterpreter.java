@@ -24,10 +24,37 @@ public final class FormulaInterpreter {
     /** 病态循环硬上限(决策 §五:MAX_ITER=1M,按 spread 累计)。 / Pathological-loop hard cap (spread-wide). */
     static final long MAX_ITER = 1_000_000L;
 
+    /**
+     * 语句嵌套递归深度上限（P1-6 解释侧兜底）。AST 由解析器产生、深度已受
+     * {@link FormulaParser#MAX_PARSE_DEPTH} 约束，本上限是第二道防线：防未来出现
+     * 绕过解析器构造深 AST 的路径（或上限口径漂移）。计数随每次 {@link #exec} 调用
+     * 从 0 重新开始 —— 挂起/续算跨 tick 复用 carrier，但深度计数不跨 tick 累计。
+     * Statement-nesting recursion limit (P1-6 interpreter backstop). ASTs come from the
+     * parser and are already bounded by {@link FormulaParser#MAX_PARSE_DEPTH}; this limit
+     * is the second line of defence against any path that builds a deep AST without the
+     * parser (or a limit-drift regression). The count restarts from 0 on every
+     * {@link #exec} call — suspend/resume reuses the carrier across ticks, but the depth
+     * count never accumulates across ticks.
+     */
+    static final int MAX_EXEC_DEPTH = 256;
+
     /** break 信号:最内层循环捕获并退出。 / Break signal: caught by the innermost loop, which exits. */
     static final class BreakSignal extends RuntimeException {}
     /** continue 信号:最内层循环捕获并跳下一轮。 / Continue signal: caught by the innermost loop. */
     static final class ContinueSignal extends RuntimeException {}
+
+    /**
+     * 受控超深异常（Exception 族，P1-6）：语句递归超过 {@link #MAX_EXEC_DEPTH} 时抛出。
+     * eval 分支的 {@code catch (Exception)} 捕获 → 输出归零，绝不以 StackOverflowError 逃逸。
+     * Controlled too-deep exception (Exception family, P1-6): thrown when the statement
+     * recursion exceeds {@link #MAX_EXEC_DEPTH}. The eval branch's {@code catch (Exception)}
+     * intercepts it → outputs pinned to 0; never escapes as a StackOverflowError.
+     */
+    public static final class ExecTooDeepException extends RuntimeException {
+        public ExecTooDeepException(int depth) {
+            super("statement nesting exceeds " + MAX_EXEC_DEPTH + " levels (depth " + depth + ")");
+        }
+    }
 
     /** 挂起信号:循环边界 slice 耗尽,携带 carrier 抛出。 / Suspend signal: slice exhausted at a loop boundary, carries the carrier. */
     public static final class SuspendSignal extends RuntimeException {
@@ -149,12 +176,15 @@ public final class FormulaInterpreter {
     }
 
     /** 带 resume 栈与累计迭代数的续算入口(resumeStack = carrier.loopStack)。
-     *  Resume entry point with the carrier's loop stack and spread-wide iteration count. */
+     *  深度计数从 0 开始 —— 每次 exec 调用独立,续算不继承上一次的深度（P1-6）。
+     *  Resume entry point with the carrier's loop stack and spread-wide iteration count.
+     *  The depth count starts at 0 — each exec call is independent; resuming never
+     *  inherits the previous call's depth (P1-6). */
     public static void exec(List<FormulaAst.Stmt> stmts, Map<String, Value> env, long sliceNs,
                             List<LoopState> resumeStack, long initTotal) {
         var ctx = new Ctx(sliceNs, env, resumeStack, initTotal);
         try {
-            runBody(stmts, env, ctx, 0);
+            runBody(stmts, env, ctx, 0, 0);
         } catch (BreakSignal b) {
             // 顶层 break lenient 忽略(校验期已提示)/ top-level break is leniently ignored
         }
@@ -163,21 +193,26 @@ public final class FormulaInterpreter {
     /**
      * 执行语句列表。续算模式(depth < loopStack.size()):寻径执行——跳过已快照化的前缀语句,
      * 直达深度 depth 处的挂起循环,其后语句在循环完成后正常执行。
+     * recDepth = 语句体嵌套深度（P1-6 守卫,与 depth 的"循环栈索引"语义正交）。
      * Run a statement list. Resume mode (depth < stack size): seek execution — skip the
      * snapshotted prefix, jump to the suspended loop at stack depth `depth`; statements after
      * it run normally once the loop completes.
+     * recDepth = body-nesting depth (P1-6 guard, orthogonal to `depth`'s loop-stack-index
+     * meaning).
      */
-    private static void runBody(List<FormulaAst.Stmt> stmts, Map<String, Value> env, Ctx ctx, int depth) {
+    private static void runBody(List<FormulaAst.Stmt> stmts, Map<String, Value> env, Ctx ctx,
+                                int depth, int recDepth) {
+        if (recDepth > MAX_EXEC_DEPTH) throw new ExecTooDeepException(recDepth);
         FormulaAst.Stmt target = depth < ctx.loopStack.size() ? ctx.loopStack.get(depth).loop : null;
         if (target == null) {
-            for (var s : stmts) execStmt(s, env, ctx, depth);
+            for (var s : stmts) execStmt(s, env, ctx, depth, recDepth);
             return;
         }
         int i = 0;
         for (; i < stmts.size(); i++) {
-            if (containsLoop(stmts.get(i), target)) { execStmt(stmts.get(i), env, ctx, depth); i++; break; }
+            if (containsLoop(stmts.get(i), target)) { execStmt(stmts.get(i), env, ctx, depth, recDepth); i++; break; }
         }
-        for (; i < stmts.size(); i++) execStmt(stmts.get(i), env, ctx, depth);
+        for (; i < stmts.size(); i++) execStmt(stmts.get(i), env, ctx, depth, recDepth);
     }
 
     /** 该语句(或其嵌套体)是否包含目标循环。 / Does this statement (or its nested bodies) contain the target loop. */
@@ -192,7 +227,7 @@ public final class FormulaInterpreter {
         };
     }
 
-    private static void execStmt(FormulaAst.Stmt s, Map<String, Value> env, Ctx ctx, int depth) {
+    private static void execStmt(FormulaAst.Stmt s, Map<String, Value> env, Ctx ctx, int depth, int recDepth) {
         switch (s) {
             case FormulaAst.AssignStmt a -> env.put(a.var(), FormulaParser.evaluateValue(a.rpn(), env));
             case FormulaAst.ExprStmt e -> FormulaParser.evaluateValue(e.rpn(), env); // 结果丢弃 / discard
@@ -202,7 +237,7 @@ public final class FormulaInterpreter {
                 for (long k = st.k; k < r.count(); k++) {
                     ctx.boundaryCheck();
                     try {
-                        runBody(r.body(), env, ctx, stDepth + 1);
+                        runBody(r.body(), env, ctx, stDepth + 1, recDepth + 1);
                     } catch (ContinueSignal c) {
                         // 下一轮 / next iteration
                     } catch (BreakSignal b) {
@@ -223,7 +258,7 @@ public final class FormulaInterpreter {
                 while (truthy(FormulaParser.evaluateValue(w.condRpn(), env))) {
                     ctx.boundaryCheck();
                     try {
-                        runBody(w.body(), env, ctx, stDepth + 1);
+                        runBody(w.body(), env, ctx, stDepth + 1, recDepth + 1);
                     } catch (ContinueSignal c) {
                         // 下一轮 / next iteration
                     } catch (BreakSignal b) {
@@ -234,7 +269,7 @@ public final class FormulaInterpreter {
             }
             case FormulaAst.IfStmt i -> {
                 boolean take = truthy(FormulaParser.evaluateValue(i.condRpn(), env));
-                runBody(take ? i.body() : i.elseBody(), env, ctx, depth);
+                runBody(take ? i.body() : i.elseBody(), env, ctx, depth, recDepth + 1);
             }
             case FormulaAst.BreakStmt b -> throw new BreakSignal();
             case FormulaAst.ContinueStmt c -> throw new ContinueSignal();
