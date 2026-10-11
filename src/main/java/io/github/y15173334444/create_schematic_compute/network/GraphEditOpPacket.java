@@ -39,7 +39,14 @@ import java.util.UUID;
  * @see GraphOp
  * @see EditSessionRegistry#applyOp(ServerLevel, BlockPos, GraphOp, ServerPlayer)
  */
-public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
+public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements CustomPacketPayload {
+
+    /**
+     * 常规构造（op 类型已知）：未知序号哨兵 = -1。
+     * <p>Convenience constructor for ops whose type resolved normally; the
+     * unknown-ordinal sentinel is -1.</p>
+     */
+    public GraphEditOpPacket(GraphOp op) { this(op, -1); }
 
     /**
      * Packet type identifier registered with NeoForge custom-payload channel.
@@ -76,7 +83,16 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
                 // Wrap the raw Netty buffer in a Minecraft-friendly helper / 将原始 Netty 缓冲区包装为 Minecraft 友好助手
                 var b = new net.minecraft.network.FriendlyByteBuf(buf);
                 // Operation type ordinal -- tells us which kind of edit this is / 操作类型序号——标识这是哪种编辑操作
-                OpType type = OpType.values()[b.readVarInt()];
+                // P2-9：序号先读入并查表，越界**不断连**——按未知序号处理（合成 REJECT 载体，
+                // 后续字段照常按位置读满以保持流一致），handler 层走既有 REJECT 通路回执。
+                // P2-9: read the ordinal and look it up first; an out-of-range value must NOT
+                // drop the connection — treat it as unknown (synthesise a REJECT carrier, still
+                // read the remaining fields positionally to keep the stream aligned), and the
+                // handler answers via the existing REJECT path.
+                int typeOrd = b.readVarInt();
+                OpType[] opTypes = OpType.values();
+                boolean unknownType = typeOrd < 0 || typeOrd >= opTypes.length;
+                OpType type = unknownType ? OpType.REJECT : opTypes[typeOrd];
                 // Position of the schematic-compute block in the world / 世界中 schematic-compute 方块的位置
                 BlockPos graphPos = b.readBlockPos();
                 int ownerNodeId = b.readVarInt();
@@ -112,7 +128,14 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
                 int imageFrameIndex = b.readVarInt();
                 int hotbarSlot = b.readVarInt();
                 // ItemStack: only present for SET_HOTBAR_ITEM -- skips heavy NBT parse on unrelated ops / 仅在 SET_HOTBAR_ITEM 时存在——无关操作上跳过重量级 NBT 解析
-                ItemStack itemStack = ItemStack.EMPTY;
+                // 缺省 null 而非 ItemStack.EMPTY：与 GraphOp 的记录契约一致（"其余 op 传
+                // null"），也让解码保持 headless 可测（EMPTY 的 <clinit> 需注册表引导）。
+                // 伪造的"SET_HOTBAR_ITEM 但无物品"由 handleServer 的 K15 预检拒绝。
+                // Default null rather than ItemStack.EMPTY: matches the GraphOp record contract
+                // ("all other ops pass null") and keeps decode headless-testable (EMPTY's
+                // <clinit> needs registry bootstrap). A forged "SET_HOTBAR_ITEM without item" is
+                // refused by the K15 pre-check in handleServer.
+                ItemStack itemStack = null;
                 if (b.readBoolean()) {
                     // Must cast to RegistryFriendlyByteBuf so the codec can resolve registry entries / 必须转换为 RegistryFriendlyByteBuf，以便编解码器解析注册表条目
                     itemStack = ItemStack.OPTIONAL_STREAM_CODEC.decode(
@@ -125,13 +148,45 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
                 // blobRefId links to a binary blob stored separately (e.g. image attachment) / blobRefId 关联到单独存储的二进制数据（例如图像附件）
                 int blobRefId = VarInt.read(buf);
                 // Raw image pixel data, length-prefixed; null/empty when no image is attached / 原始图像像素数据，带长度前缀；无图像附件时为空
+                // P0-1 安全钳制：先校验后分配。合法负载上界 = 像素画布上限
+                //（GraphNode.IMAGE_MAX_SIZE² = 32×32 = 1024 像素，SET_IMAGE_PIXELS 是唯一
+                // 携带 imageData 的 op），超限 = 协议错误（DecoderException），不静默截断。
+                // P0-1 safety clamp: validate before allocate. The legitimate payload ceiling is
+                // the pixel-canvas cap (GraphNode.IMAGE_MAX_SIZE² = 32×32 = 1024 pixels;
+                // SET_IMAGE_PIXELS is the only op carrying imageData); over-limit is a protocol
+                // error (DecoderException), never silently truncated.
                 int[] imageData = null;
                 int imgLen = VarInt.read(buf);
+                if (imgLen < 0 || imgLen > io.github.y15173334444.create_schematic_compute.graph.GraphNode.IMAGE_MAX_SIZE
+                        * io.github.y15173334444.create_schematic_compute.graph.GraphNode.IMAGE_MAX_SIZE)
+                    throw new io.netty.handler.codec.DecoderException(
+                        "GraphEditOpPacket: imageData length out of bounds: " + imgLen
+                            + " (limit " + (io.github.y15173334444.create_schematic_compute.graph.GraphNode.IMAGE_MAX_SIZE
+                            * io.github.y15173334444.create_schematic_compute.graph.GraphNode.IMAGE_MAX_SIZE) + ")");
                 if (imgLen > 0) {
                     imageData = new int[imgLen];
                     for (int i = 0; i < imgLen; i++) imageData[i] = buf.readInt();
                 }
                 // Construct the immutable record wrapping the reconstructed GraphOp / 构造包装了重构 GraphOp 的不可变记录
+                // 未知 op 序号（P2-9）：合成 REJECT 载体（paramIndex=线缆原始序号，与
+                // GraphOp.reject 的打包惯例一致），unknownWireOrdinal 记录真实序号供
+                // handler 层回执与日志 —— 不断连、不应用。
+                // Unknown op ordinal (P2-9): synthesize a REJECT carrier (paramIndex = the raw
+                // wire ordinal, same packing convention as GraphOp.reject); unknownWireOrdinal
+                // keeps the real ordinal for the handler's receipt and logging — no disconnect,
+                // no application.
+                if (unknownType) {
+                    return new GraphEditOpPacket(new GraphOp(
+                        type, graphPos, ownerNodeId, targetNodeId,
+                        tempId, nodeType, x, y,
+                        fromId, fromPin, toId, toPin,
+                        typeOrd, paramValue, stringValue,
+                        colorBg, colorBorder, colorText,
+                        sortB, bands, keyIndex, imageFrameIndex,
+                        hotbarSlot, itemStack, editVersion, actor,
+                        blobRefId, imageData
+                    ), typeOrd);
+                }
                 return new GraphEditOpPacket(new GraphOp(
                     type, graphPos, ownerNodeId, targetNodeId,
                     tempId, nodeType, x, y,
@@ -243,26 +298,32 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
      * <p>
      * 当 {@link GraphEditOpPacket} 从客户端到达时调用的服务端处理器。
      * <p>
-     * The handler performs three security checks before applying the operation:
+     * The handler performs these security checks before applying the operation:
      * <ol>
      *   <li>The sender must be a valid {@link ServerPlayer} on a {@link ServerLevel}.</li>
+     *   <li>Unknown op ordinals (P2-9) are answered with a REJECT receipt instead of crashing.</li>
+     *   <li>Out-of-bounds slot / frame / control-point indices (K15) are rejected.</li>
      *   <li>The sender must be within {@link #MAX_EDIT_DIST_SQ} of the target block.</li>
      *   <li>The sender must be a registered editor of the target edit session.</li>
      * </ol>
      * <p>
-     * 处理器在应用操作之前执行三项安全检查：
+     * 处理器在应用操作之前执行以下安全检查：
      * <ol>
      *   <li>发送者必须是 {@link ServerLevel} 上的有效 {@link ServerPlayer}。</li>
+     *   <li>未知 op 序号（P2-9）以 REJECT 回执应答而非崩溃断连。</li>
+     *   <li>越界的槽位 / 帧 / 控制点索引（K15）一律拒绝。</li>
      *   <li>发送者必须在目标方块的 {@link #MAX_EDIT_DIST_SQ} 距离内。</li>
      *   <li>发送者必须是目标编辑会话的已注册编辑者。</li>
      * </ol>
      * <p>
      * On success, the player UUID is stamped into a new {@code GraphOp} (overwriting
      * whatever UUID the client claimed) so the server is the authoritative source of
-     * actor identity.
+     * actor identity, and the blob-ownership scope is bound to the sender so
+     * {@code BlobRegistry} lookups only see blobs uploaded by this player.
      * <p>
      * 成功时，玩家的 UUID 被写入新的 {@code GraphOp}（覆盖客户端声明的任何 UUID），
-     * 使服务端成为操作者身份的权威来源。
+     * 使服务端成为操作者身份的权威来源；同时把 blob 归属作用域绑定到发送者，
+     * 使 {@code BlobRegistry} 的取用只能看见该玩家自己上传的 blob。
      *
      * @param pkt the incoming packet from the client / 来自客户端的入站数据包
      * @param ctx the NeoForge payload context providing access to the player / NeoForge 负载上下文，提供对玩家的访问
@@ -274,15 +335,57 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
             // Guard: must be on a server level (not a client-only fake world) / 守卫：必须在服务端世界（而非仅客户端的虚拟世界）
             if (!(sp.level() instanceof ServerLevel sl)) return;
+            // P2-6 撤销恢复：为 OpExecutor 注入服务端注册表访问（恢复 ENCAPSULATION 子图
+            // 里的物品需要）。每个 op 都以发送时的 level 刷新 —— 维度切换后自动取新值，
+            // 恢复在本次调用内同步完成，不存在过期引用。
+            // P2-6 undo restore: inject the server registry access into OpExecutor (needed to
+            // restore ItemStacks inside a restored ENCAPSULATION sub-graph). Refreshed with the
+            // sender's current level on every op, so a dimension switch always provides the
+            // fresh value; the restore completes synchronously within this call.
+            io.github.y15173334444.create_schematic_compute.graph.OpExecutor
+                .setRegistryAccess(sp.level().registryAccess());
+            // P2-9：未知 op 序号 = 版本不匹配或改包客户端 —— 走既有 REJECT 通路优雅回执
+            //（paramIndex 回显线缆原始序号，较新客户端可按自己的枚举定位被拒类型），
+            // 绝不断连、绝不应用。
+            // P2-9: an unknown op ordinal means a version mismatch or a modified client —
+            // answer gracefully via the existing REJECT path (paramIndex echoes the raw wire
+            // ordinal so a newer client can locate the refused type in its own enum). Never
+            // disconnect, never apply.
+            if (pkt.unknownWireOrdinal() >= 0) {
+                SchematicCompute.LOGGER.debug(
+                    "[GraphEditOp] unknown op ordinal {} from {}", pkt.unknownWireOrdinal(),
+                    sp.getName().getString());
+                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
+                    new GraphEditOpSyncPacket(io.github.y15173334444.create_schematic_compute.graph.GraphOp
+                        .rejectUnknownOrdinal(pkt.op(), pkt.unknownWireOrdinal(), sp.getUUID())));
+                return;
+            }
             var pos = pkt.op.graphPos();
+            // K15：越界索引在进入会话层之前拒收 —— 走既有 REJECT 通路（客户端归还待 ACK
+            // 计数并按类型回滚本地乐观态），执行器内的对应钳制保留作纵深防御。
+            // K15: out-of-bounds indices are refused before the session layer — via the
+            // existing REJECT path (the client returns its pending-ACK count and rolls back
+            // per type); the matching executor-side caps stay as defense in depth.
+            String boundsViolation = opBoundsViolation(pkt.op());
+            if (boundsViolation != null) {
+                SchematicCompute.LOGGER.debug(
+                    "[GraphEditOp] rejected ({}: {}) op={} from {}", boundsViolation, pos,
+                    pkt.op.type(), sp.getName().getString());
+                net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
+                    new GraphEditOpSyncPacket(io.github.y15173334444.create_schematic_compute.graph.GraphOp.reject(pkt.op, sp.getUUID())));
+                return;
+            }
             // Security: reject if the player is too far from the edit target / 安全检查：玩家距离编辑目标过远则拒绝
             // 静默丢弃 = 客户端永远收不到 ACK，pendingLocalOps 计数泄漏、编辑区"上传失败"无迹可查：
             // 回 REJECT 归还计数并打日志（问题：节点编辑区输入数据时上传失败）。
             // A silent drop means no ACK ever arrives: the client's pendingLocalOps counter leaks
             // and the edit panel's "upload failed" leaves no trace. Send REJECT to return the
             // counter and log it (issue: edit-panel input upload fails).
+            // P2-11：丢弃路径日志降 DEBUG —— 配合 K21 无限流，INFO 每包一条会刷盘。
+            // P2-11: drop-path logs downgraded to DEBUG — with K21's unthrottled streams an
+            // INFO-per-packet floods the log/disk.
             if (!io.github.y15173334444.create_schematic_compute.network.SablePacketHelper.isWithinReachableRange(sp, pos, MAX_EDIT_DIST_SQ)) {
-                io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.info(
+                SchematicCompute.LOGGER.debug(
                     "[GraphEditOp] dropped (out of range) op={} from {}", pkt.op.type(), sp.getName().getString());
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
                     new GraphEditOpSyncPacket(io.github.y15173334444.create_schematic_compute.graph.GraphOp.reject(pkt.op, sp.getUUID())));
@@ -290,7 +393,7 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
             }
             // Security: reject if the player is not a registered editor of this session / 安全检查：玩家不是此编辑会话的已注册编辑者则拒绝
             if (!EditSessionRegistry.getEditors(sl, pos).contains(sp.getUUID())) {
-                io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.info(
+                SchematicCompute.LOGGER.debug(
                     "[GraphEditOp] dropped (not a registered editor) op={} from {}", pkt.op.type(), sp.getName().getString());
                 net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
                     new GraphEditOpSyncPacket(io.github.y15173334444.create_schematic_compute.graph.GraphOp.reject(pkt.op, sp.getUUID())));
@@ -310,8 +413,65 @@ public record GraphEditOpPacket(GraphOp op) implements CustomPacketPayload {
                 pkt.op.editVersion(), sp.getUUID(),
                 pkt.op.blobRefId(), pkt.op.imageData());
             // Apply the authenticated operation to the edit session / 将已鉴权的操作应用到编辑会话
-            EditSessionRegistry.applyOp(sl, pos, authenticatedOp, sp);
+            // P0-2 blob 归属：把发送者身份绑定为本次会话内 BlobRegistry 取用的请求者 ——
+            // poll/peek 只能取到**本玩家**上传的 blob，其他玩家同 id 的预置字节不可见
+            //（串包投毒被消除；异常路径 finally 清除作用域，fail-closed）。
+            // P0-2 blob ownership: bind the sender as the requester for BlobRegistry lookups
+            // within this apply — poll/peek only see blobs uploaded by *this* player; another
+            // player's same-id bytes are invisible (cross-player poisoning eliminated; the
+            // finally clears the scope so failures fail closed).
+            io.github.y15173334444.create_schematic_compute.network.BlobRegistry.beginOwnerScope(sp.getUUID());
+            try {
+                EditSessionRegistry.applyOp(sl, pos, authenticatedOp, sp);
+            } finally {
+                io.github.y15173334444.create_schematic_compute.network.BlobRegistry.endOwnerScope();
+            }
         });
+    }
+
+    /**
+     * K15 边界预检：返回违规描述（可读日志用），合法 op 返回 null。
+     * 覆盖三类客户端可控索引：热栏槽位（实机 9 格）、像素帧索引（帧列表扩容上限）、
+     * 控制点对数（曲线节点实际用量 ≤ 64 点）。
+     * <p>K15 bounds pre-check: returns a violation description (for readable logs) or null
+     * for a legal op. Covers the three client-controlled indices: hotbar slot (9 on a real
+     * player), pixel frame index (frame-list expansion cap), and control-point pairs
+     * (curve nodes actually use at most 64 points).</p>
+     *
+     * @param op the op to check / 待检查的 op
+     * @return violation description, or null if in bounds / 违规描述；界内返回 null
+     */
+    static String opBoundsViolation(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
+        switch (op.type()) {
+            case SET_HOTBAR_ITEM -> {
+                // itemStack 缺失（编码旗标为假的伪造 op）= 拒绝：落 null 槽会让 GraphNode.save
+                // 的 saveOptional NPE —— 服务端权威路径绝不写入 null 物品。
+                // A missing itemStack (forged op with the encode flag false) = refuse: a null
+                // slot would NPE GraphNode.save's saveOptional — the authoritative server path
+                // never writes a null item.
+                if (op.hotbarSlot() < 0 || op.hotbarSlot() >= io.github.y15173334444.create_schematic_compute.graph.OpExecutor.HOTBAR_SLOTS)
+                    return "hotbarSlot=" + op.hotbarSlot();
+                if (op.itemStack() == null)
+                    return "itemStack=null";
+            }
+            case SET_IMAGE_PIXELS -> {
+                // paramIndex 承载帧索引（见 GraphOp.setImagePixels）
+                // paramIndex carries the frame index (see GraphOp.setImagePixels)
+                if (op.paramIndex() < 0 || op.paramIndex() > io.github.y15173334444.create_schematic_compute.graph.OpExecutor.MAX_SEQUENCE_FRAMES)
+                    return "frameIndex=" + op.paramIndex();
+            }
+            case SET_CTRL_POINTS -> {
+                // 点数上限在 parseCtrlPoints 内也钳（返回 null → 执行器跳过）；
+                // 此处以 REJECT 语义前置拒绝，客户端可回滚。
+                // The point cap is also clamped in parseCtrlPoints (null → executor skips);
+                // here it is rejected up front with REJECT semantics so the client can roll back.
+                int points = op.stringValue() == null ? 0 : op.stringValue().split(";").length;
+                if (points > io.github.y15173334444.create_schematic_compute.graph.GraphOp.MAX_CTRL_POINTS)
+                    return "ctrlPoints=" + points;
+            }
+            default -> { /* 其余 op 无客户端可控数组索引 / other ops carry no client-sized array index */ }
+        }
+        return null;
     }
 
 }

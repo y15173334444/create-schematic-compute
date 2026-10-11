@@ -75,6 +75,21 @@ public record GraphPresencePacket(
         new Type<>(ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "graph_presence"));
 
     /**
+     * 多选集合的解码上限（协议错误阈值，非业务截断）。选择列表的合法规模是"图内节点数"
+     * （全选是最坏情况，正常图为数百节点量级）；4 096 已远超任何合理图规模。
+     * 超限 = 畸形/恶意包，抛 DecoderException 断开该连接，绝不按声明长度分配数组
+     * （P0-1：先校验后分配，varint 可声明至 2³¹-1，直接 new 会单包打爆服务端内存）。
+     * <p>Decode cap for the multi-select array (a protocol-error threshold, not a business
+     * truncation). The legitimate size is "node count of the graph" (select-all is the worst
+     * case; realistic graphs are hundreds of nodes). 4 096 far exceeds any sane graph.
+     * Over-limit = malformed/malicious packet → DecoderException drops the connection; the
+     * array is never allocated at the declared length (P0-1: validate before allocate — a
+     * varint can claim up to 2³¹-1 and a bare {@code new int[count]} lets one packet OOM the
+     * server's network thread).</p>
+     */
+    public static final int MAX_SELECTED_NODE_IDS = 4096;
+
+    /**
      * Self-contained {@link StreamCodec} that serializes/deserializes every
      * component field of the presence record to/from a network buffer.
      *
@@ -107,7 +122,16 @@ public record GraphPresencePacket(
                 float wey = b.readFloat();
                 // Multi-select array: length-prefixed with a VarInt, followed by that many entries
                 // 多选数组：先用 VarInt 写入长度，再依次写入对应数量的条目
+                // P0-1 安全钳制：先校验后分配。负数或超限的 count 视为协议错误
+                //（DecoderException → NeoForge 断开该连接），绝不按声明值分配数组。
+                // P0-1 safety clamp: validate before allocate. A negative or oversized count is a
+                // protocol error (DecoderException → NeoForge drops the connection); the array is
+                // never allocated at the declared length.
                 int count = b.readVarInt();
+                if (count < 0 || count > MAX_SELECTED_NODE_IDS)
+                    throw new io.netty.handler.codec.DecoderException(
+                        "GraphPresencePacket: selectedNodeIds count out of bounds: " + count
+                            + " (limit " + MAX_SELECTED_NODE_IDS + ")");
                 int[] selIds = new int[count];
                 for (int i = 0; i < count; i++) selIds[i] = b.readVarInt();
                 // 编辑模式 + 显示布局拖拽节点（追加在末尾，保持与旧字段的顺序兼容）
@@ -166,14 +190,27 @@ public record GraphPresencePacket(
     public static void handleServer(GraphPresencePacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
-            // Wrap the presence data into a relay packet for each recipient
-            // 将临场数据包装为中继数据包，发往每位接收者
-            var sync = new GraphPresenceSyncPacket(pkt);
+            // P1-2：中继包的身份字段由服务端从经过认证的玩家对象派生，**不转发**客户端自带的
+            // UUID/名字（客户端可任意伪造 —— 包内 player/playerName 仅是编辑内容，不是身份）。
+            // 载荷中的 player 字段因此只对 C2S 方向有意义，S2C 一律服务端回填。
+            // P1-2: the relayed packet's identity fields are derived server-side from the
+            // authenticated player object; the client-supplied UUID/name are never forwarded
+            // (they are freely forgeable — packet fields are edited *content*, not identity).
+            // The player field therefore only means anything C2S; S2C is always server-filled.
+            var authoritative = new GraphPresencePacket(
+                pkt.pos(), sp.getUUID(), sp.getGameProfile().getName(),
+                pkt.ownerNodeId(), pkt.cursorX(), pkt.cursorY(),
+                pkt.selectedNodeId(), pkt.editingNodeId(),
+                pkt.wireFromNode(), pkt.wireFromPin(), pkt.wireEndX(), pkt.wireEndY(),
+                pkt.selectedNodeIds(), pkt.mode(), pkt.displayDraggedNodeId(), pkt.editingGraphName());
+            // Wrap the server-derived presence into a relay packet for each recipient
+            // 将服务端派生的临场数据包装为中继数据包，发往每位接收者
+            var sync = new GraphPresenceSyncPacket(authoritative);
             // Editors of the schematic block on this dimension
             // 当前维度下该原理图方块的所有编辑者
             var editors = EditSessionRegistry.getEditors(sp.serverLevel(), pkt.pos);
-            // Use authenticated player UUID, ignore client-supplied UUID
-            // 使用经过认证的玩家 UUID，忽略客户端上报的 UUID
+            // Skip-self 用真实 UUID（与中继包回填的一致）
+            // Skip-self uses the real UUID (consistent with the relay's server-derived one)
             var senderUUID = sp.getUUID();
             for (var editorId : editors) {
                 if (editorId.equals(senderUUID)) continue;

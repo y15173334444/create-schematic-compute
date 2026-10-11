@@ -152,6 +152,22 @@ public record GraphOp(
             refused.type().ordinal(), 0f, null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor);
     }
 
+    /**
+     * REJECT 回执（P2-9 未知 op 序号变体）：paramIndex 显式携带**线缆原始序号**而非本端
+     * 枚举序 —— 对端（较新版本）可按它自己的枚举定位被拒类型并回滚本地乐观态；本端
+     * 无法表达该类型（这正是它被拒的原因），故不能用 {@link #reject(GraphOp, UUID)}。
+     * <p>REJECT receipt for unknown op ordinals (P2-9): paramIndex carries the <b>raw wire
+     * ordinal</b> instead of a local enum ordinal — the peer (a newer version) can locate the
+     * refused type in its own enum and roll back its optimistic state. This side cannot
+     * express that type (which is exactly why it was refused), so
+     * {@link #reject(GraphOp, UUID)} cannot be used here.</p>
+     */
+    public static GraphOp rejectUnknownOrdinal(GraphOp refused, int wireOrdinal, UUID actor) {
+        return new GraphOp(OpType.REJECT, refused.graphPos(), refused.ownerNodeId(), refused.targetNodeId(),
+            refused.tempId(), refused.nodeType(), 0f, 0f, refused.fromId(), refused.fromPin(), refused.toId(), refused.toPin(),
+            wireOrdinal, 0f, null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor);
+    }
+
     public static GraphOp setParam(BlockPos pos, int ownerNodeId, int nodeId,
                                     int paramIdx, float value, UUID actor) {
         return setParam(pos, ownerNodeId, nodeId, paramIdx, value, null, actor);
@@ -353,11 +369,22 @@ public record GraphOp(
             sb.toString(), 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
     }
 
-    /** 解析 SET_CTRL_POINTS 的 stringValue 为控制点对。返回 [ctrlX[], ctrlY[]] 或 null。 */
+    /** 解析 SET_CTRL_POINTS 的 stringValue 为控制点对。返回 [ctrlX[], ctrlY[]] 或 null。
+     *  K15 上界：点数超过 {@link #MAX_CTRL_POINTS}（曲线节点实际用量 ≤ 64）返回 null
+     *  （执行器按拒绝处理）；stringValue 由 readUtf 的 32 767 字符上限兜底，split 本身有界。
+     *  Parse SET_CTRL_POINTS' stringValue into control-point pairs. Returns [ctrlX[], ctrlY[]]
+     *  or null. K15 cap: more than {@link #MAX_CTRL_POINTS} pairs (curve nodes actually use
+     *  at most 64) yields null (the executor treats it as refused); stringValue is itself
+     *  bounded by readUtf's 32 767-char cap, so the split is bounded too. */
+    public static final int MAX_CTRL_POINTS = 64;
+
     public static float[][] parseCtrlPoints(String str) {
         if (str == null || str.isEmpty()) return null;
         try {
             String[] pairs = str.split(";");
+            // K15 上界：超限点数视为非法输入（拒绝），不分配超大数组
+            // K15 cap: an oversized point count is illegal input (refused), never allocated
+            if (pairs.length > MAX_CTRL_POINTS) return null;
             float[] cx = new float[pairs.length];
             float[] cy = new float[pairs.length];
             for (int i = 0; i < pairs.length; i++) {

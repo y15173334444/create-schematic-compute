@@ -74,6 +74,15 @@ public record GraphEditOpSyncPacket(GraphOp op) implements CustomPacketPayload {
         ctx.enqueueWork(() -> {
             if (ctx.player() == null) return;
             var mc = net.minecraft.client.Minecraft.getInstance();
+            // P2-6 撤销恢复：为 OpExecutor 注入客户端注册表访问（恢复 ENCAPSULATION 子图
+            // 里的物品需要；Supplier 式惰性读取当前 level，随维度切换取新值）。与服务端
+            // GraphEditOpPacket.handleServer 的注入同款。
+            // P2-6 undo restore: inject the client registry access into OpExecutor (needed to
+            // restore ItemStacks inside a restored ENCAPSULATION sub-graph; read lazily so a
+            // dimension switch picks up the new level). Mirrors the server-side injection in
+            // GraphEditOpPacket.handleServer.
+            io.github.y15173334444.create_schematic_compute.graph.OpExecutor.setRegistryAccess(
+                mc.level != null ? mc.level.registryAccess() : null);
 
             // 如果编辑器 UI 处于打开状态，将操作委托给 UI 宿主处理，
             // 因为宿主拥有完整的 UI 状态感知能力（选中、连线预览等）

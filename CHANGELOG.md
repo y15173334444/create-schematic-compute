@@ -35,6 +35,15 @@
 
 | Change / 变更 | Description / 说明 |
 |---------------|-------------------|
+| 🐛 **解码器按声明长度分配数组（单包 OOM）** | presence/blob/op 三处解码先按客户端 varint 分配数组再校验，单个伪造包可打爆服务端内存；现全部先校验后分配，超限视为协议错误断连（presence 多选 4096、imageData 画布上限、blob 分片 30KB）。/ Three decoders allocated arrays at client-declared lengths before validating — one forged packet could OOM the server; all now validate first and treat over-limit as a protocol error. |
+| 🐛 **Blob 分片无上限且 blobId 跨玩家串包** | 分片总数无上限（单包数 GB 引用数组、30 秒内可无限刷 pending），自选 blobId 全局共享可预置字节投毒他人 SET_SONG；现钳 64 片/256 条，并按提交者归属分键、取用校验请求者（fail-closed）。/ totalChunks was uncapped (gigabyte arrays, unbounded pending floods) and self-chosen blobIds let players poison each other's SET_SONG; now capped at 64 chunks / 256 entries and keyed by submitter with requester checks. |
+| 🐛 **未知操作序号直接断连** | 伪造/更新版客户端的 op 序号触发 AIOOBE 断开连接；现优雅合成 REJECT 载体并回执（paramIndex 回显线缆原始序号，其余字段解码不错位）。/ A forged or newer-client op ordinal crashed the connection with AIOOBE; it now synthesizes a REJECT carrier and answers a receipt echoing the raw wire ordinal. |
+| 🐛 **座位输入无骑乘校验** | 128 格内的任何玩家可每 tick 覆盖骑乘者按键位掩码完全劫持驾驶、或遥控无人机器；现要求发送者正骑在该座位实体上且位置一致（2 格容差）。/ Any player within 128 blocks could hijack steering tick-by-tick or drive unmanned machines; senders must now be riding that seat entity with a matching position. |
+| 🐛 **临场中继转发客户端伪造身份** | 服务端原样转发客户端自报的 UUID/名字（与 javadoc 声明相反，伪造门槛极低）；现从已认证的玩家对象派生身份再中继。/ The relay forwarded client-claimed UUID/name (contradicting its own javadoc); identity is now derived from the authenticated ServerPlayer before relaying. |
+| 🐛 **Sable 扫描信任客户端坐标与半径** | 任意坐标/超大半径（半径平方还有 int 溢出反而全通过）可反复触发子级全量遍历并刷两条 INFO 日志；现原点取服务端玩家位置、半径钳 1..128、日志降 DEBUG。/ Scans trusted the client's pos and radius (the squared radius even overflowed int and passed); origin is now server-derived, radius clamped to 1..128, logs downgraded to DEBUG. |
+| 🐛 **越界索引无上界（热栏/帧/控制点）** | 热栏槽位与像素帧索引可声明至 2^31-1 造成无界数组扩容（负帧索引还会 IOOBE 崩 apply），控制点数无上限；现 op 解码层 REJECT 预检 + 执行器纵深防御（槽位 0..8、帧 0..63、控制点 ≤64）。/ Hotbar slots, pixel frame indices (negative ones even IOOBE-crashed apply) and control-point counts were unbounded; all are now refused via REJECT pre-checks plus executor defence-in-depth. |
+| 🐛 **撤销恢复丢失曲目与封装子图** | REMOVE_NODE 撤销的恢复清单缺 song 与 subGraph——Ctrl+Z 看似成功，整首曲目/整段封装静默丢失；现已随快照恢复（含嵌套内容，注册表访问沿两条 op 应用路径注入）。/ REMOVE_NODE undo omitted song and subGraph from its restore list — Ctrl+Z looked fine while whole songs/encapsulations vanished silently; both are restored from the snapshot now. |
+| 🐛 **编辑 op 丢弃路径 INFO 刷盘** | out-of-range / not-editor 每包一条 INFO，配合无服务端限流刷爆日志与磁盘；降 DEBUG。/ Drop-path INFO per packet floods logs and disk under unthrottled streams; downgraded to DEBUG. |
 
 </details>
 
