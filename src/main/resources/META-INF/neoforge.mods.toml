@@ -36,3 +36,21 @@ logoFile = "icon.png"
     ordering = "NONE"
     side = "BOTH"
     mandatory = true
+
+    # 可选依赖（P2-21）：Sable 缺席时相关功能降级不崩（SableAbsenceTest 锚定），
+    # 故 mandatory = false、ordering/side 照上方 create 条目的既有样式。
+    # 区间下限 = libs/ 实测版本 1.2.2；上限收在 1.3 之前——本模组的 mixin 深入 Sable
+    # 内部包（ControlSeatCameraMixin → mixinhelper），未验证的版本线（含 2.x）应显式
+    # 报警而非静默失效。开口向上则恰好重现 P2-21 要诊断的版本漂移盲区。
+    # Optional dependency (P2-21): features degrade gracefully without Sable (anchored by
+    # SableAbsenceTest), hence mandatory = false with ordering/side mirroring the create
+    # entry above. Floor = the libs/-verified 1.2.2; capped below 1.3 — our mixins target
+    # Sable internals (ControlSeatCameraMixin → mixinhelper), so untested lines (incl. 2.x)
+    # must warn visibly rather than fail silently. An open top would recreate exactly the
+    # drift blind spot P2-21 exists to diagnose.
+    [[mods.dependencies]]
+    modId = "sable"
+    versionRange = "${sable_version_range}"
+    ordering = "NONE"
+    side = "BOTH"
+    mandatory = false

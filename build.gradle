@@ -96,6 +96,14 @@ dependencies {
 
     // 其余本地 JAR 依赖（Flywheel / Ponder / Sable 等），仍需在编译期可见。
     // Remaining local JARs (Flywheel / Ponder / Sable, ...) still needed at compile time.
+    // 注意：Sable 的依赖声明只存在于 neoforge.mods.toml（optional，运行期元数据），
+    // NeoForge 语义下它不要求 build 侧同名依赖；这里 compileOnly/runtimeOnly 已覆盖
+    // 开发环境的编译与运行 classpath，gradle.properties 的 sable_version_range 仅供资源替换。
+    // Note: Sable's dependency declaration lives only in neoforge.mods.toml (optional,
+    // runtime metadata); under NeoForge semantics it requires no matching build-side
+    // dependency — the compileOnly/runtimeOnly lines below already cover the dev compile
+    // and runtime classpaths, and gradle.properties' sable_version_range is just an
+    // expansion token.
     compileOnly fileTree(dir: 'libs', include: '*.jar')
     runtimeOnly fileTree(dir: 'libs', include: '*.jar')
 
@@ -133,6 +141,7 @@ tasks.withType(ProcessResources).configureEach {
             mod_authors             : mod_authors,
             mod_description         : mod_description,
             create_version_range    : create_version_range,
+            sable_version_range     : sable_version_range,
     ]
     inputs.properties replaceProperties
 

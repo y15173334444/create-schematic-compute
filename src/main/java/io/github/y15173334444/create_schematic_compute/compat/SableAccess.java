@@ -7,8 +7,8 @@ import net.minecraft.world.level.Level;
 import java.util.List;
 
 /**
- * 编译期 Sable 访问桥 — 专用服务器安全。
- * Compile-time Sable access bridge — dedicated-server safe.
+ * 编译期 Sable 容器桥 — 专用服务器安全。
+ * Compile-time Sable container bridge — dedicated-server safe.
  *
  * <p>为什么需要这个类：{@code SubLevelContainer} 有一个重载方法
  * {@code getContainer(ClientLevel)}，其方法签名引用 {@code net.minecraft.client.multiplayer.ClientLevel}。
@@ -25,14 +25,24 @@ import java.util.List;
  * DEDICATED_SERVER"). A compile-time reference resolves only the overload actually
  * invoked ({@code getContainer(Level)}), never touching the ClientLevel overload,
  * hence dedicated-server safe (same pattern as the validated {@link SablePoseHelper}).</p>
+ *
+ * <p>P2-19：{@code SableReflection} 反射层退役后，本类是容器访问的唯一入口——
+ * 守卫顺序（空参 → ModList → 才触碰 Sable 类）是全部 Sable 访问的统一纪律，
+ * 供 {@code SablePacketHelper} 等消费方复用。</p>
+ *
+ * <p>P2-19: with the reflective {@code SableReflection} layer retired, this class is the
+ * single entry point for container access — the guard order (null args → ModList → only
+ * then Sable classes) is the shared discipline for all Sable access, reused by
+ * {@code SablePacketHelper} and other consumers.</p>
  */
 public final class SableAccess {
 
     private SableAccess() {}
 
     /**
-     * Compile-time equivalent of {@code SableReflection.getContainer(Level)}.
-     * 编译期版 {@code SableReflection.getContainer(Level)}。
+     * 获取主世界对应的 SubLevelContainer（专用服务器安全：只解析 Level 重载）。
+     * Get the SubLevelContainer for an overworld level (dedicated-server safe:
+     * only the Level overload is ever resolved).
      *
      * @param level the overworld level / 主世界
      * @return the SubLevelContainer, or null if unavailable / SubLevelContainer，不可用时为 null
@@ -46,8 +56,8 @@ public final class SableAccess {
     }
 
     /**
-     * Compile-time equivalent of {@code SableReflection.getAllSubLevels(Object)}.
-     * 编译期版 {@code SableReflection.getAllSubLevels(Object)}。
+     * 获取容器中的所有子关卡。
+     * Get all sub-levels from a container.
      *
      * @param container the container from {@link #getContainer} / getContainer 返回的容器
      * @return the list of sub-levels, or empty if unavailable / 子关卡列表，不可用时为空
@@ -58,19 +68,5 @@ public final class SableAccess {
         try {
             return (List<SubLevel>) (List<?>) container.getAllSubLevels();
         } catch (Exception ignored) { return List.of(); }
-    }
-
-    /**
-     * Compile-time equivalent of {@code SableReflection.getSubLevelLevel(Object)}.
-     * 编译期版 {@code SableReflection.getSubLevelLevel(Object)}。
-     *
-     * @param subLevel a sub-level from {@link #getAllSubLevels} / getAllSubLevels 返回的子关卡
-     * @return the sub-level's Level, or null if unavailable / 子关卡对应的 Level，不可用时为 null
-     */
-    public static Level getSubLevelLevel(SubLevel subLevel) {
-        if (subLevel == null) return null;
-        try {
-            return subLevel.getLevel();
-        } catch (Exception ignored) { return null; }
     }
 }
