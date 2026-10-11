@@ -17,11 +17,11 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * 恶意输入回归（P0-1 / P2-9 / K15 安全批）：解码器"先分配后校验"三处钳制、未知 op
- * 序号的优雅拒绝与 K15 越界索引前置拒收。
- * <p>Malicious-input regressions (P0-1 / P2-9 / K15 security batch): the three
- * "allocate-after-validate" decoder clamps, graceful refusal of unknown op ordinals, and the
- * K15 out-of-bounds index pre-check.</p>
+ * 恶意输入回归（P0-1 / P2-8 / P2-9 / K15 安全批）：解码器"先分配后校验"钳制（含频段上传
+ * 的 64 条上限）、未知 op 序号的优雅拒绝与 K15 越界索引前置拒收。
+ * <p>Malicious-input regressions (P0-1 / P2-8 / P2-9 / K15 security batch): the
+ * "validate-before-allocate" decoder clamps (including the band-upload 64-entry ceiling),
+ * graceful refusal of unknown op ordinals, and the K15 out-of-bounds index pre-check.</p>
  *
  * <p>安全语义：超限 = 协议错误（DecoderException → 断开该连接），绝不按声明长度分配
  * 数组；未知 op 序号 = REJECT 回执而非 AIOOBE 断连。</p>
@@ -181,6 +181,59 @@ class NetworkMalformedInputTest {
             for (int i = 0; i < 1024; i++) buf.writeInt(i);
             var pkt = GraphEditOpPacket.CODEC.decode(buf);
             assertEquals(1024, pkt.op().imageData().length);
+        } finally { buf.release(); }
+    }
+
+    // ═══════════ P2-8：BusBandUploadPacket 频段数先校验后读取 ═══════════
+
+    /** 手工构造频段上传包头部（频段列表字段取给定 count，便于注入畸形值）。
+     *  Hand-builds a band-upload packet header (the band-list field set to the given count). */
+    private static ByteBuf bandUploadBufWithCount(int count) {
+        var b = new FriendlyByteBuf(Unpooled.buffer());
+        b.writeBlockPos(POS);
+        b.writeUtf("alpha");
+        b.writeVarInt(count);
+        return b;
+    }
+
+    @Test
+    @DisplayName("频段上传: count 声明超 64 抛 DecoderException（P2-8，与 op 路径 64 钳制对齐）")
+    void bandUploadOverLimitCountIsProtocolError() {
+        ByteBuf buf = bandUploadBufWithCount(65);
+        try {
+            assertThrows(DecoderException.class, () -> BusBandUploadPacket.CODEC.decode(buf),
+                "超限列表不得进入 reconcileBands 并随图 NBT 落盘");
+        } finally { buf.release(); }
+    }
+
+    @Test
+    @DisplayName("频段上传: count 声明 2^31-1 / 负数同为协议错误（不按声明值分配）")
+    void bandUploadHugeAndNegativeCountRejected() {
+        for (int bad : new int[]{Integer.MAX_VALUE, -1}) {
+            ByteBuf buf = bandUploadBufWithCount(bad);
+            try {
+                assertThrows(DecoderException.class, () -> BusBandUploadPacket.CODEC.decode(buf),
+                    "count=" + bad + " 必须拒绝");
+            } finally { buf.release(); }
+        }
+    }
+
+    @Test
+    @DisplayName("频段上传: 恰 64 条仍可解码，且合法包 round-trip 不受钳制影响")
+    void bandUploadAtCapStillDecodes() {
+        var bands = new java.util.ArrayList<String>();
+        for (int i = 0; i < BusBandUploadPacket.MAX_BANDS; i++) bands.add("band_" + i);
+        var pkt = new BusBandUploadPacket(POS, "alpha", bands, 5);
+        ByteBuf buf = Unpooled.buffer();
+        try {
+            BusBandUploadPacket.CODEC.encode(buf, pkt);
+            var out = BusBandUploadPacket.CODEC.decode(buf);
+            assertEquals(POS, out.pos());
+            assertEquals("alpha", out.busName());
+            assertEquals(BusBandUploadPacket.MAX_BANDS, out.bands().size(), "恰好 64 条必须通过");
+            assertEquals("band_0", out.bands().get(0));
+            assertEquals("band_63", out.bands().get(63));
+            assertEquals(5, out.nodeId());
         } finally { buf.release(); }
     }
 
