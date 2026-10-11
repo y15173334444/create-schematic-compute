@@ -732,7 +732,10 @@ public class EditPanel {
 
     /** Manual EditBox rendering — draws bg, text, and cursor inline without
      *  relying on {@link EditBox#render} which separates fills and text into
-     *  different vertex buffers (causing text to bleed through later draw calls). */
+     *  different vertex buffers (causing text to bleed through later draw calls).
+     *  光标定位走 TextRuler 浮点坐标模型（与绘制同缝，字体模组下不错位）。
+     *  The caret rides TextRuler's float coordinate model (the same seam as drawing —
+     *  no drift under font mods). */
     private static void manualEditBox(GuiGraphics g, EditBox box, int x, int y, int w, int h) {
         boolean focused = box.isFocused();
         g.fill(x - 1, y - 1, x + w + 1, y + h + 1, focused ? 0xFFFFFFFF : 0xFFA0A0A0);
@@ -741,7 +744,8 @@ public class EditPanel {
         g.drawString(Minecraft.getInstance().font, val, x + 4, y + (h - 8) / 2 + 1, 0xFFFFFFFF, false);
         if (focused && (System.currentTimeMillis() / 500L % 2L == 0L)) {
             int cp = Math.min(box.getCursorPosition(), val.length());
-            int cx = x + 4 + Minecraft.getInstance().font.width(val.substring(0, cp));
+            int cx = Math.round(x + 4 + io.github.y15173334444.create_schematic_compute.client.TextRuler
+                .prefixWidth(Minecraft.getInstance().font, val, cp));
             g.fill(cx, y + 2, cx + 1, y + h - 4, 0xFFFFFFFF);
         }
     }

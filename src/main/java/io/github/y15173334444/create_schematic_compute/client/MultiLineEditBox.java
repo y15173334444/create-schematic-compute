@@ -119,7 +119,7 @@ public class MultiLineEditBox extends EditBox {
         int ls = getLineStart(vl.logLine);
         String chunk = text.substring(ls + vl.charStart, ls + Math.min(vl.charEnd, text.length() - ls));
         int visCol = Math.min(cc - vl.charStart, chunk.length());
-        int x = 2 + font.width(chunk.substring(0, Math.max(0, visCol)));
+        int x = Math.round(2 + TextRuler.prefixWidth(font, chunk, Math.max(0, visCol)));
         // y = top-padding + visual-line-offset + font-height + 1px gap
         int y = 3 + vi * lineHeight() + font.lineHeight + 1;
         return new int[]{x, y};
@@ -268,7 +268,14 @@ public class MultiLineEditBox extends EditBox {
             String chunk = text.substring(ls + vl.charStart, ls + vl.charEnd);
             int chunkStartGlobal = ls + vl.charStart;
             int chunkEndGlobal = ls + vl.charEnd;
-            int drawX = getX() + 2;
+            // 单一坐标模型：偏移 k 的 x = x0 + prefixWidth(chunk, k)（浮点、与绘制同缝）——
+            // 各 token 段按**绝对**落点绘制，绝不逐段累加 ceil 宽度（字体模组的浮点字距下
+            // 那会系统性拉宽整行、光标与字符错位）。/ The single coordinate model: the x at
+            // offset k is x0 + prefixWidth(chunk, k) (float, the same seam as drawing) —
+            // token runs are placed at **absolute** positions, never by accumulating ceiled
+            // widths (which systematically stretches the line under fractional-advance font
+            // mods and misaligns the caret).
+            float x0 = getX() + 2;
 
             // Selection bookkeeping
             int selA = Math.min(getCursorPosition(), selAnchor());
@@ -280,22 +287,22 @@ public class MultiLineEditBox extends EditBox {
             if (tokens == null || tokens.isEmpty()) {
                 // ── No highlighter: fallback to uniform-colour rendering ──
                 if (hasSel && selStartInChunk < selEndInChunk) {
-                    int selX1 = drawX + font.width(chunk.substring(0, selStartInChunk));
-                    int selX2 = drawX + font.width(chunk.substring(0, selEndInChunk));
-                    g.fill(selX1, y - 1, selX2, y + font.lineHeight, 0xFF2B5A8C);
-                    g.drawString(font, chunk.substring(0, selStartInChunk), drawX, y, textColor, false);
+                    float selX1 = x0 + TextRuler.prefixWidth(font, chunk, selStartInChunk);
+                    float selX2 = x0 + TextRuler.prefixWidth(font, chunk, selEndInChunk);
+                    g.fill(Math.round(selX1), y - 1, Math.round(selX2), y + font.lineHeight, 0xFF2B5A8C);
+                    g.drawString(font, chunk.substring(0, selStartInChunk), x0, y, textColor, false);
                     g.drawString(font, chunk.substring(selStartInChunk, selEndInChunk), selX1, y, 0xFFFFFFFF, false);
                     g.drawString(font, chunk.substring(selEndInChunk), selX2, y, textColor, false);
                 } else {
-                    g.drawString(font, chunk, drawX, y, textColor, false);
+                    g.drawString(font, chunk, x0, y, textColor, false);
                 }
             } else {
                 // ── Syntax-highlighted rendering: segment chunk by intersecting tokens ──
                 // Draw selection background first (spanning the entire selected range in this chunk)
                 if (hasSel && selStartInChunk < selEndInChunk) {
-                    int selX1 = drawX + font.width(chunk.substring(0, selStartInChunk));
-                    int selX2 = drawX + font.width(chunk.substring(0, selEndInChunk));
-                    g.fill(selX1, y - 1, selX2, y + font.lineHeight, 0xFF2B5A8C);
+                    float selX1 = x0 + TextRuler.prefixWidth(font, chunk, selStartInChunk);
+                    float selX2 = x0 + TextRuler.prefixWidth(font, chunk, selEndInChunk);
+                    g.fill(Math.round(selX1), y - 1, Math.round(selX2), y + font.lineHeight, 0xFF2B5A8C);
                 }
                 // Advance tokIdx past tokens that end before this chunk
                 while (tokIdx < tokens.size() && tokens.get(tokIdx).end() <= chunkStartGlobal) tokIdx++;
@@ -317,26 +324,24 @@ public class MultiLineEditBox extends EditBox {
                     // If there is a gap before this segment, render it in default colour
                     if (segStart > posInChunk) {
                         String gap = chunk.substring(posInChunk, segStart);
-                        drawChunkSegment(g, font, gap, drawX, y, textColor, null, 0,
-                            selStartInChunk, selEndInChunk, posInChunk);
-                        drawX += font.width(gap);
+                        drawChunkSegment(g, font, gap, x0 + TextRuler.prefixWidth(font, chunk, posInChunk),
+                            y, textColor, null, 0, selStartInChunk, selEndInChunk, posInChunk);
                         posInChunk = segStart;
                     }
 
                     String segText = chunk.substring(segStart, segEnd);
                     int segColor = (tk.type().ordinal() < palette.length) ? palette[tk.type().ordinal()] : textColor;
-                    drawChunkSegment(g, font, segText, drawX, y, segColor,
-                        tk.type() == TokType.UNKNOWN ? NodeRenderer.ERR() : null, lineHeight(),
-                        selStartInChunk, selEndInChunk, posInChunk);
-                    drawX += font.width(segText);
+                    drawChunkSegment(g, font, segText, x0 + TextRuler.prefixWidth(font, chunk, segStart),
+                        y, segColor, tk.type() == TokType.UNKNOWN ? NodeRenderer.ERR() : null, lineHeight(),
+                        selStartInChunk, selEndInChunk, segStart);
                     posInChunk = segEnd;
                     curTok++;
                 }
                 // Trailing text after the last token
                 if (posInChunk < chunk.length()) {
                     String tail = chunk.substring(posInChunk);
-                    drawChunkSegment(g, font, tail, drawX, y, textColor, null, 0,
-                        selStartInChunk, selEndInChunk, posInChunk);
+                    drawChunkSegment(g, font, tail, x0 + TextRuler.prefixWidth(font, chunk, posInChunk),
+                        y, textColor, null, 0, selStartInChunk, selEndInChunk, posInChunk);
                 }
             }
 
@@ -345,8 +350,9 @@ public class MultiLineEditBox extends EditBox {
                 && System.currentTimeMillis() / 500 % 2 == 0) {
                 int visCol = cursorCol - vl.charStart;
                 if (visCol >= 0 && visCol <= chunk.length()) {
-                    int curX = getX() + 2 + font.width(chunk.substring(0, Math.min(visCol, chunk.length())));
-                    g.fill(curX, y - 1, curX + 1, y + font.lineHeight, cursorColor);
+                    float curX = x0 + TextRuler.prefixWidth(font, chunk, Math.min(visCol, chunk.length()));
+                    int cx = Math.round(curX);
+                    g.fill(cx, y - 1, cx + 1, y + font.lineHeight, cursorColor);
                 }
             }
         }
@@ -356,7 +362,7 @@ public class MultiLineEditBox extends EditBox {
         {
             int ls = getLineStart(cursorLine);
             String lineText = text.substring(ls, Math.min(ls + cursorCol, text.length()));
-            suggestPopup.anchorX = 2 + font.width(lineText);
+            suggestPopup.anchorX = Math.round(2 + TextRuler.width(font, lineText));
             suggestPopup.anchorY = 3 + cursorLine * lineHeight() + font.lineHeight;
         }
     }
@@ -364,7 +370,10 @@ public class MultiLineEditBox extends EditBox {
     /** Draw a segment of a visual-line chunk, respecting selection highlight.
      *  If {@code errorColor} is non-null and non-zero, draw a 1px underline in that colour.
      *  {@code chunkOffset} is the position of this segment within the chunk.
-     *  绘制视觉行的一个片段，正确处理选区高亮。errorColor 非 null 且非零时画 1px 下划线。 */
+     *  绘制视觉行的一个片段，正确处理选区高亮。errorColor 非 null 且非零时画 1px 下划线。
+     *  片段内再切分（选区）时仍按浮点绝对测量定位——与光标同一坐标模型。
+     *  Sub-splits within the segment (selection) stay on the float absolute measure —
+     *  the same coordinate model as the caret. */
     private static void drawChunkSegment(GuiGraphics g, Font font, String text,
             float drawX, int y, int color, Integer errorColor, int lineH,
             int selStart, int selEnd, int chunkOffset) {
@@ -372,29 +381,29 @@ public class MultiLineEditBox extends EditBox {
         int segEnd = chunkOffset + len;
         // No overlap with selection → draw uniformly
         if (selStart >= selEnd || segEnd <= selStart || chunkOffset >= selEnd) {
-            g.drawString(font, text, (int)drawX, y, color, false);
+            g.drawString(font, text, drawX, y, color, false);
         } else {
             // Split segment around selection
             int preLen = Math.max(0, selStart - chunkOffset);
             int selLen = Math.min(len - preLen, selEnd - Math.max(chunkOffset, selStart));
             // Pre-selection
-            if (preLen > 0) g.drawString(font, text.substring(0, preLen), (int)drawX, y, color, false);
+            if (preLen > 0) g.drawString(font, text.substring(0, preLen), drawX, y, color, false);
             // Selection
             if (selLen > 0) {
-                int selX = (int)drawX + font.width(text.substring(0, preLen));
+                float selX = drawX + TextRuler.width(font, text.substring(0, preLen));
                 g.drawString(font, text.substring(preLen, preLen + selLen), selX, y, 0xFFFFFFFF, false);
                 // Post-selection
                 int postStart = preLen + selLen;
                 if (postStart < len) {
-                    int postX = (int)drawX + font.width(text.substring(0, postStart));
+                    float postX = drawX + TextRuler.width(font, text.substring(0, postStart));
                     g.drawString(font, text.substring(postStart), postX, y, color, false);
                 }
             }
         }
         // Error underline
         if (errorColor != null && errorColor != 0) {
-            int uw = font.width(text);
-            g.fill((int)drawX, y + font.lineHeight, (int)drawX + uw, y + font.lineHeight + 1, errorColor);
+            float uw = TextRuler.width(font, text);
+            g.fill(Math.round(drawX), y + font.lineHeight, Math.round(drawX + uw), y + font.lineHeight + 1, errorColor);
         }
     }
 
@@ -556,7 +565,7 @@ public class MultiLineEditBox extends EditBox {
                 new FormulaSuggestPopup.Candidate("@output", "declare output", "@output "));
             int cl = getCursorLine();
             int ls = getLineStart(cl);
-            int x = 2 + font.width(getValue().substring(ls, getCursorPosition()));
+            int x = Math.round(2 + TextRuler.width(font, getValue().substring(ls, getCursorPosition())));
             int y = 3 + cl * lineHeight() + font.lineHeight;
             suggestPopup.open(x, y, cand);
             return;
@@ -585,7 +594,7 @@ public class MultiLineEditBox extends EditBox {
         // Anchor at caret position — computed directly, no visualLines dependency.
         int cl = getCursorLine();
         int ls = getLineStart(cl);
-        int x = 2 + font.width(text.substring(ls, cursor));
+        int x = Math.round(2 + TextRuler.width(font, text.substring(ls, cursor)));
         int y = 3 + cl * lineHeight() + font.lineHeight;
         suggestPopup.open(x, y, filtered);
     }
@@ -732,12 +741,9 @@ public class MultiLineEditBox extends EditBox {
         int ls = getLineStart(vl.logLine);
         String lineText = getValue().substring(ls + vl.charStart, ls + vl.charEnd);
 
-        int relX = (int)(mx - getX() - 2);
-        int bestCol = 0;
-        for (int c = 0; c <= lineText.length(); c++) {
-            if (font.width(lineText.substring(0, c)) <= relX) bestCol = c;
-            else break;
-        }
+        float relX = (float)(mx - getX() - 2);
+        // 命中映射与光标同坐标模型（浮点前缀宽）/ hit mapping shares the caret's coordinate model (float prefix widths)
+        int bestCol = TextRuler.charIndexAt(font, lineText, relX);
         int newPos = ls + vl.charStart + bestCol;
         setCursorPosition(newPos);
         setHighlightPos(newPos); // reset selection on click / 点击重置选区
@@ -753,12 +759,9 @@ public class MultiLineEditBox extends EditBox {
         VLine vl = visualLines.get(dragVL);
         int ls = getLineStart(vl.logLine);
         String lineText = getValue().substring(ls + vl.charStart, ls + vl.charEnd);
-        int relX = (int)(mx - getX() - 2);
-        int bestCol = 0;
-        for (int c = 0; c <= lineText.length(); c++) {
-            if (font.width(lineText.substring(0, c)) <= relX) bestCol = c;
-            else break;
-        }
+        float relX = (float)(mx - getX() - 2);
+        // 命中映射与光标同坐标模型（浮点前缀宽）/ hit mapping shares the caret's coordinate model (float prefix widths)
+        int bestCol = TextRuler.charIndexAt(font, lineText, relX);
         // Move cursor to drag position; anchor stays where mouseClicked set it
         setCursorPosition(ls + vl.charStart + bestCol);
         return true;
