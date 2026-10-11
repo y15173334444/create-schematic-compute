@@ -2306,7 +2306,20 @@ public class GraphEditor {
                         { hasOther = true; break; }
                 }
                 if (!hasOther) {
-                    io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(n.signalName);
+                    // P1-9 owner 门控（releaseChannel 统一规则）：本节点真正持有才整释；单人
+                    // 档下另一方块持有同名频道时绝不抹对方的定义与值 —— 旧 clearBus 会把对方
+                    // 宿主的收敛推成「空定义」，永久剪掉其 BUS_IN 的连线（缺席守卫被对方尚存
+                    // 的 CHANNELS 条目击败）。
+                    // P1-9 owner gate (the unified releaseChannel rule): a full release only
+                    // when this very node holds the channel; in single player a peer block
+                    // holding the same name keeps its definition and values — the old clearBus
+                    // converged the peer's host to an "empty definition" and permanently pruned
+                    // its BUS_IN wires (the absence guard was defeated by the peer's surviving
+                    // CHANNELS entry).
+                    io.github.y15173334444.create_schematic_compute.network.SignalBus.releaseChannel(
+                        n.signalName,
+                        new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(
+                            host.getBlockPos(), n.id));
                 }
             }
             var savedX = n.x; var savedY = n.y; var savedType = n.type.ordinal();

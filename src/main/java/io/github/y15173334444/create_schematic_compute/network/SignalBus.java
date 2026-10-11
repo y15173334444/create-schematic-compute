@@ -184,6 +184,59 @@ public class SignalBus {
         return released;
     }
 
+    /**
+     * 非发布方编辑器的无主残留清理（P1-9，{@link #releaseChannel}「确证离开 → 退役」的
+     * Case-C 口径）：仅当 {@code CHANNELS} 无该名条目（频道确证已死）时清全局残留
+     * （{@link #clearBus} + {@link #retireBands}，死名收敛清图）；任何存活 owner 在场时
+     * 一律不动 —— BUS_IN 之类的订阅方不持有频道（只有发布方注册），它能证明的只有
+     * 「没有活的发布方」，绝不凭本地推断抹掉存活 owner 的定义与值（单人/局域网下客户端
+     * 编辑器与集成服务端共享同一 JVM 静态表，裸写会穿到权威侧）。
+     * Unowned-residue cleanup for non-publisher editors (P1-9; the case-C shape of
+     * {@link #releaseChannel}'s "provable departure → retire" rule): clear the global residue
+     * ({@link #clearBus} + {@link #retireBands}, the dead-name convergence) only when CHANNELS
+     * holds no entry for the name (the channel is provably dead); a live owner of any kind
+     * keeps everything — a subscriber such as a BUS_IN never owns the channel (only publishers
+     * register), so all it can prove is "no live publisher exists"; it must never wipe a live
+     * owner's definition and values on a local guess (in single-player/LAN the client editor
+     * shares the integrated server's static tables in one JVM, so a raw write reaches the
+     * authoritative side).
+     *
+     * @return true 已清理；false 该名仍有存活 owner、未动
+     * @return true cleaned; false a live owner holds the name, nothing touched
+     */
+    public static boolean clearBusIfUnowned(String busName) {
+        if (getChannel(busName) != null) return false;
+        clearBus(busName);
+        retireBands(busName);
+        return true;
+    }
+
+    /**
+     * 客户端编辑器门控的频段注册（P1-9，对照 {@link #releaseChannel} 的 owner 纪律）：仅当
+     * 该名**未被其他 owner 占用**时才写本地定义 —— 他人持有的名绝不覆盖（跨 owner 破坏防线，
+     * 冲突旗标同步竞态窗口内尤其如此）；无主（无 CHANNELS 条目）或本 owner 持有时放行 ——
+     * 无主时的写入是编辑器的乐观本地值，权威值随后由服务端的频段广播收敛。
+     * Editor-gated band registration (P1-9, mirroring {@link #releaseChannel}'s owner
+     * discipline): write the local definition only when the name is **not held by a foreign
+     * owner** — a foreign-owned name is never overwritten (the cross-owner damage guard,
+     * especially inside the conflict-flag sync race window); unowned (no CHANNELS entry) or
+     * self-owned names pass — an unowned write is the editor's optimistic local value, converged
+     * later by the server's authoritative band broadcasts.
+     *
+     * @return true 已写入；false 被其他 owner 占用、未动
+     * @return true written; false held by another owner, nothing touched
+     */
+    public static boolean registerBandsIfNotForeign(String busName, List<String> bands, ChannelOwner self) {
+        ChannelEntry entry = CHANNELS.get(busName);
+        if (entry != null && !entry.owner.equals(self)) {
+            LOGGER.warn("[SignalBus] Band registration for '{}' by {} rejected — owned by {}",
+                busName, self, entry.owner);
+            return false;
+        }
+        registerBands(busName, bands);
+        return true;
+    }
+
     /** 更新频段音频标志（内容变化才写 + 自增版本）。返回是否发生变化。
      *  Update the per-band audio flags (write + version bump only on change); returns whether it changed. */
     public static boolean setAudioBands(String busName, java.util.Set<String> audioBandNames) {
