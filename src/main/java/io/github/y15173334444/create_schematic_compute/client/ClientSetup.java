@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.client;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.CncGearboxBlockEntity;
 import io.github.y15173334444.create_schematic_compute.blocks.ProgrammableTransmissionBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.RadarBlockEntity;
 import io.github.y15173334444.create_schematic_compute.entity.ControlSeatEntity;
 import io.github.y15173334444.create_schematic_compute.items.PortableTerminalItem;
 import io.github.y15173334444.create_schematic_compute.network.ScanSableResponsePacket;
@@ -32,6 +33,13 @@ public class ClientSetup {
     @net.neoforged.bus.api.SubscribeEvent
     public static void clientSetup(FMLClientSetupEvent event) {
         event.enqueueWork(() -> {
+            // E2：注册客户端 ACK 汇点 —— GraphEditAckPacket（network）→ GraphEditor（UI）
+            // 的解耦路由，网络层不再 import 编辑器。
+            // E2: register the client ACK sink — the decoupled route from
+            // GraphEditAckPacket (network) to GraphEditor (UI); the network layer no
+            // longer imports the editor.
+            io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket
+                .setClientSink(new GraphAckRouter());
             ScanSableResponsePacket.clientHandler = PortableTerminalScreen::onSableScanResult;
             PortableTerminalItem.screenOpener = p -> Minecraft.getInstance().setScreen(new PortableTerminalScreen(p));
             // CNC 齿轮箱 Flywheel 视觉（两端独立旋转体）；Flywheel 不可用时 vanilla renderer 兜底
@@ -73,6 +81,20 @@ public class ClientSetup {
                 });
         });
     }
+    /**
+     * 客户端退世界：清空客户端雷达注册表（P2-15）。与 SchematicCompute 里
+     * {@code GraphEditor.clearTempView()} 的 LoggingOut 清理同事件——区块卸载钩子之外的
+     * 兜底，防止换服务器/换世界残留指向已释放 Level 的死雷达供锁定 UI 遍历。
+     * Client leaves the world: clear the client radar registry (P2-15). Same
+     * {@code LoggingOut} event as SchematicCompute's {@code GraphEditor.clearTempView()}
+     * cleanup — a backstop beyond the chunk-unload hook so switching servers/worlds never
+     * leaves dead radars pointing at a released Level for the lock UI to iterate.
+     */
+    @net.neoforged.bus.api.SubscribeEvent
+    public static void onClientLoggingOut(net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingOut event) {
+        RadarBlockEntity.clearClientRadars();
+    }
+
     @net.neoforged.bus.api.SubscribeEvent
     public static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerEntityRenderer(SchematicCompute.CONTROL_SEAT_ENTITY.get(), NoRenderEntityRenderer::new);
