@@ -1,9 +1,9 @@
 # 遗留问题登记 / Known Open Issues
 
-> 更新日期 / Updated：2026-10-10
+> 更新日期 / Updated：2026-10-11
 > 版本 / Version：1.2.6（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 待办 2 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 待办 3 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -18,6 +18,7 @@
 |---|--------------|------------------------------|--------------------------|---------------|
 | 1 | temp-id 挂起队列随关屏丢弃 | 加点后立刻输入、一个 RTT 内关界面 → 重开回到默认值 | op 日志回放（另立项） | 待立项 |
 | 2 | 频道释放依赖快照路径（含别名死守卫） | 删除/改名的频道释放靠重编译快照兜底，旧图 diff 双守卫恒空转 | 消除别名死守卫 + 收窄释放窗口（撤销/重做语义随做） | 🔶 待办（机制已修正 2026-10-10，影响面降级） |
+| 3 | 打字途中面板重建（补全弹窗被吞 · 输入框每击键换血） | 公式脚本框打字时补全候选框闪现即失，每次击键整个输入框被换实例 | 三处一批：指纹剔公式文本 + SET_FORMULA 远端定点刷新 + 草稿策略 | 🔶 待办（幽灵选区本体已修 2026-10-11） |
 
 ---
 
@@ -109,3 +110,44 @@
 > entries have no final cleanup (they linger until shutdown if the name is never reused), and
 > the band-upload path does not call setChanged (the convergence path persists explicitly) —
 > pre-existing, not a regression.
+
+---
+
+## 3. 打字途中面板重建（补全弹窗被吞 · 输入框每击键换血）
+
+范围 / Scope：`GraphEditor.editStateSignature`（结构指纹）、`GraphEditor.restoreOrRebuildEditStates`（恢复/重建门）、`GraphRemoteApplier`（远端 op 的编辑面板刷新）、`NodeEditStateFactory.create`（控件重建）
+
+### 症状 / Symptom
+
+在公式脚本框打字时，自动补全候选框（`FormulaSuggestPopup`）刚弹出就被吞掉；每次击键整个输入框实例被换掉（视觉行缓存、弹窗状态随之清零）。幽灵选区（删除/输入时部分内容被全选）本体已于 2026-10-11 修复（CHANGELOG 条目「公式编辑区删除/输入时部分内容被全选」），**本条登记的是重建节奏本身的残留**。
+
+### 机制 / Mechanism
+
+打字 → 响应器改 `node.formula` 并发 SET_FORMULA → 图代际变化/远端回声，**两条通道**都重建面板：
+
+1. **指纹通道**：`editStateSignature` 把 `formula.hashCode()` 编进「结构指纹」，公式文本每键变化都被判为结构变化 → `restoreOrRebuildEditStates` 换掉输入框实例。指纹契约的既有例外是「参数**数值**不进指纹」（排除理由正是「值一变就重建会刷掉草稿」）——公式文本是脚本框的「值」，却进了指纹，与该例外自相矛盾。
+2. **远端回声通道**：`GraphRemoteApplier` 对 SET_FORMULA（一切非 SET_PARAM op）走「整个 EditState 重建」——本地 op 的服务器回声每击键重建一次。SET_PARAM 有定点刷新（草稿字符串 setValue + 聚焦守卫），SET_FORMULA 没有。
+
+补全弹窗挂在 MLE 实例上，实例被换掉 → 弹窗即失。
+
+### 触发条件 / Trigger
+
+展开 FORMULA 节点并打字（每击键一次）。键入 `@output` 等改变引脚数的内容会经 `inputs()/outputs()` 触发重建——那是真实结构变化，属正常路径。
+
+### 影响面 / Impact
+
+纯 UX 磨损：补全弹窗在打字中基本不可用；每击键重解析公式 + 校验 + 重建控件与视觉行缓存。不再有数据破坏（幽灵选区与双发 SET_FORMULA 已修，锚点成对恢复/选区契约有回归锚点 `MultiLineEditBoxSelectionTest`、`EditStateRebuildSelectionTest` 锁定）。
+
+### 修复方向 / Fix direction
+
+三处一批，**缺一无效**：
+
+- **指纹剔除 `formula.hashCode()`**：文本的结构效应已由 `inputs()/outputs()/bandCount` 覆盖；同步排查依赖指纹刷新的派生显示（错误边框已由响应器实时 `setHasError`，不依赖重建）。
+- **`GraphRemoteApplier` 的 SET_FORMULA 改定点刷新**：参照 SET_PARAM 分支（草稿字符串 `setValue` + 聚焦守卫），不再整框重建。
+- **草稿策略取舍（动手前先拍板）**：对端 SET_FORMULA 到达时本端正聚焦输入——跳过保草稿（与 SET_PARAM/busBox 同口径）还是强制收敛。
+
+⚠️ 只删指纹那一行是错的做法：远端回声通道照旧每键重建，症状原样复现，且会引入「对端编辑在开着的面板里不显示」的多人新回归。
+
+### 状态 / Status
+
+**🔶 待办。** 幽灵选区本体已修（2026-10-11，v1.2.6 WIP）；本条按「三处一批」另批立项，落地后改 ✅ 并注明版本。
