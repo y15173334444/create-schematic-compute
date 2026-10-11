@@ -44,7 +44,7 @@
 | 包 | graph I=0.00 自洽；blocks I=0.79 上帝包；client I=0.89；network I=0.59 含 18 条向上边 |
 | 文件环 | 46 文件编辑器网（19.6k）；GraphNode↔NodeGraph↔GraphMigration 三角（1.9k）；8 组宿主纵切片三角（设计内聚） |
 | 枢纽 | SchematicCompute in=81；NodeType in=41；NodeGraph in=30；GraphNode in=28；NodeRenderer in=23；GraphEditor in=20/out=20 |
-| 方法 | GraphEvaluator.eval ~1067L；MonitorBER.renderHud 745L；GraphEditor.tryExpandedEditAreaClicks 428L；NodeRenderer.isPrimaryById 393L；FormulaParser.validate 227L |
+| 方法 | GraphEvaluator.eval ~1067L；MonitorBER.renderHud 745L；GraphEditor.tryExpandedEditAreaClicks 428L；FormulaParser.validate 227L（⚠️ 原"NodeRenderer.isPrimaryById 393L"系方法跨度误记，实为 3 行——施工更正见 §三 P2） |
 
 ---
 
@@ -136,14 +136,16 @@ GraphEvaluator——注释里提到类名造成的假边，**代码级均为单�
 
 | 方法 | 行数 | 去向 |
 |---|---|---|
-| isPrimaryById() | **393** | 393 行的谓词！逐 NodeType 硬编码 → **数据表**（枚举→主引脚映射，放 NodeType 或 NodeShapes） |
+| isPrimaryById() | ~~393~~ **3**（⚠️ 已更正，见下注） | id 相等比较，无需表驱动；真正的逐类型硬编码在 drawNode 的展开指示器 OR 链（改动涉 16 类渲染行为，需视觉回归，留待 GUI 批） |
 | renderDebugSignalGenChart / renderDebugProbeChart / renderCurveChart | 92+88+52 | → `NodeCharts`（图表渲染，~250L） |
 | loadColorConfig / saveColorConfig / withAlpha / P* 常量族 | ~100 | → **`EditorTheme`**（调色板 + 度量单一真相源） |
 
 - 理由：275 处引用里过半只要颜色/度量；EditorTheme 落地后（a）P2-23 的 static final 固化一并修
   （theme 是实例态，运行时改色即时生效），（b）colorpicker→blocks 归零，（c）GraphEditor / Pixel /
   NBS / MultiLineEditBox 对 NodeRenderer 的依赖只剩"真渲染"。
-- isPrimaryById 表驱动是典型的"扁平结构配数据表"——符合 CLAUDE.md 扁平口径，比拆类更对味。
+- ~~isPrimaryById 表驱动是典型的"扁平结构配数据表"~~ → **2026-10-11 施工更正**：isPrimaryById 实为
+  3 行 id 相等比较，与本表 393 行的出入系方法跨度近似把其后的 drawNode 连续跨度误记到该名下
+  （同源偏差见 renderHud 行数）——1.3.0 批已核实原码，"表驱动"项作废；摘要表与验收行的同项一并更正。
 
 ### P3｜GraphEvaluator（1,591L）——eval() 一个方法 = 全文件 67%
 
