@@ -50,6 +50,7 @@
 | 🐛 **公式去重缓存缓存出错结果** | AST 路径成功/挂起照常缓存、异常路径不再写入——出错节点的全零输出不再让同脚本同输入的兄弟节点被"已算"命中喂零。/ the FORMULA AST dedup cache no longer records error results — a throwing node's all-zero output can no longer feed a same-script-same-input sibling a cached zero. |
 | 🐛 **PRIVATE_OUT 空名写幽灵频道** | 浮点写入加 BUS_OUT 同款空名早退——未命名节点不再写 SIGNALS[""] 互相串音。/ the PRIVATE_OUT float write early-outs on empty names like BUS_OUT — unnamed nodes no longer write the SIGNALS[""] ghost channel. |
 | 🐛 **NBS 编辑器 op 出口绕过 temp-id 漏斗** | getEditor 写死 null、sendOp 直发——新增 MUSIC 节点一个 RTT 内保存的 SET_SONG 携带未 ACK 临时 id 被服务端静默丢弃；现 getEditor 路由回来源屏编辑器（终端包装向内解一层）、sendOp 走 temp-id 挂起漏斗，ACK 后补发。/ the NBS editor routes getEditor back to the origin screen's editor (unwrapping the terminal wrapper) and sendOp through the temp-id stash funnel — a SET_SONG saved within one RTT of adding a MUSIC node is no longer silently dropped. |
+| 📄 **文档口径清理（K19 残留）** | code-architecture.md 的"86 种/100 种"节点数残留改为带时点的 101（GraphNode 与 NodeType 两节中英四行）；undo-redo-bugs.md 头部补结构搬迁注记（撤销栈 → GraphOpHistory 等逐符号核实的现址映射）；formula-pin-render-tech-debt.md 状态头收束（stable pinId 已于 v1.2.4 落地，横幅 ✅）。/ doc-count and status-header debt closed: code-architecture's stale 86/100 node counts now a dated 101, undo-redo-bugs gains a structural-relocation note with a verified current-address map, and the formula-pin-render doc's status header is closed (stable pinId landed in v1.2.4). |
 
 </details>
 

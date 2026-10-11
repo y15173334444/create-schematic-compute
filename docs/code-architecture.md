@@ -1,6 +1,6 @@
 # 代码结构文档 / Code Architecture
 
-> 更新日期 / Last Updated：2026-10-05
+> 更新日期 / Last Updated：2026-10-11
 > 版本 / Version：1.2.6（WIP）
 
 ---
@@ -28,8 +28,8 @@ io.github.y15173334444.create_schematic_compute/
 ## 1. `graph/` — 节点图核心引擎 / Node Graph Core Engine
 
 ### NodeType (enum)
-100 种节点类型枚举，定义每种节点的 `id`（稳定 NBT 字符串）、输入/输出引脚数、参数名列表。
-/ 100 node types defining the stable NBT `id`, input/output pin counts, and parameter names for each type.
+节点类型枚举，当前 101 种（2026-10-11 核对枚举常量数，随新节点增长；README 节点参考同口径），定义每种节点的 `id`（稳定 NBT 字符串）、输入/输出引脚数、参数名列表。
+/ Node type enum — 101 types as of 2026-10-11 (verified against the enum constant count; grows as nodes are added; same count as the README node reference) — defining the stable NBT `id`, input/output pin counts, and parameter names for each type.
 
 | 分类 / Category | 节点 / Nodes |
 |------|------|
@@ -47,8 +47,8 @@ io.github.y15173334444.create_schematic_compute/
 | 调试 / Debug | DEBUG_SIGNAL_GEN, DEBUG_PROBE, COMMENT |
 
 ### GraphNode
-节点数据类。所有 86 种类型共用同一个类（无继承），通过 `type` 字段区分。
-/ Node data class. All 86 types share a single flat class (no inheritance); distinguished by the `type` field.
+节点数据类。所有节点类型共用同一个类（无继承），通过 `type` 字段区分——当前 101 种（2026-10-11 核对，随 `NodeType` 枚举增长）。
+/ Node data class. All types share a single flat class (no inheritance), distinguished by the `type` field — 101 as of 2026-10-11 (verified; grows with the `NodeType` enum).
 
 **核心字段 / Core Fields**：
 - `id` — 唯一标识，服务端权威分配 / Unique ID, server-authoritative allocation
