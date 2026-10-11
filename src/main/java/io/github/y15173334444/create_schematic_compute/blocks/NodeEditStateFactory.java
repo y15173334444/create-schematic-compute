@@ -54,11 +54,15 @@ final class NodeEditStateFactory {
         // focused field index + caret and restore them on the rebuilt field of the same index.
         int prevFocusIdx = -1;
         int prevFocusCursor = -1;
+        int prevFocusAnchor = -1;
         if (oldStRef != null) {
             for (int fi = 0; fi < oldStRef.fields.size(); fi++) {
                 if (oldStRef.fields.get(fi).isFocused()) {
                     prevFocusIdx = fi;
                     prevFocusCursor = oldStRef.fields.get(fi).getCursorPosition();
+                    // 选区锚点与光标**成对**记录（2/2 成对还原）/ the selection anchor is recorded **as a pair** with the caret (restored as a pair in 2/2)
+                    if (oldStRef.fields.get(fi) instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox oldMle)
+                        prevFocusAnchor = oldMle.getSelectionAnchor();
                     break;
                 }
             }
@@ -542,6 +546,16 @@ final class NodeEditStateFactory {
             if (fb instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox
                 && prevFocusCursor >= 0 && prevFocusCursor <= fb.getValue().length()) {
                 fb.setCursorPosition(prevFocusCursor);
+                // 光标与选区锚点必须**成对**还原：只还原光标会把锚点留在 setValue 归位的文末，
+                // 渲染出「光标→文末」的幽灵选区——下一个 Backspace/Delete 把这段整段删掉，
+                // 打字则让高亮闪进闪出（每次重建复现）。锚点同样 clamp（对端缩短文本防越界）。
+                // Caret and selection anchor must be restored **as a pair**: restoring only the
+                // caret leaves the anchor at the end where setValue parked it, rendering a
+                // phantom caret→end selection — the next Backspace/Delete wipes that span, and
+                // typing makes the highlight strobe (recreated on every rebuild). The anchor is
+                // clamped too (peers may shorten the text).
+                int anchor = prevFocusAnchor >= 0 ? Math.min(prevFocusAnchor, fb.getValue().length()) : prevFocusCursor;
+                ((io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox) fb).setHighlightPos(anchor);
             }
         }
         return s;

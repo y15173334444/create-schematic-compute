@@ -447,12 +447,9 @@ public class MultiLineEditBox extends EditBox {
 
         return switch (keyCode) {
             case GLFW.GLFW_KEY_ENTER, GLFW.GLFW_KEY_KP_ENTER -> {
-                String before = text.substring(0, cursor);
-                String after = text.substring(cursor);
-                setValue(before + "\n" + after);
-                setCursorPosition(cursor + 1);
-                setHighlightPos(cursor + 1); setSelAnchor(cursor + 1); // sync after setValue→moveCursorToEnd
-                fireResponder();
+                // 走 insertText 同一条路：选区替换语义 + 单次响应器天然一致
+                // (ride the same insertText path: selection-replace semantics + single responder fire for free)
+                insertText("\n");
                 yield true;
             }
             case GLFW.GLFW_KEY_UP -> {
@@ -468,7 +465,7 @@ public class MultiLineEditBox extends EditBox {
                 setCursorPosition(newPos);
                 // Arrow keys (without Shift) collapse selection / 方向键（无 Shift）折叠选区
                 if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
-                    setHighlightPos(newPos); setSelAnchor(newPos);
+                    setHighlightPos(newPos);
                 }
                 yield true;
             }
@@ -484,7 +481,7 @@ public class MultiLineEditBox extends EditBox {
                 } else { newPos = text.length(); }
                 setCursorPosition(newPos);
                 if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
-                    setHighlightPos(newPos); setSelAnchor(newPos);
+                    setHighlightPos(newPos);
                 }
                 yield true;
             }
@@ -493,7 +490,7 @@ public class MultiLineEditBox extends EditBox {
                 int newPos = getLineStart(visualLines.get(curVL).logLine) + visualLines.get(curVL).charStart;
                 setCursorPosition(newPos);
                 if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
-                    setHighlightPos(newPos); setSelAnchor(newPos);
+                    setHighlightPos(newPos);
                 }
                 yield true;
             }
@@ -502,7 +499,7 @@ public class MultiLineEditBox extends EditBox {
                 int newPos = getLineStart(visualLines.get(curVL).logLine) + visualLines.get(curVL).charEnd;
                 setCursorPosition(newPos);
                 if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
-                    setHighlightPos(newPos); setSelAnchor(newPos);
+                    setHighlightPos(newPos);
                 }
                 yield true;
             }
@@ -510,7 +507,7 @@ public class MultiLineEditBox extends EditBox {
                 int newPos = cursor > 0 ? cursor - 1 : 0;
                 setCursorPosition(newPos);
                 if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
-                    setHighlightPos(newPos); setSelAnchor(newPos);
+                    setHighlightPos(newPos);
                 }
                 yield true;
             }
@@ -518,7 +515,7 @@ public class MultiLineEditBox extends EditBox {
                 int newPos = cursor < text.length() ? cursor + 1 : cursor;
                 setCursorPosition(newPos);
                 if ((modifiers & GLFW.GLFW_MOD_SHIFT) == 0) {
-                    setHighlightPos(newPos); setSelAnchor(newPos);
+                    setHighlightPos(newPos);
                 }
                 yield true;
             }
@@ -597,8 +594,8 @@ public class MultiLineEditBox extends EditBox {
     public void replaceCurrentWordForPopup(String replacement) { replaceCurrentWord(replacement); }
 
     /** Replace the word at the cursor with the given text. Used to accept a completion.
-     *  Note: {@code setValue()} already triggers the responder via EditBox internals;
-     *  we do not call {@code fireResponder()} again to avoid double-send. */
+     *  Note: the responder rides {@code setValue()}'s onValueChange (the single fire
+     *  point) — no explicit second fire, which once double-sent every edit. */
     private void replaceCurrentWord(String replacement) {
         String text = getValue();
         int cursor = getCursorPosition();
@@ -624,7 +621,6 @@ public class MultiLineEditBox extends EditBox {
         setValue(before + replacement + after);
         setCursorPosition(start + replacement.length());
         setHighlightPos(start + replacement.length());
-        setSelAnchor(start + replacement.length());
         // setValue already calls onValueChange → responder; no explicit fireResponder needed
     }
 
@@ -634,13 +630,24 @@ public class MultiLineEditBox extends EditBox {
 
     /** Get the selection anchor position (parent EditBox.getHighlightPos is private in MC 1.21) */
     private int selAnchor() { return hlPos; }
-    private void setSelAnchor(int pos) { this.hlPos = Mth.clamp(pos, 0, getValue().length()); }
 
+    /** 选区锚点的**单一写入口** = setHighlightPos（同时写父类 highlightPos 与 hlPos）。
+     *  父类的 getHighlighted()（Ctrl+C/X）读它自己的 highlightPos——两处锚点曾分叉
+     *  （insertText 只写 hlPos），Ctrl+C 会拷到「光标→文末」的幽灵区间。
+     *  The **single write path** for the selection anchor is setHighlightPos (it writes both
+     *  the parent's highlightPos and hlPos). The parent's getHighlighted() (Ctrl+C/X) reads
+     *  its own highlightPos — the two anchors once diverged (insertText wrote hlPos only),
+     *  so Ctrl+C copied a phantom caret→end range. */
     @Override
     public void setHighlightPos(int pos) {
         super.setHighlightPos(pos);
         this.hlPos = Mth.clamp(pos, 0, getValue().length());
     }
+
+    /** 重建保留用：读选区锚点，与光标**成对**恢复（见 NodeEditStateFactory 焦点保留）。
+     *  For rebuild preservation: read the selection anchor — restored **as a pair** with the
+     *  caret (see NodeEditStateFactory's focus preservation). */
+    public int getSelectionAnchor() { return hlPos; }
 
     @Override
     public void setCursorPosition(int pos) {
@@ -648,22 +655,10 @@ public class MultiLineEditBox extends EditBox {
         // NOTE: Do NOT sync hlPos here — that would break mouse-drag
         // selection by overwriting the anchor set in mouseClicked.
         // Callers that need the anchor synced (insertText, deleteText,
-        // replaceCurrentWord) do so explicitly via setSelAnchor().
+        // replaceCurrentWord) do so explicitly via setHighlightPos().
         // 注意：不要在这里同步 hlPos——那会覆盖 mouseClicked 设置的锚点，
         // 导致鼠标拖拽选区失效。需要同步锚点的调用者（insertText、deleteText、
-        // replaceCurrentWord）显式通过 setSelAnchor() 处理。
-    }
-
-    private java.util.function.Consumer<String> myResponder;
-
-    @Override
-    public void setResponder(java.util.function.Consumer<String> responder) {
-        super.setResponder(responder);
-        this.myResponder = responder;
-    }
-
-    private void fireResponder() {
-        if (myResponder != null) myResponder.accept(getValue());
+        // replaceCurrentWord）显式通过 setHighlightPos() 处理。
     }
 
     @Override
@@ -672,15 +667,24 @@ public class MultiLineEditBox extends EditBox {
         // Convert on input: CJK/full-width symbols become half-width ASCII live — display and parser both see English symbols
         String clean = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.sanitizeFullwidth(
             textToInsert.replace("\r\n", "\n").replace("\r", ""));
-        int cursor = getCursorPosition();
-        String before = getValue().substring(0, cursor);
-        String after = getValue().substring(cursor);
-        String combined = before + clean + after;
+        // 原版契约：键入**替换选区**——先删选区再插入。旧实现只在光标处插入、不碰选区，
+        // 选中一段文字打字变成「原文留着、新字插在选区尾」。
+        // Vanilla contract: typing **replaces the selection** — delete it, then insert. The
+        // old form inserted at the caret without touching the selection, so typing over
+        // selected text left the original in place and appended at the selection's end.
+        int selStart = Math.min(getCursorPosition(), selAnchor());
+        int selEnd = Math.max(getCursorPosition(), selAnchor());
+        String text = getValue();
+        String combined = text.substring(0, selStart) + clean + text.substring(selEnd);
         if (combined.length() > MAX_LENGTH) return;
+        // setValue 内部经 onValueChange 触发响应器——**唯一一次**；旧实现在此之后又
+        // fireResponder() 一次，每击键双发 SET_FORMULA。/ setValue fires the responder
+        // via onValueChange internally — the **single** fire; the old form fired again
+        // afterwards, double-sending SET_FORMULA per keystroke.
         setValue(combined);
-        setCursorPosition(cursor + clean.length());
-        setSelAnchor(cursor + clean.length()); // sync hlPos, setValue moved it to end
-        fireResponder();
+        int caret = selStart + clean.length();
+        setCursorPosition(caret);
+        setHighlightPos(caret);
     }
 
     public void deleteText(int count) {
@@ -688,11 +692,10 @@ public class MultiLineEditBox extends EditBox {
         int selEnd = Math.max(getCursorPosition(), selAnchor());
         String text = getValue();
         if (selStart != selEnd) {
-            // Delete selection
+            // 选区整体删除（setValue 触发响应器，单次）/ delete the whole selection (setValue fires the responder — once)
             setValue(text.substring(0, selStart) + text.substring(selEnd));
             setCursorPosition(selStart);
-            setHighlightPos(selStart); setSelAnchor(selStart);
-            fireResponder();
+            setHighlightPos(selStart);
             return;
         }
         int cursor = getCursorPosition();
@@ -701,7 +704,7 @@ public class MultiLineEditBox extends EditBox {
             if (del <= 0) return;
             setValue(text.substring(0, cursor - del) + text.substring(cursor));
             setCursorPosition(cursor - del);
-            setHighlightPos(cursor - del); setSelAnchor(cursor - del);
+            setHighlightPos(cursor - del);
         } else {
             int del = Math.min(count, text.length() - cursor);
             if (del <= 0) return;
@@ -711,9 +714,8 @@ public class MultiLineEditBox extends EditBox {
             // selAnchor() would return a stale hlPos on the next keystroke → entire
             // selection range deleted instead of a single character.
             setCursorPosition(cursor);
-            setHighlightPos(cursor); setSelAnchor(cursor);
+            setHighlightPos(cursor);
         }
-        fireResponder();
     }
 
     @Override
@@ -738,7 +740,7 @@ public class MultiLineEditBox extends EditBox {
         }
         int newPos = ls + vl.charStart + bestCol;
         setCursorPosition(newPos);
-        setHighlightPos(newPos); setSelAnchor(newPos); // reset selection on click
+        setHighlightPos(newPos); // reset selection on click / 点击重置选区
         return true;
     }
 
