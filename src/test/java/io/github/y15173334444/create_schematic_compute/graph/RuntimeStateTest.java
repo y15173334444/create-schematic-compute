@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 
 import java.util.ArrayDeque;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -371,5 +372,91 @@ class RuntimeStateTest {
         assertEquals(Boolean.TRUE, restored.nodeEdge.get(7));
         assertEquals(Boolean.FALSE, restored.nodeEdge.get(9));
         assertEquals(1.5f, restored.pidState.get(7), 0.0001f);
+    }
+
+    // ══════════════════ F17: 坏档键兜底 / corrupt-key backstop ══════════════════
+    // 修复前:Integer.parseInt(k) 无守卫,坏档字符串键 → NumberFormatException 直接炸区块加载。
+    // 修复后:逐键 try/catch,坏键跳过 + WARN,好键照常恢复;save 侧不动,对称性保持。
+    // Before the fix: unguarded Integer.parseInt(k) let a corrupted string key throw
+    // NumberFormatException straight through chunk loading. After: per-key try/catch —
+    // bad keys are skipped with a WARN, good keys restore as usual; save is untouched,
+    // keeping save/load symmetric.
+
+    @Test
+    @DisplayName("F17: pid 的坏键被跳过,好键照常恢复,加载不炸")
+    void corruptPidKeyIsSkipped() {
+        var rs = new RuntimeState();
+        rs.pidState.put(5, 1.5f);
+        var tag = rs.save();
+        // 模拟坏档:外部工具/手工编辑混入非数字键 / simulate corruption: a non-numeric key
+        tag.getCompound("pid").putFloat("garbage", 42f);
+
+        var loaded = assertDoesNotThrow(() -> RuntimeState.load(tag),
+            "a corrupt key must not blow up the load");
+        assertEquals(1, loaded.pidState.size(), "only the good key survives");
+        assertEquals(1.5f, loaded.pidState.get(5), 0.0001f);
+        // save/load 对称性:恢复态再保存只含合法键 / save/load symmetry: the restored state re-saves legal keys only
+        var resaved = loaded.save();
+        assertTrue(resaved.getCompound("pid").contains("5"));
+        assertFalse(resaved.getCompound("pid").contains("garbage"));
+    }
+
+    @Test
+    @DisplayName("F17: 全坏键 → 空状态,绝不抛 NumberFormatException")
+    void allCorruptKeysProduceEmptyState() {
+        var rs = new RuntimeState();
+        rs.flipflopStates.put(1, true);
+        var tag = rs.save();
+        var ff = tag.getCompound("ff");
+        ff.remove("1");
+        ff.putBoolean("oops", true);
+
+        var loaded = assertDoesNotThrow(() -> RuntimeState.load(tag));
+        assertTrue(loaded.flipflopStates.isEmpty());
+    }
+
+    @Test
+    @DisplayName("F17: delay/nodeEdge/pt/dt 的坏键同样逐键跳过")
+    void corruptKeysSkippedAcrossAllMaps() {
+        var rs = new RuntimeState();
+        rs.delayQueues.put(2, new ArrayDeque<>(List.of(1f, 2f)));
+        rs.nodeEdge.put(3, true);
+        rs.pulseTimers.put(4, 7);
+        rs.debugTime.put(6, 0.25f);
+        var tag = rs.save();
+        tag.getCompound("delay").put("bad", new net.minecraft.nbt.ListTag());
+        tag.getCompound("nodeEdge").putBoolean("bad", false);
+        tag.getCompound("pt").putInt("bad", 1);
+        tag.getCompound("dt").putFloat("bad", 1f);
+
+        var loaded = assertDoesNotThrow(() -> RuntimeState.load(tag));
+        assertEquals(1, loaded.delayQueues.size());
+        assertEquals(List.of(1f, 2f), List.copyOf(loaded.delayQueues.get(2)), "FIFO order preserved for the good queue");
+        assertEquals(1, loaded.nodeEdge.size());
+        assertEquals(Boolean.TRUE, loaded.nodeEdge.get(3));
+        assertEquals(7, loaded.pulseTimers.get(4));
+        assertEquals(0.25f, loaded.debugTime.get(6), 1e-6f);
+    }
+
+    @Test
+    @DisplayName("F17: sub 的坏封装键跳过整个条目;好封装键内部的坏子键跳过单项")
+    void corruptSubKeysAreContained() {
+        var rs = new RuntimeState();
+        var good = rs.getOrCreateSubState(10);
+        good.pidState.put(1, 0.5f);
+        good.flipflopStates.put(2, true);
+        var tag = rs.save();
+        var sub = tag.getCompound("sub");
+        sub.put("notanumber", new CompoundTag()); // 坏封装键 / corrupt encap key
+        var ss10 = sub.getCompound("10");
+        ss10.getCompound("pid").putFloat("bad", 9f); // 好封装内的坏子键 / corrupt key inside a good encap
+
+        var loaded = assertDoesNotThrow(() -> RuntimeState.load(tag));
+        assertEquals(1, loaded.subStates.size(), "the corrupt encap entry is dropped as a whole");
+        var restored = loaded.subStates.get(10);
+        assertNotNull(restored);
+        assertEquals(0.5f, restored.pidState.get(1), 1e-6f, "the corrupt sub-key is dropped, good sub-keys survive");
+        assertEquals(1, restored.pidState.size());
+        assertTrue(restored.flipflopStates.get(2));
     }
 }

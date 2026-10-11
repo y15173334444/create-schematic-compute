@@ -9,6 +9,9 @@ import java.util.ArrayDeque;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * 所有逐节点运行时状态的可序列化快照。
  * 由每个 BlockEntity 持有，并传给 {@link GraphEvaluator#evaluate} 以支持
@@ -34,6 +37,8 @@ import java.util.Map;
  * within 32-bit range.
  */
 public class RuntimeState {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(RuntimeState.class);
 
     // PID 积分、ACCUMULATOR 当前值、INTEGRATOR 值和 tick 计数器
     // PID integrals, ACCUMULATOR current values, INTEGRATOR values and tick counters
@@ -381,6 +386,33 @@ public class RuntimeState {
     }
 
     /**
+     * F17: 坏档键解析兜底。NBT 的 CompoundTag 键是字符串（save 侧写
+     * {@code String.valueOf(id)}），load 侧 {@code Integer.parseInt(k)} 无守卫——坏档里被
+     * 改坏的字符串键（外部工具写档、手工编辑、版本混杂）会抛 NumberFormatException，
+     * 直接炸掉整个区块加载。对照 {@link GraphNode#load} / {@code NbsSong.read} 的
+     * 「不炸节点」坏档口径：逐键 try/catch，坏键跳过 + WARN，好键照常恢复。
+     * 仅 load 侧；save 侧永远写合法键，save/load 对称性不受影响。
+     * F17: corrupted-key parse backstop. NBT CompoundTag keys are strings (save writes
+     * {@code String.valueOf(id)}); the load side used to call {@code Integer.parseInt(k)}
+     * unguarded — a corrupted string key (external tooling, hand edits, mixed versions)
+     * threw NumberFormatException straight through chunk loading. Aligned with
+     * {@link GraphNode#load} / {@code NbsSong.read}'s never-throw corrupt-save contract:
+     * per-key try/catch, skip the bad key with a WARN, restore good keys as usual.
+     * Load-side only; save always writes valid keys, so save/load symmetry is unaffected.
+     *
+     * @param k 状态子 CompoundTag 的键（节点 ID 的字符串形式）/ a state sub-compound key (string form of a node ID)
+     * @return 解析出的键；null 表示键损坏，调用方跳过该条目 / the parsed key; null means corrupt — the caller skips the entry
+     */
+    private static Integer parseNodeKey(String k) {
+        try {
+            return Integer.parseInt(k);
+        } catch (NumberFormatException e) {
+            LOGGER.warn("RuntimeState.load: skipping corrupt state key '{}' (not a node id)", k);
+            return null;
+        }
+    }
+
+    /**
      * 从 NBT {@link CompoundTag} 反序列化，重建一个完整的 RuntimeState。
      * 这是一个静态工厂方法，总是创建一个新的 {@link RuntimeState} 对象。
      * 各映射类别按其在 {@link #save()} 中写入的键名反向解析；
@@ -400,81 +432,122 @@ public class RuntimeState {
 
         if (tag.contains("pid")) {
             var p = tag.getCompound("pid");
-            for (var k : p.getAllKeys())
-                // 键从 String 解析回 Integer（节点 ID）
-                // Parse key from String back to Integer (node ID)
-                rs.pidState.put(Integer.parseInt(k), p.getFloat(k));
+            for (var k : p.getAllKeys()) {
+                // 键从 String 解析回 Integer（节点 ID）；F17 坏键跳过 / parse key from String back to
+                // Integer (node ID); F17 skips corrupt keys
+                Integer id = parseNodeKey(k);
+                if (id == null) continue;
+                rs.pidState.put(id, p.getFloat(k));
+            }
         }
         if (tag.contains("nodeEdge")) {
             var ne = tag.getCompound("nodeEdge");
-            for (var k : ne.getAllKeys())
-                rs.nodeEdge.put(Integer.parseInt(k), ne.getBoolean(k));
+            for (var k : ne.getAllKeys()) {
+                Integer id = parseNodeKey(k);
+                if (id == null) continue; // F17 坏键跳过 / F17 skip corrupt key
+                rs.nodeEdge.put(id, ne.getBoolean(k));
+            }
         }
         if (tag.contains("delay")) {
             var d = tag.getCompound("delay");
             for (var k : d.getAllKeys()) {
+                Integer id = parseNodeKey(k);
+                if (id == null) continue; // F17 坏键跳过 / F17 skip corrupt key
                 // 反序列化 FloatTag 列表，按顺序重建 ArrayDeque（FIFO）以保持延时顺序
                 // Deserialise FloatTag list; rebuild ArrayDeque in order (FIFO) to preserve delay sequence
                 var list = d.getList(k, Tag.TAG_FLOAT);
                 var q = new ArrayDeque<Float>(list.size());
                 for (int i = 0; i < list.size(); i++)
                     q.addLast(list.getFloat(i));
-                rs.delayQueues.put(Integer.parseInt(k), q);
+                rs.delayQueues.put(id, q);
             }
         }
         if (tag.contains("ff")) {
             var f = tag.getCompound("ff");
-            for (var k : f.getAllKeys())
-                rs.flipflopStates.put(Integer.parseInt(k), f.getBoolean(k));
+            for (var k : f.getAllKeys()) {
+                Integer id = parseNodeKey(k);
+                if (id == null) continue; // F17 坏键跳过 / F17 skip corrupt key
+                rs.flipflopStates.put(id, f.getBoolean(k));
+            }
         }
         if (tag.contains("pt")) {
             var pt = tag.getCompound("pt");
-            for (var k : pt.getAllKeys())
-                rs.pulseTimers.put(Integer.parseInt(k), pt.getInt(k));
+            for (var k : pt.getAllKeys()) {
+                Integer id = parseNodeKey(k);
+                if (id == null) continue; // F17 坏键跳过 / F17 skip corrupt key
+                rs.pulseTimers.put(id, pt.getInt(k));
+            }
         }
         // DEBUG_SIGNAL_GEN 相位状态 / DEBUG_SIGNAL_GEN phase state
         if (tag.contains("dt")) {
             var dt = tag.getCompound("dt");
-            for (var k : dt.getAllKeys())
-                rs.debugTime.put(Integer.parseInt(k), dt.getFloat(k));
+            for (var k : dt.getAllKeys()) {
+                Integer id = parseNodeKey(k);
+                if (id == null) continue; // F17 坏键跳过 / F17 skip corrupt key
+                rs.debugTime.put(id, dt.getFloat(k));
+            }
         }
         // 子图状态  /  Sub-graph state
         if (tag.contains("sub")) {
             var sub = tag.getCompound("sub");
             for (var k : sub.getAllKeys()) {
-                // 封装节点 ID 必须从 String 键解析回 int
-                // Encapsulation node ID must be parsed from String key back to int
-                int encapId = Integer.parseInt(k);
+                // 封装节点 ID 必须从 String 键解析回 int；F17 坏键跳过整个子图条目
+                // Encapsulation node ID must be parsed from String key back to int; F17 skips the
+                // whole sub-graph entry on a corrupt key
+                Integer encapId = parseNodeKey(k);
+                if (encapId == null) continue;
                 var ss = sub.getCompound(k);
                 SubState s = new SubState();
                 if (ss.contains("pid")) {
                     var sp = ss.getCompound("pid");
-                    for (var sk : sp.getAllKeys()) s.pidState.put(Integer.parseInt(sk), sp.getFloat(sk));
+                    for (var sk : sp.getAllKeys()) {
+                        Integer id = parseNodeKey(sk);
+                        if (id == null) continue;
+                        s.pidState.put(id, sp.getFloat(sk));
+                    }
                 }
                 if (ss.contains("delay")) {
                     var sd = ss.getCompound("delay");
                     for (var sk : sd.getAllKeys()) {
+                        Integer id = parseNodeKey(sk);
+                        if (id == null) continue;
                         var list = sd.getList(sk, Tag.TAG_FLOAT);
                         var q = new ArrayDeque<Float>(list.size());
                         for (int i = 0; i < list.size(); i++) q.addLast(list.getFloat(i));
-                        s.delayQueues.put(Integer.parseInt(sk), q);
+                        s.delayQueues.put(id, q);
                     }
                 }
                 if (ss.contains("ff")) {
                     var sf = ss.getCompound("ff");
-                    for (var sk : sf.getAllKeys()) s.flipflopStates.put(Integer.parseInt(sk), sf.getBoolean(sk));
+                    for (var sk : sf.getAllKeys()) {
+                        Integer id = parseNodeKey(sk);
+                        if (id == null) continue;
+                        s.flipflopStates.put(id, sf.getBoolean(sk));
+                    }
                 }
                 if (ss.contains("pt")) {
                     var spt = ss.getCompound("pt");
-                    for (var sk : spt.getAllKeys()) s.pulseTimers.put(Integer.parseInt(sk), spt.getInt(sk));
+                    for (var sk : spt.getAllKeys()) {
+                        Integer id = parseNodeKey(sk);
+                        if (id == null) continue;
+                        s.pulseTimers.put(id, spt.getInt(sk));
+                    }
                 }
                 if (ss.contains("dt")) {
                     var sdt = ss.getCompound("dt");
-                    for (var sk : sdt.getAllKeys()) s.debugTime.put(Integer.parseInt(sk), sdt.getFloat(sk));
+                    for (var sk : sdt.getAllKeys()) {
+                        Integer id = parseNodeKey(sk);
+                        if (id == null) continue;
+                        s.debugTime.put(id, sdt.getFloat(sk));
+                    }
                 }
                 if (ss.contains("nodeEdge")) {
                     var sne = ss.getCompound("nodeEdge");
-                    for (var sk : sne.getAllKeys()) s.nodeEdge.put(Integer.parseInt(sk), sne.getBoolean(sk));
+                    for (var sk : sne.getAllKeys()) {
+                        Integer id = parseNodeKey(sk);
+                        if (id == null) continue;
+                        s.nodeEdge.put(id, sne.getBoolean(sk));
+                    }
                 }
                 rs.subStates.put(encapId, s);
             }

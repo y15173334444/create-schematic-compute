@@ -85,6 +85,43 @@ class FormulaInterpreterTest {
         assertEquals(3.0, scalar(env, "n"), 1e-9);
     }
 
+    // ── F14: 顶层 continue 与 break 同口径 lenient / top-level continue lenient like break ──
+
+    @Test
+    @DisplayName("F14: 顶层 continue lenient 忽略——已完成赋值保留,后续语句跳过,不抛信号")
+    void testTopLevelContinueLenient() {
+        // 修复前:ContinueSignal(RuntimeException)从 exec 逃逸,被 eval 分支的 catch(Exception)
+        // 捕获,整节点输出清零——与顶层 break 的 lenient 行为不一致。
+        // Before the fix: ContinueSignal (a RuntimeException) escaped exec into the eval
+        // branch's catch(Exception), zeroing the whole node's outputs — inconsistent with
+        // top-level break's lenient treatment.
+        var env = run("y = 1\ncontinue\ny = 2", Map.of());
+        assertEquals(1.0, scalar(env, "y"), 1e-9,
+            "assignments before the top-level continue are kept; statements after it are skipped");
+    }
+
+    @Test
+    @DisplayName("F14: 顶层 continue 藏在 if 块里同样 lenient,信号在 exec 顶层被吞")
+    void testTopLevelContinueInsideIf() {
+        var env = run("if (x > 0) { continue }\ny = 3", Map.of("x", 1.0));
+        assertFalse(env.containsKey("y"),
+            "the continue escapes the if body and ends the top-level pass without throwing");
+    }
+
+    @Test
+    @DisplayName("F14: 顶层 break 对照基线——行为保持不变")
+    void testTopLevelBreakLenientBaseline() {
+        var env = run("y = 1\nbreak\ny = 2", Map.of());
+        assertEquals(1.0, scalar(env, "y"), 1e-9);
+    }
+
+    @Test
+    @DisplayName("F14: 循环内 continue 语义不受影响")
+    void testLoopContinueUnaffected() {
+        var env = run("i = 0\nacc = 0\nrepeat 5 { i = i + 1; if (i == 2) continue; acc = acc + i }", Map.of());
+        assertEquals(13.0, scalar(env, "acc"), 1e-9);
+    }
+
     @Test
     @DisplayName("Old scripts stay in RPN mode: ast == null")
     void testLegacyAstNull() {
