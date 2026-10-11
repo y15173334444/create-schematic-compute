@@ -6,6 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
+| **Unreleased** | 1.3.0 技术债清理线 / 1.3.0 debt-cleanup line |
 | [v1.2.5.2](#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 · 编码器清零改节点体引脚 · PID/PID_POWER 积分死区 · 频道名旧草稿回写（#10）· 去掉整图保存覆盖（#17）· 封装子图节点数据同步 · 封装子图展开状态跨玩家同步 · 参数输入框实时同步 · 封装子图顶栏合并 · 占用封装禁删 · 键位系统扩容（删除连线 + 像素编辑器动作）· 统一键鼠序列绑定 · 旧键位配置迁移 · 删节点撤销/重做恢复连线（pinId + 占用检测）· 变速器代理态显示（值盒「(代理)」+ 滚轮拒收） / Fix: Kinetic Gauge Wrench Rotation (Shaft Roll · Tilt-Preserving Yaw) · Floor Placement · Inverted Mount Text Upright · View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit · CNC Gearbox Shaft Faces Always Present / Wrench Back to Official · Transmission Output Recovers After Overload · Output-Command Forward-Reverse &amp; Negative Travel · Encoder Reset on the Node Body · PID/PID_POWER Integral Deadband · channel-name stale-draft write-back (#10) · drop whole-graph save overwrite (#17) · sub-graph node data sync · sub-graph expansion state sync across players · live param-box sync · sub-graph top-bar merge · occupied-encapsulation delete guard · display-mode top-bar merge · display lock follows selection · smooth remote display-layout drags · key-binding system gains delete-wire and pixel-editor actions · unified sequence bindings (legacy key-binding configs migrate) · undo/redo node-delete restores wires (pinId + occupancy check) · transmission proxy display (value-box "(proxy)" + wheel refused while node-driven) |
 | [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
 | [v1.2.5](#v125) | 公式语言升级：控制流 + vec3 + 预算池 / GUI 架构迁移 / 像素编辑器 / 可编程变速箱 |
@@ -19,6 +20,23 @@
 | [v1.0.0](#v100) | 初始发布 / Initial Release |
 
 ---
+
+<details>
+<summary><b>Unreleased（1.3.0 WIP）</b> — 技术债清理线 / Technical Debt Cleanup line</summary>
+
+> 本板块由 `debt/1.3.0-cleanup` 分支维护：按《技术债复审》（`docs/tech-debt-review-2026-10-11.md`）、
+> 《文件级拓扑与巨型类拆分审查》（`docs/file-topology-split-review-2026-10-11.md`）与
+> 《cross-be 债登记对账审查》（`docs/cross-be-debt-audit-2026-10-11.md`）的批次顺序逐批落地；
+> 计划与延期理由见 `docs/1.3.0-debt-cleanup-plan.md`。
+> Maintained by the `debt/1.3.0-cleanup` branch: batches land in the order given by the three
+> review documents; the plan and deferral rationale live in `docs/1.3.0-debt-cleanup-plan.md`.
+
+### 🧹 1.3.0 WIP：全量技术债清理 / Full Tech-Debt Cleanup
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+
+</details>
 
 <details>
 <summary><b>Unreleased（v1.2.6 WIP）</b> — 功放电脑 + 音响 + NBS 钢琴卷帘编辑器（核心 + 编辑器已实现） / Amplifier Computer + Speaker + NBS Piano Roll Editor (core + editor implemented)</summary>
