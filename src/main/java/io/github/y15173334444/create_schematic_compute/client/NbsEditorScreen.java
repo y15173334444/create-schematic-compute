@@ -3,7 +3,6 @@ package io.github.y15173334444.create_schematic_compute.client;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphEditor;
-import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
 import io.github.y15173334444.create_schematic_compute.client.audio.CscAudioEngine;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
@@ -69,9 +68,10 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private static final int PROPS_H = 112;
 
     // ── 配色 / colours ──
+    // P2-23 修复：主题色不再 static final 捕获，改为每次实时取 EditorTheme 活动值。
+    // P2-23 fix: theme colours are no longer captured into static finals; they are fetched
+    // live from the active EditorTheme on every use.
     private static final int C_BG = 0xFF1A1712;
-    private static final int C_PANEL = NodeRenderer.PBG();
-    private static final int C_BORDER = NodeRenderer.PBR();
     private static final int C_BTN = 0xFF3A3428;
     private static final int C_BTN_ON = 0xFF3A5A2A;
     private static final int C_HOVER = 0xFF5A4A3A;
@@ -79,6 +79,11 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private static final int C_DEL = 0xFF7A4A3A;
     private static final int C_TEXT = 0xFFFFFFFF;
     private static final int C_TEXT_DIM = 0xFFBFB8A8;
+
+    /** 面板底（主题实时值）/ panel bg (live theme value). */
+    private static int cPanel() { return EditorTheme.get().panelBg(); }
+    /** 面板描边（主题实时值）/ panel border (live theme value). */
+    private static int cBorder() { return EditorTheme.get().panelBorder(); }
 
     /** 16 原版乐器显示名语言键后缀，**按 NBS 格式乐器索引序**（与 SampleBank/曲目字节一致；
      *  与原版枚举序不同——错序会让 1–7 号乐器标注错位）。 */
@@ -286,8 +291,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     private void renderTopBar(GuiGraphics g, int mx, int my) {
-        g.fill(0, 0, width, TOP_H - 2, C_PANEL);
-        g.fill(0, TOP_H - 2, width, TOP_H, C_BORDER);
+        g.fill(0, 0, width, TOP_H - 2, cPanel());
+        g.fill(0, TOP_H - 2, width, TOP_H, cBorder());
         String title = "NBS · " + (kernel.song().songName.isEmpty() ? node.displayText : kernel.song().songName);
         g.drawString(font, title, 6, 10, C_TEXT, false);
 
@@ -308,8 +313,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     private void renderTransportBar(GuiGraphics g, int mx, int my) {
         int y = height - TRANSPORT_H;
-        g.fill(0, y, width, height, C_PANEL);
-        g.fill(0, y, width, y + 2, C_BORDER);
+        g.fill(0, y, width, height, cPanel());
+        g.fill(0, y, width, y + 2, cBorder());
 
         int x = 4;
         button(g, x, y + 4, 48, 18, I18n.get(preview.isPlaying()
@@ -341,7 +346,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             : "#" + currentInstrument;
         int iw = font.width(instName);
         g.fill(ix - 4, y + 4, ix + 80, y + 22, C_BTN);
-        g.renderOutline(ix - 4, y + 4, 84, 18, C_BORDER);
+        g.renderOutline(ix - 4, y + 4, 84, 18, cBorder());
         g.drawString(font, instName, ix - 4 + (80 - iw) / 2, y + 9, C_TEXT, false);
         ix -= 20;
         button(g, ix, y + 4, 16, 18, "<", mx, my, false);
@@ -351,8 +356,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     private void renderLayerPanel(GuiGraphics g, int mx, int my) {
         int bottom = height - TRANSPORT_H;
-        g.fill(0, TOP_H, PANEL_W, bottom, C_PANEL);
-        g.fill(PANEL_W - 2, TOP_H, PANEL_W, bottom, C_BORDER);
+        g.fill(0, TOP_H, PANEL_W, bottom, cPanel());
+        g.fill(PANEL_W - 2, TOP_H, PANEL_W, bottom, cBorder());
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_layers"), 6, TOP_H + 4, C_TEXT, false);
 
         // 层列表 / layer list
@@ -363,7 +368,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             int y = listTop + (i - layerScroll) * ROW_H;
             if (y < listTop - ROW_H || y > listBottom - ROW_H) continue;
             boolean sel = i == currentLayer;
-            int color = sel ? C_SEL : (inRect(4, y, PANEL_W - 12, ROW_H, mx, my) ? C_HOVER : C_PANEL);
+            int color = sel ? C_SEL : (inRect(4, y, PANEL_W - 12, ROW_H, mx, my) ? C_HOVER : cPanel());
             g.fill(4, y, PANEL_W - 8, y + ROW_H - 1, color);
             String name = layers.get(i).name.isEmpty() ? I18n.get("gui.create_schematic_compute.nbs_layer") + " " + (i + 1) : layers.get(i).name;
             g.drawString(font, name, 8, y + 3, layers.get(i).locked ? C_TEXT_DIM : C_TEXT, false);
@@ -373,7 +378,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
         // 选中层属性 / selected layer properties
         int pY = bottom - PROPS_H;
-        g.fill(4, pY, PANEL_W - 8, pY + 2, C_BORDER);
+        g.fill(4, pY, PANEL_W - 8, pY + 2, cBorder());
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_name"), 6, pY + 8, C_TEXT_DIM, false);
         layerNameBox.setX(6); layerNameBox.setY(pY + 18);
         if (!layerNameBox.isFocused() && currentLayer < layers.size()) {
@@ -401,7 +406,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         g.fill(x, y + 4, x + w, y + 8, C_BTN);
         int fill = (int) ((long) w * Math.max(0, Math.min(max, value)) / max);
         g.fill(x, y + 4, x + fill, y + 8, C_BTN_ON);
-        g.renderOutline(x, y + 3, w + 1, 7, C_BORDER);
+        g.renderOutline(x, y + 3, w + 1, 7, cBorder());
         String v = max == 200 ? (value - 100 >= 0 ? "+" : "") + (value - 100) : String.valueOf(value);
         g.drawString(font, v, x + w + 4, y + 2, C_TEXT_DIM, false);
     }
@@ -409,14 +414,14 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private void button(GuiGraphics g, int x, int y, int w, int h, String label, int mx, int my, boolean on) {
         boolean hover = inRect(x, y, w, h, mx, my);
         g.fill(x, y, x + w, y + h, on ? C_BTN_ON : (hover ? C_HOVER : C_BTN));
-        g.renderOutline(x, y, w, h, C_BORDER);
+        g.renderOutline(x, y, w, h, cBorder());
         g.drawString(font, label, x + (w - font.width(label)) / 2, y + (h - 8) / 2, C_TEXT, false);
     }
 
     private void renderImportDialog(GuiGraphics g, int mx, int my) {
         int w = 260, h = 170, x = (width - w) / 2, y = (height - h) / 2;
-        g.fill(x, y, x + w, y + h, C_PANEL);
-        g.renderOutline(x, y, w, h, C_BORDER);
+        g.fill(x, y, x + w, y + h, cPanel());
+        g.renderOutline(x, y, w, h, cBorder());
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_import_title"), x + 8, y + 6, C_TEXT, false);
         int rowY = y + 20;
         for (int i = 0; i < importFiles.size() && i < 11; i++) {
@@ -432,8 +437,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     private void renderExportDialog(GuiGraphics g, int mx, int my) {
         int w = 220, h = 80, x = (width - w) / 2, y = (height - h) / 2;
-        g.fill(x, y, x + w, y + h, C_PANEL);
-        g.renderOutline(x, y, w, h, C_BORDER);
+        g.fill(x, y, x + w, y + h, cPanel());
+        g.renderOutline(x, y, w, h, cBorder());
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_export_title"), x + 8, y + 6, C_TEXT, false);
         exportNameBox.setX(x + 8); exportNameBox.setY(y + 24);
         exportNameBox.render(g, mx, my, pt0());
@@ -443,8 +448,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     private void renderGuide(GuiGraphics g) {
         int w = 300, h = 150, x = (width - w) / 2, y = (height - h) / 2;
-        g.fill(x, y, x + w, y + h, C_PANEL);
-        g.renderOutline(x, y, w, h, C_BORDER);
+        g.fill(x, y, x + w, y + h, cPanel());
+        g.renderOutline(x, y, w, h, cBorder());
         String[] lines = {
             I18n.get("gui.create_schematic_compute.nbs_guide_title"),
             "",

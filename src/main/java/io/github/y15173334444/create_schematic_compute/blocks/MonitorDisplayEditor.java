@@ -1,5 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
+import io.github.y15173334444.create_schematic_compute.client.EditorTheme;
 import io.github.y15173334444.create_schematic_compute.client.GeometryConstants;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
@@ -693,7 +694,7 @@ public final class MonitorDisplayEditor {
                 pose.scale(s, s, 1);
                 pose.translate(-elemW / 2, -elemH / 2, 0);
                 int hx = -1, hy = -1, hw = (int)elemW + 2, hh = (int)elemH + 2;
-                g.renderOutline(hx, hy, hw, hh, NodeRenderer.ACC());
+                g.renderOutline(hx, hy, hw, hh, EditorTheme.get().accent());
                 pose.popPose();
                 break;
             }
@@ -709,17 +710,17 @@ public final class MonitorDisplayEditor {
         // and its reserved row reclaimed by the display area and the layer panel.
         int sw = host.screenWidth();
         int backX = sw - 52, settingsX = backX - 52;
-        g.fill(0, 0, sw, GraphEditor.TOP_BAR_H, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
-        g.fill(0, GraphEditor.TOP_BAR_H - 1, sw, GraphEditor.TOP_BAR_H, NodeRenderer.CSB());
+        g.fill(0, 0, sw, GraphEditor.TOP_BAR_H, EditorTheme.withAlpha(EditorTheme.get().panelBg(), 0xEE));
+        g.fill(0, GraphEditor.TOP_BAR_H - 1, sw, GraphEditor.TOP_BAR_H, EditorTheme.get().sysBorder());
         String modeText = "◈ " + I18n.get("gui.create_schematic_compute.monitor.display_mode") + " ◈";
         g.drawString(Minecraft.getInstance().font, modeText, 6, 8, 0xFFFFCC88, false);
         boolean hovBack = mx >= backX && mx <= backX + 46 && my >= 3 && my <= 19;
-        g.fill(backX, 3, backX + 46, 19, hovBack ? NodeRenderer.HOV() : NodeRenderer.PBG());
-        g.renderOutline(backX, 3, 46, 16, NodeRenderer.CSB());
+        g.fill(backX, 3, backX + 46, 19, hovBack ? EditorTheme.get().hover() : EditorTheme.get().panelBg());
+        g.renderOutline(backX, 3, 46, 16, EditorTheme.get().sysBorder());
         g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.back_graph"), backX + 6, 7, 0xFFFFFFFF, false);
         boolean hovSettings = mx >= settingsX && mx <= settingsX + 46 && my >= 3 && my <= 19;
-        g.fill(settingsX, 3, settingsX + 46, 19, showSettings ? 0xFF3A5A2A : (hovSettings ? NodeRenderer.HOV() : NodeRenderer.PBG()));
-        g.renderOutline(settingsX, 3, 46, 16, NodeRenderer.CSB());
+        g.fill(settingsX, 3, settingsX + 46, 19, showSettings ? 0xFF3A5A2A : (hovSettings ? EditorTheme.get().hover() : EditorTheme.get().panelBg()));
+        g.renderOutline(settingsX, 3, 46, 16, EditorTheme.get().sysBorder());
         g.drawString(Minecraft.getInstance().font, I18n.get("gui.create_schematic_compute.monitor.settings"), settingsX + 6, 7, 0xFFFFFFFF, false);
 
         // Selected element editing (clickable S/R values)
@@ -728,12 +729,12 @@ public final class MonitorDisplayEditor {
             String sTxt = "§6S:";
             if (editingS) sTxt += "§e" + editSBuf + "▌";
             else sTxt += "§e" + ff1(selectedDisplayNode.displayScale);
-            g.drawString(Minecraft.getInstance().font, sTxt, srx, 8, NodeRenderer.ACC(), false);
+            g.drawString(Minecraft.getInstance().font, sTxt, srx, 8, EditorTheme.get().accent(), false);
             srx += Minecraft.getInstance().font.width(sTxt) + 12;
             String rTxt = "§6R:";
             if (editingR) rTxt += "§e" + editRBuf + "▌";
             else rTxt += "§e" + ff0(selectedDisplayNode.displayRotation);
-            g.drawString(Minecraft.getInstance().font, rTxt, srx, 8, NodeRenderer.ACC(), false);
+            g.drawString(Minecraft.getInstance().font, rTxt, srx, 8, EditorTheme.get().accent(), false);
         }
 
         // Hover hints (use rotated AABB for accuracy, with bounding-box clamp)
@@ -784,7 +785,7 @@ public final class MonitorDisplayEditor {
 
     private void renderLayerThumbnail(GuiGraphics g, GraphNode node, int x, int y, int size) {
         // Dark background
-        g.fill(x, y, x + size, y + size, NodeRenderer.PINS());
+        g.fill(x, y, x + size, y + size, EditorTheme.get().insetBg());
 
         switch (node.type) {
             case TEXT -> {
@@ -832,8 +833,8 @@ public final class MonitorDisplayEditor {
                 int badgeX = x + size - 7;
                 int badgeY = y + 1;
                 g.fill(badgeX, badgeY, badgeX + 6, badgeY + 6, 0xFF3A3A3A);
-                g.renderOutline(badgeX, badgeY, 6, 6, NodeRenderer.CSB());
-                g.drawString(Minecraft.getInstance().font, "S", badgeX + 1, badgeY, NodeRenderer.ACC(), false);
+                g.renderOutline(badgeX, badgeY, 6, 6, EditorTheme.get().sysBorder());
+                g.drawString(Minecraft.getInstance().font, "S", badgeX + 1, badgeY, EditorTheme.get().accent(), false);
             }
             case HUD_PITCH_LADDER -> {
                 // 缩略图：简化俯仰梯示意（中心地平线 + 上下刻度线）
@@ -874,11 +875,11 @@ public final class MonitorDisplayEditor {
         g.renderOutline(px, py, LAYER_PANEL_W, ph, 0xFF6A6A4A);
 
         // Title bar
-        g.fill(px + 1, py + 1, px + LAYER_PANEL_W - 1, py + titleH + 1, NodeRenderer.PBG());
+        g.fill(px + 1, py + 1, px + LAYER_PANEL_W - 1, py + titleH + 1, EditorTheme.get().panelBg());
         String title = "Layers";
         int titleW = Minecraft.getInstance().font.width(title);
         g.drawString(Minecraft.getInstance().font, title,
-            px + (LAYER_PANEL_W - titleW) / 2, py + 2, NodeRenderer.CSB(), false);
+            px + (LAYER_PANEL_W - titleW) / 2, py + 2, EditorTheme.get().sysBorder(), false);
 
         int maxScroll = Math.max(0, layers.size() - maxRows);
         if (layerScroll < 0) layerScroll = 0;
@@ -895,7 +896,7 @@ public final class MonitorDisplayEditor {
 
         // Draw drop indicator line (behind rows)
         if (dropIndicatorY >= rowStartY) {
-            g.fill(px + 2, dropIndicatorY - 1, px + LAYER_PANEL_W - 2, dropIndicatorY + 1, NodeRenderer.ACC());
+            g.fill(px + 2, dropIndicatorY - 1, px + LAYER_PANEL_W - 2, dropIndicatorY + 1, EditorTheme.get().accent());
         }
 
         for (int vi = 0; vi < visibleRows; vi++) {
@@ -951,7 +952,7 @@ public final class MonitorDisplayEditor {
             // Clamp within visible row area
             ghostY = Math.max(rowStartY, Math.min(ghostY, rowStartY + visibleRows * LAYER_ROW_H - LAYER_ROW_H));
             g.fill(px + 2, ghostY, px + LAYER_PANEL_W - 2, ghostY + LAYER_ROW_H, 0xBB3A3A38);
-            g.renderOutline(px + 2, ghostY, LAYER_PANEL_W - 4, LAYER_ROW_H, NodeRenderer.ACC());
+            g.renderOutline(px + 2, ghostY, LAYER_PANEL_W - 4, LAYER_ROW_H, EditorTheme.get().accent());
             int ghostThumbX = px + LAYER_PANEL_PADDING;
             int ghostThumbY = ghostY + (LAYER_ROW_H - LAYER_THUMB_SIZE) / 2;
             renderLayerThumbnail(g, layerDragNode, ghostThumbX, ghostThumbY, LAYER_THUMB_SIZE);
@@ -969,10 +970,10 @@ public final class MonitorDisplayEditor {
             int sbX = px + LAYER_PANEL_W - 8;
             int sbY = rowStartY;
             int sbH = visibleRows * LAYER_ROW_H;
-            g.fill(sbX, sbY, sbX + 6, sbY + sbH, NodeRenderer.PBG());
+            g.fill(sbX, sbY, sbX + 6, sbY + sbH, EditorTheme.get().panelBg());
             float thumbH = Math.max(20, (float) visibleRows / layers.size() * sbH);
             float thumbY = sbY + (float) layerScroll / maxScroll * (sbH - thumbH);
-            g.fill(sbX + 1, (int) thumbY, sbX + 5, (int) (thumbY + thumbH), NodeRenderer.CSB());
+            g.fill(sbX + 1, (int) thumbY, sbX + 5, (int) (thumbY + thumbH), EditorTheme.get().sysBorder());
         }
     }
 
@@ -1115,9 +1116,9 @@ public final class MonitorDisplayEditor {
         int rows = 4;
         int ph = 56 + 20 + rows * 20 + 30; // 标题行 + 首行(复选框+虚像缩放) + 3D 字段行 + 保存按钮
         int px = (host.screenWidth() - pw) / 2, py = (host.screenHeight() - ph) / 2;
-        g.fill(px, py, px + pw, py + ph, NodeRenderer.PBG());
-        g.renderOutline(px, py, pw, ph, NodeRenderer.PBR());
-        g.fill(px + 2, py + 2, px + pw - 2, py + 18, NodeRenderer.PHT());
+        g.fill(px, py, px + pw, py + ph, EditorTheme.get().panelBg());
+        g.renderOutline(px, py, pw, ph, EditorTheme.get().panelBorder());
+        g.fill(px + 2, py + 2, px + pw - 2, py + 18, EditorTheme.get().panelHeader());
         g.drawString(Minecraft.getInstance().font, "§6§l" + I18n.get("gui.create_schematic_compute.monitor.settings_title"), px + 6, py + 5, 0xFFFFFFFF, false);
         // Close
         g.fill(px + pw - 18, py + 2, px + pw - 2, py + 18, 0xFF4A3028);

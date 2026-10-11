@@ -1,5 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
+import io.github.y15173334444.create_schematic_compute.client.EditorTheme;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeConnection;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
@@ -27,40 +28,51 @@ public class NodeRenderer {
      *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
      *  plain JUnit too. Log name and output unchanged. */
     private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
-    // ── Color palette stored in a single volatile array for atomic read/write (Phase 1) ──
-    // Index constants for the 23 themeable colors (16 graph-editor semantic colors +
-    // 7 GUI chrome colors added with the settings theme extension)
-    static final int _CG=0,_CGL=1,_CN=2,_CH=3,_CB=4,_CPI=5,_CPO=6,_CW=7,_CWA=8,_CAP=9,_CAPB=10,_CWD=11;    static final int _CMN=12,_CMH=13,_CNT=14,_CCT=15,_CSB=16,_CPIB=17,_CPOB=18;
-    static final int _PBG=19,_PHT=20,_PBR=21,_PINS=22,_ACC=23,_ERR=24,_HOV=25;
-    static final int _NUM_COLORS = 26;
+    // ── 调色板门面（状态已抽至 client.EditorTheme —— 见 docs/file-topology-split-review-2026-10-11.md §三 P2）──
+    //    门面冻结：下列全部静态签名（公共 + 包级）与原版逐字一致，275 处引用零改动；实现改为
+    //    逐个委托到活动主题实例，颜色**每次实时取值**——修复复审 P2-23 的 static final 固化。
+    // ── Palette facade (state extracted to client.EditorTheme — topology review §三 P2) ──
+    //    Facade frozen: every static signature below (public + package-private) is verbatim
+    //    identical to the original, so all 275 references stay untouched; each one now delegates
+    //    to the active theme instance and colours are fetched **live** — fixing the P2-23
+    //    static-final capture.
+
+    /** 槽位总数别名（EditorSettings 屏使用）/ slot-count alias (used by the editor-settings screens). */
+    static final int _NUM_COLORS = EditorTheme.NUM_COLORS;
 
     // Text and dim colors are constant across all themes
     static final int CT=0xFFFFFFFF, CD=0xFF888888;
-    private static volatile int[] _c = {
-        0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,
-        0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,
-        0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428};
 
-    // Inline accessors — JIT constant-folds the bounds checks
-    static int CG() { return _c[_CG]; } static int CGL() { return _c[_CGL]; }
-    static int CN() { return _c[_CN]; } static int CH() { return _c[_CH]; }
-    static int CB() { return _c[_CB]; } static int CPI() { return _c[_CPI]; }
-    static int CPO() { return _c[_CPO]; } static int CW() { return _c[_CW]; }
-    static int CWA() { return _c[_CWA]; } static int CAP() { return _c[_CAP]; }
-    static int CAPB() { return _c[_CAPB]; } static int CWD() { return _c[_CWD]; }
-    static int CMN() { return _c[_CMN]; } static int CMH() { return _c[_CMH]; } static int CNT() { return _c[_CNT]; }
-    static int CCT() { return _c[_CCT]; } static int CPIB() { return _c[_CPIB]; }
-    static int CPOB() { return _c[_CPOB]; }
+    // Inline accessors — 委托到 EditorTheme（语义名映射见 EditorTheme 类头）/ delegate to
+    // EditorTheme (the semantic-name mapping table is in EditorTheme's class header)
+    static int CG() { return EditorTheme.get().bg(); }
+    static int CGL() { return EditorTheme.get().grid(); }
+    static int CN() { return EditorTheme.get().node(); }
+    static int CH() { return EditorTheme.get().header(); }
+    static int CB() { return EditorTheme.get().border(); }
+    static int CPI() { return EditorTheme.get().inputPin(); }
+    static int CPO() { return EditorTheme.get().outputPin(); }
+    static int CW() { return EditorTheme.get().wire(); }
+    static int CWA() { return EditorTheme.get().wireAudio(); }
+    static int CAP() { return EditorTheme.get().pinAudio(); }
+    static int CAPB() { return EditorTheme.get().pinAudioBorder(); }
+    static int CWD() { return EditorTheme.get().drag(); }
+    static int CMN() { return EditorTheme.get().menuText(); }
+    static int CMH() { return EditorTheme.get().menuHover(); }
+    static int CNT() { return EditorTheme.get().nodeTitle(); }
+    static int CCT() { return EditorTheme.get().catText(); }
+    static int CPIB() { return EditorTheme.get().inputPinBorder(); }
+    static int CPOB() { return EditorTheme.get().outputPinBorder(); }
     // GUI-chrome colors (used across editor and peripheral screens; public for
     // cross-package consumers in client.*)
-    public static int CSB() { return _c[_CSB]; }
-    public static int PBG() { return _c[_PBG]; }  // panel_bg    面板底
-    public static int PHT() { return _c[_PHT]; }  // panel_header 面板标题带
-    public static int PBR() { return _c[_PBR]; }  // panel_border 面板边框
-    public static int PINS() { return _c[_PINS]; }// inset_bg    内凹井底
-    public static int ACC() { return _c[_ACC]; }  // accent      强调色
-    public static int ERR() { return _c[_ERR]; }  // error       警示/错误
-    public static int HOV() { return _c[_HOV]; }  // hover       悬停高亮
+    public static int CSB() { return EditorTheme.get().sysBorder(); }
+    public static int PBG() { return EditorTheme.get().panelBg(); }    // panel_bg    面板底
+    public static int PHT() { return EditorTheme.get().panelHeader(); }// panel_header 面板标题带
+    public static int PBR() { return EditorTheme.get().panelBorder(); }// panel_border 面板边框
+    public static int PINS() { return EditorTheme.get().insetBg(); }   // inset_bg    内凹井底
+    public static int ACC() { return EditorTheme.get().accent(); }     // accent      强调色
+    public static int ERR() { return EditorTheme.get().error(); }      // error       警示/错误
+    public static int HOV() { return EditorTheme.get().hover(); }      // hover       悬停高亮
 
     /** 连接态暗化系数：编辑区频段引脚连接后填充变暗的明暗变换。
      *  Connected-state darkening factor for edit-panel band-pin fills. */
@@ -77,73 +89,42 @@ public class NodeRenderer {
         return (argb & 0xFF000000) | (r << 16) | (g << 8) | b;
     }
 
-    /** 主题色的半透明变体：保留 RGB、替换透明度（alpha 0..255）。跨屏同源遮罩/淡入用，
-     *  使叠层也随主题变色。 / Theme color with a given alpha (RGB kept, alpha 0..255);
-     *  keeps shared scrim/fade layers theme-reactive. */
+    /** 主题色的半透明变体（实现移至 {@link EditorTheme#withAlpha}，签名冻结）。
+     *  Theme colour with a given alpha (implementation moved to {@link EditorTheme#withAlpha};
+     *  signature frozen). */
     public static int withAlpha(int color, int alpha) {
-        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
+        return EditorTheme.withAlpha(color, alpha);
     }
 
-    static final int[][] THEMES = {
-        // 26色: CG()…CPOB() + PBG(),PHT(),PBR(),PINS(),ACC(),ERR(),HOV()（_CWA=8 音频连线、_CAP=9 音频引脚、_CAPB=10 音频引脚边框）
-        {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428},
-        {0xFF0A1020,0xFF152040,0xFF1A2A4A,0xFF2A3A5A,0xFF3A5A7A,0xFF44AAFF,0xFFFFAA44,0xFF66BBFF,0xFF40E0C8,0xFF6FEBD8,0xFF2E9C8A,0xFFFFFF88,0xFF88AACC,0xFFFFDD77,0xFFFFDD77,0xFF88AACC,0xFF6688AA,0xFF2266AA,0xFFAA6622,0xFF141C2A,0xFF22304A,0xFF3A5A7A,0xFF0A1220,0xFFFFCC44,0xFFFF5544,0xFF2A3A5A},
-        {0xFF0A0A0A,0xFF1A1A1A,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF00FF88,0xFFFF4466,0xFF888888,0xFF00DDCC,0xFF35F0DC,0xFF0E8F82,0xFFFFFF88,0xFFAAAAAA,0xFFCCCCCC,0xFFCCCCCC,0xFF888888,0xFF666666,0xFF444444,0xFF444444,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF1A1A1A,0xFFFFDD00,0xFFFF5555,0xFF444444},
-        {0xFF1E1410,0xFF2A1C14,0xFF3A2820,0xFF4A3428,0xFF5A4438,0xFFFF8844,0xFFAA6633,0xFFDD8844,0xFF4FC3B7,0xFF79DCCF,0xFF2E9484,0xFFFFCC66,0xFFAA8866,0xFFFFCC77,0xFFFFCC77,0xFFAA8866,0xFF8B6B53,0xFF6B4A33,0xFF6B3A23,0xFF2A1C14,0xFF4A3428,0xFF5A4438,0xFF1E1410,0xFFFFCC66,0xFFFF6644,0xFF3A2820},
-    };
-    static int currentTheme = 0;
+    /** 出厂默认色板别名（EditorSettings 屏使用）/ factory-default palette alias (used by the editor-settings screens). */
+    static final int[] DEFAULT_COLORS = EditorTheme.DEFAULT_COLORS;
 
-    static void applyTheme(int index) {
-        if (index < 0 || index >= THEMES.length) index = 0;
-        currentTheme = index;
-        _c = THEMES[index]; // atomic array swap — all colors change at once
-    }
+    /** 槽位语义名别名（颜色设置页 i18n 键用）/ slot-key alias (used by the colours settings tab). */
+    static final String[] COLOR_KEYS = EditorTheme.COLOR_KEYS;
 
-    static int[] currentColors() { return _c.clone(); }
-    static final int[] DEFAULT_COLORS = {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428};
-    static final String[] COLOR_KEYS = {"bg","grid","node","header","border","input","output","wire","wire_audio","pin_audio","pin_audio_border","drag","menu_text","menu_hover","node_title","cat_text","sys_border","input_border","output_border","panel_bg","panel_header","panel_border","inset_bg","accent","error","hover"};
+    // 暂存色（编辑器设置「颜色」页的工作台副本）留在门面：EditorSettingsScreen 直接对它赋值，
+    // 它是设置对话框的会话态而非主题权威态——权威活色板在 EditorTheme。
+    // Staging palette (the colours-tab workbench copy) stays on the facade: EditorSettingsScreen
+    // assigns this field directly; it is dialog-session state, not the authoritative theme —
+    // the authoritative live palette lives in EditorTheme.
     static int[] stagingColors = DEFAULT_COLORS.clone();
     static void initStaging() { stagingColors = currentColors(); }
 
     static void setColors(int[] c) {
-        if (c.length < _NUM_COLORS) return;
-        _c = c.clone(); // atomic array swap — all colors change at once
+        EditorTheme.get().setColors(c);
     }
 
-    /** 从配置文件加载颜色 */
-    static void loadColorConfig() {
-        try {
-            var path = java.nio.file.Path.of("config", "create_schematic_compute-client.properties");
-            if (java.nio.file.Files.exists(path)) {
-                var props = new java.util.Properties();
-                try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
-                int[] c = DEFAULT_COLORS.clone();
-                for (int i = 0; i < _NUM_COLORS; i++) {
-                    String v = props.getProperty("color." + COLOR_KEYS[i]);
-                    if (v != null && v.length() == 8) try { c[i] = (int)(Long.parseLong(v, 16) & 0xFFFFFFFFL); } catch (Exception ignored) { LOGGER.debug("Bad hex color value: {}", v); }
-                }
-                setColors(c);
-            } else if (currentTheme > 0) {
-                applyTheme(currentTheme);
-            }
-        } catch (Exception e) { LOGGER.error("Failed to load color config", e); }
-    }
+    /** 当前色板快照（委托）/ snapshot of the live palette (delegates). */
+    static int[] currentColors() { return EditorTheme.get().snapshot(); }
 
-    /** 保存颜色到配置文件（保留已有非颜色属性） */
-    static void saveColorConfig() {
-        try {
-            var path = java.nio.file.Path.of("config", "create_schematic_compute-client.properties");
-            java.nio.file.Files.createDirectories(path.getParent());
-            var props = new java.util.Properties();
-            if (java.nio.file.Files.exists(path))
-                try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
-            int[] c = currentColors();
-            for (int i = 0; i < _NUM_COLORS; i++) props.setProperty("color." + COLOR_KEYS[i], String.format("%08X", c[i]));
-            try (var os = java.nio.file.Files.newOutputStream(path)) { props.store(os, "Create: Schematic Compute Theme"); }
-        } catch (Exception e) { LOGGER.error("Failed to save color config", e); }
-    }
+    /** 应用预设主题（委托）/ apply a preset theme (delegates). */
+    static void applyTheme(int index) { EditorTheme.get().applyPreset(index); }
 
-    static { loadColorConfig(); }
+    /** 从配置文件加载颜色（委托）/ load colours from the config file (delegates). */
+    static void loadColorConfig() { EditorTheme.loadColorConfig(); }
+
+    /** 保存颜色到配置文件（委托）/ save colours to the config file (delegates). */
+    static void saveColorConfig() { EditorTheme.saveColorConfig(); }
 
     /** 保存网格吸附状态（保留已有颜色属性） */
     static void saveGridSnap(boolean on) {
@@ -468,14 +449,17 @@ public class NodeRenderer {
                 io.github.y15173334444.create_schematic_compute.blocks.EditPanel.renderAt(g, 0, editLocalY, nodeW, n, editSt, zoom, mx, my, flipflopStates);
             }
         }
-        // C=3.5: 调试节点图表区域（graph space，坐标相对于节点左上角）
+        // C=3.5: 调试节点图表区域（graph space，坐标相对于节点左上角）——实现已拆至 NodeCharts
+        // （docs/file-topology-split-review-2026-10-11.md §三 P2），此处保留门面转发。
+        // C=3.5: debug-node chart area (graph space, coords relative to node top-left) — the
+        // implementation lives in NodeCharts; these are facade forwards.
         java.util.List<float[]> debugCtrlPoints = null;
         if (n.isCurveNode()) {
             debugCtrlPoints = (n.type == NodeType.DEBUG_SIGNAL_GEN)
-                ? renderDebugSignalGenChart(g, n, nodeW)
-                : renderCurveChart(g, n, nodeW);
+                ? NodeCharts.renderDebugSignalGenChart(g, n, nodeW, evalSnapshot, currentEncapId)
+                : NodeCharts.renderCurveChart(g, n, nodeW);
         } else if (n.type == NodeType.DEBUG_PROBE) {
-            renderDebugProbeChart(g, n, nodeW);
+            NodeCharts.renderDebugProbeChart(g, n, nodeW);
         }
         pose.popPose();
         // C=4: 边框
@@ -694,259 +678,10 @@ public class NodeRenderer {
         pendingOverlayLines = null;
     }
 
-    // ── 调试节点图表渲染（graph space，坐标相对于节点左上角）──
-    // Debug node chart rendering (graph space, coords relative to node top-left)
-
-    /** DEBUG_SIGNAL_GEN：XY 坐标图 + 波形曲线。返回控制点本地坐标列表（供边框上方渲染）。
-     *  XY chart + waveform curve. Returns control point local coords for above-border rendering. */
-    private java.util.List<float[]> renderDebugSignalGenChart(GuiGraphics g, GraphNode n, int nodeW) {
-        float bodyH = HH + PH * (n.functionalInputs() + n.outputs());
-        int chartX = 2;
-        int chartY = (int) bodyH;
-        int chartW = nodeW - 4;
-        int chartH = 80;
-        int setMode = n.params.length > 0 ? (int) n.params[0] : 0;
-        int samples = 60;
-
-        // ── 计算 Y 范围（自动缩放）/ compute Y range (auto-scale) ──
-        float[] visRange = io.github.y15173334444.create_schematic_compute.graph.DebugSignals.computeVisibleRange(
-            setMode, n.curveX, n.curveY, n.formula, n.debugFormulaRpn);
-        float minV = visRange[0], maxV = visRange[1], range = visRange[2];
-        float scale = chartH / range;
-
-        // ── 渲染 / rendering ──
-        // 背景
-        g.fill(chartX, chartY, chartX + chartW, chartY + chartH, 0xFF1A1A2E);
-        // 网格线（每 1/4 一条）
-        for (int i = 1; i < 4; i++) {
-            int gx = chartX + chartW * i / 4;
-            g.fill(gx, chartY, gx + 1, chartY + chartH, 0xFF2A2A4E);
-            int gy = chartY + chartH * i / 4;
-            g.fill(chartX, gy, chartX + chartW, gy + 1, 0xFF2A2A4E);
-        }
-        // 0 值线（如果在可见范围内）/ zero line (if within visible range)
-        if (minV <= 0 && maxV >= 0) {
-            int zeroY = chartY + chartH - (int) ((0 - minV) * scale);
-            g.fill(chartX, zeroY, chartX + chartW, zeroY + 1, 0xFF3A3A6E);
-        }
-
-        // 曲线 / curve
-        int prevPX = -1, prevPY = -1;
-        float prevV = 0;
-        boolean prevValid = false;
-        for (int i = 0; i <= samples; i++) {
-            float x = (float) i / samples;
-            float v = io.github.y15173334444.create_schematic_compute.graph.DebugSignals.computeCurve(
-                setMode, x, n.curveX, n.curveY, n.formula, n.debugFormulaRpn);
-            boolean discontinuity = prevValid && Math.abs(v - prevV) > range * 1.5f;
-            int px = chartX + (int) (x * chartW);
-            int py = chartY + chartH - (int) ((v - minV) * scale);
-            py = Math.max(chartY, Math.min(chartY + chartH - 1, py));
-            if (prevPX >= 0 && !discontinuity) drawLine(g, prevPX, prevPY, px, py, 0xFF4ADE80);
-            prevPX = px; prevPY = py;
-            prevV = v;
-            prevValid = true;
-        }
-
-        // 控制点位置收集（仅手动曲线模式）— 在边框上方渲染
-        // Collect control point positions (manual curve only) — rendered above border
-        java.util.List<float[]> ctrlPoints = null;
-        boolean showCtrl = (setMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.SET_MANUAL);
-        if (showCtrl && n.curveX != null) {
-            ctrlPoints = new java.util.ArrayList<>();
-            for (int i = 0; i < n.curveX.length; i++) {
-                float cpx = chartX + n.curveX[i] * chartW;
-                float cpy = chartY + chartH - (n.curveY[i] - minV) * scale;
-                ctrlPoints.add(new float[]{cpx, cpy});
-            }
-        }
-
-        // x 标记线
-        int outMode = n.params.length > 1 ? (int) n.params[1] : 0;
-        float xPos;
-        if (outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ) {
-            xPos = evalSnapshot != null
-                ? (currentEncapId >= 0 ? evalSnapshot.getSubDebugTime(currentEncapId, n.id) : evalSnapshot.getDebugTime(n.id))
-                : 0f;
-        } else {
-            xPos = n.params.length > 4 ? n.params[4] : 0.5f;
-        }
-        xPos = Math.max(0f, Math.min(1f, xPos));
-        int mxLine = chartX + (int) (xPos * chartW);
-        int xMarkerColor = outMode == io.github.y15173334444.create_schematic_compute.graph.DebugSignals.OUT_FREQ
-            ? 0xFF00BFFF : 0xFF44DDFF;
-        g.fill(mxLine, chartY, mxLine + 1, chartY + chartH, xMarkerColor);
-
-        // 模式标签
-        drawStr(g, io.github.y15173334444.create_schematic_compute.graph.DebugSignals.setModeName(setMode),
-            chartX + 4, chartY + 2, 0xFFCCCCCC);
-        // Y 轴范围标注（右上角）/ Y-axis range label (top-right)
-        String rangeStr = String.format("%.1f … %.1f", minV, maxV);
-        int rangeW = Minecraft.getInstance().font.width(rangeStr);
-        drawStr(g, rangeStr, chartX + chartW - rangeW - 3, chartY + 2, 0xFF888899);
-        return ctrlPoints;
-    }
-
-    /** AMP/WSHAPE：力度/整形曲线图（固定值域：AMP 0..1；WSHAPE 0..2 允许过驱）。
-     *  返回控制点本地坐标（供边框上方渲染），语义与 DEBUG 图表一致。
-     *  AMP/WSHAPE dynamics/shaping chart (fixed Y range: AMP 0..1; WSHAPE 0..2 allows
-     *  overdrive). Returns control point local coords, same contract as the DEBUG chart. */
-    private java.util.List<float[]> renderCurveChart(GuiGraphics g, GraphNode n, int nodeW) {
-        float bodyH = HH + PH * (n.functionalInputs() + n.outputs());
-        int chartX = 2, chartY = (int) bodyH, chartW = nodeW - 4, chartH = 80;
-        float yMax = n.type == NodeType.WSHAPE ? 2f : 1f;
-        int samples = 60;
-
-        g.fill(chartX, chartY, chartX + chartW, chartY + chartH, 0xFF1A1A2E);
-        // 网格线（每 1/4 一条）/ grid lines every quarter
-        for (int i = 1; i < 4; i++) {
-            int gx = chartX + chartW * i / 4;
-            g.fill(gx, chartY, gx + 1, chartY + chartH, 0xFF2A2A4E);
-            int gy = chartY + chartH * i / 4;
-            g.fill(chartX, gy, chartX + chartW, gy + 1, 0xFF2A2A4E);
-        }
-        // 恒等参考线（y=x，仅 AMP 值域 0..1 内可见）/ identity reference (visible in AMP range)
-        if (n.type == NodeType.AMP) {
-            for (int i = 0; i < chartW; i += 2) {
-                int ix = chartX + i, iy = chartY + chartH - i * chartH / chartW;
-                g.fill(ix, iy, ix + 1, iy + 1, 0xFF3A3A6E);
-            }
-        }
-
-        // 曲线（AudioCurve 线性插值，与求值/LUT 同一实现）/ the curve (same interp as eval/LUT)
-        int prevPX = -1, prevPY = -1;
-        for (int i = 0; i <= samples; i++) {
-            float x = (float) i / samples;
-            float v = io.github.y15173334444.create_schematic_compute.graph.AudioCurve
-                .eval(n.curveX, n.curveY, x);
-            int px2 = chartX + (int) (x * chartW);
-            int py2 = chartY + chartH - (int) ((v / yMax) * chartH);
-            py2 = Math.max(chartY, Math.min(chartY + chartH - 1, py2));
-            if (prevPX >= 0) drawLine(g, prevPX, prevPY, px2, py2, 0xFF4ADE80);
-            prevPX = px2; prevPY = py2;
-        }
-
-        // 控制点位置收集（边框上方渲染）/ collect control points for above-border rendering
-        java.util.List<float[]> ctrlPoints = new java.util.ArrayList<>();
-        if (n.curveX != null) {
-            for (int i = 0; i < n.curveX.length; i++) {
-                float cpx = chartX + n.curveX[i] * chartW;
-                float cpy = chartY + chartH - (n.curveY[i] / yMax) * chartH;
-                ctrlPoints.add(new float[]{cpx, cpy});
-            }
-        }
-        // Y 轴范围标注（右上角）/ Y-axis range label (top-right)
-        String rangeStr = String.format("%.1f … %.1f", 0f, yMax);
-        int rangeW = Minecraft.getInstance().font.width(rangeStr);
-        drawStr(g, rangeStr, chartX + chartW - rangeW - 3, chartY + 2, 0xFF888899);
-        return ctrlPoints;
-    }
-
-    /** DEBUG_PROBE：当前数值 + 迷你趋势折线图。 */
-    private void renderDebugProbeChart(GuiGraphics g, GraphNode n, int nodeW) {
-        float bodyH = HH + PH * (n.functionalInputs() + n.outputs());
-        int valY = (int) bodyH;
-        int chartX = 2;
-        int chartY = valY + 20;
-        int chartW = nodeW - 4;
-        int chartH = 44;
-
-        // 读取最新采样值
-        int lastIdx = (n.probeHead - 1 + n.probeHistory.length) % n.probeHistory.length;
-        float curVal = n.probeCount > 0 ? n.probeHistory[lastIdx] : 0f;
-        boolean hasData = n.probeCount > 0;
-
-        // 数值显示
-        String valStr = hasData ? String.format("%.3f", curVal) : "---";
-        int valCol = !hasData ? 0xFF888888
-            : (Float.isNaN(curVal) || Float.isInfinite(curVal) ? 0xFF888888
-            : (Math.abs(curVal) > 10f ? 0xFFFF4444 : 0xFF4ADE80));
-        drawStr(g, valStr, chartX + 4, valY + 2, valCol);
-
-        // 趋势图背景
-        g.fill(chartX, chartY, chartX + chartW, chartY + chartH, 0xFF1A1A2E);
-        int midY = chartY + chartH / 2;
-        g.fill(chartX, midY, chartX + chartW, midY + 1, 0xFF2A2A4E);
-
-        if (!hasData || n.probeCount < 2) {
-            drawStr(g, "...", chartX + chartW / 2 - 8, chartY + chartH / 2 - 3, 0xFF666666);
-            return;
-        }
-
-        // 读取参数
-        int windowSize = n.params.length > 0 ? (int) n.params[0] : 50;
-        windowSize = Math.max(2, Math.min(n.probeHistory.length, windowSize));
-        boolean autoScale = n.params.length > 1 ? n.params[1] != 0 : true;
-        float fixedRange = 10f;
-
-        int count = Math.min(n.probeCount, windowSize);
-        int start = (n.probeHead - count + n.probeHistory.length) % n.probeHistory.length;
-
-        // 计算窗口内数据范围（百分位数稳健范围，与信号发生器一致）
-        // 不再使用固定 ±5 截断，避免大值域数据（如 x*360）的范围被错误压垮。
-        // Compute window data range (percentile-based robust range, same as signal generator).
-        // Fixed ±5 clipping is removed so large-scale data (e.g. x*360) displays correctly.
-        java.util.List<Float> pvals = new java.util.ArrayList<>(count);
-        for (int i = 0; i < count; i++) {
-            int idx = (start + i) % n.probeHistory.length;
-            float v = n.probeHistory[idx];
-            if (Float.isFinite(v) && Math.abs(v) < 1e6f) pvals.add(v);
-        }
-        float minV, maxV;
-        if (pvals.isEmpty()) { minV = -1f; maxV = 1f; }
-        else {
-            java.util.Collections.sort(pvals);
-            int lo = (int)(pvals.size() * 0.01f);
-            int hi = (int)(pvals.size() * 0.99f);
-            if (lo >= hi) { lo = 0; hi = pvals.size() - 1; }
-            minV = pvals.get(lo);
-            maxV = pvals.get(hi);
-        }
-        if (minV > maxV) { minV = -1f; maxV = 1f; }
-        float range = autoScale ? Math.max(maxV - minV, 0.001f) : (2 * fixedRange);
-        float base = autoScale ? minV : -fixedRange;
-        if (autoScale && range > 0.001f) {
-            float pad = range * 0.1f;
-            base -= pad;
-            range += pad * 2;
-        }
-
-        // 绘制折线
-        int prevPX = -1, prevPY = -1;
-        int lineCol = 0xFF4ADE80;
-        for (int i = 0; i < count; i++) {
-            int idx = (start + i) % n.probeHistory.length;
-            float v = n.probeHistory[idx];
-            int px = chartX + (int) ((float) i / (count - 1) * chartW);
-            int py = chartY + chartH - (int) ((v - base) / range * chartH);
-            py = Math.max(chartY, Math.min(chartY + chartH - 1, py));
-            if (prevPX >= 0) drawLine(g, prevPX, prevPY, px, py, lineCol);
-            prevPX = px; prevPY = py;
-        }
-
-        // 冻结指示
-        if (n.probeFrozen) {
-            drawStr(g, "FROZEN", chartX + chartW - 36, valY + 2, 0xFFFFAA00);
-        }
-    }
-
-    /** Bresenham 逐像素画线（GuiGraphics 无直接画线 API）。 */
-    private static void drawLine(GuiGraphics g, int x0, int y0, int x1, int y1, int col) {
-        int dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
-        int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-        int err = dx - dy;
-        int x = x0, y = y0;
-        int guard = 0;
-        while (guard++ < 2000) {
-            g.fill(x, y, x + 1, y + 1, col);
-            if (x == x1 && y == y1) break;
-            int e2 = 2 * err;
-            if (e2 > -dy) { err -= dy; x += sx; }
-            if (e2 < dx) { err += dx; y += sy; }
-        }
-    }
-
-
+    // ── 调试节点图表渲染已整体拆至 NodeCharts（docs/file-topology-split-review-2026-10-11.md §三 P2）——
+    //    drawNode 处门面转发；Bresenham drawLine 一并随迁。
+    //    The debug-node chart rendering moved wholesale to NodeCharts (topology review §三 P2);
+    //    drawNode forwards to it, and the Bresenham drawLine moved with it.
     // ══════════════ 添加节点菜单门面（实现已拆至 NodeAddMenu，docs/gui-decomposition-plan.md 步骤 5）══════════════
     // ══════════════ Add-node menu facade (the implementation lives in NodeAddMenu) ══════════════
 
