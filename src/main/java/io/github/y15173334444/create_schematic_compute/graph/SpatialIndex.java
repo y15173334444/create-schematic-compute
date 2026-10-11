@@ -35,22 +35,37 @@ public class SpatialIndex {
     }
 
     /**
-     * Full rebuild with expanded-edit-panel awareness.
-     * Expanded BUS_IN/OUT nodes get their edit panel height added to the AABB
-     * so that {@code queryPoint} returns them for clicks in the expanded area,
-     * enabling correct z-ordering via {@code compareHitOrder}.
+     * Full rebuild with expanded-edit-panel awareness (static edit-height estimate).
+     * Expanded nodes get their edit panel height added to the AABB so that
+     * {@code queryPoint} returns them for clicks in the expanded area, enabling
+     * correct z-ordering via {@code compareHitOrder}.
      */
     public void build(List<GraphNode> nodes, java.util.Set<Integer> expandedIds) {
+        build(nodes, expandedIds, null);
+    }
+
+    /**
+     * Full rebuild with expanded-edit-panel awareness.
+     * {@code expandedEditHeight} 为展开节点提供**实测**编辑区高度（来自存活的 EditState，
+     * 与渲染/裁剪/遮挡同口径）；传 null 回退到 {@link #editHeight(GraphNode)} 静态估算。
+     * 实测口径必须进索引：静态估算（逻辑行、32 行封顶）短于实际渲染面板时，面板尾部会
+     * 逸出索引 AABB，点击尾部时 {@code queryPoint} 找不到节点自身，z 序遮挡门控失效。
+     * Full rebuild with expanded-edit-panel awareness. {@code expandedEditHeight} supplies
+     * the **measured** edit-panel height of an expanded node (from the live EditState — the
+     * same source as rendering/culling/occlusion); {@code null} falls back to the static
+     * {@link #editHeight(GraphNode)} estimate. The measured height must feed the index: when
+     * the static estimate (logical lines, 32-line cap) is shorter than the rendered panel,
+     * the panel tail escapes the indexed AABB, {@code queryPoint} misses the node for clicks
+     * on the tail, and the z-order occlusion gate is defeated.
+     */
+    public void build(List<GraphNode> nodes, java.util.Set<Integer> expandedIds,
+                      java.util.function.ToIntFunction<GraphNode> expandedEditHeight) {
         cells.clear();
         for (var n : nodes) {
             float w = n.type == NodeType.COMMENT ? n.commentWidth : nwStatic(n);
             float h = n.type == NodeType.COMMENT ? n.commentHeight : nhStatic(n);
             if (expandedIds != null && expandedIds.contains(n.id)) {
-                // 与旧 calcRenderHeight(n, 1f) 等价的静态估算（本类即几何真相源）。
-                // 动态多出的编辑行可能不在索引内——既有局限，非本入口能解。
-                // The static estimate (this class is the geometry source). Extra dynamic
-                // edit rows may miss the index - a pre-existing limit this entry cannot fix.
-                h += editHeight(n);
+                h += expandedEditHeight != null ? expandedEditHeight.applyAsInt(n) : editHeight(n);
             }
             int minCX = cellCoord(n.x);
             int minCY = cellCoord(n.y);
@@ -179,14 +194,20 @@ public class SpatialIndex {
         }
         if (n.type == NodeType.FORMULA) {
             // 摘要行 + 参数行(warm 等,刀5) + 脚本编辑区高度 / summary + param rows (warm etc., knife 5) + script box height
-            // 高度基于视觉行（折行感知）；实测框高由调用方量好传入 / height based on visual
-            // lines (word-wrap aware); the measured box height arrives as a parameter
+            // 实测框高（视觉行、折行感知）由调用方量好传入；此分支是无 EditState 窗口的
+            // 静态估算：按逻辑行**不封顶**计数（旧 32 行封顶会让长脚本的面板尾部逸出索引
+            // AABB，尾部点击判成被遮挡）。折行仍只在实测路径建模，静态分支不伪造字体宽度。
+            // The measured box height (visual lines, word-wrap aware) arrives as a parameter;
+            // this branch is the static estimate for EditState-less windows: logical lines,
+            // **uncapped** (the old 32-line cap let a long script's panel tail escape the
+            // indexed AABB, so tail clicks were judged occluded). Word-wrap is modeled only
+            // by the measured path — the static branch does not fake font metrics.
             int paramRows = n.type.editableParamCount();
             if (formulaContentHeight >= 0) {
                 h += 22 + paramRows * 18 + formulaContentHeight + 12;
             } else {
                 int lineCount = n.formula.isEmpty() ? 1 : Math.max(1, n.formula.split("\n", -1).length);
-                h += 22 + paramRows * 18 + Math.max(1, Math.min(lineCount, 32)) * 12 + 12;
+                h += 22 + paramRows * 18 + lineCount * 12 + 12;
             }
         }
         if (n.type == NodeType.TEXT) h += 22;

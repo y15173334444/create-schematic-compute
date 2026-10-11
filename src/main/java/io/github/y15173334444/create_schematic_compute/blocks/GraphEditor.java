@@ -1369,8 +1369,16 @@ public class GraphEditor {
             }
         }
 
-        // Rebuild spatial index once per frame (used by all spatial queries below)
-        spatialIndex.build(graph.nodes, expandedNodeIds);
+        // Rebuild spatial index once per frame (used by all spatial queries below).
+        // 展开编辑区高度必须传**实测**口径（与裁剪/遮挡/hitNode 同源的 expandedEditHeight）——
+        // 静态估算短于渲染面板时，长公式脚本的尾部会逸出索引 AABB，尾部点击找不到节点自身、
+        // z 序遮挡门控失效（面板看得见摸不着）。/ The expanded edit-panel height must be the
+        // measured one (expandedEditHeight — the same source as culling/occlusion/hitNode): a
+        // static estimate shorter than the rendered panel lets a long formula script's tail
+        // escape the indexed AABB, so tail clicks miss the node itself and the z-order
+        // occlusion gate is defeated (panel visible but untouchable).
+        spatialIndex.build(graph.nodes, expandedNodeIds,
+            n -> EditPanel.expandedEditHeight(n, nodeEditStatesById.get(n.id)));
 
         // Sort nodes by B-layer ascending (lower B = rendered first = behind, higher B = on top)
         var sortedByB = sortNodesByB(graph.nodes);
@@ -2437,7 +2445,13 @@ public class GraphEditor {
         // 逐个检查：是否有更高 z-order 的非 Comment 节点实际遮挡了点击位置 (Check: does a higher-z non-Comment node actually occlude the click?)
         boolean occluded = false;
         for (var n : clickCandidates) {
-            if (n == en) break; // 到达当前节点，上方无遮挡 (Reached current node, no occluder above)
+            // z 序门控按比较判定，不依赖「排序候选里能遇到 en 就 break」：候选表由索引估算
+            // 构建，估算短于渲染面板时 en 缺席，break 式门控会把身后的节点误判成遮挡者。
+            // The z gate compares hit order directly instead of "break on meeting en in the
+            // sorted candidates": the list comes from the index estimate, and when that falls
+            // short of the rendered panel en is absent, which made the break form misjudge
+            // behind-nodes as occluders.
+            if (!isOccluderInHitOrder(n, en)) continue;
             if (n.type == NodeType.COMMENT) continue;
             float sx = c2sX(n.x), sy = c2sY(n.y);
             float sw = NodeRenderer.nw(n) * zoom;
@@ -4703,6 +4717,21 @@ public class GraphEditor {
         int cmp = Integer.compare(bA, aA); // higher A first
         if (cmp != 0) return cmp;
         return Integer.compare(b.sortB, a.sortB); // higher B first within same A
+    }
+
+    /** 遮挡 z 序门控：候选只有**严格高于** en（{@link #compareHitOrder} < 0）才算潜在遮挡者；
+     *  en 自身与它身后的节点永远不是。显式比较而非「排序候选里遇到 en 就 break」——候选表
+     *  由索引估算构建，估算短于渲染面板时 en 会缺席，break 式门控会把身后节点误判成遮挡者
+     *  （长公式编辑区尾部看得见摸不着的直接机制）。
+     *  Z-order gate for occlusion: a candidate is a potential occluder only when strictly
+     *  above {@code en} ({@link #compareHitOrder} < 0) — never en itself, never anything
+     *  behind it. Explicit comparison rather than "break on meeting en in the sorted
+     *  candidates": the list comes from the index estimate, and when that falls short of the
+     *  rendered panel en is absent, which made the break form misjudge behind-nodes as
+     *  occluders (the direct mechanism behind a long formula edit panel being visible yet
+     *  untouchable at the bottom). */
+    static boolean isOccluderInHitOrder(GraphNode n, GraphNode en) {
+        return n != en && compareHitOrder(n, en) < 0;
     }
 
     /** 检测鼠标位置下最上层的节点（按 A 层排序，含展开面板高度）。
