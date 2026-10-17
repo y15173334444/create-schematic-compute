@@ -193,7 +193,9 @@ public final class EditorKeys {
         /** NBS：全选 / NBS: select all */
         NBS_SELECT_ALL(Scope.NBS, "editorkeys.nbs_select_all"),
         /** NBS：反选 / NBS: invert selection */
-        NBS_SELECT_INVERT(Scope.NBS, "editorkeys.nbs_select_invert");
+        NBS_SELECT_INVERT(Scope.NBS, "editorkeys.nbs_select_invert"),
+        /** NBS：设置选中音符属性（力度/声像/细音高） / NBS: set note fields on the selection */
+        NBS_SET(Scope.NBS, "editorkeys.nbs_set");
 
         /** lang 键（设置界面显示用，渲染时补 gui.create_schematic_compute. 前缀） / lang key (prefixed at render time). */
         public final String langKey;
@@ -314,6 +316,7 @@ public final class EditorKeys {
             case NBS_DELETE_SELECTED -> java.util.List.of(new Step(261, 0));  // Delete
             case NBS_SELECT_ALL -> java.util.List.of(new Step(65, MOD_CTRL)); // Ctrl+A
             case NBS_SELECT_INVERT -> java.util.List.of(new Step(73, MOD_CTRL)); // Ctrl+I
+            case NBS_SET -> java.util.List.of(new Step(69, MOD_CTRL));      // Ctrl+E（属性弹窗）/ the Set dialog
             case NBS_STOP, NBS_SAVE, NBS_IMPORT, NBS_EXPORT, NBS_VIEW_TOGGLE,
                  NBS_LOOP, NBS_INSTRUMENT_PREV, NBS_INSTRUMENT_NEXT,
                  NBS_OCTAVE_PREV, NBS_OCTAVE_NEXT -> java.util.List.of();     // 出厂不绑 / unbound

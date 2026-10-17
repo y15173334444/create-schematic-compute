@@ -125,6 +125,11 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
      *  selection travels. */
     private int moveTick, moveLayer, moveKey;
     private boolean moveSelDrag;
+
+    // ── Set 弹窗（批次三 B3）/ the Set dialog (batch 3 B3) ──
+    private boolean setOpen = false;
+    private int setField = NbsEditorKernel.FIELD_VELOCITY;
+    private boolean setAbsolute = true;
     private double hoverX = -1, hoverY = -1;
     /** 单击 vs 拖动的像素阈值（层列「单击落点、拖动框选」的判定）。
      *  Click vs drag threshold (the lane view's click-places / drag-selects split). */
@@ -138,7 +143,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private long feedbackUntil = 0;
 
     // ── 输入框 / edit boxes ──
-    private EditBox tempoBox, layerNameBox, exportNameBox;
+    private EditBox tempoBox, layerNameBox, exportNameBox, setValueBox;
 
     public NbsEditorScreen(BlockPos pos, GraphNode node, Screen returnScreen) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".nbs_editor"));
@@ -162,6 +167,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         layerNameBox.setMaxLength(32);
         exportNameBox = new EditBox(font, 0, 0, 140, 14, Component.literal(""));
         exportNameBox.setMaxLength(48);
+        setValueBox = new EditBox(font, 0, 0, 80, 14, Component.literal(""));
+        setValueBox.setMaxLength(8);
     }
 
     // ══════════════ GraphEditor.Host ══════════════
@@ -435,6 +442,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         renderTransportBar(g, mx, my);
         if (importOpen) renderImportDialog(g, mx, my);
         if (exportOpen) renderExportDialog(g, mx, my);
+        if (setOpen) renderSetDialog(g, mx, my);
         if (showGuide) renderGuide(g);
     }
 
@@ -637,6 +645,79 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         button(g, x + w - 68, y + h - 24, 58, 18, I18n.get("gui.create_schematic_compute.nbs_close"), mx, my, false);
     }
 
+    /** Set 弹窗（B3）：字段三键 + 数值框 + 绝对/增量 + 应用/取消。
+     *  The Set dialog (B3): field buttons + value box + absolute/relative + apply/cancel. */
+    private void renderSetDialog(GuiGraphics g, int mx, int my) {
+        int w = 260, h = 118, x = (width - w) / 2, y = (height - h) / 2;
+        g.fill(x, y, x + w, y + h, C_PANEL);
+        g.renderOutline(x, y, w, h, C_BORDER);
+        g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_set_title"), x + 8, y + 6, C_TEXT, false);
+        button(g, x + 8, y + 22, 76, 16, I18n.get("gui.create_schematic_compute.nbs_set_velocity"),
+            mx, my, setField == NbsEditorKernel.FIELD_VELOCITY);
+        button(g, x + 90, y + 22, 76, 16, I18n.get("gui.create_schematic_compute.nbs_set_panning"),
+            mx, my, setField == NbsEditorKernel.FIELD_PANNING);
+        button(g, x + 172, y + 22, 80, 16, I18n.get("gui.create_schematic_compute.nbs_set_pitch"),
+            mx, my, setField == NbsEditorKernel.FIELD_PITCH);
+        setValueBox.setX(x + 8); setValueBox.setY(y + 47);
+        setValueBox.render(g, mx, my, pt0());
+        button(g, x + 96, y + 46, 76, 16, I18n.get("gui.create_schematic_compute.nbs_set_abs"), mx, my, setAbsolute);
+        button(g, x + 178, y + 46, 76, 16, I18n.get("gui.create_schematic_compute.nbs_set_rel"), mx, my, !setAbsolute);
+        button(g, x + w - 128, y + h - 24, 58, 18, I18n.get("gui.create_schematic_compute.nbs_set_ok"), mx, my, false);
+        button(g, x + w - 68, y + h - 24, 58, 18, I18n.get("gui.create_schematic_compute.nbs_cancel"), mx, my, false);
+    }
+
+    private boolean clickSetDialog(double mx, double my) {
+        int w = 260, h = 118, x = (width - w) / 2, y = (height - h) / 2;
+        if (inRect(x + 8, y + 22, 76, 16, mx, my)) { setField = NbsEditorKernel.FIELD_VELOCITY; return true; }
+        if (inRect(x + 90, y + 22, 76, 16, mx, my)) { setField = NbsEditorKernel.FIELD_PANNING; return true; }
+        if (inRect(x + 172, y + 22, 80, 16, mx, my)) { setField = NbsEditorKernel.FIELD_PITCH; return true; }
+        if (inRect(x + 8, y + 46, 80, 14, mx, my)) { setValueBox.setFocused(true); return true; }
+        if (inRect(x + 96, y + 46, 76, 16, mx, my)) { setAbsolute = true; return true; }
+        if (inRect(x + 178, y + 46, 76, 16, mx, my)) { setAbsolute = false; return true; }
+        if (inRect(x + w - 128, y + h - 24, 58, 18, mx, my)) {
+            applySet();
+            return true;
+        }
+        if (inRect(x + w - 68, y + h - 24, 58, 18, mx, my) || !inRect(x, y, w, h, mx, my)) {
+            setOpen = false;
+            return true;
+        }
+        setValueBox.setFocused(false);
+        return true;
+    }
+
+    /** 打开 Set 弹窗（选区非空）；数值框聚焦。 / open the Set dialog on a non-empty selection. */
+    private void openSetDialog() {
+        if (selection.isEmpty()) {
+            feedback(I18n.get("gui.create_schematic_compute.nbs_sel_empty"));
+            return;
+        }
+        if (editLocked()) return;
+        setOpen = true;
+        setField = NbsEditorKernel.FIELD_VELOCITY;
+        setAbsolute = true;
+        setValueBox.setValue("0");
+        setValueBox.setFocused(true);
+    }
+
+    /** 应用 Set：选区级属性（绝对/增量，快照撤销）。 / apply: the selection-wide field set. */
+    private void applySet() {
+        int v;
+        try {
+            v = Integer.parseInt(setValueBox.getValue().trim());
+        } catch (NumberFormatException e) {
+            return;                       // 数值没写好 = 不动 / a malformed value applies nothing
+        }
+        int n = kernel.setSelectionField(selection, setField, v, setAbsolute);
+        setOpen = false;
+        setValueBox.setFocused(false);
+        if (n == 0) {
+            feedback(I18n.get("gui.create_schematic_compute.nbs_set_nothing"));
+            return;
+        }
+        feedback(I18n.get("gui.create_schematic_compute.nbs_set_done", n));
+    }
+
     private void renderExportDialog(GuiGraphics g, int mx, int my) {
         int w = 220, h = 80, x = (width - w) / 2, y = (height - h) / 2;
         g.fill(x, y, x + w, y + h, C_PANEL);
@@ -649,7 +730,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     private void renderGuide(GuiGraphics g) {
-        int w = 300, h = 184, x = (width - w) / 2, y = (height - h) / 2;
+        int w = 300, h = 200, x = (width - w) / 2, y = (height - h) / 2;
         g.fill(x, y, x + w, y + h, C_PANEL);
         g.renderOutline(x, y, w, h, C_BORDER);
         String[] lines = {
@@ -665,6 +746,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             I18n.get("gui.create_schematic_compute.nbs_guide_8"),
             I18n.get("gui.create_schematic_compute.nbs_guide_9"),
             I18n.get("gui.create_schematic_compute.nbs_guide_10"),
+            I18n.get("gui.create_schematic_compute.nbs_guide_11"),
         };
         for (int i = 0; i < lines.length; i++) {
             g.drawString(font, lines[i], x + 8, y + 8 + i * 14, i == 0 ? C_TEXT : C_TEXT_DIM, false);
@@ -683,6 +765,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (showGuide) { showGuide = false; return true; }
         if (importOpen) return clickImport(mx, my, btn);
         if (exportOpen) return clickExport(mx, my, btn);
+        if (setOpen) return clickSetDialog(mx, my);
 
         if (btn != 0) {
             // 右键落在网格上 = 擦除；其余右键忽略。擦除同样按笔划分组撤销。
@@ -1325,7 +1408,21 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             importScroll = clampImportScroll(importScroll + (sy > 0 ? -1 : 1), importFiles.size());
             return true;
         }
-        if (showGuide || exportOpen) return true;
+        if (showGuide || exportOpen || setOpen) return true;
+        // Alt+Ctrl + 悬停音符 + 滚轮 = 力度 ±5（Shift = ±15）（B3 悬停微调；细音高/声像走 Set 弹窗）
+        // Alt+Ctrl + hover a note + wheel = velocity ±5 (Shift ±15) — the B3 micro-adjust
+        // (fine pitch / panning go through the Set dialog).
+        if (hasAltDown() && hasControlDown()) {
+            NbsSong.Note n = view == View.ROLL ? noteAt(mx, my) : laneNoteAt(mx, my);
+            if (n != null) {
+                if (editLocked()) return true;
+                int step = (sy > 0 ? 5 : -5) * (hasShiftDown() ? 3 : 1);
+                int nv = Math.max(0, Math.min(100, n.velocity + step));
+                kernel.setNoteField(n.tick, n.layer, NbsEditorKernel.FIELD_VELOCITY, nv);
+                feedback(I18n.get("gui.create_schematic_compute.nbs_set_velocity") + " " + nv);
+                return true;
+            }
+        }
         if (view == View.LANE) {
             if (mx >= rollX() && my >= stripY()) { pianoStrip.shift(sy > 0 ? -12 : 12); return true; }
             // Alt + 悬停音符 + 滚轮 = 调声调（Shift = 八度 ±12，否则半音 ±1）。
@@ -1369,6 +1466,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             if (showGuide) { showGuide = false; return true; }
             if (importOpen) { importOpen = false; return true; }
             if (exportOpen) { exportOpen = false; return true; }
+            if (setOpen) { setOpen = false; setValueBox.setFocused(false); return true; }
             if (tempoBox != null && tempoBox.isFocused()) { commitTempo(); return true; }
             if (layerNameBox != null && layerNameBox.isFocused()) { commitLayerName(); return true; }
             if (exportNameBox != null && exportNameBox.isFocused()) { exportNameBox.setFocused(false); return true; }
@@ -1376,6 +1474,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             return true;
         }
         if (key == 257 || key == 335) {         // Enter（提交输入框）
+            if (setOpen) { applySet(); return true; }
             if (tempoBox != null && tempoBox.isFocused()) { commitTempo(); return true; }
             if (layerNameBox != null && layerNameBox.isFocused()) { commitLayerName(); return true; }
             if (exportOpen && exportNameBox != null && exportNameBox.isFocused()) {
@@ -1386,7 +1485,9 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         }
         // 输入框聚焦时把按键交给它 / focused edit boxes eat keys
         if ((tempoBox != null && tempoBox.isFocused()) || (layerNameBox != null && layerNameBox.isFocused())
-            || (exportOpen && exportNameBox != null && exportNameBox.isFocused())) {
+            || (exportOpen && exportNameBox != null && exportNameBox.isFocused())
+            || (setOpen && setValueBox != null && setValueBox.isFocused())) {
+            if (setOpen && setValueBox != null && setValueBox.isFocused()) return setValueBox.keyPressed(key, sc, mod);
             if (exportOpen && exportNameBox != null && exportNameBox.isFocused()) return exportNameBox.keyPressed(key, sc, mod);
             if (tempoBox != null && tempoBox.isFocused()) return tempoBox.keyPressed(key, sc, mod);
             return layerNameBox.keyPressed(key, sc, mod);
@@ -1456,6 +1557,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             case NBS_DELETE_SELECTED -> { doDeleteSelection(); return true; }
             case NBS_SELECT_ALL -> { selection.selectAll(kernel.song()); return true; }
             case NBS_SELECT_INVERT -> { selection.invert(kernel.song()); return true; }
+            case NBS_SET -> { openSetDialog(); return true; }
             default -> { return false; }
         }
     }
@@ -1553,6 +1655,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     @Override
     public boolean charTyped(char ch, int mod) {
+        if (setOpen && setValueBox != null && setValueBox.isFocused()) return setValueBox.charTyped(ch, mod);
         if (tempoBox != null && tempoBox.isFocused()) return tempoBox.charTyped(ch, mod);
         if (layerNameBox != null && layerNameBox.isFocused()) return layerNameBox.charTyped(ch, mod);
         if (exportOpen && exportNameBox != null && exportNameBox.isFocused()) return exportNameBox.charTyped(ch, mod);

@@ -35,6 +35,9 @@ public final class NbsEditorKernel {
     /** 撤销栈深度上限。 / undo-stack depth cap. */
     public static final int MAX_UNDO = 200;
 
+    /** 逐音符属性字段（B3）：力度 / 声像 / 细音高。 / per-note fields (B3): velocity / panning / fine pitch. */
+    public static final int FIELD_VELOCITY = 1, FIELD_PANNING = 2, FIELD_PITCH = 3;
+
     /** 正在编辑的曲目（活引用——调用方持有的节点曲目本体）。
      *  The song being edited (live reference — the caller's node song itself). */
     private final NbsSong song;
@@ -315,6 +318,85 @@ public final class NbsEditorKernel {
             if (song.getNote(c[0], c[1]) != null) out.add(c);
         }
         return out;
+    }
+
+    /**
+     * 逐音符属性（B3）：字段 {@link #FIELD_VELOCITY}/{@link #FIELD_PANNING}/{@link #FIELD_PITCH}
+     * 置绝对值（钳位：力度 0–100、声像 0–200、细音高 −32768..32767）。同值 = 空操作；
+     * 锁定层拒绝。精确逆撤销（{@link CellEdit}）。返回是否改了。
+     * <p>Per-note field (B3): sets one of {@link #FIELD_VELOCITY} / {@link #FIELD_PANNING} /
+     * {@link #FIELD_PITCH} absolutely (clamped: velocity 0–100, panning 0–200, fine pitch
+     * −32768..32767). Same value = no-op; locked layers refuse. Precise-inverse undo.
+     * Returns whether the note changed.</p>
+     */
+    public boolean setNoteField(int tick, int layer, int field, int value) {
+        if (layer < 0 || layer >= song.layers.size()) return false;
+        if (song.layers.get(layer).locked) return false;
+        NbsSong.Note old = song.getNote(tick, layer);
+        if (old == null) return false;
+        int v = clampField(field, value);
+        if (fieldValue(old, field) == v) return false;
+        NbsSong.Note fresh = copyOf(old);
+        setField(fresh, field, v);
+        apply(new CellEdit(tick, layer, copyOf(old), fresh));
+        return true;
+    }
+
+    /**
+     * 选区级属性（B3，Set 弹窗）：{@code absolute} = 全部置 value，否则各自 + value（增量）。
+     * 跳过锁定层格；整曲快照撤销（选区级同口径）。返回实际改了的格数（0 = 空操作）。
+     * <p>Selection-wide field set (B3, the Set dialog): absolute = every note takes
+     * value, relative = each note shifts by value. Locked-layer cells skip; snapshot
+     * undo. Returns how many notes actually changed (0 = no-op).</p>
+     */
+    public int setSelectionField(NbsSelection sel, int field, int value, boolean absolute) {
+        int step = clamp(value, -100000, 100000);      // 增量先钳，防 int 溢出 / clamp the step against overflow
+        List<int[]> targets = unlockedSelected(sel);
+        List<NbsSong.Note> changed = new ArrayList<>();
+        List<Integer> newValues = new ArrayList<>();
+        for (int[] c : targets) {
+            NbsSong.Note n = song.getNote(c[0], c[1]);
+            int v = clampField(field, absolute ? step : fieldValue(n, field) + step);
+            if (v == fieldValue(n, field)) continue;
+            changed.add(n);
+            newValues.add(v);
+        }
+        if (changed.isEmpty()) return 0;
+        NbsSong before = song.copy();
+        for (int i = 0; i < changed.size(); i++) {
+            NbsSong.Note n = changed.get(i);
+            NbsSong.Note fresh = copyOf(n);
+            setField(fresh, field, newValues.get(i));
+            song.putNote(n.tick, n.layer, fresh.instrument, fresh.key,
+                fresh.velocity, fresh.panning, fresh.pitch);
+        }
+        NbsSong after = song.copy();
+        push(new SnapshotEdit(before, after));
+        return changed.size();
+    }
+
+    private static int fieldValue(NbsSong.Note n, int field) {
+        return switch (field) {
+            case FIELD_VELOCITY -> n.velocity;
+            case FIELD_PANNING -> n.panning;
+            default -> n.pitch;
+        };
+    }
+
+    private static void setField(NbsSong.Note n, int field, int v) {
+        switch (field) {
+            case FIELD_VELOCITY -> n.velocity = v;
+            case FIELD_PANNING -> n.panning = v;
+            default -> n.pitch = v;
+        }
+    }
+
+    private static int clampField(int field, int v) {
+        return switch (field) {
+            case FIELD_VELOCITY -> clamp(v, 0, 100);
+            case FIELD_PANNING -> clamp(v, 0, 200);
+            default -> clamp(v, -32768, 32767);
+        };
     }
 
     /**

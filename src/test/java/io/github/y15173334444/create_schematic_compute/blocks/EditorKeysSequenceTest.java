@@ -241,6 +241,7 @@ class EditorKeysSequenceTest {
         assertEquals(EditorKeys.Action.NBS_DELETE_SELECTED, EditorKeys.feedKey(261, 0, T, EditorKeys.Scope.NBS));         // Delete
         assertEquals(EditorKeys.Action.NBS_SELECT_ALL, EditorKeys.feedKey(65, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.NBS));   // Ctrl+A
         assertEquals(EditorKeys.Action.NBS_SELECT_INVERT, EditorKeys.feedKey(73, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.NBS)); // Ctrl+I
+        assertEquals(EditorKeys.Action.NBS_SET, EditorKeys.feedKey(69, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.NBS));          // Ctrl+E
         // 框选按住键跟随绑定（默认 Tab）/ the hold key follows the binding (Tab by default)
         assertEquals(258, EditorKeys.nbsBoxSelectHoldKey());
     }

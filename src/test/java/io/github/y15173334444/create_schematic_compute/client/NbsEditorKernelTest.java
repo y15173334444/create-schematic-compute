@@ -614,4 +614,77 @@ class NbsEditorKernelTest {
         assertEquals(2, moved.size());
         assertEquals(87, song.getNote(1, 0).key, "keys clamp to 0-87");
     }
+
+    // ══════════════ 逐音符属性（批次三 B3）/ per-note fields (batch 3 B3) ══════════════
+
+    @Test
+    void setNoteFieldEditsClampsAndUndo() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.toggleNote(2, 0, 45, 3);
+        k.clearUndo();
+
+        assertTrue(k.setNoteField(2, 0, NbsEditorKernel.FIELD_VELOCITY, 55));
+        NbsSong.Note n = song.getNote(2, 0);
+        assertEquals(55, n.velocity);
+        assertEquals(45, n.key, "only the field changes");
+        assertEquals(100, n.panning);
+        assertTrue(k.performUndo(), "precise inverse");
+        assertEquals(100, song.getNote(2, 0).velocity);
+        assertFalse(k.canUndo());
+
+        assertFalse(k.setNoteField(2, 0, NbsEditorKernel.FIELD_VELOCITY, 100), "same value = no-op");
+        assertFalse(k.setNoteField(3, 0, NbsEditorKernel.FIELD_PANNING, 50), "empty cell refuses");
+        assertFalse(k.canUndo());
+
+        k.setNoteField(2, 0, NbsEditorKernel.FIELD_VELOCITY, 999);
+        k.setNoteField(2, 0, NbsEditorKernel.FIELD_PANNING, -5);
+        k.setNoteField(2, 0, NbsEditorKernel.FIELD_PITCH, 99999);
+        n = song.getNote(2, 0);
+        assertEquals(100, n.velocity, "velocity clamps to 0-100");
+        assertEquals(0, n.panning, "panning clamps to 0-200");
+        assertEquals(32767, n.pitch, "fine pitch clamps");
+
+        k.setLayerLocked(0, true);
+        assertFalse(k.setNoteField(2, 0, NbsEditorKernel.FIELD_PITCH, -32768), "locked layers refuse");
+        assertEquals(32767, song.getNote(2, 0).pitch);
+    }
+
+    @Test
+    void setSelectionFieldAbsoluteAndRelative() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.toggleNote(0, 0, 45, 3);
+        song.getNote(0, 0).velocity = 40;
+        k.toggleNote(2, 0, 50, 7);
+        song.getNote(2, 0).velocity = 80;
+        k.toggleNote(4, 0, 55, 7);
+        song.getNote(4, 0).pitch = 100;
+        k.clearUndo();
+
+        NbsSelection sel = new NbsSelection();
+        sel.selectRect(song, 0, 3, 0, 5, NbsSelection.Mode.REPLACE);   // (4,0) 不在选区 / stays out
+        assertEquals(2, k.setSelectionField(sel, NbsEditorKernel.FIELD_VELOCITY, 55, true));
+        assertEquals(55, song.getNote(0, 0).velocity, "absolute: both take the value");
+        assertEquals(55, song.getNote(2, 0).velocity);
+        assertEquals(100, song.getNote(4, 0).velocity, "unselected notes untouched");
+        assertTrue(k.performUndo(), "one snapshot undoes the whole set");
+        assertEquals(40, song.getNote(0, 0).velocity);
+        assertEquals(80, song.getNote(2, 0).velocity);
+        assertFalse(k.canUndo());
+
+        // 增量模式：各自 ± / relative: each note shifts
+        assertEquals(2, k.setSelectionField(sel, NbsEditorKernel.FIELD_VELOCITY, -10, false));
+        assertEquals(30, song.getNote(0, 0).velocity);
+        assertEquals(70, song.getNote(2, 0).velocity);
+
+        // 细音高 + 钳位 / fine pitch with clamping
+        NbsSelection all = new NbsSelection();
+        all.selectAll(song);
+        assertEquals(3, k.setSelectionField(all, NbsEditorKernel.FIELD_PITCH, 20, false));
+        assertEquals(20, song.getNote(0, 0).pitch);
+        assertEquals(120, song.getNote(4, 0).pitch, "existing pitch shifts too");
+
+        assertEquals(0, k.setSelectionField(sel, NbsEditorKernel.FIELD_VELOCITY, 0, false), "zero delta = no-op");
+    }
 }

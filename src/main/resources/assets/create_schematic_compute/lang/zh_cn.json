@@ -104,6 +104,7 @@
   "gui.create_schematic_compute.editorkeys.nbs_delete_selected": "NBS：删除选中",
   "gui.create_schematic_compute.editorkeys.nbs_select_all": "NBS：全选",
   "gui.create_schematic_compute.editorkeys.nbs_select_invert": "NBS：反选",
+  "gui.create_schematic_compute.editorkeys.nbs_set": "NBS：设置音符属性",
   "gui.create_schematic_compute.editorkeys.mouse.0": "左键",
   "gui.create_schematic_compute.editorkeys.mouse.1": "右键",
   "gui.create_schematic_compute.editorkeys.mouse.2": "中键",
@@ -781,6 +782,15 @@
   "gui.create_schematic_compute.nbs_sel_empty": "未选中音符",
   "gui.create_schematic_compute.nbs_paste_nothing": "此处未落下音符（锁定层或越界）",
   "gui.create_schematic_compute.nbs_move_blocked": "无法搬到那里（锁定层或越界）",
+  "gui.create_schematic_compute.nbs_set_title": "设置音符属性（选区）",
+  "gui.create_schematic_compute.nbs_set_velocity": "力度",
+  "gui.create_schematic_compute.nbs_set_panning": "声像",
+  "gui.create_schematic_compute.nbs_set_pitch": "细音高",
+  "gui.create_schematic_compute.nbs_set_abs": "绝对",
+  "gui.create_schematic_compute.nbs_set_rel": "增量",
+  "gui.create_schematic_compute.nbs_set_ok": "应用",
+  "gui.create_schematic_compute.nbs_set_done": "已设置 %d 个音符",
+  "gui.create_schematic_compute.nbs_set_nothing": "没有变化",
   "gui.create_schematic_compute.nbs_inst_harp": "竖琴",
   "gui.create_schematic_compute.nbs_inst_basedrum": "底鼓",
   "gui.create_schematic_compute.nbs_inst_snare": "军鼓",
@@ -807,5 +817,6 @@
   "gui.create_schematic_compute.nbs_guide_7": "保存上传到 MUSIC 节点；导入/导出目录 create_schematic_compute/nbs。",
   "gui.create_schematic_compute.nbs_guide_8": "Tab+左键拖 = 框选（层列视图直接左键拖）；Ctrl+点 = 加/减选；Ctrl+A / Ctrl+I = 全选/反选。",
   "gui.create_schematic_compute.nbs_guide_9": "Ctrl+C / Ctrl+X / Ctrl+V / Delete = 复制 / 剪切 / 粘贴 / 删除；粘贴落在鼠标所指格（不在网格 = 播放头）。",
-  "gui.create_schematic_compute.nbs_guide_10": "拖音符（或选区）= 搬移；卷帘同格拖 = 改音高，层列换行 = 换层。"
+  "gui.create_schematic_compute.nbs_guide_10": "拖音符（或选区）= 搬移；卷帘同格拖 = 改音高，层列换行 = 换层。",
+  "gui.create_schematic_compute.nbs_guide_11": "Ctrl+E = 对选区设力度/声像/细音高（绝对/增量）；Alt+Ctrl+滚轮 = 力度。"
 }
