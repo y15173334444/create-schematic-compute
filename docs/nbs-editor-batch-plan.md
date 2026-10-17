@@ -1,6 +1,6 @@
 # NBS 编辑器批次改进计划 / NBS Editor Batch Improvement Plan
 
-> **状态：✅ 批次一 + 批次二（双样式）已落地（2026-10-17）；🔶 批次三/四待办**
+> **状态：✅ 批次一 + 批次二（双样式）+ 批次三 B1（选择/剪贴板）已落地（2026-10-17）；🔶 批次三 B2/B3、批次四待办**
 > 日期：2026-10-17 起草
 > 影响：`NbsEditorScreen` / `NbsEditorKernel` / `NbsPianoRoll` / `NbsSong` / `MusicTransport`
 > 交叉引用：[`tech-debt-review-2026-10-11.md`](tech-debt-review-2026-10-11.md)（P1-10 / P2-22 / P2-23）、[`known-open-issues.md`](known-open-issues.md)、CHANGELOG「Unreleased（v1.2.6 WIP）」NBS 钢琴卷帘编辑器条目
@@ -155,11 +155,22 @@ feat: lane-view placement semantics in the nbs kernel
 
 ## 3. 批次三：编辑表达力 / Batch 3: Editing Expressiveness
 
-**状态：🔶 待办**。社区核心工作流三件套，内核测试先行（`NbsEditorKernelTest` 扩展为回归锚点）；两视图通用（LANE 视图的左键拖留白即为 B1 框选预留）。
+**状态：🔶 B2/B3 待办**（B1 ✅ 已落地；B3 依赖的选区已随 B1 解锁）。社区核心工作流三件套，内核测试先行（`NbsEditorKernelTest` 扩展为回归锚点）；两视图通用（LANE 视图的左键拖留白即为 B1 框选预留）。
 
 ### B1. 选择 + 剪贴板 / Selection & clipboard
 
-框选（左键拖矩形）、Ctrl 加/减选、复制/剪切/粘贴/删除、全选/反选。内核引入 Selection 模型（选区 = tick×layer 矩形 + 单格集合），选区级操作走现有 `SnapshotEdit` 快照撤销；剪贴板为曲目片段（音符+层映射），可与系统剪贴板互通（参考实现的压缩串剪贴板语义可对齐，MIT）。
+**状态：✅ 已解决（2026-10-17）**（回归锚点 `NbsSelectionTest` / `NbsClipboardTest` / `NbsEditorKernelTest`（选区级操作）/ `EditorKeysSequenceTest`（出厂默认））
+
+**实施记录 / Implementation Record（2026-10-17）**
+
+```
+feat: selection and clipboard in the nbs editor
+```
+
+- **选区模型** `NbsSelection`（纯数据可单测）：选中单元 = (tick, layer) 集合、只收有音符格（社区「选中音符」语义——选的是音符不是空白圈地）；层列框选（tick×层矩形）与卷帘框选（tick×键矩形，收视觉矩形内的音符格）归一同一集合，成员判定以集合为准；**锁定层永不入选**（删/剪/搬的误伤面）。计划原文的「矩形 + 单格集合」落为「框选手势（矩形）产出 + 单格 Ctrl 加减选」的同一集合形态。
+- **手势**：**框选键按住 + 左键拖 = 框选**（默认 Tab，`NBS_BOX_SELECT` 入键位系统；按住判定 = 物理键态轮询，keyReleased 丢失自愈；Ctrl = 加选）；**层列左键拖直接框选**（批次二留白兑现；单击落点延到松手判定，拖过 `DRAG_THRESHOLD` 4px 即让位给框选）；**Ctrl+点 = 单格加/减选**（拖动即转加选框选）。选择手势无害，不进播放锁与滚动防误触（编辑手势照旧拦）；选中音符亮描边 + 拖动橡皮筋。
+- **命令入键位系统**（NBS 域 +7 动作，出厂默认绑——无按钮路径的命令须默认可达）：复制 Ctrl+C / 剪切 Ctrl+X / 粘贴 Ctrl+V / 删除选中 Delete / 全选 Ctrl+A / 反选 Ctrl+I / 框选键 Tab；`NBS 面板按钮与键位绑定共用 dispatchNbsAction` 派发路径不变。内核 `deleteSelection`/`cutSelection`/`paste` 走整曲快照撤销（`SnapshotEdit`）；粘贴整格覆盖（层列落点同语义）、**不建层**（目标层越界跳过）、锁定层跳过、键 0–87 越界跳过、力度/声像/细音高钳位；**落格成为新选区**（随后可整体搬/删，B2 拖移的衔接点）。
+- **剪贴板** `NbsClipboard` = 曲目片段（相对 (tick, layer) 的音符 + 属性）编码为**社区选区串**：`列跳|行跳|乐器|键|力度|声像|细音高| … −1|`（列/行跳 = 距上一音符列/行的间隔），够长且更短时 zlib+base64 试压缩（语义对齐参考实现 `selection_code_update`/`try_compress_selection`，MIT——对齐格式语义，未移植代码）。系统剪贴板存该串 ⇒ **与 OpenNBS 等社区编辑器跨窗互贴**（参考内部声像同为 0–200，无需换算）；粘贴锚点 = 鼠标所指格，网格外 = 播放头 tick × 当前层；系统剪贴板外来文本回落内部剪贴板。
 
 ### B2. 音符拖移搬移 / Drag-to-move notes
 
@@ -190,7 +201,7 @@ feat: lane-view placement semantics in the nbs kernel
 | 网格模型（轴向） | ✅ 双样式：LANE=层行 / ROLL=音高 | 时间 × 层行，音高=格子属性 | ✅ 批次二 |
 | 钢琴条（选键/试听/琴键映射） | ✅ LANE 底部横排（含打字弹琴） | 底部横排 | ✅ 批次二 |
 | 放置/擦除/涂抹、点放语义 | ✅ 语义一致 | ✅ | — |
-| 选择 + 剪贴板 | ❌ | ✅ 框选/加减选/压缩串剪贴板 | B1（批次三） |
+| 选择 + 剪贴板 | ✅ 框选/加减选/压缩串互贴（快照撤销） | ✅ 框选/加减选/压缩串剪贴板 | ✅ B1（批次三） |
 | 跨 tick 拖移搬移 | ❌（数据层在、无手势） | ✅ 拖选区/拖块 | B2（批次三） |
 | 逐音符 vel/pan/pitch 编辑 | ❌（字段全、无 UI） | ✅ 四模式 + Set 对话框 + 滚轮微调 | B3（批次三） |
 | 层属性（名/音量/声像/锁定） | ✅ | ✅ | — |
