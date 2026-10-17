@@ -31,9 +31,8 @@ import java.util.TreeMap;
 public final class NbsSong {
 
     /** 曲目字节大小上限（plan §3.5：超限拒存并提示）。
-     *  Song byte-size cap (plan §3.5: oversized songs are rejected with a prompt).
-     *  TODO(v1.2.6-test): 临时 1024 KB 供高密度曲目压测，测毕回 256 KB。 */
-    public static final int MAX_BYTES = 1024 * 1024;
+     *  Song byte-size cap (plan §3.5: oversized songs are rejected with a prompt). */
+    public static final int MAX_BYTES = 256 * 1024;
 
     /** 音符：一个 (tick, layer) 单元。字段均存原始 NBS 值（不做任何播放钳制）。
      *  A note in one (tick, layer) cell. Values are raw NBS (no playback clamping). */
