@@ -8,7 +8,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * 公式域处理器（决策文档 §四）：MATH_BASIC / MATH_ADVANCED / TRIG / LOGIC / CONTROL，
- * 含 FORMULA / PID / PID_POWER。
+ * 含 FORMULA / PID / PID_POWER 与继电器 RELAY_A / RELAY_B（LOGIC 类，随分派化逐字迁入）。
  * case 体从 {@link GraphEvaluator} 的 eval() switch
  * 逐字搬迁（§三-2：方法体不改写，只改接收者/归属）；本类是静态函数包，不建继承体系（§三-3）。
  * <p><b>GATE 刻意不在本处理器：</b>其状态体在 evalExt 档（{@link TimingEval#evalState}）；
@@ -445,6 +445,23 @@ public final class FormulaEval {
                 // 写入去重缓存(内部再克隆,与后续 node.outputValues 修改隔离)
                 // Store into the dedup cache (cloned internally, isolated from later outputValues mutation)
                 FormulaCompute.storeDedup(script.sourceFormula, pinInputs, o);
+            }
+            // 继电器（LOGIC 类）：随分派化从 eval() 逐字迁入（§三-2）；体不改写。
+            // Relays (LOGIC category): relocated verbatim from eval() with the category
+            // dispatch (§三-2); bodies unchanged.
+            case RELAY_A -> {
+                float a = graph.getInputValue(node.id, 0, outputs);
+                float b = graph.getInputValue(node.id, 1, outputs);
+                boolean c = graph.getInputValue(node.id, 2, outputs) > 0.5f;
+                // SPDT: contact false → A throw connected; contact true → B throw connected; disconnected side = 0
+                o[0] = c ? 0f : a;  // A输出
+                o[1] = c ? b : 0f;  // B输出
+            }
+            case RELAY_B -> {
+                float a = graph.getInputValue(node.id, 0, outputs);
+                float b = graph.getInputValue(node.id, 1, outputs);
+                boolean c = graph.getInputValue(node.id, 2, outputs) > 0.5f;
+                o[0] = c ? b : a;   // 输出 = selected source
             }
         }
         ctx.o = o;
