@@ -109,6 +109,19 @@ feat: lane-view placement semantics in the nbs kernel
   放宽到 16px/tick 使音级标签在常规视图常显。卷帘不加块面标签（纵轴即音高，位置已表音）。
 - 回归锚点：`NbsEditorKernelTest.changeNoteKeyKeepsDynamicsAndGuards`、`NbsLaneViewTest`。
 
+### 批次二·四期：横竖双滚动条（社区对照反馈三）/ Phase 4: Scrollbar Pair
+
+**状态：✅ 已解决（2026-10-17）**（用户第三轮反馈：只靠滚轮会迷路、翻很久找不到位置）
+
+- **横滚动条 = 时间轴**（tick），**纵滚动条 = 层行**（层列视图）/ **键轴**（卷帘视图，自顶向下）。
+- 行为对齐社区滚动条职责：滑块比例 = 可见/总量（最小 12px 保证可抓）、**拖滑块定位**、
+  **点轨道翻页**（朝点击侧一页）；悬停亮边。
+- 几何与映射是纯函数（`NbsScrollBar.thumbRect` / `posFromThumbDrag` / `posFromTrackClick`），
+  渲染与命中共用同一张滑块矩形（单一真相源）；状态映射（tick/层行/键轴）收敛在屏幕的
+  `hScrollState`/`vScrollState`/`apply*Scroll` 一处。
+- 布局：网格可视区右缘与底缘各让位 10px 给滚动条；钢琴条/传输条/层面板位置不变。
+- 回归锚点：`NbsEditorLayoutTest`（滑块比例/钳位/拖动映射/翻页钳位）。
+
 ## 3. 批次三：编辑表达力 / Batch 3: Editing Expressiveness
 
 **状态：🔶 待办**。社区核心工作流三件套，内核测试先行（`NbsEditorKernelTest` 扩展为回归锚点）；两视图通用（LANE 视图的左键拖留白即为 B1 框选预留）。
