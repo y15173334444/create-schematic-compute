@@ -86,6 +86,21 @@ public final class NbsPianoRoll {
     public float viewTopKey() { return viewTopKey; }
     public void setViewTopKey(float k) { viewTopKey = clamp(k, 2f, 92f); }
 
+    /**
+     * 键行顶/底 y（网格相对坐标）：卷帘绘制与左面板键位列表**共用**——卷帘模式下
+     * 「面板行与谱面行 1:1 对齐」由构造保证（同取整、同滚动、同键高）。
+     * Key-row top/bottom (grid-relative): shared by the roll drawing and the left key list —
+     * roll-mode "panel rows align 1:1 with the score rows" is guaranteed by construction
+     * (same rounding, same scroll, same row height).
+     */
+    public static int keyRowTop(float viewTopKey, float pxPerKey, int key) {
+        return Math.round((viewTopKey - (key + 1)) * pxPerKey);
+    }
+
+    public static int keyRowBottom(float viewTopKey, float pxPerKey, int key) {
+        return Math.round((viewTopKey - key) * pxPerKey);
+    }
+
     // ══════════════ 渲染 / rendering ══════════════
 
     /**
@@ -108,8 +123,8 @@ public final class NbsPianoRoll {
         float visibleKeys = gh / pxPerKey;
         int lastKey = (int) Math.ceil(viewTopKey - visibleKeys);
         for (int k = Math.min(firstKey, 87); k >= Math.max(lastKey, 0); k--) {
-            int yTop = gy + Math.round((viewTopKey - (k + 1)) * pxPerKey);
-            int yBot = gy + Math.round((viewTopKey - k) * pxPerKey);
+            int yTop = gy + keyRowTop(viewTopKey, pxPerKey, k);
+            int yBot = gy + keyRowBottom(viewTopKey, pxPerKey, k);
             if (yBot <= gy || yTop >= gy + gh) continue;
             g.fill(gx, Math.max(gy, yTop), gx + gw, Math.min(gy + gh, yBot), isBlackKey(k) ? C_BLACK_KEY : C_WHITE_KEY);
             // 发音窗口（33–57）外压暗：诚实标注精确音域（eval §四.1）
@@ -134,7 +149,7 @@ public final class NbsPianoRoll {
         // 横向：每键下缘细线（缩放够大才画）
         if (pxPerKey >= 5f) {
             for (int k = Math.min(firstKey, 87); k >= Math.max(lastKey, 0); k--) {
-                int y = gy + Math.round((viewTopKey - k) * pxPerKey);
+                int y = gy + keyRowBottom(viewTopKey, pxPerKey, k);
                 if (y > gy && y < gy + gh) g.fill(gx, y, gx + gw, y + 1, C_GRID_TICK);
             }
         }
@@ -147,8 +162,8 @@ public final class NbsPianoRoll {
                 if (n.key < lastKey - 1 || n.key > firstKey + 1) continue;
                 int x0 = gx + Math.round((t - scrollTick) * pxPerTick);
                 int x1 = gx + Math.round((t + 1 - scrollTick) * pxPerTick);
-                int yTop = gy + Math.round((viewTopKey - (n.key + 1)) * pxPerKey);
-                int yBot = gy + Math.round((viewTopKey - n.key) * pxPerKey);
+                int yTop = gy + keyRowTop(viewTopKey, pxPerKey, n.key);
+                int yBot = gy + keyRowBottom(viewTopKey, pxPerKey, n.key);
                 int xL = Math.max(gx, x0 + 1), xR = Math.min(gx + gw, x1 - 1);
                 int yT = Math.max(gy, yTop + 1), yB = Math.min(gy + gh, yBot - 1);
                 if (xR <= xL || yB <= yT) continue;
@@ -171,8 +186,8 @@ public final class NbsPianoRoll {
         // ── 键槽 / key gutter ──
         g.fill(areaX, gy, gx, gy + gh, C_GUTTER);
         for (int k = Math.min(firstKey, 87); k >= Math.max(lastKey, 0); k--) {
-            int yTop = gy + Math.round((viewTopKey - (k + 1)) * pxPerKey);
-            int yBot = gy + Math.round((viewTopKey - k) * pxPerKey);
+            int yTop = gy + keyRowTop(viewTopKey, pxPerKey, k);
+            int yBot = gy + keyRowBottom(viewTopKey, pxPerKey, k);
             if (yBot <= gy || yTop >= gy + gh) continue;
             int yT = Math.max(gy, yTop), yB = Math.min(gy + gh, yBot);
             g.fill(areaX, yT, areaX + GUTTER_W - 1, yB, isBlackKey(k) ? C_BLACK_KEY : C_WHITE_KEY);

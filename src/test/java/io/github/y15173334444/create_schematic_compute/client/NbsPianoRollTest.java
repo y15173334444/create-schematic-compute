@@ -74,4 +74,19 @@ class NbsPianoRollTest {
         assertTrue(roll.isPainting(), "the erase stroke is armed");
         assertNull(song.getNote(4, 0));
     }
+
+    @Test
+    void keyRowsTileExactlyAcrossKeys() {
+        // 面板键位列表与谱面行共用 keyRowTop/Bottom：行首尾严格相接、行高≈键高——
+        // 卷帘模式「面板行与谱面行 1:1 对齐」由构造保证。
+        // Shared key-row geometry: rows tile exactly and the height tracks pxPerKey —
+        // roll-mode panel/score alignment is guaranteed by construction.
+        float top = 60f, ppk = 9f;
+        for (int k = 1; k < 87; k++) {
+            assertEquals(NbsPianoRoll.keyRowTop(top, ppk, k - 1), NbsPianoRoll.keyRowBottom(top, ppk, k),
+                "rows tile: bottom of key k equals top of key k-1");
+            int h = NbsPianoRoll.keyRowBottom(top, ppk, k) - NbsPianoRoll.keyRowTop(top, ppk, k);
+            assertTrue(h >= (int) ppk - 1 && h <= (int) ppk + 1, "row height tracks pxPerKey");
+        }
+    }
 }
