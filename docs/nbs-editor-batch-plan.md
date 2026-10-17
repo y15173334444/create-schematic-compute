@@ -1,6 +1,6 @@
 # NBS 编辑器批次改进计划 / NBS Editor Batch Improvement Plan
 
-> **状态：✅ 批次一已落地（2026-10-17）；🔶 批次二/三待办**
+> **状态：✅ 批次一 + 批次二（双样式）已落地（2026-10-17）；🔶 批次三/四待办**
 > 日期：2026-10-17 起草
 > 影响：`NbsEditorScreen` / `NbsEditorKernel` / `NbsPianoRoll` / `NbsSong` / `MusicTransport`
 > 交叉引用：[`tech-debt-review-2026-10-11.md`](tech-debt-review-2026-10-11.md)（P1-10 / P2-22 / P2-23）、[`known-open-issues.md`](known-open-issues.md)、CHANGELOG「Unreleased（v1.2.6 WIP）」NBS 钢琴卷帘编辑器条目
@@ -48,9 +48,40 @@ b6cef64 fix: nbs editor panel defects - import wheel, bar geometry, blur commits
 - **背景**：`NbsSong.MAX_BYTES` 曾临时放大到 1024 KB 供高密度压测（TODO(v1.2.6-test)：测毕回 256 KB）。压测已完成，按 TODO 口径回归 256 KB。
 - **默认值口径**：这是「未调整玩家行为」面的默认值——超 256 KB 的曲目会重新被导入/上传拒收。如需把 1 MB 转正为产品上限，一行改 `MAX_BYTES` 并同步 CHANGELOG 口径即可（待用户拍板，默认遵 TODO）。
 
-## 2. 批次二：编辑表达力 / Batch 2: Editing Expressiveness
+## 2. 批次二：双样式视图（层序器 + 卷帘）/ Batch 2: Dual-Style Views
 
-**状态：🔶 待办**。社区核心工作流三件套，内核测试先行（`NbsEditorKernelTest` 扩展为回归锚点）。
+**状态：✅ 已解决（2026-10-17）**（用户拍板「做双样式」；回归锚点 `NbsLaneViewTest` + `NbsEditorKernelTest`）
+
+社区主流（OpenNBS / NBS 原厂）的网格模型是 **tick × 层行**（音高 = 格子属性、底部横排钢琴条选键），
+与卷帘（tick × 音高）是两种编辑面。双样式在同一数据模型（`(tick, layer)` 单元）上提供两个视图：
+
+- **ROLL（卷帘，默认）**：既有视图，未调整行为不变。
+- **LANE（层序器 + 底部钢琴条）**：社区原生布局与交互——
+  - **布局签名**：层行与左层面板逐行对齐（同滚动、同行高，行高 20px）；tick 刻度尺在网格顶。
+  - **格子语义**（内核 `placeNote`）：左键单击空格放音符、点已有格**整格覆盖**为工具属性
+    （`add_block_manual`/`change_block_manual` 合一，不保留旧属性）；同值 = 空操作不入撤销；
+    锁定层拒绝；属性钳位（键 0–87、力度 0–100、声像 0–200、细音高 ±32767）。
+  - **左键拖动刻意留白**：社区左键拖 = 框选（随批次三 B1 落地），涂抹会污染肌肉记忆。
+  - **右键按住擦除**（每格一次、笔划分组撤销）。
+  - **试听**：落点/覆盖/选键即发声（社区签名习惯）。
+  - **底部钢琴条**：点键 = 选工具键 + 试听（默认 45，NBS 基准键）；◀/▶ 或滚轮平移八度窗；
+    白键按槽、黑键骑缝（黑键命中优先，纯几何 `keyRects` 单一真相源）；发音窗口 33–57 外遮罩。
+  - **打字 = 琴键**：社区映射 `1Q2W3ER5T6YU8I9O0PZSXDCVG` → 键 33..57（恰好覆盖精确窗口）。
+  - **滚轮**：横滚时间 / Ctrl 缩放时间 / Shift 翻层；钢琴条上滚轮平移八度。
+- 顶栏「卷帘 / 层列」按钮切换（**默认卷帘**——未调整行为不变）；两视图各持自己的时间缩放/滚动。
+
+**实施记录 / Implementation Record（2026-10-17）**
+
+```
+feat: dual-style lane view for the nbs editor
+feat: lane-view placement semantics in the nbs kernel
+```
+
+（哈希见 `git log`；`NbsEditorLayoutTest` 顶栏断言随视图按钮扩为 8 键。）
+
+## 3. 批次三：编辑表达力 / Batch 3: Editing Expressiveness
+
+**状态：🔶 待办**。社区核心工作流三件套，内核测试先行（`NbsEditorKernelTest` 扩展为回归锚点）；两视图通用（LANE 视图的左键拖留白即为 B1 框选预留）。
 
 ### B1. 选择 + 剪贴板 / Selection & clipboard
 
@@ -64,7 +95,7 @@ b6cef64 fix: nbs editor panel defects - import wheel, bar geometry, blur commits
 
 字段与播放链路一直是全的（放置默认 100/居中/0，`NoteEvent` 已消费），只缺编辑面。最小闭环：选中后 Set 弹窗（绝对值/增量两种模式）+ 快捷键或悬停滚轮微调，不抄参考的四模式工具栏全套。依赖 B1 的选区。
 
-## 3. 批次三：播放与层体验 / Batch 3: Playback & Layer Polish
+## 4. 批次四：播放与层体验 / Batch 4: Playback & Layer Polish
 
 **状态：🔶 待办**。
 
@@ -72,24 +103,26 @@ b6cef64 fix: nbs editor panel defects - import wheel, bar geometry, blur commits
 - **循环区域 UI**：`loopStartTick`/`maxLoopCount` 数据模型与回绕逻辑已就绪、随文件保真，只缺编辑入口（时间轴拖段 + 右键菜单简化版 + 层面板数字框）。
 - **层重排（上移/下移）**：NBS 层序语义保真需要（参考的 Shift up/down）；层 solo/静音牵动 `MusicTransport` 烘焙过滤，列在重排之后单独评估。
 
-## 4. 明确不追与远期 / Out of Scope & Far Future
+## 5. 明确不追与远期 / Out of Scope & Far Future
 
 **不追**（桌面 DAW 关注点）：MIDI 双向、录音模式、音频/schematic/datapack 导出、宏库（tremolo/vibrato/…）、主题系统、.nbp 图案、曲谱视觉特效。
 
 **远期单独评估**：曲中变速（参考用「Tempo Changer 伪乐器」实现，生态兼容特性、成本高）；自定义乐器发声（现只保数据，牵动资源包/采样链路）；多人逐音协作 op（plan §3.2 已列后续）。
 
-## 5. 与参考的功能对照 / Feature Parity Snapshot
+## 6. 与参考的功能对照 / Feature Parity Snapshot
 
 | 面 / Area | 我们 / Ours | OpenNBS 参考 | 批次归属 |
 |---|---|---|---|
+| 网格模型（轴向） | ✅ 双样式：LANE=层行 / ROLL=音高 | 时间 × 层行，音高=格子属性 | ✅ 批次二 |
+| 钢琴条（选键/试听/琴键映射） | ✅ LANE 底部横排（含打字弹琴） | 底部横排 | ✅ 批次二 |
 | 放置/擦除/涂抹、点放语义 | ✅ 语义一致 | ✅ | — |
-| 选择 + 剪贴板 | ❌ | ✅ 框选/加减选/压缩串剪贴板 | B1 |
-| 跨 tick 拖移搬移 | ❌（数据层在、无手势） | ✅ 拖选区/拖块 | B2 |
-| 逐音符 vel/pan/pitch 编辑 | ❌（字段全、无 UI） | ✅ 四模式 + Set 对话框 + 滚轮微调 | B3 |
+| 选择 + 剪贴板 | ❌ | ✅ 框选/加减选/压缩串剪贴板 | B1（批次三） |
+| 跨 tick 拖移搬移 | ❌（数据层在、无手势） | ✅ 拖选区/拖块 | B2（批次三） |
+| 逐音符 vel/pan/pitch 编辑 | ❌（字段全、无 UI） | ✅ 四模式 + Set 对话框 + 滚轮微调 | B3（批次三） |
 | 层属性（名/音量/声像/锁定） | ✅ | ✅ | — |
-| 层重排/solo | ❌ | ✅ Shift up/down + solo | 批次三 |
-| 循环（含回绕参数） | 数据在、UI 缺 | ✅ 完整 | 批次三 |
-| 播放跟随/播放区域 | ❌ | ✅ 翻页/居中 + section | 批次三 |
+| 层重排/solo | ❌ | ✅ Shift up/down + solo | 批次四 |
+| 循环（含回绕参数） | 数据在、UI 缺 | ✅ 完整 | 批次四 |
+| 播放跟随/播放区域 | ❌ | ✅ 翻页/居中 + section | 批次四 |
 | NBS 读/写保真 | v1–v5 读 / v5 写 | v0–v5 读 + 降级保存 | 不追 v0 |
 | 自定义乐器 | 保数据不发声 | ✅ 240 个 + 采样管理 | 远期 |
 | 撤销模型 | ✅ 双轨 + 笔划分组 | ✅ 13 类历史 | — |
