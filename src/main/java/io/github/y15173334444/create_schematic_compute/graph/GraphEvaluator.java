@@ -7,9 +7,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /**
  * 将 {@link NodeGraph} 编译为可执行形式，并在每个 tick 进行评估。
  * Compiles a {@link NodeGraph} into an executable form and evaluates it each tick.
@@ -23,7 +20,6 @@ import org.slf4j.LoggerFactory;
  * to read evaluation outputs for rendering.</p>
  */
 public class GraphEvaluator {
-    private static final Logger LOGGER = LoggerFactory.getLogger(GraphEvaluator.class);
 
     /** 求值状态（图与输出表、子图机械、运行时、各端口、每调用/每节点槽）住在
      *  {@link EvalContext}（决策文档 §四）——本类保留 setter/getter 门面，写穿 ctx。

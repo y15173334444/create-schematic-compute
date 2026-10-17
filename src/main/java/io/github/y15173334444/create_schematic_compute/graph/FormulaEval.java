@@ -1,6 +1,5 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
-import java.util.List;
 import java.util.Map;
 
 import org.slf4j.Logger;
@@ -47,10 +46,8 @@ public final class FormulaEval {
         // the case bodies stay verbatim
         GraphNode node = ctx.node;
         float[] o = ctx.o;
-        List<GraphEvaluator.InputSource> inputs = ctx.inputs;
         Map<Integer, Float> pidState = ctx.pidState;
         float dt = ctx.dt;
-        GraphEvaluator.SeatInputState seat = ctx.seat;
         NodeGraph graph = ctx.graph;
         Map<Integer, float[]> outputs = ctx.outputs;
         switch (node.type) {
