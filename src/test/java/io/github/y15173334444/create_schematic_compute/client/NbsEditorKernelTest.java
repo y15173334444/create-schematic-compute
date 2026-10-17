@@ -615,6 +615,44 @@ class NbsEditorKernelTest {
         assertEquals(87, song.getNote(1, 0).key, "keys clamp to 0-87");
     }
 
+    // ══════════════ 层重排（NBS 层序语义）/ layer reorder (NBS order semantics) ══════════════
+
+    @Test
+    void moveLayerRenumbersNotesAndUndoRestores() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.addLayer();
+        k.addLayer();
+        k.toggleNote(5, 0, 40, 0);
+        k.toggleNote(5, 1, 50, 0);
+        k.toggleNote(5, 2, 60, 0);
+        song.layers.get(0).name = "A";
+        song.layers.get(1).name = "B";
+        song.layers.get(2).name = "C";
+        k.clearUndo();
+
+        k.moveLayer(0, 2);
+        assertEquals("B", song.layers.get(0).name);
+        assertEquals("C", song.layers.get(1).name);
+        assertEquals("A", song.layers.get(2).name, "the moved layer lands at the target slot");
+        assertEquals(50, song.getNote(5, 0).key, "notes renumber with the layers");
+        assertEquals(60, song.getNote(5, 1).key);
+        assertEquals(40, song.getNote(5, 2).key, "the moved layer's notes follow it");
+
+        assertTrue(k.performUndo(), "one snapshot restores order and numbering");
+        assertEquals("A", song.layers.get(0).name);
+        assertEquals(40, song.getNote(5, 0).key);
+        assertEquals(50, song.getNote(5, 1).key);
+        assertEquals(60, song.getNote(5, 2).key);
+        assertFalse(k.canUndo());
+
+        k.clearUndo();
+        k.moveLayer(1, 1);
+        k.moveLayer(-1, 2);
+        k.moveLayer(0, 3);
+        assertFalse(k.canUndo(), "out-of-range and same-slot moves record nothing");
+    }
+
     // ══════════════ 逐音符属性（批次三 B3）/ per-note fields (batch 3 B3) ══════════════
 
     @Test

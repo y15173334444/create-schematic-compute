@@ -59,7 +59,6 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private static final int TRANSPORT_H = 26;
     private static final int PANEL_W = 176;
     private static final int ROW_H = 13;
-    private static final int PROPS_H = 112;
 
     // ── 配色 / colours ──
     private static final int C_BG = 0xFF1A1712;
@@ -104,6 +103,9 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private int currentLayer = 0;
     private int currentInstrument = 0;
     private int layerScroll = 0;
+    /** 层细调弹窗（逐行小按钮「细」打开）。 / the layer-detail popup (the per-row detail button). */
+    private boolean layerDetailOpen = false;
+    private int detailLayer = 0;
     private int draggingSlider = 0;        // 0=无 1=音量 2=声像
     private int draggingScrollBar = 0;     // 0=无 1=横向（时间轴） 2=纵向（层行/键轴）
     private long lastWheelAt = 0;          // 滚轮活动时间戳（滚动防误触窗口起点）
@@ -303,8 +305,9 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     private void commitLayerName() {
-        if (currentLayer >= 0 && currentLayer < kernel.song().layers.size()) {
-            kernel.setLayerName(currentLayer, layerNameBox.getValue());
+        int layer = layerDetailOpen ? detailLayer : currentLayer;
+        if (layer >= 0 && layer < kernel.song().layers.size()) {
+            kernel.setLayerName(layer, layerNameBox.getValue());
         }
         layerNameBox.setFocused(false);
     }
@@ -443,6 +446,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (importOpen) renderImportDialog(g, mx, my);
         if (exportOpen) renderExportDialog(g, mx, my);
         if (setOpen) renderSetDialog(g, mx, my);
+        if (layerDetailOpen) renderLayerDetail(g, mx, my);
         if (showGuide) renderGuide(g);
     }
 
@@ -560,59 +564,107 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     private float pt0() { return 0f; }
 
+    /** 层行小按钮下标（= layerRowButtons 顺序）：听 / 细 / 锁 / ↑ / ↓ / 删。
+     *  Layer-row button indices: audition / detail / lock / up / down / delete. */
+    static final int LR_AUDITION = 0, LR_DETAIL = 1, LR_LOCK = 2, LR_UP = 3, LR_DOWN = 4, LR_DELETE = 5;
+
+    /** 层行按钮矩形表（行内相对坐标，渲染与命中共用——P2-22 单一几何源口径）：
+     *  右起排布、行内垂直居中。 / Layer-row button rects (row-relative), shared by render
+     *  and hit-testing (the P2-22 single-geometry-source policy): right-aligned and
+     *  vertically centred in the row. */
+    static int[][] layerRowButtons(int rowW, int rowH) {
+        int bw = 12, gap = 1, bh = Math.min(14, rowH - 2);
+        int x = rowW - (bw + gap) * 6;
+        int y = Math.max(0, (rowH - bh) / 2);
+        int[][] r = new int[6][4];
+        for (int i = 0; i < 6; i++) r[i] = new int[]{x + i * (bw + gap), y, bw, bh};
+        return r;
+    }
+
+    /** 层行按钮标签（听/细/锁/↑/↓/删）。 / the per-row button labels. */
+    private String[] layerRowLabels() {
+        return new String[] {
+            I18n.get("gui.create_schematic_compute.nbs_lr_audition"),
+            I18n.get("gui.create_schematic_compute.nbs_lr_detail"),
+            I18n.get("gui.create_schematic_compute.nbs_lr_lock"),
+            "↑", "↓",
+            I18n.get("gui.create_schematic_compute.nbs_lr_delete"),
+        };
+    }
+
     private void renderLayerPanel(GuiGraphics g, int mx, int my) {
         int bottom = height - TRANSPORT_H;
         g.fill(0, TOP_H, PANEL_W, bottom, C_PANEL);
         g.fill(PANEL_W - 2, TOP_H, PANEL_W, bottom, C_BORDER);
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_layers"), 6, TOP_H + 4, C_TEXT, false);
+        // 面板头 + 层（原底部固定属性区改为逐行小按钮 + 细调弹窗）
+        // Panel header + add-layer (the fixed bottom properties area gives way to the
+        // per-row buttons and the detail popup).
+        button(g, PANEL_W - 40, TOP_H + 2, 34, 14, I18n.get("gui.create_schematic_compute.nbs_add_layer"), mx, my, false);
 
         // 层列表 / layer list（行高随视图：层序器视图与网格行 1:1 对齐）
         int listTop = TOP_H + 18;
-        int listBottom = bottom - PROPS_H;
+        int listBottom = bottom;
         int rh = layerRowH();
+        int rowW = PANEL_W - 12;
+        int[][] br = layerRowButtons(rowW, rh);
+        String[] labels = layerRowLabels();
+        int nameW = br[0][0] - 6;
         var layers = kernel.song().layers;
         for (int i = 0; i < layers.size(); i++) {
             int y = listTop + (i - layerScroll) * rh;
             if (y < listTop - rh || y > listBottom - rh) continue;
             boolean sel = i == currentLayer;
-            int color = sel ? C_SEL : (inRect(4, y, PANEL_W - 12, rh, mx, my) ? C_HOVER : C_PANEL);
+            int color = sel ? C_SEL : (inRect(4, y, rowW, rh, mx, my) ? C_HOVER : C_PANEL);
             g.fill(4, y, PANEL_W - 8, y + rh - 1, color);
-            String name = layers.get(i).name.isEmpty() ? I18n.get("gui.create_schematic_compute.nbs_layer") + " " + (i + 1) : layers.get(i).name;
-            g.drawString(font, name, 8, y + (rh - 8) / 2, layers.get(i).locked ? C_TEXT_DIM : C_TEXT, false);
-            // 行内信息：音量% + 声像(±) + 锁定标记（社区层行的信息密度）
-            // Inline info: volume% + panning (±) + lock mark (the community layer row's density)
-            var lyr = layers.get(i);
-            int pan = lyr.panning - 100;
-            String info = lyr.volume + "% " + (pan >= 0 ? "+" : "") + pan
-                + (lyr.locked ? " " + I18n.get("gui.create_schematic_compute.nbs_locked_mark") : "");
-            g.drawString(font, info, PANEL_W - 8 - font.width(info), y + (rh - 8) / 2, C_TEXT_DIM, false);
+            String name = layers.get(i).name.isEmpty()
+                ? I18n.get("gui.create_schematic_compute.nbs_layer") + " " + (i + 1) : layers.get(i).name;
+            g.drawString(font, font.plainSubstrByWidth(name, nameW), 8, y + (rh - 8) / 2,
+                layers.get(i).locked ? C_TEXT_DIM : C_TEXT, false);
+            for (int b = 0; b < br.length; b++) {
+                button(g, 4 + br[b][0], y + br[b][1], br[b][2], br[b][3], labels[b], mx, my,
+                    b == LR_LOCK && layers.get(i).locked);
+            }
         }
-
-        // 选中层属性 / selected layer properties
-        int pY = bottom - PROPS_H;
-        g.fill(4, pY, PANEL_W - 8, pY + 2, C_BORDER);
-        g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_name"), 6, pY + 8, C_TEXT_DIM, false);
-        layerNameBox.setX(6); layerNameBox.setY(pY + 18);
-        if (!layerNameBox.isFocused() && currentLayer < layers.size()) {
-            layerNameBox.setValue(layers.get(currentLayer).name);
-        }
-        layerNameBox.render(g, mx, my, pt0());
-
-        var layer = currentLayer < layers.size() ? layers.get(currentLayer) : null;
-        g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_volume"), 6, pY + 40, C_TEXT_DIM, false);
-        slider(g, volSliderX(), pY + 40, SLIDER_W, layer == null ? 100 : layer.volume, 100, mx, my);
-        g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_panning"), 6, pY + 58, C_TEXT_DIM, false);
-        slider(g, panSliderX(), pY + 58, SLIDER_W, layer == null ? 100 : layer.panning, 200, mx, my);
-
-        button(g, 6, pY + 80, 50, 18, I18n.get(layer != null && layer.locked
-            ? "gui.create_schematic_compute.nbs_unlock" : "gui.create_schematic_compute.nbs_lock"), mx, my,
-            layer != null && layer.locked);
-        button(g, 60, pY + 80, 50, 18, I18n.get("gui.create_schematic_compute.nbs_add_layer"), mx, my, false);
-        button(g, 114, pY + 80, 50, 18, I18n.get("gui.create_schematic_compute.nbs_del_layer"), mx, my, false);
     }
 
-    private int volSliderX() { return 66; }
-    private int panSliderX() { return 66; }
+    /** 层细调弹窗矩形表（渲染与命中共用）。 / the layer-detail popup rects (shared geometry). */
+    static int[][] layerDetailRects(int width, int height) {
+        int x = (width - 240) / 2, y = (height - 132) / 2;
+        return new int[][] {
+            {x + 52, y + 26, 140, 14},               // 名称框 / name box
+            {x + 52, y + 50, SLIDER_W, 8},           // 音量滑杆 / volume slider
+            {x + 52, y + 72, SLIDER_W, 8},           // 声像滑杆 / panning slider
+            {x + 52, y + 92, 50, 18},                // 锁定切换 / lock toggle
+            {x + 240 - 68, y + 92, 58, 18},          // 关闭 / close
+        };
+    }
+
+    private void renderLayerDetail(GuiGraphics g, int mx, int my) {
+        int[][] r = layerDetailRects(width, height);
+        int x = (width - 240) / 2, y = (height - 132) / 2;
+        g.fill(x, y, x + 240, y + 132, C_PANEL);
+        g.renderOutline(x, y, 240, 132, C_BORDER);
+        g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_layer_props") + " #" + (detailLayer + 1),
+            x + 8, y + 8, C_TEXT, false);
+        var layer = detailLayer < kernel.song().layers.size() ? kernel.song().layers.get(detailLayer) : null;
+
+        g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_name"), x + 8, y + 29, C_TEXT_DIM, false);
+        layerNameBox.setX(r[0][0]); layerNameBox.setY(r[0][1]);
+        if (!layerNameBox.isFocused() && layer != null) layerNameBox.setValue(layer.name);
+        layerNameBox.render(g, mx, my, pt0());
+
+        g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_volume"), x + 8, y + 50, C_TEXT_DIM, false);
+        slider(g, r[1][0], r[1][1], r[1][2], layer == null ? 100 : layer.volume, 100, mx, my);
+        g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_panning"), x + 8, y + 72, C_TEXT_DIM, false);
+        slider(g, r[2][0], r[2][1], r[2][2], layer == null ? 100 : layer.panning, 200, mx, my);
+
+        button(g, r[3][0], r[3][1], r[3][2], r[3][3], I18n.get(layer != null && layer.locked
+            ? "gui.create_schematic_compute.nbs_unlock" : "gui.create_schematic_compute.nbs_lock"),
+            mx, my, layer != null && layer.locked);
+        button(g, r[4][0], r[4][1], r[4][2], r[4][3], I18n.get("gui.create_schematic_compute.nbs_close"), mx, my, false);
+    }
+
     /** 滑杆宽（给右侧数值文本留出完整一列，修截断）。
      *  Slider width — leaves a full value column on the right (the clip fix). */
     static final int SLIDER_W = 74;
@@ -623,9 +675,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         g.fill(x, y + 4, x + fill, y + 8, C_BTN_ON);
         g.renderOutline(x, y + 3, w + 1, 7, C_BORDER);
         String v = max == 200 ? (value - 100 >= 0 ? "+" : "") + (value - 100) : String.valueOf(value);
-        // 数值右对齐面板缘：x+w+4 的旧位置会把 "100"/"+100" 截断在面板外
-        // Value right-aligned to the panel edge: the old x+w+4 clipped "100"/"+100" off-panel
-        g.drawString(font, v, PANEL_W - 8 - font.width(v), y + 2, C_TEXT_DIM, false);
+        g.drawString(font, v, x + w + 6, y + 2, C_TEXT_DIM, false);
     }
 
     private void button(GuiGraphics g, int x, int y, int w, int h, String label, int mx, int my, boolean on) {
@@ -773,6 +823,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (importOpen) return clickImport(mx, my, btn);
         if (exportOpen) return clickExport(mx, my, btn);
         if (setOpen) return clickSetDialog(mx, my);
+        if (layerDetailOpen) return clickLayerDetail(mx, my);
 
         if (btn != 0) {
             // 右键落在网格上 = 擦除；其余右键忽略。擦除同样按笔划分组撤销。
@@ -1162,69 +1213,119 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     private boolean clickLayerPanel(double mx, double my) {
-        int bottom = height - TRANSPORT_H;
         int listTop = TOP_H + 18;
-        int listBottom = bottom - PROPS_H;
+        int listBottom = height - TRANSPORT_H;
         var layers = kernel.song().layers;
 
-        // 列表行 / list rows（行高随视图，与渲染同源）
-        int rh = layerRowH();
-        for (int i = 0; i < layers.size(); i++) {
-            int y = listTop + (i - layerScroll) * rh;
-            if (y < listTop || y > listBottom - rh) continue;
-            if (inRect(4, y, PANEL_W - 12, rh, mx, my)) {
-                currentLayer = i;
-                return true;
-            }
-        }
-
-        // 属性区 / properties area
-        int pY = bottom - PROPS_H;
-        if (inRect(6, pY + 18, PANEL_W - 20, 14, mx, my)) {
-            layerNameBox.setFocused(true);
-            return true;
-        }
-        // 滑杆 / sliders
-        if (inRect(volSliderX(), pY + 42, SLIDER_W, 8, mx, my)) {
-            draggingSlider = 1;
-            applySlider(mx, pY);
-            return true;
-        }
-        if (inRect(panSliderX(), pY + 60, SLIDER_W, 8, mx, my)) {
-            draggingSlider = 2;
-            applySlider(mx, pY);
-            return true;
-        }
-        if (inRect(6, pY + 80, 50, 18, mx, my)) {
-            if (currentLayer < layers.size()) kernel.setLayerLocked(currentLayer, !layers.get(currentLayer).locked);
-            return true;
-        }
-        if (inRect(60, pY + 80, 50, 18, mx, my)) {
+        // 面板头 + 层 / header add-layer
+        if (inRect(PANEL_W - 40, TOP_H + 2, 34, 14, mx, my)) {
             kernel.beginBatch();
             kernel.addLayer();
             kernel.endBatch();
-            currentLayer = layers.size() - 1;
+            currentLayer = kernel.song().layers.size() - 1;
             return true;
         }
-        if (inRect(114, pY + 80, 50, 18, mx, my)) {
-            if (layers.size() > 1 && currentLayer < layers.size()) {
-                kernel.removeLayer(currentLayer);
-                if (currentLayer >= layers.size()) currentLayer = layers.size() - 1;
+
+        // 列表行：行内小按钮优先，其余点选 / rows: per-row buttons first, else select
+        int rh = layerRowH();
+        int rowW = PANEL_W - 12;
+        int[][] br = layerRowButtons(rowW, rh);
+        for (int i = 0; i < layers.size(); i++) {
+            int y = listTop + (i - layerScroll) * rh;
+            if (y < listTop || y > listBottom - rh) continue;
+            if (!inRect(4, y, rowW, rh, mx, my)) continue;
+            for (int b = 0; b < br.length; b++) {
+                if (inRect(4 + br[b][0], y + br[b][1], br[b][2], br[b][3], mx, my)) {
+                    layerRowAction(i, b);
+                    return true;
+                }
+            }
+            currentLayer = i;
+            return true;
+        }
+        return true;
+    }
+
+    /** 层行小按钮动作（听/细/锁/↑/↓/删）。 / the per-row button actions. */
+    private void layerRowAction(int layer, int action) {
+        var layers = kernel.song().layers;
+        if (layer < 0 || layer >= layers.size()) return;
+        switch (action) {
+            case LR_AUDITION -> {
+                for (NbsSong.Note n : kernel.song().allNotes()) {
+                    if (n.layer == layer) {
+                        audition(n);
+                        return;
+                    }
+                }
+            }
+            case LR_DETAIL -> {
+                detailLayer = layer;
+                layerDetailOpen = true;
+                layerNameBox.setValue(layers.get(layer).name);
+                layerNameBox.setFocused(true);
+            }
+            case LR_LOCK -> kernel.setLayerLocked(layer, !layers.get(layer).locked);
+            case LR_UP -> {
+                kernel.moveLayer(layer, layer - 1);
+                if (currentLayer == layer) currentLayer = layer - 1;
+                else if (currentLayer == layer - 1) currentLayer = layer;
+            }
+            case LR_DOWN -> {
+                kernel.moveLayer(layer, layer + 1);
+                if (currentLayer == layer) currentLayer = layer + 1;
+                else if (currentLayer == layer + 1) currentLayer = layer;
+            }
+            case LR_DELETE -> {
+                if (layers.size() > 1) {
+                    kernel.removeLayer(layer);
+                    if (currentLayer >= layers.size()) currentLayer = layers.size() - 1;
+                    if (layerDetailOpen && detailLayer >= kernel.song().layers.size()) layerDetailOpen = false;
+                }
+            }
+        }
+    }
+
+    /** 层细调弹窗点击（名称框 / 滑杆 / 锁定 / 关闭）。 / detail-popup clicks. */
+    private boolean clickLayerDetail(double mx, double my) {
+        int[][] r = layerDetailRects(width, height);
+        int x = (width - 240) / 2, y = (height - 132) / 2;
+        if (inRect(r[0][0], r[0][1], r[0][2], r[0][3], mx, my)) {
+            layerNameBox.setFocused(true);
+            return true;
+        }
+        if (inRect(r[1][0], r[1][1] - 4, r[1][2], 16, mx, my)) {
+            draggingSlider = 1;
+            applySlider(mx);
+            return true;
+        }
+        if (inRect(r[2][0], r[2][1] - 4, r[2][2], 16, mx, my)) {
+            draggingSlider = 2;
+            applySlider(mx);
+            return true;
+        }
+        if (inRect(r[3][0], r[3][1], r[3][2], r[3][3], mx, my)) {
+            if (detailLayer < kernel.song().layers.size()) {
+                kernel.setLayerLocked(detailLayer, !kernel.song().layers.get(detailLayer).locked);
             }
             return true;
         }
-        // 点面板空白=层名框失焦：走提交路径（P3：失焦丢字——渲染每帧用层名覆盖未聚焦框）
-        // Clicking dead panel space blurs the layer-name box through the commit path (P3:
-        // blur used to drop the draft — rendering refills the unfocused box from the layer).
+        if (inRect(r[4][0], r[4][1], r[4][2], r[4][3], mx, my) || !inRect(x, y, 240, 132, mx, my)) {
+            layerDetailOpen = false;
+            layerNameBox.setFocused(false);
+            return true;
+        }
         if (layerNameBox.isFocused()) commitLayerName();
         return true;
     }
 
-    private void applySlider(double mx, int pY) {
-        if (currentLayer >= kernel.song().layers.size()) return;
-        double rel = Math.max(0, Math.min(1, (mx - volSliderX()) / (double) SLIDER_W));
-        if (draggingSlider == 1) kernel.setLayerVolume(currentLayer, (int) Math.round(rel * 100));
-        else if (draggingSlider == 2) kernel.setLayerPanning(currentLayer, (int) Math.round(rel * 200));
+    private void applySlider(double mx) {
+        if (detailLayer >= kernel.song().layers.size()) return;
+        int[][] r = layerDetailRects(width, height);
+        int idx = draggingSlider == 1 ? 1 : 2;
+        double rel = Math.max(0, Math.min(1, (mx - r[idx][0]) / (double) SLIDER_W));
+        if (draggingSlider == 1) kernel.setLayerVolume(detailLayer, (int) Math.round(rel * 100));
+        else if (draggingSlider == 2) kernel.setLayerPanning(detailLayer, (int) Math.round(rel * 200));
     }
 
     private boolean clickImport(double mx, double my, int btn) {
@@ -1356,7 +1457,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     @Override
     public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) {
         if (draggingSlider != 0) {
-            applySlider(mx, height - TRANSPORT_H - PROPS_H);
+            applySlider(mx);
             return true;
         }
         if (draggingScrollBar == 1) {
@@ -1424,6 +1525,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     @Override
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         lastWheelAt = System.currentTimeMillis();   // 滚动防误触窗口起点 / arm the scroll guard
+        if (layerDetailOpen) return true;           // 层细调弹窗吞滚轮 / the detail popup swallows the wheel
         if (mx < PANEL_W && my > TOP_H && my < height - TRANSPORT_H) {
             layerScroll = Math.max(0, layerScroll + (sy > 0 ? -1 : 1));
             return true;
@@ -1495,6 +1597,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             if (importOpen) { importOpen = false; return true; }
             if (exportOpen) { exportOpen = false; return true; }
             if (setOpen) { setOpen = false; setValueBox.setFocused(false); return true; }
+            if (layerDetailOpen) { layerDetailOpen = false; layerNameBox.setFocused(false); return true; }
             if (tempoBox != null && tempoBox.isFocused()) { commitTempo(); return true; }
             if (layerNameBox != null && layerNameBox.isFocused()) { commitLayerName(); return true; }
             if (exportNameBox != null && exportNameBox.isFocused()) { exportNameBox.setFocused(false); return true; }
@@ -1690,7 +1793,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         // 层序器视图：打字 = 琴键（社区映射，选键 + 试听）；弹窗打开时不响应。
         // Lane view: typing plays the piano (community map — select + audition); silent
         // while a dialog is open.
-        if (view == View.LANE && !showGuide && !importOpen && !exportOpen) {
+        if (view == View.LANE && !showGuide && !importOpen && !exportOpen && !setOpen && !layerDetailOpen) {
             int k = NbsPianoStrip.typedKey(ch);
             if (k >= 0) {
                 toolKey = k;

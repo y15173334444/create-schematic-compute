@@ -198,6 +198,25 @@ public final class NbsSong {
         notes.putAll(rebuilt);
     }
 
+    /** 移动一层（层重排）：from → to，其余层顺移；音符层号随之改写（键随层号重建）。
+     *  Move one layer (reorder): from → to, the rest shift; notes renumber with it
+     *  (map keys rebuilt from the new layer numbers). */
+    public void moveLayer(int from, int to) {
+        if (from < 0 || from >= layers.size()) return;
+        if (to < 0 || to >= layers.size() || from == to) return;
+        Layer l = layers.remove(from);
+        layers.add(to, l);
+        TreeMap<Long, Note> rebuilt = new TreeMap<>();
+        for (Note n : notes.values()) {
+            if (n.layer == from) n.layer = to;
+            else if (from < to && n.layer > from && n.layer <= to) n.layer--;
+            else if (to < from && n.layer >= to && n.layer < from) n.layer++;
+            rebuilt.put(pack(n.tick, n.layer), n);
+        }
+        notes.clear();
+        notes.putAll(rebuilt);
+    }
+
     /** 曲长（tick）= 音符末 tick + 1；无音符为 0。 */
     public int computeLength() {
         return notes.isEmpty() ? 0 : maxTick() + 1;

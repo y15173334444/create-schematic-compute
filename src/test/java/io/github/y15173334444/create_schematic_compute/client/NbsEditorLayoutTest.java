@@ -136,4 +136,26 @@ class NbsEditorLayoutTest {
         assertFalse(kernel.performUndo(), "an unchanged set must not push an undo entry");
         assertFalse(kernel.performRedo(), "and leaves the stacks empty");
     }
+
+    // ══════════════ 层行小按钮几何（单一真相源）/ layer-row button geometry (single source) ══════════════
+
+    @Test
+    @DisplayName("layer-row buttons: in-row, right-aligned, non-overlapping / 行内小按钮几何")
+    void testLayerRowButtonsGeometry() {
+        for (int rowH : new int[]{13, 20}) {           // 卷帘行 / 层列行
+            int rowW = 164;
+            int[][] r = NbsEditorScreen.layerRowButtons(rowW, rowH);
+            assertEquals(6, r.length, "听/细/锁/↑/↓/删 six buttons");
+            int prevRight = -1;
+            for (int[] b : r) {
+                assertTrue(b[2] > 0 && b[3] > 0, "buttons have area");
+                assertTrue(b[1] >= 0 && b[1] + b[3] <= rowH, "vertically inside the row");
+                assertTrue(b[0] > prevRight, "ordered left to right without overlap");
+                assertTrue(b[0] + b[2] <= rowW, "inside the row width");
+                prevRight = b[0] + b[2];
+            }
+            // 名称列有得画（按钮区左缘留出名称宽）/ the name column keeps room
+            assertTrue(r[0][0] >= 40, "name column keeps a usable width");
+        }
+    }
 }

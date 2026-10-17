@@ -196,6 +196,18 @@ public final class NbsEditorKernel {
         push(new SnapshotEdit(before, after));
     }
 
+    /** 层重排（上移/下移，NBS 层序语义）：from → to，其余层顺移、音符随行。
+     *  结构级 → 整曲快照撤销。 / Reorder layers (move up/down, the NBS order semantics):
+     *  from → to with the rest shifting and notes following. Snapshot undo. */
+    public void moveLayer(int from, int to) {
+        if (from < 0 || from >= song.layers.size()) return;
+        if (to < 0 || to >= song.layers.size() || from == to) return;
+        NbsSong before = song.copy();
+        song.moveLayer(from, to);
+        NbsSong after = song.copy();
+        push(new SnapshotEdit(before, after));
+    }
+
     /** 速度 = 每秒 tick × 100（NBS 头部 tempo）。 / tempo = ticks-per-second × 100. */
     public void setTempo(int tempo) {
         int t = clamp(tempo, 1, 65535);
