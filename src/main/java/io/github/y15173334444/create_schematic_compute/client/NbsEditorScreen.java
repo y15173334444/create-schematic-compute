@@ -448,6 +448,37 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (setOpen) renderSetDialog(g, mx, my);
         if (layerDetailOpen) renderLayerDetail(g, mx, my);
         if (showGuide) renderGuide(g);
+        renderTopBarTip(g, mx, my);       // 图标钮提示画最上层 / tooltips on top of everything
+    }
+
+    /** 图标钮悬停提示（图标无文字，提示补可发现性）。 / hover tips for the icon buttons. */
+    private void renderTopBarTip(GuiGraphics g, int mx, int my) {
+        if (my >= TOP_H) return;
+        int[][] r = topBarRects(width);
+        for (int i = 0; i < r.length; i++) {
+            if (!inRect(r[i][0], r[i][1], r[i][2], r[i][3], mx, my)) continue;
+            String tip = switch (i) {
+                case TB_CLOSE -> I18n.get("gui.create_schematic_compute.nbs_close");
+                case TB_GUIDE -> I18n.get("gui.create_schematic_compute.nbs_guide");
+                case TB_EXPORT -> I18n.get("gui.create_schematic_compute.nbs_export");
+                case TB_IMPORT -> I18n.get("gui.create_schematic_compute.nbs_import");
+                case TB_REDO -> I18n.get("gui.create_schematic_compute.nbs_redo");
+                case TB_UNDO -> I18n.get("gui.create_schematic_compute.nbs_undo");
+                default -> "";
+            };
+            if (!tip.isEmpty()) drawTip(g, tip, mx, my);
+            return;
+        }
+    }
+
+    private void drawTip(GuiGraphics g, String text, int mx, int my) {
+        int w = font.width(text) + 8, h = 14;
+        int x = Math.max(1, Math.min(mx + 8, width - w - 2));
+        int y = my + 10;
+        if (y + h > height - TRANSPORT_H) y = my - 16;
+        g.fill(x, y, x + w, y + h, 0xF0101010);
+        g.renderOutline(x, y, w, h, C_BORDER);
+        g.drawString(font, text, x + 4, y + 3, C_TEXT, false);
     }
 
     // ══════════════ 条形按钮几何（单一真相源）/ bar button geometry (single source) ══════════════
@@ -458,7 +489,15 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     /** 顶栏按钮下标（= topBarRects 顺序，右起）。/ top-bar indices (topBarRects order, right to left). */
     static final int TB_CLOSE = 0, TB_SAVE = 1, TB_GUIDE = 2, TB_EXPORT = 3, TB_IMPORT = 4, TB_REDO = 5, TB_UNDO = 6, TB_VIEW = 7;
-    private static final int[] TOP_BTN_W = {38, 42, 42, 48, 48, 38, 38, 50};
+    /** 顶栏按钮宽（图标钮 20、文字钮 36——紧凑排列；实测反馈：文字钮太挤）。
+     *  Top-bar widths (icon buttons 20, text buttons 36 — compact; field feedback: the
+     *  text buttons were too crowded). */
+    private static final int[] TOP_BTN_W = {20, 36, 20, 20, 20, 20, 20, 36};
+    /** 图标钮字形：× ? ↑ ↓ ↷ ↶（保存/视图保持文字——主操作与模式指示要可读）。
+     *  Icon glyphs for the six icon buttons (save / view stay textual — the primary
+     *  action and the mode indicator need to read). */
+    private static final String IC_CLOSE = "×", IC_GUIDE = "?", IC_EXPORT = "↑", IC_IMPORT = "↓",
+        IC_REDO = "↷", IC_UNDO = "↶";
 
     /** 顶栏按钮矩形表：右起排布（右留 4px、按钮间 2px），y=4、高 18。
      *  Top-bar rects, right to left (4px right margin, 2px gaps), y=4, h=18. */
@@ -498,13 +537,13 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         g.drawString(font, title, 6, 10, C_TEXT, false);
 
         String[] labels = {
-            I18n.get("gui.create_schematic_compute.nbs_close"),
+            IC_CLOSE,
             I18n.get("gui.create_schematic_compute.nbs_save"),
-            I18n.get("gui.create_schematic_compute.nbs_guide"),
-            I18n.get("gui.create_schematic_compute.nbs_export"),
-            I18n.get("gui.create_schematic_compute.nbs_import"),
-            I18n.get("gui.create_schematic_compute.nbs_redo"),
-            I18n.get("gui.create_schematic_compute.nbs_undo"),
+            IC_GUIDE,
+            IC_EXPORT,
+            IC_IMPORT,
+            IC_REDO,
+            IC_UNDO,
             I18n.get(view == View.ROLL ? "gui.create_schematic_compute.nbs_view_roll"
                                        : "gui.create_schematic_compute.nbs_view_lane"),
         };
