@@ -84,6 +84,36 @@ class NbsEditorLayoutTest {
         assertEquals(0, NbsEditorScreen.clampImportScroll(999, 0), "empty list → 0");
     }
 
+    // ══════════════ 滚动条 / scrollbars ══════════════
+
+    @Test
+    @DisplayName("thumb is proportional to visible/total, clamped and grabbable / 滑块比例、钳位、可抓")
+    void testThumbRect() {
+        // 横向：200px 轨道、总量 100、可见 25 → 滑块 50px
+        int[] t = NbsScrollBar.thumbRect(0, 0, 200, 10, 100, 25, 0);
+        assertEquals(50, t[2], "thumb = track * visible / total");
+        assertEquals(0, t[0], "at pos 0 the thumb hugs the start");
+        int[] t2 = NbsScrollBar.thumbRect(0, 0, 200, 10, 100, 25, 75);
+        assertEquals(150, t2[0], "at max pos the thumb hugs the end");
+        int[] t3 = NbsScrollBar.thumbRect(0, 0, 200, 10, 10000, 10, 0);
+        assertEquals(12, t3[2], "minimum grabbable thumb");
+        // 纵向同理 / vertical likewise
+        int[] v = NbsScrollBar.thumbRect(0, 0, 10, 400, 200, 50, 0);
+        assertEquals(100, v[3]);
+        assertEquals(0, v[1]);
+    }
+
+    @Test
+    @DisplayName("thumb drag maps proportionally; track click pages / 拖动按比例、点轨道翻页")
+    void testScrollBarMapping() {
+        assertEquals(75, NbsScrollBar.posFromThumbDrag(200, 50, 200, 100, 25), "drag to the end");
+        assertEquals(0, NbsScrollBar.posFromThumbDrag(200, 50, 0, 100, 25), "drag to the start");
+        assertEquals(25, NbsScrollBar.posFromTrackClick(10, 25, 50, 50, 100, 25), "click before the thumb pages back");
+        assertEquals(75, NbsScrollBar.posFromTrackClick(90, 25, 50, 50, 100, 25), "click after the thumb pages forward");
+        assertEquals(0, NbsScrollBar.posFromTrackClick(10, 25, 50, 10, 100, 25), "clamped at the start");
+        assertEquals(75, NbsScrollBar.posFromTrackClick(90, 25, 50, 70, 100, 25), "clamped at the end");
+    }
+
     // ══════════════ 上限契约 / upload cap contract ══════════════
 
     @Test

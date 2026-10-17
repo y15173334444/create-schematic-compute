@@ -77,6 +77,14 @@ public final class NbsPianoRoll {
     /** 音符是否画在可见区。 */
     public boolean isPainting() { return painting || erasing; }
 
+    // ── 滚动条映射访问器 / scrollbar-mapping accessors ──
+    public float pxPerTick() { return pxPerTick; }
+    public float pxPerKey() { return pxPerKey; }
+    public float scrollTick() { return scrollTick; }
+    public void setScrollTick(float t) { scrollTick = Math.max(0f, t); }
+    public float viewTopKey() { return viewTopKey; }
+    public void setViewTopKey(float k) { viewTopKey = clamp(k, 2f, 92f); }
+
     // ══════════════ 渲染 / rendering ══════════════
 
     /**

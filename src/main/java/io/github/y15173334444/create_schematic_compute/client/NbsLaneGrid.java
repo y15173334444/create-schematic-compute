@@ -59,6 +59,11 @@ public final class NbsLaneGrid {
     /** 是否在擦除笔划中（屏幕据此收批量组）。 / mid erase-stroke (the screen ends the batch on release). */
     public boolean isErasing() { return erasing; }
 
+    // ── 滚动条映射访问器 / scrollbar-mapping accessors ──
+    public float pxPerTick() { return pxPerTick; }
+    public float scrollTick() { return scrollTick; }
+    public void setScrollTick(float t) { scrollTick = Math.max(0f, t); }
+
     // ══════════════ 渲染 / rendering ══════════════
 
     /**
