@@ -197,9 +197,6 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity implements GraphHo
     /** ② LIT 指示属性（缺席即中止口径）。 / Step ② LIT property (abort-on-absent). */
     @Override public BooleanProperty litProperty() { return SensorBlock.LIT; }
 
-    /** ⑫ 频段变更同步在位（矩阵 ⑫ 列 ✓）。 / Step ⑫ present (matrix ✓). */
-    @Override public boolean wantsBandSync() { return true; }
-
     /** ⑨ SeatInput 无状态档（4 参）——DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE
      *  静默空转的怪癖原样保留（GraphEvaluator 侧不改动）。
      *  Step ⑨ the 4-arg stateless SeatInput form — the silently-idling quirk over

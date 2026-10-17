@@ -274,26 +274,26 @@ class HostTickOrchestrationTest {
     }
 
     @Test
-    @DisplayName("K23 batch 1: step-12 band sync presence matches the matrix (6 present, 6 gaps kept)")
-    void bandSyncPresenceMatchesTheMatrix() throws IOException {
-        // ⑫ 在位 = 蓝图机/程序机/功放电脑/传感器/控制座椅/雷达。
-        for (String host : List.of("BlueprintBlockEntity", "ProgramComputerBlockEntity",
-                "AmplifierComputerBlockEntity", "SensorBlockEntity", "ControlSeatBlockEntity",
-                "RadarBlockEntity"))
-            assertDeclares(host, "wantsBandSync");
-        // ⑫ 缺失保持缺失（批 2 的行为补步）= 显示器/动力仪表/数控齿轮箱/可变速器/转速代理/音响。
-        for (String host : List.of("MonitorBlockEntity", "KineticGaugeBlockEntity",
-                "CncGearboxBlockEntity", "ProgrammableTransmissionBlockEntity",
-                "SpeedProxyBlockEntity", "SpeakerBlockEntity"))
-            assertFalse(fileContains(host, "wantsBandSync"),
-                host + ": matrix step 12 gap must be preserved in batch 1");
-        // 骨架中的 ⑫ 位置：⑪ 与 ⑬ 之间。
+    @DisplayName("K23 batch 2: step 12 runs for every host, between broadcastEvalSnapshot (11) and broadcastFlipflopDiff (13)")
+    void everyHostSyncsBandsBetweenSnapshotAndFlipflop() throws IOException {
+        // ⑫ 位置：⑪ 与 ⑬ 之间（与既有六宿主的位置口径一致）。
+        // Step 12 position: between ⑪ and ⑬ (same slot the six wired hosts used).
         List<String> s = skeleton();
         int snapshot = indexOf(s, "broadcastEvalSnapshot()", "GraphHost", "step 11 missing");
         int bands = indexOf(s, "syncIfBandsChanged", "GraphHost", "step 12 missing");
         int flipflop = indexOf(s, "broadcastFlipflopDiff", "GraphHost", "step 13 missing");
         assertTrue(snapshot < bands && bands < flipflop,
             "step 12 must sit between broadcastEvalSnapshot (11) and broadcastFlipflopDiff (13)");
+        // 全 12 宿主在位：补步后不再有宿主级 opt-out（矩阵 ⑫ 列 6 缺 → 0 缺）。
+        // Present for all twelve: the fix leaves no host-level opt-out (matrix column ⑫:
+        // 6 gaps -> 0).
+        assertFalse(s.stream().anyMatch(l -> l.contains("wantsBandSync")),
+            "step 12 must not be gated by a host policy anymore");
+        for (String host : ALL_HOSTS) {
+            assertFalse(fileContains(host, "wantsBandSync"),
+                host + ": the step-12 opt-out declaration must be gone");
+            delegatesToSkeleton(host);
+        }
     }
 
     @Test

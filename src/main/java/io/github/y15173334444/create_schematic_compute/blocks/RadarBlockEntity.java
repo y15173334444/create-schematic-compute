@@ -434,9 +434,6 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity implements GraphHos
      *  Step ⑨ empty-table form: seat + throwaway per-tick state maps. */
     @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.EMPTY_TABLE; }
 
-    /** ⑫ 频段变更同步在位（矩阵 ⑫ 列 ✓）。 / Step ⑫ present (matrix ✓). */
-    @Override public boolean wantsBandSync() { return true; }
-
     /** 缝 1（⑮ 后 ② 前）：扫描关卡捕获。 / Seam 1 (after ⑮, before ②): scan-level capture. */
     @Override public void beforeLit() {
         scanLevel = getScanLevel();

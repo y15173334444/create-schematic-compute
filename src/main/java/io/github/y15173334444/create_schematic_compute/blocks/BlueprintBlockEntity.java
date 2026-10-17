@@ -35,9 +35,6 @@ public class BlueprintBlockEntity extends SyncedGraphBlockEntity implements Grap
     /** ⑥ A 档：refreshInputsActive（继承线运行档口径）。 / Step ⑥ A variant. */
     @Override public boolean activeInputRefresh() { return true; }
 
-    /** ⑫ 频段变更同步在位（矩阵 ⑫ 列 ✓）。 / Step ⑫ present (matrix ✓). */
-    @Override public boolean wantsBandSync() { return true; }
-
     /** ⑬ 触发器差分在位（矩阵 ⑬ 列 ✓）。 / Step ⑬ present (matrix ✓). */
     @Override public boolean wantsFlipflopDiff() { return true; }
 

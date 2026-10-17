@@ -269,10 +269,6 @@ public class ControlSeatBlockEntity extends SyncedGraphBlockEntity implements Gr
      *  EN: Step ② LIT property (abort-on-absent). */
     @Override public BooleanProperty litProperty() { return ControlSeatBlock.LIT; }
 
-    /** ⑫ 频段变更同步在位（矩阵 ⑫ 列 ✓）。
-     *  EN: Step ⑫ present (matrix ✓). */
-    @Override public boolean wantsBandSync() { return true; }
-
     /** ⑨ SeatInput 无状态档（4 参）——时序/状态节点静默空转的怪癖原样（GraphEvaluator 不动）。
      *  EN: Step ⑨ the 4-arg stateless SeatInput form — the silently-idling quirk over
      *  timing/state nodes stays as-is (GraphEvaluator untouched). */

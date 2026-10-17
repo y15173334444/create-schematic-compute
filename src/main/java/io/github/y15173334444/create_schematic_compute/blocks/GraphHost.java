@@ -209,11 +209,6 @@ public class GraphHost {
             return new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
         }
 
-        /** ⑫ 频段变更同步在位（批 1：矩阵 ⑫ 列六缺保持缺失；批 2 补步后本开关退役）。
-         *  Step ⑫ band-change sync present (batch 1 keeps the matrix's six gaps; batch 2
-         *  wires the step for all and retires this switch). */
-        default boolean wantsBandSync() { return false; }
-
         /** ⑬ 触发器差分广播在位（3/4 参档宿主无此步——矩阵 ⑬ 列口径原样）。
          *  Step ⑬ flipflop-diff broadcast present (the 3/4-arg hosts carry no such step). */
         default boolean wantsFlipflopDiff() { return false; }
@@ -279,11 +274,12 @@ public class GraphHost {
      * (zero behaviour change). Step order = the Blueprint baseline (the matrix numbers
      * are labels, not execution order: ⑮ runs right after ①, see P1-8).
      *
-     * <p>⑤ 的执行位/形态、④ F/L、⑥ A/H、⑨ 四档、⑫⑬ 有无均按宿主声明保留；
-     * 位置语义不得动：⑮ 在停机早退之前（P1-8）、⑦ 在 ⑥ 与 ⑧ 之间、⑬ 在 ⑨ 之后。
-     * The ⑤ slot/shape, ④ F/L, ⑥ A/H, the four ⑨ forms and ⑫⑬ presence are preserved
+     * <p>⑤ 的执行位/形态、④ F/L、⑥ A/H、⑨ 四档、⑬ 有无均按宿主声明保留；
+     * 位置语义不得动：⑮ 在停机早退之前（P1-8）、⑦ 在 ⑥ 与 ⑧ 之间、⑫ 在 ⑪ 与 ⑬ 之间、
+     * ⑬ 在 ⑨ 之后。
+     * The ⑤ slot/shape, ④ F/L, ⑥ A/H, the four ⑨ forms and ⑬ presence are preserved
      * per host; the position semantics are frozen: ⑮ before every stop early-return
-     * (P1-8), ⑦ between ⑥ and ⑧, ⑬ after ⑨.</p>
+     * (P1-8), ⑦ between ⑥ and ⑧, ⑫ between ⑪ and ⑬, ⑬ after ⑨.</p>
      */
     public void tickBody(TickHooks h) {
         // ── 守卫 / guard ──
@@ -387,11 +383,10 @@ public class GraphHost {
             h.afterWriteOutputs();
             // ⑪ 求值快照广播（DEBUG_PROBE 采样）/ broadcast eval snapshot (DEBUG_PROBE)
             broadcastEvalSnapshot();
-            // ⑫ 频段变更同步（批 1：矩阵 ⑫ 列六缺保持缺失，wantsBandSync 门控；批 2 补步）
-            // ⑫ band-change sync (batch 1 keeps the matrix's six gaps behind
-            //    wantsBandSync; batch 2 wires the step for all)
-            if (h.wantsBandSync())
-                BusChannelHelper.syncIfBandsChanged(graph, pos(), lastBusHashMap, lvl());
+            // ⑫ 频段变更同步（矩阵 ⑫ 列：六宿主补步后 12/12 在位，tick 级频段变更检测）
+            // ⑫ band-change sync (matrix column ⑫: wired for all twelve hosts after the
+            //    six-host gap fix — tick-level band-change detection)
+            BusChannelHelper.syncIfBandsChanged(graph, pos(), lastBusHashMap, lvl());
             // ⑬ 触发器差分广播（基线去重，无变化零发包；3/4 参档宿主无此步）
             // ⑬ flipflop-diff broadcast (baseline-diffed, silent while unchanged; the
             //    3/4-arg hosts carry no such step)
