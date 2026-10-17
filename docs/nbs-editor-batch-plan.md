@@ -1,6 +1,6 @@
 # NBS 编辑器批次改进计划 / NBS Editor Batch Improvement Plan
 
-> **状态：✅ 批次一 + 批次二（双样式）+ 批次三 B1（选择/剪贴板）+ B2（拖移搬移）已落地（2026-10-17）；🔶 批次三 B3、批次四待办**
+> **状态：✅ 批次一 + 批次二（双样式）+ 批次三（选择/剪贴板 · 拖移搬移 · 逐音符属性）已落地（2026-10-17）；🔶 批次四待办**
 > 日期：2026-10-17 起草
 > 影响：`NbsEditorScreen` / `NbsEditorKernel` / `NbsPianoRoll` / `NbsSong` / `MusicTransport`
 > 交叉引用：[`tech-debt-review-2026-10-11.md`](tech-debt-review-2026-10-11.md)（P1-10 / P2-22 / P2-23）、[`known-open-issues.md`](known-open-issues.md)、CHANGELOG「Unreleased（v1.2.6 WIP）」NBS 钢琴卷帘编辑器条目
@@ -155,7 +155,7 @@ feat: lane-view placement semantics in the nbs kernel
 
 ## 3. 批次三：编辑表达力 / Batch 3: Editing Expressiveness
 
-**状态：🔶 B3 待办**（B1/B2 ✅ 已落地，B3 依赖的选区已随 B1 解锁）。社区核心工作流三件套，内核测试先行（`NbsEditorKernelTest` 扩展为回归锚点）；两视图通用（LANE 视图的左键拖留白即为 B1 框选预留）。
+**状态：✅ B1/B2/B3 全部已解决（2026-10-17）**。社区核心工作流三件套，内核测试先行（`NbsEditorKernelTest` 扩展为回归锚点）；两视图通用（LANE 视图的左键拖留白即为 B1 框选预留）。
 
 ### B1. 选择 + 剪贴板 / Selection & clipboard
 
@@ -189,7 +189,17 @@ feat: drag-to-move notes in the nbs editor
 
 ### B3. 逐音符力度/声像/细音高编辑 / Per-note velocity / panning / pitch editing
 
-字段与播放链路一直是全的（放置默认 100/居中/0，`NoteEvent` 已消费），只缺编辑面。最小闭环：选中后 Set 弹窗（绝对值/增量两种模式）+ 快捷键或悬停滚轮微调，不抄参考的四模式工具栏全套。依赖 B1 的选区。
+**状态：✅ 已解决（2026-10-17）**（回归锚点 `NbsEditorKernelTest`（setNoteField / setSelectionField））
+
+**实施记录 / Implementation Record（2026-10-17）**
+
+```
+feat: per-note velocity, panning and pitch editing in the nbs editor
+```
+
+- **Set 弹窗**（`NBS_SET`，默认 Ctrl+E、可绑）：选区非空打开——字段三键（力度/声像/细音高）+ 数值框 + 模式（**绝对** = 全部置值 / **增量** = 各自 ±）+ 应用/取消；Enter 应用、Esc 关闭。内核 `setSelectionField` 走整曲快照撤销（选区级同口径），跳过锁定层格、同值不记、字段钳位（力度 0–100 / 声像 0–200 / 细音高 ±32767）。
+- **悬停微调**：Alt+Ctrl + 悬停音符 + 滚轮 = 力度 ±5（Shift = ±15，两视图）；细音高/声像走 Set 弹窗增量模式。单格走精确逆 `setNoteField`（`CellEdit`）。播放锁拦下（编辑手势）。
+- 计划口径「不抄参考的四模式工具栏全套」照办：最小闭环 = Set 弹窗 + 悬停滚轮微调。
 
 ## 4. 批次四：播放与层体验 / Batch 4: Playback & Layer Polish
 
@@ -214,7 +224,7 @@ feat: drag-to-move notes in the nbs editor
 | 放置/擦除/涂抹、点放语义 | ✅ 语义一致 | ✅ | — |
 | 选择 + 剪贴板 | ✅ 框选/加减选/压缩串互贴（快照撤销） | ✅ 框选/加减选/压缩串剪贴板 | ✅ B1（批次三） |
 | 跨 tick 拖移搬移 | ✅ 拖音符/拖选区（精确逆 + 快照） | ✅ 拖选区/拖块 | ✅ B2（批次三） |
-| 逐音符 vel/pan/pitch 编辑 | ❌（字段全、无 UI） | ✅ 四模式 + Set 对话框 + 滚轮微调 | B3（批次三） |
+| 逐音符 vel/pan/pitch 编辑 | ✅ Set 弹窗（绝对/增量）+ 悬停滚轮 | ✅ 四模式 + Set 对话框 + 滚轮微调 | ✅ B3（批次三） |
 | 层属性（名/音量/声像/锁定） | ✅ | ✅ | — |
 | 层重排/solo | ❌ | ✅ Shift up/down + solo | 批次四 |
 | 循环（含回绕参数） | 数据在、UI 缺 | ✅ 完整 | 批次四 |
