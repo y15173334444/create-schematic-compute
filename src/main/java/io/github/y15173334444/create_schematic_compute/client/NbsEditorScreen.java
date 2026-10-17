@@ -529,6 +529,13 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_tempo"),
             r[TR_TEMPO][0] - tempoLabelW - 4, y + 9, C_TEXT_DIM, false);
+        // 速度框镜像（层名框同口径）：未聚焦时每帧跟随曲目值——导入/撤销/重做换速后
+        // 旧显示值不得滞留（实测反馈：导入后显示第一首的速度，再点框失焦提交即把旧速度
+        // 写回新曲、上传错配）。
+        // Tempo-box mirror (same policy as the layer-name box): the unfocused box follows
+        // the song every frame — after import / undo / redo a stale display can never
+        // linger and get committed back over the new song (field feedback).
+        if (!tempoBox.isFocused()) tempoBox.setValue(tpsDisplay(kernel.song().tempo));
         tempoBox.setX(r[TR_TEMPO][0]); tempoBox.setY(r[TR_TEMPO][1]); tempoBox.render(g, mx, my, pt0());
 
         float tps = Math.max(0.01f, kernel.song().tempo / 100f);
@@ -1293,7 +1300,15 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             preview.stop();
             preview.seek(0);
             CscAudioEngine.cancelListenerFuture();
+            // 输入框草稿让位于导入内容：失焦不提交（提交会用旧草稿覆盖导入的速度/层名）
+            // Edit-box drafts yield to the import: blur without committing (a commit would
+            // overwrite the imported tempo / layer name with the stale draft).
+            tempoBox.setFocused(false);
+            layerNameBox.setFocused(false);
             kernel.replaceSong(parsed);     // 导入可撤销（plan：导入 .nbs + 撤销）
+            // 换曲后钳位选中层与层滚动（层数可增可减）/ clamp layer state to the new shape
+            currentLayer = Math.min(Math.max(0, currentLayer), kernel.song().layers.size() - 1);
+            layerScroll = Math.min(Math.max(0, layerScroll), Math.max(0, kernel.song().layers.size() - 1));
             syncSongToServer();
             feedback(I18n.get("gui.create_schematic_compute.nbs_imported"));
         } catch (Exception e) {
