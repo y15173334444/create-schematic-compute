@@ -79,6 +79,22 @@ feat: lane-view placement semantics in the nbs kernel
 
 （哈希见 `git log`；`NbsEditorLayoutTest` 顶栏断言随视图按钮扩为 8 键。）
 
+### 批次二·二期：信息排布 + 播放习惯（社区对照反馈）/ Dual-Style Phase 2: Clarity & Playback Habits
+
+**状态：✅ 已解决（2026-10-17）**（用户对照社区截图反馈三件：信息排布不清晰、播放不翻页、播放中可改图）
+
+- **信息排布清晰化**：①层行补信息——音量% + 声像(±) + 锁定标记（社区层行的信息密度）；
+  ②滑杆数值截断修复（旧 x+w+4 把 "100"/"+100" 画出面板外，改为右对齐面板缘 + 滑杆让位）；
+  ③钢琴条键帽——每键全音名 + 打字映射字符（社区同款键帽信息）、选中键名前置到范围标签、
+  发音窗口外改**红色提示**（社区同款，替代灰遮罩）；④层序器音符块——音名标签（够宽才画）+
+  力度明暗（社区 draw_block 同款）；⑤刻度尺时间副标（tick 下加 m:ss）。
+- **播放自动翻页**（社区 page-by-page 语义）：播放头越过右缘 → 翻页、头落新页左缘；回退越过
+  左缘 → 头落右缘；**视口内不接管**（不与用户滚动抢方向）。两视图同款（`followPlayhead`，
+  取代原预留的 `ensureTickVisible`；`resetView` 死方法一并清除）。
+- **播放锁**（社区 `playing = 0` 语义——播放中网格坐标不落、完全不可编辑）：播放中放置/擦除/
+  笔划全部拒绝并提示「播放中不可编辑」；刻度尺 seek、钢琴条选键/试听、层面板编辑不受限。
+- 回归锚点：`NbsLaneViewTest`（翻页/键帽）。
+
 ## 3. 批次三：编辑表达力 / Batch 3: Editing Expressiveness
 
 **状态：🔶 待办**。社区核心工作流三件套，内核测试先行（`NbsEditorKernelTest` 扩展为回归锚点）；两视图通用（LANE 视图的左键拖留白即为 B1 框选预留）。
@@ -99,7 +115,7 @@ feat: lane-view placement semantics in the nbs kernel
 
 **状态：🔶 待办**。
 
-- **播放跟随**：翻页/居中模式（`NbsPianoRoll.ensureTickVisible`/`resetView`/`scrollKeys` 三个预留方法激活），长曲边播边看。
+- **播放跟随**：✅ page-by-page 翻页已随批次二·二期落地（两视图 `followPlayhead`）；剩居中模式与播放区域（section）。
 - **循环区域 UI**：`loopStartTick`/`maxLoopCount` 数据模型与回绕逻辑已就绪、随文件保真，只缺编辑入口（时间轴拖段 + 右键菜单简化版 + 层面板数字框）。
 - **层重排（上移/下移）**：NBS 层序语义保真需要（参考的 Shift up/down）；层 solo/静音牵动 `MusicTransport` 烘焙过滤，列在重排之后单独评估。
 
