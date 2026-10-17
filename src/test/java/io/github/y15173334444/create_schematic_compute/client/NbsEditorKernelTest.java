@@ -267,4 +267,65 @@ class NbsEditorKernelTest {
         while (k.performUndo()) undoable++;
         assertEquals(NbsEditorKernel.MAX_UNDO, undoable, "oldest entries drop past the cap");
     }
+
+    // ══════════════ 层序器落点（双样式批次）/ lane-view placement (dual-style batch) ══════════════
+
+    @Test
+    void placeNoteFillsThenOverwritesWholeCell() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.placeNote(2, 0, 3, 50, 90, 150, 25);
+        NbsSong.Note n = song.getNote(2, 0);
+        assertNotNull(n, "empty cell gets a fresh note");
+        assertEquals(3, n.instrument);
+        assertEquals(50, n.key);
+        assertEquals(90, n.velocity);
+        assertEquals(150, n.panning);
+        assertEquals(25, n.pitch);
+
+        // 覆盖整格、不保留旧属性（工具态写格子）/ overwrite replaces the whole cell
+        k.placeNote(2, 0, 1, 55, 40, 60, -10);
+        n = song.getNote(2, 0);
+        assertEquals(1, n.instrument);
+        assertEquals(55, n.key);
+        assertEquals(40, n.velocity);
+        assertEquals(60, n.panning);
+        assertEquals(-10, n.pitch);
+        assertEquals(1, song.noteCount(), "still one cell");
+
+        assertTrue(k.performUndo(), "overwrite undoes to the first state");
+        n = song.getNote(2, 0);
+        assertEquals(3, n.instrument);
+        assertEquals(50, n.key);
+        assertTrue(k.performUndo(), "placement undoes to empty");
+        assertNull(song.getNote(2, 0));
+    }
+
+    @Test
+    void placeNoteIdenticalIsNoOp() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.placeNote(4, 0, 2, 45, 100, 100, 0);
+        k.placeNote(4, 0, 2, 45, 100, 100, 0);
+        assertTrue(k.performUndo(), "the first placement is undoable");
+        assertNull(song.getNote(4, 0), "one undo clears the cell - the identical second call recorded nothing");
+        assertFalse(k.performUndo(), "and the stack is empty");
+    }
+
+    @Test
+    void placeNoteClampsAndGuards() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.placeNote(0, 0, 0, 99, 100, 100, 0);
+        assertNull(song.getNote(0, 0), "keys outside 0-87 are refused");
+        k.placeNote(0, 0, 0, 45, 999, -5, 99999);
+        NbsSong.Note n = song.getNote(0, 0);
+        assertEquals(100, n.velocity, "velocity clamps to 100");
+        assertEquals(0, n.panning, "panning clamps to 0");
+        assertEquals(32767, n.pitch, "fine pitch clamps to the NBS range");
+
+        k.setLayerLocked(0, true);
+        k.placeNote(1, 0, 0, 45, 100, 100, 0);
+        assertNull(song.getNote(1, 0), "locked layers refuse placement");
+    }
 }

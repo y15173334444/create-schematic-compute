@@ -96,6 +96,29 @@ public final class NbsEditorKernel {
         apply(new CellEdit(tick, layer, copyOf(old), null));
     }
 
+    /**
+     * 层序器落点（社区 {@code add_block_manual}/{@code change_block_manual} 合一）：
+     * 空格放新音符、已有则整格覆盖为指定属性（乐器/键/力度/声像/细音高）——覆盖不保留旧属性，
+     * 这是层序器视图的习惯语义（工具态写格子）；属性完全相同 = 空操作不入撤销。
+     * 层锁定不做；键限 0–87，力度 0–100、声像 0–200、细音高 −32768..32767 钳位。
+     * <p>Lane-view placement (community {@code add_block_manual}/{@code change_block_manual}
+     * in one): an empty cell gets a fresh note, an occupied cell is <b>overwritten</b> with
+     * the given attributes (the tool state writes the cell — no attribute carry-over, that is
+     * the lane-view habit); an identical note is a no-op. Locked layers are never edited;
+     * key is limited to 0–87, velocity/panning/fine-pitch are clamped.</p>
+     */
+    public void placeNote(int tick, int layer, int instrument, int key, int velocity, int panning, int pitch) {
+        if (layer < 0 || layer >= song.layers.size()) return;
+        if (song.layers.get(layer).locked) return;
+        if (key < 0 || key > 87) return;
+        NbsSong.Note old = song.getNote(tick, layer);
+        int v = clamp(velocity, 0, 100), p = clamp(panning, 0, 200), pi = clamp(pitch, -32768, 32767);
+        if (old != null && old.instrument == instrument && old.key == key
+            && old.velocity == v && old.panning == p && old.pitch == pi) return;
+        apply(new CellEdit(tick, layer, old == null ? null : copyOf(old),
+            new NbsSong.Note(tick, layer, instrument, key, v, p, pi)));
+    }
+
     /** 层名称。 / layer display name. */
     public void setLayerName(int layer, String name) {
         if (layer < 0 || layer >= song.layers.size()) return;
