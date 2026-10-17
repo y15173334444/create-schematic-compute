@@ -420,7 +420,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             laneGrid.render(g, font, rollX(), rollY(), gridW(), gridH(),
                 kernel.song(), currentLayer, layerScroll, layerRowH(), playhead, selection);
             pianoStrip.render(g, font, rollX(), stripY(), rollW(), NbsPianoStrip.STRIP_H, toolKey,
-                keyFlashUntil, System.currentTimeMillis());
+                !preview.isPlaying(), keyFlashUntil, System.currentTimeMillis());
         }
         // 框选橡皮筋（拖动中）/ marquee rubber band while dragging
         if (gesture == GESTURE_MARQUEE) {
@@ -854,6 +854,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                     pianoStrip.startKey(), NbsPianoStrip.WINDOW_KEYS);
                 if (k >= 0) {
                     toolKey = k;
+                    pianoStrip.ensureVisible(k);
                     audition(new NbsSong.Note(0, 0, currentInstrument, k, 100, 100, 0));
                 }
             }
@@ -1693,6 +1694,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             int k = NbsPianoStrip.typedKey(ch);
             if (k >= 0) {
                 toolKey = k;
+                pianoStrip.ensureVisible(k);   // 窗口跟随选键（打字映射恒 33–57，窗外要拉回）
                 audition(new NbsSong.Note(0, 0, currentInstrument, k, 100, 100, 0));
                 return true;
             }

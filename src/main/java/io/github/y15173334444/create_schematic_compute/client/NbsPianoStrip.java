@@ -37,6 +37,21 @@ public final class NbsPianoStrip {
         startKey = Math.max(0, Math.min(87 - WINDOW_KEYS + 1, startKey + keys));
     }
 
+    /**
+     * 确保键在八度窗内（选键后窗口跟随）。打字映射恒 33–57，窗口被 ◀/▶ 或滚轮平移后
+     * 按琴键会选中「窗外键」——声音照发但选中标记画不出来（实测反馈）。
+     * Ensure the key sits inside the octave window (the window follows a selection).
+     * The typing map is fixed at 33–57, so after a ◀/▶ or wheel shift a pressed key could
+     * land outside the window — it sounded but its marker never drew (field feedback).
+     */
+    public void ensureVisible(int key) {
+        if (key < startKey) {
+            startKey = Math.max(0, Math.min(key, 87 - WINDOW_KEYS + 1));
+        } else if (key > startKey + WINDOW_KEYS - 1) {
+            startKey = Math.max(0, Math.min(key - WINDOW_KEYS + 1, 87 - WINDOW_KEYS + 1));
+        }
+    }
+
     /** 打字键 → NBS 键（33..57）；未映射 -1。 / typed char → NBS key; -1 when unmapped. */
     public static int typedKey(char c) {
         int idx = TYPED_KEYS.indexOf(Character.toUpperCase(c));
@@ -104,11 +119,14 @@ public final class NbsPianoStrip {
     /**
      * 画钢琴条（八度按钮 + 范围标签 + 白键/黑键 + 选中键高亮 + 跟弹闪烁 + 发音窗口遮罩）。
      * @param toolKey 当前工具键（选中态）
+     * @param showCandidate 是否画选中标记（播放中隐藏——播放锁下工具是惰性的，条面留给跟弹）
+     *                      / draw the selection marker (hidden while playing — the tool is
+     *                        inert under the playback lock and the strip belongs to play-along)
      * @param keyFlashUntil 每键跟弹高亮到期时间戳（ms；null = 无闪烁）/ per-key play-along flash expiry
      * @param nowMs 当前时间戳 / current time in ms
      */
     public void render(GuiGraphics g, Font font, int x, int y, int w, int h, int toolKey,
-                       long[] keyFlashUntil, long nowMs) {
+                       boolean showCandidate, long[] keyFlashUntil, long nowMs) {
         g.fill(x, y, x + w, y + h, NbsPianoRoll.C_BG);
         g.fill(x, y, x + w, y + 1, NbsPianoRoll.C_GRID_BAR);
 
@@ -123,7 +141,7 @@ public final class NbsPianoStrip {
                 if ((pass == 0) != black) continue;
                 int k = r[0], kw = r[3];
                 int kx = keyAreaX + r[1], ky = keyAreaY + r[2];
-                boolean sel = k == toolKey;
+                boolean sel = showCandidate && k == toolKey;
                 int color = black ? NbsPianoRoll.C_BLACK_KEY : NbsPianoRoll.C_WHITE_KEY;
                 if (sel) color = 0xFF3A5A2A;             // 选中键 / selected key
                 g.fill(kx, ky, kx + kw, ky + r[4], color);

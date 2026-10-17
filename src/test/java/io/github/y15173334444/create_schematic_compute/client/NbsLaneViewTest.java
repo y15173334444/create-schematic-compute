@@ -140,4 +140,21 @@ class NbsLaneViewTest {
         assertEquals("G", NbsPianoStrip.typedChar(57));
         assertEquals("", NbsPianoStrip.typedChar(60), "unmapped keys carry no hint");
     }
+
+    @Test
+    @DisplayName("octave window follows a selection into view / 选键后八度窗跟随（窗外键候选不显示的修复）")
+    void testEnsureVisibleFollowsSelection() {
+        NbsPianoStrip strip = new NbsPianoStrip();
+        assertEquals(33, strip.startKey(), "default window starts at the typing base");
+        strip.ensureVisible(45);
+        assertEquals(33, strip.startKey(), "in-window keys leave the window alone");
+        strip.ensureVisible(70);
+        assertEquals(70 - NbsPianoStrip.WINDOW_KEYS + 1, strip.startKey(), "high keys pull the window up to them");
+        strip.ensureVisible(20);
+        assertEquals(20, strip.startKey(), "low keys pull the window down to them");
+        strip.ensureVisible(87);
+        assertEquals(87 - NbsPianoStrip.WINDOW_KEYS + 1, strip.startKey(), "clamped at the top of the key range");
+        strip.ensureVisible(0);
+        assertEquals(0, strip.startKey(), "clamped at the bottom of the key range");
+    }
 }
