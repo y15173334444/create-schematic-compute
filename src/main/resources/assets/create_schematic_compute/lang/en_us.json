@@ -727,6 +727,7 @@
   "gui.create_schematic_compute.nbs_view_lane": "Lanes",
   "gui.create_schematic_compute.nbs_locked_mark": "L",
   "gui.create_schematic_compute.nbs_edit_locked": "Locked while playing",
+  "gui.create_schematic_compute.nbs_scroll_guard": "Scroll guard: wait a beat after scrolling",
   "gui.create_schematic_compute.nbs_play": "Play",
   "gui.create_schematic_compute.nbs_pause": "Pause",
   "gui.create_schematic_compute.nbs_stop": "Stop",

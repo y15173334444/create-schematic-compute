@@ -727,6 +727,7 @@
   "gui.create_schematic_compute.nbs_view_lane": "层列",
   "gui.create_schematic_compute.nbs_locked_mark": "锁",
   "gui.create_schematic_compute.nbs_edit_locked": "播放中不可编辑",
+  "gui.create_schematic_compute.nbs_scroll_guard": "防误触：滚动后稍候再点",
   "gui.create_schematic_compute.nbs_play": "播放",
   "gui.create_schematic_compute.nbs_pause": "暂停",
   "gui.create_schematic_compute.nbs_stop": "停止",

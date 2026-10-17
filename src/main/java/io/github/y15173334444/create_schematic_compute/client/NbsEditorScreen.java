@@ -105,6 +105,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private int layerScroll = 0;
     private int draggingSlider = 0;        // 0=无 1=音量 2=声像
     private int draggingScrollBar = 0;     // 0=无 1=横向（时间轴） 2=纵向（层行/键轴）
+    private long lastWheelAt = 0;          // 滚轮活动时间戳（滚动防误触窗口起点）
     private boolean importOpen = false, exportOpen = false, showGuide = false;
     private List<Path> importFiles = List.of();
     /** 导入弹窗可见行数（渲染 / 命中 / 滚动钳位共用）。/ import dialog visible rows (render, hit-test and scroll clamp share it). */
@@ -654,7 +655,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             boolean overGrid = view == View.ROLL
                 ? roll.hit(rollX(), rollY(), gridW(), gridH(), mx, my) == NbsPianoRoll.Zone.GRID
                 : laneGrid.hit(rollX(), rollY(), gridW(), gridH(), mx, my) == NbsLaneGrid.Zone.GRID;
-            if (overGrid && editLocked()) return true;
+            if (overGrid && (editLocked() || scrollGuarded())) return true;
             boolean consumed = view == View.ROLL
                 ? roll.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel, currentLayer, currentInstrument)
                 : laneGrid.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel,
@@ -678,7 +679,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 preview.seek(Math.max(0, t));
                 return true;
             }
-            if (editLocked()) return true;
+            if (editLocked() || scrollGuarded()) return true;
             if (roll.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel, currentLayer, currentInstrument)) {
                 kernel.beginBatch();
                 return true;
@@ -706,7 +707,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             preview.seek(Math.max(0, t));
             return true;
         }
-        if (editLocked()) return true;
+        if (editLocked() || scrollGuarded()) return true;
         if (laneGrid.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel,
             currentInstrument, toolKey, layerScroll, layerRowH())) {
             kernel.beginBatch();
@@ -722,6 +723,22 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (!preview.isPlaying()) return false;
         feedback(I18n.get("gui.create_schematic_compute.nbs_edit_locked"));
         return true;
+    }
+
+    /** 滚动防误触窗口（ms）：滚轮活动后此窗口内的编辑点击视为滚动时手指蹭键。
+     *  Scroll-guard window (ms): edit clicks inside it after wheel activity count as a
+     *  finger brushing the button mid-scroll. */
+    static final int SCROLL_GUARD_MS = 200;
+
+    /** 滚动防误触：窗口内的网格编辑点击吞掉并提示（seek 等无害点击不受限）。
+     *  Scroll mis-touch guard: edit clicks inside the window are swallowed with a notice
+     *  (harmless clicks like ruler seek stay free). */
+    private boolean scrollGuarded() {
+        if (System.currentTimeMillis() - lastWheelAt < SCROLL_GUARD_MS) {
+            feedback(I18n.get("gui.create_schematic_compute.nbs_scroll_guard"));
+            return true;
+        }
+        return false;
     }
 
     private boolean clickTopBar(double mx, double my) {
@@ -1016,6 +1033,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     @Override
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+        lastWheelAt = System.currentTimeMillis();   // 滚动防误触窗口起点 / arm the scroll guard
         if (mx < PANEL_W && my > TOP_H && my < height - TRANSPORT_H) {
             layerScroll = Math.max(0, layerScroll + (sy > 0 ? -1 : 1));
             return true;
@@ -1031,10 +1049,13 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (showGuide || exportOpen) return true;
         if (view == View.LANE) {
             if (mx >= rollX() && my >= stripY()) { pianoStrip.shift(sy > 0 ? -12 : 12); return true; }
-            // 悬停音符 + 滚轮 = 调声调（社区悬停微调习惯；Shift = 八度 ±12，否则半音 ±1）。
-            // Hover a note + wheel = adjust its key (community micro-adjust habit; Shift = octave
-            // ±12, plain = semitone ±1). 播放锁同样拦下；改动即时反映在块面音名上。
-            if (laneGrid.hit(rollX(), rollY(), gridW(), gridH(), mx, my) == NbsLaneGrid.Zone.GRID) {
+            // Alt + 悬停音符 + 滚轮 = 调声调（Shift = 八度 ±12，否则半音 ±1）。
+            // **防误触**：纯滚轮一律只滚动、永不动谱——社区用 changepitch 模式门控同一风险，
+            // 我们用 Alt 门控（无模式状态可忘）。
+            // Alt + hover a note + wheel = adjust its key (Shift = octave ±12, plain = ±1).
+            // Anti-mis-touch: the plain wheel only ever scrolls, never mutates — the community
+            // gates the same risk behind its changepitch mode; we gate on Alt (no state to forget).
+            if (hasAltDown() && laneGrid.hit(rollX(), rollY(), gridW(), gridH(), mx, my) == NbsLaneGrid.Zone.GRID) {
                 int tick = (int) Math.floor(laneGrid.tickAt(rollX(), mx));
                 int layer = laneGrid.layerAt(rollY(), my, layerScroll, layerRowH(), kernel.song().layers.size());
                 NbsSong.Note n = (tick >= 0 && layer >= 0) ? kernel.song().getNote(tick, layer) : null;
