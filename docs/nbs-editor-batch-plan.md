@@ -146,7 +146,11 @@ feat: lane-view placement semantics in the nbs kernel
   绑定共用同一派发路径（`dispatchNbsAction`），行为不漂移。
 - **一致性伤治愈**：撤销/重做按作用域各绑各的（NBS_UNDO 与图域 UNDO 同键出厂），重绑互不
   干扰——正是「同一系统两套行为」问题的正解。
-- 回归锚点：`EditorKeysSequenceTest`（同键三域/换域清缓冲）、`EditorKeysPixelAndWireTest`
+- **补丁（用户实测反馈）：「绑定空键」**——NBS 多数动作出厂未绑（显示「—」），但系统原先
+  不允许改回未绑（`确定绑定` 拒绝空录入队列，且空值读取时回落出厂、清绑存不住）。现
+  **空队列 + 确定 = 解除绑定**（清除 → 确定即绑空键），引擎新增 `clearSequence`，持久化为
+  **显式空 seq**（load 区分「显式空=未绑」与「缺键=出厂」，旧配置兼容）。
+- 回归锚点：`EditorKeysSequenceTest`（同键三域/换域清缓冲/清绑往返）、`EditorKeysPixelAndWireTest`
   （跨域可绑语义更新）。
 
 ## 3. 批次三：编辑表达力 / Batch 3: Editing Expressiveness
