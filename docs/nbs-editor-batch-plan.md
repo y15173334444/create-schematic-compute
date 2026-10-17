@@ -95,6 +95,20 @@ feat: lane-view placement semantics in the nbs kernel
   笔划全部拒绝并提示「播放中不可编辑」；刻度尺 seek、钢琴条选键/试听、层面板编辑不受限。
 - 回归锚点：`NbsLaneViewTest`（翻页/键帽）。
 
+### 批次二·三期：跟弹与声调操作（社区对照反馈二）/ Phase 3: Play-Along & Pitch Operations
+
+**状态：✅ 已解决（2026-10-17）**（用户第二轮反馈三件：钢琴条不跟弹、缺滚轮调声调、音符声调不显示）
+
+- **钢琴条跟弹**：播放/试听的音符按键点亮 250ms（社区钢琴条随谱子按键的习惯）；放键/覆盖/
+  选键/滚轮调声调同样点亮。状态来源 = 编辑器试听传输每刻展开的 NoteEvent。
+- **悬停滚轮调声调**（社区悬停微调习惯）：悬停音符格 + 滚轮 = 音高 ±1 半音、Shift = ±12 八度
+  （力度/声像/细音高保留，内核 `changeNoteKey` 精确逆撤销、同键空操作、锁定层拒绝、键钳 0–87）；
+  块面音名即时更新并回显新键名；播放锁同样拦下。滚轮语义优先级：悬停音符 > Shift 翻层 >
+  时间滚动/缩放（原语义保留）。
+- **音符声调常显**：块面标签全名（F#3）优先、窄格降级音级（F#/C）、再窄不画——层列默认缩放
+  放宽到 16px/tick 使音级标签在常规视图常显。卷帘不加块面标签（纵轴即音高，位置已表音）。
+- 回归锚点：`NbsEditorKernelTest.changeNoteKeyKeepsDynamicsAndGuards`、`NbsLaneViewTest`。
+
 ## 3. 批次三：编辑表达力 / Batch 3: Editing Expressiveness
 
 **状态：🔶 待办**。社区核心工作流三件套，内核测试先行（`NbsEditorKernelTest` 扩展为回归锚点）；两视图通用（LANE 视图的左键拖留白即为 B1 框选预留）。
