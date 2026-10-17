@@ -335,7 +335,7 @@ Post  ：对每条记录，若 channelEpoch.get(key) > 记录时的 epoch → �
 | --- | --- | --- |
 | `GraphEditor.java`（**+5 行**：`/` 切换、两条守卫、一次 `render` 调用） | **全仓最大（4,942 行）、改动最频繁**的文件；`keyPressed` / `charTyped` / `renderBg` **未分解**（6f 后半延后） | 中：插入本身仍是 5 行，但**未来 6f 后半 / IDE 重构会挪动这三处** → 届时这 5 行要跟着搬 |
 | `blocks/GraphHost.java`（+钩子：统计上下文 / 注册表挂靠） | 684 行；已是唯一引擎，无并行改动 | 低 |
-| `graph/GraphEvaluator.java`（+epoch bump / 记录点） | 1,591 行；GUI 计划**明确不拆**（"拆分收益低于破坏风险"）——⚠️ 2026-10-11 复审建议重审该结论：eval 单方法已涨至 ~1067 行（+232 音频），且 graph/ 是全仓测试最厚分区，风险面与当年不同（拓扑审查 P3） | 低 |
+| `graph/GraphEvaluator.java`（+epoch bump / 记录点） | GUI 计划"明确不拆"的旧结论**已作废**（2026-10-17 重审：eval 单方法已涨至 ~1067 行（+232 音频）、graph/ 成为全仓测试最厚分区，"拆分收益低于破坏风险"前提反转——见 [`eval-category-dispatch-decision.md`](eval-category-dispatch-decision.md)，本表"不拆"注记随之失效），eval() 按 NodeCategory 分派化施工中 | 低 |
 | `network/SignalBus.java`（+epoch / 维度前缀） | 无并行改动 | 低 |
 | 模组入口（Post 汇总钩子已有位点） | 无并行改动 | 低 |
 | 新增 `client/GraphConsole.java`、`graph/TopoStats.java`、`network/Console*Packet` | 全新文件 | 零 |

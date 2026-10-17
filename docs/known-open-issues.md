@@ -1,9 +1,9 @@
 # 遗留问题登记 / Known Open Issues
 
-> 更新日期 / Updated：2026-10-11
+> 更新日期 / Updated：2026-10-17
 > 版本 / Version：1.2.6（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 待办 3 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 待办 4 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -19,6 +19,7 @@
 | 1 | temp-id 挂起队列随关屏丢弃 | 加点后立刻输入、一个 RTT 内关界面 → 重开回到默认值 | op 日志回放（另立项） | 待立项 |
 | 2 | 频道释放依赖快照路径（含别名死守卫） | 删除/改名的频道释放靠重编译快照兜底，旧图 diff 双守卫恒空转 | 消除别名死守卫 + 收窄释放窗口（撤销/重做语义随做） | 🔶 待办（机制已修正 2026-10-10，影响面降级） |
 | 3 | 打字途中面板重建（补全弹窗被吞 · 输入框每击键换血） | 公式脚本框打字时补全候选框闪现即失，每次击键整个输入框被换实例 | 三处一批：指纹剔公式文本 + SET_FORMULA 远端定点刷新 + 草稿策略 | 🔶 待办（幽灵选区本体已修 2026-10-11） |
+| 4 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（随 eval 档统一 / K23 收敛拍板） | 🔶 待办（2026-10-17 登记） |
 
 ---
 
@@ -151,3 +152,43 @@
 ### 状态 / Status
 
 **🔶 待办。** 幽灵选区本体已修（2026-10-11，v1.2.6 WIP）；本条按「三处一批」另批立项，落地后改 ✅ 并注明版本。
+
+---
+
+## 4. 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态）
+
+### 症状 / Symptom
+
+Sensor / 控制椅图里若出现 DELAY / LATCH / GATE / T_FLIPFLOP / PULSE_EXTEND / LOOP / FUSE
+节点（菜单之外的形态），该节点每 tick 输出冻结（逐拍写回旧值），图"在跑但那几拍是死的"。
+
+### 机制 / Mechanism
+
+求值路径按宿主分档：全状态档（6 参）走 `evalExt`，七类时序/状态节点各有 case；SeatInput 档
+（4 参 `evaluate()`，Sensor/ControlSeat 在用）直接进 `eval()`，而这七类在 `eval()` 的分派里
+**没有 case**——switch 落空后尾部照常记账（`outputs.put(node.id, o.clone())`），把上一拍/
+初始的 `outputValues` 原样写回。GATE 的状态体也在 `evalExt` 档，此路径同样空转。
+菜单准入（`BlockNodeAllowances`）对 Sensor/ControlSeat 本就排除 SEQUENTIAL_STATE / LOGIC
+类，常规搭建踩不到。
+
+### 触发条件 / Trigger
+
+- 改包客户端经 op 通道 `ADD_NODE` 注入（准入名单仅客户端把守，P2-7 同族进路）；
+- 历史/外部存档携带此类节点。
+
+### 影响面 / Impact
+
+无数据破坏；注入/旧档形态下行为**静默错误**（输出冻结而非拒绝或告警）。与音响 writeOutputs
+"防御性接线"（op 通道不校验准入、旧档也可能携带 → 写出口径与全宿主一致）的处置口径不一致：
+求值侧选择了"静默跳过"。
+
+### 修复方向 / Fix direction
+
+两条路择一，随 eval 档统一 / K23 tick 体收敛拍板：SeatInput 档也接全状态三表（档位合一），
+或对档外节点显式拒绝/告警。eval() 分派化后怪癖收敛到单一事实源（`TimingEval.evalState` 七类
+/ `FormulaEval` 缺 GATE case 的缺省语义），改动面小。见
+[`eval-category-dispatch-decision.md`](eval-category-dispatch-decision.md) §三-4。
+
+### 状态 / Status
+
+**🔶 待办。** 2026-10-17 随 eval() 分派化决策文档定性登记；分派化施工中行为原样保留。
