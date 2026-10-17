@@ -405,11 +405,11 @@ Boolean: quantises any float to 1/0 — truth is strictly > 0, so negative value
 
 **说明（中文）**
 
-可控信号闸门：开启时把 val 原样放行（任意浮点），关闭时输出 0。open / close 是电平控制（持续高恒开 / 恒关，open 优先），tog 为上升沿翻转，同时有效时 open/close 胜出。「初始状态：开启/关闭」是行内按钮开关。适合按条件放行一路信号。
+可控信号闸门：开启时把 val 原样放行（任意浮点），关闭时输出 0。open / close 是电平控制（持续高恒开 / 恒关，open 优先），tog 为上升沿翻转，同时有效时 open/close 胜出。「初始状态：开启/关闭」是行内按钮开关。「当前状态」行同为行内按钮：点击手动切换当前开/关——运行中即时生效（后续 open/close/tog 仍按优先级覆盖它），停机时改的是持久化的当前态，下次运行从它续算。适合按条件放行一路信号。
 
 **Description (English)**
 
-Controlled signal gate: while open it passes val through unchanged (any float); while closed it outputs 0. open/close are level controls (sustained high keeps it open/closed; open wins), tog flips it on a rising edge, and open/close beat tog when simultaneous. The initial state is a row switch (Open/Closed). Conditionally let a signal through.
+Controlled signal gate: while open it passes val through unchanged (any float); while closed it outputs 0. open/close are level controls (sustained high keeps it open/closed; open wins), tog flips it on a rising edge, and open/close beat tog when simultaneous. The initial state is a row switch (Open/Closed), and the current-state row is a row switch too: clicking it manually toggles the gate — effective immediately while running (open/close/tog still override per their priority) and persisting as the current state while stopped, which is where the next run picks up. Conditionally let a signal through.
 
 ---
 
@@ -510,11 +510,11 @@ Delay: passes the input through unchanged (any float, negatives included) and em
 
 **说明（中文）**
 
-S/R 锁存器：s 大于 0.5 置位、否则 r 大于 0.5 复位（电平触发，s 优先），输出严格 0/1。无连线参数，「初始状态：置位/复位」是行内按钮开关。持续高 s 会一直保持置位。编译或整图替换后从初始状态重启。适合保持/门闩逻辑。
+S/R 锁存器：s 大于 0.5 置位、否则 r 大于 0.5 复位（电平触发，s 优先），输出严格 0/1。无连线参数，「初始状态：置位/复位」是行内按钮开关，「当前状态」行同为行内按钮：点击在置位/复位间手动切换——运行中即时生效（后续 s/r 电平仍按 s 优先覆盖它），停机时改的是持久化的当前态，下次运行从它续算。持续高 s 会一直保持置位。编译或整图替换后从初始状态重启。适合保持/门闩逻辑。
 
 **Description (English)**
 
-S/R latch: s > 0.5 sets it, otherwise r > 0.5 resets it (level-triggered, s wins); the output is strictly 0/1. Its only setting is an initial-state row switch (Set/Reset) — no pins. A sustained high s keeps it set. Restarts from the initial state after recompiling or graph replacement. Hold/latch logic.
+S/R latch: s > 0.5 sets it, otherwise r > 0.5 resets it (level-triggered, s wins); the output is strictly 0/1. No pins, and two row switches: initial state (Set/Reset) and current state — clicking the current-state row manually flips between set and reset, effective immediately while running (s/r levels still override per s priority) and persisting as the current state while stopped, which is where the next run picks up. A sustained high s keeps it set. Restarts from the initial state after recompiling or graph replacement. Hold/latch logic.
 
 ---
 
@@ -525,11 +525,11 @@ S/R latch: s > 0.5 sets it, otherwise r > 0.5 resets it (level-triggered, s wins
 
 **说明（中文）**
 
-T 触发器：输入上升沿（低→高，按 >0.5 判高）翻转一次输出，持续高电平只翻一次；输出严格 0/1。初始开/关是行内按钮开关。适合二分频或做切换状态。编译或整图替换后从初始状态重启。
+T 触发器：输入上升沿（低→高，按 >0.5 判高）翻转一次输出，持续高电平只翻一次；输出严格 0/1。初始开/关是行内按钮开关。「当前状态」行同为行内按钮：点击手动翻转当前输出态——运行中即时生效（后续上升沿照常再翻），停机时改的是持久化的当前态，下次运行从它续算。适合二分频或做切换状态。编译或整图替换后从初始状态重启。
 
 **Description (English)**
 
-T flip-flop: each rising edge (low→high, judged at > 0.5) toggles the output once; a sustained high toggles only once. Output is strictly 0/1 and the initial state is a row switch. Divide-by-two or state toggling. Restarts from the initial state after recompile or replacement.
+T flip-flop: each rising edge (low→high, judged at > 0.5) toggles the output once; a sustained high toggles only once. Output is strictly 0/1 and the initial state is a row switch. The current-state row is a row switch too: clicking it manually flips the output state — effective immediately while running (the next rising edge flips it again as usual) and persisting as the current state while stopped, which is where the next run picks up. Divide-by-two or state toggling. Restarts from the initial state after recompile or replacement.
 
 ---
 
