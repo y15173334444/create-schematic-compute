@@ -108,7 +108,9 @@ feat: lane-view placement semantics in the nbs kernel
 - **音符声调常显**：块面标签全名（F#3）优先、窄格降级音级（F#/C）、再窄不画——层列默认缩放
   放宽到 16px/tick 使音级标签在常规视图常显。卷帘不加块面标签（纵轴即音高，位置已表音）。
 - **补丁（用户实测反馈，钢琴条选中标记两修）**：播放中隐藏绿色候选框（播放锁下工具惰性，条面留跟弹）；
-  选键后八度窗 `ensureVisible` 自动跟随（打字映射恒 33–57，窗被平移后窗外键发声但标记不显示）。
+  「按琴键发声但候选不显示」真因 = **画序反了**（黑键被白键整块盖住，而命中黑键优先）+ **`isBlackKey` 半音集
+  错位**（8=F 被当黑键、9=F# 漏掉），两修后黑键与其标记正常显示（卷帘键行着色同修）；另补 `ensureVisible`
+  选键窗口跟随（打字映射恒 33–57，窗被平移后窗外键的独立隐患）。
 - 回归锚点：`NbsEditorKernelTest.changeNoteKeyKeepsDynamicsAndGuards`、`NbsLaneViewTest`。
 
 ### 批次二·四期：横竖双滚动条（社区对照反馈三）/ Phase 4: Scrollbar Pair
