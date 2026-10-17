@@ -19,6 +19,28 @@
 
 ---
 
+## Table of Contents / 目录
+
+- [Overview / 简介](#overview--简介)
+- [Blocks / 方块](#blocks--方块)
+- [Multiplayer Collaboration / 多人协作](#multiplayer-collaboration--多人协作v124)
+- [Formula Script Node / 公式脚本节点](#formula-script-node--公式脚本节点)
+- [BUS System / BUS 总线系统](#bus-system--bus-总线系统)
+- [Node Reference / 节点参考](#node-reference--节点参考101-)
+- [Controls / 操作指南](#controls--操作指南)
+- [Sable Physics Integration / Sable 物理集成](#sable-physics-integration--sable-物理集成)
+- [Schematic Support / 蓝图兼容](#schematic-support--蓝图兼容)
+- [Recipes / 合成配方](#recipes--合成配方)
+- [Block Properties / 方块属性](#block-properties--方块属性)
+- [Technical Highlights / 技术亮点](#technical-highlights--技术亮点)
+- [Changelog / 更新日志](#changelog--更新日志)
+- [FAQ / 常见问题](#faq--常见问题)
+- [Installation / 安装](#installation--安装)
+- [Links / 链接](#links--链接)
+
+---
+
+<a id="overview--简介"></a>
 ## 📖 Overview / 简介
 
 **🇬🇧** Create: Schematic Compute is a **Create mod addon** that introduces **12 programmable blocks + 1 portable terminal** with a **visual node-based programming system**. Instead of writing complex redstone circuits, simply drag and connect nodes to build logic — just like Unreal Engine Blueprints or Blender Geometry Nodes. Each computer runs at **20Hz (every game tick)** for real-time control. **All 12 blocks support real-time multiplayer collaborative editing** with live cursor tracking and node lock protection. The **FORMULA script editor** features syntax highlighting (9 token colours), intelligent autocomplete (functions, variables, `@output`), real-time validation with error badges, and named constants `(PI)`/`(E)`.
@@ -27,6 +49,7 @@
 
 ---
 
+<a id="blocks--方块"></a>
 ## 🖥️ Blocks / 方块
 
 ### 🖥️ Holographic Monitor / 全息显示器
@@ -196,6 +219,7 @@
 
 ---
 
+<a id="multiplayer-collaboration--多人协作v124"></a>
 ## 👥 Multiplayer Collaboration / 多人协作（v1.2.4+）
 
 Real-time collaborative graph editing for all 12 block types. Multiple players can edit the same graph simultaneously.
@@ -213,6 +237,7 @@ Real-time collaborative graph editing for all 12 block types. Multiple players c
 
 ---
 
+<a id="formula-script-node--公式脚本节点"></a>
 ## 📝 Formula Script Node / 公式脚本节点
 
 Multi-line script editor (v1.2.0+) — assignments, control flow, vec3, named outputs, comments, line continuation.
@@ -349,6 +374,7 @@ result = (PI) + sin(PI)
 
 ---
 
+<a id="bus-system--bus-总线系统"></a>
 ## 🚌 BUS System / BUS 总线系统
 
 Global named-channel communication across computers. Like publish-subscribe message bus.
@@ -364,6 +390,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 
 ---
 
+<a id="node-reference--节点参考101-"></a>
 ## 🧩 Node Reference / 节点参考（101 种）
 
 <details>
@@ -583,6 +610,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 
 ---
 
+<a id="controls--操作指南"></a>
 ## 🎮 Controls / 操作指南
 
 | Action / 操作 | Input / 按键 |
@@ -630,6 +658,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 
 ---
 
+<a id="sable-physics-integration--sable-物理集成"></a>
 ## 🔄 Sable Physics Integration / Sable 物理集成
 
 Deep integration with Sable physics engine for rotating structures. / 与Sable物理引擎深度集成，支持旋转结构。
@@ -643,6 +672,7 @@ Deep integration with Sable physics engine for rotating structures. / 与Sable�
 
 ---
 
+<a id="schematic-support--蓝图兼容"></a>
 ## 💾 Schematic Support / 蓝图兼容
 
 All 12 blocks support **Create's Schematicannon** — graphs and state fully preserved. / 全部十二种方块支持**蓝图大炮**，图与状态完整保留。
@@ -651,6 +681,7 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 
 ---
 
+<a id="recipes--合成配方"></a>
 ## 📦 Recipes / 合成配方
 
 | Block / 方块 | Materials / 材料 |
@@ -667,6 +698,7 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 
 ---
 
+<a id="block-properties--方块属性"></a>
 ## ⚙️ Block Properties / 方块属性
 
 | Property / 属性 | Value / 值 |
@@ -679,6 +711,7 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 
 ---
 
+<a id="technical-highlights--技术亮点"></a>
 ## 🔧 Technical Highlights / 技术亮点
 
 | Feature / 特性 | Description / 说明 |
@@ -695,6 +728,7 @@ Uses Create's `IMergeableBE` + `SafeNbtWriter` / 采用 Create 官方接口
 
 ---
 
+<a id="changelog--更新日志"></a>
 ## 📜 Changelog / 更新日志
 
 完整变更日志已拆分至 **[`CHANGELOG.md`](https://github.com/y15173334444/create-schematic-compute/blob/main/CHANGELOG.md)** —— 每个版本一个 `<details>` 块。
@@ -713,6 +747,7 @@ Older releases (v1.2.3 and earlier): see [`CHANGELOG.md`](https://github.com/y15
 
 ---
 
+<a id="faq--常见问题"></a>
 ## ❓ FAQ / 常见问题
 
 <details>
@@ -737,6 +772,7 @@ Yes — Private Signal I/O (named channels) or BUS_IN/BUS_OUT (banded). / 可以
 
 ---
 
+<a id="installation--安装"></a>
 ## 📥 Installation / 安装
 
 | Dependency / 依赖 | Version / 版本 |
@@ -753,6 +789,7 @@ Yes — Private Signal I/O (named channels) or BUS_IN/BUS_OUT (banded). / 可以
 
 ---
 
+<a id="links--链接"></a>
 ## 🌐 Links / 链接
 
 - **GitHub**: [github.com/y15173334444/create-schematic-compute](https://github.com/y15173334444/create-schematic-compute)
