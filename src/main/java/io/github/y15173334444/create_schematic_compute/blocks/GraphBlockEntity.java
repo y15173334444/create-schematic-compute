@@ -98,6 +98,24 @@ public interface GraphBlockEntity {
     /** 服务端→客户端：同步 flipflopStates 用于 UI 实时显示 / Sync flipflop states for live UI. */
     default void syncFlipflopStates(Map<Integer, Boolean> states) {}
 
+    /**
+     * 触发器当前态手动切换的运行时面（编辑区「当前状态」按钮，GATE / T_FLIPFLOP）：
+     * 把节点 {@code params[1]} 当前态镜像的新值落地到运行时触发器映射（主图或封装子图，
+     * 按 {@code ownerNodeId} 路由），并即时广播差分 —— 图停止运行时 BE tick 早退不做
+     * {@code broadcastFlipflopDiff}，不补发的话各端 UI 要等到下次运行才看到切换。
+     * 只在服务端调用，且必须在 {@code OpExecutor.apply} 翻转 {@code params[1]} 之后 ——
+     * 本方法采纳的就是那个镜像值，自身不做翻转。
+     * Runtime half of a manual trigger current-state toggle (the edit-panel "Current state"
+     * button on GATE / T_FLIPFLOP): lands the node's {@code params[1]} current-state mirror
+     * into the runtime trigger map (main graph or encapsulation sub-graph, routed by
+     * {@code ownerNodeId}) and broadcasts the diff immediately — while the graph is stopped
+     * the BE tick returns early without {@code broadcastFlipflopDiff}, so without this push
+     * every UI would wait for the next run to see the toggle. Server-side only, and must run
+     * <b>after</b> {@code OpExecutor.apply} has flipped {@code params[1]} — this method
+     * adopts that mirror value and never flips it itself.
+     */
+    default void applyCurrentState(int ownerNodeId, int nodeId) {}
+
     /** 服务端→客户端：同步子图 flipflopStates 用于 UI 实时显示 / Sync sub-graph flipflop states. */
     default void syncSubFlipflopStates(Map<Integer, Map<Integer, Boolean>> subStates) {}
 

@@ -401,6 +401,25 @@ public final class OpExecutor {
                 yield n;
             }
 
+            case TOGGLE_CUR_STATE -> {
+                // 只翻触发器的当前态镜像 params[1]（GATE/T_FLIPFLOP/LATCH 语义；其余类型的
+                // params[1] 是普通参数，畸形 op 不得改写）。运行时 flipflopStates 的落地在
+                // 服务端宿主 applyCurrentState（此处无运行时句柄）；不 bumpGeneration ——
+                // params[1] 不参与求值（求值器每 tick 反向写它），纯显示/持久化镜像。
+                // Flip only the trigger current-state mirror params[1] (GATE/T_FLIPFLOP/LATCH
+                // semantics; on every other type params[1] is an ordinary parameter — a
+                // malformed op must not rewrite it). Landing the runtime flipflopStates is
+                // the server host's applyCurrentState (no runtime handle here). No
+                // bumpGeneration — params[1] never feeds evaluation (the evaluator writes it
+                // back each tick); it is a display/persistence mirror only.
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null && n.params.length > 1
+                    && (n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH)) {
+                    n.params[1] = n.params[1] > 0.5f ? 0 : 1;
+                }
+                yield n;
+            }
+
             case SET_DISPLAY_LAYOUT -> {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null) {

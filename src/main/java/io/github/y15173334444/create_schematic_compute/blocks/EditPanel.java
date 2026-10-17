@@ -440,9 +440,20 @@ public class EditPanel {
             row++;
         }
         if (node.type == NodeType.GATE && node.params.length > 1) {
+            // 当前状态行 = 可点击按钮（点击手动切换当前态）；几何与 GraphEditor 编辑区
+            // 点击段一致（行高 16px、行距 18px）。悬停描边提示可点——这行原本是只读文本。
+            // The current-state row is a clickable button (click to toggle the current state);
+            // geometry matches the GraphEditor edit-area click segment (16px rows, 18px pitch).
+            // The hover outline advertises clickability — this row used to be read-only text.
             boolean curOpen = flipflopStates != null && flipflopStates.containsKey(node.id)
                 ? flipflopStates.get(node.id) : node.params[1] > 0.5f;
-            g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(curOpen ? "gui.create_schematic_compute.edit.gate_cur_open" : "gui.create_schematic_compute.edit.gate_cur_closed"), px + 8, py + 4 + row * 18 + 3, 0xFFAAAAAA, false);
+            int bx = px + 4, by = py + 4 + row * 18;
+            int bw = pw - 8, bh = 16;
+            boolean hover = mx >= bx && mx <= bx + bw && my >= by && my <= by + bh;
+            g.fill(bx, by, bx + bw, by + bh, curOpen ? 0xFF3A5A2A : 0xFF3A3428);
+            g.renderOutline(bx, by, bw, bh, hover ? NodeRenderer.ACC() : NodeRenderer.CSB());
+            g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
+            g.drawString(Minecraft.getInstance().font, curOpen ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.gate_cur_open") : "§7" + I18n.get("gui.create_schematic_compute.edit.gate_cur_closed"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
         }
         if (node.type == NodeType.T_FLIPFLOP && node.params.length > 0) {
@@ -456,9 +467,17 @@ public class EditPanel {
             row++;
         }
         if (node.type == NodeType.T_FLIPFLOP && node.params.length > 1) {
+            // 当前状态行 = 可点击按钮（GATE 同款，见上）/ The current-state row is a
+            // clickable button (same as GATE above).
             boolean curOn = flipflopStates != null && flipflopStates.containsKey(node.id)
                 ? flipflopStates.get(node.id) : node.params[1] > 0.5f;
-            g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(curOn ? "gui.create_schematic_compute.edit.flipflop_cur_on" : "gui.create_schematic_compute.edit.flipflop_cur_off"), px + 8, py + 4 + row * 18 + 3, 0xFFAAAAAA, false);
+            int bx = px + 4, by = py + 4 + row * 18;
+            int bw = pw - 8, bh = 16;
+            boolean hover = mx >= bx && mx <= bx + bw && my >= by && my <= by + bh;
+            g.fill(bx, by, bx + bw, by + bh, curOn ? 0xFF3A5A2A : 0xFF3A3428);
+            g.renderOutline(bx, by, bw, bh, hover ? NodeRenderer.ACC() : NodeRenderer.CSB());
+            g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
+            g.drawString(Minecraft.getInstance().font, curOn ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.flipflop_cur_on") : "§7" + I18n.get("gui.create_schematic_compute.edit.flipflop_cur_off"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
         }
         if (node.type == NodeType.LATCH && node.params.length > 0) {
@@ -472,9 +491,18 @@ public class EditPanel {
             row++;
         }
         if (node.type == NodeType.LATCH && node.params.length > 1) {
+            // 当前状态行 = 可点击按钮（GATE 同款，见上）：点击在置位/复位间手动切换。
+            // The current-state row is a clickable button (same as GATE above): clicking
+            // manually flips between set and reset.
             boolean curSet = flipflopStates != null && flipflopStates.containsKey(node.id)
                 ? flipflopStates.get(node.id) : node.params[1] > 0.5f;
-            g.drawString(Minecraft.getInstance().font, "§7" + I18n.get(curSet ? "gui.create_schematic_compute.edit.latch_cur_set" : "gui.create_schematic_compute.edit.latch_cur_reset"), px + 8, py + 4 + row * 18 + 3, 0xFFAAAAAA, false);
+            int bx = px + 4, by = py + 4 + row * 18;
+            int bw = pw - 8, bh = 16;
+            boolean hover = mx >= bx && mx <= bx + bw && my >= by && my <= by + bh;
+            g.fill(bx, by, bx + bw, by + bh, curSet ? 0xFF3A5A2A : 0xFF3A3428);
+            g.renderOutline(bx, by, bw, bh, hover ? NodeRenderer.ACC() : NodeRenderer.CSB());
+            g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
+            g.drawString(Minecraft.getInstance().font, curSet ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.latch_cur_set") : "§7" + I18n.get("gui.create_schematic_compute.edit.latch_cur_reset"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
         }
         if ((node.type == NodeType.IMAGE || node.type == NodeType.IMAGE_SEQUENCE) && node.params.length > 3) {

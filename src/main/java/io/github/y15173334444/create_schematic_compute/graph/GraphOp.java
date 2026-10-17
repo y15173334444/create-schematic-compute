@@ -209,6 +209,13 @@ public record GraphOp(
             null, 0, 0, 0, 0, bands, 0, 0, 0, null, 0L, actor, 0, null);
     }
 
+    /** 触发器当前态手动切换（GATE / T_FLIPFLOP 编辑区「当前状态」按钮）。自反 op。
+     *  Manual toggle of a trigger's current state (the "Current state" row button on
+     *  GATE / T_FLIPFLOP). Self-inverse. */
+    public static GraphOp toggleCurState(BlockPos pos, int ownerNodeId, int nodeId, UUID actor) {
+        return new GraphOp(OpType.TOGGLE_CUR_STATE, pos, ownerNodeId, nodeId, actor);
+    }
+
     /** 设置本图的玩家可见名称（编辑器顶栏；targetNodeId=0 —— 名称属于图，不属于任何节点）。
      *  Set the player-visible graph name (editor top bar; targetNodeId=0 — the name
      *  belongs to the graph, not to any node). */

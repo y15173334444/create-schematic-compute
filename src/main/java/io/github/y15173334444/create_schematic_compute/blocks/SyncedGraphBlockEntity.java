@@ -168,6 +168,8 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  @param states map of node ID to flipflop output value / 节点 ID 到触发器输出值的映射 */
     @Override public void syncFlipflopStates(Map<Integer, Boolean> states) { host.syncFlipflopStates(states); }
 
+    @Override public void applyCurrentState(int ownerNodeId, int nodeId) { host.applyCurrentState(ownerNodeId, nodeId); }
+
     /** Replace sub-graph flipflop states from the server (used for ENCAPSULATION nodes).
      *  从服务端替换子图触发器状态（用于 ENCAPSULATION 节点）。
      *  @param subStates map of sub-graph ID to (node ID → flipflop value) / 子图 ID 到（节点 ID → 触发器值）的映射 */

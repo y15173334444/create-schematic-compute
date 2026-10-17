@@ -356,6 +356,17 @@ public final class EditSessionRegistry {
             ? io.github.y15173334444.create_schematic_compute.network.BlobRegistry.peek(op.blobRefId())
             : null;
         OpExecutor.apply(targetGraph, op);
+        // TOGGLE_CUR_STATE：params[1] 镜像刚被 OpExecutor 翻转，这里把它落地到运行时
+        // 触发器映射（编辑区显示与求值种子的权威面）并即时差分广播 —— 图停止运行时 BE tick
+        // 早退不做 broadcastFlipflopDiff，不补发则各端 UI 要等下次运行才看到切换。
+        // TOGGLE_CUR_STATE: OpExecutor just flipped the params[1] mirror — land it into the
+        // runtime trigger map (the authoritative face for edit-panel display and the eval
+        // seed) and broadcast the diff now: while the graph is stopped the BE tick returns
+        // early without broadcastFlipflopDiff, so without this push no UI would see the
+        // toggle until the next run.
+        if (op.type() == OpType.TOGGLE_CUR_STATE) {
+            gbe.applyCurrentState(op.ownerNodeId(), op.targetNodeId());
+        }
         // After sub-graph edits, rebuild parent graph's input cache so that
         // the server-side evaluator uses correct ENCAP pin→index mappings.
         // 子图编辑后重建父图的输入缓存，使服务端评估器使用正确的 ENCAP 引脚→索引映射。

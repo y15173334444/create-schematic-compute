@@ -187,6 +187,11 @@ final class GraphOpHistory {
             }
             case TOGGLE_BOOL -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL, bp, oid, op.targetNodeId(), uid);
+            // 当前态切换自反：逆 op = 再发一次切换（与 TOGGLE_BOOL 同款，无需旧值）
+            // Current-state toggle is self-inverse: the reverse is another toggle (same as
+            // TOGGLE_BOOL — no recorded old value needed).
+            case TOGGLE_CUR_STATE -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_CUR_STATE, bp, oid, op.targetNodeId(), uid);
             default -> null;
         };
     }

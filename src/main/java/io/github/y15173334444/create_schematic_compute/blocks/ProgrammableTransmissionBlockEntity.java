@@ -591,6 +591,8 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
 
     @Override public void syncFlipflopStates(Map<Integer, Boolean> states) { host.syncFlipflopStates(states); }
 
+    @Override public void applyCurrentState(int ownerNodeId, int nodeId) { host.applyCurrentState(ownerNodeId, nodeId); }
+
     @Override public void syncSubFlipflopStates(Map<Integer, Map<Integer, Boolean>> subStates) { host.syncSubFlipflopStates(subStates); }
 
     @Override public void syncBusBandsFromServer(String busName, java.util.List<String> bands) { host.syncBusBandsFromServer(busName, bands); }

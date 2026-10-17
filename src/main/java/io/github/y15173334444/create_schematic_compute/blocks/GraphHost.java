@@ -719,4 +719,23 @@ public class GraphHost {
         RuntimeState.SubState ss = runtimeState.subStates.get(encapNodeId);
         return ss != null ? ss.flipflopStates : java.util.Collections.emptyMap();
     }
+
+    /**
+     * @see GraphBlockEntity#applyCurrentState
+     *
+     * <p>入口约定：{@code OpExecutor.apply} 已翻转 {@code params[1]}，这里把镜像值采纳进
+     * 运行时映射（含子图条目随写随建），随后立即差分广播。Entry convention: {@code OpExecutor.apply}
+     * has already flipped {@code params[1]}; this adopts the mirror value into the runtime
+     * map (creating the sub-graph entry on demand), then broadcasts the diff at once. */
+    public void applyCurrentState(int ownerNodeId, int nodeId) {
+        NodeGraph scope = graph;
+        if (ownerNodeId >= 0) {
+            var encap = graph.findNode(ownerNodeId);
+            scope = encap != null ? encap.subGraph : null;
+        }
+        var n = scope != null ? scope.findNode(nodeId) : null;
+        if (n == null || n.params.length < 2) return;
+        runtimeState.putFlipflop(ownerNodeId, nodeId, n.params[1] > 0.5f);
+        broadcastFlipflopDiff();
+    }
 }

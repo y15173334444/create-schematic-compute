@@ -110,6 +110,28 @@ public class RuntimeState {
     }
 
     /**
+     * 手动切换触发器当前态（编辑区「当前状态」按钮，GATE / T_FLIPFLOP）：把新值写进
+     * 主图或封装子图的 {@link #flipflopStates}。子图条目随写随建——编辑区可以在图从未
+     * 运行过（评估器还没建 SubState）时就手动设态，缺条目时评估器会回退初始态、把切换吞掉。
+     * Manual toggle of a trigger's current state (the edit-panel "Current state" button on
+     * GATE / T_FLIPFLOP): writes the new value into the main or sub-graph
+     * {@link #flipflopStates}. Sub-graph entries are created on demand — the edit panel can
+     * set state before the graph ever ran (no evaluator-built SubState yet), and a missing
+     * entry would make the evaluator fall back to the initial state, swallowing the toggle.
+     *
+     * @param ownerNodeId 主图传 -1，封装子图传封装节点 ID / -1 for the main graph,
+     *                    the encapsulation node ID for a sub-graph
+     * @param nodeId      触发器节点 ID（所在作用域内）/ trigger node ID within that scope
+     * @param cur         新的当前态 / the new current state
+     */
+    public void putFlipflop(int ownerNodeId, int nodeId, boolean cur) {
+        Map<Integer, Boolean> ff = ownerNodeId >= 0
+            ? getOrCreateSubState(ownerNodeId).flipflopStates
+            : flipflopStates;
+        ff.put(nodeId, cur);
+    }
+
+    /**
      * 清除所有状态，用于新一轮图计算开始时接收合并后的新状态。
      * 在 {@link GraphEvaluator#evaluate} 返回后，BlockEntity 调用
      * {@code accept()} 方法将计算结果写入此对象之前，先清空旧数据。

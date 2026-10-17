@@ -152,6 +152,7 @@ final class GraphRemoteApplier {
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_SIZE
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_IMAGE_SIZE
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_CUR_STATE
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_CTRL_POINTS)) {
             var st = ed.nodeEditStatesById.get(op.targetNodeId());
             if (st != null && op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM

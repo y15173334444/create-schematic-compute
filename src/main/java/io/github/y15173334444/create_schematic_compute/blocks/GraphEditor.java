@@ -2532,6 +2532,29 @@ public class GraphEditor {
             sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
             return true; }
         }
+        // 「当前状态」行 = 手动切换按钮（GATE / T_FLIPFLOP / LATCH，位于默认态行之下一行，行距 18px）。
+        // 本地乐观翻 params[1] 与本地运行时显示镜像（按下即亮，不必等差分包）；权威落地走
+        // TOGGLE_CUR_STATE op —— 服务端 OpExecutor 翻 params[1] 镜像、applyCurrentState 写
+        // 运行时触发器映射并立即差分广播；op 自反，撤销/重做无需旧值。
+        // The "Current state" row is a manual toggle button (GATE / T_FLIPFLOP / LATCH, one row
+        // below the default-state row, 18px pitch). Flips params[1] and the local runtime display
+        // mirror optimistically (lights up on press, no diff-packet wait); the authoritative
+        // landing rides the TOGGLE_CUR_STATE op — server-side OpExecutor flips the params[1]
+        // mirror, applyCurrentState writes the runtime trigger map and broadcasts the diff
+        // at once. The op is self-inverse, so undo/redo needs no recorded old value.
+        if ((en.type == NodeType.GATE || en.type == NodeType.T_FLIPFLOP || en.type == NodeType.LATCH)
+            && en.params.length > 1) {
+            int curLocalY = editLocalY + 4 + numRows * 18 + 18;
+            if (lmx >= 4 && lmx <= NW - 4 && lmy >= curLocalY && lmy <= curLocalY + 16) {
+                en.params[1] = en.params[1] > 0.5f ? 0 : 1;
+                var ff = isInSubGraph() ? getSubFlipflopStates() : host.getFlipflopStates();
+                if (ff != null && ff.containsKey(en.id)) ff.put(en.id, en.params[1] > 0.5f);
+                var tOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.toggleCurState(
+                    host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
+                sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+                return true;
+            }
+        }
         if (en.type == NodeType.LATCH && en.params.length > 0) {
             int latchLocalY = editLocalY + 4 + numRows * 18;
             if (lmx >= 4 && lmx <= NW - 4 && lmy >= latchLocalY && lmy <= latchLocalY + 16)

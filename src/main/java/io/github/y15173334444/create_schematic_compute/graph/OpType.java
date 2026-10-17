@@ -57,6 +57,15 @@ public enum OpType {
     // 新值只能追加在尾部，插中间会错位所有后续 op。
     // Song data (NBS). Note: the wire ordinal is the enum order (GraphEditOpPacket encodes
     // ordinals) — new values must be appended at the end, never inserted.
-    SET_SONG                // 曲目写入/替换：blobRefId = BlobRegistry 分片重组句柄，字节 = NBS v5
+    SET_SONG,               // 曲目写入/替换：blobRefId = BlobRegistry 分片重组句柄，字节 = NBS v5
                             // song write/replace: blobRefId = BlobRegistry reassembly handle, bytes = NBS v5
+
+    // 触发器当前态手动切换（GATE / T_FLIPFLOP 编辑区「当前状态」按钮）。自反 op：
+    // 再发一次即还原，撤销/重做无需记录旧值。params[1] 镜像由 OpExecutor 翻转，
+    // 运行时触发器映射由服务端宿主 applyCurrentState 落地。
+    // Manual toggle of a trigger's current state (the "Current state" row button on
+    // GATE / T_FLIPFLOP). Self-inverse: sending it again restores, so undo needs no
+    // recorded old value. OpExecutor flips the params[1] mirror; the server host's
+    // applyCurrentState lands the runtime trigger map.
+    TOGGLE_CUR_STATE
 }
