@@ -209,4 +209,25 @@ class EditorKeysSequenceTest {
         assertNull(EditorKeys.feedKey(83, 0, T + 20, EditorKeys.Scope.GRAPH));
         assertNull(EditorKeys.feedKey(83, 0, T + 30, EditorKeys.Scope.NBS), "the NBS combo died with the scope switch");
     }
+
+    @Test
+    @DisplayName("empty-key binding: clear unbinds, persists and stays rebindable / 绑定空键：清绑持久化、可再绑")
+    void clearSequenceUnbindsAndPersists() {
+        // NBS_UNDO 出厂 Ctrl+Z → 清除 = 未绑（「绑定空键」）
+        assertEquals(List.of(new EditorKeys.Step(90, EditorKeys.MOD_CTRL)), EditorKeys.sequence(EditorKeys.Action.NBS_UNDO));
+        EditorKeys.clearSequence(EditorKeys.Action.NBS_UNDO);
+        assertTrue(EditorKeys.sequence(EditorKeys.Action.NBS_UNDO).isEmpty(), "cleared = unbound");
+        assertNull(EditorKeys.feedKey(90, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.NBS), "the key no longer fires");
+        // 显式空值持久化：重载后仍为未绑，不回落出厂 Ctrl+Z
+        // The explicit empty value persists: still unbound after reload, no factory fallback.
+        EditorKeys.reloadForTest();
+        assertTrue(EditorKeys.sequence(EditorKeys.Action.NBS_UNDO).isEmpty(), "unbound survives the roundtrip");
+        assertNull(EditorKeys.feedKey(90, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.NBS));
+        // 出厂未绑动作的「默认」仍是未绑 / factory-unbound actions stay unbound on reset
+        EditorKeys.resetToDefault(EditorKeys.Action.NBS_STOP);
+        assertTrue(EditorKeys.sequence(EditorKeys.Action.NBS_STOP).isEmpty());
+        // 清绑后可再绑 / rebindable after clearing
+        assertTrue(EditorKeys.setSequence(EditorKeys.Action.NBS_UNDO, List.of(new EditorKeys.Step(81, 0))));
+        assertEquals(EditorKeys.Action.NBS_UNDO, EditorKeys.feedKey(81, 0, T, EditorKeys.Scope.NBS));
+    }
 }

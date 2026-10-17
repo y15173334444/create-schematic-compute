@@ -362,7 +362,16 @@ final class EditorSettingsKeysTab {
      *  pre-fills the recording (what you see is what you bound). */
     void confirmKeybind() {
         var a = EditorKeys.Action.values()[keybindTarget];
-        if (pendingSeq.isEmpty()) { rebindConflict = I18n.get("gui.create_schematic_compute.settings.bind_need_key"); return; }
+        if (pendingSeq.isEmpty()) {
+            // 空队列 + 确定 = 解除绑定（「绑定空键」）：NBS 多数动作出厂未绑，也需要能改回
+            // 未绑（清除 → 确定），而不是被「需要按键」拒之门外。
+            // Empty queue + Bind = unbind (the empty-key binding): most NBS actions ship
+            // unbound and must be returnable to unbound (clear → bind) instead of being
+            // refused with "need a key".
+            EditorKeys.clearSequence(a);
+            rebindConflict = null;
+            return;
+        }
         if (a == EditorKeys.Action.PAN && pendingSeq.size() > 1) {
             rebindConflict = I18n.get("gui.create_schematic_compute.editorkeys.pan_hold_single");
             return;

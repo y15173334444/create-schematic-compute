@@ -611,6 +611,17 @@ public final class EditorKeys {
         return true;
     }
 
+    /** 清除动作绑定（=「绑定空键」，回到未绑定）；save() 将其持久化为显式空 seq，
+     *  重启后不回落出厂。 / Clear an action's binding (bind the empty key — back to
+     *  unbound); save() persists it as an explicit empty seq, so it survives reloads
+     *  instead of falling back to the factory default. */
+    public static void clearSequence(Action a) {
+        sequences.set(a.ordinal(), java.util.List.of());
+        buffer.clear();
+        mouseBuffer.clear();
+        save();
+    }
+
     /** PAN 按住组合键当前绑定的键码（未绑 / 异常态返回 -1）。供 GraphEditor 在
      *  mouseMoved 轮询物理键态（keyReleased 可能因切屏 / 失焦丢失，轮询自愈卡死平移）。
      *  The keycode bound to PAN's hold combo (-1 when unbound / malformed). GraphEditor
@@ -714,7 +725,17 @@ public final class EditorKeys {
                 // keycodes = mouse steps); the legacy .mouse field is no longer read
                 // (and is removed on save).
                 List<Step> seq = parseSeq(props.getProperty(PREFIX + a.name() + ".seq"));
-                if (seq != null && !seq.isEmpty()) sequences.set(a.ordinal(), seq);
+                String raw = props.getProperty(PREFIX + a.name() + ".seq");
+                if (raw != null && raw.isEmpty()) {
+                    // 显式空值 = 「绑定空键」= 明确解除绑定（save() 对未绑动作写空串）。
+                    // 缺键才回落出厂——旧配置没这键就是没改过。
+                    // An explicit empty value = the empty-key binding = a deliberate unbind
+                    // (save() writes "" for unbound actions). Only an absent key falls back
+                    // to the factory default — a legacy config without the key is untouched.
+                    sequences.set(a.ordinal(), java.util.List.of());
+                } else if (seq != null && !seq.isEmpty()) {
+                    sequences.set(a.ordinal(), seq);
+                }
             }
         } catch (Exception e) {
             // 读取失败即用默认表 —— 配置损坏不应导致编辑器不可用。
