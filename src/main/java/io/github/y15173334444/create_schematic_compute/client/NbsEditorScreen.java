@@ -144,8 +144,23 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         return minecraft != null && minecraft.player != null ? minecraft.player.getName().getString() : "";
     }
     @Override public boolean isPixelEditorOpen() { return true; }
-    @Override public GraphEditor getEditor() { return null; }
+    // 出口收口（tech-debt P1-10）：NBS 编辑器与来源屏同属一个编辑会话（onClose 回 returnScreen），
+    // SET_SONG/编辑 op 携带节点 id —— 必须共享来源屏编辑器的漏斗实例（temp-id 挂起 + ACK 重映射），
+    // 否则新建 MUSIC 节点 ACK 未回的窗口内保存，曲目 op 引用临时 id 被服务端静默丢弃。
+    // Outlet convergence (tech-debt P1-10): the NBS editor and its origin share one editing
+    // session (onClose returns to returnScreen) and SET_SONG carries node ids — so the stash
+    // and ACK remap must share the originating editor's funnel instance, or a save inside a
+    // fresh MUSIC node's pre-ACK window references a temp id and is silently dropped
+    // server-side (the pixel editor's outlet-convergence pattern).
+    @Override public GraphEditor getEditor() {
+        return returnScreen instanceof GraphEditor.Host h ? h.getEditor() : null;
+    }
     @Override public void sendOp(GraphOp op) {
+        var ed = getEditor();
+        if (ed != null) {
+            ed.sendOp(op); // 统一出口：temp-id 挂起守卫 + 来源屏的 pendingLocalOps 计数 / the funnel
+            return;
+        }
         var be = getBE();
         if (be != null) be.setPendingLocalOps(be.getPendingLocalOps() + 1);
         PacketDistributor.sendToServer(new GraphEditOpPacket(op));
