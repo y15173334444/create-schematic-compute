@@ -43,6 +43,12 @@ public final class NbsPianoStrip {
         return idx < 0 ? -1 : 33 + idx;
     }
 
+    /** 反向键帽提示：键 → 打字字符（无映射返回空串）。 / keycap hint: key → typed char. */
+    public static String typedChar(int key) {
+        int idx = key - 33;
+        return (idx >= 0 && idx < TYPED_KEYS.length()) ? String.valueOf(TYPED_KEYS.charAt(idx)) : "";
+    }
+
     // ══════════════ 几何（单一真相源，渲染与命中共用）/ geometry (single source) ══════════════
 
     /**
@@ -103,8 +109,8 @@ public final class NbsPianoStrip {
         g.fill(x, y, x + w, y + h, NbsPianoRoll.C_BG);
         g.fill(x, y, x + w, y + 1, NbsPianoRoll.C_GRID_BAR);
 
-        // 八度按钮 + 范围标签 / octave buttons + range label
-        drawOctaveButtons(g, font, x, y);
+        // 八度按钮 + 范围标签（前置当前工具键名）/ octave buttons + range label with the tool key
+        drawOctaveButtons(g, font, x, y, toolKey);
         int keyAreaX = x + BTN_W, keyAreaW = w - BTN_W;
         int keyAreaY = y + 2, keyAreaH = h - 4;
         int[][] rects = keyRects(keyAreaW, keyAreaH, startKey, WINDOW_KEYS);
@@ -112,30 +118,43 @@ public final class NbsPianoStrip {
             for (int[] r : rects) {
                 boolean black = NbsPianoRoll.isBlackKey(r[0]);
                 if ((pass == 0) != black) continue;
-                int k = r[0];
+                int k = r[0], kw = r[3];
                 int kx = keyAreaX + r[1], ky = keyAreaY + r[2];
+                boolean sel = k == toolKey;
                 int color = black ? NbsPianoRoll.C_BLACK_KEY : NbsPianoRoll.C_WHITE_KEY;
-                if (k == toolKey) color = 0xFF3A5A2A;    // 选中键 / selected key
-                g.fill(kx, ky, kx + r[3], ky + r[4], color);
-                g.renderOutline(kx, ky, r[3], r[4], k == toolKey ? 0xFF88FF88 : NbsPianoRoll.C_GRID_BAR);
+                if (sel) color = 0xFF3A5A2A;             // 选中键 / selected key
+                g.fill(kx, ky, kx + kw, ky + r[4], color);
+                g.renderOutline(kx, ky, kw, r[4], sel ? 0xFF88FF88 : NbsPianoRoll.C_GRID_BAR);
                 if (k < 33 || k > 57) {
-                    g.fill(kx, ky, kx + r[3], ky + r[4], NbsPianoRoll.C_OUT_OF_WINDOW); // 发音窗口外 / outside 33–57
+                    // 发音窗口外：社区同款红色提示（非灰遮罩）/ outside 33–57: community-style red cue
+                    g.fill(kx, ky, kx + kw, ky + r[4], 0x30FF5050);
                 }
-                if (!black && r[3] >= 14 && k % 12 == 3) {
-                    g.drawString(font, NbsPianoRoll.cName(k), kx + 2, ky + keyAreaH - 10, NbsPianoRoll.C_TEXT_DIM, false);
+                // 键帽信息：打字字符在上、音名在下（选中键更亮）——社区钢琴条的信息密度
+                // Keycap info: typing char on top, note name below (brighter when selected) —
+                // the community piano strip's information density.
+                String cap = typedChar(k);
+                String name = NbsPianoRoll.keyName(k);
+                if (!cap.isEmpty() && kw >= 7) {
+                    g.drawString(font, cap, kx + Math.max(1, (kw - font.width(cap)) / 2), ky + 2,
+                        sel ? 0xFFBFE8B0 : NbsPianoRoll.C_TEXT_DIM, false);
+                }
+                if ((!black && kw >= 12) || (black && kw >= 18)) {
+                    g.drawString(font, name, kx + Math.max(1, (kw - font.width(name)) / 2),
+                        ky + r[4] - 10, sel ? 0xFFDDFFD0 : NbsPianoRoll.C_TEXT_DIM, false);
                 }
             }
         }
     }
 
-    private void drawOctaveButtons(GuiGraphics g, Font font, int x, int y) {
+    private void drawOctaveButtons(GuiGraphics g, Font font, int x, int y, int toolKey) {
         g.fill(x + 2, y + 4, x + 20, y + 22, NbsPianoRoll.C_GRID_BEAT);
         g.renderOutline(x + 2, y + 4, 18, 18, NbsPianoRoll.C_GRID_BAR);
         g.drawString(font, "◀", x + 6, y + 9, NbsPianoRoll.C_TEXT, false);
         g.fill(x + 22, y + 4, x + 40, y + 22, NbsPianoRoll.C_GRID_BEAT);
         g.renderOutline(x + 22, y + 4, 18, 18, NbsPianoRoll.C_GRID_BAR);
         g.drawString(font, "▶", x + 26, y + 9, NbsPianoRoll.C_TEXT, false);
-        String range = NbsPianoRoll.cName(startKey) + "–" + NbsPianoRoll.cName(Math.min(87, startKey + WINDOW_KEYS - 1));
+        String range = NbsPianoRoll.keyName(toolKey) + " · "
+            + NbsPianoRoll.cName(startKey) + "–" + NbsPianoRoll.cName(Math.min(87, startKey + WINDOW_KEYS - 1));
         g.drawString(font, range, x + 4, y + 30, NbsPianoRoll.C_TEXT_DIM, false);
     }
 

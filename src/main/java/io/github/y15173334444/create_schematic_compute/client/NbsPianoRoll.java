@@ -266,19 +266,18 @@ public final class NbsPianoRoll {
         viewTopKey = clamp(viewTopKey + delta, 2f, 92f);
     }
 
-    /** 视图对准某 tick（如从头播放时）。 */
-    public void ensureTickVisible(float tick, int areaW) {
+    /**
+     * 播放跟随（社区 page-by-page 语义）：播放头越过右缘 → 翻页、头落新页左缘；
+     * 回退越过左缘 → 头落右缘。只在头离开视口时接管，视口内不与用户滚动抢方向。
+     * Playback follow (community page-by-page): crossing the right edge flips the page with
+     * the head landing on its left edge; rewinding past the left edge lands on the right
+     * edge. Takes over only when the head leaves the viewport — never fights user scrolling
+     * inside it.
+     */
+    public void followPlayhead(float tick, int areaW) {
         float visible = Math.max(1, areaW - GUTTER_W) / pxPerTick;
-        if (tick < scrollTick) scrollTick = Math.max(0f, tick - visible * 0.1f);
-        else if (tick > scrollTick + visible) scrollTick = Math.max(0f, tick - visible * 0.5f);
-    }
-
-    /** 视图复位（打开时对准曲首）。 */
-    public void resetView() {
-        scrollTick = 0f;
-        viewTopKey = 60f;
-        pxPerTick = 10f;
-        pxPerKey = 9f;
+        if (tick >= scrollTick + visible - 1) scrollTick = Math.max(0f, tick - 1);
+        else if (tick < scrollTick + 1) scrollTick = Math.max(0f, tick - visible + 1);
     }
 
     // ══════════════ 内部 / internals ══════════════
@@ -308,6 +307,13 @@ public final class NbsPianoRoll {
     /** NBS 键 0 = A0；每 12 键一个 C（k%12==3 → C）。 */
     static String cName(int k) {
         return "C" + (k + 9) / 12;
+    }
+
+    /** 全音名（A0 起：A/A#/B/C/…），钢琴条键帽与音符块标签共用。
+     *  Full chromatic key name from A0 — shared by the piano-strip keycaps and note blocks. */
+    static String keyName(int k) {
+        final String[] pc = {"A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"};
+        return pc[Math.floorMod(k, 12)] + (k + 9) / 12;
     }
 
     static int dim(int color, float f) {

@@ -109,4 +109,35 @@ class NbsLaneViewTest {
         assertEquals(1.0f, grid.tickAt(0, 10), 1e-4, "default pxPerTick=10");
         assertEquals(2.5f, grid.tickAt(50, 75), 1e-4, "origin offsets");
     }
+
+    // ══════════════ 播放跟随 / playback follow ══════════════
+
+    @Test
+    @DisplayName("follow flips pages at the viewport edges (community page-by-page) / 越缘翻页、页内不接管")
+    void testFollowPlayhead() {
+        var grid = new NbsLaneGrid();   // pxPerTick=10 → areaW=100 显示 10 tick
+        // 越右缘 → 头落新页左缘 / past the right edge → head lands on the new page's left edge
+        grid.followPlayhead(15, 100);
+        assertEquals(14.0f, grid.tickAt(0, 0), 1e-4, "scrollTick = head - 1");
+        // 页内不接管 / inside the viewport it never takes over
+        grid.followPlayhead(16, 100);
+        assertEquals(14.0f, grid.tickAt(0, 0), 1e-4, "head still inside → no scroll change");
+        // 回退越左缘 → 头落右缘（回卷到曲首时钳在 0）/ rewinding past the left edge → head at
+        // the right edge (clamped at 0 when rewinding to the song start)
+        grid.followPlayhead(5, 100);
+        assertEquals(0.0f, grid.tickAt(0, 0), 1e-4, "scrollTick = max(0, head - visible + 1)");
+    }
+
+    @Test
+    @DisplayName("keycap info: chromatic names and typing hints / 键帽信息：全音名与打字提示")
+    void testKeycapInfo() {
+        assertEquals("A0", NbsPianoRoll.keyName(0));
+        assertEquals("F#3", NbsPianoRoll.keyName(33));
+        assertEquals("C4", NbsPianoRoll.keyName(39), "middle C names like the community strip");
+        assertEquals("C8", NbsPianoRoll.keyName(87));
+        assertEquals("1", NbsPianoStrip.typedChar(33));
+        assertEquals("8", NbsPianoStrip.typedChar(45));
+        assertEquals("G", NbsPianoStrip.typedChar(57));
+        assertEquals("", NbsPianoStrip.typedChar(60), "unmapped keys carry no hint");
+    }
 }

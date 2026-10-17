@@ -115,9 +115,16 @@ public final class NbsLaneGrid {
                 int yT = y0 + 1, yB = y1 - 1;
                 if (xR <= xL || yB <= yT) continue;
                 int color = NbsPianoRoll.INSTRUMENT_COLORS[Math.floorMod(n.instrument, NbsPianoRoll.INSTRUMENT_COLORS.length)];
+                // 力度明暗（社区 draw_block 同款：低力度更暗）/ velocity shading (community style)
+                color = NbsPianoRoll.dim(color, 0.45f + 0.55f * Math.max(0, Math.min(100, n.velocity)) / 100f);
                 if (n.layer < song.layers.size() && song.layers.get(n.layer).locked)
                     color = NbsPianoRoll.dim(color, 0.6f);
                 g.fill(xL, yT, xR, yB, color);
+                // 音名标签（够宽才画；社区块面标音名）/ note-name label when it fits (community blocks name their pitch)
+                String name = NbsPianoRoll.keyName(n.key);
+                if (xR - xL >= font.width(name) + 4 && yB - yT >= 10) {
+                    g.drawString(font, name, xL + 2, yT + 1, 0xFF14120E, false);
+                }
             }
         }
 
@@ -134,8 +141,12 @@ public final class NbsLaneGrid {
         for (int t = (firstTick / labelEvery) * labelEvery; t <= lastTick; t += labelEvery) {
             if (t < 0) continue;
             int x = areaX + Math.round((t - scrollTick) * pxPerTick);
-            if (x >= areaX && x <= right - 12) {
-                g.drawString(font, Integer.toString(t), x + 2, areaY + 5, NbsPianoRoll.C_TEXT, false);
+            if (x >= areaX && x <= right - 20) {
+                g.drawString(font, Integer.toString(t), x + 2, areaY + 1, NbsPianoRoll.C_TEXT, false);
+                // 时间副标（社区刻度尺以时间为参照）/ secondary time label (the community ruler's reference)
+                float sec = t * 100f / Math.max(1, song.tempo);
+                g.drawString(font, String.format("%d:%02d", (int) (sec / 60), (int) (sec % 60)),
+                    x + 2, areaY + 9, NbsPianoRoll.C_TEXT_DIM, false);
             }
         }
     }
@@ -214,6 +225,19 @@ public final class NbsLaneGrid {
             scrollTick = Math.max(0f, scrollTick - (float) sy * Math.max(1f, 24f / pxPerTick) * 2f);
         }
         return true;
+    }
+
+    /**
+     * 播放跟随（社区 page-by-page 语义，与卷帘同款）：头越过右缘翻页落新页左缘，
+     * 回退越过左缘落右缘；视口内不接管。
+     * Playback follow (community page-by-page, same as the roll): crossing the right edge
+     * flips to the new page's left edge, rewinding past the left edge lands on the right
+     * edge; no takeover inside the viewport.
+     */
+    public void followPlayhead(float tick, int areaW) {
+        float visible = Math.max(1, areaW) / pxPerTick;
+        if (tick >= scrollTick + visible - 1) scrollTick = Math.max(0f, tick - 1);
+        else if (tick < scrollTick + 1) scrollTick = Math.max(0f, tick - visible + 1);
     }
 
     private static long pack(int tick, int layer) {

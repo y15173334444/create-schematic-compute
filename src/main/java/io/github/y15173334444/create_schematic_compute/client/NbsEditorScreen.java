@@ -196,6 +196,10 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         }
         // 试听推进：同款传输推进（MusicTransport）→ 同款发声（CscAudioEngine，听者位置）
         if (preview.isPlaying()) {
+            // 播放跟随（社区 page-by-page）：头越过视口缘才翻页，不与用户滚动抢方向
+            // Playback follow (community page-by-page): flips only at the viewport edges.
+            if (view == View.ROLL) roll.followPlayhead(preview.head, rollW());
+            else laneGrid.followPlayhead(preview.head, rollW());
             List<NoteEvent> evs = preview.advance(kernel.song(), 0.05f,
                 io.github.y15173334444.create_schematic_compute.graph.MusicTransport.PREROLL_SECONDS);
             for (NoteEvent e : evs) {
@@ -442,8 +446,13 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             g.fill(4, y, PANEL_W - 8, y + rh - 1, color);
             String name = layers.get(i).name.isEmpty() ? I18n.get("gui.create_schematic_compute.nbs_layer") + " " + (i + 1) : layers.get(i).name;
             g.drawString(font, name, 8, y + (rh - 8) / 2, layers.get(i).locked ? C_TEXT_DIM : C_TEXT, false);
-            String vol = layers.get(i).volume + "%";
-            g.drawString(font, vol, PANEL_W - 8 - font.width(vol) - 6, y + (rh - 8) / 2, C_TEXT_DIM, false);
+            // 行内信息：音量% + 声像(±) + 锁定标记（社区层行的信息密度）
+            // Inline info: volume% + panning (±) + lock mark (the community layer row's density)
+            var lyr = layers.get(i);
+            int pan = lyr.panning - 100;
+            String info = lyr.volume + "% " + (pan >= 0 ? "+" : "") + pan
+                + (lyr.locked ? " " + I18n.get("gui.create_schematic_compute.nbs_locked_mark") : "");
+            g.drawString(font, info, PANEL_W - 8 - font.width(info), y + (rh - 8) / 2, C_TEXT_DIM, false);
         }
 
         // 选中层属性 / selected layer properties
@@ -458,9 +467,9 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
         var layer = currentLayer < layers.size() ? layers.get(currentLayer) : null;
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_volume"), 6, pY + 40, C_TEXT_DIM, false);
-        slider(g, volSliderX(), pY + 40, 96, layer == null ? 100 : layer.volume, 100, mx, my);
+        slider(g, volSliderX(), pY + 40, SLIDER_W, layer == null ? 100 : layer.volume, 100, mx, my);
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_panning"), 6, pY + 58, C_TEXT_DIM, false);
-        slider(g, panSliderX(), pY + 58, 96, layer == null ? 100 : layer.panning, 200, mx, my);
+        slider(g, panSliderX(), pY + 58, SLIDER_W, layer == null ? 100 : layer.panning, 200, mx, my);
 
         button(g, 6, pY + 80, 50, 18, I18n.get(layer != null && layer.locked
             ? "gui.create_schematic_compute.nbs_unlock" : "gui.create_schematic_compute.nbs_lock"), mx, my,
@@ -471,6 +480,9 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     private int volSliderX() { return 66; }
     private int panSliderX() { return 66; }
+    /** 滑杆宽（给右侧数值文本留出完整一列，修截断）。
+     *  Slider width — leaves a full value column on the right (the clip fix). */
+    static final int SLIDER_W = 74;
 
     private void slider(GuiGraphics g, int x, int y, int w, int value, int max, int mx, int my) {
         g.fill(x, y + 4, x + w, y + 8, C_BTN);
@@ -478,7 +490,9 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         g.fill(x, y + 4, x + fill, y + 8, C_BTN_ON);
         g.renderOutline(x, y + 3, w + 1, 7, C_BORDER);
         String v = max == 200 ? (value - 100 >= 0 ? "+" : "") + (value - 100) : String.valueOf(value);
-        g.drawString(font, v, x + w + 4, y + 2, C_TEXT_DIM, false);
+        // 数值右对齐面板缘：x+w+4 的旧位置会把 "100"/"+100" 截断在面板外
+        // Value right-aligned to the panel edge: the old x+w+4 clipped "100"/"+100" off-panel
+        g.drawString(font, v, PANEL_W - 8 - font.width(v), y + 2, C_TEXT_DIM, false);
     }
 
     private void button(GuiGraphics g, int x, int y, int w, int h, String label, int mx, int my, boolean on) {
@@ -551,6 +565,11 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
         if (btn != 0) {
             // 右键落在网格上 = 擦除；其余右键忽略。擦除同样按笔划分组撤销。
+            // 播放锁（社区 playing=0 语义）：播放中网格不可编辑。
+            boolean overGrid = view == View.ROLL
+                ? roll.hit(rollX(), rollY(), rollW(), rollH(), mx, my) == NbsPianoRoll.Zone.GRID
+                : laneGrid.hit(rollX(), rollY(), rollW(), laneGridH(), mx, my) == NbsLaneGrid.Zone.GRID;
+            if (overGrid && editLocked()) return true;
             boolean consumed = view == View.ROLL
                 ? roll.mouseDown(rollX(), rollY(), rollW(), rollH(), mx, my, btn, kernel, currentLayer, currentInstrument)
                 : laneGrid.mouseDown(rollX(), rollY(), rollW(), laneGridH(), mx, my, btn, kernel,
@@ -572,6 +591,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 preview.seek(Math.max(0, t));
                 return true;
             }
+            if (editLocked()) return true;
             if (roll.mouseDown(rollX(), rollY(), rollW(), rollH(), mx, my, btn, kernel, currentLayer, currentInstrument)) {
                 kernel.beginBatch();
                 return true;
@@ -599,12 +619,22 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             preview.seek(Math.max(0, t));
             return true;
         }
+        if (editLocked()) return true;
         if (laneGrid.mouseDown(rollX(), rollY(), rollW(), laneGridH(), mx, my, btn, kernel,
             currentInstrument, toolKey, layerScroll, layerRowH())) {
             kernel.beginBatch();
             return true;
         }
         return super.mouseClicked(mx, my, btn);
+    }
+
+    /** 播放锁（社区 {@code playing = 0} 语义）：播放中网格不可编辑，提示一次并吞掉点击。
+     *  The playback edit lock (community {@code playing = 0} semantics): the grid refuses
+     *  edits while playing — one feedback note, the click is swallowed. */
+    private boolean editLocked() {
+        if (!preview.isPlaying()) return false;
+        feedback(I18n.get("gui.create_schematic_compute.nbs_edit_locked"));
+        return true;
     }
 
     private boolean clickTopBar(double mx, double my) {
@@ -694,12 +724,12 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             return true;
         }
         // 滑杆 / sliders
-        if (inRect(volSliderX(), pY + 42, 96, 8, mx, my)) {
+        if (inRect(volSliderX(), pY + 42, SLIDER_W, 8, mx, my)) {
             draggingSlider = 1;
             applySlider(mx, pY);
             return true;
         }
-        if (inRect(panSliderX(), pY + 60, 96, 8, mx, my)) {
+        if (inRect(panSliderX(), pY + 60, SLIDER_W, 8, mx, my)) {
             draggingSlider = 2;
             applySlider(mx, pY);
             return true;
@@ -731,7 +761,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     private void applySlider(double mx, int pY) {
         if (currentLayer >= kernel.song().layers.size()) return;
-        double rel = Math.max(0, Math.min(1, (mx - volSliderX()) / 96.0));
+        double rel = Math.max(0, Math.min(1, (mx - volSliderX()) / (double) SLIDER_W));
         if (draggingSlider == 1) kernel.setLayerVolume(currentLayer, (int) Math.round(rel * 100));
         else if (draggingSlider == 2) kernel.setLayerPanning(currentLayer, (int) Math.round(rel * 200));
     }
@@ -860,6 +890,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             applySlider(mx, height - TRANSPORT_H - PROPS_H);
             return true;
         }
+        if (preview.isPlaying()) return true; // 播放锁：笔划不得续写（静默吞，防提示刷屏）
         if (view == View.LANE) {
             return laneGrid.mouseDrag(rollX(), rollY(), rollW(), laneGridH(), mx, my, kernel, layerScroll, layerRowH());
         }
