@@ -212,7 +212,7 @@ feat: per-note velocity, panning and pitch editing in the nbs editor
 
 - **播放跟随**：✅ page-by-page 翻页已随批次二·二期落地（两视图 `followPlayhead`）；剩居中模式与播放区域（section）。
 - **循环区域 UI**：`loopStartTick`/`maxLoopCount` 数据模型与回绕逻辑已就绪、随文件保真，只缺编辑入口（时间轴拖段 + 右键菜单简化版 + 层面板数字框）。
-- **层重排（上移/下移）**：NBS 层序语义保真需要（参考的 Shift up/down）；层 solo/静音牵动 `MusicTransport` 烘焙过滤，列在重排之后单独评估。
+- **层重排（上移/下移）**：✅ 已落地（2026-10-18，随层面板逐行化改版：行内 ↑/↓ 按钮，`moveLayer` 层号重编号 + 快照撤销）；层 solo/静音牵动 `MusicTransport` 烘焙过滤，仍列在单独评估。
 
 ## 5. 明确不追与远期 / Out of Scope & Far Future
 
