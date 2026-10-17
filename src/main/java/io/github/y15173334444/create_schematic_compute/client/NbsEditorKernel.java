@@ -97,6 +97,23 @@ public final class NbsEditorKernel {
     }
 
     /**
+     * 改音符音高（悬停滚轮微调，社区习惯）：保力度/声像/细音高，只换键。
+     * 键限 0–87；同键 = 空操作不入撤销；锁定层拒绝。
+     * <p>Change a note's key (hover-wheel micro-adjust, community habit): keeps velocity /
+     * panning / fine pitch, swaps only the key. Key is limited to 0–87; the same key is a
+     * no-op; locked layers refuse.</p>
+     */
+    public void changeNoteKey(int tick, int layer, int key) {
+        if (layer < 0 || layer >= song.layers.size()) return;
+        if (song.layers.get(layer).locked) return;
+        if (key < 0 || key > 87) return;
+        NbsSong.Note old = song.getNote(tick, layer);
+        if (old == null || old.key == key) return;
+        apply(new CellEdit(tick, layer, copyOf(old),
+            new NbsSong.Note(tick, layer, old.instrument, key, old.velocity, old.panning, old.pitch)));
+    }
+
+    /**
      * 层序器落点（社区 {@code add_block_manual}/{@code change_block_manual} 合一）：
      * 空格放新音符、已有则整格覆盖为指定属性（乐器/键/力度/声像/细音高）——覆盖不保留旧属性，
      * 这是层序器视图的习惯语义（工具态写格子）；属性完全相同 = 空操作不入撤销。

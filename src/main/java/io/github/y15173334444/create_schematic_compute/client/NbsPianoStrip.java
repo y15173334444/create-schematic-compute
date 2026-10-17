@@ -102,10 +102,13 @@ public final class NbsPianoStrip {
     // ══════════════ 渲染 / rendering ══════════════
 
     /**
-     * 画钢琴条（八度按钮 + 范围标签 + 白键/黑键 + 选中键高亮 + 发音窗口遮罩）。
+     * 画钢琴条（八度按钮 + 范围标签 + 白键/黑键 + 选中键高亮 + 跟弹闪烁 + 发音窗口遮罩）。
      * @param toolKey 当前工具键（选中态）
+     * @param keyFlashUntil 每键跟弹高亮到期时间戳（ms；null = 无闪烁）/ per-key play-along flash expiry
+     * @param nowMs 当前时间戳 / current time in ms
      */
-    public void render(GuiGraphics g, Font font, int x, int y, int w, int h, int toolKey) {
+    public void render(GuiGraphics g, Font font, int x, int y, int w, int h, int toolKey,
+                       long[] keyFlashUntil, long nowMs) {
         g.fill(x, y, x + w, y + h, NbsPianoRoll.C_BG);
         g.fill(x, y, x + w, y + 1, NbsPianoRoll.C_GRID_BAR);
 
@@ -128,6 +131,12 @@ public final class NbsPianoStrip {
                 if (k < 33 || k > 57) {
                     // 发音窗口外：社区同款红色提示（非灰遮罩）/ outside 33–57: community-style red cue
                     g.fill(kx, ky, kx + kw, ky + r[4], 0x30FF5050);
+                }
+                if (keyFlashUntil != null && k >= 0 && k < keyFlashUntil.length && keyFlashUntil[k] > nowMs) {
+                    // 跟弹闪烁：播放/试听的音符按键点亮（社区钢琴条随谱子按键的习惯）
+                    // Play-along flash: keys light as their notes sound (the community strip
+                    // pressing along with the score).
+                    g.fill(kx, ky, kx + kw, ky + r[4], 0x55FFE080);
                 }
                 // 键帽信息：打字字符在上、音名在下（选中键更亮）——社区钢琴条的信息密度
                 // Keycap info: typing char on top, note name below (brighter when selected) —

@@ -106,8 +106,8 @@ class NbsLaneViewTest {
     @DisplayName("tick mapping is linear in pxPerTick / tick 映射随像素每 tick 线性")
     void testTickAt() {
         var grid = new NbsLaneGrid();
-        assertEquals(1.0f, grid.tickAt(0, 10), 1e-4, "default pxPerTick=10");
-        assertEquals(2.5f, grid.tickAt(50, 75), 1e-4, "origin offsets");
+        assertEquals(1.0f, grid.tickAt(0, 16), 1e-4, "default pxPerTick=16 (pitch labels visible)");
+        assertEquals(1.5625f, grid.tickAt(50, 75), 1e-4, "origin offsets");
     }
 
     // ══════════════ 播放跟随 / playback follow ══════════════

@@ -328,4 +328,34 @@ class NbsEditorKernelTest {
         k.placeNote(1, 0, 0, 45, 100, 100, 0);
         assertNull(song.getNote(1, 0), "locked layers refuse placement");
     }
+
+    @Test
+    void changeNoteKeyKeepsDynamicsAndGuards() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.placeNote(2, 0, 3, 50, 90, 150, 25);
+        k.changeNoteKey(2, 0, 50);                       // 同键 = 空操作 / same key = no-op
+        assertTrue(k.performUndo(), "one undo clears the cell - the same-key call recorded nothing");
+        assertNull(song.getNote(2, 0));
+        assertFalse(k.performUndo(), "and the stack is empty");
+
+        k.placeNote(2, 0, 3, 50, 90, 150, 25);
+        k.changeNoteKey(2, 0, 51);
+        NbsSong.Note n = song.getNote(2, 0);
+        assertEquals(51, n.key);
+        assertEquals(3, n.instrument, "instrument kept");
+        assertEquals(90, n.velocity, "velocity kept");
+        assertEquals(150, n.panning, "panning kept");
+        assertEquals(25, n.pitch, "fine pitch kept");
+        assertTrue(k.performUndo());
+        assertEquals(50, song.getNote(2, 0).key, "key change undoes");
+
+        k.changeNoteKey(2, 0, 99);
+        assertEquals(50, song.getNote(2, 0).key, "out-of-range keys refused");
+        k.changeNoteKey(3, 0, 60);
+        assertNull(song.getNote(3, 0), "empty cells stay empty");
+        k.setLayerLocked(0, true);
+        k.changeNoteKey(2, 0, 60);
+        assertEquals(50, song.getNote(2, 0).key, "locked layers refuse");
+    }
 }

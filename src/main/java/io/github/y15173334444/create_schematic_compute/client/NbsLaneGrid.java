@@ -40,7 +40,9 @@ public final class NbsLaneGrid {
     private static final float MIN_PX_PER_TICK = 3f, MAX_PX_PER_TICK = 64f;
 
     // ── 视图状态 / view state ──
-    private float pxPerTick = 10f;
+    /** 默认 16px/tick：音级标签（F# 等）在常规缩放下常显（「音符声调显示」反馈）。
+     *  Default 16px/tick: pitch-class labels (F# etc.) stay visible at the default zoom. */
+    private float pxPerTick = 16f;
     private float scrollTick = 0f;
 
     // ── 擦除笔划 / erase stroke ──
@@ -120,10 +122,16 @@ public final class NbsLaneGrid {
                 if (n.layer < song.layers.size() && song.layers.get(n.layer).locked)
                     color = NbsPianoRoll.dim(color, 0.6f);
                 g.fill(xL, yT, xR, yB, color);
-                // 音名标签（够宽才画；社区块面标音名）/ note-name label when it fits (community blocks name their pitch)
+                // 音名标签：优先全名，窄则退化到音级（F#/C）——「音符声调常显」
+                // Note label: full name first, degrading to the pitch class on narrow cells.
                 String name = NbsPianoRoll.keyName(n.key);
                 if (xR - xL >= font.width(name) + 4 && yB - yT >= 10) {
                     g.drawString(font, name, xL + 2, yT + 1, 0xFF14120E, false);
+                } else {
+                    String cls = NbsPianoRoll.keyClass(n.key);
+                    if (xR - xL >= font.width(cls) + 1 && yB - yT >= 10) {
+                        g.drawString(font, cls, xL + 1, yT + 1, 0xFF14120E, false);
+                    }
                 }
             }
         }

@@ -97,6 +97,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private final NbsPianoStrip pianoStrip = new NbsPianoStrip();
     /** 层序器工具键（NBS 基准键 45 起）。 / the lane-view tool key (starts at the NBS base key 45). */
     private int toolKey = 45;
+    /** 钢琴条跟弹闪烁：每键高亮到期时间戳（ms）。 / play-along key flash expiry per key (ms). */
+    private final long[] keyFlashUntil = new long[88];
 
     private int currentLayer = 0;
     private int currentInstrument = 0;
@@ -203,6 +205,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             List<NoteEvent> evs = preview.advance(kernel.song(), 0.05f,
                 io.github.y15173334444.create_schematic_compute.graph.MusicTransport.PREROLL_SECONDS);
             for (NoteEvent e : evs) {
+                flashKey(e.key());   // 钢琴条跟着谱子弹 / the strip presses along with the score
                 io.github.y15173334444.create_schematic_compute.client.audio.CscAudioEngine.playAtListener(e);
             }
         }
@@ -294,10 +297,17 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     /** 层序器视图的层行高（与网格行 1:1 对齐）。 */
     static final int LANE_ROW_H = 20;
 
-    /** 编辑试听（社区习惯：放键/覆盖/选键即发声，按听者位置）。
-     *  Edit audition (community habit: placing, overwriting and key picks sound at once). */
+    /** 编辑试听（社区习惯：放键/覆盖/选键即发声，按听者位置）；钢琴条跟弹点亮。
+     *  Edit audition (community habit: placing, overwriting and key picks sound at once);
+     *  the piano strip lights the key along. */
     private void audition(NbsSong.Note n) {
+        flashKey(n.key);
         CscAudioEngine.playAtListener(new NoteEvent(n.instrument, n.key, n.velocity, n.panning, n.pitch, 1f));
+    }
+
+    /** 钢琴条跟弹：点亮一键 250ms。 / play-along flash: light one key for 250ms. */
+    private void flashKey(int key) {
+        if (key >= 0 && key < keyFlashUntil.length) keyFlashUntil[key] = System.currentTimeMillis() + 250;
     }
 
     @Override
@@ -312,7 +322,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         } else {
             laneGrid.render(g, font, rollX(), rollY(), rollW(), laneGridH(),
                 kernel.song(), currentLayer, layerScroll, layerRowH(), playhead);
-            pianoStrip.render(g, font, rollX(), stripY(), rollW(), NbsPianoStrip.STRIP_H, toolKey);
+            pianoStrip.render(g, font, rollX(), stripY(), rollW(), NbsPianoStrip.STRIP_H, toolKey,
+                keyFlashUntil, System.currentTimeMillis());
         }
         renderTransportBar(g, mx, my);
         if (importOpen) renderImportDialog(g, mx, my);
@@ -931,6 +942,22 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (showGuide || exportOpen) return true;
         if (view == View.LANE) {
             if (mx >= rollX() && my >= stripY()) { pianoStrip.shift(sy > 0 ? -12 : 12); return true; }
+            // 悬停音符 + 滚轮 = 调声调（社区悬停微调习惯；Shift = 八度 ±12，否则半音 ±1）。
+            // Hover a note + wheel = adjust its key (community micro-adjust habit; Shift = octave
+            // ±12, plain = semitone ±1). 播放锁同样拦下；改动即时反映在块面音名上。
+            if (laneGrid.hit(rollX(), rollY(), rollW(), laneGridH(), mx, my) == NbsLaneGrid.Zone.GRID) {
+                int tick = (int) Math.floor(laneGrid.tickAt(rollX(), mx));
+                int layer = laneGrid.layerAt(rollY(), my, layerScroll, layerRowH(), kernel.song().layers.size());
+                NbsSong.Note n = (tick >= 0 && layer >= 0) ? kernel.song().getNote(tick, layer) : null;
+                if (n != null) {
+                    if (editLocked()) return true;
+                    int nk = Math.max(0, Math.min(87, n.key + (sy > 0 ? 1 : -1) * (hasShiftDown() ? 12 : 1)));
+                    kernel.changeNoteKey(tick, layer, nk);
+                    flashKey(nk);
+                    feedback(NbsPianoRoll.keyName(nk));
+                    return true;
+                }
+            }
             if (hasShiftDown()) {
                 // Shift+滚轮 = 翻层（与层面板同款）/ Shift+wheel flips layers (as in the panel)
                 layerScroll = Math.max(0, layerScroll + (sy > 0 ? -1 : 1));

@@ -312,8 +312,13 @@ public final class NbsPianoRoll {
     /** 全音名（A0 起：A/A#/B/C/…），钢琴条键帽与音符块标签共用。
      *  Full chromatic key name from A0 — shared by the piano-strip keycaps and note blocks. */
     static String keyName(int k) {
+        return keyClass(k) + (k + 9) / 12;
+    }
+
+    /** 音级（不带八度，如 F#/C）——窄块面标签的降级形态。 / pitch class (no octave) for narrow block labels. */
+    static String keyClass(int k) {
         final String[] pc = {"A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#"};
-        return pc[Math.floorMod(k, 12)] + (k + 9) / 12;
+        return pc[Math.floorMod(k, 12)];
     }
 
     static int dim(int color, float f) {
