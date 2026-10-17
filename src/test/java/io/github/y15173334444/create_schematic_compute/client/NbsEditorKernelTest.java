@@ -358,4 +358,143 @@ class NbsEditorKernelTest {
         k.changeNoteKey(2, 0, 60);
         assertEquals(50, song.getNote(2, 0).key, "locked layers refuse");
     }
+
+    // ══════════════ 选区级操作（批次三 B1）/ selection-level ops (batch 3 B1) ══════════════
+
+    private static NbsSelection selectTwo(NbsSong song) {
+        NbsSelection sel = new NbsSelection();
+        sel.toggleCell(song, 2, 0);
+        sel.toggleCell(song, 4, 0);
+        return sel;
+    }
+
+    @Test
+    void deleteSelectionRemovesAndUndoRestores() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.toggleNote(2, 0, 45, 0);
+        k.toggleNote(4, 0, 47, 0);
+        k.toggleNote(6, 0, 49, 0);
+        k.clearUndo();
+
+        assertEquals(2, k.deleteSelection(selectTwo(song)), "one snapshot deletes both");
+        assertEquals(1, song.noteCount());
+        assertNotNull(song.getNote(6, 0), "unselected notes stay");
+
+        assertTrue(k.performUndo(), "delete undoes as one unit");
+        assertEquals(3, song.noteCount(), "the whole span comes back");
+        assertFalse(k.canUndo(), "one snapshot, one undo step");
+    }
+
+    @Test
+    void deleteSelectionSkipsLockedAndEmpty() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.toggleNote(2, 0, 45, 0);
+        k.toggleNote(4, 0, 47, 0);
+        k.setLayerLocked(0, true);
+        k.clearUndo();
+
+        NbsSelection sel = selectTwo(song);
+        assertEquals(0, k.deleteSelection(sel), "locked layers never take edits");
+        assertEquals(2, song.noteCount());
+        assertFalse(k.canUndo(), "a refused edit records nothing");
+
+        k.setLayerLocked(0, false);
+        k.clearUndo();
+        assertEquals(0, k.deleteSelection(new NbsSelection()), "empty selection is a no-op");
+        assertFalse(k.canUndo());
+    }
+
+    @Test
+    void cutCopyPasteRoundTrip() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.addLayer();
+        k.addLayer();                            // 3 层：粘贴目标层 (12,2) 也在层内 / paste target (12,2) stays in range
+        k.toggleNote(4, 0, 45, 3);
+        song.getNote(4, 0).velocity = 40;
+        song.getNote(4, 0).pitch = -15;
+        k.toggleNote(6, 1, 50, 7);
+        song.getNote(6, 1).panning = 160;
+        k.clearUndo();
+
+        NbsSelection sel = new NbsSelection();
+        sel.selectRect(song, 0, 10, 0, 5, NbsSelection.Mode.REPLACE);
+        NbsClipboard cut = k.cutSelection(sel);
+        assertNotNull(cut);
+        assertEquals(0, song.noteCount(), "cut empties the selection's cells");
+        assertTrue(k.performUndo(), "cut undoes as one snapshot");
+        assertEquals(2, song.noteCount());
+
+        // 粘贴：片段左上角对齐 (10, 1)；属性随行 / paste anchors the fragment at (10, 1)
+        NbsSelection placed = k.paste(cut, 10, 1);
+        assertEquals(2, placed.size());
+        assertTrue(placed.contains(10, 1));
+        assertTrue(placed.contains(12, 2), "relative offsets preserved (dTick 2, dLayer 1)");
+        NbsSong.Note a = song.getNote(10, 1);
+        assertEquals(45, a.key);
+        assertEquals(3, a.instrument);
+        assertEquals(40, a.velocity, "velocity travels with the fragment");
+        assertEquals(-15, a.pitch);
+        assertEquals(160, song.getNote(12, 2).panning);
+
+        assertTrue(k.performUndo(), "paste undoes as one snapshot");
+        assertNull(song.getNote(10, 1));
+        assertEquals(2, song.noteCount());
+    }
+
+    @Test
+    void pasteOverwritesClampsAndGuards() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.toggleNote(0, 0, 30, 1);                   // 被覆盖目标 / the overwrite victim
+        NbsClipboard clip = NbsClipboard.of(java.util.List.of(
+            new NbsClipboard.Entry(0, 0, 5, 50, 999, -5, 99999),
+            new NbsClipboard.Entry(1, 0, 5, 99, 100, 100, 0),   // 键越界 → 跳过 / bad key skipped
+            new NbsClipboard.Entry(2, 5, 5, 55, 100, 100, 0),   // 目标层越界 → 跳过、不建层 / no layer creation
+            new NbsClipboard.Entry(3, 0, 5, 56, 100, 100, 0)));
+
+        NbsSelection placed = k.paste(clip, 0, 0);
+        assertEquals(2, placed.size(), "clamped + clean entries land; bad key and bad layer skipped");
+        assertTrue(placed.contains(0, 0));
+        assertTrue(placed.contains(3, 0));
+        NbsSong.Note n = song.getNote(0, 0);
+        assertEquals(50, n.key, "paste overwrites the whole cell");
+        assertEquals(5, n.instrument, "the fragment's instrument overwrites the victim's");
+        assertEquals(100, n.velocity, "velocity clamps to 100");
+        assertEquals(0, n.panning, "panning clamps to 0");
+        assertEquals(32767, n.pitch, "fine pitch clamps");
+        assertEquals(56, song.getNote(3, 0).key);
+        assertEquals(2, song.noteCount());
+
+        assertTrue(k.performUndo(), "paste undoes to the victim note");
+        assertEquals(30, song.getNote(0, 0).key);
+        assertNull(song.getNote(3, 0));
+        assertEquals(1, song.noteCount());
+
+        // 锁定目标层跳过 / locked target layers skip
+        k.setLayerLocked(0, true);
+        k.clearUndo();
+        assertTrue(k.paste(clip, 5, 0).isEmpty());
+        assertFalse(k.canUndo(), "nothing landed, nothing recorded");
+    }
+
+    @Test
+    void cutAndCopyOfNothingReturnNull() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        assertNull(k.copySelection(new NbsSelection()));
+        assertNull(k.cutSelection(new NbsSelection()));
+        assertFalse(k.canUndo(), "an empty cut records nothing");
+
+        k.toggleNote(3, 0, 45, 0);
+        k.clearUndo();                           // 只看复制/剪切是否记撤销 / isolate copy/cut from the setup edit
+        NbsSelection sel = new NbsSelection();
+        sel.toggleCell(song, 3, 0);
+        NbsClipboard c = k.copySelection(sel);
+        assertNotNull(c);
+        assertEquals(1, song.noteCount(), "copy is read-only");
+        assertFalse(k.canUndo());
+    }
 }

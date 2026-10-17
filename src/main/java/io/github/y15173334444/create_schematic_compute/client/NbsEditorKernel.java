@@ -231,6 +231,92 @@ public final class NbsEditorKernel {
         push(new SnapshotEdit(before, after));
     }
 
+    // ══════════════ 选区级操作（批次三 B1）/ selection-level ops (batch 3 B1) ══════════════
+    // 选区级操作改的是成片音符，走整曲快照撤销（plan B1：SnapshotEdit 绝对值无条件安全）。
+    // Selection-level ops touch note spans — snapshot undo (plan B1: absolute-state safe).
+
+    /**
+     * 删除选中音符。锁定层不删（锁定层永不被编辑）；返回删除数，0 = 空操作不入撤销。
+     * Delete the selected notes. Locked layers are never edited; returns the count,
+     * 0 = no-op (nothing recorded).
+     */
+    public int deleteSelection(NbsSelection sel) {
+        List<int[]> targets = unlockedSelected(sel);
+        if (targets.isEmpty()) return 0;
+        NbsSong before = song.copy();
+        for (int[] c : targets) song.removeNote(c[0], c[1]);
+        NbsSong after = song.copy();
+        push(new SnapshotEdit(before, after));
+        return targets.size();
+    }
+
+    /**
+     * 复制选中音符为片段（只读，不入撤销）；无内容返回 null。
+     * Copy the selected notes into a fragment (read-only); null when there is nothing.
+     */
+    public NbsClipboard copySelection(NbsSelection sel) {
+        NbsClipboard clip = NbsClipboard.fromSelection(song, sel);
+        return clip.isEmpty() ? null : clip;
+    }
+
+    /**
+     * 剪切 = 复制片段 + 删除选中（一次快照撤销）；无内容返回 null。
+     * Cut = copy the fragment + delete the selection (one snapshot undo); null when
+     * there is nothing.
+     */
+    public NbsClipboard cutSelection(NbsSelection sel) {
+        NbsClipboard clip = copySelection(sel);
+        if (clip == null) return null;
+        deleteSelection(sel);
+        return clip;
+    }
+
+    /**
+     * 粘贴片段：片段左上角对齐 (atTick, atLayer)，整格覆盖（层列落点同语义）。
+     * 不建层（目标层不存在即跳过）、锁定层跳过；键限 0–87（越界跳过）、力度/声像/细音高钳位。
+     * 返回实际落格（作为新选区），空 = 空操作不入撤销。
+     * <p>Paste the fragment with its top-left anchored at (atTick, atLayer), overwriting
+     * whole cells (the lane-placement semantics). Never creates layers (entries past the
+     * last layer are skipped), skips locked layers; keys outside 0–87 are skipped,
+     * velocity / panning / fine pitch clamp. Returns the cells actually placed (as the
+     * new selection); empty = no-op.</p>
+     */
+    public NbsSelection paste(NbsClipboard clip, int atTick, int atLayer) {
+        NbsSelection placed = new NbsSelection();
+        if (clip == null || clip.isEmpty()) return placed;
+        List<int[]> targets = new ArrayList<>();
+        for (NbsClipboard.Entry e : clip.entries()) {
+            int t = atTick + e.dTick, l = atLayer + e.dLayer;
+            if (t < 0 || l < 0 || l >= song.layers.size()) continue;
+            if (song.layers.get(l).locked) continue;
+            if (e.key < 0 || e.key > 87) continue;
+            targets.add(new int[]{t, l, e.instrument, e.key,
+                clamp(e.velocity, 0, 100), clamp(e.panning, 0, 200), clamp(e.pitch, -32768, 32767)});
+        }
+        if (targets.isEmpty()) return placed;
+        NbsSong before = song.copy();
+        for (int[] a : targets) {
+            song.putNote(a[0], a[1], a[2], a[3], a[4], a[5], a[6]);
+            placed.toggleCell(song, a[0], a[1]);
+        }
+        NbsSong after = song.copy();
+        push(new SnapshotEdit(before, after));
+        return placed;
+    }
+
+    /** 选中且未锁定层的格（删除/剪切的实际目标；选后被锁的层自动豁免）。
+     *  Selected cells on unlocked layers (the delete/cut targets — a layer locked after
+     *  selection is exempt). */
+    private List<int[]> unlockedSelected(NbsSelection sel) {
+        List<int[]> out = new ArrayList<>();
+        for (int[] c : sel.cells()) {
+            if (c[1] < 0 || c[1] >= song.layers.size()) continue;
+            if (song.layers.get(c[1]).locked) continue;
+            if (song.getNote(c[0], c[1]) != null) out.add(c);
+        }
+        return out;
+    }
+
     // ══════════════ 撤销/重做状态机 / undo & redo state machine ══════════════
 
     /** 开始批量组（拖拽笔划开始）。可重入计数。 / Begin a batch group (stroke start); re-entrant. */

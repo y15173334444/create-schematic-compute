@@ -25,12 +25,13 @@ import java.util.function.Consumer;
  * community layout (panel row = grid row).</p>
  *
  * <p><b>交互语义</b>（社区习惯）：左键单击空格放音符 / 点已有格整格覆盖为工具属性（不保留旧属性），
- * <b>左键拖动刻意不放音符</b>——社区左键拖 = 框选（随选择/剪贴板批次落地），涂抹会污染肌肉记忆；
- * 右键按住擦除（每格一次）。<b>Interaction</b> (community habits): LMB click places on an empty
- * cell / overwrites an occupied cell with the tool attributes (nothing carried over), <b>LMB
- * drag deliberately places nothing</b> — the community drag is box-select (landing with the
- * selection/clipboard batch); painting would poison the muscle memory. RMB hold erases (once
- * per cell per stroke). Locked layers are never edited.</p>
+ * <b>左键拖动不放音符</b>——社区左键拖 = 框选（批次三 B1 已落地，屏幕选择手势接管），
+ * 涂抹会污染肌肉记忆；右键按住擦除（每格一次）。
+ * <b>Interaction</b> (community habits): LMB click places on an empty cell / overwrites an
+ * occupied cell with the tool attributes (nothing carried over), <b>LMB drag places
+ * nothing</b> — the community drag is box-select (batch 3 B1, owned by the screen's select
+ * gesture); painting would poison the muscle memory. RMB hold erases (once per cell per
+ * stroke). Locked layers are never edited.</p>
  */
 public final class NbsLaneGrid {
 
@@ -70,9 +71,11 @@ public final class NbsLaneGrid {
      * 画层序器网格（刻度尺 + 层行 + 格子 + 播放头）。
      * @param layerScroll 层滚动（与左层面板共用）
      * @param rowH        层行高（与左层面板共用）
+     * @param sel 选区（null = 无）——选中格描边 / selection (null = none) for the outlines
      */
     public void render(GuiGraphics g, Font font, int areaX, int areaY, int areaW, int areaH,
-                       NbsSong song, int currentLayer, int layerScroll, int rowH, float playheadTick) {
+                       NbsSong song, int currentLayer, int layerScroll, int rowH, float playheadTick,
+                       NbsSelection sel) {
         int rowsTop = areaY + RULER_H;
         int rowsH = Math.max(1, areaH - RULER_H);
         int right = areaX + areaW, bottom = rowsTop + rowsH;
@@ -127,6 +130,9 @@ public final class NbsLaneGrid {
                 if (n.layer < song.layers.size() && song.layers.get(n.layer).locked)
                     color = NbsPianoRoll.dim(color, 0.6f);
                 g.fill(xL, yT, xR, yB, color);
+                if (sel != null && sel.contains(n.tick, n.layer)) {
+                    g.renderOutline(xL - 1, yT - 1, xR - xL + 2, yB - yT + 2, NbsPianoRoll.C_SELECTED);
+                }
                 // 音名标签：优先全名，窄则退化到音级（F#/C）——「音符声调常显」
                 // Note label: full name first, degrading to the pitch class on narrow cells.
                 String name = NbsPianoRoll.keyName(n.key);
@@ -198,7 +204,10 @@ public final class NbsLaneGrid {
         int layer = layerAt(areaY, my, layerScroll, rowH, kernel.song().layers.size());
         if (layer < 0 || tick < 0) return true;
         if (btn == 0) {
-            // 左键单击 = 落点/覆盖；左键拖动留白（社区 = 框选，随选择批次落地）
+            // 左键单击 = 落点/覆盖（屏幕把单击延到松手判定后调本方法；左键拖 = 框选，
+            // 由屏幕的选择手势接管）。
+            // LMB click places / overwrites (the screen defers the click here until
+            // release; LMB drag is box-select, owned by the screen's select gesture).
             kernel.placeNote(tick, layer, toolInstrument, toolKey, 100, 100, 0);
             if (audition != null) audition.accept(new NbsSong.Note(tick, layer, toolInstrument, toolKey, 100, 100, 0));
             return true;

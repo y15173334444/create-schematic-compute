@@ -54,6 +54,7 @@ public final class NbsPianoRoll {
     static final int C_TEXT_DIM = 0xFF7A7466;
     static final int C_PLAYHEAD = 0xFFE0B040;
     static final int C_OUT_OF_WINDOW = 0x40101018;  // 发音窗口外的键行遮罩 / dim outside 33–57
+    static final int C_SELECTED = 0xFFF0E8C0;       // 选中音符描边 / selected-note outline
 
     /** 16 原版乐器各一色（音符按乐器着色）。 / one colour per vanilla instrument. */
     static final int[] INSTRUMENT_COLORS = {
@@ -92,9 +93,10 @@ public final class NbsPianoRoll {
      * @param areaX 卷帘区左上角 / area origin
      * @param currentLayer 当前层（本层音符高亮，他层压暗）
      * @param playheadTick 播放头位置（&lt;0 不画）
+     * @param sel 选区（null = 无）——选中音符描边 / selection (null = none) for the outlines
      */
     public void render(GuiGraphics g, Font font, int areaX, int areaY, int areaW, int areaH,
-                       NbsSong song, int currentLayer, float playheadTick) {
+                       NbsSong song, int currentLayer, float playheadTick, NbsSelection sel) {
         int gx = areaX + GUTTER_W, gy = areaY + RULER_H;       // 网格原点 / grid origin
         int gw = Math.max(1, areaW - GUTTER_W), gh = Math.max(1, areaH - RULER_H);
         int right = areaX + areaW, bottom = areaY + areaH;
@@ -154,6 +156,9 @@ public final class NbsPianoRoll {
                 if (n.layer != currentLayer) color = dim(color, 0.45f);       // 他层压暗 / dim other layers
                 else if (n.layer < song.layers.size() && song.layers.get(n.layer).locked) color = dim(color, 0.6f);
                 g.fill(xL, yT, xR, yB, color);
+                if (sel != null && sel.contains(n.tick, n.layer)) {
+                    g.renderOutline(xL - 1, yT - 1, xR - xL + 2, yB - yT + 2, C_SELECTED);
+                }
             }
         }
 

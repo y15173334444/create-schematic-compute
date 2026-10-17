@@ -230,4 +230,18 @@ class EditorKeysSequenceTest {
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.NBS_UNDO, List.of(new EditorKeys.Step(81, 0))));
         assertEquals(EditorKeys.Action.NBS_UNDO, EditorKeys.feedKey(81, 0, T, EditorKeys.Scope.NBS));
     }
+
+    @Test
+    @DisplayName("NBS selection/clipboard factory defaults / NBS 选择/剪贴板出厂默认")
+    void nbsSelectionFactoryDefaults() {
+        assertEquals(EditorKeys.Action.NBS_BOX_SELECT, EditorKeys.feedKey(258, 0, T, EditorKeys.Scope.NBS));              // Tab
+        assertEquals(EditorKeys.Action.NBS_COPY, EditorKeys.feedKey(67, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.NBS));   // Ctrl+C
+        assertEquals(EditorKeys.Action.NBS_CUT, EditorKeys.feedKey(88, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.NBS));    // Ctrl+X
+        assertEquals(EditorKeys.Action.NBS_PASTE, EditorKeys.feedKey(86, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.NBS));  // Ctrl+V
+        assertEquals(EditorKeys.Action.NBS_DELETE_SELECTED, EditorKeys.feedKey(261, 0, T, EditorKeys.Scope.NBS));         // Delete
+        assertEquals(EditorKeys.Action.NBS_SELECT_ALL, EditorKeys.feedKey(65, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.NBS));   // Ctrl+A
+        assertEquals(EditorKeys.Action.NBS_SELECT_INVERT, EditorKeys.feedKey(73, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.NBS)); // Ctrl+I
+        // 框选按住键跟随绑定（默认 Tab）/ the hold key follows the binding (Tab by default)
+        assertEquals(258, EditorKeys.nbsBoxSelectHoldKey());
+    }
 }

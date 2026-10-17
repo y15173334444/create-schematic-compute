@@ -177,7 +177,23 @@ public final class EditorKeys {
         /** NBS：八度窗下移 / NBS: octave window down */
         NBS_OCTAVE_PREV(Scope.NBS, "editorkeys.nbs_octave_prev"),
         /** NBS：八度窗上移 / NBS: octave window up */
-        NBS_OCTAVE_NEXT(Scope.NBS, "editorkeys.nbs_octave_next");
+        NBS_OCTAVE_NEXT(Scope.NBS, "editorkeys.nbs_octave_next"),
+
+        // ── NBS 选择/剪贴板（批次三 B1）/ NBS selection & clipboard (batch 3 B1) ──
+        /** NBS：框选（按住 + 左键拖；层列视图左键拖直接框选） / NBS: box select (hold + left-drag; plain left-drag in the lane view) */
+        NBS_BOX_SELECT(Scope.NBS, "editorkeys.nbs_box_select"),
+        /** NBS：复制选中 / NBS: copy selection */
+        NBS_COPY(Scope.NBS, "editorkeys.nbs_copy"),
+        /** NBS：剪切选中 / NBS: cut selection */
+        NBS_CUT(Scope.NBS, "editorkeys.nbs_cut"),
+        /** NBS：粘贴片段 / NBS: paste fragment */
+        NBS_PASTE(Scope.NBS, "editorkeys.nbs_paste"),
+        /** NBS：删除选中 / NBS: delete selection */
+        NBS_DELETE_SELECTED(Scope.NBS, "editorkeys.nbs_delete_selected"),
+        /** NBS：全选 / NBS: select all */
+        NBS_SELECT_ALL(Scope.NBS, "editorkeys.nbs_select_all"),
+        /** NBS：反选 / NBS: invert selection */
+        NBS_SELECT_INVERT(Scope.NBS, "editorkeys.nbs_select_invert");
 
         /** lang 键（设置界面显示用，渲染时补 gui.create_schematic_compute. 前缀） / lang key (prefixed at render time). */
         public final String langKey;
@@ -288,6 +304,16 @@ public final class EditorKeys {
             case NBS_PLAY_PAUSE -> java.util.List.of(new Step(32, 0));        // Space
             case NBS_UNDO -> java.util.List.of(new Step(90, MOD_CTRL));       // Ctrl+Z
             case NBS_REDO -> java.util.List.of(new Step(89, MOD_CTRL));       // Ctrl+Y
+            // 选择/剪贴板出厂 = 惯用键（无按钮路径，故默认绑定）；框选键 = 图域同款 Tab
+            // Selection/clipboard ship on the habitual keys (no button path exists, so
+            // they bind by default); the box-select hold key = Tab, as in the graph scope.
+            case NBS_BOX_SELECT -> java.util.List.of(new Step(258, 0));       // Tab（按住）/ hold
+            case NBS_COPY -> java.util.List.of(new Step(67, MOD_CTRL));       // Ctrl+C
+            case NBS_CUT -> java.util.List.of(new Step(88, MOD_CTRL));        // Ctrl+X
+            case NBS_PASTE -> java.util.List.of(new Step(86, MOD_CTRL));      // Ctrl+V
+            case NBS_DELETE_SELECTED -> java.util.List.of(new Step(261, 0));  // Delete
+            case NBS_SELECT_ALL -> java.util.List.of(new Step(65, MOD_CTRL)); // Ctrl+A
+            case NBS_SELECT_INVERT -> java.util.List.of(new Step(73, MOD_CTRL)); // Ctrl+I
             case NBS_STOP, NBS_SAVE, NBS_IMPORT, NBS_EXPORT, NBS_VIEW_TOGGLE,
                  NBS_LOOP, NBS_INSTRUMENT_PREV, NBS_INSTRUMENT_NEXT,
                  NBS_OCTAVE_PREV, NBS_OCTAVE_NEXT -> java.util.List.of();     // 出厂不绑 / unbound
@@ -638,7 +664,22 @@ public final class EditorKeys {
      *  The key half of the legacy "box-select key + left-click deletes the hovered
      *  wire" chord follows it; the settings tab displays the chord from this. */
     public static int boxSelectHoldKey() {
-        var seq = sequence(Action.BOX_SELECT);
+        return holdKey(Action.BOX_SELECT);
+    }
+
+    /** NBS 编辑器框选按住键（NBS_BOX_SELECT 绑定序列末步的键，默认 Tab）——屏幕在
+     *  mouseDown 轮询物理键态（keyReleased 可能丢失，轮询即自愈）。
+     *  The NBS editor's box-select hold key (last step of NBS_BOX_SELECT, Tab by
+     *  default) — the screen polls the physical key state at mouse-down (a lost
+     *  keyReleased heals itself). */
+    public static int nbsBoxSelectHoldKey() {
+        return holdKey(Action.NBS_BOX_SELECT);
+    }
+
+    /** 按住型动作的按住键 = 绑定序列末步的键；空绑回落默认 Tab。
+     *  A hold action's key = the last step of its binding; unbound falls back to Tab. */
+    private static int holdKey(Action a) {
+        var seq = sequence(a);
         return seq.isEmpty() ? 258 : seq.get(seq.size() - 1).key();
     }
 

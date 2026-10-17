@@ -107,6 +107,22 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private int draggingSlider = 0;        // 0=无 1=音量 2=声像
     private int draggingScrollBar = 0;     // 0=无 1=横向（时间轴） 2=纵向（层行/键轴）
     private long lastWheelAt = 0;          // 滚轮活动时间戳（滚动防误触窗口起点）
+
+    // ── 选择与剪贴板（批次三 B1）/ selection & clipboard (batch 3 B1) ──
+    /** 当前选区（粘贴后 = 落格，随后可整体搬/删）。 / current selection (after paste = the placed cells). */
+    private NbsSelection selection = new NbsSelection();
+    /** 内部剪贴板（系统剪贴板是外来文本时回落）。 / internal clipboard (fallback for foreign system clips). */
+    private NbsClipboard clipboard = null;
+    /** 选择手势：无 / 落点待判 / 单格加减选 / 框选。
+     *  Select gesture: none / deferred place / cell toggle / marquee. */
+    private static final int GESTURE_NONE = 0, GESTURE_PLACE = 1, GESTURE_TOGGLE = 2, GESTURE_MARQUEE = 3;
+    private int gesture = GESTURE_NONE;
+    private boolean marqueeAdd;            // Ctrl = 加选 / additive marquee
+    private double pressX, pressY, marqX, marqY;
+    private double hoverX = -1, hoverY = -1;
+    /** 单击 vs 拖动的像素阈值（层列「单击落点、拖动框选」的判定）。
+     *  Click vs drag threshold (the lane view's click-places / drag-selects split). */
+    static final int DRAG_THRESHOLD = 4;
     private boolean importOpen = false, exportOpen = false, showGuide = false;
     private List<Path> importFiles = List.of();
     /** 导入弹窗可见行数（渲染 / 命中 / 滚动钳位共用）。/ import dialog visible rows (render, hit-test and scroll clamp share it). */
@@ -386,12 +402,19 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         float playhead = preview.isPlaying() || preview.headTick() > 0 ? preview.head : -1f;
         if (view == View.ROLL) {
             roll.render(g, font, rollX(), rollY(), gridW(), gridH(),
-                kernel.song(), currentLayer, playhead);
+                kernel.song(), currentLayer, playhead, selection);
         } else {
             laneGrid.render(g, font, rollX(), rollY(), gridW(), gridH(),
-                kernel.song(), currentLayer, layerScroll, layerRowH(), playhead);
+                kernel.song(), currentLayer, layerScroll, layerRowH(), playhead, selection);
             pianoStrip.render(g, font, rollX(), stripY(), rollW(), NbsPianoStrip.STRIP_H, toolKey,
                 keyFlashUntil, System.currentTimeMillis());
+        }
+        // 框选橡皮筋（拖动中）/ marquee rubber band while dragging
+        if (gesture == GESTURE_MARQUEE) {
+            int x0 = (int) Math.min(pressX, marqX), x1 = (int) Math.max(pressX, marqX);
+            int y0 = (int) Math.min(pressY, marqY), y1 = (int) Math.max(pressY, marqY);
+            g.fill(x0, y0, x1, y1, 0x30FFFFFF);
+            g.renderOutline(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0), NbsPianoRoll.C_SELECTED);
         }
         // 横竖双滚动条（社区同款职责：可见位置一目了然、可拖可翻页）
         // The scrollbar pair (community role: position at a glance, draggable, pageable).
@@ -618,7 +641,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     private void renderGuide(GuiGraphics g) {
-        int w = 300, h = 150, x = (width - w) / 2, y = (height - h) / 2;
+        int w = 300, h = 168, x = (width - w) / 2, y = (height - h) / 2;
         g.fill(x, y, x + w, y + h, C_PANEL);
         g.renderOutline(x, y, w, h, C_BORDER);
         String[] lines = {
@@ -631,6 +654,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             I18n.get("gui.create_schematic_compute.nbs_guide_5"),
             I18n.get("gui.create_schematic_compute.nbs_guide_6"),
             I18n.get("gui.create_schematic_compute.nbs_guide_7"),
+            I18n.get("gui.create_schematic_compute.nbs_guide_8"),
+            I18n.get("gui.create_schematic_compute.nbs_guide_9"),
         };
         for (int i = 0; i < lines.length; i++) {
             g.drawString(font, lines[i], x + 8, y + 8 + i * 14, i == 0 ? C_TEXT : C_TEXT_DIM, false);
@@ -680,6 +705,13 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 preview.seek(Math.max(0, t));
                 return true;
             }
+            // 选择手势（框选键按住 / Ctrl 加减选）：无害手势，不进播放锁与防误触
+            // Select gestures (box-select hold / Ctrl toggle): harmless — bypass the
+            // playback lock and the scroll guard.
+            if (btn == 0 && (boxSelectHeld() || hasControlDown())) {
+                armSelectGesture(mx, my);
+                return true;
+            }
             if (editLocked() || scrollGuarded()) return true;
             if (roll.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel, currentLayer, currentInstrument)) {
                 kernel.beginBatch();
@@ -708,13 +740,107 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             preview.seek(Math.max(0, t));
             return true;
         }
+        if (btn == 0 && (boxSelectHeld() || hasControlDown())) {
+            armSelectGesture(mx, my);
+            return true;
+        }
         if (editLocked() || scrollGuarded()) return true;
-        if (laneGrid.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel,
-            currentInstrument, toolKey, layerScroll, layerRowH())) {
-            kernel.beginBatch();
+        if (btn == 0) {
+            // 左键拖 = 框选、单击 = 落点（社区语义）：落点延到松手判定——拖过阈值即让位
+            // LMB drag = box-select, click = place (community): placement defers to release
+            // — crossing the drag threshold hands the gesture to the marquee.
+            armPlaceGesture(mx, my);
             return true;
         }
         return super.mouseClicked(mx, my, btn);
+    }
+
+    // ══════════════ 选择手势（批次三 B1）/ selection gestures (batch 3 B1) ══════════════
+
+    /** 框选键按住 = 框选（Ctrl = 加选）；只按 Ctrl = 单格加减选（拖动即转加选框选）。
+     *  Box-select held = marquee (Ctrl adds); Ctrl alone = cell toggle (dragging upgrades
+     *  to an additive marquee). */
+    private void armSelectGesture(double mx, double my) {
+        gesture = boxSelectHeld() ? GESTURE_MARQUEE : GESTURE_TOGGLE;
+        marqueeAdd = hasControlDown();
+        pressX = marqX = mx;
+        pressY = marqY = my;
+    }
+
+    /** 层列左键按下：落点待判（单击放音符 / 拖动框选）。 / lane LMB press: place-or-marquee. */
+    private void armPlaceGesture(double mx, double my) {
+        gesture = GESTURE_PLACE;
+        marqueeAdd = false;
+        pressX = marqX = mx;
+        pressY = marqY = my;
+    }
+
+    /** 框选键是否按住（轮询物理键态，keyReleased 丢失即自愈）。
+     *  Whether the box-select key is held (physical poll — heals lost keyReleased). */
+    private boolean boxSelectHeld() {
+        int k = io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.nbsBoxSelectHoldKey();
+        if (k < 0 || minecraft == null) return false;
+        long win = minecraft.getWindow().getWindow();
+        return org.lwjgl.glfw.GLFW.glfwGetKey(win, k) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
+    }
+
+    /** 松手提交：框选成区、单格加减选、或落点（层列单击）。 */
+    private void commitGesture() {
+        int g = gesture;
+        gesture = GESTURE_NONE;
+        if (g == GESTURE_MARQUEE) commitMarquee();
+        else if (g == GESTURE_TOGGLE) toggleCellAt(pressX, pressY);
+        else if (g == GESTURE_PLACE) placeAtPress();
+    }
+
+    /** 框选提交：矩形内可选音符格进选区（REPLACE = 换选，Ctrl = 加选）。
+     *  Marquee commit: the rect's selectable note cells join (REPLACE swaps, Ctrl adds). */
+    private void commitMarquee() {
+        double x0 = Math.min(pressX, marqX), x1 = Math.max(pressX, marqX);
+        double y0 = Math.min(pressY, marqY), y1 = Math.max(pressY, marqY);
+        NbsSelection.Mode mode = marqueeAdd ? NbsSelection.Mode.ADD : NbsSelection.Mode.REPLACE;
+        int t0 = (int) Math.floor(view == View.ROLL ? roll.tickAt(rollX(), x0) : laneGrid.tickAt(rollX(), x0));
+        int t1 = (int) Math.floor(view == View.ROLL ? roll.tickAt(rollX(), x1) : laneGrid.tickAt(rollX(), x1));
+        if (view == View.ROLL) {
+            // 纵轴是键：框选收视觉矩形内的音符格 / roll: collect the notes inside the visual rect
+            int kHi = (int) Math.floor(roll.keyAt(rollY(), y0)), kLo = (int) Math.floor(roll.keyAt(rollY(), y1));
+            selection.selectByTickKey(kernel.song(), t0, t1, kLo, kHi, mode);
+        } else {
+            selection.selectRect(kernel.song(), t0, t1, layerRowAt(y0), layerRowAt(y1), mode);
+        }
+    }
+
+    /** 层列视图：鼠标 y → 层号（可能越界；选区收集时按音符过滤）。 / lane view: mouse y → raw layer row. */
+    private int layerRowAt(double my) {
+        return layerScroll + (int) Math.floor((my - (rollY() + NbsLaneGrid.RULER_H)) / (double) layerRowH());
+    }
+
+    /** 单格加减选（Ctrl+点音符格）。卷帘取鼠标下的音符（同键多层先取当前层）。
+     *  Cell toggle (Ctrl+click a note cell). Roll picks the note under the cursor
+     *  (current layer first when keys collide). */
+    private void toggleCellAt(double mx, double my) {
+        if (view == View.ROLL) {
+            int t = (int) Math.floor(roll.tickAt(rollX(), mx));
+            int key = (int) Math.floor(roll.keyAt(rollY(), my));
+            NbsSong.Note hit = null;
+            for (NbsSong.Note n : kernel.song().notesAtTick(t)) {
+                if (n.key != key) continue;
+                if (n.layer == currentLayer) { hit = n; break; }
+                if (hit == null) hit = n;
+            }
+            if (hit != null) selection.toggleCell(kernel.song(), hit.tick, hit.layer);
+        } else {
+            int t = (int) Math.floor(laneGrid.tickAt(rollX(), mx));
+            int l = laneGrid.layerAt(rollY(), my, layerScroll, layerRowH(), kernel.song().layers.size());
+            if (t >= 0 && l >= 0) selection.toggleCell(kernel.song(), t, l);
+        }
+    }
+
+    /** 层列单击落点（松手未拖时）：走 laneGrid 同一落点路径（覆盖 + 试听）。
+     *  Lane click placement (release without a drag): the lane grid's own path (overwrite + audition). */
+    private void placeAtPress() {
+        laneGrid.mouseDown(rollX(), rollY(), gridW(), gridH(), pressX, pressY, 0,
+            kernel, currentInstrument, toolKey, layerScroll, layerRowH());
     }
 
     /** 播放锁（社区 {@code playing = 0} 语义）：播放中网格不可编辑，提示一次并吞掉点击。
@@ -995,6 +1121,18 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             applyVScroll(NbsScrollBar.posFromThumbDrag(gridH(), t[3], (int) (my - rollY()), s[0], s[1]));
             return true;
         }
+        if (gesture != GESTURE_NONE) {
+            marqX = mx;
+            marqY = my;
+            // 拖过阈值 = 框选：层列落点 / 单格加减选让位（单击语义松手才判定）
+            // Crossing the threshold = marquee: the lane place / cell toggle hand over
+            // (click semantics resolve at release).
+            if (gesture != GESTURE_MARQUEE
+                && (Math.abs(mx - pressX) > DRAG_THRESHOLD || Math.abs(my - pressY) > DRAG_THRESHOLD)) {
+                gesture = GESTURE_MARQUEE;
+            }
+            return true;
+        }
         if (preview.isPlaying()) return true; // 播放锁：笔划不得续写（静默吞，防提示刷屏）
         if (view == View.LANE) {
             return laneGrid.mouseDrag(rollX(), rollY(), gridW(), gridH(), mx, my, kernel, layerScroll, layerRowH());
@@ -1006,6 +1144,10 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     public boolean mouseReleased(double mx, double my, int btn) {
         draggingSlider = 0;
         draggingScrollBar = 0;
+        if (gesture != GESTURE_NONE) {
+            commitGesture();
+            return true;
+        }
         if (view == View.LANE) {
             if (laneGrid.isErasing()) {
                 kernel.endBatch();
@@ -1018,6 +1160,13 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             roll.mouseUp();
         }
         return super.mouseReleased(mx, my, btn);
+    }
+
+    @Override
+    public void mouseMoved(double mx, double my) {
+        hoverX = mx;
+        hoverY = my;
+        super.mouseMoved(mx, my);
     }
 
     @Override
@@ -1158,8 +1307,107 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             case NBS_INSTRUMENT_NEXT -> { currentInstrument = (currentInstrument + 1) % 16; return true; }
             case NBS_OCTAVE_PREV -> { pianoStrip.shift(-12); return true; }
             case NBS_OCTAVE_NEXT -> { pianoStrip.shift(12); return true; }
+            // 选择/剪贴板命令（批次三 B1）/ selection & clipboard commands (batch 3 B1)
+            case NBS_BOX_SELECT -> { return true; }  // 按住型：手势处轮询物理键态 / hold action — polled at gesture time
+            case NBS_COPY -> { doCopy(); return true; }
+            case NBS_CUT -> { doCut(); return true; }
+            case NBS_PASTE -> { doPaste(); return true; }
+            case NBS_DELETE_SELECTED -> { doDeleteSelection(); return true; }
+            case NBS_SELECT_ALL -> { selection.selectAll(kernel.song()); return true; }
+            case NBS_SELECT_INVERT -> { selection.invert(kernel.song()); return true; }
             default -> { return false; }
         }
+    }
+
+    // ══════════════ 选区命令（批次三 B1）/ selection commands (batch 3 B1) ══════════════
+
+    /** 复制选中 → 内部 + 系统剪贴板（社区压缩串，可与社区编辑器互贴）。 */
+    private void doCopy() {
+        NbsClipboard clip = kernel.copySelection(selection);
+        if (clip == null) {
+            feedback(I18n.get("gui.create_schematic_compute.nbs_sel_empty"));
+            return;
+        }
+        setClipboards(clip);
+        feedback(I18n.get("gui.create_schematic_compute.nbs_sel_copied", clip.entries().size()));
+    }
+
+    /** 剪切选中（快照撤销）→ 剪贴板；播放锁拦下。 / cut = fragment + delete (snapshot undo). */
+    private void doCut() {
+        if (editLocked()) return;
+        NbsClipboard clip = kernel.cutSelection(selection);
+        if (clip == null) {
+            feedback(I18n.get("gui.create_schematic_compute.nbs_sel_empty"));
+            return;
+        }
+        setClipboards(clip);
+        selection.clear();
+        feedback(I18n.get("gui.create_schematic_compute.nbs_sel_cut", clip.entries().size()));
+    }
+
+    /** 删除选中（快照撤销）；播放锁拦下。 / delete the selection (snapshot undo). */
+    private void doDeleteSelection() {
+        if (editLocked()) return;
+        int n = kernel.deleteSelection(selection);
+        selection.clear();
+        if (n == 0) {
+            feedback(I18n.get("gui.create_schematic_compute.nbs_sel_empty"));
+            return;
+        }
+        feedback(I18n.get("gui.create_schematic_compute.nbs_sel_deleted", n));
+    }
+
+    /** 粘贴片段（快照撤销）：落格成为新选区（随后可整体搬/删）。 / paste (snapshot undo);
+     *  the placed cells become the new selection (ready to move / delete as one). */
+    private void doPaste() {
+        if (editLocked()) return;
+        NbsClipboard clip = loadClipboard();
+        if (clip == null) {
+            feedback(I18n.get("gui.create_schematic_compute.nbs_clipboard_empty"));
+            return;
+        }
+        int[] anchor = pasteAnchor();
+        NbsSelection placed = kernel.paste(clip, anchor[0], anchor[1]);
+        if (placed.isEmpty()) {
+            feedback(I18n.get("gui.create_schematic_compute.nbs_paste_nothing"));
+            return;
+        }
+        selection = placed;
+        feedback(I18n.get("gui.create_schematic_compute.nbs_sel_pasted", placed.size()));
+    }
+
+    /** 系统剪贴板优先（与社区编辑器互贴），外来文本回落内部剪贴板。
+     *  System clipboard first (interop with the community editors); foreign text falls
+     *  back to the internal clip. */
+    private NbsClipboard loadClipboard() {
+        if (minecraft == null) return clipboard;
+        NbsClipboard sys = NbsClipboard.decode(minecraft.keyboardHandler.getClipboard());
+        return sys != null ? sys : clipboard;
+    }
+
+    private void setClipboards(NbsClipboard clip) {
+        clipboard = clip;
+        if (minecraft != null) minecraft.keyboardHandler.setClipboard(clip.encode());
+    }
+
+    /** 粘贴锚点：鼠标所指格优先；不在网格上 = 播放头 tick × 当前层。
+     *  Paste anchor: the hovered cell first; off-grid = the playhead tick × current layer. */
+    private int[] pasteAnchor() {
+        boolean overGrid = view == View.ROLL
+            ? roll.hit(rollX(), rollY(), gridW(), gridH(), hoverX, hoverY) == NbsPianoRoll.Zone.GRID
+            : hoverY < stripY()
+                && laneGrid.hit(rollX(), rollY(), gridW(), gridH(), hoverX, hoverY) == NbsLaneGrid.Zone.GRID;
+        if (overGrid) {
+            int tick = (int) Math.floor(view == View.ROLL
+                ? roll.tickAt(rollX(), hoverX) : laneGrid.tickAt(rollX(), hoverX));
+            int layer = currentLayer;
+            if (view == View.LANE) {
+                int l = laneGrid.layerAt(rollY(), hoverY, layerScroll, layerRowH(), kernel.song().layers.size());
+                if (l >= 0) layer = l;
+            }
+            return new int[]{Math.max(0, tick), layer};
+        }
+        return new int[]{Math.max(0, (int) Math.floor(preview.head)), currentLayer};
     }
 
     @Override
