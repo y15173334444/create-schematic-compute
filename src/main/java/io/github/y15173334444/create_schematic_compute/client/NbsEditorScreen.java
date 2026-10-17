@@ -93,6 +93,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private int draggingSlider = 0;        // 0=无 1=音量 2=声像
     private boolean importOpen = false, exportOpen = false, showGuide = false;
     private List<Path> importFiles = List.of();
+    /** 导入弹窗可见行数（渲染 / 命中 / 滚动钳位共用）。/ import dialog visible rows (render, hit-test and scroll clamp share it). */
+    static final int IMPORT_ROWS = 11;
     private int importScroll = 0;
     private String feedbackText = "";
     private long feedbackUntil = 0;
@@ -193,6 +195,12 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     @Override
     public void onClose() {
+        // BE 已消失（方块被拆/区块卸载）：目标会话不存在——跳过同步（op 必被服务端 REJECT）、
+        // 不回旧实例（tick 的存活守卫同口径）。
+        // The BE is gone (block broken / chunk unloaded): the target session no longer
+        // exists — skip the sync (the server would REJECT the op) and never resurface the
+        // stale return screen (same policy as tick's liveness guard).
+        if (getBE() == null) { minecraft.setScreen(null); return; }
         applyPendingInputs();
         syncSongToServer();                 // 关闭前把本地编辑定向同步（像素编辑器同款）
         // 不调用 super.onClose()：Screen 默认实现会 setScreen(null) 覆盖返回界面
@@ -238,6 +246,12 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             ? String.valueOf((int) tps) : String.valueOf(tps);
     }
 
+    /** 导入列表滚动钳位（纯函数）：停在 [0, max(0, 文件数 − 可见行)]。
+     *  Import-list scroll clamp (pure): stays within [0, max(0, files − visible rows)]. */
+    static int clampImportScroll(int scroll, int fileCount) {
+        return Math.max(0, Math.min(scroll, Math.max(0, fileCount - IMPORT_ROWS)));
+    }
+
     private void commitLayerName() {
         if (currentLayer >= 0 && currentLayer < kernel.song().layers.size()) {
             kernel.setLayerName(currentLayer, layerNameBox.getValue());
@@ -270,21 +284,67 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (showGuide) renderGuide(g);
     }
 
+    // ══════════════ 条形按钮几何（单一真相源）/ bar button geometry (single source) ══════════════
+    // 渲染与命中测试都从下面两张矩形表取几何，禁止两侧各自步进坐标（tech-debt P2-22：
+    // render/click 几何双写，失步即按错按钮）。
+    // Rendering and hit-testing both read these rect tables — never re-walk the layout by hand
+    // on either side (tech-debt P2-22: duplicated render/click geometry drifts into misclicks).
+
+    /** 顶栏按钮下标（= topBarRects 顺序，右起）。/ top-bar indices (topBarRects order, right to left). */
+    static final int TB_CLOSE = 0, TB_SAVE = 1, TB_GUIDE = 2, TB_EXPORT = 3, TB_IMPORT = 4, TB_REDO = 5, TB_UNDO = 6;
+    private static final int[] TOP_BTN_W = {38, 42, 42, 48, 48, 38, 38};
+
+    /** 顶栏按钮矩形表：右起排布（右留 4px、按钮间 2px），y=4、高 18。
+     *  Top-bar rects, right to left (4px right margin, 2px gaps), y=4, h=18. */
+    static int[][] topBarRects(int width) {
+        int[][] r = new int[TOP_BTN_W.length][4];
+        int x = width - 4;
+        for (int i = 0; i < r.length; i++) {
+            x -= TOP_BTN_W[i] + 2;
+            r[i] = new int[]{x, 4, TOP_BTN_W[i], 18};
+        }
+        return r;
+    }
+
+    /** 传输条下标（= transportBarRects 顺序）。/ transport-bar indices (transportBarRects order). */
+    static final int TR_PLAY = 0, TR_STOP = 1, TR_LOOP = 2, TR_TEMPO = 3, TR_INST_LABEL = 4, TR_INST_PREV = 5, TR_INST_NEXT = 6;
+
+    /** 传输条矩形表：走带三键、速度框、乐器标签框、乐器前后键。tempo 标签宽随语言，作入参。
+     *  Transport-bar rects: transport trio, tempo box, instrument label + prev/next. The tempo
+     *  label width is locale-dependent and comes in as a parameter. */
+    static int[][] transportBarRects(int width, int height, int tempoLabelW) {
+        int y = height - TRANSPORT_H + 4;
+        return new int[][] {
+            {4, y, 48, 18},                                      // play/pause 播放/暂停
+            {56, y, 38, 18},                                     // stop 停止
+            {98, y, 44, 18},                                     // loop 循环
+            {148 + tempoLabelW + 4, y + 2, 40, 14},              // tempo box 速度框
+            {width - 108, y, 84, 18},                            // instrument label 乐器标签框
+            {width - 124, y, 16, 18},                            // instrument prev 上一乐器
+            {width - 20, y, 16, 18},                             // instrument next 下一乐器
+        };
+    }
+
     private void renderTopBar(GuiGraphics g, int mx, int my) {
         g.fill(0, 0, width, TOP_H - 2, C_PANEL);
         g.fill(0, TOP_H - 2, width, TOP_H, C_BORDER);
         String title = "NBS · " + (kernel.song().songName.isEmpty() ? node.displayText : kernel.song().songName);
         g.drawString(font, title, 6, 10, C_TEXT, false);
 
-        // 右侧按钮簇（从右往左）/ right-side button cluster
-        int x = width - 4;
-        x -= 40; button(g, x, 4, 38, 18, I18n.get("gui.create_schematic_compute.nbs_close"), mx, my, false);
-        x -= 44; button(g, x, 4, 42, 18, I18n.get("gui.create_schematic_compute.nbs_save"), mx, my, false);
-        x -= 44; button(g, x, 4, 42, 18, I18n.get("gui.create_schematic_compute.nbs_guide"), mx, my, showGuide);
-        x -= 50; button(g, x, 4, 48, 18, I18n.get("gui.create_schematic_compute.nbs_export"), mx, my, exportOpen);
-        x -= 50; button(g, x, 4, 48, 18, I18n.get("gui.create_schematic_compute.nbs_import"), mx, my, importOpen);
-        x -= 40; button(g, x, 4, 38, 18, I18n.get("gui.create_schematic_compute.nbs_redo"), mx, my, false);
-        x -= 40; button(g, x, 4, 38, 18, I18n.get("gui.create_schematic_compute.nbs_undo"), mx, my, false);
+        String[] labels = {
+            I18n.get("gui.create_schematic_compute.nbs_close"),
+            I18n.get("gui.create_schematic_compute.nbs_save"),
+            I18n.get("gui.create_schematic_compute.nbs_guide"),
+            I18n.get("gui.create_schematic_compute.nbs_export"),
+            I18n.get("gui.create_schematic_compute.nbs_import"),
+            I18n.get("gui.create_schematic_compute.nbs_redo"),
+            I18n.get("gui.create_schematic_compute.nbs_undo"),
+        };
+        int[][] r = topBarRects(width);
+        for (int i = 0; i < r.length; i++) {
+            boolean on = (i == TB_GUIDE && showGuide) || (i == TB_EXPORT && exportOpen) || (i == TB_IMPORT && importOpen);
+            button(g, r[i][0], r[i][1], r[i][2], r[i][3], labels[i], mx, my, on);
+        }
 
         if (System.currentTimeMillis() < feedbackUntil && !feedbackText.isEmpty()) {
             g.drawString(font, feedbackText, 6 + font.width(title) + 12, 10, C_TEXT_DIM, false);
@@ -296,40 +356,35 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         g.fill(0, y, width, height, C_PANEL);
         g.fill(0, y, width, y + 2, C_BORDER);
 
-        int x = 4;
-        button(g, x, y + 4, 48, 18, I18n.get(preview.isPlaying()
+        int tempoLabelW = font.width(I18n.get("gui.create_schematic_compute.nbs_tempo"));
+        int[][] r = transportBarRects(width, height, tempoLabelW);
+        button(g, r[TR_PLAY][0], r[TR_PLAY][1], r[TR_PLAY][2], r[TR_PLAY][3], I18n.get(preview.isPlaying()
             ? "gui.create_schematic_compute.nbs_pause" : "gui.create_schematic_compute.nbs_play"), mx, my, preview.isPlaying());
-        x += 52;
-        button(g, x, y + 4, 38, 18, I18n.get("gui.create_schematic_compute.nbs_stop"), mx, my, false);
-        x += 42;
-        button(g, x, y + 4, 44, 18, I18n.get("gui.create_schematic_compute.nbs_loop"), mx, my, kernel.song().loop);
-        x += 50;
+        button(g, r[TR_STOP][0], r[TR_STOP][1], r[TR_STOP][2], r[TR_STOP][3], I18n.get("gui.create_schematic_compute.nbs_stop"), mx, my, false);
+        button(g, r[TR_LOOP][0], r[TR_LOOP][1], r[TR_LOOP][2], r[TR_LOOP][3], I18n.get("gui.create_schematic_compute.nbs_loop"), mx, my, kernel.song().loop);
 
-        g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_tempo"), x, y + 9, C_TEXT_DIM, false);
-        x += font.width(I18n.get("gui.create_schematic_compute.nbs_tempo")) + 4;
-        tempoBox.setX(x); tempoBox.setY(y + 6); tempoBox.render(g, mx, my, pt0());
-        x += 46;
+        g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_tempo"),
+            r[TR_TEMPO][0] - tempoLabelW - 4, y + 9, C_TEXT_DIM, false);
+        tempoBox.setX(r[TR_TEMPO][0]); tempoBox.setY(r[TR_TEMPO][1]); tempoBox.render(g, mx, my, pt0());
 
         float tps = Math.max(0.01f, kernel.song().tempo / 100f);
         int headT = (int) preview.head;
         int len = Math.max(kernel.song().songLength, kernel.song().computeLength());
         String pos = String.format("tick %d / %d  %d:%02d", headT, len,
             (int) (preview.head / tps) / 60, (int) (preview.head / tps) % 60);
-        g.drawString(font, pos, x, y + 9, C_TEXT, false);
+        g.drawString(font, pos, r[TR_TEMPO][0] + 46, y + 9, C_TEXT, false);
 
         // 右侧乐器选择 / instrument cycle (right side)
-        int ix = width - 4 - 16;
-        button(g, ix, y + 4, 16, 18, ">", mx, my, false);
-        ix -= 84;
         String instName = currentInstrument < 16
             ? I18n.get("gui.create_schematic_compute.nbs_inst_" + INSTRUMENT_KEYS[currentInstrument])
             : "#" + currentInstrument;
         int iw = font.width(instName);
-        g.fill(ix - 4, y + 4, ix + 80, y + 22, C_BTN);
-        g.renderOutline(ix - 4, y + 4, 84, 18, C_BORDER);
-        g.drawString(font, instName, ix - 4 + (80 - iw) / 2, y + 9, C_TEXT, false);
-        ix -= 20;
-        button(g, ix, y + 4, 16, 18, "<", mx, my, false);
+        int[] li = r[TR_INST_LABEL];
+        g.fill(li[0], li[1], li[0] + li[2], li[1] + li[3], C_BTN);
+        g.renderOutline(li[0], li[1], li[2], li[3], C_BORDER);
+        g.drawString(font, instName, li[0] + (80 - iw) / 2, y + 9, C_TEXT, false);
+        button(g, r[TR_INST_PREV][0], r[TR_INST_PREV][1], r[TR_INST_PREV][2], r[TR_INST_PREV][3], "<", mx, my, false);
+        button(g, r[TR_INST_NEXT][0], r[TR_INST_NEXT][1], r[TR_INST_NEXT][2], r[TR_INST_NEXT][3], ">", mx, my, false);
     }
 
     private float pt0() { return 0f; }
@@ -404,7 +459,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         g.renderOutline(x, y, w, h, C_BORDER);
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_import_title"), x + 8, y + 6, C_TEXT, false);
         int rowY = y + 20;
-        for (int i = 0; i < importFiles.size() && i < 11; i++) {
+        for (int i = 0; i < importFiles.size() && i < IMPORT_ROWS; i++) {
             int idx = i + importScroll;
             if (idx >= importFiles.size()) break;
             int ry = rowY + i * ROW_H;
@@ -487,55 +542,54 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     private boolean clickTopBar(double mx, double my) {
-        int x = width - 4;
-        x -= 40; if (inRect(x, 4, 38, 18, mx, my)) { onClose(); return true; }
-        x -= 44; if (inRect(x, 4, 42, 18, mx, my)) { applyPendingInputs(); syncSongToServer(); return true; }
-        x -= 44; if (inRect(x, 4, 42, 18, mx, my)) { showGuide = !showGuide; return true; }
-        x -= 50; if (inRect(x, 4, 48, 18, mx, my)) { openExportDialog(); return true; }
-        x -= 50; if (inRect(x, 4, 48, 18, mx, my)) { openImportDialog(); return true; }
-        x -= 40; if (inRect(x, 4, 38, 18, mx, my)) {
+        int[][] r = topBarRects(width);
+        for (int i = 0; i < r.length; i++) {
+            if (!inRect(r[i][0], r[i][1], r[i][2], r[i][3], mx, my)) continue;
+            if (i == TB_CLOSE) { onClose(); return true; }
+            if (i == TB_SAVE) { applyPendingInputs(); syncSongToServer(); return true; }
+            if (i == TB_GUIDE) { showGuide = !showGuide; return true; }
+            if (i == TB_EXPORT) { openExportDialog(); return true; }
+            if (i == TB_IMPORT) { openImportDialog(); return true; }
             applyPendingInputs();
-            if (kernel.performRedo()) feedback(I18n.get("gui.create_schematic_compute.nbs_redid"));
-            return true;
-        }
-        x -= 40; if (inRect(x, 4, 38, 18, mx, my)) {
-            applyPendingInputs();
-            if (kernel.performUndo()) feedback(I18n.get("gui.create_schematic_compute.nbs_undid"));
+            if (i == TB_REDO) {
+                if (kernel.performRedo()) feedback(I18n.get("gui.create_schematic_compute.nbs_redid"));
+            } else if (kernel.performUndo()) {
+                feedback(I18n.get("gui.create_schematic_compute.nbs_undid"));
+            }
             return true;
         }
         return true;
     }
 
     private boolean clickTransport(double mx, double my) {
-        int y = height - TRANSPORT_H;
-        int x = 4;
-        if (inRect(x, y + 4, 48, 18, mx, my)) { togglePlay(); return true; }
-        x += 52;
-        if (inRect(x, y + 4, 38, 18, mx, my)) { preview.stop(); preview.seek(0); CscAudioEngine.cancelListenerFuture(); return true; }
-        x += 42;
-        if (inRect(x, y + 4, 44, 18, mx, my)) {
+        int tempoLabelW = font.width(I18n.get("gui.create_schematic_compute.nbs_tempo"));
+        int[][] r = transportBarRects(width, height, tempoLabelW);
+        if (inRect(r[TR_PLAY][0], r[TR_PLAY][1], r[TR_PLAY][2], r[TR_PLAY][3], mx, my)) { togglePlay(); return true; }
+        if (inRect(r[TR_STOP][0], r[TR_STOP][1], r[TR_STOP][2], r[TR_STOP][3], mx, my)) {
+            preview.stop(); preview.seek(0); CscAudioEngine.cancelListenerFuture();
+            return true;
+        }
+        if (inRect(r[TR_LOOP][0], r[TR_LOOP][1], r[TR_LOOP][2], r[TR_LOOP][3], mx, my)) {
             var s = kernel.song();
             kernel.setLoop(!s.loop, s.maxLoopCount, s.loopStartTick);
             return true;
         }
-        x += 50;
-        x += font.width(I18n.get("gui.create_schematic_compute.nbs_tempo")) + 4;
-        if (inRect(x, y + 6, 40, 14, mx, my)) {
+        if (inRect(r[TR_TEMPO][0], r[TR_TEMPO][1], r[TR_TEMPO][2], r[TR_TEMPO][3], mx, my)) {
             tempoBox.setFocused(true);
             return true;
         }
-        // 乐器选择 / instrument cycle
-        int ix = width - 4 - 16;
-        if (inRect(ix, y + 4, 16, 18, mx, my)) {
+        if (inRect(r[TR_INST_NEXT][0], r[TR_INST_NEXT][1], r[TR_INST_NEXT][2], r[TR_INST_NEXT][3], mx, my)) {
             currentInstrument = (currentInstrument + 1) % 16;
             return true;
         }
-        ix -= 84 + 20;
-        if (inRect(ix, y + 4, 16, 18, mx, my)) {
+        if (inRect(r[TR_INST_PREV][0], r[TR_INST_PREV][1], r[TR_INST_PREV][2], r[TR_INST_PREV][3], mx, my)) {
             currentInstrument = (currentInstrument + 15) % 16;
             return true;
         }
-        tempoBox.setFocused(false);
+        // 点空白=速度框失焦：走提交路径，不丢草稿（P3 同族修复）
+        // Clicking dead space blurs the tempo box through the commit path — the draft is
+        // never dropped (same family as the layer-name blur fix).
+        if (tempoBox.isFocused()) commitTempo();
         return true;
     }
 
@@ -600,7 +654,10 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             }
             return true;
         }
-        layerNameBox.setFocused(false);
+        // 点面板空白=层名框失焦：走提交路径（P3：失焦丢字——渲染每帧用层名覆盖未聚焦框）
+        // Clicking dead panel space blurs the layer-name box through the commit path (P3:
+        // blur used to drop the draft — rendering refills the unfocused box from the layer).
+        if (layerNameBox.isFocused()) commitLayerName();
         return true;
     }
 
@@ -618,7 +675,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             return true;
         }
         int rowY = y + 20;
-        for (int i = 0; i < importFiles.size() && i < 11; i++) {
+        for (int i = 0; i < importFiles.size() && i < IMPORT_ROWS; i++) {
             int idx = i + importScroll;
             if (idx >= importFiles.size()) break;
             if (inRect(x + 8, rowY + i * ROW_H, w - 16, ROW_H, mx, my)) {
@@ -754,7 +811,15 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             layerScroll = Math.max(0, layerScroll + (sy > 0 ? -1 : 1));
             return true;
         }
-        if (showGuide || importOpen || exportOpen) return true;
+        if (importOpen) {
+            // 导入列表滚轮：此前弹窗分支整体吞滚轮，importScroll 永不推进——目录超过一屏后
+            // 下方文件点不到。Wheel now drives the import list: the dialog branch used to
+            // swallow the wheel, leaving importScroll dead and rows past the first screen
+            // unclickable.
+            importScroll = clampImportScroll(importScroll + (sy > 0 ? -1 : 1), importFiles.size());
+            return true;
+        }
+        if (showGuide || exportOpen) return true;
         if (roll.hit(rollX(), rollY(), rollW(), rollH(), mx, my) != NbsPianoRoll.Zone.OUTSIDE) {
             return roll.mouseScroll(hasControlDown(), hasShiftDown(), sy);
         }
