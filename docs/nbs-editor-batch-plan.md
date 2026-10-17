@@ -132,6 +132,23 @@ feat: lane-view placement semantics in the nbs kernel
 - **滚动后点击防误触**：滚轮活动后 200ms（`SCROLL_GUARD_MS`）内的网格编辑点击视为滚动时
   手指蹭键——吞掉并提示「防误触」；刻度尺 seek 等无害点击不受限。
 
+### 批次二·六期：键位系统作用域 + NBS 命令入系统 / Phase 6: Binding Scopes & NBS Commands
+
+**状态：✅ 已解决（2026-10-17）**（用户拍板：NBS 命令进键位系统 + 「三个屏幕可绑同键」设计）
+
+- **作用域模型**：`EditorKeys.Scope {GRAPH, PIXEL, NBS}` —— 三个编辑器屏幕是三个独立绑定空间，
+  **同一键可分别绑定三个作用域的动作**；序列匹配只在本作用域内进行（`feedKey`/`feedClick`
+  传作用域，换域自动清半截缓冲——跨屏组合不接龙）；查冲突只在同作用域内（含 PAN 抓图键
+  独占也只限图域——拦截只发生在图编辑器屏幕内）。配置格式零变更（动作名唯一），旧配置照读。
+- **NBS 命令入系统**（13 个动作）：播放/暂停、停止、撤销、重做、保存、导入、导出、视图切换、
+  循环、乐器前后、八度窗前后。出厂默认 = 旧硬编码（Space / Ctrl+Z / Ctrl+Y），其余出厂不绑
+  （按钮即默认）；`Ctrl+Shift+Z` 重做别名按 DELETE_WIRE 老组合先例保留。NBS 面板按钮与键位
+  绑定共用同一派发路径（`dispatchNbsAction`），行为不漂移。
+- **一致性伤治愈**：撤销/重做按作用域各绑各的（NBS_UNDO 与图域 UNDO 同键出厂），重绑互不
+  干扰——正是「同一系统两套行为」问题的正解。
+- 回归锚点：`EditorKeysSequenceTest`（同键三域/换域清缓冲）、`EditorKeysPixelAndWireTest`
+  （跨域可绑语义更新）。
+
 ## 3. 批次三：编辑表达力 / Batch 3: Editing Expressiveness
 
 **状态：🔶 待办**。社区核心工作流三件套，内核测试先行（`NbsEditorKernelTest` 扩展为回归锚点）；两视图通用（LANE 视图的左键拖留白即为 B1 框选预留）。
