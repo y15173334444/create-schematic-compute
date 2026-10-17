@@ -774,11 +774,15 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 ? roll.hit(rollX(), rollY(), gridW(), gridH(), mx, my) == NbsPianoRoll.Zone.GRID
                 : laneGrid.hit(rollX(), rollY(), gridW(), gridH(), mx, my) == NbsLaneGrid.Zone.GRID;
             // 右键点空白 = 取消选择（实测反馈：选中后无路可退）：无害操作，不进播放锁/防误触；
-            // 点在音符上仍是擦除。擦除笔划照旧从空格起划。
+            // 有得擦（当前层该 tick 有音符）就只擦不取消，擦除笔划照旧可从空格起划。
             // RMB on blank cells clears the selection (field feedback: a selection had no
-            // way out) — harmless, never gated; RMB on a note still erases, and erase
-            // strokes still sweep from blank cells.
-            if (btn == 1 && overGrid && (view == View.ROLL ? noteAt(mx, my) : laneNoteAt(mx, my)) == null) {
+            // way out) — harmless, never gated; where an erase can land (a note at that
+            // tick on the current layer) it only erases, and erase strokes still sweep
+            // from blank cells.
+            boolean blankForErase = view == View.ROLL
+                ? kernel.song().getNote((int) Math.floor(roll.tickAt(rollX(), mx)), currentLayer) == null
+                : laneNoteAt(mx, my) == null;
+            if (btn == 1 && overGrid && blankForErase) {
                 selection.clear();
             }
             if (overGrid && (editLocked() || scrollGuarded())) return true;

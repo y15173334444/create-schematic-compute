@@ -218,7 +218,8 @@ public final class NbsPianoRoll {
     }
 
     /**
-     * 网格区按下：左 = 点放（同键再点删），右 = 擦除；开启笔划去重。
+     * 网格区按下：左 = 点放（同键再点删），右 = 擦除（按 tick——层是单声部）；开启笔划去重。
+     * 右键走擦除路径，<b>不走点放</b>（实测反馈：右键在空格上放出了音符）。
      * @return 是否消费
      */
     public boolean mouseDown(int areaX, int areaY, int areaW, int areaH,
@@ -233,7 +234,14 @@ public final class NbsPianoRoll {
             return false;
         }
         strokeVisited.clear();
-        applyAt(kernel, layer, instrument, (int) Math.floor(tickAt(areaX, mx)), (int) Math.floor(keyAt(areaY, my)));
+        int tick = (int) Math.floor(tickAt(areaX, mx));
+        if (btn == 0) {
+            applyAt(kernel, layer, instrument, tick, (int) Math.floor(keyAt(areaY, my)));
+        } else {
+            // 右键 = 擦除本层该 tick 的音符（每 tick 一次）；空格 = 空操作
+            // RMB erases the layer's note at that tick (once per tick); blank = no-op.
+            eraseAt(kernel, layer, tick);
+        }
         return true;
     }
 
