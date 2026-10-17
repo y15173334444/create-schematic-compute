@@ -42,21 +42,21 @@ public final class NbsPianoRoll {
     private static final float MIN_PX_PER_KEY = 3f, MAX_PX_PER_KEY = 24f;
 
     // ── 配色 / colours ──
-    private static final int C_BG = 0xFF14120E;
+    static final int C_BG = 0xFF14120E;
     private static final int C_GUTTER = 0xFF24201A;
-    private static final int C_RULER = 0xFF24201A;
-    private static final int C_GRID_TICK = 0xFF2A2822;
-    private static final int C_GRID_BEAT = 0xFF3A362C;
-    private static final int C_GRID_BAR = 0xFF4A4636;
-    private static final int C_BLACK_KEY = 0xFF201C16;
-    private static final int C_WHITE_KEY = 0xFF2E2A22;
-    private static final int C_TEXT = 0xFFBFB8A8;
-    private static final int C_TEXT_DIM = 0xFF7A7466;
-    private static final int C_PLAYHEAD = 0xFFE0B040;
-    private static final int C_OUT_OF_WINDOW = 0x40101018;  // 发音窗口外的键行遮罩 / dim outside 33–57
+    static final int C_RULER = 0xFF24201A;
+    static final int C_GRID_TICK = 0xFF2A2822;
+    static final int C_GRID_BEAT = 0xFF3A362C;
+    static final int C_GRID_BAR = 0xFF4A4636;
+    static final int C_BLACK_KEY = 0xFF201C16;
+    static final int C_WHITE_KEY = 0xFF2E2A22;
+    static final int C_TEXT = 0xFFBFB8A8;
+    static final int C_TEXT_DIM = 0xFF7A7466;
+    static final int C_PLAYHEAD = 0xFFE0B040;
+    static final int C_OUT_OF_WINDOW = 0x40101018;  // 发音窗口外的键行遮罩 / dim outside 33–57
 
     /** 16 原版乐器各一色（音符按乐器着色）。 / one colour per vanilla instrument. */
-    private static final int[] INSTRUMENT_COLORS = {
+    static final int[] INSTRUMENT_COLORS = {
         0xFFE06C5A, 0xFFE0A24C, 0xFFD9C84C, 0xFF9FC24C, 0xFF59C26A, 0xFF4CC2A8, 0xFF4CA8C2,
         0xFF5A7FE0, 0xFF8A5AE0, 0xFFC25AE0, 0xFFE05A9C, 0xFFB08060, 0xFF8A8A8A, 0xFF6AC2C2,
         0xFFC2906A, 0xFFB0B8C8
@@ -300,17 +300,17 @@ public final class NbsPianoRoll {
     }
 
     /** 黑键（A 起半音序号：1/4/6/8/11）。 */
-    private static boolean isBlackKey(int k) {
+    static boolean isBlackKey(int k) {
         int pc = Math.floorMod(k, 12);
         return pc == 1 || pc == 4 || pc == 6 || pc == 8 || pc == 11;
     }
 
     /** NBS 键 0 = A0；每 12 键一个 C（k%12==3 → C）。 */
-    private static String cName(int k) {
+    static String cName(int k) {
         return "C" + (k + 9) / 12;
     }
 
-    private static int dim(int color, float f) {
+    static int dim(int color, float f) {
         int a = (color >>> 24) & 0xFF, r = (color >>> 16) & 0xFF, gg = (color >>> 8) & 0xFF, b = color & 0xFF;
         return (a << 24) | ((int) (r * f) << 16) | ((int) (gg * f) << 8) | (int) (b * f);
     }

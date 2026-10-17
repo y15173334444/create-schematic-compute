@@ -87,6 +87,17 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private final NbsPianoRoll roll = new NbsPianoRoll();
     private final MusicTransport preview = new MusicTransport();
 
+    // ── 双样式 / dual style ──
+    // ROLL = 钢琴卷帘（默认，未调整行为不变）；LANE = 层序器 + 底部钢琴条（社区原生布局）。
+    // ROLL = the piano roll (default — unchanged behaviour); LANE = the lane grid + bottom
+    // piano strip (the community-native layout).
+    private enum View { ROLL, LANE }
+    private View view = View.ROLL;
+    private final NbsLaneGrid laneGrid = new NbsLaneGrid(this::audition);
+    private final NbsPianoStrip pianoStrip = new NbsPianoStrip();
+    /** 层序器工具键（NBS 基准键 45 起）。 / the lane-view tool key (starts at the NBS base key 45). */
+    private int toolKey = 45;
+
     private int currentLayer = 0;
     private int currentInstrument = 0;
     private int layerScroll = 0;
@@ -270,14 +281,35 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private int rollY() { return TOP_H; }
     private int rollW() { return width - PANEL_W; }
     private int rollH() { return height - TOP_H - TRANSPORT_H; }
+    /** 层序器视图：钢琴条顶缘（条占网格区底部）。 / lane view: piano-strip top. */
+    private int stripY() { return rollY() + rollH() - NbsPianoStrip.STRIP_H; }
+    /** 层序器视图：网格高（扣掉钢琴条）。 / lane view: grid height minus the strip. */
+    private int laneGridH() { return rollH() - NbsPianoStrip.STRIP_H; }
+    /** 层列表行高（层序器视图加高与网格行对齐；卷帘视图维持原值）。 */
+    private int layerRowH() { return view == View.LANE ? LANE_ROW_H : ROW_H; }
+    /** 层序器视图的层行高（与网格行 1:1 对齐）。 */
+    static final int LANE_ROW_H = 20;
+
+    /** 编辑试听（社区习惯：放键/覆盖/选键即发声，按听者位置）。
+     *  Edit audition (community habit: placing, overwriting and key picks sound at once). */
+    private void audition(NbsSong.Note n) {
+        CscAudioEngine.playAtListener(new NoteEvent(n.instrument, n.key, n.velocity, n.panning, n.pitch, 1f));
+    }
 
     @Override
     public void render(GuiGraphics g, int mx, int my, float pt) {
         g.fill(0, 0, width, height, C_BG);
         renderTopBar(g, mx, my);
         renderLayerPanel(g, mx, my);
-        roll.render(g, font, rollX(), rollY(), rollW(), rollH(),
-            kernel.song(), currentLayer, preview.isPlaying() || preview.headTick() > 0 ? preview.head : -1f);
+        float playhead = preview.isPlaying() || preview.headTick() > 0 ? preview.head : -1f;
+        if (view == View.ROLL) {
+            roll.render(g, font, rollX(), rollY(), rollW(), rollH(),
+                kernel.song(), currentLayer, playhead);
+        } else {
+            laneGrid.render(g, font, rollX(), rollY(), rollW(), laneGridH(),
+                kernel.song(), currentLayer, layerScroll, layerRowH(), playhead);
+            pianoStrip.render(g, font, rollX(), stripY(), rollW(), NbsPianoStrip.STRIP_H, toolKey);
+        }
         renderTransportBar(g, mx, my);
         if (importOpen) renderImportDialog(g, mx, my);
         if (exportOpen) renderExportDialog(g, mx, my);
@@ -291,8 +323,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     // on either side (tech-debt P2-22: duplicated render/click geometry drifts into misclicks).
 
     /** 顶栏按钮下标（= topBarRects 顺序，右起）。/ top-bar indices (topBarRects order, right to left). */
-    static final int TB_CLOSE = 0, TB_SAVE = 1, TB_GUIDE = 2, TB_EXPORT = 3, TB_IMPORT = 4, TB_REDO = 5, TB_UNDO = 6;
-    private static final int[] TOP_BTN_W = {38, 42, 42, 48, 48, 38, 38};
+    static final int TB_CLOSE = 0, TB_SAVE = 1, TB_GUIDE = 2, TB_EXPORT = 3, TB_IMPORT = 4, TB_REDO = 5, TB_UNDO = 6, TB_VIEW = 7;
+    private static final int[] TOP_BTN_W = {38, 42, 42, 48, 48, 38, 38, 50};
 
     /** 顶栏按钮矩形表：右起排布（右留 4px、按钮间 2px），y=4、高 18。
      *  Top-bar rects, right to left (4px right margin, 2px gaps), y=4, h=18. */
@@ -339,6 +371,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             I18n.get("gui.create_schematic_compute.nbs_import"),
             I18n.get("gui.create_schematic_compute.nbs_redo"),
             I18n.get("gui.create_schematic_compute.nbs_undo"),
+            I18n.get(view == View.ROLL ? "gui.create_schematic_compute.nbs_view_roll"
+                                       : "gui.create_schematic_compute.nbs_view_lane"),
         };
         int[][] r = topBarRects(width);
         for (int i = 0; i < r.length; i++) {
@@ -395,20 +429,21 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         g.fill(PANEL_W - 2, TOP_H, PANEL_W, bottom, C_BORDER);
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_layers"), 6, TOP_H + 4, C_TEXT, false);
 
-        // 层列表 / layer list
+        // 层列表 / layer list（行高随视图：层序器视图与网格行 1:1 对齐）
         int listTop = TOP_H + 18;
         int listBottom = bottom - PROPS_H;
+        int rh = layerRowH();
         var layers = kernel.song().layers;
         for (int i = 0; i < layers.size(); i++) {
-            int y = listTop + (i - layerScroll) * ROW_H;
-            if (y < listTop - ROW_H || y > listBottom - ROW_H) continue;
+            int y = listTop + (i - layerScroll) * rh;
+            if (y < listTop - rh || y > listBottom - rh) continue;
             boolean sel = i == currentLayer;
-            int color = sel ? C_SEL : (inRect(4, y, PANEL_W - 12, ROW_H, mx, my) ? C_HOVER : C_PANEL);
-            g.fill(4, y, PANEL_W - 8, y + ROW_H - 1, color);
+            int color = sel ? C_SEL : (inRect(4, y, PANEL_W - 12, rh, mx, my) ? C_HOVER : C_PANEL);
+            g.fill(4, y, PANEL_W - 8, y + rh - 1, color);
             String name = layers.get(i).name.isEmpty() ? I18n.get("gui.create_schematic_compute.nbs_layer") + " " + (i + 1) : layers.get(i).name;
-            g.drawString(font, name, 8, y + 3, layers.get(i).locked ? C_TEXT_DIM : C_TEXT, false);
+            g.drawString(font, name, 8, y + (rh - 8) / 2, layers.get(i).locked ? C_TEXT_DIM : C_TEXT, false);
             String vol = layers.get(i).volume + "%";
-            g.drawString(font, vol, PANEL_W - 8 - font.width(vol) - 6, y + 3, C_TEXT_DIM, false);
+            g.drawString(font, vol, PANEL_W - 8 - font.width(vol) - 6, y + (rh - 8) / 2, C_TEXT_DIM, false);
         }
 
         // 选中层属性 / selected layer properties
@@ -515,10 +550,12 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (exportOpen) return clickExport(mx, my, btn);
 
         if (btn != 0) {
-            // 右键落在卷帘上 = 擦除；其余右键忽略。擦除同样按笔划分组撤销。
-            if (roll.mouseDown(rollX(), rollY(), rollW(), rollH(), mx, my, btn, kernel, currentLayer, currentInstrument)) {
-                kernel.beginBatch();
-            }
+            // 右键落在网格上 = 擦除；其余右键忽略。擦除同样按笔划分组撤销。
+            boolean consumed = view == View.ROLL
+                ? roll.mouseDown(rollX(), rollY(), rollW(), rollH(), mx, my, btn, kernel, currentLayer, currentInstrument)
+                : laneGrid.mouseDown(rollX(), rollY(), rollW(), laneGridH(), mx, my, btn, kernel,
+                    currentInstrument, toolKey, layerScroll, layerRowH());
+            if (consumed) kernel.beginBatch();
             return true;
         }
 
@@ -528,13 +565,42 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (my >= height - TRANSPORT_H) return clickTransport(mx, my);
         // 层面板 / layer panel
         if (mx < PANEL_W) return clickLayerPanel(mx, my);
-        // 卷帘（含刻度尺 seek）/ roll (ruler click = seek)
-        if (roll.hit(rollX(), rollY(), rollW(), rollH(), mx, my) == NbsPianoRoll.Zone.RULER) {
-            int t = (int) Math.floor(roll.tickAt(rollX(), mx));
+        if (view == View.ROLL) {
+            // 卷帘（含刻度尺 seek）/ roll (ruler click = seek)
+            if (roll.hit(rollX(), rollY(), rollW(), rollH(), mx, my) == NbsPianoRoll.Zone.RULER) {
+                int t = (int) Math.floor(roll.tickAt(rollX(), mx));
+                preview.seek(Math.max(0, t));
+                return true;
+            }
+            if (roll.mouseDown(rollX(), rollY(), rollW(), rollH(), mx, my, btn, kernel, currentLayer, currentInstrument)) {
+                kernel.beginBatch();
+                return true;
+            }
+            return super.mouseClicked(mx, my, btn);
+        }
+        // ── 层序器视图 / lane view ──
+        if (my >= stripY()) {
+            // 钢琴条：八度按钮 / 点键 = 选工具键 + 试听（社区签名习惯）
+            int oct = pianoStrip.octaveButtonAt(mx, my, rollX(), stripY());
+            if (oct != 0) pianoStrip.shift(oct * 12);
+            else {
+                int k = pianoStrip.keyAt(rollW() - NbsPianoStrip.BTN_W, NbsPianoStrip.STRIP_H - 4,
+                    mx - rollX() - NbsPianoStrip.BTN_W, my - stripY() - 2,
+                    pianoStrip.startKey(), NbsPianoStrip.WINDOW_KEYS);
+                if (k >= 0) {
+                    toolKey = k;
+                    audition(new NbsSong.Note(0, 0, currentInstrument, k, 100, 100, 0));
+                }
+            }
+            return true;
+        }
+        if (laneGrid.hit(rollX(), rollY(), rollW(), laneGridH(), mx, my) == NbsLaneGrid.Zone.RULER) {
+            int t = (int) Math.floor(laneGrid.tickAt(rollX(), mx));
             preview.seek(Math.max(0, t));
             return true;
         }
-        if (roll.mouseDown(rollX(), rollY(), rollW(), rollH(), mx, my, btn, kernel, currentLayer, currentInstrument)) {
+        if (laneGrid.mouseDown(rollX(), rollY(), rollW(), laneGridH(), mx, my, btn, kernel,
+            currentInstrument, toolKey, layerScroll, layerRowH())) {
             kernel.beginBatch();
             return true;
         }
@@ -550,6 +616,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             if (i == TB_GUIDE) { showGuide = !showGuide; return true; }
             if (i == TB_EXPORT) { openExportDialog(); return true; }
             if (i == TB_IMPORT) { openImportDialog(); return true; }
+            if (i == TB_VIEW) { view = (view == View.ROLL) ? View.LANE : View.ROLL; return true; }
             applyPendingInputs();
             if (i == TB_REDO) {
                 if (kernel.performRedo()) feedback(I18n.get("gui.create_schematic_compute.nbs_redid"));
@@ -609,11 +676,12 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         int listBottom = bottom - PROPS_H;
         var layers = kernel.song().layers;
 
-        // 列表行 / list rows
+        // 列表行 / list rows（行高随视图，与渲染同源）
+        int rh = layerRowH();
         for (int i = 0; i < layers.size(); i++) {
-            int y = listTop + (i - layerScroll) * ROW_H;
-            if (y < listTop || y > listBottom - ROW_H) continue;
-            if (inRect(4, y, PANEL_W - 12, ROW_H, mx, my)) {
+            int y = listTop + (i - layerScroll) * rh;
+            if (y < listTop || y > listBottom - rh) continue;
+            if (inRect(4, y, PANEL_W - 12, rh, mx, my)) {
                 currentLayer = i;
                 return true;
             }
@@ -792,12 +860,22 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             applySlider(mx, height - TRANSPORT_H - PROPS_H);
             return true;
         }
+        if (view == View.LANE) {
+            return laneGrid.mouseDrag(rollX(), rollY(), rollW(), laneGridH(), mx, my, kernel, layerScroll, layerRowH());
+        }
         return roll.mouseDrag(rollX(), rollY(), mx, my, kernel, currentLayer, currentInstrument);
     }
 
     @Override
     public boolean mouseReleased(double mx, double my, int btn) {
         draggingSlider = 0;
+        if (view == View.LANE) {
+            if (laneGrid.isErasing()) {
+                kernel.endBatch();
+                laneGrid.mouseUp();
+            }
+            return super.mouseReleased(mx, my, btn);
+        }
         if (roll.isPainting()) {
             kernel.endBatch();
             roll.mouseUp();
@@ -820,6 +898,18 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             return true;
         }
         if (showGuide || exportOpen) return true;
+        if (view == View.LANE) {
+            if (mx >= rollX() && my >= stripY()) { pianoStrip.shift(sy > 0 ? -12 : 12); return true; }
+            if (hasShiftDown()) {
+                // Shift+滚轮 = 翻层（与层面板同款）/ Shift+wheel flips layers (as in the panel)
+                layerScroll = Math.max(0, layerScroll + (sy > 0 ? -1 : 1));
+                return true;
+            }
+            if (laneGrid.hit(rollX(), rollY(), rollW(), laneGridH(), mx, my) != NbsLaneGrid.Zone.OUTSIDE) {
+                return laneGrid.mouseScroll(hasControlDown(), sy);
+            }
+            return super.mouseScrolled(mx, my, sx, sy);
+        }
         if (roll.hit(rollX(), rollY(), rollW(), rollH(), mx, my) != NbsPianoRoll.Zone.OUTSIDE) {
             return roll.mouseScroll(hasControlDown(), hasShiftDown(), sy);
         }
@@ -876,6 +966,17 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (tempoBox != null && tempoBox.isFocused()) return tempoBox.charTyped(ch, mod);
         if (layerNameBox != null && layerNameBox.isFocused()) return layerNameBox.charTyped(ch, mod);
         if (exportOpen && exportNameBox != null && exportNameBox.isFocused()) return exportNameBox.charTyped(ch, mod);
+        // 层序器视图：打字 = 琴键（社区映射，选键 + 试听）；弹窗打开时不响应。
+        // Lane view: typing plays the piano (community map — select + audition); silent
+        // while a dialog is open.
+        if (view == View.LANE && !showGuide && !importOpen && !exportOpen) {
+            int k = NbsPianoStrip.typedKey(ch);
+            if (k >= 0) {
+                toolKey = k;
+                audition(new NbsSong.Note(0, 0, currentInstrument, k, 100, 100, 0));
+                return true;
+            }
+        }
         return super.charTyped(ch, mod);
     }
 }

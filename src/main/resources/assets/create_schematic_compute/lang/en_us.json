@@ -723,6 +723,8 @@
   "gui.create_schematic_compute.nbs_export": "Export",
   "gui.create_schematic_compute.nbs_undo": "Undo",
   "gui.create_schematic_compute.nbs_redo": "Redo",
+  "gui.create_schematic_compute.nbs_view_roll": "Roll",
+  "gui.create_schematic_compute.nbs_view_lane": "Lanes",
   "gui.create_schematic_compute.nbs_play": "Play",
   "gui.create_schematic_compute.nbs_pause": "Pause",
   "gui.create_schematic_compute.nbs_stop": "Stop",

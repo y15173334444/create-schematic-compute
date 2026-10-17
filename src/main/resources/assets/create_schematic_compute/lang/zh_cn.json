@@ -723,6 +723,8 @@
   "gui.create_schematic_compute.nbs_export": "导出",
   "gui.create_schematic_compute.nbs_undo": "撤销",
   "gui.create_schematic_compute.nbs_redo": "重做",
+  "gui.create_schematic_compute.nbs_view_roll": "卷帘",
+  "gui.create_schematic_compute.nbs_view_lane": "层列",
   "gui.create_schematic_compute.nbs_play": "播放",
   "gui.create_schematic_compute.nbs_pause": "暂停",
   "gui.create_schematic_compute.nbs_stop": "停止",

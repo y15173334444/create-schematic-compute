@@ -22,7 +22,7 @@ class NbsEditorLayoutTest {
     void testTopBarRects() {
         int width = 400;
         int[][] r = NbsEditorScreen.topBarRects(width);
-        assertEquals(7, r.length, "close/save/guide/export/import/redo/undo");
+        assertEquals(8, r.length, "close/save/guide/export/import/redo/undo/view");
         int rightEdge = width - 4;
         for (int[] b : r) {
             assertEquals(4, b[1], "all buttons sit at y=4");
