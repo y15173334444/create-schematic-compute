@@ -1757,7 +1757,7 @@ public class GraphEditor {
         int clickMods = (net.minecraft.client.gui.screens.Screen.hasControlDown() ? EditorKeys.MOD_CTRL : 0)
             | (net.minecraft.client.gui.screens.Screen.hasShiftDown() ? EditorKeys.MOD_SHIFT : 0)
             | (net.minecraft.client.gui.screens.Screen.hasAltDown() ? EditorKeys.MOD_ALT : 0);
-        var clickHit = EditorKeys.feedClick(btn, clickMods, System.currentTimeMillis());
+        var clickHit = EditorKeys.feedClick(btn, clickMods, System.currentTimeMillis(), EditorKeys.Scope.GRAPH);
         if (clickHit != null && clickHit != EditorKeys.Action.PAN && dispatchActionByMouse(clickHit, mx, my)) return true;
         if (tryHotbarPopupClick(mx, my, btn)) return true;
         cancelKeyboardBinding(mx, my, btn);
@@ -4194,7 +4194,7 @@ public class GraphEditor {
         // While the menu is open the engine is not fed (the modal menu owns the
         // keyboard): typing in the search box must not mis-fire actions ("x"
         // deleting the hovered node, "c" creating a comment node) or reopen the menu.
-        var seqHit = showMenu ? null : EditorKeys.feedKey(key, seqMods, System.currentTimeMillis());
+        var seqHit = showMenu ? null : EditorKeys.feedKey(key, seqMods, System.currentTimeMillis(), EditorKeys.Scope.GRAPH);
         if (seqHit == EditorKeys.Action.DELETE_NODE) {
             // 删除悬停节点（替代右键删除防误触）/ delete the hovered node
             deleteHoveredNode(lastMouseX, lastMouseY);

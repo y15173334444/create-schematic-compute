@@ -43,19 +43,19 @@ class EditorKeysSequenceTest {
     @Test
     @DisplayName("单步序列触发 —— 与旧单键绑定行为一致")
     void singleStepFires() {
-        assertEquals(EditorKeys.Action.DELETE_NODE, EditorKeys.feedKey(88, 0, T));       // X
-        assertEquals(EditorKeys.Action.RESET_VIEW, EditorKeys.feedKey(268, 0, T));       // Home
-        assertEquals(EditorKeys.Action.DELETE_SELECTED, EditorKeys.feedKey(261, 0, T)); // Delete
-        assertEquals(EditorKeys.Action.BOX_SELECT, EditorKeys.feedKey(258, 0, T));       // Tab
+        assertEquals(EditorKeys.Action.DELETE_NODE, EditorKeys.feedKey(88, 0, T, EditorKeys.Scope.GRAPH));       // X
+        assertEquals(EditorKeys.Action.RESET_VIEW, EditorKeys.feedKey(268, 0, T, EditorKeys.Scope.GRAPH));       // Home
+        assertEquals(EditorKeys.Action.DELETE_SELECTED, EditorKeys.feedKey(261, 0, T, EditorKeys.Scope.GRAPH)); // Delete
+        assertEquals(EditorKeys.Action.BOX_SELECT, EditorKeys.feedKey(258, 0, T, EditorKeys.Scope.GRAPH));       // Tab
         assertFalse(EditorKeys.bufferActive());
     }
 
     @Test
     @DisplayName("修饰位包含语义 —— Ctrl+Z 在 Ctrl+Shift+Z 下同样命中，裸 Z 不命中")
     void modsContainment() {
-        assertEquals(EditorKeys.Action.UNDO, EditorKeys.feedKey(90, EditorKeys.MOD_CTRL, T));
-        assertEquals(EditorKeys.Action.UNDO, EditorKeys.feedKey(90, EditorKeys.MOD_CTRL | EditorKeys.MOD_SHIFT, T));
-        assertNull(EditorKeys.feedKey(90, 0, T));
+        assertEquals(EditorKeys.Action.UNDO, EditorKeys.feedKey(90, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.GRAPH));
+        assertEquals(EditorKeys.Action.UNDO, EditorKeys.feedKey(90, EditorKeys.MOD_CTRL | EditorKeys.MOD_SHIFT, T, EditorKeys.Scope.GRAPH));
+        assertNull(EditorKeys.feedKey(90, 0, T, EditorKeys.Scope.GRAPH));
         assertFalse(EditorKeys.bufferActive()); // 裸 Z 不构成 Ctrl+Z 的前缀（修饰不含）
     }
 
@@ -64,9 +64,9 @@ class EditorKeysSequenceTest {
     void multiStepSequence() {
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.DELETE_NODE,
                 List.of(step(75, 0), step(68, 0)))); // K → D
-        assertNull(EditorKeys.feedKey(75, 0, T));
+        assertNull(EditorKeys.feedKey(75, 0, T, EditorKeys.Scope.GRAPH));
         assertTrue(EditorKeys.bufferActive()); // 前缀等待，按键已被消费
-        assertEquals(EditorKeys.Action.DELETE_NODE, EditorKeys.feedKey(68, 0, T));
+        assertEquals(EditorKeys.Action.DELETE_NODE, EditorKeys.feedKey(68, 0, T, EditorKeys.Scope.GRAPH));
         assertFalse(EditorKeys.bufferActive());
     }
 
@@ -75,8 +75,8 @@ class EditorKeysSequenceTest {
     void timeoutDiscardsBuffer() {
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.DELETE_NODE,
                 List.of(step(75, 0), step(68, 0))));
-        assertNull(EditorKeys.feedKey(75, 0, T));
-        assertNull(EditorKeys.feedKey(68, 0, T + EditorKeys.SEQUENCE_TIMEOUT_MS + 1));
+        assertNull(EditorKeys.feedKey(75, 0, T, EditorKeys.Scope.GRAPH));
+        assertNull(EditorKeys.feedKey(68, 0, T + EditorKeys.SEQUENCE_TIMEOUT_MS + 1, EditorKeys.Scope.GRAPH));
         assertFalse(EditorKeys.bufferActive());
     }
 
@@ -85,9 +85,9 @@ class EditorKeysSequenceTest {
     void restartRule() {
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.DELETE_NODE,
                 List.of(step(75, 0), step(68, 0)))); // K → D（X 已不再绑定 DELETE）
-        assertNull(EditorKeys.feedKey(75, 0, T));
+        assertNull(EditorKeys.feedKey(75, 0, T, EditorKeys.Scope.GRAPH));
         // Home（未被重绑的 RESET_VIEW 单步）不是 K→D 的延续 —— 重开后立即触发
-        assertEquals(EditorKeys.Action.RESET_VIEW, EditorKeys.feedKey(268, 0, T));
+        assertEquals(EditorKeys.Action.RESET_VIEW, EditorKeys.feedKey(268, 0, T, EditorKeys.Scope.GRAPH));
         assertFalse(EditorKeys.bufferActive());
     }
 
@@ -152,7 +152,7 @@ class EditorKeysSequenceTest {
         // PAN binds a single hold key (A) - pressing it fires nothing (the gesture
         // intercepts it to start panning; feedKey returns null).
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.PAN, List.of(step(65, 0))));
-        assertNull(EditorKeys.feedKey(65, 0, T));
+        assertNull(EditorKeys.feedKey(65, 0, T, EditorKeys.Scope.GRAPH));
         assertFalse(EditorKeys.bufferActive());
         assertFalse(EditorKeys.mixedBufferActive());
         assertTrue(EditorKeys.matchesPanHold(65, 0));
@@ -165,12 +165,48 @@ class EditorKeysSequenceTest {
         assertEquals(List.of(step(65, 0)), EditorKeys.sequence(EditorKeys.Action.PAN));
         // 菜单恢复键序触发（按绑定键在光标处打开）。 / The menu regains its key trigger (opens at the cursor on the bound key).
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.CONTEXT_MENU, List.of(step(75, 0))));
-        assertEquals(EditorKeys.Action.CONTEXT_MENU, EditorKeys.feedKey(75, 0, T));
+        assertEquals(EditorKeys.Action.CONTEXT_MENU, EditorKeys.feedKey(75, 0, T, EditorKeys.Scope.GRAPH));
         // 鼠标步形态 = 按钮拖动（panMouseButton 落位、panKeyBound 复位）。
         // The mouse-step shape = button-drag (panMouseButton lands, panKeyBound resets).
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.PAN,
             List.of(new EditorKeys.Step(EditorKeys.mouseStepKey(2), 0))));
         assertFalse(EditorKeys.panKeyBound());
         assertEquals(2, EditorKeys.panMouseButton());
+    }
+
+    // ══════════ 作用域模型：同键三屏各绑各的 / scope model: one key, three screens ══════════
+
+    @Test
+    @DisplayName("same key binds in all three scopes; matching is scope-local / 同键三作用域各绑各的、匹配只在本域")
+    void sameKeyAcrossScopes() {
+        // Ctrl+Z 出厂即在图域(NBS 域)各有撤销——再绑进像素域也合法
+        // Ctrl+Z ships as undo in both the GRAPH and NBS scopes; binding it in PIXEL is legal too.
+        assertTrue(EditorKeys.setSequence(EditorKeys.Action.PIXEL_BRUSH,
+            List.of(new EditorKeys.Step(90, EditorKeys.MOD_CTRL))));
+        // 同域仍查冲突：NBS 域内 Ctrl+Z 已被 NBS_UNDO 出厂占用
+        // Same-scope clashes still refuse: NBS_UNDO holds Ctrl+Z in the NBS scope.
+        assertFalse(EditorKeys.setSequence(EditorKeys.Action.NBS_SAVE,
+            List.of(new EditorKeys.Step(90, EditorKeys.MOD_CTRL))));
+        // 各域命中各自动作 / each scope fires its own action
+        assertEquals(EditorKeys.Action.UNDO, EditorKeys.feedKey(90, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.GRAPH));
+        assertEquals(EditorKeys.Action.PIXEL_BRUSH, EditorKeys.feedKey(90, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.PIXEL));
+        assertEquals(EditorKeys.Action.NBS_UNDO, EditorKeys.feedKey(90, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.NBS));
+        // NBS 出厂默认 = 旧硬编码（Space / Ctrl+Z / Ctrl+Y）/ NBS factory keys = the old hardcodes
+        assertEquals(EditorKeys.Action.NBS_PLAY_PAUSE, EditorKeys.feedKey(32, 0, T, EditorKeys.Scope.NBS));
+        assertEquals(EditorKeys.Action.NBS_REDO, EditorKeys.feedKey(89, EditorKeys.MOD_CTRL, T, EditorKeys.Scope.NBS));
+        assertNull(EditorKeys.feedKey(32, 0, T, EditorKeys.Scope.GRAPH), "Space means nothing in the graph editor");
+    }
+
+    @Test
+    @DisplayName("buffers clear on scope change - no cross-screen combo chaining / 换域清缓冲、跨屏不接龙")
+    void scopeChangeClearsBuffers() {
+        assertTrue(EditorKeys.setSequence(EditorKeys.Action.NBS_SAVE,
+            List.of(new EditorKeys.Step(75, 0), new EditorKeys.Step(83, 0))));   // K → S
+        assertNull(EditorKeys.feedKey(75, 0, T, EditorKeys.Scope.NBS), "K arms the NBS combo");
+        // 换屏（图域）喂 K：图域 K 无绑定；不得替 NBS 组合续步
+        // Switching to GRAPH mid-combo: the NBS half-combo must die, never chain.
+        assertNull(EditorKeys.feedKey(75, 0, T + 10, EditorKeys.Scope.GRAPH));
+        assertNull(EditorKeys.feedKey(83, 0, T + 20, EditorKeys.Scope.GRAPH));
+        assertNull(EditorKeys.feedKey(83, 0, T + 30, EditorKeys.Scope.NBS), "the NBS combo died with the scope switch");
     }
 }

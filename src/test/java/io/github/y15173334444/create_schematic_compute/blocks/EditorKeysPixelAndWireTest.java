@@ -42,52 +42,55 @@ class EditorKeysPixelAndWireTest {
     @Test
     @DisplayName("factory defaults match the old hardcodes; delete-wire ships as the Tab → left-click chord / 出厂默认与旧硬编码一致；删除连线出厂即 Tab → 左键老组合")
     void factoryDefaultsMatchOldHardcodes() {
-        assertEquals(EditorKeys.Action.PIXEL_BRUSH, EditorKeys.feedKey(66, 0, T));          // B
-        assertEquals(EditorKeys.Action.PIXEL_ERASER, EditorKeys.feedKey(69, 0, T));         // E
-        assertEquals(EditorKeys.Action.PIXEL_FILL, EditorKeys.feedKey(70, 0, T));           // F
-        assertEquals(EditorKeys.Action.PIXEL_EYEDROPPER, EditorKeys.feedKey(73, 0, T));     // I
-        assertEquals(EditorKeys.Action.PIXEL_LINE, EditorKeys.feedKey(76, 0, T));           // L
-        assertEquals(EditorKeys.Action.PIXEL_RECT, EditorKeys.feedKey(82, 0, T));           // R
-        assertEquals(EditorKeys.Action.PIXEL_HAND, EditorKeys.feedKey(72, 0, T));           // H
-        assertEquals(EditorKeys.Action.PIXEL_GRID, EditorKeys.feedKey(71, 0, T));           // G
-        assertEquals(EditorKeys.Action.PIXEL_BRUSH_SMALLER, EditorKeys.feedKey(91, 0, T));  // [ (GLFW 91, not the old broken VK 219)
-        assertEquals(EditorKeys.Action.PIXEL_BRUSH_BIGGER, EditorKeys.feedKey(93, 0, T));  // ] (GLFW 93, not the old broken VK 221)
+        assertEquals(EditorKeys.Action.PIXEL_BRUSH, EditorKeys.feedKey(66, 0, T, EditorKeys.Scope.PIXEL));          // B
+        assertEquals(EditorKeys.Action.PIXEL_ERASER, EditorKeys.feedKey(69, 0, T, EditorKeys.Scope.PIXEL));         // E
+        assertEquals(EditorKeys.Action.PIXEL_FILL, EditorKeys.feedKey(70, 0, T, EditorKeys.Scope.PIXEL));           // F
+        assertEquals(EditorKeys.Action.PIXEL_EYEDROPPER, EditorKeys.feedKey(73, 0, T, EditorKeys.Scope.PIXEL));     // I
+        assertEquals(EditorKeys.Action.PIXEL_LINE, EditorKeys.feedKey(76, 0, T, EditorKeys.Scope.PIXEL));           // L
+        assertEquals(EditorKeys.Action.PIXEL_RECT, EditorKeys.feedKey(82, 0, T, EditorKeys.Scope.PIXEL));           // R
+        assertEquals(EditorKeys.Action.PIXEL_HAND, EditorKeys.feedKey(72, 0, T, EditorKeys.Scope.PIXEL));           // H
+        assertEquals(EditorKeys.Action.PIXEL_GRID, EditorKeys.feedKey(71, 0, T, EditorKeys.Scope.PIXEL));           // G
+        assertEquals(EditorKeys.Action.PIXEL_BRUSH_SMALLER, EditorKeys.feedKey(91, 0, T, EditorKeys.Scope.PIXEL));  // [ (GLFW 91, not the old broken VK 219)
+        assertEquals(EditorKeys.Action.PIXEL_BRUSH_BIGGER, EditorKeys.feedKey(93, 0, T, EditorKeys.Scope.PIXEL));  // ] (GLFW 93, not the old broken VK 221)
         assertFalse(EditorKeys.bufferActive());
         // 删除连线出厂 = Tab → 左键 老组合：W 退役；Tab 按键触发框选（纯键域）的同时
         // 为组合入混合缓冲，随后的左键完成删线（混合域）——两域独立互不清除。
         // Delete-wire ships as the legacy Tab → left-click chord: W retired; the Tab
         // press fires box-select (key domain) while arming the chord in the mixed
         // domain, and the following left-click completes it — independent domains.
-        assertNull(EditorKeys.feedKey(87, 0, T), "W is retired");
+        assertNull(EditorKeys.feedKey(87, 0, T, EditorKeys.Scope.GRAPH), "W is retired");
         assertEquals(List.of(new EditorKeys.Step(258, 0), mouse(0)), EditorKeys.sequence(EditorKeys.Action.DELETE_WIRE));
-        assertEquals(EditorKeys.Action.BOX_SELECT, EditorKeys.feedKey(258, 0, T + 1), "the Tab press still fires box-select");
-        assertEquals(EditorKeys.Action.DELETE_WIRE, EditorKeys.feedClick(0, 0, T + 2), "the left-click completes the chord");
+        assertEquals(EditorKeys.Action.BOX_SELECT, EditorKeys.feedKey(258, 0, T + 1, EditorKeys.Scope.GRAPH), "the Tab press still fires box-select");
+        assertEquals(EditorKeys.Action.DELETE_WIRE, EditorKeys.feedClick(0, 0, T + 2, EditorKeys.Scope.GRAPH), "the left-click completes the chord");
         // 平移 = 左键拖动（单鼠标步，拖拽管线消费、引擎不派发）；菜单 = 右键。
         // Pan = left-drag (a single mouse step consumed by the drag pipeline, never
         // dispatched by the engine); menu = right-click.
         assertEquals(List.of(mouse(0)), EditorKeys.sequence(EditorKeys.Action.PAN));
         assertEquals(List.of(mouse(1)), EditorKeys.sequence(EditorKeys.Action.CONTEXT_MENU));
-        assertNull(EditorKeys.feedClick(0, 0, T + 3), "PAN's button never engine-fires");
-        assertEquals(EditorKeys.Action.CONTEXT_MENU, EditorKeys.feedClick(1, 0, T + 4));
+        assertNull(EditorKeys.feedClick(0, 0, T + 3, EditorKeys.Scope.GRAPH), "PAN's button never engine-fires");
+        assertEquals(EditorKeys.Action.CONTEXT_MENU, EditorKeys.feedClick(1, 0, T + 4, EditorKeys.Scope.GRAPH));
     }
 
     @Test
     @DisplayName("conflict rules cover the new actions / 冲突规则覆盖新动作")
     void conflictRulesCoverNewActions() {
-        // X 已被 DELETE_NODE 占用 → 像素画笔不得绑到 X
-        assertFalse(EditorKeys.setSequence(EditorKeys.Action.PIXEL_BRUSH,
-            List.of(new EditorKeys.Step(88, 0))), "X is taken by DELETE_NODE");
-        // E 已被 PIXEL_ERASER 占用 → 同样拒绝
+        // X 被图域 DELETE_NODE 占用，但像素域可绑同键（三屏分离、各绑各的）
+        // X is taken by the graph DELETE_NODE — yet the pixel scope may bind it (the
+        // screens are separate binding spaces).
+        assertTrue(EditorKeys.setSequence(EditorKeys.Action.PIXEL_BRUSH,
+            List.of(new EditorKeys.Step(88, 0))), "X is free in the PIXEL scope");
+        EditorKeys.resetToDefault(EditorKeys.Action.PIXEL_BRUSH);
+        // E 已被同作用域 PIXEL_ERASER 占用 → 拒绝 / E is taken in the same scope → refused
         assertFalse(EditorKeys.setSequence(EditorKeys.Action.PIXEL_BRUSH,
             List.of(new EditorKeys.Step(69, 0))), "E is taken by PIXEL_ERASER");
         // 空闲键 V 可绑定，派发随新键走
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.PIXEL_BRUSH,
             List.of(new EditorKeys.Step(86, 0))), "V is free");
-        assertEquals(EditorKeys.Action.PIXEL_BRUSH, EditorKeys.feedKey(86, 0, T));
-        assertNull(EditorKeys.feedKey(66, 0, T), "the old B binding is gone after rebinding");
+        assertEquals(EditorKeys.Action.PIXEL_BRUSH, EditorKeys.feedKey(86, 0, T, EditorKeys.Scope.PIXEL));
+        assertNull(EditorKeys.feedKey(66, 0, T, EditorKeys.Scope.PIXEL), "the old B binding is gone after rebinding");
         // 重置回出厂 → B 恢复
         EditorKeys.resetToDefault(EditorKeys.Action.PIXEL_BRUSH);
-        assertEquals(EditorKeys.Action.PIXEL_BRUSH, EditorKeys.feedKey(66, 0, T));
+        assertEquals(EditorKeys.Action.PIXEL_BRUSH, EditorKeys.feedKey(66, 0, T, EditorKeys.Scope.PIXEL));
     }
 
     @Test
@@ -98,8 +101,8 @@ class EditorKeysPixelAndWireTest {
         // 纯键序整体替换组合：序列不再含鼠标步。 / The pure key sequence replaces the chord wholesale: no mouse steps remain.
         assertFalse(EditorKeys.hasMouseStep(EditorKeys.sequence(EditorKeys.Action.DELETE_WIRE)));
         EditorKeys.reloadForTest(); // 从已保存的配置文件重读 / re-read the saved config
-        assertEquals(EditorKeys.Action.DELETE_WIRE, EditorKeys.feedKey(79, 0, T));
-        assertNull(EditorKeys.feedKey(87, 0, T), "the default W binding is replaced");
+        assertEquals(EditorKeys.Action.DELETE_WIRE, EditorKeys.feedKey(79, 0, T, EditorKeys.Scope.GRAPH));
+        assertNull(EditorKeys.feedKey(87, 0, T, EditorKeys.Scope.GRAPH), "the default W binding is replaced");
         assertFalse(EditorKeys.hasMouseStep(EditorKeys.sequence(EditorKeys.Action.DELETE_WIRE)), "the key trigger survives the roundtrip");
     }
 
@@ -116,16 +119,16 @@ class EditorKeysPixelAndWireTest {
         // fires first — and is rightly refused.)
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.UNDO, List.of(
             new EditorKeys.Step(75, 0), mouse(0), new EditorKeys.Step(65, 0), mouse(1))));
-        assertNull(EditorKeys.feedKey(75, 0, T), "K advances the queue");
-        assertNull(EditorKeys.feedClick(0, 0, T), "the left-click advances the queue");
-        assertNull(EditorKeys.feedKey(65, 0, T), "A advances the queue");
-        assertEquals(EditorKeys.Action.UNDO, EditorKeys.feedClick(1, 0, T), "the right-click completes it");
+        assertNull(EditorKeys.feedKey(75, 0, T, EditorKeys.Scope.GRAPH), "K advances the queue");
+        assertNull(EditorKeys.feedClick(0, 0, T, EditorKeys.Scope.GRAPH), "the left-click advances the queue");
+        assertNull(EditorKeys.feedKey(65, 0, T, EditorKeys.Scope.GRAPH), "A advances the queue");
+        assertEquals(EditorKeys.Action.UNDO, EditorKeys.feedClick(1, 0, T, EditorKeys.Scope.GRAPH), "the right-click completes it");
         // 混合序列可在任意事件类型上完成：中键 → Y（点中键、按 Y 触发）。
         // A mixed queue may complete on either event type: middle → Y (click, then press).
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.REDO,
             List.of(mouse(2), new EditorKeys.Step(89, 0))));
-        assertNull(EditorKeys.feedClick(2, 0, T));
-        assertEquals(EditorKeys.Action.REDO, EditorKeys.feedKey(89, 0, T));
+        assertNull(EditorKeys.feedClick(2, 0, T, EditorKeys.Scope.GRAPH));
+        assertEquals(EditorKeys.Action.REDO, EditorKeys.feedKey(89, 0, T, EditorKeys.Scope.GRAPH));
     }
 
     @Test
@@ -133,14 +136,14 @@ class EditorKeysPixelAndWireTest {
     void singleMouseSteps() {
         // 中键绑定撤销：裸中键点击即触发。 / Middle bound to undo: a bare middle click fires.
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.UNDO, List.of(mouse(2))));
-        assertEquals(EditorKeys.Action.UNDO, EditorKeys.feedClick(2, 0, T));
+        assertEquals(EditorKeys.Action.UNDO, EditorKeys.feedClick(2, 0, T, EditorKeys.Scope.GRAPH));
         // 菜单恢复键序触发（按绑定键在光标处打开），整条替换右键。 / The menu regains its key trigger (opens at the cursor), replacing right-click wholesale.
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.CONTEXT_MENU, List.of(new EditorKeys.Step(79, 0))));
         assertEquals(List.of(new EditorKeys.Step(79, 0)), EditorKeys.sequence(EditorKeys.Action.CONTEXT_MENU));
-        assertEquals(EditorKeys.Action.CONTEXT_MENU, EditorKeys.feedKey(79, 0, T));
+        assertEquals(EditorKeys.Action.CONTEXT_MENU, EditorKeys.feedKey(79, 0, T, EditorKeys.Scope.GRAPH));
         // 重置回出厂 → 右键恢复。 / Factory reset → right-click restored.
         EditorKeys.resetToDefault(EditorKeys.Action.CONTEXT_MENU);
-        assertEquals(EditorKeys.Action.CONTEXT_MENU, EditorKeys.feedClick(1, 0, T));
+        assertEquals(EditorKeys.Action.CONTEXT_MENU, EditorKeys.feedClick(1, 0, T, EditorKeys.Scope.GRAPH));
     }
 
     @Test
@@ -156,8 +159,8 @@ class EditorKeysPixelAndWireTest {
         assertFalse(EditorKeys.setSequence(EditorKeys.Action.UNDO, List.of(mouse(0))), "the bare left click is pan's");
         // 跨域共存：删线 Tab → 左键（混合域）与框选 Tab（纯键域）出厂并存。 / Cross-domain coexistence: the wire chord (mixed) and box-select (key domain) ship together.
         assertTrue(EditorKeys.hasMouseStep(EditorKeys.sequence(EditorKeys.Action.DELETE_WIRE)));
-        assertEquals(EditorKeys.Action.BOX_SELECT, EditorKeys.feedKey(258, 0, T));
-        assertEquals(EditorKeys.Action.DELETE_WIRE, EditorKeys.feedClick(0, 0, T + 1));
+        assertEquals(EditorKeys.Action.BOX_SELECT, EditorKeys.feedKey(258, 0, T, EditorKeys.Scope.GRAPH));
+        assertEquals(EditorKeys.Action.DELETE_WIRE, EditorKeys.feedClick(0, 0, T + 1, EditorKeys.Scope.GRAPH));
     }
 
     @Test
@@ -167,7 +170,7 @@ class EditorKeysPixelAndWireTest {
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.PAN, List.of(new EditorKeys.Step(65, 0))));
         assertTrue(EditorKeys.panKeyBound());
         assertEquals(-1, EditorKeys.panMouseButton());
-        assertNull(EditorKeys.feedKey(65, 0, T));
+        assertNull(EditorKeys.feedKey(65, 0, T, EditorKeys.Scope.GRAPH));
         assertTrue(EditorKeys.matchesPanHold(65, 0));
         // 改绑鼠标步 = 按钮拖动。 / A mouse step = button-drag.
         assertTrue(EditorKeys.setSequence(EditorKeys.Action.PAN, List.of(mouse(2))));

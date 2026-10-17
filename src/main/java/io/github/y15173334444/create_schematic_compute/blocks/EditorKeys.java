@@ -96,56 +96,95 @@ import java.util.Properties;
 public final class EditorKeys {
 
     /** 可绑定的编辑器动作。 / Bindable editor actions. */
+    /**
+     * 绑定作用域 = 编辑器屏幕（图 / 像素 / NBS）。三个 GUI 本来就是分离的屏幕，
+     * 所以<b>同一键可分别绑定三个作用域的动作</b>，查冲突与序列匹配也只在同作用域内进行。
+     * Binding scope = the editor screen (graph / pixel / NBS). The three GUIs are separate
+     * screens, so <b>the same key may be bound in all three scopes</b>; clash checks and
+     * sequence matching stay inside one scope.
+     */
+    public enum Scope { GRAPH, PIXEL, NBS }
+
     public enum Action {
         /** 平移画布（拖动图） / pan the canvas (drag the graph) */
-        PAN("editorkeys.pan"),
+        PAN(Scope.GRAPH, "editorkeys.pan"),
         /** 打开画布上下文菜单 / open the canvas context menu */
-        CONTEXT_MENU("editorkeys.context_menu"),
+        CONTEXT_MENU(Scope.GRAPH, "editorkeys.context_menu"),
         /** 删除悬停节点 / delete the hovered node */
-        DELETE_NODE("editorkeys.delete"),
+        DELETE_NODE(Scope.GRAPH, "editorkeys.delete"),
         /** 删除选中节点（原 Backspace/Delete 硬编码，现默认 Delete） / delete the selected nodes (was hardcoded to Backspace/Delete; default is Delete now) */
-        DELETE_SELECTED("editorkeys.delete_selected"),
+        DELETE_SELECTED(Scope.GRAPH, "editorkeys.delete_selected"),
         /** 撤销 / undo */
-        UNDO("editorkeys.undo"),
+        UNDO(Scope.GRAPH, "editorkeys.undo"),
         /** 重做 / redo */
-        REDO("editorkeys.redo"),
+        REDO(Scope.GRAPH, "editorkeys.redo"),
         /** 复制选中 / duplicate selection */
-        DUPLICATE("editorkeys.duplicate"),
+        DUPLICATE(Scope.GRAPH, "editorkeys.duplicate"),
         /** 重置视角 / reset the view */
-        RESET_VIEW("editorkeys.reset_view"),
+        RESET_VIEW(Scope.GRAPH, "editorkeys.reset_view"),
         /** 保存视角书签 / save a view bookmark */
-        SAVE_BOOKMARK("editorkeys.save_bookmark"),
+        SAVE_BOOKMARK(Scope.GRAPH, "editorkeys.save_bookmark"),
         /** 框选多选（按住生效；原 Tab 硬编码） / box-select mode (held; was hardcoded to Tab) */
-        BOX_SELECT("editorkeys.box_select"),
+        BOX_SELECT(Scope.GRAPH, "editorkeys.box_select"),
         /** 删除悬停连线（原 Tab+左键 点连线；该组合路径保留） / delete the hovered wire (was Tab+left-click; that chord path stays) */
-        DELETE_WIRE("editorkeys.delete_wire"),
+        DELETE_WIRE(Scope.GRAPH, "editorkeys.delete_wire"),
 
         // ── 像素编辑器 / pixel editor (PS-style hardcodes, now bindable) ──
         /** 像素编辑：画笔工具 / pixel editor: brush tool */
-        PIXEL_BRUSH("editorkeys.pixel_brush"),
+        PIXEL_BRUSH(Scope.PIXEL, "editorkeys.pixel_brush"),
         /** 像素编辑：橡皮工具 / pixel editor: eraser tool */
-        PIXEL_ERASER("editorkeys.pixel_eraser"),
+        PIXEL_ERASER(Scope.PIXEL, "editorkeys.pixel_eraser"),
         /** 像素编辑：填充工具 / pixel editor: fill tool */
-        PIXEL_FILL("editorkeys.pixel_fill"),
+        PIXEL_FILL(Scope.PIXEL, "editorkeys.pixel_fill"),
         /** 像素编辑：取色工具 / pixel editor: eyedropper tool */
-        PIXEL_EYEDROPPER("editorkeys.pixel_eyedropper"),
+        PIXEL_EYEDROPPER(Scope.PIXEL, "editorkeys.pixel_eyedropper"),
         /** 像素编辑：直线工具 / pixel editor: line tool */
-        PIXEL_LINE("editorkeys.pixel_line"),
+        PIXEL_LINE(Scope.PIXEL, "editorkeys.pixel_line"),
         /** 像素编辑：矩形工具 / pixel editor: rect tool */
-        PIXEL_RECT("editorkeys.pixel_rect"),
+        PIXEL_RECT(Scope.PIXEL, "editorkeys.pixel_rect"),
         /** 像素编辑：抓手工具 / pixel editor: hand (pan) tool */
-        PIXEL_HAND("editorkeys.pixel_hand"),
+        PIXEL_HAND(Scope.PIXEL, "editorkeys.pixel_hand"),
         /** 像素编辑：网格开关 / pixel editor: toggle the grid */
-        PIXEL_GRID("editorkeys.pixel_grid"),
+        PIXEL_GRID(Scope.PIXEL, "editorkeys.pixel_grid"),
         /** 像素编辑：笔刷变小（原 [ 硬编码） / pixel editor: smaller brush (was hardcoded to [) */
-        PIXEL_BRUSH_SMALLER("editorkeys.pixel_brush_smaller"),
+        PIXEL_BRUSH_SMALLER(Scope.PIXEL, "editorkeys.pixel_brush_smaller"),
         /** 像素编辑：笔刷变大（原 ] 硬编码） / pixel editor: bigger brush (was hardcoded to ]) */
-        PIXEL_BRUSH_BIGGER("editorkeys.pixel_brush_bigger");
+        PIXEL_BRUSH_BIGGER(Scope.PIXEL, "editorkeys.pixel_brush_bigger"),
+
+        // ── NBS 编辑器 / NBS editor (command hardcodes, now bindable) ──
+        /** NBS：播放/暂停（原 Space 硬编码） / NBS: play/pause (was hardcoded to Space) */
+        NBS_PLAY_PAUSE(Scope.NBS, "editorkeys.nbs_play_pause"),
+        /** NBS：停止 / NBS: stop */
+        NBS_STOP(Scope.NBS, "editorkeys.nbs_stop"),
+        /** NBS：撤销（原 Ctrl+Z 硬编码） / NBS: undo (was hardcoded to Ctrl+Z) */
+        NBS_UNDO(Scope.NBS, "editorkeys.nbs_undo"),
+        /** NBS：重做（原 Ctrl+Y 硬编码；Ctrl+Shift+Z 别名保留） / NBS: redo (was Ctrl+Y; the Ctrl+Shift+Z alias stays) */
+        NBS_REDO(Scope.NBS, "editorkeys.nbs_redo"),
+        /** NBS：保存/上传曲目 / NBS: save/upload the song */
+        NBS_SAVE(Scope.NBS, "editorkeys.nbs_save"),
+        /** NBS：导入 .nbs / NBS: import .nbs */
+        NBS_IMPORT(Scope.NBS, "editorkeys.nbs_import"),
+        /** NBS：导出 .nbs / NBS: export .nbs */
+        NBS_EXPORT(Scope.NBS, "editorkeys.nbs_export"),
+        /** NBS：切换卷帘/层列视图 / NBS: toggle roll/lane view */
+        NBS_VIEW_TOGGLE(Scope.NBS, "editorkeys.nbs_view_toggle"),
+        /** NBS：循环开关 / NBS: loop toggle */
+        NBS_LOOP(Scope.NBS, "editorkeys.nbs_loop"),
+        /** NBS：上一个乐器 / NBS: previous instrument */
+        NBS_INSTRUMENT_PREV(Scope.NBS, "editorkeys.nbs_instrument_prev"),
+        /** NBS：下一个乐器 / NBS: next instrument */
+        NBS_INSTRUMENT_NEXT(Scope.NBS, "editorkeys.nbs_instrument_next"),
+        /** NBS：八度窗下移 / NBS: octave window down */
+        NBS_OCTAVE_PREV(Scope.NBS, "editorkeys.nbs_octave_prev"),
+        /** NBS：八度窗上移 / NBS: octave window up */
+        NBS_OCTAVE_NEXT(Scope.NBS, "editorkeys.nbs_octave_next");
 
         /** lang 键（设置界面显示用，渲染时补 gui.create_schematic_compute. 前缀） / lang key (prefixed at render time). */
         public final String langKey;
+        /** 绑定作用域（哪个屏幕消费该动作）。 / the binding scope (which screen consumes it). */
+        public final Scope scope;
 
-        Action(String langKey) { this.langKey = langKey; }
+        Action(Scope scope, String langKey) { this.scope = scope; this.langKey = langKey; }
     }
 
     /** 修饰位掩码（与 GLFW_KEY_MOD_* 的语义对应，取值即 bit0=Ctrl bit1=Shift bit2=Alt）。
@@ -173,6 +212,9 @@ public final class EditorKeys {
     private static final java.util.List<Step> mouseBuffer = new java.util.ArrayList<>();
     /** 上次喂入时间戳（超时作废用）。 / Timestamp of the last feed (for the timeout). */
     private static long lastFeedMs = 0L;
+    /** 上次喂入的作用域（换域清缓冲：跨屏幕的半截前缀不得接龙）。 / Scope of the last feed
+     *  (buffers clear on change — a half-combo must never fire across screens). */
+    private static Scope lastFeedScope = null;
     /** 序列缓冲超时：间隔超过它缓冲作废，防止久远的按键意外接龙。 / Buffer timeout: stale buffers are discarded. */
     public static final long SEQUENCE_TIMEOUT_MS = 1500;
 
@@ -239,6 +281,16 @@ public final class EditorKeys {
             // codes that GLFW's keyPressed never delivers, so those shortcuts never fired.
             case PIXEL_BRUSH_SMALLER -> java.util.List.of(new Step(91, 0));  // [
             case PIXEL_BRUSH_BIGGER -> java.util.List.of(new Step(93, 0));   // ]
+            // NBS 编辑器出厂键 = 原硬编码（Space / Ctrl+Z / Ctrl+Y）；其余出厂不绑
+            // （按钮路径即默认），可在设置里绑。
+            // NBS editor factory keys = the old hardcodes (Space / Ctrl+Z / Ctrl+Y);
+            // the rest ship unbound (the button path is the default) and bind in settings.
+            case NBS_PLAY_PAUSE -> java.util.List.of(new Step(32, 0));        // Space
+            case NBS_UNDO -> java.util.List.of(new Step(90, MOD_CTRL));       // Ctrl+Z
+            case NBS_REDO -> java.util.List.of(new Step(89, MOD_CTRL));       // Ctrl+Y
+            case NBS_STOP, NBS_SAVE, NBS_IMPORT, NBS_EXPORT, NBS_VIEW_TOGGLE,
+                 NBS_LOOP, NBS_INSTRUMENT_PREV, NBS_INSTRUMENT_NEXT,
+                 NBS_OCTAVE_PREV, NBS_OCTAVE_NEXT -> java.util.List.of();     // 出厂不绑 / unbound
         };
     }
 
@@ -350,28 +402,31 @@ public final class EditorKeys {
      *  than {@link #SEQUENCE_TIMEOUT_MS} are discarded first. Returns the triggered
      *  action; use {@link #bufferActive()}/{@link #mixedBufferActive()} to tell
      *  "prefix waiting (consume the key)" from "irrelevant key". */
-    public static Action feedKey(int glfwKey, int mods, long nowMs) {
-        if (nowMs - lastFeedMs > SEQUENCE_TIMEOUT_MS) { buffer.clear(); mouseBuffer.clear(); }
+    public static Action feedKey(int glfwKey, int mods, long nowMs, Scope scope) {
+        if (nowMs - lastFeedMs > SEQUENCE_TIMEOUT_MS || scope != lastFeedScope) {
+            buffer.clear(); mouseBuffer.clear();
+        }
         lastFeedMs = nowMs;
+        lastFeedScope = scope;
         // 混合域先行（键步）——纯键域的命中/前缀不得打断其缓冲：出厂 Tab 按键触发
         // 框选的同时为删线组合入缓冲即依赖此序。
         // The mixed domain advances first (key step) — the pure-key domain's fires and
         // prefixes must never disturb its buffer: the factory Tab press firing
         // box-select while arming the wire chord depends on this order.
-        Action mixedHit = mixedAdvance(new Step(glfwKey, mods));
+        Action mixedHit = mixedAdvance(new Step(glfwKey, mods), scope);
         if (mixedHit != null) return mixedHit;
         var candidate = new java.util.ArrayList<Step>(buffer);
         candidate.add(new Step(glfwKey, mods));
-        Action hit = fullMatch(candidate);
+        Action hit = fullMatch(candidate, scope);
         if (hit != null) { buffer.clear(); return hit; }
-        if (isPrefix(candidate)) { buffer.clear(); buffer.addAll(candidate); return null; }
+        if (isPrefix(candidate, scope)) { buffer.clear(); buffer.addAll(candidate); return null; }
         // 重开：清缓冲，本键作为新首步重新评估（可能立即触发单步绑定）。
         // Restart: clear, re-evaluate this key alone (a single-step binding may fire).
         buffer.clear();
         var solo = java.util.List.of(new Step(glfwKey, mods));
-        hit = fullMatch(solo);
+        hit = fullMatch(solo, scope);
         if (hit != null) return hit;
-        if (isPrefix(solo)) buffer.add(new Step(glfwKey, mods));
+        if (isPrefix(solo, scope)) buffer.add(new Step(glfwKey, mods));
         return null;
     }
 
@@ -381,9 +436,9 @@ public final class EditorKeys {
      *  length, per-step key equality and actual mods ⊇ bound mods)? Sequences with
      *  mouse steps complete in the mixed domain; PAN's key step is the hold-grab
      *  intercepted by the gesture — neither fires here. */
-    private static Action fullMatch(java.util.List<Step> candidate) {
+    private static Action fullMatch(java.util.List<Step> candidate, Scope scope) {
         for (var a : Action.values()) {
-            if (a == Action.PAN || sequence(a).isEmpty() || hasMouseStep(sequence(a))) continue;
+            if (a.scope != scope || a == Action.PAN || sequence(a).isEmpty() || hasMouseStep(sequence(a))) continue;
             if (stepsMatch(candidate, sequence(a))) return a;
         }
         return null;
@@ -393,9 +448,9 @@ public final class EditorKeys {
      *  其键步在混合域缓冲）。
      *  Is the candidate a proper prefix of some pure-key sequence (mixed-domain
      *  sequences excluded — their key steps buffer in the mixed domain)? */
-    private static boolean isPrefix(java.util.List<Step> candidate) {
+    private static boolean isPrefix(java.util.List<Step> candidate, Scope scope) {
         for (var a : Action.values()) {
-            if (hasMouseStep(sequence(a))) continue;
+            if (a.scope != scope || hasMouseStep(sequence(a))) continue;
             var seq = sequence(a);
             if (seq.size() > candidate.size() && stepsMatch(candidate, seq.subList(0, candidate.size()))) return true;
         }
@@ -412,10 +467,13 @@ public final class EditorKeys {
      *  never participates (its button belongs to the drag pipeline). Call in
      *  canvas-interaction state only; mods from Screen.has*Down at click time, folded
      *  into the mask by the caller. */
-    public static Action feedClick(int button, int mods, long nowMs) {
-        if (nowMs - lastFeedMs > SEQUENCE_TIMEOUT_MS) { buffer.clear(); mouseBuffer.clear(); }
+    public static Action feedClick(int button, int mods, long nowMs, Scope scope) {
+        if (nowMs - lastFeedMs > SEQUENCE_TIMEOUT_MS || scope != lastFeedScope) {
+            buffer.clear(); mouseBuffer.clear();
+        }
         lastFeedMs = nowMs;
-        return mixedAdvance(new Step(mouseStepKey(button), mods));
+        lastFeedScope = scope;
+        return mixedAdvance(new Step(mouseStepKey(button), mods), scope);
     }
 
     /** 混合域推进一步（键步或鼠标步均可）：完整命中触发并清缓冲；前缀缓冲等待；
@@ -423,33 +481,33 @@ public final class EditorKeys {
      *  Advances the mixed domain by one step (key or mouse alike): a full match fires
      *  and clears; a prefix buffers; a miss clears and restarts with this step
      *  (buffered only if some mixed sequence starts with it). PAN never participates. */
-    private static Action mixedAdvance(Step event) {
+    private static Action mixedAdvance(Step event, Scope scope) {
         var candidate = new java.util.ArrayList<Step>(mouseBuffer);
         candidate.add(event);
-        Action hit = mixedFullMatch(candidate);
+        Action hit = mixedFullMatch(candidate, scope);
         if (hit != null) { mouseBuffer.clear(); return hit; }
-        if (mixedIsPrefix(candidate)) { mouseBuffer.clear(); mouseBuffer.addAll(candidate); return null; }
+        if (mixedIsPrefix(candidate, scope)) { mouseBuffer.clear(); mouseBuffer.addAll(candidate); return null; }
         mouseBuffer.clear();
         var solo = java.util.List.of(event);
-        hit = mixedFullMatch(solo);
+        hit = mixedFullMatch(solo, scope);
         if (hit != null) return hit;
-        if (mixedIsPrefix(solo)) mouseBuffer.add(event);
+        if (mixedIsPrefix(solo, scope)) mouseBuffer.add(event);
         return null;
     }
 
     /** 候选是否完整命中某混合序列。 / Does the candidate fully match some mixed sequence? */
-    private static Action mixedFullMatch(java.util.List<Step> candidate) {
+    private static Action mixedFullMatch(java.util.List<Step> candidate, Scope scope) {
         for (var a : Action.values()) {
-            if (a == Action.PAN || !hasMouseStep(sequence(a))) continue;
+            if (a.scope != scope || a == Action.PAN || !hasMouseStep(sequence(a))) continue;
             if (stepsMatch(candidate, sequence(a))) return a;
         }
         return null;
     }
 
     /** 候选是否为某混合序列的真前缀。 / Is the candidate a proper prefix of some mixed sequence? */
-    private static boolean mixedIsPrefix(java.util.List<Step> candidate) {
+    private static boolean mixedIsPrefix(java.util.List<Step> candidate, Scope scope) {
         for (var a : Action.values()) {
-            if (a == Action.PAN) continue;
+            if (a.scope != scope || a == Action.PAN) continue;
             var seq = sequence(a);
             if (!hasMouseStep(seq)) continue;
             if (seq.size() > candidate.size() && stepsMatch(candidate, seq.subList(0, candidate.size()))) return true;
@@ -524,20 +582,26 @@ public final class EditorKeys {
         if (seq == null || seq.isEmpty() || seq.size() > MAX_STEPS) return false;
         if (a == Action.PAN && seq.size() != 1) return false;
         if (hasMouseStep(seq) && !mouseStepAllowed(a)) return false;
-        // PAN 抓图键独占（双向、所有序列的键步） / PAN grab-key exclusivity (both ways, the key steps of all sequences)
+        // PAN 抓图键独占（双向、同作用域序列的键步——拦截只发生在图编辑器屏幕内，
+        // 其他作用域的键照常进引擎） / PAN grab-key exclusivity (both ways, the key steps
+        // of same-scope sequences — the interception only happens on the graph-editor
+        // screen; other scopes' keys reach the engine freely)
         int panKey = panHoldKey();
-        if (a != Action.PAN && panKey >= 0) {
+        if (a != Action.PAN && a.scope == Scope.GRAPH && panKey >= 0) {
             for (var st : seq) if (st.key() == panKey) return false;
         } else if (a == Action.PAN) {
             for (var other : Action.values()) {
-                if (other == a) continue;
+                if (other == a || other.scope != Scope.GRAPH) continue;
                 for (var st : sequence(other)) if (st.key() == seq.get(0).key()) return false;
             }
         }
-        // 同域前缀歧义（跨域事件流不同、可共存） / same-domain prefix ambiguity (cross-domain coexists)
+        // 同作用域同域前缀歧义（跨作用域各绑各的；跨域事件流不同、可共存）
+        // Same-scope, same-domain prefix ambiguity (cross-scope binds freely; the pure-key
+        // and mixed domains validate separately and coexist)
         boolean mixed = hasMouseStep(seq);
         for (var other : Action.values()) {
-            if (other == a || sequence(other).isEmpty() || hasMouseStep(sequence(other)) != mixed) continue;
+            if (other == a || other.scope != a.scope || sequence(other).isEmpty()
+                || hasMouseStep(sequence(other)) != mixed) continue;
             if (prefixAmbiguous(seq, sequence(other))) return false;
         }
         sequences.set(a.ordinal(), java.util.List.copyOf(seq));

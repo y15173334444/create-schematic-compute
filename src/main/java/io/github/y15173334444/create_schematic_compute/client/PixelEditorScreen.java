@@ -975,7 +975,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         int seqMods = (net.minecraft.client.gui.screens.Screen.hasControlDown() ? EditorKeys.MOD_CTRL : 0)
             | (net.minecraft.client.gui.screens.Screen.hasShiftDown() ? EditorKeys.MOD_SHIFT : 0)
             | (net.minecraft.client.gui.screens.Screen.hasAltDown() ? EditorKeys.MOD_ALT : 0);
-        var seqHit = EditorKeys.feedKey(key, seqMods, System.currentTimeMillis());
+        var seqHit = EditorKeys.feedKey(key, seqMods, System.currentTimeMillis(), EditorKeys.Scope.PIXEL);
         if (seqHit != null) {
             switch (seqHit) {
                 case PIXEL_BRUSH -> tool = Tool.BRUSH;

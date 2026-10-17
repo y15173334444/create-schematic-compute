@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.blocks.EditorKeys;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphEditor;
 import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
@@ -690,7 +691,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (my >= stripY()) {
             // 钢琴条：八度按钮 / 点键 = 选工具键 + 试听（社区签名习惯）
             int oct = pianoStrip.octaveButtonAt(mx, my, rollX(), stripY());
-            if (oct != 0) pianoStrip.shift(oct * 12);
+            if (oct != 0) dispatchNbsAction(oct < 0 ? EditorKeys.Action.NBS_OCTAVE_PREV : EditorKeys.Action.NBS_OCTAVE_NEXT);
             else {
                 int k = pianoStrip.keyAt(rollW() - NbsPianoStrip.BTN_W, NbsPianoStrip.STRIP_H - 4,
                     mx - rollX() - NbsPianoStrip.BTN_W, my - stripY() - 2,
@@ -746,17 +747,18 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         for (int i = 0; i < r.length; i++) {
             if (!inRect(r[i][0], r[i][1], r[i][2], r[i][3], mx, my)) continue;
             if (i == TB_CLOSE) { onClose(); return true; }
-            if (i == TB_SAVE) { applyPendingInputs(); syncSongToServer(); return true; }
             if (i == TB_GUIDE) { showGuide = !showGuide; return true; }
-            if (i == TB_EXPORT) { openExportDialog(); return true; }
-            if (i == TB_IMPORT) { openImportDialog(); return true; }
-            if (i == TB_VIEW) { view = (view == View.ROLL) ? View.LANE : View.ROLL; return true; }
-            applyPendingInputs();
-            if (i == TB_REDO) {
-                if (kernel.performRedo()) feedback(I18n.get("gui.create_schematic_compute.nbs_redid"));
-            } else if (kernel.performUndo()) {
-                feedback(I18n.get("gui.create_schematic_compute.nbs_undid"));
-            }
+            // 其余按钮走命令派发（与键位绑定同一条路径，行为不漂移）
+            // The remaining buttons share the command dispatch (one path with the keys).
+            var act = switch (i) {
+                case TB_SAVE -> EditorKeys.Action.NBS_SAVE;
+                case TB_EXPORT -> EditorKeys.Action.NBS_EXPORT;
+                case TB_IMPORT -> EditorKeys.Action.NBS_IMPORT;
+                case TB_VIEW -> EditorKeys.Action.NBS_VIEW_TOGGLE;
+                case TB_REDO -> EditorKeys.Action.NBS_REDO;
+                default -> EditorKeys.Action.NBS_UNDO;
+            };
+            dispatchNbsAction(act);
             return true;
         }
         return true;
@@ -765,28 +767,15 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private boolean clickTransport(double mx, double my) {
         int tempoLabelW = font.width(I18n.get("gui.create_schematic_compute.nbs_tempo"));
         int[][] r = transportBarRects(width, height, tempoLabelW);
-        if (inRect(r[TR_PLAY][0], r[TR_PLAY][1], r[TR_PLAY][2], r[TR_PLAY][3], mx, my)) { togglePlay(); return true; }
-        if (inRect(r[TR_STOP][0], r[TR_STOP][1], r[TR_STOP][2], r[TR_STOP][3], mx, my)) {
-            preview.stop(); preview.seek(0); CscAudioEngine.cancelListenerFuture();
-            return true;
-        }
-        if (inRect(r[TR_LOOP][0], r[TR_LOOP][1], r[TR_LOOP][2], r[TR_LOOP][3], mx, my)) {
-            var s = kernel.song();
-            kernel.setLoop(!s.loop, s.maxLoopCount, s.loopStartTick);
-            return true;
-        }
+        if (inRect(r[TR_PLAY][0], r[TR_PLAY][1], r[TR_PLAY][2], r[TR_PLAY][3], mx, my)) { dispatchNbsAction(EditorKeys.Action.NBS_PLAY_PAUSE); return true; }
+        if (inRect(r[TR_STOP][0], r[TR_STOP][1], r[TR_STOP][2], r[TR_STOP][3], mx, my)) { dispatchNbsAction(EditorKeys.Action.NBS_STOP); return true; }
+        if (inRect(r[TR_LOOP][0], r[TR_LOOP][1], r[TR_LOOP][2], r[TR_LOOP][3], mx, my)) { dispatchNbsAction(EditorKeys.Action.NBS_LOOP); return true; }
         if (inRect(r[TR_TEMPO][0], r[TR_TEMPO][1], r[TR_TEMPO][2], r[TR_TEMPO][3], mx, my)) {
             tempoBox.setFocused(true);
             return true;
         }
-        if (inRect(r[TR_INST_NEXT][0], r[TR_INST_NEXT][1], r[TR_INST_NEXT][2], r[TR_INST_NEXT][3], mx, my)) {
-            currentInstrument = (currentInstrument + 1) % 16;
-            return true;
-        }
-        if (inRect(r[TR_INST_PREV][0], r[TR_INST_PREV][1], r[TR_INST_PREV][2], r[TR_INST_PREV][3], mx, my)) {
-            currentInstrument = (currentInstrument + 15) % 16;
-            return true;
-        }
+        if (inRect(r[TR_INST_NEXT][0], r[TR_INST_NEXT][1], r[TR_INST_NEXT][2], r[TR_INST_NEXT][3], mx, my)) { dispatchNbsAction(EditorKeys.Action.NBS_INSTRUMENT_NEXT); return true; }
+        if (inRect(r[TR_INST_PREV][0], r[TR_INST_PREV][1], r[TR_INST_PREV][2], r[TR_INST_PREV][3], mx, my)) { dispatchNbsAction(EditorKeys.Action.NBS_INSTRUMENT_PREV); return true; }
         // 点空白=速度框失焦：走提交路径，不丢草稿（P3 同族修复）
         // Clicking dead space blurs the tempo box through the commit path — the draft is
         // never dropped (same family as the layer-name blur fix).
@@ -1112,21 +1101,65 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             if (tempoBox != null && tempoBox.isFocused()) return tempoBox.keyPressed(key, sc, mod);
             return layerNameBox.keyPressed(key, sc, mod);
         }
-        if (hasControlDown() && key == 90) {    // Ctrl+Z
-            applyPendingInputs();
-            if (hasShiftDown()) { if (kernel.performRedo()) feedback(I18n.get("gui.create_schematic_compute.nbs_redid")); }
-            else if (kernel.performUndo()) feedback(I18n.get("gui.create_schematic_compute.nbs_undid"));
-            return true;
+        // 命令键位（作用域 NBS）：统一序列引擎——绑定可在设置里改；撤销/重做与图编辑器
+        // 同名不同作用域（同一键在三个屏幕各绑各的）。
+        // Command bindings (NBS scope): the unified sequence engine — rebindable in
+        // settings; undo/redo share names with the graph editor across scopes (the same
+        // key binds in each screen).
+        int seqMods = (hasControlDown() ? io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.MOD_CTRL : 0)
+            | (hasShiftDown() ? io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.MOD_SHIFT : 0)
+            | (hasAltDown() ? io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.MOD_ALT : 0);
+        var hit = io.github.y15173334444.create_schematic_compute.blocks.EditorKeys
+            .feedKey(key, seqMods, System.currentTimeMillis(),
+                io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.Scope.NBS);
+        if (hit != null && dispatchNbsAction(hit)) return true;
+        if (io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.bufferActive()
+            || io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.mixedBufferActive()) {
+            return true;    // 序列前缀等待（吞键）/ prefix waiting (consume the key)
         }
-        if (hasControlDown() && key == 89) {    // Ctrl+Y
-            if (kernel.performRedo()) feedback(I18n.get("gui.create_schematic_compute.nbs_redid"));
-            return true;
-        }
-        if (key == 32) {                        // Space：播放/暂停
-            togglePlay();
+        // 旧别名保留（DELETE_WIRE 老组合保留先例）：Ctrl+Shift+Z = 重做
+        // Legacy alias kept (the DELETE_WIRE precedent): Ctrl+Shift+Z = redo.
+        if (hasControlDown() && hasShiftDown() && key == 90) {
+            dispatchNbsAction(io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.Action.NBS_REDO);
             return true;
         }
         return super.keyPressed(key, sc, mod);
+    }
+
+    /** NBS 命令动作派发（键位绑定与面板按钮共用一条路径，行为不漂移）。
+     *  NBS command-action dispatch (one path shared by key bindings and panel buttons). */
+    private boolean dispatchNbsAction(io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.Action a) {
+        switch (a) {
+            case NBS_PLAY_PAUSE -> { togglePlay(); return true; }
+            case NBS_STOP -> {
+                preview.stop(); preview.seek(0); CscAudioEngine.cancelListenerFuture();
+                return true;
+            }
+            case NBS_UNDO -> {
+                applyPendingInputs();
+                if (kernel.performUndo()) feedback(I18n.get("gui.create_schematic_compute.nbs_undid"));
+                return true;
+            }
+            case NBS_REDO -> {
+                applyPendingInputs();
+                if (kernel.performRedo()) feedback(I18n.get("gui.create_schematic_compute.nbs_redid"));
+                return true;
+            }
+            case NBS_SAVE -> { applyPendingInputs(); syncSongToServer(); return true; }
+            case NBS_IMPORT -> { openImportDialog(); return true; }
+            case NBS_EXPORT -> { openExportDialog(); return true; }
+            case NBS_VIEW_TOGGLE -> { view = (view == View.ROLL) ? View.LANE : View.ROLL; return true; }
+            case NBS_LOOP -> {
+                var s = kernel.song();
+                kernel.setLoop(!s.loop, s.maxLoopCount, s.loopStartTick);
+                return true;
+            }
+            case NBS_INSTRUMENT_PREV -> { currentInstrument = (currentInstrument + 15) % 16; return true; }
+            case NBS_INSTRUMENT_NEXT -> { currentInstrument = (currentInstrument + 1) % 16; return true; }
+            case NBS_OCTAVE_PREV -> { pianoStrip.shift(-12); return true; }
+            case NBS_OCTAVE_NEXT -> { pianoStrip.shift(12); return true; }
+            default -> { return false; }
+        }
     }
 
     @Override
