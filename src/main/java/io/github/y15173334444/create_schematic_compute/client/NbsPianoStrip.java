@@ -104,9 +104,10 @@ public final class NbsPianoStrip {
     public int keyAt(int keyAreaW, int keyAreaH, double mx, double my, int startKey, int windowKeys) {
         int[][] rects = keyRects(keyAreaW, keyAreaH, startKey, windowKeys);
         for (int pass = 0; pass < 2; pass++) {
+            boolean wantBlack = pass == 0;               // 命中黑键优先 / blacks hit first
             for (int i = 0; i < rects.length; i++) {
                 boolean black = NbsPianoRoll.isBlackKey(rects[i][0]);
-                if ((pass == 0) != black) continue;
+                if (wantBlack != black) continue;
                 int[] r = rects[i];
                 if (mx >= r[1] && mx < r[1] + r[3] && my >= r[2] && my < r[2] + r[4]) return r[0];
             }
@@ -136,9 +137,10 @@ public final class NbsPianoStrip {
         int keyAreaY = y + 2, keyAreaH = h - 4;
         int[][] rects = keyRects(keyAreaW, keyAreaH, startKey, WINDOW_KEYS);
         for (int pass = 0; pass < 2; pass++) {           // 白键先画、黑键叠上 / whites first, blacks on top
+            boolean wantBlack = pass == 1;               // 画序曾写反：黑键被白键整块盖住（实测反馈根因之一）
             for (int[] r : rects) {
                 boolean black = NbsPianoRoll.isBlackKey(r[0]);
-                if ((pass == 0) != black) continue;
+                if (wantBlack != black) continue;
                 int k = r[0], kw = r[3];
                 int kx = keyAreaX + r[1], ky = keyAreaY + r[2];
                 boolean sel = showCandidate && k == toolKey;

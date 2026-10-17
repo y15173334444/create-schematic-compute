@@ -319,10 +319,13 @@ public final class NbsPianoRoll {
         return (((long) tick) << 32) | (key & 0xFFFFFFFFL);
     }
 
-    /** 黑键（A 起半音序号：1/4/6/8/11）。 */
+    /** 黑键半音集（A 起 pc 序号：A#/C#/D#/F#/G# = 1/4/6/9/11）。曾把 F(8) 误当黑键、
+     *  F#(9) 漏掉——F/F# 黑白身份颠倒（实测反馈根因之一）。
+     *  Black-key pitch classes from A: A#/C#/D#/F#/G# = 1/4/6/9/11. F used to be marked
+     *  black and F# missed — the F/F# identity was swapped (a field-feedback root cause). */
     static boolean isBlackKey(int k) {
         int pc = Math.floorMod(k, 12);
-        return pc == 1 || pc == 4 || pc == 6 || pc == 8 || pc == 11;
+        return pc == 1 || pc == 4 || pc == 6 || pc == 9 || pc == 11;
     }
 
     /** NBS 键 0 = A0；每 12 键一个 C（k%12==3 → C）。 */

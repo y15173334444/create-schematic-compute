@@ -142,6 +142,25 @@ class NbsLaneViewTest {
     }
 
     @Test
+    @DisplayName("black-key pitch classes: A#/C#/D#/F#/G# / 黑键半音集合（F/F# 曾颠倒）")
+    void testBlackKeyPitchClasses() {
+        assertTrue(NbsPianoRoll.isBlackKey(1), "A# is black");
+        assertTrue(NbsPianoRoll.isBlackKey(4), "C# is black");
+        assertTrue(NbsPianoRoll.isBlackKey(6), "D# is black");
+        assertTrue(NbsPianoRoll.isBlackKey(9), "F# is black");
+        assertTrue(NbsPianoRoll.isBlackKey(11), "G# is black");
+        assertFalse(NbsPianoRoll.isBlackKey(8), "F is white — the old set had 8 where 9 belongs");
+        assertFalse(NbsPianoRoll.isBlackKey(0), "A is white");
+        assertFalse(NbsPianoRoll.isBlackKey(2), "B is white");
+        assertFalse(NbsPianoRoll.isBlackKey(3), "C is white");
+        assertFalse(NbsPianoRoll.isBlackKey(5), "D is white");
+        assertFalse(NbsPianoRoll.isBlackKey(7), "E is white");
+        assertFalse(NbsPianoRoll.isBlackKey(10), "G is white");
+        assertTrue(NbsPianoRoll.isBlackKey(33), "F#3 (key 33) is black — the strip's slot/straddle split relies on it");
+        assertFalse(NbsPianoRoll.isBlackKey(44), "F4 (key 44) is white");
+    }
+
+    @Test
     @DisplayName("octave window follows a selection into view / 选键后八度窗跟随（窗外键候选不显示的修复）")
     void testEnsureVisibleFollowsSelection() {
         NbsPianoStrip strip = new NbsPianoStrip();
