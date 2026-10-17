@@ -5,7 +5,6 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -42,7 +41,7 @@ import java.util.Map;
  * Create-synced network readings (built-in readout); the client never recomputes.</p>
  */
 public class KineticGaugeBlockEntity extends KineticBlockEntity
-        implements GraphBlockEntity, KineticNetworkView {
+        implements GraphBlockEntity, KineticNetworkView, GraphHost.TickHooks {
 
     /** 组合式图托管核心。 Composition-based graph hosting core. */
     public final GraphHost host;
@@ -57,41 +56,32 @@ public class KineticGaugeBlockEntity extends KineticBlockEntity
 
     // ── 每 tick / per tick（Monitor 同款轻量路径 / Monitor-style light path）──
 
+    /** tick 体已收敛进 GraphHost.tickBody（K23）：15 步共同编排住骨架（守卫在骨架内），
+     *  读数推送挂在 afterGuard 缝（守卫后、① 前）；偏差声明 = ④ L 档 + ⑨ 3 参档 +
+     *  无 ②（无 LIT 属性）。/ The tick body converged into GraphHost.tickBody (K23);
+     *  the readout push rides the afterGuard seam and the deviations are ④ Light,
+     *  ⑨ basic form, no ②. */
     @Override
     public void tick() {
         super.tick();
-        if (level == null || level.isClientSide)
-            return;
-
-        // 读数（转速/应力/容量）变化 → 主动推一次 BE 数据包（见 pushReadoutIfChanged 的完整理由）。
-        // Push the readout to clients whenever it changes — see pushReadoutIfChanged.
-        pushReadoutIfChanged();
-
-        host.ensureBusRegistered();
-        host.flushPendingFullSync();
-        host.rs.checkGraphChanged(host.graph);
-        if (host.graphChanged())
-            host.recompileEvaluatorLight();
-        if (!host.running) {
-            host.onStopRunning();
-            return;
-        }
-        host.rs.refreshInputs();
-        // 第 ⑦ 步（P2-12 补线）：冲突频道自愈与其他宿主同款（Blueprint 样板：refreshInputs
-        // 之后、buildInputs 之前）；有恢复才 requestFullSync + 立即发包。
-        // Step ⑦ (P2-12 wiring): conflicted-channel self-heal, same as every other host
-        // (Blueprint style: after refreshInputs, before buildInputs); requestFullSync +
-        // immediate push only when something recovered.
-        if (BusChannelHelper.recoverConflictedChannels(host.graph, worldPosition, level)) {
-            host.requestFullSync();
-            sendBlockUpdated();
-        }
-        var in = host.rs.buildInputs(host.graph);
-        var results = host.evaluator.evaluate(in, host.runtimeState.pidState, 0.05f);
-        host.rs.writeOutputs(results);
-        host.broadcastEvalSnapshot();
-        setChanged();
+        host.tickBody(this);
     }
+
+    // ── tick 编排偏差声明（K23 骨架钩子）/ tick-orchestration deviations (K23 hooks) ──
+
+    /** 缝 0（守卫后 ① 前）：读数（转速/应力/容量）变化 → 主动推一次 BE 数据包
+     *  （见 pushReadoutIfChanged 的完整理由）。
+     *  Seam 0 (after the guard, before ①): push the readout to clients whenever it
+     *  changes — see pushReadoutIfChanged. */
+    @Override public void afterGuard() {
+        pushReadoutIfChanged();
+    }
+
+    /** ④ L 档轻量重编译。 / Step ④ Light recompile. */
+    @Override public boolean lightRecompile() { return true; }
+
+    /** ⑨ 基础档（3 参）。 / Step ⑨ basic (3-arg) form. */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.BASIC; }
 
     // ── 读数同步 / readout sync ──
 

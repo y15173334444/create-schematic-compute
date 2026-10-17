@@ -12,7 +12,6 @@ import io.github.y15173334444.create_schematic_compute.graph.MotionCommand;
 import io.github.y15173334444.create_schematic_compute.graph.MotionQuota;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
-import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
@@ -52,7 +51,7 @@ import java.util.Map;
  * removing the output shaft face.</p>
  */
 public class CncGearboxBlockEntity extends SplitShaftBlockEntity
-        implements GearboxCommandSink, GraphBlockEntity, KineticEncoderView, io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView {
+        implements GearboxCommandSink, GraphBlockEntity, KineticEncoderView, io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView, GraphHost.TickHooks {
 
 
     /** 组合式图托管核心。 Composition-based graph hosting core. */
@@ -139,53 +138,73 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
 
     // ── 每 tick / per tick ──
 
+    /** 本 tick 的离合意图（原 tick 局部变量，收敛后转字段：beforeGraphCheck 每 tick 复位、
+     *  afterEvalBroadcast 写入、beforeSetChanged 读取——逐 tick 语义与原局部等价）。
+     *  This tick's clutch intent (the original per-tick local, now a field: reset in
+     *  beforeGraphCheck, written in afterEvalBroadcast, read in beforeSetChanged —
+     *  per-tick semantics identical to the original local). */
+    private boolean clutchIntent;
+
+    /** tick 体已收敛进 GraphHost.tickBody（K23）：15 步共同编排住骨架，数控齿轮箱的
+     *  偏差化为声明与钩子（⑤ if/else 形态不早退 + 停机复位、⑥A 档、⑨ 全状态档、
+     *  ⑬ 在位、⑫ 缺保持缺失）。/ The tick body converged into GraphHost.tickBody (K23);
+     *  every CNC-gearbox deviation is now a declaration or hook below. */
     @Override
     public void tick() {
         super.tick();
-        if (level == null || level.isClientSide)
-            return;
+        host.tickBody(this);
+    }
+
+    // ── tick 编排偏差声明（K23 骨架钩子）/ tick-orchestration deviations (K23 hooks) ──
+
+    /** 缝 0（守卫后 ① 前）：输入面自动侦测。 / Seam 0: input-face auto-detection. */
+    @Override public void afterGuard() {
         autoSenseInputFace();
-        host.ensureBusRegistered();
-        host.flushPendingFullSync();
+    }
 
-        host.rs.checkGraphChanged(host.graph);
-        if (host.graphChanged())
-            host.recompileEvaluatorFull();
+    /** 缝 2（③ 前）：离合意图复位（原「boolean clutchIntent = false;」的等价落点）。
+     *  Seam 2 (before ③): clutch-intent reset (the equivalent of the original local
+     *  initialiser). */
+    @Override public void beforeGraphCheck() {
+        clutchIntent = false;
+    }
 
-        boolean clutchIntent = false;
-        if (!host.running) {
-            host.onStopRunning();
-            commandStack.clear();
-            currentCommand = null;
-            status = Status.IDLE;
-        } else {
-            host.rs.refreshInputsActive();
-            // 第 ⑦ 步（P2-12 补线）：冲突频道自愈与其他宿主同款（Blueprint 样板：refreshInputs
-            // 之后、buildInputs 之前）；有恢复才 requestFullSync + 立即发包。
-            // Step ⑦ (P2-12 wiring): conflicted-channel self-heal, same as every other host
-            // (Blueprint style: after refreshInputs, before buildInputs); requestFullSync +
-            // immediate push only when something recovered.
-            if (BusChannelHelper.recoverConflictedChannels(host.graph, worldPosition, level)) {
-                host.requestFullSync();
-                sendBlockUpdated();
-            }
-            var in = host.rs.buildInputs(host.graph);
-            var results = host.evaluator.evaluate(in, host.runtimeState.pidState, 0.05f,
-                    host.runtimeState.delayQueues, host.runtimeState.flipflopStates, host.runtimeState.pulseTimers);
-            host.rs.writeOutputs(results);
-            host.broadcastEvalSnapshot();
-            // 第 ⑬ 步（P2-13 补线）：6 参档求值里 GATE/T_FLIPFLOP/LATCH 真实演进，但此前从不
-            // 广播差分——图内触发器状态永不同步到客户端（编辑器徽标死值）。GraphHost 内部按
-            // 基线去重，无变化零发包（AmplifierComputer/Speaker 同位置）。
-            // Step ⑬ (P2-13 wiring): the 6-arg evaluate genuinely evolves GATE/T_FLIPFLOP/LATCH
-            // state, but no diff was ever broadcast — in-graph flipflop state never reached the
-            // client (dead editor badges). GraphHost diffs against its baseline, so no packets
-            // while unchanged (same position as AmplifierComputer/Speaker).
-            host.broadcastFlipflopDiff();
-            host.evaluator.clearCompletedNodeId();
-            clutchIntent = runMotionControl();
-        }
+    /** ⑤ if/else 形态：停机不早退，落共用尾段（编码器/离合/运行态两分支都跑）。
+     *  Step ⑤ if-else shape: no early return on stop — the shared tail (encoder /
+     *  clutch / run state) runs in both branches. */
+    @Override public boolean stopEndsTick() { return false; }
 
+    /** ⑤ 停机分支本体：onStopRunning + 指令栈复位。 / Step ⑤ stopped-branch body:
+     *  onStopRunning + command-stack reset. */
+    @Override public void stopBody(GraphHost engine) {
+        engine.onStopRunning();
+        commandStack.clear();
+        currentCommand = null;
+        status = Status.IDLE;
+    }
+
+    /** ⑥ A 档：refreshInputsActive。 / Step ⑥ A variant. */
+    @Override public boolean activeInputRefresh() { return true; }
+
+    /** ⑬ 触发器差分在位（P2-13 补线位：⑪⑫ 后；基线去重，无变化零发包）。
+     *  Step ⑬ present (the P2-13 slot after ⑪⑫; baseline-diffed, silent while unchanged). */
+    @Override public boolean wantsFlipflopDiff() { return true; }
+
+    /** ⑨ 全状态档（6 参——GATE/T_FLIPFLOP/LATCH 真实演进）。
+     *  Step ⑨ full-state (6-arg) form. */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
+
+    /** 缝 8（⑬ 后）：完成节点清理 + 指令栈推进（产出本 tick 离合意图）。
+     *  Seam 8 (after ⑬): completed-node cleanup + command-stack advance (produces this
+     *  tick's clutch intent). */
+    @Override public void afterEvalBroadcast() {
+        host.evaluator.clearCompletedNodeId();
+        clutchIntent = runMotionControl();
+    }
+
+    /** 缝 9（⑭ 前，共用尾段）：编码器积分 + 离合状态 + 运行状态灯。
+     *  Seam 9 (before ⑭, the shared tail): encoder integral + clutch state + run lamp. */
+    @Override public void beforeSetChanged() {
         // 编码器积分必须与配额记账**同一 tick 对齐**：runMotionControl 里配额刚按
         // |getSpeed()| 消耗过，这里以本 tick 的接合决策（clutchIntent）作门控积分——
         // 分离/空闲时位置保持、不计（「没有指令也在动」的修复），指令执行期间逐 tick
@@ -211,7 +230,6 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
 
         updateClutchState(clutchIntent);
         updateRunState();
-        setChanged();
     }
 
     /**

@@ -2,55 +2,47 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
-import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import java.util.ArrayDeque;
 
-public class BlueprintBlockEntity extends SyncedGraphBlockEntity {
+public class BlueprintBlockEntity extends SyncedGraphBlockEntity implements GraphHost.TickHooks {
     public BlueprintBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.BLUEPRINT_BE.get(), pos, s); }
 
     // accept() 已上提至 SyncedGraphBlockEntity（阶段 1）——Blueprint 无类型特定字段，
     // 合并只需基类那份。/ accept() moved up to SyncedGraphBlockEntity (phase 1) —
     // Blueprint has no type-specific fields, so the base implementation is enough.
 
+    /** tick 体已收敛进 GraphHost.tickBody（K23）：15 步共同编排住骨架，Blueprint 的偏差
+     *  全部化为下方声明（②LIT / ⑥A 档 / ⑫⑬ 在位 / ⑨ 全状态档），行为零变更。
+     *  The tick body converged into GraphHost.tickBody (K23): the shared 15-step
+     *  orchestration lives in the skeleton and every Blueprint deviation is now a
+     *  declaration below (② LIT / ⑥ A variant / ⑫⑬ present / ⑨ full-state) — zero
+     *  behaviour change. */
     public void tick() {
-        if(level==null||level.isClientSide()) return;
-        ensureBusRegistered();
-        // 第 ⑮ 步（P1-8 补线）：BUS_IN 改名等路径置位的挂起全量同步在此按 grace 窗口冲刷；
-        // 必须放在所有早退（LIT 缺属性 / 停机）之前，停机宿主也要能把图推给新加入的编辑者。
-        // Step ⑮ (P1-8 wiring): flush the pending full sync (e.g. a BUS_IN rename) within the
-        // grace window; it must sit before every early return (missing LIT / stopped) so a
-        // stopped host still ships its graph to a newly joined editor.
-        flushPendingFullSync();
-        boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
-        var currentState = getBlockState();
-        if (!currentState.hasProperty(BlueprintBlock.LIT)) return;
-        if(currentState.getValue(BlueprintBlock.LIT)!=shouldBeLit)
-            level.setBlock(worldPosition, currentState.setValue(BlueprintBlock.LIT, shouldBeLit), 3);
-        rs().checkGraphChanged(graph());
-        if (graphChanged()) recompileEvaluatorFull();
-        if(!isRunning()) {
-            onStopRunning();
-            return;
-        }
-        rs().refreshInputsActive();
-        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
-            requestFullSync();
-            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
-        var in = rs().buildInputs(graph());
-        float dt = 0.05f;
-        var results = evaluator().evaluate(in, runtimeState().pidState, dt,
-                runtimeState().delayQueues, runtimeState().flipflopStates, runtimeState().pulseTimers);
-        rs().writeOutputs(results);
-        broadcastEvalSnapshot(); // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
-        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
-        broadcastFlipflopDiff();
-        setChanged();
+        tickBody(this);
     }
+
+    // ── tick 编排偏差声明（K23 骨架钩子）/ tick-orchestration deviations (K23 hooks) ──
+
+    /** ② LIT 指示属性（缺席即中止口径，litAbsentAbortsTick 默认）。
+     *  Step ② LIT property (abort-on-absent shape, the litAbsentAbortsTick default). */
+    @Override public BooleanProperty litProperty() { return BlueprintBlock.LIT; }
+
+    /** ⑥ A 档：refreshInputsActive（继承线运行档口径）。 / Step ⑥ A variant. */
+    @Override public boolean activeInputRefresh() { return true; }
+
+    /** ⑫ 频段变更同步在位（矩阵 ⑫ 列 ✓）。 / Step ⑫ present (matrix ✓). */
+    @Override public boolean wantsBandSync() { return true; }
+
+    /** ⑬ 触发器差分在位（矩阵 ⑬ 列 ✓）。 / Step ⑬ present (matrix ✓). */
+    @Override public boolean wantsFlipflopDiff() { return true; }
+
+    /** ⑨ 全状态档（6 参，时序节点真实演进）。 / Step ⑨ full-state (6-arg) form. */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
 
     // 整图保存已随 issue #17 退役；世界加载走 loadHostNBT，保存请求不再替换图。
     // Whole-graph save retired with issue #17; world load goes through loadHostNBT.

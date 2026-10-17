@@ -4,12 +4,12 @@ import io.github.y15173334444.create_schematic_compute.graph.FreqItems;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
-import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.createmod.catnip.data.Couple;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import java.util.UUID;
 
 /**
@@ -22,7 +22,7 @@ import java.util.UUID;
  * ZH: 控制座椅方块的服务端逻辑。它接收从客户端转发的玩家输入（键盘、鼠标、手柄），
  * 在服务端每 tick 执行计算图，并将结果写回红石/总线通道。
  */
-public class ControlSeatBlockEntity extends SyncedGraphBlockEntity {
+public class ControlSeatBlockEntity extends SyncedGraphBlockEntity implements GraphHost.TickHooks {
 
     // ══ Global input cache (per-player UUID) / 全局输入缓存（按玩家 UUID） ══
 
@@ -246,59 +246,48 @@ public class ControlSeatBlockEntity extends SyncedGraphBlockEntity {
     }
 
     /**
-     * EN: Main server-tick logic for the Control Seat.
+     * EN: Main server-tick logic for the Control Seat — the canonical 15-step
+     * orchestration lives in {@link GraphHost#tickBody} (K23 convergence); the seat
+     * contributes its deviations as hooks:
      * <ol>
-     * <li>Register bus channels if needed</li>
-     * <li>Consume player input</li>
-     * <li>Update the LIT block state to reflect run status</li>
-     * <li>Recompile the evaluator if the graph changed</li>
-     * <li>Recover conflicted bus channels</li>
-     * <li>Build inputs, compute acceleration, evaluate the graph, write outputs</li>
-     * <li>Broadcast evaluation snapshot to clients (for DEBUG_PROBE)</li>
-     * <li>Sync bus channel bands if they changed</li>
+     * <li>Seam 1 (after the full-sync flush): consume player input + view-angle adjust.</li>
+     * <li>Seam 5 (before evaluate): mode-1 world-relative conversion, attitude,
+     *     acceleration.</li>
+     * <li>Step ⑨: the {@link GraphEvaluator.SeatInputState} packing, 4-arg stateless form.</li>
      * </ol>
-     * ZH: 控制座椅的主服务端 tick 逻辑。
-     * <ol>
-     * <li>必要时注册总线通道</li>
-     * <li>消费玩家输入</li>
-     * <li>更新 LIT 方块状态以反映运行状态</li>
-     * <li>如果计算图发生变化，重新编译计算器</li>
-     * <li>恢复冲突的总线通道</li>
-     * <li>构建输入、计算加速度、执行图计算、写入输出</li>
-     * <li>向客户端广播计算快照（供 DEBUG_PROBE 采样）</li>
-     * <li>如果总线通道频段发生变化，进行同步</li>
-     * </ol>
+     * ZH: 控制座椅的主服务端 tick —— 15 步共同编排住 {@link GraphHost#tickBody}（K23
+     * 收敛），座椅只保留偏差钩子：缝 1（消费输入 + 视角调整）、缝 5（mode-1 世界相对
+     * 转换 + 姿态 + 加速度）、⑨ 的 SeatInputState 打包（4 参无状态档）。
      */
     public void tick() {
-        if(level==null||level.isClientSide()) return;
-        ensureBusRegistered();
-        // 第 ⑮ 步（P1-8 补线）：挂起全量同步按 grace 窗口冲刷；必须在所有早退之前，
-        // 停机宿主也要能把图推给新加入的编辑者（Blueprint 同款）。
-        // Step ⑮ (P1-8 wiring): flush the pending full sync within the grace window; must
-        // sit before every early return so a stopped host still ships its graph to a newly
-        // joined editor (same as Blueprint).
-        flushPendingFullSync();
+        tickBody(this);
+    }
+
+    // ── tick 编排偏差声明（K23 骨架钩子）/ tick-orchestration deviations (K23 hooks) ──
+
+    /** ② LIT 指示属性（缺席即中止口径）。
+     *  EN: Step ② LIT property (abort-on-absent). */
+    @Override public BooleanProperty litProperty() { return ControlSeatBlock.LIT; }
+
+    /** ⑫ 频段变更同步在位（矩阵 ⑫ 列 ✓）。
+     *  EN: Step ⑫ present (matrix ✓). */
+    @Override public boolean wantsBandSync() { return true; }
+
+    /** ⑨ SeatInput 无状态档（4 参）——时序/状态节点静默空转的怪癖原样（GraphEvaluator 不动）。
+     *  EN: Step ⑨ the 4-arg stateless SeatInput form — the silently-idling quirk over
+     *  timing/state nodes stays as-is (GraphEvaluator untouched). */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.SEAT_STATELESS; }
+
+    /** 缝 1（⑮ 后 ② 前）：消费玩家输入 + 视角调整。
+     *  EN: Seam 1 (after ⑮, before ②): consume player input + view-angle adjust. */
+    @Override public void beforeLit() {
         consumeInput(); adjustViewAngle();
-        // EN: Only light the block when a graph is loaded AND running, so the player has visual feedback.
-        // ZH: 仅在已加载计算图并运行时点亮方块，给予玩家视觉反馈。
-        boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
-        var currentState = getBlockState();
-        if (!currentState.hasProperty(ControlSeatBlock.LIT)) return;
-        if(currentState.getValue(ControlSeatBlock.LIT)!=shouldBeLit)
-            level.setBlock(worldPosition, currentState.setValue(ControlSeatBlock.LIT, shouldBeLit), 3);
-        rs().checkGraphChanged(graph());
-        if(graphChanged()) recompileEvaluatorFull();
-        if(!isRunning()) { onStopRunning(); return; }
+    }
 
-        rs().refreshInputs();
-        // EN: If bus channels were in conflict, force a full sync so all peers see the resolution.
-        // ZH: 如果总线通道存在冲突，强制执行全量同步，使所有对等端获知解决结果。
-        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
-            requestFullSync();
-            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
-        var in = rs().buildInputs(graph());
-
+    /** 缝 5（⑧ 后 ⑨ 前）：mode-1 世界相对转换 + 姿态 + 加速度。
+     *  EN: Seam 5 (after ⑧, before ⑨): mode-1 world-relative conversion + attitude +
+     *  acceleration. */
+    @Override public void beforeEval() {
         // EN: Mode 1 = world-relative input. Convert view-relative yaw/pitch into world-relative
         // by adding the seat entity's rotation so downstream nodes see absolute direction.
         // ZH: 模式 1 = 世界相对输入。通过加上座椅实体的旋转角，将视角相对偏航/俯仰
@@ -326,24 +315,20 @@ public class ControlSeatBlockEntity extends SyncedGraphBlockEntity {
             accelX = (float)((rawVelX - prevRawVelX) / 0.05); accelY = (float)((rawVelY - prevRawVelY) / 0.05); accelZ = (float)((rawVelZ - prevRawVelZ) / 0.05);
             prevRawVelX = rawVelX; prevRawVelY = rawVelY; prevRawVelZ = rawVelZ;
         }
-        // EN: Pack all input state into the evaluator's SeatInputState. Position defaults to block center
-        // unless a sub-world override has been set (NaN check).
-        // ZH: 将所有输入状态打包为计算器的 SeatInputState。位置默认为方块中心，
-        // 除非已设置了子世界覆盖（NaN 检查）。
-        var seatInput = new GraphEvaluator.SeatInputState(keyBits, mouseJoystickX, mouseJoystickY, viewYaw, viewPitch,
+    }
+
+    /** ⑨ SeatInput 档的座位输入：将所有输入状态打包传入求值器。位置默认为方块中心，
+     *  除非已设置了子世界覆盖（NaN 检查）。
+     *  EN: Step ⑨ seat input for the SeatInput form: pack all input state for the
+     *  evaluator. Position defaults to block center unless a sub-world override has
+     *  been set (NaN check). */
+    @Override public GraphEvaluator.SeatInputState seatInput() {
+        return new GraphEvaluator.SeatInputState(keyBits, mouseJoystickX, mouseJoystickY, viewYaw, viewPitch,
             savedWorldYaw, savedWorldPitch, mouseButtons, gpadLX, gpadLY, gpadRX, gpadRY, gpadLT, gpadRT, gpadButtons,
             blockYaw, attitudeYaw, attitudePitch, attitudeRoll, forwardYaw, forwardPitch,
             accelX, accelY, accelZ, (float)rawVelX, (float)rawVelY, (float)rawVelZ,
             Float.isNaN(cachedSubWorldX) ? worldPosition.getX()+0.5f : cachedSubWorldX,
             Float.isNaN(cachedSubWorldY) ? worldPosition.getY()+0.5f : cachedSubWorldY,
             Float.isNaN(cachedSubWorldZ) ? worldPosition.getZ()+0.5f : cachedSubWorldZ);
-
-        var results = evaluator().evaluate(in, runtimeState().pidState, 0.05f, seatInput);
-        rs().writeOutputs(results);
-        // EN: Broadcast EvalSnapshot to clients so DEBUG_PROBE nodes can sample node outputs.
-        // ZH: 广播 EvalSnapshot 给客户端，供 DEBUG_PROBE 节点采样节点输出。
-        broadcastEvalSnapshot();
-        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
-        setChanged();
     }
 }

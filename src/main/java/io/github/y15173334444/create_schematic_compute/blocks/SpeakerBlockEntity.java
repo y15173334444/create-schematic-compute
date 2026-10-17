@@ -7,7 +7,6 @@ import io.github.y15173334444.create_schematic_compute.graph.MusicTransport;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.graph.NoteEvent;
 import io.github.y15173334444.create_schematic_compute.graph.SpeakerSink;
-import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.network.MusicStopPacket;
 import io.github.y15173334444.create_schematic_compute.network.NoteEventPacket;
 import net.minecraft.core.BlockPos;
@@ -31,7 +30,7 @@ import java.util.Map;
  * <p>Speaker BE: an audio-only graph host ({@code BUS_IN --audio wire--> SPEAKER_PLAY}) that reads an
  * audio band and plays at its own position via {@link SpeakerSink}.</p>
  */
-public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements SpeakerSink {
+public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements SpeakerSink, GraphHost.TickHooks {
 
     /** 默认图初始频段名。运行时以图内 BUS_IN 的名字为准（编辑器可改、随节点 NBT 持久化）。
      *  Initial band name for the default graph only — the graph's BUS_IN name rules at runtime. */
@@ -52,19 +51,35 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
         super(SchematicCompute.SPEAKER_BE.get(), pos, s);
     }
 
+    /** tick 体已收敛进 GraphHost.tickBody（K23）：15 步共同编排住骨架，音响的偏差化为
+     *  声明与钩子——矩阵独有缺口「停止早退早于默认图建立」由 stopSlot=BEFORE_GRAPH_CHECK
+     *  承载，红石静音采样在缝 1、默认图在缝 2、音频注入在缝 3；⑥⑩ 已在骨架（P3 补线），
+     *  ⑬ 在位、⑫ 缺保持缺失（批 2 补步）。
+     *  The tick body converged into GraphHost.tickBody (K23); the matrix's unique
+     *  "stop early-return precedes the default graph" gap rides stopSlot=BEFORE_GRAPH_CHECK,
+     *  with the redstone-mute sample at seam 1, the default graph at seam 2 and the audio
+     *  injection at seam 3. */
     public void tick() {
-        if (level == null || level.isClientSide()) return;
-        ensureBusRegistered();
-        // 第 ⑮ 步（P1-8 补线）：挂起全量同步按 grace 窗口冲刷；必须在所有早退之前，
-        // 停机宿主也要能把图推给新加入的编辑者（Blueprint 同款）。
-        // Step ⑮ (P1-8 wiring): flush the pending full sync within the grace window; must
-        // sit before every early return so a stopped host still ships its graph to a newly
-        // joined editor (same as Blueprint).
-        flushPendingFullSync();
-        // 红石静音兜底（plan §3.6）：只门控播放，不写回 mute（用户设置不被红石脉冲覆盖）。
+        tickBody(this);
+    }
+
+    // ── tick 编排偏差声明（K23 骨架钩子）/ tick-orchestration deviations (K23 hooks) ──
+
+    /** 缝 1（⑮ 后 ② 前）：红石静音兜底（plan §3.6）——只门控播放，不写回 mute
+     *  （用户设置不被红石脉冲覆盖）。
+     *  Seam 1 (after ⑮, before ②): redstone-mute sampling (plan §3.6) — gates playback
+     *  only, never writes back the user's mute setting. */
+    @Override public void beforeLit() {
         redstoneMuted = level.hasNeighborSignal(worldPosition);
-        // 与 ProgramComputer/功放同款门控：运行开关关闭时不求值、不发声。
-        if (!isRunning()) { onStopRunning(); return; }
+    }
+
+    /** ⑤ 停机检查先于 ③（矩阵独有缺口「停止早退早于默认图建立」原样保留）。
+     *  Step ⑤ stop check before ③ (the matrix's unique gap kept as-is). */
+    @Override public GraphHost.StopSlot stopSlot() { return GraphHost.StopSlot.BEFORE_GRAPH_CHECK; }
+
+    /** 缝 2（⑤ 早退后 ③ 前）：默认图建立。
+     *  Seam 2 (after the ⑤ early-return, before ③): default-graph bootstrap. */
+    @Override public void beforeGraphCheck() {
         // 默认图：BUS_IN(band) --音频线--> SPEAKER_PLAY(声道)（仅空图时建立；频段读取走
         // BUS_IN 音频分支——输出接音频线即读 AudioBands，2026-10-03 起 AUDIO_IN 节点已移除）
         if (graph().nodes.isEmpty()) createDefaultGraph();
@@ -74,45 +89,23 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
         // BUS_IN band names belong to the graph (edited in the editor, persisted in node
         // NBT) — the old per-tick re-point to the channelBand field was a default-graph-era
         // leftover that kept resetting user edits.
-        rs().checkGraphChanged(graph());
-        if (graphChanged()) recompileEvaluatorFull();
+    }
+
+    /** 缝 3（④ 后 ⑥ 前）：音频宿主状态注入（仿雷达位置注入范式）。
+     *  Seam 3 (after ④, before ⑥): audio-host state injection (the radar-style
+     *  positional injection). */
+    @Override public void beforeInputs() {
         evaluator().setAudioTransports(audioTransports);
         evaluator().setAudioHostPos(worldPosition);
         evaluator().setSpeakerSink(this);
         evaluator().setAudioTickStamp(level.getGameTime());
-        // 第 ⑥ 步（P3 宿主面补线）：音响图的 VALUES 类含 REDSTONE_IN，此前从不刷新链路输入，
-        // 图内 REDSTONE_IN 恒读 0（红石面残缺）。混合回退口径与 Sensor/ControlSeat/Monitor 一致
-        //（refreshInputs：扫描非零信号，保留 push 送达值作回退）。
-        // Step ⑥ (P3 host-face wiring): the speaker's VALUES category includes REDSTONE_IN,
-        // but link inputs were never refreshed — every REDSTONE_IN read 0 (a crippled
-        // redstone face). Hybrid-fallback semantics match Sensor/ControlSeat/Monitor
-        // (refreshInputs: scan non-zero signals, keep push-delivered values as fallback).
-        rs().refreshInputs();
-        // 第 ⑦ 步（P2-12 补线）：冲突频道自愈与其他宿主同款（Blueprint 样板：refreshInputs
-        // 之后、buildInputs 之前）；有恢复才 requestFullSync + 立即发包。
-        // Step ⑦ (P2-12 wiring): conflicted-channel self-heal, same as every other host
-        // (Blueprint style: after refreshInputs, before buildInputs); requestFullSync +
-        // immediate push only when something recovered.
-        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
-            requestFullSync();
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
-        var in = rs().buildInputs(graph());
-        var results = evaluator().evaluate(in, runtimeState().pidState, 0.05f,
-                runtimeState().delayQueues, runtimeState().flipflopStates, runtimeState().pulseTimers);
-        // 第 ⑩ 步（P3 宿主面补线）：写出红石输出。准入名单现未给音响 OUTPUT 类（REDSTONE_OUT
-        // 暂不可从菜单添加），但 op 通道不校验准入、旧档也可能携带此类节点——写出口径与其他
-        // 宿主一致；图内无 REDSTONE_OUT 时 results 为空表，零副作用（lastOutputs 清空即无发射）。
-        // Step ⑩ (P3 host-face wiring): write redstone outputs back. The speaker's allowance
-        // has no OUTPUT category yet (REDSTONE_OUT is not menu-addable), but the op channel
-        // does not check allowances and legacy saves may carry such nodes — same write
-        // discipline as every other host; with no REDSTONE_OUT in the graph, results is empty
-        // and this is a no-op (lastOutputs cleared, nothing transmitted).
-        rs().writeOutputs(results);
-        broadcastEvalSnapshot();
-        broadcastFlipflopDiff();
-        setChanged();
     }
+
+    /** ⑬ 触发器差分在位（矩阵 ⑬ 列 ✓）。 / Step ⑬ present (matrix ✓). */
+    @Override public boolean wantsFlipflopDiff() { return true; }
+
+    /** ⑨ 全状态档（6 参）。 / Step ⑨ full-state (6-arg) form. */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
 
     /** 默认音频图：BUS_IN(band) --音频线--> SPEAKER_PLAY（恒等直通，2026-10-04 起无声道选择——
      *  拆分归上游 CHANNEL，音响是哑终端）。单引脚多声道；频段读取由 BUS_IN 音频分支承担

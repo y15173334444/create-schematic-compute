@@ -3,7 +3,6 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.network.MonitorRedstoneSyncPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -13,6 +12,7 @@ import net.minecraft.nbt.NbtIo;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.neoforged.neoforge.network.PacketDistributor;
 import java.io.ByteArrayInputStream;
 import java.util.HashMap;
@@ -20,7 +20,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class MonitorBlockEntity extends SyncedGraphBlockEntity {
+public class MonitorBlockEntity extends SyncedGraphBlockEntity implements GraphHost.TickHooks {
     /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
      *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
      *  Same-name standalone logger: never references the @Mod class — its static init needs
@@ -88,33 +88,34 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
 
     public void toggleRunning() { setRunning(!isRunning()); if(level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3); }
 
+    /** tick 体已收敛进 GraphHost.tickBody（K23）：15 步共同编排住骨架，显示器的偏差
+     *  化为下方声明与钩子（⑤ 介于 ③④、④ L 档、⑨ 3 参档、⑩ 后红石差分推送缝、
+     *  ⑫⑬ 缺保持缺失）。/ The tick body converged into GraphHost.tickBody (K23);
+     *  every monitor deviation is now a declaration or hook below (⑤ between ③④,
+     *  ④ Light, ⑨ basic form, the post-⑩ redstone-diff seam, ⑫⑬ kept missing). */
     public void tick() {
-        if(level == null || level.isClientSide()) return;
-        ensureBusRegistered();
-        flushPendingFullSync(); // 合并冲刷显示拖拽的延迟全量同步（约 0.5Hz）/ flush coalesced display-drag full syncs (~0.5Hz)
-        boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
-        var currentState = getBlockState();
-        if (!currentState.hasProperty(MonitorBlock.LIT)) return;
-        if(currentState.getValue(MonitorBlock.LIT) != shouldBeLit)
-            level.setBlock(worldPosition, currentState.setValue(MonitorBlock.LIT, shouldBeLit), 3);
-        rs().checkGraphChanged(graph());
-        if(!isRunning()) { onStopRunning(); return; }
-        if(graphChanged()) recompileEvaluatorLight();
-        rs().refreshInputs();
-        // 第 ⑦ 步（P2-12 补线）：冲突频道自愈与其他宿主同款——原 owner 消失即接管、
-        // 残留 owner 按超时回收；有恢复才 requestFullSync + 立即发包（Blueprint 样板）。
-        // Step ⑦ (P2-12 wiring): conflicted-channel self-heal, same as every other host —
-        // takeover when the previous owner is gone, stale-owner reclaim by timeout;
-        // requestFullSync + immediate push only when something recovered (Blueprint style).
-        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
-            requestFullSync();
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
-        var in = rs().buildInputs(graph());
-        float dt = 0.05f;
-        var results = evaluator().evaluate(in, runtimeState().pidState, dt);
-        rs().writeOutputs(results);
-        // Sync redstone inputs + eval snapshot to tracking clients.
+        tickBody(this);
+    }
+
+    // ── tick 编排偏差声明（K23 骨架钩子）/ tick-orchestration deviations (K23 hooks) ──
+
+    /** ② LIT 指示属性（缺席即中止口径）。 / Step ② LIT property (abort-on-absent). */
+    @Override public BooleanProperty litProperty() { return MonitorBlock.LIT; }
+
+    /** ⑤ 停机检查介于 ③ 与 ④（Monitor 口径：停机不重编译）。
+     *  Step ⑤ stop check between ③ and ④ (Monitor shape: no recompile while stopped). */
+    @Override public GraphHost.StopSlot stopSlot() { return GraphHost.StopSlot.AFTER_GRAPH_CHECK; }
+
+    /** ④ L 档轻量重编译（只保 debugTime）。 / Step ④ Light recompile (debugTime only). */
+    @Override public boolean lightRecompile() { return true; }
+
+    /** ⑨ 基础档（3 参）。 / Step ⑨ basic (3-arg) form. */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.BASIC; }
+
+    /** 缝 7（⑩ 后 ⑪ 前）：红石输入差分推送。
+     *  Seam 7 (after ⑩, before ⑪): redstone-input diff push. */
+    @Override public void afterWriteOutputs() {
+        // Sync redstone inputs to tracking clients.
         // 红石输入同步（P2-17 去重）：此前每 tick 对每条链路无条件发包（N 条链路 × 20 包/秒）。
         // 现按"变化才推"（KineticGauge.pushReadoutIfChanged 同款口径）：lastPushedRedstone 缓存
         // 上次推送值，缺席 = 从未推过 → 初推必发；链路注销消失的键同步清缓存（重加回时重推初值）。
@@ -123,6 +124,11 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
         // KineticGauge.pushReadoutIfChanged): lastPushedRedstone caches the last pushed value,
         // an absent key = never pushed → the first push always ships; keys that vanished with
         // their link are dropped so a re-added link re-pushes its initial value.
+        // 原块内的 broadcastEvalSnapshot 已随收敛移入骨架 ⑪（其内部自带 ServerLevel
+        // 守卫，移出本块逐调用等价）；eval 快照与红石推送的先后不变。
+        // The block's broadcastEvalSnapshot moved into the skeleton's ⑪ (it self-guards
+        // ServerLevel, so the move is call-for-call equivalent); the order of the eval
+        // snapshot after the redstone push is unchanged.
         if (level instanceof ServerLevel sl) {
             var lastInputs = rs().lastInputs();
             var toPush = redstonePushDiff(lastPushedRedstone, lastInputs);
@@ -131,9 +137,7 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
                     new MonitorRedstoneSyncPacket(worldPosition, e.getKey(), e.getValue()));
             lastPushedRedstone.putAll(toPush);
             prunePushedKeys(lastPushedRedstone, lastInputs);
-            broadcastEvalSnapshot();
         }
-        setChanged();
     }
 
     // ── 红石推送去重（P2-17）/ redstone push dedup (P2-17) ──

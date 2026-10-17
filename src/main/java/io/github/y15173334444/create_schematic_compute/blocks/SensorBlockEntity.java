@@ -3,9 +3,9 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
-import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 
 /**
  * Sensor Block Entity — 传感器方块实体
@@ -20,7 +20,7 @@ import net.minecraft.world.level.block.state.BlockState;
  * 姿态角（偏航/俯仰/横滚）、朝向、加速度、速度以及子世界空间坐标，
  * 供 schematic 程序根据方块的位姿和运动做出响应。
  */
-public class SensorBlockEntity extends SyncedGraphBlockEntity {
+public class SensorBlockEntity extends SyncedGraphBlockEntity implements GraphHost.TickHooks {
 
     // ── Attitude / 姿态角 ──
     /** Yaw angle (degrees) of the sensor's attitude in sub-world space. / 传感器在子世界空间中的姿态偏航角（度）。 */
@@ -173,60 +173,43 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
     /**
      * Performs one tick of the sensor block entity.
      * <p>
-     * Each tick the sensor:
+     * The canonical 15-step orchestration lives in {@link GraphHost#tickBody} (K23
+     * convergence); the sensor contributes only its deviations as hooks:
      * <ol>
-     *   <li>Ensures it is registered on the bus channel.</li>
-     *   <li>Updates the LIT block state to reflect whether the graph is running.</li>
-     *   <li>Recompiles the evaluator if the graph structure changed.</li>
-     *   <li>Computes attitude and forward-direction angles.</li>
-     *   <li>Computes acceleration from velocity via finite differencing.</li>
-     *   <li>Resolves bus-channel conflicts.</li>
-     *   <li>Constructs a {@link GraphEvaluator.SeatInputState} from all sensor data and evaluates the graph.</li>
-     *   <li>Writes outputs, broadcasts snapshots, and syncs band changes.</li>
+     *   <li>Seam 3 (before inputs): attitude + forward-direction angles, acceleration.</li>
+     *   <li>Step ⑨: a {@link GraphEvaluator.SeatInputState} built from all sensor data,
+     *       evaluated through the 4-arg SeatInput stateless form.</li>
+     *   <li>Declarations: step ② LIT property, ⑥ hybrid refresh (default), ⑫ present,
+     *       ⑨ SEAT_STATELESS.</li>
      * </ol>
-     * <p>
-     * 每个 tick 执行以下步骤：
-     * <ol>
-     *   <li>确保已在 bus 通道上注册。</li>
-     *   <li>根据计算图是否运行更新 LIT 方块状态。</li>
-     *   <li>若图结构变化则重新编译求值器。</li>
-     *   <li>计算姿态角和前向方向角。</li>
-     *   <li>通过速度差分计算加速度。</li>
-     *   <li>解决 bus 通道冲突。</li>
-     *   <li>从所有传感器数据构造 {@link GraphEvaluator.SeatInputState} 并执行图求值。</li>
-     *   <li>写出结果、广播快照并同步 band 变化。</li>
-     * </ol>
+     * 每个 tick 的 15 步共同编排住 {@link GraphHost#tickBody}（K23 收敛）；传感器只保留
+     * 自己的偏差为钩子：缝 3（姿态 + 加速度）、⑨ 的 {@link GraphEvaluator.SeatInputState}
+     * 构造（4 参 SeatInput 无状态档），以及 ②LIT / ⑫ 在位 / ⑨ 档位声明。
      */
     public void tick() {
-        // 仅服务端执行；客户端不自行 tick
-        // Server-side only; the client does not tick independently.
-        if(level==null||level.isClientSide()) return;
+        // 仅服务端执行；客户端不自行 tick（守卫在骨架内）
+        // Server-side only (the guard lives in the skeleton).
+        tickBody(this);
+    }
 
-        ensureBusRegistered();
+    // ── tick 编排偏差声明（K23 骨架钩子）/ tick-orchestration deviations (K23 hooks) ──
 
-        // 第 ⑮ 步（P1-8 补线）：挂起全量同步按 grace 窗口冲刷；必须在所有早退之前，
-        // 停机宿主也要能把图推给新加入的编辑者（Blueprint 同款）。
-        // Step ⑮ (P1-8 wiring): flush the pending full sync within the grace window; must
-        // sit before every early return so a stopped host still ships its graph to a newly
-        // joined editor (same as Blueprint).
-        flushPendingFullSync();
+    /** ② LIT 指示属性（缺席即中止口径）。 / Step ② LIT property (abort-on-absent). */
+    @Override public BooleanProperty litProperty() { return SensorBlock.LIT; }
 
-        // 同步 LIT 状态：计算图运行且有节点时点亮
-        // Sync LIT state: lit when the graph is running and has nodes.
-        var state = getBlockState();
-        if (!state.hasProperty(SensorBlock.LIT)) return;
-        boolean lit = isRunning() && !graph().nodes.isEmpty();
-        if(state.getValue(SensorBlock.LIT)!=lit) level.setBlock(worldPosition, state.setValue(SensorBlock.LIT, lit), 3);
+    /** ⑫ 频段变更同步在位（矩阵 ⑫ 列 ✓）。 / Step ⑫ present (matrix ✓). */
+    @Override public boolean wantsBandSync() { return true; }
 
-        // 检测图结构变化，必要时重新编译求值器
-        // Check for graph structural changes; recompile the evaluator if needed.
-        rs().checkGraphChanged(graph());
-        if(graphChanged()) recompileEvaluatorFull();
+    /** ⑨ SeatInput 无状态档（4 参）——DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE
+     *  静默空转的怪癖原样保留（GraphEvaluator 侧不改动）。
+     *  Step ⑨ the 4-arg stateless SeatInput form — the silently-idling quirk over
+     *  DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE stays as-is (untouched on
+     *  the GraphEvaluator side). */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.SEAT_STATELESS; }
 
-        // 若未运行则执行停止回调并返回
-        // If the graph is not running, invoke the stop callback and bail out.
-        if(!isRunning()) { onStopRunning(); return; }
-
+    /** 缝 3（④/⑤ 后 ⑥ 前）：姿态刷新 + 加速度差分（原 tick 步 4–5）。
+     *  Seam 3 (after ④/⑤, before ⑥): attitude refresh + acceleration differencing. */
+    @Override public void beforeInputs() {
         updateAttitude();
 
         // 加速度计算：使用有限差分法，每 tick 对速度做一阶差分
@@ -242,44 +225,22 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity {
             accelZ = (float)((rawVelZ - prevRawVelZ) / 0.05);
             prevRawVelX = rawVelX; prevRawVelY = rawVelY; prevRawVelZ = rawVelZ;
         }
+    }
 
-        rs().refreshInputs();
-
-        // 检查并修复 bus 通道冲突：若存在冲突通道则强制全量同步
-        // Resolve bus channel conflicts; if any exist, force a full sync.
-        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
-            requestFullSync();
-            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
-
-        // 构建图求值器的输入
-        // Build inputs for the graph evaluator.
-        var in = rs().buildInputs(graph());
-
+    /** ⑨ SeatInput 档的座位输入：将方块的位姿、运动、子世界坐标打包传入求值器。
+     *  Step ⑨ seat input for the SeatInput form: pack pose, motion and sub-world
+     *  position for the evaluator. */
+    @Override public GraphEvaluator.SeatInputState seatInput() {
         // 方块世界朝向偏航角
         // Block's world-space facing yaw.
         float blockYaw = getBlockState().hasProperty(SensorBlock.FACING)
             ? getBlockState().getValue(SensorBlock.FACING).toYRot() : 0;
 
-        // 构造 SeatInputState：将方块的位姿、运动、子世界坐标打包传入求值器
-        // Build the SeatInputState: pack pose, motion, and sub-world position for the evaluator.
         // 若缓存的子世界坐标为 NaN，则回退到方块物理位置（+0.5 取方块中心）
         // If cached sub-world coords are NaN, fall back to the block's physical position (+0.5 for block center).
-        var si = new GraphEvaluator.SeatInputState(0,0,0,0,0, 0,0, 0,0,0,0,0,0,0,0, blockYaw,attitudeYaw,attitudePitch,attitudeRoll,forwardYaw,forwardPitch, accelX,accelY,accelZ, (float)rawVelX,(float)rawVelY,(float)rawVelZ,
+        return new GraphEvaluator.SeatInputState(0,0,0,0,0, 0,0, 0,0,0,0,0,0,0,0, blockYaw,attitudeYaw,attitudePitch,attitudeRoll,forwardYaw,forwardPitch, accelX,accelY,accelZ, (float)rawVelX,(float)rawVelY,(float)rawVelZ,
             Float.isNaN(cachedSubWorldX) ? worldPosition.getX()+0.5f : cachedSubWorldX,
             Float.isNaN(cachedSubWorldY) ? worldPosition.getY()+0.5f : cachedSubWorldY,
             Float.isNaN(cachedSubWorldZ) ? worldPosition.getZ()+0.5f : cachedSubWorldZ);
-
-        var results = evaluator().evaluate(in, runtimeState().pidState, 0.05f, si);
-        rs().writeOutputs(results);
-
-        // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
-        // Broadcast EvalSnapshot to clients (used by DEBUG_PROBE for sampling).
-        broadcastEvalSnapshot();
-
-        // 若 band 通道映射发生变化则同步到客户端
-        // Sync band channel mappings to clients if they changed.
-        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
-        setChanged();
     }
 }
