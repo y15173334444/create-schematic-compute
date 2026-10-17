@@ -773,6 +773,14 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             boolean overGrid = view == View.ROLL
                 ? roll.hit(rollX(), rollY(), gridW(), gridH(), mx, my) == NbsPianoRoll.Zone.GRID
                 : laneGrid.hit(rollX(), rollY(), gridW(), gridH(), mx, my) == NbsLaneGrid.Zone.GRID;
+            // 右键点空白 = 取消选择（实测反馈：选中后无路可退）：无害操作，不进播放锁/防误触；
+            // 点在音符上仍是擦除。擦除笔划照旧从空格起划。
+            // RMB on blank cells clears the selection (field feedback: a selection had no
+            // way out) — harmless, never gated; RMB on a note still erases, and erase
+            // strokes still sweep from blank cells.
+            if (btn == 1 && overGrid && (view == View.ROLL ? noteAt(mx, my) : laneNoteAt(mx, my)) == null) {
+                selection.clear();
+            }
             if (overGrid && (editLocked() || scrollGuarded())) return true;
             boolean consumed = view == View.ROLL
                 ? roll.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel, currentLayer, currentInstrument)

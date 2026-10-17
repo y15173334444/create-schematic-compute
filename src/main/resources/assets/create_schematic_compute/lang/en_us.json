@@ -815,7 +815,7 @@
   "gui.create_schematic_compute.nbs_guide_5": "One layer holds one note per tick; pick the layer to edit in the left panel.",
   "gui.create_schematic_compute.nbs_guide_6": "Precise playback range is keys 33-57 (F#3..F#5); outside is clamped at playback.",
   "gui.create_schematic_compute.nbs_guide_7": "Save uploads to the MUSIC node; import/export uses create_schematic_compute/nbs.",
-  "gui.create_schematic_compute.nbs_guide_8": "Tab+drag = box select (plain drag in lanes); Ctrl+click adds/removes; Ctrl+A / Ctrl+I = select all / invert.",
+  "gui.create_schematic_compute.nbs_guide_8": "Tab+drag = box select (plain drag in lanes); Ctrl+click adds/removes; Ctrl+A / Ctrl+I = select all / invert; RMB on blank = deselect.",
   "gui.create_schematic_compute.nbs_guide_9": "Ctrl+C / Ctrl+X / Ctrl+V / Delete = copy / cut / paste / delete; paste lands at the hovered cell (playhead when off-grid).",
   "gui.create_schematic_compute.nbs_guide_10": "Drag a note (or the selection) to move it; a roll drag within one cell retunes, a lane drag changes rows.",
   "gui.create_schematic_compute.nbs_guide_11": "Ctrl+E = set vel / pan / pitch on the selection (absolute or relative); Alt+Ctrl+wheel = velocity."
