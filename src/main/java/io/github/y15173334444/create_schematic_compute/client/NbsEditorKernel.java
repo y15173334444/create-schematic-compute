@@ -317,6 +317,70 @@ public final class NbsEditorKernel {
         return out;
     }
 
+    /**
+     * 搬移音符（拖动，B2）：换 (tick, layer) 与键，保乐器/力度/声像/细音高。键钳 0–87；
+     * 同格同键 = 空操作；同格换键 = 改音高（与悬停滚轮 {@link #changeNoteKey} 同语义）。
+     * 源/目标层锁定或目标层越界拒绝（<b>不建层</b>）；目标格被占 = 整格覆盖（精确逆
+     * 还原被占音符）。返回是否搬了。
+     * <p>Move a note (drag, B2): relocates (tick, layer) and key, keeping instrument /
+     * velocity / panning / fine pitch. Keys clamp to 0–87; same cell + same key is a
+     * no-op; same cell + new key is a retune (same semantics as the hover wheel
+     * {@link #changeNoteKey}). Locked or out-of-range source/target layers refuse
+     * (<b>no layer creation</b>); an occupied target is overwritten (the precise inverse
+     * restores the victim). Returns whether the note moved.</p>
+     */
+    public boolean moveNote(int fromTick, int fromLayer, int toTick, int toLayer, int key) {
+        if (fromLayer < 0 || fromLayer >= song.layers.size()) return false;
+        if (toLayer < 0 || toLayer >= song.layers.size()) return false;
+        if (song.layers.get(fromLayer).locked || song.layers.get(toLayer).locked) return false;
+        NbsSong.Note old = song.getNote(fromTick, fromLayer);
+        if (old == null) return false;
+        int k = clamp(key, 0, 87);
+        if (fromTick == toTick && fromLayer == toLayer && old.key == k) return false;
+        NbsSong.Note victim = song.getNote(toTick, toLayer);
+        NbsSong.Note oldCopy = copyOf(old), victimCopy = victim == null ? null : copyOf(victim);
+        apply(new MoveEdit(fromTick, fromLayer, toTick, toLayer, oldCopy, victimCopy,
+            new NbsSong.Note(toTick, toLayer, old.instrument, k, old.velocity, old.panning, old.pitch)));
+        return true;
+    }
+
+    /**
+     * 搬移选区（拖动选中音符，B2）：整体位移 (dTick, dLayer) + 键位移 dKey（逐音符钳 0–87）。
+     * 任一目标层锁定/越界 → <b>整体拒绝</b>（部分落格不可预期）；目标格被占整格覆盖。
+     * 结构级 → 整曲快照撤销（选区级操作同口径）。返回搬移后的选区（空 = 未搬）。
+     * <p>Move the selection (drag the selected notes, B2): a uniform (dTick, dLayer)
+     * shift plus a per-note key shift clamped to 0–87. Any locked / out-of-range target
+     * layer refuses the <b>whole</b> move (partial drops are unpredictable); occupied
+     * targets are overwritten. Snapshot undo (the selection-op rule). Returns the moved
+     * selection (empty = nothing moved).</p>
+     */
+    public NbsSelection moveSelection(NbsSelection sel, int dTick, int dLayer, int dKey) {
+        List<int[]> cs = sel.cells();
+        List<NbsSong.Note> moving = new ArrayList<>();
+        for (int[] c : cs) {
+            NbsSong.Note n = song.getNote(c[0], c[1]);
+            if (n != null) moving.add(n);
+        }
+        if (moving.isEmpty()) return new NbsSelection();
+        if (dTick == 0 && dLayer == 0 && dKey == 0) return new NbsSelection();
+        for (NbsSong.Note n : moving) {
+            int tl = n.layer + dLayer;
+            if (tl < 0 || tl >= song.layers.size()) return new NbsSelection();     // 不建层 / no layer creation
+            if (song.layers.get(tl).locked) return new NbsSelection();
+        }
+        NbsSong before = song.copy();
+        for (NbsSong.Note n : moving) song.removeNote(n.tick, n.layer);
+        NbsSelection moved = new NbsSelection();
+        for (NbsSong.Note n : moving) {
+            int t = n.tick + dTick, l = n.layer + dLayer;
+            song.putNote(t, l, n.instrument, clamp(n.key + dKey, 0, 87), n.velocity, n.panning, n.pitch);
+            moved.toggleCell(song, t, l);
+        }
+        NbsSong after = song.copy();
+        push(new SnapshotEdit(before, after));
+        return moved;
+    }
+
     // ══════════════ 撤销/重做状态机 / undo & redo state machine ══════════════
 
     /** 开始批量组（拖拽笔划开始）。可重入计数。 / Begin a batch group (stroke start); re-entrant. */
@@ -420,6 +484,35 @@ public final class NbsEditorKernel {
             if (oldNote != null) song.removeNote(tick, layer);
             if (newNote != null) song.putNote(tick, layer, newNote.instrument, newNote.key,
                 newNote.velocity, newNote.panning, newNote.pitch);
+        }
+    }
+
+    /** 搬移编辑（B2）：源格 → 空、目标格 → 搬来的音符（目标旧音符精确还原）。
+     *  Move edit (B2): source cell → empty, target cell → the moved note (the target's
+     *  previous note is restored exactly on undo). */
+    private final class MoveEdit implements Edit {
+        private final int fromTick, fromLayer, toTick, toLayer;
+        private final NbsSong.Note source, moved;
+        private final NbsSong.Note victim;               // 目标格原音符（可空）/ the overwritten note
+        MoveEdit(int fromTick, int fromLayer, int toTick, int toLayer,
+                 NbsSong.Note source, NbsSong.Note victim, NbsSong.Note moved) {
+            this.fromTick = fromTick; this.fromLayer = fromLayer;
+            this.toTick = toTick; this.toLayer = toLayer;
+            this.source = source; this.victim = victim; this.moved = moved;
+        }
+        @Override public void undo() {
+            song.removeNote(toTick, toLayer);
+            if (victim != null) song.putNote(toTick, toLayer, victim.instrument, victim.key,
+                victim.velocity, victim.panning, victim.pitch);
+            song.removeNote(fromTick, fromLayer);
+            song.putNote(fromTick, fromLayer, source.instrument, source.key,
+                source.velocity, source.panning, source.pitch);
+        }
+        @Override public void redo() {
+            song.removeNote(fromTick, fromLayer);
+            song.removeNote(toTick, toLayer);
+            song.putNote(toTick, toLayer, moved.instrument, moved.key,
+                moved.velocity, moved.panning, moved.pitch);
         }
     }
 

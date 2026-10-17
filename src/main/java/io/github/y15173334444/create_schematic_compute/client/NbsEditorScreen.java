@@ -113,12 +113,18 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private NbsSelection selection = new NbsSelection();
     /** 内部剪贴板（系统剪贴板是外来文本时回落）。 / internal clipboard (fallback for foreign system clips). */
     private NbsClipboard clipboard = null;
-    /** 选择手势：无 / 落点待判 / 单格加减选 / 框选。
-     *  Select gesture: none / deferred place / cell toggle / marquee. */
-    private static final int GESTURE_NONE = 0, GESTURE_PLACE = 1, GESTURE_TOGGLE = 2, GESTURE_MARQUEE = 3;
+    /** 选择手势：无 / 落点待判 / 单格加减选 / 框选 / 搬移待判 / 搬移中。
+     *  Select gesture: none / deferred place / cell toggle / marquee / deferred move / moving. */
+    private static final int GESTURE_NONE = 0, GESTURE_PLACE = 1, GESTURE_TOGGLE = 2, GESTURE_MARQUEE = 3,
+        GESTURE_MOVE = 4, GESTURE_MOVING = 5;
     private int gesture = GESTURE_NONE;
     private boolean marqueeAdd;            // Ctrl = 加选 / additive marquee
     private double pressX, pressY, marqX, marqY;
+    /** 搬移手势（B2）：按下音符的 (tick, layer, key) 与是否拖整段选区。
+     *  Move gesture (B2): the pressed note's (tick, layer, key) and whether the whole
+     *  selection travels. */
+    private int moveTick, moveLayer, moveKey;
+    private boolean moveSelDrag;
     private double hoverX = -1, hoverY = -1;
     /** 单击 vs 拖动的像素阈值（层列「单击落点、拖动框选」的判定）。
      *  Click vs drag threshold (the lane view's click-places / drag-selects split). */
@@ -416,6 +422,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             g.fill(x0, y0, x1, y1, 0x30FFFFFF);
             g.renderOutline(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0), NbsPianoRoll.C_SELECTED);
         }
+        // 搬移预览（拖动中）：目标格描边 / move preview while dragging: target-cell outlines
+        if (gesture == GESTURE_MOVING) drawMovePreview(g);
         // 横竖双滚动条（社区同款职责：可见位置一目了然、可拖可翻页）
         // The scrollbar pair (community role: position at a glance, draggable, pageable).
         int[] hs = hScrollState();
@@ -641,7 +649,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     private void renderGuide(GuiGraphics g) {
-        int w = 300, h = 168, x = (width - w) / 2, y = (height - h) / 2;
+        int w = 300, h = 184, x = (width - w) / 2, y = (height - h) / 2;
         g.fill(x, y, x + w, y + h, C_PANEL);
         g.renderOutline(x, y, w, h, C_BORDER);
         String[] lines = {
@@ -656,6 +664,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             I18n.get("gui.create_schematic_compute.nbs_guide_7"),
             I18n.get("gui.create_schematic_compute.nbs_guide_8"),
             I18n.get("gui.create_schematic_compute.nbs_guide_9"),
+            I18n.get("gui.create_schematic_compute.nbs_guide_10"),
         };
         for (int i = 0; i < lines.length; i++) {
             g.drawString(font, lines[i], x + 8, y + 8 + i * 14, i == 0 ? C_TEXT : C_TEXT_DIM, false);
@@ -713,6 +722,19 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 return true;
             }
             if (editLocked() || scrollGuarded()) return true;
+            if (btn == 0 && roll.hit(rollX(), rollY(), gridW(), gridH(), mx, my) == NbsPianoRoll.Zone.GRID) {
+                // 按在音符上 = 搬移待判（拖 = 搬移，单击 = 原点放语义）；只抓当前层音符
+                // （卷帘编辑作用域 = 当前层）或选中音符（拖选区）。
+                // Pressing a note arms the move gesture (drag = move, click = the original
+                // toggle semantics); only current-layer notes (the roll edits that layer)
+                // or selected notes (drag the selection) are grabbable.
+                NbsSong.Note pressed = noteAt(mx, my);
+                if (pressed != null
+                    && (selection.contains(pressed.tick, pressed.layer) || pressed.layer == currentLayer)) {
+                    armMoveGesture(pressed, mx, my);
+                    return true;
+                }
+            }
             if (roll.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel, currentLayer, currentInstrument)) {
                 kernel.beginBatch();
                 return true;
@@ -746,9 +768,16 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         }
         if (editLocked() || scrollGuarded()) return true;
         if (btn == 0) {
-            // 左键拖 = 框选、单击 = 落点（社区语义）：落点延到松手判定——拖过阈值即让位
-            // LMB drag = box-select, click = place (community): placement defers to release
-            // — crossing the drag threshold hands the gesture to the marquee.
+            // 按在音符上 = 搬移待判（拖 = 搬移，单击 = 整格覆盖原语义）；空格 = 落点待判
+            // （单击落点 / 拖框选——社区左键拖语义，落点延到松手判定）。
+            // Pressing a note arms the move gesture (drag = move, click = the original
+            // whole-cell overwrite); an empty cell arms place-or-marquee (community
+            // left-drag semantics, placement defers to release).
+            NbsSong.Note pressed = laneNoteAt(mx, my);
+            if (pressed != null) {
+                armMoveGesture(pressed, mx, my);
+                return true;
+            }
             armPlaceGesture(mx, my);
             return true;
         }
@@ -784,13 +813,15 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         return org.lwjgl.glfw.GLFW.glfwGetKey(win, k) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
     }
 
-    /** 松手提交：框选成区、单格加减选、或落点（层列单击）。 */
+    /** 松手提交：框选成区、单格加减选、落点（层列单击）、搬移、或搬移手势的单击回落。 */
     private void commitGesture() {
         int g = gesture;
         gesture = GESTURE_NONE;
         if (g == GESTURE_MARQUEE) commitMarquee();
         else if (g == GESTURE_TOGGLE) toggleCellAt(pressX, pressY);
         else if (g == GESTURE_PLACE) placeAtPress();
+        else if (g == GESTURE_MOVE) clickAtPress();
+        else if (g == GESTURE_MOVING) commitMove();
     }
 
     /** 框选提交：矩形内可选音符格进选区（REPLACE = 换选，Ctrl = 加选）。
@@ -815,19 +846,10 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         return layerScroll + (int) Math.floor((my - (rollY() + NbsLaneGrid.RULER_H)) / (double) layerRowH());
     }
 
-    /** 单格加减选（Ctrl+点音符格）。卷帘取鼠标下的音符（同键多层先取当前层）。
-     *  Cell toggle (Ctrl+click a note cell). Roll picks the note under the cursor
-     *  (current layer first when keys collide). */
+    /** 单格加减选（Ctrl+点音符格）。 / Cell toggle (Ctrl+click a note cell). */
     private void toggleCellAt(double mx, double my) {
         if (view == View.ROLL) {
-            int t = (int) Math.floor(roll.tickAt(rollX(), mx));
-            int key = (int) Math.floor(roll.keyAt(rollY(), my));
-            NbsSong.Note hit = null;
-            for (NbsSong.Note n : kernel.song().notesAtTick(t)) {
-                if (n.key != key) continue;
-                if (n.layer == currentLayer) { hit = n; break; }
-                if (hit == null) hit = n;
-            }
+            NbsSong.Note hit = noteAt(mx, my);
             if (hit != null) selection.toggleCell(kernel.song(), hit.tick, hit.layer);
         } else {
             int t = (int) Math.floor(laneGrid.tickAt(rollX(), mx));
@@ -841,6 +863,123 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private void placeAtPress() {
         laneGrid.mouseDown(rollX(), rollY(), gridW(), gridH(), pressX, pressY, 0,
             kernel, currentInstrument, toolKey, layerScroll, layerRowH());
+    }
+
+    /** 鼠标下的音符（卷帘：同键多层先取当前层）。 / the note under the cursor (roll prefers the current layer). */
+    private NbsSong.Note noteAt(double mx, double my) {
+        int t = (int) Math.floor(roll.tickAt(rollX(), mx));
+        int key = (int) Math.floor(roll.keyAt(rollY(), my));
+        NbsSong.Note hit = null;
+        for (NbsSong.Note n : kernel.song().notesAtTick(t)) {
+            if (n.key != key) continue;
+            if (n.layer == currentLayer) return n;
+            if (hit == null) hit = n;
+        }
+        return hit;
+    }
+
+    /** 鼠标下的层列音符（行 = 层）。 / the lane note under the cursor (row = layer). */
+    private NbsSong.Note laneNoteAt(double mx, double my) {
+        int t = (int) Math.floor(laneGrid.tickAt(rollX(), mx));
+        int l = laneGrid.layerAt(rollY(), my, layerScroll, layerRowH(), kernel.song().layers.size());
+        return (t >= 0 && l >= 0) ? kernel.song().getNote(t, l) : null;
+    }
+
+    /** 搬移手势（B2）：按住音符待判——拖 = 搬移（选中音符拖整段选区），单击 = 原点放语义。
+     *  Move gesture (B2): holding a note — drag moves it (a selected note drags the whole
+     *  selection), a plain click keeps the original toggle semantics. */
+    private void armMoveGesture(NbsSong.Note pressed, double mx, double my) {
+        gesture = GESTURE_MOVE;
+        moveTick = pressed.tick;
+        moveLayer = pressed.layer;
+        moveKey = pressed.key;
+        moveSelDrag = selection.contains(pressed.tick, pressed.layer);
+        pressX = marqX = mx;
+        pressY = marqY = my;
+    }
+
+    /** 拖动增量 {dTick, dLayer, dKey}：卷帘 = tick×键、层列 = tick×层（按下格 → 当前格）。
+     *  Drag delta {dTick, dLayer, dKey}: roll = tick×key, lane = tick×layer (press cell → current cell). */
+    private int[] moveDelta() {
+        if (view == View.ROLL) {
+            int dT = (int) Math.floor(roll.tickAt(rollX(), marqX)) - (int) Math.floor(roll.tickAt(rollX(), pressX));
+            int dK = (int) Math.floor(roll.keyAt(rollY(), marqY)) - (int) Math.floor(roll.keyAt(rollY(), pressY));
+            return new int[]{dT, 0, dK};
+        }
+        int dT = (int) Math.floor(laneGrid.tickAt(rollX(), marqX)) - (int) Math.floor(laneGrid.tickAt(rollX(), pressX));
+        return new int[]{dT, layerRowAt(marqY) - layerRowAt(pressY), 0};
+    }
+
+    /** 搬移提交（松手）：没跨格 = 不改谱（拖动意图已定，不回落单击——防蹭键误删）。
+     *  Move commit (release): no cell delta = no score change (the drag intent is set —
+     *  never falls back to click semantics, which could delete on a jitter). */
+    private void commitMove() {
+        int[] d = moveDelta();
+        if (d[0] == 0 && d[1] == 0 && d[2] == 0) return;
+        if (moveSelDrag) {
+            NbsSelection moved = kernel.moveSelection(selection, d[0], d[1], d[2]);
+            if (moved.isEmpty()) {
+                feedback(I18n.get("gui.create_schematic_compute.nbs_move_blocked"));
+                return;
+            }
+            selection = moved;
+            return;
+        }
+        if (!kernel.moveNote(moveTick, moveLayer, moveTick + d[0], moveLayer + d[1], moveKey + d[2])) {
+            feedback(I18n.get("gui.create_schematic_compute.nbs_move_blocked"));
+        }
+    }
+
+    /** 搬移手势单击回落（松手未拖）：原点放语义——卷帘 toggleNote / 层列整格覆盖。
+     *  Move-gesture click fallback (release without a drag): the original toggle
+     *  semantics — roll toggleNote / lane whole-cell overwrite. */
+    private void clickAtPress() {
+        if (view == View.LANE) {
+            placeAtPress();
+            return;
+        }
+        int t = (int) Math.floor(roll.tickAt(rollX(), pressX));
+        int key = (int) Math.floor(roll.keyAt(rollY(), pressY));
+        if (t >= 0 && key >= 0 && key <= 87) kernel.toggleNote(t, currentLayer, key, currentInstrument);
+    }
+
+    /** 搬移预览：把将要落格的音符画成描边（不动谱，只画目标）。 / move preview: outline the
+     *  target cells (the score is untouched until release). */
+    private void drawMovePreview(GuiGraphics g) {
+        int[] d = moveDelta();
+        if (d[0] == 0 && d[1] == 0 && d[2] == 0) return;
+        if (moveSelDrag) {
+            for (int[] c : selection.cells()) {
+                NbsSong.Note n = kernel.song().getNote(c[0], c[1]);
+                if (n != null) drawTargetOutline(g, n.tick + d[0], n.layer + d[1], n.key + d[2]);
+            }
+        } else {
+            drawTargetOutline(g, moveTick + d[0], moveLayer + d[1], moveKey + d[2]);
+        }
+    }
+
+    /** 目标格描边（卷帘按 (tick, key)、层列按 (tick, layer)），裁剪到网格可视区。
+     *  Target-cell outline (roll by (tick, key), lane by (tick, layer)), clipped to the
+     *  grid viewport. */
+    private void drawTargetOutline(GuiGraphics g, int tick, int layer, int key) {
+        int keyClamped = Math.max(0, Math.min(87, key));
+        int[] r;
+        if (view == View.ROLL) {
+            float x0 = rollX() + NbsPianoRoll.GUTTER_W + (tick - roll.scrollTick()) * roll.pxPerTick();
+            float x1 = rollX() + NbsPianoRoll.GUTTER_W + (tick + 1 - roll.scrollTick()) * roll.pxPerTick();
+            float yTop = rollY() + NbsPianoRoll.RULER_H + (roll.viewTopKey() - (keyClamped + 1)) * roll.pxPerKey();
+            float yBot = rollY() + NbsPianoRoll.RULER_H + (roll.viewTopKey() - keyClamped) * roll.pxPerKey();
+            r = new int[]{(int) x0, (int) yTop, (int) x1, (int) yBot};
+        } else {
+            float x0 = rollX() + (tick - laneGrid.scrollTick()) * laneGrid.pxPerTick();
+            float x1 = rollX() + (tick + 1 - laneGrid.scrollTick()) * laneGrid.pxPerTick();
+            int y0 = rollY() + NbsLaneGrid.RULER_H + (layer - layerScroll) * layerRowH();
+            r = new int[]{(int) x0, y0, (int) x1, y0 + layerRowH()};
+        }
+        int xL = Math.max(r[0], rollX()), yT = Math.max(r[1], rollY());
+        int xR = Math.min(r[2], rollX() + gridW()), yB = Math.min(r[3], rollY() + gridH());
+        if (xR <= xL || yB <= yT) return;
+        g.renderOutline(xL, yT, xR - xL, yB - yT, NbsPianoRoll.C_SELECTED);
     }
 
     /** 播放锁（社区 {@code playing = 0} 语义）：播放中网格不可编辑，提示一次并吞掉点击。
@@ -1124,12 +1263,14 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (gesture != GESTURE_NONE) {
             marqX = mx;
             marqY = my;
-            // 拖过阈值 = 框选：层列落点 / 单格加减选让位（单击语义松手才判定）
-            // Crossing the threshold = marquee: the lane place / cell toggle hand over
-            // (click semantics resolve at release).
-            if (gesture != GESTURE_MARQUEE
+            // 拖过阈值定意图：音符上按住 = 搬移中；其余 = 框选（层列落点 / 单格加减选让位，
+            // 单击语义松手才判定）。
+            // Crossing the threshold fixes the intent: a note press becomes a move; the
+            // rest become a marquee (lane place / cell toggle hand over — click semantics
+            // resolve at release).
+            if (gesture != GESTURE_MARQUEE && gesture != GESTURE_MOVING
                 && (Math.abs(mx - pressX) > DRAG_THRESHOLD || Math.abs(my - pressY) > DRAG_THRESHOLD)) {
-                gesture = GESTURE_MARQUEE;
+                gesture = (gesture == GESTURE_MOVE) ? GESTURE_MOVING : GESTURE_MARQUEE;
             }
             return true;
         }

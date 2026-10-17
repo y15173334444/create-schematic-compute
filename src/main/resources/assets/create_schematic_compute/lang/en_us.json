@@ -780,6 +780,7 @@
   "gui.create_schematic_compute.nbs_clipboard_empty": "Clipboard has no notes",
   "gui.create_schematic_compute.nbs_sel_empty": "No notes selected",
   "gui.create_schematic_compute.nbs_paste_nothing": "Nothing pasted here (locked or out of range)",
+  "gui.create_schematic_compute.nbs_move_blocked": "Cannot move there (locked layer or out of range)",
   "gui.create_schematic_compute.nbs_inst_harp": "Harp",
   "gui.create_schematic_compute.nbs_inst_basedrum": "Bass Drum",
   "gui.create_schematic_compute.nbs_inst_snare": "Snare",
@@ -805,5 +806,6 @@
   "gui.create_schematic_compute.nbs_guide_6": "Precise playback range is keys 33-57 (F#3..F#5); outside is clamped at playback.",
   "gui.create_schematic_compute.nbs_guide_7": "Save uploads to the MUSIC node; import/export uses create_schematic_compute/nbs.",
   "gui.create_schematic_compute.nbs_guide_8": "Tab+drag = box select (plain drag in lanes); Ctrl+click adds/removes; Ctrl+A / Ctrl+I = select all / invert.",
-  "gui.create_schematic_compute.nbs_guide_9": "Ctrl+C / Ctrl+X / Ctrl+V / Delete = copy / cut / paste / delete; paste lands at the hovered cell (playhead when off-grid)."
+  "gui.create_schematic_compute.nbs_guide_9": "Ctrl+C / Ctrl+X / Ctrl+V / Delete = copy / cut / paste / delete; paste lands at the hovered cell (playhead when off-grid).",
+  "gui.create_schematic_compute.nbs_guide_10": "Drag a note (or the selection) to move it; a roll drag within one cell retunes, a lane drag changes rows."
 }

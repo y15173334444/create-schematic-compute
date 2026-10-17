@@ -497,4 +497,121 @@ class NbsEditorKernelTest {
         assertEquals(1, song.noteCount(), "copy is read-only");
         assertFalse(k.canUndo());
     }
+
+    // ══════════════ 拖移搬移（批次三 B2）/ drag-to-move (batch 3 B2) ══════════════
+
+    @Test
+    void moveNoteRelocatesAndUndoRestoresBothCells() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.toggleNote(2, 0, 45, 3);
+        song.getNote(2, 0).velocity = 40;
+        song.getNote(2, 0).panning = 150;
+        song.getNote(2, 0).pitch = -15;
+        k.toggleNote(5, 0, 30, 1);               // 被覆盖目标 / the overwrite victim
+        k.clearUndo();
+
+        assertTrue(k.moveNote(2, 0, 5, 0, 50));
+        assertNull(song.getNote(2, 0), "the source cell empties");
+        NbsSong.Note n = song.getNote(5, 0);
+        assertEquals(50, n.key);
+        assertEquals(3, n.instrument, "instrument travels with the note");
+        assertEquals(40, n.velocity, "velocity preserved");
+        assertEquals(150, n.panning, "panning preserved");
+        assertEquals(-15, n.pitch, "fine pitch preserved");
+
+        assertTrue(k.performUndo(), "one precise-inverse step");
+        NbsSong.Note back = song.getNote(2, 0);
+        assertEquals(45, back.key, "the source note is restored");
+        assertEquals(30, song.getNote(5, 0).key, "the overwritten victim is restored");
+        assertFalse(k.canUndo());
+    }
+
+    @Test
+    void moveNoteRetunesInPlaceAndGuards() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.toggleNote(2, 0, 45, 3);
+        song.getNote(2, 0).velocity = 40;
+        k.clearUndo();
+
+        // 同格换键 = 改音高（统一拖动语义）/ same cell + new key = retune (the unified drag)
+        assertTrue(k.moveNote(2, 0, 2, 0, 51));
+        assertEquals(51, song.getNote(2, 0).key);
+        assertEquals(40, song.getNote(2, 0).velocity, "dynamics kept");
+        assertTrue(k.performUndo());
+        assertEquals(45, song.getNote(2, 0).key);
+
+        assertFalse(k.moveNote(2, 0, 2, 0, 45), "same cell + same key is a no-op");
+        assertFalse(k.moveNote(3, 0, 4, 0, 45), "no source note, no move");
+        assertFalse(k.canUndo());
+
+        k.setLayerLocked(0, true);
+        assertFalse(k.moveNote(2, 0, 2, 0, 60), "locked source refuses");
+        k.setLayerLocked(0, false);
+        k.addLayer();
+        k.setLayerLocked(1, true);
+        k.clearUndo();
+        assertFalse(k.moveNote(2, 0, 2, 1, 60), "locked target refuses");
+        assertFalse(k.moveNote(2, 0, 2, 5, 60), "out-of-range target refuses (no layer creation)");
+        assertFalse(k.canUndo(), "refused moves record nothing");
+    }
+
+    @Test
+    void moveSelectionShiftsUniformlyAndUndoRestores() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.addLayer();
+        k.addLayer();
+        k.toggleNote(0, 0, 40, 3);
+        song.getNote(0, 0).velocity = 40;
+        k.toggleNote(2, 1, 50, 7);
+        k.clearUndo();
+
+        NbsSelection sel = new NbsSelection();
+        sel.selectRect(song, 0, 10, 0, 5, NbsSelection.Mode.REPLACE);
+        NbsSelection moved = k.moveSelection(sel, 3, 1, 5);
+        assertEquals(2, moved.size(), "the moved selection follows the notes");
+        assertTrue(moved.contains(3, 1));
+        assertTrue(moved.contains(5, 2));
+        assertEquals(45, song.getNote(3, 1).key, "keys shift by dKey");
+        assertEquals(55, song.getNote(5, 2).key);
+        assertEquals(40, song.getNote(3, 1).velocity, "dynamics preserved");
+        assertEquals(2, song.noteCount(), "no notes lost or duplicated");
+
+        assertTrue(k.performUndo(), "selection moves undo as one snapshot");
+        assertEquals(40, song.getNote(0, 0).key);
+        assertEquals(50, song.getNote(2, 1).key);
+        assertNull(song.getNote(3, 1));
+        assertFalse(k.canUndo());
+    }
+
+    @Test
+    void moveSelectionGuardsRefuseAtomically() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.addLayer();
+        k.toggleNote(1, 0, 45, 0);
+        k.toggleNote(1, 1, 50, 0);
+        NbsSelection sel = new NbsSelection();
+        sel.selectRect(song, 0, 10, 0, 5, NbsSelection.Mode.REPLACE);
+        k.clearUndo();
+
+        assertEquals(0, k.moveSelection(sel, 0, 0, 0).size(), "zero delta is a no-op");
+        assertEquals(0, k.moveSelection(sel, 0, 2, 0).size(), "no layer creation past the end");
+        k.setLayerLocked(1, true);
+        k.clearUndo();                           // 锁定操作自身可撤销 / isolate the refused moves
+        assertEquals(0, k.moveSelection(sel, 2, 0, 0).size(),
+            "a locked target layer refuses the whole move");
+        assertEquals(2, song.noteCount(), "nothing moved");
+        assertEquals(45, song.getNote(1, 0).key, "sources stay put");
+        assertFalse(k.canUndo(), "refused moves record nothing");
+
+        // 键钳位：85 + 12 → 87 / key clamps at the top
+        k.setLayerLocked(1, false);
+        song.getNote(1, 0).key = 85;
+        NbsSelection moved = k.moveSelection(sel, 0, 0, 12);
+        assertEquals(2, moved.size());
+        assertEquals(87, song.getNote(1, 0).key, "keys clamp to 0-87");
+    }
 }

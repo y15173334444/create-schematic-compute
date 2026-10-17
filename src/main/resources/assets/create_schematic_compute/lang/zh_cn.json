@@ -780,6 +780,7 @@
   "gui.create_schematic_compute.nbs_clipboard_empty": "剪贴板里没有音符",
   "gui.create_schematic_compute.nbs_sel_empty": "未选中音符",
   "gui.create_schematic_compute.nbs_paste_nothing": "此处未落下音符（锁定层或越界）",
+  "gui.create_schematic_compute.nbs_move_blocked": "无法搬到那里（锁定层或越界）",
   "gui.create_schematic_compute.nbs_inst_harp": "竖琴",
   "gui.create_schematic_compute.nbs_inst_basedrum": "底鼓",
   "gui.create_schematic_compute.nbs_inst_snare": "军鼓",
@@ -805,5 +806,6 @@
   "gui.create_schematic_compute.nbs_guide_6": "精确发音区间为键 33–57（F#3..F#5），窗口外播放时钳制。",
   "gui.create_schematic_compute.nbs_guide_7": "保存上传到 MUSIC 节点；导入/导出目录 create_schematic_compute/nbs。",
   "gui.create_schematic_compute.nbs_guide_8": "Tab+左键拖 = 框选（层列视图直接左键拖）；Ctrl+点 = 加/减选；Ctrl+A / Ctrl+I = 全选/反选。",
-  "gui.create_schematic_compute.nbs_guide_9": "Ctrl+C / Ctrl+X / Ctrl+V / Delete = 复制 / 剪切 / 粘贴 / 删除；粘贴落在鼠标所指格（不在网格 = 播放头）。"
+  "gui.create_schematic_compute.nbs_guide_9": "Ctrl+C / Ctrl+X / Ctrl+V / Delete = 复制 / 剪切 / 粘贴 / 删除；粘贴落在鼠标所指格（不在网格 = 播放头）。",
+  "gui.create_schematic_compute.nbs_guide_10": "拖音符（或选区）= 搬移；卷帘同格拖 = 改音高，层列换行 = 换层。"
 }
