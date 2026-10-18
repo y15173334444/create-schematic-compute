@@ -58,7 +58,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private static final int TOP_H = 28;
     private static final int TRANSPORT_H = 26;
     private static final int PANEL_W = 176;
-    private static final int ROW_H = 13;
+    static final int ROW_H = 13;
 
     // ── 配色 / colours ──
     private static final int C_BG = 0xFF1A1712;
@@ -149,7 +149,11 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private boolean importOpen = false, exportOpen = false, showGuide = false;
     private List<Path> importFiles = List.of();
     /** 导入弹窗可见行数（渲染 / 命中 / 滚动钳位共用）。/ import dialog visible rows (render, hit-test and scroll clamp share it). */
-    static final int IMPORT_ROWS = 11;
+    static final int IMPORT_ROWS = 10;
+    /** 导入弹窗几何（渲染与命中共用——P2-22 口径）：列表 10 行 + 底栏互不侵占。
+     *  Import dialog geometry shared by render and hit-testing (P2-22): the ten-row list
+     *  and the bottom bar never overlap. */
+    static final int IMPORT_W = 260, IMPORT_H = 176;
     private int importScroll = 0;
     private String feedbackText = "";
     private long feedbackUntil = 0;
@@ -312,6 +316,12 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
      *  Import-list scroll clamp (pure): stays within [0, max(0, files − visible rows)]. */
     static int clampImportScroll(int scroll, int fileCount) {
         return Math.max(0, Math.min(scroll, Math.max(0, fileCount - IMPORT_ROWS)));
+    }
+
+    /** 像素滚动 → 行滚动（滚动条像素模型到行列表的桥，四舍五入后钳位）。
+     *  Pixel scroll → row scroll (the scrollbar's pixel model bridges to the row list). */
+    static int importScrollFromPx(int px, int fileCount) {
+        return clampImportScroll(Math.round(px / (float) ROW_H), fileCount);
     }
 
     private void commitLayerName() {
@@ -1047,20 +1057,32 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     private void renderImportDialog(GuiGraphics g, int mx, int my) {
-        int w = 260, h = 170, x = (width - w) / 2, y = (height - h) / 2;
-        g.fill(x, y, x + w, y + h, C_PANEL);
-        g.renderOutline(x, y, w, h, C_BORDER);
+        int x = (width - IMPORT_W) / 2, y = (height - IMPORT_H) / 2;
+        g.fill(x, y, x + IMPORT_W, y + IMPORT_H, C_PANEL);
+        g.renderOutline(x, y, IMPORT_W, IMPORT_H, C_BORDER);
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_import_title"), x + 8, y + 6, C_TEXT, false);
         int rowY = y + 20;
         for (int i = 0; i < importFiles.size() && i < IMPORT_ROWS; i++) {
             int idx = i + importScroll;
             if (idx >= importFiles.size()) break;
             int ry = rowY + i * ROW_H;
-            boolean hover = inRect(x + 8, ry, w - 16, ROW_H, mx, my);
-            g.fill(x + 8, ry, x + w - 8, ry + ROW_H - 1, hover ? C_HOVER : C_BTN);
+            boolean hover = inRect(x + 8, ry, IMPORT_W - 16, ROW_H, mx, my);
+            g.fill(x + 8, ry, x + IMPORT_W - 8, ry + ROW_H - 1, hover ? C_HOVER : C_BTN);
             g.drawString(font, importFiles.get(idx).getFileName().toString(), x + 12, ry + 3, C_TEXT, false);
         }
-        button(g, x + w - 68, y + h - 24, 58, 18, I18n.get("gui.create_schematic_compute.nbs_close"), mx, my, false);
+        // 滚动条：过一屏才画（与滚轮同源滚动；拇指可拖、点轨翻页——此前只有滚轮、滚了无反馈）
+        // The scrollbar appears past one screen (same scroll as the wheel; draggable thumb and
+        // track paging — there used to be no feedback at all when the wheel scrolled).
+        int listH = IMPORT_ROWS * ROW_H;
+        if (importFiles.size() > IMPORT_ROWS) {
+            int sbX = x + IMPORT_W - NbsScrollBar.THICK - 2;
+            NbsScrollBar.render(g, sbX, rowY, NbsScrollBar.THICK, listH,
+                importFiles.size() * ROW_H, listH, importScroll * ROW_H,
+                inRect(sbX, rowY, NbsScrollBar.THICK, listH, mx, my));
+        }
+        g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_import_count", importFiles.size()),
+            x + 8, y + IMPORT_H - 19, C_TEXT_DIM, false);
+        button(g, x + IMPORT_W - 68, y + IMPORT_H - 24, 58, 18, I18n.get("gui.create_schematic_compute.nbs_close"), mx, my, false);
     }
 
     /** Set 弹窗（B3）：字段三键 + 数值框 + 绝对/增量 + 应用/取消。
@@ -1725,16 +1747,31 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     private boolean clickImport(double mx, double my, int btn) {
-        int w = 260, h = 170, x = (width - w) / 2, y = (height - h) / 2;
-        if (inRect(x + w - 68, y + h - 24, 58, 18, mx, my) || !inRect(x, y, w, h, mx, my)) {
+        int x = (width - IMPORT_W) / 2, y = (height - IMPORT_H) / 2;
+        if (inRect(x + IMPORT_W - 68, y + IMPORT_H - 24, 58, 18, mx, my) || !inRect(x, y, IMPORT_W, IMPORT_H, mx, my)) {
             importOpen = false;
             return true;
         }
         int rowY = y + 20;
+        int listH = IMPORT_ROWS * ROW_H;
+        int sbX = x + IMPORT_W - NbsScrollBar.THICK - 2;
+        if (importFiles.size() > IMPORT_ROWS && inRect(sbX, rowY, NbsScrollBar.THICK, listH, mx, my)) {
+            int contentH = importFiles.size() * ROW_H;
+            int[] t = NbsScrollBar.thumbRect(sbX, rowY, NbsScrollBar.THICK, listH, contentH, listH, importScroll * ROW_H);
+            if (inRect(t[0], t[1], t[2], t[3], mx, my)) {
+                draggingScrollBar = 5;
+                importScroll = importScrollFromPx(NbsScrollBar.posFromThumbDrag(listH, t[3], (int) (my - rowY),
+                    contentH, listH), importFiles.size());
+            } else {
+                importScroll = importScrollFromPx(NbsScrollBar.posFromTrackClick((int) (my - rowY), t[1] - rowY, t[3],
+                    importScroll * ROW_H, contentH, listH), importFiles.size());
+            }
+            return true;
+        }
         for (int i = 0; i < importFiles.size() && i < IMPORT_ROWS; i++) {
             int idx = i + importScroll;
             if (idx >= importFiles.size()) break;
-            if (inRect(x + 8, rowY + i * ROW_H, w - 16, ROW_H, mx, my)) {
+            if (inRect(x + 8, rowY + i * ROW_H, IMPORT_W - 16, ROW_H, mx, my)) {
                 doImport(importFiles.get(idx));
                 importOpen = false;
                 return true;
@@ -1885,6 +1922,15 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 contentH, OVERVIEW_VIEW_H, overviewScroll);
             overviewScroll = clampOverviewScroll(NbsScrollBar.posFromThumbDrag(OVERVIEW_VIEW_H, t[3],
                 (int) (my - contentTop), contentH, OVERVIEW_VIEW_H), kernel.song().layers.size());
+            return true;
+        }
+        if (draggingScrollBar == 5) {
+            int rowY = (height - IMPORT_H) / 2 + 20, listH = IMPORT_ROWS * ROW_H;
+            int sbX = (width - IMPORT_W) / 2 + IMPORT_W - NbsScrollBar.THICK - 2;
+            int contentH = importFiles.size() * ROW_H;
+            int[] t = NbsScrollBar.thumbRect(sbX, rowY, NbsScrollBar.THICK, listH, contentH, listH, importScroll * ROW_H);
+            importScroll = importScrollFromPx(NbsScrollBar.posFromThumbDrag(listH, t[3], (int) (my - rowY),
+                contentH, listH), importFiles.size());
             return true;
         }
         if (gesture != GESTURE_NONE) {

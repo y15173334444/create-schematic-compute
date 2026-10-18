@@ -82,6 +82,11 @@ class NbsEditorLayoutTest {
         assertEquals(0, NbsEditorScreen.clampImportScroll(999, 5),
             "fewer files than rows → pinned at 0 / 文件不足一屏时钉在 0");
         assertEquals(0, NbsEditorScreen.clampImportScroll(999, 0), "empty list → 0");
+        // 滚动条像素模型 → 行模型的桥 / the scrollbar's pixel→row bridge
+        assertEquals(3, NbsEditorScreen.importScrollFromPx(3 * NbsEditorScreen.ROW_H, 30), "exact row pixels");
+        assertEquals(3, NbsEditorScreen.importScrollFromPx(3 * NbsEditorScreen.ROW_H + 5, 30), "rounds to the nearest row");
+        assertEquals(30 - NbsEditorScreen.IMPORT_ROWS, NbsEditorScreen.importScrollFromPx(99999, 30),
+            "and clamps at the tail");
     }
 
     // ══════════════ 滚动条 / scrollbars ══════════════

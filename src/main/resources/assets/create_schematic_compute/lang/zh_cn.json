@@ -774,6 +774,7 @@
   "gui.create_schematic_compute.nbs_add_layer": "+ 层",
   "gui.create_schematic_compute.nbs_del_layer": "- 层",
   "gui.create_schematic_compute.nbs_import_title": "导入 .nbs（create_schematic_compute/nbs）",
+  "gui.create_schematic_compute.nbs_import_count": "%s 个文件",
   "gui.create_schematic_compute.nbs_export_title": "导出 .nbs（文件名）",
   "gui.create_schematic_compute.nbs_export_ok": "导出",
   "gui.create_schematic_compute.nbs_cancel": "取消",

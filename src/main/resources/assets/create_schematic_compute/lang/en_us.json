@@ -774,6 +774,7 @@
   "gui.create_schematic_compute.nbs_add_layer": "+ Layer",
   "gui.create_schematic_compute.nbs_del_layer": "- Layer",
   "gui.create_schematic_compute.nbs_import_title": "Import .nbs (create_schematic_compute/nbs)",
+  "gui.create_schematic_compute.nbs_import_count": "%s files",
   "gui.create_schematic_compute.nbs_export_title": "Export .nbs (file name)",
   "gui.create_schematic_compute.nbs_export_ok": "Export",
   "gui.create_schematic_compute.nbs_cancel": "Cancel",
