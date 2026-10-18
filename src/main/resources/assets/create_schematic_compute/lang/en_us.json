@@ -42,6 +42,7 @@
   "node.create_schematic_compute.interp": "Comparison Router (|A-B|)",
   "node.create_schematic_compute.bool": "Bool (Toggle)",
   "node.create_schematic_compute.gate": "Gate",
+  "node.create_schematic_compute.and": "AND Gate",
   "node.create_schematic_compute.or": "OR Gate",
   "node.create_schematic_compute.formula": "Formula",
   "block.create_schematic_compute.speed_proxy": "Speed Proxy Controller",

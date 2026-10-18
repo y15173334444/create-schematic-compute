@@ -31,7 +31,7 @@ public enum NodeCategory {
         NodeType.COT, NodeType.ANGLE_UNWRAP),
     LOGIC("category.create_schematic_compute.logic",
         NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ,
-        NodeType.BOOL, NodeType.GATE, NodeType.OR, NodeType.RELAY_A, NodeType.RELAY_B),
+        NodeType.BOOL, NodeType.GATE, NodeType.AND, NodeType.OR, NodeType.RELAY_A, NodeType.RELAY_B),
     CONTROL("category.create_schematic_compute.control",
         NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP),
     /** 累加 / 积分（蓝图与主机都需要的状态量）/ accumulate & integrate */

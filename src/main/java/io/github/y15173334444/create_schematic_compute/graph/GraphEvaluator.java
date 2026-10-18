@@ -751,6 +751,7 @@ public class GraphEvaluator {
             case CEIL -> o[0] = (float) Math.ceil(graph.getInputValue(node.id, 0, outputs));
             case FLOOR -> o[0] = (float) Math.floor(graph.getInputValue(node.id, 0, outputs));
             case OR -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = (a > 0.5f || b > 0.5f) ? 1 : 0; }
+            case AND -> { float a = graph.getInputValue(node.id, 0, outputs); float b = graph.getInputValue(node.id, 1, outputs); o[0] = (a > 0.5f && b > 0.5f) ? 1 : 0; }
             case BOOL -> {
                 float vin = graph.getInputValue(node.id, 0, outputs);
                 o[0] = vin > 0 ? 1 : 0;

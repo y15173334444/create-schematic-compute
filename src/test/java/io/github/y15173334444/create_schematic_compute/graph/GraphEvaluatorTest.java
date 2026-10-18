@@ -502,6 +502,40 @@ class GraphEvaluatorTest {
         assertEquals(0f, evaluator.getNodeOutput(or.id, 0), 0.0001f);
     }
 
+    @Test
+    @DisplayName("AND: 1 AND 1 → 1")
+    void testAnd() {
+        var a = graph.addNode(NodeType.CONST, 0, 0);
+        var b = graph.addNode(NodeType.CONST, 50, 0);
+        var and = graph.addNode(NodeType.AND, 100, 0);
+        a.params[0] = 1f; b.params[0] = 1f;
+        graph.addConnection(a.id, 0, and.id, 0);
+        graph.addConnection(b.id, 0, and.id, 1);
+        evaluator = new GraphEvaluator(graph);
+
+        evaluator.evaluate(List.of(), Map.of(), 0.05f,
+            new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+
+        assertEquals(1f, evaluator.getNodeOutput(and.id, 0), 0.0001f);
+    }
+
+    @Test
+    @DisplayName("AND: 1 AND 0 → 0（阈值 0.5，NaN 判假）/ AND needs both high")
+    void testAndZero() {
+        var a = graph.addNode(NodeType.CONST, 0, 0);
+        var b = graph.addNode(NodeType.CONST, 50, 0);
+        var and = graph.addNode(NodeType.AND, 100, 0);
+        a.params[0] = 1f; b.params[0] = 0f;
+        graph.addConnection(a.id, 0, and.id, 0);
+        graph.addConnection(b.id, 0, and.id, 1);
+        evaluator = new GraphEvaluator(graph);
+
+        evaluator.evaluate(List.of(), Map.of(), 0.05f,
+            new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+
+        assertEquals(0f, evaluator.getNodeOutput(and.id, 0), 0.0001f);
+    }
+
     // ══════════════════ SPLIT / RELAY / POSE ══════════════════
 
     @Test

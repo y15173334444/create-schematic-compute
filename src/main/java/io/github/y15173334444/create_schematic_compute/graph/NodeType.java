@@ -32,6 +32,7 @@ public enum NodeType {
     SPEED_CTRL("speed_ctrl", "node.create_schematic_compute.speed_ctrl", 2, 1, "rev"),
     BOOL("bool", "node.create_schematic_compute.bool", 1, 1, "inverted"),
     GATE("gate", "node.create_schematic_compute.gate", 4, 1, "default"),
+    AND("and", "node.create_schematic_compute.and", 2, 1, ""),
     OR("or", "node.create_schematic_compute.or", 2, 1, ""),
     PRIVATE_IN("private_in", "node.create_schematic_compute.private_in", 0, 1, ""),
     PRIVATE_OUT("private_out", "node.create_schematic_compute.private_out", 1, 0, ""),
@@ -317,7 +318,7 @@ public enum NodeType {
         case REDSTONE_IN -> pk("signal");
         case ADD,SUB,MUL,DIV,MOD,POW,ROOT,ABS,ROUND,SIN,COS,TAN,ASIN,ACOS,ATAN2,SINH,COSH,SQRT,LN,LOG,EXP,SEC,CSC,COT -> pk("float");
         case INTERP -> i==0?pk("a"):pk("b");
-        case GT,LT,EQ,GE,LE, BOOL, OR -> pk("bool");
+        case GT,LT,EQ,GE,LE, BOOL, AND, OR -> pk("bool");
         case PID -> pk("ctrl");
         case PID_POWER -> pk("power");
         case CLAMP,MAP -> pk("float");

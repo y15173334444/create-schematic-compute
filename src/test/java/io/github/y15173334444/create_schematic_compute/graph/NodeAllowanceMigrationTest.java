@@ -178,7 +178,7 @@ class NodeAllowanceMigrationTest {
     }
 
     @Test
-    void programComputerGainsDeclared23() {
+    void programComputerGainsDeclared24() {
         EnumSet<NodeType> oldSet = oldProgramComputer();
         EnumSet<NodeType> newSet = BlockNodeAllowances.PROGRAM_COMPUTER.allowedTypes();
         EnumSet<NodeType> lost = EnumSet.copyOf(oldSet);
@@ -191,18 +191,19 @@ class NodeAllowanceMigrationTest {
             NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD,
             NodeType.POW, NodeType.ROOT, NodeType.ABS, NodeType.CEIL, NodeType.FLOOR,
             NodeType.ROUND,
-            // logic 比较 + OR
-            NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ, NodeType.OR,
+            // logic 比较 + AND/OR
+            NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ,
+            NodeType.AND, NodeType.OR,
             // math_advanced 缺口
             NodeType.FORMULA, NodeType.INTERP,
             // control 整类
             NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP
         ), gained);
-        assertEquals(23, gained.size());
+        assertEquals(24, gained.size());
     }
 
     @Test
-    void cncGearboxGainsSame23() {
+    void cncGearboxGainsSame24() {
         EnumSet<NodeType> oldSet = oldCncGearbox();
         EnumSet<NodeType> newSet = BlockNodeAllowances.CNC_GEARBOX.allowedTypes();
         EnumSet<NodeType> lost = EnumSet.copyOf(oldSet);
@@ -210,7 +211,7 @@ class NodeAllowanceMigrationTest {
         EnumSet<NodeType> gained = EnumSet.copyOf(newSet);
         gained.removeAll(oldSet);
         assertTrue(lost.isEmpty(), "cnc gearbox must not lose nodes: " + lost);
-        assertEquals(23, gained.size());
+        assertEquals(24, gained.size());
         assertEquals(
             EnumSet.copyOf(BlockNodeAllowances.PROGRAM_COMPUTER.allowedTypes()),
             // 齿轮箱 = 程序计算机 + gearbox + kinetic
@@ -232,8 +233,16 @@ class NodeAllowanceMigrationTest {
     }
 
     @Test
+    void kineticGaugeGainsAnd() {
+        EnumSet<NodeType> oldSet = oldKineticGauge();
+        EnumSet<NodeType> newSet = BlockNodeAllowances.KINETIC_GAUGE.allowedTypes();
+        assertTrue(minus(oldSet, newSet).isEmpty(), "kinetic gauge must not lose nodes");
+        assertEquals(EnumSet.of(NodeType.AND), minus(newSet, oldSet),
+            "only the new AND node joins (LOGIC category, 2026-10-18)");
+    }
+
+    @Test
     void simpleBlocksUnchanged() {
-        assertUnchanged(oldKineticGauge(), BlockNodeAllowances.KINETIC_GAUGE, "kinetic gauge");
         assertUnchanged(oldControlSeat(), BlockNodeAllowances.CONTROL_SEAT, "control seat");
         assertUnchanged(oldMonitor(), BlockNodeAllowances.MONITOR, "monitor");
         assertUnchanged(oldRadar(), BlockNodeAllowances.RADAR, "radar");
