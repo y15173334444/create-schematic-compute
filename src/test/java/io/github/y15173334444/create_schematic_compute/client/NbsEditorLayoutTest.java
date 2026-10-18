@@ -158,4 +158,35 @@ class NbsEditorLayoutTest {
             assertTrue(r[0][0] >= 40, "name column keeps a usable width");
         }
     }
+
+    // ══════════════ 卷帘层头 + 总览面板几何 / roll header & overview geometry ══════════════
+
+    @Test
+    @DisplayName("roll header slots fit the 176px panel without overlap / 卷帘层头七槽无重叠且不出面板")
+    void testRollHeaderRects() {
+        int[][] r = NbsEditorScreen.rollHeaderRects();
+        assertEquals(7, r.length, "◀/名称/▶/总览/细/加层/删 seven slots");
+        int prevRight = -1;
+        for (int[] b : r) {
+            assertTrue(b[2] > 0 && b[3] > 0, "slots have area");
+            assertTrue(b[0] > prevRight, "ordered left to right without overlap");
+            assertTrue(b[0] + b[2] <= 176, "inside the panel width");
+            prevRight = b[0] + b[2];
+        }
+        assertTrue(r[NbsEditorScreen.HB_NAME][2] >= 60, "the name slot keeps a usable width");
+        assertEquals(r[NbsEditorScreen.HB_PREV][1], r[NbsEditorScreen.HB_DELETE][1], "one header row");
+    }
+
+    @Test
+    @DisplayName("overview rows tile and the scroll clamp is pixel-exact / 总览行首尾相接、滚动钳位精确")
+    void testOverviewGeometry() {
+        int[] a = NbsEditorScreen.layerOverviewRow(800, 600, 3, 0);
+        int[] b = NbsEditorScreen.layerOverviewRow(800, 600, 4, 0);
+        assertEquals(a[1] + NbsEditorScreen.OVERVIEW_ROW_H, b[1], "rows tile exactly");
+        assertEquals(10, NbsEditorScreen.OVERVIEW_VIEW_H / NbsEditorScreen.OVERVIEW_ROW_H, "ten rows per viewport");
+        assertEquals(0, NbsEditorScreen.clampOverviewScroll(-5, 3), "negative scroll clamps to 0");
+        assertEquals(0, NbsEditorScreen.clampOverviewScroll(999, 3), "3 layers = 42px content < 140px viewport");
+        assertEquals(14 * NbsEditorScreen.OVERVIEW_ROW_H - NbsEditorScreen.OVERVIEW_VIEW_H,
+            NbsEditorScreen.clampOverviewScroll(999, 14), "14 layers clamp at content − viewport");
+    }
 }

@@ -752,6 +752,7 @@
   "gui.create_schematic_compute.nbs_lr_up": "Move up",
   "gui.create_schematic_compute.nbs_lr_down": "Move down",
   "gui.create_schematic_compute.nbs_lr_delete": "Delete the layer",
+  "gui.create_schematic_compute.nbs_layer_overview": "Layer overview (click to pick)",
   "gui.create_schematic_compute.nbs_layer_props": "Layer settings",
   "gui.create_schematic_compute.nbs_edit_locked": "Locked while playing",
   "gui.create_schematic_compute.nbs_scroll_guard": "Scroll guard: wait a beat after scrolling",

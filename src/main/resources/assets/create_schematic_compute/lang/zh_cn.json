@@ -752,6 +752,7 @@
   "gui.create_schematic_compute.nbs_lr_up": "上移",
   "gui.create_schematic_compute.nbs_lr_down": "下移",
   "gui.create_schematic_compute.nbs_lr_delete": "删除该层",
+  "gui.create_schematic_compute.nbs_layer_overview": "层总览（点击选层）",
   "gui.create_schematic_compute.nbs_layer_props": "层设置",
   "gui.create_schematic_compute.nbs_edit_locked": "播放中不可编辑",
   "gui.create_schematic_compute.nbs_scroll_guard": "防误触：滚动后稍候再点",

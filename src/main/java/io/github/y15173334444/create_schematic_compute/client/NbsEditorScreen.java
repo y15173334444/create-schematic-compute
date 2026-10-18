@@ -109,6 +109,11 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private boolean layerSettingsOpen = false;
     private int settingsLayer = 0;
     private int settingsScroll = 0;
+    /** 层总览面板（点行选层、面板留着便于连点；Esc/点外/× 关）。
+     *  The layer overview panel (a row click picks the layer and keeps the panel open for
+     *  browsing; Esc / an outside click / × closes). */
+    private boolean layerOverviewOpen = false;
+    private int overviewScroll = 0;
     /** 行图标钮悬停提示（渲染尾部绘制）。 / pending tooltip for row icon buttons. */
     private String hoverTip = "";
     private int draggingSlider = 0;        // 0=无 1=音量 2=声像
@@ -318,6 +323,15 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         layerNameBox.setFocused(false);
     }
 
+    /** 取消行内改名（Esc / 点别处）：草稿丢弃、绝不写回（实测反馈：点别处后输入框
+     *  不取消，滞留吃键）。 / Abandon the inline rename (Esc / an outside click): the draft
+     *  is discarded and never written back (field feedback: the box used to linger and eat
+     *  keystrokes). */
+    private void cancelNameEdit() {
+        nameEditLayer = -1;
+        if (layerNameBox != null) layerNameBox.setFocused(false);
+    }
+
     private void feedback(String text) {
         feedbackText = text;
         feedbackUntil = System.currentTimeMillis() + 2500;
@@ -453,6 +467,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (exportOpen) renderExportDialog(g, mx, my);
         if (setOpen) renderSetDialog(g, mx, my);
         if (layerSettingsOpen) renderLayerSettings(g, mx, my);
+        if (layerOverviewOpen) renderLayerOverview(g, mx, my);
         if (showGuide) renderGuide(g);
         renderTopBarTip(g, mx, my);       // 图标钮提示画最上层 / tooltips on top of everything
         if (!hoverTip.isEmpty()) {
@@ -616,6 +631,23 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     /** 层行小按钮下标（= layerRowButtons 顺序）：听 / 细 / 锁 / ↑ / ↓ / 删。
      *  Layer-row button indices: audition / detail / lock / up / down / delete. */
     static final int LR_AUDITION = 0, LR_DETAIL = 1, LR_LOCK = 2, LR_UP = 3, LR_DOWN = 4, LR_DELETE = 5;
+    /** 层总览图标（仅层头用，不入层行按钮序）。 / the overview icon (header-only, not a row button). */
+    static final int LR_OVERVIEW = 6;
+
+    /** 卷帘层头槽位（= rollHeaderRects 顺序）：◀ / 名称 / ▶ / 总览 / 细 / 加层 / 删。
+     *  Roll header slots: prev / name / next / overview / detail / add / delete. */
+    static final int HB_PREV = 0, HB_NAME = 1, HB_NEXT = 2, HB_OVERVIEW = 3, HB_DETAIL = 4, HB_ADD = 5, HB_DELETE = 6;
+
+    /** 卷帘层头矩形表（渲染与命中共用——P2-22 单一几何源口径；层头共 176px，
+     *  名称槽让位给总览/删两钮后 70px，与层列行名列同宽级）。
+     *  Roll-header rects shared by render and hit-testing (the P2-22 policy). */
+    static int[][] rollHeaderRects() {
+        int y = TOP_H + 2, h = 14;
+        return new int[][]{
+            {4, y, 14, h}, {22, y, 70, h}, {94, y, 14, h}, {110, y, 14, h},
+            {126, y, 14, h}, {142, y, 14, h}, {158, y, 14, h},
+        };
+    }
 
     /** 层行按钮矩形表（行内相对坐标，渲染与命中共用——P2-22 单一几何源口径）：
      *  右起排布、行内垂直居中。 / Layer-row button rects (row-relative), shared by render
@@ -668,6 +700,12 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 g.fill(x + 3, y + 5, x + 7, y + 6, P);
                 g.fill(x + 2, y + 4, x + 8, y + 5, A);
                 g.fill(x + 4, y + 1, x + 6, y + 5, P);
+            }
+            case LR_OVERVIEW -> {                 // 总览：列表四横线 / list
+                g.fill(x + 1, y + 2, x + 9, y + 3, P);
+                g.fill(x + 1, y + 4, x + 9, y + 5, A);
+                g.fill(x + 1, y + 6, x + 9, y + 7, P);
+                g.fill(x + 1, y + 8, x + 9, y + 9, A);
             }
             default -> {                          // 删除：垃圾桶 / trash
                 g.fill(x + 4, y + 1, x + 6, y + 2, A);
@@ -728,6 +766,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             g.fill(4, y, PANEL_W - 8, y + rh - 1, color);
             if (nameEditLayer == i) {
                 // 名称 = 点击进通用输入框（行内改名）/ name edits through the common input box
+                layerNameBox.setWidth(nameW);      // 宽度贴名称列，不盖行内按钮 / fit the name column
                 layerNameBox.setX(8); layerNameBox.setY(y + (rh - 12) / 2);
                 layerNameBox.render(g, mx, my, pt0());
             } else {
@@ -752,20 +791,33 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
      * row height via {@link NbsPianoRoll#keyRowTop}) plus the layer header.
      */
     private void renderRollKeyList(GuiGraphics g, int mx, int my) {
-        // 层头：◀ 名称（点击=输入框）▶ 设置 加层 / layer header
-        button(g, 4, TOP_H + 2, 14, 14, "<", mx, my, false);
+        // 层头：◀ 名称（点击=输入框）▶ 总览 细 加层 删（rollHeaderRects 单一几何源）
+        // layer header: prev / name (click = edit) / next / overview / detail / add / delete
+        int[][] hr = rollHeaderRects();
+        button(g, hr[HB_PREV][0], hr[HB_PREV][1], hr[HB_PREV][2], hr[HB_PREV][3], "<", mx, my, false);
         if (nameEditLayer == currentLayer) {
-            layerNameBox.setX(22); layerNameBox.setY(TOP_H + 3);
+            layerNameBox.setWidth(hr[HB_NAME][2]);
+            layerNameBox.setX(hr[HB_NAME][0]); layerNameBox.setY(hr[HB_NAME][1] + 1);
             layerNameBox.render(g, mx, my, pt0());
         } else {
             String name = currentLayer < kernel.song().layers.size()
                 ? kernel.song().layers.get(currentLayer).name : "";
             if (name.isEmpty()) name = I18n.get("gui.create_schematic_compute.nbs_layer") + " " + (currentLayer + 1);
-            g.drawString(font, font.plainSubstrByWidth(name, 96), 24, TOP_H + 6, C_TEXT, false);
+            g.drawString(font, font.plainSubstrByWidth(name, hr[HB_NAME][2] - 4), hr[HB_NAME][0] + 2, TOP_H + 6, C_TEXT, false);
         }
-        button(g, 122, TOP_H + 2, 14, 14, ">", mx, my, false);
-        iconButton(g, 140, TOP_H + 2, 14, 14, LR_DETAIL, inRect(140, TOP_H + 2, 14, 14, mx, my), layerSettingsOpen);
-        button(g, 158, TOP_H + 2, 14, 14, "+", mx, my, false);
+        button(g, hr[HB_NEXT][0], hr[HB_NEXT][1], hr[HB_NEXT][2], hr[HB_NEXT][3], ">", mx, my, false);
+        boolean hovOv = inRect(hr[HB_OVERVIEW][0], hr[HB_OVERVIEW][1], hr[HB_OVERVIEW][2], hr[HB_OVERVIEW][3], mx, my);
+        if (hovOv) hoverTip = I18n.get("gui.create_schematic_compute.nbs_layer_overview");
+        iconButton(g, hr[HB_OVERVIEW][0], hr[HB_OVERVIEW][1], hr[HB_OVERVIEW][2], hr[HB_OVERVIEW][3],
+            LR_OVERVIEW, hovOv, layerOverviewOpen);
+        boolean hovDt = inRect(hr[HB_DETAIL][0], hr[HB_DETAIL][1], hr[HB_DETAIL][2], hr[HB_DETAIL][3], mx, my);
+        if (hovDt) hoverTip = layerRowTip(LR_DETAIL);
+        iconButton(g, hr[HB_DETAIL][0], hr[HB_DETAIL][1], hr[HB_DETAIL][2], hr[HB_DETAIL][3],
+            LR_DETAIL, hovDt, layerSettingsOpen);
+        button(g, hr[HB_ADD][0], hr[HB_ADD][1], hr[HB_ADD][2], hr[HB_ADD][3], "+", mx, my, false);
+        boolean hovDel = inRect(hr[HB_DELETE][0], hr[HB_DELETE][1], hr[HB_DELETE][2], hr[HB_DELETE][3], mx, my);
+        if (hovDel) hoverTip = layerRowTip(LR_DELETE);
+        iconButton(g, hr[HB_DELETE][0], hr[HB_DELETE][1], hr[HB_DELETE][2], hr[HB_DELETE][3], LR_DELETE, hovDel, false);
 
         // 键位列表：逐键行，与谱面行同几何 / key rows, same geometry as the score rows
         float topKey = roll.viewTopKey(), ppk = roll.pxPerKey();
@@ -792,6 +844,24 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
      *  The layer settings panel: rows = volume / panning / lock / up / down / delete; the
      *  content scrolls behind a scrollbar when it overflows the viewport. */
     static final int SETTINGS_ROW_H = 30, SETTINGS_VIEW_H = 90, SETTINGS_ROWS = 6;
+
+    /** 层总览面板几何：居中，10 行视口（行 14px），超出滚。
+     *  Layer overview geometry: centred, a ten-row viewport (14px rows), scrolling past it. */
+    static final int OVERVIEW_W = 200, OVERVIEW_H = 170, OVERVIEW_ROW_H = 14, OVERVIEW_VIEW_H = 140;
+
+    /** 总览面板行矩形（绝对坐标，渲染与命中共用）。 / the overview row rects (absolute). */
+    static int[] layerOverviewRow(int width, int height, int row, int scrollY) {
+        int x = (width - OVERVIEW_W) / 2 + 8;
+        int y = (height - OVERVIEW_H) / 2 + 26 + row * OVERVIEW_ROW_H - scrollY;
+        return new int[]{x, y, OVERVIEW_W - 16, OVERVIEW_ROW_H};
+    }
+
+    /** 总览滚动钳位（纯函数，像素）：停在 [0, max(0, 层数×行高 − 视口)]。
+     *  Overview scroll clamp (pure, pixels). */
+    static int clampOverviewScroll(int scroll, int layerCount) {
+        int max = Math.max(0, layerCount * OVERVIEW_ROW_H - OVERVIEW_VIEW_H);
+        return Math.max(0, Math.min(scroll, max));
+    }
 
     /** 设置面板行矩形（绝对坐标）。 / the settings-panel row rects (absolute). */
     static int[] layerSettingsRow(int width, int height, int row, int scrollY) {
@@ -833,6 +903,83 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         NbsScrollBar.render(g, sbX, contentTop, NbsScrollBar.THICK, SETTINGS_VIEW_H,
             SETTINGS_ROWS * SETTINGS_ROW_H, SETTINGS_VIEW_H, settingsScroll,
             inRect(sbX, contentTop, NbsScrollBar.THICK, SETTINGS_VIEW_H, mx, my));
+    }
+
+    /**
+     * 层总览面板（卷帘层头 ☰ 打开）：全层层名列，点行 = 切当前层、面板留着便于连点比较，
+     * Esc / 点外 / × 关闭，层多过 10 行走滚动条。◀/→ 逐层翻的快车道（实测反馈）。
+     * The layer overview panel (roll header ☰): every layer as a name row — clicking a row
+     * switches the current layer and keeps the panel open for browsing, Esc / an outside
+     * click / × closes, and past ten rows it scrolls. The fast lane for one-by-one ◀/→ paging.
+     */
+    private void renderLayerOverview(GuiGraphics g, int mx, int my) {
+        int px = (width - OVERVIEW_W) / 2, py = (height - OVERVIEW_H) / 2;
+        int contentTop = py + 26, contentBottom = contentTop + OVERVIEW_VIEW_H;
+        var layers = kernel.song().layers;
+        overviewScroll = clampOverviewScroll(overviewScroll, layers.size());
+        g.fill(px, py, px + OVERVIEW_W, py + OVERVIEW_H, C_PANEL);
+        g.renderOutline(px, py, OVERVIEW_W, OVERVIEW_H, C_BORDER);
+        g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_layer_overview"), px + 8, py + 8, C_TEXT, false);
+        button(g, px + OVERVIEW_W - 18, py + 4, 12, 12, "x", mx, my, false);
+        g.enableScissor(px + 1, contentTop, px + OVERVIEW_W - 1, contentBottom);
+        for (int i = 0; i < layers.size(); i++) {
+            int[] r = layerOverviewRow(width, height, i, overviewScroll);
+            if (r[1] + OVERVIEW_ROW_H <= contentTop || r[1] >= contentBottom) continue;
+            boolean hov = inRect(r[0], r[1], r[2], r[3], mx, my);
+            boolean cur = i == currentLayer;
+            if (cur || hov) g.fill(r[0], r[1], r[0] + r[2], r[1] + r[3], cur ? C_BTN_ON : C_HOVER);
+            String name = layers.get(i).name;
+            if (name.isEmpty()) name = I18n.get("gui.create_schematic_compute.nbs_layer") + " " + (i + 1);
+            g.drawString(font, font.plainSubstrByWidth((i + 1) + ". " + name, r[2] - 24),
+                r[0] + 4, r[1] + 3, C_TEXT, false);
+            if (layers.get(i).locked) {
+                g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_locked_mark"),
+                    r[0] + r[2] - 14, r[1] + 3, C_TEXT_DIM, false);
+            }
+        }
+        g.disableScissor();
+        if (layers.size() * OVERVIEW_ROW_H > OVERVIEW_VIEW_H) {
+            int sbX = px + OVERVIEW_W - NbsScrollBar.THICK - 2;
+            NbsScrollBar.render(g, sbX, contentTop, NbsScrollBar.THICK, OVERVIEW_VIEW_H,
+                layers.size() * OVERVIEW_ROW_H, OVERVIEW_VIEW_H, overviewScroll,
+                inRect(sbX, contentTop, NbsScrollBar.THICK, OVERVIEW_VIEW_H, mx, my));
+        }
+    }
+
+    private boolean clickLayerOverview(double mx, double my) {
+        int px = (width - OVERVIEW_W) / 2, py = (height - OVERVIEW_H) / 2;
+        int contentTop = py + 26, contentBottom = contentTop + OVERVIEW_VIEW_H;
+        var layers = kernel.song().layers;
+        if (inRect(px + OVERVIEW_W - 18, py + 4, 12, 12, mx, my)) {
+            layerOverviewOpen = false;
+            return true;
+        }
+        int sbX = px + OVERVIEW_W - NbsScrollBar.THICK - 2;
+        if (layers.size() * OVERVIEW_ROW_H > OVERVIEW_VIEW_H
+            && inRect(sbX, contentTop, NbsScrollBar.THICK, OVERVIEW_VIEW_H, mx, my)) {
+            int[] t = NbsScrollBar.thumbRect(sbX, contentTop, NbsScrollBar.THICK, OVERVIEW_VIEW_H,
+                layers.size() * OVERVIEW_ROW_H, OVERVIEW_VIEW_H, overviewScroll);
+            if (inRect(t[0], t[1], t[2], t[3], mx, my)) {
+                draggingScrollBar = 4;
+                overviewScroll = clampOverviewScroll(NbsScrollBar.posFromThumbDrag(OVERVIEW_VIEW_H, t[3],
+                    (int) (my - contentTop), layers.size() * OVERVIEW_ROW_H, OVERVIEW_VIEW_H), layers.size());
+            } else {
+                overviewScroll = clampOverviewScroll(NbsScrollBar.posFromTrackClick((int) (my - contentTop),
+                    t[1] - contentTop, t[3], overviewScroll, layers.size() * OVERVIEW_ROW_H, OVERVIEW_VIEW_H),
+                    layers.size());
+            }
+            return true;
+        }
+        for (int i = 0; i < layers.size(); i++) {
+            int[] r = layerOverviewRow(width, height, i, overviewScroll);
+            if (r[1] + OVERVIEW_ROW_H <= contentTop || r[1] >= contentBottom) continue;
+            if (inRect(r[0], r[1], r[2], r[3], mx, my)) {
+                currentLayer = i;          // 点行换层，面板留着连点 / pick and keep browsing
+                return true;
+            }
+        }
+        if (!inRect(px, py, OVERVIEW_W, OVERVIEW_H, mx, my)) layerOverviewOpen = false;
+        return true;
     }
 
     private boolean clickLayerSettings(double mx, double my) {
@@ -1027,12 +1174,20 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     @Override
     public boolean mouseClicked(double mx, double my, int btn) {
+        // 点别处 = 取消行内改名（草稿丢弃；点在框内不打断——实测反馈：输入框滞留吃键）
+        // An outside click cancels the inline rename (the draft is discarded; clicks inside
+        // the box do not interrupt — field feedback: the box lingered and ate keystrokes).
+        if (nameEditLayer >= 0 && (layerNameBox == null || !inRect(layerNameBox.getX(), layerNameBox.getY(),
+            layerNameBox.getWidth(), layerNameBox.getHeight(), mx, my))) {
+            cancelNameEdit();
+        }
         // 对话框优先 / dialogs first
         if (showGuide) { showGuide = false; return true; }
         if (importOpen) return clickImport(mx, my, btn);
         if (exportOpen) return clickExport(mx, my, btn);
         if (setOpen) return clickSetDialog(mx, my);
         if (layerSettingsOpen) return clickLayerSettings(mx, my);
+        if (layerOverviewOpen) return clickLayerOverview(mx, my);
 
         if (btn != 0) {
             // 右键落在网格上 = 擦除；其余右键忽略。擦除同样按笔划分组撤销。
@@ -1462,7 +1617,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         return true;
     }
 
-    /** 名称点击 = 通用输入框行内改名（Enter/失焦/Esc 提交）。 / click the name → inline edit. */
+    /** 名称点击 = 通用输入框行内改名（Enter 提交；Esc/点别处取消，草稿丢弃）。
+     *  Click the name → inline edit (Enter commits; Esc or an outside click cancels). */
     private void startNameEdit(int layer) {
         if (layer < 0 || layer >= kernel.song().layers.size()) return;
         if (nameEditLayer >= 0) commitLayerName();
@@ -1471,33 +1627,44 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         layerNameBox.setFocused(true);
     }
 
-    /** 卷帘面板点击：层头（◀名称▶ 设置 加层）+ 键位行（点 = 试听该键）。
-     *  Roll-panel clicks: the layer header plus key rows (click auditions the key). */
+    /** 卷帘面板点击：层头（◀名称▶ 总览 细 加层 删）+ 键位行（点 = 试听该键）。
+     *  Roll-panel clicks: the layer header (prev / name / next / overview / detail / add /
+     *  delete) plus key rows (click auditions the key). */
     private boolean clickRollKeyList(double mx, double my) {
         if (my < TOP_H + 18) {
-            if (inRect(4, TOP_H + 2, 14, 14, mx, my)) {
+            int[][] hr = rollHeaderRects();
+            if (inRect(hr[HB_PREV][0], hr[HB_PREV][1], hr[HB_PREV][2], hr[HB_PREV][3], mx, my)) {
                 currentLayer = Math.max(0, currentLayer - 1);
                 return true;
             }
-            if (inRect(22, TOP_H + 2, 98, 14, mx, my)) {
+            if (inRect(hr[HB_NAME][0], hr[HB_NAME][1], hr[HB_NAME][2], hr[HB_NAME][3], mx, my)) {
                 startNameEdit(currentLayer);
                 return true;
             }
-            if (inRect(122, TOP_H + 2, 14, 14, mx, my)) {
+            if (inRect(hr[HB_NEXT][0], hr[HB_NEXT][1], hr[HB_NEXT][2], hr[HB_NEXT][3], mx, my)) {
                 currentLayer = Math.min(kernel.song().layers.size() - 1, currentLayer + 1);
                 return true;
             }
-            if (inRect(140, TOP_H + 2, 14, 14, mx, my)) {
+            if (inRect(hr[HB_OVERVIEW][0], hr[HB_OVERVIEW][1], hr[HB_OVERVIEW][2], hr[HB_OVERVIEW][3], mx, my)) {
+                layerOverviewOpen = !layerOverviewOpen;
+                overviewScroll = 0;
+                return true;
+            }
+            if (inRect(hr[HB_DETAIL][0], hr[HB_DETAIL][1], hr[HB_DETAIL][2], hr[HB_DETAIL][3], mx, my)) {
                 settingsLayer = currentLayer;
                 layerSettingsOpen = true;
                 settingsScroll = 0;
                 return true;
             }
-            if (inRect(158, TOP_H + 2, 14, 14, mx, my)) {
+            if (inRect(hr[HB_ADD][0], hr[HB_ADD][1], hr[HB_ADD][2], hr[HB_ADD][3], mx, my)) {
                 kernel.beginBatch();
                 kernel.addLayer();
                 kernel.endBatch();
                 currentLayer = kernel.song().layers.size() - 1;
+                return true;
+            }
+            if (inRect(hr[HB_DELETE][0], hr[HB_DELETE][1], hr[HB_DELETE][2], hr[HB_DELETE][3], mx, my)) {
+                layerRowAction(currentLayer, LR_DELETE);   // 守卫/钳位走层行同一条 / same guards as the row button
                 return true;
             }
             return true;
@@ -1712,6 +1879,16 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 SETTINGS_ROWS * SETTINGS_ROW_H, SETTINGS_VIEW_H);
             return true;
         }
+        if (draggingScrollBar == 4) {
+            int contentTop = (height - OVERVIEW_H) / 2 + 26;
+            int sbX = (width - OVERVIEW_W) / 2 + OVERVIEW_W - NbsScrollBar.THICK - 2;
+            int contentH = kernel.song().layers.size() * OVERVIEW_ROW_H;
+            int[] t = NbsScrollBar.thumbRect(sbX, contentTop, NbsScrollBar.THICK, OVERVIEW_VIEW_H,
+                contentH, OVERVIEW_VIEW_H, overviewScroll);
+            overviewScroll = clampOverviewScroll(NbsScrollBar.posFromThumbDrag(OVERVIEW_VIEW_H, t[3],
+                (int) (my - contentTop), contentH, OVERVIEW_VIEW_H), kernel.song().layers.size());
+            return true;
+        }
         if (gesture != GESTURE_NONE) {
             marqX = mx;
             marqY = my;
@@ -1766,6 +1943,11 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         lastWheelAt = System.currentTimeMillis();   // 滚动防误触窗口起点 / arm the scroll guard
         if (layerSettingsOpen) return true;         // 设置面板吞滚轮 / the settings panel swallows the wheel
+        if (layerOverviewOpen) {                    // 总览滚轮翻行 / the overview scrolls by rows
+            overviewScroll = clampOverviewScroll(overviewScroll + (sy > 0 ? -1 : 1) * OVERVIEW_ROW_H,
+                kernel.song().layers.size());
+            return true;
+        }
         if (mx < PANEL_W && my > TOP_H && my < height - TRANSPORT_H) {
             layerScroll = Math.max(0, layerScroll + (sy > 0 ? -1 : 1));
             return true;
@@ -1837,10 +2019,11 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             if (importOpen) { importOpen = false; return true; }
             if (exportOpen) { exportOpen = false; return true; }
             if (setOpen) { setOpen = false; setValueBox.setFocused(false); return true; }
-            if (nameEditLayer >= 0) { commitLayerName(); return true; }
+            if (nameEditLayer >= 0) { cancelNameEdit(); return true; }
             if (layerSettingsOpen) { layerSettingsOpen = false; return true; }
+            if (layerOverviewOpen) { layerOverviewOpen = false; return true; }
             if (tempoBox != null && tempoBox.isFocused()) { commitTempo(); return true; }
-            if (layerNameBox != null && layerNameBox.isFocused()) { commitLayerName(); return true; }
+            if (layerNameBox != null && layerNameBox.isFocused()) { cancelNameEdit(); return true; }
             if (exportNameBox != null && exportNameBox.isFocused()) { exportNameBox.setFocused(false); return true; }
             onClose();
             return true;
