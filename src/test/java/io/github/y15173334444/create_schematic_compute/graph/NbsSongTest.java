@@ -216,4 +216,15 @@ class NbsSongTest {
         assertEquals(9, s.maxTick());
         assertEquals(10, s.computeLength());
     }
+
+    @Test
+    @DisplayName("copy/copyFrom 保留层静音（撤销快照不得抹掉混音态）/ snapshots keep the mute flag")
+    void copyKeepsLayerMute() {
+        NbsSong s = new NbsSong();
+        s.layers.get(0).muted = true;
+        assertTrue(s.copy().layers.get(0).muted, "copy carries mute");
+        NbsSong d = new NbsSong();
+        d.copyFrom(s);
+        assertTrue(d.layers.get(0).muted, "copyFrom carries mute");
+    }
 }

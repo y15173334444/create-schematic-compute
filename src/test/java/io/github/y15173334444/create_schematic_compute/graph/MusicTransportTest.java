@@ -49,6 +49,32 @@ class MusicTransportTest {
     }
 
     @Test
+    @DisplayName("静音层不展开（预览/世界播放同源过滤）/ muted layers never expand")
+    void mutedLayerSkipped() {
+        NbsSong s = new NbsSong();
+        s.tempo = 1000;
+        s.layers.clear();
+        NbsSong.Layer l0 = new NbsSong.Layer();
+        NbsSong.Layer l1 = new NbsSong.Layer();
+        l1.muted = true;
+        s.layers.add(l0);
+        s.layers.add(l1);
+        s.putNote(0, 0, 2, 45, 100, 100, 0);
+        s.putNote(0, 1, 2, 50, 100, 100, 0);
+
+        MusicTransport tr = new MusicTransport();
+        tr.play(0);
+        List<NoteEvent> evs = tr.advance(s, DT);
+        assertEquals(1, evs.size(), "the muted layer's note never fires");
+        assertEquals(45, evs.get(0).key(), "only the unmuted layer sounds");
+
+        l1.muted = false;
+        MusicTransport tr2 = new MusicTransport();
+        tr2.play(0);
+        assertEquals(2, tr2.advance(s, DT).size(), "unmuting brings the layer back");
+    }
+
+    @Test
     @DisplayName("层音量烘焙：层 50 × 音符 100 → 力度 50 / layer volume baked into velocity")
     void layerVolumeBaked() {
         NbsSong s = new NbsSong();

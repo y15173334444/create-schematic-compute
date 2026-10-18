@@ -32,6 +32,18 @@ class NbsEditorKernelTest {
     }
 
     @Test
+    void setLayerMutedTogglesAndUndoRestores() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        k.setLayerMuted(0, true);
+        assertTrue(song.layers.get(0).muted, "mute sets");
+        k.setLayerMuted(0, true);                  // 同值不记撤销 / same value records nothing
+        assertTrue(k.performUndo());
+        assertFalse(song.layers.get(0).muted, "one undo restores the mute flag");
+        assertFalse(k.canUndo(), "the same-value set pushed no second entry");
+    }
+
+    @Test
     void toggleOnOtherKeyStacksOnNextLayerInsteadOfMoving() {
         // 实测反馈回归：同列第二笔曾把第一笔「清除并跟到当前位置」（换键挪移）。
         // 现在第一笔原地不动，新音符落到下一层（和弦）；1 层新曲自动扩层，撤销一步还原。

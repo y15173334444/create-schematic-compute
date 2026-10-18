@@ -195,6 +195,15 @@ public final class NbsEditorKernel {
         apply(new LayerFieldEdit(layer, 3, old, locked));
     }
 
+    /** 层静音（混音辅助）：播放展开跳过该层；同值不记撤销。
+     *  Layer mute (a mixing aid): playback expansion skips the layer; same-value = no undo. */
+    public void setLayerMuted(int layer, boolean muted) {
+        if (layer < 0 || layer >= song.layers.size()) return;
+        boolean old = song.layers.get(layer).muted;
+        if (old == muted) return;
+        apply(new LayerFieldEdit(layer, 4, old, muted));
+    }
+
     private void setLayerIntField(int layer, int field, int value) {
         if (layer < 0 || layer >= song.layers.size()) return;
         int old = field == 1 ? song.layers.get(layer).volume : song.layers.get(layer).panning;
@@ -656,6 +665,7 @@ public final class NbsEditorKernel {
                 case 1 -> l.volume = (Integer) v;
                 case 2 -> l.panning = (Integer) v;
                 case 3 -> l.locked = (Boolean) v;
+                case 4 -> l.muted = (Boolean) v;
             }
         }
     }

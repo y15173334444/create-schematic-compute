@@ -628,9 +628,9 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     private float pt0() { return 0f; }
 
-    /** 层行小按钮下标（= layerRowButtons 顺序）：听 / 细 / 锁 / ↑ / ↓ / 删。
-     *  Layer-row button indices: audition / detail / lock / up / down / delete. */
-    static final int LR_AUDITION = 0, LR_DETAIL = 1, LR_LOCK = 2, LR_UP = 3, LR_DOWN = 4, LR_DELETE = 5;
+    /** 层行小按钮下标（= layerRowButtons 顺序）：静音 / 细 / 锁 / ↑ / ↓ / 删。
+     *  Layer-row button indices: mute / detail / lock / up / down / delete. */
+    static final int LR_MUTE = 0, LR_DETAIL = 1, LR_LOCK = 2, LR_UP = 3, LR_DOWN = 4, LR_DELETE = 5;
     /** 层总览图标（仅层头用，不入层行按钮序）。 / the overview icon (header-only, not a row button). */
     static final int LR_OVERVIEW = 6;
 
@@ -668,11 +668,11 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private static void drawLayerIcon(GuiGraphics g, int x, int y, int icon) {
         int P = 0xFFD8D8D8, A = 0xFF8A8A8A;
         switch (icon) {
-            case LR_AUDITION -> {                 // 扬声器：方壳 + 号角 / speaker
-                g.fill(x + 1, y + 3, x + 3, y + 7, P);
-                g.fill(x + 3, y + 2, x + 5, y + 8, P);
+            case LR_MUTE -> {                     // 静音：扬声器 + 斜杠 / speaker with a slash
+                g.fill(x + 1, y + 3, x + 3, y + 7, A);
+                g.fill(x + 3, y + 2, x + 5, y + 8, A);
                 g.fill(x + 5, y + 1, x + 7, y + 9, A);
-                g.fill(x + 8, y + 3, x + 9, y + 7, A);
+                for (int i = 0; i < 9; i++) g.fill(x + i, y + 9 - i, x + i + 1, y + 10 - i, P);
             }
             case LR_DETAIL -> {                   // 推子：三轨带钮 / sliders
                 g.fill(x + 1, y + 2, x + 9, y + 3, A);
@@ -720,7 +720,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     /** 行图标钮提示文本（图标无字，提示补可发现性）。 / tooltip text for the row icons. */
     private String layerRowTip(int b) {
         return switch (b) {
-            case LR_AUDITION -> I18n.get("gui.create_schematic_compute.nbs_lr_audition");
+            case LR_MUTE -> I18n.get("gui.create_schematic_compute.nbs_lr_mute");
             case LR_DETAIL -> I18n.get("gui.create_schematic_compute.nbs_lr_detail");
             case LR_LOCK -> I18n.get("gui.create_schematic_compute.nbs_lr_lock");
             case LR_UP -> I18n.get("gui.create_schematic_compute.nbs_lr_up");
@@ -777,9 +777,10 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             }
             for (int b = 0; b < br.length; b++) {
                 boolean hov = inRect(4 + br[b][0], y + br[b][1], br[b][2], br[b][3], mx, my);
-                if (hov) hoverTip = layerRowTip(b);
+                if (hov) hoverTip = b == LR_MUTE && layers.get(i).muted
+                    ? I18n.get("gui.create_schematic_compute.nbs_lr_unmute") : layerRowTip(b);
                 iconButton(g, 4 + br[b][0], y + br[b][1], br[b][2], br[b][3], b, hov,
-                    b == LR_LOCK && layers.get(i).locked);
+                    (b == LR_LOCK && layers.get(i).locked) || (b == LR_MUTE && layers.get(i).muted));
             }
         }
     }
@@ -840,10 +841,10 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         }
     }
 
-    /** 层设置小面板：行 = 音量/声像/锁定/上移/下移/删除，内容高过视口走滚动条。
-     *  The layer settings panel: rows = volume / panning / lock / up / down / delete; the
-     *  content scrolls behind a scrollbar when it overflows the viewport. */
-    static final int SETTINGS_ROW_H = 30, SETTINGS_VIEW_H = 90, SETTINGS_ROWS = 6;
+    /** 层设置小面板：行 = 音量/声像/静音/锁定/上移/下移/删除，内容高过视口走滚动条。
+     *  The layer settings panel: rows = volume / panning / mute / lock / up / down / delete;
+     *  the content scrolls behind a scrollbar when it overflows the viewport. */
+    static final int SETTINGS_ROW_H = 30, SETTINGS_VIEW_H = 90, SETTINGS_ROWS = 7;
 
     /** 层总览面板几何：居中，10 行视口（行 14px），超出滚。
      *  Layer overview geometry: centred, a ten-row viewport (14px rows), scrolling past it. */
@@ -891,11 +892,14 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                     g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_panning"), r[0], r[1] + 10, C_TEXT_DIM, false);
                     slider(g, r[0] + 40, r[1] + 11, SLIDER_W, layer == null ? 100 : layer.panning, 200, mx, my);
                 }
-                case 2 -> button(g, r[0], r[1] + 6, 120, 18, I18n.get(layer != null && layer.locked
+                case 2 -> button(g, r[0], r[1] + 6, 120, 18, I18n.get(layer != null && layer.muted
+                    ? "gui.create_schematic_compute.nbs_unmute" : "gui.create_schematic_compute.nbs_mute"),
+                    mx, my, layer != null && layer.muted);
+                case 3 -> button(g, r[0], r[1] + 6, 120, 18, I18n.get(layer != null && layer.locked
                     ? "gui.create_schematic_compute.nbs_unlock" : "gui.create_schematic_compute.nbs_lock"),
                     mx, my, layer != null && layer.locked);
-                case 3 -> button(g, r[0], r[1] + 6, 120, 18, I18n.get("gui.create_schematic_compute.nbs_lr_up"), mx, my, false);
-                case 4 -> button(g, r[0], r[1] + 6, 120, 18, I18n.get("gui.create_schematic_compute.nbs_lr_down"), mx, my, false);
+                case 4 -> button(g, r[0], r[1] + 6, 120, 18, I18n.get("gui.create_schematic_compute.nbs_lr_up"), mx, my, false);
+                case 5 -> button(g, r[0], r[1] + 6, 120, 18, I18n.get("gui.create_schematic_compute.nbs_lr_down"), mx, my, false);
                 default -> button(g, r[0], r[1] + 6, 120, 18, I18n.get("gui.create_schematic_compute.nbs_lr_delete"), mx, my, false);
             }
         }
@@ -1013,7 +1017,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 return true;
             }
             if (row >= 2 && inRect(r[0], r[1] + 6, 120, 18, mx, my)) {
-                layerRowAction(settingsLayer, row == 2 ? LR_LOCK : row == 3 ? LR_UP : row == 4 ? LR_DOWN : LR_DELETE);
+                layerRowAction(settingsLayer, row == 2 ? LR_MUTE : row == 3 ? LR_LOCK
+                    : row == 4 ? LR_UP : row == 5 ? LR_DOWN : LR_DELETE);
                 return true;
             }
         }
@@ -1678,19 +1683,12 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         return true;
     }
 
-    /** 层行小按钮动作（听/细/锁/↑/↓/删）。 / the per-row button actions. */
+    /** 层行小按钮动作（静音/细/锁/↑/↓/删）。 / the per-row button actions. */
     private void layerRowAction(int layer, int action) {
         var layers = kernel.song().layers;
         if (layer < 0 || layer >= layers.size()) return;
         switch (action) {
-            case LR_AUDITION -> {
-                for (NbsSong.Note n : kernel.song().allNotes()) {
-                    if (n.layer == layer) {
-                        audition(n);
-                        return;
-                    }
-                }
-            }
+            case LR_MUTE -> kernel.setLayerMuted(layer, !layers.get(layer).muted);
             case LR_DETAIL -> {
                 settingsLayer = layer;
                 layerSettingsOpen = true;

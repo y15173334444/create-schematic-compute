@@ -138,6 +138,7 @@ public final class MusicTransport {
         for (int t = nextFire; t < fireBound; t++) {
             float delaySeconds = Math.max(0f, (t - headAtCall) / tps);
             for (NbsSong.Note n : song.notesAtTick(t)) {
+                if (layerMuted(song, n.layer)) continue;    // 静音层不展开 / muted layers never expand
                 float lv = layerVolume(song, n.layer);
                 int vel = (int) Math.round(lv * n.velocity / 100f);
                 vel = Math.max(0, Math.min(100, vel));
@@ -160,6 +161,11 @@ public final class MusicTransport {
             head = newHead;
         }
         return out;
+    }
+
+    /** 层静音（越界/缺层 = 不静音）。 / layer mute (out-of-range / missing = unmuted). */
+    private static boolean layerMuted(NbsSong song, int layer) {
+        return layer >= 0 && layer < song.layers.size() && song.layers.get(layer).muted;
     }
 
     /** 层音量（0..100，越界/缺层取 100）。 */

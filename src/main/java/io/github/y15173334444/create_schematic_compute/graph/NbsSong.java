@@ -62,6 +62,12 @@ public final class NbsSong {
     public static final class Layer {
         public String name = "";
         public boolean locked;
+        /** 静音（混音辅助）：播放展开时整层跳过（{@link MusicTransport}）。**不进 .nbs**
+         *  （格式无此字段，社区惯例亦为编辑期状态）——导入/导出/上传后不随曲。
+         *  Mute (a mixing aid): the layer is skipped at playback expansion. <b>Not in the
+         *  .nbs format</b> (no such field; the community keeps it editor-side too), so it
+         *  never rides import / export / upload. */
+        public boolean muted;
         /** 音量：0–100。 */
         public int volume = 100;
         /** 声像：0–200，100 = 居中。 */
@@ -252,7 +258,7 @@ public final class NbsSong {
         }
         for (Layer l : layers) {
             Layer c = new Layer();
-            c.name = l.name; c.locked = l.locked; c.volume = l.volume; c.panning = l.panning;
+            c.name = l.name; c.locked = l.locked; c.muted = l.muted; c.volume = l.volume; c.panning = l.panning;
             s.layers.add(c);
         }
         for (CustomInstrument ci : customInstruments) {
@@ -295,7 +301,7 @@ public final class NbsSong {
         }
         for (Layer l : other.layers) {
             Layer c = new Layer();
-            c.name = l.name; c.locked = l.locked; c.volume = l.volume; c.panning = l.panning;
+            c.name = l.name; c.locked = l.locked; c.muted = l.muted; c.volume = l.volume; c.panning = l.panning;
             layers.add(c);
         }
         for (CustomInstrument ci : other.customInstruments) {
