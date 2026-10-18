@@ -8,7 +8,7 @@
 
 ## 0. 背景与口径 / Background & Scope
 
-游戏内 NBS 钢琴卷帘编辑器（v1.2.6 WIP）的骨架健康：点放/涂抹语义与社区一致（点已有音符=搬移换键、同键=删、空格=放置）、撤销双轨（逐格逆操作 + 结构快照）、NBS v1–v5 读 / v5 写保真。对照成熟社区编辑器，差距集中在**编辑表达力**（选择→批量编辑→搬移→剪贴板的工作流只有单格级）与一批已登记的可靠性缺口。
+游戏内 NBS 钢琴卷帘编辑器（v1.2.6 WIP）的骨架健康：点放/涂抹语义（同键=删、空格=放置、**同列他键=落到下一层成和弦**——旧「换键挪移」会让第一笔被清除并跟到当前位置，已按实测反馈退役；挪音符走拖动手势、改音高走悬停滚轮）、撤销双轨（逐格逆操作 + 结构快照）、NBS v1–v5 读 / v5 写保真。对照成熟社区编辑器，差距集中在**编辑表达力**（选择→批量编辑→搬移→剪贴板的工作流只有单格级）与一批已登记的可靠性缺口。
 
 The in-game NBS piano-roll editor has a healthy skeleton (community-parity placement semantics, dual-track undo, faithful v1–v5 read / v5 write). Against the mature community editor the gaps are **editing expressiveness** (the select → bulk-edit → move → clipboard workflow exists only at single-cell granularity) plus a set of registered reliability defects.
 
@@ -187,7 +187,7 @@ feat: selection and clipboard in the nbs editor
 feat: drag-to-move notes in the nbs editor
 ```
 
-- **统一拖动语义**（计划两句合成一句）：按住音符拖动 = 搬移——**拖到新格 = 搬移**（卷帘跨 tick、层列跨 tick/层），**同格换键 = 改音高**（卷帘纵轴即键；与悬停滚轮 `changeNoteKey` 同语义）；乐器/力度/声像/细音高随行。单击不拖 = 原点放语义（卷帘点灭/换键、层列整格覆盖）——按下延判到松手，拖过 `DRAG_THRESHOLD` 即定搬移意图且**不回落单击**（拖动抖动不得误删）。旧「同 tick 换键=音符跟随」保留在点放语义里，直接拖动是它的正解。
+- **统一拖动语义**（计划两句合成一句）：按住音符拖动 = 搬移——**拖到新格 = 搬移**（卷帘跨 tick、层列跨 tick/层），**同格换键 = 改音高**（卷帘纵轴即键；与悬停滚轮 `changeNoteKey` 同语义）；乐器/力度/声像/细音高随行。单击不拖 = 原点放语义（卷帘点灭/他键落层和弦、层列整格覆盖）——按下延判到松手，拖过 `DRAG_THRESHOLD` 即定搬移意图且**不回落单击**（拖动抖动不得误删）。旧「同 tick 换键=音符跟随」**已退役**（实测反馈：画第二笔时第一笔被清除并跟到当前位置）——点放他键改落下一个未锁定空层成和弦（无空层扩一层），挪音符/改音高的正解只留直接拖动与悬停滚轮。
 - **选区随拖**：按在选中音符上拖动 = 整段选区整体位移（dTick/dLayer + 键位移 dKey）；按在未选音符上 = 只搬该音符；搬移后选区跟随落格（可连拖）。
 - **内核**：`moveNote` 走精确逆 `MoveEdit`（源格还原 + 被覆盖目标还原）；`moveSelection` 走整曲快照（选区级操作同口径）。守卫：锁定源/目标层拒绝（选区搬移**整体拒绝**、不部分落格）、目标层越界拒绝（不建层）、键钳 0–87、同格同键空操作；目标被占整格覆盖。
 - **手势路由**：卷帘只抓**当前层**音符（编辑作用域 = 当前层）或选中音符，其余按下 = 涂抹（原行为不变）；层列按音符 = 搬移、按空格 = 落点/框选（B1 语义）；搬移属编辑手势，播放锁/滚动防误触照旧拦；拖动中目标格描边预览（不动谱）。
