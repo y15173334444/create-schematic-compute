@@ -89,4 +89,44 @@ class NbsPianoRollTest {
             assertTrue(h >= (int) ppk - 1 && h <= (int) ppk + 1, "row height tracks pxPerKey");
         }
     }
+
+    @Test
+    void secondStrokeInSameColumnKeepsFirstNoteAndStacks() {
+        // 实测反馈回归（拖动放置）：同列画第二笔时，第一笔的音符被清除并跟到当前位置
+        // （换键挪移）。现在第一笔原地不动，第二笔落到下一层成和弦。
+        // Field regression (drag-place): the second stroke in the same column used to clear
+        // the first note and pull it to the cursor. The first note now stays and the second
+        // stroke stacks on the next layer as a chord.
+        NbsSong song = new NbsSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        NbsPianoRoll roll = new NbsPianoRoll();
+
+        roll.mouseDown(0, 0, AREA_W, AREA_H, MX, MY, 0, k, 0, 0);   // (tick 4, key 45)
+        roll.mouseUp();
+        assertNotNull(song.getNote(4, 0));
+
+        roll.mouseDown(0, 0, AREA_W, AREA_H, MX, 97.5, 0, k, 0, 0); // 同列 key 50 / same column
+        roll.mouseUp();
+        assertEquals(2, song.noteCount(), "both strokes survive");
+        assertEquals(45, song.getNote(4, 0).key, "the first note keeps its key");
+        assertNotNull(song.getNote(4, 1), "the second stroke stacks on the next layer");
+        assertEquals(50, song.getNote(4, 1).key);
+    }
+
+    @Test
+    void verticalDragPaintsAChordStack() {
+        // 同一次拖动涂抹里同列换键 = 逐层落和弦音，不再「音符跟随光标」。
+        // One drag painting a new key in an occupied column stacks chord tones per layer —
+        // the note no longer follows the cursor.
+        NbsSong song = new NbsSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        NbsPianoRoll roll = new NbsPianoRoll();
+
+        roll.mouseDown(0, 0, AREA_W, AREA_H, MX, MY, 0, k, 0, 0);    // (4, 45)
+        roll.mouseDrag(0, 0, MX, 97.5, k, 0, 0);                     // (4, 50)
+        roll.mouseUp();
+        assertEquals(2, song.noteCount(), "the drag paints two chord tones");
+        assertEquals(45, song.getNote(4, 0).key);
+        assertEquals(50, song.getNote(4, 1).key);
+    }
 }

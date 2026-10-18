@@ -32,7 +32,12 @@ class NbsEditorKernelTest {
     }
 
     @Test
-    void toggleOnOtherKeyMovesKeepingDynamics() {
+    void toggleOnOtherKeyStacksOnNextLayerInsteadOfMoving() {
+        // 实测反馈回归：同列第二笔曾把第一笔「清除并跟到当前位置」（换键挪移）。
+        // 现在第一笔原地不动，新音符落到下一层（和弦）；1 层新曲自动扩层，撤销一步还原。
+        // Field regression: the second stroke in a column used to clear the first note and
+        // drag it to the cursor (key-move). The first note now stays put and the new note
+        // stacks on the next layer (chord), growing the song when needed — one undo reverts.
         NbsSong song = newSong();
         NbsEditorKernel k = new NbsEditorKernel(song);
         k.toggleNote(4, 0, 45, 3);
@@ -40,12 +45,42 @@ class NbsEditorKernelTest {
         song.getNote(4, 0).pitch = -15;
 
         k.toggleNote(4, 0, 50, 7);
-        NbsSong.Note n = song.getNote(4, 0);
-        assertNotNull(n);
-        assertEquals(50, n.key, "moved to the clicked key");
-        assertEquals(7, n.instrument, "instrument follows the click");
-        assertEquals(40, n.velocity, "velocity preserved on key move");
-        assertEquals(-15, n.pitch, "fine pitch preserved on key move");
+        NbsSong.Note first = song.getNote(4, 0);
+        assertNotNull(first);
+        assertEquals(45, first.key, "the first note keeps its key");
+        assertEquals(3, first.instrument, "and its instrument");
+        assertEquals(40, first.velocity, "and its velocity");
+        assertEquals(-15, first.pitch, "and its fine pitch");
+
+        NbsSong.Note second = song.getNote(4, 1);
+        assertNotNull(second, "the second stroke lands on the next layer");
+        assertEquals(50, second.key);
+        assertEquals(7, second.instrument, "instrument follows the click");
+        assertEquals(100, second.velocity, "fresh note defaults");
+        assertEquals(0, second.pitch);
+
+        assertTrue(k.performUndo(), "grow + place is one undo step");
+        assertNull(song.getNote(4, 1), "the stacked note is gone");
+        assertEquals(1, song.layers.size(), "and the grown layer with it");
+        assertNotNull(song.getNote(4, 0), "the first note survives the undo");
+    }
+
+    @Test
+    void toggleStacksSkippingLockedAndOccupiedLayers() {
+        NbsSong song = newSong();
+        NbsEditorKernel k = new NbsEditorKernel(song);
+        song.addLayer();
+        song.addLayer();
+        song.addLayer();
+        song.layers.get(1).locked = true;
+        k.toggleNote(4, 0, 45, 3);            // 第一笔占 layer0 / first stroke holds layer 0
+        k.toggleNote(4, 2, 60, 3);            // layer2 该 tick 也有音符 / layer 2 is occupied too
+
+        k.toggleNote(4, 0, 50, 3);
+        assertNull(song.getNote(4, 1), "locked layers are skipped");
+        assertEquals(60, song.getNote(4, 2).key, "occupied layers keep their notes");
+        assertNotNull(song.getNote(4, 3), "the chord stacks on the next free unlocked layer");
+        assertEquals(50, song.getNote(4, 3).key);
     }
 
     @Test

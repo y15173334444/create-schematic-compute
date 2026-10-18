@@ -24,10 +24,13 @@ import java.util.Set;
  * points up (NBS 0–87 = A0..C8). One cell = one (tick, layer) slot (an NBS layer is
  * monophonic), drawn at the note's key height.</p>
  *
- * <p><b>拖拽语义</b>：左键拖 = 涂抹（同格不重复触发；同 tick 换键 = 音符跟随移动）；
- * 右键拖 = 擦除（每 tick 一次）。锁定层不响应任何落点。
- * <b>Drag semantics</b>: LMB drags paint (a cell fires once per stroke; changing key within
- * one tick moves the note along); RMB drags erase (once per tick). Locked layers ignore input.</p>
+ * <p><b>拖拽语义</b>：左键拖 = 涂抹（同格不重复触发；同列换键 = 落到下一层成和弦，
+ * 旧「音符跟随移动」已退役——挪音符走拖动手势）；右键拖 = 擦除（每 tick 一次）。
+ * 锁定层不响应任何落点。
+ * <b>Drag semantics</b>: LMB drags paint (a cell fires once per stroke; a new key in an
+ * occupied column stacks on the next layer as a chord — the legacy "note follows the
+ * cursor" move is retired; moving notes is the drag gesture); RMB drags erase (once per
+ * tick). Locked layers ignore input.</p>
  */
 public final class NbsPianoRoll {
 
@@ -318,7 +321,7 @@ public final class NbsPianoRoll {
 
     // ══════════════ 内部 / internals ══════════════
 
-    /** 一次落点：左键 toggle 语义（空放/同键删/换键移）。 / one cell hit: toggle semantics. */
+    /** 一次落点：左键 toggle 语义（空放/同键删/他键落层和弦）。 / one cell hit: toggle semantics. */
     private void applyAt(NbsEditorKernel kernel, int layer, int instrument, int tick, int key) {
         if (tick < 0 || key < 0 || key > 87) return;
         if (!strokeVisited.add(pack(tick, key))) return;

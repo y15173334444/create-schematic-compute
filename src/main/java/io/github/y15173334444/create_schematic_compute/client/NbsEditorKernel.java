@@ -66,28 +66,57 @@ public final class NbsEditorKernel {
     // ══════════════ 编辑操作 / edit ops ══════════════
 
     /**
-     * 点放/删除音符（卷帘点击语义，Note Block Studio 同款）：
-     * 该 (tick, layer) 已有同键音符 → 删；已有他键音符 → 移到新键（保力度/声像/细音高）；
-     * 空 → 放新音符（默认力度 100 / 声像居中 / 无细音高）。层锁定时不做任何编辑。
-     * <p>Toggle note at (tick, layer) — roll-click semantics (Note Block Studio style):
-     * same-key note present → remove; other-key note present → move to the new key (keeps
-     * velocity/panning/pitch); empty → place a fresh note (velocity 100, centred panning,
-     * no fine pitch). Locked layers are never edited.</p>
+     * 点放/删除音符（卷帘点击语义）：该 (tick, layer) 已有同键音符 → 删；
+     * 已有他键音符 → <b>不换键挪移</b>，新音符落到本层之下第一个「未锁定且该 tick 空」
+     * 的层（同列和弦；旧音符原地不动——旧换键挪移会让第一笔被清除并跟到当前位置，
+     * 实测反馈根因）；没有空层就扩一层，扩层+落点并成一条撤销。空 → 放新音符
+     * （默认力度 100 / 声像居中 / 无细音高）。层锁定时不做任何编辑。挪音符走
+     * {@link #moveNote}（拖动手势）、改音高走 {@link #changeNoteKey}（悬停滚轮）。
+     * <p>Toggle note at (tick, layer) — roll-click semantics: a same-key note is removed;
+     * when another key occupies the cell the new note <b>does not take the old note's
+     * place</b> — it lands on the first unlocked layer below whose cell at that tick is
+     * free (same-column chord; the old note stays put — the legacy key-move used to clear
+     * the first stroke and drag it to the cursor, a field-feedback root cause), growing a
+     * layer when none is free (grow + place = one undo step); an empty cell gets a fresh
+     * note (velocity 100, centred panning, no fine pitch). Locked layers are never edited;
+     * moving is {@link #moveNote} (drag gesture), retuning is {@link #changeNoteKey}.</p>
      */
     public void toggleNote(int tick, int layer, int key, int instrument) {
         if (layer < 0 || layer >= song.layers.size()) return;
         if (song.layers.get(layer).locked) return;
         NbsSong.Note old = song.getNote(tick, layer);
-        NbsSong.Note oldCopy = old == null ? null : copyOf(old);
-        NbsSong.Note fresh;
         if (old != null && old.key == key) {
-            fresh = null;                              // toggle off / 点灭
-        } else if (old != null) {
-            fresh = new NbsSong.Note(tick, layer, instrument, key, old.velocity, old.panning, old.pitch);
-        } else {
-            fresh = new NbsSong.Note(tick, layer, instrument, key, 100, 100, 0);
+            apply(new CellEdit(tick, layer, copyOf(old), null));   // toggle off / 点灭
+            return;
         }
-        apply(new CellEdit(tick, layer, oldCopy, fresh));
+        if (old == null) {
+            apply(new CellEdit(tick, layer, null,
+                new NbsSong.Note(tick, layer, instrument, key, 100, 100, 0)));
+            return;
+        }
+        // 他键音符占着本层该 tick：落到下一层（同列和弦），旧音符原地不动
+        // Another key holds this layer's tick: stack on the next layer (same-column
+        // chord) — the old note is never touched.
+        int target = freeLayerBelow(tick, layer);
+        boolean grow = target < 0;
+        if (grow) {
+            beginBatch();
+            addLayer();
+            target = song.layers.size() - 1;
+        }
+        apply(new CellEdit(tick, target, null,
+            new NbsSong.Note(tick, target, instrument, key, 100, 100, 0)));
+        if (grow) endBatch();
+    }
+
+    /** 本层之下第一个「未锁定且该 tick 空」的层；没有则 -1。
+     *  The first unlocked layer below {@code layer} whose cell at {@code tick} is free;
+     *  -1 when none. */
+    private int freeLayerBelow(int tick, int layer) {
+        for (int l = layer + 1; l < song.layers.size(); l++) {
+            if (!song.layers.get(l).locked && song.getNote(tick, l) == null) return l;
+        }
+        return -1;
     }
 
     /** 擦除 (tick, layer) 音符（右键；层锁定时不做）。 / Erase the note at (tick, layer) (right-click). */
