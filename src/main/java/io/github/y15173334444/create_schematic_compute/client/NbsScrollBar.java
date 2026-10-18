@@ -1,5 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
+import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
+
 import net.minecraft.client.gui.GuiGraphics;
 
 /**
@@ -81,10 +83,10 @@ public final class NbsScrollBar {
      */
     public static void render(GuiGraphics g, int x, int y, int w, int h,
                               int total, int visible, int pos, boolean hover) {
-        g.fill(x, y, x + w, y + h, 0xFF1A1814);
-        g.renderOutline(x, y, w, h, NbsPianoRoll.C_GRID_BAR);
+        g.fill(x, y, x + w, y + h, NodeRenderer.PINS());
+        g.renderOutline(x, y, w, h, NbsPianoRoll.C_GRID_BAR());
         int[] t = thumbRect(x, y, w, h, total, visible, pos);
-        g.fill(t[0], t[1], t[0] + t[2], t[1] + t[3], hover ? NbsPianoRoll.C_TEXT_DIM : 0xFF4A4438);
-        g.renderOutline(t[0], t[1], t[2], t[3], hover ? NbsPianoRoll.C_TEXT : NbsPianoRoll.C_GRID_BAR);
+        g.fill(t[0], t[1], t[0] + t[2], t[1] + t[3], hover ? NodeRenderer.ACC() : NodeRenderer.PBR());
+        g.renderOutline(t[0], t[1], t[2], t[3], hover ? NbsPianoRoll.C_TEXT : NbsPianoRoll.C_GRID_BAR());
     }
 }

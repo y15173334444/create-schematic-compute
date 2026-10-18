@@ -1,5 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
+import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
+
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 
@@ -128,8 +130,8 @@ public final class NbsPianoStrip {
      */
     public void render(GuiGraphics g, Font font, int x, int y, int w, int h, int toolKey,
                        boolean showCandidate, long[] keyFlashUntil, long nowMs) {
-        g.fill(x, y, x + w, y + h, NbsPianoRoll.C_BG);
-        g.fill(x, y, x + w, y + 1, NbsPianoRoll.C_GRID_BAR);
+        g.fill(x, y, x + w, y + h, NbsPianoRoll.C_BG());
+        g.fill(x, y, x + w, y + 1, NbsPianoRoll.C_GRID_BAR());
 
         // 八度按钮 + 范围标签（前置当前工具键名）/ octave buttons + range label with the tool key
         drawOctaveButtons(g, font, x, y, toolKey);
@@ -145,9 +147,9 @@ public final class NbsPianoStrip {
                 int kx = keyAreaX + r[1], ky = keyAreaY + r[2];
                 boolean sel = showCandidate && k == toolKey;
                 int color = black ? NbsPianoRoll.C_BLACK_KEY : NbsPianoRoll.C_WHITE_KEY;
-                if (sel) color = 0xFF3A5A2A;             // 选中键 / selected key
+                if (sel) color = NodeRenderer.ACC();             // 选中键 / selected key
                 g.fill(kx, ky, kx + kw, ky + r[4], color);
-                g.renderOutline(kx, ky, kw, r[4], sel ? 0xFF88FF88 : NbsPianoRoll.C_GRID_BAR);
+                g.renderOutline(kx, ky, kw, r[4], sel ? NodeRenderer.CT : NbsPianoRoll.C_GRID_BAR());
                 if (k < 33 || k > 57) {
                     // 发音窗口外：社区同款红色提示（非灰遮罩）/ outside 33–57: community-style red cue
                     g.fill(kx, ky, kx + kw, ky + r[4], 0x30FF5050);
@@ -165,22 +167,22 @@ public final class NbsPianoStrip {
                 String name = NbsPianoRoll.keyName(k);
                 if (!cap.isEmpty() && kw >= 7) {
                     g.drawString(font, cap, kx + Math.max(1, (kw - font.width(cap)) / 2), ky + 2,
-                        sel ? 0xFFBFE8B0 : NbsPianoRoll.C_TEXT_DIM, false);
+                        sel ? NodeRenderer.CT : NbsPianoRoll.C_TEXT_DIM, false);
                 }
                 if ((!black && kw >= 12) || (black && kw >= 18)) {
                     g.drawString(font, name, kx + Math.max(1, (kw - font.width(name)) / 2),
-                        ky + r[4] - 10, sel ? 0xFFDDFFD0 : NbsPianoRoll.C_TEXT_DIM, false);
+                        ky + r[4] - 10, sel ? NodeRenderer.CT : NbsPianoRoll.C_TEXT_DIM, false);
                 }
             }
         }
     }
 
     private void drawOctaveButtons(GuiGraphics g, Font font, int x, int y, int toolKey) {
-        g.fill(x + 2, y + 4, x + 20, y + 22, NbsPianoRoll.C_GRID_BEAT);
-        g.renderOutline(x + 2, y + 4, 18, 18, NbsPianoRoll.C_GRID_BAR);
+        g.fill(x + 2, y + 4, x + 20, y + 22, NbsPianoRoll.C_GRID_BEAT());
+        g.renderOutline(x + 2, y + 4, 18, 18, NbsPianoRoll.C_GRID_BAR());
         g.drawString(font, "◀", x + 6, y + 9, NbsPianoRoll.C_TEXT, false);
-        g.fill(x + 22, y + 4, x + 40, y + 22, NbsPianoRoll.C_GRID_BEAT);
-        g.renderOutline(x + 22, y + 4, 18, 18, NbsPianoRoll.C_GRID_BAR);
+        g.fill(x + 22, y + 4, x + 40, y + 22, NbsPianoRoll.C_GRID_BEAT());
+        g.renderOutline(x + 22, y + 4, 18, 18, NbsPianoRoll.C_GRID_BAR());
         g.drawString(font, "▶", x + 26, y + 9, NbsPianoRoll.C_TEXT, false);
         String range = NbsPianoRoll.keyName(toolKey) + " · "
             + NbsPianoRoll.cName(startKey) + "–" + NbsPianoRoll.cName(Math.min(87, startKey + WINDOW_KEYS - 1));

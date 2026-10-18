@@ -26,15 +26,15 @@ public class NodeRenderer {
     static final int _PBG=19,_PHT=20,_PBR=21,_PINS=22,_ACC=23,_ERR=24,_HOV=25;
     static final int _NUM_COLORS = 26;
 
-    // Text and dim colors are constant across all themes
-    static final int CT=0xFFFFFFFF, CD=0xFF888888;
+    // Text and dim colors are constant across all themes（跨包共用：client.* 的 NBS/像素编辑器）
+    public static final int CT=0xFFFFFFFF, CD=0xFF888888;
     private static volatile int[] _c = {
         0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,
         0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,
         0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428};
 
     // Inline accessors — JIT constant-folds the bounds checks
-    static int CG() { return _c[_CG]; } static int CGL() { return _c[_CGL]; }
+    public static int CG() { return _c[_CG]; } public static int CGL() { return _c[_CGL]; }
     static int CN() { return _c[_CN]; } static int CH() { return _c[_CH]; }
     static int CB() { return _c[_CB]; } static int CPI() { return _c[_CPI]; }
     static int CPO() { return _c[_CPO]; } static int CW() { return _c[_CW]; }
@@ -44,7 +44,8 @@ public class NodeRenderer {
     static int CCT() { return _c[_CCT]; } static int CPIB() { return _c[_CPIB]; }
     static int CPOB() { return _c[_CPOB]; }
     // GUI-chrome colors (used across editor and peripheral screens; public for
-    // cross-package consumers in client.*)
+    // cross-package consumers in client.*). CG/CGL join them for the NBS editor's
+    // canvas backdrop and grid lines / CG/CGL 同放行：NBS 编辑器画布底与网格线要用。
     public static int CSB() { return _c[_CSB]; }
     public static int PBG() { return _c[_PBG]; }  // panel_bg    面板底
     public static int PHT() { return _c[_PHT]; }  // panel_header 面板标题带

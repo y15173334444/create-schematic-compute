@@ -80,7 +80,7 @@ public final class NbsLaneGrid {
         int rowsH = Math.max(1, areaH - RULER_H);
         int right = areaX + areaW, bottom = rowsTop + rowsH;
 
-        g.fill(areaX, areaY, right, bottom, NbsPianoRoll.C_BG);
+        g.fill(areaX, areaY, right, bottom, NbsPianoRoll.C_BG());
 
         float visibleTicks = areaW / pxPerTick;
         int firstTick = (int) Math.floor(scrollTick);
@@ -97,7 +97,7 @@ public final class NbsLaneGrid {
             if (y0 >= bottom) break;
             if (layer == currentLayer) g.fill(areaX, y0, right, y1, 0x14FFFFFF);   // 当前行高亮 / current row
             if (song.layers.get(layer).locked) g.fill(areaX, y0, right, y1, 0x22000000); // 锁定压暗 / locked dim
-            g.fill(areaX, y1 - 1, right, y1, NbsPianoRoll.C_GRID_TICK);             // 行分隔 / row separator
+            g.fill(areaX, y1 - 1, right, y1, NbsPianoRoll.C_GRID_TICK());             // 行分隔 / row separator
         }
 
         // ── 刻度线 / tick lines ──
@@ -105,8 +105,8 @@ public final class NbsLaneGrid {
             if (t < 0) continue;
             int x = areaX + Math.round((t - scrollTick) * pxPerTick);
             if (x < areaX || x > right) continue;
-            int col = (t % barEvery == 0) ? NbsPianoRoll.C_GRID_BAR
-                : (t % beatEvery == 0) ? NbsPianoRoll.C_GRID_BEAT : NbsPianoRoll.C_GRID_TICK;
+            int col = (t % barEvery == 0) ? NbsPianoRoll.C_GRID_BAR()
+                : (t % beatEvery == 0) ? NbsPianoRoll.C_GRID_BEAT() : NbsPianoRoll.C_GRID_TICK();
             g.fill(x, rowsTop, x + 1, bottom, col);
         }
 
@@ -131,7 +131,7 @@ public final class NbsLaneGrid {
                     color = NbsPianoRoll.dim(color, 0.6f);
                 g.fill(xL, yT, xR, yB, color);
                 if (sel != null && sel.contains(n.tick, n.layer)) {
-                    g.renderOutline(xL - 1, yT - 1, xR - xL + 2, yB - yT + 2, NbsPianoRoll.C_SELECTED);
+                    g.renderOutline(xL - 1, yT - 1, xR - xL + 2, yB - yT + 2, NbsPianoRoll.C_SELECTED());
                 }
                 // 音名标签：优先全名，窄则退化到音级（F#/C）——「音符声调常显」
                 // Note label: full name first, degrading to the pitch class on narrow cells.
@@ -150,12 +150,12 @@ public final class NbsLaneGrid {
         // ── 播放头 / playhead ──
         if (playheadTick >= 0) {
             int x = areaX + Math.round((playheadTick - scrollTick) * pxPerTick);
-            if (x >= areaX && x <= right) g.fill(x, rowsTop, x + 1, bottom, NbsPianoRoll.C_PLAYHEAD);
+            if (x >= areaX && x <= right) g.fill(x, rowsTop, x + 1, bottom, NbsPianoRoll.C_PLAYHEAD());
         }
 
         // ── 刻度尺 / ruler ──
-        g.fill(areaX, areaY, right, rowsTop, NbsPianoRoll.C_RULER);
-        g.fill(areaX, rowsTop - 1, right, rowsTop, NbsPianoRoll.C_GRID_BAR);
+        g.fill(areaX, areaY, right, rowsTop, NbsPianoRoll.C_RULER());
+        g.fill(areaX, rowsTop - 1, right, rowsTop, NbsPianoRoll.C_GRID_BAR());
         int labelEvery = Math.max(4, Math.round(48f / pxPerTick));
         for (int t = (firstTick / labelEvery) * labelEvery; t <= lastTick; t += labelEvery) {
             if (t < 0) continue;

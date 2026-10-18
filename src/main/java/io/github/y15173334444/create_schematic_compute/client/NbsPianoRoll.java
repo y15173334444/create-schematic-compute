@@ -44,20 +44,21 @@ public final class NbsPianoRoll {
     private static final float MIN_PX_PER_TICK = 3f, MAX_PX_PER_TICK = 64f;
     private static final float MIN_PX_PER_KEY = 3f, MAX_PX_PER_KEY = 24f;
 
-    // ── 配色 / colours ──
-    static final int C_BG = 0xFF14120E;
-    private static final int C_GUTTER = 0xFF24201A;
-    static final int C_RULER = 0xFF24201A;
-    static final int C_GRID_TICK = 0xFF2A2822;
-    static final int C_GRID_BEAT = 0xFF3A362C;
-    static final int C_GRID_BAR = 0xFF4A4636;
-    static final int C_BLACK_KEY = 0xFF201C16;
+    // ── 配色（渲染时读用户颜色配置——静态捕获跟不上换主题）/ colours read from the user
+    //    colour config at render time (a static capture would miss theme switches) ──
+    static int C_BG() { return NodeRenderer.CG(); }               // 画布底 / canvas bg
+    private static int C_GUTTER() { return NodeRenderer.PBG(); }  // 键槽 / key gutter
+    static int C_RULER() { return NodeRenderer.PHT(); }           // 刻度尺带 / ruler band
+    static int C_GRID_TICK() { return dim(NodeRenderer.CGL(), 0.55f); }
+    static int C_GRID_BEAT() { return dim(NodeRenderer.CGL(), 0.8f); }
+    static int C_GRID_BAR() { return NodeRenderer.CGL(); }        // 网格线三级 / grid lines
+    static final int C_BLACK_KEY = 0xFF201C16;                    // 琴键 = 乐器内容色不进主题 / piano keys stay content
     static final int C_WHITE_KEY = 0xFF2E2A22;
-    static final int C_TEXT = 0xFFBFB8A8;
-    static final int C_TEXT_DIM = 0xFF7A7466;
-    static final int C_PLAYHEAD = 0xFFE0B040;
+    static final int C_TEXT = NodeRenderer.CT;                    // 文字恒定色 / constant text colours
+    static final int C_TEXT_DIM = NodeRenderer.CD;
+    static int C_PLAYHEAD() { return NodeRenderer.ACC(); }
     static final int C_OUT_OF_WINDOW = 0x40101018;  // 发音窗口外的键行遮罩 / dim outside 33–57
-    static final int C_SELECTED = 0xFFF0E8C0;       // 选中音符描边 / selected-note outline
+    static int C_SELECTED() { return NodeRenderer.ACC(); }        // 选中音符描边 / selected-note outline
 
     /** 16 原版乐器各一色（音符按乐器着色）。 / one colour per vanilla instrument. */
     static final int[] INSTRUMENT_COLORS = {
@@ -119,7 +120,7 @@ public final class NbsPianoRoll {
         int gw = Math.max(1, areaW - GUTTER_W), gh = Math.max(1, areaH - RULER_H);
         int right = areaX + areaW, bottom = areaY + areaH;
 
-        g.fill(areaX, areaY, right, bottom, C_BG);
+        g.fill(areaX, areaY, right, bottom, C_BG());
 
         // ── 键行底色 / key row bands ──
         int firstKey = (int) Math.floor(viewTopKey);
@@ -146,14 +147,14 @@ public final class NbsPianoRoll {
             if (t < 0) continue;
             int x = gx + Math.round((t - scrollTick) * pxPerTick);
             if (x < gx || x > gx + gw) continue;
-            int col = (t % barEvery == 0) ? C_GRID_BAR : (t % beatEvery == 0) ? C_GRID_BEAT : C_GRID_TICK;
+            int col = (t % barEvery == 0) ? C_GRID_BAR() : (t % beatEvery == 0) ? C_GRID_BEAT() : C_GRID_TICK();
             g.fill(x, gy, x + 1, gy + gh, col);
         }
         // 横向：每键下缘细线（缩放够大才画）
         if (pxPerKey >= 5f) {
             for (int k = Math.min(firstKey, 87); k >= Math.max(lastKey, 0); k--) {
                 int y = gy + keyRowBottom(viewTopKey, pxPerKey, k);
-                if (y > gy && y < gy + gh) g.fill(gx, y, gx + gw, y + 1, C_GRID_TICK);
+                if (y > gy && y < gy + gh) g.fill(gx, y, gx + gw, y + 1, C_GRID_TICK());
             }
         }
 
@@ -175,7 +176,7 @@ public final class NbsPianoRoll {
                 else if (n.layer < song.layers.size() && song.layers.get(n.layer).locked) color = dim(color, 0.6f);
                 g.fill(xL, yT, xR, yB, color);
                 if (sel != null && sel.contains(n.tick, n.layer)) {
-                    g.renderOutline(xL - 1, yT - 1, xR - xL + 2, yB - yT + 2, C_SELECTED);
+                    g.renderOutline(xL - 1, yT - 1, xR - xL + 2, yB - yT + 2, C_SELECTED());
                 }
             }
         }
@@ -183,11 +184,11 @@ public final class NbsPianoRoll {
         // ── 播放头 / playhead ──
         if (playheadTick >= 0) {
             int x = gx + Math.round((playheadTick - scrollTick) * pxPerTick);
-            if (x >= gx && x <= gx + gw) g.fill(x, gy, x + 1, gy + gh, C_PLAYHEAD);
+            if (x >= gx && x <= gx + gw) g.fill(x, gy, x + 1, gy + gh, C_PLAYHEAD());
         }
 
         // ── 键槽 / key gutter ──
-        g.fill(areaX, gy, gx, gy + gh, C_GUTTER);
+        g.fill(areaX, gy, gx, gy + gh, C_GUTTER());
         for (int k = Math.min(firstKey, 87); k >= Math.max(lastKey, 0); k--) {
             int yTop = gy + keyRowTop(viewTopKey, pxPerKey, k);
             int yBot = gy + keyRowBottom(viewTopKey, pxPerKey, k);
@@ -198,11 +199,11 @@ public final class NbsPianoRoll {
                 g.drawString(font, cName(k), areaX + 2, yT + (yB - yT - 8) / 2, C_TEXT_DIM, false);
             }
         }
-        g.fill(areaX + GUTTER_W - 1, gy, gx, gy + gh, C_GRID_BAR);
+        g.fill(areaX + GUTTER_W - 1, gy, gx, gy + gh, C_GRID_BAR());
 
         // ── 刻度尺 / ruler ──
-        g.fill(areaX, areaY, right, gy, C_RULER);
-        g.fill(areaX, gy - 1, right, gy, C_GRID_BAR);
+        g.fill(areaX, areaY, right, gy, C_RULER());
+        g.fill(areaX, gy - 1, right, gy, C_GRID_BAR());
         int labelEvery = Math.max(4, Math.round(48f / pxPerTick));   // 标号间距随缩放
         for (int t = (firstTick / labelEvery) * labelEvery; t <= lastTick; t += labelEvery) {
             if (t < 0) continue;

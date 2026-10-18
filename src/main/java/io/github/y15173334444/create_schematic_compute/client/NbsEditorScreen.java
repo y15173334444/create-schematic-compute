@@ -60,17 +60,17 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private static final int PANEL_W = 176;
     static final int ROW_H = 13;
 
-    // ── 配色 / colours ──
-    private static final int C_BG = 0xFF1A1712;
-    private static final int C_PANEL = NodeRenderer.PBG();
-    private static final int C_BORDER = NodeRenderer.PBR();
-    private static final int C_BTN = 0xFF3A3428;
-    private static final int C_BTN_ON = 0xFF3A5A2A;
-    private static final int C_HOVER = 0xFF5A4A3A;
-    private static final int C_SEL = 0xFF4A4432;
-    private static final int C_DEL = 0xFF7A4A3A;
-    private static final int C_TEXT = 0xFFFFFFFF;
-    private static final int C_TEXT_DIM = 0xFFBFB8A8;
+    // ── 配色（渲染时读用户颜色配置，换主题即时生效）/ colours from the user colour config ──
+    private static int C_BG() { return NodeRenderer.CG(); }
+    private static int C_PANEL() { return NodeRenderer.PBG(); }
+    private static int C_BORDER() { return NodeRenderer.PBR(); }
+    private static int C_BTN() { return NodeRenderer.PINS(); }
+    private static int C_BTN_ON() { return NodeRenderer.ACC(); }
+    private static int C_HOVER() { return NodeRenderer.HOV(); }
+    private static int C_SEL() { return NodeRenderer.ACC(); }
+    private static int C_DEL() { return NodeRenderer.ERR(); }
+    private static final int C_TEXT = NodeRenderer.CT;
+    private static final int C_TEXT_DIM = NodeRenderer.CD;
 
     /** 16 原版乐器显示名语言键后缀，**按 NBS 格式乐器索引序**（与 SampleBank/曲目字节一致；
      *  与原版枚举序不同——错序会让 1–7 号乐器标注错位）。 */
@@ -442,7 +442,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     @Override
     public void render(GuiGraphics g, int mx, int my, float pt) {
-        g.fill(0, 0, width, height, C_BG);
+        g.fill(0, 0, width, height, C_BG());
         renderTopBar(g, mx, my);
         renderLayerPanel(g, mx, my);
         float playhead = preview.isPlaying() || preview.headTick() > 0 ? preview.head : -1f;
@@ -460,7 +460,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             int x0 = (int) Math.min(pressX, marqX), x1 = (int) Math.max(pressX, marqX);
             int y0 = (int) Math.min(pressY, marqY), y1 = (int) Math.max(pressY, marqY);
             g.fill(x0, y0, x1, y1, 0x30FFFFFF);
-            g.renderOutline(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0), NbsPianoRoll.C_SELECTED);
+            g.renderOutline(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0), NbsPianoRoll.C_SELECTED());
         }
         // 搬移预览（拖动中）：目标格描边 / move preview while dragging: target-cell outlines
         if (gesture == GESTURE_MOVING) drawMovePreview(g);
@@ -512,7 +512,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         int y = my + 10;
         if (y + h > height - TRANSPORT_H) y = my - 16;
         g.fill(x, y, x + w, y + h, 0xF0101010);
-        g.renderOutline(x, y, w, h, C_BORDER);
+        g.renderOutline(x, y, w, h, C_BORDER());
         g.drawString(font, text, x + 4, y + 3, C_TEXT, false);
     }
 
@@ -566,8 +566,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     }
 
     private void renderTopBar(GuiGraphics g, int mx, int my) {
-        g.fill(0, 0, width, TOP_H - 2, C_PANEL);
-        g.fill(0, TOP_H - 2, width, TOP_H, C_BORDER);
+        g.fill(0, 0, width, TOP_H - 2, C_PANEL());
+        g.fill(0, TOP_H - 2, width, TOP_H, C_BORDER());
         String title = "NBS · " + (kernel.song().songName.isEmpty() ? node.displayText : kernel.song().songName);
         g.drawString(font, title, 6, 10, C_TEXT, false);
 
@@ -595,8 +595,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     private void renderTransportBar(GuiGraphics g, int mx, int my) {
         int y = height - TRANSPORT_H;
-        g.fill(0, y, width, height, C_PANEL);
-        g.fill(0, y, width, y + 2, C_BORDER);
+        g.fill(0, y, width, height, C_PANEL());
+        g.fill(0, y, width, y + 2, C_BORDER());
 
         int tempoLabelW = font.width(I18n.get("gui.create_schematic_compute.nbs_tempo"));
         int[][] r = transportBarRects(width, height, tempoLabelW);
@@ -629,8 +629,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             : "#" + currentInstrument;
         int iw = font.width(instName);
         int[] li = r[TR_INST_LABEL];
-        g.fill(li[0], li[1], li[0] + li[2], li[1] + li[3], C_BTN);
-        g.renderOutline(li[0], li[1], li[2], li[3], C_BORDER);
+        g.fill(li[0], li[1], li[0] + li[2], li[1] + li[3], C_BTN());
+        g.renderOutline(li[0], li[1], li[2], li[3], C_BORDER());
         g.drawString(font, instName, li[0] + (80 - iw) / 2, y + 9, C_TEXT, false);
         button(g, r[TR_INST_PREV][0], r[TR_INST_PREV][1], r[TR_INST_PREV][2], r[TR_INST_PREV][3], "<", mx, my, false);
         button(g, r[TR_INST_NEXT][0], r[TR_INST_NEXT][1], r[TR_INST_NEXT][2], r[TR_INST_NEXT][3], ">", mx, my, false);
@@ -676,7 +676,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     /** 层行图标（像素点阵自绘，像素编辑器工具列同风格；icon id = LR_* 下标）。
      *  Layer-row icons (hand-drawn pixel glyphs in the pixel tool-rail style; icon id = LR_*). */
     private static void drawLayerIcon(GuiGraphics g, int x, int y, int icon) {
-        int P = 0xFFD8D8D8, A = 0xFF8A8A8A;
+        int P = NodeRenderer.CT, A = NodeRenderer.CD;
         switch (icon) {
             case LR_MUTE -> {                     // 静音：扬声器 + 斜杠 / speaker with a slash
                 g.fill(x + 1, y + 3, x + 3, y + 7, A);
@@ -697,7 +697,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 g.fill(x + 2, y + 2, x + 3, y + 5, A);
                 g.fill(x + 7, y + 2, x + 8, y + 5, A);
                 g.fill(x + 2, y + 4, x + 8, y + 9, P);
-                g.fill(x + 4, y + 6, x + 6, y + 8, 0xFF3A3428);
+                g.fill(x + 4, y + 6, x + 6, y + 8, C_BTN());
             }
             case LR_UP -> {                       // 上箭头 / arrow up
                 g.fill(x + 4, y + 2, x + 6, y + 3, P);
@@ -721,8 +721,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 g.fill(x + 4, y + 1, x + 6, y + 2, A);
                 g.fill(x + 2, y + 2, x + 8, y + 3, P);
                 g.fill(x + 3, y + 4, x + 7, y + 9, P);
-                g.fill(x + 4, y + 5, x + 5, y + 8, 0xFF3A3428);
-                g.fill(x + 6, y + 5, x + 7, y + 8, 0xFF3A3428);
+                g.fill(x + 4, y + 5, x + 5, y + 8, C_BTN());
+                g.fill(x + 6, y + 5, x + 7, y + 8, C_BTN());
             }
         }
     }
@@ -741,15 +741,15 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     /** 图标按钮（底 + 描边 + 居中图标）。 / icon button: bg + outline + centred glyph. */
     private void iconButton(GuiGraphics g, int x, int y, int w, int h, int icon, boolean hover, boolean on) {
-        g.fill(x, y, x + w, y + h, on ? C_BTN_ON : (hover ? C_HOVER : C_BTN));
-        g.renderOutline(x, y, w, h, C_BORDER);
+        g.fill(x, y, x + w, y + h, on ? C_BTN_ON() : (hover ? C_HOVER() : C_BTN()));
+        g.renderOutline(x, y, w, h, C_BORDER());
         drawLayerIcon(g, x + (w - 10) / 2, y + (h - 10) / 2, icon);
     }
 
     private void renderLayerPanel(GuiGraphics g, int mx, int my) {
         int bottom = height - TRANSPORT_H;
-        g.fill(0, TOP_H, PANEL_W, bottom, C_PANEL);
-        g.fill(PANEL_W - 2, TOP_H, PANEL_W, bottom, C_BORDER);
+        g.fill(0, TOP_H, PANEL_W, bottom, C_PANEL());
+        g.fill(PANEL_W - 2, TOP_H, PANEL_W, bottom, C_BORDER());
         if (view == View.ROLL) {
             renderRollKeyList(g, mx, my);
             return;
@@ -772,7 +772,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             int y = listTop + (i - layerScroll) * rh;
             if (y < listTop - rh || y > listBottom - rh) continue;
             boolean sel = i == currentLayer;
-            int color = sel ? C_SEL : (inRect(4, y, rowW, rh, mx, my) ? C_HOVER : C_PANEL);
+            int color = sel ? C_SEL() : (inRect(4, y, rowW, rh, mx, my) ? C_HOVER() : C_PANEL());
             g.fill(4, y, PANEL_W - 8, y + rh - 1, color);
             if (nameEditLayer == i) {
                 // 名称 = 点击进通用输入框（行内改名）/ name edits through the common input box
@@ -840,8 +840,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             int y1 = gridTop + NbsPianoRoll.keyRowBottom(topKey, ppk, k);
             if (y1 <= TOP_H + 18 || y0 >= listBottom) continue;
             boolean hov = inRect(4, y0, PANEL_W - 8, y1 - y0, mx, my);
-            int bg = NbsPianoRoll.isBlackKey(k) ? 0xFF24201A : 0xFF2E2A22;
-            if (hov) bg = C_HOVER;
+            int bg = NbsPianoRoll.isBlackKey(k) ? NbsPianoRoll.C_BLACK_KEY : NbsPianoRoll.C_WHITE_KEY;
+            if (hov) bg = C_HOVER();
             if (k < 33 || k > 57) bg = NbsPianoRoll.dim(bg, 0.75f);
             g.fill(4, Math.max(y0, TOP_H + 18), PANEL_W - 8, Math.min(y1, listBottom), bg);
             if (y1 - y0 >= 8) {
@@ -885,8 +885,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         int px = (width - 180) / 2, py = (height - 132) / 2;
         int contentTop = py + 26, contentBottom = contentTop + SETTINGS_VIEW_H;
         settingsScroll = Math.max(0, Math.min(settingsScroll, SETTINGS_ROWS * SETTINGS_ROW_H - SETTINGS_VIEW_H));
-        g.fill(px, py, px + 180, py + 132, C_PANEL);
-        g.renderOutline(px, py, 180, 132, C_BORDER);
+        g.fill(px, py, px + 180, py + 132, C_PANEL());
+        g.renderOutline(px, py, 180, 132, C_BORDER());
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_layer_props") + " #" + (settingsLayer + 1),
             px + 8, py + 8, C_TEXT, false);
         var layer = settingsLayer < kernel.song().layers.size() ? kernel.song().layers.get(settingsLayer) : null;
@@ -931,8 +931,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         int contentTop = py + 26, contentBottom = contentTop + OVERVIEW_VIEW_H;
         var layers = kernel.song().layers;
         overviewScroll = clampOverviewScroll(overviewScroll, layers.size());
-        g.fill(px, py, px + OVERVIEW_W, py + OVERVIEW_H, C_PANEL);
-        g.renderOutline(px, py, OVERVIEW_W, OVERVIEW_H, C_BORDER);
+        g.fill(px, py, px + OVERVIEW_W, py + OVERVIEW_H, C_PANEL());
+        g.renderOutline(px, py, OVERVIEW_W, OVERVIEW_H, C_BORDER());
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_layer_overview"), px + 8, py + 8, C_TEXT, false);
         button(g, px + OVERVIEW_W - 18, py + 4, 12, 12, "x", mx, my, false);
         g.enableScissor(px + 1, contentTop, px + OVERVIEW_W - 1, contentBottom);
@@ -941,7 +941,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             if (r[1] + OVERVIEW_ROW_H <= contentTop || r[1] >= contentBottom) continue;
             boolean hov = inRect(r[0], r[1], r[2], r[3], mx, my);
             boolean cur = i == currentLayer;
-            if (cur || hov) g.fill(r[0], r[1], r[0] + r[2], r[1] + r[3], cur ? C_BTN_ON : C_HOVER);
+            if (cur || hov) g.fill(r[0], r[1], r[0] + r[2], r[1] + r[3], cur ? C_BTN_ON() : C_HOVER());
             String name = layers.get(i).name;
             if (name.isEmpty()) name = I18n.get("gui.create_schematic_compute.nbs_layer") + " " + (i + 1);
             g.drawString(font, font.plainSubstrByWidth((i + 1) + ". " + name, r[2] - 24),
@@ -1041,25 +1041,25 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     static final int SLIDER_W = 74;
 
     private void slider(GuiGraphics g, int x, int y, int w, int value, int max, int mx, int my) {
-        g.fill(x, y + 4, x + w, y + 8, C_BTN);
+        g.fill(x, y + 4, x + w, y + 8, C_BTN());
         int fill = (int) ((long) w * Math.max(0, Math.min(max, value)) / max);
-        g.fill(x, y + 4, x + fill, y + 8, C_BTN_ON);
-        g.renderOutline(x, y + 3, w + 1, 7, C_BORDER);
+        g.fill(x, y + 4, x + fill, y + 8, C_BTN_ON());
+        g.renderOutline(x, y + 3, w + 1, 7, C_BORDER());
         String v = max == 200 ? (value - 100 >= 0 ? "+" : "") + (value - 100) : String.valueOf(value);
         g.drawString(font, v, x + w + 6, y + 2, C_TEXT_DIM, false);
     }
 
     private void button(GuiGraphics g, int x, int y, int w, int h, String label, int mx, int my, boolean on) {
         boolean hover = inRect(x, y, w, h, mx, my);
-        g.fill(x, y, x + w, y + h, on ? C_BTN_ON : (hover ? C_HOVER : C_BTN));
-        g.renderOutline(x, y, w, h, C_BORDER);
+        g.fill(x, y, x + w, y + h, on ? C_BTN_ON() : (hover ? C_HOVER() : C_BTN()));
+        g.renderOutline(x, y, w, h, C_BORDER());
         g.drawString(font, label, x + (w - font.width(label)) / 2, y + (h - 8) / 2, C_TEXT, false);
     }
 
     private void renderImportDialog(GuiGraphics g, int mx, int my) {
         int x = (width - IMPORT_W) / 2, y = (height - IMPORT_H) / 2;
-        g.fill(x, y, x + IMPORT_W, y + IMPORT_H, C_PANEL);
-        g.renderOutline(x, y, IMPORT_W, IMPORT_H, C_BORDER);
+        g.fill(x, y, x + IMPORT_W, y + IMPORT_H, C_PANEL());
+        g.renderOutline(x, y, IMPORT_W, IMPORT_H, C_BORDER());
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_import_title"), x + 8, y + 6, C_TEXT, false);
         int rowY = y + 20;
         for (int i = 0; i < importFiles.size() && i < IMPORT_ROWS; i++) {
@@ -1067,7 +1067,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             if (idx >= importFiles.size()) break;
             int ry = rowY + i * ROW_H;
             boolean hover = inRect(x + 8, ry, IMPORT_W - 16, ROW_H, mx, my);
-            g.fill(x + 8, ry, x + IMPORT_W - 8, ry + ROW_H - 1, hover ? C_HOVER : C_BTN);
+            g.fill(x + 8, ry, x + IMPORT_W - 8, ry + ROW_H - 1, hover ? C_HOVER() : C_BTN());
             g.drawString(font, importFiles.get(idx).getFileName().toString(), x + 12, ry + 3, C_TEXT, false);
         }
         // 滚动条：过一屏才画（与滚轮同源滚动；拇指可拖、点轨翻页——此前只有滚轮、滚了无反馈）
@@ -1089,8 +1089,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
      *  The Set dialog (B3): field buttons + value box + absolute/relative + apply/cancel. */
     private void renderSetDialog(GuiGraphics g, int mx, int my) {
         int w = 260, h = 118, x = (width - w) / 2, y = (height - h) / 2;
-        g.fill(x, y, x + w, y + h, C_PANEL);
-        g.renderOutline(x, y, w, h, C_BORDER);
+        g.fill(x, y, x + w, y + h, C_PANEL());
+        g.renderOutline(x, y, w, h, C_BORDER());
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_set_title"), x + 8, y + 6, C_TEXT, false);
         button(g, x + 8, y + 22, 76, 16, I18n.get("gui.create_schematic_compute.nbs_set_velocity"),
             mx, my, setField == NbsEditorKernel.FIELD_VELOCITY);
@@ -1160,8 +1160,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     private void renderExportDialog(GuiGraphics g, int mx, int my) {
         int w = 220, h = 80, x = (width - w) / 2, y = (height - h) / 2;
-        g.fill(x, y, x + w, y + h, C_PANEL);
-        g.renderOutline(x, y, w, h, C_BORDER);
+        g.fill(x, y, x + w, y + h, C_PANEL());
+        g.renderOutline(x, y, w, h, C_BORDER());
         g.drawString(font, I18n.get("gui.create_schematic_compute.nbs_export_title"), x + 8, y + 6, C_TEXT, false);
         exportNameBox.setX(x + 8); exportNameBox.setY(y + 24);
         exportNameBox.render(g, mx, my, pt0());
@@ -1171,8 +1171,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     private void renderGuide(GuiGraphics g) {
         int w = 300, h = 200, x = (width - w) / 2, y = (height - h) / 2;
-        g.fill(x, y, x + w, y + h, C_PANEL);
-        g.renderOutline(x, y, w, h, C_BORDER);
+        g.fill(x, y, x + w, y + h, C_PANEL());
+        g.renderOutline(x, y, w, h, C_BORDER());
         String[] lines = {
             I18n.get("gui.create_schematic_compute.nbs_guide_title"),
             "",
@@ -1524,7 +1524,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         int xL = Math.max(r[0], rollX()), yT = Math.max(r[1], rollY());
         int xR = Math.min(r[2], rollX() + gridW()), yB = Math.min(r[3], rollY() + gridH());
         if (xR <= xL || yB <= yT) return;
-        g.renderOutline(xL, yT, xR - xL, yB - yT, NbsPianoRoll.C_SELECTED);
+        g.renderOutline(xL, yT, xR - xL, yB - yT, NbsPianoRoll.C_SELECTED());
     }
 
     /** 播放锁（社区 {@code playing = 0} 语义）：播放中网格不可编辑，提示一次并吞掉点击。
