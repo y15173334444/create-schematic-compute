@@ -1537,3 +1537,18 @@ Channel split: splits the incoming multi-channel source into per-channel outputs
 Playback sink: plays the selected channel (mix / left / right) of the incoming source at this speaker's world position. Honors the speaker's gain, mute and redstone-mute.
 
 ---
+
+## 102. 与门 / AND Gate
+
+- **枚举名 / Type**: `AND` · 稳定 id: `and`
+- **接口 / Interface**: 2 入 in → 1 出 out
+
+**说明（中文）**
+
+与门：A 与 B **都**大于 0.5 时输出 1，否则 0。与或门（27）完全镜像：BOOL/比较节点的 1/0 输出可直接级联，NaN 判假；多输入用级联（与门→与门）或公式节点。
+
+**Description (English)**
+
+AND gate: outputs 1 only when A **and** B are both greater than 0.5, otherwise 0. A strict mirror of the OR gate (27): BOOL/comparator 1/0 outputs chain straight in, NaN counts as false; for more than two inputs chain AND gates or use FORMULA.
+
+---
