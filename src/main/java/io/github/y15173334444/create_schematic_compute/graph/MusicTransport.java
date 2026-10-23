@@ -63,6 +63,16 @@ public final class MusicTransport {
         nextFire = (int) Math.ceil(head);
     }
 
+    /** 从头播放：播放头归 0 起播（「从头」激活策略 = seek(0)+playFromHead 的合成，
+     *  flush 脉冲随 seek 置位——旧位置已下发未播的音符失效）。
+     *  Play from the start: rewinds the head to 0 and plays (the "from head" activation
+     *  policy = seek(0) + playFromHead; the seek's flush pulse invalidates notes already
+     *  dispatched from the old position). */
+    public void playFromStart(NbsSong song) {
+        seek(0);
+        playFromHead(song);
+    }
+
     /** 停止（复位播放头到 0 不做；仅停）。置 flush 脉冲：窗口内已下发未播的音符失效。 */
     public void stop() {
         playing = false;

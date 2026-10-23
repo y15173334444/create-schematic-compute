@@ -2594,7 +2594,32 @@ public class GraphEditor {
         // ── v1.2.6 音频节点编辑区按钮 / audio-node edit-panel buttons ──
         // 几何与 EditPanel.renderAt 对应段落逐行对齐（editLocalY + 4 + numRows*18 起）。
         if (en.type == NodeType.MUSIC && en.params.length > 0) {
-            int rowY = editLocalY + 4 + numRows * 18;
+            // 播放编辑区三行点击段（与 EditPanel.renderAt 几何一致）：
+            // 行0 输入激活 [高电平](p1=1)/[上升沿](p1=0)、行1 播放 [从头](p2=1)/[继续](p2=0)、
+            // 行2 循环开关（p0 翻转）。
+            // Playback edit-panel click segments (geometry matches EditPanel.renderAt):
+            // row 0 activation [high](p1=1)/[edge](p1=0), row 1 playback
+            // [from head](p2=1)/[continue](p2=0), row 2 the loop toggle (flips p0).
+            int segGap = 4, segW = (NW - 12 - segGap) / 2;
+            for (int r = 0; r < 2; r++) {
+                int segY = editLocalY + 4 + (numRows + r) * 18;
+                if (lmy < segY || lmy > segY + 16) continue;
+                for (int i = 0; i < 2; i++) {
+                    int bx = 4 + i * (segW + segGap);
+                    if (lmx < bx || lmx > bx + segW) continue;
+                    int pIdx = r == 0 ? 1 : 2;
+                    float target = i == 0 ? 1f : 0f; // 左 = 高电平/从头 / left = high/from head
+                    if (en.params.length > pIdx && en.params[pIdx] != target) {
+                        float oldV = en.params[pIdx];
+                        en.params[pIdx] = target;
+                        var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                            host.getBlockPos(), ownerNodeId(), en.id, pIdx, target, host.getPlayerUUID());
+                        sendOp(sOp); recordOp(sOp, 0, 0, oldV, null);
+                    }
+                    return true;
+                }
+            }
+            int rowY = editLocalY + 4 + (numRows + 2) * 18;
             if (lmx >= 4 && lmx <= NW - 4 && lmy >= rowY && lmy <= rowY + 16) {
                 float oldV = en.params[0];
                 float newV = oldV > 0.5f ? 0f : 1f;

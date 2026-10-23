@@ -50,6 +50,7 @@ public final class GraphMigration {
             GraphMigration::migrateV4toV5,
             GraphMigration::migrateV5toV6,
             GraphMigration::migrateV6toV7,
+            GraphMigration::migrateV7toV8,
     };
 
     /**
@@ -518,6 +519,51 @@ public final class GraphMigration {
             }
         }
         out.putInt(NbtVersions.VERSION_KEY, 7);
+        return out;
+    }
+
+    // ── V7 → V8 ───────────────────────────────────────────────────────────
+    // Changes in v8 / v8 中的变更:
+    //   1. MUSIC gains the playback edit-panel slots "level" (input activation:
+    //      1 = high keeps playing / low stops, 0 = rising edge starts) and "fromHead"
+    //      (start policy: 1 = from the head / 0 = continue). Legacy nodes carry only
+    //      the loop slot — fill p1=0, p2=0 (exactly the old edge + continue behaviour),
+    //      never touching user-set slots.
+    //      MUSIC 增加播放编辑区槽位 "level"（输入激活：1 = 高电平持续播放/拉低即停，
+    //      0 = 上升沿开始播放）与 "fromHead"（起播：1 = 从头，0 = 继续）。旧节点只有
+    //      loop 槽——补 p1=0、p2=0（即旧「沿 + 继续」行为），用户已设槽位不覆盖。
+
+    /**
+     * Migrate a graph tag from version 7 to version 8.
+     *
+     * 将图标签从版本 7 迁移到版本 8。
+     *
+     * @param tag        the v7 graph tag / v7 版本的图标签
+     * @param registries Minecraft holder lookup provider / Minecraft Holder 查找提供器
+     * @return the migrated v8 tag / 迁移后的 v8 标签
+     */
+    private static CompoundTag migrateV7toV8(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+        CompoundTag out = tag.copy();
+        ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
+        for (int i = 0; i < nodes.size(); i++) {
+            CompoundTag n = nodes.getCompound(i);
+            // 只补缺失槽位，不覆盖用户已设值（含设为 0 的电平/从头）。
+            // Only fill missing slots — never overwrite user-set values (incl. 0).
+            if ("music".equals(n.getString("type"))) {
+                if (n.getInt("pcount") < 2) {
+                    n.putFloat("p1", 0f);
+                    n.putInt("pcount", 2);
+                }
+                if (n.getInt("pcount") < 3) {
+                    n.putFloat("p2", 0f);
+                    n.putInt("pcount", 3);
+                }
+            }
+            if (n.contains("subGraph")) {
+                n.put("subGraph", migrateV7toV8(n.getCompound("subGraph"), registries));
+            }
+        }
+        out.putInt(NbtVersions.VERSION_KEY, 8);
         return out;
     }
 

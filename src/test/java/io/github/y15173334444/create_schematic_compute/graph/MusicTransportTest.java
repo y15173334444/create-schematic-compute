@@ -38,6 +38,23 @@ class MusicTransportTest {
     }
 
     @Test
+    @DisplayName("从头播放：回卷播放头并重发起播 / playFromStart rewinds the head and replays")
+    void playFromStartRewinds() {
+        NbsSong s = song(0, 1, 2);
+        MusicTransport tr = new MusicTransport();
+        tr.play(0);
+        tr.advance(s, DT);
+        assertTrue(tr.headTick() > 0, "the head moved past the start");
+        tr.stop();
+        tr.playFromStart(s);
+        assertTrue(tr.isPlaying());
+        assertEquals(0, tr.headTick(), "playFromStart rewinds to the head");
+        List<NoteEvent> evs = tr.advance(s, DT);
+        assertEquals(1, evs.size(), "the start tick fires again after the rewind");
+        assertEquals(45, evs.get(0).key());
+    }
+
+    @Test
     @DisplayName("跨 tick 逐个展开，每 tick 一次 / ticks fire exactly once across advances")
     void crossTickExpansion() {
         NbsSong s = song(0, 1, 2);

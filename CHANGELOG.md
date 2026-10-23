@@ -48,6 +48,14 @@
 | 🔢 **折返区间两模式** | 编辑区两段切换（`+/-180` \| `0~360`，FORMULA warm 同款几何）选输出区间：+/-180 折入 (-180,180]（双向有号差角），0~360 折入 [0,360)（0~360 正向角）。跨缠绕缝（359 对 1 度）也给出正确小角 / The edit-panel segmented toggle (`+/-180` \| `0~360`, FORMULA warm geometry) picks the output range: (-180,180] (signed shortest delta) or [0,360) (0~360 forward delta). Correct small deltas across the wrap seam (359 vs 1 degrees). |
 | 🔁 **V6→V7 迁移** | **V6→V7 迁移**为旧 `angle_unwrap` 节点补 `mode` 槽（默认 0 = +/-180 有号差角，不覆盖用户已设值），递归处理封装子图；`NbtVersions.DATA_VERSION` 升到 7。测试：`AngleUnwrapModeTest` / The **V6→V7 migration** fills the `mode` slot on legacy `angle_unwrap` nodes (default 0 = the +/-180 signed delta, user-set values survive), recursing into sub-graphs; `NbtVersions.DATA_VERSION` bumps to 7. Tests: `AngleUnwrapModeTest`. |
 
+### 🎵 音乐节点播放编辑区：输入激活 × 起播策略 / Music Node Playback Edit Panel: Activation × Start Policy
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🎛️ **输入激活设置** | play 触点两模式（编辑区两段切换）：**高电平持续播放** = 上升沿激活、拉低即停（播放头保留、可续播）；**上升沿开始播放** = 沿触发、拉低不停（默认，旧行为） / Two play-contact modes (edit-panel segmented toggle): **high keeps playing** (rising activates, falling stops and keeps the head) vs **rising-edge starts** (default — the legacy behaviour, falling ignored). |
+| ▶️ **播放类设置** | 激活起播两模式（编辑区两段切换）：**从头播放** = 每次激活回曲首重播；**继续播放** = 从播放头续播（默认，旧行为，曲尾回绕照旧） / Two activation start policies: **from head** (every activation rewinds to the start) vs **continue** (default — the legacy behaviour, resumes from the head with the end-wrap as before). |
+| 🔁 **V7→V8 迁移** | 播放编辑区扩为三行（激活/播放/循环），MUSIC 新增 `level`/`fromHead` 参数槽（按钮参数、无引脚）；**V7→V8 迁移**为旧节点补 0 值槽（= 沿+继续旧行为，不覆盖用户已设值），递归处理封装子图；`NbtVersions.DATA_VERSION` 升到 8。测试：`MusicPlayModesTest`（含 stop 引脚不受模式影响）/ The playback panel grows to three rows (activation/playback/loop) and MUSIC gains the `level`/`fromHead` slots (button params, no pins); the **V7→V8 migration** fills 0-valued slots on legacy nodes (= the old edge+continue behaviour, user-set values survive), recursing into sub-graphs; `NbtVersions.DATA_VERSION` bumps to 8. Tests: `MusicPlayModesTest` (incl. the stop pin staying unaffected by the modes). |
+
 </details>
 
 <details>

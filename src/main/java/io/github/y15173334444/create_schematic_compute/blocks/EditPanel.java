@@ -546,6 +546,37 @@ public class EditPanel {
         // ── v1.2.6 音频节点编辑区 / audio-node edit panels ──
         // 几何必须与 GraphEditor 编辑区点击段一致（editLocalY + 4 + numRows*18 起，每行 16px + 2px 间隔）。
         if (node.type == NodeType.MUSIC && node.params.length > 0) {
+            // 播放编辑区三行（几何与 GraphEditor 点击段一致）：
+            // 行0 输入激活 [高电平持续播放](level=1) [上升沿开始播放](level=0)
+            // 行1 播放     [从头播放](fromHead=1)     [继续播放](fromHead=0)
+            // 行2 循环     loop 开关（全宽按钮）
+            // Playback edit panel, three rows (geometry matches the GraphEditor click
+            // segments): row 0 input activation [high keeps playing](level=1)
+            // [rising edge starts](level=0); row 1 playback [from head](fromHead=1)
+            // [continue](fromHead=0); row 2 the loop toggle (full-width button).
+            boolean level = node.params.length > 1 && node.params[1] > 0.5f;
+            boolean fromHead = node.params.length > 2 && node.params[2] > 0.5f;
+            int segGap = 4, segW = (pw - 12 - segGap) / 2;
+            String[][] segLabels = {
+                {I18n.get("gui.create_schematic_compute.edit.play_level"),
+                 I18n.get("gui.create_schematic_compute.edit.play_edge")},
+                {I18n.get("gui.create_schematic_compute.edit.play_from_head"),
+                 I18n.get("gui.create_schematic_compute.edit.play_continue")}
+            };
+            boolean[] segOn = {level, fromHead};
+            for (int r = 0; r < 2; r++) {
+                int by = py + 4 + (row + r) * 18;
+                for (int i = 0; i < 2; i++) {
+                    int bx = px + 4 + i * (segW + segGap);
+                    boolean active = segOn[r] == (i == 0); // 左按钮 = 该设置开 / left = on
+                    g.fill(bx, by, bx + segW, by + 16, active ? 0xFF2A4A2A : 0xFF2A2A2A);
+                    g.renderOutline(bx, by, segW, 16, active ? 0xFF88FF88 : 0xFF666666);
+                    String lbl = segLabels[r][i];
+                    g.drawString(font, lbl, bx + (segW - font.width(lbl)) / 2, by + 3,
+                        active ? 0xFFAAFFAA : 0xFF888888, false);
+                }
+            }
+            row += 2;
             boolean loop = node.params[0] > 0.5f;
             int bx = px + 4, by = py + 4 + row * 18, bw = pw - 8, bh = 16;
             g.fill(bx, by, bx + bw, by + bh, loop ? 0xFF3A5A2A : 0xFF3A3428);

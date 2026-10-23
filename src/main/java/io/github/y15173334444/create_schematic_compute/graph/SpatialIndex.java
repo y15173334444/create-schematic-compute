@@ -181,7 +181,7 @@ public class SpatialIndex {
         // 折返区间两段式切换行 / fold-range segmented toggle row
         if (n.type == NodeType.ANGLE_UNWRAP) h += 18;
         // v1.2.6 音频节点按钮行 + HUD 范围/间隔步进行 / audio-node button rows + HUD stepper rows
-        if (n.type == NodeType.MUSIC) h += 18;            // loop 循环开关 / loop toggle
+        if (n.type == NodeType.MUSIC) h += 54;            // 播放编辑区三行（激活/播放/循环）/ playback panel, three rows
         if (n.type == NodeType.CHANNEL) h += 36;          // 布局预设两行（3+2）/ layout presets, two rows
         if (n.type == NodeType.HUD_PITCH_LADDER) h += 36; // 范围/间隔两行 / range & interval steppers
         if (n.type == NodeType.MOUSE_JOYSTICK && n.params.length > 0) h += 16;

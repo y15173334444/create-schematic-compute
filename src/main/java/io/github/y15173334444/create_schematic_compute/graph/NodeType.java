@@ -135,10 +135,15 @@ public enum NodeType {
     // 转速：网络转速（RPM，带符号） Speed: network rotation speed (RPM, signed)
     RPM("rpm", "node.create_schematic_compute.rpm", 0, 1, ""),
     // ── 音频（功放电脑宿主）/ Audio (amplifier computer host) ──
-    // 曲目宿主：数据住节点（NBS 二进制）；play/stop 上升沿生效、seek 上升沿当帧快照、done 尾脉冲。
-    // Song host: data lives on the node (NBS binary); play/stop fire on rising edge,
-    // seek snapshots on rising edge, done pulses at end of a non-looping play-through.
-    MUSIC("music", "node.create_schematic_compute.music", 3, 5, "loop"),
+    // 曲目宿主：数据住节点（NBS 二进制）；seek 值变化当帧快照、done 尾脉冲。播放编辑区三槽：
+    // loop（循环开关）、level（输入激活：1 = 高电平持续播放/拉低即停，0 = 上升沿开始播放，
+    // 旧默认）、fromHead（起播：1 = 从头，0 = 继续，旧默认）。
+    // Song host: data lives on the node (NBS binary); seek snapshots on value change,
+    // done pulses at end of a non-looping play-through. Playback edit-panel slots:
+    // loop, level (input activation: 1 = high keeps playing / low stops, 0 = rising edge
+    // starts, the legacy default) and fromHead (start policy: 1 = from the head,
+    // 0 = continue, the legacy default).
+    MUSIC("music", "node.create_schematic_compute.music", 3, 5, "loop,level,fromHead"),
     // 「功放」增益：audio（AUDIO 域）→ audio（AUDIO 域），gain 浮点引脚（钳 0..4，可接图信号自动化）。
     // Gain stage: audio (AUDIO domain) → audio (AUDIO domain); gain float pin (clamped 0..4).
     AMP("amp", "node.create_schematic_compute.amp", 1, 1, "gain"),

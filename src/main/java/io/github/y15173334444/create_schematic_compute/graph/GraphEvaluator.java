@@ -1371,7 +1371,22 @@ public class GraphEvaluator {
                 boolean playCur = playIn > 0.5f, stopCur = stopIn > 0.5f;
                 boolean playPrev = runtimeState != null && runtimeState.nodeEdge.getOrDefault(node.id, false);
                 boolean stopPrev = runtimeState != null && runtimeState.nodeEdge.getOrDefault(node.id + 100000, false);
-                if (playCur && !playPrev) tr.playFromHead(song); // seek 已先行；头在曲尾则回头重播
+                // 播放编辑区两设置（缺槽默认 = 旧行为）：level=0 上升沿开始播放（play 触点
+                // 只看上升沿）、level=1 高电平持续播放（上升沿激活、拉低即停，播放头保留）；
+                // fromHead=0 继续播放（playFromHead：曲尾回绕照旧）、fromHead=1 从头播放
+                // （每次激活回曲首）。
+                // Playback edit-panel settings (missing slots default to the legacy
+                // behaviour): level=0 rising-edge starts (play watches the rising edge
+                // only), level=1 high keeps playing (rising activates, falling stops and
+                // keeps the head); fromHead=0 continues (playFromHead, end-wrap as before),
+                // fromHead=1 plays from the head (every activation rewinds).
+                boolean levelGate = node.params.length > 1 && node.params[1] > 0.5f;
+                boolean fromHead = node.params.length > 2 && node.params[2] > 0.5f;
+                if (playCur && !playPrev) {
+                    if (fromHead) tr.playFromStart(song);
+                    else tr.playFromHead(song); // seek 已先行；头在曲尾则回头重播
+                }
+                if (levelGate && !playCur && playPrev) tr.stop(); // 拉低即停（播放头保留）
                 if (stopCur && !stopPrev) tr.stop();
                 if (runtimeState != null) {
                     runtimeState.nodeEdge.put(node.id, playCur);
