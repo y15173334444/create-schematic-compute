@@ -457,10 +457,11 @@ Global named-channel communication across computers. Like publish-subscribe mess
 | Comparison Router / 比较路由 | \|A-B\| smart routing / 智能信号分流 |
 | Pose Convert / 姿态换算 | Pitch/Yaw/Roll coordinate conversion / 姿态角转换 |
 | Split / 分割 | Positive/negative signal split / 正负信号分离 |
+| Angle Unwrap / 角度解绕 | Two-angle compare: (A-B) folded into -180~180 or 0~360 / 双角度比对：差角 A-B 折返，-180~180 或 0~360 两模式 |
 
 **Trig / 三角函数（度）：** Sine · Cosine · Tangent · Arc Sine · Arc Cosine · Arc Tangent 2 · Hyperbolic Sine · Hyperbolic Cosine
 
-**Other / 其他：** Square Root · Natural Log · Base-10 Log · Exponential · Secant · Cosecant · Cotangent · Angle Unwrap · Direction (3-in 3-out)
+**Other / 其他：** Square Root · Natural Log · Base-10 Log · Exponential · Secant · Cosecant · Cotangent · Direction (3-in 3-out)
 
 </details>
 
