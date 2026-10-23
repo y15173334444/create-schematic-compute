@@ -70,7 +70,16 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
                     SignalBus.setAudioBands(busName, set);
                 }
             } else {
-                SignalBus.clearBus(busName);
+                // 空表 = 频段列表同步，不是频道清账：名下有存活 owner（本端可见条目）时绝不碰
+                // 定义与值——过期空包会把 owner 的频段定义与值连带清掉（镜像清理不带 owner 门
+                // 的残余豁口，用户症状「A 的频段被一起清理」的一条产生路径）。节点侧的列表
+                // 收敛仍由下面的 syncBusBandsFromServer 按权威值执行。
+                // An empty list is a band-list sync, not a channel teardown: while a live owner
+                // entry is visible locally, never touch the definition or values — a stale empty
+                // packet would wipe the owner's definition and values along with it (the residual
+                // owner-less mirror cleanup; one producer of the user symptom). The node lists
+                // still converge below via syncBusBandsFromServer with the authoritative value.
+                if (SignalBus.getChannel(busName) == null) SignalBus.clearBus(busName);
             }
             if (be instanceof GraphBlockEntity gbe) {
                 var emptyBands = java.util.Collections.<String>emptyList();

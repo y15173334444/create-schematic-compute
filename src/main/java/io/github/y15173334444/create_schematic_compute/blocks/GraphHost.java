@@ -131,6 +131,21 @@ public class GraphHost {
             busRegistrationPending = false;
             registerBusChannels();
         }
+        // 冲突自愈先行（全宿主统一挂点，图停止运行也跑）：候选必须在**同一 tick 内**先接管、
+        // 把频段定义带回来，再跑下面的收敛 —— 否则持有者改名走人后定义缺失，收敛与 BUS_IN
+        // 只能看到空（用户症状：B 改名走人后 BUS_IN 频段被清，要手动去刷 BUS_OUT 才发得回来）。
+        // 旧挂点散在各宿主 tick 且排在 isRunning() 早退之后：图一停就没人自愈。
+        // Recovery first (one hook for every host, stopped or running): a claimant must take
+        // over and bring the band definition back within the same tick, before the convergence
+        // below runs — otherwise a departed holder leaves the definition missing and the
+        // convergence/BUS_INs see only emptiness (user symptom: after B renamed away the BUS_IN
+        // lost its bands and only a manual BUS_OUT refresh brought them back). The old per-host
+        // hooks sat behind the isRunning() early return, so a stopped graph never self-healed.
+        if (BusChannelHelper.recoverConflictedChannels(graph, pos(), lvl())) {
+            requestFullSync();
+            markDirty();
+            pushBlockUpdate();
+        }
         // issue #15：把本图 BUS_IN 的频段列表收敛到频道定义，**只有真的变了才发**节点数据。
         // 频道**无已加载发布方**时整轮跳过 —— 缺席不是定义，见 convergeBusInBands。
         // 走 **BusBandSyncPacket**（按方块 + 频道名推，客户端只改匹配节点的频段列表）——

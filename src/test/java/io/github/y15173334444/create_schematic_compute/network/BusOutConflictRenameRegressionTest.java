@@ -311,4 +311,39 @@ class BusOutConflictRenameRegressionTest {
         BusChannelHelper.convergeBusInBands(sub);
         assertEquals(List.of("b0", "b1"), in.signalBands, "接管后 BUS_IN 应收敛到 A 的频段");
     }
+
+    @Test
+    @DisplayName("零频段发布方注册即定义：空是证明过的，订阅者照常收敛为空")
+    void zeroBandPublisherDefinesEmpty() {
+        var pub = new NodeGraph();
+        var a = pub.addNode(NodeType.BUS_OUT, 0, 0);
+        a.signalName = "abc"; // 无频段 / zero bands
+        BusChannelHelper.registerGraphChannels(pub, POS);
+
+        var sub = new NodeGraph();
+        var in = sub.addNode(NodeType.BUS_IN, 0, 0);
+        in.signalName = "abc";
+        in.signalBands = new ArrayList<>(List.of("stale"));
+
+        BusChannelHelper.convergeBusInBands(sub);
+        assertEquals(List.of(), in.signalBands,
+            "零频段发布方的「已定义为空」是证明过的空，订阅者应收敛为空（不得留旧图）");
+    }
+
+    @Test
+    @DisplayName("定义丢失（条目在、定义没了）不是证明过的空：订阅者必须保线（用户症状二轮）")
+    void lostDefinitionMustNotPruneSubscribers() {
+        // 发布方条目在、频段定义被误清（镜像清理/事故）/ publisher entry alive, definition lost
+        assertTrue(SignalBus.registerChannel("abc", new HashMap<>(),
+            new ChannelOwner(POS, 7)));
+
+        var sub = new NodeGraph();
+        var in = sub.addNode(NodeType.BUS_IN, 0, 0);
+        in.signalName = "abc";
+        in.signalBands = new ArrayList<>(List.of("b0", "b1"));
+
+        BusChannelHelper.convergeBusInBands(sub);
+        assertEquals(List.of("b0", "b1"), in.signalBands,
+            "定义缺失只是「空不可证明」，收敛不得清掉订阅者的频段图（用户症状）");
+    }
 }

@@ -41,9 +41,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * Minecraft registries, so a test that needs a CHANNELS entry plants it reflectively (see
  * {@code plantChannel}). Pruning uses {@code SET_BANDS} semantics plus the legacy index fallback,
  * because a BUS_IN's input pins are index-bound rather than name-bound. One guard shapes the whole
- * suite: <b>absence is not a definition</b> — a channel with no <i>loaded</i> publisher is skipped
- * (a publisher between chunk loads must not cost the BUS_IN its wires), while a loaded publisher
- * defining zero bands still converges to empty.</p>
+ * suite: <b>undefined is not a definition</b> — a channel whose definition is <i>absent</i>
+ * (transient publisher absence, or a definition lost to an accident) is skipped (a publisher
+ * between chunk loads must not cost the BUS_IN its wires), while a <i>defined empty</i> — a
+ * zero-band publisher's register-time definition, or a retired dead name — still converges to
+ * empty.</p>
  */
 class BusInBandConvergenceTest {
 
@@ -135,9 +137,15 @@ class BusInBandConvergenceTest {
     @Test
     @DisplayName("a loaded publisher that defines zero bands still converges the BUS_IN to empty")
     void testLoadedPublisherZeroBandsConvergesToEmpty() {
-        // A CHANNELS entry proves the publisher is loaded right now, so an empty definition from
-        // it is authoritative (the user deleted every band on the BUS_OUT) — converge and prune.
+        // 注册即定义：零频段发布方的注册会写下「已定义为空」（retireBands）——这个**证明过的**
+        // 空是权威的（用户删光了 BUS_OUT 的频段），照常收敛并剪线。裸条目 + 无定义是另一回事
+        // （定义被误清），必须跳过保线——见 lostDefinitionMustNotPruneSubscribers。
+        // Register-time definition: a zero-band publisher's registration writes a defined-empty
+        // (retireBands) — that <b>proven</b> empty is authoritative (the user deleted every band
+        // on the BUS_OUT) and converges/prunes. A bare entry with NO definition is a different
+        // case (lost definition) and must skip — see lostDefinitionMustNotPruneSubscribers.
         plantChannel("CH");
+        SignalBus.retireBands("CH");
         GraphNode src = graph.addNode(NodeType.CONST, 0, 0);
         GraphNode in = busIn("CH", "band_0", "band_1");
         assertTrue(graph.addConnection(src.id, 0, in.id, 0));

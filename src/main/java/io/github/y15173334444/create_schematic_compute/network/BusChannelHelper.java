@@ -73,6 +73,13 @@ public final class BusChannelHelper {
                     SignalBus.registerBands(n.signalName, n.signalBands);
                     n.bandsDirty = false;
                     broadcasts.add(n.signalName);
+                } else if (ok) {
+                    // 注册即定义：零频段发布方也写下「已定义为空」——空是它**证明**的，
+                    // 收敛照常清订阅者；否则定义缺席会被当成「空不可证明」跳过，订阅者留旧图。
+                    // Register-time definition: a zero-band publisher writes a defined-empty too —
+                    // its emptiness is proven, so convergence still clears subscribers; without it
+                    // the absent definition reads as "unprovable" and subscribers keep stale lists.
+                    SignalBus.retireBands(n.signalName);
                 }
             } else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty()) {
                 // 私有频道占用（BUS 同款）：首个注册者获胜，被其他 owner 占用即标冲突旗标——
@@ -444,25 +451,25 @@ public final class BusChannelHelper {
             List<String> want = resolvedByChannel.get(n.signalName);
             if (want == null) {
                 want = resolveBusInBands(graph, null, n.signalName);
-                // 缺席不是定义：解析为空且 CHANNELS 里没有该名字 ⇒ 当前没有已加载的发布方，
-                // 「空」证明不了。照常收敛会把 BUS_IN 剪成空列表并按索引剪光输入连线且落盘
-                // （发布方区块卸载 / 重启首 tick 注册顺序靠后 / 方块被拆除都会造成这种瞬时缺席），
-                // 发布方回归后频段恢复而连线永久丢失。跳过、保留原列表——改名的权威 SET_BANDS
-                // 仍负责清空死名（issue #11），这里只守住后台不变量不越权。
-                // Absence is not a definition: an empty resolution with no CHANNELS entry means no
-                // loaded publisher — the emptiness is unprovable. Converging anyway emptied the
-                // BUS_IN, pruned every input connection by index and persisted the loss whenever the
-                // publisher was transiently out of sight (chunk unload / late first-tick registration
-                // order after a restart / broken block); the bands came back but the wires did not.
-                // Skip and keep the list — the rename path's authoritative SET_BANDS still empties a
-                // dead name (issue #11); this only keeps the background invariant from overreaching.
-                // 「已定义为空」（retireBands 的死名标记）不是缺席：照常收敛为空——发布方改名
-                // 走人后旧名 BUS_IN 必须清掉旧图（issue #11）；只有条目整个缺席（瞬时缺席）才跳过。
-                // A defined-empty entry (retireBands' dead-name marker) is NOT absence: converge
-                // it to empty — a BUS_IN on the old name must drop its stale list once the
-                // publisher renamed away (issue #11); only a fully absent entry (transient) skips.
-                if (want.isEmpty() && SignalBus.getChannel(n.signalName) == null
-                    && SignalBus.getBands(n.signalName) == null) {
+                // 「未定义」（getBands == null）= 空**不可证明**，一律跳过保线。getBands 为 null
+                // 只剩两种情形：条目缺席（发布方瞬时缺席——区块卸载 / 重启首 tick 顺序靠后 /
+                // 方块被拆除），或定义被误清（事故——如镜像清理不带 owner 门）。两者都不是
+                // 权威空值；照常收敛会把 BUS_IN 剪成空列表、按索引剪光输入连线且落盘，
+                // 发布方回归后频段恢复而连线永久丢失。
+                // 「已定义为空」（getBands == []，retireBands 的死名标记 / 零频段发布方的注册即定义）
+                // 是**证明过的空**：照常收敛为空——死名清理（issue #11）与零频段发布方语义不变。
+                // "Undefined" (getBands == null) means the emptiness is <b>unprovable</b> — skip and
+                // keep the wires in every such case. A null definition remains only when the entry
+                // is absent (transient publisher absence: chunk unload / late first-tick order /
+                // broken block) or when the definition was lost to an accident (e.g. an owner-less
+                // mirror cleanup) — neither is an authoritative empty. Converging anyway emptied
+                // the BUS_IN, pruned every input connection by index and persisted the loss; the
+                // bands came back but the wires did not.
+                // A <b>defined empty</b> (getBands == [] — retireBands' dead-name marker, or a
+                // zero-band publisher's register-time definition) is a <b>proven</b> empty:
+                // converge to empty as before — issue #11's dead-name cleanup and the zero-band
+                // publisher semantics both stay.
+                if (want.isEmpty() && SignalBus.getBands(n.signalName) == null) {
                     if (absentChannels == null) absentChannels = new HashSet<>();
                     absentChannels.add(n.signalName);
                     continue;
@@ -627,6 +634,9 @@ public final class BusChannelHelper {
                             new ChunkPos(pos),
                             new BusBandSyncPacket(pos, n.signalName, n.signalBands));
                     }
+                } else if (ok) {
+                    // 注册即定义（同 registerGraphChannels）/ register-time definition (same as above)
+                    SignalBus.retireBands(n.signalName);
                 }
             } else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty()) {
                 // 私有频道占用（BUS 同款）：同 owner 重注册为幂等，被占即标冲突。
@@ -731,6 +741,9 @@ public final class BusChannelHelper {
                     new ChunkPos(pos),
                     new BusBandSyncPacket(pos, n.signalName, n.signalBands));
             }
+        } else {
+            // 注册即定义（同 registerGraphChannels）/ register-time definition (same as above)
+            SignalBus.retireBands(n.signalName);
         }
         n.bandsDirty = false;
     }
