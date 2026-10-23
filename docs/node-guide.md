@@ -1451,15 +1451,15 @@ Speed (RPM): outputs this block's network rotation speed, signed (negative = rev
 ## 96. 曲目 / Music
 
 - **枚举名 / Type**: `MUSIC` · 稳定 id: `music`
-- **接口 / Interface**: 3 入 in → 5 出 out · 参数 params: `loop`
+- **接口 / Interface**: 3 入 in → 5 出 out · 参数 params: `loop, level, fromHead`
 
 **说明（中文）**
 
-曲目宿主：NBS 曲目数据住节点上；输出音频（类型化音源）、playing/tick/seconds 状态与非循环播到尾的 done 脉冲。play/stop 上升沿生效；seek 值变化即当帧快照跳转。双击节点打开 NBS 钢琴卷帘编辑器。
+曲目宿主：NBS 曲目数据住节点上；输出音频（类型化音源）、playing/tick/seconds 状态与非循环播到尾的 done 脉冲。播放编辑区三个设置：输入激活——「高电平持续播放」（上升沿激活、拉低即停且播放头保留）或「上升沿开始播放」（默认，沿触发、拉低不停）；播放——「从头播放」（每次激活回曲首）或「继续播放」（默认，从播放头续播、曲尾回绕照旧）；循环开关。seek 值变化即当帧快照跳转；stop 上升沿即停。双击节点打开 NBS 钢琴卷帘编辑器。
 
 **Description (English)**
 
-Song host: NBS track data lives on the node; outputs audio (typed source), playing / tick / seconds status and a done pulse at the end of a non-looping play-through. play & stop fire on rising edge; seek jumps whenever its value changes. Double-click opens the NBS piano-roll editor.
+Song host: NBS track data lives on the node; outputs audio (typed source), playing / tick / seconds status and a done pulse at the end of a non-looping play-through. The playback edit panel has three settings: input activation — Level Play (a rising edge activates, falling stops and keeps the head) or Edge Start (default; falling is ignored); playback — From Start (every activation rewinds) or Resume (default; continues from the head, end-wrap as before); and the loop toggle. seek jumps whenever its value changes; the stop rising edge halts. Double-click opens the NBS piano-roll editor.
 
 ---
 

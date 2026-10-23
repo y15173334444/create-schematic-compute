@@ -564,7 +564,7 @@ Global named-channel communication across computers. Like publish-subscribe mess
 
 | Node / 节点 | Description / 说明 |
 |-------------|-------------------|
-| Music / 曲目 | Song host + transport: NBS playback, loop, play/stop / 曲目宿主+传输：NBS 播放、循环、起停 |
+| Music / 曲目 | Song host + transport: NBS playback, loop, play/stop, activation & start policy / 曲目宿主+传输：NBS 播放、循环、起停、输入激活×起播策略 |
 | Amplifier / 功放 | Gain 0-4 plus a dynamics curve (note loudness → output level) / 增益 0-4 + 力度曲线（音符力度→输出力度） |
 | Wave Shaper / 波形整形 | Per-sample shaping curve; identity curve = true bypass / 逐采样整形曲线；恒等曲线 = 真旁路 |
 | Audio Output / 音频输出 | Publish audio to a named band / 发布音频到命名频段 |
