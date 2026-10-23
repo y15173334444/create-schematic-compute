@@ -2291,14 +2291,16 @@ public class GraphEditor {
         removeAndRecordDoomedConnections(doomedIds);
         for (var n : doomed) {
             if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
-                boolean hasOther = false;
-                for (var other : graph.nodes) {
-                    if (other != n && other.type == NodeType.BUS_OUT && other.signalName.equals(n.signalName))
-                        { hasOther = true; break; }
-                }
-                if (!hasOther) {
-                    io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(n.signalName);
-                }
+                // 删除 = 确证离开：统一释放（owner 门控 + 候选感知退役）。旧实现的
+                // SignalBus.clearBus 不带 owner 门、只扫同图同名，会把跨图 owner 的
+                // 频段定义与值连带清掉（用户症状：A 的频段被一起清理，BUS_IN 搜索不到）。
+                // Delete = provable departure: the unified release (owner-gated +
+                // claimant-aware retire). The old owner-less clearBus scanned only the
+                // same graph and wiped a cross-graph owner's definition and values along
+                // with the deleted node.
+                io.github.y15173334444.create_schematic_compute.network.SignalBus.releaseChannel(
+                    n.signalName, new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(
+                        host.getBlockPos(), n.id));
             }
             var savedX = n.x; var savedY = n.y; var savedType = n.type.ordinal();
             var savedNbt = saveNodeNbt(n); // 撤销恢复用快照 / snapshot for undo restore

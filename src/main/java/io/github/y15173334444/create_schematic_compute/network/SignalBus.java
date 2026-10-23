@@ -45,6 +45,24 @@ public class SignalBus {
      *  the BUS channel registry; a different owner's registration fails and the caller flags it. */
     private static final ConcurrentHashMap<String, ChannelOwner> PRIVATE_OWNERS = new ConcurrentHashMap<>();
 
+    /** BUS 频道的**活候选**占用表：name → 注册被拒过的 owner 集合（首个注册者获胜语义下的排队者）。
+     *  <p>持有者**确证离开**时，若名下还有活候选，频段定义**不**退役成「已定义为空」——降级为
+     *  「未定义」（条目缺席），让「缺席不是定义」守卫跳过收敛、保住订阅者连线；候选经
+     *  {@code recoverConflictedChannels} 接管后定义随注册内核回来。没有候选才做死名退役
+     *  （issue #11 的死名收敛照旧）。用户症状：注册序倒置下 B 持有频道、A 撞名，B 改名走人
+     *  把名字退役成「已定义为空」，订阅侧每 tick 收敛把 BUS_IN 的频段图剪光，A 接管后线也回不来。</p>
+     *  Live <b>claimants</b> per BUS channel: owners whose registration was refused (the queue
+     *  behind first-registrant-wins). When the holder provably leaves and claimants remain, the
+     *  band definition is <b>not</b> retired to "defined empty" — it degrades to "undefined"
+     *  (absent entry) so the "absence is not a definition" guard skips convergence and keeps
+     *  subscribers' wires; the claimant's takeover brings the definition back with its
+     *  registration. Only an uncontested departure retires the name (issue #11's dead-name
+     *  cleanup, unchanged). User symptom: under a registration-order inversion B holds the
+     *  channel and A conflicts; renaming B away retired the name to defined-empty and the
+     *  per-tick convergence pruned every BUS_IN's band graph — A's later takeover could not
+     *  bring the wires back. */
+    private static final ConcurrentHashMap<String, java.util.Set<ChannelOwner>> CLAIMANTS = new ConcurrentHashMap<>();
+
     /** 私有频道定义标志：name → 该频道当前是否承载音频（发布方按输入引脚对端域的拓扑判定，
      *  随版本戳同步给订阅方做引脚类型变换——BUS 频段音频标志同款，属性跟频道走）。
      *  Private channel definition flag: whether the channel carries audio (topology-derived by
@@ -164,24 +182,53 @@ public class SignalBus {
      * 条目，并在名下无主时退役频段定义（{@link #retireBands}）。只动属于该 owner 的数据 ——
      * 他人条目与定义不碰（跨 owner 破坏防线）。**瞬时缺席**（宿主卸载 / 区块 unloaded）
      * 不走此路：那要保持「未定义」，由「缺席不是定义」守卫保订阅者连线。
-     * <p>统一规则（一处写清）：确证离开 → retire（已定义为空，死名收敛清图）；
-     * 瞬时缺席 → 保持未定义（跳过收敛，保线）。</p>
+     * <p>统一规则（一处写清）：确证离开且**名下无活候选** → retire（已定义为空，死名收敛清图）；
+     * 确证离开但**还有活候选**（{@link #CLAIMANTS}） → 降级为「未定义」——候选接管前收敛跳过、
+     * 保订阅者连线，接管后定义随注册内核回来；瞬时缺席 → 保持未定义（跳过收敛，保线）。</p>
      * Unified release for a **provable** departure (rename-away / node delete / explicit
      * channel retirement): drops the channel entry by owner and, when the name is left
      * unowned, retires the band definition (defined-empty). Only that owner's data is touched
      * — a foreign entry or definition is never nulled (the cross-owner damage guard).
      * **Transient absence** (host unload / chunk unloaded) does not go through here: it must
      * stay "undefined" so the "absence is not a definition" guard preserves subscribers' wires.
+     * <p>The rule in one place: provable departure with <b>no live claimants</b> → retire
+     * (defined-empty, dead-name convergence prunes); provable departure <b>with claimants</b>
+     * → degrade to "undefined" — convergence skips until the claimant takes over, then the
+     * definition returns with its registration; transient absence → stays undefined.</p>
      *
      * @return true if this owner's entry was released
      */
     public static boolean releaseChannel(String busName, ChannelOwner owner) {
         boolean released = unregisterChannel(busName, owner);
+        // 离开者不再是候选（改名/删除/显式清空的统一出口都在这）。
+        // The leaver stops being a claimant — this is the unified exit for rename/delete/retire.
+        dropClaim(busName, owner);
         if (released || getChannel(busName) == null) {
             if (!released) clearBus(busName);
-            retireBands(busName);
+            // 活候选还在 → 名字是「有争议」而非「已死」：不退役成「已定义为空」（clearBus
+            // 已把条目摘成缺席），缺席守卫跳过收敛、保住订阅者连线；候选接管后定义回来。
+            // A live claimant means the name is contested, not dead: do not retire it to
+            // "defined empty" (clearBus already left it absent) — the absence guard keeps
+            // subscribers' wires until the claimant's takeover restores the definition.
+            if (claimantsOf(busName).isEmpty()) retireBands(busName);
         }
         return released;
+    }
+
+    /** 当前活候选（只读；无候选返回空集）/ The current claimants (empty when none). */
+    private static java.util.Set<ChannelOwner> claimantsOf(String busName) {
+        var c = CLAIMANTS.get(busName);
+        return c != null ? c : java.util.Set.of();
+    }
+
+    /** 摘掉一个候选（注册成功或确证离开时）；集空连键一起收，防表泄漏。
+     *  Drop a claimant (on successful registration or provable departure); the emptied
+     *  key goes too, so the table never leaks. */
+    private static void dropClaim(String busName, ChannelOwner owner) {
+        CLAIMANTS.computeIfPresent(busName, (k, set) -> {
+            set.remove(owner);
+            return set.isEmpty() ? null : set;
+        });
     }
 
     /** 更新频段音频标志（内容变化才写 + 自增版本）。返回是否发生变化。
@@ -240,6 +287,7 @@ public class SignalBus {
             ChannelEntry raced = CHANNELS.putIfAbsent(channelName, created);
             if (raced == null) {
                 LOGGER.debug("[SignalBus] Channel '{}' registered by {}", channelName, owner);
+                dropClaim(channelName, owner); // 注册成功 = 不再是候选 / success = no longer a claimant
                 return true;
             }
             existing = raced; // EN: Lost the race, process according to existing entry / 竞态失败，按已有条目处理
@@ -257,12 +305,15 @@ public class SignalBus {
                 while (updated.refCount() < existing.refCount()) updated.incrementRef();
                 CHANNELS.put(channelName, updated);
             }
+            dropClaim(channelName, owner);
             return true;
         }
         // EN: Different owner → conflict
-        // 不同 owner → 冲突
+        // 不同 owner → 冲突（登记为活候选：持有者离开时名下并非无主，见 CLAIMANTS）
+        // conflict (register a live claimant: the name is not dead when the holder leaves)
         LOGGER.warn("[SignalBus] Channel '{}' already owned by {} — rejected registration by {}",
             channelName, existing.owner, owner);
+        CLAIMANTS.computeIfAbsent(channelName, k -> java.util.concurrent.ConcurrentHashMap.newKeySet()).add(owner);
         return false;
     }
 
@@ -346,6 +397,7 @@ public class SignalBus {
         AUDIO_BANDS.clear();
         AUDIO_STAMPS.clear();
         CHANNELS.clear();
+        CLAIMANTS.clear();
         PRIVATE_OWNERS.clear();
         PRIVATE_AUDIO.clear();
         PRIVATE_AUDIO_STAMPS.clear();

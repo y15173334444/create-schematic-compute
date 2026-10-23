@@ -113,7 +113,18 @@ final class GraphBusEditor {
             // NOT call releaseOldBusName (it wipes signalBands and cuts old-band wires).
             io.github.y15173334444.create_schematic_compute.network.BusChannelHelper
                 .applyBusOutRename(ed.getGraph(), ed.host.getBlockPos(), node, oldName, null);
-        } else if (!oldName.isEmpty()) {
+        } else if (!oldName.isEmpty()
+            && node.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN) {
+            // BUS_IN 是订阅方，从不拥有频道 —— 它改名**不许**碰发布方的全局数据：旧实现的
+            // clearBus 只扫同图同名，跨图 owner 的频段定义与值会被连带清掉（用户症状：
+            // A 的频段被一起清理，BUS_IN 搜索不到）。残留清理归发布方的统一释放
+            // （releaseChannel），订阅方改名对注册表零操作。
+            // A BUS_IN is a subscriber and never owns the channel — its rename must not
+            // touch the publisher's global data: the old same-graph-scan clearBus wiped a
+            // cross-graph owner's definition and values along with it. Residue cleanup
+            // belongs to the publisher's unified release (releaseChannel); a subscriber's
+            // rename leaves the registry alone. Other types (PRIVATE/REDSTONE) keep the
+            // old behaviour below.
             boolean othersUseOldName = false;
             for (var n : ed.getGraph().nodes) {
                 if (n != node && (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN || n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT)
