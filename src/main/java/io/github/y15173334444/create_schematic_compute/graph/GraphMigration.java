@@ -49,6 +49,7 @@ public final class GraphMigration {
             GraphMigration::migrateV3toV4,
             GraphMigration::migrateV4toV5,
             GraphMigration::migrateV5toV6,
+            GraphMigration::migrateV6toV7,
     };
 
     /**
@@ -478,6 +479,46 @@ public final class GraphMigration {
         if (pc > deadbandIdx) return; // 已有该槽（含用户设的 0）/ slot already present (incl. user-set 0)
         n.putFloat("p" + deadbandIdx, 0.001f);
         n.putInt("pcount", deadbandIdx + 1);
+    }
+
+    // ── V6 → V7 ───────────────────────────────────────────────────────────
+    // Changes in v7 / v7 中的变更:
+    //   1. ANGLE_UNWRAP gains the fold-range "mode" param (0 = fold each step's change
+    //      into (-180,180], the legacy behaviour; 1 = into [0,360), always forward) and
+    //      a second body input that overrides the param at runtime. Legacy nodes carry
+    //      no params — fill pcount=1, p0=0 without touching a user-set slot. Old wires
+    //      already target body input 0 (the angle), so connections need no retargeting.
+    //      ANGLE_UNWRAP 增加折返区间 "mode" 参数（0 = 每步变化折入 (-180,180]，即旧
+    //      行为；1 = 折入 [0,360)，单向前进）与可覆盖该参数的第二输入引脚。旧节点
+    //      没有参数槽——补 pcount=1、p0=0，用户已设槽位不覆盖。旧连线本就指向节点体
+    //      0 号输入（角度），无需改指。
+
+    /**
+     * Migrate a graph tag from version 6 to version 7.
+     *
+     * 将图标签从版本 6 迁移到版本 7。
+     *
+     * @param tag        the v6 graph tag / v6 版本的图标签
+     * @param registries Minecraft holder lookup provider / Minecraft Holder 查找提供器
+     * @return the migrated v7 tag / 迁移后的 v7 标签
+     */
+    private static CompoundTag migrateV6toV7(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+        CompoundTag out = tag.copy();
+        ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
+        for (int i = 0; i < nodes.size(); i++) {
+            CompoundTag n = nodes.getCompound(i);
+            // 只补缺失槽位，不覆盖用户已设值（含设为 0 的双向折返）。
+            // Only fill the missing slot — never overwrite a user-set value (incl. mode 0).
+            if ("angle_unwrap".equals(n.getString("type")) && n.getInt("pcount") == 0) {
+                n.putFloat("p0", 0f);
+                n.putInt("pcount", 1);
+            }
+            if (n.contains("subGraph")) {
+                n.put("subGraph", migrateV6toV7(n.getCompound("subGraph"), registries));
+            }
+        }
+        out.putInt(NbtVersions.VERSION_KEY, 7);
+        return out;
     }
 
     /**

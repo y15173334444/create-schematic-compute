@@ -52,8 +52,9 @@ class EncoderResetPinMigrationTest {
         g.putInt(NbtVersions.VERSION_KEY, 5);
 
         CompoundTag out = GraphMigration.migrate(g, null);
-        // V5→V6（1.2.5.2）：ENCODER 清零 + PID 死区同一步 / one V5→V6 step for both
-        assertEquals(6, NbtVersions.getVersion(out));
+        // V5→V6（1.2.5.2）：ENCODER 清零 + PID 死区同一步；migrate() 一路升到当前版
+        // One V5→V6 step for both; migrate() runs on to the current version.
+        assertEquals(NbtVersions.DATA_VERSION, NbtVersions.getVersion(out));
 
         CompoundTag n = out.getList("nodes", net.minecraft.nbt.Tag.TAG_COMPOUND).getCompound(0);
         assertEquals(0, n.getInt("pcount"), "stale reset param must be dropped");

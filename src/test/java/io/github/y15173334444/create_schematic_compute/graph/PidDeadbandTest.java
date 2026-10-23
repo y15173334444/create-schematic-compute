@@ -151,7 +151,7 @@ class PidDeadbandTest {
         g.putInt(NbtVersions.VERSION_KEY, 5);
 
         CompoundTag out = GraphMigration.migrate(g, null);
-        assertEquals(6, NbtVersions.getVersion(out));
+        assertEquals(NbtVersions.DATA_VERSION, NbtVersions.getVersion(out));
 
         ListTag ns = out.getList("nodes", net.minecraft.nbt.Tag.TAG_COMPOUND);
         CompoundTag pid = ns.getCompound(0);
@@ -194,7 +194,7 @@ class PidDeadbandTest {
         CompoundTag pid = subOut.getList("nodes", net.minecraft.nbt.Tag.TAG_COMPOUND).getCompound(0);
         assertEquals(6, pid.getInt("pcount"));
         assertEquals(0.001f, pid.getFloat("p5"), 1e-6f);
-        assertEquals(6, NbtVersions.getVersion(subOut));
+        assertEquals(NbtVersions.DATA_VERSION, NbtVersions.getVersion(subOut));
     }
 
     @Test

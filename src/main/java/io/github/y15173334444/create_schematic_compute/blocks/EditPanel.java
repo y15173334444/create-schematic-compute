@@ -415,6 +415,31 @@ public class EditPanel {
                 bx+4, by+2, 0xFFFFFFFF, false);
             row++;
         }
+        // 折返区间两段式切换（FORMULA warm 同款几何）：左 = 双向最短步进 (-180,180]，
+        // 右 = 单向前进一步 [0,360)。值存 node.params[0]，点击走 SET_PARAM op。
+        // Fold-range segmented toggle (FORMULA warm geometry): left = shortest-step
+        // (-180,180], right = always-forward [0,360). Value lives in node.params[0];
+        // clicks go through the SET_PARAM op.
+        if (node.type == NodeType.ANGLE_UNWRAP && node.params.length > 0) {
+            int rowY = py + 4 + row * 18;
+            int gap = 4, btnW = (pw - 12 - gap) / 2;
+            boolean fwd = node.params[0] > 0.5f;
+            String[] labels = {
+                I18n.get("gui.create_schematic_compute.edit.mode_180"),
+                I18n.get("gui.create_schematic_compute.edit.mode_360")
+            };
+            for (int i = 0; i < 2; i++) {
+                int bx = px + 4 + i * (btnW + gap);
+                boolean isActive = fwd == (i == 1);
+                g.fill(bx, rowY, bx + btnW, rowY + 16, isActive ? 0xFF2A4A2A : 0xFF2A2A2A);
+                g.renderOutline(bx, rowY, btnW, 16, isActive ? 0xFF88FF88 : 0xFF666666);
+                String label = labels[i];
+                int tw = Minecraft.getInstance().font.width(label);
+                g.drawString(Minecraft.getInstance().font, label, bx + (btnW - tw) / 2, rowY + 3,
+                    isActive ? 0xFFAAFFAA : 0xFF888888, false);
+            }
+            row++;
+        }
         if (node.type == NodeType.MOUSE_JOYSTICK && node.params.length > 0) {
             // 绝对值 / 增量 模式切换开关 (abs / incremental mode toggle)
             boolean abs = node.params[0] > 0.5f;

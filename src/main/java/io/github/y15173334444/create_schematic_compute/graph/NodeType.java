@@ -60,7 +60,14 @@ public enum NodeType {
     SEC("sec", "node.create_schematic_compute.sec", 1, 1, ""),
     CSC("csc", "node.create_schematic_compute.csc", 1, 1, ""),
     COT("cot", "node.create_schematic_compute.cot", 1, 1, ""),
-    ANGLE_UNWRAP("angle_unwrap", "node.create_schematic_compute.angle_unwrap", 1, 1, ""),
+    // 双角度比对：a、b 两路角度入 → 差角折返出（无状态、输出有界）。折返区间 = 可编辑
+    // 参数 mode（编辑区两段切换）：0 折入 (-180,180]（双向有号差角），1 折入 [0,360)
+    // （0~360 正向角）。旧「逐 tick 累计」形态已移除（输出会涨到几千度，比对不稳定）。
+    // Two-angle compare: angles a and b in → the folded delta out (stateless, bounded).
+    // The fold range is the editable "mode" param (edit-panel segmented toggle): 0 folds
+    // into (-180,180] (signed shortest delta), 1 into [0,360) (0~360 forward delta). The
+    // old per-tick accumulator is gone (it ran into the thousands and compared unstably).
+    ANGLE_UNWRAP("angle_unwrap", "node.create_schematic_compute.angle_unwrap", 2, 1, "mode"),
     DIRECTION("direction", "node.create_schematic_compute.direction", 0, 3, "ax,ay,az,bx,by,bz"),
     POSITION("position", "node.create_schematic_compute.position", 0, 3, "offsetX,offsetY,offsetZ"),
     ACCUMULATOR("accumulator", "node.create_schematic_compute.accumulator", 2, 1, "step"),
@@ -247,7 +254,10 @@ public enum NodeType {
                  // CHANNEL 的「布局」= 编辑区按钮（非引脚）/ layout = edit-panel control, not a pin
                  MUSIC, AUDIO_OUT, CHANNEL, SPEAKER_PLAY, WSHAPE,
                  // rev = 正/反转开关（编辑区按钮，不走 EditBox / toggle button, not an EditBox）
-                 TX_OUT, SPEED_CTRL -> 0;
+                 TX_OUT, SPEED_CTRL,
+                 // ANGLE_UNWRAP mode = 折返区间两段切换（编辑区按钮，不走 EditBox）
+                 // ANGLE_UNWRAP mode = fold-range segmented toggle, not an EditBox
+                 ANGLE_UNWRAP -> 0;
             // MOVE/ROTATE：只有 meters/degrees 走 EditBox+引脚；rev 是按钮，不占引脚
             // MOVE/ROTATE: only meters/degrees get an EditBox+pin; rev is a button
             case MOVE, ROTATE -> 1;
@@ -310,13 +320,14 @@ public enum NodeType {
         case RELAY_A, RELAY_B -> switch(i) { case 0 -> pk("relay_a_in"); case 1 -> pk("relay_b_in"); default -> pk("relay_contact"); };
         case MUSIC -> i==0?pk("play"):i==1?pk("stop"):pk("seek");
         case AMP -> i==0?pk("audio"):pk("gain");
+        case ANGLE_UNWRAP -> i==0?pk("a"):pk("b");
         case CHANNEL, SPEAKER_PLAY -> pk("audio");
         default -> pk("in");
     };}
     public String outputLabel(int i) { return switch(this){
         case CONST -> pk("float");
         case REDSTONE_IN -> pk("signal");
-        case ADD,SUB,MUL,DIV,MOD,POW,ROOT,ABS,ROUND,SIN,COS,TAN,ASIN,ACOS,ATAN2,SINH,COSH,SQRT,LN,LOG,EXP,SEC,CSC,COT -> pk("float");
+        case ADD,SUB,MUL,DIV,MOD,POW,ROOT,ABS,ROUND,SIN,COS,TAN,ASIN,ACOS,ATAN2,SINH,COSH,SQRT,LN,LOG,EXP,SEC,CSC,COT,ANGLE_UNWRAP -> pk("float");
         case INTERP -> i==0?pk("a"):pk("b");
         case GT,LT,EQ,GE,LE, BOOL, AND, OR -> pk("bool");
         case PID -> pk("ctrl");

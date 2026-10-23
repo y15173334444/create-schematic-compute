@@ -166,7 +166,8 @@ public class SpatialIndex {
         if (n.type.paramNames.length > 0 && n.type != NodeType.BOOL && n.type != NodeType.GATE && n.type != NodeType.T_FLIPFLOP
             && n.type != NodeType.LATCH && n.type != NodeType.IMAGE && n.type != NodeType.IMAGE_SEQUENCE
             && n.type != NodeType.DEBUG_SIGNAL_GEN && n.type != NodeType.MOUSE_JOYSTICK
-            && n.type != NodeType.TX_OUT && n.type != NodeType.SPEED_CTRL) {
+            && n.type != NodeType.TX_OUT && n.type != NodeType.SPEED_CTRL
+            && n.type != NodeType.ANGLE_UNWRAP) {
             if (n.type == NodeType.KEYBOARD || n.type == NodeType.GAMEPAD_BUTTON) {
                 h += 24;
             } else if (n.type == NodeType.ACCUMULATOR || n.type == NodeType.INTEGRATOR) {
@@ -177,6 +178,8 @@ public class SpatialIndex {
         // 正/反转按钮（输出指令类）/ forward-reverse toggle (output-command nodes)
         if (n.type == NodeType.MOVE || n.type == NodeType.ROTATE
             || n.type == NodeType.TX_OUT || n.type == NodeType.SPEED_CTRL) h += 18;
+        // 折返区间两段式切换行 / fold-range segmented toggle row
+        if (n.type == NodeType.ANGLE_UNWRAP) h += 18;
         // v1.2.6 音频节点按钮行 + HUD 范围/间隔步进行 / audio-node button rows + HUD stepper rows
         if (n.type == NodeType.MUSIC) h += 18;            // loop 循环开关 / loop toggle
         if (n.type == NodeType.CHANNEL) h += 36;          // 布局预设两行（3+2）/ layout presets, two rows

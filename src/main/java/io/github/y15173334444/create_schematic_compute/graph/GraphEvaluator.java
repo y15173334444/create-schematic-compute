@@ -716,13 +716,25 @@ public class GraphEvaluator {
                     ? (float)(1.0 / Math.tan(Math.toRadians(v))) : 0;
             }
             case ANGLE_UNWRAP -> {
-                float cur = graph.getInputValue(node.id, 0, outputs);
-                float last = pidState.getOrDefault(node.id, cur);
-                float diff = cur - last;
-                while (diff > 180f) diff -= 360f;
-                while (diff < -180f) diff += 360f;
-                o[0] = last + diff;
-                pidState.put(node.id, o[0]);
+                // 双角度比对（无状态）：输出 = a-b 差角折进所选区间——mode 0 折入
+                // (-180,180]（双向有号差角），mode 1 折入 [0,360)（0~360 正向角）。
+                // 不带逐 tick 累计（旧累计输出会一路涨到几千度，比对不稳定）。
+                // Two-angle compare (stateless): the output is the a-b delta folded into
+                // the picked range — mode 0 into (-180,180] (signed shortest delta),
+                // mode 1 into [0,360) (0~360 forward delta). No per-tick accumulation
+                // (the old accumulator ran away into the thousands and compared unstably).
+                float a = graph.getInputValue(node.id, 0, outputs);
+                float b = graph.getInputValue(node.id, 1, outputs);
+                float mode = node.params.length > 0 ? node.params[0] : 0f;
+                float diff = a - b;
+                if (mode > 0.5f) {
+                    while (diff < 0f) diff += 360f;
+                    while (diff >= 360f) diff -= 360f;
+                } else {
+                    while (diff > 180f) diff -= 360f;
+                    while (diff < -180f) diff += 360f;
+                }
+                o[0] = diff;
             }
             case DIRECTION -> {
                 float ax = node.params.length > 0 ? node.params[0] : 0;

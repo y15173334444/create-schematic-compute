@@ -39,6 +39,14 @@
 - **修法 / Fix**：① 自愈收口进 `ensureBusRegistered`（9 宿主统一挂点、图停止也跑），且排在**每 tick 收敛之前**——候选同一 tick 内接管并带回定义，收敛看到的永远是完备状态；② 收敛守卫收紧为「**未定义 = 空不可证明 → 跳过保线**」，只有**已定义为空**（死名退役 / 零频段发布方的注册即定义）才剪——零频段发布方在注册时就写下「已定义为空」（`registerGraphChannels` / `reRegisterChannels` / `takeoverChannel` 三处注册即定义），issue #11 死名清理与零频段语义不变；③ 镜像清理补 owner 门：空表同步包不再 `clearBus` 掉存活 owner 的定义与值。
 - **回归 / Regression**：`BusInBandConvergenceTest` 零频段用例改为「注册即定义」构造 + `BusOutConflictRenameRegressionTest` 新增「零频段定义 / 定义丢失保线」两例。
 
+### 📐 角度解绕：双角度比对 + 折返区间两模式 / Angle Unwrap: Two-Angle Compare & Two Fold Ranges
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🔺 **双角度比对（行为变更）** | 节点重做为**双角度比对**：a、b 两路角度入，输出 = 差角 a-b 折进所选区间；**逐 tick 累计状态移除**——旧输出会一路涨到几千度（比对不稳定），现求值无状态、输出有界。旧连线仍落在 0 号（a）输入，b 未接线按 0 比对（= 角度归一化）；输出引脚补上缺失的 float 标签 / Reworked into a **two-angle compare**: angles a and b in, the output is the a-b delta folded into the picked range; the **per-tick accumulator is gone** — its output ran away into the thousands (unstable comparison). Evaluation is stateless and the output stays bounded. Legacy wires still land on input 0 (a); an unwired b compares against 0 (= angle normalisation). The output pin gets its missing float label. |
+| 🔢 **折返区间两模式** | 编辑区两段切换（`+/-180` \| `0~360`，FORMULA warm 同款几何）选输出区间：+/-180 折入 (-180,180]（双向有号差角），0~360 折入 [0,360)（0~360 正向角）。跨缠绕缝（359 对 1 度）也给出正确小角 / The edit-panel segmented toggle (`+/-180` \| `0~360`, FORMULA warm geometry) picks the output range: (-180,180] (signed shortest delta) or [0,360) (0~360 forward delta). Correct small deltas across the wrap seam (359 vs 1 degrees). |
+| 🔁 **V6→V7 迁移** | **V6→V7 迁移**为旧 `angle_unwrap` 节点补 `mode` 槽（默认 0 = +/-180 有号差角，不覆盖用户已设值），递归处理封装子图；`NbtVersions.DATA_VERSION` 升到 7。测试：`AngleUnwrapModeTest` / The **V6→V7 migration** fills the `mode` slot on legacy `angle_unwrap` nodes (default 0 = the +/-180 signed delta, user-set values survive), recursing into sub-graphs; `NbtVersions.DATA_VERSION` bumps to 7. Tests: `AngleUnwrapModeTest`. |
+
 </details>
 
 <details>

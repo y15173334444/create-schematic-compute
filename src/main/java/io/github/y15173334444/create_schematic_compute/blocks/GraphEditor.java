@@ -2668,6 +2668,31 @@ public class GraphEditor {
                 }
             }
         }
+        // ANGLE_UNWRAP 折返区间两段式切换（FORMULA warm 同款几何，节点行 0）：
+        // 左 = 双向最短步进 (-180,180]，右 = 单向前进一步 [0,360)。
+        // SET_PARAM 精确设值（信号发生器模式切换同款 op）。
+        // ANGLE_UNWRAP fold-range segmented toggle (FORMULA warm geometry, node row 0):
+        // left = shortest-step (-180,180], right = always-forward [0,360).
+        // Exact-value SET_PARAM (same op as the signal generator's mode switch).
+        if (en.type == NodeType.ANGLE_UNWRAP && en.params.length > 0) {
+            int modeLocalY = editLocalY + 4;
+            int modeW = NodeRenderer.nw(en);
+            int gap = 4, btnW = (modeW - 12 - gap) / 2;
+            for (int i = 0; i < 2; i++) {
+                int bx = 4 + i * (btnW + gap);
+                if (lmy >= modeLocalY && lmy <= modeLocalY + 16 && lmx >= bx && lmx <= bx + btnW) {
+                    int target = i; // 0 = -180~+180 折返，1 = 0~360 折返 / fold range pick
+                    if ((en.params[0] > 0.5f ? 1 : 0) != target) {
+                        float oldV = en.params[0];
+                        en.params[0] = target;
+                        var mOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                            host.getBlockPos(), ownerNodeId(), en.id, 0, (float) target, host.getPlayerUUID());
+                        sendOp(mOp); recordOp(mOp, 0, 0, oldV, null);
+                    }
+                    return true;
+                }
+            }
+        }
         // BUS_IN/OUT 频段 +/- 按钮（先提交未保存的 busBox，防止名称丢失） (BUS_IN/OUT band +/- buttons; commit unsaved busBox first to avoid name loss)
         if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
             // 提交当前节点的 busBox（如有未保存的频道名编辑） (Commit current node's busBox if unsaved channel name edits exist)
