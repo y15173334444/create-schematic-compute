@@ -32,6 +32,13 @@
 - **修法 / Fix**：`SignalBus` 引入**活候选**占用表（注册被拒者登记为候选）；持有者确证离开时名下还有候选就不把定义退役成「已定义为空」，降级为「未定义」——「缺席不是定义」守卫跳过收敛、保住订阅者连线，候选接管后定义随注册内核回来。删除路径与 BUS_IN 改名统一改走 owner 门控的 `releaseChannel`（订阅方改名对注册表零操作）。无候选的真死名照旧退役（issue #11 的死名收敛语义不变）。
 - **回归 / Regression**：`BusOutConflictRenameRegressionTest`（同图/跨图、重编译周期、每 tick 收敛、所有权倒置死名窗口、删除路径跨 owner 保护）。
 
+### ♻️ 自愈挂点与收敛守卫（实测二轮）/ Recovery Hook & Convergence Guard (second in-game round)
+
+- **症状 / Symptom**（实测复现）：B 改名走人后 BUS_IN 的频段被清，要手动去刷 BUS_OUT 把频段发回来才恢复。
+- **根因 / Root cause**：① 冲突自愈（候选接管 + 频段定义重发布）的挂点散在各宿主 tick 且排在 `isRunning()` 早退之后——图一停（编辑中）就没人自愈，频段定义迟迟无人发回；② 收敛的「零频段推定」把「定义缺失」当作证明过的空（CHANNELS 条目在 + 定义为空 ⇒ 收敛清订阅者），定义一旦被误清就剪光 BUS_IN。
+- **修法 / Fix**：① 自愈收口进 `ensureBusRegistered`（9 宿主统一挂点、图停止也跑），且排在**每 tick 收敛之前**——候选同一 tick 内接管并带回定义，收敛看到的永远是完备状态；② 收敛守卫收紧为「**未定义 = 空不可证明 → 跳过保线**」，只有**已定义为空**（死名退役 / 零频段发布方的注册即定义）才剪——零频段发布方在注册时就写下「已定义为空」（`registerGraphChannels` / `reRegisterChannels` / `takeoverChannel` 三处注册即定义），issue #11 死名清理与零频段语义不变；③ 镜像清理补 owner 门：空表同步包不再 `clearBus` 掉存活 owner 的定义与值。
+- **回归 / Regression**：`BusInBandConvergenceTest` 零频段用例改为「注册即定义」构造 + `BusOutConflictRenameRegressionTest` 新增「零频段定义 / 定义丢失保线」两例。
+
 </details>
 
 <details>

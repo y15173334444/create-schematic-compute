@@ -274,7 +274,8 @@
    **匹配**释放掉对方的条目与定义——owner 门控在撞号面前整体失真。
 2. **客户端旗标/镜像清理**：`syncBusBands` 写 `BAND_REGISTRY` 只靠**客户端冲突旗标**门控（旗标随图同步
    有合并延迟，滞后窗口里候选节点的频段会被灌成频道定义）；`BusBandSyncPacket` 收到空表时直接
-   `clearBus`（不带 owner 门——过期空包在单机共享静态表上会清掉存活 owner 的定义与值）。
+   `clearBus`（不带 owner 门——过期空包在单机共享静态表上会清掉存活 owner 的定义与值）
+   ——✅ 空表一路已修（1.2.6.1 实测二轮：只清无主镜像，存活 owner 的定义与值不碰），`syncBusBands` 一路仍在本条目下。
 
 ### 触发条件 / Trigger
 
@@ -288,8 +289,7 @@
 ### 修复方向 / Fix direction
 
 `ChannelOwner` 增加图域维度（`ownerNodeId`）并全链带上（注册/释放/快照键同口径）；
-`syncBusBands` 的 `registerBands` 与 `BusBandSyncPacket` 的空表清理改成与 `releaseChannel` 同款的
-owner 门控（客户端镜像写入只认 owner，空表包只清镜像里非 owner 持有的部分）。
+`syncBusBands` 的 `registerBands` 改成与 `releaseChannel` 同款的 owner 门控（客户端镜像写入只认 owner）。
 
 ### 状态 / Status
 
