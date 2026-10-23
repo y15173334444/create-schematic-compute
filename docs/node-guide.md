@@ -821,15 +821,15 @@ Cotangent (1/tan): input in degrees. Near tan ~ 0 singularities (0 degrees +/- k
 ## 54. 角度解绕/A_UNWRAP / Angle Unwrap
 
 - **枚举名 / Type**: `ANGLE_UNWRAP` · 稳定 id: `angle_unwrap`
-- **接口 / Interface**: 1 入 in → 1 出 out
+- **接口 / Interface**: 2 入 in → 1 出 out · 参数 params: `mode`
 
 **说明（中文）**
 
-角度解绕：把逐 tick 输入的角度序列展开成连续累计角——每一步变化量折入 (-180,180]，输出随旋转超出 +/-180 也不会跳变。首次求值以当前输入为起点；累计状态跨 tick、跨重编译保留。适合跟踪转轴/编码器角度。单位度。
+角度解绕：双角度比对——把 a、b 两路角度（度）的差角 a-b 折进所选区间，无状态、输出有界。+/-180 模式折入 (-180,180]（双向有号差角），0~360 模式折入 [0,360)（0~360 正向角）；区间在编辑区两段切换。跨缠绕缝（如 359 度对 1 度）也给出正确小角。适合比对目标/实际角度、双轴同步差。旧版逐 tick 累计形态已移除（输出会一路涨到几千度，比对不稳定）。
 
 **Description (English)**
 
-Angle unwrap: unfolds a per-tick angle series into a continuous accumulated angle — each step's change folds into (-180,180], so the output can exceed +/-180 without ever jumping. The first tick seeds from the current input and the state survives ticks and recompiles. Track shaft or encoder angles. Degrees.
+Angle unwrap: two-angle compare — folds the a-b delta of the two angle inputs (degrees) into the picked range, stateless with a bounded output. The +/-180 mode folds into (-180,180] (signed shortest delta), the 0~360 mode into [0,360) (0~360 forward delta); the range is picked with the edit-panel toggle. Correct small deltas across the wrap seam (e.g. 359 vs 1 degrees). Compare target vs actual angles or twin-shaft sync error. The old per-tick accumulator is gone (its output ran away into the thousands and compared unstably).
 
 ---
 
