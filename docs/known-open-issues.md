@@ -1,9 +1,9 @@
 # 遗留问题登记 / Known Open Issues
 
-> 更新日期 / Updated：2026-10-18
-> 版本 / Version：1.2.6（WIP）
+> 更新日期 / Updated：2026-10-23
+> 版本 / Version：1.2.6.1（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 待办 6 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 待办 7 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -22,6 +22,7 @@
 | 4 | 功放开盖模型越出方块背面 0.75px | `lit=true` 时盖子最外上角到 Z16.75，紧邻方块背面可见穿模 | 铰链前移 1px / 盖子做矮到 8px / 接受现状 | 🔶 待办（建模决定） |
 | 5 | NBS 笔划分组漏掉按下格（一次笔划 = 两条撤销） | 一次涂抹/擦除笔划要撤销两次：拖过格并成一条、按下格独立一条 | beginBatch 提到落点之前 + 一条回归测试 | 🔶 待办 |
 | 6 | 像素编辑器配色半收编（static final 捕获 + 硬编码按钮/悬停） | 与 NBS 收编前同款病：panel_bg/panel_border 类加载时捕获、按钮/悬停写死，换主题不跟 | 照 NBS 收编的同款映射一次搬 | 🔶 待办 |
+| 7 | 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理） | 主图/子图节点 id 撞号时 owner 门失真；syncBusBands/空表 clearBus 靠旗标或镜像语义门控 | ChannelOwner 加图域全链带上 + 两处清理改 owner 门控 | 🔶 待办 |
 
 ---
 
@@ -248,3 +249,48 @@
 ### 状态 / Status
 
 **🔶 待办。** 随「NBS 编辑器配色收编」同日发现（同族病、按用户口径本批只收 NBS），登记待另批。
+
+---
+
+## 7. 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理）
+
+范围 / Scope：`ChannelOwner` / `SignalBus`（owner 键空间）、`GraphBusEditor.syncBusBands`（客户端同名对齐 + 定义写入）、`BusBandSyncPacket`（客户端镜像清理）
+
+> 🔶 2026-10-23 随「冲突者改名走人误退役频道」（v1.2.6.1）同批判定：该修复把退役改成候选感知、
+> 把删除/BUS_IN 改名收口到 owner 门控 `releaseChannel`，本条登记的是同族的**剩余**豁口，本批不动。
+
+### 症状 / Symptom
+
+同宿主内主图与封装子图各建同名 BUS_OUT 时，频道条目会错挂到「同 id 的另一个图的节点」上；
+或在冲突旗标/频段上传/空表同步包的窄窗里，客户端的清理与定义写入互相踩掉存活 owner 的数据。
+
+### 机制 / Mechanism
+
+两块独立的缺口：
+
+1. **`ChannelOwner` 无图域**：owner 键 =（方块坐标, 节点 id），而节点 id 只在单个 `NodeGraph` 内唯一——
+   主图与封装子图的 id 计数器各自独立、数值必然撞号（编辑器侧 temp-id 守卫的注释已明示这一点）。
+   撞号时：注册被当成「同 owner 重注册」**静默接管**对方的 `internalMap` 引用；改名走人时又按 owner
+   **匹配**释放掉对方的条目与定义——owner 门控在撞号面前整体失真。
+2. **客户端旗标/镜像清理**：`syncBusBands` 写 `BAND_REGISTRY` 只靠**客户端冲突旗标**门控（旗标随图同步
+   有合并延迟，滞后窗口里候选节点的频段会被灌成频道定义）；`BusBandSyncPacket` 收到空表时直接
+   `clearBus`（不带 owner 门——过期空包在单机共享静态表上会清掉存活 owner 的定义与值）。
+
+### 触发条件 / Trigger
+
+同宿主主图 + 子图建同名 BUS_OUT（撞号必现）；或改名/冲突旗标同步与频段上传、空表同步包同帧交错（窄窗）。
+
+### 影响面 / Impact
+
+撞号场景是确定性破坏（频道条目/定义错挂、改名误释放）；旗标/包时序是窄窗级，但同为「频段被一起清理」
+症状族。单机（共享静态表）比联机更易显形。
+
+### 修复方向 / Fix direction
+
+`ChannelOwner` 增加图域维度（`ownerNodeId`）并全链带上（注册/释放/快照键同口径）；
+`syncBusBands` 的 `registerBands` 与 `BusBandSyncPacket` 的空表清理改成与 `releaseChannel` 同款的
+owner 门控（客户端镜像写入只认 owner，空表包只清镜像里非 owner 持有的部分）。
+
+### 状态 / Status
+
+🔶 待办。

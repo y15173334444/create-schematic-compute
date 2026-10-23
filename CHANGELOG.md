@@ -6,6 +6,7 @@
 
 | Version | 标题 / Title |
 |---------|--------------|
+| [v1.2.6.1](#v1261) | 修复：同名冲突者改名走人误退役频道致 BUS_IN 频段图被清（活候选值守退役）· 删除路径与 BUS_IN 改名的跨 owner 误清 / Fix: renaming a conflicted same-name BUS_OUT away wrongly retired the channel and pruned BUS_IN band graphs (claimant-aware retirement) · cross-owner wipes on the delete path and BUS_IN renames |
 | [v1.2.6](#v126) | 功放电脑 + 音响 + NBS 钢琴卷帘编辑器（双视图 · 选择/剪贴板 · 拖移搬移 · 逐音符力度/声像/细音高 · 层面板与重排 · 静音 · 配色收编）· 与门节点 · 曲线双节点（AMP 力度曲线 + WSHAPE）· 闸门/T 触发器/锁存器当前态手动切换 / Amplifier Computer + Speaker + NBS Piano Roll Editor (dual views, selection &amp; clipboard, drag-to-move, per-note velocity/panning/pitch, layer panel &amp; reorder, mute, themed palette) · AND gate node · curve duo (AMP dynamics curve + WSHAPE) · manual current-state toggle on Gate / T Flip-Flop / Latch |
 | [v1.2.5.2](#v1252) | 修复：动力传感器扳手旋转（同轴滚转 · 点上/下保倾偏航）· 贴地放置修正 · 倒置朝下时屏幕读数翻正 · 行走时视角摇晃导致 HUD 虚像晃动 · 切换游戏语言后 HUD 文字变乱线 · 节点分类重构 · 视口裁剪 / 菜单命中 · 数控齿轮箱轴面常在 / 扳手回归官方 · 变速器过载后输出恢复 · 输出指令正反转与负行程 · 编码器清零改节点体引脚 · PID/PID_POWER 积分死区 · 频道名旧草稿回写（#10）· 去掉整图保存覆盖（#17）· 封装子图节点数据同步 · 封装子图展开状态跨玩家同步 · 参数输入框实时同步 · 封装子图顶栏合并 · 占用封装禁删 · 键位系统扩容（删除连线 + 像素编辑器动作）· 统一键鼠序列绑定 · 旧键位配置迁移 · 删节点撤销/重做恢复连线（pinId + 占用检测）· 变速器代理态显示（值盒「(代理)」+ 滚轮拒收） / Fix: Kinetic Gauge Wrench Rotation (Shaft Roll · Tilt-Preserving Yaw) · Floor Placement · Inverted Mount Text Upright · View Bobbing Wobble &amp; Garbled HUD Text After a Language Switch · Node Category Refactor · Viewport Cull / Menu Hit · CNC Gearbox Shaft Faces Always Present / Wrench Back to Official · Transmission Output Recovers After Overload · Output-Command Forward-Reverse &amp; Negative Travel · Encoder Reset on the Node Body · PID/PID_POWER Integral Deadband · channel-name stale-draft write-back (#10) · drop whole-graph save overwrite (#17) · sub-graph node data sync · sub-graph expansion state sync across players · live param-box sync · sub-graph top-bar merge · occupied-encapsulation delete guard · display-mode top-bar merge · display lock follows selection · smooth remote display-layout drags · key-binding system gains delete-wire and pixel-editor actions · unified sequence bindings (legacy key-binding configs migrate) · undo/redo node-delete restores wires (pinId + occupancy check) · transmission proxy display (value-box "(proxy)" + wheel refused while node-driven) |
 | [v1.2.5.1](#v1251) | 动力传感器（kinetic_gauge）· 编辑器输入焦点与选中高亮修复 · GUI 巨型文件拆分（HUD 裁剪数学 / 显示编辑器 / 设置界面 tab）|
@@ -20,6 +21,18 @@
 | [v1.0.0](#v100) | 初始发布 / Initial Release |
 
 ---
+
+<details>
+<summary><b>v1.2.6.1</b> — 修复：同名冲突者改名走人误退役频道致 BUS_IN 频段图被清（活候选值守退役）· 删除路径与 BUS_IN 改名的跨 owner 误清 / Fix: renaming a conflicted same-name BUS_OUT away wrongly retired the channel and pruned BUS_IN band graphs (claimant-aware retirement) · cross-owner wipes on the delete path and BUS_IN renames</summary>
+
+### 🚌 冲突者改名走人误退役频道 / Conflicted Rename-Away Wrongly Retires the Channel
+
+- **症状 / Symptom**：一个 BUS_OUT（A）占用频道名，创建同名 BUS_OUT（B）报冲突后把 B 的名称改走 —— A 的频段被一起清理，BUS_IN 搜索不到。
+- **根因 / Root cause**：注册序倒置（B 先注册成功持有频道、A 撞名成候选）时，B 改名走人属「持有者确证离开」，频道名被退役成「已定义为空」；每 tick 的 BUS_IN 收敛把「已定义为空」当权威值，把订阅者的频段图与连线剪光。A 随后经冲突自愈接管频道，**定义**能回来，被剪的**连线**永久丢失。同族缺口：删除路径与 BUS_IN 改名的清理动作不带 owner 门（只扫同图同名），跨图 owner 的频段定义与值会被连带清掉。
+- **修法 / Fix**：`SignalBus` 引入**活候选**占用表（注册被拒者登记为候选）；持有者确证离开时名下还有候选就不把定义退役成「已定义为空」，降级为「未定义」——「缺席不是定义」守卫跳过收敛、保住订阅者连线，候选接管后定义随注册内核回来。删除路径与 BUS_IN 改名统一改走 owner 门控的 `releaseChannel`（订阅方改名对注册表零操作）。无候选的真死名照旧退役（issue #11 的死名收敛语义不变）。
+- **回归 / Regression**：`BusOutConflictRenameRegressionTest`（同图/跨图、重编译周期、每 tick 收敛、所有权倒置死名窗口、删除路径跨 owner 保护）。
+
+</details>
 
 <details>
 <summary><b>v1.2.6</b> — 功放电脑 + 音响 + NBS 钢琴卷帘编辑器（双视图 · 选择/剪贴板 · 拖移搬移 · 逐音符力度/声像/细音高 · 层面板与重排 · 静音 · 配色收编）· 与门节点 · 曲线双节点（AMP 力度曲线 + WSHAPE）· 闸门/T 触发器/锁存器当前态手动切换 / Amplifier Computer + Speaker + NBS Piano Roll Editor (dual views, selection &amp; clipboard, drag-to-move, per-note velocity/panning/pitch, layer panel &amp; reorder, mute, themed palette) · AND gate node · curve duo (AMP dynamics curve + WSHAPE) · manual current-state toggle on Gate / T Flip-Flop / Latch</summary>
