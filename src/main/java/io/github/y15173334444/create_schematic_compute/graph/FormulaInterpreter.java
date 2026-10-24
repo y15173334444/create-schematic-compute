@@ -40,7 +40,9 @@ public final class FormulaInterpreter {
 
     /** break 信号:最内层循环捕获并退出。 / Break signal: caught by the innermost loop, which exits. */
     static final class BreakSignal extends RuntimeException {}
-    /** continue 信号:最内层循环捕获并跳下一轮。 / Continue signal: caught by the innermost loop. */
+    /** continue 信号:最内层循环捕获并跳下一轮;顶层由 {@link #exec} lenient 吞掉(F14)。
+     *  Continue signal: caught by the innermost loop; at top level leniently swallowed by
+     *  {@link #exec} (F14). */
     static final class ContinueSignal extends RuntimeException {}
 
     /**
@@ -187,6 +189,15 @@ public final class FormulaInterpreter {
             runBody(stmts, env, ctx, 0, 0);
         } catch (BreakSignal b) {
             // 顶层 break lenient 忽略(校验期已提示)/ top-level break is leniently ignored
+        } catch (ContinueSignal c) {
+            // F14: 顶层 continue 与 break 同口径 lenient 忽略——ContinueSignal 是 RuntimeException,
+            // 若不在此拦截会逃逸到 eval 分支的 catch(Exception),被当成异常把整节点输出清零。
+            // 语义:continue 之后的顶层语句跳过,已完成的赋值保留(与顶层 break 一致)。
+            // F14: top-level continue is leniently ignored with the same contract as break —
+            // ContinueSignal is a RuntimeException; left uncaught here it would escape into the
+            // eval branch's catch(Exception) and zero the whole node's outputs as if it were an
+            // error. Semantics: top-level statements after the continue are skipped, completed
+            // assignments are kept (identical to top-level break).
         }
     }
 

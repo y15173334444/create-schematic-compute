@@ -8,8 +8,13 @@ import net.minecraft.world.item.ItemStack;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /** 图中的单个节点实例。 / A single node instance in the graph. */
 public class GraphNode {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(GraphNode.class);
     public int id;
     public NodeType type;
     public float x, y;
@@ -96,6 +101,18 @@ public class GraphNode {
     }
     // 自定义公式编译缓存（避免每 tick 重新编译）
     public transient java.util.List<Object> debugFormulaRpn;
+    // ── F13: DEBUG_SIGNAL_GEN 公式编译/求值失败告警标记（transient，不持久化）──
+    // F13: DEBUG_SIGNAL_GEN formula compile/eval failure warn marker (transient, not persisted).
+    // 失效键 = 告警时的脚本文本：脚本变化后允许重新告警（对齐 formulaShedWarned 的
+    // "编辑即复位"口径，但 DEBUG 公式的编辑没有 ensureScriptParsed 这类集中失效点，
+    // 故显式记录告警时的脚本作为失效键，而不是靠单一复位调用点）。
+    // Invalidation key = script text at warn time: editing the formula re-arms the warning
+    // (aligned with formulaShedWarned's "reset on edit" policy — but DEBUG formula edits have
+    // no central invalidation point like ensureScriptParsed, so the warned script is recorded
+    // explicitly as the invalidation key instead of relying on a single reset call site).
+    public transient boolean debugFormulaCompileWarned = false;
+    /** 告警时的脚本文本（失效键）。 / Script text at warn time (the invalidation key). */
+    public transient String debugFormulaWarnedScript = null;
 
     // ── DEBUG_PROBE 历史采样（transient，不序列化）──
     // Ring buffer of recent samples; transient, not serialized.
@@ -114,6 +131,22 @@ public class GraphNode {
     /** NBT 持久化的展开/折叠状态。
      *  NBT-persisted expand/collapse state. */
     public boolean expanded = false;
+
+    /** F15: 加载期未知类型降级标记（transient，不持久化）——NBT 的节点类型 id 未知
+     *  （坏档 / 未来删枚举），已按 CONST 兜底。仅作可观测性（日志留痕 + 测试断言 +
+     *  诊断面）：
+     *  - 加载时 WARN 一次（节点 id + 未知类型名）；
+     *  - 行为保持 CONST，旧档兼容口径不变（对照 NbtVersions/GraphMigration 的坏档容错）；
+     *  - 不持久化：下次 save 写回 "const"，降级在 NBT 层面事实自愈。
+     *  F15: load-time unknown-type degradation marker (transient, not persisted) — the NBT
+     *  node type id was unknown (corrupt save / a future enum removal) and the node fell
+     *  back to CONST. Observability only (warn log + test assertions + diagnostics):
+     *  - one WARN at load time (node id + unknown type name);
+     *  - behaviour stays CONST, the legacy-save contract is unchanged (aligned with
+     *    NbtVersions/GraphMigration corrupt-save tolerance);
+     *  - not persisted: the next save writes "const" back, so the degradation self-heals
+     *    at the NBT level. */
+    public transient boolean unknownTypeFallback = false;
 
     /** BUS 频段数（仅供评估器和编辑区使用，不在节点体渲染引脚）。
      *  BUS band count (for evaluator and editor use only; pins are not rendered on the node body). */
@@ -651,9 +684,24 @@ public class GraphNode {
     }
 
     public static GraphNode load(CompoundTag tag, HolderLookup.Provider registries) {
+        // 非字符串 type（v0 迁移后遗留的非法序号）getString 归空串——诊断信息里补显原始存储形态
+        // A non-string "type" (an invalid v0 ordinal left behind by migration) reads as "" via
+        // getString — surface the raw stored form in diagnostics
+        String typeId = tag.contains("type", Tag.TAG_STRING)
+            ? tag.getString("type") : String.valueOf(tag.get("type"));
         NodeType type = NodeType.BY_ID.get(tag.getString("type"));
-        if (type == null) type = NodeType.CONST; // 损坏数据的回退  /  fallback for corrupted data
-        GraphNode node = new GraphNode(tag.getInt("id"), type, tag.getFloat("x"), tag.getFloat("y"));
+        if (type == null) {
+            // F15: 未知类型不再静默降级——WARN 留痕（节点 id + 未知类型名），行为保持 CONST
+            // 兜底（旧档兼容口径不变，对照 NbtVersions/GraphMigration 的坏档容错）；
+            // unknownTypeFallback 标记供测试与诊断读取。
+            // F15: unknown types no longer degrade silently — WARN for the record (node id +
+            // unknown type name) while behaviour stays on the CONST fallback (legacy-save
+            // contract unchanged, aligned with NbtVersions/GraphMigration corrupt-save
+            // tolerance); the unknownTypeFallback marker is readable by tests and diagnostics.
+            LOGGER.warn("GraphNode.load: unknown node type '{}' on node id {} — degraded to CONST", typeId, tag.getInt("id"));
+        }
+        GraphNode node = new GraphNode(tag.getInt("id"), type == null ? NodeType.CONST : type, tag.getFloat("x"), tag.getFloat("y"));
+        node.unknownTypeFallback = (type == null);
         int pc = tag.getInt("pcount");
         for (int i = 0; i < pc && i < node.params.length; i++)
             node.params[i] = tag.getFloat("p" + i);
