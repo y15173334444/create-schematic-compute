@@ -149,6 +149,8 @@ class NodeAllowanceMigrationTest {
     void exclusionsAreMinimal() {
         assertEquals(2, BlockNodeAllowances.BLUEPRINT.exclusions().size());
         assertEquals(1, BlockNodeAllowances.CONTROL_SEAT.exclusions().size());
+        assertEquals(1, BlockNodeAllowances.AMPLIFIER.exclusions().size(),
+            "only SPEAKER_PLAY (speaker-host playback sink)");
         for (NodeAllowance a : new NodeAllowance[]{
             BlockNodeAllowances.PROGRAM_COMPUTER, BlockNodeAllowances.CNC_GEARBOX,
             BlockNodeAllowances.KINETIC_GAUGE, BlockNodeAllowances.SENSOR,
@@ -203,21 +205,65 @@ class NodeAllowanceMigrationTest {
     }
 
     @Test
-    void cncGearboxGainsSame24() {
+    void cncGearboxFunctionalSurface() {
         EnumSet<NodeType> oldSet = oldCncGearbox();
         EnumSet<NodeType> newSet = BlockNodeAllowances.CNC_GEARBOX.allowedTypes();
         EnumSet<NodeType> lost = EnumSet.copyOf(oldSet);
         lost.removeAll(newSet);
         EnumSet<NodeType> gained = EnumSet.copyOf(newSet);
         gained.removeAll(oldSet);
-        assertTrue(lost.isEmpty(), "cnc gearbox must not lose nodes: " + lost);
-        assertEquals(24, gained.size());
-        assertEquals(
-            EnumSet.copyOf(BlockNodeAllowances.PROGRAM_COMPUTER.allowedTypes()),
-            // 齿轮箱 = 程序计算机 + gearbox + kinetic
-            minus(newSet, EnumSet.of(
-                NodeType.MOVE, NodeType.ROTATE, NodeType.WAIT, NodeType.CLUTCH, NodeType.ENCODER,
-                NodeType.STRESS, NodeType.RPM)));
+        // 2026-10-24 按功能面指派（用户裁定）：去高级运算（DIRECTION 随类离开）+ 隐藏
+        // 控制/累计/动力读数三组（ACCUMULATOR/INTEGRATOR/STRESS/RPM 随类离开）。
+        // Functional-surface assignment (user decision): math_advanced withheld
+        // (DIRECTION leaves with the category) plus the control, accumulator and
+        // kinetic groups hidden whole-category.
+        assertEquals(EnumSet.of(NodeType.DIRECTION, NodeType.ACCUMULATOR, NodeType.INTEGRATOR,
+            NodeType.STRESS, NodeType.RPM), lost, "only DIRECTION + the three hidden groups leave");
+        assertEquals(EnumSet.of(
+            // math_basic 补齐 11
+            NodeType.ADD, NodeType.SUB, NodeType.MUL, NodeType.DIV, NodeType.MOD,
+            NodeType.POW, NodeType.ROOT, NodeType.ABS, NodeType.CEIL, NodeType.FLOOR,
+            NodeType.ROUND,
+            // logic 比较 + AND/OR
+            NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ,
+            NodeType.AND, NodeType.OR
+        ), gained);
+        assertEquals(59, newSet.size(), "8 categories · 59 nodes");
+        assertFalse(newSet.contains(NodeType.FORMULA));
+        assertFalse(newSet.contains(NodeType.INTERP));
+        assertFalse(newSet.contains(NodeType.PID));
+    }
+
+    /** 功放 2026-10-24 按功能面指派后的完整允许面：音频（去 SPEAKER_PLAY）+ 控制面 +
+     *  时序/触发逻辑（含比较）+ 调试。
+     *  The amplifier's functional-surface set (2026-10-24): audio minus SPEAKER_PLAY +
+     *  the control plane + sequential/trigger logic (compare rides the whole category)
+     *  + debug. */
+    private static EnumSet<NodeType> curatedAmplifier() {
+        return EnumSet.of(
+            NodeType.CONST, NodeType.REDSTONE_IN, NodeType.PRIVATE_IN, NodeType.BUS_IN,
+            NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.BUS_OUT,
+            NodeType.ACCUMULATOR, NodeType.INTEGRATOR,
+            NodeType.DELAY, NodeType.LATCH, NodeType.T_FLIPFLOP, NodeType.PULSE_EXTEND,
+            NodeType.LOOP, NodeType.FUSE,
+            NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ,
+            NodeType.BOOL, NodeType.GATE, NodeType.AND, NodeType.OR,
+            NodeType.RELAY_A, NodeType.RELAY_B,
+            NodeType.MUSIC, NodeType.AMP, NodeType.WSHAPE, NodeType.AUDIO_OUT, NodeType.CHANNEL,
+            NodeType.DEBUG_SIGNAL_GEN, NodeType.DEBUG_PROBE, NodeType.COMMENT);
+    }
+
+    @Test
+    void amplifierMenuIsCurated() {
+        assertEquals(curatedAmplifier(), BlockNodeAllowances.AMPLIFIER.allowedTypes(),
+            "amplifier allowed set changed");
+        assertFalse(BlockNodeAllowances.AMPLIFIER.allows(NodeType.SPEAKER_PLAY),
+            "SPEAKER_PLAY is the speaker host's playback sink, never offered on the amplifier");
+        // 功能面之外整类不在：数学/三角/脚本/控制
+        assertFalse(BlockNodeAllowances.AMPLIFIER.allows(NodeType.ADD));
+        assertFalse(BlockNodeAllowances.AMPLIFIER.allows(NodeType.SIN));
+        assertFalse(BlockNodeAllowances.AMPLIFIER.allows(NodeType.FORMULA));
+        assertFalse(BlockNodeAllowances.AMPLIFIER.allows(NodeType.PID));
     }
 
     @Test

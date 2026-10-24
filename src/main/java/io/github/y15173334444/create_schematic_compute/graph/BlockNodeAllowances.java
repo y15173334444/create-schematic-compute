@@ -3,13 +3,14 @@ package io.github.y15173334444.create_schematic_compute.graph;
 import java.util.EnumSet;
 
 /**
- * 10 个方块节点图的准入名单（分类白名单 + 类内黑名单）。
- * Per-block node allowances for the ten graph editors.
+ * 12 个方块节点图的准入名单（分类白名单 + 类内黑名单）。
+ * Per-block node allowances for the twelve graph editors.
  *
- * <p>与 docs/node-category-allowance-plan.md §3 表一一对应。子图过滤器
- * （{@code GraphEditor} 内的 ENCAP_INPUT/ENCAP_OUTPUT）不在此处，由编辑器自理。</p>
- * <p>Matches the §3 table in docs/node-category-allowance-plan.md. The sub-graph
- * filter (ENCAP_INPUT/ENCAP_OUTPUT in {@code GraphEditor}) stays separate.</p>
+ * <p>与 docs/node-category-allowance-plan.md §3 表对应（2026-10-24 复核见该文末尾）。
+ * 子图过滤器（{@code GraphEditor} 内的 ENCAP_INPUT/ENCAP_OUTPUT）不在此处，由编辑器自理。</p>
+ * <p>Matches the §3 table in docs/node-category-allowance-plan.md (see the 2026-10-24
+ * review addendum at the end of that doc). The sub-graph filter (ENCAP_INPUT/ENCAP_OUTPUT
+ * in {@code GraphEditor}) stays separate.</p>
  */
 public final class BlockNodeAllowances {
 
@@ -36,12 +37,21 @@ public final class BlockNodeAllowances {
             NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_ACC, NodeCategory.SEQUENTIAL_STATE,
             NodeCategory.DEBUG));
 
-    /** 数控齿轮箱：程序计算机能力 + 运动指令 + 动力读数。 */
+    /** 数控齿轮箱：可编程运动机的功能面——值/四则/三角/逻辑（含比较）+ 时序编排 + 运动指令 +
+     *  调试。2026-10-24 按功能面指派（用户裁定）：去高级运算（公式/插值/向量转角度，蓝图向
+     *  脚本/曲线工具），控制（PID 系）、累计（累加器/积分器）、动力读数（应力/转速）三组
+     *  整类隐藏——已放入的节点照常求值，动力读数仍是动力宿主求值域（仪表/变速器/齿轮箱）。
+     *  CNC gearbox: a programmable motion machine's functional surface — values/arithmetic/
+     *  trig/logic (with compare) + sequential orchestration + motion commands + debug.
+     *  Assigned per functional surface, 2026-10-24 (user decision): math_advanced
+     *  (formula/interp/direction — blueprint-tier script & curve tools) plus the control,
+     *  accumulator and kinetic groups are withheld whole-category; nodes already placed
+     *  still evaluate, and kinetic readings remain in the kinetic hosts' evaluation domain
+     *  (gauge / transmission / gearbox). */
     public static final NodeAllowance CNC_GEARBOX = NodeAllowance.of(
-        EnumSet.of(NodeCategory.VALUES, NodeCategory.MATH_BASIC, NodeCategory.MATH_ADVANCED,
-            NodeCategory.TRIG, NodeCategory.LOGIC, NodeCategory.CONTROL,
-            NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_ACC, NodeCategory.SEQUENTIAL_STATE,
-            NodeCategory.GEARBOX, NodeCategory.KINETIC, NodeCategory.DEBUG));
+        EnumSet.of(NodeCategory.VALUES, NodeCategory.MATH_BASIC, NodeCategory.TRIG,
+            NodeCategory.LOGIC, NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_STATE,
+            NodeCategory.GEARBOX, NodeCategory.DEBUG));
 
     /** 动力仪表：动力读数 + 比较逻辑 + 值/输出。
      *  刻意不含 input/gearbox（读座舱/运动状态，仪表宿主不提供 → 恒 0）与
@@ -84,16 +94,25 @@ public final class BlockNodeAllowances {
         EnumSet.of(NodeCategory.VALUES, NodeCategory.KINETIC, NodeCategory.TRANSMISSION,
             NodeCategory.DEBUG));
 
-    /** 功放电脑：程序计算机能力（含时序，供 play/stop 触发与延时编排）+ 音频类 + 总线/私有控制面。
+    /** 功放电脑：音频制作与播放编排的功能面——音频类（黑名单 {@code SPEAKER_PLAY}，那是
+     *  音响宿主的播放池）+ 值/输出控制面 + 时序（play/stop 触发与延时编排）+ 触发逻辑
+     *  （含比较）+ 调试；数学/三角/脚本/控制整类刻意不给（想要时加类即可，动力仪表同款
+     *  先例）。2026-10-24 按功能面指派。
      *  WSHAPE 可用：其 LUT 挂在 AudioRef 上随频段表 → 音符包送达客户端，不限宿主图。
-     *  Amplifier computer: program-computer capability + AUDIO + bus/private control plane.
+     *  Amplifier computer: the audio-production & playback-orchestration functional
+     *  surface — the AUDIO category (blacklisting {@code SPEAKER_PLAY}, the speaker
+     *  host's playback sink) + the values/output control plane + sequential (play/stop
+     *  triggering & delay orchestration) + trigger logic (compare rides the whole
+     *  category) + debug; math/trig/script/control are deliberately withheld (add a
+     *  category when wanted — the kinetic gauge precedent). Assigned per functional
+     *  surface, 2026-10-24.
      *  WSHAPE allowed: its LUT rides the AudioRef through the band table into the note
      *  packet, so it works from any host graph. */
     public static final NodeAllowance AMPLIFIER = NodeAllowance.of(
-        EnumSet.of(NodeCategory.VALUES, NodeCategory.MATH_BASIC, NodeCategory.MATH_ADVANCED,
-            NodeCategory.TRIG, NodeCategory.LOGIC, NodeCategory.CONTROL,
-            NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_ACC, NodeCategory.SEQUENTIAL_STATE,
-            NodeCategory.AUDIO, NodeCategory.DEBUG));
+        EnumSet.of(NodeCategory.VALUES, NodeCategory.LOGIC, NodeCategory.OUTPUT,
+            NodeCategory.SEQUENTIAL_ACC, NodeCategory.SEQUENTIAL_STATE,
+            NodeCategory.AUDIO, NodeCategory.DEBUG),
+        NodeType.SPEAKER_PLAY);
 
     /** 音响（音频图）：AUDIO 类（含音频频段 BUS_IN/收发）+ VALUES（BUS_IN/CONST 等，通信/控制）
      *  + DEBUG，但不含曲目宿主/频段发布（MUSIC/AUDIO_OUT 是功放侧）。
