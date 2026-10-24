@@ -435,11 +435,11 @@ OR: outputs 1 when either A or B exceeds 0.5, else 0. The 1/0 outputs of BOOL an
 
 **说明（中文）**
 
-私有信号输入：按频道名从进程级共享表读取一个浮点值。服务端任意位置同名 PRIVATE_OUT 写入的值这里都能读到——适合跨方块/跨计算机协调（读写先后随各宿主自己的求值节拍）。频道名最多 32 字符。
+私有信号输入：按频道名从进程级共享表读取一个浮点值。服务端任意位置同名 PRIVATE_OUT 写入的值这里都能读到——适合跨方块/跨计算机协调（读写先后随各宿主自己的求值节拍）。频道名最多 32 字符。频道承载音频时（PRIVATE_OUT 接音频源），输出引脚文本显「音频」、引脚染音频青色；浮点频道显「值」、引脚金色——文本与着色同源判定。
 
 **Description (English)**
 
-Private signal input: reads a single float from a process-wide table by channel name. Any PRIVATE_OUT with the same name anywhere on the server is visible here — cross-block, cross-computer coordination (reads follow each host's own tick order). Channel names are up to 32 characters.
+Private signal input: reads a single float from a process-wide table by channel name. Any PRIVATE_OUT with the same name anywhere on the server is visible here — cross-block, cross-computer coordination (reads follow each host's own tick order). Channel names are up to 32 characters. When the channel carries audio (the PRIVATE_OUT is fed an audio source), the output pin text shows Audio and the pin tints teal; float channels show Val with the gold pin — text and tint share one predicate.
 
 ---
 
@@ -450,7 +450,7 @@ Private signal input: reads a single float from a process-wide table by channel 
 
 **说明（中文）**
 
-私有信号输出：每个 tick 把图内值写入同名频道（覆盖式写入），供任意宿主上的同名 PRIVATE_IN 读取。频道是单值、无频段结构，多个同名输出共享同一频道属正常现象（不是冲突）。方块卸载时频道会被清理。
+私有信号输出：每个 tick 把图内值写入同名频道（覆盖式写入），供任意宿主上的同名 PRIVATE_IN 读取。频道是单值、无频段结构，多个同名输出共享同一频道属正常现象（不是冲突）。方块卸载时频道会被清理。输入引脚承载音频（对端为音频源）时引脚文本显「音频」、引脚染音频青色；浮点显「值」、引脚金色——文本与着色同源判定。
 
 **Description (English)**
 
