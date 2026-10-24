@@ -72,6 +72,12 @@ public class AllPackets {
                 SpeakerSettingsPacket.CODEC,
                 SpeakerSettingsPacket::handle
         );
+        // v1.2.6.1: amplifier lid-spectrum monitor target (C→S)
+        registrar.playToServer(
+                AmplifierSettingsPacket.TYPE,
+                AmplifierSettingsPacket.CODEC,
+                AmplifierSettingsPacket::handle
+        );
         registrar.playToServer(
                 RadarLockPacket.TYPE,
                 RadarLockPacket.CODEC,

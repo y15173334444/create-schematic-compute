@@ -5,6 +5,7 @@ import io.github.y15173334444.create_schematic_compute.graph.AudioRef;
 import io.github.y15173334444.create_schematic_compute.graph.AudioSpectrum;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.MusicTransport;
+import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.graph.NoteEvent;
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
@@ -32,8 +33,19 @@ import java.util.Map;
  */
 public class AmplifierComputerBlockEntity extends SyncedGraphBlockEntity {
 
+    /** 监听编号 = 自动：跟随图最上方的 MUSIC 节点。 / monitor id = auto: the graph's topmost MUSIC node. */
+    public static final int AUTO_MONITOR = -1;
+
     /** MUSIC 节点传输状态（nodeId → 传输），经类型段 NBT 持久化。 */
     private final Map<Integer, MusicTransport> audioTransports = new HashMap<>();
+
+    /** 监听目标编号（类型段 NBT）：{@link #AUTO_MONITOR} = 自动·图最上方，否则为指定的
+     *  MUSIC 节点。盖子频谱只反映这个源。悬空编号显示回落最上方，编号保留——撤销重建后自动重挂。
+     *  Monitor target id (type-specific NBT): {@link #AUTO_MONITOR} = auto (topmost MUSIC
+     *  node), otherwise a pinned MUSIC node. The lid spectrum reflects only this source. A
+     *  dangling id falls back to the topmost for display while the id is kept, so undoing the
+     *  delete re-attaches the pin automatically. */
+    public int monitoredNode = AUTO_MONITOR;
 
     // ── 屏幕频谱 / on-screen spectrum ──
     /** 服务端取数：排程环 + 柱电平（按预播目标刻点亮）。 / server-side accumulator. */
@@ -118,36 +130,75 @@ public class AmplifierComputerBlockEntity extends SyncedGraphBlockEntity {
 
     // ── 屏幕频谱（服务端取数 → 追踪玩家 → 客户端插值显示）/ on-screen spectrum ──
 
+    /** 监听目标解析（纯函数，UI 高亮与频谱取数共用）：指定编号有效且为 MUSIC → 该节点；
+     *  否则图最上方的 MUSIC 节点——排序与封装 IO 同口径（y 升序、id 决胜，
+     *  {@code GraphNode.getSubNodes} 同款）。悬空指定回落最上方；图里没有 MUSIC 节点 → null。
+     *  Monitor resolution (pure, shared by UI highlight and the spectrum tap): a valid pinned
+     *  MUSIC node wins; otherwise the graph's topmost MUSIC node — the same ordering as the
+     *  encapsulation IO ({@code GraphNode.getSubNodes}: y ascending, id tie-break). A dangling
+     *  pin falls back to the topmost; no MUSIC node → null. */
+    static GraphNode resolveMonitoredNode(NodeGraph g, int pinned) {
+        if (pinned != AUTO_MONITOR) {
+            GraphNode n = g.findNode(pinned);
+            if (n != null && n.type == NodeType.MUSIC) return n;
+        }
+        GraphNode top = null;
+        for (var n : g.nodes)
+            if (n.type == NodeType.MUSIC
+                    && (top == null || n.y < top.y || (n.y == top.y && n.id < top.id)))
+                top = n;
+        return top;
+    }
+
+    /** 监听设置的纯校验核：只接受 AUTO 或「存在且为 MUSIC」的编号，否则维持原值。
+     *  Pure validation core for the monitor setting: only AUTO or an existing MUSIC node id is
+     *  accepted; anything else keeps the current value. */
+    static int sanitizedMonitor(int current, int requested, NodeGraph g) {
+        if (requested == AUTO_MONITOR) return AUTO_MONITOR;
+        GraphNode n = g.findNode(requested);
+        return (n != null && n.type == NodeType.MUSIC) ? requested : current;
+    }
+
+    /** 监听设置（C2S 包落地，Speaker.applySettings 同款收口）：无效编号拒收（值不变），
+     *  变更才 setChanged + sendBlockUpdated（客户端经 acceptTypeSpecific 回读）。
+     *  Monitor setting (C2S packet landing, Speaker.applySettings-style): invalid ids are
+     *  rejected (value unchanged); setChanged + sendBlockUpdated only on change — clients read
+     *  it back via acceptTypeSpecific. */
+    public void applySettings(int nodeId) {
+        int v = sanitizedMonitor(this.monitoredNode, nodeId, graph());
+        if (v == this.monitoredNode) return;
+        this.monitoredNode = v;
+        setChanged();
+        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+    }
+
     /**
-     * 频谱取数：拉取本刻各 MUSIC 节点音频引用里的音符事件，按<b>目标刻</b>排程、推进电平，
-     * 变化才下发给追踪玩家。
+     * 频谱取数：只拉取<b>监听目标</b>（默认图最上方 MUSIC 节点，或设置面板指定的那个）的
+     * 音频引用，按<b>目标刻</b>排程、推进电平，变化才下发给追踪玩家。
      * <p>取数是纯观察（{@code evaluator().audioOut} 只读引用表），不介入音频通路；事件带
      * {@code delaySeconds}（最多 2 s 预播），所以点亮时刻用「本刻 + delaySeconds/0.05」换算，
-     * 直接按本刻累加会让柱子比声音早最多 2 秒。停止/跳转沿（{@code stopSignal}）清空。</p>
-     * <p>Spectrum tap: pull the note events out of this tick's MUSIC-node audio refs, schedule
-     * them at their <b>target tick</b>, advance the levels and ship them to tracking players only
-     * when they change. The read is pure observation (it never touches the audio path); events
-     * carry {@code delaySeconds} (up to 2 s of pre-roll), so the light-up tick is
-     * {@code now + delaySeconds/0.05} — accumulating at the current tick would run the bars up to
-     * 2 s ahead of the sound. A stop/seek edge ({@code stopSignal}) clears everything.</p>
+     * 直接按本刻累加会让柱子比声音早最多 2 秒。监听目标的停止/跳转沿（{@code stopSignal}）
+     * 清空——非监听节点的停止沿不进显示（单源后不再有「map 迭代序决定谁被清」的顺序缺口，
+     * 旧的全清语义随多源聚合一并退役）。</p>
+     * <p>Spectrum tap: pull the note events out of the <b>monitored</b> source's audio refs
+     * only (the graph's topmost MUSIC node by default, or the one pinned in the settings
+     * panel), schedule them at their <b>target tick</b>, advance the levels and ship them to
+     * tracking players only when they change. The read is pure observation (it never touches
+     * the audio path); events carry {@code delaySeconds} (up to 2 s of pre-roll), so the
+     * light-up tick is {@code now + delaySeconds/0.05} — accumulating at the current tick
+     * would run the bars up to 2 s ahead of the sound. The monitored source's stop/seek edge
+     * ({@code stopSignal}) clears everything — other nodes' stop edges never reach the display
+     * (single-source, so the old "map iteration order decides who gets wiped" gap is gone with
+     * the multi-source aggregation).</p>
      */
     private void updateSpectrum(long nowTick) {
-        // 停止/跳转沿清空是**全局**语义（「清空排程与电平」）：先扫停止沿、清空、再排程本刻
-        // 事件——清空写在逐节点循环里会让 map 迭代序决定谁被清、谁存活（多 MUSIC 节点的顺序缺口）。
-        // A stop/seek edge clears **globally** ("drop the schedule and the levels"): sweep for
-        // edges first, clear, then schedule this tick's events — clearing inside the per-node
-        // loop let map iteration order decide who got wiped and who survived (the multi-MUSIC
-        // ordering gap).
-        for (int nodeId : audioTransports.keySet()) {
-            AudioRef ref = evaluator().audioOut(nodeId, 0);
-            if (ref != null && ref.stopSignal()) { spectrum.clear(); break; }
-        }
-        for (int nodeId : audioTransports.keySet()) {
-            AudioRef ref = evaluator().audioOut(nodeId, 0);
-            if (ref == null) continue;
+        GraphNode src = resolveMonitoredNode(graph(), monitoredNode);
+        AudioRef ref = src == null ? null : evaluator().audioOut(src.id, 0);
+        if (ref != null && ref.stopSignal()) spectrum.clear();
+        if (ref != null) {
             for (NoteEvent e : ref.events()) {
-                long target = nowTick + Math.round(e.delaySeconds() / 0.05f);
-                spectrum.schedule(target, e.key(), e.pitch(), e.velocity(), e.gain());
+                long at = nowTick + Math.round(e.delaySeconds() / 0.05f);
+                spectrum.schedule(at, e.key(), e.pitch(), e.velocity(), e.gain());
             }
         }
         spectrum.advance(nowTick);
@@ -227,11 +278,15 @@ public class AmplifierComputerBlockEntity extends SyncedGraphBlockEntity {
             list.add(c);
         }
         t.put("audioTransports", list);
+        // 自动（默认值）不写键：旧档加载即自动，无需迁移。 / AUTO (the default) writes no key:
+        // legacy saves load as auto — no migration.
+        if (monitoredNode != AUTO_MONITOR) t.putInt("monitoredNode", monitoredNode);
     }
 
     @Override
     protected void loadTypeSpecific(CompoundTag t, HolderLookup.Provider r) {
         audioTransports.clear();
+        monitoredNode = t.contains("monitoredNode") ? t.getInt("monitoredNode") : AUTO_MONITOR;
         if (!t.contains("audioTransports", Tag.TAG_LIST)) return;
         ListTag list = t.getList("audioTransports", Tag.TAG_COMPOUND);
         for (int i = 0; i < list.size(); i++) {
@@ -249,5 +304,6 @@ public class AmplifierComputerBlockEntity extends SyncedGraphBlockEntity {
         if (!(src instanceof AmplifierComputerBlockEntity a)) return;
         this.audioTransports.clear();
         this.audioTransports.putAll(a.audioTransports);
+        this.monitoredNode = a.monitoredNode;
     }
 }
