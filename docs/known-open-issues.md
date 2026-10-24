@@ -1,9 +1,8 @@
 # 遗留问题登记 / Known Open Issues
-
-> 更新日期 / Updated：2026-10-23
-> 版本 / Version：1.2.6.1（WIP）
+> 更新日期 / Updated：2026-10-25
+> 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 待办 7 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 待办 8 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -23,6 +22,7 @@
 | 5 | NBS 笔划分组漏掉按下格（一次笔划 = 两条撤销） | 一次涂抹/擦除笔划要撤销两次：拖过格并成一条、按下格独立一条 | beginBatch 提到落点之前 + 一条回归测试 | 🔶 待办 |
 | 6 | 像素编辑器配色半收编（static final 捕获 + 硬编码按钮/悬停） | 与 NBS 收编前同款病：panel_bg/panel_border 类加载时捕获、按钮/悬停写死，换主题不跟 | 照 NBS 收编的同款映射一次搬 | 🔶 待办 |
 | 7 | 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理） | 主图/子图节点 id 撞号时 owner 门失真；syncBusBands/空表 clearBus 靠旗标或镜像语义门控 | ChannelOwner 加图域全链带上 + 两处清理改 owner 门控 | 🔶 待办 |
+| 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（随 eval 档统一 / K23 收敛拍板） | 🔶 待办（2026-10-17 登记） |
 
 ---
 
@@ -294,3 +294,43 @@
 ### 状态 / Status
 
 🔶 待办。
+
+---
+
+## 8. 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态）
+
+### 症状 / Symptom
+
+Sensor / 控制椅图里若出现 DELAY / LATCH / GATE / T_FLIPFLOP / PULSE_EXTEND / LOOP / FUSE
+节点（菜单之外的形态），该节点每 tick 输出冻结（逐拍写回旧值），图"在跑但那几拍是死的"。
+
+### 机制 / Mechanism
+
+求值路径按宿主分档：全状态档（6 参）走 `evalExt`，七类时序/状态节点各有 case；SeatInput 档
+（4 参 `evaluate()`，Sensor/ControlSeat 在用）直接进 `eval()`，而这七类在 `eval()` 的分派里
+**没有 case**——switch 落空后尾部照常记账（`outputs.put(node.id, o.clone())`），把上一拍/
+初始的 `outputValues` 原样写回。GATE 的状态体也在 `evalExt` 档，此路径同样空转。
+菜单准入（`BlockNodeAllowances`）对 Sensor/ControlSeat 本就排除 SEQUENTIAL_STATE / LOGIC
+类，常规搭建踩不到。
+
+### 触发条件 / Trigger
+
+- 改包客户端经 op 通道 `ADD_NODE` 注入（准入名单仅客户端把守，P2-7 同族进路）；
+- 历史/外部存档携带此类节点。
+
+### 影响面 / Impact
+
+无数据破坏；注入/旧档形态下行为**静默错误**（输出冻结而非拒绝或告警）。与音响 writeOutputs
+"防御性接线"（op 通道不校验准入、旧档也可能携带 → 写出口径与全宿主一致）的处置口径不一致：
+求值侧选择了"静默跳过"。
+
+### 修复方向 / Fix direction
+
+两条路择一，随 eval 档统一 / K23 tick 体收敛拍板：SeatInput 档也接全状态三表（档位合一），
+或对档外节点显式拒绝/告警。eval() 分派化后怪癖收敛到单一事实源（`TimingEval.evalState` 七类
+/ `FormulaEval` 缺 GATE case 的缺省语义），改动面小。见
+[`eval-category-dispatch-decision.md`](eval-category-dispatch-decision.md) §三-4。
+
+### 状态 / Status
+
+**🔶 待办。** 2026-10-17 随 eval() 分派化决策文档定性登记；main 侧 eval() 分派化未施工（决策文档已随 1.3.0 迁移入库，见 [`eval-category-dispatch-decision.md`](eval-category-dispatch-decision.md)），修复随分派化或 K23 收敛拍板。

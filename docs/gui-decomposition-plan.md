@@ -832,7 +832,7 @@ C4 帧条增删/切换/拖拽排序；C5 关闭后主图与节点数据完好。
 | 文件 | 行数 | 不拆的理由 |
 |------|------|-----------|
 | `graph/FormulaParser.java` | 1,640 | 内聚的领域逻辑（分词→校验→AST→RPN），已有 `FormulaParser*Test` 多套断言；拆它属"重构解析器"而非"拆巨型文件" |
-| `graph/GraphEvaluator.java` | 1,226 | 求值器是服务端权威单一实现（CLAUDE.md 代码规范），已有 `GraphEvaluatorTest` 等；拆分收益低于破坏风险 |
+| `graph/GraphEvaluator.java` | 1,226 | 求值器是服务端权威单一实现（CLAUDE.md 代码规范），已有 `GraphEvaluatorTest` 等；拆分收益低于破坏风险——**本行裁定 2026-10-17 作废**（出口条款兑现：见 [`eval-category-dispatch-decision.md`](eval-category-dispatch-decision.md)） |
 | `graph/GraphNode.java` | 744 | 扁平数据结构的**单一节点类**（CLAUDE.md：不建继承体系） |
 | `graph/OpExecutor.java` | 628 | 已接近合理体量，且有 op 测试 |
 | `compat/SableReflection.java` / `EditSessionRegistry` / `RuntimeState` | <500 | 不在巨型阈值内 |
