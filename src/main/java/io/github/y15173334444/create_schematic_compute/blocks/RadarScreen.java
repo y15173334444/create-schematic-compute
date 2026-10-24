@@ -120,12 +120,19 @@ public class RadarScreen extends AbstractGraphScreen {
     }
 
     // ── Display Settings Panel ──
+    /** 面板矩形 {px, py, pw, ph}——渲染、命中、输入框定位三处同源。
+     *  Panel rect {px, py, pw, ph} — one source for render, hit-testing and input-box layout. */
+    private int[] displaySettingsRect() {
+        boolean bottom = NodeRenderer.isToolbarBottom();
+        int py = bottom ? toolbarRowY() - 86 : toolbarRowY() + 22;
+        return new int[]{4, py, 340, 80};
+    }
+
     private void renderDisplaySettings(GuiGraphics g, int mx, int my, int toolY, RadarBlockEntity be) {
         RadarBlockEntity rb = getBE(); if (rb == null) return;
         insureInputs(rb);
-        boolean bottom = NodeRenderer.isToolbarBottom();
-        int py = bottom ? toolY - 86 : toolY + 22;
-        int px = 4, pw = 340, ph = 80;
+        int[] r = displaySettingsRect();
+        int px = r[0], py = r[1], pw = r[2], ph = r[3];
         g.fill(px, py, px + pw, py + ph, 0xDD1F1E1A);
         g.renderOutline(px, py, pw, ph, NodeRenderer.CSB());
         g.drawString(font, "§6§l" + t("settings_title"), px + 6, py + 4, 0xFFFFFFFF);
@@ -145,9 +152,7 @@ public class RadarScreen extends AbstractGraphScreen {
     private boolean inputsNeedInit = true;
 
     private void insureInputs(RadarBlockEntity be) {
-        int toolY = toolbarRowY();
-        boolean bottom = NodeRenderer.isToolbarBottom();
-        int px = 4, py = bottom ? toolY - 86 : toolY + 22;
+        int px = 4, py = displaySettingsRect()[1];
         int iy = py + 22;
         // 仅首次设置位置
         if (inputsNeedInit) {
@@ -185,9 +190,9 @@ public class RadarScreen extends AbstractGraphScreen {
             int y = toolbarRowY();
             // 设置面板保存按钮：右下角 42x18 区域
             if (showDisplaySettings) {
-                boolean bottom = NodeRenderer.isToolbarBottom();
-                int py = bottom ? y - 86 : y + 22;
-                int sx = 4 + 340 - 46, sy = py + 60; // 右下角：pw=286, 保存按钮 42px 宽
+                int[] r = displaySettingsRect();
+                // 设置面板保存按钮：右下角 42x18 区域
+                int sx = r[0] + r[2] - 46, sy = r[1] + r[3] - H - 2; // 右下角：与渲染的保存按钮同源
                 if ((int)my >= sy && (int)my <= sy + H && (int)mx >= sx && (int)mx <= sx + 42) {
                     applyInputs(be);
                     PacketDistributor.sendToServer(new RadarSettingsPacket(be.getBlockPos(),
@@ -196,12 +201,24 @@ public class RadarScreen extends AbstractGraphScreen {
                         be.displayX, be.displayY, be.displayZ, be.excludeHost, be.displayStyle, be.lockDistance));
                     showDisplaySettings = false; hideInputs(); return true;
                 }
-                // 面板矩形吞掉区域内一切点击（空隙不穿透到画布节点），
-                // 输入框聚焦经 super 分发给 children。与 SpeakerScreen 面板同款守卫。
+                // 面板矩形吞掉区域内一切点击（空隙不穿透到画布节点）；EditBox 聚焦手动分发
+                // ——经 super 会先落图编辑器，面板后方的节点会被点中/拖走（与 SpeakerScreen
+                // 面板同款缺陷、同批修复）。分发后补 vanilla children 契约后半段：消费点击的
+                // 框成为屏幕焦点（键盘按 getFocused() 寻址）；点空隙 = 全部失焦。
                 // The panel rect swallows every click inside it (gaps never reach the nodes
-                // behind); box focus still happens via the super dispatch to children.
-                if (mx >= 4 && mx <= 4 + 340 && my >= py && my <= py + 80) {
-                    super.mouseClicked(mx, my, btn);
+                // behind); EditBox focus is dispatched manually — the super path reaches the
+                // graph editor first, so nodes behind the panel were clicked/dragged (same
+                // defect as the SpeakerScreen panel, fixed in the same batch). After dispatch,
+                // the vanilla children contract's second half follows: a consuming box becomes
+                // the SCREEN focus (keyboard input is addressed through getFocused()); a gap
+                // click clears everything.
+                if (mx >= r[0] && mx <= r[0] + r[2] && my >= r[1] && my <= r[1] + r[3]) {
+                    EditBox hit = null;
+                    for (EditBox box : new EditBox[]{rangeInput, scaleInput, lockDistInput,
+                            offXInput, offYInput, offZInput}) {
+                        if (hit == null && box.mouseClicked(mx, my, btn)) hit = box;
+                    }
+                    this.setFocused(hit);
                     return true;
                 }
             }
@@ -259,7 +276,16 @@ public class RadarScreen extends AbstractGraphScreen {
     @Override public boolean mouseReleased(double mx, double my, int btn) { editor.mouseReleased(mx, my, btn); return super.mouseReleased(mx, my, btn); }
     @Override public void mouseMoved(double mx, double my) { editor.mouseMoved(mx, my); }
     @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }
-    @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) { return editor.mouseScrolled(mx, my, sx, sy); }
+    @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+        // 打开的面板内滚轮吞掉：面板自身不滚动，但不得缩放身后的画布。
+        // Wheel inside the open panel is swallowed: the panel never scrolls, but must not
+        // zoom the canvas behind it.
+        if (showDisplaySettings) {
+            int[] r = displaySettingsRect();
+            if (mx >= r[0] && mx <= r[0] + r[2] && my >= r[1] && my <= r[1] + r[3]) return true;
+        }
+        return editor.mouseScrolled(mx, my, sx, sy);
+    }
     @Override public boolean keyPressed(int key, int sc, int mod) { if (editor.keyPressed(key, sc, mod)) return true; if (key == 256) { onClose(); return true; } if (key >= 32 && key <= 96) return true; return super.keyPressed(key, sc, mod); }
     @Override public boolean keyReleased(int key, int sc, int mod) { return editor.keyReleased(key, sc, mod) || super.keyReleased(key, sc, mod); }
     @Override public boolean charTyped(char ch, int mod) { return editor.charTyped(ch, mod) || super.charTyped(ch, mod); }

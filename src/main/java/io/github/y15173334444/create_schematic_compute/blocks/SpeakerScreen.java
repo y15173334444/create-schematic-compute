@@ -100,11 +100,18 @@ public class SpeakerScreen extends AbstractGraphScreen {
         g.drawString(font, I18n.get("gui.create_schematic_compute.speaker.settings_title"), 8, y + 5, 0xFFCCCCCC);
     }
 
+    /** 面板矩形 {px, py, pw, ph}——渲染、命中、输入框定位三处同源。
+     *  Panel rect {px, py, pw, ph} — one source for render, hit-testing and input-box layout. */
+    private int[] settingsPanelRect() {
+        boolean bottom = NodeRenderer.isToolbarBottom();
+        int py = bottom ? toolbarRowY() - 86 : toolbarRowY() + 22;
+        return new int[]{4, py, 320, 80};
+    }
+
     private void renderSettingsPanel(GuiGraphics g, int mx, int my, int toolY, SpeakerBlockEntity be) {
         insureInputs(be);
-        boolean bottom = NodeRenderer.isToolbarBottom();
-        int py = bottom ? toolY - 86 : toolY + 22;
-        int px = 4, pw = 320, ph = 80;
+        int[] r = settingsPanelRect();
+        int px = r[0], py = r[1], pw = r[2], ph = r[3];
         g.fill(px, py, px + pw, py + ph, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xDD));
         g.renderOutline(px, py, pw, ph, NodeRenderer.CSB());
         g.drawString(font, "§6§l" + I18n.get("gui.create_schematic_compute.speaker.settings_title"), px + 6, py + 4, 0xFFFFFFFF);
@@ -128,9 +135,7 @@ public class SpeakerScreen extends AbstractGraphScreen {
 
     /** 无焦点回显 BE 值、有焦点实时写入（雷达同款契约）。 / radar contract: mirror BE unfocused, write BE live while focused. */
     private void insureInputs(SpeakerBlockEntity be) {
-        int toolY = toolbarRowY();
-        boolean bottom = NodeRenderer.isToolbarBottom();
-        int px = 4, py = bottom ? toolY - 86 : toolY + 22;
+        int px = 4, py = settingsPanelRect()[1];
         if (inputsNeedInit) {
             inputsNeedInit = false;
             gainInput.setX(px + 200);   gainInput.setY(py + 24);
@@ -173,9 +178,8 @@ public class SpeakerScreen extends AbstractGraphScreen {
                 return true;
             }
             if (showSettings) {
-                boolean bottom = NodeRenderer.isToolbarBottom();
-                int py = bottom ? y - 86 : y + 22;
-                int px = 4, pw = 320, ph = 80;
+                int[] r = settingsPanelRect();
+                int px = r[0], py = r[1], pw = r[2], ph = r[3];
                 // 保存：钳位 + 发包 + 关面板。 / save: clamp + ship + close.
                 if (mx >= px + pw - 46 && mx <= px + pw - 4 && my >= py + ph - H - 2 && my <= py + ph - 2) {
                     insureInputs(be); send(be);
@@ -185,17 +189,44 @@ public class SpeakerScreen extends AbstractGraphScreen {
                 if (mx >= px + 6 && mx <= px + 76 && my >= py + 24 && my <= py + 24 + H) {
                     be.mute = !be.mute; send(be); return true;
                 }
-                // 面板矩形吞掉区域内一切点击（空隙/标签不穿透到画布节点），
-                // 输入框聚焦经 super 分发给 children。
+                // 面板矩形吞掉区域内一切点击（空隙/标签不穿透到画布节点）；EditBox 聚焦手动
+                // 分发——经 super 会先落图编辑器，面板后方的节点会被点中/拖走（v1.2.6 起
+                // 「吞点击」实际一直透传画布）。分发后必须补 vanilla children 分发的后半段
+                // 契约：子控件消费点击 → Screen.setFocused(child)——键盘输入按 getFocused()
+                // 寻址，只亮框自身 flag 时按键无处可去（「框点得亮、打不了字」）。
+                // 点空隙 = 两框 flag 清除 + 屏幕焦点清空。
                 // The panel rect swallows every click inside it (gaps/labels never reach the
-                // nodes behind); box focus still happens via the super dispatch to children.
+                // nodes behind); EditBox focus is dispatched manually — the super path reaches
+                // the graph editor first, so nodes behind the panel were clicked/dragged all
+                // along. After dispatching, the second half of the vanilla children-dispatch
+                // contract must follow: a consuming child becomes the SCREEN focus via
+                // Screen.setFocused(child) — keyboard input is addressed through getFocused(),
+                // so lighting the box's own flag alone leaves keystrokes nowhere to go
+                // ("border lights up, typing dead"). Clicking a gap clears both flags and the
+                // screen focus.
                 if (mx >= px && mx <= px + pw && my >= py && my <= py + ph) {
-                    super.mouseClicked(mx, my, btn);
+                    boolean g = gainInput.mouseClicked(mx, my, btn);
+                    boolean rad = radiusInput.mouseClicked(mx, my, btn);
+                    if (g) this.setFocused(gainInput);
+                    else if (rad) this.setFocused(radiusInput);
+                    else this.setFocused(null);
                     return true;
                 }
             }
         }
         return editor.mouseClicked(mx, my, btn) || super.mouseClicked(mx, my, btn);
+    }
+
+    /** 打开的面板内滚轮吞掉：面板自身不滚动，但不得缩放身后的画布。
+     *  Wheel inside the open panel is swallowed: the panel never scrolls, but must not zoom
+     *  the canvas behind it. */
+    @Override
+    public boolean mouseScrolled(double mx, double my, double sx, double sy) {
+        if (showSettings) {
+            int[] r = settingsPanelRect();
+            if (mx >= r[0] && mx <= r[0] + r[2] && my >= r[1] && my <= r[1] + r[3]) return true;
+        }
+        return super.mouseScrolled(mx, my, sx, sy);
     }
 
     /** 关界面前钩子：未保存的面板编辑写回并发包（雷达同款）。 / flush unsaved panel edits on close (radar-style). */
