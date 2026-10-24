@@ -130,9 +130,15 @@ public class MonitorScreen extends AbstractGraphScreen implements MonitorDisplay
     @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
     private void openPixelEditorImplBody(GraphNode node) {
         if (node.type != NodeType.IMAGE && node.type != NodeType.IMAGE_SEQUENCE) return;
+        // 入口软锁：被他人选中/编辑（占用框在显示）即拒绝打开——双击检测不经 GraphEditor
+        // 的命中拒绝路径，必须在入口自拦。
+        // Entry soft lock: refuse when another player has the node selected/edited (the lock
+        // frame is showing) — the double-click detection bypasses GraphEditor's hit-rejection
+        // path, so the entry must gate itself.
+        if (editor.isNodeLockedByOther(node.id, editor.ownerNodeId())) return;
         displayEditor.markPixelEditorTransfer();
         Minecraft.getInstance().setScreen(new io.github.y15173334444.create_schematic_compute.client.PixelEditorScreen(
-            blockPos, node, computePixelEditorReturn()));
+            blockPos, node, computePixelEditorReturn(), editor.ownerNodeId()));
     }
 
     /** 像素编辑器关闭后要恢复的界面：便携终端包装内 → 重建包装（内部换成新 MonitorScreen，

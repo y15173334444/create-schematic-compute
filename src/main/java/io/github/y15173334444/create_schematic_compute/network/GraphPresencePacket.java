@@ -147,6 +147,36 @@ public record GraphPresencePacket(
     @Override public @NotNull Type<? extends CustomPacketPayload> type() { return TYPE; }
 
     /**
+     * <h3>Sub-editor presence / 子编辑器临场保活包</h3>
+     *
+     * <p>子编辑器屏幕（NBS 钢琴卷帘 / 像素编辑器）转移自图编辑器后，GraphEditor 的每帧
+     * 保活不再运行，占用软锁随之冻结——其他玩家重开图后锁表为空、看不到占用框（封装路径
+     * 同屏切换所以正常）。子编辑器 tick 以同间隔（120ms）发送本包维持锁：{@code editingNodeId
+     * = selectedNodeId = 正在编辑的节点}（锁语义 = 选中且编辑中）、{@code mode=0}、连线字段
+     * 全部置空、光标停在节点的图空间中心（B 端占用者光标自然停在该节点上）。关闭子编辑器回
+     * 来源屏后，新屏首条常规 presence（editingNodeId=-1）自然清锁。</p>
+     *
+     * <p>The sub-editor screens (NBS piano roll / pixel editor) transfer away from the graph
+     * editor, so GraphEditor's per-frame keep-alive stops running and the occupancy soft lock
+     * freezes — other players reopening the graph start with an empty lock table and never see
+     * the lock frame (the encapsulation path stays on one screen, which is why it works). The
+     * sub-editors send this packet from their tick at the same interval (120 ms) to keep the
+     * lock alive: {@code editingNodeId = selectedNodeId = the node being edited} (lock
+     * semantics = selected AND being edited), {@code mode=0}, wire fields zeroed, cursor parked
+     * at the node's graph-space centre. When the sub-editor closes and the source screen
+     * returns, its first regular presence (editingNodeId=-1) clears the lock naturally.</p>
+     */
+    public static GraphPresencePacket subEditor(BlockPos pos, UUID player, String playerName,
+                                                int ownerNodeId, int editingNodeId,
+                                                float cursorX, float cursorY) {
+        return new GraphPresencePacket(pos, player, playerName,
+            ownerNodeId, cursorX, cursorY,
+            editingNodeId, editingNodeId,
+            -1, -1, 0f, 0f,
+            null, (byte) 0, -1, false);
+    }
+
+    /**
      * <h3>Server-side handler / 服务端处理</h3>
      *
      * <p>Relays the sender's presence update to every other player who is

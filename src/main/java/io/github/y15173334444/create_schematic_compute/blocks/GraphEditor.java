@@ -659,6 +659,13 @@ public class GraphEditor {
      *  节点软锁（实现见 GraphPresenceTracker）。/ Node soft lock (see GraphPresenceTracker). */
     public boolean isNodeLocked(int nodeId, int owner) { return presence.isNodeLocked(nodeId, owner); }
 
+    /** 节点被他人选中或编辑中（同作用域软锁）——子编辑器入口检查用（openNbsEditor /
+     *  openPixelEditorImplBody：双击检测不经本类的命中拒绝路径，必须入口自拦）。
+     *  The node is selected or being edited by someone else (same-scope soft lock) — for the
+     *  sub-editor entry checks (openNbsEditor / openPixelEditorImplBody: the double-click
+     *  detection bypasses this class's hit-rejection path, so the entries must gate themselves). */
+    public boolean isNodeLockedByOther(int nodeId, int owner) { return presence.isNodeLockedByOther(nodeId, owner); }
+
     /** 删除守卫：封装节点内有其他玩家正在编辑（presence 建议性软锁，与 isNodeLocked 同层
      *  —— 服务端对 presence 是纯中继，权威守卫须待服务端存储落地）。
      *  Delete guard: the encapsulation has players editing inside (advisory presence soft

@@ -377,9 +377,15 @@ public class AmplifierComputerScreen extends AbstractGraphScreen {
     @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
     private void openNbsEditor(GraphNode node) {
         if (node.type != NodeType.MUSIC) return;
+        // 入口软锁：被他人选中/编辑（占用框在显示）即拒绝打开——双击检测不经 GraphEditor
+        // 的命中拒绝路径（1827 行），必须在入口自拦。
+        // Entry soft lock: refuse when another player has the node selected/edited (the lock
+        // frame is showing) — the double-click detection bypasses GraphEditor's hit-rejection
+        // path, so the entry must gate itself.
+        if (editor.isNodeLockedByOther(node.id, editor.ownerNodeId())) return;
         transferToNbsEditor = true;
         Minecraft.getInstance().setScreen(new io.github.y15173334444.create_schematic_compute.client.NbsEditorScreen(
-            blockPos, node, computeNbsEditorReturn()));
+            blockPos, node, computeNbsEditorReturn(), editor.ownerNodeId()));
     }
 
     /** NBS 编辑器关闭后要恢复的界面：便携终端包装内 → 重建包装；否则新的本屏（重 join 会话，幂等）。 */

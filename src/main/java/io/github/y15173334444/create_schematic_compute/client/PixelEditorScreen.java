@@ -109,6 +109,11 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     private final BlockPos blockPos;
     private final GraphNode node;          // BE 图中的活跃引用（守卫防止整图替换）/ live node ref (guarded)
     private final Screen returnScreen;     // 关闭后恢复的界面 / screen to restore on close
+    /** 来源图的作用域（-1=主图，>0=封装节点 ID）——presence 保活的 ownerNodeId。/ The source
+     *  graph's scope (-1=main, >0=encap node ID) — the presence keep-alive's ownerNodeId. */
+    private final int ownerNodeId;
+    /** presence 保活节流（120ms，与 GraphEditor 同间隔）。/ keep-alive throttle (120 ms, same interval as GraphEditor). */
+    private long lastPresenceSendMs = 0;
 
     // ── 画布视图 / canvas view ──
     private float zoom = 1f;
@@ -145,11 +150,12 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     //    strip; strip geometry, persistence and sync come back through its Host.
     private final PixelEditorFrameStrip frameStrip = new PixelEditorFrameStrip(this, kernel);
 
-    public PixelEditorScreen(BlockPos pos, GraphNode node, Screen returnScreen) {
+    public PixelEditorScreen(BlockPos pos, GraphNode node, Screen returnScreen, int ownerNodeId) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".monitor"));
         this.blockPos = pos;
         this.node = node;
         this.returnScreen = returnScreen;
+        this.ownerNodeId = ownerNodeId;
         if (node.type == NodeType.IMAGE_SEQUENCE) {
             if (node.imageSequenceFrames == null || node.imageSequenceFrames.isEmpty()) {
                 node.imageSequenceFrames = new ArrayList<>();
@@ -261,6 +267,22 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         if (getBE() == null) {
             minecraft.setScreen(null);
             return;
+        }
+        // 子编辑器 presence 保活：GraphEditor 的每帧保活不跑（屏幕已转移），占用软锁由本包
+        // 维持——其他玩家重开图也能立即看到占用框（与封装同屏路径同口径）。光标停在节点上。
+        // Sub-editor presence keep-alive: GraphEditor's per-frame keep-alive is gone (the
+        // screen transferred), so the occupancy soft lock rides on this packet — other players
+        // reopening the graph see the lock frame immediately (same contract as the same-screen
+        // encapsulation path). The cursor parks on the node.
+        long now = System.currentTimeMillis();
+        var mcPlayer = minecraft.player;
+        if (now - lastPresenceSendMs >= 120 && mcPlayer != null) {
+            lastPresenceSendMs = now;
+            net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket.subEditor(
+                    blockPos, mcPlayer.getUUID(), mcPlayer.getGameProfile().getName(),
+                    ownerNodeId, node.id,
+                    node.x + NodeRenderer.nw(node) * 0.5f, node.y + NodeRenderer.HH * 0.5f));
         }
     }
 
