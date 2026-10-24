@@ -149,8 +149,8 @@ class NodeAllowanceMigrationTest {
     void exclusionsAreMinimal() {
         assertEquals(2, BlockNodeAllowances.BLUEPRINT.exclusions().size());
         assertEquals(1, BlockNodeAllowances.CONTROL_SEAT.exclusions().size());
-        assertEquals(1, BlockNodeAllowances.AMPLIFIER.exclusions().size(),
-            "only SPEAKER_PLAY (speaker-host playback sink)");
+        assertEquals(2, BlockNodeAllowances.AMPLIFIER.exclusions().size(),
+            "SPEAKER_PLAY (speaker-host playback sink) + AUDIO_OUT (only a speaker truly emits)");
         for (NodeAllowance a : new NodeAllowance[]{
             BlockNodeAllowances.PROGRAM_COMPUTER, BlockNodeAllowances.CNC_GEARBOX,
             BlockNodeAllowances.KINETIC_GAUGE, BlockNodeAllowances.SENSOR,
@@ -249,7 +249,7 @@ class NodeAllowanceMigrationTest {
             NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ,
             NodeType.BOOL, NodeType.GATE, NodeType.AND, NodeType.OR,
             NodeType.RELAY_A, NodeType.RELAY_B,
-            NodeType.MUSIC, NodeType.AMP, NodeType.WSHAPE, NodeType.AUDIO_OUT, NodeType.CHANNEL,
+            NodeType.MUSIC, NodeType.AMP, NodeType.WSHAPE, NodeType.CHANNEL,
             NodeType.DEBUG_SIGNAL_GEN, NodeType.DEBUG_PROBE, NodeType.COMMENT);
     }
 
@@ -259,6 +259,8 @@ class NodeAllowanceMigrationTest {
             "amplifier allowed set changed");
         assertFalse(BlockNodeAllowances.AMPLIFIER.allows(NodeType.SPEAKER_PLAY),
             "SPEAKER_PLAY is the speaker host's playback sink, never offered on the amplifier");
+        assertFalse(BlockNodeAllowances.AMPLIFIER.allows(NodeType.AUDIO_OUT),
+            "AUDIO_OUT promises sound output - only a speaker emits; external publishing rides the audio-carrying BUS_OUT (v1.2.6.2)");
         // 功能面之外整类不在：数学/三角/脚本/控制
         assertFalse(BlockNodeAllowances.AMPLIFIER.allows(NodeType.ADD));
         assertFalse(BlockNodeAllowances.AMPLIFIER.allows(NodeType.SIN));

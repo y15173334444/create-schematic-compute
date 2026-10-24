@@ -78,6 +78,12 @@
 | 🐛 **RuntimeState.load 坏键炸区块加载（F17）** | Integer.parseInt(k) 无守卫，坏档字符串键直接 NumberFormatException 炸掉区块加载；现逐键 try/catch——坏键跳过 + WARN，好键照常恢复（对照 GraphNode.load/NbsSong.read 的"不炸节点"坏档口径），save 侧不动、对称性保持。/ unguarded Integer.parseInt let a corrupted key throw NumberFormatException straight through chunk loading; keys are now parsed per-entry - bad keys skipped with a WARN while good keys restore as usual; save untouched, symmetry kept. |
 | 📄 **文档口径清理（K19 残留）** | code-architecture.md 的"86 种/100 种"节点数残留改为带时点数（对外可见 102，2026-10-24 发布体检三方核对——GraphNode 与 NodeType 两节中英四行）；undo-redo-bugs.md 头部补结构搬迁注记（撤销栈 → GraphOpHistory 等逐符号核实的现址映射）；formula-pin-render-tech-debt.md 状态头收束（stable pinId 已于 v1.2.4 落地，横幅 ✅）。/ doc-count and status-header debt closed: code-architecture's stale 86/100 node counts now a dated count (102 user-facing, verified three-way in the 2026-10-24 release audit), undo-redo-bugs gains a structural-relocation note with a verified current-address map, and the formula-pin-render doc's status header is closed (stable pinId landed in v1.2.4). |
 
+### 🐛 玩家报告修复（随 v1.2.6.2 热修前移）/ Player-reported fixes (carried from the v1.2.6.2 hotfix)
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🙈 **音频输出（AUDIO_OUT）移出功放菜单** | 功放的节点准入黑名单在 SPEAKER_PLAY 之外补上 AUDIO_OUT——「音频输出」只有音响能真正发声，功放图上它只发频段不出声，名字只招误导；对外把音频送到别的方块走**音频承载的 BUS_OUT** 同一条通路（BUS_OUT 音频发布与 AUDIO_OUT 同款 owner/冲突纪律）。音响侧不变（其发声出口是 SPEAKER_PLAY 直通宿主）。存量图不受影响：菜单隐藏不改求值语义，旧图里的 AUDIO_OUT 照常发布；op 通道亦不受准入名单约束（该缺口已登记 known-open-issues）。/ The amplifier's node-allowance blacklist now covers AUDIO_OUT next to SPEAKER_PLAY - an "audio output" only truly emits on a speaker; on the amplifier it merely publishes a band, and the name misleads. External audio delivery rides the **audio-carrying BUS_OUT** path (same owner/conflict discipline as AUDIO_OUT). The speaker side is unchanged (its emission path is SPEAKER_PLAY straight into the host). Existing saves are unaffected: menu hiding does not change evaluation, AUDIO_OUT nodes in old graphs keep publishing; the op channel is not allowance-gated (that gap is registered in known-open-issues). |
+
 </details>
 
 <details>
