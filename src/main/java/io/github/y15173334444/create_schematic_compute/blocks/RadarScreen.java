@@ -221,6 +221,16 @@ public class RadarScreen extends AbstractGraphScreen {
                     this.setFocused(hit);
                     return true;
                 }
+                // 面板外部点击 = 收回面板，与开关按钮同语义（收回即 applyInputs，不发包——
+                // 发包只归保存按钮）；工具行以上的点击例外——让给既有 UI。
+                // Outside clicks collapse the panel with the toggle's own semantics (collapse
+                // applies inputs but never ships — shipping belongs to the save button);
+                // clicks above the toolbar row are exempt — they belong to the existing UI.
+                if (my > y + H) {
+                    applyInputs(be);
+                    showDisplaySettings = false; hideInputs();
+                    return true;
+                }
             }
             if (handleToolbarClick((int)mx, (int)my, y, be)) return true;
         }

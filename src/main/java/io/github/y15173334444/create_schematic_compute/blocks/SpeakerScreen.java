@@ -212,6 +212,16 @@ public class SpeakerScreen extends AbstractGraphScreen {
                     else this.setFocused(null);
                     return true;
                 }
+                // 面板外部点击 = 收回面板，与开关按钮同语义（关面板也应用：写回 + 发包）；
+                // 工具行以上（顶栏/基础工具行）的点击例外——让给既有 UI，不顺带收面板。
+                // Outside clicks collapse the panel with the toggle's own semantics (closing
+                // applies: write-back + ship); clicks above the toolbar row are exempt — they
+                // belong to the existing UI and don't collapse.
+                if (my > y + H) {
+                    insureInputs(be); send(be);
+                    showSettings = false; hideInputs();
+                    return true;
+                }
             }
         }
         return editor.mouseClicked(mx, my, btn) || super.mouseClicked(mx, my, btn);

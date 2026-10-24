@@ -255,7 +255,19 @@ public class AmplifierComputerScreen extends AbstractGraphScreen {
         }
         if (!showMonitor) return false;
         int[] r = monitorPanelRect();
-        if (mx < r[0] || mx > r[0] + r[2] || my < r[1] || my > r[1] + r[3]) return false;
+        if (mx < r[0] || mx > r[0] + r[2] || my < r[1] || my > r[1] + r[3]) {
+            // 面板外部点击 = 收回面板（菜单式：这一下就地吞掉，不落到画布）；工具行以上
+            // （顶栏/基础工具行）的点击例外——让给既有 UI，不顺带收面板。
+            // Outside clicks collapse the panel (menu-style: the click is consumed here,
+            // never reaching the canvas); clicks above the toolbar row (top bar / base
+            // toolbar) are exempt — they belong to the existing UI and don't collapse.
+            if (my > toolY + MH) {
+                showMonitor = false;
+                monitorScrollDragging = false;
+                return true;
+            }
+            return false;
+        }
         // 滚动条优先：thumb 上按下开拖，轨道空白翻页 ±3 行（NodeAddMenu 同款）。
         // Scrollbar first: press on the thumb starts a drag, empty track pages ±3 rows
         // (NodeAddMenu-style).
