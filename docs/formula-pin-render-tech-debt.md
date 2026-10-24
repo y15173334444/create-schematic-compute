@@ -1,13 +1,25 @@
-# FORMULA Node — 引脚变更后连线不显示（技术债）
+# FORMULA Node — 引脚变更后连线不显示（技术债）— ✅ 已收束 / Closed
 
 > 发现日期: 2026-07-27 | 严重度: 高
 >
+> **状态 / Status**：✅ **已收束 / Closed**（2026-10-11）。stable pinId 已于 **v1.2.4** 作为根因修复落地
+> （提交与范围以 [`v1.2.4-pin-id-stability-plan.md`](v1.2.4-pin-id-stability-plan.md) 的记录为准；
+> `CHANGELOG.md` v1.2.4 板块「Stable PinId Refactoring / 稳定引脚ID重构」同证）；本文保留为历史分析，
+> 文中"临时修复"（消除 `inputLabel()`/`outputLabel()` 副作用 + 统一连线清理）即**现行实现**，
+> "stable pinId 长线方案"即**已落地部分**——不再作为待办。正文未改，仅横幅与明显误导句处加收束注。
+> **Status**: ✅ **closed** (2026-10-11). Stable pinId landed in **v1.2.4** as the root-cause fix (per
+> `v1.2.4-pin-id-stability-plan.md` and the CHANGELOG v1.2.4 "Stable PinId Refactoring" section); this
+> document is kept as historical analysis — the "temporary fix" described below is the current
+> implementation, and the "long-term stable-pinId plan" is the landed part, not pending work.
+>
 > **计划调整**: 此问题原计划在 v1.2.5 中处理，因其影响较大（引脚变更后连线完全不显示，每次按键均可能触发），**提前至 v1.2.4 从根源清除**。根因与 v1.2.5 Bug B（ENCAP I/O 重排后连线不跟随）同源——连线用整数索引绑定，引脚集合变化时索引失效。本次修复消除 `inputLabel`/`outputLabel` 副作用 + 统一连线清理；stable pinId 重构（根治 ENCAP + FORMULA 两处）仍作为后续长线方案。
+>
+> ✅ **收束注（2026-10-11）**：上句"仍作为后续长线方案"已过时——stable pinId 重构已于 v1.2.4 提前落地（非"后续"），见文首状态行。
 >
 > | 阶段 | 内容 | 版本 |
 > |------|------|------|
 > | **提前清除**（原计划 v1.2.5） | 消除 `inputLabel()`/`outputLabel()` 副作用 + 统一连线清理逻辑 | v1.2.4 |
-> | 长线 | stable pinId 重构（根治，同时解决 FORMULA 和 ENCAP I/O） | 后续 |
+> | 长线 | stable pinId 重构（根治，同时解决 FORMULA 和 ENCAP I/O） | 后续（✅ 已于 v1.2.4 提前落地，见文首状态行） |
 
 ## 问题现象
 
@@ -76,6 +88,8 @@ graph.connections.removeIf(c ->
 ## 修复方案
 
 > **注意**: 以下方案**原计划在 v1.2.5 处理，因影响大提前至 v1.2.4 从根源清除**。根治方案（stable pinId）仍与 v1.2.5 ENCAP I/O 合并处理，详见 [`v1.2.5-plan-resolved.md` §3.3 方案 3](./v1.2.5-plan-resolved.md)。
+>
+> ✅ **收束注（2026-10-11）**：根治方案已不再与 v1.2.5 合并——提前至 v1.2.4 一次解决 bus / FORMULA / ENCAP 三处动态引脚（见 [`v1.2.4-pin-id-stability-plan.md`](v1.2.4-pin-id-stability-plan.md)）。
 
 ### 1. 消除 `inputLabel()`/`outputLabel()` 的副作用（主因 · 先清除）
 
@@ -163,6 +177,8 @@ mle.setResponder(t -> {
 | 根治方案 | **方案 3：稳定 pinId** | **同一个方案 3** |
 
 **建议**：实施 v1.2.5 计划中的方案 3（约 200-260 行），为所有动态引脚节点（FORMULA、ENCAP_INPUT、ENCAP_OUTPUT）引入不可变的 `pinId`，一次性解决全部引脚-连线一致性问题。在此之前，FORMULA 的临时修复（消除副作用）和 ENCAP 的方案 2 可作为过渡方案分别处理。
+
+> ✅ **收束注（2026-10-11）**：上述"建议"已执行——稳定 pinId 于 v1.2.4 落地（覆盖 FORMULA / ENCAP / BUS 三类动态引脚）；"在此之前……过渡方案"的表述仅具历史意义。
 
 ## 相关文件
 

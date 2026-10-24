@@ -3,6 +3,28 @@
 > 更新日期 / Updated：2026-07-26
 > 版本 / Version：1.2.4
 > 范围 / Scope：`GraphEditor.java`, `MonitorScreen.java`, `OpExecutor.java`, `GraphPresencePacket.java`
+>
+> **结构搬迁注记 / Structural relocation note**（2026-10-11 补记）：本文描述的撤销/重做与协作结构已随
+> [`gui-decomposition-plan.md`](gui-decomposition-plan.md) 的 GUI 拆分搬迁（刀 6b/6c/6d，行为零变更、
+> 方法体逐字搬迁）。**缺陷条目本身的语义仍有效；文中机制描述涉及的类，以搬迁后的现址为准**：
+>
+> | 文中写的 | 现址 |
+> |---------|------|
+> | `UndoEntry`（`GraphEditor` 内部类）、`undoStack2` / `redoStack2` / `currentBatch`、`opUndo` / `opRedo` / `reverseOp` | `blocks/GraphOpHistory.java`（刀 6c） |
+> | `recordOp` / `beginUndoBatch` / `endUndoBatch` / `remapNodeId` 调用点 | 仍在 `GraphEditor` / `NodeEditStateFactory`，经一行委托进入 `GraphOpHistory` |
+> | 远端 op 应用（架构图「广播给其他客户端」的接收端） | `blocks/GraphRemoteApplier.java`（刀 6c） |
+> | `commitBusBox`（BUS 改名，「不入栈」表） | `blocks/GraphBusEditor.java`（刀 6d） |
+> | `enterActions` | `blocks/NodeEditStateFactory.java`（刀 6a）+ `GraphEditor` |
+> | 像素编辑器撤销栈（原 `MonitorScreen` 的 `pixelUndoStack` / `performPixelUndo`，决策 4） | `client/PixelEditorKernel.java`（快照栈 + `performUndo` / `performRedo`；像素编辑 GUI 现为 `client/PixelEditorScreen`） |
+> | `isNodeLocked` / `isNodeLockedByOther` / `sendPresenceIfNeeded`（决策 7 多人多选锁定） | `blocks/GraphPresenceTracker.java`（刀 6b） |
+> | `restoreNodeFromNbt`（`OpExecutor`）、`selectedNodeIds`（`GraphPresencePacket`）、`multiDragging`、`saveNodeNbt` | 未搬迁，仍在原处 |
+>
+> The undo/redo structures described here have since moved (behaviour-preserving splits per
+> `gui-decomposition-plan.md`): `UndoEntry` / stacks / `opUndo` / `reverseOp` → `blocks/GraphOpHistory`;
+> remote op application → `blocks/GraphRemoteApplier`; `commitBusBox` → `blocks/GraphBusEditor`;
+> `enterActions` → `NodeEditStateFactory`; pixel undo → `client/PixelEditorKernel`; presence locks →
+> `blocks/GraphPresenceTracker`. The defect entries remain semantically valid; read mechanisms at the
+> new homes.
 
 ---
 
