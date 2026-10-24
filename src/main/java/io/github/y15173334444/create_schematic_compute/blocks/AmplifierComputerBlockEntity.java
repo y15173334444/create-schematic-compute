@@ -80,6 +80,12 @@ public class AmplifierComputerBlockEntity extends SyncedGraphBlockEntity {
     public void tick() {
         if (level == null || level.isClientSide()) return;
         ensureBusRegistered();
+        // 第 ⑮ 步（P1-8 补线）：挂起全量同步按 grace 窗口冲刷；必须在所有早退之前，
+        // 停机宿主也要能把图推给新加入的编辑者（Blueprint 同款）。
+        // Step ⑮ (P1-8 wiring): flush the pending full sync within the grace window; must
+        // sit before every early return so a stopped host still ships its graph to a newly
+        // joined editor (same as Blueprint).
+        flushPendingFullSync();
         var state = getBlockState();
         if (state.hasProperty(AmplifierComputerBlock.LIT)) {
             boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();

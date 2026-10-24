@@ -298,6 +298,14 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
                     host.runtimeState.delayQueues, host.runtimeState.flipflopStates, host.runtimeState.pulseTimers);
             host.rs.writeOutputs(results);
             host.broadcastEvalSnapshot();
+            // 第 ⑬ 步（P2-13 补线）：6 参档求值里 GATE/T_FLIPFLOP/LATCH 真实演进，但此前从不
+            // 广播差分——图内触发器状态永不同步到客户端（编辑器徽标死值）。GraphHost 内部按
+            // 基线去重，无变化零发包（AmplifierComputer/Speaker 同位置）。
+            // Step ⑬ (P2-13 wiring): the 6-arg evaluate genuinely evolves GATE/T_FLIPFLOP/LATCH
+            // state, but no diff was ever broadcast — in-graph flipflop state never reached the
+            // client (dead editor badges). GraphHost diffs against its baseline, so no packets
+            // while unchanged (same position as AmplifierComputer/Speaker).
+            host.broadcastFlipflopDiff();
 
             // 控制来源与代理态在**同一处**判定：图运行时以存储序首个 TX_OUT 为准，否则回落
             // 滚轮值。两处分开写会长出「盒里写(代理)、实际听滚轮」这类死守卫式分叉。

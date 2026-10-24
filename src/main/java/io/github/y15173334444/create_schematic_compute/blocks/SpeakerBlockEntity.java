@@ -52,6 +52,12 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
     public void tick() {
         if (level == null || level.isClientSide()) return;
         ensureBusRegistered();
+        // 第 ⑮ 步（P1-8 补线）：挂起全量同步按 grace 窗口冲刷；必须在所有早退之前，
+        // 停机宿主也要能把图推给新加入的编辑者（Blueprint 同款）。
+        // Step ⑮ (P1-8 wiring): flush the pending full sync within the grace window; must
+        // sit before every early return so a stopped host still ships its graph to a newly
+        // joined editor (same as Blueprint).
+        flushPendingFullSync();
         // 红石静音兜底（plan §3.6）：只门控播放，不写回 mute（用户设置不被红石脉冲覆盖）。
         redstoneMuted = level.hasNeighborSignal(worldPosition);
         // 与 ProgramComputer/功放同款门控：运行开关关闭时不求值、不发声。
@@ -66,9 +72,26 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
         evaluator().setAudioHostPos(worldPosition);
         evaluator().setSpeakerSink(this);
         evaluator().setAudioTickStamp(level.getGameTime());
+        // 第 ⑥ 步（P3 宿主面补线）：音响图的 VALUES 类含 REDSTONE_IN，此前从不刷新链路输入，
+        // 图内 REDSTONE_IN 恒读 0（红石面残缺）。混合回退口径与 Sensor/ControlSeat/Monitor 一致
+        //（refreshInputs：扫描非零信号，保留 push 送达值作回退）。
+        // Step ⑥ (P3 host-face wiring): the speaker's VALUES category includes REDSTONE_IN,
+        // but link inputs were never refreshed — every REDSTONE_IN read 0 (a crippled
+        // redstone face). Hybrid-fallback semantics match Sensor/ControlSeat/Monitor
+        // (refreshInputs: scan non-zero signals, keep push-delivered values as fallback).
+        rs().refreshInputs();
         var in = rs().buildInputs(graph());
-        evaluator().evaluate(in, runtimeState().pidState, 0.05f,
+        var results = evaluator().evaluate(in, runtimeState().pidState, 0.05f,
                 runtimeState().delayQueues, runtimeState().flipflopStates, runtimeState().pulseTimers);
+        // 第 ⑩ 步（P3 宿主面补线）：写出红石输出。准入名单现未给音响 OUTPUT 类（REDSTONE_OUT
+        // 暂不可从菜单添加），但 op 通道不校验准入、旧档也可能携带此类节点——写出口径与其他
+        // 宿主一致；图内无 REDSTONE_OUT 时 results 为空表，零副作用（lastOutputs 清空即无发射）。
+        // Step ⑩ (P3 host-face wiring): write redstone outputs back. The speaker's allowance
+        // has no OUTPUT category yet (REDSTONE_OUT is not menu-addable), but the op channel
+        // does not check allowances and legacy saves may carry such nodes — same write
+        // discipline as every other host; with no REDSTONE_OUT in the graph, results is empty
+        // and this is a no-op (lastOutputs cleared, nothing transmitted).
+        rs().writeOutputs(results);
         broadcastEvalSnapshot();
         broadcastFlipflopDiff();
         setChanged();
