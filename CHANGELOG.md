@@ -24,7 +24,13 @@
 ---
 
 <details>
-<summary><b>v1.2.6.2（WIP）</b> — 修复：Sable 结构内音响无声 · 音频拆分节点编辑区未刷新时连线回退 · 功放菜单隐藏音频输出节点 / Fix: speaker inside a Sable structure went silent · audio-split node wires reverted when the edit panel wasn't re-selected · amplifier menu hides the audio-output nodes</summary>
+<summary><b>v1.2.6.2（WIP）</b> — 修复：NBS 编辑器播放间歇延迟 · Sable 结构内音响无声 · 音频拆分节点编辑区未刷新时连线回退 · 功放菜单隐藏音频输出节点 / Fix: NBS editor playback was sometimes delayed · speaker inside a Sable structure went silent · audio-split node wires reverted when the edit panel wasn't re-selected · amplifier menu hides the audio-output nodes</summary>
+
+### ⏱️ NBS 编辑器播放间歇延迟 / NBS Editor Playback Was Sometimes Delayed
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| ⏱️ **停播重挂时重同步墙钟锚点（冷启动同病）** | 病灶链：渲染卡顿 → 按帧补泵停摆 → 输出队列抽干 → 声道欠载停播 → 下一个音符触发重挂——而墙钟锚点 (anchorFrames, anchorWallNanos) 只在渲染回调刷新，停播期间冻结在停播时刻；重挂后第一批音符的目标帧 = 旧锚点 + **停播全程的墙钟推进**，混音游标要再爬完这段停播时长才够到 → **停播多久就晚多久**（NBS 编辑器渲染重、帧卡顿最易触发欠载）。冷启动同病：引擎类加载到首次播放之间的墙钟全程被算进第一批目标（打开编辑器后隔一阵再按播放就中招）。修法 = ensureChannel 在停播/冷启动路径把锚点成对重置到当前混音游标——停播期的乐理时间被**舍弃而不是拖欠**（停顿后赶齐，与视频播放器重同步同口径）；实测速率 EMA 不受影响（钳制区间 + df>0 守卫本就排除停播间隔）。结构锁 `PlaybackAnchorResyncTest`（重同步行为 + ensureChannel 调用位 + ANCHOR_LOCK 成对写）。/ Failure chain: a render hitch starves the per-frame pump, the queue drains, the channel underruns and stops, and the next note re-attaches — but the wall anchor (anchorFrames, anchorWallNanos) only refreshes in the render callback, so it stays frozen at the stop moment. The first batch after re-attach then targets (stale anchor + the whole stall's wall advance) and the mixer cursor must climb the stall duration before reaching it: **late by exactly the stall** (the render-heavy NBS editor is the easiest place to underrun). Cold start shares the disease: the wall time from engine class load to the first play lands in the first batch (opening the editor and pressing play later hits it). Fix: ensureChannel resets the anchor pair to the current mixer cursor on the stopped/cold path — the stall's musical time is **discarded, not owed** (catch up after a stall, the video-player resync discipline); the observed-rate EMA is untouched (its clamp band and the df>0 guard already exclude stall gaps). Structural lock `PlaybackAnchorResyncTest` (resync behaviour + the ensureChannel call site + the paired ANCHOR_LOCK write). |
 
 ### 🔊 Sable 结构内音响无声 / Speaker Inside a Sable Structure Went Silent
 

@@ -211,6 +211,22 @@ public final class CscAudioEngine {
         }
     }
 
+    /**
+     * 成对重置墙钟锚点到当前混音游标（ensureChannel 在冷启动/停播重挂时调用；包级可测）。
+     * 只动锚点对、不动实测速率——速率 EMA 有钳制区间防毒化，停播间隔本就不入 EMA
+     * （onFramesRendered 的 df>0 守卫），无需此处干预。
+     * Pair-reset the wall anchor to the current mixer cursor (called by ensureChannel on
+     * cold start / stopped-channel re-attach; package-visible for tests). Touches only the
+     * anchor pair, never the observed rate — the rate EMA already has its clamp band and
+     * stall gaps never enter it (onFramesRendered's df>0 guard).
+     */
+    static void resyncPlaybackAnchor() {
+        synchronized (ANCHOR_LOCK) {
+            anchorFrames = mixer != null ? mixer.renderedFrames() : 0L;
+            anchorWallNanos = System.nanoTime();
+        }
+    }
+
     /** 渲染诊断回调（声音引擎线程）。 */
     static void onRenderDiag(long nanosTaken, int voices, long nowNanos) {
         DIAG.onRender(nanosTaken, voices, nowNanos);
@@ -229,6 +245,24 @@ public final class CscAudioEngine {
     private static synchronized void ensureChannel() {
         if (mixer == null) mixer = new AudioMixer();
         if (handle != null && !handle.isStopped()) return;
+        // 锚点重同步（v1.2.6.2）：走到这里 = 冷启动或旧声道已停播（欠载/重挂）——锚点
+        // (anchorFrames, anchorWallNanos) 还冻结在停播时刻，而墙钟一直在走。不重同步的话，
+        // 重挂后第一批音符的目标帧 = 旧锚点 + 停播全程的墙钟推进，混音游标要再爬完这段
+        // 停播时长才够到 → **停播多久就晚多久**（实测「播放有时会有延迟」，NBS 编辑器渲染
+        // 重、帧卡顿最易触发欠载停播）；冷启动同病：类加载到首播的墙钟全程被算进第一批。
+        // 重同步后目标帧回到「当前游标 + delay」——停播期的乐理时间被舍弃而不是拖欠
+        // （停顿后赶齐，与视频播放器的重同步同口径）。
+        // Anchor resync (v1.2.6.2): reaching this point means a cold start or the old channel
+        // has stopped (underrun / re-attach) — the anchor (anchorFrames, anchorWallNanos) is
+        // still frozen at the stop moment while the wall clock kept running. Without a
+        // resync, the first batch after re-attach targets (stale anchor + the whole stall's
+        // wall advance) and the mixer cursor must climb the stall duration before reaching
+        // it — **late by exactly the stall** (the reported "sometimes delayed"; the
+        // render-heavy NBS editor is the easiest place to underrun). Cold start shares the
+        // disease: the wall time from class load to the first play lands in the first batch.
+        // After the resync, targets are back to "cursor + delay" — musical time inside the
+        // stall is discarded, not owed (catch up after a stall, the video-player resync).
+        resyncPlaybackAnchor();
         if (attaching) return;
         attaching = true;
         if (attachedOnce) DIAG.onReattach(System.nanoTime());   // 重建 = 欠载/重载证据
