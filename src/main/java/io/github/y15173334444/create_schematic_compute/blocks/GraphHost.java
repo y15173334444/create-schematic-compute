@@ -21,6 +21,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import javax.annotation.Nullable;
@@ -41,11 +42,13 @@ import java.util.function.Consumer;
  *
  * <p>逻辑自 {@link SyncedGraphBlockEntity} 移植（Blueprint 风格的 recompileEvaluatorFull
  * 路径 + BUS 生命周期 + NBT 全套 + 编辑回弹保护），宿主 BE 持有一个本对象并在各
- * 生命周期钩子处转发。收敛重构（两线共同委托本类）按计划押后。</p>
+ * 生命周期钩子处转发。tick 编排骨架已两线共用（K23：{@link #tickBody} + {@link TickHooks}）；
+ * 其余生命周期面仍由宿主转发。</p>
  * <p>Logic ported from {@link SyncedGraphBlockEntity} (Blueprint-style
  * recompileEvaluatorFull path + BUS lifecycle + full NBT handling + editor bounce-back
- * protection). The hosting BE owns one instance and forwards lifecycle hooks. The
- * convergence refactor (both lines delegating to this class) is deferred by plan.</p>
+ * protection). The hosting BE owns one instance and forwards lifecycle hooks. The tick
+ * orchestration is now shared by both lines (K23: {@link #tickBody} + {@link TickHooks});
+ * the remaining lifecycle surfaces stay host-forwarded.</p>
  */
 public class GraphHost {
 
@@ -118,6 +121,305 @@ public class GraphHost {
      *  Trigger a block update so tracking clients receive a fresh getUpdateTag. */
     private void pushBlockUpdate() {
         owner.sendBlockUpdated();
+    }
+
+    // ── tick 编排骨架（K23 收敛）/ tick orchestration skeleton (K23) ──
+
+    /** ⑤ 停机检查的执行位（偏差矩阵「停止路径」列的三种口径）。
+     *  Where the stopped-host check runs (the three shapes of the matrix's stop-path column). */
+    public enum StopSlot {
+        /** ③ 之前（Speaker：停止早退先于图检查）。 / before ③ (Speaker: the stop early-return precedes the graph check). */
+        BEFORE_GRAPH_CHECK,
+        /** ③ 与 ④ 之间（Monitor / SpeedProxy：停机不重编译）。 / between ③ and ④ (Monitor / SpeedProxy: no recompile while stopped). */
+        AFTER_GRAPH_CHECK,
+        /** ④ 之后（Blueprint 基准口径）。 / after ④ (the Blueprint baseline). */
+        AFTER_RECOMPILE,
+    }
+
+    /** ⑨ 求值档（偏差矩阵「evaluate」列的四档，逐宿主保留——含 4 参档的静默空转怪癖）。
+     *  The evaluate variant (the matrix's four forms, preserved per host — including the
+     *  4-arg form's silently-idling quirk). */
+    public enum EvalVariant {
+        /** 6 参全状态档：delay/flipflop/pulse 走宿主权威状态表（Blueprint 等六宿主）。
+         *  The 6-arg full-state form: delay/flipflop/pulse ride the host's authoritative maps. */
+        FULL_STATE,
+        /** 4 参 SeatInput 无状态档 —— 走 GraphEvaluator 的无状态 eval 路径，DELAY/LATCH/GATE/
+         * T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE 静默空转（现存怪癖原样保留，GraphEvaluator 侧
+         * 不改动；Sensor / ControlSeat）。
+         *  The 4-arg SeatInput stateless form — GraphEvaluator's stateless eval path silently
+         *  idles DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE (an existing quirk kept
+         *  as-is, untouched on the GraphEvaluator side; Sensor / ControlSeat). */
+        SEAT_STATELESS,
+        /** 3 参基础档（Monitor / KineticGauge / SpeedProxy；内部按空状态表走全状态路径）。
+         *  The 3-arg basic form (internally routes the full-state path with empty maps). */
+        BASIC,
+        /** 空表档：SeatInput + 每 tick 丢弃的空状态表（Radar —— 时序节点不跨 tick 演进）。
+         *  Empty-table form: SeatInput + throwaway per-tick state maps (Radar — timing nodes
+         *  never evolve across ticks). */
+        EMPTY_TABLE,
+    }
+
+    /**
+     * tick 骨架的宿主钩子（K23）：模板步序住骨架，宿主特有行为经本接口的缝与策略保留。
+     * 默认值 = Blueprint 基准口径；各宿主只覆写自己的偏差列。**组合不建继承层次**——
+     * 宿主 BE 直接实现本接口并把 {@code this} 传给 {@link #tickBody(TickHooks)}。
+     * Host hooks for the tick skeleton (K23): the template step order lives in the
+     * skeleton, host-specific behaviour rides the seams and policies below. Defaults =
+     * the Blueprint baseline; each host overrides only its own deviation columns.
+     * **Composition, no inheritance hierarchy** — the host BE implements this interface
+     * and hands {@code this} to {@link #tickBody(TickHooks)}.
+     */
+    public interface TickHooks {
+
+        // ── 步序策略（偏差矩阵各列的变体）/ step policy (the matrix's column variants) ──
+
+        /** ② LIT 属性；null = 本宿主无 ②（KineticGauge / CncGearbox / PT / Speaker）。
+         *  Step ② LIT property; null = this host has no step ②. */
+        @Nullable
+        default BooleanProperty litProperty() { return null; }
+
+        /** ② 属性缺席时中止本 tick（蓝图机等六宿主口径）；false = 跳过 ② 继续（功放电脑 / 雷达）。
+         *  两形在 12 块方块均注册 LIT 的前提下逐调用等价（hasProperty 恒真）。
+         *  Step ②: abort the tick when the property is absent (six hosts); false = skip
+         *  step ② and continue (AmplifierComputer / Radar). Both shapes are
+         *  call-for-call equivalent since every block registers LIT. */
+        default boolean litAbsentAbortsTick() { return true; }
+
+        /** ④ 重编译档：true = Light（Monitor / KineticGauge / SpeedProxy），false = Full。
+         *  Step ④ recompile variant: true = Light, false = Full. */
+        default boolean lightRecompile() { return false; }
+
+        /** ⑤ 停机检查的执行位。 / Step ⑤ stop-check slot. */
+        default StopSlot stopSlot() { return StopSlot.AFTER_RECOMPILE; }
+
+        /** ⑤ 停机后是否立即结束本 tick；false = 落入共用尾段（CncGearbox / PT 的 if/else 口径）。
+         *  Step ⑤: end the tick on stop; false = fall into the shared tail (the
+         *  CncGearbox / PT if-else shape). */
+        default boolean stopEndsTick() { return true; }
+
+        /** ⑥ 刷新档：true = refreshInputsActive（A 档），false = refreshInputs（H 档，混合回退）。
+         *  Step ⑥ refresh variant: true = refreshInputsActive (A), false = refreshInputs (H). */
+        default boolean activeInputRefresh() { return false; }
+
+        /** ⑨ 求值档（逐宿主必填——矩阵 ⑨ 列即此声明）。 / Step ⑨ evaluate variant —
+         *  required per host (this declaration IS the matrix's ⑨ column). */
+        EvalVariant evalVariant();
+
+        /** ⑨ SeatInput 档/空表档的座位输入构造（Sensor / ControlSeat / Radar）。
+         *  Step ⑨ seat input for the SeatInput/empty-table forms. */
+        default GraphEvaluator.SeatInputState seatInput() {
+            return new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
+        }
+
+        /** ⑦ 冲突自愈的**遗留第二挂点**在位（六宿主）。注意：自愈的**主**挂点在 ①
+         *  {@link #ensureBusRegistered()} 内（92d0dbf：每 tick 开头、图停止也跑、先于频段
+         *  收敛）——其余六宿主**不**声明本步，避免同一 tick 双跑自愈（宿主编排批迁移账）。
+         *  Step ⑦: the legacy second self-heal hook is present (six hosts). The PRIMARY
+         *  heal already runs inside ① {@link #ensureBusRegistered()} (92d0dbf: every tick
+         *  start, stopped or running, before the band convergence) — the other six hosts
+         *  do NOT declare this step, avoiding a double heal per tick (host-orchestration
+         *  migration account). */
+        default boolean wantsStep7Recover() { return false; }
+
+        /** ⑬ 触发器差分广播在位（3/4 参档宿主无此步——矩阵 ⑬ 列口径原样）。
+         *  Step ⑬ flipflop-diff broadcast present (the 3/4-arg hosts carry no such step). */
+        default boolean wantsFlipflopDiff() { return false; }
+
+        // ── hook 缝（宿主特有行为按模板位置插入）/ seams (host behaviour at template slots) ──
+
+        /** 缝 0：守卫后、① 前（KineticGauge 读数推送 / CncGearbox autoSenseInputFace）。
+         *  Seam 0: after the guard, before ①. */
+        default void afterGuard() {}
+
+        /** 缝 1：⑮ 后、② 前（ControlSeat 消费输入 / Speaker 红石静音采样 / Radar 扫描关卡捕获）。
+         *  Seam 1: after ⑮, before ②. */
+        default void beforeLit() {}
+
+        /** 缝 2：⑤ 早退后、③ 前（CncGearbox 离合意图复位 / PT 分叉前快照）。
+         *  Seam 2: after the ⑤ early-return, before ③. */
+        default void beforeGraphCheck() {}
+
+        /** 缝 3：④/⑤ 后、⑥ 前（Sensor 姿态/加速度、Radar 扫描段、Speaker 音频注入）。
+         *  Seam 3: after ④/⑤, before ⑥. */
+        default void beforeInputs() {}
+
+        /** 缝 4：⑦ 后、⑧ 前（AmplifierComputer 传输表剪枝 + 注入）。 / Seam 4: after ⑦, before ⑧. */
+        default void afterRecover() {}
+
+        /** 缝 5：⑧ 后、⑨ 前（ControlSeat mode-1 inflate + 姿态/加速度、Radar 注入）。
+         *  Seam 5: after ⑧, before ⑨. */
+        default void beforeEval() {}
+
+        /** 缝 6：⑨ 后、⑩ 前（Radar setRadarPos(null) 清理）。 / Seam 6: after ⑨, before ⑩. */
+        default void afterEval() {}
+
+        /** 缝 7：⑩ 后、⑪ 前（Monitor 红石差分推送）。 / Seam 7: after ⑩, before ⑪. */
+        default void afterWriteOutputs() {}
+
+        /** 缝 8：⑫⑬ 后、共用尾段前（CncGearbox 指令推进 / PT 控制源判定 / SpeedProxy 转速落盘 /
+         *  AmplifierComputer 频谱推进）。 Seam 8: after ⑫⑬, before the shared tail. */
+        default void afterEvalBroadcast() {}
+
+        /** 缝 9：⑭ 前（CncGearbox 编码器/离合/运行态、PT 目标回填/对账/差分发包）。
+         *  Seam 9: before ⑭. */
+        default void beforeSetChanged() {}
+
+        /** 缝 10：⑭ 后（Radar 两平面同步尾段）。 / Seam 10: after ⑭. */
+        default void afterSetChanged() {}
+
+        /** ⑤ 停机路径本体。默认 = onStopRunning()；Radar 保留内联形态、AmplifierComputer /
+         *  CncGearbox / PT 追加各自复位。 Step ⑤ stop-path body. Default = onStopRunning();
+         *  Radar keeps its inlined shape, AmplifierComputer / CncGearbox / PT append resets. */
+        default void stopBody(GraphHost engine) { engine.onStopRunning(); }
+    }
+
+    /**
+     * 规范 15 步 tick 编排骨架（K23 收敛）——12 份宿主 tick 体的共同编排收敛于此，
+     * 宿主特有行为经 {@link TickHooks} 缝/策略逐宿主保留（含全部偏差与缺失，行为零变更）。
+     * 步序 = Blueprint 基准口径（矩阵编号 ≠ 执行位：⑮ 紧随 ①，见 P1-8）：
+     * ①ensureBusRegistered → ⑮flushPendingFullSync → ②LIT → ③checkGraphChanged →
+     * ④重编译(F/L) → ⑤停止路径 → ⑥refreshInputs(A/H) → ⑦recoverConflictedChannels(遗留挂点) →
+     * ⑧buildInputs → ⑨evaluate(6/4/3/空表) → ⑩writeOutputs → ⑪broadcastEvalSnapshot →
+     * ⑫syncIfBandsChanged → ⑬broadcastFlipflopDiff → ⑭setChanged。
+     * Canonical 15-step tick orchestration (K23 convergence) — the common orchestration
+     * of the twelve host tick bodies lives here; host-specific behaviour rides the
+     * {@link TickHooks} seams/policies with every deviation and gap preserved verbatim
+     * (zero behaviour change). Step order = the Blueprint baseline (the matrix numbers
+     * are labels, not execution order: ⑮ runs right after ①, see P1-8).
+     *
+     * <p>① 语义钉死（92d0dbf，v1.2.6.1 冲突自愈）：ensureBusRegistered 在每个 tick 开头、
+     * **先于一切早退**执行——图停止也跑（内含冲突自愈 + issue #15 频段收敛 + 音频标志
+     * 推送），自愈先于收敛。⑤ 的执行位/形态、④ F/L、⑥ A/H、⑨ 四档、⑦ 遗留挂点与 ⑬ 有无
+     * 均按宿主声明保留；位置语义不得动：⑮ 在停机早退之前（P1-8）、⑦ 在 ⑥ 与 ⑧ 之间、
+     * ⑬ 在 ⑨ 之后。⑫ 已为 12 宿主统一在位（275ec03 直呼形态收编，wantsBandSync 开关退役）。
+     * The ① semantics are frozen (92d0dbf, the v1.2.6.1 conflict self-heal):
+     * ensureBusRegistered runs at the top of every tick **before every early return** —
+     * stopped graphs included (it carries the conflict heal + the issue-15 band
+     * convergence + the audio-flag push), the heal ahead of the convergence. The ⑤
+     * slot/shape, ④ F/L, ⑥ A/H, the four ⑨ forms, the ⑦ legacy hook and ⑬ presence
+     * follow the host declarations; the position semantics are frozen: ⑮ before every
+     * stop early-return (P1-8), ⑦ between ⑥ and ⑧, ⑬ after ⑨. ⑫ is wired for all
+     * twelve hosts (the 275ec03 direct-call form absorbed; the wantsBandSync switch retired). */
+    public void tickBody(TickHooks h) {
+        // ── 守卫 / guard ──
+        if (lvl() == null || lvl().isClientSide()) return;
+        h.afterGuard();
+
+        // ① BUS 注册（92d0dbf 语义：内含冲突自愈 + issue #15 频段收敛 + 音频标志推送；
+        //    图停止也跑、自愈先于收敛——见 ensureBusRegistered）。
+        // ① BUS registration (92d0dbf semantics: conflict heal + issue-15 band convergence
+        //    + audio-flag push inside; runs stopped, heal before convergence).
+        ensureBusRegistered();
+        // ⑮ 挂起全量同步冲刷（P1-8）：必须位于**一切**早退之前——停机宿主也要能把图
+        //    推给新加入的编辑者。矩阵编号⑮列在末位，执行位在①之后（Blueprint 基准）。
+        // ⑮ pending-full-sync flush (P1-8): before EVERY early return so a stopped host
+        //    still ships its graph to a newly joined editor. The matrix numbers it last;
+        //    it executes right after ① (Blueprint baseline).
+        flushPendingFullSync();
+        h.beforeLit();
+
+        // ② LIT 指示同步（8 宿主有、4 宿主无）。形态归一：原「缺席即中止 / 缺席即跳过」
+        //    两形在全部方块均注册 LIT（hasProperty 恒真）下逐调用等价，缺席分支语义仍按
+        //    宿主保留（litAbsentAbortsTick）。
+        // ② LIT indicator sync (8 hosts, 4 without). Shape unified: the old
+        //    "abort-on-absent / skip-on-absent" pair is call-for-call equivalent since
+        //    every block registers LIT (hasProperty always true); the absent-branch
+        //    semantics still follow the host (litAbsentAbortsTick).
+        BooleanProperty lit = h.litProperty();
+        if (lit != null) {
+            boolean shouldBeLit = running && !graph.nodes.isEmpty();
+            var st = owner.asBlockEntity().getBlockState();
+            if (st.hasProperty(lit)) {
+                if (st.getValue(lit) != shouldBeLit)
+                    lvl().setBlock(pos(), st.setValue(lit, shouldBeLit), 3);
+            } else if (h.litAbsentAbortsTick()) {
+                return;
+            }
+        }
+
+        // ⑤ 停机路径——执行位按宿主（StopSlot），形态按 stopEndsTick：
+        //    早退口径（十宿主）返回；CncGearbox / PT 的 if/else 口径落共用尾段。
+        // ⑤ stop path — slot per host (StopSlot), shape per stopEndsTick: the
+        //    early-return shape (ten hosts) bails; the CncGearbox / PT if-else shape
+        //    falls into the shared tail.
+        if (h.stopSlot() == StopSlot.BEFORE_GRAPH_CHECK && !running) {
+            h.stopBody(this);
+            return;
+        }
+        h.beforeGraphCheck();
+
+        // ③ 图变更检测（红石链路注册的唯一自愈口，P2-18）
+        // ③ graph-change detection (the only self-heal for link registration, P2-18)
+        rs.checkGraphChanged(graph);
+
+        if (h.stopSlot() == StopSlot.AFTER_GRAPH_CHECK && !running) {
+            h.stopBody(this);
+            return;
+        }
+
+        // ④ 重编译：F = 全状态保留 / L = 轻量（debugTime）
+        // ④ recompile: F = state-preserving / L = light (debugTime)
+        if (graphChanged()) {
+            if (h.lightRecompile()) recompileEvaluatorLight();
+            else recompileEvaluatorFull();
+        }
+
+        if (h.stopSlot() == StopSlot.AFTER_RECOMPILE && !running) {
+            h.stopBody(this);
+            if (h.stopEndsTick()) return;
+        }
+
+        if (running) {
+            h.beforeInputs();
+            // ⑥ 刷新红石链路输入（A = Active / H = Hybrid 混合回退）
+            // ⑥ refresh redstone-link inputs (A = Active / H = Hybrid fallback)
+            if (h.activeInputRefresh()) rs.refreshInputsActive();
+            else rs.refreshInputs();
+            // ⑦ 冲突频道自愈的**遗留第二挂点**（六宿主声明在位；主挂点已在 ① 内先行，
+            //    Blueprint 样板：接管 + 超时回收；有恢复才全量同步 + 立即发包）。
+            // ⑦ the legacy second conflicted-channel self-heal hook (declared by six
+            //    hosts; the primary heal already ran inside ① — Blueprint style:
+            //    takeover + stale-owner reclaim; full sync + immediate push only on recovery)
+            if (h.wantsStep7Recover() && BusChannelHelper.recoverConflictedChannels(graph, pos(), lvl())) {
+                requestFullSync();
+                pushBlockUpdate();
+            }
+            h.afterRecover();
+            // ⑧ 按图构建求值输入 / build evaluation inputs from the graph
+            var in = rs.buildInputs(graph);
+            h.beforeEval();
+            // ⑨ 求值——档位逐宿主保留（EvalVariant；4 参档的静默空转怪癖在 GraphEvaluator 侧原样）
+            // ⑨ evaluate — variant preserved per host (EvalVariant; the 4-arg form's
+            //    silently-idling quirk stays as-is on the GraphEvaluator side)
+            float dt = 0.05f;
+            var results = switch (h.evalVariant()) {
+                case FULL_STATE -> evaluator.evaluate(in, runtimeState.pidState, dt,
+                    runtimeState.delayQueues, runtimeState.flipflopStates, runtimeState.pulseTimers);
+                case SEAT_STATELESS -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput());
+                case BASIC -> evaluator.evaluate(in, runtimeState.pidState, dt);
+                case EMPTY_TABLE -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput(),
+                    new HashMap<>(), new HashMap<>(), new HashMap<>());
+            };
+            h.afterEval();
+            // ⑩ 写出红石输出 / write redstone outputs
+            rs.writeOutputs(results);
+            h.afterWriteOutputs();
+            // ⑪ 求值快照广播（DEBUG_PROBE 采样）/ broadcast eval snapshot (DEBUG_PROBE)
+            broadcastEvalSnapshot();
+            // ⑫ 频段变更同步（12 宿主统一在位：275ec03 直呼形态收编进骨架，开关退役）
+            // ⑫ band-change sync (wired for all twelve: the 275ec03 direct-call form
+            //    absorbed into the skeleton, the switch retired)
+            BusChannelHelper.syncIfBandsChanged(graph, pos(), lastBusHashMap, lvl());
+            // ⑬ 触发器差分广播（基线去重，无变化零发包；3/4 参档宿主无此步）
+            // ⑬ flipflop-diff broadcast (baseline-diffed, silent while unchanged; the
+            //    3/4-arg hosts carry no such step)
+            if (h.wantsFlipflopDiff()) broadcastFlipflopDiff();
+            h.afterEvalBroadcast();
+        }
+        h.beforeSetChanged();
+        // ⑭ 运行态落盘标记 / running-state persist marker
+        markDirty();
+        h.afterSetChanged();
     }
 
     // ── BUS 生命周期 / BUS lifecycle ──

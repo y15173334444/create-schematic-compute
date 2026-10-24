@@ -2,7 +2,6 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.*;
-import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.radar.TargetAssignment;
 import io.github.y15173334444.create_schematic_compute.graph.TargetRecord;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
@@ -15,6 +14,7 @@ import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.phys.AABB;
 import javax.annotation.Nullable;
 import java.util.*;
@@ -32,7 +32,7 @@ import java.util.*;
  * 手动目标锁定、显示偏移/缩放配置，以及放置在 Sable 子世界结构上时的坐标空间变换。
  * 同时将扫描结果同步到客户端供全息 blip 渲染器使用。
  */
-public class RadarBlockEntity extends SyncedGraphBlockEntity {
+public class RadarBlockEntity extends SyncedGraphBlockEntity implements GraphHost.TickHooks {
 
     // Scan settings / 扫描设置
     /** Scan range in blocks. 扫描范围（格）。 */
@@ -415,36 +415,66 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
      *   <li>向客户端广播结果并同步 bus 通道频段变化。</li>
      * </ol>
      */
+    /** tick 体已收敛进 GraphHost.tickBody（K23）：Sable level 修复前段留宿主；雷达以钩子
+     *  承载自身偏差——缝 1 扫描关卡原位捕获、⑤ 内联停机路径（矩阵独有缺口原样）、缝 3
+     *  Sable 兜底 + 目标扫描/排序/锁定剪枝 + TARGET_OUT 分配、缝 5/6 位置注入、⑨ 空表档
+     *  （世界坐标 SeatInput）、⑦ 遗留自愈挂点在位、缝 10 两平面目标同步。
+     *  The tick body converged into GraphHost.tickBody (K23): the Sable level fix stays
+     *  in the front segment; the radar's deviations ride hooks — seam-1 scan-level
+     *  capture at the original position, the ⑤ inlined stop path (the matrix's unique
+     *  gap kept verbatim), seam-3 Sable bootstrap + scan/sort/lock-prune + TARGET_OUT
+     *  assignment, seam-5/6 positional injection, the ⑨ empty-table form (world-space
+     *  SeatInput), the ⑦ legacy heal hook, and the seam-10 two-plane target sync. */
     public void tick() {
         // Fix level = null on Sable structures. 修复 Sable 结构上 level 为 null 的问题
         if (level == null) level = getEffectiveLevel();
-        if (level == null || level.isClientSide()) return;
-        ensureBusRegistered();
-        // ⑮ 全量同步冲刷步（P1-8 雷达份额）：BUS_IN 改名等路径的 requestFullSync 按 40-tick
-        //    宽限合并，靠 tick 冲刷落地。雷达此前缺这一步——置位后永远挂起。放在停止早退
-        //    **之前**（Monitor 同位）：停止的雷达也要冲刷挂起的全量同步。
-        //    Full-sync flush step (P1-8 radar share): requestFullSync from BUS_IN renames et
-        //    al. coalesces over a 40-tick grace window and lands via this flush. The radar
-        //    never had the step — once set, it hung forever. Placed before the stopped
-        //    early-return (same position as Monitor) so stopped radars flush too.
-        flushPendingFullSync();
-        Level scanLevel = getScanLevel();
+        tickBody(this);
+    }
 
-        boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
-        var currentState = getBlockState();
-        if (currentState.hasProperty(RadarBlock.LIT) && currentState.getValue(RadarBlock.LIT) != shouldBeLit)
-            level.setBlock(worldPosition, currentState.setValue(RadarBlock.LIT, shouldBeLit), 3);
+    // ── tick 编排偏差声明（K23 骨架钩子）/ tick-orchestration deviations (K23 hooks) ──
 
-        rs().checkGraphChanged(graph());
-        if (graphChanged()) recompileEvaluatorFull();
-        if (!isRunning()) {
-            for (var n : graph().nodes) {
-                if (n.type == NodeType.BUS_OUT && n.busInternalMap != null) n.busInternalMap.clear();
-            }
-            rs().writeOutputs(Collections.emptyList());
-            return;
+    /** 本 tick 的扫描关卡（原 tick 局部变量，缝 1 按**原位**捕获——tryBootstrapSableCache
+     *  会推进 cachedSub*，晚于原位取值会改变 getScanLevel 的结果）。
+     *  This tick's scan level (the original per-tick local, captured at the original
+     *  position in seam 1 — tryBootstrapSableCache advances cachedSub*, so a later read
+     *  would change getScanLevel's result). */
+    private Level scanLevel;
+
+    /** ② LIT 指示属性（缺席即**跳过不中止**——雷达单行 if 形态）。
+     *  Step ② LIT property (absent = skip without aborting — the radar's single-if shape). */
+    @Override public BooleanProperty litProperty() { return RadarBlock.LIT; }
+
+    /** ② 属性缺席不中止本 tick。 / Step ② absence does not abort the tick. */
+    @Override public boolean litAbsentAbortsTick() { return false; }
+
+    /** ⑨ 空表档：SeatInput + 每 tick 丢弃的空状态表（时序节点不跨 tick 演进）。
+     *  Step ⑨ empty-table form: seat + throwaway per-tick state maps. */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.EMPTY_TABLE; }
+
+    /** ⑦ 冲突自愈遗留第二挂点在位（主挂点已在骨架 ① 内先行）。 / Step ⑦ legacy
+     *  second heal hook present (the primary already ran in the skeleton's ①). */
+    @Override public boolean wantsStep7Recover() { return true; }
+
+    /** 缝 1（⑮ 后 ② 前）：扫描关卡捕获。 / Seam 1 (after ⑮, before ②): scan-level capture. */
+    @Override public void beforeLit() {
+        scanLevel = getScanLevel();
+    }
+
+    /** ⑤ 停机路径本体——矩阵独有缺口「停止路径内联不走 onStopRunning」逐条原样保留
+     *  （登记面归 W2B 雷达批次）。/ Step ⑤ stop-path body — the matrix's unique
+     *  "inlined, does not call onStopRunning" gap kept verbatim (the W2B radar batch
+     *  owns the registered surface). */
+    @Override public void stopBody(GraphHost engine) {
+        for (var n : graph().nodes) {
+            if (n.type == NodeType.BUS_OUT && n.busInternalMap != null) n.busInternalMap.clear();
         }
+        rs().writeOutputs(Collections.emptyList());
+    }
 
+    /** 缝 3（④/⑤ 后 ⑥ 前）：Sable 兜底 + 目标扫描 + 排序/锁定剪枝 + TARGET_OUT 分配。
+     *  Seam 3 (after ④/⑤, before ⑥): Sable bootstrap + target scan + sort/lock prune +
+     *  TARGET_OUT assignment. */
+    @Override public void beforeInputs() {
         // Proactive Sable detection — fallback when sable$physicsTick hasn't been called.
         // 主动检测 Sable（sable$physicsTick 未调用时的兜底）
         tryBootstrapSableCache();
@@ -555,37 +585,39 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
             var t = TargetAssignment.getTarget(worldPosition, n.id);
             if (t != null) activeTargets.add(t.entityId());
         }
+    }
 
-        // ══ Graph evaluation / 图评估 ══
-        rs().refreshInputs();
-        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
-            requestFullSync();
-            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
-        var in = rs().buildInputs(graph());
+    /** 缝 5（⑧ 后 ⑨ 前）：雷达位置 + 目标查询注入。 / Seam 5 (after ⑧, before ⑨):
+     *  radar-position + target-lookup injection. */
+    @Override public void beforeEval() {
         evaluator().setRadarPos(worldPosition);
         evaluator().setTargetLookup(io.github.y15173334444.create_schematic_compute.radar.TargetAssignment::getTarget);
+    }
+
+    /** ⑨ 空表档的座位输入。 / Step ⑨ seat input for the empty-table form. */
+    @Override public GraphEvaluator.SeatInputState seatInput() {
         // Use Sable world-space coordinates if available, otherwise fall back to BlockPos center.
         // 如果有 Sable 世界坐标则使用，否则回退到 BlockPos 中心。
         float wx = Float.isNaN(cachedSubWorldX) ? worldPosition.getX() + 0.5f : cachedSubWorldX;
         float wy = Float.isNaN(cachedSubWorldY) ? worldPosition.getY() + 0.5f : cachedSubWorldY;
         float wz = Float.isNaN(cachedSubWorldZ) ? worldPosition.getZ() + 0.5f : cachedSubWorldZ;
-        var si = new GraphEvaluator.SeatInputState(
+        return new GraphEvaluator.SeatInputState(
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, wx, wy, wz);
-        var results = evaluator().evaluate(in, runtimeState().pidState, 0.05f, si,
-            new HashMap<>(), new HashMap<>(), new HashMap<>());
+    }
+
+    /** 缝 6（⑨ 后 ⑩ 前）：清理雷达位置注入。 / Seam 6 (after ⑨, before ⑩): clear the
+     *  radar-position injection. */
+    @Override public void afterEval() {
         evaluator().setRadarPos(null);
-        // Write REDSTONE_OUT results back to Create's redstone-link network.
-        // Regressed in 9c46fb9 (line deleted during comment rewrite) — restored.
-        // 将 REDSTONE_OUT 结果写回 Create 红石链接网络。9c46fb9 误删，已恢复。
-        rs().writeOutputs(results);
-        // Broadcast EvalSnapshot to clients for DEBUG_PROBE sampling.
-        // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）。
-        broadcastEvalSnapshot();
-        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
-        setChanged();
+    }
+
+    /** 缝 10（⑭ 后）：目标两平面同步（轻量目标通道 + 语义门控全量 NBT）。
+     *  Seam 10 (after ⑭): two-plane target sync (the light targets channel + the
+     *  semantic-gated full NBT). */
+    @Override public void afterSetChanged() {
         // Force-sync targets to clients so the blip renderer stays up to date.
+        //（REDSTONE_OUT 写出的「9c46fb9 误删已恢复」注记随收敛移入骨架 ⑩。）
         //
         // ── 数据面两层（P1-7 终态）──
         // ① **轻量目标通道**（RadarTargetsPacket）：目标/锁定/分配的**原始**变化走小包

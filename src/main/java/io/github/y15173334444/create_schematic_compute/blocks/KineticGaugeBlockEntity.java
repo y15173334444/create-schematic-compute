@@ -5,7 +5,6 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
-import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -42,7 +41,7 @@ import java.util.Map;
  * Create-synced network readings (built-in readout); the client never recomputes.</p>
  */
 public class KineticGaugeBlockEntity extends KineticBlockEntity
-        implements GraphBlockEntity, KineticNetworkView {
+        implements GraphBlockEntity, KineticNetworkView, GraphHost.TickHooks {
 
     /** 组合式图托管核心。 Composition-based graph hosting core. */
     public final GraphHost host;
@@ -57,36 +56,31 @@ public class KineticGaugeBlockEntity extends KineticBlockEntity
 
     // ── 每 tick / per tick（Monitor 同款轻量路径 / Monitor-style light path）──
 
+    /** tick 体已收敛进 GraphHost.tickBody（K23）：Create 的 super.tick() 前段留宿主，
+     *  读数推送在缝 0；其余偏差化为声明（④ L 档、⑨ 基础档）。
+     *  The tick body converged into GraphHost.tickBody (K23): Create's super.tick()
+     *  front stays in the host, the readout push rides seam 0; the rest are declarations. */
     @Override
     public void tick() {
         super.tick();
-        if (level == null || level.isClientSide)
-            return;
-
-        // 读数（转速/应力/容量）变化 → 主动推一次 BE 数据包（见 pushReadoutIfChanged 的完整理由）。
-        // Push the readout to clients whenever it changes — see pushReadoutIfChanged.
-        pushReadoutIfChanged();
-
-        host.ensureBusRegistered();
-        host.flushPendingFullSync();
-        host.rs.checkGraphChanged(host.graph);
-        if (host.graphChanged())
-            host.recompileEvaluatorLight();
-        if (!host.running) {
-            host.onStopRunning();
-            return;
-        }
-        host.rs.refreshInputs();
-        var in = host.rs.buildInputs(host.graph);
-        var results = host.evaluator.evaluate(in, host.runtimeState.pidState, 0.05f);
-        host.rs.writeOutputs(results);
-        host.broadcastEvalSnapshot();
-        // 若 band 通道映射发生变化则同步到客户端（第 ⑫ 步，与其余宿主同位）
-        // Sync band channel mappings to clients if they changed (step 12, same slot as
-        // every other host).
-        BusChannelHelper.syncIfBandsChanged(host.graph, worldPosition, host.lastBusHashMap, level);
-        setChanged();
+        host.tickBody(this);
     }
+
+    // ── tick 编排偏差声明（K23 骨架钩子）/ tick-orchestration deviations (K23 hooks) ──
+
+    /** 缝 0（守卫后 ① 前）：读数（转速/应力/容量）变化 → 主动推一次 BE 数据包
+     *  （见 pushReadoutIfChanged 的完整理由）。
+     *  Seam 0 (after the guard, before ①): push the readout to clients whenever it
+     *  changes — see pushReadoutIfChanged. */
+    @Override public void afterGuard() {
+        pushReadoutIfChanged();
+    }
+
+    /** ④ L 档轻量重编译。 / Step ④ Light recompile. */
+    @Override public boolean lightRecompile() { return true; }
+
+    /** ⑨ 基础档（3 参）。 / Step ⑨ basic (3-arg) form. */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.BASIC; }
 
     // ── 读数同步 / readout sync ──
 

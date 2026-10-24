@@ -8,7 +8,6 @@ import io.github.y15173334444.create_schematic_compute.graph.MusicTransport;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.graph.NoteEvent;
-import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.network.SpectrumSyncPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -18,6 +17,7 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.HashMap;
@@ -31,7 +31,7 @@ import java.util.Map;
  * transport injection + persistence (type-specific NBT, plan §3.7) and the on-screen
  * spectrum tap.</p>
  */
-public class AmplifierComputerBlockEntity extends SyncedGraphBlockEntity {
+public class AmplifierComputerBlockEntity extends SyncedGraphBlockEntity implements GraphHost.TickHooks {
 
     /** 监听编号 = 自动：跟随图最上方的 MUSIC 节点。 / monitor id = auto: the graph's topmost MUSIC node. */
     public static final int AUTO_MONITOR = -1;
@@ -77,41 +77,57 @@ public class AmplifierComputerBlockEntity extends SyncedGraphBlockEntity {
         super(SchematicCompute.AMPLIFIER_COMPUTER_BE.get(), pos, s);
     }
 
+    /** tick 体已收敛进 GraphHost.tickBody（K23）；功放电脑的偏差化为声明与钩子（② 跳过
+     *  口径、⑥A 档、⑦ 遗留挂点在位、⑨ 全状态档、⑬ 在位、停机分支频谱清零、缝 4 传输表
+     *  剪枝 + 注入、缝 8 频谱推进）。/ The tick body converged into GraphHost.tickBody (K23);
+     *  every amplifier deviation is a declaration or hook below. */
     public void tick() {
-        if (level == null || level.isClientSide()) return;
-        ensureBusRegistered();
-        // 第 ⑮ 步（P1-8 补线）：挂起全量同步按 grace 窗口冲刷；必须在所有早退之前，
-        // 停机宿主也要能把图推给新加入的编辑者（Blueprint 同款）。
-        // Step ⑮ (P1-8 wiring): flush the pending full sync within the grace window; must
-        // sit before every early return so a stopped host still ships its graph to a newly
-        // joined editor (same as Blueprint).
-        flushPendingFullSync();
-        var state = getBlockState();
-        if (state.hasProperty(AmplifierComputerBlock.LIT)) {
-            boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
-            if (state.getValue(AmplifierComputerBlock.LIT) != shouldBeLit)
-                level.setBlock(worldPosition, state.setValue(AmplifierComputerBlock.LIT, shouldBeLit), 3);
-        }
-        rs().checkGraphChanged(graph());
-        if (graphChanged()) recompileEvaluatorFull();
-        if (!isRunning()) {
-            // 停机：排程与电平一起清（音乐停了柱子不该继续抖），清零沿下发一次——
-            // 「合盖不画」只在 LIT 由 isRunning 派生的今天才成立，显示路径不该依赖它；
-            // flushSpectrumPacket 的变化检测保证只在沿上发一包，之后自然停发。
-            // Stopped: drop the schedule and the levels together and ship the clear once. "A
-            // closed lid draws nothing" only holds while LIT derives from isRunning — the
-            // display path must not lean on that; the change gate sends one packet on the edge
-            // and silence takes over from there.
-            spectrum.clear();
-            flushSpectrumPacket();
-            onStopRunning();
-            return;
-        }
-        rs().refreshInputsActive();
-        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
-            requestFullSync();
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
+        tickBody(this);
+    }
+
+    // ── tick 编排偏差声明（K23 骨架钩子）/ tick-orchestration deviations (K23 hooks) ──
+
+    /** ② LIT 指示属性。缺席时**跳过不中止**（功放/雷达口径——原 if 包裹无早退）。
+     *  Step ② LIT property. Absent = skip without aborting (the amplifier/radar shape —
+     *  the original if-wrapped, no early return). */
+    @Override public BooleanProperty litProperty() { return AmplifierComputerBlock.LIT; }
+
+    /** ② 属性缺席不中止本 tick。 / Step ② absence does not abort the tick. */
+    @Override public boolean litAbsentAbortsTick() { return false; }
+
+    /** ⑥ A 档：refreshInputsActive。 / Step ⑥ A variant. */
+    @Override public boolean activeInputRefresh() { return true; }
+
+    /** ⑦ 冲突自愈遗留第二挂点在位（主挂点已在骨架 ① 内先行）。 / Step ⑦ legacy
+     *  second heal hook present (the primary already ran in the skeleton's ①). */
+    @Override public boolean wantsStep7Recover() { return true; }
+
+    /** ⑬ 触发器差分在位（矩阵 ⑬ 列 ✓）。 / Step ⑬ present (matrix ✓). */
+    @Override public boolean wantsFlipflopDiff() { return true; }
+
+    /** ⑨ 全状态档（6 参）。 / Step ⑨ full-state (6-arg) form. */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
+
+    /** ⑤ 停机路径本体：排程与电平一起清（音乐停了柱子不该继续抖），清零沿下发一次。
+     *  Step ⑤ stop-path body: drop the schedule and the levels together and ship the
+     *  clear once. */
+    @Override public void stopBody(GraphHost engine) {
+        // 停机：排程与电平一起清（音乐停了柱子不该继续抖），清零沿下发一次——
+        // 「合盖不画」只在 LIT 由 isRunning 派生的今天才成立，显示路径不该依赖它；
+        // flushSpectrumPacket 的变化检测保证只在沿上发一包，之后自然停发。
+        // Stopped: drop the schedule and the levels together and ship the clear once. "A
+        // closed lid draws nothing" only holds while LIT derives from isRunning — the
+        // display path must not lean on that; the change gate sends one packet on the edge
+        // and silence takes over from there.
+        spectrum.clear();
+        flushSpectrumPacket();
+        engine.onStopRunning();
+    }
+
+    /** 缝 4（⑦ 后 ⑧ 前）：传输表按存活 MUSIC 节点剪枝（矩阵「独有缺口」列）+ 音频宿主注入。
+     *  Seam 4 (after ⑦, before ⑧): prune the transport table to surviving MUSIC nodes
+     *  (the matrix's unique-gap column) + audio-host injection. */
+    @Override public void afterRecover() {
         // 传输表只保留仍存活的 MUSIC 节点（删节点后条目随剪，防类型段 NBT 慢性膨胀）
         audioTransports.keySet().removeIf(id -> {
             GraphNode n = graph().findNode(id);
@@ -122,16 +138,12 @@ public class AmplifierComputerBlockEntity extends SyncedGraphBlockEntity {
         evaluator().setAudioTransports(this.audioTransports);
         evaluator().setAudioHostPos(this.worldPosition);
         evaluator().setAudioTickStamp(level.getGameTime());
-        var in = rs().buildInputs(graph());
-        float dt = 0.05f;
-        var results = evaluator().evaluate(in, runtimeState().pidState, dt,
-                runtimeState().delayQueues, runtimeState().flipflopStates, runtimeState().pulseTimers);
-        rs().writeOutputs(results);
-        broadcastEvalSnapshot();
-        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
-        broadcastFlipflopDiff();
+    }
+
+    /** 缝 8（⑫⑬ 后、共用尾段前）：频谱推进（按预播目标刻点亮柱电平）。
+     *  Seam 8 (after ⑫⑬, before the shared tail): spectrum advance. */
+    @Override public void afterEvalBroadcast() {
         updateSpectrum(level.getGameTime());
-        setChanged();
     }
 
     // ── 屏幕频谱（服务端取数 → 追踪玩家 → 客户端插值显示）/ on-screen spectrum ──

@@ -356,6 +356,13 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     //     的调用形态。The single implementations live in GraphHost (shared with the
     //     composition line); these bridges only preserve the subclass-visible call shapes.
 
+    /** tick 骨架入口（K23 收敛）：继承线宿主的 tick() 只需 {@code tickBody(this)}——
+     *  15 步共同编排住引擎骨架，宿主偏差经 {@link GraphHost.TickHooks} 缝/策略保留。
+     *  Tick skeleton entry (K23 convergence): inheritance-line hosts reduce tick() to
+     *  {@code tickBody(this)} — the shared 15-step orchestration lives in the engine
+     *  skeleton, host deviations ride the {@link GraphHost.TickHooks} seams/policies. */
+    protected void tickBody(GraphHost.TickHooks hooks) { host.tickBody(hooks); }
+
     /** Call at the start of each tick to guarantee BUS channels are registered at least once.
      *  在每个 tick 开始时调用，以确保 BUS 通道至少被注册一次。 */
     @Deprecated

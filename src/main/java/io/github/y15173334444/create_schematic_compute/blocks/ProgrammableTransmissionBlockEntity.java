@@ -8,7 +8,6 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
-import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.createmod.catnip.math.VecHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -55,7 +54,7 @@ import java.util.Map;
  * which local un-ACKed edits can skew.</p>
  */
 public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
-        implements GraphBlockEntity, io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView {
+        implements GraphBlockEntity, io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView, GraphHost.TickHooks {
 
     /** 组合式图托管核心。 Composition-based graph hosting core. */
     public final GraphHost host;
@@ -271,64 +270,89 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
         }
     }
 
+    /** 本 tick 的生效目标（原 tick 局部变量，收敛后转字段：停机分支与 TX_OUT 判定分支
+     *  各自写入、共用尾段读取——逐 tick 语义与原局部等价）。
+     *  This tick's effective target (the original per-tick local, now a field: written by
+     *  the stopped branch and the TX_OUT decision, read in the shared tail — per-tick
+     *  semantics identical to the original local). */
+    private int target;
+    /** 分叉前的代理态/生效值快照（差分发包的基线；beforeGraphCheck 每 tick 捕获）。
+     *  Pre-fork proxy/applied snapshots (the diff-push baseline; captured per tick in
+     *  beforeGraphCheck). */
+    private boolean wasProxy;
+    private int appliedBefore;
+
+    /** tick 体已收敛进 GraphHost.tickBody（K23）：双端前段（cleanOrphanedKineticState +
+     *  super.tick + refreshScrollLabel）留宿主，偏差化为声明与钩子（⑤ if/else 形态 +
+     *  停机回落、⑥A 档、⑨ 全状态档、⑬ 在位）。/ The tick body converged into
+     *  GraphHost.tickBody (K23); the both-sides front segment stays in the host and every
+     *  deviation is a declaration or hook below. */
     @Override
     public void tick() {
         cleanOrphanedKineticState();
         super.tick();
         refreshScrollLabel();
-        if (level == null || level.isClientSide)
-            return;
-        host.ensureBusRegistered();
-        host.flushPendingFullSync();
+        host.tickBody(this);
+    }
 
-        host.rs.checkGraphChanged(host.graph);
-        if (host.graphChanged())
-            host.recompileEvaluatorFull();
+    // ── tick 编排偏差声明（K23 骨架钩子）/ tick-orchestration deviations (K23 hooks) ──
 
-        boolean wasProxy = proxyControlled;
-        int appliedBefore = appliedTarget;
-        int target;
-        if (!host.running) {
-            host.onStopRunning();
-            target = scrollTarget();   // 停机回落滚轮值 / stopped: fall back to the scroll value
-            proxyControlled = false;
+    /** 缝 2（③ 前）：捕获分叉前的代理态/生效值（原「if/else 前一行」的等价落点——
+     *  ①⑮③④ 均不触碰这两个字段）。
+     *  Seam 2 (before ③): capture the pre-fork proxy/applied values (the equivalent of
+     *  the original pre-if/else lines — ①⑮③④ never touch these fields). */
+    @Override public void beforeGraphCheck() {
+        wasProxy = proxyControlled;
+        appliedBefore = appliedTarget;
+    }
+
+    /** ⑤ if/else 形态：停机不早退，落共用尾段（目标回填/对账两分支都跑）。
+     *  Step ⑤ if-else shape: no early return on stop — the shared tail (target /
+     *  reconcile) runs in both branches. */
+    @Override public boolean stopEndsTick() { return false; }
+
+    /** ⑤ 停机分支本体：onStopRunning + 目标回落滚轮值 + 退出代理态。
+     *  Step ⑤ stopped-branch body: onStopRunning + fall back to the scroll value + drop
+     *  the proxy flag. */
+    @Override public void stopBody(GraphHost engine) {
+        engine.onStopRunning();
+        target = scrollTarget();   // 停机回落滚轮值 / stopped: fall back to the scroll value
+        proxyControlled = false;
+    }
+
+    /** ⑥ A 档：refreshInputsActive。 / Step ⑥ A variant. */
+    @Override public boolean activeInputRefresh() { return true; }
+
+    /** ⑬ 触发器差分在位（P2-13 补线位）。 / Step ⑬ present (the P2-13 slot). */
+    @Override public boolean wantsFlipflopDiff() { return true; }
+
+    /** ⑨ 全状态档（6 参）。 / Step ⑨ full-state (6-arg) form. */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
+
+    /** 缝 8（⑬ 后）：控制来源与代理态判定。 / Seam 8 (after ⑬): control-source + proxy
+     *  decision. */
+    @Override public void afterEvalBroadcast() {
+        // 控制来源与代理态在**同一处**判定：图运行时以存储序首个 TX_OUT 为准，否则回落
+        // 滚轮值。两处分开写会长出「盒里写(代理)、实际听滚轮」这类死守卫式分叉。
+        // Control source and proxy flag are decided HERE, once: the first TX_OUT in node
+        // order while the graph runs, else the scroll value. Deciding them at two sites
+        // grows the classic dead-guard drift ("box says proxied, wheel still wins").
+        int txNodeId = host.graph.firstNodeIdOfType(NodeType.TX_OUT);
+        if (txNodeId >= 0) {
+            float max = AllConfigs.server().kinetics.maxRotationSpeed.get();
+            float raw = host.evaluator.getNodeOutput(txNodeId, 0);
+            raw = Float.isFinite(raw) ? raw : 0;
+            target = Mth.clamp(Math.round(raw), (int) -max, (int) max);
+            proxyControlled = true;
         } else {
-            host.rs.refreshInputsActive();
-            var in = host.rs.buildInputs(host.graph);
-            var results = host.evaluator.evaluate(in, host.runtimeState.pidState, 0.05f,
-                    host.runtimeState.delayQueues, host.runtimeState.flipflopStates, host.runtimeState.pulseTimers);
-            host.rs.writeOutputs(results);
-            host.broadcastEvalSnapshot();
-            // 第 ⑫ 步：band 通道映射变化才同步到客户端（与其余宿主同位：11 与 13 之间）。
-            // Step ⑫: sync band channel mappings to clients only on change (step 12, same
-            // slot as every other host: between 11 and 13).
-            BusChannelHelper.syncIfBandsChanged(host.graph, worldPosition, host.lastBusHashMap, level);
-            // 第 ⑬ 步（P2-13 补线）：6 参档求值里 GATE/T_FLIPFLOP/LATCH 真实演进，但此前从不
-            // 广播差分——图内触发器状态永不同步到客户端（编辑器徽标死值）。GraphHost 内部按
-            // 基线去重，无变化零发包（AmplifierComputer/Speaker 同位置）。
-            // Step ⑬ (P2-13 wiring): the 6-arg evaluate genuinely evolves GATE/T_FLIPFLOP/LATCH
-            // state, but no diff was ever broadcast — in-graph flipflop state never reached the
-            // client (dead editor badges). GraphHost diffs against its baseline, so no packets
-            // while unchanged (same position as AmplifierComputer/Speaker).
-            host.broadcastFlipflopDiff();
-
-            // 控制来源与代理态在**同一处**判定：图运行时以存储序首个 TX_OUT 为准，否则回落
-            // 滚轮值。两处分开写会长出「盒里写(代理)、实际听滚轮」这类死守卫式分叉。
-            // Control source and proxy flag are decided HERE, once: the first TX_OUT in node
-            // order while the graph runs, else the scroll value. Deciding them at two sites
-            // grows the classic dead-guard drift ("box says proxied, wheel still wins").
-            int txNodeId = host.graph.firstNodeIdOfType(NodeType.TX_OUT);
-            if (txNodeId >= 0) {
-                float max = AllConfigs.server().kinetics.maxRotationSpeed.get();
-                float raw = host.evaluator.getNodeOutput(txNodeId, 0);
-                raw = Float.isFinite(raw) ? raw : 0;
-                target = Mth.clamp(Math.round(raw), (int) -max, (int) max);
-                proxyControlled = true;
-            } else {
-                target = scrollTarget();
-                proxyControlled = false;
-            }
+            target = scrollTarget();
+            proxyControlled = false;
         }
+    }
+
+    /** 缝 9（⑭ 前，共用尾段）：目标回填 + 对账 + 差分发包。
+     *  Seam 9 (before ⑭, the shared tail): target fill-in + reconcile + diff push. */
+    @Override public void beforeSetChanged() {
         desiredTarget = target;
         reconcileTarget();
         // 客户端要画「谁在控制 + 生效值」：只在两者真的变了时发包。appliedTarget 受 4 tick
@@ -338,7 +362,6 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
         // 4 ticks — the same order as the official setValue->sendData.
         if (proxyControlled != wasProxy || appliedTarget != appliedBefore)
             sendData();
-        setChanged();
     }
 
     /** 值盒标签随代理态切换（双端都跑：客户端读包同步来的代理态）。

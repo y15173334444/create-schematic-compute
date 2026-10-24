@@ -1,53 +1,43 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
-import io.github.y15173334444.create_schematic_compute.graph.NodeType;
-import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.level.block.state.BlockState;
-import java.util.ArrayDeque;
+import net.minecraft.world.level.block.state.properties.BooleanProperty;
 
-public class ProgramComputerBlockEntity extends SyncedGraphBlockEntity {
+public class ProgramComputerBlockEntity extends SyncedGraphBlockEntity implements GraphHost.TickHooks {
     public ProgramComputerBlockEntity(BlockPos pos, BlockState s) { super(SchematicCompute.PROGRAM_BE.get(), pos, s); }
 
     // accept() 已上提至 SyncedGraphBlockEntity（阶段 1）——ProgramComputer 无类型特定
     // 字段，合并只需基类那份。/ accept() moved up to SyncedGraphBlockEntity (phase 1) —
     // ProgramComputer has no type-specific fields, so the base implementation is enough.
 
+    /** tick 体已收敛进 GraphHost.tickBody（K23）；程序计算机的偏差化为声明（②中止口径、
+     *  ⑥A 档、⑦ 遗留挂点在位、⑨ 全状态档、⑬ 在位）。/ The tick body converged into
+     *  GraphHost.tickBody (K23); every ProgramComputer deviation is a declaration below. */
     public void tick() {
-        if(level==null||level.isClientSide()) return;
-        ensureBusRegistered();
-        // 第 ⑮ 步（P1-8 补线）：挂起全量同步按 grace 窗口冲刷；必须在所有早退之前，
-        // 停机宿主也要能把图推给新加入的编辑者（Blueprint 同款）。
-        // Step ⑮ (P1-8 wiring): flush the pending full sync within the grace window; must
-        // sit before every early return so a stopped host still ships its graph to a newly
-        // joined editor (same as Blueprint).
-        flushPendingFullSync();
-        var state = getBlockState();
-        if (!state.hasProperty(ProgramComputerBlock.LIT)) return;
-        boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
-        if(state.getValue(ProgramComputerBlock.LIT)!=shouldBeLit)
-            level.setBlock(worldPosition, state.setValue(ProgramComputerBlock.LIT, shouldBeLit), 3);
-        rs().checkGraphChanged(graph());
-        if(graphChanged()) recompileEvaluatorFull();
-        if(!isRunning()) { onStopRunning(); return; }
-        rs().refreshInputsActive();
-        if (BusChannelHelper.recoverConflictedChannels(graph(), worldPosition, level)) {
-            requestFullSync();
-            if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
-        }
-        var in = rs().buildInputs(graph());
-        float dt = 0.05f;
-        var results = evaluator().evaluate(in, runtimeState().pidState, dt,
-                runtimeState().delayQueues, runtimeState().flipflopStates, runtimeState().pulseTimers);
-        rs().writeOutputs(results);
-        broadcastEvalSnapshot(); // 广播 EvalSnapshot 给客户端（供 DEBUG_PROBE 采样）
-        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
-        broadcastFlipflopDiff();
-        setChanged();
+        tickBody(this);
     }
+
+    // ── tick 编排偏差声明（K23 骨架钩子）/ tick-orchestration deviations (K23 hooks) ──
+
+    /** ② LIT 指示属性（缺席即中止口径）。 / Step ② LIT property (abort-on-absent). */
+    @Override public BooleanProperty litProperty() { return ProgramComputerBlock.LIT; }
+
+    /** ⑥ A 档：refreshInputsActive。 / Step ⑥ A variant. */
+    @Override public boolean activeInputRefresh() { return true; }
+
+    /** ⑦ 冲突自愈遗留第二挂点在位（主挂点已在骨架 ① 内先行）。 / Step ⑦ legacy
+     *  second heal hook present (the primary already ran in the skeleton's ①). */
+    @Override public boolean wantsStep7Recover() { return true; }
+
+    /** ⑬ 触发器差分在位（矩阵 ⑬ 列 ✓）。 / Step ⑬ present (matrix ✓). */
+    @Override public boolean wantsFlipflopDiff() { return true; }
+
+    /** ⑨ 全状态档（6 参）。 / Step ⑨ full-state (6-arg) form. */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
 
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t, r);

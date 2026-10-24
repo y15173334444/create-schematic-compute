@@ -13,143 +13,286 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * K23 / P1-8 / ⑫ / P2-13 / P2-18 / P3-N13 的宿主 tick 编排结构锁。
- * 依据 docs/tech-debt-review-2026-10-11.md §六 的 15 步偏差矩阵，把本批补线钉进源码结构
- * （源码扫描式结构测试，与 {@link DedicatedServerClientRefTest} 同模式——BE tick 本体依赖
- * 世界对象，无法 headless 直测，而编排顺序正是本批的行为变更点）。
- * <p>
- * 断言口径（除雷达外的 11 宿主；雷达归 W2B 批次）：
+ * 宿主 tick 编排结构锁（K23 收敛后的重锚形态）。
+ * 15 步共同编排住 {@code GraphHost.tickBody}（源码扫描式结构测试，与
+ * {@link DedicatedServerClientRefTest} 同模式——BE tick 本体依赖世界对象，无法 headless
+ * 直测，而编排顺序正是行为变更点），各宿主 tick() 只剩前段 + 委托，偏差化为
+ * {@code GraphHost.TickHooks} 声明。
+ * <p>断言口径：
  * <ul>
- *   <li>⑮ flushPendingFullSync：11/11 在位，且位于 onStopRunning 早退之前（停机宿主也要能
- *       把图推给新编辑者——P1-8）。</li>
- *   <li>⑫ syncIfBandsChanged：12/12 在位（band 编辑不再只经编辑路径或重载到达客户端）。</li>
- *   <li>⑦ recoverConflictedChannels：继承线宿主的既有调用防回退（main 的冲突自愈已由
- *       GraphHost.ensureBusRegistered 统一挂点覆盖，本批不在补线宿主重复挂）。</li>
- *   <li>⑬ broadcastFlipflopDiff：CncGearbox / ProgrammableTransmission（6 参档求值）在位，
- *       位置在 evaluate 之后。</li>
- *   <li>P2-18：SpeedProxy 的 ③⑥⑧⑩⑭ 全部在位；不再有 List.of() 空输入。</li>
- *   <li>Speaker ⑥⑩：refreshInputs / writeOutputs 在位。</li>
+ *   <li>骨架按矩阵顺序跑 15 步；① ensureBusRegistered 先于一切早退（92d0dbf：图停止也
+ *       自愈 + 收敛）；⑮ 先于 ⑤ 停机路径（P1-8）；⑦ 在 ⑥ 与 ⑧ 之间；⑬ 在 ⑨ 之后。</li>
+ *   <li>⑫ syncIfBandsChanged 在骨架中为无条件步（275ec03 的 12/12 直呼形态收编，
+ *       wantsBandSync 开关已退役），位置在 ⑪ 与 ⑬ 之间。</li>
+ *   <li>⑦ 冲突自愈的遗留第二挂点 = 六宿主声明（Blueprint/ProgramComputer/
+ *       AmplifierComputer/Sensor/ControlSeat/Radar）；主挂点在 ① 内，其余六宿主不得
+ *       再挂（同一 tick 双跑自愈，宿主编排批迁移账）。</li>
+ *   <li>P2-13：⑥ 参档宿主声明 ⑬ 在位（CncGearbox / PT / Amp / Speaker / BP / PC）。</li>
+ *   <li>P2-18：SpeedProxy 声明 L 档 + AFTER_GRAPH_CHECK 停机位；骨架求值输入恒来自
+ *       buildInputs（无 List.of() 空表）。</li>
+ *   <li>Speaker ⑥⑩：骨架的 refreshInputs / writeOutputs 为无条件步，Speaker 委托骨架。</li>
+ *   <li>②④⑤⑥⑨ 偏差声明逐宿主与矩阵一致（LIT 属性/缺席口径、F/L 档、停机位/形态、
+ *       A/H 档、四档求值）。</li>
  *   <li>P3-N13：Blueprint / ProgramComputer 的 loadAdditional 不再加载即发包。</li>
  *   <li>SpeedProxy 反射退役：全文件不再有 Class.forName / java.lang.reflect。</li>
  * </ul>
- * Structural lock over the host tick orchestration (K23 matrix follow-ups of this batch),
- * using the same source-scan pattern as {@link DedicatedServerClientRefTest}: BE tick bodies
- * need a live world and cannot run headless, yet the ordering IS the behaviour change here.
- * <p>Scope: the 11 non-radar hosts (Radar belongs to the W2B batch).</p>
+ * Structural lock over the host tick orchestration, re-anchored after the K23 convergence
+ * (replayed on main): the shared 15-step body lives in {@code GraphHost.tickBody}, every
+ * host tick() delegates, and host deviations are TickHooks declarations. Every prior
+ * assertion keeps its meaning — steps in the skeleton in matrix order + per-host
+ * delegation + per-host declarations.
  */
 class HostTickOrchestrationTest {
 
     private static final Path BLOCKS_DIR = Path.of("src", "main", "java",
         "io", "github", "y15173334444", "create_schematic_compute", "blocks");
 
-    /** 除雷达外的 11 宿主（雷达的 tick 归 W2B 雷达专项，不在此锁）。 */
-    private static final List<String> ALL_NON_RADAR_HOSTS = List.of(
+    /** 全部 12 宿主（委托骨架的口径；雷达已随收敛一并委托）。 */
+    private static final List<String> ALL_HOSTS = List.of(
         "BlueprintBlockEntity", "ProgramComputerBlockEntity", "AmplifierComputerBlockEntity",
         "SensorBlockEntity", "ControlSeatBlockEntity", "MonitorBlockEntity",
         "KineticGaugeBlockEntity", "CncGearboxBlockEntity", "ProgrammableTransmissionBlockEntity",
-        "SpeedProxyBlockEntity", "SpeakerBlockEntity");
+        "RadarBlockEntity", "SpeedProxyBlockEntity", "SpeakerBlockEntity");
 
-    // ══════════ ⑮ flushPendingFullSync（P1-8：8 缺 → 0 缺）══════════
+    /** 声明 ⑦ 遗留自愈挂点的六宿主（其余六宿主的主挂点在骨架 ① 内，不得双跑）。 */
+    private static final List<String> STEP7_RECOVER_HOSTS = List.of(
+        "BlueprintBlockEntity", "ProgramComputerBlockEntity", "AmplifierComputerBlockEntity",
+        "SensorBlockEntity", "ControlSeatBlockEntity", "RadarBlockEntity");
+
+    /** 骨架方法体（GraphHost.tickBody）——顺序断言的唯一锚点。 */
+    private static List<String> skeleton() throws IOException {
+        return methodBody("GraphHost.java", "public void tickBody(");
+    }
+
+    // ══════════ 骨架步序锁（15 步矩阵顺序）══════════
 
     @Test
-    @DisplayName("P1-8: every non-radar host flushes the pending full sync in tick, before the stop path")
-    void everyHostFlushesPendingFullSyncBeforeStop() throws IOException {
-        for (String host : ALL_NON_RADAR_HOSTS) {
-            List<String> tick = methodBody(host + ".java", "public void tick()");
-            int flush = indexOf(tick, "flushPendingFullSync()", host, "step 15 missing");
-            int stop = indexOf(tick, "onStopRunning()", host, "stop path missing");
-            assertTrue(flush < stop,
-                host + ": flushPendingFullSync must run before the onStopRunning early return "
-                    + "so a stopped host still ships its graph to a newly joined editor");
+    @DisplayName("K23: the skeleton runs the canonical 15 steps in matrix order")
+    void skeletonFollowsTheCanonicalMatrixOrder() throws IOException {
+        List<String> s = skeleton();
+        int guard = indexOf(s, "isClientSide()", "GraphHost", "guard missing");
+        int bus = indexOf(s, "ensureBusRegistered()", "GraphHost", "step 1 missing");
+        int flush = indexOf(s, "flushPendingFullSync()", "GraphHost", "step 15 missing");
+        int lit = indexOf(s, "litProperty()", "GraphHost", "step 2 missing");
+        int check = indexOf(s, "checkGraphChanged", "GraphHost", "step 3 missing");
+        int recompile = indexOf(s, "recompileEvaluator", "GraphHost", "step 4 missing");
+        int refresh = indexOf(s, "refreshInputs", "GraphHost", "step 6 missing");
+        int recover = indexOf(s, "recoverConflictedChannels", "GraphHost", "step 7 missing");
+        int build = indexOf(s, "buildInputs", "GraphHost", "step 8 missing");
+        int evaluate = indexOf(s, ".evaluate(", "GraphHost", "step 9 missing");
+        int write = indexOf(s, "writeOutputs", "GraphHost", "step 10 missing");
+        int snapshot = indexOf(s, "broadcastEvalSnapshot()", "GraphHost", "step 11 missing");
+        int bands = indexOf(s, "syncIfBandsChanged", "GraphHost", "step 12 missing");
+        int flipflop = indexOf(s, "broadcastFlipflopDiff", "GraphHost", "step 13 missing");
+        int dirty = indexOf(s, "markDirty()", "GraphHost", "step 14 missing");
+
+        assertTrue(guard < bus, "the guard precedes ① (client ticks never reach the engine)");
+        assertTrue(bus < flush, "① ensureBusRegistered must precede ⑮ flushPendingFullSync");
+        assertTrue(flush < lit, "⑮ must precede ② LIT (P1-8: flush before every early return)");
+        assertTrue(lit < check, "② LIT must precede ③ checkGraphChanged");
+        assertTrue(check < recompile, "③ must precede ④ recompile");
+        assertTrue(recompile < refresh, "④ must precede ⑥ refreshInputs");
+        assertTrue(refresh < recover, "⑥ must precede ⑦ recover (matrix position)");
+        assertTrue(recover < build, "⑦ must precede ⑧ buildInputs (matrix position)");
+        assertTrue(build < evaluate, "⑧ must precede ⑨ evaluate");
+        assertTrue(evaluate < write, "⑨ must precede ⑩ writeOutputs");
+        assertTrue(write < snapshot, "⑩ must precede ⑪ broadcastEvalSnapshot");
+        assertTrue(snapshot < bands, "⑪ must precede ⑫ syncIfBandsChanged");
+        assertTrue(bands < flipflop, "⑫ must precede ⑬ broadcastFlipflopDiff");
+        assertTrue(evaluate < flipflop, "⑬ must broadcast after ⑨ evaluate (P2-13 position)");
+        assertTrue(flipflop < dirty, "⑬ must precede ⑭ setChanged/markDirty");
+    }
+
+    // ══════════ ① ensureBusRegistered 语义钉（92d0dbf，v1.2.6.1 冲突自愈）══════════
+
+    @Test
+    @DisplayName("92d0dbf: ensureBusRegistered runs at the tick top, before every early return")
+    void busRegistrationPrecedesEveryEarlyReturn() throws IOException {
+        List<String> s = skeleton();
+        int bus = indexOf(s, "ensureBusRegistered()", "GraphHost", "step 1 missing");
+        int stop = indexOf(s, "stopBody", "GraphHost", "stop path missing");
+        assertTrue(bus < stop,
+            "① must precede the stop path: the conflict heal + band convergence run even "
+                + "while the graph is stopped (92d0dbf — a stopped graph must still "
+                + "self-heal and republish band definitions within the tick)");
+        // ⑮ 在一切早退之前（P1-8）。
+        int flush = indexOf(s, "flushPendingFullSync()", "GraphHost", "step 15 missing");
+        assertTrue(flush < stop,
+            "⑮ must run before the stop path so a stopped host still ships its graph to a "
+                + "newly joined editor (P1-8)");
+        for (String host : ALL_HOSTS)
+            delegatesToSkeleton(host);
+    }
+
+    // ══════════ ⑦ recoverConflictedChannels（遗留挂点 = 六宿主声明）══════════
+
+    @Test
+    @DisplayName("step 7: the legacy heal hook sits between refreshInputs and buildInputs, declared by exactly six hosts")
+    void legacyRecoverHookPositionAndDeclarations() throws IOException {
+        List<String> s = skeleton();
+        int refresh = indexOf(s, "refreshInputs", "GraphHost", "refreshInputs missing");
+        int recover = indexOf(s, "recoverConflictedChannels", "GraphHost", "step 7 missing");
+        int build = indexOf(s, "buildInputs", "GraphHost", "buildInputs missing");
+        assertTrue(recover > refresh, "GraphHost: the step-7 heal must run after refreshInputs");
+        assertTrue(recover < build, "GraphHost: the step-7 heal must run before buildInputs");
+        // 声明在位 = 六宿主（继承线五宿主 + 雷达）；主挂点已在 ① 内覆盖全部宿主。
+        for (String host : STEP7_RECOVER_HOSTS)
+            assertDeclares(host, "wantsStep7Recover");
+        // 其余六宿主不得声明（同一 tick 双跑自愈——宿主编排批迁移账）。
+        for (String host : ALL_HOSTS) {
+            if (STEP7_RECOVER_HOSTS.contains(host)) continue;
+            assertFalse(fileContains(host, "wantsStep7Recover"),
+                host + ": must NOT declare the step-7 legacy hook — the primary heal "
+                    + "already runs inside the skeleton's ① (double heal per tick, see "
+                    + "the host-orchestration migration account)");
         }
     }
 
-    // ══════════ ⑫ syncIfBandsChanged（12/12 宿主在位）══════════
+    // ══════════ ⑫ syncIfBandsChanged（12/12 无条件在位；开关已退役）══════════
 
     @Test
-    @DisplayName("step 12: every host runs syncIfBandsChanged in tick (band edits reach clients without the edit path)")
-    void everyHostSyncsBandsOnTick() throws IOException {
-        for (String host : ALL_NON_RADAR_HOSTS) {
-            List<String> tick = methodBody(host + ".java", "public void tick()");
-            indexOf(tick, "syncIfBandsChanged", host, "step 12 missing");
-        }
-        // 雷达不在 ALL_NON_RADAR_HOSTS，但第 ⑫ 步同样在位。
-        // The radar is not in ALL_NON_RADAR_HOSTS, but its step 12 is wired the same way.
-        List<String> radar = methodBody("RadarBlockEntity.java", "public void tick()");
-        indexOf(radar, "syncIfBandsChanged", "RadarBlockEntity", "step 12 missing");
-    }
-
-    // ══════════ ⑦ recoverConflictedChannels（继承线既有调用防回退；main 的冲突自愈
-    // 已由 GraphHost.ensureBusRegistered 每 tick 统一挂点——图停止也跑——覆盖全部宿主，
-    // 本批的六宿主补线不再迁移，避免同一 tick 双跑自愈）══════════
-
-    @Test
-    @DisplayName("the inheritance-line hosts keep their recover call")
-    void inheritanceLineKeepsRecover() throws IOException {
-        for (String host : List.of("BlueprintBlockEntity", "ProgramComputerBlockEntity",
-                "AmplifierComputerBlockEntity", "SensorBlockEntity", "ControlSeatBlockEntity")) {
-            List<String> tick = methodBody(host + ".java", "public void tick()");
-            indexOf(tick, "recoverConflictedChannels", host, "step 7 regression");
+    @DisplayName("step 12: band sync is unconditional in the skeleton (12/12, the wantsBandSync switch is retired)")
+    void bandSyncIsUnconditionalForAllHosts() throws IOException {
+        List<String> s = skeleton();
+        int snapshot = indexOf(s, "broadcastEvalSnapshot()", "GraphHost", "step 11 missing");
+        int bands = indexOf(s, "syncIfBandsChanged", "GraphHost", "step 12 missing");
+        int flipflop = indexOf(s, "broadcastFlipflopDiff", "GraphHost", "step 13 missing");
+        assertTrue(snapshot < bands && bands < flipflop,
+            "step 12 must sit between broadcastEvalSnapshot (11) and broadcastFlipflopDiff (13)");
+        // 275ec03 的 12/12 直呼形态收编进骨架：不再有宿主侧声明开关。
+        for (String host : ALL_HOSTS) {
+            assertFalse(fileContains(host, "wantsBandSync"),
+                host + ": the wantsBandSync switch is retired — step 12 rides the skeleton");
+            delegatesToSkeleton(host);
         }
     }
 
-    // ══════════ ⑬ broadcastFlipflopDiff（P2-13：6 参档缺 → 补齐）══════════
+    // ══════════ ⑬ broadcastFlipflopDiff（P2-13：6 参档在位）══════════
 
     @Test
-    @DisplayName("P2-13: CncGearbox and Transmission broadcast the flipflop diff after evaluate")
+    @DisplayName("P2-13: the flipflop diff broadcasts after evaluate; the six full-state hosts enable it")
     void fullStateHostsBroadcastFlipflopDiff() throws IOException {
-        for (String host : List.of("CncGearboxBlockEntity", "ProgrammableTransmissionBlockEntity")) {
-            List<String> tick = methodBody(host + ".java", "public void tick()");
-            int evaluate = indexOf(tick, ".evaluate(", host, "evaluate missing");
-            int diff = indexOf(tick, "broadcastFlipflopDiff()", host, "step 13 missing");
-            assertTrue(diff > evaluate, host + ": flipflop diff must broadcast after the evaluation");
-        }
-    }
-
-    @Test
-    @DisplayName("P2-13 guard: AmplifierComputer/Speaker/Blueprint/ProgramComputer keep their diff call")
-    void otherFullStateHostsKeepFlipflopDiff() throws IOException {
-        for (String host : List.of("AmplifierComputerBlockEntity", "SpeakerBlockEntity",
-                "BlueprintBlockEntity", "ProgramComputerBlockEntity")) {
-            List<String> tick = methodBody(host + ".java", "public void tick()");
-            indexOf(tick, "broadcastFlipflopDiff()", host, "step 13 regression");
-        }
+        List<String> s = skeleton();
+        int evaluate = indexOf(s, ".evaluate(", "GraphHost", "evaluate missing");
+        int diff = indexOf(s, "broadcastFlipflopDiff", "GraphHost", "step 13 missing");
+        assertTrue(diff > evaluate, "GraphHost: flipflop diff must broadcast after the evaluation");
+        for (String host : List.of("CncGearboxBlockEntity", "ProgrammableTransmissionBlockEntity",
+                "AmplifierComputerBlockEntity", "SpeakerBlockEntity",
+                "BlueprintBlockEntity", "ProgramComputerBlockEntity"))
+            assertDeclares(host, "wantsFlipflopDiff");
     }
 
     // ══════════ P2-18：SpeedProxy 缺步补齐 ══════════
 
     @Test
-    @DisplayName("P2-18: SpeedProxy runs the full L-variant orchestration (3/6/8/10/14)")
+    @DisplayName("P2-18: SpeedProxy runs the full L-variant orchestration via the skeleton (3/6/8/10/14)")
     void speedProxyRunsFullLightOrchestration() throws IOException {
-        List<String> tick = methodBody("SpeedProxyBlockEntity.java", "public void tick()");
-        indexOf(tick, "checkGraphChanged", "SpeedProxy", "step 3 missing (redstone link self-heal)");
-        indexOf(tick, "refreshInputs", "SpeedProxy", "step 6 missing");
-        indexOf(tick, "buildInputs", "SpeedProxy", "step 8 missing");
-        indexOf(tick, "writeOutputs", "SpeedProxy", "step 10 missing");
-        indexOf(tick, "setChanged()", "SpeedProxy", "step 14 missing (running-state persistence)");
-        assertFalse(tick.stream().anyMatch(l -> l.contains("List.of()")),
-            "SpeedProxy must feed the evaluator from the graph's redstone inputs, not an empty list");
+        List<String> s = skeleton();
+        // 五步住骨架且无条件在位（SpeedProxy 经委托全部走到）。
+        // The five steps live in the skeleton unconditionally; delegation runs them all.
+        indexOf(s, "checkGraphChanged", "GraphHost", "step 3 missing (redstone link self-heal)");
+        indexOf(s, "refreshInputs", "GraphHost", "step 6 missing");
+        indexOf(s, "buildInputs", "GraphHost", "step 8 missing");
+        indexOf(s, "writeOutputs", "GraphHost", "step 10 missing");
+        indexOf(s, "markDirty()", "GraphHost", "step 14 missing (running-state persistence)");
+        assertFalse(s.stream().anyMatch(l -> l.contains("List.of()")),
+            "the skeleton must feed the evaluator from the graph's redstone inputs, not an empty list");
+        assertTrue(fileContains("SpeedProxyBlockEntity", "lightRecompile"),
+            "SpeedProxy: L-variant recompile declaration missing");
+        assertTrue(fileContains("SpeedProxyBlockEntity", "EvalVariant.BASIC"),
+            "SpeedProxy: 3-arg evaluate declaration missing");
+        delegatesToSkeleton("SpeedProxyBlockEntity");
     }
 
     @Test
-    @DisplayName("P2-18: SpeedProxy re-registers redstone links on graph change (checkGraphChanged before the stop path)")
+    @DisplayName("P2-18: SpeedProxy's stop check sits after checkGraphChanged (Monitor order)")
     void speedProxyChecksGraphChangedBeforeStop() throws IOException {
-        List<String> tick = methodBody("SpeedProxyBlockEntity.java", "public void tick()");
-        int check = indexOf(tick, "checkGraphChanged", "SpeedProxy", "step 3 missing");
-        int stop = indexOf(tick, "onStopRunning()", "SpeedProxy", "stop path missing");
+        List<String> s = skeleton();
+        int check = indexOf(s, "checkGraphChanged", "GraphHost", "step 3 missing");
+        int stop = indexOf(s, "StopSlot.AFTER_GRAPH_CHECK", "GraphHost", "Monitor-order stop slot missing");
         assertTrue(check < stop,
-            "checkGraphChanged must precede the stop early return so link registration "
-                + "tracks graph generation even while the host is stopped (Monitor order)");
+            "checkGraphChanged must precede the AFTER_GRAPH_CHECK stop early return so link "
+                + "registration tracks graph generation even while the host is stopped (Monitor order)");
+        assertTrue(fileContains("SpeedProxyBlockEntity", "StopSlot.AFTER_GRAPH_CHECK"),
+            "SpeedProxy: the Monitor-order stop slot must be declared");
     }
 
     // ══════════ Speaker ⑥⑩（P3 宿主面：红石面残缺）══════════
 
     @Test
-    @DisplayName("Speaker refreshes redstone inputs and writes outputs")
+    @DisplayName("Speaker refreshes redstone inputs and writes outputs through the skeleton")
     void speakerRefreshesInputsAndWritesOutputs() throws IOException {
-        List<String> tick = methodBody("SpeakerBlockEntity.java", "public void tick()");
-        indexOf(tick, "refreshInputs", "Speaker", "step 6 missing");
-        indexOf(tick, "writeOutputs", "Speaker", "step 10 missing");
+        List<String> s = skeleton();
+        indexOf(s, "refreshInputs", "GraphHost", "step 6 missing");
+        indexOf(s, "writeOutputs", "GraphHost", "step 10 missing");
+        delegatesToSkeleton("SpeakerBlockEntity");
+    }
+
+    // ══════════ ②④⑤⑥⑨ 偏差声明与矩阵一致 ══════════
+
+    @Test
+    @DisplayName("K23: every host declares its matrix step-9 evaluate variant")
+    void evalVariantsMatchTheMatrix() throws IOException {
+        assertDeclares("BlueprintBlockEntity", "EvalVariant.FULL_STATE");
+        assertDeclares("ProgramComputerBlockEntity", "EvalVariant.FULL_STATE");
+        assertDeclares("AmplifierComputerBlockEntity", "EvalVariant.FULL_STATE");
+        assertDeclares("SensorBlockEntity", "EvalVariant.SEAT_STATELESS");
+        assertDeclares("ControlSeatBlockEntity", "EvalVariant.SEAT_STATELESS");
+        assertDeclares("MonitorBlockEntity", "EvalVariant.BASIC");
+        assertDeclares("KineticGaugeBlockEntity", "EvalVariant.BASIC");
+        assertDeclares("CncGearboxBlockEntity", "EvalVariant.FULL_STATE");
+        assertDeclares("ProgrammableTransmissionBlockEntity", "EvalVariant.FULL_STATE");
+        assertDeclares("RadarBlockEntity", "EvalVariant.EMPTY_TABLE");
+        assertDeclares("SpeedProxyBlockEntity", "EvalVariant.BASIC");
+        assertDeclares("SpeakerBlockEntity", "EvalVariant.FULL_STATE");
+    }
+
+    @Test
+    @DisplayName("K23: the light-recompile trio and the Active-refresh quintet match the matrix")
+    void recompileAndRefreshVariantsMatchTheMatrix() throws IOException {
+        // ④ L 档 = Monitor / KineticGauge / SpeedProxy；其余为 F 档（默认）。
+        for (String host : List.of("MonitorBlockEntity", "KineticGaugeBlockEntity", "SpeedProxyBlockEntity"))
+            assertDeclares(host, "lightRecompile");
+        // ⑥ A 档 = Blueprint / ProgramComputer / AmplifierComputer / CncGearbox / PT；其余 H 档（默认）。
+        for (String host : List.of("BlueprintBlockEntity", "ProgramComputerBlockEntity",
+                "AmplifierComputerBlockEntity", "CncGearboxBlockEntity", "ProgrammableTransmissionBlockEntity"))
+            assertDeclares(host, "activeInputRefresh");
+    }
+
+    @Test
+    @DisplayName("K23: the stop-slot / stop-shape declarations match the matrix")
+    void stopSlotAndShapeMatchTheMatrix() throws IOException {
+        // ⑤ 介于 ③④（Monitor / SpeedProxy 口径）。
+        for (String host : List.of("MonitorBlockEntity", "SpeedProxyBlockEntity"))
+            assertDeclares(host, "StopSlot.AFTER_GRAPH_CHECK");
+        // ⑤ 先于 ③（Speaker：停止早退先于图检查）。
+        assertDeclares("SpeakerBlockEntity", "StopSlot.BEFORE_GRAPH_CHECK");
+        // ⑤ if/else 形态不早退（CncGearbox / PT 共用尾段口径）。
+        for (String host : List.of("CncGearboxBlockEntity", "ProgrammableTransmissionBlockEntity"))
+            assertDeclares(host, "stopEndsTick");
+    }
+
+    @Test
+    @DisplayName("K23: the LIT step declarations match the matrix (8 property hosts, 2 non-aborting)")
+    void litStepMatchesTheMatrix() throws IOException {
+        assertDeclares("BlueprintBlockEntity", "BlueprintBlock.LIT");
+        assertDeclares("ProgramComputerBlockEntity", "ProgramComputerBlock.LIT");
+        assertDeclares("AmplifierComputerBlockEntity", "AmplifierComputerBlock.LIT");
+        assertDeclares("SensorBlockEntity", "SensorBlock.LIT");
+        assertDeclares("ControlSeatBlockEntity", "ControlSeatBlock.LIT");
+        assertDeclares("MonitorBlockEntity", "MonitorBlock.LIT");
+        assertDeclares("RadarBlockEntity", "RadarBlock.LIT");
+        assertDeclares("SpeedProxyBlockEntity", "SpeedProxyBlock.LIT");
+        // 「缺席即跳过不中止」口径 = 功放电脑 / 雷达。
+        assertDeclares("AmplifierComputerBlockEntity", "litAbsentAbortsTick");
+        assertDeclares("RadarBlockEntity", "litAbsentAbortsTick");
+    }
+
+    @Test
+    @DisplayName("K23: all twelve hosts delegate their tick to the skeleton")
+    void allTwelveHostsDelegateToTheSkeleton() throws IOException {
+        for (String host : ALL_HOSTS)
+            delegatesToSkeleton(host);
     }
 
     // ══════════ P3-N13：加载即发包口径统一 ══════════
@@ -205,6 +348,28 @@ class HostTickOrchestrationTest {
     }
 
     // ── 扫描助手 / scan helpers ──
+
+    /** 断言宿主 tick() 委托骨架（收敛后各宿主 tick 只剩前段 + tickBody 委托）。
+     *  Assert the host's tick() delegates to the skeleton. */
+    private static void delegatesToSkeleton(String host) throws IOException {
+        List<String> tick = methodBody(host + ".java", "public void tick()");
+        assertTrue(tick.stream().anyMatch(l -> l.contains("tickBody(")),
+            host + ": tick() must delegate to the GraphHost tickBody skeleton");
+    }
+
+    /** 断言宿主文件含偏差声明（逐宿主的矩阵列声明）。
+     *  Assert the host file declares the given deviation. */
+    private static void assertDeclares(String host, String needle) throws IOException {
+        assertTrue(fileContains(host, needle), host + ": missing declaration \"" + needle + "\"");
+    }
+
+    /** 宿主文件是否含 needle（扫描全文件代码行）。 */
+    private static boolean fileContains(String host, String needle) throws IOException {
+        List<String> lines = Files.readAllLines(BLOCKS_DIR.resolve(host + ".java"), StandardCharsets.UTF_8);
+        return lines.stream()
+            .map(HostTickOrchestrationTest::stripStringsAndComments)
+            .anyMatch(l -> l.contains(needle));
+    }
 
     /** 取 blocks/ 下指定文件中第一个匹配签名的方法体（大括号配平），逐行去除注释与字符串后返回
      *  ——顺序断言只看真实代码行，双语注释里提到的标识符不得干扰下标比较。 */
