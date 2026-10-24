@@ -26,6 +26,12 @@
 <details>
 <summary><b>v1.2.6.2（WIP）</b> — 修复：Sable 结构内音响无声 · 音频拆分节点编辑区未刷新时连线回退 · 功放菜单隐藏音频输出节点 / Fix: speaker inside a Sable structure went silent · audio-split node wires reverted when the edit panel wasn't re-selected · amplifier menu hides the audio-output nodes</summary>
 
+### 🧵 音频拆分节点：布局切换不再「连线回退」/ Audio-Split Node: Layout Changes No Longer "Revert Wires"
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🧵 **声道拆分（CHANNEL）布局点击本地补齐服务端重建** | 服务端 SET_PARAM 会随布局变化整体替换输出引脚集（mix ↔ l/r/…）并剪掉旧声道 pinId 上的连线，但这条 op 的回显要么不达发起者、要么被未变守卫跳过（布局点击是 params 手写）——本地不补同款两步（ensureChannelBands + rebuildInputCache），旧声道上的连线就成了幽灵线：服务端已剪、本地还画着，下一次权威同步一到整批消失，实测即「不重新选择编辑区刷新时连线回退」；此后画的新线还可能携旧声道名被服务端静默跳过。现在点击布局预设的瞬间本地同步重建，旧线就地剪除、新线按新声道名出线（撤销路径本就经 OpExecutor 走全量 apply，无此病）。回归：`ChannelLayoutRewireTest`（服务端剪枝契约 / 本地镜像契约 / 镜像后新线过未变守卫回显 / GraphEditor 点击分支结构锁）。/ The server's SET_PARAM replaces the CHANNEL output pin set wholesale (mix ↔ l/r/…) and prunes wires on old channel pinIds - but that op's echo either never reaches the originator or is skipped by the unchanged guard (the layout click writes params by hand). Without mirroring the two local steps (ensureChannelBands + rebuildInputCache), wires on old channel names linger as ghosts - pruned server-side, still drawn locally - until the next authoritative sync wipes them wholesale: the reported "wires revert unless the edit panel is re-selected". Wires drawn afterwards could even carry stale channel names the server silently skips. The layout-preset click now rebuilds locally at the moment of the click, so old wires prune in place and fresh wires leave with the new channel names (the undo path always rode OpExecutor's full apply and never had the bug). Regression: `ChannelLayoutRewireTest` (server prune contract / local mirror contract / post-mirror wire survives the unchanged-guard echo / a structural lock over the editor's click branch). |
+
 ### 🎵 功放菜单隐藏音频输出节点 / Amplifier Menu Hides the Audio-Output Node
 
 | Change / 变更 | Description / 说明 |

@@ -2652,6 +2652,21 @@ public class GraphEditor {
                         var sOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
                             host.getBlockPos(), ownerNodeId(), en.id, 0, idx, host.getPlayerUUID());
                         sendOp(sOp); recordOp(sOp, 0, 0, oldV, null);
+                        // 服务端 apply 会随 SET_PARAM 做引脚集合整体替换（ensureChannelBands）
+                        // + stale 连线剪枝（rebuildInputCache），但这条 op 的回显要么不达发起者、
+                        // 要么被未变守卫跳过（params 已手写）——本地不补这两步，旧声道 pinId 上的
+                        // 连线就成了幽灵线：服务端已剪、本地还画着，下一次权威同步一到整批消失
+                        //（「连线回退」），且此后画的新线可能携旧声道名被服务端静默跳过。
+                        // The server apply rebuilds the pin set wholesale (ensureChannelBands)
+                        // and prunes stale wires (rebuildInputCache) with SET_PARAM, but this
+                        // op's echo either never reaches the originator or is skipped by the
+                        // unchanged guard (params written by hand) - without mirroring both
+                        // steps locally, wires on old channel pinIds become ghosts (pruned
+                        // server-side, still drawn locally) that the next authoritative sync
+                        // wipes ("wires revert"), and wires drawn afterwards can carry stale
+                        // channel names the server silently skips.
+                        en.ensureChannelBands();
+                        getGraph().rebuildInputCache();
                     }
                     return true;
                 }
