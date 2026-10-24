@@ -260,17 +260,19 @@ final class GraphPresenceTracker {
             if (fn == null) continue;
             int h = p.player().hashCode();
             int color = 0xFF000000 | (((h >> 16) & 0xFF) << 16) | (((h >> 8) & 0xFF) << 8) | (h & 0xFF) | 0xFF000000;
-            float fromX = ed.c2sX(fn.x + io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer.nw(fn));
-            float fromY = ed.c2sY(fn.y + NodeRenderer.HH + NodeRenderer.PH * (fn.functionalInputs() + p.wireFromPin()) + NodeRenderer.PH / 2f);
+            // 锚点与曲线取点走 WireGeometry（与本地渲染/命中同源）/ anchors and curve
+            // sampling via WireGeometry (shared with local render and hit-testing)
+            var from = WireGeometry.fromAnchor(fn, p.wireFromPin(), ed.zoom);
+            float fromX = ed.c2sX(from.x());
+            float fromY = ed.c2sY(from.y());
             float toX = ed.c2sX(p.wireEndX()), toY = ed.c2sY(p.wireEndY());
-            float dx = Math.abs(toX - fromX) * 0.4f;
             float dist = (float)Math.sqrt((toX-fromX)*(toX-fromX)+(toY-fromY)*(toY-fromY));
             int steps = Math.max(10, (int)(dist * 0.15f));
             float px = fromX, py = fromY;
             for (int i = 1; i <= steps; i++) {
-                float t = i / (float)steps, inv = 1 - t;
-                float nx = inv*inv*inv*fromX + 3*inv*inv*t*(fromX+dx) + 3*inv*t*t*(toX-dx) + t*t*t*toX;
-                float ny = inv*inv*inv*fromY + 3*inv*inv*t*fromY + 3*inv*t*t*toY + t*t*t*toY;
+                float t = i / (float)steps;
+                float nx = WireGeometry.bezierX(fromX, toX, t);
+                float ny = WireGeometry.bezierY(fromY, toY, t);
                 int sdx = (int)nx - (int)px, sdy = (int)ny - (int)py;
                 int segLen = Math.max(Math.abs(sdx), Math.abs(sdy));
                 if (segLen == 0) g.fill((int)px, (int)py, (int)px + 1, (int)py + 1, color);

@@ -4831,54 +4831,99 @@ public class GraphEditor {
         }
         return null;
     }
+    /** 删除连线命中阈值（屏幕像素）/ Delete-wire hit threshold (screen px) */
+    private static final float WIRE_HIT_PX = 12f;
+    /** 并列判定带（屏幕像素 = 线宽）：两条线到光标距离差在 1px 内视为「并列」（同一像素上
+     *  分不出是谁），取画序最上（connections 靠后 = 画得越晚越靠上）——交叉口删的是你看见的
+     *  那条；距离差超过线宽则按最近者胜。
+     *  Tie band (screen px = the wire width): wires within 1px of each other are "tied" (you
+     *  cannot tell them apart at that pixel) and the topmost-drawn (later in connections =
+     *  painted later) wins — at a crossing you delete the one you see; beyond the band the
+     *  nearest wins. */
+    private static final float WIRE_Z_TIE_PX = 1f;
+
     /** 检测鼠标位置下的连线（对贝塞尔曲线做逐段距离检测，阈值 12px）。
-     *  Hit-test connections under the mouse cursor (segment-by-segment distance check on bezier curves, 12px threshold).
+     *  命中曲线与画线共用 {@link WireGeometry} 的锚点与贝塞尔取点——画出来的线必可命中。
+     *  距离只在**看得见**的线段上量：最近点被节点体 / 展开编辑面板盖住（它们画在连线之上，
+     *  A=2 < A=3）的线段不参与，看不见的线（含隐藏邻线）不会抢走命中；
+     *  并列时取画序最上的一条。
+     *  Hit-test connections under the mouse cursor (segment-by-segment distance check on the
+     *  bezier curve, 12px threshold). The hit curve shares {@link WireGeometry}'s anchors and
+     *  sampling with the renderer — whatever is drawn is hittable. Distance is measured over
+     *  **visible** stretches only: segments whose nearest point is painted over by a node body /
+     *  expanded edit panel (which draw above the wires, A=2 &lt; A=3) never count, so invisible
+     *  wires — and hidden neighbours — cannot steal the hit; ties go to the topmost-drawn wire.
      *  @param mx 鼠标 X（屏幕坐标）/ mouse X (screen coords)
      *  @param my 鼠标 Y（屏幕坐标）/ mouse Y (screen coords)
      *  @return 命中的连线，无命中返回 null / the hit connection, or null */
     private NodeConnection hitConn(double mx, double my) {
         var graph = getGraph();
-        NodeConnection best=null;
-        float globalMin=12; // 阈值 (Hit threshold)
-        for(NodeConnection c:graph.connections){
-            GraphNode fn=graph.findNode(c.fromId), tn=graph.findNode(c.toId);
-            if(fn==null||tn==null)continue;
-            float fx = c2sX(fn.x+NW), fy;
-            if (fn.type == NodeType.BUS_IN) {
-                fy = c2sY(fn.y + bandPinY(fn, c.fromPin, zoom));
-            } else {
-                fy = c2sY(fn.y+HH+PH*(fn.functionalInputs() + c.fromPin)+PH/2f);
+        var conns = graph.connections;
+        float[] minVis = new float[conns.size()];
+        java.util.Arrays.fill(minVis, Float.MAX_VALUE);
+        float[] closest = new float[2];
+        for (int ci = 0; ci < conns.size(); ci++) {
+            NodeConnection c = conns.get(ci);
+            GraphNode fn = graph.findNode(c.fromId), tn = graph.findNode(c.toId);
+            if (fn == null || tn == null) continue;
+            var from = WireGeometry.fromAnchor(fn, c.fromPin, zoom);
+            var to = WireGeometry.toAnchor(tn, c.toPin, zoom);
+            float fx = c2sX(from.x()), fy = c2sY(from.y());
+            float tx = c2sX(to.x()), ty = c2sY(to.y());
+            float dist = (float)Math.sqrt((tx-fx)*(tx-fx)+(ty-fy)*(ty-fy));
+            int steps = Math.max(10, (int)(dist*0.3f));
+            float px = fx, py = fy;
+            for (int i = 1; i <= steps; i++) {
+                float t = i/(float)steps;
+                float nx = WireGeometry.bezierX(fx, tx, t);
+                float ny = WireGeometry.bezierY(fy, ty, t);
+                float segDist = closestOnSegment((float)mx, (float)my, px, py, nx, ny, closest);
+                // 只有看得见的最近点才参与：被节点体盖住的线段删不到（也删不走）
+                // Only a visible nearest point counts: stretches under a node body are
+                // un-deletable (and cannot steal the hit).
+                if (segDist < minVis[ci] && segDist < WIRE_HIT_PX
+                    && !coveredByNodeBody(closest[0], closest[1])) {
+                    minVis[ci] = segDist;
+                }
+                px = nx; py = ny;
             }
-            float ty;
-            if (tn.type == NodeType.BUS_OUT) {
-                ty = c2sY(tn.y + bandPinY(tn, c.toPin, zoom));
-            } else if (c.toPin < tn.functionalInputs())
-                ty=c2sY(tn.y+HH+PH*c.toPin+PH/2f);
-            else {
-                int pi=c.toPin-tn.functionalInputs();
-                ty=c2sY(tn.y+HH+PH*(tn.functionalInputs()+tn.outputs())+4/zoom+pi*18+12);
-            }
-            float tx=c2sX(tn.x);
-            float dx=Math.abs(tx-fx)*0.4f, dist=(float)Math.sqrt((tx-fx)*(tx-fx)+(ty-fy)*(ty-fy));
-            int steps=Math.max(10,(int)(dist*0.3f));
-            float minDist=Float.MAX_VALUE, px=fx, py=fy;
-            for(int i=1;i<=steps;i++){
-                float t=i/(float)steps, inv=1-t;
-                float nx=inv*inv*inv*fx+3*inv*inv*t*(fx+dx)+3*inv*t*t*(tx-dx)+t*t*t*tx;
-                float ny=inv*inv*inv*fy+3*inv*inv*t*fy+3*inv*t*t*ty+t*t*t*ty;
-                float segDist=distanceToSegment((float)mx,(float)my,px,py,nx,ny);
-                if(segDist<minDist) minDist=segDist; px=nx; py=ny;
-            }
-            if(minDist<globalMin){globalMin=minDist;best=c;}
         }
+        float dMin = Float.MAX_VALUE;
+        for (float d : minVis) if (d < WIRE_HIT_PX && d < dMin) dMin = d;
+        if (dMin == Float.MAX_VALUE) return null;
+        NodeConnection best = null;
+        for (int ci = 0; ci < minVis.length; ci++)
+            if (minVis[ci] < WIRE_HIT_PX && minVis[ci] <= dMin + WIRE_Z_TIE_PX) best = conns.get(ci);
         return best;
     }
-    /** 计算点到线段的最短距离。 / Compute the shortest distance from a point to a line segment. */
-    private static float distanceToSegment(float px,float py,float x1,float y1,float x2,float y2){
+
+    /** 该屏幕点是否被普通节点体 / 展开编辑面板盖住（画序在连线之上；注释节点在连线之下，不遮挡）。
+     *  盒口径与 {@code NodeRenderer.drawNode} 的涂盖范围一致（含 4px 缝与展开编辑面板实测高）。
+     *  Whether this screen point is painted over by a regular node body / expanded edit panel
+     *  (drawn above the wires; comment nodes sit below the wires and never occlude). The box
+     *  matches {@code NodeRenderer.drawNode}'s paint extent (incl. the 4px gap and the measured
+     *  expanded edit panel). */
+    private boolean coveredByNodeBody(double px, double py) {
+        for (var n : getGraph().nodes) {
+            if (n.type == NodeType.COMMENT) continue;
+            float sx = c2sX(n.x), sy = c2sY(n.y);
+            float sw = NodeRenderer.nw(n) * zoom;
+            float sh = NodeRenderer.nh(n) * zoom + 4;
+            if (expandedNodeIds.contains(n.id))
+                sh += EditPanel.calcRenderHeight(n, zoom, nodeEditStatesById.get(n.id)) * zoom;
+            if (px >= sx && px < sx + sw && py >= sy && py < sy + sh) return true;
+        }
+        return false;
+    }
+
+    /** 线段上离 (px,py) 最近的点，写入 out[0..1]，返回该距离。
+     *  Closest point on segment (x1,y1)-(x2,y2) to (px,py), stored into out; returns the distance. */
+    private static float closestOnSegment(float px,float py,float x1,float y1,float x2,float y2,float[] out){
         float abx=x2-x1, aby=y2-y1, apx=px-x1, apy=py-y1;
         float dot=apx*abx+apy*aby, len2=abx*abx+aby*aby;
         float t=len2==0?0:Math.max(0,Math.min(1,dot/len2));
         float cx=x1+t*abx, cy=y1+t*aby;
+        out[0]=cx; out[1]=cy;
         float dx=px-cx, dy=py-cy;
         return (float)Math.sqrt(dx*dx+dy*dy);
     }

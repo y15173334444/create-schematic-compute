@@ -38,26 +38,13 @@ final class NodeWireRenderer {
             GraphNode fn = graph.findNode(c.fromId);
             GraphNode tn = graph.findNode(c.toId);
             if(fn==null||tn==null) continue;
+            // 锚点取自 WireGeometry（命中与渲染同源）/ anchors from WireGeometry (shared with hit-testing)
+            var from = WireGeometry.fromAnchor(fn, c.fromPin, zoom);
+            var to = WireGeometry.toAnchor(tn, c.toPin, zoom);
+            float wx1 = from.x(), wx2 = to.x();
             // cull: both endpoints outside viewport edge
-            float wx1 = fn.x + NodeRenderer.nw(fn), wx2 = tn.x;
             if ((wx1 < vpLeft && wx2 < vpLeft) || (wx1 > vpRight && wx2 > vpRight)) continue;
-            // 输出引脚Y（BUS_IN 编辑区引脚动态计算）
-            float wy1;
-            if (fn.type == NodeType.BUS_IN) {
-                wy1 = fn.y + GraphEditor.bandPinY(fn, c.fromPin, zoom);
-            } else {
-                wy1 = fn.y + NodeRenderer.HH + NodeRenderer.PH*(fn.functionalInputs() + c.fromPin) + NodeRenderer.PH/2f;
-            }
-            // 输入引脚Y（BUS_OUT 编辑区引脚动态计算）
-            float wy2;
-            if (tn.type == NodeType.BUS_OUT) {
-                wy2 = tn.y + GraphEditor.bandPinY(tn, c.toPin, zoom);
-            } else if (c.toPin < tn.functionalInputs()) {
-                wy2 = tn.y + NodeRenderer.HH + NodeRenderer.PH*c.toPin + NodeRenderer.PH/2f;
-            } else {
-                int paramIdx = c.toPin - tn.functionalInputs();
-                wy2 = tn.y + NodeRenderer.HH + NodeRenderer.PH*(tn.functionalInputs() + tn.outputs()) + 4/zoom + paramIdx*18 + 12;
-            }
+            float wy1 = from.y(), wy2 = to.y();
             if ((wy1 < vpTop && wy2 < vpTop) || (wy1 > vpBottom && wy2 > vpBottom)) continue;
             float x1 = c2sX.apply(wx1), y1 = c2sY.apply(wy1);
             float x2 = c2sX.apply(wx2), y2 = c2sY.apply(wy2);
@@ -75,13 +62,10 @@ final class NodeWireRenderer {
                                     boolean targetAudio) {
         var fn = graph.findNode(wireFromNode);
         if(fn==null) return;
-        float y1;
-        if (fn.type == NodeType.BUS_IN) {
-            y1 = c2sY.apply(fn.y + GraphEditor.bandPinY(fn, wireFromPin, zoom));
-        } else {
-            y1 = c2sY.apply(fn.y+NodeRenderer.HH+NodeRenderer.PH*(fn.functionalInputs() + wireFromPin)+NodeRenderer.PH/2f);
-        }
-        float x1 = c2sX.apply(fn.x + NodeRenderer.nw(fn));
+        // 源端锚点取自 WireGeometry（与渲染/命中同源）/ source anchor from WireGeometry (shared with render/hit-testing)
+        var from = WireGeometry.fromAnchor(fn, wireFromPin, zoom);
+        float x1 = c2sX.apply(from.x());
+        float y1 = c2sY.apply(from.y());
         float x2 = c2sX.apply(wireEndX), y2 = c2sY.apply(wireEndY);
         // 拖拽预览同规则；拖拽源固定在输出侧，只查输出域（查输入域会误伤 AMP 这类
         // 「输入 0 = AUDIO、输出 0 = FLOAT」的节点）。频段源（BUS_IN/PRIVATE_IN）是任意域
@@ -107,14 +91,14 @@ final class NodeWireRenderer {
     }
 
     private void bezier(GuiGraphics g, float x1, float y1, float x2, float y2, int c) {
-        float dx = Math.abs(x2-x1)*0.4f;
         float dist = (float)Math.sqrt((x2-x1)*(x2-x1)+(y2-y1)*(y2-y1));
         int steps = Math.max(10, (int)(dist*0.15f));
         float px=x1, py=y1;
         for(int i=1; i<=steps; i++) {
-            float t = i/(float)steps, inv = 1-t;
-            float nx=inv*inv*inv*x1 + 3*inv*inv*t*(x1+dx) + 3*inv*t*t*(x2-dx) + t*t*t*x2;
-            float ny=inv*inv*inv*y1 + 3*inv*inv*t*y1 + 3*inv*t*t*y2 + t*t*t*y2;
+            float t = i/(float)steps;
+            // 曲线取点与命中同源 / curve sampling shared with hit-testing
+            float nx = WireGeometry.bezierX(x1, x2, t);
+            float ny = WireGeometry.bezierY(y1, y2, t);
             int sx = (int)px, sy = (int)py, ex = (int)nx, ey = (int)ny;
             int sdx = ex - sx, sdy = ey - sy;
             int segLen = Math.max(Math.abs(sdx), Math.abs(sdy));
