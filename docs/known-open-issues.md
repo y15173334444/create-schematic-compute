@@ -2,7 +2,7 @@
 > 更新日期 / Updated：2026-10-25
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 待办 8 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 待办 9 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -23,6 +23,7 @@
 | 6 | 像素编辑器配色半收编（static final 捕获 + 硬编码按钮/悬停） | 与 NBS 收编前同款病：panel_bg/panel_border 类加载时捕获、按钮/悬停写死，换主题不跟 | 照 NBS 收编的同款映射一次搬 | 🔶 待办 |
 | 7 | 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理） | 主图/子图节点 id 撞号时 owner 门失真；syncBusBands/空表 clearBus 靠旗标或镜像语义门控 | ChannelOwner 加图域全链带上 + 两处清理改 owner 门控 | 🔶 待办 |
 | 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（随 eval 档统一 / K23 收敛拍板） | 🔶 待办（2026-10-17 登记） |
+| 9 | 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE） | 服务端 op 链不校验 `BlockNodeAllowances`，改包客户端可把任意类型塞进任意宿主 | 服务端 op 链按准入名单校验，超名单 REJECT（与 K10 服务端化同批） | 🔶 待办（2026-10-17 补登记，复审 P2-7） |
 
 ---
 
@@ -334,3 +335,38 @@ Sensor / 控制椅图里若出现 DELAY / LATCH / GATE / T_FLIPFLOP / PULSE_EXTE
 ### 状态 / Status
 
 **🔶 待办。** 2026-10-17 随 eval() 分派化决策文档定性登记；main 侧 eval() 分派化未施工（决策文档已随 1.3.0 迁移入库，见 [`eval-category-dispatch-decision.md`](eval-category-dispatch-decision.md)），修复随分派化或 K23 收敛拍板。
+
+---
+
+## 9. 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE）
+
+### 症状 / Symptom
+
+改包客户端可绕过节点菜单，把任意 `NodeType` 加进任意宿主的图（如给传感器塞 FORMULA、
+给音响塞 REDSTONE_OUT）；菜单准入纪律「方块整类接受或不接受」只对正版客户端生效。
+
+### 机制 / Mechanism
+
+`BlockNodeAllowances` 的准入名单只被客户端 Screen（菜单过滤）引用；服务端 op 链
+（ADD_NODE 一类）**零校验**——复审 P2-7 定性为"仅客户端把守点"，与 K10（数量上限仅
+客户端）同族。eval() 分派化后越类节点的求值表现依 eval 档而异（部分宿主静默空转，见
+条目「时序/逻辑节点在 SeatInput 档宿主静默空转」）。
+
+### 触发条件 / Trigger
+
+任意会话成员用改包客户端发 ADD_NODE op；历史/外部存档携带超名单节点同理可见。
+
+### 影响面 / Impact
+
+无直接数据破坏；越类节点绕过分类边界纪律，在宿主图里产生菜单造不出的形态（求值静默
+错误或行为异常），且是 K10 之外的第二个"仅客户端把守点"。
+
+### 修复方向 / Fix direction
+
+服务端 op 链按 `BlockNodeAllowances` 校验节点类型（ADD_NODE 及任何落类型的地方），超名单
+按 REJECT 纪律拒绝；与 K10 数量上限的服务端化**同批做**——两个"仅客户端把守点"一次收口。
+
+### 状态 / Status
+
+**🔶 待办。** 2026-10-17 债务对表时发现账面悬空（波次表 / 延期表 / 本册三处皆无），
+补登记（复审 P2-7）。
