@@ -37,7 +37,9 @@ public class RuntimeState {
 
     // PID 积分、ACCUMULATOR 当前值、INTEGRATOR 值和 tick 计数器
     // PID integrals, ACCUMULATOR current values, INTEGRATOR values and tick counters
-    public final Map<Integer, Float> pidState = new HashMap<>();
+    // （两个构造器分别赋值：空态构造 / subView 共享视图构造）
+    // (assigned by each constructor: the empty ctor / the subView shared-view ctor)
+    public final Map<Integer, Float> pidState;
 
     // DELAY 节点逐 tick 队列
     // DELAY node per-tick queues
@@ -86,13 +88,59 @@ public class RuntimeState {
 
         // DEBUG_SIGNAL_GEN 相位状态（归一化时间 0~1） / DEBUG_SIGNAL_GEN phase state (normalized time 0~1)
         public final Map<Integer, Float> debugTime = new HashMap<>();
+
+        // MOVE/ROTATE/WAIT/MUSIC 触点的上一 tick 电平（键=子图节点 id；MUSIC 停止沿用
+        // id+100000 辅助槽位）。与顶层 {@link #nodeEdge} 同语义、同持久化口径（v2 起）——
+        // 缺此槽时子求值器每 tick 把常高触发误判为新上升沿，封装内指令被反复重新入队
+        // （v2"指令永不停止"事故的子图翻版，P1-4）。
+        // Previous-tick trigger level for MOVE/ROTATE/WAIT/MUSIC (key = sub-graph node id;
+        // MUSIC's stop edge uses the id+100000 auxiliary slot). Same semantics and the same
+        // persistence contract as the top-level {@link #nodeEdge} (since v2) — without this
+        // slot the sub-evaluator misjudges a held-high trigger as a fresh rising edge every
+        // tick and re-enqueues encapsulated commands forever (the sub-graph replay of the
+        // v2 "command never stops" incident, P1-4).
+        public final Map<Integer, Boolean> nodeEdge = new HashMap<>();
     }
 
     /**
      * 构造一个空的 RuntimeState，所有映射初始化为空 HashMap。
      * Construct an empty RuntimeState; all maps are initialized as empty HashMaps.
      */
-    public RuntimeState() {}
+    public RuntimeState() {
+        this.pidState = new HashMap<>();
+        this.nodeEdge = new java.util.HashMap<>();
+    }
+
+    /**
+     * 共享视图构造器：pidState/nodeEdge 直接引用传入映射（不复制）。
+     * Shared-view constructor: pidState/nodeEdge reference the given maps directly (no copy).
+     */
+    private RuntimeState(Map<Integer, Float> pidState, java.util.Map<Integer, Boolean> nodeEdge) {
+        this.pidState = pidState;
+        this.nodeEdge = nodeEdge;
+    }
+
+    /**
+     * 为封装子求值器构造共享视图（P1-4）：{@code pidState}/{@code nodeEdge} 与给定
+     * {@link SubState} 是<b>同一映射</b>——子求值器的 MOVE/MUSIC 边沿记忆与 MUSIC seek
+     * 槽位直接落在权威 SubState 表上，求值即持久化（save() 读的就是 SubState），无需
+     * 求值后写回。其余映射（delayQueues/flipflopStates/pulseTimers/debugTime）不共享：
+     * 它们分别由封装分支的局部表 + 写回路径与 saveDebugTimes/创建期拷贝管理，视图内
+     * 保持空表。子图嵌套封装时，视图的 subStates 为内层提供独立命名空间（内存态，
+     * NBT 持久化仍只覆盖第一层）。
+     * Build a shared view for the encapsulated sub-evaluator (P1-4): {@code pidState}/
+     * {@code nodeEdge} are the <b>same maps</b> as the given {@link SubState}'s — the
+     * sub-evaluator's MOVE/MUSIC edge memory and the MUSIC seek slot land directly on the
+     * authoritative SubState tables, so evaluating IS persisting (save() reads the
+     * SubState) and no write-back is needed. The remaining maps are not shared: they are
+     * managed by the encapsulation branch's local tables + write-back, and by
+     * saveDebugTimes / the creation-time copy; they stay empty in the view. For nested
+     * encapsulation the view's subStates give the inner level its own namespace
+     * (in-memory only; NBT persistence still covers the first level).
+     */
+    public static RuntimeState subView(SubState ss) {
+        return new RuntimeState(ss.pidState, ss.nodeEdge);
+    }
 
     /**
      * 获取或创建封装节点的 SubState。
@@ -160,7 +208,7 @@ public class RuntimeState {
      *  rising edge and re-enqueues commands forever (the "command never stops" root
      *  cause). Persisted, a held-high signal only fires after a real low→high
      *  transition. */
-    public final java.util.Map<Integer, Boolean> nodeEdge = new java.util.HashMap<>();
+    public final java.util.Map<Integer, Boolean> nodeEdge;
 
     /** 从存活节点 ID 构建完整键集（含辅助槽位：flipflop 的 -(id+1)、ACCUMULATOR/INTEGRATOR 的
      *  id+100000/id+200000、MUSIC 上次 seek 值的 id+300000）。
@@ -338,6 +386,13 @@ public class RuntimeState {
                     for (var e : s.debugTime.entrySet()) sdt.putFloat(String.valueOf(e.getKey()), e.getValue());
                     ss.put("dt", sdt);
                 }
+                // 子图触发电平记忆（与顶层 "nodeEdge" 键名一致，格式对称）
+                // Sub-graph trigger level memory (same "nodeEdge" key name as the top level, symmetric format)
+                if (!s.nodeEdge.isEmpty()) {
+                    CompoundTag sne = new CompoundTag();
+                    for (var e : s.nodeEdge.entrySet()) sne.putBoolean(String.valueOf(e.getKey()), e.getValue());
+                    ss.put("nodeEdge", sne);
+                }
                 // 键 = 封装节点 ID 的字符串形式，与其他映射的键格式一致
                 // Key = string form of encapsulation node ID, consistent with other map key formats
                 sub.put(String.valueOf(entry.getKey()), ss);
@@ -438,6 +493,10 @@ public class RuntimeState {
                 if (ss.contains("dt")) {
                     var sdt = ss.getCompound("dt");
                     for (var sk : sdt.getAllKeys()) s.debugTime.put(Integer.parseInt(sk), sdt.getFloat(sk));
+                }
+                if (ss.contains("nodeEdge")) {
+                    var sne = ss.getCompound("nodeEdge");
+                    for (var sk : sne.getAllKeys()) s.nodeEdge.put(Integer.parseInt(sk), sne.getBoolean(sk));
                 }
                 rs.subStates.put(encapId, s);
             }

@@ -910,10 +910,15 @@ public class GraphEvaluator {
                             .publish(node.signalName, aref, audioTickStamp, consumerKey(node));
                     break;
                 }
-                // 浮点写入（占用检测，BUS 同款）：冲突节点不写——写入权属于首个注册者
-                // Float write (BUS-parity occupancy): a conflicted node writes nothing —
-                // write rights belong to the first registrant.
-                if (!node.busConflict) signalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
+                // 浮点写入（占用检测，BUS 同款）：冲突节点不写——写入权属于首个注册者；
+                // 空名不写（BUS_OUT 同款早退口径，P2-5）——否则未命名节点互写 SIGNALS[""]
+                // 幽灵频道，释放路径 clearSignal("") 清不掉。
+                // Float write (BUS-parity occupancy): a conflicted node writes nothing — write
+                // rights belong to the first registrant; an empty name writes nothing either
+                // (BUS_OUT's same early-out, P2-5) — otherwise unnamed nodes cross-write the
+                // SIGNALS[""] ghost channel that release paths can never clear.
+                if (!node.busConflict && !node.signalName.isEmpty())
+                    signalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
             }
             case BUS_IN -> {
                 // 按频段分流（属性跟频段走）：某频段的输出接了音频线 → 该频段读自己的
@@ -1124,7 +1129,6 @@ public class GraphEvaluator {
                 float trig = graph.getInputValue(node.id, 0, outputs);
                 boolean cur = trig > 0.5f;
                 boolean prev = runtimeState != null && runtimeState.nodeEdge.getOrDefault(node.id, false);
-                if (cur && !prev)
                 if (cur && !prev && commandSink != null) {
                     // 数值：参数 EditBox 为默认值，连线覆盖（上升沿当帧快照）。
                     // rev 按钮独立于数值（不改 EditBox）：入栈时对快照值取反。
@@ -1277,6 +1281,14 @@ public class GraphEvaluator {
                         usedFrozen = pinInputs.clone();
                     }
                     final float[] frozenRef = usedFrozen;
+                    // K7：去重缓存只收「可信」结果 —— 成功与挂起（冻结）照常缓存，异常
+                    // （catch）路径绝不写缓存：错误结果的全零数组会把同脚本同输入的兄弟
+                    // 节点判成"本 tick 已算"，让它免算吃到零值。
+                    // K7: the dedup cache only takes trustworthy results — success and
+                    // suspend (frozen) are cached as before, the exception (catch) path never
+                    // writes: an all-zero error result would mark a sibling node with the
+                    // same script+inputs as "already computed this tick" and feed it zeros.
+                    boolean dedupCacheable = true;
                     try {
                         FormulaInterpreter.exec(script.ast, env, FormulaCompute.sliceNs(),
                             car != null ? car.loopStack : null, car != null ? car.totalIterations : 0);
@@ -1315,8 +1327,10 @@ public class GraphEvaluator {
                         java.util.Arrays.fill(o, 0f);
                         node.formulaCarrier = null;
                         node.formulaSpreadProgress = 0f;
+                        dedupCacheable = false; // 异常结果不进缓存 / error results never enter the cache
                     }
-                    FormulaCompute.storeDedup(script.sourceFormula, pinInputs, o);
+                    if (dedupCacheable)
+                        FormulaCompute.storeDedup(script.sourceFormula, pinInputs, o);
                     break;
                 }
                 // 按顺序执行赋值语句（各自隔离，防止一个错误表达式破坏整个脚本）
@@ -1560,6 +1574,49 @@ public class GraphEvaluator {
                         }
                     }
                 }
+                int encapId = node.id;
+                // ── 跨 tick 透传（创建与复用路径都要做，P1-4/P1-5）──
+                // ── Cross-tick passthrough (both the create and reuse paths, P1-4/P1-5) ──
+                // 子求值器被 subEvaluators 缓存复用，只在创建时注入的标量会冻结：
+                // audioTickStamp 冻结在创建 tick → 封装内发布的音频对外 1–2 tick 即判过期
+                //（封装内→外静音）、封装内消费永不判陈旧（幽灵长音）。每 tick 与顶层同款刷新。
+                // Sub-evaluators are cached in subEvaluators and reused; scalars injected only
+                // at creation freeze: an audioTickStamp pinned at the creation tick makes
+                // encapsulated audio read as stale 1–2 ticks later (encap→out silence) while
+                // encapsulated consumers never see staleness (ghost notes). Refresh per tick,
+                // same as the top level.
+                subEval.setAudioTickStamp(this.audioTickStamp);
+                // 运行时状态接入：子求值器的 MOVE/ROTATE/WAIT/MUSIC 边沿记忆（nodeEdge）与
+                // MUSIC seek 槽位（pidState 辅助键）必须落在权威 SubState 表上（共享映射，
+                // 求值即持久化）。缺此接入时封装内常高触发每 tick 被误判为新上升沿 → 指令
+                // 无限重复入队（v2"指令永不停止"事故的子图翻版）、MUSIC 每 tick 重头播、
+                // done 引脚永不出现。幂等：已接入同一 SubState 时跳过（putAllFrom 换对象
+                // 时按映射身份重建）。
+                // Runtime-state attach: the sub-evaluator's MOVE/ROTATE/WAIT/MUSIC edge memory
+                // (nodeEdge) and the MUSIC seek slot (pidState auxiliary key) must land on the
+                // authoritative SubState tables (shared maps — evaluating IS persisting).
+                // Without it, a held-high trigger inside an encapsulation is misjudged as a
+                // fresh rising edge every tick → commands re-enqueued forever (the sub-graph
+                // replay of the v2 "command never stops" incident), MUSIC restarts from the
+                // head every tick, and the done pin never fires. Idempotent: skipped when the
+                // same SubState is already attached (rebuilt by map identity after putAllFrom
+                // swaps the object).
+                if (runtimeState != null) {
+                    RuntimeState.SubState ss = runtimeState.getOrCreateSubState(encapId);
+                    if (subEval.runtimeState == null || subEval.runtimeState.pidState != ss.pidState)
+                        subEval.restoreSubState(RuntimeState.subView(ss));
+                }
+                // 完成脉冲透传：宿主把 done 指令的 sourceNodeId 置在顶层求值器上；封装内
+                // 节点同款消费（下一 tick o[0] 输出一帧 1，宿主随后清空、此处同步归 null）。
+                // 已知歧义残留：主图与子图 id 空间独立，同号且同为运动节点时完成脉冲可能
+                // 互串一帧 —— MotionCommand 不携带图路径，宿主侧的彻底消歧归后续批次。
+                // Done-pulse passthrough: the host sets the finished command's sourceNodeId on
+                // the top-level evaluator; encapsulated nodes consume it the same way (next
+                // tick outputs a one-frame 1; the host clears it and this mirrors the clear).
+                // Known residual ambiguity: main- and sub-graph id spaces are independent, so
+                // colliding ids on two motion nodes can cross-fire one frame — MotionCommand
+                // carries no graph path; full disambiguation on the host side is a later batch.
+                subEval.setCompletedNodeId(this.completedNodeId);
                 // 将外部输入注入 ENCAP_INPUT 节点（v1.2.4: 按 pinId 匹配连线，不依赖缓存位置）
                 // Inject outer inputs into ENCAP_INPUT nodes (v1.2.4: match by pinId, not cache position)
                 // Build pinId→sourceValue map from connections targeting this ENCAPSULATION node
@@ -1580,7 +1637,6 @@ public class GraphEvaluator {
                 }
                 // 评估子图 — 使用 RuntimeState 支持的映射表，以封装节点 ID 为键
                 // Evaluate sub-graph — use RuntimeState-backed maps keyed by encap node ID
-                int encapId = node.id;
                 var subPidState = runtimeState != null
                     ? runtimeState.getOrCreateSubState(encapId).pidState
                     : new java.util.HashMap<Integer, Float>();

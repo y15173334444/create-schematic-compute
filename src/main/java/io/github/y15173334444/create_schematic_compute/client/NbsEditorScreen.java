@@ -220,16 +220,23 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         return minecraft != null && minecraft.player != null ? minecraft.player.getName().getString() : "";
     }
     @Override public boolean isPixelEditorOpen() { return true; }
-    // 出口收口（tech-debt P1-10）：NBS 编辑器与来源屏同属一个编辑会话（onClose 回 returnScreen），
-    // SET_SONG/编辑 op 携带节点 id —— 必须共享来源屏编辑器的漏斗实例（temp-id 挂起 + ACK 重映射），
-    // 否则新建 MUSIC 节点 ACK 未回的窗口内保存，曲目 op 引用临时 id 被服务端静默丢弃。
-    // Outlet convergence (tech-debt P1-10): the NBS editor and its origin share one editing
-    // session (onClose returns to returnScreen) and SET_SONG carries node ids — so the stash
-    // and ACK remap must share the originating editor's funnel instance, or a save inside a
-    // fresh MUSIC node's pre-ACK window references a temp id and is silently dropped
-    // server-side (the pixel editor's outlet-convergence pattern).
+    // 出口收口（P1-10，与 PixelEditorScreen 同款）：NBS 与来源屏同属一个编辑会话
+    //（transferToNbsEditor 跳过离开），temp-id 挂起/ACK 重映射必须经来源屏编辑器的
+    // 漏斗实例 —— 否则"新增 MUSIC 节点后一个 RTT 内打开 NBS 保存"的 SET_SONG 携带
+    // 未 ACK 的临时 id，服务端 findNode 落空静默丢弃，整首曲目丢失。便携终端包装
+    // 屏（HostWrapper）本身不是 GraphEditor.Host，向内解一层拿被包装的来源屏。
+    // Outlet convergence (P1-10, same shape as PixelEditorScreen): the NBS editor and
+    // its origin share one editing session (transferToNbsEditor skips the leave), so the
+    // temp-id stash and ACK remap must go through the originating editor's funnel —
+    // otherwise a SET_SONG saved within one RTT after adding the MUSIC node still carries
+    // the un-ACKed temp id, the server's findNode misses and silently drops it, losing
+    // the whole song. The portable-terminal wrapper (HostWrapper) is not itself a
+    // GraphEditor.Host — unwrap one level to the wrapped origin screen.
     @Override public GraphEditor getEditor() {
-        return returnScreen instanceof GraphEditor.Host h ? h.getEditor() : null;
+        if (returnScreen instanceof GraphEditor.Host h) return h.getEditor();
+        if (returnScreen instanceof PortableTerminalScreen.HostWrapper w
+            && w.getInnerScreen() instanceof GraphEditor.Host h) return h.getEditor();
+        return null;
     }
     @Override public void sendOp(GraphOp op) {
         var ed = getEditor();
