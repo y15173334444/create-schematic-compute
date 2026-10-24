@@ -203,6 +203,7 @@
 | 🌊 Wave Shaper / 波形整形 | Per-sample shaping curve, identity curve = true bypass / 逐采样整形曲线，恒等曲线 = 真旁路 |
 | 📡 Band Publish / 频段发布 | Publish audio to bus / private bands for speaker graphs to subscribe / 发布音频到总线/私有频段，供电音图订阅 |
 | ⏱️ Timing / 时序 | Program-computer capability for play/stop triggers and delay staging / 编程计算机能力，供起停触发与延时编排 |
+| 📻 Spectrum Monitor / 频谱监听 | Lid spectrum plays one monitored source: the graph's topmost MUSIC node by default (encapsulation-IO ordering), pinnable to any MUSIC node in the editor's monitor panel / 盖子频谱单源监听：默认图最上方 MUSIC 节点（封装 IO 同款排序），编辑器监听面板可指定任一 MUSIC 节点 |
 
 ---
 
