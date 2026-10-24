@@ -25,67 +25,50 @@ import org.slf4j.LoggerFactory;
 public class GraphEvaluator {
     private static final Logger LOGGER = LoggerFactory.getLogger(GraphEvaluator.class);
 
-    private final NodeGraph graph;
-    private final Map<Integer, float[]> outputs = new HashMap<>();
-    private net.minecraft.core.BlockPos radarPos = null;
-    public void setRadarPos(net.minecraft.core.BlockPos pos) { this.radarPos = pos; }
+    /** 求值状态（图与输出表、子图机械、运行时、各端口、每调用/每节点槽）住在
+     *  {@link EvalContext}（决策文档 §四）——本类保留 setter/getter 门面，写穿 ctx。
+     *  Eval state (graph &amp; output tables, sub-graph machinery, runtime, ports,
+     *  per-call / per-node slots) lives in {@link EvalContext} (decision doc §四) —
+     *  this class keeps the setter/getter facade and writes through ctx. */
+    /** 求值上下文。包内可见（EncapEval 需要跨实例读写子求值器的 ctx——注入收敛
+     *  inheritPortsFrom、子图输出/相位镜像、restoreSubState 挂接）；final 不变。
+     *  Evaluation context. Package-visible (EncapEval needs cross-instance access to a
+     *  sub-evaluator's ctx — the inheritPortsFrom injection convergence, sub-graph
+     *  output/phase mirroring, restoreSubState attach); still final. */
+    final EvalContext ctx;
+
+    public void setRadarPos(net.minecraft.core.BlockPos pos) { this.ctx.radarPos = pos; }
     /** 雷达目标查询（接口下沉，宿主雷达注入 radar.TargetAssignment::getTarget）；
      *  未接线 = 恒无目标。 / radar target lookup (interface sinking; the hosting radar
      *  wires radar.TargetAssignment::getTarget); unwired = never a target. */
-    private TargetLookup targetLookup = (pos, id) -> null;
-    public void setTargetLookup(TargetLookup lookup) { this.targetLookup = lookup != null ? lookup : (pos, id) -> null; }
+    public void setTargetLookup(TargetLookup lookup) { this.ctx.targetLookup = lookup != null ? lookup : (pos, id) -> null; }
     /** 信号总线端口（接口下沉，宿主接 network.SignalBus.PORT）；未接线 = 频道恒缺席。
      *  Signal bus port (interface sinking; the host wires network.SignalBus.PORT);
      *  unwired = every channel reads as absent. */
-    private SignalBusPort signalBus = new SignalBusPort() {
-        @Override public float get(String channel) { return 0f; }
-        @Override public void put(String channel, float value) {}
-        @Override public void setPrivateAudio(String channel, boolean audio) {}
-        @Override public void setAudioBands(String busName, java.util.Set<String> audioBandNames) {}
-        @Override public void registerBands(String busName, java.util.List<String> bands) {}
-        @Override public java.util.List<String> getBands(String busName) { return null; }
-        @Override public java.util.Map<String, Float> channelMap(String channel) { return null; }
-    };
-    public void setSignalBus(SignalBusPort port) { if (port != null) this.signalBus = port; }
+    public void setSignalBus(SignalBusPort port) { if (port != null) this.ctx.signalBus = port; }
     /** 音频频段端口（接口下沉，宿主接 network.AudioBands.PORT）；未接线 = 恒空音源。
      *  Audio band port (interface sinking; the host wires network.AudioBands.PORT);
      *  unwired = permanently the empty source. */
-    private AudioBandsPort audioBands = new AudioBandsPort() {
-        @Override public String bandKey(String channel, String band) { return channel + " " + band; }
-        @Override public boolean publish(String bandKey, AudioRef ref, long gameTick, String owner) { return true; }
-        @Override public AudioRef get(String consumer, String bandKey, long nowTick) { return AudioRef.EMPTY; }
-    };
-    public void setAudioBands(AudioBandsPort port) { if (port != null) this.audioBands = port; }
+    public void setAudioBands(AudioBandsPort port) { if (port != null) this.ctx.audioBands = port; }
     /** ENCODER 节点的宿主视图（由托管齿轮箱 BE 在重建求值器后注入；null 时输出 0）。
      *  Host view for ENCODER nodes (injected by the hosting gearbox BE after evaluator
      *  rebuilds; outputs 0 when null). */
-    private KineticEncoderView encoderView = null;
-    public void setEncoderView(KineticEncoderView view) { this.encoderView = view; }
+    public void setEncoderView(KineticEncoderView view) { this.ctx.encoderView = view; }
     /** STRESS / RPM 节点的宿主视图（动力仪表等动力宿主 BE 在重建求值器后注入；null 时输出 0）。
      *  Host view for STRESS / RPM nodes (injected by the kinetic gauge's host BE after
      *  evaluator rebuilds; outputs 0 when null). */
-    private KineticNetworkView kineticNetworkView = null;
-    public void setKineticNetworkView(KineticNetworkView view) { this.kineticNetworkView = view; }
+    public void setKineticNetworkView(KineticNetworkView view) { this.ctx.kineticNetworkView = view; }
     /** 指令下沉引用（宿主齿轮箱在重建求值器后注入；MOVE/ROTATE/WAIT 上升沿入队）。
      *  Command sink (host gearbox injects after evaluator rebuilds). */
-    private GearboxCommandSink commandSink = null;
-    public void setCommandSink(GearboxCommandSink sink) { this.commandSink = sink; }
+    public void setCommandSink(GearboxCommandSink sink) { this.ctx.commandSink = sink; }
     /** 完成脉冲载体：指令完成时由宿主置为该指令的入队节点 ID，下一 tick 对应节点
      *  o[0] 输出一帧 1，随后宿主清空。瞬态、不持久化。
      *  Done-pulse carrier: set by the host when a command finishes; next tick the
      *  matching node outputs a one-frame 1, then the host clears it. Transient. */
-    private Integer completedNodeId = null;
-    public void setCompletedNodeId(Integer nodeId) { this.completedNodeId = nodeId; }
-    public void clearCompletedNodeId() { this.completedNodeId = null; }
+    public void setCompletedNodeId(Integer nodeId) { this.ctx.completedNodeId = nodeId; }
+    public void clearCompletedNodeId() { this.ctx.completedNodeId = null; }
 
     // ── 音频（功放/音响宿主）/ Audio (amplifier & speaker hosts) ──
-    /** 音频输出引用表：{@code pack(nodeId, 输出引脚)} → {@link AudioRef}（类型化音源，非浮点）。
-     *  每 tick 重建；音频连线经 {@link NodeGraph#getAudioInputRef} 解析到上游引用。
-     *  MUSIC 产 AudioRef → AMP 改增益 → CHANNEL 按声像拆声道 → sink（AUDIO_OUT/SPEAKER_PLAY）消费。
-     *  拓扑序保证源在汇前。 Typed audio-output refs keyed by (nodeId, output pin). */
-    private final java.util.Map<Long, AudioRef> audioRefs = new java.util.HashMap<>();
-    private static long audioKey(int nodeId, int pin) { return ((long) nodeId << 16) | (pin & 0xFFFF); }
-
     /** 取本刻某节点音频输出的引用（{@link #evaluate} 返回后有效，只在当刻有意义）。
      *  观察者用途：宿主 BE 读自己 MUSIC 节点展开的音符（如功放电脑的频谱取数）——拉取式，
      *  不像 sink 那样介入音频通路，读不读都不影响求值结果。
@@ -94,32 +77,22 @@ public class GraphEvaluator {
      *  amplifier computer's spectrum tap) — pull-based, never in the audio path, so reading (or
      *  not) cannot change the evaluation result. */
     public AudioRef audioOut(int nodeId, int pin) {
-        AudioRef r = audioRefs.get(audioKey(nodeId, pin));
+        AudioRef r = ctx.audioRefs.get(EvalContext.audioKey(nodeId, pin));
         return r == null ? AudioRef.EMPTY : r;
-    }
-
-    /** 音频频段消费者身份（宿主坐标 + 节点 id）：AudioBands 的 exactly-once 游标按它去重
-     *  （跨 BE tick 顺序翻转时同批发布防重播）。 */
-    private String consumerKey(GraphNode node) {
-        return (audioHostPos != null ? audioHostPos.asLong() : 0L) + "#" + node.id;
     }
     /** MUSIC 传输状态表（nodeId → 传输），由宿主 BE 注入并经类型段 NBT 持久化。
      *  Per-MUSIC-node transport, injected + persisted by the host BE. */
-    private java.util.Map<Integer, MusicTransport> audioTransports = null;
-    public void setAudioTransports(java.util.Map<Integer, MusicTransport> map) { this.audioTransports = map; }
+    public void setAudioTransports(java.util.Map<Integer, MusicTransport> map) { this.ctx.audioTransports = map; }
     /** 音频宿主方块坐标（AUDIO_OUT 频道 owner = 坐标 + 节点 id）。
      *  Host block position for AUDIO_OUT channel ownership. */
-    private net.minecraft.core.BlockPos audioHostPos = null;
-    public void setAudioHostPos(net.minecraft.core.BlockPos pos) { this.audioHostPos = pos; }
+    public void setAudioHostPos(net.minecraft.core.BlockPos pos) { this.ctx.audioHostPos = pos; }
     /** 播放下沉（SPEAKER_PLAY）：宿主音响 BE 注入；SPEAKER_PLAY 把音源交给宿主发声。
      *  Speaker playback sink injected by the hosting speaker BE. */
-    private SpeakerSink speakerSink = null;
-    public void setSpeakerSink(SpeakerSink sink) { this.speakerSink = sink; }
+    public void setSpeakerSink(SpeakerSink sink) { this.ctx.speakerSink = sink; }
     /** 本 tick 的 game time（宿主 BE 每 tick 注入）——音频频段读取的新鲜度门控基准：
      *  AudioBands 只认本刻/上一刻发布的引用，发布方停机/卸载后陈旧事件自愈失效。
      *  Current game time injected by the host BE each tick; freshness gate for AudioBands reads. */
-    private long audioTickStamp = 0L;
-    public void setAudioTickStamp(long tick) { this.audioTickStamp = tick; }
+    public void setAudioTickStamp(long tick) { this.ctx.audioTickStamp = tick; }
     // FORMULA script parsing is now unified through GraphNode.cachedScript.
     // The eval branch calls node.ensureScriptParsed() which checks sourceFormula
     // freshness (方案 A) — this guarantees the same ScriptParseResult is used for
@@ -129,45 +102,44 @@ public class GraphEvaluator {
     // eval 分支调用 node.ensureScriptParsed()，由 sourceFormula 检查新鲜度（方案 A）
     // — 保证引脚索引解析与求值使用同一 ScriptParseResult，消除双缓存不一致。
 
-    // 缓存子图 evaluator 和运行时状态，供 ENCAPSULATION 节点使用
-    // 键值：封装节点 ID（拥有该 subGraph 的节点）
-    // Cache sub-graph evaluators and runtime state for ENCAPSULATION nodes
-    // Key: encapsulation node ID (node that owns the subGraph)
-    private final Map<Integer, GraphEvaluator> subEvaluators = new HashMap<>();
-    private final Map<Integer, Integer> subGraphGenerations = new HashMap<>(); // last known subGraph.graphGeneration per encapId
-    private final Map<Integer, Map<Integer, java.util.ArrayDeque<Float>>> subDelayQueues = new HashMap<>();
-    private final Map<Integer, Map<Integer, Boolean>> subFlipflopStates = new HashMap<>();
-    private final Map<Integer, Map<Integer, Integer>> subPulseTimers = new HashMap<>();
+    // 子图机械（subEvaluators/subGraphGenerations/时序三表）、debugTime 与 runtimeState
+    // 已迁入 EvalContext（决策文档 §四）；ENCAP 处的注入清单收敛点 inheritPortsFrom 同在。
+    // Sub-graph machinery (subEvaluators / subGraphGenerations / timing tables), debugTime
+    // and runtimeState moved into EvalContext (decision doc §四); ENCAP's injection-list
+    // convergence point inheritPortsFrom lives there too.
 
-    // DEBUG_SIGNAL_GEN 的内部时间状态（nodeId → 归一化时间 0~1）
-    // Internal time state for DEBUG_SIGNAL_GEN (nodeId → normalized time 0~1)
-    private final Map<Integer, Float> debugTime = new HashMap<>();
+    // ── 阶段 0 桥（audioKey/consumerKey/inputsUnchanged 的实现已迁 EvalContext；
+    //    case 体仍以裸调用形态引用，桥保持接收者零改动，随抽取批次退役）──
+    // Stage-0 bridges (audioKey/consumerKey/inputsUnchanged implementations moved to
+    // EvalContext; the case bodies still call them bare — the bridges keep the
+    // receivers untouched and retire with the extraction batches).
+    private static long audioKey(int nodeId, int pin) { return EvalContext.audioKey(nodeId, pin); }
+    private String consumerKey(GraphNode node) { return ctx.consumerKey(node); }
+    private static boolean inputsUnchanged(float[] frozen, float[] current) {
+        return EvalContext.inputsUnchanged(frozen, current);
+    }
 
-    /** 外部 RuntimeState 引用 — 在首次 evaluate() 前设置以恢复子图状态。
-     *  External RuntimeState reference — set before first evaluate() to restore sub-graph state. */
-    private RuntimeState runtimeState;
-
-    public GraphEvaluator(NodeGraph graph) { this.graph = graph; }
+    public GraphEvaluator(NodeGraph graph) { this.ctx = new EvalContext(graph); }
 
     /** 从之前保存的 RuntimeState 恢复子图状态。
      *  必须在构造后、首次 {@link #evaluate} 前调用一次。
      *  Restore sub-graph state from a previously-saved RuntimeState.
      *  Must be called once after construction and before the first {@link #evaluate}. */
     public void restoreSubState(RuntimeState rs) {
-        this.runtimeState = rs;
+        ctx.runtimeState = rs;
         // 恢复主图 DEBUG_SIGNAL_GEN 相位 / restore main-graph DEBUG_SIGNAL_GEN phase
-        if (!rs.debugTime.isEmpty()) this.debugTime.putAll(rs.debugTime);
+        if (!rs.debugTime.isEmpty()) ctx.debugTime.putAll(rs.debugTime);
         for (var entry : rs.subStates.entrySet()) {
             int encapId = entry.getKey();
             RuntimeState.SubState ss = entry.getValue();
             if (!ss.delayQueues.isEmpty()) {
-                subDelayQueues.put(encapId, new HashMap<>(ss.delayQueues));
+                ctx.subDelayQueues.put(encapId, new HashMap<>(ss.delayQueues));
             }
             if (!ss.flipflopStates.isEmpty()) {
-                subFlipflopStates.put(encapId, new HashMap<>(ss.flipflopStates));
+                ctx.subFlipflopStates.put(encapId, new HashMap<>(ss.flipflopStates));
             }
             if (!ss.pulseTimers.isEmpty()) {
-                subPulseTimers.put(encapId, new HashMap<>(ss.pulseTimers));
+                ctx.subPulseTimers.put(encapId, new HashMap<>(ss.pulseTimers));
             }
         }
     }
@@ -175,20 +147,20 @@ public class GraphEvaluator {
     /** 从保存的映射恢复 debugTime 相位（在运行时状态清除后使用）。
      *  Restore debugTime phase from a saved map (used after runtime state clear). */
     public void restoreDebugTimes(Map<Integer, Float> saved) {
-        this.debugTime.putAll(saved);
+        ctx.debugTime.putAll(saved);
     }
 
     /** 将当前 debugTime 相位写回 RuntimeState 以便 NBT 持久化。
      *  Write accumulated debugTime phase state back to RuntimeState for NBT persistence. */
     public void saveDebugTimes(RuntimeState rs) {
         rs.debugTime.clear();
-        rs.debugTime.putAll(this.debugTime);
-        for (var entry : subEvaluators.entrySet()) {
+        rs.debugTime.putAll(ctx.debugTime);
+        for (var entry : ctx.subEvaluators.entrySet()) {
             int encapId = entry.getKey();
             var subEval = entry.getValue();
             var ss = rs.getOrCreateSubState(encapId);
             ss.debugTime.clear();
-            ss.debugTime.putAll(subEval.debugTime);
+            ss.debugTime.putAll(subEval.ctx.debugTime);
         }
     }
 
@@ -222,12 +194,12 @@ public class GraphEvaluator {
     }
 
     public List<OutputResult> evaluate(List<InputSource> inputs, Map<Integer, Float> pidState, float dt, SeatInputState seat) {
-        outputs.clear();
-        audioRefs.clear();
+        ctx.outputs.clear();
+        ctx.audioRefs.clear();
         // 使用缓存的拓扑排序  /  Use cached topological order
-        List<Integer> sorted = graph.getTopoOrder();
+        List<Integer> sorted = ctx.graph.getTopoOrder();
         for (int id : sorted) {
-            GraphNode n = graph.findNode(id);
+            GraphNode n = ctx.graph.findNode(id);
             if (n != null) {
                 // 无状态路径也应用参数引脚覆盖（eval 不再自管），并立即恢复
                 // The stateless path applies param-pin overrides too (eval no longer
@@ -239,9 +211,9 @@ public class GraphEvaluator {
             }
         }
         List<OutputResult> res = new ArrayList<>();
-        for (GraphNode n : graph.nodes) {
+        for (GraphNode n : ctx.graph.nodes) {
             if (n.type == NodeType.REDSTONE_OUT) {
-                float v = graph.getInputValue(n.id, 0, outputs);
+                float v = ctx.graph.getInputValue(n.id, 0, ctx.outputs);
                 res.add(new OutputResult(
                     n.itemParams.length > 0 ? n.itemParams[0] : ItemStack.EMPTY,
                     n.itemParams.length > 1 ? n.itemParams[1] : ItemStack.EMPTY,
@@ -254,7 +226,7 @@ public class GraphEvaluator {
 
     /** 获取当前输出映射表（供显示区域等外部查询输入值）。
      *  Get the current output map (for external queries of input values, e.g. display area). */
-    public Map<Integer, float[]> getCurrentOutputs() { return outputs; }
+    public Map<Integer, float[]> getCurrentOutputs() { return ctx.outputs; }
 
     /** 创建当前评估输出的不可变快照（服务端→客户端同步）。
      *  合并主图输出 + 所有子图（ENCAPSULATION）输出和 debugTime，使客户端中的 DEBUG_PROBE /
@@ -265,25 +237,25 @@ public class GraphEvaluator {
     public EvalSnapshot captureSnapshot() {
         Map<Integer, Map<Integer, float[]>> subOutputs;
         Map<Integer, Map<Integer, Float>> subDebugTimes;
-        if (subEvaluators.isEmpty()) {
+        if (ctx.subEvaluators.isEmpty()) {
             subOutputs = java.util.Collections.emptyMap();
             subDebugTimes = java.util.Collections.emptyMap();
         } else {
-            subOutputs = new HashMap<>(subEvaluators.size());
-            subDebugTimes = new HashMap<>(subEvaluators.size());
-            for (var entry : subEvaluators.entrySet()) {
+            subOutputs = new HashMap<>(ctx.subEvaluators.size());
+            subDebugTimes = new HashMap<>(ctx.subEvaluators.size());
+            for (var entry : ctx.subEvaluators.entrySet()) {
                 int encapId = entry.getKey();
                 GraphEvaluator subEval = entry.getValue();
-                if (!subEval.outputs.isEmpty()) {
-                    Map<Integer, float[]> copy = new HashMap<>(subEval.outputs.size());
-                    for (var oe : subEval.outputs.entrySet()) {
+                if (!subEval.ctx.outputs.isEmpty()) {
+                    Map<Integer, float[]> copy = new HashMap<>(subEval.ctx.outputs.size());
+                    for (var oe : subEval.ctx.outputs.entrySet()) {
                         copy.put(oe.getKey(), oe.getValue().clone());
                     }
                     subOutputs.put(encapId, copy);
-                    subEval.outputs.clear(); // 清除以避免删除节点的残留 id 堆积 / clear to prevent stale deleted-node IDs
+                    subEval.ctx.outputs.clear(); // 清除以避免删除节点的残留 id 堆积 / clear to prevent stale deleted-node IDs
                 }
-                if (!subEval.debugTime.isEmpty()) {
-                    subDebugTimes.put(encapId, new HashMap<>(subEval.debugTime));
+                if (!subEval.ctx.debugTime.isEmpty()) {
+                    subDebugTimes.put(encapId, new HashMap<>(subEval.ctx.debugTime));
                     // 注意：不清除 subEval.debugTime — 它是跨 tick 累积的相位状态，
                     // DEBUG_SIGNAL_GEN 依赖它推进频率。残留条目仅在被删除节点上泄漏一个 float。
                     // Note: do NOT clear subEval.debugTime — it is phase state that
@@ -293,26 +265,26 @@ public class GraphEvaluator {
         }
         // 刀5:FORMULA spread 渲染态(无数值,进度条用)/ knife 5: spread render state (bar only, no value)
         Map<Integer, Float> spreads = null;
-        for (GraphNode n : graph.nodes) {
+        for (GraphNode n : ctx.graph.nodes) {
             if (n.formulaSpreadProgress != 0f) {
                 if (spreads == null) spreads = new HashMap<>();
                 spreads.put(n.id, n.formulaSpreadProgress);
             }
         }
-        return EvalSnapshot.capture(outputs, debugTime, subOutputs, subDebugTimes, spreads);
+        return EvalSnapshot.capture(ctx.outputs, ctx.debugTime, subOutputs, subDebugTimes, spreads);
     }
 
     /** 读取任意节点某引脚的计算结果（供外部查询）。
      *  Read the computed result of any node's pin (for external queries). */
     public float getNodeOutput(int nodeId, int pinIndex) {
-        float[] out = outputs.get(nodeId);
+        float[] out = ctx.outputs.get(nodeId);
         return out != null && pinIndex < out.length ? out[pinIndex] : 0;
     }
 
     /** 读取某节点某输入引脚的值（用于延时节点入队）。
      *  Read the value at a node's input pin (used for delay node enqueue). */
     public float getNodeInput(int nodeId, int pinIndex) {
-        return graph.getInputValue(nodeId, pinIndex, outputs);
+        return ctx.graph.getInputValue(nodeId, pinIndex, ctx.outputs);
     }
 
     /** 带扩展状态的评估（时序节点用）。
@@ -329,17 +301,17 @@ public class GraphEvaluator {
                                         Map<Integer, java.util.ArrayDeque<Float>> delayQueues,
                                         Map<Integer, Boolean> flipflopStates,
                                         Map<Integer, Integer> pulseTimers) {
-        outputs.clear();
-        audioRefs.clear();
-        List<Integer> sorted = graph.getTopoOrder();
+        ctx.outputs.clear();
+        ctx.audioRefs.clear();
+        List<Integer> sorted = ctx.graph.getTopoOrder();
         for (int id : sorted) {
-            GraphNode n = graph.findNode(id);
+            GraphNode n = ctx.graph.findNode(id);
             if (n != null) evalExt(n, inputs, pidState, dt, seat, delayQueues, flipflopStates, pulseTimers);
         }
         List<OutputResult> res = new ArrayList<>();
-        for (GraphNode n : graph.nodes) {
+        for (GraphNode n : ctx.graph.nodes) {
             if (n.type == NodeType.REDSTONE_OUT) {
-                float v = graph.getInputValue(n.id, 0, outputs);
+                float v = ctx.graph.getInputValue(n.id, 0, ctx.outputs);
                 res.add(new OutputResult(
                     n.itemParams.length > 0 ? n.itemParams[0] : ItemStack.EMPTY,
                     n.itemParams.length > 1 ? n.itemParams[1] : ItemStack.EMPTY,
@@ -371,9 +343,9 @@ public class GraphEvaluator {
             boolean hasOverride = false;
             float[] effParams = node.params;
             for (int pi = 0; pi < extraCnt; pi++) {
-                if (graph.hasInputConnection(node.id, extraBase + pi)) {
+                if (ctx.graph.hasInputConnection(node.id, extraBase + pi)) {
                     if (!hasOverride) { effParams = node.params.clone(); hasOverride = true; }
-                    if (pi < effParams.length) effParams[pi] = graph.getInputValue(node.id, extraBase + pi, outputs);
+                    if (pi < effParams.length) effParams[pi] = ctx.graph.getInputValue(node.id, extraBase + pi, ctx.outputs);
                 }
             }
             if (hasOverride) node.params = effParams;
@@ -382,7 +354,7 @@ public class GraphEvaluator {
         return false;
     }
 
-    private void evalExt(GraphNode node, List<InputSource> inputs, Map<Integer, Float> pidState, float dt,
+    void evalExt(GraphNode node, List<InputSource> inputs, Map<Integer, Float> pidState, float dt,
                          SeatInputState seat,
                          Map<Integer, java.util.ArrayDeque<Float>> delayQueues,
                          Map<Integer, Boolean> flipflopStates,
@@ -394,7 +366,22 @@ public class GraphEvaluator {
         // nodes like DELAY/PULSE_EXTEND/LOOP/FUSE had no effect)
         float[] origParams = node.params;
         applyParamPinOverrides(node);
-        float[] o = node.outputValues;
+        // 每调用/每节点槽落位（阶段 0：只填充 context，case 体零改动）/ land the per-call /
+        // per-node slots (stage 0: fill the context only — case bodies untouched)
+        ctx.node = node;
+        ctx.o = node.outputValues;
+        ctx.inputs = inputs;
+        ctx.pidState = pidState;
+        ctx.dt = dt;
+        ctx.seat = seat;
+        ctx.delayQueues = delayQueues;
+        ctx.flipflopStates = flipflopStates;
+        ctx.pulseTimers = pulseTimers;
+        // 方法内局部别名（接收者改写）：case 体逐字保留 / local aliases (receiver rewrite):
+        // the case bodies stay verbatim
+        NodeGraph graph = ctx.graph;
+        Map<Integer, float[]> outputs = ctx.outputs;
+        float[] o = ctx.o;
         switch (node.type) {
             case DELAY -> {
                 float in = graph.getInputValue(node.id, 0, outputs);
@@ -519,11 +506,43 @@ public class GraphEvaluator {
             default -> { eval(node, inputs, pidState, dt, seat); node.params = origParams; return; }
         }
         node.params = origParams; // 恢复参数（可能被连线值临时覆盖）  /  Restore params (may have been temporarily overwritten by wired values)
-        outputs.put(node.id, o.clone());
+        ctx.outputs.put(node.id, o.clone());
     }
 
     private void eval(GraphNode node, List<InputSource> inputs, Map<Integer, Float> pidState, float dt, SeatInputState seat) {
         float[] o = node.outputValues;
+        // 每调用/每节点槽落位（阶段 0：只填充 context，case 体零改动）/ land the per-call /
+        // per-node slots (stage 0: fill the context only — case bodies untouched)
+        ctx.node = node;
+        ctx.o = o;
+        ctx.inputs = inputs;
+        ctx.pidState = pidState;
+        ctx.dt = dt;
+        ctx.seat = seat;
+        // 方法内局部别名（接收者改写）：case 体逐字保留 / local aliases (receiver rewrite):
+        // the case bodies stay verbatim
+        NodeGraph graph = ctx.graph;
+        Map<Integer, float[]> outputs = ctx.outputs;
+        Map<Integer, Float> debugTime = ctx.debugTime;
+        SignalBusPort signalBus = ctx.signalBus;
+        AudioBandsPort audioBands = ctx.audioBands;
+        Map<Long, AudioRef> audioRefs = ctx.audioRefs;
+        Map<Integer, MusicTransport> audioTransports = ctx.audioTransports;
+        net.minecraft.core.BlockPos audioHostPos = ctx.audioHostPos;
+        SpeakerSink speakerSink = ctx.speakerSink;
+        long audioTickStamp = ctx.audioTickStamp;
+        KineticEncoderView encoderView = ctx.encoderView;
+        KineticNetworkView kineticNetworkView = ctx.kineticNetworkView;
+        GearboxCommandSink commandSink = ctx.commandSink;
+        Integer completedNodeId = ctx.completedNodeId;
+        RuntimeState runtimeState = ctx.runtimeState;
+        net.minecraft.core.BlockPos radarPos = ctx.radarPos;
+        TargetLookup targetLookup = ctx.targetLookup;
+        Map<Integer, GraphEvaluator> subEvaluators = ctx.subEvaluators;
+        Map<Integer, Integer> subGraphGenerations = ctx.subGraphGenerations;
+        Map<Integer, Map<Integer, java.util.ArrayDeque<Float>>> subDelayQueues = ctx.subDelayQueues;
+        Map<Integer, Map<Integer, Boolean>> subFlipflopStates = ctx.subFlipflopStates;
+        Map<Integer, Map<Integer, Integer>> subPulseTimers = ctx.subPulseTimers;
 
         // 参数引脚覆盖由调用方（evalExt / 无状态 evaluate 包装）负责，本方法只消费
         // node.params（连线覆盖已在进入前应用，返回后由调用方恢复）。
@@ -1603,22 +1622,22 @@ public class GraphEvaluator {
                     // enqueues are silently dropped, and radar lookups degrade — same
                     // contract as the host BE injecting into the top-level evaluator
                     // after every rebuild.
-                    subEval.setEncoderView(this.encoderView);
-                    subEval.setCommandSink(this.commandSink);
-                    subEval.setRadarPos(this.radarPos);
-                    subEval.setTargetLookup(this.targetLookup);
-                    subEval.setSignalBus(this.signalBus);
-                    subEval.setAudioBands(this.audioBands);
-                    subEval.setKineticNetworkView(this.kineticNetworkView);
-                    subEval.setAudioTransports(this.audioTransports);
-                    subEval.setAudioHostPos(this.audioHostPos);
-                    subEval.setSpeakerSink(this.speakerSink);
-                    subEval.setAudioTickStamp(this.audioTickStamp);
+                    subEval.setEncoderView(ctx.encoderView);
+                    subEval.setCommandSink(ctx.commandSink);
+                    subEval.setRadarPos(ctx.radarPos);
+                    subEval.setTargetLookup(ctx.targetLookup);
+                    subEval.setSignalBus(ctx.signalBus);
+                    subEval.setAudioBands(ctx.audioBands);
+                    subEval.setKineticNetworkView(ctx.kineticNetworkView);
+                    subEval.setAudioTransports(ctx.audioTransports);
+                    subEval.setAudioHostPos(ctx.audioHostPos);
+                    subEval.setSpeakerSink(ctx.speakerSink);
+                    subEval.setAudioTickStamp(ctx.audioTickStamp);
                     subEvaluators.put(node.id, subEval);
                     if (runtimeState != null) {
                         RuntimeState.SubState ss = runtimeState.subStates.get(node.id);
                         if (ss != null && !ss.debugTime.isEmpty()) {
-                            subEval.debugTime.putAll(ss.debugTime);
+                            subEval.ctx.debugTime.putAll(ss.debugTime);
                         }
                     }
                 }
@@ -1633,7 +1652,7 @@ public class GraphEvaluator {
                 // encapsulated audio read as stale 1–2 ticks later (encap→out silence) while
                 // encapsulated consumers never see staleness (ghost notes). Refresh per tick,
                 // same as the top level.
-                subEval.setAudioTickStamp(this.audioTickStamp);
+                subEval.setAudioTickStamp(ctx.audioTickStamp);
                 // 运行时状态接入：子求值器的 MOVE/ROTATE/WAIT/MUSIC 边沿记忆（nodeEdge）与
                 // MUSIC seek 槽位（pidState 辅助键）必须落在权威 SubState 表上（共享映射，
                 // 求值即持久化）。缺此接入时封装内常高触发每 tick 被误判为新上升沿 → 指令
@@ -1651,7 +1670,7 @@ public class GraphEvaluator {
                 // swaps the object).
                 if (runtimeState != null) {
                     RuntimeState.SubState ss = runtimeState.getOrCreateSubState(encapId);
-                    if (subEval.runtimeState == null || subEval.runtimeState.pidState != ss.pidState)
+                    if (subEval.ctx.runtimeState == null || subEval.ctx.runtimeState.pidState != ss.pidState)
                         subEval.restoreSubState(RuntimeState.subView(ss));
                 }
                 // 完成脉冲透传：宿主把 done 指令的 sourceNodeId 置在顶层求值器上；封装内
@@ -1664,7 +1683,7 @@ public class GraphEvaluator {
                 // Known residual ambiguity: main- and sub-graph id spaces are independent, so
                 // colliding ids on two motion nodes can cross-fire one frame — MotionCommand
                 // carries no graph path; full disambiguation on the host side is a later batch.
-                subEval.setCompletedNodeId(this.completedNodeId);
+                subEval.setCompletedNodeId(ctx.completedNodeId);
                 // 将外部输入注入 ENCAP_INPUT 节点（v1.2.4: 按 pinId 匹配连线，不依赖缓存位置）
                 // Inject outer inputs into ENCAP_INPUT nodes (v1.2.4: match by pinId, not cache position)
                 // Build pinId→sourceValue map from connections targeting this ENCAPSULATION node
@@ -1681,7 +1700,7 @@ public class GraphEvaluator {
                 }
                 for (var inp : inpNodes) {
                     float val = pinValues.getOrDefault(String.valueOf(inp.id), 0f);
-                    subEval.outputs.put(inp.id, new float[]{val});
+                    subEval.ctx.outputs.put(inp.id, new float[]{val});
                 }
                 // 评估子图 — 使用 RuntimeState 支持的映射表，以封装节点 ID 为键
                 // Evaluate sub-graph — use RuntimeState-backed maps keyed by encap node ID
@@ -1696,8 +1715,8 @@ public class GraphEvaluator {
                     var subNode = node.subGraph.findNode(nid);
                     if (subNode == null || subNode.type == NodeType.ENCAP_INPUT) continue;
                     if (subNode.type == NodeType.ENCAP_OUTPUT) {
-                        float val = node.subGraph.getInputValue(nid, 0, subEval.outputs);
-                        subEval.outputs.put(nid, new float[]{val});
+                        float val = node.subGraph.getInputValue(nid, 0, subEval.ctx.outputs);
+                        subEval.ctx.outputs.put(nid, new float[]{val});
                     } else {
                         subEval.evalExt(subNode, inputs, subPidState, dt, seat,
                             sdq, sff, spt);
@@ -1706,7 +1725,7 @@ public class GraphEvaluator {
                 // 收集 ENCAP_OUTPUT 值
                 // Collect ENCAP_OUTPUT values
                 for (int i = 0; i < outNodes.size(); i++) {
-                    o[i] = node.subGraph.getInputValue(outNodes.get(i).id, 0, subEval.outputs);
+                    o[i] = node.subGraph.getInputValue(outNodes.get(i).id, 0, subEval.ctx.outputs);
                 }
                 // 将子图状态写回 RuntimeState 以进行 NBT 持久化
                 // Write sub-graph state back to RuntimeState for NBT persistence
@@ -1718,15 +1737,7 @@ public class GraphEvaluator {
                 }
             }
         }
-        outputs.put(node.id, o.clone());
-    }
-    /** spread 输入变更检测:每引脚 1e-3 容差(决策 §五)。 / Spread input-change detection: 1e-3 tolerance per pin (decisions §五). */
-    private static boolean inputsUnchanged(float[] frozen, float[] current) {
-        if (frozen == null || frozen.length != current.length) return false;
-        for (int i = 0; i < frozen.length; i++) {
-            if (Math.abs(frozen[i] - current[i]) > 1e-3f) return false;
-        }
-        return true;
+        ctx.outputs.put(node.id, o.clone());
     }
 
     public record InputSource(long freqKey, int signal) {}
