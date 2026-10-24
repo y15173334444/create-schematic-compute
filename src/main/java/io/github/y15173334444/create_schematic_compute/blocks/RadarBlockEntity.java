@@ -109,6 +109,18 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
     public static java.util.Collection<RadarBlockEntity> getClientRadars() { return CLIENT_RADARS; }
 
     /**
+     * Clears the client radar registry when the client leaves a world (called from
+     * ClientSetup's {@code ClientPlayerNetworkEvent.LoggingOut} listener). A backstop
+     * beyond the chunk-unload hook: switching servers / worlds must never leave dead
+     * radars holding a released {@code Level} behind for the lock UI to iterate (P2-15).
+     *
+     * 客户端退世界时清空雷达注册表（由 ClientSetup 的 {@code ClientPlayerNetworkEvent.LoggingOut}
+     * 监听调用）。区块卸载钩子之外的兜底：换服务器 / 换世界时绝不能残留持有已释放
+     * {@code Level} 的死雷达供锁定 UI 遍历（P2-15）。
+     */
+    public static void clearClientRadars() { CLIENT_RADARS.clear(); }
+
+    /**
      * Factory method that creates a Sable-compatible RadarBlockEntity if the Sable mod
      * is loaded, otherwise falls back to a plain RadarBlockEntity. Uses reflection to
      * avoid compile-time dependency on Sable, allowing the mod to work with or without it.
@@ -198,26 +210,46 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
      * 清理所有关联状态：从客户端注册表移除此雷达，清除此位置的
      * {@link TargetAssignment} 映射以释放已分配的目标，然后委托给父类。
      */
-    @Override public void setRemoved() { CLIENT_RADARS.remove(this); TargetAssignment.clear(worldPosition); super.setRemoved(); }
+    @Override public void setRemoved() {
+        CLIENT_RADARS.remove(this);
+        TargetAssignment.clear(worldPosition);
+        // P2-10(a)：编辑会话回收由基类 setRemoved 统一接线（全部宿主同款），
+        // 雷达此处不再重复调用。
+        // P2-10(a): the edit-session reclaim is wired once in the base setRemoved
+        // (shared by every host); the radar no longer duplicates the call.
+        super.setRemoved();
+    }
 
     /**
-     * Checks whether an entity position falls within the scan bounding box.
-     * Both the entity coordinates and the scan box must already be in the same
-     * coordinate space (either both in world space or both in sub-world space).
+     * Called when the chunk containing this BE unloads (both sides).
+     * Client side: drop this radar from {@link #CLIENT_RADARS} — the old code only
+     * removed it in {@link #setRemoved()}, so chunk unloads accumulated dead BEs holding
+     * {@code Level} references that the crosshair-lock UI kept iterating (P2-15).
+     * Server side: release this radar's {@link TargetAssignment} entry (review P3:
+     * "TargetAssignment never cleared on chunk unload"). Server-side only on purpose —
+     * in single player, clearing from the client BE would wipe the integrated server's
+     * live assignments while its chunk is still loaded (e.g. spawn chunks).
      *
-     * 检查实体位置是否在扫描包围盒内。
-     * 实体坐标与扫描盒必须已处于同一坐标空间（同在世界空间或同在子世界空间）。
-     *
-     * @param ex      entity X coordinate 实体 X 坐标
-     * @param ey      entity Y coordinate 实体 Y 坐标
-     * @param ez      entity Z coordinate 实体 Z 坐标
-     * @param scanBox the scan bounding box 扫描包围盒
-     * @return {@code true} if the entity is within scan range 实体在扫描范围内返回 {@code true}
+     * 包含此 BE 的区块卸载时调用（双端）。
+     * 客户端：把此雷达从 {@link #CLIENT_RADARS} 移除——旧实现只在 {@link #setRemoved()}
+     * 移除，区块卸载会累积持有 {@code Level} 引用的死 BE 供准星锁定 UI 反复遍历（P2-15）。
+     * 服务端：释放此雷达的 {@link TargetAssignment} 条目（审查 P3「TargetAssignment
+     * 区块卸载不清理」）。刻意只在服务端清——单人模式下从客户端 BE 清会误删集成服务端
+     * 仍在使用的分配表（如出生点常加载区块）。
      */
-    private static boolean inScanRange(double ex, double ey, double ez,
-                                        AABB scanBox) {
-        return scanBox.contains(ex, ey, ez);
+    @Override public void onChunkUnloaded() {
+        if (level != null && level.isClientSide()) {
+            CLIENT_RADARS.remove(this);
+        } else if (level != null) {
+            TargetAssignment.clear(worldPosition);
+        }
+        super.onChunkUnloaded();
     }
+
+    // 已删除的死代码辅助（审查 P3）：inScanRange 原先只有 tryAddSubEntity 一个调用方，
+    // 随其一并移除；tick 的范围判断直接用 AABB.contains。
+    // Dead helper removed (review P3): inScanRange's only caller was tryAddSubEntity and
+    // it went with it; the tick's range check uses AABB.contains directly.
 
     /**
      * Resets all cached Sable sub-world position, orientation, and origin values to
@@ -352,6 +384,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
      * Execution order:
      * <ol>
      *   <li>Fix up {@code level} if null (Sable edge case).</li>
+     *   <li>Flush any coalesced full-sync request (step ⑮ of the tick template, P1-8).</li>
      *   <li>Update the LIT block state based on whether the graph has nodes and is running.</li>
      *   <li>Detect graph changes and recompile the evaluator if the graph was modified.</li>
      *   <li>Clear outputs and return early if the graph is not running.</li>
@@ -369,6 +402,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
      * 执行顺序：
      * <ol>
      *   <li>修复 level 为 null 的情况（Sable 边缘情况）。</li>
+     *   <li>冲刷合并中的全量同步请求（tick 模板第 ⑮ 步，P1-8）。</li>
      *   <li>根据图是否有节点且正在运行来更新 LIT 方块状态。</li>
      *   <li>检测图变化，如果图被修改则重新编译求值器。</li>
      *   <li>如果图未运行则清除输出并提前返回。</li>
@@ -386,6 +420,14 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         if (level == null) level = getEffectiveLevel();
         if (level == null || level.isClientSide()) return;
         ensureBusRegistered();
+        // ⑮ 全量同步冲刷步（P1-8 雷达份额）：BUS_IN 改名等路径的 requestFullSync 按 40-tick
+        //    宽限合并，靠 tick 冲刷落地。雷达此前缺这一步——置位后永远挂起。放在停止早退
+        //    **之前**（Monitor 同位）：停止的雷达也要冲刷挂起的全量同步。
+        //    Full-sync flush step (P1-8 radar share): requestFullSync from BUS_IN renames et
+        //    al. coalesces over a 40-tick grace window and lands via this flush. The radar
+        //    never had the step — once set, it hung forever. Placed before the stopped
+        //    early-return (same position as Monitor) so stopped radars flush too.
+        flushPendingFullSync();
         Level scanLevel = getScanLevel();
 
         boolean shouldBeLit = isRunning() && !graph().nodes.isEmpty();
@@ -424,24 +466,37 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         AABB scanBox = new AABB(scx - scanRange, scy - scanRange, scz - scanRange,
                                  scx + scanRange, scy + scanRange, scz + scanRange);
 
-        // Diagnostic log: unconditionally log scan state for debugging Sable coordinate issues.
-        // 诊断日志：无条件打印扫描信息，用于调试 Sable 坐标问题。
-        SchematicCompute.LOGGER.debug("SABLE-SCAN: onSable={} sc=({},{},{}) wp=({},{},{}) subWorld=({},{},{}) subOrigin=({},{},{}) sableYPR=({},{},{}) sqw={} scanLevel={}",
-            onSable,
-            scx, scy, scz, worldPosition.getX(), worldPosition.getY(), worldPosition.getZ(),
-            cachedSubWorldX, cachedSubWorldY, cachedSubWorldZ,
-            cachedSubOriginX, cachedSubOriginY, cachedSubOriginZ,
-            cachedSubYaw, cachedSubPitch, cachedSubRoll,
-            cachedSubQw,
-            scanLevel != null ? scanLevel.getClass().getSimpleName() : "null");
+        // 诊断日志（P2-16）：SLF4J 的变长参数在调用前求值——逐实体的 sqrt + 装箱 + 多参格式化
+        // 在日志关闭时也照付（雷达常开 + 实体多时是纯热点税）。这批 SABLE-SCAN 日志的用途是
+        // 调试 Sable 坐标问题，内容保留、整段加 isDebugEnabled 守卫：开 DEBUG 诊断能力不变，
+        // 关 DEBUG 零成本。
+        // Diagnostic logs (P2-16): SLF4J evaluates varargs eagerly — the per-entity sqrt +
+        // boxing + multi-arg formatting was paid even with logging off (a pure hot-path tax
+        // on always-on radars with many entities). These SABLE-SCAN logs exist to debug Sable
+        // coordinate issues; the content is kept behind one isDebugEnabled guard — enabling
+        // DEBUG restores the full diagnostic, disabling it costs nothing.
+        boolean debugScan = SchematicCompute.LOGGER.isDebugEnabled();
+        if (debugScan) {
+            SchematicCompute.LOGGER.debug("SABLE-SCAN: onSable={} sc=({},{},{}) wp=({},{},{}) subWorld=({},{},{}) subOrigin=({},{},{}) sableYPR=({},{},{}) sqw={} scanLevel={}",
+                onSable,
+                scx, scy, scz, worldPosition.getX(), worldPosition.getY(), worldPosition.getZ(),
+                cachedSubWorldX, cachedSubWorldY, cachedSubWorldZ,
+                cachedSubOriginX, cachedSubOriginY, cachedSubOriginZ,
+                cachedSubYaw, cachedSubPitch, cachedSubRoll,
+                cachedSubQw,
+                scanLevel != null ? scanLevel.getClass().getSimpleName() : "null");
+        }
 
         int playerCount = 0, mobCount = 0;
         if (showPlayers) {
             for (var e : scanLevel.players()) {
                 boolean inBox = scanBox.contains(e.getX(), e.getY(), e.getZ());
-                SchematicCompute.LOGGER.debug("SABLE-SCAN: player at ({},{},{}) sc=({},{},{}) inBox={} dist={}",
-                    e.getX(), e.getY(), e.getZ(), scx, scy, scz, inBox,
-                    Math.sqrt((e.getX()-scx)*(e.getX()-scx)+(e.getY()-scy)*(e.getY()-scy)+(e.getZ()-scz)*(e.getZ()-scz)));
+                if (debugScan) {
+                    double dx = e.getX() - scx, dy = e.getY() - scy, dz = e.getZ() - scz;
+                    SchematicCompute.LOGGER.debug("SABLE-SCAN: player at ({},{},{}) sc=({},{},{}) inBox={} dist={}",
+                        e.getX(), e.getY(), e.getZ(), scx, scy, scz, inBox,
+                        Math.sqrt(dx * dx + dy * dy + dz * dz));
+                }
                 if (inBox) {
                     targets.add(TargetRecord.fromEntity(e, scx, scy, scz));
                     playerCount++;
@@ -451,17 +506,22 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         if (showMobs) {
             for (var e : scanLevel.getEntitiesOfClass(Mob.class, scanBox, e -> true)) {
                 boolean inBox = scanBox.contains(e.getX(), e.getY(), e.getZ());
-                SchematicCompute.LOGGER.debug("SABLE-SCAN: mob at ({},{},{}) sc=({},{},{}) inBox={} dist={}",
-                    e.getX(), e.getY(), e.getZ(), scx, scy, scz, inBox,
-                    Math.sqrt((e.getX()-scx)*(e.getX()-scx)+(e.getY()-scy)*(e.getY()-scy)+(e.getZ()-scz)*(e.getZ()-scz)));
+                if (debugScan) {
+                    double dx = e.getX() - scx, dy = e.getY() - scy, dz = e.getZ() - scz;
+                    SchematicCompute.LOGGER.debug("SABLE-SCAN: mob at ({},{},{}) sc=({},{},{}) inBox={} dist={}",
+                        e.getX(), e.getY(), e.getZ(), scx, scy, scz, inBox,
+                        Math.sqrt(dx * dx + dy * dy + dz * dz));
+                }
                 if (inBox) {
                     targets.add(TargetRecord.fromEntity(e, scx, scy, scz));
                     mobCount++;
                 }
             }
         }
-        SchematicCompute.LOGGER.debug("SABLE-SCAN: main scan found {} players, {} mobs (onSable={})",
-            playerCount, mobCount, onSable);
+        if (debugScan) {
+            SchematicCompute.LOGGER.debug("SABLE-SCAN: main scan found {} players, {} mobs (onSable={})",
+                playerCount, mobCount, onSable);
+        }
         // Always scan sub-world entities; structure blip insertion checks showSable internally.
         // 始终扫描子世界实体，结构 blip 内部判断 showSable。
         scanSableStructures(scx, scy, scz, scanBox);
@@ -475,7 +535,7 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
             for (var t : targets) validIds.add(t.entityId());
             lockedTargets.removeIf(id -> !validIds.contains(id));
         }
-        if (!targets.isEmpty()) {
+        if (debugScan && !targets.isEmpty()) {
             SchematicCompute.LOGGER.debug("TICK: {} targets at {}, running={}", targets.size(), worldPosition, isRunning());
         }
 
@@ -686,7 +746,10 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
                     structCount++;
                 }
             }
-            SchematicCompute.LOGGER.debug("Radar Sable scan done: {} structures", structCount);
+            // P2-16：同为每 tick 急切 debug，一并守卫。/ Also per-tick eager debug — guarded too (P2-16).
+            if (SchematicCompute.LOGGER.isDebugEnabled()) {
+                SchematicCompute.LOGGER.debug("Radar Sable scan done: {} structures", structCount);
+            }
         } catch (Exception e) {
             SchematicCompute.LOGGER.error("Radar Sable scan error: {}", e.toString());
         }
@@ -696,23 +759,23 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
     // Whole-graph save retired with issue #17; world load goes through loadHostNBT.
 
     /**
-     * Saves radar-specific data to NBT for persistence across world reloads.
-     * Serializes the node graph, runtime PID/sub states, all scan and display
-     * settings, Sable cache coordinates (if present), quaternion orientation,
-     * lock state, and active target assignments.
+     * Saves the radar-specific section to NBT (type-hook style, P2-14): scan/display
+     * settings, Sable cache coordinates (if present), quaternion orientation, and lock
+     * state. The common section (graph / running / runtime state) is serialized exactly
+     * once by the base class's {@code saveAdditional → GraphHost.saveHostNBT} — the old
+     * override hand-rewrote those same keys after {@code super}, serializing the whole
+     * graph twice per export (a double cost stacked on P1-7's per-tick pushes).
      *
-     * 将雷达特定数据保存到 NBT 以便在世界重载时持久化。
-     * 序列化节点图、运行时 PID/子状态、所有扫描和显示设置、
-     * Sable 缓存坐标（如果存在）、四元数朝向、锁定状态和活跃目标分配。
+     * 将雷达类型段保存到 NBT（类型钩子口径，P2-14）：扫描/显示设置、Sable 缓存坐标
+     * （若存在）、四元数朝向和锁定状态。公共段（graph / running / 运行时状态）由基类
+     * {@code saveAdditional → GraphHost.saveHostNBT} 只序列化一遍——旧覆写在
+     * {@code super} 之后手写同名键整段覆盖，等于每次导出把整图序列化两遍
+     * （叠加 P1-7 的每 tick 推送时双重成本）。
      *
      * @param t the compound tag to save into 要保存到的复合标签
      * @param r registry access for serialization 用于序列化的注册表访问
      */
-    @Override protected void saveAdditional(CompoundTag t, HolderLookup.Provider r) {
-        super.saveAdditional(t, r);
-        t.put("graph", graph().save(r));
-        t.putBoolean("running", isRunning());
-        t.put("runtime", runtimeState().save());
+    @Override protected void saveTypeSpecific(CompoundTag t, HolderLookup.Provider r) {
         t.putInt("scanRange", scanRange);
         t.putInt("scanMode", scanMode);
         t.putInt("displayScale", displayScale);
@@ -746,42 +809,33 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
     }
 
     /**
-     * Loads radar-specific data from NBT after a world reload or chunk load.
-     * Handles backward compatibility for old saves that may be missing Sable origin
-     * coordinates ({@code sox/soy/soz}) or quaternion data ({@code sqx/sqy/sqz/sqw}).
+     * Loads the radar-specific section from NBT (type-hook style, P2-14). Graph /
+     * running / runtime-state loading lives entirely in the base class's
+     * {@code loadAdditional → GraphHost.loadHostNBT} (including the three bounce-back
+     * guards for open editors / pixel painting / display dragging) — this override used
+     * to re-run the graph load without those guards, and converged to the same
+     * {@code loadTypeSpecific} style as the other hosts. Also handles backward
+     * compatibility for old saves that may be missing Sable origin coordinates
+     * ({@code sox/soy/soz}) or quaternion data ({@code sqx/sqy/sqz/sqw}).
      * <p>
      * When Sable cache data is absent on the client side, clears the local cache
      * to match the server's state. When {@code swx} exists but {@code sox} doesn't
      * (old save migration), marks the origin as uninitialized so that
      * {@code sable$physicsTick} will populate it; during the gap, {@code isHost}
      * comparisons conservatively return false (safe fallback).
-     *
-     * 在世界重载或区块加载后从 NBT 加载雷达特定数据。
-     * 处理旧存档的向后兼容性：旧存档可能缺少 Sable 原点坐标（{@code sox/soy/soz}）
-     * 或四元数数据（{@code sqx/sqy/sqz/sqw}）。
      * <p>
-     * 当客户端侧缺少 Sable 缓存数据时，清除本地缓存以匹配服务端状态。
-     * 当存在 {@code swx} 但不存在 {@code sox} 时（旧存档迁移），标记原点为未初始化，
-     * 让 {@code sable$physicsTick} 后续填充；在此期间 isHost 判断保守返回 false（安全回退）。
+     * 注意：旧的雷达覆写会在尾部 {@code setChanged() + sendBlockUpdated} —— 前者由基类
+     * 统一承担，后者是加载期冗余包（审查 P3，三种口径之一），随本次收敛一并移除，与其余
+     * 宿主口径对齐。
+     * Note: the old radar override ended with {@code setChanged() + sendBlockUpdated} —
+     * the former is handled uniformly by the base class, the latter is a loading-period
+     * redundant packet (review P3, one of three divergent styles) and is removed with
+     * this convergence to match the other hosts.
      *
      * @param t the compound tag to load from 要加载的复合标签
      * @param r registry access for deserialization 用于反序列化的注册表访问
      */
-    @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
-        // 阶段 1：图与 running 的加载交回基类，本覆写只保留 Radar 类型段。
-        // 原先这里重复执行 `graph = NodeGraph.load(...)` 且**不检查** pendingLocalOps /
-        // 像素编辑 / 显示拖拽，等于关掉了基类的三道回弹保护——服务端同步包会在编辑器
-        // 打开、正在绘画或拖拽时砸掉本地图（孤儿化 pixelEdit.node / draggedDisplayNode）。
-        // 运行时状态的全量恢复也已于阶段 0 上移到基类。
-        // Phase 1: graph and running loading returns to the base class; this override
-        // keeps only the radar-specific section. It used to re-run
-        // `graph = NodeGraph.load(...)` **without** checking pendingLocalOps / pixel
-        // painting / display dragging, i.e. it disabled all three of the base class's
-        // bounce-back guards — a server sync could clobber the local graph while the
-        // editor was open or mid-paint/mid-drag (orphaning pixelEdit.node /
-        // draggedDisplayNode). Full runtime-state restore also moved to the base class
-        // in phase 0.
-        super.loadAdditional(t, r);
+    @Override protected void loadTypeSpecific(CompoundTag t, HolderLookup.Provider r) {
         if (t.contains("scanRange")) scanRange = t.getInt("scanRange");
         if (t.contains("scanMode")) scanMode = t.getInt("scanMode");
         if (t.contains("displayScale")) displayScale = t.getInt("displayScale");
@@ -840,8 +894,11 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
                     e.getInt("id"), e.getFloat("dist"), e.getString("type"), e.getString("name")));
             }
         }
-        setChanged();
-        if (level != null) level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        // 尾部的 setChanged()（基类 loadAdditional 统一承担）与 sendBlockUpdated（加载期
+        // 冗余包，P3）已随类型钩子收敛移除——见方法 javadoc。
+        // The trailing setChanged() (handled uniformly by the base loadAdditional) and
+        // sendBlockUpdated (loading-period redundant packet, P3) are removed with the
+        // type-hook convergence — see the method javadoc.
     }
 
     /**
@@ -1042,60 +1099,13 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity {
         return Math.max(1, count);
     }
 
-    /**
-     * Transforms a sub-world entity's local coordinates to world space using Sable's
-     * {@code logicalPose.transformPosition} (when available via reflection), then adds
-     * the entity to the target list if it falls within the scan bounding box.
-     * <p>
-     * When {@code transformMethod} is null (reflection failed or API unavailable),
-     * falls back to simple vector addition of the sub-world origin position — this
-     * works for non-rotated structures but will be inaccurate for rotated ones.
-     *
-     * 使用 Sable 的 {@code logicalPose.transformPosition}（通过反射获取时可用）
-     * 将子世界实体的本地坐标变换到世界空间，如果实体落在扫描包围盒内则加入目标列表。
-     * <p>
-     * 当 {@code transformMethod} 为 null（反射失败或 API 不可用）时，
-     * 回退到简单的子世界原点位置向量加法——这对无旋转结构有效，但对旋转结构不精确。
-     *
-     * @param e               the entity to transform and potentially add 要变换并可能添加的实体
-     * @param scx             scan center X 扫描中心 X
-     * @param scy             scan center Y 扫描中心 Y
-     * @param scz             scan center Z 扫描中心 Z
-     * @param pose            Sable logicalPose object for coordinate transform 用于坐标变换的 Sable logicalPose 对象
-     * @param transformMethod reflective Method handle for transformPosition (may be null) transformPosition 的反射 Method 句柄（可能为 null）
-     * @param scanBox         scan bounding box 扫描包围盒
-     * @return {@code true} if the entity was within range and added to the target list 实体在范围内且已添加到目标列表返回 {@code true}
-     */
-    private boolean tryAddSubEntity(net.minecraft.world.entity.Entity e, double scx, double scy, double scz,
-                                     Object pose, java.lang.reflect.Method transformMethod, AABB scanBox) {
-        try {
-            double wx, wy, wz;
-            if (transformMethod != null) {
-                // Precise transform: use Sable's built-in transformPosition for correct rotation handling.
-                // 精确变换：使用 Sable 内置 transformPosition 正确处理旋转。
-                var localPos = new org.joml.Vector3d(e.getX(), e.getY(), e.getZ());
-                var worldPos = (org.joml.Vector3d) transformMethod.invoke(pose, localPos);
-                wx = worldPos.x; wy = worldPos.y; wz = worldPos.z;
-            } else {
-                // Fallback: simple vector addition — works for non-rotated structures only.
-                // 回退：简单加法（无旋转结构也能工作）。
-                var pm = pose.getClass().getMethod("position");
-                var pos = pm.invoke(pose);
-                double sx = (double) pos.getClass().getMethod("x").invoke(pos);
-                double sy = (double) pos.getClass().getMethod("y").invoke(pos);
-                double sz = (double) pos.getClass().getMethod("z").invoke(pos);
-                wx = e.getX() + sx; wy = e.getY() + sy; wz = e.getZ() + sz;
-            }
-            if (!inScanRange(wx, wy, wz, scanBox)) return false;
-            double dx = wx - scx, dy = wy - scy, dz = wz - scz;
-            float dist = (float) Math.sqrt(dx * dx + dy * dy + dz * dz);
-            String type = e instanceof net.minecraft.world.entity.player.Player ? TargetRecord.TYPE_PLAYER
-                : e instanceof Mob ? TargetRecord.TYPE_MOB : "other";
-            targets.add(new TargetRecord(wx, wy, wz, e.getId(), dist, type, e.getName().getString()));
-            return true;
-        } catch (Exception ex) {
-            SchematicCompute.LOGGER.warn("Radar: failed to add sub-entity {}: {}", e.getName().getString(), ex.toString());
-            return false;
-        }
-    }
+    // ── 已删除的死代码（审查 P3）：tryAddSubEntity 与其唯一辅助 inScanRange ──
+    // 全仓零调用点（tick 的实体扫描直接用 scanBox.contains），且内含**无缓存反射**
+    // （transformMethod/position/x/y/z 逐次 getMethod+invoke）。Sable 子世界实体的
+    // 扫描已由 SablePoseHelper 编译期 API 路线取代。
+    // ── Dead code removed (review P3): tryAddSubEntity and its only helper inScanRange ──
+    // Zero call sites repo-wide (the tick's entity scan calls scanBox.contains directly),
+    // and the body did uncached reflection (getMethod+invoke per access on
+    // transformMethod/position/x/y/z). Sable sub-world entity scanning has long moved to
+    // the SablePoseHelper compile-time API route.
 }

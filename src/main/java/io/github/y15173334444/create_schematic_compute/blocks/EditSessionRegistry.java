@@ -79,45 +79,66 @@ public final class EditSessionRegistry {
      * Register a player as an active editor of the graph at the given position.
      * 将玩家注册为指定位置图的活跃编辑者。
      *
-     * <p>Uses {@link LinkedHashSet} for the editor set so iteration order is
-     * deterministic across the same session (useful for UI ordering).
-     * 使用 {@link LinkedHashSet} 作为编辑者集合，使同一会话中的迭代顺序可预测（有助于 UI 排序）。</p>
-     *
      * @param level  the server level / 服务端世界
      * @param pos    the block entity position / 方块实体坐标
      * @param player the joining player's UUID / 加入玩家的 UUID
      */
     public static void join(ServerLevel level, BlockPos pos, UUID player) {
-        var k = key(level, pos);
-        editors.computeIfAbsent(k, kg -> new LinkedHashSet<>()).add(player);
+        join(key(level, pos), player);
+    }
+
+    /**
+     * {@link GlobalPos}-keyed join — the headless-testable core of the ServerLevel overload.
+     * 以 {@link GlobalPos} 为键的 join —— ServerLevel 重载可脱离 Minecraft 实测的核心。
+     */
+    static void join(GlobalPos graphKey, UUID player) {
+        editors.computeIfAbsent(graphKey, kg -> new LinkedHashSet<>()).add(player);
         // Initialize edit version to 1 so the first op gets version ≥ 2,
         // leaving room for version 1 as an implicit "initial state" sentinel.
         // 将编辑版本初始化为 1，使第一个操作获得版本号 ≥ 2，
         // 为版本号 1 留出空间作为隐式的"初始状态"标记。
-        editVersions.putIfAbsent(k, 1L);
+        editVersions.putIfAbsent(graphKey, 1L);
     }
 
     /**
      * Remove a player from the editor set for a specific graph.
      * 将玩家从指定图的编辑者集合中移除。
      *
-     * <p>When the last editor leaves, the empty set is removed from the map
-     * to avoid leaking memory for graphs that are no longer being edited.
-     * 当最后一位编辑者离开时，空集合会从映射中移除，以避免为不再被编辑的图泄漏内存。</p>
-     *
      * @param level  the server level / 服务端世界
      * @param pos    the block entity position / 方块实体坐标
      * @param player the leaving player's UUID / 离开玩家的 UUID
      */
     public static void leave(ServerLevel level, BlockPos pos, UUID player) {
-        var k = key(level, pos);
-        var set = editors.get(k);
+        leave(key(level, pos), player);
+    }
+
+    /**
+     * {@link GlobalPos}-keyed leave. When the last editor leaves, the whole session
+     * state is reclaimed: the empty editor set, the graph's {@code editVersions} entry
+     * and its bounded {@code opLogs} (P2-10b).
+     * 以 {@link GlobalPos} 为键的 leave。最后一位编辑者离开时回收整个会话状态：
+     * 空编辑者集合、该图的 {@code editVersions} 条目与有界 {@code opLogs}（P2-10b）。
+     *
+     * <p><b>opLog 取舍 / opLog trade-off</b>：opLog 目前**零读取方**（重连回放从未立项），
+     * 会话结束后保留它只是纯泄漏（每图 ≤200 条 op，含像素帧 {@code int[]}）。随会话一起
+     * 回收；若未来重连回放立项，再按需在这里恢复保留语义。
+     * opLog has **zero readers today** (reconnection replay was never built), so keeping
+     * it after the session ends is a pure leak (up to 200 ops per graph, including pixel
+     * frame {@code int[]}s). It is reclaimed with the session; if replay ever gets built,
+     * reintroduce the retention here deliberately.
+     * </p>
+     */
+    static void leave(GlobalPos graphKey, UUID player) {
+        var set = editors.get(graphKey);
         if (set != null) {
             set.remove(player);
-            // Clean up the map entry when no editors remain — prevents unbounded growth.
-            // 当没有编辑者残留时清理映射条目 — 防止无限制增长。
+            // Clean up the whole session state when no editors remain — prevents unbounded
+            // growth and stale ghost sessions (P2-10b).
+            // 没有编辑者残留时回收整个会话状态 — 防止无限制增长与过期幽灵会话（P2-10b）。
             if (set.isEmpty()) {
-                editors.remove(k);
+                editors.remove(graphKey);
+                editVersions.remove(graphKey);
+                opLogs.remove(graphKey);
             }
         }
     }
@@ -127,11 +148,12 @@ public final class EditSessionRegistry {
      * 将玩家从其所在的所有会话中移除（断开连接时调用）。
      *
      * <p>Iterates over all graph sessions and removes the player. Sessions that become
-     * empty after removal are cleaned up to prevent memory leaks. Deferred removal
-     * ({@code toRemove}) avoids {@link ConcurrentModificationException} when removing
-     * entries during iteration.
-     * 遍历所有图会话并移除玩家。移除后变为空的会话将被清理以防止内存泄漏。
-     * 延迟移除（{@code toRemove}）可避免在迭代期间移除条目时出现 {@link ConcurrentModificationException}。</p>
+     * empty after removal are reclaimed entirely (editors + editVersions + opLogs,
+     * P2-10b). Deferred removal ({@code toRemove}) avoids
+     * {@link ConcurrentModificationException} when removing entries during iteration.
+     * 遍历所有图会话并移除玩家。移除后变空的会话整体回收（editors + editVersions +
+     * opLogs，P2-10b）。延迟移除（{@code toRemove}）可避免在迭代期间移除条目时出现
+     * {@link ConcurrentModificationException}。</p>
      *
      * @param player the disconnecting player's UUID / 断开连接玩家的 UUID
      */
@@ -143,7 +165,32 @@ public final class EditSessionRegistry {
         }
         // Deferred removal: removing during iteration would cause ConcurrentModificationException.
         // 延迟移除：在迭代期间移除会导致 ConcurrentModificationException。
-        toRemove.forEach(editors::remove);
+        for (var k : toRemove) {
+            editors.remove(k);
+            editVersions.remove(k);
+            opLogs.remove(k);
+        }
+    }
+
+    /**
+     * Reclaim a graph position's whole session state because the block there was
+     * removed or replaced (P2-10a). Called from host BEs' {@code setRemoved()}
+     * (server side only). Without this, a broken radar/computer left ghost editors
+     * behind — op broadcasts kept going to players with no screen open — and the
+     * per-position maps leaked across sessions. A new block at the same coordinates
+     * naturally rebuilds its session on the next {@link #join}.
+     *
+     * 方块被拆/替换后回收该坐标的整个会话状态（P2-10a）。由宿主 BE 的
+     * {@code setRemoved()}（仅服务端）调用。此前被拆掉的雷达/计算机会留下幽灵编辑者
+     * （op 广播继续发给没开界面的人），且各映射跨会话慢泄漏；同坐标的新方块在下次
+     * {@link #join} 时自然重建会话。
+     *
+     * @param graphKey the dimension-qualified position of the removed block / 被拆方块的维度限定坐标
+     */
+    public static void dropBlock(GlobalPos graphKey) {
+        editors.remove(graphKey);
+        editVersions.remove(graphKey);
+        opLogs.remove(graphKey);
     }
 
     /**
@@ -162,7 +209,12 @@ public final class EditSessionRegistry {
      *         / 编辑者 UUID 的不可修改集合，如果没有编辑者则返回空集合
      */
     public static Set<UUID> getEditors(ServerLevel level, BlockPos pos) {
-        var set = editors.get(key(level, pos));
+        return getEditors(key(level, pos));
+    }
+
+    /** {@link GlobalPos}-keyed view（headless 测试与 dropBlock 语义同键）。/ GlobalPos-keyed view (same key semantics as dropBlock, used by headless tests). */
+    static Set<UUID> getEditors(GlobalPos graphKey) {
+        var set = editors.get(graphKey);
         return set != null ? Collections.unmodifiableSet(set) : Collections.emptySet();
     }
 
@@ -175,7 +227,12 @@ public final class EditSessionRegistry {
      * @return true if at least one editor is active / 如果至少有一位活跃编辑者则返回 true
      */
     public static boolean hasEditors(ServerLevel level, BlockPos pos) {
-        var set = editors.get(key(level, pos));
+        return hasEditors(key(level, pos));
+    }
+
+    /** {@link GlobalPos}-keyed check（headless 测试用）。/ GlobalPos-keyed check (for headless tests). */
+    static boolean hasEditors(GlobalPos graphKey) {
+        var set = editors.get(graphKey);
         return set != null && !set.isEmpty();
     }
 
@@ -218,7 +275,10 @@ public final class EditSessionRegistry {
      * @param op  the applied operation (with version already assigned)
      *            / 已应用的操作（已分配版本号）
      */
-    private static void appendToLog(GlobalPos key, GraphOp op) {
+    // 包私有：headless 生命周期测试需要直接注入 opLog（applyOp 需要 ServerLevel 造不出来）。
+    // Package-private: the headless lifecycle tests must inject opLogs directly (applyOp
+    // needs a ServerLevel, which cannot be constructed headlessly).
+    static void appendToLog(GlobalPos key, GraphOp op) {
         var log = opLogs.computeIfAbsent(key, kg -> new ArrayDeque<>());
         log.addLast(op);
         // Evict oldest entries when the log exceeds the cap — bounded memory use.
@@ -586,5 +646,17 @@ public final class EditSessionRegistry {
         editors.clear();
         editVersions.clear();
         opLogs.clear();
+    }
+
+    // ── 测试观察钩子（包私有，仅供 headless 回归测试；生产代码不读）──
+    // Test observability hooks (package-private, for headless regression tests only;
+    // production code never reads them).
+    /** @return the session's current version seed, or null when reclaimed / 会话的版本种子，回收后为 null */
+    static Long peekVersion(GlobalPos graphKey) { return editVersions.get(graphKey); }
+    /** @return the session's op log, or null when reclaimed / 会话的 opLog，回收后为 null */
+    static Deque<GraphOp> peekOpLog(GlobalPos graphKey) { return opLogs.get(graphKey); }
+    /** @return true when any of the three session maps still holds the key / 三张会话表任一仍持有该键时为 true */
+    static boolean isSessionTracked(GlobalPos graphKey) {
+        return editors.containsKey(graphKey) || editVersions.containsKey(graphKey) || opLogs.containsKey(graphKey);
     }
 }

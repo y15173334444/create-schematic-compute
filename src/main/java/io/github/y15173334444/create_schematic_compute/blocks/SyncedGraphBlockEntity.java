@@ -6,6 +6,7 @@ import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.RuntimeState;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.GlobalPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.Packet;
@@ -243,11 +244,24 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     }
 
     /** Called when the block is removed from the world.
-     *  Performs full BUS channel teardown: client cleanup + server unregistration.
-     *  方块从世界中移除时调用。执行完整的 BUS 通道拆除：客户端清理 + 服务端注销。 */
+     *  Performs full BUS channel teardown: client cleanup + server unregistration,
+     *  plus reclaiming this position's edit session (P2-10).
+     *  方块从世界中移除时调用。执行完整的 BUS 通道拆除：客户端清理 + 服务端注销，
+     *  并回收本坐标的编辑会话（P2-10）。 */
     @Override public void setRemoved() {
         cleanupBusChannels(graph());
         unregisterBusChannels(graph());
+        // P2-10(a)：拆除/替换时回收本坐标的编辑会话（editors/editVersions/opLogs），
+        // 否则残留"幽灵编辑者"（op 广播发给没开界面的人）并跨会话慢泄漏；同坐标的新方块
+        // 在 join 时自然重建会话。仅服务端执行——单人模式下客户端拆除路径会误清集成
+        // 服务端仍在使用的会话表。
+        // P2-10(a): reclaim this position's edit session when the block is broken or
+        // replaced - otherwise ghost editors linger (op broadcasts to players with no
+        // screen open) and the maps leak across sessions; a new block at the same
+        // position naturally rebuilds its session on join. Server-side only - in single
+        // player the client-side removal path would wipe the integrated server's live table.
+        if (level != null && !level.isClientSide())
+            EditSessionRegistry.dropBlock(GlobalPos.of(level.dimension(), worldPosition));
         rs().setRemoved();
         super.setRemoved();
     }
