@@ -271,6 +271,20 @@ public final class NbsEditorKernel {
         });
     }
 
+    /** 曲名（NBS 元数据）：此前唯一写入方是 .nbs 导入，无 GUI 入口——功放监听列表按它
+     *  显示行名，空则「未命名曲目」。同值不记撤销。 / Song title (NBS metadata): the only
+     *  writer used to be .nbs import — no GUI entry. The amplifier monitor lists rows by
+     *  it (blank shows "untitled"). Same value records no undo. */
+    public void setSongName(String name) {
+        String n = name == null ? "" : name;
+        if (song.songName.equals(n)) return;
+        apply(new Edit() {
+            private final String oldN = song.songName, newN = n;
+            @Override public void undo() { song.songName = oldN; }
+            @Override public void redo() { song.songName = newN; }
+        });
+    }
+
     /**
      * 导入替换：以 incoming 的内容整体覆盖本曲（结构级 → 整曲快照撤销，"导入 .nbs + 撤销"）。
      * Import replace: overwrite the working song with {@code incoming} (structural —

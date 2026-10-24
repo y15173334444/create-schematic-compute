@@ -152,7 +152,11 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     /** 单击 vs 拖动的像素阈值（层列「单击落点、拖动框选」的判定）。
      *  Click vs drag threshold (the lane view's click-places / drag-selects split). */
     static final int DRAG_THRESHOLD = 4;
-    private boolean importOpen = false, exportOpen = false, showGuide = false;
+    private boolean importOpen = false, exportOpen = false, showGuide = false, fileMenuOpen = false;
+    /** 顶栏曲名行内改名进行中（Enter 提交；失焦即提交，Esc 取消——层名框是「点别处取消」，
+     *  曲名框口径不同）。 The top-bar song title is being renamed inline (Enter commits,
+     *  blur commits, Esc cancels — unlike the layer box, which cancels on outside click). */
+    private boolean songNameEdit = false;
     private List<Path> importFiles = List.of();
     /** 导入弹窗可见行数（渲染 / 命中 / 滚动钳位共用）。/ import dialog visible rows (render, hit-test and scroll clamp share it). */
     static final int IMPORT_ROWS = 10;
@@ -165,7 +169,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private long feedbackUntil = 0;
 
     // ── 输入框 / edit boxes ──
-    private EditBox tempoBox, layerNameBox, exportNameBox, setValueBox;
+    private EditBox tempoBox, layerNameBox, exportNameBox, setValueBox, songNameBox;
 
     public NbsEditorScreen(BlockPos pos, GraphNode node, Screen returnScreen, int ownerNodeId) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".nbs_editor"));
@@ -192,6 +196,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         exportNameBox.setMaxLength(48);
         setValueBox = new EditBox(font, 0, 0, 80, 14, Component.literal(""));
         setValueBox.setMaxLength(8);
+        songNameBox = new EditBox(font, 0, 0, 140, 14, Component.literal(""));
+        songNameBox.setMaxLength(48);
     }
 
     // ══════════════ GraphEditor.Host ══════════════
@@ -314,6 +320,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private void applyPendingInputs() {
         if (tempoBox != null && tempoBox.isFocused()) commitTempo();
         if (layerNameBox != null && layerNameBox.isFocused()) commitLayerName();
+        if (songNameEdit && songNameBox != null && songNameBox.isFocused()) commitSongName();
     }
 
     private void commitTempo() {
@@ -363,6 +370,37 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private void cancelNameEdit() {
         nameEditLayer = -1;
         if (layerNameBox != null) layerNameBox.setFocused(false);
+    }
+
+    /** 顶栏曲名命中矩形（点击 = 行内改名；编辑中热区 = 输入框自身，见 clickSongTitle）。
+     *  The top-bar song-title hit rect (click = inline rename; while editing the hot zone
+     *  is the box itself, see clickSongTitle). */
+    private int[] songTitleRect() {
+        String title = "NBS · " + (kernel.song().songName.isEmpty() ? node.displayText : kernel.song().songName);
+        return new int[]{6, 8, font.width(title), 12};
+    }
+
+    /** 曲名点击 = 行内改名（层名同款）：框值置当前曲名并聚焦；焦点独占——速度框正聚焦
+     *  时先走其提交路径（本屏失焦即提交口径），否则 charTyped 会被路由更前的速度框截走。 */
+    private void startSongNameEdit() {
+        if (nameEditLayer >= 0) commitLayerName();
+        if (tempoBox != null && tempoBox.isFocused()) commitTempo();
+        songNameEdit = true;
+        songNameBox.setValue(kernel.song().songName);
+        songNameBox.setFocused(true);
+    }
+
+    /** 提交曲名：只标脏（同值内核不记撤销、不上传）——上传走既有契约（保存/关闭/导入/新建）。 */
+    private void commitSongName() {
+        kernel.setSongName(songNameBox.getValue());
+        songNameEdit = false;
+        songNameBox.setFocused(false);
+    }
+
+    /** 取消曲名改名（Esc / 点别处）：草稿丢弃、绝不写回（层名同款口径）。 */
+    private void cancelSongNameEdit() {
+        songNameEdit = false;
+        if (songNameBox != null) songNameBox.setFocused(false);
     }
 
     private void feedback(String text) {
@@ -496,6 +534,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         NbsScrollBar.render(g, vsbX(), rollY(), NbsScrollBar.THICK, gridH(), vs[0], vs[1], vs[2],
             inRect(vsbX(), rollY(), NbsScrollBar.THICK, gridH(), mx, my));
         renderTransportBar(g, mx, my);
+        if (fileMenuOpen) renderFileMenu(g, mx, my);
         if (importOpen) renderImportDialog(g, mx, my);
         if (exportOpen) renderExportDialog(g, mx, my);
         if (setOpen) renderSetDialog(g, mx, my);
@@ -512,14 +551,20 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     /** 图标钮悬停提示（图标无文字，提示补可发现性）。 / hover tips for the icon buttons. */
     private void renderTopBarTip(GuiGraphics g, int mx, int my) {
         if (my >= TOP_H) return;
+        if (!songNameEdit) {
+            int[] t = songTitleRect();
+            if (inRect(t[0], t[1], t[2], t[3], mx, my)) {
+                drawTip(g, I18n.get("gui.create_schematic_compute.nbs_rename_song"), mx, my);
+                return;
+            }
+        }
         int[][] r = topBarRects(width);
         for (int i = 0; i < r.length; i++) {
             if (!inRect(r[i][0], r[i][1], r[i][2], r[i][3], mx, my)) continue;
             String tip = switch (i) {
                 case TB_CLOSE -> I18n.get("gui.create_schematic_compute.nbs_close");
                 case TB_GUIDE -> I18n.get("gui.create_schematic_compute.nbs_guide");
-                case TB_EXPORT -> I18n.get("gui.create_schematic_compute.nbs_export");
-                case TB_IMPORT -> I18n.get("gui.create_schematic_compute.nbs_import");
+                case TB_FILE -> I18n.get("gui.create_schematic_compute.nbs_file");
                 case TB_REDO -> I18n.get("gui.create_schematic_compute.nbs_redo");
                 case TB_UNDO -> I18n.get("gui.create_schematic_compute.nbs_undo");
                 default -> "";
@@ -546,16 +591,17 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     // on either side (tech-debt P2-22: duplicated render/click geometry drifts into misclicks).
 
     /** 顶栏按钮下标（= topBarRects 顺序，右起）。/ top-bar indices (topBarRects order, right to left). */
-    static final int TB_CLOSE = 0, TB_SAVE = 1, TB_GUIDE = 2, TB_EXPORT = 3, TB_IMPORT = 4, TB_REDO = 5, TB_UNDO = 6, TB_VIEW = 7;
+    static final int TB_CLOSE = 0, TB_SAVE = 1, TB_GUIDE = 2, TB_FILE = 3, TB_REDO = 4, TB_UNDO = 5, TB_VIEW = 6;
     /** 顶栏按钮宽（图标钮 20、文字钮 36——紧凑排列；实测反馈：文字钮太挤）。
      *  Top-bar widths (icon buttons 20, text buttons 36 — compact; field feedback: the
      *  text buttons were too crowded). */
-    private static final int[] TOP_BTN_W = {20, 36, 20, 20, 20, 20, 20, 36};
-    /** 图标钮字形：× ? ↑ ↓ ↷ ↶（保存/视图保持文字——主操作与模式指示要可读）。
-     *  Icon glyphs for the six icon buttons (save / view stay textual — the primary
-     *  action and the mode indicator need to read). */
-    private static final String IC_CLOSE = "×", IC_GUIDE = "?", IC_EXPORT = "↑", IC_IMPORT = "↓",
-        IC_REDO = "↷", IC_UNDO = "↶";
+    private static final int[] TOP_BTN_W = {20, 36, 20, 20, 20, 20, 36};
+    /** 图标钮字形：× ? ▤ ↷ ↶（保存/视图保持文字——主操作与模式指示要可读）。
+     *  ▤ = 文件钮：导入/导出两键并成一枚，点开文件菜单（新建/导入/导出）。
+     *  Icon glyphs (save / view stay textual — the primary action and the mode indicator
+     *  need to read). ▤ = the file button: import & export merged into one icon opening
+     *  the file menu (new / import / export). */
+    private static final String IC_CLOSE = "×", IC_GUIDE = "?", IC_FILE = "▤", IC_REDO = "↷", IC_UNDO = "↶";
 
     /** 顶栏按钮矩形表：右起排布（右留 4px、按钮间 2px），y=4、高 18。
      *  Top-bar rects, right to left (4px right margin, 2px gaps), y=4, h=18. */
@@ -565,6 +611,26 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         for (int i = 0; i < r.length; i++) {
             x -= TOP_BTN_W[i] + 2;
             r[i] = new int[]{x, 4, TOP_BTN_W[i], 18};
+        }
+        return r;
+    }
+
+    // ══════════════ 文件菜单（新建/导入/导出）/ file menu (new / import / export) ══════════════
+    // 导入/导出并成一枚文件图标后的下拉菜单；文件命名仍在导出弹窗里。
+    // The dropdown behind the merged file icon; file naming stays in the export dialog.
+
+    /** 文件菜单行下标（= fileMenuRects 顺序）。/ file-menu row indices (fileMenuRects order). */
+    static final int FM_NEW = 0, FM_IMPORT = 1, FM_EXPORT = 2;
+    static final int FM_ROWS = 3, FM_ROW_H = 16, FM_W = 96;
+
+    /** 文件菜单行矩形表（渲染与命中共用）：锚在文件钮正下方、右缘对齐按钮。
+     *  File-menu row rects (render & hit share them): anchored under the file button,
+     *  right edges aligned. */
+    static int[][] fileMenuRects(int width) {
+        int[] anchor = topBarRects(width)[TB_FILE];
+        int[][] r = new int[FM_ROWS][4];
+        for (int i = 0; i < FM_ROWS; i++) {
+            r[i] = new int[]{anchor[0] + anchor[2] - FM_W, anchor[1] + anchor[3] + 2 + i * FM_ROW_H, FM_W, FM_ROW_H};
         }
         return r;
     }
@@ -592,14 +658,19 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         g.fill(0, 0, width, TOP_H - 2, C_PANEL());
         g.fill(0, TOP_H - 2, width, TOP_H, C_BORDER());
         String title = "NBS · " + (kernel.song().songName.isEmpty() ? node.displayText : kernel.song().songName);
-        g.drawString(font, title, 6, 10, C_TEXT, false);
+        if (songNameEdit) {
+            // 曲名行内改名：框顶替标题（框宽 140，与导出文件名框同宽级）
+            songNameBox.setX(6); songNameBox.setY(8);
+            songNameBox.render(g, mx, my, pt0());
+        } else {
+            g.drawString(font, title, 6, 10, C_TEXT, false);
+        }
 
         String[] labels = {
             IC_CLOSE,
             I18n.get("gui.create_schematic_compute.nbs_save"),
             IC_GUIDE,
-            IC_EXPORT,
-            IC_IMPORT,
+            IC_FILE,
             IC_REDO,
             IC_UNDO,
             I18n.get(view == View.ROLL ? "gui.create_schematic_compute.nbs_view_roll"
@@ -607,12 +678,13 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         };
         int[][] r = topBarRects(width);
         for (int i = 0; i < r.length; i++) {
-            boolean on = (i == TB_GUIDE && showGuide) || (i == TB_EXPORT && exportOpen) || (i == TB_IMPORT && importOpen);
+            boolean on = (i == TB_GUIDE && showGuide) || (i == TB_FILE && fileMenuOpen);
             button(g, r[i][0], r[i][1], r[i][2], r[i][3], labels[i], mx, my, on);
         }
 
         if (System.currentTimeMillis() < feedbackUntil && !feedbackText.isEmpty()) {
-            g.drawString(font, feedbackText, 6 + font.width(title) + 12, 10, C_TEXT_DIM, false);
+            int fx = songNameEdit ? 6 + songNameBox.getWidth() + 8 : 6 + font.width(title) + 12;
+            g.drawString(font, feedbackText, fx, 10, C_TEXT_DIM, false);
         }
     }
 
@@ -666,6 +738,10 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     static final int LR_MUTE = 0, LR_DETAIL = 1, LR_LOCK = 2, LR_UP = 3, LR_DOWN = 4, LR_DELETE = 5;
     /** 层总览图标（仅层头用，不入层行按钮序）。 / the overview icon (header-only, not a row button). */
     static final int LR_OVERVIEW = 6;
+    /** 扬声器+声波图标（音频钮的开启态字形，不入层行按钮序；静音态是 LR_MUTE 裸扬声器）。
+     *  The speaker-with-waves glyph (the audio button's on state, not a row button; the
+     *  muted state is the bare LR_MUTE speaker). */
+    static final int LR_SOUND = 7;
 
     /** 卷帘层头槽位（= rollHeaderRects 顺序）：◀ / 名称 / ▶ / 总览 / 细 / 加层 / 删。
      *  Roll header slots: prev / name / next / overview / detail / add / delete. */
@@ -701,11 +777,22 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     private static void drawLayerIcon(GuiGraphics g, int x, int y, int icon) {
         int P = NodeRenderer.CT, A = NodeRenderer.CD;
         switch (icon) {
-            case LR_MUTE -> {                     // 静音：扬声器 + 斜杠 / speaker with a slash
+            case LR_MUTE -> {                     // 静音：裸扬声器（不带声波）/ muted: bare speaker
                 g.fill(x + 1, y + 3, x + 3, y + 7, A);
                 g.fill(x + 3, y + 2, x + 5, y + 8, A);
                 g.fill(x + 5, y + 1, x + 7, y + 9, A);
-                for (int i = 0; i < 9; i++) g.fill(x + i, y + 9 - i, x + i + 1, y + 10 - i, P);
+            }
+            case LR_SOUND -> {                    // 有声：扬声器 + 右侧双声波弧 / audible: speaker + twin wave arcs
+                g.fill(x + 1, y + 3, x + 3, y + 7, A);
+                g.fill(x + 3, y + 2, x + 5, y + 8, A);
+                g.fill(x + 5, y + 1, x + 7, y + 9, A);
+                // 内弧 rows 3–6、外弧 rows 1–8，均朝右凸（远离扬声器）；弧点/弧腹错列不互撞
+                g.fill(x + 7, y + 3, x + 8, y + 4, P);
+                g.fill(x + 8, y + 4, x + 9, y + 6, P);
+                g.fill(x + 7, y + 6, x + 8, y + 7, P);
+                g.fill(x + 8, y + 1, x + 9, y + 2, P);
+                g.fill(x + 9, y + 2, x + 10, y + 8, P);
+                g.fill(x + 8, y + 8, x + 9, y + 9, P);
             }
             case LR_DETAIL -> {                   // 推子：三轨带钮 / sliders
                 g.fill(x + 1, y + 2, x + 9, y + 3, A);
@@ -812,7 +899,11 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 boolean hov = inRect(4 + br[b][0], y + br[b][1], br[b][2], br[b][3], mx, my);
                 if (hov) hoverTip = b == LR_MUTE && layers.get(i).muted
                     ? I18n.get("gui.create_schematic_compute.nbs_lr_unmute") : layerRowTip(b);
-                iconButton(g, 4 + br[b][0], y + br[b][1], br[b][2], br[b][3], b, hov,
+                // 音频钮字形随静音态换：有声 = 声波，静音 = 斜线（底色高亮口径不变）
+                // The audio button swaps glyphs with the mute state: audible = waveform,
+                // muted = slash (the lit-background policy is unchanged).
+                int icon = b == LR_MUTE ? (layers.get(i).muted ? LR_MUTE : LR_SOUND) : b;
+                iconButton(g, 4 + br[b][0], y + br[b][1], br[b][2], br[b][3], icon, hov,
                     (b == LR_LOCK && layers.get(i).locked) || (b == LR_MUTE && layers.get(i).muted));
             }
         }
@@ -1108,6 +1199,39 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         button(g, x + IMPORT_W - 68, y + IMPORT_H - 24, 58, 18, I18n.get("gui.create_schematic_compute.nbs_close"), mx, my, false);
     }
 
+    /** 文件菜单：新建曲目 / 导入 / 导出 三行（行样式同导入列表）。 */
+    private void renderFileMenu(GuiGraphics g, int mx, int my) {
+        int[][] r = fileMenuRects(width);
+        g.fill(r[0][0] - 1, r[0][1] - 1, r[0][0] + FM_W + 1, r[FM_ROWS - 1][1] + FM_ROW_H + 1, C_BORDER());
+        String[] labels = {
+            I18n.get("gui.create_schematic_compute.nbs_file_new"),
+            I18n.get("gui.create_schematic_compute.nbs_import"),
+            I18n.get("gui.create_schematic_compute.nbs_export"),
+        };
+        for (int i = 0; i < FM_ROWS; i++) {
+            boolean hover = inRect(r[i][0], r[i][1], r[i][2], r[i][3], mx, my);
+            g.fill(r[i][0], r[i][1], r[i][0] + FM_W, r[i][1] + FM_ROW_H, hover ? C_HOVER() : C_PANEL());
+            g.drawString(font, labels[i], r[i][0] + 8, r[i][1] + (FM_ROW_H - 8) / 2, C_TEXT, false);
+        }
+    }
+
+    /** 文件菜单点击：行内命中执行对应动作；点外面（含再点文件钮）收起——模态吞点击。 */
+    private boolean clickFileMenu(double mx, double my) {
+        int[][] r = fileMenuRects(width);
+        for (int i = 0; i < FM_ROWS; i++) {
+            if (!inRect(r[i][0], r[i][1], r[i][2], r[i][3], mx, my)) continue;
+            fileMenuOpen = false;
+            switch (i) {
+                case FM_NEW -> doNewSong();
+                case FM_IMPORT -> openImportDialog();
+                case FM_EXPORT -> openExportDialog();
+            }
+            return true;
+        }
+        fileMenuOpen = false;
+        return true;
+    }
+
     /** Set 弹窗（B3）：字段三键 + 数值框 + 绝对/增量 + 应用/取消。
      *  The Set dialog (B3): field buttons + value box + absolute/relative + apply/cancel. */
     private void renderSetDialog(GuiGraphics g, int mx, int my) {
@@ -1231,8 +1355,20 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             layerNameBox.getWidth(), layerNameBox.getHeight(), mx, my))) {
             cancelNameEdit();
         }
+        // 曲名改名失焦即提交（实测反馈：点别处想的是提交，直接回退读作丢稿）：框外点击先
+        // 提交草稿，这一下不吞、后续路由照走；Esc 仍走取消。层名改名维持「点别处取消」的
+        // 旧契约不动（各自的实测反馈口径不同）。
+        // The song rename commits on blur (field feedback: an outside click means commit —
+        // reverting reads as losing the draft): an outside click commits the draft first and
+        // is not consumed; Esc still cancels. The layer-name rename keeps its own
+        // outside-click-cancels contract (different feedback rounds).
+        if (songNameEdit && (songNameBox == null || !inRect(songNameBox.getX(), songNameBox.getY(),
+            songNameBox.getWidth(), songNameBox.getHeight(), mx, my))) {
+            commitSongName();
+        }
         // 对话框优先 / dialogs first
         if (showGuide) { showGuide = false; return true; }
+        if (fileMenuOpen) return clickFileMenu(mx, my);
         if (importOpen) return clickImport(mx, my, btn);
         if (exportOpen) return clickExport(mx, my, btn);
         if (setOpen) return clickSetDialog(mx, my);
@@ -1267,7 +1403,10 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         }
 
         // 顶栏 / top bar
-        if (my < TOP_H) return clickTopBar(mx, my);
+        if (my < TOP_H) {
+            if (clickSongTitle(mx, my)) return true;
+            return clickTopBar(mx, my);
+        }
         // 传输条 / transport bar
         if (my >= height - TRANSPORT_H) return clickTransport(mx, my);
         // 层面板 / layer panel
@@ -1575,18 +1714,34 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         return false;
     }
 
+    /** 顶栏曲名点击：未编辑 = 进行内改名；编辑中框内 = 光标定位（框 rect 是唯一编辑
+     *  热区，顶栏其余按钮照旧）。 / Song-title clicks: idle = start the inline rename;
+     *  while editing, a click inside the box positions the caret (the box rect is the
+     *  only edit hot zone — the rest of the top bar behaves as usual). */
+    private boolean clickSongTitle(double mx, double my) {
+        if (songNameEdit) {
+            if (inRect(songNameBox.getX(), songNameBox.getY(), songNameBox.getWidth(), songNameBox.getHeight(), mx, my)) {
+                songNameBox.mouseClicked(mx, my, 0);
+                return true;
+            }
+            return false;
+        }
+        int[] t = songTitleRect();
+        if (inRect(t[0], t[1], t[2], t[3], mx, my)) { startSongNameEdit(); return true; }
+        return false;
+    }
+
     private boolean clickTopBar(double mx, double my) {
         int[][] r = topBarRects(width);
         for (int i = 0; i < r.length; i++) {
             if (!inRect(r[i][0], r[i][1], r[i][2], r[i][3], mx, my)) continue;
             if (i == TB_CLOSE) { onClose(); return true; }
             if (i == TB_GUIDE) { showGuide = !showGuide; return true; }
+            if (i == TB_FILE) { fileMenuOpen = !fileMenuOpen; return true; }
             // 其余按钮走命令派发（与键位绑定同一条路径，行为不漂移）
             // The remaining buttons share the command dispatch (one path with the keys).
             var act = switch (i) {
                 case TB_SAVE -> EditorKeys.Action.NBS_SAVE;
-                case TB_EXPORT -> EditorKeys.Action.NBS_EXPORT;
-                case TB_IMPORT -> EditorKeys.Action.NBS_IMPORT;
                 case TB_VIEW -> EditorKeys.Action.NBS_VIEW_TOGGLE;
                 case TB_REDO -> EditorKeys.Action.NBS_REDO;
                 default -> EditorKeys.Action.NBS_UNDO;
@@ -1855,23 +2010,40 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 return;
             }
             NbsSong parsed = NbsSong.read(bytes);
-            preview.stop();
-            preview.seek(0);
-            CscAudioEngine.cancelListenerFuture();
-            // 输入框草稿让位于导入内容：失焦不提交（提交会用旧草稿覆盖导入的速度/层名）
-            // Edit-box drafts yield to the import: blur without committing (a commit would
-            // overwrite the imported tempo / layer name with the stale draft).
-            tempoBox.setFocused(false);
-            layerNameBox.setFocused(false);
             kernel.replaceSong(parsed);     // 导入可撤销（plan：导入 .nbs + 撤销）
-            // 换曲后钳位选中层与层滚动（层数可增可减）/ clamp layer state to the new shape
-            currentLayer = Math.min(Math.max(0, currentLayer), kernel.song().layers.size() - 1);
-            layerScroll = Math.min(Math.max(0, layerScroll), Math.max(0, kernel.song().layers.size() - 1));
+            afterSongSwap();
             syncSongToServer();
             feedback(I18n.get("gui.create_schematic_compute.nbs_imported"));
         } catch (Exception e) {
             feedback("§c" + I18n.get("gui.create_schematic_compute.nbs_import_failed"));
         }
+    }
+
+    /** 新建曲目：工作曲目整体换成空白曲（整曲快照撤销，与导入同口径），上传服务端。
+     *  New song: swap the working song for a blank one (whole-song snapshot undo, same
+     *  contract as import), then upload to the server. */
+    private void doNewSong() {
+        kernel.replaceSong(new NbsSong());
+        afterSongSwap();
+        syncSongToServer();
+        feedback(I18n.get("gui.create_schematic_compute.nbs_new_song"));
+    }
+
+    /** 换曲收尾（导入/新建共用）：停试听、草稿框让位、钳位层状态。
+     *  Song-swap tail (shared by import & new): stop the preview, yield the edit-box
+     *  drafts, clamp the layer state to the new shape. */
+    private void afterSongSwap() {
+        preview.stop();
+        preview.seek(0);
+        CscAudioEngine.cancelListenerFuture();
+        // 输入框草稿让位于换入内容：失焦不提交（提交会用旧草稿覆盖新曲的速度/层名）
+        // Edit-box drafts yield to the swapped-in song: blur without committing (a commit
+        // would overwrite the new tempo / layer name with the stale draft).
+        tempoBox.setFocused(false);
+        layerNameBox.setFocused(false);
+        // 换曲后钳位选中层与层滚动（层数可增可减）/ clamp layer state to the new shape
+        currentLayer = Math.min(Math.max(0, currentLayer), kernel.song().layers.size() - 1);
+        layerScroll = Math.min(Math.max(0, layerScroll), Math.max(0, kernel.song().layers.size() - 1));
     }
 
     /** 文件名消毒：平台非法字符（Windows：{@code <>:"/\\|?*} 与控制符）替换为 _，尾随点/空格去掉。
@@ -2010,6 +2182,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         lastWheelAt = System.currentTimeMillis();   // 滚动防误触窗口起点 / arm the scroll guard
         if (layerSettingsOpen) return true;         // 设置面板吞滚轮 / the settings panel swallows the wheel
+        if (fileMenuOpen) return true;              // 文件菜单吞滚轮 / the file menu swallows the wheel
         if (layerOverviewOpen) {                    // 总览滚轮翻行 / the overview scrolls by rows
             overviewScroll = clampOverviewScroll(overviewScroll + (sy > 0 ? -1 : 1) * OVERVIEW_ROW_H,
                 kernel.song().layers.size());
@@ -2083,10 +2256,12 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     public boolean keyPressed(int key, int sc, int mod) {
         if (key == 256) {                       // ESC
             if (showGuide) { showGuide = false; return true; }
+            if (fileMenuOpen) { fileMenuOpen = false; return true; }
             if (importOpen) { importOpen = false; return true; }
             if (exportOpen) { exportOpen = false; return true; }
             if (setOpen) { setOpen = false; setValueBox.setFocused(false); return true; }
             if (nameEditLayer >= 0) { cancelNameEdit(); return true; }
+            if (songNameEdit) { cancelSongNameEdit(); return true; }
             if (layerSettingsOpen) { layerSettingsOpen = false; return true; }
             if (layerOverviewOpen) { layerOverviewOpen = false; return true; }
             if (tempoBox != null && tempoBox.isFocused()) { commitTempo(); return true; }
@@ -2099,6 +2274,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             if (setOpen) { applySet(); return true; }
             if (tempoBox != null && tempoBox.isFocused()) { commitTempo(); return true; }
             if (layerNameBox != null && layerNameBox.isFocused()) { commitLayerName(); return true; }
+            if (songNameEdit && songNameBox != null && songNameBox.isFocused()) { commitSongName(); return true; }
             if (exportOpen && exportNameBox != null && exportNameBox.isFocused()) {
                 doExport(exportNameBox.getValue().trim());
                 exportOpen = false;
@@ -2108,9 +2284,11 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         // 输入框聚焦时把按键交给它 / focused edit boxes eat keys
         if ((tempoBox != null && tempoBox.isFocused()) || (layerNameBox != null && layerNameBox.isFocused())
             || (exportOpen && exportNameBox != null && exportNameBox.isFocused())
+            || (songNameEdit && songNameBox != null && songNameBox.isFocused())
             || (setOpen && setValueBox != null && setValueBox.isFocused())) {
             if (setOpen && setValueBox != null && setValueBox.isFocused()) return setValueBox.keyPressed(key, sc, mod);
             if (exportOpen && exportNameBox != null && exportNameBox.isFocused()) return exportNameBox.keyPressed(key, sc, mod);
+            if (songNameEdit && songNameBox != null && songNameBox.isFocused()) return songNameBox.keyPressed(key, sc, mod);
             if (tempoBox != null && tempoBox.isFocused()) return tempoBox.keyPressed(key, sc, mod);
             return layerNameBox.keyPressed(key, sc, mod);
         }
@@ -2280,6 +2458,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         if (setOpen && setValueBox != null && setValueBox.isFocused()) return setValueBox.charTyped(ch, mod);
         if (tempoBox != null && tempoBox.isFocused()) return tempoBox.charTyped(ch, mod);
         if (layerNameBox != null && layerNameBox.isFocused()) return layerNameBox.charTyped(ch, mod);
+        if (songNameEdit && songNameBox != null && songNameBox.isFocused()) return songNameBox.charTyped(ch, mod);
         if (exportOpen && exportNameBox != null && exportNameBox.isFocused()) return exportNameBox.charTyped(ch, mod);
         // 层序器视图：打字 = 琴键（社区映射，选键 + 试听）；弹窗打开时不响应。
         // Lane view: typing plays the piano (community map — select + audition); silent

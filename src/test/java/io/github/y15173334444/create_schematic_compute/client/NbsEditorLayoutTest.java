@@ -22,7 +22,7 @@ class NbsEditorLayoutTest {
     void testTopBarRects() {
         int width = 400;
         int[][] r = NbsEditorScreen.topBarRects(width);
-        assertEquals(8, r.length, "close/save/guide/export/import/redo/undo/view");
+        assertEquals(7, r.length, "close/save/guide/file/redo/undo/view");
         int rightEdge = width - 4;
         for (int[] b : r) {
             assertEquals(4, b[1], "all buttons sit at y=4");
@@ -31,6 +31,27 @@ class NbsEditorLayoutTest {
             rightEdge = b[0];
         }
         assertTrue(rightEdge > 0, "the leftmost button stays on screen at width=400");
+    }
+
+    @Test
+    @DisplayName("file menu rows tile under the file button, right edges aligned / 文件菜单贴文件钮下方、右缘对齐、行首尾相接")
+    void testFileMenuRects() {
+        int width = 400;
+        int[][] tb = NbsEditorScreen.topBarRects(width);
+        int[] anchor = tb[NbsEditorScreen.TB_FILE];
+        int[][] r = NbsEditorScreen.fileMenuRects(width);
+        assertEquals(NbsEditorScreen.FM_ROWS, r.length, "new / import / export");
+        for (int i = 0; i < r.length; i++) {
+            assertEquals(anchor[0] + anchor[2] - NbsEditorScreen.FM_W, r[i][0], "right edge hugs the file button");
+            assertEquals(NbsEditorScreen.FM_W, r[i][2], "uniform row width");
+            assertEquals(NbsEditorScreen.FM_ROW_H, r[i][3], "uniform row height");
+            assertEquals(r[0][0], r[i][0], "rows share one column");
+            if (i > 0) assertEquals(r[i - 1][1] + NbsEditorScreen.FM_ROW_H, r[i][1], "rows tile exactly");
+        }
+        assertEquals(anchor[1] + anchor[3] + 2, r[0][1], "2px below the file button");
+        // 与顶栏矩形同源：换窗宽整体平移 / same single source: shifts with the window width
+        int[][] wide = NbsEditorScreen.fileMenuRects(500);
+        assertEquals(r[0][0] + 100, wide[0][0], "100px wider window shifts the menu 100px");
     }
 
     @Test
@@ -131,13 +152,14 @@ class NbsEditorLayoutTest {
     // ══════════════ 失焦提交不制造撤销 / blur commits never record undo ══════════════
 
     @Test
-    @DisplayName("no-op layer-name/tempo sets record no undo (blur-commit safe) / 同值提交不记撤销")
+    @DisplayName("no-op layer-name/tempo/song-name sets record no undo (blur-commit safe) / 同值提交不记撤销")
     void testNoOpSetRecordsNoUndo() {
         var kernel = new NbsEditorKernel(new NbsSong());
         var song = kernel.song();
         String sameName = song.layers.get(0).name;
         kernel.setLayerName(0, sameName);
         kernel.setTempo(song.tempo);
+        kernel.setSongName(song.songName);
         assertFalse(kernel.performUndo(), "an unchanged set must not push an undo entry");
         assertFalse(kernel.performRedo(), "and leaves the stacks empty");
     }
