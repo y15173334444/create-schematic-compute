@@ -56,6 +56,13 @@
 | ▶️ **播放类设置** | 激活起播两模式（编辑区两段切换）：**从头播放** = 每次激活回曲首重播；**继续播放** = 从播放头续播（默认，旧行为，曲尾回绕照旧） / Two activation start policies: **from head** (every activation rewinds to the start) vs **continue** (default — the legacy behaviour, resumes from the head with the end-wrap as before). |
 | 🔁 **V7→V8 迁移** | 播放编辑区扩为三行（激活/播放/循环），MUSIC 新增 `level`/`fromHead` 参数槽（按钮参数、无引脚）；**V7→V8 迁移**为旧节点补 0 值槽（= 沿+继续旧行为，不覆盖用户已设值），递归处理封装子图；`NbtVersions.DATA_VERSION` 升到 8。测试：`MusicPlayModesTest`（含 stop 引脚不受模式影响）/ The playback panel grows to three rows (activation/playback/loop) and MUSIC gains the `level`/`fromHead` slots (button params, no pins); the **V7→V8 migration** fills 0-valued slots on legacy nodes (= the old edge+continue behaviour, user-set values survive), recursing into sub-graphs; `NbtVersions.DATA_VERSION` bumps to 8. Tests: `MusicPlayModesTest` (incl. the stop pin staying unaffected by the modes). |
 
+### 🧵 删除连线命中几何与画线同源 + 遮挡 / z 序门控 / Delete-Wire Hit Curve Shares the Drawn Geometry + Occlusion / Z-Order Gate
+
+- **症状 / Symptom**：对准画出来的连线按「删除连线」没反应（宽体源节点——FORMULA / DEBUG_* / 曲线节点——的连线最明显）；或删掉了另一条看不见的线（藏在节点体下的邻线抢走近距命中）；交叉口附近常删错一条。
+- **根因 / Root cause**：命中曲线在 `hitConn` 里手抄了一份端点公式，源端 X 写死常量宽度 140，而画线走动态宽度 `nw(fn)`（FORMULA / DEBUG_* / 曲线节点 = 240）——命中曲线与画线在源端错开 100·zoom px、只在目标端重合，越靠源端越点不中；且命中只比几何距离：不辨可见性（被节点体 / 展开编辑面板盖住的线段照样参与最近者竞争）、不辨 z 序（并列时先画的反而胜出）。
+- **修法 / Fix**：抽 `WireGeometry` 作为连线曲线（两端引脚锚点 + 三次贝塞尔取点）的**唯一真相源**，节点连线、拖拽预览、远端拖线三处画线与命中全部改走同一份公式；命中只在**可见线段**上量距离——最近点被节点体 / 展开编辑面板盖住（画序在连线之上）的线段不参与，藏起来的线既删不到也抢不走命中；阈值内距离并列（±1px，线宽量级）取**画序最上**的一条（交叉口删的是你看见的那条）。
+- **回归 / Regression**：`WireDeleteHitRegressionTest`（窄 / 宽体源节点画线全段可命中、遮挡段不可命中而露出段仍可命中、隐藏邻线不抢命中、并列取画序最上）。
+
 </details>
 
 <details>
