@@ -136,7 +136,7 @@ public record NodeAllowance(Set<NodeCategory> categories, Set<NodeType> exclusio
 |---|---|---|
 | Blueprint | values, math_basic, math_advanced, trig, logic, control, output, **sequential_acc**, debug, structure | `ENCAP_INPUT`, `ENCAP_OUTPUT`（主图；子图由 `GraphEditor:627` 负责） |
 | ProgramComputer | values, math_basic, math_advanced, trig, logic, control, output, sequential_acc, sequential_state, debug | — |
-| CncGearbox | values, math_basic, math_advanced, trig, logic, control, output, sequential_acc, sequential_state, gearbox, kinetic, debug | — |
+| CncGearbox（2026-10-24 复核） | values, math_basic, trig, logic, output, sequential_state, gearbox, debug | — |
 | KineticGauge | values, logic, kinetic, output, debug | — |
 | ControlSeat | input_ctrl, input_view, input_motion, input_pose, output, debug | `FORWARD`（文档已注明控制椅菜单不列出它） |
 | Sensor | input_motion, input_pose, output, debug | — |
@@ -144,8 +144,12 @@ public record NodeAllowance(Set<NodeCategory> categories, Set<NodeType> exclusio
 | Radar | output, radar, debug | — |
 | SpeedProxy | values, speed, debug | — |
 | Transmission | values, kinetic, transmission, debug | — |
+| Amplifier（2026-10-24 收敛） | values, logic, output, sequential_acc, sequential_state, audio, debug | `SPEAKER_PLAY`（音响宿主的播放池） |
+| Speaker | audio, values, debug | `MUSIC`, `AUDIO_OUT`（曲目宿主/频段发布在功放侧） |
 
-**10 个方块中 8 个零例外**，仅 Blueprint（2 项）与 ControlSeat（1 项）有类内黑名单。
+**12 个方块中 9 个零例外**，仅 Blueprint（2 项）、ControlSeat（1 项）、Amplifier（1 项）有类内黑名单。
+共享分类体系在 2026-10-24 复核中**未做任何改动**——两个宿主的收敛按「整类接受或不接受」用
+既有分类表达（见 §7）。
 
 ---
 
@@ -197,3 +201,30 @@ public record NodeAllowance(Set<NodeCategory> categories, Set<NodeType> exclusio
 - [x] **全量测试**：迁移后 434 绿（含新增回归）
 - [ ] **游戏内实测**：每个方块打开节点菜单，确认分组与可添加项符合上表；蓝图确认无
       `STRESS`/`RPM`；控制椅确认无 `FORWARD`
+
+---
+
+## 7. 2026-10-24 复核：按功能面指派齿轮箱与功放 / 2026-10-24 Review: Functional-Surface Assignment for Gearbox & Amplifier
+
+实测反馈：齿轮箱与功放的菜单「接近全节点」，认知负担过大；齿轮箱在本次机制迁移前有
+刻意筛选过的菜单（46 节点），迁移时被 §4.3 的「整类能力补齐」冲掉。**本轮裁定（用户）**：
+共享分类体系不动，按每个方块的功能面用既有分类做指派（**不拆类**——曾评估过拆
+`compare`/`math_func`/`vector` 三类的方案并已否决）。§4.3 的「整类能力补齐」对**程序计算机
+保留**（能力漏洞成立的语境是通用编程机），对齿轮箱改为功能面裁定。
+
+1. **数控齿轮箱 = 可编程运动机的功能面**（70 → 59，8 类）：去 `math_advanced`
+   （`FORMULA`/`INTERP`/`DIRECTION`——蓝图向的脚本/曲线工具），并隐藏三组（用户裁定）：
+   `control`（PID 系）、`sequential_acc`（累加器/积分器）、`kinetic`（应力/转速）。
+   四则/取整、比较**保留**——可编程机器的编程面是它的功能，而非漏洞。已放入的节点
+   照常求值；`DIRECTION`/`ACCUMULATOR`/`INTEGRATOR`/`STRESS`/`RPM` 随类离开是整类
+   规则的代价，需要时整类加回。
+2. **功放电脑 = 音频制作与播放编排的功能面**（69 → 34，7 类）：values + logic + output +
+   sequential_acc + sequential_state + audio + debug；数学/三角/脚本/控制整类刻意不给
+   （动力仪表「刻意不给，想要加类」同款先例）。黑名单 `SPEAKER_PLAY`（音响宿主的播放池，
+   与音响侧 `MUSIC`/`AUDIO_OUT` 的宿主对称）。
+3. 已在图里的节点不受影响——名单只约束新建菜单。
+4. **回归**：`NodeAllowanceMigrationTest` 齿轮箱用例改为「功能面指派」（lost =
+   {DIRECTION, ACCUMULATOR, INTEGRATOR, STRESS, RPM}，gained = 迁移补齐 24 − FORMULA/
+   INTERP − control 整类）；新增功放允许集回归与 SPEAKER_PLAY 排除断言；例外数钉子
+   更新（Blueprint 2 / ControlSeat 1 / Amplifier 1 / 其余 9 个零）。§6 的允许集回归口径
+   （差异 = 已声明变更）不变。
