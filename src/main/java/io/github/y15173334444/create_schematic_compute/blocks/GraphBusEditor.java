@@ -16,6 +16,19 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
  * cross-block ownership is always taken from the server-synced value — issue #12), and syncs
  * band lists across same-channel nodes (BAND_REGISTRY upload + removed-band connection cleanup).
  *
+ * <p>客户端对 SignalBus 的三处全局写均已收编进 owner 门控（P1-9）：发布方离开走
+ * {@code SignalBus.releaseChannel}（本 owner 才整释）、订阅方（BUS_IN）改名只清无主残留
+ * （{@code clearBusIfUnowned}）、频段定义的乐观本地写拒绝他人持有的名
+ * （{@code registerBandsIfNotForeign}）——单人/局域网下客户端与集成服务端共享同一 JVM
+ * 静态表，裸写会穿到权威侧抹掉对方方块的频道。</p>
+ * <p>All three client-side SignalBus global writes are funnelled through owner gates (P1-9):
+ * a publisher's departure goes through {@code SignalBus.releaseChannel} (full release only for
+ * the real owner), a subscriber's (BUS_IN) rename only clears unowned residue
+ * ({@code clearBusIfUnowned}), and the optimistic local band-definition write refuses
+ * foreign-held names ({@code registerBandsIfNotForeign}) — in single-player/LAN the client
+ * shares the integrated server's static tables in one JVM, so a raw write reaches the
+ * authoritative side and wipes the peer block's channel.</p>
+ *
  * <p><b>行为零变更</b>：方法体逐字搬迁，编辑器状态经传入的 {@code ed} 引用访问（同包）。
  * 防抖编排（{@code tickDebouncedBusEdits}）留在编辑器的 clientTick，仅引用本类的
  * {@link #BUS_EDIT_DEBOUNCE_TICKS}。
@@ -135,10 +148,17 @@ final class GraphBusEditor {
             if (!othersUseOldName) {
                 // 只清全局旧频道数据；不调 releaseOldBusName（它会清空
                 // signalBands 并删除旧 band 连线——"携带的图丢失"根因）。
+                // P1-9 owner 门控：BUS_IN 不持有频道（只有发布方注册），本端能证明的只有
+                // 「没有存活发布方」——任何存活 owner 在场一律不动（单人档下客户端与集成
+                // 服务端共享同一 JVM 静态表，裸写 clearBus 会把对方方块的定义与值抹掉）。
                 // Clear only the global old-channel data; do NOT call
                 // releaseOldBusName (it wipes signalBands and deletes old-band connections —
-                // the "carried graph lost" root cause).
-                io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(oldName);
+                // the "carried graph lost" root cause). P1-9 owner gate: a BUS_IN never owns
+                // the channel (only publishers register), so all this side can prove is "no
+                // live publisher" — a live owner of any kind keeps everything (in single
+                // player the client shares the integrated server's static tables in one JVM;
+                // a raw clearBus would wipe the peer block's definition and values).
+                io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBusIfUnowned(oldName);
             }
         }
         // Re-evaluate all BUS_OUT conflict state (renaming may create or resolve conflicts).
@@ -163,7 +183,17 @@ final class GraphBusEditor {
      *   Used by commitBusBox when renaming — renaming should not close the node being edited.) */
     void releaseOldBusName(GraphNode n, String oldName) {
         if (oldName == null || oldName.isEmpty()) return;
-        io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBus(oldName);
+        // P1-9 owner 门控（releaseChannel 统一规则）：真正持有该频道的本节点才整释
+        // （撤条目 + 退役定义）；被他人占用（冲突节点走人）时他人条目与定义不碰，
+        // 无主时的死名残留清理也由 releaseChannel 统一裁决 —— 绝不凭本地推断抹掉
+        // 存活 owner 的数据。
+        // P1-9 owner gate (the unified releaseChannel rule): a full release (entry +
+        // retired definition) happens only when this very node holds the channel; a
+        // foreign-held name (a conflicted node leaving) never touches the peer's entry
+        // or definition, and the unowned-residue cleanup is arbitrated by releaseChannel
+        // too — a live owner's data is never wiped on a local guess.
+        io.github.y15173334444.create_schematic_compute.network.SignalBus.releaseChannel(oldName,
+            new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(ed.host.getBlockPos(), n.id));
         // 在清空前捕获旧频段名和数量，用于连线清理 (Capture old band names and count before clearing)
         java.util.List<String> oldBands = n.signalBands != null
             ? new java.util.ArrayList<>(n.signalBands) : java.util.List.of();
@@ -219,7 +249,15 @@ final class GraphBusEditor {
         if (src.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT && src.busConflict) return;
         var bands = src.signalBands;
         if (src.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT) {
-            io.github.y15173334444.create_schematic_compute.network.SignalBus.registerBands(src.signalName, bands);
+            // P1-9 owner 门控：乐观本地写入只允许「无主或本 owner 持有」的名 —— 他人持有的名
+            // （冲突旗标同步竞态窗口内）绝不覆盖，权威定义随后随服务端的频段广播收敛。
+            // P1-9 owner gate: the optimistic local write is allowed only for unowned or
+            // self-owned names — a foreign-held name (inside the conflict-flag sync race
+            // window) is never overwritten; the authoritative definition converges via the
+            // server's band broadcast.
+            io.github.y15173334444.create_schematic_compute.network.SignalBus.registerBandsIfNotForeign(
+                src.signalName, bands,
+                new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(ed.host.getBlockPos(), src.id));
         }
         var g = ed.getGraph();
         for (var n : ed.getGraph().nodes) {
