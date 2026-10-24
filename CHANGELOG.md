@@ -26,9 +26,11 @@
 <details>
 <summary><b>v1.2.6.2（WIP）</b> — 修复：Sable 结构内音响无声 · 音频拆分节点编辑区未刷新时连线回退 · 功放菜单隐藏音频输出节点 / Fix: speaker inside a Sable structure went silent · audio-split node wires reverted when the edit panel wasn't re-selected · amplifier menu hides the audio-output nodes</summary>
 
-### 🎵 修复批次（进行中）/ Hotfix batch (in progress)
+### 🎵 功放菜单隐藏音频输出节点 / Amplifier Menu Hides the Audio-Output Node
 
-- 本板块随修复逐条补充 / Entries land with each fix.
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🙈 **音频输出（AUDIO_OUT）移出功放菜单** | 功放的节点准入黑名单在 SPEAKER_PLAY 之外补上 AUDIO_OUT——「音频输出」只有音响能真正发声，功放图上它只发频段不出声，名字只招误导；对外把音频送到别的方块走**音频承载的 BUS_OUT** 同一条通路（BUS_OUT 音频发布与 AUDIO_OUT 同款 owner/冲突纪律）。音响侧不变（其发声出口是 SPEAKER_PLAY 直通宿主）。存量图不受影响：菜单隐藏不改求值语义，旧图里的 AUDIO_OUT 照常发布；op 通道亦不受准入名单约束（该缺口已登记 known-open-issues）。/ The amplifier's node-allowance blacklist now covers AUDIO_OUT next to SPEAKER_PLAY - an "audio output" only truly emits on a speaker; on the amplifier it merely publishes a band, and the name misleads. External audio delivery rides the **audio-carrying BUS_OUT** path (same owner/conflict discipline as AUDIO_OUT). The speaker side is unchanged (its emission path is SPEAKER_PLAY straight into the host). Existing saves are unaffected: menu hiding does not change evaluation, AUDIO_OUT nodes in old graphs keep publishing; the op channel is not allowance-gated (that gap is registered in known-open-issues). |
 
 </details>
 

@@ -94,30 +94,36 @@ public final class BlockNodeAllowances {
         EnumSet.of(NodeCategory.VALUES, NodeCategory.KINETIC, NodeCategory.TRANSMISSION,
             NodeCategory.DEBUG));
 
-    /** 功放电脑：音频制作与播放编排的功能面——音频类（黑名单 {@code SPEAKER_PLAY}，那是
-     *  音响宿主的播放池）+ 值/输出控制面 + 时序（play/stop 触发与延时编排）+ 触发逻辑
-     *  （含比较）+ 调试；数学/三角/脚本/控制整类刻意不给（想要时加类即可，动力仪表同款
-     *  先例）。2026-10-24 按功能面指派。
+    /** 功放电脑：音频制作与播放编排的功能面——音频类（黑名单 {@code SPEAKER_PLAY} 与
+     *  {@code AUDIO_OUT}：前者是音响宿主的播放池，后者「音频输出」只有音响能真正发声，
+     *  功放图上它只会误导——对外发布走音频承载的 BUS_OUT 同一条通路）；值/输出控制面 +
+     *  时序（play/stop 触发与延时编排）+ 触发逻辑（含比较）+ 调试；数学/三角/脚本/控制
+     *  整类刻意不给（想要时加类即可，动力仪表同款先例）。2026-10-24 按功能面指派；
+     *  2026-10-25 AUDIO_OUT 移出功放菜单（v1.2.6.2 实测反馈）。
      *  WSHAPE 可用：其 LUT 挂在 AudioRef 上随频段表 → 音符包送达客户端，不限宿主图。
      *  Amplifier computer: the audio-production & playback-orchestration functional
      *  surface — the AUDIO category (blacklisting {@code SPEAKER_PLAY}, the speaker
-     *  host's playback sink) + the values/output control plane + sequential (play/stop
-     *  triggering & delay orchestration) + trigger logic (compare rides the whole
-     *  category) + debug; math/trig/script/control are deliberately withheld (add a
-     *  category when wanted — the kinetic gauge precedent). Assigned per functional
-     *  surface, 2026-10-24.
+     *  host's playback sink, and {@code AUDIO_OUT}: only a speaker truly emits sound, so
+     *  an "audio output" node on the amplifier misleads — external publishing rides the
+     *  audio-carrying BUS_OUT path) + the values/output control plane + sequential
+     *  (play/stop triggering & delay orchestration) + trigger logic (compare rides the
+     *  whole category) + debug; math/trig/script/control are deliberately withheld (add
+     *  a category when wanted — the kinetic gauge precedent). Assigned per functional
+     *  surface, 2026-10-24; AUDIO_OUT left the amplifier menu 2026-10-25 (v1.2.6.2).
      *  WSHAPE allowed: its LUT rides the AudioRef through the band table into the note
      *  packet, so it works from any host graph. */
     public static final NodeAllowance AMPLIFIER = NodeAllowance.of(
         EnumSet.of(NodeCategory.VALUES, NodeCategory.LOGIC, NodeCategory.OUTPUT,
             NodeCategory.SEQUENTIAL_ACC, NodeCategory.SEQUENTIAL_STATE,
             NodeCategory.AUDIO, NodeCategory.DEBUG),
-        NodeType.SPEAKER_PLAY);
+        NodeType.SPEAKER_PLAY, NodeType.AUDIO_OUT);
 
     /** 音响（音频图）：AUDIO 类（含音频频段 BUS_IN/收发）+ VALUES（BUS_IN/CONST 等，通信/控制）
-     *  + DEBUG，但不含曲目宿主/频段发布（MUSIC/AUDIO_OUT 是功放侧）。
+     *  + DEBUG，但不含曲目宿主/发布节点（MUSIC/AUDIO_OUT 不进菜单：MUSIC 在功放侧编排，
+     *  AUDIO_OUT 是发布节点且音响的发声出口是 SPEAKER_PLAY 直通宿主）。
      *  Speaker (audio graph): AUDIO + VALUES (BUS_IN/CONST for communication & control) + DEBUG,
-     *  minus MUSIC/AUDIO_OUT (those live on the amplifier). */
+     *  minus MUSIC/AUDIO_OUT (MUSIC is orchestrated on the amplifier; AUDIO_OUT is a publish
+     *  node and the speaker's emission path is SPEAKER_PLAY straight into the host). */
     public static final NodeAllowance SPEAKER = NodeAllowance.of(
         EnumSet.of(NodeCategory.AUDIO, NodeCategory.VALUES, NodeCategory.DEBUG),
         NodeType.MUSIC, NodeType.AUDIO_OUT);
