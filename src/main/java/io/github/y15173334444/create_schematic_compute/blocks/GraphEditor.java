@@ -2391,9 +2391,10 @@ public class GraphEditor {
         return true;
     }
 
-    /** 删除悬停连线——「删除连线」键（默认 W）与旧的 Tab+左键 组合共用这一条路径
+    /** 删除悬停连线——「删除连线」键（出厂 = Tab → 左键，键位可改）与旧的 Tab+左键 组合共用这一条路径
      *  （语义 / 撤销 / op 流完全一致）。
-     *  Deletes the hovered connection — one path shared by the Delete-Wire key (default W)
+     *  Deletes the hovered connection — one path shared by the Delete-Wire key (factory =
+     *  the Tab → left-click chord, rebindable)
      *  and the legacy Tab+click chord (identical semantics, undo and op flow). */
     private boolean deleteHoveredWire(double mx, double my) {
         var graph = getGraph();
@@ -4252,8 +4253,8 @@ public class GraphEditor {
             deleteHoveredNode(lastMouseX, lastMouseY);
             return true; // 触发即消费（悬空 / 锁定不满足也归引擎）/ triggered keys are consumed
         } else if (seqHit == EditorKeys.Action.DELETE_WIRE) {
-            // 删除悬停连线（默认 W；原 Tab+左键 组合路径保留） / delete the hovered wire
-            // (default W; the legacy Tab+click chord stays)
+            // 删除悬停连线（出厂 = Tab → 左键；原组合路径保留） / delete the hovered wire
+            // (factory = the Tab→click chord; the legacy chord path stays)
             if (deleteHoveredWire(lastMouseX, lastMouseY)) return true;
             return true; // 触发即消费（悬空不满足也归引擎）/ triggered keys are consumed
         } else if (seqHit == EditorKeys.Action.CONTEXT_MENU) {

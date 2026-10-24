@@ -217,6 +217,19 @@ public final class EditorKeys {
 
     private static final int ACTION_COUNT = Action.values().length;
 
+    /** 配置文件路径——**必须声明在下方 static 块之前**：块的 {@code load()} 在类初始化序里
+     *  先于后文字段初始化执行，非 final 字段不会被编译期内联（final 常量才内联）——
+     *  a80fe1a 为测试钩子去 final 后，块的 load() 曾拿到 null 路径抛 NPE，被 catch 静默
+     *  吞掉，启动加载自此全灭（表恒为出厂默认，下一次保存还会把文件整表冲成默认）。
+     *  Config path — **must be declared before the static block below**: the block's
+     *  {@code load()} runs during class init before later field initializers, and a
+     *  non-final field is never compile-time-inlined (only final constants are) — when
+     *  a80fe1a dropped final for the test hook, the block's load() read a null path, threw
+     *  an NPE that the catch silently ate, and boot-time loading died (factory table every
+     *  boot; the next save then rewrote the file to factory wholesale). */
+    private static String CONFIG_PATH = "config/create_schematic_compute-client.properties";
+    private static final String PREFIX = "editorKeys.";
+
     /** 每动作一条触发序列（步骤 = 按键或鼠标点击，鼠标步为负键码）。
      *  One trigger sequence per action (steps = key presses or mouse clicks; mouse
      *  steps encode as negative keycodes). */
@@ -725,9 +738,9 @@ public final class EditorKeys {
     }
 
     // ── 持久化 / persistence ────────────────────────────────────────────
-
-    private static String CONFIG_PATH = "config/create_schematic_compute-client.properties";
-    private static final String PREFIX = "editorKeys.";
+    // CONFIG_PATH / PREFIX 声明在类首常量区（须先于 static 块，见彼处注释）。
+    // CONFIG_PATH / PREFIX live in the constants section at the top of the class
+    // (they must precede the static block — see the comment there).
 
     /** 测试专用：重定向配置文件路径（生产代码勿用）。 / Test-only: redirect the config path. */
     static void setConfigPathForTest(String path) { CONFIG_PATH = path; }
