@@ -528,6 +528,13 @@ public class NodeRenderer {
             g.fill(-r, (int)(py - r), r, (int)(py + r),
                 inAudio ? CAP() : CPI());
             String inlbl = n.inputLabel(i);
+            // 私有信号输出：输入引脚文本随承载类型切换（判定与上方着色同源 inAudio）——
+            // 承载音频显「音频」，浮点维持「值」。BUS_OUT 不经此（其文本 = 频段名）。
+            // Private signal output: the input pin text switches with the carried type (same
+            // source as the tint above) — audio shows Audio, float keeps Val. BUS_OUT never
+            // goes through here (its text = the band name).
+            if (n.type == NodeType.PRIVATE_OUT)
+                inlbl = privateBandPinLabel(inlbl, inAudio);
             drawStr(g, (n.type == NodeType.BUS_OUT || n.type == NodeType.FORMULA || n.type == NodeType.ENCAPSULATION) ? inlbl : I18n.get(inlbl), 10, py-3, CD);
         }
         for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL && n.type != NodeType.DEBUG_PROBE; i++) {
@@ -556,6 +563,13 @@ public class NodeRenderer {
             g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r),
                 outAudio ? CAP() : CPO());
             String rawOutLbl = n.outputLabel(i);
+            // 私有信号输入：引脚文本随频道类型切换（判定与上方着色同源 outAudio）——音频频道
+            // 显「音频」，浮点频道维持「值」。BUS_IN 不经此（其文本 = 频段名，有信息量）。
+            // Private signal input: the pin text switches with the channel type (same source
+            // as the tint above) — audio channels show Audio, float channels keep Val. BUS_IN
+            // never goes through here (its text = the band name, which carries information).
+            if (n.type == NodeType.PRIVATE_IN)
+                rawOutLbl = privateBandPinLabel(rawOutLbl, outAudio);
             String outlbl = (n.type == NodeType.BUS_IN || n.type == NodeType.ENCAPSULATION) ? rawOutLbl : I18n.get(rawOutLbl);
             int olw = Minecraft.getInstance().font.width(outlbl);
             drawStr(g, outlbl, nodeW - olw - 6, py-3, CD);
@@ -833,6 +847,17 @@ public class NodeRenderer {
         int rangeW = Minecraft.getInstance().font.width(rangeStr);
         drawStr(g, rangeStr, chartX + chartW - rangeW - 3, chartY + 2, 0xFF888899);
         return ctrlPoints;
+    }
+
+    /** 私有系统引脚文本（PRIVATE_IN 输出 / PRIVATE_OUT 输入共用）：随频道承载类型切换——
+     *  承载音频显「音频」，浮点维持节点自带标签（「值」）。判定（outAudio / inAudio）与
+     *  引脚着色同源，见引脚循环。
+     *  Private-system pin text (shared by PRIVATE_IN's output and PRIVATE_OUT's input):
+     *  switches with the carried type — audio shows Audio, float keeps the node's own label
+     *  (Val). The predicate (outAudio / inAudio) shares its source with the pin tint; see
+     *  the pin loops. */
+    static String privateBandPinLabel(String base, boolean audio) {
+        return audio ? "pin.create_schematic_compute.audio" : base;
     }
 
     /** DEBUG_PROBE：当前数值 + 迷你趋势折线图。 */
