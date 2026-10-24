@@ -12,6 +12,7 @@ import io.github.y15173334444.create_schematic_compute.graph.MotionCommand;
 import io.github.y15173334444.create_schematic_compute.graph.MotionQuota;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
@@ -164,6 +165,10 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
                     host.runtimeState.delayQueues, host.runtimeState.flipflopStates, host.runtimeState.pulseTimers);
             host.rs.writeOutputs(results);
             host.broadcastEvalSnapshot();
+            // 第 ⑫ 步：band 通道映射变化才同步到客户端（与其余宿主同位：11 与 13 之间）。
+            // Step ⑫: sync band channel mappings to clients only on change (step 12, same
+            // slot as every other host: between 11 and 13).
+            BusChannelHelper.syncIfBandsChanged(host.graph, worldPosition, host.lastBusHashMap, level);
             // 第 ⑬ 步（P2-13 补线）：6 参档求值里 GATE/T_FLIPFLOP/LATCH 真实演进，但此前从不
             // 广播差分——图内触发器状态永不同步到客户端（编辑器徽标死值）。GraphHost 内部按
             // 基线去重，无变化零发包（AmplifierComputer/Speaker 同位置）。

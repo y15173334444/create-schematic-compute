@@ -5,6 +5,7 @@ import io.github.y15173334444.create_schematic_compute.graph.AudioCurve;
 import io.github.y15173334444.create_schematic_compute.graph.MusicTransport;
 import io.github.y15173334444.create_schematic_compute.graph.NoteEvent;
 import io.github.y15173334444.create_schematic_compute.graph.SpeakerSink;
+import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.network.MusicStopPacket;
 import io.github.y15173334444.create_schematic_compute.network.NoteEventPacket;
 import net.minecraft.core.BlockPos;
@@ -93,6 +94,10 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
         // and this is a no-op (lastOutputs cleared, nothing transmitted).
         rs().writeOutputs(results);
         broadcastEvalSnapshot();
+        // 若 band 通道映射发生变化则同步到客户端（第 ⑫ 步，与其余宿主同位）
+        // Sync band channel mappings to clients if they changed (step 12, same slot as
+        // every other host).
+        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
         broadcastFlipflopDiff();
         setChanged();
     }

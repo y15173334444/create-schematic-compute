@@ -5,6 +5,7 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
+import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -80,6 +81,10 @@ public class KineticGaugeBlockEntity extends KineticBlockEntity
         var results = host.evaluator.evaluate(in, host.runtimeState.pidState, 0.05f);
         host.rs.writeOutputs(results);
         host.broadcastEvalSnapshot();
+        // 若 band 通道映射发生变化则同步到客户端（第 ⑫ 步，与其余宿主同位）
+        // Sync band channel mappings to clients if they changed (step 12, same slot as
+        // every other host).
+        BusChannelHelper.syncIfBandsChanged(host.graph, worldPosition, host.lastBusHashMap, level);
         setChanged();
     }
 

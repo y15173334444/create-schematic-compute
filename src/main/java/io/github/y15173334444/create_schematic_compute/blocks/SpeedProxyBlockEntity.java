@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import com.simibubi.create.content.kinetics.speedController.SpeedControllerBlockEntity;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -81,6 +82,10 @@ public class SpeedProxyBlockEntity extends SyncedGraphBlockEntity {
         // Broadcast eval snapshot so DEBUG_SIGNAL_GEN / DEBUG_PROBE charts render on client.
         // 广播评测快照，使客户端 DEBUG_SIGNAL_GEN / DEBUG_PROBE 图表正常渲染。
         broadcastEvalSnapshot();
+        // 若 band 通道映射发生变化则同步到客户端（第 ⑫ 步，与其余宿主同位）
+        // Sync band channel mappings to clients if they changed (step 12, same slot as
+        // every other host).
+        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
         for (var n : graph().nodes) {
             if (n.type == NodeType.SPEED_CTRL) {
                 float speed = evaluator().getNodeOutput(n.id, 0);

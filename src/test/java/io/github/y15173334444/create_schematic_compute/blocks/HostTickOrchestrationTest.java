@@ -13,7 +13,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * K23 / P1-8 / P2-13 / P2-18 / P3-N13 的宿主 tick 编排结构锁。
+ * K23 / P1-8 / ⑫ / P2-13 / P2-18 / P3-N13 的宿主 tick 编排结构锁。
  * 依据 docs/tech-debt-review-2026-10-11.md §六 的 15 步偏差矩阵，把本批补线钉进源码结构
  * （源码扫描式结构测试，与 {@link DedicatedServerClientRefTest} 同模式——BE tick 本体依赖
  * 世界对象，无法 headless 直测，而编排顺序正是本批的行为变更点）。
@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <ul>
  *   <li>⑮ flushPendingFullSync：11/11 在位，且位于 onStopRunning 早退之前（停机宿主也要能
  *       把图推给新编辑者——P1-8）。</li>
+ *   <li>⑫ syncIfBandsChanged：12/12 在位（band 编辑不再只经编辑路径或重载到达客户端）。</li>
  *   <li>⑦ recoverConflictedChannels：继承线宿主的既有调用防回退（main 的冲突自愈已由
  *       GraphHost.ensureBusRegistered 统一挂点覆盖，本批不在补线宿主重复挂）。</li>
  *   <li>⑬ broadcastFlipflopDiff：CncGearbox / ProgrammableTransmission（6 参档求值）在位，
@@ -61,6 +62,21 @@ class HostTickOrchestrationTest {
                 host + ": flushPendingFullSync must run before the onStopRunning early return "
                     + "so a stopped host still ships its graph to a newly joined editor");
         }
+    }
+
+    // ══════════ ⑫ syncIfBandsChanged（12/12 宿主在位）══════════
+
+    @Test
+    @DisplayName("step 12: every host runs syncIfBandsChanged in tick (band edits reach clients without the edit path)")
+    void everyHostSyncsBandsOnTick() throws IOException {
+        for (String host : ALL_NON_RADAR_HOSTS) {
+            List<String> tick = methodBody(host + ".java", "public void tick()");
+            indexOf(tick, "syncIfBandsChanged", host, "step 12 missing");
+        }
+        // 雷达不在 ALL_NON_RADAR_HOSTS，但第 ⑫ 步同样在位。
+        // The radar is not in ALL_NON_RADAR_HOSTS, but its step 12 is wired the same way.
+        List<String> radar = methodBody("RadarBlockEntity.java", "public void tick()");
+        indexOf(radar, "syncIfBandsChanged", "RadarBlockEntity", "step 12 missing");
     }
 
     // ══════════ ⑦ recoverConflictedChannels（继承线既有调用防回退；main 的冲突自愈

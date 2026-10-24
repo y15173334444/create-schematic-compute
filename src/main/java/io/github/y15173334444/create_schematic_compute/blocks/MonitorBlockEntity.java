@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
+import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.network.MonitorRedstoneSyncPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -115,6 +116,10 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity {
             prunePushedKeys(lastPushedRedstone, lastInputs);
             broadcastEvalSnapshot();
         }
+        // 若 band 通道映射发生变化则同步到客户端（第 ⑫ 步，与其余宿主同位）
+        // Sync band channel mappings to clients if they changed (step 12, same slot as
+        // every other host).
+        BusChannelHelper.syncIfBandsChanged(graph(), worldPosition, lastBusHashMap(), level);
         setChanged();
     }
 
