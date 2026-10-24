@@ -111,7 +111,20 @@ public record NoteEventPacket(BlockPos speakerPos, float radius, long dispatchGa
 
     @OnlyIn(Dist.CLIENT)
     private void playClient() {
-        double x = speakerPos.getX() + 0.5, y = speakerPos.getY() + 0.5, z = speakerPos.getZ() + 0.5;
+        // Sable 结构：包里的音响坐标是 sub-level 绘图网格本地坐标，先换算到世界空间再播——
+        // 否则发声点落在网格保留区、离真实结构任意远，距离衰减即「结构上没有声音」
+        //（包投递没问题：Sable 的 ChunkMapMixin 已把绘图区块 getPlayers 重定向到追踪玩家）。
+        // speakerTag 保持网格本地 asLong（停止标记的清除键，见 SableSpeakerSpace 类头）。
+        // Sable structures: the speaker pos in this packet is sub-level grid-local; resolve it
+        // into world space before playing - otherwise the voice lands in the reserved grid
+        // region, arbitrarily far from the visible structure, and distance attenuation yields
+        // the reported "speaker on a Sable structure has no sound" (delivery is fine: Sable's
+        // ChunkMapMixin redirects plot-chunk getPlayers to the tracking players). speakerTag
+        // stays grid-local asLong (the stop marker's cancel key - see SableSpeakerSpace).
+        var worldSpace = io.github.y15173334444.create_schematic_compute.client.audio.SableSpeakerSpace.toWorldSpace(speakerPos);
+        double x = worldSpace != null ? worldSpace.x : speakerPos.getX() + 0.5;
+        double y = worldSpace != null ? worldSpace.y : speakerPos.getY() + 0.5;
+        double z = worldSpace != null ? worldSpace.z : speakerPos.getZ() + 0.5;
         // 迟到校正：delaySeconds 自下发起算——到达迟到必须从落点扣除，否则迟到 1:1 转成
         // 播出推迟、积压段与后续段重叠（「积压音频挤在一起」）。
         long lateTicks = 0;

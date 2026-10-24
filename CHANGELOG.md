@@ -26,6 +26,12 @@
 <details>
 <summary><b>v1.2.6.2（WIP）</b> — 修复：Sable 结构内音响无声 · 音频拆分节点编辑区未刷新时连线回退 · 功放菜单隐藏音频输出节点 / Fix: speaker inside a Sable structure went silent · audio-split node wires reverted when the edit panel wasn't re-selected · amplifier menu hides the audio-output nodes</summary>
 
+### 🔊 Sable 结构内音响无声 / Speaker Inside a Sable Structure Went Silent
+
+| Change / 变更 | Description / 说明 |
+|---------------|-------------------|
+| 🔊 **发声坐标换算到世界空间（客户端）** | Sable 把 sub-level 内容宿主在父维度的保留「绘图网格」区：结构里音响的 `worldPosition` 是网格本地坐标，而玩家实体始终活在父世界。音符包原样携带网格坐标、客户端在父世界按坐标发声——发声点落在网格保留区、离可见结构任意远，距离衰减即无声（包**投递**本身没问题：Sable 的 ChunkMapMixin 已把绘图区块的 `getPlayers` 重定向到追踪玩家）。现在客户端经 sub-level 的 `logicalPose` 把发声点变换到世界空间再播：移动中的船也正确（姿态只滞后一个快照周期 ~50ms，听感无差）；停正标记的清除键 `speakerTag` 保持网格本地坐标不动——play 与 stop 两包必须在同一空间下才能对上键。换算用 `logicalPose` 而**绝不用 `renderPose`**（后者按 partialTick 原地改写共享姿态，音频网络线程调用会撕裂真正的渲染姿态）；Sable 访问 catch 全收回落原坐标（版本线外 API 漂移不崩音频路径，非 Sable 世界零变化）。新增 `client/audio/SableSpeakerSpace`，结构锁 `SableSpeakerSpaceTest`。/ Sable hosts sub-level content in a reserved "plot grid" region of the parent dimension: a speaker's `worldPosition` is grid-local while players live in the parent world. Note packets carried the grid position and the client played at raw coordinates - the voice landed in the reserved region, arbitrarily far from the visible structure, and distance attenuation silenced it (packet **delivery** was fine: Sable's ChunkMapMixin redirects plot-chunk `getPlayers` to the tracking players). The client now resolves the playback position through the sub-level's `logicalPose`: correct on moving ships too (the pose lags at most one snapshot interval, ~50ms - inaudible); the stop-marker cancel key `speakerTag` stays grid-local on purpose, since play and stop must key in the same space. The resolution uses `logicalPose` and **never `renderPose`** (which mutates the shared pose in place per partialTick - a network-thread call would tear the real render pose); the Sable access catches everything into a raw-position fallback (an out-of-range Sable line cannot crash the audio path; no change off-Sable). New `client/audio/SableSpeakerSpace`, structural lock `SableSpeakerSpaceTest`. |
+
 ### 🧵 音频拆分节点：布局切换不再「连线回退」/ Audio-Split Node: Layout Changes No Longer "Revert Wires"
 
 | Change / 变更 | Description / 说明 |
