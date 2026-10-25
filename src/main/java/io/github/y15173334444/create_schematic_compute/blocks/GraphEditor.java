@@ -1376,14 +1376,7 @@ public class GraphEditor {
         renderer.renderGrid(g, camX, camY, zoom, lastRenderedScreenW, lastRenderedScreenH);
 
         // Advance remote move lerp (smooth multiplayer drag)
-        for (var n : graph.nodes) {
-            if (n.remoteLerpT < 1f) {
-                n.remoteLerpT = Math.min(1f, n.remoteLerpT + 0.12f);
-                float t = n.remoteLerpT * n.remoteLerpT * (3f - 2f * n.remoteLerpT); // smoothstep
-                n.x = n.remoteStartX + (n.remoteTargetX - n.remoteStartX) * t;
-                n.y = n.remoteStartY + (n.remoteTargetY - n.remoteStartY) * t;
-            }
-        }
+        advanceRemoteMoveLerp(graph);
 
         // Rebuild spatial index once per frame (used by all spatial queries below).
         // 展开编辑区高度必须传**实测**口径（与裁剪/遮挡/hitNode 同源的 expandedEditHeight）——
@@ -1393,30 +1386,13 @@ public class GraphEditor {
         // static estimate shorter than the rendered panel lets a long formula script's tail
         // escape the indexed AABB, so tail clicks miss the node itself and the z-order
         // occlusion gate is defeated (panel visible but untouchable).
-        spatialIndex.build(graph.nodes, expandedNodeIds,
-            n -> EditPanel.expandedEditHeight(n, nodeEditStatesById.get(n.id)));
+        rebuildSpatialIndex(graph);
 
         // Sort nodes by B-layer ascending (lower B = rendered first = behind, higher B = on top)
         var sortedByB = sortNodesByB(graph.nodes);
 
         // Build soft-lock map: selected or editing by another player (same scope only)
-        var lockedNodes = new java.util.HashMap<Integer, String>();
-        int myOwner = ownerNodeId();
-        for (var rp : presence.getRemotePresences().values()) {
-            if (rp.ownerNodeId() != myOwner) continue; // 不同作用域不显示锁 / skip different scopes
-            // 显示布局模式（mode 1）的 selectedNodeId 是**显示元素**的 id —— 撞上相同 id 的
-            // 节点图节点会画出假锁；节点图锁叠加层只认节点编辑模式。
-            // In display-layout mode (mode 1) selectedNodeId is a DISPLAY element id — it
-            // would plant a phantom lock on a same-id graph node; this overlay only honours
-            // node-editor presences.
-            if (rp.mode() == 1) continue;
-            if (rp.selectedNodeId() > 0) lockedNodes.put(rp.selectedNodeId(), rp.playerName());
-            if (rp.editingNodeId() > 0) lockedNodes.put(rp.editingNodeId(), rp.playerName());
-            if (rp.selectedNodeIds() != null) {
-                for (int id : rp.selectedNodeIds())
-                    if (id > 0) lockedNodes.put(id, rp.playerName());
-            }
-        }
+        var lockedNodes = buildLockedNodesMap();
 
 
         // ── A=1: Complete COMMENT nodes (bg, border, text) — container mats behind connections ──
@@ -1441,6 +1417,115 @@ public class GraphEditor {
         // authoritative server data: resolved and pushed as SET_BANDS on rename, and otherwise
         // delivered with the graph (opening the editor pulls the authoritative graph).
         // BUS_IN/OUT 展开面板刷新：比较 band 数量 + 内容是否与 EditState 一致 (BUS_IN/OUT expand panel refresh: compare band count + content against EditState)
+        refreshBusBandEditStates(graph);
+        // ── Ensure FORMULA scripts are parsed before connection rendering ──
+        //    Pin counts must be up-to-date before A=2 so connections are drawn
+        //    at the correct Y positions. / 在连线渲染前确保 FORMULA 脚本已解析，
+        //    引脚计数必须在 A=2 之前更新，确保连线画在正确的 Y 位置。
+        for (var n : graph.nodes) n.ensureScriptParsed();
+
+        // ── A=2: Connections (bezier curves) ──
+        renderer.renderConnections(g, graph, camX, camY, zoom);
+        if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom, dragTargetAudio(mx, my));
+
+        // ── A=3: Regular node bodies (sorted by B ascending, comments excluded — rendered at A=1) ──
+        renderer.evalSnapshot = host.getCachedEvalSnapshot();
+        if (renderer.evalSnapshot == null) renderer.evalSnapshot = io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY;
+        renderer.currentEncapId = isInSubGraph() ? encapsulationParent.id : -1;
+        // 构建封装占用者表（主图中哪些封装节点内有玩家在编辑）
+        // Build encapsulation occupant map (which encap nodes have players editing inside)
+        updateEncapOccupants();
+        renderer.renderNodes(g, graph, sortedByB, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
+            camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
+        if (!isInSubGraph()) {
+            renderer.showBookmarkPanel = viewBookmarks.panelVisible();
+            renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width, host.asScreen().height);
+            // 导入/导出封装节点按钮（仅蓝图计算机显示） (Import/export encapsulation node buttons, Blueprint computer only)
+            renderEncapImportExportButtons(g);
+        }
+        // 封装模式标识已合并进顶栏（renderTopBar 子图分支）——不再在这里画压在顶栏上的横条。
+        // The encapsulation-mode indicator is merged into the top bar (renderTopBar sub
+        // branch) — no more separate strip drawn over it here.
+        // 导入/导出反馈文字 (Import/export feedback text)
+        renderImportFeedback(g);
+        // 导出封装节点对话框 (Export encapsulation node dialog)
+        renderExportDialog(g);
+        // 书签列表面板 + 命名对话框（已拆至 GraphViewBookmarks，逐字搬迁 / split into GraphViewBookmarks, bodies moved verbatim）
+        viewBookmarks.render(g, mx, my);
+        // 导入封装节点对话框 (Import encapsulation node dialog)
+        renderImportDialog(g, mx, my);
+        // 热栏弹出（点击频率槽后在节点下方显示） (Hotbar popup, shown below node after clicking frequency slot)
+        renderHotbarPopup(g);
+        // ── A=5: Tooltips（公式报错报告框等延迟覆盖层——A/B/C 分层的工具提示层，节点与 A=4 覆盖层均无法遮挡）
+        // ── A=5: Tooltips (deferred overlay such as the formula error report box — the layered-system
+        //     tooltip tier; no node body or A=4 overlay can cover it)
+        renderer.flushPendingOverlay(g);
+        // Comment color edit popup — fixed left-aligned, vertically centered
+        renderCommentColorPopup(g, mx, my);
+        // Color picker popup — renders LAST to stay on top of all other overlays
+        if (colorPicker.isVisible()) colorPicker.render(g, mx, my);
+        // 顶栏（名称 + 设置）固定在节点/工具栏之上。
+        // Top bar (name + settings) sits above nodes and the toolbar.
+        renderTopBar(g, mx, my);
+        // 添加节点菜单最后画在顶栏之上：菜单是最高优先级浮层（命中顺序与此一致）。
+        // Add-node menu draws last, above the top bar: it is the topmost overlay
+        // (hit-testing follows the same order).
+        if(showMenu) { selectedMenuType = renderer.renderAddNodeMenu(g, menuX, menuY, mx, my, nodeFilter); }
+        // 框选矩形 (Box-select rectangle)
+        renderBoxSelectRect(g);
+        // GAMEPAD_BUTTON binding capture: poll gamepad each frame since gamepad buttons don't fire key events
+        pollGamepadBindings();
+        // ── P2 Presence ──
+        sendPresenceIfNeeded(); // periodic keep-alive even without mouse movement
+        renderPresenceOverlay(g);
+    }
+
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private void advanceRemoteMoveLerp(NodeGraph graph) {
+        for (var n : graph.nodes) {
+            if (n.remoteLerpT < 1f) {
+                n.remoteLerpT = Math.min(1f, n.remoteLerpT + 0.12f);
+                float t = n.remoteLerpT * n.remoteLerpT * (3f - 2f * n.remoteLerpT); // smoothstep
+                n.x = n.remoteStartX + (n.remoteTargetX - n.remoteStartX) * t;
+                n.y = n.remoteStartY + (n.remoteTargetY - n.remoteStartY) * t;
+            }
+        }
+    }
+
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private void rebuildSpatialIndex(NodeGraph graph) {
+        spatialIndex.build(graph.nodes, expandedNodeIds,
+            n -> EditPanel.expandedEditHeight(n, nodeEditStatesById.get(n.id)));
+    }
+
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private java.util.Map<Integer, String> buildLockedNodesMap() {
+        var lockedNodes = new java.util.HashMap<Integer, String>();
+        int myOwner = ownerNodeId();
+        for (var rp : presence.getRemotePresences().values()) {
+            if (rp.ownerNodeId() != myOwner) continue; // 不同作用域不显示锁 / skip different scopes
+            // 显示布局模式（mode 1）的 selectedNodeId 是**显示元素**的 id —— 撞上相同 id 的
+            // 节点图节点会画出假锁；节点图锁叠加层只认节点编辑模式。
+            // In display-layout mode (mode 1) selectedNodeId is a DISPLAY element id — it
+            // would plant a phantom lock on a same-id graph node; this overlay only honours
+            // node-editor presences.
+            if (rp.mode() == 1) continue;
+            if (rp.selectedNodeId() > 0) lockedNodes.put(rp.selectedNodeId(), rp.playerName());
+            if (rp.editingNodeId() > 0) lockedNodes.put(rp.editingNodeId(), rp.playerName());
+            if (rp.selectedNodeIds() != null) {
+                for (int id : rp.selectedNodeIds())
+                    if (id > 0) lockedNodes.put(id, rp.playerName());
+            }
+        }
+        return lockedNodes;
+    }
+
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private void refreshBusBandEditStates(NodeGraph graph) {
         for (var n : graph.nodes) {
             if ((n.type != NodeType.BUS_IN && n.type != NodeType.BUS_OUT)
                 || !expandedNodeIds.contains(n.id)) continue;
@@ -1475,22 +1560,11 @@ public class GraphEditor {
                 }
             }
         }
-        // ── Ensure FORMULA scripts are parsed before connection rendering ──
-        //    Pin counts must be up-to-date before A=2 so connections are drawn
-        //    at the correct Y positions. / 在连线渲染前确保 FORMULA 脚本已解析，
-        //    引脚计数必须在 A=2 之前更新，确保连线画在正确的 Y 位置。
-        for (var n : graph.nodes) n.ensureScriptParsed();
+    }
 
-        // ── A=2: Connections (bezier curves) ──
-        renderer.renderConnections(g, graph, camX, camY, zoom);
-        if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom, dragTargetAudio(mx, my));
-
-        // ── A=3: Regular node bodies (sorted by B ascending, comments excluded — rendered at A=1) ──
-        renderer.evalSnapshot = host.getCachedEvalSnapshot();
-        if (renderer.evalSnapshot == null) renderer.evalSnapshot = io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY;
-        renderer.currentEncapId = isInSubGraph() ? encapsulationParent.id : -1;
-        // 构建封装占用者表（主图中哪些封装节点内有玩家在编辑）
-        // Build encapsulation occupant map (which encap nodes have players editing inside)
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private void updateEncapOccupants() {
         if (!isInSubGraph() && !presence.getRemotePresences().isEmpty()) {
             var occ = new java.util.HashMap<Integer, String>();
             for (var rp : presence.getRemotePresences().values()) {
@@ -1504,212 +1578,209 @@ public class GraphEditor {
         } else {
             renderer.encapOccupants = java.util.Collections.emptyMap();
         }
-        renderer.renderNodes(g, graph, sortedByB, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
-            camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
-        if (!isInSubGraph()) {
-            renderer.showBookmarkPanel = viewBookmarks.panelVisible();
-            renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width, host.asScreen().height);
-            // 导入/导出封装节点按钮（仅蓝图计算机显示） (Import/export encapsulation node buttons, Blueprint computer only)
-            if (host instanceof BlueprintScreen) {
-                var mc = Minecraft.getInstance();
-                int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : TOP_BAR_H + 2;
-                int impX = 196, impW = 72, btnH = 18;
-                // 仅选中单个封装节点时显示导出，否则显示导入 (Show export when single encapsulation node selected, otherwise show import)
-                boolean hasSingleEncap = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
-                if (hasSingleEncap) {
-                    g.fill(impX, btnY, impX + impW, btnY + btnH, 0xFF2A3A1A);
-                    g.renderOutline(impX, btnY, impW, btnH, EditorTheme.get().sysBorder());
-                    g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
-                    g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.encap_export"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
-                } else {
-                    g.fill(impX, btnY, impX + impW, btnY + btnH, EditorTheme.get().panelBg());
-                    g.renderOutline(impX, btnY, impW, btnH, EditorTheme.get().sysBorder());
-                    g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
-                    g.drawString(mc.font, "§b" + I18n.get("gui.create_schematic_compute.encap_import"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
-                }
+    }
+
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private void renderEncapImportExportButtons(GuiGraphics g) {
+        if (!(host instanceof BlueprintScreen)) return;
+        var mc = Minecraft.getInstance();
+        int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : TOP_BAR_H + 2;
+        int impX = 196, impW = 72, btnH = 18;
+        // 仅选中单个封装节点时显示导出，否则显示导入 (Show export when single encapsulation node selected, otherwise show import)
+        boolean hasSingleEncap = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
+        if (hasSingleEncap) {
+            g.fill(impX, btnY, impX + impW, btnY + btnH, 0xFF2A3A1A);
+            g.renderOutline(impX, btnY, impW, btnH, EditorTheme.get().sysBorder());
+            g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
+            g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.encap_export"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
+        } else {
+            g.fill(impX, btnY, impX + impW, btnY + btnH, EditorTheme.get().panelBg());
+            g.renderOutline(impX, btnY, impW, btnH, EditorTheme.get().sysBorder());
+            g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
+            g.drawString(mc.font, "§b" + I18n.get("gui.create_schematic_compute.encap_import"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
+        }
+    }
+
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private void renderImportFeedback(GuiGraphics g) {
+        if (System.currentTimeMillis() >= importFeedbackUntil || saveFeedbackText.isEmpty()) return;
+        var mc = Minecraft.getInstance();
+        int tw = mc.font.width(saveFeedbackText) + 20;
+        int fy = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 60 : 26;
+        g.fill(host.asScreen().width / 2 - tw / 2, fy, host.asScreen().width / 2 + tw / 2, fy + 18, 0xCC2A3A2A);
+        g.renderOutline(host.asScreen().width / 2 - tw / 2, fy, tw, 18, 0xFF6A8A4A);
+        g.drawString(mc.font, saveFeedbackText, host.asScreen().width / 2 - tw / 2 + 10, fy + 4, 0xFFFFFFFF, false);
+    }
+
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private void renderExportDialog(GuiGraphics g) {
+        if (!(showExportDialog && exportNameEdit != null && selectedNode != null)) return;
+        var mc = Minecraft.getInstance();
+        int w = 280, h = 80;
+        int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
+        g.fill(cx, cy, cx + w, cy + h, NodeRenderer.withAlpha(EditorTheme.get().panelBg(), 0xEE));
+        g.renderOutline(cx, cy, w, h, EditorTheme.get().sysBorder());
+        g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_export"), cx + 8, cy + 6, 0xFFFFCC88, false);
+        exportNameEdit.setX(cx + 8);
+        exportNameEdit.setY(cy + 26);
+        exportNameEdit.setWidth(w - 70);
+        exportNameEdit.render(g, 0, 0, 0);
+        // 保存按钮 (Save button)
+        int sx = cx + w - 60, sy = cy + 24;
+        g.fill(sx, sy, sx + 50, sy + 20, 0xFF3A5A2A);
+        g.renderOutline(sx, sy, 50, 20, 0xFF6A8A4A);
+        g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.save"), sx + 8, sy + 5, 0xFFFFFFFF, false);
+        // 取消按钮 (Cancel button)
+        g.fill(cx + 8, cy + 50, cx + 58, cy + 68, 0xFF4A3030);
+        g.renderOutline(cx + 8, cy + 50, 50, 18, 0xFF8B5333);
+        g.drawString(mc.font, "§c" + I18n.get("gui.create_schematic_compute.cancel"), cx + 12, cy + 53, 0xFFFFFFFF, false);
+    }
+
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private void renderImportDialog(GuiGraphics g, int mx, int my) {
+        if (!showImportDialog) return;
+        var mc = Minecraft.getInstance();
+        int w = 280, visRows = 8;
+        int fileCount = importFiles != null ? importFiles.size() : 0;
+        int listH = Math.min(fileCount, visRows) * 18;
+        int h = 56 + listH + 30; // 标题 + 列表 + 按钮区 (Title + list + button area)
+        int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
+        g.fill(cx, cy, cx + w, cy + h, NodeRenderer.withAlpha(EditorTheme.get().panelBg(), 0xEE));
+        g.renderOutline(cx, cy, w, h, EditorTheme.get().sysBorder());
+        g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_import"), cx + 8, cy + 6, EditorTheme.get().accent(), false);
+        if (fileCount == 0) {
+            g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.encap_import_failed"), cx + 8, cy + 30, 0xFFFFFFFF, false);
+        } else {
+            int maxScroll = Math.max(0, fileCount - visRows);
+            if (importScrollOff < 0) importScrollOff = 0;
+            if (importScrollOff > maxScroll) importScrollOff = maxScroll;
+            int listY = cy + 28;
+            int endIdx = Math.min(fileCount, importScrollOff + visRows);
+            for (int i = importScrollOff; i < endIdx; i++) {
+                var p = importFiles.get(i);
+                String name = p.getFileName().toString();
+                if (name.endsWith(".nbt")) name = name.substring(0, name.length() - 4);
+                int ry = listY + (i - importScrollOff) * 18;
+                boolean hover = mx >= cx + 4 && mx <= cx + w - 20 && my >= ry && my <= ry + 16;
+                if (hover) g.fill(cx + 4, ry, cx + w - 20, ry + 16, EditorTheme.get().hover());
+                g.drawString(mc.font, (hover ? "§e" : "§7") + name, cx + 8, ry + 3, 0xFFFFFFFF, false);
+            }
+            // 右侧滚动条 (Right-side scrollbar)
+            if (maxScroll > 0) {
+                int sbX = cx + w - 14, sbY = listY, sbH = visRows * 18;
+                g.fill(sbX, sbY, sbX + 8, sbY + sbH, 0xFF2A2822);
+                float thumbTop = sbY + (float) importScrollOff / maxScroll * (sbH - 12);
+                g.fill(sbX + 1, (int) thumbTop, sbX + 7, (int) thumbTop + 12, EditorTheme.get().sysBorder());
             }
         }
-        // 封装模式标识已合并进顶栏（renderTopBar 子图分支）——不再在这里画压在顶栏上的横条。
-        // The encapsulation-mode indicator is merged into the top bar (renderTopBar sub
-        // branch) — no more separate strip drawn over it here.
-        // 导入/导出反馈文字 (Import/export feedback text)
-        if (System.currentTimeMillis() < importFeedbackUntil && !saveFeedbackText.isEmpty()) {
-            var mc = Minecraft.getInstance();
-            int tw = mc.font.width(saveFeedbackText) + 20;
-            int fy = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 60 : 26;
-            g.fill(host.asScreen().width / 2 - tw / 2, fy, host.asScreen().width / 2 + tw / 2, fy + 18, 0xCC2A3A2A);
-            g.renderOutline(host.asScreen().width / 2 - tw / 2, fy, tw, 18, 0xFF6A8A4A);
-            g.drawString(mc.font, saveFeedbackText, host.asScreen().width / 2 - tw / 2 + 10, fy + 4, 0xFFFFFFFF, false);
-        }
-        // 导出封装节点对话框 (Export encapsulation node dialog)
-        if (showExportDialog && exportNameEdit != null && selectedNode != null) {
-            var mc = Minecraft.getInstance();
-            int w = 280, h = 80;
-            int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
-            g.fill(cx, cy, cx + w, cy + h, NodeRenderer.withAlpha(EditorTheme.get().panelBg(), 0xEE));
-            g.renderOutline(cx, cy, w, h, EditorTheme.get().sysBorder());
-            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_export"), cx + 8, cy + 6, 0xFFFFCC88, false);
-            exportNameEdit.setX(cx + 8);
-            exportNameEdit.setY(cy + 26);
-            exportNameEdit.setWidth(w - 70);
-            exportNameEdit.render(g, 0, 0, 0);
-            // 保存按钮 (Save button)
-            int sx = cx + w - 60, sy = cy + 24;
-            g.fill(sx, sy, sx + 50, sy + 20, 0xFF3A5A2A);
-            g.renderOutline(sx, sy, 50, 20, 0xFF6A8A4A);
-            g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.save"), sx + 8, sy + 5, 0xFFFFFFFF, false);
-            // 取消按钮 (Cancel button)
-            g.fill(cx + 8, cy + 50, cx + 58, cy + 68, 0xFF4A3030);
-            g.renderOutline(cx + 8, cy + 50, 50, 18, 0xFF8B5333);
-            g.drawString(mc.font, "§c" + I18n.get("gui.create_schematic_compute.cancel"), cx + 12, cy + 53, 0xFFFFFFFF, false);
-        }
-        // 书签列表面板 + 命名对话框（已拆至 GraphViewBookmarks，逐字搬迁 / split into GraphViewBookmarks, bodies moved verbatim）
-        viewBookmarks.render(g, mx, my);
-        // 导入封装节点对话框 (Import encapsulation node dialog)
-        if (showImportDialog) {
-            var mc = Minecraft.getInstance();
-            int w = 280, visRows = 8;
-            int fileCount = importFiles != null ? importFiles.size() : 0;
-            int listH = Math.min(fileCount, visRows) * 18;
-            int h = 56 + listH + 30; // 标题 + 列表 + 按钮区 (Title + list + button area)
-            int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
-            g.fill(cx, cy, cx + w, cy + h, NodeRenderer.withAlpha(EditorTheme.get().panelBg(), 0xEE));
-            g.renderOutline(cx, cy, w, h, EditorTheme.get().sysBorder());
-            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_import"), cx + 8, cy + 6, EditorTheme.get().accent(), false);
-            if (fileCount == 0) {
-                g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.encap_import_failed"), cx + 8, cy + 30, 0xFFFFFFFF, false);
-            } else {
-                int maxScroll = Math.max(0, fileCount - visRows);
-                if (importScrollOff < 0) importScrollOff = 0;
-                if (importScrollOff > maxScroll) importScrollOff = maxScroll;
-                int listY = cy + 28;
-                int endIdx = Math.min(fileCount, importScrollOff + visRows);
-                for (int i = importScrollOff; i < endIdx; i++) {
-                    var p = importFiles.get(i);
-                    String name = p.getFileName().toString();
-                    if (name.endsWith(".nbt")) name = name.substring(0, name.length() - 4);
-                    int ry = listY + (i - importScrollOff) * 18;
-                    boolean hover = mx >= cx + 4 && mx <= cx + w - 20 && my >= ry && my <= ry + 16;
-                    if (hover) g.fill(cx + 4, ry, cx + w - 20, ry + 16, EditorTheme.get().hover());
-                    g.drawString(mc.font, (hover ? "§e" : "§7") + name, cx + 8, ry + 3, 0xFFFFFFFF, false);
-                }
-                // 右侧滚动条 (Right-side scrollbar)
-                if (maxScroll > 0) {
-                    int sbX = cx + w - 14, sbY = listY, sbH = visRows * 18;
-                    g.fill(sbX, sbY, sbX + 8, sbY + sbH, 0xFF2A2822);
-                    float thumbTop = sbY + (float) importScrollOff / maxScroll * (sbH - 12);
-                    g.fill(sbX + 1, (int) thumbTop, sbX + 7, (int) thumbTop + 12, EditorTheme.get().sysBorder());
-                }
-            }
-            // 取消按钮 (Cancel)
-            int cby = cy + h - 22;
-            g.fill(cx + 8, cby, cx + 58, cby + 16, 0xFF4A3030);
-            g.renderOutline(cx + 8, cby, 50, 16, 0xFF8B5333);
-            g.drawString(mc.font, "§c" + I18n.get("gui.create_schematic_compute.cancel"), cx + 12, cby + 2, 0xFFFFFFFF, false);
-        }
-        // 热栏弹出（点击频率槽后在节点下方显示） (Hotbar popup, shown below node after clicking frequency slot)
-        if (hotbarNode != null) {
-            var mc = Minecraft.getInstance();
-            if (mc.player != null) {
-                float nsx = c2sX(hotbarNode.x), nsy = c2sY(hotbarNode.y);
-                float nch = (HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()))*zoom+4;
-                var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
-                int numRows = st != null ? st.fields.size() : 0;
-                int editLocalY = (int)(HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()) + 4/zoom);
-                int freqLocalY = editLocalY + 4 + numRows * 18;
-                float popupY = nsy + nch + (freqLocalY - editLocalY + 20 + 4) * zoom;
-                int pw = 196, ph = 36;
-                int px = (int)(nsx + NW*zoom/2 - pw/2);
-                int py = (int)popupY;
-                g.fill(px, py, px+pw, py+ph, 0xFF2A2822);
-                g.renderOutline(px, py, pw, ph, EditorTheme.get().sysBorder());
-                g.drawString(mc.font, "§6§l" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.hotbar.select"), px + 4, py + 2, 0xFFFFFFFF, false);
-                for (int i = 0; i < 9; i++) {
-                    int hx = px + 4 + i * 20;
-                    g.fill(hx, py + 16, hx + 18, py + 34, 0xFF1A1814);
-                    g.renderOutline(hx, py + 16, 18, 18, EditorTheme.get().border());
-                    var item = mc.player.getInventory().items.get(i);
-                    if (!item.isEmpty()) { com.mojang.blaze3d.systems.RenderSystem.depthMask(false); g.renderItem(item, hx + 1, py + 17); com.mojang.blaze3d.systems.RenderSystem.depthMask(true); }
-                }
-            }
-        }
-        // ── A=5: Tooltips（公式报错报告框等延迟覆盖层——A/B/C 分层的工具提示层，节点与 A=4 覆盖层均无法遮挡）
-        // ── A=5: Tooltips (deferred overlay such as the formula error report box — the layered-system
-        //     tooltip tier; no node body or A=4 overlay can cover it)
-        renderer.flushPendingOverlay(g);
-        // Comment color edit popup — fixed left-aligned, vertically centered
-        if (editingCommentColorNode != null && commentButtons != null) {
-            int pw = 200, ph = 74;
-            int px = 8;
-            int py = Math.max(4, (host.asScreen().height - ph) / 2);
-            g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
+        // 取消按钮 (Cancel)
+        int cby = cy + h - 22;
+        g.fill(cx + 8, cby, cx + 58, cby + 16, 0xFF4A3030);
+        g.renderOutline(cx + 8, cby, 50, 16, 0xFF8B5333);
+        g.drawString(mc.font, "§c" + I18n.get("gui.create_schematic_compute.cancel"), cx + 12, cby + 2, 0xFFFFFFFF, false);
+    }
+
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private void renderHotbarPopup(GuiGraphics g) {
+        if (hotbarNode == null) return;
+        var mc = Minecraft.getInstance();
+        if (mc.player != null) {
+            float nsx = c2sX(hotbarNode.x), nsy = c2sY(hotbarNode.y);
+            float nch = (HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()))*zoom+4;
+            var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
+            int numRows = st != null ? st.fields.size() : 0;
+            int editLocalY = (int)(HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()) + 4/zoom);
+            int freqLocalY = editLocalY + 4 + numRows * 18;
+            float popupY = nsy + nch + (freqLocalY - editLocalY + 20 + 4) * zoom;
+            int pw = 196, ph = 36;
+            int px = (int)(nsx + NW*zoom/2 - pw/2);
+            int py = (int)popupY;
+            g.fill(px, py, px+pw, py+ph, 0xFF2A2822);
             g.renderOutline(px, py, pw, ph, EditorTheme.get().sysBorder());
-            String[] labels = {
-                I18n.get("gui.create_schematic_compute.comment.bg_color"),
-                I18n.get("gui.create_schematic_compute.comment.border_color"),
-                I18n.get("gui.create_schematic_compute.comment.text_color")
-            };
-            for (int row = 0; row < 3; row++) {
-                int ry = py + 4 + row * 22;
-                g.drawString(Minecraft.getInstance().font, labels[row], px + 6, ry + 2, 0xFFCCCCCC, false);
-                // Color swatch button
-                commentButtons[row].setPosition(px + pw - 100, ry);
-                commentButtons[row].render(g, mx, my);
+            g.drawString(mc.font, "§6§l" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.hotbar.select"), px + 4, py + 2, 0xFFFFFFFF, false);
+            for (int i = 0; i < 9; i++) {
+                int hx = px + 4 + i * 20;
+                g.fill(hx, py + 16, hx + 18, py + 34, 0xFF1A1814);
+                g.renderOutline(hx, py + 16, 18, 18, EditorTheme.get().border());
+                var item = mc.player.getInventory().items.get(i);
+                if (!item.isEmpty()) { com.mojang.blaze3d.systems.RenderSystem.depthMask(false); g.renderItem(item, hx + 1, py + 17); com.mojang.blaze3d.systems.RenderSystem.depthMask(true); }
             }
         }
-        // Color picker popup — renders LAST to stay on top of all other overlays
-        if (colorPicker.isVisible()) colorPicker.render(g, mx, my);
-        // 顶栏（名称 + 设置）固定在节点/工具栏之上。
-        // Top bar (name + settings) sits above nodes and the toolbar.
-        renderTopBar(g, mx, my);
-        // 添加节点菜单最后画在顶栏之上：菜单是最高优先级浮层（命中顺序与此一致）。
-        // Add-node menu draws last, above the top bar: it is the topmost overlay
-        // (hit-testing follows the same order).
-        if(showMenu) { selectedMenuType = renderer.renderAddNodeMenu(g, menuX, menuY, mx, my, nodeFilter); }
-        // 框选矩形 (Box-select rectangle)
-        if (boxSelecting) {
-            float x1 = Math.min(boxSX, boxEX), y1 = Math.min(boxSY, boxEY);
-            float x2 = Math.max(boxSX, boxEX), y2 = Math.max(boxSY, boxEY);
-            g.fill((int)x1, (int)y1, (int)x2, (int)y2, 0x22D4A017);
-            g.renderOutline((int)x1, (int)y1, (int)(x2-x1), (int)(y2-y1), EditorTheme.get().accent());
+    }
+
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private void renderCommentColorPopup(GuiGraphics g, int mx, int my) {
+        if (editingCommentColorNode == null || commentButtons == null) return;
+        int pw = 200, ph = 74;
+        int px = 8;
+        int py = Math.max(4, (host.asScreen().height - ph) / 2);
+        g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
+        g.renderOutline(px, py, pw, ph, EditorTheme.get().sysBorder());
+        String[] labels = {
+            I18n.get("gui.create_schematic_compute.comment.bg_color"),
+            I18n.get("gui.create_schematic_compute.comment.border_color"),
+            I18n.get("gui.create_schematic_compute.comment.text_color")
+        };
+        for (int row = 0; row < 3; row++) {
+            int ry = py + 4 + row * 22;
+            g.drawString(Minecraft.getInstance().font, labels[row], px + 6, ry + 2, 0xFFCCCCCC, false);
+            // Color swatch button
+            commentButtons[row].setPosition(px + pw - 100, ry);
+            commentButtons[row].render(g, mx, my);
         }
-        // GAMEPAD_BUTTON binding capture: poll gamepad each frame since gamepad buttons don't fire key events
-        if (!nodeEditStatesById.isEmpty()) {
-            var gamepadNodes = new java.util.ArrayList<io.github.y15173334444.create_schematic_compute.graph.GraphNode>();
-            for (var en : getGraph().nodes) {
-                var es = nodeEditStatesById.get(en.id);
-                if (es != null && es.listeningForKey && en.type == NodeType.GAMEPAD_BUTTON)
-                    gamepadNodes.add(en);
-            }
-            if (!gamepadNodes.isEmpty()) {
-                long curBtns = 0;
-                var gState = org.lwjgl.glfw.GLFWGamepadState.malloc();
-                try {
-                    if (org.lwjgl.glfw.GLFW.glfwGetGamepadState(org.lwjgl.glfw.GLFW.GLFW_JOYSTICK_1, gState)) {
-                        var btns = gState.buttons();
-                        for (int bi = 0; bi < 15 && bi < btns.capacity(); bi++)
-                            if (btns.get(bi) == 1) curBtns |= (1L << bi);
-                    }
-                } finally { gState.free(); }
-                long rising = curBtns & ~prevGpadButtons; // edge detect: 0→1
-                if (rising != 0) {
-                    int bi = Long.numberOfTrailingZeros(rising);
-                    // 经 commitKeyBinding 走 SET_KEY_BINDING 上传（此前只写本地值，绑定不上服务器）
-                    // Upload via commitKeyBinding / SET_KEY_BINDING (used to be local-only)
-                    for (var en : gamepadNodes) { commitKeyBinding(en, bi); }
-                    for (var en : gamepadNodes) {
-                        var es = nodeEditStatesById.get(en.id);
-                        if (es != null) es.listeningForKey = false;
-                    }
+    }
+
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private void renderBoxSelectRect(GuiGraphics g) {
+        if (!boxSelecting) return;
+        float x1 = Math.min(boxSX, boxEX), y1 = Math.min(boxSY, boxEY);
+        float x2 = Math.max(boxSX, boxEX), y2 = Math.max(boxSY, boxEY);
+        g.fill((int)x1, (int)y1, (int)x2, (int)y2, 0x22D4A017);
+        g.renderOutline((int)x1, (int)y1, (int)(x2-x1), (int)(y2-y1), EditorTheme.get().accent());
+    }
+
+    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
+    private void pollGamepadBindings() {
+        if (nodeEditStatesById.isEmpty()) return;
+        var gamepadNodes = new java.util.ArrayList<io.github.y15173334444.create_schematic_compute.graph.GraphNode>();
+        for (var en : getGraph().nodes) {
+            var es = nodeEditStatesById.get(en.id);
+            if (es != null && es.listeningForKey && en.type == NodeType.GAMEPAD_BUTTON)
+                gamepadNodes.add(en);
+        }
+        if (!gamepadNodes.isEmpty()) {
+            long curBtns = 0;
+            var gState = org.lwjgl.glfw.GLFWGamepadState.malloc();
+            try {
+                if (org.lwjgl.glfw.GLFW.glfwGetGamepadState(org.lwjgl.glfw.GLFW.GLFW_JOYSTICK_1, gState)) {
+                    var btns = gState.buttons();
+                    for (int bi = 0; bi < 15 && bi < btns.capacity(); bi++)
+                        if (btns.get(bi) == 1) curBtns |= (1L << bi);
                 }
-                prevGpadButtons = curBtns;
-            } else {
-                prevGpadButtons = 0; // reset when not listening
+            } finally { gState.free(); }
+            long rising = curBtns & ~prevGpadButtons; // edge detect: 0→1
+            if (rising != 0) {
+                int bi = Long.numberOfTrailingZeros(rising);
+                // 经 commitKeyBinding 走 SET_KEY_BINDING 上传（此前只写本地值，绑定不上服务器）
+                // Upload via commitKeyBinding / SET_KEY_BINDING (used to be local-only)
+                for (var en : gamepadNodes) { commitKeyBinding(en, bi); }
+                for (var en : gamepadNodes) {
+                    var es = nodeEditStatesById.get(en.id);
+                    if (es != null) es.listeningForKey = false;
+                }
             }
+            prevGpadButtons = curBtns;
+        } else {
+            prevGpadButtons = 0; // reset when not listening
         }
-        // ── P2 Presence ──
-        sendPresenceIfNeeded(); // periodic keep-alive even without mouse movement
-        renderPresenceOverlay(g);
     }
 
     /** 处理鼠标点击事件——节点选择、拖拽、连线、菜单、按钮等所有点击交互。
