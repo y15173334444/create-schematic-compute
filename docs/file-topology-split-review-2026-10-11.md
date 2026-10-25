@@ -138,6 +138,10 @@ GraphEvaluator——注释里提到类名造成的假边，**代码级均为单�
 |---|---|---|
 | isPrimaryById() | ~~393~~ **3**（⚠️ 已更正，见下注） | id 相等比较，无需表驱动；真正的逐类型硬编码在 drawNode 的展开指示器 OR 链（改动涉 16 类渲染行为，需视觉回归，留待 GUI 批） |
 | renderDebugSignalGenChart / renderDebugProbeChart / renderCurveChart | 92+88+52 | → `NodeCharts`（图表渲染，~250L） |
+
+> **2026-10-25 施工注记（批 3）**：本节「真正的逐类型硬编码在 drawNode 的展开指示器 OR 链」已
+> 表驱动化（`EXPAND_INDICATOR_TYPES` 单一来源，`3ed26fe`），GraphEditor 的手工同步逐字复制品
+> hasExpandIndicator 改委托——改表即同时改绘制与命中。
 | loadColorConfig / saveColorConfig / withAlpha / P* 常量族 | ~100 | → **`EditorTheme`**（调色板 + 度量单一真相源） |
 
 - 理由：275 处引用里过半只要颜色/度量；EditorTheme 落地后（a）P2-23 的 static final 固化一并修
@@ -185,6 +189,11 @@ GraphEvaluator——注释里提到类名造成的假边，**代码级均为单�
 - **不新增计划**：拆完上述方法后 GraphEditor ≈ 3,200L，剩余是字段网与状态机——那是 IDE 重构的
   长期活，不设行数目标（GUI 计划"腾出的空间被功能填回"的教训写在收束记录里）。
 
+> **2026-10-25 施工注记（批 3）**：六方法已按 64af1b4 手段（逐块提取、即改即编译）分解落地
+> main 本地（`2740caa..aec5437` 六提交，约 40 个包级处理器；本表「未在任何计划里」的四兄弟
+> mouseReleased/tryCommentClick/mouseMoved/tryExpandedEditAreaClicks 与 6f 后半两方法一并完成）。
+> P2-22 基座统一未随批（NBS 漏斗已先行收口，其余基座项另行评估）。
+
 ### P5｜FormulaParser（1,641L）——四阶段管线挤一文件，且背着一套并行旧表示
 
 | 相位 | 方法（行数） | 去向 |
@@ -218,6 +227,11 @@ GraphEvaluator——注释里提到类名造成的假边，**代码级均为单�
 - 三分：`DisplayAreaCanvas`（renderDisplayArea 216 + handleDisplayAreaClick 207 +
   collectDisplayElements 72 + 尺寸/网格）、`LayerPanel`（renderLayerPanel 127 + 缩略图 68 +
   滚动/重排 46+43）、`SettingsPanel`（96 + 45 + saveAllSettings 33）。主类剩 Host 适配与 drag 状态。
+
+> **2026-10-25 施工注记（批 3）**：已落地 main 本地（`dc91c82..b630a22` 三提交）——按本表切口
+> 三分为 MonitorLayerPanel / MonitorSettingsPanel / MonitorDisplayCanvas（包级协作类 + 构造注入
+> 编辑器引用）；显示区画布半的几何与元素收集留守编辑器（presence 叠加层共用），输入路由亦留守
+> 编辑器；MonitorDisplayEditor 1,668→592。
 - 它是 GUI 拆解步骤 2 的产物，切口沿用该计划的"行为零变更 + 手动回归"约束。
 
 ### P8｜BusChannelHelper（738L）——按端一刀
