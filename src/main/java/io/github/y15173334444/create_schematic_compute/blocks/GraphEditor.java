@@ -3855,114 +3855,150 @@ public class GraphEditor {
         lastMouseX = mx; lastMouseY = my;
         sendPresenceIfNeeded();
         // Comment resize
-        if (resizingComment != null) {
-            float newW = resizeStartW + (float)(mx / zoom - (c2sX(resizingComment.x) + resizeStartW * zoom) / zoom);
-            float newH = resizeStartH + (float)(my / zoom - (c2sY(resizingComment.y) + resizeStartH * zoom) / zoom);
-            newW = Math.max(80, Math.min(8000, newW));
-            newH = Math.max(40, Math.min(6000, newH));
-            if (gridSnapEnabled) {
-                newW = Math.round(newW / NodeRenderer.GS) * NodeRenderer.GS;
-                newH = Math.round(newH / NodeRenderer.GS) * NodeRenderer.GS;
-            }
-            resizingComment.commentWidth = newW;
-            resizingComment.commentHeight = newH;
-            // Real-time size sync (throttled) for collaboration
-            long nowRs = System.currentTimeMillis();
-            if (nowRs - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
-                lastDragSendTime = nowRs;
-                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
-                    host.getBlockPos(), ownerNodeId(), resizingComment.id, newW, newH, host.getPlayerUUID()));
-            }
-            markDirty();
-            return;
-        }
+        if (handleCommentResize(mx, my)) return;
         // 书签拖拽排序 / bookmark drag reorder（已拆至 GraphViewBookmarks / split into GraphViewBookmarks）
         if (viewBookmarks.handleDragReorder(my)) return;
         // 菜单滚动条拖拽 / menu scrollbar drag
-        if (scrollingMenu) {
-            int[] track = renderer.menuScrollbarTrack();
-            int[] thumb = renderer.menuScrollbarThumb();
-            int trackH = track[3], thumbH = thumb[1];
-            int maxOff = renderer.menuMaxScrollOff();
-            if (maxOff > 0 && trackH > thumbH) {
-                float delta = (float)(my - menuScrollDragStartY) / (trackH - thumbH);
-                renderer.setMenuScrollOff(menuScrollDragStartOff + Math.round(delta * maxOff));
-            }
-            return;
-        }
+        if (handleMenuScrollbarDrag(my)) return;
         // 书签滚动条拖拽 / bookmark scrollbar drag
         if (viewBookmarks.handleScrollbarDrag(my)) return;
-        if (scrollingComment != null) {
-            int maxTextW = Math.max(1, Math.round(scrollingComment.commentWidth) - 26);
-            int visibleH = Math.max(1, Math.round(scrollingComment.commentHeight) - 16);
-            int maxVis = Math.max(1, visibleH / 12);
-            int totalWraps = countWrappedLines(scrollingComment.displayText, maxTextW);
-            int scrollMax = Math.max(0, totalWraps - maxVis);
-            float sbH = Math.round(scrollingComment.commentHeight * zoom) - Math.max(6f, 12f * zoom) - 8 * zoom;
-            float thumbH = Math.max(12 * zoom, (float) maxVis / totalWraps * sbH);
-            float delta = (float) (my - scrollDragStartY) / (sbH - thumbH);
-            int newOff = scrollDragStartOff + Math.round(delta * scrollMax);
-            if (newOff < 0) newOff = 0;
-            if (newOff > scrollMax) newOff = scrollMax;
-            scrollingComment.commentScrollOff = newOff;
-            return;
-        }
+        if (handleCommentScrollbarDrag(my)) return;
         // Import dialog scrollbar drag
-        if (scrollingImport) {
-            int fileCount = importFiles != null ? importFiles.size() : 0;
-            int visRows = 8;
-            int maxScroll = Math.max(0, fileCount - visRows);
-            float sbH = visRows * 18;
-            float thumbH = 12;
-            float delta = (float) (my - scrollDragStartY) / (sbH - thumbH);
-            int newOff = scrollDragStartOff + Math.round(delta * maxScroll);
-            if (newOff < 0) newOff = 0;
-            if (newOff > maxScroll) newOff = maxScroll;
-            importScrollOff = newOff;
-            return;
-        }
+        if (handleImportScrollbarDrag(my)) return;
         // Comment parent-move
-        if (draggingNode != null && draggingNode.type == NodeType.COMMENT) {
-            float oldX = draggingNode.x, oldY = draggingNode.y;
-            float nx = s2cX(mx) + dragOffX, ny = s2cY(my) + dragOffY;
-            if (gridSnapEnabled) {
-                nx = Math.round(nx / NodeRenderer.GS) * NodeRenderer.GS;
-                ny = Math.round(ny / NodeRenderer.GS) * NodeRenderer.GS;
-            }
-            float dx = nx - oldX, dy = ny - oldY;
-            draggingNode.x = nx; draggingNode.y = ny;
-            moveContainedNodes(draggingNode, dx, dy);
-            // Push aside overlapping out-of-bounds nodes (MTV on shortest axis)
-            // 撞开重叠的框外节点（最短轴 MTV）
-            pushedDragNodes.clear();
-            pushAsideNodes(draggingNode, pushedDragNodes);
-            if (gridSnapEnabled) {
-                for (var pn : pushedDragNodes) {
-                    pn.x = Math.round(pn.x / NodeRenderer.GS) * NodeRenderer.GS;
-                    pn.y = Math.round(pn.y / NodeRenderer.GS) * NodeRenderer.GS;
-                }
-            }
-            // Real-time drag sync (throttled) — include contained + pushed nodes
-            long now3 = System.currentTimeMillis();
-            if (now3 - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
-                lastDragSendTime = now3;
-                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                    host.getBlockPos(), ownerNodeId(), draggingNode.id, nx, ny, host.getPlayerUUID()));
-                for (var cn : containedDragNodes)
-                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                        host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID()));
-                for (var pn : pushedDragNodes)
-                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                        host.getBlockPos(), ownerNodeId(), pn.id, pn.x, pn.y, host.getPlayerUUID()));
-            }
-            // 不在此处 markDirty()：拖拽中每帧 bump 代际会触发 renderBg 重建全部展开节点的
-            // 编辑区（20Hz 全量刷新）。注释移动是纯视觉操作——松手时的 op 已负责持久化与协作同步。
-            // No per-move markDirty() here: bumping the generation every frame makes renderBg
-            // rebuild every expanded EditState (full refresh at drag rate). Comment moves are
-            // purely visual — the drop ops already handle persistence and collaboration sync.
-            return;
-        }
+        if (handleCommentParentMove(mx, my)) return;
         // Drag-select in expanded FORMULA/COMMENT EditBox
+        if (handleEditBoxDragSelect(mx, my)) return;
+        if(boxSelecting){boxEX=(float)mx;boxEY=(float)my;return;}
+        if (handleMultiDrag(mx, my)) return;
+        handleKeyPanMove(mx, my);
+        handleNodeDrag(mx, my);
+        if(draggingWire){wireEndX=s2cX(mx);wireEndY=s2cY(my);}
+    }
+
+    /** 6f 后半拆出：原 mouseMoved 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseMoved. */
+    private boolean handleCommentResize(double mx, double my) {
+        if (resizingComment == null) return false;
+        float newW = resizeStartW + (float)(mx / zoom - (c2sX(resizingComment.x) + resizeStartW * zoom) / zoom);
+        float newH = resizeStartH + (float)(my / zoom - (c2sY(resizingComment.y) + resizeStartH * zoom) / zoom);
+        newW = Math.max(80, Math.min(8000, newW));
+        newH = Math.max(40, Math.min(6000, newH));
+        if (gridSnapEnabled) {
+            newW = Math.round(newW / NodeRenderer.GS) * NodeRenderer.GS;
+            newH = Math.round(newH / NodeRenderer.GS) * NodeRenderer.GS;
+        }
+        resizingComment.commentWidth = newW;
+        resizingComment.commentHeight = newH;
+        // Real-time size sync (throttled) for collaboration
+        long nowRs = System.currentTimeMillis();
+        if (nowRs - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
+            lastDragSendTime = nowRs;
+            sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
+                host.getBlockPos(), ownerNodeId(), resizingComment.id, newW, newH, host.getPlayerUUID()));
+        }
+        markDirty();
+        return true;
+    }
+
+    /** 6f 后半拆出：原 mouseMoved 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseMoved. */
+    private boolean handleMenuScrollbarDrag(double my) {
+        if (!scrollingMenu) return false;
+        int[] track = renderer.menuScrollbarTrack();
+        int[] thumb = renderer.menuScrollbarThumb();
+        int trackH = track[3], thumbH = thumb[1];
+        int maxOff = renderer.menuMaxScrollOff();
+        if (maxOff > 0 && trackH > thumbH) {
+            float delta = (float)(my - menuScrollDragStartY) / (trackH - thumbH);
+            renderer.setMenuScrollOff(menuScrollDragStartOff + Math.round(delta * maxOff));
+        }
+        return true;
+    }
+
+    /** 6f 后半拆出：原 mouseMoved 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseMoved. */
+    private boolean handleCommentScrollbarDrag(double my) {
+        if (scrollingComment == null) return false;
+        int maxTextW = Math.max(1, Math.round(scrollingComment.commentWidth) - 26);
+        int visibleH = Math.max(1, Math.round(scrollingComment.commentHeight) - 16);
+        int maxVis = Math.max(1, visibleH / 12);
+        int totalWraps = countWrappedLines(scrollingComment.displayText, maxTextW);
+        int scrollMax = Math.max(0, totalWraps - maxVis);
+        float sbH = Math.round(scrollingComment.commentHeight * zoom) - Math.max(6f, 12f * zoom) - 8 * zoom;
+        float thumbH = Math.max(12 * zoom, (float) maxVis / totalWraps * sbH);
+        float delta = (float) (my - scrollDragStartY) / (sbH - thumbH);
+        int newOff = scrollDragStartOff + Math.round(delta * scrollMax);
+        if (newOff < 0) newOff = 0;
+        if (newOff > scrollMax) newOff = scrollMax;
+        scrollingComment.commentScrollOff = newOff;
+        return true;
+    }
+
+    /** 6f 后半拆出：原 mouseMoved 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseMoved. */
+    private boolean handleImportScrollbarDrag(double my) {
+        if (!scrollingImport) return false;
+        int fileCount = importFiles != null ? importFiles.size() : 0;
+        int visRows = 8;
+        int maxScroll = Math.max(0, fileCount - visRows);
+        float sbH = visRows * 18;
+        float thumbH = 12;
+        float delta = (float) (my - scrollDragStartY) / (sbH - thumbH);
+        int newOff = scrollDragStartOff + Math.round(delta * maxScroll);
+        if (newOff < 0) newOff = 0;
+        if (newOff > maxScroll) newOff = maxScroll;
+        importScrollOff = newOff;
+        return true;
+    }
+
+    /** 6f 后半拆出：原 mouseMoved 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseMoved. */
+    private boolean handleCommentParentMove(double mx, double my) {
+        if (draggingNode == null || draggingNode.type != NodeType.COMMENT) return false;
+        float oldX = draggingNode.x, oldY = draggingNode.y;
+        float nx = s2cX(mx) + dragOffX, ny = s2cY(my) + dragOffY;
+        if (gridSnapEnabled) {
+            nx = Math.round(nx / NodeRenderer.GS) * NodeRenderer.GS;
+            ny = Math.round(ny / NodeRenderer.GS) * NodeRenderer.GS;
+        }
+        float dx = nx - oldX, dy = ny - oldY;
+        draggingNode.x = nx; draggingNode.y = ny;
+        moveContainedNodes(draggingNode, dx, dy);
+        // Push aside overlapping out-of-bounds nodes (MTV on shortest axis)
+        // 撞开重叠的框外节点（最短轴 MTV）
+        pushedDragNodes.clear();
+        pushAsideNodes(draggingNode, pushedDragNodes);
+        if (gridSnapEnabled) {
+            for (var pn : pushedDragNodes) {
+                pn.x = Math.round(pn.x / NodeRenderer.GS) * NodeRenderer.GS;
+                pn.y = Math.round(pn.y / NodeRenderer.GS) * NodeRenderer.GS;
+            }
+        }
+        // Real-time drag sync (throttled) — include contained + pushed nodes
+        long now3 = System.currentTimeMillis();
+        if (now3 - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
+            lastDragSendTime = now3;
+            sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                host.getBlockPos(), ownerNodeId(), draggingNode.id, nx, ny, host.getPlayerUUID()));
+            for (var cn : containedDragNodes)
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                    host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID()));
+            for (var pn : pushedDragNodes)
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                    host.getBlockPos(), ownerNodeId(), pn.id, pn.x, pn.y, host.getPlayerUUID()));
+        }
+        // 不在此处 markDirty()：拖拽中每帧 bump 代际会触发 renderBg 重建全部展开节点的
+        // 编辑区（20Hz 全量刷新）。注释移动是纯视觉操作——松手时的 op 已负责持久化与协作同步。
+        // No per-move markDirty() here: bumping the generation every frame makes renderBg
+        // rebuild every expanded EditState (full refresh at drag rate). Comment moves are
+        // purely visual — the drop ops already handle persistence and collaboration sync.
+        return true;
+    }
+
+    /** 6f 后半拆出：原 mouseMoved 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseMoved. */
+    private boolean handleEditBoxDragSelect(double mx, double my) {
         if (editBoxDragNodeId >= 0 && (org.lwjgl.glfw.GLFW.glfwGetMouseButton(
             org.lwjgl.glfw.GLFW.glfwGetCurrentContext(), 0) == org.lwjgl.glfw.GLFW.GLFW_PRESS)) {
             var en = getGraph().findNode(editBoxDragNodeId);
@@ -3974,33 +4010,45 @@ public class GraphEditor {
                     float gx = (float)((mx - c2sX(en.x)) / zoom);
                     float gy = (float)((my - c2sY(en.y)) / zoom);
                     st.fields.get(0).mouseDragged(gx, gy, 0, 0, 0);
-                    return;
+                    return true;
                 }
             }
         }
-        if(boxSelecting){boxEX=(float)mx;boxEY=(float)my;return;}
-        if(multiDragging){
-            float dmx = (s2cX(mx) - dragOffX) - multiCenterX;
-            float dmy = (s2cY(my) - dragOffY) - multiCenterY;
+        return false;
+    }
+
+    /** 6f 后半拆出：原 mouseMoved 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseMoved. */
+    private boolean handleMultiDrag(double mx, double my) {
+        if (!multiDragging) return false;
+        float dmx = (s2cX(mx) - dragOffX) - multiCenterX;
+        float dmy = (s2cY(my) - dragOffY) - multiCenterY;
+        for (var sn : selectedNodes) {
+            float[] orig = multiDragOrigins.get(sn);
+            if (orig != null) {
+                float nx = orig[0] + dmx, ny = orig[1] + dmy;
+                if(gridSnapEnabled){nx=Math.round(nx/NodeRenderer.GS)*NodeRenderer.GS;ny=Math.round(ny/NodeRenderer.GS)*NodeRenderer.GS;}
+                sn.x=nx; sn.y=ny;
+            }
+        }
+        // Real-time sync for multiplayer / 多人实时同步
+        long nowMulti = System.currentTimeMillis();
+        if (nowMulti - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
+            lastDragSendTime = nowMulti;
             for (var sn : selectedNodes) {
-                float[] orig = multiDragOrigins.get(sn);
-                if (orig != null) {
-                    float nx = orig[0] + dmx, ny = orig[1] + dmy;
-                    if(gridSnapEnabled){nx=Math.round(nx/NodeRenderer.GS)*NodeRenderer.GS;ny=Math.round(ny/NodeRenderer.GS)*NodeRenderer.GS;}
-                    sn.x=nx; sn.y=ny;
-                }
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                    host.getBlockPos(), ownerNodeId(), sn.id, sn.x, sn.y, host.getPlayerUUID()));
             }
-            // Real-time sync for multiplayer / 多人实时同步
-            long nowMulti = System.currentTimeMillis();
-            if (nowMulti - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
-                lastDragSendTime = nowMulti;
-                for (var sn : selectedNodes) {
-                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                        host.getBlockPos(), ownerNodeId(), sn.id, sn.x, sn.y, host.getPlayerUUID()));
-                }
-            }
-            return;
         }
+        return true;
+    }
+
+    /** 6f 后半拆出：原 mouseMoved 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  平移自愈与相机推进两个连续 if 原样保留（第二个 if 复检自愈后可能已清除的 panning）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseMoved.
+     *  The pan self-heal and the camera advance stay as two consecutive ifs — the second
+     *  re-checks panning, which the self-heal may have just cleared. */
+    private void handleKeyPanMove(double mx, double my) {
         if(panning){
             // 按键平移自愈：keyReleased 可能不送达（按住组合键时点设置按钮切屏、窗口
             // 失焦等）——移动时轮询物理键态（同 mouseScrolled 轮询 Ctrl 的手法），键已
@@ -4018,6 +4066,11 @@ public class GraphEditor {
             }
         }
         if(panning){camX+=(float)(mx-panLastX)/zoom;camY+=(float)(my-panLastY)/zoom;panLastX=(float)mx;panLastY=(float)my;}
+    }
+
+    /** 6f 后半拆出：原 mouseMoved 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseMoved. */
+    private void handleNodeDrag(double mx, double my) {
         if(draggingNode!=null){
             float nx=s2cX(mx)+dragOffX, ny=s2cY(my)+dragOffY;
             if(gridSnapEnabled){nx=Math.round(nx/NodeRenderer.GS)*NodeRenderer.GS;ny=Math.round(ny/NodeRenderer.GS)*NodeRenderer.GS;}
@@ -4030,8 +4083,9 @@ public class GraphEditor {
                 sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                     host.getBlockPos(), ownerNodeId(), draggingNode.id, nx, ny, host.getPlayerUUID()));
             }
-        }if(draggingWire){wireEndX=s2cX(mx);wireEndY=s2cY(my);}
+        }
     }
+
     /** 处理鼠标拖拽——控制点拖拽、EditBox 文本选择拖拽、x 标记线拖拽。
      *  Handle mouse drag — control point drag, EditBox text selection drag, x-marker drag.
      *  @param mx 鼠标 X（屏幕坐标）/ mouse X (screen coords)
