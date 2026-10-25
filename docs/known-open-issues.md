@@ -2,7 +2,7 @@
 > 更新日期 / Updated：2026-10-25
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 待办 9 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 待办 10 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -24,6 +24,7 @@
 | 7 | 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理） | 主图/子图节点 id 撞号时 owner 门失真；syncBusBands/空表 clearBus 靠旗标或镜像语义门控 | ChannelOwner 加图域全链带上 + 两处清理改 owner 门控 | 🔶 待办 |
 | 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（行为变更，待拍板） | 🔶 待办（2026-10-25 更新：eval 分派化已落地 main，怪癖按决策 §三-4 原样保留并收敛到单一事实源） |
 | 9 | 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE） | 服务端 op 链不校验 `BlockNodeAllowances`，改包客户端可把任意类型塞进任意宿主 | 服务端 op 链按准入名单校验，超名单 REJECT（与 K10 服务端化同批） | 🔶 待办（2026-10-17 补登记，复审 P2-7） |
+| 10 | AST 与 RPN 双前端并行（旧表示退役时间点未定） | 同一份公式有两套可执行表示并存于 FORMULA 求值（`script.ast` 空 → 旧扁平 RPN 循环；非空 → 刀3 解释器），维护面翻倍 | 拍板退役时间点与迁移口径后单批删除旧路径 | 🔶 待办（拓扑 P5 拆分已把两前端物理分离，退役不再受阻） |
 
 ---
 
@@ -370,3 +371,37 @@ Sensor / 控制椅图里若出现 DELAY / LATCH / GATE / T_FLIPFLOP / PULSE_EXTE
 
 **🔶 待办。** 2026-10-17 债务对表时发现账面悬空（波次表 / 延期表 / 本册三处皆无），
 补登记（复审 P2-7）。
+
+---
+
+## 10. AST 与 RPN 双前端并行（旧表示退役时间点未定）
+
+范围 / Scope：`FormulaParser`（RPN 旧前端本体与模式路由）、`FormulaAstParser`（AST 前端）、
+`FormulaEval`（FORMULA case 的双路径分派）、`GraphNode.ensureScriptParsed`（唯一真相源缓存）
+
+### 症状 / Symptom
+
+（非用户可见缺陷，属结构性债。）同一份公式脚本存在两套可执行表示：无控制流/向量语法的脚本
+（含旧档单行表达式）编译为扁平 RPN（assignments + outputRpns 的循环求值）；触发 AST 语法的脚本
+解析为刀3 语句树（`FormulaInterpreter` 逐语句执行 + carrier 机制）。`FormulaEval` 的 FORMULA case
+按 `script.ast != null` 在两套路径间分派，双路径都要随公式语义演进同步维护。
+
+### 机制 / Mechanism
+
+`FormulaParser.parseScript` 的模式检测决定产物形态：AST 触发词（控制流关键字/大括号/swizzle/
+向量函数）走 `FormulaAstParser`，其余走逐行 RPN 前端；AST 模式下语句树的表达式叶子本身也是 RPN
+（共享同一 Value 栈机求值），因此「旧前端」特指 parseScript 的逐行解析 + compile 直连形态及其
+求值循环。拓扑审查 §三 P5（2026-10-25 落地，提交 `c1c742b`）已把两前端物理分家，删除旧路径的
+改动面收窄到 FormulaParser 本体与 FormulaEval 的 else 分支，但删除本身是**行为变更**（存量
+脚本的求值路径切换），须单独立项拍板，不在清理线自主范围。
+
+### 修复方向 / Fix direction
+
+先拍板退役时间点与迁移口径：是否把无控制流脚本统一升格 AST（或保持 legacy 快路径到某版本）、
+旧扁平 RPN 前端保留到哪个版本、`isLegacy` 标记与旧档兼容如何退场；随后单批删除旧路径（物理
+分离后删除面已收窄）。
+
+### 状态 / Status
+
+**🔶 待办。** 2026-10-25 拓扑 P5 拆分落地时按暂缓备忘记补登记：拆分解耦了退役决策（先物理
+分离、决策后删一期即可），本条目只登记决策欠账，不阻塞任何在途批次。

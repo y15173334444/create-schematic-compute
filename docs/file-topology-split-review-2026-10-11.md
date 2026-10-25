@@ -199,6 +199,8 @@ GraphEvaluator——注释里提到类名造成的假边，**代码级均为单�
   表示，**双前端的退役时间点**是个独立决策，拆文件不依赖它（先物理分离，决策后删一期即可）。
 - K6 族之外，复审 P1-6（递归深度上限）的落点在 AstParser 与 Interpreter 两侧，拆完再修边界清晰。
 
+> **2026-10-25 施工注记**：已落地 main（提交 `c1c742b`，1.3.0 清理线）。四文件按本表切口拆出，均为同包静态函数包（包级可见，公开入口经 FormulaParser 冻结门面）；词汇类型（TokType/Token/ScriptParseResult/FormulaIssue/RPN token 族/MAX_PARSE_DEPTH 族）留守 FormulaParser 作锚，FUNCTIONS 为同表稳定别名。三处与本表口径的差异：①「顺路修 validate 双份 parseScript」按行为/结构不同批红线**未做**（复审 P3 另批）；② rpnYieldsVec3 随函数表落 FormulaFunctions（本表「函数表」行的原意），AstParser 与 Validator 跨类直呼；③ P1-6 守卫已先期在安全批落地（MAX_PARSE_DEPTH=128 + FormulaTooDeepException），本批仅随 AST 前端整体迁移。双前端退役时间点维持独立决策（登记册「AST 与 RPN 双前端并行」条目留痕）。
+
 ### P6｜RadarBlockEntity（1,003L）——与缺陷修复合流的专项
 
 | 职责簇 | 方法（行数） | 去向 |
