@@ -3425,6 +3425,34 @@ public class GraphEditor {
         var graph = getGraph();
         editBoxDragNodeId = -1;
         // 清除 DEBUG_SIGNAL_GEN 控制点拖拽状态 — 若有变更则同步
+        finishCtrlPointDrag(graph);
+        // 清除 DEBUG_SIGNAL_GEN x 标记拖拽状态 — 同步 inputX 参数
+        finishXMarkerDrag(graph);
+        // Comment resize complete
+        if (finishCommentResize()) return;
+        // Scrollbar drag release
+        if (scrollingMenu) { scrollingMenu = false; return; }
+        if (viewBookmarks.handleRelease(my)) return;
+        if (scrollingComment != null || scrollingImport) {
+            scrollingComment = null;
+            scrollingImport = false;
+            return;
+        }
+        if (finishMultiDrag(btn)) return;
+        if (finishBoxSelect(btn, graph)) return;
+        finishWireDrop(mx, my, btn);
+        finishNodeDrop(btn);
+        // 平移键松开 → 结束平移（按键可能被重绑，查表而非写死左键）。按住组合键启动的
+        // 平移不受鼠标释放影响（panByKey 区分，松键才结束）。
+        // Pan button released → stop panning (rebindable; look it up, don't hardcode).
+        // A pan started by the hold-combo key is untouched by mouse releases (panByKey
+        // tells the routes apart; only the key release ends it).
+        if(btn == EditorKeys.panMouseButton()&&panning&&!panByKey)panning=false;
+    }
+
+    /** 6f 后半拆出：原 mouseReleased 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseReleased. */
+    private void finishCtrlPointDrag(NodeGraph graph) {
         if (draggingCtrlNode >= 0 && ctrlPointsChanged) {
             GraphNode cn = graph.findNode(draggingCtrlNode);
             if (cn != null && cn.curveX != null && cn.curveY != null) {
@@ -3440,7 +3468,11 @@ public class GraphEditor {
         draggingCtrlNode = -1;
         draggingCtrlIdx = -1;
         ctrlPointsChanged = false;
-        // 清除 DEBUG_SIGNAL_GEN x 标记拖拽状态 — 同步 inputX 参数
+    }
+
+    /** 6f 后半拆出：原 mouseReleased 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseReleased. */
+    private void finishXMarkerDrag(NodeGraph graph) {
         if (draggingXMarkerNode >= 0) {
             GraphNode xn = graph.findNode(draggingXMarkerNode);
             if (xn != null && xn.params.length > 4) {
@@ -3449,254 +3481,266 @@ public class GraphEditor {
             }
         }
         draggingXMarkerNode = -1;
-        // Comment resize complete
-        if (resizingComment != null) {
-            if (Math.abs(resizingComment.commentWidth - resizeStartW) > 1
-                || Math.abs(resizingComment.commentHeight - resizeStartH) > 1) {
-                beginUndoBatch();
-                var csOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
-                    host.getBlockPos(), ownerNodeId(), resizingComment.id,
-                    resizingComment.commentWidth, resizingComment.commentHeight, host.getPlayerUUID());
-                sendOp(csOp); recordOp(csOp, resizeStartW, resizeStartH, 0, null);
-                // Sync positions of nodes that were pushed/contained by the resize
-                var pushed = new java.util.HashMap<GraphNode, Integer>();
-                collectContainedNodesDepth(resizingComment, pushed, 0);
-                for (var cn : pushed.keySet()) {
-                    var mnOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                        host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID());
-                    sendOp(mnOp);
-                    float[] old = resizeStartNodePositions.get(cn.id);
-                    if (old != null) recordOp(mnOp, old[0], old[1], 0, null);
-                }
-                resizeStartNodePositions.clear();
-                endUndoBatch();
+    }
+
+    /** 6f 后半拆出：原 mouseReleased 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseReleased. */
+    private boolean finishCommentResize() {
+        if (resizingComment == null) return false;
+        if (Math.abs(resizingComment.commentWidth - resizeStartW) > 1
+            || Math.abs(resizingComment.commentHeight - resizeStartH) > 1) {
+            beginUndoBatch();
+            var csOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
+                host.getBlockPos(), ownerNodeId(), resizingComment.id,
+                resizingComment.commentWidth, resizingComment.commentHeight, host.getPlayerUUID());
+            sendOp(csOp); recordOp(csOp, resizeStartW, resizeStartH, 0, null);
+            // Sync positions of nodes that were pushed/contained by the resize
+            var pushed = new java.util.HashMap<GraphNode, Integer>();
+            collectContainedNodesDepth(resizingComment, pushed, 0);
+            for (var cn : pushed.keySet()) {
+                var mnOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                    host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID());
+                sendOp(mnOp);
+                float[] old = resizeStartNodePositions.get(cn.id);
+                if (old != null) recordOp(mnOp, old[0], old[1], 0, null);
             }
-            resizingComment = null;
-            return;
+            resizeStartNodePositions.clear();
+            endUndoBatch();
         }
-        // Scrollbar drag release
-        if (scrollingMenu) { scrollingMenu = false; return; }
-        if (viewBookmarks.handleRelease(my)) return;
-        if (scrollingComment != null || scrollingImport) {
-            scrollingComment = null;
-            scrollingImport = false;
-            return;
+        resizingComment = null;
+        return true;
+    }
+
+    /** 6f 后半拆出：原 mouseReleased 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseReleased. */
+    private boolean finishMultiDrag(int btn) {
+        if (btn != 0 || !multiDragging) return false;
+        multiDragging = false; markDirty();
+        // If nodes actually moved, send MOVE ops and record undo for all dragged nodes
+        // 如果节点确实移动了，为所有拖拽节点发送 MOVE op 并记录撤销
+        boolean anyMoved = false;
+        for (var sn : selectedNodes) {
+            float[] orig = multiDragOrigins.get(sn);
+            if (orig != null && (Math.abs(sn.x - orig[0]) >= 2 || Math.abs(sn.y - orig[1]) >= 2)) {
+                anyMoved = true; break;
+            }
         }
-        if(btn==0&&multiDragging){
-            multiDragging = false; markDirty();
-            // If nodes actually moved, send MOVE ops and record undo for all dragged nodes
-            // 如果节点确实移动了，为所有拖拽节点发送 MOVE op 并记录撤销
-            boolean anyMoved = false;
+        if (anyMoved) {
+            beginUndoBatch();
             for (var sn : selectedNodes) {
                 float[] orig = multiDragOrigins.get(sn);
-                if (orig != null && (Math.abs(sn.x - orig[0]) >= 2 || Math.abs(sn.y - orig[1]) >= 2)) {
-                    anyMoved = true; break;
+                if (orig == null) continue;
+                var mop = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                    host.getBlockPos(), ownerNodeId(), sn.id, sn.x, sn.y, host.getPlayerUUID());
+                sendOp(mop);
+                recordOp(mop, orig[0], orig[1], 0, null);
+            }
+            endUndoBatch();
+        } else if (multiClickedNode != null) {
+            // Barely moved → deselect / 微移 → 去选
+            float[] orig = multiDragOrigins.get(multiClickedNode);
+            if (orig != null && Math.abs(multiClickedNode.x - orig[0]) < 2
+                && Math.abs(multiClickedNode.y - orig[1]) < 2) {
+                selectedNodes.remove(multiClickedNode);
+                selectedNode = selectedNodes.isEmpty() ? null : selectedNodes.iterator().next();
+            }
+        }
+        multiClickedNode = null;
+        multiDragOrigins.clear();
+        return true;
+    }
+
+    /** 6f 后半拆出：原 mouseReleased 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former mouseReleased. */
+    private boolean finishBoxSelect(int btn, NodeGraph graph) {
+        if (btn != 0 || !boxSelecting) return false;
+        boxSelecting=false;
+        if (!tabHeld) selectedNodes.clear();
+        float x1 = Math.min(boxSX, boxEX), x2 = Math.max(boxSX, boxEX);
+        float y1 = Math.min(boxSY, boxEY), y2 = Math.max(boxSY, boxEY);
+        for(var n : graph.nodes) {
+            float nx = c2sX(n.x), ny = c2sY(n.y);
+            float nw = NW*zoom, nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
+            if(nx < x2 && nx+nw > x1 && ny < y2 && ny+nh > y1) {
+                // TAB按住时框选切换选中状态 (TAB held: box-select toggles selection)
+                if (tabHeld && selectedNodes.contains(n)) selectedNodes.remove(n);
+                else selectedNodes.add(n);
+            }
+        }
+        if(!selectedNodes.isEmpty()) selectedNode = selectedNodes.iterator().next();
+        else selectedNode = null;
+        syncEditStateToSelection(); // 框选结束后同步控件状态，清掉未选中节点的残留聚焦/高亮
+        return true;
+    }
+
+    /** 6f 后半拆出：原 mouseReleased 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  连线落定：三阶段最近引脚命中 + 乐观本地建线 + 参数引脚编辑区刷新。
+     *  6f second-half extraction: a verbatim inline block of the former mouseReleased.
+     *  The wire drop: three-phase nearest-pin hit + optimistic local connection +
+     *  the param-pin edit-area refresh. */
+    private void finishWireDrop(double mx, double my, int btn) {
+        if(btn!=0||!draggingWire) return;
+        var graph = getGraph();
+        // 找最近的输入引脚（只连一个，避免多个引脚全连上） (Find nearest input pin; connect only one to avoid all pins connecting)
+        int bestNodeId=-1, bestPin=-1;
+        float bestDist=Float.MAX_VALUE;
+        float xTol=20;
+        // 第一阶段：节点主体上的功能引脚 (Phase 1: functional pins on node bodies)
+        for(var node:graph.nodes){
+            float sx=c2sX(node.x), sy=c2sY(node.y);
+            for(int i=0;i<node.functionalInputs();i++){
+                float py=sy+HH*zoom+PH*zoom*i+PH*zoom/2f;
+                float dx=(float)Math.abs(mx-sx), dy=(float)Math.abs(my-py);
+                if(dx<xTol&&dy<PH*zoom/2f+2&&wireFromNode!=node.id){
+                    float dist=dx+dy;
+                    if(dist<bestDist){bestDist=dist;bestNodeId=node.id;bestPin=i;}
                 }
             }
-            if (anyMoved) {
-                beginUndoBatch();
-                for (var sn : selectedNodes) {
-                    float[] orig = multiDragOrigins.get(sn);
-                    if (orig == null) continue;
+        }
+        // 第二阶段：编辑区内的参数引脚（展开的节点） (Phase 2: param pins in edit area of expanded nodes)
+        for (int nid : expandedNodeIds) {
+            var n = graph.findNode(nid);
+            if (n == null || n.type.editableParamCount() == 0) continue;
+            var st = nodeEditStatesById.get(nid);
+            if (st == null) continue;
+            float sx = c2sX(n.x), sy = c2sY(n.y);
+            float editBaseY = sy + (HH + PH*(n.functionalInputs() + n.outputs()))*zoom + 4;
+            for (int fi = 0; fi < st.fields.size() && fi < st.fieldParamIndices.size(); fi++) {
+                int pinIdx = n.functionalInputs() + st.fieldParamIndices.get(fi);
+                if (getGraph().hasInputConnection(nid, pinIdx)) continue;
+                float py = editBaseY + (12 + fi * 18)*zoom;
+                float px = sx + 10*zoom;
+                float dx = (float)Math.abs(mx - px), dy = (float)Math.abs(my - py);
+                if (dx < 16*zoom && dy < 10*zoom && wireFromNode != nid) {
+                    float dist = dx + dy;
+                    if (dist < bestDist) { bestDist = dist; bestNodeId = nid; bestPin = pinIdx; }
+                }
+            }
+        }
+        // BUS_OUT 编辑区输入引脚 (BUS_OUT edit-area input pins)
+        if(bestNodeId<0){for(int nid:expandedNodeIds){var n=graph.findNode(nid);if(n==null||n.type!=NodeType.BUS_OUT||n.signalBands==null)continue;float sx=c2sX(n.x),sy2=c2sY(n.y);for(int bi=0;bi<n.signalBands.size();bi++){float py2=sy2+bandPinY(n,bi,zoom)*zoom;float px2=sx+10*zoom;float dx2=(float)Math.abs(mx-px2),dy2=(float)Math.abs(my-py2);if(dx2<16*zoom&&dy2<10*zoom&&wireFromNode!=nid){float dist2=dx2+dy2;if(dist2<bestDist){bestDist=dist2;bestNodeId=nid;bestPin=bi;}}}}}
+        if(bestNodeId>=0){
+            graph.addConnection(wireFromNode,wireFromPin,bestNodeId,bestPin);
+            // 记下创建时的稳定 pinId，撤销删除/重做接回时按 pinId 解析。
+            // Capture the stable pinIds at creation so undo/redo rewire by pinId.
+            var fromN = graph.findNode(wireFromNode);
+            var toN = graph.findNode(bestNodeId);
+            String fPid = fromN != null ? fromN.outputPinId(wireFromPin) : null;
+            String tPid = toN != null ? toN.inputPinId(bestPin) : null;
+            // 本地即时建立（与上方 BUS_OUT 目标段同款乐观模式）：op 广播跳过发起者，
+            // 只发 op 不本地加的话，本地图要等重开编辑区拉权威图才有这条连线——引脚
+            // 变色/连线渲染全部延迟到重开。服务端权威回流经 onRemoteOp 的占用判定幂等跳过。
+            // Build locally right away (same optimistic pattern as the BUS_OUT target
+            // branch above): the op broadcast skips the originator, so send-only left the
+            // local graph without the wire until the editor re-pulled the authoritative
+            // graph. The authoritative echo idempotently no-ops via occupancy checks.
+            graph.addConnection(wireFromNode, wireFromPin, bestNodeId, bestPin);
+            var connOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
+                host.getBlockPos(), ownerNodeId(), wireFromNode, wireFromPin, bestNodeId, bestPin,
+                fPid, tPid, host.getPlayerUUID());
+            sendOp(connOp);
+            recordOp(connOp, 0, 0, 0, null);
+            // 参数引脚连线后刷新编辑区（隐藏对应输入框） (Refresh edit area after param pin connection, hiding the corresponding input box)
+            var targetNode = graph.findNode(bestNodeId);
+            if (targetNode != null && bestPin >= targetNode.type.inputs) {
+                nodeEditStatesById.remove(bestNodeId);
+                var newSt = createEditState(targetNode);
+                nodeEditStatesById.put(bestNodeId, newSt);
+            }
+        }
+        draggingWire=false;
+    }
+
+    /** 6f 后半拆出：原 mouseReleased 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  节点落定：drop-insert Z 序 + 框内/被撞开节点同步 + MOVE op 与撤销记录。
+     *  6f second-half extraction: a verbatim inline block of the former mouseReleased.
+     *  The node drop: drop-insert z-order, contained/pushed-aside sync, MOVE ops and undo. */
+    private void finishNodeDrop(int btn) {
+        if(btn!=0||draggingNode==null) return;
+        // Drop-insert: find max sortB among all overlapping nodes and slot above them
+        GraphNode below = findNodeBelow(draggingNode);
+        if (below != null) {
+            draggingNode.sortB = below.sortB + 1;
+        } else {
+            draggingNode.sortB = 0;
+        }
+        if (draggingNode.sortB >= Integer.MAX_VALUE - 100) {
+            renormalizeSortB(getGraph());
+        }
+        // Restore contained nodes' sortB, ensuring they stay above the outer
+        // comment (outer must have the lowest B so nested renders on top)
+        for (var e : preDragSortBs.entrySet()) e.getKey().sortB = e.getValue();
+        if (!preDragSortBs.isEmpty()) {
+            int outerB = draggingNode.sortB;
+            // Find the minimum sortB among contained — if any are <= outerB,
+            // shift them all up so outer remains the lowest
+            int minContained = Integer.MAX_VALUE;
+            for (int v : preDragSortBs.values())
+                if (v < minContained) minContained = v;
+            if (minContained <= outerB) {
+                int shift = outerB - minContained + 1;
+                for (var e : preDragSortBs.entrySet())
+                    e.getKey().sortB = e.getValue() + shift;
+            }
+        }
+        // Send MOVE ops for comment-contained nodes (moved locally by moveContainedNodes)
+        // + record for undo so Ctrl+Z moves them back together with the comment
+        // 发送框内节点的 MOVE op + 记录用于撤销，使 Ctrl+Z 同时回退内部节点
+        if (draggingNode.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
+            for (var cn : preDragSortBs.keySet()) {
+                var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                    host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID());
+                sendOp(op);
+                float[] orig = containedOrigins.get(cn.id);
+                if (orig != null) recordOp(op, orig[0], orig[1], 0, null);
+            }
+        }
+        containedOrigins.clear();
+        // Send final MOVE ops for pushed-aside nodes (sync only, no undo).
+        // Pushed nodes stay at their new positions on Ctrl+Z — this is by design:
+        // if a pushed node was soft-locked by another player, undoing it would be confusing.
+        // 发送被撞开节点的最终 MOVE op（仅同步，不入撤销栈）。
+        // 被撞开节点不随 Ctrl+Z 归位 —— 设计如此：若被其他玩家软锁，撤回会令人困惑。
+        if (draggingNode.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
+            for (var pn : pushedDragNodes) {
+                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+                    host.getBlockPos(), ownerNodeId(), pn.id, pn.x, pn.y, host.getPlayerUUID()));
+            }
+        }
+        pushedDragNodes.clear();
+        pushOrigins.clear();
+        containedOrigins.clear();
+        preDragSortBs.clear();
+        markDirty();
+        // Sync Z-order to other editors
+        sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            io.github.y15173334444.create_schematic_compute.graph.OpType.SET_ZORDER,
+            host.getBlockPos(), ownerNodeId(), draggingNode.id, 0, null, 0f, 0f,
+            0, 0, 0, 0, 0, 0f, null, 0, 0, 0, draggingNode.sortB, null, 0, 0, 0,
+            net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID()));
+        // Send MOVE op to server (collaboration)
+        var moved = draggingNode;
+        var moveOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+            host.getBlockPos(), ownerNodeId(), moved.id, moved.x, moved.y, host.getPlayerUUID());
+        sendOp(moveOp);
+        recordOp(moveOp, preDragX, preDragY, 0, null);
+        if (selectedNodes.size() > 1) {
+            for (var sn : selectedNodes) {
+                if (sn != moved) {
                     var mop = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
                         host.getBlockPos(), ownerNodeId(), sn.id, sn.x, sn.y, host.getPlayerUUID());
                     sendOp(mop);
-                    recordOp(mop, orig[0], orig[1], 0, null);
-                }
-                endUndoBatch();
-            } else if (multiClickedNode != null) {
-                // Barely moved → deselect / 微移 → 去选
-                float[] orig = multiDragOrigins.get(multiClickedNode);
-                if (orig != null && Math.abs(multiClickedNode.x - orig[0]) < 2
-                    && Math.abs(multiClickedNode.y - orig[1]) < 2) {
-                    selectedNodes.remove(multiClickedNode);
-                    selectedNode = selectedNodes.isEmpty() ? null : selectedNodes.iterator().next();
+                    var rec = preDragPositions.get(sn.id);
+                    float oldX = rec != null ? rec[0] : preDragX;
+                    float oldY = rec != null ? rec[1] : preDragY;
+                    recordOp(mop, oldX, oldY, 0, null);
                 }
             }
-            multiClickedNode = null;
-            multiDragOrigins.clear();
-            return;
         }
-        if(btn==0&&boxSelecting){
-            boxSelecting=false;
-            if (!tabHeld) selectedNodes.clear();
-            float x1 = Math.min(boxSX, boxEX), x2 = Math.max(boxSX, boxEX);
-            float y1 = Math.min(boxSY, boxEY), y2 = Math.max(boxSY, boxEY);
-            for(var n : graph.nodes) {
-                float nx = c2sX(n.x), ny = c2sY(n.y);
-                float nw = NW*zoom, nh = (HH+PH*(n.functionalInputs() + n.outputs()))*zoom+4;
-                if(nx < x2 && nx+nw > x1 && ny < y2 && ny+nh > y1) {
-                    // TAB按住时框选切换选中状态 (TAB held: box-select toggles selection)
-                    if (tabHeld && selectedNodes.contains(n)) selectedNodes.remove(n);
-                    else selectedNodes.add(n);
-                }
-            }
-            if(!selectedNodes.isEmpty()) selectedNode = selectedNodes.iterator().next();
-            else selectedNode = null;
-            syncEditStateToSelection(); // 框选结束后同步控件状态，清掉未选中节点的残留聚焦/高亮
-            return;
-        }
-        if(btn==0&&draggingWire){
-            // 找最近的输入引脚（只连一个，避免多个引脚全连上） (Find nearest input pin; connect only one to avoid all pins connecting)
-            int bestNodeId=-1, bestPin=-1;
-            float bestDist=Float.MAX_VALUE;
-            float xTol=20;
-            // 第一阶段：节点主体上的功能引脚 (Phase 1: functional pins on node bodies)
-            for(var node:graph.nodes){
-                float sx=c2sX(node.x), sy=c2sY(node.y);
-                for(int i=0;i<node.functionalInputs();i++){
-                    float py=sy+HH*zoom+PH*zoom*i+PH*zoom/2f;
-                    float dx=(float)Math.abs(mx-sx), dy=(float)Math.abs(my-py);
-                    if(dx<xTol&&dy<PH*zoom/2f+2&&wireFromNode!=node.id){
-                        float dist=dx+dy;
-                        if(dist<bestDist){bestDist=dist;bestNodeId=node.id;bestPin=i;}
-                    }
-                }
-            }
-            // 第二阶段：编辑区内的参数引脚（展开的节点） (Phase 2: param pins in edit area of expanded nodes)
-            for (int nid : expandedNodeIds) {
-                var n = graph.findNode(nid);
-                if (n == null || n.type.editableParamCount() == 0) continue;
-                var st = nodeEditStatesById.get(nid);
-                if (st == null) continue;
-                float sx = c2sX(n.x), sy = c2sY(n.y);
-                float editBaseY = sy + (HH + PH*(n.functionalInputs() + n.outputs()))*zoom + 4;
-                for (int fi = 0; fi < st.fields.size() && fi < st.fieldParamIndices.size(); fi++) {
-                    int pinIdx = n.functionalInputs() + st.fieldParamIndices.get(fi);
-                    if (getGraph().hasInputConnection(nid, pinIdx)) continue;
-                    float py = editBaseY + (12 + fi * 18)*zoom;
-                    float px = sx + 10*zoom;
-                    float dx = (float)Math.abs(mx - px), dy = (float)Math.abs(my - py);
-                    if (dx < 16*zoom && dy < 10*zoom && wireFromNode != nid) {
-                        float dist = dx + dy;
-                        if (dist < bestDist) { bestDist = dist; bestNodeId = nid; bestPin = pinIdx; }
-                    }
-                }
-            }
-            // BUS_OUT 编辑区输入引脚 (BUS_OUT edit-area input pins)
-            if(bestNodeId<0){for(int nid:expandedNodeIds){var n=graph.findNode(nid);if(n==null||n.type!=NodeType.BUS_OUT||n.signalBands==null)continue;float sx=c2sX(n.x),sy2=c2sY(n.y);for(int bi=0;bi<n.signalBands.size();bi++){float py2=sy2+bandPinY(n,bi,zoom)*zoom;float px2=sx+10*zoom;float dx2=(float)Math.abs(mx-px2),dy2=(float)Math.abs(my-py2);if(dx2<16*zoom&&dy2<10*zoom&&wireFromNode!=nid){float dist2=dx2+dy2;if(dist2<bestDist){bestDist=dist2;bestNodeId=nid;bestPin=bi;}}}}}
-            if(bestNodeId>=0){
-                graph.addConnection(wireFromNode,wireFromPin,bestNodeId,bestPin);
-                // 记下创建时的稳定 pinId，撤销删除/重做接回时按 pinId 解析。
-                // Capture the stable pinIds at creation so undo/redo rewire by pinId.
-                var fromN = graph.findNode(wireFromNode);
-                var toN = graph.findNode(bestNodeId);
-                String fPid = fromN != null ? fromN.outputPinId(wireFromPin) : null;
-                String tPid = toN != null ? toN.inputPinId(bestPin) : null;
-                // 本地即时建立（与上方 BUS_OUT 目标段同款乐观模式）：op 广播跳过发起者，
-                // 只发 op 不本地加的话，本地图要等重开编辑区拉权威图才有这条连线——引脚
-                // 变色/连线渲染全部延迟到重开。服务端权威回流经 onRemoteOp 的占用判定幂等跳过。
-                // Build locally right away (same optimistic pattern as the BUS_OUT target
-                // branch above): the op broadcast skips the originator, so send-only left the
-                // local graph without the wire until the editor re-pulled the authoritative
-                // graph. The authoritative echo idempotently no-ops via occupancy checks.
-                graph.addConnection(wireFromNode, wireFromPin, bestNodeId, bestPin);
-                var connOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addConn(
-                    host.getBlockPos(), ownerNodeId(), wireFromNode, wireFromPin, bestNodeId, bestPin,
-                    fPid, tPid, host.getPlayerUUID());
-                sendOp(connOp);
-                recordOp(connOp, 0, 0, 0, null);
-                // 参数引脚连线后刷新编辑区（隐藏对应输入框） (Refresh edit area after param pin connection, hiding the corresponding input box)
-                var targetNode = graph.findNode(bestNodeId);
-                if (targetNode != null && bestPin >= targetNode.type.inputs) {
-                    nodeEditStatesById.remove(bestNodeId);
-                    var newSt = createEditState(targetNode);
-                    nodeEditStatesById.put(bestNodeId, newSt);
-                }
-            }
-            draggingWire=false;
-        }
-        if(btn==0&&draggingNode!=null){
-            // Drop-insert: find max sortB among all overlapping nodes and slot above them
-            GraphNode below = findNodeBelow(draggingNode);
-            if (below != null) {
-                draggingNode.sortB = below.sortB + 1;
-            } else {
-                draggingNode.sortB = 0;
-            }
-            if (draggingNode.sortB >= Integer.MAX_VALUE - 100) {
-                renormalizeSortB(getGraph());
-            }
-            // Restore contained nodes' sortB, ensuring they stay above the outer
-            // comment (outer must have the lowest B so nested renders on top)
-            for (var e : preDragSortBs.entrySet()) e.getKey().sortB = e.getValue();
-            if (!preDragSortBs.isEmpty()) {
-                int outerB = draggingNode.sortB;
-                // Find the minimum sortB among contained — if any are <= outerB,
-                // shift them all up so outer remains the lowest
-                int minContained = Integer.MAX_VALUE;
-                for (int v : preDragSortBs.values())
-                    if (v < minContained) minContained = v;
-                if (minContained <= outerB) {
-                    int shift = outerB - minContained + 1;
-                    for (var e : preDragSortBs.entrySet())
-                        e.getKey().sortB = e.getValue() + shift;
-                }
-            }
-            // Send MOVE ops for comment-contained nodes (moved locally by moveContainedNodes)
-            // + record for undo so Ctrl+Z moves them back together with the comment
-            // 发送框内节点的 MOVE op + 记录用于撤销，使 Ctrl+Z 同时回退内部节点
-            if (draggingNode.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
-                for (var cn : preDragSortBs.keySet()) {
-                    var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                        host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID());
-                    sendOp(op);
-                    float[] orig = containedOrigins.get(cn.id);
-                    if (orig != null) recordOp(op, orig[0], orig[1], 0, null);
-                }
-            }
-            containedOrigins.clear();
-            // Send final MOVE ops for pushed-aside nodes (sync only, no undo).
-            // Pushed nodes stay at their new positions on Ctrl+Z — this is by design:
-            // if a pushed node was soft-locked by another player, undoing it would be confusing.
-            // 发送被撞开节点的最终 MOVE op（仅同步，不入撤销栈）。
-            // 被撞开节点不随 Ctrl+Z 归位 —— 设计如此：若被其他玩家软锁，撤回会令人困惑。
-            if (draggingNode.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT) {
-                for (var pn : pushedDragNodes) {
-                    sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                        host.getBlockPos(), ownerNodeId(), pn.id, pn.x, pn.y, host.getPlayerUUID()));
-                }
-            }
-            pushedDragNodes.clear();
-            pushOrigins.clear();
-            containedOrigins.clear();
-            preDragSortBs.clear();
-            markDirty();
-            // Sync Z-order to other editors
-            sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_ZORDER,
-                host.getBlockPos(), ownerNodeId(), draggingNode.id, 0, null, 0f, 0f,
-                0, 0, 0, 0, 0, 0f, null, 0, 0, 0, draggingNode.sortB, null, 0, 0, 0,
-                net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID()));
-            // Send MOVE op to server (collaboration)
-            var moved = draggingNode;
-            var moveOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                host.getBlockPos(), ownerNodeId(), moved.id, moved.x, moved.y, host.getPlayerUUID());
-            sendOp(moveOp);
-            recordOp(moveOp, preDragX, preDragY, 0, null);
-            if (selectedNodes.size() > 1) {
-                for (var sn : selectedNodes) {
-                    if (sn != moved) {
-                        var mop = io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                            host.getBlockPos(), ownerNodeId(), sn.id, sn.x, sn.y, host.getPlayerUUID());
-                        sendOp(mop);
-                        var rec = preDragPositions.get(sn.id);
-                        float oldX = rec != null ? rec[0] : preDragX;
-                        float oldY = rec != null ? rec[1] : preDragY;
-                        recordOp(mop, oldX, oldY, 0, null);
-                    }
-                }
-            }
-            if (moved.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT)
-                endUndoBatch(); // close the batch started at drag begin
-            rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping after drag
-            draggingNode=null;
-        // 平移键松开 → 结束平移（按键可能被重绑，查表而非写死左键）。按住组合键启动的
-        // 平移不受鼠标释放影响（panByKey 区分，松键才结束）。
-        // Pan button released → stop panning (rebindable; look it up, don't hardcode).
-        // A pan started by the hold-combo key is untouched by mouse releases (panByKey
-        // tells the routes apart; only the key release ends it).
-        }if(btn == EditorKeys.panMouseButton()&&panning&&!panByKey)panning=false;
+        if (moved.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.COMMENT)
+            endUndoBatch(); // close the batch started at drag begin
+        rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping after drag
+        draggingNode=null;
     }
 
     // ── DEBUG_SIGNAL_GEN 控制点辅助方法 ──
