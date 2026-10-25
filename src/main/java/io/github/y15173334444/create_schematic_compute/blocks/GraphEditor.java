@@ -4935,17 +4935,13 @@ public class GraphEditor {
         return hit;
     }
 
-    /** 该类型是否渲染 ▶/▼ 展开指示器(与 NodeRenderer 的绘制条件一致)。
-     *  Whether this type renders the ▶/▼ expand indicator (same condition as NodeRenderer). */
+    /** 该类型是否渲染 ▶/▼ 展开指示器——委托 NodeRenderer 的单一来源表（拓扑 P2 表驱动化；
+     *  原为与绘制条件手工同步的逐字 OR 链复制品）。
+     *  Whether this type renders the ▶/▼ expand indicator — delegates to NodeRenderer's
+     *  single-source table (topology P2; this used to be a hand-synced verbatim copy of
+     *  the drawing condition). */
     private static boolean hasExpandIndicator(GraphNode n) {
-        return n.type == NodeType.FORMULA || n.type.paramNames.length > 0
-            || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT
-            || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT
-            || n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE
-            || n.type == NodeType.TEXT || n.type == NodeType.DATA
-            || n.type == NodeType.ENCAPSULATION || n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT
-            || n.type == NodeType.COMMENT
-            || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT;
+        return NodeRenderer.hasExpandIndicator(n.type);
     }
 
     /** 关闭注释颜色编辑弹窗，重置所有相关状态。

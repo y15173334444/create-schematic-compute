@@ -319,6 +319,31 @@ public class NodeRenderer {
         }
     }
 
+    /** 渲染 ▶/▼ 展开指示器的「无参数面板」类型表（拓扑 P2 表驱动化）：这些类型没有
+     *  paramNames 却仍有展开面板；与 {@link #hasExpandIndicator(NodeType)} 的 paramNames>0
+     *  兜底共同构成**单一来源**——GraphEditor 的同名命中判定委托此处（此前是两份手工同步
+     *  的逐字 OR 链）。改动此表即同时改绘制与命中，勿在别处再抄一份。
+     *  Types without param panels that still render the ▶/▼ expand indicator (topology-P2
+     *  table-driven): they have no paramNames yet own an expand panel; together with the
+     *  paramNames>0 catch-all in {@link #hasExpandIndicator(NodeType)} this is the
+     *  **single source** — GraphEditor's same-named hit predicate delegates here (it used
+     *  to be a hand-synced verbatim copy of the OR chain). Editing the table moves the
+     *  drawing and the hit-test together; never duplicate it elsewhere. */
+    private static final Set<NodeType> EXPAND_INDICATOR_TYPES = Set.of(
+        NodeType.FORMULA, NodeType.REDSTONE_IN, NodeType.REDSTONE_OUT,
+        NodeType.PRIVATE_IN, NodeType.PRIVATE_OUT,
+        NodeType.IMAGE, NodeType.IMAGE_SEQUENCE,
+        NodeType.TEXT, NodeType.DATA,
+        NodeType.ENCAPSULATION, NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT,
+        NodeType.COMMENT,
+        NodeType.BUS_IN, NodeType.BUS_OUT);
+
+    /** 该类型是否渲染 ▶/▼ 展开指示器：paramNames>0 兜底（有参数面板的类型）加上
+     *  无参数面板类型表。 / Whether this type renders the ▶/▼ expand indicator:
+     *  the paramNames>0 catch-all (types with param panels) plus the table above. */
+    public static boolean hasExpandIndicator(NodeType type) {
+        return type.paramNames.length > 0 || EXPAND_INDICATOR_TYPES.contains(type);
+    }
 
     private void drawNode(GuiGraphics g, GraphNode n, NodeGraph graph, boolean selected, boolean isPrimary, boolean editing,
                            float camX, float camY, float zoom, int mx, int my,
@@ -417,14 +442,7 @@ public class NodeRenderer {
             drawStr(g, "§c⚠", nodeW - 30, 4, ERR());
         }
         // C=2: 展开指示器
-        if (n.type == NodeType.FORMULA || n.type.paramNames.length > 0
-            || n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT
-            || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT
-            || n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE
-            || n.type == NodeType.TEXT || n.type == NodeType.DATA
-            || n.type == NodeType.ENCAPSULATION || n.type == NodeType.ENCAP_INPUT || n.type == NodeType.ENCAP_OUTPUT
-            || n.type == NodeType.COMMENT
-            || n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) {
+        if (hasExpandIndicator(n.type)) {
             drawStr(g, editing ? (n.type == NodeType.ENCAPSULATION ? "§b▶▶" : "§6▼") : (n.type == NodeType.ENCAPSULATION ? "§b▶" : "§7▶"), nodeW - 18, 4, CT);
         }
         // C=2: 封装节点体部摘要
