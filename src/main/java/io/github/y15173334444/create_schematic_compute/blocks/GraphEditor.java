@@ -1992,10 +1992,7 @@ public class GraphEditor {
     // body clicks — spatial-index candidates sorted by compareHitOrder
     // (A=3 nodes first, then A=1 comments by B descending = innermost first)
     boolean hitIsNonComment = nonCommentHit != null && nonCommentHit.type != NodeType.COMMENT;
-    var commentCandidates = spatialIndex.queryPoint(s2cX(mx), s2cY(my)).stream()
-        .filter(n -> n.type == NodeType.COMMENT)
-        .sorted(GraphEditor::compareHitOrder)
-        .collect(java.util.stream.Collectors.toList());
+    var commentCandidates = collectCommentCandidates(mx, my);
     for (var n2 : commentCandidates) {
         float sx2 = c2sX(n2.x), sy2 = c2sY(n2.y);
         float sw2 = n2.commentWidth * zoom, sh2 = n2.commentHeight * zoom;
@@ -2005,92 +2002,11 @@ public class GraphEditor {
         boolean onResize = locX > n2.commentWidth - 22 && locY > n2.commentHeight - 22;
         boolean onColorDot = locX < 18 && locY < 18;
         // Scrollbar thumb drag — check before resize for better UX
-        if (!panOnlyClick && !n2.displayText.isEmpty()) {
-            float headerH2 = Math.max(6f, 12f * zoom);
-            int sbXc = (int) (sx2 + sw2 - 10 * zoom);
-            int sbYc = (int) (sy2 + headerH2 + 4 * zoom);
-            int sbHc = (int) (sh2 - headerH2 - 8 * zoom);
-            int maxTextW2 = Math.max(1, (int) ((sw2 - 26 * zoom) / zoom));
-            int visibleH2 = Math.max(1, (int) ((sh2 - 16 * zoom) / zoom));
-            int maxVis2b = Math.max(1, visibleH2 / 12);
-            int totalWraps2b = countWrappedLines(n2.displayText, maxTextW2);
-            int scrollMax2b = Math.max(0, totalWraps2b - maxVis2b);
-            if (scrollMax2b > 0 && mx >= sbXc && mx <= sbXc + Math.max(2, (int)(6 * zoom))
-                && my >= sbYc && my <= sbYc + sbHc) {
-                float thumbH2b = Math.max(12 * zoom, (float) maxVis2b / totalWraps2b * sbHc);
-                float thumbYc = sbYc + (float) n2.commentScrollOff / scrollMax2b * (sbHc - thumbH2b);
-                if (my >= thumbYc && my <= thumbYc + thumbH2b) {
-                    scrollingComment = n2;
-                    scrollDragStartY = (float) my;
-                    scrollDragStartOff = n2.commentScrollOff;
-                    return true;
-                }
-            }
-        }
+        if (tryCommentScrollbarThumbPress(n2, mx, my, panOnlyClick, sx2, sy2, sw2, sh2)) return true;
         // Resize handle (bottom-right) — checked after scrollbar
-        if (onResize && !panOnlyClick) {
-            resizingComment = n2; resizeStartW = n2.commentWidth; resizeStartH = n2.commentHeight;
-            // Capture contained node positions before resize for undo
-            resizeStartNodePositions.clear();
-            var depthMap2 = new java.util.HashMap<GraphNode, Integer>();
-            collectContainedNodesDepth(n2, depthMap2, 0);
-            for (var cn2 : depthMap2.keySet())
-                resizeStartNodePositions.put(cn2.id, new float[]{cn2.x, cn2.y});
-            return true;
-        }
+        if (beginCommentResize(n2, onResize, panOnlyClick)) return true;
         // Edit button (top-right 14x14) — open 3-color edit panel
-        if (onColorDot && !panOnlyClick) {
-            editingCommentColorNode = n2;
-            // Capture old colors for undo (saved per-change in recordOp)
-            // 捕获旧颜色用于撤销（每次变更时在 recordOp 中保存）
-            final int[] oldColors = {
-                n2.commentBgColor, n2.commentBorderColor, n2.commentTextColor
-            };
-            commentButtons = new ColorPickerButton[3];
-            for (int ci = 0; ci < 3; ci++) {
-                final int idx = ci;
-                commentButtons[ci] = new ColorPickerButton(
-                    () -> {
-                        if (editingCommentColorNode == null) return 0xFF000000;
-                        return switch (idx) {
-                            case 0 -> editingCommentColorNode.commentBgColor;
-                            case 1 -> editingCommentColorNode.commentBorderColor;
-                            case 2 -> editingCommentColorNode.commentTextColor;
-                            default -> 0xFF000000;
-                        };
-                    },
-                    c -> {
-                        if (editingCommentColorNode == null) return;
-                        // Save pre-change color for undo / 保存变更前颜色用于撤销
-                        int oldC = switch (idx) {
-                            case 0 -> editingCommentColorNode.commentBgColor;
-                            case 1 -> editingCommentColorNode.commentBorderColor;
-                            case 2 -> editingCommentColorNode.commentTextColor;
-                            default -> 0;
-                        };
-                        switch (idx) {
-                            case 0 -> editingCommentColorNode.commentBgColor = c;
-                            case 1 -> editingCommentColorNode.commentBorderColor = c;
-                            case 2 -> editingCommentColorNode.commentTextColor = c;
-                        }
-                        markDirty();
-                        var ccOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(
-                            host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id,
-                            editingCommentColorNode.commentBgColor,
-                            editingCommentColorNode.commentBorderColor,
-                            editingCommentColorNode.commentTextColor,
-                            host.getPlayerUUID());
-                        sendOp(ccOp); recordOp(ccOp,
-                            oldColors[0], oldColors[1], oldColors[2], null);
-                    },
-                    colorPicker
-                );
-            }
-            // Auto-open picker alongside comment popup
-            openColorPickerForComment(0);
-            lastClickNodeId = -1;
-            return true;
-        }
+        if (openCommentColorEditor(n2, onColorDot, panOnlyClick)) return true;
         // Body double-click → toggle expand (works regardless of expand state)
         long now2 = System.currentTimeMillis();
         if (!panOnlyClick && n2.id == lastClickNodeId && (now2 - lastClickTimeMs) < 400) {
@@ -2160,6 +2076,122 @@ public class GraphEditor {
             }
         }
         // Start drag with parent-move snapshot + z-order top
+        beginCommentDrag(n2, mx, my);
+        return true;
+    }
+        return false;
+    }
+
+    /** 6f 后半拆出：原 tryCommentClick 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former tryCommentClick. */
+    private java.util.List<GraphNode> collectCommentCandidates(double mx, double my) {
+        return spatialIndex.queryPoint(s2cX(mx), s2cY(my)).stream()
+            .filter(n -> n.type == NodeType.COMMENT)
+            .sorted(GraphEditor::compareHitOrder)
+            .collect(java.util.stream.Collectors.toList());
+    }
+
+    /** 6f 后半拆出：原 tryCommentClick 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former tryCommentClick. */
+    private boolean tryCommentScrollbarThumbPress(GraphNode n2, double mx, double my, boolean panOnlyClick,
+                                                  float sx2, float sy2, float sw2, float sh2) {
+        if (panOnlyClick || n2.displayText.isEmpty()) return false;
+        float headerH2 = Math.max(6f, 12f * zoom);
+        int sbXc = (int) (sx2 + sw2 - 10 * zoom);
+        int sbYc = (int) (sy2 + headerH2 + 4 * zoom);
+        int sbHc = (int) (sh2 - headerH2 - 8 * zoom);
+        int maxTextW2 = Math.max(1, (int) ((sw2 - 26 * zoom) / zoom));
+        int visibleH2 = Math.max(1, (int) ((sh2 - 16 * zoom) / zoom));
+        int maxVis2b = Math.max(1, visibleH2 / 12);
+        int totalWraps2b = countWrappedLines(n2.displayText, maxTextW2);
+        int scrollMax2b = Math.max(0, totalWraps2b - maxVis2b);
+        if (scrollMax2b > 0 && mx >= sbXc && mx <= sbXc + Math.max(2, (int)(6 * zoom))
+            && my >= sbYc && my <= sbYc + sbHc) {
+            float thumbH2b = Math.max(12 * zoom, (float) maxVis2b / totalWraps2b * sbHc);
+            float thumbYc = sbYc + (float) n2.commentScrollOff / scrollMax2b * (sbHc - thumbH2b);
+            if (my >= thumbYc && my <= thumbYc + thumbH2b) {
+                scrollingComment = n2;
+                scrollDragStartY = (float) my;
+                scrollDragStartOff = n2.commentScrollOff;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 6f 后半拆出：原 tryCommentClick 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former tryCommentClick. */
+    private boolean beginCommentResize(GraphNode n2, boolean onResize, boolean panOnlyClick) {
+        if (!onResize || panOnlyClick) return false;
+        resizingComment = n2; resizeStartW = n2.commentWidth; resizeStartH = n2.commentHeight;
+        // Capture contained node positions before resize for undo
+        resizeStartNodePositions.clear();
+        var depthMap2 = new java.util.HashMap<GraphNode, Integer>();
+        collectContainedNodesDepth(n2, depthMap2, 0);
+        for (var cn2 : depthMap2.keySet())
+            resizeStartNodePositions.put(cn2.id, new float[]{cn2.x, cn2.y});
+        return true;
+    }
+
+    /** 6f 后半拆出：原 tryCommentClick 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former tryCommentClick. */
+    private boolean openCommentColorEditor(GraphNode n2, boolean onColorDot, boolean panOnlyClick) {
+        if (!onColorDot || panOnlyClick) return false;
+        editingCommentColorNode = n2;
+        // Capture old colors for undo (saved per-change in recordOp)
+        // 捕获旧颜色用于撤销（每次变更时在 recordOp 中保存）
+        final int[] oldColors = {
+            n2.commentBgColor, n2.commentBorderColor, n2.commentTextColor
+        };
+        commentButtons = new ColorPickerButton[3];
+        for (int ci = 0; ci < 3; ci++) {
+            final int idx = ci;
+            commentButtons[ci] = new ColorPickerButton(
+                () -> {
+                    if (editingCommentColorNode == null) return 0xFF000000;
+                    return switch (idx) {
+                        case 0 -> editingCommentColorNode.commentBgColor;
+                        case 1 -> editingCommentColorNode.commentBorderColor;
+                        case 2 -> editingCommentColorNode.commentTextColor;
+                        default -> 0xFF000000;
+                    };
+                },
+                c -> {
+                    if (editingCommentColorNode == null) return;
+                    // Save pre-change color for undo / 保存变更前颜色用于撤销
+                    int oldC = switch (idx) {
+                        case 0 -> editingCommentColorNode.commentBgColor;
+                        case 1 -> editingCommentColorNode.commentBorderColor;
+                        case 2 -> editingCommentColorNode.commentTextColor;
+                        default -> 0;
+                    };
+                    switch (idx) {
+                        case 0 -> editingCommentColorNode.commentBgColor = c;
+                        case 1 -> editingCommentColorNode.commentBorderColor = c;
+                        case 2 -> editingCommentColorNode.commentTextColor = c;
+                    }
+                    markDirty();
+                    var ccOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentColors(
+                        host.getBlockPos(), ownerNodeId(), editingCommentColorNode.id,
+                        editingCommentColorNode.commentBgColor,
+                        editingCommentColorNode.commentBorderColor,
+                        editingCommentColorNode.commentTextColor,
+                        host.getPlayerUUID());
+                    sendOp(ccOp); recordOp(ccOp,
+                        oldColors[0], oldColors[1], oldColors[2], null);
+                },
+                colorPicker
+            );
+        }
+        // Auto-open picker alongside comment popup
+        openColorPickerForComment(0);
+        lastClickNodeId = -1;
+        return true;
+    }
+
+    /** 6f 后半拆出：原 tryCommentClick 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former tryCommentClick. */
+    private void beginCommentDrag(GraphNode n2, double mx, double my) {
         beginUndoBatch(); // batch all contained-node moves + comment move as one undo unit
         preDragSortB = n2.sortB;
         // Pin contained nodes with depth-based B: outermost=lowest B
@@ -2183,9 +2215,6 @@ public class GraphEditor {
         n2.sortB = Integer.MAX_VALUE - maxDepth - 2;
         draggingNode = n2; dragOffX = n2.x - s2cX(mx); dragOffY = n2.y - s2cY(my);
         preDragX = n2.x; preDragY = n2.y; // for undo
-        return true;
-    }
-        return false;
     }
 
     /** 鼠标事件完成序列后的动作派发（feedClick 完整命中）：与按键路径共用同一实现。
