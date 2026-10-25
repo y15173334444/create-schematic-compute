@@ -249,7 +249,7 @@
 
 ### 状态 / Status
 
-**🔶 待办。** 随「NBS 编辑器配色收编」同日发现（同族病、按用户口径本批只收 NBS），登记待另批。
+**🔶 部分已修。** static final 捕获半已随 1.3.0 的 EditorTheme 批根除（2026-10-25：三件套——含后来新增的 `PixelEditorFrameStrip`——捕获解冻为 `EditorTheme.get()` 实时取值，`NodeRendererPaletteFacadeTest` 锚死门面委托不回潮）；按钮底/悬停/选中三硬编码色（`C_BTN`/`C_HOVER`/`C_SEL`）仍留守——槽位映射（按钮底对应哪个主题槽）是设计判断，留待收编批。发现于「NBS 编辑器配色收编」同日（同族病、按用户口径彼批只收 NBS）。
 
 ---
 
