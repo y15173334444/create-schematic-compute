@@ -10,6 +10,8 @@ import dev.ryanhcode.sable.sublevel.SubLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Sable-compatible Sensor Block Entity (BE).
@@ -27,6 +29,12 @@ import net.minecraft.world.level.block.state.BlockState;
  * </p>
  */
 public class SensorBlockEntitySable extends SensorBlockEntity implements BlockEntitySubLevelActor {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     // ─────────────────────────────────────────────────────────────
     //  Cached sub-world state / 缓存的子世界状态
@@ -202,7 +210,7 @@ public class SensorBlockEntitySable extends SensorBlockEntity implements BlockEn
                 }
             }
         } catch (Exception e) {
-            io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.warn(
+            LOGGER.warn(
                 "Sensor Sable world-pos compute failed at {}: {}", worldPosition, e.toString());
         }
 

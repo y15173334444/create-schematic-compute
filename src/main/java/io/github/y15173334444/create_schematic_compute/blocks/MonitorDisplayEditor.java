@@ -1,6 +1,5 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
-import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.client.GeometryConstants;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
@@ -20,6 +19,8 @@ import java.util.Map;
 import java.util.UUID;
 
 import static io.github.y15173334444.create_schematic_compute.client.GeometryConstants.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 全息显示器的「显示编辑」GUI / The holographic monitor display-layout editor.
@@ -41,6 +42,12 @@ import static io.github.y15173334444.create_schematic_compute.client.GeometryCon
  * the display toggle button remains graph-mode-only, as before.</p>
  */
 public final class MonitorDisplayEditor {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     /** 宿主：屏幕侧提供的最小接口 / Host: the minimal screen-side surface. */
     public interface Host {
@@ -235,7 +242,7 @@ public final class MonitorDisplayEditor {
             if (key == 256) { editingS = false; return true; }
             if (key == 257 || key == 335) {
                 try { selectedDisplayNode.displayScale = Math.max(0.01f, Float.parseFloat(editSBuf)); }
-                catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
+                catch (Exception e) { LOGGER.debug("Hex input parse", e); }
                 sendOp(GraphOp.setDisplayLayout(
                     host.blockPos(), -1, selectedDisplayNode.id,
                     selectedDisplayNode.layoutX, selectedDisplayNode.layoutY,
@@ -250,7 +257,7 @@ public final class MonitorDisplayEditor {
             if (key == 256) { editingR = false; return true; }
             if (key == 257 || key == 335) {
                 try { selectedDisplayNode.displayRotation = Float.parseFloat(editRBuf) % 360f; }
-                catch (Exception e) { SchematicCompute.LOGGER.debug("Hex input parse", e); }
+                catch (Exception e) { LOGGER.debug("Hex input parse", e); }
                 sendOp(GraphOp.setDisplayLayout(
                     host.blockPos(), -1, selectedDisplayNode.id,
                     selectedDisplayNode.layoutX, selectedDisplayNode.layoutY,
@@ -1216,7 +1223,7 @@ public final class MonitorDisplayEditor {
                 host.be().getBlockPos(), w, l, x, y, z, r, p, yw,
                 hud, vis);
             PacketDistributor.sendToServer(pkt);
-        } catch (Exception e) { SchematicCompute.LOGGER.warn("Failed to parse monitor settings", e); }
+        } catch (Exception e) { LOGGER.warn("Failed to parse monitor settings", e); }
         previewScreenW = -1; previewScreenL = -1;
         showSettings = false; settingsInited = false;
     }

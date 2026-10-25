@@ -31,6 +31,8 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * NBS 钢琴卷帘编辑器屏幕（布局与输入路由），双击 MUSIC 节点打开（像素编辑器同款管线）。
@@ -53,6 +55,12 @@ import java.util.UUID;
  * then the existing save request persists (plan §3.2).</p>
  */
 public class NbsEditorScreen extends Screen implements GraphEditor.Host {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     // ── 布局常量 / layout constants ──
     private static final int TOP_H = 28;
@@ -1998,7 +2006,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 }
             } else importFiles = List.of();
         } catch (Exception e) {
-            SchematicCompute.LOGGER.warn("Failed to list nbs files: {}", e.getMessage());
+            LOGGER.warn("Failed to list nbs files: {}", e.getMessage());
             importFiles = List.of();
         }
     }
@@ -2082,7 +2090,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
             feedback(I18n.get("gui.create_schematic_compute.nbs_exported"));
         } catch (Exception e) {
             // 含 InvalidPathException（文件名非法字符）——一律反馈，不崩游戏
-            SchematicCompute.LOGGER.warn("NBS export failed: {}", e.toString());
+            LOGGER.warn("NBS export failed: {}", e.toString());
             feedback("§c" + I18n.get("gui.create_schematic_compute.nbs_export_failed"));
         }
     }

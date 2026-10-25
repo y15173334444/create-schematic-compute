@@ -14,11 +14,20 @@ import net.minecraft.world.item.ItemStack;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 节点图渲染器 — 处理网格、节点、连线的绘制逻辑
  */
 public class NodeRenderer {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
+
     // ── Color palette stored in a single volatile array for atomic read/write (Phase 1) ──
     // Index constants for the 23 themeable colors (16 graph-editor semantic colors +
     // 7 GUI chrome colors added with the settings theme extension)
@@ -113,13 +122,13 @@ public class NodeRenderer {
                 int[] c = DEFAULT_COLORS.clone();
                 for (int i = 0; i < _NUM_COLORS; i++) {
                     String v = props.getProperty("color." + COLOR_KEYS[i]);
-                    if (v != null && v.length() == 8) try { c[i] = (int)(Long.parseLong(v, 16) & 0xFFFFFFFFL); } catch (Exception ignored) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.debug("Bad hex color value: {}", v); }
+                    if (v != null && v.length() == 8) try { c[i] = (int)(Long.parseLong(v, 16) & 0xFFFFFFFFL); } catch (Exception ignored) { LOGGER.debug("Bad hex color value: {}", v); }
                 }
                 setColors(c);
             } else if (currentTheme > 0) {
                 applyTheme(currentTheme);
             }
-        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("Failed to load color config", e); }
+        } catch (Exception e) { LOGGER.error("Failed to load color config", e); }
     }
 
     /** 保存颜色到配置文件（保留已有非颜色属性） */
@@ -133,7 +142,7 @@ public class NodeRenderer {
             int[] c = currentColors();
             for (int i = 0; i < _NUM_COLORS; i++) props.setProperty("color." + COLOR_KEYS[i], String.format("%08X", c[i]));
             try (var os = java.nio.file.Files.newOutputStream(path)) { props.store(os, "Create: Schematic Compute Theme"); }
-        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("Failed to save color config", e); }
+        } catch (Exception e) { LOGGER.error("Failed to save color config", e); }
     }
 
     static { loadColorConfig(); }
@@ -147,7 +156,7 @@ public class NodeRenderer {
                 try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
             props.setProperty("grid_snap", String.valueOf(on));
             try (var os = java.nio.file.Files.newOutputStream(path)) { props.store(os, null); }
-        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("Failed to save grid snap setting", e); }
+        } catch (Exception e) { LOGGER.error("Failed to save grid snap setting", e); }
     }
 
     /** 加载网格吸附状态 */
@@ -159,7 +168,7 @@ public class NodeRenderer {
                 try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
                 return Boolean.parseBoolean(props.getProperty("grid_snap", "true"));
             }
-        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("Failed to load grid snap setting", e); }
+        } catch (Exception e) { LOGGER.error("Failed to load grid snap setting", e); }
         return true;
     }
 
@@ -179,7 +188,7 @@ public class NodeRenderer {
             props.setProperty("toolbar_bottom", String.valueOf(toolbarBottom));
             java.nio.file.Files.createDirectories(path.getParent());
             try (var os = java.nio.file.Files.newOutputStream(path)) { props.store(os, null); }
-        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("Failed to save toolbar position", e); }
+        } catch (Exception e) { LOGGER.error("Failed to save toolbar position", e); }
     }
 
     static boolean loadToolbarBottom() {
@@ -190,7 +199,7 @@ public class NodeRenderer {
                 try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
                 return Boolean.parseBoolean(props.getProperty("toolbar_bottom", "false"));
             }
-        } catch (Exception e) { io.github.y15173334444.create_schematic_compute.SchematicCompute.LOGGER.error("Failed to load toolbar position", e); }
+        } catch (Exception e) { LOGGER.error("Failed to load toolbar position", e); }
         return false;
     }
 

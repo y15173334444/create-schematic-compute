@@ -12,7 +12,16 @@ import net.minecraft.client.resources.language.I18n;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 public class RadarScreen extends AbstractGraphScreen {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
+
     private boolean showDisplaySettings;
     private EditBox rangeInput, scaleInput, lockDistInput, offXInput, offYInput, offZInput;
     private static final int H = 18;
@@ -168,17 +177,17 @@ public class RadarScreen extends AbstractGraphScreen {
         }
         // 每帧更新值（无焦点时同步BE值，有焦点时读取输入值实时应用）
         if (!rangeInput.isFocused())  rangeInput.setValue(String.valueOf(be.scanRange));
-        else try { be.scanRange = Math.max(1, Math.min(128, Integer.parseInt(rangeInput.getValue()))); } catch(Exception ignored) { SchematicCompute.LOGGER.debug("Invalid numeric input in radar settings"); }
+        else try { be.scanRange = Math.max(1, Math.min(128, Integer.parseInt(rangeInput.getValue()))); } catch(Exception ignored) { LOGGER.debug("Invalid numeric input in radar settings"); }
         if (!scaleInput.isFocused())  scaleInput.setValue(String.valueOf(be.displayScale));
-        else try { be.displayScale = Math.max(1, Math.min(32, Integer.parseInt(scaleInput.getValue()))); } catch(Exception ignored) { SchematicCompute.LOGGER.debug("Invalid numeric input in radar settings"); }
+        else try { be.displayScale = Math.max(1, Math.min(32, Integer.parseInt(scaleInput.getValue()))); } catch(Exception ignored) { LOGGER.debug("Invalid numeric input in radar settings"); }
         if (!lockDistInput.isFocused()) lockDistInput.setValue(fmt1(be.lockDistance));
-        else try { be.lockDistance = Math.max(0, Float.parseFloat(lockDistInput.getValue())); } catch(Exception ignored) { SchematicCompute.LOGGER.debug("Invalid numeric input in radar settings"); }
+        else try { be.lockDistance = Math.max(0, Float.parseFloat(lockDistInput.getValue())); } catch(Exception ignored) { LOGGER.debug("Invalid numeric input in radar settings"); }
         if (!offXInput.isFocused())   offXInput.setValue(fmt1(be.displayX));
-        else try { be.displayX = Float.parseFloat(offXInput.getValue()); } catch(Exception ignored) { SchematicCompute.LOGGER.debug("Invalid numeric input in radar settings"); }
+        else try { be.displayX = Float.parseFloat(offXInput.getValue()); } catch(Exception ignored) { LOGGER.debug("Invalid numeric input in radar settings"); }
         if (!offYInput.isFocused())   offYInput.setValue(fmt1(be.displayY));
-        else try { be.displayY = Float.parseFloat(offYInput.getValue()); } catch(Exception ignored) { SchematicCompute.LOGGER.debug("Invalid numeric input in radar settings"); }
+        else try { be.displayY = Float.parseFloat(offYInput.getValue()); } catch(Exception ignored) { LOGGER.debug("Invalid numeric input in radar settings"); }
         if (!offZInput.isFocused())   offZInput.setValue(fmt1(be.displayZ));
-        else try { be.displayZ = Float.parseFloat(offZInput.getValue()); } catch(Exception ignored) { SchematicCompute.LOGGER.debug("Invalid numeric input in radar settings"); }
+        else try { be.displayZ = Float.parseFloat(offZInput.getValue()); } catch(Exception ignored) { LOGGER.debug("Invalid numeric input in radar settings"); }
     }
     private static String fmt1(float v) { return String.format("%.1f", v); }
     private String t(String key) { return I18n.get("gui.create_schematic_compute.radar." + key); }
@@ -257,12 +266,12 @@ public class RadarScreen extends AbstractGraphScreen {
     }
 
     private void applyInputs(RadarBlockEntity be) {
-        try { be.scanRange = Math.max(1, Math.min(128, Integer.parseInt(rangeInput.getValue()))); } catch(Exception ignored) { SchematicCompute.LOGGER.debug("Invalid numeric input in radar settings"); }
-        try { be.displayScale = Math.max(1, Math.min(32, Integer.parseInt(scaleInput.getValue()))); } catch(Exception ignored) { SchematicCompute.LOGGER.debug("Invalid numeric input in radar settings"); }
-        try { be.displayX = Float.parseFloat(offXInput.getValue()); } catch(Exception ignored) { SchematicCompute.LOGGER.debug("Invalid numeric input in radar settings"); }
-        try { be.displayY = Float.parseFloat(offYInput.getValue()); } catch(Exception ignored) { SchematicCompute.LOGGER.debug("Invalid numeric input in radar settings"); }
-        try { be.lockDistance = Math.max(0, Float.parseFloat(lockDistInput.getValue())); } catch(Exception ignored) { SchematicCompute.LOGGER.debug("Invalid numeric input in radar settings"); }
-        try { be.displayZ = Float.parseFloat(offZInput.getValue()); } catch(Exception ignored) { SchematicCompute.LOGGER.debug("Invalid numeric input in radar settings"); }
+        try { be.scanRange = Math.max(1, Math.min(128, Integer.parseInt(rangeInput.getValue()))); } catch(Exception ignored) { LOGGER.debug("Invalid numeric input in radar settings"); }
+        try { be.displayScale = Math.max(1, Math.min(32, Integer.parseInt(scaleInput.getValue()))); } catch(Exception ignored) { LOGGER.debug("Invalid numeric input in radar settings"); }
+        try { be.displayX = Float.parseFloat(offXInput.getValue()); } catch(Exception ignored) { LOGGER.debug("Invalid numeric input in radar settings"); }
+        try { be.displayY = Float.parseFloat(offYInput.getValue()); } catch(Exception ignored) { LOGGER.debug("Invalid numeric input in radar settings"); }
+        try { be.lockDistance = Math.max(0, Float.parseFloat(lockDistInput.getValue())); } catch(Exception ignored) { LOGGER.debug("Invalid numeric input in radar settings"); }
+        try { be.displayZ = Float.parseFloat(offZInput.getValue()); } catch(Exception ignored) { LOGGER.debug("Invalid numeric input in radar settings"); }
     }
 
     private boolean in(int mx, int x, int w) { return mx >= x && mx <= x + w; }

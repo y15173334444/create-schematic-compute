@@ -12,6 +12,8 @@ import net.minecraft.client.sounds.SoundManager;
 import net.minecraft.sounds.SoundSource;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * CSC 音频引擎（客户端）：世界发声与编辑器试听的**唯一播放入口**。
@@ -45,6 +47,12 @@ import net.neoforged.api.distmarker.OnlyIn;
 @OnlyIn(Dist.CLIENT)
 @net.neoforged.fml.common.EventBusSubscriber(modid = SchematicCompute.MOD_ID, value = Dist.CLIENT)
 public final class CscAudioEngine {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     private static AudioMixer mixer;
     private static ChannelAccess.ChannelHandle handle;
@@ -147,7 +155,7 @@ public final class CscAudioEngine {
         long drift = placed - target;
         if (drift > ms(5)) {
             String ep = DIAG.episode(drift, e.delaySeconds(), mixer.activeVoices(), now);
-            if (ep != null) SchematicCompute.LOGGER.warn(ep);
+            if (ep != null) LOGGER.warn(ep);
         }
     }
 
@@ -288,12 +296,12 @@ public final class CscAudioEngine {
                 synchronized (CscAudioEngine.class) {
                     attaching = false;
                 }
-                SchematicCompute.LOGGER.warn("CscAudioEngine: channel attach failed: {}", t.toString());
+                LOGGER.warn("CscAudioEngine: channel attach failed: {}", t.toString());
                 return null;
             });
         } catch (Throwable t) {
             attaching = false;
-            SchematicCompute.LOGGER.warn("CscAudioEngine: channel attach failed: {}", t.toString());
+            LOGGER.warn("CscAudioEngine: channel attach failed: {}", t.toString());
         }
     }
 
@@ -316,7 +324,7 @@ public final class CscAudioEngine {
         pump();
         // 时间线诊断：每 5 秒一条聚合报告（有活动才打）
         String report = DIAG.reportIfDue(System.nanoTime());
-        if (report != null) SchematicCompute.LOGGER.info(report);
+        if (report != null) LOGGER.info(report);
     }
 
     /** 补泵一次输出队列（幂等；通道空闲/已释放时无操作）。 */

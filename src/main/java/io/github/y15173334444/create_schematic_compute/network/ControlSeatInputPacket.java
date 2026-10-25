@@ -9,6 +9,8 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public record ControlSeatInputPacket(
     BlockPos pos,
@@ -22,6 +24,12 @@ public record ControlSeatInputPacket(
     long gpadButtons,
     boolean dismount    // ~ 键请求下马
 ) implements CustomPacketPayload {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     public static final Type<ControlSeatInputPacket> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "seat_input"));
@@ -123,7 +131,7 @@ public record ControlSeatInputPacket(
                 // P1-1 rider check: non-passengers of this seat (unmanned remote control,
                 // hijacking another's driving) have the whole packet ignored.
                 if (!senderMayControl(sp, pos)) {
-                    SchematicCompute.LOGGER.debug(
+                    LOGGER.debug(
                         "[ControlSeatInput] ignored non-rider input at {} from {}", pos,
                         sp.getName().getString());
                     return;

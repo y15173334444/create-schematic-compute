@@ -1,6 +1,5 @@
 package io.github.y15173334444.create_schematic_compute.compat;
 
-import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.RadarBlockEntity;
 import dev.ryanhcode.sable.api.block.BlockEntitySubLevelActor;
 import dev.ryanhcode.sable.api.physics.handle.RigidBodyHandle;
@@ -10,6 +9,8 @@ import dev.ryanhcode.sable.sublevel.SubLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Radar 的 Sable 兼容层 — 通过 sable$physicsTick 直接获取子世界位置。
@@ -26,6 +27,12 @@ import net.minecraft.world.level.block.state.BlockState;
  * @see BlockEntitySubLevelActor
  */
 public class RadarBlockEntitySable extends RadarBlockEntity implements BlockEntitySubLevelActor {
+    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. Log name and output unchanged. */
+    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
 
     /**
      * 缓存子世界的 Level 引用，防止 Sable 将 {@code this.level} 置空后丢失世界上下文。
@@ -154,7 +161,7 @@ public class RadarBlockEntitySable extends RadarBlockEntity implements BlockEnti
             cachedSubPitch = (float) Math.toDegrees(euler.x);
             cachedSubRoll = (float) Math.toDegrees(euler.z);
         } catch (Exception e) {
-            SchematicCompute.LOGGER.warn("Radar sable$physicsTick failed at {}: {}",
+            LOGGER.warn("Radar sable$physicsTick failed at {}: {}",
                 worldPosition, e.toString());
         }
     }
