@@ -4227,111 +4227,30 @@ public class GraphEditor {
         boolean modS = net.minecraft.client.gui.screens.Screen.hasShiftDown();
         boolean modA = net.minecraft.client.gui.screens.Screen.hasAltDown();
         // D: 搜索框菜单键盘 / search box menu keyboard
-        if (showMenu) {
-            if (renderer.isMenuSearchFocused()) {
-                if (key == 256) { renderer.setMenuSearchFocused(false); return true; } // Esc unfocus
-                if (key == 259) { renderer.menuSearchBackspace(); return true; }       // Backspace
-            } else {
-                if (key == 256) { showMenu = false; return true; } // Esc close menu
-            }
-        }
+        if (tryMenuKey(key)) return true;
         // 书签命名对话框 / bookmark name dialog（已拆至 GraphViewBookmarks / split into GraphViewBookmarks）
         if (viewBookmarks.handleKey(key)) return true;
         // 导出对话框键盘 (Export dialog keyboard)
-        if (showExportDialog) {
-            if (key == 256) { showExportDialog = false; exportNameEdit = null; return true; } // Esc (退出)
-            if (key == 257 && exportNameEdit != null && selectedNode != null) { // Enter (确认)
-                String name = exportNameEdit.getValue().trim();
-                if (!name.isEmpty()) exportEncapNode(selectedNode, name);
-                showExportDialog = false; exportNameEdit = null; return true;
-            }
-            if (exportNameEdit != null) return exportNameEdit.keyPressed(key, sc, mod);
-            return true;
-        }
+        if (showExportDialog) return exportDialogKey(key, sc, mod);
         // 导入对话框键盘 (Import dialog keyboard)
-        if (showImportDialog) {
-            if (key == 256) { showImportDialog = false; importFiles = null; return true; } // Esc (退出)
-            return true;
-        }
+        if (tryImportDialogKey(key)) return true;
         // Color picker keyboard delegation (close callback handles panel cleanup)
-        if (colorPicker.isVisible()) {
-            // ESC: close color picker AND comment color panel together
-            // ESC：同时关闭调色板与注释颜色面板
-            if (key == 256) {
-                colorPicker.close();
-                if (editingCommentColorNode != null && commentButtons != null) { closeCommentColorPopup(); return true; }
-                return true;
-            }
-            return colorPicker.keyPressed(key, sc, mod);
-        }
+        if (colorPicker.isVisible()) return colorPickerKey(key, sc, mod);
         // ESC closes open panels first, then falls through to close UI
-        if (key == 256) {
-            if (viewBookmarks.handleEscClose()) return true;
-            if (editingCommentColorNode != null && commentButtons != null) { closeCommentColorPopup(); return true; }
-        }
-        if (key == 257) { // Enter: 提交当前聚焦的编辑框 (Enter: commit current focused edit box)
-            for (var e : enterActions.entrySet()) {
-                if (e.getKey().isFocused()) { e.getValue().run(); return true; }
-            }
-            for (var st : nodeEditStatesById.values()) {
-                if (st.busBox != null && st.busBox.isFocused()) { bus.commitBusBox(st); return true; }
-            }
-        }
+        if (tryEscClosePanels(key)) return true;
+        // Enter: 提交当前聚焦的编辑框 (Enter: commit current focused edit box)
+        if (tryCommitFocusedOnEnter(key)) return true;
         // 框选键（BOX_SELECT 绑定，默认 Tab）按下时补全弹层优先 —— 弹层可见则由弹层消费，
         // 不进入框选（原 258 硬编码行为；改绑后跟随绑定键）。
         // While the box-select key (BOX_SELECT binding, Tab by default) is pressed, the
         // suggestion popup takes priority — a visible popup consumes the key and no
         // box-select starts (the old hardcoded-258 behavior; follows rebinds).
-        if (key == boxSelectKey()) {
-            for (var st : nodeEditStatesById.values()) {
-                for (var f : st.fields) {
-                    if (f.isFocused() && f instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mleBox) {
-                        var popup = mleBox.getSuggestPopup();
-                        if (popup.isVisible()) {
-                            String insert = popup.acceptSelected();
-                            if (insert != null) mleBox.replaceCurrentWordForPopup(insert);
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
+        if (trySuggestPopupKey(key)) return true;
         // KEYBOARD 按键绑定捕获（GAMEPAD_BUTTON 由 renderBg 每帧轮询处理） (KEYBOARD key binding capture; GAMEPAD_BUTTON polled by renderBg each frame)
-        if (!nodeEditStatesById.isEmpty()) {
-            for (var st : nodeEditStatesById.values()) {
-                if (st.listeningForKey) {
-                    // GAMEPAD_BUTTON handled by renderBg() — only ESC cancels, other keys ignored (GAMEPAD_BUTTON由renderBg处理，仅ESC取消)
-                    boolean isGpad = false;
-                    for (var en : getGraph().nodes) {
-                        var es = nodeEditStatesById.get(en.id);
-                        if (es == st && en.type == NodeType.GAMEPAD_BUTTON) { isGpad = true; break; }
-                    }
-                    if (isGpad) {
-                        if (key == 256) { st.listeningForKey = false; return true; }
-                        return true; // consume event, let renderBg() handle capture
-                    }
-                    // 键盘绑定 (Keyboard binding)
-                    if (key == 256) { st.listeningForKey = false; return true; }
-                    int idx = io.github.y15173334444.create_schematic_compute.blocks.EditPanel.glfwKeyToIndex(key);
-                    if (idx >= 0) {
-                        for (var en : getGraph().nodes) {
-                            var es = nodeEditStatesById.get(en.id);
-                            if (es == st && en.params.length > 0) {
-                                commitKeyBinding(en, idx);
-                                break; }
-                        }
-                        st.listeningForKey = false;
-                    }
-                    return true;
-                }
-            }
-        }
+        if (tryKeyBindingCapture(key)) return true;
         // 顶栏名称框键盘（Esc/Enter 提交并失焦，其余交给 EditBox）
         // Top-bar name box keyboard (Esc/Enter commit + unfocus, the rest to the EditBox).
-        if (topBarNameEdit != null && topBarNameEdit.isFocused()) {
-            if (key == 256 || key == 257) { topBarNameEdit.setFocused(false); return true; }
-            return topBarNameEdit.keyPressed(key, sc, mod);
-        }
+        if (topBarNameEdit != null && topBarNameEdit.isFocused()) return topBarNameKey(key, sc, mod);
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.keyPressed(key, sc, mod);
         // 键盘动作序列引擎（画布交互态 —— 输入框聚焦已在前转发 return）：
         // 完整命中 → 分发执行；前缀推进 → 消费等待；无关键 → 落到后续硬编码键处理。
@@ -4350,18 +4269,175 @@ public class GraphEditor {
         // key pan). Not started while the menu is open; key repeats re-anchor with a
         // zero delta; the sequence buffer is cleared (the key is consumed by the
         // gesture, voiding any partial combo).
-        if (!showMenu && EditorKeys.matchesPanHold(key, seqMods)) {
-            panning = true; panByKey = true;
-            panLastX = (float) lastMouseX; panLastY = (float) lastMouseY;
-            EditorKeys.clearBuffer();
-            return true;
-        }
+        if (tryStartKeyPan(key, seqMods)) return true;
         // 菜单打开时引擎不喂键（模态菜单持有键盘）：搜索框打字不得误触动作（打
         // "x" 删悬停节点、打 "c" 建注释节点）或重开菜单。
         // While the menu is open the engine is not fed (the modal menu owns the
         // keyboard): typing in the search box must not mis-fire actions ("x"
         // deleting the hovered node, "c" creating a comment node) or reopen the menu.
         var seqHit = showMenu ? null : EditorKeys.feedKey(key, seqMods, System.currentTimeMillis(), EditorKeys.Scope.GRAPH);
+        if (tryKeySequenceActions(seqHit)) return true;
+        // C key: Create comment node around selection（菜单打开时不建——模态 / not while the menu is open — the menu is modal）
+        if (tryCreateCommentWrapper(key, graph)) return true;
+        return false;
+    }
+
+    /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former keyPressed. */
+    private boolean tryMenuKey(int key) {
+        if (!showMenu) return false;
+        if (renderer.isMenuSearchFocused()) {
+            if (key == 256) { renderer.setMenuSearchFocused(false); return true; } // Esc unfocus
+            if (key == 259) { renderer.menuSearchBackspace(); return true; }       // Backspace
+        } else {
+            if (key == 256) { showMenu = false; return true; } // Esc close menu
+        }
+        return false;
+    }
+
+    /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  调用点保留 showExportDialog 守卫并**直返本方法结果**——EditBox 委托的 false 不得
+     *  继续下探到后续键处理器（原语义）。
+     *  6f second-half extraction: a verbatim inline block of the former keyPressed.
+     *  The caller keeps the showExportDialog guard and returns this method's result
+     *  directly — a false from the EditBox delegation must NOT fall through to the
+     *  later handlers (original semantics). */
+    private boolean exportDialogKey(int key, int sc, int mod) {
+        if (key == 256) { showExportDialog = false; exportNameEdit = null; return true; } // Esc (退出)
+        if (key == 257 && exportNameEdit != null && selectedNode != null) { // Enter (确认)
+            String name = exportNameEdit.getValue().trim();
+            if (!name.isEmpty()) exportEncapNode(selectedNode, name);
+            showExportDialog = false; exportNameEdit = null; return true;
+        }
+        if (exportNameEdit != null) return exportNameEdit.keyPressed(key, sc, mod);
+        return true;
+    }
+
+    /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former keyPressed. */
+    private boolean tryImportDialogKey(int key) {
+        if (!showImportDialog) return false;
+        if (key == 256) { showImportDialog = false; importFiles = null; return true; } // Esc (退出)
+        return true;
+    }
+
+    /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  调用点保留 isVisible 守卫并**直返本方法结果**——委托的 false 不下探（原语义）。
+     *  6f second-half extraction: a verbatim inline block of the former keyPressed.
+     *  The caller keeps the isVisible guard and returns this method's result
+     *  directly — a false from the delegation must NOT fall through (original semantics). */
+    private boolean colorPickerKey(int key, int sc, int mod) {
+        // ESC: close color picker AND comment color panel together
+        // ESC：同时关闭调色板与注释颜色面板
+        if (key == 256) {
+            colorPicker.close();
+            if (editingCommentColorNode != null && commentButtons != null) { closeCommentColorPopup(); return true; }
+            return true;
+        }
+        return colorPicker.keyPressed(key, sc, mod);
+    }
+
+    /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former keyPressed. */
+    private boolean tryEscClosePanels(int key) {
+        if (key != 256) return false;
+        if (viewBookmarks.handleEscClose()) return true;
+        if (editingCommentColorNode != null && commentButtons != null) { closeCommentColorPopup(); return true; }
+        return false;
+    }
+
+    /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former keyPressed. */
+    private boolean tryCommitFocusedOnEnter(int key) {
+        if (key != 257) return false;
+        for (var e : enterActions.entrySet()) {
+            if (e.getKey().isFocused()) { e.getValue().run(); return true; }
+        }
+        for (var st : nodeEditStatesById.values()) {
+            if (st.busBox != null && st.busBox.isFocused()) { bus.commitBusBox(st); return true; }
+        }
+        return false;
+    }
+
+    /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former keyPressed. */
+    private boolean trySuggestPopupKey(int key) {
+        if (key != boxSelectKey()) return false;
+        for (var st : nodeEditStatesById.values()) {
+            for (var f : st.fields) {
+                if (f.isFocused() && f instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mleBox) {
+                    var popup = mleBox.getSuggestPopup();
+                    if (popup.isVisible()) {
+                        String insert = popup.acceptSelected();
+                        if (insert != null) mleBox.replaceCurrentWordForPopup(insert);
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former keyPressed. */
+    private boolean tryKeyBindingCapture(int key) {
+        if (nodeEditStatesById.isEmpty()) return false;
+        for (var st : nodeEditStatesById.values()) {
+            if (st.listeningForKey) {
+                // GAMEPAD_BUTTON handled by renderBg() — only ESC cancels, other keys ignored (GAMEPAD_BUTTON由renderBg处理，仅ESC取消)
+                boolean isGpad = false;
+                for (var en : getGraph().nodes) {
+                    var es = nodeEditStatesById.get(en.id);
+                    if (es == st && en.type == NodeType.GAMEPAD_BUTTON) { isGpad = true; break; }
+                }
+                if (isGpad) {
+                    if (key == 256) { st.listeningForKey = false; return true; }
+                    return true; // consume event, let renderBg() handle capture
+                }
+                // 键盘绑定 (Keyboard binding)
+                if (key == 256) { st.listeningForKey = false; return true; }
+                int idx = io.github.y15173334444.create_schematic_compute.blocks.EditPanel.glfwKeyToIndex(key);
+                if (idx >= 0) {
+                    for (var en : getGraph().nodes) {
+                        var es = nodeEditStatesById.get(en.id);
+                        if (es == st && en.params.length > 0) {
+                            commitKeyBinding(en, idx);
+                            break; }
+                    }
+                    st.listeningForKey = false;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  调用点保留聚焦守卫并**直返本方法结果**——EditBox 委托的 false 不下探（原语义）。
+     *  6f second-half extraction: a verbatim inline block of the former keyPressed.
+     *  The caller keeps the focus guard and returns this method's result directly —
+     *  a false from the EditBox delegation must NOT fall through (original semantics). */
+    private boolean topBarNameKey(int key, int sc, int mod) {
+        if (key == 256 || key == 257) { topBarNameEdit.setFocused(false); return true; }
+        return topBarNameEdit.keyPressed(key, sc, mod);
+    }
+
+    /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former keyPressed. */
+    private boolean tryStartKeyPan(int key, int seqMods) {
+        if (showMenu || !EditorKeys.matchesPanHold(key, seqMods)) return false;
+        panning = true; panByKey = true;
+        panLastX = (float) lastMouseX; panLastY = (float) lastMouseY;
+        EditorKeys.clearBuffer();
+        return true;
+    }
+
+    /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  序列引擎分派（含「触发但前置不满足也消费」与「前缀等待」两条收尾判定）。
+     *  6f second-half extraction: a verbatim inline block of the former keyPressed.
+     *  The sequence-engine dispatch, including the two closing rules (a triggered
+     *  action with a failed precondition still consumes; a waiting prefix consumes). */
+    private boolean tryKeySequenceActions(EditorKeys.Action seqHit) {
         if (seqHit == EditorKeys.Action.DELETE_NODE) {
             // 删除悬停节点（替代右键删除防误触）/ delete the hovered node
             deleteHoveredNode(lastMouseX, lastMouseY);
@@ -4401,61 +4477,65 @@ public class GraphEditor {
         }
         if (seqHit != null) return true; // 触发但前置不满足也消费（动作拥有该键）/ triggered with a failed precondition still consumes
         if (EditorKeys.bufferActive() || EditorKeys.mixedBufferActive()) return true; // 前缀等待：按键已被引擎消费 / prefix waiting: key consumed
-        // C key: Create comment node around selection（菜单打开时不建——模态 / not while the menu is open — the menu is modal）
-        if (!showMenu && key == 67 && !net.minecraft.client.gui.screens.Screen.hasControlDown()
-            && !selectedNodes.isEmpty()) {
-            boolean anyFocused = false;
-            for (var st : nodeEditStatesById.values())
-                for (var f : st.fields) if (f.isFocused()) { anyFocused = true; break; }
-            if (anyFocused) return false;
-            if (showExportDialog || showImportDialog) return false;
-            beginUndoBatch();
-            float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE;
-            float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
-            for (var n : selectedNodes) {
-                float nw = NodeRenderer.nw(n);
-                float nh = NodeRenderer.nh(n);
-                if (expandedNodeIds.contains(n.id)) {
-                    var es = nodeEditStatesById.get(n.id);
-                    nh += EditPanel.expandedEditHeight(n, es) + 4;
-                }
-                if (n.x < minX) minX = n.x;
-                if (n.y < minY) minY = n.y;
-                if (n.x + nw > maxX) maxX = n.x + nw;
-                if (n.y + nh > maxY) maxY = n.y + nh;
-            }
-            float padding = 30;
-            float cw = maxX - minX + padding * 2;
-            float ch = maxY - minY + padding * 2;
-            cw = Math.max(80, Math.min(8000, cw));
-            ch = Math.max(40, Math.min(6000, ch));
-            var comment = graph.addNode(NodeType.COMMENT, minX - padding, minY - padding);
-            comment.commentWidth = cw;
-            comment.commentHeight = ch;
-            // Ensure wrapper comment renders behind all contained nodes
-            int minSelSortB = Integer.MAX_VALUE;
-            for (var n : selectedNodes) {
-                if (n.sortB < minSelSortB) minSelSortB = n.sortB;
-            }
-            if (minSelSortB != Integer.MAX_VALUE) {
-                comment.sortB = minSelSortB - 1;
-                if (comment.sortB < 0) renormalizeSortB(graph);
-            }
-            var addOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE,
-                host.getBlockPos(), ownerNodeId(), comment.id,
-                comment.id, NodeType.COMMENT, minX - padding, minY - padding, 0, 0, 0, 0, 0, 0f,
-                null, 0, 0, 0, 0, null, 0, 0, 0,
-                net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
-            sendOp(addOp); recordOp(addOp, 0, 0, 0, null);
-            var szOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
-                host.getBlockPos(), ownerNodeId(), comment.id, cw, ch, host.getPlayerUUID());
-            sendOp(szOp); recordOp(szOp, 0, 0, 0, null);
-            endUndoBatch();
-            return true;
-        }
         return false;
     }
+
+    /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  6f second-half extraction: a verbatim inline block of the former keyPressed. */
+    private boolean tryCreateCommentWrapper(int key, NodeGraph graph) {
+        if (showMenu || key != 67 || net.minecraft.client.gui.screens.Screen.hasControlDown()
+            || selectedNodes.isEmpty()) return false;
+        boolean anyFocused = false;
+        for (var st : nodeEditStatesById.values())
+            for (var f : st.fields) if (f.isFocused()) { anyFocused = true; break; }
+        if (anyFocused) return false;
+        if (showExportDialog || showImportDialog) return false;
+        beginUndoBatch();
+        float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE;
+        float maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        for (var n : selectedNodes) {
+            float nw = NodeRenderer.nw(n);
+            float nh = NodeRenderer.nh(n);
+            if (expandedNodeIds.contains(n.id)) {
+                var es = nodeEditStatesById.get(n.id);
+                nh += EditPanel.expandedEditHeight(n, es) + 4;
+            }
+            if (n.x < minX) minX = n.x;
+            if (n.y < minY) minY = n.y;
+            if (n.x + nw > maxX) maxX = n.x + nw;
+            if (n.y + nh > maxY) maxY = n.y + nh;
+        }
+        float padding = 30;
+        float cw = maxX - minX + padding * 2;
+        float ch = maxY - minY + padding * 2;
+        cw = Math.max(80, Math.min(8000, cw));
+        ch = Math.max(40, Math.min(6000, ch));
+        var comment = graph.addNode(NodeType.COMMENT, minX - padding, minY - padding);
+        comment.commentWidth = cw;
+        comment.commentHeight = ch;
+        // Ensure wrapper comment renders behind all contained nodes
+        int minSelSortB = Integer.MAX_VALUE;
+        for (var n : selectedNodes) {
+            if (n.sortB < minSelSortB) minSelSortB = n.sortB;
+        }
+        if (minSelSortB != Integer.MAX_VALUE) {
+            comment.sortB = minSelSortB - 1;
+            if (comment.sortB < 0) renormalizeSortB(graph);
+        }
+        var addOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE,
+            host.getBlockPos(), ownerNodeId(), comment.id,
+            comment.id, NodeType.COMMENT, minX - padding, minY - padding, 0, 0, 0, 0, 0, 0f,
+            null, 0, 0, 0, 0, null, 0, 0, 0,
+            net.minecraft.world.item.ItemStack.EMPTY, 0L, host.getPlayerUUID());
+        sendOp(addOp); recordOp(addOp, 0, 0, 0, null);
+        var szOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
+            host.getBlockPos(), ownerNodeId(), comment.id, cw, ch, host.getPlayerUUID());
+        sendOp(szOp); recordOp(szOp, 0, 0, 0, null);
+        endUndoBatch();
+        return true;
+    }
+
     /** 处理按键释放——框选键释放时退出框选模式（跟随 BOX_SELECT 绑定键）；PAN 按住
      *  组合键释放时结束按键平移（仅结束由按键启动的平移，panByKey 区分）。
      *  Handle key release — exits box-select mode when the bound BOX_SELECT key
