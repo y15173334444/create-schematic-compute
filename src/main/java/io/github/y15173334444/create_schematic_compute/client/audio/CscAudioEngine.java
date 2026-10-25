@@ -47,12 +47,12 @@ import org.slf4j.LoggerFactory;
 @OnlyIn(Dist.CLIENT)
 @net.neoforged.fml.common.EventBusSubscriber(modid = SchematicCompute.MOD_ID, value = Dist.CLIENT)
 public final class CscAudioEngine {
-    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
-     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+    /** 独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名为本类 FQCN。
      *  Same-name standalone logger: never references the @Mod class — its static init needs
      *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
-     *  plain JUnit too. Log name and output unchanged. */
-    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
+     *  plain JUnit too. The log name is this class's FQCN. */
+    private static final Logger LOGGER = LoggerFactory.getLogger(CscAudioEngine.class);
 
     private static AudioMixer mixer;
     private static ChannelAccess.ChannelHandle handle;

@@ -16,12 +16,12 @@ import org.slf4j.LoggerFactory;
  *  </ul>
  */
 public class SignalBus {
-    /** 同名独立 logger：**不引用** @Mod 类 —— 其静态初始化需要 MC 注册表，纯 JUnit 起不来
-     *  （BusInBandConvergenceTest 为此只能反射种条目）。日志名与输出完全不变。
+    /** 独立 logger：**不引用** @Mod 类 —— 其静态初始化需要 MC 注册表，纯 JUnit 起不来
+     *  （BusInBandConvergenceTest 为此只能反射种条目）。日志名为本类 FQCN。
      *  Same-name standalone logger: never references the @Mod class — its static init needs
      *  the Minecraft registries and cannot boot in plain JUnit (which is why
-     *  BusInBandConvergenceTest had to plant entries reflectively). Log name and output unchanged. */
-    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
+     *  BusInBandConvergenceTest had to plant entries reflectively). The log name is this class's FQCN. */
+    private static final Logger LOGGER = LoggerFactory.getLogger(SignalBus.class);
 
     private static final ConcurrentHashMap<String, Float> SIGNALS = new ConcurrentHashMap<>();
 

@@ -60,12 +60,12 @@ import org.slf4j.LoggerFactory;
  * 扫描子层级中的图连接设备、以及通过 Sable 坐标变换验证玩家到方块的可达性。
  */
 public class SablePacketHelper {
-    /** 同名独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
-     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名与输出不变。
+    /** 独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名为本类 FQCN。
      *  Same-name standalone logger: never references the @Mod class — its static init needs
      *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
-     *  plain JUnit too. Log name and output unchanged. */
-    private static final Logger LOGGER = LoggerFactory.getLogger("create_schematic_compute");
+     *  plain JUnit too. The log name is this class's FQCN. */
+    private static final Logger LOGGER = LoggerFactory.getLogger(SablePacketHelper.class);
 
     /**
      * Checks whether the Sable mod is loaded in the current environment.
