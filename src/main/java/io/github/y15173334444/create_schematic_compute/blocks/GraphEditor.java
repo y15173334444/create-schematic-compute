@@ -2593,6 +2593,22 @@ public class GraphEditor {
         int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
         int editLocalY = (int)(NodeRenderer.nh(en) + 4/zoom); // 使用 nh() 含图表区域 / use nh() to include chart area
         int numRows = st.fields.size();
+        if (tryEditAreaToggleButtons(en, st, lmx, lmy, editLocalY, numRows)) return true;
+        if (tryAudioPanelClicks(en, lmx, lmy, editLocalY, numRows)) return true;
+        if (tryBusBandButtons(en, st, lmx, lmy, graph)) return true;
+        if (tryEditAreaFieldClicks(en, st, mx, my, lmx, lmy, nsx, nsy, editLocalY, numRows)) return true;
+    }
+        return false;
+    }
+
+    /** 6f 后半拆出：原 tryExpandedEditAreaClicks 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  开关钮族：REDSTONE_IN/OUT 频段槽、BOOL/MOUSE_JOYSTICK/GATE/T_FLIPFLOP/LATCH 翻转、
+     *  「当前状态」行（TOGGLE_CUR_STATE 乐观镜像）与 MOVE/ROTATE/TX_OUT/SPEED_CTRL 正反转钮。
+     *  6f second-half extraction: a verbatim inline block of the former tryExpandedEditAreaClicks.
+     *  The toggle-button family: REDSTONE_IN/OUT frequency slots, the BOOL/MOUSE_JOYSTICK/
+     *  GATE/T_FLIPFLOP/LATCH flips, the "current state" row (optimistic TOGGLE_CUR_STATE
+     *  mirror) and the MOVE/ROTATE/TX_OUT/SPEED_CTRL forward/reverse buttons. */
+    private boolean tryEditAreaToggleButtons(GraphNode en, EditState st, int lmx, int lmy, int editLocalY, int numRows) {
         // Frequency slots only exist for REDSTONE_IN/OUT nodes
         if (en.type == NodeType.REDSTONE_IN || en.type == NodeType.REDSTONE_OUT) {
             int freqLocalY = editLocalY + 8 + numRows * 18;
@@ -2708,6 +2724,17 @@ public class GraphEditor {
                 return true;
             }
         }
+        return false;
+    }
+
+    /** 6f 后半拆出：原 tryExpandedEditAreaClicks 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  音频与分段面板族：MUSIC 播放三行段、CHANNEL 布局预设（含幽灵线本地镜像）、
+     *  HUD_PITCH_LADDER 行、FORMULA warm 与 ANGLE_UNWRAP 折返两段式。
+     *  6f second-half extraction: a verbatim inline block of the former tryExpandedEditAreaClicks.
+     *  The audio & segmented-panel family: the MUSIC playback rows, CHANNEL layout presets
+     *  (with the ghost-wire local mirror), HUD_PITCH_LADDER rows, and the FORMULA warm /
+     *  ANGLE_UNWRAP segmented toggles. */
+    private boolean tryAudioPanelClicks(GraphNode en, int lmx, int lmy, int editLocalY, int numRows) {
         // ── v1.2.6 音频节点编辑区按钮 / audio-node edit-panel buttons ──
         // 几何与 EditPanel.renderAt 对应段落逐行对齐（editLocalY + 4 + numRows*18 起）。
         if (en.type == NodeType.MUSIC && en.params.length > 0) {
@@ -2850,6 +2877,15 @@ public class GraphEditor {
                 }
             }
         }
+        return false;
+    }
+
+    /** 6f 后半拆出：原 tryExpandedEditAreaClicks 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  BUS_IN/OUT 频段 +/-：先提交未保存 busBox，再按 pinId（频段名）清连线（旧索引回退保留）。
+     *  6f second-half extraction: a verbatim inline block of the former tryExpandedEditAreaClicks.
+     *  The BUS_IN/OUT band +/- buttons: commit any unsaved busBox first, then prune
+     *  connections by pinId (band name), keeping the legacy index fallback. */
+    private boolean tryBusBandButtons(GraphNode en, EditState st, int lmx, int lmy, NodeGraph graph) {
         // BUS_IN/OUT 频段 +/- 按钮（先提交未保存的 busBox，防止名称丢失） (BUS_IN/OUT band +/- buttons; commit unsaved busBox first to avoid name loss)
         if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
             // 提交当前节点的 busBox（如有未保存的频道名编辑） (Commit current node's busBox if unsaved channel name edits exist)
@@ -2901,6 +2937,18 @@ public class GraphEditor {
                 return true;
             }
         }
+        return false;
+    }
+
+    /** 6f 后半拆出：原 tryExpandedEditAreaClicks 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
+     *  字段聚焦族：IMAGE 帧开关、KEYBOARD/GAMEPAD 面板、DSG 模式切换、FORMULA/COMMENT 的
+     *  MLE + 补全弹窗、DSG 条件字段与通用字段/取色钮。
+     *  6f second-half extraction: a verbatim inline block of the former tryExpandedEditAreaClicks.
+     *  The field-focus family: IMAGE frame toggles, the KEYBOARD/GAMEPAD panel, the DSG
+     *  mode toggles, the FORMULA/COMMENT MLE with its suggestion popup, and the DSG
+     *  conditional / generic fields + colour button. */
+    private boolean tryEditAreaFieldClicks(GraphNode en, EditState st, double mx, double my, int lmx, int lmy,
+                                           float nsx, float nsy, int editLocalY, int numRows) {
         if ((en.type == NodeType.IMAGE || en.type == NodeType.IMAGE_SEQUENCE) && en.params.length > 3) {
             for (int ti = 0; ti < 2; ti++) {
                 int tgY = editLocalY + 4 + (numRows + ti) * 18;
@@ -3065,7 +3113,6 @@ public class GraphEditor {
                 else b.setFocused(false);
             }
         }
-    }
         return false;
     }
 
