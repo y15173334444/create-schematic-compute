@@ -2,19 +2,23 @@ package io.github.y15173334444.create_schematic_compute.graph;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static io.github.y15173334444.create_schematic_compute.graph.FormulaAstParser.isAstTrigger;
+import static io.github.y15173334444.create_schematic_compute.graph.FormulaAstParser.parseScriptAst;
+import static io.github.y15173334444.create_schematic_compute.graph.FormulaFunctions.CONSTANTS;
+import static io.github.y15173334444.create_schematic_compute.graph.FormulaFunctions.VECTOR_FN_NAMES;
+import static io.github.y15173334444.create_schematic_compute.graph.FormulaFunctions.applyFunction;
+import static io.github.y15173334444.create_schematic_compute.graph.FormulaFunctions.applyVectorFunction;
+
 /**
- * 公式解析器 — 将数学表达式编译为可执行的后缀表达式（RPN）及轻量级脚本解析。
+ * 公式解析器 — 家族门面 + RPN 旧前端本体（拓扑审查 §三 P5 按相拆分后的锚类，行为零变更）。
  * 数学表达式支持：多字母变量名（连续字母如 ABD）、+ - * / % ^ ( )、数字、一元负号、
  *       三角函数：sin(x) cos(x) tan(x) asin(x) acos(x) atan2(y,x) sinh(x) cosh(x)
  *
@@ -23,6 +27,28 @@ import org.slf4j.LoggerFactory;
  *   赋值语句         : varName = expression
  *   输出声明         : @output varName
  *   默认回退输出     : 若未声明 @output，最后一行独立表达式为输出
+ *
+ * 相位分家（拓扑 P5，物理拆分、双前端语义不动）：词法在 FormulaLexer（tokenize /
+ * sanitizeFullwidth / extractVariables / isValidIdentifier）；AST 前端在 FormulaAstParser
+ * （刀3 语句树解析）；内建函数与常量表在 FormulaFunctions（K14 扩容落点，FUNCTIONS 字段
+ * 是本类上的稳定别名）；校验在 FormulaValidator。本类留守：词汇类型（TokType / Token /
+ * ScriptParseResult / FormulaIssue / RPN token 族 / MAX_PARSE_DEPTH 族）、RPN 旧前端
+ * （compile / compileTokens / evaluateValue / parseScript 的模式路由与降级）与 Value 栈机，
+ * 以及全部公开签名的冻结门面（逐个委托，存量引用零改动）。AST（新表示）与 RPN（旧表示）
+ * 双前端并存的退役时间点是独立决策，与本拆分无关（见拓扑审查 §三 P5）。
+ * <p>Formula parser — family facade plus the legacy RPN front-end (the anchor of the
+ * topology-review §三 P5 phase split; zero behaviour change). The phases now live next
+ * door: lexing in FormulaLexer (tokenize / sanitizeFullwidth / extractVariables /
+ * isValidIdentifier), the AST front-end in FormulaAstParser (knife-3 statement parsing),
+ * the builtin function &amp; constant tables in FormulaFunctions (the K14 expansion
+ * point; the FUNCTIONS field here is a stable alias to the same table), and validation
+ * in FormulaValidator. This class keeps the vocabulary types (TokType / Token /
+ * ScriptParseResult / FormulaIssue / the RPN token family / the MAX_PARSE_DEPTH family),
+ * the legacy RPN front-end (compile / compileTokens / evaluateValue / parseScript's mode
+ * routing and degradation) and the Value stack machine, plus frozen facades for every
+ * public signature (item-by-item delegation, existing references untouched). When the
+ * dual front-ends (AST the new representation, RPN the old) retire is a separate
+ * decision, independent of this split (topology review §三 P5).</p>
  */
 public class FormulaParser {
 
@@ -37,12 +63,10 @@ public class FormulaParser {
      *  词法单元，携带源字符串中的 [start, end) 字符偏移。 */
     public record Token(int start, int end, TokType type, String text) {}
 
-    /** Pattern for valid identifiers: a-z, A-Z, 0-9, underscore, starting with letter or underscore */
-    private static final Pattern IDENTIFIER = Pattern.compile("[a-zA-Z_][a-zA-Z0-9_]*");
     private static final Logger LOGGER = LoggerFactory.getLogger(FormulaParser.class);
 
     /** RPN token representing a function call. */
-    private record FunctionToken(String name, int arity) {}
+    record FunctionToken(String name, int arity) {}
 
     /** 双字符/逻辑运算符的 RPN token(==、!=、<=、>=、&&、||、一元 !)。
      *  RPN token for two-char / logical operators (==, !=, <=, >=, &&, ||, unary !). */
@@ -89,249 +113,35 @@ public class FormulaParser {
         }
     }
 
-    public static final Map<String, Integer> FUNCTIONS;
-    private static final Set<String> FUNCTION_NAMES;
-    static {
-        var m = new java.util.LinkedHashMap<String, Integer>();
-        m.put("sin", 1); m.put("cos", 1); m.put("tan", 1);
-        m.put("asin", 1); m.put("acos", 1); m.put("atan2", 2);
-        m.put("sinh", 1); m.put("cosh", 1);
-        m.put("sqrt", 1); m.put("ln", 1); m.put("log", 1); m.put("exp", 1);
-        m.put("sec", 1); m.put("csc", 1); m.put("cot", 1);
-        m.put("vec3", 3);       // 向量构造 / vector constructor
-        m.put("length", 1);     // 模长 / magnitude
-        m.put("normalize", 1);  // 单位化 / normalize
-        m.put("dot", 2);        // 点积 / dot product
-        m.put("cross", 2);      // 叉积 / cross product
-        m.put("dist", 2);       // 两点距 / distance
-        m.put("yaw", 1);        // 偏航角(度)/ yaw angle (degrees)
-        m.put("pitch", 1);      // 俯仰角(度)/ pitch angle (degrees)
-        FUNCTIONS = Collections.unmodifiableMap(m);
-        FUNCTION_NAMES = FUNCTIONS.keySet();
-    }
+    // ── 冻结门面（拓扑审查 §三 P5 按相拆分）：下列公开签名的实现已迁至相位类（词法 →
+    //    FormulaLexer、函数/常量表 → FormulaFunctions、校验 → FormulaValidator、AST 前端 →
+    //    FormulaAstParser），签名与语义逐字不变，存量引用零改动。
+    // ── Frozen facades (topology-review §三 P5 phase split): the implementations behind
+    //    the public signatures below moved to the phase classes (lexer → FormulaLexer,
+    //    function & constant tables → FormulaFunctions, validation → FormulaValidator,
+    //    AST front-end → FormulaAstParser); signatures and semantics are verbatim-identical,
+    //    existing references untouched. ──
 
-    /** Named constants requiring parenthesis disambiguation: bare PI/E are variables,
-     *  only (PI)/(E) wrapped directly by a grouping '(' are constant literals. */
-    private static final Map<String, Double> CONSTANTS;
-    private static final Set<String> CONSTANT_NAMES;
-    static {
-        var cm = new java.util.LinkedHashMap<String, Double>();
-        cm.put("PI", Math.PI);
-        cm.put("E", Math.E);
-        CONSTANTS = Collections.unmodifiableMap(cm);
-        CONSTANT_NAMES = CONSTANTS.keySet();
-    }
+    /** 内建函数名 → 元数表。存储在 FormulaFunctions（拓扑 P5 函数表相位，K14 扩容落点）；
+     *  本字段是同一张不可变表在家族门面上的稳定别名。/ Builtin function name → arity.
+     *  Storage lives in FormulaFunctions (the topology-P5 function-table phase, the K14
+     *  expansion point); this field is the facade's stable alias to the same unmodifiable map. */
+    public static final Map<String, Integer> FUNCTIONS = FormulaFunctions.FUNCTIONS;
 
-    /** Returns the set of constant names (for autocomplete / validation to enumerate). */
-    public static Set<String> constantNames() { return CONSTANT_NAMES; }
+    /** 常量名集合（委托，表在 FormulaFunctions）/ constant-name set (delegates; table in FormulaFunctions). */
+    public static Set<String> constantNames() { return FormulaFunctions.constantNames(); }
 
-    /** Returns true if the name is a known constant name. */
-    public static boolean isConstantName(String name) { return CONSTANT_NAMES.contains(name); }
+    /** 是否命名常量（委托，表在 FormulaFunctions）/ known-constant test (delegates; table in FormulaFunctions). */
+    public static boolean isConstantName(String name) { return FormulaFunctions.isConstantName(name); }
 
-    /** 将常见中文/全角符号实时转换为半角 ASCII 等价物(公式编辑器输入即调用,
-     *  FORMULA 脚本框与信号发生器公式框共用)。未命中的字符原样保留。
-     *  Converts common CJK/full-width symbols to half-width ASCII equivalents on the fly
-     *  (applied live on formula input; shared by the FORMULA script box and the signal
-     *  generator's formula box). Unmatched characters pass through unchanged. */
-    public static String sanitizeFullwidth(String s) {
-        if (s == null || s.isEmpty()) return s;
-        var sb = new StringBuilder(s.length());
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            if (c == '　') c = ' ';                                                  // 全角空格 / ideographic space
-            if (c >= '０' && c <= '９') c = (char) (c - '０' + '0');                     // 全角数字 / full-width digits
-            if (c >= 'Ａ' && c <= 'Ｚ') c = (char) (c - 'Ａ' + 'A');                     // 全角大写 / full-width uppercase
-            if (c >= 'ａ' && c <= 'ｚ') c = (char) (c - 'ａ' + 'a');                     // 全角小写 / full-width lowercase
-            sb.append(switch (c) {
-                case '（' -> '(';  case '）' -> ')';
-                case '，' -> ',';  case '。', '．' -> '.';
-                case '；' -> ';';  case '：' -> ':';
-                case '＋' -> '+';  case '－' -> '-';
-                case '×' -> '*';  case '÷' -> '/';
-                case '＝' -> '=';  case '！' -> '!';
-                case '＜' -> '<';  case '＞' -> '>';
-                case '＆' -> '&';  case '｜' -> '|';
-                case '｛' -> '{';  case '｝' -> '}';
-                case '％' -> '%';  case '＾' -> '^';
-                default -> c;
-            });
-        }
-        // 组合符号(一对多映射,字符串级替换)/ composite symbols (1→2 mappings, string-level)
-        return sb.toString()
-            .replace("≥", ">=").replace("≤", "<=").replace("≠", "!=");
-    }
+    /** 全角→半角归一（委托，正文在 FormulaLexer）/ full-width → half-width normalisation (delegates; body in FormulaLexer). */
+    public static String sanitizeFullwidth(String s) { return FormulaLexer.sanitizeFullwidth(s); }
 
-    /** 解析 formula 返回所有变量名（按出现顺序，跳过函数名）。
-     *  变量名支持字母、数字、下划线，首字符必须是字母或下划线。
-     *  命名常量 (PI)/(E) 仅在其紧邻前驱为分组 '(' 时跳过（视为字面量），
-     *  函数调用内的裸 PI/E（如 sin(PI)）仍作为变量。
-     *  Uses {@link #tokenize(String)} so that CONSTANT vs IDENT distinction
-     *  is consistent with {@link #compile(String)}. */
-    public static List<String> extractVariables(String formula) {
-        var vars = new LinkedHashSet<String>();
-        if (formula == null || formula.isEmpty()) return new ArrayList<>(vars);
-        // Normalize full-width parens to match tokenize() behaviour
-        String s = formula.replace('（', '(').replace('）', ')');
-        var tokens = tokenize(s);
-        for (Token t : tokens) {
-            if (t.type() == TokType.IDENT && !FUNCTION_NAMES.contains(t.text())) {
-                vars.add(t.text());
-            }
-            // CONSTANT tokens represent literal PI/E inside grouping (…) and are
-            // deliberately skipped — they are not variables.  PI/E tokens inside
-            // function calls (e.g. sin(PI)) are marked IDENT by tokenize() because
-            // the function's LPAREN is consumed by the FUNCTION token and never
-            // emitted as a standalone LPAREN.
-        }
-        return new ArrayList<>(vars);
-    }
+    /** 抽取变量名（委托，正文在 FormulaLexer）/ extract variable names (delegates; body in FormulaLexer). */
+    public static List<String> extractVariables(String formula) { return FormulaLexer.extractVariables(formula); }
 
-    private static boolean isIdentStart(char c) {
-        return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
-    }
-    private static boolean isIdentPart(char c) {
-        return isIdentStart(c) || (c >= '0' && c <= '9');
-    }
-
-    /**
-     * Lexically tokenize a formula string for syntax highlighting, autocomplete, and validation.
-     * Returns a flat list of tokens with [start, end) character offsets.
-     * Whitespace is skipped (no tokens emitted). Unknown single characters that aren't
-     * part of any valid token are emitted as {@code UNKNOWN}.
-     *
-     * 对公式字符串进行词法分析，用于语法高亮、自动补全和校验。
-     * 返回带 [start, end) 字符偏移的 token 列表。空白字符被跳过（不生成 token）。
-     * 不属于任何有效 token 的未知字符被标记为 {@code UNKNOWN}。
-     */
-    public static List<Token> tokenize(String src) {
-        var tokens = new ArrayList<Token>();
-        if (src == null || src.isEmpty()) return tokens;
-        // Normalize full-width parens
-        String s = src.replace('（', '(').replace('）', ')');
-        int i = 0;
-        int len = s.length();
-        while (i < len) {
-            char c = s.charAt(i);
-            // Whitespace — skip
-            if (c == ' ' || c == '\t' || c == '\r' || c == '\n') { i++; continue; }
-            // Line continuation: backslash (treated as operator for coloring)
-            if (c == '\\') { tokens.add(new Token(i, i + 1, TokType.OPERATOR, "\\")); i++; continue; }
-            // Comment: -- to end of line
-            if (c == '-' && i + 1 < len && s.charAt(i + 1) == '-') {
-                int j = i + 2;
-                while (j < len && s.charAt(j) != '\n') j++;
-                tokens.add(new Token(i, j, TokType.COMMENT, s.substring(i, j)));
-                i = j; continue;
-            }
-            // @output marker
-            if (c == '@' && i + 6 <= len && s.startsWith("output", i + 1)) {
-                int j = i + 7; // "@output".length()
-                // only match if followed by whitespace, end, or non-ident char
-                if (j >= len || !isIdentPart(s.charAt(j))) {
-                    tokens.add(new Token(i, i + 7, TokType.AT_OUTPUT, "@output"));
-                    i = i + 7; continue;
-                }
-            }
-            // Identifiers
-            if (isIdentStart(c)) {
-                int j = i + 1;
-                while (j < len && isIdentPart(s.charAt(j))) j++;
-                String name = s.substring(i, j);
-                // Control-flow keyword — before function/variable checks
-                if (KEYWORDS.contains(name)) {
-                    tokens.add(new Token(i, j, TokType.KEYWORD, name));
-                    i = j; continue;
-                }
-                // Peek ahead: is it a function call?
-                int k = j;
-                while (k < len && s.charAt(k) == ' ') k++;
-                if (FUNCTION_NAMES.contains(name) && k < len && s.charAt(k) == '(') {
-                    tokens.add(new Token(i, j, TokType.FUNCTION, name));
-                    i = k + 1; // skip '(' — don't emit as standalone LPAREN,
-                               // so that PI in sin(PI) is IDENT (variable),
-                               // while PI in (PI) is CONSTANT (literal)
-                    continue;
-                }
-                // Named constant: (PI) / (E) — only when immediately preceded by LPAREN token
-                if (CONSTANT_NAMES.contains(name) && !tokens.isEmpty()
-                    && tokens.get(tokens.size() - 1).type() == TokType.LPAREN) {
-                    tokens.add(new Token(i, j, TokType.CONSTANT, name));
-                } else {
-                    tokens.add(new Token(i, j, TokType.IDENT, name));
-                }
-                i = j; continue;
-            }
-            // Numbers
-            if (c >= '0' && c <= '9') {
-                int j = i + 1;
-                while (j < len && ((s.charAt(j) >= '0' && s.charAt(j) <= '9') || s.charAt(j) == '.')) j++;
-                String numStr = s.substring(i, j);
-                try {
-                    Double.parseDouble(numStr);
-                    tokens.add(new Token(i, j, TokType.NUMBER, numStr));
-                } catch (NumberFormatException e) {
-                    tokens.add(new Token(i, j, TokType.UNKNOWN, numStr));
-                }
-                i = j; continue;
-            }
-            // Parens
-            if (c == '(') { tokens.add(new Token(i, i + 1, TokType.LPAREN, "(")); i++; continue; }
-            if (c == ')') { tokens.add(new Token(i, i + 1, TokType.RPAREN, ")")); i++; continue; }
-            // Two-char operators: == != <= >=
-            if ((c == '=' || c == '!' || c == '<' || c == '>') && i + 1 < len && s.charAt(i + 1) == '=') {
-                tokens.add(new Token(i, i + 2, TokType.OPERATOR, s.substring(i, i + 2)));
-                i += 2; continue;
-            }
-            // Two-char logical operators: && ||
-            if (c == '&' && i + 1 < len && s.charAt(i + 1) == '&') {
-                tokens.add(new Token(i, i + 2, TokType.OPERATOR, "&&"));
-                i += 2; continue;
-            }
-            if (c == '|' && i + 1 < len && s.charAt(i + 1) == '|') {
-                tokens.add(new Token(i, i + 2, TokType.OPERATOR, "||"));
-                i += 2; continue;
-            }
-            // Assignment
-            if (c == '=') { tokens.add(new Token(i, i + 1, TokType.ASSIGN, "=")); i++; continue; }
-            // Comparison / logical singles: < > !
-            if (c == '<' || c == '>' || c == '!') {
-                tokens.add(new Token(i, i + 1, TokType.OPERATOR, String.valueOf(c)));
-                i++; continue;
-            }
-            // Braces (control-flow blocks)
-            if (c == '{') { tokens.add(new Token(i, i + 1, TokType.LBRACE, "{")); i++; continue; }
-            if (c == '}') { tokens.add(new Token(i, i + 1, TokType.RBRACE, "}")); i++; continue; }
-            // Swizzle: '.' followed by identifier → member access (v.x / v.xy)
-            if (c == '.' && i + 1 < len && isIdentStart(s.charAt(i + 1))) {
-                int j = i + 1;
-                while (j < len && isIdentPart(s.charAt(j))) j++;
-                tokens.add(new Token(i, j, TokType.SWIZZLE, s.substring(i + 1, j)));
-                i = j; continue;
-            }
-            // Semicolon (statement separator, knife 3)
-            if (c == ';') { tokens.add(new Token(i, i + 1, TokType.SEMICOLON, ";")); i++; continue; }
-            // Comma (function argument separator)
-            if (c == ',') { tokens.add(new Token(i, i + 1, TokType.OPERATOR, ",")); i++; continue; }
-            // Arithmetic operators
-            if ("+-*/%^".indexOf(c) >= 0) {
-                tokens.add(new Token(i, i + 1, TokType.OPERATOR, String.valueOf(c)));
-                i++; continue;
-            }
-            // Unknown character — group consecutive unknown chars
-            int j = i + 1;
-            while (j < len) {
-                char nc = s.charAt(j);
-                if (nc == ' ' || nc == '\t' || nc == '\r' || nc == '\n') break;
-                if (isIdentStart(nc) || (nc >= '0' && nc <= '9')) break;
-                if ("()=,+\\-*/%^{}!.&|<>".indexOf(nc) >= 0) break;
-                if (nc == '@' || nc == '#' || nc == '?' || nc == ';' || nc == ':' || nc == '\'' || nc == '"') break;
-                j++;
-            }
-            tokens.add(new Token(i, j, TokType.UNKNOWN, s.substring(i, j)));
-            i = j;
-        }
-        return tokens;
-    }
+    /** 词法扫描（委托，正文在 FormulaLexer）/ lexical scan (delegates; body in FormulaLexer). */
+    public static List<Token> tokenize(String src) { return FormulaLexer.tokenize(src); }
 
     // ──────────────────────────── Validation ────────────────────────────
 
@@ -342,273 +152,8 @@ public class FormulaParser {
      *  校验问题，包含源位置和消息。 */
     public record FormulaIssue(int line, int col, int length, Severity severity, String message) {}
 
-    /**
-     * Validate a formula string, returning a list of issues found.
-     * This is purely a UI aid — it does not affect evaluation (which is lenient and defaults to 0).
-     *
-     * 校验公式字符串，返回发现的问题列表。
-     * 纯 UI 辅助功能——不影响求值（求值宽容，默认返回 0）。
-     */
-    public static List<FormulaIssue> validate(String src) {
-        var issues = new ArrayList<FormulaIssue>();
-        if (src == null || src.isEmpty()) return issues;
-        String s = src.replace('（', '(').replace('）', ')');
-        var tokens = tokenize(s);
-        if (tokens.isEmpty()) return issues;
-
-        // ── 1) Bracket matching ──
-        // FUNCTION tokens implicitly open a call context (tokenize() consumes
-        // their '(' and never emits a standalone LPAREN), so both LPAREN and
-        // FUNCTION are pushed onto the stack.  RPAREN closes whichever is on top.
-        var parenStack = new ArrayDeque<Integer>(); // token indices
-        for (int ti = 0; ti < tokens.size(); ti++) {
-            Token t = tokens.get(ti);
-            if (t.type() == TokType.LPAREN || t.type() == TokType.FUNCTION) {
-                parenStack.push(ti);
-            } else if (t.type() == TokType.RPAREN) {
-                if (parenStack.isEmpty()) {
-                    int[] lc = lineCol(s, t.start());
-                    issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
-                        "多余的右括号"));
-                } else { parenStack.pop(); }
-            }
-        }
-        for (int ti : parenStack) {
-            Token t = tokens.get(ti);
-            int[] lc = lineCol(s, t.start());
-            if (t.type() == TokType.FUNCTION) {
-                issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
-                    "未闭合的函数调用 '" + t.text() + "()'"));
-            } else {
-                issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
-                    "未闭合的左括号"));
-            }
-        }
-
-        // ── 2) UNKNOWN tokens ──
-        for (Token t : tokens) {
-            if (t.type() == TokType.UNKNOWN) {
-                int[] lc = lineCol(s, t.start());
-                String text = t.text();
-                if (text.equals(".")) {
-                    issues.add(new FormulaIssue(lc[0], lc[1], 1, Severity.ERROR, "无法识别的字符 '.'"));
-                } else if (!text.isEmpty() && (text.charAt(0) >= '0' && text.charAt(0) <= '9')) {
-                    issues.add(new FormulaIssue(lc[0], lc[1], text.length(), Severity.ERROR,
-                        "无效的数字格式 '" + text + "'"));
-                } else {
-                    issues.add(new FormulaIssue(lc[0], lc[1], text.length(), Severity.ERROR,
-                        "无法识别的字符 '" + text + "'"));
-                }
-            }
-        }
-
-        // ── 4) Unknown function: IDENT followed by LPAREN but not in FUNCTIONS ──
-        for (int ti = 0; ti < tokens.size() - 1; ti++) {
-            Token t = tokens.get(ti);
-            if (t.type() == TokType.IDENT && tokens.get(ti + 1).type() == TokType.LPAREN) {
-                // CONSTANT followed by LPAREN is fine (e.g., (PI) is constant, not a call)
-                // But IDENT followed by LPAREN means user tried to call something like foo(...)
-                int[] lc = lineCol(s, t.start());
-                issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
-                    "未知函数 '" + t.text() + "()'"));
-            }
-        }
-
-        // ── 5) Function arity ──
-        for (int ti = 0; ti < tokens.size(); ti++) {
-            Token t = tokens.get(ti);
-            if (t.type() == TokType.FUNCTION) {
-                int arity = FUNCTIONS.getOrDefault(t.text(), 0);
-                int argCount = countFunctionArgs(tokens, ti);
-                if (argCount != arity) {
-                    int[] lc = lineCol(s, t.start());
-                    issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
-                        "函数 '" + t.text() + "()' 期望 " + arity + " 个参数，但传入了 " + argCount + " 个"));
-                }
-            }
-        }
-
-        // ── 6) Assignment: ASSIGN left side must be a valid identifier ──
-        for (int ti = 0; ti < tokens.size(); ti++) {
-            if (tokens.get(ti).type() == TokType.ASSIGN) {
-                boolean validLeft = ti > 0 && tokens.get(ti - 1).type() == TokType.IDENT
-                    && isValidIdentifier(tokens.get(ti - 1).text());
-                if (!validLeft) {
-                    int[] lc = lineCol(s, tokens.get(ti).start());
-                    issues.add(new FormulaIssue(lc[0], lc[1], 1, Severity.ERROR,
-                        "赋值左侧必须是变量名"));
-                }
-            }
-        }
-
-        // ── 7) @output checks ──
-        var outputNames = new ArrayList<String>();
-        for (int ti = 0; ti < tokens.size(); ti++) {
-            if (tokens.get(ti).type() == TokType.AT_OUTPUT) {
-                Token next = ti + 1 < tokens.size() ? tokens.get(ti + 1) : null;
-                // 刀 3/4 起 @output 支持表达式(如 @output length(v))——表达式起始 token 均合法,
-                // 仅对明确的非法起始(空/右括号/逗号/运算符等)给 WARN
-                // Since knife 3/4 @output accepts expressions (e.g. @output length(v)) — any expression
-                // start token is legal; WARN only on clearly invalid starts (empty / rparen / comma / op...)
-                boolean exprStart = next != null && switch (next.type()) {
-                    case IDENT, FUNCTION, LPAREN, NUMBER, CONSTANT -> true;
-                    case OPERATOR -> next.text().equals("-") || next.text().equals("+") || next.text().equals("!");
-                    default -> false;
-                };
-                if (!exprStart) {
-                    int[] lc = lineCol(s, tokens.get(ti).start());
-                    issues.add(new FormulaIssue(lc[0], lc[1], 7, Severity.WARN,
-                        "@output 后面需要合法的变量名或表达式"));
-                } else if (next.type() == TokType.IDENT && isValidIdentifier(next.text())) {
-                    // 重名检查仅对纯变量名输出有意义 / duplicate-name check only meaningful for plain-name outputs
-                    String outName = next.text();
-                    if (CONSTANT_NAMES.contains(outName)) {
-                        // @output PI / @output E is technically fine for bare variable PI/E
-                        // (only (PI)/(E) is constant; bare PI/E is a variable)
-                    }
-                    if (outputNames.contains(outName)) {
-                        int[] lc = lineCol(s, next.start());
-                        issues.add(new FormulaIssue(lc[0], lc[1], next.end() - next.start(), Severity.WARN,
-                            "重复的输出名 '" + outName + "'"));
-                    } else {
-                        outputNames.add(outName);
-                    }
-                }
-            }
-        }
-
-        // ── 8) Brace matching (control-flow blocks) ──
-        var braceStack = new ArrayDeque<Integer>();
-        for (int ti = 0; ti < tokens.size(); ti++) {
-            Token t = tokens.get(ti);
-            if (t.type() == TokType.LBRACE) {
-                braceStack.push(ti);
-            } else if (t.type() == TokType.RBRACE) {
-                if (braceStack.isEmpty()) {
-                    int[] lc = lineCol(s, t.start());
-                    issues.add(new FormulaIssue(lc[0], lc[1], 1, Severity.ERROR, "多余的右大括号 '}'"));
-                } else { braceStack.pop(); }
-            }
-        }
-        for (int ti : braceStack) {
-            Token t = tokens.get(ti);
-            int[] lc = lineCol(s, t.start());
-            issues.add(new FormulaIssue(lc[0], lc[1], 1, Severity.ERROR, "未闭合的左大括号 '{'"));
-        }
-
-        // ── 9) Keyword syntax ──
-        for (int ti = 0; ti < tokens.size(); ti++) {
-            Token t = tokens.get(ti);
-            if (t.type() != TokType.KEYWORD) continue;
-            int[] lc = lineCol(s, t.start());
-            String kw = t.text();
-            if (kw.equals("repeat")) {
-                if (ti + 2 >= tokens.size() || tokens.get(ti + 1).type() != TokType.NUMBER
-                    || tokens.get(ti + 2).type() != TokType.LBRACE) {
-                    issues.add(new FormulaIssue(lc[0], lc[1], kw.length(), Severity.ERROR,
-                        "'repeat' 后应为次数和 '{',如 repeat 10 {"));
-                }
-            } else if (kw.equals("if") || kw.equals("while")) {
-                if (ti + 1 >= tokens.size() || tokens.get(ti + 1).type() != TokType.LPAREN) {
-                    issues.add(new FormulaIssue(lc[0], lc[1], kw.length(), Severity.ERROR,
-                        "'" + kw + "' 后应为条件,如 " + kw + " (x > 0) {"));
-                }
-            } else if (kw.equals("else")) {
-                if (ti + 1 >= tokens.size() || tokens.get(ti + 1).type() != TokType.LBRACE) {
-                    issues.add(new FormulaIssue(lc[0], lc[1], kw.length(), Severity.ERROR,
-                        "'else' 后应为 '{'"));
-                }
-            }
-        }
-
-        // ── 10) Empty block WARN ──
-        for (int ti = 0; ti + 1 < tokens.size(); ti++) {
-            if (tokens.get(ti).type() == TokType.LBRACE && tokens.get(ti + 1).type() == TokType.RBRACE) {
-                int[] lc = lineCol(s, tokens.get(ti).start());
-                issues.add(new FormulaIssue(lc[0], lc[1], 1, Severity.WARN, "空块不会产生任何效果"));
-            }
-        }
-
-        // ── 11) while(true) WARN ──
-        for (int ti = 0; ti + 3 < tokens.size(); ti++) {
-            if (tokens.get(ti).type() == TokType.KEYWORD && tokens.get(ti).text().equals("while")
-                && tokens.get(ti + 1).type() == TokType.LPAREN
-                && tokens.get(ti + 2).type() == TokType.NUMBER
-                && tokens.get(ti + 3).type() == TokType.RPAREN) {
-                double v = Double.parseDouble(tokens.get(ti + 2).text());
-                if (v != 0) {
-                    int[] lc = lineCol(s, tokens.get(ti).start());
-                    issues.add(new FormulaIssue(lc[0], lc[1], 5, Severity.WARN,
-                        "while 条件恒真且无退出条件,将依赖预算超时兜底"));
-                }
-            }
-        }
-
-        // ── 12) Swizzle components ──
-        for (Token t : tokens) {
-            if (t.type() == TokType.SWIZZLE && !t.text().matches("[xyz]+")) {
-                int[] lc = lineCol(s, t.start());
-                issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
-                    "无效的分量访问 '.'" + t.text() + "(仅支持 x/y/z)"));
-            }
-        }
-
-        // ── 13) 类型感知检查(AST 模式,复用 parseScript 的类型检查结果)/ type-aware checks (AST mode) ──
-        try {
-            var parsed = parseScript(s);
-            // P1-6:嵌套超限的降级结果 ast==null 但携带 ERROR issue —— 同样要透出给徽章。
-            // P1-6: a depth-degraded parse has ast==null but carries ERROR issues — surface them too.
-            if (parsed.ast != null || !parsed.issues.isEmpty()) {
-                issues.addAll(parsed.issues);
-                // ── 14) 输出引脚 16 上限(vec3 展开后,节点 UI 上限)/ pin cap 16 (post vec3 expansion) ──
-                if (parsed.outputLabels.size() > 16) {
-                    issues.add(new FormulaIssue(0, 0, 0, Severity.WARN,
-                        "输出引脚共 " + parsed.outputLabels.size() + " 个,超过节点显示上限 16,超出部分不在节点上显示"));
-                }
-            }
-        } catch (Exception e) {
-            LOGGER.debug("AST type-check parse failed", e);
-        }
-
-        return issues;
-    }
-
-    /** Count arguments inside a function call.  Since {@link #tokenize(String)}
-     *  consumes the {@code (} that follows a function name (it is never emitted as
-     *  a standalone LPAREN token), the arguments start at {@code funcIdx+1}.
-     *  Both LPAREN (grouping) and FUNCTION (nested call) increase depth;
-     *  only depth==0 RPAREN closes the outer call whose args we are counting. */
-    private static int countFunctionArgs(List<Token> tokens, int funcIdx) {
-        if (funcIdx + 1 >= tokens.size()) return 0;
-        int depth = 0, commas = 0;
-        boolean hasContent = false;
-        for (int i = funcIdx + 1; i < tokens.size(); i++) {
-            TokType tt = tokens.get(i).type();
-            if (tt == TokType.LPAREN || tt == TokType.FUNCTION) {
-                depth++; hasContent = true;
-            } else if (tt == TokType.RPAREN) {
-                if (depth == 0) {
-                    // Matching close of the outer function's argument list
-                    return hasContent ? commas + 1 : 0;
-                }
-                depth--;
-            } else if (tt == TokType.OPERATOR && tokens.get(i).text().equals(",") && depth == 0) {
-                commas++;
-            } else if (tt != TokType.UNKNOWN) {
-                hasContent = true;
-            }
-        }
-        return hasContent ? commas + 1 : 0;
-    }
-
-    /** Convert a character offset into (line, col) — both 0-based. */
-    private static int[] lineCol(String src, int offset) {
-        int line = 0, lineStart = 0;
-        for (int i = 0; i < offset && i < src.length(); i++) {
-            if (src.charAt(i) == '\n') { line++; lineStart = i + 1; }
-        }
-        return new int[]{line, offset - lineStart};
-    }
+    /** 公式校验（委托，正文在 FormulaValidator）/ formula validation (delegates; body in FormulaValidator). */
+    public static List<FormulaIssue> validate(String src) { return FormulaValidator.validate(src); }
 
     /** 编译表达式为 RPN token 列表（String=变量名, Double=数字, Character=运算符, FunctionToken=函数调用）。
      *  Refactored to consume {@link #tokenize(String)} so that tokenization, highlighting, and
@@ -808,64 +353,10 @@ public class FormulaParser {
         return stack.isEmpty() ? Value.Scalar.ZERO : stack.pop();
     }
 
-    /** 向量函数名集合。 / Vector function names. */
-    private static final Set<String> VECTOR_FN_NAMES =
-        Set.of("length", "normalize", "dot", "cross", "dist", "yaw", "pitch");
-
     /** 取向量形态;标量 lenient 广播为 (s, 0, 0)(校验期会拦形态错误)。
      *  Extract vector shape; scalars broadcast leniently to (s, 0, 0) (validate flags shape errors). */
     public static Value.Vec3Val asVec(Value v) {
         return v instanceof Value.Vec3Val vv ? vv : new Value.Vec3Val(asScalar(v), 0.0, 0.0);
-    }
-
-    /** 向量函数求值。yaw/pitch 逐字对齐 DIRECTION 节点(GraphEvaluator.java:577-579)。
-     *  Vector function evaluation. yaw/pitch mirror the DIRECTION node exactly. */
-    private static Value applyVectorFunction(FunctionToken ft, ArrayDeque<Value> stack) {
-        return switch (ft.name()) {
-            case "vec3" -> {
-                double z = asScalar(stack.pop()), y = asScalar(stack.pop()), x = asScalar(stack.pop());
-                yield new Value.Vec3Val(x, y, z);
-            }
-            case "length" -> {
-                var v = asVec(stack.pop());
-                yield new Value.Scalar(Math.sqrt(v.x()*v.x() + v.y()*v.y() + v.z()*v.z()));
-            }
-            case "normalize" -> {
-                var v = asVec(stack.pop());
-                double l = Math.sqrt(v.x()*v.x() + v.y()*v.y() + v.z()*v.z());
-                yield l > 1e-12 ? new Value.Vec3Val(v.x()/l, v.y()/l, v.z()/l) : Value.Vec3Val.ZERO;
-            }
-            case "dot" -> {
-                var b = asVec(stack.pop());
-                var a = asVec(stack.pop());
-                yield new Value.Scalar(a.x()*b.x() + a.y()*b.y() + a.z()*b.z());
-            }
-            case "cross" -> {
-                var b = asVec(stack.pop());
-                var a = asVec(stack.pop());
-                yield new Value.Vec3Val(
-                    a.y()*b.z() - a.z()*b.y(),
-                    a.z()*b.x() - a.x()*b.z(),
-                    a.x()*b.y() - a.y()*b.x());
-            }
-            case "dist" -> {
-                var b = asVec(stack.pop());
-                var a = asVec(stack.pop());
-                double dx = a.x()-b.x(), dy = a.y()-b.y(), dz = a.z()-b.z();
-                yield new Value.Scalar(Math.sqrt(dx*dx + dy*dy + dz*dz));
-            }
-            case "yaw" -> {
-                var v = asVec(stack.pop());
-                double yaw = Math.toDegrees(Math.atan2(v.x(), -v.z()));
-                yield new Value.Scalar((yaw + 360.0) % 360.0);
-            }
-            case "pitch" -> {
-                var v = asVec(stack.pop());
-                double h = Math.sqrt(v.x()*v.x() + v.z()*v.z());
-                yield new Value.Scalar(Math.toDegrees(Math.atan2(-v.y(), h)));
-            }
-            default -> Value.Scalar.ZERO;
-        };
     }
 
     /** 向量参与的逐分量运算(决策 §五):标量广播;v×v、v÷v、标量÷v、% ^ 无良定义 → lenient 零(校验期报错)。
@@ -889,78 +380,6 @@ public class FormulaParser {
             case '/' -> aVec && !bVec && sb != 0 ? new Value.Vec3Val(a.x()/sb, a.y()/sb, a.z()/sb)
                      : Value.Vec3Val.ZERO;  // v÷v、标量÷v 无良定义 / undefined
             default -> Value.Vec3Val.ZERO;  // % ^ 对向量无良定义 / undefined
-        };
-    }
-
-    /** 执行单个函数调用。角度约定与 GraphEvaluator 中 trig 节点保持一致：
-     *  sin/cos/tan 输入为度（内部转弧度）；asin/acos/atan2 输出为度（内部转弧度计算再转回）；
-     *  sinh/cosh 直接使用原值。 */
-    private static double applyFunction(String name, double[] args) {
-        return switch (name) {
-            case "sin" -> {
-                double v = args[0];
-                yield Double.isFinite(v) ? Math.sin(Math.toRadians(v)) : 0;
-            }
-            case "cos" -> {
-                double v = args[0];
-                yield Double.isFinite(v) ? Math.cos(Math.toRadians(v)) : 0;
-            }
-            case "tan" -> {
-                double v = args[0];
-                yield Double.isFinite(v) ? Math.tan(Math.toRadians(v)) : 0;
-            }
-            case "asin" -> {
-                double v = args[0];
-                yield (Double.isFinite(v) && v >= -1 && v <= 1) ? Math.toDegrees(Math.asin(v)) : 0;
-            }
-            case "acos" -> {
-                double v = args[0];
-                yield (Double.isFinite(v) && v >= -1 && v <= 1) ? Math.toDegrees(Math.acos(v)) : 0;
-            }
-            case "atan2" -> {
-                double y = args[0], x = args[1];
-                yield (Double.isFinite(y) && Double.isFinite(x)) ? Math.toDegrees(Math.atan2(y, x)) : 0;
-            }
-            case "sinh" -> {
-                double v = args[0];
-                yield Double.isFinite(v) ? Math.sinh(v) : 0;
-            }
-            case "cosh" -> {
-                double v = args[0];
-                yield Double.isFinite(v) ? Math.cosh(v) : 0;
-            }
-            case "sqrt" -> {
-                double v = args[0];
-                yield Double.isFinite(v) && v >= 0 ? Math.sqrt(v) : 0;
-            }
-            case "ln" -> {
-                double v = args[0];
-                yield Double.isFinite(v) && v > 0 ? Math.log(v) : 0;
-            }
-            case "log" -> {
-                double v = args[0];
-                yield Double.isFinite(v) && v > 0 ? Math.log10(v) : 0;
-            }
-            case "exp" -> {
-                double v = args[0];
-                yield Double.isFinite(v) ? Math.exp(v) : 0;
-            }
-            case "sec" -> {
-                double v = args[0];
-                yield (Double.isFinite(v) && Math.abs(Math.cos(Math.toRadians(v))) > 1e-12)
-                    ? 1.0 / Math.cos(Math.toRadians(v)) : 0;
-            }
-            case "csc" -> {
-                double v = args[0];
-                yield (Double.isFinite(v) && Math.abs(Math.sin(Math.toRadians(v))) > 1e-12)
-                    ? 1.0 / Math.sin(Math.toRadians(v)) : 0;
-            }
-            case "cot" -> {
-                double v = args[0];
-                yield (Double.isFinite(v) && Math.abs(Math.tan(Math.toRadians(v))) > 1e-12)
-                    ? 1.0 / Math.tan(Math.toRadians(v)) : 0;
-            }
-            default -> 0;
         };
     }
 
@@ -991,10 +410,8 @@ public class FormulaParser {
 
     // ==================== 脚本解析（v1.2+） ====================
 
-    /** 检查字符串是否为合法标识符 */
-    public static boolean isValidIdentifier(String s) {
-        return s != null && !s.isEmpty() && IDENTIFIER.matcher(s).matches() && !FUNCTION_NAMES.contains(s);
-    }
+    /** 标识符合法性（委托，正文在 FormulaLexer）/ identifier validity (delegates; body in FormulaLexer). */
+    public static boolean isValidIdentifier(String s) { return FormulaLexer.isValidIdentifier(s); }
 
     /**
      * AST 语句嵌套深度上限（P1-6）。parseStatement/parseKeywordStmt/parseBody/
@@ -1250,460 +667,5 @@ public class FormulaParser {
         return new ScriptParseResult(
             new ArrayList<>(inputVars), outputLabels, outputRpns, assignments, false, originalFormula,
             null, Set.of(), List.of());
-    }
-
-    // ==================== AST 模式解析(刀3) ====================
-
-    /** 是否触发 AST 模式:控制流关键字、大括号、swizzle、vec3/向量函数(这些 RPN 路径无法完整表达)。
-     *  Whether this token forces AST mode: control-flow keywords, braces, swizzle, vec3/vector fns. */
-    private static boolean isAstTrigger(Token t) {
-        TokType tt = t.type();
-        return tt == TokType.KEYWORD || tt == TokType.LBRACE || tt == TokType.RBRACE || tt == TokType.SWIZZLE
-            || (tt == TokType.FUNCTION && (t.text().equals("vec3") || VECTOR_FN_NAMES.contains(t.text())));
-    }
-
-    /** 源行:trim 后的文本 + token 列表 + 对应的首个源行号(诊断定位)。
-     *  Source line: trimmed text + tokens + first source line index (for diagnostics). */
-    private record SrcLine(String raw, List<Token> tokens, int srcLineIdx) {}
-
-    /** 逐行 token 游标:语句按行结束;块可跨行。 / Per-line token cursor: statements end at line end; blocks span lines. */
-    private static final class LineCursor {
-        final List<SrcLine> lines;
-        int li = 0, ci = 0;
-
-        LineCursor(List<SrcLine> lines) { this.lines = lines; }
-
-        Token peek() {
-            while (li < lines.size() && ci >= lines.get(li).tokens().size()) { li++; ci = 0; }
-            return li < lines.size() ? lines.get(li).tokens().get(ci) : null;
-        }
-
-        Token next() { Token t = peek(); if (t != null) ci++; return t; }
-
-        boolean atLineEnd() { return li >= lines.size() || ci >= lines.get(li).tokens().size(); }
-
-        /** 当前行号(源行,诊断用)。 / Current line index (source line, for diagnostics). */
-        int currentSrcLine() { return li < lines.size() ? lines.get(li).srcLineIdx() : 0; }
-
-        /** 消费到当前行尾。 / Consume to the end of the current line. */
-        List<Token> consumeToLineEnd() {
-            var rest = new ArrayList<Token>();
-            while (!atLineEnd()) rest.add(next());
-            return rest;
-        }
-    }
-
-    /** AST 解析中间产物:@output hoist 收集 + 末行表达式 + 各 RPN 的定位(类型检查用)。
-     *  AST parse intermediate: hoisted @outputs + last standalone expr + RPN sites (for type checks). */
-    private static final class AstParseOut {
-        final List<FormulaAst.Stmt> stmts = new ArrayList<>();
-        final List<String> outputLabels = new ArrayList<>();
-        final List<List<Object>> outputRpns = new ArrayList<>();
-        final List<RpnSite> rpnSites = new ArrayList<>();
-        List<Object> lastStandaloneRpn = null;
-
-        record RpnSite(List<Object> rpn, int line, int col) {}
-    }
-
-    /** AST 模式解析(刀3):语句树 + RPN 叶子;@output 解析期 hoist;保守类型推断 + 类型感知问题。
-     *  AST-mode parse (knife 3): statement tree + RPN leaves; parse-time @output hoist;
-     *  conservative type inference + type-aware issues. */
-    private static ScriptParseResult parseScriptAst(List<String> lines, List<Integer> lineSources, String originalFormula) {
-        var srcLines = new ArrayList<SrcLine>();
-        for (int i = 0; i < lines.size(); i++) srcLines.add(new SrcLine(lines.get(i), tokenize(lines.get(i)), lineSources.get(i)));
-        var out = new AstParseOut();
-        parseBlockStatements(new LineCursor(srcLines), out, true, 0);
-
-        // 输出:无 @output → 顶层末行独立表达式为默认输出(与旧模式一致)
-        if (out.outputLabels.isEmpty()) {
-            if (out.lastStandaloneRpn != null) {
-                out.outputLabels.add("");
-                out.outputRpns.add(out.lastStandaloneRpn);
-            } else {
-                out.outputLabels.add("");
-                out.outputRpns.add(List.of(0.0));
-            }
-        }
-
-        // inputVars:所有 RPN 的变量引用 − 任何处被赋值的名字(决策 §五,与旧规则一致)
-        Set<String> assignedNames = new LinkedHashSet<>();
-        for (var s : out.stmts) collectAssigns(s, assignedNames);
-        var inputVars = new LinkedHashSet<String>();
-        for (var rpn : out.outputRpns) collectVars(inputVars, assignedNames, rpn);
-        for (var s : out.stmts) collectStmtVars(s, inputVars, assignedNames);
-
-        // 保守类型推断:任何处赋值为向量的变量即 vec3(刀4 引脚展开用;引脚数解析后固定)
-        var vec3Vars = inferVec3Vars(out.stmts);
-
-        // 类型感知检查(向量对向量、向量比较、向量函数形态 → 编辑器 ERROR)
-        var issues = new ArrayList<FormulaIssue>();
-        for (var site : out.rpnSites) {
-            typeCheckRpn(site.rpn(), vec3Vars, issues, site.line(), site.col());
-        }
-
-        // ── vec3 输出展开(刀4,决策 §五):@output v(vec3)→ v.x/v.y/v.z 三个标量引脚,解析期静态展开。
-        //    outputRpns 追加 SwizzleToken;引脚数解析后固定不变;outputPinIndex 由展开后的标签解析。
-        // ── vec3 output expansion (knife 4, decisions §五): @output v (vec3) → three scalar pins v.x/v.y/v.z.
-        var expandedLabels = new ArrayList<String>();
-        var expandedRpns = new ArrayList<List<Object>>();
-        for (int i = 0; i < out.outputLabels.size(); i++) {
-            String label = out.outputLabels.get(i);
-            List<Object> rpn = out.outputRpns.get(i);
-            if (rpnYieldsVec3(rpn, vec3Vars)) {
-                String prefix = label.isEmpty() ? "" : label + ".";
-                for (char comp : new char[]{'x', 'y', 'z'}) {
-                    var r = new ArrayList<Object>(rpn);
-                    r.add(new SwizzleToken(String.valueOf(comp)));
-                    expandedLabels.add(prefix + comp);
-                    expandedRpns.add(r);
-                }
-            } else {
-                expandedLabels.add(label);
-                expandedRpns.add(rpn);
-            }
-        }
-
-        return new ScriptParseResult(
-            new ArrayList<>(inputVars), expandedLabels, expandedRpns, List.of(), false, originalFormula,
-            out.stmts, vec3Vars, issues);
-    }
-
-    /** 解析语句块,直到 RBRACE 或输入结束。topLevel=true 时末行独立表达式计入默认输出候选。
-     *  depth = 语句嵌套深度（P1-6 守卫,超 {@link #MAX_PARSE_DEPTH} 抛受控异常）。
-     *  Parse statements until RBRACE or end of input. Only top-level standalone exprs count
-     *  as default output. depth = statement nesting depth (P1-6 guard; over
-     *  {@link #MAX_PARSE_DEPTH} throws the controlled exception). */
-    private static void parseBlockStatements(LineCursor cur, AstParseOut out, boolean topLevel, int depth) {
-        while (true) {
-            Token t = cur.peek();
-            if (t == null || t.type() == TokType.RBRACE) return;
-            parseStatement(cur, out, topLevel, depth);
-        }
-    }
-
-    private static void parseStatement(LineCursor cur, AstParseOut out, boolean topLevel, int depth) {
-        // P1-6:递归入口统一守卫 —— 语句每深一层 depth + 1（parseBody 进体时 +1）。
-        // P1-6: single guard at the recursion entry — each nesting level passes depth + 1
-        // (parseBody increments when entering a body).
-        if (depth > MAX_PARSE_DEPTH) throw new FormulaTooDeepException(depth);
-        Token t = cur.next();
-        if (t.type() == TokType.AT_OUTPUT) {
-            // 解析期 hoist:@output <标识符|表达式>(决策 §3.6:块内同样 hoist)
-            int srcLine = cur.currentSrcLine();
-            var rest = consumeToSemicolon(cur);
-            if (rest.isEmpty()) { consumeSemicolon(cur); return; }
-            int col = rest.get(0).start();
-            String text = tokensText(cur, rest);
-            if (rest.size() == 1 && rest.get(0).type() == TokType.IDENT && isValidIdentifier(text)) {
-                if (!out.outputLabels.contains(text)) {
-                    out.outputLabels.add(text);
-                    out.outputRpns.add(List.of((Object) text)); // 变量终值查找 / read final value
-                }
-            } else {
-                // @output 表达式(如 @output yaw(aim))
-                var rpn = compileTokens(rest);
-                out.rpnSites.add(new AstParseOut.RpnSite(rpn, srcLine, col));
-                if (!out.outputLabels.contains(text)) {
-                    out.outputLabels.add(text);
-                    out.outputRpns.add(rpn);
-                }
-            }
-            consumeSemicolon(cur);
-            return;
-        }
-        if (t.type() == TokType.KEYWORD) { parseKeywordStmt(cur, out, t, depth); consumeSemicolon(cur); return; }
-        // 赋值或独立表达式
-        int srcLine = cur.currentSrcLine();
-        var rest = consumeToSemicolon(cur);
-        int col = t.start();
-        if (t.type() == TokType.IDENT && !rest.isEmpty() && rest.get(0).type() == TokType.ASSIGN) {
-            var exprTokens = rest.subList(1, rest.size());
-            var rpn = compileTokens(exprTokens);
-            out.rpnSites.add(new AstParseOut.RpnSite(rpn, srcLine, col));
-            out.stmts.add(new FormulaAst.AssignStmt(t.text(), rpn));
-        } else {
-            var full = new ArrayList<Token>();
-            full.add(t);
-            full.addAll(rest);
-            var rpn = compileTokens(full);
-            out.rpnSites.add(new AstParseOut.RpnSite(rpn, srcLine, col));
-            out.stmts.add(new FormulaAst.ExprStmt(rpn));
-            if (topLevel) out.lastStandaloneRpn = rpn; // 仅顶层末行表达式 = 默认输出候选
-        }
-        consumeSemicolon(cur);
-    }
-
-    /** 消费到行尾、分号或右大括号(不含)。语句以 ';' 或块结束 '}' 为界。
-     *  Consume to line end, ';' or '}' (exclusive). Statements end at ';' or at the block-closing '}'. */
-    private static List<Token> consumeToSemicolon(LineCursor cur) {
-        var rest = new ArrayList<Token>();
-        while (!cur.atLineEnd()) {
-            Token t = cur.peek();
-            if (t.type() == TokType.SEMICOLON || t.type() == TokType.RBRACE) break;
-            rest.add(cur.next());
-        }
-        return rest;
-    }
-
-    /** 消费可选的语句分隔符 ';'。 / Consume the optional statement separator ';'. */
-    private static void consumeSemicolon(LineCursor cur) {
-        Token t = cur.peek();
-        if (t != null && t.type() == TokType.SEMICOLON) cur.next();
-    }
-
-    private static void parseKeywordStmt(LineCursor cur, AstParseOut out, Token kw, int depth) {
-        switch (kw.text()) {
-            case "repeat" -> {
-                Token num = cur.next();
-                long count = (num != null && num.type() == TokType.NUMBER)
-                    ? (long) Double.parseDouble(num.text()) : 1;
-                var body = parseBody(cur, out, depth);
-                out.stmts.add(new FormulaAst.RepeatStmt(Math.max(0, count), body));
-            }
-            case "while" -> {
-                int srcLine = cur.currentSrcLine();
-                var condTokens = parseCond(cur);
-                int col = condTokens.isEmpty() ? kw.start() : condTokens.get(0).start();
-                var condRpn = compileTokens(condTokens);
-                out.rpnSites.add(new AstParseOut.RpnSite(condRpn, srcLine, col));
-                var body = parseBody(cur, out, depth);
-                out.stmts.add(new FormulaAst.WhileStmt(condRpn, body));
-            }
-            case "if" -> {
-                int srcLine = cur.currentSrcLine();
-                var condTokens = parseCond(cur);
-                int col = condTokens.isEmpty() ? kw.start() : condTokens.get(0).start();
-                var condRpn = compileTokens(condTokens);
-                out.rpnSites.add(new AstParseOut.RpnSite(condRpn, srcLine, col));
-                var body = parseBody(cur, out, depth);
-                List<FormulaAst.Stmt> elseBody = List.of();
-                // else 紧跟同一行 / else must follow on the same line
-                Token t = cur.peek();
-                if (t != null && t.type() == TokType.KEYWORD && t.text().equals("else")) {
-                    cur.next();
-                    elseBody = parseBody(cur, out, depth);
-                }
-                out.stmts.add(new FormulaAst.IfStmt(condRpn, body, elseBody));
-            }
-            case "break" -> out.stmts.add(new FormulaAst.BreakStmt());
-            case "continue" -> out.stmts.add(new FormulaAst.ContinueStmt());
-            default -> consumeToSemicolon(cur); // 未知关键字 lenient 跳过
-        }
-    }
-
-    /** 解析循环/分支体:带大括号的块,或无大括号的单语句体(如 if (c) break)。
-     *  depth+1 = 进入一层体（P1-6 深度计数）。
-     *  Parse a loop/branch body: a braced block, or a brace-less single statement (e.g.
-     *  if (c) break). depth+1 = one body level deeper (P1-6 depth counting). */
-    private static List<FormulaAst.Stmt> parseBody(LineCursor cur, AstParseOut out, int depth) {
-        Token t = cur.peek();
-        if (t == null) return List.of();
-        if (t.type() == TokType.LBRACE) {
-            cur.next();
-            var body = new ArrayList<FormulaAst.Stmt>();
-            var nested = new AstParseOut();
-            parseBlockStatements(cur, nested, false, depth + 1);
-            body.addAll(nested.stmts);
-            hoistNested(out, nested);
-            Token close = cur.peek();
-            if (close != null && close.type() == TokType.RBRACE) cur.next();
-            return body;
-        }
-        // 无大括号:单语句体 / brace-less single-statement body
-        var nested = new AstParseOut();
-        parseStatement(cur, nested, false, depth + 1);
-        hoistNested(out, nested);
-        return nested.stmts;
-    }
-
-    /** 嵌套块内 @output/RPN 定位 hoist 到外层收集器。 / Hoist nested @outputs and RPN sites to the outer collector. */
-    private static void hoistNested(AstParseOut out, AstParseOut nested) {
-        for (int i = 0; i < nested.outputLabels.size(); i++) {
-            if (!out.outputLabels.contains(nested.outputLabels.get(i))) {
-                out.outputLabels.add(nested.outputLabels.get(i));
-                out.outputRpns.add(nested.outputRpns.get(i));
-            }
-        }
-        out.rpnSites.addAll(nested.rpnSites);
-    }
-
-    /** 解析 ( 条件 ) :嵌套括号按深度计数,FUNCTION 隐式开括号。 / Parse ( condition ) with depth counting. */
-    private static List<Token> parseCond(LineCursor cur) {
-        var cond = new ArrayList<Token>();
-        Token t = cur.peek();
-        if (t == null || t.type() != TokType.LPAREN) { cur.consumeToLineEnd(); return cond; }
-        cur.next(); // consume LPAREN
-        int depth = 0;
-        while (true) {
-            Token tt = cur.next();
-            if (tt == null) break;
-            if (tt.type() == TokType.LPAREN || tt.type() == TokType.FUNCTION) {
-                depth++; cond.add(tt);
-            } else if (tt.type() == TokType.RPAREN) {
-                if (depth == 0) break;
-                depth--; cond.add(tt);
-            } else {
-                cond.add(tt);
-            }
-        }
-        return cond;
-    }
-
-    /** 由 token 偏移重建表达式原文(标签用;行内偏移)。 / Reconstruct expression text from token offsets (for labels). */
-    private static String tokensText(LineCursor cur, List<Token> toks) {
-        if (toks.isEmpty() || cur.li >= cur.lines.size()) return "";
-        SrcLine line = cur.lines.get(cur.li);
-        Token first = toks.get(0), last = toks.get(toks.size() - 1);
-        int from = Math.max(0, Math.min(first.start(), line.raw().length()));
-        int to = Math.max(from, Math.min(last.end(), line.raw().length()));
-        return line.raw().substring(from, to).trim();
-    }
-
-    // ── AST 辅助遍历 / AST helper traversals ──
-
-    private static void collectAssigns(FormulaAst.Stmt s, Set<String> assignedNames) {
-        switch (s) {
-            case FormulaAst.AssignStmt a -> assignedNames.add(a.var());
-            case FormulaAst.WhileStmt w -> w.body().forEach(b -> collectAssigns(b, assignedNames));
-            case FormulaAst.IfStmt i -> { i.body().forEach(b -> collectAssigns(b, assignedNames)); i.elseBody().forEach(b -> collectAssigns(b, assignedNames)); }
-            case FormulaAst.RepeatStmt r -> r.body().forEach(b -> collectAssigns(b, assignedNames));
-            default -> { }
-        }
-    }
-
-    private static void collectStmtVars(FormulaAst.Stmt s, Set<String> out, Set<String> assignedNames) {
-        switch (s) {
-            case FormulaAst.AssignStmt a -> collectVars(out, assignedNames, a.rpn());
-            case FormulaAst.ExprStmt e -> collectVars(out, assignedNames, e.rpn());
-            case FormulaAst.WhileStmt w -> { collectVars(out, assignedNames, w.condRpn()); w.body().forEach(b -> collectStmtVars(b, out, assignedNames)); }
-            case FormulaAst.IfStmt i -> { collectVars(out, assignedNames, i.condRpn()); i.body().forEach(b -> collectStmtVars(b, out, assignedNames)); i.elseBody().forEach(b -> collectStmtVars(b, out, assignedNames)); }
-            case FormulaAst.RepeatStmt r -> r.body().forEach(b -> collectStmtVars(b, out, assignedNames));
-            default -> { }
-        }
-    }
-
-    private static void collectVars(Set<String> out, Set<String> assignedNames, List<Object> rpn) {
-        for (var tok : rpn) {
-            if (tok instanceof String v && isValidIdentifier(v) && !assignedNames.contains(v)) out.add(v);
-        }
-    }
-
-    // ── 保守类型推断 / conservative type inference ──
-
-    /** 不动点:任何处赋值表达式为向量 → 变量是 vec3(保守,引脚数解析后固定)。 */
-    private static Set<String> inferVec3Vars(List<FormulaAst.Stmt> stmts) {
-        var vec3 = new LinkedHashSet<String>();
-        var assigns = new ArrayList<FormulaAst.AssignStmt>();
-        for (var s : stmts) collectAssignList(s, assigns);
-        boolean changed = true;
-        while (changed) {
-            changed = false;
-            for (var a : assigns) {
-                if (!vec3.contains(a.var()) && rpnYieldsVec3(a.rpn(), vec3)) {
-                    vec3.add(a.var());
-                    changed = true;
-                }
-            }
-        }
-        return vec3;
-    }
-
-    private static void collectAssignList(FormulaAst.Stmt s, List<FormulaAst.AssignStmt> out) {
-        switch (s) {
-            case FormulaAst.AssignStmt a -> out.add(a);
-            case FormulaAst.WhileStmt w -> w.body().forEach(b -> collectAssignList(b, out));
-            case FormulaAst.IfStmt i -> { i.body().forEach(b -> collectAssignList(b, out)); i.elseBody().forEach(b -> collectAssignList(b, out)); }
-            case FormulaAst.RepeatStmt r -> r.body().forEach(b -> collectAssignList(b, out));
-            default -> { }
-        }
-    }
-
-    /** RPN 类型模拟:表达式结果是否为 vec3(保守)。 / RPN type simulation: does the expr yield a vector (conservative). */
-    private static boolean rpnYieldsVec3(List<Object> rpn, Set<String> vec3Vars) {
-        var stack = new ArrayDeque<Boolean>(); // true = vec3
-        for (var tok : rpn) {
-            // 栈下溢 = 表达式未输完(编辑框逐击键实时校验的中途状态)→ 保守按标量处理,绝不抛异常
-            // Underflow = incomplete expression (mid-keystroke validation) — treat conservatively as scalar, never throw
-            try {
-                if (tok instanceof Double) { stack.push(false); continue; }
-                if (tok instanceof String v) { stack.push(vec3Vars.contains(v)); continue; }
-                if (tok instanceof SwizzleToken) { stack.pop(); stack.push(false); continue; } // 分量 = 标量
-                if (tok instanceof OpToken ot) {
-                    if (ot.op().equals("!")) { stack.pop(); stack.push(false); }
-                    else { stack.pop(); stack.pop(); stack.push(false); }
-                    continue;
-                }
-                if (tok instanceof FunctionToken ft) {
-                    boolean[] args = new boolean[ft.arity()];
-                    for (int i = ft.arity() - 1; i >= 0; i--) args[i] = stack.pop();
-                    stack.push(switch (ft.name()) {
-                        case "vec3", "normalize", "cross" -> true;
-                        default -> false; // length/dot/dist/yaw/pitch 与标量函数 → 标量
-                    });
-                    continue;
-                }
-                char op = (Character) tok;
-                boolean b = stack.pop(), a = stack.pop();
-                stack.push((a || b) && "+-*/".indexOf(op) >= 0);
-            } catch (java.util.NoSuchElementException underflow) {
-                return false;
-            }
-        }
-        return !stack.isEmpty() && stack.peek();
-    }
-
-    // ── 类型感知检查(校验期 ERROR,运行时仍 lenient)/ type-aware checks (editor ERROR, runtime stays lenient) ──
-
-    /** 按决策 §五 检查一个 RPN 的类型歧义:向量对向量、向量比较、向量函数形态。
-     *  Checks one RPN per decisions §五: vector-vs-vector ops, vector comparisons, vector fn arg shapes. */
-    private static void typeCheckRpn(List<Object> rpn, Set<String> vec3Vars, List<FormulaIssue> issues, int line, int col) {
-        var stack = new ArrayDeque<Boolean>(); // true = vec3
-        for (var tok : rpn) {
-            // 栈下溢 = 表达式未输完(编辑框逐击键实时校验的中途状态)→ 保守放弃本 RPN 的类型检查,绝不抛异常
-            // Underflow = incomplete expression (mid-keystroke validation) — abort this RPN's check conservatively, never throw
-            try {
-                if (tok instanceof Double) { stack.push(false); continue; }
-                if (tok instanceof String v) { stack.push(vec3Vars.contains(v)); continue; }
-                if (tok instanceof SwizzleToken) { stack.pop(); stack.push(false); continue; }
-                if (tok instanceof OpToken ot) {
-                    if (ot.op().equals("!")) { stack.pop(); stack.push(false); continue; }
-                    boolean b = stack.pop(), a = stack.pop();
-                    if (a || b) issues.add(new FormulaIssue(line, col, 1, Severity.ERROR,
-                        "向量不可参与比较/逻辑运算('" + ot.op() + "')"));
-                    stack.push(false);
-                    continue;
-                }
-                if (tok instanceof FunctionToken ft) {
-                    boolean[] args = new boolean[ft.arity()];
-                    for (int i = ft.arity() - 1; i >= 0; i--) args[i] = stack.pop();
-                    if (VECTOR_FN_NAMES.contains(ft.name())) {
-                        // vec3 构造器例外:参数是标量 / vec3 constructor is the exception: args are scalars
-                        for (int i = 0; i < args.length; i++) {
-                            if (!args[i]) issues.add(new FormulaIssue(line, col, 1, Severity.ERROR,
-                                "函数 '" + ft.name() + "' 的参数 " + (i + 1) + " 需要 vec3"));
-                        }
-                    }
-                    stack.push(switch (ft.name()) {
-                        case "vec3", "normalize", "cross" -> true;
-                        default -> false;
-                    });
-                    continue;
-                }
-                char op = (Character) tok;
-                boolean b = stack.pop(), a = stack.pop();
-                if ((op == '<' || op == '>') && (a || b)) {
-                    issues.add(new FormulaIssue(line, col, 1, Severity.ERROR, "向量不可比较"));
-                } else if (op == '*' && a && b) {
-                    issues.add(new FormulaIssue(line, col, 1, Severity.ERROR, "向量乘向量无良定义,请用 dot()/cross()"));
-                } else if (op == '/' && b) {
-                    issues.add(new FormulaIssue(line, col, 1, Severity.ERROR, "向量除法无良定义(v÷v / 标量÷v)"));
-                } else if ((op == '%' || op == '^') && (a || b)) {
-                    issues.add(new FormulaIssue(line, col, 1, Severity.ERROR, "运算符 '" + op + "' 不支持向量"));
-                }
-                stack.push((a || b) && "+-*/".indexOf(op) >= 0);
-            } catch (java.util.NoSuchElementException underflow) {
-                return;
-            }
-        }
     }
 }
