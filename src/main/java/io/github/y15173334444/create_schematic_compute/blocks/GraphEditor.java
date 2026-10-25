@@ -32,6 +32,7 @@ import net.minecraft.nbt.NbtAccounter;
 import net.minecraft.nbt.NbtIo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.github.y15173334444.create_schematic_compute.client.EditorTheme;
 
 /**
  * 节点图编辑器 — 封装两屏共享的编辑、渲染、输入逻辑
@@ -1517,12 +1518,12 @@ public class GraphEditor {
                 boolean hasSingleEncap = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
                 if (hasSingleEncap) {
                     g.fill(impX, btnY, impX + impW, btnY + btnH, 0xFF2A3A1A);
-                    g.renderOutline(impX, btnY, impW, btnH, NodeRenderer.CSB());
+                    g.renderOutline(impX, btnY, impW, btnH, EditorTheme.get().sysBorder());
                     g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
                     g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.encap_export"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
                 } else {
-                    g.fill(impX, btnY, impX + impW, btnY + btnH, NodeRenderer.PBG());
-                    g.renderOutline(impX, btnY, impW, btnH, NodeRenderer.CSB());
+                    g.fill(impX, btnY, impX + impW, btnY + btnH, EditorTheme.get().panelBg());
+                    g.renderOutline(impX, btnY, impW, btnH, EditorTheme.get().sysBorder());
                     g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
                     g.drawString(mc.font, "§b" + I18n.get("gui.create_schematic_compute.encap_import"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
                 }
@@ -1545,8 +1546,8 @@ public class GraphEditor {
             var mc = Minecraft.getInstance();
             int w = 280, h = 80;
             int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
-            g.fill(cx, cy, cx + w, cy + h, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
-            g.renderOutline(cx, cy, w, h, NodeRenderer.CSB());
+            g.fill(cx, cy, cx + w, cy + h, NodeRenderer.withAlpha(EditorTheme.get().panelBg(), 0xEE));
+            g.renderOutline(cx, cy, w, h, EditorTheme.get().sysBorder());
             g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_export"), cx + 8, cy + 6, 0xFFFFCC88, false);
             exportNameEdit.setX(cx + 8);
             exportNameEdit.setY(cy + 26);
@@ -1572,9 +1573,9 @@ public class GraphEditor {
             int listH = Math.min(fileCount, visRows) * 18;
             int h = 56 + listH + 30; // 标题 + 列表 + 按钮区 (Title + list + button area)
             int cx = (host.asScreen().width - w) / 2, cy = (host.asScreen().height - h) / 2;
-            g.fill(cx, cy, cx + w, cy + h, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
-            g.renderOutline(cx, cy, w, h, NodeRenderer.CSB());
-            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_import"), cx + 8, cy + 6, NodeRenderer.ACC(), false);
+            g.fill(cx, cy, cx + w, cy + h, NodeRenderer.withAlpha(EditorTheme.get().panelBg(), 0xEE));
+            g.renderOutline(cx, cy, w, h, EditorTheme.get().sysBorder());
+            g.drawString(mc.font, I18n.get("gui.create_schematic_compute.encap_import"), cx + 8, cy + 6, EditorTheme.get().accent(), false);
             if (fileCount == 0) {
                 g.drawString(mc.font, "§7" + I18n.get("gui.create_schematic_compute.encap_import_failed"), cx + 8, cy + 30, 0xFFFFFFFF, false);
             } else {
@@ -1589,7 +1590,7 @@ public class GraphEditor {
                     if (name.endsWith(".nbt")) name = name.substring(0, name.length() - 4);
                     int ry = listY + (i - importScrollOff) * 18;
                     boolean hover = mx >= cx + 4 && mx <= cx + w - 20 && my >= ry && my <= ry + 16;
-                    if (hover) g.fill(cx + 4, ry, cx + w - 20, ry + 16, NodeRenderer.HOV());
+                    if (hover) g.fill(cx + 4, ry, cx + w - 20, ry + 16, EditorTheme.get().hover());
                     g.drawString(mc.font, (hover ? "§e" : "§7") + name, cx + 8, ry + 3, 0xFFFFFFFF, false);
                 }
                 // 右侧滚动条 (Right-side scrollbar)
@@ -1597,7 +1598,7 @@ public class GraphEditor {
                     int sbX = cx + w - 14, sbY = listY, sbH = visRows * 18;
                     g.fill(sbX, sbY, sbX + 8, sbY + sbH, 0xFF2A2822);
                     float thumbTop = sbY + (float) importScrollOff / maxScroll * (sbH - 12);
-                    g.fill(sbX + 1, (int) thumbTop, sbX + 7, (int) thumbTop + 12, NodeRenderer.CSB());
+                    g.fill(sbX + 1, (int) thumbTop, sbX + 7, (int) thumbTop + 12, EditorTheme.get().sysBorder());
                 }
             }
             // 取消按钮 (Cancel)
@@ -1621,12 +1622,12 @@ public class GraphEditor {
                 int px = (int)(nsx + NW*zoom/2 - pw/2);
                 int py = (int)popupY;
                 g.fill(px, py, px+pw, py+ph, 0xFF2A2822);
-                g.renderOutline(px, py, pw, ph, NodeRenderer.CSB());
+                g.renderOutline(px, py, pw, ph, EditorTheme.get().sysBorder());
                 g.drawString(mc.font, "§6§l" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.hotbar.select"), px + 4, py + 2, 0xFFFFFFFF, false);
                 for (int i = 0; i < 9; i++) {
                     int hx = px + 4 + i * 20;
                     g.fill(hx, py + 16, hx + 18, py + 34, 0xFF1A1814);
-                    g.renderOutline(hx, py + 16, 18, 18, NodeRenderer.CB());
+                    g.renderOutline(hx, py + 16, 18, 18, EditorTheme.get().border());
                     var item = mc.player.getInventory().items.get(i);
                     if (!item.isEmpty()) { com.mojang.blaze3d.systems.RenderSystem.depthMask(false); g.renderItem(item, hx + 1, py + 17); com.mojang.blaze3d.systems.RenderSystem.depthMask(true); }
                 }
@@ -1642,7 +1643,7 @@ public class GraphEditor {
             int px = 8;
             int py = Math.max(4, (host.asScreen().height - ph) / 2);
             g.fill(px, py, px + pw, py + ph, 0xFF2A2822);
-            g.renderOutline(px, py, pw, ph, NodeRenderer.CSB());
+            g.renderOutline(px, py, pw, ph, EditorTheme.get().sysBorder());
             String[] labels = {
                 I18n.get("gui.create_schematic_compute.comment.bg_color"),
                 I18n.get("gui.create_schematic_compute.comment.border_color"),
@@ -1670,7 +1671,7 @@ public class GraphEditor {
             float x1 = Math.min(boxSX, boxEX), y1 = Math.min(boxSY, boxEY);
             float x2 = Math.max(boxSX, boxEX), y2 = Math.max(boxSY, boxEY);
             g.fill((int)x1, (int)y1, (int)x2, (int)y2, 0x22D4A017);
-            g.renderOutline((int)x1, (int)y1, (int)(x2-x1), (int)(y2-y1), NodeRenderer.ACC());
+            g.renderOutline((int)x1, (int)y1, (int)(x2-x1), (int)(y2-y1), EditorTheme.get().accent());
         }
         // GAMEPAD_BUTTON binding capture: poll gamepad each frame since gamepad buttons don't fire key events
         if (!nodeEditStatesById.isEmpty()) {
@@ -4452,8 +4453,8 @@ public class GraphEditor {
         // settings button's slot with matching geometry — the old code drew it at y=4 but
         // hit-tested it at TOP_BAR_H+2.
         if (isInSubGraph()) {
-            g.fill(0, 0, sw, TOP_BAR_H, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
-            g.fill(0, TOP_BAR_H - 1, sw, TOP_BAR_H, NodeRenderer.CSB());
+            g.fill(0, 0, sw, TOP_BAR_H, NodeRenderer.withAlpha(EditorTheme.get().panelBg(), 0xEE));
+            g.fill(0, TOP_BAR_H - 1, sw, TOP_BAR_H, EditorTheme.get().sysBorder());
             int nodeCount = getGraph().nodes.size();
             boolean overLimit = nodeCount > MAX_NODES;
             String countStr = " (" + nodeCount + "/" + MAX_NODES + ")" + (overLimit ? " §c⚠" : "");
@@ -4468,8 +4469,8 @@ public class GraphEditor {
                     g.drawString(mc.font, warn, wx, 8, 0xFFFF4444, false);
             }
             boolean hovBack = mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19;
-            g.fill(sbX, 3, sbX + 46, 19, hovBack ? NodeRenderer.HOV() : NodeRenderer.PBG());
-            g.renderOutline(sbX, 3, 46, 16, NodeRenderer.CSB());
+            g.fill(sbX, 3, sbX + 46, 19, hovBack ? EditorTheme.get().hover() : EditorTheme.get().panelBg());
+            g.renderOutline(sbX, 3, 46, 16, EditorTheme.get().sysBorder());
             String backLabel = "← " + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.back");
             int btw = mc.font.width(backLabel);
             g.drawString(mc.font, backLabel, sbX + (46 - btw) / 2, 7, 0xFFCCCCCC, false);
@@ -4517,8 +4518,8 @@ public class GraphEditor {
         if (!topBarNameEdit.isFocused() && !topBarNameEdit.getValue().equals(getGraph().customName))
             topBarNameEdit.setValue(getGraph().customName);
 
-        g.fill(0, 0, sw, TOP_BAR_H, NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
-        g.fill(0, TOP_BAR_H - 1, sw, TOP_BAR_H, NodeRenderer.CSB());
+        g.fill(0, 0, sw, TOP_BAR_H, NodeRenderer.withAlpha(EditorTheme.get().panelBg(), 0xEE));
+        g.fill(0, TOP_BAR_H - 1, sw, TOP_BAR_H, EditorTheme.get().sysBorder());
         String label = I18n.get("gui.create_schematic_compute.topbar.name");
         g.drawString(mc.font, label, 6, 8, 0xFF888888, false);
         int bx = 10 + mc.font.width(label);
@@ -4530,13 +4531,13 @@ public class GraphEditor {
         // 透明背景下，聚焦时补一条细底边作为「可编辑」提示 / with the transparent background,
         // a thin underline marks the editable region while focused
         if (topBarNameEdit.isFocused())
-            g.fill(bx, 20, bx + bw, 21, NodeRenderer.CSB());
+            g.fill(bx, 20, bx + bw, 21, EditorTheme.get().sysBorder());
         // 设置按钮（右侧，子图作用域该槽位为 Back） / settings button (right; Back takes
         // this slot in the sub-graph scope)
         boolean hov = mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19;
-        g.fill(sbX, 3, sbX + 46, 19, hov ? NodeRenderer.HOV() : NodeRenderer.PBG());
-        g.renderOutline(sbX, 3, 46, 16, NodeRenderer.CSB());
-        g.drawString(mc.font, I18n.get("gui.create_schematic_compute.topbar.settings"), sbX + 8, 7, NodeRenderer.ACC(), false);
+        g.fill(sbX, 3, sbX + 46, 19, hov ? EditorTheme.get().hover() : EditorTheme.get().panelBg());
+        g.renderOutline(sbX, 3, 46, 16, EditorTheme.get().sysBorder());
+        g.drawString(mc.font, I18n.get("gui.create_schematic_compute.topbar.settings"), sbX + 8, 7, EditorTheme.get().accent(), false);
         // 方块名软锁提示：他人改名中 → 名字框金色描边 + 编辑者名字（右侧放得下才画）。
         // Graph-name soft-lock hint: someone else is renaming — golden outline around the name
         // box plus the editor's name (drawn only when it fits before the settings button).

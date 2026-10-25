@@ -1,6 +1,5 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
-import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
 import net.minecraft.client.Minecraft;
@@ -103,10 +102,10 @@ final class PixelEditorFrameStrip {
         int fl = br[0], frr = br[0] + br[2];
         int btnY = br[1];
         // 整个序列区背景（按钮行 + 缩略图条），底部紧贴屏幕底 / whole frame-area bg (button row + strip), flush to the bottom.
-        g.fill(fl, btnY, frr, host.height(), C_BG);
+        g.fill(fl, btnY, frr, host.height(), EditorTheme.get().panelBg());
         // 按钮行顶部与画布的分隔线；按钮行与缩略图条之间的分隔线 / border above the row and between the row & strip.
-        g.fill(fl, btnY, frr, btnY + 1, C_BORDER);
-        g.fill(fl, fy, frr, fy + 1, C_BORDER);
+        g.fill(fl, btnY, frr, btnY + 1, EditorTheme.get().panelBorder());
+        g.fill(fl, fy, frr, fy + 1, EditorTheme.get().panelBorder());
         var f = Minecraft.getInstance().font;
         List<int[]> frames = host.node().imageSequenceFrames;
         if (frames == null || frames.isEmpty()) return;
@@ -115,17 +114,17 @@ final class PixelEditorFrameStrip {
         // 导航 / nav (relative to fl)
         boolean pH = hit(mx, my, fl + 8, by, 18, FS_BTN);
         g.fill(fl + 8, by, fl + 26, by + FS_BTN, pH ? C_HOVER : C_BTN);
-        g.renderOutline(fl + 8, by, 18, FS_BTN, C_BORDER);
+        g.renderOutline(fl + 8, by, 18, FS_BTN, EditorTheme.get().panelBorder());
         g.drawString(f, "§7◀", fl + 13, by + 3, C_TXT_DIM, false);
         boolean nH = hit(mx, my, fl + 30, by, 18, FS_BTN);
         g.fill(fl + 30, by, fl + 48, by + FS_BTN, nH ? C_HOVER : C_BTN);
-        g.renderOutline(fl + 30, by, 18, FS_BTN, C_BORDER);
+        g.renderOutline(fl + 30, by, 18, FS_BTN, EditorTheme.get().panelBorder());
         g.drawString(f, "§7▶", fl + 35, by + 3, C_TXT_DIM, false);
         g.drawString(f, "§7" + (frameIndex + 1) + "/" + n, fl + 54, by + 3, C_TXT_DIM, false);
         // 新建 / +New
         boolean newH = hit(mx, my, fl + 94, by, 44, FS_BTN);
         g.fill(fl + 94, by, fl + 138, by + FS_BTN, newH ? C_HOVER : C_BTN);
-        g.renderOutline(fl + 94, by, 44, FS_BTN, C_BORDER);
+        g.renderOutline(fl + 94, by, 44, FS_BTN, EditorTheme.get().panelBorder());
         g.drawString(f, "§a" + I18n.get("gui.create_schematic_compute.monitor.pixel_new"), fl + 100, by + 3, C_TXT_DIM, false);
         // 删除 / delete
         boolean delH = hit(mx, my, fl + 146, by, 48, FS_BTN);
@@ -145,13 +144,13 @@ final class PixelEditorFrameStrip {
             int y = fy + 2;
             if (i == frameIndex) g.fill(x - 1, y - 1, x + tw + 1, y + THUMB + 1, 0xFF3A5A2A);
             else if (frameDrag == FrameDrag.DRAGGING && frameDragIndex == i) g.fill(x - 1, y - 1, x + tw + 1, y + THUMB + 1, 0xFF7A4A3A);
-            g.fill(x, y, x + tw, y + THUMB, NodeRenderer.PINS());
+            g.fill(x, y, x + tw, y + THUMB, EditorTheme.get().insetBg());
             renderThumb(g, frames.get(i), x, y, tw, THUMB);
         }
         // 拖拽落点指示 / drop indicator
         if (frameDrag == FrameDrag.DRAGGING && frameDropIndex >= 0 && frameDropIndex <= n) {
             int dx = tx + frameDropIndex * pitch - scroll * pitch - 2;
-            g.fill(dx, fy + 2, dx + 2, fy + THUMB + 2, NodeRenderer.ACC());
+            g.fill(dx, fy + 2, dx + 2, fy + THUMB + 2, EditorTheme.get().accent());
         }
         // 滚动条 / scrollbar
         if (maxScroll > 0) {
@@ -164,8 +163,8 @@ final class PixelEditorFrameStrip {
         }
         // 新建菜单（Blank / From current）最后画，浮在缩略图条上方 / draw the "+New" menu last so it floats above the strip.
         if (frameMenuOpen) {
-            g.fill(fl + 94, by + 18, fl + 184, by + 40, C_BG);
-            g.renderOutline(fl + 94, by + 18, 90, 22, C_BORDER);
+            g.fill(fl + 94, by + 18, fl + 184, by + 40, EditorTheme.get().panelBg());
+            g.renderOutline(fl + 94, by + 18, 90, 22, EditorTheme.get().panelBorder());
             g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_blank"), fl + 100, by + 20, C_TXT_DIM, false);
             g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_from_current"), fl + 100, by + 30, C_TXT_DIM, false);
         }
@@ -425,8 +424,11 @@ final class PixelEditorFrameStrip {
     }
 
     // ── 主题色与命中助手（原屏幕常量，随实现搬入）/ theme colours & hit helper (moved) ──
-    private static final int C_BG = NodeRenderer.PBG();          // 面板底 / panel bg
-    private static final int C_BORDER = NodeRenderer.PBR();      // 面板描边 / panel border
+    // ── 调色板 / palette ──
+    // P2-23 修复：主题色不再用 static final 在类加载时捕获（改配色后旧值混新色直到重启），
+    // 改为每次实时取 EditorTheme 活动值。P2-23 fix: theme colours are no longer captured into
+    // static finals at class load (a palette change used to bleed stale colours until restart);
+    // they are fetched live from the active EditorTheme on every use.
     private static final int C_BTN = 0xFF3A3428;                 // 按钮底 / button bg
     private static final int C_HOVER = 0xFF5A4A3A;               // 悬停 / hover
     private static final int C_DEL = 0xFF7A4A3A;                 // 删除危险 / destructive

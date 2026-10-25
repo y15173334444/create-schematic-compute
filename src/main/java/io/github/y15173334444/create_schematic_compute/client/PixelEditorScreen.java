@@ -77,8 +77,11 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     private static final float MIN_ZOOM = 0.4f, MAX_ZOOM = 8f;
 
     // ── 调色板（沿用基线配色）/ palette (baseline colours) ──
-    private static final int C_BG = NodeRenderer.PBG();                // 面板底 / panel bg
-    private static final int C_BORDER = NodeRenderer.PBR();            // 面板描边 / panel border
+    // ── 调色板 / palette ──
+    // P2-23 修复：主题色不再用 static final 在类加载时捕获（改配色后旧值混新色直到重启），
+    // 改为每次实时取 EditorTheme 活动值。P2-23 fix: theme colours are no longer captured into
+    // static finals at class load (a palette change used to bleed stale colours until restart);
+    // they are fetched live from the active EditorTheme on every use.
     private static final int C_BTN = 0xFF3A3428;               // 按钮底 / button bg
     private static final int C_HOVER = 0xFF5A4A3A;             // 悬停 / hover
     private static final int C_SEL = 0xFF3A5A2A;               // 选中 / selected
@@ -391,7 +394,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     @Override public void render(GuiGraphics g, int mx, int my, float pt) {
         // 不透明背景（替换半透明 renderBackground），放在最深 / opaque background (replaces
         // renderBackground) at the furthest depth so the canvas can sit behind the panels.
-        g.fill(0, 0, width, height, C_BG);
+        g.fill(0, 0, width, height, EditorTheme.get().panelBg());
         // 组件/面板整体抬到近处深度（z=+100），画布抬到中间深度（z=+50）：画布被组件用
         // 真·深度缓冲遮挡（RenderType.gui 为 LEQUAL + 写深度），而不是用 scissor 遮罩硬裁。
         // Panels sit at a near depth (z=+100); the canvas sits at a mid depth (z=+50), so the
@@ -420,8 +423,8 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
             colorPicker.setScale(PALETTE_SCALE);
             colorPicker.setEmbedded(true);
             int pleft = paletteLeft();
-            g.fill(pleft, TOP_H, width, height, C_BG);
-            g.fill(pleft - 1, TOP_H, pleft, height, C_BORDER);
+            g.fill(pleft, TOP_H, width, height, EditorTheme.get().panelBg());
+            g.fill(pleft - 1, TOP_H, pleft, height, EditorTheme.get().panelBorder());
             colorPicker.setPosition(pleft, TOP_H);
             colorPicker.render(g, mx, my);
         }
@@ -442,9 +445,9 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         int x = r[0], y = r[1], w = r[2], h = r[3];
         var f = Minecraft.getInstance().font;
         g.fill(x, y, x + w, y + h, 0xF02A2822);
-        g.renderOutline(x, y, w, h, C_BORDER);
+        g.renderOutline(x, y, w, h, EditorTheme.get().panelBorder());
         g.renderOutline(x + 1, y + 1, w - 2, h - 2, 0xFF444444);
-        g.fill(x, y, x + w, y + 18, NodeRenderer.PHT());
+        g.fill(x, y, x + w, y + 18, EditorTheme.get().panelHeader());
         g.drawString(f, "§e" + I18n.get("gui.create_schematic_compute.monitor.pixel_guide_title"), x + 8, y + 5, C_TXT_BRIGHT, false);
         g.drawString(f, "§7✕", x + w - 16, y + 5, C_TXT_DIM, false);
         int cy = y + 26;
@@ -499,8 +502,8 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     /** 顶栏：第一行＝画笔状态＋按钮（无标题文本，更简洁）；第二行＝坐标显示。
      *  Top bar: row 1 = brush state + buttons (no title text, cleaner); row 2 = coordinate display. */
     private void renderTopBar(GuiGraphics g, int mx, int my) {
-        g.fill(0, 0, width, TOP_H, C_BG);
-        g.fill(0, TOP_H - 1, width, TOP_H, C_BORDER);
+        g.fill(0, 0, width, TOP_H, EditorTheme.get().panelBg());
+        g.fill(0, TOP_H - 1, width, TOP_H, EditorTheme.get().panelBorder());
         var f = Minecraft.getInstance().font;
         int[] rc = rightCluster();
         // 无标题文本：更简洁，画笔状态居中填满 / no title text — cleaner; brush state centred in the bar
@@ -512,7 +515,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         drawBarButton(g, rc[1], 3, 44, 14, I18n.get("gui.create_schematic_compute.monitor.pixel_guide"), hit(mx, my, rc[1], 3, 44, 14), false);
         drawBarButton(g, rc[0], 3, 40, 14, I18n.get("gui.create_schematic_compute.monitor.pixel_fit"), hit(mx, my, rc[0], 3, 40, 14), false);
         // ── 第二行：坐标/缩放/网格/帧号（左）+ 笔刷大小滑块（右，右对齐） ──
-        g.fill(0, 18, width, 19, C_BORDER);
+        g.fill(0, 18, width, 19, EditorTheme.get().panelBorder());
         int statusMaxW = brushSliderLabelLeft() - 12;   // 状态文本最宽（止于滑块标签前）/ status max width (ends before the slider label)
         var fb = new StringBuilder();
         int[] c = cellAt(mx, my);
@@ -565,7 +568,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         g.drawString(f, val, lx + f.width(label) + 4, ty - 1, C_TXT_BRIGHT, false);
         boolean hov = hit(mx, my, tx - 3, ty - 3, tw + 6, th + 6);
         g.fill(tx, ty, tx + tw, ty + th, hov ? 0xFF2A2A24 : C_CANVAS);
-        g.renderOutline(tx, ty, tw, th, C_BORDER);
+        g.renderOutline(tx, ty, tw, th, EditorTheme.get().panelBorder());
         float t = (brushSize - BRUSH_MIN) / (float)(BRUSH_MAX - BRUSH_MIN);
         int fx = tx + Math.round(tw * t);
         g.fill(tx, ty, fx, ty + th, C_OPACITY);
@@ -596,7 +599,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         g.drawString(f, txt, x, 3, 0xFFD0D0D0, false);
         int cxx = x + f.width(txt) + gap;
         g.fill(cxx, 4, cxx + sw, 4 + sw, selectedColor);
-        g.renderOutline(cxx, 4, sw, sw, C_BORDER);
+        g.renderOutline(cxx, 4, sw, sw, EditorTheme.get().panelBorder());
     }
 
     /** 顶栏右侧按钮簇（右对齐）：[fitX, guideX, undoX, redoX, sizeX, closeX]。宽 40/44/44/44/44/48。 */
@@ -614,7 +617,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     private void drawBarButton(GuiGraphics g, int x, int y, int w, int h, String label, boolean hover, boolean danger) {
         int bg = danger ? C_DEL : (hover ? C_HOVER : C_BTN);
         g.fill(x, y, x + w, y + h, bg);
-        g.renderOutline(x, y, w, h, C_BORDER);
+        g.renderOutline(x, y, w, h, EditorTheme.get().panelBorder());
         var f = Minecraft.getInstance().font;
         g.drawString(f, "§7" + label, x + (w - f.width("§7" + label)) / 2, y + (h - f.lineHeight) / 2, C_TXT_DIM, false);
     }
@@ -629,7 +632,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         // scissor mask and no separate viewport backdrop: the grid draws straight onto the
         // background, and anything extending past the old viewport is now occluded by the panels'
         // near depth (the canvas sits at the mid depth underneath them).
-        g.fill(ox - 3, oy - 3, ox + gridPx + 3, oy + gridPy + 3, C_BG);
+        g.fill(ox - 3, oy - 3, ox + gridPx + 3, oy + gridPy + 3, EditorTheme.get().panelBg());
         int[] pixels = node.imagePixels;
         for (int py = 0; py < imgH; py++) {
             for (int px = 0; px < imgW; px++) {
@@ -721,9 +724,9 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     private void renderSizeDialog(GuiGraphics g, int mx, int my) {
         int[] r = sizeDialogRect();
         int x = r[0], y = r[1], w = r[2], h = r[3];
-        g.fill(x, y, x + w, y + h, C_BG);
-        g.renderOutline(x, y, w, h, C_BORDER);
-        g.renderOutline(x + 1, y + 1, w - 2, h - 2, C_BORDER);
+        g.fill(x, y, x + w, y + h, EditorTheme.get().panelBg());
+        g.renderOutline(x, y, w, h, EditorTheme.get().panelBorder());
+        g.renderOutline(x + 1, y + 1, w - 2, h - 2, EditorTheme.get().panelBorder());
         var f = Minecraft.getInstance().font;
         g.drawString(f, "§e" + I18n.get("gui.create_schematic_compute.monitor.pixel_size_title"), x + 10, y + 8, C_TXT_BRIGHT, false);
         int fx = x + 10, fieldW = 44;
@@ -740,12 +743,12 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         int bx = x + 10, bw = (w - 20 - 6) / 2;
         boolean apH = hit(mx, my, bx, btnY, bw, 20);
         g.fill(bx, btnY, bx + bw, btnY + 20, apH ? C_HOVER : C_BTN);
-        g.renderOutline(bx, btnY, bw, 20, C_BORDER);
+        g.renderOutline(bx, btnY, bw, 20, EditorTheme.get().panelBorder());
         g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_apply"), bx + (bw - f.width("§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_apply"))) / 2, btnY + 5, C_TXT_DIM, false);
         int cx = bx + bw + 6;
         boolean cnH = hit(mx, my, cx, btnY, bw, 20);
         g.fill(cx, btnY, cx + bw, btnY + 20, cnH ? C_HOVER : C_BTN);
-        g.renderOutline(cx, btnY, bw, 20, C_BORDER);
+        g.renderOutline(cx, btnY, bw, 20, EditorTheme.get().panelBorder());
         g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_cancel"), cx + (bw - f.width("§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_cancel"))) / 2, btnY + 5, C_TXT_DIM, false);
     }
 

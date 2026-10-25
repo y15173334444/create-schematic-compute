@@ -1,5 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
+import io.github.y15173334444.create_schematic_compute.client.EditorTheme;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeConnection;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
@@ -28,41 +29,52 @@ public class NodeRenderer {
      *  plain JUnit too. The log name is this class's FQCN. */
     private static final Logger LOGGER = LoggerFactory.getLogger(NodeRenderer.class);
 
-    // ── Color palette stored in a single volatile array for atomic read/write (Phase 1) ──
-    // Index constants for the 23 themeable colors (16 graph-editor semantic colors +
-    // 7 GUI chrome colors added with the settings theme extension)
-    static final int _CG=0,_CGL=1,_CN=2,_CH=3,_CB=4,_CPI=5,_CPO=6,_CW=7,_CWA=8,_CAP=9,_CAPB=10,_CWD=11;    static final int _CMN=12,_CMH=13,_CNT=14,_CCT=15,_CSB=16,_CPIB=17,_CPOB=18;
-    static final int _PBG=19,_PHT=20,_PBR=21,_PINS=22,_ACC=23,_ERR=24,_HOV=25;
-    static final int _NUM_COLORS = 26;
+    // ── 调色板门面（状态已抽至 client.EditorTheme —— 见 docs/file-topology-split-review-2026-10-11.md §三 P2）──
+    //    门面冻结：下列全部静态签名（公共 + 包级）与原版逐字一致，存量引用零改动；实现改为
+    //    逐个委托到活动主题实例，颜色**每次实时取值**——修复复审 P2-23 的 static final 固化。
+    // ── Palette facade (state extracted to client.EditorTheme — topology review §三 P2) ──
+    //    Facade frozen: every static signature below (public + package-private) is verbatim
+    //    identical to the original, so existing references stay untouched; each one now delegates
+    //    to the active theme instance and colours are fetched **live** — fixing the P2-23
+    //    static-final capture.
+
+    /** 槽位总数别名（EditorSettings 屏使用）/ slot-count alias (used by the editor-settings screens). */
+    static final int _NUM_COLORS = EditorTheme.NUM_COLORS;
 
     // Text and dim colors are constant across all themes（跨包共用：client.* 的 NBS/像素编辑器）
     public static final int CT=0xFFFFFFFF, CD=0xFF888888;
-    private static volatile int[] _c = {
-        0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,
-        0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,
-        0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428};
 
-    // Inline accessors — JIT constant-folds the bounds checks
-    public static int CG() { return _c[_CG]; } public static int CGL() { return _c[_CGL]; }
-    static int CN() { return _c[_CN]; } static int CH() { return _c[_CH]; }
-    static int CB() { return _c[_CB]; } static int CPI() { return _c[_CPI]; }
-    static int CPO() { return _c[_CPO]; } static int CW() { return _c[_CW]; }
-    static int CWA() { return _c[_CWA]; } static int CAP() { return _c[_CAP]; }
-    static int CAPB() { return _c[_CAPB]; } static int CWD() { return _c[_CWD]; }
-    static int CMN() { return _c[_CMN]; } static int CMH() { return _c[_CMH]; } static int CNT() { return _c[_CNT]; }
-    static int CCT() { return _c[_CCT]; } static int CPIB() { return _c[_CPIB]; }
-    static int CPOB() { return _c[_CPOB]; }
+    // Inline accessors — 委托到 EditorTheme（语义名映射见 EditorTheme 类头）/ delegate to
+    // EditorTheme (the semantic-name mapping table is in EditorTheme's class header)
+    public static int CG() { return EditorTheme.get().bg(); }
+    public static int CGL() { return EditorTheme.get().grid(); }
+    static int CN() { return EditorTheme.get().node(); }
+    static int CH() { return EditorTheme.get().header(); }
+    static int CB() { return EditorTheme.get().border(); }
+    static int CPI() { return EditorTheme.get().inputPin(); }
+    static int CPO() { return EditorTheme.get().outputPin(); }
+    static int CW() { return EditorTheme.get().wire(); }
+    static int CWA() { return EditorTheme.get().wireAudio(); }
+    static int CAP() { return EditorTheme.get().pinAudio(); }
+    static int CAPB() { return EditorTheme.get().pinAudioBorder(); }
+    static int CWD() { return EditorTheme.get().drag(); }
+    static int CMN() { return EditorTheme.get().menuText(); }
+    static int CMH() { return EditorTheme.get().menuHover(); }
+    static int CNT() { return EditorTheme.get().nodeTitle(); }
+    static int CCT() { return EditorTheme.get().catText(); }
+    static int CPIB() { return EditorTheme.get().inputPinBorder(); }
+    static int CPOB() { return EditorTheme.get().outputPinBorder(); }
     // GUI-chrome colors (used across editor and peripheral screens; public for
     // cross-package consumers in client.*). CG/CGL join them for the NBS editor's
     // canvas backdrop and grid lines / CG/CGL 同放行：NBS 编辑器画布底与网格线要用。
-    public static int CSB() { return _c[_CSB]; }
-    public static int PBG() { return _c[_PBG]; }  // panel_bg    面板底
-    public static int PHT() { return _c[_PHT]; }  // panel_header 面板标题带
-    public static int PBR() { return _c[_PBR]; }  // panel_border 面板边框
-    public static int PINS() { return _c[_PINS]; }// inset_bg    内凹井底
-    public static int ACC() { return _c[_ACC]; }  // accent      强调色
-    public static int ERR() { return _c[_ERR]; }  // error       警示/错误
-    public static int HOV() { return _c[_HOV]; }  // hover       悬停高亮
+    public static int CSB() { return EditorTheme.get().sysBorder(); }
+    public static int PBG() { return EditorTheme.get().panelBg(); }    // panel_bg    面板底
+    public static int PHT() { return EditorTheme.get().panelHeader(); }// panel_header 面板标题带
+    public static int PBR() { return EditorTheme.get().panelBorder(); }// panel_border 面板边框
+    public static int PINS() { return EditorTheme.get().insetBg(); }   // inset_bg    内凹井底
+    public static int ACC() { return EditorTheme.get().accent(); }     // accent      强调色
+    public static int ERR() { return EditorTheme.get().error(); }      // error       警示/错误
+    public static int HOV() { return EditorTheme.get().hover(); }      // hover       悬停高亮
 
     /** 连接态暗化系数：编辑区频段引脚连接后填充变暗的明暗变换。
      *  Connected-state darkening factor for edit-panel band-pin fills. */
@@ -79,73 +91,42 @@ public class NodeRenderer {
         return (argb & 0xFF000000) | (r << 16) | (g << 8) | b;
     }
 
-    /** 主题色的半透明变体：保留 RGB、替换透明度（alpha 0..255）。跨屏同源遮罩/淡入用，
-     *  使叠层也随主题变色。 / Theme color with a given alpha (RGB kept, alpha 0..255);
-     *  keeps shared scrim/fade layers theme-reactive. */
+    /** 主题色的半透明变体（实现移至 {@link EditorTheme#withAlpha}，签名冻结）。
+     *  Theme colour with a given alpha (implementation moved to {@link EditorTheme#withAlpha};
+     *  signature frozen). */
     public static int withAlpha(int color, int alpha) {
-        return (color & 0x00FFFFFF) | ((alpha & 0xFF) << 24);
+        return EditorTheme.withAlpha(color, alpha);
     }
 
-    static final int[][] THEMES = {
-        // 26色: CG()…CPOB() + PBG(),PHT(),PBR(),PINS(),ACC(),ERR(),HOV()（_CWA=8 音频连线、_CAP=9 音频引脚、_CAPB=10 音频引脚边框）
-        {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428},
-        {0xFF0A1020,0xFF152040,0xFF1A2A4A,0xFF2A3A5A,0xFF3A5A7A,0xFF44AAFF,0xFFFFAA44,0xFF66BBFF,0xFF40E0C8,0xFF6FEBD8,0xFF2E9C8A,0xFFFFFF88,0xFF88AACC,0xFFFFDD77,0xFFFFDD77,0xFF88AACC,0xFF6688AA,0xFF2266AA,0xFFAA6622,0xFF141C2A,0xFF22304A,0xFF3A5A7A,0xFF0A1220,0xFFFFCC44,0xFFFF5544,0xFF2A3A5A},
-        {0xFF0A0A0A,0xFF1A1A1A,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF00FF88,0xFFFF4466,0xFF888888,0xFF00DDCC,0xFF35F0DC,0xFF0E8F82,0xFFFFFF88,0xFFAAAAAA,0xFFCCCCCC,0xFFCCCCCC,0xFF888888,0xFF666666,0xFF444444,0xFF444444,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF1A1A1A,0xFFFFDD00,0xFFFF5555,0xFF444444},
-        {0xFF1E1410,0xFF2A1C14,0xFF3A2820,0xFF4A3428,0xFF5A4438,0xFFFF8844,0xFFAA6633,0xFFDD8844,0xFF4FC3B7,0xFF79DCCF,0xFF2E9484,0xFFFFCC66,0xFFAA8866,0xFFFFCC77,0xFFFFCC77,0xFFAA8866,0xFF8B6B53,0xFF6B4A33,0xFF6B3A23,0xFF2A1C14,0xFF4A3428,0xFF5A4438,0xFF1E1410,0xFFFFCC66,0xFFFF6644,0xFF3A2820},
-    };
-    static int currentTheme = 0;
+    /** 出厂默认色板别名（EditorSettings 屏使用）/ factory-default palette alias (used by the editor-settings screens). */
+    static final int[] DEFAULT_COLORS = EditorTheme.DEFAULT_COLORS;
 
-    static void applyTheme(int index) {
-        if (index < 0 || index >= THEMES.length) index = 0;
-        currentTheme = index;
-        _c = THEMES[index]; // atomic array swap — all colors change at once
-    }
+    /** 槽位语义名别名（颜色设置页 i18n 键用）/ slot-key alias (used by the colours settings tab). */
+    static final String[] COLOR_KEYS = EditorTheme.COLOR_KEYS;
 
-    static int[] currentColors() { return _c.clone(); }
-    static final int[] DEFAULT_COLORS = {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428};
-    static final String[] COLOR_KEYS = {"bg","grid","node","header","border","input","output","wire","wire_audio","pin_audio","pin_audio_border","drag","menu_text","menu_hover","node_title","cat_text","sys_border","input_border","output_border","panel_bg","panel_header","panel_border","inset_bg","accent","error","hover"};
+    // 暂存色（编辑器设置「颜色」页的工作台副本）留在门面：EditorSettingsScreen 直接对它赋值，
+    // 它是设置对话框的会话态而非主题权威态——权威活色板在 EditorTheme。
+    // Staging palette (the colours-tab workbench copy) stays on the facade: EditorSettingsScreen
+    // assigns this field directly; it is dialog-session state, not the authoritative theme —
+    // the authoritative live palette lives in EditorTheme.
     static int[] stagingColors = DEFAULT_COLORS.clone();
     static void initStaging() { stagingColors = currentColors(); }
 
     static void setColors(int[] c) {
-        if (c.length < _NUM_COLORS) return;
-        _c = c.clone(); // atomic array swap — all colors change at once
+        EditorTheme.get().setColors(c);
     }
 
-    /** 从配置文件加载颜色 */
-    static void loadColorConfig() {
-        try {
-            var path = java.nio.file.Path.of("config", "create_schematic_compute-client.properties");
-            if (java.nio.file.Files.exists(path)) {
-                var props = new java.util.Properties();
-                try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
-                int[] c = DEFAULT_COLORS.clone();
-                for (int i = 0; i < _NUM_COLORS; i++) {
-                    String v = props.getProperty("color." + COLOR_KEYS[i]);
-                    if (v != null && v.length() == 8) try { c[i] = (int)(Long.parseLong(v, 16) & 0xFFFFFFFFL); } catch (Exception ignored) { LOGGER.debug("Bad hex color value: {}", v); }
-                }
-                setColors(c);
-            } else if (currentTheme > 0) {
-                applyTheme(currentTheme);
-            }
-        } catch (Exception e) { LOGGER.error("Failed to load color config", e); }
-    }
+    /** 当前色板快照（委托）/ snapshot of the live palette (delegates). */
+    static int[] currentColors() { return EditorTheme.get().snapshot(); }
 
-    /** 保存颜色到配置文件（保留已有非颜色属性） */
-    static void saveColorConfig() {
-        try {
-            var path = java.nio.file.Path.of("config", "create_schematic_compute-client.properties");
-            java.nio.file.Files.createDirectories(path.getParent());
-            var props = new java.util.Properties();
-            if (java.nio.file.Files.exists(path))
-                try (var is = java.nio.file.Files.newInputStream(path)) { props.load(is); }
-            int[] c = currentColors();
-            for (int i = 0; i < _NUM_COLORS; i++) props.setProperty("color." + COLOR_KEYS[i], String.format("%08X", c[i]));
-            try (var os = java.nio.file.Files.newOutputStream(path)) { props.store(os, "Create: Schematic Compute Theme"); }
-        } catch (Exception e) { LOGGER.error("Failed to save color config", e); }
-    }
+    /** 应用预设主题（委托）/ apply a preset theme (delegates). */
+    static void applyTheme(int index) { EditorTheme.get().applyPreset(index); }
 
-    static { loadColorConfig(); }
+    /** 从配置文件加载颜色（委托）/ load colours from the config file (delegates). */
+    static void loadColorConfig() { EditorTheme.loadColorConfig(); }
+
+    /** 保存颜色到配置文件（委托）/ save colours to the config file (delegates). */
+    static void saveColorConfig() { EditorTheme.saveColorConfig(); }
 
     /** 保存网格吸附状态（保留已有颜色属性） */
     static void saveGridSnap(boolean on) {

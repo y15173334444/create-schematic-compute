@@ -1,6 +1,5 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
-import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.resources.language.I18n;
@@ -58,8 +57,11 @@ final class PixelEditorToolRail {
 
     // ── 主题色（与屏幕同源的字面量；屏幕保留自己的副本供顶栏/画布用）──
     // ── theme colours (same-source literals; the screen keeps its own copies for the top bar/canvas) ──
-    private static final int C_BG = NodeRenderer.PBG();               // 面板底 / panel bg
-    private static final int C_BORDER = NodeRenderer.PBR();           // 面板描边 / panel border
+    // ── 调色板 / palette ──
+    // P2-23 修复：主题色不再用 static final 在类加载时捕获（改配色后旧值混新色直到重启），
+    // 改为每次实时取 EditorTheme 活动值。P2-23 fix: theme colours are no longer captured into
+    // static finals at class load (a palette change used to bleed stale colours until restart);
+    // they are fetched live from the active EditorTheme on every use.
     private static final int C_BTN = 0xFF3A3428;                      // 按钮底 / button bg
     private static final int C_HOVER = 0xFF5A4A3A;                    // 悬停 / hover
     private static final int C_SEL = 0xFF3A5A2A;                      // 选中 / selected
@@ -114,11 +116,11 @@ final class PixelEditorToolRail {
      *  shown to the right on hover (near depth, so it occludes the canvas beneath). */
     void render(GuiGraphics g, int mx, int my) {
         int leftW = host.leftW(), leftPad = host.leftPad(), topH = host.topH();
-        g.fill(0, topH, leftW, host.height(), C_BG);
+        g.fill(0, topH, leftW, host.height(), EditorTheme.get().panelBg());
         // 分界线从顶栏底部（TOP_H）贯通到屏幕底部，让左侧一整列、且不再穿过顶栏横线。
         // the divider runs from the top bar's bottom (TOP_H) to the screen bottom so the rail reads
         // as one full-height column without crossing the top bar's horizontal line.
-        g.fill(leftW - 1, topH, leftW, host.height(), C_BORDER);
+        g.fill(leftW - 1, topH, leftW, host.height(), EditorTheme.get().panelBorder());
         var f = Minecraft.getInstance().font;
         // ── 工具列 / tool rail ──
         Tool[] order = TOOLS;
@@ -138,8 +140,8 @@ final class PixelEditorToolRail {
                 // PS-style floating tooltip: small bg box + text, drawn at near depth over the canvas.
                 String tip = "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_tool_" + order[i].name().toLowerCase());
                 int tw = f.width(tip), tx = c[0] + c[2] + 6, ty = c[1];
-                g.fill(tx, ty, tx + tw + 10, ty + 15, C_BG);
-                g.renderOutline(tx, ty, tw + 10, 15, C_BORDER);
+                g.fill(tx, ty, tx + tw + 10, ty + 15, EditorTheme.get().panelBg());
+                g.renderOutline(tx, ty, tw + 10, 15, EditorTheme.get().panelBorder());
                 g.drawString(f, tip, tx + 5, ty + 4, C_TXT_DIM, false);
             }
         }
@@ -150,7 +152,7 @@ final class PixelEditorToolRail {
                 int bx = leftPad + 2 + (s - 1) * BA_PITCH, by = brushBtnY();
                 boolean hov = hit(mx, my, bx, by, BA_SIZE, BA_SIZE);
                 g.fill(bx, by, bx + BA_SIZE, by + BA_SIZE, s == host.brushSize() ? C_SEL : hov ? C_HOVER : C_BTN);
-                g.renderOutline(bx, by, BA_SIZE, BA_SIZE, C_BORDER);
+                g.renderOutline(bx, by, BA_SIZE, BA_SIZE, EditorTheme.get().panelBorder());
                 int d = Math.min(12, s * 2 + 1);
                 g.fill(bx + BA_SIZE / 2 - d / 2, by + BA_SIZE / 2 - d / 2, bx + BA_SIZE / 2 - d / 2 + d, by + BA_SIZE / 2 - d / 2 + d, C_TXT_DIM);
             }
@@ -158,7 +160,7 @@ final class PixelEditorToolRail {
             g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_opacity") + ":", leftPad + 2, opacityLabelY(), C_TXT_DIM, false);
             int[] os = opacitySliderGeom();
             g.fill(os[0], os[1], os[0] + os[2], os[1] + os[3], C_CANVAS);
-            g.renderOutline(os[0], os[1], os[2], os[3], C_BORDER);
+            g.renderOutline(os[0], os[1], os[2], os[3], EditorTheme.get().panelBorder());
             g.fill(os[0], os[1], os[0] + (int) (os[2] * host.brushOpacity()), os[1] + os[3], C_OPACITY);
             int thumbX = os[0] + (int) (os[2] * host.brushOpacity()) - 3;
             g.fill(thumbX, os[1] - 2, thumbX + 6, os[1] + os[3] + 2, C_TXT_DIM);
@@ -167,7 +169,7 @@ final class PixelEditorToolRail {
             g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_current_color") + ":", leftPad + 2, previewY(), C_TXT_DIM, false);
             int sw = 26;
             g.fill(leftPad + 2, previewY() + 12, leftPad + 2 + sw, previewY() + 12 + sw, host.selectedColor());
-            g.renderOutline(leftPad + 2, previewY() + 12, sw, sw, C_BORDER);
+            g.renderOutline(leftPad + 2, previewY() + 12, sw, sw, EditorTheme.get().panelBorder());
         }
     }
 

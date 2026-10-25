@@ -69,14 +69,14 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     static final int ROW_H = 13;
 
     // ── 配色（渲染时读用户颜色配置，换主题即时生效）/ colours from the user colour config ──
-    private static int C_BG() { return NodeRenderer.CG(); }
-    private static int C_PANEL() { return NodeRenderer.PBG(); }
-    private static int C_BORDER() { return NodeRenderer.PBR(); }
-    private static int C_BTN() { return NodeRenderer.PINS(); }
-    private static int C_BTN_ON() { return NodeRenderer.ACC(); }
-    private static int C_HOVER() { return NodeRenderer.HOV(); }
-    private static int C_SEL() { return NodeRenderer.ACC(); }
-    private static int C_DEL() { return NodeRenderer.ERR(); }
+    private static int C_BG() { return EditorTheme.get().bg(); }
+    private static int C_PANEL() { return EditorTheme.get().panelBg(); }
+    private static int C_BORDER() { return EditorTheme.get().panelBorder(); }
+    private static int C_BTN() { return EditorTheme.get().insetBg(); }
+    private static int C_BTN_ON() { return EditorTheme.get().accent(); }
+    private static int C_HOVER() { return EditorTheme.get().hover(); }
+    private static int C_SEL() { return EditorTheme.get().accent(); }
+    private static int C_DEL() { return EditorTheme.get().error(); }
     private static final int C_TEXT = NodeRenderer.CT;
     private static final int C_TEXT_DIM = NodeRenderer.CD;
 

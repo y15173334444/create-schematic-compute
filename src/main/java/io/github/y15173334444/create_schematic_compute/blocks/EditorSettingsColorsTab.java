@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import io.github.y15173334444.create_schematic_compute.client.colorpicker.ColorPickerWidget;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.resources.language.I18n;
+import io.github.y15173334444.create_schematic_compute.client.EditorTheme;
 
 /**
  * 颜色 tab：颜色列表渲染、调色板绑定与工作色（自 {@link EditorSettingsScreen} 拆分）。
@@ -69,8 +70,8 @@ final class EditorSettingsColorsTab {
             int ry = listTop + ri * COLOR_ROW_H;
             if (ry + COLOR_ROW_H > listBot) break;
             boolean adjustingThis = h.expanded() && adjustIndex == i;
-            if (adjustingThis) g.fill(cx, ry, rowRight, ry + COLOR_ROW_H - 2, NodeRenderer.HOV()); // 「调整中」行 = 悬停高亮 / adjusting row = hover highlight
-            else if (ri % 2 == 0) g.fill(cx, ry, rowRight, ry + COLOR_ROW_H - 2, NodeRenderer.PINS());
+            if (adjustingThis) g.fill(cx, ry, rowRight, ry + COLOR_ROW_H - 2, EditorTheme.get().hover()); // 「调整中」行 = 悬停高亮 / adjusting row = hover highlight
+            else if (ri % 2 == 0) g.fill(cx, ry, rowRight, ry + COLOR_ROW_H - 2, EditorTheme.get().insetBg());
             // 色块恒显示暂存色 —— 工作色仅在确认时填入（实时预览会让"确认"失去意义）。
             // The swatch always shows the staging color — the working color is filled
             // only on confirm (a live preview would make "confirm" meaningless).
@@ -83,18 +84,18 @@ final class EditorSettingsColorsTab {
             boolean hov = mx >= rowRight - 52 && mx <= rowRight - 8
                 && my >= ry + 1 && my <= ry + COLOR_ROW_H - 3;
             g.fill(rowRight - 52, ry + 1, rowRight - 8, ry + COLOR_ROW_H - 3,
-                hov ? NodeRenderer.HOV() : NodeRenderer.PBG());
-            g.renderOutline(rowRight - 52, ry + 1, 44, COLOR_ROW_H - 4, NodeRenderer.CSB());
+                hov ? EditorTheme.get().hover() : EditorTheme.get().panelBg());
+            g.renderOutline(rowRight - 52, ry + 1, 44, COLOR_ROW_H - 4, EditorTheme.get().sysBorder());
             g.drawString(h.font(), I18n.get("gui.create_schematic_compute.settings.adjust"),
-                rowRight - 48, ry + 7, NodeRenderer.ACC(), false);
+                rowRight - 48, ry + 7, EditorTheme.get().accent(), false);
         }
 
         // 滚动条（thumb 可拖拽）——几何与命中/拖拽共用 colorsScrollbarThumb。
         // Scrollbar (draggable thumb) — geometry shared with hit-testing/dragging via colorsScrollbarThumb.
         if (maxScroll > 0) {
             int[] sb = h.colorsScrollbarThumb(cx, contentW);
-            g.fill(sb[0], listTop, sb[0] + sb[2], listBot, NodeRenderer.PINS()); // 滚动条轨道 = 内凹井 / track = inset well
-            g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], NodeRenderer.CSB());
+            g.fill(sb[0], listTop, sb[0] + sb[2], listBot, EditorTheme.get().insetBg()); // 滚动条轨道 = 内凹井 / track = inset well
+            g.fill(sb[0] + 1, sb[1], sb[0] + sb[2] - 1, sb[1] + sb[3], EditorTheme.get().sysBorder());
         }
 
         // 底部常驻：收起/展开 + 恢复默认 / 应用
@@ -102,11 +103,11 @@ final class EditorSettingsColorsTab {
         String toggleLabel = I18n.get(h.expanded()
             ? "gui.create_schematic_compute.settings.collapse"
             : "gui.create_schematic_compute.settings.expand");
-        g.fill(cx, btnRowY, cx + 64, btnRowY + 16, h.expanded() ? NodeRenderer.HOV() : NodeRenderer.PBG()); // 展开态=激活高亮 / expanded = active highlight
-        g.renderOutline(cx, btnRowY, 64, 16, NodeRenderer.CSB());
+        g.fill(cx, btnRowY, cx + 64, btnRowY + 16, h.expanded() ? EditorTheme.get().hover() : EditorTheme.get().panelBg()); // 展开态=激活高亮 / expanded = active highlight
+        g.renderOutline(cx, btnRowY, 64, 16, EditorTheme.get().sysBorder());
         g.drawString(h.font(), "§f" + toggleLabel, cx + 16, btnRowY + 4, 0xFFFFFFFF, false);
-        g.fill(cx + 72, btnRowY, cx + 142, btnRowY + 16, NodeRenderer.PBG()); // 中性次按钮底 / neutral secondary button bg
-        g.renderOutline(cx + 72, btnRowY, 70, 16, NodeRenderer.CSB());
+        g.fill(cx + 72, btnRowY, cx + 142, btnRowY + 16, EditorTheme.get().panelBg()); // 中性次按钮底 / neutral secondary button bg
+        g.renderOutline(cx + 72, btnRowY, 70, 16, EditorTheme.get().sysBorder());
         g.drawString(h.font(), "§7" + I18n.get("gui.create_schematic_compute.color.defaults"), cx + 82, btnRowY + 4, 0xFFFFFFFF, false);
         g.fill(cx + 150, btnRowY, cx + 220, btnRowY + 16, 0xFF3A5A2A);
         g.renderOutline(cx + 150, btnRowY, 70, 16, 0xFF5A8A3A);
@@ -127,7 +128,7 @@ final class EditorSettingsColorsTab {
             boolean fin = mx >= h.paletteX() && mx <= h.paletteX() + ColorPickerWidget.WIDTH
                 && my >= doneY && my <= doneY + 18;
             g.fill(h.paletteX(), doneY, h.paletteX() + ColorPickerWidget.WIDTH,
-                doneY + 18, fin ? 0xFF3A5A2A : NodeRenderer.PBG());
+                doneY + 18, fin ? 0xFF3A5A2A : EditorTheme.get().panelBg());
             g.renderOutline(h.paletteX(), doneY, ColorPickerWidget.WIDTH,
                 18, 0xFF5A8A3A);
             g.drawString(h.font(), "§a" + I18n.get("gui.create_schematic_compute.color.done"),
