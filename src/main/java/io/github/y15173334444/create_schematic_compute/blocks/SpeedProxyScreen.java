@@ -9,6 +9,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 import java.util.Map;
+import io.github.y15173334444.create_schematic_compute.client.editor.AbstractGraphScreen;
 
 public class SpeedProxyScreen extends AbstractGraphScreen {
 

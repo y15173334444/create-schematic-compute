@@ -1,6 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
-import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
+import io.github.y15173334444.create_schematic_compute.client.editor.NodeRenderer;
 
 import net.minecraft.client.gui.GuiGraphics;
 

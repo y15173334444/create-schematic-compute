@@ -3,6 +3,8 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
+import io.github.y15173334444.create_schematic_compute.client.editor.EditPanel;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
 
 /**
  * 展开节点视口裁剪回归：节点体出屏、编辑区仍在画面时不得整节点剔除。

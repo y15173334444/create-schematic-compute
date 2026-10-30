@@ -20,6 +20,10 @@ import java.util.Map;
 import java.util.UUID;
 
 import static io.github.y15173334444.create_schematic_compute.client.GeometryConstants.*;
+import io.github.y15173334444.create_schematic_compute.client.editor.AbstractGraphScreen;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
+import io.github.y15173334444.create_schematic_compute.client.editor.MonitorDisplayEditor;
+import io.github.y15173334444.create_schematic_compute.client.editor.NodeRenderer;
 
 public class MonitorScreen extends AbstractGraphScreen implements MonitorDisplayEditor.Host {
 

@@ -1,10 +1,10 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
-import io.github.y15173334444.create_schematic_compute.blocks.EditorKeys;
+import io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
-import io.github.y15173334444.create_schematic_compute.blocks.GraphEditor;
-import io.github.y15173334444.create_schematic_compute.blocks.NodeRenderer;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
+import io.github.y15173334444.create_schematic_compute.client.editor.NodeRenderer;
 import io.github.y15173334444.create_schematic_compute.client.audio.CscAudioEngine;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
@@ -1529,7 +1529,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
     /** 框选键是否按住（轮询物理键态，keyReleased 丢失即自愈）。
      *  Whether the box-select key is held (physical poll — heals lost keyReleased). */
     private boolean boxSelectHeld() {
-        int k = io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.nbsBoxSelectHoldKey();
+        int k = io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys.nbsBoxSelectHoldKey();
         if (k < 0 || minecraft == null) return false;
         long win = minecraft.getWindow().getWindow();
         return org.lwjgl.glfw.GLFW.glfwGetKey(win, k) == org.lwjgl.glfw.GLFW.GLFW_PRESS;
@@ -2312,21 +2312,21 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
         // Command bindings (NBS scope): the unified sequence engine — rebindable in
         // settings; undo/redo share names with the graph editor across scopes (the same
         // key binds in each screen).
-        int seqMods = (hasControlDown() ? io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.MOD_CTRL : 0)
-            | (hasShiftDown() ? io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.MOD_SHIFT : 0)
-            | (hasAltDown() ? io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.MOD_ALT : 0);
-        var hit = io.github.y15173334444.create_schematic_compute.blocks.EditorKeys
+        int seqMods = (hasControlDown() ? io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys.MOD_CTRL : 0)
+            | (hasShiftDown() ? io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys.MOD_SHIFT : 0)
+            | (hasAltDown() ? io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys.MOD_ALT : 0);
+        var hit = io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys
             .feedKey(key, seqMods, System.currentTimeMillis(),
-                io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.Scope.NBS);
+                io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys.Scope.NBS);
         if (hit != null && dispatchNbsAction(hit)) return true;
-        if (io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.bufferActive()
-            || io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.mixedBufferActive()) {
+        if (io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys.bufferActive()
+            || io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys.mixedBufferActive()) {
             return true;    // 序列前缀等待（吞键）/ prefix waiting (consume the key)
         }
         // 旧别名保留（DELETE_WIRE 老组合保留先例）：Ctrl+Shift+Z = 重做
         // Legacy alias kept (the DELETE_WIRE precedent): Ctrl+Shift+Z = redo.
         if (hasControlDown() && hasShiftDown() && key == 90) {
-            dispatchNbsAction(io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.Action.NBS_REDO);
+            dispatchNbsAction(io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys.Action.NBS_REDO);
             return true;
         }
         return super.keyPressed(key, sc, mod);
@@ -2334,7 +2334,7 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     /** NBS 命令动作派发（键位绑定与面板按钮共用一条路径，行为不漂移）。
      *  NBS command-action dispatch (one path shared by key bindings and panel buttons). */
-    private boolean dispatchNbsAction(io.github.y15173334444.create_schematic_compute.blocks.EditorKeys.Action a) {
+    private boolean dispatchNbsAction(io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys.Action a) {
         switch (a) {
             case NBS_PLAY_PAUSE -> { togglePlay(); return true; }
             case NBS_STOP -> {

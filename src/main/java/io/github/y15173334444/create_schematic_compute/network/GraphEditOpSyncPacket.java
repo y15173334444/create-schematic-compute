@@ -10,6 +10,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 import io.netty.buffer.ByteBuf;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
 
 /**
  * S→C 同步数据包：服务端将已应用的图编辑操作广播给其他正在编辑的客户端。
@@ -88,7 +89,7 @@ public record GraphEditOpSyncPacket(GraphOp op) implements CustomPacketPayload {
             // 因为宿主拥有完整的 UI 状态感知能力（选中、连线预览等）
             // If the editor UI is open, delegate to the host for full UI-aware
             // handling (selection state, wire previews, etc.)
-            var host = io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.getActiveHost();
+            var host = io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor.getActiveHost();
             if (host != null && host.getBlockPos().equals(pkt.op().graphPos())) {
                 host.onRemoteOp(pkt.op());
             } else {

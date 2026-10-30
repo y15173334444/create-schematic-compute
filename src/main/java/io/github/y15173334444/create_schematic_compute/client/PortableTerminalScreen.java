@@ -19,6 +19,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import java.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.github.y15173334444.create_schematic_compute.client.editor.NodeRenderer;
 
 /**
  * Portable Terminal Screen — a handheld-device GUI that scans for nearby
@@ -68,11 +69,11 @@ public class PortableTerminalScreen extends Screen {
     private static final Logger LOGGER = LoggerFactory.getLogger(PortableTerminalScreen.class);
 
     /** Marker interface — wrapper screens that delegate to a GraphEditor.Host inner screen.
-     *  Used by {@link io.github.y15173334444.create_schematic_compute.blocks.GraphEditor#getActiveHost()}
+     *  Used by {@link io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor#getActiveHost()}
      *  to unwrap the portable terminal's editor wrapper.
      *
      *  标记接口 — 将操作委托给内部 GraphEditor.Host 的包装屏幕。
-     *  由 {@link io.github.y15173334444.create_schematic_compute.blocks.GraphEditor#getActiveHost()}
+     *  由 {@link io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor#getActiveHost()}
      *  用于解包便携终端的编辑器包装层，以获取真正的宿主界面。 */
     public interface HostWrapper {
         /** 获取被包装的内部屏幕 / Get the wrapped inner screen. */
@@ -801,7 +802,7 @@ public class PortableTerminalScreen extends Screen {
     }
 
     /** Wrapper screen that delegates to an inner GraphEditor.Host.
-     *  Implements HostWrapper so {@link io.github.y15173334444.create_schematic_compute.blocks.GraphEditor#getActiveHost()}
+     *  Implements HostWrapper so {@link io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor#getActiveHost()}
      *  can find the inner host for collaboration features.
      *
      *  <p>When the player presses ESC or the inner screen closes naturally,
@@ -809,7 +810,7 @@ public class PortableTerminalScreen extends Screen {
      *  the game world.
      *
      *  包装屏幕，将操作委托给内部的 GraphEditor.Host。
-     *  实现 HostWrapper 使 {@link io.github.y15173334444.create_schematic_compute.blocks.GraphEditor#getActiveHost()}
+     *  实现 HostWrapper 使 {@link io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor#getActiveHost()}
      *  能够找到内部宿主以支持协作功能。
      *
      *  <p>当玩家按 ESC 或内部界面自然关闭时，此包装器恢复终端界面而非返回游戏世界。 */

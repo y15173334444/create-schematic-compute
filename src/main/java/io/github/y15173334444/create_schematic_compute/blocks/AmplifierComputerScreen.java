@@ -19,6 +19,9 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import io.github.y15173334444.create_schematic_compute.client.editor.AbstractGraphScreen;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
+import io.github.y15173334444.create_schematic_compute.client.editor.NodeRenderer;
 
 /**
  * 功放电脑图编辑器屏幕（ProgramComputer 同款，节点准入 = AMPLIFIER：含 AUDIO 类 + 时序）。

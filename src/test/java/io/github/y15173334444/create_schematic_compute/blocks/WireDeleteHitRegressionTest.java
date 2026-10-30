@@ -12,6 +12,8 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
+import io.github.y15173334444.create_schematic_compute.client.editor.NodeRenderer;
 
 /**
  * 删除连线命中回归：画出来的线必须点得到（宽体源节点曾因命中曲线手抄常量宽度而「对准了

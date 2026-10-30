@@ -1,7 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
-import io.github.y15173334444.create_schematic_compute.blocks.GraphEditor;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
 import io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket;
 import net.minecraft.client.Minecraft;
 

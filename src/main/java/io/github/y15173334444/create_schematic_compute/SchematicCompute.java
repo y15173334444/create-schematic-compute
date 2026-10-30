@@ -25,6 +25,7 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
 
 @Mod(SchematicCompute.MOD_ID)
 public class SchematicCompute {
@@ -237,7 +238,7 @@ public class SchematicCompute {
         // 客户端断开时清除临时视角（防止跨存档污染） / clear temp view on client disconnect (prevent cross-world pollution)
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
             net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingOut.class, event -> {
-                io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.clearTempView();
+                io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor.clearTempView();
             });
 
         // 新追踪玩家补首帧求值快照：广播已改「内容变化才发」，追踪开始那帧没有每刻兜底可搭——

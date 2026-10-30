@@ -10,6 +10,7 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 
 import javax.annotation.Nullable;
 import java.util.Map;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
 
 /**
  * 图宿主方块实体的唯一契约 —— 数据面（图/运行/快照/同步）与宿主绑定面

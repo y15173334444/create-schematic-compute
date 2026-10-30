@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
 
 /**
  * CHANNEL 布局切换的连线语义（v1.2.6.2「连线回退」修复）。
@@ -102,7 +103,7 @@ class ChannelLayoutRewireTest {
     @DisplayName("结构锁：GraphEditor 的 CHANNEL 预设点击分支在 sendOp 后镜像服务端重建")
     void editorChannelClickMirrorsServerRebuild() throws Exception {
         var p = java.nio.file.Path.of("src", "main", "java", "io", "github", "y15173334444",
-            "create_schematic_compute", "blocks", "GraphEditor.java");
+            "create_schematic_compute", "client", "editor", "GraphEditor.java");
         var lines = java.nio.file.Files.readAllLines(p);
         int branch = -1;
         for (int i = 0; i < lines.size(); i++) {

@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
+import io.github.y15173334444.create_schematic_compute.client.editor.NodeRenderer;
 
 /**
  * 编辑器主题（调色板单一真相源）的契约：实例态、运行时改色即时生效（P2-23 的核心回归锚）、

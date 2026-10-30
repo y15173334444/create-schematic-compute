@@ -13,6 +13,9 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 import java.util.Map;
+import io.github.y15173334444.create_schematic_compute.client.editor.AbstractGraphScreen;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
+import io.github.y15173334444.create_schematic_compute.client.editor.NodeRenderer;
 
 /**
  * 音响图编辑器（R1-E）：{@code AbstractGraphScreen}，节点准入 = 音频专用（SPEAKER）。

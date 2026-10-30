@@ -1,0 +1,304 @@
+package io.github.y15173334444.create_schematic_compute.client.editor;
+
+import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
+
+/**
+ * 总线编辑器（自 {@link GraphEditor} 拆分，docs/gui-decomposition-plan.md 步骤 6d）：
+ * 总线频道名提交（{@code commitBusBox}——清旧频道全局数据、按 BUS_IN/BUS_OUT 分别处理频段、
+ * 重建编辑区）、旧频道释放（{@code releaseOldBusName}——清全局数据与旧 band 连线，不折叠编辑区）、
+ * 节点清空（{@code clearBusNode}）、BUS_OUT 冲突合并（{@code reevaluateBusConflicts}——只合并
+ * **本地可证明**的同图重名，跨方块归属一律以服务端同步来的值为准，见 issue #12）、频段列表同步
+ * （{@code syncBusBands}——同频道节点对齐 + 上传 BAND_REGISTRY + 清理被删频段连线）。
+ * The bus editor (split out of {@link GraphEditor}, roadmap step 6d): commits the bus channel
+ * name (clears the old channel's global data, handles bands per BUS_IN/BUS_OUT, rebuilds the
+ * edit state), releases an old channel (global data + old-band connections, no panel collapse),
+ * clears a bus node, merges BUS_OUT conflicts (only the locally provable same-graph duplicate;
+ * cross-block ownership is always taken from the server-synced value — issue #12), and syncs
+ * band lists across same-channel nodes (BAND_REGISTRY upload + removed-band connection cleanup).
+ *
+ * <p>客户端对 SignalBus 的三处全局写均已收编进 owner 门控（P1-9）：发布方离开走
+ * {@code SignalBus.releaseChannel}（本 owner 才整释）、订阅方（BUS_IN）改名只清无主残留
+ * （{@code clearBusIfUnowned}）、频段定义的乐观本地写拒绝他人持有的名
+ * （{@code registerBandsIfNotForeign}）——单人/局域网下客户端与集成服务端共享同一 JVM
+ * 静态表，裸写会穿到权威侧抹掉对方方块的频道。</p>
+ * <p>All three client-side SignalBus global writes are funnelled through owner gates (P1-9):
+ * a publisher's departure goes through {@code SignalBus.releaseChannel} (full release only for
+ * the real owner), a subscriber's (BUS_IN) rename only clears unowned residue
+ * ({@code clearBusIfUnowned}), and the optimistic local band-definition write refuses
+ * foreign-held names ({@code registerBandsIfNotForeign}) — in single-player/LAN the client
+ * shares the integrated server's static tables in one JVM, so a raw write reaches the
+ * authoritative side and wipes the peer block's channel.</p>
+ *
+ * <p><b>行为零变更</b>：方法体逐字搬迁，编辑器状态经传入的 {@code ed} 引用访问（同包）。
+ * 防抖编排（{@code tickDebouncedBusEdits}）留在编辑器的 clientTick，仅引用本类的
+ * {@link #BUS_EDIT_DEBOUNCE_TICKS}。
+ * <b>Behaviour-preserving</b>: bodies moved verbatim; editor state is reached through the
+ * passed-in {@code ed} reference (same package). The debounce orchestration
+ * ({@code tickDebouncedBusEdits}) stays in the editor's clientTick and only references this
+ * class's {@link #BUS_EDIT_DEBOUNCE_TICKS}.</p>
+ *
+ * <p>{@code clearBusNode} 当前无调用点（为节点删除/清空路径保留）。
+ * {@code clearBusNode} currently has no callers (kept for the node deletion/clear paths).</p>
+ */
+final class GraphBusEditor {
+
+    private final GraphEditor ed;
+
+    GraphBusEditor(GraphEditor ed) {
+        this.ed = ed;
+    }
+
+    /** 总线名/频段名输入框停止输入后、自动同步给协作者之前等待的 tick 数（约 0.5s）。
+     *  Ticks to wait after typing stops before auto-syncing a bus/band name to
+     *  collaborators (~0.5 s). */
+    static final int BUS_EDIT_DEBOUNCE_TICKS = 10;
+
+    /** 频道名是否允许提交：必须是用户敲键标脏的改动（issue #10）。
+     *  Whether a channel-name edit may commit: it must be a user-keystroke dirty change (issue #10). */
+    static boolean shouldCommitBusName(boolean userDirty, String boxText, String nodeName) {
+        return userDirty && !boxText.equals(nodeName);
+    }
+
+    /** 程序装入/保留草稿后的脏标记：一律 false（issue #10）。
+     *  Dirty flag after a programmatic load / preserved draft: always false. */
+    static boolean dirtyAfterProgrammaticLoad() {
+        return false;
+    }
+
+    /** EditBox 响应器的脏标记：仅非 suppress（用户敲键）置 true；suppress 时保持原值。
+     *  Dirty flag from the EditBox responder: only a non-suppressed (user keystroke) call
+     *  sets true; suppressed programmatic setValue leaves the flag unchanged. */
+    static boolean dirtyAfterResponder(boolean suppress, boolean dirtyBefore) {
+        return suppress ? dirtyBefore : true;
+    }
+
+    /** 提交 busBox 的值到 node.signalName (Commit busBox value to node.signalName)
+     *
+     *  <p>issue #10：只有**用户敲键**标脏的文本才允许提交。面板重建保留的旧草稿 /
+     *  远端改名后的残留文本一律丢弃并提示，防止把别人的改名或服务端权威名顶回去。</p>
+     *  <p>issue #10: only text marked dirty by a real user keystroke may commit.
+     *  Drafts preserved across panel rebuilds or left over after a remote rename are
+     *  discarded with a hint — never written back over the authoritative name.</p> */
+    void commitBusBox(GraphEditor.EditState st) {
+        if (st == null || st.busBox == null || st.busNode == null) return;
+        var node = st.busNode;
+        String oldName = node.signalName;
+        String t = st.busBox.getValue();
+        if (t.equals(oldName)) {
+            st.busNameUserDirty = false;
+            return;
+        }
+        if (!shouldCommitBusName(st.busNameUserDirty, t, oldName)) {
+            // 非用户敲键装入的草稿：丢弃 + 同步回权威名 + 提示
+            // Non-keystroke draft: discard, snap back to the authoritative name, hint.
+            ed.suppressEditBoxResponder = true;
+            st.busBox.setValue(oldName);
+            ed.suppressEditBoxResponder = false;
+            st.busNameUserDirty = false;
+            st.busEditIdleTicks = 0;
+            var p = net.minecraft.client.Minecraft.getInstance().player;
+            if (p != null) {
+                p.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                    "§e⚠ 已丢弃未确认的频道名草稿（非手动输入，避免覆盖最新名称）"), false);
+            }
+            return;
+        }
+        st.busNameUserDirty = false;
+        node.signalName = t;
+        ed.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+            io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,
+            ed.host.getBlockPos(), ed.ownerNodeId(), node.id, 0, null, 0f, 0f,
+            0, 0, 0, 0, 0, 0f, t, 0, 0, 0, 0, null, 0, 0, 0,
+            net.minecraft.world.item.ItemStack.EMPTY, 0L, ed.host.getPlayerUUID()));
+        // 改名：保留自身 band 与连线，只改频道名（回归审计：用户期望改名不丢图）。
+        // 仅清理旧频道的全局数据（SIGNALS/BAND_REGISTRY 残留），不动节点的 signalBands/连线。
+        // Rename: keep the node's own bands and connections — only change the channel
+        // name. Only clear the old channel's GLOBAL data (SIGNALS/BAND_REGISTRY residue),
+        // never the node's signalBands or its band connections.
+        if (node.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT) {
+            // 改名迁移：频道条目 + 频段定义随名字走（否则新名查不到 —— 用户症状：改名后有时
+            // 丢频道致 BUS_IN 查找不到）；服务端 applyOp 会再迁移一次（幂等）。旧名清理在
+            // 迁移内按同口径处理；不调 releaseOldBusName（它会清空 signalBands 并删除旧
+            // band 连线——"携带的图丢失"根因）。
+            // Rename migration: the channel entry and band definitions ride the name (otherwise
+            // the new name is unfindable — the user symptom). The server migrates again on applyOp
+            // (idempotent). Old-name cleanup happens inside the migration with the same rule; do
+            // NOT call releaseOldBusName (it wipes signalBands and cuts old-band wires).
+            io.github.y15173334444.create_schematic_compute.network.BusChannelHelper
+                .applyBusOutRename(ed.getGraph(), ed.host.getBlockPos(), node, oldName, null);
+        } else if (!oldName.isEmpty()
+            && node.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN) {
+            // BUS_IN 是订阅方，从不拥有频道 —— 它改名**不许**碰发布方的全局数据：旧实现的
+            // clearBus 只扫同图同名，跨图 owner 的频段定义与值会被连带清掉（用户症状：
+            // A 的频段被一起清理，BUS_IN 搜索不到）。残留清理归发布方的统一释放
+            // （releaseChannel），订阅方改名对注册表零操作。
+            // A BUS_IN is a subscriber and never owns the channel — its rename must not
+            // touch the publisher's global data: the old same-graph-scan clearBus wiped a
+            // cross-graph owner's definition and values along with it. Residue cleanup
+            // belongs to the publisher's unified release (releaseChannel); a subscriber's
+            // rename leaves the registry alone. Other types (PRIVATE/REDSTONE) keep the
+            // old behaviour below.
+            boolean othersUseOldName = false;
+            for (var n : ed.getGraph().nodes) {
+                if (n != node && (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN || n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT)
+                    && n.signalName.equals(oldName)) {
+                    othersUseOldName = true; break;
+                }
+            }
+            if (!othersUseOldName) {
+                // 只清全局旧频道数据；不调 releaseOldBusName（它会清空
+                // signalBands 并删除旧 band 连线——"携带的图丢失"根因）。
+                // P1-9 owner 门控：BUS_IN 不持有频道（只有发布方注册），本端能证明的只有
+                // 「没有存活发布方」——任何存活 owner 在场一律不动（单人档下客户端与集成
+                // 服务端共享同一 JVM 静态表，裸写 clearBus 会把对方方块的定义与值抹掉）。
+                // Clear only the global old-channel data; do NOT call
+                // releaseOldBusName (it wipes signalBands and deletes old-band connections —
+                // the "carried graph lost" root cause). P1-9 owner gate: a BUS_IN never owns
+                // the channel (only publishers register), so all this side can prove is "no
+                // live publisher" — a live owner of any kind keeps everything (in single
+                // player the client shares the integrated server's static tables in one JVM;
+                // a raw clearBus would wipe the peer block's definition and values).
+                io.github.y15173334444.create_schematic_compute.network.SignalBus.clearBusIfUnowned(oldName);
+            }
+        }
+        // Re-evaluate all BUS_OUT conflict state (renaming may create or resolve conflicts).
+        // 重新评估所有 BUS_OUT 冲突状态（改名可能产生或解决冲突）。
+        reevaluateBusConflicts(ed.getGraph());
+        // 改名频段处理：客户端**不再自行解析**频段列表（issue #11）。
+        // - BUS_OUT：保留自身 band + 连线（用户期望改名不丢图）
+        // - BUS_IN：新频段列表由服务端**唯一解析**，并以权威 SET_BANDS 下发给全部编辑者，
+        //   各端只应用同一个值 —— 避免各端查各自的频段注册表得出不同结果。
+        // Rename band handling: the client no longer resolves the band list itself (issue #11).
+        // - BUS_OUT: keep its own bands + connections (rename must not lose the graph).
+        // - BUS_IN: the new list is resolved *once on the server* and pushed to every editor
+        //   as an authoritative SET_BANDS, so all sides apply the same value instead of each
+        //   resolving against its own band registry.
+        // 重建编辑区（在最后调用，确保所有状态已更新） (Rebuild edit state last, ensuring all state is up to date)
+        ed.nodeEditStatesById.put(node.id, NodeEditStateFactory.create(ed, node));
+    }
+
+    /** 仅释放旧频道名的全局数据与连线，不折叠编辑区。
+     *  供 commitBusBox 改名时使用——改名不应关闭正在编辑的节点。
+     *  (Release old channel global data and connections without collapsing the edit panel.
+     *   Used by commitBusBox when renaming — renaming should not close the node being edited.) */
+    void releaseOldBusName(GraphNode n, String oldName) {
+        if (oldName == null || oldName.isEmpty()) return;
+        // P1-9 owner 门控（releaseChannel 统一规则）：真正持有该频道的本节点才整释
+        // （撤条目 + 退役定义）；被他人占用（冲突节点走人）时他人条目与定义不碰，
+        // 无主时的死名残留清理也由 releaseChannel 统一裁决 —— 绝不凭本地推断抹掉
+        // 存活 owner 的数据。
+        // P1-9 owner gate (the unified releaseChannel rule): a full release (entry +
+        // retired definition) happens only when this very node holds the channel; a
+        // foreign-held name (a conflicted node leaving) never touches the peer's entry
+        // or definition, and the unowned-residue cleanup is arbitrated by releaseChannel
+        // too — a live owner's data is never wiped on a local guess.
+        io.github.y15173334444.create_schematic_compute.network.SignalBus.releaseChannel(oldName,
+            new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(ed.host.getBlockPos(), n.id));
+        // 在清空前捕获旧频段名和数量，用于连线清理 (Capture old band names and count before clearing)
+        java.util.List<String> oldBands = n.signalBands != null
+            ? new java.util.ArrayList<>(n.signalBands) : java.util.List.of();
+        int oldCount = oldBands.size();
+        n.signalBands.clear();
+        n.bandsDirty = true;
+        var g = ed.getGraph();
+        // 按 pinId（频段名）清理连线，并带 legacy 索引回退（与 bandRemoveBtn 路径一致）
+        // Remove connections by pinId (band name), with legacy index fallback
+        for (int pi = 0; pi < oldCount; pi++) {
+            final int p = pi;
+            String band = pi < oldBands.size() ? oldBands.get(pi) : null;
+            g.connections.removeIf(c ->
+                (c.fromId == n.id && band != null && band.equals(c.fromPinId))
+                || (c.toId == n.id && band != null && band.equals(c.toPinId)));
+            // Legacy fallback: also remove by index for unmigrated connections
+            g.connections.removeIf(c ->
+                (c.fromId == n.id && c.fromPin == p && c.fromPinId == null)
+                || (c.toId == n.id && c.toPin == p && c.fromPinId == null));
+        }
+    }
+
+    /** 清除 BUS 节点的频段、连线，并折叠编辑区 (Clear BUS node bands and connections, then collapse edit panel).
+     *  保留给节点删除/清空路径使用。改名路径请用 {@link #releaseOldBusName}。
+     *  (Preserved for node deletion/clear paths. Use releaseOldBusName for rename paths.) */
+    void clearBusNode(GraphNode n) {
+        releaseOldBusName(n, n.signalName);
+        ed.expandedNodeIds.remove(n.id);
+        ed.nodeEditStatesById.remove(n.id);
+        n.expanded = false;
+    }
+
+    /** 合并 BUS_OUT 冲突标志（issue #12）。
+     *  <p>只合并**本地可证明**的部分（同图同名 BUS_OUT），跨方块归属一律以随图同步来的服务端
+     *  值为准 —— 客户端无法区分「服务端广播回来的自身回声」与「对端已占用频道」，此前用全局
+     *  频段表去猜正是假冲突的来源。标志在这里**只增不减**，绝不下调权威值。</p>
+     *  <p>调用点：本地改名提交（{@link #commitBusBox}）与远端 op 应用（GraphRemoteApplier）。</p>
+     *  Merge BUS_OUT conflict flags (issue #12). Only the locally provable part is merged (a
+     *  same-name duplicate in this graph); cross-block ownership is always taken from the
+     *  server-synced value — a client cannot tell its own echo from a peer's claim, and guessing
+     *  from the global band registry is what used to produce false conflicts. The flag is only
+     *  ever raised here, never lowered.</p>
+     *  <p>Callers: local rename commit ({@link #commitBusBox}) and remote op application
+     *  (GraphRemoteApplier).</p> */
+    void reevaluateBusConflicts(io.github.y15173334444.create_schematic_compute.graph.NodeGraph graph) {
+        io.github.y15173334444.create_schematic_compute.network.BusChannelHelper.mergeLocalBusConflicts(graph);
+    }
+
+    /** 同步所有同总线名的 BUS 节点的频段列表 (Sync band lists of all BUS nodes sharing the same bus name) */
+    void syncBusBands(GraphNode src) {
+        if (src.signalName.isEmpty()) return;
+        // 冲突的 BUS_OUT 不上传频段（防止频道夺取） (Conflicting BUS_OUT does not upload bands, preventing channel takeover)
+        if (src.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT && src.busConflict) return;
+        var bands = src.signalBands;
+        if (src.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT) {
+            // P1-9 owner 门控：乐观本地写入只允许「无主或本 owner 持有」的名 —— 他人持有的名
+            // （冲突旗标同步竞态窗口内）绝不覆盖，权威定义随后随服务端的频段广播收敛。
+            // P1-9 owner gate: the optimistic local write is allowed only for unowned or
+            // self-owned names — a foreign-held name (inside the conflict-flag sync race
+            // window) is never overwritten; the authoritative definition converges via the
+            // server's band broadcast.
+            io.github.y15173334444.create_schematic_compute.network.SignalBus.registerBandsIfNotForeign(
+                src.signalName, bands,
+                new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(ed.host.getBlockPos(), src.id));
+        }
+        var g = ed.getGraph();
+        for (var n : ed.getGraph().nodes) {
+            if (n != src && (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN || n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT)
+                && n.signalName.equals(src.signalName)) {
+                // 冲突的 BUS_OUT **目标不参与对齐**：它并不拥有这个频道（issue #14 定下的规则），
+                // 把 owner 的列表复制进去会**毁掉它自己的频段图** —— 而原 owner 一旦被删除，
+                // 它接替成为 owner 时就会带着**别人的图**上线。
+                // 实测复现：两个同名 BUS_OUT，删掉第一个（owner）后，接替者的图变成第一个的。
+                // 其它同名对齐路径（syncBandsFromServer / BusBandUploadPacket / convergeBusInBands）
+                // 都已有这条守卫，此处是遗漏。
+                // A conflicted BUS_OUT **target is never aligned**: it does not own the channel
+                // (the rule settled in issue #14), and copying the owner's list into it destroys
+                // its own band graph — so once the original owner is deleted and this node takes
+                // over, it comes online carrying someone else's graph. Every other same-channel
+                // alignment path (syncBandsFromServer / BusBandUploadPacket / convergeBusInBands)
+                // already has this guard; this one was missing it.
+                if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT && n.busConflict) continue;
+                // Collect removed band names (pinIds) before replacing the list
+                // 在替换列表前收集被删除的频段名（pinId）
+                var oldBands = n.signalBands != null ? n.signalBands : java.util.Collections.<String>emptyList();
+                java.util.List<String> newBands = bands != null ? new java.util.ArrayList<>(bands) : new java.util.ArrayList<>();
+                var removed = new java.util.ArrayList<>(oldBands);
+                removed.removeAll(newBands);
+                n.signalBands = newBands;
+                n.bandsDirty = true;
+                // Only remove connections on bands that were actually deleted,
+                // matched by band name (= pinId). Preserves connections on
+                // bands that were merely reordered.
+                // 仅删除实际被移除频段上的连接（按频段名 = pinId 匹配）。
+                // 仅被重排的频段上的连接得以保留。
+                for (String removedBand : removed) {
+                    g.connections.removeIf(c ->
+                        (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
+                        (c.toId == n.id && removedBand.equals(c.toPinId)));
+                }
+                g.rebuildNodeMap(); // invalidate inputCache / 刷新 inputCache
+                g.rebuildInputCache();
+                var st = ed.nodeEditStatesById.get(n.id);
+                if (st != null) ed.nodeEditStatesById.put(n.id, NodeEditStateFactory.create(ed, n));
+            }
+        }
+    }
+}

@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys;
 
 /**
  * 键位配置初始化序守卫：{@code EditorKeys} 的 static 块在类初始化序里调用 {@code load()}，
@@ -32,7 +33,7 @@ class EditorKeysConfigInitOrderTest {
     @DisplayName("CONFIG_PATH 声明先于 static 块的 load() 调用 / CONFIG_PATH is declared before the static block's load()")
     void configPathDeclaredBeforeStaticLoad() throws Exception {
         var src = Files.readString(Path.of(
-            "src/main/java/io/github/y15173334444/create_schematic_compute/blocks/EditorKeys.java"));
+            "src/main/java/io/github/y15173334444/create_schematic_compute/client/editor/EditorKeys.java"));
         int decl = src.indexOf("CONFIG_PATH = \"config/");
         int load = src.indexOf("load();");
         assertTrue(decl >= 0, "CONFIG_PATH 初始化声明必须存在 / the CONFIG_PATH initializer must exist");

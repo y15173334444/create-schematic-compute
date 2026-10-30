@@ -1,6 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
-import io.github.y15173334444.create_schematic_compute.blocks.GraphEditor;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;

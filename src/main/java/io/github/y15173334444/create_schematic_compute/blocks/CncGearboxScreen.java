@@ -10,6 +10,7 @@ import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.Map;
+import io.github.y15173334444.create_schematic_compute.client.editor.AbstractGraphScreen;
 
 /**
  * 数控齿轮箱（运动块）图编辑器。节点白名单 = 程序计算机同款 + 运动专属

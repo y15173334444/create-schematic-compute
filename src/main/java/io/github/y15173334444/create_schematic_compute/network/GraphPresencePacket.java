@@ -15,6 +15,7 @@ import org.jetbrains.annotations.NotNull;
 import io.netty.buffer.ByteBuf;
 
 import java.util.UUID;
+import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
 
 /**
  * <h1>Graph Presence Packet</h1>
@@ -267,7 +268,7 @@ public record GraphPresencePacket(
      */
     public static void handleClient(GraphPresencePacket pkt, IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
-            var host = io.github.y15173334444.create_schematic_compute.blocks.GraphEditor.getActiveHost();
+            var host = io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor.getActiveHost();
             // getEditor() 可能为 null：独立像素编辑器（PixelEditorScreen）也实现 Host，
             // 但无节点图编辑器，不处理 presence —— 跳过即可。
             // getEditor() can be null: the standalone pixel editor (PixelEditorScreen) also

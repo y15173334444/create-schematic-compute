@@ -10,6 +10,7 @@ import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.Map;
+import io.github.y15173334444.create_schematic_compute.client.editor.AbstractGraphScreen;
 
 /**
  * 动力仪表图编辑器。**新增节点白名单**（2026-09-13 与作者确认）= 动力读数（STRESS / RPM）+

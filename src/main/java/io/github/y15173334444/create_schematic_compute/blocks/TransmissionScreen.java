@@ -10,6 +10,7 @@ import net.minecraft.network.chat.Component;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.Map;
+import io.github.y15173334444.create_schematic_compute.client.editor.AbstractGraphScreen;
 
 /**
  * 可编程变速器图编辑器。节点白名单 = 值 + 动力读数 + 变速输出 + 调试
