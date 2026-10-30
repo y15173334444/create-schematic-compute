@@ -285,6 +285,17 @@ NodeRenderer）**＋ 引擎（GraphHost、SyncedGraphBlockEntity、GraphBlockEnt
   diff 混进 import 噪音，二分定位失效（gui 计划"行为零变更可二分"的约束）。作为 gui 计划步骤 7
   （从未排期）的全面版执行：纯移动、零代码变更、一次一个家族、每步全量编译 + 全量测试。
 
+> **2026-10-30 施工注记（批 4）**：已落地 main（`e831c94` 家族刀 + `5122149` E4 刀）。与本节口径的
+> 差异与注记：① NodeRenderer/NodeCharts/WireGeometry 与编辑器家族**同刀**搬——NodeRenderer 的包级
+> 取色口（CN/CH/CB 等）被 NodeAddMenu/EditPanel 调用，分刀必断包级访问；② 批 3 的 MonitorDisplayEditor
+> 三分产物（MonitorLayerPanel/MonitorSettingsPanel/MonitorDisplayCanvas）随家族进 client.editor（本节
+> 写作时尚未拆出）；③ 可见性放宽 3 处（GraphEditor.NW/HH/PH、ownerNodeId()、NodeRenderer.CB()）——
+> 留守宿主屏（AmplifierComputerScreen/MonitorScreen）跨包命中测试所需，逐处注记，行为零变更；
+> ④ E4 EditSessionRegistry 落 network/（与包协作者 GraphEditOpPacket 族同居，非本节原述位置——
+> 计划文档 §三 E4 行为准）；⑤ 13 个白盒测试随类迁测试包、2 个源码锚定测试改硬编码路径（源码扫描
+> 断言的测试跟着文件走）。逐字复核：39 个搬迁文件剥 package/import 后 35 逐字一致、4 个仅白名单偏差
+> （可见性注记行 + 方法体内 FQCN 包段随迁）。995 绿不变。
+
 ---
 
 ## 六、施工顺序总表 / Batching
@@ -295,7 +306,7 @@ NodeRenderer）**＋ 引擎（GraphHost、SyncedGraphBlockEntity、GraphBlockEnt
 | 1 | P1 MonitorBER→HudRenderer；P2 NodeRenderer→NodeCharts+isPrimaryById 表驱动；P5 FormulaParser 按相拆文件 | 纯提取、门面冻结、行为零变更 | 有测试侧（MonitorBER 2 测试类）或纯机械 |
 | 2 | eval() 分派化（先立决策文档更新 cross-be §6.2 的"不拆"旧结论）+ 复审 P1-4 / P1-5 / P2-3 修复顺路；P8 BusChannelHelper 先修 K28 死守卫再按端拆 | 服务端，测试最厚 | 复审 §八批 3 合流 |
 | 3 | P4 GraphEditor：IDE extract-method 六方法 + P2-22 基座统一先行；P7 MonitorDisplayEditor 三分 | GUI，手动回归清单 D | gui 计划收束记录 + 复审 P2-22 |
-| 4 | §五 包归位：编辑器家族→client.editor、E4 EditSessionRegistry→network、E2 ACK 解耦 | 纯机械，最后做 | gui 计划步骤 7 全面版 |
+| 4 | §五 包归位：编辑器家族→client.editor、E4 EditSessionRegistry→network、E2 ACK 解耦 | ✅ 已落地（2026-10-30：e831c94 + 5122149；E2 此前已随 0d8673f 迁移落地） | gui 计划步骤 7 全面版 |
 | 5 | P6 雷达专项：复审 P1-7 / P2-14 / 15 / 16 修复时同步拆 RadarSableScan+RadarLockController | 与缺陷批次合流 | 复审 §八批 4 |
 
 **两条红线**（沿用既有计划约束）：① 每批独立提交、行为变更与结构变更不同批（cross-be §6.3 的
