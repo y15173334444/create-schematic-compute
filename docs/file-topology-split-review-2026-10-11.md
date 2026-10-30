@@ -295,6 +295,12 @@ NodeRenderer）**＋ 引擎（GraphHost、SyncedGraphBlockEntity、GraphBlockEnt
 > 计划文档 §三 E4 行为准）；⑤ 13 个白盒测试随类迁测试包、2 个源码锚定测试改硬编码路径（源码扫描
 > 断言的测试跟着文件走）。逐字复核：39 个搬迁文件剥 package/import 后 35 逐字一致、4 个仅白名单偏差
 > （可见性注记行 + 方法体内 FQCN 包段随迁）。995 绿不变。
+> ⑥ **反向包边登记（包归位固有代价，非违规但显式留痕）**：宿主纵切片留守 blocks 的前提下（"不给每个宿主立子包"），
+> 搬迁把原本的同包互访变成了跨包 import——`client.editor/GraphEditor` 回引 `blocks.BlueprintScreen` / `blocks.GraphBlockEntity`
+> （blocks ↔ client.editor 成环），`network/EditSessionRegistry` 回引 `blocks.GraphBlockEntity` / `blocks.MonitorBlockEntity`
+> （network → blocks 边；其 dropBlock/markDirty 需要 BE 类型）。环的方向性与「blocks 回归世界侧」叙事相反，
+> 但根因是宿主 Screen 留守 blocks 与编辑器类（GraphEditor.Host 接口实现方在宿主屏）天然双向——
+> 除非宿主屏也迁走（会撕裂纵切片同包内聚），否则环不可消。后续若立「client 不回引 blocks」类规则，需先解此环。
 
 ---
 
