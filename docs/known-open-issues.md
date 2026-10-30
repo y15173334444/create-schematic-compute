@@ -1,8 +1,8 @@
 # 遗留问题登记 / Known Open Issues
-> 更新日期 / Updated：2026-10-25
+> 更新日期 / Updated：2026-10-31
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 待办 10 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 待办 11 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -25,6 +25,7 @@
 | 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（行为变更，待拍板） | 🔶 待办（2026-10-25 更新：eval 分派化已落地 main，怪癖按决策 §三-4 原样保留并收敛到单一事实源） |
 | 9 | 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE） | 服务端 op 链不校验 `BlockNodeAllowances`，改包客户端可把任意类型塞进任意宿主 | 服务端 op 链按准入名单校验，超名单 REJECT（与 K10 服务端化同批） | 🔶 待办（2026-10-17 补登记，复审 P2-7） |
 | 10 | AST 与 RPN 双前端并行（旧表示退役时间点未定） | 同一份公式有两套可执行表示并存于 FORMULA 求值（`script.ast` 空 → 旧扁平 RPN 循环；非空 → 刀3 解释器），维护面翻倍 | 拍板退役时间点与迁移口径后单批删除旧路径 | 🔶 待办（拓扑 P5 拆分已把两前端物理分离，退役不再受阻） |
+| 11 | 反向包边成环（blocks ↔ client.editor / network → blocks） | 包归位把同包互访显形为跨包 import，blocks 与 client.editor 互引成环、network 新增回引 blocks 边，与「blocks 回归世界侧」收口叙事反向 | 依赖倒置解环（Host 查询方法 / markDirty 形参收窄 / 窄接口，E2 `EditAckSink` 手法）或接受现状不立分层规则；**待拍板** | 🔶 待办（2026-10-31 补登记，拓扑批 4 注记⑥ 留痕边清单与根因） |
 
 ---
 
@@ -405,3 +406,41 @@ Sensor / 控制椅图里若出现 DELAY / LATCH / GATE / T_FLIPFLOP / PULSE_EXTE
 
 **🔶 待办。** 2026-10-25 拓扑 P5 拆分落地时按暂缓备忘记补登记：拆分解耦了退役决策（先物理
 分离、决策后删一期即可），本条目只登记决策欠账，不阻塞任何在途批次。
+
+## 11. 反向包边成环（blocks ↔ client.editor / network → blocks）
+
+范围 / Scope：`client.editor/GraphEditor`（三处 `host instanceof BlueprintScreen`、一处 `be instanceof GraphBlockEntity`）、
+`network/EditSessionRegistry`（`markDirty`/`getBlockEntity` 对 `GraphBlockEntity`、一处 `instanceof MonitorBlockEntity`）；
+根因与边清单见拓扑评审 §五批 4 注记⑥（2026-10-31 登记）。
+
+### 症状 / Symptom
+
+（非用户可见缺陷，属结构性债。）拓扑批 4 包归位（`e831c94`/`5122149`）把编辑器家族迁入 `client.editor/`、
+`EditSessionRegistry` 迁入 `network/` 后，包图上出现反向边：`client.editor → blocks`（GraphEditor 回引
+BlueprintScreen/GraphBlockEntity）与既有的 `blocks → client.editor`（宿主屏继承 AbstractGraphScreen、调用编辑器）
+互为镜像，blocks ↔ client.editor **成环**；`network → blocks` 亦为新增边。方向与「blocks 回归世界侧」的收口叙事相反，
+将来若立「client 不得回引 blocks」类分层规则，此环是第一个违规点。
+
+### 机制 / Mechanism
+
+耦合不是搬包新造的，是搬包**显形**的：搬迁前这些全是 blocks 包内裸名互访（零 import、零包边），搬后成为跨包 import。
+四处实义耦合各有语义理由——
+① 编辑器按宿主屏具体类型分叉布局（蓝图机顶栏 326px 与按钮命中区异于常规 250px）；
+② GraphEditor 经 `GraphBlockEntity` 接口读封装子图 flipflop 状态渲染徽标；
+③ `EditSessionRegistry.markDirty` 落盘要 BE——但形参 `GraphBlockEntity` 纯属名义（方法体第一行即上转
+`BlockEntity` 调 `setChanged()`）；④ 显示拖拽流 20Hz op 的限流全量同步要认出 `MonitorBlockEntity`。
+环两侧各自都有留守的正当理由：宿主屏按「不给每个宿主立子包（纵切片同包内聚优先）」必须留 blocks，
+编辑器又必须知道宿主几何与宿主 BE 类型——除非宿主屏一并迁走（撕裂纵切片内聚），否则环在包图层面不可消。
+
+### 修复方向 / Fix direction
+
+依赖倒置（同 E2 `EditAckSink` 的缝-实现分离手法）：① 三处 `instanceof BlueprintScreen` 改为问
+`GraphEditor.Host` 接口查询方法（如 `toolbarWidth()`——该缝现成，宿主屏本就实现 Host）；② `markDirty` 形参
+收窄为 `BlockEntity`（一行事，类型本就多余）；③ `MonitorBlockEntity` 那处收成「请求全量同步」窄接口。
+或接受现状——但「client 不得回引 blocks」类分层规则随之不可立。两条路均为代码/结构变更，
+按红线单独立项，不在清理线自主范围。**待拍板**：解环 vs 接受现状（含是否立分层规则）。
+
+### 状态 / Status
+
+**🔶 待拍板。** 2026-10-31 批 4 收账时按暂缓备忘记补登记：拓扑批 4 注记⑥已留痕边清单与根因，
+本条目登记决策欠账，不阻塞任何在途批次。
