@@ -789,7 +789,7 @@ public class GraphEditor {
     public boolean isInSubGraph() { return encapsulationParent != null; }
     /** -1 for main graph, otherwise the ENCAPSULATION node ID (sub-graph routing).
      *  -1 表示主图，否则为封装节点 ID（子图路由）。 */
-    public int ownerNodeId() { return isInSubGraph() ? encapsulationParent.id : -1; }
+    public int ownerNodeId() { return isInSubGraph() ? encapsulationParent.id : -1; }   // 包归位放宽：宿主屏跨包用 / widened for host screens after package re-homing
     /** 获取当前正在编辑的封装父节点（null = 编辑主图）。
      *  Get the encapsulation parent node currently being edited (null = editing main graph). */
     public GraphNode getEncapsulationParent() { return encapsulationParent; }
