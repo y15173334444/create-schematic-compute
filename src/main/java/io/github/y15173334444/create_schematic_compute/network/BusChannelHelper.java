@@ -11,6 +11,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 import javax.annotation.Nullable;
 import java.util.*;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 
 /**
  * Shared bus channel lifecycle methods, extracted from the four

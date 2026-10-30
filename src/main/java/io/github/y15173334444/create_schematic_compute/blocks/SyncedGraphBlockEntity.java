@@ -18,6 +18,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import javax.annotation.Nullable;
 import java.util.HashMap;
 import java.util.Map;
+import io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry;
 
 /**
  * Common base class for all graph-hosting block entities — a thin shell over the

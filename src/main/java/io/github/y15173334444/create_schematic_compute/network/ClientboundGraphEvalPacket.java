@@ -13,6 +13,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 import java.util.HashMap;
 import java.util.Map;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 
 /**
  * Server→Client: synchronize Monitor graph evaluation results.

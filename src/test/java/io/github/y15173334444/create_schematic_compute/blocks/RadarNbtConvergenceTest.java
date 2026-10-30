@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
+import io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry;
 
 /**
  * 雷达 NBT/生命周期收敛的源码契约锚（headless 无法构造方块实体——注册表未引导时

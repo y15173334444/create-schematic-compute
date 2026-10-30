@@ -34,7 +34,7 @@ public final class BlobPacketHandler {
             if (!(ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp)) return;
             if (!(sp.level() instanceof net.minecraft.server.level.ServerLevel sl)) return;
             if (!io.github.y15173334444.create_schematic_compute.network.SablePacketHelper.isWithinReachableRange(sp, pkt.pos(), 16384.0)) return;
-            if (!io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.getEditors(sl, pkt.pos()).contains(sp.getUUID()))
+            if (!io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry.getEditors(sl, pkt.pos()).contains(sp.getUUID()))
                 return;
             BlobRegistry.receive(pkt, sp.getUUID());
         });

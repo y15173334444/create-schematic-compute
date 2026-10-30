@@ -1,7 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
-import io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry;
+import io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;

@@ -11,6 +11,7 @@ import org.jetbrains.annotations.NotNull;
 
 import io.netty.buffer.ByteBuf;
 import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 
 /**
  * S→C 同步数据包：服务端将已应用的图编辑操作广播给其他正在编辑的客户端。

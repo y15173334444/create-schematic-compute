@@ -10,6 +10,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 
 /**
  * Client→Server: player opened the edit UI for a graph.

@@ -1,7 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
-import io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry;
+import io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
@@ -73,7 +73,7 @@ public record GraphLeavePacket(BlockPos pos) implements CustomPacketPayload {
 
                 // Snapshot current editor set BEFORE removal, so we know who to broadcast to.
                 // 在移除前先获取当前编辑者集合的快照，以确定需要向谁广播。
-                var editors = io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.getEditors(level, pkt.pos);
+                var editors = io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry.getEditors(level, pkt.pos);
 
                 // Remove self from the co-editing session / 从协同编辑会话中移除自己
                 EditSessionRegistry.leave(level, pkt.pos, sp.getUUID());

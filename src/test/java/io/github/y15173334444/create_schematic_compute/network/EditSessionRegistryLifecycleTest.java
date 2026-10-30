@@ -1,4 +1,4 @@
-package io.github.y15173334444.create_schematic_compute.blocks;
+package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry;
 
 /**
  * EditSessionRegistry 生命周期回归（P2-10）：

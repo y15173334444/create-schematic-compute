@@ -26,6 +26,7 @@ import net.neoforged.neoforge.registries.DeferredRegister;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
+import io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry;
 
 @Mod(SchematicCompute.MOD_ID)
 public class SchematicCompute {
@@ -224,7 +225,7 @@ public class SchematicCompute {
                 io.github.y15173334444.create_schematic_compute.radar.TargetAssignment.clearAll();
                 io.github.y15173334444.create_schematic_compute.network.SignalBus.clear();
                 io.github.y15173334444.create_schematic_compute.network.AudioBands.clear();
-                io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.clearAll();
+                io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry.clearAll();
                 io.github.y15173334444.create_schematic_compute.graph.FormulaCompute.clearAll();
                 LOGGER.info("{} cleared static state for server shutdown", MOD_ID);
             });
@@ -233,7 +234,7 @@ public class SchematicCompute {
             net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent.class, event -> {
                 var uuid = event.getEntity().getUUID();
                 ControlSeatBlockEntity.clearPlayerInput(uuid);
-                io.github.y15173334444.create_schematic_compute.blocks.EditSessionRegistry.leaveAll(uuid);
+                io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry.leaveAll(uuid);
             });
         // 客户端断开时清除临时视角（防止跨存档污染） / clear temp view on client disconnect (prevent cross-world pollution)
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(

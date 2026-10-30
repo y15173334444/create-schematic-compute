@@ -1,4 +1,4 @@
-package io.github.y15173334444.create_schematic_compute.blocks;
+package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
 import io.github.y15173334444.create_schematic_compute.graph.OpExecutor;
@@ -12,6 +12,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.*;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.MonitorBlockEntity;
 
 /**
  * Lightweight server-side registry tracking active edit sessions per graph.
