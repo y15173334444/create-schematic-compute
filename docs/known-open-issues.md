@@ -2,7 +2,7 @@
 > 更新日期 / Updated：2026-10-31
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 待办 11 项（详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 待办 14 项（其中 9 项已拍板待实施、1 项拍板关闭，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -20,12 +20,15 @@
 | 3 | 打字途中面板重建（补全弹窗被吞 · 输入框每击键换血） | 公式脚本框打字时补全候选框闪现即失，每次击键整个输入框被换实例 | 三处一批：指纹剔公式文本 + SET_FORMULA 远端定点刷新 + 草稿策略 | 🔶 待办（幽灵选区本体已修 2026-10-11） |
 | 4 | 功放开盖模型越出方块背面 0.75px | `lit=true` 时盖子最外上角到 Z16.75，紧邻方块背面可见穿模 | 铰链前移 1px / 盖子做矮到 8px / 接受现状 | 🔶 待办（建模决定） |
 | 5 | NBS 笔划分组漏掉按下格（一次笔划 = 两条撤销） | 一次涂抹/擦除笔划要撤销两次：拖过格并成一条、按下格独立一条 | beginBatch 提到落点之前 + 一条回归测试 | 🔶 待办 |
-| 6 | 像素编辑器配色半收编（static final 捕获 + 硬编码按钮/悬停） | 与 NBS 收编前同款病：panel_bg/panel_border 类加载时捕获、按钮/悬停写死，换主题不跟 | 照 NBS 收编的同款映射一次搬 | 🔶 待办 |
+| 6 | 像素编辑器配色半收编（static final 捕获 + 硬编码按钮/悬停） | 与 NBS 收编前同款病：panel_bg/panel_border 类加载时捕获、按钮/悬停写死，换主题不跟 | 照 NBS 收编的同款映射一次搬 | 🔶 待办（**2026-10-31 拍板：复用现有槽位收编**，实施待排期） |
 | 7 | 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理） | 主图/子图节点 id 撞号时 owner 门失真；syncBusBands/空表 clearBus 靠旗标或镜像语义门控 | ChannelOwner 加图域全链带上 + 两处清理改 owner 门控 | 🔶 待办 |
-| 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（行为变更，待拍板） | 🔶 待办（2026-10-25 更新：eval 分派化已落地 main，怪癖按决策 §三-4 原样保留并收敛到单一事实源） |
-| 9 | 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE） | 服务端 op 链不校验 `BlockNodeAllowances`，改包客户端可把任意类型塞进任意宿主 | 服务端 op 链按准入名单校验，超名单 REJECT（与 K10 服务端化同批） | 🔶 待办（2026-10-17 补登记，复审 P2-7） |
-| 10 | AST 与 RPN 双前端并行（旧表示退役时间点未定） | 同一份公式有两套可执行表示并存于 FORMULA 求值（`script.ast` 空 → 旧扁平 RPN 循环；非空 → 刀3 解释器），维护面翻倍 | 拍板退役时间点与迁移口径后单批删除旧路径 | 🔶 待办（拓扑 P5 拆分已把两前端物理分离，退役不再受阻） |
-| 11 | 反向包边成环（blocks ↔ client.editor / network → blocks） | 包归位把同包互访显形为跨包 import，blocks 与 client.editor 互引成环、network 新增回引 blocks 边，与「blocks 回归世界侧」收口叙事反向 | 依赖倒置解环（Host 查询方法 / markDirty 形参收窄 / 窄接口，E2 `EditAckSink` 手法）或接受现状不立分层规则；**待拍板** | 🔶 待办（2026-10-31 补登记，拓扑批 4 注记⑥ 留痕边清单与根因） |
+| 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（行为变更） | 🔶 待办（2026-10-25 更新：eval 分派化已落地 main，怪癖按决策 §三-4 原样保留并收敛到单一事实源；**2026-10-31 拍板：档位合一**，实施待排期） |
+| 9 | 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE） | 服务端 op 链不校验 `BlockNodeAllowances`，改包客户端可把任意类型塞进任意宿主 | 服务端 op 链按准入名单校验，超名单 REJECT（与 K10 服务端化同批） | 🔶 待办（2026-10-17 补登记，复审 P2-7；**2026-10-31 拍板：运行时服务端化**——各版本整理的方块节点筛选有差异，直接静态校验会让旧版本的图用不了，校验须带旧档兼容口径） |
+| 10 | AST 与 RPN 双前端并行（旧表示退役时间点未定） | 同一份公式有两套可执行表示并存于 FORMULA 求值（`script.ast` 空 → 旧扁平 RPN 循环；非空 → 刀3 解释器），维护面翻倍 | 单批删除旧路径 | 🔶 待办（拓扑 P5 拆分已把两前端物理分离，退役不再受阻；**2026-10-31 拍板：1.3.0 内退役**——无控制流脚本统一升格 AST，旧扁平 RPN 前端随批删除，实施待排期） |
+| 11 | 反向包边成环（blocks ↔ client.editor / network → blocks） | 包归位把同包互访显形为跨包 import，blocks 与 client.editor 互引成环、network 新增回引 blocks 边，与「blocks 回归世界侧」收口叙事反向 | 依赖倒置解环（Host 查询方法 / markDirty 形参收窄 / 窄接口，E2 `EditAckSink` 手法）或接受现状不立分层规则 | 🔶 待办（2026-10-31 补登记，拓扑批 4 注记⑥ 留痕边清单与根因；**2026-10-31 拍板：解环（依赖倒置）**，实施待排期） |
+| 12 | 预算兜底未接线（deadline 兑底承诺未兑现） | `deadlineExhausted()` 全仓零调用点，FormulaCompute javadoc 却写着「deadline 仅作兜底（闭式巨脚本的紧急 shed）」——注释替未实现机制背书 | 接线；设置面板新增选项卡 + 两条指令（指令打开设置面板 / 指令直接调整），调整均需 OP，作用域 = 当前世界设置 | 🔶 待办（**2026-10-31 拍板：接线**，交互约束见正文，实施待排期） |
+| 13 | validate 双份 parseScript（同一脚本解析两遍） | `FormulaValidator.validate` 内部完整重跑 `parseScript`，校验路径重复解析 | 去重复用解析产物，单独立批（行为批口径） | 🔶 待办（**2026-10-31 拍板：修，单独立批**，实施待排期） |
+| 14 | 显示器/HUD 每帧分配（图像墙 GC 抖动） | 3D 每像素 quad 无缓存、HUD 每不透明像素 `new float[8]`、恒渲染不进视锥剔除——图像墙场景顶点与分配线性叠加（复审 P1-4） | 只修分配（3D 按图代际缓存 mesh + HUD 像素四边形数组复用），**不碰恒渲染语义** | 🔶 待办（**2026-10-31 拍板：只修分配不碰恒渲染**，实施待排期） |
 
 ---
 
@@ -255,6 +258,8 @@
 
 ---
 
+**🎯 2026-10-31 拍板 / Ruling（仅登记，实施待排期）**：复用现有槽位收编——C_BTN/C_HOVER/C_SEL 映射进 EditorTheme 现有槽位（如 panelBg/insetBg、hover、accent 一类搭配），不新增专用槽位（四主题直接带值、配置格式不变）。/ Reuse existing theme slots for C_BTN/C_HOVER/C_SEL; no new dedicated slots.
+
 ## 7. 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理）
 
 范围 / Scope：`ChannelOwner` / `SignalBus`（owner 键空间）、`GraphBusEditor.syncBusBands`（客户端同名对齐 + 定义写入）、`BusBandSyncPacket`（客户端镜像清理）
@@ -340,6 +345,8 @@ Sensor / 控制椅图里若出现 DELAY / LATCH / GATE / T_FLIPFLOP / PULSE_EXTE
 
 ---
 
+**🎯 2026-10-31 拍板 / Ruling（仅登记，实施待排期）**：档位合一——4 参档与全状态档合一，让七类时序/状态节点在 Sensor/ControlSeat 上真正工作。行为变更，实施须独立批次。/ Unify the 4-arg tier with the full-state tier so the seven timing/state types actually run on Sensor/ControlSeat; behaviour change, own batch.
+
 ## 9. 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE）
 
 ### 症状 / Symptom
@@ -375,6 +382,8 @@ Sensor / 控制椅图里若出现 DELAY / LATCH / GATE / T_FLIPFLOP / PULSE_EXTE
 
 ---
 
+**🎯 2026-10-31 拍板 / Ruling（仅登记，实施待排期）**：运行时服务端化——注意各版本整理的各个方块的节点筛选有差异，直接静态校验可能会导致有些旧版本的图用不了；服务端化以运行时校验形态做，须带旧档兼容口径（用户原话约束）。/ Runtime server-side validation; strict static checking would brick graphs saved under older allowlist versions, so the check must carry a legacy-save tolerance.
+
 ## 10. AST 与 RPN 双前端并行（旧表示退役时间点未定）
 
 范围 / Scope：`FormulaParser`（RPN 旧前端本体与模式路由）、`FormulaAstParser`（AST 前端）、
@@ -406,6 +415,8 @@ Sensor / 控制椅图里若出现 DELAY / LATCH / GATE / T_FLIPFLOP / PULSE_EXTE
 
 **🔶 待办。** 2026-10-25 拓扑 P5 拆分落地时按暂缓备忘记补登记：拆分解耦了退役决策（先物理
 分离、决策后删一期即可），本条目只登记决策欠账，不阻塞任何在途批次。
+
+**🎯 2026-10-31 拍板 / Ruling（仅登记，实施待排期）**：1.3.0 内退役——无控制流脚本统一升格 AST，旧扁平 RPN 前端单批删除（P5 物理分离后删除面已收窄）。实施含旧档兼容口径设计。/ Retire within 1.3.0: unify all non-control-flow scripts onto the AST frontend and delete the legacy flat-RPN path in one batch.
 
 ## 11. 反向包边成环（blocks ↔ client.editor / network → blocks）
 
@@ -444,3 +455,84 @@ BlueprintScreen/GraphBlockEntity）与既有的 `blocks → client.editor`（宿
 
 **🔶 待拍板。** 2026-10-31 批 4 收账时按暂缓备忘记补登记：拓扑批 4 注记⑥已留痕边清单与根因，
 本条目登记决策欠账，不阻塞任何在途批次。
+
+**🎯 2026-10-31 拍板 / Ruling（仅登记，实施待排期）**：解环（依赖倒置）——按 E2 EditAckSink 手法：GraphEditor.Host 查询方法（缝现成）/ markDirty 形参收窄为 BlockEntity / MonitorBlockEntity 窄接口。解环后「client 不得回引 blocks」类分层规则可立。/ Break the cycle via dependency inversion (the E2 EditAckSink playbook).
+
+## 12. 预算兜底未接线（deadline 兑底承诺未兑现）
+
+范围 / Scope：`graph/FormulaCompute`（`deadlineExhausted()` 定义处，全仓零调用点）、公式求值预算链路；
+源头 cross-be 债务审计 9.2-1「预算兜底未接线」。
+
+### 症状 / Symptom
+
+`deadlineExhausted()` 全仓零调用点——预算 deadline 只设定不消费；但 `FormulaCompute` 的 javadoc 写着
+「deadline 仅作兜底（闭式巨脚本的紧急 shed）」，代码注释在替未实现机制背书，「文档承诺 > 实现」从 docs
+蔓延到了源码注释。
+
+### 机制 / Mechanism
+
+刀 1/3/5 的公式预算机制里，deadline 在 tick 期初复位、但求值循环边界从不查询——闭式巨脚本（单表达式
+巨量展开、无循环边界可 yield）没有紧急 shed 兜底，只有协作式 slice yield 一条路。javadoc 的承诺路径
+（超预算紧急 shed）物理上不存在。
+
+### 修复方向 / Fix direction（2026-10-31 拍板，用户原话约束）
+
+**接线**（不走文档降级）。交互面与权限约束：
+① 设置面板新增**选项卡**；
+② **调用指令**两条——一条指令打开设置面板、一条指令直接调整；
+③ 调整**均需 OP**；
+④ 作用域 = **当前世界设置**（非全局）。
+
+### 状态 / Status
+
+**🔶 待办（2026-10-31 拍板：接线，交互约束见上，实施待排期）。** 本条目随拍板登记；实施属代码批，
+另批执行。
+
+## 13. validate 双份 parseScript（同一脚本解析两遍）
+
+范围 / Scope：`graph/FormulaValidator.validate`、`graph/FormulaParser.parseScript`；复审 P3 定性，
+拓扑 P5 拆分时按「行为/结构不同批」红线未顺路修。
+
+### 症状 / Symptom
+
+`validate` 内部完整重跑一遍 `parseScript`——同一脚本在校验路径解析两遍，解析成本翻倍。
+
+### 机制 / Mechanism
+
+校验入口与解析入口各自完整解析：validate 先自己跑 parseScript 拿产物做启发式检查，调用方随后再解析
+一次拿可用产物。P5 拆分后两者已物理分家（FormulaValidator / FormulaAstParser），去重的改动面已清晰，
+但去重本身是**行为批**口径，须单独立批。
+
+### 修复方向 / Fix direction（2026-10-31 拍板）
+
+去重复用解析产物，**单独立批**（行为批口径，不与其他变更混批）。
+
+### 状态 / Status
+
+**🔶 待办（2026-10-31 拍板：修，单独立批，实施待排期）。**
+
+## 14. 显示器/HUD 每帧分配（图像墙 GC 抖动）
+
+范围 / Scope：`client/renderer/MonitorBlockEntityRenderer#render`、`client/renderer/HudRenderer#renderHud`；
+复审 P1-4（2026-10-25 安全与性能审查，二次核验通过）。
+
+### 症状 / Symptom
+
+3D 模式每图像每帧对非透明像素逐个 `addVertex×4`（32×32 ≈ 1024 quad/帧/显示器），内容不变也重发；
+HUD 模式每不透明像素 `new float[8]` + 6 顶点三角形扇；叠加 `shouldRenderOffScreen()=true`（显示器恒渲染、
+不进视锥剔除）——图像墙场景（N 显示器 × M 图像）顶点数与分配线性叠加，HUD 模式每帧数万 float[8] 造成
+GC 抖动。
+
+### 机制 / Mechanism
+
+3D 路径几何只依赖 BE 参数 + 快照值，可按代际缓存 mesh；HUD 路径的每像素四边形数组可复用；
+恒渲染语义是否必要属另一议题（本条不碰）。
+
+### 修复方向 / Fix direction（2026-10-31 拍板）
+
+**只修分配**：3D 路径按图代际缓存 mesh + HUD 路径像素四边形数组复用（消灭每像素 `new float[8]`）。
+**不碰恒渲染语义**（`shouldRenderOffScreen` 行为保持原样，视锥剔除复核不在本批）。
+
+### 状态 / Status
+
+**🔶 待办（2026-10-31 拍板：只修分配不碰恒渲染，实施待排期）。** 独立性能批，不混其他变更。
