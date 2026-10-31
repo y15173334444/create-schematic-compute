@@ -497,7 +497,8 @@ BlueprintScreen/GraphBlockEntity）与既有的 `blocks → client.editor`（宿
 形态曾让测试类间静态状态泄漏误伤——BallisticSolverTest/FormulaParserSyntaxTest 首爆——故取局部口径，
 微小表达式 ≤256 ops 永不采样）；shed 语义经追问拍板 = **保持 + 升级冻结**（解释器转 fromDeadline
 挂起：carrier 保住、输出保持 lastGood、不计 yield；公平规则 = 仅节点自身超份额才计连续超时，20 tick
-冻结走 MAX_ITER 同款告警一次；聚合压力受害者只保持）；FORMULA 输出阶段撞限保持该输出并作废 done
+冻结走 MAX_ITER 同款告警一次；**冻结与冻结时的预算值绑定——预算调大下一 tick 自动解冻重试（装不下
+再重新冻结并记录新值；MAX_ITER 冻结按迭代数裁定、不参与解冻）**；聚合压力受害者只保持）；FORMULA 输出阶段撞限保持该输出并作废 done
 全量重试；DEBUG 试算/曲线瞬态豁免。交互面四约束全数落地：设置面板「公式预算」选项卡（OP 步进
 ±0.5ms/应用/恢复默认，非 OP 只读）+ `/cscsettings`（打开面板直达预算 tab）+ `/cscbudget <ms>`（直接
 调整）均需 OP + 作用域 = 当前世界 SERVER 配置（登录同步 + 运行期广播刷新）。
