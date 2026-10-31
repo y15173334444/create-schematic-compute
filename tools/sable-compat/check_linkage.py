@@ -30,6 +30,7 @@ Implementation: a plain-Python class-file reader (no javap / JVM dependency).
   3. 退出码 = 失败点数（0 全绿）/ exit code = number of failed points
 """
 import argparse
+import functools
 import json
 import struct
 import sys
@@ -126,9 +127,12 @@ def collect_members(jar_dir: Path, class_fqn: str) -> dict:
 
 # ---------------------------------------------------------------- 探针 / probe
 
-def load_points() -> list[dict]:
+@functools.lru_cache(maxsize=1)
+def load_points() -> tuple:
+    """清单只读一次并缓存：跑批中途有人动/删清单文件不会把矩阵打崩（实证踩过）。
+    Loads the checklist once and caches it: mid-run tree churn must not kill the matrix."""
     doc = json.loads(POINTS_PATH.read_text(encoding='utf-8'))
-    return doc['points']
+    return tuple(doc['points'])
 
 
 def check_point(point: dict, jar_dir: Path) -> tuple[bool, str]:
@@ -153,7 +157,7 @@ def check_point(point: dict, jar_dir: Path) -> tuple[bool, str]:
     return False, detail
 
 
-def check_dir(jar_dir: Path, points: list[dict] | None = None) -> list[tuple[dict, bool, str]]:
+def check_dir(jar_dir: Path, points=None) -> list[tuple[dict, bool, str]]:
     points = points if points is not None else load_points()
     return [(p,) + check_point(p, jar_dir) for p in points]
 
