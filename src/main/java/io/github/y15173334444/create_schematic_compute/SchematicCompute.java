@@ -236,6 +236,21 @@ public class SchematicCompute {
                 ControlSeatBlockEntity.clearPlayerInput(uuid);
                 io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry.leaveAll(uuid);
             });
+        // K6 交互面:模组指令注册(RegisterCommandsEvent 是游戏总线裸 Event)。
+        // The K6 interaction surface: command registration (RegisterCommandsEvent is a plain game-bus event).
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+            net.neoforged.neoforge.event.RegisterCommandsEvent.class,
+            event -> SchematicComputeCommands.register(event.getDispatcher()));
+        // K6:登录即下发公式预算权威值与该玩家的调整权限——面板显示不等第一次运行期修改。
+        // K6: push the authoritative budget and the player's can-adjust ruling on login — the
+        // panel never waits for the first runtime change.
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+            net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent.class, event -> {
+                if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer sp)
+                    net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(sp,
+                        new io.github.y15173334444.create_schematic_compute.network.BudgetSyncPacket(
+                            Config.formulaBudgetMsSafe(), sp.hasPermissions(2)));
+            });
         // 客户端断开时清除临时视角（防止跨存档污染） / clear temp view on client disconnect (prevent cross-world pollution)
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
             net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent.LoggingOut.class, event -> {

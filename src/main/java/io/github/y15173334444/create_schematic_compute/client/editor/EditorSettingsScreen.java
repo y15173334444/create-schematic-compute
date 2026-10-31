@@ -52,6 +52,11 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
     private final EditorSettingsColorsTab colorsTab = new EditorSettingsColorsTab();
     /** 键位 tab 视图（同批拆分，最后一刀）；键位状态随实现搬入该类。 */
     private final EditorSettingsKeysTab keysTab = new EditorSettingsKeysTab(this);
+    /** 公式预算 tab 视图（K6 交互面：服务端权威值显示 + OP 步进调整）。 / the formula-budget tab (the K6 interaction surface: server-authoritative value + OP-adjustable). */
+    private final EditorSettingsBudgetTab budgetTab = new EditorSettingsBudgetTab(this);
+
+    /** 选项卡索引:预算 tab(K6)。 / tab index: the budget tab (K6). */
+    public static final int TAB_BUDGET = 3;
 
     // ── 颜色调整状态 / color-adjustment state ──
 
@@ -70,9 +75,26 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
     private static final int TAB_W = 170;
 
     public EditorSettingsScreen(Screen parent) {
+        this(parent, -1);
+    }
+
+    /** 带初始选项卡的形态（K6:/cscsettings 直达预算 tab;-1 = 沿用上次位置）。
+     *  The with-initial-tab form (K6: /cscsettings lands on the budget tab; -1 = last position). */
+    public EditorSettingsScreen(Screen parent, int openTab) {
         super(Component.translatable("gui.create_schematic_compute.settings.title"));
         this.parent = parent;
+        if (openTab >= 0) { tab = openTab; lastTab = openTab; }
         colorsTab.bind(this);   // 颜色 tab 的宿主（列表几何经 Host 取，颜色状态在 tab 内）
+    }
+
+    /** `/cscsettings` 客户端入口（S2C OpenSettingsPacket 主线程回调）:无编辑器上下文直开
+     *  设置面板、落在预算 tab;关闭后 parent=null → 回游戏。
+     *  The /cscsettings client entry (the OpenSettingsPacket main-thread callback): opens the
+     *  settings screen with no editor context, landing on the budget tab; parent=null closes
+     *  back to the game. */
+    public static void openFromCommand() {
+        var mc = net.minecraft.client.Minecraft.getInstance();
+        mc.setScreen(new EditorSettingsScreen(null, TAB_BUDGET));
     }
 
     @Override protected void init() { }
@@ -127,7 +149,8 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
         String[] tabs = {
             I18n.get("gui.create_schematic_compute.settings.tab.colors"),
             I18n.get("gui.create_schematic_compute.settings.tab.keys"),
-            I18n.get("gui.create_schematic_compute.settings.tab.guide")};
+            I18n.get("gui.create_schematic_compute.settings.tab.guide"),
+            I18n.get("gui.create_schematic_compute.settings.tab.budget")};
         for (int i = 0; i < tabs.length; i++) {
             int tx = 10 - shift, ty = 36 + i * 30;
             boolean active = i == tab;
@@ -155,12 +178,16 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
             colorsTab.renderColorsTab(g, mx, my, cx, cy, contentRight, contentBottom, contentW);
         } else if (tab == 1) {
             keysTab.renderKeysTab(g, mx, my, cx, cy, contentRight, contentBottom);
-        } else {
+        } else if (tab == 2) {
             // 节点指南：从 NodeType 元数据自动生成 —— 名称走既有 lang 键，引脚与参数
             // 来自枚举字段；详细说明走 guide.* lang 键（悬停/详情面板共用）。
             // Node guide: generated from NodeType metadata — names from the existing
             // lang keys, pins/params from the enum fields; long copy from guide.* keys.
             guideTab.renderGuideTab(g, mx, my, cx, contentBottom);
+        } else {
+            // 公式预算 tab（K6）:服务端权威值 + OP 步进调整,无滚动/展开区。
+            // The formula-budget tab (K6): server-authoritative value + OP stepper, no scroll or expansion.
+            budgetTab.renderBudgetTab(g, mx, my, cx, cy, contentRight, contentBottom);
         }
     }
 
@@ -341,6 +368,13 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
             }
             return true;
         }
+        // ── 公式预算 tab（K6）:选项卡列 / 按钮区 ──
+        //    Budget tab (K6): tab column / button region.
+        if (tab == 3) {
+            if (mx < TAB_W - shift) { tabColumnClick(my); return true; }
+            budgetTab.handleClick(mx, my, TAB_W + 12 - shift, cy());
+            return true;
+        }
         // 左侧选项卡列（列内空白也消费 —— 全屏界面不穿透）；末尾返回项关闭界面。
         // Left tab column (blank areas included — the full-screen GUI never falls
         // through); the trailing back entry closes the screen.
@@ -353,8 +387,8 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
      *  its expansion; switching tabs collapses first. */
     @Override public void tabColumnClick(double my) {
         int idx = (int) ((my - 36) / 30);
-        if (idx < 0 || idx > 3) return;
-        if (idx == 3) { onClose(); return; } // 返回项 / back entry
+        if (idx < 0 || idx > 4) return;
+        if (idx == 4) { onClose(); return; } // 返回项 / back entry
         if (expanded) collapseExpanded();
         if (tab == 0 && idx != 0) colorsTab.setStagingInited(false); // 离开颜色 tab 丢弃未应用暂存 / leaving colors discards unapplied staging
         tab = idx; lastTab = idx;

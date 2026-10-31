@@ -107,5 +107,11 @@ public class AllPackets {
         registrar.playToServer(BlobDataPacket.TYPE, BlobDataPacket.CODEC, BlobPacketHandler::handleServer);
         registrar.playToClient(BlobDataSyncPacket.TYPE, BlobDataSyncPacket.CODEC,
             (pkt, ctx) -> BlobPacketHandler.handleClient(pkt.inner(), ctx));
+        // K6 交互面:公式预算调整(C→S,OP 服务端裁定) + 权威值同步(S→C) + /cscsettings 开面板(S→C)
+        // The K6 interaction surface: budget adjust (C→S, server-ruled OP) + authoritative sync
+        // (S→C) + the /cscsettings panel-open (S→C).
+        registrar.playToServer(BudgetSetPacket.TYPE, BudgetSetPacket.CODEC, BudgetSetPacket::handle);
+        registrar.playToClient(BudgetSyncPacket.TYPE, BudgetSyncPacket.CODEC, BudgetSyncPacket::handle);
+        registrar.playToClient(OpenSettingsPacket.TYPE, OpenSettingsPacket.CODEC, OpenSettingsPacket::handle);
     }
 }

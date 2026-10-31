@@ -30,4 +30,19 @@ public final class Config {
     }
 
     private Config() {}
+
+    /**
+     * formulaBudgetMs 的安全读取：配置未装载窗口（注册后、SERVER 配置装载前）
+     * {@code get()} 抛 IllegalStateException，回退默认 3.0ms（与根包预算接线同口径）。
+     * Safe formulaBudgetMs read: in the pre-load window (registered but the SERVER config
+     * not yet loaded) {@code get()} throws IllegalStateException — fall back to the 3.0ms
+     * default (same shape as the root's budget wiring).
+     */
+    public static double formulaBudgetMsSafe() {
+        try {
+            return FORMULA_BUDGET_MS.get();
+        } catch (IllegalStateException e) {
+            return 3.0;
+        }
+    }
 }
