@@ -35,6 +35,12 @@
      （DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE）**静默空转**——菜单准入本就
      不含时序/逻辑类，但 op 注入（P2-7 准入仅客户端把守）与旧档形态会踩到（已登记
      `known-open-issues.md`）。
+     **→ 2026-10-31 已随档位合一批熄灭**（提交 `0e9cc29`）：4 参档与全状态档合一，七类
+     一律经 evalExt 入口落 `TimingEval.evalState`；详见 `known-open-issues.md` 条目
+     『时序/逻辑节点在 SeatInput 档宿主静默空转』。
+     / **→ Extinguished 2026-10-31** by the tier-unification batch (commit `0e9cc29`):
+     the 4-arg tier merged into the full-state tier and the seven always land on
+     `TimingEval.evalState` via the evalExt entry.
    - ENCAPSULATION 完成脉冲的主/子图 id 空间歧义残留（代码注释记载，宿主侧另批）。
 5. **验收口径**：每抽一类跑 `./gradlew test` 全绿（基线 854）；搬迁与改写不同批；每批独立
    可回退。提交纪律沿用施工计划（代理只改码，验收后每批一笔 `refactor:`）。
@@ -53,7 +59,7 @@
 
 | 处理器 | 覆盖 NodeCategory | 备注 |
 |---|---|---|
-| `FormulaEval` | MATH_BASIC / MATH_ADVANCED / TRIG / LOGIC / CONTROL | 含 FORMULA/PID；**不含 GATE**（状态体在 evalExt 档，见 TimingEval；4 参档怪癖依赖此缺省） |
+| `FormulaEval` | MATH_BASIC / MATH_ADVANCED / TRIG / LOGIC / CONTROL | 含 FORMULA/PID；**不含 GATE**（状态体在 evalExt 档，见 TimingEval；4 参档怪癖依赖此缺省；档位合一 2026-10-31 后 GATE 不再走本处理器） |
 | `TimingEval` | SEQUENTIAL_ACC / SEQUENTIAL_STATE | `evalState()` 承接 evalExt 七类（含 GATE）；`eval()` 档只实现 ACCUMULATOR/INTEGRATOR |
 | `MotionEval` | GEARBOX / TRANSMISSION / SPEED / KINETIC | 运动指令与动力读数 |
 | `BusEval` | VALUES / OUTPUT | CONST / REDSTONE_IN/OUT / PRIVATE_* / BUS_*（BUS_IN 音频分支随行） |

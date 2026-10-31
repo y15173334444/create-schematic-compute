@@ -22,7 +22,7 @@
 | 5 | NBS 笔划分组漏掉按下格（一次笔划 = 两条撤销） | 一次涂抹/擦除笔划要撤销两次：拖过格并成一条、按下格独立一条 | beginBatch 提到落点之前 + 一条回归测试 | 🔶 待办 |
 | 6 | 像素编辑器配色半收编（static final 捕获 + 硬编码按钮/悬停） | 与 NBS 收编前同款病：panel_bg/panel_border 类加载时捕获、按钮/悬停写死，换主题不跟 | 照 NBS 收编的同款映射一次搬 | 🔶 待办（**2026-10-31 拍板：复用现有槽位收编**，实施待排期） |
 | 7 | 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理） | 主图/子图节点 id 撞号时 owner 门失真；syncBusBands/空表 clearBus 靠旗标或镜像语义门控 | ChannelOwner 加图域全链带上 + 两处清理改 owner 门控 | 🔶 待办 |
-| 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（行为变更） | 🔶 待办（2026-10-25 更新：eval 分派化已落地 main，怪癖按决策 §三-4 原样保留并收敛到单一事实源；**2026-10-31 拍板：档位合一**，实施待排期） |
+| 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（行为变更） | 🔶 待办（2026-10-25 更新：eval 分派化已落地 main，怪癖按决策 §三-4 原样保留并收敛到单一事实源；**2026-10-31 拍板：档位合一**，✅ 已实施（2026-10-31 档位合一批 0e9cc29）） |
 | 9 | 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE） | 服务端 op 链不校验 `BlockNodeAllowances`，改包客户端可把任意类型塞进任意宿主 | 服务端 op 链按准入名单校验，超名单 REJECT（与 K10 服务端化同批） | 🔶 待办（2026-10-17 补登记，复审 P2-7；**2026-10-31 拍板：运行时服务端化**——各版本整理的方块节点筛选有差异，直接静态校验会让旧版本的图用不了，校验须带旧档兼容口径） |
 | 10 | AST 与 RPN 双前端并行（旧表示退役时间点未定） | 同一份公式有两套可执行表示并存于 FORMULA 求值（`script.ast` 空 → 旧扁平 RPN 循环；非空 → 刀3 解释器），维护面翻倍 | 单批删除旧路径 | 🔶 待办（拓扑 P5 拆分已把两前端物理分离，退役不再受阻；**2026-10-31 拍板：1.3.0 内退役**——无控制流脚本统一升格 AST，旧扁平 RPN 前端随批删除，实施待排期） |
 | 11 | 反向包边成环（blocks ↔ client.editor / network → blocks） | 包归位把同包互访显形为跨包 import，blocks 与 client.editor 互引成环、network 新增回引 blocks 边，与「blocks 回归世界侧」收口叙事反向 | 依赖倒置解环（Host 查询方法 / markDirty 形参收窄 / 窄接口，E2 `EditAckSink` 手法）或接受现状不立分层规则 | 🔶 待办（2026-10-31 补登记，拓扑批 4 注记⑥ 留痕边清单与根因；**2026-10-31 拍板：解环（依赖倒置）**，实施待排期） |
@@ -341,11 +341,13 @@ Sensor / 控制椅图里若出现 DELAY / LATCH / GATE / T_FLIPFLOP / PULSE_EXTE
 
 ### 状态 / Status
 
-**🔶 待办。** 2026-10-17 随 eval() 分派化决策文档定性登记；**2026-10-25 eval() 按 NodeCategory 分派化已落地 main**（三批：EvalContext 落位 → Formula/Timing/Motion 抽取 → 其余七处理器 + 分派翻转），本怪癖按决策 §三-4 **原样保留**（搬迁纪律 = 行为零变更，不顺手修）——现在怪癖收敛到单一事实源：`TimingEval.evalState` 承接七类（evalExt 档）、`TimingEval.eval` 只实现 ACCUMULATOR/INTEGRATOR（4 参档缺省 = 静默空转）、`FormulaEval` 无 GATE。修法本身（档位合一 vs 档外显式拒绝）是**行为变更**，待拍板后另批实施。
+**✅ 已修（2026-10-31 档位合一批）。** 2026-10-17 随 eval() 分派化决策文档定性登记；**2026-10-25 eval() 按 NodeCategory 分派化已落地 main**（三批：EvalContext 落位 → Formula/Timing/Motion 抽取 → 其余七处理器 + 分派翻转），本怪癖按决策 §三-4 **原样保留**（搬迁纪律 = 行为零变更，不顺手修）——现在怪癖收敛到单一事实源：`TimingEval.evalState` 承接七类（evalExt 档）、`TimingEval.eval` 只实现 ACCUMULATOR/INTEGRATOR（4 参档缺省 = 静默空转）、`FormulaEval` 无 GATE。修法本身（档位合一 vs 档外显式拒绝）是**行为变更**，待拍板后另批实施。
 
 ---
 
 **🎯 2026-10-31 拍板 / Ruling（仅登记，实施待排期）**：档位合一——4 参档与全状态档合一，让七类时序/状态节点在 Sensor/ControlSeat 上真正工作。行为变更，实施须独立批次。/ Unify the 4-arg tier with the full-state tier so the seven timing/state types actually run on Sensor/ControlSeat; behaviour change, own batch.
+
+**✅ 2026-10-31 实施完毕 / Implemented（档位合一批，提交 `0e9cc29`）**：4 参档与全状态档合一——`GraphEvaluator` 的 4 参 `evaluate(..., seat)` 重载收编进全状态路径（随调用弃置三表，无状态循环退役，七类一律经 evalExt 落 `TimingEval.evalState`）；`GraphHost.EvalVariant` 四档并三档（SEAT_STATELESS 常量删除），Sensor/ControlSeat 走 seat + `runtimeState` 三表（七类跨 tick 演进、NBT 随 `runtime` 键持久化，旧档携带此类节点即开始正确工作）；⑬ 触发器差分广播随批补挂（用户拍板随带，编辑区 LATCH/GATE/T_FLIPFLOP 实时状态镜像）。BASIC / EMPTY_TABLE 两档不变。行为锚 `SeatTierUnificationTest` 3 例（LATCH/GATE 4 参即时响应、DELAY 统一调用形态跨 tick 演进）+ 矩阵锚翻转与 SEAT_STATELESS 退役锁，998 绿。/ Implemented: the 4-arg overload now delegates to the full-state path (throwaway tables), EvalVariant collapses to three forms, Sensor/ControlSeat ride seat + runtimeState's three tables with the step-13 diff wired in (user scope call); BASIC/EMPTY_TABLE unchanged, 998 tests green.
 
 ## 9. 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE）
 
