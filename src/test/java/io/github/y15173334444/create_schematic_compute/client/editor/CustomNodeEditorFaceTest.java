@@ -98,6 +98,41 @@ class CustomNodeEditorFaceTest {
     }
 
     @Test
+    @DisplayName("⑧ 批 D 菜单名单：三处 CUSTOM 计数/条目/搜索同源 rosteredCustomIds；宿主键注入链")
+    void menuRosterSingleSource() throws Exception {
+        String m = read(MENU);
+        assertTrue(m.contains("rosteredCustomIds()"), "菜单 CUSTOM 计数/条目/搜索走同一名单快照");
+        assertTrue(m.contains("CustomNodeRoster.forHost(rosterHost)"), "名单源 = CustomNodeRoster.forHost(宿主键)");
+        assertTrue(m.contains("public void setRosterHost(String hostKey)"), "宿主键注入口在");
+        // 高度预计算与条目循环必须同源（(c)1 同型错位防线：高度数 ≠ 条目数 = 网格越界家族）。
+        // The height precompute and the entry loops must share one source (the (c)1 family
+        // of cursor misalignment: height count ≠ entry count = grid overrun).
+        int vc = m.indexOf("private int visibleCount");
+        int rci = m.indexOf("rosteredCustomIds().size()");
+        assertTrue(vc >= 0 && rci > vc, "visibleCount CUSTOM 分支按名单计数");
+        String e = read(EDITOR);
+        assertTrue(e.contains("renderer.setRosterHost(hostKey)"), "编辑器经渲染器门面下发宿主键");
+        String scr = read("src/main/java/io/github/y15173334444/create_schematic_compute/client/editor/AbstractGraphScreen.java");
+        assertTrue(scr.contains("editor.setCustomRosterHost(allowance.hostKey())"), "宿主键单一来源 = allowance.hostKey()");
+    }
+
+    @Test
+    @DisplayName("⑨ 批 D ITEM 槽 UI：三方账本（EditPanel 绘制 / 点击段 / editHeight）+ 弹窗单源")
+    void itemSlotUiLedger() throws Exception {
+        String pn = read(PANEL);
+        assertTrue(pn.contains("CUSTOM ITEM 控件行"), "ITEM 槽行绘制在");
+        assertTrue(pn.contains("g.renderItem(node.itemParams[itemIdx], ibx + 1, iby + 1);"),
+            "槽内物品渲染走槽位坐标");
+        String ed = read(EDITOR);
+        assertTrue(ed.contains("CUSTOM ITEM 槽位点击"), "ITEM 槽点击段在");
+        assertTrue(ed.contains("st.freqSlotSelected = itemIdx;"), "选中态 = itemParams 序位（CUSTOM 语义）");
+        assertTrue(ed.contains("int[] r = hotbarPopupRect();") && ed.contains("int[] r2 = hotbarPopupRect();"),
+            "弹窗矩形渲染与点击共用单源 helper（两处各算一份 = 几何漂移陷阱）");
+        String si = read(SPATIAL);
+        assertTrue(si.contains("items * 18"), "editHeight CUSTOM 账本含 ITEM 槽行（三方同账本）");
+    }
+
+    @Test
     @DisplayName("⑥ 撤销：SET_CUSTOM_TEXT 逆 op（oldStr）；REMOVE_NODE 逆 op 携快照 cid")
     void undoCarriesSlots() throws Exception {
         String t = read(HISTORY);
@@ -109,7 +144,10 @@ class CustomNodeEditorFaceTest {
     @DisplayName("⑦ 几何账本 + 名单：editHeight CUSTOM 行账；BLUEPRINT 收编 CUSTOM 类")
     void geometryAndAllowance() throws Exception {
         String t = read(SPATIAL);
-        assertTrue(t.contains("h += fields * 18 + bools * 16;"), "editHeight 的 CUSTOM 行账在");
+        // 批 D 起账本含 ITEM 槽行（条目 17①：fields/bools/items 三段）。
+        // From batch D the ledger carries the ITEM slot rows too (entry 17①: the
+        // fields/bools/items three segments).
+        assertTrue(t.contains("h += fields * 18 + bools * 16 + items * 18;"), "editHeight 的 CUSTOM 行账在");
         String a = read(ALLOWANCES);
         assertTrue(a.contains("NodeCategory.CUSTOM"), "BLUEPRINT 收编 CUSTOM 类（验收①宿主）");
     }

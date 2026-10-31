@@ -429,6 +429,37 @@ public class EditPanel {
                         (on ? "§a✔ " : "§7") + params.get(bi).key(), bx+4, by+2, 0xFFFFFFFF, false);
                     row++;
                 }
+                // CUSTOM ITEM 控件行（批 D，条目 17①）：每控件一行槽位（标签 + 18px 槽框，
+                // REDSTONE 频率槽同款选中高亮/物品渲染深度纪律）。几何 = BOOL 行之后的
+                // 连续 18px 行，与 GraphEditor 点击段、SpatialIndex.editHeight 三方同一账本
+                // （e26bf73 教训：动行数必须全链清点）。
+                // CUSTOM ITEM control rows (batch D, entry 17①): one slot row per control
+                // (label + an 18px slot frame, the REDSTONE frequency-slot selection
+                // highlight and item-render depth discipline). Geometry = consecutive 18px
+                // rows after the BOOL rows, one ledger across the GraphEditor click segment
+                // and SpatialIndex.editHeight (the e26bf73 lesson: touch the row count,
+                // sweep the whole chain).
+                int itemIdx = 0;
+                for (int ii = 0; ii < params.size(); ii++) {
+                    if (params.get(ii).kind() != io.github.y15173334444.create_schematic_compute.api.CustomNodeType.CustomParam.ParamKind.ITEM) continue;
+                    String ilabel = params.get(ii).key() + ":";
+                    g.drawString(font, ilabel, px + 4, py + 4 + row * 18, 0xFF888888, false);
+                    int ibx = px + 4 + font.width(ilabel) + 6;
+                    int iby = py + 4 + row * 18;
+                    boolean isel = st.freqSlotSelected >= 0 && st.freqSlotSelected == itemIdx;
+                    g.fill(ibx, iby, ibx + 18, iby + 18, 0xFF1A1814);
+                    g.renderOutline(ibx, iby, 18, 18, isel ? NodeRenderer.ACC() : NodeRenderer.CSB());
+                    if (node.itemParams != null && itemIdx < node.itemParams.length && !node.itemParams[itemIdx].isEmpty()) {
+                        // 与 REDSTONE 槽同款：ItemRenderer 在 Z≈250 写深度，先禁写。
+                        // Same as the REDSTONE slots: ItemRenderer writes depth at Z≈250 —
+                        // mask depth writes first.
+                        com.mojang.blaze3d.systems.RenderSystem.depthMask(false);
+                        g.renderItem(node.itemParams[itemIdx], ibx + 1, iby + 1);
+                        com.mojang.blaze3d.systems.RenderSystem.depthMask(true);
+                    }
+                    itemIdx++;
+                    row++;
+                }
             }
         }
         // 正/反转：独立 rev 开关（不改数值 EditBox——数值可被引脚覆盖）。

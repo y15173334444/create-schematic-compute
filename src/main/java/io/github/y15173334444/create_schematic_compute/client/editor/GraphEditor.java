@@ -596,7 +596,7 @@ public class GraphEditor {
          *  NUMBER/TEXT, so mixed BOOL/ITEM params ahead would misalign paramKeys, review
          *  (c)3). */
         public final java.util.List<String> fieldLabels = new java.util.ArrayList<>();
-        public int freqSlotSelected = -1; // -1 = none selected, 0/1 = slot index
+        public int freqSlotSelected = -1; // -1 = none; REDSTONE = 0/1 slot; CUSTOM = itemParams index (batch D)
         public float boolBtnX, boolBtnY, boolBtnW, boolBtnH;
         public float freqSlotX, freqSlotY;
         public boolean listeningForKey = false;
@@ -1033,6 +1033,21 @@ public class GraphEditor {
      *  Set the node type filter for the add-node menu, also updates the main filter cache.
      *  @param filter 过滤谓词 / filter predicate */
     public void setNodeFilter(Predicate<NodeType> filter) { this.nodeFilter = filter; this.mainNodeFilter = filter; }
+
+    /** D5 名单制宿主键（批 D 客户端面）：添加菜单 CUSTOM 段按宿主名单过滤——与服务端
+     *  准入门读同一 roster（单一来源 = 宿主 allowance.hostKey()）。null = 空名单
+     *  （默认拒绝：菜单不展开、服务端照拒——两 face 同口径）。
+     *  The D5 roster host key (batch D client face): the add menu's CUSTOM section
+     *  filters by the host roster — the same roster the server gate reads (single source
+     *  = the host allowance's hostKey()). null = an empty roster (default-deny: nothing
+     *  in the menu and the server refuses alike — both faces agree). */
+    public void setCustomRosterHost(String hostKey) {
+        this.customRosterHost = hostKey;
+        renderer.setRosterHost(hostKey);
+    }
+
+    /** @see #setCustomRosterHost / 见 {@link #setCustomRosterHost}。 */
+    private String customRosterHost = null;
 
     // ── 坐标转换 (Coordinate transforms) ──
     // 图空间 → 屏幕空间 / graph-space → screen-space
@@ -1713,22 +1728,40 @@ public class GraphEditor {
         g.drawString(mc.font, "§c" + I18n.get("gui.create_schematic_compute.cancel"), cx + 12, cby + 2, 0xFFFFFFFF, false);
     }
 
+    /** 热栏弹窗矩形（单源）：渲染（renderHotbarPopup）与点击判定共用同一计算——两处各
+     *  算一份就是几何漂移陷阱（559202d 悬停错位同族）。REDSTONE：槽位行之下；CUSTOM
+     *  （批 D，ITEM 槽行随 schema 数量）：整个编辑区之下，走 expandedEditHeight 实测口径。
+     *  The hotbar popup rect (single source): the render (renderHotbarPopup) and the click
+     *  test share one computation — two copies would be the geometry-drift trap family
+     *  (559202d's hover misalignment). REDSTONE: under the slot row; CUSTOM (batch D —
+     *  the ITEM slot row count follows the schema): under the whole edit panel, via the
+     *  measured expandedEditHeight. */
+    private int[] hotbarPopupRect() {
+        float nsx = c2sX(hotbarNode.x), nsy = c2sY(hotbarNode.y);
+        float nch = (HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()))*zoom+4;
+        var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
+        int pw = 196, ph = 36;
+        int px = (int)(nsx + NW*zoom/2 - pw/2);
+        int py;
+        if (hotbarNode.type == NodeType.CUSTOM) {
+            py = (int)(nsy + nch + EditPanel.expandedEditHeight(hotbarNode, st) * zoom + 4);
+        } else {
+            int numRows = st != null ? st.fields.size() : 0;
+            int editLocalY = (int)(HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()) + 4/zoom);
+            int freqLocalY = editLocalY + 4 + numRows * 18;
+            py = (int)(nsy + nch + (freqLocalY - editLocalY + 20 + 4) * zoom);
+        }
+        return new int[]{px, py, pw, ph};
+    }
+
     /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
      *  6f second-half extraction: a verbatim inline block of the former renderBg. */
     private void renderHotbarPopup(GuiGraphics g) {
         if (hotbarNode == null) return;
         var mc = Minecraft.getInstance();
         if (mc.player != null) {
-            float nsx = c2sX(hotbarNode.x), nsy = c2sY(hotbarNode.y);
-            float nch = (HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()))*zoom+4;
-            var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
-            int numRows = st != null ? st.fields.size() : 0;
-            int editLocalY = (int)(HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()) + 4/zoom);
-            int freqLocalY = editLocalY + 4 + numRows * 18;
-            float popupY = nsy + nch + (freqLocalY - editLocalY + 20 + 4) * zoom;
-            int pw = 196, ph = 36;
-            int px = (int)(nsx + NW*zoom/2 - pw/2);
-            int py = (int)popupY;
+            int[] r = hotbarPopupRect();
+            int px = r[0], py = r[1], pw = r[2], ph = r[3];
             g.fill(px, py, px+pw, py+ph, 0xFF2A2822);
             g.renderOutline(px, py, pw, ph, EditorTheme.get().sysBorder());
             g.drawString(mc.font, "§6§l" + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.hotbar.select"), px + 4, py + 2, 0xFFFFFFFF, false);
@@ -2694,6 +2727,37 @@ public class GraphEditor {
                     }
                     boolRow++;
                 }
+                // CUSTOM ITEM 槽位点击（批 D，条目 17①）：REDSTONE 频率槽同款交互——
+                // 点击选中（freqSlotSelected = itemParams 序位）→ 热栏弹窗点击赋值
+                // （SET_HOTBAR_ITEM，服务端按 CUSTOM itemParams 界校验）。槽行紧跟
+                // BOOL 行之后，与 EditPanel 绘制、SpatialIndex.editHeight 三方同一账本。
+                // CUSTOM ITEM slot clicks (batch D, entry 17①): the REDSTONE
+                // frequency-slot interaction — click to select (freqSlotSelected = the
+                // itemParams index), then hotbar-popup click assigns (SET_HOTBAR_ITEM,
+                // the server validates against the CUSTOM itemParams bound). Slot rows
+                // follow the BOOL rows, one ledger across the EditPanel draw and
+                // SpatialIndex.editHeight.
+                int itemRow = 0, itemIdx = 0;
+                var mcI = Minecraft.getInstance();
+                for (int ii = 0; ii < params.size(); ii++) {
+                    if (params.get(ii).kind() != io.github.y15173334444.create_schematic_compute.api.CustomNodeType.CustomParam.ParamKind.ITEM) continue;
+                    int slotLocalY = editLocalY + 4 + (fieldRows + boolRow + itemRow) * 18;
+                    int labelW = mcI.font.width(params.get(ii).key() + ":");
+                    int ibx = 4 + labelW + 6;
+                    if (lmx >= ibx && lmx <= ibx + 18 && lmy >= slotLocalY && lmy <= slotLocalY + 18) {
+                        // 切换热栏弹窗时，先复位旧节点的高亮态（与 REDSTONE 槽同款）。
+                        // Reset the old node's highlight when switching hotbar popups
+                        // (same as the REDSTONE slots).
+                        if (hotbarNode != null && hotbarNode != en) {
+                            var old2 = nodeEditStatesById.get(hotbarNode.id);
+                            if (old2 != null) old2.freqSlotSelected = -1;
+                        }
+                        if (st != null) st.freqSlotSelected = itemIdx;
+                        hotbarNode = (hotbarNode == en) ? null : en;
+                        return true;
+                    }
+                    itemRow++; itemIdx++;
+                }
             }
         }
         if (en.type == NodeType.MOUSE_JOYSTICK && en.params.length > 0) {
@@ -3185,15 +3249,11 @@ public class GraphEditor {
     if (hotbarNode != null && btn == 0) {
         var mc2 = Minecraft.getInstance();
         var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
-        float nsx2 = c2sX(hotbarNode.x), nsy2 = c2sY(hotbarNode.y);
-        float nch2 = (HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()))*zoom+4;
-        int numRows2 = st != null ? st.fields.size() : 0;
-        int editLocalY2 = (int)(HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()) + 4/zoom);
-        int freqLocalY2 = editLocalY2 + 4 + numRows2 * 18;
-        float popupY2 = nsy2 + nch2 + (freqLocalY2 - editLocalY2 + 20 + 4) * zoom;
-        int pw2 = 196, ph2 = 36;
-        int px2 = (int)(nsx2 + NW*zoom/2 - pw2/2);
-        int py2 = (int)popupY2;
+        // 弹窗矩形走单源 helper（与渲染同一计算，批 D）——原处各算一份即几何漂移陷阱。
+        // The popup rect rides the single-source helper (one computation with the render,
+        // batch D) — a second copy here was the geometry-drift trap.
+        int[] r2 = hotbarPopupRect();
+        int px2 = r2[0], py2 = r2[1], pw2 = r2[2], ph2 = r2[3];
         // 点击热栏面板内部 (Click inside hotbar panel)
         if (mx >= px2 && mx <= px2 + pw2 && my >= py2 && my <= py2 + ph2) {
             int si = (int)((mx - px2 - 4) / 20);

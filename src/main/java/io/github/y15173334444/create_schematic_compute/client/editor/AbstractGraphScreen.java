@@ -50,6 +50,10 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
      *  Called from subclass constructors: category allowlist + in-category exclusions. */
     protected void setNodeAllowance(NodeAllowance allowance) {
         editor.setNodeFilter(allowance::allows);
+        // D5 名单制（批 D）：宿主键随名单一并下发——菜单 CUSTOM 段与服务端准入门同源。
+        // The D5 roster (batch D): the host key rides the allowance — the menu's CUSTOM
+        // section and the server gate share one source.
+        editor.setCustomRosterHost(allowance.hostKey());
     }
 
     // ── Screen 生命周期 / lifecycle ──

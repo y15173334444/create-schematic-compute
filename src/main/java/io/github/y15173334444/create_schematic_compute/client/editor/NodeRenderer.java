@@ -214,6 +214,11 @@ public class NodeRenderer {
      *  Facade: this frame's add-menu hovered custom node id (non-null when the CUSTOM
      *  sentinel is the selection). */
     public String lastCustomMenuId() { return addMenu.lastCustomMenuId(); }
+
+    /** D5 名单宿主键下发（菜单 CUSTOM 段按宿主名单过滤；见 NodeAddMenu.setRosterHost）。
+     *  Hand the D5 roster host key down (the menu's CUSTOM section filters by the host
+     *  roster; see NodeAddMenu.setRosterHost). */
+    public void setRosterHost(String hostKey) { addMenu.setRosterHost(hostKey); }
     /** 注释节点渲染器（已拆至 NodeCommentRenderer，同批第二刀）。 / Comment-node renderer (extracted, second cut). */
     private final NodeCommentRenderer commentRenderer;
     /** 连线渲染器（已拆至 NodeWireRenderer，同批第三刀）。 / Wire renderer (extracted, third cut). */

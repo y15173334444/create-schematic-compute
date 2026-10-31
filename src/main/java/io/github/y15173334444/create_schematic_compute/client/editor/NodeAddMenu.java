@@ -40,6 +40,12 @@ final class NodeAddMenu {
      *  携带 customNodeId 的建点 op）。/ This frame's hovered custom node id (valid while
      *  hovered is the CUSTOM sentinel; GraphEditor reads it to build the id-carrying add op). */
     private String hoveredCustomId;
+    /** D5 名单制宿主键（GraphEditor 经 setRosterHost 注入 = 宿主 allowance.hostKey()）。
+     *  null/blank = 空名单（默认拒绝：CUSTOM 段不展开任何 id）。
+     *  The D5 roster host key (injected by the GraphEditor from the host allowance's
+     *  hostKey()). null/blank = an empty roster (default-deny: the CUSTOM section
+     *  expands nothing). */
+    private String rosterHost = null;
     private final java.util.Comparator<String> customTitleOrder =
         java.util.Comparator.comparing(id -> {
             var s = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(id);
@@ -68,10 +74,31 @@ final class NodeAddMenu {
     /** 计算分类中可见节点数（CUSTOM 类按注册表展开：一个已注册 id = 一个条目）。
      *  Visible count per category (the CUSTOM category expands through the registry:
      *  one registered id = one entry). */
+    /** 注入宿主键（菜单 CUSTOM 段按 {@code CustomNodeRoster.forHost} 过滤；D5 默认拒绝）。
+     *  Inject the host key (the menu's CUSTOM section filters through
+     *  {@code CustomNodeRoster.forHost}; D5 default-deny). */
+    public void setRosterHost(String hostKey) { this.rosterHost = hostKey; }
+
+    /** D5 名单 ∩ 注册表：本宿主可展开的自定义 id（快照）。菜单三处——高度预计算
+     *  （visibleCount）/ 条目循环 / 搜索命中——同源取此列表，防 (c)1 同型的游标错位
+     *  （高度数 ≠ 条目数 = 网格越界家族）。空 hostKey = 空集。
+     *  D5 roster ∩ registry: the custom ids expandable on this host (a snapshot). All
+     *  three menu sites — the height precompute (visibleCount) / the entry loops / the
+     *  search hits — read this one list, guarding the (c)1 family of cursor misalignment
+     *  (height count ≠ entry count = grid overrun). Empty hostKey = empty set. */
+    private java.util.List<String> rosteredCustomIds() {
+        var roster = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRoster.forHost(rosterHost);
+        if (roster.isEmpty()) return java.util.List.of();
+        var out = new java.util.ArrayList<String>();
+        for (String id : io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.registeredIds())
+            if (roster.contains(id)) out.add(id);
+        return out;
+    }
+
     private int visibleCount(NodeCategory cat, java.util.function.Predicate<NodeType> filter) {
         if (cat == NodeCategory.CUSTOM)
             return (filter == null || filter.test(NodeType.CUSTOM))
-                ? io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.registeredIds().size() : 0;
+                ? rosteredCustomIds().size() : 0;
         int n = 0;
         for (var nt : cat.types) if (filter == null || filter.test(nt)) n++;
         return n;
@@ -89,7 +116,7 @@ final class NodeAddMenu {
         if (rawFilter != null && !rawFilter.test(NodeType.CUSTOM)) return 0;
         String lq = menuSearchText.toLowerCase();
         int n = 0;
-        for (String id : io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.registeredIds()) {
+        for (String id : rosteredCustomIds()) {
             var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(id);
             if (spec != null && spec.title().toLowerCase().contains(lq)) n++;
         }
@@ -104,7 +131,7 @@ final class NodeAddMenu {
         var out = new java.util.ArrayList<String>();
         if (rawFilter != null && !rawFilter.test(NodeType.CUSTOM)) return out;
         String lq = menuSearchText.toLowerCase();
-        for (String id : io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.registeredIds()) {
+        for (String id : rosteredCustomIds()) {
             var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(id);
             if (spec != null && spec.title().toLowerCase().contains(lq)) out.add(id);
         }

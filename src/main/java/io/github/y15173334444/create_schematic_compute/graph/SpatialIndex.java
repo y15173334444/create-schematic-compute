@@ -183,12 +183,18 @@ public class SpatialIndex {
         if (n.type == NodeType.CUSTOM) {
             var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(n.customId);
             if (spec != null) {
-                int fields = 0, bools = 0;
+                int fields = 0, bools = 0, items = 0;
                 for (var cp : spec.params()) {
                     if (cp.kind() == io.github.y15173334444.create_schematic_compute.api.CustomNodeType.CustomParam.ParamKind.BOOL) bools++;
-                    else if (cp.kind() != io.github.y15173334444.create_schematic_compute.api.CustomNodeType.CustomParam.ParamKind.ITEM) fields++;
+                    else if (cp.kind() == io.github.y15173334444.create_schematic_compute.api.CustomNodeType.CustomParam.ParamKind.ITEM) items++;
+                    else fields++;
                 }
-                h += fields * 18 + bools * 16;
+                // ITEM 槽行（批 D，条目 17①）：每控件一行 18px 槽位（EditPanel 绘制、
+                // GraphEditor 点击段同一账本——e26bf73 全链清点纪律）。
+                // ITEM slot rows (batch D, entry 17①): one 18px slot row per control
+                // (same ledger as the EditPanel draw and the GraphEditor click segment —
+                // the e26bf73 full-chain sweep discipline).
+                h += fields * 18 + bools * 16 + items * 18;
             }
         }
         // 正/反转按钮（输出指令类）/ forward-reverse toggle (output-command nodes)
