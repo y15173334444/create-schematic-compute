@@ -13,6 +13,7 @@ import io.github.y15173334444.create_schematic_compute.graph.FormulaParser.Funct
 import io.github.y15173334444.create_schematic_compute.graph.FormulaParser.OpToken;
 import io.github.y15173334444.create_schematic_compute.graph.FormulaParser.Severity;
 import io.github.y15173334444.create_schematic_compute.graph.FormulaParser.SwizzleToken;
+import io.github.y15173334444.create_schematic_compute.graph.FormulaParser.ScriptParseResult;
 import io.github.y15173334444.create_schematic_compute.graph.FormulaParser.Token;
 import io.github.y15173334444.create_schematic_compute.graph.FormulaParser.TokType;
 
@@ -27,18 +28,19 @@ import static io.github.y15173334444.create_schematic_compute.graph.FormulaParse
  * 公式校验相位（拓扑审查 §三 P5，自 FormulaParser 逐字迁出）：validate 的逐组启发式检查
  * （括号/大括号配对、未知字符、未知函数、元数、赋值左值、@output、关键字语法、空块、
  * while 恒真、swizzle 分量、AST 类型感知、输出引脚上限——纯 UI 辅助，不影响求值）与
- * typeCheckRpn 类型检查。§13 完整重跑 parseScript 的双份解析按「行为零变更」红线原样保留
- * （复审 P3 的去重活是独立行为批）。静态函数包，不建继承体系；公开入口经 FormulaParser
- * 冻结门面。
+ * typeCheckRpn 类型检查。§13 的双份解析已随 2026-10-31 拍板批去重：调用方传入同文本的
+ * 预解析产物时组 13 直接复用（编辑器解析+校验共享一份产物），缺席/不匹配回退内部解析，
+ * 行为等价。静态函数包，不建继承体系；公开入口经 FormulaParser 冻结门面。
  * <p>Formula validation phase (topology review §三 P5, relocated verbatim from
  * FormulaParser): validate's heuristic check groups (bracket/brace matching, unknown
  * characters, unknown functions, arity, assignment left side, @output, keyword syntax,
  * empty blocks, always-true while, swizzle components, AST type-awareness, output pin
  * cap — purely a UI aid, never affecting evaluation) and the typeCheckRpn type checks.
- * §13's full re-run of parseScript (the double parse) is kept verbatim under the
- * zero-behaviour-change red line — the review-P3 de-duplication is its own behaviour
- * batch. Static function pack, no inheritance hierarchy; the public entry goes through
- * FormulaParser's frozen facade.</p>
+ * §13's double parse was de-duplicated in the 2026-10-31 ruling batch: a matching
+ * pre-parsed artifact from the caller is reused by group 13 (the editor's parse and
+ * validation share one artifact); absence or mismatch falls back to the internal parse,
+ * behaviourally identical. Static function pack, no inheritance hierarchy; the public
+ * entry goes through FormulaParser's frozen facade.</p>
  */
 final class FormulaValidator {
 
@@ -54,6 +56,21 @@ final class FormulaValidator {
      * 纯 UI 辅助功能——不影响求值（求值宽容，默认返回 0）。
      */
     static List<FormulaIssue> validate(String src) {
+        return validate(src, null);
+    }
+
+    /**
+     * 带**预解析产物**的校验（§13 去重，2026-10-31 拍板批）：{@code pre} 非空且其
+     * {@code sourceFormula} 与对源做括号 sanitize 后的文本一致时，组 13 直接复用该产物、
+     * 不再完整重跑 {@code parseScript}——校验路径与解析路径共享同一份产物（编辑器每次
+     * 击键由两次完整解析降为一次）；不一致或缺席回退内部解析，行为与单参形等价。
+     * Validation with a **pre-parsed artifact** (the §13 dedup, 2026-10-31 ruling batch):
+     * when {@code pre} matches the sanitized source, group 13 reuses it instead of
+     * re-running {@code parseScript} in full — the validation and parse paths share one
+     * artifact (each editor keystroke drops from two full parses to one); a mismatch or
+     * absence falls back to the internal parse, behaviourally identical to the one-arg form.
+     */
+    static List<FormulaIssue> validate(String src, ScriptParseResult pre) {
         var issues = new ArrayList<FormulaIssue>();
         if (src == null || src.isEmpty()) return issues;
         String s = src.replace('（', '(').replace('）', ')');
@@ -258,8 +275,13 @@ final class FormulaValidator {
         }
 
         // ── 13) 类型感知检查(AST 模式,复用 parseScript 的类型检查结果)/ type-aware checks (AST mode) ──
+        // §13 去重（2026-10-31 拍板批）：调用方已持有同文本的解析产物时直接复用，不再完整
+        // 重跑 parseScript；不匹配/缺席回退内部解析（两形行为等价，parseScript 确定性）。
+        // §13 dedup (2026-10-31 ruling batch): when the caller already holds a parse of the
+        // same text, reuse it instead of re-running parseScript in full; a mismatch or
+        // absence falls back to the internal parse (behaviourally identical either way).
         try {
-            var parsed = parseScript(s);
+            ScriptParseResult parsed = (pre != null && pre.sourceFormula.equals(s)) ? pre : parseScript(s);
             // P1-6:嵌套超限的降级结果 ast==null 但携带 ERROR issue —— 同样要透出给徽章。
             // P1-6: a depth-degraded parse has ast==null but carries ERROR issues — surface them too.
             if (parsed.ast != null || !parsed.issues.isEmpty()) {

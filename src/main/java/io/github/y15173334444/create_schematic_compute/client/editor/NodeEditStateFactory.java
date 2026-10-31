@@ -456,7 +456,10 @@ final class NodeEditStateFactory {
                 node.dynamicInputCount = initScript.inputVars.size();
                 node.dynamicOutputCount = Math.max(1, initScript.outputLabels.size());
                 node.outputLabels = initScript.outputLabels;
-                node.formulaIssues = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(node.formula);
+                // §13 去重：校验复用刚拿到的解析产物，同文本不再第二次完整解析。
+                // §13 dedup: validation reuses the just-produced parse artifact — no second
+                // full parse of the same text.
+                node.formulaIssues = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(node.formula, initScript);
                 mle.setHasError(hasErrors(node.formulaIssues));
             }
 
@@ -502,7 +505,10 @@ final class NodeEditStateFactory {
                 liveGraph.rebuildInputCache();
 
                 // ── Real-time validation (client-side only) ──
-                cur.formulaIssues = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(sanitized);
+                // §13 去重：校验复用第 478 行刚产出的解析产物——每次击键由两次完整解析降为一次。
+                // §13 dedup: validation reuses the artifact parsed at line 478 — each keystroke
+                // drops from two full parses to one.
+                cur.formulaIssues = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(sanitized, res);
                 mle.setHasError(hasErrors(cur.formulaIssues));
 
                 ed.sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setFormula(

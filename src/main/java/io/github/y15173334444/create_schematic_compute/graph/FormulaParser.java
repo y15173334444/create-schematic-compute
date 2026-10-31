@@ -154,6 +154,20 @@ public class FormulaParser {
     /** 公式校验（委托，正文在 FormulaValidator）/ formula validation (delegates; body in FormulaValidator). */
     public static List<FormulaIssue> validate(String src) { return FormulaValidator.validate(src); }
 
+    /** 公式校验（复用预解析产物，§13 去重增量重载）：{@code pre} 非空且其
+     *  {@code sourceFormula} 与本方法对源做括号 sanitize 后的文本一致时，跳过内部
+     *  完整重解析、直接复用该产物（校验路径与解析路径共享同一份产物）；不一致或缺席
+     *  回退内部解析——两种形态行为等价（parseScript 确定性，产物相同则徽章面相同）。
+     *  Formula validation reusing a pre-parsed artifact (the §13 dedup overload): when
+     *  {@code pre} is non-null and its {@code sourceFormula} equals the sanitized source,
+     *  the internal full re-parse is skipped and the artifact is shared between the
+     *  validation and parse paths; a mismatch or absence falls back to the internal parse.
+     *  Both forms are behaviourally identical (parseScript is deterministic, so identical
+     *  artifacts yield identical badge surfaces). */
+    public static List<FormulaIssue> validate(String src, ScriptParseResult pre) {
+        return FormulaValidator.validate(src, pre);
+    }
+
     /** 编译表达式为 RPN token 列表（String=变量名, Double=数字, Character=运算符, FunctionToken=函数调用）。
      *  Refactored to consume {@link #tokenize(String)} so that tokenization, highlighting, and
      *  validation share a single scan of the source.  The RPN produced is identical to the old

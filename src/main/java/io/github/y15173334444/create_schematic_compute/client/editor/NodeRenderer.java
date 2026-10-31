@@ -433,7 +433,13 @@ public class NodeRenderer {
         if (n.type == NodeType.FORMULA && !n.formula.isEmpty()) {
             formulaIssuesLive = n.formulaIssues;
             if (formulaIssuesLive == null) {
-                formulaIssuesLive = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(n.formula);
+                // §13 去重：节点缓存里的解析产物同文本时直接喂给校验，省一次完整解析。
+                // §13 dedup: when the node's cached parse matches the text, feed it to the
+                // validator instead of re-parsing in full.
+                var cached = n.cachedScript;
+                formulaIssuesLive = cached != null && cached.sourceFormula.equals(n.formula)
+                    ? io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(n.formula, cached)
+                    : io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(n.formula);
                 n.formulaIssues = formulaIssuesLive; // cache until next NBT reload or edit
             }
         }
