@@ -136,20 +136,20 @@ public class GraphHost {
         AFTER_RECOMPILE,
     }
 
-    /** ⑨ 求值档（偏差矩阵「evaluate」列的四档，逐宿主保留——含 4 参档的静默空转怪癖）。
-     *  The evaluate variant (the matrix's four forms, preserved per host — including the
-     *  4-arg form's silently-idling quirk). */
+    /** ⑨ 求值档（偏差矩阵「evaluate」列的三档）。档位合一（2026-10-31 拍板）：原 4 参
+     *  SeatInput 无状态档并入全状态档——七类时序/状态节点在 Sensor/ControlSeat 上随
+     *  runtimeState 三表真正工作，静默空转怪癖熄灭。
+     *  The evaluate variant (the matrix's three forms). Tier unification (2026-10-31
+     *  ruling): the old 4-arg SeatInput stateless form merged into the full-state
+     *  form — the seven timing/state types actually run on Sensor/ControlSeat via
+     *  runtimeState's tables, the silently-idling quirk extinguished. */
     public enum EvalVariant {
-        /** 6 参全状态档：delay/flipflop/pulse 走宿主权威状态表（Blueprint 等六宿主）。
-         *  The 6-arg full-state form: delay/flipflop/pulse ride the host's authoritative maps. */
+        /** 全状态档：delay/flipflop/pulse 走宿主权威状态表（runtimeState 三表），seat 随行
+         *  （Sensor / ControlSeat 的座椅输入；其余宿主零值）。八宿主。
+         *  The full-state form: delay/flipflop/pulse ride the host's authoritative maps
+         *  (runtimeState's three tables), seat riding along (the Sensor / ControlSeat
+         *  seat input; zero state on the other hosts). Eight hosts. */
         FULL_STATE,
-        /** 4 参 SeatInput 无状态档 —— 走 GraphEvaluator 的无状态 eval 路径，DELAY/LATCH/GATE/
-         * T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE 静默空转（现存怪癖原样保留，GraphEvaluator 侧
-         * 不改动；Sensor / ControlSeat）。
-         *  The 4-arg SeatInput stateless form — GraphEvaluator's stateless eval path silently
-         *  idles DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE (an existing quirk kept
-         *  as-is, untouched on the GraphEvaluator side; Sensor / ControlSeat). */
-        SEAT_STATELESS,
         /** 3 参基础档（Monitor / KineticGauge / SpeedProxy；内部按空状态表走全状态路径）。
          *  The 3-arg basic form (internally routes the full-state path with empty maps). */
         BASIC,
@@ -205,8 +205,8 @@ public class GraphHost {
          *  required per host (this declaration IS the matrix's ⑨ column). */
         EvalVariant evalVariant();
 
-        /** ⑨ SeatInput 档/空表档的座位输入构造（Sensor / ControlSeat / Radar）。
-         *  Step ⑨ seat input for the SeatInput/empty-table forms. */
+        /** ⑨ 全状态档/空表档的座位输入构造（Sensor / ControlSeat / Radar；其余宿主零值）。
+         *  Step ⑨ seat input for the full-state/empty-table forms (zero state elsewhere). */
         default GraphEvaluator.SeatInputState seatInput() {
             return new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
         }
@@ -221,8 +221,10 @@ public class GraphHost {
          *  migration account). */
         default boolean wantsStep7Recover() { return false; }
 
-        /** ⑬ 触发器差分广播在位（3/4 参档宿主无此步——矩阵 ⑬ 列口径原样）。
-         *  Step ⑬ flipflop-diff broadcast present (the 3/4-arg hosts carry no such step). */
+        /** ⑬ 触发器差分广播在位（全状态档八宿主；BASIC / EMPTY_TABLE 档宿主无此步——
+         *  矩阵 ⑬ 列口径原样）。
+         *  Step ⑬ flipflop-diff broadcast present (the eight full-state hosts; the
+         *  BASIC / EMPTY_TABLE hosts carry no such step). */
         default boolean wantsFlipflopDiff() { return false; }
 
         // ── hook 缝（宿主特有行为按模板位置插入）/ seams (host behaviour at template slots) ──
@@ -289,14 +291,14 @@ public class GraphHost {
      *
      * <p>① 语义钉死（92d0dbf，v1.2.6.1 冲突自愈）：ensureBusRegistered 在每个 tick 开头、
      * **先于一切早退**执行——图停止也跑（内含冲突自愈 + issue #15 频段收敛 + 音频标志
-     * 推送），自愈先于收敛。⑤ 的执行位/形态、④ F/L、⑥ A/H、⑨ 四档、⑦ 遗留挂点与 ⑬ 有无
+     * 推送），自愈先于收敛。⑤ 的执行位/形态、④ F/L、⑥ A/H、⑨ 三档、⑦ 遗留挂点与 ⑬ 有无
      * 均按宿主声明保留；位置语义不得动：⑮ 在停机早退之前（P1-8）、⑦ 在 ⑥ 与 ⑧ 之间、
      * ⑬ 在 ⑨ 之后。⑫ 已为 12 宿主统一在位（275ec03 直呼形态收编，wantsBandSync 开关退役）。
      * The ① semantics are frozen (92d0dbf, the v1.2.6.1 conflict self-heal):
      * ensureBusRegistered runs at the top of every tick **before every early return** —
      * stopped graphs included (it carries the conflict heal + the issue-15 band
      * convergence + the audio-flag push), the heal ahead of the convergence. The ⑤
-     * slot/shape, ④ F/L, ⑥ A/H, the four ⑨ forms, the ⑦ legacy hook and ⑬ presence
+     * slot/shape, ④ F/L, ⑥ A/H, the three ⑨ forms, the ⑦ legacy hook and ⑬ presence
      * follow the host declarations; the position semantics are frozen: ⑮ before every
      * stop early-return (P1-8), ⑦ between ⑥ and ⑧, ⑬ after ⑨. ⑫ is wired for all
      * twelve hosts (the 275ec03 direct-call form absorbed; the wantsBandSync switch retired). */
@@ -388,14 +390,16 @@ public class GraphHost {
             // ⑧ 按图构建求值输入 / build evaluation inputs from the graph
             var in = rs.buildInputs(graph);
             h.beforeEval();
-            // ⑨ 求值——档位逐宿主保留（EvalVariant；4 参档的静默空转怪癖在 GraphEvaluator 侧原样）
-            // ⑨ evaluate — variant preserved per host (EvalVariant; the 4-arg form's
-            //    silently-idling quirk stays as-is on the GraphEvaluator side)
+            // ⑨ 求值——档位合一（2026-10-31 拍板）：全状态档 seat + runtimeState 三表，
+            // 七类时序/状态节点真正工作；BASIC 弃置三表、EMPTY_TABLE seat + 弃置三表。
+            // ⑨ evaluate — tier unification (2026-10-31 ruling): the full-state form
+            //    passes seat + runtimeState's three tables so the seven timing/state
+            //    types actually run; BASIC uses throwaway tables, EMPTY_TABLE seat +
+            //    throwaway tables.
             float dt = 0.05f;
             var results = switch (h.evalVariant()) {
-                case FULL_STATE -> evaluator.evaluate(in, runtimeState.pidState, dt,
+                case FULL_STATE -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput(),
                     runtimeState.delayQueues, runtimeState.flipflopStates, runtimeState.pulseTimers);
-                case SEAT_STATELESS -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput());
                 case BASIC -> evaluator.evaluate(in, runtimeState.pidState, dt);
                 case EMPTY_TABLE -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput(),
                     new HashMap<>(), new HashMap<>(), new HashMap<>());
@@ -410,9 +414,9 @@ public class GraphHost {
             // ⑫ band-change sync (wired for all twelve: the 275ec03 direct-call form
             //    absorbed into the skeleton, the switch retired)
             BusChannelHelper.syncIfBandsChanged(graph, pos(), lastBusHashMap, lvl());
-            // ⑬ 触发器差分广播（基线去重，无变化零发包；3/4 参档宿主无此步）
+            // ⑬ 触发器差分广播（基线去重，无变化零发包；BASIC / EMPTY_TABLE 档宿主无此步）
             // ⑬ flipflop-diff broadcast (baseline-diffed, silent while unchanged; the
-            //    3/4-arg hosts carry no such step)
+            //    BASIC / EMPTY_TABLE hosts carry no such step)
             if (h.wantsFlipflopDiff()) broadcastFlipflopDiff();
             h.afterEvalBroadcast();
         }

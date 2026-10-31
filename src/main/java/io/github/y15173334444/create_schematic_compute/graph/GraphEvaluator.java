@@ -185,35 +185,20 @@ public class GraphEvaluator {
             new HashMap<>(), new HashMap<>(), new HashMap<>());
     }
 
+    /** 4 参 SeatInput 档已与全状态档合一（2026-10-31 拍板）：一律走 evalExt 全状态路径，
+     *  七类时序/状态节点（DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE）随
+     *  {@code TimingEval.evalState} 真正工作，§三-4 的静默空转怪癖随之熄灭。本重载随调用
+     *  提供弃置三表（与 3 参重载同形）——跨 tick 的时序状态请传表（宿主经 runtimeState
+     *  三表）或用带表重载。
+     *  The 4-arg SeatInput form is unified with the full-state tier (2026-10-31 ruling):
+     *  every call runs the evalExt full-state path, so the seven timing/state types
+     *  (DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE) actually run via
+     *  {@code TimingEval.evalState} and the §三-4 silently-idling quirk is gone. This
+     *  overload supplies throwaway tables (same shape as the 3-arg form) — for cross-tick
+     *  timing state, pass the maps (hosts ride runtimeState's tables) or use a
+     *  table-taking overload. */
     public List<OutputResult> evaluate(List<InputSource> inputs, Map<Integer, Float> pidState, float dt, SeatInputState seat) {
-        ctx.outputs.clear();
-        ctx.audioRefs.clear();
-        // 使用缓存的拓扑排序  /  Use cached topological order
-        List<Integer> sorted = ctx.graph.getTopoOrder();
-        for (int id : sorted) {
-            GraphNode n = ctx.graph.findNode(id);
-            if (n != null) {
-                // 无状态路径也应用参数引脚覆盖（eval 不再自管），并立即恢复
-                // The stateless path applies param-pin overrides too (eval no longer
-                // self-manages them) and restores immediately.
-                float[] op = n.params;
-                applyParamPinOverrides(n);
-                eval(n, inputs, pidState, dt, seat);
-                n.params = op;
-            }
-        }
-        List<OutputResult> res = new ArrayList<>();
-        for (GraphNode n : ctx.graph.nodes) {
-            if (n.type == NodeType.REDSTONE_OUT) {
-                float v = ctx.graph.getInputValue(n.id, 0, ctx.outputs);
-                res.add(new OutputResult(
-                    n.itemParams.length > 0 ? n.itemParams[0] : ItemStack.EMPTY,
-                    n.itemParams.length > 1 ? n.itemParams[1] : ItemStack.EMPTY,
-                    Math.max(0, Math.min(15, Math.round(v)))));
-
-            }
-        }
-        return res;
+        return evaluate(inputs, pidState, dt, seat, new HashMap<>(), new HashMap<>(), new HashMap<>());
     }
 
     /** 获取当前输出映射表（供显示区域等外部查询输入值）。
@@ -314,9 +299,9 @@ public class GraphEvaluator {
         return res;
     }
 
-    /** 通用参数引脚：连线值临时覆盖 node.params（eval 与 evalExt 共用）。
+    /** 通用参数引脚：连线值临时覆盖 node.params（evalExt 入口统一应用，eval 档随行消费）。
      *  Generic parameter pins: wired values temporarily override node.params
-     *  (shared by eval and evalExt).
+     *  (applied uniformly at the evalExt entry; the eval tier consumes them along).
      *  <p>参数引脚排在功能引脚之后；FORMULA 的 warm 参数无引脚（编辑区按钮，刀5 决策），
      *  不参与连线覆盖。注意：覆盖通过替换 node.params 实现，断开连线后原默认值需
      *  重新编辑才会恢复（与旧 eval() 行为一致）。</p>
@@ -391,23 +376,26 @@ public class GraphEvaluator {
         ctx.dt = dt;
         ctx.seat = seat;
 
-        // 参数引脚覆盖由调用方（evalExt / 无状态 evaluate 包装）负责，本方法只消费
+        // 参数引脚覆盖由调用方（evalExt）负责，本方法只消费
         // node.params（连线覆盖已在进入前应用，返回后由调用方恢复）。
-        // Param-pin overrides are applied by the caller (evalExt / the stateless
-        // evaluate wrapper); this method only consumes node.params — wired overrides
-        // are active on entry and restored by the caller on return.
+        // Param-pin overrides are applied by the caller (evalExt); this method only
+        // consumes node.params — wired overrides are active on entry and restored by
+        // the caller on return.
         // 分派骨架（决策文档 §四）：按 NodeCategory 分派到分类处理器；覆盖校验启动即炸
         //（NodeCategory 静态块），分派必然穷尽；刻意无 default（形态不变）。
-        // 怪癖保留（§三-4）：GATE 等七类时序/状态节点经 SEQUENTIAL_STATE 落
-        // TimingEval.eval（只实现 ACCUMULATOR/INTEGRATOR）→ 4 参档静默空转；FormulaEval
-        // 仍无 GATE；TimingEval.eval 仍只有 ACCUMULATOR/INTEGRATOR。
+        // 档位合一（2026-10-31 拍板，§三-4 怪癖随之熄灭）：本方法只作为 evalExt 的
+        // 落档分派被调用——GATE 等七类时序/状态节点在 evalExt 入口即转
+        // TimingEval.evalState，不再落到这里。FormulaEval 仍无 GATE case（GATE 不再
+        // 走 FormulaEval）；TimingEval.eval 仍只有 ACCUMULATOR/INTEGRATOR。
         // Dispatch skeleton (decision doc §四): dispatch on NodeCategory to the
         // category handlers; the coverage check explodes at class-init
         // (NodeCategory's static block) so the dispatch is necessarily exhaustive;
-        // deliberately no default (shape unchanged). Preserved quirks (§三-4): the
-        // seven timing/state types land on TimingEval.eval via SEQUENTIAL_STATE
-        // (implements only ACCUMULATOR/INTEGRATOR) → silent no-op on the 4-arg
-        // path; FormulaEval still lacks GATE.
+        // deliberately no default (shape unchanged). Tier unification (2026-10-31
+        // ruling, the §三-4 quirk extinguished with it): this method is only called
+        // as evalExt's fall-through dispatch — the seven timing/state types are
+        // routed to TimingEval.evalState at the evalExt entry and never land here.
+        // FormulaEval still lacks GATE (GATE no longer routes to FormulaEval);
+        // TimingEval.eval still implements only ACCUMULATOR/INTEGRATOR.
         switch (NodeCategory.of(node.type)) {
             case MATH_BASIC, MATH_ADVANCED, TRIG, LOGIC, CONTROL -> FormulaEval.eval(ctx);
             case SEQUENTIAL_ACC, SEQUENTIAL_STATE -> TimingEval.eval(ctx);

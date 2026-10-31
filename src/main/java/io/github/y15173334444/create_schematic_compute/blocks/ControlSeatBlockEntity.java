@@ -259,10 +259,16 @@ public class ControlSeatBlockEntity extends SyncedGraphBlockEntity implements Gr
      *  EN: Step ② LIT property (abort-on-absent). */
     @Override public BooleanProperty litProperty() { return ControlSeatBlock.LIT; }
 
-    /** ⑨ SeatInput 无状态档（4 参）——时序/状态节点静默空转的怪癖原样（GraphEvaluator 不动）。
-     *  EN: Step ⑨ the 4-arg stateless SeatInput form — the silently-idling quirk over
-     *  timing/state nodes stays as-is (GraphEvaluator untouched). */
-    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.SEAT_STATELESS; }
+    /** ⑨ 全状态档（档位合一 2026-10-31）：seat + runtimeState 三表，七类时序/状态节点
+     *  随宿主权威状态表跨 tick 工作。
+     *  EN: Step ⑨ the full-state form (tier unification, 2026-10-31): seat +
+     *  runtimeState's three tables, so the seven timing/state types evolve across ticks. */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
+
+    /** ⑬ 触发器差分广播随档位合一补挂（编辑区 LATCH/GATE/T_FLIPFLOP 实时状态镜像）。
+     *  EN: Step ⑬ flipflop-diff broadcast, added with the tier unification (live editor
+     *  mirror for LATCH/GATE/T_FLIPFLOP). */
+    @Override public boolean wantsFlipflopDiff() { return true; }
 
     /** ⑦ 冲突自愈遗留第二挂点在位（主挂点已在骨架 ① 内先行）。 / Step ⑦ legacy
      *  second heal hook present (the primary already ran in the skeleton's ①). */

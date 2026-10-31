@@ -27,12 +27,13 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>⑦ 冲突自愈的遗留第二挂点 = 六宿主声明（Blueprint/ProgramComputer/
  *       AmplifierComputer/Sensor/ControlSeat/Radar）；主挂点在 ① 内，其余六宿主不得
  *       再挂（同一 tick 双跑自愈，宿主编排批迁移账）。</li>
- *   <li>P2-13：⑥ 参档宿主声明 ⑬ 在位（CncGearbox / PT / Amp / Speaker / BP / PC）。</li>
+ *   <li>P2-13：⑬ 差分广播在位宿主 = 全状态档八宿主（CncGearbox / PT / Amp / Speaker /
+ *       BP / PC + Sensor / ControlSeat——末两位随档位合一 2026-10-31 补挂）。</li>
  *   <li>P2-18：SpeedProxy 声明 L 档 + AFTER_GRAPH_CHECK 停机位；骨架求值输入恒来自
  *       buildInputs（无 List.of() 空表）。</li>
  *   <li>Speaker ⑥⑩：骨架的 refreshInputs / writeOutputs 为无条件步，Speaker 委托骨架。</li>
  *   <li>②④⑤⑥⑨ 偏差声明逐宿主与矩阵一致（LIT 属性/缺席口径、F/L 档、停机位/形态、
- *       A/H 档、四档求值）。</li>
+ *       A/H 档、三档求值）。</li>
  *   <li>P3-N13：Blueprint / ProgramComputer 的 loadAdditional 不再加载即发包。</li>
  *   <li>SpeedProxy 反射退役：全文件不再有 Class.forName / java.lang.reflect。</li>
  * </ul>
@@ -167,10 +168,10 @@ class HostTickOrchestrationTest {
         }
     }
 
-    // ══════════ ⑬ broadcastFlipflopDiff（P2-13：6 参档在位）══════════
+    // ══════════ ⑬ broadcastFlipflopDiff（P2-13：全状态档八宿主在位）══════════
 
     @Test
-    @DisplayName("P2-13: the flipflop diff broadcasts after evaluate; the six full-state hosts enable it")
+    @DisplayName("P2-13: the flipflop diff broadcasts after evaluate; the eight full-state hosts enable it")
     void fullStateHostsBroadcastFlipflopDiff() throws IOException {
         List<String> s = skeleton();
         int evaluate = indexOf(s, ".evaluate(", "GraphHost", "evaluate missing");
@@ -178,8 +179,15 @@ class HostTickOrchestrationTest {
         assertTrue(diff > evaluate, "GraphHost: flipflop diff must broadcast after the evaluation");
         for (String host : List.of("CncGearboxBlockEntity", "ProgrammableTransmissionBlockEntity",
                 "AmplifierComputerBlockEntity", "SpeakerBlockEntity",
-                "BlueprintBlockEntity", "ProgramComputerBlockEntity"))
+                "BlueprintBlockEntity", "ProgramComputerBlockEntity",
+                "SensorBlockEntity", "ControlSeatBlockEntity"))
             assertDeclares(host, "wantsFlipflopDiff");
+        // BASIC / EMPTY_TABLE 档宿主不得声明（矩阵 ⑬ 列口径原样）。
+        for (String host : List.of("MonitorBlockEntity", "KineticGaugeBlockEntity",
+                "SpeedProxyBlockEntity", "RadarBlockEntity"))
+            assertFalse(fileContains(host, "wantsFlipflopDiff"),
+                host + ": must NOT declare the step-13 flipflop diff — only the "
+                    + "full-state tier hosts broadcast it (the matrix's ⑬ column)");
     }
 
     // ══════════ P2-18：SpeedProxy 缺步补齐 ══════════
@@ -236,8 +244,8 @@ class HostTickOrchestrationTest {
         assertDeclares("BlueprintBlockEntity", "EvalVariant.FULL_STATE");
         assertDeclares("ProgramComputerBlockEntity", "EvalVariant.FULL_STATE");
         assertDeclares("AmplifierComputerBlockEntity", "EvalVariant.FULL_STATE");
-        assertDeclares("SensorBlockEntity", "EvalVariant.SEAT_STATELESS");
-        assertDeclares("ControlSeatBlockEntity", "EvalVariant.SEAT_STATELESS");
+        assertDeclares("SensorBlockEntity", "EvalVariant.FULL_STATE");
+        assertDeclares("ControlSeatBlockEntity", "EvalVariant.FULL_STATE");
         assertDeclares("MonitorBlockEntity", "EvalVariant.BASIC");
         assertDeclares("KineticGaugeBlockEntity", "EvalVariant.BASIC");
         assertDeclares("CncGearboxBlockEntity", "EvalVariant.FULL_STATE");
@@ -245,6 +253,16 @@ class HostTickOrchestrationTest {
         assertDeclares("RadarBlockEntity", "EvalVariant.EMPTY_TABLE");
         assertDeclares("SpeedProxyBlockEntity", "EvalVariant.BASIC");
         assertDeclares("SpeakerBlockEntity", "EvalVariant.FULL_STATE");
+        // 档位合一（2026-10-31 拍板）：FULL_STATE case = seat + runtimeState 三表
+        // （Sensor/ControlSeat 随此 case 获得七类时序/状态节点的跨 tick 演进）；
+        // SEAT_STATELESS 档已删除，源码不得再出现。
+        assertTrue(fileContains("GraphHost",
+                "case FULL_STATE -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput(),"),
+            "GraphHost: the unified full-state case must pass the seat input "
+                + "(tier unification 2026-10-31 — Sensor/ControlSeat ride this case)");
+        for (String host : ALL_HOSTS)
+            assertFalse(fileContains(host, "SEAT_STATELESS"),
+                host + ": the SEAT_STATELESS tier is retired (tier unification 2026-10-31)");
     }
 
     @Test

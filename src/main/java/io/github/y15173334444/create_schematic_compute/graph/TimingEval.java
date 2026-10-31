@@ -5,17 +5,19 @@ import java.util.Map;
 
 /**
  * 时序域处理器（决策文档 §四）：SEQUENTIAL_ACC / SEQUENTIAL_STATE。
- * {@code eval()} 档只实现 ACCUMULATOR / INTEGRATOR（状态量走 pidState，无状态档可跑）；
- * {@code evalState()} 承接 evalExt 档七类（DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/
- * LOOP/FUSE）——4 参无状态档对这七类<b>静默空转</b>的现存怪癖原样保留（§三-4，登记册）。
+ * {@code eval()} 档只实现 ACCUMULATOR / INTEGRATOR（状态量走 pidState，路径无关）；
+ * {@code evalState()} 承接七类（DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE）
+ * ——档位合一（2026-10-31 拍板）后七类一律经 evalExt 入口落这里，4 参档静默空转怪癖
+ * 已熄灭（§三-4，登记册条目『时序/逻辑节点在 SeatInput 档宿主静默空转』）。
  * case 体从 {@link GraphEvaluator} 逐字搬迁（§三-2）；本类是静态函数包，不建继承体系（§三-3）。
  * <p>Timing-domain handler (decision doc §四): SEQUENTIAL_ACC / SEQUENTIAL_STATE.
  * {@code eval()} implements only ACCUMULATOR / INTEGRATOR (their state rides pidState,
- * so the stateless tier can run them); {@code evalState()} takes the seven evalExt-tier
- * types (DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE) — the existing quirk that
- * the 4-arg stateless tier silently idles those seven is preserved verbatim (§三-4, the
- * open-issues register). Case bodies are relocated verbatim from {@link GraphEvaluator}
- * (§三-2); this class is a static function pack, no inheritance hierarchy (§三-3).</p>
+ * path-independent); {@code evalState()} takes the seven types
+ * (DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE) — after the tier unification
+ * (2026-10-31 ruling) those seven always land here via the evalExt entry, and the
+ * 4-arg silently-idling quirk is gone (§三-4, the open-issues register). Case bodies
+ * are relocated verbatim from {@link GraphEvaluator} (§三-2); this class is a static
+ * function pack, no inheritance hierarchy (§三-3).</p>
  */
 public final class TimingEval {
 

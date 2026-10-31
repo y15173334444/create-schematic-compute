@@ -8,14 +8,16 @@ import org.slf4j.LoggerFactory;
 /**
  * 数学/三角/逻辑/控制域处理器（决策文档 §四）：MATH_BASIC / MATH_ADVANCED / TRIG /
  * LOGIC / CONTROL —— 算术、FORMULA、插值、三角、比较、继电器、PID/CLAMP/MAP。
- * <b>不含 GATE</b>（状态体在 evalExt 档，见 TimingEval；4 参档静默空转怪癖依赖此缺省，
- * 决策 §三-4）。case 体从 {@link GraphEvaluator} 的 eval() switch 逐字搬迁（§三-2：
+ * <b>不含 GATE</b>（状态体在 evalExt 档，见 TimingEval；档位合一 2026-10-31 后 GATE
+ * 不再走本处理器，决策 §三-4 怪癖随之熄灭）。case 体从 {@link GraphEvaluator} 的 eval()
+ * switch 逐字搬迁（§三-2：
  * 方法体不改写，只改接收者/归属）；本类是静态函数包，不建继承体系（§三-3）。
  * <p>Math / trig / logic / control handler (decision doc §四): MATH_BASIC /
  * MATH_ADVANCED / TRIG / LOGIC / CONTROL — arithmetic, FORMULA, interpolation,
  * trigonometry, comparisons, relays, PID/CLAMP/MAP. <b>GATE is absent</b> (its state
- * body lives in the evalExt tier, see TimingEval; the 4-arg silent-idle quirk depends
- * on this default, decision §三-4). Case bodies are relocated verbatim from
+ * body lives in the evalExt tier, see TimingEval; after the tier unification
+ * (2026-10-31) GATE no longer routes here and the decision §三-4 quirk is gone).
+ * Case bodies are relocated verbatim from
  * {@link GraphEvaluator}'s eval() switch (§三-2: bodies are never rewritten, only their
  * owner changes); this class is a static function pack, no inheritance hierarchy (§三-3).</p>
  */

@@ -189,12 +189,16 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity implements GraphHo
     /** ② LIT 指示属性（缺席即中止口径）。 / Step ② LIT property (abort-on-absent). */
     @Override public BooleanProperty litProperty() { return SensorBlock.LIT; }
 
-    /** ⑨ SeatInput 无状态档（4 参）——DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE
-     *  静默空转的怪癖原样保留（GraphEvaluator 侧不改动）。
-     *  Step ⑨ the 4-arg stateless SeatInput form — the silently-idling quirk over
-     *  DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE stays as-is (untouched on the
-     *  GraphEvaluator side). */
-    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.SEAT_STATELESS; }
+    /** ⑨ 全状态档（档位合一 2026-10-31）：seat + runtimeState 三表，七类时序/状态节点
+     *  （DELAY/LATCH/GATE/T_FLIPFLOP/PULSE_EXTEND/LOOP/FUSE）随宿主权威状态表跨 tick 工作。
+     *  Step ⑨ the full-state form (tier unification, 2026-10-31): seat + runtimeState's
+     *  three tables, so the seven timing/state types evolve across ticks. */
+    @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
+
+    /** ⑬ 触发器差分广播随档位合一补挂（编辑区 LATCH/GATE/T_FLIPFLOP 实时状态镜像）。
+     *  Step ⑬ flipflop-diff broadcast, added with the tier unification (live editor
+     *  mirror for LATCH/GATE/T_FLIPFLOP). */
+    @Override public boolean wantsFlipflopDiff() { return true; }
 
     /** ⑦ 冲突自愈遗留第二挂点在位（主挂点已在骨架 ① 内先行）。 / Step ⑦ legacy
      *  second heal hook present (the primary already ran in the skeleton's ①). */
