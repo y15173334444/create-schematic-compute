@@ -8,7 +8,7 @@ import net.minecraft.world.item.ItemStack;
 /**
  * 一次自定义节点求值交付给 {@link CustomNodeBehavior} 的上下文（公开 API 波 1）。
  * 值级 API：输入/参数/状态均为值快照，<b>不出现</b>任何图域类型（GraphNode/NodeGraph 等，
- * 探索稿 §3-10 / §6.1 的结构性要求）。
+ * 的结构性约束——签名只出现 JDK / Minecraft 公共类型与本包的值类型）。
  *
  * <p><b>只读纪律</b>：{@link #inputs()} 与 {@link #state()} 返回的是交付副本 ——
  * 修改它们对本模组状态无效；要写状态请经 {@link CustomNodeResult#suspended(CompoundTag)}
@@ -20,7 +20,7 @@ import net.minecraft.world.item.ItemStack;
  * The context handed to a {@link CustomNodeBehavior} for one evaluation (public-API
  * wave 1). A value-level API — inputs/params/state arrive as value snapshots with zero
  * graph-domain types in sight. Read-only discipline: inputs() and state() deliver copies;
- * writing state goes through the result. Provider-direct exchange (ruling D6): level()
+ * writing state goes through the result. Provider-direct exchange: level()
  * and hostPos() let the provider touch its own blocks inside the callback (same-tick
  * bidirectional, timing owned by this mod's loop); both may be null in degraded/test
  * environments — providers must null-check and degrade themselves.

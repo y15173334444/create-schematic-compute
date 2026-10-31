@@ -1,12 +1,12 @@
 package io.github.y15173334444.create_schematic_compute.api;
 
 /**
- * 第三方自定义节点的求值行为（公开 API 波 1，探索稿 D2/D2a 拍板）。提供方实现本接口
+ * 第三方自定义节点的求值行为（本模组公开 API 的一部分）。提供方实现本接口
  * 并与 {@link CustomNodeType} schema 一同注册；求值回调在<b>服务端主线程</b>由本模组
- * 求值循环调用（§5 执行线程承诺）。
+ * 求值循环调用——执行线程承诺：<b>永远在服务端主线程</b>，由本模组按其求值节奏调用。
  *
  * <p><b>签名零图域类型</b>：只见本包值类型 + JDK/MC 公共类型（跨加载器教训的结构性
- * 要求，探索稿 §3-10 / §6.1）。</p>
+ * 要求：签名只出现 JDK / Minecraft 公共类型与本包的值类型——这是跨类加载器环境的结构性约束）。</p>
  *
  * <p><b>执行义务</b>：</p>
  * <ul>
@@ -15,9 +15,9 @@ package io.github.y15173334444.create_schematic_compute.api;
  *   <li><b>可恢复（重）节点</b>：在循环边界检查 {@link CustomNodeContext#sliceExpired()}，
  *       到期即把进度写入 {@link CustomNodeResult#suspended} 的检查点并返回 ——
  *       求值器按独立预算池的 slice 轮转推进（与 FORMULA 解释器 reportYield() 同构），
- *       输出在完成时才写（§5 时序承诺：无新增延迟类型）。</li>
+ *       输出在完成时才写（时序承诺：除重节点固有的跨 tick 推进外，不引入新的延迟类型）。</li>
  * </ul>
- * A third-party custom node's evaluation behavior (public-API wave 1; rulings D2/D2a).
+ * A third-party custom node's evaluation behavior (part of this mod's public API).
  * Providers implement this and register it together with the {@link CustomNodeType}
  * schema; the callback runs on the <b>server main thread</b>, called by this mod's
  * evaluation loop. Signatures carry zero graph-domain types (structural requirement from

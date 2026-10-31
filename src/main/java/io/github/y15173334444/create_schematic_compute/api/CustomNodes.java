@@ -7,13 +7,13 @@ import io.github.y15173334444.create_schematic_compute.graph.CustomNodeRoster;
 /**
  * 公开 API 注册门面（公开 API 波 1）：第三方模组的唯一登记入口。实现侧
  * （{@link CustomNodeRegistry}、{@link CustomNodeRoster}）住在 graph 包 —— 本类把公开面
- * 收拢进 {@code api}，第三方代码只 import 本包（探索稿 §6 包结构：api 门面 + 实现侧内部包）。
+ * 收拢进 {@code api}，第三方代码只 import 本包（包结构 = 公开门面 + 实现侧内部包）。
  * The public-API registration facade (public-API wave 1): the single entry point for
  * third-party mods. The implementations ({@link CustomNodeRegistry},
  * {@link CustomNodeRoster}) live in the graph package — this class keeps the public face
- * inside {@code api} so third-party code imports only this package (exploration doc §6:
+ * inside {@code api} so third-party code imports only this package (the package layout:
  * api facade + internal impl packages). The {@code api → graph} references below are the
- * facade pattern's implementation delegation: the structural rule (§3-10) bans
+ * facade pattern's implementation delegation: the structural rule bans
  * graph-domain <b>types in api signatures</b> (the cross-loader constraint), not the
  * facade's own delegate edge — this class exposes no graph type to providers.
  */
@@ -62,11 +62,11 @@ public final class CustomNodes {
      * {@link IllegalArgumentException} (a roster entry for a non-existent shape is a
      * provider bug).</p>
      *
-     * <p><b>宿主键归属校验（批 D 审查拍板）</b>：第三方只可登记进**显式白名单**内的本模组
+     * <p><b>宿主键归属校验</b>：第三方只可登记进**显式白名单**内的本模组
      * 宿主键（现 = {@link #HOST_BLUEPRINT}；键族随宿主套件波由各宿主声明后扩行）——
      * 登记进任意键（含他人宿主键）抛 {@link IllegalArgumentException}。自有宿主套件宿主
      * （波 2）不经本口，随套件自行声明名单。
-     * <b>Host-key ownership (batch D review ruling)</b>: third parties may enrol only into
+     * <b>Host-key ownership</b>: third parties may enrol only into
      * this mod's host keys on an **explicit allowlist** (currently
      * {@link #HOST_BLUEPRINT}; the family grows as wave-2 host-suite hosts declare their
      * own keys) — enrolling into any other key (including another mod's) throws
