@@ -17,6 +17,15 @@ public class GraphNode {
     private static final Logger LOGGER = LoggerFactory.getLogger(GraphNode.class);
     public int id;
     public NodeType type;
+    /** 自定义节点的稳定字符串 id（{@code "modid:node_id"}，公开 API 波 1）；内置节点恒为
+     *  null。形状（引脚/参数/标题）查 {@link CustomNodeRegistry#get} —— 提供方缺席时
+     *  {@code type} 仍是 CUSTOM 哨兵而 schema 解析失败，节点按降级占位壳运作（图不损）。
+     *  <p>A custom node's stable string id ("modid:node_id", public-API wave 1); always null
+     *  for built-in nodes. The shape (pins/params/title) resolves via
+     *  {@link CustomNodeRegistry#get} — with the provider absent, {@code type} stays the
+     *  CUSTOM sentinel while the schema lookup fails and the node runs as a degraded
+     *  placeholder shell (the graph survives).</p> */
+    public String customId;
     public float x, y;
     public float[] params;           // 数值参数（常量值、kp、ki 等）/ numeric parameters (const value, kp, ki, etc.)
     public ItemStack[] itemParams;   // 物品参数（频率堆）/ item parameters (frequency stacks)
@@ -171,6 +180,12 @@ public class GraphNode {
         // Knife 5: warm is an evaluation-policy setting configured via the edit-panel button — no input pin
         if (type == NodeType.FORMULA) return Math.max(1, Math.min(dynamicInputCount, 26));
         if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_INPUT);
+        // 自定义节点：引脚数来自 schema（FLOAT 域，标签列表长度）；schema 未解析 = 0
+        // Custom nodes: pin count comes from the schema (FLOAT domain, label-list length); 0 while unresolved
+        if (type == NodeType.CUSTOM) {
+            var spec = CustomNodeRegistry.get(customId);
+            return spec != null ? spec.inputs() : 0;
+        }
 
         return type.inputs + type.editableParamCount();
     }
@@ -192,6 +207,11 @@ public class GraphNode {
         if (type == NodeType.ENCAPSULATION && subGraph != null) return countSubNodes(NodeType.ENCAP_OUTPUT);
         // CHANNEL：每声道一个动态输出引脚（pinId = 声道名，signalBands）/ one dynamic output pin per channel
         if (type == NodeType.CHANNEL) { ensureChannelBands(); return signalBands != null ? signalBands.size() : 0; }
+        // 自定义节点：引脚数来自 schema；未解析 = 0 / custom nodes: schema-derived; 0 while unresolved
+        if (type == NodeType.CUSTOM) {
+            var spec = CustomNodeRegistry.get(customId);
+            return spec != null ? spec.outputs() : 0;
+        }
 
         return type.outputs;
     }
@@ -475,8 +495,20 @@ public class GraphNode {
     public float[] outputValues;
 
     public GraphNode(int id, NodeType type, float x, float y) {
+        this(id, type, null, x, y);
+    }
+
+    /** 自定义节点构造入口（公开 API 波 1）：{@code customId} 必须在构造期给出 ——
+     *  params 尺寸来自 schema，而 schema 只有经 customId 才查得到。内置节点走
+     *  四参重载（customId 恒 null，形状全由枚举决定）。
+     *  <p>Custom-node construction entry (public-API wave 1): {@code customId} must be
+     *  known at construction time — the params size comes from the schema, which is only
+     *  reachable through the id. Built-in nodes use the 4-arg overload (customId always
+     *  null; the shape is fully enum-derived).</p> */
+    public GraphNode(int id, NodeType type, String customId, float x, float y) {
         this.id = id;
         this.type = type;
+        this.customId = customId;
         this.x = x;
         this.y = y;
         // ENCAP_INPUT/OUTPUT 的 name 存在 displayText 中，无需 params
@@ -484,6 +516,19 @@ public class GraphNode {
         this.params = (type == NodeType.ENCAP_INPUT || type == NodeType.ENCAP_OUTPUT)
             ? new float[0] : new float[type.paramNames.length];
         this.itemParams = new ItemStack[0];
+        // 自定义节点：params 尺寸 = schema 声明的控件数；schema 解析失败（提供方缺席 /
+        // cid 缺失）= 降级占位壳，params 空 —— 图不损，提供方回归后重载即恢复形状。
+        // （schema 参数是控件不产引脚，与内置「可编辑参数追加参数引脚」的语义差异见
+        // CustomNodeType 类注。）
+        // Custom nodes: params size = the schema's declared control count; an unresolved
+        // schema (missing provider / missing cid) degrades to a placeholder shell with
+        // empty params — the graph survives and the shape returns once the provider is
+        // back and the graph reloads. (Schema params are controls, not pins — the semantic
+        // difference from built-ins' editable-param pins is documented on CustomNodeType.)
+        if (type == NodeType.CUSTOM) {
+            var spec = CustomNodeRegistry.get(customId);
+            this.params = new float[spec != null ? spec.paramCount() : 0];
+        }
         // REDSTONE nodes always have 2 frequency slots / REDSTONE 节点始终有 2 个频率槽
         if (type == NodeType.REDSTONE_IN || type == NodeType.REDSTONE_OUT)
             this.itemParams = new ItemStack[]{ItemStack.EMPTY, ItemStack.EMPTY};
@@ -580,7 +625,11 @@ public class GraphNode {
     /** 深拷贝除 id 外的所有字段（id 由 {@code newId} 指定）。递归复制 {@code subGraph}。
      *  Deep-copy all fields except id (which is assigned from {@code newId}). Recursively copies {@code subGraph}. */
     public GraphNode shallowCopyWithNewId(int newId) {
-        GraphNode n = new GraphNode(newId, type, x, y);
+        // customId 随拷贝传递（CUSTOM 节点的 params 尺寸来自 schema，构造期就必须有 id；
+        // 内置节点传 null 与旧四参重载等价）。
+        // customId rides the copy (a CUSTOM node's params size comes from the schema, so the
+        // id must exist at construction; built-ins pass null, identical to the old 4-arg form).
+        GraphNode n = new GraphNode(newId, type, customId, x, y);
         System.arraycopy(params, 0, n.params, 0, Math.min(params.length, n.params.length));
         if (itemParams != null) n.itemParams = itemParams.clone();
         n.signalName = signalName;
@@ -624,6 +673,11 @@ public class GraphNode {
         CompoundTag tag = new CompoundTag();
         tag.putInt("id", id);
         tag.putString("type", type.id);
+        // 自定义节点：稳定字符串 id 走独立键（type 键保持封闭枚举面 "custom"）——
+        // F15 的未知枚举类型容错路径不受第三方 id 污染。
+        // Custom nodes: the stable string id rides its own key (the type key keeps the closed
+        // enum face "custom") — the F15 unknown-enum-type tolerance path stays unpolluted.
+        if (type == NodeType.CUSTOM && customId != null) tag.putString("cid", customId);
         tag.putFloat("x", x);
         tag.putFloat("y", y);
         tag.putInt("pcount", params.length);
@@ -721,7 +775,23 @@ public class GraphNode {
             // tolerance); the unknownTypeFallback marker is readable by tests and diagnostics.
             LOGGER.warn("GraphNode.load: unknown node type '{}' on node id {} — degraded to CONST", typeId, tag.getInt("id"));
         }
-        GraphNode node = new GraphNode(tag.getInt("id"), type == null ? NodeType.CONST : type, tag.getFloat("x"), tag.getFloat("y"));
+        // 自定义节点：稳定字符串 id 在 cid 键（save 同款）；id 缺失 = 坏档占位壳。
+        // 构造期传入 —— params 尺寸来自 schema，构造后补已晚。schema 解析失败（提供方
+        // 缺席）时构造器自带降级（params 空、引脚 0），节点保持 CUSTOM 哨兵与原 cid，
+        // 图结构/连线照常装载（探索稿验收⑤：提供方缺席不损图）。
+        // Custom nodes: the stable string id rides the cid key (same as save); a missing id
+        // is a corrupt-save placeholder. The id must reach the constructor — params sizing
+        // comes from the schema, so after-construction is too late. With the schema
+        // unresolved (provider absent) the constructor's own degradation applies (empty
+        // params, zero pins) while the node keeps its CUSTOM sentinel and original cid, and
+        // the graph's structure/wires load untouched (exploration acceptance ⑤).
+        String customId = null;
+        if (type == NodeType.CUSTOM) {
+            customId = tag.contains("cid", Tag.TAG_STRING) ? tag.getString("cid") : null;
+            if (customId == null || customId.isEmpty())
+                LOGGER.warn("GraphNode.load: custom node id {} has no 'cid' key — degraded placeholder shell", tag.getInt("id"));
+        }
+        GraphNode node = new GraphNode(tag.getInt("id"), type == null ? NodeType.CONST : type, customId, tag.getFloat("x"), tag.getFloat("y"));
         node.unknownTypeFallback = (type == null);
         int pc = tag.getInt("pcount");
         for (int i = 0; i < pc && i < node.params.length; i++)

@@ -160,10 +160,15 @@ class NetworkMalformedInputTest {
     @Test
     @DisplayName("op 包: imageData 声明长度超画布上限（32×32）抛 DecoderException（P0-1）")
     void opImageDataOverCapIsProtocolError() {
-        byte[] base = encodedOpTailReady(); // 尾部为 VarInt(0)（无图像哨兵，1 字节）
+        // 尾部两个哨兵字节：VarInt(0)（无图像）+ customNodeId bool(false)——公开 API 波 1
+        // 起编码尾部追加了自定义节点 id 哨兵，strip 2 才是「干净的字段尾部」。
+        // Two trailing sentinel bytes: VarInt(0) (no image) + the customNodeId bool(false) —
+        // since public-API wave 1 the encoded tail carries the custom-node id sentinel, so
+        // stripping 2 leaves a clean field tail.
+        byte[] base = encodedOpTailReady();
         ByteBuf buf = Unpooled.buffer();
         try {
-            buf.writeBytes(base, 0, base.length - 1);
+            buf.writeBytes(base, 0, base.length - 2);
             VarInt.write(buf, 1025);
             assertThrows(DecoderException.class, () -> GraphEditOpPacket.CODEC.decode(buf),
                 "imageData 不得按声明长度分配");
@@ -176,11 +181,13 @@ class NetworkMalformedInputTest {
         byte[] base = encodedOpTailReady();
         ByteBuf buf = Unpooled.buffer();
         try {
-            buf.writeBytes(base, 0, base.length - 1);
+            buf.writeBytes(base, 0, base.length - 2);
             VarInt.write(buf, 1024);
             for (int i = 0; i < 1024; i++) buf.writeInt(i);
+            buf.writeBoolean(false); // 尾部 customNodeId 哨兵（合法 op 上恒 false）/ trailing customNodeId sentinel
             var pkt = GraphEditOpPacket.CODEC.decode(buf);
             assertEquals(1024, pkt.op().imageData().length);
+            assertNull(pkt.op().customNodeId());
         } finally { buf.release(); }
     }
 

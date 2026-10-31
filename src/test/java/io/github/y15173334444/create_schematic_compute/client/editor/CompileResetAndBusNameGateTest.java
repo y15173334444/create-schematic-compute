@@ -142,19 +142,19 @@ class CompileResetAndBusNameGateTest {
             io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM,
             net.minecraft.core.BlockPos.ZERO, -1, 3, 0, null, 0f, 0f,
             0, 0, 0, 0, 0, 0f, "", 0, 0, 0, 0, null, 0, 0, 0,
-            (net.minecraft.world.item.ItemStack) null, 0L, uuid, 0, null);
+            (net.minecraft.world.item.ItemStack) null, 0L, uuid, 0, null, null);
         assertEquals("", withDraft.stringValue(), "cleared box must ship empty draft");
         var typed = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
             io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM,
             net.minecraft.core.BlockPos.ZERO, -1, 3, 0, null, 0f, 0f,
             0, 0, 0, 0, 0, 999999995904f, "999999999999", 0, 0, 0, 0, null, 0, 0, 0,
-            (net.minecraft.world.item.ItemStack) null, 0L, uuid, 0, null);
+            (net.minecraft.world.item.ItemStack) null, 0L, uuid, 0, null, null);
         assertEquals("999999999999", typed.stringValue(), "in-progress text ships verbatim");
         var noDraft = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
             io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM,
             net.minecraft.core.BlockPos.ZERO, -1, 3, 0, null, 0f, 0f,
             0, 0, 0, 0, 0, 1f, null, 0, 0, 0, 0, null, 0, 0, 0,
-            (net.minecraft.world.item.ItemStack) null, 0L, uuid, 0, null);
+            (net.minecraft.world.item.ItemStack) null, 0L, uuid, 0, null, null);
         assertNull(noDraft.stringValue(), "ops without a draft fall back to ff3 on peers");
     }
 

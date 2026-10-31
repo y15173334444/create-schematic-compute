@@ -413,7 +413,8 @@ public final class EditSessionRegistry {
                 node.id, op.nodeType(), op.x(), op.y(),
                 0, 0, 0, 0, 0, 0f,
                 null, 0, 0, 0, 0, null, 0, 0, 0,
-                net.minecraft.world.item.ItemStack.EMPTY, version, op.actor(), 0, null
+                net.minecraft.world.item.ItemStack.EMPTY, version, op.actor(), 0, null,
+                op.customNodeId()
             );
             var syncPkt = new GraphEditOpSyncPacket(broadcastOp);
             var editors = getEditors(level, pos);
@@ -494,7 +495,8 @@ public final class EditSessionRegistry {
             op.colorBg(), op.colorBorder(), op.colorText(),
             op.sortB(), op.bands(), op.keyIndex(), op.imageFrameIndex(),
             op.hotbarSlot(), op.itemStack(),
-            version, op.actor(), op.blobRefId(), op.imageData()
+            version, op.actor(), op.blobRefId(), op.imageData(),
+            op.customNodeId()
         );
         var syncPkt = new GraphEditOpSyncPacket(broadcastOp);
         var editorsOuter = getEditors(level, pos);

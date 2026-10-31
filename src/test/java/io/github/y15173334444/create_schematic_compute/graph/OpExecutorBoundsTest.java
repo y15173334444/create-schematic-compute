@@ -28,7 +28,7 @@ class OpExecutorBoundsTest {
         return new GraphOp(OpType.SET_HOTBAR_ITEM, POS, -1, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
             null, 0, 0, 0, 0, null, 0, 0, slot,
-            null, 0L, ACTOR, 0, null);
+            null, 0L, ACTOR, 0, null, null);
     }
 
     /** 28 参构造的像素帧 op。 */
@@ -36,7 +36,7 @@ class OpExecutorBoundsTest {
         return new GraphOp(OpType.SET_IMAGE_PIXELS, POS, -1, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, frameIndex, 0f,
             null, 0, 0, 0, 0, null, 0, 0, 0,
-            null, 0L, ACTOR, 0, pixels);
+            null, 0L, ACTOR, 0, pixels, null);
     }
 
     // ═══════════ SET_HOTBAR_ITEM：槽位上界 9 ═══════════
@@ -156,7 +156,7 @@ class OpExecutorBoundsTest {
         GraphOp op = new GraphOp(OpType.SET_CTRL_POINTS, POS, -1, node.id,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
             sb.toString(), 0, 0, 0, 0, null, 0, 0, 0,
-            null, 0L, ACTOR, 0, null);
+            null, 0L, ACTOR, 0, null, null);
         OpExecutor.apply(g, op);
         assertArrayEquals(new float[]{9f, 9f}, node.curveX, "超限控制点不得写入节点");
         assertArrayEquals(new float[]{9f, 9f}, node.curveY);

@@ -180,6 +180,12 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
                     imageData = new int[imgLen];
                     for (int i = 0; i < imgLen; i++) imageData[i] = buf.readInt();
                 }
+                // 自定义节点 id（公开 API 波 1）：尾部追加字段（bool 哨兵 + utf），与
+                // 既有 nullable 字段同款镜像纪律 —— encode/decode 两侧必须同步改。
+                // Custom-node id (public-API wave 1): trailing appended field (bool sentinel
+                // + utf), same mirror discipline as the existing nullable fields — both
+                // encode/decode sides must change together.
+                String customNodeId = b.readBoolean() ? b.readUtf() : null;
                 // Construct the immutable record wrapping the reconstructed GraphOp / 构造包装了重构 GraphOp 的不可变记录
                 // 未知 op 序号（P2-9）：合成 REJECT 载体（paramIndex=线缆原始序号，与
                 // GraphOp.reject 的打包惯例一致），unknownWireOrdinal 记录真实序号供
@@ -197,7 +203,7 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
                         colorBg, colorBorder, colorText,
                         sortB, bands, keyIndex, imageFrameIndex,
                         hotbarSlot, itemStack, editVersion, actor,
-                        blobRefId, imageData
+                        blobRefId, imageData, customNodeId
                     ), typeOrd);
                 }
                 return new GraphEditOpPacket(new GraphOp(
@@ -208,7 +214,7 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
                     colorBg, colorBorder, colorText,
                     sortB, bands, keyIndex, imageFrameIndex,
                     hotbarSlot, itemStack, editVersion, actor,
-                    blobRefId, imageData
+                    blobRefId, imageData, customNodeId
                 ));
             }
 
@@ -282,6 +288,10 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
                     // Write zero-length sentinel so the decoder knows no image data follows / 写入零长度哨兵，让解码器知道无图像数据跟随
                     VarInt.write(buf, 0);
                 }
+                // 自定义节点 id：nullable 字段同款 bool 哨兵镜像（decode 侧尾部读取）。
+                // Custom-node id: the same nullable bool-sentinel mirroring (decoded last).
+                b.writeBoolean(o.customNodeId() != null);
+                if (o.customNodeId() != null) b.writeUtf(o.customNodeId());
             }
         };
 
@@ -424,7 +434,8 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
                 pkt.op.sortB(), pkt.op.bands(), pkt.op.keyIndex(), pkt.op.imageFrameIndex(),
                 pkt.op.hotbarSlot(), pkt.op.itemStack(),
                 pkt.op.editVersion(), sp.getUUID(),
-                pkt.op.blobRefId(), pkt.op.imageData());
+                pkt.op.blobRefId(), pkt.op.imageData(),
+                pkt.op.customNodeId());
             // Apply the authenticated operation to the edit session / 将已鉴权的操作应用到编辑会话
             // P0-2 blob 归属：把发送者身份绑定为本次会话内 BlobRegistry 取用的请求者 ——
             // poll/peek 只能取到**本玩家**上传的 blob，其他玩家同 id 的预置字节不可见

@@ -22,6 +22,10 @@ class NodeAllowanceMigrationTest {
      *  additions (e.g. audio nodes) which postdate the 2026-09-25 migration baseline. */
     private static EnumSet<NodeType> oldBlueprint() {
         EnumSet<NodeType> s = EnumSet.allOf(NodeType.class);
+        // CUSTOM 哨兵（公开 API 波 1）不属于迁移对照的旧集——迁移前它不存在，不算「失去」。
+        // The CUSTOM sentinel (public-API wave 1) is anachronistic to the migration baseline —
+        // it did not exist before the migration and is not a "lost" node.
+        s.remove(NodeType.CUSTOM);
         s.removeAll(EnumSet.of(
             NodeType.SPEED_CTRL,
             NodeType.DELAY, NodeType.LATCH, NodeType.T_FLIPFLOP,

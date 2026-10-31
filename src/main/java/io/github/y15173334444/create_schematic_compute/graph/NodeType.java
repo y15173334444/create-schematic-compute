@@ -172,7 +172,20 @@ public enum NodeType {
     // （频段读取无专属节点：BUS_IN 输出接音频线即走音频分支读 AudioBands，2026-10-03 移除 AUDIO_IN）
     // (No dedicated band-read node: a BUS_IN output wired to an audio pin reads AudioBands
     // via the evaluator's audio branch — AUDIO_IN removed 2026-10-03.)
-    SPEAKER_PLAY("speaker_play", "node.create_schematic_compute.speaker_play", 1, 0, "");
+    SPEAKER_PLAY("speaker_play", "node.create_schematic_compute.speaker_play", 1, 0, ""),
+    // ── 公开 API 波 1：第三方自定义节点哨兵 / public-API wave 1: third-party custom-node sentinel ──
+    // 全部自定义节点共用这一个枚举值；实际形状（引脚/参数/标题）由
+    // CustomNodeRegistry 里以 "modid:node_id" 字符串 id 注册的 CustomNodeType schema
+    // 决定，GraphNode.customId 携带该 id。枚举追加令不变：本常量在末尾，既有
+    // ordinal/迁移面零影响。内置分支（inputs/outputs/paramNames 等按 this 的 switch）
+    // 对 CUSTOM 全走 default（0/0/空），真实值由 GraphNode 按 schema 覆写。
+    // Every custom node shares this single enum value; the actual shape (pins/params/title)
+    // comes from the CustomNodeType schema registered under its "modid:node_id" string id
+    // in CustomNodeRegistry, carried by GraphNode.customId. The append-only rule stands:
+    // this constant is last, so existing ordinal/migration faces are untouched. Built-in
+    // per-this switches all fall to their defaults for CUSTOM (0/0/empty); GraphNode
+    // overrides from the schema.
+    CUSTOM("custom", "node.create_schematic_compute.custom", 0, 0, "");
 
     /** NBT 序列化的稳定字符串标识符 — 永远不要修改这些值。 / Stable string identifier for NBT serialisation — never change these. */
     public final String id;

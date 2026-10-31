@@ -71,7 +71,15 @@ public enum NodeCategory {
     STRUCTURE("category.create_schematic_compute.structure",
         NodeType.ENCAPSULATION, NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT),
     DEBUG("category.create_schematic_compute.debug",
-        NodeType.DEBUG_SIGNAL_GEN, NodeType.DEBUG_PROBE, NodeType.COMMENT);
+        NodeType.DEBUG_SIGNAL_GEN, NodeType.DEBUG_PROBE, NodeType.COMMENT),
+    /** 第三方自定义节点（公开 API 波 1，D2/D5）：唯一成员是 CUSTOM 哨兵——具体形状
+     *  每节点各异（由 CustomNodeRegistry 的 schema 决定），分类面统一归此，菜单分组与
+     *  「整类接受」的准入边界都落在这一类上（批 D 名单制在类别之下再按字符串 id 细分）。
+     *  Third-party custom nodes (public-API wave 1, D2/D5): the CUSTOM sentinel is the sole
+     *  member — per-node shapes vary via CustomNodeRegistry schemas, while the category face
+     *  (add-menu grouping and the whole-category admission boundary) stays unified here; the
+     *  batch-D roster subdivides below the category by string id. */
+    CUSTOM("category.create_schematic_compute.custom", NodeType.CUSTOM);
 
     /** i18n 键 / lang key */
     public final String langKey;

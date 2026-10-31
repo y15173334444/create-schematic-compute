@@ -42,7 +42,7 @@ class UndoRestoreNodeDataTest {
         var undoOp = new GraphOp(OpType.ADD_NODE, POS, -1, removed.id,
             0, removed.type, removed.x, removed.y, 0, 0, 0, 0, 0, 0f,
             snapshot, 0, 0, 0, 0, null, 0, 0, 0,
-            null, 0L, ACTOR, 0, null);
+            null, 0L, ACTOR, 0, null, null);
         OpExecutor.apply(targetGraph, undoOp);
     }
 

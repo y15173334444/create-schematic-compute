@@ -70,6 +70,21 @@ public class NodeGraph {
         return node;
     }
 
+    /** 自定义节点入口（公开 API 波 1）：customId 在构造期给出 —— params 尺寸来自
+     *  schema。内置节点走旧重载（customId 恒 null）。
+     *  <p>Custom-node entry (public-API wave 1): customId reaches the constructor — the
+     *  params size comes from the schema. Built-ins keep the old overload (customId null).</p> */
+    public GraphNode addNode(NodeType type, String customId, float x, float y) {
+        GraphNode node = new GraphNode(nextNodeId++, type, customId, x, y);
+        node.layerIndex = nextLayerIndex++;
+        node.sortB = nextSortB++;
+        nodes.add(node);
+        nodeMap.put(node.id, node);
+        invalidateTopo();
+        bumpGeneration();
+        return node;
+    }
+
     /** Adopt an externally-constructed node. Does NOT touch {@code nextNodeId}. */
     public void adoptNode(GraphNode node) {
         nodes.add(node);

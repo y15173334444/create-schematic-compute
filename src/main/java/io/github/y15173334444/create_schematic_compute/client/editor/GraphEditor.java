@@ -300,7 +300,7 @@ public class GraphEditor {
             op.colorBg(), op.colorBorder(), op.colorText(),
             op.sortB(), op.bands(), op.keyIndex(), op.imageFrameIndex(),
             op.hotbarSlot(), op.itemStack(), op.editVersion(), op.actor(),
-            op.blobRefId(), op.imageData());
+            op.blobRefId(), op.imageData(), op.customNodeId());
     }
 
     /** KEYBOARD / GAMEPAD_BUTTON 绑定提交（键盘捕获与手柄轮询共用）：写本地 params[0] 并发

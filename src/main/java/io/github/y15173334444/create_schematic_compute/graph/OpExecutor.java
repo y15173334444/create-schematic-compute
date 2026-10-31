@@ -148,7 +148,12 @@ public final class OpExecutor {
             case ADD_NODE -> {
                 // 服务端→客户端 广播给非发起编辑者：服务端分配的 ID 是权威的。
                 // S→C broadcast to non-originator editors: server-assigned ID is authoritative.
-                var node = graph.addNode(op.nodeType(), op.x(), op.y());
+                // customNodeId 随 op 抵达（公开 API 波 1）——CUSTOM 建点必须在构造期拿到 id
+                // （params 尺寸来自 schema）；内置节点该值为 null，与旧重载等价。
+                // customNodeId rides the op (public-API wave 1) — a CUSTOM node must receive
+                // its id at construction (params sizing comes from the schema); built-ins
+                // carry null, identical to the old overload.
+                var node = graph.addNode(op.nodeType(), op.customNodeId(), op.x(), op.y());
                 node.id = op.targetNodeId();
                 // 这里**不要**再加「按本地频段表给新建 BUS_IN 初始化频段」（issue #13）：
                 // 新建节点的 signalName 必为空（NodeGraph.addNode 不设名字），
@@ -201,7 +206,16 @@ public final class OpExecutor {
                         try {
                             var nbtTag = net.minecraft.nbt.TagParser.parseTag(snapshot);
                             if (nbtTag instanceof net.minecraft.nbt.CompoundTag ct) {
-                                if (ct.contains("type", net.minecraft.nbt.Tag.TAG_STRING)
+                                // CUSTOM 哨兵下 type 恒为 "custom"，须再核 cid 一致 ——
+                                // 防 A 节点的快照灌进 B id 的空壳（批 A 形状，批 D 名单制后仍有效）。
+                                // Under the CUSTOM sentinel the type is always "custom", so the
+                                // snapshot's cid must match too — blocks feeding node A's snapshot
+                                // into a B-id shell (right shape in batch A, still valid after the
+                                // batch-D roster).
+                                boolean cidOk = node.type != NodeType.CUSTOM
+                                    || (ct.contains("cid", net.minecraft.nbt.Tag.TAG_STRING) ? ct.getString("cid") : "").equals(node.customId);
+                                if (cidOk
+                                    && ct.contains("type", net.minecraft.nbt.Tag.TAG_STRING)
                                     && ct.getString("type").equals(node.type.id)) {
                                     restoreNodeFromNbt(node, ct);
                                 } else {
@@ -230,7 +244,9 @@ public final class OpExecutor {
             case ADD_NODE_REQUEST -> {
                 // 仅服务端：使用服务端的 nextNodeId 创建节点（忽略客户端 tempId）。
                 // Server only: create node with the server's nextNodeId (ignore client tempId).
-                var node = graph.addNode(op.nodeType(), op.x(), op.y());
+                // customNodeId 随 op（见 ADD_NODE case 注）——CUSTOM 建点构造期需要。
+                // customNodeId rides the op (see the ADD_NODE case) — needed at construction for CUSTOM.
+                var node = graph.addNode(op.nodeType(), op.customNodeId(), op.x(), op.y());
                 graph.rebuildNodeMap();
                 yield node;  // 调用方发送 ACK 将 node.id 映射到 tempId  // caller sends ACK with node.id → tempId
             }

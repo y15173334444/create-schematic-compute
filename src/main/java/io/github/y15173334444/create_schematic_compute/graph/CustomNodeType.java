@@ -1,0 +1,65 @@
+package io.github.y15173334444.create_schematic_compute.graph;
+
+import java.util.List;
+
+/**
+ * 第三方自定义节点的声明式 schema（公开 API 波 1，探索稿 D2/D4 拍板）。值类型 ——
+ * 只含 JDK/String 标量与自有 record，零图域类型、零 Create/Sable 类型（跨加载器域
+ * 教训的结构性要求，探索稿 §3-10）；批 B 的 {@code api} 包门面以本类为内部载体。
+ *
+ * <p><b>身份与稳定承诺</b>：{@link #id} 是 {@code "modid:node_id"} 形式的稳定字符串
+ * （小写命名空间 + 小写名），随玩家图 NBT 持久化（{@code type} 键 = 哨兵 {@code "custom"}、
+ * {@code cid} 键 = 本 id）——本模组更新不得使其损坏（探索稿 §5 持久化承诺）。注册表
+ * 按本 id 寻址；提供方模组缺席时节点降级为占位壳（图不损）。</p>
+ *
+ * <p><b>引脚</b>：v1 只有 FLOAT 域（探索稿 §3-8），数量 = 标签列表长度，标签即引脚
+ * 显示名（也作 pinId 的稳定编码输入，见 GraphNode 通用 pinId 路径）。空列表 = 无引脚。</p>
+ *
+ * <p><b>参数（控件，不产引脚）</b>：声明式参数是编辑器控件（D4：数值/文本/布尔/物品槽），
+ * 求值回调里由提供方按 key 自读——「参数即寻址」的机械默认（探索稿 §8）：提供方在
+ * schema 里声明如文本机器名的参数，回调里自行解析到自己的方块。与内置节点「可编辑
+ * 参数自动追加参数引脚」的惯例**刻意不同**：自定义节点的参数只是控件，驱动它走引脚
+ * （in/out）而不是参数引脚——语义差异记录在案，实验期（1.4 冻结前）可再议。</p>
+ *
+ * <p>A third-party custom node's declarative schema (public-API wave 1; rulings D2/D4).
+ * A pure value type — JDK/String scalars and own records only, zero graph-domain and zero
+ * Create/Sable types in the signature (the structural requirement from the cross-loader
+ * narrow-port lesson; exploration doc §3-10); the batch-B {@code api} package facade uses
+ * this class as its internal carrier.</p>
+ */
+public record CustomNodeType(
+    /** 稳定字符串 id（{@code "modid:node_id"}，小写）/ stable string id ("modid:node_id", lowercase). */
+    String id,
+    /** 编辑器标题（字面量；experimental 期不做 i18n 键约定）/ editor title (literal; no i18n-key contract while experimental). */
+    String title,
+    /** 输入引脚标签（有序，长度 = 输入引脚数，FLOAT 域）/ ordered input-pin labels (length = input count, FLOAT domain). */
+    List<String> inputLabels,
+    /** 输出引脚标签（有序）/ ordered output-pin labels. */
+    List<String> outputLabels,
+    /** 声明式参数（编辑器控件；不产生引脚）/ declarative params (editor controls; no pins). */
+    List<CustomParam> params
+) {
+
+    /** 参数控件描述 / a declarative parameter control. */
+    public record CustomParam(String key, ParamKind kind) {
+        public enum ParamKind { NUMBER, TEXT, BOOL, ITEM }
+    }
+
+    public CustomNodeType {
+        if (id == null || !id.matches("[a-z0-9_.-]+:[a-z0-9_/.-]+"))
+            throw new IllegalArgumentException("CustomNodeType id must be 'modid:node_id' (lowercase): " + id);
+        if (title == null || title.isEmpty())
+            throw new IllegalArgumentException("CustomNodeType title must not be empty: " + id);
+        inputLabels = inputLabels == null ? List.of() : List.copyOf(inputLabels);
+        outputLabels = outputLabels == null ? List.of() : List.copyOf(outputLabels);
+        params = params == null ? List.of() : List.copyOf(params);
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        for (CustomParam p : params)
+            if (!seen.add(p.key()))
+                throw new IllegalArgumentException("Duplicate custom param key '" + p.key() + "' on " + id);
+    }
+
+    public int inputs() { return inputLabels.size(); }
+    public int outputs() { return outputLabels.size(); }
+    public int paramCount() { return params.size(); }
+}

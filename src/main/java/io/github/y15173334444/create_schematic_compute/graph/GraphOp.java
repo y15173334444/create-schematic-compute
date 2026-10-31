@@ -27,19 +27,24 @@ public record GraphOp(
     long editVersion,
     UUID actor,
     int blobRefId,          // 非零 → 通过 BlobRegistry 查找大数据 / non-zero → BlobRegistry lookup for large data
-    int[] imageData         // 直接像素数据（替代 Base64 stringValue）/ direct pixel data (replaces Base64 stringValue)
+    int[] imageData,        // 直接像素数据（替代 Base64 stringValue）/ direct pixel data (replaces Base64 stringValue)
+    String customNodeId     // 自定义节点的稳定字符串 id（公开 API 波 1；nodeType=CUSTOM 哨兵时非 null，
+                            // 其余 op 一律 null —— 与 itemStack 同款「其余传 null」记录契约）
+                            // a custom node's stable string id (public-API wave 1; non-null only when
+                            // nodeType is the CUSTOM sentinel, null on every other op — the same
+                            // "null otherwise" record contract as itemStack)
 ) {
     public GraphOp(OpType type, BlockPos graphPos, int ownerNodeId, int targetNodeId, UUID actor) {
         this(type, graphPos, ownerNodeId, targetNodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     public GraphOp(OpType type, BlockPos graphPos, int ownerNodeId, int targetNodeId,
                    NodeType nodeType, float x, float y, long editVersion, UUID actor) {
         this(type, graphPos, ownerNodeId, targetNodeId,
             0, nodeType, x, y, 0, 0, 0, 0, 0, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, 0, null, editVersion, actor, 0, null);
+            null, 0, 0, 0, 0, null, 0, 0, 0, null, editVersion, actor, 0, null, null);
     }
 
     /**
@@ -58,21 +63,46 @@ public record GraphOp(
             paramIndex, paramValue, stringValue,
             colorBg, colorBorder, colorText,
             sortB, bands, keyIndex, imageFrameIndex,
-            hotbarSlot, itemStack, editVersion, actor, 0, null);
+            hotbarSlot, itemStack, editVersion, actor, 0, null, null);
+    }
+
+    /**
+     * 向后兼容的 28 参构造（customNodeId 加入前的 canonical 形态），供不携带自定义节点
+     * id 的调用方（存量测试为主）使用 —— 与 blobRefId/imageData 增补时的 22 参兼容构造
+     * 同一款先例。customNodeId 恒 null（记录契约：非自定义 op 线上恒 null）。
+     * Backward-compatible 28-arg constructor (the pre-customNodeId canonical shape) for
+     * callers carrying no custom-node id — existing tests mainly — the same precedent as
+     * the 22-arg constructor added with blobRefId/imageData. customNodeId is always null
+     * (record contract: non-custom ops are null on the wire).
+     */
+    public GraphOp(OpType type, BlockPos graphPos, int ownerNodeId, int targetNodeId,
+                   int tempId, NodeType nodeType, float x, float y,
+                   int fromId, int fromPin, int toId, int toPin,
+                   int paramIndex, float paramValue, String stringValue,
+                   int colorBg, int colorBorder, int colorText,
+                   int sortB, List<String> bands, int keyIndex, int imageFrameIndex,
+                   int hotbarSlot, ItemStack itemStack, long editVersion, UUID actor,
+                   int blobRefId, int[] imageData) {
+        this(type, graphPos, ownerNodeId, targetNodeId,
+            tempId, nodeType, x, y, fromId, fromPin, toId, toPin,
+            paramIndex, paramValue, stringValue,
+            colorBg, colorBorder, colorText,
+            sortB, bands, keyIndex, imageFrameIndex,
+            hotbarSlot, itemStack, editVersion, actor, blobRefId, imageData, null);
     }
 
     public static GraphOp addNodeRequest(BlockPos pos, int ownerNodeId, int tempId,
                                           NodeType type, float x, float y, UUID actor) {
         return new GraphOp(OpType.ADD_NODE_REQUEST, pos, ownerNodeId, 0,
             tempId, type, x, y, 0, 0, 0, 0, 0, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     public static GraphOp moveNode(BlockPos pos, int ownerNodeId, int nodeId,
                                     float x, float y, UUID actor) {
         return new GraphOp(OpType.MOVE_NODE, pos, ownerNodeId, nodeId,
             0, null, x, y, 0, 0, 0, 0, 0, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     public static GraphOp addConn(BlockPos pos, int ownerNodeId,
@@ -87,7 +117,7 @@ public record GraphOp(
                                    String fromPinId, String toPinId, UUID actor) {
         return new GraphOp(OpType.ADD_CONN, pos, ownerNodeId, 0,
             0, null, 0f, 0f, fromId, fromPin, toId, toPin, 0, 0f,
-            packConnPinIds(fromPinId, toPinId), 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            packConnPinIds(fromPinId, toPinId), 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     public static GraphOp removeConn(BlockPos pos, int ownerNodeId,
@@ -102,7 +132,7 @@ public record GraphOp(
                                       String fromPinId, String toPinId, UUID actor) {
         return new GraphOp(OpType.REMOVE_CONN, pos, ownerNodeId, 0,
             0, null, 0f, 0f, fromId, fromPin, toId, toPin, 0, 0f,
-            packConnPinIds(fromPinId, toPinId), 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            packConnPinIds(fromPinId, toPinId), 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     /** pinId 打包分隔符（U+0001）。pinId 是变量名/频段名/十进制索引，不会包含它。
@@ -187,42 +217,42 @@ public record GraphOp(
                                     int paramIdx, float value, String draftText, UUID actor) {
         return new GraphOp(OpType.SET_PARAM, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, paramIdx, value,
-            draftText, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            draftText, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     public static GraphOp setFormula(BlockPos pos, int ownerNodeId, int nodeId,
                                       String formula, UUID actor) {
         return new GraphOp(OpType.SET_FORMULA, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            formula, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            formula, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     public static GraphOp setCommentColors(BlockPos pos, int ownerNodeId, int nodeId,
                                             int bg, int border, int text, UUID actor) {
         return new GraphOp(OpType.SET_COMMENT_COLORS, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            null, bg, border, text, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            null, bg, border, text, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     public static GraphOp setCommentSize(BlockPos pos, int ownerNodeId, int nodeId,
                                           float w, float h, UUID actor) {
         return new GraphOp(OpType.SET_COMMENT_SIZE, pos, ownerNodeId, nodeId,
             0, null, w, h, 0, 0, 0, 0, 0, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     public static GraphOp setTextColor(BlockPos pos, int ownerNodeId, int nodeId,
                                         int color, UUID actor) {
         return new GraphOp(OpType.SET_TEXT_COLOR, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            null, 0, 0, color, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, color, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     public static GraphOp setBands(BlockPos pos, int ownerNodeId, int nodeId,
                                     java.util.List<String> bands, UUID actor) {
         return new GraphOp(OpType.SET_BANDS, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            null, 0, 0, 0, 0, bands, 0, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, 0, 0, bands, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     /** 触发器当前态手动切换（GATE / T_FLIPFLOP 编辑区「当前状态」按钮）。自反 op。
@@ -238,14 +268,14 @@ public record GraphOp(
     public static GraphOp setBlockName(BlockPos pos, int ownerNodeId, String name, UUID actor) {
         return new GraphOp(OpType.SET_BLOCK_NAME, pos, ownerNodeId, 0,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            name, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            name, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     public static GraphOp setZOrder(BlockPos pos, int ownerNodeId, int nodeId,
                                      int sortB, UUID actor) {
         return new GraphOp(OpType.SET_ZORDER, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            null, 0, 0, 0, sortB, null, 0, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, 0, sortB, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     /**
@@ -256,7 +286,7 @@ public record GraphOp(
                                          int layer, UUID actor) {
         return new GraphOp(OpType.SET_LAYER_INDEX, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            null, 0, 0, 0, layer, null, 0, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, 0, layer, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     public static GraphOp setDisplayLayout(BlockPos pos, int ownerNodeId, int nodeId,
@@ -265,14 +295,14 @@ public record GraphOp(
         return new GraphOp(OpType.SET_DISPLAY_LAYOUT, pos, ownerNodeId, nodeId,
             0, null, lx, ly, 0, 0, 0, 0, 0, scale,
             null, 0, 0, 0, (int)(moveScale * 10000f), null, (int)(rot * 100f), 0, 0,
-            null, 0L, actor, 0, null);
+            null, 0L, actor, 0, null, null);
     }
 
     public static GraphOp setHotbarItem(BlockPos pos, int ownerNodeId, int nodeId,
                                          int slot, ItemStack stack, UUID actor) {
         return new GraphOp(OpType.SET_HOTBAR_ITEM, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, slot, stack, 0L, actor, 0, null);
+            null, 0, 0, 0, 0, null, 0, 0, slot, stack, 0L, actor, 0, null, null);
     }
 
     /**
@@ -283,7 +313,7 @@ public record GraphOp(
                                           int frameIndex, int[] pixels, UUID actor) {
         return new GraphOp(OpType.SET_IMAGE_PIXELS, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, frameIndex, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, pixels);
+            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, pixels, null);
     }
 
     /**
@@ -297,7 +327,7 @@ public record GraphOp(
                                   int blobRefId, UUID actor) {
         return new GraphOp(OpType.SET_SONG, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, blobRefId, null);
+            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, blobRefId, null, null);
     }
 
     /**
@@ -308,7 +338,7 @@ public record GraphOp(
                                         int w, int h, UUID actor) {
         return new GraphOp(OpType.SET_IMAGE_SIZE, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, w, 0f,
-            null, 0, 0, 0, 0, null, h, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, 0, 0, null, h, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     /**
@@ -320,7 +350,7 @@ public record GraphOp(
                                             int frameIndex, UUID actor) {
         return new GraphOp(OpType.REMOVE_IMAGE_FRAME, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, frameIndex, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     /**
@@ -331,7 +361,7 @@ public record GraphOp(
                                           int from, int to, UUID actor) {
         return new GraphOp(OpType.MOVE_IMAGE_FRAME, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, from, 0f,
-            null, 0, 0, 0, 0, null, to, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, 0, 0, null, to, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     /** 添加共享视角书签。 stringValue=name, x=camX, y=camY, paramValue=zoom */
@@ -339,28 +369,28 @@ public record GraphOp(
                                         String name, float camX, float camY, float zoom, UUID actor) {
         return new GraphOp(OpType.ADD_BOOKMARK, pos, ownerNodeId, 0,
             0, null, camX, camY, 0, 0, 0, 0, 0, zoom,
-            name, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            name, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     /** 移动书签位置。 targetNodeId=fromIndex, paramIndex=toIndex */
     public static GraphOp moveBookmark(BlockPos pos, int ownerNodeId, int fromIdx, int toIdx, UUID actor) {
         return new GraphOp(OpType.MOVE_BOOKMARK, pos, ownerNodeId, fromIdx,
             0, null, 0f, 0f, 0, 0, 0, 0, toIdx, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     /** 重命名共享视角书签。 targetNodeId=bookmark index, stringValue=new name */
     public static GraphOp renameBookmark(BlockPos pos, int ownerNodeId, int index, String newName, UUID actor) {
         return new GraphOp(OpType.RENAME_BOOKMARK, pos, ownerNodeId, index,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            newName, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            newName, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     /** 删除共享视角书签。 targetNodeId=bookmark index */
     public static GraphOp removeBookmark(BlockPos pos, int ownerNodeId, int index, UUID actor) {
         return new GraphOp(OpType.REMOVE_BOOKMARK, pos, ownerNodeId, index,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     /** 全量替换 DEBUG_SIGNAL_GEN 控制点数组。stringValue="x0,y0;x1,y1;..." */
@@ -373,7 +403,7 @@ public record GraphOp(
         }
         return new GraphOp(OpType.SET_CTRL_POINTS, pos, ownerNodeId, nodeId,
             0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
-            sb.toString(), 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null);
+            sb.toString(), 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
     /** 解析 SET_CTRL_POINTS 的 stringValue 为控制点对。返回 [ctrlX[], ctrlY[]] 或 null。
