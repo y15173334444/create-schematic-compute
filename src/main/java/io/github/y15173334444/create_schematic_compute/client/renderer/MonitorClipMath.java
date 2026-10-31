@@ -422,16 +422,17 @@ public final class MonitorClipMath {
                 if (((c >> 24) & 0xFF) == 0) continue;
                 float x0 = px * cell, x1 = x0 + cell;
                 float y0 = -py * cell, y1 = y0 - cell;
-                out[o++] = x0; out[o++] = y0;
-                out[o++] = x1; out[o++] = y0;
-                out[o++] = x1; out[o++] = y1;
-                out[o++] = x0; out[o++] = y1;
                 float rf = ((c >> 16) & 0xFF) / 255f, gf = ((c >> 8) & 0xFF) / 255f,
                       bf = (c & 0xFF) / 255f, af = ((c >> 24) & 0xFF) / 255f;
-                out[o++] = rf; out[o++] = gf; out[o++] = bf; out[o++] = af;
-                out[o++] = rf; out[o++] = gf; out[o++] = bf; out[o++] = af;
-                out[o++] = rf; out[o++] = gf; out[o++] = bf; out[o++] = af;
-                out[o++] = rf; out[o++] = gf; out[o++] = bf; out[o++] = af;
+                // 逐顶点交错 {x, y, r, g, b, a}——发射器按步长 6 读取，布局必须与之一致
+                // （首版把位置块与颜色块分组写、发射按交错读 → 顶点流全乱，「炸花」）。
+                // Interleaved {x, y, r, g, b, a} per vertex — the emitter reads at stride 6
+                // and the layout must match (the first draft wrote grouped position/colour
+                // blocks while the emitter read interleaved → a garbled vertex stream).
+                out[o++] = x0; out[o++] = y0; out[o++] = rf; out[o++] = gf; out[o++] = bf; out[o++] = af;
+                out[o++] = x1; out[o++] = y0; out[o++] = rf; out[o++] = gf; out[o++] = bf; out[o++] = af;
+                out[o++] = x1; out[o++] = y1; out[o++] = rf; out[o++] = gf; out[o++] = bf; out[o++] = af;
+                out[o++] = x0; out[o++] = y1; out[o++] = rf; out[o++] = gf; out[o++] = bf; out[o++] = af;
             }
         }
         return out;

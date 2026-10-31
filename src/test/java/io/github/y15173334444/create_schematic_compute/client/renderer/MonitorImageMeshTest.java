@@ -44,12 +44,17 @@ class MonitorImageMeshTest {
         float cell = 0.25f;
         float[] mesh = MonitorClipMath.buildImageMesh(pixels, 1, 1, cell);
         // 顶点序：(x0,y0)(x1,y0)(x1,y1)(x0,y1)，x0=0, x1=cell, y0=0, y1=-cell
+        // 逐顶点交错 {x, y, r, g, b, a}——与发射器的步长 6 读取一致（交错布局本身即锚：
+        // 首版分组布局与发射器错位导致「炸花」，此锚防回潮）。
+        // Interleaved {x, y, r, g, b, a} per vertex — matching the emitter's stride-6 read
+        // (the interleaving itself is the anchor: the first draft's grouped layout desynced
+        // from the emitter and exploded on screen).
+        float r = 0x80 / 255f, g = 0x40 / 255f, b = 0x20 / 255f, a = 1f;
         float[] expect = {
-            0f, 0f,   cell, 0f,   cell, -cell,   0f, -cell,   // 位置
-            0x80 / 255f, 0x40 / 255f, 0x20 / 255f, 1f,        // 每顶点 rgba
-            0x80 / 255f, 0x40 / 255f, 0x20 / 255f, 1f,
-            0x80 / 255f, 0x40 / 255f, 0x20 / 255f, 1f,
-            0x80 / 255f, 0x40 / 255f, 0x20 / 255f, 1f,
+            0f, 0f, r, g, b, a,
+            cell, 0f, r, g, b, a,
+            cell, -cell, r, g, b, a,
+            0f, -cell, r, g, b, a,
         };
         assertEquals(expect.length, mesh.length);
         assertArrayEquals(expect, mesh, 1e-6f, "the baked stream must match the old emission exactly");
@@ -61,8 +66,9 @@ class MonitorImageMeshTest {
         int[] pixels = {0xFFFFFFFF, 0xFFFFFFFF};
         float[] a = MonitorClipMath.buildImageMesh(pixels, 2, 1, 0.03f);
         float[] b = MonitorClipMath.buildImageMesh(pixels, 2, 1, 0.06f);
-        assertEquals(0.03f, a[2], 1e-6f, "x1 at cell=0.03");
-        assertEquals(0.06f, b[2], 1e-6f, "x1 at cell=0.06 (double scale doubles the local extents)");
+        // 交错布局：首像素第二顶点的 x（下标 6）= x1 / interleaved: vertex 1's x (index 6) = x1
+        assertEquals(0.03f, a[6], 1e-6f, "x1 at cell=0.03");
+        assertEquals(0.06f, b[6], 1e-6f, "x1 at cell=0.06 (double scale doubles the local extents)");
     }
 
     @Test
