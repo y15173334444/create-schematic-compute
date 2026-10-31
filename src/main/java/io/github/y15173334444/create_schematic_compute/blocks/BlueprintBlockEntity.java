@@ -1,6 +1,8 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -41,6 +43,11 @@ public class BlueprintBlockEntity extends SyncedGraphBlockEntity implements Grap
 
     /** ⑨ 全状态档（6 参，时序节点真实演进）。 / Step ⑨ full-state (6-arg) form. */
     @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
+
+    /** P2-7 服务端准入门：本宿主答自己的名单（与 BlueprintScreen 的客户端过滤同源）。
+     *  P2-7 server admission gate: this host answers its own allowlist (same source
+     *  as BlueprintScreen's client-side filtering). */
+    @Override public NodeAllowance nodeAllowance() { return BlockNodeAllowances.BLUEPRINT; }
 
     // 整图保存已随 issue #17 退役；世界加载走 loadHostNBT，保存请求不再替换图。
     // Whole-graph save retired with issue #17; world load goes through loadHostNBT.

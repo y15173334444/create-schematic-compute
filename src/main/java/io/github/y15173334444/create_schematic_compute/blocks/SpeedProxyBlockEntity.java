@@ -2,6 +2,8 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 
 import com.simibubi.create.content.kinetics.speedController.SpeedControllerBlockEntity;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
@@ -66,6 +68,11 @@ public class SpeedProxyBlockEntity extends SyncedGraphBlockEntity implements Gra
 
     /** ⑨ 基础档（3 参）。 / Step ⑨ basic (3-arg) form. */
     @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.BASIC; }
+
+    /** P2-7 服务端准入门：本宿主答自己的名单（与 SpeedProxyScreen 的客户端过滤同源）。
+     *  P2-7 server admission gate: this host answers its own allowlist (same source
+     *  as SpeedProxyScreen's client-side filtering). */
+    @Override public NodeAllowance nodeAllowance() { return BlockNodeAllowances.SPEED_PROXY; }
 
     /** 缝 8（⑫⑬ 后、共用尾段前）：SPEED_CTRL 输出 → 目标转速落盘。
      *  Seam 8 (after ⑫⑬, before the tail): SPEED_CTRL output → target-speed write. */

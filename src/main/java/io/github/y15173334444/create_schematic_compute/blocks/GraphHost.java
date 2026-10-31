@@ -4,6 +4,7 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAdmission;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.graph.RuntimeState;
@@ -920,6 +921,15 @@ public class GraphHost {
      *  MIN_VALUE = nothing loaded yet. */
     private int lastLoadedGraphGen = Integer.MIN_VALUE;
 
+    /** 装载时图树类型普查（P2-7 旧档兼容口径）：每次图替换点重算一次，本会话内不随节点
+     *  增删变化——服务端准入门（`graph.NodeAdmission`）据此放行旧档已携带的类型。volatile：
+     *  op 应用线程与装载线程可能不同步发布。
+     *  Load-time graph-tree type census (the P2-7 legacy tolerance): recomputed once per
+     *  graph replacement, unchanged by later node add/remove within the session — the
+     *  server admission gate (`graph.NodeAdmission`) admits legacy-carried types from it.
+     *  volatile: the op-application and load threads may publish unsynchronized. */
+    private volatile java.util.Set<NodeType> loadTimeNodeTypes = java.util.Collections.emptySet();
+
     public void loadHostNBT(CompoundTag t, HolderLookup.Provider r) {
         if (t.contains("graph")) {
             int tagGen = t.contains("hostGraphGen") ? t.getInt("hostGraphGen") : -1;
@@ -941,6 +951,13 @@ public class GraphHost {
                 // SyncedGraphBlockEntity used to each keep a copy, and drift between them
                 // would make the two lines behave differently on the client.
                 graph = NodeGraph.load(t.getCompound("graph"), r);
+                // 装载时类型普查（P2-7 旧档兼容口径）：在图替换点记一次，准入门据此放行
+                // 旧档已在场的类型。同代际跳过路径不重算——内容未变，普查仍然准确。
+                // Load-time type census (the P2-7 legacy tolerance): recorded once at the
+                // graph-replacement site; the admission gate admits legacy-present types
+                // from it. The same-generation skip path keeps the previous census — the
+                // content is unchanged, so it stays accurate.
+                this.loadTimeNodeTypes = NodeAdmission.census(graph);
                 rs.onLoad(graph);
                 this.graphReady = true;
                 this.pendingLocalOps = 0;
@@ -1025,6 +1042,13 @@ public class GraphHost {
 
     /** @see GraphBlockEntity#getPendingLocalOps */
     public int getPendingLocalOps() { return pendingLocalOps; }
+
+    /** 装载时图树类型普查（P2-7 旧档兼容口径，`EditSessionTarget.loadTimeNodeTypes` 的引擎侧
+     *  事实源；服务端准入门据此放行旧档已携带的类型）。
+     *  Load-time graph-tree type census (the P2-7 legacy tolerance; the engine-side fact
+     *  source behind `EditSessionTarget.loadTimeNodeTypes` — the server admission gate
+     *  admits legacy-carried types from it). */
+    public java.util.Set<NodeType> loadTimeNodeTypes() { return loadTimeNodeTypes; }
 
     /** @see GraphBlockEntity#setPendingLocalOps */
     public void setPendingLocalOps(int value) { pendingLocalOps = Math.max(0, value); }

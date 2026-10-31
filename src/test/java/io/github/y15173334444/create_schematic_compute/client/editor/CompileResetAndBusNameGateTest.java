@@ -87,6 +87,15 @@ class CompileResetAndBusNameGateTest {
         @Override public net.minecraft.core.BlockPos getBlockPos() { return net.minecraft.core.BlockPos.ZERO; }
         @Override public void setChanged() {}
         @Override public void sendBlockUpdated() {}
+        /** 桩不参与服务端准入门（P2-7）：全类放行 + 空普查。 / The stub never rides the
+         *  server admission gate (P2-7): admit-all allowlist + empty census. */
+        @Override public io.github.y15173334444.create_schematic_compute.graph.NodeAllowance nodeAllowance() {
+            return io.github.y15173334444.create_schematic_compute.graph.NodeAllowance.of(
+                java.util.EnumSet.allOf(io.github.y15173334444.create_schematic_compute.graph.NodeCategory.class));
+        }
+        @Override public java.util.Set<io.github.y15173334444.create_schematic_compute.graph.NodeType> loadTimeNodeTypes() {
+            return java.util.Set.of();
+        }
     }
 
     private static GraphNode flip(NodeGraph g, float init, float current) {

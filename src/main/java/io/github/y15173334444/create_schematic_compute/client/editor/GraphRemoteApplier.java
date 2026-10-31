@@ -111,6 +111,26 @@ final class GraphRemoteApplier {
             } else if (refusedType == io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE_REQUEST
                 && op.tempId() > 0) {
                 ed.onAddNodeRejected(op.tempId());
+            } else if (refusedType == io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE
+                && op.targetNodeId() > 0) {
+                // 被拒的直发 ADD_NODE（P2-7 准入门 / K10 满额的新拒绝源；直发形态 =
+                // 撤销恢复与子图复制，都是本地已乐观落地）：移除本地乐观节点并清 UI 态，
+                // 否则客户端与服务端各说各话到下一次全量同步。回执只发给发起者，
+                // 非发起编辑者不会走到这里（同 ADD_CONN 分支的注释口径）。
+                // A rejected direct ADD_NODE (a new refusal source of the P2-7 admission
+                // gate / the K10 cap; the direct forms are undo-restore and sub-graph
+                // copy, both applied locally-optimistically): drop the local optimistic
+                // node and its UI state, otherwise the client and server disagree until
+                // the next full sync. Receipts go to the originator only — non-originator
+                // editors never reach here (same reasoning as the ADD_CONN branch).
+                int rid = op.targetNodeId();
+                graph.removeNode(rid);
+                if (sameScope) {
+                    if (ed.selectedNode != null && ed.selectedNode.id == rid) ed.selectedNode = null;
+                    ed.selectedNodes.removeIf(n -> n.id == rid);
+                    ed.expandedNodeIds.remove(rid);
+                    ed.nodeEditStatesById.remove(rid);
+                }
             }
             // A rejected op never receives an ACK — decrement the pending-op counter so the
             // bounce-back guard doesn't stay latched. / 被拒 op 不会收到 ACK —— 递减待 ACK 计数。

@@ -1,6 +1,8 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -38,6 +40,11 @@ public class ProgramComputerBlockEntity extends SyncedGraphBlockEntity implement
 
     /** ⑨ 全状态档（6 参）。 / Step ⑨ full-state (6-arg) form. */
     @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
+
+    /** P2-7 服务端准入门：本宿主答自己的名单（与 ProgramComputerScreen 的客户端过滤同源）。
+     *  P2-7 server admission gate: this host answers its own allowlist (same source
+     *  as ProgramComputerScreen's client-side filtering). */
+    @Override public NodeAllowance nodeAllowance() { return BlockNodeAllowances.PROGRAM_COMPUTER; }
 
     @Override protected void loadAdditional(CompoundTag t, HolderLookup.Provider r) {
         super.loadAdditional(t, r);

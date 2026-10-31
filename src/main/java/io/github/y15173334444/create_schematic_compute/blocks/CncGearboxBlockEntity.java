@@ -4,6 +4,8 @@ import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
 import com.simibubi.create.content.kinetics.transmission.SplitShaftBlockEntity;
 import net.minecraft.core.Direction;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.GearboxCommandSink;
 import io.github.y15173334444.create_schematic_compute.graph.KineticEncoderView;
@@ -191,6 +193,17 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
     /** ⑨ 全状态档（6 参——GATE/T_FLIPFLOP/LATCH 真实演进）。
      *  Step ⑨ full-state (6-arg) form. */
     @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
+
+    /** P2-7 服务端准入门：本宿主答自己的名单（与 CncGearboxScreen 的客户端过滤同源）。
+     *  P2-7 server admission gate: this host answers its own allowlist (same source
+     *  as CncGearboxScreen's client-side filtering). */
+    @Override public NodeAllowance nodeAllowance() { return BlockNodeAllowances.CNC_GEARBOX; }
+
+    /** @see EditSessionTarget#loadTimeNodeTypes（引擎侧事实源转发，动能线不继承
+     *  SyncedGraphBlockEntity，随本类自行实现）。/ Engine-side fact forward (see
+     *  EditSessionTarget#loadTimeNodeTypes; the kinetic line does not extend
+     *  SyncedGraphBlockEntity, so it implements the forward here). */
+    @Override public java.util.Set<NodeType> loadTimeNodeTypes() { return host.loadTimeNodeTypes(); }
 
     /** 缝 8（⑬ 后）：完成节点清理 + 指令栈推进（产出本 tick 离合意图）。
      *  Seam 8 (after ⑬): completed-node cleanup + command-stack advance (produces this

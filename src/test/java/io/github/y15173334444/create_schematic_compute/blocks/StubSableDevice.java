@@ -41,4 +41,15 @@ public class StubSableDevice implements GraphBlockEntity {
 
     /** 满足接口映射的占位 —— 名字解析路径不会调用。 / Placeholder shims — never on the name-resolution path. */
     @Override public void syncFlipflopStates(Map<Integer, Boolean> states) { }
+
+    /** 桩不参与服务端准入门（P2-7）：全类放行 + 空普查。 / The stub never rides the server
+     *  admission gate (P2-7): admit-all allowlist + empty census. */
+    @Override public io.github.y15173334444.create_schematic_compute.graph.NodeAllowance nodeAllowance() {
+        return io.github.y15173334444.create_schematic_compute.graph.NodeAllowance.of(
+            java.util.EnumSet.allOf(io.github.y15173334444.create_schematic_compute.graph.NodeCategory.class));
+    }
+
+    @Override public java.util.Set<io.github.y15173334444.create_schematic_compute.graph.NodeType> loadTimeNodeTypes() {
+        return java.util.Set.of();
+    }
 }

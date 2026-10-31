@@ -1,6 +1,8 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.*;
 import io.github.y15173334444.create_schematic_compute.radar.TargetAssignment;
 import io.github.y15173334444.create_schematic_compute.graph.TargetRecord;
@@ -458,6 +460,11 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity implements GraphHos
     /** ⑨ 空表档：SeatInput + 每 tick 丢弃的空状态表（时序节点不跨 tick 演进）。
      *  Step ⑨ empty-table form: seat + throwaway per-tick state maps. */
     @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.EMPTY_TABLE; }
+
+    /** P2-7 服务端准入门：本宿主答自己的名单（与 RadarScreen 的客户端过滤同源）。
+     *  P2-7 server admission gate: this host answers its own allowlist (same source
+     *  as RadarScreen's client-side filtering). */
+    @Override public NodeAllowance nodeAllowance() { return BlockNodeAllowances.RADAR; }
 
     /** ⑦ 冲突自愈遗留第二挂点在位（主挂点已在骨架 ① 内先行）。 / Step ⑦ legacy
      *  second heal hook present (the primary already ran in the skeleton's ①). */

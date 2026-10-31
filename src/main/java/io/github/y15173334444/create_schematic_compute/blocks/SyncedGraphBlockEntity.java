@@ -2,7 +2,9 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
+import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.graph.RuntimeState;
 import com.simibubi.create.foundation.blockEntity.IMergeableBE;
 import net.minecraft.core.BlockPos;
@@ -126,6 +128,15 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
 
     /** @return the node graph hosted by this BE / 此 BE 托管的节点图 */
     @Override public NodeGraph getNodeGraph() { return host.graph; }
+
+    /** @see EditSessionTarget#loadTimeNodeTypes */
+    @Override public java.util.Set<NodeType> loadTimeNodeTypes() { return host.loadTimeNodeTypes(); }
+
+    /** 宿主准入名单——各宿主 BE 各答自己的 `BlockNodeAllowances` 条目（P2-7 服务端准入门
+     *  的宿主侧应答，引擎不含名单知识）。
+     *  The host admission allowlist — each host BE answers its own `BlockNodeAllowances`
+     *  entry (the host-side answer for the P2-7 server gate; the engine holds no list). */
+    @Override public abstract NodeAllowance nodeAllowance();
 
     /** @see GraphBlockEntity#getPendingLocalOps */
     @Override public int getPendingLocalOps() { return host.getPendingLocalOps(); }

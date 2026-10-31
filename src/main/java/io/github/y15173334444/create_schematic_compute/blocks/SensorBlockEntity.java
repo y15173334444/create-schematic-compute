@@ -1,6 +1,8 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.state.BlockState;
@@ -194,6 +196,11 @@ public class SensorBlockEntity extends SyncedGraphBlockEntity implements GraphHo
      *  Step ⑨ the full-state form (tier unification, 2026-10-31): seat + runtimeState's
      *  three tables, so the seven timing/state types evolve across ticks. */
     @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
+
+    /** P2-7 服务端准入门：本宿主答自己的名单（与 SensorScreen 的客户端过滤同源）。
+     *  P2-7 server admission gate: this host answers its own allowlist (same source
+     *  as SensorScreen's client-side filtering). */
+    @Override public NodeAllowance nodeAllowance() { return BlockNodeAllowances.SENSOR; }
 
     /** ⑬ 触发器差分广播随档位合一补挂（编辑区 LATCH/GATE/T_FLIPFLOP 实时状态镜像）。
      *  Step ⑬ flipflop-diff broadcast, added with the tier unification (live editor

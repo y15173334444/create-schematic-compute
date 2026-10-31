@@ -2,6 +2,8 @@ package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.AudioRef;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.AudioSpectrum;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.MusicTransport;
@@ -107,6 +109,11 @@ public class AmplifierComputerBlockEntity extends SyncedGraphBlockEntity impleme
 
     /** ⑨ 全状态档（6 参）。 / Step ⑨ full-state (6-arg) form. */
     @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
+
+    /** P2-7 服务端准入门：本宿主答自己的名单（与 AmplifierComputerScreen 的客户端过滤同源）。
+     *  P2-7 server admission gate: this host answers its own allowlist (same source
+     *  as AmplifierComputerScreen's client-side filtering). */
+    @Override public NodeAllowance nodeAllowance() { return BlockNodeAllowances.AMPLIFIER; }
 
     /** ⑤ 停机路径本体：排程与电平一起清（音乐停了柱子不该继续抖），清零沿下发一次。
      *  Step ⑤ stop-path body: drop the schedule and the levels together and ship the

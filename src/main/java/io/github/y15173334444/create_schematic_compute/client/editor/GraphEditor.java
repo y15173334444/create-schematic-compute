@@ -158,8 +158,15 @@ public class GraphEditor {
     private final SpatialIndex spatialIndex = new SpatialIndex();
     private Predicate<NodeType> nodeFilter;
 
-    /** 每个图的最大节点数上限（含主图和每个封装子图） (Max nodes per graph, including main graph and each encapsulated sub-graph) */
-    public static final int MAX_NODES = 1024;
+    /** 每个图的最大节点数上限（含主图和每个封装子图）。权威值在服务端准入门
+     *  {@code NodeAdmission.MAX_NODES}（K10 服务端化 2026-10-31）——本常量只是稳定别名，
+     *  两侧永不漂移。
+     *  (Max nodes per graph, including main graph and each encapsulated sub-graph.) The
+     *  authoritative value lives in the server admission gate {@code NodeAdmission.MAX_NODES}
+     *  (K10 server-side, 2026-10-31) — this constant is a stable alias so the two sides
+     *  can never drift. */
+    public static final int MAX_NODES =
+        io.github.y15173334444.create_schematic_compute.graph.NodeAdmission.MAX_NODES;
 
     // ── op 撤销/重做历史（已拆至 GraphOpHistory，步骤 6c；编辑器与 NodeEditStateFactory 的
     //    recordOp / beginUndoBatch / endUndoBatch 调用点经下列一行委托转发 / op undo/redo history

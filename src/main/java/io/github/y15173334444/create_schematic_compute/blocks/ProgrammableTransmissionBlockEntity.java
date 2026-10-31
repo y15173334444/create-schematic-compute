@@ -5,6 +5,8 @@ import com.simibubi.create.foundation.blockEntity.behaviour.BlockEntityBehaviour
 import com.simibubi.create.foundation.blockEntity.behaviour.ValueBoxTransform;
 import com.simibubi.create.infrastructure.config.AllConfigs;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
@@ -328,6 +330,17 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
 
     /** ⑨ 全状态档（6 参）。 / Step ⑨ full-state (6-arg) form. */
     @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
+
+    /** P2-7 服务端准入门：本宿主答自己的名单（与 TransmissionScreen 的客户端过滤同源）。
+     *  P2-7 server admission gate: this host answers its own allowlist (same source
+     *  as TransmissionScreen's client-side filtering). */
+    @Override public NodeAllowance nodeAllowance() { return BlockNodeAllowances.TRANSMISSION; }
+
+    /** @see EditSessionTarget#loadTimeNodeTypes（引擎侧事实源转发，动能线不继承
+     *  SyncedGraphBlockEntity，随本类自行实现）。/ Engine-side fact forward (see
+     *  EditSessionTarget#loadTimeNodeTypes; the kinetic line does not extend
+     *  SyncedGraphBlockEntity, so it implements the forward here). */
+    @Override public java.util.Set<NodeType> loadTimeNodeTypes() { return host.loadTimeNodeTypes(); }
 
     /** 缝 8（⑬ 后）：控制来源与代理态判定。 / Seam 8 (after ⑬): control-source + proxy
      *  decision. */

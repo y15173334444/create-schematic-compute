@@ -2,6 +2,7 @@ package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
 import io.github.y15173334444.create_schematic_compute.graph.EditSessionTarget;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAdmission;
 import io.github.y15173334444.create_schematic_compute.graph.OpExecutor;
 import io.github.y15173334444.create_schematic_compute.graph.OpType;
 import io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket;
@@ -11,6 +12,8 @@ import net.minecraft.core.GlobalPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.*;
 
@@ -37,6 +40,8 @@ import java.util.*;
  * via the network packet handlers.</p>
  */
 public final class EditSessionRegistry {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(EditSessionRegistry.class);
 
     /** Active editors per graph key. / 每个图键的活跃编辑者集合。 */
     private static final Map<GlobalPos, Set<UUID>> editors = new HashMap<>();
@@ -326,6 +331,28 @@ public final class EditSessionRegistry {
             }
             if (encap.subGraph == null) encap.subGraph = new io.github.y15173334444.create_schematic_compute.graph.NodeGraph();
             targetGraph = encap.subGraph;
+        }
+
+        // 2b. Admission gate (P2-7 server-side admission + K10 server-side count cap,
+        //     2026-10-31 ruling): the ADD_NODE family is checked before creation against
+        //     the host allowlist ∪ the load-time census — a modified client can no longer
+        //     push menu-excluded types into any host, and graphs saved under older
+        //     allowance versions keep working (types present at load stay admissible for
+        //     the session, so undo-restore is never refused by admission). REJECT rides
+        //     the existing receipt path; the client rolls back its optimistic state per
+        //     type (GraphRemoteApplier). The gate ignores every non-add op.
+        // 2b. 准入门（P2-7 准入服务端化 + K10 数量上限服务端化，2026-10-31 拍板）：ADD_NODE
+        //     家族在创建前按宿主名单 ∪ 装载普查放行——改包客户端塞不进菜单外类型，旧版本
+        //     名单下保存的图照常工作（装载时已在场的类型本会话内永远可再进来，撤销恢复
+        //     不受损）。REJECT 走既有回执，客户端按类型回滚本地乐观态
+        //     （GraphRemoteApplier）；非加点 op 一律过门直行。
+        String admission = NodeAdmission.violation(
+            op, gbe.nodeAllowance(), gbe.loadTimeNodeTypes(), targetGraph);
+        if (admission != null) {
+            LOGGER.debug("[GraphEdit] rejected (admission: {}) op={} from {}",
+                admission, op.type(), actor.getName().getString());
+            PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(GraphOp.reject(op, actor.getUUID())));
+            return;
         }
 
         // 3. Validate structural ops / 验证结构操作

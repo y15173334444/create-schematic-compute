@@ -1,6 +1,8 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
+import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.AudioCurve;
 import io.github.y15173334444.create_schematic_compute.graph.MusicTransport;
 import io.github.y15173334444.create_schematic_compute.graph.NoteEvent;
@@ -96,6 +98,11 @@ public class SpeakerBlockEntity extends SyncedGraphBlockEntity implements Speake
 
     /** ⑨ 全状态档（6 参）。 / Step ⑨ full-state (6-arg) form. */
     @Override public GraphHost.EvalVariant evalVariant() { return GraphHost.EvalVariant.FULL_STATE; }
+
+    /** P2-7 服务端准入门：本宿主答自己的名单（与 SpeakerScreen 的客户端过滤同源）。
+     *  P2-7 server admission gate: this host answers its own allowlist (same source
+     *  as SpeakerScreen's client-side filtering). */
+    @Override public NodeAllowance nodeAllowance() { return BlockNodeAllowances.SPEAKER; }
 
     /** SPEAKER_PLAY 播放下沉：在自身坐标发声（套用音响增益/静音）。 */
     @Override
