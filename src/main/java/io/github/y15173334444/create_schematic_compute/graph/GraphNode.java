@@ -63,6 +63,16 @@ public class GraphNode {
     public int sortB = 0;                          // 图编辑器中的 B 层 z 序（越高越靠前）/ B-layer z-order in graph editor (higher = front)
     public int textColor = 0;                      // ARGB 文字颜色（0 = 使用类型默认）/ ARGB text color (0 = use type default)
     public int[] imagePixels;                      // IMAGE 节点：ARGB 像素（延迟分配，尺寸=imageWidth×imageHeight）/ IMAGE node: ARGB pixels (lazy, size=imageWidth×imageHeight)
+    /** 像素内容版本号（transient，不入 NBT）：**原位**改写像素的路径（像素编辑器的
+     *  paintBrush / floodFill——不换数组引用、不 bump 图代际）必须递增，供渲染侧的
+     *  逐像素 mesh 缓存做 O(1) 新鲜度判定；换引用的路径（op 应用 / undo/redo / 切帧）
+     *  无需递增（引用比较已覆盖）。
+     *  Pixel-content version (transient, never in NBT): paths that mutate the pixels
+     *  **in place** (the pixel editor's paintBrush / floodFill — no reference change, no
+     *  graph-generation bump) must increment this so the renderer's per-pixel mesh cache
+     *  can judge freshness in O(1); reference-replacing paths (op application, undo/redo,
+     *  frame switch) need not bother (the reference compare already covers them). */
+    public transient int imagePixelsVersion = 0;
     public int imageWidth = 16, imageHeight = 16;  // IMAGE 节点画布尺寸（默认 16×16，可长方形 1..32）/ IMAGE canvas size (default 16×16, rectangular 1..32 allowed)
     public java.util.List<int[]> imageSequenceFrames; // IMAGE_SEQUENCE 帧（延迟分配）/ IMAGE_SEQUENCE frames (lazy)
     /** MUSIC 节点：NBS 曲目数据（IMAGE 像素同款数据面，直存节点 NBT）。MVP 空曲默认分配。

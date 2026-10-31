@@ -31,6 +31,40 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
      *  plain JUnit too. The log name is this class's FQCN. */
     private static final Logger LOGGER = LoggerFactory.getLogger(MonitorBlockEntityRenderer.class);
 
+    /**
+     * 每图像节点的**本地系顶点缓存**（P1-4 每帧分配治理的 3D 半边，2026-10-31 拍板「只修
+     * 分配」）：逐像素顶点流（{@link MonitorClipMath#buildImageMesh} 一次性烘焙，cell 已
+     * 烘进本地坐标）按 缓存键 = 图代际 ∨ 像素引用 ∨ 像素版本（原位绘画，见
+     * {@code GraphNode.imagePixelsVersion}）∨ 画布尺寸 ∨ 显示缩放 失效重建；逐帧只把缓存
+     * 顶点经 m2 发射（信号偏移/旋转/位置逐帧仍在矩阵里），**不碰恒渲染语义**——顶点流、
+     * 绕序与发射顺序与原逐帧扫描逐字节一致。WeakHashMap：BE 卸载即随 GC 消失，无泄漏；
+     * 渲染单线程访问。
+     * Per-image-node **local-frame vertex cache** (the 3D half of the P1-4 per-frame
+     * allocation fix, 2026-10-31 "allocation-only" ruling): the per-pixel vertex stream
+     * (baked once by {@link MonitorClipMath#buildImageMesh}, cell baked into the local
+     * coords) is invalidated by graph generation ∨ pixel identity ∨ pixel version (in-place
+     * painting, see {@code GraphNode.imagePixelsVersion}) ∨ canvas size ∨ display scale;
+     * per frame the cached vertices are merely emitted through m2 (signal offsets/rotation/
+     * position still live in the matrix), and the **always-render semantics are untouched**
+     * — the vertex stream, winding and emission order match the old per-frame scan
+     * byte-for-byte. WeakHashMap: unloaded BEs vanish with the GC; render-thread only.
+     */
+    private static final class CachedImageMesh {
+        final int generation;
+        final int[] pixels;
+        final int pixelVersion;
+        final int w, h;
+        final float scale;
+        final float[] verts; // {x, y, r, g, b, a} ×4 顶点/不透明像素，图像本地系
+        CachedImageMesh(int generation, int[] pixels, int pixelVersion, int w, int h, float scale, float[] verts) {
+            this.generation = generation; this.pixels = pixels; this.pixelVersion = pixelVersion;
+            this.w = w; this.h = h; this.scale = scale; this.verts = verts;
+        }
+    }
+
+    private final java.util.WeakHashMap<MonitorBlockEntity, java.util.HashMap<Integer, CachedImageMesh>>
+        imageMeshCache = new java.util.WeakHashMap<>();
+
     private static final Field STARTED_BUILDERS, FIXED_BUFFERS, SHARED_BUFFER, LAST_SHARED_TYPE;
     static {
         Field sb = null, fb = null, sh = null, lst = null;
@@ -173,20 +207,24 @@ public class MonitorBlockEntityRenderer implements BlockEntityRenderer<MonitorBl
             poseStack.mulPose(Axis.ZP.rotationDegrees(-effectiveRot));
             poseStack.translate(-halfW, halfH, 0);
             var m2 = poseStack.last().pose();
-            for (int py = 0; py < n.imageHeight; py++) {
-                for (int px = 0; px < n.imageWidth; px++) {
-                    int idx = py * n.imageWidth + px;
-                    if (idx >= pixels.length) continue;
-                    int c = pixels[idx];
-                    int a = (c >> 24) & 0xFF, rr = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, bl = c & 0xFF;
-                    if (a == 0) continue;
-                    float x0 = px * cell, x1 = x0 + cell;
-                    float y0 = -py * cell, y1 = y0 - cell;
-                    sceneBuf.addVertex(m2, x0, y0, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
-                    sceneBuf.addVertex(m2, x1, y0, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
-                    sceneBuf.addVertex(m2, x1, y1, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
-                    sceneBuf.addVertex(m2, x0, y1, 0).setColor(rr / 255f, g / 255f, bl / 255f, a / 255f);
-                }
+            // P1-4（只修分配拍板）：逐像素扫描只在缓存失效时发生，逐帧仅发射缓存顶点。
+            // P1-4 (allocation-only ruling): the per-pixel scan only happens on cache
+            // invalidation; per frame we merely emit the cached vertices.
+            var perBe = imageMeshCache.computeIfAbsent(be, k -> new java.util.HashMap<>());
+            CachedImageMesh mesh = perBe.get(n.id);
+            int gen = be.getNodeGraph().graphGeneration;
+            if (mesh == null || mesh.generation != gen || mesh.pixels != pixels
+                || mesh.pixelVersion != n.imagePixelsVersion
+                || mesh.w != n.imageWidth || mesh.h != n.imageHeight
+                || mesh.scale != n.displayScale) {
+                mesh = new CachedImageMesh(gen, pixels, n.imagePixelsVersion, n.imageWidth, n.imageHeight,
+                    n.displayScale, MonitorClipMath.buildImageMesh(pixels, n.imageWidth, n.imageHeight, cell));
+                perBe.put(n.id, mesh);
+            }
+            float[] verts = mesh.verts;
+            for (int vi = 0; vi < verts.length; vi += 6) {
+                sceneBuf.addVertex(m2, verts[vi], verts[vi + 1], 0)
+                    .setColor(verts[vi + 2], verts[vi + 3], verts[vi + 4], verts[vi + 5]);
             }
             poseStack.popPose();
         }

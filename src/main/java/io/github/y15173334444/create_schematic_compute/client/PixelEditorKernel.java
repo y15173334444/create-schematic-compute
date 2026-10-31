@@ -71,6 +71,10 @@ public final class PixelEditorKernel {
                     px[idx] = full ? color : blendAlpha(px[idx], color, brushOpacity);
                 }
             }
+        // 原位改写必须递增像素版本（渲染 mesh 缓存的 O(1) 新鲜度键，见 GraphNode 字段注）。
+        // An in-place write must bump the pixel version (the O(1) freshness key of the
+        // render mesh cache — see the GraphNode field doc).
+        node.imagePixelsVersion++;
     }
 
     /** 泛洪填充（4 邻接；透明度过小导致无视觉变化时直接跳过，避免无限入栈）。
@@ -101,6 +105,9 @@ public final class PixelEditorKernel {
             stack.push(new int[]{x, y + 1});
             stack.push(new int[]{x, y - 1});
         }
+        // 原位改写必须递增像素版本（同 paintBrush）。/ An in-place write bumps the pixel
+        // version (same as paintBrush).
+        node.imagePixelsVersion++;
     }
 
     /** Bresenham 直线（逐格走笔刷）。/ Bresenham line (brush-stamped cell by cell). */

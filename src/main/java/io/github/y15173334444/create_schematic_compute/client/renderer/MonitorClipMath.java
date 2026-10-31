@@ -380,4 +380,60 @@ public final class MonitorClipMath {
         }
         return new float[]{minX, minY, maxX, maxY};
     }
+
+    /**
+     * IMAGE/IMAGE_SEQUENCE 的逐像素 mesh 构建（图像本地系，纯函数——显示器 3D 渲染路径
+     * 的逐帧顶点流由此一次性烘焙：P1-4 每帧分配治理的 3D 半边）。每不透明像素 emit
+     * 4 顶点（绕序与原逐帧发射逐字节一致：(x0,y0)(x1,y0)(x1,y1)(x0,y1)，x 右 y 上，
+     * y0 = -py·cell），顶点直排 {x, y, r, g, b, a} ×6 float（构建期解包一次着色；
+     * 不用 intBitsToFloat 位型打包——ARGB 位型撞上 NaN 编码会被 JVM 值集转换规范化、
+     * 颜色位被吞）。透明像素（alpha==0）跳过，与原路径同规则。
+     * <p>构建时机 = 缓存失效（图代际 / 像素引用 / 像素版本 / 画布尺寸 / 显示缩放任一
+     * 变化，见 {@code MonitorBlockEntityRenderer} 的缓存键）；逐帧只做发射，不再扫描
+     * 像素数组。cell = 0.03f × displayScale（调用方传入，保持单一来源）。</p>
+     * Builds the per-pixel mesh for IMAGE/IMAGE_SEQUENCE in image-local space (a pure
+     * function — the 3D half of the P1-4 per-frame allocation fix: the per-frame vertex
+     * stream is baked once here). Each opaque pixel emits 4 vertices whose winding matches
+     * the old per-frame emission byte-for-byte ((x0,y0)(x1,y0)(x1,y1)(x0,y1), x right /
+     * y up, y0 = -py·cell), laid out flat as {x, y, r, g, b, a} ×6 floats (colours
+     * unpacked once at build; no intBitsToFloat bit-packing — ARGB bit patterns colliding
+     * with NaN encodings would be canonicalised by JVM value-set conversion, losing the
+     * colour bits). Transparent
+     * pixels (alpha==0) are skipped, same rule as the old path. Built only on cache
+     * invalidation (graph generation / pixel identity / pixel version / canvas size /
+     * display scale — see the cache keys in MonitorBlockEntityRenderer); per frame the
+     * renderer only emits, never scans the pixel array. cell = 0.03f × displayScale
+     * (passed in by the caller to keep a single source). */
+    public static float[] buildImageMesh(int[] pixels, int imgW, int imgH, float cell) {
+        if (pixels == null || imgW <= 0 || imgH <= 0) return new float[0];
+        int expected = imgW * imgH;
+        int opaque = 0;
+        int n = Math.min(pixels.length, expected);
+        for (int i = 0; i < n; i++) {
+            if (((pixels[i] >> 24) & 0xFF) != 0) opaque++;
+        }
+        float[] out = new float[opaque * 4 * 6];
+        int o = 0;
+        for (int py = 0; py < imgH; py++) {
+            for (int px = 0; px < imgW; px++) {
+                int idx = py * imgW + px;
+                if (idx >= pixels.length) continue;
+                int c = pixels[idx];
+                if (((c >> 24) & 0xFF) == 0) continue;
+                float x0 = px * cell, x1 = x0 + cell;
+                float y0 = -py * cell, y1 = y0 - cell;
+                out[o++] = x0; out[o++] = y0;
+                out[o++] = x1; out[o++] = y0;
+                out[o++] = x1; out[o++] = y1;
+                out[o++] = x0; out[o++] = y1;
+                float rf = ((c >> 16) & 0xFF) / 255f, gf = ((c >> 8) & 0xFF) / 255f,
+                      bf = (c & 0xFF) / 255f, af = ((c >> 24) & 0xFF) / 255f;
+                out[o++] = rf; out[o++] = gf; out[o++] = bf; out[o++] = af;
+                out[o++] = rf; out[o++] = gf; out[o++] = bf; out[o++] = af;
+                out[o++] = rf; out[o++] = gf; out[o++] = bf; out[o++] = af;
+                out[o++] = rf; out[o++] = gf; out[o++] = bf; out[o++] = af;
+            }
+        }
+        return out;
+    }
 }

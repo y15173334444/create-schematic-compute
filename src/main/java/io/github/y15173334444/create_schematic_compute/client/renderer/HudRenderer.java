@@ -461,6 +461,13 @@ final class HudRenderer {
             VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR_TEX_LIGHTMAP);
 
         // ── IMAGE/IMAGE_SEQUENCE（layerIndex 排序，同世界渲染） ──
+        // P1-4 复用缓冲（renderHud 局部，渲染单线程）：遮罩 4 边形 + 像素 quad 逐图/逐像素
+        // 重填，不再每图/每像素分配（图像墙 GC 抖动主项）。
+        // P1-4 reusable buffers (renderHud-local, render-thread only): the mask 4-gon and
+        // the pixel quad are refilled per image/pixel instead of allocated each time (the
+        // dominant GC-jitter term on image walls).
+        float[] scratchMaskImg = new float[8];
+        float[] scratchPxQuad = new float[8];
         var imgNodes = new ArrayList<GraphNode>();
         for (var n : graph.nodes) {
             if (n.type == NodeType.IMAGE || n.type == NodeType.IMAGE_SEQUENCE) imgNodes.add(n);
@@ -526,7 +533,15 @@ final class HudRenderer {
             // space so the emission path stays unchanged).
             float cosR = (float)Math.cos(Math.toRadians(effectiveRot));
             float sinR = (float)Math.sin(Math.toRadians(effectiveRot));
-            float[] maskImg = new float[8];
+            // P1-4（只修分配拍板）：遮罩与像素 quad 的缓冲逐图/逐帧复用，不再每次分配
+            // （每不透明像素一个 float[8] 是图像墙 GC 抖动的主项；两个裁剪函数均只读输入、
+            // 返回新数组，复用安全——像素 quad 在跨相机平面被裁剪时会换成本地引用 q）。
+            // P1-4 (allocation-only ruling): the mask and pixel-quad buffers are reused per
+            // image/frame instead of allocated each time (one float[8] per opaque pixel was
+            // the dominant GC-jitter term on image walls; both clip helpers read their input
+            // immutably and return fresh arrays, so reuse is safe — the pixel quad swaps to
+            // a local reference q when clipped against the camera plane).
+            float[] maskImg = scratchMaskImg; // 复用缓冲（见循环头）/ the reused buffer (see the loop head)
             for (int k = 0; k < 4; k++) {
                 float px = maskQuad[k * 2] - imgCx, py = maskQuad[k * 2 + 1] - imgCy;
                 maskImg[k * 2]     = px * cosR + py * sinR + halfW;
@@ -554,7 +569,15 @@ final class HudRenderer {
                     if (a == 0) continue;
                     float x0 = px * cell, x1 = x0 + cell;
                     float y0 = -py * cell, y1 = y0 - cell;
-                    float[] pxQuad = {x0, y0, x1, y0, x1, y1, x0, y1};
+                    // 逐像素重填复用缓冲（原为每不透明像素 new float[8]——P1-4 主项）；
+                    // 跨相机平面被裁剪时 pxQuad 换成本地引用 cc，缓冲本体下个像素照常重填。
+                    // Refill the reused buffer per pixel (was: one new float[8] per opaque
+                    // pixel — the P1-4 headline term); when clipped against the camera plane
+                    // pxQuad swaps to the local reference cc, and the scratch buffer is
+                    // refilled as usual for the next pixel.
+                    float[] pxQuad = scratchPxQuad;
+                    pxQuad[0] = x0; pxQuad[1] = y0; pxQuad[2] = x1; pxQuad[3] = y0;
+                    pxQuad[4] = x1; pxQuad[5] = y1; pxQuad[6] = x0; pxQuad[7] = y1;
                     // 相机平面裁剪（仅跨越时）——裁剪在图像局部进行，与 emitAnchored
                     // 同一变换路径（m2 → bobViewRot）。
                     // Camera-plane clip (only when crossing) — in image-local space, over
