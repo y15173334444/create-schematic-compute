@@ -196,17 +196,17 @@ graph 包对平台/宿主包**零出边**——求值期需要的平台能力经
 > trigger-level state silently reset on every reload.
 
 ### FormulaParser
-数学表达式解析器。调车场算法编译中缀→RPN，支持多行脚本。
-/ Math expression parser. Shunting-yard algorithm: infix → RPN. Supports multi-line scripts.
+数学表达式解析器。调车场算法编译中缀→RPN（表达式叶子的共享 Value 栈机）；`parseScript` 统一走 AST 前端——双前端退役（2026-10-31）：旧单行表达式模式与逐行 RPN 前端已删除，无控制流脚本统一升格 AST。
+/ Math expression parser. Shunting-yard algorithm: infix → RPN (the shared Value stack machine for expression leaves); `parseScript` runs the unified AST frontend — dual-frontend retirement (2026-10-31): the legacy single-expression / per-line RPN frontends are gone, non-control-flow scripts promoted to AST.
 
 **功能 / Features**：
 - `compile(formula)` — 编译中缀表达式为 RPN token 列表 / Compile infix to RPN token list
 - `evaluate(rpn, vars)` — 执行 RPN / Execute RPN with variable bindings
-- `parseScript(formula)` — v1.2+ 多行脚本（赋值、@output、注释、续行）/ Multi-line scripts
-- **AST 模式（刀3/刀4，v1.2.5）**：控制流关键字/`{}`/swizzle/vec3 触发 Stmt 树 + RPN 叶子；`@output` hoist、vec3 输出展开为 3 标量引脚、保守类型推断、向量形态校验 ERROR / AST mode (knife 3/4): control-flow keywords/braces/swizzle/vec3 produce a Stmt tree with RPN leaves; `@output` hoisting, vec3 output expansion, conservative type inference, vector-shape validation errors
+- `parseScript(formula)` — 统一 AST 前端（赋值、@output、注释、续行、控制流；深度守卫降级 = 输出恒 0 + ERROR）/ Unified AST frontend (assignments, @output, comments, continuations, control flow; depth-guard degradation pins outputs to 0 with an ERROR issue)
+- **AST 语句树（刀3/刀4）**：Stmt 树 + RPN 叶子；`@output` hoist、vec3 输出展开为 3 标量引脚、保守类型推断、向量形态校验 ERROR / Stmt tree with RPN leaves; `@output` hoisting, vec3 output expansion, conservative type inference, vector-shape validation errors
 - `evaluateValue(rpn, env)` — 统一 `Value` 栈机（标量与 AST 共用单一求值引擎，刀3）/ Unified Value stack machine — one eval engine for scalar and AST scripts
-- `tokenize()` / `validate()` / `extractVariables()` — 语法高亮、实时校验、变量提取（v1.2.0）/ Tokenize, validate, extract variables
-- 记录类型 / Records：`Token`、`FormulaIssue`、`Assignment`、`ScriptParseResult`（含 `sourceFormula` 陈旧检测字段）；AST 记录见 `FormulaAst`（Stmt/RPN 混合）
+- `tokenize()` / `validate()` — 语法高亮、实时校验 / Tokenize, validate
+- 记录类型 / Records：`Token`、`FormulaIssue`、`ScriptParseResult`（含 `sourceFormula` 陈旧检测字段；`Assignment`/`isLegacy` 已随双前端退役）；AST 记录见 `FormulaAst`（Stmt/RPN 混合）
 - **15 个标量函数**（三角函数取度为输入）+ **7 个向量函数**（`vec3 length normalize dot cross dist yaw pitch`，yaw/pitch 逐字对齐 DIRECTION 节点）
   / **15 scalar functions** (trig takes degrees) + **7 vector functions** (`vec3 length normalize dot cross dist yaw pitch`, yaw/pitch mirror the DIRECTION node):
   标量 `sin` `cos` `tan` `asin` `acos` `atan2` `sinh` `cosh` `sqrt` `ln` `log` `exp` `sec` `csc` `cot`

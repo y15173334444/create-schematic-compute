@@ -24,7 +24,7 @@
 | 7 | 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理） | 主图/子图节点 id 撞号时 owner 门失真；syncBusBands/空表 clearBus 靠旗标或镜像语义门控 | ChannelOwner 加图域全链带上 + 两处清理改 owner 门控 | 🔶 待办 |
 | 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（行为变更） | 🔶 待办（2026-10-25 更新：eval 分派化已落地 main，怪癖按决策 §三-4 原样保留并收敛到单一事实源；**2026-10-31 拍板：档位合一**，✅ 已实施（2026-10-31 档位合一批 0e9cc29）） |
 | 9 | 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE） | 服务端 op 链不校验 `BlockNodeAllowances`，改包客户端可把任意类型塞进任意宿主 | 服务端 op 链按准入名单校验，超名单 REJECT（与 K10 服务端化同批） | 🔶 待办（2026-10-17 补登记，复审 P2-7；**2026-10-31 拍板：运行时服务端化**——各版本整理的方块节点筛选有差异，直接静态校验会让旧版本的图用不了，校验须带旧档兼容口径） |
-| 10 | AST 与 RPN 双前端并行（旧表示退役时间点未定） | 同一份公式有两套可执行表示并存于 FORMULA 求值（`script.ast` 空 → 旧扁平 RPN 循环；非空 → 刀3 解释器），维护面翻倍 | 单批删除旧路径 | 🔶 待办（拓扑 P5 拆分已把两前端物理分离，退役不再受阻；**2026-10-31 拍板：1.3.0 内退役**——无控制流脚本统一升格 AST，旧扁平 RPN 前端随批删除，实施待排期） |
+| 10 | AST 与 RPN 双前端并行（旧表示退役时间点未定） | 同一份公式有两套可执行表示并存于 FORMULA 求值（`script.ast` 空 → 旧扁平 RPN 循环；非空 → 刀3 解释器），维护面翻倍 | 单批删除旧路径 | 🔶 待办（拓扑 P5 拆分已把两前端物理分离，退役不再受阻；**2026-10-31 拍板：1.3.0 内退役**——无控制流脚本统一升格 AST，旧扁平 RPN 前端随批删除，✅ 已实施（2026-10-31 双前端退役批）） |
 | 11 | 反向包边成环（blocks ↔ client.editor / network → blocks） | 包归位把同包互访显形为跨包 import，blocks 与 client.editor 互引成环、network 新增回引 blocks 边，与「blocks 回归世界侧」收口叙事反向 | 依赖倒置解环（Host 查询方法 / markDirty 形参收窄 / 窄接口，E2 `EditAckSink` 手法）或接受现状不立分层规则 | 🔶 待办（2026-10-31 补登记，拓扑批 4 注记⑥ 留痕边清单与根因；**2026-10-31 拍板：解环（依赖倒置）**，✅ 已实施（2026-10-31 解环批）） |
 | 12 | 预算兜底未接线（deadline 兑底承诺未兑现） | `deadlineExhausted()` 全仓零调用点，FormulaCompute javadoc 却写着「deadline 仅作兜底（闭式巨脚本的紧急 shed）」——注释替未实现机制背书 | 接线；设置面板新增选项卡 + 两条指令（指令打开设置面板 / 指令直接调整），调整均需 OP，作用域 = 当前世界设置 | 🔶 待办（**2026-10-31 拍板：接线**，交互约束见正文，实施待排期） |
 | 13 | validate 双份 parseScript（同一脚本解析两遍） | `FormulaValidator.validate` 内部完整重跑 `parseScript`，校验路径重复解析 | 去重复用解析产物，单独立批（行为批口径） | 🔶 待办（**2026-10-31 拍板：修，单独立批**，实施待排期） |
@@ -417,6 +417,8 @@ Sensor / 控制椅图里若出现 DELAY / LATCH / GATE / T_FLIPFLOP / PULSE_EXTE
 
 **🔶 待办。** 2026-10-25 拓扑 P5 拆分落地时按暂缓备忘记补登记：拆分解耦了退役决策（先物理
 分离、决策后删一期即可），本条目只登记决策欠账，不阻塞任何在途批次。
+
+**✅ 2026-10-31 实施完毕 / Implemented（双前端退役批）**：旧扁平 RPN 前端单批删除——`parseScript` 的模式路由/旧单行表达式模式/逐行赋值输出解析全部退役，统一走 `parseScriptAst`（表达式叶子仍是共享 Value 栈机 RPN，`compile`/`evaluateValue` 等栈机入口留守服务叶子与 DEBUG 信号）；`FormulaEval` 的 RPN 求值循环删除（`ast==null` 仅剩深度守卫降级形态 = 输出恒 0 + ERROR 徽章 + 去重照记）；`Assignment`/`assignments`/`isLegacy`/`extractVariables`（连测试）随批退场，`ScriptParseResult` 收缩。**旧档兼容口径设计**：① 持久化只存 formula 源文本 + 引脚计数（无编译产物入档），旧档加载（含 GraphMigration 世界加载）即经统一前端重编译，零存档迁移；② 值与引脚面等价——AST 前端设计即对齐旧规则（默认输出=顶层末行独立表达式、赋值序执行、输出后算、inputVars=引用−赋名，parseScriptAst 内两处「与旧模式一致」注记），`FormulaUnifiedFrontendTest` 7 锚钉住旧单行/多行赋值/@output/多输出形态的逐值等价与 extractVariables 引脚面口径（sin(PI)/裸 PI/E=引脚、(PI)/(E)=字面量）；③ 连线按 pinId 名绑定（v1.2.4），变量顺序差异不改连线语义；④ 旧版额外引脚（dynamicInputCount>inputVars 的数字名引脚）口径不动；⑤ 校验口径变化（设计内接受）：原旧路径脚本现在会过类型感知校验（编辑器徽章面，运行时仍 lenient）。1001 绿（1000+7 新锚−6 退役旧锚）。/ Implemented: the flat-RPN frontends are deleted in one batch; legacy-save compatibility = source-text persistence with zero save migration, value/pin-face equivalence pinned by FormulaUnifiedFrontendTest, name-bound connections, legacy extra-pin shapes untouched; former legacy-path scripts now get type-aware validation (editor badges only, by design).
 
 **🎯 2026-10-31 拍板 / Ruling（仅登记，实施待排期）**：1.3.0 内退役——无控制流脚本统一升格 AST，旧扁平 RPN 前端单批删除（P5 物理分离后删除面已收窄）。实施含旧档兼容口径设计。/ Retire within 1.3.0: unify all non-control-flow scripts onto the AST frontend and delete the legacy flat-RPN path in one batch.
 
