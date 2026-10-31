@@ -5,14 +5,21 @@ package io.github.y15173334444.create_schematic_compute.graph;
  * {@link FormulaCompute} 同构但账本独立：可恢复重节点挂起计入本池，slice =
  * 预算 / max(1, 上 tick 挂起数)，与 FORMULA 池互不挤压（验收口径②）。
  *
- * <p>预算语义（镜像 FormulaCompute 权威决策）：</p>
+ * <p><b>预算语义与栅栏边界（诚实口径，审查批 2026-10-31 定稿）：</b></p>
  * <ul>
- *   <li>节点入口永远准入（保底），不查 deadline；</li>
+ *   <li>节点入口永远准入（保底），本池无在飞 deadline 检查 —— FORMULA 的 deadline
+ *       兜底之所以成立，是采样检查长在自己的解释器里；第三方回调是不透明体，
+ *       <b>主线程上不存在等价的在飞检查点</b>（异步车道是 D2a 明确否决项，挪线程
+ *       又破 D6 主线程承诺）。永不返回的回调无法被抢占 —— 与任何模组的坏 tick
+ *       处理器同属信任模型（§7：API 消费者 = 服务器上安装的可信代码）失效级；
+ *       原版服务端 watchdog（30s 冻结 crash report）是最后一道网。</li>
  *   <li>{@code sliceExpired()}（{@code api.CustomNodeContext} 的检查点）= 调用内墙钟
- *       超过本节点 slice —— 由 {@code CustomNodeEval} 在构建上下文时起算；</li>
- *   <li>挂起（suspended）计入 heavyYieldCount；</li>
- *   <li>普通节点的墙钟超份额不入本池——由处置梯子（CustomNodeEval 内连续超份额记账）
-     *   处置。</li>
+ *       超过本节点 slice —— 由 {@code CustomNodeEval} 在构建上下文时起算，可恢复
+ *       契约的协作面；</li>
+ *   <li><b>超自身份额的挂起</b>才计入 heavyYieldCount（K6 公平口径：早退挂起不算 ——
+ *       提前挂起不该压薄全池 slice）；</li>
+ *   <li>事后处置（CustomNodeEval 处置梯子）：返回但超份额的调用按连续超时记账 →
+ *       降频 → 熔断；<b>单次调用吃满整池预算 = 栅栏破约，跳过宽限立即熔断</b>。</li>
  * </ul>
  * The <b>independent budget pool</b> for custom-node evaluation (public-API wave 1,
  * ruling D2a) — isomorphic to but separately accounted from {@link FormulaCompute}:
@@ -26,10 +33,6 @@ package io.github.y15173334444.create_schematic_compute.graph;
  */
 public final class CustomNodeCompute {
 
-    /** 本 tick 预算硬 deadline（纳秒，墙钟；观测/埋点用，节点准入不查它）。
-     *  Hard budget deadline for this tick (ns, wall clock; observability only — node
-     *  admission never checks it). */
-    private static long budgetDeadlineNs = 0;
     /** 本 tick 挂起计数。/ suspensions within this tick. */
     private static int heavyYieldCount = 0;
     /** 上一 tick 挂起计数 → slice = 预算 / max(1, prev)。/ last tick's suspensions → slice. */
@@ -40,14 +43,12 @@ public final class CustomNodeCompute {
     /** 每服务端 tick 开始调用一次（ServerTickEvent.Pre，与 FormulaCompute.beginTick 同点）。
      *  Called once per server tick (ServerTickEvent.Pre, beside FormulaCompute.beginTick). */
     public static void beginTick() {
-        budgetDeadlineNs = System.nanoTime() + budgetNs();
         heavyYieldCountPrev = heavyYieldCount;
         heavyYieldCount = 0;
     }
 
     /** 服务端停止时清理（防跨世界污染）。/ cleanup on server stop (no cross-world pollution). */
     public static void clearAll() {
-        budgetDeadlineNs = 0;
         heavyYieldCount = 0;
         heavyYieldCountPrev = 0;
     }

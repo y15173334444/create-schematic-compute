@@ -11,7 +11,8 @@
 io.github.y15173334444.create_schematic_compute/
 ├── SchematicCompute.java          ← @Mod 入口 / @Mod entry point
 ├── Config.java                    ← 服务端配置定义 / Server config spec
-├── graph/          (58 files)     ← 节点图核心引擎 + 音频纯类（零非平台依赖，平台能力经端口注入）/ Node graph core engine + audio pure classes (zero non-platform dependencies; platform capabilities arrive via injected ports)
+├── api/            (5 files)      ← 公开 API 门面（1.3.0 波 1：自定义节点注册/行为/上下文/结果值类型；签名零图域类型，实现委托 graph）/ Public API facade (1.3.0 wave 1: custom-node registration/behavior/context/result value types; zero graph-domain types in signatures, implementation delegated to graph)
+├── graph/          (65 files)     ← 节点图核心引擎 + 音频纯类（零非平台依赖，平台能力经端口注入）/ Node graph core engine + audio pure classes (zero non-platform dependencies; platform capabilities arrive via injected ports)
 ├── blocks/         (44 files)     ← 方块·BE·宿主 Screen·图引擎 / Blocks, BEs, host Screens, graph engine
 ├── network/        (41 files)     ← 网络包·BUS 总线·音频频段表·编辑会话注册表 / Packets, BUS, audio bands, edit-session registry
 ├── client/         (70 files)     ← 客户端渲染·编辑器家族·NBS/像素编辑器·音频引擎 / Rendering, editor family, NBS/pixel editors, audio engine
@@ -177,14 +178,15 @@ graph 包对平台/宿主包**零出边**——求值期需要的平台能力经
 - `TargetLookup` — TARGET_OUT 的目标查询（radar 侧接线 `TargetAssignment::getTarget`，与 `setRadarPos` 同点）；目标值类型 `TargetRecord`（纯数据）随之沉入 graph / TARGET_OUT's target lookup (radar wires `TargetAssignment::getTarget` alongside `setRadarPos`); the target value type `TargetRecord` (pure data) sank into graph with it
 - `BlobStore` — OpExecutor 的 SET_SONG 分片字节源（根包接 `BlobRegistry::poll`）；未接线返回 null → op 拒收数据保原曲（既有坏数据策略）/ SET_SONG's blob-byte source for OpExecutor (the root wires `BlobRegistry::poll`); unwired yields null → the op rejects the data and keeps the old song (the existing bad-data policy)
 - `FormulaCompute.setBudgetMsSource(DoubleSupplier)` — 预算毫秒来源（根包接 `Config.FORMULA_BUDGET_MS`，读取保持实时、配置重载即时生效）；未接线或配置未加载窗口回退 3.0ms / the budget-ms source (the root wires `Config.FORMULA_BUDGET_MS`; reads stay live so config reloads apply immediately); falls back to 3.0ms when unwired or before config load
+- `CustomNodeCompute.setBudgetMsSource(DoubleSupplier)` — 自定义节点独立预算池同款接线（`Config.CUSTOM_NODE_BUDGET_MS`，默认 3ms；与 FORMULA 池账本互不挤压）；`setCustomLevel`/`setCustomHostPos`（GraphHost 两条重建路径注入，`api.CustomNodeContext` 的 level/hostPos 来源；未注入 = null，提供方自行降级）/ the custom-node independent pool's same wiring (`Config.CUSTOM_NODE_BUDGET_MS`, default 3ms; ledger-isolated from the FORMULA pool); `setCustomLevel`/`setCustomHostPos` (injected on both GraphHost rebuild paths — the source of api.CustomNodeContext's level/hostPos; null when unwired, providers degrade themselves)
 
 ### RuntimeState
 可序列化的运行时状态快照，由 BE 持有。
 / Serializable runtime state snapshot, owned by the BE.
 
-**持久化状态 / Persisted State**：`pidState`, `delayQueues`, `flipflopStates`, `pulseTimers`, `debugTime`, `nodeEdge`（触发电平，v1.2.5 起持久化）/ Trigger level, persisted since v1.2.5
+**持久化状态 / Persisted State**：`pidState`, `delayQueues`, `flipflopStates`, `pulseTimers`, `debugTime`, `nodeEdge`（触发电平，v1.2.5 起持久化）/ Trigger level, persisted since v1.2.5, `customStates`（公开 API 波 1：自定义节点状态 blob，nodeId → 第三方不透明 NBT；挂起检查点与完成写回共此表）/ custom-node state blobs (wave 1: nodeId → the provider's opaque NBT; suspension checkpoints and completion write-backs share this table)
 **子图状态 / Sub-graph State**：`SubState` — 每个 ENCAPSULATION 节点独立的上述五类状态 / Independent state per encapsulation node
-**API**：`clear()`、`save()`/`load()`（NBT 键 `pid/nodeEdge/delay/ff/pt/dt/sub`）、`putAllFrom(src)`（存档恢复的唯一入口，继承线与 Kinetic 线共用）、`getOrCreateSubState(id)`、`pruneToAliveIds(aliveIds)`（按存活节点剪除时序/积分状态含辅助槽 `-(id+1)`/`id+100000`/`id+200000`，重编译保留状态用）/ prune sequential/integral state to alive nodes incl. aux slots (used by recompiles to preserve state)
+**API**：`clear()`、`save()`/`load()`（NBT 键 `pid/nodeEdge/delay/ff/pt/dt/custom/sub`）、`putAllFrom(src)`（存档恢复的唯一入口，继承线与 Kinetic 线共用）、`getOrCreateSubState(id)`、`pruneToAliveIds(aliveIds)`（按存活节点剪除时序/积分状态含辅助槽 `-(id+1)`/`id+100000`/`id+200000`，重编译保留状态用）/ prune sequential/integral state to alive nodes incl. aux slots (used by recompiles to preserve state)
 
 > **恢复语义（v1.2.5 阶段 0 统一）/ Restore semantics (unified in v1.2.5 phase 0)**：
 > `save()` 始终写全量七类，存档恢复必须经 `putAllFrom()` 一并恢复全部七类。此前各 BE 恢复项
@@ -223,8 +225,8 @@ graph 包对平台/宿主包**零出边**——求值期需要的平台能力经
 **处理 35 种 OpType / Handles 35 OpTypes**：ADD_NODE_REQUEST, ADD_NODE, REMOVE_NODE, MOVE_NODE, ADD_CONN, REMOVE_CONN, SET_PARAM, SET_FORMULA, SET_COMMENT_TEXT, SET_COMMENT_COLORS, SET_COMMENT_SIZE, SET_DISPLAY_TEXT, SET_TEXT_COLOR, SET_BANDS, SET_BLOCK_NAME, SET_ZORDER, SET_LAYER_INDEX, SET_KEY_BINDING, SET_IMAGE_FRAME_TOGGLE, SET_DISPLAY_LAYOUT, TOGGLE_BOOL, SET_HOTBAR_ITEM, SET_IMAGE_PIXELS, SET_IMAGE_SIZE, REMOVE_IMAGE_FRAME, MOVE_IMAGE_FRAME, EXPAND_NODE, COLLAPSE_NODE, ADD_BOOKMARK, REMOVE_BOOKMARK, RENAME_BOOKMARK, MOVE_BOOKMARK, SET_CTRL_POINTS, SET_SONG, REJECT
 
 ### GraphOp / OpType
-`GraphOp`：**28 字段** record + **26 个静态方法**（25 个工厂 + `parseCtrlPoints` helper）。
-/ 28-field record + 26 static methods (25 factories + 1 helper).
+`GraphOp`：**29 字段** record + **26 个静态方法**（25 个工厂 + `parseCtrlPoints` helper；尾部 `customNodeId` 只与 CUSTOM 哨兵同现，其余 op 恒 null）。
+/ 29-field record + 26 static methods (25 factories + 1 helper; the trailing customNodeId only ever rides the CUSTOM sentinel, null on every other op).
 - `blobRefId` — 非零 → 经注入的 `BlobStore` 端口取大数据（生产由根包接 `BlobRegistry::poll`，见「求值依赖注入」）/ non-zero → large data via the injected `BlobStore` port (production wires `BlobRegistry::poll`; see "Injected Eval Dependencies")
 - `imageData` — IMAGE 像素直接以 `int[]` 传输（替代 Base64 `stringValue`）/ direct pixel array
 - `OpType`：**35 种**操作枚举（新值只追加在枚举尾——枚举序 = 网络序）/ 35-operation enum (new values append only — ordinal order is the wire order)
@@ -389,7 +391,7 @@ joiners have no pending ops and always load the authoritative graph.
 
 **`AbstractGraphScreen` 基类职责 / Base class responsibilities**：
 - 持有 `blockPos` + `GraphEditor`，构造器 `(Component title, BlockPos pos)`；子类通过 `setNodeAllowance(NodeAllowance)` 设置分类白名单+类内黑名单（`BlockNodeAllowances`），一次性谓词（子图）仍用 `setNodeFilter()` / Holds blockPos + GraphEditor; subclasses set a category allowlist via `setNodeAllowance` (`BlockNodeAllowances`); one-off predicates (sub-graph) still use `setNodeFilter`
-- `graph/NodeCategory` — 21 类节点分类（菜单分组唯一真相源，每 `NodeType` 恰好一类）/ 21 node categories (single source for add-menu grouping; each `NodeType` in exactly one)
+- `graph/NodeCategory` — 22 类节点分类（菜单分组唯一真相源，每 `NodeType` 恰好一类；`CUSTOM` 类唯一成员是第三方哨兵，任何内置宿主名单都不含此类——自定义节点准入走批 D 名单制）/ 22 node categories (single source for add-menu grouping; each `NodeType` in exactly one; the CUSTOM category's sole member is the third-party sentinel — no built-in host roster contains it, custom-node admission rides the batch-D roster)
 - `graph/NodeAllowance` + `graph/BlockNodeAllowances` — 方块准入 = 分类白名单 + 类内黑名单；12 方块名单集中在此 / Per-block allowance = category allowlist + in-category exclusions; the twelve lists live here
 - `init()` 发送 `GraphJoinPacket`；`onClose()` 依次执行 `preClose()` 钩子 → `pendingLocalOps=0` 复位（`5892caa` 守卫）→ `editor.onClose()` → `clearRemotePresences()` → 发送 `GraphLeavePacket` / Full close lifecycle
 - `tick()` 通过子类 `isBlockEntityValid()` 检查 BE，失效自动 `onClose()` / Auto-close on BE invalidation

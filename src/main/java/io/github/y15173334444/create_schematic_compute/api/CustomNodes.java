@@ -10,6 +10,10 @@ import io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry;
  * third-party mods. The implementation ({@link CustomNodeRegistry}) lives in the graph
  * package — this class keeps the public face inside {@code api} so third-party code
  * imports only this package (exploration doc §6: api facade + internal impl packages).
+ * The {@code api → graph} reference below is the facade pattern's implementation
+ * delegation: the structural rule (§3-10) bans graph-domain <b>types in api
+ * signatures</b> (the cross-loader constraint), not the facade's own delegate edge —
+ * this class exposes no graph type to providers.
  */
 public final class CustomNodes {
 
@@ -28,7 +32,7 @@ public final class CustomNodes {
      * <b>Registering ≠ admitting</b> (the D5 roster): registration only brings the shape and
      * behavior into existence; whether it may enter a host's graph is ruled by that host's
      * admission roster — third parties roster into their own host-suite hosts freely and
-     * into this mod's blocks via the registration口 this mod provides (host-suite wave).
+     * into this mod's blocks via the registration point this mod provides (host-suite wave).
      * The roster's server-side enforcement lands with batch D.</p>
      *
      * @param spec     声明式 schema（id/标题/引脚/参数）/ the declarative schema

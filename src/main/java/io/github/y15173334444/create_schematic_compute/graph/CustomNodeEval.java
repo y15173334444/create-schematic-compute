@@ -42,6 +42,12 @@ public final class CustomNodeEval {
     static final int FUSE_CYCLES = 5;
     /** 同节点告警节流间隔（game tick）。/ per-node warning throttle interval (game ticks). */
     static final long WARN_INTERVAL_TICKS = 200;
+    /** 状态 blob 上限（SNBT 文本长度，与 op stringValue 的 32KB 线缆包封同值口径）——
+     *  超限检查点拒收（审查批 (b)3：无上限的检查点会膨胀图 NBT/内存）。
+     *  State-blob cap (SNBT text length, the same 32KB figure as the op stringValue wire
+     *  envelope) — oversized checkpoints are refused (review (b)3: uncapped checkpoints
+     *  would bloat the graph NBT/memory). */
+    static final int MAX_STATE_SNBT_LENGTH = 32768;
 
     private CustomNodeEval() {}
 
@@ -56,6 +62,16 @@ public final class CustomNodeEval {
 
         CustomNodeRunState run = node.customRun;
         if (node.customRun == null) node.customRun = run = new CustomNodeRunState();
+        // 提供方世代检测：注册表已变（重注册/注销重注册）→ 运行态整体重置 ——
+        // 熔断/降频随提供方更替一并解除（审查批 (c)6 的实现路径）。
+        // Provider-generation check: the registry moved (re-register / unload+register) →
+        // reset the run state wholesale — fuses and throttles lift with the provider swap
+        // (the implementation path behind review (c)6).
+        if (run.providerGeneration != CustomNodeRegistry.providerGeneration()) {
+            run = new CustomNodeRunState();
+            run.providerGeneration = CustomNodeRegistry.providerGeneration();
+            node.customRun = run;
+        }
 
         // 熔断：不再调用提供方，输出保持 lastGood（图重编译重建节点即解除）。
         // Fused: the provider is never called; outputs hold lastGood (a recompile rebuilds
@@ -82,7 +98,8 @@ public final class CustomNodeEval {
             in[i] = ctx.graph.getInputValue(node.id, i, ctx.outputs);
         CompoundTag stored = ctx.runtimeState != null ? ctx.runtimeState.customStates.get(node.id) : null;
         long t0 = System.nanoTime();
-        long sliceDeadline = t0 + CustomNodeCompute.sliceNs();
+        long slice = CustomNodeCompute.sliceNs();
+        long sliceDeadline = t0 + slice;
         Ctx call = new Ctx(ctx, node, spec, in, stored, sliceDeadline);
 
         CustomNodeResult result;
@@ -103,10 +120,26 @@ public final class CustomNodeEval {
             // Resumable suspension (D2a): checkpoint into the state table, feed the
             // independent pool's heavy share, outputs hold (ctx.o untouched — the eval
             // tail's put carries lastGood from the previous tick).
-            CustomNodeCompute.reportYield();
-            if (ctx.runtimeState != null && result.newState() != null)
-                ctx.runtimeState.customStates.put(node.id, result.newState());
-            ladder(ctx, run, node, elapsed);
+            // 计数口径对齐 FORMULA（审查批 (c)5）：只有超自身份额的挂起才计入池 ——
+            // 提前挂起（协作早退）不该压薄全池 slice（K6 公平口径）。
+            // Yield accounting aligned with FORMULA (review (c)5): only an over-slice
+            // suspension feeds the pool — an early cooperative suspend must not shrink
+            // everyone's slice (K6's fair rule).
+            if (elapsed > slice) CustomNodeCompute.reportYield();
+            if (ctx.runtimeState != null && result.newState() != null) {
+                CompoundTag checkpoint = result.newState();
+                if (checkpoint.toString().length() <= MAX_STATE_SNBT_LENGTH)
+                    ctx.runtimeState.customStates.put(node.id, checkpoint);
+                else
+                    // 超限检查点拒收（不存旧不存新）：提供方须把检查点压进上限内；
+                    // 节流告警带 modid+id。诚实拒绝，不伪造兜底。
+                    // An oversized checkpoint is refused (neither old nor new stored): the
+                    // provider must fit its checkpoint under the cap; throttled warning
+                    // with modid+id. Honest refusal, no fabricated fallback.
+                    warnOnce(ctx, run, node, "checkpoint rejected: " + checkpoint.toString().length()
+                        + " chars exceeds the " + MAX_STATE_SNBT_LENGTH + " cap");
+            }
+            ladder(ctx, run, node, elapsed, slice);
             return;
         }
         if (result != null) {
@@ -130,23 +163,41 @@ public final class CustomNodeEval {
                 o[i] = i < outs.length ? outs[i] : 0f;
             if (ctx.runtimeState != null) {
                 if (result.shouldClearState()) ctx.runtimeState.customStates.remove(node.id);
-                else if (result.newState() != null) ctx.runtimeState.customStates.put(node.id, result.newState());
+                else if (result.newState() != null) {
+                    if (result.newState().toString().length() <= MAX_STATE_SNBT_LENGTH)
+                        ctx.runtimeState.customStates.put(node.id, result.newState());
+                    else
+                        warnOnce(ctx, run, node, "state rejected: " + result.newState().toString().length()
+                            + " chars exceeds the " + MAX_STATE_SNBT_LENGTH + " cap");
+                }
             }
-            ladder(ctx, run, node, elapsed);
+            ladder(ctx, run, node, elapsed, slice);
             return;
         }
         // null 结果 = 本次空转：输出保持，仍计墙钟（超份额照常进梯子）。
         // null result = idle: outputs hold, the wall clock still feeds the ladder.
-        ladder(ctx, run, node, elapsed);
+        ladder(ctx, run, node, elapsed, slice);
     }
 
     /**
-     * 处置梯子记账（公平规则同 K6：仅本节点超自身份额计连续超时）。
+     * 处置梯子记账（公平规则同 K6：仅本节点超自身份额计连续超时）。栅栏破约快车道：
+     * 单次调用吃满<b>整池</b>预算（≥ budgetNs）= 不可能的时间片公民 —— 跳过 20 tick
+     * 宽限立即熔断（审查批 (a)1 的牙：主线程无法在飞抢占，事后处置必须按比例）。
      * Ladder accounting (K6's fair rule: only the node's own over-slice counts
-     * consecutively).
+     * consecutively). Fence-breach fast lane: a single call that consumed the <b>whole
+     * pool</b> budget (≥ budgetNs) can never be a slice-respecting citizen — fuse
+     * immediately, skipping the 20-tick grace (the teeth behind review (a)1: main-thread
+     * calls cannot be preempted in flight, so the post-hoc response must be proportionate).
      */
-    private static void ladder(EvalContext ctx, CustomNodeRunState run, GraphNode node, long elapsed) {
-        long slice = CustomNodeCompute.sliceNs();
+    private static void ladder(EvalContext ctx, CustomNodeRunState run, GraphNode node, long elapsed, long slice) {
+        if (run.fused) return; // 已熔断不再重复记账 / already fused — no re-accounting
+        if (elapsed >= CustomNodeCompute.budgetNs() && CustomNodeCompute.budgetNs() > 0) {
+            run.fused = true;
+            warnOnce(ctx, run, node, "FUSED on a fence breach: one call consumed the whole pool budget ("
+                + elapsed / 1_000_000L + "ms); outputs hold lastGood, a graph recompile or a provider "
+                + "re-register lifts this");
+            return;
+        }
         if (elapsed <= slice) {
             run.overSliceStreak = 0;
             return;

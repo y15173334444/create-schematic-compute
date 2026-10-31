@@ -42,7 +42,7 @@ public interface CustomNodeContext {
      *  <p>bool param (schema BOOL control; false when absent; a stored value &gt; 0.5 reads true).</p> */
     boolean boolParam(String key);
 
-    /** 物品参数（schema ITEM 控件；键缺席或未设置 = {@code null} —— 头eless/降级环境
+    /** 物品参数（schema ITEM 控件；键缺席或未设置 = {@code null} —— headless/降级环境
      *  同样返回 null，提供方自行降级）。
      *  <p>item param (schema ITEM control; {@code null} when absent/unset — also null in
      *  headless/degraded environments; providers degrade themselves).</p> */
@@ -57,12 +57,18 @@ public interface CustomNodeContext {
      * <b>可恢复契约的检查点</b>（D2a）：本次调用已耗尽本节点的时间片 —— 提供方应在
      * 最近的循环边界收尾，把进度打包进 {@link CustomNodeResult#suspended(CompoundTag)}
      * 返回。真实等待重节点（长解算/巨遍历）必须实现本检查点；忽略它的提供方由
-     * 处置梯子处置（连续超份额 → 降频 → 熔断）。
+     * 处置梯子事后处置（连续超份额 → 降频 → 熔断；单次调用吃满整池预算 = 立即熔断）。
+     * <b>边界 honesty</b>：回调在服务端主线程执行，永不返回的单次调用无法被抢占 ——
+     * 那属信任模型失效级（与任何模组的坏 tick 处理器同级），非本检查点的防护范围。
      * <p>The resumable contract's checkpoint (D2a): this call has exhausted the node's
      * time slice — wrap up at the nearest loop boundary and return
      * {@link CustomNodeResult#suspended(CompoundTag)} with the packed progress. Real
      * heavy work (long solves / huge traversals) must implement this; providers that
-     * ignore it are handled by the warn → throttle → fuse ladder.</p>
+     * ignore it are handled post-hoc by the warn → throttle → fuse ladder (a call that
+     * consumes the whole pool budget fuses immediately). <b>Honest boundary</b>: the
+     * callback runs on the server main thread — a single call that never returns cannot
+     * be preempted; that is a trust-model failure (the same class as any mod's broken
+     * tick handler), outside this checkpoint's protection.</p>
      */
     boolean sliceExpired();
 

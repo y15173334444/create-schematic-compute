@@ -206,6 +206,36 @@ class CustomNodeFoundationTest {
 
     private static final UUID ACTOR = UUID.nameUUIDFromBytes("custom-foundation".getBytes());
 
+    // ── 准入门：customNodeId 协议卫生（审查批 (b)2）─────────────────────
+
+    /** 29 参 canonical ADD_NODE/SET_PARAM op 构造助手（customNodeId 显式位）。
+     *  Helper for the 29-arg canonical op with the customNodeId slot explicit. */
+    private static GraphOp fullOp(OpType type, NodeType nt, String cid) {
+        return new GraphOp(type, BlockPos.ZERO, -1, 1, 0, nt, 0f, 0f,
+            0, 0, 0, 0, 0, 0f, null, 0, 0, 0, 0, null, 0, 0, 0,
+            null, 0L, ACTOR, 0, null, cid);
+    }
+
+    @Test
+    @DisplayName("准入门：CUSTOM 须携已注册 id；未注册/缺 id 拒；非 CUSTOM 建点携 id 拒；非建点 op 携 id 拒")
+    void admissionCustomIdHygiene() {
+        CustomNodeRegistry.register(spec("counter", 1, 1, 1));
+        var customAllowance = NodeAllowance.of(java.util.EnumSet.of(NodeCategory.CUSTOM));
+
+        assertNull(NodeAdmission.violation(fullOp(OpType.ADD_NODE, NodeType.CUSTOM, MODID + ":counter"),
+            customAllowance, java.util.Set.of(), new NodeGraph()), "已注册 id + CUSTOM 名单 = 放行");
+        assertNotNull(NodeAdmission.violation(fullOp(OpType.ADD_NODE, NodeType.CUSTOM, "ghost:missing"),
+            customAllowance, java.util.Set.of(), new NodeGraph()), "未注册 id fail-closed");
+        assertNotNull(NodeAdmission.violation(fullOp(OpType.ADD_NODE, NodeType.CUSTOM, null),
+            customAllowance, java.util.Set.of(), new NodeGraph()), "CUSTOM 缺 id 拒");
+        assertNotNull(NodeAdmission.violation(fullOp(OpType.ADD_NODE, NodeType.CONST, MODID + ":counter"),
+            NodeAllowance.of(java.util.EnumSet.of(NodeCategory.VALUES)), java.util.Set.of(), new NodeGraph()),
+            "非 CUSTOM 建点携 customNodeId 拒");
+        assertNotNull(NodeAdmission.violation(fullOp(OpType.SET_PARAM, null, MODID + ":counter"),
+            customAllowance, java.util.Set.of(), new NodeGraph()),
+            "非建点 op 携 customNodeId 拒（字段走私不限于建点）");
+    }
+
     // ── 线上编码：customNodeId 字段镜像 ────────────────────────────────
 
     @Test

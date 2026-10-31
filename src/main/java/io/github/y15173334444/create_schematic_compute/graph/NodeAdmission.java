@@ -90,9 +90,34 @@ public final class NodeAdmission {
      */
     public static String violation(GraphOp op, NodeAllowance allowance,
                                    Set<NodeType> loadTimeTypes, NodeGraph targetGraph) {
+        // customNodeId 协议卫生（公开 API 波 1 批 B 审查 (b)2）：该字段只允许与
+        // CUSTOM 哨兵同现 —— 其余 op 携带即拒（合法客户端从不发出）。先于「仅审建点」
+        // 闸门：字段走私不限于建点 op。
+        // customNodeId wire hygiene (public-API wave 1 batch B review (b)2): the field may
+        // only ride the CUSTOM sentinel — its presence on any other op is refused (legit
+        // clients never send it). Ahead of the add-only gate: field smuggling is not
+        // limited to node-creating ops.
+        boolean hasCustomId = op.customNodeId() != null && !op.customNodeId().isEmpty();
+        if (hasCustomId && op.type() != OpType.ADD_NODE && op.type() != OpType.ADD_NODE_REQUEST)
+            return "customNodeId on op " + op.type();
         if (op.type() != OpType.ADD_NODE && op.type() != OpType.ADD_NODE_REQUEST) return null;
         NodeType t = op.nodeType();
         if (t == null) return "nodeType=unknown";
+        // CUSTOM 哨兵必须携带已注册 id（fail-closed）：未注册 id 即便靠装载普查混过
+        // 名单关，也只会在执行器落地无人认领的占位壳 + 垃圾 cid 进档 —— 在门上拒。
+        // The CUSTOM sentinel must carry a registered id (fail-closed): an unregistered id
+        // would slip past the roster via the load census and land an unclaimed placeholder
+        // shell plus a junk cid key in the save — refused at the gate.
+        if (t == NodeType.CUSTOM) {
+            if (!hasCustomId) return "customNodeId absent on CUSTOM";
+            if (!CustomNodeRegistry.isRegistered(op.customNodeId()))
+                return "customNodeId=" + op.customNodeId() + " not registered";
+        } else if (hasCustomId) {
+            // 建点 op 上非 CUSTOM 类型携带 customNodeId 同样拒（id 只属于哨兵）。
+            // A customNodeId on a non-CUSTOM node-creating op is refused too (the id
+            // belongs to the sentinel alone).
+            return "customNodeId on non-CUSTOM nodeType " + t.id;
+        }
         boolean admitted = (allowance != null && allowance.allows(t))
             || (loadTimeTypes != null && loadTimeTypes.contains(t));
         if (!admitted) return "nodeType=" + t.id + " not admitted";

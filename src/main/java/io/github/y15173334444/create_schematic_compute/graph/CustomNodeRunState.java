@@ -29,10 +29,17 @@ final class CustomNodeRunState {
      *  Completed throttle cycles (≥ CustomNodeEval.FUSE_CYCLES → fuse). */
     int throttleCycles;
 
-    /** 熔断：不再调用提供方，输出保持 lastGood；图重编译（节点重建）或提供方重注册解除。
+    /** 熔断：不再调用提供方，输出保持 lastGood；图重编译（节点重建 = 新运行态）或
+     *  提供方重注册（注册表世代号变化 → CustomNodeEval 重置运行态）解除。
      *  Fused: the provider is never called, outputs hold lastGood; lifted by a graph
-     *  recompile (node rebuild) or a provider re-register. */
+     *  recompile (a rebuilt node = a fresh run state) or a provider re-register (the
+     *  registry generation moves → CustomNodeEval resets the run state). */
     boolean fused;
+
+    /** 创建/上次重置时的注册表世代号（不匹配 = 提供方已变 → 整体重置，审查批 (c)6）。
+     *  The registry generation at creation/last reset (a mismatch = the provider changed
+     *  → reset wholesale, review (c)6). */
+    long providerGeneration;
 
     /** 上次告警的 game tick（告警节流去重用）。/ the game tick of the last warning (throttled logging). */
     long lastWarnTick;

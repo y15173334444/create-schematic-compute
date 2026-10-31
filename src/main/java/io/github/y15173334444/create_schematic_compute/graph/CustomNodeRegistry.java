@@ -44,6 +44,14 @@ public final class CustomNodeRegistry {
     /** modid → 该提供方注册的全部 id（提供方在线校验与卸载清理的底账）/ modid → ids owned by that provider (provider-online checks and unload cleanup). */
     private static final Map<String, Set<String>> BY_PROVIDER = new ConcurrentHashMap<>();
 
+    /** 注册表世代号：每次 register/unregister 递增 —— 自定义节点运行态（处置梯子的
+     *  熔断/降频）以它检测「提供方已变」并在下一 tick 整体重置（审查批 (c)6：
+     *  「提供方重注册解除熔断」的实现路径）。
+     *  Registry generation: bumped on every register/unregister — custom-node run states
+     *  watch it to detect "the provider changed" and reset wholesale next tick (review
+     *  (c)6: the implementation path behind "a provider re-register lifts a fuse"). */
+    private static volatile long generation = 0;
+
     /** 注册自定义节点 schema；id 重复抛异常（与 NodeType.BY_ID 同款启动即炸纪律）。
      *  <p>Register a custom-node schema; a duplicate id throws (same fail-fast discipline
      *  as NodeType.BY_ID's static block).</p> */
@@ -63,12 +71,18 @@ public final class CustomNodeRegistry {
         String modid = spec.id().substring(0, spec.id().indexOf(':'));
         BY_PROVIDER.computeIfAbsent(modid, k -> ConcurrentHashMap.newKeySet()).add(spec.id());
         if (behavior != null) BEHAVIORS.put(spec.id(), behavior);
+        generation++;
     }
 
     /** 按 id 查求值行为；未注册返回 null（调用方降级空转）。/ Look up the evaluation
      *  behavior by id; null when unregistered (callers idle). */
     public static CustomNodeBehavior behavior(String customId) {
         return customId == null ? null : BEHAVIORS.get(customId);
+    }
+
+    /** 当前注册表世代号（运行态重置检测用）。/ the current registry generation (for run-state reset detection). */
+    public static long providerGeneration() {
+        return generation;
     }
 
     /** 按 id 查 schema；未注册（含提供方缺席）返回 null —— 调用方降级占位。
@@ -90,14 +104,20 @@ public final class CustomNodeRegistry {
     }
 
     /** 注销某提供方的全部节点（开发热替换/测试隔离用；生产生命周期不调用）。
+     *  包级可见 —— 提供方只见 api.CustomNodes.register，无生产注销路径（审查批 (b)4
+     *  护栏）；世代号随注销递增，在场的运行态（熔断等）下一 tick 全量重置。
      *  <p>Unregister everything owned by a provider (dev hot-swap / test isolation only;
-     *  never called in the production lifecycle).</p> */
-    public static void unregisterProvider(String modid) {
+     *  never called in the production lifecycle). Package-private — providers only ever
+     *  see api.CustomNodes.register, so there is no production unregister path (review
+     *  (b)4 guardrail); the generation bumps so live run states (fuses etc.) reset
+     *  wholesale next tick.</p> */
+    static void unregisterProvider(String modid) {
         Set<String> ids = BY_PROVIDER.remove(modid);
         if (ids != null) {
             ids.forEach(BY_ID::remove);
             ids.forEach(BEHAVIORS::remove);
         }
+        generation++;
     }
 
     /** 清空注册表（仅测试隔离用）/ clear everything (test isolation only). */
@@ -105,5 +125,6 @@ public final class CustomNodeRegistry {
         BY_ID.clear();
         BEHAVIORS.clear();
         BY_PROVIDER.clear();
+        generation++;
     }
 }
