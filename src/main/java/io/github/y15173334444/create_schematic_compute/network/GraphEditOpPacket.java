@@ -49,6 +49,17 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
      *  plain JUnit too. The log name is this class's FQCN. */
     private static final Logger LOGGER = LoggerFactory.getLogger(GraphEditOpPacket.class);
 
+    /** TEXT 帽违规告警的墙钟节流戳（条目 17②）：60s 一条 WARN 提示「有人在超帽」——
+     *  P2-11/K21 纪律下逐包日志会刷盘，逐包细节走既有 DEBUG 通路；仅日志语义，
+     *  无行为状态（测试无复位义务）。
+     *  Wall-clock throttle stamp for the TEXT-cap violation warning (entry 17②): one
+     *  WARN per 60s signals "someone is over the cap" — under the P2-11/K21 discipline
+     *  a warn per packet floods the log, while per-attempt detail rides the existing
+     *  DEBUG path. Logging-only, no behavioural state (tests owe no reset). */
+    private static volatile long lastTextCapWarnMs = Long.MIN_VALUE;
+    /** @see #lastTextCapWarnMs / 见 {@link #lastTextCapWarnMs}。 */
+    private static final long TEXT_CAP_WARN_INTERVAL_MS = 60_000;
+
     /**
      * 常规构造（op 类型已知）：未知序号哨兵 = -1。
      * <p>Convenience constructor for ops whose type resolved normally; the
@@ -391,6 +402,19 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
             // per type); the matching executor-side caps stay as defense in depth.
             String boundsViolation = opBoundsViolation(pkt.op());
             if (boundsViolation != null) {
+                // 条目 17②：TEXT 帽违规在 DEBUG 之上加一条 60s 节流的 WARN——正常玩家
+                // 打不出 32KB 文本，触达即「异常流量」信号（节流防刷盘）。
+                // Entry 17②: a TEXT-cap violation adds a 60s-throttled WARN above the
+                // DEBUG trail — a normal player cannot type 32KB of text, so reaching this
+                // is an abnormal-traffic signal (throttled so it cannot flood the log).
+                if (boundsViolation.startsWith("textParamLength=")) {
+                    long now = System.currentTimeMillis();
+                    if (now - lastTextCapWarnMs >= TEXT_CAP_WARN_INTERVAL_MS) {
+                        lastTextCapWarnMs = now;
+                        LOGGER.warn("[GraphEditOp] TEXT cap violated ({}) op={} from {}",
+                            boundsViolation, pos, sp.getName().getString());
+                    }
+                }
                 LOGGER.debug(
                     "[GraphEditOp] rejected ({}: {}) op={} from {}", boundsViolation, pos,
                     pkt.op.type(), sp.getName().getString());
@@ -491,6 +515,19 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
                 // paramIndex carries the frame index (see GraphOp.setImagePixels)
                 if (op.paramIndex() < 0 || op.paramIndex() > io.github.y15173334444.create_schematic_compute.graph.OpExecutor.MAX_SEQUENCE_FRAMES)
                     return "frameIndex=" + op.paramIndex();
+            }
+            case SET_CUSTOM_TEXT -> {
+                // 条目 17②（批 D）：单条 TEXT 超 per-control 帽 = REJECT（客户端回滚），
+                // 不再任由线缆 readUtf 静默截断出「写进去了但被剪」的错文本。常量同源
+                // api.CustomNodeType.MAX_TEXT_PARAM_LENGTH（执行器纵深防御同值）。
+                // Entry 17② (batch D): a TEXT over the per-control cap is REJECTed (the
+                // client rolls back) instead of relying on the wire readUtf's silent
+                // truncation producing "written but clipped" text. The constant is
+                // api.CustomNodeType.MAX_TEXT_PARAM_LENGTH (the executor's defense in
+                // depth references the same value).
+                if (op.stringValue() != null
+                    && op.stringValue().length() > io.github.y15173334444.create_schematic_compute.api.CustomNodeType.MAX_TEXT_PARAM_LENGTH)
+                    return "textParamLength=" + op.stringValue().length();
             }
             case SET_CTRL_POINTS -> {
                 // 点数上限在 parseCtrlPoints 内也钳（返回 null → 执行器跳过）；

@@ -60,6 +60,18 @@ public record CustomNodeType(
      *  any reasonable node shape. */
     public static final int MAX_SCHEMA_PARAMS = 32;
 
+    /** 单个 TEXT 控件的文本长度帽（批 D，条目 17②）——与线缆 readUtf 的 32767 全局帽
+     *  同量级，但在包层预检里显式执行并给出 REJECT 回执（客户端可回滚），不再依赖
+     *  线缆层静默截断；执行器同源引用作纵深防御。与求值状态 blob 的 32KB 帽
+     *  （graph.CustomNodeEval.MAX_STATE_SNBT_LENGTH）同批 B 纪律。
+     *  Per-control TEXT length cap (batch D, entry 17②) — the same order as the wire
+     *  readUtf global 32767 cap, but enforced explicitly at the packet pre-check with a
+     *  REJECT receipt (the client can roll back) instead of relying on silent wire
+     *  truncation; the executor references the same constant as defense in depth. Same
+     *  batch-B discipline as the evaluation state-blob's 32KB cap
+     *  (graph.CustomNodeEval.MAX_STATE_SNBT_LENGTH). */
+    public static final int MAX_TEXT_PARAM_LENGTH = 32768;
+
     public CustomNodeType {
         if (id == null || !id.matches("[a-z0-9_.-]+:[a-z0-9_/.-]+"))
             throw new IllegalArgumentException("CustomNodeType id must be 'modid:node_id' (lowercase): " + id);

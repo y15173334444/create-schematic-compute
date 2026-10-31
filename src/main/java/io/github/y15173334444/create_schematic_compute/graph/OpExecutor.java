@@ -35,6 +35,20 @@ public final class OpExecutor {
      *  index, so one op claiming 2³¹-1 allocated a tens-of-GB array.</p> */
     public static final int HOTBAR_SLOTS = 9;
 
+    /** 单节点全部 TEXT 控件的文本总量帽（批 D，条目 17②）。包层 per-control 帽
+     *  （api.CustomNodeType.MAX_TEXT_PARAM_LENGTH）只限单条；32 控件 × 32KB 按节点
+     *  聚合无界才是条目记录的真实暴露面——比照批 B 状态 blob「32KB/节点」纪律，
+     *  聚合超帽拒收（不写入不 bump；包层预检看不到节点现有文本，聚合裁定只能住
+     *  执行器，客户端超帽表现为静默不生效——与 K15 纵深防御同口径）。
+     *  <p>Per-node total TEXT cap across every TEXT control (batch D, entry 17②). The
+     *  packet layer's per-control cap bounds a single text only; 32 controls × 32KB
+     *  aggregated per node unbounded is the exposure the entry records — mirroring the
+     *  batch-B state-blob "32KB per node" discipline, an aggregate over the cap is
+     *  refused (no write, no bump; the packet pre-check cannot see the node's existing
+     *  texts, so the aggregate ruling can only live in the executor — an over-cap client
+     *  write silently does not land, the K15 defense-in-depth shape).</p> */
+    public static final int MAX_TEXT_TOTAL_PER_NODE = 32768;
+
     /** IMAGE_SEQUENCE 帧列表扩容上限。K15 上界：帧仅由用户在像素编辑器手动逐帧添加
      *  （PixelEditorKernel/PixelEditorFrameStrip 无硬上限，实际动画为个位数到几十帧），
      *  64 已远超正常用量；原实现的 {@code while (size <= fi) add(blank)} 按声明索引无界
@@ -560,9 +574,27 @@ public final class OpExecutor {
                 if (n != null && n.type == NodeType.CUSTOM) {
                     int slot = customParamSlot(n, op.paramIndex(), CustomNodeType.CustomParam.ParamKind.TEXT);
                     if (slot >= 0) {
-                        if (n.customTextParams == null) n.customTextParams = new java.util.HashMap<>();
+                        String next = op.stringValue() != null ? op.stringValue() : "";
+                        // 纵深防御 ①（K15 同款）：per-control 单条帽——包层预检已按同源常量
+                        // REJECT，此处再拦（直连执行器的路径绕不过线缆帽时兜底）。
+                        // Defense in depth ① (the K15 shape): the per-control cap — the
+                        // packet pre-check already REJECTs on the same-source constant; this
+                        // re-checks (a backstop for callers reaching the executor directly).
                         String key = CustomNodeRegistry.get(n.customId).params().get(slot).key();
-                        n.customTextParams.put(key, op.stringValue() != null ? op.stringValue() : "");
+                        if (next.length() > CustomNodeType.MAX_TEXT_PARAM_LENGTH) yield n;
+                        // 纵深防御 ②：per-node 聚合帽（MAX_TEXT_TOTAL_PER_NODE，替换记账：
+                        // 现有总量 − 旧文本 + 新文本）。超帽拒收：不写入、不 bump。
+                        // Defense in depth ②: the per-node aggregate cap
+                        // (MAX_TEXT_TOTAL_PER_NODE, replace-accounting: existing total −
+                        // old text + new text). Over the cap: refused — no write, no bump.
+                        int total = 0;
+                        if (n.customTextParams != null)
+                            for (var v : n.customTextParams.values()) total += v.length();
+                        int oldLen = n.customTextParams != null && n.customTextParams.containsKey(key)
+                            ? n.customTextParams.get(key).length() : 0;
+                        if (total - oldLen + next.length() > MAX_TEXT_TOTAL_PER_NODE) yield n;
+                        if (n.customTextParams == null) n.customTextParams = new java.util.HashMap<>();
+                        n.customTextParams.put(key, next);
                         graph.bumpGeneration();
                     }
                 }
