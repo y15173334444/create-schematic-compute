@@ -2,7 +2,7 @@
 > 更新日期 / Updated：2026-10-31
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 共 17 项（✅ 已实施 9 项〔6/8/9/10/11/12/13/14/16〕；已拍板待实施 1 项〔15 公开 API〕；待办 7 项〔其中条目 1 待立项、条目 17 随批 D 承接〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 共 17 项（✅ 已实施 10 项〔6/8/9/10/11/12/13/14/16/17〕；已拍板待实施 1 项〔15 公开 API，波 1 批 D 已落地、剩 E 收尾〕；待办 6 项〔其中条目 1 待立项〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -30,7 +30,7 @@
 | 13 | validate 双份 parseScript（同一脚本解析两遍） | `FormulaValidator.validate` 内部完整重跑 `parseScript`，校验路径重复解析 | 去重复用解析产物，单独立批（行为批口径） | ✅ 已实施（2026-10-31，1044 绿；validate 增复用预解析产物重载，三调用点接线，每次击键两次解析降为一次） |
 | 14 | 显示器/HUD 每帧分配（图像墙 GC 抖动） | 3D 每像素 quad 无缓存、HUD 每不透明像素 `new float[8]`、恒渲染不进视锥剔除——图像墙场景顶点与分配线性叠加（复审 P1-4） | 只修分配（3D 按图代际缓存 mesh + HUD 像素四边形数组复用），**不碰恒渲染语义** | ✅ 已实施（2026-10-31，`d9c745a`，1044 绿；mesh 代际缓存 + 像素版本钩子 + HUD 复用缓冲，恒渲染语义原样） |
 | 15 | 1.3.0 公开 API 暴露面（外部模组高精度联动） | 对外联动只有红石兜底 0–15 与动力网邻接两条精路；进程内总线与一批 public static 设施"恰好可达"但无契约 | **两大件**：自定义节点（完全自定义求值 + 可恢复契约与独立预算池 + 名单制准入）+ 宿主套件；节点直连提供者方块，外部频道层砍掉；排期 = 先清 4 小批 → P2-7 并入节点波 → 宿主套件波 | 🔶 待办（**2026-10-31 拍板落定 D1–D8**，决策记录见探索稿 §8，实施按探索稿 §9 波次） |
-| 17 | 公开 API 批 D 承接：ITEM 编辑 UI 与 SET_CUSTOM_TEXT 文本帽 | ITEM 控件存储/op/K15 全通但无点击设置 UI；TEXT 写入服务端无显式帽（wire 32KB 全局帽在，但 32 控件×32KB 按节点聚合 + 撤销快照携带不受限） | 批 D：ITEM 编辑 UI 走 REDSTONE 槽位同款交互；TEXT 帽比照批 B blob 32KB 纪律（执行器拒收+节流告警） | 🔶 待办（2026-10-31 批 C 审查登记，随批 D 承接） |
+| 17 | 公开 API 批 D 承接：ITEM 编辑 UI 与 SET_CUSTOM_TEXT 文本帽 | ITEM 控件存储/op/K15 全通但无点击设置 UI；TEXT 写入服务端无显式帽（wire 32KB 全局帽在，但 32 控件×32KB 按节点聚合 + 撤销快照携带不受限） | 批 D：ITEM 编辑 UI 走 REDSTONE 槽位同款交互；TEXT 帽比照批 B blob 32KB 纪律（执行器拒收+节流告警） | ✅ 已实施（2026-11-01 批 D：`d42762a`+`cba36bf`，1108 绿） |
 | 16 | ADD_NODE 快照恢复路径不校验内容（K15 钳制可被绕过） | 撤销恢复的 NBT 快照由客户端手工构造且无对账——改包客户端可借合法类型 + 手工快照绕过 op 级钳制 | 恢复路径补同款钳制 + 快照类型与 op.nodeType 一致（2026-10-31 拍板 = 方向①内容卫生 + 深度预扫描） | ✅ 已实施（2026-10-31，1055 绿；三道门 + 常量同源，11 锚 AddNodeSnapshotSanitizeTest；②opLog 对账经勘察否定，见条目实施记录） |
 
 ---
@@ -647,6 +647,26 @@ stringValue=NBT 快照，服务端从快照恢复完整节点数据。快照由�
 
 ✅ 已实施（2026-10-31，提交 `60ded8d`，1055 绿）。
 
+**拍板记录**：处置方案 = **修复方向①（executor 侧内容卫生）+ 深度预扫描**（2026-10-31 本
+会话拍板）。方向②（opLog 对账）经实施前勘察**否定**，勘误存档防复发：opLog（P2-10b，200
+条 FIFO、零读取方）里的 REMOVE_NODE 记录**不含快照**（快照只存在于客户端撤销时重发的
+ADD_NODE 上），「对得上」只能比 targetNodeId 等弱字段——改包客户端先真删一个自己刚建的
+节点（opLog 合法记账）再拿伪造快照撤销它，对账照样通过，**②按原文写法是无效防线**；要真
+防住必须升级为「服务端在 REMOVE_NODE 时自存权威快照」（协议重做批：每条删除账本内存翻倍、
+撤销深度跨端契约、opLog 内存态重启清空 → 跨会话撤销报废），成本与收益严重倒挂，不采。
+
+**落地内容**（`OpExecutor` ADD_NODE case 自审三道门，任一门不过即跳过恢复留空壳，与 NBT
+解析失败同口径）：① NBT 深度预扫描 `snapshotNbtDepthExceeds`（引号感知——字符串值内的
+花括号是内容不是结构，误计会错杀含字面花括号的合法注释/公式快照；上限
+`MAX_SNAPSHOT_DEPTH=64`，防 32KB 深链直达 TagParser 打出 catch (Exception) 接不住的
+StackOverflowError）；② 类型一致门（快照必须含 `type` 键且与 op.nodeType 一致——
+GraphNode.save 必写 type，合法客户端零成本通过）；③ 内容钳制（控制点对 ≤
+`GraphOp.MAX_CTRL_POINTS`、帧 ≤ `MAX_SEQUENCE_FRAMES`、频段条数 ≤ 新常量
+`OpExecutor.MAX_BANDS`——线缆解码侧的字面量 64 同步收编为该常量，两侧同源防漂移）。
+顺带修：控制点恢复循环原以 dcx.length 为界直取 dcy[i]，两数组长度不对称的畸形快照会
+AIOOBE 落入外层 catch——现按对数取 min。同源结构锁与三道门行为锚 = `AddNodeSnapshotSanitizeTest`
+（11 锚：逐门行为 + 合法快照 round-trip 零损 + 解码/恢复同源锁）。
+
 ## 17. 公开 API 批 D 承接：ITEM 编辑 UI 与 SET_CUSTOM_TEXT 文本帽
 
 范围 / Scope：`client/editor`（物品槽交互）、`graph/OpExecutor`（TEXT 帽）
@@ -667,24 +687,21 @@ schema 不用 ITEM）。② TEXT 写入：服务端无显式文本帽——wire 
 
 ### 状态 / Status
 
-🔶 待办（2026-10-31 批 C 审查登记；随批 D 准入合流批一并承接）。
+✅ 已实施（2026-11-01，批 D：代码 `d42762a` + `cba36bf`，1108 绿）。
 
-**拍板记录**：处置方案 = **修复方向①（executor 侧内容卫生）+ 深度预扫描**（2026-10-31 本
-会话拍板）。方向②（opLog 对账）经实施前勘察**否定**，勘误存档防复发：opLog（P2-10b，200
-条 FIFO、零读取方）里的 REMOVE_NODE 记录**不含快照**（快照只存在于客户端撤销时重发的
-ADD_NODE 上），「对得上」只能比 targetNodeId 等弱字段——改包客户端先真删一个自己刚建的
-节点（opLog 合法记账）再拿伪造快照撤销它，对账照样通过，**②按原文写法是无效防线**；要真
-防住必须升级为「服务端在 REMOVE_NODE 时自存权威快照」（协议重做批：每条删除账本内存翻倍、
-撤销深度跨端契约、opLog 内存态重启清空 → 跨会话撤销报废），成本与收益严重倒挂，不采。
+**落地内容**：① ITEM 编辑 UI = REDSTONE 频率槽同款交互——EditPanel 每个 ITEM 控件一行
+18px 槽位（标签 + 槽框，选中高亮 ACC、物品渲染深度屏蔽同 REDSTONE 纪律），GraphEditor
+点击段选中（`freqSlotSelected` = itemParams 序位）+ 热栏弹窗赋值（既有 `SET_HOTBAR_ITEM`
+通路，服务端按批 C 落地的 CUSTOM itemParams 界校验）；三方几何账本（EditPanel 绘制 /
+点击段 / `SpatialIndex.editHeight`）同行进 `items * 18`（e26bf73 全链清点纪律）；热栏弹窗
+矩形收敛单源 `hotbarPopupRect()`（渲染与点击各算一份 = 559202d 几何漂移同族陷阱；CUSTOM
+弹窗落位走 expandedEditHeight 实测口径）。② TEXT 帽双层：包层 per-control
+`api.CustomNodeType.MAX_TEXT_PARAM_LENGTH`(32768) 走 K15 预检 REJECT（客户端回滚，不再
+依赖线缆 readUtf 静默截断出「写进去了但被剪」的错文本）+ 60s 墙钟节流 WARN（P2-11/K21
+纪律）；执行器 per-node 聚合帽 `OpExecutor.MAX_TEXT_TOTAL_PER_NODE`(32768/节点，比照批 B
+状态 blob 纪律) 替换记账拒收——聚合只能住执行器（包层预检看不到节点现有文本），超帽客户端
+写入静默不生效（K15 纵深防御同口径）。锚 = `CustomNodeEditorFaceTest` +2（⑧菜单名单同源
++ 宿主键注入链；⑨ITEM 槽三方账本 + 弹窗单源）+ `CustomNodeTextCapTest` 3 条（per-control
+边界 / 聚合替换记账 / 接线源锚）。
 
-**落地内容**（`OpExecutor` ADD_NODE case 自审三道门，任一门不过即跳过恢复留空壳，与 NBT
-解析失败同口径）：① NBT 深度预扫描 `snapshotNbtDepthExceeds`（引号感知——字符串值内的
-花括号是内容不是结构，误计会错杀含字面花括号的合法注释/公式快照；上限
-`MAX_SNAPSHOT_DEPTH=64`，防 32KB 深链直达 TagParser 打出 catch (Exception) 接不住的
-StackOverflowError）；② 类型一致门（快照必须含 `type` 键且与 op.nodeType 一致——
-GraphNode.save 必写 type，合法客户端零成本通过）；③ 内容钳制（控制点对 ≤
-`GraphOp.MAX_CTRL_POINTS`、帧 ≤ `MAX_SEQUENCE_FRAMES`、频段条数 ≤ 新常量
-`OpExecutor.MAX_BANDS`——线缆解码侧的字面量 64 同步收编为该常量，两侧同源防漂移）。
-顺带修：控制点恢复循环原以 dcx.length 为界直取 dcy[i]，两数组长度不对称的畸形快照会
-AIOOBE 落入外层 catch——现按对数取 min。同源结构锁与三道门行为锚 = `AddNodeSnapshotSanitizeTest`
-（11 锚：逐门行为 + 合法快照 round-trip 零损 + 解码/恢复同源锁）。
+
