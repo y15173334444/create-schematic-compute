@@ -592,7 +592,18 @@ public final class OpExecutor {
                             for (var v : n.customTextParams.values()) total += v.length();
                         int oldLen = n.customTextParams != null && n.customTextParams.containsKey(key)
                             ? n.customTextParams.get(key).length() : 0;
-                        if (total - oldLen + next.length() > MAX_TEXT_TOTAL_PER_NODE) yield n;
+                        // 逃生门（条目 18①，批 E）：「降总也放行」——新总量不增（≤ 旧总量）
+                        // 的替换写放行。否则 legacy 多键超帽节点（总量已在帽上）的任何
+                        // 单键编辑都被锁死：新值必须 ≤ 旧值才可能过帽，等长/变长编辑全拒
+                        // → TEXT 永久改不动。增长仍一律拒（帽不被绕过）。
+                        // Escape hatch (entry 18①, batch E): a replace that does not grow
+                        // the total (newTotal ≤ old total) always lands. Without it a
+                        // legacy multi-key over-cap node (total already at the cap) is
+                        // locked: any single-key edit must shrink first, so equal/longer
+                        // edits refuse forever — the node's TEXT becomes permanently
+                        // uneditable. Growing writes are still refused (the cap holds).
+                        int newTotal = total - oldLen + next.length();
+                        if (newTotal > MAX_TEXT_TOTAL_PER_NODE && newTotal > total) yield n;
                         if (n.customTextParams == null) n.customTextParams = new java.util.HashMap<>();
                         n.customTextParams.put(key, next);
                         graph.bumpGeneration();
