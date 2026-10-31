@@ -285,12 +285,12 @@ public final class CustomNodeEval {
         }
 
         @Override public String textParam(String key) {
-            // TEXT 控件的存储面（节点 NBT 文本表 + 编辑器控件 + op 路径）随批 C 编辑器面
-            // 落地 —— 本批恒空串（诚实的缺席，不伪造存储位置）。
-            // TEXT control storage (a per-node NBT text table + editor control + op path)
-            // lands with the editor batch (C) — always "" here (an honest absence, never a
-            // fabricated storage location).
-            return "";
+            // TEXT 控件存储面（批 C）：GraphNode.customTextParams（编辑器经 SET_CUSTOM_TEXT
+            // op 写入、随节点 NBT "ctp" 键持久化）；键缺席 = 空串。
+            // TEXT control storage (batch C): GraphNode.customTextParams (edited via the
+            // SET_CUSTOM_TEXT op, persisted under the node NBT "ctp" key); absent key = "".
+            if (key == null || node.customTextParams == null) return "";
+            return node.customTextParams.getOrDefault(key, "");
         }
 
         @Override public boolean boolParam(String key) {
@@ -298,9 +298,28 @@ public final class CustomNodeEval {
         }
 
         @Override public net.minecraft.world.item.ItemStack itemParam(String key) {
-            // ITEM 控件的存储面随编辑器批（批 C）接线 —— 本批恒 null（headless 安全）。
-            // ITEM control storage lands with the editor batch (C) — always null here (headless-safe).
-            return null;
+            // ITEM 控件存储面（批 C）：schema ITEM 序位 → itemParams 槽位（构造期按 schema
+            // 预分配、SET_HOTBAR_ITEM 写入）；槽位空 = EMPTY，序位无效 = null。
+            // ITEM control storage (batch C): the schema ITEM slot maps to an itemParams
+            // slot (pre-sized from the schema at construction, written by SET_HOTBAR_ITEM);
+            // an empty slot = EMPTY, an invalid slot = null.
+            int idx = paramIndex(key);
+            if (idx < 0) return null;
+            int itemSlot = itemSlotIndex(key);
+            if (itemSlot < 0 || node.itemParams == null || itemSlot >= node.itemParams.length) return null;
+            return node.itemParams[itemSlot];
+        }
+
+        /** ITEM 控件在 itemParams 里的槽位序（schema 中第几个 ITEM 控件）。
+         *  The slot index of an ITEM control within itemParams (which ITEM control it is
+         *  in the schema's declaration order). */
+        private int itemSlotIndex(String key) {
+            int itemIdx = -1;
+            var params = spec.params();
+            for (int i = 0; i <= paramIndex(key); i++) {
+                if (params.get(i).kind() == CustomNodeType.CustomParam.ParamKind.ITEM) itemIdx++;
+            }
+            return itemIdx;
         }
 
         @Override public CompoundTag state() { return state == null ? new CompoundTag() : state.copy(); }

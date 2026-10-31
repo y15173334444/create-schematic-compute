@@ -33,6 +33,14 @@ public class GraphNode {
      *  The custom node's evaluation run-state (transient, lazy; the escalation ladder's
      *  accounting — see {@link CustomNodeRunState}). Never persisted (runtime safety state). */
     public transient CustomNodeRunState customRun;
+    /** 自定义节点 TEXT 参数存储（key → 文本；公开 API 波 1 批 C）。随节点 NBT 持久化
+     *  （键 "ctp"）；懒创建。TEXT 控件的编辑经 SET_CUSTOM_TEXT op（执行器按 schema
+     *  校验 kind==TEXT），求值回调经 {@code api.CustomNodeContext#textParam} 读取。
+     *  Custom-node TEXT param storage (key → text; wave 1 batch C). Persisted with the
+     *  node NBT (key "ctp"); created lazily. Edited via the SET_CUSTOM_TEXT op (the
+     *  executor validates kind==TEXT against the schema) and read through
+     *  {@code api.CustomNodeContext#textParam}. */
+    public java.util.Map<String, String> customTextParams;
     public float x, y;
     public float[] params;           // 数值参数（常量值、kp、ki 等）/ numeric parameters (const value, kp, ki, etc.)
     public ItemStack[] itemParams;   // 物品参数（频率堆）/ item parameters (frequency stacks)
@@ -466,6 +474,14 @@ public class GraphNode {
                 return name.isEmpty() ? "in" + (i + 1) : name;
             }
         }
+        // 自定义节点：引脚标签来自 schema（FLOAT 域声明序）；schema 未解析 = 降级名。
+        // Custom nodes: pin labels come from the schema (FLOAT-domain declaration order);
+        // an unresolved schema degrades to positional names.
+        if (type == NodeType.CUSTOM) {
+            var spec = CustomNodeRegistry.get(customId);
+            if (spec != null && i < spec.inputs()) return spec.inputLabels().get(i);
+            return "in" + (i + 1);
+        }
         // 参数输入引脚：显示参数名（如 "step", "kp" 等）  /  Param input pins: show param names (e.g. "step", "kp", etc.)
         int extraBase = type == NodeType.FORMULA ? Math.max(1, Math.min(dynamicInputCount, 26)) : type.inputs;
         int paramIdx = i - extraBase;
@@ -494,6 +510,14 @@ public class GraphNode {
                 String name = outs.get(i).displayText;
                 return name.isEmpty() ? "out" + (i + 1) : name;
             }
+        }
+        // 自定义节点：输出引脚标签来自 schema；未解析 = 降级位名。
+        // Custom nodes: output pin labels come from the schema; an unresolved schema
+        // degrades to positional names.
+        if (type == NodeType.CUSTOM) {
+            var spec = CustomNodeRegistry.get(customId);
+            if (spec != null && i < spec.outputs()) return spec.outputLabels().get(i);
+            return "out" + (i + 1);
         }
         return type.outputLabel(i);
     }
@@ -535,6 +559,20 @@ public class GraphNode {
         if (type == NodeType.CUSTOM) {
             var spec = CustomNodeRegistry.get(customId);
             this.params = new float[spec != null ? spec.paramCount() : 0];
+            // ITEM 控件槽位预分配（与 REDSTONE 双槽同款先例；槽位含 ItemStack.EMPTY 时
+            // 该类型不可 headless 构造 —— 与 REDSTONE 同一禁区，测试 schema 避开 ITEM）。
+            // ITEM control slots pre-allocated (the REDSTONE two-slot precedent; a type
+            // whose slots hold ItemStack.EMPTY cannot be constructed headless — the same
+            // REDSTONE exclusion zone, test schemas avoid ITEM).
+            if (spec != null) {
+                int items = 0;
+                for (CustomNodeType.CustomParam cp : spec.params())
+                    if (cp.kind() == CustomNodeType.CustomParam.ParamKind.ITEM) items++;
+                if (items > 0) {
+                    this.itemParams = new ItemStack[items];
+                    java.util.Arrays.fill(this.itemParams, ItemStack.EMPTY);
+                }
+            }
         }
         // REDSTONE nodes always have 2 frequency slots / REDSTONE 节点始终有 2 个频率槽
         if (type == NodeType.REDSTONE_IN || type == NodeType.REDSTONE_OUT)
@@ -645,6 +683,7 @@ public class GraphNode {
         // customId rides the copy (a CUSTOM node's params size comes from the schema, so the
         // id must exist at construction; built-ins pass null, identical to the old 4-arg form).
         GraphNode n = new GraphNode(newId, type, customId, x, y);
+        if (customTextParams != null) n.customTextParams = new java.util.HashMap<>(customTextParams);
         System.arraycopy(params, 0, n.params, 0, Math.min(params.length, n.params.length));
         if (itemParams != null) n.itemParams = itemParams.clone();
         n.signalName = signalName;
@@ -693,6 +732,13 @@ public class GraphNode {
         // Custom nodes: the stable string id rides its own key (the type key keeps the closed
         // enum face "custom") — the F15 unknown-enum-type tolerance path stays unpolluted.
         if (type == NodeType.CUSTOM && customId != null) tag.putString("cid", customId);
+        // TEXT 参数存储（key → 文本；空表跳过减小存档）。/ TEXT param storage (key → text;
+        // empty maps are skipped to keep saves lean).
+        if (customTextParams != null && !customTextParams.isEmpty()) {
+            CompoundTag ctp = new CompoundTag();
+            for (var e : customTextParams.entrySet()) ctp.putString(e.getKey(), e.getValue());
+            tag.put("ctp", ctp);
+        }
         tag.putFloat("x", x);
         tag.putFloat("y", y);
         tag.putInt("pcount", params.length);
@@ -825,6 +871,11 @@ public class GraphNode {
             ItemStack[] expanded = new ItemStack[]{ItemStack.EMPTY, ItemStack.EMPTY};
             System.arraycopy(node.itemParams, 0, expanded, 0, node.itemParams.length);
             node.itemParams = expanded;
+        }
+        if (node.type == NodeType.CUSTOM && tag.contains("ctp", Tag.TAG_COMPOUND)) {
+            var ctp = tag.getCompound("ctp");
+            node.customTextParams = new java.util.HashMap<>();
+            for (var k : ctp.getAllKeys()) node.customTextParams.put(k, ctp.getString(k));
         }
         if (tag.contains("sig")) node.signalName = tag.getString("sig");
         if (tag.contains("bands")) {

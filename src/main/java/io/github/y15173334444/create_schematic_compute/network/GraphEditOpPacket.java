@@ -473,7 +473,15 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
                 // A missing itemStack (forged op with the encode flag false) = refuse: a null
                 // slot would NPE GraphNode.save's saveOptional — the authoritative server path
                 // never writes a null item.
-                if (op.hotbarSlot() < 0 || op.hotbarSlot() >= io.github.y15173334444.create_schematic_compute.graph.OpExecutor.HOTBAR_SLOTS)
+                // CUSTOM：hotbarSlot 承载 schema ITEM 控件序位——静态上界 = MAX_SCHEMA_PARAMS
+                // （精确界 = 节点实际 schema 槽位数，执行器纵深防御裁定）。
+                // CUSTOM: hotbarSlot carries the schema ITEM control slot — the static bound
+                // is MAX_SCHEMA_PARAMS (the precise bound = the node's real schema slot count,
+                // ruled by the executor as defense in depth).
+                if (op.nodeType() == io.github.y15173334444.create_schematic_compute.graph.NodeType.CUSTOM) {
+                    if (op.hotbarSlot() < 0 || op.hotbarSlot() >= io.github.y15173334444.create_schematic_compute.api.CustomNodeType.MAX_SCHEMA_PARAMS)
+                        return "customItemSlot=" + op.hotbarSlot();
+                } else if (op.hotbarSlot() < 0 || op.hotbarSlot() >= io.github.y15173334444.create_schematic_compute.graph.OpExecutor.HOTBAR_SLOTS)
                     return "hotbarSlot=" + op.hotbarSlot();
                 if (op.itemStack() == null)
                     return "itemStack=null";

@@ -50,6 +50,12 @@ public record CustomNodeType(
         public enum ParamKind { NUMBER, TEXT, BOOL, ITEM }
     }
 
+    /** 单节点参数控件数上限（编辑区面板高度与 K15 静态预检的共用上界；
+     *  32 个控件远超合理节点形态）。/ Cap on a schema's control count (shared by the
+     *  edit-panel height and K15's static pre-check; 32 controls far exceed any
+     *  reasonable node shape). */
+    public static final int MAX_SCHEMA_PARAMS = 32;
+
     public CustomNodeType {
         if (id == null || !id.matches("[a-z0-9_.-]+:[a-z0-9_/.-]+"))
             throw new IllegalArgumentException("CustomNodeType id must be 'modid:node_id' (lowercase): " + id);
@@ -62,6 +68,9 @@ public record CustomNodeType(
         for (CustomParam p : params)
             if (!seen.add(p.key()))
                 throw new IllegalArgumentException("Duplicate custom param key '" + p.key() + "' on " + id);
+        if (params.size() > MAX_SCHEMA_PARAMS)
+            throw new IllegalArgumentException("CustomNodeType " + id + " declares " + params.size()
+                + " params, over the cap " + MAX_SCHEMA_PARAMS);
     }
 
     public int inputs() { return inputLabels.size(); }

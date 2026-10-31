@@ -1,5 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
+import io.github.y15173334444.create_schematic_compute.api.CustomNodeType;
 import net.minecraft.world.item.ItemStack;
 
 /**
@@ -532,8 +533,38 @@ public final class OpExecutor {
             case TOGGLE_BOOL -> {
                 var n = graph.findNode(op.targetNodeId());
                 if (n != null && n.params.length > 0) {
-                    n.params[0] = n.params[0] > 0.5f ? 0 : 1;
+                    // CUSTOM：paramIndex 选目标 BOOL 控件（schema 校验 kind==BOOL，非 BOOL
+                    // 序位拒收）；内置类型维持 params[0] 惯例。
+                    // CUSTOM: paramIndex selects the target BOOL control (schema-validated
+                    // kind==BOOL, non-BOOL slots refused); built-ins keep the params[0] rule.
+                    int idx = 0;
+                    if (n.type == NodeType.CUSTOM) {
+                        idx = customParamSlot(n, op.paramIndex(), CustomNodeType.CustomParam.ParamKind.BOOL);
+                        if (idx < 0) yield n;
+                    }
+                    n.params[idx] = n.params[idx] > 0.5f ? 0 : 1;
                     graph.bumpGeneration();
+                }
+                yield n;
+            }
+
+            case SET_CUSTOM_TEXT -> {
+                // 公开 API 波 1 批 C：自定义节点 TEXT 参数写入（paramIndex = schema 序位，
+                // stringValue = 文本）。按 schema 校验 kind==TEXT；非 CUSTOM / 非 TEXT /
+                // 序位越界一律拒收（fail-closed，不写入不 bump）。
+                // Public-API wave 1 batch C: a custom node's TEXT param write (paramIndex =
+                // the schema slot, stringValue = the text). Schema-validated kind==TEXT;
+                // non-CUSTOM / non-TEXT / out-of-range slots are refused (fail-closed — no
+                // write, no bump).
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null && n.type == NodeType.CUSTOM) {
+                    int slot = customParamSlot(n, op.paramIndex(), CustomNodeType.CustomParam.ParamKind.TEXT);
+                    if (slot >= 0) {
+                        if (n.customTextParams == null) n.customTextParams = new java.util.HashMap<>();
+                        String key = CustomNodeRegistry.get(n.customId).params().get(slot).key();
+                        n.customTextParams.put(key, op.stringValue() != null ? op.stringValue() : "");
+                        graph.bumpGeneration();
+                    }
                 }
                 yield n;
             }
@@ -611,7 +642,15 @@ public final class OpExecutor {
                 // K15 slot cap: the hotbar is really 9 slots (0..8); beyond is refused (no
                 // expansion, no write). The server answers such ops with a REJECT receipt via
                 // the K15 pre-check in handleServer; this remains as defense in depth.
-                if (n != null && op.hotbarSlot() >= 0 && op.hotbarSlot() < HOTBAR_SLOTS) {
+                // CUSTOM：hotbarSlot 承载 schema ITEM 控件序位（构造期已按 schema 预分配
+                // itemParams，槽位界 = 实际长度；不扩容）。K15 静态预检在包层先行拦截。
+                // CUSTOM: hotbarSlot carries the schema ITEM control slot (itemParams are
+                // pre-sized from the schema at construction, so the bound is the actual
+                // length; no expansion). The K15 static pre-check intercepts at the packet
+                // layer first.
+                int slotCap = n != null && n.type == NodeType.CUSTOM
+                    ? (n.itemParams != null ? n.itemParams.length : 0) : HOTBAR_SLOTS;
+                if (n != null && op.hotbarSlot() >= 0 && op.hotbarSlot() < slotCap) {
                     // Ensure itemParams is large enough; resize if needed (handles legacy nodes and edge cases)
                     // 确保 itemParams 足够大；必要时扩容（处理旧节点和边缘情况）
                     if (n.itemParams == null) n.itemParams = new ItemStack[0];
@@ -869,6 +908,19 @@ public final class OpExecutor {
             }
         }
         return false;
+    }
+
+    /**
+     * 自定义节点的参数序位校验：paramIndex 落在 schema 界内且 kind 匹配则返回该序位，
+     * 否则 -1（调用方拒收）。schema 未解析 = -1。
+     * Validates a custom node's param slot: returns the slot when paramIndex is in range
+     * and the kind matches, otherwise -1 (callers refuse). An unresolved schema = -1.
+     */
+    private static int customParamSlot(GraphNode n, int paramIndex, CustomNodeType.CustomParam.ParamKind kind) {
+        var spec = CustomNodeRegistry.get(n.customId);
+        if (spec == null || paramIndex < 0 || paramIndex >= spec.params().size()) return -1;
+        var p = spec.params().get(paramIndex);
+        return p.kind() == kind ? paramIndex : -1;
     }
 
     private static void restoreNodeFromNbt(GraphNode node, net.minecraft.nbt.CompoundTag tag) {

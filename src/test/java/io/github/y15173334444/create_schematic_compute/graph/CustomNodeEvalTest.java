@@ -180,10 +180,15 @@ class CustomNodeEvalTest {
     @DisplayName("挂起计入独立池：yield 计数随 beginTick 轮转，slice = 预算/max(1, prev)")
     void suspensionFeedsIndependentPool() {
         Rig rig = rig(ctx -> CustomNodeResult.suspended(new CompoundTag()));
+        // 口径（审查批 (c)5）：仅超自身份额的挂起计池 —— 预算压到 100ns，任何真实调用的
+        // 墙钟都越过 slice，构成「超份额挂起」。
+        // Accounting (review (c)5): only an over-slice suspension feeds the pool — squeeze
+        // the budget to 100ns so any real call's wall clock passes the slice.
+        CustomNodeCompute.setBudgetMsSource(() -> 0.0001);
         var seat = new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
         rig.evaluator.evaluate(java.util.List.of(), java.util.Map.of(), 0.05f, seat);
         CustomNodeCompute.beginTick(); // 轮转：prev = 本 tick 挂起数
-        assertEquals(1, CustomNodeCompute.heavyYieldCountPrev(), "挂起计入独立池");
+        assertEquals(1, CustomNodeCompute.heavyYieldCountPrev(), "超份额挂起计入独立池");
         assertEquals(CustomNodeCompute.budgetNs(), CustomNodeCompute.sliceNs(), "prev=1 → slice=预算");
         CustomNodeCompute.forceHeavyYieldCountPrevForTests(4);
         assertEquals(CustomNodeCompute.budgetNs() / 4, CustomNodeCompute.sliceNs(), "prev=4 → slice=预算/4");

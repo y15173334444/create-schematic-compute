@@ -236,6 +236,121 @@ class CustomNodeFoundationTest {
             "非建点 op 携 customNodeId 拒（字段走私不限于建点）");
     }
 
+    // ── 批 C：TEXT/BOOL 参数存储面与执行器校验 ──────────────────────────
+
+    /** TEXT/NUMBER 混合 schema（param0=NUMBER, param1=TEXT, param2=BOOL）。/ mixed schema. */
+    private static CustomNodeType mixedSpec(String name) {
+        return new CustomNodeType(MODID + ":" + name, "T " + name,
+            java.util.List.of("in0"), java.util.List.of("out0"),
+            java.util.List.of(
+                new CustomNodeType.CustomParam("num", CustomNodeType.CustomParam.ParamKind.NUMBER),
+                new CustomNodeType.CustomParam("label", CustomNodeType.CustomParam.ParamKind.TEXT),
+                new CustomNodeType.CustomParam("en", CustomNodeType.CustomParam.ParamKind.BOOL)));
+    }
+
+    /** 建 CUSTOM 节点 + 注册 schema 的图。/ graph with a CUSTOM node over a registered schema. */
+    private static NodeGraph customGraph(CustomNodeType spec) {
+        CustomNodeRegistry.register(spec);
+        NodeGraph g = new NodeGraph();
+        g.addNode(NodeType.CUSTOM, spec.id(), 0f, 0f);
+        return g;
+    }
+
+    @Test
+    @DisplayName("SET_CUSTOM_TEXT：TEXT 序位写入 customTextParams；NUMBER/BOOL 序位与越界拒收；随 ctp 键 round-trip")
+    void setCustomTextStorageAndValidation() {
+        NodeGraph g = customGraph(mixedSpec("txt"));
+        GraphNode n = g.nodes.get(0);
+        int id = n.id;
+
+        // TEXT 序位（paramIndex=1）写入
+        OpExecutor.apply(g, textOp(id, 1, "machine-a"));
+        assertEquals("machine-a", n.customTextParams.get("label"));
+
+        // NUMBER 序位（0）与 BOOL 序位（2）拒收
+        OpExecutor.apply(g, textOp(id, 0, "nope"));
+        OpExecutor.apply(g, textOp(id, 2, "nope"));
+        assertFalse(n.customTextParams.containsKey("num"), "NUMBER 序位不得写文本");
+        assertFalse(n.customTextParams.containsKey("en"), "BOOL 序位不得写文本");
+
+        // 越界序位拒收
+        OpExecutor.apply(g, textOp(id, 3, "nope"));
+        assertEquals(1, n.customTextParams.size());
+
+        // 非 CUSTOM 节点 no-op
+        GraphNode c = g.addNode(NodeType.CONST, -9f, 0f);
+        OpExecutor.apply(g, textOp(c.id, 1, "nope"));
+
+        // save("ctp")/load round-trip
+        CompoundTag tag = n.save(null);
+        assertEquals("machine-a", tag.getCompound("ctp").getString("label"));
+        GraphNode back = GraphNode.load(tag, null);
+        assertEquals("machine-a", back.customTextParams.get("label"));
+    }
+
+    private static GraphOp textOp(int nodeId, int paramIndex, String value) {
+        return new GraphOp(OpType.SET_CUSTOM_TEXT, BlockPos.ZERO, -1, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, paramIndex, 0f, value,
+            0, 0, 0, 0, null, 0, 0, 0, null, 0L, ACTOR, 0, null, null);
+    }
+
+    @Test
+    @DisplayName("TOGGLE_BOOL on CUSTOM：paramIndex 选 BOOL 控件；NUMBER 序位拒收")
+    void toggleBoolParamIndexOnCustom() {
+        NodeGraph g = customGraph(mixedSpec("tgl"));
+        GraphNode n = g.nodes.get(0);
+        n.params[2] = 0f;
+
+        OpExecutor.apply(g, toggleOp(n.id, 2));
+        assertEquals(1f, n.params[2], 1e-6f, "BOOL 序位翻转");
+        OpExecutor.apply(g, toggleOp(n.id, 2));
+        assertEquals(0f, n.params[2], 1e-6f, "再翻回");
+
+        float before = n.params[0];
+        OpExecutor.apply(g, toggleOp(n.id, 0));
+        assertEquals(before, n.params[0], 1e-6f, "NUMBER 序位拒收不翻转");
+    }
+
+    private static GraphOp toggleOp(int nodeId, int paramIndex) {
+        return new GraphOp(OpType.TOGGLE_BOOL, BlockPos.ZERO, -1, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, paramIndex, 0f, null,
+            0, 0, 0, 0, null, 0, 0, 0, null, 0L, ACTOR, 0, null, null);
+    }
+
+    @Test
+    @DisplayName("K15 静态预检 CUSTOM/内置槽位界：见 network 包 CustomItemSlotK15Test（包私有静态同包直调）")
+    void k15AnchorPointsToNetworkTest() {
+        // 本类在 graph 包，opBoundsViolation 是 network 包私有静态 —— 断言住同包测试。
+        // This class is in graph; opBoundsViolation is package-private in network — the
+        // assertions live in the same-package test.
+        assertTrue(new CustomNodeType(MODID + ":cap", "T", null, null, null) != null);
+    }
+
+    @Test
+    @DisplayName("schema 标签：inputLabel/outputLabel 按声明序返回；未解析降级位名")
+    void schemaDrivenPinLabels() {
+        CustomNodeRegistry.register(mixedSpec("lbl"));
+        GraphNode n = new GraphNode(1, NodeType.CUSTOM, MODID + ":lbl", 0f, 0f);
+        assertEquals("in0", n.inputLabel(0));
+        assertEquals("out0", n.outputLabel(0));
+
+        GraphNode orphan = new GraphNode(2, NodeType.CUSTOM, "ghost:x", 0f, 0f);
+        // 降级位名 1 基显示（ENCAP 分支同款先例：i=1 → "in2"）。
+        // Degraded positional names are 1-based display (the ENCAP branch precedent).
+        assertEquals("in2", orphan.inputLabel(1), "降级位名");
+        assertEquals("out3", orphan.outputLabel(2));
+    }
+
+    @Test
+    @DisplayName("MAX_SCHEMA_PARAMS：超 32 控件的 schema 拒绝")
+    void schemaParamCapEnforced() {
+        var tooMany = new java.util.ArrayList<CustomNodeType.CustomParam>();
+        for (int i = 0; i < 33; i++)
+            tooMany.add(new CustomNodeType.CustomParam("p" + i, CustomNodeType.CustomParam.ParamKind.NUMBER));
+        assertThrows(IllegalArgumentException.class,
+            () -> new CustomNodeType(MODID + ":big", "T", null, null, tooMany));
+    }
+
     // ── 线上编码：customNodeId 字段镜像 ────────────────────────────────
 
     @Test

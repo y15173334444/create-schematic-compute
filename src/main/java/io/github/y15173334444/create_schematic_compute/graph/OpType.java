@@ -67,5 +67,14 @@ public enum OpType {
     // GATE / T_FLIPFLOP). Self-inverse: sending it again restores, so undo needs no
     // recorded old value. OpExecutor flips the params[1] mirror; the server host's
     // applyCurrentState lands the runtime trigger map.
-    TOGGLE_CUR_STATE
+    TOGGLE_CUR_STATE,
+
+    // 公开 API 波 1 批 C：自定义节点 TEXT 参数写入。paramIndex = schema 参数序位，
+    // stringValue = 文本；执行器按 schema 校验 kind==TEXT（非 TEXT 序位拒收）。
+    // 追加令：枚举尾 = 网络序尾（新值只许追加，插中间会错位所有后续 op）。
+    // Public-API wave 1 batch C: a custom node's TEXT param write. paramIndex = the
+    // schema param slot, stringValue = the text; the executor validates kind==TEXT
+    // against the schema (non-TEXT slots are refused). Append-only: the enum tail is the
+    // wire tail.
+    SET_CUSTOM_TEXT
 }
