@@ -1,5 +1,4 @@
 package io.github.y15173334444.create_schematic_compute.client.editor;
-import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 
 /**
  * 远端编辑 op 应用器（自 {@link GraphEditor} 拆分，docs/gui-decomposition-plan.md 步骤 6c）：
@@ -117,7 +116,7 @@ final class GraphRemoteApplier {
             // bounce-back guard doesn't stay latched. / 被拒 op 不会收到 ACK —— 递减待 ACK 计数。
             if (ed.host.getBlockPos() != null
                 && net.minecraft.client.Minecraft.getInstance().level != null
-                && net.minecraft.client.Minecraft.getInstance().level.getBlockEntity(ed.host.getBlockPos()) instanceof GraphBlockEntity gbe) {
+                && net.minecraft.client.Minecraft.getInstance().level.getBlockEntity(ed.host.getBlockPos()) instanceof EditStateView gbe) {
                 gbe.setPendingLocalOps(Math.max(0, gbe.getPendingLocalOps() - 1));
             }
             return;

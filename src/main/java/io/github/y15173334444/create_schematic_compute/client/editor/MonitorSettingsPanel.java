@@ -13,7 +13,7 @@ import io.github.y15173334444.create_schematic_compute.client.EditorTheme;
 
 import static io.github.y15173334444.create_schematic_compute.client.GeometryConstants.MONITOR_SETTINGS_PANEL_W;
 import static io.github.y15173334444.create_schematic_compute.client.editor.MonitorDisplayEditor.ff2;
-import io.github.y15173334444.create_schematic_compute.blocks.MonitorBlockEntity;
+import io.github.y15173334444.create_schematic_compute.graph.MonitorBeView;
 
 /**
  * 全息显示器「显示编辑」GUI 的设置面板（拓扑审查 §三 P7 三分，自 MonitorDisplayEditor 逐字迁出）：
@@ -143,24 +143,24 @@ final class MonitorSettingsPanel {
         g.drawString(Minecraft.getInstance().font, "§cX", px + pw - 14, py + 5, 0xFFFFFFFF, false);
 
         // Load BE values into EditBoxes only once when panel opens
-        MonitorBlockEntity mbe = host.be();
+        MonitorBeView mbe = host.be();
         if (!settingsInited && mbe != null) {
-            settingFields[0].setValue(ff2(mbe.screenWidth));
-            settingFields[1].setValue(ff2(mbe.screenLength));
-            settingFields[2].setValue(ff2(mbe.screenX));
-            settingFields[3].setValue(ff2(mbe.screenY));
-            settingFields[4].setValue(ff2(mbe.screenZ));
-            settingFields[5].setValue(ff2(mbe.screenRoll));
-            settingFields[6].setValue(ff2(mbe.screenPitch));
-            settingFields[7].setValue(ff2(mbe.screenYaw));
-            hudSettingFields[0].setValue(ff2(mbe.virtualImageScale));
+            settingFields[0].setValue(ff2(mbe.getScreenWidth()));
+            settingFields[1].setValue(ff2(mbe.getScreenLength()));
+            settingFields[2].setValue(ff2(mbe.getScreenX()));
+            settingFields[3].setValue(ff2(mbe.getScreenY()));
+            settingFields[4].setValue(ff2(mbe.getScreenZ()));
+            settingFields[5].setValue(ff2(mbe.getScreenRoll()));
+            settingFields[6].setValue(ff2(mbe.getScreenPitch()));
+            settingFields[7].setValue(ff2(mbe.getScreenYaw()));
+            hudSettingFields[0].setValue(ff2(mbe.getVirtualImageScale()));
             // 复选框初始状态跟随服务端实际模式（取代原 tab 状态行）
             // Checkbox initial state follows the server's actual mode (replaces the old tab line)
             hudModeCheckbox = Checkbox.builder(
                 Component.translatable("gui.create_schematic_compute.monitor.hud_mode_cb"),
                 Minecraft.getInstance().font)
                 .pos(px + 10, py + 24)
-                .selected(mbe.hudMode)
+                .selected(mbe.isHudMode())
                 .build();
             settingsInited = true;
         }
@@ -252,13 +252,13 @@ final class MonitorSettingsPanel {
      *  the server's current applied values — no implicit commit; other fields stay on the
      *  explicit Apply/Enter contract. */
     private void sendTabMode(boolean hud) {
-        MonitorBlockEntity be = host.be();
+        MonitorBeView be = host.be();
         if (be == null) return;
         var pkt = new io.github.y15173334444.create_schematic_compute.network.MonitorSettingsPacket(
             be.getBlockPos(),
-            be.screenWidth, be.screenLength, be.screenX, be.screenY, be.screenZ,
-            be.screenRoll, be.screenPitch, be.screenYaw,
-            hud, be.virtualImageScale);
+            be.getScreenWidth(), be.getScreenLength(), be.getScreenX(), be.getScreenY(), be.getScreenZ(),
+            be.getScreenRoll(), be.getScreenPitch(), be.getScreenYaw(),
+            hud, be.getVirtualImageScale());
         PacketDistributor.sendToServer(pkt);
     }
 

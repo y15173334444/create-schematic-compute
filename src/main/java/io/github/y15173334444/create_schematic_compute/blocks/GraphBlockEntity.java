@@ -33,8 +33,23 @@ import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor
  * interface as its constructor parameter — two lines, one engine, one contract.
  * External consumers such as SablePacketHelper depend on this interface only and no
  * longer instanceof concrete types.</p>
+ *
+ * <p>反向包边解环（2026-10-31）：本接口同时继承两枚窄口——
+ * {@link io.github.y15173334444.create_schematic_compute.graph.EditSessionTarget}
+ * （编辑会话服务端落点，住 graph 公共域——签名含图域类型，须与本接口同处 Sable 跨类
+ * 加载器复制域）与
+ * {@link io.github.y15173334444.create_schematic_compute.client.editor.EditStateView}
+ * （编辑器家族窄视图，签名全为共享类型）——network 与 client.editor 经窄口消费，
+ * 不再回引 blocks。
+ * / Reverse package-edge cycle break (2026-10-31): this interface also extends two
+ * narrow ports — the edit-session target (graph shared domain; its signatures carry
+ * graph-domain types and must share the Sable cross-classloader duplication domain with
+ * this interface) and the editor-family view (client.editor; shared-type signatures only)
+ * — so those packages consume through the ports and no longer reach back into blocks.</p>
  */
-public interface GraphBlockEntity {
+public interface GraphBlockEntity
+        extends io.github.y15173334444.create_schematic_compute.graph.EditSessionTarget,
+                io.github.y15173334444.create_schematic_compute.client.editor.EditStateView {
 
     // ── 数据面 / data surface ────────────────────────────────────────────
 

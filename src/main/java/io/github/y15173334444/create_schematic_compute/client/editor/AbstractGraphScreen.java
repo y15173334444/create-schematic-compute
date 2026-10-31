@@ -16,7 +16,6 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.UUID;
 import java.util.function.Predicate;
-import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 
 /**
  * 所有节点图编辑界面的公共基类 / Common base for all node-graph editor screens.
@@ -146,6 +145,13 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
     // ── GraphEditor.Host 多人协作 / multiplayer collaboration ──
 
     @Override public BlockPos getBlockPos() { return blockPos; }
+    @Override public java.util.Map<Integer, Boolean> peekSubStateFlipflops(int encapNodeId) {
+        // 反向包边解环 2026-10-31：编辑器经 Host 查询取子图触发器徽标状态，本类答自
+        // getBE() 窄视图（blocks.GraphBlockEntity 实现同名方法）。 / Reverse package-edge
+        // cycle break: the editor queries the host; we answer via the getBE() narrow view.
+        var be = getBE();
+        return be != null ? be.peekSubStateFlipflops(encapNodeId) : null;
+    }
     @Override public UUID getPlayerUUID() {
         return Minecraft.getInstance().player != null
             ? Minecraft.getInstance().player.getUUID() : UUID.randomUUID();
@@ -187,14 +193,17 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
     protected abstract boolean isBlockEntityValid();
 
     /**
-     * 返回当前客户端 BlockEntity，供 sendOp / onClose 访问 pendingLocalOps 守卫。
-     * 子类返回各自具体类型（协变返回即可）。托管线放宽为 {@link GraphBlockEntity}，
-     * 使组合式 Kinetic 系方块实体（ProgrammableTransmission / CncGearbox 等）也能打开图编辑器。
-     * Current client-side BlockEntity for the pendingLocalOps guard; subclasses return
-     * their concrete type (covariant). Widened to {@link GraphBlockEntity} so composition-based
-     * kinetic BEs (e.g. ProgrammableTransmission / CncGearbox) can open graph editors too.
+     * 返回当前客户端 BlockEntity 的编辑窄视图，供 sendOp / onClose 访问 pendingLocalOps 守卫。
+     * 子类返回各自具体类型（协变返回即可；宿主 BE 均实现 {@link EditStateView}）。托管线
+     * 为 {@code blocks.GraphBlockEntity}（含组合式 Kinetic 系方块实体 ProgrammableTransmission /
+     * CncGearbox 等），经窄视图消费（反向包边解环 2026-10-31，E2 EditAckSink 手法）。
+     * Current client-side BlockEntity edit view for the pendingLocalOps guard; subclasses
+     * return their concrete type (covariant — every host BE implements {@link EditStateView}).
+     * The hosting line is {@code blocks.GraphBlockEntity} (composition-based kinetic BEs
+     * included), consumed through the narrow view (reverse package-edge cycle break,
+     * 2026-10-31, the E2 EditAckSink playbook).
      */
-    protected abstract GraphBlockEntity getBE();
+    protected abstract EditStateView getBE();
 
     /**
      * 关界面前钩子：子类可在此把 EditBox 输入写回 BE（如 RadarScreen 的 applyInputs + hideInputs）。

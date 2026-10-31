@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.graph.GraphOp;
+import io.github.y15173334444.create_schematic_compute.graph.EditSessionTarget;
 import io.github.y15173334444.create_schematic_compute.graph.OpExecutor;
 import io.github.y15173334444.create_schematic_compute.graph.OpType;
 import io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket;
@@ -12,8 +13,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.*;
-import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
-import io.github.y15173334444.create_schematic_compute.blocks.MonitorBlockEntity;
 
 /**
  * Lightweight server-side registry tracking active edit sessions per graph.
@@ -307,7 +306,7 @@ public final class EditSessionRegistry {
         // 并让"上传失败"无迹可查）。
         // Early-outs are no longer silent: send REJECT so the client returns its pending-ACK
         // count (a silent drop latches the full-sync guard and leaves "upload failed" untraceable).
-        if (!(level.getBlockEntity(pos) instanceof GraphBlockEntity gbe)) {
+        if (!(level.getBlockEntity(pos) instanceof EditSessionTarget gbe)) {
             PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(GraphOp.reject(op, actor.getUUID())));
             return;
         }
@@ -605,13 +604,13 @@ public final class EditSessionRegistry {
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_BLOCK_NAME
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE
             || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE) {
-            if (gbe instanceof MonitorBlockEntity mbe) {
+            if (gbe instanceof CoalescedFullSync cfs) {
                 // 限流版全量同步：拖拽流 20Hz 的显示 op 只推 ~0.5Hz 全图 NBT（避免带宽爆炸）；
                 // 编辑者仍经 op 广播实时同步，非编辑者由下一次 flushPendingFullSync 拿到最新图。
                 // Coalesced full sync: 20Hz display-drag ops push the full graph NBT at ~0.5Hz
                 // (no bandwidth bomb); editors still sync in real time via op broadcast, and
                 // non-editors receive the latest graph from the next flushPendingFullSync().
-                mbe.requestFullSync();
+                cfs.requestFullSync();
             }
         }
     }
@@ -628,8 +627,12 @@ public final class EditSessionRegistry {
      *
      * @param gbe the graph block entity whose state changed / 状态发生变更的图方块实体
      */
-    private static void markDirty(GraphBlockEntity gbe) {
-        if (gbe instanceof net.minecraft.world.level.block.entity.BlockEntity be) be.setChanged();
+    private static void markDirty(EditSessionTarget gbe) {
+        // 形参收窄（反向包边解环 2026-10-31）：落盘脏标只需 setChanged——旧签名的
+        // GraphBlockEntity 形参纯属名义（方法体本就上转 BlockEntity 调 setChanged）。
+        // Param narrowing (reverse package-edge cycle break, 2026-10-31): the dirty mark
+        // only needs setChanged — the old GraphBlockEntity param was purely nominal.
+        gbe.setChanged();
     }
 
     // ── Cleanup / 清理 ──

@@ -15,7 +15,9 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class MonitorBlockEntity extends SyncedGraphBlockEntity implements GraphHost.TickHooks {
+public class MonitorBlockEntity extends SyncedGraphBlockEntity implements GraphHost.TickHooks,
+        io.github.y15173334444.create_schematic_compute.graph.MonitorBeView,
+        io.github.y15173334444.create_schematic_compute.network.CoalescedFullSync {
     /** 独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
      *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名为本类 FQCN。
      *  Same-name standalone logger: never references the @Mod class — its static init needs
@@ -42,6 +44,20 @@ public class MonitorBlockEntity extends SyncedGraphBlockEntity implements GraphH
     // enlarging the image leaves the glass unchanged and content beyond the viewport
     // is clipped by the 4-gon mask. See merge-plan §3.4.
     public float virtualImageScale = 1.0f;   // 虚像缩放系数（默认 1.0）/ virtual-image scale (default 1.0)
+
+    // ── MonitorBeView 窄口（反向包边解环 2026-10-31）：getter 直读公有字段/方法，零行为变更 ──
+    // MonitorBeView narrow port (reverse package-edge cycle break, 2026-10-31):
+    // getters read the public fields/methods verbatim — zero behaviour change.
+    @Override public boolean isHudMode() { return hudMode; }
+    @Override public float getScreenWidth() { return screenWidth; }
+    @Override public float getScreenLength() { return screenLength; }
+    @Override public float getScreenX() { return screenX; }
+    @Override public float getScreenY() { return screenY; }
+    @Override public float getScreenZ() { return screenZ; }
+    @Override public float getScreenRoll() { return screenRoll; }
+    @Override public float getScreenPitch() { return screenPitch; }
+    @Override public float getScreenYaw() { return screenYaw; }
+    @Override public float getVirtualImageScale() { return virtualImageScale; }
 
     // 客户端 HUD 姿态标记平滑值（20Hz 数据 → 60fps 插值显示；transient 不存 NBT）。
     // Client-side smoothing for the HUD attitude marker (20Hz data → 60fps display;

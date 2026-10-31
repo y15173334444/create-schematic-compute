@@ -22,7 +22,7 @@ import static io.github.y15173334444.create_schematic_compute.client.GeometryCon
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.y15173334444.create_schematic_compute.client.EditorTheme;
-import io.github.y15173334444.create_schematic_compute.blocks.MonitorBlockEntity;
+import io.github.y15173334444.create_schematic_compute.graph.MonitorBeView;
 
 /**
  * 全息显示器的「显示编辑」GUI / The holographic monitor display-layout editor.
@@ -55,7 +55,7 @@ public final class MonitorDisplayEditor {
     public interface Host {
         int screenWidth();
         int screenHeight();
-        MonitorBlockEntity be();
+        MonitorBeView be();
         GraphEditor editor();
         BlockPos blockPos();
         void sendOp(GraphOp op);
@@ -407,9 +407,9 @@ public final class MonitorDisplayEditor {
         int availW = host.screenWidth() - 2 * margin;
         int availH = host.screenHeight() - margin - topOffset;
         float aspect = 16f / 9f;
-        MonitorBlockEntity mbe = host.be();
-        if (mbe != null && mbe.screenLength > 0.001f)
-            aspect = mbe.screenWidth / mbe.screenLength;
+        MonitorBeView mbe = host.be();
+        if (mbe != null && mbe.getScreenLength() > 0.001f)
+            aspect = mbe.getScreenWidth() / mbe.getScreenLength();
         int dw, dh;
         if (availW / aspect <= availH) { dw = availW; dh = (int)(availW / aspect); }
         else { dh = availH; dw = (int)(availH * aspect); }
@@ -417,8 +417,8 @@ public final class MonitorDisplayEditor {
     }
 
     /** Get effective screen dimensions, using preview overrides when settings panel is open */
-    float getEffectiveScreenW() { return settings.previewW() >= 0 ? settings.previewW() : (host.be() != null ? host.be().screenWidth : 1.5f); }
-    float getEffectiveScreenL() { return settings.previewL() >= 0 ? settings.previewL() : (host.be() != null ? host.be().screenLength : 1.2f); }
+    float getEffectiveScreenW() { return settings.previewW() >= 0 ? settings.previewW() : (host.be() != null ? host.be().getScreenWidth() : 1.5f); }
+    float getEffectiveScreenL() { return settings.previewL() >= 0 ? settings.previewL() : (host.be() != null ? host.be().getScreenLength() : 1.2f); }
 
     /** Compute content area insets matching the 3D renderer's 0.04-block bezel margin.
      *  Returns {contentX, contentY, contentW, contentH} within the given DisplayArea. */

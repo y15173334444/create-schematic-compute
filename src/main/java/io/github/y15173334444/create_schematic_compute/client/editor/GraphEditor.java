@@ -33,8 +33,6 @@ import net.minecraft.nbt.NbtIo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import io.github.y15173334444.create_schematic_compute.client.EditorTheme;
-import io.github.y15173334444.create_schematic_compute.blocks.BlueprintScreen;
-import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 
 /**
  * 节点图编辑器 — 封装两屏共享的编辑、渲染、输入逻辑
@@ -136,6 +134,23 @@ public class GraphEditor {
          *  Currently selected element node id in the display layout editor (-1 = none) —
          *  the soft lock follows the selection, not just the drag. */
         default int getPresenceSelectedNodeId() { return -1; }
+
+        // ── 能力查询（反向包边解环 2026-10-31）：编辑器经窄查询分叉，不再 instanceof
+        //    宿主屏具体类型（E2 EditAckSink 同款缝-实现分离手法）。──
+        // Capability queries (reverse package-edge cycle break, 2026-10-31): the editor
+        // forks through narrow queries instead of instanceof-ing concrete host screens
+        // (the E2 EditAckSink playbook).
+        /** 顶栏宽度（命中判定，px）；BlueprintScreen 覆写为 326（含封装导入/导出按钮 196..268）。
+         *  Toolbar width for hit testing (px); BlueprintScreen overrides to 326 (the encap
+         *  import/export buttons span 196..268). */
+        default int toolbarWidth() { return 250; }
+        /** 是否提供封装节点导入/导出按钮（蓝图计算机专属）。
+         *  Whether the encap import/export buttons are available (blueprint computer only). */
+        default boolean supportsEncapImportExport() { return false; }
+        /** 当前封装子图的触发器状态（服务端同步，徽标渲染用）；null = 无。
+         *  Sub-graph flipflop states for the current encapsulation (synced, badge rendering);
+         *  null = none. */
+        default java.util.Map<Integer, Boolean> peekSubStateFlipflops(int encapNodeId) { return null; }
     }
 
     final Host host;
@@ -796,16 +811,13 @@ public class GraphEditor {
     /** Get sub-graph flipflop states for the current encapsulation (synced from server). */
     private Map<Integer, Boolean> getSubFlipflopStates() {
         if (!isInSubGraph()) return null;
-        var be = host.getBlockPos() != null && net.minecraft.client.Minecraft.getInstance().level != null
-            ? net.minecraft.client.Minecraft.getInstance().level.getBlockEntity(host.getBlockPos())
-            : null;
-        // 面向 GraphBlockEntity 接口读取（支持继承线与组合线两类宿主）
-        // Read through the GraphBlockEntity interface (supports both inheritance-line and
-        // composition-line hosts).
-        if (be instanceof GraphBlockEntity gbe) {
-            var ff = gbe.peekSubStateFlipflops(encapsulationParent.id);
-            if (ff != null && !ff.isEmpty()) return ff;
-        }
+        // 经 Host 能力查询读取（反向包边解环 2026-10-31）：宿主屏答自其 BE
+        // （GraphBlockEntity 接口，继承线与组合线两类宿主同款）。
+        // Read through the Host capability query (reverse package-edge cycle break,
+        // 2026-10-31): the host screen answers from its BE (the GraphBlockEntity
+        // interface — both inheritance-line and composition-line hosts).
+        var ff = host.peekSubStateFlipflops(encapsulationParent.id);
+        if (ff != null && !ff.isEmpty()) return ff;
         return java.util.Collections.emptyMap();
     }
 
@@ -1585,7 +1597,7 @@ public class GraphEditor {
     /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
      *  6f second-half extraction: a verbatim inline block of the former renderBg. */
     private void renderEncapImportExportButtons(GuiGraphics g) {
-        if (!(host instanceof BlueprintScreen)) return;
+        if (!host.supportsEncapImportExport()) return;
         var mc = Minecraft.getInstance();
         int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : TOP_BAR_H + 2;
         int impX = 196, impW = 72, btnH = 18;
@@ -1876,7 +1888,7 @@ public class GraphEditor {
                 int scrW = host.asScreen().width, scrH = host.asScreen().height;
                 int toolY = NodeRenderer.isToolbarBottom() ? scrH - 22 : TOP_BAR_H + 2;
                 boolean overToolbar = !isInSubGraph() && my >= toolY && my <= toolY + 18 && mx >= 4
-                    && mx <= (host instanceof BlueprintScreen ? 326 : 250);
+                    && mx <= host.toolbarWidth();
                 boolean overBack = isInSubGraph() && mx >= scrW - 52 && mx <= scrW - 6
                     && my >= 3 && my <= 19;
                 boolean overCorner = mx >= scrW - 22 && my >= scrH - 44;
@@ -3238,7 +3250,7 @@ public class GraphEditor {
             }
             if(mx>=134&&mx<=192&&my>=btnY&&my<=btnY+18){gridSnapEnabled=!gridSnapEnabled;NodeRenderer.saveGridSnap(gridSnapEnabled);return true;}
             // 导入/导出封装节点按钮（仅蓝图计算机） (Import/export encapsulation node button, Blueprint computer only)
-            if (host instanceof BlueprintScreen && mx >= 196 && mx <= 268 && my >= btnY && my <= btnY + 18) {
+            if (host.supportsEncapImportExport() && mx >= 196 && mx <= 268 && my >= btnY && my <= btnY + 18) {
                 boolean hasEncapSelected = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
                 if (hasEncapSelected) {
                     showExportDialog = true;
