@@ -28,7 +28,9 @@ io.github.y15173334444.create_schematic_compute/
 
 - `CustomNodeType` — 声明式 schema 值类型（稳定 id `modid:node_id`、标题、FLOAT 域引脚标签、控件参数〔NUMBER/TEXT/BOOL/ITEM〕）；`MAX_SCHEMA_PARAMS = 32` = schema 控件数帽 = **K15 静态预检**对 CUSTOM `SET_HOTBAR_ITEM` 槽位的上界（精确槽位数由执行器按节点 schema 裁定；面板高度按实际控件计数）。**批 D 增 `MAX_TEXT_PARAM_LENGTH = 32768`**（TEXT 控件单条帽，包层预检 REJECT + 执行器纵深；聚合帽 = `OpExecutor.MAX_TEXT_TOTAL_PER_NODE` 32KB/节点，比照批 B 状态 blob 纪律）。/ The declarative schema value type; MAX_SCHEMA_PARAMS caps a schema's controls and bounds K15's packet-layer CUSTOM slot check (the precise count ruled per node by the executor; panel height counts real controls).
 - `CustomNodeBehavior` / `CustomNodeContext` / `CustomNodeResult` — 求值行为契约（服务端主线程回调、值级交付、`sliceExpired()` 检查点、done/suspended 形态）。
-- `CustomNodes` — 注册门面（api → graph 委托是门面实现边；**结构规则 = api 签名零图域类型**，非禁止委托边）。
+- `CustomNodes` — 注册门面（api → graph 委托是门面实现边；**结构规则 = api 签名零图域类型**，非禁止委托边）。javadoc 自足（批 E：内部探索稿锚全数内联为语义本体）。
+- **观测面（批 E）**：`GraphEvaluator` 分派层全节点墙钟 EMA（transient 表，随求值器存亡）→ `GraphBlockEntity.evaluatorView()`（default null = 诊断面缺数据非错误）→ 指令 `/cscperf`（OP，看向宿主打 top-20，CUSTOM 行带 modid+id）。格式化纯函数 = `SchematicComputeCommands.formatPerfSummary`（headless 锚 NodePerfProbeTest）。
+- **示例模组（批 E，验收①载体）**：`tools/example-addon/`（独立 NeoGradle 工程，不进主构建；对主工程产物 jar 编译 = api 签名逐字验证）——provider 直连节点 + 可恢复重节点 + admitToHost 全链。
 - 实现侧住 `graph/`：`CustomNodeRegistry`（注册表+世代号）、`CustomNodeCompute`（独立预算池）、`CustomNodeEval`（分类处理器+处置梯子）、`CustomNodeRunState`（transient 运行态）。
 
 ---
