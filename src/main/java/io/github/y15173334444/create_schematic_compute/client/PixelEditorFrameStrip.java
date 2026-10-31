@@ -113,22 +113,22 @@ final class PixelEditorFrameStrip {
         int by = btnY + (host.frameBtnH() - FS_BTN) / 2;   // 按钮行内垂直居中 / centred in the row
         // 导航 / nav (relative to fl)
         boolean pH = hit(mx, my, fl + 8, by, 18, FS_BTN);
-        g.fill(fl + 8, by, fl + 26, by + FS_BTN, pH ? C_HOVER : C_BTN);
+        g.fill(fl + 8, by, fl + 26, by + FS_BTN, pH ? EditorTheme.get().hover() : EditorTheme.get().insetBg());
         g.renderOutline(fl + 8, by, 18, FS_BTN, EditorTheme.get().panelBorder());
         g.drawString(f, "§7◀", fl + 13, by + 3, C_TXT_DIM, false);
         boolean nH = hit(mx, my, fl + 30, by, 18, FS_BTN);
-        g.fill(fl + 30, by, fl + 48, by + FS_BTN, nH ? C_HOVER : C_BTN);
+        g.fill(fl + 30, by, fl + 48, by + FS_BTN, nH ? EditorTheme.get().hover() : EditorTheme.get().insetBg());
         g.renderOutline(fl + 30, by, 18, FS_BTN, EditorTheme.get().panelBorder());
         g.drawString(f, "§7▶", fl + 35, by + 3, C_TXT_DIM, false);
         g.drawString(f, "§7" + (frameIndex + 1) + "/" + n, fl + 54, by + 3, C_TXT_DIM, false);
         // 新建 / +New
         boolean newH = hit(mx, my, fl + 94, by, 44, FS_BTN);
-        g.fill(fl + 94, by, fl + 138, by + FS_BTN, newH ? C_HOVER : C_BTN);
+        g.fill(fl + 94, by, fl + 138, by + FS_BTN, newH ? EditorTheme.get().hover() : EditorTheme.get().insetBg());
         g.renderOutline(fl + 94, by, 44, FS_BTN, EditorTheme.get().panelBorder());
         g.drawString(f, "§a" + I18n.get("gui.create_schematic_compute.monitor.pixel_new"), fl + 100, by + 3, C_TXT_DIM, false);
         // 删除 / delete
         boolean delH = hit(mx, my, fl + 146, by, 48, FS_BTN);
-        g.fill(fl + 146, by, fl + 194, by + FS_BTN, delH ? C_DEL : C_BTN);
+        g.fill(fl + 146, by, fl + 194, by + FS_BTN, delH ? EditorTheme.get().error() : EditorTheme.get().insetBg());
         g.renderOutline(fl + 146, by, 48, FS_BTN, 0xFF8A5A4A);
         g.drawString(f, "§c" + I18n.get("gui.create_schematic_compute.monitor.pixel_delete"), fl + 150, by + 3, C_TXT_DIM, false);
         // 缩略图 / thumbnails（高度固定、宽度随宽高比动态；去边框，选中帧用底色高亮）
@@ -142,8 +142,8 @@ final class PixelEditorFrameStrip {
             int x = tx + i * pitch - scroll * pitch;
             if (x + tw < fl || x > frr) continue;
             int y = fy + 2;
-            if (i == frameIndex) g.fill(x - 1, y - 1, x + tw + 1, y + THUMB + 1, 0xFF3A5A2A);
-            else if (frameDrag == FrameDrag.DRAGGING && frameDragIndex == i) g.fill(x - 1, y - 1, x + tw + 1, y + THUMB + 1, 0xFF7A4A3A);
+            if (i == frameIndex) g.fill(x - 1, y - 1, x + tw + 1, y + THUMB + 1, EditorTheme.get().accent());
+            else if (frameDrag == FrameDrag.DRAGGING && frameDragIndex == i) g.fill(x - 1, y - 1, x + tw + 1, y + THUMB + 1, EditorTheme.get().hover());
             g.fill(x, y, x + tw, y + THUMB, EditorTheme.get().insetBg());
             renderThumb(g, frames.get(i), x, y, tw, THUMB);
         }
@@ -158,7 +158,7 @@ final class PixelEditorFrameStrip {
             int sbX = tx;
             float sbThumbW = Math.max(18, (float) maxVisibleThumbs() / n * sbW);
             float thumbX = sbX + (float) scroll / maxScroll * (sbW - sbThumbW);
-            g.fill(sbX, host.height() - 5, sbX + sbW, host.height() - 3, C_BTN);
+            g.fill(sbX, host.height() - 5, sbX + sbW, host.height() - 3, EditorTheme.get().insetBg());
             g.fill((int) thumbX, host.height() - 5, (int) (thumbX + sbThumbW), host.height() - 3, 0xFF8A7A5A);
         }
         // 新建菜单（Blank / From current）最后画，浮在缩略图条上方 / draw the "+New" menu last so it floats above the strip.
@@ -429,9 +429,11 @@ final class PixelEditorFrameStrip {
     // 改为每次实时取 EditorTheme 活动值。P2-23 fix: theme colours are no longer captured into
     // static finals at class load (a palette change used to bleed stale colours until restart);
     // they are fetched live from the active EditorTheme on every use.
-    private static final int C_BTN = 0xFF3A3428;                 // 按钮底 / button bg
-    private static final int C_HOVER = 0xFF5A4A3A;               // 悬停 / hover
-    private static final int C_DEL = 0xFF7A4A3A;                 // 删除危险 / destructive
+    // 三色收编（2026-10-31 拍板：复用现有槽位）——按钮底/悬停/删除危险映射进 insetBg/hover/
+    // error（选中帧→accent、拖拽帧→hover 与选中区分），回潮由 PixelEditorThemeAdoptionTest 钉死。
+    // Trio adoption (2026-10-31 ruling: reuse existing slots) — button bg / hover / destructive
+    // map onto insetBg/hover/error (selected frame→accent, dragged frame→hover to stay
+    // distinguishable from selection); the source-anchor test pins against regression.
     private static final int C_TXT_DIM = 0xFFCCCCCC;
 
     private static boolean hit(double mx, double my, int x, int y, int w, int h) {

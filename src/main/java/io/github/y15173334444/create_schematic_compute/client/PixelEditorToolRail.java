@@ -62,9 +62,11 @@ final class PixelEditorToolRail {
     // 改为每次实时取 EditorTheme 活动值。P2-23 fix: theme colours are no longer captured into
     // static finals at class load (a palette change used to bleed stale colours until restart);
     // they are fetched live from the active EditorTheme on every use.
-    private static final int C_BTN = 0xFF3A3428;                      // 按钮底 / button bg
-    private static final int C_HOVER = 0xFF5A4A3A;                    // 悬停 / hover
-    private static final int C_SEL = 0xFF3A5A2A;                      // 选中 / selected
+    // 三色收编（2026-10-31 拍板：复用现有槽位）——按钮底/悬停/选中映射进 insetBg/hover/accent
+    // （NBS 收编同款：选中→accent），回潮由 PixelEditorThemeAdoptionTest 钉死。
+    // Trio adoption (2026-10-31 ruling: reuse existing slots) — button bg / hover / selected
+    // map onto insetBg/hover/accent (the NBS adoption's shape: selected→accent); the
+    // source-anchor test pins against regression.
     private static final int C_TXT_BRIGHT = 0xFFFFFFFF;
     private static final int C_TXT_DIM = 0xFFCCCCCC;
     private static final int C_CANVAS = 0xFF14120E;                   // 画布区底 / canvas area bg
@@ -131,7 +133,7 @@ final class PixelEditorToolRail {
             // PS 式：默认无单独按钮填充/边框，仅悬停或选中时高亮整块矩形。
             // PS style: no per-cell fill or border by default; only hover/selected highlight the whole cell.
             if (sel || hov)
-                g.fill(c[0], c[1], c[0] + c[2], c[1] + c[3], sel ? C_SEL : C_HOVER);
+                g.fill(c[0], c[1], c[0] + c[2], c[1] + c[3], sel ? EditorTheme.get().accent() : EditorTheme.get().hover());
             int icX = (leftW - 12) / 2;                 // 图标在整列宽内居中 / centre icon in rail width
             int icY = (TOOL_BTN - 12) / 2;              // 图标在单元格高内居中 / centre icon in cell height
             drawToolIcon(g, c[0] + icX, c[1] + icY, order[i]);
@@ -151,7 +153,8 @@ final class PixelEditorToolRail {
             for (int s = 1; s <= 5; s++) {
                 int bx = leftPad + 2 + (s - 1) * BA_PITCH, by = brushBtnY();
                 boolean hov = hit(mx, my, bx, by, BA_SIZE, BA_SIZE);
-                g.fill(bx, by, bx + BA_SIZE, by + BA_SIZE, s == host.brushSize() ? C_SEL : hov ? C_HOVER : C_BTN);
+                g.fill(bx, by, bx + BA_SIZE, by + BA_SIZE, s == host.brushSize() ? EditorTheme.get().accent()
+                    : hov ? EditorTheme.get().hover() : EditorTheme.get().insetBg());
                 g.renderOutline(bx, by, BA_SIZE, BA_SIZE, EditorTheme.get().panelBorder());
                 int d = Math.min(12, s * 2 + 1);
                 g.fill(bx + BA_SIZE / 2 - d / 2, by + BA_SIZE / 2 - d / 2, bx + BA_SIZE / 2 - d / 2 + d, by + BA_SIZE / 2 - d / 2 + d, C_TXT_DIM);

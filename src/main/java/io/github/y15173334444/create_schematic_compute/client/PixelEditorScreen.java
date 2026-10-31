@@ -82,10 +82,11 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     // 改为每次实时取 EditorTheme 活动值。P2-23 fix: theme colours are no longer captured into
     // static finals at class load (a palette change used to bleed stale colours until restart);
     // they are fetched live from the active EditorTheme on every use.
-    private static final int C_BTN = 0xFF3A3428;               // 按钮底 / button bg
-    private static final int C_HOVER = 0xFF5A4A3A;             // 悬停 / hover
-    private static final int C_SEL = 0xFF3A5A2A;               // 选中 / selected
-    private static final int C_DEL = 0xFF7A4A3A;               // 关闭/删除危险 / destructive
+    // 三色收编（2026-10-31 拍板：复用现有槽位）——按钮底/悬停/选中/危险映射进 insetBg/hover/
+    // accent/error（NBS 收编同款：选中→accent），回潮由 PixelEditorThemeAdoptionTest 钉死。
+    // Trio adoption (2026-10-31 ruling: reuse existing slots) — button bg / hover / selected /
+    // destructive map onto insetBg/hover/accent/error (the NBS adoption's shape: selected→accent);
+    // the source-anchor test pins against regression.
     private static final int C_TXT_BRIGHT = 0xFFFFFFFF;
     private static final int C_TXT_DIM = 0xFFCCCCCC;
     private static final int C_CANVAS = 0xFF14120E;            // 画布区底 / canvas area bg
@@ -615,7 +616,7 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
     }
 
     private void drawBarButton(GuiGraphics g, int x, int y, int w, int h, String label, boolean hover, boolean danger) {
-        int bg = danger ? C_DEL : (hover ? C_HOVER : C_BTN);
+        int bg = danger ? EditorTheme.get().error() : (hover ? EditorTheme.get().hover() : EditorTheme.get().insetBg());
         g.fill(x, y, x + w, y + h, bg);
         g.renderOutline(x, y, w, h, EditorTheme.get().panelBorder());
         var f = Minecraft.getInstance().font;
@@ -742,12 +743,12 @@ public class PixelEditorScreen extends Screen implements GraphEditor.Host, Pixel
         int btnY = y + h - 30;
         int bx = x + 10, bw = (w - 20 - 6) / 2;
         boolean apH = hit(mx, my, bx, btnY, bw, 20);
-        g.fill(bx, btnY, bx + bw, btnY + 20, apH ? C_HOVER : C_BTN);
+        g.fill(bx, btnY, bx + bw, btnY + 20, apH ? EditorTheme.get().hover() : EditorTheme.get().insetBg());
         g.renderOutline(bx, btnY, bw, 20, EditorTheme.get().panelBorder());
         g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_apply"), bx + (bw - f.width("§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_apply"))) / 2, btnY + 5, C_TXT_DIM, false);
         int cx = bx + bw + 6;
         boolean cnH = hit(mx, my, cx, btnY, bw, 20);
-        g.fill(cx, btnY, cx + bw, btnY + 20, cnH ? C_HOVER : C_BTN);
+        g.fill(cx, btnY, cx + bw, btnY + 20, cnH ? EditorTheme.get().hover() : EditorTheme.get().insetBg());
         g.renderOutline(cx, btnY, bw, 20, EditorTheme.get().panelBorder());
         g.drawString(f, "§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_cancel"), cx + (bw - f.width("§7" + I18n.get("gui.create_schematic_compute.monitor.pixel_cancel"))) / 2, btnY + 5, C_TXT_DIM, false);
     }
