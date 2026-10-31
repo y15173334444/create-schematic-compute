@@ -81,6 +81,14 @@ public final class DebugEval {
                                 // Any x works for the probe — the stack machine throws on RPN
                                 // structure alone, never on values
                                 FormulaParser.evaluate(node.debugFormulaRpn, Map.of("x", 0.0));
+                            } catch (FormulaParser.DeadlineShedException d) {
+                                // K6 瞬态豁免:试算被预算 deadline 打断≠坏公式——RPN 保留、不告警、
+                                // 不进失败态(曲线求值同 tick 若也撞 deadline,由 evalFormula 的
+                                // 瞬态豁免兜住,下 tick 重试)。
+                                // K6 transient exemption: a probe cut off by the budget deadline is
+                                // NOT a broken formula — keep the RPN, no warn, no failure state
+                                // (if the curve evaluation hits the deadline the same tick, the
+                                // evalFormula exemption catches it; retry next tick).
                             } catch (Exception e) {
                                 node.debugFormulaRpn = null; // 坏 RPN 不入缓存 / broken RPN is not cached
                             }

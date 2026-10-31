@@ -25,7 +25,45 @@ public final class FormulaEval {
 
     private FormulaEval() {}
 
+    /**
+     * K6 deadline 兜底的公平规则：deadline 是 tick 级共享资源，被动方（其它源把 tick 拖过
+     * deadline、本节点自身开销在份额内）只保持输出、不惩罚；主动方（节点自身执行墙钟超过
+     * 自身 slice）计连续超时，满 {@link #DEADLINE_FREEZE_TICKS} 走冻结。done 与常规 slice
+     * 挂起都会清零连续计数（在推进 = 有救，无需升级）。
+     * K6 fairness rule for the deadline backstop: the deadline is a shared per-tick resource —
+     * a victim (some other source pushed the tick past the deadline while this node stayed
+     * within its own slice) only holds its outputs, never punished; a culprit (its own exec
+     * wall clock exceeded its slice) counts toward the consecutive streak and freezes at
+     * {@link #DEADLINE_FREEZE_TICKS}. Completion and regular slice suspends reset the streak
+     * (making progress means there is still hope — no escalation needed).
+     */
+    private static void noteDeadlineShed(GraphNode node, long elapsedNs) {
+        if (elapsedNs > FormulaCompute.sliceNs()) {
+            if (++node.formulaDeadlineStreak >= DEADLINE_FREEZE_TICKS && !node.formulaShedWarned) {
+                node.formulaShedWarned = true;
+                node.formulaCarrier = null;
+                node.formulaSpreadProgress = 0f;
+                LOGGER.warn("FORMULA node {} outlived the budget deadline {} ticks in a row — "
+                    + "pathological closed-form script, shed to lastGood until edited",
+                    node.id, node.formulaDeadlineStreak);
+            }
+        } else {
+            node.formulaDeadlineStreak = 0;
+        }
+    }
+
     private static final Logger LOGGER = LoggerFactory.getLogger(FormulaEval.class);
+
+    /**
+     * K6 deadline 兜底冻结阈值：节点**自身**超份额（本次执行墙钟 > slice）连续达到该 tick 数
+     * 即判「永完不成的闭式巨脚本」，走 MAX_ITER 同款冻结（告警一次、清 carrier、不再重试直到
+     * 公式被编辑）。20 tick ≈ 1 秒（20 Hz）。
+     * K6 deadline-backstop freeze threshold: once a node that **itself** outlived its own slice
+     * (exec wall clock > slice) accumulates this many consecutive ticks, it is judged a
+     * never-finishing closed-form monster and takes the MAX_ITER freeze (warn once, clear the
+     * carrier, no retries until the formula is edited). 20 ticks ≈ 1 s at 20 Hz.
+     */
+    private static final int DEADLINE_FREEZE_TICKS = 20;
 
     /** 求值数学/三角/逻辑/控制域节点（case 体逐字搬迁，见类注释）。方法开头放局部别名块
      *  （接收者改写），让 case 体一个字都不用改；结尾 {@code ctx.o = o} 回写输出数组（通用契约）。
@@ -396,6 +434,7 @@ public final class FormulaEval {
                     // writes: an all-zero error result would mark a sibling node with the
                     // same script+inputs as "already computed this tick" and feed it zeros.
                     boolean dedupCacheable = true;
+                    final long execStartNs = System.nanoTime(); // K6 公平规则计时 / K6 fairness-rule clock
                     try {
                         FormulaInterpreter.exec(script.ast, env, FormulaCompute.sliceNs(),
                             car != null ? car.loopStack : null, car != null ? car.totalIterations : 0);
@@ -405,22 +444,50 @@ public final class FormulaEval {
                         done.frozenInputs = frozenRef;
                         node.formulaCarrier = done;
                         node.formulaSpreadProgress = 0f;
+                        node.formulaDeadlineStreak = 0; // 完成即有救,清连续超时 / completing means recoverable, reset the streak
                         for (int oi = 0; oi < nOut; oi++) {
                             try {
                                 var rpn = script.outputRpns.get(oi);
                                 o[oi] = (float)FormulaParser.asScalar(FormulaParser.evaluateValue(
                                     oi < script.outputRpns.size() ? rpn : java.util.List.of(0.0), env));
+                            } catch (FormulaParser.DeadlineShedException d) {
+                                // K6:输出阶段撞 deadline——该输出保持(不写 0),done 态整体作废
+                                //(下 tick 全量重试,闲时补全),结果不进 dedup(部分输出不毒化同脚本兄弟);
+                                // 处置同样走公平规则。
+                                // K6: the output phase hit the deadline — this output holds (never
+                                // zeroed), the done state is discarded wholesale (full retry next
+                                // tick, finishes on a quieter one) and the result never enters the
+                                // dedup cache (a partial output must not poison same-script
+                                // siblings); the fairness rule applies all the same.
+                                node.formulaCarrier = null;
+                                dedupCacheable = false;
+                                LOGGER.debug("FORMULA AST output idx={} suspended by budget deadline (node {})", oi, node.id);
+                                noteDeadlineShed(node, System.nanoTime() - execStartNs);
                             } catch (Exception e) {
                                 LOGGER.debug("FORMULA AST output error idx={}: {}", oi, e.getMessage());
                                 o[oi] = 0;
                             }
                         }
                     } catch (FormulaInterpreter.SuspendSignal sus) {
-                        // 挂起:carrier 续存,输出冻结(emit-on-done)/ suspend: keep carrier, outputs frozen
-                        sus.carrier.frozenInputs = frozenRef;
-                        node.formulaCarrier = sus.carrier;
-                        node.formulaSpreadProgress = sus.carrier.progress;
-                        FormulaCompute.reportYield();
+                        if (sus.fromDeadline) {
+                            // K6:deadline 挂起——carrier 续存(下 tick 续算)、输出保持、**不计 yield**
+                            //(闭式表达式无法协作让路,计入只会挤压循环份额);处置走公平规则。
+                            // K6: deadline suspend — carrier kept (resume next tick), outputs hold,
+                            // and it does NOT count as a yield (a closed-form expression cannot
+                            // cooperatively yield; counting it would only starve the loops); the
+                            // fairness rule disposes.
+                            sus.carrier.frozenInputs = frozenRef;
+                            node.formulaCarrier = sus.carrier;
+                            node.formulaSpreadProgress = sus.carrier.progress;
+                            noteDeadlineShed(node, System.nanoTime() - execStartNs);
+                        } else {
+                            // 挂起:carrier 续存,输出冻结(emit-on-done)/ suspend: keep carrier, outputs frozen
+                            sus.carrier.frozenInputs = frozenRef;
+                            node.formulaCarrier = sus.carrier;
+                            node.formulaSpreadProgress = sus.carrier.progress;
+                            FormulaCompute.reportYield();
+                            node.formulaDeadlineStreak = 0; // 正常推进,清连续超时 / regular progress, reset the streak
+                        }
                     } catch (FormulaInterpreter.ShedSignal sh) {
                         // MAX_ITER 兜底:清 carrier、输出冻结、告警一次 / MAX_ITER backstop
                         node.formulaCarrier = null;

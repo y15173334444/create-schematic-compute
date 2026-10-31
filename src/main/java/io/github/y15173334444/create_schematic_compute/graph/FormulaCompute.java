@@ -12,8 +12,9 @@ import java.util.Map;
  * 预算语义(权威决策见 docs/formula-budget-syntax-decisions.md §三):
  * - 节点入口永远准入(保底),不查 deadline;循环边界的协作超时(slice yield)在刀 3/5 接入;
  * - slice = 预算 / max(1, N_heavy_prev),N_heavy = 上一 tick 实际 yield 的重节点数;
- * - deadline 仅作兜底(闭式巨脚本的紧急 shed)。
- * 刀 1 中本类对现有 RPN 脚本即刻生效的是:去重缓存;其余状态为刀 3/5 的挂载点。
+ * - deadline 仅作兜底(闭式巨脚本的紧急 shed)——K6(2026-10-31)已兑现:表达式栈机每
+ *   256 ops 采样,超 deadline 抛 {@link FormulaParser.DeadlineShedException},解释器转
+ *   fromDeadline 挂起(carrier 保住,输出保持 lastGood),连续超自身份额 20 tick 冻结。
  */
 public final class FormulaCompute {
 
@@ -90,9 +91,17 @@ public final class FormulaCompute {
         return heavyYieldCountPrev;
     }
 
-    /** 预算兜底 deadline 是否已过(刀 3 接入;刀 1 无循环、仅兜底)。 / Whether the backstop deadline has passed (knife 3; backstop only in knife 1). */
+    /**
+     * 预算兜底 deadline 是否已过(K6 接线:表达式栈机本地计数每 256 ops 采样本方法)。
+     * {@code budgetDeadlineNs == 0}(未接线/单测环境)视为未过期——0 是 {@code clearAll()}
+     * 的复位值,不加守卫会在该形态下恒真。
+     * Whether the backstop deadline has passed (K6 wiring: the expression machine samples this
+     * every 256 ops via a call-local counter). {@code budgetDeadlineNs == 0} (unwired / unit-test
+     * env) reads as NOT exhausted — zero is clearAll()'s reset value, and without this guard the
+     * check would read permanently true in that shape.
+     */
     public static boolean deadlineExhausted() {
-        return System.nanoTime() >= budgetDeadlineNs;
+        return budgetDeadlineNs > 0 && System.nanoTime() >= budgetDeadlineNs;
     }
 
     // ─────────────────── 去重缓存 / Dedup cache ───────────────────

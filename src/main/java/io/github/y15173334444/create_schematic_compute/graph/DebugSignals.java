@@ -71,6 +71,14 @@ public final class DebugSignals {
         try {
             List<Object> rpn = cachedRpn != null ? cachedRpn : FormulaParser.compile(formula);
             return (float) FormulaParser.evaluate(rpn, Map.of("x", x));
+        } catch (FormulaParser.DeadlineShedException d) {
+            // K6 瞬态豁免:曲线求值被预算 deadline 打断 → 本 tick 0(不 warn、不进坏公式纪律,
+            // 下 tick 重试);否则聚合压力会让 DEBUG 节点误进失败态并每 tick 刷告警。
+            // K6 transient exemption: curve evaluation cut off by the budget deadline → 0 for
+            // this tick (no warn, outside the broken-formula discipline, retry next tick);
+            // otherwise aggregate pressure would push DEBUG nodes into the failure state and
+            // spam the log every tick.
+            return 0f;
         } catch (Exception e) {
             LOGGER.warn("Failed to evaluate formula '{}': {}", formula, e.getMessage());
             return 0f;

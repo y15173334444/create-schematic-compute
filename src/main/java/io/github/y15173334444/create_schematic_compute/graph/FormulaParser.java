@@ -275,13 +275,42 @@ public class FormulaParser {
     private static boolean truthy(double v) { return v != 0.0; }
 
     /**
+     * 预算兜底 shed 信号(K6,2026-10-31):表达式栈机采样到本 tick 预算 deadline 已过
+     * ({@code FormulaCompute.opsDeadlineExhausted()}),唯一抛点在 {@link #evaluateValue}。
+     * Exception 族——各求值入口按「输出保持、瞬态重试」口径捕获,绝不以 Error 逃逸:
+     * 解释器转 fromDeadline 挂起(carrier 保住),FORMULA 输出阶段与 DEBUG 曲线/试算按
+     * 瞬态豁免(输出保持/不误判坏公式)。
+     * Budget-backstop shed signal (K6, 2026-10-31): the expression machine sampled the tick's
+     * budget deadline as passed ({@code FormulaCompute.opsDeadlineExhausted()}); the only throw
+     * site is {@link #evaluateValue}. Exception family — every eval entry catches it as "hold
+     * outputs, transient retry", it never escapes as an Error: the interpreter converts it to a
+     * fromDeadline suspend (carrier preserved), while the FORMULA output phase and the DEBUG
+     * curve/probe take the transient exemption (hold outputs / never misread as a broken formula).
+     */
+    public static final class DeadlineShedException extends RuntimeException {
+        public DeadlineShedException() { super(null, null, false, false); }
+    }
+
+    /**
      * 统一 Value 栈机(单一求值引擎,决策文档 §五)。旧标量 RPN 与刀 3 的向量/控制流共用同一引擎。
+     * K6:本地 op 计数器每 256 token 查一次 tick deadline({@link FormulaCompute#deadlineExhausted()})
+     * ——计数器是**调用内局部**的:微小表达式(≤256 ops)永不采样、零共享状态,巨表达式
+     * (闭式巨脚本)在首个采样点即被 shed。共享计数器形态曾让测试类间静态状态泄漏误伤
+     * (BallisticSolverTest/FormulaParserSyntaxTest 首爆),故取局部口径。
      * Unified Value stack machine (single evaluation engine, decisions doc §五). Legacy scalar RPN
      * and knife-3 vectors share this one engine.
+     * K6: a call-local op counter samples the tick deadline
+     * ({@link FormulaCompute#deadlineExhausted()}) every 256 tokens — the counter is **local to
+     * the call**: tiny expressions (≤256 ops) are never sampled with zero shared state, while a
+     * monster expression (the closed-form giant) is shed at its first sample. A shared-counter
+     * shape leaked static state across test classes (BallisticSolverTest /
+     * FormulaParserSyntaxTest exploded first), hence the call-local design.
      */
     public static Value evaluateValue(List<Object> rpn, Map<String, Value> env) {
         var stack = new ArrayDeque<Value>();
+        int ops = 0;
         for (var tok : rpn) {
+            if ((++ops & 0xFF) == 0 && FormulaCompute.deadlineExhausted()) throw new DeadlineShedException();
             if (tok instanceof Double d) { stack.push(new Value.Scalar(d)); continue; }
             if (tok instanceof String varName) { stack.push(env.getOrDefault(varName, Value.Scalar.ZERO)); continue; }
             if (tok instanceof FunctionToken ft) {

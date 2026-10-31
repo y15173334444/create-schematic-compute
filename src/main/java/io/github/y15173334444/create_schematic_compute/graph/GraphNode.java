@@ -54,6 +54,7 @@ public class GraphNode {
     public transient FormulaInterpreter.Carrier formulaCarrier = null; // 跨 tick 收敛态 / cross-tick convergence state
     public transient float formulaSpreadProgress = 0f;                 // 渲染态进度:0..1,-1 不定 / render progress
     public transient boolean formulaShedWarned = false;                // MAX_ITER shed 已告警一次 / shed warned once per formula
+    public transient int formulaDeadlineStreak = 0;                    // K6:连续超 deadline 的 tick 数(仅节点自身超份额时计数) / K6: consecutive deadline-overflow ticks (only when the node itself outlives its slice)
     public transient java.util.List<FormulaParser.FormulaIssue> formulaIssues = null; // 客户端校验问题 (client-side validation issues)
     // Display node fields (Monitor block)  /  显示节点字段（Monitor 方块）
     public String displayText = "";               // TEXT 节点内容 / TEXT node content

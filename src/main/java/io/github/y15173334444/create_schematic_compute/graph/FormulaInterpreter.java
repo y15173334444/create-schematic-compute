@@ -61,7 +61,18 @@ public final class FormulaInterpreter {
     /** 挂起信号:循环边界 slice 耗尽,携带 carrier 抛出。 / Suspend signal: slice exhausted at a loop boundary, carries the carrier. */
     public static final class SuspendSignal extends RuntimeException {
         public final Carrier carrier;
-        SuspendSignal(Carrier c) { super(null, null, false, false); this.carrier = c; }
+        /** K6:true = 源自预算 deadline 兜底(表达式栈机),false = 常规 slice 挂起。
+         *  FormulaEval 据此免计 yield、按公平规则处置(输出保持,仅自身超份额才计连续超时)。
+         *  K6: true = raised by the budget-deadline backstop (expression machine), false = a
+         *  regular slice suspend. FormulaEval reads this to skip yield counting and apply the
+         *  fairness rule (hold outputs; only over-own-slice sheds count toward the freeze). */
+        public final boolean fromDeadline;
+        SuspendSignal(Carrier c) { this(c, false); }
+        SuspendSignal(Carrier c, boolean fromDeadline) {
+            super(null, null, false, false);
+            this.carrier = c;
+            this.fromDeadline = fromDeadline;
+        }
     }
 
     /** 硬 shed 信号:MAX_ITER 兜底(病态脚本)。 / Hard-shed signal: MAX_ITER backstop (pathological scripts). */
@@ -109,41 +120,52 @@ public final class FormulaInterpreter {
             this.totalIterations = initTotal;
         }
 
+        /** 收敛态快照(loopStack/env/进度/累计迭代)——slice 挂起与 K6 deadline 转挂起共用。
+         *  Convergence-state snapshot (loopStack/env/progress/iterations) — shared by the slice
+         *  suspend and the K6 deadline conversion. */
+        Carrier snapshot() {
+            var c = new Carrier();
+            c.loopStack = new ArrayList<>(loopStack);
+            c.envSnapshot = new HashMap<>(env);
+            c.progress = progressOf();
+            c.totalIterations = totalIterations; // MAX_ITER 跨 tick 累积 / spread-wide
+            return c;
+        }
+
+        /** 进度以**最外层 repeat** 为主、内层份额平滑叠加:嵌套循环(如弹道脚本的
+         *  扫描×模拟)下内层循环反复 0→1 会造成进度条横跳;最外层是 while 时退回
+         *  最内层 repeat,都没有则不定(-1)。
+         *  Progress is driven by the **outermost repeat** with the innermost share added for
+         *  smoothness: under nested loops (e.g. the ballistic scan×simulation) the inner loop
+         *  repeatedly sweeping 0→1 makes the bar jump around; when the outermost is a while,
+         *  fall back to the innermost repeat, else indeterminate (-1). */
+        private float progressOf() {
+            float progress = 0f;
+            if (!loopStack.isEmpty()) {
+                LoopState outer = loopStack.get(0);
+                if (outer.loop instanceof FormulaAst.RepeatStmt ro && ro.count() > 0) {
+                    double p = outer.k / (double) ro.count();
+                    LoopState inner = loopStack.get(loopStack.size() - 1);
+                    if (inner != outer && inner.loop instanceof FormulaAst.RepeatStmt ri && ri.count() > 0)
+                        p += (inner.k / (double) ri.count()) / ro.count();
+                    progress = (float) Math.min(1.0, Math.max(0.0, p));
+                } else {
+                    LoopState inner = loopStack.get(loopStack.size() - 1);
+                    progress = inner.loop instanceof FormulaAst.RepeatStmt ri && ri.count() > 0
+                        ? (float) Math.min(1.0, Math.max(0.0, (double) inner.k / ri.count()))
+                        : -1f; // 不定 / indeterminate
+                }
+            }
+            return progress;
+        }
+
         /** 循环边界检查:每 CHECK_EVERY 迭代测墙钟,超 slice → 挂起;超 MAX_ITER → 硬 shed。
          *  Boundary check: wall clock every CHECK_EVERY iterations; over slice → suspend; over MAX_ITER → shed. */
         void boundaryCheck() {
             if (++iterations >= CHECK_EVERY) {
                 iterations = 0;
                 if (System.nanoTime() - nodeStartNs > sliceNs) {
-                    // 进度以**最外层 repeat** 为主、内层份额平滑叠加:嵌套循环(如弹道脚本的
-                    // 扫描×模拟)下内层循环反复 0→1 会造成进度条横跳;最外层是 while 时退回
-                    // 最内层 repeat,都没有则不定(-1)。
-                    // Progress is driven by the **outermost repeat** with the innermost share added for
-                    // smoothness: under nested loops (e.g. the ballistic scan×simulation) the inner loop
-                    // repeatedly sweeping 0→1 makes the bar jump around; when the outermost is a while,
-                    // fall back to the innermost repeat, else indeterminate (-1).
-                    float progress = 0f;
-                    if (!loopStack.isEmpty()) {
-                        LoopState outer = loopStack.get(0);
-                        if (outer.loop instanceof FormulaAst.RepeatStmt ro && ro.count() > 0) {
-                            double p = outer.k / (double) ro.count();
-                            LoopState inner = loopStack.get(loopStack.size() - 1);
-                            if (inner != outer && inner.loop instanceof FormulaAst.RepeatStmt ri && ri.count() > 0)
-                                p += (inner.k / (double) ri.count()) / ro.count();
-                            progress = (float) Math.min(1.0, Math.max(0.0, p));
-                        } else {
-                            LoopState inner = loopStack.get(loopStack.size() - 1);
-                            progress = inner.loop instanceof FormulaAst.RepeatStmt ri && ri.count() > 0
-                                ? (float) Math.min(1.0, Math.max(0.0, (double) inner.k / ri.count()))
-                                : -1f; // 不定 / indeterminate
-                        }
-                    }
-                    var c = new Carrier();
-                    c.loopStack = new ArrayList<>(loopStack);
-                    c.envSnapshot = new HashMap<>(env);
-                    c.progress = progress;
-                    c.totalIterations = totalIterations; // MAX_ITER 跨 tick 累积 / spread-wide
-                    throw new SuspendSignal(c);
+                    throw new SuspendSignal(snapshot());
                 }
             }
             if (++totalIterations > MAX_ITER) throw new ShedSignal();
@@ -198,6 +220,14 @@ public final class FormulaInterpreter {
             // eval branch's catch(Exception) and zero the whole node's outputs as if it were an
             // error. Semantics: top-level statements after the continue are skipped, completed
             // assignments are kept (identical to top-level break).
+        } catch (FormulaParser.DeadlineShedException d) {
+            // K6 预算兜底:deadline 在表达式栈机触发——快照收敛态转 fromDeadline 挂起
+            // (spread 进度保住,下 tick 续算);FormulaEval 按旗标免计 yield 并走公平规则。
+            // K6 budget backstop: the deadline fired inside the expression machine — snapshot
+            // the convergence state into a fromDeadline suspend (spread progress survives, next
+            // tick resumes); FormulaEval reads the flag to skip yield counting and apply the
+            // fairness rule.
+            throw new SuspendSignal(ctx.snapshot(), true);
         }
     }
 
