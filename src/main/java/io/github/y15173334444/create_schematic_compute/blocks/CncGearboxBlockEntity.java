@@ -7,6 +7,7 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
 import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
+import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.GearboxCommandSink;
 import io.github.y15173334444.create_schematic_compute.graph.KineticEncoderView;
 import io.github.y15173334444.create_schematic_compute.graph.MotionCommand;
@@ -206,6 +207,8 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
     @Override public java.util.Set<NodeType> loadTimeNodeTypes() { return host.loadTimeNodeTypes(); }
 
     @Override public java.util.Set<String> loadTimeCustomIds() { return host.loadTimeCustomIds(); }
+
+    @Override public GraphEvaluator evaluatorView() { return host.evaluator; }
 
     /** 缝 8（⑬ 后）：完成节点清理 + 指令栈推进（产出本 tick 离合意图）。
      *  Seam 8 (after ⑬): completed-node cleanup + command-stack advance (produces this

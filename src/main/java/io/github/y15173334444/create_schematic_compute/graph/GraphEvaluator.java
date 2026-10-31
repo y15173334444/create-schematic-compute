@@ -404,6 +404,15 @@ public class GraphEvaluator {
         // routed to TimingEval.evalState at the evalExt entry and never land here.
         // FormulaEval still lacks GATE (GATE no longer routes to FormulaEval);
         // TimingEval.eval still implements only ACCUMULATOR/INTEGRATOR.
+        // 观测埋点（批 E /cscperf）：分派层全节点墙钟。两枚 nanoTime 在求值热路径上
+        // 是每 tick 每节点一次的系统调用级开销（~ns 级），不动求值语义：case 体零改动、
+        // ctx.o 回写契约与尾部记账原样（本埋点在 switch 与尾部记账之间，不读不写 ctx）。
+        // Observation probe (batch E /cscperf): dispatch-level wall clock for every node.
+        // Two nanoTime calls per node per tick are syscall-grade overhead (~ns) and touch
+        // no evaluation semantics: case bodies stay untouched, the ctx.o write-back
+        // contract and the tail bookkeeping are exactly as before (the probe sits between
+        // the switch and the tail bookkeeping and neither reads nor writes ctx).
+        long perfT0 = System.nanoTime();
         switch (NodeCategory.of(node.type)) {
             case MATH_BASIC, MATH_ADVANCED, TRIG, LOGIC, CONTROL -> FormulaEval.eval(ctx);
             case SEQUENTIAL_ACC, SEQUENTIAL_STATE -> TimingEval.eval(ctx);
@@ -429,6 +438,30 @@ public class GraphEvaluator {
         // o = new float[...]; node.outputValues = o; all complete inside their handlers).
         // Bit-identical to the old outputs.put(node.id, o.clone()).
         ctx.outputs.put(node.id, ctx.o.clone());
+        recordNodeCost(node.id, System.nanoTime() - perfT0);
+    }
+
+    /** 每节点求值耗时 EMA（观测面，批 E）：键 = 节点 id，值 = 指数滑动平均 ns（首样播种，
+     *  之后 7/8 旧 + 1/8 新）。随求值器生命周期存亡——图编辑触发重建时整表换血（含已删
+     *  节点的陈旧键），无持久化无跨 tick 泄漏面。封装子求值器各持己表（/cscperf v1 只读
+     *  顶层图）。/ Per-node evaluation-cost EMA (the observability face, batch E): keyed
+     *  by node id, an exponential moving average in ns (first sample seeds; afterwards
+     *  7/8 old + 1/8 new). Lives and dies with the evaluator — a graph edit rebuilds it
+     *  wholesale (stale keys of deleted nodes go with it), nothing persists and nothing
+     *  leaks across ticks. Encapsulation sub-evaluators keep their own tables (/cscperf
+     *  v1 reads the top-level graph only). */
+    private final java.util.HashMap<Integer, Long> nodeCostNs = new java.util.HashMap<>();
+
+    private void recordNodeCost(int nodeId, long ns) {
+        long prev = nodeCostNs.getOrDefault(nodeId, 0L);
+        nodeCostNs.put(nodeId, prev == 0 ? ns : (prev * 7 + ns) / 8);
+    }
+
+    /** 耗时表只读视图（/cscperf 消费面；调用方可据此经图反查节点类型/自定义 id）。
+     *  <p>A read-only view of the cost table (the /cscperf consumer; callers resolve node
+     *  type / custom id through the graph themselves).</p> */
+    public java.util.Map<Integer, Long> nodeCostNsView() {
+        return java.util.Collections.unmodifiableMap(nodeCostNs);
     }
 
     public record InputSource(long freqKey, int signal) {}

@@ -135,6 +135,8 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     /** @see EditSessionTarget#loadTimeCustomIds */
     @Override public java.util.Set<String> loadTimeCustomIds() { return host.loadTimeCustomIds(); }
 
+    @Override public GraphEvaluator evaluatorView() { return host.evaluator; }
+
     /** 宿主准入名单——各宿主 BE 各答自己的 `BlockNodeAllowances` 条目（P2-7 服务端准入门
      *  的宿主侧应答，引擎不含名单知识）。
      *  The host admission allowlist — each host BE answers its own `BlockNodeAllowances`

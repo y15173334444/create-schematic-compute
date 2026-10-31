@@ -62,5 +62,64 @@ public final class SchematicComputeCommands {
                         "commands.create_schematic_compute.cscbudget.set", String.format("%.1f", v)), true);
                     return 1;
                 })));
+        dispatcher.register(Commands.literal("cscperf")
+            .requires(src -> src.hasPermission(2))
+            .executes(ctx -> {
+                ServerPlayer sp = ctx.getSource().getPlayerOrException();
+                // 视线命中的宿主方块（6 格）→ 图 BE → 求值器耗时刻度表。
+                // The host block under the crosshair (6 blocks) → graph BE → the
+                // evaluator's cost table.
+                var hit = sp.pick(6.0, 1.0f, false);
+                if (hit.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK) {
+                    ctx.getSource().sendFailure(Component.translatable(
+                        "commands.create_schematic_compute.cscperf.no_target"));
+                    return 0;
+                }
+                var pos = net.minecraft.core.BlockPos.containing(hit.getLocation());
+                if (!(sp.level().getBlockEntity(pos) instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity gbe)
+                    || gbe.evaluatorView() == null || gbe.getNodeGraph() == null) {
+                    ctx.getSource().sendFailure(Component.translatable(
+                        "commands.create_schematic_compute.cscperf.no_target"));
+                    return 0;
+                }
+                var lines = formatPerfSummary(gbe.evaluatorView(), gbe.getNodeGraph(), 20);
+                if (lines.isEmpty()) {
+                    ctx.getSource().sendSuccess(() -> Component.translatable(
+                        "commands.create_schematic_compute.cscperf.empty"), false);
+                    return 1;
+                }
+                ctx.getSource().sendSuccess(() -> Component.translatable(
+                    "commands.create_schematic_compute.cscperf.header", pos.toShortString()), false);
+                for (String line : lines)
+                    ctx.getSource().sendSuccess(() -> Component.literal(line), false);
+                return 1;
+            }));
+    }
+
+    /** /cscperf 汇总格式化（纯函数，headless 可锚）：per-node EMA 降序 top-N，行式
+     *  「#i  node <id> (<type|customId>)  <µs> µs avg」。CUSTOM 节点带 modid+节点 id
+     *  （验收②的可观测底座：第三方耗时一眼可辨）。
+     *  The /cscperf summary formatter (a pure function, anchorable headless): per-node
+     *  EMA descending top-N, lines like "#1 node 12 (cscexample:widget) 123.4 µs avg".
+     *  CUSTOM nodes carry modid + node id (the observability base of acceptance 2). */
+    public static java.util.List<String> formatPerfSummary(
+            io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator ev,
+            io.github.y15173334444.create_schematic_compute.graph.NodeGraph graph, int topN) {
+        var costs = ev.nodeCostNsView();
+        var sorted = new java.util.ArrayList<>(costs.entrySet());
+        sorted.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
+        var out = new java.util.ArrayList<String>();
+        int rank = 0;
+        for (var e : sorted) {
+            if (rank >= topN) break;
+            var node = graph.findNode(e.getKey());
+            String label = node == null ? "?"
+                : (node.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.CUSTOM
+                    ? node.customId : node.type.id);
+            out.add(String.format("#%d  node %d (%s)  %.1f µs avg", rank + 1, e.getKey(),
+                label, e.getValue() / 1000.0));
+            rank++;
+        }
+        return out;
     }
 }

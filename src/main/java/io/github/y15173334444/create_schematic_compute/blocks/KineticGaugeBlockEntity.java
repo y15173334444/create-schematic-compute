@@ -5,6 +5,7 @@ import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
 import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
+import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
 import io.github.y15173334444.create_schematic_compute.graph.KineticNetworkView;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
@@ -97,6 +98,8 @@ public class KineticGaugeBlockEntity extends KineticBlockEntity
     @Override public java.util.Set<NodeType> loadTimeNodeTypes() { return host.loadTimeNodeTypes(); }
 
     @Override public java.util.Set<String> loadTimeCustomIds() { return host.loadTimeCustomIds(); }
+
+    @Override public GraphEvaluator evaluatorView() { return host.evaluator; }
 
     // ── 读数同步 / readout sync ──
 
