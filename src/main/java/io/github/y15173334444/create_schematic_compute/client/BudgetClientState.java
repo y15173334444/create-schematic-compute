@@ -16,6 +16,8 @@ public final class BudgetClientState {
     private static volatile double serverMs = -1.0;
     /** 服务端最近一次裁定的调整权限。 / the server's latest can-adjust ruling. */
     private static volatile boolean canAdjust = false;
+    /** 最近一次同步的墙钟戳(预算 tab 用它判定「同步落点」做高亮反馈)。 / the last sync's wall-clock stamp (the budget tab reads it for the landing flash). */
+    private static volatile long syncStamp = 0L;
 
     private BudgetClientState() {}
 
@@ -23,9 +25,12 @@ public final class BudgetClientState {
     public static void onSync(double ms, boolean adjust) {
         serverMs = ms;
         canAdjust = adjust;
+        syncStamp = System.currentTimeMillis();
     }
 
     public static double serverMs() { return serverMs; }
 
     public static boolean canAdjust() { return canAdjust; }
+
+    public static long syncStamp() { return syncStamp; }
 }

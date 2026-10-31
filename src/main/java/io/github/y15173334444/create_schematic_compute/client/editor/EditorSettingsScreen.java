@@ -185,9 +185,9 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
             // lang keys, pins/params from the enum fields; long copy from guide.* keys.
             guideTab.renderGuideTab(g, mx, my, cx, contentBottom);
         } else {
-            // 公式预算 tab（K6）:服务端权威值 + OP 步进调整,无滚动/展开区。
-            // The formula-budget tab (K6): server-authoritative value + OP stepper, no scroll or expansion.
-            budgetTab.renderBudgetTab(g, mx, my, cx, cy, contentRight, contentBottom);
+            // 公式预算 tab（K6）:服务端权威值 + OP 输入框/步进调整,无滚动/展开区。
+            // The formula-budget tab (K6): server-authoritative value + the OP value box/steppers, no scroll or expansion.
+            budgetTab.renderBudgetTab(g, mx, my, cx, cy, contentRight, pt);
         }
     }
 
@@ -368,11 +368,11 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
             }
             return true;
         }
-        // ── 公式预算 tab（K6）:选项卡列 / 按钮区 ──
-        //    Budget tab (K6): tab column / button region.
+        // ── 公式预算 tab（K6）:选项卡列 / 输入框与按钮区 ──
+        //    Budget tab (K6): tab column / the value box and button region.
         if (tab == 3) {
             if (mx < TAB_W - shift) { tabColumnClick(my); return true; }
-            budgetTab.handleClick(mx, my, TAB_W + 12 - shift, cy());
+            budgetTab.handleClick(mx, my);
             return true;
         }
         // 左侧选项卡列（列内空白也消费 —— 全屏界面不穿透）；末尾返回项关闭界面。
@@ -400,6 +400,13 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
         // While the palette's hex input is focused, forward keys (backspace/arrows);
         // ESC still belongs to this screen.
         if (expanded && picker.isHexFocused() && key != 256) return picker.keyPressed(key, sc, mod);
+        // K6:预算 tab 的数值输入框聚焦时转发按键——Enter 应用、ESC 先失焦(不关界面)。
+        // K6: while the budget tab's value box is focused, forward keys — Enter applies,
+        // ESC unfocuses first (never closes the screen).
+        if (tab == 3 && budgetTab.boxFocused()) {
+            if (key == 256) { budgetTab.unfocusBox(); return true; }
+            return budgetTab.boxKeyPressed(key, sc, mod);
+        }
         if (key == 256) {
             if (expanded) { collapseExpanded(); return true; } // ESC 先收起展开区（调色板/键盘） / ESC collapses the open palette or keyboard first
             onClose(); return true;
@@ -415,6 +422,8 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
     public boolean charTyped(char ch, int mod) {
         // 调色板的 HEX 输入框需要字符事件 / the palette's hex input needs char events
         if (expanded && picker.isVisible()) return picker.charTyped(ch, mod);
+        // K6:预算 tab 数值框聚焦时转发字符。 / K6: forward chars while the budget value box is focused.
+        if (tab == 3 && budgetTab.boxFocused()) return budgetTab.boxCharTyped(ch, mod);
         return true; // 无其他文本输入，消费全部字符 / no other text inputs, consume all chars
     }
 

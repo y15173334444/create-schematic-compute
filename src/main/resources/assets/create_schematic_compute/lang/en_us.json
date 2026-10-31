@@ -72,6 +72,7 @@
   "gui.create_schematic_compute.budget.desc2": "Adjusting requires OP; scope = this world's settings.",
   "gui.create_schematic_compute.budget.current": "Current: %s ms",
   "gui.create_schematic_compute.budget.pending": "Pending: %s ms",
+  "gui.create_schematic_compute.budget.applied": "applied ✓",
   "gui.create_schematic_compute.budget.apply": "Apply",
   "gui.create_schematic_compute.budget.reset": "Default",
   "gui.create_schematic_compute.budget.no_perm": "OP permission required to adjust (/cscbudget <ms> also works)",

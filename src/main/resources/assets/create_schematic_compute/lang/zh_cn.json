@@ -70,6 +70,7 @@
   "gui.create_schematic_compute.budget.desc2": "调整需要 OP 权限；作用域 = 当前世界设置。",
   "gui.create_schematic_compute.budget.current": "当前：%s ms",
   "gui.create_schematic_compute.budget.pending": "待应用：%s ms",
+  "gui.create_schematic_compute.budget.applied": "已应用 ✓",
   "gui.create_schematic_compute.budget.apply": "应用",
   "gui.create_schematic_compute.budget.reset": "恢复默认",
   "gui.create_schematic_compute.budget.no_perm": "需要 OP 权限才能调整（/cscbudget <毫秒> 亦可）",
