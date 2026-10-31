@@ -1,0 +1,249 @@
+{
+  "_comment": [
+    "Sable 链接点清单 —— 本模组编译期/运行期链接的 Sable 成员全集。",
+    "The complete set of Sable members our mod links against.",
+    "维护规则 / maintenance rule: 新增 Sable 接触面先补这里再补代码；desc 取自",
+    "`check_linkage.py --dump <类FQN> --dir libs` 的基线输出（真实 class 描述符，勿手编）。",
+    "mixin 的 method= 字符串目标必须单列 —— javac 不校验它 / mixin string targets must be",
+    "listed explicitly: javac never checks them.",
+    "校验口径 / match semantics: kind=class 只查类存在；field/method 精确匹配 name+desc。"
+  ],
+  "points": [
+    {
+      "id": "Sable.HELPER",
+      "class": "dev.ryanhcode.sable.Sable",
+      "kind": "field",
+      "name": "HELPER",
+      "desc": "Ldev/ryanhcode/sable/ActiveSableCompanion;",
+      "why": "ControlSeatEntity / ControlSeatInputHandler / SableSpeakerSpace / ControlSeatCameraMixin 直连入口"
+    },
+    {
+      "id": "ActiveSableCompanion.getContaining(Entity)",
+      "class": "dev.ryanhcode.sable.ActiveSableCompanion",
+      "kind": "method",
+      "name": "getContaining",
+      "desc": "(Lnet/minecraft/world/entity/Entity;)Ldev/ryanhcode/sable/sublevel/SubLevel;",
+      "why": "骑手是否由 Sable 的 sub-level 机制接管（座位/相机/输入三条路径）"
+    },
+    {
+      "id": "ActiveSableCompanion.getContainingClient(SectionPos)",
+      "class": "dev.ryanhcode.sable.ActiveSableCompanion",
+      "kind": "method",
+      "name": "getContainingClient",
+      "desc": "(Lnet/minecraft/core/SectionPos;)Ldev/ryanhcode/sable/sublevel/ClientSubLevel;",
+      "why": "ControlSeatInputHandler 窗外键跟随"
+    },
+    {
+      "id": "ActiveSableCompanion.getContainingClient(ChunkPos)",
+      "class": "dev.ryanhcode.sable.ActiveSableCompanion",
+      "kind": "method",
+      "name": "getContainingClient",
+      "desc": "(Lnet/minecraft/world/level/ChunkPos;)Ldev/ryanhcode/sable/sublevel/ClientSubLevel;",
+      "why": "SableSpeakerSpace 音响世界坐标换算"
+    },
+    {
+      "id": "EntitySubLevelRotationHelper.shouldCameraRotate",
+      "class": "dev.ryanhcode.sable.mixinhelpers.camera.camera_rotation.EntitySubLevelRotationHelper",
+      "kind": "method",
+      "name": "shouldCameraRotate",
+      "desc": "()Z",
+      "why": "ControlSeatCameraMixin 的 @Inject(method=\"shouldCameraRotate\") 字符串目标；required:false 配置下目标消失只会静默失效 —— 全清单里最脆弱的一条"
+    },
+    {
+      "id": "SubLevel.logicalPose",
+      "class": "dev.ryanhcode.sable.sublevel.SubLevel",
+      "kind": "method",
+      "name": "logicalPose",
+      "desc": "()Ldev/ryanhcode/sable/companion/math/Pose3d;",
+      "why": "位姿提取的唯一入口（SablePoseHelper / SablePacketHelper / 四个 compat BE）"
+    },
+    {
+      "id": "SubLevel.getLevel",
+      "class": "dev.ryanhcode.sable.sublevel.SubLevel",
+      "kind": "method",
+      "name": "getLevel",
+      "desc": "()Lnet/minecraft/world/level/Level;",
+      "why": "MonitorBlockEntitySable 恢复被置空的 level 引用"
+    },
+    {
+      "id": "SubLevel.getPlot",
+      "class": "dev.ryanhcode.sable.sublevel.SubLevel",
+      "kind": "method",
+      "name": "getPlot",
+      "desc": "()Ldev/ryanhcode/sable/sublevel/plot/LevelPlot;",
+      "why": "SablePoseHelper / SablePacketHelper 的 plot 网格坐标链"
+    },
+    {
+      "id": "SubLevel.getUniqueId",
+      "class": "dev.ryanhcode.sable.sublevel.SubLevel",
+      "kind": "method",
+      "name": "getUniqueId",
+      "desc": "()Ljava/util/UUID;",
+      "why": "雷达锁 ID 的运动不变标识（SubLevelOrigin）"
+    },
+    {
+      "id": "ServerSubLevel",
+      "class": "dev.ryanhcode.sable.sublevel.ServerSubLevel",
+      "kind": "class",
+      "why": "sable$physicsTick 的第一个参数类型；缺席则四个 compat BE 全断"
+    },
+    {
+      "id": "ServerSubLevel.latestLinearVelocity",
+      "class": "dev.ryanhcode.sable.sublevel.ServerSubLevel",
+      "kind": "field",
+      "name": "latestLinearVelocity",
+      "desc": "Lorg/joml/Vector3d;",
+      "why": "座位/传感器每物理帧读的公开字段（impl 包，改名即断）"
+    },
+    {
+      "id": "ServerSubLevel.getLevel(ServerLevel)",
+      "class": "dev.ryanhcode.sable.sublevel.ServerSubLevel",
+      "kind": "method",
+      "name": "getLevel",
+      "desc": "()Lnet/minecraft/server/level/ServerLevel;",
+      "why": "协变覆写；以 ServerSubLevel 静态类型调用时绑定的就是这条"
+    },
+    {
+      "id": "ClientSubLevel.renderPose()",
+      "class": "dev.ryanhcode.sable.sublevel.ClientSubLevel",
+      "kind": "method",
+      "name": "renderPose",
+      "desc": "()Ldev/ryanhcode/sable/companion/math/Pose3dc;",
+      "why": "ControlSeatInputHandler 姿态跟随用的无参重载（与 renderPose(F) 同名不同描述符）"
+    },
+    {
+      "id": "SubLevelContainer.getContainer(Level)",
+      "class": "dev.ryanhcode.sable.api.sublevel.SubLevelContainer",
+      "kind": "method",
+      "name": "getContainer",
+      "desc": "(Lnet/minecraft/world/level/Level;)Ldev/ryanhcode/sable/api/sublevel/SubLevelContainer;",
+      "why": "SableAccess 的唯一容器入口（刻意避开 ClientLevel 重载的 RuntimeDistCleaner）"
+    },
+    {
+      "id": "SubLevelContainer.getContainer(ServerLevel)",
+      "class": "dev.ryanhcode.sable.api.sublevel.SubLevelContainer",
+      "kind": "method",
+      "name": "getContainer",
+      "desc": "(Lnet/minecraft/server/level/ServerLevel;)Ldev/ryanhcode/sable/api/sublevel/ServerSubLevelContainer;",
+      "why": "SablePoseHelper.isWithinReachableRange 静态绑定的是 ServerLevel 重载"
+    },
+    {
+      "id": "SubLevelContainer.getAllSubLevels",
+      "class": "dev.ryanhcode.sable.api.sublevel.SubLevelContainer",
+      "kind": "method",
+      "name": "getAllSubLevels",
+      "desc": "()Ljava/util/List;",
+      "why": "扫描/遍历全部 sub-level 的入口"
+    },
+    {
+      "id": "SubLevelContainer.getPlot(ChunkPos)",
+      "class": "dev.ryanhcode.sable.api.sublevel.SubLevelContainer",
+      "kind": "method",
+      "name": "getPlot",
+      "desc": "(Lnet/minecraft/world/level/ChunkPos;)Ldev/ryanhcode/sable/sublevel/plot/LevelPlot;",
+      "why": "SablePoseHelper 的 ChunkPos→Plot→SubLevel 解析链"
+    },
+    {
+      "id": "LevelPlot.getLoadedChunks",
+      "class": "dev.ryanhcode.sable.sublevel.plot.LevelPlot",
+      "kind": "method",
+      "name": "getLoadedChunks",
+      "desc": "()Ljava/util/Collection;",
+      "why": "sub-level 内 BE 查找的兜底枚举；上游注释称 1.2.2 才加 —— 老版本最可能断的一条"
+    },
+    {
+      "id": "LevelPlot.getCenterBlock",
+      "class": "dev.ryanhcode.sable.sublevel.plot.LevelPlot",
+      "kind": "method",
+      "name": "getCenterBlock",
+      "desc": "()Lnet/minecraft/core/BlockPos;",
+      "why": "SablePacketHelper 扫描设备的坐标基准"
+    },
+    {
+      "id": "LevelPlot.getSubLevel",
+      "class": "dev.ryanhcode.sable.sublevel.plot.LevelPlot",
+      "kind": "method",
+      "name": "getSubLevel",
+      "desc": "()Ldev/ryanhcode/sable/sublevel/SubLevel;",
+      "why": "Plot→SubLevel 回边（resolveSubLevel）"
+    },
+    {
+      "id": "PlotChunkHolder.getChunk",
+      "class": "dev.ryanhcode.sable.sublevel.plot.PlotChunkHolder",
+      "kind": "method",
+      "name": "getChunk",
+      "desc": "()Lnet/minecraft/world/level/chunk/LevelChunk;",
+      "why": "协变返回 LevelChunk；经它取 chunk.getBlockEntities() 找 BE"
+    },
+    {
+      "id": "BlockEntitySubLevelActor.sable$physicsTick",
+      "class": "dev.ryanhcode.sable.api.block.BlockEntitySubLevelActor",
+      "kind": "method",
+      "name": "sable$physicsTick",
+      "desc": "(Ldev/ryanhcode/sable/sublevel/ServerSubLevel;Ldev/ryanhcode/sable/api/physics/handle/RigidBodyHandle;D)V",
+      "why": "四个 compat BE 实现的物理帧回调签名"
+    },
+    {
+      "id": "BlockEntitySubLevelActor.sable$getLoadingDependencies",
+      "class": "dev.ryanhcode.sable.api.block.BlockEntitySubLevelActor",
+      "kind": "method",
+      "name": "sable$getLoadingDependencies",
+      "desc": "()Ljava/lang/Iterable;",
+      "why": "compat BE 覆写的依赖声明"
+    },
+    {
+      "id": "BlockEntitySubLevelActor.sable$getConnectionDependencies",
+      "class": "dev.ryanhcode.sable.api.block.BlockEntitySubLevelActor",
+      "kind": "method",
+      "name": "sable$getConnectionDependencies",
+      "desc": "()Ljava/lang/Iterable;",
+      "why": "compat BE 覆写的连接依赖声明"
+    },
+    {
+      "id": "RigidBodyHandle",
+      "class": "dev.ryanhcode.sable.api.physics.handle.RigidBodyHandle",
+      "kind": "class",
+      "why": "sable$physicsTick 的参数类型（我们只作类型引用，不调其方法）"
+    },
+    {
+      "id": "Pose3dc.position",
+      "class": "dev.ryanhcode.sable.companion.math.Pose3dc",
+      "kind": "method",
+      "name": "position",
+      "desc": "()Lorg/joml/Vector3dc;",
+      "why": "extractPoseTransform 取平移"
+    },
+    {
+      "id": "Pose3dc.orientation",
+      "class": "dev.ryanhcode.sable.companion.math.Pose3dc",
+      "kind": "method",
+      "name": "orientation",
+      "desc": "()Lorg/joml/Quaterniondc;",
+      "why": "extractPoseTransform / 姿态欧拉角换算"
+    },
+    {
+      "id": "Pose3dc.rotationPoint",
+      "class": "dev.ryanhcode.sable.companion.math.Pose3dc",
+      "kind": "method",
+      "name": "rotationPoint",
+      "desc": "()Lorg/joml/Vector3dc;",
+      "why": "extractPoseTransform 取旋转枢轴"
+    },
+    {
+      "id": "Pose3dc.transformPosition(Vec3)",
+      "class": "dev.ryanhcode.sable.companion.math.Pose3dc",
+      "kind": "method",
+      "name": "transformPosition",
+      "desc": "(Lnet/minecraft/world/phys/Vec3;)Lnet/minecraft/world/phys/Vec3;",
+      "why": "SableSpeakerSpace 局部→世界坐标"
+    },
+    {
+      "id": "Pose3d.<init>(pos,rot,pivot,scale)",
+      "class": "dev.ryanhcode.sable.companion.math.Pose3d",
+      "kind": "method",
+      "name": "<init>",
+      "desc": "(Lorg/joml/Vector3d;Lorg/joml/Quaterniond;Lorg/joml/Vector3d;Lorg/joml/Vector3d;)V",
+      "why": "SablePacketHelperTransformTest 的测试双轨构造（仅测试用）"
+    }
+  ]
+}

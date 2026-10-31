@@ -46,3 +46,12 @@ runclient_log.txt
 
 # Agent verify workspace (javac/tests scratch, not project source)
 .tmp-verify/
+
+# Python 字节码缓存（tools/ 下的 python 工具）
+__pycache__/
+
+# Sable 兼容性矩阵的版本仓库（tools/sable-compat/fetch_sable_jars.py 随取随建，不入库：
+# 14 版数百 MB，且 PolyForm Shield 再分发受限，见 docs/third-party-licenses.md）
+# Sable compat-matrix version store, rebuilt on demand by fetch_sable_jars.py and never
+# committed (hundreds of MB; PolyForm Shield redistribution is restricted).
+tools/sable-compat/jars/
