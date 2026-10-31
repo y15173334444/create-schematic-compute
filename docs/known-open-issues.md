@@ -25,7 +25,7 @@
 | 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（行为变更） | 🔶 待办（2026-10-25 更新：eval 分派化已落地 main，怪癖按决策 §三-4 原样保留并收敛到单一事实源；**2026-10-31 拍板：档位合一**，✅ 已实施（2026-10-31 档位合一批 0e9cc29）） |
 | 9 | 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE） | 服务端 op 链不校验 `BlockNodeAllowances`，改包客户端可把任意类型塞进任意宿主 | 服务端 op 链按准入名单校验，超名单 REJECT（与 K10 服务端化同批） | 🔶 待办（2026-10-17 补登记，复审 P2-7；**2026-10-31 拍板：运行时服务端化**——各版本整理的方块节点筛选有差异，直接静态校验会让旧版本的图用不了，校验须带旧档兼容口径） |
 | 10 | AST 与 RPN 双前端并行（旧表示退役时间点未定） | 同一份公式有两套可执行表示并存于 FORMULA 求值（`script.ast` 空 → 旧扁平 RPN 循环；非空 → 刀3 解释器），维护面翻倍 | 单批删除旧路径 | 🔶 待办（拓扑 P5 拆分已把两前端物理分离，退役不再受阻；**2026-10-31 拍板：1.3.0 内退役**——无控制流脚本统一升格 AST，旧扁平 RPN 前端随批删除，实施待排期） |
-| 11 | 反向包边成环（blocks ↔ client.editor / network → blocks） | 包归位把同包互访显形为跨包 import，blocks 与 client.editor 互引成环、network 新增回引 blocks 边，与「blocks 回归世界侧」收口叙事反向 | 依赖倒置解环（Host 查询方法 / markDirty 形参收窄 / 窄接口，E2 `EditAckSink` 手法）或接受现状不立分层规则 | 🔶 待办（2026-10-31 补登记，拓扑批 4 注记⑥ 留痕边清单与根因；**2026-10-31 拍板：解环（依赖倒置）**，实施待排期） |
+| 11 | 反向包边成环（blocks ↔ client.editor / network → blocks） | 包归位把同包互访显形为跨包 import，blocks 与 client.editor 互引成环、network 新增回引 blocks 边，与「blocks 回归世界侧」收口叙事反向 | 依赖倒置解环（Host 查询方法 / markDirty 形参收窄 / 窄接口，E2 `EditAckSink` 手法）或接受现状不立分层规则 | 🔶 待办（2026-10-31 补登记，拓扑批 4 注记⑥ 留痕边清单与根因；**2026-10-31 拍板：解环（依赖倒置）**，✅ 已实施（2026-10-31 解环批）） |
 | 12 | 预算兜底未接线（deadline 兑底承诺未兑现） | `deadlineExhausted()` 全仓零调用点，FormulaCompute javadoc 却写着「deadline 仅作兜底（闭式巨脚本的紧急 shed）」——注释替未实现机制背书 | 接线；设置面板新增选项卡 + 两条指令（指令打开设置面板 / 指令直接调整），调整均需 OP，作用域 = 当前世界设置 | 🔶 待办（**2026-10-31 拍板：接线**，交互约束见正文，实施待排期） |
 | 13 | validate 双份 parseScript（同一脚本解析两遍） | `FormulaValidator.validate` 内部完整重跑 `parseScript`，校验路径重复解析 | 去重复用解析产物，单独立批（行为批口径） | 🔶 待办（**2026-10-31 拍板：修，单独立批**，实施待排期） |
 | 14 | 显示器/HUD 每帧分配（图像墙 GC 抖动） | 3D 每像素 quad 无缓存、HUD 每不透明像素 `new float[8]`、恒渲染不进视锥剔除——图像墙场景顶点与分配线性叠加（复审 P1-4） | 只修分配（3D 按图代际缓存 mesh + HUD 像素四边形数组复用），**不碰恒渲染语义** | 🔶 待办（**2026-10-31 拍板：只修分配不碰恒渲染**，实施待排期） |
@@ -455,10 +455,12 @@ BlueprintScreen/GraphBlockEntity）与既有的 `blocks → client.editor`（宿
 
 ### 状态 / Status
 
-**🔶 待拍板。** 2026-10-31 批 4 收账时按暂缓备忘记补登记：拓扑批 4 注记⑥已留痕边清单与根因，
+**✅ 已修（2026-10-31 解环批）。** 2026-10-31 批 4 收账时按暂缓备忘记补登记：拓扑批 4 注记⑥已留痕边清单与根因，
 本条目登记决策欠账，不阻塞任何在途批次。
 
 **🎯 2026-10-31 拍板 / Ruling（仅登记，实施待排期）**：解环（依赖倒置）——按 E2 EditAckSink 手法：GraphEditor.Host 查询方法（缝现成）/ markDirty 形参收窄为 BlockEntity / MonitorBlockEntity 窄接口。解环后「client 不得回引 blocks」类分层规则可立。/ Break the cycle via dependency inversion (the E2 EditAckSink playbook).
+
+**✅ 2026-10-31 实施完毕 / Implemented（解环批）**：四缝全量倒置——① `GraphEditor.Host` 增能力查询（`toolbarWidth` 默认 250/蓝图 326、`supportsEncapImportExport`、`peekSubStateFlipflops`），GraphEditor 三处 `instanceof BlueprintScreen` 与子图徽标的 level 查找全部换查询（子图徽标改宿主屏答自其 BE）；② `AbstractGraphScreen.getBE()` 收窄为 `EditStateView` 窄视图、`GraphRemoteApplier` 的 `instanceof` 同换（pending-ops 记账面）；③ Monitor 三面板（DisplayEditor/SettingsPanel/LayerPanel/Canvas）经 `MonitorBeView` 窄视图（几何/图/求值快照/HUD 模式/运行态）；④ `EditSessionRegistry` 经 `EditSessionTarget` 窄口（图访问/applyCurrentState/requestFullSync/setChanged）+ `markDirty` 形参收窄（直调 `setChanged()`）+ `CoalescedFullSync` 窄口（Monitor 限流全量同步，`instanceof` 具体类型退役）。**范围注记**：条目 scope 只点名 GraphEditor/EditSessionRegistry 七处，但环要真消须 client.editor 全线回引归零——`AbstractGraphScreen`/`GraphRemoteApplier`/Monitor 面板的存量边同批倒置（同手法自然延伸），机制段「环在包图层面不可消」的悲观结论由此推翻。**跨类加载器约束发现**：窄口签名含图域类型（NodeGraph/EvalSnapshot）者（`EditSessionTarget`/`MonitorBeView`）须住 `graph/` 复制域——与 `blocks.GraphBlockEntity` 同处 Sable 子优先复制域；住共享包会让共享接口签名跨加载器域引用被复制类型，触发 JVM loader constraint（SableDeviceNameCrossLoaderTest 首爆，修法=窄口随复制域）。`EditStateView`/`CoalescedFullSync` 签名全为共享类型，住消费方包无碍。client/editor 与 EditSessionRegistry 回引 blocks **全归零**，`PackageEdgeDirectionTest` 方向锁钉住；「client.editor 不得回引 blocks」分层规则已立（锁测试即规则）。1000 绿（998+2 锁）。/ Implemented: all four seams inverted via host capability queries, EditStateView/MonitorBeView/EditSessionTarget/CoalescedFullSync narrow ports and the markDirty param narrowing; the scope extended to the four residual editor files so the cycle genuinely breaks; graph-domain ports stay in the Sable duplication domain (loader-constraint finding, surfaced by SableDeviceNameCrossLoaderTest); zero reverse edges with a direction-lock test; 1000 tests green.
 
 ## 12. 预算兜底未接线（deadline 兑底承诺未兑现）
 

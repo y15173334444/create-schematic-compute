@@ -301,6 +301,13 @@ NodeRenderer）**＋ 引擎（GraphHost、SyncedGraphBlockEntity、GraphBlockEnt
 > （network → blocks 边；其 dropBlock/markDirty 需要 BE 类型）。环的方向性与「blocks 回归世界侧」叙事相反，
 > 但根因是宿主 Screen 留守 blocks 与编辑器类（GraphEditor.Host 接口实现方在宿主屏）天然双向——
 > 除非宿主屏也迁走（会撕裂纵切片同包内聚），否则环不可消。后续若立「client 不回引 blocks」类规则，需先解此环。
+> **→ 2026-10-31 已解环（依赖倒置批）**：GraphEditor.Host 能力查询 + EditStateView / MonitorBeView /
+> EditSessionTarget / CoalescedFullSync 四窄口 + markDirty 形参收窄，client.editor 与
+> EditSessionRegistry 回引 blocks 全归零（含 scope 外的 AbstractGraphScreen / GraphRemoteApplier /
+> Monitor 面板存量边），`PackageEdgeDirectionTest` 方向锁即「client.editor 不得回引 blocks」规则本体；
+> 窄口住 graph 复制域（跨类加载器约束，见登记册条目『反向包边成环』实施记录）。
+> / → Cycle broken 2026-10-31 (dependency-inversion batch): all reverse edges zeroed via Host
+> capability queries and four narrow ports, locked by PackageEdgeDirectionTest.
 
 ---
 

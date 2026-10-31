@@ -504,7 +504,7 @@ Sable 子层级兼容工具 / Sable sub-level compat utilities.
 / Chunked data reassembler. 30 KB/chunk, 30s timeout, cleaned every 20 ticks.
 
 ### EditSessionRegistry（批 4 迁入 `network/` / moved to `network/` in batch 4）
-多人编辑会话注册表 / Multiplayer edit session registry.
+多人编辑会话注册表 / Multiplayer edit session registry. **回引 blocks 已解环（2026-10-31）**：经 `graph.EditSessionTarget` 窄口（图访问/applyCurrentState/requestFullSync/setChanged）与 `CoalescedFullSync` 窄口（Monitor 限流全量同步）消费，`markDirty` 形参收窄直调 `setChanged()` / reverse edge broken: consumed through the EditSessionTarget / CoalescedFullSync narrow ports with the markDirty param narrowed.
 
 **三个 Map / Three Maps**：
 - `editors` — `GlobalPos → Set<UUID>` 活跃编辑者 / Active editors
@@ -564,7 +564,7 @@ Sable 子层级兼容工具 / Sable sub-level compat utilities.
 
 ### `client/editor/` — 节点图编辑器家族（批 4 迁入 / moved in batch 4）
 
-25 个编辑器家族类自 `blocks/` 迁入：GraphEditor 与其 GUI 拆分协作者、MonitorDisplayEditor 三分、EditorSettings 家族、NodeAddMenu、注释/连线渲染器，以及 NodeRenderer/NodeCharts/WireGeometry（包级取色口被家族调用，必须同刀 / the NodeRenderer family rides along — its package-level colour accessors are called by the family）。以下小节随之迁移，正文未改（仅方法体内 FQCN 包段与 3 处注记性可见性放宽）/ the subsections below moved unchanged (only in-body FQCN package segments and three annotated visibility widenings differ)。
+25 个编辑器家族类自 `blocks/` 迁入：GraphEditor 与其 GUI 拆分协作者、MonitorDisplayEditor 三分、EditorSettings 家族、NodeAddMenu、注释/连线渲染器，以及 NodeRenderer/NodeCharts/WireGeometry（包级取色口被家族调用，必须同刀 / the NodeRenderer family rides along — its package-level colour accessors are called by the family）。以下小节随之迁移，正文未改（仅方法体内 FQCN 包段与 3 处注记性可见性放宽）/ the subsections below moved unchanged (only in-body FQCN package segments and three annotated visibility widenings differ)。**反向包边已解环（2026-10-31）**：本包回引 `blocks.` 全归零——GraphEditor.Host 能力查询（`toolbarWidth`/`supportsEncapImportExport`/`peekSubStateFlipflops`）+ 窄视图 `EditStateView`（`getBE()`/GraphRemoteApplier 的编辑记账面）+ `graph.MonitorBeView`（Monitor 面板的几何/图/快照/HUD 面），`PackageEdgeDirectionTest` 方向锁钉住 / reverse package edges broken: this package reaches zero `blocks.` references (Host capability queries + the EditStateView / MonitorBeView narrow ports), locked by PackageEdgeDirectionTest.
 
 ### GraphEditor (~4200 行 / lines；步骤 6 各刀持续缩小 / shrinking via roadmap step-6 cuts)
 核心节点图编辑器。承载所有渲染/输入/交互逻辑。
