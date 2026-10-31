@@ -83,7 +83,14 @@ public class EditPanel {
             && editY + editH >= -margin && editY <= screenH + margin;
     }
 
-    /** 在局部坐标中渲染编辑控件（由 drawNode 在 pose 内调用，自动随缩放） */
+    /** 在局部坐标中渲染编辑控件（由 drawNode 在 pose 内调用，自动随缩放）。
+     *  {@code mx/my} 必须是**节点局部**坐标——调用方先做 {@code (mx-sx)/zoom}（与点击侧
+     *  同口径）；屏幕坐标直传会让全部悬停高亮按「屏幕数值 = 局部矩形」错位点亮。
+     *  Renders the edit controls in local coordinates (called by drawNode inside the pose,
+     *  scaling rides the pose). {@code mx/my} must be **node-local** — callers transform
+     *  with {@code (mx-sx)/zoom} first (same convention as the click side); raw screen
+     *  coords make every hover outline light up wherever the screen position numerically
+     *  matches the local rect. */
     public static void renderAt(GuiGraphics g, int px, int py, int pw, GraphNode node,
                                  io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor.EditState st,
                                  float zoom, int mx, int my, Map<Integer, Boolean> flipflopStates) {

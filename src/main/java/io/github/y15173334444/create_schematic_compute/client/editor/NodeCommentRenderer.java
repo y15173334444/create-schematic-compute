@@ -227,8 +227,12 @@ final class NodeCommentRenderer {
                 pose.pushPose();
                 pose.translate(sx, sy, 0);
                 pose.scale(zoom, zoom, 1);
+                // 同 NodeRenderer.drawNode：鼠标先换算到注释局部系（renderAt 悬停矩形全局部）。
+                // Same as NodeRenderer.drawNode: transform the mouse into the comment's local
+                // frame first (renderAt's hover rects are all local).
+                int lmx = (int) ((mx - sx) / zoom), lmy = (int) ((my - sy) / zoom);
                 io.github.y15173334444.create_schematic_compute.client.editor.EditPanel.renderAt(
-                    g, 0, commentEditY, Math.round(n.commentWidth), n, editSt, zoom, mx, my, null);
+                    g, 0, commentEditY, Math.round(n.commentWidth), n, editSt, zoom, lmx, lmy, null);
                 pose.popPose();
                 g.disableScissor();
             }

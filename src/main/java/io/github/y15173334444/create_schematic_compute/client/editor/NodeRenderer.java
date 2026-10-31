@@ -466,7 +466,17 @@ public class NodeRenderer {
                 // so the snapshot captured at EditState creation goes stale and edit-area
                 // graph queries (band-pin tint / connected) lag until the editor reopens.
                 editSt.graph = graph;
-                io.github.y15173334444.create_schematic_compute.client.editor.EditPanel.renderAt(g, 0, editLocalY, nodeW, n, editSt, zoom, mx, my, flipflopStates);
+                // 鼠标先换算到节点局部系再传面板：renderAt 的悬停矩形全是局部坐标，与点击侧的
+                // (mx-nsx)/zoom 同口径。此前误传屏幕坐标——悬停高亮在「屏幕上数值等于局部矩形」
+                // 的空白区点亮（节点不在屏幕左上角时感知位置全错，时序状态批后显形）。
+                // Transform the mouse into the node-local frame before handing it to the panel:
+                // renderAt's hover rects are all local, the same convention as the click side's
+                // (mx-nsx)/zoom. Raw screen coords were passed before — the hover outline lit up
+                // wherever the screen position numerically matched the local rect (perceived
+                // position wrong for any node not near the screen's top-left; surfaced by the
+                // sequential-state batch).
+                int lmx = (int) ((mx - sx) / zoom), lmy = (int) ((my - sy) / zoom);
+                io.github.y15173334444.create_schematic_compute.client.editor.EditPanel.renderAt(g, 0, editLocalY, nodeW, n, editSt, zoom, lmx, lmy, flipflopStates);
             }
         }
         // C=3.5: 调试节点图表区域（graph space，坐标相对于节点左上角）——实现已拆至 NodeCharts

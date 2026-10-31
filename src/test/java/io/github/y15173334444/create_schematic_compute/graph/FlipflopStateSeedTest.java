@@ -191,4 +191,24 @@ class FlipflopStateSeedTest {
                     loc + " still carries the dead key: " + dead);
         }
     }
+
+    @Test
+    @DisplayName("悬停帧锁：renderAt 两调用点必须传节点局部鼠标 / hover frame lock")
+    void hoverMouseIsLocalAtBothCallSites() throws Exception {
+        // renderAt 的悬停矩形全是节点局部坐标——调用方必须先做 (mx-sx)/zoom（与点击侧同口径）。
+        // 屏幕坐标直传会让悬停高亮在「屏幕数值 = 局部矩形」的空白区点亮（感知位置错误）。
+        // renderAt's hover rects are node-local — both call sites must transform with
+        // (mx-sx)/zoom first (the click side's convention); raw screen coords light the
+        // hover outline wherever the screen position numerically matches the local rect.
+        String nr = Files.readString(Path.of(
+            "src/main/java/io/github/y15173334444/create_schematic_compute/client/editor/NodeRenderer.java"));
+        assertTrue(nr.contains("(mx - sx) / zoom"), "drawNode must transform the mouse to node-local for renderAt");
+        assertFalse(nr.contains("renderAt(g, 0, editLocalY, nodeW, n, editSt, zoom, mx, my,"),
+            "drawNode must not pass raw screen mouse into renderAt");
+        String cr = Files.readString(Path.of(
+            "src/main/java/io/github/y15173334444/create_schematic_compute/client/editor/NodeCommentRenderer.java"));
+        assertTrue(cr.contains("(mx - sx) / zoom"), "the comment call site must transform too");
+        assertFalse(cr.contains("n, editSt, zoom, mx, my, null"),
+            "the comment call site must not pass raw screen mouse into renderAt");
+    }
 }
