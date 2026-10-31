@@ -46,10 +46,14 @@ public class StubSableDevice implements GraphBlockEntity {
      *  admission gate (P2-7): admit-all allowlist + empty census. */
     @Override public io.github.y15173334444.create_schematic_compute.graph.NodeAllowance nodeAllowance() {
         return io.github.y15173334444.create_schematic_compute.graph.NodeAllowance.of(
-            java.util.EnumSet.allOf(io.github.y15173334444.create_schematic_compute.graph.NodeCategory.class));
+            "csc:stub", java.util.EnumSet.allOf(io.github.y15173334444.create_schematic_compute.graph.NodeCategory.class));
     }
 
     @Override public java.util.Set<io.github.y15173334444.create_schematic_compute.graph.NodeType> loadTimeNodeTypes() {
+        return java.util.Set.of();
+    }
+
+    @Override public java.util.Set<String> loadTimeCustomIds() {
         return java.util.Set.of();
     }
 }

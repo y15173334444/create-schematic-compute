@@ -940,6 +940,11 @@ public class GraphHost {
      *  volatile: the op-application and load threads may publish unsynchronized. */
     private volatile java.util.Set<NodeType> loadTimeNodeTypes = java.util.Collections.emptySet();
 
+    /** 装载时图树自定义节点 id 普查（批 D 撤销面字符串化，与类型普查同点同寿命）。
+     *  Load-time custom-id census (batch D undo-face string-isation; recorded with the
+     *  type census, same lifetime). */
+    private volatile java.util.Set<String> loadTimeCustomIds = java.util.Collections.emptySet();
+
     public void loadHostNBT(CompoundTag t, HolderLookup.Provider r) {
         if (t.contains("graph")) {
             int tagGen = t.contains("hostGraphGen") ? t.getInt("hostGraphGen") : -1;
@@ -968,6 +973,7 @@ public class GraphHost {
                 // from it. The same-generation skip path keeps the previous census — the
                 // content is unchanged, so it stays accurate.
                 this.loadTimeNodeTypes = NodeAdmission.census(graph);
+                this.loadTimeCustomIds = NodeAdmission.censusCustomIds(graph);
                 rs.onLoad(graph);
                 this.graphReady = true;
                 this.pendingLocalOps = 0;
@@ -1059,6 +1065,12 @@ public class GraphHost {
      *  source behind `EditSessionTarget.loadTimeNodeTypes` — the server admission gate
      *  admits legacy-carried types from it). */
     public java.util.Set<NodeType> loadTimeNodeTypes() { return loadTimeNodeTypes; }
+
+    /** 装载时自定义节点 id 普查（`EditSessionTarget.loadTimeCustomIds` 的引擎侧事实源，
+     *  批 D 撤销面字符串化）。
+     *  Load-time custom-id census (the engine-side fact source behind
+     *  `EditSessionTarget.loadTimeCustomIds`; batch D undo-face string-isation). */
+    public java.util.Set<String> loadTimeCustomIds() { return loadTimeCustomIds; }
 
     /** @see GraphBlockEntity#setPendingLocalOps */
     public void setPendingLocalOps(int value) { pendingLocalOps = Math.max(0, value); }

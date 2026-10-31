@@ -55,11 +55,40 @@ public final class NodeAdmission {
         return out;
     }
 
+    /**
+     * 装载时自定义节点 id 普查（批 D，撤销面字符串化）：树中 CUSTOM 节点携带的全部
+     * {@code cid} 串。与类型普查同点记录、同寿命——撤销恢复的 ADD_NODE 与装载同语义：
+     * 提供方在线时按名单裁定，离线时（id 未注册但在普查里）放行恢复为占位壳，与
+     * {@code GraphNode.load} 的降级口径一致（对批 B (b)2「未注册即拒」的有意细化：
+     * 拒的是凭空捏造的 id，不是装载时已在场的身份）。
+     * Load-time custom-id census (batch D, undo-face string-isation): every {@code cid}
+     * carried by CUSTOM nodes across the tree. Recorded at the same site with the same
+     * lifetime as the type census — an undo-restore ADD_NODE gets load semantics: rostered
+     * ids admit by roster; ids present at load but unregistered (provider offline) restore
+     * as placeholder shells, matching {@code GraphNode.load}'s degradation (a deliberate
+     * refinement of batch B's (b)2 "unregistered refused": what is refused is a fabricated
+     * id, not an identity that was already in the save at load).
+     */
+    public static java.util.Set<String> censusCustomIds(NodeGraph graph) {
+        java.util.Set<String> out = java.util.HashSet.newHashSet(4);
+        collectCustomIds(graph, out);
+        return java.util.Set.copyOf(out);
+    }
+
     private static void collect(NodeGraph g, EnumSet<NodeType> out) {
         if (g == null) return;
         for (GraphNode n : g.nodes) {
             if (n.type != null) out.add(n.type);
             collect(n.subGraph, out);
+        }
+    }
+
+    private static void collectCustomIds(NodeGraph g, java.util.Set<String> out) {
+        if (g == null) return;
+        for (GraphNode n : g.nodes) {
+            if (n.type == NodeType.CUSTOM && n.customId != null && !n.customId.isEmpty())
+                out.add(n.customId);
+            collectCustomIds(n.subGraph, out);
         }
     }
 
@@ -84,12 +113,19 @@ public final class NodeAdmission {
      * family as P2-9's unknown op ordinals); (2) the type must be admitted by the current
      * allowlist or be present in the load census (legacy tolerance, see class doc) — a
      * missing allowlist ({@code allowance == null}) fails closed, the census still admits;
-     * (3) capacity — the target graph (main or the encapsulation sub-graph located by
-     * ownerNodeId) at {@link #MAX_NODES} refuses further adds (K10 server-side; the client
-     * editor enforces the same value).</p>
+     * CUSTOM adds additionally pass the id-level D5 roster (roster ∪ census cids, see the
+     * CUSTOM branch); (3) capacity — the target graph (main or the encapsulation sub-graph
+     * located by ownerNodeId) at {@link #MAX_NODES} refuses further adds (K10 server-side;
+     * the client editor enforces the same value).</p>
      */
     public static String violation(GraphOp op, NodeAllowance allowance,
                                    Set<NodeType> loadTimeTypes, NodeGraph targetGraph) {
+        return violation(op, allowance, loadTimeTypes, java.util.Set.of(), targetGraph);
+    }
+
+    public static String violation(GraphOp op, NodeAllowance allowance,
+                                   Set<NodeType> loadTimeTypes, java.util.Set<String> loadTimeCustomIds,
+                                   NodeGraph targetGraph) {
         // customNodeId 协议卫生（公开 API 波 1 批 B 审查 (b)2）：该字段只允许与
         // CUSTOM 哨兵同现 —— 其余 op 携带即拒（合法客户端从不发出）。先于「仅审建点」
         // 闸门：字段走私不限于建点 op。
@@ -103,15 +139,33 @@ public final class NodeAdmission {
         if (op.type() != OpType.ADD_NODE && op.type() != OpType.ADD_NODE_REQUEST) return null;
         NodeType t = op.nodeType();
         if (t == null) return "nodeType=unknown";
-        // CUSTOM 哨兵必须携带已注册 id（fail-closed）：未注册 id 即便靠装载普查混过
-        // 名单关，也只会在执行器落地无人认领的占位壳 + 垃圾 cid 进档 —— 在门上拒。
-        // The CUSTOM sentinel must carry a registered id (fail-closed): an unregistered id
-        // would slip past the roster via the load census and land an unclaimed placeholder
-        // shell plus a junk cid key in the save — refused at the gate.
+        // CUSTOM 哨兵必须携带 id（fail-closed）：id 级裁定（名单制 ∪ 普查）见分支内注。
+        // The CUSTOM sentinel must carry an id (fail-closed); the id-level ruling
+        // (roster ∪ census) is documented in the branch.
         if (t == NodeType.CUSTOM) {
             if (!hasCustomId) return "customNodeId absent on CUSTOM";
-            if (!CustomNodeRegistry.isRegistered(op.customNodeId()))
-                return "customNodeId=" + op.customNodeId() + " not registered";
+            String cid = op.customNodeId();
+            // D5 名单制（批 D）：注册 ≠ 准入——已注册 id 还须在本宿主名单
+            // （NodeAllowance.hostKey 派生）或装载普查 cid 集合里；未注册 id 只在
+            // 普查在场时放行（= 撤销恢复与装载同语义：占位壳等提供方回归，见
+            // censusCustomIds 类注——(b)2「未注册即拒」细化为「凭空捏造才拒」）。
+            // 名单缺席（allowance == null）按空名单处理（fail-closed），普查仍放行
+            // （与类型面「名单缺席 fail-closed、普查在场放行」同口径）。
+            // The D5 roster (batch D): registered ≠ admitted — a registered id must also be
+            // on this host's roster (derived from NodeAllowance.hostKey) or in the
+            // load-time census cid set; an unregistered id passes only when present in the
+            // census (= undo-restore gets load semantics: a placeholder shell waiting for
+            // the provider's return, see the censusCustomIds doc — (b)2's "unregistered
+            // refused" is refined to "fabricated refused"). A missing allowance is treated
+            // as an empty roster (fail-closed) while the census still admits — the same
+            // shape as the type plane (missing allowlist fails closed, census admits).
+            boolean inCensus = loadTimeCustomIds != null && loadTimeCustomIds.contains(cid);
+            if (!CustomNodeRegistry.isRegistered(cid)) {
+                if (!inCensus) return "customNodeId=" + cid + " not registered";
+            } else {
+                boolean inRoster = CustomNodeRoster.forHost(allowance != null ? allowance.hostKey() : null).contains(cid);
+                if (!inRoster && !inCensus) return "customNodeId=" + cid + " not admitted for host";
+            }
         } else if (hasCustomId) {
             // 建点 op 上非 CUSTOM 类型携带 customNodeId 同样拒（id 只属于哨兵）。
             // A customNodeId on a non-CUSTOM node-creating op is refused too (the id

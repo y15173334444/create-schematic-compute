@@ -132,6 +132,9 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     /** @see EditSessionTarget#loadTimeNodeTypes */
     @Override public java.util.Set<NodeType> loadTimeNodeTypes() { return host.loadTimeNodeTypes(); }
 
+    /** @see EditSessionTarget#loadTimeCustomIds */
+    @Override public java.util.Set<String> loadTimeCustomIds() { return host.loadTimeCustomIds(); }
+
     /** 宿主准入名单——各宿主 BE 各答自己的 `BlockNodeAllowances` 条目（P2-7 服务端准入门
      *  的宿主侧应答，引擎不含名单知识）。
      *  The host admission allowlist — each host BE answers its own `BlockNodeAllowances`

@@ -45,4 +45,11 @@ public interface EditSessionTarget {
      *  admissible, see the `NodeAdmission` class doc). Recorded by the engine (`GraphHost`)
      *  at the graph-replacement site; host BEs forward it. */
     java.util.Set<NodeType> loadTimeNodeTypes();
+
+    /** 装载时图树自定义节点 id 普查（批 D 撤销面字符串化，见 `NodeAdmission.censusCustomIds`
+     *  类注）。与类型普查同点记录、同寿命，宿主 BE 转发。
+     *  Load-time custom-id census (batch D undo-face string-isation, see
+     *  `NodeAdmission.censusCustomIds`). Recorded with the type census, same lifetime;
+     *  host BEs forward it. */
+    java.util.Set<String> loadTimeCustomIds();
 }

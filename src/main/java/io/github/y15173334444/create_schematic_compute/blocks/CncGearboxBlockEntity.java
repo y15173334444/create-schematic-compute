@@ -205,6 +205,8 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
      *  SyncedGraphBlockEntity, so it implements the forward here). */
     @Override public java.util.Set<NodeType> loadTimeNodeTypes() { return host.loadTimeNodeTypes(); }
 
+    @Override public java.util.Set<String> loadTimeCustomIds() { return host.loadTimeCustomIds(); }
+
     /** 缝 8（⑬ 后）：完成节点清理 + 指令栈推进（产出本 tick 离合意图）。
      *  Seam 8 (after ⑬): completed-node cleanup + command-stack advance (produces this
      *  tick's clutch intent). */

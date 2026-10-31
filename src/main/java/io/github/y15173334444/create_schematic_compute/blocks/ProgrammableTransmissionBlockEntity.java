@@ -342,6 +342,8 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
      *  SyncedGraphBlockEntity, so it implements the forward here). */
     @Override public java.util.Set<NodeType> loadTimeNodeTypes() { return host.loadTimeNodeTypes(); }
 
+    @Override public java.util.Set<String> loadTimeCustomIds() { return host.loadTimeCustomIds(); }
+
     /** 缝 8（⑬ 后）：控制来源与代理态判定。 / Seam 8 (after ⑬): control-source + proxy
      *  decision. */
     @Override public void afterEvalBroadcast() {

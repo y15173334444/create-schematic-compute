@@ -350,7 +350,7 @@ public final class EditSessionRegistry {
         //     （GraphRemoteApplier）；其余非加点 op 过门直行——唯一例外是 customNodeId
         //     协议卫生（公开 API 波 1）：任何 op 上该字段只许随 CUSTOM 哨兵同现，走私即拒。
         String admission = NodeAdmission.violation(
-            op, gbe.nodeAllowance(), gbe.loadTimeNodeTypes(), targetGraph);
+            op, gbe.nodeAllowance(), gbe.loadTimeNodeTypes(), gbe.loadTimeCustomIds(), targetGraph);
         if (admission != null) {
             LOGGER.debug("[GraphEdit] rejected (admission: {}) op={} from {}",
                 admission, op.type(), actor.getName().getString());

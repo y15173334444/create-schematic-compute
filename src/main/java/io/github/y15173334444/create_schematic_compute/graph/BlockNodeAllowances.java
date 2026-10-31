@@ -23,6 +23,7 @@ public final class BlockNodeAllowances {
      *  nodes (MOVE family, TX_OUT) stay in their own hosts (docs/node-guide.md). Includes
      *  {@code input_pose} so POSE_CONVERT / SPLIT survive the category move. */
     public static final NodeAllowance BLUEPRINT = NodeAllowance.of(
+        "csc:blueprint",
         EnumSet.of(NodeCategory.VALUES, NodeCategory.MATH_BASIC, NodeCategory.MATH_ADVANCED,
             NodeCategory.TRIG, NodeCategory.LOGIC, NodeCategory.CONTROL,
             NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_ACC, NodeCategory.DEBUG,
@@ -40,6 +41,7 @@ public final class BlockNodeAllowances {
     /** 程序计算机：逻辑 / 数学 / 时序齐全，无运动与宿主专属节点。
      *  Program computer: full math/logic/sequential; no motion or host-specific nodes. */
     public static final NodeAllowance PROGRAM_COMPUTER = NodeAllowance.of(
+        "csc:program_computer",
         EnumSet.of(NodeCategory.VALUES, NodeCategory.MATH_BASIC, NodeCategory.MATH_ADVANCED,
             NodeCategory.TRIG, NodeCategory.LOGIC, NodeCategory.CONTROL,
             NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_ACC, NodeCategory.SEQUENTIAL_STATE,
@@ -57,6 +59,7 @@ public final class BlockNodeAllowances {
      *  still evaluate, and kinetic readings remain in the kinetic hosts' evaluation domain
      *  (gauge / transmission / gearbox). */
     public static final NodeAllowance CNC_GEARBOX = NodeAllowance.of(
+        "csc:cnc_gearbox",
         EnumSet.of(NodeCategory.VALUES, NodeCategory.MATH_BASIC, NodeCategory.TRIG,
             NodeCategory.LOGIC, NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_STATE,
             NodeCategory.GEARBOX, NodeCategory.DEBUG));
@@ -70,35 +73,42 @@ public final class BlockNodeAllowances {
      *  and SPEED_CTRL (no target-speed concept); display/math/control/sequential are
      *  deliberately withheld (add the category when wanted). */
     public static final NodeAllowance KINETIC_GAUGE = NodeAllowance.of(
+        "csc:kinetic_gauge",
         EnumSet.of(NodeCategory.VALUES, NodeCategory.LOGIC, NodeCategory.KINETIC,
             NodeCategory.OUTPUT, NodeCategory.DEBUG));
 
     /** 控制椅：键鼠手柄 / 视角 / 姿态运动 / 姿态转换；FORWARD 菜单不列出。
      *  Control seat: devices / view / motion / pose; FORWARD is menu-hidden. */
     public static final NodeAllowance CONTROL_SEAT = NodeAllowance.of(
+        "csc:control_seat",
         EnumSet.of(NodeCategory.INPUT_CTRL, NodeCategory.INPUT_VIEW, NodeCategory.INPUT_MOTION,
             NodeCategory.INPUT_POSE, NodeCategory.OUTPUT, NodeCategory.DEBUG),
         NodeType.FORWARD);
 
     /** 传感器：姿态运动 / 姿态转换 / 输出。 */
     public static final NodeAllowance SENSOR = NodeAllowance.of(
+        "csc:sensor",
         EnumSet.of(NodeCategory.INPUT_MOTION, NodeCategory.INPUT_POSE,
             NodeCategory.OUTPUT, NodeCategory.DEBUG));
 
     /** 显示器：数值 + 显示组件。 */
     public static final NodeAllowance MONITOR = NodeAllowance.of(
+        "csc:monitor",
         EnumSet.of(NodeCategory.VALUES, NodeCategory.DISPLAY, NodeCategory.DEBUG));
 
     /** 雷达：目标输出。 */
     public static final NodeAllowance RADAR = NodeAllowance.of(
+        "csc:radar",
         EnumSet.of(NodeCategory.OUTPUT, NodeCategory.RADAR, NodeCategory.DEBUG));
 
     /** 转速代理：转速指令。 */
     public static final NodeAllowance SPEED_PROXY = NodeAllowance.of(
+        "csc:speed_proxy",
         EnumSet.of(NodeCategory.VALUES, NodeCategory.SPEED, NodeCategory.DEBUG));
 
     /** 可编程变速器：动力读数 + 变速输出。 */
     public static final NodeAllowance TRANSMISSION = NodeAllowance.of(
+        "csc:programmable_transmission",
         EnumSet.of(NodeCategory.VALUES, NodeCategory.KINETIC, NodeCategory.TRANSMISSION,
             NodeCategory.DEBUG));
 
@@ -121,6 +131,7 @@ public final class BlockNodeAllowances {
      *  WSHAPE allowed: its LUT rides the AudioRef through the band table into the note
      *  packet, so it works from any host graph. */
     public static final NodeAllowance AMPLIFIER = NodeAllowance.of(
+        "csc:amplifier_computer",
         EnumSet.of(NodeCategory.VALUES, NodeCategory.LOGIC, NodeCategory.OUTPUT,
             NodeCategory.SEQUENTIAL_ACC, NodeCategory.SEQUENTIAL_STATE,
             NodeCategory.AUDIO, NodeCategory.DEBUG),
@@ -133,6 +144,7 @@ public final class BlockNodeAllowances {
      *  minus MUSIC/AUDIO_OUT (MUSIC is orchestrated on the amplifier; AUDIO_OUT is a publish
      *  node and the speaker's emission path is SPEAKER_PLAY straight into the host). */
     public static final NodeAllowance SPEAKER = NodeAllowance.of(
+        "csc:speaker",
         EnumSet.of(NodeCategory.AUDIO, NodeCategory.VALUES, NodeCategory.DEBUG),
         NodeType.MUSIC, NodeType.AUDIO_OUT);
 }

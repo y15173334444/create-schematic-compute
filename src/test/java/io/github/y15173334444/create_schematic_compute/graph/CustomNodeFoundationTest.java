@@ -217,23 +217,29 @@ class CustomNodeFoundationTest {
     }
 
     @Test
-    @DisplayName("准入门：CUSTOM 须携已注册 id；未注册/缺 id 拒；非 CUSTOM 建点携 id 拒；非建点 op 携 id 拒")
+    @DisplayName("准入门：CUSTOM 须携已注册 id；未注册/缺 id 拒；非 CUSTOM 建点携 id 拒；非建点 op 携 id 拒；D5 名单制收口")
     void admissionCustomIdHygiene() {
         CustomNodeRegistry.register(spec("counter", 1, 1, 1));
-        var customAllowance = NodeAllowance.of(java.util.EnumSet.of(NodeCategory.CUSTOM));
+        var customAllowance = NodeAllowance.of("csc:test", java.util.EnumSet.of(NodeCategory.CUSTOM));
 
+        // D5 名单制（批 D）：注册 ≠ 准入 —— 已注册但未登记进该宿主名单 = 拒。
+        // The D5 roster (batch D): registered ≠ admitted — registered but not rostered = refused.
+        assertNotNull(NodeAdmission.violation(fullOp(OpType.ADD_NODE, NodeType.CUSTOM, MODID + ":counter"),
+            customAllowance, java.util.Set.of(), new NodeGraph()), "已注册但不在宿主名单 = 拒（D5 默认拒绝）");
+        CustomNodeRoster.admit("csc:test", MODID + ":counter");
         assertNull(NodeAdmission.violation(fullOp(OpType.ADD_NODE, NodeType.CUSTOM, MODID + ":counter"),
-            customAllowance, java.util.Set.of(), new NodeGraph()), "已注册 id + CUSTOM 名单 = 放行");
+            customAllowance, java.util.Set.of(), new NodeGraph()), "已注册 id + 名单登记 = 放行");
         assertNotNull(NodeAdmission.violation(fullOp(OpType.ADD_NODE, NodeType.CUSTOM, "ghost:missing"),
-            customAllowance, java.util.Set.of(), new NodeGraph()), "未注册 id fail-closed");
+            customAllowance, java.util.Set.of(), new NodeGraph()), "未注册 id fail-closed（普查亦无）");
         assertNotNull(NodeAdmission.violation(fullOp(OpType.ADD_NODE, NodeType.CUSTOM, null),
             customAllowance, java.util.Set.of(), new NodeGraph()), "CUSTOM 缺 id 拒");
         assertNotNull(NodeAdmission.violation(fullOp(OpType.ADD_NODE, NodeType.CONST, MODID + ":counter"),
-            NodeAllowance.of(java.util.EnumSet.of(NodeCategory.VALUES)), java.util.Set.of(), new NodeGraph()),
+            NodeAllowance.of("csc:test", java.util.EnumSet.of(NodeCategory.VALUES)), java.util.Set.of(), new NodeGraph()),
             "非 CUSTOM 建点携 customNodeId 拒");
         assertNotNull(NodeAdmission.violation(fullOp(OpType.SET_PARAM, null, MODID + ":counter"),
             customAllowance, java.util.Set.of(), new NodeGraph()),
             "非建点 op 携 customNodeId 拒（字段走私不限于建点）");
+        CustomNodeRoster.clearForTests();
     }
 
     // ── 批 C：TEXT/BOOL 参数存储面与执行器校验 ──────────────────────────

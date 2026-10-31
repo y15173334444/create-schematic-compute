@@ -96,6 +96,8 @@ public class KineticGaugeBlockEntity extends KineticBlockEntity
      *  SyncedGraphBlockEntity, so it implements the forward here). */
     @Override public java.util.Set<NodeType> loadTimeNodeTypes() { return host.loadTimeNodeTypes(); }
 
+    @Override public java.util.Set<String> loadTimeCustomIds() { return host.loadTimeCustomIds(); }
+
     // ── 读数同步 / readout sync ──
 
     /** 上一次推给客户端的读数（NaN = 还没推过）/ last readout pushed to clients. */
