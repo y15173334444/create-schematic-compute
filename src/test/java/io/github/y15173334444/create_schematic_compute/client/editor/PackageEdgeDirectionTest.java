@@ -38,7 +38,13 @@ class PackageEdgeDirectionTest {
     private static final Path SRC = Path.of("src", "main", "java",
         "io", "github", "y15173334444", "create_schematic_compute");
 
-    /** 去注释与字符串后的行内容（源码扫描只看真实代码——注释里提到包名不违规）。 */
+    /** 去注释与字符串后的行内容（源码扫描只看真实代码——注释里提到包名不违规）。
+     *  已知限制（2026-10-31 审查）：只截行内 {@code /*} 与 {@code //}，不处理 javadoc
+     *  {@code * } 续行——若注释续行里逐字写出 {@code import …blocks.X} 会误报红；
+     *  house style 不这么写，知道即可。
+     *  Known limitation (2026-10-31 review): strips inline comment openers only, not
+     *  javadoc continuation lines — a {@code * } line literally containing an import of
+     *  blocks.* would false-positive; house style never writes that. */
     private static String stripCommentsAndStrings(String line) {
         String s = line;
         int bc = s.indexOf("/*");
@@ -60,8 +66,12 @@ class PackageEdgeDirectionTest {
     void editorFamilyNeverReachesBackIntoBlocks() throws IOException {
         Path dir = SRC.resolve("client").resolve("editor");
         assertTrue(Files.isDirectory(dir), "client/editor dir missing: " + dir);
-        try (Stream<Path> files = Files.list(dir)) {
-            for (Path f : files.filter(p -> p.toString().endsWith(".java")).toList()) {
+        // Files.walk：javadoc 承诺的是 client/editor/**（含未来子包），顶层平铺只是现状。
+        // Files.walk: the javadoc promises client/editor/** (nested packages included);
+        // top-level flatness is just today's shape.
+        try (Stream<Path> files = Files.walk(dir)) {
+            for (Path f : files.filter(Files::isRegularFile)
+                    .filter(p -> p.toString().endsWith(".java")).toList()) {
                 assertFalse(importsBlocks(f),
                     f.getFileName() + ": client/editor must not import blocks.* — consume "
                         + "through GraphEditor.Host queries and the narrow ports "
