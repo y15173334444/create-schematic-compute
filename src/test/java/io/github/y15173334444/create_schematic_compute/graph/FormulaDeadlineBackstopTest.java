@@ -194,9 +194,13 @@ class FormulaDeadlineBackstopTest {
     @DisplayName("MAX_ITER 冻结与预算无关:调大预算不解冻")
     void maxIterFreezeStaysFrozenOnBudgetRaise() {
         OneNode t = oneNode("v = 0\nrepeat 2000000 { v = v + 1 }\n@output v"); // >1M 迭代 → MAX_ITER
-        for (int i = 0; i < 40 && !t.node().formulaShedWarned; i++) {
+        for (int i = 0; i < 300 && !t.node().formulaShedWarned; i++) {
             FormulaCompute.beginTick();
-            tick(t); // 默认 3ms 预算:每 tick 推进数十万迭代,数 tick 内撞 MAX_ITER / the 3ms budget advances ~200k iterations per tick, hitting MAX_ITER within a few
+            tick(t); // 默认 3ms 预算:每 tick 推进一批迭代;JIT 冷启动会让每 tick 迭代数骤降,
+            // 上限放宽到 300(时序余量,非语义)——正常数十 tick 内撞 MAX_ITER。
+            // the 3ms budget advances a batch of iterations per tick; a cold JIT can slash the
+            // per-tick iteration count, so the cap is a generous 300 (timing margin, not
+            // semantics) — it normally hits MAX_ITER within a few dozen ticks.
         }
         assertTrue(t.node().formulaShedWarned, "the pathological loop must hit the MAX_ITER freeze");
         assertEquals(0.0, t.node().formulaFrozenBudgetMs, 1e-9,
