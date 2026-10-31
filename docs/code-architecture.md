@@ -655,6 +655,7 @@ v1.2.4.1 起访问机制为**编译期桥 + 反射混合**：入口 `SubLevelCon
 ```
 ServerLevel.tick()
   → FormulaCompute.beginTick()     [ServerTickEvent.Pre:轮转 N_heavy_prev、清 dedup 表]
+  → CustomNodeCompute.beginTick()  [ServerTickEvent.Pre:轮转独立池挂起计数（公开 API 波 1）]
   → BE.tick()
     → ensureBusRegistered()        [首 tick 注册 BUS；每 tick 收敛 BUS_IN 频段到频道定义（issue #15），
                                     变化才经 BusBandSyncPacket 下发；无已加载发布方的频道跳过 / first-tick

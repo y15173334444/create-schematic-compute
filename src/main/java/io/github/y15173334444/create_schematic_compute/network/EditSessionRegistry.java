@@ -340,12 +340,15 @@ public final class EditSessionRegistry {
         //     allowance versions keep working (types present at load stay admissible for
         //     the session, so undo-restore is never refused by admission). REJECT rides
         //     the existing receipt path; the client rolls back its optimistic state per
-        //     type (GraphRemoteApplier). The gate ignores every non-add op.
+        //     type (GraphRemoteApplier). Every other non-add op passes the gate straight —
+        //     the one exception being customNodeId wire hygiene (public-API wave 1): on any
+        //     op the field may only ride the CUSTOM sentinel, smuggled copies are refused.
         // 2b. 准入门（P2-7 准入服务端化 + K10 数量上限服务端化，2026-10-31 拍板）：ADD_NODE
         //     家族在创建前按宿主名单 ∪ 装载普查放行——改包客户端塞不进菜单外类型，旧版本
         //     名单下保存的图照常工作（装载时已在场的类型本会话内永远可再进来，撤销恢复
         //     不受损）。REJECT 走既有回执，客户端按类型回滚本地乐观态
-        //     （GraphRemoteApplier）；非加点 op 一律过门直行。
+        //     （GraphRemoteApplier）；其余非加点 op 过门直行——唯一例外是 customNodeId
+        //     协议卫生（公开 API 波 1）：任何 op 上该字段只许随 CUSTOM 哨兵同现，走私即拒。
         String admission = NodeAdmission.violation(
             op, gbe.nodeAllowance(), gbe.loadTimeNodeTypes(), targetGraph);
         if (admission != null) {

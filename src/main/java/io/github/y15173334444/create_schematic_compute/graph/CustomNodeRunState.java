@@ -43,4 +43,11 @@ final class CustomNodeRunState {
 
     /** 上次告警的 game tick（告警节流去重用）。/ the game tick of the last warning (throttled logging). */
     long lastWarnTick;
+
+    /** 已记账的调用数（0 = 首调未记账）：首次测量的调用落在类加载/JIT 预热窗内，
+     *  墙钟虚高 —— 首调豁免梯子记账（审查批 N1 附带风险）。
+     *  Accounted call count (0 = the first call is unaccounted): the first measured call
+     *  lands inside the classload/JIT warm-up window with an inflated wall clock — the
+     *  first call is exempt from ladder accounting (review N1's attached risk). */
+    int measuredCalls;
 }

@@ -240,10 +240,11 @@ class CustomNodeEvalTest {
         var seat = new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
         var no = java.util.List.<GraphEvaluator.InputSource>of(); var nom = java.util.Map.<Integer, Float>of();
 
-        for (int i = 0; i < CustomNodeEval.OVER_SLICE_FREEZE_TICKS; i++)
+        for (int i = 0; i < CustomNodeEval.OVER_SLICE_FREEZE_TICKS + 1; i++)
             rig.evaluator.evaluate(no, nom, 0.05f, seat);
         int afterStreak = calls.get();
-        assertEquals(CustomNodeEval.OVER_SLICE_FREEZE_TICKS, afterStreak);
+        // 首调豁免（预热窗）→ 20 次记账超份额需要 21 次调用
+        assertEquals(CustomNodeEval.OVER_SLICE_FREEZE_TICKS + 1, afterStreak);
 
         // 降频：跳过求值（计数冻结）
         rig.evaluator.evaluate(no, nom, 0.05f, seat);
@@ -355,6 +356,62 @@ class CustomNodeEvalTest {
     }
 
     @Test
+    @DisplayName("N1：prev≤1 域无快车道——严格按契约轮询退出的合法挂起不被熔断（探针复刻）")
+    void fastLaneSparesCompliantSuspensionAtPrevLE1() {
+        Rig rig = rig(ctx -> {
+            while (!ctx.sliceExpired()) { /* 守约：轮询检查点，到线即退 */ }
+            CompoundTag cp = new CompoundTag();
+            cp.putInt("n", 1);
+            return CustomNodeResult.suspended(cp);
+        });
+        CustomNodeCompute.setBudgetMsSource(() -> 1.0); // 整池 1ms；prev=0 → slice 恰等于整池
+        CustomNodeCompute.forceHeavyYieldCountPrevForTests(0);
+        var seat = new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
+        var no = java.util.List.<GraphEvaluator.InputSource>of();
+        var nom = java.util.Map.<Integer, Float>of();
+        for (int i = 0; i < 5; i++)
+            rig.evaluator.evaluate(no, nom, 0.05f, seat);
+        assertFalse(nodeRun(rig).fused, "守约挂起不得触发快车道熔断（prev≤1 域吃满整池 = 守约）");
+        assertEquals(0, nodeRun(rig).throttleTicksLeft, "也不进降频");
+        assertTrue(rig.state().customStates.containsKey(rig.node.id), "检查点照常落表");
+    }
+
+    @Test
+    @DisplayName("N2：用满自身 slice 再挂起的守约节点不进降频（记账边界 1.5× 余量）")
+    void gradualLadderSparesFullSliceSuspensions() {
+        Rig rig = rig(ctx -> {
+            while (!ctx.sliceExpired()) { /* 用满时间片后过线退出 —— D2a 正常推进形态 */ }
+            return CustomNodeResult.suspended(new CompoundTag());
+        });
+        gradualLadderStage(); // 整池 5ms / prev=100 → slice=50µs；守约退出 ≈ 50µs+ε ≤ 75µs
+        var seat = new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
+        var no = java.util.List.<GraphEvaluator.InputSource>of();
+        var nom = java.util.Map.<Integer, Float>of();
+        for (int i = 0; i < 25; i++)
+            rig.evaluator.evaluate(no, nom, 0.05f, seat);
+        assertEquals(0, nodeRun(rig).throttleTicksLeft, "25 tick 守约满片挂起：不降频");
+        assertFalse(nodeRun(rig).fused, "不熔断");
+        assertEquals(0, nodeRun(rig).throttleCycles, "无降频周期");
+    }
+
+    @Test
+    @DisplayName("首调预热豁免：首调（类加载/JIT 窗）不记账；次调破约照常快熔断")
+    void firstCallWarmupExemptFromFastLane() {
+        Rig rig = rig(ctx -> {
+            try { Thread.sleep(2); } catch (InterruptedException ignored) { }
+            return CustomNodeResult.done(1f, 2f);
+        });
+        CustomNodeCompute.setBudgetMsSource(() -> 0.01); // 整池 10µs
+        CustomNodeCompute.forceHeavyYieldCountPrevForTests(2); // slice=5µs；2ms 调用 = 破约形态
+        var seat = new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
+        rig.evaluator.evaluate(java.util.List.of(), java.util.Map.of(), 0.05f, seat);
+        assertFalse(nodeRun(rig).fused, "首调（预热窗）不记账");
+        rig.evaluator.evaluate(java.util.List.of(), java.util.Map.of(), 0.05f,
+            new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+        assertTrue(nodeRun(rig).fused, "次调破约 → 快熔断");
+    }
+
+    @Test
     @DisplayName("栅栏破约快车道：单次调用吃满整池预算 → 跳过宽限立即熔断")
     void wholePoolBreachFusesImmediately() {
         Rig rig = rig(ctx -> {
@@ -362,10 +419,13 @@ class CustomNodeEvalTest {
             return CustomNodeResult.done(1f, 2f);
         });
         CustomNodeCompute.setBudgetMsSource(() -> 0.01); // 整池 10µs：2ms 调用 = 破约
-        CustomNodeCompute.forceHeavyYieldCountPrevForTests(1);
+        CustomNodeCompute.forceHeavyYieldCountPrevForTests(4); // prev≥2 域才有快车道（审查批 N1）
         rig.evaluator.evaluate(java.util.List.of(), java.util.Map.of(), 0.05f,
             new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-        assertTrue(nodeRun(rig).fused, "破约 → 立即熔断");
+        assertFalse(nodeRun(rig).fused, "首调 = 预热窗豁免（N1 附带风险）");
+        rig.evaluator.evaluate(java.util.List.of(), java.util.Map.of(), 0.05f,
+            new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+        assertTrue(nodeRun(rig).fused, "次调破约 → 立即熔断");
         assertEquals(0, nodeRun(rig).throttleCycles, "未经降频周期（快车道跳过宽限）");
     }
 }

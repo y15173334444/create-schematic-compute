@@ -131,11 +131,12 @@ public final class CustomNodeEval {
                 if (checkpoint.toString().length() <= MAX_STATE_SNBT_LENGTH)
                     ctx.runtimeState.customStates.put(node.id, checkpoint);
                 else
-                    // 超限检查点拒收（不存旧不存新）：提供方须把检查点压进上限内；
-                    // 节流告警带 modid+id。诚实拒绝，不伪造兜底。
-                    // An oversized checkpoint is refused (neither old nor new stored): the
-                    // provider must fit its checkpoint under the cap; throttled warning
-                    // with modid+id. Honest refusal, no fabricated fallback.
+                    // 超限检查点拒收（旧保持、新拒收）：既存检查点原样保留，仅本次
+                    // 的新检查点不落表 —— 提供方须把检查点压进上限内；节流告警带
+                    // modid+id。诚实拒绝，不伪造兜底。
+                    // An oversized checkpoint is refused (the old one is kept, only the new
+                    // one is dropped): the provider must fit its checkpoint under the cap;
+                    // throttled warning with modid+id. Honest refusal, no fabricated fallback.
                     warnOnce(ctx, run, node, "checkpoint rejected: " + checkpoint.toString().length()
                         + " chars exceeds the " + MAX_STATE_SNBT_LENGTH + " cap");
             }
@@ -180,25 +181,47 @@ public final class CustomNodeEval {
     }
 
     /**
-     * 处置梯子记账（公平规则同 K6：仅本节点超自身份额计连续超时）。栅栏破约快车道：
-     * 单次调用吃满<b>整池</b>预算（≥ budgetNs）= 不可能的时间片公民 —— 跳过 20 tick
-     * 宽限立即熔断（审查批 (a)1 的牙：主线程无法在飞抢占，事后处置必须按比例）。
-     * Ladder accounting (K6's fair rule: only the node's own over-slice counts
-     * consecutively). Fence-breach fast lane: a single call that consumed the <b>whole
-     * pool</b> budget (≥ budgetNs) can never be a slice-respecting citizen — fuse
-     * immediately, skipping the 20-tick grace (the teeth behind review (a)1: main-thread
-     * calls cannot be preempted in flight, so the post-hoc response must be proportionate).
+     * 处置梯子记账（公平规则同 K6：仅本节点超自身份额计连续超时）。
+     *
+     * <p><b>破约快车道（审查批 N1 修正后口径）</b>：仅当 {@code prev ≥ 2}
+     * （slice &lt; 整池，多重节点分摊中）才存在「吃满整池 = 数倍于自身份额」的破约
+     * 形态，此时 ≥ budgetNs 的单次调用跳过宽限立即熔断。<b>prev ≤ 1 域没有快车道</b>：
+     * slice 恰等于整池预算，守约节点在过线后退出必然落在 ≈ 整池 —— 此时吃满整池
+     * 恰恰是守约（探针实证：预算 1ms 严格按契约轮询退出的合法挂起实测 995µs），
+     * 该域退回渐进梯子。</p>
+     *
+     * <p><b>记账边界带真实幅度余量（审查批 N2）</b>：{@code elapsed ≤ slice × 1.5}
+     * 视为检测粒度内的守约（过线退出的 ε 与检查点粒度都不该被记连续超时）——
+     * 梯子惩罚的是不诚实，不是检测精度。</p>
+     *
+     * <p><b>首调豁免</b>：首次测量的调用落在类加载/JIT 预热窗内、墙钟虚高，不记账
+     * （N1 附带风险）。</p>
+     *
+     * <p>Ladder accounting (K6's fair rule: only the node's own over-slice counts
+     * consecutively). <b>Fence-breach fast lane (post-N1)</b>: only when {@code prev ≥ 2}
+     * (slice &lt; the pool — multiple heavy nodes sharing) does consuming the whole pool
+     * mean several times one's own share; there a single call ≥ budgetNs fuses
+     * immediately. <b>No fast lane in the prev ≤ 1 domain</b>: the slice equals the whole
+     * pool, so a compliant node exiting past the line lands at ≈ the pool — consuming it
+     * IS compliance there (probe-verified: a strictly contract-polling legal suspension
+     * measured 995µs against a 1ms budget), and the gradual ladder rules that domain.
+     * <b>Accounting margin (N2)</b>: {@code elapsed ≤ slice × 1.5} reads as compliant
+     * within detection granularity. <b>First-call exemption</b>: the first measured call
+     * sits in the classload/JIT warm-up window and is never accounted.</p>
      */
     private static void ladder(EvalContext ctx, CustomNodeRunState run, GraphNode node, long elapsed, long slice) {
         if (run.fused) return; // 已熔断不再重复记账 / already fused — no re-accounting
-        if (elapsed >= CustomNodeCompute.budgetNs() && CustomNodeCompute.budgetNs() > 0) {
+        if (run.measuredCalls++ == 0) return; // 首调 = 预热窗，豁免 / first call = warm-up, exempt
+        long prev = CustomNodeCompute.heavyYieldCountPrev();
+        long budget = CustomNodeCompute.budgetNs();
+        if (prev >= 2 && budget > 0 && elapsed >= budget) {
             run.fused = true;
             warnOnce(ctx, run, node, "FUSED on a fence breach: one call consumed the whole pool budget ("
-                + elapsed / 1_000_000L + "ms); outputs hold lastGood, a graph recompile or a provider "
-                + "re-register lifts this");
+                + elapsed / 1_000_000L + "ms vs a " + budget / 1_000_000L + "ms pool at prev=" + prev
+                + "); outputs hold lastGood, a graph recompile or a provider re-register lifts this");
             return;
         }
-        if (elapsed <= slice) {
+        if (elapsed <= slice + slice / 2) {
             run.overSliceStreak = 0;
             return;
         }
