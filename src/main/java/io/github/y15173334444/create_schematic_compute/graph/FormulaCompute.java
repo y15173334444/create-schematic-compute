@@ -76,6 +76,13 @@ public final class FormulaCompute {
         return (long) (budgetMsSource.getAsDouble() * 1_000_000L);
     }
 
+    /** 预算毫秒数(K6 解冻检查用:deadline 冻结与该值绑定,调大即解冻)。
+     *  The budget in ms (used by the K6 thaw check: deadline freezes bind to this value and
+     *  thaw once it is raised). */
+    public static double budgetMs() {
+        return budgetMsSource.getAsDouble();
+    }
+
     /** 单节点 slice(纳秒)= 预算 / max(1, 上一 tick yield 的重节点数)。 / Per-node slice (ns) = budget / max(1, last tick's heavy yield count). */
     public static long sliceNs() {
         return budgetNs() / Math.max(1, heavyYieldCountPrev);

@@ -138,6 +138,49 @@ class FormulaDeadlineBackstopTest {
             "the victim's outputs hold (transient shed), never zeroed");
     }
 
+    // ── 预算解冻 / budget thaw ──
+
+    @Test
+    @DisplayName("预算解冻:冻结后调大预算 → 下一 tick 自动解冻并用新预算值完成")
+    void freezeThawsWhenBudgetRaised() {
+        OneNode t = oneNode(MONSTER);
+        FormulaCompute.setBudgetMsSource(() -> 0.001); // 1μs:巨脚本必然冻结 / 1μs: the monster inevitably freezes
+        for (int i = 0; i < 25 && !t.node().formulaShedWarned; i++) {
+            FormulaCompute.beginTick();
+            tick(t);
+        }
+        assertTrue(t.node().formulaShedWarned, "the monster must freeze first");
+        assertTrue(t.node().formulaFrozenBudgetMs > 0, "the freeze must record the budget it froze under");
+        // 调大预算(1μs → 20ms):下一 tick 用新预算值重试并完成——「冻结」变「按预算值悬停」。
+        // Raise the budget (1μs → 20ms): the next tick retries under the new value and finishes —
+        // the freeze becomes a hold keyed to the budget value.
+        FormulaCompute.setBudgetMsSource(() -> 20.0);
+        FormulaCompute.beginTick();
+        tick(t);
+        assertFalse(t.node().formulaShedWarned, "a raised budget must thaw the deadline freeze");
+        assertEquals(0.0, t.node().formulaFrozenBudgetMs, 1e-9, "the thaw must clear the frozen-budget key");
+        assertEquals(1201f, t.ev().getNodeOutput(t.node().id, 0), 0.5f,
+            "the monster completes under the raised budget (1+1+... = 1201)");
+    }
+
+    @Test
+    @DisplayName("MAX_ITER 冻结与预算无关:调大预算不解冻")
+    void maxIterFreezeStaysFrozenOnBudgetRaise() {
+        OneNode t = oneNode("v = 0\nrepeat 2000000 { v = v + 1 }\n@output v"); // >1M 迭代 → MAX_ITER
+        for (int i = 0; i < 40 && !t.node().formulaShedWarned; i++) {
+            FormulaCompute.beginTick();
+            tick(t); // 默认 3ms 预算:每 tick 推进数十万迭代,数 tick 内撞 MAX_ITER / the 3ms budget advances ~200k iterations per tick, hitting MAX_ITER within a few
+        }
+        assertTrue(t.node().formulaShedWarned, "the pathological loop must hit the MAX_ITER freeze");
+        assertEquals(0.0, t.node().formulaFrozenBudgetMs, 1e-9,
+            "the MAX_ITER freeze must not carry a budget key (budget-independent)");
+        FormulaCompute.setBudgetMsSource(() -> 20.0); // 调大预算也不解冻——编辑公式是唯一解 / raising the budget must not thaw it either — editing is the only remedy
+        FormulaCompute.beginTick();
+        tick(t);
+        assertTrue(t.node().formulaShedWarned, "a MAX_ITER freeze stays frozen across budget raises");
+        assertEquals(0f, t.ev().getNodeOutput(t.node().id, 0), 0.0001f, "outputs stay held");
+    }
+
     // ── DEBUG 瞬态豁免 / DEBUG transient exemption ──
 
     @Test

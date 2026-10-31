@@ -55,6 +55,7 @@ public class GraphNode {
     public transient float formulaSpreadProgress = 0f;                 // 渲染态进度:0..1,-1 不定 / render progress
     public transient boolean formulaShedWarned = false;                // MAX_ITER shed 已告警一次 / shed warned once per formula
     public transient int formulaDeadlineStreak = 0;                    // K6:连续超 deadline 的 tick 数(仅节点自身超份额时计数) / K6: consecutive deadline-overflow ticks (only when the node itself outlives its slice)
+    public transient double formulaFrozenBudgetMs = 0.0;               // K6:deadline 冻结时的预算值(调大即自动解冻;0=MAX_ITER 冻结/未冻结,与预算无关) / K6: the budget at deadline-freeze time (raised budget thaws; 0=MAX_ITER freeze or none, budget-independent)
     public transient java.util.List<FormulaParser.FormulaIssue> formulaIssues = null; // 客户端校验问题 (client-side validation issues)
     // Display node fields (Monitor block)  /  显示节点字段（Monitor 方块）
     public String displayText = "";               // TEXT 节点内容 / TEXT node content

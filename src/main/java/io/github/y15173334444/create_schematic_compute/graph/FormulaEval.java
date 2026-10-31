@@ -43,8 +43,12 @@ public final class FormulaEval {
                 node.formulaShedWarned = true;
                 node.formulaCarrier = null;
                 node.formulaSpreadProgress = 0f;
+                // 冻结绑定当前预算值——预算调大即自动解冻重试(见冻结跳过路径的解冻检查)。
+                // The freeze binds to the current budget — raising it thaws the node
+                // automatically (see the thaw check on the freeze-skip path).
+                node.formulaFrozenBudgetMs = FormulaCompute.budgetMs();
                 LOGGER.warn("FORMULA node {} outlived the budget deadline {} ticks in a row — "
-                    + "pathological closed-form script, shed to lastGood until edited",
+                    + "pathological closed-form script, shed to lastGood until edited or the budget is raised",
                     node.id, node.formulaDeadlineStreak);
             }
         } else {
@@ -375,10 +379,27 @@ public final class FormulaEval {
                 // the flat-RPN eval loop is gone.
                 if (script.ast != null) {
                     if (node.formulaShedWarned) {
-                        // MAX_ITER shed 冻结:病态脚本不再重试,输出保持 lastGood,直到公式被编辑
-                        // MAX_ITER shed freeze: pathological script retries no more; outputs hold lastGood until the formula is edited
-                        node.formulaSpreadProgress = 0f;
-                        break;
+                        // K6 预算解冻:deadline 冻结与**冻结时的预算值**绑定——预算被调大(当前值 >
+                        // 记录值)则下一 tick 自动解冻、用新预算值重试(装得下就完成,装不下再走
+                        // 20 tick 重新冻结并记录新值);MAX_ITER 冻结(frozenBudget=0)按迭代数裁定、
+                        // 与预算无关,不参与解冻,仍需编辑公式。
+                        // K6 budget thaw: a deadline freeze is keyed to **the budget value that
+                        // froze it** — once the budget is raised (current > recorded), the next
+                        // tick thaws automatically and retries under the new value (it finishes
+                        // if the value now fits, else re-escalates over 20 ticks and records the
+                        // new one); the MAX_ITER freeze (frozenBudget=0) is ruled by iteration
+                        // count, budget-independent, never thaws — editing the formula remains
+                        // its only remedy.
+                        if (node.formulaFrozenBudgetMs > 0 && FormulaCompute.budgetMs() > node.formulaFrozenBudgetMs) {
+                            node.formulaShedWarned = false;
+                            node.formulaDeadlineStreak = 0;
+                            node.formulaFrozenBudgetMs = 0.0;
+                        } else {
+                            // MAX_ITER shed 冻结:病态脚本不再重试,输出保持 lastGood,直到公式被编辑
+                            // MAX_ITER shed freeze: pathological script retries no more; outputs hold lastGood until the formula is edited
+                            node.formulaSpreadProgress = 0f;
+                            break;
+                        }
                     }
                     var env = new java.util.HashMap<String, Value>(Math.max(4, script.inputVars.size() * 2));
                     boolean warm = node.params.length > 0 && node.params[0] > 0.5f; // 温启动节点参数 / warm-restart node param
@@ -494,6 +515,12 @@ public final class FormulaEval {
                         node.formulaSpreadProgress = 0f;
                         if (!node.formulaShedWarned) {
                             node.formulaShedWarned = true;
+                            // MAX_ITER 冻结按迭代数裁定、与预算无关:清掉可能残留的 deadline 冻结
+                            // 预算值,防止一次无关的预算调大把它错误解冻。
+                            // The MAX_ITER freeze is ruled by iteration count, budget-independent:
+                            // clear any stale deadline-freeze budget so an unrelated raise cannot
+                            // thaw it by mistake.
+                            node.formulaFrozenBudgetMs = 0.0;
                             LOGGER.warn("FORMULA node {} exceeded MAX_ITER — pathological script, shed to lastGood", node.id);
                         }
                     } catch (Exception e) {
