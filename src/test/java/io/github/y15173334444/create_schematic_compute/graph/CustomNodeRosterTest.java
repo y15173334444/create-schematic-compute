@@ -36,19 +36,30 @@ class CustomNodeRosterTest {
         assertThrows(IllegalArgumentException.class,
             () -> CustomNodeRoster.admit(null, "rostermod2:widget"),
             "null host keys are refused");
+        // 归属校验（批 D 审查拍板）：非白名单宿主键拒——任意键登记旁路收口。
+        // Ownership check (batch D review ruling): non-allowlisted keys refuse — the
+        // any-key enrolment bypass closes.
+        assertThrows(IllegalArgumentException.class,
+            () -> CustomNodeRoster.admit("othermod:whatever", "rostermod2:widget"),
+            "non-allowlisted host keys refuse third-party enrolment");
+        assertThrows(IllegalArgumentException.class,
+            () -> CustomNodeRoster.admit(BlockNodeAllowances.SPEAKER.hostKey(),
+                "rostermod2:widget"),
+            "a this-mod key without the CUSTOM category is not enrolable either");
 
-        CustomNodeRoster.admit("csc:test", "rostermod2:widget");
-        CustomNodeRoster.admit("csc:test", "rostermod2:widget");
-        assertEquals(1, CustomNodeRoster.forHost("csc:test").size(), "duplicate enrolment is idempotent");
+        String key = io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances.BLUEPRINT.hostKey();
+        CustomNodeRoster.admit(key, "rostermod2:widget");
+        CustomNodeRoster.admit(key, "rostermod2:widget");
+        assertEquals(1, CustomNodeRoster.forHost(key).size(), "duplicate enrolment is idempotent");
 
-        var snapshot = CustomNodeRoster.forHost("csc:test");
+        var snapshot = CustomNodeRoster.forHost(key);
         assertThrows(UnsupportedOperationException.class,
             () -> snapshot.add("rostermod2:other"),
             "the snapshot is read-only — no outside writes into the roster");
         assertEquals(Set.of(), CustomNodeRoster.forHost("csc:unknown"), "unknown keys fail closed");
         assertEquals(Set.of(), CustomNodeRoster.forHost(null), "null keys fail closed");
-        assertTrue(CustomNodeRoster.hostKeys().contains("csc:test"), "enrolled keys are observable");
+        assertTrue(CustomNodeRoster.hostKeys().contains(key), "enrolled keys are observable");
         CustomNodeRoster.clearForTests();
-        assertEquals(Set.of(), CustomNodeRoster.forHost("csc:test"), "clearForTests empties the roster");
+        assertEquals(Set.of(), CustomNodeRoster.forHost(key), "clearForTests empties the roster");
     }
 }

@@ -102,6 +102,23 @@ class CustomNodeEditorFaceTest {
     void menuRosterSingleSource() throws Exception {
         String m = read(MENU);
         assertTrue(m.contains("rosteredCustomIds()"), "菜单 CUSTOM 计数/条目/搜索走同一名单快照");
+        // 审查修复（批 D）：浏览模式条目循环同样走单源——registeredIds() 全文件只许出现
+        // 在 rosteredCustomIds() 内（多于一处 = 有直连注册表的旁路，(c)1 家族回潮口）。
+        // Review fix (batch D): the browse entry loop rides the same source —
+        // registeredIds() may appear exactly once in the file (inside
+        // rosteredCustomIds()); more than one = a direct-registry bypass, the (c)1
+        // family's return path.
+        // 剥离 // 行注释后计数（注释里提及该名不算旁路）。
+        // Count after stripping // line comments (a mention in prose is not a bypass).
+        var codeOnly = new StringBuilder();
+        for (String ln : m.split("\n", -1)) {
+            int c = ln.indexOf("//");
+            codeOnly.append(c >= 0 ? ln.substring(0, c) : ln).append('\n');
+        }
+        assertEquals(1, codeOnly.toString().split("registeredIds()", -1).length - 1,
+            "registeredIds() must appear exactly once in code (inside rosteredCustomIds) — no direct-registry bypass");
+        assertTrue(m.contains("new java.util.ArrayList<>(rosteredCustomIds())"),
+            "the browse-mode entry list builds from the rostered snapshot");
         assertTrue(m.contains("CustomNodeRoster.forHost(rosterHost)"), "名单源 = CustomNodeRoster.forHost(宿主键)");
         assertTrue(m.contains("public void setRosterHost(String hostKey)"), "宿主键注入口在");
         // 高度预计算与条目循环必须同源（(c)1 同型错位防线：高度数 ≠ 条目数 = 网格越界家族）。

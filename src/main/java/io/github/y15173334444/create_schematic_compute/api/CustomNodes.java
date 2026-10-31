@@ -62,6 +62,17 @@ public final class CustomNodes {
      * {@link IllegalArgumentException} (a roster entry for a non-existent shape is a
      * provider bug).</p>
      *
+     * <p><b>宿主键归属校验（批 D 审查拍板）</b>：第三方只可登记进**显式白名单**内的本模组
+     * 宿主键（现 = {@link #HOST_BLUEPRINT}；键族随宿主套件波由各宿主声明后扩行）——
+     * 登记进任意键（含他人宿主键）抛 {@link IllegalArgumentException}。自有宿主套件宿主
+     * （波 2）不经本口，随套件自行声明名单。
+     * <b>Host-key ownership (batch D review ruling)</b>: third parties may enrol only into
+     * this mod's host keys on an **explicit allowlist** (currently
+     * {@link #HOST_BLUEPRINT}; the family grows as wave-2 host-suite hosts declare their
+     * own keys) — enrolling into any other key (including another mod's) throws
+     * {@link IllegalArgumentException}. Own host-suite hosts (wave 2) bypass this facade
+     * and declare their rosters with the suite.</p>
+     *
      * <p>装载兼容不经名单：旧档已在场的 id（无论提供方是否在线）由装载普查放行——
      * 撤销恢复与装载同语义（占位壳等提供方回归）。
      * Load tolerance does not ride the roster: ids already present in an older save pass
@@ -69,9 +80,8 @@ public final class CustomNodes {
      * load semantics (a placeholder shell waiting for the provider's return).</p>
      *
      * @param nodeId  已注册的自定义节点 id（{@code "modid:node_id"}）/ the registered id
-     * @param hostKey 宿主键（本模组方块见 {@link #HOST_BLUEPRINT}；自有宿主套件宿主自定）
-     *                / the host key ({@link #HOST_BLUEPRINT} for this mod's blueprint
-     *                computer; host-suite hosts define their own)
+     * @param hostKey 可登记白名单内的宿主键（现 = {@link #HOST_BLUEPRINT}）/ an enrolable
+     *                host key (currently {@link #HOST_BLUEPRINT})
      */
     public static void admitToHost(String nodeId, String hostKey) {
         CustomNodeRoster.admit(hostKey, nodeId);

@@ -226,8 +226,17 @@ final class NodeAddMenu {
 
         NodeType hovered = null;
         hoveredCustomId = null;
-        var customIds = new java.util.ArrayList<String>(
-            io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.registeredIds());
+        // 浏览模式的条目源与高度预计算/搜索同源（批 D 审查修复：(c)1 家族复发点——
+        // 原实现此处直取 registeredIds()，roster ⊊ 注册表时高度数 ≠ 条目数 → 网格错位
+        // + 未登记 id 显示可点）。registeredIds() 全文件只许出现在 rosteredCustomIds()
+        // 内（锚钉）。
+        // The browse mode's entry source shares the single snapshot with the height
+        // precompute and the search (batch D review fix — the (c)1 family recurrence:
+        // this spot used to read registeredIds() directly, so roster ⊊ registry made the
+        // height count ≠ entry count → grid misalignment plus unrostered ids rendered
+        // clickable). registeredIds() may appear only inside rosteredCustomIds()
+        // (anchor-pinned).
+        var customIds = new java.util.ArrayList<>(rosteredCustomIds());
         customIds.sort(customTitleOrder);
         boolean customAdmitted = combined.test(NodeType.CUSTOM);
         // A: scissor 裁剪列表区 / scissor-clip list area (screen coords, y=0=top)
