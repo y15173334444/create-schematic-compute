@@ -185,7 +185,7 @@ public class SpatialIndex {
         if (n.type == NodeType.CHANNEL) h += 36;          // 布局预设两行（3+2）/ layout presets, two rows
         if (n.type == NodeType.HUD_PITCH_LADDER) h += 36; // 范围/间隔两行 / range & interval steppers
         if (n.type == NodeType.MOUSE_JOYSTICK && n.params.length > 0) h += 16;
-        if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 32; // 初始按钮 + 当前只读
+        if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 16; // 当前状态一行（旧「初始状态」行已随 1.3.0 退役）/ one current-state row (the old initial-state row retired in 1.3.0)
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
         if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) h += 22;
         if (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) {

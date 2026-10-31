@@ -139,6 +139,22 @@ class FlipflopStateSeedTest {
             "src/main/java/io/github/y15173334444/create_schematic_compute/network/GraphSaveRequestPacket.java"));
         assertFalse(save.contains("applyCompileReset"),
             "the save path must not re-arm flip-flops (save = cycle check + persist + sync)");
+        String editor = Files.readString(Path.of(
+            "src/main/java/io/github/y15173334444/create_schematic_compute/client/editor/GraphEditor.java"));
+        assertFalse(editor.contains("params[1] = params[0]"),
+            "the editor's inline compile-reset copy must stay retired too");
+    }
+
+    @Test
+    @DisplayName("编辑区高度 = 底 6 + 单行 16（旧行数 32 禁回潮）/ edit height = one 16px row")
+    void editHeightCountsOneRow() {
+        for (NodeType t : new NodeType[]{NodeType.LATCH, NodeType.T_FLIPFLOP, NodeType.GATE}) {
+            NodeGraph g = new NodeGraph();
+            GraphNode n = g.addNode(t, 0, 0);
+            assertEquals(22, SpatialIndex.editHeight(n),
+                t + " expanded edit area = base 6 + one 16px toggle row (a 32 here means the "
+                    + "retired initial-state row came back and leaves a blank strip)");
+        }
     }
 
     @Test

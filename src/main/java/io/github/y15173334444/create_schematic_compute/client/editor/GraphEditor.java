@@ -4887,12 +4887,11 @@ public class GraphEditor {
         }
         // 编译前同步所有未保存的编辑（busBox + 频段改名） (Sync all unsaved edits before compile: busBox + band renames)
         commitPendingBusEdits();
-        // 编译时当前状态回归初始值 (Reset current state to initial values on compile)
-        for (var n : graph.nodes) {
-            if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) {
-                n.params[1] = n.params[0];
-            }
-        }
+        // （旧「编译复位当前态」的客户端乐观副本已随 1.3.0 退役——服务端权威下时序状态
+        // 完全持久，保存 = 环检测 + 落盘 + 全量同步。）
+        // (The client-side optimistic copy of the old compile reset is retired in 1.3.0 —
+        // under server authority sequential state is fully persistent; save = cycle check
+        // + persist + full sync.)
         saveGraph();
         host.toggleRunning(false);
         markDirty();
