@@ -24,6 +24,13 @@ io.github.y15173334444.create_schematic_compute/
 └── mixin/           (5 files)     ← Mixin 注入 / Mixin injection
 ```
 
+### `api/` — 公开 API 门面（1.3.0 公开 API 波 1）/ Public API facade
+
+- `CustomNodeType` — 声明式 schema 值类型（稳定 id `modid:node_id`、标题、FLOAT 域引脚标签、控件参数〔NUMBER/TEXT/BOOL/ITEM〕）；`MAX_SCHEMA_PARAMS = 32` = schema 控件数帽 = **K15 静态预检**对 CUSTOM `SET_HOTBAR_ITEM` 槽位的上界（精确槽位数由执行器按节点 schema 裁定；面板高度按实际控件计数）。/ The declarative schema value type; MAX_SCHEMA_PARAMS caps a schema's controls and bounds K15's packet-layer CUSTOM slot check (the precise count ruled per node by the executor; panel height counts real controls).
+- `CustomNodeBehavior` / `CustomNodeContext` / `CustomNodeResult` — 求值行为契约（服务端主线程回调、值级交付、`sliceExpired()` 检查点、done/suspended 形态）。
+- `CustomNodes` — 注册门面（api → graph 委托是门面实现边；**结构规则 = api 签名零图域类型**，非禁止委托边）。
+- 实现侧住 `graph/`：`CustomNodeRegistry`（注册表+世代号）、`CustomNodeCompute`（独立预算池）、`CustomNodeEval`（分类处理器+处置梯子）、`CustomNodeRunState`（transient 运行态）。
+
 ---
 
 ## 1. `graph/` — 节点图核心引擎 / Node Graph Core Engine
@@ -56,7 +63,10 @@ io.github.y15173334444.create_schematic_compute/
 - `type` — NodeType 枚举 / NodeType enum
 - `x, y` — 图中位置 / Graph-space position
 - `params[]` — 数值参数（如 PID 的 kp/ki/kd、CONST 的值）/ Numeric parameters
-- `itemParams[]` — 物品参数（红石频率堆）/ Item parameters (redstone frequency stacks)
+- `itemParams[]` — 物品参数（红石频率堆；CUSTOM 节点按 schema ITEM 控件预分配槽位，SET_HOTBAR_ITEM 的 CUSTOM 形态承载 schema 槽位）/ Item parameters (redstone frequency stacks; CUSTOM nodes pre-size slots from the schema's ITEM controls, and SET_HOTBAR_ITEM's CUSTOM form carries the schema slot)
+- `customId` — 自定义节点稳定字符串 id（`modid:node_id`，公开 API 波 1；NBT 键 `cid`；内置恒 null）/ A custom node's stable string id (wave 1; NBT key `cid`; always null for built-ins)
+- `customTextParams` — 自定义节点 TEXT 控件存储（key → 文本，公开 API 波 1 批 C；NBT 键 `ctp`；经 SET_CUSTOM_TEXT op 写入、执行器按 schema 校验 kind==TEXT；装载时 schema 已解析则按声明 TEXT key 过滤陈旧键）/ Custom-node TEXT control storage (key → text, wave-1 batch C; NBT key `ctp`; written via SET_CUSTOM_TEXT with schema-validated kinds; on load, a resolved schema filters stale keys against declared TEXT controls)
+- `customRun` — 自定义节点求值运行态（transient 不持久化：处置梯子记账，见 CustomNodeRunState）/ Custom-node eval run-state (transient: the escalation ladder's accounting, see CustomNodeRunState)
 - `formula` — FORMULA 节点的公式文本 / Formula expression for FORMULA nodes
 - `signalName` — BUS/PRIVATE/REDSTONE 的信号名 / Signal name for I/O nodes
 - `signalBands` — BUS 频段名列表 / BUS band name list
@@ -222,14 +232,14 @@ graph 包对平台/宿主包**零出边**——求值期需要的平台能力经
 `GraphOp` 应用执行器。服务端和客户端共享，确保变更逻辑单一定义。
 / Shared `GraphOp` executor used by both server and client — single source of truth for all mutations.
 
-**处理 35 种 OpType / Handles 35 OpTypes**：ADD_NODE_REQUEST, ADD_NODE, REMOVE_NODE, MOVE_NODE, ADD_CONN, REMOVE_CONN, SET_PARAM, SET_FORMULA, SET_COMMENT_TEXT, SET_COMMENT_COLORS, SET_COMMENT_SIZE, SET_DISPLAY_TEXT, SET_TEXT_COLOR, SET_BANDS, SET_BLOCK_NAME, SET_ZORDER, SET_LAYER_INDEX, SET_KEY_BINDING, SET_IMAGE_FRAME_TOGGLE, SET_DISPLAY_LAYOUT, TOGGLE_BOOL, SET_HOTBAR_ITEM, SET_IMAGE_PIXELS, SET_IMAGE_SIZE, REMOVE_IMAGE_FRAME, MOVE_IMAGE_FRAME, EXPAND_NODE, COLLAPSE_NODE, ADD_BOOKMARK, REMOVE_BOOKMARK, RENAME_BOOKMARK, MOVE_BOOKMARK, SET_CTRL_POINTS, SET_SONG, REJECT
+**处理 37 种 OpType / Handles 37 OpTypes**：ADD_NODE_REQUEST, ADD_NODE, REMOVE_NODE, MOVE_NODE, ADD_CONN, REMOVE_CONN, SET_PARAM, SET_FORMULA, SET_COMMENT_TEXT, SET_COMMENT_COLORS, SET_COMMENT_SIZE, SET_DISPLAY_TEXT, SET_TEXT_COLOR, SET_BANDS, SET_BLOCK_NAME, SET_ZORDER, SET_LAYER_INDEX, SET_KEY_BINDING, SET_IMAGE_FRAME_TOGGLE, SET_DISPLAY_LAYOUT, TOGGLE_BOOL, SET_HOTBAR_ITEM, SET_IMAGE_PIXELS, SET_IMAGE_SIZE, REMOVE_IMAGE_FRAME, MOVE_IMAGE_FRAME, EXPAND_NODE, COLLAPSE_NODE, ADD_BOOKMARK, REMOVE_BOOKMARK, RENAME_BOOKMARK, MOVE_BOOKMARK, SET_CTRL_POINTS, SET_SONG, REJECT, TOGGLE_CUR_STATE, SET_CUSTOM_TEXT
 
 ### GraphOp / OpType
 `GraphOp`：**29 字段** record + **26 个静态方法**（25 个工厂 + `parseCtrlPoints` helper；尾部 `customNodeId` 只与 CUSTOM 哨兵同现，其余 op 恒 null）。
 / 29-field record + 26 static methods (25 factories + 1 helper; the trailing customNodeId only ever rides the CUSTOM sentinel, null on every other op).
 - `blobRefId` — 非零 → 经注入的 `BlobStore` 端口取大数据（生产由根包接 `BlobRegistry::poll`，见「求值依赖注入」）/ non-zero → large data via the injected `BlobStore` port (production wires `BlobRegistry::poll`; see "Injected Eval Dependencies")
 - `imageData` — IMAGE 像素直接以 `int[]` 传输（替代 Base64 `stringValue`）/ direct pixel array
-- `OpType`：**35 种**操作枚举（新值只追加在枚举尾——枚举序 = 网络序）/ 35-operation enum (new values append only — ordinal order is the wire order)
+- `OpType`：**37 种**操作枚举（新值只追加在枚举尾——枚举序 = 网络序；`SET_CUSTOM_TEXT` 为公开 API 波 1 批 C 追加，承载自定义节点 TEXT 控件写入）/ 37-operation enum (new values append only — ordinal order is the wire order; SET_CUSTOM_TEXT appended in wave-1 batch C, carrying custom-node TEXT control writes)
 - `SET_PARAM` — `stringValue` 可携带输入框**草稿原文**（含空串），只驱动对端 EditBox 显示；权威数值在 `paramValue`。OpExecutor 对值相同的写入跳过 `bumpGeneration`（草稿-only op 不触发全量重编译）/ `stringValue` may carry the raw EditBox draft (incl. clear) for peer display only; the authoritative number is `paramValue`. OpExecutor skips `bumpGeneration` when the value is unchanged so draft-only ops do not force a full recompile.
 - `SET_BLOCK_NAME` — 图级 op（targetNodeId=0 忽略）：设置 `NodeGraph.customName`，纯视觉不 bump（同 SET_ZORDER）；已加入 EditSessionRegistry 的显示 op 白名单，未开编辑器的协作者也能收到 / Graph-level op (targetNodeId=0, ignored): sets `NodeGraph.customName`; visual-only, no bump (same as SET_ZORDER); whitelisted in EditSessionRegistry's display ops so collaborators without the editor open still receive it
 - `SET_SONG` — MUSIC 曲目写入/替换：`blobRefId` 经注入的 `BlobStore` 取重组字节应用，坏数据/超限拒存保原曲 / Song write/replace: reassembled bytes come from the injected `BlobStore`; malformed/oversized data is rejected and the original song kept
@@ -391,7 +401,7 @@ joiners have no pending ops and always load the authoritative graph.
 
 **`AbstractGraphScreen` 基类职责 / Base class responsibilities**：
 - 持有 `blockPos` + `GraphEditor`，构造器 `(Component title, BlockPos pos)`；子类通过 `setNodeAllowance(NodeAllowance)` 设置分类白名单+类内黑名单（`BlockNodeAllowances`），一次性谓词（子图）仍用 `setNodeFilter()` / Holds blockPos + GraphEditor; subclasses set a category allowlist via `setNodeAllowance` (`BlockNodeAllowances`); one-off predicates (sub-graph) still use `setNodeFilter`
-- `graph/NodeCategory` — 22 类节点分类（菜单分组唯一真相源，每 `NodeType` 恰好一类；`CUSTOM` 类唯一成员是第三方哨兵，任何内置宿主名单都不含此类——自定义节点准入走批 D 名单制）/ 22 node categories (single source for add-menu grouping; each `NodeType` in exactly one; the CUSTOM category's sole member is the third-party sentinel — no built-in host roster contains it, custom-node admission rides the batch-D roster)
+- `graph/NodeCategory` — 22 类节点分类（菜单分组唯一真相源，每 `NodeType` 恰好一类；`CUSTOM` 类唯一成员是第三方哨兵。**名单现状（批 C 起）**：蓝图机名单已收编 CUSTOM 类——验收①的闭环宿主，机械默认可否决；门禁 = 服务端准入门的注册表 id 校验（未注册 id 一律拒收，fail-closed）。其余内置宿主名单仍不含此类；D5 名单制（批 D）按宿主做字符串 id 细分收口）/ 22 node categories (single source for add-menu grouping; each `NodeType` in exactly one; the CUSTOM category's sole member is the third-party sentinel. **Roster status since batch C**: the blueprint roster admits the CUSTOM category — acceptance-1's loop host, a reviewable mechanical default; the gate is the admission gate's registry-id check (unregistered ids are refused, fail-closed). Every other built-in roster still excludes it; the D5 roster subdivides per host by string id in batch D)
 - `graph/NodeAllowance` + `graph/BlockNodeAllowances` — 方块准入 = 分类白名单 + 类内黑名单；12 方块名单集中在此 / Per-block allowance = category allowlist + in-category exclusions; the twelve lists live here
 - `init()` 发送 `GraphJoinPacket`；`onClose()` 依次执行 `preClose()` 钩子 → `pendingLocalOps=0` 复位（`5892caa` 守卫）→ `editor.onClose()` → `clearRemotePresences()` → 发送 `GraphLeavePacket` / Full close lifecycle
 - `tick()` 通过子类 `isBlockEntityValid()` 检查 BE，失效自动 `onClose()` / Auto-close on BE invalidation

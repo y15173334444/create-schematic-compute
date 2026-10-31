@@ -342,6 +342,30 @@ class CustomNodeFoundationTest {
     }
 
     @Test
+    @DisplayName("撤销删除回填 ctp（审查 (c)2）：ADD_NODE 快照恢复 TEXT 参数；装载按 schema 过滤陈旧键（审查 (a)3）")
+    void undoRestoresTextParamsAndLoadFiltersStaleKeys() {
+        NodeGraph g = customGraph(mixedSpec("undo"));
+        GraphNode n = g.nodes.get(0);
+        int id = n.id;
+        OpExecutor.apply(g, textOp(id, 1, "kept"));
+
+        CompoundTag snapshot = n.save(null);
+        // 陈旧键注入（提供方改版删除的控件）→ 装载按 schema 过滤
+        snapshot.getCompound("ctp").putString("ghost", "stale");
+        GraphNode restored = GraphNode.load(snapshot, null);
+        assertEquals("kept", restored.customTextParams.get("label"), "声明 TEXT key 回填");
+        assertFalse(restored.customTextParams.containsKey("ghost"), "陈旧 key 被过滤");
+
+        // 撤销恢复通路：ADD_NODE + 快照 → TEXT 参数随 restoreNodeFromNbt 回填
+        var op = new GraphOp(OpType.ADD_NODE, BlockPos.ZERO, -1, id,
+            0, NodeType.CUSTOM, 0f, 0f, 0, 0, 0, 0, 0, 0f, snapshot.toString(),
+            0, 0, 0, 0, null, 0, 0, 0, null, 0L, ACTOR, 0, null, MODID + ":undo");
+        NodeGraph g2 = new NodeGraph();
+        GraphNode back = OpExecutor.apply(g2, op);
+        assertEquals("kept", back.customTextParams.get("label"), "撤销删除后 TEXT 参数回填");
+    }
+
+    @Test
     @DisplayName("MAX_SCHEMA_PARAMS：超 32 控件的 schema 拒绝")
     void schemaParamCapEnforced() {
         var tooMany = new java.util.ArrayList<CustomNodeType.CustomParam>();

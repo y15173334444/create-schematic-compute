@@ -928,6 +928,31 @@ public final class OpExecutor {
         int pc = tag.getInt("pcount");
         for (int i = 0; i < pc && i < node.params.length; i++)
             node.params[i] = tag.getFloat("p" + i);
+        // TEXT 参数存储（公开 API 波 1 批 C，审查批 (c)2）：撤销删除后回填——否则 Ctrl+Z
+        // 看似成功而 TEXT 控件全部清空（P2-6 同族数据丢失面）。
+        // TEXT param storage (wave 1 batch C, review (c)2): restored on undo-delete —
+        // otherwise Ctrl+Z looks fine while every TEXT control comes back empty (the
+        // P2-6 data-loss family).
+        if (node.type == NodeType.CUSTOM && tag.contains("ctp", net.minecraft.nbt.Tag.TAG_COMPOUND)) {
+            var ctp = tag.getCompound("ctp");
+            node.customTextParams = new java.util.HashMap<>();
+            for (var k : ctp.getAllKeys()) node.customTextParams.put(k, ctp.getString(k));
+        }
+        // itemParams 回填（先在病的同刀：restore 清单一直缺 icount/i{i}，REDSTONE 频率
+        // 槽撤销后清空）。registryAccess 未接线（headless）= 跳过（空壳语义不变）。
+        // itemParams restore (the same sweep over the pre-existing gap: the restore list
+        // never read icount/i{i}, so REDSTONE frequency slots came back empty).
+        // Unwired registryAccess (headless) = skipped (the bare-shell semantics hold).
+        int ic = tag.getInt("icount");
+        if (ic > 0 && registryAccess != null && node.itemParams.length == ic) {
+            var restored = new ItemStack[ic];
+            boolean ok = true;
+            for (int i = 0; i < ic; i++) {
+                if (!tag.contains("i" + i, net.minecraft.nbt.Tag.TAG_COMPOUND)) { ok = false; break; }
+                restored[i] = ItemStack.parseOptional(registryAccess, tag.getCompound("i" + i));
+            }
+            if (ok) node.itemParams = restored;
+        }
         // signal name
         if (tag.contains("sig")) node.signalName = tag.getString("sig");
         // signal bands —— 条数钳到 MAX_BANDS（条目 16：与线缆解码同源同值，防快照夹带任意长频段表）

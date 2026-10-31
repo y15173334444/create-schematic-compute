@@ -80,6 +80,38 @@ final class NodeAddMenu {
     /** 门面：本帧悬停的自定义节点 id（无 = null）。/ facade: this frame's hovered custom id (null when none). */
     String lastCustomMenuId() { return hoveredCustomId; }
 
+    /** CUSTOM 类的条目数：准入门过 + 按**标题**命中搜索（哨兵 i18n 名不做门——审查批
+     *  (c)1：以哨兵名判命中会把标题搜索误杀）。空查询恒过。
+     *  The CUSTOM category's entry count: past the admission gate AND hit by the search
+     *  on the *title* (the sentinel's i18n name never gates — review (c)1: gating on it
+     *  killed title searches). An empty query always passes. */
+    private int customAdmittedCount(java.util.function.Predicate<NodeType> rawFilter) {
+        if (rawFilter != null && !rawFilter.test(NodeType.CUSTOM)) return 0;
+        String lq = menuSearchText.toLowerCase();
+        int n = 0;
+        for (String id : io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.registeredIds()) {
+            var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(id);
+            if (spec != null && spec.title().toLowerCase().contains(lq)) n++;
+        }
+        return n;
+    }
+
+    /** 搜索命中的自定义 id（标题过滤 + 标题排序；准入门 = 宿主 filter 过 CUSTOM 哨兵，
+     *  与搜索文本解耦——审查批 (c)1）。/ Search-hit custom ids (title-filtered and
+     *  title-sorted; admission = the host filter passing the CUSTOM sentinel, decoupled
+     *  from the search text — review (c)1). */
+    private java.util.List<String> searchHitCustomIds(java.util.function.Predicate<NodeType> rawFilter) {
+        var out = new java.util.ArrayList<String>();
+        if (rawFilter != null && !rawFilter.test(NodeType.CUSTOM)) return out;
+        String lq = menuSearchText.toLowerCase();
+        for (String id : io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.registeredIds()) {
+            var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(id);
+            if (spec != null && spec.title().toLowerCase().contains(lq)) out.add(id);
+        }
+        out.sort(customTitleOrder);
+        return out;
+    }
+
     /** 当前生效列数：手动双列开关开启时全部分类双列，否则单列。
      *  Effective column count: two columns for every category while the manual toggle is on, otherwise one. */
     private int effectiveCols() { return menuTwoColumns ? 2 : 1; }
@@ -110,7 +142,15 @@ final class NodeAddMenu {
             // 搜索模式：扁平列表高度（无分类标题行）——修复搜索时无法滚动的问题
             // search mode: flat-list height (no category title rows) — fixes search not being scrollable
             int n = 0;
-            for (var cat : CATEGORIES) for (var nt : cat.types) if (combined.test(nt)) n++;
+            // 搜索模式总数：内置逐类型 + CUSTOM 按注册 id 数（哨兵不当条目计——审查批
+            // (c)1：哨兵混进内置集合会占用 customIds 游标导致越界）。
+            // Search-mode total: built-ins per type + CUSTOM per registered id (the
+            // sentinel is never an entry — review (c)1: letting it into the built-in set
+            // consumes a customIds cursor and overruns).
+            for (var cat : CATEGORIES) {
+                if (cat == NodeCategory.CUSTOM) { n += customAdmittedCount(filter); continue; }
+                for (var nt : cat.types) if (combined.test(nt)) n++;
+            }
             int cols = menuTwoColumns ? 2 : 1;
             totalH += (int)Math.ceil((double)n / cols) * ih;
         } else {
@@ -170,9 +210,19 @@ final class NodeAddMenu {
         int cy = (int)menuRY + TOP_H - (int)menuScrollOff;
 
         if (searching) {
-            // D: 搜索模式 — 扁平列表，按匹配度排序 / search mode — flat list, sorted by relevance
+            // D: 搜索模式 — 扁平列表，按匹配度排序。**哨兵绝不进内置集合**（审查批 (c)1：
+            // 空查询必过 combined，哨兵混入会占用 customIds 游标 → get(N) 越界崩溃）；
+            // 自定义条目独立成段（标题过滤 + 标题排序），两段共享同一网格索引空间。
+            // D: search mode — a flat list sorted by relevance. **The sentinel never
+            // enters the built-in set** (review (c)1: an empty query always passes
+            // `combined`, so a smuggled sentinel consumes a customIds cursor → get(N)
+            // overruns); custom entries form their own segment (title-filtered and
+            // title-sorted), sharing the grid index space.
             var matches = new java.util.ArrayList<NodeType>();
-            for (var cat : CATEGORIES) for (var nt : cat.types) if (combined.test(nt)) matches.add(nt);
+            for (var cat : CATEGORIES) {
+                if (cat == NodeCategory.CUSTOM) continue;
+                for (var nt : cat.types) if (combined.test(nt)) matches.add(nt);
+            }
             String q = menuSearchText.toLowerCase();
             matches.sort((a, b) -> {
                 String na = I18n.get(a.displayName).toLowerCase();
@@ -182,38 +232,29 @@ final class NodeAddMenu {
                 if (scoreA != scoreB) return Integer.compare(scoreA, scoreB);
                 return na.compareTo(nb);
             });
+            var customHits = searchHitCustomIds(filter);
             int cols = menuTwoColumns ? 2 : 1; // 列数与双列开关同步 / column count follows the two-column toggle
-            int itemsPerCol = (int)Math.ceil((double)matches.size() / cols);
-            // CUSTOM 注册条目按标题合并进搜索列表（与内置同款命中/排序口径按标题算）。
-            // Custom registry entries merge into the search list by title (same hit/sort
-            // treatment as built-ins, scored on the title).
-            if (customAdmitted) {
-                String lq = menuSearchText.toLowerCase();
-                for (String id : customIds) {
-                    var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(id);
-                    if (spec != null && !spec.title().toLowerCase().contains(lq)) continue;
-                    matches.add(NodeType.CUSTOM);
-                }
-            }
+            int itemsPerCol = (int)Math.ceil((double) (matches.size() + customHits.size()) / cols);
             int idx = 0;
-            int customCursor = 0;
             for (var nt : matches) {
-                String customId = null;
-                String label;
-                if (nt == NodeType.CUSTOM && customAdmitted) {
-                    var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(customIds.get(customCursor));
-                    label = spec != null ? spec.title() : customIds.get(customCursor);
-                    customId = customIds.get(customCursor);
-                    customCursor++;
-                } else {
-                    label = I18n.get(nt.displayName);
-                }
                 int col = idx / itemsPerCol, row = idx % itemsPerCol;
                 int ix = (int)menuRX + 8 + col * colW;
                 int iy = cy + row * ih;
                 int itemRight = (int)Math.min(ix + colW - 4, hoverRight);
                 boolean h = mx >= ix && mx <= itemRight && my >= iy && my < iy + ih;
-                if (h) { g.fill(ix, iy, itemRight, iy + ih, NodeRenderer.HOV()); hovered = nt; hoveredCustomId = customId; }
+                if (h) { g.fill(ix, iy, itemRight, iy + ih, NodeRenderer.HOV()); hovered = nt; }
+                drawStr(g, I18n.get(nt.displayName), ix + 4, iy + 2, h ? NodeRenderer.CMH() : NodeRenderer.CMN());
+                idx++;
+            }
+            for (String id : customHits) {
+                var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(id);
+                String label = spec != null ? spec.title() : id;
+                int col = idx / itemsPerCol, row = idx % itemsPerCol;
+                int ix = (int)menuRX + 8 + col * colW;
+                int iy = cy + row * ih;
+                int itemRight = (int)Math.min(ix + colW - 4, hoverRight);
+                boolean h = mx >= ix && mx <= itemRight && my >= iy && my < iy + ih;
+                if (h) { g.fill(ix, iy, itemRight, iy + ih, NodeRenderer.HOV()); hovered = NodeType.CUSTOM; hoveredCustomId = id; }
                 drawStr(g, label, ix + 4, iy + 2, h ? NodeRenderer.CMH() : NodeRenderer.CMN());
                 idx++;
             }

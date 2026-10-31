@@ -50,10 +50,14 @@ public record CustomNodeType(
         public enum ParamKind { NUMBER, TEXT, BOOL, ITEM }
     }
 
-    /** 单节点参数控件数上限（编辑区面板高度与 K15 静态预检的共用上界；
-     *  32 个控件远超合理节点形态）。/ Cap on a schema's control count (shared by the
-     *  edit-panel height and K15's static pre-check; 32 controls far exceed any
-     *  reasonable node shape). */
+    /** 单节点参数控件数上限（**K15 静态预检的上界**——CUSTOM 的 SET_HOTBAR_ITEM 槽位
+     *  检查在包层只有本静态帽可依，精确槽位数由执行器按节点实际 schema 裁定；编辑区
+     *  面板高度按实际控件计数，不引用本帽。32 个控件远超合理节点形态）。
+     *  Cap on a schema's control count (the **K15 static pre-check's bound** — the
+     *  packet-layer CUSTOM SET_HOTBAR_ITEM check has only this static cap to lean on,
+     *  while the precise slot count is ruled per node by the executor; the edit-panel
+     *  height counts the real controls and never reads this cap). 32 controls far exceed
+     *  any reasonable node shape. */
     public static final int MAX_SCHEMA_PARAMS = 32;
 
     public CustomNodeType {

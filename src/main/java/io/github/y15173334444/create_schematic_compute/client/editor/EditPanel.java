@@ -355,10 +355,12 @@ public class EditPanel {
                 g.fill(pinX - r, pinY - r, pinX + r, pinY + r, NodeRenderer.CPI());
             }
 
-            // CUSTOM：标签 = schema 控件 key 原文（i18n 前缀路径对第三方 key 无意义）。
-            // CUSTOM: the label = the schema key verbatim (the i18n prefix path means
-            // nothing for third-party keys).
-            String label = node.type == NodeType.CUSTOM ? st.paramKeys[i] + ":" :
+            // CUSTOM：标签 = 字段序平行表（schema key 原文；paramKeys 是全 kind 序，
+            // BOOL/ITEM 混排在前时会错位——审查批 (c)3）。
+            // CUSTOM: the label = the field-order parallel list (the schema key verbatim;
+            // paramKeys is all-kind order and would misalign with BOOL/ITEM params ahead
+            // — review (c)3).
+            String label = node.type == NodeType.CUSTOM ? st.fieldLabels.get(i) + ":" :
                 (i < st.paramKeys.length ? I18n.get("param.create_schematic_compute." + st.paramKeys[i]) + ":" :
                 (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT ? I18n.get("gui.create_schematic_compute.edit.channel") : ""));
             int labelX = px + (hasParamPin ? 18 : 4);

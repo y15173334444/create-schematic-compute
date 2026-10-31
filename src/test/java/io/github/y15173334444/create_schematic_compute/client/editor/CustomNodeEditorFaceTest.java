@@ -62,7 +62,7 @@ class CustomNodeEditorFaceTest {
     void panelRowsAndLabels() throws Exception {
         String t = read(PANEL);
         assertTrue(t.contains("CUSTOM BOOL 控件行"), "BOOL 行绘制在");
-        assertTrue(t.contains("st.paramKeys[i] + \":\""), "CUSTOM 标签原文直出");
+        assertTrue(t.contains("st.fieldLabels.get(i) + \":\""), "CUSTOM 标签走字段序平行表（审查 (c)3）");
     }
 
     @Test
@@ -82,9 +82,19 @@ class CustomNodeEditorFaceTest {
     void menuExpandsRegistry() throws Exception {
         String t = read(MENU);
         assertTrue(t.contains("cat == NodeCategory.CUSTOM"), "visibleCount/条目循环的 CUSTOM 分支在");
-        assertTrue(t.contains("hoveredCustomId = customId;") && t.contains("hoveredCustomId = id;"),
-            "搜索/分类两类循环都回填 hoveredCustomId");
+        assertTrue(t.contains("hoveredCustomId = id;"), "分类循环回填 hoveredCustomId");
         assertTrue(t.contains("registeredIds()"), "条目源 = 注册表");
+    }
+
+    @Test
+    @DisplayName("⑤b 审查 (c)1：哨兵绝不进搜索内置集合；自定义段标题过滤+独立游标消除")
+    void menuSearchSentinelExcluded() throws Exception {
+        String t = read(MENU);
+        assertTrue(t.contains("if (cat == NodeCategory.CUSTOM) continue;"),
+            "搜索收集循环必须跳过 CUSTOM 类（哨兵混入 = customIds 游标越界）");
+        assertTrue(t.contains("searchHitCustomIds(filter)"), "自定义段走原始 filter 门（非 combined）");
+        assertFalse(t.contains("customCursor"), "游标复用形态退役（两段独立循环）");
+        assertTrue(t.contains("matches.size() + customHits.size()"), "网格索引空间合并计数");
     }
 
     @Test

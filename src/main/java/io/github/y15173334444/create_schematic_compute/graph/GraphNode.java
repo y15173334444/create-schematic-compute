@@ -875,7 +875,24 @@ public class GraphNode {
         if (node.type == NodeType.CUSTOM && tag.contains("ctp", Tag.TAG_COMPOUND)) {
             var ctp = tag.getCompound("ctp");
             node.customTextParams = new java.util.HashMap<>();
-            for (var k : ctp.getAllKeys()) node.customTextParams.put(k, ctp.getString(k));
+            // schema 已解析时按声明的 TEXT key 过滤（审查批 (a)3：陈旧 key——提供方改版
+            // 删掉的控件——不得永久 round-trip 膨胀存档；textParam 也只按声明 key 读取，
+            // 陈旧键是不可达死重）。schema 未解析（提供方缺席）= 原样保留（验收⑤：
+            // 身份与数据随档等提供方回归）。
+            // With the schema resolved, keys are filtered to the declared TEXT controls
+            // (review (a)3: stale keys — controls a provider revision dropped — must not
+            // round-trip forever; textParam only ever reads declared keys, so stale ones
+            // are unreachable dead weight). Schema unresolved (provider absent) = kept
+            // verbatim (acceptance 5: identity and data wait for the provider's return).
+            var spec = CustomNodeRegistry.get(node.customId);
+            for (var k : ctp.getAllKeys()) {
+                if (spec != null) {
+                    boolean declared = spec.params().stream().anyMatch(p ->
+                        p.key().equals(k) && p.kind() == CustomNodeType.CustomParam.ParamKind.TEXT);
+                    if (!declared) continue;
+                }
+                node.customTextParams.put(k, ctp.getString(k));
+            }
         }
         if (tag.contains("sig")) node.signalName = tag.getString("sig");
         if (tag.contains("bands")) {

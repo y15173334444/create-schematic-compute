@@ -588,6 +588,14 @@ public class GraphEditor {
         /** 每个 field 对应的参数索引（用于参数引脚映射和渲染） (Param index each field maps to, for param pin mapping and rendering) */
         public final java.util.List<Integer> fieldParamIndices = new java.util.ArrayList<>();
         public String[] paramKeys;
+        /** 每个 field 的显示标签（与 {@code fields} 平行；内置 = paramKeys 同序，
+         *  CUSTOM = schema 控件 key 的**字段序**子列——字段只含 NUMBER/TEXT，BOOL/ITEM
+         *  混排在前时 paramKeys 序会错位，审查批 (c)3）。
+         *  Per-field display labels (parallel to {@code fields}; built-ins = paramKeys in
+         *  order, CUSTOM = the schema keys' *field-order* sublist — fields hold only
+         *  NUMBER/TEXT, so mixed BOOL/ITEM params ahead would misalign paramKeys, review
+         *  (c)3). */
+        public final java.util.List<String> fieldLabels = new java.util.ArrayList<>();
         public int freqSlotSelected = -1; // -1 = none selected, 0/1 = slot index
         public float boolBtnX, boolBtnY, boolBtnW, boolBtnH;
         public float freqSlotX, freqSlotY;

@@ -120,6 +120,7 @@ final class NodeEditStateFactory {
                             }
                         });
                         s.fields.add(b);
+                        s.fieldLabels.add(cp.key()); // 平行标签（字段序），防 BOOL/ITEM 混排错位
                         // CUSTOM 参数是控件不产引脚（batch A 语义）——不入 fieldParamIndices。
                         // CUSTOM params are controls without pins (the batch-A semantic) —
                         // they never enter fieldParamIndices.
@@ -144,6 +145,7 @@ final class NodeEditStateFactory {
                             lastSent[0] = text;
                         });
                         s.fields.add(b);
+                        s.fieldLabels.add(cp.key());
                     }
                     // BOOL → 按钮行（EditPanel 绘制 + GraphEditor 点击段）；ITEM → 批 D。
                     // BOOL → a button row (EditPanel draws, the GraphEditor segment clicks);
