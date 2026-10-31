@@ -39,15 +39,20 @@ logoFile = "icon.png"
 
     # 可选依赖（P2-21）：Sable 缺席时相关功能降级不崩（SableAbsenceTest 锚定），
     # 故 mandatory = false、ordering/side 照上方 create 条目的既有样式。
-    # 区间下限 = libs/ 实测版本 1.2.2；上限收在 1.3 之前——本模组的 mixin 深入 Sable
-    # 内部包（ControlSeatCameraMixin → mixinhelper），未验证的版本线（含 2.x）应显式
-    # 报警而非静默失效。开口向上则恰好重现 P2-21 要诊断的版本漂移盲区。
+    # 区间口径（2026-11-01 首轮版本矩阵后放宽）：下限 1.2.2 —— 1.2.2 起 plot 网格改
+    # 中心+本地坐标框架，更早版本链接得上但位姿语义不同；上限收在 2.1 之前 —— 1.x/2.0.x
+    # 线已过 tools/sable-compat 矩阵（含 mixin 字符串目标 shouldCameraRotate 的链接点
+    # 探针），未验证的版本线仍显式报警而非静默失效。开口向上会重现 P2-21 要诊断的版本
+    # 漂移盲区；扩窗前先跑矩阵。
     # Optional dependency (P2-21): features degrade gracefully without Sable (anchored by
     # SableAbsenceTest), hence mandatory = false with ordering/side mirroring the create
-    # entry above. Floor = the libs/-verified 1.2.2; capped below 1.3 — our mixins target
-    # Sable internals (ControlSeatCameraMixin → mixinhelper), so untested lines (incl. 2.x)
-    # must warn visibly rather than fail silently. An open top would recreate exactly the
-    # drift blind spot P2-21 exists to diagnose.
+    # entry above. Range policy (widened 2026-11-01 after the first version matrix): floor
+    # = 1.2.2 — the plot grid moved to the centre+local coordinate frame at 1.2.2; earlier
+    # lines link fine but carry different pose semantics. Capped below 2.1 — the 1.x/2.0.x
+    # lines passed the tools/sable-compat matrix (incl. a linkage probe of the mixin string
+    # target shouldCameraRotate), so unverified lines must warn visibly rather than fail
+    # silently. An open top would recreate exactly the drift blind spot P2-21 exists to
+    # diagnose; re-run the matrix before extending.
     [[mods.dependencies]]
     modId = "sable"
     versionRange = "${sable_version_range}"
