@@ -50,6 +50,12 @@ public record BudgetSetPacket(double ms) implements CustomPacketPayload {
             }
             double clamped = Math.round(net.minecraft.util.Mth.clamp(pkt.ms, 0.5, 20.0) * 10.0) / 10.0;
             Config.FORMULA_BUDGET_MS.set(clamped);
+            // 持久化:ConfigValue.set() 只改内存(NeoForge 21.1 不落盘),显式 save() 写当前
+            // 世界的 serverconfig——重启后仍生效(实测发现:不 save 则值随会话丢失)。
+            // Persistence: ConfigValue.set() only mutates memory (it does not save on NeoForge
+            // 21.1); the explicit save() writes this world's serverconfig — the value survives
+            // a restart (verified empirically: without it the value was lost with the session).
+            Config.SPEC.save();
             PacketDistributor.sendToAllPlayers(new BudgetSyncPacket(clamped, true));
             sp.sendSystemMessage(Component.translatable(
                 "commands.create_schematic_compute.cscbudget.set", String.format("%.1f", clamped)));

@@ -47,14 +47,16 @@ public final class SchematicComputeCommands {
             .then(Commands.argument("ms", DoubleArgumentType.doubleArg(0.5, 20.0))
                 .executes(ctx -> {
                     double ms = Mth.clamp(DoubleArgumentType.getDouble(ctx, "ms"), 0.5, 20.0);
-                    // 世界作用域:SERVER 型配置写当前世界 serverconfig,NeoForge 自动存盘;
-                    // 预算源每 tick 实时读取,下一 tick 即生效。控制台同样可调(审查修正:
-                    // 拍板只要求 OP,未要求限玩家——requires 已按权限等级把门)。
-                    // World-scoped: the SERVER config writes the current world's serverconfig
-                    // (saved automatically); the budget source reads live, effective next tick.
-                    // The console may adjust too (review fix: the ruling requires OP, not a
-                    // player — requires() already gates by permission level).
+                    // 世界作用域:SERVER 型配置写当前世界 serverconfig;set() 只改内存,
+                    // 显式 save() 落盘(重启后仍生效);预算源每 tick 实时读取,下一 tick 生效。
+                    // 控制台同样可调(审查修正:拍板只要求 OP,未要求限玩家——requires 已按权限等级把门)。
+                    // World-scoped: the SERVER config writes this world's serverconfig; set()
+                    // only mutates memory, so the explicit save() persists it across restarts;
+                    // the budget source reads live, effective next tick. The console may adjust
+                    // too (review fix: the ruling requires OP, not a player — requires() already
+                    // gates by permission level).
                     Config.FORMULA_BUDGET_MS.set(ms);
+                    Config.SPEC.save();
                     PacketDistributor.sendToAllPlayers(new BudgetSyncPacket(ms, true));
                     double v = ms;
                     ctx.getSource().sendSuccess(() -> Component.translatable(
