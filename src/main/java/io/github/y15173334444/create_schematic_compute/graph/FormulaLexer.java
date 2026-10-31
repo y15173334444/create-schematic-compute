@@ -14,16 +14,18 @@ import static io.github.y15173334444.create_schematic_compute.graph.FormulaParse
 
 /**
  * 公式词法相位（拓扑审查 §三 P5 按相拆分，自 FormulaParser 逐字迁出）：全角归一 sanitizeFullwidth、
- * 词法扫描 tokenize（语法高亮/自动补全/校验/RPN 编译共用同一次扫描）、变量名抽取 extractVariables
- * 与标识符合法性 isValidIdentifier。词法只认识名字（函数/常量/关键字），表本体在 FormulaFunctions
+ * 词法扫描 tokenize（语法高亮/自动补全/校验/RPN 编译共用同一次扫描）与标识符合法性 isValidIdentifier。
+ * （变量名抽取 extractVariables 已随 2026-10-31 双前端退役删除——引脚面收集归统一 AST 前端。）
+ * 词法只认识名字（函数/常量/关键字），表本体在 FormulaFunctions
  * 与 FormulaParser.KEYWORDS。静态函数包，不建继承体系；公开入口经 FormulaParser 冻结门面。
  * <p>Formula lexer phase (topology-review §三 P5 split, relocated verbatim from
  * FormulaParser): the sanitizeFullwidth full-width normalisation, the tokenize scan
  * (one scan shared by highlighting / completion / validation / RPN compilation),
- * extractVariables and isValidIdentifier. The lexer only knows names (functions /
- * constants / keywords); the tables themselves live in FormulaFunctions and
- * FormulaParser.KEYWORDS. Static function pack, no inheritance hierarchy; public
- * entries go through FormulaParser's frozen facade.</p>
+ * and isValidIdentifier. (extractVariables retired with the 2026-10-31 dual-frontend
+ * retirement — pin-face collection lives in the unified AST frontend.) The lexer only
+ * knows names (functions / constants / keywords); the tables themselves live in
+ * FormulaFunctions and FormulaParser.KEYWORDS. Static function pack, no inheritance
+ * hierarchy; public entries go through FormulaParser's frozen facade.</p>
  */
 final class FormulaLexer {
 

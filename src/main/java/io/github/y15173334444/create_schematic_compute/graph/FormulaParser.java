@@ -17,37 +17,42 @@ import static io.github.y15173334444.create_schematic_compute.graph.FormulaFunct
 import static io.github.y15173334444.create_schematic_compute.graph.FormulaFunctions.applyVectorFunction;
 
 /**
- * 公式解析器 — 家族门面 + RPN 旧前端本体（拓扑审查 §三 P5 按相拆分后的锚类，行为零变更）。
+ * 公式解析器 — 家族门面 + 表达式栈机锚类（拓扑审查 §三 P5 按相拆分后的锚类；旧扁平 RPN
+ * 前端已随 2026-10-31 双前端退役删除）。
  * 数学表达式支持：多字母变量名（连续字母如 ABD）、+ - * / % ^ ( )、数字、一元负号、
  *       三角函数：sin(x) cos(x) tan(x) asin(x) acos(x) atan2(y,x) sinh(x) cosh(x)
  *
- * 脚本模式（包含换行符或赋值语句或 @output 标记时自动启用）：
+ * 脚本语法（全部脚本统一走 AST 前端；无控制流脚本随双前端退役升格）：
  *   -- 注释行        : 以 "--" 开头的行
  *   赋值语句         : varName = expression
  *   输出声明         : @output varName
  *   默认回退输出     : 若未声明 @output，最后一行独立表达式为输出
  *
- * 相位分家（拓扑 P5，物理拆分、双前端语义不动）：词法在 FormulaLexer（tokenize /
- * sanitizeFullwidth / extractVariables / isValidIdentifier）；AST 前端在 FormulaAstParser
+ * 相位分家（拓扑 P5，物理拆分）：词法在 FormulaLexer（tokenize /
+ * sanitizeFullwidth / isValidIdentifier）；AST 前端在 FormulaAstParser
  * （刀3 语句树解析）；内建函数与常量表在 FormulaFunctions（K14 扩容落点，FUNCTIONS 字段
  * 是本类上的稳定别名）；校验在 FormulaValidator。本类留守：词汇类型（TokType / Token /
- * ScriptParseResult / FormulaIssue / RPN token 族 / MAX_PARSE_DEPTH 族）、RPN 旧前端
- * （compile / compileTokens / evaluateValue / parseScript 的模式路由与降级）与 Value 栈机，
- * 以及全部公开签名的冻结门面（逐个委托，存量引用零改动）。AST（新表示）与 RPN（旧表示）
- * 双前端并存的退役时间点是独立决策，与本拆分无关（见拓扑审查 §三 P5）。
- * <p>Formula parser — family facade plus the legacy RPN front-end (the anchor of the
- * topology-review §三 P5 phase split; zero behaviour change). The phases now live next
- * door: lexing in FormulaLexer (tokenize / sanitizeFullwidth / extractVariables /
- * isValidIdentifier), the AST front-end in FormulaAstParser (knife-3 statement parsing),
- * the builtin function &amp; constant tables in FormulaFunctions (the K14 expansion
- * point; the FUNCTIONS field here is a stable alias to the same table), and validation
- * in FormulaValidator. This class keeps the vocabulary types (TokType / Token /
- * ScriptParseResult / FormulaIssue / the RPN token family / the MAX_PARSE_DEPTH family),
- * the legacy RPN front-end (compile / compileTokens / evaluateValue / parseScript's mode
- * routing and degradation) and the Value stack machine, plus frozen facades for every
- * public signature (item-by-item delegation, existing references untouched). When the
- * dual front-ends (AST the new representation, RPN the old) retire is a separate
- * decision, independent of this split (topology review §三 P5).</p>
+ * ScriptParseResult / FormulaIssue / RPN token 族 / MAX_PARSE_DEPTH 族）、表达式编译与
+ * Value 栈机（compile / compileTokens / evaluateValue——AST 表达式叶子与 DEBUG 信号共用）
+ * 与 parseScript 的降级兜底，以及全部公开签名的冻结门面（逐个委托，存量引用零改动）。
+ * 双前端退役（2026-10-31）：旧单行表达式模式 + 逐行赋值/输出解析 + 模式路由已删除，
+ * 全部脚本升格 AST（见登记册『AST 与 RPN 双前端并行』条目）。
+ * <p>Formula parser — family facade plus the expression-stack-machine anchor (the
+ * topology-review §三 P5 phase split anchor; the legacy flat-RPN front-end retired
+ * with the 2026-10-31 dual-frontend retirement). The phases now live next door:
+ * lexing in FormulaLexer (tokenize / sanitizeFullwidth / isValidIdentifier),
+ * the AST front-end in FormulaAstParser (knife-3 statement parsing), the builtin
+ * function &amp; constant tables in FormulaFunctions (the K14 expansion point; the
+ * FUNCTIONS field here is a stable alias to the same table), and validation in
+ * FormulaValidator. This class keeps the vocabulary types (TokType / Token /
+ * ScriptParseResult / FormulaIssue / the RPN token family / the MAX_PARSE_DEPTH
+ * family), the expression compiler and Value stack machine (compile / compileTokens /
+ * evaluateValue — shared by AST expression leaves and the DEBUG signal path) plus
+ * parseScript's degradation backstop, and frozen facades for every public signature
+ * (item-by-item delegation, existing references untouched). Dual-frontend retirement
+ * (2026-10-31): the legacy single-expression mode, per-line assignment/output parsing
+ * and mode routing are gone — every script is promoted to AST (open-issues entry
+ * "AST and RPN dual frontends").</p>
  */
 public class FormulaParser {
 
