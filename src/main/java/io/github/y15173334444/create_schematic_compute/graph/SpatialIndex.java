@@ -175,6 +175,22 @@ public class SpatialIndex {
             } else h += n.type.editableParamCount() * 18;   // rev 等按钮参数不占 EditBox 行 / button-only params take no EditBox row
         }
         if (n.type == NodeType.BOOL && n.params.length > 0) h += 16;
+        // CUSTOM（公开 API 波 1 批 C）：字段行（NUMBER/TEXT EditBox，schema 序）+ BOOL
+        // 开关行——与 EditPanel 绘制、GraphEditor 点击段同一账本。
+        // CUSTOM (wave 1 batch C): field rows (NUMBER/TEXT EditBoxes in schema order) +
+        // BOOL toggle rows — the same ledger as the EditPanel draw and the GraphEditor
+        // click segment.
+        if (n.type == NodeType.CUSTOM) {
+            var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(n.customId);
+            if (spec != null) {
+                int fields = 0, bools = 0;
+                for (var cp : spec.params()) {
+                    if (cp.kind() == io.github.y15173334444.create_schematic_compute.api.CustomNodeType.CustomParam.ParamKind.BOOL) bools++;
+                    else if (cp.kind() != io.github.y15173334444.create_schematic_compute.api.CustomNodeType.CustomParam.ParamKind.ITEM) fields++;
+                }
+                h += fields * 18 + bools * 16;
+            }
+        }
         // 正/反转按钮（输出指令类）/ forward-reverse toggle (output-command nodes)
         if (n.type == NodeType.MOVE || n.type == NodeType.ROTATE
             || n.type == NodeType.TX_OUT || n.type == NodeType.SPEED_CTRL) h += 18;

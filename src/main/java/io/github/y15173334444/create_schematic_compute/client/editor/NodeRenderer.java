@@ -209,6 +209,11 @@ public class NodeRenderer {
     /** 添加节点菜单（已拆至 NodeAddMenu，docs/gui-decomposition-plan.md 步骤 5；本类保留门面）。
      *  Add-node menu (extracted to NodeAddMenu, roadmap step 5; this class keeps the facade). */
     private final NodeAddMenu addMenu;
+
+    /** 门面：本帧添加菜单悬停的自定义节点 id（CUSTOM 哨兵选中时非 null）。
+     *  Facade: this frame's add-menu hovered custom node id (non-null when the CUSTOM
+     *  sentinel is the selection). */
+    public String lastCustomMenuId() { return addMenu.lastCustomMenuId(); }
     /** 注释节点渲染器（已拆至 NodeCommentRenderer，同批第二刀）。 / Comment-node renderer (extracted, second cut). */
     private final NodeCommentRenderer commentRenderer;
     /** 连线渲染器（已拆至 NodeWireRenderer，同批第三刀）。 / Wire renderer (extracted, third cut). */
@@ -405,7 +410,13 @@ public class NodeRenderer {
         pose.pushPose();
         pose.translate(sx,sy,0);
         pose.scale(zoom,zoom,1);
-        // C=1: 标题文字
+        // C=1: 标题文字（CUSTOM：schema 标题直读，注册表未解析回落哨兵 i18n 键）
+        // C=1: the title text (CUSTOM: the schema title verbatim, falling back to the
+        // sentinel i18n key while the registry lookup fails)
+        if (n.type == NodeType.CUSTOM) {
+            var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(n.customId);
+            drawStr(g, spec != null ? spec.title() : I18n.get(n.type.getTitle()), 4, 4, CNT());
+        } else
         drawStr(g, I18n.get(n.type.getTitle()), 4, 4, CNT());
         // 刀5:FORMULA spread 进度条(无数值,只有进度)/ knife 5: spread progress bar (no value shown)
         if (n.type == NodeType.FORMULA && evalSnapshot != null) {

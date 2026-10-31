@@ -80,6 +80,12 @@ public final class CustomNodeRegistry {
         return customId == null ? null : BEHAVIORS.get(customId);
     }
 
+    /** 全部已注册 id（快照，菜单展开与观测用）。/ all registered ids (a snapshot, for menu
+     *  expansion and observability). */
+    public static java.util.Set<String> registeredIds() {
+        return java.util.Set.copyOf(BY_ID.keySet());
+    }
+
     /** 当前注册表世代号（运行态重置检测用）。/ the current registry generation (for run-state reset detection). */
     public static long providerGeneration() {
         return generation;

@@ -26,7 +26,15 @@ public final class BlockNodeAllowances {
         EnumSet.of(NodeCategory.VALUES, NodeCategory.MATH_BASIC, NodeCategory.MATH_ADVANCED,
             NodeCategory.TRIG, NodeCategory.LOGIC, NodeCategory.CONTROL,
             NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_ACC, NodeCategory.DEBUG,
-            NodeCategory.STRUCTURE, NodeCategory.INPUT_POSE),
+            NodeCategory.STRUCTURE, NodeCategory.INPUT_POSE,
+            // CUSTOM（公开 API 波 1 批 C，机械默认可否决）：蓝图机是验收①的闭环宿主——
+            // 类目放行 + 服务端注册表 id 校验（审查批 (b)2）= 只有已注册 id 进得来；
+            // D5 名单制再按宿主细分。
+            // CUSTOM (wave 1 batch C, mechanical default, reviewable): the blueprint host
+            // closes acceptance-1's loop — the category pass plus the server-side
+            // registered-id check (review (b)2) admits only registered ids; the D5 roster
+            // subdivides per host.
+            NodeCategory.CUSTOM),
         NodeType.ENCAP_INPUT, NodeType.ENCAP_OUTPUT);
 
     /** 程序计算机：逻辑 / 数学 / 时序齐全，无运动与宿主专属节点。

@@ -85,6 +85,73 @@ final class NodeEditStateFactory {
         });
         var s = new GraphEditor.EditState();
         s.graph = ed.getGraph(); // 用于检查参数引脚连线状态 (Used to check param pin connection state)
+        // CUSTOM（公开 API 波 1 批 C）：paramKeys = schema 控件 key（非内置 paramNames——
+        // 哨兵恒空），控件集 = NUMBER/TEXT 走 EditBox，BOOL 走按钮行（EditPanel/点击段），
+        // ITEM 编辑面随批 D（存储面已批 C 落地）。
+        // CUSTOM (wave 1 batch C): paramKeys = the schema's control keys (not the built-in
+        // paramNames — the sentinel's is always empty); the control set = NUMBER/TEXT as
+        // EditBoxes, BOOL as button rows (EditPanel + the click segment), ITEM's editor
+        // face with batch D (its storage face landed in batch C).
+        if (node.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.CUSTOM) {
+            var mc = Minecraft.getInstance(); // 通用段在其后声明，本分支提前 return 需自带
+            var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(node.customId);
+            s.paramKeys = spec != null
+                ? spec.params().stream().map(io.github.y15173334444.create_schematic_compute.api.CustomNodeType.CustomParam::key).toArray(String[]::new)
+                : new String[0];
+            if (spec != null) {
+                var params = spec.params();
+                for (int i = 0; i < params.size(); i++) {
+                    var cp = params.get(i);
+                    int idx = i;
+                    if (cp.kind() == io.github.y15173334444.create_schematic_compute.api.CustomNodeType.CustomParam.ParamKind.NUMBER) {
+                        var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
+                        b.setMaxLength(12);
+                        b.setValue(GraphEditor.ff3Faithful(idx < node.params.length ? node.params[idx] : 0f));
+                        final float[] lastSent = {idx < node.params.length ? node.params[idx] : 0f};
+                        b.setResponder(text -> {
+                            if (ed.suppressEditBoxResponder) return;
+                            float newV = resolveParamDraftValue(text, lastSent[0]);
+                            if (idx < node.params.length) node.params[idx] = newV;
+                            if (Float.compare(newV, lastSent[0]) != 0) {
+                                var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setParam(
+                                    ed.host.getBlockPos(), ed.ownerNodeId(), node.id, idx, newV, text, ed.host.getPlayerUUID());
+                                ed.sendOp(op);
+                                lastSent[0] = newV;
+                            }
+                        });
+                        s.fields.add(b);
+                        // CUSTOM 参数是控件不产引脚（batch A 语义）——不入 fieldParamIndices。
+                        // CUSTOM params are controls without pins (the batch-A semantic) —
+                        // they never enter fieldParamIndices.
+                    } else if (cp.kind() == io.github.y15173334444.create_schematic_compute.api.CustomNodeType.CustomParam.ParamKind.TEXT) {
+                        var b = new EditBox(mc.font, 0, 0, 60, 16, Component.literal(""));
+                        b.setMaxLength(64);
+                        String cur = node.customTextParams != null ? node.customTextParams.getOrDefault(cp.key(), "") : "";
+                        b.setValue(cur);
+                        final String[] lastSent = {cur};
+                        b.setResponder(text -> {
+                            if (ed.suppressEditBoxResponder) return;
+                            if (text.equals(lastSent[0])) return;
+                            if (node.customTextParams == null) node.customTextParams = new java.util.HashMap<>();
+                            node.customTextParams.put(cp.key(), text);
+                            var op = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_CUSTOM_TEXT,
+                                ed.host.getBlockPos(), ed.ownerNodeId(), node.id,
+                                0, null, 0f, 0f, 0, 0, 0, 0, idx, 0f, text,
+                                0, 0, 0, 0, null, 0, 0, 0, null, 0L, ed.host.getPlayerUUID());
+                            ed.sendOp(op);
+                            ed.history.recordOp(op, 0, 0, 0, lastSent[0]); // oldStr = 撤销恢复用 / oldStr for undo restore
+                            lastSent[0] = text;
+                        });
+                        s.fields.add(b);
+                    }
+                    // BOOL → 按钮行（EditPanel 绘制 + GraphEditor 点击段）；ITEM → 批 D。
+                    // BOOL → a button row (EditPanel draws, the GraphEditor segment clicks);
+                    // ITEM → batch D.
+                }
+            }
+            return s;
+        }
         s.paramKeys = node.type.paramNames.clone();
         var mc = Minecraft.getInstance();
         for (int i = 0; i < node.params.length; i++) {

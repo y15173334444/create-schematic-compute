@@ -128,12 +128,29 @@ final class GraphOpHistory {
                 yield new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                     io.github.y15173334444.create_schematic_compute.graph.OpType.REMOVE_NODE, bp, oid, nid, uid);
             }
-            case REMOVE_NODE -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE, bp, oid, op.targetNodeId(),
-                op.tempId(), io.github.y15173334444.create_schematic_compute.graph.NodeType.values()[(int)e.oldVal],
-                e.oldX, e.oldY, 0, 0, 0, 0, 0, 0f,
-                e.oldStr, 0, 0, 0, 0, null, 0, 0, 0,
-                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
+            case REMOVE_NODE -> {
+                // CUSTOM（公开 API 波 1 批 C）：撤销恢复的 ADD_NODE 必须携带快照里的 cid
+                //（快照类型门要求一致；内置类型该位 null）。cid 从撤销快照字符串里解析
+                //（快照 = GraphNode.save 产物，CUSTOM 必写 cid）。
+                // CUSTOM (wave 1 batch C): the undo-restore ADD_NODE must carry the
+                // snapshot's cid (the snapshot type gate demands a match; built-ins keep
+                // null). The cid parses out of the undo snapshot string (a GraphNode.save
+                // product; CUSTOM always writes cid).
+                var restoredType = io.github.y15173334444.create_schematic_compute.graph.NodeType.values()[(int)e.oldVal];
+                String cid = null;
+                if (restoredType == io.github.y15173334444.create_schematic_compute.graph.NodeType.CUSTOM
+                    && e.oldStr != null && e.oldStr.charAt(0) == '{') {
+                    try {
+                        var tag = net.minecraft.nbt.TagParser.parseTag(e.oldStr);
+                        if (tag.contains("cid", net.minecraft.nbt.Tag.TAG_STRING)) cid = tag.getString("cid");
+                    } catch (Exception ignored) { /* 解析失败 = 空壳恢复（既有口径） */ }
+                }
+                yield new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                    io.github.y15173334444.create_schematic_compute.graph.OpType.ADD_NODE, bp, oid, op.targetNodeId(),
+                    op.tempId(), restoredType, e.oldX, e.oldY, 0, 0, 0, 0, 0, 0f,
+                    e.oldStr, 0, 0, 0, 0, null, 0, 0, 0,
+                    net.minecraft.world.item.ItemStack.EMPTY, 0L, uid, 0, null, cid);
+            }
             case MOVE_NODE -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(bp, oid, op.targetNodeId(), e.oldX, e.oldY, uid);
             case ADD_CONN -> {
                 var pids = io.github.y15173334444.create_schematic_compute.graph.GraphOp.parseConnPinIds(op.stringValue());
@@ -156,6 +173,14 @@ final class GraphOpHistory {
             case SET_DISPLAY_TEXT -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
                 io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT, bp, oid, op.targetNodeId(),
                 0, null, 0f, 0f, 0, 0, 0, 0, 0, 0f,
+                e.oldStr, 0, 0, 0, 0, null, 0, 0, 0,
+                net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
+            // SET_CUSTOM_TEXT 逆 op：oldStr = 覆盖前的文本（recordOp 在响应器里捕获）。
+            // SET_CUSTOM_TEXT's reverse: oldStr = the text before the overwrite (captured
+            // by recordOp in the responder).
+            case SET_CUSTOM_TEXT -> new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                io.github.y15173334444.create_schematic_compute.graph.OpType.SET_CUSTOM_TEXT, bp, oid, op.targetNodeId(),
+                0, null, 0f, 0f, 0, 0, 0, 0, op.paramIndex(), 0f,
                 e.oldStr, 0, 0, 0, 0, null, 0, 0, 0,
                 net.minecraft.world.item.ItemStack.EMPTY, 0L, uid);
             case SET_COMMENT_SIZE -> io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(

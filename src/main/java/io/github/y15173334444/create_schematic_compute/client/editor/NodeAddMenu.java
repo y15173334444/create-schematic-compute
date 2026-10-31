@@ -36,6 +36,15 @@ final class NodeAddMenu {
     private final java.util.Map<Integer, Boolean> catExpanded = new java.util.HashMap<>();
     private float menuRX, menuRY;
     private java.util.function.Predicate<NodeType> currentFilter = null;
+    /** 本帧悬停的自定义节点 id（hovered = CUSTOM 哨兵时有效；GraphEditor 取它构造
+     *  携带 customNodeId 的建点 op）。/ This frame's hovered custom node id (valid while
+     *  hovered is the CUSTOM sentinel; GraphEditor reads it to build the id-carrying add op). */
+    private String hoveredCustomId;
+    private final java.util.Comparator<String> customTitleOrder =
+        java.util.Comparator.comparing(id -> {
+            var s = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(id);
+            return s != null ? s.title() : id;
+        });
     // —— ADF 滚动+搜索字段 / scroll + search fields ——
     private float menuW = 0;
     private float menuScrollOff = 0;
@@ -56,12 +65,20 @@ final class NodeAddMenu {
         return renderAddNodeMenu(g, menuX, menuY, mx, my, null);
     }
 
-    /** 计算分类中可见节点数 */
+    /** 计算分类中可见节点数（CUSTOM 类按注册表展开：一个已注册 id = 一个条目）。
+     *  Visible count per category (the CUSTOM category expands through the registry:
+     *  one registered id = one entry). */
     private int visibleCount(NodeCategory cat, java.util.function.Predicate<NodeType> filter) {
+        if (cat == NodeCategory.CUSTOM)
+            return (filter == null || filter.test(NodeType.CUSTOM))
+                ? io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.registeredIds().size() : 0;
         int n = 0;
         for (var nt : cat.types) if (filter == null || filter.test(nt)) n++;
         return n;
     }
+
+    /** 门面：本帧悬停的自定义节点 id（无 = null）。/ facade: this frame's hovered custom id (null when none). */
+    String lastCustomMenuId() { return hoveredCustomId; }
 
     /** 当前生效列数：手动双列开关开启时全部分类双列，否则单列。
      *  Effective column count: two columns for every category while the manual toggle is on, otherwise one. */
@@ -141,6 +158,11 @@ final class NodeAddMenu {
             menuTwoColumns ? NodeRenderer.ACC() : 0xFF777777);
 
         NodeType hovered = null;
+        hoveredCustomId = null;
+        var customIds = new java.util.ArrayList<String>(
+            io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.registeredIds());
+        customIds.sort(customTitleOrder);
+        boolean customAdmitted = combined.test(NodeType.CUSTOM);
         // A: scissor 裁剪列表区 / scissor-clip list area (screen coords, y=0=top)
         g.enableScissor((int)menuRX, (int)(menuRY + TOP_H), (int)menuRX + (int)menuW, (int)(menuRY + maxH));
         // 滚动条可见时，hover 排除滚动条区域 / exclude scrollbar from hover when visible
@@ -162,15 +184,37 @@ final class NodeAddMenu {
             });
             int cols = menuTwoColumns ? 2 : 1; // 列数与双列开关同步 / column count follows the two-column toggle
             int itemsPerCol = (int)Math.ceil((double)matches.size() / cols);
+            // CUSTOM 注册条目按标题合并进搜索列表（与内置同款命中/排序口径按标题算）。
+            // Custom registry entries merge into the search list by title (same hit/sort
+            // treatment as built-ins, scored on the title).
+            if (customAdmitted) {
+                String lq = menuSearchText.toLowerCase();
+                for (String id : customIds) {
+                    var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(id);
+                    if (spec != null && !spec.title().toLowerCase().contains(lq)) continue;
+                    matches.add(NodeType.CUSTOM);
+                }
+            }
             int idx = 0;
+            int customCursor = 0;
             for (var nt : matches) {
+                String customId = null;
+                String label;
+                if (nt == NodeType.CUSTOM && customAdmitted) {
+                    var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(customIds.get(customCursor));
+                    label = spec != null ? spec.title() : customIds.get(customCursor);
+                    customId = customIds.get(customCursor);
+                    customCursor++;
+                } else {
+                    label = I18n.get(nt.displayName);
+                }
                 int col = idx / itemsPerCol, row = idx % itemsPerCol;
                 int ix = (int)menuRX + 8 + col * colW;
                 int iy = cy + row * ih;
                 int itemRight = (int)Math.min(ix + colW - 4, hoverRight);
                 boolean h = mx >= ix && mx <= itemRight && my >= iy && my < iy + ih;
-                if (h) { g.fill(ix, iy, itemRight, iy + ih, NodeRenderer.HOV()); hovered = nt; }
-                drawStr(g, I18n.get(nt.displayName), ix + 4, iy + 2, h ? NodeRenderer.CMH() : NodeRenderer.CMN());
+                if (h) { g.fill(ix, iy, itemRight, iy + ih, NodeRenderer.HOV()); hovered = nt; hoveredCustomId = customId; }
+                drawStr(g, label, ix + 4, iy + 2, h ? NodeRenderer.CMH() : NodeRenderer.CMN());
                 idx++;
             }
         } else {
@@ -188,7 +232,24 @@ final class NodeAddMenu {
                 if (!exp) continue;
                 int itemsPerCol = (int)Math.ceil((double)vis / cols);
                 int itemIdx = 0;
-                for (var nt : cat.types) {
+                if (cat == NodeCategory.CUSTOM && customAdmitted) {
+                    // CUSTOM 类逐注册 id 展开（标题排序；搜索过滤已并入 combined）。
+                    // The CUSTOM category expands per registered id (title-sorted; the
+                    // search filter already rides `combined`).
+                    for (String id : customIds) {
+                        var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(id);
+                        String label = spec != null ? spec.title() : id;
+                        int col = itemIdx / itemsPerCol;
+                        int row = itemIdx % itemsPerCol;
+                        int ix = (int)menuRX + 8 + col * colW;
+                        int iy = cy + row * ih;
+                        int itemRight = (int)Math.min(ix + colW - 4, hoverRight);
+                        boolean h = mx >= ix && mx <= itemRight && my >= iy && my < iy + ih;
+                        if (h) { g.fill(ix, iy, itemRight, iy + ih, NodeRenderer.HOV()); hovered = NodeType.CUSTOM; hoveredCustomId = id; }
+                        drawStr(g, label, ix + 4, iy + 2, h ? NodeRenderer.CMH() : NodeRenderer.CMN());
+                        itemIdx++;
+                    }
+                } else for (var nt : cat.types) {
                     if (!combined.test(nt)) continue;
                     int col = itemIdx / itemsPerCol;
                     int row = itemIdx % itemsPerCol;

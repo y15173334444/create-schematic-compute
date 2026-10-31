@@ -91,6 +91,16 @@ public record GraphOp(
             hotbarSlot, itemStack, editVersion, actor, blobRefId, imageData, null);
     }
 
+    /** 自定义节点版建点请求（公开 API 波 1 批 C）：customNodeId 随 op 抵达服务端，
+     *  准入门按注册表校验。/ The custom-node add request (wave 1 batch C): customNodeId
+     *  rides the op to the server, whose admission gate validates it against the registry. */
+    public static GraphOp addNodeRequest(BlockPos pos, int ownerNodeId, int tempId,
+                                          NodeType type, String customNodeId, float x, float y, UUID actor) {
+        return new GraphOp(OpType.ADD_NODE_REQUEST, pos, ownerNodeId, 0,
+            tempId, type, x, y, 0, 0, 0, 0, 0, 0f,
+            null, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, customNodeId);
+    }
+
     public static GraphOp addNodeRequest(BlockPos pos, int ownerNodeId, int tempId,
                                           NodeType type, float x, float y, UUID actor) {
         return new GraphOp(OpType.ADD_NODE_REQUEST, pos, ownerNodeId, 0,

@@ -355,8 +355,12 @@ public class EditPanel {
                 g.fill(pinX - r, pinY - r, pinX + r, pinY + r, NodeRenderer.CPI());
             }
 
-            String label = i < st.paramKeys.length ? I18n.get("param.create_schematic_compute." + st.paramKeys[i]) + ":" :
-                (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT ? I18n.get("gui.create_schematic_compute.edit.channel") : "");
+            // CUSTOM：标签 = schema 控件 key 原文（i18n 前缀路径对第三方 key 无意义）。
+            // CUSTOM: the label = the schema key verbatim (the i18n prefix path means
+            // nothing for third-party keys).
+            String label = node.type == NodeType.CUSTOM ? st.paramKeys[i] + ":" :
+                (i < st.paramKeys.length ? I18n.get("param.create_schematic_compute." + st.paramKeys[i]) + ":" :
+                (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT ? I18n.get("gui.create_schematic_compute.edit.channel") : ""));
             int labelX = px + (hasParamPin ? 18 : 4);
             g.drawString(Minecraft.getInstance().font, label, labelX, py + 4 + row * 18, 0xFF888888, false);
             // 已连线时隐藏输入框，但保留标签和引脚
@@ -399,6 +403,31 @@ public class EditPanel {
             g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
             g.drawString(Minecraft.getInstance().font, inverted ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.inverted") : "§7" + I18n.get("gui.create_schematic_compute.edit.not_inverted"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
+        }
+        // CUSTOM BOOL 控件行（公开 API 波 1 批 C）：每个 schema BOOL 控件一行开关，
+        // 几何 = 字段行之后的连续 16px 行（与 GraphEditor 点击段、SpatialIndex.editHeight
+        // 三方同一账本——e26bf73 教训：动行数必须全链清点）。
+        // CUSTOM BOOL control rows (wave 1 batch C): one toggle row per schema BOOL
+        // control, geometry = consecutive 16px rows after the field rows (the same ledger
+        // across the GraphEditor click segment and SpatialIndex.editHeight — the e26bf73
+        // lesson: touch the row count, sweep the whole chain).
+        if (node.type == NodeType.CUSTOM) {
+            var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(node.customId);
+            if (spec != null) {
+                var params = spec.params();
+                for (int bi = 0; bi < params.size(); bi++) {
+                    if (params.get(bi).kind() != io.github.y15173334444.create_schematic_compute.api.CustomNodeType.CustomParam.ParamKind.BOOL) continue;
+                    boolean on = bi < node.params.length && node.params[bi] > 0.5f;
+                    int bx = px + 4, by = py + 4 + row * 18;
+                    int bw = pw - 8, bh = 16;
+                    g.fill(bx, by, bx + bw, by + bh, on ? 0xFF3A5A2A : 0xFF3A3428);
+                    g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
+                    g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
+                    g.drawString(Minecraft.getInstance().font,
+                        (on ? "§a✔ " : "§7") + params.get(bi).key(), bx+4, by+2, 0xFFFFFFFF, false);
+                    row++;
+                }
+            }
         }
         // 正/反转：独立 rev 开关（不改数值 EditBox——数值可被引脚覆盖）。
         // MOVE/ROTATE 在入栈时对快照值取反；TX_OUT/SPEED_CTRL 在求值结果上取反。

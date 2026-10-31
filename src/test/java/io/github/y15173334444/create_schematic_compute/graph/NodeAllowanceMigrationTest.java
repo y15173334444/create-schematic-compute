@@ -176,7 +176,12 @@ class NodeAllowanceMigrationTest {
         gained.removeAll(oldSet);
         // 声明：蓝图失去 STRESS/RPM（对齐"仅动力宿主图"）；保留 ACCUMULATOR/INTEGRATOR
         assertEquals(EnumSet.of(NodeType.STRESS, NodeType.RPM), lost);
-        assertTrue(gained.isEmpty(), "blueprint should not gain nodes");
+        // 公开 API 波 1 批 C：蓝图收编 CUSTOM 类（验收①闭环宿主；机械默认可否决）——
+        // 新增 = 恰好 CUSTOM 哨兵一个（服务端注册表 id 校验把关，未注册 id 仍进不来）。
+        // Wave-1 batch C: the blueprint host admits the CUSTOM category (acceptance-1's
+        // loop host; mechanical default, reviewable) — the gain is exactly the CUSTOM
+        // sentinel, with the server-side registered-id check guarding the door.
+        assertEquals(EnumSet.of(NodeType.CUSTOM), gained, "blueprint gains exactly the CUSTOM sentinel");
         assertTrue(newSet.contains(NodeType.ACCUMULATOR));
         assertTrue(newSet.contains(NodeType.INTEGRATOR));
         assertTrue(newSet.contains(NodeType.POSE_CONVERT));

@@ -2657,6 +2657,37 @@ public class GraphEditor {
                 host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
             sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
             return true; }}
+        // CUSTOM BOOL 控件行点击（公开 API 波 1 批 C）：几何与 EditPanel 绘制、
+        // SpatialIndex.editHeight 同一账本（字段行后的连续 16px 行）；paramIndex 承载
+        // 目标控件序位（执行器按 schema 校验 kind==BOOL）。
+        // CUSTOM BOOL row clicks (wave 1 batch C): geometry shares the ledger with the
+        // EditPanel draw and SpatialIndex.editHeight (consecutive 16px rows after the
+        // fields); paramIndex carries the target control slot (the executor validates
+        // kind==BOOL against the schema).
+        if (en.type == NodeType.CUSTOM) {
+            var spec = io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry.get(en.customId);
+            if (spec != null) {
+                var cst = nodeEditStatesById.get(en.id);
+                int fieldRows = cst != null ? cst.fields.size() : 0;
+                int boolRow = 0;
+                var params = spec.params();
+                for (int bi = 0; bi < params.size(); bi++) {
+                    if (params.get(bi).kind() != io.github.y15173334444.create_schematic_compute.api.CustomNodeType.CustomParam.ParamKind.BOOL) continue;
+                    int rowLocalY = editLocalY + 4 + (fieldRows + boolRow) * 18;
+                    if (lmx >= 4 && lmx <= NW - 4 && lmy >= rowLocalY && lmy <= rowLocalY + 16) {
+                        if (bi < en.params.length) en.params[bi] = en.params[bi] > 0.5f ? 0 : 1;
+                        var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                            io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
+                            host.getBlockPos(), ownerNodeId(), en.id,
+                            0, null, 0f, 0f, 0, 0, 0, 0, bi, 0f, null,
+                            0, 0, 0, 0, null, 0, 0, 0, null, 0L, host.getPlayerUUID());
+                        sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
+                        return true;
+                    }
+                    boolRow++;
+                }
+            }
+        }
         if (en.type == NodeType.MOUSE_JOYSTICK && en.params.length > 0) {
             // Toggle absolute/incremental mode via TOGGLE_BOOL op (same pipeline as BOOL)
             int mjLocalY = editLocalY + 4 + numRows * 18;
@@ -3200,11 +3231,26 @@ public class GraphEditor {
             if(graph.nodes.size()>=MAX_NODES){
                 cycleWarning=I18n.get("gui.create_schematic_compute.node_limit");
             }else{
-                var added = graph.addNode(selectedMenuType,s2cX(mx),s2cY(my));
+                // CUSTOM（公开 API 波 1 批 C）：菜单展开出的注册 id 经 hoveredCustomId 落进
+                // 建点 op（customNodeId 位）—— 本地 addNode 用带 id 重载（params 尺寸来自
+                // schema），服务端准入门按注册表校验。
+                // CUSTOM (wave 1 batch C): the registry id the menu expanded lands in the
+                // add op's customNodeId slot — the local addNode uses the id-carrying
+                // overload (params size from the schema) and the server admission gate
+                // validates against the registry.
+                String customMenuId = selectedMenuType == io.github.y15173334444.create_schematic_compute.graph.NodeType.CUSTOM
+                    ? renderer.lastCustomMenuId() : null;
+                var added = customMenuId != null
+                    ? graph.addNode(selectedMenuType, customMenuId, s2cX(mx), s2cY(my))
+                    : graph.addNode(selectedMenuType, s2cX(mx), s2cY(my));
                 rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping
-                var addOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(
-                    host.getBlockPos(), ownerNodeId(), added.id,
-                    selectedMenuType, s2cX(mx), s2cY(my), host.getPlayerUUID());
+                var addOp = customMenuId != null
+                    ? io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(
+                        host.getBlockPos(), ownerNodeId(), added.id,
+                        selectedMenuType, customMenuId, s2cX(mx), s2cY(my), host.getPlayerUUID())
+                    : io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(
+                        host.getBlockPos(), ownerNodeId(), added.id,
+                        selectedMenuType, s2cX(mx), s2cY(my), host.getPlayerUUID());
                 sendOp(addOp);
                 recordOp(addOp, 0, 0, added.id, null); // oldVal=localId for pre-ACK undo
             }
