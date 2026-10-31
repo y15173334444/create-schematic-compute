@@ -128,7 +128,12 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
                 if (b.readBoolean()) {
                     int bandCount = b.readVarInt();
                     // Sanity bound: a malicious client could send a huge count and OOM the server / 安全上限：恶意客户端可能发送极大计数导致服务端 OOM
-                    if (bandCount < 0 || bandCount > 64) bandCount = 0;
+                    // K15 同源：上限值收编进 OpExecutor.MAX_BANDS（条目 16 —— ADD_NODE 快照
+                    // 恢复路径用同一常量钳频段条数，两侧永不漂移）。
+                    // K15 same source: the cap now lives in OpExecutor.MAX_BANDS (entry 16 —
+                    // the ADD_NODE snapshot restore path clamps band counts with the same
+                    // constant, so the two sides can never drift).
+                    if (bandCount < 0 || bandCount > io.github.y15173334444.create_schematic_compute.graph.OpExecutor.MAX_BANDS) bandCount = 0;
                     bands = new ArrayList<>(bandCount);
                     for (int i = 0; i < bandCount; i++) bands.add(b.readUtf());
                 }

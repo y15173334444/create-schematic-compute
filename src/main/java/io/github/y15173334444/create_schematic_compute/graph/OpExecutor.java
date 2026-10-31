@@ -16,6 +16,14 @@ import net.minecraft.world.item.ItemStack;
  */
 public final class OpExecutor {
 
+    /** 独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，
+     *  而 LoggerFactory 不依赖注册表，headless/JUnit 下也能安全完成类初始化。日志名为本类 FQCN。
+     *  Same-name standalone logger: never references the @Mod class — its static init needs
+     *  the Minecraft registries, while LoggerFactory does not, so class init stays safe in
+     *  plain JUnit too. The log name is this class's FQCN. */
+    private static final org.slf4j.Logger LOGGER =
+        org.slf4j.LoggerFactory.getLogger(OpExecutor.class);
+
     private OpExecutor() {}
 
     /** 玩家热栏实际槽数（0..8）。K15 上界：SET_HOTBAR_ITEM 的槽位声明超出即拒绝 ——
@@ -36,6 +44,31 @@ public final class OpExecutor {
      *  use; the old {@code while (size <= fi) add(blank)} expanded unbounded from the declared
      *  index (one blank w×h int[] per iteration) — one op could blow memory / freeze the tick.</p> */
     public static final int MAX_SEQUENCE_FRAMES = 64;
+
+    /** 频段列表条数上限（K15 同值收编）：此前只在线缆解码处钳（GraphEditOpPacket 的
+     *  字面量 64），ADD_NODE 快照恢复路径无钳 —— 改包客户端可夹带任意长的频段表。
+     *  恢复侧与解码侧都引用本常量，同源防漂移。
+     *  <p>Band-list count cap (K15 same-value consolidation): previously clamped only at
+     *  wire decode (the literal 64 in GraphEditOpPacket), never on the ADD_NODE snapshot
+     *  restore path — a modified client could smuggle an arbitrarily long band list. Both
+     *  the restore side and the decode side reference this constant so the two cannot
+     *  drift.</p> */
+    public static final int MAX_BANDS = 64;
+
+    /** ADD_NODE 快照 NBT 的最大结构嵌套深度（条目 16 深度预扫描）。恢复快照唯一合法
+     *  来源是 {@code GraphNode.save}（字段扁平 + subGraph 嵌套每层 +2），实际深度 ≤15；
+     *  64 远超正常用量。32KB 线缆包封内的 {@code {a:{a:…}} 深链若直达 TagParser，
+     *  {@code catch (Exception)} 接不住解析递归的 StackOverflowError —— 解析前先做
+     *  O(n) 花括号深度预扫描（引号感知），超限跳过恢复留空壳（与其他畸形快照同口径）。
+     *  <p>Max structural nesting depth for an ADD_NODE snapshot NBT (entry-16 depth
+     *  pre-scan). The only legitimate snapshot source is {@code GraphNode.save} (flat
+     *  fields + subGraph nesting at +2 per level, real depth ≤15), so 64 far exceeds
+     *  normal use. A 32KB {@code {a:{a:…}} chain fed straight to TagParser can overflow
+     *  the parser's recursion — a {@code catch (Exception)} never catches the resulting
+     *  StackOverflowError — so an O(n) quote-aware brace-depth pre-scan runs before the
+     *  parse; over-limit restores are skipped (bare shell, same policy as other malformed
+     *  snapshots).</p> */
+    public static final int MAX_SNAPSHOT_DEPTH = 64;
 
     /**
      * 注册表访问提供者（P2-6）：网络层在应用 op 时注入（服务端
@@ -132,15 +165,62 @@ public final class OpExecutor {
                 // *pin structure*, resolved once on the server and pushed to every editor (issue #11).
                 // Undo of REMOVE_NODE: restore full node data from NBT snapshot stored in stringValue
                 // REMOVE_NODE 撤销：从 stringValue 中存储的 NBT 快照恢复完整节点数据
+                //
+                // 条目 16 内容卫生（2026-10-31 拍板 = 登记册修复方向①）：快照由客户端构造、
+                // 协议无签名无对账，K15 预检只覆盖 SET_* 三个 op——恢复路径在此自审三道门，
+                // 任一门不过 = 跳过恢复留空壳（与 NBT 解析失败同口径，绝不抛出/断连）：
+                //   ① 深度预扫描：{a:{a:…}} 深链若直达 TagParser，下面的 catch (Exception)
+                //      接不住解析递归的 StackOverflowError（Error）——解析前先 O(n) 引号感知
+                //      扫描，超 {@link #MAX_SNAPSHOT_DEPTH} 即跳过；
+                //   ② 类型一致：快照必须含 "type" 且与 op.nodeType 一致（GraphNode.save 必写
+                //      "type"，合法客户端天然满足；防 A 类快照灌进 B 类节点）；
+                //   ③ 内容钳制：恢复体内部的控制点/帧/频段三条数组在 restoreNodeFromNbt 内
+                //      钳到 op 级同值（K15 同源常量）。
+                // Entry-16 content hygiene (2026-10-31 ruling = registry fix direction ①):
+                // snapshots are client-constructed and the protocol is unsigned/unreconciled,
+                // and the K15 pre-check only covers three SET_* ops — the restore path audits
+                // three gates here; any failing gate skips the restore and leaves a bare shell
+                // (same policy as an NBT parse failure — never throws, never disconnects):
+                //   (1) depth pre-scan: a {a:{a:…}} chain fed straight to TagParser can overflow
+                //       the parser's recursion, which the catch (Exception) below never catches
+                //       (an Error is not an Exception) — an O(n) quote-aware scan runs first and
+                //       skips restores beyond {@link #MAX_SNAPSHOT_DEPTH};
+                //   (2) type match: the snapshot must carry "type" and match the op's nodeType
+                //       (GraphNode.save always writes "type", so legitimate clients pass for
+                //       free; blocks feeding an A-type snapshot into a B-type node);
+                //   (3) content clamps: the three arrays inside the snapshot (control points /
+                //       frames / bands) are clamped to op-level same values inside
+                //       restoreNodeFromNbt (K15-sourced constants).
                 if (op.stringValue() != null && !op.stringValue().isEmpty() && op.stringValue().charAt(0) == '{') {
-                    try {
-                        var nbtTag = net.minecraft.nbt.TagParser.parseTag(op.stringValue());
-                        if (nbtTag instanceof net.minecraft.nbt.CompoundTag ct) {
-                            restoreNodeFromNbt(node, ct);
+                    String snapshot = op.stringValue();
+                    if (snapshotNbtDepthExceeds(snapshot, MAX_SNAPSHOT_DEPTH)) {
+                        LOGGER.debug(
+                            "[OpExecutor] ADD_NODE snapshot restore skipped: nesting depth exceeds {} (node {})",
+                            MAX_SNAPSHOT_DEPTH, op.targetNodeId());
+                    } else {
+                        try {
+                            var nbtTag = net.minecraft.nbt.TagParser.parseTag(snapshot);
+                            if (nbtTag instanceof net.minecraft.nbt.CompoundTag ct) {
+                                if (ct.contains("type", net.minecraft.nbt.Tag.TAG_STRING)
+                                    && ct.getString("type").equals(node.type.id)) {
+                                    restoreNodeFromNbt(node, ct);
+                                } else {
+                                    // 缺 "type" 键或与 op.nodeType 不一致 —— 不是合法的
+                                    // GraphNode.save 产物，恢复整体跳过（空壳可被后续 op 填充）。
+                                    // Missing "type" or mismatched with the op's nodeType — not a
+                                    // legitimate GraphNode.save product; skip the whole restore
+                                    // (the bare shell can be filled by subsequent ops).
+                                    LOGGER.debug(
+                                        "[OpExecutor] ADD_NODE snapshot restore skipped: type mismatch (snapshot '{}', op '{}', node {})",
+                                        ct.contains("type", net.minecraft.nbt.Tag.TAG_STRING)
+                                            ? ct.getString("type") : "<absent>",
+                                        node.type.id, op.targetNodeId());
+                                }
+                            }
+                        } catch (Exception ex) {
+                            // NBT parse failure — node will be a bare shell; subsequent ops will fill in data
+                            // NBT 解析失败 — 节点将是空壳；后续操作会填充数据
                         }
-                    } catch (Exception ex) {
-                        // NBT parse failure — node will be a bare shell; subsequent ops will fill in data
-                        // NBT 解析失败 — 节点将是空壳；后续操作会填充数据
                     }
                 }
                 graph.rebuildNodeMap();
@@ -733,6 +813,48 @@ public final class OpExecutor {
      * carried the data — Ctrl+Z used to look successful while the whole encapsulation / whole
      * song was silently lost.</p>
      */
+    /**
+     * 条目 16 深度预扫描：SNBT 文本的**结构**花括号最大嵌套深度是否超限。
+     * 引号感知 —— {@code "} 与 {@code '} 包裹的字符串值内、以及反斜杠转义的字符不计数
+     * （注释/公式/信号名文本里的字面花括号是内容不是结构，误计会把合法快照错杀）。
+     * 扫描器模拟的是 SNBT 词法本身：合法 SNBT 里它与解析器的结构判定一致，恶意输入
+     * 要么合法（判断一致）要么解析失败（本就安全）——误差方向只会是多拒（fail-safe）。
+     * <p>Entry-16 depth pre-scan: whether the maximum nesting depth of *structural* braces
+     * in the SNBT text exceeds the cap. Quote-aware — braces inside {@code "}/{@code '}
+     * strings and backslash-escaped characters do not count (literal braces in comment /
+     * formula / signal-name text are content, not structure; counting them would wrongly
+     * skip legitimate snapshots). The scanner mirrors SNBT lexing itself: on well-formed
+     * SNBT it agrees with the parser's structural judgement, and malicious input is either
+     * well-formed (verdict matches) or fails to parse (safe anyway) — the error direction
+     * is over-rejection only, which fails safe.</p>
+     *
+     * @param snapshot the raw SNBT text / 原始 SNBT 文本
+     * @param maxDepth depth cap to test against / 深度上限
+     * @return true if structural nesting exceeds maxDepth / 结构嵌套超限返回 true
+     */
+    static boolean snapshotNbtDepthExceeds(String snapshot, int maxDepth) {
+        int depth = 0;
+        // charMode: 0 = 无字符串，1 = 双引号串，2 = 单引号串
+        // charMode: 0 = outside strings, 1 = inside a double-quoted string, 2 = single-quoted
+        int charMode = 0;
+        for (int i = 0; i < snapshot.length(); i++) {
+            char c = snapshot.charAt(i);
+            if (charMode != 0) {
+                if (c == '\\') { i++; continue; } // 转义字符连带其后一位一并跳过 / skip escaped char
+                if ((charMode == 1 && c == '"') || (charMode == 2 && c == '\'')) charMode = 0;
+                continue;
+            }
+            switch (c) {
+                case '"' -> charMode = 1;
+                case '\'' -> charMode = 2;
+                case '{' -> { if (++depth > maxDepth) return true; }
+                case '}' -> { if (depth > 0) depth--; }
+                default -> { }
+            }
+        }
+        return false;
+    }
+
     private static void restoreNodeFromNbt(GraphNode node, net.minecraft.nbt.CompoundTag tag) {
         // params
         int pc = tag.getInt("pcount");
@@ -740,11 +862,13 @@ public final class OpExecutor {
             node.params[i] = tag.getFloat("p" + i);
         // signal name
         if (tag.contains("sig")) node.signalName = tag.getString("sig");
-        // signal bands
+        // signal bands —— 条数钳到 MAX_BANDS（条目 16：与线缆解码同源同值，防快照夹带任意长频段表）
+        // signal bands — count clamped to MAX_BANDS (entry 16: same source and value as wire
+        // decode, blocks smuggling an arbitrarily long band list via a snapshot)
         if (tag.contains("bands")) {
             var bandsTag = tag.getList("bands", net.minecraft.nbt.Tag.TAG_STRING);
             node.signalBands = new java.util.ArrayList<>();
-            for (int i = 0; i < bandsTag.size(); i++)
+            for (int i = 0; i < bandsTag.size() && i < MAX_BANDS; i++)
                 node.signalBands.add(bandsTag.getString(i));
         }
         // BUS_OUT internalMap
@@ -773,11 +897,17 @@ public final class OpExecutor {
         if (tag.contains("ipx")) node.imagePixels = tag.getIntArray("ipx");
         if (tag.contains("iw")) node.imageWidth = Math.max(1, Math.min(GraphNode.IMAGE_MAX_SIZE, tag.getInt("iw")));
         if (tag.contains("ih")) node.imageHeight = Math.max(1, Math.min(GraphNode.IMAGE_MAX_SIZE, tag.getInt("ih")));
-        // image sequence frames
+        // image sequence frames —— 帧数钳到 MAX_SEQUENCE_FRAMES（条目 16：K15 同值——帧仅能
+        // 在像素编辑器逐帧添加，op 路径帧索引上限 64；单帧长度不受此钳，fixImagePixelsToSize
+        // 已按 W×H 重排）。
+        // image sequence frames — frame count clamped to MAX_SEQUENCE_FRAMES (entry 16: K15
+        // same value — frames are added one by one in the pixel editor and the op path caps
+        // the frame index at 64; per-frame length is not clamped here, fixImagePixelsToSize
+        // already re-fits each to W×H).
         if (tag.contains("iframes")) {
             var framesTag = tag.getList("iframes", net.minecraft.nbt.Tag.TAG_INT_ARRAY);
             node.imageSequenceFrames = new java.util.ArrayList<>();
-            for (int i = 0; i < framesTag.size(); i++)
+            for (int i = 0; i < framesTag.size() && i < MAX_SEQUENCE_FRAMES; i++)
                 node.imageSequenceFrames.add(framesTag.getIntArray(i));
         }
         // 迁移保护：像素数组长度与 W×H 不符时重排（与 GraphNode.load 一致）
@@ -805,13 +935,23 @@ public final class OpExecutor {
             for (int i = 0; i < lbls.size(); i++)
                 node.outputLabels.add(lbls.getString(i));
         }
-        // DEBUG_SIGNAL_GEN control points
+        // DEBUG_SIGNAL_GEN control points —— 对数钳到 MAX_CTRL_POINTS（条目 16：K15 同值——
+        // op 路径 parseCtrlPoints/K15 预检均钳 64 对，快照路径此前无界）。同时以两数组较短者
+        // 为界：原实现循环以 dcx.length 为界直取 dcy[i]，dcy 更短的畸形快照会 AIOOBE 落入
+        // 外层 catch（节点空壳）——钳制后按对数取 min，两数组长度不对称不再越界。
+        // DEBUG_SIGNAL_GEN control points — pair count clamped to MAX_CTRL_POINTS (entry 16:
+        // K15 same value — the op path caps at 64 pairs in both the K15 pre-check and
+        // parseCtrlPoints; the snapshot path used to be unbounded). Also bounded by the
+        // shorter of the two arrays: the old loop ran to dcx.length while indexing dcy[i],
+        // so a malformed snapshot with a shorter dcy threw AIOOBE into the outer catch (bare
+        // shell) — clamping to the pair count (min of both) removes the out-of-bounds.
         if (tag.contains("dcx") && tag.contains("dcy")) {
             int[] dcx = tag.getIntArray("dcx");
             int[] dcy = tag.getIntArray("dcy");
-            node.curveX = new float[dcx.length];
-            node.curveY = new float[dcy.length];
-            for (int i = 0; i < dcx.length; i++) {
+            int pairs = Math.min(Math.min(dcx.length, dcy.length), GraphOp.MAX_CTRL_POINTS);
+            node.curveX = new float[pairs];
+            node.curveY = new float[pairs];
+            for (int i = 0; i < pairs; i++) {
                 node.curveX[i] = Float.intBitsToFloat(dcx[i]);
                 node.curveY[i] = Float.intBitsToFloat(dcy[i]);
             }
