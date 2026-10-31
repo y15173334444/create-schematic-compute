@@ -2668,39 +2668,25 @@ public class GraphEditor {
             sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
             return true; }
         }
-        if (en.type == NodeType.GATE && en.params.length > 0) {
-            int gateLocalY = editLocalY + 4 + numRows * 18;
-            if (lmx >= 4 && lmx <= NW - 4 && lmy >= gateLocalY && lmy <= gateLocalY + 16)
-            { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
-            var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
-                host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-            sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
-            return true; }
-        }
-        if (en.type == NodeType.T_FLIPFLOP && en.params.length > 0) {
-            int ffLocalY = editLocalY + 4 + numRows * 18;
-            if (lmx >= 4 && lmx <= NW - 4 && lmy >= ffLocalY && lmy <= ffLocalY + 16)
-            { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
-            var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
-                host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-            sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
-            return true; }
-        }
-        // 「当前状态」行 = 手动切换按钮（GATE / T_FLIPFLOP / LATCH，位于默认态行之下一行，行距 18px）。
+        // 「当前状态」行 = 手动切换按钮（GATE / T_FLIPFLOP / LATCH，首个开关行，行高 16px）。
+        // （旧「初始状态」行已随 1.3.0 退役：服务端权威下编译不重置时序态，该参数无存活
+        // 语义——求值缺席播种改读 params[1] 状态镜像，本行随之成为首个开关行。）
         // 本地乐观翻 params[1] 与本地运行时显示镜像（按下即亮，不必等差分包）；权威落地走
         // TOGGLE_CUR_STATE op —— 服务端 OpExecutor 翻 params[1] 镜像、applyCurrentState 写
         // 运行时触发器映射并立即差分广播；op 自反，撤销/重做无需旧值。
-        // The "Current state" row is a manual toggle button (GATE / T_FLIPFLOP / LATCH, one row
-        // below the default-state row, 18px pitch). Flips params[1] and the local runtime display
-        // mirror optimistically (lights up on press, no diff-packet wait); the authoritative
-        // landing rides the TOGGLE_CUR_STATE op — server-side OpExecutor flips the params[1]
-        // mirror, applyCurrentState writes the runtime trigger map and broadcasts the diff
-        // at once. The op is self-inverse, so undo/redo needs no recorded old value.
+        // The "Current state" row is a manual toggle button (GATE / T_FLIPFLOP / LATCH, the
+        // first toggle row, 16px tall). (The old "initial state" row is retired in 1.3.0:
+        // under server authority compiles no longer reset sequential state, so that
+        // parameter had no living semantics — the absent-state seed now reads the params[1]
+        // mirror and this row became the first toggle row.) Flips params[1] and the local
+        // runtime display mirror optimistically (lights up on press, no diff-packet wait);
+        // the authoritative landing rides the TOGGLE_CUR_STATE op — server-side OpExecutor
+        // flips the params[1] mirror, applyCurrentState writes the runtime trigger map and
+        // broadcasts the diff at once. The op is self-inverse, so undo/redo needs no
+        // recorded old value.
         if ((en.type == NodeType.GATE || en.type == NodeType.T_FLIPFLOP || en.type == NodeType.LATCH)
             && en.params.length > 1) {
-            int curLocalY = editLocalY + 4 + numRows * 18 + 18;
+            int curLocalY = editLocalY + 4 + numRows * 18;
             if (lmx >= 4 && lmx <= NW - 4 && lmy >= curLocalY && lmy <= curLocalY + 16) {
                 en.params[1] = en.params[1] > 0.5f ? 0 : 1;
                 var ff = isInSubGraph() ? getSubFlipflopStates() : host.getFlipflopStates();
@@ -2710,16 +2696,6 @@ public class GraphEditor {
                 sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
                 return true;
             }
-        }
-        if (en.type == NodeType.LATCH && en.params.length > 0) {
-            int latchLocalY = editLocalY + 4 + numRows * 18;
-            if (lmx >= 4 && lmx <= NW - 4 && lmy >= latchLocalY && lmy <= latchLocalY + 16)
-            { en.params[0] = en.params[0] > 0.5f ? 0 : 1;
-            var tOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
-                io.github.y15173334444.create_schematic_compute.graph.OpType.TOGGLE_BOOL,
-                host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
-            sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
-            return true; }
         }
         // 正/反转按钮：只翻 rev 槽（SET_PARAM 精确写 0/1），不改数值 EditBox——数值可被
         // 引脚覆盖，翻符号会改到一个运行时被忽略的陈旧值。MOVE/ROTATE 的 rev 在 params[1]

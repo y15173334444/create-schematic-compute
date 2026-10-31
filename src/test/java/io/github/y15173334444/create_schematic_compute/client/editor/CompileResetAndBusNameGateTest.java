@@ -17,9 +17,13 @@ import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
  * issue #10 / #17 回归测试。
  * <ul>
  *   <li>#10：频道名提交必须由用户敲键标脏；程序装入的草稿不得回写。</li>
- *   <li>#17：编译复位（触发器当前态回归初始态）在服务端权威图上执行，含子图递归。</li>
+ *   <li>#17：保存语义（服务端权威图上落盘）。原 #17 的「编译复位触发器当前态」半边
+ *       已随 1.3.0 退役（applyCompileReset 删除，时序状态跨编译/编辑持久，见
+ *       {@code FlipflopStateSeedTest}）——相关用例随之退场。</li>
  * </ul>
- * Regression tests for issues #10 / #17.
+ * Regression tests for issues #10 / #17. The #17 "compile resets flip-flop state" half
+ * retired in 1.3.0 (applyCompileReset deleted; sequential state persists across compiles
+ * and edits — see {@code FlipflopStateSeedTest}).
  */
 class CompileResetAndBusNameGateTest {
 
@@ -96,49 +100,6 @@ class CompileResetAndBusNameGateTest {
         @Override public java.util.Set<io.github.y15173334444.create_schematic_compute.graph.NodeType> loadTimeNodeTypes() {
             return java.util.Set.of();
         }
-    }
-
-    private static GraphNode flip(NodeGraph g, float init, float current) {
-        GraphNode n = g.addNode(NodeType.T_FLIPFLOP, 0, 0);
-        n.params[0] = init;
-        n.params[1] = current;
-        return n;
-    }
-
-    @Test
-    @DisplayName("compile reset restores current state to initial (incl. sub-graphs) / 编译复位含子图")
-    void testApplyCompileReset() {
-        NodeGraph main = new NodeGraph();
-        GraphNode mainFf = flip(main, 1f, 0f);
-        GraphNode gate = main.addNode(NodeType.GATE, 0, 0);
-        gate.params[0] = 1f;
-        gate.params[1] = 0f;
-
-        GraphNode encap = main.addNode(NodeType.ENCAPSULATION, 0, 0);
-        NodeGraph sub = new NodeGraph();
-        GraphNode subFf = flip(sub, 1f, 0f);
-        encap.subGraph = sub;
-
-        new StubBE(main).applyCompileReset();
-
-        assertEquals(1f, mainFf.params[1], 0f, "main flip-flop current → initial");
-        assertEquals(1f, gate.params[1], 0f, "main gate current → initial");
-        assertEquals(1f, subFf.params[1], 0f, "sub-graph flip-flop current → initial");
-    }
-
-    @Test
-    @DisplayName("compile reset leaves ordinary params alone / 普通参数不受编译复位影响")
-    void testCompileResetIgnoresOrdinaryNodes() {
-        NodeGraph g = new NodeGraph();
-        GraphNode rot = g.addNode(NodeType.ROTATE, 0, 0);
-        rot.params[0] = 360f;
-        if (rot.params.length > 1) rot.params[1] = 99f;
-
-        new StubBE(g).applyCompileReset();
-
-        assertEquals(360f, rot.params[0], 0f, "param 0 untouched");
-        if (rot.params.length > 1)
-            assertEquals(99f, rot.params[1], 0f, "non-trigger param 1 untouched");
     }
 
     // ══════════ 参数输入框同步 — ff3 / 草稿文本 / param box sync ══════════

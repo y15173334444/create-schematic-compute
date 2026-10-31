@@ -170,11 +170,14 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
     @Override public void onRemoteOp(GraphOp op) { editor.onRemoteOp(op); }
 
     /**
-     * 保存/编译：只向服务端发**保存请求**，由服务端在自己的权威图上执行编译语义并落盘。
+     * 保存/编译：只向服务端发**保存请求**，由服务端在自己的权威图上落盘（环检测 +
+     * 全量同步；时序状态完全持久——旧「编译复位触发器」语义已随 1.3.0 退役）。
      * 不再上传客户端整图快照 —— 那会在客户端副本过期时把服务端回退（issue #17）。
-     * Save/compile: send a save <b>request</b> only; the server runs compile semantics
-     * on its own authoritative graph and persists. No client full-graph upload — that
-     * rolled the server back whenever the client copy was stale (issue #17).
+     * Save/compile: send a save <b>request</b> only; the server persists on its own
+     * authoritative graph (cycle check + full sync; sequential state is fully persistent —
+     * the old "compile resets flip-flops" semantics retired in 1.3.0). No client
+     * full-graph upload — that rolled the server back whenever the client copy was
+     * stale (issue #17).
      */
     @Override
     public void saveGraph() {

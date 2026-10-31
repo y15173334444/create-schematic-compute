@@ -115,11 +115,31 @@ public final class TimingEval {
                 q.addLast(in);
                 while (q.size() > ticks) q.pollFirst();
             }
+            // ── 布尔时序族（LATCH/GATE/T_FLIPFLOP）缺席播种契约 ──
+            // 权威态在 flipflopStates（runtimeState 三表之一，NBT 随 runtime 键持久化、跨
+            // 重编译 save/restore 保真）；映射缺席时（新建节点首拍 / 已删节点撤销恢复 /
+            // 无 runtime 段的旧档）从 **params[1] 状态镜像** 播种——镜像随节点 NBT 走：
+            // 撤销恢复的快照里 params[1] = 删除时刻状态（撤回语义保真），旧档 = 存档时
+            // 状态（比按初始参数播种更保真），新建节点 = 0（关/复位起步）。
+            // params[0]（旧「初始状态」参数）自 1.3.0 起退役：服务端权威架构下编译不再
+            // 重置时序态，该参数无存活语义，槽位保留仅为存档形状不变，求值不再读取。
+            // ── Boolean-sequential family (LATCH/GATE/T_FLIPFLOP) absent-state seed ──
+            // The authoritative state lives in flipflopStates (one of runtimeState's three
+            // tables, NBT-persisted under the runtime key and carried across recompiles by
+            // save/restore). When the map lacks the id (a fresh node's first tick, the
+            // undo-restore of a removed node, or an old save without a runtime section) the
+            // seed is the **params[1] state mirror** — it rides the node's NBT, so an
+            // undo-restore snapshot carries the state at removal (faithful undo), an old
+            // save carries the state at save time (more faithful than the initial param),
+            // and a fresh node carries 0 (starts off/reset). params[0], the old "initial
+            // state" parameter, is retired as of 1.3.0: server authority means compiles no
+            // longer reset sequential state, so it has no living semantics — the slot stays
+            // only to keep the save shape unchanged and is never read.
             case LATCH -> {
                 float s = graph.getInputValue(node.id, 0, outputs);
                 float r = graph.getInputValue(node.id, 1, outputs);
                 boolean cur = flipflopStates.getOrDefault(node.id,
-                    node.params.length > 0 && node.params[0] > 0.5f);
+                    node.params.length > 1 && node.params[1] > 0.5f);
                 if (s > 0.5f) cur = true;
                 else if (r > 0.5f) cur = false;
                 flipflopStates.put(node.id, cur);
@@ -128,7 +148,7 @@ public final class TimingEval {
             }
             case GATE -> {
                 boolean cur = flipflopStates.getOrDefault(node.id,
-                    node.params.length > 0 && node.params[0] > 0.5f);
+                    node.params.length > 1 && node.params[1] > 0.5f);
                 float val = graph.getInputValue(node.id, 0, outputs);
                 float open = graph.getInputValue(node.id, 1, outputs);
                 float close = graph.getInputValue(node.id, 2, outputs);
@@ -148,7 +168,7 @@ public final class TimingEval {
             case T_FLIPFLOP -> {
                 float in = graph.getInputValue(node.id, 0, outputs);
                 boolean cur = flipflopStates.getOrDefault(node.id,
-                    node.params.length > 0 && node.params[0] > 0.5f);
+                    node.params.length > 1 && node.params[1] > 0.5f);
                 boolean prev = flipflopStates.getOrDefault(-(node.id+1), in > 0.5f);
                 if (in > 0.5f && !prev) cur = !cur;
                 flipflopStates.put(node.id, cur);

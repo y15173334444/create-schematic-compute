@@ -17,16 +17,20 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
  * 客户端副本一旦过期（漏收 op、旧全量同步），保存就会把服务端回退，静默冲掉
  * 并发编辑（issue #17）。局部编辑早已走定向 op，整图上传只剩风险没有收益。
  * <p>
- * 现改为：服务端在**自己的权威图**上执行编译语义（触发器当前态回归初始态 +
- * 环检测 + 落盘），并把结果全量同步给编辑者。
+ * 现改为：服务端在**自己的权威图**上执行保存语义（环检测 + 落盘），并把结果全量同步
+ * 给编辑者。（旧「编译复位触发器当前态」语义已随 1.3.0 退役——服务端权威下时序状态
+ * 跨编译与编辑持久，见 {@code TimingEval} 的缺席播种契约注记。）
  * <p>
  * Save/compile request (client → server). Carries only the position — <b>no</b>
  * whole-graph NBT. The historical {@code BlueprintSavePacket} path replaced the
  * server graph with the client's snapshot; a stale client copy then rolled the
  * server back and silently wiped concurrent edits (issue #17). Local edits already
  * go through targeted ops, so the full upload was pure risk. The server now runs
- * the compile semantics on <b>its own authoritative graph</b> (flip-flop current
- * state reset + cycle check + persist) and full-syncs the result to editors.
+ * the save semantics on <b>its own authoritative graph</b> (cycle check + persist)
+ * and full-syncs the result to editors. (The old "compile resets flip-flop state"
+ * semantics is retired as of 1.3.0 — under server authority sequential state
+ * persists across compiles and edits; see the absent-state seed note in
+ * {@code TimingEval}.)
  */
 public record GraphSaveRequestPacket(BlockPos pos) implements CustomPacketPayload {
 
@@ -49,10 +53,11 @@ public record GraphSaveRequestPacket(BlockPos pos) implements CustomPacketPayloa
             if (!EditSessionRegistry.getEditors(sl, pos).contains(sp.getUUID())) return;
             if (!(sp.level().getBlockEntity(pos) instanceof GraphBlockEntity gbe)) return;
 
-            // 编译语义：触发器当前态回归初始态（原先在客户端本地改完再靠整图上传捎带）
-            // Compile semantics: flip-flop current state resets to initial (used to be a
-            // client-local mutation hitchhiking on the full-graph upload).
-            gbe.applyCompileReset();
+            // （旧「编译复位触发器」调用点已随 1.3.0 退役：保存 = 环检测 + 落盘 + 全量同步，
+            // 时序状态完全持久——撤销/重做语义随之保真。）
+            // (The old compile-reset call site is retired as of 1.3.0: save = cycle check +
+            // persist + full sync, sequential state fully persistent — undo/redo stays
+            // faithful as a result.)
 
             if (gbe.graphHasCycles() && gbe.isRunning()) {
                 gbe.setRunning(false);

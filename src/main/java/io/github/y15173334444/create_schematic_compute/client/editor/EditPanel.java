@@ -454,16 +454,6 @@ public class EditPanel {
                 bx + 4, by + 2, 0xFFFFFFFF, false);
             row++;
         }
-        if (node.type == NodeType.GATE && node.params.length > 0) {
-            boolean defOpen = node.params[0] > 0.5f;
-            int bx = px + 4, by = py + 4 + row * 18;
-            int bw = pw - 8, bh = 16;
-            g.fill(bx, by, bx + bw, by + bh, defOpen ? 0xFF3A5A2A : 0xFF3A3428);
-            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
-            g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
-            g.drawString(Minecraft.getInstance().font, defOpen ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.default_open") : "§7" + I18n.get("gui.create_schematic_compute.edit.default_closed"), bx+4, by+2, 0xFFFFFFFF, false);
-            row++;
-        }
         if (node.type == NodeType.GATE && node.params.length > 1) {
             // 当前状态行 = 可点击按钮（点击手动切换当前态）；几何与 GraphEditor 编辑区
             // 点击段一致（行高 16px、行距 18px）。悬停描边提示可点——这行原本是只读文本。
@@ -481,16 +471,6 @@ public class EditPanel {
             g.drawString(Minecraft.getInstance().font, curOpen ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.gate_cur_open") : "§7" + I18n.get("gui.create_schematic_compute.edit.gate_cur_closed"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
         }
-        if (node.type == NodeType.T_FLIPFLOP && node.params.length > 0) {
-            boolean defOn = node.params[0] > 0.5f;
-            int bx = px + 4, by = py + 4 + row * 18;
-            int bw = pw - 8, bh = 16;
-            g.fill(bx, by, bx + bw, by + bh, defOn ? 0xFF3A5A2A : 0xFF3A3428);
-            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
-            g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
-            g.drawString(Minecraft.getInstance().font, defOn ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.flipflop_default_on") : "§7" + I18n.get("gui.create_schematic_compute.edit.flipflop_default_off"), bx+4, by+2, 0xFFFFFFFF, false);
-            row++;
-        }
         if (node.type == NodeType.T_FLIPFLOP && node.params.length > 1) {
             // 当前状态行 = 可点击按钮（GATE 同款，见上）/ The current-state row is a
             // clickable button (same as GATE above).
@@ -503,16 +483,6 @@ public class EditPanel {
             g.renderOutline(bx, by, bw, bh, hover ? NodeRenderer.ACC() : NodeRenderer.CSB());
             g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
             g.drawString(Minecraft.getInstance().font, curOn ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.flipflop_cur_on") : "§7" + I18n.get("gui.create_schematic_compute.edit.flipflop_cur_off"), bx+4, by+2, 0xFFFFFFFF, false);
-            row++;
-        }
-        if (node.type == NodeType.LATCH && node.params.length > 0) {
-            boolean defSet = node.params[0] > 0.5f;
-            int bx = px + 4, by = py + 4 + row * 18;
-            int bw = pw - 8, bh = 16;
-            g.fill(bx, by, bx + bw, by + bh, defSet ? 0xFF3A5A2A : 0xFF3A3428);
-            g.renderOutline(bx, by, bw, bh, NodeRenderer.CSB());
-            g.renderOutline(bx+1, by+1, bw-2, bh-2, 0xFF1A1814);
-            g.drawString(Minecraft.getInstance().font, defSet ? "§a✔ " + I18n.get("gui.create_schematic_compute.edit.latch_default_set") : "§7" + I18n.get("gui.create_schematic_compute.edit.latch_default_reset"), bx+4, by+2, 0xFFFFFFFF, false);
             row++;
         }
         if (node.type == NodeType.LATCH && node.params.length > 1) {
