@@ -505,7 +505,9 @@ BlueprintScreen/GraphBlockEntity）与既有的 `blocks → client.editor`（宿
 审查修正（2026-10-31 会话内复审，`f17e01a` 拆分 + `4e591f8` 修 + 本笔文档账）：公平规则处置在
 输出阶段**每 tick 恰计一次**（逐输出累加会让 N 输出节点 ⌈20/N⌉ tick 冻结，偏离「连续 20 tick」拍板，
 双巨输出锚钉住）；编辑公式随其余挂起态一并清 `formulaDeadlineStreak`（编辑是冻结的补救之一）；
-`/cscbudget` 放开控制台（拍板只要求 OP 未要求限玩家，`requires` 按权限等级把门）；解冻批
+`/cscbudget` 放开控制台（拍板只要求 OP 未要求限玩家，`requires` 按权限等级把门）；
+二轮实测口径（2026-10-31）：`/cscsettings` **放开全员**、默认第一选项卡（开面板是查看面，调整仍
+各自把关），输入框与按钮同高对齐、回车后框内文本吸附钳制值、说明文本标注 0.5~20 ms 范围；解冻批
 （原 a8bf462，按「文档与代码分开」拆为 `f17e01a` 代码 + `6f76b33` 台账）。
 
 ## 13. validate 双份 parseScript（同一脚本解析两遍）

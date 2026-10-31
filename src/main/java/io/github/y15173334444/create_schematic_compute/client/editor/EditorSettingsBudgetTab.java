@@ -100,11 +100,15 @@ final class EditorSettingsBudgetTab {
         if (valueBox != null) valueBox.setValue(fmt(v));
     }
 
-    /** 应用:输入有效才发包（服务端裁定权限/钳制/落盘/广播）。 / apply: sends only a valid value (the server rules on permission, clamps, saves, broadcasts). */
+    /** 应用:输入有效才发包（服务端裁定权限/钳制/落盘/广播）；回车后框内文本**吸附到钳制值**
+     *  （用户实测口径：输 50 回车 → 框变 20.0，所见即所得）。
+     *  apply: sends only a valid value (the server rules on permission, clamps, saves,
+     *  broadcasts); on Enter the box text **snaps to the clamped value** (the user's in-game
+     *  call: typing 50 + Enter shows 20.0 in the box — WYSIWYG). */
     private void apply() {
         double v = valueBox != null ? parse(valueBox.getValue()) : Double.NaN;
         if (Double.isNaN(v)) return;
-        pending = v;
+        setPending(v);
         PacketDistributor.sendToServer(new BudgetSetPacket(v));
     }
 
@@ -154,13 +158,17 @@ final class EditorSettingsBudgetTab {
         }
 
         ensureBox();
-        // 行 1:数值框 + 两个步进钮。 / row 1: the value box + the two steppers.
+        // 行 1:数值框 + 两个步进钮——框与按钮**同高对齐**（用户实测口径:填充不加内边距,
+        // 与按钮同一行高同一基线）。 / row 1: the value box + the two steppers — the box is
+        // **height-aligned with the buttons** (the user's in-game call: no fill padding, one
+        // row height, one baseline).
         boxX = cx; boxY = ly; boxW = BOX_W;
         valueBox.setX(boxX); valueBox.setY(boxY); valueBox.setWidth(boxW);
+        valueBox.setHeight(BTN_H);
         valueBox.setTextColor(Double.isNaN(pending) ? 0xFFFF6666 : 0xFFEEEEEE);
-        g.fill(boxX - 3, boxY - 2, boxX + boxW + 3, boxY + BTN_H + 2,
+        g.fill(boxX, boxY, boxX + boxW, boxY + BTN_H,
             valueBox.isFocused() ? NodeRenderer.HOV() : NodeRenderer.PINS());
-        g.renderOutline(boxX - 3, boxY - 2, boxW + 6, BTN_H + 4, NodeRenderer.CSB());
+        g.renderOutline(boxX, boxY, boxW, BTN_H, NodeRenderer.CSB());
         valueBox.render(g, mx, my, pt);
         this.stepY = ly;
         int bx = cx + BOX_W + 6 + GAP;
@@ -197,7 +205,7 @@ final class EditorSettingsBudgetTab {
     /** 点击:框内聚焦、框外失焦;按钮按下即生效(步进本地即时,应用发包)。 / click: focus in-box, unfocus out; buttons act on press (steppers local, apply sends). */
     void handleClick(double mx, double my) {
         if (valueBox != null) {
-            boolean inBox = mx >= boxX - 3 && mx <= boxX + boxW + 3 && my >= boxY - 2 && my <= boxY + BTN_H + 2;
+            boolean inBox = mx >= boxX && mx <= boxX + boxW && my >= boxY && my <= boxY + BTN_H;
             if (inBox) { valueBox.setFocused(true); return; }
             if (valueBox.isFocused()) valueBox.setFocused(false);
         }

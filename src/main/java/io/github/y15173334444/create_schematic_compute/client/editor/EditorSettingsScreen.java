@@ -88,13 +88,15 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
     }
 
     /** `/cscsettings` 客户端入口（S2C OpenSettingsPacket 主线程回调）:无编辑器上下文直开
-     *  设置面板、落在预算 tab;关闭后 parent=null → 回游戏。
+     *  设置面板、落在**第一选项卡**（指令全员可用，预算 tab 点一下即到，用户实测口径）;
+     *  关闭后 parent=null → 回游戏。
      *  The /cscsettings client entry (the OpenSettingsPacket main-thread callback): opens the
-     *  settings screen with no editor context, landing on the budget tab; parent=null closes
-     *  back to the game. */
+     *  settings screen with no editor context, landing on the **first tab** (the command is
+     *  for everyone; the budget tab is one click away — the user's in-game call); parent=null
+     *  closes back to the game. */
     public static void openFromCommand() {
         var mc = net.minecraft.client.Minecraft.getInstance();
-        mc.setScreen(new EditorSettingsScreen(null, TAB_BUDGET));
+        mc.setScreen(new EditorSettingsScreen(null, 0));
     }
 
     @Override protected void init() { }

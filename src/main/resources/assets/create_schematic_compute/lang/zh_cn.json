@@ -67,7 +67,7 @@
   "gui.create_schematic_compute.settings.tab.budget": "公式预算",
   "gui.create_schematic_compute.budget.title": "公式预算",
   "gui.create_schematic_compute.budget.desc1": "公式求值预算池——服务端每 tick 内所有公式节点共享的墙钟上限。",
-  "gui.create_schematic_compute.budget.desc2": "调整需要 OP 权限；作用域 = 当前世界设置。",
+  "gui.create_schematic_compute.budget.desc2": "调整需要 OP 权限；范围 0.5~20 ms；作用域 = 当前世界设置。",
   "gui.create_schematic_compute.budget.current": "当前：%s ms",
   "gui.create_schematic_compute.budget.pending": "待应用：%s ms",
   "gui.create_schematic_compute.budget.applied": "已应用 ✓",

@@ -13,20 +13,20 @@ import net.minecraft.util.Mth;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
- * 模组指令（K6 交互面，本模组首批指令）。两条均需 OP（拍板原话「两条指令…均需 OP」）：
+ * 模组指令（K6 交互面，本模组首批指令）：
  * <ul>
- *   <li>{@code /cscsettings} —— 打开设置面板（S2C 空载荷通知客户端，直达「公式预算」tab）；</li>
- *   <li>{@code /cscbudget &lt;ms&gt;} —— 直接调整公式预算（钳 0.5–20，写当前世界的
- *       SERVER 配置 = 世界作用域，广播权威值同步）。</li>
+ *   <li>{@code /cscsettings} —— 打开设置面板（**全员可用**——开面板只是查看面，落在
+ *       第一选项卡；调整动作在面板内/指令侧各自把关）；</li>
+ *   <li>{@code /cscbudget &lt;ms&gt;} —— 直接调整公式预算（**OP**，钳 0.5–20，写当前世界的
+ *       SERVER 配置并落盘，广播权威值同步）。</li>
  * </ul>
- * The mod's commands (the K6 interaction surface; the mod's first commands). Both require
- * OP (the ruling's "both commands require OP"):
+ * The mod's commands (the K6 interaction surface; the mod's first commands):
  * <ul>
- *   <li>{@code /cscsettings} — opens the settings screen (an S2C empty payload; lands on
- *       the formula-budget tab);</li>
- *   <li>{@code /cscbudget &lt;ms&gt;} — adjusts the formula budget directly (clamped to
- *       0.5–20, written to the current world's SERVER config = world-scoped, with the
- *       authoritative value broadcast).</li>
+ *   <li>{@code /cscsettings} — opens the settings screen (**everyone** — opening a panel is a
+ *       viewing action, landing on the first tab; each adjust path gates itself);</li>
+ *   <li>{@code /cscbudget &lt;ms&gt;} — adjusts the formula budget directly (**OP**, clamped
+ *       to 0.5–20, written to this world's SERVER config and saved, with the authoritative
+ *       value broadcast).</li>
  * </ul>
  */
 public final class SchematicComputeCommands {
@@ -36,7 +36,6 @@ public final class SchematicComputeCommands {
     /** 注册两条指令（游戏总线 RegisterCommandsEvent 回调）。 / register both commands (the game-bus RegisterCommandsEvent callback). */
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("cscsettings")
-            .requires(src -> src.hasPermission(2))
             .executes(ctx -> {
                 ServerPlayer sp = ctx.getSource().getPlayerOrException();
                 PacketDistributor.sendToPlayer(sp, OpenSettingsPacket.INSTANCE);

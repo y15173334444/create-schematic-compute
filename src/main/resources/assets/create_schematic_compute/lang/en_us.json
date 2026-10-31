@@ -69,7 +69,7 @@
   "gui.create_schematic_compute.settings.tab.budget": "Formula Budget",
   "gui.create_schematic_compute.budget.title": "Formula Budget",
   "gui.create_schematic_compute.budget.desc1": "The formula evaluation budget pool — the wall-clock ceiling shared by all formula nodes each server tick.",
-  "gui.create_schematic_compute.budget.desc2": "Adjusting requires OP; scope = this world's settings.",
+  "gui.create_schematic_compute.budget.desc2": "Adjusting requires OP; range 0.5–20 ms; scope = this world's settings.",
   "gui.create_schematic_compute.budget.current": "Current: %s ms",
   "gui.create_schematic_compute.budget.pending": "Pending: %s ms",
   "gui.create_schematic_compute.budget.applied": "applied ✓",
