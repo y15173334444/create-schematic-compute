@@ -46,12 +46,14 @@ public final class SchematicComputeCommands {
             .requires(src -> src.hasPermission(2))
             .then(Commands.argument("ms", DoubleArgumentType.doubleArg(0.5, 20.0))
                 .executes(ctx -> {
-                    ServerPlayer sp = ctx.getSource().getPlayerOrException();
                     double ms = Mth.clamp(DoubleArgumentType.getDouble(ctx, "ms"), 0.5, 20.0);
                     // 世界作用域:SERVER 型配置写当前世界 serverconfig,NeoForge 自动存盘;
-                    // 预算源每 tick 实时读取,下一 tick 即生效。
+                    // 预算源每 tick 实时读取,下一 tick 即生效。控制台同样可调(审查修正:
+                    // 拍板只要求 OP,未要求限玩家——requires 已按权限等级把门)。
                     // World-scoped: the SERVER config writes the current world's serverconfig
                     // (saved automatically); the budget source reads live, effective next tick.
+                    // The console may adjust too (review fix: the ruling requires OP, not a
+                    // player — requires() already gates by permission level).
                     Config.FORMULA_BUDGET_MS.set(ms);
                     PacketDistributor.sendToAllPlayers(new BudgetSyncPacket(ms, true));
                     double v = ms;

@@ -138,6 +138,33 @@ class FormulaDeadlineBackstopTest {
             "the victim's outputs hold (transient shed), never zeroed");
     }
 
+    // ── 公平计数·输出阶段(审查修正锚) / fairness counting · the output phase ──
+
+    @Test
+    @DisplayName("公平规则·输出阶段:多输出节点单 tick 撞限只计一次(⌈20/N⌉ 提前冻结回归)")
+    void multiOutputNodeCountsOneShedPerTick() throws InterruptedException {
+        var graph = new NodeGraph();
+        var node = graph.addNode(NodeType.FORMULA, 0, 0);
+        // 手工拼装双巨输出:语句体为空(瞬时完成),两个输出 RPN 都是巨表达式——
+        // 输出阶段两次撞限,公平计数只允许 +1(修前逐输出累加会 +2)。
+        // Hand-crafted double-monster outputs: an empty statement body (finishes instantly)
+        // with two monster output RPNs — two sheds in the output phase must count once.
+        var monsterRpn = FormulaParser.parseScript(MONSTER).outputRpns.get(0);
+        node.formula = "crafted";
+        node.cachedScript = new FormulaParser.ScriptParseResult(
+            List.of(), List.of("out0", "out1"), List.of(monsterRpn, monsterRpn),
+            "crafted", List.of(), java.util.Set.of(), List.of());
+        node.dynamicOutputCount = 2;
+        var ev = new GraphEvaluator(graph);
+        FormulaCompute.setBudgetMsSource(() -> 0.001);
+        FormulaCompute.beginTick();
+        Thread.sleep(2);
+        ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+        assertEquals(1, node.formulaDeadlineStreak,
+            "two interrupted outputs in one tick must count ONE shed toward the streak");
+        assertNull(node.formulaCarrier, "an output-phase shed discards the done state for a wholesale retry");
+    }
+
     // ── 预算解冻 / budget thaw ──
 
     @Test

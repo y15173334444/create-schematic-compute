@@ -240,6 +240,15 @@ public class GraphNode {
                 formulaCarrier = null;
                 formulaSpreadProgress = 0f;
                 formulaShedWarned = false;
+                // K6(审查修正):编辑是冻结的补救之一——新公式不得继承旧公式的连续超时计数,
+                // 否则可能不足 20 tick 就被冻结。formulaFrozenBudgetMs 的残留无害:编辑后
+                // 解冻检查本就该放行(新公式尚未冻结)。
+                // K6 (review fix): editing is one of the freeze remedies — a new formula must
+                // not inherit the old formula's consecutive-overflow count, or it could freeze
+                // in fewer than 20 ticks. A stale formulaFrozenBudgetMs is harmless: after an
+                // edit the thaw check should let the node through anyway (the new formula has
+                // not frozen).
+                formulaDeadlineStreak = 0;
                 dynamicInputCount = Math.max(dynamicInputCount, Math.max(1, cachedScript.inputVars.size()));
                 dynamicOutputCount = Math.max(dynamicOutputCount, Math.max(1, cachedScript.outputLabels.size()));
                 var merged = new java.util.ArrayList<>(cachedScript.outputLabels);

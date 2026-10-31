@@ -466,6 +466,7 @@ public final class FormulaEval {
                         node.formulaCarrier = done;
                         node.formulaSpreadProgress = 0f;
                         node.formulaDeadlineStreak = 0; // 完成即有救,清连续超时 / completing means recoverable, reset the streak
+                        boolean outputShed = false; // 公平计数每 tick 一次:循环内只记旗标,循环外统一处置
                         for (int oi = 0; oi < nOut; oi++) {
                             try {
                                 var rpn = script.outputRpns.get(oi);
@@ -473,21 +474,29 @@ public final class FormulaEval {
                                     oi < script.outputRpns.size() ? rpn : java.util.List.of(0.0), env));
                             } catch (FormulaParser.DeadlineShedException d) {
                                 // K6:输出阶段撞 deadline——该输出保持(不写 0),done 态整体作废
-                                //(下 tick 全量重试,闲时补全),结果不进 dedup(部分输出不毒化同脚本兄弟);
-                                // 处置同样走公平规则。
+                                //(下 tick 全量重试,闲时补全),结果不进 dedup(部分输出不毒化同脚本兄弟)。
                                 // K6: the output phase hit the deadline — this output holds (never
                                 // zeroed), the done state is discarded wholesale (full retry next
                                 // tick, finishes on a quieter one) and the result never enters the
-                                // dedup cache (a partial output must not poison same-script
-                                // siblings); the fairness rule applies all the same.
+                                // dedup cache (a partial output must not poison same-script siblings).
+                                outputShed = true;
                                 node.formulaCarrier = null;
                                 dedupCacheable = false;
                                 LOGGER.debug("FORMULA AST output idx={} suspended by budget deadline (node {})", oi, node.id);
-                                noteDeadlineShed(node, System.nanoTime() - execStartNs);
                             } catch (Exception e) {
                                 LOGGER.debug("FORMULA AST output error idx={}: {}", oi, e.getMessage());
                                 o[oi] = 0;
                             }
+                        }
+                        if (outputShed) {
+                            // 公平规则处置**每 tick 恰一次**(审查修正:逐输出累加会让 N 输出节点
+                            // ⌈20/N⌉ tick 就冻结,偏离「连续 20 tick」拍板——elapsedNs 单调增,
+                            // 多次调用即多次计数)。
+                            // The fairness-rule disposition runs **exactly once per tick** (review
+                            // fix: per-output calls let an N-output node freeze in ⌈20/N⌉ ticks,
+                            // off the "20 consecutive ticks" ruling — elapsedNs only grows, so
+                            // every call was another count).
+                            noteDeadlineShed(node, System.nanoTime() - execStartNs);
                         }
                     } catch (FormulaInterpreter.SuspendSignal sus) {
                         if (sus.fromDeadline) {
