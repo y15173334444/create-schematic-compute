@@ -598,6 +598,11 @@ public class GraphHost {
         evaluator = new GraphEvaluator(graph);
         evaluator.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
         evaluator.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
+        // 自定义节点宿主注入（公开 API 波 1）：世界 + 坐标随重建刷新（维度切换自动取新值）。
+        // Custom-node host injection (public-API wave 1): level + position refresh on every
+        // rebuild (a dimension switch picks up the new values automatically).
+        evaluator.setCustomLevel(lvl() instanceof net.minecraft.server.level.ServerLevel sl ? sl : null);
+        evaluator.setCustomHostPos(pos());
         if (savedSubStates != null) {
             var aliveIds = new HashSet<Integer>();
             for (var n : graph.nodes)
@@ -664,6 +669,11 @@ public class GraphHost {
         evaluator = new GraphEvaluator(graph);
         evaluator.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
         evaluator.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
+        // 自定义节点宿主注入（同 Full 路径——两路都要，未来 Light 宿主不重演「level 缺席」）。
+        // Custom-node host injection (same as the Full path — both paths, so future Light
+        // hosts never replay a "level absent" bug).
+        evaluator.setCustomLevel(lvl() instanceof net.minecraft.server.level.ServerLevel sl ? sl : null);
+        evaluator.setCustomHostPos(pos());
         // 定制回调（encoderView / commandSink 等）必须在每条重建路径上重放——与 Full 一致；
         // 只挂 Full 时，未来用 Light 的宿主会重演「ENCODER 恒 0」。
         // The evaluator customizer must replay on EVERY rebuild path — same as Full;

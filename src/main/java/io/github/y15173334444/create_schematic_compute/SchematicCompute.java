@@ -164,6 +164,17 @@ public class SchematicCompute {
                     return 3.0; // ModConfigSpec 未加载时 get() 抛 IllegalStateException / ModConfigSpec throws before load
                 }
             });
+        // 自定义节点独立预算池同款接线（独立配置键 customNodeBudgetMs，与 FORMULA 池互不挤压）。
+        // Same wiring for the custom-node independent pool (its own customNodeBudgetMs key;
+        // never squeezes the FORMULA pool).
+        io.github.y15173334444.create_schematic_compute.graph.CustomNodeCompute
+            .setBudgetMsSource(() -> {
+                try {
+                    return Config.CUSTOM_NODE_BUDGET_MS.get().doubleValue();
+                } catch (IllegalStateException e) {
+                    return 3.0; // ModConfigSpec 未加载时 get() 抛 IllegalStateException / ModConfigSpec throws before load
+                }
+            });
         // SET_SONG 的 blob 字节同理接线（graph 不直连 BlobRegistry）。
         // Same sinking for SET_SONG's blob bytes (graph never touches BlobRegistry).
         io.github.y15173334444.create_schematic_compute.graph.OpExecutor
@@ -227,6 +238,7 @@ public class SchematicCompute {
                 io.github.y15173334444.create_schematic_compute.network.AudioBands.clear();
                 io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry.clearAll();
                 io.github.y15173334444.create_schematic_compute.graph.FormulaCompute.clearAll();
+                io.github.y15173334444.create_schematic_compute.graph.CustomNodeCompute.clearAll();
                 LOGGER.info("{} cleared static state for server shutdown", MOD_ID);
             });
         // 玩家断开时清理其残留输入和协作会话（防止下次重连时泄漏/幽灵编辑者）
@@ -285,6 +297,7 @@ public class SchematicCompute {
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
             net.neoforged.neoforge.event.tick.ServerTickEvent.Pre.class, event -> {
                 io.github.y15173334444.create_schematic_compute.graph.FormulaCompute.beginTick();
+                io.github.y15173334444.create_schematic_compute.graph.CustomNodeCompute.beginTick();
             });
 
         // Periodic BlobRegistry cleanup — expire stale incomplete blobs every 20 ticks

@@ -83,6 +83,14 @@ public class GraphEvaluator {
     /** 音频宿主方块坐标（AUDIO_OUT 频道 owner = 坐标 + 节点 id）。
      *  Host block position for AUDIO_OUT channel ownership. */
     public void setAudioHostPos(net.minecraft.core.BlockPos pos) { this.ctx.audioHostPos = pos; }
+
+    /** 自定义节点宿主注入（公开 API 波 1）：宿主世界与坐标经 api.CustomNodeContext 交付
+     *  给第三方求值回调（未注入 = null，提供方自行降级）。
+     *  Custom-node host injection (public-API wave 1): the host level and position reach
+     *  third-party callbacks through api.CustomNodeContext (null when unwired; providers
+     *  degrade themselves). */
+    public void setCustomLevel(net.minecraft.server.level.ServerLevel level) { this.ctx.customLevel = level; }
+    public void setCustomHostPos(net.minecraft.core.BlockPos pos) { this.ctx.customHostPos = pos; }
     /** 播放下沉（SPEAKER_PLAY）：宿主音响 BE 注入；SPEAKER_PLAY 把音源交给宿主发声。
      *  Speaker playback sink injected by the hosting speaker BE. */
     public void setSpeakerSink(SpeakerSink sink) { this.ctx.speakerSink = sink; }
@@ -407,6 +415,11 @@ public class GraphEvaluator {
             case DISPLAY -> DisplayEval.eval(ctx);
             case DEBUG -> DebugEval.eval(ctx);
             case STRUCTURE -> EncapEval.eval(ctx);
+            // CUSTOM（公开 API 波 1）：动态注册表分派 —— 处理器内自查 schema/行为，
+            // 缺席即降级空转（fail-closed）。
+            // CUSTOM (public-API wave 1): dispatched into the dynamic registry — the
+            // handler resolves schema/behavior itself and idles when absent (fail-closed).
+            case CUSTOM -> CustomNodeEval.eval(ctx);
         }
         // 尾部记账直读 ctx.o（处理器结尾以 ctx.o = o 回写重建数组随行——FORMULA /
         // BUS_IN / ENCAPSULATION 的 o = new float[...]; node.outputValues = o; 均在

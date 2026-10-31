@@ -71,6 +71,17 @@ public class RuntimeState {
     /** 键：encapNodeId → 子节点状态映射 / Key: encapNodeId → sub-node state map */
     public final Map<Integer, SubState> subStates = new HashMap<>();
 
+    /** 自定义节点（公开 API 波 1）的状态 blob：nodeId → 第三方写回的不透明 NBT。
+     *  键 = 普通 node id（无辅助槽位）；持久化键 "custom"。挂起检查点与完成时写回的
+     *  新状态都落这张表 —— 与时序三表同一保存/恢复/剪除纪律（putAllFrom 全量并入、
+     *  pruneToAliveIds 按存活剪）。
+     *  Custom-node (public-API wave 1) state blobs: nodeId → the provider's opaque NBT.
+     *  Keys are plain node ids (no auxiliary slots); persisted under "custom". Both
+     *  suspension checkpoints and completion write-backs land here — the same
+     *  save/restore/prune discipline as the timing tables (putAllFrom merges all,
+     *  pruneToAliveIds prunes by liveness). */
+    public final Map<Integer, CompoundTag> customStates = new HashMap<>();
+
     /**
      * 一个 ENCAPSULATION 子图的运行时状态。
      * 每个子图拥有独立的状态集合，避免子图内节点 ID 与顶层节点 ID 冲突。
@@ -200,6 +211,7 @@ public class RuntimeState {
         debugTime.clear();
         subStates.clear();
         nodeEdge.clear();
+        customStates.clear();
     }
 
     /** MOVE/ROTATE/WAIT 触点的上一 tick 电平（键=节点 id）。上升沿检测用。
@@ -251,6 +263,7 @@ public class RuntimeState {
         debugTime.keySet().removeIf(k -> !keys.contains(k));
         subStates.keySet().removeIf(k -> !aliveIds.contains(k));
         nodeEdge.keySet().removeIf(k -> !keys.contains(k));
+        customStates.keySet().removeIf(k -> !aliveIds.contains(k));
     }
 
     /**
@@ -285,6 +298,7 @@ public class RuntimeState {
         debugTime.putAll(src.debugTime);
         nodeEdge.putAll(src.nodeEdge);
         subStates.putAll(src.subStates);
+        customStates.putAll(src.customStates);
     }
 
     // ── NBT 序列化 ──────────────────────────────────────────────────────
@@ -352,6 +366,14 @@ public class RuntimeState {
             for (var e : debugTime.entrySet())
                 dt.putFloat(String.valueOf(e.getKey()), e.getValue());
             tag.put("dt", dt);
+        }
+        // 自定义节点状态 blob — 每节点一个 CompoundTag（第三方不透明 NBT，原样存取）
+        // Custom-node state blobs — one CompoundTag per node (the provider's opaque NBT, verbatim)
+        if (!customStates.isEmpty()) {
+            CompoundTag cs = new CompoundTag();
+            for (var e : customStates.entrySet())
+                cs.put(String.valueOf(e.getKey()), e.getValue());
+            tag.put("custom", cs);
         }
         // 子图状态 — 每个封装节点一个 CompoundTag
         // Sub-graph state — one CompoundTag per encapsulation node
@@ -507,6 +529,15 @@ public class RuntimeState {
                 Integer id = parseNodeKey(k);
                 if (id == null) continue; // F17 坏键跳过 / F17 skip corrupt key
                 rs.debugTime.put(id, dt.getFloat(k));
+            }
+        }
+        // 自定义节点状态 blob / Custom-node state blobs
+        if (tag.contains("custom")) {
+            var cs = tag.getCompound("custom");
+            for (var k : cs.getAllKeys()) {
+                Integer id = parseNodeKey(k);
+                if (id == null) continue; // F17 坏键跳过 / F17 skip corrupt key
+                rs.customStates.put(id, cs.getCompound(k).copy());
             }
         }
         // 子图状态  /  Sub-graph state

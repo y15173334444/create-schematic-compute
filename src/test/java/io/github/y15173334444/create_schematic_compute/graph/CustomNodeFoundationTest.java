@@ -1,5 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
+import io.github.y15173334444.create_schematic_compute.api.CustomNodeType;
+
 import io.netty.buffer.Unpooled;
 import io.github.y15173334444.create_schematic_compute.network.GraphEditOpPacket;
 import net.minecraft.core.BlockPos;

@@ -1,4 +1,4 @@
-package io.github.y15173334444.create_schematic_compute.graph;
+package io.github.y15173334444.create_schematic_compute.api;
 
 import java.util.List;
 
@@ -11,6 +11,9 @@ import java.util.List;
  * （小写命名空间 + 小写名），随玩家图 NBT 持久化（{@code type} 键 = 哨兵 {@code "custom"}、
  * {@code cid} 键 = 本 id）——本模组更新不得使其损坏（探索稿 §5 持久化承诺）。注册表
  * 按本 id 寻址；提供方模组缺席时节点降级为占位壳（图不损）。</p>
+ *
+ * <p><b>包位置</b>：{@code api} 包 —— 本类是第三方可见公开面的组成部分（批 B 起）；
+ * graph 域（GraphNode/CustomNodeRegistry）作为实现侧引用它，方向 graph → api。
  *
  * <p><b>引脚</b>：v1 只有 FLOAT 域（探索稿 §3-8），数量 = 标签列表长度，标签即引脚
  * 显示名（也作 pinId 的稳定编码输入，见 GraphNode 通用 pinId 路径）。空列表 = 无引脚。</p>

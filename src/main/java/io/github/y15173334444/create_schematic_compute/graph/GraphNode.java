@@ -1,5 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
+import io.github.y15173334444.create_schematic_compute.api.CustomNodeType;
+
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -26,6 +28,11 @@ public class GraphNode {
      *  CUSTOM sentinel while the schema lookup fails and the node runs as a degraded
      *  placeholder shell (the graph survives).</p> */
     public String customId;
+    /** 自定义节点的求值运行态（transient，懒创建；处置梯子记账——见
+     *  {@link CustomNodeRunState}）。持久化面不携带（运行期安全态）。
+     *  The custom node's evaluation run-state (transient, lazy; the escalation ladder's
+     *  accounting — see {@link CustomNodeRunState}). Never persisted (runtime safety state). */
+    public transient CustomNodeRunState customRun;
     public float x, y;
     public float[] params;           // 数值参数（常量值、kp、ki 等）/ numeric parameters (const value, kp, ki, etc.)
     public ItemStack[] itemParams;   // 物品参数（频率堆）/ item parameters (frequency stacks)
@@ -613,7 +620,15 @@ public class GraphNode {
         }
         // ENCAPSULATION：outputValues 在 eval 期间根据 subGraph 动态调整大小
         // ENCAPSULATION: outputValues resized dynamically during eval based on subGraph
-        this.outputValues = new float[type == NodeType.ENCAPSULATION ? 0 : type.outputs];
+        // CUSTOM：按 schema 输出数定尺寸（type.outputs 恒 0——哨兵不携带形状；schema
+        // 未解析 = 0，求值器在完成写入时按需重建，CustomNodeEval 同款漂移守卫）。
+        // CUSTOM: sized from the schema's output count (the sentinel's type.outputs is
+        // always 0; an unresolved schema = 0, and the evaluator rebuilds on demand at
+        // write time — same drift guard as CustomNodeEval).
+        this.outputValues = new float[type == NodeType.ENCAPSULATION ? 0
+            : type == NodeType.CUSTOM ? (CustomNodeRegistry.get(customId) != null
+                ? CustomNodeRegistry.get(customId).outputs() : 0)
+            : type.outputs];
         // HUD_PITCH_LADDER：刻度全范围 ±90°、间隔 5°（Sable 四元数姿态覆盖全姿态）
         // HUD_PITCH_LADDER: full-range ±90° ladder, 5° interval (Sable quaternion attitude covers all attitudes)
         if (type == NodeType.HUD_PITCH_LADDER) {

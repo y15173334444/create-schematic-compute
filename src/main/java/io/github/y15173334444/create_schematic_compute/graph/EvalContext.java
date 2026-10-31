@@ -113,6 +113,13 @@ public final class EvalContext {
     /** 雷达宿主坐标（TARGET_OUT 查询的坐标空间）。 / radar host position (TARGET_OUT's
      *  coordinate space). */
     public BlockPos radarPos;
+    /** 自定义节点（公开 API 波 1）的宿主世界与坐标（api.CustomNodeContext 的 level/hostPos
+     *  来源；宿主在重建求值器时注入，未注入/单测 = null —— 提供方必须空检）。
+     *  The custom-node host level and position (the source of api.CustomNodeContext's
+     *  level/hostPos; injected by hosts at evaluator rebuild, null when unwired/in tests —
+     *  providers must null-check). */
+    public net.minecraft.server.level.ServerLevel customLevel;
+    public BlockPos customHostPos;
     /** 雷达目标查询（接口下沉，宿主雷达注入 radar.TargetAssignment::getTarget）；
      *  未接线 = 恒无目标。 / radar target lookup (interface sinking; the hosting radar
      *  wires radar.TargetAssignment::getTarget); unwired = never a target. */
@@ -166,6 +173,8 @@ public final class EvalContext {
         this.radarPos = src.radarPos;
         this.targetLookup = src.targetLookup;
         this.audioTickStamp = src.audioTickStamp;
+        this.customLevel = src.customLevel;
+        this.customHostPos = src.customHostPos;
     }
 
     /** 音频频段消费者身份（宿主坐标 + 节点 id）：AudioBands 的 exactly-once 游标按它去重

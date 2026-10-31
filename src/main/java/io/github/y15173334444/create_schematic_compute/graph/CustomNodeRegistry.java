@@ -1,5 +1,8 @@
 package io.github.y15173334444.create_schematic_compute.graph;
 
+import io.github.y15173334444.create_schematic_compute.api.CustomNodeBehavior;
+import io.github.y15173334444.create_schematic_compute.api.CustomNodeType;
+
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,6 +36,11 @@ public final class CustomNodeRegistry {
     /** id → schema（提供方 init 注册、运行期只读）/ id → schema (registered at provider init, read-only at runtime). */
     private static final Map<String, CustomNodeType> BY_ID = new ConcurrentHashMap<>();
 
+    /** id → 求值行为（批 B）：schema 与行为同批登记，缺一即降级（图形在场、求值空转）。
+     *  id → evaluation behavior (batch B): schema and behavior register together; either
+     *  missing degrades (the shape exists in the graph, evaluation idles). */
+    private static final Map<String, CustomNodeBehavior> BEHAVIORS = new ConcurrentHashMap<>();
+
     /** modid → 该提供方注册的全部 id（提供方在线校验与卸载清理的底账）/ modid → ids owned by that provider (provider-online checks and unload cleanup). */
     private static final Map<String, Set<String>> BY_PROVIDER = new ConcurrentHashMap<>();
 
@@ -40,11 +48,27 @@ public final class CustomNodeRegistry {
      *  <p>Register a custom-node schema; a duplicate id throws (same fail-fast discipline
      *  as NodeType.BY_ID's static block).</p> */
     public static void register(CustomNodeType spec) {
+        register(spec, null);
+    }
+
+    /** 注册 schema + 求值行为（完整形态）：行为缺省 = 图形可进编辑器但求值空转
+     *  （批 A 的 schema-only 形态保留，供形状测试与渐进接入）。
+     *  <p>Register a schema with its evaluation behavior (the full form): a null behavior
+     *  keeps the shape addable in the editor while evaluation idles (batch A's schema-only
+     *  form retained for shape tests and progressive bring-up).</p> */
+    public static void register(CustomNodeType spec, CustomNodeBehavior behavior) {
         CustomNodeType prev = BY_ID.putIfAbsent(spec.id(), spec);
         if (prev != null)
             throw new IllegalStateException("Duplicate custom node id: " + spec.id());
         String modid = spec.id().substring(0, spec.id().indexOf(':'));
         BY_PROVIDER.computeIfAbsent(modid, k -> ConcurrentHashMap.newKeySet()).add(spec.id());
+        if (behavior != null) BEHAVIORS.put(spec.id(), behavior);
+    }
+
+    /** 按 id 查求值行为；未注册返回 null（调用方降级空转）。/ Look up the evaluation
+     *  behavior by id; null when unregistered (callers idle). */
+    public static CustomNodeBehavior behavior(String customId) {
+        return customId == null ? null : BEHAVIORS.get(customId);
     }
 
     /** 按 id 查 schema；未注册（含提供方缺席）返回 null —— 调用方降级占位。
@@ -70,12 +94,16 @@ public final class CustomNodeRegistry {
      *  never called in the production lifecycle).</p> */
     public static void unregisterProvider(String modid) {
         Set<String> ids = BY_PROVIDER.remove(modid);
-        if (ids != null) ids.forEach(BY_ID::remove);
+        if (ids != null) {
+            ids.forEach(BY_ID::remove);
+            ids.forEach(BEHAVIORS::remove);
+        }
     }
 
     /** 清空注册表（仅测试隔离用）/ clear everything (test isolation only). */
     public static void clearForTests() {
         BY_ID.clear();
+        BEHAVIORS.clear();
         BY_PROVIDER.clear();
     }
 }
