@@ -163,8 +163,16 @@ final class EditorSettingsBudgetTab {
         // **height-aligned with the buttons** (the user's in-game call: no fill padding, one
         // row height, one baseline).
         boxX = cx; boxY = ly; boxW = BOX_W;
-        valueBox.setX(boxX); valueBox.setY(boxY); valueBox.setWidth(boxW);
+        valueBox.setX(boxX); valueBox.setWidth(boxW);
         valueBox.setHeight(BTN_H);
+        // EditBox 源码口径:bordered=false 时文字画在恰好 getY()(垂直居中只在 bordered 模式
+        // 有,1.21.1 EditBox#renderWidget L382)——控件下移 (BTN_H-8)/2 让 8px 文字正落框内居中
+        //(用户实测:文字顶在框沿)。
+        // EditBox's own rule: with bordered=false the text draws at exactly getY() — vertical
+        // centering only exists in bordered mode (1.21.1 EditBox#renderWidget L382) — so the
+        // widget shifts down (BTN_H-8)/2 to center the 8px glyphs in the frame (the user's
+        // screenshot: text hugging the top edge).
+        valueBox.setY(boxY + (BTN_H - 8) / 2);
         valueBox.setTextColor(Double.isNaN(pending) ? 0xFFFF6666 : 0xFFEEEEEE);
         g.fill(boxX, boxY, boxX + boxW, boxY + BTN_H,
             valueBox.isFocused() ? NodeRenderer.HOV() : NodeRenderer.PINS());
