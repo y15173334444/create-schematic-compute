@@ -2,7 +2,7 @@
 > 更新日期 / Updated：2026-10-31
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 待办 15 项（其中 6 项待拍板、4 项已拍板待实施、5 项已实施✅ 待收尾，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 共 16 项（✅ 已实施 6 项〔6/8/9/10/11/12〕；已拍板待实施 3 项〔13/14/15〕；待办 7 项〔其中条目 1 待立项、条目 16 已拍板另批处置〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -23,13 +23,14 @@
 | 6 | 像素编辑器配色半收编（static final 捕获 + 硬编码按钮/悬停） | 与 NBS 收编前同款病：panel_bg/panel_border 类加载时捕获、按钮/悬停写死，换主题不跟 | 照 NBS 收编的同款映射一次搬 | ✅ 已实施（2026-10-31，1012 绿；三件套四色映射 insetBg/hover/accent/error + 帧选中/拖拽高亮，画布内容色按口径保持内置，回潮锚 PixelEditorThemeAdoptionTest） |
 | 7 | 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理） | 主图/子图节点 id 撞号时 owner 门失真；syncBusBands/空表 clearBus 靠旗标或镜像语义门控 | ChannelOwner 加图域全链带上 + 两处清理改 owner 门控 | 🔶 待办 |
 | 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（行为变更） | 🔶 待办（2026-10-25 更新：eval 分派化已落地 main，怪癖按决策 §三-4 原样保留并收敛到单一事实源；**2026-10-31 拍板：档位合一**，✅ 已实施（2026-10-31 档位合一批 0e9cc29）） |
-| 9 | 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE） | 服务端 op 链不校验 `BlockNodeAllowances`，改包客户端可把任意类型塞进任意宿主 | 服务端 op 链按准入名单校验，超名单 REJECT（与 K10 服务端化同批） | 🔶 待办（2026-10-17 补登记，复审 P2-7；**2026-10-31 拍板：运行时服务端化**——各版本整理的方块节点筛选有差异，直接静态校验会让旧版本的图用不了，校验须带旧档兼容口径） |
+| 9 | 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE） | 服务端 op 链不校验 `BlockNodeAllowances`，改包客户端可把任意类型塞进任意宿主 | 服务端 op 链按准入名单校验，超名单 REJECT（与 K10 服务端化同批） | ✅ 已实施（2026-10-31 准入服务端化批：`graph.NodeAdmission` 准入门 + 装载普查旧档兼容口径，K10 数量上限同批收口；1027 绿） |
 | 10 | AST 与 RPN 双前端并行（旧表示退役时间点未定） | 同一份公式有两套可执行表示并存于 FORMULA 求值（`script.ast` 空 → 旧扁平 RPN 循环；非空 → 刀3 解释器），维护面翻倍 | 单批删除旧路径 | 🔶 待办（拓扑 P5 拆分已把两前端物理分离，退役不再受阻；**2026-10-31 拍板：1.3.0 内退役**——无控制流脚本统一升格 AST，旧扁平 RPN 前端随批删除，✅ 已实施（2026-10-31 双前端退役批）） |
 | 11 | 反向包边成环（blocks ↔ client.editor / network → blocks） | 包归位把同包互访显形为跨包 import，blocks 与 client.editor 互引成环、network 新增回引 blocks 边，与「blocks 回归世界侧」收口叙事反向 | 依赖倒置解环（Host 查询方法 / markDirty 形参收窄 / 窄接口，E2 `EditAckSink` 手法）或接受现状不立分层规则 | 🔶 待办（2026-10-31 补登记，拓扑批 4 注记⑥ 留痕边清单与根因；**2026-10-31 拍板：解环（依赖倒置）**，✅ 已实施（2026-10-31 解环批）） |
 | 12 | 预算兜底未接线（deadline 兑底承诺未兑现） | `deadlineExhausted()` 全仓零调用点，FormulaCompute javadoc 却写着「deadline 仅作兜底（闭式巨脚本的紧急 shed）」——注释替未实现机制背书 | 接线；设置面板新增选项卡 + 两条指令（指令打开设置面板 / 指令直接调整），调整均需 OP，作用域 = 当前世界设置 | ✅ 已实施（2026-10-31，`e8a5ce4` 接线 + `01fcac3` 交互面，1010 绿；shed 语义=保持+升级冻结经追问拍板；审查修正 = 公平计数每 tick 一次 / 编辑清 streak / 控制台可调预算） |
 | 13 | validate 双份 parseScript（同一脚本解析两遍） | `FormulaValidator.validate` 内部完整重跑 `parseScript`，校验路径重复解析 | 去重复用解析产物，单独立批（行为批口径） | 🔶 待办（**2026-10-31 拍板：修，单独立批**，实施待排期） |
 | 14 | 显示器/HUD 每帧分配（图像墙 GC 抖动） | 3D 每像素 quad 无缓存、HUD 每不透明像素 `new float[8]`、恒渲染不进视锥剔除——图像墙场景顶点与分配线性叠加（复审 P1-4） | 只修分配（3D 按图代际缓存 mesh + HUD 像素四边形数组复用），**不碰恒渲染语义** | 🔶 待办（**2026-10-31 拍板：只修分配不碰恒渲染**，实施待排期） |
 | 15 | 1.3.0 公开 API 暴露面（外部模组高精度联动） | 对外联动只有红石兜底 0–15 与动力网邻接两条精路；进程内总线与一批 public static 设施"恰好可达"但无契约 | **两大件**：自定义节点（完全自定义求值 + 可恢复契约与独立预算池 + 名单制准入）+ 宿主套件；节点直连提供者方块，外部频道层砍掉；排期 = 先清 4 小批 → P2-7 并入节点波 → 宿主套件波 | 🔶 待办（**2026-10-31 拍板落定 D1–D8**，决策记录见探索稿 §8，实施按探索稿 §9 波次） |
+| 16 | ADD_NODE 快照恢复路径不校验内容（K15 钳制可被绕过） | 撤销恢复的 NBT 快照由客户端手工构造且无对账——改包客户端可借合法类型 + 手工快照绕过 op 级钳制 | 恢复路径补同款钳制 + 快照类型与 op.nodeType 一致；或 opLog 对账（最严但耦合日志轮转） | 🔶 待办（2026-10-31 随准入服务端化批勘察发现，拍板**登记另批**） |
 
 ---
 
@@ -380,12 +381,13 @@ Sensor / 控制椅图里若出现 DELAY / LATCH / GATE / T_FLIPFLOP / PULSE_EXTE
 
 ### 状态 / Status
 
-**🔶 待办。** 2026-10-17 债务对表时发现账面悬空（波次表 / 延期表 / 本册三处皆无），
-补登记（复审 P2-7）。
+**✅ 已实施（2026-10-31 准入服务端化批，1027 绿 = 1012 基线 + 15 新锚）。** 2026-10-17 债务对表时发现账面悬空（波次表 / 延期表 / 本册三处皆无），补登记（复审 P2-7）。
+
+**✅ 2026-10-31 实施完毕 / Implemented（准入服务端化批，K10 同批收口）**：服务端 op 链在建点前过准入门 `graph/NodeAdmission`（纯函数 `violation(op, allowance, loadTimeTypes, targetGraph)`，`EditSessionRegistry.applyOp` 在子图解析后、建节点前调用，REJECT 走既有回执）——审 ADD_NODE / ADD_NODE_REQUEST 两个落类型 op，三条判定：① 类型可解码（线上 NodeType 按字符串 id 编码，未知 id 解码为 null 即拒，P2-9 同族口径）；② 类型获准入 = **现行名单 ∪ 装载普查**（旧档兼容口径按拍板取**装载时遗留集**：`GraphHost.loadHostNBT` 图替换点对图树（主图 + 递归封装子图）做一次类型普查，装载时已在场的类型本会话内永远可再进来、不随节点增删变化——撤销恢复（REMOVE_NODE 撤销的 ADD_NODE + 快照）必然放行，合法流零影响）；③ K10 数量上限 = 目标图节点数达 `NodeAdmission.MAX_NODES=1024` 拒（主图与封装子图各自计，与客户端同口径；`GraphEditor.MAX_NODES` 改为权威值别名，两侧永不漂移）。宿主→名单经 `EditSessionTarget` 窄口两问（`nodeAllowance()` 12 宿主各答自己的条目 / `loadTimeNodeTypes()` 转发引擎普查），名单缺席 fail-closed。客户端 REJECT 分发（`GraphRemoteApplier`）补 ADD_NODE 回滚分支——直发加点（撤销恢复 / 子图复制）首次可能被拒（仅 1024 满额边角），本地乐观节点随回执移除，REJECT 契约全路径铺满。回归锚 `NodeAdmissionGateTest`（15 例：门本体行为锚 + applyOp/GraphHost/回滚/委托四个接线源锚）。**节点波（公开 API D5 名单制）在本门上扩展字符串 id 名单**——引擎管事实（普查）、门管政策（算术）的分工即为波 1 预留的缝。
 
 ---
 
-**🎯 2026-10-31 拍板 / Ruling（仅登记，实施待排期）**：运行时服务端化——注意各版本整理的各个方块的节点筛选有差异，直接静态校验可能会导致有些旧版本的图用不了；服务端化以运行时校验形态做，须带旧档兼容口径（用户原话约束）。/ Runtime server-side validation; strict static checking would brick graphs saved under older allowlist versions, so the check must carry a legacy-save tolerance.
+**🎯 2026-10-31 拍板 / Ruling（已实施）**：运行时服务端化——注意各版本整理的各个方块的节点筛选有差异，直接静态校验可能会导致有些旧版本的图用不了；服务端化以运行时校验形态做，须带旧档兼容口径（用户原话约束）。实施时遗留集机制经追问拍板 = **装载时遗留集**（装载后算一次「在场类型 − 现行名单」，会话内永久放行；否决了 op 时在场判定——那会在删光后撤销时丢节点）。/ Runtime server-side validation with a load-time legacy census (ruled over op-time live presence, which would lose nodes on undo after deleting the last instance).
 
 ## 10. AST 与 RPN 双前端并行（旧表示退役时间点未定）
 
@@ -589,3 +591,44 @@ GC 抖动。
 
 **🔶 待办（2026-10-31 探索稿完成 + D1–D8 拍板落定）。** 实施按探索稿 §9 波次：先清 4 个独立
 小批（K6/像素三色/validate/HUD）→ 自定义节点波（含 P2-7 合流）→ 宿主套件波；21 条回归发布前统一跑。
+
+## 16. ADD_NODE 快照恢复路径不校验内容（K15 钳制可被绕过）
+
+范围 / Scope：`graph/OpExecutor`（ADD_NODE case 的 `restoreNodeFromNbt` 通路）、K15 钳制族
+（`GraphEditOpPacket.opBoundsViolation` 预检）
+
+### 症状 / Symptom
+
+（非用户可见缺陷，属安全加固缺口。）改包客户端可发一条 ADD_NODE op，stringValue 以 `{` 开头
+即被当作 REMOVE_NODE 撤销的恢复快照，执行器直接 parseTag 并 `restoreNodeFromNbt`——全程
+不校验快照内容；K15 预检只覆盖 SET_HOTBAR_ITEM / SET_IMAGE_PIXELS / SET_CTRL_POINTS 三个
+op 类型，快照恢复路径绕过全部 op 级钳制。
+
+### 机制 / Mechanism
+
+撤销恢复协议：客户端撤销 REMOVE_NODE 时重发 ADD_NODE（targetNodeId=原 id）+
+stringValue=NBT 快照，服务端从快照恢复完整节点数据。快照由客户端构造、协议无签名无对账，
+而 op 级预检对 ADD_NODE 家族无内容检查——超大控制点表 / 超限帧列表 / 越界热栏槽位等可经
+快照直达执行器。P2-7 准入门（2026-10-31 已落地）管**类型准入**，管不了快照**内容**：快照里
+的类型是合法类型时，超限内容照常夹带。
+
+### 触发条件 / Trigger
+
+改包客户端发一条带手工构造快照的 ADD_NODE op。正常客户端的快照由 GraphNode.save 产生，
+内容本就经过 op 级纪律，不受影响。
+
+### 影响面 / Impact
+
+无直接崩溃路径（NBT 解析失败静默跳过、节点空壳）；成功注入时绕过 K15 钳制造成超大结构
+（内存 / tick 压力）与未预期节点内容。
+
+### 修复方向 / Fix direction
+
+两条路择一：① 恢复路径补与 op 级同值的钳制（控制点 ≤64 / 帧 ≤64 / 热栏槽 0..8 等）+ 快照
+类型必须与 op.nodeType 一致（内容卫生，简单）；② opLog 对账——快照仅在对得上会话日志中
+对应 REMOVE_NODE 记录时接受（最严，但耦合 opLog 上界轮转与跨会话撤销不可用性）。
+
+### 状态 / Status
+
+🔶 待办（2026-10-31 随准入服务端化批勘察发现；拍板 = **登记另批**，本批只收准入 + 数量
+两个把守点，处置方案另批拍板）。

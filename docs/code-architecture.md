@@ -508,7 +508,7 @@ Sable 子层级兼容工具 / Sable sub-level compat utilities.
 / Chunked data reassembler. 30 KB/chunk, 30s timeout, cleaned every 20 ticks.
 
 ### EditSessionRegistry（批 4 迁入 `network/` / moved to `network/` in batch 4）
-多人编辑会话注册表 / Multiplayer edit session registry. **回引 blocks 已解环（2026-10-31）**：经 `graph.EditSessionTarget` 窄口（图访问/applyCurrentState/requestFullSync/setChanged）与 `CoalescedFullSync` 窄口（Monitor 限流全量同步）消费，`markDirty` 形参收窄直调 `setChanged()` / reverse edge broken: consumed through the EditSessionTarget / CoalescedFullSync narrow ports with the markDirty param narrowed.
+多人编辑会话注册表 / Multiplayer edit session registry. **回引 blocks 已解环（2026-10-31）**：经 `graph.EditSessionTarget` 窄口（图访问/applyCurrentState/requestFullSync/setChanged/**准入门应答**——P2-7：宿主名单 `nodeAllowance()` + 装载普查 `loadTimeNodeTypes()`，建点前过 `graph.NodeAdmission`）与 `CoalescedFullSync` 窄口（Monitor 限流全量同步）消费，`markDirty` 形参收窄直调 `setChanged()` / reverse edge broken: consumed through the EditSessionTarget / CoalescedFullSync narrow ports with the markDirty param narrowed.
 
 **三个 Map / Three Maps**：
 - `editors` — `GlobalPos → Set<UUID>` 活跃编辑者 / Active editors
