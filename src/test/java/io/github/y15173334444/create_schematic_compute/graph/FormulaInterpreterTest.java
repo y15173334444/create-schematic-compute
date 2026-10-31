@@ -123,11 +123,11 @@ class FormulaInterpreterTest {
     }
 
     @Test
-    @DisplayName("Old scripts stay in RPN mode: ast == null")
-    void testLegacyAstNull() {
-        assertNull(FormulaParser.parseScript("x = a + 1").ast);
-        assertNull(FormulaParser.parseScript("sin(a) + b").ast);
-        assertNull(FormulaParser.parseScript("x = a == b").ast); // 比较无块 → 仍走旧路径
+    @DisplayName("Non-control-flow scripts promote to AST (dual-frontend retirement)")
+    void testNonControlFlowScriptsPromoteToAst() {
+        assertNotNull(FormulaParser.parseScript("x = a + 1").ast);
+        assertNotNull(FormulaParser.parseScript("sin(a) + b").ast);
+        assertNotNull(FormulaParser.parseScript("x = a == b").ast); // 比较无块也走统一 AST 前端
     }
 
     @Test

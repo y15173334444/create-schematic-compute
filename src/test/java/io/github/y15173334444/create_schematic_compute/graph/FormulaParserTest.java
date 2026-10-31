@@ -147,33 +147,17 @@ class FormulaParserTest {
         assertEquals(5.0, result, 0.01);
     }
 
-    // ── Variable extraction ──
-
-    @Test
-    @DisplayName("extractVariables filters out function names")
-    void testExtractVariables() {
-        List<String> vars = FormulaParser.extractVariables("A*B+sin(C)");
-        assertTrue(vars.contains("A"));
-        assertTrue(vars.contains("B"));
-        assertTrue(vars.contains("C"));
-        assertFalse(vars.contains("sin"));
-    }
-
-    @Test
-    @DisplayName("extractVariables returns empty for pure constants")
-    void testExtractVariablesConstants() {
-        List<String> vars = FormulaParser.extractVariables("2+3*4");
-        assertTrue(vars.isEmpty());
-    }
-
     // ── Script parsing (v1.2+) ──
 
     @Test
-    @DisplayName("parseScript legacy mode: single expression")
+    @DisplayName("parseScript unified frontend: single expression promotes to AST")
     void testParseScriptLegacy() {
         FormulaParser.ScriptParseResult result = FormulaParser.parseScript("A+1");
-        assertTrue(result.isLegacy);
-        // Legacy mode produces one default output (empty label)
+        // 双前端退役：旧单行形态也走 AST 语句树（默认输出语义不变）。
+        // Dual-frontend retirement: the legacy single-line form parses to AST too
+        // (default-output semantics unchanged).
+        assertNotNull(result.ast);
+        // One default output (empty label)
         assertEquals(1, result.outputRpns.size());
         assertEquals(1, result.inputVars.size());
         assertEquals("A", result.inputVars.get(0));
@@ -184,13 +168,11 @@ class FormulaParserTest {
     void testParseScriptMultiLine() {
         FormulaParser.ScriptParseResult result = FormulaParser.parseScript(
             "x = A*2\n@output x");
-        assertFalse(result.isLegacy);
+        assertNotNull(result.ast);
         assertEquals(1, result.outputLabels.size());
         assertEquals("x", result.outputLabels.get(0));
         assertEquals(1, result.inputVars.size());
         assertEquals("A", result.inputVars.get(0));
-        assertEquals(1, result.assignments.size());
-        assertEquals("x", result.assignments.get(0).varName());
     }
 
     @Test
@@ -198,7 +180,7 @@ class FormulaParserTest {
     void testParseScriptComments() {
         FormulaParser.ScriptParseResult result = FormulaParser.parseScript(
             "-- this is a comment\nx = 5\n@output x");
-        assertFalse(result.isLegacy);
+        assertNotNull(result.ast);
         assertEquals("x", result.outputLabels.get(0));
     }
 
@@ -274,41 +256,6 @@ class FormulaParserTest {
         assertEquals(FormulaParser.TokType.FUNCTION, tokens.get(1).type());
         assertEquals(FormulaParser.TokType.IDENT, tokens.get(2).type(),
             "PI inside sin() must be IDENT even when sin() is inside grouping parens");
-    }
-
-    // ═══════════════════════════ extractVariables ═══════════════════════════
-
-    @Test
-    @DisplayName("extractVariables: sin(PI) — PI is a variable")
-    void testExtractVarsSinPI() {
-        var vars = FormulaParser.extractVariables("sin(PI)");
-        assertTrue(vars.contains("PI"),
-            "PI in sin(PI) must be a variable (input pin), not skipped");
-    }
-
-    @Test
-    @DisplayName("extractVariables: (PI) — PI is a literal, NOT a variable")
-    void testExtractVarsGroupingPI() {
-        var vars = FormulaParser.extractVariables("(PI)");
-        assertFalse(vars.contains("PI"),
-            "PI in (PI) must be skipped (literal, no input pin)");
-    }
-
-    @Test
-    @DisplayName("extractVariables: bare PI is a variable")
-    void testExtractVarsBarePI() {
-        var vars = FormulaParser.extractVariables("PI + E");
-        assertTrue(vars.contains("PI"));
-        assertTrue(vars.contains("E"));
-    }
-
-    @Test
-    @DisplayName("extractVariables: PI in assignment RHS is a variable")
-    void testExtractVarsPIInExpr() {
-        var vars = FormulaParser.extractVariables("A + sin(PI) + (E)");
-        assertTrue(vars.contains("A"));
-        assertTrue(vars.contains("PI"), "PI in sin(PI) is a variable");
-        assertFalse(vars.contains("E"), "E in (E) is a literal");
     }
 
     // ═══════════════════════════ Compile + Evaluate (PI/E disambiguation) ═══════════════════════════
@@ -446,28 +393,28 @@ class FormulaParserTest {
     // ═══════════════════════════ parseScript + PI/E ═══════════════════════════
 
     @Test
-    @DisplayName("parseScript legacy: sin(PI) → PI is an input variable")
+    @DisplayName("parseScript unified: sin(PI) → PI is an input variable")
     void testParseScriptLegacySinPI() {
         var result = FormulaParser.parseScript("sin(PI)");
-        assertTrue(result.isLegacy);
+        assertNotNull(result.ast);
         assertTrue(result.inputVars.contains("PI"),
-            "Legacy mode: PI in sin(PI) must be an input variable");
+            "PI in sin(PI) must be an input variable");
     }
 
     @Test
-    @DisplayName("parseScript legacy: (PI) → PI is NOT an input variable")
+    @DisplayName("parseScript unified: (PI) → PI is NOT an input variable")
     void testParseScriptLegacyGroupingPI() {
         var result = FormulaParser.parseScript("(PI)+1");
-        assertTrue(result.isLegacy);
+        assertNotNull(result.ast);
         assertFalse(result.inputVars.contains("PI"),
-            "Legacy mode: (PI) is literal, must NOT be an input variable");
+            "(PI) is literal, must NOT be an input variable");
     }
 
     @Test
     @DisplayName("parseScript multi-line: sin(PI) with assignment")
     void testParseScriptMultiLineSinPI() {
         var result = FormulaParser.parseScript("x = sin(PI)\n@output x");
-        assertFalse(result.isLegacy);
+        assertNotNull(result.ast);
         // PI in sin(PI) should be an external input
         assertTrue(result.inputVars.contains("PI"));
     }

@@ -144,13 +144,17 @@ class FormulaParserSyntaxTest {
     @DisplayName("parseScript: x = a == b parses as assignment with comparison RHS")
     void testParseScriptAssignmentWithComparison() {
         var result = FormulaParser.parseScript("x = a == b");
-        assertEquals(1, result.assignments.size());
-        assertEquals("x", result.assignments.get(0).varName());
+        // 双前端退役：赋值语句是 AST AssignStmt（比较 RHS 照常解析）。
+        // Dual-frontend retirement: assignments are AST AssignStmts (comparison RHS parses fine).
+        assertNotNull(result.ast);
         assertTrue(result.inputVars.contains("a"));
         assertTrue(result.inputVars.contains("b"));
         // 求值: a=1, b=1 → x=1 / evaluate: a=1, b=1 → x=1
-        var vars = Map.of("a", 1.0, "b", 1.0);
-        assertEquals(1.0, FormulaParser.evaluate(result.assignments.get(0).rpn(), vars), 1e-9);
+        var env = new java.util.HashMap<String, Value>();
+        env.put("a", new Value.Scalar(1.0));
+        env.put("b", new Value.Scalar(1.0));
+        FormulaInterpreter.exec(result.ast, env);
+        assertEquals(1.0, FormulaParser.asScalar(env.get("x")), 1e-9);
     }
 
     @Test

@@ -311,14 +311,10 @@ public final class FormulaEval {
                 // 动态调整输出数组大小（与 ENCAPSULATION / BUS_IN 相同的模式）
                 // Size output array dynamically (same pattern as ENCAPSULATION / BUS_IN)
                 if (o.length != nOut) { o = new float[nOut]; node.outputValues = o; }
-                // 将输入引脚映射为变量值 / Map input pins to variable values
-                var vars = new java.util.HashMap<String, Double>();
                 // 输入快照 — 去重键按值比较 / Input snapshot — dedup key compares by value
                 float[] pinInputs = new float[script.inputVars.size()];
                 for (int vi = 0; vi < script.inputVars.size(); vi++) {
-                    float v = graph.getInputValue(node.id, vi, outputs);
-                    pinInputs[vi] = v;
-                    vars.put(script.inputVars.get(vi), (double)v);
+                    pinInputs[vi] = graph.getInputValue(node.id, vi, outputs);
                 }
                 // 去重:同脚本 + 同输入本 tick 内复用结果(FORMULA 为纯函数,安全)。
                 // Dedup: same script + same inputs reuses this tick's result (FORMULA is a pure function, safe).
@@ -334,7 +330,11 @@ public final class FormulaEval {
                     node.formulaSpreadProgress = 0f;
                     break;
                 }
-                // AST 模式(刀3+刀5):carrier 挂起-lite + emit-on-done / AST mode: carrier suspend-lite + emit-on-done
+                // 统一 AST 路径（双前端退役 2026-10-31）：carrier 挂起-lite + emit-on-done；
+                // 无控制流脚本随批升格，旧扁平 RPN 求值循环已删除。
+                // Unified AST path (dual-frontend retirement, 2026-10-31): carrier
+                // suspend-lite + emit-on-done; non-control-flow scripts promoted along,
+                // the flat-RPN eval loop is gone.
                 if (script.ast != null) {
                     if (node.formulaShedWarned) {
                         // MAX_ITER shed 冻结:病态脚本不再重试,输出保持 lastGood,直到公式被编辑
@@ -440,29 +440,12 @@ public final class FormulaEval {
                         FormulaCompute.storeDedup(script.sourceFormula, pinInputs, o);
                     break;
                 }
-                // 按顺序执行赋值语句（各自隔离，防止一个错误表达式破坏整个脚本）
-                // Execute assignments in order (each isolated, prevents one bad expr from killing the script)
-                for (var assign : script.assignments) {
-                    try {
-                        vars.put(assign.varName(), FormulaParser.evaluate(assign.rpn(), vars));
-                    } catch (Exception e) {
-                        LOGGER.debug("FORMULA assign error var={}: {}", assign.varName(), e.getMessage());
-                        vars.put(assign.varName(), 0.0);
-                    }
-                }
-                // 评估每个输出表达式 / Evaluate each output expression
-                for (int oi = 0; oi < nOut; oi++) {
-                    try {
-                        var rpn = script.outputRpns.get(oi);
-                        o[oi] = (float)FormulaParser.evaluate(
-                            oi < script.outputRpns.size() ? rpn : java.util.List.of(0.0), vars);
-                    } catch (Exception e) {
-                        LOGGER.debug("FORMULA output error idx={}: {}", oi, e.getMessage());
-                        o[oi] = 0;
-                    }
-                }
-                // 写入去重缓存(内部再克隆,与后续 node.outputValues 修改隔离)
-                // Store into the dedup cache (cloned internally, isolated from later outputValues mutation)
+                // 降级形态（深度守卫放弃）：输出恒 0 + 去重照记（双前端退役后 ast==null
+                // 仅存此形；空公式已在上方早退）。
+                // Degraded shape (depth-guard abandonment): outputs pinned to 0 with the
+                // dedup cache still recording (after the dual-frontend retirement ast==null
+                // is only this shape; empty formulas early out above).
+                java.util.Arrays.fill(o, 0f);
                 FormulaCompute.storeDedup(script.sourceFormula, pinInputs, o);
             }
         }

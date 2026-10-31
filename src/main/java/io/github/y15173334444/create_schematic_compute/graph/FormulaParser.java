@@ -10,7 +10,6 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static io.github.y15173334444.create_schematic_compute.graph.FormulaAstParser.isAstTrigger;
 import static io.github.y15173334444.create_schematic_compute.graph.FormulaAstParser.parseScriptAst;
 import static io.github.y15173334444.create_schematic_compute.graph.FormulaFunctions.CONSTANTS;
 import static io.github.y15173334444.create_schematic_compute.graph.FormulaFunctions.VECTOR_FN_NAMES;
@@ -82,30 +81,28 @@ public class FormulaParser {
      *  Float tolerance for ==/!= (decisions doc §五: 1e-6; < > <= >= stay exact). */
     public static final double EQ_TOLERANCE = 1e-6;
 
-    /** 一条赋值语句：变量名 + 编译好的 RPN 表达式 */
-    public record Assignment(String varName, List<Object> rpn) {}
-
-    /** parseScript() 的结果 — 包含解析后的结构化信息，可供评估器和 UI 使用 */
+    /** parseScript() 的结果 — 包含解析后的结构化信息，可供评估器和 UI 使用。
+     *  双前端退役（2026-10-31 拍板）：旧扁平 RPN 前端（逐行赋值/输出解析）随批删除，
+     *  {@code Assignment}/{@code assignments}/{@code isLegacy} 一并退场——脚本统一走
+     *  AST 前端（表达式叶子仍是共享 Value 栈机的 RPN）。
+     *  The dual-frontend retirement (2026-10-31 ruling): the flat-RPN per-line frontend
+     *  is gone with its Assignment/assignments/isLegacy shape — every script parses
+     *  through the AST frontend (expression leaves stay RPN on the shared stack machine). */
     public static class ScriptParseResult {
         public final List<String> inputVars;       // 有序、去重的外部输入变量名
         public final List<String> outputLabels;    // @output 声明的输出名（空字符串 = 默认输出）
         public final List<List<Object>> outputRpns;// 每个输出对应的编译后 RPN 表达式
-        public final List<Assignment> assignments; // 顺序的赋值语句列表
-        public final boolean isLegacy;             // true = 旧版单行表达式模式
         public final String sourceFormula;         // 解析来源字符串，用于检测陈旧缓存
-        public final List<FormulaAst.Stmt> ast;    // 刀3:语句树;null = 旧 RPN 模式(向后兼容)/ knife 3: statement tree; null = legacy RPN mode
-        public final Set<String> vec3Vars;         // 刀3:保守类型推断——任何处赋值为向量的变量名(刀4 引脚展开用)
-        public final List<FormulaIssue> issues;    // 刀3:AST 解析期的类型感知问题(validate() 合并展示)
+        public final List<FormulaAst.Stmt> ast;    // 语句树；null = 深度守卫降级/空脚本形态（输出恒 0）
+        public final Set<String> vec3Vars;         // 保守类型推断——任何处赋值为向量的变量名(刀4 引脚展开用)
+        public final List<FormulaIssue> issues;    // AST 解析期的类型感知问题(validate() 合并展示)
 
         public ScriptParseResult(List<String> inputVars, List<String> outputLabels,
-                                 List<List<Object>> outputRpns, List<Assignment> assignments,
-                                 boolean isLegacy, String sourceFormula,
+                                 List<List<Object>> outputRpns, String sourceFormula,
                                  List<FormulaAst.Stmt> ast, Set<String> vec3Vars, List<FormulaIssue> issues) {
             this.inputVars = inputVars;
             this.outputLabels = outputLabels;
             this.outputRpns = outputRpns;
-            this.assignments = assignments;
-            this.isLegacy = isLegacy;
             this.sourceFormula = sourceFormula;
             this.ast = ast;
             this.vec3Vars = vec3Vars;
@@ -136,9 +133,6 @@ public class FormulaParser {
 
     /** 全角→半角归一（委托，正文在 FormulaLexer）/ full-width → half-width normalisation (delegates; body in FormulaLexer). */
     public static String sanitizeFullwidth(String s) { return FormulaLexer.sanitizeFullwidth(s); }
-
-    /** 抽取变量名（委托，正文在 FormulaLexer）/ extract variable names (delegates; body in FormulaLexer). */
-    public static List<String> extractVariables(String formula) { return FormulaLexer.extractVariables(formula); }
 
     /** 词法扫描（委托，正文在 FormulaLexer）/ lexical scan (delegates; body in FormulaLexer). */
     public static List<Token> tokenize(String src) { return FormulaLexer.tokenize(src); }
@@ -449,10 +443,16 @@ public class FormulaParser {
 
     /**
      * 解析 formula 文本，返回结构化的脚本解析结果。
-     * 自动检测旧版单行表达式模式（无换行、无 =、无 @output）并保持向后兼容。
+     * 统一前端（双前端退役 2026-10-31）：全部脚本走 AST 语句解析器（表达式叶子仍是共享
+     * Value 栈机的 RPN）；旧版单行表达式与逐行 RPN 前端已随批删除，无控制流脚本升格 AST。
      * <p>嵌套超过 {@link #MAX_PARSE_DEPTH} 时不抛出：降级为输出恒 0 的结果并附
      * ERROR issue（编辑器徽章可见）—— 解析层兜住求值/op/世界加载三条路径（P1-6）。
-     * Does not throw on nesting beyond {@link #MAX_PARSE_DEPTH}: degrades to a
+     * Parses formula text into a structured result. Unified frontend (dual-frontend
+     * retirement, 2026-10-31): every script parses through the AST statement parser
+     * (expression leaves stay RPN on the shared stack machine); the legacy
+     * single-expression and per-line RPN frontends are gone — non-control-flow scripts
+     * are promoted to AST.
+     * <p>Does not throw on nesting beyond {@link #MAX_PARSE_DEPTH}: degrades to a
      * pinned-to-0 result with an ERROR issue (visible as the editor badge) — the parse
      * layer backstops all three paths: eval / op / world load (P1-6).
      */
@@ -460,35 +460,19 @@ public class FormulaParser {
         final String originalFormula = formula;
         if (formula == null) {
             return new ScriptParseResult(
-                List.of(), List.of(""), List.of(), List.of(), true, "",
+                List.of(), List.of(""), List.of(), "",
                 null, Set.of(), List.of());
         }
         // Normalize line endings: \r\n → \n, strip standalone \r
         formula = formula.replace("\r\n", "\n").replace("\r", "");
         if (formula.isEmpty()) {
             return new ScriptParseResult(
-                List.of(), List.of(""), List.of(), List.of(), true, originalFormula,
+                List.of(), List.of(""), List.of(), originalFormula,
                 null, Set.of(), List.of());
         }
-        // 向下兼容检测：无换行、无 =、无 @output、无控制流语法 → 旧版单行表达式
-        boolean hasNewline = formula.indexOf('\n') >= 0;
-        boolean hasAssignment = formula.indexOf('=') >= 0;
-        boolean hasOutputMarker = formula.contains("@output");
-        boolean hasAstSyntax = false;
-        for (Token t : tokenize(formula)) {
-            if (isAstTrigger(t)) { hasAstSyntax = true; break; }
-        }
-        if (!hasNewline && !hasAssignment && !hasOutputMarker && !hasAstSyntax) {
-            // Legacy single-expression mode
-            List<String> vars = extractVariables(formula);
-            List<Object> rpn;
-            try { rpn = compile(formula); } catch (Exception e) { LOGGER.debug("Legacy expression compile failed", e); rpn = List.of(0.0); }
-            return new ScriptParseResult(
-                vars, List.of(""), List.of(rpn), List.of(), true, originalFormula,
-                null, Set.of(), List.of());
-        }
-
-        // 新脚本模式：逐行解析
+        // 逐行预处理：续行合并 + 注释过滤（供统一 AST 前端消费）。
+        // Line preprocessing: continuation joining + comment filtering (feeds the unified
+        // AST frontend).
         String[] rawLines = formula.split("\n", -1);
         // Join line continuations: lines ending with \ merge with the next line
         // joinedSrc 记录每个合并行对应的首个源行号(诊断定位用)
@@ -531,141 +515,32 @@ public class FormulaParser {
             lineSources.add(joinedSrc.get(li));
         }
 
-        // ── AST 模式检测:控制流关键字/大括号/swizzle/向量函数 → 语句解析器(刀3)
-        // AST mode detection: control-flow keywords / braces / swizzle / vector fns → statement parser (knife 3)
-        for (String l : lines) {
-            for (Token t : tokenize(l)) {
-                if (isAstTrigger(t)) {
-                    // P1-6:嵌套超限 → 受控异常 → 降级为「输出恒 0 + ERROR issue」。
-                    // 三条暴露路径（求值/SET_FORMULA op/GraphMigration 世界加载）都只经
-                    // 本方法拿解析结果，降级即全部兜住，绝不让 StackOverflowError 逃逸。
-                    // P1-6: nesting over the limit → controlled exception → degrade to a
-                    // pinned-to-0 result with an ERROR issue. All three exposure paths (eval /
-                    // SET_FORMULA op / GraphMigration world load) obtain parse results only
-                    // through this method, so the degradation backstops them all; a
-                    // StackOverflowError never escapes.
-                    try {
-                        return parseScriptAst(lines, lineSources, originalFormula);
-                    } catch (FormulaTooDeepException e) {
-                        LOGGER.debug("AST parse abandoned: {}", e.getMessage());
-                        return new ScriptParseResult(
-                            List.of(), List.of(""), List.of(java.util.List.of(0.0)), List.of(),
-                            false, originalFormula, null, Set.of(),
-                            List.of(new FormulaIssue(0, 0, 0, Severity.ERROR,
-                                "脚本嵌套超过 " + MAX_PARSE_DEPTH + " 层，已放弃解析，输出恒 0"
-                                + " / script nesting exceeds the " + MAX_PARSE_DEPTH
-                                + "-level limit; parse abandoned, outputs pinned to 0")));
-                    }
-                }
-            }
+        // ── 统一前端（双前端退役 2026-10-31）：全部脚本走 AST 语句解析器——无控制流脚本
+        //    随批升格（表达式叶子仍是共享 Value 栈机的 RPN），旧版单行/逐行 RPN 前端已删除。
+        // ── Unified frontend (dual-frontend retirement, 2026-10-31): every script goes
+        //    through the AST statement parser — non-control-flow scripts are promoted
+        //    (expression leaves stay RPN on the shared stack machine); the legacy
+        //    single-expression / per-line RPN frontends are gone.
+        // P1-6:嵌套超限 → 受控异常 → 降级为「输出恒 0 + ERROR issue」。
+        // 三条暴露路径（求值/SET_FORMULA op/GraphMigration 世界加载）都只经
+        // 本方法拿解析结果，降级即全部兜住，绝不让 StackOverflowError 逃逸。
+        // P1-6: nesting over the limit → controlled exception → degrade to a
+        // pinned-to-0 result with an ERROR issue. All three exposure paths (eval /
+        // SET_FORMULA op / GraphMigration world load) obtain parse results only
+        // through this method, so the degradation backstops them all; a
+        // StackOverflowError never escapes.
+        try {
+            return parseScriptAst(lines, lineSources, originalFormula);
+        } catch (FormulaTooDeepException e) {
+            LOGGER.debug("AST parse abandoned: {}", e.getMessage());
+            return new ScriptParseResult(
+                List.of(), List.of(""), List.of(java.util.List.of(0.0)),
+                originalFormula, null, Set.of(),
+                List.of(new FormulaIssue(0, 0, 0, Severity.ERROR,
+                    "脚本嵌套超过 " + MAX_PARSE_DEPTH + " 层，已放弃解析，输出恒 0"
+                    + " / script nesting exceeds the " + MAX_PARSE_DEPTH
+                    + "-level limit; parse abandoned, outputs pinned to 0")));
         }
-
-        var outputLabels = new ArrayList<String>();
-        var outputRpns = new ArrayList<List<Object>>();
-        var assignments = new ArrayList<Assignment>();
-        String lastStandaloneExpr = null;
-        List<Object> lastStandaloneRpn = null;
-
-        for (String line : lines) {
-            // @output marker
-            if (line.startsWith("@output")) {
-                String rest = line.substring("@output".length()).trim();
-                if (isValidIdentifier(rest)) {
-                    // 防止重复输出名
-                    if (!outputLabels.contains(rest)) {
-                        outputLabels.add(rest);
-                        // @output 的 RPN 就是变量名本身（运行时从 env 读取）
-                        outputRpns.add(List.of((Object)rest));
-                    }
-                } else if (!rest.isEmpty()) {
-                    // @output 表达式(刀3,如 @output yaw(aim)):编译为 RPN,标签 = 表达式文本
-                    // @output expression (knife 3): compile to RPN, label = expression text
-                    try {
-                        List<Object> rpn = compile(rest);
-                        if (!outputLabels.contains(rest)) {
-                            outputLabels.add(rest);
-                            outputRpns.add(rpn);
-                        }
-                    } catch (Exception e) {
-                        LOGGER.debug("Output expression compile failed", e);
-                    }
-                }
-                continue;
-            }
-            // Assignment: varName = expression(跳过 == 的两个 =,避免比较被误判为赋值)
-            // Assignment: varName = expression (skip both '=' of == so comparisons aren't mistaken for assignments)
-            int eqIdx = -1;
-            for (int i = 0; i < line.length(); i++) {
-                if (line.charAt(i) == '='
-                    && (i + 1 >= line.length() || line.charAt(i + 1) != '=')
-                    && (i == 0 || line.charAt(i - 1) != '=')) {
-                    eqIdx = i; break;
-                }
-            }
-            if (eqIdx > 0) {
-                String varName = line.substring(0, eqIdx).trim();
-                if (isValidIdentifier(varName)) {
-                    String expr = line.substring(eqIdx + 1).trim();
-                    if (!expr.isEmpty()) {
-                        try {
-                            List<Object> rpn = compile(expr);
-                            assignments.add(new Assignment(varName, rpn));
-                        } catch (Exception e) {
-                            // 编译失败 → 赋值 0
-                            LOGGER.debug("Compile failed for assignment '{}'", varName, e);
-                            assignments.add(new Assignment(varName, List.of(0.0)));
-                        }
-                    }
-                }
-                continue;
-            }
-            // Standalone expression (potential default output)
-            try {
-                lastStandaloneExpr = line;
-                lastStandaloneRpn = compile(line);
-            } catch (Exception e) {
-                LOGGER.debug("Standalone expression compile failed", e);
-                lastStandaloneRpn = List.of(0.0);
-            }
-        }
-
-        // Determine outputs
-        if (outputLabels.isEmpty()) {
-            // 无 @output：最后一行独立表达式作为默认输出
-            if (lastStandaloneRpn != null) {
-                outputLabels.add("");
-                outputRpns.add(lastStandaloneRpn);
-            } else {
-                // 全部是赋值无表达式 → 输出 0
-                outputLabels.add("");
-                outputRpns.add(List.of(0.0));
-            }
-        }
-
-        // Resolve external input variables:
-        // Collect all variable references from all RPNs, then remove those that
-        // are assigned before they are first read.
-        Set<String> assignedNames = new LinkedHashSet<>();
-        for (var a : assignments) assignedNames.add(a.varName());
-
-        var inputVars = new LinkedHashSet<String>();
-        // 1) Collect vars from output RPNs
-        for (var rpn : outputRpns) {
-            for (var tok : rpn) {
-                if (tok instanceof String v && isValidIdentifier(v) && !assignedNames.contains(v))
-                    inputVars.add(v);
-            }
-        }
-        // 2) Collect vars from assignment RHS expressions
-        for (var a : assignments) {
-            for (var tok : a.rpn()) {
-                if (tok instanceof String v && isValidIdentifier(v) && !assignedNames.contains(v))
-                    inputVars.add(v);
-            }
-        }
-
-        return new ScriptParseResult(
-            new ArrayList<>(inputVars), outputLabels, outputRpns, assignments, false, originalFormula,
-            null, Set.of(), List.of());
     }
+
 }

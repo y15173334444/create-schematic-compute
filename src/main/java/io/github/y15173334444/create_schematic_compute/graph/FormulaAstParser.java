@@ -44,14 +44,6 @@ final class FormulaAstParser {
 
     // ==================== AST 模式解析(刀3) ====================
 
-    /** 是否触发 AST 模式:控制流关键字、大括号、swizzle、vec3/向量函数(这些 RPN 路径无法完整表达)。
-     *  Whether this token forces AST mode: control-flow keywords, braces, swizzle, vec3/vector fns. */
-    static boolean isAstTrigger(Token t) {
-        TokType tt = t.type();
-        return tt == TokType.KEYWORD || tt == TokType.LBRACE || tt == TokType.RBRACE || tt == TokType.SWIZZLE
-            || (tt == TokType.FUNCTION && (t.text().equals("vec3") || VECTOR_FN_NAMES.contains(t.text())));
-    }
-
     /** 源行:trim 后的文本 + token 列表 + 对应的首个源行号(诊断定位)。
      *  Source line: trimmed text + tokens + first source line index (for diagnostics). */
     private record SrcLine(String raw, List<Token> tokens, int srcLineIdx) {}
@@ -154,7 +146,7 @@ final class FormulaAstParser {
         }
 
         return new ScriptParseResult(
-            new ArrayList<>(inputVars), expandedLabels, expandedRpns, List.of(), false, originalFormula,
+            new ArrayList<>(inputVars), expandedLabels, expandedRpns, originalFormula,
             out.stmts, vec3Vars, issues);
     }
 

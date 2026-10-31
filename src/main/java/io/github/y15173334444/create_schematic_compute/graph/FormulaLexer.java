@@ -65,31 +65,6 @@ final class FormulaLexer {
             .replace("≥", ">=").replace("≤", "<=").replace("≠", "!=");
     }
 
-    /** 解析 formula 返回所有变量名（按出现顺序，跳过函数名）。
-     *  变量名支持字母、数字、下划线，首字符必须是字母或下划线。
-     *  命名常量 (PI)/(E) 仅在其紧邻前驱为分组 '(' 时跳过（视为字面量），
-     *  函数调用内的裸 PI/E（如 sin(PI)）仍作为变量。
-     *  Uses {@link #tokenize(String)} so that CONSTANT vs IDENT distinction
-     *  is consistent with {@link FormulaParser#compile(String)}. */
-    static List<String> extractVariables(String formula) {
-        var vars = new LinkedHashSet<String>();
-        if (formula == null || formula.isEmpty()) return new ArrayList<>(vars);
-        // Normalize full-width parens to match tokenize() behaviour
-        String s = formula.replace('（', '(').replace('）', ')');
-        var tokens = tokenize(s);
-        for (Token t : tokens) {
-            if (t.type() == TokType.IDENT && !FUNCTION_NAMES.contains(t.text())) {
-                vars.add(t.text());
-            }
-            // CONSTANT tokens represent literal PI/E inside grouping (…) and are
-            // deliberately skipped — they are not variables.  PI/E tokens inside
-            // function calls (e.g. sin(PI)) are marked IDENT by tokenize() because
-            // the function's LPAREN is consumed by the FUNCTION token and never
-            // emitted as a standalone LPAREN.
-        }
-        return new ArrayList<>(vars);
-    }
-
     private static boolean isIdentStart(char c) {
         return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_';
     }

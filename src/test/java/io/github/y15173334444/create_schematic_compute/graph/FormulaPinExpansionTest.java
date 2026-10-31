@@ -57,7 +57,7 @@ class FormulaPinExpansionTest {
     void testScalarOutputsUnchanged() {
         var parsed = FormulaParser.parseScript("v = vec3(1, 2, 3)\nr = length(v)\n@output r");
         assertEquals(List.of("r"), parsed.outputLabels);
-        assertNull(FormulaParser.parseScript("x = a + 1").ast); // 旧脚本不受影响
+        assertNotNull(FormulaParser.parseScript("x = a + 1").ast); // 旧脚本升格 AST（双前端退役）
     }
 
     // ── GraphNode 层:pinId 解析顺延 / GraphNode level: pinId resolution follows ──
