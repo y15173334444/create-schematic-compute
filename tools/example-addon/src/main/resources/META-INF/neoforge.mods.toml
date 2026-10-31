@@ -1,0 +1,36 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "MIT"
+
+[[mods]]
+modId = "cscexample"
+version = "${mod_version}"
+displayName = "CSC Example Addon"
+description = '''
+Third-party example addon for Create: Schematic Compute's public API:
+registers two custom nodes (a provider-direct signal read and a
+resumable heavy node) and enrols them into the blueprint host's roster.
+Create: Schematic Compute 公开 API 的第三方示例模组：注册两个自定义节点
+（提供方直连信号读取 + 可恢复重节点）并登记进蓝图机准入名单。
+'''
+
+    [[mods.dependencies]]
+    modId = "minecraft"
+    versionRange = "[1.21.1]"
+    ordering = "NONE"
+    side = "BOTH"
+    mandatory = true
+
+    [[mods.dependencies]]
+    modId = "neoforge"
+    versionRange = "[21.1.233,)"
+    ordering = "NONE"
+    side = "BOTH"
+    mandatory = true
+
+    [[mods.dependencies]]
+    modId = "create_schematic_compute"
+    versionRange = "[1.3.0,)"
+    ordering = "AFTER"
+    side = "BOTH"
+    mandatory = true

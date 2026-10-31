@@ -1,0 +1,8 @@
+# Gradle
+.gradle/
+build/
+
+# 本地放置的 CSC jar（构建时对主工程产物编译，见 build.gradle 与 README）
+# The locally staged CSC jar (compile happens against the main repo's output; see
+# build.gradle and the README).
+libs/

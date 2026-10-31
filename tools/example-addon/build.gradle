@@ -1,0 +1,35 @@
+plugins {
+    id 'net.neoforged.gradle.userdev' version '7.0.181'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+base {
+    archivesName = 'csc-example-addon'
+}
+
+group = 'io.github.y15173334444.cscexample'
+version = mod_version
+
+// Compile against the Create: Schematic Compute jar the main repo builds. This example
+// lives INSIDE the CSC repository (tools/example-addon), so the sibling build output is
+// the stable source; third parties adapting this example point the path at wherever
+// their CSC jar lives (their libs dir, a maven repo they mirror, etc.).
+// 对主工程产出的 CSC jar 编译。本示例就住在 CSC 仓库内（tools/example-addon），兄弟
+// 构建产物即稳定来源；第三方移植本示例时把路径指向自己的 CSC jar 所在处（自己的
+// libs/ 目录、自建 maven 镜像等均可）。
+def cscJar = file("../../build/libs/create-schematic-compute-${csc_version}.jar")
+if (!cscJar.exists()) {
+    throw new GradleException(
+        "Create: Schematic Compute jar not found: ${cscJar}\n" +
+        "Build the main repo first:  ../../gradlew jar  (see README.md)")
+}
+
+dependencies {
+    implementation "net.neoforged:neoforge:${neo_version}"
+    compileOnly files(cscJar)
+}
