@@ -113,38 +113,58 @@ class CustomNodeTextCapTest {
         assertEquals(10768, n.customTextParams.get("a").length(), "one past the aggregate cap is refused");
     }
 
-    /** 条目 18① 逃生门：legacy 超帽节点（总量 > 帽，如旧档产物）不被编辑锁死——
-     *  降总/等总替换放行，增长仍拒。/ Entry 18① escape hatch: a legacy over-cap node
-     *  (total above the cap, e.g. an old-save product) is not edit-locked — a reducing
-     *  or equal-total replace lands, a growing one still refuses. */
-    @Test
-    @DisplayName("逃生门：legacy 超帽节点降总放行、增长仍拒（不锁死）")
-    void escapeHatchForLegacyOverCapNode() {
-        CustomNodeRegistry.register(twoTextSpec("legacy"));
-        NodeGraph g = new NodeGraph();
+    /** 直接构造 legacy 超帽形态（执行器帽会拦增长写入，超帽总量只能来自旧档/装载面）：
+     *  a=30000 + b=15000 = 45000 > 32768。/ Build the legacy over-cap shape directly
+     *  (the cap blocks growth via ops; an over-cap total can only come from an old save
+     *  / the load path): a=30000 + b=15000 = 45000 > 32768. */
+    private static GraphNode overCapNode(NodeGraph g) {
         GraphNode n = g.addNode(NodeType.CUSTOM, MODID + ":legacy", 0f, 0f);
-        int nid = n.id;
-        // 直接构造 legacy 超帽形态（执行器帽会拦增长写入，超帽总量只能来自旧档/装载面）。
-        // Build the legacy over-cap shape directly (the cap blocks growth via ops; an
-        // over-cap total can only come from an old save / the load path).
         n.customTextParams = new java.util.HashMap<>();
         n.customTextParams.put("a", "x".repeat(30000));
         n.customTextParams.put("b", "y".repeat(15000)); // 45000 > 32768
+        return n;
+    }
 
-        // 增长替换：拒（帽不被逃生门绕过）。
+    /** 条目 18① 逃生门：legacy 超帽节点（总量 > 帽，如旧档产物）不被编辑锁死——
+     *  降总/等总替换放行，增长仍拒。三段各自独立构造超帽节点（互不借状态）；后两段
+     *  落在逃生门带（超帽、不增总），对「超帽即拒」旧规则必红，等总段另钉拒收分支
+     *  「> 总量」严格不等的边界（改 ≥ 则红）。/ Entry 18① escape hatch: a legacy
+     *  over-cap node (total above the cap, e.g. an old-save product) is not edit-locked
+     *  — a reducing or equal-total replace lands, a growing one still refuses. Each of
+     *  the three segments builds its own over-cap node (no shared state); the last two
+     *  sit in the hatch band (over the cap, not growing the total) and go red against
+     *  the old "over the cap refuses" rule, the equal-total one also pinning the
+     *  refusal branch's strict "> total" boundary. */
+    @Test
+    @DisplayName("逃生门：legacy 超帽节点降总/等总放行、增长仍拒（不锁死）")
+    void escapeHatchForLegacyOverCapNode() {
+        CustomNodeRegistry.register(twoTextSpec("legacy"));
+        NodeGraph g = new NodeGraph();
+        GraphNode grow = overCapNode(g);
+        GraphNode reduce = overCapNode(g);
+        GraphNode equal = overCapNode(g);
+
+        // ① 增长替换：拒（帽不被逃生门绕过）——newTotal = 45000−30000+31000 = 46000 > 45000。
         // A growing replace: refused (the hatch never bypasses the cap).
-        OpExecutor.apply(g, textOp(nid, 0, "x".repeat(31000)));
-        assertEquals(30000, n.customTextParams.get("a").length(), "a growing write on an over-cap node refuses");
+        OpExecutor.apply(g, textOp(grow.id, 0, "x".repeat(31000)));
+        assertEquals(30000, grow.customTextParams.get("a").length(), "a growing write on an over-cap node refuses");
 
-        // 降总替换：放行（锁死解除）。
-        // A reducing replace: lands (the lock is broken).
-        OpExecutor.apply(g, textOp(nid, 0, "x".repeat(10000)));
-        assertEquals(10000, n.customTextParams.get("a").length(), "a reducing write lands on an over-cap node");
+        // ② 降总替换：落（锁死解除）——a←25000 → newTotal = 45000−30000+25000 = 40000，
+        // 仍超帽（40000 > 32768）但 ≤ 旧总量 45000：逃生门带核心样本（旧规则在此拒收，
+        // 删门必红）。
+        // A reducing replace still over the cap: lands — the hatch-band sample (the old
+        // rule refuses here, so removing the hatch turns this segment red).
+        OpExecutor.apply(g, textOp(reduce.id, 0, "x".repeat(25000)));
+        assertEquals(25000, reduce.customTextParams.get("a").length(), "a reducing write lands on an over-cap node");
 
-        // 等总替换：放行（a 30000←10000 + b 15000 = 25000；a←15000 恰等总）。
-        // An equal-total replace: lands too.
-        OpExecutor.apply(g, textOp(nid, 0, "x".repeat(15000)));
-        assertEquals(15000, n.customTextParams.get("a").length(), "an equal-total write lands as well");
+        // ③ 等总替换（等长换内容）：落——a←'z'×30000 → newTotal = 45000 == 旧总量 45000，
+        // 仍超帽：拒收分支的「> 总量」是严格不等，等总写正落放行侧（改 ≥ 则此段红）。
+        // An equal-total replace (same length, new content): lands — the refusal branch's
+        // "> total" is strict, so an equal-total write falls on the landing side (this
+        // segment goes red if it tightens to ">=").
+        OpExecutor.apply(g, textOp(equal.id, 0, "z".repeat(30000)));
+        assertEquals(30000, equal.customTextParams.get("a").length(), "the equal-total replace keeps the length");
+        assertTrue(equal.customTextParams.get("a").startsWith("z"), "an equal-total replace lands (content swaps)");
     }
 
     /** 包层 REJECT 语义与节流 WARN 的接线源锚（行为在服务端线程，headless 造不出
