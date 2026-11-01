@@ -13,13 +13,13 @@ import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
 /**
- * Create: Schematic Compute 公开 API 的第三方示例模组（验收①的参考载体）。
+ * Create: Schematic Compute 公开 API 的第三方示例模组（完整接入链的参考载体）。
  * 演示三件事：
  * <ol>
  *   <li><b>注册自定义节点</b>：schema（{@link CustomNodeType}）+ 求值行为
  *       （{@code CustomNodeBehavior}）一次注册（{@link CustomNodes#register}）；</li>
  *   <li><b>名单制登记</b>：注册 ≠ 准入 —— 节点 id 还须经
- *       {@link CustomNodes#admitToHost} 登记进蓝图机的准入名单（D5 默认拒绝）；</li>
+ *       {@link CustomNodes#admitToHost} 登记进蓝图机的准入名单（默认拒绝——未登记的 id 进不了宿主）；</li>
  *   <li><b>提供方直连</b>：节点在求值回调里经宿主世界读自己的方块。</li>
  * </ol>
  * 图内闭环：放置 {@link SignalProviderBlock}（右键调信号）→ 蓝图机图里放
@@ -27,10 +27,10 @@ import net.neoforged.neoforge.registries.DeferredRegister;
  * 第三方方块 ↔ 节点 ↔ 图计算 ↔ 输出，同 tick 双向。{@code cscexample:heavy} 是一个
  * 可恢复重节点样例（循环边界检查 {@code sliceExpired()}，进度随检查点跨 tick 续算）。
  * <p>The third-party example addon for Create: Schematic Compute's public API (the
- * reference carrier of acceptance 1). Demonstrates: (1) registering custom nodes —
+ * reference carrier for the full integration chain). Demonstrates: (1) registering custom nodes —
  * schema plus evaluation behavior in one call; (2) roster enrolment — registering ≠
  * admitting, the node ids must also be enrolled into the blueprint host's roster
- * (D5 default-deny); (3) provider-direct exchange — the node reads its own block through
+ * (default-deny — an id that is not enrolled cannot enter the host); (3) provider-direct exchange — the node reads its own block through
  * the host's world inside the callback. The in-game loop: place the signal provider
  * (right-click to step its signal), put the cscexample:signal node in a blueprint graph
  * (TEXT param = "x y z"), wire it to a REDSTONE_OUT — third-party block ↔ node ↔ graph ↔

@@ -731,7 +731,7 @@ schema 不用 ITEM）。② TEXT 写入：服务端无显式文本帽——wire 
 
 🔶 半收口（2026-11-01 批 E）：**① 逃生门已实施**（`5b97c18`，1109 绿——拒收分支加「且在增总」
 条件：新总量 ≤ 旧总量的替换写一律放行；锚 = CustomNodeTextCapTest.escapeHatchForLegacy
-OverCapNode 三段：增长拒/降总落/等总落；CHANGELOG 随批）；**② 回执形态仍待办**（op 层带
+OverCapNode 三段：增长拒/降总落/等总落（后两段对修复前「超帽即拒」规则红）；CHANGELOG 随批）；**② 回执形态仍待办**（op 层带
 节点上下文的预检会破坏 opBoundsViolation 纯函数形态、新回执类型 = 协议面变更——随发版后
 按需另批，无 game 内可见缺陷）。
 
