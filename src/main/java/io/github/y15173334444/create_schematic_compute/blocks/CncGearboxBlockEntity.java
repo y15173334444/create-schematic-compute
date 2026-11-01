@@ -200,7 +200,7 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
      *  as CncGearboxScreen's client-side filtering). */
     @Override public NodeAllowance nodeAllowance() { return BlockNodeAllowances.CNC_GEARBOX; }
 
-    /** @see EditSessionTarget#loadTimeNodeTypes（引擎侧事实源转发，动能线不继承
+    /** @see io.github.y15173334444.create_schematic_compute.graph.EditSessionTarget#loadTimeNodeTypes （引擎侧事实源转发，动能线不继承
      *  SyncedGraphBlockEntity，随本类自行实现）。/ Engine-side fact forward (see
      *  EditSessionTarget#loadTimeNodeTypes; the kinetic line does not extend
      *  SyncedGraphBlockEntity, so it implements the forward here). */

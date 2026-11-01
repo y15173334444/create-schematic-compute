@@ -72,8 +72,8 @@ public class FormulaParser {
     /** RPN token representing a function call. */
     record FunctionToken(String name, int arity) {}
 
-    /** 双字符/逻辑运算符的 RPN token(==、!=、<=、>=、&&、||、一元 !)。
-     *  RPN token for two-char / logical operators (==, !=, <=, >=, &&, ||, unary !). */
+    /** 双字符/逻辑运算符的 RPN token(==、!=、&lt;=、>=、&amp;&amp;、||、一元 !)。
+     *  RPN token for two-char / logical operators (==, !=, &lt;=, >=, &amp;&amp;, ||, unary !). */
     public record OpToken(String op) {}
 
     /** 分量访问 RPN token(v.x → 弹出向量压入分量)。 / Swizzle RPN token (v.x → pop vector, push component). */
@@ -82,8 +82,8 @@ public class FormulaParser {
     /** 控制流关键字(repeat/while/if/else/break/continue)。 / Control-flow keywords. */
     public static final Set<String> KEYWORDS = Set.of("repeat", "while", "if", "else", "break", "continue");
 
-    /** `==`/`!=` 浮点容差(决策文档 §五:1e-6;`< > <= >=` 保持精确)。
-     *  Float tolerance for ==/!= (decisions doc §五: 1e-6; < > <= >= stay exact). */
+    /** {@code ==}/{@code !=} 浮点容差(决策文档 §五:1e-6;{@code < > <= >=} 保持精确)。
+     *  Float tolerance for ==/!= (decisions doc §五: 1e-6; {@code < > <= >=} stay exact). */
     public static final double EQ_TOLERANCE = 1e-6;
 
     /** parseScript() 的结果 — 包含解析后的结构化信息，可供评估器和 UI 使用。

@@ -34,7 +34,7 @@ public enum NodeCategory {
         NodeType.BOOL, NodeType.GATE, NodeType.AND, NodeType.OR, NodeType.RELAY_A, NodeType.RELAY_B),
     CONTROL("category.create_schematic_compute.control",
         NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP),
-    /** 累加 / 积分（蓝图与主机都需要的状态量）/ accumulate & integrate */
+    /** 累加 / 积分（蓝图与主机都需要的状态量）/ accumulate &amp; integrate */
     SEQUENTIAL_ACC("category.create_schematic_compute.sequential_acc",
         NodeType.ACCUMULATOR, NodeType.INTEGRATOR),
     /** 延时 / 锁存 / 触发器 / 脉冲 / 循环 / 保险丝 / delay-latch-flipflop-pulse-loop-fuse */
@@ -59,7 +59,7 @@ public enum NodeCategory {
     OUTPUT("category.create_schematic_compute.output",
         NodeType.REDSTONE_OUT, NodeType.PRIVATE_OUT, NodeType.BUS_OUT),
     /** 音频（功放/音响宿主）：曲目/增益/声道拆分/频段发布/播放（频段读取由 BUS_IN 音频分支承担）
-     *  audio (amplifier & speaker hosts): song/gain/channel split/band publish/playback
+     *  audio (amplifier &amp; speaker hosts): song/gain/channel split/band publish/playback
      *  (band reads ride the BUS_IN audio branch) */
     AUDIO("category.create_schematic_compute.audio",
         NodeType.MUSIC, NodeType.AMP, NodeType.WSHAPE, NodeType.AUDIO_OUT,

@@ -27,10 +27,10 @@ import io.github.y15173334444.create_schematic_compute.graph.MonitorBeView;
 /**
  * 全息显示器的「显示编辑」GUI / The holographic monitor display-layout editor.
  *
- * <p>自 {@link MonitorScreen} 拆出（docs/gui-decomposition-plan.md 步骤 2）：显示布局模式下的
+ * <p>自 {@link io.github.y15173334444.create_schematic_compute.blocks.MonitorScreen MonitorScreen} 拆出（docs/gui-decomposition-plan.md 步骤 2）：显示布局模式下的
  * 显示区渲染、图层面板、设置面板、拖拽与键鼠路由、协作存在包上报全部集中在本类；
  * {@code MonitorScreen} 只保留节点图模式，并在显示模式激活时把事件转发到本类。</p>
- * <p>Split out of {@link MonitorScreen} (roadmap step 2): everything the display-layout mode
+ * <p>Split out of {@link io.github.y15173334444.create_schematic_compute.blocks.MonitorScreen MonitorScreen} (roadmap step 2): everything the display-layout mode
  * draws or handles now lives here; {@code MonitorScreen} keeps the node-graph mode and
  * delegates to this class while display mode is active.</p>
  *

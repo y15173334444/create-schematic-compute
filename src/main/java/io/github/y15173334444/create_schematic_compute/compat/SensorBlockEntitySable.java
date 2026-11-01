@@ -141,7 +141,6 @@ public class SensorBlockEntitySable extends SensorBlockEntity implements BlockEn
      *   <li>Update {@code attitude} and {@code forward} vector via
      *       {@link #updateAttitude()} so the sensor graph sees the latest pose.</li>
      * </ol>
-     * </p>
      *
      * sable 物理更新核心回调，在子世界中每个仿真步调用一次。
      * <p>
@@ -154,7 +153,6 @@ public class SensorBlockEntitySable extends SensorBlockEntity implements BlockEn
      *   <li>通过 {@link #updateAttitude()} 更新 attitude 和 forward 矢量，
      *       使传感器图形能感知到最新姿态。</li>
      * </ol>
-     * </p>
      *
      * @param subLevel  the Sable server sub-level driving this tick / 驱动本次 tick 的 Sable 服务端子层级
      * @param handle    the rigid-body handle for this BE in the sub-world / 此 BE 在子世界中的刚体句柄
@@ -302,7 +300,6 @@ public class SensorBlockEntitySable extends SensorBlockEntity implements BlockEn
      *       after applying sub-world rotation to the block's FACING direction
      *       (方块 FACING 方向经子世界旋转后的传感器指向).</li>
      * </ul>
-     * </p>
      */
     @Override
     protected void updateAttitude() {

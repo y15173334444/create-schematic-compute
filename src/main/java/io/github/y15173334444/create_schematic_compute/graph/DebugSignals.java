@@ -14,7 +14,7 @@ import org.slf4j.LoggerFactory;
  *  <ul>
  *    <li>{@link #SET_MANUAL}：手动曲线 — 控制点线性插值</li>
  *    <li>{@link #SET_FORMULA}：自定义公式 — y=f(x) 表达式</li>
- *  </ul></p>
+ *  </ul>
  *
  *  <p><b>公式角度约定</b>：{@link FormulaParser} 的 sin/cos/tan 输入为<b>度</b>。
  *  Formula angle convention: FormulaParser sin/cos/tan take <b>degrees</b>.</p>

@@ -225,7 +225,7 @@ public final class AudioMixer {
         return renderedFrames;
     }
 
-    /** 当前限幅增益（<1 = 抽吸中；诊断采样用）。 */
+    /** 当前限幅增益（&lt;1 = 抽吸中；诊断采样用）。 */
     public synchronized float limitGain() {
         return limitGain;
     }

@@ -15,7 +15,7 @@ import net.minecraft.core.Direction;
  *   <li>{@link #nextInShaftRoll}/{@link #nextInYaw} —— 扳手同轴滚转环与偏航环
  *   （纯函数，可单测；顺序与方向由 {@code KineticGaugePlacementTest} 钉死）。</li>
  * </ol>
- * 三者必须与 {@code blockstates/kinetic_gauge.json}（由
+ * <p>三者必须与 {@code blockstates/kinetic_gauge.json}（由
  * {@code tools/gen_gauge_assets.py} 生成）逐项一致，一致性由
  * {@code src/test/.../blocks/KineticGaugeStatesTest} 钉死 —— 改这里就要跑测试。</p>
  * <p>Four things live here, previously spread over several artefacts (generator script /

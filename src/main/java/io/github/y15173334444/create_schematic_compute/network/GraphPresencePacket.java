@@ -18,7 +18,7 @@ import java.util.UUID;
 import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
 
 /**
- * <h1>Graph Presence Packet</h1>
+ * <h2>Graph Presence Packet</h2>
  *
  * <p>Sent between clients and the server to synchronize a player's cursor position,
  * selected node, wire-dragging state, and multi-select set within a shared
@@ -31,7 +31,7 @@ import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor
  * server side, never from the packet payload, preventing spoofing.</p>
  *
  * <hr>
- * <h1>图形临场数据包</h1>
+ * <h2>图形临场数据包</h2>
  *
  * <p>在客户端与服务器之间同步某一玩家的鼠标位置、选中节点、连线拖拽状态以及多选集合，
  * 供共享原理图编辑器方块使用。每位玩家的临场数据会中继给同一原理图的所有其他编辑者，
@@ -94,11 +94,11 @@ public record GraphPresencePacket(
      * Self-contained {@link StreamCodec} that serializes/deserializes every
      * component field of the presence record to/from a network buffer.
      *
-     * <p>Field order in {@link #decode} MUST mirror {@link #encode} exactly;
+     * <p>Field order in {@code decode} MUST mirror {@code encode} exactly;
      * any mismatch will corrupt the byte stream and cause desync.</p>
      *
      * <p>自包含的 {@link StreamCodec}，负责将临场记录的所有字段序列化/反序列化到网络缓冲区。
-     * {@link #decode} 中的字段顺序<strong>必须</strong>与 {@link #encode} 完全一致，
+     * {@code decode} 中的字段顺序<strong>必须</strong>与 {@code encode} 完全一致，
      * 否则字节流会错位，导致客户端-服务器不同步。</p>
      */
     public static final StreamCodec<ByteBuf, GraphPresencePacket> CODEC =
@@ -172,7 +172,7 @@ public record GraphPresencePacket(
     @Override public @NotNull Type<? extends CustomPacketPayload> type() { return TYPE; }
 
     /**
-     * <h3>Sub-editor presence / 子编辑器临场保活包</h3>
+     * <h4>Sub-editor presence / 子编辑器临场保活包</h4>
      *
      * <p>子编辑器屏幕（NBS 钢琴卷帘 / 像素编辑器）转移自图编辑器后，GraphEditor 的每帧
      * 保活不再运行，占用软锁随之冻结——其他玩家重开图后锁表为空、看不到占用框（封装路径
@@ -202,7 +202,7 @@ public record GraphPresencePacket(
     }
 
     /**
-     * <h3>Server-side handler / 服务端处理</h3>
+     * <h4>Server-side handler / 服务端处理</h4>
      *
      * <p>Relays the sender's presence update to every other player who is
      * currently editing the same schematic. The sender itself is excluded
@@ -252,7 +252,7 @@ public record GraphPresencePacket(
     }
 
     /**
-     * <h3>Client-side handler / 客户端处理</h3>
+     * <h4>Client-side handler / 客户端处理</h4>
      *
      * <p>Applies the received presence data to the open graph editor that
      * matches the schematic position in the packet. If no editor is open, or

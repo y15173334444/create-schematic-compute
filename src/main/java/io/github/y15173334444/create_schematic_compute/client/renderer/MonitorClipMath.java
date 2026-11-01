@@ -1,7 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.client.renderer;
 
 /**
- * 显示器 HUD 的纯几何 / 裁剪数学 / Monitor HUD pure geometry & clipping math.
+ * 显示器 HUD 的纯几何 / 裁剪数学 / Monitor HUD pure geometry &amp; clipping math.
  *
  * <p>自 {@link MonitorBlockEntityRenderer} 拆出（docs/gui-decomposition-plan.md 步骤 1）：
  * 这些函数只做矩阵变换、多边形裁剪与投影，**不碰渲染状态、不持实例字段**，
@@ -62,11 +62,11 @@ public final class MonitorClipMath {
      * Camera-plane clip **margin** (blocks): only geometry at {@code fz <= -CAM_PLANE_MARGIN} survives.
      *
      * <p>不能裁到 fz=0：边界顶点会正好落在相机平面上，fz=0 → s=zAnchor/0 = ±Infinity，
-     * 其中 zAnchor<0 给出 **-Infinity** —— 又被镜像了（单元测试 cameraPlaneClipRemoves
+     * 其中 zAnchor&lt;0 给出 **-Infinity** —— 又被镜像了（单元测试 cameraPlaneClipRemoves
      * MirroredVertices 实测到这一点）。留 1 格边距后 |s| ≤ |zAnchor|/1，量级有限且
      * **符号为正**：顶点落在正确一侧的远处，NDC 在视锥外由 GPU 干净裁剪，不会横跨屏幕。
      * Clipping to fz=0 does not work: the boundary vertex lands exactly on the camera
-     * plane, fz=0 → s=zAnchor/0 = ±Infinity, and with zAnchor<0 that is **-Infinity** —
+     * plane, fz=0 → s=zAnchor/0 = ±Infinity, and with zAnchor&lt;0 that is **-Infinity** —
      * mirrored again (caught by the cameraPlaneClipRemovesMirroredVertices unit test).
      * With a 1-block margin, |s| ≤ |zAnchor| and, crucially, the **sign stays positive**:
      * the vertex sits far out on the correct side, its NDC leaves the frustum, and the
@@ -78,13 +78,13 @@ public final class MonitorClipMath {
      * 把多边形裁剪到相机平面（只保留 {@code fz <= threshold} 的部分）。
      * Clip a polygon to the camera plane, keeping only {@code fz <= threshold}.
      *
-     * <p>为什么必须有这一步：{@link #emitAnchored} 只钳制锚定比例 s 的**量级**，
+     * <p>为什么必须有这一步：{@code HudRenderer.emitAnchored} 只钳制锚定比例 s 的**量级**，
      * 从不看 fz 的**符号**。顶点跑到相机后方时 fz>0 → s=zAnchor/fz 变成**负数**
      * → 锚定顶点 (fx·s, fy·s) 被镜像到屏幕对侧，画出一个鬼影（"部分视角渲染溢出"
      * 的根因）。s 钳制拦不住它：fz 是正常量级的正值时 s 只是个小负数，远不到
-     * ±MAX_ANCHOR_S。{@link FacingOverflowDiagTest} 的 grazingSClamp 也明确写着
+     * ±MAX_ANCHOR_S。{@code FacingOverflowDiagTest} 的 grazingSClamp 也明确写着
      * "不覆盖镜像剔除"。
-     * Why this must exist: {@link #emitAnchored} clamps the anchor ratio s by
+     * Why this must exist: {@code HudRenderer.emitAnchored} clamps the anchor ratio s by
      * *magnitude* only and never looks at the *sign* of fz. A vertex behind the camera
      * has fz>0 → s=zAnchor/fz goes **negative** → the anchored vertex (fx·s, fy·s) is
      * mirrored to the opposite side of the screen, drawing a ghost image (the root
@@ -311,7 +311,7 @@ public final class MonitorClipMath {
      *  transformPosition（与 emitAnchored 同路径）算出的视线深度，边交点用 fz
      *  线性插值——不依赖矩阵元素手算（JOML 列主序下手算 m20/m21/m23 与
      *  transformPosition 语义不一致，会算出假 fz 误切）。阈值 0 只切真正越过后方
-     *  的内容，fz<0 正常内容不动。纯函数——可单测。
+     *  的内容，fz&lt;0 正常内容不动。纯函数——可单测。
      *  Camera-plane half-plane clip (threshold 0, per-vertex fz): Sutherland-Hodgman
      *  single-edge clip of the subject polygon (canvas-local coords) against
      *  fz ≤ threshold, cutting mirrored behind-camera (fz>0) content. fz[] holds

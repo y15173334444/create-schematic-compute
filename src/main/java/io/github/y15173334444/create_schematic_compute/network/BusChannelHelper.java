@@ -547,7 +547,7 @@ public final class BusChannelHelper {
      *   <li>更新<b>保留</b>在图中节点的 internalMap 引用（不改变引用计数，因此所有权永不丢失）</li>
      *   <li>正常注册<b>新增</b>的 BUS_OUT 节点（先注册者胜）</li>
      * </ul>
-     * 这防止了新添加的同名 BUS_OUT 在所有频道被取消注册的短暂窗口期间窃取频道。</p>
+     * <p>这防止了新添加的同名 BUS_OUT 在所有频道被取消注册的短暂窗口期间窃取频道。</p>
      *
      * @param newGraph the graph after the change / 变更后的图
      * @param oldGraph the graph before the change (may be null, treated as all-new) / 变更前的图（可为 null，视为全新）

@@ -249,7 +249,7 @@ public class RuntimeState {
      * 同时避免被删节点的状态泄漏进 NBT。
      * Prune runtime state of nodes no longer alive (including auxiliary slots), keeping
      * surviving nodes' sequential/integral state. Used by recompiles — edits (wiring,
-     * adding nodes, formula/param/comment changes) no longer wipe timing & integrals,
+     * adding nodes, formula/param/comment changes) no longer wipe timing &amp; integrals,
      * while state of removed nodes is dropped so it never leaks into NBT.
      *
      * @param aliveIds 当前图中存活的节点 ID 集合 / the node IDs still present in the graph

@@ -54,7 +54,7 @@ public final class BlockNodeAllowances {
      *  CNC gearbox: a programmable motion machine's functional surface — values/arithmetic/
      *  trig/logic (with compare) + sequential orchestration + motion commands + debug.
      *  Assigned per functional surface, 2026-10-24 (user decision): math_advanced
-     *  (formula/interp/direction — blueprint-tier script & curve tools) plus the control,
+     *  (formula/interp/direction — blueprint-tier script &amp; curve tools) plus the control,
      *  accumulator and kinetic groups are withheld whole-category; nodes already placed
      *  still evaluate, and kinetic readings remain in the kinetic hosts' evaluation domain
      *  (gauge / transmission / gearbox). */
@@ -119,12 +119,12 @@ public final class BlockNodeAllowances {
      *  整类刻意不给（想要时加类即可，动力仪表同款先例）。2026-10-24 按功能面指派；
      *  2026-10-25 AUDIO_OUT 移出功放菜单（v1.2.6.2 实测反馈）。
      *  WSHAPE 可用：其 LUT 挂在 AudioRef 上随频段表 → 音符包送达客户端，不限宿主图。
-     *  Amplifier computer: the audio-production & playback-orchestration functional
+     *  Amplifier computer: the audio-production &amp; playback-orchestration functional
      *  surface — the AUDIO category (blacklisting {@code SPEAKER_PLAY}, the speaker
      *  host's playback sink, and {@code AUDIO_OUT}: only a speaker truly emits sound, so
      *  an "audio output" node on the amplifier misleads — external publishing rides the
      *  audio-carrying BUS_OUT path) + the values/output control plane + sequential
-     *  (play/stop triggering & delay orchestration) + trigger logic (compare rides the
+     *  (play/stop triggering &amp; delay orchestration) + trigger logic (compare rides the
      *  whole category) + debug; math/trig/script/control are deliberately withheld (add
      *  a category when wanted — the kinetic gauge precedent). Assigned per functional
      *  surface, 2026-10-24; AUDIO_OUT left the amplifier menu 2026-10-25 (v1.2.6.2).
@@ -140,7 +140,7 @@ public final class BlockNodeAllowances {
     /** 音响（音频图）：AUDIO 类（含音频频段 BUS_IN/收发）+ VALUES（BUS_IN/CONST 等，通信/控制）
      *  + DEBUG，但不含曲目宿主/发布节点（MUSIC/AUDIO_OUT 不进菜单：MUSIC 在功放侧编排，
      *  AUDIO_OUT 是发布节点且音响的发声出口是 SPEAKER_PLAY 直通宿主）。
-     *  Speaker (audio graph): AUDIO + VALUES (BUS_IN/CONST for communication & control) + DEBUG,
+     *  Speaker (audio graph): AUDIO + VALUES (BUS_IN/CONST for communication &amp; control) + DEBUG,
      *  minus MUSIC/AUDIO_OUT (MUSIC is orchestrated on the amplifier; AUDIO_OUT is a publish
      *  node and the speaker's emission path is SPEAKER_PLAY straight into the host). */
     public static final NodeAllowance SPEAKER = NodeAllowance.of(

@@ -764,7 +764,7 @@ public class GraphHost {
 
     // ── 运行态收尾 / stop-running helper ──
 
-    /** 停止运行：清 BUS_OUT 与红石输出。 / Stop: clear BUS_OUT maps & write empty redstone outputs. */
+    /** 停止运行：清 BUS_OUT 与红石输出。 / Stop: clear BUS_OUT maps &amp; write empty redstone outputs. */
     public void onStopRunning() {
         for (var n : graph.nodes) {
             if (n.type == NodeType.BUS_OUT && n.busInternalMap != null)

@@ -46,9 +46,9 @@ public record TargetRecord(double x, double y, double z, int entityId, float dis
         return new TargetRecord(sx, sy, sz, sableId(identity), dist, TYPE_SABLE, name);
     }
 
-    /** 结构身份 → 稳定负 id（恒为负，避开正的实体 id；& 0x7FFFFFFF 防 Math.abs 溢出）。
+    /** 结构身份 → 稳定负 id（恒为负，避开正的实体 id；{@code & 0x7FFFFFFF} 防 Math.abs 溢出）。
      *  Structure identity → stable negative id (always negative, clear of positive entity
-     *  ids; & 0x7FFFFFFF guards the Math.abs overflow). */
+     *  ids; {@code & 0x7FFFFFFF} guards the Math.abs overflow). */
     public static int sableId(int identity) {
         return -((identity & 0x7FFFFFFF) % 999999) - 1;
     }

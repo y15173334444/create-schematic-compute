@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * FORMULA 脚本 AST(决策文档 docs/formula-budget-syntax-decisions.md §五):
  * 语句树 + RPN 叶子——表达式不建树,直接携带编译后的 RPN(单一栈机)。
- * @output 是解析期声明,不是 AST 节点(hoist 语义,防止运行时动态引脚)。
+ * {@code @output} 是解析期声明,不是 AST 节点(hoist 语义,防止运行时动态引脚)。
  * FORMULA script AST (decisions doc §五): statement tree + RPN leaves — expressions
  * carry compiled RPN directly (single stack machine). @output is a parse-time
  * declaration, never an AST node (hoist semantics, prevents runtime-dynamic pins).

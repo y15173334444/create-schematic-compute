@@ -129,10 +129,10 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
     /** @return the node graph hosted by this BE / 此 BE 托管的节点图 */
     @Override public NodeGraph getNodeGraph() { return host.graph; }
 
-    /** @see EditSessionTarget#loadTimeNodeTypes */
+    /** @see io.github.y15173334444.create_schematic_compute.graph.EditSessionTarget#loadTimeNodeTypes */
     @Override public java.util.Set<NodeType> loadTimeNodeTypes() { return host.loadTimeNodeTypes(); }
 
-    /** @see EditSessionTarget#loadTimeCustomIds */
+    /** @see io.github.y15173334444.create_schematic_compute.graph.EditSessionTarget#loadTimeCustomIds */
     @Override public java.util.Set<String> loadTimeCustomIds() { return host.loadTimeCustomIds(); }
 
     @Override public GraphEvaluator evaluatorView() { return host.evaluator; }

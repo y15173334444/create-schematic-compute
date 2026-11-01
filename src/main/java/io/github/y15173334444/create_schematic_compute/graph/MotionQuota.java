@@ -4,12 +4,12 @@ package io.github.y15173334444.create_schematic_compute.graph;
  * 运动指令的配额完成模型（纯函数策略，无 Create/MC 依赖，可单测）。
  * Quota-based completion model for motion commands (pure, unit-testable).
  *
- * <p>背景：前代实现用「位置窗口采样」判定到位（|目标 - 位置| < 0.5°），在转速较高时
+ * <p>背景：前代实现用「位置窗口采样」判定到位（|目标 - 位置| &lt; 0.5°），在转速较高时
  * 每 tick 位置步进（speed×0.3°）会跳过窗口——指令永不完成 → 指令栈卡死
  * （"转动指令发下去了但输出停不下来"）。配额模型改为开环记账：剩余量按每 tick 实际
  * 转过的量递减，减到 0 即完成——数学上不可能跳过，也不可能永不完成。</p>
  * <p>Backdrop: the previous implementation sampled a position window (|target -
- * position| < 0.5°); at high RPM the per-tick position step (speed×0.3°) skips the
+ * position| &lt; 0.5°); at high RPM the per-tick position step (speed×0.3°) skips the
  * window, so the command never completes and the command stack wedges ("rotate
  * command sent but the output never stops"). The quota model is open-loop
  * bookkeeping: the remaining amount decreases by the actual per-tick travel and

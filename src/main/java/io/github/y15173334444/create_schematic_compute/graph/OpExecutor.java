@@ -72,13 +72,13 @@ public final class OpExecutor {
 
     /** ADD_NODE 快照 NBT 的最大结构嵌套深度（条目 16 深度预扫描）。恢复快照唯一合法
      *  来源是 {@code GraphNode.save}（字段扁平 + subGraph 嵌套每层 +2），实际深度 ≤15；
-     *  64 远超正常用量。32KB 线缆包封内的 {@code {a:{a:…}} 深链若直达 TagParser，
+     *  64 远超正常用量。32KB 线缆包封内的 {@code {a:{a:…}}} 深链若直达 TagParser，
      *  {@code catch (Exception)} 接不住解析递归的 StackOverflowError —— 解析前先做
      *  O(n) 花括号深度预扫描（引号感知），超限跳过恢复留空壳（与其他畸形快照同口径）。
      *  <p>Max structural nesting depth for an ADD_NODE snapshot NBT (entry-16 depth
      *  pre-scan). The only legitimate snapshot source is {@code GraphNode.save} (flat
      *  fields + subGraph nesting at +2 per level, real depth ≤15), so 64 far exceeds
-     *  normal use. A 32KB {@code {a:{a:…}} chain fed straight to TagParser can overflow
+     *  normal use. A 32KB {@code {a:{a:…}}} chain fed straight to TagParser can overflow
      *  the parser's recursion — a {@code catch (Exception)} never catches the resulting
      *  StackOverflowError — so an O(n) quote-aware brace-depth pre-scan runs before the
      *  parse; over-limit restores are skipped (bare shell, same policy as other malformed

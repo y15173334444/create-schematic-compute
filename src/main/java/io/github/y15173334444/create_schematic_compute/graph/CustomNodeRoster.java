@@ -25,7 +25,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * （单线程）登记，此后服务端/客户端线程只读（ConcurrentHashMap 发布安全）。重复登记幂等
  * （名单语义：在不在，不关次数）。</p>
  *
- * <p><b>Enrolment timing & threads</b>: same as {@link CustomNodeRegistry} — registered at
+ * <p><b>Enrolment timing &amp; threads</b>: same as {@link CustomNodeRegistry} — registered at
  * provider mod construction (single-threaded), read-only afterwards (ConcurrentHashMap
  * publication). Duplicate enrolment is idempotent (roster semantics: membership, not
  * count).</p>

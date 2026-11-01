@@ -14,12 +14,12 @@ import org.jetbrains.annotations.NotNull;
  * Server-to-client acknowledgment packet for a graph edit operation.
  * 服务端到客户端的图编辑操作确认包。
  *
- * <p>This packet is sent after the server processes a {@link GraphEditRequestPacket}.
+ * <p>This packet is sent after the server processes a {@link GraphEditOpPacket}.
  * It carries the server-assigned node ID (for ADD_NODE_REQUEST edits) and the
  * updated graph editVersion so the client can reconcile its local graph state
  * with the authoritative server state without a full re-sync.</p>
  *
- * <p>此数据包在服务端处理完 {@link GraphEditRequestPacket} 后发送。
+ * <p>此数据包在服务端处理完 {@link GraphEditOpPacket} 后发送。
  * 它携带服务端分配的节点 ID（针对 ADD_NODE_REQUEST 类型的编辑）以及
  * 更新后的图 editVersion，以便客户端在无需全量重新同步的情况下，
  * 将本地图状态与服务端的权威状态对齐。</p>

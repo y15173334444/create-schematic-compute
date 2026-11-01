@@ -148,7 +148,7 @@ public class SablePacketHelper {
      * of the player position.
      * 在玩家位置指定范围内扫描所有 Sable 子层级中的图方块实体设备。
      *
-     * <h3>Algorithm overview / 算法概述</h3>
+     * <h4>Algorithm overview / 算法概述</h4>
      * <ol>
      *   <li>Get the Sable container from the overworld level.</li>
      *   <li>Iterate every sub-level; for each, read its world-space

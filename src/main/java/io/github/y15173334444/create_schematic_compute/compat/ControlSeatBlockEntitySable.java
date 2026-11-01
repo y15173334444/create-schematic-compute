@@ -31,8 +31,8 @@ import org.slf4j.LoggerFactory;
  * （姿态/前方朝向节点、世界坐标查询）。
  *
  * <p>The rider entity reference is injected via
- * {@link ControlSeatBlock#setSeatEntity} to avoid full-world scans.
- * 骑手实体引用通过 {@link ControlSeatBlock#setSeatEntity} 注入，避免全范围搜索。
+ * {@link ControlSeatBlockEntity#setSeatEntity} to avoid full-world scans.
+ * 骑手实体引用通过 {@link ControlSeatBlockEntity#setSeatEntity} 注入，避免全范围搜索。
  *
  * @author y15173334444
  * @see ControlSeatBlockEntity

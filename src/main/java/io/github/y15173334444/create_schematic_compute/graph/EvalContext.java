@@ -144,7 +144,7 @@ public final class EvalContext {
     public float[] o;
 
     /** 构造求值上下文（图与输出表/子图机械表就地初始化，端口取默认 no-op）。
-     *  Construct an evaluation context (graph & output/sub-graph tables initialized in
+     *  Construct an evaluation context (graph &amp; output/sub-graph tables initialized in
      *  place; ports take their default no-op impls). */
     public EvalContext(NodeGraph graph) {
         this.graph = graph;
@@ -185,7 +185,7 @@ public final class EvalContext {
         return (audioHostPos != null ? audioHostPos.asLong() : 0L) + "#" + node.id;
     }
 
-    /** 音频引用表键：nodeId << 16 | pin。 / audio-ref table key: nodeId << 16 | pin. */
+    /** 音频引用表键：{@code nodeId << 16 | pin}。 / audio-ref table key: {@code nodeId << 16 | pin}. */
     public static long audioKey(int nodeId, int pin) { return ((long) nodeId << 16) | (pin & 0xFFFF); }
 
     /** spread 输入变更检测:每引脚 1e-3 容差(决策 §五)。 / Spread input-change detection:
