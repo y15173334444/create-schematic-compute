@@ -79,6 +79,29 @@ repositories {
     }
 }
 
+// Sable 兼容性矩阵旋钮（配套 tools/sable-compat）：
+// -PsableCompatDir=<dir> —— 用该目录下的 sable + companion jar 对替换 libs/ 里那对基线 jar，
+//   编译/运行/测试 classpath 同步换；libs/ 里的 sable-*.jar 被排除，防止两份同名类撞车。
+// -PsableVersionRange=[x,y) —— 覆盖 mods.toml 的 sable 依赖区间 token（实测某版本时免得
+//   区间警告混进实测噪声）。两个都不传时行为与原先一致（libs/ 基线对 + gradle.properties 区间）。
+// Sable compat-matrix knobs (see tools/sable-compat): -PsableCompatDir swaps the baseline
+// sable + companion pair in libs/ for a candidate pair across the compile/runtime/test
+// classpaths (the libs/ sable-*.jar entries are excluded so two copies of the same
+// classes never collide); -PsableVersionRange overrides the mods.toml version-range
+// token. With neither set, behaviour is unchanged.
+def sableCompatDir = findProperty('sableCompatDir')?.toString()
+def localJarTree = fileTree(dir: 'libs', include: '*.jar')
+def sableJarTree = files()
+if (sableCompatDir != null) {
+    def candidateDir = file(sableCompatDir)
+    if (!candidateDir.isDirectory()) {
+        throw new GradleException("-PsableCompatDir is not a directory: ${sableCompatDir}")
+    }
+    localJarTree.exclude 'sable-*.jar'
+    sableJarTree = fileTree(dir: candidateDir, include: '*.jar')
+}
+def sableVersionRangeEffective = findProperty('sableVersionRange')?.toString() ?: sable_version_range
+
 dependencies {
     implementation "net.neoforged:neoforge:${neo_version}"
 
@@ -104,15 +127,18 @@ dependencies {
     // dependency — the compileOnly/runtimeOnly lines below already cover the dev compile
     // and runtime classpaths, and gradle.properties' sable_version_range is just an
     // expansion token.
-    compileOnly fileTree(dir: 'libs', include: '*.jar')
-    runtimeOnly fileTree(dir: 'libs', include: '*.jar')
+    compileOnly localJarTree
+    runtimeOnly localJarTree
+    compileOnly sableJarTree
+    runtimeOnly sableJarTree
 
     // Test compilation also needs those jars (e.g. Create's IMergeableBE),
     // otherwise javac cannot resolve BE types referenced from src/test.
     // 测试编译同样需要这些 jar（如 Create 的 IMergeableBE），
     // 否则 javac 无法解析 src/test 引用的 BE 类型。
     testImplementation createDep
-    testImplementation fileTree(dir: 'libs', include: '*.jar')
+    testImplementation localJarTree
+    testImplementation sableJarTree
 
     // Mixin AP for processing @Mixin annotations
     annotationProcessor 'org.spongepowered:mixin:0.8.7:processor'
@@ -141,7 +167,7 @@ tasks.withType(ProcessResources).configureEach {
             mod_authors             : mod_authors,
             mod_description         : mod_description,
             create_version_range    : create_version_range,
-            sable_version_range     : sable_version_range,
+            sable_version_range     : sableVersionRangeEffective,
     ]
     inputs.properties replaceProperties
 
