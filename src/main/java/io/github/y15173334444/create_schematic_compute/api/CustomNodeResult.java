@@ -3,10 +3,10 @@ package io.github.y15173334444.create_schematic_compute.api;
 import net.minecraft.nbt.CompoundTag;
 
 /**
- * 一次自定义节点求值的返回（公开 API 波 1）：完成（写输出）或挂起（可恢复重节点的
+ * 一次自定义节点求值的返回（本模组公开 API 的组成部分）：完成（写输出）或挂起（可恢复重节点的
  * 检查点）。值类型，工厂方法收敛三种合法形态 —— 其余状态（null 结果、抛异常）由
  * 求值器按「本次空转、输出保持」的 fail-closed 口径处理。
- * One custom-node evaluation's return (public-API wave 1): completion (writes outputs)
+ * One custom-node evaluation's return (part of this mod's public API): completion (writes outputs)
  * or suspension (a resumable heavy node's checkpoint). A value type whose factories
  * converge the three legal shapes; anything else (null, thrown) is handled by the
  * evaluator as "idle this call, outputs hold" — fail closed.
@@ -35,21 +35,30 @@ public final class CustomNodeResult {
         return new CustomNodeResult(outputs == null ? new float[0] : outputs.clone(), null, false, true);
     }
 
-    /** 完成并写输出 + 替换既存状态（{@code newState} 为 null 等价 {@link #done}）。
-     *  <p>Complete with outputs and replace the stored state ({@code null} newState equals {@link #done}).</p> */
+    /** 完成并写输出 + 替换既存状态（{@code newState} 为 null 等价 {@link #done}）。新状态
+     *  同受 {@link #suspended} 所述的 32768 字符帽约束（超帽拒收、既存状态保持）。
+     *  <p>Complete with outputs and replace the stored state ({@code null} newState equals
+     *  {@link #done}). The new state is bound by the same 32768-character cap described on
+     *  {@link #suspended} (over the cap it is refused and the stored state is kept).</p> */
     public static CustomNodeResult doneWithState(float[] outputs, CompoundTag newState) {
         if (newState == null) return done(outputs);
         return new CustomNodeResult(outputs == null ? new float[0] : outputs.clone(), newState.copy(), false, false);
     }
 
     /**
-     * 可恢复重节点挂起（D2a）：输出保持 lastGood、不计完成；检查点随 RuntimeState
-     * 纪律持久化，下一 tick 以其为本节点 {@link CustomNodeContext#state()} 续算。
-     * 挂起计入独立预算池的重节点份额（slice = 预算 / max(1, 上 tick 挂起数)）。
-     * <p>Suspend a resumable heavy node (D2a): outputs hold lastGood, no completion this
-     * tick; the checkpoint persists under the RuntimeState discipline and arrives back as
-     * {@link CustomNodeContext#state()} next tick. Suspensions feed the independent pool's
-     * heavy share (slice = budget / max(1, last tick's suspensions)).</p>
+     * 可恢复重节点挂起：输出保持上一次完成值、不计完成；检查点随宿主的运行时状态
+     * 持久化（存档/重载与图重编译后保留，节点删除即丢弃），下一 tick 以其为本节点
+     * {@link CustomNodeContext#state()} 续算。<b>超出自身时间片</b>的挂起才计入独立预算池
+     * 的重节点份额（slice = 预算 / max(1, 上 tick 此类挂起数)）；提前的协作挂起不计。
+     * 检查点（SNBT 文本）超过 32768 字符即拒收：既存检查点保持、本次不落表，并记节流告警。
+     * <p>Suspend a resumable heavy node: outputs hold the last completed values, no
+     * completion this tick; the checkpoint persists with the host's runtime state (kept
+     * across save/reload and graph recompiles, dropped with the node) and arrives back as
+     * {@link CustomNodeContext#state()} next tick. Only a suspension that <b>overran its own
+     * slice</b> feeds the independent pool's heavy share (slice = budget / max(1, last
+     * tick's such suspensions)); an early cooperative suspend does not. A checkpoint whose
+     * SNBT text exceeds 32768 characters is refused: the stored one is kept, the new one is
+     * not stored, and a throttled warning is logged.</p>
      */
     public static CustomNodeResult suspended(CompoundTag checkpoint) {
         return new CustomNodeResult(null, checkpoint == null ? new CompoundTag() : checkpoint.copy(), true, false);

@@ -6,19 +6,19 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.ItemStack;
 
 /**
- * 一次自定义节点求值交付给 {@link CustomNodeBehavior} 的上下文（公开 API 波 1）。
- * 值级 API：输入/参数/状态均为值快照，<b>不出现</b>任何图域类型（GraphNode/NodeGraph 等，
- * 的结构性约束——签名只出现 JDK / Minecraft 公共类型与本包的值类型）。
+ * 一次自定义节点求值交付给 {@link CustomNodeBehavior} 的上下文（本模组公开 API 的组成部分）。
+ * 值级 API：输入/参数/状态均为值快照，<b>不出现</b>任何图域类型（GraphNode/NodeGraph 等）
+ * ——结构性约束：签名只出现 JDK / Minecraft 公共类型与本包的值类型。
  *
  * <p><b>只读纪律</b>：{@link #inputs()} 与 {@link #state()} 返回的是交付副本 ——
  * 修改它们对本模组状态无效；要写状态请经 {@link CustomNodeResult#suspended(CompoundTag)}
  * 或 {@code done*} 的新状态参数。</p>
  *
- * <p><b>提供方直连（D6 拍板）</b>：{@link #level()} 与 {@link #hostPos()} 让提供方在
+ * <p><b>提供方直连</b>：{@link #level()} 与 {@link #hostPos()} 让提供方在
  * 求值回调内直接读写自己模组的方块（同 tick 双向，时序归本模组求值循环）。两者在
  * 降级/测试环境可为 {@code null} —— 提供方必须空检并在缺席时自行降级（例如输出 0）。</p>
- * The context handed to a {@link CustomNodeBehavior} for one evaluation (public-API
- * wave 1). A value-level API — inputs/params/state arrive as value snapshots with zero
+ * The context handed to a {@link CustomNodeBehavior} for one evaluation (part of this
+ * mod's public API). A value-level API — inputs/params/state arrive as value snapshots with zero
  * graph-domain types in sight. Read-only discipline: inputs() and state() deliver copies;
  * writing state goes through the result. Provider-direct exchange: level()
  * and hostPos() let the provider touch its own blocks inside the callback (same-tick
@@ -54,13 +54,13 @@ public interface CustomNodeContext {
     CompoundTag state();
 
     /**
-     * <b>可恢复契约的检查点</b>（D2a）：本次调用已耗尽本节点的时间片 —— 提供方应在
+     * <b>可恢复契约的检查点</b>：本次调用已耗尽本节点的时间片 —— 提供方应在
      * 最近的循环边界收尾，把进度打包进 {@link CustomNodeResult#suspended(CompoundTag)}
      * 返回。真实等待重节点（长解算/巨遍历）必须实现本检查点；忽略它的提供方由
      * 处置梯子事后处置（连续超份额 → 降频 → 熔断；单次调用吃满整池预算 = 立即熔断）。
-     * <b>边界 honesty</b>：回调在服务端主线程执行，永不返回的单次调用无法被抢占 ——
+     * <b>诚实边界</b>：回调在服务端主线程执行，永不返回的单次调用无法被抢占 ——
      * 那属信任模型失效级（与任何模组的坏 tick 处理器同级），非本检查点的防护范围。
-     * <p>The resumable contract's checkpoint (D2a): this call has exhausted the node's
+     * <p>The resumable contract's checkpoint: this call has exhausted the node's
      * time slice — wrap up at the nearest loop boundary and return
      * {@link CustomNodeResult#suspended(CompoundTag)} with the packed progress. Real
      * heavy work (long solves / huge traversals) must implement this; providers that

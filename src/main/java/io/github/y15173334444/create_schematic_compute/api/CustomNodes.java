@@ -5,27 +5,30 @@ import io.github.y15173334444.create_schematic_compute.graph.CustomNodeRegistry;
 import io.github.y15173334444.create_schematic_compute.graph.CustomNodeRoster;
 
 /**
- * 公开 API 注册门面（公开 API 波 1）：第三方模组的唯一登记入口。实现侧
+ * 公开 API 注册门面（本模组公开 API 的组成部分）：第三方模组的唯一登记入口。实现侧
  * （{@link CustomNodeRegistry}、{@link CustomNodeRoster}）住在 graph 包 —— 本类把公开面
  * 收拢进 {@code api}，第三方代码只 import 本包（包结构 = 公开门面 + 实现侧内部包）。
- * The public-API registration facade (public-API wave 1): the single entry point for
+ * 下文的 {@code api → graph} 引用是门面模式的实现委托：结构性约束禁的是 api
+ * <b>签名里</b>出现图域类型（提供方因此只对本包编译），而非门面自身的委托边 ——
+ * 本类不向提供方暴露任何图域类型。
+ * The public-API registration facade (part of this mod's public API): the single entry point for
  * third-party mods. The implementations ({@link CustomNodeRegistry},
  * {@link CustomNodeRoster}) live in the graph package — this class keeps the public face
  * inside {@code api} so third-party code imports only this package (the package layout:
  * api facade + internal impl packages). The {@code api → graph} references below are the
  * facade pattern's implementation delegation: the structural rule bans
- * graph-domain <b>types in api signatures</b> (the cross-loader constraint), not the
- * facade's own delegate edge — this class exposes no graph type to providers.
+ * graph-domain <b>types in api signatures</b> (so providers compile against this package
+ * alone), not the facade's own delegate edge — this class exposes no graph type to providers.
  */
 public final class CustomNodes {
 
     private CustomNodes() {}
 
-    /** 蓝图机宿主键（D5 名单制登记目标；与 {@code BlockNodeAllowances.BLUEPRINT.hostKey()}
-     *  同串同源 —— api 侧别名）。宿主键族随持有 CUSTOM 类目的宿主逐步开放。
-     *  The blueprint host key (the D5 roster enrolment target; the same string as
+    /** 蓝图机宿主键（准入名单的登记目标；与 {@code BlockNodeAllowances.BLUEPRINT.hostKey()}
+     *  同串同源 —— api 侧别名）。宿主键族随本模组更多宿主开放自定义节点而扩展。
+     *  The blueprint host key (the admission-roster enrolment target; the same string as
      *  {@code BlockNodeAllowances.BLUEPRINT.hostKey()} — an api-side alias). More host
-     *  keys open as their hosts gain the CUSTOM category. */
+     *  keys open as more of this mod's hosts accept custom nodes. */
     public static final String HOST_BLUEPRINT = BlockNodeAllowances.BLUEPRINT.hostKey();
 
     /**
@@ -35,13 +38,14 @@ public final class CustomNodes {
      * mod construction; a duplicate id throws {@link IllegalStateException} (the same
      * fail-fast as the built-in NodeType.BY_ID).</p>
      *
-     * <p><b>注册 ≠ 准入</b>（D5 名单制）：注册只让形状/行为存在；能否被放进某个宿主的图
-     * 由该宿主的准入名单裁定 —— 第三方可把自己的节点登记进自己的宿主套件宿主（随便登）
-     * 与本模组方块（{@link #admitToHost}）。
-     * <b>Registering ≠ admitting</b> (the D5 roster): registration only brings the shape and
+     * <p><b>注册 ≠ 准入</b>（名单制）：注册只让形状/行为存在；能否被放进某个宿主的图
+     * 由该宿主的准入名单裁定 —— 第三方经 {@link #admitToHost} 把自己的节点登记进本模组
+     * 方块；自有宿主（宿主套件，后续版本提供）随套件自行管理名单。
+     * <b>Registering ≠ admitting</b> (the admission roster): registration only brings the shape and
      * behavior into existence; whether it may enter a host's graph is ruled by that host's
-     * admission roster — third parties roster into their own host-suite hosts freely and
-     * into this mod's blocks via {@link #admitToHost}.</p>
+     * admission roster — third parties enrol into this mod's blocks via
+     * {@link #admitToHost}; their own hosts (the host suite, a later release) manage their
+     * rosters with the suite.</p>
      *
      * @param spec     声明式 schema（id/标题/引脚/参数）/ the declarative schema
      * @param behavior 求值行为（{@code null} = 形状可进编辑器但求值空转 —— 渐进接入用）
@@ -53,25 +57,25 @@ public final class CustomNodes {
     }
 
     /**
-     * 把已注册的节点 id 登记进目标宿主的准入名单（D5 名单制：默认拒绝、显式登记）。
+     * 把已注册的节点 id 登记进目标宿主的准入名单（名单制：默认拒绝、显式登记）。
      * 在提供方模组构造期、{@link #register} 之后调用；重复登记幂等。id 未注册抛
      * {@link IllegalArgumentException}（防手误：名单里躺一个不存在的形状是提供方 bug）。
-     * <p>Enrol a registered node id into a target host's admission roster (the D5 roster:
-     * default-deny, explicit enrolment). Call at provider mod construction after
+     * <p>Enrol a registered node id into a target host's admission roster (default-deny,
+     * explicit enrolment). Call at provider mod construction after
      * {@link #register}; duplicate enrolment is idempotent. An unregistered id throws
      * {@link IllegalArgumentException} (a roster entry for a non-existent shape is a
      * provider bug).</p>
      *
-     * <p><b>宿主键归属校验</b>：第三方只可登记进**显式白名单**内的本模组
-     * 宿主键（现 = {@link #HOST_BLUEPRINT}；键族随宿主套件波由各宿主声明后扩行）——
-     * 登记进任意键（含他人宿主键）抛 {@link IllegalArgumentException}。自有宿主套件宿主
-     * （波 2）不经本口，随套件自行声明名单。
+     * <p><b>宿主键归属校验</b>：第三方只可登记进<b>显式白名单</b>内的本模组
+     * 宿主键（现 = {@link #HOST_BLUEPRINT}；后续版本开放更多宿主时扩展）——
+     * 登记进任意其他键（含他人宿主键）抛 {@link IllegalArgumentException}。自有宿主
+     * （宿主套件，后续版本提供）不经本口，随套件自行声明名单。
      * <b>Host-key ownership</b>: third parties may enrol only into
-     * this mod's host keys on an **explicit allowlist** (currently
-     * {@link #HOST_BLUEPRINT}; the family grows as wave-2 host-suite hosts declare their
-     * own keys) — enrolling into any other key (including another mod's) throws
-     * {@link IllegalArgumentException}. Own host-suite hosts (wave 2) bypass this facade
-     * and declare their rosters with the suite.</p>
+     * this mod's host keys on an <b>explicit allowlist</b> (currently
+     * {@link #HOST_BLUEPRINT}; it grows as later releases open more hosts) — enrolling
+     * into any other key (including another mod's) throws
+     * {@link IllegalArgumentException}. Your own hosts (the host suite, a later release)
+     * bypass this facade and declare their rosters with the suite.</p>
      *
      * <p>装载兼容不经名单：旧档已在场的 id（无论提供方是否在线）由装载普查放行——
      * 撤销恢复与装载同语义（占位壳等提供方回归）。

@@ -4,8 +4,8 @@ import java.util.List;
 
 /**
  * 第三方自定义节点的声明式 schema（本模组公开 API 的组成部分）。值类型 ——
- * 只含 JDK/String 标量与自有 record，零图域类型、零 Create/Sable 类型（跨加载器域
- * 教训的结构性要求）；本类是 {@code api} 公开面与实现侧注册表之间共用的载体。
+ * 只含 JDK/String 标量与自有 record，零图域类型、零 Create/Sable 类型（结构性要求：
+ * 提供方只对本包编译，绝不触达内部或可选依赖模组的类）；本类是 {@code api} 公开面与实现侧注册表之间共用的载体。
  *
  * <p><b>身份与稳定承诺</b>：{@link #id} 是 {@code "modid:node_id"} 形式的稳定字符串
  * （小写命名空间 + 小写名），随玩家图 NBT 持久化（{@code type} 键 = 哨兵 {@code "custom"}、
@@ -20,17 +20,18 @@ import java.util.List;
  * <p><b>引脚</b>：v1 只有 FLOAT 域，数量 = 标签列表长度，标签即引脚
  * 显示名（也作 pinId 的稳定编码输入，见 GraphNode 通用 pinId 路径）。空列表 = 无引脚。</p>
  *
- * <p><b>参数（控件，不产引脚）</b>：声明式参数是编辑器控件（D4：数值/文本/布尔/物品槽），
+ * <p><b>参数（控件，不产引脚）</b>：声明式参数是编辑器控件（数值/文本/布尔/物品槽四类），
  * 求值回调里由提供方按 key 自读——「参数即寻址」约定：提供方在
  * schema 里声明如文本机器名的参数，回调里自行解析到自己的方块。与内置节点「可编辑
- * 参数自动追加参数引脚」的惯例**刻意不同**：自定义节点的参数只是控件，驱动它走引脚
+ * 参数自动追加参数引脚」的惯例<b>刻意不同</b>：自定义节点的参数只是控件，驱动它走引脚
  * （in/out）而不是参数引脚——语义差异记录在案，实验期（1.4 冻结前）可再议。</p>
  *
  * <p>A third-party custom node's declarative schema (part of this mod's public API).
  * A pure value type — JDK/String scalars and own records only, zero graph-domain and zero
- * Create/Sable types in the signature (the structural requirement from the cross-loader
- * narrow-port lesson); this class is the shared carrier between the {@code api} public face and
- * this class as its internal carrier.</p>
+ * Create/Sable types in the signature (a structural requirement: providers compile against
+ * this package alone, never against internal or optional-dependency classes); this class is
+ * the shared carrier between the {@code api} public face and the implementation-side
+ * registry.</p>
  */
 public record CustomNodeType(
     /** 稳定字符串 id（{@code "modid:node_id"}，小写）/ stable string id ("modid:node_id", lowercase). */
@@ -50,26 +51,29 @@ public record CustomNodeType(
         public enum ParamKind { NUMBER, TEXT, BOOL, ITEM }
     }
 
-    /** 单节点参数控件数上限（**K15 静态预检的上界**——CUSTOM 的 SET_HOTBAR_ITEM 槽位
-     *  检查在包层只有本静态帽可依，精确槽位数由执行器按节点实际 schema 裁定；编辑区
+    /** 单节点参数控件数上限（<b>包层静态预检的上界</b>——对自定义节点物品槽的写入，包层只有
+     *  本静态帽可依，精确槽位数由服务端执行时按节点实际 schema 裁定；编辑区
      *  面板高度按实际控件计数，不引用本帽。32 个控件远超合理节点形态）。
-     *  Cap on a schema's control count (the **K15 static pre-check's bound** — the
-     *  packet-layer CUSTOM SET_HOTBAR_ITEM check has only this static cap to lean on,
-     *  while the precise slot count is ruled per node by the executor; the edit-panel
-     *  height counts the real controls and never reads this cap). 32 controls far exceed
-     *  any reasonable node shape. */
+     *  Cap on a schema's control count (the <b>packet layer's static pre-check bound</b> —
+     *  an item-slot write to a custom node has only this static cap to lean on at the
+     *  packet layer, while the precise slot count is ruled per node against its actual
+     *  schema on the server; the edit-panel height counts the real controls and never
+     *  reads this cap). 32 controls far exceed any reasonable node shape. */
     public static final int MAX_SCHEMA_PARAMS = 32;
 
-    /** 单个 TEXT 控件的文本长度帽（）——与线缆 readUtf 的 32767 全局帽
-     *  同量级，但在包层预检里显式执行并给出 REJECT 回执（客户端可回滚），不再依赖
-     *  线缆层静默截断；执行器同源引用作纵深防御。与求值状态 blob 的 32KB 帽
-     *  （graph.CustomNodeEval.MAX_STATE_SNBT_LENGTH）同一纪律。
+    /** 单个 TEXT 控件的文本长度帽——与线缆 readUtf 的 32767 全局帽
+     *  同量级，但在包层预检里显式执行并给出拒收回执（客户端可回滚），不依赖
+     *  线缆层静默截断；服务端执行时同源引用作纵深防御。单节点全部 TEXT 控件的文本
+     *  总量另有 32768 字符聚合帽（增总且越帽的写入不落地，缩减/等额改写恒放行）。
+     *  与求值状态 blob 的 32KB 帽（见 {@link CustomNodeResult#suspended}）同一纪律。
      *  Per-control TEXT length cap — the same order as the wire
      *  readUtf global 32767 cap, but enforced explicitly at the packet pre-check with a
-     *  REJECT receipt (the client can roll back) instead of relying on silent wire
-     *  truncation; the executor references the same constant as defense in depth. Same
-     *  discipline as the evaluation state-blob's 32KB cap
-     *  (graph.CustomNodeEval.MAX_STATE_SNBT_LENGTH). */
+     *  refusal receipt (the client can roll back) instead of relying on silent wire
+     *  truncation; the server-side apply references the same constant as defense in depth.
+     *  All TEXT controls of one node share a further 32768-character aggregate cap (a write
+     *  that grows the total past it does not land; shrinking or equal-total rewrites always
+     *  land). Same discipline as the evaluation state-blob's 32KB cap (see
+     *  {@link CustomNodeResult#suspended}). */
     public static final int MAX_TEXT_PARAM_LENGTH = 32768;
 
     public CustomNodeType {
