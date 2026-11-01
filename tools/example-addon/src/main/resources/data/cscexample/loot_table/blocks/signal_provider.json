@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:block",
+  "pools": [{
+    "rolls": 1,
+    "entries": [{
+      "type": "minecraft:item",
+      "name": "cscexample:signal_provider"
+    }],
+    "conditions": [{"condition": "minecraft:survives_explosion"}]
+  }]
+}
