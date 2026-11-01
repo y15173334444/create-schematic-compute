@@ -30,7 +30,10 @@ Create: Schematic Compute 公开 API 的第三方示例模组：注册两个自�
 
     [[mods.dependencies]]
     modId = "create_schematic_compute"
-    versionRange = "[1.3.0,)"
+    # API 实验期至 1.4.0 冻结（签名与语义可变），上限卡在 1.4——与主仓对 Sable 依赖的写法同理。
+    # The API is experimental until the 1.4.0 freeze (signatures and semantics may change),
+    # so the range stops below 1.4 - the same reasoning as the main repo's Sable range.
+    versionRange = "[1.3.0,1.4)"
     ordering = "AFTER"
     side = "BOTH"
     mandatory = true
