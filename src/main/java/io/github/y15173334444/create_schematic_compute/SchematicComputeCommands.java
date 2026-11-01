@@ -18,7 +18,9 @@ import net.neoforged.neoforge.network.PacketDistributor;
  *   <li>{@code /cscsettings} —— 打开设置面板（**全员可用**——开面板只是查看面，落在
  *       第一选项卡；调整动作在面板内/指令侧各自把关）；</li>
  *   <li>{@code /cscbudget &lt;ms&gt;} —— 直接调整公式预算（**OP**，钳 0.5–20，写当前世界的
- *       SERVER 配置并落盘，广播权威值同步）。</li>
+ *       SERVER 配置并落盘，广播权威值同步）；</li>
+ *   <li>{@code /cscperf} —— 打印视线所指宿主（6 格内）的 per-node 求值耗时 top-20
+ *       （**OP**；EMA 平均，自定义节点带 modid + 节点 id）。</li>
  * </ul>
  * The mod's commands (the K6 interaction surface; the mod's first commands):
  * <ul>
@@ -26,14 +28,17 @@ import net.neoforged.neoforge.network.PacketDistributor;
  *       viewing action, landing on the first tab; each adjust path gates itself);</li>
  *   <li>{@code /cscbudget &lt;ms&gt;} — adjusts the formula budget directly (**OP**, clamped
  *       to 0.5–20, written to this world's SERVER config and saved, with the authoritative
- *       value broadcast).</li>
+ *       value broadcast);</li>
+ *   <li>{@code /cscperf} — prints the per-node evaluation cost top-20 of the host under the
+ *       crosshair (within 6 blocks; **OP**; EMA averages, custom nodes named by modid +
+ *       node id).</li>
  * </ul>
  */
 public final class SchematicComputeCommands {
 
     private SchematicComputeCommands() {}
 
-    /** 注册两条指令（游戏总线 RegisterCommandsEvent 回调）。 / register both commands (the game-bus RegisterCommandsEvent callback). */
+    /** 注册三条指令（游戏总线 RegisterCommandsEvent 回调）。 / register the three commands (the game-bus RegisterCommandsEvent callback). */
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("cscsettings")
             .executes(ctx -> {
@@ -70,12 +75,18 @@ public final class SchematicComputeCommands {
                 // The host block under the crosshair (6 blocks) → graph BE → the
                 // evaluator's cost table.
                 var hit = sp.pick(6.0, 1.0f, false);
-                if (hit.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK) {
+                if (!(hit instanceof net.minecraft.world.phys.BlockHitResult bhr)
+                    || hit.getType() != net.minecraft.world.phys.HitResult.Type.BLOCK) {
                     ctx.getSource().sendFailure(Component.translatable(
                         "commands.create_schematic_compute.cscperf.no_target"));
                     return 0;
                 }
-                var pos = net.minecraft.core.BlockPos.containing(hit.getLocation());
+                // 命中方块取 getBlockPos()（审查修复：原先 containing(命中点) 在东/南/顶面
+                // 落到相邻空气格——命中点恰在方块表面边界上）。
+                // The hit block via getBlockPos() (review fix: containing(hit point) used to
+                // land in the neighbouring air on east/south/top faces — the point sits on
+                // the face boundary).
+                var pos = bhr.getBlockPos();
                 if (!(sp.level().getBlockEntity(pos) instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity gbe)
                     || gbe.evaluatorView() == null || gbe.getNodeGraph() == null) {
                     ctx.getSource().sendFailure(Component.translatable(
@@ -97,7 +108,7 @@ public final class SchematicComputeCommands {
     }
 
     /** /cscperf 汇总格式化（纯函数，headless 可锚）：per-node EMA 降序 top-N，行式
-     *  「#i  node <id> (<type|customId>)  <µs> µs avg」。CUSTOM 节点带 modid+节点 id
+     *  「{@code #i  node <id> (<type|customId>)  <µs> µs avg}」。CUSTOM 节点带 modid+节点 id
      *  （验收②的可观测底座：第三方耗时一眼可辨）。
      *  The /cscperf summary formatter (a pure function, anchorable headless): per-node
      *  EMA descending top-N, lines like "#1 node 12 (cscexample:widget) 123.4 µs avg".

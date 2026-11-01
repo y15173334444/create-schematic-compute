@@ -32,6 +32,14 @@ class NodePerfProbeTest {
         GraphNode m = g.addNode(NodeType.ADD, 3f, 3f);
         g.addConnection(c.id, 0, m.id, 0);
         g.addConnection(c.id, 0, m.id, 1);
+        // 时序档代表（审查修复锚）：DELAY 在 evalExt 入口直转 TimingEval.evalState、
+        // 永不落 eval() —— 埋点上移到分派外圈后必须同样记账（否则对 /cscperf 失明）。
+        // A timing-tier representative (review-fix anchor): DELAY turns to
+        // TimingEval.evalState at the evalExt entry and never lands in eval() — with the
+        // probe hoisted to the dispatch outer ring it must be accounted all the same
+        // (otherwise invisible to /cscperf).
+        GraphNode d = g.addNode(NodeType.DELAY, 6f, 0f);
+        g.addConnection(m.id, 0, d.id, 0);
 
         var evaluator = new GraphEvaluator(g);
         for (int i = 0; i < 5; i++)
@@ -39,9 +47,11 @@ class NodePerfProbeTest {
                 new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
 
         var view = evaluator.nodeCostNsView();
-        assertEquals(2, view.size(), "both nodes are probed");
+        assertEquals(3, view.size(), "all three nodes are probed");
         assertTrue(view.containsKey(c.id) && view.get(c.id) > 0, "CONST carries a positive EMA");
         assertTrue(view.containsKey(m.id) && view.get(m.id) > 0, "ADD carries a positive EMA");
+        assertTrue(view.containsKey(d.id) && view.get(d.id) > 0,
+            "DELAY (a timing-tier node that never enters eval()) carries a positive EMA");
         assertThrows(UnsupportedOperationException.class, () -> view.put(99, 1L),
             "the view is read-only");
         for (int i = 0; i < 50; i++)
