@@ -29,28 +29,39 @@ public interface CustomNodeContext {
 
     /** 输入引脚值快照（FLOAT 域，长度 = schema 输入引脚数；交付副本，只读）。
      *  <p>Input-pin value snapshot (FLOAT domain, length = the schema's input count; a
-     *  delivered copy, read-only).</p> */
+     *  delivered copy, read-only).</p>
+     *  @return 输入引脚值的副本 / a copy of the input-pin values */
     float[] inputs();
 
-    /** 数值参数（schema NUMBER 控件；键缺席 = 0）。/ number param (schema NUMBER control; 0 when absent). */
+    /** 数值参数（schema NUMBER 控件；键缺席 = 0）。/ number param (schema NUMBER control; 0 when absent).
+     *  @param key NUMBER 控件的键 / the NUMBER control's key
+     *  @return 控件值；键缺席为 0 / the value; 0 when absent */
     float numberParam(String key);
 
-    /** 文本参数（schema TEXT 控件；键缺席 = 空串）。/ text param (schema TEXT control; "" when absent). */
+    /** 文本参数（schema TEXT 控件；键缺席 = 空串）。/ text param (schema TEXT control; "" when absent).
+     *  @param key TEXT 控件的键 / the TEXT control's key
+     *  @return 文本；键缺席为空串 / the text; "" when absent */
     String textParam(String key);
 
     /** 布尔参数（schema BOOL 控件；键缺席 = false；存储值 &gt; 0.5 视为真）。
-     *  <p>bool param (schema BOOL control; false when absent; a stored value &gt; 0.5 reads true).</p> */
+     *  <p>bool param (schema BOOL control; false when absent; a stored value &gt; 0.5 reads true).</p>
+     *  @param key BOOL 控件的键 / the BOOL control's key
+     *  @return 存储值 &gt; 0.5 为真；键缺席为 false / true when the stored value exceeds 0.5; false when absent */
     boolean boolParam(String key);
 
     /** 物品参数（schema ITEM 控件；键缺席或未设置 = {@code null} —— headless/降级环境
      *  同样返回 null，提供方自行降级）。
      *  <p>item param (schema ITEM control; {@code null} when absent/unset — also null in
-     *  headless/degraded environments; providers degrade themselves).</p> */
+     *  headless/degraded environments; providers degrade themselves).</p>
+     *  @param key ITEM 控件的键 / the ITEM control's key
+     *  @return 物品；键缺席、未设置或降级环境为 {@code null} / the item; {@code null} when absent,
+     *          unset or degraded */
     ItemStack itemParam(String key);
 
     /** 上一次持久化的状态 blob（交付副本，永不为 null 但可能为空；只读）。
      *  <p>The previously persisted state blob (a delivered copy, never null but possibly
-     *  empty; read-only).</p> */
+     *  empty; read-only).</p>
+     *  @return 状态副本（永不为 null）/ a copy of the state (never null) */
     CompoundTag state();
 
     /**
@@ -69,18 +80,22 @@ public interface CustomNodeContext {
      * callback runs on the server main thread — a single call that never returns cannot
      * be preempted; that is a trust-model failure (the same class as any mod's broken
      * tick handler), outside this checkpoint's protection.</p>
+     * @return 本次调用已超出本节点时间片时为 true / true once this call has exhausted the node's slice
      */
     boolean sliceExpired();
 
     /** 宿主所在服务端世界（提供方直连自己方块用；降级/测试环境为 {@code null}）。
      *  <p>The host's server level (for provider-direct block exchange; {@code null} in
-     *  degraded/test environments).</p> */
+     *  degraded/test environments).</p>
+     *  @return 宿主世界；降级/测试环境为 {@code null} / the host level; {@code null} when degraded or in tests */
     ServerLevel level();
 
     /** 宿主方块坐标（{@link #level()} 同源；可为 {@code null}）。
-     *  <p>The host block position (same source as {@link #level()}; may be {@code null}).</p> */
+     *  <p>The host block position (same source as {@link #level()}; may be {@code null}).</p>
+     *  @return 宿主坐标；可为 {@code null} / the host position; may be {@code null} */
     BlockPos hostPos();
 
-    /** 当前服务端游戏刻（宿主注入的求值时戳）。/ the current server game tick (the host's injected eval stamp). */
+    /** 当前服务端游戏刻（宿主注入的求值时戳）。/ the current server game tick (the host's injected eval stamp).
+     *  @return 当前游戏刻 / the current game tick */
     long tick();
 }

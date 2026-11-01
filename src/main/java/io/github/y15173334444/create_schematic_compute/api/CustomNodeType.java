@@ -32,23 +32,37 @@ import java.util.List;
  * this package alone, never against internal or optional-dependency classes); this class is
  * the shared carrier between the {@code api} public face and the implementation-side
  * registry.</p>
+ *
+ * @param id 稳定字符串 id（{@code "modid:node_id"}，小写）/ stable string id ("modid:node_id", lowercase).
+ * @param title 编辑器标题（字面量；experimental 期不做 i18n 键约定）/ editor title (literal; no i18n-key contract while experimental).
+ * @param inputLabels 输入引脚标签（有序，长度 = 输入引脚数，FLOAT 域）/ ordered input-pin labels (length = input count, FLOAT domain).
+ * @param outputLabels 输出引脚标签（有序）/ ordered output-pin labels.
+ * @param params 声明式参数（编辑器控件；不产生引脚）/ declarative params (editor controls; no pins).
  */
 public record CustomNodeType(
-    /** 稳定字符串 id（{@code "modid:node_id"}，小写）/ stable string id ("modid:node_id", lowercase). */
     String id,
-    /** 编辑器标题（字面量；experimental 期不做 i18n 键约定）/ editor title (literal; no i18n-key contract while experimental). */
     String title,
-    /** 输入引脚标签（有序，长度 = 输入引脚数，FLOAT 域）/ ordered input-pin labels (length = input count, FLOAT domain). */
     List<String> inputLabels,
-    /** 输出引脚标签（有序）/ ordered output-pin labels. */
     List<String> outputLabels,
-    /** 声明式参数（编辑器控件；不产生引脚）/ declarative params (editor controls; no pins). */
     List<CustomParam> params
 ) {
 
-    /** 参数控件描述 / a declarative parameter control. */
+    /** 参数控件描述 / a declarative parameter control.
+     *  @param key  控件键（同一 schema 内唯一；求值回调按此键读值）/ the control key (unique
+     *              within the schema; the callback reads the value by it)
+     *  @param kind 控件类型 / the control kind */
     public record CustomParam(String key, ParamKind kind) {
-        public enum ParamKind { NUMBER, TEXT, BOOL, ITEM }
+        /** 控件类型 / the control kind. */
+        public enum ParamKind {
+            /** 数值输入框，经 {@link CustomNodeContext#numberParam} 读取 / a number field, read via numberParam. */
+            NUMBER,
+            /** 文本输入框，经 {@link CustomNodeContext#textParam} 读取 / a text field, read via textParam. */
+            TEXT,
+            /** 开关，经 {@link CustomNodeContext#boolParam} 读取 / a toggle, read via boolParam. */
+            BOOL,
+            /** 物品槽，经 {@link CustomNodeContext#itemParam} 读取 / an item slot, read via itemParam. */
+            ITEM
+        }
     }
 
     /** 单节点参数控件数上限（<b>包层静态预检的上界</b>——对自定义节点物品槽的写入，包层只有
@@ -76,6 +90,12 @@ public record CustomNodeType(
      *  {@link CustomNodeResult#suspended}). */
     public static final int MAX_TEXT_PARAM_LENGTH = 32768;
 
+    /** 校验并规范化：id 须为小写 {@code modid:node_id}、标题非空、参数键在 schema 内唯一且
+     *  数量不超过 {@link #MAX_SCHEMA_PARAMS}；三个列表做不可变拷贝（null 视为空列表）。
+     *  Validates and normalizes: a lowercase {@code modid:node_id} id, a non-empty title, and
+     *  param keys unique within the schema and at most {@link #MAX_SCHEMA_PARAMS}; the three
+     *  lists are copied immutably (null reads as empty).
+     *  @throws IllegalArgumentException 任一校验失败 / when any check fails */
     public CustomNodeType {
         if (id == null || !id.matches("[a-z0-9_.-]+:[a-z0-9_/.-]+"))
             throw new IllegalArgumentException("CustomNodeType id must be 'modid:node_id' (lowercase): " + id);
@@ -93,7 +113,13 @@ public record CustomNodeType(
                 + " params, over the cap " + MAX_SCHEMA_PARAMS);
     }
 
+    /** 输入引脚数 / the input-pin count.
+     *  @return 输入标签列表长度 / the length of the input labels */
     public int inputs() { return inputLabels.size(); }
+    /** 输出引脚数 / the output-pin count.
+     *  @return 输出标签列表长度 / the length of the output labels */
     public int outputs() { return outputLabels.size(); }
+    /** 参数控件数 / the parameter-control count.
+     *  @return 参数列表长度 / the length of the params */
     public int paramCount() { return params.size(); }
 }

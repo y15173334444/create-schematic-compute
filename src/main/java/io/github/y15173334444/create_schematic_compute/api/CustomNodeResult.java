@@ -30,7 +30,11 @@ public final class CustomNodeResult {
     /** 完成并写输出：既存状态<b>清除</b>（工作流收尾语义 —— 需要保留就改用
      *  {@link #doneWithState(float[], CompoundTag)} 传回原状态）。
      *  <p>Complete with outputs: the stored state is <b>cleared</b> (workflow-end
-     *  semantics — pass it back via {@link #doneWithState(float[], CompoundTag)} to keep it).</p> */
+     *  semantics — pass it back via {@link #doneWithState(float[], CompoundTag)} to keep it).</p>
+     *  @param outputs 输出值，按 schema 输出引脚顺序（多出的忽略、缺少的补 0；null 视为空）/
+     *                 output values in schema output order (extras ignored, missing ones read 0;
+     *                 null reads as empty)
+     *  @return 完成结果 / the completion result */
     public static CustomNodeResult done(float... outputs) {
         return new CustomNodeResult(outputs == null ? new float[0] : outputs.clone(), null, false, true);
     }
@@ -39,7 +43,11 @@ public final class CustomNodeResult {
      *  同受 {@link #suspended} 所述的 32768 字符帽约束（超帽拒收、既存状态保持）。
      *  <p>Complete with outputs and replace the stored state ({@code null} newState equals
      *  {@link #done}). The new state is bound by the same 32768-character cap described on
-     *  {@link #suspended} (over the cap it is refused and the stored state is kept).</p> */
+     *  {@link #suspended} (over the cap it is refused and the stored state is kept).</p>
+     *  @param outputs  输出值，同 {@link #done} / output values, as in {@link #done}
+     *  @param newState 替换既存状态的新状态（null 等价 {@link #done}）/ the state replacing the
+     *                  stored one (null equals {@link #done})
+     *  @return 完成结果 / the completion result */
     public static CustomNodeResult doneWithState(float[] outputs, CompoundTag newState) {
         if (newState == null) return done(outputs);
         return new CustomNodeResult(outputs == null ? new float[0] : outputs.clone(), newState.copy(), false, false);
@@ -59,15 +67,24 @@ public final class CustomNodeResult {
      * tick's such suspensions)); an early cooperative suspend does not. A checkpoint whose
      * SNBT text exceeds 32768 characters is refused: the stored one is kept, the new one is
      * not stored, and a throttled warning is logged.</p>
+     * @param checkpoint 检查点（null 视为空 tag）/ the checkpoint (null reads as an empty tag)
+     * @return 挂起结果 / the suspension result
      */
     public static CustomNodeResult suspended(CompoundTag checkpoint) {
         return new CustomNodeResult(null, checkpoint == null ? new CompoundTag() : checkpoint.copy(), true, false);
     }
 
-    /** 输出数组（挂起结果为 null）。/ the outputs (null on a suspended result). */
+    /** 输出数组（挂起结果为 null）。/ the outputs (null on a suspended result).
+     *  @return 输出数组；挂起结果为 {@code null} / the outputs; {@code null} on a suspended result */
     public float[] outputs() { return outputs; }
-    /** 新状态（null = 不动既存状态）。/ the new state (null = leave the stored state). */
+    /** 新状态（null = 不动既存状态）。/ the new state (null = leave the stored state).
+     *  @return 新状态；{@code null} 表示不动既存状态 / the new state; {@code null} leaves the stored state */
     public CompoundTag newState() { return newState; }
+    /** 是否挂起结果。/ whether this is a suspension.
+     *  @return 挂起结果为 true / true for a suspension */
     public boolean isSuspended() { return suspended; }
+    /** 完成时是否清除既存状态（{@link #done} 产出的结果为 true）。/ whether completion clears
+     *  the stored state (true for results from {@link #done}).
+     *  @return 清除为 true / true when the stored state is cleared */
     public boolean shouldClearState() { return clearState; }
 }
