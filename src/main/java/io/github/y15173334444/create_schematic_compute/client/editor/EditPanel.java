@@ -907,20 +907,20 @@ public class EditPanel {
         }
     }
 
-    /** 声明载荷类型芯片：类型码短文本 + 类型底色（金=浮点 / 青=音频 / 品红=向量；
+    /** 声明载荷类型芯片：类型码短文本 + 主题类型底色（金=浮点 / 青=音频 / 品红=向量；
      *  悬停高亮，{@code readOnly} 时无悬停高亮）。/ Declared payload-type chip: the type
-     *  code's short text on a per-type tint (gold=float / teal=audio / magenta=vector;
-     *  hover highlights unless {@code readOnly}). */
+     *  code's short text on the theme's per-type tint (gold=float / teal=audio /
+     *  magenta=vector; hover highlights unless {@code readOnly}). */
     private static void drawTypeChip(GuiGraphics g, int x, int y, int w, int h, PinType t,
                                      int mx, int my, boolean readOnly) {
         int bg = switch (t) {
-            case FLOAT -> 0xFF6A5A2A;
-            case AUDIO -> 0xFF1F5A52;
-            case VEC3 -> 0xFF5A2A5A;
+            case FLOAT -> NodeRenderer.CPI();
+            case AUDIO -> NodeRenderer.CAP();
+            case VEC3 -> NodeRenderer.CVP();
         };
         boolean hover = !readOnly && mx >= x && mx <= x + w && my >= y && my <= y + h;
         g.fill(x, y, x + w, y + h, hover ? 0xFF3A3A3A : bg);
-        g.renderOutline(x, y, w, h, hover ? 0xFFFFFFFF : 0xFF888888);
+        g.renderOutline(x, y, w, h, hover ? 0xFFFFFFFF : NodeRenderer.CSB());
         String txt = switch (t) {
             case FLOAT -> "f32";
             case AUDIO -> "aud";

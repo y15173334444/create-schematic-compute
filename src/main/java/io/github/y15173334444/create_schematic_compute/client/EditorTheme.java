@@ -44,31 +44,33 @@ public final class EditorTheme {
      *  plain JUnit too. The log name is this class's FQCN. */
     private static final Logger LOGGER = LoggerFactory.getLogger(EditorTheme.class);
 
-    /** 主题色槽位总数（19 图形语义色 + 7 GUI 镶边色）/ palette slot count (19 graph-editor
-     *  semantic colours + 7 GUI chrome colours added with the settings theme extension). */
-    public static final int NUM_COLORS = 26;
+    /** 主题色槽位总数（19 图形语义色 + 7 GUI 镶边色 + v1.3.0 向量域三色）/ palette slot
+     *  count (19 graph-editor semantic colours + 7 GUI chrome colours + the v1.3.0
+     *  vector-domain trio). */
+    public static final int NUM_COLORS = 29;
 
     // 槽位索引（与 {@link #COLOR_KEYS} 一一对应）/ slot indexes (mirrors COLOR_KEYS)
     private static final int C_BG=0, C_GRID=1, C_NODE=2, C_HEADER=3, C_BORDER=4,
         C_INPUT=5, C_OUTPUT=6, C_WIRE=7, C_WIRE_AUDIO=8, C_PIN_AUDIO=9, C_PIN_AUDIO_BORDER=10, C_DRAG=11,
         C_MENU_TEXT=12, C_MENU_HOVER=13, C_NODE_TITLE=14, C_CAT_TEXT=15, C_SYS_BORDER=16,
         C_INPUT_BORDER=17, C_OUTPUT_BORDER=18, C_PANEL_BG=19, C_PANEL_HEADER=20, C_PANEL_BORDER=21,
-        C_INSET_BG=22, C_ACCENT=23, C_ERROR=24, C_HOVER=25;
+        C_INSET_BG=22, C_ACCENT=23, C_ERROR=24, C_HOVER=25,
+        C_WIRE_VEC3=26, C_PIN_VEC3=27, C_PIN_VEC3_BORDER=28;
 
     /** 槽位语义名（配置文件键 + 设置页 i18n 键的后缀）/ slot key names (config-file keys and the
      *  settings-page i18n suffixes), order = slot order. */
-    public static final String[] COLOR_KEYS = {"bg","grid","node","header","border","input","output","wire","wire_audio","pin_audio","pin_audio_border","drag","menu_text","menu_hover","node_title","cat_text","sys_border","input_border","output_border","panel_bg","panel_header","panel_border","inset_bg","accent","error","hover"};
+    public static final String[] COLOR_KEYS = {"bg","grid","node","header","border","input","output","wire","wire_audio","pin_audio","pin_audio_border","drag","menu_text","menu_hover","node_title","cat_text","sys_border","input_border","output_border","panel_bg","panel_header","panel_border","inset_bg","accent","error","hover","wire_vec3","pin_vec3","pin_vec3_border"};
 
     /** 出厂默认色板（= 预设 0）/ factory default palette (= preset 0). */
-    public static final int[] DEFAULT_COLORS = {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428};
+    public static final int[] DEFAULT_COLORS = {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428,0xFFC85AC8,0xFFE07ADF,0xFF7A2E7A};
 
-    /** 预设主题（26 色 × 4 套，顺序同 COLOR_KEYS）/ preset themes (26 colours × 4, slot order). */
+    /** 预设主题（29 色 × 4 套，顺序同 COLOR_KEYS）/ preset themes (29 colours × 4, slot order). */
     public static final int[][] THEMES = {
-        // 26色: bg…output_border + panel_bg,panel_header,panel_border,inset_bg,accent,error,hover（wire_audio/pin_audio/pin_audio_border 为音频域三色）
-        {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428},
-        {0xFF0A1020,0xFF152040,0xFF1A2A4A,0xFF2A3A5A,0xFF3A5A7A,0xFF44AAFF,0xFFFFAA44,0xFF66BBFF,0xFF40E0C8,0xFF6FEBD8,0xFF2E9C8A,0xFFFFFF88,0xFF88AACC,0xFFFFDD77,0xFFFFDD77,0xFF88AACC,0xFF6688AA,0xFF2266AA,0xFFAA6622,0xFF141C2A,0xFF22304A,0xFF3A5A7A,0xFF0A1220,0xFFFFCC44,0xFFFF5544,0xFF2A3A5A},
-        {0xFF0A0A0A,0xFF1A1A1A,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF00FF88,0xFFFF4466,0xFF888888,0xFF00DDCC,0xFF35F0DC,0xFF0E8F82,0xFFFFFF88,0xFFAAAAAA,0xFFCCCCCC,0xFFCCCCCC,0xFF888888,0xFF666666,0xFF444444,0xFF444444,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF1A1A1A,0xFFFFDD00,0xFFFF5555,0xFF444444},
-        {0xFF1E1410,0xFF2A1C14,0xFF3A2820,0xFF4A3428,0xFF5A4438,0xFFFF8844,0xFFAA6633,0xFFDD8844,0xFF4FC3B7,0xFF79DCCF,0xFF2E9484,0xFFFFCC66,0xFFAA8866,0xFFFFCC77,0xFFFFCC77,0xFFAA8866,0xFF8B6B53,0xFF6B4A33,0xFF6B3A23,0xFF2A1C14,0xFF4A3428,0xFF5A4438,0xFF1E1410,0xFFFFCC66,0xFFFF6644,0xFF3A2820},
+        // 29色: bg…output_border + panel_bg…hover + wire_vec3,pin_vec3,pin_vec3_border（音频域三色 + 向量域三色）
+        {0xFF1F1E1A,0xFF2C2A24,0xFF3A3832,0xFF4A3F28,0xFF5A4D3A,0xFFD4A017,0xFFB87333,0xFFC5962B,0xFF3FB8A8,0xFF5ED0BC,0xFF2E7A6E,0xFFFFDD55,0xFF888888,0xFFFFDD77,0xFFFFAA00,0xFFFFAA00,0xFF8B7533,0xFF8B6914,0xFF8A4A22,0xFF2A2822,0xFF4A3F28,0xFF5A4D3A,0xFF1A1814,0xFFFFAA00,0xFFFF4444,0xFF3A3428,0xFFC85AC8,0xFFE07ADF,0xFF7A2E7A},
+        {0xFF0A1020,0xFF152040,0xFF1A2A4A,0xFF2A3A5A,0xFF3A5A7A,0xFF44AAFF,0xFFFFAA44,0xFF66BBFF,0xFF40E0C8,0xFF6FEBD8,0xFF2E9C8A,0xFFFFFF88,0xFF88AACC,0xFFFFDD77,0xFFFFDD77,0xFF88AACC,0xFF6688AA,0xFF2266AA,0xFFAA6622,0xFF141C2A,0xFF22304A,0xFF3A5A7A,0xFF0A1220,0xFFFFCC44,0xFFFF5544,0xFF2A3A5A,0xFFCC77E8,0xFFDD99F0,0xFF6A3A88},
+        {0xFF0A0A0A,0xFF1A1A1A,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF00FF88,0xFFFF4466,0xFF888888,0xFF00DDCC,0xFF35F0DC,0xFF0E8F82,0xFFFFFF88,0xFFAAAAAA,0xFFCCCCCC,0xFFCCCCCC,0xFF888888,0xFF666666,0xFF444444,0xFF444444,0xFF2A2A2A,0xFF3A3A3A,0xFF555555,0xFF1A1A1A,0xFFFFDD00,0xFFFF5555,0xFF444444,0xFFDD66DD,0xFFEE88EE,0xFF662266},
+        {0xFF1E1410,0xFF2A1C14,0xFF3A2820,0xFF4A3428,0xFF5A4438,0xFFFF8844,0xFFAA6633,0xFFDD8844,0xFF4FC3B7,0xFF79DCCF,0xFF2E9484,0xFFFFCC66,0xFFAA8866,0xFFFFCC77,0xFFFFCC77,0xFFAA8866,0xFF8B6B53,0xFF6B4A33,0xFF6B3A23,0xFF2A1C14,0xFF4A3428,0xFF5A4438,0xFF1E1410,0xFFFFCC66,0xFFFF6644,0xFF3A2820,0xFFD47AC4,0xFFE69CD8,0xFF7A4470},
     };
 
     /** 活动主题实例：类初始化即建（先默认色板），随后立刻尝试从配置文件加载用户配色。
@@ -129,6 +131,12 @@ public final class EditorTheme {
     public int pinAudio() { return colors[C_PIN_AUDIO]; }
     /** 音频引脚边框 / audio pin border. */
     public int pinAudioBorder() { return colors[C_PIN_AUDIO_BORDER]; }
+    /** 向量连线 / vector wire. */
+    public int wireVec3() { return colors[C_WIRE_VEC3]; }
+    /** 向量引脚 / vector pin fill. */
+    public int pinVec3() { return colors[C_PIN_VEC3]; }
+    /** 向量引脚边框 / vector pin border. */
+    public int pinVec3Border() { return colors[C_PIN_VEC3_BORDER]; }
     /** 拖拽把手 / drag handle. */
     public int drag() { return colors[C_DRAG]; }
     /** 菜单文字 / menu text. */

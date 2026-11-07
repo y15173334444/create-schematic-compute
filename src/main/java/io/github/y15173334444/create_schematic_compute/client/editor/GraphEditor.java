@@ -1477,7 +1477,7 @@ public class GraphEditor {
 
         // ── A=2: Connections (bezier curves) ──
         renderer.renderConnections(g, graph, camX, camY, zoom);
-        if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom, dragTargetAudio(mx, my));
+        if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom, dragTargetType(mx, my));
 
         // ── A=3: Regular node bodies (sorted by B ascending, comments excluded — rendered at A=1) ──
         renderer.evalSnapshot = host.getCachedEvalSnapshot();
@@ -2042,12 +2042,11 @@ public class GraphEditor {
 
     /** 拖拽预览的目标域感知：按释放同款的命中几何找鼠标悬停的最近输入引脚，返回其是否
      *  AUDIO 域。BUS_OUT 编辑区频段引脚是任意域 → 记 false（预览色由起点域决定）；参数引脚
-     *  恒为浮点 → 无需检测。无悬停目标 → false（预览按起点域）。
-     *  Target-domain awareness for the drag preview: nearest hovered input pin by the same
-     *  hit geometry as release; returns whether it is AUDIO-domain. BUS_OUT edit-area band
-     *  pins are any-domain → false (source domain decides); param pins are float-only and
-     *  need no check; no target → false. */
-    private boolean dragTargetAudio(double mx, double my) {
+     *  恒为浮点 → 无需检测。无悬停目标 → null（预览按起点声明类型）。
+     *  Target-type awareness for the drag preview: nearest hovered input pin by the same
+     *  hit geometry as release; returns its declared payload type. Param pins are
+     *  float-only; no target → null. */
+    private PinType dragTargetType(double mx, double my) {
         var graph = getGraph();
         int bestNodeId = -1, bestPin = -1;
         float bestDist = Float.MAX_VALUE;
@@ -2079,9 +2078,9 @@ public class GraphEditor {
                 }
             }
         }
-        if (bestNodeId < 0) return false;
+        if (bestNodeId < 0) return null;
         var tn = graph.findNode(bestNodeId);
-        return tn != null && tn.type.inputType(bestPin) == PinType.AUDIO;
+        return tn != null ? tn.inputType(bestPin) : null;
     }
 
     /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。

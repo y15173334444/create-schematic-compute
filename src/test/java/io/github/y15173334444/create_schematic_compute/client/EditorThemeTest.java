@@ -33,9 +33,9 @@ class EditorThemeTest {
     @Test
     @DisplayName("默认色板锚点与旧 NodeRenderer 出厂值逐槽一致 / default palette anchors match the original factory values")
     void defaultsMatchTheOriginalPalette() {
-        assertEquals(26, EditorTheme.NUM_COLORS);
-        assertEquals(26, EditorTheme.COLOR_KEYS.length);
-        assertEquals(26, EditorTheme.DEFAULT_COLORS.length);
+        assertEquals(29, EditorTheme.NUM_COLORS);
+        assertEquals(29, EditorTheme.COLOR_KEYS.length);
+        assertEquals(29, EditorTheme.DEFAULT_COLORS.length);
         assertEquals(4, EditorTheme.THEMES.length);
         // 槽位锚点（取自原 NodeRenderer DEFAULT_COLORS）/ slot anchors (from the original NodeRenderer table)
         assertEquals(0xFF1F1E1A, EditorTheme.get().bg());

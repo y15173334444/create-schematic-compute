@@ -10,10 +10,10 @@ import static org.junit.jupiter.api.Assertions.*;
 import io.github.y15173334444.create_schematic_compute.client.editor.NodeRenderer;
 
 /**
- * NodeRenderer 调色板门面冻结核查：全部 26 个静态色访问器（公共 + 包级）逐槽等于
+ * NodeRenderer 调色板门面冻结核查：全部 29 个静态色访问器（公共 + 包级）逐槽等于
  * {@link EditorTheme} 的活动值，且运行时换色后门面**立即**反映新色（P2-23 回归锚——
  * 门面必须是活值委托，绝不允许任何 static final 捕获回潮）。
- * NodeRenderer palette facade freeze check: all 26 static colour accessors (public and
+ * NodeRenderer palette facade freeze check: all 29 static colour accessors (public and
  * package-private) must equal the corresponding live {@link EditorTheme} slot, and a runtime
  * recolour must show through the facade **immediately** (the P2-23 regression anchor — the
  * facade must stay live delegation, never a static-final capture again).
@@ -29,7 +29,7 @@ class NodeRendererPaletteFacadeTest {
     }
 
     @Test
-    @DisplayName("26 个门面访问器逐槽等于 EditorTheme 活动值 / all 26 facade accessors equal the live EditorTheme slots")
+    @DisplayName("29 个门面访问器逐槽等于 EditorTheme 活动值 / all 29 facade accessors equal the live EditorTheme slots")
     void facadeAccessorsDelegateToTheLiveTheme() {
         EditorTheme t = EditorTheme.get();
         assertEquals(t.bg(), NodeRenderer.CG());
@@ -58,6 +58,9 @@ class NodeRendererPaletteFacadeTest {
         assertEquals(t.accent(), NodeRenderer.ACC());
         assertEquals(t.error(), NodeRenderer.ERR());
         assertEquals(t.hover(), NodeRenderer.HOV());
+        assertEquals(t.wireVec3(), NodeRenderer.CV());
+        assertEquals(t.pinVec3(), NodeRenderer.CVP());
+        assertEquals(t.pinVec3Border(), NodeRenderer.CVPB());
     }
 
     @Test
@@ -88,8 +91,8 @@ class NodeRendererPaletteFacadeTest {
         EditorTheme.get().setColors(custom);
         NodeRenderer.initStaging();
         assertEquals(0xFF00BEEF, NodeRenderer.stagingColors[23]);
-        assertEquals(26, NodeRenderer.stagingColors.length);
-        assertEquals(26, NodeRenderer._NUM_COLORS);
+        assertEquals(29, NodeRenderer.stagingColors.length);
+        assertEquals(29, NodeRenderer._NUM_COLORS);
         // 改快照不影响主题（隔离不变式）/ mutating the staging copy must not touch the theme
         NodeRenderer.stagingColors[23] = 0xFF010101;
         assertEquals(0xFF00BEEF, EditorTheme.get().accent());
