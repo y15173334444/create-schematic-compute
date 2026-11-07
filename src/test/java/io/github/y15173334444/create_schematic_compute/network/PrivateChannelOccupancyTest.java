@@ -2,6 +2,7 @@ package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.graph.PinType;
 import net.minecraft.core.BlockPos;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -37,14 +38,14 @@ class PrivateChannelOccupancyTest {
     @DisplayName("owner 校验释放：他人放不掉；owner 放掉即撤值撤定义 / release is owner-checked and takes value+definition with it")
     void releaseIsOwnerChecked() {
         SignalBus.put("p", 7f);
-        SignalBus.setPrivateAudio("p", true);
+        SignalBus.setPrivateType("p", PinType.AUDIO);
         SignalBus.registerPrivateChannel("p", A);
         assertFalse(SignalBus.unregisterPrivateChannel("p", B), "a peer cannot release someone else's channel");
         assertEquals(7f, SignalBus.get("p"));
-        assertTrue(SignalBus.isPrivateAudio("p"));
+        assertEquals(PinType.AUDIO, SignalBus.privateType("p"));
         assertTrue(SignalBus.unregisterPrivateChannel("p", A));
         assertEquals(0f, SignalBus.get("p"), "the channel dies with its publisher");
-        assertFalse(SignalBus.isPrivateAudio("p"), "definition goes with the publisher");
+        assertEquals(PinType.FLOAT, SignalBus.privateType("p"), "definition goes with the publisher");
         assertNull(SignalBus.getPrivateOwner("p"));
     }
 
@@ -62,24 +63,24 @@ class PrivateChannelOccupancyTest {
     void clearSignalReleasesEverything() {
         SignalBus.registerPrivateChannel("p", A);
         SignalBus.put("p", 7f);
-        SignalBus.setPrivateAudio("p", true);
+        SignalBus.setPrivateType("p", PinType.AUDIO);
         SignalBus.clearSignal("p");
         assertNull(SignalBus.getPrivateOwner("p"));
         assertEquals(0f, SignalBus.get("p"));
-        assertFalse(SignalBus.isPrivateAudio("p"));
+        assertEquals(PinType.FLOAT, SignalBus.privateType("p"));
         assertTrue(SignalBus.registerPrivateChannel("p", B), "the freed name is claimable");
     }
 
     @Test
     @DisplayName("定义版本：变化才自增（推送去重用）/ the definition version bumps only on change")
     void definitionStampBumpsOnChangeOnly() {
-        assertEquals(0, SignalBus.privateAudioStamp("p"));
-        assertTrue(SignalBus.setPrivateAudio("p", true));
-        assertEquals(1, SignalBus.privateAudioStamp("p"));
-        assertFalse(SignalBus.setPrivateAudio("p", true), "same value is a no-op");
-        assertEquals(1, SignalBus.privateAudioStamp("p"));
-        assertTrue(SignalBus.setPrivateAudio("p", false));
-        assertEquals(2, SignalBus.privateAudioStamp("p"));
+        assertEquals(0, SignalBus.privateTypeStamp("p"));
+        assertTrue(SignalBus.setPrivateType("p", PinType.AUDIO));
+        assertEquals(1, SignalBus.privateTypeStamp("p"));
+        assertFalse(SignalBus.setPrivateType("p", PinType.AUDIO), "same value is a no-op");
+        assertEquals(1, SignalBus.privateTypeStamp("p"));
+        assertTrue(SignalBus.setPrivateType("p", PinType.FLOAT));
+        assertEquals(2, SignalBus.privateTypeStamp("p"));
     }
 
     @Test

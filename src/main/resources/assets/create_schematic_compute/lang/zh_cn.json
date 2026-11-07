@@ -439,6 +439,7 @@
   "pin.create_schematic_compute.bz": "Bz",
   "pin.create_schematic_compute.rpm": "转速",
   "gui.create_schematic_compute.edit.channel": "频道:",
+  "gui.create_schematic_compute.edit.channel_type": "类型",
   "gui.create_schematic_compute.edit.click_bind": "[ {0} ] 点击绑定",
   "gui.create_schematic_compute.edit.press_key": "按下按键...",
   "gui.create_schematic_compute.edit.press_gamepad": "按下手柄按键...",

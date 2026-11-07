@@ -32,7 +32,7 @@ public final class AudioEval {
         NodeGraph graph = ctx.graph;
         Map<Integer, float[]> outputs = ctx.outputs;
         RuntimeState runtimeState = ctx.runtimeState;
-        Map<Long, AudioRef> audioRefs = ctx.audioRefs;
+        Map<Long, PinPayload> payloadRefs = ctx.payloadRefs;
         AudioBandsPort audioBands = ctx.audioBands;
         Map<Integer, MusicTransport> audioTransports = ctx.audioTransports;
         net.minecraft.core.BlockPos audioHostPos = ctx.audioHostPos;
@@ -93,20 +93,20 @@ public final class AudioEval {
                 // pipeline to the sink: the client cancels this speaker's dispatched-but-
                 // unplayed voices, so a widened pre-roll leaves no tail after a stop.
                 boolean flush = tr.consumeFlushPulse() && !tr.isPlaying();
-                audioRefs.put(EvalContext.audioKey(node.id, 0), new AudioRef(events, 1f, flush));
-                o[0] = 0; // 音频引脚经 audioRefs（类型化，非浮点）
+                payloadRefs.put(EvalContext.payloadKey(node.id, 0), new AudioRef(events, 1f, flush));
+                o[0] = 0; // 音频引脚经 payloadRefs（类型化载荷，非浮点）
                 o[1] = tr.isPlaying() ? 1f : 0f;
                 o[2] = tr.headTick();
                 o[3] = (song != null) ? tr.headSeconds(song) : 0f;
                 o[4] = done ? 1f : 0f;
             }
             case AMP -> {
-                AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
+                AudioRef in = graph.getInputAudio(node.id, 0, payloadRefs);
                 float gainIn = graph.getInputValueOrDefault(node.id, 1, outputs,
                     node.params.length > 0 ? node.params[0] : 1f);
                 float gain = Math.max(0f, Math.min(4f, gainIn));
                 if (in == null) {
-                    audioRefs.put(EvalContext.audioKey(node.id, 0), AudioRef.EMPTY);
+                    payloadRefs.put(EvalContext.payloadKey(node.id, 0), AudioRef.EMPTY);
                 } else {
                     // 力度曲线（方案一，2026-10-05 作者拍板）：x = 音符自身力度（速度×层音量 =
                     // 实例音量，0..1），y = 输出力度（写回实例音量）——曲线管形状、链上标量（含引脚）
@@ -133,7 +133,7 @@ public final class AudioEval {
                                 AudioCurve.eval(node.curveX, node.curveY, e.instanceVolume())));
                         in = new AudioRef(shaped, in.gain(), in.stopSignal(), in.waveCurves());
                     }
-                    audioRefs.put(EvalContext.audioKey(node.id, 0), in.withGain(in.gain() * gain));
+                    payloadRefs.put(EvalContext.payloadKey(node.id, 0), in.withGain(in.gain() * gain));
                 }
             }
             case WSHAPE -> {
@@ -151,31 +151,31 @@ public final class AudioEval {
                 // true bypass (never enters the chain or the wire — bit-identical to
                 // untouched). Events and the scalar pass untouched (no server-side sample
                 // processing); works in amplifier and speaker graphs alike.
-                AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
+                AudioRef in = graph.getInputAudio(node.id, 0, payloadRefs);
                 if (in == null) {
-                    audioRefs.put(EvalContext.audioKey(node.id, 0), AudioRef.EMPTY);
+                    payloadRefs.put(EvalContext.payloadKey(node.id, 0), AudioRef.EMPTY);
                 } else if (AudioCurve.isIdentity(node.curveX, node.curveY)) {
-                    audioRefs.put(EvalContext.audioKey(node.id, 0), in);
+                    payloadRefs.put(EvalContext.payloadKey(node.id, 0), in);
                 } else {
-                    audioRefs.put(EvalContext.audioKey(node.id, 0),
+                    payloadRefs.put(EvalContext.payloadKey(node.id, 0),
                         in.withWaveCurve(new AudioCurve.Curve(node.curveX, node.curveY)));
                 }
             }
             case CHANNEL -> {
                 // 声道拆分：audio 入 → 各声道出（引脚集合 = 布局表；拆分口径见 ChannelLayout）。
-                AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
+                AudioRef in = graph.getInputAudio(node.id, 0, payloadRefs);
                 int chCount = node.signalBands != null ? node.signalBands.size() : 0;
                 boolean hasCenter = ChannelLayout.hasCenter(
                     node.params.length > 0 ? (int) node.params[0] : ChannelLayout.STEREO);
                 for (int ci = 0; ci < chCount; ci++)
-                    audioRefs.put(EvalContext.audioKey(node.id, ci),
+                    payloadRefs.put(EvalContext.payloadKey(node.id, ci),
                         ChannelLayout.channelRef(in, node.signalBands.get(ci), hasCenter));
             }
             case AUDIO_OUT -> {
                 // 单引脚多声道：audio 入（多声道 AudioRef）→ 发布到音频频段（band=signalName，带发布时刻）。
                 // owner = 宿主坐标+节点 id（R1-2 冲突纪律）：同名双发布方 → 双方旗标、整体静默；
                 // 空名无可发布对象，不算冲突。
-                AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
+                AudioRef in = graph.getInputAudio(node.id, 0, payloadRefs);
                 if (audioHostPos != null) {
                     node.audioConflict = !node.signalName.isEmpty()
                         && !audioBands
@@ -194,7 +194,7 @@ public final class AudioEval {
                 // splitting belongs to the upstream CHANNEL - one band per channel, the speaker
                 // is a dumb terminal; a single physical speaker cannot place multi-channel
                 // audio, so a consumer-side re-pick is a responsibility leak).
-                AudioRef in = graph.getAudioInputRef(node.id, 0, audioRefs);
+                AudioRef in = graph.getInputAudio(node.id, 0, payloadRefs);
                 if (in != null && speakerSink != null) {
                     if (in.stopSignal()) speakerSink.stopPlayback();
                     else speakerSink.play(in.events(), in.gain(), in.waveCurves());

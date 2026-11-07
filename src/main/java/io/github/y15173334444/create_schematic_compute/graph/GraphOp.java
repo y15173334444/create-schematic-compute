@@ -265,6 +265,17 @@ public record GraphOp(
             null, 0, 0, 0, 0, bands, 0, 0, 0, null, 0L, actor, 0, null, null);
     }
 
+    /** 引脚声明载荷类型变更（v1.3.0）：stringValue = PinType 稳定类型码，paramIndex =
+     *  引脚/频段槽位（PRIVATE_* 恒 0）。 Declared payload-type change (v1.3.0):
+     *  stringValue = the PinType stable code, paramIndex = the pin/band slot
+     *  (always 0 for PRIVATE_*). */
+    public static GraphOp setPinType(BlockPos pos, int ownerNodeId, int nodeId,
+                                     int pin, String typeCode, UUID actor) {
+        return new GraphOp(OpType.SET_PIN_TYPE, pos, ownerNodeId, nodeId,
+            0, null, 0f, 0f, 0, 0, 0, 0, pin, 0f,
+            typeCode, 0, 0, 0, 0, null, 0, 0, 0, null, 0L, actor, 0, null, null);
+    }
+
     /** 触发器当前态手动切换（GATE / T_FLIPFLOP 编辑区「当前状态」按钮）。自反 op。
      *  Manual toggle of a trigger's current state (the "Current state" row button on
      *  GATE / T_FLIPFLOP). Self-inverse. */

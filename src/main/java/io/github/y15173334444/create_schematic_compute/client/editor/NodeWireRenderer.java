@@ -82,9 +82,9 @@ final class NodeWireRenderer {
             boolean synced = fn.type == NodeType.BUS_IN
                 ? fn.signalBands != null && wireFromPin < fn.signalBands.size()
                     && io.github.y15173334444.create_schematic_compute.network.SignalBus
-                        .isAudioBand(fn.signalName, fn.signalBands.get(wireFromPin))
+                        .bandType(fn.signalName, fn.signalBands.get(wireFromPin)) == PinType.AUDIO
                 : io.github.y15173334444.create_schematic_compute.network.SignalBus
-                    .isPrivateAudio(fn.signalName);
+                    .privateType(fn.signalName) == PinType.AUDIO;
             sourceAudio = synced || graph.isBandPinAudio(fn.id, wireFromPin, true);
         }
         boolean audio = sourceAudio || targetAudio;

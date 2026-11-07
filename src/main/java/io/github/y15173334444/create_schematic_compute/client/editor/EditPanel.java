@@ -2,6 +2,7 @@ package io.github.y15173334444.create_schematic_compute.client.editor;
 
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.graph.PinType;
 import io.github.y15173334444.create_schematic_compute.graph.SpatialIndex;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -130,8 +131,7 @@ public class EditPanel {
         boolean isBusIn = node.type == NodeType.BUS_IN;
         int bandCount = st.fields.size() - 1;
         if (bandCount > 0) st.bandPinY = new float[bandCount];
-        for (int bi = 1; bi < st.fields.size(); bi++) {
-            // 引脚圆点（BUS_IN 输出在右，BUS_OUT 输入在左）
+        for (int bi = 1; bi < st.fields.size(); bi++) {            // 引脚圆点（BUS_IN 输出在右，BUS_OUT 输入在左）
             int pinIdx = st.fieldParamIndices.size() > bi ? st.fieldParamIndices.get(bi) : (bi - 1);
             boolean pinConnected;
             int pinX;
@@ -153,7 +153,7 @@ public class EditPanel {
             // (BUS_OUT) judges per pin by peer domain.
             boolean bandAudioFlag = isBusIn && node.signalBands != null && pinIdx < node.signalBands.size()
                 && io.github.y15173334444.create_schematic_compute.network.SignalBus
-                    .isAudioBand(node.signalName, node.signalBands.get(pinIdx));
+                    .bandType(node.signalName, node.signalBands.get(pinIdx)) == PinType.AUDIO;
             boolean audioPin = (isBusIn
                 ? bandAudioFlag || (st.graph != null && st.graph.isBandPinAudio(node.id, pinIdx, true))
                 : st.graph != null && st.graph.isBandPinAudio(node.id, pinIdx, false));
@@ -177,6 +177,26 @@ public class EditPanel {
                 int bx = px + 22, by = py + 4 + row * 18, bw = 80;
                 bandBox.setX(bx); bandBox.setY(by); bandBox.setWidth(bw);
                 manualEditBox(g, bandBox, bx, by, bw, 16);
+            }
+            // 声明类型切换芯片（float→audio→vec3 循环）：BUS_OUT 可点击改声明，
+            // BUS_IN 为定义指示（收敛跟频道走）。/ Declared-type cycle chip (float→audio→vec3):
+            // clickable on BUS_OUT (edits the declaration), an indicator on BUS_IN (the
+            // definition rides the channel).
+            {
+                PinType bt = node.bandType(pinIdx);
+                int chipW = 30, chipH = 12;
+                int chipX = isBusIn ? px + 4 : (px + pw - chipW - 4);
+                int chipY = pinY - chipH / 2;
+                if (st.bandTypeBtnX == null || st.bandTypeBtnX.length != bandCount) {
+                    st.bandTypeBtnX = new float[bandCount];
+                    st.bandTypeBtnY = new float[bandCount];
+                }
+                if (bi - 1 < st.bandTypeBtnX.length) {
+                    st.bandTypeBtnX[bi - 1] = chipX;
+                    st.bandTypeBtnY[bi - 1] = chipY;
+                }
+                st.bandTypeBtnW = chipW; st.bandTypeBtnH = chipH;
+                drawTypeChip(g, chipX, chipY, chipW, chipH, bt, mx, my, !isBusIn);
             }
             row++;
         }
@@ -374,6 +394,20 @@ public class EditPanel {
                 b.setX(ex); b.setY(ey); b.setWidth(ew);
                 manualEditBox(g, b, ex, ey, ew, 16);
             }
+            row++;
+        }
+        // PRIVATE_*：频道声明类型切换芯片（单引脚，float→audio→vec3 循环）
+        // PRIVATE_*: the channel's declared-type cycle chip (single pin)
+        if (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT) {
+            PinType pt = node.bandType(0);
+            int chipW = 30, chipH = 12;
+            String tlabel = I18n.get("gui.create_schematic_compute.edit.channel_type") + ":";
+            g.drawString(Minecraft.getInstance().font, tlabel, px + 4, py + 4 + row * 18 + 1, 0xFF888888, false);
+            int chipX = px + 8 + Minecraft.getInstance().font.width(tlabel);
+            int chipY = py + 4 + row * 18 + 1;
+            st.bandTypeBtnX0 = chipX; st.bandTypeBtnY0 = chipY;
+            st.bandTypeBtnW = chipW; st.bandTypeBtnH = chipH;
+            drawTypeChip(g, chipX, chipY, chipW, chipH, pt, mx, my, false);
             row++;
         }
         } // else 块结束
@@ -871,6 +905,29 @@ public class EditPanel {
                 .prefixWidth(Minecraft.getInstance().font, val, cp));
             g.fill(cx, y + 2, cx + 1, y + h - 4, 0xFFFFFFFF);
         }
+    }
+
+    /** 声明载荷类型芯片：类型码短文本 + 类型底色（金=浮点 / 青=音频 / 品红=向量；
+     *  悬停高亮，{@code readOnly} 时无悬停高亮）。/ Declared payload-type chip: the type
+     *  code's short text on a per-type tint (gold=float / teal=audio / magenta=vector;
+     *  hover highlights unless {@code readOnly}). */
+    private static void drawTypeChip(GuiGraphics g, int x, int y, int w, int h, PinType t,
+                                     int mx, int my, boolean readOnly) {
+        int bg = switch (t) {
+            case FLOAT -> 0xFF6A5A2A;
+            case AUDIO -> 0xFF1F5A52;
+            case VEC3 -> 0xFF5A2A5A;
+        };
+        boolean hover = !readOnly && mx >= x && mx <= x + w && my >= y && my <= y + h;
+        g.fill(x, y, x + w, y + h, hover ? 0xFF3A3A3A : bg);
+        g.renderOutline(x, y, w, h, hover ? 0xFFFFFFFF : 0xFF888888);
+        String txt = switch (t) {
+            case FLOAT -> "f32";
+            case AUDIO -> "aud";
+            case VEC3 -> "v3";
+        };
+        int tw = Minecraft.getInstance().font.width(txt);
+        g.drawString(Minecraft.getInstance().font, txt, x + (w - tw) / 2, y + (h - 8) / 2 + 1, 0xFFEAEAEA, false);
     }
 
 }

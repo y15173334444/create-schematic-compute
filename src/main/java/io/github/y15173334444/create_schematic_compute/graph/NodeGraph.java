@@ -141,15 +141,14 @@ public class NodeGraph {
         return true;
     }
 
-    /** 引脚载荷类型兼容：声明类型严格相等（AUDIO↔AUDIO、FLOAT↔FLOAT、VEC3↔VEC3）；
-     *  BUS_OUT/BUS_IN/PRIVATE_OUT/PRIVATE_IN 频段引脚暂接受任意类型（音频可走「总线/私有信号
-     *  频段」，R1-2；接上后求值器走音频分支）——严格化随传输收编批次进行。
-     *  Pin payload-type compatibility: declared types must match strictly; BUS/PRIVATE
-     *  band pins still accept any type for now (audio routes through bus/private bands,
-     *  R1-2) — strict typing lands with the transport-consolidation batch. */
+    /** 引脚载荷类型兼容：声明类型严格相等（AUDIO↔AUDIO、FLOAT↔FLOAT、VEC3↔VEC3）。
+     *  BUS/PRIVATE 频段引脚也按**声明类型**参与严格匹配（任意域豁免已随传输收编退役）——
+     *  音频走总线/私有频段 = 把频段声明为 AUDIO 后再接线。
+     *  Pin payload-type compatibility: declared types must match strictly. BUS/PRIVATE band
+     *  pins match by their declared type too (the any-domain exemption retired with the
+     *  transport consolidation) — routing audio through a band means declaring the band
+     *  AUDIO first, then wiring. */
     private static boolean pinDomainsMatch(GraphNode fromNode, int fromPin, GraphNode toNode, int toPin) {
-        if (toNode.type == NodeType.BUS_OUT || fromNode.type == NodeType.BUS_IN
-            || toNode.type == NodeType.PRIVATE_OUT || fromNode.type == NodeType.PRIVATE_IN) return true;
         return fromNode.outputType(fromPin) == toNode.inputType(toPin);
     }
 
@@ -213,19 +212,6 @@ public class NodeGraph {
         return removed;
     }
 
-    /** 该 (节点, 输出引脚) 是否接到了 AUDIO 域输入（BUS_IN 按频段走音频分支的判据——
-     *  只看这一根引脚的连线，不是节点级）。
-     *  Whether this (node, output pin) feeds an AUDIO-domain input (the per-band criterion
-     *  for BUS_IN's audio branch — this pin's wires only, not node-level). */
-    public boolean isAudioWired(int fromNodeId, int fromPin) {
-        for (NodeConnection c : connections) {
-            if (c.fromId != fromNodeId || c.fromPin != fromPin) continue;
-            var to = nodeMap.get(c.toId);
-            if (to != null && to.inputType(c.toPin) == PinType.AUDIO) return true;
-        }
-        return false;
-    }
-
     /** 获取拓扑排序（缓存，仅在连接变化时重算）。
      *  Get topological order (cached, recomputed only on connection changes). */    public List<Integer> getTopoOrder() {
         if (topoOrder != null) return topoOrder;
@@ -242,15 +228,8 @@ public class NodeGraph {
      *  transfer hops read at a glance. */
     private static final EnumSet<NodeType> TRANSFER_TYPES =
         EnumSet.of(NodeType.BUS_IN, NodeType.BUS_OUT, NodeType.PRIVATE_IN, NodeType.PRIVATE_OUT);
-    /** 输出侧频段节点（其输出引脚可承载音频）/ output-side band nodes (their output pins can carry audio). */
-    private static final EnumSet<NodeType> BAND_SOURCE_TYPES =
-        EnumSet.of(NodeType.BUS_IN, NodeType.PRIVATE_IN);
-    /** 输入侧频段节点（其输入引脚可承载音频）/ input-side band nodes (their input pins can carry audio). */
-    private static final EnumSet<NodeType> BAND_SINK_TYPES =
-        EnumSet.of(NodeType.BUS_OUT, NodeType.PRIVATE_OUT);
     private int transferPinVersion = -1;
     private final Set<Long> transferWiredPins = new HashSet<>();
-    private final Set<Long> bandAudioPins = new HashSet<>();
 
     /** 该 (节点, 引脚) 是否连着总线/私有传输节点（编辑器引脚着色用）。
      *  缓存按拓扑版本失效——加/删连线/节点都会 bump 版本号，O(E) 重建摊销到首次查询。
@@ -260,7 +239,6 @@ public class NodeGraph {
     public boolean isTransferWired(int nodeId, int pin, boolean output) {
         if (topoVersion != transferPinVersion) {
             transferWiredPins.clear();
-            bandAudioPins.clear();
             for (NodeConnection c : connections) {
                 GraphNode fn = nodeMap.get(c.fromId);
                 GraphNode tn = nodeMap.get(c.toId);
@@ -269,30 +247,22 @@ public class NodeGraph {
                     transferWiredPins.add(transferPinKey(c.fromId, true, c.fromPin));
                     transferWiredPins.add(transferPinKey(c.toId, false, c.toPin));
                 }
-                // 频段节点自身的引脚承载音频 = 对端引脚是 AUDIO 域（BUS_IN/PRIVATE_IN 的输出接
-                // 音频输入、BUS_OUT/PRIVATE_OUT 的输入接音频输出）——引脚随连线变音频色。
-                // A band node's own pin carries audio when its peer pin is AUDIO-domain
-                // (BUS_IN/PRIVATE_IN outputs into audio inputs, audio outputs into
-                // BUS_OUT/PRIVATE_OUT inputs) — the pin tints with its wires.
-                if (BAND_SOURCE_TYPES.contains(fn.type)
-                        && tn.inputType(c.toPin) == PinType.AUDIO)
-                    bandAudioPins.add(transferPinKey(c.fromId, true, c.fromPin));
-                if (BAND_SINK_TYPES.contains(tn.type)
-                        && fn.outputType(c.fromPin) == PinType.AUDIO)
-                    bandAudioPins.add(transferPinKey(c.toId, false, c.toPin));
             }
             transferPinVersion = topoVersion;
         }
         return transferWiredPins.contains(transferPinKey(nodeId, output, pin));
     }
 
-    /** 该 (频段节点, 引脚) 的连线对端是否音频域（BUS_IN/PRIVATE_IN 输出、BUS_OUT/PRIVATE_OUT
-     *  输入的音频着色用）。缓存与 {@link #isTransferWired} 同版本同生命周期。
-     *  Whether a band node's pin peers an AUDIO-domain pin (tinting BUS_IN/PRIVATE_IN outputs
-     *  and BUS_OUT/PRIVATE_OUT inputs); shares isTransferWired's cache lifecycle. */
+    /** 该 (频段节点, 引脚) 的**声明载荷类型**是否 AUDIO（频段引脚的音频着色用；v1.3.0 起
+     *  看声明、不再看连线拓扑；非频段节点恒 false——方法名本义）/ Whether a band pin's
+     *  declared payload type is AUDIO (band-pin audio tinting; declared, not
+     *  topology-derived, since v1.3.0; always false for non-band nodes — the name's
+     *  literal scope). */
     public boolean isBandPinAudio(int nodeId, int pin, boolean output) {
-        isTransferWired(nodeId, pin, output); // ensure cache rebuilt for the current topology
-        return bandAudioPins.contains(transferPinKey(nodeId, output, pin));
+        GraphNode n = nodeMap.get(nodeId);
+        if (n == null || !(n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT
+                || n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT)) return false;
+        return output ? n.outputType(pin) == PinType.AUDIO : n.inputType(pin) == PinType.AUDIO;
     }
 
     private static long transferPinKey(int nodeId, boolean output, int pin) {
@@ -533,26 +503,22 @@ public class NodeGraph {
         return inputCache.containsKey(key(nodeId, pinIdx));
     }
 
-    /** O(1) 取音频输入引脚的上游音源引用（{@link AudioRef}）；无连线返回 null。
-     *  Audio wires carry a typed {@link AudioRef} (not a float) — resolved via the connection
-     *  to the upstream node's audio output ref. */
-    public AudioRef getAudioInputRef(int nodeId, int pinIdx, Map<Long, AudioRef> audioRefs) {
+    /** O(1) 取音频输入引脚的上游音源引用（{@link AudioRef}）；无连线/非音频载荷返回 null。
+     *  Audio pins carry a typed {@link AudioRef} payload — resolved via the connection to
+     *  the upstream node's payload entry. */
+    public AudioRef getInputAudio(int nodeId, int pinIdx, Map<Long, PinPayload> payloadRefs) {
         NodeConnection c = inputCache.get(key(nodeId, pinIdx));
-        return c != null ? audioRefs.get(key(c.fromId, c.fromPin)) : null;
+        PinPayload p = c != null ? payloadRefs.get(key(c.fromId, c.fromPin)) : null;
+        return p instanceof AudioRef a ? a : null;
     }
 
-    /** 该节点的输出是否接了音频线（任一出线指向 AUDIO 域输入引脚）。
-     *  供 BUS_IN 的音频分支判定——只有挂了音频线的 BUS_IN 才读音频频段，
-     *  避免同名浮点频段被音频发布方劫持。
-     *  Whether any outgoing wire of this node feeds an AUDIO-domain input pin.
-     *  Gates the BUS_IN audio branch: a BUS_IN reads audio bands only when audio-wired. */
-    public boolean hasAudioSinkConnection(int fromNodeId) {
-        for (NodeConnection c : connections) {
-            if (c.fromId != fromNodeId) continue;
-            GraphNode to = nodeMap.get(c.toId);
-            if (to != null && to.inputType(c.toPin) == PinType.AUDIO) return true;
-        }
-        return false;
+    /** O(1) 取向量输入引脚的上游向量载荷（{@link Vec3f}）；无连线/非向量载荷返回 null。
+     *  Vector pins carry a typed {@link Vec3f} payload — resolved via the connection to
+     *  the upstream node's payload entry. */
+    public Vec3f getInputVec3(int nodeId, int pinIdx, Map<Long, PinPayload> payloadRefs) {
+        NodeConnection c = inputCache.get(key(nodeId, pinIdx));
+        PinPayload p = c != null ? payloadRefs.get(key(c.fromId, c.fromPin)) : null;
+        return p instanceof Vec3f v ? v : null;
     }
 
     public boolean hasCycles() {

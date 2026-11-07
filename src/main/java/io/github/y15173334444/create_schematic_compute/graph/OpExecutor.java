@@ -500,6 +500,36 @@ public final class OpExecutor {
                 yield n;
             }
 
+            case SET_PIN_TYPE -> {
+                var n = graph.findNode(op.targetNodeId());
+                PinType t = n != null ? PinType.byCode(op.stringValue()) : null;
+                if (n != null && t != null) {
+                    if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) {
+                        // 私有频道单引脚改类型（pinId 换段重绑，对端不匹配的剪除）
+                        // Private channel's single pin retypes (type-segment rebind; mismatched peers prune)
+                        if (n.bandType(0) != t) {
+                            graph.setPrivatePinType(n, t);
+                            graph.rebuildInputCache();
+                            graph.bumpGeneration();
+                        }
+                    } else if ((n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
+                            && n.signalBands != null && op.paramIndex() >= 0
+                            && op.paramIndex() < n.signalBands.size()) {
+                        // 频段槽位改类型（reconcileBands 的类型换段重绑）
+                        // A band slot retypes (reconcileBands' type-segment rebind)
+                        if (n.bandType(op.paramIndex()) != t) {
+                            var types = new java.util.ArrayList<PinType>();
+                            for (int i = 0; i < n.signalBands.size(); i++) types.add(n.bandType(i));
+                            types.set(op.paramIndex(), t);
+                            graph.reconcileBands(n, n.signalBands, types);
+                            graph.rebuildInputCache();
+                            graph.bumpGeneration();
+                        }
+                    }
+                }
+                yield n;
+            }
+
             case SET_BLOCK_NAME -> {
                 // 图级 op：名称挂在 NodeGraph 上（随图序列化/同步），不属于任何节点。
                 // 纯视觉 op —— 名称不参与求值，不 bump（与 SET_ZORDER 同理），避免无谓重编译。
@@ -1006,6 +1036,16 @@ public final class OpExecutor {
             node.signalBands = new java.util.ArrayList<>();
             for (int i = 0; i < bandsTag.size() && i < MAX_BANDS; i++)
                 node.signalBands.add(bandsTag.getString(i));
+        }
+        // 声明载荷类型表（缺省全 FLOAT；与 bands 平行）/ declared payload types (FLOAT by
+        // default; parallel to bands)
+        if (tag.contains("bandTypes")) {
+            var typesTag = tag.getList("bandTypes", net.minecraft.nbt.Tag.TAG_STRING);
+            node.bandTypes = new java.util.ArrayList<>();
+            for (int i = 0; i < typesTag.size() && i < MAX_BANDS; i++) {
+                PinType t = PinType.byCode(typesTag.getString(i));
+                node.bandTypes.add(t != null ? t : PinType.FLOAT);
+            }
         }
         // BUS_OUT internalMap
         if (tag.contains("busData")) {

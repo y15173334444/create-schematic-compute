@@ -439,6 +439,7 @@
   "pin.create_schematic_compute.bz": "Bz",
   "pin.create_schematic_compute.rpm": "rpm",
   "gui.create_schematic_compute.edit.channel": "Channel:",
+  "gui.create_schematic_compute.edit.channel_type": "Type",
   "gui.create_schematic_compute.edit.click_bind": "[ {0} ] Click to bind",
   "gui.create_schematic_compute.edit.press_key": "Press a key...",
   "gui.create_schematic_compute.edit.press_gamepad": "Press a gamepad button...",

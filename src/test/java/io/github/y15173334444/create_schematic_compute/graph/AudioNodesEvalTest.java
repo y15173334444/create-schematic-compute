@@ -111,20 +111,33 @@ class AudioNodesEvalTest {
     }
 
     @Test
-    @DisplayName("BUS_IN 音频分支门控：只有挂音频线才读频段 / the BUS_IN audio branch requires an audio wire")
+    @DisplayName("BUS_IN 分支门控：频段声明类型决定读哪个载体 / the BUS_IN branch follows the band's declared type")
     void busInAudioBranchGating() {
         NodeGraph g = new NodeGraph();
+        // 频段声明 AUDIO → 只能接音频脚（严格类型匹配）/ declared AUDIO wires only to audio pins
         GraphNode busIn = g.addNode(NodeType.BUS_IN, 0, 0);
         busIn.signalName = "B";
-        GraphNode amp = g.addNode(NodeType.AMP, 100, 0);       // AMP 音频入 = AUDIO 域
-        GraphNode add = g.addNode(NodeType.ADD, 200, 0);       // ADD 输入 = FLOAT 域
-        assertTrue(g.addConnection(busIn.id, 0, amp.id, 0));
-        assertTrue(g.hasAudioSinkConnection(busIn.id), "wired to an audio pin → audio branch");
+        busIn.signalBands = new ArrayList<>(List.of("ba"));
+        busIn.bandTypes = new ArrayList<>(List.of(PinType.AUDIO));
+        GraphNode amp = g.addNode(NodeType.AMP, 100, 0);       // AMP 音频入 = AUDIO
+        assertTrue(g.addConnection(busIn.id, 0, amp.id, 0), "declared AUDIO band wires to an audio pin");
 
+        // 频段声明 FLOAT → 只能接浮点脚 / declared FLOAT wires only to float pins
         GraphNode busIn2 = g.addNode(NodeType.BUS_IN, 0, 100);
         busIn2.signalName = "B";
-        assertTrue(g.addConnection(busIn2.id, 0, add.id, 0));
-        assertFalse(g.hasAudioSinkConnection(busIn2.id), "wired to a float pin → float branch (no hijack)");
+        busIn2.signalBands = new ArrayList<>(List.of("bb"));
+        GraphNode add = g.addNode(NodeType.ADD, 200, 0);       // ADD 输入 = FLOAT
+        assertTrue(g.addConnection(busIn2.id, 0, add.id, 0), "declared FLOAT band wires to a float pin");
+
+        // 严格匹配：类型不合的接线拒绝（对端音频脚空闲，拒绝只能来自类型）/ strict matching:
+        // mismatched types are refused (the audio pin is free, so only the type can refuse)
+        GraphNode amp2 = g.addNode(NodeType.AMP, 300, 0);
+        assertFalse(g.addConnection(busIn2.id, 0, amp2.id, 0), "a FLOAT band must not wire into an audio pin");
+        GraphNode busIn3 = g.addNode(NodeType.BUS_IN, 0, 200);
+        busIn3.signalName = "B";
+        busIn3.signalBands = new ArrayList<>(List.of("bc"));
+        busIn3.bandTypes = new ArrayList<>(List.of(PinType.AUDIO));
+        assertFalse(g.addConnection(busIn3.id, 0, add.id, 1), "an AUDIO band must not wire into a float pin");
     }
 
     @Test
@@ -257,9 +270,9 @@ class AudioNodesEvalTest {
     }
 
     @Test
-    @DisplayName("私有频段音频：PRIVATE_OUT 发布 → PRIVATE_IN 读取 / private band audio: publish then read")
+    @DisplayName("私有频段音频：声明 AUDIO 后发布 → 读取 / private band audio: declare AUDIO, publish, read")
     void privateBandAudio() {
-        // 图 1：MUSIC→AMP→PRIVATE_OUT("px")——音频线接私有频段引脚（域特判放行）
+        // 图 1：MUSIC→AMP→PRIVATE_OUT("px")——频道声明 AUDIO 后音频线才可接入
         NodeGraph g1 = new NodeGraph();
         GraphNode constPlay1 = g1.addNode(NodeType.CONST, 0, 0);
         constPlay1.params[0] = 1f;
@@ -269,9 +282,10 @@ class AudioNodesEvalTest {
         amp.params[0] = 1f;
         GraphNode pout = g1.addNode(NodeType.PRIVATE_OUT, 300, 0);
         pout.signalName = "px";
+        pout.bandTypes = new ArrayList<>(List.of(PinType.AUDIO));
         assertTrue(g1.addConnection(constPlay1.id, 0, music.id, 0));
         assertTrue(g1.addConnection(music.id, 0, amp.id, 0));
-        assertTrue(g1.addConnection(amp.id, 0, pout.id, 0), "audio wire into PRIVATE_OUT accepted (band-pin domain rule)");
+        assertTrue(g1.addConnection(amp.id, 0, pout.id, 0), "audio wire into an AUDIO-declared PRIVATE_OUT");
 
         GraphEvaluator ev1 = new GraphEvaluator(g1);
         ev1.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
@@ -285,9 +299,10 @@ class AudioNodesEvalTest {
         NodeGraph g2 = new NodeGraph();
         GraphNode pin = g2.addNode(NodeType.PRIVATE_IN, 0, 0);
         pin.signalName = "px";
+        pin.bandTypes = new ArrayList<>(List.of(PinType.AUDIO));
         GraphNode out = g2.addNode(NodeType.AUDIO_OUT, 100, 0);
         out.signalName = "rx";
-        assertTrue(g2.addConnection(pin.id, 0, out.id, 0), "PRIVATE_OUT wire into an audio pin accepted");
+        assertTrue(g2.addConnection(pin.id, 0, out.id, 0), "AUDIO-declared PRIVATE_IN wire into an audio pin");
 
         GraphEvaluator ev2 = new GraphEvaluator(g2);
         ev2.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
@@ -303,7 +318,7 @@ class AudioNodesEvalTest {
     }
 
     @Test
-    @DisplayName("频段音频标志：BUS_OUT 按引脚对端域写入 SignalBus / band audio flags: BUS_OUT derives them from pin peers")
+    @DisplayName("频段声明类型：BUS_OUT 把声明写入 SignalBus / band declared types: BUS_OUT pushes its declarations")
     void bandAudioFlagsPublished() {
         NodeGraph g = new NodeGraph();
         GraphNode constPlay = g.addNode(NodeType.CONST, 0, 0);
@@ -313,8 +328,9 @@ class AudioNodesEvalTest {
         GraphNode busOut = g.addNode(NodeType.BUS_OUT, 200, 0);
         busOut.signalName = "fb";
         busOut.signalBands = new ArrayList<>(List.of("ba", "bb"));
+        busOut.bandTypes = new ArrayList<>(List.of(PinType.AUDIO, PinType.FLOAT));
         assertTrue(g.addConnection(constPlay.id, 0, music.id, 0));
-        assertTrue(g.addConnection(music.id, 0, busOut.id, 0), "MUSIC feeds band ba (audio)");
+        assertTrue(g.addConnection(music.id, 0, busOut.id, 0), "MUSIC feeds band ba (declared audio)");
 
         GraphEvaluator ev = new GraphEvaluator(g);
         ev.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
@@ -324,24 +340,23 @@ class AudioNodesEvalTest {
         ev.setAudioHostPos(new BlockPos(0, 0, 0));
         ev.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
 
-        assertTrue(io.github.y15173334444.create_schematic_compute.network.SignalBus.isAudioBand("fb", "ba"),
-            "band ba has an audio peer");
-        assertFalse(io.github.y15173334444.create_schematic_compute.network.SignalBus.isAudioBand("fb", "bb"),
-            "band bb has no wire");
-        int stamp = io.github.y15173334444.create_schematic_compute.network.SignalBus.audioStamp("fb");
+        assertEquals(PinType.AUDIO, SignalBus.bandType("fb", "ba"), "band ba is declared audio");
+        assertEquals(PinType.FLOAT, SignalBus.bandType("fb", "bb"), "band bb is declared float");
+        int stamp = SignalBus.bandTypeStamp("fb");
 
-        // 拆掉音频连线后再求值：标志翻 false、版本自增（宿主推送据此重发）
-        g.removeConnection(music.id, 0, busOut.id, 0);
+        // 改声明（ba → FLOAT）后再求值：类型翻转、版本自增（宿主推送据此重发）
+        // Re-declare (ba → FLOAT) and re-evaluate: the type flips and the version moves.
+        g.reconcileBands(busOut, List.of("ba", "bb"), List.of(PinType.FLOAT, PinType.FLOAT));
         ev.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-        assertFalse(io.github.y15173334444.create_schematic_compute.network.SignalBus.isAudioBand("fb", "ba"));
-        assertTrue(io.github.y15173334444.create_schematic_compute.network.SignalBus.audioStamp("fb") > stamp,
-            "the flag version moved so hosts push the new definition");
+        assertEquals(PinType.FLOAT, SignalBus.bandType("fb", "ba"), "the declaration rules");
+        assertTrue(SignalBus.bandTypeStamp("fb") > stamp,
+            "the definition version moved so hosts push the new definition");
     }
 
     @Test
     @DisplayName("频段隔离：BUS_IN 按频段读各自的音频键 / per-band isolation: BUS_IN reads each band's own key")
     void busInPerBandIsolation() {
-        // 发布方：MUSIC→BUS_OUT("fb") 的 ba（音频）；bb 无音频输入（浮点）
+        // 发布方：MUSIC→BUS_OUT("fb") 的 ba（声明音频）；bb 声明浮点
         NodeGraph g1 = new NodeGraph();
         GraphNode constPlay = g1.addNode(NodeType.CONST, 0, 0);
         constPlay.params[0] = 1f;
@@ -350,6 +365,7 @@ class AudioNodesEvalTest {
         GraphNode busOut = g1.addNode(NodeType.BUS_OUT, 200, 0);
         busOut.signalName = "fb";
         busOut.signalBands = new ArrayList<>(List.of("ba", "bb"));
+        busOut.bandTypes = new ArrayList<>(List.of(PinType.AUDIO, PinType.FLOAT));
         assertTrue(g1.addConnection(constPlay.id, 0, music.id, 0));
         assertTrue(g1.addConnection(music.id, 0, busOut.id, 0));
 
@@ -361,11 +377,12 @@ class AudioNodesEvalTest {
         ev1.setAudioHostPos(new BlockPos(0, 0, 0));
         ev1.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
 
-        // 订阅方：BUS_IN("fb") 的 ba → AUDIO_OUT；bb 不接
+        // 订阅方：BUS_IN("fb") 的 ba（声明音频）→ AUDIO_OUT；bb 不接
         NodeGraph g2 = new NodeGraph();
         GraphNode busIn = g2.addNode(NodeType.BUS_IN, 0, 0);
         busIn.signalName = "fb";
         busIn.signalBands = new ArrayList<>(List.of("ba", "bb"));
+        busIn.bandTypes = new ArrayList<>(List.of(PinType.AUDIO, PinType.FLOAT));
         GraphNode rx = g2.addNode(NodeType.AUDIO_OUT, 100, 0);
         rx.signalName = "rx";
         assertTrue(g2.addConnection(busIn.id, 0, rx.id, 0), "band ba wired to an audio consumer");
@@ -440,9 +457,9 @@ class AudioNodesEvalTest {
     }
 
     @Test
-    @DisplayName("私有频道定义：音频输入定义为音频、浮点输入定义为浮点（引脚类型变换的属性源）/ the channel definition follows the input pin's peer domain")
+    @DisplayName("私有频道定义：声明类型即频道属性（引脚类型变换的属性源）/ the channel definition follows the declared type")
     void privateChannelDefinitionFollowsPeerDomain() {
-        // 音频输入：MUSIC→AMP→PRIVATE_OUT("pd") → 定义为音频
+        // 声明 AUDIO：MUSIC→AMP→PRIVATE_OUT("pd") → 频道定义为音频
         NodeGraph g1 = new NodeGraph();
         GraphNode constPlay = g1.addNode(NodeType.CONST, 0, 0);
         constPlay.params[0] = 1f;
@@ -452,6 +469,7 @@ class AudioNodesEvalTest {
         amp.params[0] = 1f;
         GraphNode pout = g1.addNode(NodeType.PRIVATE_OUT, 300, 0);
         pout.signalName = "pd";
+        pout.bandTypes = new ArrayList<>(List.of(PinType.AUDIO));
         assertTrue(g1.addConnection(constPlay.id, 0, music.id, 0));
         assertTrue(g1.addConnection(music.id, 0, amp.id, 0));
         assertTrue(g1.addConnection(amp.id, 0, pout.id, 0));
@@ -462,9 +480,9 @@ class AudioNodesEvalTest {
         ev1.setAudioTransports(new HashMap<>());
         ev1.setAudioHostPos(new BlockPos(0, 0, 0));
         ev1.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-        assertTrue(SignalBus.isPrivateAudio("pd"), "an audio pin peer defines the channel as audio");
+        assertEquals(PinType.AUDIO, SignalBus.privateType("pd"), "the declaration defines the channel as audio");
 
-        // 浮点输入：CONST→PRIVATE_OUT("pf") → 定义为浮点
+        // 声明 FLOAT（缺省）：CONST→PRIVATE_OUT("pf") → 频道定义为浮点
         NodeGraph g2 = new NodeGraph();
         GraphNode c = g2.addNode(NodeType.CONST, 0, 0);
         c.params[0] = 5f;
@@ -478,7 +496,7 @@ class AudioNodesEvalTest {
         ev2.setAudioTransports(new HashMap<>());
         ev2.setAudioHostPos(new BlockPos(0, 0, 0));
         ev2.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-        assertFalse(SignalBus.isPrivateAudio("pf"), "a float pin peer defines the channel as float");
+        assertEquals(PinType.FLOAT, SignalBus.privateType("pf"), "the declaration defines the channel as float");
         assertEquals(5f, SignalBus.get("pf"), 1e-6);
     }
 
@@ -500,7 +518,7 @@ class AudioNodesEvalTest {
         pout.busConflict = true; // 名被其他 owner 占用（注册路径置位）/ the name is held by another owner
         ev.evaluate(List.of(), Map.of(), DT, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
         assertEquals(0f, SignalBus.get("pc"), "a conflicted writer never lands");
-        assertFalse(SignalBus.isPrivateAudio("pc"), "a conflicted node defines nothing");
+        assertEquals(0, SignalBus.privateTypeStamp("pc"), "a conflicted node defines nothing");
     }
 
     @Test

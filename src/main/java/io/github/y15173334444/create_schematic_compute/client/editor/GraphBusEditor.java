@@ -199,6 +199,7 @@ final class GraphBusEditor {
             ? new java.util.ArrayList<>(n.signalBands) : java.util.List.of();
         int oldCount = oldBands.size();
         n.signalBands.clear();
+        n.bandTypes.clear();
         n.bandsDirty = true;
         var g = ed.getGraph();
         // 按 pinId 参段（频段名）清理连线，并带 legacy 索引回退（与 bandRemoveBtn 路径一致）
@@ -283,6 +284,10 @@ final class GraphBusEditor {
                 var removed = new java.util.ArrayList<>(oldBands);
                 removed.removeAll(newBands);
                 n.signalBands = newBands;
+                // 声明类型随槽位复制（同频道对齐与源头一致）/ declared types copy slot-wise
+                n.bandTypes = new java.util.ArrayList<>();
+                for (int i = 0; i < newBands.size(); i++)
+                    n.bandTypes.add(src.bandType(i));
                 n.bandsDirty = true;
                 // Only remove connections on bands that were actually deleted,
                 // matched by band name (= pinId param). Preserves connections on

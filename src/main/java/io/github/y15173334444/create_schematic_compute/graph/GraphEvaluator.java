@@ -74,8 +74,8 @@ public class GraphEvaluator {
      *  amplifier computer's spectrum tap) — pull-based, never in the audio path, so reading (or
      *  not) cannot change the evaluation result. */
     public AudioRef audioOut(int nodeId, int pin) {
-        AudioRef r = ctx.audioRefs.get(EvalContext.audioKey(nodeId, pin));
-        return r == null ? AudioRef.EMPTY : r;
+        PinPayload p = ctx.payloadRefs.get(EvalContext.payloadKey(nodeId, pin));
+        return p instanceof AudioRef r ? r : AudioRef.EMPTY;
     }
     /** MUSIC 传输状态表（nodeId → 传输），由宿主 BE 注入并经类型段 NBT 持久化。
      *  Per-MUSIC-node transport, injected + persisted by the host BE. */
@@ -287,7 +287,7 @@ public class GraphEvaluator {
                                         Map<Integer, Boolean> flipflopStates,
                                         Map<Integer, Integer> pulseTimers) {
         ctx.outputs.clear();
-        ctx.audioRefs.clear();
+        ctx.payloadRefs.clear();
         List<Integer> sorted = ctx.graph.getTopoOrder();
         for (int id : sorted) {
             GraphNode n = ctx.graph.findNode(id);

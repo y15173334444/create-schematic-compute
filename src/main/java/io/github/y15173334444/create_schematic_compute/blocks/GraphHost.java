@@ -12,7 +12,7 @@ import io.github.y15173334444.create_schematic_compute.network.BusBandSyncPacket
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.network.ChannelOwner;
 import io.github.y15173334444.create_schematic_compute.network.ClientboundGraphEvalPacket;
-import io.github.y15173334444.create_schematic_compute.network.PrivateChannelAudioPacket;
+import io.github.y15173334444.create_schematic_compute.network.PrivateChannelTypePacket;
 import io.github.y15173334444.create_schematic_compute.network.RuntimeStateSyncPacket;
 import io.github.y15173334444.create_schematic_compute.network.SignalBus;
 import net.minecraft.core.BlockPos;
@@ -477,22 +477,23 @@ public class GraphHost {
                         new BusBandSyncPacket(pos(), e.getKey(), e.getValue()));
                 }
             }
-            pushAudioFlagChanges(sl);
+            pushTypeChanges(sl);
         }
     }
 
-    /** 每频道上次推送的标志版本（pushAudioFlagChanges 的去重缓存；宿主实例生命周期）。
-     *  Per-channel last-pushed flag version (pushAudioFlagChanges dedup cache; host lifetime). */
-    private final java.util.Map<String, Integer> pushedAudioFlags = new java.util.HashMap<>();
+    /** 每频道上次推送的定义版本（pushTypeChanges 的去重缓存；宿主实例生命周期）。
+     *  Per-channel last-pushed definition version (pushTypeChanges dedup cache; host lifetime). */
+    private final java.util.Map<String, Integer> pushedTypeStamps = new java.util.HashMap<>();
 
-    /** 频段音频标志推送：本图引用的每个频道，标志版本与上次推送不同就重发频段定义 + 标志。
-     *  发布方求值器负责把标志写入 SignalBus（拓扑判定），这里只管变化检测与投递。
-     *  Push per-band audio flags: for every channel this graph references, resend the band
-     *  definition + flags when the flag version moved past the last push. The publisher's
-     *  evaluator writes the flags into SignalBus (topology-derived); this only detects and ships.
+    /** 频段**声明载荷类型**推送：本图引用的每个频道，定义版本与上次推送不同就重发频段定义 +
+     *  类型码。发布方求值器负责把声明类型写入 SignalBus，这里只管变化检测与投递。
+     *  Push per-band declared payload types: for every channel this graph references, resend
+     *  the band definition + type codes when the definition version moved past the last push.
+     *  The publisher's evaluator writes the declarations into SignalBus; this only detects
+     *  and ships.
      *  <p>私有频道同款（引脚类型变换的同步面）：本图引用的私有名，定义版本变了就推
-     *  {@link PrivateChannelAudioPacket}。缓存键带表前缀——BUS 与私有分表，同名各自计版。</p> */
-    private void pushAudioFlagChanges(ServerLevel sl) {
+     *  {@link PrivateChannelTypePacket}。缓存键带表前缀——BUS 与私有分表，同名各自计版。</p> */
+    private void pushTypeChanges(ServerLevel sl) {
         var busNames = new java.util.HashSet<String>();
         var privateNames = new java.util.HashSet<String>();
         for (var n : graph.nodes) {
@@ -501,26 +502,27 @@ public class GraphHost {
             else if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) privateNames.add(n.signalName);
         }
         for (String busName : busNames) {
-            int stamp = io.github.y15173334444.create_schematic_compute.network.SignalBus.audioStamp(busName);
-            Integer sent = pushedAudioFlags.get("B:" + busName);
+            int stamp = io.github.y15173334444.create_schematic_compute.network.SignalBus.bandTypeStamp(busName);
+            Integer sent = pushedTypeStamps.get("B:" + busName);
             if (sent != null && sent == stamp) continue;
             var bands = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBands(busName);
-            if (bands == null || bands.isEmpty()) { pushedAudioFlags.put("B:" + busName, stamp); continue; }
-            var audio = io.github.y15173334444.create_schematic_compute.network.SignalBus.getAudioBands(busName);
-            var flags = new java.util.ArrayList<Boolean>(bands.size());
-            for (String band : bands) flags.add(audio.contains(band));
+            if (bands == null || bands.isEmpty()) { pushedTypeStamps.put("B:" + busName, stamp); continue; }
+            var types = io.github.y15173334444.create_schematic_compute.network.SignalBus.getBandTypes(busName);
+            var codes = new java.util.ArrayList<String>(bands.size());
+            for (String band : bands) codes.add(types
+                .getOrDefault(band, io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT).code);
             PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(pos()),
-                new BusBandSyncPacket(pos(), busName, bands, flags));
-            pushedAudioFlags.put("B:" + busName, stamp);
+                new BusBandSyncPacket(pos(), busName, bands, codes));
+            pushedTypeStamps.put("B:" + busName, stamp);
         }
         for (String name : privateNames) {
-            int stamp = io.github.y15173334444.create_schematic_compute.network.SignalBus.privateAudioStamp(name);
-            Integer sent = pushedAudioFlags.get("P:" + name);
+            int stamp = io.github.y15173334444.create_schematic_compute.network.SignalBus.privateTypeStamp(name);
+            Integer sent = pushedTypeStamps.get("P:" + name);
             if (sent != null && sent == stamp) continue;
             PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(pos()),
-                new PrivateChannelAudioPacket(name,
-                    io.github.y15173334444.create_schematic_compute.network.SignalBus.isPrivateAudio(name)));
-            pushedAudioFlags.put("P:" + name, stamp);
+                new PrivateChannelTypePacket(name,
+                    io.github.y15173334444.create_schematic_compute.network.SignalBus.privateType(name).code));
+            pushedTypeStamps.put("P:" + name, stamp);
         }
     }
 

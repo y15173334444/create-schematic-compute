@@ -595,10 +595,10 @@ public class NodeRenderer {
             boolean syncedBandAudio = n.type == NodeType.BUS_IN && n.signalBands != null
                 && i < n.signalBands.size()
                 && io.github.y15173334444.create_schematic_compute.network.SignalBus
-                    .isAudioBand(n.signalName, n.signalBands.get(i));
+                    .bandType(n.signalName, n.signalBands.get(i)) == PinType.AUDIO;
             boolean syncedPrivateAudio = n.type == NodeType.PRIVATE_IN
                 && io.github.y15173334444.create_schematic_compute.network.SignalBus
-                    .isPrivateAudio(n.signalName);
+                    .privateType(n.signalName) == PinType.AUDIO;
             boolean outAudio = n.type.outputType(i) == PinType.AUDIO
                 || (bandOut && graph != null
                     && (syncedBandAudio || syncedPrivateAudio || graph.isBandPinAudio(n.id, i, true)));

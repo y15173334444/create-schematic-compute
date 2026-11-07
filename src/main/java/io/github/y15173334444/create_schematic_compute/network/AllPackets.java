@@ -48,9 +48,9 @@ public class AllPackets {
                 BusBandSyncPacket::handle
         );
         registrar.playToClient(
-                PrivateChannelAudioPacket.TYPE,
-                PrivateChannelAudioPacket.CODEC,
-                PrivateChannelAudioPacket::handle
+                PrivateChannelTypePacket.TYPE,
+                PrivateChannelTypePacket.CODEC,
+                PrivateChannelTypePacket::handle
         );
         registrar.playToClient(
                 SpectrumSyncPacket.TYPE,

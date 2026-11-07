@@ -135,31 +135,34 @@ class AudioNodeModelTest {
     }
 
     @Test
-    @DisplayName("频段引脚承载音频:对端 AUDIO 域时着色标记翻转 / band pins carry audio: tint flag follows peer domain")
+    @DisplayName("频段引脚着色：声明类型决定音频色 / band pins tint by their declared type")
     void bandPinAudioTint() {
         NodeGraph g = new NodeGraph();
         GraphNode music = g.addNode(NodeType.MUSIC, 0, 0);
         GraphNode busOut = g.addNode(NodeType.BUS_OUT, 100, 0);
         busOut.signalName = "b";
         busOut.signalBands = new ArrayList<>(List.of("b"));
+        busOut.bandTypes = new ArrayList<>(List.of(PinType.AUDIO));
         GraphNode busIn = g.addNode(NodeType.BUS_IN, 200, 0);
         busIn.signalName = "b";
         busIn.signalBands = new ArrayList<>(List.of("b"));
+        busIn.bandTypes = new ArrayList<>(List.of(PinType.AUDIO));
         GraphNode speaker = g.addNode(NodeType.SPEAKER_PLAY, 300, 0);
         GraphNode cst = g.addNode(NodeType.CONST, 0, 100);
         cst.params[0] = 1f;
 
-        assertTrue(g.addConnection(music.id, 0, busOut.id, 0), "audio output into BUS_OUT accepted");
-        assertTrue(g.addConnection(busIn.id, 0, speaker.id, 0), "BUS_IN output into an audio pin accepted");
+        assertTrue(g.addConnection(music.id, 0, busOut.id, 0), "audio output into an AUDIO-declared band accepted");
+        assertTrue(g.addConnection(busIn.id, 0, speaker.id, 0), "AUDIO-declared band into an audio pin accepted");
         assertTrue(g.addConnection(cst.id, 0, speaker.id, 1), "float control wire (contrast case)");
 
-        assertTrue(g.isBandPinAudio(busOut.id, 0, false), "BUS_OUT input tinted while fed by MUSIC");
-        assertTrue(g.isBandPinAudio(busIn.id, 0, true), "BUS_IN output tinted while feeding SPEAKER_PLAY");
+        assertTrue(g.isBandPinAudio(busOut.id, 0, false), "declared AUDIO band pin tints");
+        assertTrue(g.isBandPinAudio(busIn.id, 0, true), "declared AUDIO band pin tints (read side)");
         assertFalse(g.isBandPinAudio(music.id, 0, true), "MUSIC output is audio-domain anyway, not a band pin");
         assertFalse(g.isBandPinAudio(speaker.id, 1, false), "float control pin stays regular");
 
-        // 剪除音频连线后标记随拓扑版本失效
-        g.removeConnection(busIn.id, 0, speaker.id, 0);
-        assertFalse(g.isBandPinAudio(busIn.id, 0, true), "tint flag clears when the audio wire is removed");
+        // 改声明为 FLOAT：着色随声明退役（音频线因类型不合被剪）
+        // Re-declare as FLOAT: the tint follows the declaration (the audio wire prunes).
+        g.reconcileBands(busIn, List.of("b"), List.of(PinType.FLOAT));
+        assertFalse(g.isBandPinAudio(busIn.id, 0, true), "the tint follows the declaration");
     }
 }

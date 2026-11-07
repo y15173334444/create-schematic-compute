@@ -31,11 +31,12 @@ public final class EvalContext {
     /** 输出表：nodeId → 各引脚值（每 tick 重建）。 / output table: nodeId → per-pin values
      *  (rebuilt each tick). */
     public final Map<Integer, float[]> outputs = new HashMap<>();
-    /** 音频输出引用表：{@code pack(nodeId, 输出引脚)} → {@link AudioRef}（类型化音源，非浮点）。
-     *  每 tick 重建；音频连线经 {@link NodeGraph#getAudioInputRef} 解析到上游引用。
-     *  MUSIC 产 AudioRef → AMP 改增益 → CHANNEL 按声像拆声道 → sink（AUDIO_OUT/SPEAKER_PLAY）消费。
-     *  拓扑序保证源在汇前。 Typed audio-output refs keyed by (nodeId, output pin). */
-    public final Map<Long, AudioRef> audioRefs = new HashMap<>();
+    /** 类型化载荷表：{@code pack(nodeId, 引脚)} → {@link PinPayload}（音频 {@link AudioRef} /
+     *  向量 {@link Vec3f} 等，非浮点）。每 tick 重建；载荷连线经
+     *  {@link NodeGraph#getInputAudio} / {@link NodeGraph#getInputVec3} 按声明类型解析到上游。
+     *  拓扑序保证源在汇前。 Typed payload table keyed by (nodeId, pin) — audio / vector
+     *  payloads; floats stay in the output arrays. */
+    public final Map<Long, PinPayload> payloadRefs = new HashMap<>();
     /** DEBUG_SIGNAL_GEN 的内部时间状态（nodeId → 归一化时间 0~1）。
      *  Internal time state for DEBUG_SIGNAL_GEN (nodeId → normalized time 0~1). */
     public final Map<Integer, Float> debugTime = new HashMap<>();
@@ -76,11 +77,13 @@ public final class EvalContext {
     public SignalBusPort signalBus = new SignalBusPort() {
         @Override public float get(String channel) { return 0f; }
         @Override public void put(String channel, float value) {}
-        @Override public void setPrivateAudio(String channel, boolean audio) {}
-        @Override public void setAudioBands(String busName, java.util.Set<String> audioBandNames) {}
+        @Override public void setPrivateType(String channel, PinType type) {}
+        @Override public void setBandTypes(String busName, java.util.Map<String, PinType> bandTypes) {}
         @Override public void registerBands(String busName, java.util.List<String> bands) {}
         @Override public java.util.List<String> getBands(String busName) { return null; }
         @Override public java.util.Map<String, Float> channelMap(String channel) { return null; }
+        @Override public void putVec3(String key, Vec3f value) {}
+        @Override public Vec3f getVec3(String key) { return null; }
     };
     /** 音频频段端口（接口下沉，宿主接 network.AudioBands.PORT）；未接线 = 恒空音源。
      *  Audio band port (interface sinking; the host wires network.AudioBands.PORT);
@@ -186,7 +189,7 @@ public final class EvalContext {
     }
 
     /** 音频引用表键：{@code nodeId << 16 | pin}。 / audio-ref table key: {@code nodeId << 16 | pin}. */
-    public static long audioKey(int nodeId, int pin) { return ((long) nodeId << 16) | (pin & 0xFFFF); }
+    public static long payloadKey(int nodeId, int pin) { return ((long) nodeId << 16) | (pin & 0xFFFF); }
 
     /** spread 输入变更检测:每引脚 1e-3 容差(决策 §五)。 / Spread input-change detection:
      *  1e-3 tolerance per pin (decisions §五). */

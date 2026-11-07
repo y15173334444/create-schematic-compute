@@ -610,6 +610,11 @@ public class GraphEditor {
         public float bandRemoveBtnX, bandRemoveBtnY, bandRemoveBtnW, bandRemoveBtnH;
         /** 每个频段引脚的 node-local Y 坐标（同步编辑区渲染与连线检测） (Node-local Y offset for each band pin, syncing edit-area rendering with connection hit-test) */
         public float[] bandPinY;
+        /** 频段类型切换芯片命中矩形（逐频段行，BUS_* 用）；PRIVATE_* 用单点 X0/Y0
+         *  (Band type-chip hit rects (per band row, BUS_*); PRIVATE_* uses the single X0/Y0) */
+        public float[] bandTypeBtnX, bandTypeBtnY;
+        public float bandTypeBtnW, bandTypeBtnH;
+        public float bandTypeBtnX0, bandTypeBtnY0;
         /** BUS 总线名 EditBox（用于失焦/Enter 提交检测） (BUS name EditBox, for focus-lost / Enter commit detection) */
         public net.minecraft.client.gui.components.EditBox busBox;
         public GraphNode busNode;
@@ -2988,6 +2993,28 @@ public class GraphEditor {
      *  The BUS_IN/OUT band +/- buttons: commit any unsaved busBox first, then prune
      *  connections by pinId (band name), keeping the legacy index fallback. */
     private boolean tryBusBandButtons(GraphNode en, EditState st, int lmx, int lmy, NodeGraph graph) {
+        // 频段类型切换芯片（点击循环 float→audio→vec3）：BUS_OUT 逐频段行可改，
+        // PRIVATE_* 频道单引脚可改。改类型 = SET_PIN_TYPE op（本地镜像 + 上行）。
+        // Band type-cycle chips (click cycles float→audio→vec3): per-row on BUS_OUT,
+        // the channel pin on PRIVATE_*. A retype is a SET_PIN_TYPE op (local mirror + send).
+        if ((en.type == NodeType.BUS_OUT || en.type == NodeType.PRIVATE_IN || en.type == NodeType.PRIVATE_OUT)
+                && st.bandTypeBtnW > 0) {
+            if (en.type == NodeType.BUS_OUT && st.bandTypeBtnX != null && en.signalBands != null) {
+                for (int i = 0; i < st.bandTypeBtnX.length && i < en.signalBands.size(); i++) {
+                    if (lmx >= st.bandTypeBtnX[i] && lmx <= st.bandTypeBtnX[i] + st.bandTypeBtnW
+                        && lmy >= st.bandTypeBtnY[i] && lmy <= st.bandTypeBtnY[i] + st.bandTypeBtnH) {
+                        cyclePinType(en, i);
+                        return true;
+                    }
+                }
+            }
+            if ((en.type == NodeType.PRIVATE_IN || en.type == NodeType.PRIVATE_OUT)
+                && lmx >= st.bandTypeBtnX0 && lmx <= st.bandTypeBtnX0 + st.bandTypeBtnW
+                && lmy >= st.bandTypeBtnY0 && lmy <= st.bandTypeBtnY0 + st.bandTypeBtnH) {
+                cyclePinType(en, 0);
+                return true;
+            }
+        }
         // BUS_IN/OUT 频段 +/- 按钮（先提交未保存的 busBox，防止名称丢失） (BUS_IN/OUT band +/- buttons; commit unsaved busBox first to avoid name loss)
         if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
             // 提交当前节点的 busBox（如有未保存的频道名编辑） (Commit current node's busBox if unsaved channel name edits exist)
@@ -2998,10 +3025,12 @@ public class GraphEditor {
         if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
             if (lmx >= st.bandAddBtnX && lmx <= st.bandAddBtnX + st.bandAddBtnW
                 && lmy >= st.bandAddBtnY && lmy <= st.bandAddBtnY + st.bandAddBtnH) {
-                // + 按钮：添加新频段，同步同总线名节点 (+ button: add new band, sync same-bus-name nodes)
+                // + 按钮：添加新频段（缺省声明 FLOAT），同步同总线名节点 (+ button: add a new
+                // band declared FLOAT, sync same-bus-name nodes)
                 if (en.signalBands == null) en.signalBands = new java.util.ArrayList<>();
                 String name = "band_" + en.signalBands.size();
                 en.signalBands.add(name);
+                en.bandTypes.add(PinType.FLOAT);
                 en.bandsDirty = true;
                 bus.syncBusBands(en);
                 // 结构上传不因冲突跳过（服务端按结构/定义两层仲裁）/ server arbitrates
@@ -3028,6 +3057,7 @@ public class GraphEditor {
                     graph.rebuildNodeMap();
                     graph.rebuildInputCache();
                     en.signalBands.remove(removedPin);
+                    if (removedPin < en.bandTypes.size()) en.bandTypes.remove(removedPin);
                     en.bandsDirty = true;
                     bus.syncBusBands(en);
                     // 结构上传不因冲突跳过（服务端按结构/定义两层仲裁）/ server arbitrates
@@ -3040,6 +3070,26 @@ public class GraphEditor {
             }
         }
         return false;
+    }
+
+    /** 引脚声明载荷类型循环（float→audio→vec3）：SET_PIN_TYPE op 本地镜像 + 上行（回显跳过
+     *  发起者，本地必须先应用——CHANNEL 预设点击同款镜像纪律）。
+     *  Cycle a pin's declared payload type (float→audio→vec3): SET_PIN_TYPE op with a
+     *  local mirror + send (the echo skips the originator, so apply locally first — the
+     *  same mirror discipline as the CHANNEL preset click). */
+    private void cyclePinType(GraphNode n, int pin) {
+        io.github.y15173334444.create_schematic_compute.graph.PinType cur = n.bandType(pin);
+        io.github.y15173334444.create_schematic_compute.graph.PinType next = switch (cur) {
+            case FLOAT -> io.github.y15173334444.create_schematic_compute.graph.PinType.AUDIO;
+            case AUDIO -> io.github.y15173334444.create_schematic_compute.graph.PinType.VEC3;
+            case VEC3 -> io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT;
+        };
+        var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setPinType(
+            host.getBlockPos(), ownerNodeId(), n.id, pin, next.code, host.getPlayerUUID());
+        io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), op);
+        sendOp(op);
+        if (n.type == NodeType.BUS_OUT) bus.syncBusBands(n);
+        nodeEditStatesById.put(n.id, createEditState(n));
     }
 
     /** 6f 后半拆出：原 tryExpandedEditAreaClicks 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
