@@ -1,7 +1,7 @@
 # 代码结构文档 / Code Architecture
 
-> 更新日期 / Last Updated：2026-10-11
-> 版本 / Version：1.2.6（WIP）
+> 更新日期 / Last Updated：2026-11-07
+> 版本 / Version：1.3.0（WIP）
 
 ---
 
