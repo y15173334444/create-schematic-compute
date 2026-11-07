@@ -2,6 +2,9 @@
 
 > 版本定位：1.3.0。本文件是**设计文档**——记录设计本意与决策理由，防止跨批次施工丢上下文；落地状态在文末维护。
 > 状态：设计定稿，分批施工中（见「落地状态」）。
+> / Version: 1.3.0. This file is the **design document** — it records design intent and decision
+> rationale so no batch loses context mid-construction; rollout status lives at the end.
+> Status: design final, built in batches (see 落地状态).
 
 ---
 
@@ -120,10 +123,15 @@ pinId = 类型码 ":" 参段
 `NbtVersions.DATA_VERSION` 8→9，`GraphMigration` 追加 `migrateV8toV9`（参照 V3→V4 的单一真相源+幂等纪律）：
 
 1. **pinId 补类型段**：逐连线把旧 pinId（无段形态）按参段匹配节点枚举生成值改写为带段形态；已全等带段形态则保留（幂等）。解析不到 → 剪线（既有纪律）。
+   裸参读取单独覆盖含 `:` 的旧档频段名（规则②）；曾并存的「剥段读取」（规则③，带段但类型码过期的中间形态）已按「未发版形态不写兼容」删除（2026-11-08 拍板）——该形态只在 dev 档出现过，删后此类 pinId 解析不到即剪。
+   / Bare-param reading alone covers legacy band names containing ':' (rule ②); the once-coexisting "strip-segment reading" (rule ③ — typed shapes with stale codes) is deleted under "no compat for unreleased shapes" (2026-11-08 decision) — that shape only ever existed in dev archives, and such pinIds are now pruned as unresolvable.
 2. **bandTypes 回填**：按迁移时拓扑回填声明类型——频段引脚对端是 AUDIO 域引脚 → AUDIO，否则 FLOAT（VEC3 在旧档不存在）。这是拓扑推断的**冻结快照**：迁移把它固化成声明，此后一切以声明为准。订阅方（BUS_IN）的本地回填随后被频道类型定义同步纠正（权威定义跟频道走）。
+   / bandTypes backfill: declared types fill from the migration-time topology (peer is AUDIO → AUDIO, else FLOAT) — a frozen snapshot of the old inference; declarations rule from here on.
 3. 递归 subGraph，结尾盖章 9。
 
 **版本纪律**：已发版形态（v1.2.6.x 及更早存档）一律经迁移升级；**未发版 dev 形态不写兼容**（写兼容前先问旧形态在哪个 tag 里存在过）。
+**未知类型码纪律**（2026-11-08 拍板）：bandTypes 里解析不到的类型码（新版本写入的码 / 损坏存档）**不静默降 FLOAT**——该槽位的触点连线剪除（类型合法性优先于保线），随后槽位自愈 FLOAT（F15 同款 NBT 自愈，重存即固化）。
+/ **Unknown type-code discipline** (2026-11-08 decision): an unparseable code in bandTypes (a newer version's code / a corrupt save) is **never silently degraded to FLOAT** — wires touching the slot are cut (type legality wins over keeping wires), then the slot self-heals to FLOAT (F15's NBT self-heal; a resave cements it).
 
 ---
 
@@ -165,7 +173,9 @@ JOIN/SPLIT 是浮点世界与向量世界的桥（现有 POSITION/VELOCITY 等�
 | C3 | VEC3 十节点 + VECTOR 分类 + Vec3Eval（向量过总线/私有一等载荷） | ✅ 已落地 |
 | C4 | 渲染三态（浮点金/音频青/向量品红，色板 +3 槽） | ✅ 已落地 |
 | C5 | CHANGELOG、文档回写、全量测试 | ✅ 已落地 |
+| C6 | 双轴审查修复：BAND_TYPES 注册点发布（重载后恒空 → 订阅侧剪线的阻断缺陷）、迁移规则③删除、未知类型码剪线 | ✅ 已落地 |
 
 实现注记：SET_PIN_TYPE 承载改类型编辑（零协议扩面）；私有行/频段行类型切换芯片随 C2 落地（比计划的「C4 视觉精修」更早合批）；
 `isBandPinAudio` 保留方法名但收窄为频段节点的声明查询（渲染 compat）；蓝图基线「全集减除」口径下 VEC3 不计 gained、以显式断言钉住。
+BAND_TYPES 发布的取型单一源 = `GraphNode.bandTypeMap()`（求值发布与各注册点同源）；同步包类型码含未知码时整份不应用（保留现值，同「空列表 = 不带类型」契约）。
 开放设计点已按登记册纪律补条目。
