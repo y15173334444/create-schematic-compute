@@ -781,3 +781,64 @@ javadoc 称只读视图，实际返回活 `GraphEvaluator` 引用——其 publi
 ### 状态 / Status
 
 🔶 待用户拍板（2026-11-01 批 E 收尾登记；拍板前不动代码与规格措辞）。
+
+## 21. 自定义节点引脚类型化（公开 API 开放设计点）
+
+范围 / Scope：`api/CustomNodeType`（schema 引脚面）、`graph/CustomNodeEval`、`graph/GraphNode`（CUSTOM 引脚类型解析）
+
+### 症状 / Symptom
+
+（非缺陷，属开放设计点。）pinId 类型参数段已为自定义节点留位（CUSTOM 引脚参段=索引、类型码=float），
+但 `CustomNodeType` 的引脚仍只有 FLOAT 域。**公开 API 未冻结**——附属开发阶段可能调整，schema 加
+pinTypes 的形态未定（逐引脚类型列表？标签与类型成对？），锁早了会返工。
+
+### 修复方向 / Fix direction
+
+待附属开发阶段 API 调整定型后落地：schema 引脚声明携带 `PinType`（缺省 FLOAT 向后省心），
+`CustomNodeEval` 按声明类型读写载荷旁路（向量/音频回调值），准入与编辑面板随之显示类型。
+按未发版纪律不写兼容（旧 schema 无类型键 = 全 FLOAT 由构造缺省兜住即可）。
+
+### 状态 / Status
+
+🔶 开放（2026-11-08 pinId 类型段收尾登记；API 未冻结，附属开发阶段一起定）。
+
+## 22. ENCAP 子图边界引脚类型化（音频/向量过封装边界）
+
+范围 / Scope：`graph/EncapEval`、`graph/GraphNode`（ENCAP I/O 类型）、子图载荷穿越
+
+### 症状 / Symptom
+
+（非缺陷，属能力缺口。）ENCAP 输入/输出引脚恒 FLOAT——音频与向量载荷过不了封装边界，
+子图内想做音频/向量处理只能整个搬出封装。pinId 类型段已能表达 ENCAP 引脚类型，但声明模型
+（ENCAP_INPUT/OUTPUT 子节点的类型从哪来、怎么改）与子图载荷穿越（payloadRefs 跨求值器边界）
+都未设计。
+
+### 修复方向 / Fix direction
+
+方向：ENCAP_INPUT/OUTPUT 子节点加声明类型（同 PRIVATE 单元素口径），EncapEval 按类型穿越
+载荷（payloadRefs 键带子图路径或子求值器共享载荷表）；封装体引脚的 pinId 类型段随之换段
+（迁移或 reconcile 重绑）。做前先与 API 开放设计点（条目 21）对齐——第三方重节点的载荷面一并考虑。
+
+### 状态 / Status
+
+🔶 另批（2026-11-08 pinId 类型段收尾登记）。
+
+## 23. FORMULA 内建向量运算（向量进公式脚本）
+
+范围 / Scope：`graph/FormulaParser`/`FormulaCompute`（vec3 值语义）、FORMULA 引脚类型
+
+### 症状 / Symptom
+
+（非缺陷，属能力缺口。）公式语言已有 vec3 表达式（vec3() 构造、swizzle 展开输出），但那是
+标量展开语义（v.x/v.y/v.z 拆成三个浮点输出脚）——没有真正的 VEC3 载荷引脚，公式节点的引脚
+恒 FLOAT，与新向量节点域互操作要靠 JOIN/SPLIT 绕。
+
+### 修复方向 / Fix direction
+
+方向：FORMULA 输出标签支持 VEC3 声明（如 `@output v:vec3`），引脚类型段随之 `vec3:`；
+输入侧同理（变量绑定向量载荷）。涉及公式脚本的类型推断与 swizzle 兼容语义，规模中等；
+先与条目 21/22 对齐类型声明口径再动。
+
+### 状态 / Status
+
+🔶 另批（2026-11-08 pinId 类型段收尾登记）。

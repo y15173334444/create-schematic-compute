@@ -159,9 +159,13 @@ JOIN/SPLIT 是浮点世界与向量世界的桥（现有 POSITION/VELOCITY 等�
 
 | 批次 | 内容 | 状态 |
 |---|---|---|
-| C0 | 本设计文档 + CONTEXT.md 术语 | 进行中 |
-| C1 | PinType/PinId、GraphNode 带段化、bandTypes、V8→V9 迁移、reconcileBands 重绑 | 待做 |
-| C2 | pinTypesMatch、BusEval 声明分支、payloadRefs、SignalBus 类型表、同步包、频段类型 UI | 待做 |
-| C3 | VEC3 十节点 + VECTOR 分类 + Vec3Eval | 待做 |
-| C4 | 渲染三态（浮点金/音频青/向量品红） | 待做 |
-| C5 | CHANGELOG、全文档回写、全量测试 | 待做 |
+| C0 | 本设计文档 + CONTEXT.md 术语 | ✅ 已落地 |
+| C1 | PinType/PinId、GraphNode 带段化、bandTypes、V8→V9 迁移、reconcileBands 重绑 | ✅ 已落地 |
+| C2 | pinTypesMatch、BusEval 声明分支、payloadRefs、SignalBus 类型表、同步包、SET_PIN_TYPE op、频段类型切换 | ✅ 已落地 |
+| C3 | VEC3 十节点 + VECTOR 分类 + Vec3Eval（向量过总线/私有一等载荷） | ✅ 已落地 |
+| C4 | 渲染三态（浮点金/音频青/向量品红，色板 +3 槽） | ✅ 已落地 |
+| C5 | CHANGELOG、文档回写、全量测试 | ✅ 已落地 |
+
+实现注记：SET_PIN_TYPE 承载改类型编辑（零协议扩面）；私有行/频段行类型切换芯片随 C2 落地（比计划的「C4 视觉精修」更早合批）；
+`isBandPinAudio` 保留方法名但收窄为频段节点的声明查询（渲染 compat）；蓝图基线「全集减除」口径下 VEC3 不计 gained、以显式断言钉住。
+开放设计点已按登记册纪律补条目。
