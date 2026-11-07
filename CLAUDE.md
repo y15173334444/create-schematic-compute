@@ -42,10 +42,15 @@ GitHub Issues，外部 PR 也作为 triage 需求来源。见 `docs/agents/issue
 - **新方块自查两处**：战利品表（掉落本体）+ `onSneakWrenched` 覆写（NBT 随物品）。缺任一即挖掉/搬动丢数据；每个注册方块都要有对应战利品表。
 - **双路径是设计意图，不是缺陷**：扳手（潜行+右键）= **搬迁**，NBT 随物品保留；镐挖/爆炸 = **拆除**，掉不带 NBT 的纯物品——对玩家侧合理（拆毁即弃）。不要把后者当 bug 修复。
 
+### 并行会话与 worktree / Concurrent Sessions & Worktrees
+- 主工作树可能是**多个并发会话的公共施工面**：长任务 / 独立探索线一律走隔离 worktree（`git worktree add`），不在主仓工作树长驻异支；动别的分支前先问归属。
+- 新 worktree 检出后立即 `git config core.autocrlf false` + `git rm -r . && git checkout HEAD -- .` 重检为 LF——否则全树 CRLF 打破多行源码锚测试（`core.autocrlf=true` 环境必踩）。
+
 ### 提交规范 / Commit Convention
 - Conventional Commits 风格，英文 subject：`fix:` / `feat:` / `docs:` / `test:` / `refactor:` / `revert:` / `test+fix:`。
 - 需要版本标注时可加 `vX.Y.Z: ...` 前缀。
 - 一次提交聚焦一件事；文档与代码改动分开提交。
+- **禁用 `git add -A`**：逐文件 / 逐路径 add——防 CRLF 化混入源码锚文件、防未跟踪下载物误入库（`tools/sable-compat/jars/` 有 .gitignore 挡着，但下载物类目录一律别扫）。
 
 ### 文档规范 / Docs Convention
 - `CHANGELOG.md` 是**权威变更日志**：每个版本一个 `<details>` 块，发布前更新；README 的 Changelog 小节只保留链接。
@@ -53,7 +58,7 @@ GitHub Issues，外部 PR 也作为 triage 需求来源。见 `docs/agents/issue
 - 架构文档见 `docs/code-architecture.md`；改动架构时同步更新。
 
 ### 版本管理 / Versioning
-- 升版本需同步三处：`gradle.properties` 的 `mod_version` + `build.gradle` 的 `version` + `CHANGELOG.md`（README 的 Changelog 小节在版本标题变化时同步）。
+- 升版本需同步两处：`gradle.properties` 的 `mod_version`（**单一真相源**；`build.gradle` 的 `version = mod_version` 自动派生，勿再手写双开——历史上双写漂移过）+ `CHANGELOG.md`（README 的 Changelog 版本表在版本标题变化时同步补行）。
 - NBT 数据格式变更：提升 `NbtVersions.DATA_VERSION`，在 `GraphMigration` 添加迁移步骤并保持向后兼容。
 
 ### 测试规范 / Testing
@@ -62,7 +67,7 @@ GitHub Issues，外部 PR 也作为 triage 需求来源。见 `docs/agents/issue
 - **不进行查询日志轮询等待**：测试、构建、客户端/服务端运行一律**后台执行**，不在前台流式读日志或 sleep 轮询等待（占上下文、降效率）——等完成通知后只取一次最终结果（退出码/测试报告/关键输出）。
 
 ### 构建与运行 / Build & Run
-- 客户端 `./gradlew runClient`，服务端 `./gradlew runServer`。
+- 客户端 `./gradlew runClient --no-daemon`，服务端 `./gradlew runServer`。**runClient 必须 `--no-daemon`**：daemon 起会在 early-display 字体初始化崩（unionfs NPE），HeadlessException 是噪声盖真因。
 - 多人联调：`./gradlew runClient -Pusername=Player1` + `./gradlew runClient2 -Pusername2=Player2`。
 
 ### 正确关闭服务端 / 客户端 / Graceful Shutdown
