@@ -1043,8 +1043,12 @@ public final class OpExecutor {
             var typesTag = tag.getList("bandTypes", net.minecraft.nbt.Tag.TAG_STRING);
             node.bandTypes = new java.util.ArrayList<>();
             for (int i = 0; i < typesTag.size() && i < MAX_BANDS; i++) {
-                PinType t = PinType.byCode(typesTag.getString(i));
-                node.bandTypes.add(t != null ? t : PinType.FLOAT);
+                // 未知码留 null 空标（同 GraphNode.load）：「解析不到即剪」——触点连线由
+                // rebuildInputCache 剪除后自愈 FLOAT，不静默降级为 FLOAT 声明。
+                // Unknown codes stay as a null marker (same as GraphNode.load):
+                // "unresolvable → prune" — rebuildInputCache cuts the touching wires and
+                // self-heals to FLOAT; never silently degraded into a FLOAT declaration.
+                node.bandTypes.add(PinType.byCode(typesTag.getString(i)));
             }
         }
         // BUS_OUT internalMap

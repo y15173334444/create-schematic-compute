@@ -177,13 +177,13 @@ public final class BusEval {
                     // bandsDirty avoids redundant ArrayList allocations per tick in steady state
                     if (!node.busConflict && node.bandsDirty) {
                         signalBus.registerBands(node.signalName, node.signalBands);
-                        // 频段声明类型 = 定义（跟节点声明走，随频段定义同步给订阅方收敛/着色）。
+                        // 频段声明类型 = 定义（跟节点声明走，随频段定义同步给订阅方收敛/着色）；
+                        // 取型走 GraphNode.bandTypeMap 单源，与注册点发布同源。
                         // Declared band types = the definition (follows the node, synced with
-                        // the band definition for subscriber convergence and tinting).
-                        var typeMap = new java.util.HashMap<String, PinType>();
-                        for (int bi = 0; bi < bc; bi++)
-                            typeMap.put(node.signalBands.get(bi), node.inputType(bi));
-                        signalBus.setBandTypes(node.signalName, typeMap);
+                        // the band definition for subscriber convergence and tinting); the
+                        // map comes from GraphNode.bandTypeMap — same source the registration
+                        // points publish from.
+                        signalBus.setBandTypes(node.signalName, node.bandTypeMap());
                         node.bandsDirty = false;
                     }
                     // 冲突节点跳过 busInternalMap 写入 — MAP 修改权属于首个注册的 BUS_OUT

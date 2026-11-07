@@ -577,11 +577,11 @@ public class NodeRenderer {
             g.fill(-r, (int)(py - r), r, (int)(py + r),
                 inType == PinType.AUDIO ? CAP() : inType == PinType.VEC3 ? CVP() : CPI());
             String inlbl = n.inputLabel(i);
-            // 私有信号输出：输入引脚文本随承载类型切换（判定与上方着色同源 inAudio）——
-            // 承载音频显「音频」，浮点维持「值」。BUS_OUT 不经此（其文本 = 频段名）。
-            // Private signal output: the input pin text switches with the carried type (same
-            // source as the tint above) — audio shows Audio, float keeps Val. BUS_OUT never
-            // goes through here (its text = the band name).
+            // 私有信号输出：输入引脚文本随声明类型切换（判定与上方着色同源 inType）——
+            // 音频显「音频」、向量显「向量」、浮点维持「值」。BUS_OUT 不经此（其文本 = 频段名）。
+            // Private signal output: the input pin text switches with the declared type
+            // (same source as the tint above, inType) — audio shows Audio, vector shows Vec,
+            // float keeps Val. BUS_OUT never goes through here (its text = the band name).
             if (n.type == NodeType.PRIVATE_OUT)
                 inlbl = privateBandPinLabel(inlbl, inType);
             drawStr(g, (n.type == NodeType.BUS_OUT || n.type == NodeType.FORMULA || n.type == NodeType.ENCAPSULATION) ? inlbl : I18n.get(inlbl), 10, py-3, CD);
@@ -604,8 +604,7 @@ public class NodeRenderer {
                         ? io.github.y15173334444.create_schematic_compute.network.SignalBus
                             .privateType(n.signalName)
                         : PinType.FLOAT);
-                if (synced == PinType.AUDIO || outType == PinType.AUDIO) outType = PinType.AUDIO;
-                else if (synced == PinType.VEC3) outType = PinType.VEC3;
+                outType = PinType.effective(outType, synced);
             }
             g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1),
                 outType == PinType.AUDIO ? CAPB() : outType == PinType.VEC3 ? CVPB() : CPOB());
@@ -614,8 +613,9 @@ public class NodeRenderer {
             String rawOutLbl = n.outputLabel(i);
             // 私有信号输入：引脚文本随声明类型切换（判定与上方着色同源）——音频显「音频」、
             // 向量显「向量」、浮点维持「值」。BUS_IN 不经此（其文本 = 频段名，有信息量）。
-            // Private signal input: the pin text switches with the declared type (same source
-            // as the tint above). BUS_IN never goes through here (its text = the band name).
+            // Private signal input: the pin text switches with the declared type (same
+            // source as the tint above) — audio shows Audio, vector shows Vec, float keeps
+            // Val. BUS_IN never goes through here (its text = the band name).
             if (n.type == NodeType.PRIVATE_IN)
                 rawOutLbl = privateBandPinLabel(rawOutLbl, outType);
             String outlbl = (n.type == NodeType.BUS_IN || n.type == NodeType.ENCAPSULATION) ? rawOutLbl : I18n.get(rawOutLbl);
@@ -749,9 +749,9 @@ public class NodeRenderer {
         pendingOverlayLines = null;
     }
 
-    /** 私有系统引脚文本（PRIVATE_IN 输出 / PRIVATE_OUT 输入共用）：随频道承载类型切换——
-     *  承载音频显「音频」，浮点维持节点自带标签（「值」）。判定（outAudio / inAudio）与
-     *  引脚着色同源，见引脚循环。
+    /** 私有系统引脚文本（PRIVATE_IN 输出 / PRIVATE_OUT 输入共用）：随声明类型切换——
+     *  音频显「音频」、向量显「向量」、浮点维持节点自带标签（「值」）。判定（outType / inType）
+     *  与引脚着色同源，见引脚循环。
      *  Private-system pin text (shared by PRIVATE_IN's output and PRIVATE_OUT's input):
      *  switches with the declared type — audio shows Audio, vector shows Vec, float keeps
      *  the node's own label (Val). The type shares its source with the pin tint; see the

@@ -41,4 +41,18 @@ public enum PinType {
     public static PinType byCode(String code) {
         return code == null ? null : BY_CODE.get(code);
     }
+
+    /** 读取侧引脚的**生效类型**（着色/文本的合并口径，单一源）：定义同步值 ∨ 本地声明，
+     *  择强序 AUDIO > VEC3 > 本地——「属性跟频道走，不跟本地接线走」的展示面。
+     *  {@code synced} 为 null = 无定义同步值（发布侧），直接取本地声明。
+     *  Effective type of a read-side pin (the single source for tint/text merging):
+     *  the definition-synced value ∨ the local declaration, taking the stronger under
+     *  AUDIO > VEC3 > local — the display face of "the property rides the channel, not
+     *  local wiring". A null {@code synced} means no definition value (publish side) and
+     *  the local declaration stands alone. */
+    public static PinType effective(PinType local, PinType synced) {
+        if (local == AUDIO || synced == AUDIO) return AUDIO;
+        if (local == VEC3 || synced == VEC3) return VEC3;
+        return local != null ? local : FLOAT;
+    }
 }

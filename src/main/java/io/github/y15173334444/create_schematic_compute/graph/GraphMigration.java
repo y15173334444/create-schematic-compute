@@ -701,25 +701,31 @@ public final class GraphMigration {
      *  <ol>
      *  <li>旧串与某生成值<b>全串相等</b>（已带段且正确）→ 原样保留；</li>
      *  <li>旧串<b>整体</b>等于某生成值的参段（裸参读取——旧档频段名可含 ':'）→ 改写为该生成值；</li>
-     *  <li>旧串<b>剥段后</b>的参段等于某生成值的参段（带段但类型码过期）→ 改写为该生成值；</li>
      *  <li>旧串缺失 → 按缓存索引直接生成；仍解析不到返回 null（调用方剪线）。</li>
      *  </ol>
-     *  规则 2 优先于 3：裸参读取胜过剥段读取，旧档里含 ':' 的频段名才不会被误读成类型段。 */
+     *  规则③（剥段读取：带段但类型码过期的中间形态）已删——该形态只存在于未发版的 dev
+     *  存档，按「未发版形态不写兼容」退役；裸参读取（规则②）单独覆盖含 ':' 的旧档频段名，
+     *  此前正是它与剥段读取的优先级纠葛（裸参读取优先，防旧档频段名被误读成类型段）。
+     *  删后带段旧串解析不到即剪，与其余「解析不到即剪」纪律一致。
+     *  <p>Old rule ③ (strip-segment reading: a typed shape whose type code went stale) is
+     *  deleted — that shape exists only in unreleased dev archives, retired under "no
+     *  compat for unreleased shapes". Bare-param reading (rule ②) alone covers legacy
+     *  band names containing ':' — previously it was the priority tangle between the two
+     *  (bare reading won so a legacy band name was never misread as a type segment). With
+     *  it gone, an unresolvable typed string is pruned, consistent with the rest of the
+     *  "unresolvable → prune" discipline.</p> */
     private static String retagPinId(GraphNode node, boolean outputSide, String oldId, int pinIdx) {
         String whole = (oldId == null || oldId.isEmpty()) ? null : oldId;
-        String stripped = whole == null ? null : PinId.paramOf(whole);
-        String byBare = null, byStrip = null;
+        String byBare = null;
         for (int i = 0; i < 4096; i++) {
             String g = outputSide ? node.outputPinId(i) : node.inputPinId(i);
             if (g == null) break;
             if (whole == null) continue;
             if (g.equals(whole)) return whole; // ① 已带段且正确 / already correctly typed
             String gp = PinId.paramOf(g);
-            if (byBare == null && gp.equals(whole)) byBare = g;
-            if (byStrip == null && gp.equals(stripped)) byStrip = g;
+            if (byBare == null && gp.equals(whole)) byBare = g; // ② 裸参读取 / bare-param reading
         }
         if (byBare != null) return byBare;
-        if (byStrip != null) return byStrip;
         if (whole == null) return outputSide ? node.outputPinId(pinIdx) : node.inputPinId(pinIdx);
         return null;
     }

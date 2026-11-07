@@ -72,6 +72,15 @@ public final class BusChannelHelper {
                 // 注册成功 → 立即同步 bands 到 BAND_REGISTRY 并广播客户端
                 if (ok && n.signalBands != null && !n.signalBands.isEmpty()) {
                     SignalBus.registerBands(n.signalName, n.signalBands);
+                    // 注册即定义（重载路径）：声明类型随频段定义一并发布——BAND_TYPES 此前只挂
+                    // BusEval 的 bandsDirty 分支，重载后恒空，订阅侧按 getOrDefault 降 FLOAT、
+                    // 首个 tick 剪 AUDIO/VEC3 线（阻断缺陷）。
+                    // Register-time definition (the reload path): declared types publish with
+                    // the band definition — BAND_TYPES used to hang only on BusEval's
+                    // bandsDirty branch, staying empty after a reload while subscribers
+                    // degraded to getOrDefault FLOAT and cut AUDIO/VEC3 wires on the first
+                    // tick (the blocking defect).
+                    SignalBus.setBandTypes(n.signalName, n.bandTypeMap());
                     n.bandsDirty = false;
                     broadcasts.add(n.signalName);
                 } else if (ok) {
@@ -387,6 +396,11 @@ public final class BusChannelHelper {
         }
         if (!newBands.isEmpty()) {
             SignalBus.registerBands(busName, newBands);
+            // 注册即定义（频段上传路径，同 registerGraphChannels）：声明类型随定义发布，
+            // 取型与目标节点（owner）的声明同源。
+            // Register-time definition (the band-upload path, same as above): declared types
+            // publish with the definition, sourced from the target (owner) node's declaration.
+            SignalBus.setBandTypes(busName, target.bandTypeMap());
         } else {
             // 空频段 = 显式清空频道（确证离开）：统一释放，**按 owner 门控** —— 旗标过期时
             // 他人已抢注的名不碰。retire 的既定后果在此明示：死名收敛会让旧名 BUS_IN 清列表
@@ -399,7 +413,7 @@ public final class BusChannelHelper {
         }
         if (level instanceof ServerLevel sl) {
             PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(pos),
-                new BusBandSyncPacket(pos, busName, newBands));
+                new BusBandSyncPacket(pos, busName, newBands, target.bandTypeCodes()));
         }
         return true;
     }
@@ -665,11 +679,15 @@ public final class BusChannelHelper {
                 n.busConflict = !ok;
                 if (ok && n.signalBands != null && !n.signalBands.isEmpty()) {
                     SignalBus.registerBands(n.signalName, n.signalBands);
+                    // 注册即定义（重编译路径，同 registerGraphChannels）：声明类型随定义发布。
+                    // Register-time definition (the recompile path, same as above): declared
+                    // types publish with the definition.
+                    SignalBus.setBandTypes(n.signalName, n.bandTypeMap());
                     n.bandsDirty = false;
                     if (level instanceof ServerLevel sl) {
                         PacketDistributor.sendToPlayersTrackingChunk(sl,
                             new ChunkPos(pos),
-                            new BusBandSyncPacket(pos, n.signalName, n.signalBands));
+                            new BusBandSyncPacket(pos, n.signalName, n.signalBands, n.bandTypeCodes()));
                     }
                 } else if (ok) {
                     // 注册即定义（同 registerGraphChannels）/ register-time definition (same as above)
@@ -773,10 +791,14 @@ public final class BusChannelHelper {
         n.busConflictTicks = 0;
         if (n.signalBands != null && !n.signalBands.isEmpty()) {
             SignalBus.registerBands(n.signalName, n.signalBands);
+            // 注册即定义（冲突恢复接管路径，同 registerGraphChannels）：声明类型随定义发布。
+            // Register-time definition (the conflict-recovery takeover path, same as above):
+            // declared types publish with the definition.
+            SignalBus.setBandTypes(n.signalName, n.bandTypeMap());
             if (level instanceof ServerLevel sl) {
                 PacketDistributor.sendToPlayersTrackingChunk(sl,
                     new ChunkPos(pos),
-                    new BusBandSyncPacket(pos, n.signalName, n.signalBands));
+                    new BusBandSyncPacket(pos, n.signalName, n.signalBands, n.bandTypeCodes()));
             }
         } else {
             // 注册即定义（同 registerGraphChannels）/ register-time definition (same as above)

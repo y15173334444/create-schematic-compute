@@ -256,9 +256,16 @@ final class GraphBusEditor {
             // self-owned names — a foreign-held name (inside the conflict-flag sync race
             // window) is never overwritten; the authoritative definition converges via the
             // server's band broadcast.
-            io.github.y15173334444.create_schematic_compute.network.SignalBus.registerBandsIfNotForeign(
+            boolean wrote = io.github.y15173334444.create_schematic_compute.network.SignalBus.registerBandsIfNotForeign(
                 src.signalName, bands,
                 new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(ed.host.getBlockPos(), src.id));
+            // 注册即定义（客户端乐观写入路径）：声明类型随频段定义一并落地，与服务端
+            // 注册点/BUS_EVAL 发布同源（GraphNode.bandTypeMap）。
+            // Register-time definition (the client's optimistic write path): declared types
+            // land with the band definition, same source as the server-side registration
+            // points and the evaluator (GraphNode.bandTypeMap).
+            if (wrote) io.github.y15173334444.create_schematic_compute.network.SignalBus.setBandTypes(
+                src.signalName, src.bandTypeMap());
         }
         var g = ed.getGraph();
         for (var n : ed.getGraph().nodes) {

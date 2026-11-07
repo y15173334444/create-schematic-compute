@@ -66,11 +66,21 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
                 // Declared band types ride the definition (empty list = sender carries none).
                 if (typeCodes != null && !typeCodes.isEmpty()) {
                     var map = new java.util.HashMap<String, io.github.y15173334444.create_schematic_compute.graph.PinType>();
+                    boolean trusted = true;
                     for (int i = 0; i < bands.size() && i < typeCodes.size(); i++) {
                         var t = io.github.y15173334444.create_schematic_compute.graph.PinType.byCode(typeCodes.get(i));
-                        map.put(bands.get(i), t != null ? t : io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT);
+                        if (t == null) { trusted = false; break; } // 未知码 = 类型信息不可信 / unknown code = untrusted type info
+                        map.put(bands.get(i), t);
                     }
-                    SignalBus.setBandTypes(busName, map);
+                    // 未知码 = 类型信息不可信 → 整份类型表不应用（保留现值），绝不静默降 FLOAT：
+                    // 降级出的 FLOAT 声明会经订阅收敛重绑剪掉 AUDIO/VEC3 线（数据流错 + 误剪）。
+                    // 同「空列表 = 发送方不带类型，保留现值」契约。
+                    // An unknown code means the type info is untrusted → don't apply the type
+                    // table at all (keep current values), never silently degrade to FLOAT: a
+                    // fabricated FLOAT declaration would retype-prune AUDIO/VEC3 wires via
+                    // subscriber convergence (wrong data flow + wrongful cuts). Same contract
+                    // as "empty list = sender carries none, keep current".
+                    if (trusted) SignalBus.setBandTypes(busName, map);
                 }
             } else {
                 // 空表 = 频段列表同步，不是频道清账：名下有存活 owner（本端可见条目）时绝不碰

@@ -305,6 +305,21 @@ public class NodeGraph {
      *  Always bumps generation when any index changes to ensure evaluator recompile.
      *  Rebuild the input cache (public for ACK-based ID remapping). */
     public void rebuildInputCache() {
+        // 未知类型码剪线（解析不到即剪的声明侧）：bandTypes 槽位为 null（载入时类型码
+        // 解析不到——新版本码/损坏存档）时，该槽位的触点连线剪除——类型合法性优先于
+        // 保线。触点判定用**解析后**的引脚索引（pinId 解析环刚把缓存索引刷新过）：
+        // 未知码形态的 pinId（如 "quat:kick"）在解析环里本就解析不到、按既有纪律剪除；
+        // 恰与降级 FLOAT 形态同名的 pinId（"float:kick"）解析回该槽、由本判定剪除；索引
+        // 绑定旧式连线按缓存索引剪除。随后槽位自愈 FLOAT（F15 同款 NBT 自愈，重存即固化）。
+        // Unknown type codes on the declaration side ("unresolvable → prune"): a null
+        // bandTypes slot (its code failed to parse at load — a newer version's code or a
+        // corrupt save) has its wires cut — type legality wins over keeping wires. Touch is
+        // decided on the **resolved** pin indices (the pinId loop above just refreshed them):
+        // unknown-code pinIds (like "quat:kick") already fail resolution and die by the
+        // existing discipline; pinIds that coincide with the degraded FLOAT shape
+        // ("float:kick") resolve back to the slot and die here; legacy index-bound wires die
+        // by cached index. The slot then self-heals to FLOAT (F15's NBT self-heal; a resave
+        // cements it).
         inputCache.clear();
         var stale = new java.util.ArrayList<NodeConnection>();
         boolean anyIndexChanged = false;
@@ -326,13 +341,49 @@ public class NodeGraph {
                     if (c.fromPin != resolved) { c.fromPin = resolved; anyIndexChanged = true; }
                 }
             }
+            if (touchesUnknownBandTypeSlot(c)) { stale.add(c); continue; }
             inputCache.put(key(c.toId, c.toPin), c);
         }
         if (!stale.isEmpty()) {
             connections.removeAll(stale);
             anyIndexChanged = true;
         }
+        // 自愈（F15 同款 NBT 自愈，重存即固化）：null 槽位读取侧本就降 FLOAT，这里把标记
+        // 消掉，后续保存写回 float，不把无法解析的码带进新档。放在触点判定**之后**——
+        // 先剪线后自愈，槽位标记在本方法内是一次性的。
+        // Self-heal (F15's NBT self-heal; a resave cements it): null slots already read as
+        // FLOAT; this clears the marker so a later save writes "float", never carrying the
+        // unparseable code into a new archive. Runs **after** the touch checks — prune first,
+        // heal second; the slot marker is one-shot within this method.
+        for (GraphNode n : nodes) {
+            if (n.bandTypes == null) continue;
+            for (int i = 0; i < n.bandTypes.size(); i++)
+                if (n.bandTypes.get(i) == null) n.bandTypes.set(i, PinType.FLOAT);
+        }
         if (anyIndexChanged) bumpGeneration();
+    }
+
+    /** 连线是否触在声明类型码解析不到（bandTypes 槽位 null）的频段/私有引脚上。
+     *  触点判定用解析后的引脚索引；槽位数以频段引脚数为界（BUS 逐频段、PRIVATE 单槽）——
+     *  bandTypes 多出的条目（损坏档）不对应引脚，绝不能按同号索引误伤参数引脚的连线。
+     *  Whether the connection touches a band/private pin whose declared type code failed to
+     *  parse (a null bandTypes slot). Touch is decided on the resolved pin index; the slot
+     *  count is bounded by the band-pin count (per-band for BUS, single for PRIVATE) — extra
+     *  bandTypes entries (corrupt saves) map to no pin and must never hit a param pin's
+     *  same-numbered wire. */
+    private boolean touchesUnknownBandTypeSlot(NodeConnection c) {
+        GraphNode to = nodeMap.get(c.toId);
+        if (to != null && (to.type == NodeType.BUS_OUT || to.type == NodeType.PRIVATE_OUT)
+                && to.bandTypes != null && c.toPin >= 0 && c.toPin < to.bandTypes.size()
+                && c.toPin < (to.type == NodeType.PRIVATE_OUT ? 1
+                    : (to.signalBands != null ? to.signalBands.size() : 0))
+                && to.bandTypes.get(c.toPin) == null) return true;
+        GraphNode from = nodeMap.get(c.fromId);
+        return from != null && (from.type == NodeType.BUS_IN || from.type == NodeType.PRIVATE_IN)
+            && from.bandTypes != null && c.fromPin >= 0 && c.fromPin < from.bandTypes.size()
+            && c.fromPin < (from.type == NodeType.PRIVATE_IN ? 1
+                : (from.signalBands != null ? from.signalBands.size() : 0))
+            && from.bandTypes.get(c.fromPin) == null;
     }
 
     /** 频段列表对齐的**唯一规则**（改名不丢线）：新表与旧表**同长度**、且每个变化的槽位都是

@@ -131,6 +131,33 @@ class PinTypeMigrationTest {
     }
 
     @Test
+    @DisplayName("规则③已删：带段但类型码过期的 dev 形态剪除，不再剥段改写 / rule ③ deleted: a typed pinId with a stale code is pruned, never strip-rewritten")
+    void staleCodedTypedPinIdPrunedNotRewritten() {
+        // dev 中间形态：pinId 已带段但类型码过期（"float:0" 对 MUSIC 的 audio 出脚）。
+        // 规则③（剥段读取）曾把它改写成 "audio:0"；按「未发版形态不写兼容」删除后，
+        // 解析不到即剪。裸参读取（规则②）不受影响——见 colonBandNameKept。
+        // Dev intermediate shape: a typed pinId whose code went stale ("float:0" against
+        // MUSIC's audio output). Rule ③ (strip-segment reading) used to rewrite it to
+        // "audio:0"; deleted under "no compat for unreleased shapes" — unresolvable now
+        // means pruned. Bare-param reading (rule ②) is unaffected — see colonBandNameKept.
+        CompoundTag g = new CompoundTag();
+        ListTag nodes = new ListTag();
+        nodes.add(node(1, "music", 0, 0)); // out0 = AUDIO
+        nodes.add(node(2, "amp", 0, 0));   // in0 = AUDIO
+        g.put("nodes", nodes);
+
+        ListTag conns = new ListTag();
+        conns.add(conn(1, "float:0", 2, "float:0")); // 类型码过期 / stale type code
+        g.put("conns", conns);
+        g.putInt(NbtVersions.VERSION_KEY, 8);
+
+        CompoundTag out = GraphMigration.migrate(g, null);
+        ListTag oc = out.getList("conns", Tag.TAG_COMPOUND);
+        assertEquals(0, oc.size(),
+            "带段但类型码过期的 pinId 解析不到即剪（规则③删除的拍板代价：dev 档这些线会丢）");
+    }
+
+    @Test
     @DisplayName("已带段 pinId 原样保留（幂等）；悬空连线剪除 / already-typed pinIds kept (idempotent); dangling wires pruned")
     void typedPinIdsKeptAndDanglingPruned() {
         CompoundTag g = new CompoundTag();

@@ -144,27 +144,32 @@ public class EditPanel {
             }
             int pinY = py + 4 + row * 18 + 8;
             if (st.bandPinY != null && bi - 1 < st.bandPinY.length) st.bandPinY[bi - 1] = pinY;
-            // 频段引脚承载音频时按音频引脚着色，**属性跟频段走**：读取侧（BUS_IN）= 频段定义
-            // 同步来的音频标志 ∨ 该引脚本地接了音频线（按频段分流读取，读取语义与显示一致）；
-            // 发布侧（BUS_OUT）逐引脚按对端域。
-            // Band pins tint as audio while carrying audio, and the property rides the band:
-            // the read side (BUS_IN) = the definition-synced audio flag ∨ this pin's own local
-            // audio wire (per-band routing — display matches semantics); the publish side
-            // (BUS_OUT) judges per pin by peer domain.
-            boolean bandAudioFlag = isBusIn && node.signalBands != null && pinIdx < node.signalBands.size()
-                && io.github.y15173334444.create_schematic_compute.network.SignalBus
-                    .bandType(node.signalName, node.signalBands.get(pinIdx)) == PinType.AUDIO;
-            boolean audioPin = (isBusIn
-                ? bandAudioFlag || (st.graph != null && st.graph.isBandPinAudio(node.id, pinIdx, true))
-                : st.graph != null && st.graph.isBandPinAudio(node.id, pinIdx, false));
+            // 频段引脚着色 = **生效类型**（定义同步值 ∨ 本地声明，AUDIO > VEC3 > 本地），
+            // 与 NodeRenderer 引脚循环/拖线预览同源（PinType.effective 单一源）——三态
+            // （金=浮点 / 青=音频 / 品红=向量），不再是音频二态。发布侧（BUS_OUT）的
+            // 定义同步值缺席，生效类型即本地声明。
+            // Band pin tint = the **effective type** (definition-synced ∨ local declaration,
+            // AUDIO > VEC3 > local), one source with the NodeRenderer pin loop and the drag
+            // preview (PinType.effective) — ternary (gold=float / teal=audio / magenta=vector),
+            // no longer an audio-only binary. The publish side (BUS_OUT) has no synced value,
+            // so the effective type is the local declaration.
+            PinType local = isBusIn ? node.outputType(pinIdx) : node.inputType(pinIdx);
+            PinType synced = null;
+            if (isBusIn && node.signalBands != null && pinIdx < node.signalBands.size())
+                synced = io.github.y15173334444.create_schematic_compute.network.SignalBus
+                    .bandType(node.signalName, node.signalBands.get(pinIdx));
+            PinType pinT = PinType.effective(local, synced);
             g.fill(pinX - pinR - 1, pinY - pinR - 1, pinX + pinR + 1, pinY + pinR + 1,
-                audioPin ? NodeRenderer.CAPB() : NodeRenderer.CPIB());
+                pinT == PinType.AUDIO ? NodeRenderer.CAPB()
+                    : pinT == PinType.VEC3 ? NodeRenderer.CVPB() : NodeRenderer.CPIB());
             // 填充基色 = 配置色（input/output/pin_audio），连接态做明暗变换（含音频引脚）——
             // 「占用暗化」与「音频着色」正交；旧硬编码暗橄榄退役（脱离自定义配色）。
             // Fill base = the configured colour (input/output/pin_audio); the connected state
             // darkens it (audio pins included) — occupancy dim and audio tint are orthogonal;
             // the old hardcoded khaki is retired (it ignored custom palettes).
-            int baseFill = audioPin ? NodeRenderer.CAP() : isBusIn ? NodeRenderer.CPO() : NodeRenderer.CPI();
+            int baseFill = pinT == PinType.AUDIO ? NodeRenderer.CAP()
+                : pinT == PinType.VEC3 ? NodeRenderer.CVP()
+                : isBusIn ? NodeRenderer.CPO() : NodeRenderer.CPI();
             g.fill(pinX - pinR, pinY - pinR, pinX + pinR, pinY + pinR,
                 pinConnected ? NodeRenderer.dimColor(baseFill) : baseFill);
             // 频段名（BUS_IN 只读文本，BUS_OUT EditBox 可编辑）
@@ -396,10 +401,26 @@ public class EditPanel {
             }
             row++;
         }
-        // PRIVATE_*：频道声明类型切换芯片（单引脚，float→audio→vec3 循环）
-        // PRIVATE_*: the channel's declared-type cycle chip (single pin)
+        // PRIVATE_* 类型芯片（单引脚，float→audio→vec3 循环）：显示值 = **生效类型**
+        // （频道声明 ∨ 本端声明，与引脚着色/引脚文本同源 PinType.effective）。点击改的是
+        // **本端**声明（SET_PIN_TYPE：类型段换段、对端不匹配的剪除）——属性跟频道走：
+        // 频道已声明 AUDIO/VEC3 时芯片随频道显示，点击仍只改本端声明。PRIVATE_OUT 的
+        // 本端声明**就是**频道声明类型（发布方定义，经 setPrivateType 随版本戳同步订阅方）。
+        // PRIVATE_* type chip (single pin, float→audio→vec3 cycle): the displayed value is
+        // the **effective type** (channel declaration ∨ local declaration — one source with
+        // the pin tint/text, PinType.effective). Clicking edits the **local** declaration
+        // (SET_PIN_TYPE: type-segment rebind, mismatched peers pruned) — the property rides
+        // the channel: once the channel declares AUDIO/VEC3 the chip follows it even while
+        // the click only moves the local declaration. On PRIVATE_OUT the local declaration
+        // **is** the channel's declared type (the publisher's definition, synced to
+        // subscribers via setPrivateType).
         if (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT) {
-            PinType pt = node.bandType(0);
+            PinType local = node.bandType(0);
+            PinType pt = node.type == NodeType.PRIVATE_IN
+                ? PinType.effective(local,
+                    io.github.y15173334444.create_schematic_compute.network.SignalBus
+                        .privateType(node.signalName))
+                : local;
             int chipW = 30, chipH = 12;
             String tlabel = I18n.get("gui.create_schematic_compute.edit.channel_type") + ":";
             g.drawString(Minecraft.getInstance().font, tlabel, px + 4, py + 4 + row * 18 + 1, 0xFF888888, false);

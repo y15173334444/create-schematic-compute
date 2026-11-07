@@ -85,8 +85,7 @@ final class NodeWireRenderer {
                     : PinType.FLOAT)
                 : io.github.y15173334444.create_schematic_compute.network.SignalBus
                     .privateType(fn.signalName);
-            if (synced == PinType.AUDIO || source == PinType.AUDIO) source = PinType.AUDIO;
-            else if (synced == PinType.VEC3) source = PinType.VEC3;
+            source = PinType.effective(source, synced);
         }
         if (source == PinType.FLOAT && targetType != null) source = targetType;
         bezier(g, x1, y1, x2, y2, source == PinType.AUDIO ? NodeRenderer.CWA()
