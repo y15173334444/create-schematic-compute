@@ -176,16 +176,32 @@ public enum NodeType {
     // ── 公开 API 波 1：第三方自定义节点哨兵 / public-API wave 1: third-party custom-node sentinel ──
     // 全部自定义节点共用这一个枚举值；实际形状（引脚/参数/标题）由
     // CustomNodeRegistry 里以 "modid:node_id" 字符串 id 注册的 CustomNodeType schema
-    // 决定，GraphNode.customId 携带该 id。枚举追加令不变：本常量在末尾，既有
-    // ordinal/迁移面零影响。内置分支（inputs/outputs/paramNames 等按 this 的 switch）
-    // 对 CUSTOM 全走 default（0/0/空），真实值由 GraphNode 按 schema 覆写。
+    // 决定，GraphNode.customId 携带该 id。枚举追加令不变：既有 ordinal/迁移面零影响。
+    // 内置分支（inputs/outputs/paramNames 等按 this 的 switch）对 CUSTOM 全走
+    // default（0/0/空），真实值由 GraphNode 按 schema 覆写。
     // Every custom node shares this single enum value; the actual shape (pins/params/title)
     // comes from the CustomNodeType schema registered under its "modid:node_id" string id
     // in CustomNodeRegistry, carried by GraphNode.customId. The append-only rule stands:
-    // this constant is last, so existing ordinal/migration faces are untouched. Built-in
-    // per-this switches all fall to their defaults for CUSTOM (0/0/empty); GraphNode
-    // overrides from the schema.
-    CUSTOM("custom", "node.create_schematic_compute.custom", 0, 0, "");
+    // existing ordinal/migration faces are untouched. Built-in per-this switches all fall
+    // to their defaults for CUSTOM (0/0/empty); GraphNode overrides from the schema.
+    CUSTOM("custom", "node.create_schematic_compute.custom", 0, 0, ""),
+
+    // ── VEC3 向量核心运算集（v1.3.0，载荷类型 PinType.VEC3）/ VEC3 core math (v1.3.0,
+    // the PinType.VEC3 payload). 逐引脚类型见 inputType/outputType：VEC3 载荷引脚走
+    // payloadRefs 旁路，x/y/z/k 等标量引脚走浮点数组。类型码随 pinId 类型段持久化。
+    // Per-pin types live in inputType/outputType: VEC3 payload pins ride the payloadRefs
+    // side channel, scalar x/y/z/k pins ride the float arrays. The type code persists in
+    // the pinId type segment.
+    VEC3_CONST("vec3_const", "node.create_schematic_compute.vec3_const", 0, 1, "x,y,z"),
+    VEC3_JOIN("vec3_join", "node.create_schematic_compute.vec3_join", 3, 1, ""),
+    VEC3_SPLIT("vec3_split", "node.create_schematic_compute.vec3_split", 1, 3, ""),
+    VEC3_ADD("vec3_add", "node.create_schematic_compute.vec3_add", 2, 1, ""),
+    VEC3_SUB("vec3_sub", "node.create_schematic_compute.vec3_sub", 2, 1, ""),
+    VEC3_SCALE("vec3_scale", "node.create_schematic_compute.vec3_scale", 2, 1, ""),
+    VEC3_DOT("vec3_dot", "node.create_schematic_compute.vec3_dot", 2, 1, ""),
+    VEC3_CROSS("vec3_cross", "node.create_schematic_compute.vec3_cross", 2, 1, ""),
+    VEC3_LENGTH("vec3_length", "node.create_schematic_compute.vec3_length", 1, 1, ""),
+    VEC3_NORMALIZE("vec3_normalize", "node.create_schematic_compute.vec3_normalize", 1, 1, "");
 
     /** NBT 序列化的稳定字符串标识符 — 永远不要修改这些值。 / Stable string identifier for NBT serialisation — never change these. */
     public final String id;
@@ -237,16 +253,23 @@ public enum NodeType {
         if (this == AUDIO_OUT) return PinType.AUDIO;
         if (this == CHANNEL && i == 0) return PinType.AUDIO;
         if (this == SPEAKER_PLAY && i == 0) return PinType.AUDIO;
+        if (this == VEC3_SPLIT || this == VEC3_ADD || this == VEC3_SUB
+            || this == VEC3_CROSS || this == VEC3_DOT
+            || this == VEC3_LENGTH || this == VEC3_NORMALIZE) return PinType.VEC3;
+        if (this == VEC3_SCALE && i == 0) return PinType.VEC3;
         return PinType.FLOAT;
     }
 
     /** 输出引脚 i 的静态载荷类型。MUSIC 的 audio 出、AMP 的 audio 出、CHANNEL 的全部声道出
-     *  为 AUDIO，其余 FLOAT。 Static payload type of output pin i. */
+     *  为 AUDIO；VEC3 向量运算集的向量出脚为 VEC3；其余 FLOAT。
+     *  Static payload type of output pin i. */
     public PinType outputType(int i) {
         if (this == MUSIC && i == 0) return PinType.AUDIO;
         if (this == AMP && i == 0) return PinType.AUDIO;
         if (this == WSHAPE) return PinType.AUDIO;
         if (this == CHANNEL) return PinType.AUDIO;
+        if (this == VEC3_CONST || this == VEC3_JOIN || this == VEC3_ADD || this == VEC3_SUB
+            || this == VEC3_SCALE || this == VEC3_CROSS || this == VEC3_NORMALIZE) return PinType.VEC3;
         return PinType.FLOAT;
     }
 
@@ -340,6 +363,11 @@ public enum NodeType {
         case AMP -> i==0?pk("audio"):pk("gain");
         case ANGLE_UNWRAP -> i==0?pk("a"):pk("b");
         case CHANNEL, SPEAKER_PLAY -> pk("audio");
+        case VEC3_CONST -> i==0?pk("x"):i==1?pk("y"):pk("z");
+        case VEC3_JOIN -> i==0?pk("x"):i==1?pk("y"):pk("z");
+        case VEC3_SPLIT, VEC3_LENGTH, VEC3_NORMALIZE -> pk("vec");
+        case VEC3_ADD, VEC3_SUB, VEC3_CROSS, VEC3_DOT -> i==0?pk("a"):pk("b");
+        case VEC3_SCALE -> i==0?pk("vec"):pk("k");
         default -> pk("in");
     };}
     public String outputLabel(int i) { return switch(this){
@@ -392,6 +420,9 @@ public enum NodeType {
         case MUSIC -> i==0?pk("audio"):i==1?pk("playing"):i==2?pk("tick"):i==3?pk("seconds"):pk("done");
         case AMP -> pk("audio");
         case CHANNEL -> pk("audio"); // 声道名由 GraphNode.outputLabel 覆盖（聚合/左/右）
+        case VEC3_CONST, VEC3_JOIN, VEC3_ADD, VEC3_SUB, VEC3_SCALE, VEC3_CROSS, VEC3_NORMALIZE -> pk("vec");
+        case VEC3_SPLIT -> i==0?pk("x"):i==1?pk("y"):pk("z");
+        case VEC3_DOT, VEC3_LENGTH -> pk("float");
         default -> "";
     };}
 }

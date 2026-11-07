@@ -27,7 +27,7 @@ public final class BlockNodeAllowances {
         EnumSet.of(NodeCategory.VALUES, NodeCategory.MATH_BASIC, NodeCategory.MATH_ADVANCED,
             NodeCategory.TRIG, NodeCategory.LOGIC, NodeCategory.CONTROL,
             NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_ACC, NodeCategory.DEBUG,
-            NodeCategory.STRUCTURE, NodeCategory.INPUT_POSE,
+            NodeCategory.STRUCTURE, NodeCategory.INPUT_POSE, NodeCategory.VECTOR,
             // CUSTOM（公开 API 波 1 批 C，机械默认可否决）：蓝图机是验收①的闭环宿主——
             // 类目放行 + 服务端注册表 id 校验（审查批 (b)2）= 只有已注册 id 进得来；
             // D5 名单制再按宿主细分。
@@ -45,7 +45,7 @@ public final class BlockNodeAllowances {
         EnumSet.of(NodeCategory.VALUES, NodeCategory.MATH_BASIC, NodeCategory.MATH_ADVANCED,
             NodeCategory.TRIG, NodeCategory.LOGIC, NodeCategory.CONTROL,
             NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_ACC, NodeCategory.SEQUENTIAL_STATE,
-            NodeCategory.DEBUG));
+            NodeCategory.VECTOR, NodeCategory.DEBUG));
 
     /** 数控齿轮箱：可编程运动机的功能面——值/四则/三角/逻辑（含比较）+ 时序编排 + 运动指令 +
      *  调试。2026-10-24 按功能面指派（用户裁定）：去高级运算（公式/插值/向量转角度，蓝图向
@@ -62,7 +62,7 @@ public final class BlockNodeAllowances {
         "csc:cnc_gearbox",
         EnumSet.of(NodeCategory.VALUES, NodeCategory.MATH_BASIC, NodeCategory.TRIG,
             NodeCategory.LOGIC, NodeCategory.OUTPUT, NodeCategory.SEQUENTIAL_STATE,
-            NodeCategory.GEARBOX, NodeCategory.DEBUG));
+            NodeCategory.VECTOR, NodeCategory.GEARBOX, NodeCategory.DEBUG));
 
     /** 动力仪表：动力读数 + 比较逻辑 + 值/输出。
      *  刻意不含 input/gearbox（读座舱/运动状态，仪表宿主不提供 → 恒 0）与

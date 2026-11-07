@@ -177,11 +177,12 @@ class NodeAllowanceMigrationTest {
         // 声明：蓝图失去 STRESS/RPM（对齐"仅动力宿主图"）；保留 ACCUMULATOR/INTEGRATOR
         assertEquals(EnumSet.of(NodeType.STRESS, NodeType.RPM), lost);
         // 公开 API 波 1 批 C：蓝图收编 CUSTOM 类（验收①闭环宿主；机械默认可否决）——
-        // 新增 = 恰好 CUSTOM 哨兵一个（服务端注册表 id 校验把关，未注册 id 仍进不来）。
-        // Wave-1 batch C: the blueprint host admits the CUSTOM category (acceptance-1's
-        // loop host; mechanical default, reviewable) — the gain is exactly the CUSTOM
-        // sentinel, with the server-side registered-id check guarding the door.
-        assertEquals(EnumSet.of(NodeType.CUSTOM), gained, "blueprint gains exactly the CUSTOM sentinel");
+        // 新增 = 恰好 CUSTOM 哨兵一个（VEC3 依「全集减除」基线口径不算新增，下方显式覆盖）。
+        // Wave-1 batch C: the blueprint host admits the CUSTOM category — the gain is
+        // exactly the CUSTOM sentinel (VEC3 rides the allOf-minus baseline; pinned below).
+        assertEquals(EnumSet.of(NodeType.CUSTOM), gained);
+        assertTrue(newSet.contains(NodeType.VEC3_CONST), "v1.3.0 VECTOR class rides the blueprint");
+        assertTrue(newSet.contains(NodeType.VEC3_NORMALIZE));
         assertTrue(newSet.contains(NodeType.ACCUMULATOR));
         assertTrue(newSet.contains(NodeType.INTEGRATOR));
         assertTrue(newSet.contains(NodeType.POSE_CONVERT));
@@ -208,9 +209,14 @@ class NodeAllowanceMigrationTest {
             // math_advanced 缺口
             NodeType.FORMULA, NodeType.INTERP,
             // control 整类
-            NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP
+            NodeType.PID, NodeType.PID_POWER, NodeType.CLAMP, NodeType.MAP,
+            // v1.3.0：VEC3 向量核心运算集 10 / the VEC3 core math set
+            NodeType.VEC3_CONST, NodeType.VEC3_JOIN, NodeType.VEC3_SPLIT,
+            NodeType.VEC3_ADD, NodeType.VEC3_SUB, NodeType.VEC3_SCALE,
+            NodeType.VEC3_DOT, NodeType.VEC3_CROSS, NodeType.VEC3_LENGTH,
+            NodeType.VEC3_NORMALIZE
         ), gained);
-        assertEquals(24, gained.size());
+        assertEquals(34, gained.size());
     }
 
     @Test
@@ -235,9 +241,14 @@ class NodeAllowanceMigrationTest {
             NodeType.ROUND,
             // logic 比较 + AND/OR
             NodeType.GT, NodeType.LT, NodeType.GE, NodeType.LE, NodeType.EQ,
-            NodeType.AND, NodeType.OR
+            NodeType.AND, NodeType.OR,
+            // v1.3.0：VEC3 向量核心运算集 10 / the VEC3 core math set
+            NodeType.VEC3_CONST, NodeType.VEC3_JOIN, NodeType.VEC3_SPLIT,
+            NodeType.VEC3_ADD, NodeType.VEC3_SUB, NodeType.VEC3_SCALE,
+            NodeType.VEC3_DOT, NodeType.VEC3_CROSS, NodeType.VEC3_LENGTH,
+            NodeType.VEC3_NORMALIZE
         ), gained);
-        assertEquals(59, newSet.size(), "8 categories · 59 nodes");
+        assertEquals(69, newSet.size(), "9 categories · 69 nodes");
         assertFalse(newSet.contains(NodeType.FORMULA));
         assertFalse(newSet.contains(NodeType.INTERP));
         assertFalse(newSet.contains(NodeType.PID));
