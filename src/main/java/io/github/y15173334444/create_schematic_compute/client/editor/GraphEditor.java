@@ -7,6 +7,8 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeConnection;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.graph.PinId;
+import io.github.y15173334444.create_schematic_compute.graph.PinType;
 import io.github.y15173334444.create_schematic_compute.graph.SpatialIndex;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -2074,7 +2076,7 @@ public class GraphEditor {
         }
         if (bestNodeId < 0) return false;
         var tn = graph.findNode(bestNodeId);
-        return tn != null && tn.type.inputDomain(bestPin) == NodeType.PinDomain.AUDIO;
+        return tn != null && tn.type.inputType(bestPin) == PinType.AUDIO;
     }
 
     /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
@@ -3014,11 +3016,11 @@ public class GraphEditor {
                 if (en.signalBands != null && !en.signalBands.isEmpty()) {
                     int removedPin = en.signalBands.size() - 1;
                     String removedBand = en.signalBands.get(removedPin);
-                    // Remove connections by pinId (band name), not by index.
-                    // 按 pinId（频段名）而非索引清理连线。
+                    // Remove connections by pinId param (band name), not by index.
+                    // 按 pinId 参段（频段名）而非索引清理连线。
                     graph.connections.removeIf(c ->
-                        (c.fromId == en.id && removedBand.equals(c.fromPinId))
-                        || (c.toId == en.id && removedBand.equals(c.toPinId)));
+                        (c.fromId == en.id && removedBand.equals(PinId.paramOf(c.fromPinId)))
+                        || (c.toId == en.id && removedBand.equals(PinId.paramOf(c.toPinId))));
                     // Legacy fallback: also remove by index for unmigrated connections
                     graph.connections.removeIf(c ->
                         (c.fromId == en.id && c.fromPin == removedPin && c.fromPinId == null)

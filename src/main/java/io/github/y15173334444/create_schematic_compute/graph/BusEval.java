@@ -185,7 +185,8 @@ public final class BusEval {
                                 float[] out = outputs.get(c.fromId);
                                 if (out != null) {
                                     float val = c.fromPin < out.length ? out[c.fromPin] : 0;
-                                    String pid = c.toPinId != null ? c.toPinId : String.valueOf(c.toPin);
+                                    // 按参段键控（pinId 带类型段，键=频段名）/ key by param segment
+                                    String pid = c.toPinId != null ? PinId.paramOf(c.toPinId) : String.valueOf(c.toPin);
                                     pinValues.put(pid, val);
                                 }
                             }

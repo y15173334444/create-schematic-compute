@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.client.editor;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.graph.PinType;
 import net.minecraft.client.gui.GuiGraphics;
 
 /**
@@ -51,8 +52,8 @@ final class NodeWireRenderer {
             // 音频连线用专属色（任一端点是 AUDIO 域引脚；域校验保证两端同域，双查只为稳妥）
             // Audio wires take the dedicated colour (either endpoint AUDIO-domain; the domain
             // guard already forces same-domain — checking both is just belt-and-braces).
-            boolean audio = fn.type.outputDomain(c.fromPin) == NodeType.PinDomain.AUDIO
-                || tn.type.inputDomain(c.toPin) == NodeType.PinDomain.AUDIO;
+            boolean audio = fn.type.outputType(c.fromPin) == PinType.AUDIO
+                || tn.type.inputType(c.toPin) == PinType.AUDIO;
             bezier(g, x1, y1, x2, y2, audio ? NodeRenderer.CWA() : NodeRenderer.CW());
         }
     }
@@ -76,7 +77,7 @@ final class NodeWireRenderer {
         // with no intrinsic pin domain — the preview leads with the band's own property (the
         // synced definition flag ∨ the pin's local audio wire); the hover target only fills in
         // when the source has no property of its own.
-        boolean sourceAudio = fn.type.outputDomain(wireFromPin) == NodeType.PinDomain.AUDIO;
+        boolean sourceAudio = fn.type.outputType(wireFromPin) == PinType.AUDIO;
         if (!sourceAudio && (fn.type == NodeType.BUS_IN || fn.type == NodeType.PRIVATE_IN)) {
             boolean synced = fn.type == NodeType.BUS_IN
                 ? fn.signalBands != null && wireFromPin < fn.signalBands.size()

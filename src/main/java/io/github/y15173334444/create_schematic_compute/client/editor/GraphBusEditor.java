@@ -201,14 +201,14 @@ final class GraphBusEditor {
         n.signalBands.clear();
         n.bandsDirty = true;
         var g = ed.getGraph();
-        // 按 pinId（频段名）清理连线，并带 legacy 索引回退（与 bandRemoveBtn 路径一致）
-        // Remove connections by pinId (band name), with legacy index fallback
+        // 按 pinId 参段（频段名）清理连线，并带 legacy 索引回退（与 bandRemoveBtn 路径一致）
+        // Remove connections by pinId param (band name), with legacy index fallback
         for (int pi = 0; pi < oldCount; pi++) {
             final int p = pi;
             String band = pi < oldBands.size() ? oldBands.get(pi) : null;
             g.connections.removeIf(c ->
-                (c.fromId == n.id && band != null && band.equals(c.fromPinId))
-                || (c.toId == n.id && band != null && band.equals(c.toPinId)));
+                (c.fromId == n.id && band != null && band.equals(io.github.y15173334444.create_schematic_compute.graph.PinId.paramOf(c.fromPinId)))
+                || (c.toId == n.id && band != null && band.equals(io.github.y15173334444.create_schematic_compute.graph.PinId.paramOf(c.toPinId))));
             // Legacy fallback: also remove by index for unmigrated connections
             g.connections.removeIf(c ->
                 (c.fromId == n.id && c.fromPin == p && c.fromPinId == null)
@@ -285,14 +285,14 @@ final class GraphBusEditor {
                 n.signalBands = newBands;
                 n.bandsDirty = true;
                 // Only remove connections on bands that were actually deleted,
-                // matched by band name (= pinId). Preserves connections on
+                // matched by band name (= pinId param). Preserves connections on
                 // bands that were merely reordered.
-                // 仅删除实际被移除频段上的连接（按频段名 = pinId 匹配）。
+                // 仅删除实际被移除频段上的连接（按频段名 = pinId 参段匹配）。
                 // 仅被重排的频段上的连接得以保留。
                 for (String removedBand : removed) {
                     g.connections.removeIf(c ->
-                        (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
-                        (c.toId == n.id && removedBand.equals(c.toPinId)));
+                        (c.fromId == n.id && removedBand.equals(io.github.y15173334444.create_schematic_compute.graph.PinId.paramOf(c.fromPinId))) ||
+                        (c.toId == n.id && removedBand.equals(io.github.y15173334444.create_schematic_compute.graph.PinId.paramOf(c.toPinId))));
                 }
                 g.rebuildNodeMap(); // invalidate inputCache / 刷新 inputCache
                 g.rebuildInputCache();

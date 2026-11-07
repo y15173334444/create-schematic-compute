@@ -141,14 +141,16 @@ public class NodeGraph {
         return true;
     }
 
-    /** 引脚域兼容：AUDIO 域引脚只连 AUDIO 域，FLOAT 只连 FLOAT；但 BUS_OUT/BUS_IN/PRIVATE_OUT/
-     *  PRIVATE_IN 频段引脚接受任意域（音频可走「总线/私有信号频段」，R1-2；接上后求值器走音频分支）。
-     *  Pin-domain compatibility: AUDIO↔AUDIO, FLOAT↔FLOAT; but BUS/PRIVATE band pins
-     *  accept either domain so audio can route through bus/private bands (R1-2). */
+    /** 引脚载荷类型兼容：声明类型严格相等（AUDIO↔AUDIO、FLOAT↔FLOAT、VEC3↔VEC3）；
+     *  BUS_OUT/BUS_IN/PRIVATE_OUT/PRIVATE_IN 频段引脚暂接受任意类型（音频可走「总线/私有信号
+     *  频段」，R1-2；接上后求值器走音频分支）——严格化随传输收编批次进行。
+     *  Pin payload-type compatibility: declared types must match strictly; BUS/PRIVATE
+     *  band pins still accept any type for now (audio routes through bus/private bands,
+     *  R1-2) — strict typing lands with the transport-consolidation batch. */
     private static boolean pinDomainsMatch(GraphNode fromNode, int fromPin, GraphNode toNode, int toPin) {
         if (toNode.type == NodeType.BUS_OUT || fromNode.type == NodeType.BUS_IN
             || toNode.type == NodeType.PRIVATE_OUT || fromNode.type == NodeType.PRIVATE_IN) return true;
-        return fromNode.type.outputDomain(fromPin) == toNode.type.inputDomain(toPin);
+        return fromNode.outputType(fromPin) == toNode.inputType(toPin);
     }
 
     /** Add a connection using stable pinIds. The int indices are resolved from the
@@ -219,7 +221,7 @@ public class NodeGraph {
         for (NodeConnection c : connections) {
             if (c.fromId != fromNodeId || c.fromPin != fromPin) continue;
             var to = nodeMap.get(c.toId);
-            if (to != null && to.type.inputDomain(c.toPin) == NodeType.PinDomain.AUDIO) return true;
+            if (to != null && to.inputType(c.toPin) == PinType.AUDIO) return true;
         }
         return false;
     }
@@ -273,10 +275,10 @@ public class NodeGraph {
                 // (BUS_IN/PRIVATE_IN outputs into audio inputs, audio outputs into
                 // BUS_OUT/PRIVATE_OUT inputs) — the pin tints with its wires.
                 if (BAND_SOURCE_TYPES.contains(fn.type)
-                        && tn.type.inputDomain(c.toPin) == NodeType.PinDomain.AUDIO)
+                        && tn.inputType(c.toPin) == PinType.AUDIO)
                     bandAudioPins.add(transferPinKey(c.fromId, true, c.fromPin));
                 if (BAND_SINK_TYPES.contains(tn.type)
-                        && fn.type.outputDomain(c.fromPin) == NodeType.PinDomain.AUDIO)
+                        && fn.outputType(c.fromPin) == PinType.AUDIO)
                     bandAudioPins.add(transferPinKey(c.toId, false, c.toPin));
             }
             transferPinVersion = topoVersion;
@@ -368,28 +370,36 @@ public class NodeGraph {
      *  连线原地改绑到新名（索引不动），一条线都不剪；本方法同时写回 {@code signalBands} 与
      *  {@code bandsDirty}。其余情况（增删频段、改名与重排混在一次提交的歧义）维持既有语义：
      *  按名字差集剪掉真正消失频段上的连线（BUS_IN 输入侧的索引兜底由调用方负责）。
+     *  <p>在名字对齐之上叠加**类型换段重绑**（v1.3.0）：槽位声明类型变化时，连线上旧类型码的
+     *  pinId 原地换段改绑；对端声明类型与新类型不匹配的连线剪除——类型合法性优先于保线。</p>
      *  <p>四条对齐路径共用本方法——SET_BANDS op、BusBandUploadPacket、convergeBusInBands、
      *  syncBandsFromServer——改名因此在任一路径、任意图（含跨方块订阅方经收敛传播）都保线。
      *  判定只需新旧两份列表的状态，不需要专门的 rename 事件在包与方块之间搬运——
      *  「自愈式不变量优于一次性事件推送」。</p>
-     *  The single band-list alignment rule (renames keep their wires): when the new list has the
-     *  SAME length and every changed slot is a bijective rename (the old name is absent from the
-     *  new list, the new name absent from the old), the slot was renamed in place - connections
-     *  bound to the old name's pinId are rewritten to the new name (indices do not move) and
-     *  nothing is pruned; {@code signalBands} and {@code bandsDirty} are written here. Everything
-     *  else (additions, deletions, renames mixed with reordering in one commit) keeps the existing
-     *  semantics: connections on genuinely-removed band names are pruned (the BUS_IN input-side
-     *  index fallback stays with the callers).
-     *  <p>All four alignment paths share this method - SET_BANDS op, BusBandUploadPacket,
-     *  convergeBusInBands, syncBandsFromServer - so a rename keeps its wires on every path and in
-     *  every graph, including cross-block subscribers reached through convergence. The decision
-     *  needs nothing but the two lists' state; no dedicated rename event is ferried between
-     *  packets and blocks - the self-healing-invariant-over-event-push discipline.</p>
-     *  @param n 目标节点（BUS_OUT / BUS_IN / PRIVATE_* 等带 signalBands 的节点）
-     *            the node whose signalBands list is being aligned */
+     *  The single band-list alignment rule (renames keep their wires), with v1.3.0
+     *  <b>type-segment rebinding</b> layered on top: a slot whose declared type changes
+     *  rebinds its connections' pinIds to the new type code in place; connections whose
+     *  peer's declared type mismatches are pruned — type legality wins over keeping wires.
+     *  @param n 目标节点（BUS_OUT / BUS_IN 等带 signalBands 的节点）
+     *            the node whose signalBands list is being aligned
+     *  @param newTypes 新的逐槽声明类型（null = 类型按槽位继承旧值，新增频段缺省 FLOAT）
+     *            per-slot declared types (null = carry over by slot, new bands default FLOAT) */
     public void reconcileBands(GraphNode n, List<String> newBands) {
+        reconcileBands(n, newBands, null);
+    }
+
+    /** 带声明类型的频段对齐（见 {@link #reconcileBands(GraphNode, List)} 的对齐规则）。
+     *  Band alignment with declared types (see {@link #reconcileBands(GraphNode, List)}). */
+    public void reconcileBands(GraphNode n, List<String> newBands, List<PinType> newTypes) {
         var want = new java.util.ArrayList<String>(newBands != null ? newBands : java.util.Collections.<String>emptyList());
         var old = n.signalBands != null ? n.signalBands : java.util.Collections.<String>emptyList();
+        var oldT = new java.util.ArrayList<PinType>(old.size());
+        for (int i = 0; i < old.size(); i++) oldT.add(n.bandType(i));
+        var wantT = new java.util.ArrayList<PinType>(want.size());
+        for (int i = 0; i < want.size(); i++)
+            wantT.add(newTypes != null && i < newTypes.size() && newTypes.get(i) != null
+                ? newTypes.get(i) : (i < oldT.size() ? oldT.get(i) : PinType.FLOAT));
+        var stale = new java.util.ArrayList<NodeConnection>();
         if (old.size() == want.size()) {
             // 双射换名判定：旧名∉新表 且 新名∉旧表，且同一旧名不得映射到两个新名。
             // Bijective-rename test: old name gone from the new list, new name unseen in the
@@ -404,32 +414,92 @@ public class NodeGraph {
                 if (newSet.contains(o) || oldSet.contains(w) || renames.put(o, w) != null) pureRename = false;
             }
             if (pureRename) {
-                for (NodeConnection c : connections) {
-                    if (c.fromId == n.id && c.fromPinId != null) {
-                        String nn = renames.get(c.fromPinId);
-                        if (nn != null) c.fromPinId = nn;
-                    }
-                    if (c.toId == n.id && c.toPinId != null) {
-                        String nn = renames.get(c.toPinId);
-                        if (nn != null) c.toPinId = nn;
-                    }
+                for (int i = 0; i < old.size(); i++) {
+                    String o = old.get(i), w = want.get(i);
+                    PinType ot = oldT.get(i), nt = wantT.get(i);
+                    if (o.equals(w) && ot == nt) continue;
+                    retargetPinId(n, PinId.format(ot, o), PinId.format(nt, w), ot != nt, stale);
                 }
                 n.signalBands = want;
+                n.bandTypes = wantT;
                 n.bandsDirty = true;
+                connections.removeAll(stale);
                 return;
             }
+        }
+        // 混合提交：同名改类型仍按名重绑（跨槽位查找旧类型），真正消失的频段按参段剪线。
+        // Mixed commit: same-name retypes still rebind (old type found by name), genuinely
+        // removed bands prune by param.
+        var oldIdx = new java.util.HashMap<String, Integer>();
+        for (int i = 0; i < old.size(); i++) oldIdx.putIfAbsent(old.get(i), i);
+        for (int i = 0; i < want.size(); i++) {
+            Integer oi = oldIdx.get(want.get(i));
+            if (oi != null && oldT.get(oi) != wantT.get(i))
+                retargetPinId(n, PinId.format(oldT.get(oi), want.get(i)),
+                    PinId.format(wantT.get(i), want.get(i)), true, stale);
         }
         // 既有语义：按名字差集剪掉真正被删除频段上的连线。
         // Existing semantics: prune connections on genuinely-removed band names.
         var removed = new java.util.ArrayList<>(old);
         removed.removeAll(want);
         n.signalBands = want;
+        n.bandTypes = wantT;
         n.bandsDirty = true;
         for (String removedBand : removed) {
             connections.removeIf(c ->
-                (c.fromId == n.id && removedBand.equals(c.fromPinId)) ||
-                (c.toId == n.id && removedBand.equals(c.toPinId)));
+                (c.fromId == n.id && removedBand.equals(PinId.paramOf(c.fromPinId))) ||
+                (c.toId == n.id && removedBand.equals(PinId.paramOf(c.toPinId))));
         }
+        connections.removeAll(stale);
+    }
+
+    /** PRIVATE_* 频道声明类型变更（单引脚的类型换段重绑：对端声明类型不匹配的连线剪除）。
+     *  Private-channel declared-type change (type-segment rebind of the single pin;
+     *  connections whose peer's declared type mismatches are pruned). */
+    public void setPrivatePinType(GraphNode n, PinType newType) {
+        if (n.type != NodeType.PRIVATE_IN && n.type != NodeType.PRIVATE_OUT) return;
+        PinType oldT = n.bandType(0);
+        if (oldT == newType) return;
+        var stale = new java.util.ArrayList<NodeConnection>();
+        String oldPid = PinId.format(oldT, "0");
+        String newPid = PinId.format(newType, "0");
+        retargetPinId(n, oldPid, newPid, true, stale);
+        n.bandTypes = new java.util.ArrayList<>(java.util.List.of(newType));
+        n.bandsDirty = true;
+        connections.removeAll(stale);
+    }
+
+    /** 把挂在 {@code oldPid} 上的连线改绑到 {@code newPid}；{@code peerCheck} 时对端声明类型
+     *  须等于新类型，不匹配的列入 {@code stale} 待剪。null pinId 的遗留连线不参与（旧语义）。
+     *  Rebind connections bound to {@code oldPid} onto {@code newPid}; with
+     *  {@code peerCheck} the peer's declared type must equal the new type, else the
+     *  connection goes into {@code stale} for pruning. Legacy null-pinId wires never
+     *  participate (existing semantics). */
+    private void retargetPinId(GraphNode n, String oldPid, String newPid, boolean peerCheck, List<NodeConnection> stale) {
+        for (NodeConnection c : connections) {
+            if (c.fromId == n.id && oldPid.equals(c.fromPinId)) {
+                if (peerCheck && !peerAccepts(c, true, PinId.typeOf(newPid))) stale.add(c);
+                else c.fromPinId = newPid;
+            }
+            if (c.toId == n.id && oldPid.equals(c.toPinId)) {
+                if (peerCheck && !peerAccepts(c, false, PinId.typeOf(newPid))) stale.add(c);
+                else c.toPinId = newPid;
+            }
+        }
+    }
+
+    /** 连线对端的声明类型是否为 {@code t}（outputSide=true 查 toNode 的输入脚，否则查
+     *  fromNode 的输出脚）；对端节点缺席视为不匹配。 / Whether the connection's peer pin
+     *  declares type {@code t} (outputSide=true checks toNode's input pin, else fromNode's
+     *  output pin); a missing peer node counts as mismatch. */
+    private boolean peerAccepts(NodeConnection c, boolean outputSide, PinType t) {
+        if (t == null) return false;
+        if (outputSide) {
+            GraphNode to = nodeMap.get(c.toId);
+            return to != null && to.inputType(c.toPin) == t;
+        }
+        GraphNode from = nodeMap.get(c.fromId);
+        return from != null && from.outputType(c.fromPin) == t;
     }
 
     private static long key(int nodeId, int pinIdx) {
@@ -480,7 +550,7 @@ public class NodeGraph {
         for (NodeConnection c : connections) {
             if (c.fromId != fromNodeId) continue;
             GraphNode to = nodeMap.get(c.toId);
-            if (to != null && to.type.inputDomain(c.toPin) == NodeType.PinDomain.AUDIO) return true;
+            if (to != null && to.inputType(c.toPin) == PinType.AUDIO) return true;
         }
         return false;
     }

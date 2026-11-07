@@ -40,7 +40,7 @@ class ChannelLayoutRewireTest {
         ch.params[0] = ChannelLayout.STEREO;
         ch.ensureChannelBands();
         assertTrue(g.addConnection(ch.id, 0, sink.id, 0), "l → audio_out must connect");
-        assertEquals("l", g.connections.get(0).fromPinId, "the wire binds by channel pinId");
+        assertEquals("audio:l", g.connections.get(0).fromPinId, "the wire binds by channel pinId");
         return g;
     }
 
@@ -82,7 +82,7 @@ class ChannelLayoutRewireTest {
         ch.ensureChannelBands();
         g.rebuildInputCache();
         assertTrue(g.addConnection(ch.id, 0, sink.id, 0), "mix → audio_out must connect");
-        assertEquals("mix", g.connections.get(0).fromPinId);
+        assertEquals("audio:mix", g.connections.get(0).fromPinId);
 
         // 服务端从零应用同一序列：SET_PARAM（值已同 → 未变守卫跳过，不剪新线）
         // The server applies the same sequence from scratch: SET_PARAM (same value → the

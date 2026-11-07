@@ -9,29 +9,29 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * 音频数据模型测试：引脚域分类、分类覆盖、AUDIO_OUT 频道 pinId、域兼容连线、曲目字段。
- * Audio data-model tests: pin-domain classification, category coverage, AUDIO_OUT channel
- * pinIds, domain-compatible connections, and the song field.
+ * 音频数据模型测试：载荷类型分类、分类覆盖、AUDIO_OUT 频道 pinId、类型兼容连线、曲目字段。
+ * Audio data-model tests: payload-type classification, category coverage, AUDIO_OUT channel
+ * pinIds, type-compatible connections, and the song field.
  */
 class AudioNodeModelTest {
 
     @Test
-    @DisplayName("引脚域分类：MUSIC/AMP 的 audio 引脚为 AUDIO，其余 FLOAT / pin-domain classification")
+    @DisplayName("载荷类型分类：MUSIC/AMP 的 audio 引脚为 AUDIO，其余 FLOAT / payload-type classification")
     void domainClassification() {
         // MUSIC: output 0 = audio (AUDIO), outputs 1..4 = float; inputs all float
-        assertEquals(NodeType.PinDomain.AUDIO, NodeType.MUSIC.outputDomain(0));
-        for (int i = 1; i < 5; i++) assertEquals(NodeType.PinDomain.FLOAT, NodeType.MUSIC.outputDomain(i));
-        for (int i = 0; i < 3; i++) assertEquals(NodeType.PinDomain.FLOAT, NodeType.MUSIC.inputDomain(i));
+        assertEquals(PinType.AUDIO, NodeType.MUSIC.outputType(0));
+        for (int i = 1; i < 5; i++) assertEquals(PinType.FLOAT, NodeType.MUSIC.outputType(i));
+        for (int i = 0; i < 3; i++) assertEquals(PinType.FLOAT, NodeType.MUSIC.inputType(i));
         // AMP: input 0 = audio (AUDIO), input 1 = gain (FLOAT); output 0 = audio (AUDIO)
-        assertEquals(NodeType.PinDomain.AUDIO, NodeType.AMP.inputDomain(0));
-        assertEquals(NodeType.PinDomain.FLOAT, NodeType.AMP.inputDomain(1));
-        assertEquals(NodeType.PinDomain.AUDIO, NodeType.AMP.outputDomain(0));
+        assertEquals(PinType.AUDIO, NodeType.AMP.inputType(0));
+        assertEquals(PinType.FLOAT, NodeType.AMP.inputType(1));
+        assertEquals(PinType.AUDIO, NodeType.AMP.outputType(0));
         // AUDIO_OUT: all channel input pins are AUDIO
-        assertEquals(NodeType.PinDomain.AUDIO, NodeType.AUDIO_OUT.inputDomain(0));
-        assertEquals(NodeType.PinDomain.AUDIO, NodeType.AUDIO_OUT.inputDomain(3));
+        assertEquals(PinType.AUDIO, NodeType.AUDIO_OUT.inputType(0));
+        assertEquals(PinType.AUDIO, NodeType.AUDIO_OUT.inputType(3));
         // Ordinary node stays float
-        assertEquals(NodeType.PinDomain.FLOAT, NodeType.CONST.outputDomain(0));
-        assertEquals(NodeType.PinDomain.FLOAT, NodeType.ADD.inputDomain(0));
+        assertEquals(PinType.FLOAT, NodeType.CONST.outputType(0));
+        assertEquals(PinType.FLOAT, NodeType.ADD.inputType(0));
     }
 
     @Test
@@ -49,8 +49,8 @@ class AudioNodeModelTest {
     void audioOutSinglePin() {
         GraphNode n = new GraphNode(1, NodeType.AUDIO_OUT, 0, 0);
         assertEquals(1, n.inputs());
-        assertEquals("0", n.inputPinId(0));
-        assertEquals(0, n.inputPinIndex("0"));
+        assertEquals("audio:0", n.inputPinId(0));
+        assertEquals(0, n.inputPinIndex("audio:0"));
     }
 
     @Test
@@ -124,14 +124,14 @@ class AudioNodeModelTest {
         GraphNode ch = new GraphNode(1, NodeType.CHANNEL, 0, 0);
         assertEquals((float) ChannelLayout.STEREO, ch.params[0], "new CHANNEL nodes default to stereo");
         assertEquals(2, ch.outputs());
-        assertEquals("l", ch.outputPinId(0));
-        assertEquals("r", ch.outputPinId(1));
+        assertEquals("audio:l", ch.outputPinId(0));
+        assertEquals("audio:r", ch.outputPinId(1));
         // 布局切换整体替换引脚集合
         ch.params[0] = (float) ChannelLayout.SURROUND_5_1;
         ch.ensureChannelBands();
         assertEquals(6, ch.outputs());
-        assertEquals("c", ch.outputPinId(2));
-        assertEquals("sub", ch.outputPinId(3));
+        assertEquals("audio:c", ch.outputPinId(2));
+        assertEquals("audio:sub", ch.outputPinId(3));
     }
 
     @Test

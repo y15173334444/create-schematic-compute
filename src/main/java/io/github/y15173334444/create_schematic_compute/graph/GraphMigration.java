@@ -51,6 +51,7 @@ public final class GraphMigration {
             GraphMigration::migrateV5toV6,
             GraphMigration::migrateV6toV7,
             GraphMigration::migrateV7toV8,
+            GraphMigration::migrateV8toV9,
     };
 
     /**
@@ -330,15 +331,20 @@ public final class GraphMigration {
             // whose pin indices reference pins that no longer exist
             // 从运行时节点图解析稳定的引脚名称；丢弃那些引脚索引指向已不再存在的引脚的连接
             boolean drop = false;
+            // v4 形态的 pinId 是**裸参段**（变量名/频段名/索引）——类型段是 v9 才引入的
+            // （migrateV8toV9 唯一带段化入口），故此处剥掉运行时生成值的类型码。
+            // The v4 pinId shape is the bare param (variable/band/index) — the type
+            // segment only arrives in v9 (migrateV8toV9 is the sole typing point), so
+            // strip the type code off the runtime-generated value here.
             if (fromNode != null) {
                 String pid = fromNode.outputPinId(fromPin);
                 if (pid == null) drop = true;
-                else c.putString("fPinId", pid);
+                else c.putString("fPinId", PinId.paramOf(pid));
             }
             if (toNode != null) {
                 String pid = toNode.inputPinId(toPin);
                 if (pid == null) drop = true;
-                else c.putString("tPinId", pid);
+                else c.putString("tPinId", PinId.paramOf(pid));
             }
             if (!drop) migratedConns.add(c);
         }
@@ -565,6 +571,157 @@ public final class GraphMigration {
         }
         out.putInt(NbtVersions.VERSION_KEY, 8);
         return out;
+    }
+
+    // ── V8 → V9 ───────────────────────────────────────────────────────────
+    // Changes in v9 (1.3.0) / v9 中的变更（1.3.0）:
+    //   1. pinId 获得**类型参数段**（形态 "类型码:参段"，见 PinId/PinType 与
+    //      docs/pin-type-segment-plan.md）：全部连线 pinId 带段化改写，解析不到的
+    //      连线剪除（既有纪律）。改写规则见 retagPinId。
+    //   2. 节点新增 "bandTypes" 声明载荷类型表（BUS_IN/OUT 逐频段、PRIVATE_IN/OUT
+    //      单元素）：按迁移时拓扑回填（对端静态 AUDIO 域 → AUDIO，否则 FLOAT）——
+    //      旧「拓扑推断」的冻结快照，此后一切以声明为准。
+    //   pinId gains a typed segment ("type-code:param", see PinId/PinType): every
+    //   connection pinId is rewritten to the typed shape and unresolvable wires are
+    //   dropped (existing discipline). Nodes gain the "bandTypes" declared payload-type
+    //   table, backfilled from the migration-time topology — a frozen snapshot of the
+    //   old topology inference; declarations rule from here on.
+
+    /**
+     * Migrate a graph tag from version 8 to version 9.
+     *
+     * 将图标签从版本 8 迁移到版本 9。
+     *
+     * @param tag        the v8 graph tag / v8 版本的图标签
+     * @param registries Minecraft holder lookup provider / Minecraft Holder 查找提供器
+     * @return the migrated v9 tag / 迁移后的 v9 标签
+     */
+    private static CompoundTag migrateV8toV9(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+        CompoundTag out = tag.copy();
+        ListTag nodes = out.getList("nodes", Tag.TAG_COMPOUND);
+
+        // 装载运行时节点，pinId 派生与运行时同路径（单一真相源，V3→V4 同款）
+        // Load runtime nodes so pinId derivation shares the runtime path (single
+        // source of truth, V3→V4's discipline).
+        var runtimeNodes = new java.util.HashMap<Integer, GraphNode>();
+        for (int i = 0; i < nodes.size(); i++) {
+            CompoundTag n = nodes.getCompound(i);
+            GraphNode node = GraphNode.load(n, registries);
+            if (node.type == NodeType.FORMULA && !node.formula.isEmpty()) node.ensureScriptParsed();
+            runtimeNodes.put(node.id, node);
+        }
+        ListTag conns = out.getList("conns", Tag.TAG_COMPOUND);
+
+        // ① bandTypes 拓扑回填（先于 pinId 改写——类型段由声明类型生成）。
+        //    判据与旧拓扑推断逐位一致：按引脚粒度，任一对端的静态 NodeType 类型为
+        //    AUDIO 即声明 AUDIO（多出线取或），否则 FLOAT。
+        // ① bandTypes backfill (before the pinId rewrite — type segments are generated
+        //    from declared types). Criterion mirrors the old topology inference bit for
+        //    bit: per pin, any peer whose static NodeType type is AUDIO declares AUDIO
+        //    (fan-out takes the or), else FLOAT.
+        for (var node : runtimeNodes.values()) resetBandTypes(node);
+        for (int i = 0; i < conns.size(); i++) {
+            CompoundTag c = conns.getCompound(i);
+            GraphNode fromNode = runtimeNodes.get(c.getInt("from"));
+            GraphNode toNode = runtimeNodes.get(c.getInt("to"));
+            markBandType(fromNode, c.getInt("fPin"), true,
+                toNode == null ? null : toNode.type.inputType(c.getInt("tPin")));
+            markBandType(toNode, c.getInt("tPin"), false,
+                fromNode == null ? null : fromNode.type.outputType(c.getInt("fPin")));
+        }
+        for (int i = 0; i < nodes.size(); i++) {
+            CompoundTag n = nodes.getCompound(i);
+            GraphNode node = runtimeNodes.get(n.getInt("id"));
+            if (node == null || node.bandTypes == null || node.bandTypes.isEmpty()) continue;
+            if (node.type != NodeType.BUS_IN && node.type != NodeType.BUS_OUT
+                    && node.type != NodeType.PRIVATE_IN && node.type != NodeType.PRIVATE_OUT) continue;
+            ListTag typesTag = new ListTag();
+            for (PinType t : node.bandTypes) typesTag.add(net.minecraft.nbt.StringTag.valueOf(t.code));
+            n.put("bandTypes", typesTag);
+        }
+
+        // ② pinId 带段化改写（解析不到 → 剪线）
+        // ② typed-shape rewrite (unresolvable → prune)
+        var migratedConns = new java.util.ArrayList<CompoundTag>();
+        for (int i = 0; i < conns.size(); i++) {
+            CompoundTag c = conns.getCompound(i);
+            GraphNode fromNode = runtimeNodes.get(c.getInt("from"));
+            GraphNode toNode = runtimeNodes.get(c.getInt("to"));
+            if (fromNode == null || toNode == null) continue;
+            String f = retagPinId(fromNode, true,
+                c.contains("fPinId") ? c.getString("fPinId") : null, c.getInt("fPin"));
+            String t = retagPinId(toNode, false,
+                c.contains("tPinId") ? c.getString("tPinId") : null, c.getInt("tPin"));
+            if (f == null || t == null) continue;
+            c.putString("fPinId", f);
+            c.putString("tPinId", t);
+            migratedConns.add(c);
+        }
+        out.put("conns", listToTag(migratedConns));
+
+        // ③ 子图递归迁移 + 盖章
+        // ③ sub-graph recursion + stamp
+        for (int i = 0; i < nodes.size(); i++) {
+            CompoundTag n = nodes.getCompound(i);
+            if (n.contains("subGraph")) {
+                n.put("subGraph", migrateV8toV9(n.getCompound("subGraph"), registries));
+            }
+        }
+        out.putInt(NbtVersions.VERSION_KEY, 9);
+        return out;
+    }
+
+    /** 把节点的声明载荷类型表重置为全 FLOAT（拓扑回填的起点）：BUS_IN/OUT 逐频段、
+     *  PRIVATE_IN/OUT 单元素，其余节点空表。 / Reset the declared payload-type table to
+     *  all-FLOAT (the backfill's starting point): per-band for BUS_IN/OUT, single-entry
+     *  for PRIVATE_IN/OUT, empty for the rest. */
+    private static void resetBandTypes(GraphNode node) {
+        int expected = (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT)
+            ? 1
+            : (node.type == NodeType.BUS_IN || node.type == NodeType.BUS_OUT)
+                ? (node.signalBands != null ? node.signalBands.size() : 0) : 0;
+        node.bandTypes = new java.util.ArrayList<>(java.util.Collections.nCopies(Math.max(expected, 0), PinType.FLOAT));
+    }
+
+    /** 拓扑证据标记：该频段/私有引脚（输出侧 = BUS_IN/PRIVATE_IN，输入侧 = BUS_OUT/
+     *  PRIVATE_OUT）的对端静态类型为 AUDIO → 声明 AUDIO。 / Topology-evidence mark: a
+     *  band/private pin (output side = BUS_IN/PRIVATE_IN, input side = BUS_OUT/PRIVATE_OUT)
+     *  whose peer's static type is AUDIO declares AUDIO. */
+    private static void markBandType(GraphNode node, int pin, boolean outputSide, PinType peerStatic) {
+        if (node == null || peerStatic != PinType.AUDIO) return;
+        boolean band = outputSide
+            ? node.type == NodeType.BUS_IN || node.type == NodeType.PRIVATE_IN
+            : node.type == NodeType.BUS_OUT || node.type == NodeType.PRIVATE_OUT;
+        if (!band || node.bandTypes == null || pin < 0 || pin >= node.bandTypes.size()) return;
+        node.bandTypes.set(pin, PinType.AUDIO);
+    }
+
+    /** pinId 带段化改写（单一真相源 = 节点的 pinId 生成值）： / Typed-shape rewrite
+     *  (single source of truth = the node's generated pinIds):
+     *  <ol>
+     *  <li>旧串与某生成值<b>全串相等</b>（已带段且正确）→ 原样保留；</li>
+     *  <li>旧串<b>整体</b>等于某生成值的参段（裸参读取——旧档频段名可含 ':'）→ 改写为该生成值；</li>
+     *  <li>旧串<b>剥段后</b>的参段等于某生成值的参段（带段但类型码过期）→ 改写为该生成值；</li>
+     *  <li>旧串缺失 → 按缓存索引直接生成；仍解析不到返回 null（调用方剪线）。</li>
+     *  </ol>
+     *  规则 2 优先于 3：裸参读取胜过剥段读取，旧档里含 ':' 的频段名才不会被误读成类型段。 */
+    private static String retagPinId(GraphNode node, boolean outputSide, String oldId, int pinIdx) {
+        String whole = (oldId == null || oldId.isEmpty()) ? null : oldId;
+        String stripped = whole == null ? null : PinId.paramOf(whole);
+        String byBare = null, byStrip = null;
+        for (int i = 0; i < 4096; i++) {
+            String g = outputSide ? node.outputPinId(i) : node.inputPinId(i);
+            if (g == null) break;
+            if (whole == null) continue;
+            if (g.equals(whole)) return whole; // ① 已带段且正确 / already correctly typed
+            String gp = PinId.paramOf(g);
+            if (byBare == null && gp.equals(whole)) byBare = g;
+            if (byStrip == null && gp.equals(stripped)) byStrip = g;
+        }
+        if (byBare != null) return byBare;
+        if (byStrip != null) return byStrip;
+        if (whole == null) return outputSide ? node.outputPinId(pinIdx) : node.inputPinId(pinIdx);
+        return null;
     }
 
     /**

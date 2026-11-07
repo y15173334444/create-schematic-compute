@@ -5,6 +5,7 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeConnection;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.graph.PinType;
 import io.github.y15173334444.create_schematic_compute.graph.SpatialIndex;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -564,7 +565,7 @@ public class NodeRenderer {
             // teal, otherwise gold) — never the connection state: the transfer tint is retired
             // (it read as a bug spreading onto ordinary pins; audio domains are told apart by
             // the wire colour).
-            boolean inAudio = n.type.inputDomain(i) == NodeType.PinDomain.AUDIO
+            boolean inAudio = n.type.inputType(i) == PinType.AUDIO
                 || (bandIn && graph != null && graph.isBandPinAudio(n.id, i, false));
             g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1),
                 inAudio ? CAPB() : CPIB());
@@ -598,7 +599,7 @@ public class NodeRenderer {
             boolean syncedPrivateAudio = n.type == NodeType.PRIVATE_IN
                 && io.github.y15173334444.create_schematic_compute.network.SignalBus
                     .isPrivateAudio(n.signalName);
-            boolean outAudio = n.type.outputDomain(i) == NodeType.PinDomain.AUDIO
+            boolean outAudio = n.type.outputType(i) == PinType.AUDIO
                 || (bandOut && graph != null
                     && (syncedBandAudio || syncedPrivateAudio || graph.isBandPinAudio(n.id, i, true)));
             g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1),

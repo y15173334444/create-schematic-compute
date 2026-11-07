@@ -224,30 +224,30 @@ public enum NodeType {
         return (ordinal >= 0 && ordinal < vals.length) ? vals[ordinal] : null;
     }
 
-    /** 引脚信号域：FLOAT（普通浮点）/ AUDIO（音源句柄）。AUDIO 域引脚只连 AUDIO 域。
-     *  Pin signal domain: FLOAT (plain float) / AUDIO (source handle). AUDIO pins connect
-     *  only to AUDIO pins ("音频域特殊连线"). */
-    public enum PinDomain { FLOAT, AUDIO }
-
-    /** 输入引脚 i 的信号域。AMP 的 audio 入、AUDIO_OUT 的全部频道入、CHANNEL/SPEAKER_PLAY 的
-     *  audio 入为 AUDIO，其余 FLOAT。 Signal domain of input pin i. */
-    public PinDomain inputDomain(int i) {
-        if (this == AMP && i == 0) return PinDomain.AUDIO;
-        if (this == WSHAPE) return PinDomain.AUDIO;
-        if (this == AUDIO_OUT) return PinDomain.AUDIO;
-        if (this == CHANNEL && i == 0) return PinDomain.AUDIO;
-        if (this == SPEAKER_PLAY && i == 0) return PinDomain.AUDIO;
-        return PinDomain.FLOAT;
+    /** 输入引脚 i 的静态载荷类型（节点固定形状引脚的声明类型）。AMP 的 audio 入、AUDIO_OUT 的
+     *  全部频道入、CHANNEL/SPEAKER_PLAY 的 audio 入为 AUDIO，其余 FLOAT。
+     *  动态引脚（BUS/PRIVATE 频段、FORMULA、ENCAP、CUSTOM、参数引脚）由
+     *  {@link GraphNode#inputType} 按声明表/默认值覆盖。
+     *  Static payload type of input pin i (declared type for fixed-shape pins).
+     *  Dynamic pins (BUS/PRIVATE bands, FORMULA, ENCAP, CUSTOM, param pins) are
+     *  overridden by {@link GraphNode#inputType} via the declaration table / defaults. */
+    public PinType inputType(int i) {
+        if (this == AMP && i == 0) return PinType.AUDIO;
+        if (this == WSHAPE) return PinType.AUDIO;
+        if (this == AUDIO_OUT) return PinType.AUDIO;
+        if (this == CHANNEL && i == 0) return PinType.AUDIO;
+        if (this == SPEAKER_PLAY && i == 0) return PinType.AUDIO;
+        return PinType.FLOAT;
     }
 
-    /** 输出引脚 i 的信号域。MUSIC 的 audio 出、AMP 的 audio 出、CHANNEL 的全部声道出
-     *  为 AUDIO，其余 FLOAT。 Signal domain of output pin i. */
-    public PinDomain outputDomain(int i) {
-        if (this == MUSIC && i == 0) return PinDomain.AUDIO;
-        if (this == AMP && i == 0) return PinDomain.AUDIO;
-        if (this == WSHAPE) return PinDomain.AUDIO;
-        if (this == CHANNEL) return PinDomain.AUDIO;
-        return PinDomain.FLOAT;
+    /** 输出引脚 i 的静态载荷类型。MUSIC 的 audio 出、AMP 的 audio 出、CHANNEL 的全部声道出
+     *  为 AUDIO，其余 FLOAT。 Static payload type of output pin i. */
+    public PinType outputType(int i) {
+        if (this == MUSIC && i == 0) return PinType.AUDIO;
+        if (this == AMP && i == 0) return PinType.AUDIO;
+        if (this == WSHAPE) return PinType.AUDIO;
+        if (this == CHANNEL) return PinType.AUDIO;
+        return PinType.FLOAT;
     }
 
     /** 声道稳定 pinId（有序）：聚合/左/右/中置/低音/左后环绕/右后环绕/左侧环绕/右侧环绕。

@@ -4,8 +4,9 @@ import net.minecraft.nbt.CompoundTag;
 
 /** Central version tracking for all NBT data formats in this mod. */
 public final class NbtVersions {
-    /** Current data format version. Bump when breaking NBT changes are made. */
-    public static final int DATA_VERSION = 8;
+    /** Current data format version. Bump when breaking NBT changes are made.
+     *  v9 (1.3.0) = typed pinId（类型参数段）+ bandTypes 声明表. */
+    public static final int DATA_VERSION = 9;
 
     /** NBT key name for the version field. */
     public static final String VERSION_KEY = "data_version";

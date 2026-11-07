@@ -317,9 +317,9 @@ class FormulaBudgetSpreadTest {
         node.dynamicOutputCount = Math.max(1, res.outputLabels.size());
         node.ensureScriptParsed();
         assertEquals(1, node.inputs()); // 仅变量引脚;warm 不占引脚 / variable pins only; warm takes no pin
-        assertEquals(0, node.inputPinIndex("a"));
-        assertEquals(-1, node.inputPinIndex("warm")); // warm 无引脚 / warm has no pin
-        assertEquals("a", node.inputPinId(0));
+        assertEquals(0, node.inputPinIndex("float:a"));
+        assertEquals(-1, node.inputPinIndex("float:warm")); // warm 无引脚 / warm has no pin
+        assertEquals("float:a", node.inputPinId(0));
         assertNull(node.inputPinId(1)); // 没有第二个引脚 / no second pin
         assertEquals(1, node.type.editableParamCount()); // 参数存储仍在(params[0]) / param storage remains
         assertEquals(1, node.functionalInputs()); // 功能引脚 = 全部输入 / functional = total inputs
