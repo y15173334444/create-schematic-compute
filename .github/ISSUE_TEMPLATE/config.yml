@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 使用文档 / Documentation
+    url: https://github.com/y15173334444/create-schematic-compute#table-of-contents
+    about: 方块、公式语法、节点参考、FAQ / Blocks, formula syntax, node reference, FAQ
+  - name: FORMULA 语法手册 / Formula Syntax Manual
+    url: https://github.com/y15173334444/create-schematic-compute/blob/main/docs/formula-syntax-manual.md
+    about: FORMULA 节点脚本语言的完整手册 / The complete manual for the FORMULA node's scripting language
+  - name: Modrinth
+    url: https://modrinth.com/mod/create-schematic-compute
+    about: 下载与版本发布页 / Downloads and release pages

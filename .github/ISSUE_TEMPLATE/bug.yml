@@ -1,0 +1,76 @@
+name: Bug 报告 / Bug Report
+description: 报告一个缺陷 / Report a defect
+title: "[Bug]: "
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢报告！请尽量填全字段——**版本与复现步骤**是定位的关键。
+        Thanks for reporting! **Version and reproduction steps** are the key to locating the issue.
+  - type: input
+    id: mod-version
+    attributes:
+      label: 模组版本 / Mod version
+      description: "出问题的 Create: Schematic Compute 版本 / The CSC version where it happens"
+      placeholder: "1.3.0"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境 / Environment
+      description: Minecraft / NeoForge / Create / Sable 版本（Sable 可选）；单人还是多人 / Versions of Minecraft, NeoForge, Create, Sable (optional); single-player or multiplayer
+      placeholder: |
+        Minecraft 1.21.1 / NeoForge 21.1.233 / Create 6.0.10 / Sable 无
+        单人 / Single-player
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      description: 从干净状态开始的最小步骤 / Minimal steps from a clean state
+      placeholder: |
+        1. 放置蓝图机并建图……
+        2. ……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为 / Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为 / Actual behaviour
+    validations:
+      required: true
+  - type: dropdown
+    id: side
+    attributes:
+      label: 出现端 / Side
+      options:
+        - 客户端 / Client
+        - 服务端 / Server
+        - 两端都有 / Both
+        - 不确定 / Not sure
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志 / 崩溃报告 / Logs & crash report
+      description: 粘贴相关日志片段，长的请贴 gist/剪贴服务 / Paste the relevant log excerpt; use a gist for long logs
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 自查 / Self-checks
+      options:
+        - label: 我确认不是强杀进程/损坏存档导致的（强杀跳过存档保存，损坏是预期后果、不是模组缺陷）/ I confirm this is not caused by hard-killing the game or a corrupted save (a hard kill skips world saving; the resulting damage is expected, not a mod defect)
+          required: true
+        - label: 我已搜索过现有 issue 没有重复 / I have searched existing issues and found no duplicate
+          required: true
