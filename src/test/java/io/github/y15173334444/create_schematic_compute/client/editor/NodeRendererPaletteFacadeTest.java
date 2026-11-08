@@ -61,6 +61,8 @@ class NodeRendererPaletteFacadeTest {
         assertEquals(t.wireVec3(), NodeRenderer.CV());
         assertEquals(t.pinVec3(), NodeRenderer.CVP());
         assertEquals(t.pinVec3Border(), NodeRenderer.CVPB());
+        assertEquals(t.pinEmpty(), NodeRenderer.CPE());
+        assertEquals(t.pinEmptyBorder(), NodeRenderer.CPEB());
     }
 
     @Test
@@ -91,8 +93,8 @@ class NodeRendererPaletteFacadeTest {
         EditorTheme.get().setColors(custom);
         NodeRenderer.initStaging();
         assertEquals(0xFF00BEEF, NodeRenderer.stagingColors[23]);
-        assertEquals(29, NodeRenderer.stagingColors.length);
-        assertEquals(29, NodeRenderer._NUM_COLORS);
+        assertEquals(31, NodeRenderer.stagingColors.length);
+        assertEquals(31, NodeRenderer._NUM_COLORS);
         // 改快照不影响主题（隔离不变式）/ mutating the staging copy must not touch the theme
         NodeRenderer.stagingColors[23] = 0xFF010101;
         assertEquals(0xFF00BEEF, EditorTheme.get().accent());

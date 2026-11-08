@@ -503,7 +503,13 @@ public final class OpExecutor {
             case SET_PIN_TYPE -> {
                 var n = graph.findNode(op.targetNodeId());
                 PinType t = n != null ? PinType.byCode(op.stringValue()) : null;
-                if (n != null && t != null) {
+                // op 层拒收回空：EMPTY 的清写只走连线生命周期（摘线即回灰 / 存档自愈），
+                // 声明 op 只许 空→实或改型——不让改型 op 变成剪线武器（回空会触发换段剪线
+                // 剪掉对端线）。/ The op layer refuses empty: EMPTY writes only ride the wire
+                // lifecycle (disconnect greys / the save self-heal); a declaration op may
+                // only go empty→real or retype — never a wire-cutting weapon (an empty
+                // retype would trip the segment-rebind prune on peer wires).
+                if (n != null && t != null && t != PinType.EMPTY) {
                     if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) {
                         // 私有频道单引脚改类型（pinId 换段重绑，对端不匹配的剪除）
                         // Private channel's single pin retypes (type-segment rebind; mismatched peers prune)

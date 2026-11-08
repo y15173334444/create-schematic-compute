@@ -161,7 +161,8 @@ public class EditPanel {
             PinType pinT = PinType.effective(local, synced);
             g.fill(pinX - pinR - 1, pinY - pinR - 1, pinX + pinR + 1, pinY + pinR + 1,
                 pinT == PinType.AUDIO ? NodeRenderer.CAPB()
-                    : pinT == PinType.VEC3 ? NodeRenderer.CVPB() : NodeRenderer.CPIB());
+                    : pinT == PinType.VEC3 ? NodeRenderer.CVPB()
+                    : pinT == PinType.EMPTY ? NodeRenderer.CPEB() : NodeRenderer.CPIB());
             // 填充基色 = 配置色（input/output/pin_audio），连接态做明暗变换（含音频引脚）——
             // 「占用暗化」与「音频着色」正交；旧硬编码暗橄榄退役（脱离自定义配色）。
             // Fill base = the configured colour (input/output/pin_audio); the connected state
@@ -169,6 +170,7 @@ public class EditPanel {
             // the old hardcoded khaki is retired (it ignored custom palettes).
             int baseFill = pinT == PinType.AUDIO ? NodeRenderer.CAP()
                 : pinT == PinType.VEC3 ? NodeRenderer.CVP()
+                : pinT == PinType.EMPTY ? NodeRenderer.CPE()
                 : isBusIn ? NodeRenderer.CPO() : NodeRenderer.CPI();
             g.fill(pinX - pinR, pinY - pinR, pinX + pinR, pinY + pinR,
                 pinConnected ? NodeRenderer.dimColor(baseFill) : baseFill);
@@ -928,16 +930,17 @@ public class EditPanel {
         }
     }
 
-    /** 声明载荷类型芯片：类型码短文本 + 主题类型底色（金=浮点 / 青=音频 / 品红=向量；
-     *  悬停高亮，{@code readOnly} 时无悬停高亮）。/ Declared payload-type chip: the type
-     *  code's short text on the theme's per-type tint (gold=float / teal=audio /
-     *  magenta=vector; hover highlights unless {@code readOnly}). */
+    /** 声明载荷类型芯片：类型码短文本 + 主题类型底色（金=浮点 / 青=音频 / 品红=向量 /
+     *  灰=空；悬停高亮，{@code readOnly} 时无悬停高亮）。/ Declared payload-type chip: the
+     *  type code's short text on the theme's per-type tint (gold=float / teal=audio /
+     *  magenta=vector / grey=empty; hover highlights unless {@code readOnly}). */
     private static void drawTypeChip(GuiGraphics g, int x, int y, int w, int h, PinType t,
                                      int mx, int my, boolean readOnly) {
         int bg = switch (t) {
             case FLOAT -> NodeRenderer.CPI();
             case AUDIO -> NodeRenderer.CAP();
             case VEC3 -> NodeRenderer.CVP();
+            case EMPTY -> NodeRenderer.CPE();
         };
         boolean hover = !readOnly && mx >= x && mx <= x + w && my >= y && my <= y + h;
         g.fill(x, y, x + w, y + h, hover ? 0xFF3A3A3A : bg);
@@ -946,6 +949,7 @@ public class EditPanel {
             case FLOAT -> "f32";
             case AUDIO -> "aud";
             case VEC3 -> "v3";
+            case EMPTY -> "空";
         };
         int tw = Minecraft.getInstance().font.width(txt);
         g.drawString(Minecraft.getInstance().font, txt, x + (w - tw) / 2, y + (h - 8) / 2 + 1, 0xFFEAEAEA, false);

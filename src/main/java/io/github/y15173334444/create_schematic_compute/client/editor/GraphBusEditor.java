@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.client.editor;
 
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
+import io.github.y15173334444.create_schematic_compute.graph.PinType;
 
 /**
  * 总线编辑器（自 {@link GraphEditor} 拆分，docs/gui-decomposition-plan.md 步骤 6d）：
@@ -284,28 +285,18 @@ final class GraphBusEditor {
                 // alignment path (syncBandsFromServer / BusBandUploadPacket / convergeBusInBands)
                 // already has this guard; this one was missing it.
                 if (n.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT && n.busConflict) continue;
-                // Collect removed band names (pinIds) before replacing the list
-                // 在替换列表前收集被删除的频段名（pinId）
-                var oldBands = n.signalBands != null ? n.signalBands : java.util.Collections.<String>emptyList();
+                // 频段对齐走唯一规则（reconcileBands）：改名换段保线、类型换段重绑 + 对端
+                // 不匹配剪除（上游回灰剪下游线在此生效）、真删频段按参段剪线——与其余
+                // 对齐路径同规则，不再手抄一份名单交换。
+                // The band alignment rides the single rule (reconcileBands): rename-rebinding
+                // keeps wires, the type-segment rebind prunes peer-mismatched wires (the
+                // upstream grey-out's downstream prune lands here), genuinely removed bands
+                // prune by param — the same rule as the other alignment paths, no hand-copied
+                // list swap.
                 java.util.List<String> newBands = bands != null ? new java.util.ArrayList<>(bands) : new java.util.ArrayList<>();
-                var removed = new java.util.ArrayList<>(oldBands);
-                removed.removeAll(newBands);
-                n.signalBands = newBands;
-                // 声明类型随槽位复制（同频道对齐与源头一致）/ declared types copy slot-wise
-                n.bandTypes = new java.util.ArrayList<>();
-                for (int i = 0; i < newBands.size(); i++)
-                    n.bandTypes.add(src.bandType(i));
-                n.bandsDirty = true;
-                // Only remove connections on bands that were actually deleted,
-                // matched by band name (= pinId param). Preserves connections on
-                // bands that were merely reordered.
-                // 仅删除实际被移除频段上的连接（按频段名 = pinId 参段匹配）。
-                // 仅被重排的频段上的连接得以保留。
-                for (String removedBand : removed) {
-                    g.connections.removeIf(c ->
-                        (c.fromId == n.id && removedBand.equals(io.github.y15173334444.create_schematic_compute.graph.PinId.paramOf(c.fromPinId))) ||
-                        (c.toId == n.id && removedBand.equals(io.github.y15173334444.create_schematic_compute.graph.PinId.paramOf(c.toPinId))));
-                }
+                var newTypes = new java.util.ArrayList<io.github.y15173334444.create_schematic_compute.graph.PinType>();
+                for (int i = 0; i < newBands.size(); i++) newTypes.add(src.bandType(i));
+                g.reconcileBands(n, newBands, newTypes);
                 g.rebuildNodeMap(); // invalidate inputCache / 刷新 inputCache
                 g.rebuildInputCache();
                 var st = ed.nodeEditStatesById.get(n.id);

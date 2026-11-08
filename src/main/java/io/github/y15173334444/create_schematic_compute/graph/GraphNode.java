@@ -850,13 +850,13 @@ public class GraphNode {
                 || type == NodeType.PRIVATE_IN || type == NodeType.PRIVATE_OUT)
                 && bandTypes != null && !bandTypes.isEmpty()) {
             ListTag typesTag = new ListTag();
-            // null 槽位（未知码空标）写回 float —— NBT 层面自愈（F15 同款）：重存即固化，
-            // 不把无法解析的码带进新档。
-            // Null slots (unknown-code markers) write back as "float" — NBT-level
-            // self-heal (F15's pattern): a resave cements the slot instead of carrying
-            // the unparseable code into the new save.
+            // null 槽位（未知码空标）写回 empty —— NBT 层面自愈（未连接⟺灰）：重存即
+            // 固化，不把无法解析的码带进新档。
+            // Null slots (unknown-code markers) write back as "empty" — NBT-level
+            // self-heal (the unwired-⟹-grey rule): a resave cements the slot instead of
+            // carrying the unparseable code into the new save.
             for (PinType t : bandTypes)
-                typesTag.add(net.minecraft.nbt.StringTag.valueOf(t != null ? t.code : PinType.FLOAT.code));
+                typesTag.add(net.minecraft.nbt.StringTag.valueOf(t != null ? t.code : PinType.EMPTY.code));
             tag.put("bandTypes", typesTag);
         }
         // BUS_OUT internalMap — 仅保存本地数据，不保存全局状态

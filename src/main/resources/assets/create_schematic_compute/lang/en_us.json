@@ -254,6 +254,8 @@
   "gui.create_schematic_compute.color.wire_vec3": "Vector Wire",
   "gui.create_schematic_compute.color.pin_vec3": "Vector Pin",
   "gui.create_schematic_compute.color.pin_vec3_border": "Vector Pin Border",
+  "gui.create_schematic_compute.color.pin_empty": "Empty Pin",
+  "gui.create_schematic_compute.color.pin_empty_border": "Empty Pin Border",
   "gui.create_schematic_compute.color.drag": "Drag Wire",
   "gui.create_schematic_compute.color.menu_text": "Menu Text",
   "gui.create_schematic_compute.color.menu_hover": "Menu Hover",

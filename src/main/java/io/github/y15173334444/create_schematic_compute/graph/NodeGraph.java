@@ -132,6 +132,7 @@ public class NodeGraph {
         // Resolve pinIds from nodes
         GraphNode fromNode = nodeMap.get(fromId);
         GraphNode toNode = nodeMap.get(toId);
+        autoDeclareBusSlot(fromNode, fromPin, toNode, toPin);
         if (fromNode != null && toNode != null && !pinDomainsMatch(fromNode, fromPin, toNode, toPin)) return false;
         String fPid = fromNode != null ? fromNode.outputPinId(fromPin) : null;
         String tPid = toNode != null ? toNode.inputPinId(toPin) : null;
@@ -141,15 +142,59 @@ public class NodeGraph {
         return true;
     }
 
-    /** 引脚载荷类型兼容：声明类型严格相等（AUDIO↔AUDIO、FLOAT↔FLOAT、VEC3↔VEC3）。
+    /** 连接即声明（全切换模型不变量，一处写清、全路径生效）：落线时目标是 BUS_OUT 频段脚、
+     *  对端有显式类型且与现声明不同 → 槽位声明切成对端类型（空槽补声明、显式声明随连接
+     *  改写）。手势、撤销重接、远端 ADD_CONN、粘贴都走 {@link PinType#autoDeclareFrom}
+     *  同一判定，「已连的频段脚声明 = 线的类型」在每条路径成立（手势层的 SET_PIN_TYPE
+     *  快路径提前得到同一结果并携带同步编排）。
+     *  Declare-at-connect (the full-switch model invariant, written once for every path):
+     *  when a wire lands on a BUS_OUT band pin and the peer carries an explicit type differing
+     *  from the slot's declaration, the slot switches to the peer's type (empty slots fill,
+     *  explicit declarations rewrite). Gestures, undo rewires, remote ADD_CONNs and pastes
+     *  all decide through {@link PinType#autoDeclareFrom}, so "a wired band pin's declaration
+     *  equals the wire's type" holds everywhere (the gesture-level SET_PIN_TYPE fast path
+     *  reaches the same result earlier and carries the sync orchestration). */
+    private static void autoDeclareBusSlot(GraphNode fromNode, int fromPin, GraphNode toNode, int toPin) {
+        if (fromNode == null || toNode == null || toNode.type != NodeType.BUS_OUT
+            || toNode.bandTypes == null || toPin < 0 || toPin >= toNode.bandTypes.size()
+            || toPin >= (toNode.signalBands != null ? toNode.signalBands.size() : 0)) return;
+        PinType declared = PinType.autoDeclareFrom(toNode.bandType(toPin), fromNode.outputType(fromPin));
+        if (declared != null) toNode.bandTypes.set(toPin, declared);
+    }
+
+    /** 上游断开自动回灰（一律回灰：无线即空）：被摘线的目标是 BUS_OUT 频段脚时该槽声明清回
+     *  EMPTY——「上游未连接/断开 ⟺ 灰」的不变量，同样一处写清、全路径生效（手势删线 /
+     *  撤销 / 远端 REMOVE_CONN 同规则）。下游旧线随后由频段收敛传播 + 类型换段重绑的
+     *  「对端不匹配剪除」契约剪除（类型合法性优先于保线）。
+     *  Upstream disconnect reverts to grey (always: no wire = empty): when the removed wire's
+     *  target is a BUS_OUT band pin, its slot clears to EMPTY — the "upstream unconnected/
+     *  disconnected ⟺ grey" invariant, written once for every path (gesture deletes, undo,
+     *  remote REMOVE_CONNs). Downstream wires are then pruned by the type-segment rebind's
+     *  "peer mismatch prunes" contract once the change rides the band convergence (type
+     *  legality wins over keeping wires). */
+    private void disconnectBusSlot(int toId, int toPin) {
+        GraphNode to = nodeMap.get(toId);
+        if (to != null && to.type == NodeType.BUS_OUT && to.bandTypes != null
+            && toPin >= 0 && toPin < to.bandTypes.size()
+            && toPin < (to.signalBands != null ? to.signalBands.size() : 0)) {
+            to.bandTypes.set(toPin, PinType.EMPTY);
+        }
+    }
+
+    /** 引脚载荷类型兼容：声明类型严格相等（AUDIO↔AUDIO、FLOAT↔FLOAT、VEC3↔VEC3），且
+     *  **任一端未声明（空）即拒**——「下游可连 ⟺ 上游有连线/声明」的连接门：灰频段脚拒接
+     *  新线（空↔空暗桥同样拒），上游点亮（接线自动声明 / 手动芯片声明）后才可连接。
      *  BUS/PRIVATE 频段引脚也按**声明类型**参与严格匹配（任意域豁免已随传输收编退役）——
      *  音频走总线/私有频段 = 把频段声明为 AUDIO 后再接线。
-     *  Pin payload-type compatibility: declared types must match strictly. BUS/PRIVATE band
-     *  pins match by their declared type too (the any-domain exemption retired with the
-     *  transport consolidation) — routing audio through a band means declaring the band
-     *  AUDIO first, then wiring. */
+     *  Pin payload-type compatibility: declared types must match strictly AND neither end may
+     *  be undeclared (empty) — the downstream gate "a downstream connect needs the upstream
+     *  wired/declared": grey band pins refuse new wires (empty↔empty dark bridges included)
+     *  until the upstream lights up (auto-declare at connect / a manual chip declaration).
+     *  BUS/PRIVATE band pins match by their declared type too (the any-domain exemption
+     *  retired with the transport consolidation). */
     private static boolean pinDomainsMatch(GraphNode fromNode, int fromPin, GraphNode toNode, int toPin) {
-        return fromNode.outputType(fromPin) == toNode.inputType(toPin);
+        PinType f = fromNode.outputType(fromPin), t = toNode.inputType(toPin);
+        return f == t && f != PinType.EMPTY;
     }
 
     /** Add a connection using stable pinIds. The int indices are resolved from the
@@ -162,10 +207,19 @@ public class NodeGraph {
         int fromPin = fromNode.outputPinIndex(fromPinId);
         int toPin = toNode.inputPinIndex(toPinId);
         if (fromPin < 0 || toPin < 0) return false;
-        if (!pinDomainsMatch(fromNode, fromPin, toNode, toPin)) return false;
+        // 录取判定先于声明：被拒的连接（占用/自环）不得改写声明——「落线即声明」的因果
+        // 只跟真正落下的线走。/ Admission before declaration: a rejected connect (occupied
+        // input / self-loop) must not rewrite the declaration — the declare-at-connect
+        // cause only follows wires that actually land.
         if (inputCache.containsKey(key(toId, toPin))) return false;
         if (fromId == toId) return false;
-        connections.add(new NodeConnection(fromId, fromPinId, fromPin, toId, toPinId, toPin));
+        autoDeclareBusSlot(fromNode, fromPin, toNode, toPin);
+        if (!pinDomainsMatch(fromNode, fromPin, toNode, toPin)) return false;
+        // pinId 归一：声明可能刚切换过类型段，以节点当前真相源生成的新形态存储（给定
+        //  pinId 只用于解析索引）。/ pinIds normalise after a possible declare — stored in
+        //  the fresh form from the node's current truth (the given pinIds only resolve pins).
+        connections.add(new NodeConnection(fromId, fromNode.outputPinId(fromPin), fromPin,
+            toId, toNode.inputPinId(toPin), toPin));
         invalidateTopo();
         bumpGeneration();
         return true;
@@ -185,7 +239,7 @@ public class NodeGraph {
             String tPid = toNode != null ? toNode.inputPinId(toPin) : null;
             if (fPid != null || tPid != null) {
                 final String ff = fPid, tt = tPid;
-                connections.removeIf(c -> {
+                removed = connections.removeIf(c -> {
                     if (c.fromId != fromId || c.toId != toId) return false;
                     boolean fMatch = ff != null ? ff.equals(c.fromPinId) : c.fromPin == fromPin;
                     boolean tMatch = tt != null ? tt.equals(c.toPinId) : c.toPin == toPin;
@@ -193,6 +247,10 @@ public class NodeGraph {
                 });
             }
         }
+        // 回灰只跟真实摘除走：迟到/重复的 REMOVE_CONN（没摘掉任何线）不得清掉新线的声明。
+        // The grey-out only follows an actual removal: a late/duplicate REMOVE_CONN (that
+        // removed nothing) must not clear the declaration of a newer wire.
+        if (removed) disconnectBusSlot(toId, toPin);
         invalidateTopo();
         bumpGeneration();
     }
@@ -206,6 +264,8 @@ public class NodeGraph {
             c.fromId == fromId && c.toId == toId
             && fromPinId.equals(c.fromPinId) && toPinId.equals(c.toPinId));
         if (removed) {
+            GraphNode to = nodeMap.get(toId);
+            disconnectBusSlot(toId, to != null ? to.inputPinIndex(toPinId) : -1);
             invalidateTopo();
             bumpGeneration();
         }
@@ -310,7 +370,7 @@ public class NodeGraph {
         // 保线。触点判定用**解析后**的引脚索引（pinId 解析环刚把缓存索引刷新过）：
         // 未知码形态的 pinId（如 "quat:kick"）在解析环里本就解析不到、按既有纪律剪除；
         // 恰与降级 FLOAT 形态同名的 pinId（"float:kick"）解析回该槽、由本判定剪除；索引
-        // 绑定旧式连线按缓存索引剪除。随后槽位自愈 FLOAT（F15 同款 NBT 自愈，重存即固化）。
+        // 绑定旧式连线按缓存索引剪除。随后槽位自愈 EMPTY（未连接⟺灰，重存即固化）。
         // Unknown type codes on the declaration side ("unresolvable → prune"): a null
         // bandTypes slot (its code failed to parse at load — a newer version's code or a
         // corrupt save) has its wires cut — type legality wins over keeping wires. Touch is
@@ -318,8 +378,8 @@ public class NodeGraph {
         // unknown-code pinIds (like "quat:kick") already fail resolution and die by the
         // existing discipline; pinIds that coincide with the degraded FLOAT shape
         // ("float:kick") resolve back to the slot and die here; legacy index-bound wires die
-        // by cached index. The slot then self-heals to FLOAT (F15's NBT self-heal; a resave
-        // cements it).
+        // by cached index. The slot then self-heals to EMPTY (the unwired-⟹-grey rule; a
+        // resave cements it).
         inputCache.clear();
         var stale = new java.util.ArrayList<NodeConnection>();
         boolean anyIndexChanged = false;
@@ -348,17 +408,18 @@ public class NodeGraph {
             connections.removeAll(stale);
             anyIndexChanged = true;
         }
-        // 自愈（F15 同款 NBT 自愈，重存即固化）：null 槽位读取侧本就降 FLOAT，这里把标记
-        // 消掉，后续保存写回 float，不把无法解析的码带进新档。放在触点判定**之后**——
-        // 先剪线后自愈，槽位标记在本方法内是一次性的。
-        // Self-heal (F15's NBT self-heal; a resave cements it): null slots already read as
-        // FLOAT; this clears the marker so a later save writes "float", never carrying the
-        // unparseable code into a new archive. Runs **after** the touch checks — prune first,
-        // heal second; the slot marker is one-shot within this method.
+        // 自愈（F15 同款 NBT 自愈，重存即固化）：null 槽位的声明已不可知，清成 EMPTY——
+        // 「未连接 ⟺ 灰」取代旧的 FLOAT 缺省（没有连线就没有声明），后续保存写回 "empty"，
+        // 不把无法解析的码带进新档。放在触点判定**之后**——先剪线后自愈，标记一次性。
+        // Self-heal (F15's NBT self-heal; a resave cements it): a null slot's declaration is
+        // unknowable, so it clears to EMPTY — the unwired-⟹-grey rule supersedes the old
+        // FLOAT default (no declaration survives without a wire); a later save writes
+        // "empty", never carrying the unparseable code into the new save. Runs **after** the
+        // touch checks — prune first, heal second; the marker is one-shot here.
         for (GraphNode n : nodes) {
             if (n.bandTypes == null) continue;
             for (int i = 0; i < n.bandTypes.size(); i++)
-                if (n.bandTypes.get(i) == null) n.bandTypes.set(i, PinType.FLOAT);
+                if (n.bandTypes.get(i) == null) n.bandTypes.set(i, PinType.EMPTY);
         }
         if (anyIndexChanged) bumpGeneration();
     }
@@ -403,8 +464,10 @@ public class NodeGraph {
      *  peer's declared type mismatches are pruned — type legality wins over keeping wires.
      *  @param n 目标节点（BUS_OUT / BUS_IN 等带 signalBands 的节点）
      *            the node whose signalBands list is being aligned
-     *  @param newTypes 新的逐槽声明类型（null = 类型按槽位继承旧值，新增频段缺省 FLOAT）
-     *            per-slot declared types (null = carry over by slot, new bands default FLOAT) */
+     *  @param newTypes 新的逐槽声明类型（null = 类型按槽位继承旧值，新增频段缺省 EMPTY——
+     *            未连接⟺灰：无型信息的新槽就是未声明）
+     *            per-slot declared types (null = carry over by slot, new bands default
+     *            EMPTY — unwired means grey: a new slot without type info is undeclared) */
     public void reconcileBands(GraphNode n, List<String> newBands) {
         reconcileBands(n, newBands, null);
     }
@@ -419,7 +482,7 @@ public class NodeGraph {
         var wantT = new java.util.ArrayList<PinType>(want.size());
         for (int i = 0; i < want.size(); i++)
             wantT.add(newTypes != null && i < newTypes.size() && newTypes.get(i) != null
-                ? newTypes.get(i) : (i < oldT.size() ? oldT.get(i) : PinType.FLOAT));
+                ? newTypes.get(i) : (i < oldT.size() ? oldT.get(i) : PinType.EMPTY));
         var stale = new java.util.ArrayList<NodeConnection>();
         if (old.size() == want.size()) {
             // 双射换名判定：旧名∉新表 且 新名∉旧表，且同一旧名不得映射到两个新名。
@@ -684,6 +747,27 @@ public class NodeGraph {
                 g.connections.add(c);
         }
         g.rebuildInputCache();
+        // 存档自愈（未连接 ⟺ 灰）：BUS_OUT 频段脚没有入线的槽位，声明一律清回 EMPTY——
+        // 旧档存量声明（FLOAT 缺省时代 / 断线粘性时代残留）不再带进新会话。「声明」
+        // 激活器仍在会话内有效（芯片先行声明可放行下游连接），但不再跨存档存活。
+        // 排在 rebuildInputCache 之后：未知码空标的剪线/自愈先行，本收敛殿后兜底。
+        // Save self-heal (unwired ⟺ grey): a BUS_OUT band slot with no incoming wire clears
+        // its declaration to EMPTY — legacy declarations (the FLOAT-default / sticky-era
+        // leftovers) no longer carry into new sessions. The "declaration" activator still
+        // works within a session (a chip declaration opens downstream connects) but does
+        // not survive a save round-trip. Runs after rebuildInputCache so the unknown-code
+        // marker's prune/heal goes first and this convergence backstops the rest.
+        for (GraphNode n : g.nodes) {
+            if (n.type != NodeType.BUS_OUT || n.bandTypes == null || n.signalBands == null) continue;
+            for (int i = 0; i < n.bandTypes.size() && i < n.signalBands.size(); i++) {
+                if (n.bandTypes.get(i) == PinType.EMPTY) continue;
+                boolean wired = false;
+                for (NodeConnection c : g.connections) {
+                    if (c.toId == n.id && c.toPin == i) { wired = true; break; }
+                }
+                if (!wired) n.bandTypes.set(i, PinType.EMPTY);
+            }
+        }
         // 反序列化共享视角书签 / deserialise shared view bookmarks
         if (tag.contains("bookmarks")) {
             ListTag bl = tag.getList("bookmarks", Tag.TAG_COMPOUND);

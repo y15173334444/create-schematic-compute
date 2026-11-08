@@ -2591,8 +2591,21 @@ public class GraphEditor {
             host.getBlockPos(), ownerNodeId(), hc.fromId, hc.fromPin, hc.toId, hc.toPin,
             hc.fromPinId, hc.toPinId, host.getPlayerUUID());
         sendOp(rcOp); recordOp(rcOp, hc.fromId, hc.fromPin, hc.toId, null);
-        // 删除参数引脚连线后刷新编辑区（恢复输入框） (Refresh edit area after removing param pin connection, restoring input box)
         var tn = graph.findNode(hc.toId);
+        // 上游断开回灰的同步编排（+ 按钮同口径）：BUS_OUT 频段脚被摘线后槽位已随
+        // removeConnection 回空；同频道对齐 + 定义上传让订阅侧经收敛剪下游线。
+        // The sync orchestration for the upstream grey-out (the + button's discipline): a
+        // BUS_OUT band slot already reverted to empty with removeConnection; the same-channel
+        // align plus the definition upload let subscribers prune downstream wires via the
+        // convergence.
+        if (tn != null && tn.type == NodeType.BUS_OUT
+            && hc.toPin >= 0 && tn.signalBands != null && hc.toPin < tn.signalBands.size()) {
+            bus.syncBusBands(tn);
+            net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                new io.github.y15173334444.create_schematic_compute.network.BusBandUploadPacket(
+                    host.getBlockPos(), tn.signalName, tn.signalBands, tn.id));
+        }
+        // 删除参数引脚连线后刷新编辑区（恢复输入框） (Refresh edit area after removing param pin connection, restoring input box)
         if (tn != null && hc.toPin >= tn.functionalInputs() && expandedNodeIds.contains(hc.toId)) {
             nodeEditStatesById.remove(hc.toId);
             nodeEditStatesById.put(hc.toId, createEditState(tn));
@@ -3024,12 +3037,13 @@ public class GraphEditor {
         if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
             if (lmx >= st.bandAddBtnX && lmx <= st.bandAddBtnX + st.bandAddBtnW
                 && lmy >= st.bandAddBtnY && lmy <= st.bandAddBtnY + st.bandAddBtnH) {
-                // + 按钮：添加新频段（缺省声明 FLOAT），同步同总线名节点 (+ button: add a new
-                // band declared FLOAT, sync same-bus-name nodes)
+                // + 按钮：添加新频段（初始声明 EMPTY，灰色空态；连接时自动声明 / 切片手动声明），
+                // 同步同总线名节点 (+ button: add a new band declared EMPTY — the grey
+                // initial state; auto-declared at connect time / declared by the chip)
                 if (en.signalBands == null) en.signalBands = new java.util.ArrayList<>();
                 String name = "band_" + en.signalBands.size();
                 en.signalBands.add(name);
-                en.bandTypes.add(PinType.FLOAT);
+                en.bandTypes.add(PinType.EMPTY);
                 en.bandsDirty = true;
                 bus.syncBusBands(en);
                 // 结构上传不因冲突跳过（服务端按结构/定义两层仲裁）/ server arbitrates
@@ -3079,16 +3093,70 @@ public class GraphEditor {
     private void cyclePinType(GraphNode n, int pin) {
         io.github.y15173334444.create_schematic_compute.graph.PinType cur = n.bandType(pin);
         io.github.y15173334444.create_schematic_compute.graph.PinType next = switch (cur) {
+            case EMPTY -> io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT;
             case FLOAT -> io.github.y15173334444.create_schematic_compute.graph.PinType.AUDIO;
             case AUDIO -> io.github.y15173334444.create_schematic_compute.graph.PinType.VEC3;
             case VEC3 -> io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT;
         };
+        applyPinType(n, pin, next);
+    }
+
+    /** 声明引脚载荷类型（SET_PIN_TYPE 本地镜像 + 上行；BUS_OUT 改声明后同步频段定义）。
+     *  Declare a pin's payload type (SET_PIN_TYPE local mirror + upload; a BUS_OUT
+     *  redeclaration then re-syncs the band definition). */
+    private void applyPinType(GraphNode n, int pin,
+                              io.github.y15173334444.create_schematic_compute.graph.PinType t) {
         var op = io.github.y15173334444.create_schematic_compute.graph.GraphOp.setPinType(
-            host.getBlockPos(), ownerNodeId(), n.id, pin, next.code, host.getPlayerUUID());
+            host.getBlockPos(), ownerNodeId(), n.id, pin, t.code, host.getPlayerUUID());
         io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(getGraph(), op);
         sendOp(op);
         if (n.type == NodeType.BUS_OUT) bus.syncBusBands(n);
         nodeEditStatesById.put(n.id, createEditState(n));
+    }
+
+    /** 连接时声明（全切换）：拖线连上 BUS_OUT 频段脚时，声明切成对端引脚类型——空槽补声明、
+     *  显式声明随连接改写（判定单源见 {@link PinType#autoDeclareFrom}；对端为空/
+     *  同型不动）。改声明走 reconcile 类型换段重绑，对端不匹配的线剪除（本路径下即被替换
+     *  的旧线）——「类型合法性优先于保线」契约按声明语义生效。
+     *  Declare at connect (full switch): when a drag-connect lands on a BUS_OUT band pin,
+     *  the declaration switches to the peer pin's type — empty slots fill, explicit
+     *  declarations rewrite (the decision lives in {@link PinType#autoDeclareFrom};
+     *  an empty/matching peer is inert). A redeclaration runs reconcile's type-segment
+     *  rebind, pruning peer-mismatched wires (here: the wire being replaced). */
+    private void maybeAutoDeclareBandType(int fromId, int fromPin, int toId, int toPin) {
+        var toN = getGraph().findNode(toId);
+        var fromN = getGraph().findNode(fromId);
+        if (toN == null || fromN == null || toN.type != NodeType.BUS_OUT
+            || toN.signalBands == null || toPin < 0 || toPin >= toN.signalBands.size()) return;
+        var peer = fromN.outputType(fromPin);
+        var declared = PinType.autoDeclareFrom(toN.bandType(toPin), peer);
+        if (declared != null) applyPinType(toN, toPin, declared);
+    }
+
+    /** 落线前替换：目标是 BUS_OUT 频段脚且已有入线时先摘旧线（REMOVE_CONN 同款镜像 + 撤销
+     *  记录），腾出输入位——「落到已占用频段脚 = 替换旧线」的全切换语义（同一条线重放不动）。
+     *  Replace before landing: when a BUS_OUT band-pin target already carries a wire,
+     *  remove it first (the REMOVE_CONN mirror + undo record) to free the input slot —
+     *  the full-switch "drop on an occupied band pin replaces the old wire" semantics
+     *  (redropping the very same wire is left alone). */
+    private void replaceOccupiedBandTarget(int fromId, int fromPin, int toId, int toPin) {
+        var toN = getGraph().findNode(toId);
+        if (toN == null || toN.type != NodeType.BUS_OUT
+            || toN.signalBands == null || toPin < 0 || toPin >= toN.signalBands.size()) return;
+        // 暗源落不上新线（对端未声明），不动旧线——避免「替换吞了旧线、新线又被拒」。
+        // A dark source cannot land the new wire (peer undeclared) — never touch the old wire,
+        // so a replace cannot swallow it and leave nothing.
+        var fromN = getGraph().findNode(fromId);
+        if (fromN == null || fromN.outputType(fromPin) == PinType.EMPTY) return;
+        var old = getGraph().connections.stream()
+            .filter(c -> c.toId == toId && c.toPin == toPin).findFirst().orElse(null);
+        if (old == null || (old.fromId == fromId && old.fromPin == fromPin)) return;
+        getGraph().removeConnection(old.fromId, old.fromPin, old.toId, old.toPin);
+        var rcOp = io.github.y15173334444.create_schematic_compute.graph.GraphOp.removeConn(
+            host.getBlockPos(), ownerNodeId(), old.fromId, old.fromPin, old.toId, old.toPin,
+            old.fromPinId, old.toPinId, host.getPlayerUUID());
+        sendOp(rcOp);
+        recordOp(rcOp, old.fromId, old.fromPin, old.toId, null);
     }
 
     /** 6f 后半拆出：原 tryExpandedEditAreaClicks 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
@@ -3900,6 +3968,20 @@ public class GraphEditor {
         // BUS_OUT 编辑区输入引脚 (BUS_OUT edit-area input pins)
         if(bestNodeId<0){for(int nid:expandedNodeIds){var n=graph.findNode(nid);if(n==null||n.type!=NodeType.BUS_OUT||n.signalBands==null)continue;float sx=c2sX(n.x),sy2=c2sY(n.y);for(int bi=0;bi<n.signalBands.size();bi++){float py2=sy2+bandPinY(n,bi,zoom)*zoom;float px2=sx+10*zoom;float dx2=(float)Math.abs(mx-px2),dy2=(float)Math.abs(my-py2);if(dx2<16*zoom&&dy2<10*zoom&&wireFromNode!=nid){float dist2=dx2+dy2;if(dist2<bestDist){bestDist=dist2;bestNodeId=nid;bestPin=bi;}}}}}
         if(bestNodeId>=0){
+            // 全切换语义（连接即声明）：目标是 BUS_OUT 频段脚时——① 已占用先摘旧线（替换）；
+            // ② 声明切成对端类型（SET_PIN_TYPE 先于 ADD_CONN——addConnection 的声明类型
+            // 严格相等门只认已声明类型，声明先行线才接得上，旧「先切类型再接线」手动步骤
+            // 与错类型静默拒绝一并消失）；③ 落线。op 序列 REMOVE_CONN → SET_PIN_TYPE →
+            // ADD_CONN，远端按序应用即收敛。
+            // Full-switch semantics (connect declares): for a BUS_OUT band-pin target —
+            // (1) remove any existing wire first (replace); (2) declare the slot from the
+            // peer's type (SET_PIN_TYPE lands before ADD_CONN — addConnection's strict
+            // declared-type gate only admits declared types, so the declaration must lead;
+            // this retires both the "chip-cycle first, then wire" step and the silent
+            // refusal on type mismatch); (3) land the wire. The op sequence is
+            // REMOVE_CONN → SET_PIN_TYPE → ADD_CONN, converging when applied in order.
+            replaceOccupiedBandTarget(wireFromNode, wireFromPin, bestNodeId, bestPin);
+            maybeAutoDeclareBandType(wireFromNode, wireFromPin, bestNodeId, bestPin);
             graph.addConnection(wireFromNode,wireFromPin,bestNodeId,bestPin);
             // 记下创建时的稳定 pinId，撤销删除/重做接回时按 pinId 解析。
             // Capture the stable pinIds at creation so undo/redo rewire by pinId.

@@ -61,6 +61,8 @@ public class NodeRenderer {
     static int CV() { return EditorTheme.get().wireVec3(); }
     static int CVP() { return EditorTheme.get().pinVec3(); }
     static int CVPB() { return EditorTheme.get().pinVec3Border(); }
+    static int CPE() { return EditorTheme.get().pinEmpty(); }
+    static int CPEB() { return EditorTheme.get().pinEmptyBorder(); }
     static int CWD() { return EditorTheme.get().drag(); }
     static int CMN() { return EditorTheme.get().menuText(); }
     static int CMH() { return EditorTheme.get().menuHover(); }
@@ -570,9 +572,11 @@ public class NodeRenderer {
             // spreading onto ordinary pins; payload types are told apart by the wire colour).
             PinType inType = n.inputType(i);
             g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1),
-                inType == PinType.AUDIO ? CAPB() : inType == PinType.VEC3 ? CVPB() : CPIB());
+                inType == PinType.AUDIO ? CAPB() : inType == PinType.VEC3 ? CVPB()
+                    : inType == PinType.EMPTY ? CPEB() : CPIB());
             g.fill(-r, (int)(py - r), r, (int)(py + r),
-                inType == PinType.AUDIO ? CAP() : inType == PinType.VEC3 ? CVP() : CPI());
+                inType == PinType.AUDIO ? CAP() : inType == PinType.VEC3 ? CVP()
+                    : inType == PinType.EMPTY ? CPE() : CPI());
             String inlbl = n.inputLabel(i);
             // 私有信号输出：输入引脚文本随声明类型切换（判定与上方着色同源 inType）——
             // 音频显「音频」、向量显「向量」、浮点维持「值」。BUS_OUT 不经此（其文本 = 频段名）。
@@ -604,9 +608,11 @@ public class NodeRenderer {
                 outType = PinType.effective(outType, synced);
             }
             g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1),
-                outType == PinType.AUDIO ? CAPB() : outType == PinType.VEC3 ? CVPB() : CPOB());
+                outType == PinType.AUDIO ? CAPB() : outType == PinType.VEC3 ? CVPB()
+                    : outType == PinType.EMPTY ? CPEB() : CPOB());
             g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r),
-                outType == PinType.AUDIO ? CAP() : outType == PinType.VEC3 ? CVP() : CPO());
+                outType == PinType.AUDIO ? CAP() : outType == PinType.VEC3 ? CVP()
+                    : outType == PinType.EMPTY ? CPE() : CPO());
             String rawOutLbl = n.outputLabel(i);
             // 私有信号输入：引脚文本随声明类型切换（判定与上方着色同源）——音频显「音频」、
             // 向量显「向量」、浮点维持「值」。BUS_IN 不经此（其文本 = 频段名，有信息量）。

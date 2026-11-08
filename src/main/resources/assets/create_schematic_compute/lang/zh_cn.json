@@ -252,6 +252,8 @@
   "gui.create_schematic_compute.color.wire_vec3": "向量连线",
   "gui.create_schematic_compute.color.pin_vec3": "向量引脚",
   "gui.create_schematic_compute.color.pin_vec3_border": "向量引脚边框",
+  "gui.create_schematic_compute.color.pin_empty": "空引脚",
+  "gui.create_schematic_compute.color.pin_empty_border": "空引脚边框",
   "gui.create_schematic_compute.color.drag": "拖拽线",
   "gui.create_schematic_compute.color.menu_text": "菜单文本",
   "gui.create_schematic_compute.color.menu_hover": "菜单悬停",

@@ -9,15 +9,15 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * 未知类型码剪线回归（2026-11-08 拍板：改为剪线，不再静默降 FLOAT）：bandTypes 里解析不到的
- * 类型码（新版本写入的码 / 损坏存档）不再静默降级为 FLOAT 声明——该槽位的触点连线剪除
- * （类型合法性优先于保线），随后槽位自愈 FLOAT（F15 同款 NBT 自愈，重存即固化）。
+ * 未知类型码剪线回归（2026-11-08 拍板：改为剪线，不再静默降级）：bandTypes 里解析不到的
+ * 类型码（新版本写入的码 / 损坏存档）不再静默降级为声明——该槽位的触点连线剪除
+ * （类型合法性优先于保线），随后槽位自愈 EMPTY（未连接⟺灰；重存即固化）。
  * <p>
- * Unknown type-code pruning regression (2026-11-08 decision: prune, no silent FLOAT
- * degrade): an unparseable code in bandTypes (a newer version's code / a corrupt save)
- * is no longer silently degraded into a FLOAT declaration — wires touching that slot are
- * cut (type legality wins over keeping wires), then the slot self-heals to FLOAT (F15's
- * NBT self-heal; a resave cements it).
+ * Unknown type-code pruning regression (2026-11-08 decision: prune, no silent degrade):
+ * an unparseable code in bandTypes (a newer version's code / a corrupt save) is no longer
+ * silently degraded into a declaration — wires touching that slot are cut (type legality
+ * wins over keeping wires), then the slot self-heals to EMPTY (the unwired-⟹-grey rule;
+ * a resave cements it).
  */
 class UnknownBandTypeCodeTest {
 
@@ -99,16 +99,16 @@ class UnknownBandTypeCodeTest {
             assertNotEquals("quat:kick", c.toPinId, "未知码形态 pinId 的线应剪除");
     }
 
-    @Test @DisplayName("槽位自愈 FLOAT：重存写回 float，不把未知码带进新档")
-    void slotSelfHealsToFloatOnSave() {
+    @Test @DisplayName("槽位自愈 EMPTY：重存写回 empty，不把未知码带进新档 / the slot self-heals to EMPTY and a resave cements it")
+    void slotSelfHealsToEmptyOnSave() {
         NodeGraph graph = loadGraph(null);
         GraphNode out = graph.findNode(2);
-        assertEquals(PinType.FLOAT, out.bandType(0), "剪线后槽位自愈为 FLOAT");
+        assertEquals(PinType.EMPTY, out.bandType(0), "剪线后槽位自愈 EMPTY（未连接⟺灰）");
         assertEquals(PinType.AUDIO, out.bandType(1), "合法槽位不受影响");
 
         CompoundTag saved = out.save(null);
         ListTag types = saved.getList("bandTypes", Tag.TAG_STRING);
-        assertEquals("float", types.getString(0), "重存应写回 float（NBT 自愈）");
+        assertEquals("empty", types.getString(0), "重存应写回 empty（NBT 自愈）");
         assertEquals("audio", types.getString(1));
     }
 

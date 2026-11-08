@@ -33,9 +33,9 @@ class EditorThemeTest {
     @Test
     @DisplayName("默认色板锚点与旧 NodeRenderer 出厂值逐槽一致 / default palette anchors match the original factory values")
     void defaultsMatchTheOriginalPalette() {
-        assertEquals(29, EditorTheme.NUM_COLORS);
-        assertEquals(29, EditorTheme.COLOR_KEYS.length);
-        assertEquals(29, EditorTheme.DEFAULT_COLORS.length);
+        assertEquals(31, EditorTheme.NUM_COLORS);
+        assertEquals(31, EditorTheme.COLOR_KEYS.length);
+        assertEquals(31, EditorTheme.DEFAULT_COLORS.length);
         assertEquals(4, EditorTheme.THEMES.length);
         // 槽位锚点（取自原 NodeRenderer DEFAULT_COLORS）/ slot anchors (from the original NodeRenderer table)
         assertEquals(0xFF1F1E1A, EditorTheme.get().bg());
@@ -51,6 +51,10 @@ class EditorThemeTest {
         assertEquals(0xFFFFAA00, EditorTheme.get().accent());
         assertEquals(0xFFFF4444, EditorTheme.get().error());
         assertEquals(0xFF3A3428, EditorTheme.get().hover());
+        // 空态域两色（v1.3.0 频段空声明）/ the empty-state pair (the v1.3.0 empty band declaration)
+        assertEquals(0xFF808080, EditorTheme.get().pinEmpty());
+        assertEquals(0xFF5A5A5A, EditorTheme.get().pinEmptyBorder());
+        for (int[] row : EditorTheme.THEMES) assertEquals(EditorTheme.NUM_COLORS, row.length);
         // 预设 0 == 出厂默认 / preset 0 is the factory default
         assertArrayEquals(EditorTheme.DEFAULT_COLORS, EditorTheme.THEMES[0]);
     }
