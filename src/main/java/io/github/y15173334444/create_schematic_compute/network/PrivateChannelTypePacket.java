@@ -34,8 +34,14 @@ public record PrivateChannelTypePacket(String channel, String typeCode) implemen
         // 只写客户端侧定义表（SignalBus 同款静态表，编辑器着色读取）
         // Client-side definition table only (same SignalBus statics the editor tinting reads).
         ctx.enqueueWork(() -> {
+            // 未知码 = 类型信息不可信 → 保留现值，绝不静默降 FLOAT（同 BusBandSyncPacket
+            // 契约）——降级出的 FLOAT 定义会经生效类型合并/订阅收敛误剪 AUDIO/VEC3 线。
+            // An unknown code means the type info is untrusted → keep the current value,
+            // never silently degrade to FLOAT (same contract as BusBandSyncPacket) — a
+            // fabricated FLOAT definition would wrongly prune AUDIO/VEC3 wires via the
+            // effective merge / subscriber convergence.
             var t = io.github.y15173334444.create_schematic_compute.graph.PinType.byCode(typeCode);
-            SignalBus.setPrivateType(channel, t != null ? t : io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT);
+            if (t != null) SignalBus.setPrivateType(channel, t);
         });
     }
 }

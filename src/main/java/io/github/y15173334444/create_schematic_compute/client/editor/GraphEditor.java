@@ -2040,9 +2040,9 @@ public class GraphEditor {
         return false;
     }
 
-    /** 拖拽预览的目标域感知：按释放同款的命中几何找鼠标悬停的最近输入引脚，返回其是否
-     *  AUDIO 域。BUS_OUT 编辑区频段引脚是任意域 → 记 false（预览色由起点域决定）；参数引脚
-     *  恒为浮点 → 无需检测。无悬停目标 → null（预览按起点声明类型）。
+    /** 拖拽预览的目标类型感知：按释放同款的命中几何找鼠标悬停的最近输入引脚，返回其
+     *  **声明载荷类型**（预览色即该类型）。参数引脚恒为浮点 → 无需检测。无悬停目标 →
+     *  null（预览按起点声明类型）。
      *  Target-type awareness for the drag preview: nearest hovered input pin by the same
      *  hit geometry as release; returns its declared payload type. Param pins are
      *  float-only; no target → null. */

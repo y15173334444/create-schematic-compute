@@ -553,24 +553,21 @@ public class NodeRenderer {
         pinPose.translate(sx,sy,0);
         pinPose.scale(zoom,zoom,1);
         int funcInputs = n.functionalInputs();
-        // 频段节点（BUS/PRIVATE）引脚是任意域——承载音频（对端为 AUDIO 引脚）时按音频引脚着色。
-        // Band (BUS/PRIVATE) pins are any-domain — they tint as audio pins while carrying audio
-        // (peer pin is AUDIO-domain).
+        // 频段节点（BUS/PRIVATE）引脚按**声明类型**着色——发布侧（BUS_OUT/PRIVATE_OUT）在
+        // 下方输入循环直读声明，读取侧（BUS_IN/PRIVATE_IN）在输出循环按定义同步值合并。
+        // Band (BUS/PRIVATE) pins tint by their **declared type** — publishers
+        // (BUS_OUT/PRIVATE_OUT) read the declaration in the input loop below, readers
+        // (BUS_IN/PRIVATE_IN) merge the definition-synced value in the output loop.
         boolean bandIn = n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT;
         boolean bandOut = n.type == NodeType.BUS_IN || n.type == NodeType.PRIVATE_IN;
         for(int i=0; i<funcInputs; i++) {
             float py = HH+PH*i+PH/2f;
             int r = PR;
-            // 引脚色只按域（音频域/承载音频的频段引脚 = 青，其余金）——不随连接状态变：
-            // 传输灰已退役（作者口径 2026-10-03：连接变色蔓延到普通引脚，读作 bug；音频域
-            // 识别由连线青色承担）。
-            // Pin colour follows the domain only (AUDIO-domain or audio-carrying band pin =
-            // teal, otherwise gold) — never the connection state: the transfer tint is retired
-            // (it read as a bug spreading onto ordinary pins; audio domains are told apart by
-            // the wire colour).
-            // 引脚色只按声明载荷类型（音频/向量/浮点三态）——不随连接状态变（传输灰已退役）。
-            // Pin colour follows the declared payload type (audio/vector/float ternary) —
-            // never the connection state (the transfer tint is retired).
+            // 引脚色只按声明载荷类型（音频/向量/浮点三态）——不随连接状态变：传输灰已退役
+            // （作者口径 2026-10-03：连接变色蔓延到普通引脚，读作 bug；类型识别由连线着色承担）。
+            // Pin colour follows the declared payload type only (audio/vector/float ternary) —
+            // never the connection state: the transfer tint is retired (it read as a bug
+            // spreading onto ordinary pins; payload types are told apart by the wire colour).
             PinType inType = n.inputType(i);
             g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1),
                 inType == PinType.AUDIO ? CAPB() : inType == PinType.VEC3 ? CVPB() : CPIB());
