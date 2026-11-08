@@ -631,6 +631,13 @@ public class GraphNode {
         this.customId = customId;
         this.x = x;
         this.y = y;
+        // 私有频道单槽随节点出生（空态、类型由连线驱动）：缺了它 bandType(0) 永远降级
+        // f32、连接自动声明无槽可写（2026-11-08 实测：私有类型不随线变化）。
+        // The private channel's single slot is born with the node (empty, wire-driven):
+        // without it bandType(0) forever degrades to f32 and connect-declare has no
+        // slot (2026-11-08 in-game finding: the private type never followed the wire).
+        if (type == NodeType.PRIVATE_IN || type == NodeType.PRIVATE_OUT)
+            this.bandTypes.add(PinType.EMPTY);
         // ENCAP_INPUT/OUTPUT 的 name 存在 displayText 中，无需 params
         // ENCAP_INPUT/OUTPUT name is stored in displayText; no params needed
         this.params = (type == NodeType.ENCAP_INPUT || type == NodeType.ENCAP_OUTPUT)

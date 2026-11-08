@@ -373,4 +373,28 @@ class BandAutoDeclareTest {
         NodeGraph graph = NodeGraph.load(g, null);
         assertEquals(PinType.EMPTY, graph.findNode(1).bandType(0), "未连接的私有槽加载即回灰");
     }
+
+    @Test
+    @DisplayName("私有编辑区高度账本覆盖两行（频道行+类型片行）/ the private edit-height ledger covers both rows")
+    void privateEditHeightCoversChipRow() {
+        NodeGraph g = new NodeGraph();
+        GraphNode priv = g.addNode(NodeType.PRIVATE_OUT, 0, 0);
+        // 绘制几何：频道行 y=4..20、类型片行 y=23..35 —— 面板高必须 ≥ 36（缺行会让类型片
+        // 戳出面板底 = 穿模）。/ Drawn geometry: channel row y=4..20, chip row y=23..35 —
+        // the panel must be ≥ 36 tall (a missing row clips the chip out of the panel).
+        assertTrue(SpatialIndex.editHeight(priv) >= 36,
+            "私有编辑区两行必须装进面板高度账本（否则类型片行戳出面板底）");
+    }
+
+    @Test
+    @DisplayName("新建私有节点自带空槽：落线即声明、芯片随线变色 / a fresh private node ships its empty slot — the wire declares and the chip follows")
+    void freshPrivateNodeDeclaresFromWire() {
+        NodeGraph g = new NodeGraph();
+        GraphNode vec = g.addNode(NodeType.VEC3_CONST, 0, 0);
+        GraphNode priv = g.addNode(NodeType.PRIVATE_OUT, 100, 0);
+        priv.signalName = "p";
+        assertEquals(PinType.EMPTY, priv.bandType(0), "新建私有节点的单槽初始为空（灰），不是降级 f32");
+        assertTrue(g.addConnection(vec.id, 0, priv.id, 0), "VEC3 线应能落上空槽（先声明后过门）");
+        assertEquals(PinType.VEC3, priv.bandType(0), "落线即声明——芯片随线变 v3");
+    }
 }
