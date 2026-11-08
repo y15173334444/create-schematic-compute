@@ -74,8 +74,17 @@ public class GraphEvaluator {
      *  amplifier computer's spectrum tap) — pull-based, never in the audio path, so reading (or
      *  not) cannot change the evaluation result. */
     public AudioRef audioOut(int nodeId, int pin) {
-        AudioRef r = ctx.audioRefs.get(EvalContext.audioKey(nodeId, pin));
-        return r == null ? AudioRef.EMPTY : r;
+        PinPayload p = ctx.payloadRefs.get(EvalContext.payloadKey(nodeId, pin));
+        return p instanceof AudioRef r ? r : AudioRef.EMPTY;
+    }
+
+    /** 取本刻某节点向量输出的载荷（{@link #evaluate} 返回后有效；缺席 = 零向量）。
+     *  观察者用途，与 {@link #audioOut} 同款拉取式。/ This tick's vector-out payload of a
+     *  node (valid right after {@link #evaluate}; absent = zero). Observer use, the same
+     *  pull-based shape as {@link #audioOut}. */
+    public Vec3f vec3Out(int nodeId, int pin) {
+        PinPayload p = ctx.payloadRefs.get(EvalContext.payloadKey(nodeId, pin));
+        return p instanceof Vec3f v ? v : Vec3f.ZERO;
     }
     /** MUSIC 传输状态表（nodeId → 传输），由宿主 BE 注入并经类型段 NBT 持久化。
      *  Per-MUSIC-node transport, injected + persisted by the host BE. */
@@ -287,7 +296,7 @@ public class GraphEvaluator {
                                         Map<Integer, Boolean> flipflopStates,
                                         Map<Integer, Integer> pulseTimers) {
         ctx.outputs.clear();
-        ctx.audioRefs.clear();
+        ctx.payloadRefs.clear();
         List<Integer> sorted = ctx.graph.getTopoOrder();
         for (int id : sorted) {
             GraphNode n = ctx.graph.findNode(id);
@@ -423,6 +432,7 @@ public class GraphEvaluator {
             case GEARBOX, TRANSMISSION, SPEED, KINETIC -> MotionEval.eval(ctx);
             case VALUES, OUTPUT -> BusEval.eval(ctx);
             case AUDIO -> AudioEval.eval(ctx);
+            case VECTOR -> Vec3Eval.eval(ctx);
             case INPUT_CTRL, INPUT_VIEW, INPUT_MOTION, INPUT_POSE -> InputEval.eval(ctx);
             case RADAR -> RadarEval.eval(ctx);
             case DISPLAY -> DisplayEval.eval(ctx);

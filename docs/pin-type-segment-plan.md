@@ -1,0 +1,181 @@
+# pinId 类型参数段 + 载荷类型系统（PinType）
+
+> 版本定位：1.3.0。本文件是**设计文档**——记录设计本意与决策理由，防止跨批次施工丢上下文；落地状态在文末维护。
+> 状态：设计定稿，分批施工中（见「落地状态」）。
+> / Version: 1.3.0. This file is the **design document** — it records design intent and decision
+> rationale so no batch loses context mid-construction; rollout status lives at the end.
+> Status: design final, built in batches (see 落地状态).
+
+---
+
+## 0. 一句话
+
+给 pinId 加**类型参数段**（`类型码:参段`），让引脚的**载荷类型**（FLOAT/AUDIO/VEC3，可扩展）成为一等显式信息；判断（连线合法性）、传输（值走哪条载体）、使用（节点怎么消费）三处按同一类型分派；BUS/私有频段显式声明载荷类型并支持向量跨方块传输；音频现有临时搭子全面收编进类型系统。
+
+---
+
+## 1. 动机：三套临时补丁的缺口
+
+音频域是在纯浮点引脚系统上外挂的第二域，没有通用引脚类型，判断/传输/使用三处各自为政：
+
+| 面 | 临时形态 | 缺口 |
+|---|---|---|
+| **判断**（连线合法性） | `PinDomain{FLOAT,AUDIO}` 二值，按（节点类型, 引脚号）硬编码推导；BUS/PRIVATE 频段引脚「任意域」豁免 | 类型不可声明、不可扩展；豁免使频段引脚无法被类型检查 |
+| **传输**（值的载体） | 浮点走输出数组、音频走 `audioRefs` 旁表；频段接了音频线才读音频键——**拓扑推断**（对端是什么域） | 「这个引脚承载什么」由接线现场推断而非声明；换接线就换语义，跨方块还要布尔音频标志同步 |
+| **使用**（节点消费） | 消费端各自判断「上游是不是音频」，四处判据（按引脚接音频线 / 节点级接音频线 / 频段音频标志 / 读到的引用非空） | 判据散落、口径不一；新载荷类型（向量）无处安放 |
+
+这三套补丁的共同根因：**引脚身份（pinId）不携带类型，类型靠（节点类型, 引脚号）硬编码 + 拓扑现场推断**。
+
+---
+
+## 2. 决策（拍板记录）
+
+| # | 决策 | 理由 |
+|---|---|---|
+| D1 | **类型段内嵌 pinId 字符串**（`类型码:参段`） | 连线身份自描述、随连线持久化；查类型不必回溯节点声明。备选「引脚类型元数据（pinId 不动）」被否——查类型要两跳，且 pinId 与类型可能漂移 |
+| D2 | **类型维度 = 载荷类型**（FLOAT/AUDIO/VEC3…），不是传输通道 | 判断/传输/使用三处消费的都是「值是什么」；通道（总线/私有）是路由层，由节点形态（BUS_IN/OUT、PRIVATE_IN/OUT）表达，不进类型段 |
+| D3 | **新节点 = 向量核心运算集**（常数/合拆/加减缩放点叉长度归一） | 用真实第三载荷验证类型系统闭环；纯图内运算与现有浮点节点互转，不牵世界面 |
+| D4 | **频段/私有类型创建时声明、可改** | 「接什么线算什么型」的拓扑派生是临时搭子根因；声明制让类型可检查、可同步。可改（改类型=pinId 换段重绑），因为改类型是正当编辑需求，不该逼用户删线重建 |
+| D5 | **vec3 过总线/私有为一等载荷**（SignalBus 同模型） | 通道分层口径下总线/私有是跨机主力；向量若只活图内，类型系统对「私有/总线信号传输」就是半成品 |
+| D6 | **音频临时搭子本次全面收编** | 只立骨架不动音频旁路会留下双轨（声明类型+拓扑推断并存），后续批次更贵；一步到位 |
+
+---
+
+## 3. pinId 格式规范
+
+### 3.1 形态
+
+```
+pinId = 类型码 ":" 参段
+```
+
+- **类型码**：`float` / `audio` / `vec3`（`PinType` 稳定码，追加型枚举——新载荷类型加枚举值即可）。
+- **参段**：引脚的原有稳定标识，**可含任意字符**（含 `:`、`>`）。
+- **解析**：按**第一个** `:` 切分——类型码是闭集标识符不含 `:`，参段含 `:` 不影响（`float:out>a:b` → 参段 `out>a:b`）。
+- **严格解析**：类型码不认识 = 解析失败（连线走既有剪线纪律）。**兼容的唯一入口是迁移**，运行时不认旧格式。
+
+### 3.2 参段取值约定（沿用 v1.2.4 pinId 纪律，仅加前缀）
+
+| 引脚类别 | 参段 | 示例 |
+|---|---|---|
+| FORMULA 输入 | 公式变量名 | `float:A` |
+| FORMULA 输出 | `@output` 标签，空则 `outN` | `float:out0` |
+| ENCAP 输入/输出 | 子节点 id 十进制 | `float:12` |
+| BUS_OUT 输入 / BUS_IN 输出 | 频段名（如 `band_0`） | `audio:band_0` |
+| PRIVATE 输入/输出 | 十进制索引 | `audio:0` |
+| 通用（含参数引脚、自定义节点） | 十进制索引 | `float:0` |
+
+类型码 = 该引脚的**声明载荷类型**（见 §4）。频段改类型时类型码换段、参段不变。
+
+### 3.3 与网络打包的关系
+
+连线 op 的 pinId 对打包分隔符（U+0001）不变——类型段引入的 `:` 与其无冲突。pinId 仍不得含 U+0001。
+
+---
+
+## 4. 类型声明模型
+
+**`PinType`**（`graph/PinType.java`）：`FLOAT / AUDIO / VEC3` + 稳定码 + `byCode()`；追加型枚举（新载荷类型只加值）。取代 `NodeType.PinDomain`。
+
+**唯一真相源 = `GraphNode.inputType(i) / outputType(i)`**：
+
+| 引脚 | 类型来源 |
+|---|---|
+| 静态引脚（节点类型固定形状） | `NodeType.inputType/outputType`（原二值 switch 升级返回 PinType；AMP/WSHAPE/AUDIO_OUT/CHANNEL/SPEAKER_PLAY/MUSIC 等音频引脚=AUDIO） |
+| BUS 频段引脚 | `bandTypes` 表（与 `signalBands` 平行，逐频段声明） |
+| PRIVATE 引脚 | `bandTypes` 单元素（= 频道声明类型） |
+| CHANNEL 声道引脚 | 随布局表全 AUDIO |
+| FORMULA / ENCAP / CUSTOM / 参数引脚 | FLOAT |
+
+**`bandTypes`**：节点 NBT 新键（类型码字符串表，缺省全 FLOAT）；频段编辑行提供类型切换（float→audio→vec3 循环）。
+
+**改类型语义**：改类型 = pinId 类型段换段（参段不变）→ reconcileBands 式重绑——对端类型与新类型匹配的连线原地改绑 pinId 保留，不匹配的剪除（类型合法性优先于保线）。
+
+---
+
+## 5. 判断 / 传输 / 使用
+
+### 5.1 判断（连线合法性）
+
+`pinTypesMatch`：**`outputType(from) == inputType(to)` 严格相等**。BUS/PRIVATE 频段引脚的「任意域」豁免**删除**——频段引脚按声明类型参与严格匹配。拖线预览/命中按 `inputType` 分色。
+
+### 5.2 传输（值的载体）
+
+| 载荷 | 图内载体 | 跨方块载体（总线/私有） |
+|---|---|---|
+| FLOAT | 每节点输出数组 | 频道内部映射 / 扁平信号表（现状不变） |
+| AUDIO | `payloadRefs` 旁表（AudioRef） | 音频频段表（AudioBands，现状不变） |
+| VEC3 | `payloadRefs` 旁表（Vec3f） | 向量值表（`channel\0band` 键 + 私有名，状态语义同浮点） |
+
+- `EvalContext.audioRefs` 泛化为 **`payloadRefs`**（`PinPayload` sealed 接口，`AudioRef`/`Vec3f` 实现）——「按引脚键存类型化载荷」一个机制，不再是音频专属旁表。
+- 浮点仍走输出数组（性能不动）。
+- **拓扑推断退役**：求值分支判据全部换**声明类型**（该引脚声明 AUDIO 就走音频载体、声明 VEC3 就走向量载体），不再看「对端接没接音频线」。`isAudioWired`/`hasAudioSinkConnection` 删除，`isBandPinAudio` 着色用途改类型查询。
+- **SignalBus 一等载荷**：频段音频布尔标志（AUDIO_BANDS）升级为**逐频段类型表**（BAND_TYPES：频道→频段→PinType）；私有音频布尔标志（PRIVATE_AUDIO）升级为**私有类型表**（PRIVATE_TYPES）。向量值进独立值表。同步包随之从 `List<Boolean> audioFlags` 换 `List<String> typeCodes`。
+
+### 5.3 使用（节点消费）
+
+消费端按声明类型取载体（`getInputAudio`/`getInputVec3`/浮点取值），不再判「上游是不是音频」。
+
+---
+
+## 6. 迁移（V8→V9）
+
+`NbtVersions.DATA_VERSION` 8→9，`GraphMigration` 追加 `migrateV8toV9`（参照 V3→V4 的单一真相源+幂等纪律）：
+
+1. **pinId 补类型段**：逐连线把旧 pinId（无段形态）按参段匹配节点枚举生成值改写为带段形态；已全等带段形态则保留（幂等）。解析不到 → 剪线（既有纪律）。
+   裸参读取单独覆盖含 `:` 的旧档频段名（规则②）；曾并存的「剥段读取」（规则③，带段但类型码过期的中间形态）已按「未发版形态不写兼容」删除（2026-11-08 拍板）——该形态只在 dev 档出现过，删后此类 pinId 解析不到即剪。
+   / Bare-param reading alone covers legacy band names containing ':' (rule ②); the once-coexisting "strip-segment reading" (rule ③ — typed shapes with stale codes) is deleted under "no compat for unreleased shapes" (2026-11-08 decision) — that shape only ever existed in dev archives, and such pinIds are now pruned as unresolvable.
+2. **bandTypes 回填**：按迁移时拓扑回填声明类型——频段引脚对端是 AUDIO 域引脚 → AUDIO，否则 FLOAT（VEC3 在旧档不存在）。这是拓扑推断的**冻结快照**：迁移把它固化成声明，此后一切以声明为准。订阅方（BUS_IN）的本地回填随后被频道类型定义同步纠正（权威定义跟频道走）。
+   / bandTypes backfill: declared types fill from the migration-time topology (peer is AUDIO → AUDIO, else FLOAT) — a frozen snapshot of the old inference; declarations rule from here on.
+3. 递归 subGraph，结尾盖章 9。
+
+**版本纪律**：已发版形态（v1.2.6.x 及更早存档）一律经迁移升级；**未发版 dev 形态不写兼容**（写兼容前先问旧形态在哪个 tag 里存在过）。
+**未知类型码纪律**（2026-11-08 拍板）：bandTypes 里解析不到的类型码（新版本写入的码 / 损坏存档）**不静默降 FLOAT**——该槽位的触点连线剪除（类型合法性优先于保线），随后槽位自愈 FLOAT（F15 同款 NBT 自愈，重存即固化）。
+/ **Unknown type-code discipline** (2026-11-08 decision): an unparseable code in bandTypes (a newer version's code / a corrupt save) is **never silently degraded to FLOAT** — wires touching the slot are cut (type legality wins over keeping wires), then the slot self-heals to FLOAT (F15's NBT self-heal; a resave cements it).
+
+---
+
+## 7. 向量节点集（VEC3 核心运算集）
+
+新载荷类型 VEC3 的第一批节点（NodeType 尾部追加，求值归新分类 VECTOR + Vec3Eval）：
+
+| 节点 | 引脚 | 语义 |
+|---|---|---|
+| VEC3_CONST | 出 vec3 | 常数（params x,y,z） |
+| VEC3_JOIN | 入 x,y,z 浮点 → 出 vec3 | 三分量合成 |
+| VEC3_SPLIT | 入 vec3 → 出 x,y,z 浮点 | 三分量拆解 |
+| VEC3_ADD / VEC3_SUB | 入 a,b vec3 → 出 vec3 | 向量加/减 |
+| VEC3_SCALE | 入 vec3 + 浮点 k → 出 vec3 | 数乘 |
+| VEC3_DOT | 入 a,b vec3 → 出浮点 | 点积 |
+| VEC3_CROSS | 入 a,b vec3 → 出 vec3 | 叉积 |
+| VEC3_LENGTH | 入 vec3 → 出浮点 | 模长 |
+| VEC3_NORMALIZE | 入 vec3 → 出 vec3 | 归一化 |
+
+JOIN/SPLIT 是浮点世界与向量世界的桥（现有 POSITION/VELOCITY 等三分量浮点输出可经 JOIN 入向量域）。VECTOR 分类对放行 MATH_BASIC 的宿主（蓝图/程序机/数控齿轮箱）放行。
+
+---
+
+## 8. 开放设计点（未定形态，勿当已决）
+
+- **公开 API 未冻结**——附属开发阶段可能调整。自定义节点（CustomNodeType）引脚类型化**不在本批锁形态**：本批只保证类型段为其零成本留位（CUSTOM 引脚参段=索引、类型码=float；将来 schema 加 pinTypes 时按未发版纪律直接改、不写兼容），schema 形态待附属开发阶段与 API 一起定。
+- ENCAP 子图边界引脚类型化（音频/向量过封装边界）——现状 FLOAT，另批。
+- FORMULA 内建向量运算（向量进公式脚本）——另批。
+
+---
+
+## 9. 落地状态（收尾回写）
+
+| 批次 | 内容 | 状态 |
+|---|---|---|
+| C0 | 本设计文档 + CONTEXT.md 术语 | ✅ 已落地 |
+| C1 | PinType/PinId、GraphNode 带段化、bandTypes、V8→V9 迁移、reconcileBands 重绑 | ✅ 已落地 |
+| C2 | pinTypesMatch、BusEval 声明分支、payloadRefs、SignalBus 类型表、同步包、SET_PIN_TYPE op、频段类型切换 | ✅ 已落地 |
+| C3 | VEC3 十节点 + VECTOR 分类 + Vec3Eval（向量过总线/私有一等载荷） | ✅ 已落地 |
+| C4 | 渲染三态（浮点金/音频青/向量品红，色板 +3 槽） | ✅ 已落地 |
+| C5 | CHANGELOG、文档回写、全量测试 | ✅ 已落地 |
+| C6 | 双轴审查修复：BAND_TYPES 注册点发布（重载后恒空 → 订阅侧剪线的阻断缺陷）、迁移规则③删除、未知类型码剪线 | ✅ 已落地 |
+
+实现注记：SET_PIN_TYPE 承载改类型编辑（零协议扩面）；私有行/频段行类型切换芯片随 C2 落地（比计划的「C4 视觉精修」更早合批）；
+`isBandPinAudio` 保留方法名但收窄为频段节点的声明查询（渲染 compat）；蓝图基线「全集减除」口径下 VEC3 不计 gained、以显式断言钉住。
+BAND_TYPES 发布的取型单一源 = `GraphNode.bandTypeMap()`（求值发布与各注册点同源）；同步包类型码含未知码时整份不应用（保留现值，同「空列表 = 不带类型」契约）。
+开放设计点已按登记册纪律补条目。

@@ -69,12 +69,12 @@ class FormulaPinExpansionTest {
         node.formula = "v = vec3(1, 2, 3)\n@output v\n@output r";
         node.ensureScriptParsed();
         assertEquals(4, node.dynamicOutputCount);
-        assertEquals(0, node.outputPinIndex("v.x"));
-        assertEquals(2, node.outputPinIndex("v.z"));
-        assertEquals(3, node.outputPinIndex("r"));
-        assertEquals(-1, node.outputPinIndex("v")); // 原向量标签不再存在,旧连线由 rebuildInputCache 清掉
-        assertEquals("v.y", node.outputPinId(1));
-        assertEquals("r", node.outputPinId(3));
+        assertEquals(0, node.outputPinIndex("float:v.x"));
+        assertEquals(2, node.outputPinIndex("float:v.z"));
+        assertEquals(3, node.outputPinIndex("float:r"));
+        assertEquals(-1, node.outputPinIndex("float:v")); // 原向量标签不再存在,旧连线由 rebuildInputCache 清掉
+        assertEquals("float:v.y", node.outputPinId(1));
+        assertEquals("float:r", node.outputPinId(3));
     }
 
     @Test

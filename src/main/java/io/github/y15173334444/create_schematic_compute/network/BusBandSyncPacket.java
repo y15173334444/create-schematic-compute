@@ -13,17 +13,18 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 服务端→客户端：同步 BUS 频段列表变化 + 各频段是否音频（发布方引脚对端域判定，
- *  编辑器着色用；audioFlags 为空 = 本包不带标志信息，客户端保留现值）。
- *  Server→client: band-list changes plus per-band audio flags (decided by the publisher's
- *  pin peers, for editor tinting; empty audioFlags = no flag info, keep current). */
-public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands, List<Boolean> audioFlags) implements CustomPacketPayload {
+/** 服务端→客户端：同步 BUS 频段列表变化 + 各频段**声明载荷类型**（发布方声明，编辑器着色
+ *  与订阅方收敛用；typeCodes 为空 = 本包不带类型信息，客户端保留现值）。
+ *  Server→client: band-list changes plus per-band declared payload types (declared by the
+ *  publisher, for editor tinting and subscriber convergence; empty typeCodes = no type
+ *  info, keep current). */
+public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands, List<String> typeCodes) implements CustomPacketPayload {
 
     public static final Type<BusBandSyncPacket> TYPE =
         new Type<>(ResourceLocation.fromNamespaceAndPath(SchematicCompute.MOD_ID, "bus_band_sync"));
 
-    /** 不带标志信息的便捷构造（标志未知/不更新的发送方用）。
-     *  Convenience constructor for senders without flag info (flags left untouched). */
+    /** 不带类型信息的便捷构造（类型未知/不更新的发送方用）。
+     *  Convenience constructor for senders without type info (types left untouched). */
     public BusBandSyncPacket(BlockPos pos, String busName, List<String> bands) {
         this(pos, busName, bands, java.util.List.of());
     }
@@ -36,10 +37,10 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
             int count = b.readVarInt();
             var list = new ArrayList<String>();
             for (int i = 0; i < count; i++) list.add(b.readUtf());
-            int flagCount = b.readVarInt();
-            var flags = new ArrayList<Boolean>(flagCount);
-            for (int i = 0; i < flagCount; i++) flags.add(b.readBoolean());
-            return new BusBandSyncPacket(p, name, list, flags);
+            int typeCount = b.readVarInt();
+            var codes = new ArrayList<String>(typeCount);
+            for (int i = 0; i < typeCount; i++) codes.add(b.readUtf());
+            return new BusBandSyncPacket(p, name, list, codes);
         }
         @Override public void encode(ByteBuf buf, BusBandSyncPacket pkt) {
             var b = new FriendlyByteBuf(buf);
@@ -48,9 +49,9 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
             var bands = pkt.bands;
             b.writeVarInt(bands != null ? bands.size() : 0);
             if (bands != null) for (String s : bands) b.writeUtf(s);
-            var flags = pkt.audioFlags;
-            b.writeVarInt(flags != null ? flags.size() : 0);
-            if (flags != null) for (Boolean f : flags) b.writeBoolean(f);
+            var codes = pkt.typeCodes;
+            b.writeVarInt(codes != null ? codes.size() : 0);
+            if (codes != null) for (String s : codes) b.writeUtf(s);
         }
     };
 
@@ -61,13 +62,25 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
             var be = ctx.player().level().getBlockEntity(pos);
             if (bands != null && !bands.isEmpty()) {
                 SignalBus.registerBands(busName, bands);
-                // 频段音频标志随定义走（空列表 = 发送方不带标志，保留现值）。
-                // Audio flags ride the definition (empty list = sender carries none, keep current).
-                if (audioFlags != null && !audioFlags.isEmpty()) {
-                    var set = new java.util.HashSet<String>();
-                    for (int i = 0; i < bands.size() && i < audioFlags.size(); i++)
-                        if (audioFlags.get(i)) set.add(bands.get(i));
-                    SignalBus.setAudioBands(busName, set);
+                // 频段声明类型随定义走（空列表 = 发送方不带类型，保留现值）。
+                // Declared band types ride the definition (empty list = sender carries none).
+                if (typeCodes != null && !typeCodes.isEmpty()) {
+                    var map = new java.util.HashMap<String, io.github.y15173334444.create_schematic_compute.graph.PinType>();
+                    boolean trusted = true;
+                    for (int i = 0; i < bands.size() && i < typeCodes.size(); i++) {
+                        var t = io.github.y15173334444.create_schematic_compute.graph.PinType.byCode(typeCodes.get(i));
+                        if (t == null) { trusted = false; break; } // 未知码 = 类型信息不可信 / unknown code = untrusted type info
+                        map.put(bands.get(i), t);
+                    }
+                    // 未知码 = 类型信息不可信 → 整份类型表不应用（保留现值），绝不静默降 FLOAT：
+                    // 降级出的 FLOAT 声明会经订阅收敛重绑剪掉 AUDIO/VEC3 线（数据流错 + 误剪）。
+                    // 同「空列表 = 发送方不带类型，保留现值」契约。
+                    // An unknown code means the type info is untrusted → don't apply the type
+                    // table at all (keep current values), never silently degrade to FLOAT: a
+                    // fabricated FLOAT declaration would retype-prune AUDIO/VEC3 wires via
+                    // subscriber convergence (wrong data flow + wrongful cuts). Same contract
+                    // as "empty list = sender carries none, keep current".
+                    if (trusted) SignalBus.setBandTypes(busName, map);
                 }
             } else {
                 // 空表 = 频段列表同步，不是频道清账：名下有存活 owner（本端可见条目）时绝不碰

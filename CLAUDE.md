@@ -54,7 +54,7 @@ GitHub Issues，外部 PR 也作为 triage 需求来源。见 `docs/agents/issue
 
 ### 文档规范 / Docs Convention
 - `CHANGELOG.md` 是**权威变更日志**：每个版本一个 `<details>` 块，发布前更新；README 的 Changelog 小节只保留链接。
-- `docs/` 规划/分析文档双语，带状态横幅（✅ 已解决 / 🔶 待办）与交叉引用。
+- `docs/` 规划/分析/计划类文档**中文即可**（2026-11-08 拍板：中文 token 高密度，不写双语正文），带状态横幅（✅ 已解决 / 🔶 待办）与交叉引用；面向用户的文档（README/CONTRIBUTING/runbook）与 API javadoc 保持双语。
 - 架构文档见 `docs/code-architecture.md`；改动架构时同步更新。
 
 ### 版本管理 / Versioning

@@ -40,30 +40,30 @@ class OpExecutorConnPinIdTest {
     @DisplayName("ADD_CONN with pinIds: binds by pinId even if integer indices would differ")
     void testAddConnPinIdPath() {
         OpExecutor.apply(graph, connOp(OpType.ADD_CONN, a.id, 0, b.id, 0,
-            GraphOp.packConnPinIds("0", "0")));
+            GraphOp.packConnPinIds("float:0", "float:0")));
         assertEquals(1, graph.connections.size());
-        assertEquals("0", graph.connections.get(0).fromPinId);
-        assertEquals("0", graph.connections.get(0).toPinId);
+        assertEquals("float:0", graph.connections.get(0).fromPinId);
+        assertEquals("float:0", graph.connections.get(0).toPinId);
     }
 
     @Test
     @DisplayName("ADD_CONN with one-sided pinId: fills the other end from the live node, no integer drift")
     void testAddConnOneSidedPinId() {
-        // 只带 fromPinId；toPinId 由 b.inputPinId(1) 补全为 "1"（而不是回落用整数 1 碰运气）
+        // 只带 fromPinId；toPinId 由 b.inputPinId(1) 补全为 "float:1"（而不是回落用整数 1 碰运气）
         OpExecutor.apply(graph, connOp(OpType.ADD_CONN, a.id, 0, b.id, 1,
-            GraphOp.packConnPinIds("0", null)));
+            GraphOp.packConnPinIds("float:0", null)));
         assertEquals(1, graph.connections.size());
-        assertEquals("0", graph.connections.get(0).fromPinId);
-        assertEquals("1", graph.connections.get(0).toPinId);
+        assertEquals("float:0", graph.connections.get(0).fromPinId);
+        assertEquals("float:1", graph.connections.get(0).toPinId);
     }
 
     @Test
     @DisplayName("ADD_CONN occupied input: skips silently and does not clobber")
     void testAddConnOccupiedSkips() {
         OpExecutor.apply(graph, connOp(OpType.ADD_CONN, a.id, 0, b.id, 0,
-            GraphOp.packConnPinIds("0", "0")));
+            GraphOp.packConnPinIds("float:0", "float:0")));
         OpExecutor.apply(graph, connOp(OpType.ADD_CONN, c.id, 0, b.id, 0,
-            GraphOp.packConnPinIds("0", "0")));
+            GraphOp.packConnPinIds("float:0", "float:0")));
         assertEquals(1, graph.connections.size());
         assertEquals(a.id, graph.connections.get(0).fromId);
     }
@@ -72,7 +72,9 @@ class OpExecutorConnPinIdTest {
     @DisplayName("ADD_CONN unresolvable pinId: skips silently, no integer fallback")
     void testAddConnUnresolvedSkips() {
         OpExecutor.apply(graph, connOp(OpType.ADD_CONN, a.id, 0, b.id, 0,
-            GraphOp.packConnPinIds("nope", "0")));
+            GraphOp.packConnPinIds("float:nope", "float:0")));
+        OpExecutor.apply(graph, connOp(OpType.ADD_CONN, a.id, 0, b.id, 0,
+            GraphOp.packConnPinIds("nope", "float:0")));
         assertEquals(0, graph.connections.size());
     }
 
@@ -92,11 +94,11 @@ class OpExecutorConnPinIdTest {
     @DisplayName("REMOVE_CONN with pinIds: removes by pinId, leaves other wires alone")
     void testRemoveConnPinIdPath() {
         OpExecutor.apply(graph, connOp(OpType.ADD_CONN, a.id, 0, b.id, 0,
-            GraphOp.packConnPinIds("0", "0")));
+            GraphOp.packConnPinIds("float:0", "float:0")));
         OpExecutor.apply(graph, connOp(OpType.ADD_CONN, c.id, 0, b.id, 1,
-            GraphOp.packConnPinIds("0", "1")));
+            GraphOp.packConnPinIds("float:0", "float:1")));
         OpExecutor.apply(graph, connOp(OpType.REMOVE_CONN, a.id, 0, b.id, 0,
-            GraphOp.packConnPinIds("0", "0")));
+            GraphOp.packConnPinIds("float:0", "float:0")));
         assertEquals(1, graph.connections.size());
         assertEquals(c.id, graph.connections.get(0).fromId);
     }
@@ -114,7 +116,7 @@ class OpExecutorConnPinIdTest {
     void testMalformedEncodingFallsBack() {
         String sep = String.valueOf((char) 1);
         OpExecutor.apply(graph, connOp(OpType.ADD_CONN, a.id, 0, b.id, 0,
-            "0" + sep + "0" + sep + "0"));
+            "float:0" + sep + "float:0" + sep + "float:0"));
         // parseConnPinIds → null → integer path / 整数路径仍能接上
         assertEquals(1, graph.connections.size());
     }

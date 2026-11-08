@@ -37,12 +37,12 @@ class BusBandRenameRebindTest {
         busIn.signalName = "CH";
         busIn.signalBands = new ArrayList<>(List.of("a", "b"));
         sink = graph.addNode(NodeType.ADD, 150, 0);
-        // 发布方进线：CONST → BUS_OUT 频段 a（toPinId = 频段名，名字绑定）
-        // Publisher input wire: CONST → BUS_OUT band a (toPinId = band name, name-bound)
-        graph.connections.add(new NodeConnection(source.id, "0", 0, busOut.id, "a", 0));
-        // 订阅方出线：BUS_IN 频段 a → ADD（fromPinId = 频段名，名字绑定）
-        // Subscriber output wire: BUS_IN band a → ADD (fromPinId = band name, name-bound)
-        graph.connections.add(new NodeConnection(busIn.id, "a", 0, sink.id, "0", 0));
+        // 发布方进线：CONST → BUS_OUT 频段 a（toPinId 参段 = 频段名，名字绑定）
+        // Publisher input wire: CONST → BUS_OUT band a (toPinId param = band name, name-bound)
+        graph.connections.add(new NodeConnection(source.id, "float:0", 0, busOut.id, "float:a", 0));
+        // 订阅方出线：BUS_IN 频段 a → ADD（fromPinId 参段 = 频段名，名字绑定）
+        // Subscriber output wire: BUS_IN band a → ADD (fromPinId param = band name, name-bound)
+        graph.connections.add(new NodeConnection(busIn.id, "float:a", 0, sink.id, "float:0", 0));
     }
 
     @Test
@@ -53,7 +53,7 @@ class BusBandRenameRebindTest {
         assertEquals(List.of("x", "b"), busOut.signalBands);
         assertEquals(2, graph.connections.size());
         var wire = graph.connections.get(0);
-        assertEquals("x", wire.toPinId, "the old band name's pinId is rewritten in place");
+        assertEquals("float:x", wire.toPinId, "the old band name's pinId is rewritten in place");
         assertEquals(0, wire.toPin, "the slot index does not move");
         assertTrue(busOut.bandsDirty);
     }
@@ -65,7 +65,7 @@ class BusBandRenameRebindTest {
 
         assertEquals(List.of("x", "b"), busIn.signalBands);
         var wire = graph.connections.get(1);
-        assertEquals("x", wire.fromPinId);
+        assertEquals("float:x", wire.fromPinId);
         assertEquals(0, wire.fromPin);
     }
 
@@ -76,7 +76,7 @@ class BusBandRenameRebindTest {
         graph.rebuildInputCache();
 
         assertEquals(2, graph.connections.size());
-        assertEquals("a", graph.connections.get(0).toPinId, "the wire keeps following its band name");
+        assertEquals("float:a", graph.connections.get(0).toPinId, "the wire keeps following its band name");
         assertEquals(1, graph.connections.get(0).toPin, "resolved to the band's new index");
     }
 
@@ -86,12 +86,12 @@ class BusBandRenameRebindTest {
         // 追加一条绑定到 b 的发布方进线；对齐到 [a] 后它应被剪，a 线与订阅方线保留。
         // Add a publisher wire bound to b; aligning to [a] prunes it while the a-wire
         // and the subscriber's wire (a different node's alignment scope) survive.
-        graph.connections.add(new NodeConnection(source.id, "0", 1, busOut.id, "b", 1));
+        graph.connections.add(new NodeConnection(source.id, "float:0", 1, busOut.id, "float:b", 1));
 
         graph.reconcileBands(busOut, List.of("a"));
 
         assertEquals(2, graph.connections.size());
-        assertEquals("a", graph.connections.get(0).toPinId, "the surviving band keeps its wire");
+        assertEquals("float:a", graph.connections.get(0).toPinId, "the surviving band keeps its wire");
         assertEquals(busIn.id, graph.connections.get(1).fromId,
             "the subscriber's wire belongs to the BUS_IN's own alignment scope and is untouched");
     }
@@ -123,6 +123,27 @@ class BusBandRenameRebindTest {
 
         assertEquals(List.of("x", "b"), busOut.signalBands);
         assertEquals(2, graph.connections.size());
-        assertEquals("x", graph.connections.get(0).toPinId, "renamed via op: wire rebound, not pruned");
+        assertEquals("float:x", graph.connections.get(0).toPinId, "renamed via op: wire rebound, not pruned");
+    }
+
+    @Test
+    @DisplayName("改类型换段重绑：兼容线保留、不兼容线剪除 / retype rebinds the type segment: compatible wires keep, mismatched prune")
+    void retypeRebinds() {
+        // 频段 a：FLOAT 声明 → AUDIO 声明。发布方线的对端 CONST 输出是 FLOAT → 剪除。
+        // Band a: FLOAT declared → AUDIO declared. The publisher wire's peer (CONST) is
+        // FLOAT, so the wire is pruned on retype.
+        graph.reconcileBands(busOut, List.of("a", "b"), List.of(PinType.AUDIO, PinType.FLOAT));
+        assertEquals(List.of(PinType.AUDIO, PinType.FLOAT), busOut.bandTypes);
+        assertEquals(1, graph.connections.size(), "the publisher's FLOAT wire is pruned on retype");
+        assertEquals(busIn.id, graph.connections.get(0).fromId);
+
+        // 订阅方改类型：新增一条对端为音频脚的线 → 重绑保留；对端是浮点脚的旧线剪除。
+        // Subscriber retype: a new wire with an AUDIO peer rebinds and keeps; the old
+        // FLOAT-peer wire is pruned.
+        GraphNode amp = graph.addNode(NodeType.AMP, 200, 0);
+        graph.connections.add(new NodeConnection(busIn.id, "float:a", 0, amp.id, "audio:0", 0));
+        graph.reconcileBands(busIn, List.of("a", "b"), List.of(PinType.AUDIO, PinType.FLOAT));
+        assertEquals(1, graph.connections.size(), "the FLOAT-peer wire is pruned, the AUDIO-peer wire keeps");
+        assertEquals("audio:a", graph.connections.get(0).fromPinId, "the wire rebinds to the new type segment");
     }
 }

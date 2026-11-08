@@ -94,14 +94,14 @@ class AngleUnwrapModeTest {
     }
 
     @Test
-    @DisplayName("body keeps two pins; legacy wires on pinId \"0\" still resolve to input a")
+    @DisplayName("body keeps two pins with typed pinIds / 两个体引脚，pinId 带类型段")
     void bodyPinsKeepLegacyWiresOnInputZero() {
         GraphNode n = new GraphNode(1, NodeType.ANGLE_UNWRAP, 0, 0);
         assertEquals(2, n.inputs(), "dual input: two angles to compare");
-        assertEquals("0", n.inputPinId(0));
-        assertEquals("1", n.inputPinId(1));
-        assertEquals(0, n.inputPinIndex("0"), "old wires targeting \"0\" land on input a");
-        assertEquals(1, n.inputPinIndex("1"));
+        assertEquals("float:0", n.inputPinId(0));
+        assertEquals("float:1", n.inputPinId(1));
+        assertEquals(0, n.inputPinIndex("float:0"));
+        assertEquals(1, n.inputPinIndex("float:1"));
     }
 
     // ── V6→V7 迁移 / migration ──────────────────────────────────────────

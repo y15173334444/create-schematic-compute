@@ -2,6 +2,7 @@ package io.github.y15173334444.create_schematic_compute.client.editor;
 
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.graph.PinType;
 import io.github.y15173334444.create_schematic_compute.graph.SpatialIndex;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -130,8 +131,7 @@ public class EditPanel {
         boolean isBusIn = node.type == NodeType.BUS_IN;
         int bandCount = st.fields.size() - 1;
         if (bandCount > 0) st.bandPinY = new float[bandCount];
-        for (int bi = 1; bi < st.fields.size(); bi++) {
-            // 引脚圆点（BUS_IN 输出在右，BUS_OUT 输入在左）
+        for (int bi = 1; bi < st.fields.size(); bi++) {            // 引脚圆点（BUS_IN 输出在右，BUS_OUT 输入在左）
             int pinIdx = st.fieldParamIndices.size() > bi ? st.fieldParamIndices.get(bi) : (bi - 1);
             boolean pinConnected;
             int pinX;
@@ -144,27 +144,34 @@ public class EditPanel {
             }
             int pinY = py + 4 + row * 18 + 8;
             if (st.bandPinY != null && bi - 1 < st.bandPinY.length) st.bandPinY[bi - 1] = pinY;
-            // 频段引脚承载音频时按音频引脚着色，**属性跟频段走**：读取侧（BUS_IN）= 频段定义
-            // 同步来的音频标志 ∨ 该引脚本地接了音频线（按频段分流读取，读取语义与显示一致）；
-            // 发布侧（BUS_OUT）逐引脚按对端域。
-            // Band pins tint as audio while carrying audio, and the property rides the band:
-            // the read side (BUS_IN) = the definition-synced audio flag ∨ this pin's own local
-            // audio wire (per-band routing — display matches semantics); the publish side
-            // (BUS_OUT) judges per pin by peer domain.
-            boolean bandAudioFlag = isBusIn && node.signalBands != null && pinIdx < node.signalBands.size()
-                && io.github.y15173334444.create_schematic_compute.network.SignalBus
-                    .isAudioBand(node.signalName, node.signalBands.get(pinIdx));
-            boolean audioPin = (isBusIn
-                ? bandAudioFlag || (st.graph != null && st.graph.isBandPinAudio(node.id, pinIdx, true))
-                : st.graph != null && st.graph.isBandPinAudio(node.id, pinIdx, false));
+            // 频段引脚着色 = **生效类型**（定义同步值 ∨ 本地声明，AUDIO > VEC3 > 本地），
+            // 与 NodeRenderer 引脚循环/拖线预览同源（PinType.effective 单一源）——三态
+            // （金=浮点 / 青=音频 / 品红=向量），不再是音频二态。发布侧（BUS_OUT）的
+            // 定义同步值缺席，生效类型即本地声明。
+            // Band pin tint = the **effective type** (definition-synced ∨ local declaration,
+            // AUDIO > VEC3 > local), one source with the NodeRenderer pin loop and the drag
+            // preview (PinType.effective) — ternary (gold=float / teal=audio / magenta=vector),
+            // no longer an audio-only binary. The publish side (BUS_OUT) has no synced value,
+            // so the effective type is the local declaration.
+            PinType local = isBusIn ? node.outputType(pinIdx) : node.inputType(pinIdx);
+            PinType synced = null;
+            if (isBusIn && node.signalBands != null && pinIdx < node.signalBands.size())
+                synced = io.github.y15173334444.create_schematic_compute.network.SignalBus
+                    .bandType(node.signalName, node.signalBands.get(pinIdx));
+            PinType pinT = PinType.effective(local, synced);
             g.fill(pinX - pinR - 1, pinY - pinR - 1, pinX + pinR + 1, pinY + pinR + 1,
-                audioPin ? NodeRenderer.CAPB() : NodeRenderer.CPIB());
+                pinT == PinType.AUDIO ? NodeRenderer.CAPB()
+                    : pinT == PinType.VEC3 ? NodeRenderer.CVPB()
+                    : pinT == PinType.EMPTY ? NodeRenderer.CPEB() : NodeRenderer.CPIB());
             // 填充基色 = 配置色（input/output/pin_audio），连接态做明暗变换（含音频引脚）——
             // 「占用暗化」与「音频着色」正交；旧硬编码暗橄榄退役（脱离自定义配色）。
             // Fill base = the configured colour (input/output/pin_audio); the connected state
             // darkens it (audio pins included) — occupancy dim and audio tint are orthogonal;
             // the old hardcoded khaki is retired (it ignored custom palettes).
-            int baseFill = audioPin ? NodeRenderer.CAP() : isBusIn ? NodeRenderer.CPO() : NodeRenderer.CPI();
+            int baseFill = pinT == PinType.AUDIO ? NodeRenderer.CAP()
+                : pinT == PinType.VEC3 ? NodeRenderer.CVP()
+                : pinT == PinType.EMPTY ? NodeRenderer.CPE()
+                : isBusIn ? NodeRenderer.CPO() : NodeRenderer.CPI();
             g.fill(pinX - pinR, pinY - pinR, pinX + pinR, pinY + pinR,
                 pinConnected ? NodeRenderer.dimColor(baseFill) : baseFill);
             // 频段名（BUS_IN 只读文本，BUS_OUT EditBox 可编辑）
@@ -177,6 +184,27 @@ public class EditPanel {
                 int bx = px + 22, by = py + 4 + row * 18, bw = 80;
                 bandBox.setX(bx); bandBox.setY(by); bandBox.setWidth(bw);
                 manualEditBox(g, bandBox, bx, by, bw, 16);
+            }
+            // 类型指示芯片（只读，2026-11-08 拍板）：显示当前声明/生效类型——类型定义由
+            // 连线驱动（落线即声明、摘线即回灰），芯片不再切换类型。
+            // The type chip is a read-only indicator (2026-11-08 decision): it shows the
+            // current declared/effective type — types are wire-driven (landing a wire
+            // declares, removing it greys), so the chip no longer switches anything.
+            {
+                PinType bt = node.bandType(pinIdx);
+                int chipW = 30, chipH = 12;
+                int chipX = isBusIn ? px + 4 : (px + pw - chipW - 4);
+                int chipY = pinY - chipH / 2;
+                if (st.bandTypeBtnX == null || st.bandTypeBtnX.length != bandCount) {
+                    st.bandTypeBtnX = new float[bandCount];
+                    st.bandTypeBtnY = new float[bandCount];
+                }
+                if (bi - 1 < st.bandTypeBtnX.length) {
+                    st.bandTypeBtnX[bi - 1] = chipX;
+                    st.bandTypeBtnY[bi - 1] = chipY;
+                }
+                st.bandTypeBtnW = chipW; st.bandTypeBtnH = chipH;
+                drawTypeChip(g, chipX, chipY, chipW, chipH, bt, mx, my, true);
             }
             row++;
         }
@@ -374,6 +402,36 @@ public class EditPanel {
                 b.setX(ex); b.setY(ey); b.setWidth(ew);
                 manualEditBox(g, b, ex, ey, ew, 16);
             }
+            row++;
+        }
+        // PRIVATE_* 类型芯片（单引脚，float→audio→vec3 循环）：显示值 = **生效类型**
+        // （频道声明 ∨ 本端声明，与引脚着色/引脚文本同源 PinType.effective）。点击改的是
+        // **本端**声明（SET_PIN_TYPE：类型段换段、对端不匹配的剪除）——属性跟频道走：
+        // 频道已声明 AUDIO/VEC3 时芯片随频道显示，点击仍只改本端声明。PRIVATE_OUT 的
+        // 本端声明**就是**频道声明类型（发布方定义，经 setPrivateType 随版本戳同步订阅方）。
+        // PRIVATE_* type chip (single pin, float→audio→vec3 cycle): the displayed value is
+        // the **effective type** (channel declaration ∨ local declaration — one source with
+        // the pin tint/text, PinType.effective). Clicking edits the **local** declaration
+        // (SET_PIN_TYPE: type-segment rebind, mismatched peers pruned) — the property rides
+        // the channel: once the channel declares AUDIO/VEC3 the chip follows it even while
+        // the click only moves the local declaration. On PRIVATE_OUT the local declaration
+        // **is** the channel's declared type (the publisher's definition, synced to
+        // subscribers via setPrivateType).
+        if (node.type == NodeType.PRIVATE_IN || node.type == NodeType.PRIVATE_OUT) {
+            PinType local = node.bandType(0);
+            PinType pt = node.type == NodeType.PRIVATE_IN
+                ? PinType.effective(local,
+                    io.github.y15173334444.create_schematic_compute.network.SignalBus
+                        .privateType(node.signalName))
+                : local;
+            int chipW = 30, chipH = 12;
+            String tlabel = I18n.get("gui.create_schematic_compute.edit.channel_type") + ":";
+            g.drawString(Minecraft.getInstance().font, tlabel, px + 4, py + 4 + row * 18 + 1, 0xFF888888, false);
+            int chipX = px + 8 + Minecraft.getInstance().font.width(tlabel);
+            int chipY = py + 4 + row * 18 + 1;
+            st.bandTypeBtnX0 = chipX; st.bandTypeBtnY0 = chipY;
+            st.bandTypeBtnW = chipW; st.bandTypeBtnH = chipH;
+            drawTypeChip(g, chipX, chipY, chipW, chipH, pt, mx, my, true);
             row++;
         }
         } // else 块结束
@@ -871,6 +929,31 @@ public class EditPanel {
                 .prefixWidth(Minecraft.getInstance().font, val, cp));
             g.fill(cx, y + 2, cx + 1, y + h - 4, 0xFFFFFFFF);
         }
+    }
+
+    /** 声明载荷类型芯片：类型码短文本 + 主题类型底色（金=浮点 / 青=音频 / 品红=向量 /
+     *  灰=空；悬停高亮，{@code readOnly} 时无悬停高亮）。/ Declared payload-type chip: the
+     *  type code's short text on the theme's per-type tint (gold=float / teal=audio /
+     *  magenta=vector / grey=empty; hover highlights unless {@code readOnly}). */
+    private static void drawTypeChip(GuiGraphics g, int x, int y, int w, int h, PinType t,
+                                     int mx, int my, boolean readOnly) {
+        int bg = switch (t) {
+            case FLOAT -> NodeRenderer.CPI();
+            case AUDIO -> NodeRenderer.CAP();
+            case VEC3 -> NodeRenderer.CVP();
+            case EMPTY -> NodeRenderer.CPE();
+        };
+        boolean hover = !readOnly && mx >= x && mx <= x + w && my >= y && my <= y + h;
+        g.fill(x, y, x + w, y + h, hover ? 0xFF3A3A3A : bg);
+        g.renderOutline(x, y, w, h, hover ? 0xFFFFFFFF : NodeRenderer.CSB());
+        String txt = switch (t) {
+            case FLOAT -> "f32";
+            case AUDIO -> "aud";
+            case VEC3 -> "v3";
+            case EMPTY -> "空";
+        };
+        int tw = Minecraft.getInstance().font.width(txt);
+        g.drawString(Minecraft.getInstance().font, txt, x + (w - tw) / 2, y + (h - 8) / 2 + 1, 0xFFEAEAEA, false);
     }
 
 }

@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.network;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.graph.PinType;
 import net.minecraft.core.BlockPos;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,8 +59,8 @@ class SignalBusOwnerGateTest {
     @BeforeEach @AfterEach void resetBus() { SignalBus.clear(); }
 
     /** 夹具：另一方块的 BUS_OUT "alpha" 走真实首 tick 注册（持频道 + 频段定义 + 已发布值 +
-     *  音频标志）。Fixture: a peer block's BUS_OUT "alpha" via the real first-tick registration
-     *  core (holding the channel, the band definition, a published value and the audio flags). */
+     *  声明类型）。Fixture: a peer block's BUS_OUT "alpha" via the real first-tick registration
+     *  core (holding the channel, the band definition, a published value and the declared types). */
     private static void foreignBlockOwnsAlpha() {
         var pubGraph = new NodeGraph();
         var pub = pubGraph.addNode(NodeType.BUS_OUT, 0, 0);
@@ -68,7 +69,7 @@ class SignalBusOwnerGateTest {
         pub.busInternalMap = new HashMap<>();
         BusChannelHelper.registerGraphChannels(pubGraph, FOREIGN);
         SignalBus.put("alpha\0b0", 3.5f); // 发布方已写出的频段值 / a published band value
-        SignalBus.setAudioBands("alpha", java.util.Set.of("b0"));
+        SignalBus.setBandTypes("alpha", java.util.Map.of("b0", PinType.AUDIO));
     }
 
     // ══════════ 1. 删除 BUS_OUT 裸写口的门控（releaseChannel） ══════════
@@ -88,8 +89,8 @@ class SignalBusOwnerGateTest {
         assertNotNull(SignalBus.getChannel("alpha"), "对方的频道条目必须保留");
         assertEquals(List.of("b0", "b1"), SignalBus.getBands("alpha"), "对方的频段定义不得被抹");
         assertEquals(3.5f, SignalBus.get("alpha\0b0"), 0f, "对方已发布的频段值不得被清");
-        assertEquals(java.util.Set.of("b0"), SignalBus.getAudioBands("alpha"), "对方的音频标志不得被清");
-        assertTrue(SignalBus.audioStamp("alpha") > 0, "对方的标志版本号不得被清");
+        assertEquals(java.util.Map.of("b0", PinType.AUDIO), SignalBus.getBandTypes("alpha"), "对方的声明类型不得被清");
+        assertTrue(SignalBus.bandTypeStamp("alpha") > 0, "对方的定义版本号不得被清");
     }
 
     @Test
@@ -151,7 +152,7 @@ class SignalBusOwnerGateTest {
         assertFalse(SignalBus.clearBusIfUnowned("alpha"), "存活 owner 在场必须拒绝清理");
         assertEquals(List.of("b0", "b1"), SignalBus.getBands("alpha"), "定义不动");
         assertEquals(3.5f, SignalBus.get("alpha\0b0"), 0f, "值不动");
-        assertEquals(java.util.Set.of("b0"), SignalBus.getAudioBands("alpha"), "音频标志不动");
+        assertEquals(java.util.Map.of("b0", PinType.AUDIO), SignalBus.getBandTypes("alpha"), "声明类型不动");
     }
 
     @Test

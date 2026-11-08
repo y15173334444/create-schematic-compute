@@ -500,6 +500,42 @@ public final class OpExecutor {
                 yield n;
             }
 
+            case SET_PIN_TYPE -> {
+                var n = graph.findNode(op.targetNodeId());
+                PinType t = n != null ? PinType.byCode(op.stringValue()) : null;
+                // op 层拒收回空：EMPTY 的清写只走连线生命周期（摘线即回灰 / 存档自愈），
+                // 声明 op 只许 空→实或改型——不让改型 op 变成剪线武器（回空会触发换段剪线
+                // 剪掉对端线）。/ The op layer refuses empty: EMPTY writes only ride the wire
+                // lifecycle (disconnect greys / the save self-heal); a declaration op may
+                // only go empty→real or retype — never a wire-cutting weapon (an empty
+                // retype would trip the segment-rebind prune on peer wires).
+                if (n != null && t != null && t != PinType.EMPTY) {
+                    if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) {
+                        // 私有频道单引脚改类型（pinId 换段重绑，对端不匹配的剪除）
+                        // Private channel's single pin retypes (type-segment rebind; mismatched peers prune)
+                        if (n.bandType(0) != t) {
+                            graph.setPrivatePinType(n, t);
+                            graph.rebuildInputCache();
+                            graph.bumpGeneration();
+                        }
+                    } else if ((n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
+                            && n.signalBands != null && op.paramIndex() >= 0
+                            && op.paramIndex() < n.signalBands.size()) {
+                        // 频段槽位改类型（reconcileBands 的类型换段重绑）
+                        // A band slot retypes (reconcileBands' type-segment rebind)
+                        if (n.bandType(op.paramIndex()) != t) {
+                            var types = new java.util.ArrayList<PinType>();
+                            for (int i = 0; i < n.signalBands.size(); i++) types.add(n.bandType(i));
+                            types.set(op.paramIndex(), t);
+                            graph.reconcileBands(n, n.signalBands, types);
+                            graph.rebuildInputCache();
+                            graph.bumpGeneration();
+                        }
+                    }
+                }
+                yield n;
+            }
+
             case SET_BLOCK_NAME -> {
                 // 图级 op：名称挂在 NodeGraph 上（随图序列化/同步），不属于任何节点。
                 // 纯视觉 op —— 名称不参与求值，不 bump（与 SET_ZORDER 同理），避免无谓重编译。
@@ -1006,6 +1042,20 @@ public final class OpExecutor {
             node.signalBands = new java.util.ArrayList<>();
             for (int i = 0; i < bandsTag.size() && i < MAX_BANDS; i++)
                 node.signalBands.add(bandsTag.getString(i));
+        }
+        // 声明载荷类型表（缺省全 FLOAT；与 bands 平行）/ declared payload types (FLOAT by
+        // default; parallel to bands)
+        if (tag.contains("bandTypes")) {
+            var typesTag = tag.getList("bandTypes", net.minecraft.nbt.Tag.TAG_STRING);
+            node.bandTypes = new java.util.ArrayList<>();
+            for (int i = 0; i < typesTag.size() && i < MAX_BANDS; i++) {
+                // 未知码留 null 空标（同 GraphNode.load）：「解析不到即剪」——触点连线由
+                // rebuildInputCache 剪除后自愈 FLOAT，不静默降级为 FLOAT 声明。
+                // Unknown codes stay as a null marker (same as GraphNode.load):
+                // "unresolvable → prune" — rebuildInputCache cuts the touching wires and
+                // self-heals to FLOAT; never silently degraded into a FLOAT declaration.
+                node.bandTypes.add(PinType.byCode(typesTag.getString(i)));
+            }
         }
         // BUS_OUT internalMap
         if (tag.contains("busData")) {

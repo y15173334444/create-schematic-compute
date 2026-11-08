@@ -72,6 +72,15 @@ public final class BusChannelHelper {
                 // 注册成功 → 立即同步 bands 到 BAND_REGISTRY 并广播客户端
                 if (ok && n.signalBands != null && !n.signalBands.isEmpty()) {
                     SignalBus.registerBands(n.signalName, n.signalBands);
+                    // 注册即定义（重载路径）：声明类型随频段定义一并发布——BAND_TYPES 此前只挂
+                    // BusEval 的 bandsDirty 分支，重载后恒空，订阅侧按 getOrDefault 降 FLOAT、
+                    // 首个 tick 剪 AUDIO/VEC3 线（阻断缺陷）。
+                    // Register-time definition (the reload path): declared types publish with
+                    // the band definition — BAND_TYPES used to hang only on BusEval's
+                    // bandsDirty branch, staying empty after a reload while subscribers
+                    // degraded to getOrDefault FLOAT and cut AUDIO/VEC3 wires on the first
+                    // tick (the blocking defect).
+                    SignalBus.setBandTypes(n.signalName, n.bandTypeMap());
                     n.bandsDirty = false;
                     broadcasts.add(n.signalName);
                 } else if (ok) {
@@ -145,9 +154,13 @@ public final class BusChannelHelper {
     private static void broadcastBandDefinitions(ServerLevel sl, BlockPos pos, java.util.List<String> names) {
         for (var name : names) {
             var bands = SignalBus.getBands(name);
+            var types = SignalBus.getBandTypes(name);
+            var codes = new ArrayList<String>();
+            if (bands != null) for (String b : bands)
+                codes.add(types.getOrDefault(b, io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT).code);
             PacketDistributor.sendToPlayersTrackingChunk(sl,
                 new ChunkPos(pos),
-                new BusBandSyncPacket(pos, name, bands != null ? bands : Collections.emptyList()));
+                new BusBandSyncPacket(pos, name, bands != null ? bands : Collections.emptyList(), codes));
         }
     }
 
@@ -307,6 +320,12 @@ public final class BusChannelHelper {
     public static void syncBandsFromServer(String busName, List<String> bands, NodeGraph graph) {
         if (graph == null) return;
         List<String> newBands = bands != null ? bands : Collections.emptyList();
+        // 声明类型跟定义走（注册表由发布方写入、本包 handler 先落再调本方法）。
+        // Declared types ride the definition (the publisher writes the registry; the packet
+        // handler lands it before calling us).
+        var regTypes = SignalBus.getBandTypes(busName);
+        List<io.github.y15173334444.create_schematic_compute.graph.PinType> newTypes =
+            resolveTypesFor(newBands, regTypes);
         for (var n : graph.nodes) {
             if ((n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT)
                 && n.signalName.equals(busName)) {
@@ -314,14 +333,15 @@ public final class BusChannelHelper {
                 // not to the channel owner that broadcast this sync.
                 // 不要覆盖冲突的 BUS_OUT —— 其频段属于自身，不属于广播此同步的频道所有者。
                 if (n.type == NodeType.BUS_OUT && n.busConflict) continue;
-                if (!newBands.equals(n.signalBands)) {
+                if (!newBands.equals(n.signalBands) || !typesMatch(n, newTypes)) {
                     // 频段对齐唯一规则（NodeGraph.reconcileBands）：改名重绑 pinId 不剪线，
-                    // 增删按名剪除 —— 与 SET_BANDS/上传/收敛共用同一实现。重排依旧保线
-                    //（名字集合未变）。
+                    // 增删按名剪除、改类型换段重绑 —— 与 SET_BANDS/上传/收敛共用同一实现。
+                    // 重排依旧保线（名字集合未变）。
                     // The single band alignment rule: renames rebind pinIds (wires kept),
-                    // additions/removals prune by name - shared with SET_BANDS, the upload
-                    // and convergence. Reordering still keeps wires (the name set is unchanged).
-                    graph.reconcileBands(n, newBands);
+                    // additions/removals prune by name, retypes rebind the type segment -
+                    // shared with SET_BANDS, the upload and convergence. Reordering still
+                    // keeps wires (the name set is unchanged).
+                    graph.reconcileBands(n, newBands, newTypes);
                     // legacy 索引回退：BUS_IN 的输入引脚是**索引绑定**的（GraphNode.inputPinId 只对
                     // BUS_OUT 返回频段名），因此频段减少后落到新范围之外的连线要按索引清掉
                     // ——与 releaseOldBusName / convergeBusInBands 的既有做法一致。
@@ -376,6 +396,11 @@ public final class BusChannelHelper {
         }
         if (!newBands.isEmpty()) {
             SignalBus.registerBands(busName, newBands);
+            // 注册即定义（频段上传路径，同 registerGraphChannels）：声明类型随定义发布，
+            // 取型与目标节点（owner）的声明同源。
+            // Register-time definition (the band-upload path, same as above): declared types
+            // publish with the definition, sourced from the target (owner) node's declaration.
+            SignalBus.setBandTypes(busName, target.bandTypeMap());
         } else {
             // 空频段 = 显式清空频道（确证离开）：统一释放，**按 owner 门控** —— 旗标过期时
             // 他人已抢注的名不碰。retire 的既定后果在此明示：死名收敛会让旧名 BUS_IN 清列表
@@ -388,7 +413,7 @@ public final class BusChannelHelper {
         }
         if (level instanceof ServerLevel sl) {
             PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(pos),
-                new BusBandSyncPacket(pos, busName, newBands));
+                new BusBandSyncPacket(pos, busName, newBands, target.bandTypeCodes()));
         }
         return true;
     }
@@ -477,13 +502,14 @@ public final class BusChannelHelper {
                 }
                 resolvedByChannel.put(n.signalName, want);
             }
-            if (want.equals(n.signalBands)) continue;
+            if (want.equals(n.signalBands)
+                && typesMatch(n, resolveTypesFor(want, SignalBus.getBandTypes(n.signalName)))) continue;
             // 频段对齐唯一规则（NodeGraph.reconcileBands）：改名重绑 pinId 不剪线，
-            // 增删按名剪除 —— 与 SET_BANDS/上传/客户端同步共用同一实现。
+            // 增删按名剪除、改类型换段重绑 —— 与 SET_BANDS/上传/客户端同步共用同一实现。
             // The single band alignment rule: renames rebind pinIds (wires kept),
-            // additions/removals prune by name - shared with SET_BANDS, the upload
-            // and the client-sync path.
-            graph.reconcileBands(n, want);
+            // additions/removals prune by name, retypes rebind the type segment -
+            // shared with SET_BANDS, the upload and the client-sync path.
+            graph.reconcileBands(n, want, resolveTypesFor(want, SignalBus.getBandTypes(n.signalName)));
             // legacy 索引回退：BUS_IN 的输入引脚是**索引绑定**的（GraphNode.inputPinId 只对
             // BUS_OUT 返回频段名），因此频段减少后落到新范围之外的连线要按索引清掉
             // ——与 releaseOldBusName 的既有做法一致。
@@ -504,6 +530,28 @@ public final class BusChannelHelper {
 
     // ── Tick-time band-change detection / Tick 时刻频段变更检测 ────────────────────
 
+    /** 按名册 + 类型表解析逐频段声明类型（缺声明 = FLOAT）。 / Resolve per-band declared
+     *  types from a name list + type table (undeclared = FLOAT). */
+    private static List<io.github.y15173334444.create_schematic_compute.graph.PinType> resolveTypesFor(
+            List<String> names,
+            java.util.Map<String, io.github.y15173334444.create_schematic_compute.graph.PinType> table) {
+        var types = new ArrayList<io.github.y15173334444.create_schematic_compute.graph.PinType>(names.size());
+        for (String name : names) types.add(table != null
+            ? table.getOrDefault(name, io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT)
+            : io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT);
+        return types;
+    }
+
+    /** 节点当前逐频段声明类型是否与 {@code wantTypes} 一致（长度相同、逐槽相等）。
+     *  Whether the node's current per-band declared types equal {@code wantTypes}. */
+    private static boolean typesMatch(GraphNode n,
+            List<io.github.y15173334444.create_schematic_compute.graph.PinType> wantTypes) {
+        int count = n.signalBands != null ? n.signalBands.size() : 0;
+        if (count != wantTypes.size()) return false;
+        for (int i = 0; i < count; i++) if (n.bandType(i) != wantTypes.get(i)) return false;
+        return true;
+    }
+
     /** Check every non-conflicted BUS_OUT node for band-list changes since the last tick
      *  and broadcast a {@link BusBandSyncPacket} when a change is detected.
      *  {@code lastHashMap} maps node id → (signalName.hashCode()*31 + bandCount).
@@ -518,9 +566,11 @@ public final class BusChannelHelper {
                 Integer prev = lastHashMap.get(n.id);
                 if (prev == null || prev != h) {
                     lastHashMap.put(n.id, h);
+                    var codes = new ArrayList<String>(n.signalBands.size());
+                    for (int i = 0; i < n.signalBands.size(); i++) codes.add(n.bandType(i).code);
                     PacketDistributor.sendToPlayersTrackingChunk(sl,
                         new ChunkPos(pos),
-                        new BusBandSyncPacket(pos, n.signalName, n.signalBands));
+                        new BusBandSyncPacket(pos, n.signalName, n.signalBands, codes));
                 }
             }
         }
@@ -629,11 +679,15 @@ public final class BusChannelHelper {
                 n.busConflict = !ok;
                 if (ok && n.signalBands != null && !n.signalBands.isEmpty()) {
                     SignalBus.registerBands(n.signalName, n.signalBands);
+                    // 注册即定义（重编译路径，同 registerGraphChannels）：声明类型随定义发布。
+                    // Register-time definition (the recompile path, same as above): declared
+                    // types publish with the definition.
+                    SignalBus.setBandTypes(n.signalName, n.bandTypeMap());
                     n.bandsDirty = false;
                     if (level instanceof ServerLevel sl) {
                         PacketDistributor.sendToPlayersTrackingChunk(sl,
                             new ChunkPos(pos),
-                            new BusBandSyncPacket(pos, n.signalName, n.signalBands));
+                            new BusBandSyncPacket(pos, n.signalName, n.signalBands, n.bandTypeCodes()));
                     }
                 } else if (ok) {
                     // 注册即定义（同 registerGraphChannels）/ register-time definition (same as above)
@@ -737,10 +791,14 @@ public final class BusChannelHelper {
         n.busConflictTicks = 0;
         if (n.signalBands != null && !n.signalBands.isEmpty()) {
             SignalBus.registerBands(n.signalName, n.signalBands);
+            // 注册即定义（冲突恢复接管路径，同 registerGraphChannels）：声明类型随定义发布。
+            // Register-time definition (the conflict-recovery takeover path, same as above):
+            // declared types publish with the definition.
+            SignalBus.setBandTypes(n.signalName, n.bandTypeMap());
             if (level instanceof ServerLevel sl) {
                 PacketDistributor.sendToPlayersTrackingChunk(sl,
                     new ChunkPos(pos),
-                    new BusBandSyncPacket(pos, n.signalName, n.signalBands));
+                    new BusBandSyncPacket(pos, n.signalName, n.signalBands, n.bandTypeCodes()));
             }
         } else {
             // 注册即定义（同 registerGraphChannels）/ register-time definition (same as above)

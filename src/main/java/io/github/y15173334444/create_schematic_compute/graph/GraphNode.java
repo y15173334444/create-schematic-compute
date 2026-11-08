@@ -46,6 +46,20 @@ public class GraphNode {
     public ItemStack[] itemParams;   // 物品参数（频率堆）/ item parameters (frequency stacks)
     public String signalName = "";   // PRIVATE_IN/OUT 节点的总线名称 / bus name for PRIVATE_IN/OUT nodes
     public java.util.List<String> signalBands = new java.util.ArrayList<>(); // BUS/BUS_OUT 的频段名称 / band names for BUS/BUS_OUT
+    /** 动态引脚的**声明载荷类型**表（与 signalBands 平行，缺省全 FLOAT）：BUS_IN/BUS_OUT 逐频段、
+     *  PRIVATE_IN/PRIVATE_OUT 单元素（= 频道声明类型）。NBT 键 "bandTypes"。
+     *  <p>槽位 {@code null} = 载入时类型码解析不到（新版本码/损坏存档），按「解析不到即剪」
+     *  剪除该槽位的触点连线后<b>自愈</b>为 FLOAT（{@link NodeGraph#rebuildInputCache}）；
+     *  {@link #bandType} 对 null 槽位读取侧降 FLOAT，保证求值/渲染不断档。</p>
+     *  Declared payload types for the dynamic pins (parallel to signalBands, FLOAT by
+     *  default): per-band for BUS_IN/BUS_OUT, single-entry for PRIVATE_IN/PRIVATE_OUT
+     *  (= the channel's declared type). NBT key "bandTypes".
+     *  <p>A {@code null} slot = its type code was unparseable at load (a newer version's
+     *  code / a corrupt save): wires touching the slot are cut ("unresolvable → prune")
+     *  and the slot self-heals to FLOAT in {@link NodeGraph#rebuildInputCache};
+     *  {@link #bandType} degrades null slots to FLOAT at read so evaluation and
+     *  rendering stay operational.</p> */
+    public java.util.List<PinType> bandTypes = new java.util.ArrayList<>();
     /** BUS_OUT 内部 band→value 映射。注册到 SignalBus.CHANNELS 后，此引用与全局表共享，求值写入立即可见。
      *  BUS_OUT internal band→value map. Once registered with SignalBus.CHANNELS,
      *  this reference is shared with the global table — eval writes are immediately visible. */
@@ -308,100 +322,188 @@ public class GraphNode {
         }
     }
 
-    // ── Stable pinId methods (v1.2.4) ───────────────────────────────────────
+    // ── 载荷类型声明（pinId 类型段的真相源）/ payload-type declarations ──────────
+
+    /** 频段/频道引脚 i 的声明载荷类型（缺省 FLOAT）。 / Declared payload type of band/channel
+     *  pin i (FLOAT by default). */
+    public PinType bandType(int i) {
+        if (bandTypes != null && i >= 0 && i < bandTypes.size()) {
+            PinType t = bandTypes.get(i);
+            return t != null ? t : PinType.FLOAT;
+        }
+        return PinType.FLOAT;
+    }
+
+    /** 频段名 → 声明类型的**发布表**（BAND_TYPES 发布的单一取型源）：BusEval 的求值发布与
+     *  BusChannelHelper 的各注册点共用本方法，避免两处手搓 map 漂移。
+     *  Band name → declared type, the single source for publishing BAND_TYPES: the
+     *  evaluator's publication and every registration point in BusChannelHelper share
+     *  this method so two hand-rolled maps can't drift apart. */
+    public java.util.Map<String, PinType> bandTypeMap() {
+        var m = new java.util.HashMap<String, PinType>();
+        if (signalBands != null) for (int i = 0; i < signalBands.size(); i++)
+            m.put(signalBands.get(i), bandType(i));
+        return m;
+    }
+
+    /** 与 {@link #signalBands} 平行的类型码列表（{@code BusBandSyncPacket} 的 codes 字段，
+     *  与 {@link #bandTypeMap()} 同源）。
+     *  Type codes parallel to {@link #signalBands} (the codes field of
+     *  {@code BusBandSyncPacket}; same source as {@link #bandTypeMap()}). */
+    public java.util.List<String> bandTypeCodes() {
+        var codes = new java.util.ArrayList<String>();
+        if (signalBands != null) for (int i = 0; i < signalBands.size(); i++)
+            codes.add(bandType(i).code);
+        return codes;
+    }
+
+    /** 输入引脚 i 的载荷类型（唯一真相源）：BUS_OUT/PRIVATE_OUT 的动态引脚查 {@link #bandTypes}
+     *  声明表，其余委托 {@link NodeType#inputType}。
+     *  Payload type of input pin i (single source of truth): BUS_OUT/PRIVATE_OUT dynamic
+     *  pins consult the {@link #bandTypes} declaration table; the rest delegate to
+     *  {@link NodeType#inputType}. */
+    public PinType inputType(int i) {
+        if ((type == NodeType.BUS_OUT || type == NodeType.PRIVATE_OUT) && bandTypes != null
+                && i >= 0 && i < bandTypes.size()) return bandType(i);
+        return type.inputType(i);
+    }
+
+    /** 输出引脚 i 的载荷类型（唯一真相源）：BUS_IN/PRIVATE_IN 的动态引脚查 {@link #bandTypes}
+     *  声明表，其余委托 {@link NodeType#outputType}。
+     *  Payload type of output pin i (single source of truth): BUS_IN/PRIVATE_IN dynamic
+     *  pins consult the {@link #bandTypes} declaration table; the rest delegate to
+     *  {@link NodeType#outputType}. */
+    public PinType outputType(int i) {
+        if ((type == NodeType.BUS_IN || type == NodeType.PRIVATE_IN) && bandTypes != null
+                && i >= 0 && i < bandTypes.size()) return bandType(i);
+        return type.outputType(i);
+    }
+
+    // ── 稳定 pinId 方法（v1.2.4；1.3.0 起带类型段）/ Stable pinId methods (v1.2.4 / typed in 1.3.0) ──
 
     /** Resolve a stable pinId to the current input pin index, or -1 if not found.
-     *  FORMULA: pinId = variable name (e.g. "A", "B", "x")
-     *  ENCAP:   pinId = String.valueOf(subNode.id)
-     *  BUS_OUT: pinId = signalBands.get(i)
-     *  generic: pinId = String.valueOf(index) */
+     *  pinId 形态 = {@code 类型码:参段}（{@link PinId}）；解析 = 与 {@link #inputPinId(int)}
+     *  生成值全串比对（类型段与参段同时校验，严格口径）。
+     *  FORMULA: 参段 = 变量名（如 "A"、"x"）；旧版额外引脚（dynamicInputCount > inputVars.size()）
+     *           参段 = 十进制索引
+     *  ENCAP:   参段 = String.valueOf(subNode.id)
+     *  BUS_OUT: 参段 = signalBands.get(i)（类型码 = 频段声明类型）
+     *  generic: 参段 = 十进制索引
+     *  <p>The pinId shape is {@code type-code:param} ({@link PinId}); resolution is a
+     *  full-string match against {@link #inputPinId(int)}'s generated value (type segment
+     *  and param checked together — strict). FORMULA: param = the variable name (e.g.
+     *  "A", "x"); legacy extra pins (dynamicInputCount &gt; inputVars.size()) use the
+     *  decimal index. ENCAP: param = String.valueOf(subNode.id). BUS_OUT: param =
+     *  signalBands.get(i) (type code = the band's declared type). Generic: param = the
+     *  decimal index.</p> */
     public int inputPinIndex(String pinId) {
         if (pinId == null) return -1;
         if (type == NodeType.FORMULA) {
-            ensureScriptParsed(); // match outputPinIndex symmetry (v1.2.4.1)
-            if (cachedScript != null) {
-                var vars = cachedScript.inputVars;
-                for (int i = 0; i < vars.size(); i++)
-                    if (pinId.equals(vars.get(i))) return i;
-                // FORMULA 的 warm 参数无引脚(编辑区按钮配置,刀5 联调决策),不参与 pinId 解析
-                // FORMULA's warm param has no pin (edit-panel button, knife 5 decision) — no pinId resolution
-                // Variable name not found — fall through to generic numeric parsing.
-                // This handles legacy extra pins whose pinId is a numeric string
-                // (e.g. "2", "3") from saves where dynamicInputCount > inputVars.size().
-                // 变量名未找到——继续走通用数字解析。处理旧版额外引脚，其 pinId
-                // 为数字字符串（如 "2"、"3"），来自 dynamicInputCount > inputVars.size() 的存档。
-            }
+            // 全串扫描覆盖变量名与旧版额外引脚的数字参段两类形态（inputPinId 内含
+            // ensureScriptParsed，warm 参数无引脚、不参与解析）。
+            // The full-string scan covers both variable names and legacy extra pins'
+            // numeric params (inputPinId runs ensureScriptParsed; the warm param has
+            // no pin and never resolves).
+            int maxIn = inputs();
+            for (int i = 0; i < maxIn; i++) if (pinId.equals(inputPinId(i))) return i;
+            return -1;
         }
         if (type == NodeType.ENCAPSULATION && subGraph != null) {
             var ins = getSubNodes(NodeType.ENCAP_INPUT);
             for (int i = 0; i < ins.size(); i++)
-                if (pinId.equals(String.valueOf(ins.get(i).id))) return i;
+                if (pinId.equals(inputPinId(i))) return i;
             return -1;
         }
         if ((type == NodeType.BUS_OUT) && signalBands != null) {
             for (int i = 0; i < signalBands.size(); i++)
-                if (pinId.equals(signalBands.get(i))) return i;
-            return -1;
+                if (pinId.equals(inputPinId(i))) return i;
+            return rescueByParam(pinId, this::inputPinId, signalBands.size());
         }
-        // Generic / param pins: pinId is the decimal string of the index
-        try {
-            int idx = Integer.parseInt(pinId);
-            int maxIn = inputs();
-            return (idx >= 0 && idx < maxIn) ? idx : -1;
-        } catch (NumberFormatException e) {
-            return -1;
+        // 通用/参数引脚 / generic / param pins
+        int maxIn = inputs();
+        for (int i = 0; i < maxIn; i++) if (pinId.equals(inputPinId(i))) return i;
+        return rescueByParam(pinId, this::inputPinId, maxIn);
+    }
+
+    /** 段漂移救援：全串失配时按**参段**（身份）解析——类型段是声明的影子，声明随线变化
+     *  （落线即声明 / 摘线回灰）会让存量 pinId 的段过期；身份解析不被段挡住。参段在节点
+     *  内唯一（频段名 / 索引），按参段匹配不会误配。
+     *  Segment-drift rescue: when the full-string match fails, resolve by **param**
+     *  (identity) — the type segment is the declaration's shadow and goes stale as the
+     *  declaration follows the wire (declare at connect / grey on disconnect); identity
+     *  resolution must not be blocked by the segment. Params are unique within a node
+     *  (band name / index), so param matching cannot mis-resolve. */
+    private int rescueByParam(String pinId, java.util.function.IntFunction<String> idAt, int count) {
+        String p = PinId.paramOf(pinId);
+        if (p == null) return -1;
+        for (int i = 0; i < count; i++) {
+            String cur = idAt.apply(i);
+            if (cur != null && p.equals(PinId.paramOf(cur))) return i;
         }
+        return -1;
     }
 
     /** Resolve a stable pinId to the current output pin index, or -1 if not found.
-     *  FORMULA: pinId = outputLabels.get(i) (or "out"+i)
-     *  ENCAP:   pinId = String.valueOf(subNode.id)
-     *  BUS_IN:  pinId = signalBands.get(i)
-     *  generic: pinId = String.valueOf(index) */
+     *  pinId 形态 = {@code 类型码:参段}（{@link PinId}）；解析 = 与 {@link #outputPinId(int)}
+     *  生成值全串比对。
+     *  FORMULA: 参段 = outputLabels.get(i)（空标签回退 "out"+i）；旧档 "outN" 参段残迹按序号救援
+     *  ENCAP:   参段 = String.valueOf(subNode.id)
+     *  BUS_IN / CHANNEL: 参段 = signalBands.get(i)（类型码 = 声明类型）
+     *  generic: 参段 = 十进制索引
+     *  <p>The pinId shape is {@code type-code:param} ({@link PinId}); resolution is a
+     *  full-string match against {@link #outputPinId(int)}'s generated value. FORMULA:
+     *  param = outputLabels.get(i) (empty labels fall back to "out"+i); legacy "outN"
+     *  param strays are rescued by index. ENCAP: param = String.valueOf(subNode.id).
+     *  BUS_IN / CHANNEL: param = signalBands.get(i) (type code = the declared type).
+     *  Generic: param = the decimal index.</p> */
     public int outputPinIndex(String pinId) {
         if (pinId == null) return -1;
         if (type == NodeType.FORMULA) {
-            ensureScriptParsed();
-            if (outputLabels != null) {
-                for (int i = 0; i < outputLabels.size(); i++)
-                    if (pinId.equals(outputLabels.get(i))) return i;
-            }
-            // Fallback: "out0", "out1", etc.
-            if (pinId.startsWith("out")) {
-                try { return Integer.parseInt(pinId.substring(3)); }
-                catch (NumberFormatException ignored) {}
+            int maxOut = outputs();
+            for (int i = 0; i < maxOut; i++) if (pinId.equals(outputPinId(i))) return i;
+            // 旧档残迹救援：标签曾为空时的 "outN" 参段，标签补齐后仍按序号认脚（类型段须相符）。
+            // Legacy rescue: a "outN" param from label-less times still resolves by index
+            // after the label fills in (the type segment must match the pin's).
+            String p = PinId.paramOf(pinId);
+            if (p.startsWith("out")) {
+                try {
+                    int n = Integer.parseInt(p.substring(3));
+                    if (n >= 0 && n < maxOut
+                            && pinId.equals(PinId.format(outputType(n), "out" + n))) return n;
+                } catch (NumberFormatException ignored) {}
             }
             return -1;
         }
         if (type == NodeType.ENCAPSULATION && subGraph != null) {
             var outs = getSubNodes(NodeType.ENCAP_OUTPUT);
             for (int i = 0; i < outs.size(); i++)
-                if (pinId.equals(String.valueOf(outs.get(i).id))) return i;
+                if (pinId.equals(outputPinId(i))) return i;
             return -1;
         }
         if ((type == NodeType.BUS_IN || type == NodeType.CHANNEL) && signalBands != null) {
             for (int i = 0; i < signalBands.size(); i++)
-                if (pinId.equals(signalBands.get(i))) return i;
-            return -1;
+                if (pinId.equals(outputPinId(i))) return i;
+            return rescueByParam(pinId, this::outputPinId, signalBands.size());
         }
-        // Generic: pinId is the decimal string of the index
-        try {
-            int idx = Integer.parseInt(pinId);
-            int maxOut = outputs();
-            return (idx >= 0 && idx < maxOut) ? idx : -1;
-        } catch (NumberFormatException e) {
-            return -1;
-        }
+        // 通用：参段 = 索引的十进制串 / Generic: param is the decimal string of the index
+        int maxOut = outputs();
+        for (int i = 0; i < maxOut; i++) if (pinId.equals(outputPinId(i))) return i;
+        return rescueByParam(pinId, this::outputPinId, maxOut);
     }
 
     /** Get the stable pinId for an input pin at the given index.
+     *  pinId 形态 = {@code 类型码:参段}：类型码 = {@link #inputType(int)} 声明类型，
+     *  参段沿用 v1.2.4 约定（变量名 / 子节点 id / 频段名 / 十进制索引）。
+     *  <p>The pinId shape is {@code type-code:param}: the type code is the declared
+     *  {@link #inputType(int)}; the param keeps the v1.2.4 convention (variable name /
+     *  sub-node id / band name / decimal index).</p>
      *  Returns null if the index is out of bounds. */
     public String inputPinId(int index) {
         if (index < 0) return null;
         if (type == NodeType.FORMULA) {
             ensureScriptParsed();
             if (cachedScript != null && index < cachedScript.inputVars.size())
-                return cachedScript.inputVars.get(index);
+                return PinId.format(inputType(index), cachedScript.inputVars.get(index));
             // FORMULA 的 warm 参数无引脚(编辑区按钮配置,刀5 联调决策),不参与 pinId 解析
             // FORMULA's warm param has no pin (edit-panel button, knife 5 decision) — no pinId resolution
             // Legacy extra pins (dynamicInputCount > inputVars.size()):
@@ -409,24 +511,29 @@ public class GraphNode {
             // Use numeric pinId so migrateV3toV4 preserves them.
             // 旧版额外引脚（dynamicInputCount > inputVars.size()）：
             // 在 V3 中功能上已是死引脚，但连接存在于其上。使用数字 pinId 使迁移保留它们。
-            if (index < inputs()) return String.valueOf(index);
+            if (index < inputs()) return PinId.format(inputType(index), String.valueOf(index));
             return null;
         }
         if (type == NodeType.ENCAPSULATION && subGraph != null) {
             var ins = getSubNodes(NodeType.ENCAP_INPUT);
-            if (index < ins.size()) return String.valueOf(ins.get(index).id);
+            if (index < ins.size()) return PinId.format(inputType(index), String.valueOf(ins.get(index).id));
             return null;
         }
         if ((type == NodeType.BUS_OUT) && signalBands != null) {
-            if (index < signalBands.size()) return signalBands.get(index);
+            if (index < signalBands.size()) return PinId.format(inputType(index), signalBands.get(index));
             return null;
         }
-        // Generic: pinId = decimal string of index
-        if (index < inputs()) return String.valueOf(index);
+        // 通用：参段 = 索引的十进制串 / Generic: param = decimal string of index
+        if (index < inputs()) return PinId.format(inputType(index), String.valueOf(index));
         return null;
     }
 
     /** Get the stable pinId for an output pin at the given index.
+     *  pinId 形态 = {@code 类型码:参段}：类型码 = {@link #outputType(int)} 声明类型，
+     *  参段沿用 v1.2.4 约定（输出标签 / 子节点 id / 频段名 / 十进制索引）。
+     *  <p>The pinId shape is {@code type-code:param}: the type code is the declared
+     *  {@link #outputType(int)}; the param keeps the v1.2.4 convention (output label /
+     *  sub-node id / band name / decimal index).</p>
      *  Returns null if the index is out of bounds. */
     public String outputPinId(int index) {
         if (index < 0) return null;
@@ -434,26 +541,26 @@ public class GraphNode {
             ensureScriptParsed();
             if (outputLabels != null && index < outputLabels.size()) {
                 String name = outputLabels.get(index);
-                return name.isEmpty() ? "out" + index : name;
+                return PinId.format(outputType(index), name.isEmpty() ? "out" + index : name);
             }
             // Legacy extra output pins (dynamicOutputCount > outputLabels.size()):
             // use "outN" fallback so migrateV3toV4 preserves them.
             // 旧版额外输出引脚（dynamicOutputCount > outputLabels.size()）：
             // 使用 "outN" 回退使迁移保留它们。
-            if (index < outputs()) return "out" + index;
+            if (index < outputs()) return PinId.format(outputType(index), "out" + index);
             return null;
         }
         if (type == NodeType.ENCAPSULATION && subGraph != null) {
             var outs = getSubNodes(NodeType.ENCAP_OUTPUT);
-            if (index < outs.size()) return String.valueOf(outs.get(index).id);
+            if (index < outs.size()) return PinId.format(outputType(index), String.valueOf(outs.get(index).id));
             return null;
         }
         if ((type == NodeType.BUS_IN || type == NodeType.CHANNEL) && signalBands != null) {
-            if (index < signalBands.size()) return signalBands.get(index);
+            if (index < signalBands.size()) return PinId.format(outputType(index), signalBands.get(index));
             return null;
         }
-        // Generic: pinId = decimal string of index
-        if (index < outputs()) return String.valueOf(index);
+        // 通用：参段 = 索引的十进制串 / Generic: param = decimal string of index
+        if (index < outputs()) return PinId.format(outputType(index), String.valueOf(index));
         return null;
     }
 
@@ -542,6 +649,13 @@ public class GraphNode {
         this.customId = customId;
         this.x = x;
         this.y = y;
+        // 私有频道单槽随节点出生（空态、类型由连线驱动）：缺了它 bandType(0) 永远降级
+        // f32、连接自动声明无槽可写（2026-11-08 实测：私有类型不随线变化）。
+        // The private channel's single slot is born with the node (empty, wire-driven):
+        // without it bandType(0) forever degrades to f32 and connect-declare has no
+        // slot (2026-11-08 in-game finding: the private type never followed the wire).
+        if (type == NodeType.PRIVATE_IN || type == NodeType.PRIVATE_OUT)
+            this.bandTypes.add(PinType.EMPTY);
         // ENCAP_INPUT/OUTPUT 的 name 存在 displayText 中，无需 params
         // ENCAP_INPUT/OUTPUT name is stored in displayText; no params needed
         this.params = (type == NodeType.ENCAP_INPUT || type == NodeType.ENCAP_OUTPUT)
@@ -688,6 +802,7 @@ public class GraphNode {
         if (itemParams != null) n.itemParams = itemParams.clone();
         n.signalName = signalName;
         if (signalBands != null) n.signalBands = new java.util.ArrayList<>(signalBands);
+        if (bandTypes != null) n.bandTypes = new java.util.ArrayList<>(bandTypes);
         if (busInternalMap != null) n.busInternalMap = new java.util.HashMap<>(busInternalMap);
         n.formula = formula;
         n.dynamicInputCount = dynamicInputCount;
@@ -752,6 +867,22 @@ public class GraphNode {
             ListTag bandsTag = new ListTag();
             for (String b : signalBands) bandsTag.add(net.minecraft.nbt.StringTag.valueOf(b));
             tag.put("bands", bandsTag);
+        }
+        // 声明载荷类型表（缺省全 FLOAT；只在有动态声明引脚的节点上写）。
+        // Declared payload-type table (all-FLOAT by default; written only on nodes
+        // with declared dynamic pins).
+        if ((type == NodeType.BUS_IN || type == NodeType.BUS_OUT
+                || type == NodeType.PRIVATE_IN || type == NodeType.PRIVATE_OUT)
+                && bandTypes != null && !bandTypes.isEmpty()) {
+            ListTag typesTag = new ListTag();
+            // null 槽位（未知码空标）写回 empty —— NBT 层面自愈（未连接⟺灰）：重存即
+            // 固化，不把无法解析的码带进新档。
+            // Null slots (unknown-code markers) write back as "empty" — NBT-level
+            // self-heal (the unwired-⟹-grey rule): a resave cements the slot instead of
+            // carrying the unparseable code into the new save.
+            for (PinType t : bandTypes)
+                typesTag.add(net.minecraft.nbt.StringTag.valueOf(t != null ? t.code : PinType.EMPTY.code));
+            tag.put("bandTypes", typesTag);
         }
         // BUS_OUT internalMap — 仅保存本地数据，不保存全局状态
         // BUS_OUT internalMap — only save local data, not global state
@@ -900,6 +1031,19 @@ public class GraphNode {
             node.signalBands = new java.util.ArrayList<>();
             for (int i = 0; i < bandsTag.size(); i++)
                 node.signalBands.add(bandsTag.getString(i));
+        }
+        if (tag.contains("bandTypes")) {
+            ListTag typesTag = tag.getList("bandTypes", Tag.TAG_STRING);
+            node.bandTypes = new java.util.ArrayList<>();
+            for (int i = 0; i < typesTag.size(); i++) {
+                // 未知码留 null 空标（不降级 FLOAT）：「解析不到即剪」——该槽位的触点连线
+                // 在 rebuildInputCache 剪除后自愈 FLOAT。读取侧 bandType 对 null 降 FLOAT。
+                // Unknown codes stay as a null marker (not degraded to FLOAT):
+                // "unresolvable → prune" — wires touching the slot are cut in
+                // rebuildInputCache, then it self-heals to FLOAT; bandType() degrades
+                // null slots to FLOAT at read.
+                node.bandTypes.add(PinType.byCode(typesTag.getString(i)));
+            }
         }
         if (node.type == NodeType.BUS_OUT && tag.contains("busData")) {
             CompoundTag busData = tag.getCompound("busData");

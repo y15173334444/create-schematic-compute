@@ -79,7 +79,15 @@ public enum NodeCategory {
      *  member — per-node shapes vary via CustomNodeRegistry schemas, while the category face
      *  (add-menu grouping and the whole-category admission boundary) stays unified here; the
      *  batch-D roster subdivides below the category by string id. */
-    CUSTOM("category.create_schematic_compute.custom", NodeType.CUSTOM);
+    CUSTOM("category.create_schematic_compute.custom", NodeType.CUSTOM),
+    /** 向量核心运算集（v1.3.0，PinType.VEC3 载荷）：常数/合拆/加减缩放点叉长度归一。
+     *  Vector core math (v1.3.0, the PinType.VEC3 payload): const/join-split/add-sub-scale/
+     *  dot-cross-length-normalize. */
+    VECTOR("category.create_schematic_compute.vector",
+        NodeType.VEC3_CONST, NodeType.VEC3_JOIN, NodeType.VEC3_SPLIT,
+        NodeType.VEC3_ADD, NodeType.VEC3_SUB, NodeType.VEC3_SCALE,
+        NodeType.VEC3_DOT, NodeType.VEC3_CROSS, NodeType.VEC3_LENGTH,
+        NodeType.VEC3_NORMALIZE);
 
     /** i18n 键 / lang key */
     public final String langKey;

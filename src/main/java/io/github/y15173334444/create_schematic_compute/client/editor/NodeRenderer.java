@@ -5,6 +5,7 @@ import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeConnection;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.graph.PinType;
 import io.github.y15173334444.create_schematic_compute.graph.SpatialIndex;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
@@ -57,6 +58,11 @@ public class NodeRenderer {
     static int CWA() { return EditorTheme.get().wireAudio(); }
     static int CAP() { return EditorTheme.get().pinAudio(); }
     static int CAPB() { return EditorTheme.get().pinAudioBorder(); }
+    static int CV() { return EditorTheme.get().wireVec3(); }
+    static int CVP() { return EditorTheme.get().pinVec3(); }
+    static int CVPB() { return EditorTheme.get().pinVec3Border(); }
+    static int CPE() { return EditorTheme.get().pinEmpty(); }
+    static int CPEB() { return EditorTheme.get().pinEmptyBorder(); }
     static int CWD() { return EditorTheme.get().drag(); }
     static int CMN() { return EditorTheme.get().menuText(); }
     static int CMH() { return EditorTheme.get().menuHover(); }
@@ -241,8 +247,8 @@ public class NodeRenderer {
 
     public void renderDraggingWire(GuiGraphics g, NodeGraph graph, int wireFromNode, int wireFromPin,
                                     float wireEndX, float wireEndY, float camX, float camY, float zoom,
-                                    boolean targetAudio) {
-        wireRenderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom, targetAudio);
+                                    PinType targetType) {
+        wireRenderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom, targetType);
     }
 
     public void renderGrid(GuiGraphics g, float camX, float camY, float zoom, int width, int height) {
@@ -549,70 +555,72 @@ public class NodeRenderer {
         pinPose.translate(sx,sy,0);
         pinPose.scale(zoom,zoom,1);
         int funcInputs = n.functionalInputs();
-        // 频段节点（BUS/PRIVATE）引脚是任意域——承载音频（对端为 AUDIO 引脚）时按音频引脚着色。
-        // Band (BUS/PRIVATE) pins are any-domain — they tint as audio pins while carrying audio
-        // (peer pin is AUDIO-domain).
+        // 频段节点（BUS/PRIVATE）引脚按**声明类型**着色——发布侧（BUS_OUT/PRIVATE_OUT）在
+        // 下方输入循环直读声明，读取侧（BUS_IN/PRIVATE_IN）在输出循环按定义同步值合并。
+        // Band (BUS/PRIVATE) pins tint by their **declared type** — publishers
+        // (BUS_OUT/PRIVATE_OUT) read the declaration in the input loop below, readers
+        // (BUS_IN/PRIVATE_IN) merge the definition-synced value in the output loop.
         boolean bandIn = n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT;
         boolean bandOut = n.type == NodeType.BUS_IN || n.type == NodeType.PRIVATE_IN;
         for(int i=0; i<funcInputs; i++) {
             float py = HH+PH*i+PH/2f;
             int r = PR;
-            // 引脚色只按域（音频域/承载音频的频段引脚 = 青，其余金）——不随连接状态变：
-            // 传输灰已退役（作者口径 2026-10-03：连接变色蔓延到普通引脚，读作 bug；音频域
-            // 识别由连线青色承担）。
-            // Pin colour follows the domain only (AUDIO-domain or audio-carrying band pin =
-            // teal, otherwise gold) — never the connection state: the transfer tint is retired
-            // (it read as a bug spreading onto ordinary pins; audio domains are told apart by
-            // the wire colour).
-            boolean inAudio = n.type.inputDomain(i) == NodeType.PinDomain.AUDIO
-                || (bandIn && graph != null && graph.isBandPinAudio(n.id, i, false));
+            // 引脚色只按声明载荷类型（音频/向量/浮点三态）——不随连接状态变：传输灰已退役
+            // （作者口径 2026-10-03：连接变色蔓延到普通引脚，读作 bug；类型识别由连线着色承担）。
+            // Pin colour follows the declared payload type only (audio/vector/float ternary) —
+            // never the connection state: the transfer tint is retired (it read as a bug
+            // spreading onto ordinary pins; payload types are told apart by the wire colour).
+            PinType inType = n.inputType(i);
             g.fill(-r - 1, (int)(py - r - 1), r + 1, (int)(py + r + 1),
-                inAudio ? CAPB() : CPIB());
+                inType == PinType.AUDIO ? CAPB() : inType == PinType.VEC3 ? CVPB()
+                    : inType == PinType.EMPTY ? CPEB() : CPIB());
             g.fill(-r, (int)(py - r), r, (int)(py + r),
-                inAudio ? CAP() : CPI());
+                inType == PinType.AUDIO ? CAP() : inType == PinType.VEC3 ? CVP()
+                    : inType == PinType.EMPTY ? CPE() : CPI());
             String inlbl = n.inputLabel(i);
-            // 私有信号输出：输入引脚文本随承载类型切换（判定与上方着色同源 inAudio）——
-            // 承载音频显「音频」，浮点维持「值」。BUS_OUT 不经此（其文本 = 频段名）。
-            // Private signal output: the input pin text switches with the carried type (same
-            // source as the tint above) — audio shows Audio, float keeps Val. BUS_OUT never
-            // goes through here (its text = the band name).
+            // 私有信号输出：输入引脚文本随声明类型切换（判定与上方着色同源 inType）——
+            // 音频显「音频」、向量显「向量」、浮点维持「值」。BUS_OUT 不经此（其文本 = 频段名）。
+            // Private signal output: the input pin text switches with the declared type
+            // (same source as the tint above, inType) — audio shows Audio, vector shows Vec,
+            // float keeps Val. BUS_OUT never goes through here (its text = the band name).
             if (n.type == NodeType.PRIVATE_OUT)
-                inlbl = privateBandPinLabel(inlbl, inAudio);
+                inlbl = privateBandPinLabel(inlbl, inType);
             drawStr(g, (n.type == NodeType.BUS_OUT || n.type == NodeType.FORMULA || n.type == NodeType.ENCAPSULATION) ? inlbl : I18n.get(inlbl), 10, py-3, CD);
         }
         for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL && n.type != NodeType.DEBUG_PROBE; i++) {
             float py = HH+PH*(funcInputs + i)+PH/2f;
             int r = PR;
-            // 读取侧频段引脚（BUS_IN/PRIVATE_IN）= 定义同步来的音频标志（跟频道/频段走）
-            // ∨ 该引脚本地接了音频线（按频段分流，读取与显示一致）。私有频道的定义标志由
-            // 发布方拓扑判定、经 PrivateChannelAudioPacket 同步（BUS 同款，属性跟频道走）。
-            // 发布侧（BUS_OUT/PRIVATE_OUT）在输入循环按对端域判定。
-            // Read-side band pins (BUS_IN/PRIVATE_IN) = the definition-synced flag (riding the
-            // channel/band) ∨ this pin's own local audio wire. A private channel's definition is
-            // topology-derived by the publisher and synced via PrivateChannelAudioPacket — the
-            // BUS discipline. Publishers (BUS_OUT/PRIVATE_OUT) judge per pin by peer domain.
-            boolean syncedBandAudio = n.type == NodeType.BUS_IN && n.signalBands != null
-                && i < n.signalBands.size()
-                && io.github.y15173334444.create_schematic_compute.network.SignalBus
-                    .isAudioBand(n.signalName, n.signalBands.get(i));
-            boolean syncedPrivateAudio = n.type == NodeType.PRIVATE_IN
-                && io.github.y15173334444.create_schematic_compute.network.SignalBus
-                    .isPrivateAudio(n.signalName);
-            boolean outAudio = n.type.outputDomain(i) == NodeType.PinDomain.AUDIO
-                || (bandOut && graph != null
-                    && (syncedBandAudio || syncedPrivateAudio || graph.isBandPinAudio(n.id, i, true)));
+            // 读取侧频段引脚（BUS_IN/PRIVATE_IN）= 声明类型（定义同步来的跟频道/频段走，
+            // 优先 AUDIO > VEC3 > 本地声明）。发布侧（BUS_OUT/PRIVATE_OUT）在输入循环
+            // 按声明类型判定。/ Read-side band pins (BUS_IN/PRIVATE_IN) follow the declared
+            // type (the definition-synced value rides the channel/band; AUDIO > VEC3 >
+            // local declaration). Publishers judge by declaration in the input loop.
+            PinType outType = n.outputType(i);
+            if (bandOut) {
+                PinType synced = (n.type == NodeType.BUS_IN && n.signalBands != null
+                        && i < n.signalBands.size())
+                    ? io.github.y15173334444.create_schematic_compute.network.SignalBus
+                        .bandType(n.signalName, n.signalBands.get(i))
+                    : (n.type == NodeType.PRIVATE_IN
+                        ? io.github.y15173334444.create_schematic_compute.network.SignalBus
+                            .privateType(n.signalName)
+                        : PinType.FLOAT);
+                outType = PinType.effective(outType, synced);
+            }
             g.fill(nodeW - r - 1, (int)(py - r - 1), nodeW + r + 1, (int)(py + r + 1),
-                outAudio ? CAPB() : CPOB());
+                outType == PinType.AUDIO ? CAPB() : outType == PinType.VEC3 ? CVPB()
+                    : outType == PinType.EMPTY ? CPEB() : CPOB());
             g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r),
-                outAudio ? CAP() : CPO());
+                outType == PinType.AUDIO ? CAP() : outType == PinType.VEC3 ? CVP()
+                    : outType == PinType.EMPTY ? CPE() : CPO());
             String rawOutLbl = n.outputLabel(i);
-            // 私有信号输入：引脚文本随频道类型切换（判定与上方着色同源 outAudio）——音频频道
-            // 显「音频」，浮点频道维持「值」。BUS_IN 不经此（其文本 = 频段名，有信息量）。
-            // Private signal input: the pin text switches with the channel type (same source
-            // as the tint above) — audio channels show Audio, float channels keep Val. BUS_IN
-            // never goes through here (its text = the band name, which carries information).
+            // 私有信号输入：引脚文本随声明类型切换（判定与上方着色同源）——音频显「音频」、
+            // 向量显「向量」、浮点维持「值」。BUS_IN 不经此（其文本 = 频段名，有信息量）。
+            // Private signal input: the pin text switches with the declared type (same
+            // source as the tint above) — audio shows Audio, vector shows Vec, float keeps
+            // Val. BUS_IN never goes through here (its text = the band name).
             if (n.type == NodeType.PRIVATE_IN)
-                rawOutLbl = privateBandPinLabel(rawOutLbl, outAudio);
+                rawOutLbl = privateBandPinLabel(rawOutLbl, outType);
             String outlbl = (n.type == NodeType.BUS_IN || n.type == NodeType.ENCAPSULATION) ? rawOutLbl : I18n.get(rawOutLbl);
             int olw = Minecraft.getInstance().font.width(outlbl);
             drawStr(g, outlbl, nodeW - olw - 6, py-3, CD);
@@ -744,15 +752,17 @@ public class NodeRenderer {
         pendingOverlayLines = null;
     }
 
-    /** 私有系统引脚文本（PRIVATE_IN 输出 / PRIVATE_OUT 输入共用）：随频道承载类型切换——
-     *  承载音频显「音频」，浮点维持节点自带标签（「值」）。判定（outAudio / inAudio）与
-     *  引脚着色同源，见引脚循环。
+    /** 私有系统引脚文本（PRIVATE_IN 输出 / PRIVATE_OUT 输入共用）：随声明类型切换——
+     *  音频显「音频」、向量显「向量」、浮点维持节点自带标签（「值」）。判定（outType / inType）
+     *  与引脚着色同源，见引脚循环。
      *  Private-system pin text (shared by PRIVATE_IN's output and PRIVATE_OUT's input):
-     *  switches with the carried type — audio shows Audio, float keeps the node's own label
-     *  (Val). The predicate (outAudio / inAudio) shares its source with the pin tint; see the
+     *  switches with the declared type — audio shows Audio, vector shows Vec, float keeps
+     *  the node's own label (Val). The type shares its source with the pin tint; see the
      *  pin loops. */
-    static String privateBandPinLabel(String base, boolean audio) {
-        return audio ? "pin.create_schematic_compute.audio" : base;
+    static String privateBandPinLabel(String base, PinType type) {
+        if (type == PinType.AUDIO) return "pin.create_schematic_compute.audio";
+        if (type == PinType.VEC3) return "pin.create_schematic_compute.vec";
+        return base;
     }
 
 

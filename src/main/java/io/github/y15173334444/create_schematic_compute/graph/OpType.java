@@ -76,5 +76,14 @@ public enum OpType {
     // schema param slot, stringValue = the text; the executor validates kind==TEXT
     // against the schema (non-TEXT slots are refused). Append-only: the enum tail is the
     // wire tail.
-    SET_CUSTOM_TEXT
+    SET_CUSTOM_TEXT,
+
+    // 引脚声明载荷类型变更（v1.3.0）：stringValue = PinType 稳定类型码，paramIndex =
+    // 引脚/频段槽位（PRIVATE_* 恒 0）。频段改类型 = pinId 换段重绑（对端不匹配的剪除），
+    // 私有改类型同理。追加令同上。
+    // Declared payload-type change (v1.3.0): stringValue = the PinType stable code,
+    // paramIndex = the pin/band slot (always 0 for PRIVATE_*). A band retype rebinds the
+    // pinId type segment (mismatched peers prune); a private retype does the same.
+    // Append-only as above.
+    SET_PIN_TYPE
 }

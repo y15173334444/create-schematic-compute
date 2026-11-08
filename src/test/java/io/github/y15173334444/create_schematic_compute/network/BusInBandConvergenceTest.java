@@ -243,9 +243,9 @@ class BusInBandConvergenceTest {
         out.signalBands = new ArrayList<>(List.of("a", "b"));
         GraphNode in = busIn("CH", "a", "b");
         GraphNode sink = graph.addNode(NodeType.ADD, 150, 0);
-        // BUS_IN 频段输出引脚按频段名绑定（fromPinId = "a"）。
-        // The BUS_IN band output pin is name-bound (fromPinId = "a").
-        graph.connections.add(new NodeConnection(in.id, "a", 0, sink.id, "0", 0));
+        // BUS_IN 频段输出引脚按频段名绑定（fromPinId 参段 = "a"）。
+        // The BUS_IN band output pin is name-bound (fromPinId param = "a").
+        graph.connections.add(new NodeConnection(in.id, "float:a", 0, sink.id, "float:0", 0));
 
         // 发布方把频段 a 原地改名为 x（同槽位）；收敛必须跟随改名，而不是当成删除剪线。
         // The publisher renames band a → x in place; convergence must follow the rename,
@@ -256,7 +256,7 @@ class BusInBandConvergenceTest {
 
         assertEquals(List.of("x", "b"), in.signalBands);
         assertEquals(1, graph.connections.size());
-        assertEquals("x", graph.connections.get(0).fromPinId,
+        assertEquals("float:x", graph.connections.get(0).fromPinId,
             "the renamed band keeps its subscriber wire, rebound to the new name");
         assertTrue(changed.containsKey("CH"));
     }

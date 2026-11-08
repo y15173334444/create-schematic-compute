@@ -47,7 +47,7 @@ public final class BusEval {
         List<GraphEvaluator.InputSource> inputs = ctx.inputs;
         NodeGraph graph = ctx.graph;
         Map<Integer, float[]> outputs = ctx.outputs;
-        Map<Long, AudioRef> audioRefs = ctx.audioRefs;
+        Map<Long, PinPayload> payloadRefs = ctx.payloadRefs;
         SignalBusPort signalBus = ctx.signalBus;
         AudioBandsPort audioBands = ctx.audioBands;
         long audioTickStamp = ctx.audioTickStamp;
@@ -61,56 +61,60 @@ public final class BusEval {
             }
             case REDSTONE_OUT -> { }
             case PRIVATE_IN -> {
-                // 私有频段音频分支（R1-2 完整落地）：输出接了音频线（下游 AUDIO 域引脚）→ 按
-                // consumerKey 读 AudioBands（exactly-once 游标 + 新鲜度门控，与 BUS_IN 同款；
-                // 空名/缺席/陈旧均为空音源）；否则走浮点 SIGNALS。
-                // Private-band audio branch: output wired to an audio pin reads AudioBands
-                // (same cursor/freshness discipline as BUS_IN); otherwise float SIGNALS.
-                if (graph.hasAudioSinkConnection(node.id)) {
-                    audioRefs.put(EvalContext.audioKey(node.id, 0),
-                        audioBands
-                            .get(ctx.consumerKey(node), node.signalName, audioTickStamp));
-                    break;
+                // 声明类型分派（v1.3.0 起拓扑推断退役）：AUDIO → 读 AudioBands（exactly-once
+                // 游标 + 新鲜度门控）；VEC3 → 读向量值表；FLOAT → 读浮点 SIGNALS。
+                // Declared-type dispatch (topology inference retired in v1.3.0): AUDIO reads
+                // AudioBands (cursor + freshness); VEC3 reads the vector-value table; FLOAT
+                // reads the float SIGNALS table.
+                PinType pt = node.outputType(0);
+                if (pt == PinType.AUDIO) {
+                    o[0] = 0;
+                    payloadRefs.put(EvalContext.payloadKey(node.id, 0),
+                        audioBands.get(ctx.consumerKey(node), node.signalName, audioTickStamp));
+                } else if (pt == PinType.VEC3) {
+                    o[0] = 0;
+                    Vec3f v = signalBus.getVec3(node.signalName);
+                    payloadRefs.put(EvalContext.payloadKey(node.id, 0), v != null ? v : Vec3f.ZERO);
+                } else {
+                    o[0] = signalBus.get(node.signalName);
                 }
-                o[0] = signalBus.get(node.signalName);
             }
             case PRIVATE_OUT -> {
-                // 私有频段音频分支（R1-2）：输入来自音频线 → 发布 AudioRef 到 AudioBands
-                //（名字 = signalName，owner/冲突纪律与 AUDIO_OUT 同款，空名不发布）；否则浮点。
-                // Private-band audio branch: audio input publishes the AudioRef to AudioBands
-                // (owner/conflict discipline as AUDIO_OUT); otherwise float.
-                // 频道定义（引脚类型变换的属性源）：输入对端是音频 → 频道承载音频，随版本戳
-                // 同步给订阅方着色；属性跟频道走（拓扑判定、稳态零开销），冲突节点不算定义。
-                // Channel definition (the property behind pin typing): an audio pin peer makes
-                // the channel audio-carrying, version-synced to subscribers; the property rides
-                // the channel (topology-derived), and a conflicted node defines nothing.
+                // 频道声明类型（引脚类型变换的属性源）：跟节点声明走、随版本戳同步给订阅方；
+                // 冲突节点不算定义。载荷按声明类型入对应载体。
+                // Channel declared type (the property behind pin typing): follows the node's
+                // declaration, version-synced to subscribers; a conflicted node defines
+                // nothing. The payload enters its declared carrier.
                 if (!node.busConflict && !node.signalName.isEmpty()) {
-                    signalBus.setPrivateAudio(node.signalName, graph.isBandPinAudio(node.id, 0, false));
+                    signalBus.setPrivateType(node.signalName, node.inputType(0));
                 }
-                AudioRef aref = graph.getAudioInputRef(node.id, 0, audioRefs);
-                if (aref != null) {
+                PinType pt = node.inputType(0);
+                if (pt == PinType.AUDIO) {
+                    AudioRef aref = graph.getInputAudio(node.id, 0, payloadRefs);
                     node.audioConflict = !node.signalName.isEmpty()
                         && !audioBands
-                            .publish(node.signalName, aref, audioTickStamp, ctx.consumerKey(node));
-                    break;
+                            .publish(node.signalName, aref != null ? aref : AudioRef.EMPTY,
+                                audioTickStamp, ctx.consumerKey(node));
+                } else if (pt == PinType.VEC3) {
+                    // 冲突节点不写（写入权属于首个注册者）；空名不写（P2-5 幽灵频道口径）。
+                    // A conflicted node writes nothing (write rights belong to the first
+                    // registrant); an empty name writes nothing (P2-5 ghost-channel rule).
+                    if (!node.busConflict && !node.signalName.isEmpty()) {
+                        Vec3f v = graph.getInputVec3(node.id, 0, payloadRefs);
+                        signalBus.putVec3(node.signalName, v != null ? v : Vec3f.ZERO);
+                    }
+                } else {
+                    if (!node.busConflict && !node.signalName.isEmpty())
+                        signalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
                 }
-                // 浮点写入（占用检测，BUS 同款）：冲突节点不写——写入权属于首个注册者；
-                // 空名不写（BUS_OUT 同款早退口径，P2-5）——否则未命名节点互写 SIGNALS[""]
-                // 幽灵频道，释放路径 clearSignal("") 清不掉。
-                // Float write (BUS-parity occupancy): a conflicted node writes nothing — write
-                // rights belong to the first registrant; an empty name writes nothing either
-                // (BUS_OUT's same early-out, P2-5) — otherwise unnamed nodes cross-write the
-                // SIGNALS[""] ghost channel that release paths can never clear.
-                if (!node.busConflict && !node.signalName.isEmpty())
-                    signalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
             }
             case BUS_IN -> {
-                // 按频段分流（属性跟频段走）：某频段的输出接了音频线 → 该频段读自己的
-                // AudioBands 频段键（频道\0频段，游标 exactly-once + 新鲜度门控同前）；
-                // 其余频段走浮点 internalMap——同一频道可混载音频与浮点频段，互不妨碍。
-                // Per-band lanes: a band whose output enters an audio pin reads its own
-                // AudioBands band key (channel\0band, cursor + freshness as before); the rest
-                // read the float internalMap — one channel can mix audio and float bands.
+                // 按频段声明类型分流（属性跟频段走）：AUDIO → 读 AudioBands 频段键（频道\0频段，
+                // 游标 exactly-once + 新鲜度门控）；VEC3 → 读向量值表；FLOAT → 读浮点
+                // internalMap——同一频道可混载，互不妨碍。
+                // Per-band declared-type lanes: AUDIO reads its AudioBands band key
+                // (channel\0band, cursor + freshness); VEC3 reads the vector-value table;
+                // FLOAT reads the float internalMap — one channel can mix freely.
                 if (node.signalName.isEmpty()) break; // 空名称不允许通信  /  Empty name disallows communication
                 int bc = node.bandCount();
                 if (bc > 0) {
@@ -138,17 +142,20 @@ public final class BusEval {
                             key = registered.get(bi);        // authoritative key / 权威 key
                         else
                             key = node.signalBands.get(bi);    // fallback to node list / 回退到节点列表
-                        // 音频频段：该频段的输出接了音频线 → 读该频段的音频键。音频面独立于
-                        // 浮点频道表（CHANNELS 由宿主 tick 引用计数注册，纯求值环境可能缺席）。
-                        // Audio band: this band's output is wired to an audio pin. The audio
-                        // plane is independent of the float CHANNELS table (ref-counted by host
-                        // ticks, absent in pure-eval contexts).
-                        if (graph.isAudioWired(node.id, bi)) {
-                            audioRefs.put(EvalContext.audioKey(node.id, bi),
+                        PinType pt = node.outputType(bi);
+                        if (pt == PinType.AUDIO) {
+                            o[bi] = 0;
+                            payloadRefs.put(EvalContext.payloadKey(node.id, bi),
                                 audioBands
                                     .get(ctx.consumerKey(node),
                                         audioBands
                                             .bandKey(node.signalName, key), audioTickStamp));
+                            continue;
+                        }
+                        if (pt == PinType.VEC3) {
+                            o[bi] = 0;
+                            Vec3f v = signalBus.getVec3(audioBands.bandKey(node.signalName, key));
+                            payloadRefs.put(EvalContext.payloadKey(node.id, bi), v != null ? v : Vec3f.ZERO);
                             continue;
                         }
                         o[bi] = chanMap != null ? chanMap.getOrDefault(key, 0f) : 0f;
@@ -170,6 +177,13 @@ public final class BusEval {
                     // bandsDirty avoids redundant ArrayList allocations per tick in steady state
                     if (!node.busConflict && node.bandsDirty) {
                         signalBus.registerBands(node.signalName, node.signalBands);
+                        // 频段声明类型 = 定义（跟节点声明走，随频段定义同步给订阅方收敛/着色）；
+                        // 取型走 GraphNode.bandTypeMap 单源，与注册点发布同源。
+                        // Declared band types = the definition (follows the node, synced with
+                        // the band definition for subscriber convergence and tinting); the
+                        // map comes from GraphNode.bandTypeMap — same source the registration
+                        // points publish from.
+                        signalBus.setBandTypes(node.signalName, node.bandTypeMap());
                         node.bandsDirty = false;
                     }
                     // 冲突节点跳过 busInternalMap 写入 — MAP 修改权属于首个注册的 BUS_OUT
@@ -185,36 +199,39 @@ public final class BusEval {
                                 float[] out = outputs.get(c.fromId);
                                 if (out != null) {
                                     float val = c.fromPin < out.length ? out[c.fromPin] : 0;
-                                    String pid = c.toPinId != null ? c.toPinId : String.valueOf(c.toPin);
+                                    // 按参段键控（pinId 带类型段，键=频段名）/ key by param segment
+                                    String pid = c.toPinId != null ? PinId.paramOf(c.toPinId) : String.valueOf(c.toPin);
                                     pinValues.put(pid, val);
                                 }
                             }
                         }
-                        // 音频频段引脚：接音频线 → 发到 AudioBands（单引脚多声道，跨方块，带发布时刻）。
-                        // owner = 宿主坐标+节点 id（R1-2 冲突纪律，与 AUDIO_OUT 同款）；
-                        // 混载频道任一音频频段冲突即置旗标，无音频的频段不影响旗标。
+                        // 按频段声明类型入载体：AUDIO → AudioBands（单引脚多声道，跨方块，
+                        // 带发布时刻；owner = 宿主坐标+节点 id，R1-2 冲突纪律，与 AUDIO_OUT
+                        // 同款，混载频道任一音频频段冲突即置旗标）；VEC3 → 向量值表；FLOAT →
+                        // internalMap。
+                        // Declared-type carriers: AUDIO publishes to AudioBands (single-pin
+                        // multi-channel, cross-block, timestamped; owner = host pos + node id,
+                        // the R1-2 conflict discipline, any conflicted audio band flags the
+                        // node); VEC3 writes the vector-value table; FLOAT writes internalMap.
                         node.audioConflict = false;
-                        // 频段音频标志（按引脚对端域的拓扑判定，随频段定义同步给订阅方着色；
-                        // isBandPinAudio 走拓扑版本缓存，稳态零开销）。冲突节点不算定义。
-                        // Per-band audio flags (topology-based via pin peers, synced with the
-                        // band definition for subscriber tinting); conflicting nodes define nothing.
-                        var audioBandSet = new java.util.HashSet<String>();
-                        for (int bi = 0; bi < bc; bi++)
-                            if (graph.isBandPinAudio(node.id, bi, false))
-                                audioBandSet.add(node.signalBands.get(bi));
-                        signalBus.setAudioBands(node.signalName, audioBandSet);
                         for (int bi = 0; bi < bc; bi++) {
                             String bandName = node.signalBands.get(bi);
-                            AudioRef aref = graph.getAudioInputRef(node.id, bi, audioRefs);
-                            if (aref != null) {
+                            PinType pt = node.inputType(bi);
+                            if (pt == PinType.AUDIO) {
+                                AudioRef aref = graph.getInputAudio(node.id, bi, payloadRefs);
                                 // 频段键 = 频道\0频段：每个频段独立占用/冲突/游标，互不覆盖。
                                 // Per-band key = channel\0band: independent ownership, conflict
                                 // and cursor per band — no cross-band overwrites.
                                 if (!audioBands
                                     .publish(audioBands
                                             .bandKey(node.signalName, bandName),
-                                        aref, audioTickStamp, ctx.consumerKey(node)))
+                                        aref != null ? aref : AudioRef.EMPTY,
+                                        audioTickStamp, ctx.consumerKey(node)))
                                     node.audioConflict = true;
+                            } else if (pt == PinType.VEC3) {
+                                Vec3f v = graph.getInputVec3(node.id, bi, payloadRefs);
+                                signalBus.putVec3(audioBands.bandKey(node.signalName, bandName),
+                                    v != null ? v : Vec3f.ZERO);
                             } else {
                                 node.busInternalMap.put(bandName, pinValues.getOrDefault(bandName, 0f));
                             }

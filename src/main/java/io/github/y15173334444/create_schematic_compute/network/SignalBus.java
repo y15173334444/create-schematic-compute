@@ -31,13 +31,20 @@ public class SignalBus {
     /** BUS band registry: busName → band name list (cross-computer shared band definitions) / BUS 频段注册表：bus名 → band名列表（跨计算机共享频段定义） */
     private static final ConcurrentHashMap<String, List<String>> BAND_REGISTRY = new ConcurrentHashMap<>();
 
-    /** 频段音频标志：bus名 → 承载音频的频段名集合（发布方按引脚对端域判定，随频段定义同步到
-     *  订阅方，编辑器着色用）/ Per-band audio flags: busName → band names carrying audio
-     *  (decided by the publisher's pin peers, synced with the band definition for editor tinting). */
-    private static final ConcurrentHashMap<String, java.util.Set<String>> AUDIO_BANDS = new ConcurrentHashMap<>();
-    /** 每频道的标志版本号（变更即自增）——宿主推送缓存据此判断要不要重发 / Per-channel flag version
-     *  (bumped on every change) — host push caches compare this to decide on a resend. */
-    private static final ConcurrentHashMap<String, Integer> AUDIO_STAMPS = new ConcurrentHashMap<>();
+    /** 频段声明载荷类型：bus名 → 频段名 → {@code PinType}（发布方逐频段声明，随频段定义同步
+     *  给订阅方收敛/着色；缺省 FLOAT）/ Per-band declared payload types: busName → band name
+     *  → PinType (declared by the publisher, synced with the band definition for subscriber
+     *  convergence and tinting; FLOAT by default). */
+    private static final ConcurrentHashMap<String, java.util.Map<String, io.github.y15173334444.create_schematic_compute.graph.PinType>> BAND_TYPES = new ConcurrentHashMap<>();
+    /** 每频道的定义版本号（变更即自增）——宿主推送缓存据此判断要不要重发 / Per-channel
+     *  definition version (bumped on every change) — host push caches compare this to
+     *  decide on a resend. */
+    private static final ConcurrentHashMap<String, Integer> BAND_TYPE_STAMPS = new ConcurrentHashMap<>();
+
+    /** 向量值表（状态语义 last-write-wins）：键 = 私有名或频段键 {@code channel\0band}。
+     *  Vector values (state semantics, last write wins): key = private name or the band
+     *  key {@code channel\0band}. */
+    private static final ConcurrentHashMap<String, io.github.y15173334444.create_schematic_compute.graph.Vec3f> VEC3_VALUES = new ConcurrentHashMap<>();
 
     /** 私有频道占用表：name → owner（与 BUS {@link #CHANNELS} 同款占用语义——首个注册者获胜，
      *  同名不同 owner 注册失败、由调用方标冲突旗标；写入权属于 owner）。
@@ -63,12 +70,12 @@ public class SignalBus {
      *  bring the wires back. */
     private static final ConcurrentHashMap<String, java.util.Set<ChannelOwner>> CLAIMANTS = new ConcurrentHashMap<>();
 
-    /** 私有频道定义标志：name → 该频道当前是否承载音频（发布方按输入引脚对端域的拓扑判定，
-     *  随版本戳同步给订阅方做引脚类型变换——BUS 频段音频标志同款，属性跟频道走）。
-     *  Private channel definition flag: whether the channel carries audio (topology-derived by
-     *  the publisher's pin peer, version-stamped and synced to subscribers for pin typing). */
-    private static final ConcurrentHashMap<String, Boolean> PRIVATE_AUDIO = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<String, Integer> PRIVATE_AUDIO_STAMPS = new ConcurrentHashMap<>();
+    /** 私有频道声明载荷类型：name → {@code PinType}（发布方声明，随版本戳同步给订阅方做
+     *  引脚类型变换——BUS 频段类型表同款，属性跟频道走）。
+     *  Private channel declared payload type: name → PinType (declared by the publisher,
+     *  version-stamped and synced to subscribers for pin typing; the BUS discipline). */
+    private static final ConcurrentHashMap<String, io.github.y15173334444.create_schematic_compute.graph.PinType> PRIVATE_TYPES = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Integer> PRIVATE_TYPE_STAMPS = new ConcurrentHashMap<>();
 
     // ── PRIVATE_IN/OUT API (unchanged) / PRIVATE_IN/OUT API（不变） ──────────────────────
 
@@ -87,8 +94,9 @@ public class SignalBus {
      *  hold a name forever. */
     public static void clearSignal(String channel) {
         SIGNALS.remove(channel);
+        VEC3_VALUES.remove(channel);
         PRIVATE_OWNERS.remove(channel);
-        if (PRIVATE_AUDIO.remove(channel) != null) PRIVATE_AUDIO_STAMPS.merge(channel, 1, Integer::sum);
+        if (PRIVATE_TYPES.remove(channel) != null) PRIVATE_TYPE_STAMPS.merge(channel, 1, Integer::sum);
     }
 
     // ── PRIVATE channel occupancy API / 私有频道占用 API ──────────────────────
@@ -126,24 +134,26 @@ public class SignalBus {
 
     // ── Private channel definition API / 私有频道定义 API ──────────────────────
 
-    /** 更新私有频道定义标志（内容变化才写 + 自增版本）。返回是否发生变化。
-     *  Update the private channel's definition flag (write + version bump only on change). */
-    public static boolean setPrivateAudio(String channel, boolean audio) {
-        Boolean cur = PRIVATE_AUDIO.get(channel);
-        if (cur != null && cur == audio) return false;
-        PRIVATE_AUDIO.put(channel, audio);
-        PRIVATE_AUDIO_STAMPS.merge(channel, 1, Integer::sum);
+    /** 更新私有频道声明载荷类型（内容变化才写 + 自增版本）。返回是否发生变化。
+     *  Update the private channel's declared payload type (write + version bump only on
+     *  change); returns whether it changed. */
+    public static boolean setPrivateType(String channel, io.github.y15173334444.create_schematic_compute.graph.PinType type) {
+        var cur = PRIVATE_TYPES.get(channel);
+        if (cur == type) return false;
+        PRIVATE_TYPES.put(channel, type);
+        PRIVATE_TYPE_STAMPS.merge(channel, 1, Integer::sum);
         return true;
     }
 
-    /** 私有频道当前是否承载音频（订阅方引脚类型变换用）/ Whether the private channel carries audio. */
-    public static boolean isPrivateAudio(String channel) {
-        return PRIVATE_AUDIO.getOrDefault(channel, false);
+    /** 私有频道声明载荷类型（无定义 = FLOAT）/ The private channel's declared payload type
+     *  (FLOAT when undefined). */
+    public static io.github.y15173334444.create_schematic_compute.graph.PinType privateType(String channel) {
+        return PRIVATE_TYPES.getOrDefault(channel, io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT);
     }
 
     /** 私有频道定义版本号（无定义 0）/ The private channel's definition version stamp (0 when none). */
-    public static int privateAudioStamp(String channel) {
-        return PRIVATE_AUDIO_STAMPS.getOrDefault(channel, 0);
+    public static int privateTypeStamp(String channel) {
+        return PRIVATE_TYPE_STAMPS.getOrDefault(channel, 0);
     }
 
     // ── BUS band-name sync API (unchanged) / BUS 频段名同步 API（不变） ──────────────────────
@@ -284,35 +294,39 @@ public class SignalBus {
         return true;
     }
 
-    /** 更新频段音频标志（内容变化才写 + 自增版本）。返回是否发生变化。
-     *  Update the per-band audio flags (write + version bump only on change); returns whether it changed. */
-    public static boolean setAudioBands(String busName, java.util.Set<String> audioBandNames) {
-        var current = AUDIO_BANDS.get(busName);
-        if (audioBandNames == null || audioBandNames.isEmpty()) {
+    /** 更新逐频段声明载荷类型（内容变化才写 + 自增版本）。返回是否发生变化。
+     *  Update the per-band declared payload types (write + version bump only on change);
+     *  returns whether they changed. */
+    public static boolean setBandTypes(String busName, java.util.Map<String, io.github.y15173334444.create_schematic_compute.graph.PinType> bandTypes) {
+        var current = BAND_TYPES.get(busName);
+        if (bandTypes == null || bandTypes.isEmpty()) {
             if (current == null) return false;
-            AUDIO_BANDS.remove(busName);
-            AUDIO_STAMPS.merge(busName, 1, Integer::sum);
+            BAND_TYPES.remove(busName);
+            BAND_TYPE_STAMPS.merge(busName, 1, Integer::sum);
             return true;
         }
-        if (current != null && current.equals(audioBandNames)) return false;
-        AUDIO_BANDS.put(busName, new java.util.HashSet<>(audioBandNames));
-        AUDIO_STAMPS.merge(busName, 1, Integer::sum);
+        if (current != null && current.equals(bandTypes)) return false;
+        BAND_TYPES.put(busName, new java.util.HashMap<>(bandTypes));
+        BAND_TYPE_STAMPS.merge(busName, 1, Integer::sum);
         return true;
     }
 
-    /** 频段音频标志（只读；无定义返回空集）/ The channel's audio band flags (empty when undefined). */
-    public static java.util.Set<String> getAudioBands(String busName) {
-        return AUDIO_BANDS.getOrDefault(busName, java.util.Set.of());
+    /** 频道的逐频段声明载荷类型（只读；无定义返回空表）/ The channel's per-band declared
+     *  payload types (empty when undefined). */
+    public static java.util.Map<String, io.github.y15173334444.create_schematic_compute.graph.PinType> getBandTypes(String busName) {
+        return BAND_TYPES.getOrDefault(busName, java.util.Map.of());
     }
 
-    /** 某频段当前是否音频（订阅方着色用）/ Whether a specific band carries audio (subscriber tinting). */
-    public static boolean isAudioBand(String busName, String bandName) {
-        return AUDIO_BANDS.getOrDefault(busName, java.util.Set.of()).contains(bandName);
+    /** 某频段的声明载荷类型（无声明 = FLOAT；订阅方收敛/着色用）/ A band's declared payload
+     *  type (FLOAT when undeclared; subscriber convergence and tinting). */
+    public static io.github.y15173334444.create_schematic_compute.graph.PinType bandType(String busName, String bandName) {
+        return BAND_TYPES.getOrDefault(busName, java.util.Map.of())
+            .getOrDefault(bandName, io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT);
     }
 
-    /** 标志版本号（无定义 0）/ The channel's flag version stamp (0 when undefined). */
-    public static int audioStamp(String busName) {
-        return AUDIO_STAMPS.getOrDefault(busName, 0);
+    /** 定义版本号（无定义 0）/ The channel's definition version stamp (0 when undefined). */
+    public static int bandTypeStamp(String busName) {
+        return BAND_TYPE_STAMPS.getOrDefault(busName, 0);
     }
 
     // ── BUS channel registration API (new) / BUS 频道注册 API（新增） ──────────────────────
@@ -438,22 +452,38 @@ public class SignalBus {
     public static void clearBus(String busName) {
         String prefix = busName + "\0";
         SIGNALS.keySet().removeIf(k -> k.startsWith(prefix));
+        VEC3_VALUES.keySet().removeIf(k -> k.startsWith(prefix));
         BAND_REGISTRY.remove(busName);
-        AUDIO_BANDS.remove(busName);
-        AUDIO_STAMPS.remove(busName);
+        BAND_TYPES.remove(busName);
+        BAND_TYPE_STAMPS.remove(busName);
+    }
+
+    // ── Vector value API / 向量值 API ──────────────────────
+
+    /** 写向量值（状态语义 last-write-wins）：键 = 私有名或频段键 {@code channel\0band}。
+     *  Write a vector value (state semantics, last write wins). */
+    public static void putVec3(String key, io.github.y15173334444.create_schematic_compute.graph.Vec3f value) {
+        if (value == null) VEC3_VALUES.remove(key);
+        else VEC3_VALUES.put(key, value);
+    }
+
+    /** 读向量值（缺席 = null）/ Read a vector value (absent = null). */
+    public static io.github.y15173334444.create_schematic_compute.graph.Vec3f getVec3(String key) {
+        return VEC3_VALUES.get(key);
     }
 
     /** Clear all signals, channel registrations, and band registries (called on server shutdown) / 清除所有信号、频道注册和频段注册表（服务器关闭时调用） */
     public static void clear() {
         SIGNALS.clear();
+        VEC3_VALUES.clear();
         BAND_REGISTRY.clear();
-        AUDIO_BANDS.clear();
-        AUDIO_STAMPS.clear();
+        BAND_TYPES.clear();
+        BAND_TYPE_STAMPS.clear();
         CHANNELS.clear();
         CLAIMANTS.clear();
         PRIVATE_OWNERS.clear();
-        PRIVATE_AUDIO.clear();
-        PRIVATE_AUDIO_STAMPS.clear();
+        PRIVATE_TYPES.clear();
+        PRIVATE_TYPE_STAMPS.clear();
     }
 
     /** graph 端口实现（接口下沉）：求值器经 {@code SignalBusPort} 走本表，graph 不直连
@@ -463,13 +493,15 @@ public class SignalBus {
         new io.github.y15173334444.create_schematic_compute.graph.SignalBusPort() {
             @Override public float get(String channel) { return SignalBus.get(channel); }
             @Override public void put(String channel, float value) { SignalBus.put(channel, value); }
-            @Override public void setPrivateAudio(String channel, boolean audio) { SignalBus.setPrivateAudio(channel, audio); }
-            @Override public void setAudioBands(String busName, java.util.Set<String> audioBandNames) { SignalBus.setAudioBands(busName, audioBandNames); }
+            @Override public void setPrivateType(String channel, io.github.y15173334444.create_schematic_compute.graph.PinType type) { SignalBus.setPrivateType(channel, type); }
+            @Override public void setBandTypes(String busName, java.util.Map<String, io.github.y15173334444.create_schematic_compute.graph.PinType> bandTypes) { SignalBus.setBandTypes(busName, bandTypes); }
             @Override public void registerBands(String busName, java.util.List<String> bands) { SignalBus.registerBands(busName, bands); }
             @Override public java.util.List<String> getBands(String busName) { return SignalBus.getBands(busName); }
             @Override public java.util.Map<String, Float> channelMap(String channel) {
                 ChannelEntry e = SignalBus.getChannel(channel);
                 return e != null ? e.internalMap : null;
             }
+            @Override public void putVec3(String key, io.github.y15173334444.create_schematic_compute.graph.Vec3f value) { SignalBus.putVec3(key, value); }
+            @Override public io.github.y15173334444.create_schematic_compute.graph.Vec3f getVec3(String key) { return SignalBus.getVec3(key); }
         };
 }

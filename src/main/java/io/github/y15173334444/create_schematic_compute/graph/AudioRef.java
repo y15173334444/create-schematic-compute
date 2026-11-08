@@ -29,7 +29,7 @@ import java.util.List;
  * precedes resampling interpolation).</p>
  */
 public record AudioRef(List<NoteEvent> events, float gain, boolean stopSignal,
-                       List<AudioCurve.Curve> waveCurves) {
+                       List<AudioCurve.Curve> waveCurves) implements PinPayload {
 
     /** 兼容构造：普通音源引用（非停止标记、无波形整形）。 / compat ctor: plain source ref. */
     public AudioRef(List<NoteEvent> events, float gain) { this(events, gain, false, List.of()); }

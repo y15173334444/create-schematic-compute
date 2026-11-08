@@ -1,8 +1,8 @@
 # 遗留问题登记 / Known Open Issues
-> 更新日期 / Updated：2026-11-01
+> 更新日期 / Updated：2026-11-08
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 共 20 项（✅ 已实施 10 项〔6/8/9/10/11/12/13/14/16/17〕；已拍板待实施 1 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件〕；待办 9 项〔其中条目 1 待立项、条目 18 半收口（② 回执形态发版后另批）、条目 19 宿主套件波前承接、条目 20 待用户拍板〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 共 24 项（✅ 已实施 10 项〔6/8/9/10/11/12/13/14/16/17〕；已拍板待实施 1 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件〕；待办 13 项〔其中条目 1 待立项、条目 18 半收口（② 回执形态发版后另批）、条目 19 宿主套件波前承接、条目 20 待用户拍板、条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）、条目 24 迁移端点声明类型校验缺口（另批会话修复）〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -35,6 +35,10 @@
 | 16 | ADD_NODE 快照恢复路径不校验内容（K15 钳制可被绕过） | 撤销恢复的 NBT 快照由客户端手工构造且无对账——改包客户端可借合法类型 + 手工快照绕过 op 级钳制 | 恢复路径补同款钳制 + 快照类型与 op.nodeType 一致（2026-10-31 拍板 = 方向①内容卫生 + 深度预扫描） | ✅ 已实施（2026-10-31，1055 绿；三道门 + 常量同源，11 锚 AddNodeSnapshotSanitizeTest；②opLog 对账经勘察否定，见条目实施记录） |
 | 19 | 观测面 evaluatorView 交出活求值器 + 探针每 tick 装箱 | `GraphBlockEntity.evaluatorView()` 名为只读视图、实返活 `GraphEvaluator`（public 面含 `evaluate()` 重入与端口注入等改写口，仅 `nodeCostNsView()` 不可变）——宿主套件波后第三方将拿到此接口；探针每节点每 tick 向耗时表 `put` 新 `Long` 装箱（条目 14 同族分配纪律，量级小） | 宿主套件波前：① evaluatorView 收敛为真只读视图类型（只暴露耗时快照与节点标识解析的窄接口，不交出求值器本体）；② 耗时表改原始类型存储（id → long 开放寻址表，随求值器存亡语义不变），消除装箱 | 🔶 待办（2026-11-01 批 E 审查登记，宿主套件波前承接） |
 | 20 | 观测面板形态待定（规格「观测面板」现以 `/cscperf` 指令交付） | 探索稿 §9 收尾行写「观测面板（per-node 耗时进 perf/debug 设施）」，批 E 交付的是 OP 指令 `/cscperf`（看向宿主打印 top-20），未做 HUD/面板；耗时数据只在服务端求值器，任何面板形态都要新增服务端→客户端同步包与客户端 UI | 三选一待用户拍板：① 维持指令，§9 措辞收口为「观测面 = /cscperf」；② 设置面板「公式预算」页加本宿主 top-N 列表（编辑器内打开时宿主确定，请求/响应包按需取快照）；③ 编辑器内节点耗时角标（持续同步包 + 渲染 + 开关，回归面最大） | 🔶 待用户拍板（2026-11-01 批 E 收尾登记） |
+| 21 | 自定义节点引脚类型化（公开 API 开放设计点） | CustomNodeType 引脚仍只有 FLOAT 域；schema 加 pinTypes 的形态未定（API 未冻结，锁早了返工） | 附属开发阶段 API 定型后：schema 引脚声明携带 PinType（缺省 FLOAT），Eval 按声明读写载荷旁路 | 🔶 开放（API 未冻结，附属开发阶段一起定） |
+| 22 | ENCAP 子图边界引脚类型化（音频/向量过封装边界） | ENCAP 输入/输出引脚恒 FLOAT，音频与向量载荷过不了封装边界；声明模型与子图载荷穿越都未设计 | ENCAP_INPUT/OUTPUT 子节点加声明类型（同 PRIVATE 单元素口径），EncapEval 按类型穿越载荷；先与条目 21 对齐 | 🔶 另批 |
+| 23 | FORMULA 内建向量运算（向量进公式脚本） | 公式语言的 vec3 是标量展开语义，无真正 VEC3 载荷引脚，与向量节点域互操作要靠 JOIN/SPLIT 绕 | FORMULA 输出标签支持 VEC3 声明（如 `@output v:vec3`）；先与条目 21/22 对齐类型声明口径 | 🔶 另批 |
+| 24 | 迁移回填不校验连线两端声明类型（混接旧档残留类型非法连线） | V8→V9 迁移按拓扑冻结回填 `bandTypes`（按引脚粒度、任一音频对端→AUDIO）后带段化重写 pinId，但不校验回填后连线两端类型是否严格相等——≤v1.2.6.x 旧档同一频段同时喂音频与浮点消费端时，回填 AUDIO 后留下 `audio:频段`→`float:引脚` 的类型非法连线静默存活 | 迁移尾部（回填+带段化后）对每条连线跑一次端点声明类型严格相等校验，不等按剪线纪律剪除；PinTypeMigrationTest 加混接旧档锚 | 🔶 待办（2026-11-08 复审登记，另批会话修复） |
 
 ---
 
@@ -781,3 +785,131 @@ javadoc 称只读视图，实际返回活 `GraphEvaluator` 引用——其 publi
 ### 状态 / Status
 
 🔶 待用户拍板（2026-11-01 批 E 收尾登记；拍板前不动代码与规格措辞）。
+
+## 21. 自定义节点引脚类型化（公开 API 开放设计点）
+
+范围 / Scope：`api/CustomNodeType`（schema 引脚面）、`graph/CustomNodeEval`、`graph/GraphNode`（CUSTOM 引脚类型解析）
+
+### 症状 / Symptom
+
+（非缺陷，属开放设计点。）pinId 类型参数段已为自定义节点留位（CUSTOM 引脚参段=索引、类型码=float），
+但 `CustomNodeType` 的引脚仍只有 FLOAT 域。**公开 API 未冻结**——附属开发阶段可能调整，schema 加
+pinTypes 的形态未定（逐引脚类型列表？标签与类型成对？），锁早了会返工。
+
+### 修复方向 / Fix direction
+
+待附属开发阶段 API 调整定型后落地：schema 引脚声明携带 `PinType`（缺省 FLOAT 向后省心），
+`CustomNodeEval` 按声明类型读写载荷旁路（向量/音频回调值），准入与编辑面板随之显示类型。
+按未发版纪律不写兼容（旧 schema 无类型键 = 全 FLOAT 由构造缺省兜住即可）。
+
+### 状态 / Status
+
+🔶 开放（2026-11-08 pinId 类型段收尾登记；API 未冻结，附属开发阶段一起定）。
+
+## 22. ENCAP 子图边界引脚类型化（音频/向量过封装边界）
+
+范围 / Scope：`graph/EncapEval`、`graph/GraphNode`（ENCAP I/O 类型）、子图载荷穿越
+
+### 症状 / Symptom
+
+（非缺陷，属能力缺口。）ENCAP 输入/输出引脚恒 FLOAT——音频与向量载荷过不了封装边界，
+子图内想做音频/向量处理只能整个搬出封装。pinId 类型段已能表达 ENCAP 引脚类型，但声明模型
+（ENCAP_INPUT/OUTPUT 子节点的类型从哪来、怎么改）与子图载荷穿越（payloadRefs 跨求值器边界）
+都未设计。
+
+### 修复方向 / Fix direction
+
+方向：ENCAP_INPUT/OUTPUT 子节点加声明类型（同 PRIVATE 单元素口径），EncapEval 按类型穿越
+载荷（payloadRefs 键带子图路径或子求值器共享载荷表）；封装体引脚的 pinId 类型段随之换段
+（迁移或 reconcile 重绑）。做前先与 API 开放设计点（条目 21）对齐——第三方重节点的载荷面一并考虑。
+
+### 状态 / Status
+
+🔶 另批（2026-11-08 pinId 类型段收尾登记）。
+
+## 23. FORMULA 内建向量运算（向量进公式脚本）
+
+范围 / Scope：`graph/FormulaParser`/`FormulaCompute`（vec3 值语义）、FORMULA 引脚类型
+
+### 症状 / Symptom
+
+（非缺陷，属能力缺口。）公式语言已有 vec3 表达式（vec3() 构造、swizzle 展开输出），但那是
+标量展开语义（v.x/v.y/v.z 拆成三个浮点输出脚）——没有真正的 VEC3 载荷引脚，公式节点的引脚
+恒 FLOAT，与新向量节点域互操作要靠 JOIN/SPLIT 绕。
+
+### 修复方向 / Fix direction
+
+方向：FORMULA 输出标签支持 VEC3 声明（如 `@output v:vec3`），引脚类型段随之 `vec3:`；
+输入侧同理（变量绑定向量载荷）。涉及公式脚本的类型推断与 swizzle 兼容语义，规模中等；
+先与条目 21/22 对齐类型声明口径再动。
+
+### 状态 / Status
+
+🔶 另批（2026-11-08 pinId 类型段收尾登记）。
+
+## 24. 迁移回填不校验连线两端声明类型（混接旧档残留类型非法连线）
+
+范围 / Scope：`graph/GraphMigration`（migrateV8toV9 的 bandTypes 拓扑回填与连线 pinId 带段化）
+
+### 症状 / Symptom
+
+≤v1.2.6.x 旧档里同一频段同时接音频消费端（AMP.audio）与浮点消费端（ADD 等）时：迁移按拓扑
+证据回填该频段声明 AUDIO（按引脚粒度、任一音频对端→AUDIO），随后连线 pinId 带段化重写——
+但全程不校验回填后连线两端的声明类型是否严格相等。结果留下 `audio:频段` → `float:引脚` 的
+类型非法连线静默存活：求值各按声明载体读（音频频段不写浮点输出数组，浮点消费端读 0），连线
+合法性只在新建连线时校验，存量非法线永不清理。
+
+### 修复方向 / Fix direction
+
+迁移尾部（bandTypes 回填 + pinId 带段化都完成后）对每条连线跑一次端点声明类型严格相等校验，
+不等则按「解析不到即剪」同款纪律剪除；`PinTypeMigrationTest` 加混接旧档锚（同频段同时接
+AMP.audio 与浮点消费端，断言浮点线被剪、音频线保留）。
+
+### 状态 / Status
+
+🔶 待办（2026-11-08 复审登记；修复在另批会话进行）。
+
+## 25. 频段手动声明不跨存档（芯片声明=会话内激活器）
+
+范围 / Scope：`graph/NodeGraph`（loadCurrent 存档自愈）、`client/editor`（频段类型片）
+
+### 现状 / Current behaviour
+
+「未连接 ⟺ 灰」按存档自愈强约束执行：加载时没有入线的 BUS_OUT 频段槽位一律回灰（清空
+声明）。芯片手动声明因此是**会话内激活器**——不接线也能放行下游连接，但存档重载后回灰
+（下游线随之按「类型合法性优先于保线」契约剪除）。2026-11-08 推送前复审定为可接受口径
+（贴「一律回灰」拍板）。
+/ The unwired-⟹-grey rule is enforced hard at save load: an unwired BUS_OUT band slot
+always greys on load, so a manual chip declaration is an in-session activator — it opens
+downstream connects without a wire but greys again after a save round-trip.
+
+### 备选设计 / Alternative
+
+若需「手动声明跨存档保留」：给槽位加**声明来源标记**（连线派生 / 芯片手动，NBT 旁路一列 +
+随声明表同步），存档自愈只清「连线派生」槽位。代价：多一列持久化与同步面。
+/ To keep manual declarations across saves: a declaration-provenance marker (wire-derived
+vs chip-manual) persisted alongside the declaration table; the save self-heal then clears
+only wire-derived slots. Cost: one more persisted and synced column.
+
+### 状态 / Status
+
+✅ 已拍板（2026-11-08）：类型片改为**只读类型指示器**、手动声明整体退役——类型定义只来自
+连线（落线即声明、摘线即回灰），来源标记不再需要；PRIVATE_OUT 同口径收编线驱动。
+
+## 26. 协作在场层渲染层级（远端光标/拖线预览盖住 chrome）
+
+范围 / Scope：`client/editor/GraphEditor`（render 尾段的 `renderPresenceOverlay` 调用位置）
+
+### 症状 / Symptom
+
+协作在场层（远端玩家光标标签、对方拖线预览）画在渲染**尾段**——位于工具条、顶栏、
+弹窗与加节点菜单**之上**，多人协作时标签/线会压在 chrome 上（2026-11-08 实测截图）。
+
+### 修复方向 / Fix direction
+
+把 `renderPresenceOverlay(g)` 从渲染尾段移到画布层（`renderNodes` 之后、
+`renderButtons`/顶栏/弹窗/菜单之前）：远端光标可见于节点之上、chrome 之下。
+
+### 状态 / Status
+
+🔶 待办（2026-11-08 登记；修复不进 pin-type PR——范围裁定，另批处理）。

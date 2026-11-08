@@ -209,7 +209,11 @@ public class SpatialIndex {
         if (n.type == NodeType.MOUSE_JOYSTICK && n.params.length > 0) h += 16;
         if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 16; // 当前状态一行（旧「初始状态」行已随 1.3.0 退役）/ one current-state row (the old initial-state row retired in 1.3.0)
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
-        if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) h += 22;
+        // 私有编辑区两行 = 频道行 22 + 类型片行 18（与 EditPanel 绘制同账本——缺行会让
+        // 类型片行戳出面板底，实测穿模）。/ The private edit panel draws two rows — channel
+        // row 22 + type-chip row 18 (the same ledger as the EditPanel draw — a missing row
+        // lets the chip row clip out of the panel, seen in-game as bleed-through).
+        if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) h += 40;
         if (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) {
             int bands = n.signalBands != null ? n.signalBands.size() : 0;
             h += 22 + bands * 18 + 20;

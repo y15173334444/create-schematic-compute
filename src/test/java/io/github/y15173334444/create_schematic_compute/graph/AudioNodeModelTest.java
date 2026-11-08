@@ -9,29 +9,29 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * 音频数据模型测试：引脚域分类、分类覆盖、AUDIO_OUT 频道 pinId、域兼容连线、曲目字段。
- * Audio data-model tests: pin-domain classification, category coverage, AUDIO_OUT channel
- * pinIds, domain-compatible connections, and the song field.
+ * 音频数据模型测试：载荷类型分类、分类覆盖、AUDIO_OUT 频道 pinId、类型兼容连线、曲目字段。
+ * Audio data-model tests: payload-type classification, category coverage, AUDIO_OUT channel
+ * pinIds, type-compatible connections, and the song field.
  */
 class AudioNodeModelTest {
 
     @Test
-    @DisplayName("引脚域分类：MUSIC/AMP 的 audio 引脚为 AUDIO，其余 FLOAT / pin-domain classification")
+    @DisplayName("载荷类型分类：MUSIC/AMP 的 audio 引脚为 AUDIO，其余 FLOAT / payload-type classification")
     void domainClassification() {
         // MUSIC: output 0 = audio (AUDIO), outputs 1..4 = float; inputs all float
-        assertEquals(NodeType.PinDomain.AUDIO, NodeType.MUSIC.outputDomain(0));
-        for (int i = 1; i < 5; i++) assertEquals(NodeType.PinDomain.FLOAT, NodeType.MUSIC.outputDomain(i));
-        for (int i = 0; i < 3; i++) assertEquals(NodeType.PinDomain.FLOAT, NodeType.MUSIC.inputDomain(i));
+        assertEquals(PinType.AUDIO, NodeType.MUSIC.outputType(0));
+        for (int i = 1; i < 5; i++) assertEquals(PinType.FLOAT, NodeType.MUSIC.outputType(i));
+        for (int i = 0; i < 3; i++) assertEquals(PinType.FLOAT, NodeType.MUSIC.inputType(i));
         // AMP: input 0 = audio (AUDIO), input 1 = gain (FLOAT); output 0 = audio (AUDIO)
-        assertEquals(NodeType.PinDomain.AUDIO, NodeType.AMP.inputDomain(0));
-        assertEquals(NodeType.PinDomain.FLOAT, NodeType.AMP.inputDomain(1));
-        assertEquals(NodeType.PinDomain.AUDIO, NodeType.AMP.outputDomain(0));
+        assertEquals(PinType.AUDIO, NodeType.AMP.inputType(0));
+        assertEquals(PinType.FLOAT, NodeType.AMP.inputType(1));
+        assertEquals(PinType.AUDIO, NodeType.AMP.outputType(0));
         // AUDIO_OUT: all channel input pins are AUDIO
-        assertEquals(NodeType.PinDomain.AUDIO, NodeType.AUDIO_OUT.inputDomain(0));
-        assertEquals(NodeType.PinDomain.AUDIO, NodeType.AUDIO_OUT.inputDomain(3));
+        assertEquals(PinType.AUDIO, NodeType.AUDIO_OUT.inputType(0));
+        assertEquals(PinType.AUDIO, NodeType.AUDIO_OUT.inputType(3));
         // Ordinary node stays float
-        assertEquals(NodeType.PinDomain.FLOAT, NodeType.CONST.outputDomain(0));
-        assertEquals(NodeType.PinDomain.FLOAT, NodeType.ADD.inputDomain(0));
+        assertEquals(PinType.FLOAT, NodeType.CONST.outputType(0));
+        assertEquals(PinType.FLOAT, NodeType.ADD.inputType(0));
     }
 
     @Test
@@ -49,8 +49,8 @@ class AudioNodeModelTest {
     void audioOutSinglePin() {
         GraphNode n = new GraphNode(1, NodeType.AUDIO_OUT, 0, 0);
         assertEquals(1, n.inputs());
-        assertEquals("0", n.inputPinId(0));
-        assertEquals(0, n.inputPinIndex("0"));
+        assertEquals("audio:0", n.inputPinId(0));
+        assertEquals(0, n.inputPinIndex("audio:0"));
     }
 
     @Test
@@ -124,42 +124,45 @@ class AudioNodeModelTest {
         GraphNode ch = new GraphNode(1, NodeType.CHANNEL, 0, 0);
         assertEquals((float) ChannelLayout.STEREO, ch.params[0], "new CHANNEL nodes default to stereo");
         assertEquals(2, ch.outputs());
-        assertEquals("l", ch.outputPinId(0));
-        assertEquals("r", ch.outputPinId(1));
+        assertEquals("audio:l", ch.outputPinId(0));
+        assertEquals("audio:r", ch.outputPinId(1));
         // 布局切换整体替换引脚集合
         ch.params[0] = (float) ChannelLayout.SURROUND_5_1;
         ch.ensureChannelBands();
         assertEquals(6, ch.outputs());
-        assertEquals("c", ch.outputPinId(2));
-        assertEquals("sub", ch.outputPinId(3));
+        assertEquals("audio:c", ch.outputPinId(2));
+        assertEquals("audio:sub", ch.outputPinId(3));
     }
 
     @Test
-    @DisplayName("频段引脚承载音频:对端 AUDIO 域时着色标记翻转 / band pins carry audio: tint flag follows peer domain")
+    @DisplayName("频段引脚着色：声明类型决定音频色 / band pins tint by their declared type")
     void bandPinAudioTint() {
         NodeGraph g = new NodeGraph();
         GraphNode music = g.addNode(NodeType.MUSIC, 0, 0);
         GraphNode busOut = g.addNode(NodeType.BUS_OUT, 100, 0);
         busOut.signalName = "b";
         busOut.signalBands = new ArrayList<>(List.of("b"));
+        busOut.bandTypes = new ArrayList<>(List.of(PinType.AUDIO));
         GraphNode busIn = g.addNode(NodeType.BUS_IN, 200, 0);
         busIn.signalName = "b";
         busIn.signalBands = new ArrayList<>(List.of("b"));
+        busIn.bandTypes = new ArrayList<>(List.of(PinType.AUDIO));
         GraphNode speaker = g.addNode(NodeType.SPEAKER_PLAY, 300, 0);
         GraphNode cst = g.addNode(NodeType.CONST, 0, 100);
         cst.params[0] = 1f;
 
-        assertTrue(g.addConnection(music.id, 0, busOut.id, 0), "audio output into BUS_OUT accepted");
-        assertTrue(g.addConnection(busIn.id, 0, speaker.id, 0), "BUS_IN output into an audio pin accepted");
+        assertTrue(g.addConnection(music.id, 0, busOut.id, 0), "audio output into an AUDIO-declared band accepted");
+        assertTrue(g.addConnection(busIn.id, 0, speaker.id, 0), "AUDIO-declared band into an audio pin accepted");
         assertTrue(g.addConnection(cst.id, 0, speaker.id, 1), "float control wire (contrast case)");
 
-        assertTrue(g.isBandPinAudio(busOut.id, 0, false), "BUS_OUT input tinted while fed by MUSIC");
-        assertTrue(g.isBandPinAudio(busIn.id, 0, true), "BUS_IN output tinted while feeding SPEAKER_PLAY");
+        assertTrue(g.isBandPinAudio(busOut.id, 0, false), "declared AUDIO band pin tints");
+        assertTrue(g.isBandPinAudio(busIn.id, 0, true), "declared AUDIO band pin tints (read side)");
         assertFalse(g.isBandPinAudio(music.id, 0, true), "MUSIC output is audio-domain anyway, not a band pin");
         assertFalse(g.isBandPinAudio(speaker.id, 1, false), "float control pin stays regular");
 
-        // 剪除音频连线后标记随拓扑版本失效
-        g.removeConnection(busIn.id, 0, speaker.id, 0);
-        assertFalse(g.isBandPinAudio(busIn.id, 0, true), "tint flag clears when the audio wire is removed");
+        // 改声明为 FLOAT：着色随声明退役（音频线因类型不合被剪）
+        // Re-declare as FLOAT: the tint follows the declaration (the audio wire prunes).
+        g.reconcileBands(busIn, List.of("b"), List.of(PinType.FLOAT));
+        assertFalse(g.isBandPinAudio(busIn.id, 0, true), "the tint follows the declaration");
     }
 }

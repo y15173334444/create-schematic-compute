@@ -152,18 +152,23 @@ io.github.y15173334444.create_schematic_compute/
 - `debugTime` — DEBUG_SIGNAL_GEN 相位时间 / Phase time (persisted via RuntimeState)
 - `runtimeState` — 运行时状态引用（读写子图状态持久化）/ RuntimeState reference
 - `radarPos` — 雷达扫描位置上下文 / Radar scan position context
-- `audioRefs` — AUDIO 域音源表（(节点 id, 引脚) → `AudioRef`，沿拓扑序传递，与浮点输出数组隔离）/ AUDIO-domain source table (per node id + pin), passed along the topo order, isolated from the float outputs
+- `payloadRefs`（EvalContext）— 类型化载荷旁路表（`EvalContext.payloadKey(节点 id, 引脚)` → `PinPayload`，现载 `AudioRef`/`Vec3f`，沿拓扑序传递，与浮点输出数组隔离）/ typed payload side channel (`EvalContext.payloadKey(node id, pin)` → `PinPayload`, currently AudioRef/Vec3f, passed along the topo order, isolated from the float outputs)
 
 > 音频五节点（MUSIC / AMP / AUDIO_OUT / CHANNEL / SPEAKER_PLAY）在 `eval()` switch 内求值；频段读取无
-> 专属节点——`BUS_IN` 输出接音频线即走音频分支读 `AudioBands`（2026-10-03 移除 AUDIO_IN）；`BUS_OUT`
-> 也有音频分支（仅当其输出线接入 AUDIO 域引脚时才走，`NodeGraph.hasAudioSinkConnection` 判定）。
-> **私有频段同权（R1-2 完整落地）**：`PRIVATE_IN`（输出接音频线 → 按消费者游标读）/ `PRIVATE_OUT`
->（音频输入 → 发布，owner 冲突纪律同 AUDIO_OUT）有同款音频分支，连线校验对四个频段节点统一放行
-> 任意域（`pinDomainsMatch`）；私有与总线共用同一张 `AudioBands` 表（键 = 频段名）。
-> / The six audio nodes evaluate inside the `eval()` switch; BUS_IN/BUS_OUT have audio branches taken only when
-> their output lines enter AUDIO-domain pins (`NodeGraph.hasAudioSinkConnection`). PRIVATE_IN/PRIVATE_OUT
-> carry the same branches (R1-2 completed) — all four band nodes accept either pin domain, sharing one
-> AudioBands table keyed by band name.
+> 专属节点——`BUS_IN`/`BUS_OUT` 的音频分支由**声明类型**分派（该频段声明 AUDIO 才走音频载体，
+> 2026-10-03 移除 AUDIO_IN；v1.3.0 起拓扑推断退役，判据全换声明）。**私有频段同权（R1-2 完整落地）**：
+> `PRIVATE_IN`（声明 AUDIO → 按消费者游标读 `AudioBands`）/ `PRIVATE_OUT`（声明 AUDIO → 发布，
+> owner 冲突纪律同 AUDIO_OUT）有同款音频分支；连线校验为**声明类型严格相等**（`pinDomainsMatch`，
+> 任意域豁免已删），四个频段节点同权。私有与总线共用同一张 `AudioBands` 表（键 = 频段名）；
+> 向量载荷走 `Vec3f` 的 `PinPayload` 旁路 + `SignalBus` 向量值表；着色侧 `isBandPinAudio` 留名
+> 但收窄为频段节点的声明查询。
+> / The five audio nodes evaluate inside the `eval()` switch; BUS_IN/BUS_OUT audio branches are dispatched
+> by **declared type** (AUDIO-declared bands ride the audio carrier; AUDIO_IN removed 2026-10-03; topology
+> inference retired in v1.3.0 — all criteria now read the declaration). PRIVATE_IN/PRIVATE_OUT carry the
+> same branches (R1-2 completed); wire validation is **strict declared-type equality** (`pinDomainsMatch`,
+> the any-domain exemption is gone) across all four band nodes. Private and bus share one AudioBands table
+> keyed by band name; vector payloads ride the `Vec3f` PinPayload side channel plus the `SignalBus` vector
+> table; `isBandPinAudio` keeps its name but is narrowed to a band-node declaration query.
 
 > CHANNEL 布局预设（R3，`ChannelLayout` 纯类）：`params[0]` = 布局序号（mix / 2.0 / 4.0 / 5.1 / 7.1），
 > 引脚集合由布局表整体决定（`CHANNEL_PIN_IDS` 九值：mix,l,r,c,sub,ls,rs,sl,sr，顺序兼作 SPEAKER_PLAY
@@ -470,14 +475,14 @@ joiners have no pending ops and always load the authoritative graph.
 - `CHANNELS` — BUS_OUT 频道 / BUS output channels (`name → ChannelEntry`)
 - `BAND_REGISTRY` — 频段定义 / Band definitions (`name → List<String>`)
 - `PRIVATE_OWNERS` — 私有频道占用（BUS 同款占用检测）/ Private channel occupancy (BUS-parity) (`name → ChannelOwner`)
-- `PRIVATE_AUDIO` / `PRIVATE_AUDIO_STAMPS` — 私有频道定义标志（浮点/音频）+ 版本戳 / Private channel definition flag + version stamp
+- `PRIVATE_TYPES` / `PRIVATE_TYPE_STAMPS` — 私有频道**声明载荷类型** + 版本戳（变化才自增，宿主据此推送 `PrivateChannelTypePacket`）/ Private channel declared payload type + version stamp (bumps on change; hosts push the sync packet on change)
 
 **核心方法 / Core Methods**：
 - `registerChannel(name, map, owner)` — 首次注册创建（refCount=1）；**同 owner 重注册不递增 refCount**，仅更新 map 引用并保留原计数；不同 owner 返回 false / First registration creates; same-owner re-registration preserves ref-count; different owner → conflict (false)
 - `updateChannel(name, map, owner)` — 更新 map 引用不改变 refCount / Update map ref without touching refCount
 - `unregisterChannel(name, owner)` — refCount--，归零时移除 + clearBus / Decrement ref; remove + clearBus at zero
 - `registerPrivateChannel(name, owner)` / `unregisterPrivateChannel(name, owner)` — 私有频道占用（BUS 同款：首个注册者获胜，同名不同 owner 拒注册；owner 校验释放，值/占用/定义一起撤，竞争者随后接管）/ Private occupancy (BUS discipline: first registrant wins; owner-checked release takes value+occupancy+definition together, contenders take over)
-- `setPrivateAudio(name, audio)` / `isPrivateAudio(name)` / `privateAudioStamp(name)` — 私有频道定义（发布方按输入引脚对端域拓扑判定；变化才自增版本，宿主据此推送同步）/ Private channel definition (topology-derived by the publisher; version bumps only on change, hosts push on change)
+- `setPrivateType(name, type)` / `privateType(name)` / `privateTypeStamp(name)` — 私有频道声明类型（发布方**声明制**；变化才自增版本，宿主据此推送同步）/ Private channel declared type (publisher-declared; version bumps only on change, hosts push on change)
 - `registerBands(name, bands)` / `getBands(name)` / `clearBus(name)`
 - `PORT` — `graph.SignalBusPort` 适配器：信号 get/put 与频道活动映射委托给静态表，供 graph 依赖下沉后注入求值器 / adapter for `graph.SignalBusPort`: delegates signal get/put and the live channel map to the statics for injection into the evaluator
 
