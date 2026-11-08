@@ -893,4 +893,5 @@ only wire-derived slots. Cost: one more persisted and synced column.
 
 ### 状态 / Status
 
-🔶 待定（2026-11-08 登记；用户未提异议前维持现状）。
+✅ 已拍板（2026-11-08）：类型片改为**只读类型指示器**、手动声明整体退役——类型定义只来自
+连线（落线即声明、摘线即回灰），来源标记不再需要；PRIVATE_OUT 同口径收编线驱动。

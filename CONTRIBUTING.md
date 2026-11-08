@@ -61,7 +61,7 @@
 
 - **`CHANGELOG.md` 是权威变更日志**：每个版本一个 `<details>` 块，发布前更新；README 的 Changelog 版本表**每版补一行**（它同时是 Modrinth 门面）。/ **`CHANGELOG.md` is the authoritative changelog**: one `<details>` block per version, updated before release; the README changelog table **gains one row per version** (it doubles as the Modrinth front page).
 - **已发布版本的条目不改写**：发现已发布版本的 bug，修完写进**当前 WIP 版本板块**，不改旧版 `details` 块。/ **Never rewrite released entries**: a bug in a shipped version gets its fix recorded in the **current WIP section**, not by editing an old `details` block.
-- `docs/` 规划/分析文档双语，带状态横幅（✅ 已解决 / 🔶 待办）与交叉引用；架构改动同步 [`docs/code-architecture.md`](docs/code-architecture.md)。/ `docs/` planning/analysis documents are bilingual with status banners (✅ resolved / 🔶 todo) and cross-references; architecture changes update [`docs/code-architecture.md`](docs/code-architecture.md).
+- `docs/` 规划/分析/计划类文档**以中文为主**（中文 token 高密度；2026-11-08 约定），带状态横幅（✅ 已解决 / 🔶 待办）与交叉引用；架构改动同步 [`docs/code-architecture.md`](docs/code-architecture.md)；面向用户的文档（README/CONTRIBUTING/runbook）与 API javadoc 保持双语。/ `docs/` planning/analysis/plan documents stay **Chinese-first** (token density), with status banners (✅ resolved / 🔶 todo) and cross-references; architecture changes update [`docs/code-architecture.md`](docs/code-architecture.md); user-facing docs (README/CONTRIBUTING/runbook) and API javadoc remain bilingual.
 - AI 工作文档（会话 handoff、`.zcode/` 配置等）**不入仓库**。/ AI working documents (session handoffs, `.zcode/` config, …) **stay out of the repository**.
 
 ## 版本管理 / Versioning
