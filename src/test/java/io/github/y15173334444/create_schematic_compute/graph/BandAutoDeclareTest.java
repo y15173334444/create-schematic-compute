@@ -199,7 +199,7 @@ class BandAutoDeclareTest {
         GraphNode busOut = g.addNode(NodeType.BUS_OUT, 100, 0);
         busOut.signalName = "t";
         busOut.signalBands = new ArrayList<>(List.of("ba"));
-        busOut.bandTypes = new ArrayList<>(List.of(PinType.VEC3)); // 手动芯片声明也算 / a manual chip declaration counts too
+        busOut.bandTypes = new ArrayList<>(List.of(PinType.VEC3)); // 存量声明（任意来源）也清 / an existing declaration from any source clears too
         assertTrue(g.addConnection(vec.id, 0, busOut.id, 0));
         g.removeConnection(vec.id, 0, busOut.id, 0);
         assertEquals(PinType.EMPTY, busOut.bandType(0), "上游断开一律回灰（手动声明同样清）");
@@ -340,5 +340,37 @@ class BandAutoDeclareTest {
         busIn.bandTypes = new ArrayList<>();
         g.reconcileBands(busIn, new ArrayList<>(List.of("ba")), null);
         assertEquals(PinType.EMPTY, busIn.bandType(0), "新槽缺省 EMPTY（旧 FLOAT 缺省会把灰拨回）");
+    }
+
+    @Test
+    @DisplayName("私有频道同口径：落线即声明、摘线即回灰 / the private channel follows the same wire lifecycle")
+    void privateOutFollowsWireLifecycle() {
+        NodeGraph g = new NodeGraph();
+        GraphNode vec = g.addNode(NodeType.VEC3_CONST, 0, 0);
+        GraphNode priv = g.addNode(NodeType.PRIVATE_OUT, 100, 0);
+        priv.signalName = "p";
+        priv.bandTypes = new ArrayList<>(List.of(PinType.EMPTY));
+        assertTrue(g.addConnection(vec.id, 0, priv.id, 0), "私有槽落线即声明");
+        assertEquals(PinType.VEC3, priv.bandType(0));
+        g.removeConnection(vec.id, 0, priv.id, 0);
+        assertEquals(PinType.EMPTY, priv.bandType(0), "摘线即回灰");
+    }
+
+    @Test
+    @DisplayName("存档自愈覆盖私有频道槽 / the save self-heal covers private channel slots too")
+    void saveHealCoversPrivateSlots() {
+        CompoundTag g = new CompoundTag();
+        ListTag nodes = new ListTag();
+        CompoundTag priv = node(1, "private_out");
+        priv.putString("sig", "p");
+        ListTag types = new ListTag();
+        types.add(net.minecraft.nbt.StringTag.valueOf("vec3")); // 无线的存量声明 / legacy declaration without a wire
+        priv.put("bandTypes", types);
+        nodes.add(priv);
+        g.put("nodes", nodes);
+        g.put("conns", new ListTag());
+        g.putInt(NbtVersions.VERSION_KEY, NbtVersions.DATA_VERSION);
+        NodeGraph graph = NodeGraph.load(g, null);
+        assertEquals(PinType.EMPTY, graph.findNode(1).bandType(0), "未连接的私有槽加载即回灰");
     }
 }

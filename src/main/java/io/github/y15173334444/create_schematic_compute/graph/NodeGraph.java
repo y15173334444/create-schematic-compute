@@ -132,7 +132,7 @@ public class NodeGraph {
         // Resolve pinIds from nodes
         GraphNode fromNode = nodeMap.get(fromId);
         GraphNode toNode = nodeMap.get(toId);
-        autoDeclareBusSlot(fromNode, fromPin, toNode, toPin);
+        autoDeclareChannelSlot(fromNode, fromPin, toNode, toPin);
         if (fromNode != null && toNode != null && !pinDomainsMatch(fromNode, fromPin, toNode, toPin)) return false;
         String fPid = fromNode != null ? fromNode.outputPinId(fromPin) : null;
         String tPid = toNode != null ? toNode.inputPinId(toPin) : null;
@@ -142,48 +142,51 @@ public class NodeGraph {
         return true;
     }
 
-    /** 连接即声明（全切换模型不变量，一处写清、全路径生效）：落线时目标是 BUS_OUT 频段脚、
-     *  对端有显式类型且与现声明不同 → 槽位声明切成对端类型（空槽补声明、显式声明随连接
-     *  改写）。手势、撤销重接、远端 ADD_CONN、粘贴都走 {@link PinType#autoDeclareFrom}
-     *  同一判定，「已连的频段脚声明 = 线的类型」在每条路径成立（手势层的 SET_PIN_TYPE
-     *  快路径提前得到同一结果并携带同步编排）。
+    /** 连接即声明（全切换模型不变量，一处写清、全路径生效）：落线时目标是 BUS_OUT 频段脚 /
+     *  PRIVATE_OUT 频道脚、对端有显式类型且与现声明不同 → 槽位声明切成对端类型（空槽补
+     *  声明、显式声明随连接改写）。手势、撤销重接、远端 ADD_CONN、粘贴都走
+     *  {@link PinType#autoDeclareFrom} 同一判定，「已连的槽位声明 = 线的类型」在每条路径
+     *  成立（手势层的 SET_PIN_TYPE 快路径提前得到同一结果并携带同步编排）。
      *  Declare-at-connect (the full-switch model invariant, written once for every path):
-     *  when a wire lands on a BUS_OUT band pin and the peer carries an explicit type differing
-     *  from the slot's declaration, the slot switches to the peer's type (empty slots fill,
-     *  explicit declarations rewrite). Gestures, undo rewires, remote ADD_CONNs and pastes
-     *  all decide through {@link PinType#autoDeclareFrom}, so "a wired band pin's declaration
-     *  equals the wire's type" holds everywhere (the gesture-level SET_PIN_TYPE fast path
-     *  reaches the same result earlier and carries the sync orchestration). */
-    private static void autoDeclareBusSlot(GraphNode fromNode, int fromPin, GraphNode toNode, int toPin) {
-        if (fromNode == null || toNode == null || toNode.type != NodeType.BUS_OUT
+     *  when a wire lands on a BUS_OUT band pin / PRIVATE_OUT channel pin and the peer carries
+     *  an explicit type differing from the slot's declaration, the slot switches to the peer's
+     *  type (empty slots fill, explicit declarations rewrite). Gestures, undo rewires, remote
+     *  ADD_CONNs and pastes all decide through {@link PinType#autoDeclareFrom}, so "a wired
+     *  slot's declaration equals the wire's type" holds everywhere (the gesture-level
+     *  SET_PIN_TYPE fast path reaches the same result earlier and carries the sync). */
+    private static void autoDeclareChannelSlot(GraphNode fromNode, int fromPin, GraphNode toNode, int toPin) {
+        if (fromNode == null || toNode == null
+            || (toNode.type != NodeType.BUS_OUT && toNode.type != NodeType.PRIVATE_OUT)
             || toNode.bandTypes == null || toPin < 0 || toPin >= toNode.bandTypes.size()
-            || toPin >= (toNode.signalBands != null ? toNode.signalBands.size() : 0)) return;
+            || toPin >= (toNode.type == NodeType.PRIVATE_OUT ? 1
+                : (toNode.signalBands != null ? toNode.signalBands.size() : 0))) return;
         PinType declared = PinType.autoDeclareFrom(toNode.bandType(toPin), fromNode.outputType(fromPin));
         if (declared != null) toNode.bandTypes.set(toPin, declared);
     }
 
-    /** 上游断开自动回灰（一律回灰：无线即空）：被摘线的目标是 BUS_OUT 频段脚时该槽声明清回
-     *  EMPTY——「上游未连接/断开 ⟺ 灰」的不变量，同样一处写清、全路径生效（手势删线 /
-     *  撤销 / 远端 REMOVE_CONN 同规则）。下游旧线随后由频段收敛传播 + 类型换段重绑的
-     *  「对端不匹配剪除」契约剪除（类型合法性优先于保线）。
+    /** 上游断开自动回灰（一律回灰：无线即空）：被摘线的目标是 BUS_OUT 频段脚 / PRIVATE_OUT
+     *  频道脚时该槽声明清回 EMPTY——「上游未连接/断开 ⟺ 灰」的不变量，同样一处写清、
+     *  全路径生效（手势删线 / 撤销 / 远端 REMOVE_CONN 同规则）。下游旧线随后由频段收敛
+     *  传播 + 类型换段重绑的「对端不匹配剪除」契约剪除（类型合法性优先于保线）。
      *  Upstream disconnect reverts to grey (always: no wire = empty): when the removed wire's
-     *  target is a BUS_OUT band pin, its slot clears to EMPTY — the "upstream unconnected/
-     *  disconnected ⟺ grey" invariant, written once for every path (gesture deletes, undo,
-     *  remote REMOVE_CONNs). Downstream wires are then pruned by the type-segment rebind's
-     *  "peer mismatch prunes" contract once the change rides the band convergence (type
-     *  legality wins over keeping wires). */
-    private void disconnectBusSlot(int toId, int toPin) {
+     *  target is a BUS_OUT band pin / PRIVATE_OUT channel pin, its slot clears to EMPTY — the
+     *  "upstream unconnected/disconnected ⟺ grey" invariant, written once for every path
+     *  (gesture deletes, undo, remote REMOVE_CONNs). Downstream wires are then pruned by the
+     *  type-segment rebind's "peer mismatch prunes" contract once the change rides the
+     *  convergence (type legality wins over keeping wires). */
+    private void disconnectChannelSlot(int toId, int toPin) {
         GraphNode to = nodeMap.get(toId);
-        if (to != null && to.type == NodeType.BUS_OUT && to.bandTypes != null
-            && toPin >= 0 && toPin < to.bandTypes.size()
-            && toPin < (to.signalBands != null ? to.signalBands.size() : 0)) {
+        if (to != null && (to.type == NodeType.BUS_OUT || to.type == NodeType.PRIVATE_OUT)
+            && to.bandTypes != null && toPin >= 0 && toPin < to.bandTypes.size()
+            && toPin < (to.type == NodeType.PRIVATE_OUT ? 1
+                : (to.signalBands != null ? to.signalBands.size() : 0))) {
             to.bandTypes.set(toPin, PinType.EMPTY);
         }
     }
 
     /** 引脚载荷类型兼容：声明类型严格相等（AUDIO↔AUDIO、FLOAT↔FLOAT、VEC3↔VEC3），且
-     *  **任一端未声明（空）即拒**——「下游可连 ⟺ 上游有连线/声明」的连接门：灰频段脚拒接
-     *  新线（空↔空暗桥同样拒），上游点亮（接线自动声明 / 手动芯片声明）后才可连接。
+     *  **任一端未声明（空）即拒**——「下游可连 ⟺ 上游有连线」的连接门：灰槽位拒接新线
+     *  （空↔空暗桥同样拒），上游点亮（接线自动声明）后才可连接——类型定义只来自连线。
      *  BUS/PRIVATE 频段引脚也按**声明类型**参与严格匹配（任意域豁免已随传输收编退役）——
      *  音频走总线/私有频段 = 把频段声明为 AUDIO 后再接线。
      *  Pin payload-type compatibility: declared types must match strictly AND neither end may
@@ -213,7 +216,7 @@ public class NodeGraph {
         // cause only follows wires that actually land.
         if (inputCache.containsKey(key(toId, toPin))) return false;
         if (fromId == toId) return false;
-        autoDeclareBusSlot(fromNode, fromPin, toNode, toPin);
+        autoDeclareChannelSlot(fromNode, fromPin, toNode, toPin);
         if (!pinDomainsMatch(fromNode, fromPin, toNode, toPin)) return false;
         // pinId 归一：声明可能刚切换过类型段，以节点当前真相源生成的新形态存储（给定
         //  pinId 只用于解析索引）。/ pinIds normalise after a possible declare — stored in
@@ -250,7 +253,7 @@ public class NodeGraph {
         // 回灰只跟真实摘除走：迟到/重复的 REMOVE_CONN（没摘掉任何线）不得清掉新线的声明。
         // The grey-out only follows an actual removal: a late/duplicate REMOVE_CONN (that
         // removed nothing) must not clear the declaration of a newer wire.
-        if (removed) disconnectBusSlot(toId, toPin);
+        if (removed) disconnectChannelSlot(toId, toPin);
         invalidateTopo();
         bumpGeneration();
     }
@@ -265,7 +268,7 @@ public class NodeGraph {
             && fromPinId.equals(c.fromPinId) && toPinId.equals(c.toPinId));
         if (removed) {
             GraphNode to = nodeMap.get(toId);
-            disconnectBusSlot(toId, to != null ? to.inputPinIndex(toPinId) : -1);
+            disconnectChannelSlot(toId, to != null ? to.inputPinIndex(toPinId) : -1);
             invalidateTopo();
             bumpGeneration();
         }
@@ -758,8 +761,10 @@ public class NodeGraph {
         // not survive a save round-trip. Runs after rebuildInputCache so the unknown-code
         // marker's prune/heal goes first and this convergence backstops the rest.
         for (GraphNode n : g.nodes) {
-            if (n.type != NodeType.BUS_OUT || n.bandTypes == null || n.signalBands == null) continue;
-            for (int i = 0; i < n.bandTypes.size() && i < n.signalBands.size(); i++) {
+            if ((n.type != NodeType.BUS_OUT && n.type != NodeType.PRIVATE_OUT) || n.bandTypes == null) continue;
+            int slots = n.type == NodeType.PRIVATE_OUT ? 1
+                : (n.signalBands != null ? n.signalBands.size() : 0);
+            for (int i = 0; i < n.bandTypes.size() && i < slots; i++) {
                 if (n.bandTypes.get(i) == PinType.EMPTY) continue;
                 boolean wired = false;
                 for (NodeConnection c : g.connections) {

@@ -3005,28 +3005,11 @@ public class GraphEditor {
      *  The BUS_IN/OUT band +/- buttons: commit any unsaved busBox first, then prune
      *  connections by pinId (band name), keeping the legacy index fallback. */
     private boolean tryBusBandButtons(GraphNode en, EditState st, int lmx, int lmy, NodeGraph graph) {
-        // 频段类型切换芯片（点击循环 float→audio→vec3）：BUS_OUT 逐频段行可改，
-        // PRIVATE_* 频道单引脚可改。改类型 = SET_PIN_TYPE op（本地镜像 + 上行）。
-        // Band type-cycle chips (click cycles float→audio→vec3): per-row on BUS_OUT,
-        // the channel pin on PRIVATE_*. A retype is a SET_PIN_TYPE op (local mirror + send).
-        if ((en.type == NodeType.BUS_OUT || en.type == NodeType.PRIVATE_IN || en.type == NodeType.PRIVATE_OUT)
-                && st.bandTypeBtnW > 0) {
-            if (en.type == NodeType.BUS_OUT && st.bandTypeBtnX != null && en.signalBands != null) {
-                for (int i = 0; i < st.bandTypeBtnX.length && i < en.signalBands.size(); i++) {
-                    if (lmx >= st.bandTypeBtnX[i] && lmx <= st.bandTypeBtnX[i] + st.bandTypeBtnW
-                        && lmy >= st.bandTypeBtnY[i] && lmy <= st.bandTypeBtnY[i] + st.bandTypeBtnH) {
-                        cyclePinType(en, i);
-                        return true;
-                    }
-                }
-            }
-            if ((en.type == NodeType.PRIVATE_IN || en.type == NodeType.PRIVATE_OUT)
-                && lmx >= st.bandTypeBtnX0 && lmx <= st.bandTypeBtnX0 + st.bandTypeBtnW
-                && lmy >= st.bandTypeBtnY0 && lmy <= st.bandTypeBtnY0 + st.bandTypeBtnH) {
-                cyclePinType(en, 0);
-                return true;
-            }
-        }
+        // 类型片为只读指示器（2026-11-08 拍板）：类型定义由连线驱动（落线即声明、摘线即
+        // 回灰），芯片只显示当前类型、不再切换——点击处理退役。
+        // The type chip is a read-only indicator (2026-11-08 decision): types are wire-driven
+        // (landing a wire declares, removing it greys), so the chip only shows the current
+        // type and no longer switches it — the click handling is retired.
         // BUS_IN/OUT 频段 +/- 按钮（先提交未保存的 busBox，防止名称丢失） (BUS_IN/OUT band +/- buttons; commit unsaved busBox first to avoid name loss)
         if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
             // 提交当前节点的 busBox（如有未保存的频道名编辑） (Commit current node's busBox if unsaved channel name edits exist)
@@ -3037,9 +3020,9 @@ public class GraphEditor {
         if ((en.type == NodeType.BUS_IN || en.type == NodeType.BUS_OUT) && st.bandAddBtnW > 0) {
             if (lmx >= st.bandAddBtnX && lmx <= st.bandAddBtnX + st.bandAddBtnW
                 && lmy >= st.bandAddBtnY && lmy <= st.bandAddBtnY + st.bandAddBtnH) {
-                // + 按钮：添加新频段（初始声明 EMPTY，灰色空态；连接时自动声明 / 切片手动声明），
-                // 同步同总线名节点 (+ button: add a new band declared EMPTY — the grey
-                // initial state; auto-declared at connect time / declared by the chip)
+                // + 按钮：添加新频段（初始 EMPTY，灰态；类型由连线驱动声明），同步同总线名节点
+                // (+ button: add a new band starting EMPTY — grey; the type is declared by
+                // the wire that lands on it)
                 if (en.signalBands == null) en.signalBands = new java.util.ArrayList<>();
                 String name = "band_" + en.signalBands.size();
                 en.signalBands.add(name);
@@ -3083,22 +3066,6 @@ public class GraphEditor {
             }
         }
         return false;
-    }
-
-    /** 引脚声明载荷类型循环（float→audio→vec3）：SET_PIN_TYPE op 本地镜像 + 上行（回显跳过
-     *  发起者，本地必须先应用——CHANNEL 预设点击同款镜像纪律）。
-     *  Cycle a pin's declared payload type (float→audio→vec3): SET_PIN_TYPE op with a
-     *  local mirror + send (the echo skips the originator, so apply locally first — the
-     *  same mirror discipline as the CHANNEL preset click). */
-    private void cyclePinType(GraphNode n, int pin) {
-        io.github.y15173334444.create_schematic_compute.graph.PinType cur = n.bandType(pin);
-        io.github.y15173334444.create_schematic_compute.graph.PinType next = switch (cur) {
-            case EMPTY -> io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT;
-            case FLOAT -> io.github.y15173334444.create_schematic_compute.graph.PinType.AUDIO;
-            case AUDIO -> io.github.y15173334444.create_schematic_compute.graph.PinType.VEC3;
-            case VEC3 -> io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT;
-        };
-        applyPinType(n, pin, next);
     }
 
     /** 声明引脚载荷类型（SET_PIN_TYPE 本地镜像 + 上行；BUS_OUT 改声明后同步频段定义）。

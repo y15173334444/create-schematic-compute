@@ -185,10 +185,11 @@ public class EditPanel {
                 bandBox.setX(bx); bandBox.setY(by); bandBox.setWidth(bw);
                 manualEditBox(g, bandBox, bx, by, bw, 16);
             }
-            // 声明类型切换芯片（float→audio→vec3 循环）：BUS_OUT 可点击改声明，
-            // BUS_IN 为定义指示（收敛跟频道走）。/ Declared-type cycle chip (float→audio→vec3):
-            // clickable on BUS_OUT (edits the declaration), an indicator on BUS_IN (the
-            // definition rides the channel).
+            // 类型指示芯片（只读，2026-11-08 拍板）：显示当前声明/生效类型——类型定义由
+            // 连线驱动（落线即声明、摘线即回灰），芯片不再切换类型。
+            // The type chip is a read-only indicator (2026-11-08 decision): it shows the
+            // current declared/effective type — types are wire-driven (landing a wire
+            // declares, removing it greys), so the chip no longer switches anything.
             {
                 PinType bt = node.bandType(pinIdx);
                 int chipW = 30, chipH = 12;
@@ -203,7 +204,7 @@ public class EditPanel {
                     st.bandTypeBtnY[bi - 1] = chipY;
                 }
                 st.bandTypeBtnW = chipW; st.bandTypeBtnH = chipH;
-                drawTypeChip(g, chipX, chipY, chipW, chipH, bt, mx, my, !isBusIn);
+                drawTypeChip(g, chipX, chipY, chipW, chipH, bt, mx, my, true);
             }
             row++;
         }
@@ -430,7 +431,7 @@ public class EditPanel {
             int chipY = py + 4 + row * 18 + 1;
             st.bandTypeBtnX0 = chipX; st.bandTypeBtnY0 = chipY;
             st.bandTypeBtnW = chipW; st.bandTypeBtnH = chipH;
-            drawTypeChip(g, chipX, chipY, chipW, chipH, pt, mx, my, false);
+            drawTypeChip(g, chipX, chipY, chipW, chipH, pt, mx, my, true);
             row++;
         }
         } // else 块结束
