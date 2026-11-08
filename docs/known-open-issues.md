@@ -868,3 +868,29 @@ AMP.audio 与浮点消费端，断言浮点线被剪、音频线保留）。
 ### 状态 / Status
 
 🔶 待办（2026-11-08 复审登记；修复在另批会话进行）。
+
+## 25. 频段手动声明不跨存档（芯片声明=会话内激活器）
+
+范围 / Scope：`graph/NodeGraph`（loadCurrent 存档自愈）、`client/editor`（频段类型片）
+
+### 现状 / Current behaviour
+
+「未连接 ⟺ 灰」按存档自愈强约束执行：加载时没有入线的 BUS_OUT 频段槽位一律回灰（清空
+声明）。芯片手动声明因此是**会话内激活器**——不接线也能放行下游连接，但存档重载后回灰
+（下游线随之按「类型合法性优先于保线」契约剪除）。2026-11-08 推送前复审定为可接受口径
+（贴「一律回灰」拍板）。
+/ The unwired-⟹-grey rule is enforced hard at save load: an unwired BUS_OUT band slot
+always greys on load, so a manual chip declaration is an in-session activator — it opens
+downstream connects without a wire but greys again after a save round-trip.
+
+### 备选设计 / Alternative
+
+若需「手动声明跨存档保留」：给槽位加**声明来源标记**（连线派生 / 芯片手动，NBT 旁路一列 +
+随声明表同步），存档自愈只清「连线派生」槽位。代价：多一列持久化与同步面。
+/ To keep manual declarations across saves: a declaration-provenance marker (wire-derived
+vs chip-manual) persisted alongside the declaration table; the save self-heal then clears
+only wire-derived slots. Cost: one more persisted and synced column.
+
+### 状态 / Status
+
+🔶 待定（2026-11-08 登记；用户未提异议前维持现状）。
