@@ -417,11 +417,29 @@ public class GraphNode {
         if ((type == NodeType.BUS_OUT) && signalBands != null) {
             for (int i = 0; i < signalBands.size(); i++)
                 if (pinId.equals(inputPinId(i))) return i;
-            return -1;
+            return rescueByParam(pinId, this::inputPinId, signalBands.size());
         }
         // 通用/参数引脚 / generic / param pins
         int maxIn = inputs();
         for (int i = 0; i < maxIn; i++) if (pinId.equals(inputPinId(i))) return i;
+        return rescueByParam(pinId, this::inputPinId, maxIn);
+    }
+
+    /** 段漂移救援：全串失配时按**参段**（身份）解析——类型段是声明的影子，声明随线变化
+     *  （落线即声明 / 摘线回灰）会让存量 pinId 的段过期；身份解析不被段挡住。参段在节点
+     *  内唯一（频段名 / 索引），按参段匹配不会误配。
+     *  Segment-drift rescue: when the full-string match fails, resolve by **param**
+     *  (identity) — the type segment is the declaration's shadow and goes stale as the
+     *  declaration follows the wire (declare at connect / grey on disconnect); identity
+     *  resolution must not be blocked by the segment. Params are unique within a node
+     *  (band name / index), so param matching cannot mis-resolve. */
+    private int rescueByParam(String pinId, java.util.function.IntFunction<String> idAt, int count) {
+        String p = PinId.paramOf(pinId);
+        if (p == null) return -1;
+        for (int i = 0; i < count; i++) {
+            String cur = idAt.apply(i);
+            if (cur != null && p.equals(PinId.paramOf(cur))) return i;
+        }
         return -1;
     }
 
@@ -465,12 +483,12 @@ public class GraphNode {
         if ((type == NodeType.BUS_IN || type == NodeType.CHANNEL) && signalBands != null) {
             for (int i = 0; i < signalBands.size(); i++)
                 if (pinId.equals(outputPinId(i))) return i;
-            return -1;
+            return rescueByParam(pinId, this::outputPinId, signalBands.size());
         }
         // 通用：参段 = 索引的十进制串 / Generic: param is the decimal string of the index
         int maxOut = outputs();
         for (int i = 0; i < maxOut; i++) if (pinId.equals(outputPinId(i))) return i;
-        return -1;
+        return rescueByParam(pinId, this::outputPinId, maxOut);
     }
 
     /** Get the stable pinId for an input pin at the given index.

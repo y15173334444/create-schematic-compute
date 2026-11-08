@@ -3093,8 +3093,11 @@ public class GraphEditor {
     private void maybeAutoDeclareBandType(int fromId, int fromPin, int toId, int toPin) {
         var toN = getGraph().findNode(toId);
         var fromN = getGraph().findNode(fromId);
-        if (toN == null || fromN == null || toN.type != NodeType.BUS_OUT
-            || toN.signalBands == null || toPin < 0 || toPin >= toN.signalBands.size()) return;
+        if (toN == null || fromN == null
+            || (toN.type != NodeType.BUS_OUT && toN.type != NodeType.PRIVATE_OUT)) return;
+        if (toN.type == NodeType.BUS_OUT) {
+            if (toN.signalBands == null || toPin < 0 || toPin >= toN.signalBands.size()) return;
+        } else if (toPin != 0) return;
         var peer = fromN.outputType(fromPin);
         var declared = PinType.autoDeclareFrom(toN.bandType(toPin), peer);
         if (declared != null) applyPinType(toN, toPin, declared);

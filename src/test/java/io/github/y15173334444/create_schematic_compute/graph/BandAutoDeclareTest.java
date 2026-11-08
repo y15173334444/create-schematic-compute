@@ -387,6 +387,26 @@ class BandAutoDeclareTest {
     }
 
     @Test
+    @DisplayName("段漂移救援：过期类型段的 pinId 按参段解析并落线即声明 / stale-segment pinIds resolve by param and declare at connect")
+    void staleSegmentPinIdResolvesAndDeclares() {
+        NodeGraph g = new NodeGraph();
+        GraphNode vec = g.addNode(NodeType.VEC3_CONST, 0, 0);
+        GraphNode priv = g.addNode(NodeType.PRIVATE_OUT, 100, 0);
+        priv.signalName = "p";
+        priv.bandTypes = new ArrayList<>(List.of(PinType.FLOAT)); // 迁移回填的旧声明 / a migrated legacy declaration
+        // 手势在本地声明后捕获 pinId（vec3:0）——服务端的槽还是 float 段，全串解析会失配
+        // 把线静默拒掉（2026-11-08 实测：私有类型不跨端同步的根因）。
+        // The gesture captures the pinId after the local declare ("vec3:0") while the
+        // far side still has the float segment — full-string resolution mismatched and
+        // silently refused the wire (the 2026-11-08 root cause of private types not
+        // syncing cross-end).
+        assertTrue(g.addConnectionWithPinIds(vec.id, "vec3:0", priv.id, "vec3:0"),
+            "过期段 pinId 应按参段（身份）解析并接上");
+        assertEquals(PinType.VEC3, priv.bandType(0), "落线即声明");
+        assertEquals(1, g.connections.size());
+    }
+
+    @Test
     @DisplayName("新建私有节点自带空槽：落线即声明、芯片随线变色 / a fresh private node ships its empty slot — the wire declares and the chip follows")
     void freshPrivateNodeDeclaresFromWire() {
         NodeGraph g = new NodeGraph();
