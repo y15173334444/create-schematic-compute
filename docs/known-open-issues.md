@@ -895,3 +895,21 @@ only wire-derived slots. Cost: one more persisted and synced column.
 
 ✅ 已拍板（2026-11-08）：类型片改为**只读类型指示器**、手动声明整体退役——类型定义只来自
 连线（落线即声明、摘线即回灰），来源标记不再需要；PRIVATE_OUT 同口径收编线驱动。
+
+## 26. 协作在场层渲染层级（远端光标/拖线预览盖住 chrome）
+
+范围 / Scope：`client/editor/GraphEditor`（render 尾段的 `renderPresenceOverlay` 调用位置）
+
+### 症状 / Symptom
+
+协作在场层（远端玩家光标标签、对方拖线预览）画在渲染**尾段**——位于工具条、顶栏、
+弹窗与加节点菜单**之上**，多人协作时标签/线会压在 chrome 上（2026-11-08 实测截图）。
+
+### 修复方向 / Fix direction
+
+把 `renderPresenceOverlay(g)` 从渲染尾段移到画布层（`renderNodes` 之后、
+`renderButtons`/顶栏/弹窗/菜单之前）：远端光标可见于节点之上、chrome 之下。
+
+### 状态 / Status
+
+🔶 待办（2026-11-08 登记；修复不进 pin-type PR——范围裁定，另批处理）。
