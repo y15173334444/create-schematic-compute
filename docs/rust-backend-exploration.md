@@ -75,6 +75,19 @@
 - 修正早前读数:原型首版 full 路径测得 99.6ns/iter(-23% vs Java),三轮复跑稳定在 76.2ns——**tagged full 路径与 Java JIT 打平**(该首测差异属代码布局/单次采样噪声);「原生必慢于 JIT」的假设不成立,慢的是第一版实现里 32B 值搬运 + 16B token 步长,快路径验证了这一归因。
 - 运行:`cargo run --release -p formula-core --bin alloc-bench`(fast/full 双跑输出)。
 
+### 3.3 真实重节点:火控弹道反解脚本(docs/examples/ballistic_solver.formula)
+
+拿仓库真脚本跑通(粗扫 46 点×400 tick 模拟 + 细扫 17 点 + 割线 ≤10 轮)。为此 mini 前端补齐了三种语法形态:行内块 `{ a; b }`(含嵌套)、无花括号 if 体(`if (still > 20) break`)、`@output` 声明行(lenient 跳过)。5 个 CBC 金标准案例:**ay/ap/hit/vx0/vy0 全部与 Java 逐位一致**(整条模拟链),唯 case 2 的 `vz0`(≈1e-15 浮点尘埃)差 3.3e-4 相对值——根因见 §5.3,非求值引擎差异。
+
+对拍口径 = Java 探针解析缓存(同模组 `cachedScript` 行为;解析本身 1.1ms/520KB,可忽略):
+
+| 500 格中程案例 | Java | Rust fast | Rust full | fast/Java |
+|---|---|---|---|---|
+| 单次求解耗时 | 14.98ms | **5.83ms** | 11.1ms | **2.57x** |
+| 单次求解分配 | **43.3 MB** | **0**(整窗 6.5KB 缓冲首扩) | 0 | — |
+
+**这就是 1GB/s 的真身**:Java 下一次火控解算 = 43MB 垃圾(分配速率 2.9GB/s),20ms 预算每 tick 只能塞一次解算还附带一次 young GC 压力;Rust 快路径同预算能塞 ~3 次且零垃圾。快路径生效(脚本纯标量)外加消掉了 Java 侧 HashMap env 的每变量查表。
+
 ## 四、桥接契约(待拍板的实施形态)
 
 ### 4.1 编译下沉(Java 侧)
@@ -116,6 +129,12 @@
 ### 5.2 Java 侧顺带发现(建议登记册收编)
 
 - **畸形 RPN 每 tick 异常**:括号不闭合(如 `y = 1 + (2`)能通过解析进入 AST,exec 时抛 `NoSuchElementException`——被 eval 分支 `catch (Exception)` 兜住(输出归零),但坏档/坏编辑形态下是每 tick 异常。建议解析期把「括号不闭合」收编为 ERROR issue(与 P1-6 深度守卫同模式)。本条出自本探索线的对拍准备,归属主仓缺陷面,由用户拍板后进登记册。
+
+### 5.3 libm 精度差异(桥接期决策点)
+
+弹道 5 案例对拍中 4 例**整链逐位一致**,唯 case 2 的 `vz0`(≈1e-15 浮点尘埃)差 3.3e-4 相对值。根因探针实证:**windows-gnu 链接的 msvcrt/UCRT libm 在 π/2 倍数附近用低精度 π 做参数归约**——`cos(90°)` Java(fdlibm 血统)= 6.123233995736766e-17(数学正确),msvcrt = 6.123031769111886e-17。对模拟主量(ay/ap/hit/vx0/vy0)无影响(扫描/割线的阈值量化吸收了轨迹端差异),只在尘埃直通输出处暴露。
+
+**桥接建议**:捆绑 `libm` crate(纯 Rust fdlibm 移植,与 Java StrictMath 同源,零原生依赖)替换系统 trig/pow —— 恢复全逐位对拍且跨平台确定。不采纳则在 FFI 契约里给输出定义容差带(尘埃带 |x|<1e-12 → 绝对容差 1e-15,主量逐位)。
 
 ## 六、拍板点与建议
 
