@@ -3,6 +3,30 @@
 
 use crate::tok::Tok;
 
+/// 纯标量探测：全程序（含嵌套体/循环条件）无向量函数、无 swizzle → 快路径资格。
+/// vec3 值只能由向量函数产生，swizzle 保守排除（标量取分量虽也是标量，但罕见、
+/// 不值得为它复杂化快路径）。mini 编译器与二进制桥（bridge.rs）共用同一规则，
+/// 保证两条前端路径的快路径判定一致。
+pub fn scan_scalar_only(body: &[Stmt]) -> bool {
+    fn rpn_scalar(rpn: &[Tok]) -> bool {
+        rpn.iter().all(|t| match t {
+            Tok::Fn(f) => !f.is_vector_fn(),
+            Tok::Swz(_) => false,
+            _ => true,
+        })
+    }
+    fn stmts_scalar(stmts: &[Stmt]) -> bool {
+        stmts.iter().all(|s| match s {
+            Stmt::Assign { rpn, .. } | Stmt::Expr(rpn) => rpn_scalar(rpn),
+            Stmt::Repeat { body, .. } => stmts_scalar(body),
+            Stmt::While { cond, body, .. } => rpn_scalar(cond) && stmts_scalar(body),
+            Stmt::If { cond, body, els } => rpn_scalar(cond) && stmts_scalar(body) && stmts_scalar(els),
+            Stmt::Break | Stmt::Continue => true,
+        })
+    }
+    stmts_scalar(body)
+}
+
 /// 语句（与 FormulaAst.Stmt 逐字对齐；repeat/while 携带编译期唯一 id，
 /// 供循环栈与 seek 续算按身份命中——对应 Java 的「同次 parse 内 AST 实例身份」）。
 #[derive(Clone)]

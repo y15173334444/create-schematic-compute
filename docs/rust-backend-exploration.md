@@ -1,6 +1,6 @@
 # 公式求值 Rust 后端 · 探索线（csc-rust-backend-explore）
 
-> 状态:**✅ 已拍板立项,全量实施**(2026-11-14 拍板,见 §六;实施批 R1–R4 待开工)
+> 状态:**✅ 已拍板立项,R1 已落地**(2026-11-14 拍板见 §六;R1 桥对拍 17/17 绿;R2 构建接线、R3 求值接线待开工)
 > 施工面:worktree `C:/Users/Administrator/csc-rust-backend-wt`,分支 `csc-rust-backend-explore`(自 main 5528caa3 分出)
 > 触发:公式节点预算池开到 20ms/tick 时,服务端内存分配率达 1GB/s 级——求值链路的堆分配成为主要代价。
 > 产物:`native/formula-core/`(零分配求值核心,13/13 与 Java 链对拍含弹道真脚本)、`bench/java/`(Java 基线基准)、本文。
@@ -147,7 +147,7 @@
 
 弹道 5 案例对拍中 4 例**整链逐位一致**,唯 case 2 的 `vz0`(≈1e-15 浮点尘埃)差 3.3e-4 相对值。根因探针实证:**windows-gnu 链接的 msvcrt/UCRT libm 在 π/2 倍数附近用低精度 π 做参数归约**——`cos(90°)` Java(fdlibm 血统)= 6.123233995736766e-17(数学正确),msvcrt = 6.123031769111886e-17。对模拟主量(ay/ap/hit/vx0/vy0)无影响(扫描/割线的阈值量化吸收了轨迹端差异),只在尘埃直通输出处暴露。
 
-**桥接建议**:捆绑 `libm` crate(纯 Rust fdlibm 移植,与 Java StrictMath 同源,零原生依赖)替换系统 trig/pow —— 恢复全逐位对拍且跨平台确定。不采纳则在 FFI 契约里给输出定义容差带(尘埃带 |x|<1e-12 → 绝对容差 1e-15,主量逐位)。
+**已收口(R1 落地)**:捆绑 libm crate 不够——musl 血统与 Java fdlibm 5.3 在 sin 1.1%/cos 0.8%/**log10 6.7%** 参数差 1 ulp,模拟链(弹道 46×400 迭代)放大到 ap ~76 ulp,全逐位破产。最终形态 = **双端同锚 fdlibm 5.3**:①Rust 侧 `src/fdlibm.rs` 逐行移植 Zulu 21 `FdLibm.java` 的 Sin/Cos/RemPio2/KernelRemPio2/Log/Log10(14300 样本位模式夹具逐位验证,tests/trig_anchor.rs);②Java 侧 FormulaFunctions/FormulaParser 求值 `Math`→`StrictMath`(HotSpot Math 内在函数是 Intel 系血统且随 CPU 厂商漂移,本机实测与 StrictMath 差 2–3% 参数;StrictMath = 跨平台确定锚,弹道金标准值不变)。收口后弹道 5 案例全链**全逐位**(含尘埃值),尘埃带容差已删除。libm crate 继续承担 asin/acos/atan2/exp/sinh/cosh/pow/tan(夹具域内已逐位)与 scalbn。
 
 ## 六、拍板记录(2026-11-14 定案)
 
@@ -159,7 +159,7 @@
 
 **实施拆批**(每批独立提交、独立可回退):
 
-- **R1 Tok 编码器**:Java 侧 RPN→`Tok[]` 编译(槽位表按名映射——引脚序≠源码首现序,弹线实证两次踩坑)、`libm` 接入 formula-core、FFI 契约头(`.h`)与 Java 侧 native 声明对齐、Tok 编码测试(Java/Rust 双端同源对拍)。
+- **R1 Tok 编码器:✅ 已落地**(17/17 对拍绿):`src/fdlibm.rs` 移植 + Java 侧 StrictMath 锚定(见 §5.3);Java `FormulaTokEncoder`(AST+RPN→定宽 Tok 字节码,槽位首现序互敦、loop id 前序分配、Fn/Cmp 显式序数表)⇄ Rust `src/bridge.rs` 解码器,格式契约 = bridge.rs 模块头,夹具四脚本(.tokbin+.golden.txt)双端逐位对拍,解码器带 magic/版本/截断/**剩余字节**四重契约检查(编码端首版变宽 payload 即被剩余字节检查当场暴露);carrier 字节序列化往返 + 续算等价测试(与 JNI 形态同构);`native/include/formula_native.h` + Java `FormulaNative` 声明骨架(加载探测 + AVAILABLE 兜底门,不接 FormulaEval)。**待办教训**:assign 互敦漏 RHS 变量(输入钉不进表)= 槽位契约测试当场暴露。
 - **R2 构建接线**:cargo build 挂 gradle task、natives 提取打包进 jar(`natives/<os>-<arch>/`)、`System.load` 加载与能力探测、无 native 自动回退 Java 解释器。
 - **R3 求值接线**:FormulaEval/FormulaCompute 分流 native/Java、carrier 跨界序列化(字节数组)、deadline 锚点传递(anchor+delta 口径,§4.3)、对拍网扩到全函数表+脚本矩阵(弹道 5 案例 + 预算脚本集全量)。
 - **R4 收尾**:CHANGELOG 行、畸形 RPN(括号不闭合)登记册收编(§5.2)、性能验收(弹道 20ms 预算实测 + GC 压力对比)、文档收口。

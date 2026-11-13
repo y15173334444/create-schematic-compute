@@ -22,6 +22,7 @@
 //! scaffolding only, not part of the bridge contract.
 
 mod ast;
+pub mod bridge;
 mod compiler;
 pub mod fdlibm;
 mod interp;
