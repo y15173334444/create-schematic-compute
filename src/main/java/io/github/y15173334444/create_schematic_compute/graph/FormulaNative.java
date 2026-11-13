@@ -42,6 +42,9 @@ public final class FormulaNative {
     /** abi 版本（与头文件/ffi.rs 契约同步递增；不匹配 = 拒载走兜底）。 */
     public static final int ABI_VERSION = 1;
 
+    /** 程序字节码上限（native 侧拷贝前检查；与 ffi.rs PROGRAM_MAX_BYTES 锁步）。 */
+    static final int PROGRAM_MAX_BYTES = 16 * 1024 * 1024;
+
     /** native 库是否可用（加载探测一次，进程级）。 / whether the native lib loaded. */
     public static final boolean AVAILABLE = probe();
 

@@ -116,6 +116,42 @@
 - **Java 解释器完整保留**为无 native 时的兜底(加载失败/陌生平台自动降级),两条路径由对拍测试网锁定同语义;
 - 引脚/Value/去重缓存/冻结门面(K6 freeze、emit-on-done)全部不动,只换 `evaluateValue`+解释器这一层。
 
+### 4.6 JNI 面防御对抗(R2.5)
+
+**威胁模型**:package-private 不是安全边界——同包类定义/反射 setAccessible 都能直调
+native;字节码与挂起态是可被篡改的边界(存档改写/未来的网络同步)。对抗口径 = 任何
+敌意输入只允许负错误码或无操作,**绝不 JVM 崩溃/挂死**。
+
+**发现的洞与收口**:
+
+- **Rust 栈溢出洞**:`decode_stmts` 递归解码不受 Java MAX_PARSE_DEPTH 约束——crafted
+  深嵌套字节码可在 JNI 调用内打爆 native 栈(abort = 进程崩)。收口:解码深度帽 128
+  (镜像 MAX_PARSE_DEPTH,合法程序必过——编码器产不出更深 AST),超帽 = `TooDeep` 受控拒绝。
+- **裸指针会话洞**:旧形态 jlong = 裸指针,`exec(-1)`/double-destroy = 越界解引用/双重
+  释放(对抗测试在**旧 dll 上真实复现了 ACCESS_VIOLATION**)。收口:会话句柄表化——
+  jlong = 全局表键(原子序号,0 恒 null 哨兵),值 = `Arc<Mutex<Session>>`;destroy 幂等
+  (二次/敌意句柄查无此人),进行中的 exec 持 Arc 安全收尾,表锁短临界区 + 会话锁
+  per-session,锁中毒恢复。
+- **大数组分配洞**:敌意大 byte[] 会在 native 侧换出大分配。收口:程序字节码 16MB /
+  carrier 8MB 尺寸帽,**在 convert/拷贝之前**检查(按数组长度,零拷贝拒绝)。
+- **构建链洞(gradle 侧,对抗批顺带抓出)**:外部工具产物对 gradle 不透明——
+  buildNative 的 UP-TO-DATE 判定可能拿着过期 target 产物重录输入哈希,**stale dll 让
+  修复版永远进不了测试**(敌意输入一直在打旧漏洞)。收口:`outputs.upToDateWhen { false }`
+  强制执行,cargo 自身增量(无变更 0.05s);另注意 gradle daemon 的 PATH 不含 cargo
+  (daemon 继承首个 shell 环境)——`--stop` 后带 PATH 重跑。
+
+**对抗测试网**(全部确定性、无外部 fuzz 依赖):
+
+- Rust 侧(tests/bridge_cross.rs):变异 fuzz 10k×2 源(单点翻转/短覆盖/截断/尾部追加,
+  解码永不 panic)、carrier 轰炸 10k、**全前缀截断扫描**、400 层 crafted 深嵌套 = TooDeep
+  + 100 层合法程序不被误伤;ffi.rs:句柄表对抗矩阵(单 #[test] 串行——会话表是全局态)。
+- JNI 侧(FormulaNativeAdversarialTest,5 用例真 lib):敌意句柄矩阵(0/负/MIN/MAX/巨数 ×
+  四操作)、double-destroy + 销毁后使用 + id 单调不复用、字节码轰炸(空/垃圾/500 轮位翻转/
+  16MB+1 超帽 = -5)、carrier 轰炸(500 轮头合法化随机体 = -4 或受控往返)、深嵌套 crafted
+  = -5。结果:**5/5,敌意输入全部受控,JVM 存活**。
+- 红线口径:Java 侧访问修饰符是便利不是边界——**native 侧验证一切**;错误码表扩展
+  见 formula_native.h(-5 覆盖 programUpload 解码失败与超帽)。
+
 ### 4.5 调用次数形态:批量入口(全局拓扑落地后启用)
 
 逐节点 exec 的调用数 = 每 tick 活跃公式节点数。批量形态把 JNI 面收敛为四类:

@@ -1,21 +1,25 @@
-//! R2 JNI shim：`formula_native.h` 契约的 Rust 落地。两个层次：
+//! R2 JNI shim + 防御对抗硬化：`formula_native.h` 契约的 Rust 落地。三个层次：
 //! - `Session`（纯 Rust）：已上传 Program 的槽位表（释放槽位复用，programId 稳定）
 //!   + 每程序独占的 regs/loop_stack 复用缓冲——exec 走 `bridge::decode_program` 已
 //!   上传的字节码 → `Exec::new/run`，引擎路径稳态零分配；挂起路径
 //!   `carrier_to_bytes` 一次分配（与 bridge.rs「分配只发生在挂起时刻」同口径）。
-//! - 5 个 JNI 导出（与 formula_native.h 一一同名）：薄翻译层。JVM 数组经 region
-//!   API 拷入/拷出——胶水每次 exec 分配两个小 Vec，属过渡逐节点形态的固有开销
-//!   （§4.5 批量入口切 direct ByteBuffer 时一并消除），引擎路径零分配不受影响。
+//! - **会话句柄表（防御对抗批）**：jlong 句柄 = 全局表键（原子序号，0 恒为 null
+//!   哨兵），**不再是裸指针**——double-free / use-after-free / 伪造句柄从构造上
+//!   消灭。destroy 幂等（二次/敌意句柄查无此人 = 无操作）；exec 持 `Arc<Session>`，
+//!   destroy 与进行中的求值并发安全；表锁短临界区（只取 Arc 副本），会话锁
+//!   per-session（长求值互不阻塞）；锁中毒恢复（本层闭包不 panic，表不变式 =
+//!   insert/remove 原子完成）。package-private 不是安全边界：Java 侧反射/同包
+//!   类定义都摸得到这些 native——**native 侧验证一切**才是边界本身。
+//! - JNI 翻译层：JVM 数组经 region API 搬运；字节码/挂起态**尺寸帽在拷贝之前**
+//!   检查（敌意大数组不产生 native 侧大分配）。全部非法输入走负错误码，**绝不
+//!   panic 跨 FFI**（panic 跨 FFI = abort）。
 //!
-//! JNI 异常纪律：全部非法输入（坏会话/坏 id/坏缓冲/坏字节码）走负错误码返回，
-//! **绝不 panic 跨 FFI**（panic 跨 FFI = abort）；jvm 数组操作失败同样映射错误码。
-//! 纯 Rust 单测（`tests` mod）不经真 JVM 验证 Session 编排逻辑。
-//!
-//! R2 JNI shim: the Rust landing of the formula_native.h contract. `Session` is
-//! pure Rust (uploaded programs in a slot table with stable ids, per-program
-//! reusable buffers — steady-state zero-alloc on the engine path); the 5 JNI
-//! exports are a thin translation layer where every invalid input returns a
-//! negative error code instead of panicking across the FFI boundary.
+//! R2 JNI shim + defense hardening: `Session` is pure Rust (slot table with stable
+//! ids, per-program reusable buffers — steady-state zero-alloc); session handles
+//! are global-table keys, never raw pointers (double-free/UAF/forged handles are
+//! structurally impossible; destroy is idempotent; per-session locks isolate long
+//! evaluations); bytecode/carrier size caps checked before any copy; every invalid
+//! input returns a negative code instead of panicking across the FFI boundary.
 
 use std::time::Duration;
 
@@ -23,7 +27,6 @@ use jni::objects::{JByteArray, JClass, JDoubleArray};
 use jni::sys::{jbyte, jint, jlong};
 use jni::JNIEnv;
 
-use crate::ast::Program;
 use crate::bridge::{carrier_from_bytes, carrier_to_bytes, decode_program, DecodeError};
 use crate::interp::{Budget, Exec, LoopEntry, Outcome};
 use crate::value::V;
@@ -36,17 +39,17 @@ pub(crate) const ABI_VERSION: jint = 1;
 const OK_DONE: jint = 0;
 const OK_SUSPENDED: jint = 1;
 const OK_SHED: jint = 2;
-/// -1 会话无效。 / invalid session.
+/// -1 会话无效（null 哨兵/过期句柄/敌意句柄）。 / invalid session (null/stale/forged).
 const ERR_SESSION: jint = -1;
 /// -2 程序 id 无效（未上传或已释放）。 / unknown or released program id.
 const ERR_PROGRAM_ID: jint = -2;
 /// -3 输入/输出缓冲尺寸不符（超槽位数为契约外形态；未给满按 lenient 0）。
 /// / buffer size mismatch (oversized = contract violation; short = lenient zero fill).
 const ERR_BUFFER: jint = -3;
-/// -4 carrier 解码失败。 / carrier decode failure.
+/// -4 carrier 解码失败或超尺寸帽。 / carrier decode failure or over the size cap.
 const ERR_CARRIER: jint = -4;
-/// -5 Program 字节码解码失败（programUpload 专用；编辑期暴露优于静默漂移）。
-/// / program bytecode decode failure (programUpload only; surfaced at edit time).
+/// -5 Program 字节码解码失败或超尺寸帽（programUpload 专用；编辑期暴露优于静默漂移）。
+/// / program bytecode decode failure or over the size cap (programUpload only).
 const ERR_PROGRAM_BYTES: jint = -5;
 
 // ───────────────────────── 纯 Rust 会话核心（单测覆盖） ─────────────────────────
@@ -54,7 +57,7 @@ const ERR_PROGRAM_BYTES: jint = -5;
 /// 已上传程序 + 该程序独占的求值缓冲（跨 exec 复用 → 稳态零分配）。
 /// One uploaded program plus its exclusive eval buffers (reused across execs).
 struct UploadedProgram {
-    prog: Program,
+    prog: crate::ast::Program,
     regs: Vec<V>,
     loops: Vec<LoopEntry>,
 }
@@ -78,8 +81,11 @@ pub enum ExecError {
     BadBuffer,
 }
 
-/// 会话：世界级生命周期（服务端线程独占创建/销毁，非线程安全——契约由调用方保证）。
-/// Session: world-scoped lifetime, server-thread confined, not thread-safe (caller's contract).
+/// 会话：世界级生命周期（服务端线程独占的**使用**契约——但句柄表保证并发误用
+/// 也只是数据竞争级别的串行化，绝不是内存不安全）。
+/// Session: world-scoped lifetime. The server-thread-exclusive contract is about
+/// serialization, never memory safety — the handle table makes concurrent misuse
+/// merely serialized, never unsafe.
 pub struct Session {
     /// 程序槽位表：释放只置 None 不收缩 → programId 稳定，后续上传复用空洞。
     programs: Vec<Option<UploadedProgram>>,
@@ -194,16 +200,45 @@ impl Session {
     }
 }
 
-// ───────────────────────── JNI 导出（formula_native.h 一一同名） ─────────────────────────
+// ───────────────────────── 会话句柄表（防御对抗核心） ─────────────────────────
+//
+// jlong 句柄 = 全局表键；0 恒为 null 哨兵、从不发放。表值 = Arc<Mutex<Session>>：
+// destroy 只从表移除（进行中的 exec 持 Arc 安全收尾），double-free/UAF 无从谈起。
 
-/// 裸指针还原（契约：只接收本库 sessionCreate 发出的指针，Java 侧不外传）。
-/// Raw-pointer restore (contract: only pointers issued by sessionCreate come back here).
-unsafe fn session_ref(session: jlong) -> Option<&'static mut Session> {
-    if session == 0 {
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
+
+/// 程序字节码上限（合法脚本 KB 级；16MB = 弹道脚本 ×1000 余量）。
+/// Program bytecode cap (legit scripts are KB-scale; 16MB ≈ ×1000 the ballistic script).
+const PROGRAM_MAX_BYTES: usize = 16 * 1024 * 1024;
+/// 挂起态字节上限（合法最坏 ≈ 槽位数×25B + 头部 ≈ KB 级；8MB = ×4000 余量）。
+/// Suspended-carrier cap (legit worst ≈ slots×25B + header ≈ KBs).
+const CARRIER_MAX_BYTES: usize = 8 * 1024 * 1024;
+
+static SESSIONS: Mutex<BTreeMap<u64, Arc<Mutex<Session>>>> = Mutex::new(BTreeMap::new());
+static SESSION_SEQ: AtomicU64 = AtomicU64::new(1);
+
+/// 表锁（中毒恢复；临界区只做 insert/remove/clone——panic 中途的不变式破坏不存在）。
+/// Table lock (poison-recovering; critical sections are insert/remove/clone only).
+fn lock_table() -> std::sync::MutexGuard<'static, BTreeMap<u64, Arc<Mutex<Session>>>> {
+    SESSIONS.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// 会话查表（敌意/过期句柄 = 查无此人）。 / Table lookup (hostile/stale = unknown).
+fn session_cell(session: jlong) -> Option<Arc<Mutex<Session>>> {
+    if session <= 0 {
         return None;
     }
-    Some(&mut *(session as *mut Session))
+    lock_table().get(&(session as u64)).cloned()
 }
+
+/// 会话锁（中毒恢复）。 / Session lock (poison-recovering).
+fn lock_session(cell: &Arc<Mutex<Session>>) -> std::sync::MutexGuard<'_, Session> {
+    cell.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+// ───────────────────────── JNI 导出（formula_native.h 一一同名） ─────────────────────────
 
 #[no_mangle]
 pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_sessionCreate<
@@ -212,7 +247,9 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
     _env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) -> jlong {
-    Box::into_raw(Box::new(Session::new())) as jlong
+    let id = SESSION_SEQ.fetch_add(1, Ordering::Relaxed);
+    lock_table().insert(id, Arc::new(Mutex::new(Session::new())));
+    id as jlong
 }
 
 #[no_mangle]
@@ -223,9 +260,10 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
     _class: JClass<'local>,
     session: jlong,
 ) {
-    if session != 0 {
-        // 契约：只销毁本库发出的指针。 / Contract: only pointers issued by sessionCreate.
-        drop(unsafe { Box::from_raw(session as *mut Session) });
+    if session > 0 {
+        // 幂等：二次 destroy / 敌意句柄查无此人 = 无操作（不炸、不双重释放）。
+        // Idempotent: double-destroy / hostile handles are no-ops by construction.
+        lock_table().remove(&(session as u64));
     }
 }
 
@@ -238,15 +276,23 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
     session: jlong,
     program: JByteArray<'local>,
 ) -> jint {
-    let Some(s) = (unsafe { session_ref(session) }) else {
+    let Some(cell) = session_cell(session) else {
         return ERR_SESSION;
     };
-    let bytes = match env.convert_byte_array(program) {
-        Ok(b) => b,
-        // null 数组或 JVM 侧失败 → 契约外字节码（jni crate 的 non_null 不悬挂异常）。
-        // / null array or JVM-side failure → contract-violating bytecode (no pending exception).
+    // 尺寸帽在拷贝之前（敌意大数组不产生 native 侧大分配）。
+    // Size cap BEFORE the copy (hostile huge arrays never allocate natively).
+    let len = match env.get_array_length(&program) {
+        Ok(l) => l as usize,
         Err(_) => return ERR_PROGRAM_BYTES,
     };
+    if len > PROGRAM_MAX_BYTES {
+        return ERR_PROGRAM_BYTES;
+    }
+    let bytes = match env.convert_byte_array(program) {
+        Ok(b) => b,
+        Err(_) => return ERR_PROGRAM_BYTES,
+    };
+    let mut s = lock_session(&cell);
     match s.upload(&bytes) {
         Ok(id) => id as jint,
         Err(_) => ERR_PROGRAM_BYTES,
@@ -262,9 +308,10 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
     session: jlong,
     program_id: jint,
 ) -> jint {
-    let Some(s) = (unsafe { session_ref(session) }) else {
+    let Some(cell) = session_cell(session) else {
         return ERR_SESSION;
     };
+    let mut s = lock_session(&cell);
     if s.release(program_id as usize) {
         0
     } else {
@@ -286,9 +333,10 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
     outputs: JDoubleArray<'local>,
     carrier_out: JByteArray<'local>,
 ) -> jint {
-    let Some(s) = (unsafe { session_ref(session) }) else {
+    let Some(cell) = session_cell(session) else {
         return ERR_SESSION;
     };
+    let mut s = lock_session(&cell);
     // 缓冲长度：null 数组 = 空缓冲口径；JVM 侧取长失败按缓冲契约外处置。
     // Buffer lengths: null arrays read as empty; JVM-side failures map to the buffer code.
     let in_len = if inputs.is_null() {
@@ -315,11 +363,18 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
     if in_len > slot_n || out_len > slot_n {
         return ERR_BUFFER;
     }
-    // ① carrierIn 解码（resume 路径；坏字节 = -4）。
-    // ① carrierIn decode (resume path; bad bytes = -4).
+    // ① carrierIn 尺寸帽 + 解码（resume 路径；坏字节 = -4）。帽在拷贝之前。
+    // ① carrierIn size cap + decode (resume path; bad bytes = -4). Cap precedes the copy.
     let resume: Option<Vec<u8>> = if carrier_in.is_null() {
         None
     } else {
+        let carrier_len = match env.get_array_length(&carrier_in) {
+            Ok(l) => l as usize,
+            Err(_) => return ERR_CARRIER,
+        };
+        if carrier_len > CARRIER_MAX_BYTES {
+            return ERR_CARRIER;
+        }
         match env.convert_byte_array(carrier_in) {
             Ok(b) => Some(b),
             Err(_) => return ERR_CARRIER,
@@ -388,13 +443,13 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
     ABI_VERSION
 }
 
-// ───────────────────────── 纯 Rust 单测（不经真 JVM） ─────────────────────────
+// ───────────────────────── 纯 Rust 单测（不经 JVM） ─────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// scalarLoop 夹具（Java FormulaTokEncoder 产出，R1 落盘）：槽位表 i=0 acc=1，
+    /// scalarLoop 夹具（Java FormulaTokEncoder 产出）：槽位表 i=0 acc=1，
     /// 终值 acc=4999950.0 / i=100000.0（golden 见 tests/fixtures/scalarLoop.golden.txt）。
     fn scalar_loop_bytes() -> Vec<u8> {
         let p = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/scalarLoop.tokbin");
@@ -524,5 +579,61 @@ mod tests {
             s.exec(id, &[], Some(b"CSCC\x99"), None, &mut out_full, None),
             Err(ExecError::BadCarrier)
         );
+    }
+}
+
+// ───────────────────────── 句柄表对抗单测（不经 JVM，直接打 JNI 函数） ─────────────────────────
+//
+// 这些测试直接调用 #[no_mangle] 导出函数（JNIEnv/JClass 传 null 句柄——jni crate
+// 允许非 null 检查弱化的构造路径；本层导出对 env 的使用只有数组访问，句柄对抗路径
+// 不触 env）。单线程执行（会话表是进程级全局——测试串行是前提，cargo test 默认
+// 同进程多线程会互踩：全部 handle 表测试收拢在**一个** #[test] 里保证顺序）。
+
+#[cfg(test)]
+mod handle_table_tests {
+    use super::*;
+
+    /// 一个测试内顺序执行全部句柄对抗路径（会话表是全局态，避免并行测试互踩）。
+    /// All handle-table adversarial paths in one #[test] (global state → serialized).
+    #[test]
+    fn handle_table_adversarial_matrix() {
+        // 哨兵与伪句柄：create 正常返回非零；0/负数句柄一律查无此人。
+        let h1 = unsafe {
+            Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_sessionCreate(
+                std::mem::zeroed(),
+                std::mem::zeroed(),
+            )
+        };
+        assert!(h1 > 0, "issued handle must be nonzero");
+        // sessionDestroy 幂等：同一句柄销毁两次不炸（第二次查无此人）。
+        unsafe {
+            Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_sessionDestroy(
+                std::mem::zeroed(),
+                std::mem::zeroed(),
+                h1,
+            );
+            // 销毁后所有操作 = -1（UAF 从构造上不存在——句柄只是表键）。
+            assert_eq!(
+                Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_programUpload(
+                    std::mem::zeroed(), std::mem::zeroed(), h1, JByteArray::<'_>::from_raw(std::ptr::null_mut()),
+                ),
+                ERR_SESSION
+            );
+            // 二次 destroy = 无操作。
+            Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_sessionDestroy(
+                std::mem::zeroed(),
+                std::mem::zeroed(),
+                h1,
+            );
+            // 伪句柄矩阵：负数 / 0 / 巨数 全部查无此人。
+            for hostile in [-1i64, 0i64, i64::MAX, (1i64 << 40) + 12345] {
+                assert_eq!(
+                    Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_programRelease(
+                        std::mem::zeroed(), std::mem::zeroed(), hostile, 0,
+                    ),
+                    ERR_SESSION
+                );
+            }
+        }
     }
 }

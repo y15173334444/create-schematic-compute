@@ -32,6 +32,12 @@ const PROGRAM_MAGIC: &[u8; 4] = b"CSCF";
 const PROGRAM_VERSION: u32 = 1;
 const CARRIER_MAGIC: &[u8; 4] = b"CSCC";
 const CARRIER_VERSION: u32 = 1;
+/// 语句嵌套解码深度帽（镜像 Java FormulaParser.MAX_PARSE_DEPTH：合法程序必然
+/// 通过——编码器不可能产出更深 AST；字节码攻击面在此收口）。
+/// Statement decode depth cap, mirroring FormulaParser.MAX_PARSE_DEPTH — every
+/// legitimate program passes (the encoder cannot emit deeper ASTs); the crafted-
+/// bytecode attack surface ends here.
+const MAX_DECODE_DEPTH: usize = 128;
 
 /// 解码错误（桥接层失败 = 编辑期就能暴露，绝不静默漂移）。
 #[derive(Debug, PartialEq)]
@@ -46,6 +52,12 @@ pub enum DecodeError {
     BadUtf8,
     /// 解码后仍有剩余字节 = 编码端与契约错位（Java 首版变宽 payload 即此）。
     TrailingBytes(usize),
+    /// 语句嵌套深度超帽（字节码是攻击面：存档篡改/反射直调——深度帽镜像 Java
+    /// MAX_PARSE_DEPTH，防 JNI 调用内 Rust 栈溢出）。
+    /// Statement nesting over the cap (bytecode is an attack surface: tampered
+    /// saves / reflective native calls) — mirrors Java MAX_PARSE_DEPTH to keep a
+    /// crafted deep tree from overflowing the native stack inside a JNI call.
+    TooDeep,
 }
 
 struct Cursor<'a> {
@@ -159,8 +171,11 @@ fn decode_rpn(c: &mut Cursor) -> Result<Box<[Tok]>, DecodeError> {
     Ok(v.into_boxed_slice())
 }
 
-fn decode_stmts(c: &mut Cursor, n: u32) -> Result<Vec<Stmt>, DecodeError> {
-    let mut out = Vec::with_capacity(n as usize);
+fn decode_stmts(c: &mut Cursor, n: u32, depth: usize) -> Result<Vec<Stmt>, DecodeError> {
+    if depth > MAX_DECODE_DEPTH {
+        return Err(DecodeError::TooDeep);
+    }
+    let mut out = Vec::with_capacity(n.min(4096) as usize);
     for _ in 0..n {
         out.push(match c.u8()? {
             0 => {
@@ -173,22 +188,22 @@ fn decode_stmts(c: &mut Cursor, n: u32) -> Result<Vec<Stmt>, DecodeError> {
                 let id = c.u16()?;
                 let count = c.u64v()?;
                 let n = c.u32v()?;
-                let body = decode_stmts(c, n)?;
+                let body = decode_stmts(c, n, depth + 1)?;
                 Stmt::Repeat { id, count, body: body.into_boxed_slice() }
             }
             3 => {
                 let id = c.u16()?;
                 let cond = decode_rpn(c)?;
                 let n = c.u32v()?;
-                let body = decode_stmts(c, n)?;
+                let body = decode_stmts(c, n, depth + 1)?;
                 Stmt::While { id, cond, body: body.into_boxed_slice() }
             }
             4 => {
                 let cond = decode_rpn(c)?;
                 let n = c.u32v()?;
-                let body = decode_stmts(c, n)?;
+                let body = decode_stmts(c, n, depth + 1)?;
                 let en = c.u32v()?;
-                let els = decode_stmts(c, en)?;
+                let els = decode_stmts(c, en, depth + 1)?;
                 Stmt::If { cond, body: body.into_boxed_slice(), els: els.into_boxed_slice() }
             }
             5 => Stmt::Break,
@@ -224,7 +239,7 @@ pub fn decode_program(bytes: &[u8]) -> Result<Program, DecodeError> {
         repeat_counts.push((id, count));
     }
     let top = c.u32v()?;
-    let body = decode_stmts(&mut c, top)?;
+    let body = decode_stmts(&mut c, top, 0)?;
     if c.p != bytes.len() {
         return Err(DecodeError::TrailingBytes(c.p));
     }

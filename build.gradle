@@ -230,6 +230,13 @@ static String resolveCargo() {
 tasks.register('buildNative') {
     group = 'build'
     description = 'Builds the formula_native cdylib via cargo --release (skipped with a warning when cargo is unavailable).'
+    // 外部工具产物对 gradle 不透明：UP-TO-DATE 判定可能拿着过期的 target 产物冒充
+    // 最新（防御对抗批实证：stale dll 让修复版进不了测试，敌意输入还在打旧漏洞）。
+    // 任务强制执行；cargo 自身增量（无变更 0.05s），up-to-date 判定交给 cargo。
+    // External-tool outputs are opaque to gradle: an UP-TO-DATE verdict can stage a
+    // stale target artifact (proven in the defense batch). Force execution; cargo's
+    // own incrementality makes this cheap.
+    outputs.upToDateWhen { false }
     inputs.dir('native/formula-core/src')
     inputs.file('native/formula-core/Cargo.toml')
     inputs.file('native/formula-core/Cargo.lock')

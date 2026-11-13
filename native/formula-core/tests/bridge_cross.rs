@@ -177,3 +177,179 @@ fn carrier_bytes_roundtrip_resume_equivalence() {
         );
     }
 }
+
+// ───────────────────────── 防御对抗（R2.5）：字节码是攻击面 ─────────────────────────
+//
+// 威胁模型：字节码/挂起态来自可被篡改的边界（存档改写、反射直调 native、未来
+// 的网络同步）——解码必须**任何输入永不 panic**（panic 跨 FFI = abort），失败一律
+// 受控 Err。全部变异用确定性 PRNG（无外部 fuzz 依赖、失败可复现）。
+
+/// xorshift64*：确定性、无依赖。 / deterministic dependency-free PRNG.
+struct XorShift(u64);
+
+impl XorShift {
+    fn next(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.0 = x;
+        x.wrapping_mul(0x2545F4914F6CDD1D)
+    }
+    fn below(&mut self, n: usize) -> usize {
+        (self.next() % n as u64) as usize
+    }
+}
+
+/// 变异 fuzz：合法字节码 + 随机字节扰动（单/多点写、截断、头部破坏），解码永不
+/// panic（Err 或 Ok 皆可——Ok 只会出现在扰动落在无害区时）。
+#[test]
+fn adversarial_mutation_fuzz_decode_never_panics() {
+    let (bin, _) = read_fixture("ballistic");
+    let (small, _) = read_fixture("scalarLoop");
+    let mut rng = XorShift(0xC5C_C5C5_C5C5_C5C5);
+    for round in 0..10_000u32 {
+        for src in [bin.as_slice(), small.as_slice()] {
+            let mut bytes = src.to_vec();
+            match rng.below(4) {
+                0 => {
+                    // 单字节翻转 / single-byte flip
+                    if !bytes.is_empty() {
+                        let i = rng.below(bytes.len());
+                        bytes[i] = (bytes[i] as u64 ^ rng.next()).clamp(0, 255) as u8;
+                    }
+                }
+                1 => {
+                    // 1..=16 字节随机覆盖 / short random overwrite
+                    let i = rng.below(bytes.len());
+                    let n = 1 + rng.below(16.min(bytes.len() - i));
+                    for b in &mut bytes[i..i + n] {
+                        *b = rng.next() as u8;
+                    }
+                }
+                2 => {
+                    // 截断 / truncate
+                    let i = rng.below(bytes.len());
+                    bytes.truncate(i);
+                }
+                _ => {
+                    // 尾部追加垃圾 / append garbage
+                    for _ in 0..rng.below(64) {
+                        bytes.push(rng.next() as u8);
+                    }
+                }
+            }
+            // 不 panic 即通过（结果无所谓）。 / must not panic — result is irrelevant.
+            let _ = decode_program(&bytes);
+        }
+        let _ = round;
+    }
+}
+
+/// 挂起态变异 fuzz：carrier_from_bytes 永不 panic。
+#[test]
+fn adversarial_mutation_fuzz_carrier_never_panics() {
+    // 先产一份合法 carrier（scalarLoop 挂起 1µs 即得）。
+    let prog = formula_native::compile("i = 0\nacc = 0\nrepeat 100000 {\n    acc = acc + i * 0.001\n    i = i + 1\n}")
+        .expect("compile");
+    let mut regs = Vec::new();
+    let mut loops = Vec::new();
+    let mut out = vec![V::ZERO; prog.names.len()];
+    let ex = Exec::new(&prog, &mut regs, &mut loops, &[], None, Budget::slice(Duration::from_nanos(1)));
+    let carrier = match ex.run(&mut out) {
+        Outcome::Suspended(c) => carrier_to_bytes(&c),
+        _ => panic!("must suspend under 1ns slice"),
+    };
+    assert!(carrier.len() > 24, "carrier must carry a real payload");
+    let mut rng = XorShift(0xB0B_B0B0_B0B0_B0B0);
+    for _ in 0..10_000u32 {
+        let mut bytes = carrier.clone();
+        match rng.below(3) {
+            0 => {
+                let i = rng.below(bytes.len());
+                bytes[i] ^= rng.next() as u8;
+            }
+            1 => {
+                bytes.truncate(rng.below(bytes.len()));
+            }
+            _ => {
+                for _ in 0..rng.below(32) {
+                    bytes.push(rng.next() as u8);
+                }
+            }
+        }
+        let _ = carrier_from_bytes(&bytes);
+    }
+}
+
+/// 全前缀扫描：合法程序字节流的每个截断点解码受控失败（永不 panic）。
+#[test]
+fn adversarial_all_prefixes_terminate_cleanly() {
+    let (bin, _) = read_fixture("scalarLoop");
+    for cut in 0..bin.len() {
+        let _ = decode_program(&bin[..cut]);
+    }
+}
+
+/// 深嵌套构造：语句嵌套超帽（>128）= TooDeep 受控失败—— crafted 字节码打不出
+/// Rust 栈溢出（JNI 调用内的 abort 即进程崩溃，这是本批堵住的洞）。
+#[test]
+fn adversarial_deep_nesting_is_rejected_not_crashed() {
+    // 手工构造 400 层嵌套 Repeat（合法编码形态，只是深度越界）：
+    // Repeat{ id, count=1, body=[ 同构嵌套 ... , Assign ] }，前序 id 递增。
+    let mut bytes: Vec<u8> = Vec::new();
+    bytes.extend_from_slice(b"CSCF");
+    bytes.extend_from_slice(&1u32.to_le_bytes());
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // 0 slots
+    bytes.extend_from_slice(&0u32.to_le_bytes()); // 0 repeats（表与语句流的 id 各自独立——本构造用语句内 id 即可）
+    bytes.extend_from_slice(&1u32.to_le_bytes()); // 1 top stmt
+    const DEPTH: u32 = 400;
+    for i in 0..DEPTH {
+        bytes.push(2); // Repeat
+        bytes.extend_from_slice(&(i as u16).to_le_bytes());
+        bytes.extend_from_slice(&1u64.to_le_bytes()); // count=1
+        bytes.extend_from_slice(&1u32.to_le_bytes()); // body 1 stmt
+    }
+    // 叶子：Assign slot0 = const 1
+    bytes.push(0); // Assign
+    bytes.extend_from_slice(&0u16.to_le_bytes());
+    bytes.extend_from_slice(&1u32.to_le_bytes()); // rpn 1 token
+    bytes.push(0); // Const
+    bytes.extend_from_slice(&[0u8; 7]);
+    bytes.extend_from_slice(&1.0f64.to_bits().to_le_bytes());
+    match decode_program(&bytes) {
+        Err(formula_native::bridge::DecodeError::TooDeep) => {} // 受控失败 = 修复生效
+        Err(other) => panic!("expected TooDeep, got {other:?}"),
+        Ok(_) => panic!("deep nesting must be rejected"),
+    }
+    // 逐层削叶：合法深度（≤128）必须通过——帽不误伤正常程序。
+    let mut ok_bytes = bytes.clone();
+    // 把 400 层砍到 128 层：截断到前 128 层壳 + 叶子 + 收尾 count 调整复杂，
+    // 这里直接重造一份 100 层的合法程序验证帽不误伤。
+    let mut shallow: Vec<u8> = Vec::new();
+    shallow.extend_from_slice(b"CSCF");
+    shallow.extend_from_slice(&1u32.to_le_bytes());
+    shallow.extend_from_slice(&1u32.to_le_bytes()); // 1 slot（叶子 Assign slot0 的名字省略不可——补全）
+    // 槽位表要真实：1 个名字 "v"
+    shallow.truncate(8);
+    shallow.extend_from_slice(&1u32.to_le_bytes()); // slots=1
+    let nm = b"v";
+    shallow.extend_from_slice(&(nm.len() as u16).to_le_bytes());
+    shallow.extend_from_slice(nm);
+    shallow.extend_from_slice(&0u32.to_le_bytes()); // 0 repeats
+    shallow.extend_from_slice(&1u32.to_le_bytes()); // 1 top stmt
+    for i in 0..100u32 {
+        shallow.push(2);
+        shallow.extend_from_slice(&(i as u16).to_le_bytes());
+        shallow.extend_from_slice(&1u64.to_le_bytes());
+        shallow.extend_from_slice(&1u32.to_le_bytes());
+    }
+    shallow.push(0);
+    shallow.extend_from_slice(&0u16.to_le_bytes());
+    shallow.extend_from_slice(&1u32.to_le_bytes());
+    shallow.push(0);
+    shallow.extend_from_slice(&[0u8; 7]);
+    shallow.extend_from_slice(&1.0f64.to_bits().to_le_bytes());
+    let prog = decode_program(&shallow).expect("100-deep nesting must decode (cap is 128)");
+    assert_eq!(prog.names, vec!["v"]);
+}
