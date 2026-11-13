@@ -474,6 +474,12 @@ final class GraphViewBookmarks {
         return false;
     }
 
+    /** 控制台 `/` 开台门用：书签命名对话框是否激活（激活时 `/` 必须先喂给命名草稿，
+     *  见 GraphEditor.isTextEntrySurfaceActive）。
+     *  For the console's "/" open-gate: whether the bookmark name dialog is active (while
+     *  active, "/" must go to the name draft first — see GraphEditor.isTextEntrySurfaceActive). */
+    boolean isNamingDialogActive() { return editingBookmarkName; }
+
     /** ESC 关闭命名对话框（keyPressed 的 Esc 链）。返回 true 表示已消费。
      *  ESC closes the name dialog (the Esc chain in keyPressed). Returns true if consumed. */
     boolean handleEscClose() {

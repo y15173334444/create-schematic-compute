@@ -221,6 +221,23 @@ public class C2SPacketRateGuard {
      *  running state. Burst 10 / refill 1/s. */
     public static final Policy BLUEPRINT_TOGGLE = new Policy(10, 1.0);
 
+    /** 控制台查询（C 阶段步骤 5，§4.1–§4.3）：REPL 按需查询——{@code help} 为静态命令表
+     *  （O(1) 构表），响应只发给请求者（无广播放大；本表内唯一「响应不放大」的查询类）。
+     *  合法节奏 = 人类 REPL 输入（持续 ≤ 2/s）；突发 8 容纳历史重跑（↑+⏎ 连发几条）；
+     *  回填 1/s —— 合法玩家零拒绝，持续灌包者每秒只值 1 次静态构表成本。后续数据命令
+     *  （stale/topo/ring/hosts 的 O(hosts) 响应）的放大系数由 §4.4 第 2 层脏缓存消解，
+     *  预算不因此上调；距离校验（第 4 层）已随 handler 在位。
+     *  / Console query (Phase-C step 5, §4.1–§4.3): an on-demand REPL query — {@code help}
+     *  is a static command table (O(1) build) and the response goes only to the requester
+     *  (no broadcast amplification; the only query type in this table whose responses do
+     *  not amplify). Legitimate pace = human REPL typing (≤ 2/s sustained); burst 8 absorbs
+     *  history re-runs (a few ↑+⏎ in quick succession); refill 1/s — zero rejections for a
+     *  legitimate player, while a sustained flooder costs one static-table build per second.
+     *  The amplification of the future data commands (stale/topo/ring/hosts, O(hosts)
+     *  responses) is dissolved by the §4.4 layer-2 dirty cache, so this budget is not raised
+     *  for them; the layer-4 reach check is already in the handler. */
+    public static final Policy CONSOLE_QUERY = new Policy(8, 1.0);
+
     /** 单 (player × type) 桶的预算：突发容量 + 令牌回填速率。 / Budget for one
      *  (player × type) bucket: burst capacity + token refill rate. */
     public record Policy(int burstTokens, double refillPerSecond) { }

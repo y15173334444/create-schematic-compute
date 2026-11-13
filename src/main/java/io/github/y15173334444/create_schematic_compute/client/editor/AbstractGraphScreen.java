@@ -116,6 +116,10 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
         renderGraphCanvas(g, mx, my, pt);         // 节点画布 / graph canvas
         for (var r : this.renderables)            // EditBox 等 widget 在画布之上（复刻 AbstractContainerScreen 契约）/ widgets above the canvas
             r.render(g, mx, my, pt);
+        // 控制台叠加层：最新/最上层 → 画在全部 widget 之后（规格 §4.1 render 钩子；未打开时零开销）。
+        // Console overlay: the newest/topmost layer → drawn after every widget (spec §4.1's
+        // render hook; zero cost while closed).
+        editor.renderConsoleOverlay(g, mx, my);
         // tooltip 由 GraphEditor/NodeRenderer 自行绘制（AbstractContainerScreen.renderTooltip 仅画槽位提示，无槽位界面下为空操作）
         // tooltips are drawn by GraphEditor/NodeRenderer themselves; AbstractContainerScreen.renderTooltip only draws slot tips (no-op without slots)
     }
