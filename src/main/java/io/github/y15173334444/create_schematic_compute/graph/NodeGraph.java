@@ -467,7 +467,7 @@ public class NodeGraph {
      *  peer's declared type mismatches are pruned — type legality wins over keeping wires.
      *  @param n 目标节点（BUS_OUT / BUS_IN 等带 signalBands 的节点）
      *            the node whose signalBands list is being aligned
-     *  @param newTypes 新的逐槽声明类型（null = 类型按槽位继承旧值，新增频段缺省 EMPTY——
+     *  @param newBands 新的逐槽声明类型（null = 类型按槽位继承旧值，新增频段缺省 EMPTY——
      *            未连接⟺灰：无型信息的新槽就是未声明）
      *            per-slot declared types (null = carry over by slot, new bands default
      *            EMPTY — unwired means grey: a new slot without type info is undeclared) */
