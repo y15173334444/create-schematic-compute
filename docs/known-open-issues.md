@@ -45,6 +45,7 @@
 | 28 | 维度前缀批暂缓面（AudioBands 同构串值未修 + 停机不清频段向量值） | SignalBus 键空间已按维度隔离（1176 绿），但音频频段五表仍进程级共享、停机也不清频段向量值，详见条目 | 28.1 AudioBands 隔离需独立拍板（其 javadoc 声明跨维度共享是设计性质）；28.2 并入条目 7『频道清理残余豁口』家族或步骤 4 批顺手收口 | 🔶 暂缓（2026-11-14 维度前缀批登记） |
 | 29 | 控制台壳批暂缓面（等待响应无超时提示 / 输出区无滚轮与粘贴 / help 未走 I18n） | 控制台壳已落地（1237 绿），三处体验项随批暂缓，详见条目 | 29.1 超时/拒绝提示形态；29.2 滚轮滚动 + Ctrl+V；29.3 help 文案 I18n 化（服务端文法与 lang 体系关系随接线批统一） | 🔶 暂缓（2026-11-14 控制台壳批登记，接线批/后续批承接） |
 | 30 | 口径 A 采集批暂缓面（闭包面每 Post 现算 / VEC3 未记账 / 全通道布尔门） | 采集本体已落地（1257 绿），三处观测期成本/覆盖项随批暂缓，详见条目 | 30.1 有种子的 Post 每趟现算普查，观测期成本实测后再议缓存；30.2 VEC3 记账按步骤 6 实机需求一行面扩大；30.3 per-channel 过滤按实机日志/内存量加一处面 | 🔶 暂缓（2026-11-14 采集批登记，步骤 6 实机后定夺） |
+| 31 | 接线批暂缓面（hosts 求值序号列未实现 / bus 双载体与停机视角 / 音频向量载体不入值列） | 接线批已落地（1281 绿），四处诚实边界随批暂缓，详见条目 | 31.1 求值序需新采集面（tickBody 登记序）；31.2 双载体显示 richer 状态方，同名义 PRIVATE 不可见；31.3 停机宿主持有的频道占用不在 bus 列表；31.4 音频/向量观测要扩 epoch 模型（=条目 30.2 同源） | 🔶 暂缓（2026-11-14 接线批登记，步骤 6 实机后定夺） |
 
 ---
 
@@ -1031,3 +1032,37 @@ SignalBus 键空间已按维度隔离（`<维度id>\u0001<逻辑名>`，1176 绿
 ### 状态 / Status
 
 🔶 暂缓（2026-11-14 采集批登记；三项都以步骤 6 实机证据为定夺前置）。
+
+## 31. 接线批暂缓面（hosts 求值序号列未实现 / bus 双载体与停机视角 / 音频向量载体不入值列）
+
+范围 / Scope：`network/ConsoleDataPlane`、`network/ConsoleQueryCache`（批 `a7428fc3`，issue #29）
+
+五条数据命令已接线（1281 绿）；以下四处是**诚实边界**（缺真值处显式缺省、绝不伪造），随批暂缓：
+
+### 31.1 `hosts` 的「本 tick 求值序号」列未实现
+
+- 机制：设施无此真值——求值顺序由 vanilla BE tick 顺序决定、模组未登记，采集快照也无此字段；现以确定性清单序号代替。
+- 修复方向：若判读需要，须在 `GraphHost.tickBody` 求值窗口登记 per-tick 评估序（**新采集面**，非补列）。
+/ The hosts command's evaluation-ordinal column stands in with a deterministic list ordinal; a real one means a new per-tick collection face.
+
+### 31.2 bus 的同名双载体并存只显 BUS 载体
+
+- 机制：普查集不区分 BUS_IN/PRIVATE_IN；同名义下 BUS+PRIVATE 并存时显示 richer 状态方，PRIVATE 载体不可见。
+- 修复方向：需要时按载体类型分行（一行面）。
+/ Same-name dual carriers render the richer one; splitting rows by carrier is a one-line face.
+
+### 31.3 bus 停机宿主视角不列频道占用
+
+- 机制：§3.2 口径下停机宿主普查为空 → 无通道行；宿主仍持有的频道占用（停机 = 撤值不撤频道）不在 bus 列表中。
+- 修复方向：若判读「谁占着名」需要，占用面单独一行来源（占用表直读，非普查）。
+/ A stopped host's occupancy (kept by design) does not appear; reading the occupancy table directly would be the source if needed.
+
+### 31.4 音频/向量载体值不入 bus 值列
+
+- 机制：§3.1 epoch 模型按浮点记账（同采集批边界，条目 30.2 同源）；AUDIO 走 AudioBands 游标门控、VEC3 无浮点可比。
+- 修复方向：随条目 30.2 一并定夺。
+/ Same family as entry 30.2; settles together.
+
+### 状态 / Status
+
+🔶 暂缓（2026-11-14 接线批登记；31.4 与条目 30.2 同源一并定夺，其余步骤 6 实机后按判读需求定）。
