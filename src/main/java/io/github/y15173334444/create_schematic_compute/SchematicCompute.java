@@ -296,6 +296,7 @@ public class SchematicCompute {
         // Per-tick budget reset — single-point reset of the FORMULA budget pool (dedup clear + deadline + yield rotation)
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
             net.neoforged.neoforge.event.tick.ServerTickEvent.Pre.class, event -> {
+                io.github.y15173334444.create_schematic_compute.network.BusTrace.tick();
                 io.github.y15173334444.create_schematic_compute.graph.FormulaCompute.beginTick();
                 io.github.y15173334444.create_schematic_compute.graph.CustomNodeCompute.beginTick();
             });

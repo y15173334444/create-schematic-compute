@@ -80,11 +80,14 @@ public class SignalBus {
     // ── PRIVATE_IN/OUT API (unchanged) / PRIVATE_IN/OUT API（不变） ──────────────────────
 
     public static void put(String channel, float value) {
+        BusTrace.onPut(channel, value);
         SIGNALS.put(channel, value);
     }
 
     public static float get(String channel) {
-        return SIGNALS.getOrDefault(channel, 0f);
+        float v = SIGNALS.getOrDefault(channel, 0f);
+        BusTrace.onGet(channel, v);
+        return v;
     }
 
     /** 清理指定信号名（值 + 占用 + 定义一起撤）：PRIVATE_OUT 节点销毁/改名/宿主卸载的统一释放，
