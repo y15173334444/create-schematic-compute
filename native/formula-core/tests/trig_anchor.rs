@@ -29,15 +29,15 @@ fn strictmath_libm_bit_anchor() {
         let want_bits = u64::from_str_radix(want_bits, 16).unwrap();
         // sin/cos/tan 夹具参数为度（Java 探针内部 toRadians 后求值）——求值引擎同款组合
         let (got, want) = match f {
-            "sin" => (formula_core::fdlibm::sin(arg0.to_radians()), true),
-            "cos" => (formula_core::fdlibm::cos(arg0.to_radians()), true),
+            "sin" => (formula_native::fdlibm::sin(arg0.to_radians()), true),
+            "cos" => (formula_native::fdlibm::cos(arg0.to_radians()), true),
             "tan" => (libm::tan(arg0.to_radians()), true),
             "asin" => (libm::asin(arg0), true),
             "acos" => (libm::acos(arg0), true),
             "atan2" => (libm::atan2(arg0, arg1), true),
             "exp" => (libm::exp(arg0), true),
-            "ln" => (formula_core::fdlibm::log(arg0), true),
-            "log" => (formula_core::fdlibm::log10(arg0), true),
+            "ln" => (formula_native::fdlibm::log(arg0), true),
+            "log" => (formula_native::fdlibm::log10(arg0), true),
             "sinh" => (libm::sinh(arg0), true),
             "cosh" => (libm::cosh(arg0), true),
             "pow" => (libm::pow(arg0, arg1), true),

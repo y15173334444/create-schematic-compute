@@ -24,6 +24,9 @@
 mod ast;
 pub mod bridge;
 mod compiler;
+/// R2 JNI shim（cdylib 导出面；纯 Rust Session 逻辑可单测）。/ R2 JNI shim (cdylib
+/// export surface; the pure-Rust Session logic is unit-testable without a JVM).
+mod ffi;
 pub mod fdlibm;
 mod interp;
 mod tok;

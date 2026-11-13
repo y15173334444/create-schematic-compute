@@ -7,11 +7,11 @@
 
 use std::time::Duration;
 
-use formula_core::{compile, Budget, Exec, Outcome, V};
+use formula_native::{compile, Budget, Exec, Outcome, V};
 
 struct Rt {
     regs: Vec<V>,
-    loops: Vec<formula_core::LoopEntry>,
+    loops: Vec<formula_native::LoopEntry>,
     out: [V; 8],
 }
 
@@ -21,7 +21,7 @@ impl Rt {
     }
 }
 
-fn run_all(src: &str, inputs: &[(&str, V)]) -> (formula_core::Program, Vec<V>) {
+fn run_all(src: &str, inputs: &[(&str, V)]) -> (formula_native::Program, Vec<V>) {
     let prog = compile(src).expect("compile");
     let mut slots = vec![V::ZERO; prog.names.len()];
     for (name, v) in inputs {
@@ -46,7 +46,7 @@ fn run_all(src: &str, inputs: &[(&str, V)]) -> (formula_core::Program, Vec<V>) {
     }
 }
 
-fn scalar(regs: &[V], prog: &formula_core::Program, name: &str) -> f64 {
+fn scalar(regs: &[V], prog: &formula_native::Program, name: &str) -> f64 {
     let i = prog.names.iter().position(|n| n == name).expect("slot");
     regs.get(i).map(|v| v.as_scalar()).unwrap_or(0.0)
 }
@@ -139,7 +139,7 @@ fn suspend_resume_conservation() {
     // 25µs slice：反复挂起/续算，终值必须逐位一致（迭代零丢失零重复）
     let mut regs = Vec::new();
     let mut loops = Vec::new();
-    let mut resume: Option<formula_core::Carrier> = None;
+    let mut resume: Option<formula_native::Carrier> = None;
     let mut suspends = 0u32;
     loop {
         let ex = Exec::new(&prog, &mut regs, &mut loops, &[], resume.take(), Budget::slice(Duration::from_micros(25)));
@@ -218,7 +218,7 @@ fn ballistic_solver_sliced_conservation() {
         let mut regs = Vec::new();
         let mut loops = Vec::new();
         let mut out = vec![V::ZERO; prog.names.len()];
-        let mut resume: Option<formula_core::Carrier> = None;
+        let mut resume: Option<formula_native::Carrier> = None;
         let mut suspends = 0u32;
         loop {
             let ex = Exec::new(&prog, &mut regs, &mut loops, &slots, resume.take(), slice);
@@ -310,7 +310,7 @@ fn while_suspend_resume() {
     let mut regs = Vec::new();
     let mut loops = Vec::new();
     let mut out = vec![V::ZERO; prog.names.len()];
-    let mut resume: Option<formula_core::Carrier> = None;
+    let mut resume: Option<formula_native::Carrier> = None;
     let mut suspends = 0u32;
     loop {
         let ex = Exec::new(&prog, &mut regs, &mut loops, &[], resume.take(), Budget::slice(Duration::from_micros(30)));

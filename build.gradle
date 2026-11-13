@@ -176,6 +176,101 @@ tasks.withType(ProcessResources).configureEach {
     }
 }
 
+// ── Rust native 库构建接线（R2，探索线 csc-rust-backend-explore）──────────────────
+// cargo build --release 产 formula-native 的 cdylib（formula_native.dll 等），按
+// natives/<os>-<arch>/ 打进 jar；Java 侧 FormulaNative 按**同一套映射**提取加载
+// （os/arch → 目录名两端写死一致，改动必须双端同步）。cargo 不在 PATH（含 CI/无
+// Rust 的机器）→ 跳过并打 warn，绝不 fail 构建——无 native 时 Java 解释器兜底。
+// Rust native wiring (R2): cargo release build of the formula-native cdylib,
+// packaged under natives/<os>-<arch>/ with the same mapping FormulaNative uses on
+// the Java side (both sides must stay in lockstep). Missing cargo skips with a
+// warning — the build never fails; the Java interpreter stays the fallback.
+def nativeOs = {
+    def n = System.getProperty('os.name', '').toLowerCase(Locale.ROOT)
+    if (n.contains('windows')) return 'windows'
+    if (n.contains('linux')) return 'linux'
+    if (n.contains('mac os') || n.contains('darwin')) return 'macos'
+    return null
+}()
+def nativeArch = {
+    def a = System.getProperty('os.arch', '').toLowerCase(Locale.ROOT)
+    if (a == 'amd64' || a == 'x86_64') return 'x86_64'
+    if (a == 'aarch64' || a == 'arm64') return 'aarch64'
+    return a
+}()
+def nativeDirName = nativeOs == null ? null : "${nativeOs}-${nativeArch}"
+// cdylib 产物名按平台（cargo [lib] name = formula_native）。/ cdylib file name per platform.
+def nativeLibFileName = nativeOs == 'windows' ? 'formula_native.dll'
+        : nativeOs == 'macos' ? 'libformula_native.dylib'
+        : 'libformula_native.so'
+def nativeCargoDir = file('native/formula-core')
+def nativeTargetFile = file("native/formula-core/target/release/${nativeLibFileName}")
+def nativesStagingRoot = layout.buildDirectory.dir('natives')
+
+// 在 PATH（及 CARGO_HOME/bin）里找 cargo；找不到返回 null → 任务跳过打 warn。
+// Locate cargo on PATH (then CARGO_HOME/bin); null = skip with a warning.
+static String resolveCargo() {
+    def isWindows = System.getProperty('os.name', '').toLowerCase(Locale.ROOT).contains('windows')
+    def exe = isWindows ? 'cargo.exe' : 'cargo'
+    def path = System.getenv('PATH')
+    if (path != null) {
+        for (def dir in path.split(File.pathSeparator)) {
+            def f = new File(dir, exe)
+            if (f.isFile()) return f.absolutePath
+        }
+    }
+    def cargoHome = System.getenv('CARGO_HOME')
+    if (cargoHome != null) {
+        def f = new File(cargoHome, 'bin/' + exe)
+        if (f.isFile()) return f.absolutePath
+    }
+    return null
+}
+
+tasks.register('buildNative') {
+    group = 'build'
+    description = 'Builds the formula_native cdylib via cargo --release (skipped with a warning when cargo is unavailable).'
+    inputs.dir('native/formula-core/src')
+    inputs.file('native/formula-core/Cargo.toml')
+    inputs.file('native/formula-core/Cargo.lock')
+    if (nativeDirName != null) {
+        outputs.file(nativesStagingRoot.map { it.dir(nativeDirName).file(nativeLibFileName) })
+    }
+    doLast {
+        def cargo = resolveCargo()
+        if (cargo == null) {
+            logger.warn('buildNative: cargo not found on PATH/CARGO_HOME — skipping formula_native build; jar ships without natives and FormulaNative.AVAILABLE stays false (Java interpreter fallback).')
+            return
+        }
+        exec {
+            workingDir nativeCargoDir
+            commandLine cargo, 'build', '--release'
+        }
+        if (!nativeTargetFile.isFile()) {
+            logger.warn("buildNative: cargo build finished but ${nativeTargetFile} is missing — nothing to package.")
+            return
+        }
+        def stageDir = nativesStagingRoot.get().dir(nativeDirName).asFile
+        copy {
+            from nativeTargetFile
+            into stageDir
+        }
+        logger.lifecycle("buildNative: packaged ${nativeDirName}/${nativeLibFileName} (${nativeTargetFile.length()} B)")
+    }
+}
+
+if (nativeDirName != null) {
+    // 未知平台（nativeDirName = null）不接线：jar 无 natives 目录，Java 侧按陌生平台兜底。
+    // Unknown platforms skip the wiring entirely; the Java side falls back per its own mapping.
+    tasks.named('processResources') {
+        dependsOn tasks.named('buildNative')
+        from(nativesStagingRoot) {
+            into 'natives'
+            include "${nativeDirName}/${nativeLibFileName}"
+        }
+    }
+}
+
 java {
     withSourcesJar()
 }

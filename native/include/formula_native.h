@@ -28,7 +28,8 @@ Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_sessi
 JNIEXPORT void JNICALL
 Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_sessionDestroy(JNIEnv*, jclass, jlong session);
 
-/* Program 字节码上传（编辑级）。返回 programId（>=0）或负错误码。 */
+/* Program 字节码上传（编辑级）。返回 programId（>=0）或负错误码：
+ * -1 会话无效 -5 字节码解码失败（R2 落地口径；编辑期暴露优于静默漂移）。 */
 JNIEXPORT jint JNICALL
 Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_programUpload(JNIEnv*, jclass, jlong session, jbyteArray program);
 

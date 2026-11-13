@@ -9,7 +9,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use formula_core::{compile, Budget, Exec, V};
+use formula_native::{compile, Budget, Exec, V};
 
 static ALLOCS: AtomicU64 = AtomicU64::new(0);
 static BYTES: AtomicU64 = AtomicU64::new(0);
@@ -69,7 +69,7 @@ const SCRIPTS: [Script; 4] = [
     },
 ];
 
-fn run_for(script: &Script, prog: &formula_core::Program, ms: u64) -> (u64, Duration) {
+fn run_for(script: &Script, prog: &formula_native::Program, ms: u64) -> (u64, Duration) {
     // 输入按名映射到槽位（源码首现序 ≠ 引脚序）
     let inputs: Vec<V> = {
         let mut v = vec![V::ZERO; prog.names.len()];
@@ -99,7 +99,7 @@ fn run_for(script: &Script, prog: &formula_core::Program, ms: u64) -> (u64, Dura
     (iters, ns)
 }
 
-fn bench_one(tag: &str, script: &Script, prog: &formula_core::Program) {
+fn bench_one(tag: &str, script: &Script, prog: &formula_native::Program) {
     run_for(script, prog, 500); // 触页/稳态预热
     COUNTING.store(true, Ordering::Relaxed);
     let (iters, ns) = run_for(script, prog, 2000);
