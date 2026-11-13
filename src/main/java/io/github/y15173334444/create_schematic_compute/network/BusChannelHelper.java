@@ -38,12 +38,25 @@ public final class BusChannelHelper {
      *  On success also immediately syncs bands to {@code BAND_REGISTRY} so that
      *  other clients' editors can detect cross-block conflicts before the next tick.
      *  成功时立即将频段同步到 BAND_REGISTRY，使其他客户端编辑器能在下个 tick 前检测跨方块冲突。
-     *  @return true if at least one node changed conflict state (caller should trigger a full sync) / 若至少一个节点的冲突状态变化则返回 true（调用方应触发完整同步） */
+     *  <p>键访问发生在宿主维度作用域内（§6.4 步骤 2 隔离修复）：本方法可在宿主 tick 体之外被调
+     *  （BE 生命周期、引擎接管），自带作用域使这些路径不依赖调用方记得设作用域；tick 体已在
+     *  作用域内时恢复先前值即回原样（嵌套安全）。</p>
+     *  <p>Key access runs inside the host's dimension scope (the §6.4 step-2 isolation fix): this
+     *  method is callable outside the host's tick body (BE lifecycle, engine adoption), so it
+     *  carries its own scope and these paths never depend on the caller remembering to set one;
+     *  when the tick body already set the scope, restoring the previous value is a no-op
+     *  (nesting-safe).</p>
+     *  @return true if at least one node changed conflict state (caller triggers a full sync) / 若至少一个节点的冲突状态变化则返回 true（调用方应触发完整同步） */
     public static boolean registerChannels(NodeGraph graph, BlockPos pos, @Nullable Level level) {
         if (level == null || level.isClientSide() || graph == null) return false;
-        var reg = registerGraphChannels(graph, pos);
-        if (level instanceof ServerLevel sl) broadcastBandDefinitions(sl, pos, reg.bandBroadcasts());
-        return reg.anyConflictChanged();
+        String prev = SignalBus.beginDimensionScope(level.dimension().location().toString());
+        try {
+            var reg = registerGraphChannels(graph, pos);
+            if (level instanceof ServerLevel sl) broadcastBandDefinitions(sl, pos, reg.bandBroadcasts());
+            return reg.anyConflictChanged();
+        } finally {
+            SignalBus.endDimensionScope(prev);
+        }
     }
 
     /** 注册内核（无 Level 判定、无客户端广播）：供首 tick 注册与 BUS_OUT 改名迁移共用，
@@ -106,6 +119,27 @@ public final class BusChannelHelper {
     }
 
     /**
+     * 宿主停机路径的私有信号撤值（§9.1-2「停图 ≠ 撤值」的注册内核，无 Level 判定）：对本图每个
+     * PRIVATE_OUT 节点按 owner 门控只撤**值**（{@link SignalBus#clearPrivateValue}）——占用与
+     * 定义保留（停机不打开接管窗口），冲突节点（名被对端持有）不撤对端的值。键访问落在调用方
+     * 的维度作用域内（tick 体已设作用域；headless 测试走无作用域的本地键空间）。
+     * The host-stop private-value withdrawal core (the §9.1-2 "stopping a graph is not
+     * withdrawing its values" kernel, no Level gate): for every PRIVATE_OUT node of the graph,
+     * withdraw **only the value** under the owner gate ({@link SignalBus#clearPrivateValue}) —
+     * occupancy and definition stay (a stop never opens a takeover window), and a conflicted
+     * node (name held by the peer) never withdraws the peer's value. Key access lands in the
+     * caller's dimension scope (the tick body sets it; headless tests ride the unscoped local
+     * keyspace).
+     */
+    public static void clearPrivateSignalValues(NodeGraph graph, BlockPos pos) {
+        if (graph == null) return;
+        for (var n : graph.nodes) {
+            if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty())
+                SignalBus.clearPrivateValue(n.signalName, new ChannelOwner(pos, n.id));
+        }
+    }
+
+    /**
      * BUS_OUT 改名迁移（用户症状：改名后 BUS_IN 查找不到频道，重新拉取权威图名称仍在）。
      * <p>频道注册只在宿主首 tick 跑一次（{@code busRegistrationPending}），改名后
      * {@code CHANNELS} 条目仍挂旧名、新名无条目 —— BUS_IN 读 {@code channelMap(新名)} 为
@@ -127,26 +161,36 @@ public final class BusChannelHelper {
     public static ChannelRegistration applyBusOutRename(NodeGraph graph, BlockPos pos, GraphNode renamed,
                                                         String oldName, @Nullable Level level) {
         if (graph == null || renamed == null) return new ChannelRegistration(false, java.util.List.of());
-        String newName = renamed.signalName;
-        if (oldName != null && !oldName.isEmpty() && !oldName.equals(newName)) {
-            // 确证离开的统一释放（SignalBus.releaseChannel 一处写清）：按 owner 撤条目 +
-            // 名下无主时退役定义。同图 BUS_IN 引用不再阻拦退役 —— 死名清理对同图订阅者
-            // 同样生效；他人条目与定义不碰（跨 owner 破坏防线）。
-            // Unified release for a provable departure (one rule in SignalBus.releaseChannel):
-            // drop the entry by owner and retire the definition when the name is left unowned.
-            // A same-graph BUS_IN reference no longer blocks retirement — dead-name cleanup
-            // reaches same-graph subscribers too; a foreign entry/definition is never touched.
-            SignalBus.releaseChannel(oldName, new ChannelOwner(pos, renamed.id));
+        // 服务端在宿主维度作用域内动键（§6.4 步骤 2）；客户端编辑器（level=null）按设计走
+        // 无作用域的本地键空间（P1-9 乐观本地值）。/ Server-side key access runs in the host's
+        // dimension scope (§6.4 step 2); a client editor (level=null) rides the unscoped local
+        // keyspace by design (P1-9 optimistic local values).
+        String prev = SignalBus.beginDimensionScope(level instanceof ServerLevel sl
+            ? sl.dimension().location().toString() : null);
+        try {
+            String newName = renamed.signalName;
+            if (oldName != null && !oldName.isEmpty() && !oldName.equals(newName)) {
+                // 确证离开的统一释放（SignalBus.releaseChannel 一处写清）：按 owner 撤条目 +
+                // 名下无主时退役定义。同图 BUS_IN 引用不再阻拦退役 —— 死名清理对同图订阅者
+                // 同样生效；他人条目与定义不碰（跨 owner 破坏防线）。
+                // Unified release for a provable departure (one rule in SignalBus.releaseChannel):
+                // drop the entry by owner and retire the definition when the name is left unowned.
+                // A same-graph BUS_IN reference no longer blocks retirement — dead-name cleanup
+                // reaches same-graph subscribers too; a foreign entry/definition is never touched.
+                SignalBus.releaseChannel(oldName, new ChannelOwner(pos, renamed.id));
+            }
+            // 重跑图内注册（幂等）：新名条目 + 频段定义 + 冲突旗标随名字落地。
+            // "" → 新名 也走这里（新建 BUS_OUT 后首次命名同样丢频道 —— 同一根因）。
+            // Re-run the graph registration (idempotent): the new-name entry, band definitions and
+            // the conflict flag land with the name. "" → new goes through here too (naming a freshly
+            // added BUS_OUT loses the channel the same way — same root cause).
+            var reg = registerGraphChannels(graph, pos);
+            renamed.bandsDirty = true; // 评估器下轮重算音频标志 / evaluator recomputes audio flags next tick
+            if (level instanceof ServerLevel sl) broadcastBandDefinitions(sl, pos, reg.bandBroadcasts());
+            return reg;
+        } finally {
+            SignalBus.endDimensionScope(prev);
         }
-        // 重跑图内注册（幂等）：新名条目 + 频段定义 + 冲突旗标随名字落地。
-        // "" → 新名 也走这里（新建 BUS_OUT 后首次命名同样丢频道 —— 同一根因）。
-        // Re-run the graph registration (idempotent): the new-name entry, band definitions and
-        // the conflict flag land with the name. "" → new goes through here too (naming a freshly
-        // added BUS_OUT loses the channel the same way — same root cause).
-        var reg = registerGraphChannels(graph, pos);
-        renamed.bandsDirty = true; // 评估器下轮重算音频标志 / evaluator recomputes audio flags next tick
-        if (level instanceof ServerLevel sl) broadcastBandDefinitions(sl, pos, reg.bandBroadcasts());
-        return reg;
     }
 
     /** 把频段定义广播给追踪客户端（首 tick 注册与改名迁移共用）。 / Broadcast band definitions
@@ -167,14 +211,22 @@ public final class BusChannelHelper {
     /** Unregister every BUS_OUT node in {@code graph} from {@link SignalBus#unregisterChannel}. / 将 graph 中每个 BUS_OUT 节点从 SignalBus.unregisterChannel 取消注册。 */
     public static void unregisterChannels(NodeGraph graph, BlockPos pos, @Nullable Level level) {
         if (level == null || level.isClientSide() || graph == null) return;
-        for (var n : graph.nodes) {
-            if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
-                SignalBus.unregisterChannel(n.signalName, new ChannelOwner(pos, n.id));
-                n.busConflict = false;
-            } else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty()) {
-                SignalBus.unregisterPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
-                n.busConflict = false;
+        // 键访问在宿主维度作用域内（§6.4 步骤 2；BE 卸载/移除路径可在 tick 体之外调）。
+        // Key access runs in the host's dimension scope (§6.4 step 2; BE unload/remove paths
+        // can be invoked outside the tick body).
+        String prev = SignalBus.beginDimensionScope(level.dimension().location().toString());
+        try {
+            for (var n : graph.nodes) {
+                if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
+                    SignalBus.unregisterChannel(n.signalName, new ChannelOwner(pos, n.id));
+                    n.busConflict = false;
+                } else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty()) {
+                    SignalBus.unregisterPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
+                    n.busConflict = false;
+                }
             }
+        } finally {
+            SignalBus.endDimensionScope(prev);
         }
     }
 
@@ -189,19 +241,26 @@ public final class BusChannelHelper {
     public static void cleanupClientBands(NodeGraph graph, BlockPos pos, @Nullable Level level) {
         if (level == null || level.isClientSide() || graph == null) return;
         if (level instanceof ServerLevel sl) {
-            var names = new HashSet<String>();
-            for (var n : graph.nodes) {
-                if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) names.add(n.signalName);
-                else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty())
-                    // 按 owner 释放（值 + 占用 + 定义）——冲突节点（名被对端占用）不得清掉对端的频道
-                    // Owner-checked release (value + occupancy + definition) — a conflicted node
-                    // must never nuke the peer's channel of the same name.
-                    SignalBus.unregisterPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
-            }
-            for (var name : names) {
-                PacketDistributor.sendToPlayersTrackingChunk(sl,
-                    new ChunkPos(pos),
-                    new BusBandSyncPacket(pos, name, Collections.emptyList()));
+            // 键访问在宿主维度作用域内（§6.4 步骤 2）。/ Key access in the host's dimension
+            // scope (§6.4 step 2).
+            String prev = SignalBus.beginDimensionScope(sl.dimension().location().toString());
+            try {
+                var names = new HashSet<String>();
+                for (var n : graph.nodes) {
+                    if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) names.add(n.signalName);
+                    else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty())
+                        // 按 owner 释放（值 + 占用 + 定义）——冲突节点（名被对端占用）不得清掉对端的频道
+                        // Owner-checked release (value + occupancy + definition) — a conflicted node
+                        // must never nuke the peer's channel of the same name.
+                        SignalBus.unregisterPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
+                }
+                for (var name : names) {
+                    PacketDistributor.sendToPlayersTrackingChunk(sl,
+                        new ChunkPos(pos),
+                        new BusBandSyncPacket(pos, name, Collections.emptyList()));
+                }
+            } finally {
+                SignalBus.endDimensionScope(prev);
             }
         }
     }
@@ -372,50 +431,59 @@ public final class BusChannelHelper {
     public static boolean applyBandUpload(NodeGraph graph, BlockPos pos, int nodeId, String busName,
                                           java.util.List<String> bands, @Nullable Level level) {
         if (graph == null || busName == null || busName.isEmpty()) return false;
-        var target = graph.findNode(nodeId);
-        if (target == null || target.type != NodeType.BUS_OUT || !busName.equals(target.signalName))
-            return false; // 节点已删/已改名：上传尽力而为，放弃 / node gone or renamed: best-effort drop
-        java.util.List<String> newBands = bands != null ? new ArrayList<>(bands) : new ArrayList<>();
-        // 结构归节点：目标节点的频段（= 引脚结构）**总是**落盘，冲突者也不例外
-        // Structure to the node: the target's bands (= its pin structure) always land, conflict or not
-        graph.reconcileBands(target, newBands);
-        graph.rebuildInputCache();
-        graph.bumpGeneration();
-        if (target.busConflict) return true; // 冲突者只更新自己的结构：不算定义、不对齐、不广播 / structure only
-        // 定义归 owner：同名对齐（冲突的 BUS_OUT 目标仍不参与）+ BAND_REGISTRY + 广播
-        // Definition to the owner: same-name alignment (conflicted BUS_OUT targets still skip) +
-        // BAND_REGISTRY + broadcast
-        for (var n : graph.nodes) {
-            if (n == target) continue;
-            if ((n.type == NodeType.BUS_OUT || n.type == NodeType.BUS_IN)
-                && n.signalName.equals(busName)) {
-                if (n.type == NodeType.BUS_OUT && n.busConflict) continue;
-                graph.reconcileBands(n, newBands);
-                graph.rebuildInputCache();
+        // 服务端在宿主维度作用域内动键（§6.4 步骤 2）；无 level 的调用按无作用域原样保留。
+        // Server-side key access runs in the host's dimension scope (§6.4 step 2); level-less
+        // callers keep the unscoped behavior verbatim.
+        String prev = SignalBus.beginDimensionScope(level instanceof ServerLevel sl
+            ? sl.dimension().location().toString() : null);
+        try {
+            var target = graph.findNode(nodeId);
+            if (target == null || target.type != NodeType.BUS_OUT || !busName.equals(target.signalName))
+                return false; // 节点已删/已改名：上传尽力而为，放弃 / node gone or renamed: best-effort drop
+            java.util.List<String> newBands = bands != null ? new ArrayList<>(bands) : new ArrayList<>();
+            // 结构归节点：目标节点的频段（= 引脚结构）**总是**落盘，冲突者也不例外
+            // Structure to the node: the target's bands (= its pin structure) always land, conflict or not
+            graph.reconcileBands(target, newBands);
+            graph.rebuildInputCache();
+            graph.bumpGeneration();
+            if (target.busConflict) return true; // 冲突者只更新自己的结构：不算定义、不对齐、不广播 / structure only
+            // 定义归 owner：同名对齐（冲突的 BUS_OUT 目标仍不参与）+ BAND_REGISTRY + 广播
+            // Definition to the owner: same-name alignment (conflicted BUS_OUT targets still skip) +
+            // BAND_REGISTRY + broadcast
+            for (var n : graph.nodes) {
+                if (n == target) continue;
+                if ((n.type == NodeType.BUS_OUT || n.type == NodeType.BUS_IN)
+                    && n.signalName.equals(busName)) {
+                    if (n.type == NodeType.BUS_OUT && n.busConflict) continue;
+                    graph.reconcileBands(n, newBands);
+                    graph.rebuildInputCache();
+                }
             }
+            if (!newBands.isEmpty()) {
+                SignalBus.registerBands(busName, newBands);
+                // 注册即定义（频段上传路径，同 registerGraphChannels）：声明类型随定义发布，
+                // 取型与目标节点（owner）的声明同源。
+                // Register-time definition (the band-upload path, same as above): declared types
+                // publish with the definition, sourced from the target (owner) node's declaration.
+                SignalBus.setBandTypes(busName, target.bandTypeMap());
+            } else {
+                // 空频段 = 显式清空频道（确证离开）：统一释放，**按 owner 门控** —— 旗标过期时
+                // 他人已抢注的名不碰。retire 的既定后果在此明示：死名收敛会让旧名 BUS_IN 清列表
+                // 并按频段对齐规则剪线（issue #11 语义）。
+                // Empty bands = explicit channel retirement (provable departure): unified release,
+                // ownership-gated — a name claimed by another after a stale flag is left alone.
+                // Declared consequence of retiring: dead-name convergence clears old-name BUS_INs
+                // and prunes their wires by the band-alignment rule (issue #11 semantics).
+                SignalBus.releaseChannel(busName, new ChannelOwner(pos, target.id));
+            }
+            if (level instanceof ServerLevel sl) {
+                PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(pos),
+                    new BusBandSyncPacket(pos, busName, newBands, target.bandTypeCodes()));
+            }
+            return true;
+        } finally {
+            SignalBus.endDimensionScope(prev);
         }
-        if (!newBands.isEmpty()) {
-            SignalBus.registerBands(busName, newBands);
-            // 注册即定义（频段上传路径，同 registerGraphChannels）：声明类型随定义发布，
-            // 取型与目标节点（owner）的声明同源。
-            // Register-time definition (the band-upload path, same as above): declared types
-            // publish with the definition, sourced from the target (owner) node's declaration.
-            SignalBus.setBandTypes(busName, target.bandTypeMap());
-        } else {
-            // 空频段 = 显式清空频道（确证离开）：统一释放，**按 owner 门控** —— 旗标过期时
-            // 他人已抢注的名不碰。retire 的既定后果在此明示：死名收敛会让旧名 BUS_IN 清列表
-            // 并按频段对齐规则剪线（issue #11 语义）。
-            // Empty bands = explicit channel retirement (provable departure): unified release,
-            // ownership-gated — a name claimed by another after a stale flag is left alone.
-            // Declared consequence of retiring: dead-name convergence clears old-name BUS_INs
-            // and prunes their wires by the band-alignment rule (issue #11 semantics).
-            SignalBus.releaseChannel(busName, new ChannelOwner(pos, target.id));
-        }
-        if (level instanceof ServerLevel sl) {
-            PacketDistributor.sendToPlayersTrackingChunk(sl, new ChunkPos(pos),
-                new BusBandSyncPacket(pos, busName, newBands, target.bandTypeCodes()));
-        }
-        return true;
     }
 
     // ── BUS_IN band convergence (the server-side invariant) / BUS_IN 频段收敛（服务端不变量） ──
@@ -608,6 +676,20 @@ public final class BusChannelHelper {
     public static boolean reRegisterChannels(NodeGraph newGraph, @Nullable NodeGraph oldGraph,
                                               BlockPos pos, @Nullable Level level) {
         if (level == null || level.isClientSide() || newGraph == null) return false;
+        // 键访问在宿主维度作用域内（§6.4 步骤 2）。/ Key access in the host's dimension scope
+        // (§6.4 step 2).
+        String prev = SignalBus.beginDimensionScope(level.dimension().location().toString());
+        try {
+            return reRegisterChannelsScoped(newGraph, oldGraph, pos, level);
+        } finally {
+            SignalBus.endDimensionScope(prev);
+        }
+    }
+
+    /** 作用域内的重注册内核（{@link #reRegisterChannels} 的主体原样）。/ The scoped re-registration
+     *  kernel ({@link #reRegisterChannels}'s body verbatim). */
+    private static boolean reRegisterChannelsScoped(NodeGraph newGraph, @Nullable NodeGraph oldGraph,
+                                                    BlockPos pos, @Nullable Level level) {
         boolean anyConflict = false;
 
         // Build a set of (signalName, nodeId) keys that exist in the new graph
@@ -713,6 +795,22 @@ public final class BusChannelHelper {
      *  @return true if at least one node recovered (caller should trigger a full sync) / 若至少有一个节点恢复则返回 true（调用方应触发完整同步） */
     public static boolean recoverConflictedChannels(NodeGraph graph, BlockPos pos, @Nullable Level level) {
         if (level == null || level.isClientSide() || graph == null) return false;
+        // 键访问在宿主维度作用域内（§6.4 步骤 2；主挂点在 tick 体 ① 内、遗留挂点同体，作用域
+        // 已在 —— 嵌套安全；BE 生命周期侧的调用自带作用域）。/ Key access in the host's dimension
+        // scope (§6.4 step 2; the primary heal runs inside the tick body's ① and the legacy hook
+        // in the same body — the scope is already set, nesting-safe; lifecycle-side calls carry
+        // their own scope).
+        String prev = SignalBus.beginDimensionScope(level.dimension().location().toString());
+        try {
+            return recoverConflictedChannelsScoped(graph, pos, level);
+        } finally {
+            SignalBus.endDimensionScope(prev);
+        }
+    }
+
+    /** 作用域内的冲突自愈内核（{@link #recoverConflictedChannels} 的主体原样）。/ The scoped
+     *  heal kernel ({@link #recoverConflictedChannels}'s body verbatim). */
+    private static boolean recoverConflictedChannelsScoped(NodeGraph graph, BlockPos pos, @Nullable Level level) {
         boolean anyRecovered = false;
         for (var n : graph.nodes) {
             if (!n.busConflict || n.signalName.isEmpty()) continue;

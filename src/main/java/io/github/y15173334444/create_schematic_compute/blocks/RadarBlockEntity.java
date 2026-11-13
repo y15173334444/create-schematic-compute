@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
+import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.graph.NodeAllowance;
 import io.github.y15173334444.create_schematic_compute.graph.BlockNodeAllowances;
 import io.github.y15173334444.create_schematic_compute.graph.*;
@@ -476,13 +477,21 @@ public class RadarBlockEntity extends SyncedGraphBlockEntity implements GraphHos
     }
 
     /** ⑤ 停机路径本体——矩阵独有缺口「停止路径内联不走 onStopRunning」逐条原样保留
-     *  （登记面归 W2B 雷达批次）。/ Step ⑤ stop-path body — the matrix's unique
-     *  "inlined, does not call onStopRunning" gap kept verbatim (the W2B radar batch
-     *  owns the registered surface). */
+     *  （登记面归 W2B 雷达批次）；§9.1-2 的停机撤值随本批一并补入（雷达放行 OUTPUT 类，
+     *  图内可有 PRIVATE_OUT —— 内联形态不豁免「停图即撤值」）。
+     *  Step ⑤ stop-path body — the matrix's unique "inlined, does not call onStopRunning"
+     *  gap kept verbatim (the W2B radar batch owns the registered surface); the §9.1-2
+     *  stop-path value withdrawal rides this batch too (Radar admits the OUTPUT category,
+     *  so its graphs can carry PRIVATE_OUT — the inlined shape is no exemption from
+     *  "stopping a graph withdraws its values"). */
     @Override public void stopBody(GraphHost engine) {
         for (var n : graph().nodes) {
             if (n.type == NodeType.BUS_OUT && n.busInternalMap != null) n.busInternalMap.clear();
         }
+        // 私有撤值：tick 体（tickBody）已设宿主维度作用域，键落在正确键空间（§6.4 步骤 2）。
+        // Private withdrawal: the tick body already set the host's dimension scope, so keys
+        // land in the right keyspace (§6.4 step 2).
+        BusChannelHelper.clearPrivateSignalValues(graph(), getBlockPos());
         rs().writeOutputs(Collections.emptyList());
     }
 

@@ -306,125 +306,139 @@ public class GraphHost {
     public void tickBody(TickHooks h) {
         // ── 守卫 / guard ──
         if (lvl() == null || lvl().isClientSide()) return;
-        h.afterGuard();
+        // ── 维度作用域（§6.4 步骤 2 隔离修复）：整个 tick 体在宿主自己的维度键空间内跑 ——
+        //    ① 注册/收敛/类型推送、④ 重编译路径、⑨ 求值（经 SignalBusPort 的通道读写与
+        //    私有/频段向量值）、⑤ 停机撤值全部命中同一前缀键空间，两个维度的同名通道从此
+        //    互不串值。runInDimension 保证每条早退路径都恢复作用域；ChannelHelper 的服务端
+        //    方法自带同款作用域，嵌套恢复先前值即回原样。
+        // ── Dimension scope (the §6.4 step-2 isolation fix): the whole tick body runs inside
+        //    the host's own dimension keyspace — ① registration/convergence/type push, ④ the
+        //    recompile paths, ⑨ evaluation (channel reads/writes and private/band vector values
+        //    via SignalBusPort) and ⑤ the stop-path withdrawal all hit the same prefixed
+        //    keyspace, so same-named channels in two dimensions can no longer cross-contaminate.
+        //    runInDimension restores the scope on every early return; the ChannelHelper server
+        //    methods carry the same scope themselves, so nesting restores the previous value.
+        SignalBus.runInDimension(lvl().dimension().location().toString(), () -> {
+            h.afterGuard();
 
-        // ① BUS 注册（92d0dbf 语义：内含冲突自愈 + issue #15 频段收敛 + 音频标志推送；
-        //    图停止也跑、自愈先于收敛——见 ensureBusRegistered）。
-        // ① BUS registration (92d0dbf semantics: conflict heal + issue-15 band convergence
-        //    + audio-flag push inside; runs stopped, heal before convergence).
-        ensureBusRegistered();
-        // ⑮ 挂起全量同步冲刷（P1-8）：必须位于**一切**早退之前——停机宿主也要能把图
-        //    推给新加入的编辑者。矩阵编号⑮列在末位，执行位在①之后（Blueprint 基准）。
-        // ⑮ pending-full-sync flush (P1-8): before EVERY early return so a stopped host
-        //    still ships its graph to a newly joined editor. The matrix numbers it last;
-        //    it executes right after ① (Blueprint baseline).
-        flushPendingFullSync();
-        h.beforeLit();
+            // ① BUS 注册（92d0dbf 语义：内含冲突自愈 + issue #15 频段收敛 + 音频标志推送；
+            //    图停止也跑、自愈先于收敛——见 ensureBusRegistered）。
+            // ① BUS registration (92d0dbf semantics: conflict heal + issue-15 band convergence
+            //    + audio-flag push inside; runs stopped, heal before convergence).
+            ensureBusRegistered();
+            // ⑮ 挂起全量同步冲刷（P1-8）：必须位于**一切**早退之前——停机宿主也要能把图
+            //    推给新加入的编辑者。矩阵编号⑮列在末位，执行位在①之后（Blueprint 基准）。
+            // ⑮ pending-full-sync flush (P1-8): before EVERY early return so a stopped host
+            //    still ships its graph to a newly joined editor. The matrix numbers it last;
+            //    it executes right after ① (Blueprint baseline).
+            flushPendingFullSync();
+            h.beforeLit();
 
-        // ② LIT 指示同步（8 宿主有、4 宿主无）。形态归一：原「缺席即中止 / 缺席即跳过」
-        //    两形在全部方块均注册 LIT（hasProperty 恒真）下逐调用等价，缺席分支语义仍按
-        //    宿主保留（litAbsentAbortsTick）。
-        // ② LIT indicator sync (8 hosts, 4 without). Shape unified: the old
-        //    "abort-on-absent / skip-on-absent" pair is call-for-call equivalent since
-        //    every block registers LIT (hasProperty always true); the absent-branch
-        //    semantics still follow the host (litAbsentAbortsTick).
-        BooleanProperty lit = h.litProperty();
-        if (lit != null) {
-            boolean shouldBeLit = running && !graph.nodes.isEmpty();
-            var st = owner.asBlockEntity().getBlockState();
-            if (st.hasProperty(lit)) {
-                if (st.getValue(lit) != shouldBeLit)
-                    lvl().setBlock(pos(), st.setValue(lit, shouldBeLit), 3);
-            } else if (h.litAbsentAbortsTick()) {
+            // ② LIT 指示同步（8 宿主有、4 宿主无）。形态归一：原「缺席即中止 / 缺席即跳过」
+            //    两形在全部方块均注册 LIT（hasProperty 恒真）下逐调用等价，缺席分支语义仍按
+            //    宿主保留（litAbsentAbortsTick）。
+            // ② LIT indicator sync (8 hosts, 4 without). Shape unified: the old
+            //    "abort-on-absent / skip-on-absent" pair is call-for-call equivalent since
+            //    every block registers LIT (hasProperty always true); the absent-branch
+            //    semantics still follow the host (litAbsentAbortsTick).
+            BooleanProperty lit = h.litProperty();
+            if (lit != null) {
+                boolean shouldBeLit = running && !graph.nodes.isEmpty();
+                var st = owner.asBlockEntity().getBlockState();
+                if (st.hasProperty(lit)) {
+                    if (st.getValue(lit) != shouldBeLit)
+                        lvl().setBlock(pos(), st.setValue(lit, shouldBeLit), 3);
+                } else if (h.litAbsentAbortsTick()) {
+                    return;
+                }
+            }
+
+            // ⑤ 停机路径——执行位按宿主（StopSlot），形态按 stopEndsTick：
+            //    早退口径（十宿主）返回；CncGearbox / PT 的 if/else 口径落共用尾段。
+            // ⑤ stop path — slot per host (StopSlot), shape per stopEndsTick: the
+            //    early-return shape (ten hosts) bails; the CncGearbox / PT if-else shape
+            //    falls into the shared tail.
+            if (h.stopSlot() == StopSlot.BEFORE_GRAPH_CHECK && !running) {
+                h.stopBody(this);
                 return;
             }
-        }
+            h.beforeGraphCheck();
 
-        // ⑤ 停机路径——执行位按宿主（StopSlot），形态按 stopEndsTick：
-        //    早退口径（十宿主）返回；CncGearbox / PT 的 if/else 口径落共用尾段。
-        // ⑤ stop path — slot per host (StopSlot), shape per stopEndsTick: the
-        //    early-return shape (ten hosts) bails; the CncGearbox / PT if-else shape
-        //    falls into the shared tail.
-        if (h.stopSlot() == StopSlot.BEFORE_GRAPH_CHECK && !running) {
-            h.stopBody(this);
-            return;
-        }
-        h.beforeGraphCheck();
+            // ③ 图变更检测（红石链路注册的唯一自愈口，P2-18）
+            // ③ graph-change detection (the only self-heal for link registration, P2-18)
+            rs.checkGraphChanged(graph);
 
-        // ③ 图变更检测（红石链路注册的唯一自愈口，P2-18）
-        // ③ graph-change detection (the only self-heal for link registration, P2-18)
-        rs.checkGraphChanged(graph);
-
-        if (h.stopSlot() == StopSlot.AFTER_GRAPH_CHECK && !running) {
-            h.stopBody(this);
-            return;
-        }
-
-        // ④ 重编译：F = 全状态保留 / L = 轻量（debugTime）
-        // ④ recompile: F = state-preserving / L = light (debugTime)
-        if (graphChanged()) {
-            if (h.lightRecompile()) recompileEvaluatorLight();
-            else recompileEvaluatorFull();
-        }
-
-        if (h.stopSlot() == StopSlot.AFTER_RECOMPILE && !running) {
-            h.stopBody(this);
-            if (h.stopEndsTick()) return;
-        }
-
-        if (running) {
-            h.beforeInputs();
-            // ⑥ 刷新红石链路输入（A = Active / H = Hybrid 混合回退）
-            // ⑥ refresh redstone-link inputs (A = Active / H = Hybrid fallback)
-            if (h.activeInputRefresh()) rs.refreshInputsActive();
-            else rs.refreshInputs();
-            // ⑦ 冲突频道自愈的**遗留第二挂点**（六宿主声明在位；主挂点已在 ① 内先行，
-            //    Blueprint 样板：接管 + 超时回收；有恢复才全量同步 + 立即发包）。
-            // ⑦ the legacy second conflicted-channel self-heal hook (declared by six
-            //    hosts; the primary heal already ran inside ① — Blueprint style:
-            //    takeover + stale-owner reclaim; full sync + immediate push only on recovery)
-            if (h.wantsStep7Recover() && BusChannelHelper.recoverConflictedChannels(graph, pos(), lvl())) {
-                requestFullSync();
-                pushBlockUpdate();
+            if (h.stopSlot() == StopSlot.AFTER_GRAPH_CHECK && !running) {
+                h.stopBody(this);
+                return;
             }
-            h.afterRecover();
-            // ⑧ 按图构建求值输入 / build evaluation inputs from the graph
-            var in = rs.buildInputs(graph);
-            h.beforeEval();
-            // ⑨ 求值——档位合一（2026-10-31 拍板）：全状态档 seat + runtimeState 三表，
-            // 七类时序/状态节点真正工作；BASIC 弃置三表、EMPTY_TABLE seat + 弃置三表。
-            // ⑨ evaluate — tier unification (2026-10-31 ruling): the full-state form
-            //    passes seat + runtimeState's three tables so the seven timing/state
-            //    types actually run; BASIC uses throwaway tables, EMPTY_TABLE seat +
-            //    throwaway tables.
-            float dt = 0.05f;
-            var results = switch (h.evalVariant()) {
-                case FULL_STATE -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput(),
-                    runtimeState.delayQueues, runtimeState.flipflopStates, runtimeState.pulseTimers);
-                case BASIC -> evaluator.evaluate(in, runtimeState.pidState, dt);
-                case EMPTY_TABLE -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput(),
-                    new HashMap<>(), new HashMap<>(), new HashMap<>());
-            };
-            h.afterEval();
-            // ⑩ 写出红石输出 / write redstone outputs
-            rs.writeOutputs(results);
-            h.afterWriteOutputs();
-            // ⑪ 求值快照广播（DEBUG_PROBE 采样）/ broadcast eval snapshot (DEBUG_PROBE)
-            broadcastEvalSnapshot();
-            // ⑫ 频段变更同步（12 宿主统一在位：275ec03 直呼形态收编进骨架，开关退役）
-            // ⑫ band-change sync (wired for all twelve: the 275ec03 direct-call form
-            //    absorbed into the skeleton, the switch retired)
-            BusChannelHelper.syncIfBandsChanged(graph, pos(), lastBusHashMap, lvl());
-            // ⑬ 触发器差分广播（基线去重，无变化零发包；BASIC / EMPTY_TABLE 档宿主无此步）
-            // ⑬ flipflop-diff broadcast (baseline-diffed, silent while unchanged; the
-            //    BASIC / EMPTY_TABLE hosts carry no such step)
-            if (h.wantsFlipflopDiff()) broadcastFlipflopDiff();
-            h.afterEvalBroadcast();
-        }
-        h.beforeSetChanged();
-        // ⑭ 运行态落盘标记 / running-state persist marker
-        markDirty();
-        h.afterSetChanged();
+
+            // ④ 重编译：F = 全状态保留 / L = 轻量（debugTime）
+            // ④ recompile: F = state-preserving / L = light (debugTime)
+            if (graphChanged()) {
+                if (h.lightRecompile()) recompileEvaluatorLight();
+                else recompileEvaluatorFull();
+            }
+
+            if (h.stopSlot() == StopSlot.AFTER_RECOMPILE && !running) {
+                h.stopBody(this);
+                if (h.stopEndsTick()) return;
+            }
+
+            if (running) {
+                h.beforeInputs();
+                // ⑥ 刷新红石链路输入（A = Active / H = Hybrid 混合回退）
+                // ⑥ refresh redstone-link inputs (A = Active / H = Hybrid fallback)
+                if (h.activeInputRefresh()) rs.refreshInputsActive();
+                else rs.refreshInputs();
+                // ⑦ 冲突频道自愈的**遗留第二挂点**（六宿主声明在位；主挂点已在 ① 内先行，
+                //    Blueprint 样板：接管 + 超时回收；有恢复才全量同步 + 立即发包）。
+                // ⑦ the legacy second conflicted-channel self-heal hook (declared by six
+                //    hosts; the primary heal already ran inside ① — Blueprint style:
+                //    takeover + stale-owner reclaim; full sync + immediate push only on recovery)
+                if (h.wantsStep7Recover() && BusChannelHelper.recoverConflictedChannels(graph, pos(), lvl())) {
+                    requestFullSync();
+                    pushBlockUpdate();
+                }
+                h.afterRecover();
+                // ⑧ 按图构建求值输入 / build evaluation inputs from the graph
+                var in = rs.buildInputs(graph);
+                h.beforeEval();
+                // ⑨ 求值——档位合一（2026-10-31 拍板）：全状态档 seat + runtimeState 三表，
+                // 七类时序/状态节点真正工作；BASIC 弃置三表、EMPTY_TABLE seat + 弃置三表。
+                // ⑨ evaluate — tier unification (2026-10-31 ruling): the full-state form
+                //    passes seat + runtimeState's three tables so the seven timing/state
+                //    types actually run; BASIC uses throwaway tables, EMPTY_TABLE seat +
+                //    throwaway tables.
+                float dt = 0.05f;
+                var results = switch (h.evalVariant()) {
+                    case FULL_STATE -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput(),
+                        runtimeState.delayQueues, runtimeState.flipflopStates, runtimeState.pulseTimers);
+                    case BASIC -> evaluator.evaluate(in, runtimeState.pidState, dt);
+                    case EMPTY_TABLE -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput(),
+                        new HashMap<>(), new HashMap<>(), new HashMap<>());
+                };
+                h.afterEval();
+                // ⑩ 写出红石输出 / write redstone outputs
+                rs.writeOutputs(results);
+                h.afterWriteOutputs();
+                // ⑪ 求值快照广播（DEBUG_PROBE 采样）/ broadcast eval snapshot (DEBUG_PROBE)
+                broadcastEvalSnapshot();
+                // ⑫ 频段变更同步（12 宿主统一在位：275ec03 直呼形态收编进骨架，开关退役）
+                // ⑫ band-change sync (wired for all twelve: the 275ec03 direct-call form
+                //    absorbed into the skeleton, the switch retired)
+                BusChannelHelper.syncIfBandsChanged(graph, pos(), lastBusHashMap, lvl());
+                // ⑬ 触发器差分广播（基线去重，无变化零发包；BASIC / EMPTY_TABLE 档宿主无此步）
+                // ⑬ flipflop-diff broadcast (baseline-diffed, silent while unchanged; the
+                //    BASIC / EMPTY_TABLE hosts carry no such step)
+                if (h.wantsFlipflopDiff()) broadcastFlipflopDiff();
+                h.afterEvalBroadcast();
+            }
+            h.beforeSetChanged();
+            // ⑭ 运行态落盘标记 / running-state persist marker
+            markDirty();
+            h.afterSetChanged();
+        });
     }
 
     // ── BUS 生命周期 / BUS lifecycle ──
@@ -766,11 +780,35 @@ public class GraphHost {
 
     // ── 运行态收尾 / stop-running helper ──
 
-    /** 停止运行：清 BUS_OUT 与红石输出。 / Stop: clear BUS_OUT maps &amp; write empty redstone outputs. */
+    /** 停止运行：清 BUS_OUT、撤私有信号值与红石输出。
+     *  <p>§9.1-2「停图 ≠ 撤值」的收口：BUS 与私有两条发布通道的停机语义对齐 —— BUS 清各
+     *  BUS_OUT 节点的 {@code busInternalMap}（CHANNELS 注册保留），私有经
+     *  {@link BusChannelHelper#clearPrivateSignalValues} 按 owner 门控只撤值（占用与定义保留，
+     *  停机不打开接管窗口）。节点注销 / 停服 / 编辑器改名删除三条释放路径此前已完整，缺的
+     *  就是这一条。</p>
+     *  Stop: clear BUS_OUT maps, withdraw private-signal values and write empty redstone outputs.
+     *  <p>This closes §9.1-2 ("stopping a graph is not withdrawing its values"): the stop
+     *  semantics of both publish channels now align — BUS clears each BUS_OUT node's
+     *  {@code busInternalMap} (the CHANNELS registration stays), while private channels withdraw
+     *  values only, owner-gated, via {@link BusChannelHelper#clearPrivateSignalValues}
+     *  (occupancy and definitions stay — a stop never opens a takeover window). Node
+     *  unregistration / server stop / editor rename-delete were already complete; this was the
+     *  missing path.</p>
+     */
     public void onStopRunning() {
         for (var n : graph.nodes) {
             if (n.type == NodeType.BUS_OUT && n.busInternalMap != null)
                 n.busInternalMap.clear();
+        }
+        // 撤值发生在宿主自己的维度键空间（§6.4 步骤 2）：tick 体已设作用域，此处自带同款
+        // 作用域使方法自含 —— 任何调用方进来都命中正确的键空间（嵌套恢复先前值）。
+        // The withdrawal happens in the host's own dimension keyspace (§6.4 step 2): the tick
+        // body already set the scope, and carrying the same scope here keeps the method
+        // self-contained — any caller lands in the right keyspace (nesting restores the
+        // previous value).
+        if (lvl() instanceof net.minecraft.server.level.ServerLevel sl) {
+            SignalBus.runInDimension(sl.dimension().location().toString(),
+                () -> BusChannelHelper.clearPrivateSignalValues(graph, pos()));
         }
         rs.writeOutputs(java.util.Collections.emptyList());
     }
