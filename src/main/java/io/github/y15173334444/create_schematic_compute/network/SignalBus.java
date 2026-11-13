@@ -125,6 +125,53 @@ public class SignalBus {
         return scope.isEmpty() ? logical : scope + SCOPE_SEPARATOR + logical;
     }
 
+    /** {@link #key} 的<b>逆映射</b>（控制台数据面 §4.3 {@code bus} 命令的显示名归一）：把
+     *  前缀形态的键 {@code <维度id>\u0001<逻辑名>} 还原成逻辑名；无分隔符（无作用域键空间的
+     *  headless 测试 / 客户端本地形态）原样返回。前缀格式的知识只住在本类 —— 逆映射与正向
+     *  规范化同一单一源，消费面（{@code ConsoleDataPlane}）绝不复刻格式。分隔符选控制字符
+     *  {@code \u0001} 且通道名来自编辑器文本、不含控制字符（类注记的既有假设），逆映射因此
+     *  无歧义。
+     *  <p>The <b>inverse</b> of {@link #key} (the display-name normalization of the console
+     *  data plane's §4.3 {@code bus} command): strips the {@code <dimensionId>\u0001<logical>}
+     *  prefixed form back to the logical name; a separator-free key (the scope-free headless
+     *  test / client-local shape) returns unchanged. The prefix format lives only in this
+     *  class — the inverse rides the same single source as the forward normalization, and the
+     *  consumer ({@code ConsoleDataPlane}) never replicates the format. The separator is a
+     *  control character and channel names come from editor text with no control characters
+     *  (the class's documented presumption), so the inverse is unambiguous.</p> */
+    static String logicalName(String prefixed) {
+        int i = prefixed.indexOf(SCOPE_SEPARATOR);
+        return i < 0 ? prefixed : prefixed.substring(i + 1);
+    }
+
+    // ── 控制台数据面只读读取面（§4.3 bus 命令；issue #29） / console data-plane read faces ──
+    //
+    // 包内可见（消费面 ConsoleDataPlane 住本包，公开面零扩大）；**必须在宿主维度作用域内
+    // 调用**（respond 的 bus 分支以 SignalBus.runInDimension(宿主维度, …) 包住整段读取 ——
+    // 不包则经 key() 落进无作用域键空间 = 读错数据，issue #29 硬口径）。
+    // Package-visible (the consumer ConsoleDataPlane lives here; the public face does not
+    // grow); **must be called inside the host's dimension scope** (respond's bus branch wraps
+    // the whole read stretch in SignalBus.runInDimension(host dimension, …) — unscoped reads
+    // land in the scope-free keyspace through key() = wrong data, the issue #29 hard rule).
+
+    /** 私有通道当前浮点值（无写入 = null；§4.3「当前值」的 PRIVATE 载体）。
+     *  The private channel's current float value (null when never written — §4.3's "current
+     *  value" PRIVATE carrier). */
+    static Float signalValue(String logical) { return SIGNALS.get(key(logical)); }
+
+    /** BUS 频道的活候选快照（只读副本；空集 = 无占用冲突证据）。§4.3「总线冲突标记」的
+     *  服务端真值：候选 = 注册被拒过的 owner（首注册者获胜语义下的排队者）——冲突自愈翻转
+     *  后候选清空，标记随之消失。副本而非活视图：渲染面拿到的是读取时刻的一致快照。
+     *  A read-only snapshot of a BUS channel's live claimants (empty = no occupancy-conflict
+     *  evidence). §4.3's "bus conflict mark" server truth: a claimant is an owner whose
+     *  registration was refused (the queue behind first-registrant-wins) — a self-heal flips
+     *  the conflict away and clears the claimants. A copy, not a live view: the renderer sees
+     *  one consistent snapshot taken at read time. */
+    static java.util.Set<ChannelOwner> claimants(String busName) {
+        var c = CLAIMANTS.get(key(busName));
+        return c != null ? java.util.Set.copyOf(c) : java.util.Set.of();
+    }
+
     // ── 值表 / value tables ──────────────────────────────────────
 
     private static final ConcurrentHashMap<String, Float> SIGNALS = new ConcurrentHashMap<>();

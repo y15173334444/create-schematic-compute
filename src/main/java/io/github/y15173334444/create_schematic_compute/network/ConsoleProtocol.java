@@ -1,5 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.network;
 
+import io.github.y15173334444.create_schematic_compute.graph.TopoStats;
+
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -9,40 +11,44 @@ import java.util.Locale;
  * 控制台命令协议的服务端侧（C 阶段步骤 5，规格 §4.3 / §4.4）——<b>文法唯一真相源</b>。
  *
  * <p>规格 §4.4 拍板：客户端把<b>原始字符串</b>发给服务端，服务端解析后回文本行
- * （客户端零文法，命令集演进不需要改客户端）。本类承载服务端的两件纯逻辑：</p>
+ * （客户端零文法，命令集演进不需要改客户端）。本类承载服务端的纯逻辑：</p>
  * <ul>
- * <li>{@link #respond(String)} —— 命令分发骨架：首词解析（trim / 小写 / 长度上限）、
- * {@code help} 返回完整命令表（<b>含未接线命令名</b>——规格 §4.3 服务端 help 表）；已知但
- * 未接线的命令回「尚未接线」行；未知命令回「未知命令」行。本批<b>不实现任何数据命令</b>——
- * {@code stale}/{@code topo}/{@code ring}/{@code bus}/{@code perf}/{@code hosts} 的数据面
- * 由后续接线批接入（它们届时在本 switch 挂上自己的处理分支）。</li>
+ * <li>{@link #respond(String, TopoStats.HostId)} —— 命令分发：首词解析（trim / 小写 /
+ * 长度上限）、{@code help} 返回完整命令表（规格 §4.3 服务端 help 表）、数据命令分发到
+ * {@link ConsoleDataPlane} 的渲染器（{@code stale}/{@code topo}/{@code ring}/{@code bus}/
+ * {@code hosts} —— 接线批 issue #29 逐条替换壳批的「尚未接线」行；{@code perf} 留待后续批）、
+ * 未知命令回「未知命令」行。</li>
  * <li>{@link #clampResponse(List)} —— 规格 §4.4 分层缓解第 3 层：响应行数 / 字节硬上界 +
  * 截断标记（单次请求成本有上界）。纯 JDK、headless 可测（照 {@link C2SPacketRateGuard}
  * 的「判定与执行分离」手法——本类只算行，不碰 MC 类）。</li>
  * </ul>
  *
- * <p><b>数据面纪律（规格 §3.3 采样语义警示）</b>：后续接线批的 {@code stale} / 探针类数据
- * 必须取<b>服务端求值快照口径</b>（{@code broadcastEvalSnapshot}）——探针「当前值」读数是
- * 客户端本地求值、读者侧无写者时恒 0 冻结，不是真值。本骨架不预置任何直读总线的入口。</p>
+ * <p><b>数据面纪律（规格 §3.3 采样语义警示）</b>：{@code stale} 等观测面只走采集快照
+ * （{@link TopoStats#collectionSnapshot()}）——探针「当前值」读数是客户端本地求值、读者侧
+ * 无写者时恒 0 冻结，不是真值；本类不预置任何直读总线的入口（{@code bus} 的总线表读取在
+ * 分发处显式以维度作用域包裹，见 switch 的 bus 分支注记）。</p>
  *
  * <h2>The server side of the console command protocol (Phase-C step 5, spec §4.3 / §4.4)
  * — <b>the grammar's single source of truth</b>.</h2>
  *
  * <p>Spec §4.4 ruling: the client sends the <b>raw string</b> and the server parses and
  * replies with text lines (zero grammar client-side, so the command set can evolve without
- * touching the client). This class carries the server's two pieces of pure logic:
- * {@link #respond(String)} (the dispatch skeleton — first-word parse, {@code help} returning
- * the <b>full</b> command table <b>including the not-yet-wired names</b> per spec §4.3, and
- * polite "not wired yet" lines for the known-but-unwired commands) and {@link #clampResponse(List)}
- * (layer 3 of the §4.4 layered mitigation — hard line/byte caps + truncation marker). Pure
- * JDK, headless-testable (the C2SPacketRateGuard "decision separated from execution"
- * playbook — this class only computes lines, never touches MC classes).</p>
+ * touching the client). This class carries the server's pure logic:
+ * {@link #respond(String, TopoStats.HostId)} (the dispatch — first-word parse, {@code help}
+ * returning the full command table per spec §4.3, the data commands dispatched to
+ * {@link ConsoleDataPlane}'s renderers — the wiring batch, issue #29, replaced the shell
+ * batch's "not wired yet" lines one by one, {@code perf} waits for a later batch — and the
+ * unknown-command line) and {@link #clampResponse(List)} (layer 3 of the §4.4 layered
+ * mitigation — hard line/byte caps + truncation marker). Pure JDK, headless-testable (the
+ * C2SPacketRateGuard "decision separated from execution" playbook — this class only computes
+ * lines, never touches MC classes).</p>
  *
- * <p><b>Data-plane discipline (spec §3.3 sampling-semantics warning)</b>: the wiring batch's
- * {@code stale} / probe-like data must come from the <b>server eval-snapshot plane</b>
- * ({@code broadcastEvalSnapshot}) — the probe's "current value" readout is client-local
- * evaluation, frozen at 0 when the reader's side has no writer, and is not truth. This
- * skeleton pre-plants no direct-bus read entry.</p>
+ * <p><b>Data-plane discipline (spec §3.3 sampling-semantics warning)</b>: the observation
+ * faces such as {@code stale} ride the collection snapshot ({@link TopoStats#collectionSnapshot()})
+ * only — the probe's "current value" readout is client-local evaluation, frozen at 0 when the
+ * reader's side has no writer, and is not truth; this class pre-plants no direct-bus read
+ * entry (the {@code bus} command's bus-table reads are wrapped in the dimension scope
+ * explicitly at the dispatch — see the bus branch's notes in the switch).</p>
  */
 public final class ConsoleProtocol {
 
@@ -77,26 +83,56 @@ public final class ConsoleProtocol {
     public static final List<String> HELP_LINES = List.of(
             "Console commands / 控制台命令 —— grammar is server-defined / 文法由服务端定义:",
             "  help   本表 / this table",
-            "  stale  本 host 陈旧读 ①/② 计数（按通道分组）/ stale-read counts (tier 1/2, by channel)   [未接线 / not wired yet]",
-            "  topo   本 host 读写集 + 上下游 host / read-write set + upstream/downstream hosts   [未接线 / not wired yet]",
-            "  ring   BE 级依赖图 SCC 环列表 / BE-level dependency SCC rings   [未接线 / not wired yet]",
-            "  bus    本 host 通道一览 / this host's channels (name/value/owner/subscribers)   [未接线 / not wired yet]",
+            "  stale  本 host 陈旧读 ①/② 计数（按通道分组）/ stale-read counts (tier 1/2, by channel)",
+            "  topo   本 host 读写集 + 上下游 host / read-write set + upstream/downstream hosts",
+            "  ring   BE 级依赖图 SCC 环列表 / BE-level dependency SCC rings",
+            "  bus    本 host 通道一览 / this host's channels (name/value/owner/subscribers)",
             "  perf   求值耗时与预算计数 / eval timing + budget counters   [未接线 / not wired yet — see /cscperf]",
-            "  hosts  全局 host 清单 / global host list   [未接线 / not wired yet]",
+            "  hosts  全局 host 清单 / global host list",
             "只读命令（C 阶段无任何写操作）/ read-only commands (no write operations in phase C)."
     );
 
     /**
-     * 服务端命令分发骨架：首词解析 → {@code help} 命令表 / 未接线提示 / 未知命令提示。
-     * <b>不做任何数据查询</b>——数据面是后续接线批的事（规格 §4.3 分批口径）。
-     * <p>The server dispatch skeleton: first-word parse → the {@code help} table / a
-     * not-wired-yet line / an unknown-command line. <b>No data queries here</b> — the data
-     * plane belongs to the later wiring batch (spec §4.3 batching).</p>
+     * 命令分发（单参形态）：无目标宿主上下文——数据命令里需要「本 host」视角的
+     * {@code stale}/{@code topo}/{@code bus} 回「查询点未解析到登记宿主」的可诊断回执；
+     * 全局命令 {@code ring}/{@code hosts} 不受影响。
+     * <p>The dispatch (the single-argument shape): no target-host context — of the data
+     * commands, the "this host" ones ({@code stale}/{@code topo}/{@code bus}) answer the
+     * diagnosable "no registered host resolved" line; the global {@code ring}/{@code hosts}
+     * are unaffected.</p>
      *
      * @param raw 客户端原始命令字符串 / the client's raw command string
      * @return 回给客户端的文本行 / the text lines to send back
      */
     public static List<String> respond(String raw) {
+        return respond(raw, null);
+    }
+
+    /**
+     * 命令分发：首词解析 → {@code help} 命令表 / 数据命令（{@code ConsoleDataPlane} 渲染，
+     * 数据源 = 采集快照 + 按 tick 缓存的依赖图 + 维度作用域内的总线表读取）/ 未知命令提示。
+     * <b>数据真值口径（§3.3）</b>：{@code stale} 只走 {@link TopoStats#collectionSnapshot()}；
+     * <b>维度作用域（issue #29 硬口径）</b>：{@code bus} 的总线表读取以
+     * {@link SignalBus#runInDimension} 包住宿主 BE 的维度；<b>放大控制（§4.4 第 2 层）</b>：
+     * {@code topo}/{@code ring}/{@code hosts}/{@code bus} 的构图走
+     * {@link ConsoleQueryCache#hostGraph()}（按 tick 至多重算一次）。
+     * <p>The dispatch: first-word parse → the {@code help} table / the data commands (rendered
+     * by {@code ConsoleDataPlane}; sources = the collection snapshot + the per-tick cached
+     * dependency graph + the bus-table reads inside the dimension scope) / an unknown-command
+     * line. <b>Data-truth plane (§3.3)</b>: {@code stale} rides {@link TopoStats#collectionSnapshot()}
+     * only; <b>dimension scope (the issue #29 hard rule)</b>: {@code bus}'s bus-table reads are
+     * wrapped in {@link SignalBus#runInDimension} over the host BE's dimension;
+     * <b>amplification control (§4.4 layer 2)</b>: the graph builds of
+     * {@code topo}/{@code ring}/{@code hosts}/{@code bus} ride
+     * {@link ConsoleQueryCache#hostGraph()} (rebuilt at most once per tick).</p>
+     *
+     * @param raw    客户端原始命令字符串 / the client's raw command string
+     * @param target 查询点解析出的目标宿主（null = 未解析到——需要本 host 视角的命令回可诊断
+     *               回执） / the target host resolved at the query point (null = none resolved —
+     *               the this-host commands answer diagnosably)
+     * @return 回给客户端的文本行 / the text lines to send back
+     */
+    public static List<String> respond(String raw, TopoStats.HostId target) {
         String cmd = raw == null ? "" : raw.trim();
         if (cmd.length() > MAX_COMMAND_LENGTH) {
             return List.of("命令超长（上限 " + MAX_COMMAND_LENGTH + " 字符）/ command too long (cap "
@@ -108,13 +144,38 @@ public final class ConsoleProtocol {
         String head = cmd.split("\\s+")[0].toLowerCase(Locale.ROOT);
         return switch (head) {
             case "help" -> HELP_LINES;
+            // 口径 A 核心数据：只走采集快照（§3.3 采样语义警示——绝不直读总线）。
+            // Criterion-A's core data: the collection snapshot only (the §3.3 sampling-semantics
+            // warning — never a direct bus read).
+            case "stale" -> ConsoleDataPlane.renderStale(target, TopoStats.collecting(),
+                    TopoStats.collectionSnapshot());
+            // 全局查询：图按 tick 缓存（§4.4 第 2 层——O(hosts) 摊还 O(1)）。
+            // Global queries: the graph is cached per tick (§4.4 layer 2 — O(hosts) amortized to O(1)).
+            case "topo" -> ConsoleDataPlane.renderTopo(target, ConsoleQueryCache.hostGraph(),
+                    target != null && TopoStats.hostsSnapshot().containsKey(target));
+            case "ring" -> ConsoleDataPlane.renderRing(ConsoleQueryCache.hostGraph());
+            // 硬口径（issue #29）：bus 读服务端总线表必须落在宿主 BE 的维度作用域内——
+            // 不包则经 key() 落进无作用域键空间 = 读错数据。
+            // Hard rule (issue #29): bus's server bus-table reads must run inside the host BE's
+            // dimension scope — unwrapped they land in the scope-free keyspace through key()
+            // = wrong data.
+            case "bus" -> {
+                if (target == null) {
+                    yield List.of("bus：查询点未解析到登记宿主 / no registered host resolved at the query point");
+                }
+                var g = ConsoleQueryCache.hostGraph();
+                yield SignalBus.runInDimension(target.dimension(),
+                        () -> ConsoleDataPlane.renderBus(target, ConsoleDataPlane.collectBusRows(g, target)));
+            }
+            case "hosts" -> ConsoleDataPlane.renderHosts(TopoStats.hostsSnapshot(),
+                    ConsoleQueryCache.hostGraph(), TopoStats.collecting(), TopoStats.collectionSnapshot());
             // 已发布但未接线的命令：明确说「尚未接线」，不给假数据、不静默（规格 §4.3 服务端表
-            // 含未接线名，接线批逐条替换本分支）。
+            // 含未接线名；接线批逐条替换——本批已接 stale/topo/ring/bus/hosts，perf 留待后续批）。
             // Published-but-unwired commands: say so explicitly — no fake data, no silence
-            // (spec §4.3's server table lists the unwired names; the wiring batch replaces
-            // this branch entry by entry).
-            case "stale", "topo", "ring", "bus", "perf", "hosts" ->
-                    List.of(head + " 尚未接线（数据面由后续批次接入）/ not wired to the data plane yet (a later batch wires it)");
+            // (spec §4.3's server table lists the unwired names; the wiring batches replace them
+            // one by one — this batch wires stale/topo/ring/bus/hosts, perf waits for a later one).
+            case "perf" ->
+                    List.of("perf 尚未接线（数据面由后续批次接入；当前用 /cscperf）/ not wired to the data plane yet (use /cscperf)");
             default -> List.of("未知命令 / unknown command: " + head + " — try help");
         };
     }

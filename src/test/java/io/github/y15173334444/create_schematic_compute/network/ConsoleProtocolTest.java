@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -65,14 +66,17 @@ class ConsoleProtocolTest {
     // ── 2. 命令分发骨架 / the dispatch skeleton ─────────────────────────────────────
 
     @Test
-    @DisplayName("已知未接线命令：明确「尚未接线」提示——不给假数据、不静默")
+    @DisplayName("唯一留守的未接线命令（perf）：明确「尚未接线」提示——不给假数据、不静默")
     void unwiredCommandsSaySoExplicitly() {
-        for (String cmd : new String[]{"stale", "topo", "ring", "bus", "perf", "hosts"}) {
-            List<String> lines = ConsoleProtocol.respond(cmd);
-            assertEquals(1, lines.size());
-            assertTrue(lines.get(0).contains("尚未接线"), cmd + " 必须提示未接线 / " + cmd + " must say not-wired");
-            assertTrue(lines.get(0).contains(cmd), "提示回含命令名 / the line echoes the command name");
-        }
+        // 接线批（issue #29）已把 stale/topo/ring/bus/hosts 逐条替换为真实数据面（见
+        // ConsoleDataCommandsTest 的分发锚）；壳批的「尚未接线」回执只剩 perf。
+        // The wiring batch (issue #29) replaced stale/topo/ring/bus/hosts with the real data
+        // plane one by one (the dispatch anchors live in ConsoleDataCommandsTest); the shell
+        // batch's "not wired yet" reply remains only for perf.
+        List<String> lines = ConsoleProtocol.respond("perf");
+        assertEquals(1, lines.size());
+        assertTrue(lines.get(0).contains("尚未接线"), "perf 必须提示未接线 / perf must say not-wired");
+        assertTrue(lines.get(0).contains("perf"), "提示回含命令名 / the line echoes the command name");
     }
 
     @Test
@@ -90,9 +94,14 @@ class ConsoleProtocolTest {
         assertEquals(ConsoleProtocol.HELP_LINES, ConsoleProtocol.respond("HELP"));
         assertEquals(ConsoleProtocol.HELP_LINES, ConsoleProtocol.respond("  Help  with args  "),
             "首词后的参数不影响分发 / arguments after the first word do not change dispatch");
+        // "Stale --verbose" 现已接入数据面（不再回「尚未接线」）——首词折叠后走进真实分支；
+        // 门关（本 JVM 默认）时回采集未启用的可诊断回执，大小写折叠由「stale」前缀证明。
+        // "Stale --verbose" now rides the data plane (never "not wired yet") — the folded head
+        // word enters the real branch; with the gate off (this JVM's default) it answers the
+        // diagnosable gate line, and the case folding is proven by the "stale" prefix.
         List<String> mixed = ConsoleProtocol.respond("Stale --verbose");
-        assertTrue(mixed.get(0).contains("尚未接线"), "大小写折叠到首词 / the head word is case-folded");
         assertTrue(mixed.get(0).contains("stale"), "回显用折叠后小写名 / the echo uses the folded lower-case name");
+        assertFalse(mixed.get(0).contains("尚未接线"), "数据命令不再回未接线 / the data commands never say not-wired");
     }
 
     @Test
