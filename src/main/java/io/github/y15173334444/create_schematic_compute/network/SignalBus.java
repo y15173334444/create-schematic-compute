@@ -14,6 +14,21 @@ import org.slf4j.LoggerFactory;
  *  <li>{@link #CHANNELS} — channel registry for BUS_IN/OUT, holds BUS_OUT internalMap references + ref-counts / BUS_IN/OUT 使用的频道注册表，持有 BUS_OUT 的 internalMap 引用 + 引用计数</li>
  *  <li>{@link #BAND_REGISTRY} — BUS band-name list registry (cross-computer band definitions, for editor UI) / BUS 频段名列表注册表（跨计算机共享频段定义，用于编辑器 UI）</li>
  *  </ul>
+ *  <p><b>维度作用域</b>（§6.4 步骤 2 隔离修复）：本表进程级共享，但**键空间按维度隔离** —— 服务端线程
+ *  在宿主维度作用域内（{@link #runInDimension}）访问时，所有键经 {@link #key} 规范化为
+ *  {@code <维度id>\u0001<逻辑名>}，两个维度的同名通道从此互不串值；无作用域线程（headless 测试 /
+ *  单人档客户端线程）访问原样逻辑名 —— 客户端的编辑器写入按设计只是本地乐观值（P1-9），落在
+ *  客户端本地键空间，与服务端权威键空间互不可见。{@link BusTrace} 挂点收到的仍是**逻辑名**
+ *  （前缀在追踪记录点之后，步骤 0 行格式锚不受影响）。</p>
+ *  <p><b>Dimension scope</b> (the §6.4 step-2 isolation fix): the tables are process-wide, but the
+ *  **keyspace is per-dimension** — while a server thread accesses the bus inside a host's dimension
+ *  scope ({@link #runInDimension}), every key is normalized through {@link #key} into
+ *  {@code <dimensionId>\u0001<logical>}, so same-named channels in two dimensions can no longer
+ *  cross-contaminate; an unscoped thread (headless tests / the single-player client thread) reads
+ *  and writes the logical name unchanged — client editor writes are by design optimistic local
+ *  values (P1-9) that land in the client-local keyspace, invisible to the server's authoritative
+ *  keyspace and vice versa. The {@link BusTrace} hooks still receive the **logical name** (the
+ *  prefix is applied after the trace points; the step-0 line-format anchors are unaffected).</p>
  */
 public class SignalBus {
     /** 独立 logger：**不引用** @Mod 类 —— 其静态初始化需要 MC 注册表，纯 JUnit 起不来
@@ -22,6 +37,91 @@ public class SignalBus {
      *  the Minecraft registries and cannot boot in plain JUnit (which is why
      *  BusInBandConvergenceTest had to plant entries reflectively). The log name is this class's FQCN. */
     private static final Logger LOGGER = LoggerFactory.getLogger(SignalBus.class);
+
+    // ── 维度作用域 / dimension scope ──────────────────────────────────────
+
+    /** 键空间的维度段分隔符：{@code <维度id>\u0001<逻辑名>}。选控制字符 {@code \u0001} 是因为
+     *  {@code \0} 已被频段键（{@code channel\0band}）占用，而频道名来自编辑器文本、不会携带
+     *  控制字符（总线既有设计本就依赖「名字不含分隔符」这一假设）。
+     *  The dimension segment separator of a keyspace key: {@code <dimensionId>\u0001<logical>}.
+     *  The control character {@code \u0001} is chosen because {@code \0} is taken by the band-key
+     *  shape ({@code channel\0band}), and channel names come from editor text and never carry
+     *  control characters (the bus's existing design already presumes names are separator-free). */
+    static final char SCOPE_SEPARATOR = '\u0001';
+
+    /** 维度作用域（**线程局部**）：求值是单线程服务端（观测文档 §3.3），宿主 tick 体在宿主自己的
+     *  维度作用域内运行；单人/局域网下客户端线程共享同一 JVM 静态表，但客户端线程**永不**设置
+     *  作用域 —— 它的编辑器写入按设计只是本地乐观值（P1-9），落到无作用域的客户端本地键空间，
+     *  绝不观测服务端线程的瞬态作用域。空串 = 无作用域（headless 测试 / 客户端本地视图）。
+     *  The dimension scope (**thread-local**): evaluation is single-threaded server-side
+     *  (observation doc §3.3) and each host's tick body runs inside the host's own dimension
+     *  scope; in single-player/LAN the client thread shares the same JVM static tables but
+     *  **never** sets a scope — its editor writes are by design optimistic local values (P1-9)
+     *  that land in the scope-free client-local keyspace, never observing the server thread's
+     *  transient scope. An empty string = unscoped (headless tests / the client-local view). */
+    private static final ThreadLocal<String> SCOPE = ThreadLocal.withInitial(() -> "");
+
+    /** 进入维度作用域，返回**先前的**作用域（供配对的 {@link #endDimensionScope} 恢复 —— 嵌套
+     *  安全）。null / 空串 = 无作用域。包内可见：网络侧服务端生命周期方法用 try/finally 包裹
+     *  自己的键访问；外部调用方用 {@link #runInDimension}。
+     *  Enter a dimension scope and return the **previous** scope (for the paired
+     *  {@link #endDimensionScope} to restore — nesting-safe). null / empty = unscoped.
+     *  Package-visible: the network-side server lifecycle methods wrap their own key access in
+     *  try/finally; external callers use {@link #runInDimension}. */
+    static String beginDimensionScope(String dimensionId) {
+        String prev = SCOPE.get();
+        SCOPE.set(dimensionId == null || dimensionId.isEmpty() ? "" : dimensionId);
+        return prev;
+    }
+
+    /** 恢复 {@link #beginDimensionScope} 返回的先前作用域；先前为无作用域时移除线程映射，
+     *  不留悬挂条目。
+     *  Restore the previous scope returned by {@link #beginDimensionScope}; when it was
+     *  unscoped the thread mapping is removed so no dangling entry lingers. */
+    static void endDimensionScope(String prev) {
+        if (prev == null || prev.isEmpty()) SCOPE.remove();
+        else SCOPE.set(prev);
+    }
+
+    /** 在给定维度作用域内执行一段无返回值的键访问（try/finally 保证作用域必然恢复）。
+     *  Run a valueless stretch of key access inside the given dimension scope (try/finally
+     *  guarantees the scope is restored). */
+    public static void runInDimension(String dimensionId, Runnable body) {
+        String prev = beginDimensionScope(dimensionId);
+        try {
+            body.run();
+        } finally {
+            endDimensionScope(prev);
+        }
+    }
+
+    /** 在给定维度作用域内执行一段带返回值的键访问（try/finally 保证作用域必然恢复）。
+     *  Run a value-bearing stretch of key access inside the given dimension scope (try/finally
+     *  guarantees the scope is restored). */
+    public static <T> T runInDimension(String dimensionId, java.util.function.Supplier<T> body) {
+        String prev = beginDimensionScope(dimensionId);
+        try {
+            return body.get();
+        } finally {
+            endDimensionScope(prev);
+        }
+    }
+
+    /** **键规范化的单一入口**：把逻辑名映射到当前线程作用域的存储键。进程级静态表的每个键访问
+     *  必须经本方法 —— 无作用域线程（headless 测试 / 客户端本地视图）拿到原样逻辑名，作用域线程
+     *  拿到 {@code <维度id>\u0001<逻辑名>}。步骤 4 的通道 epoch 将以**前缀后的键**为准，其规范化
+     *  亦必须复用本入口。
+     *  **The single entry point of key normalization**: maps a logical name to the storage key of
+     *  the current thread's scope. Every key access into the process-wide static tables must go
+     *  through this — an unscoped thread (headless tests / the client-local view) gets the logical
+     *  name unchanged, a scoped thread gets {@code <dimensionId>\u0001<logical>}. Step 4's channel
+     *  epochs will key on the **prefixed** form and must reuse this entry for normalization too. */
+    private static String key(String logical) {
+        String scope = SCOPE.get();
+        return scope.isEmpty() ? logical : scope + SCOPE_SEPARATOR + logical;
+    }
+
+    // ── 值表 / value tables ──────────────────────────────────────
 
     private static final ConcurrentHashMap<String, Float> SIGNALS = new ConcurrentHashMap<>();
 
@@ -80,13 +180,13 @@ public class SignalBus {
     // ── PRIVATE_IN/OUT API (unchanged) / PRIVATE_IN/OUT API（不变） ──────────────────────
 
     public static void put(String channel, float value) {
-        BusTrace.onPut(channel, value);
-        SIGNALS.put(channel, value);
+        BusTrace.onPut(channel, value);   // 追踪收**逻辑名**（前缀在记录点之后，步骤 0 锚不受影响）
+        SIGNALS.put(key(channel), value);
     }
 
     public static float get(String channel) {
-        float v = SIGNALS.getOrDefault(channel, 0f);
-        BusTrace.onGet(channel, v);
+        float v = SIGNALS.getOrDefault(key(channel), 0f);
+        BusTrace.onGet(channel, v);       // 追踪收**逻辑名**（前缀在记录点之后，步骤 0 锚不受影响）
         return v;
     }
 
@@ -96,10 +196,42 @@ public class SignalBus {
      *  PRIVATE_OUT destroy / rename / host unload, so maps never leak and a stale owner can't
      *  hold a name forever. */
     public static void clearSignal(String channel) {
-        SIGNALS.remove(channel);
-        VEC3_VALUES.remove(channel);
-        PRIVATE_OWNERS.remove(channel);
-        if (PRIVATE_TYPES.remove(channel) != null) PRIVATE_TYPE_STAMPS.merge(channel, 1, Integer::sum);
+        String k = key(channel);
+        SIGNALS.remove(k);
+        VEC3_VALUES.remove(k);
+        PRIVATE_OWNERS.remove(k);
+        if (PRIVATE_TYPES.remove(k) != null) PRIVATE_TYPE_STAMPS.merge(k, 1, Integer::sum);
+    }
+
+    /**
+     * 只撤**值**、不动占用与定义（owner 门控）：宿主停机路径的撤值语义（§9.1-2「停图 ≠ 撤值」）。
+     * 与 BUS 停机路径（清 {@code busInternalMap}、保留 CHANNELS 注册）严格平行 —— 停机 = 撤值不撤
+     * 频道：外部读者立即读到 0（两种不一致边界行为收敛为一种），而占用/定义保留意味着停机
+     * **不**打开接管窗口（recoverConflictedChannels 的超时回收是给「确证离去」的 owner 的，
+     * 停机宿主并未离去）；同 owner 重启后原样续写。owner 不匹配（冲突节点撞他人持有的名）
+     * 时不撤 —— 冲突节点从未写值，值是对端的，绝不越权清除。
+     * Clear **only the value**, leaving occupancy and definition intact (owner-gated): the
+     * host-stop withdrawal semantics (§9.1-2 "stopping a graph is not withdrawing its values").
+     * Strictly parallel to the BUS stop path (clears the node's {@code busInternalMap}, keeps the
+     * CHANNELS registration) — stopping withdraws the value, not the channel: external readers
+     * read 0 from then on (the two inconsistent boundary behaviors collapse into one), while
+     * keeping occupancy/definition means a stop **never** opens a takeover window (the recover
+     * machinery's timeout reclamation is for owners provably gone — a stopped host is not gone);
+     * a same-owner restart resumes writing unchanged. When the owner mismatches (a conflicted
+     * node facing a name held by the peer) nothing is withdrawn — a conflicted node never wrote
+     * values, the value belongs to the peer and must never be cleared by proxy.
+     *
+     * @return true 已撤值（或占用本就无主）；false 名被其他 owner 持有、未动
+     * @return true the value was withdrawn (or the name was unowned); false another owner holds
+     *              the name, nothing touched
+     */
+    public static boolean clearPrivateValue(String channel, ChannelOwner owner) {
+        String k = key(channel);
+        ChannelOwner cur = PRIVATE_OWNERS.get(k);
+        if (cur != null && !cur.equals(owner)) return false;
+        SIGNALS.remove(k);
+        VEC3_VALUES.remove(k);
+        return true;
     }
 
     // ── PRIVATE channel occupancy API / 私有频道占用 API ──────────────────────
@@ -112,7 +244,7 @@ public class SignalBus {
      *  @return true 注册成功（或本就是该 owner），false 被其他 owner 占用
      */
     public static boolean registerPrivateChannel(String channel, ChannelOwner owner) {
-        ChannelOwner prev = PRIVATE_OWNERS.putIfAbsent(channel, owner);
+        ChannelOwner prev = PRIVATE_OWNERS.putIfAbsent(key(channel), owner);
         return prev == null || prev.equals(owner);
     }
 
@@ -124,7 +256,7 @@ public class SignalBus {
      *  @return true 已释放（含本就无占用的空名），false 被其他 owner 占用、未动
      */
     public static boolean unregisterPrivateChannel(String channel, ChannelOwner owner) {
-        ChannelOwner cur = PRIVATE_OWNERS.get(channel);
+        ChannelOwner cur = PRIVATE_OWNERS.get(key(channel));
         if (cur != null && !cur.equals(owner)) return false;
         clearSignal(channel);
         return true;
@@ -132,7 +264,7 @@ public class SignalBus {
 
     /** 当前占用者（无占用返回 null；冲突恢复的存活判定用）/ The current owner (null when free). */
     public static ChannelOwner getPrivateOwner(String channel) {
-        return PRIVATE_OWNERS.get(channel);
+        return PRIVATE_OWNERS.get(key(channel));
     }
 
     // ── Private channel definition API / 私有频道定义 API ──────────────────────
@@ -141,22 +273,23 @@ public class SignalBus {
      *  Update the private channel's declared payload type (write + version bump only on
      *  change); returns whether it changed. */
     public static boolean setPrivateType(String channel, io.github.y15173334444.create_schematic_compute.graph.PinType type) {
-        var cur = PRIVATE_TYPES.get(channel);
+        String k = key(channel);
+        var cur = PRIVATE_TYPES.get(k);
         if (cur == type) return false;
-        PRIVATE_TYPES.put(channel, type);
-        PRIVATE_TYPE_STAMPS.merge(channel, 1, Integer::sum);
+        PRIVATE_TYPES.put(k, type);
+        PRIVATE_TYPE_STAMPS.merge(k, 1, Integer::sum);
         return true;
     }
 
     /** 私有频道声明载荷类型（无定义 = FLOAT）/ The private channel's declared payload type
      *  (FLOAT when undefined). */
     public static io.github.y15173334444.create_schematic_compute.graph.PinType privateType(String channel) {
-        return PRIVATE_TYPES.getOrDefault(channel, io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT);
+        return PRIVATE_TYPES.getOrDefault(key(channel), io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT);
     }
 
     /** 私有频道定义版本号（无定义 0）/ The private channel's definition version stamp (0 when none). */
     public static int privateTypeStamp(String channel) {
-        return PRIVATE_TYPE_STAMPS.getOrDefault(channel, 0);
+        return PRIVATE_TYPE_STAMPS.getOrDefault(key(channel), 0);
     }
 
     // ── BUS band-name sync API (unchanged) / BUS 频段名同步 API（不变） ──────────────────────
@@ -164,14 +297,14 @@ public class SignalBus {
     /** Register BUS bands (called when BUS_OUT is edited) / 注册 BUS 频段（BUS_OUT 编辑时调用） */
     public static void registerBands(String busName, List<String> bands) {
         if (bands != null && !bands.isEmpty())
-            BAND_REGISTRY.put(busName, new ArrayList<>(bands));
+            BAND_REGISTRY.put(key(busName), new ArrayList<>(bands));
         else
-            BAND_REGISTRY.remove(busName);
+            BAND_REGISTRY.remove(key(busName));
     }
 
     /** Get BUS band list / 获取 BUS 频段列表 */
     public static List<String> getBands(String busName) {
-        return BAND_REGISTRY.get(busName);
+        return BAND_REGISTRY.get(key(busName));
     }
 
     /**
@@ -187,7 +320,7 @@ public class SignalBus {
      * publisher's chunk unloading must never prune a BUS_IN's wires).</p>
      */
     public static void retireBands(String busName) {
-        BAND_REGISTRY.put(busName, new ArrayList<>());
+        BAND_REGISTRY.put(key(busName), new ArrayList<>());
     }
 
     /**
@@ -230,7 +363,7 @@ public class SignalBus {
 
     /** 当前活候选（只读；无候选返回空集）/ The current claimants (empty when none). */
     private static java.util.Set<ChannelOwner> claimantsOf(String busName) {
-        var c = CLAIMANTS.get(busName);
+        var c = CLAIMANTS.get(key(busName));
         return c != null ? c : java.util.Set.of();
     }
 
@@ -238,7 +371,7 @@ public class SignalBus {
      *  Drop a claimant (on successful registration or provable departure); the emptied
      *  key goes too, so the table never leaks. */
     private static void dropClaim(String busName, ChannelOwner owner) {
-        CLAIMANTS.computeIfPresent(busName, (k, set) -> {
+        CLAIMANTS.computeIfPresent(key(busName), (k, set) -> {
             set.remove(owner);
             return set.isEmpty() ? null : set;
         });
@@ -287,7 +420,7 @@ public class SignalBus {
      * @return true written; false held by another owner, nothing touched
      */
     public static boolean registerBandsIfNotForeign(String busName, List<String> bands, ChannelOwner self) {
-        ChannelEntry entry = CHANNELS.get(busName);
+        ChannelEntry entry = CHANNELS.get(key(busName));
         if (entry != null && !entry.owner.equals(self)) {
             LOGGER.warn("[SignalBus] Band registration for '{}' by {} rejected — owned by {}",
                 busName, self, entry.owner);
@@ -301,35 +434,36 @@ public class SignalBus {
      *  Update the per-band declared payload types (write + version bump only on change);
      *  returns whether they changed. */
     public static boolean setBandTypes(String busName, java.util.Map<String, io.github.y15173334444.create_schematic_compute.graph.PinType> bandTypes) {
-        var current = BAND_TYPES.get(busName);
+        String k = key(busName);
+        var current = BAND_TYPES.get(k);
         if (bandTypes == null || bandTypes.isEmpty()) {
             if (current == null) return false;
-            BAND_TYPES.remove(busName);
-            BAND_TYPE_STAMPS.merge(busName, 1, Integer::sum);
+            BAND_TYPES.remove(k);
+            BAND_TYPE_STAMPS.merge(k, 1, Integer::sum);
             return true;
         }
         if (current != null && current.equals(bandTypes)) return false;
-        BAND_TYPES.put(busName, new java.util.HashMap<>(bandTypes));
-        BAND_TYPE_STAMPS.merge(busName, 1, Integer::sum);
+        BAND_TYPES.put(k, new java.util.HashMap<>(bandTypes));
+        BAND_TYPE_STAMPS.merge(k, 1, Integer::sum);
         return true;
     }
 
     /** 频道的逐频段声明载荷类型（只读；无定义返回空表）/ The channel's per-band declared
      *  payload types (empty when undefined). */
     public static java.util.Map<String, io.github.y15173334444.create_schematic_compute.graph.PinType> getBandTypes(String busName) {
-        return BAND_TYPES.getOrDefault(busName, java.util.Map.of());
+        return BAND_TYPES.getOrDefault(key(busName), java.util.Map.of());
     }
 
     /** 某频段的声明载荷类型（无声明 = FLOAT；订阅方收敛/着色用）/ A band's declared payload
      *  type (FLOAT when undeclared; subscriber convergence and tinting). */
     public static io.github.y15173334444.create_schematic_compute.graph.PinType bandType(String busName, String bandName) {
-        return BAND_TYPES.getOrDefault(busName, java.util.Map.of())
+        return BAND_TYPES.getOrDefault(key(busName), java.util.Map.of())
             .getOrDefault(bandName, io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT);
     }
 
     /** 定义版本号（无定义 0）/ The channel's definition version stamp (0 when undefined). */
     public static int bandTypeStamp(String busName) {
-        return BAND_TYPE_STAMPS.getOrDefault(busName, 0);
+        return BAND_TYPE_STAMPS.getOrDefault(key(busName), 0);
     }
 
     // ── BUS channel registration API (new) / BUS 频道注册 API（新增） ──────────────────────
@@ -349,12 +483,13 @@ public class SignalBus {
      * @return true on success, false if occupied by another owner / true 注册成功，false 被其他 owner 占用
      */
     public static boolean registerChannel(String channelName, Map<String, Float> internalMap, ChannelOwner owner) {
-        ChannelEntry existing = CHANNELS.get(channelName);
+        String k = key(channelName);
+        ChannelEntry existing = CHANNELS.get(k);
         if (existing == null) {
             // EN: First registration — use putIfAbsent to prevent races
             // 首次注册 — 使用 putIfAbsent 防竞态
             ChannelEntry created = new ChannelEntry(internalMap, owner);
-            ChannelEntry raced = CHANNELS.putIfAbsent(channelName, created);
+            ChannelEntry raced = CHANNELS.putIfAbsent(k, created);
             if (raced == null) {
                 LOGGER.debug("[SignalBus] Channel '{}' registered by {}", channelName, owner);
                 dropClaim(channelName, owner); // 注册成功 = 不再是候选 / success = no longer a claimant
@@ -373,7 +508,7 @@ public class SignalBus {
                 ChannelEntry updated = new ChannelEntry(internalMap, owner);
                 // Carry forward the old ref-count (don't reset to 1) / 沿用旧引用计数（不重置为1）
                 while (updated.refCount() < existing.refCount()) updated.incrementRef();
-                CHANNELS.put(channelName, updated);
+                CHANNELS.put(k, updated);
             }
             dropClaim(channelName, owner);
             return true;
@@ -383,7 +518,7 @@ public class SignalBus {
         // conflict (register a live claimant: the name is not dead when the holder leaves)
         LOGGER.warn("[SignalBus] Channel '{}' already owned by {} — rejected registration by {}",
             channelName, existing.owner, owner);
-        CLAIMANTS.computeIfAbsent(channelName, k -> java.util.concurrent.ConcurrentHashMap.newKeySet()).add(owner);
+        CLAIMANTS.computeIfAbsent(k, c -> java.util.concurrent.ConcurrentHashMap.newKeySet()).add(owner);
         return false;
     }
 
@@ -396,20 +531,21 @@ public class SignalBus {
      * @return true if unregistered or channel not found, false if owner mismatch / true 取消注册成功或频道不存在，false owner 不匹配
      */
     public static boolean unregisterChannel(String channelName, ChannelOwner owner) {
-        ChannelEntry existing = CHANNELS.get(channelName);
+        String k = key(channelName);
+        ChannelEntry existing = CHANNELS.get(k);
         if (existing == null) {
             LOGGER.debug("[SignalBus] Channel '{}' not found for unregistration by {}", channelName, owner);
             return false;
         }
         if (!existing.owner.equals(owner)) {
             LOGGER.warn("[SignalBus] Channel '{}' unregistration by {} rejected — owned by {}",
-                channelName, owner, existing.owner);
+                channelName, existing.owner, owner);
             return false;
         }
         int remaining = existing.decrementRef();
         if (remaining <= 0) {
             LOGGER.debug("[SignalBus] Channel '{}' removed (refCount reached 0)", channelName);
-            CHANNELS.remove(channelName, existing);
+            CHANNELS.remove(k, existing);
             // Clear residual signal data so the channel doesn't pollute the next registrant
             // 清除残留信号数据，防止频道污染下一个注册者
             clearBus(channelName);
@@ -429,20 +565,20 @@ public class SignalBus {
      * @return true if the channel exists and is owned by the specified owner / 频道存在且属于指定所有者时返回 true
      */
     public static boolean updateChannel(String channelName, Map<String, Float> internalMap, ChannelOwner owner) {
-        ChannelEntry existing = CHANNELS.get(channelName);
+        ChannelEntry existing = CHANNELS.get(key(channelName));
         if (existing == null || !existing.owner.equals(owner)) return false;
         if (existing.internalMap != internalMap) {
             // Preserve ref-count across map reference update / 更新 map 引用时保留引用计数
             ChannelEntry updated = new ChannelEntry(internalMap, owner);
             while (updated.refCount() < existing.refCount()) updated.incrementRef();
-            CHANNELS.put(channelName, updated);
+            CHANNELS.put(key(channelName), updated);
         }
         return true;
     }
 
     /** Get a channel entry (for BUS_IN reading). Returns null if no active BUS_OUT. / 获取频道条目（供 BUS_IN 读取）。返回 null 表示没有活跃的 BUS_OUT。 */
     public static ChannelEntry getChannel(String channelName) {
-        return CHANNELS.get(channelName);
+        return CHANNELS.get(key(channelName));
     }
 
     // ── Cleanup API / 清理 API ──────────────────────────────────────
@@ -453,26 +589,28 @@ public class SignalBus {
      *  {@link #registerChannel}/{@link #unregisterChannel} via ref-counting.
      *  注意：<b>不</b>操作 CHANNELS 注册表 — 频道生命周期由 registerChannel/unregisterChannel 通过引用计数管理。</p> */
     public static void clearBus(String busName) {
-        String prefix = busName + "\0";
+        String prefix = key(busName) + "\0";
         SIGNALS.keySet().removeIf(k -> k.startsWith(prefix));
         VEC3_VALUES.keySet().removeIf(k -> k.startsWith(prefix));
-        BAND_REGISTRY.remove(busName);
-        BAND_TYPES.remove(busName);
-        BAND_TYPE_STAMPS.remove(busName);
+        BAND_REGISTRY.remove(key(busName));
+        BAND_TYPES.remove(key(busName));
+        BAND_TYPE_STAMPS.remove(key(busName));
     }
 
     // ── Vector value API / 向量值 API ──────────────────────
 
-    /** 写向量值（状态语义 last-write-wins）：键 = 私有名或频段键 {@code channel\0band}。
-     *  Write a vector value (state semantics, last write wins). */
-    public static void putVec3(String key, io.github.y15173334444.create_schematic_compute.graph.Vec3f value) {
-        if (value == null) VEC3_VALUES.remove(key);
-        else VEC3_VALUES.put(key, value);
+    /** 写向量值（状态语义 last-write-wins）：键 = 私有名或频段键 {@code channel\0band}，经
+     *  {@link #key} 规范化后落表。
+     *  Write a vector value (state semantics, last write wins); the key — a private name or the
+     *  band key {@code channel\0band} — lands normalized through {@link #key}. */
+    public static void putVec3(String logical, io.github.y15173334444.create_schematic_compute.graph.Vec3f value) {
+        if (value == null) VEC3_VALUES.remove(key(logical));
+        else VEC3_VALUES.put(key(logical), value);
     }
 
     /** 读向量值（缺席 = null）/ Read a vector value (absent = null). */
-    public static io.github.y15173334444.create_schematic_compute.graph.Vec3f getVec3(String key) {
-        return VEC3_VALUES.get(key);
+    public static io.github.y15173334444.create_schematic_compute.graph.Vec3f getVec3(String logical) {
+        return VEC3_VALUES.get(key(logical));
     }
 
     /** Clear all signals, channel registrations, and band registries (called on server shutdown) / 清除所有信号、频道注册和频段注册表（服务器关闭时调用） */
