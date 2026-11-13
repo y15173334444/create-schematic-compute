@@ -42,6 +42,7 @@
 | 25 | 频段手动声明不跨存档（芯片声明=会话内激活器） | 手动声明不接线可放行下游连接，但存档重载后槽位一律回灰、下游线按类型合法性剪除 | 声明来源标记（NBT 旁路一列 + 随声明表同步）——后随类型片只读化拍板整体退役 | ✅ 已拍板（2026-11-08：类型片改只读指示器、手动声明退役，来源标记不再需要） |
 | 26 | 协作在场层渲染层级（远端光标/拖线预览盖住 chrome） | 远端光标标签与拖线预览画在渲染尾段，多人协作时压住工具条/顶栏/弹窗与加节点菜单 | `renderPresenceOverlay(g)` 从渲染尾段移到画布层（`renderNodes` 之后、chrome 之前） | 🔶 待办（2026-11-08 登记，另批） |
 | 27 | C→S 限流批暂缓面（接入守护测试 / 突发丢弃致歧 / 预算未接 Config / 事件未进观测口径） | 限流本体已落地（16 条 C→S 全接、1176 绿），四项随批暂缓，详见条目 | 27.1 源码解析守护测试；27.2 客户端补偿（挂步骤 5 控制台批）；27.3 配置面（对齐「可禁兜底」纪律）；27.4 限流事件计入口径（挂步骤 4 / issue #26） | 🔶 暂缓（2026-11-14 限流批登记） |
+| 28 | 维度前缀批暂缓面（AudioBands 同构串值未修 + 停机不清频段向量值） | SignalBus 键空间已按维度隔离（1176 绿），但音频频段五表仍进程级共享、停机也不清频段向量值，详见条目 | 28.1 AudioBands 隔离需独立拍板（其 javadoc 声明跨维度共享是设计性质）；28.2 并入条目 7『频道清理残余豁口』家族或步骤 4 批顺手收口 | 🔶 暂缓（2026-11-14 维度前缀批登记） |
 
 ---
 
@@ -950,3 +951,25 @@ only wire-derived slots. Cost: one more persisted and synced column.
 ### 状态 / Status
 
 🔶 暂缓（2026-11-14 限流批登记；27.4 挂步骤 4、27.2 挂步骤 5，其余择机另批）。
+
+## 28. 维度前缀批暂缓面（AudioBands 同构串值未修 + 停机不清频段向量值）
+
+范围 / Scope：`graph/AudioBands`、`blocks/GraphHost`（停机路径）（批 `15d021d2`，issue #23）
+
+SignalBus 键空间已按维度隔离（`<维度id>\u0001<逻辑名>`，1176 绿）；以下两项是本批识别出的同族残留，随批暂缓：
+
+### 28.1 AudioBands 的同构串值未修
+
+- 机制：BANDS / STAMPS / CONSUMED / OWNERS / CONFLICTS 五表以 `channel\0band` 为键，同样进程级共享、无维度作用域——但其类 javadoc **明文声明**「跨维度共享是既有信号设计的性质」，且新鲜窗自愈不依赖清理。维度前缀批的授权面只收编 SignalBus 键空间。
+- 修复方向：若要同构隔离，AudioBands 键空间需**独立拍板**（动的是频段定义 / 新鲜窗 / 冲突语义的跨维度行为，不是纯清理）。
+/ AudioBands' five tables share the same process-wide `channel\0band` keys without a dimension scope — but its javadoc declares cross-dimension sharing as a design property of the audio signal system, so scoping it is an independent semantic decision, not a cleanup.
+
+### 28.2 停机不清 BUS 频段向量值
+
+- 机制：宿主停机清 `busInternalMap`（标量）但 `VEC3_VALUES` 下 `channel\0band` 的向量值残留至频道注销——维度前缀批规格只授权私有信号撤值；与条目 7『频道清理残余豁口』家族同源。
+- 修复方向：并入条目 7 的收口批，或步骤 4 采集批顺手收。
+/ A host stop clears the BUS internal map (scalars) but the `channel\0band` vectors in VEC3_VALUES linger until the channel unregisters — the step-2 spec only authorized private-signal withdrawal; same family as entry 7.
+
+### 状态 / Status
+
+🔶 暂缓（2026-11-14 维度前缀批登记；28.1 需独立拍板、28.2 归条目 7 家族）。
