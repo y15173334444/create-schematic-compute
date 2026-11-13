@@ -8,10 +8,12 @@ import io.github.y15173334444.create_schematic_compute.graph.NodeAdmission;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
 import io.github.y15173334444.create_schematic_compute.graph.RuntimeState;
+import io.github.y15173334444.create_schematic_compute.graph.TopoStats;
 import io.github.y15173334444.create_schematic_compute.network.BusBandSyncPacket;
 import io.github.y15173334444.create_schematic_compute.network.BusChannelHelper;
 import io.github.y15173334444.create_schematic_compute.network.ChannelOwner;
 import io.github.y15173334444.create_schematic_compute.network.ClientboundGraphEvalPacket;
+import io.github.y15173334444.create_schematic_compute.network.HostChannelCensus;
 import io.github.y15173334444.create_schematic_compute.network.PrivateChannelTypePacket;
 import io.github.y15173334444.create_schematic_compute.network.RuntimeStateSyncPacket;
 import io.github.y15173334444.create_schematic_compute.network.SignalBus;
@@ -880,10 +882,12 @@ public class GraphHost {
         rs.onLoad(graph);
         var l = lvl();
         if (l != null && !l.isClientSide()) graph.bumpGeneration();   // 首 tick 强制重编译 / force first-tick recompile
+        topoRegister();
     }
 
     /** 宿主 onChunkUnloaded 时调用。 / Call from host {@code onChunkUnloaded}. */
     public void onHostChunkUnloaded() {
+        topoUnregister();
         cleanupBusChannels(graph);
         unregisterBusChannels(graph);
         rs.onChunkUnloaded();
@@ -891,9 +895,81 @@ public class GraphHost {
 
     /** 宿主 setRemoved 时调用。 / Call from host {@code setRemoved}. */
     public void onHostRemoved() {
+        topoUnregister();
         cleanupBusChannels(graph);
         unregisterBusChannels(graph);
         rs.setRemoved();
+    }
+
+    // ── 观测注册表挂靠（§6.4 步骤 3 / issue #25，零行为接入）──
+    //     Observation-registry attachment (§6.4 step 3 / issue #25, zero behaviour integration).
+
+    /**
+     * 登记进全局 host 注册表（{@link TopoStats}，跨维度平铺）：宿主身份 = 维度 + 方块坐标，
+     * 条目携带<b>活普查</b>供给器 —— 每次构图时现枚举当前图（{@link HostChannelCensus}，
+     * 主图 + ENCAP 子图递归），图变更无需任何失效。幂等：同键重登（区块卸载后重载、状态
+     * 翻转拆建）替换供给器，不产生重复条目（步骤 0 实测过重载翻转，注册表对重载必须无幽灵
+     * 也无丢失）。仅服务端：单人下客户端镜像 BE 与服务端共享 JVM 静态表、身份键同维度同
+     * 坐标，客户端登记会覆盖服务端权威条目。
+     * <p>原生线注记：{@link SyncedGraphBlockEntity} 的 onChunkUnloaded / setRemoved 内联
+     * BUS 清理、不经 {@link #onHostChunkUnloaded} / {@link #onHostRemoved}（避免引用计数
+     * 双扣），故其生命周期处另行调用 {@link #topoUnregister()} —— 两条线的挂靠点合起来
+     * 覆盖全部 12 宿主。</p>
+     * Register into the global host registry ({@link TopoStats}, flat across dimensions):
+     * host identity = dimension + block position, the entry carrying a <b>live-census</b>
+     * provider — each graph build enumerates the current graph on the spot
+     * ({@link HostChannelCensus}, main graph + recursive ENCAP sub-graphs), so graph changes
+     * need no invalidation. Idempotent: re-registering under the same key (a reload after a
+     * chunk unload, a state-flip teardown/rebuild) replaces the provider without producing a
+     * duplicate entry (step 0 measured reload flipping; the registry must have neither ghosts
+     * nor losses across reloads). Server side only: in single-player the client's mirror BE
+     * shares the JVM's static tables with the server and carries the same identity key (same
+     * dimension, same position) — a client registration would overwrite the server's
+     * authoritative entry.
+     * <p>Native-line note: {@link SyncedGraphBlockEntity}'s onChunkUnloaded / setRemoved inline
+     * their BUS cleanup and do NOT ride {@link #onHostChunkUnloaded} / {@link #onHostRemoved}
+     * (a double ref-count decrement must not happen), so their lifecycle sites call
+     * {@link #topoUnregister()} separately — the two lines' attachment points together cover
+     * all twelve hosts.</p>
+     */
+    public void topoRegister() {
+        var l = lvl();
+        if (l == null || l.isClientSide()) return;
+        String dimension = l.dimension().location().toString();
+        // 捕获 this 而非 graph 字段值：graph 在 loadHostNBT / adoptFrom 会被整体替换，
+        // 活普查必须每次读当前字段。/ Capture `this`, not the graph field's value: graph is
+        // replaced wholesale by loadHostNBT / adoptFrom — the live census must read the field
+        // fresh on every call.
+        TopoStats.hostLoaded(new TopoStats.HostId(dimension, pos().getX(), pos().getY(), pos().getZ()),
+            () -> topoCensus(dimension));
+    }
+
+    /**
+     * 从全局 host 注册表摘除本宿主（卸载/移除路径；幂等，重复或未登记皆安全 no-op）。
+     * 仅服务端判定与 {@link #topoRegister} 对称——客户端路径绝不触碰服务端条目。
+     * Drop this host from the global registry (unload/remove paths; idempotent — repeats and
+     * never-registered keys are safe no-ops). The server-side guard mirrors
+     * {@link #topoRegister} — a client path never touches the server's entry.
+     */
+    public void topoUnregister() {
+        var l = lvl();
+        if (l == null || l.isClientSide()) return;
+        TopoStats.hostGone(new TopoStats.HostId(l.dimension().location().toString(),
+            pos().getX(), pos().getY(), pos().getZ()));
+    }
+
+    /**
+     * §3.2 宿主范围口径在此收口：停机宿主（{@code running=false}）或空图宿主既不读也不写，
+     * 交空普查——构图（{@code TopoStats.buildHostGraph}）据此把它挡在 DAG 分母外。
+     * The §3.2 host-scope criterion lands here: a stopped host ({@code running=false}) or an
+     * empty-graph host neither reads nor writes — it reports an empty census, and graph
+     * building ({@code TopoStats.buildHostGraph}) keeps it out of the DAG's denominator.
+     */
+    private TopoStats.ChannelCensus topoCensus(String dimension) {
+        var l = lvl();
+        if (l == null || l.isClientSide() || !running || graph.nodes.isEmpty())
+            return TopoStats.ChannelCensus.EMPTY;
+        return HostChannelCensus.census(graph, dimension);
     }
 
     // ── flipflop 差分广播 / flipflop diff broadcast ──

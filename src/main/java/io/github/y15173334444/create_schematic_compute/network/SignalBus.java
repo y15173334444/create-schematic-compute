@@ -109,14 +109,18 @@ public class SignalBus {
 
     /** **键规范化的单一入口**：把逻辑名映射到当前线程作用域的存储键。进程级静态表的每个键访问
      *  必须经本方法 —— 无作用域线程（headless 测试 / 客户端本地视图）拿到原样逻辑名，作用域线程
-     *  拿到 {@code <维度id>\u0001<逻辑名>}。步骤 4 的通道 epoch 将以**前缀后的键**为准，其规范化
-     *  亦必须复用本入口。
+     *  拿到 {@code <维度id>\u0001<逻辑名>}。步骤 3 的通道普查（{@link HostChannelCensus}，DAG
+     *  通道身份）与步骤 4 的通道 epoch 都以**前缀后的键**为准，其规范化亦必须复用本入口 ——
+     *  可见性从 private 放宽到包内即为此（消费面全部住在本包，公开面零扩大）。
      *  **The single entry point of key normalization**: maps a logical name to the storage key of
      *  the current thread's scope. Every key access into the process-wide static tables must go
      *  through this — an unscoped thread (headless tests / the client-local view) gets the logical
-     *  name unchanged, a scoped thread gets {@code <dimensionId>\u0001<logical>}. Step 4's channel
-     *  epochs will key on the **prefixed** form and must reuse this entry for normalization too. */
-    private static String key(String logical) {
+     *  name unchanged, a scoped thread gets {@code <dimensionId>\u0001<logical>}. Step 3's channel
+     *  census ({@link HostChannelCensus}, the DAG's channel identity) and step 4's channel epochs
+     *  both key on the **prefixed** form and must reuse this entry for normalization too — the
+     *  visibility widening from private to package-private exists exactly for that (every consumer
+     *  lives in this package; the public face does not grow). */
+    static String key(String logical) {
         String scope = SCOPE.get();
         return scope.isEmpty() ? logical : scope + SCOPE_SEPARATOR + logical;
     }

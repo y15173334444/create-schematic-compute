@@ -252,8 +252,16 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
 
     /** Called when the chunk containing this BE is unloaded.
      *  Cleans up BUS channels on both client and server before the BE goes dormant.
-     *  包含此 BE 的区块被卸载时调用。在 BE 休眠之前清理客户端和服务端的 BUS 通道。 */
+     *  包含此 BE 的区块被卸载时调用。在 BE 休眠之前清理客户端和服务端的 BUS 通道。
+     *  <p>观测注册表挂靠（§6.4 步骤 3）：原生线内联 BUS 清理、不经 {@code GraphHost}
+     *  的 onHostChunkUnloaded（避免 unregisterChannels 引用计数双扣），注册表摘除
+     *  单独一行补齐（幂等；服务端判定在 GraphHost 侧）。/ Observation-registry
+     *  attachment (§6.4 step 3): the native line inlines its BUS cleanup and never rides
+     *  GraphHost's onHostChunkUnloaded (a double unregisterChannels ref-count decrement
+     *  must not happen), so the registry drop rides as its own line (idempotent; the
+     *  server-side guard lives in GraphHost).</p> */
     @Override public void onChunkUnloaded() {
+        host.topoUnregister();
         cleanupBusChannels(graph());
         unregisterBusChannels(graph());
         super.onChunkUnloaded();
@@ -264,8 +272,14 @@ public abstract class SyncedGraphBlockEntity extends BlockEntity
      *  Performs full BUS channel teardown: client cleanup + server unregistration,
      *  plus reclaiming this position's edit session (P2-10).
      *  方块从世界中移除时调用。执行完整的 BUS 通道拆除：客户端清理 + 服务端注销，
-     *  并回收本坐标的编辑会话（P2-10）。 */
+     *  并回收本坐标的编辑会话（P2-10）。
+     *  <p>观测注册表挂靠（§6.4 步骤 3）：与 onChunkUnloaded 同理——原生线内联 BUS 清理，
+     *  注册表摘除单独一行补齐（幂等；服务端判定在 GraphHost 侧）。/ Observation-registry
+     *  attachment (§6.4 step 3): same as onChunkUnloaded — the native line inlines its BUS
+     *  cleanup, so the registry drop rides as its own line (idempotent; the server-side guard
+     *  lives in GraphHost).</p> */
     @Override public void setRemoved() {
+        host.topoUnregister();
         cleanupBusChannels(graph());
         unregisterBusChannels(graph());
         // P2-10(a)：拆除/替换时回收本坐标的编辑会话（editors/editVersions/opLogs），
