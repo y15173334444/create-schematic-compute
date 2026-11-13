@@ -1,7 +1,7 @@
 # 跨 BE 信号延迟 · 观测设施 + 图内控制台（C 阶段）· 设计稿 / Cross-BE Signal Latency · Observation Facility + In-Editor Console (Phase C) · Design Draft
 
-> **状态**：🔶 **部分落地（主线未动手）** —— C 阶段观测设施与控制台（§三–§六）未实施；排期步骤 1（tick 体收敛，K23）已落地，§九 短板 12 条已收口、3 条部分、10 条开放（2026-11-13 对账）。起草 2026-09-11，基线 `dfedbef`；**2026-09-30 两轮修订**（引用口径 / 对照去标识 + 在飞前提复核）；**2026-10-11 对账修订**（v1.2.6 之后的事实刷新，见 §〇 第三轮修订表与附录 C）；**2026-11-13 对账修订**（债务清理线落地面的状态刷新，见 §〇 第四轮修订表）。
-> **Status**: 🔶 partially landed — the Phase-C observation facility and console (§§3–6) remain unimplemented; schedule step 1 (tick-body convergence, K23) has landed and 12 §9 shortcomings closed (3 partial, 10 open) as of the 2026-11-13 reconciliation. Drafted 2026-09-11 against `dfedbef`; revised 2026-09-30 (mechanism-level citations, anonymous counterparty, selection chapter, shortcomings list), 2026-10-11 (post-v1.2.6 fact refresh) and 2026-11-13 (post-debt-cleanup status refresh).
+> **状态**：🔶 **部分落地（主线未动手）** —— C 阶段观测设施与控制台（§三–§六）未实施；排期步骤 0（前置实验，2026-11-14 实测）与步骤 1（tick 体收敛，K23）已落地，§九 短板 12 条已收口、3 条部分、10 条开放（2026-11-13 对账）。起草 2026-09-11，基线 `dfedbef`；**2026-09-30 两轮修订**（引用口径 / 对照去标识 + 在飞前提复核）；**2026-10-11 对账修订**（v1.2.6 之后的事实刷新，见 §〇 第三轮修订表与附录 C）；**2026-11-13 对账修订**（债务清理线落地面的状态刷新，见 §〇 第四轮修订表）；**2026-11-14 实证修订**（步骤 0 实测结论，见 §〇 第五轮修订表）。
+> **Status**: 🔶 partially landed — the Phase-C observation facility and console (§§3–6) remain unimplemented; schedule steps 0 (live measurement, 2026-11-14) and 1 (tick-body convergence, K23) have landed, and 12 §9 shortcomings are closed (3 partial, 10 open) as of the 2026-11-13 reconciliation. Drafted 2026-09-11 against `dfedbef`; revised 2026-09-30 (mechanism-level citations, anonymous counterparty, selection chapter, shortcomings list), 2026-10-11 (post-v1.2.6 fact refresh), 2026-11-13 (post-debt-cleanup status refresh) and 2026-11-14 (live-evidence revision).
 > **前置**：[`graph-host-convergence-plan.md`](graph-host-convergence-plan.md) ✅ 已归档
 > （唯一引擎 `GraphHost` + 唯一契约 `GraphBlockEntity` 已就位）。
 > **本文只写方案，不改源码。**
@@ -51,6 +51,15 @@
 | 2 | **§九 状态刷新（25 条）**：12 条收口（9.1-4 / 9.1-6 / 9.1-7 / 9.2-1 / 9.2-2 / 9.2-5 / 9.2-6 / 9.4-1 / 9.4-3 / 9.5-1 / 9.5-4，另 9.5-3 与 9.1-4 同案）、3 条部分（9.1-1 单点化 / 9.1-5 / 9.2-3）、10 条开放 | 1.3.0 债务清理线实际落地面（2026-10-25 迁移批 → 10-30/31 批 → 11-01 批 E）；逐条证据见各条状态行 |
 | 3 | **§6.4 排期表加状态列**：步骤 1 ✅（K23）；0 / 2 / 2b / 3 / 4 / 5 ❌ 未动；注记 2b 的第 0 步（codec 钳制）已随安全热修批 `2248e2b` 落地 | 排期输入必须反映已落地面 |
 | 4 | **过时断言改写**：§8.5 与附录 A 的「全仓无耗时埋点」改按批 E 现状（per-node 探针 + `/cscperf` 在、三段包夹与分配量埋点缺）；§十「可独立提交三项」标完成；§十一 Q5 / Q11 标已决 | 同口径对账，消除文档落后于实现的反向失真 |
+
+### 2026-11-14 实证修订（第五轮）/ Live-Evidence Revision
+
+| # | 改动 | 理由 |
+| --- | --- | --- |
+| 1 | **步骤 0 实测落地**：门控式通道采样器（SignalBus put/get 挂点 + tick/seq 时间戳）直采私有通道，2278+ tick 判定两态皆真、态内零抖动、拆建 BE 与区块重载均可翻转；§6.4 步骤 0 状态列 ✅ | 步骤 0 是 §3.5 判读的前置，实测结论=方案继续 |
+| 2 | **§1.4 补活体实证**：1-tick / 0-tick 两分支各获得数百至上万 tick 的稳定段实证；翻转触发器=BE ticker 注册序重排（拆建、区块重载） | §1.2/§1.4 原为机制推断，现为实测 |
+| 3 | **§3.3 补采样语义警示**：探针节点「当前值」读数走客户端本地求值（读者侧本地总线无写者时恒 0），**只有求值快照/趋势图是服务端真值**——§四 控制台的探针数据面必须用快照口径 | 读数≠真值，直接决定 §四 的数据来源设计 |
+| 4 | **截图法噪声澄清**：客户端趋势图出现的同值平台段系客户端采样错拍（本装置服务端零重播事件），§9.1-5 的音频重播为独立机制、不受此影响 | 排除误读、收敛登记面 |
 
 > **标注约定**：`【核实】` = 读本仓代码 / 读反编译源码 / 实测确认；`【静态推断】` = 由代码结构推出、未实测；`【估算】` = 复杂度或量级推算。
 
@@ -103,6 +112,11 @@ BE_B.tick() [读 ch → T-1 值]  BE_A.tick() [写 ch=7]      ❌ 1 tick
 ```
 
 即跨 BE 是 **0 或 1 tick，不确定**。对 PID / 火控而言，**抖动延迟不可建模补偿，固定延迟可以**。
+
+> **活体实证（2026-11-14，通道采样器直采）**【核实】：两态皆真且**各自在序不变期内零抖动**——「不确定」发生在 **BE ticker 注册序**这一层（安装/搭建级），不是逐刻随机。
+> 实测稳定段：读方先 tick → **恒 1 tick 延迟**（1714 tick 连续段 + 多段复现，GET 恒取上刻写值）；写方先 tick → **恒 0 tick 同刻拾取**（16372 tick 连续段）。
+> **翻转触发器**（实测）：① 拆建任一 BE（pending 注册路径）——重建读方翻为 0-tick、重建写方翻回 1-tick，双向可复现；② **区块卸载重载**——ticker 注册序按区块存档重排，实测由 0-tick 翻为 1-tick（§1.2 的重载翻转说法由本实验确认）。
+> 对控制回路的含义：给定装置的延迟是**可建模的常量**（0 或 1），但**任何搭建/更新/区块重载后要重新观测**——比"逐刻抖动"好处理，比"契约保证"难处理。
 
 ---
 
@@ -165,6 +179,8 @@ Post  ：对每条记录，若 channelEpoch.get(key) > 记录时的 epoch → �
 2. **给求值入口加 `StatsSink` 参数**：显式、无静态状态，但要改签名 + 12 处调用点 + 子图透传。
 
 **无论哪种，都建议先做 §6.3 的"12 份 tick 体收敛进 `GraphHost`"** —— 收敛后钩子只有**一处**，否则要在 12 处设 / 清上下文（或写 12 个 wrapper）。这使 §6.3 从"顺带收益"升级为 **C 的 hook 点前置**。
+
+> ⚠️ **采样语义警示（2026-11-14 实测）**：探针节点界面上的「当前值」读数由**客户端本地求值**产生——读者侧宿主的本地 `SignalBus` 无写者时该读数**恒 0 冻结**，与服务端真值脱节；**只有求值快照（`broadcastEvalSnapshot`）与由其采样的趋势图是服务端真值**。§四 控制台的 `stale` / 探针类数据面**必须走快照口径**，不得复用读数显示通道。
 
 ### 3.4 全局注册表 + Post 汇总
 
@@ -374,7 +390,7 @@ ensureBusRegistered → checkGraphChanged → recompileEvaluatorFull → refresh
 
 | 步骤 | 内容 | 行为变更 | 状态（2026-11-13 对账） |
 | --- | --- | --- | --- |
-| 0 | 前置实验：用 `DEBUG_PROBE` 双机对比确认现状抖动（若实测恒为 0 tick，暂停本方案并回报） | 无 | ❌ 未做 |
+| 0 | 前置实验：用 `DEBUG_PROBE` 双机对比确认现状抖动（若实测恒为 0 tick，暂停本方案并回报） | 无 | ✅ 已实测（2026-11-14）：0/1 两态皆真、态内零抖动、拆建 BE 与区块重载均可翻转（§1.4 实证注）→ **非恒 0，方案继续** |
 | 1 | 12 份 tick 体收敛进 `GraphHost`（纯重构，715 例测试须全绿） | 无 | ✅ 已落地（K23，2026-10-25，`GraphHost.tickBody` + `TickHooks`，12 宿主全收敛） |
 | 2 | 进程内总线 **维度前缀**（隔离修复） | ✅ 有（独立提交）。注：生命周期清理**经核实**——节点注销 / 停服 / 编辑器改名删除三条路径完整；**但宿主停机路径不清私有信号**（只清 BUS 内部映射与红石输出）→ 本步需一并补（§9.1-2） | ❌ 未做 |
 | 2b | **C→S 包服务端限流设施**（per-player + per-packet-type 令牌桶） | ✅ 有（独立安全修复；保护面覆盖既有编辑 op 包等） | ❌ 未做（第 0 步 codec 钳制已随安全热修批 `2248e2b` 落地） |
