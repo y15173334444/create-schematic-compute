@@ -344,7 +344,7 @@ impl<'p, 'b> Exec<'p, 'b> {
                                 0.0
                             }
                         }
-                        b'^' => a.powf(b),
+                        b'^' => libm::pow(a, b),
                         b'<' => {
                             if a < b {
                                 1.0
@@ -479,7 +479,7 @@ impl<'p, 'b> Exec<'p, 'b> {
                                 0.0
                             }
                         }
-                        b'^' => a.powf(b),
+                        b'^' => libm::pow(a, b),
                         b'<' => {
                             if a < b {
                                 1.0
@@ -746,40 +746,41 @@ fn vector_op(op: u8, av: V, bv: V) -> V {
 }
 
 /// 标量内建函数（Java applyFunction 逐字对齐：角度为度、定义域外 lenient 0）。
+/// trig/超越走 libm crate（fdlibm 血统 = Java StrictMath 同源，§5.3）。
 fn scalar_fn(f: Fn, args: [f64; 2]) -> f64 {
     let v = args[0];
     match f {
         Fn::Sin => {
             if v.is_finite() {
-                v.to_radians().sin()
+                crate::fdlibm::sin(v.to_radians())
             } else {
                 0.0
             }
         }
         Fn::Cos => {
             if v.is_finite() {
-                v.to_radians().cos()
+                crate::fdlibm::cos(v.to_radians())
             } else {
                 0.0
             }
         }
         Fn::Tan => {
             if v.is_finite() {
-                v.to_radians().tan()
+                libm::tan(v.to_radians())
             } else {
                 0.0
             }
         }
         Fn::Asin => {
             if v.is_finite() && (-1.0..=1.0).contains(&v) {
-                v.asin().to_degrees()
+                libm::asin(v).to_degrees()
             } else {
                 0.0
             }
         }
         Fn::Acos => {
             if v.is_finite() && (-1.0..=1.0).contains(&v) {
-                v.acos().to_degrees()
+                libm::acos(v).to_degrees()
             } else {
                 0.0
             }
@@ -787,70 +788,73 @@ fn scalar_fn(f: Fn, args: [f64; 2]) -> f64 {
         Fn::Atan2 => {
             let (y, x) = (args[0], args[1]);
             if y.is_finite() && x.is_finite() {
-                y.atan2(x).to_degrees()
+                libm::atan2(y, x).to_degrees()
             } else {
                 0.0
             }
         }
         Fn::Sinh => {
             if v.is_finite() {
-                v.sinh()
+                libm::sinh(v)
             } else {
                 0.0
             }
         }
         Fn::Cosh => {
             if v.is_finite() {
-                v.cosh()
+                libm::cosh(v)
             } else {
                 0.0
             }
         }
         Fn::Sqrt => {
             if v.is_finite() && v >= 0.0 {
-                v.sqrt()
+                libm::sqrt(v)
             } else {
                 0.0
             }
         }
         Fn::Ln => {
             if v.is_finite() && v > 0.0 {
-                v.ln()
+                crate::fdlibm::log(v)
             } else {
                 0.0
             }
         }
         Fn::Log => {
             if v.is_finite() && v > 0.0 {
-                v.log10()
+                crate::fdlibm::log10(v)
             } else {
                 0.0
             }
         }
         Fn::Exp => {
             if v.is_finite() {
-                v.exp()
+                libm::exp(v)
             } else {
                 0.0
             }
         }
         Fn::Sec => {
-            if v.is_finite() && v.to_radians().cos().abs() > 1e-12 {
-                1.0 / v.to_radians().cos()
+            let c = crate::fdlibm::cos(v.to_radians());
+            if v.is_finite() && c.abs() > 1e-12 {
+                1.0 / c
             } else {
                 0.0
             }
         }
         Fn::Csc => {
-            if v.is_finite() && v.to_radians().sin().abs() > 1e-12 {
-                1.0 / v.to_radians().sin()
+            let s = crate::fdlibm::sin(v.to_radians());
+            if v.is_finite() && s.abs() > 1e-12 {
+                1.0 / s
             } else {
                 0.0
             }
         }
         Fn::Cot => {
-            if v.is_finite() && v.to_radians().tan().abs() > 1e-12 {
-                1.0 / v.to_radians().tan()
+            let t = libm::tan(v.to_radians());
+            if v.is_finite() && t.abs() > 1e-12 {
+                1.0 / t
             } else {
                 0.0
             }

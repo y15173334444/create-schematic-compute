@@ -3,8 +3,14 @@ name = "formula-core"
 version = "0.1.0"
 edition = "2021"
 
-# 零依赖：std-only，离线可构建（registry 不可达也不影响）。
-# Zero dependencies: std-only, builds offline.
+# libm 是唯一依赖：纯 Rust fdlibm 移植（no_std、零原生链接），与 Java StrictMath
+# 同源——三角/超越函数恢复与 Java 逐位一致（msvcrt 在 π/2 倍数附近的弱归约收口，
+# 见 docs/rust-backend-exploration.md §5.3）。
+# libm is the single dependency: pure-Rust fdlibm port (no_std, no native
+# linkage), same lineage as Java StrictMath — restores bit-exact parity.
+
+[dependencies]
+libm = "0.2"
 
 [lib]
 name = "formula_core"

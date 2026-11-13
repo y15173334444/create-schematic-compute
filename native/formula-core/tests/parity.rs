@@ -197,19 +197,9 @@ fn ballistic_solver_java_parity() {
             let i = prog.names.iter().position(|n| n == name).unwrap_or_else(|| panic!("slot {name}"));
             let got = out[i].as_scalar();
             let want = golden[ci][k];
-            if want.abs() < 1e-12 {
-                // 浮点尘埃带：|值| < 1e-12 的输出（如 vz0 ≈ cos(90°) 的尘埃直通）。
-                // windows-gnu 链接的 msvcrt libm 在 π/2 倍数附近用低精度 π 归约：
-                // cos(90°) Java=6.123233995736766e-17 vs msvcrt=6.123031769111886e-17
-                // （相对差 ~3.3e-4，绝对差 ~3e-21，物理为零）。桥接期捆绑 libm crate
-                // （fdlibm 血统 = Java StrictMath 同源）后此带可收紧为逐位。
-                assert!(
-                    (got - want).abs() < 1e-15,
-                    "case {ci} {name} dust-band: got {got}, want {want}"
-                );
-            } else {
-                assert_eq!(got, want, "case {ci} {name}: fast path vs Java bit-exact");
-            }
+            // fdlibm 移植后（src/fdlibm.rs = Java FdLibm 逐行翻译）全链逐位一致，
+            // 含尘埃值（曾因 msvcrt/musl 弱归约失配的 vz0 ≈ 1e-15 带已随 libm→fdlibm 收口）。
+            assert_eq!(got, want, "case {ci} {name}: fast path vs Java bit-exact");
         }
     }
 }

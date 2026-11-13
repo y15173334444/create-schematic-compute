@@ -23,6 +23,7 @@
 
 mod ast;
 mod compiler;
+pub mod fdlibm;
 mod interp;
 mod tok;
 mod value;
