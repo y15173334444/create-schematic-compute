@@ -1,9 +1,9 @@
 # 公式求值 Rust 后端 · 探索线（csc-rust-backend-explore）
 
-> 状态:**🔬 探索原型已落地、待拍板**(2026-11-14)
+> 状态:**✅ 已拍板立项,全量实施**(2026-11-14 拍板,见 §六;实施批 R1–R4 待开工)
 > 施工面:worktree `C:/Users/Administrator/csc-rust-backend-wt`,分支 `csc-rust-backend-explore`(自 main 5528caa3 分出)
 > 触发:公式节点预算池开到 20ms/tick 时,服务端内存分配率达 1GB/s 级——求值链路的堆分配成为主要代价。
-> 产物:`native/formula-core/`(零分配求值核心,9/9 与 Java 链逐位对拍)、`bench/java/`(Java 基线基准)、本文。
+> 产物:`native/formula-core/`(零分配求值核心,13/13 与 Java 链对拍含弹道真脚本)、`bench/java/`(Java 基线基准)、本文。
 
 ---
 
@@ -136,12 +136,20 @@
 
 **桥接建议**:捆绑 `libm` crate(纯 Rust fdlibm 移植,与 Java StrictMath 同源,零原生依赖)替换系统 trig/pow —— 恢复全逐位对拍且跨平台确定。不采纳则在 FFI 契约里给输出定义容差带(尘埃带 |x|<1e-12 → 绝对容差 1e-15,主量逐位)。
 
-## 六、拍板点与建议
+## 六、拍板记录(2026-11-14 定案)
 
-1. **是否立项**:建议立项。分配归零解决 20ms 预算档位的真实痛点(GC 压力),吞吐已全面不劣于 Java(标量快路径 ~1.9x),语义风险被对拍网(11 测试)压到最低。
-2. **FFI 形态**:建议手写 JNI 起步(零 preview 依赖、NeoForge 兼容面最小),FFM 留待工具链升级后重估。
-3. **排期建议**:不动 1.3.0 现行批次;作为独立批在公式链稳定期落地(桥接 + natives 打包 + 双路径回退 + 对拍网扩到全函数表)。
-4. **原型处置**:formula-core 保留在本分支;立项则迁主仓 `native/` 并接 CI(cargo build + 对拍矩阵);否决则只留本文与基准数据。
+1. **立项:全量实施**。原型迁主仓 `native/`,按桥接契约(§四)实施;Java 解释器完整保留为无 native 兜底回退(加载失败/陌生平台自动降级,两条路径由对拍测试网锁定同语义)。
+2. **FFI:手写 JNI**。初选 Panama FFM,经事实核查修正:Java 21 的 FFM 是 **preview**(JEP 442,final 在 Java 22/JEP 454)——`--enable-preview` 必须玩家手动加 JVM 参数(模组无法从内部注入),且 preview 编译的类文件标记会污染整个 jar,其余用户直接 `UnsupportedClassVersionError`。「普遍配备 Java 21」≠「FFM 可用」。JNI 零用户侧要求、全用户受益;每 tick 每节点数次的 downcall 粒度下,JNI 与 FFM 开销差异可忽略。
+3. **libm:捆绑 `libm` crate**(纯 Rust fdlibm 移植,与 Java StrictMath 同源)——恢复全逐位对拍(含尘埃带)且跨平台确定,§5.3 的 msvcrt 弱归约问题就此收口。
+4. **排期:独立批**,不占 1.3.0 现行批次(cross-be 五波)施工面;主工作树是并发会话施工面,实施批在隔离 worktree 进行。
+5. **原型去留:迁主仓**(随 1 落地,分支在实施批合并后归档)。
+
+**实施拆批**(每批独立提交、独立可回退):
+
+- **R1 Tok 编码器**:Java 侧 RPN→`Tok[]` 编译(槽位表按名映射——引脚序≠源码首现序,弹线实证两次踩坑)、`libm` 接入 formula-core、FFI 契约头(`.h`)与 Java 侧 native 声明对齐、Tok 编码测试(Java/Rust 双端同源对拍)。
+- **R2 构建接线**:cargo build 挂 gradle task、natives 提取打包进 jar(`natives/<os>-<arch>/`)、`System.load` 加载与能力探测、无 native 自动回退 Java 解释器。
+- **R3 求值接线**:FormulaEval/FormulaCompute 分流 native/Java、carrier 跨界序列化(字节数组)、deadline 锚点传递(anchor+delta 口径,§4.3)、对拍网扩到全函数表+脚本矩阵(弹道 5 案例 + 预算脚本集全量)。
+- **R4 收尾**:CHANGELOG 行、畸形 RPN(括号不闭合)登记册收编(§5.2)、性能验收(弹道 20ms 预算实测 + GC 压力对比)、文档收口。
 
 ## 七、复现手册
 
