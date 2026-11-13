@@ -43,6 +43,7 @@
 | 26 | 协作在场层渲染层级（远端光标/拖线预览盖住 chrome） | 远端光标标签与拖线预览画在渲染尾段，多人协作时压住工具条/顶栏/弹窗与加节点菜单 | `renderPresenceOverlay(g)` 从渲染尾段移到画布层（`renderNodes` 之后、chrome 之前） | 🔶 待办（2026-11-08 登记，另批） |
 | 27 | C→S 限流批暂缓面（接入守护测试 / 突发丢弃致歧 / 预算未接 Config / 事件未进观测口径） | 限流本体已落地（16 条 C→S 全接、1176 绿），四项随批暂缓，详见条目 | 27.1 源码解析守护测试；27.2 客户端补偿（挂步骤 5 控制台批）；27.3 配置面（对齐「可禁兜底」纪律）；27.4 限流事件计入口径（挂步骤 4 / issue #26） | 🔶 暂缓（2026-11-14 限流批登记） |
 | 28 | 维度前缀批暂缓面（AudioBands 同构串值未修 + 停机不清频段向量值） | SignalBus 键空间已按维度隔离（1176 绿），但音频频段五表仍进程级共享、停机也不清频段向量值，详见条目 | 28.1 AudioBands 隔离需独立拍板（其 javadoc 声明跨维度共享是设计性质）；28.2 并入条目 7『频道清理残余豁口』家族或步骤 4 批顺手收口 | 🔶 暂缓（2026-11-14 维度前缀批登记） |
+| 29 | 控制台壳批暂缓面（等待响应无超时提示 / 输出区无滚轮与粘贴 / help 未走 I18n） | 控制台壳已落地（1237 绿），三处体验项随批暂缓，详见条目 | 29.1 超时/拒绝提示形态；29.2 滚轮滚动 + Ctrl+V；29.3 help 文案 I18n 化（服务端文法与 lang 体系关系随接线批统一） | 🔶 暂缓（2026-11-14 控制台壳批登记，接线批/后续批承接） |
 
 ---
 
@@ -973,3 +974,31 @@ SignalBus 键空间已按维度隔离（`<维度id>\u0001<逻辑名>`，1176 绿
 ### 状态 / Status
 
 🔶 暂缓（2026-11-14 维度前缀批登记；28.1 需独立拍板、28.2 归条目 7 家族）。
+
+## 29. 控制台壳批暂缓面（等待响应无超时提示 / 输出区无滚轮与粘贴 / help 未走 I18n）
+
+范围 / Scope：`client/GraphConsole`（批 `e84d3f6f`，issue #27）
+
+控制台壳已全量落地（1237 绿）；以下三处体验项随批暂缓：
+
+### 29.1 等待响应标记无超时提示
+
+- 机制：查询发出后「等待响应」标记无超时——限流拒绝 = 永无响应，玩家看到的是无反馈；下一次提交自然覆盖标记。
+- 修复方向：超时提示或拒绝回执形态（与登记册条目 18②「TEXT 回执形态」同族议题，可一并议）。
+/ The "awaiting response" marker never times out — a rate-limited rejection looks like silence; a timeout hint or rejection receipt (same family as entry 18②) would close it.
+
+### 29.2 输出区无滚轮滚动与粘贴
+
+- 机制：输出区仅显示尾部 9 行，无鼠标滚轮回看；Ctrl+V 粘贴未做。
+- 修复方向：滚轮回看 + 剪贴板接入（控制台交互增强，低优先）。
+/ The output area shows only the last 9 lines with no wheel scroll; no Ctrl+V paste. Wheelback + clipboard are low-priority interaction polish.
+
+### 29.3 help 表未走 I18n lang 键
+
+- 机制：help 表为英文 + 中文静态双语文本，未走客户端 lang 体系——服务端文法与客户端 lang 的关系（服务端发 lang 键还是成品文案）待接线批统一。
+- 修复方向：接线批统一口径（若发键，响应协议要带语言协商；若发成品文案，现状即终态）。
+/ The help table ships static bilingual text, not client lang keys — the grammar/lang relationship settles with the wiring batch.
+
+### 状态 / Status
+
+🔶 暂缓（2026-11-14 控制台壳批登记；29.1/29.3 挂接线批，29.2 择机）。
