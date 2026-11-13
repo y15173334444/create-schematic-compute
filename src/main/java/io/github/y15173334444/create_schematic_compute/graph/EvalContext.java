@@ -82,6 +82,12 @@ public final class EvalContext {
         @Override public void registerBands(String busName, java.util.List<String> bands) {}
         @Override public java.util.List<String> getBands(String busName) { return null; }
         @Override public java.util.Map<String, Float> channelMap(String channel) { return null; }
+        // 默认实现 = 无作用域键空间（原样逻辑名），与 SignalBus.key 的无作用域线程口径一致
+        // （headless 测试 / 未接线宿主）。生产由宿主接 SignalBus.PORT，走维度前缀规范化。
+        // Default = the scope-free keyspace (the logical name unchanged), matching
+        // SignalBus.key's unscoped-thread shape (headless tests / unwired hosts). Production
+        // wires SignalBus.PORT and normalizes through the dimension prefix.
+        @Override public String channelKey(String channel) { return channel; }
         @Override public void putVec3(String key, Vec3f value) {}
         @Override public Vec3f getVec3(String key) { return null; }
     };

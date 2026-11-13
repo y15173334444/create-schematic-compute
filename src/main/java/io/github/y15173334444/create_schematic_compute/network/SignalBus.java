@@ -646,6 +646,13 @@ public class SignalBus {
                 ChannelEntry e = SignalBus.getChannel(channel);
                 return e != null ? e.internalMap : null;
             }
+            // 步骤 4 epoch 记账的键规范化门面（SignalBusPort.channelKey 契约）：复用本类
+            // key() 单一入口，本匿名类与 key() 同包故包内可见调用合法 —— 前缀格式零复刻。
+            // Step-4 epoch accounting's key-normalization facade (the SignalBusPort.channelKey
+            // contract): reuses this class's key() single entry; this anonymous class shares
+            // key()'s package so the package-private call is legal — the prefix format is
+            // never replicated.
+            @Override public String channelKey(String channel) { return key(channel); }
             @Override public void putVec3(String key, io.github.y15173334444.create_schematic_compute.graph.Vec3f value) { SignalBus.putVec3(key, value); }
             @Override public io.github.y15173334444.create_schematic_compute.graph.Vec3f getVec3(String key) { return SignalBus.getVec3(key); }
         };

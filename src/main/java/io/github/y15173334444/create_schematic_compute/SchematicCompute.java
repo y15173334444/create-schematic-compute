@@ -239,6 +239,16 @@ public class SchematicCompute {
                 io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry.clearAll();
                 io.github.y15173334444.create_schematic_compute.graph.FormulaCompute.clearAll();
                 io.github.y15173334444.create_schematic_compute.graph.CustomNodeCompute.clearAll();
+                // 跨 BE 观测设施（issue #25/#26）：生命周期注册表与口径 A 采集态一起撤 ——
+                // 注册表是生命周期态（宿主条目跨存档不得留幽灵），采集态是 tick 态（epoch 表 /
+                // 待判定记录 / 累计计数），两态与上方 SignalBus 等同属跨存档防污染面。
+                // The cross-BE observation facility (issue #25/#26): the lifecycle registry and
+                // the criterion-A collection state withdraw together — the registry is
+                // lifecycle state (host entries must never ghost across worlds), the collection
+                // state is tick state (epoch table / pending records / cumulative tallies);
+                // both faces join SignalBus et al. above on the cross-world pollution guard.
+                io.github.y15173334444.create_schematic_compute.graph.TopoStats.clearRegistry();
+                io.github.y15173334444.create_schematic_compute.graph.TopoStats.clearCollection();
                 LOGGER.info("{} cleared static state for server shutdown", MOD_ID);
             });
         // 玩家断开时清理其残留输入和协作会话（防止下次重连时泄漏/幽灵编辑者）
@@ -297,6 +307,10 @@ public class SchematicCompute {
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
             net.neoforged.neoforge.event.tick.ServerTickEvent.Pre.class, event -> {
                 io.github.y15173334444.create_schematic_compute.network.BusTrace.tick();
+                // 口径 A 采集的时间轴（issue #26）：tick 戳推进（门控关 = 一次布尔读）。
+                // The criterion-A collection's time axis (issue #26): the tick stamp advance
+                // (one boolean read while gated off).
+                io.github.y15173334444.create_schematic_compute.graph.TopoStats.beginCollectTick();
                 io.github.y15173334444.create_schematic_compute.graph.FormulaCompute.beginTick();
                 io.github.y15173334444.create_schematic_compute.graph.CustomNodeCompute.beginTick();
             });
@@ -305,6 +319,13 @@ public class SchematicCompute {
         final int[] blobCleanupTick = {0};
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
             net.neoforged.neoforge.event.tick.ServerTickEvent.Post.class, event -> {
+                // 口径 A 的 Post 汇总（§3.4，issue #26）：epoch 对比 + 统计落点 + 受影响闭包
+                // 发布 —— 只读采集态 + 引用换发，不改变求值时序（门控关 = 一次布尔读）。
+                // The criterion-A Post summary (§3.4, issue #26): epoch compare + statistics
+                // landing + affected-closure publication — reads the collection state and swaps
+                // the published reference, never touching the evaluation timeline (one boolean
+                // read while gated off).
+                io.github.y15173334444.create_schematic_compute.graph.TopoStats.postCollectSummary();
                 blobCleanupTick[0]++;
                 if (blobCleanupTick[0] >= 20) {
                     blobCleanupTick[0] = 0;

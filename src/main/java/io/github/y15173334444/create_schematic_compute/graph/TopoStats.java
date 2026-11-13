@@ -12,6 +12,7 @@ import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * <h2>跨 BE 观测设施的结构核心（§6.4 步骤 3 / issue #25）——零行为接入</h2>
@@ -47,9 +48,12 @@ import java.util.concurrent.ConcurrentSkipListMap;
  * 合成供给器）；「注册表真相」（所有在场的宿主）与「求值真相」（实际读写的宿主，进
  * {@link HostGraph}）分开——前者由生命周期维护，后者按 §3.2 口径在构图时过滤。</p>
  *
- * <p><b>步骤 4 接口形状</b>：采集（epoch + 记录点）将复用本类的 HostId/ChannelCensus 形状
- * 与 buildHostGraph 的边集做受影响传播；本类不持任何 per-tick 状态（注册表是生命周期态，
- * 不是 tick 态），采集的静态收集表属步骤 4 另行添加。</p>
+ * <p><b>步骤 4 落地面（issue #26）</b>：口径 A 采集已在本类第 4 节 —— 门控（
+ * {@code csc.topoCollect}，{@code BusTrace} 同款：默认关、关闭路径近零开销）、静态
+ * {@code currentHost} 求值宿主上下文（{@code GraphHost.tickBody} ⑨ 单点设/清，子 evaluator
+ * 经同一静态天然延续）、通道 epoch 表 + 待判定记录表、§3.4 Post 汇总（①/② 判定 + 陈旧跨度
+ * + 受影响闭包）与只读快照消费面。这些 per-tick 收集表是步骤 4 新增的 <b>tick 态</b>，与
+ * 第 1 节的生命周期注册表（生命周期态）分面管理、分面清空。</p>
  *
  * <hr>
  * <h2>Structural core of the cross-BE observation facility (§6.4 step 3 / issue #25) —
@@ -101,10 +105,14 @@ import java.util.concurrent.ConcurrentSkipListMap;
  * {@link HostGraph}) are kept apart — the former is maintained by lifecycle hooks, the latter
  * is filtered at construction by the §3.2 criterion.</p>
  *
- * <p><b>Interface shape left for step 4</b>: the observation (epoch + record points) will
- * reuse this class's HostId/ChannelCensus shapes and buildHostGraph's edge set for affected
- * propagation; this class holds no per-tick state (the registry is lifecycle state, not tick
- * state) — step 4 adds its own static collector tables.</p>
+ * <p><b>Step-4 landing face (issue #26)</b>: the criterion-A collection lives in section 4 of
+ * this class — the gate ({@code csc.topoCollect}, the {@code BusTrace} style: default off,
+ * near-zero cost on the off path), the static {@code currentHost} evaluation-host context
+ * (set/cleared at the single {@code GraphHost.tickBody} ⑨ point; ENCAP sub-evaluators inherit
+ * through the same static), the channel epoch table + pending-record table, the §3.4 Post
+ * summary (①/② judgement + stale span + affected closure) and the read-only snapshot
+ * consumption face. Those per-tick collector tables are step 4's new <b>tick state</b>, managed
+ * and cleared as a face separate from section 1's lifecycle registry.</p>
  */
 public final class TopoStats {
 
@@ -183,12 +191,19 @@ public final class TopoStats {
     }
 
     /** 宿主离场：摘除条目。幂等——重复摘除（区块卸载路径与移除路径都可能各自触发）或
-     *  摘除从未登记的键都安全（返回 false）。
+     *  摘除从未登记的键都安全（返回 false）。采集开启时顺带摘除离场宿主的待判定记录
+     *  （第 4 节卫生面）：离场者不会再产生新读取，滞留记录永无替换者，通道随后的写入只会
+     *  对已不存在的宿主累积跨 tick 陈旧噪声。
      *  Host gone: drop the entry. Idempotent — a repeated removal (both the chunk-unload and
      *  the remove paths may fire) or a removal of a never-registered key is safe (returns
-     *  false). */
+     *  false). While collecting, the departing host's pending records go with it (the section-4
+     *  hygiene face): a gone host never reads again so its pending record has no replacer, and
+     *  later channel writes would only accumulate cross-tick stale noise against a host that
+     *  no longer exists. */
     public static boolean hostGone(HostId id) {
-        return id != null && HOSTS.remove(id) != null;
+        boolean removed = id != null && HOSTS.remove(id) != null;
+        if (collect && id != null) PENDING.remove(id);
+        return removed;
     }
 
     /** 当前登记的宿主数（测试/观测面）。 / Number of currently registered hosts
@@ -416,4 +431,421 @@ public final class TopoStats {
     /** 全图是否存在真环（{@link #cyclicComponents} 非空）。
      *  Whether the graph carries any genuine cycle ({@link #cyclicComponents} non-empty). */
     public static boolean hasCycle(HostGraph g) { return !cyclicComponents(g).isEmpty(); }
+
+    // ── 4. 口径 A 采集（§3.1 判定规则 + §3.3 采集点 + §3.4 Post 汇总；issue #26） ──────────────────────────────
+    //
+    // 口径 A（§3.1 原文）：写入侧 PRIVATE_OUT / BUS_OUT 分支 → channelEpoch.bump(key)；
+    // 读取侧 PRIVATE_IN / BUS_IN 分支 → 记录 (key, epoch, value)；Post：epoch > 记录时 epoch
+    // → ① 陈旧读，当前值 ≠ 记录值 → ② 陈旧且值不同；附带陈旧跨度（同 tick 内被超越 / 跨 tick）
+    // 与受影响闭包（沿 DAG 下游传播，O(边数) 不重算）。
+    //
+    // 钩子挂点（§3.3 关键实现选择）：求值器的 BUS_IN / PRIVATE_IN / BUS_OUT / PRIVATE_OUT
+    // 分支（BusEval 的浮点载体路径），不是 12 个 BE 的 tick 体；宿主归属走本节静态
+    // currentHost 上下文（GraphHost.tickBody ⑨ 单点设/清，ENCAP 子 evaluator 经同一静态
+    // 天然延续，无需改求值重载）。
+    //
+    // ⚠ 采样语义警示（§3.3，2026-11-14 实测）：采集只走服务端求值路径 —— 读取钩子要求
+    // currentHost 在场，而客户端线程永不设置它（探针「当前值」读数是客户端本地求值、读者侧
+    // 无写者恒 0 冻结，与服务端真值脱节），显示通道与本采集彻底无关。
+    //
+    // Criterion-A collection (§3.1 rules + §3.3 record points + §3.4 Post summary; issue #26).
+    // §3.1 verbatim: write side PRIVATE_OUT / BUS_OUT branches → channelEpoch.bump(key); read
+    // side PRIVATE_IN / BUS_IN branches → record (key, epoch, value); Post: epoch past the
+    // record's epoch → ① stale read, current value ≠ recorded value → ② stale and value
+    // changed; with the stale span (superseded within the same tick / across ticks) and the
+    // affected closure (propagated down the DAG, O(edge count), no re-evaluation) as by-products.
+    // Hook sites (§3.3, the key implementation choice): the evaluator's BUS_IN / PRIVATE_IN /
+    // BUS_OUT / PRIVATE_OUT branches (BusEval's float-carrier paths), never the twelve BE tick
+    // bodies; host attribution rides this section's static currentHost context (set/cleared at
+    // the single GraphHost.tickBody ⑨ point; ENCAP sub-evaluators continue through the same
+    // static, no evaluation overload changes).
+    // Sampling-semantics warning (§3.3, live-measured 2026-11-14): collection rides the server
+    // evaluation path only — the read hook requires currentHost, which the client thread never
+    // sets (the probe's "current value" reading is client-local evaluation, frozen at 0 when
+    // the reader's side has no writer, disconnected from the server truth); the display channel
+    // has nothing to do with this collection.
+
+    /** 采集门控属性（{@code BusTrace} 同款风格：JVM 属性、仅类加载时读取、运行期不可改）。
+     *  判定 = 属性在场且值不是 {@code false} / {@code 0}（忽略大小写、容忍首尾空白）——裸
+     *  {@code -Dcsc.topoCollect}（空值）即开启。关闭时零行为：每个钩子只多一次布尔读
+     *  （近零开销），epoch 表 / 记录表 / 计数表不分配、tick 戳不推进、currentHost 不设；
+     *  开启后每次读写 O(1) 记账（常量次表查找）。观测数据（①/② 计数、陈旧跨度、受影响
+     *  闭包）经 {@link #collectionSnapshot()} 在每个 Post 汇总后整体发布 —— §四 控制台
+     *  {@code stale} / {@code hosts} 命令的接线批（步骤 6 实机观测）的读面。
+     *  <p>The collection gate property (the {@code BusTrace} style: a JVM property, read once
+     *  at class load, immutable at runtime). Enabled iff the property is present and its value
+     *  is not {@code false} / {@code 0} (case-insensitive, surrounding whitespace tolerated) —
+     *  a bare {@code -Dcsc.topoCollect} (empty value) enables. Disabled, it costs nothing:
+     *  every hook adds one boolean read (near-zero overhead) and the epoch / record / tally
+     *  tables are never allocated, the tick stamp never advances, currentHost is never set.
+     *  Enabled, each read/write is O(1) accounting (a constant number of map lookups). The
+     *  observation data (①/② counts, stale spans, the affected closure) is published wholesale
+     *  through {@link #collectionSnapshot()} after every Post summary — the read face for the
+     *  §四 console {@code stale} / {@code hosts} wiring batch (step-6 live observation).</p> */
+    public static final String COLLECT_PROPERTY = "csc.topoCollect";
+
+    /** 采集门（仅类加载时从 {@link #COLLECT_PROPERTY} 解析一次；headless 测试经包内
+     *  {@link #configureCollection} 重设，生产不可运行期更改）。volatile：生产只读本无竞争，
+     *  volatile 只为测试改门后的可见性自洽。
+     *  The collection gate (parsed once from {@link #COLLECT_PROPERTY} at class load; headless
+     *  tests reset it through the package-private {@link #configureCollection}, production can
+     *  never change it at runtime). volatile: production only reads it (no race), volatile
+     *  merely keeps post-test-flip visibility honest. */
+    private static volatile boolean collect = parseCollectFlag(System.getProperty(COLLECT_PROPERTY));
+
+    /** 门判定：属性缺席 = 关；在场时值为 {@code false} / {@code 0}（忽略大小写、trim）= 关，
+     *  其余（含空串，即裸 {@code -Dcsc.topoCollect}）= 开。
+     *  Gate parse: absent = off; present with {@code false} / {@code 0} (case-insensitive,
+     *  trimmed) = off; anything else (the empty string included — a bare
+     *  {@code -Dcsc.topoCollect}) = on. */
+    static boolean parseCollectFlag(String value) {
+        if (value == null) return false;
+        String v = value.trim();
+        return !(v.equalsIgnoreCase("false") || v.equals("0"));
+    }
+
+    /** 仅测试用：重设采集门（与 {@code BusTrace.configure} 同口径的包内测试面；生产面由
+     *  {@link #COLLECT_PROPERTY} 类加载时定死）。
+     *  Test-only: reset the gate (the package-private test face, same shape as
+     *  {@code BusTrace.configure}; the production face is fixed at class load by
+     *  {@link #COLLECT_PROPERTY}). */
+    static void configureCollection(boolean on) { collect = on; }
+
+    /** 采集门开吗 —— 一切钩子的唯一守卫：关闭路径只有这一次布尔读。
+     *  Whether collection is enabled — the single guard of every hook: the disabled path is
+     *  this one boolean read. */
+    public static boolean collecting() { return collect; }
+
+    /** 服务端 tick 戳（口径 A 的时间轴）：模组入口既有 {@code ServerTickEvent.Pre} 钩子经
+     *  {@link #beginCollectTick} 推进、Post 汇总读取。记录戳 = 当前戳 → 同 tick 内被超越；
+     *  记录戳 &lt; 当前戳 → 跨 tick 被超越（§3.1 陈旧跨度）。关闭时不推进（零行为）。
+     *  The server tick stamp (criterion A's time axis): advanced by the mod entry's existing
+     *  {@code ServerTickEvent.Pre} hook through {@link #beginCollectTick}, read by the Post
+     *  summary. A record stamped equal to the current tick was superseded same-tick; stamped
+     *  earlier — cross-tick (§3.1's stale span). Never advances while collection is off
+     *  (zero behaviour). */
+    private static final AtomicLong COLLECT_TICK = new AtomicLong();
+
+    /** tick 计数入口（{@code ServerTickEvent.Pre} 里调用；关闭时一次布尔读、不推进）。
+     *  The tick-counter entry (call from ServerTickEvent.Pre; one boolean read and no advance
+     *  when disabled). */
+    public static void beginCollectTick() { if (collect) COLLECT_TICK.incrementAndGet(); }
+
+    /** 当前求值宿主上下文（§3.3 静态 per-tick 收集器形态的「当前 host」半边）。由
+     *  {@code GraphHost.tickBody} ⑨（服务端守卫内、求值窗口两端）成对设/清 —— 采集关闭时
+     *  根本不设。子 evaluator（ENCAP 封装求值走同一 eval switch）经同一静态天然延续，无需
+     *  改求值重载。读取钩子要求它在场：无上下文不落记录 —— 客户端线程永不设置它，§3.3 的
+     *  采样语义闸门就在这一判。
+     *  The current evaluation-host context (the "current host" half of §3.3's static per-tick
+     *  collector shape). Set/cleared in pairs by {@code GraphHost.tickBody} ⑨ (inside the
+     *  server guard, around the evaluation window) — never even set while collection is off.
+     *  Sub-evaluators (ENCAP encapsulated evaluation rides the same eval switch) continue
+     *  through the same static, no evaluation overloads changed. The read hook requires it:
+     *  no record without a context — the client thread never sets one, which is exactly where
+     *  §3.3's sampling-semantics gate lands. */
+    private static volatile HostId currentHost;
+
+    /** 进入求值宿主上下文，返回先前的宿主（配对 {@link #endEvalContext} 恢复，嵌套安全）。
+     *  Enter the evaluation-host context and return the previous host (for the paired
+     *  {@link #endEvalContext} to restore — nesting-safe). */
+    public static HostId beginEvalContext(HostId host) {
+        HostId prev = currentHost;
+        currentHost = host;
+        return prev;
+    }
+
+    /** 恢复 {@link #beginEvalContext} 返回的先前宿主；null = 清除上下文。
+     *  Restore the previous host returned by {@link #beginEvalContext}; null clears the
+     *  context. */
+    public static void endEvalContext(HostId prev) { currentHost = prev; }
+
+    /** 当前求值宿主（无上下文 = null；包内测试与断言用）。
+     *  The current evaluation host (null when no context; for in-package tests and asserts). */
+    static HostId currentEvalHost() { return currentHost; }
+
+    /** 通道 epoch 表（前缀键 → 版本计数 + 各浮点槽位最近写入值）。键 = {@code SignalBus.key()}
+     *  前缀形态的通道身份（与 DAG 边标签同一单一源）；槽位 = {@code ""}（PRIVATE 通道 /
+     *  无频段 BUS 读）或频段名（BUS 频段）—— §3.1 的「通道的当前值」在多频段 BUS 通道上按
+     *  记录的槽位取值，② 的值比较落在读者实际读的那一槽。普通 HashMap：服务端单线程（求值
+     *  与 Post 同线程），采集又是临时诊断态。
+     *  The channel epoch table (prefixed key → version counter + each float slot's last-written
+     *  value). Keys = the {@code SignalBus.key()} prefixed channel identity (one single source
+     *  with the DAG's edge labels); slots = {@code ""} (PRIVATE channels / band-less BUS reads)
+     *  or the band name (BUS bands) — §3.1's "the channel's current value" resolves on a
+     *  multi-band BUS channel through the record's slot, so ②'s value compare lands on the very
+     *  slot the reader read. Plain HashMap: the server is single-threaded (evaluation and the
+     *  Post pass share one thread) and collection is a temporary diagnostic state. */
+    private static final HashMap<String, ChannelEpochState> EPOCHS = new HashMap<>();
+
+    /** epoch 表条目：版本计数 + 槽位 → 最近写入值。 / An epoch-table entry: the version
+     *  counter + slot → last-written value. */
+    private static final class ChannelEpochState {
+        long epoch;
+        final HashMap<String, Float> slotValues = new HashMap<>();
+    }
+
+    /** 写入侧钩子（§3.1）：PRIVATE_OUT 浮点 put / BUS_OUT 频段浮点写入的分支尾挂点 ——
+     *  epoch +1 并把该槽位的最近写入值记为「当前值」。冲突节点不写存储，自然不 bump（记账
+     *  不查瞬时冲突旗标，与普查的结构性口径一致：epoch 观测的是<b>实际写</b>，DAG 保留的是
+     *  <b>可能依赖</b>）。O(1)：一次表查找 + 一次自增 + 一次槽位写。音频平面不经此路
+     *  （AudioBands 的 exactly-once 游标门控，§3.2 范围注），向量平面亦然（last-write-wins
+     *  状态语义，无浮点可比较）——§3.1 的 epoch 模型按浮点载体记账。
+     *  <p>The write-side hook (§3.1): rides the tails of the PRIVATE_OUT float put / BUS_OUT
+     *  band float writes — epoch +1, and the slot's last-written value becomes the "current
+     *  value". A conflicted node writes no storage and therefore bumps nothing (the accounting
+     *  never checks transient conflict flags, matching the census's structural criterion: the
+     *  epoch observes <b>actual writes</b>, the DAG keeps <b>possible dependencies</b>). O(1):
+     *  one table lookup, one increment, one slot write. The audio plane never rides this path
+     *  (AudioBands' exactly-once cursor gates it, the §3.2 scope note), nor does the vector
+     *  plane (last-write-wins state semantics, no float to compare) — the §3.1 epoch model
+     *  accounts on the float carrier.</p> */
+    public static void noteChannelWrite(String channelKey, String slot, float value) {
+        if (!collect) return;
+        ChannelEpochState st = EPOCHS.computeIfAbsent(channelKey, k -> new ChannelEpochState());
+        st.epoch++;
+        st.slotValues.put(slot, value);
+    }
+
+    /** 通道当前 epoch（无记录 = 0）。
+     *  The channel's current epoch (0 when unrecorded). */
+    static long epochOf(String channelKey) {
+        ChannelEpochState st = EPOCHS.get(channelKey);
+        return st != null ? st.epoch : 0L;
+    }
+
+    /** 待判定记录（§3.1 读取侧的 {@code (key, epoch, value)} + 记录 tick 戳）。tick 戳支撑
+     *  §3.1 的陈旧跨度（同 tick 内被超越 / 跨 tick）。
+     *  A pending record (§3.1's read-side {@code (key, epoch, value)} plus the record's tick
+     *  stamp). The stamp backs §3.1's stale span (superseded within the same tick / across
+     *  ticks). */
+    private static final class PendingRead {
+        final String channelKey;
+        final String slot;
+        final long epoch;
+        final float value;
+        final long tick;
+        PendingRead(String channelKey, String slot, long epoch, float value, long tick) {
+            this.channelKey = channelKey;
+            this.slot = slot;
+            this.epoch = epoch;
+            this.value = value;
+            this.tick = tick;
+        }
+    }
+
+    /** 待判定记录表：宿主 → 通道键 → 槽位 → 记录。同一宿主对同一槽位的重复读取只保留最新
+     *  一条（读者已消费更新版本，旧记录的陈旧性失效、直接退役不计）—— 表规模上限 = 活跃
+     *  读者 × 通道 × 槽位，无跨 tick 无界增长；{@link #hostGone} 摘离场宿主的整棵子树。
+     *  The pending-record table: host → channel key → slot → record. A repeated read of the
+     *  same slot by the same host keeps only the newest record (the reader has consumed a newer
+     *  version; the old record's staleness is moot and retires untallied) — the table is bounded
+     *  by active readers × channels × slots with no unbounded cross-tick growth; {@link #hostGone}
+     *  drops a departing host's whole subtree. */
+    private static final HashMap<HostId, HashMap<String, HashMap<String, PendingRead>>> PENDING = new HashMap<>();
+
+    /** 读取侧钩子（§3.1）：PRIVATE_IN 浮点 get / BUS_IN 频段浮点读取的分支尾挂点 —— 落一条
+     *  {@code (key, epoch, value)} 记录（epoch = 记录时刻的通道版本）。O(1)（三次表查找）。
+     *  <b>无 currentHost 上下文不落记录</b>（§3.3：采集只走服务端求值路径；客户端本地求值
+     *  永不设上下文）。
+     *  <p>The read-side hook (§3.1): rides the tails of the PRIVATE_IN float get / BUS_IN band
+     *  float reads — one {@code (key, epoch, value)} record (epoch = the channel version at
+     *  read time). O(1) (three map lookups). <b>No record without a currentHost context</b>
+     *  (§3.3: collection rides the server evaluation path only; client-local evaluation never
+     *  sets the context).</p> */
+    public static void noteChannelRead(String channelKey, String slot, float value) {
+        if (!collect) return;
+        HostId host = currentHost;
+        if (host == null) return;
+        PENDING.computeIfAbsent(host, h -> new HashMap<>())
+            .computeIfAbsent(channelKey, k -> new HashMap<>())
+            .put(slot, new PendingRead(channelKey, slot, epochOf(channelKey), value, COLLECT_TICK.get()));
+    }
+
+    /** 计数表槽位：[0]=① 陈旧读、[1]=② 陈旧且值不同、[2]=同 tick 被超越、[3]=跨 tick 被超越。
+     *  Tally slots: [0]=① stale reads, [1]=② stale and value changed, [2]=superseded same-tick,
+     *  [3]=superseded cross-tick. */
+    private static final int TALLY_STALE = 0, TALLY_CHANGED = 1, TALLY_SAME_TICK = 2, TALLY_CROSS_TICK = 3;
+    private static final int TALLY_WIDTH = 4;
+
+    /** 按宿主的累计计数。 / Cumulative counts by host. */
+    private static final HashMap<HostId, long[]> TALLY_BY_HOST = new HashMap<>();
+
+    /** 按宿主 × 通道键的累计计数（{@code stale} 按通道分组的读面）。
+     *  Cumulative counts by host × channel key (the {@code stale} per-channel-grouped face). */
+    private static final HashMap<HostId, HashMap<String, long[]>> TALLY_BY_CHANNEL = new HashMap<>();
+
+    /** 最新采集快照（Post 汇总末尾引用整体换；关闭 / 复位 = {@link CollectSnapshot#EMPTY}）。
+     *  The latest collection snapshot (reference-swapped at the end of the Post summary;
+     *  {@link CollectSnapshot#EMPTY} when disabled / reset). */
+    private static volatile CollectSnapshot snapshot = CollectSnapshot.EMPTY;
+
+    /** 最新 Post 汇总快照（不可变、任意线程可读；关闭时恒为 {@link CollectSnapshot#EMPTY}）。
+     *  消费面：§四 控制台 {@code stale} / {@code hosts} 命令的接线批（步骤 6 实机观测据此
+     *  读数）。
+     *  The latest Post-summary snapshot (immutable, readable from any thread; always
+     *  {@link CollectSnapshot#EMPTY} while disabled). Consumption face: the §四 console
+     *  {@code stale} / {@code hosts} wiring batch (step-6 live observation reads this). */
+    public static CollectSnapshot collectionSnapshot() { return snapshot; }
+
+    /** §3.1 单项累计口径（不可变值）：① 陈旧读次数、② 陈旧且值不同次数、同 tick / 跨 tick
+     *  被超越跨度。 / One §3.1 cumulative count (an immutable value): ① stale reads,
+     *  ② stale-and-value-changed, superseded same-tick / cross-tick spans. */
+    public record StaleCounts(long staleReads, long staleValueChanged,
+                              long supersededSameTick, long supersededCrossTick) {}
+
+    /** Post 汇总快照（不可变整体发布）：按宿主与宿主 × 通道的累计计数 + 最近一次有种子趟次
+     *  的受影响闭包（{@code affectedClosure}；{@code closureTick} 为其计算趟次，无种子的趟次
+     *  保留上一个闭包 —— 它仍是最近一次观测到的受影响范围）。{@code seedsThisPass} = 本趟
+     *  判出的 ① 记录数。全部键有序（HostId / 通道键自然序）—— 诊断与判读可复现。
+     *  <p>The Post-summary snapshot (published immutably, wholesale): cumulative counts by host
+     *  and by host × channel plus the most recent seeded pass's affected closure
+     *  ({@code affectedClosure}; {@code closureTick} stamps the pass that computed it, and a
+     *  seedless pass keeps the previous closure — it is still the most recently observed
+     *  affected range). {@code seedsThisPass} = the number of ① records judged in this pass.
+     *  All keys ordered (HostId / channel-key natural order) — reproducible diagnostics and
+     *  verdicts.</p> */
+    public record CollectSnapshot(long tick,
+                                  Map<HostId, StaleCounts> byHost,
+                                  Map<HostId, Map<String, StaleCounts>> byHostChannel,
+                                  SortedSet<HostId> affectedClosure,
+                                  long closureTick,
+                                  long seedsThisPass) {
+        /** 空快照常量：关闭 / 复位 / 从未汇总。 / The empty snapshot: disabled / reset / never
+         *  summarized. */
+        public static final CollectSnapshot EMPTY = new CollectSnapshot(0L, Map.of(), Map.of(),
+            Collections.unmodifiableSortedSet(new TreeSet<>()), 0L, 0L);
+    }
+
+    /** Post 汇总（§3.4：模组入口既有 {@code ServerTickEvent.Post} 钩子里调用；只读采集态 +
+     *  引用换发，<b>不改变求值时序</b>；关闭时一次布尔读返回）。对每条待判定记录按 §3.1
+     *  判定：通道 epoch 已超越记录时 epoch → <b>① 陈旧读</b>（记录 tick = 当前 tick → 同
+     *  tick 内被超越，否则跨 tick）；记录槽位的最近写入值存在且 ≠ 记录值 → <b>② 陈旧且值
+     *  不同</b>（槽位从未被写 = 值比较不可判，② 诚实不记）。判过的记录移除（判定只计一次），
+     *  未被超越的滞留到后续 Post（跨 tick 被超越在那里的发现面）。本趟判出 ① 的宿主作为
+     *  种子沿 BE 级依赖图向下游传播受影响标记（{@link #affectedClosure}，O(边数) 不重算；
+     *  有种子才现算图 —— 平静 tick 零普查成本）。
+     *  <p>The Post summary (§3.4: called from the mod entry's existing ServerTickEvent.Post
+     *  hook; reads the collection state and swaps the published reference, <b>never touching
+     *  the evaluation timeline</b>; one boolean read when disabled). Each pending record is
+     *  judged by §3.1: a channel epoch past the record's epoch → <b>① stale read</b> (record
+     *  tick equal to the current tick = superseded same-tick, otherwise cross-tick); a
+     *  last-written value present for the record's slot and different from the recorded value →
+     *  <b>② stale and value changed</b> (a never-written slot leaves the compare undecidable —
+     *  ② honestly not counted). Judged records are removed (a record counts exactly once);
+     *  un-superseded ones stay pending for later Posts (where cross-tick supersession is
+     *  discovered). Hosts with a fresh ① seed the affected-mark propagation down the BE-level
+     *  dependency graph ({@link #affectedClosure}, O(edge count), no re-evaluation; the graph
+     *  is built only on seeded passes — a quiet tick costs zero census work).</p> */
+    public static void postCollectSummary() {
+        if (!collect) return;
+        long nowTick = COLLECT_TICK.get();
+        Set<HostId> seeds = new TreeSet<>();
+        for (var hostEntry : PENDING.entrySet()) {
+            for (var chEntry : hostEntry.getValue().entrySet()) {
+                var bySlot = chEntry.getValue();
+                for (var slotIt = bySlot.entrySet().iterator(); slotIt.hasNext(); ) {
+                    PendingRead rec = slotIt.next().getValue();
+                    ChannelEpochState st = EPOCHS.get(rec.channelKey);
+                    long cur = st != null ? st.epoch : 0L;
+                    if (cur <= rec.epoch) continue;            // 未被超越：滞留 / not superseded: stays pending
+                    slotIt.remove();
+                    boolean sameTick = rec.tick == nowTick;
+                    HostId host = hostEntry.getKey();
+                    tally(host, rec.channelKey, TALLY_STALE);
+                    if (st != null) {
+                        Float curVal = st.slotValues.get(rec.slot);
+                        if (curVal != null && curVal.floatValue() != rec.value)
+                            tally(host, rec.channelKey, TALLY_CHANGED);
+                    }
+                    tally(host, rec.channelKey, sameTick ? TALLY_SAME_TICK : TALLY_CROSS_TICK);
+                    seeds.add(host);
+                }
+            }
+        }
+        // 剪掉被清空的嵌套枝，表不残留宿主/通道骨架。 / Prune emptied nested branches so the
+        // table keeps no host/channel skeletons.
+        PENDING.entrySet().removeIf(e -> e.getValue().isEmpty());
+        for (var e : PENDING.values()) e.entrySet().removeIf(x -> x.getValue().isEmpty());
+        // 受影响闭包：有种子才现算（图按注册表现普查构建 —— 活枚举零缓存失效面）；无种子的
+        // 趟次保留上一个闭包。 / The affected closure: computed only on seeded passes (the graph
+        // is built from a live registry census — live enumeration, zero invalidation surface);
+        // a seedless pass keeps the previous closure.
+        SortedSet<HostId> closure;
+        long closureTick;
+        if (seeds.isEmpty()) {
+            closure = snapshot.affectedClosure();
+            closureTick = snapshot.closureTick();
+        } else {
+            closure = affectedClosure(seeds, buildHostGraph());
+            closureTick = nowTick;
+        }
+        var byHostOut = new TreeMap<HostId, StaleCounts>();
+        for (var e : TALLY_BY_HOST.entrySet()) byHostOut.put(e.getKey(), toCounts(e.getValue()));
+        var byChannelOut = new TreeMap<HostId, Map<String, StaleCounts>>();
+        for (var e : TALLY_BY_CHANNEL.entrySet()) {
+            var m = new TreeMap<String, StaleCounts>();
+            for (var e2 : e.getValue().entrySet()) m.put(e2.getKey(), toCounts(e2.getValue()));
+            byChannelOut.put(e.getKey(), Collections.unmodifiableMap(m));
+        }
+        snapshot = new CollectSnapshot(nowTick, Collections.unmodifiableMap(byHostOut),
+            Collections.unmodifiableMap(byChannelOut), Collections.unmodifiableSortedSet(closure),
+            closureTick, seeds.size());
+    }
+
+    /** long[] 计数 → 不可变口径值。 / A long[] tally → the immutable count value. */
+    private static StaleCounts toCounts(long[] t) {
+        return new StaleCounts(t[TALLY_STALE], t[TALLY_CHANGED], t[TALLY_SAME_TICK], t[TALLY_CROSS_TICK]);
+    }
+
+    /** 累加一档判定到两级计数表。 / Accumulate one verdict tier into the two tally tables. */
+    private static void tally(HostId host, String channelKey, int idx) {
+        TALLY_BY_HOST.computeIfAbsent(host, k -> new long[TALLY_WIDTH])[idx]++;
+        TALLY_BY_CHANNEL.computeIfAbsent(host, k -> new HashMap<>())
+            .computeIfAbsent(channelKey, k -> new long[TALLY_WIDTH])[idx]++;
+    }
+
+    /** 受影响标记的传递闭包（§3.1「沿 BE 级依赖图向下游传播受影响标记」）：种子（判出 ① 的
+     *  读者宿主）沿 {@link HostGraph#downstreamOf} 邻接向下游 BFS —— 读者的输入旧 → 其输出
+     *  可疑 → 读它通道的宿主同批受影响。访问集去重，总代价 O(宿主 + 边数)，<b>不重算</b>
+     *  任何求值（影子重算的一阶近似；§3.5 拍板：补跑 / 口径 B 不做主线出口）。输出全序
+     *  （TreeSet）—— {@code stale}/{@code topo} 的展示与判读可复现。种子不在图中（停机后
+     *  普查为空）也计入受影响集 —— 它们是真实的 ① 来源。
+     *  <p>The transitive closure of affected marks (§3.1: "propagate affected marks downstream
+     *  along the BE-level dependency graph"): seeds (reader hosts with a fresh ①) BFS downstream
+     *  over the {@link HostGraph#downstreamOf} adjacency — a reader's input is old → its output
+     *  is suspect → whoever reads its channels is affected in the same batch. A visited set
+     *  dedups; the total cost is O(hosts + edges) with <b>no re-evaluation</b> (the first-order
+     *  approximation of a shadow re-run; the §3.5 ruling keeps re-runs / criterion B off the
+     *  mainline exit). The output is totally ordered (a TreeSet) — reproducible for
+     *  {@code stale}/{@code topo} display and verdicts. Seeds outside the graph (stopped since,
+     *  empty census) still enter the affected set — they are genuine ① sources.</p> */
+    public static SortedSet<HostId> affectedClosure(Set<HostId> seeds, HostGraph g) {
+        var affected = new TreeSet<HostId>();
+        var queue = new ArrayDeque<HostId>();
+        if (seeds != null) for (HostId s : seeds) if (s != null && affected.add(s)) queue.add(s);
+        if (g != null) {
+            while (!queue.isEmpty()) {
+                HostId cur = queue.poll();
+                for (HostId next : g.downstreamOf(cur)) if (affected.add(next)) queue.add(next);
+            }
+        }
+        return affected;
+    }
+
+    /** 清空采集态：epoch 表 / 待判定记录 / 累计计数 / 快照 / tick 戳全部归零（currentHost
+     *  是求值窗口两端成对设清的瞬态，不在清空面）。服务端停止面（模组入口，跨存档防污染）
+     *  与测试复位用 —— 与 {@link #clearRegistry} 各清各的面。
+     *  Clear the collection state: the epoch table, pending records, cumulative tallies,
+     *  snapshot and tick stamp all reset (currentHost is transient, set/cleared in pairs around
+     *  the evaluation window — not part of this face). For the server-stop face (the mod entry,
+     *  the cross-world pollution guard) and test resets — orthogonal to
+     *  {@link #clearRegistry}. */
+    public static void clearCollection() {
+        EPOCHS.clear();
+        PENDING.clear();
+        TALLY_BY_HOST.clear();
+        TALLY_BY_CHANNEL.clear();
+        COLLECT_TICK.set(0L);
+        snapshot = CollectSnapshot.EMPTY;
+    }
 }
