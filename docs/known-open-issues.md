@@ -39,6 +39,9 @@
 | 22 | ENCAP 子图边界引脚类型化（音频/向量过封装边界） | ENCAP 输入/输出引脚恒 FLOAT，音频与向量载荷过不了封装边界；声明模型与子图载荷穿越都未设计 | ENCAP_INPUT/OUTPUT 子节点加声明类型（同 PRIVATE 单元素口径），EncapEval 按类型穿越载荷；先与条目 21 对齐 | 🔶 另批 |
 | 23 | FORMULA 内建向量运算（向量进公式脚本） | 公式语言的 vec3 是标量展开语义，无真正 VEC3 载荷引脚，与向量节点域互操作要靠 JOIN/SPLIT 绕 | FORMULA 输出标签支持 VEC3 声明（如 `@output v:vec3`）；先与条目 21/22 对齐类型声明口径 | 🔶 另批 |
 | 24 | 迁移回填不校验连线两端声明类型（混接旧档残留类型非法连线） | V8→V9 迁移按拓扑冻结回填 `bandTypes`（按引脚粒度、任一音频对端→AUDIO）后带段化重写 pinId，但不校验回填后连线两端类型是否严格相等——≤v1.2.6.x 旧档同一频段同时喂音频与浮点消费端时，回填 AUDIO 后留下 `audio:频段`→`float:引脚` 的类型非法连线静默存活 | 迁移尾部（回填+带段化后）对每条连线跑一次端点声明类型严格相等校验，不等按剪线纪律剪除；PinTypeMigrationTest 加混接旧档锚 | 🔶 待办（2026-11-08 复审登记，另批会话修复） |
+| 25 | 频段手动声明不跨存档（芯片声明=会话内激活器） | 手动声明不接线可放行下游连接，但存档重载后槽位一律回灰、下游线按类型合法性剪除 | 声明来源标记（NBT 旁路一列 + 随声明表同步）——后随类型片只读化拍板整体退役 | ✅ 已拍板（2026-11-08：类型片改只读指示器、手动声明退役，来源标记不再需要） |
+| 26 | 协作在场层渲染层级（远端光标/拖线预览盖住 chrome） | 远端光标标签与拖线预览画在渲染尾段，多人协作时压住工具条/顶栏/弹窗与加节点菜单 | `renderPresenceOverlay(g)` 从渲染尾段移到画布层（`renderNodes` 之后、chrome 之前） | 🔶 待办（2026-11-08 登记，另批） |
+| 27 | C→S 限流批暂缓面（接入守护测试 / 突发丢弃致歧 / 预算未接 Config / 事件未进观测口径） | 限流本体已落地（16 条 C→S 全接、1176 绿），四项随批暂缓，详见条目 | 27.1 源码解析守护测试；27.2 客户端补偿（挂步骤 5 控制台批）；27.3 配置面（对齐「可禁兜底」纪律）；27.4 限流事件计入口径（挂步骤 4 / issue #26） | 🔶 暂缓（2026-11-14 限流批登记） |
 
 ---
 
@@ -913,3 +916,37 @@ only wire-derived slots. Cost: one more persisted and synced column.
 ### 状态 / Status
 
 🔶 待办（2026-11-08 登记；修复不进 pin-type PR——范围裁定，另批处理）。
+
+## 27. C→S 限流批暂缓面（接入守护测试 / 突发丢弃致歧 / 预算未接 Config / 事件未进观测口径）
+
+范围 / Scope：`network/AllPackets`、`network/C2SPacketRateGuard`（批 `4a73455b`，合并 `a42d2203`，issue #24）
+
+限流语义本体已全量落地（16 条 C→S 全接、1176 绿）；以下四项随批暂缓，各自另批：
+
+### 27.1 接入完整性无 headless 防回归
+
+- 机制：16 条 C→S 接线靠「`grep -c "rateLimited(" AllPackets.java` = `playToServer` 注册数」纪律 + 评审把守；注册面运行期才可观测（NeoForge NetworkRegistry 依赖游戏引导），headless 反射不了。
+- 修复方向：需要时做一个解析 `AllPackets.java` 源码的守护测试（文本级即可挡漏接）。
+/ The wiring-completeness rule has no headless regression guard: registration is only observable at runtime; a source-parsing guard test would suffice when needed.
+
+### 27.2 被拒 op 的客户端致歧边界
+
+- 机制：拒绝 = 直接丢弃（不排队不重试）。极端合法形态（1100+ 节点多选拖拽 op 洪峰 + 紧接编辑）在桶回填前被丢 → 服务端图短暂落后于客户端本地视图；既有 `pendingLocalOps` 未 ACK 守卫恰好兜住「整图替换回退」这条边，但无主动重同步。
+- 修复方向：客户端侧补偿（如拒绝后请求全量重同步）——步骤 5 / 控制台批候选。
+/ Rejected ops are dropped: an extreme legitimate burst can briefly leave the server graph behind the client's local view (the pendingLocalOps guard covers the graph-replacement edge, but nothing actively resyncs). Client-side compensation is a step-5/console-batch candidate.
+
+### 27.3 逐包预算硬编码未接 Config
+
+- 机制：全部逐包预算表硬编码在 `C2SPacketRateGuard` 常量。
+- 修复方向：若将来要服主可调，需加配置面——动工前先与「多层 API 兜底层须可禁」纪律对齐。
+/ Budgets are compile-time constants; a config surface (aligned with the disableable-fallback discipline) only if operators ever need to tune.
+
+### 27.4 限流事件未进观测口径
+
+- 机制：断开留痕只有一条 WARN；拒绝 / 断开计数未进任何统计面。
+- 修复方向：步骤 4 采集批（issue #26）可顺带把限流事件计入口径。
+/ Disconnects leave one WARN; reject/disconnect counters belong in the step-4 collection surface.
+
+### 状态 / Status
+
+🔶 暂缓（2026-11-14 限流批登记；27.4 挂步骤 4、27.2 挂步骤 5，其余择机另批）。
