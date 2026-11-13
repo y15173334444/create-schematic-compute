@@ -33,7 +33,7 @@ public class AllPackets {
      * {@link C2SPacketRateGuard} 检查，再决定放行进原 handler、丢弃还是断开。
      * <p>注册纪律：<b>新增 C→S 包必须走本包装器</b>——检查方式 =
      * {@code grep -c "rateLimited(" AllPackets.java} 应等于 {@code playToServer} 的注册数
-     * （2026-11-14 实测 16 个）。玩家键取服务端权威 UUID（不信任包载荷），类型键取 TYPE
+     * （2026-11-14 实测 16 个，控制台查询批后 17 个）。玩家键取服务端权威 UUID（不信任包载荷），类型键取 TYPE
      * id 的 path。断开语义照原版：允许突发、桶耗尽拒绝（丢弃）、持续超限断开
      * （{@link C2SPacketRateGuard} 类注有完整机制说明与逐包预算表）。</p>
      * <p>The single rate-limit wrapper over the C→S registration face: every
@@ -41,7 +41,7 @@ public class AllPackets {
      * either lets the packet through to the original handler, drops it, or disconnects.
      * Registration discipline: <b>a new C→S packet must go through this wrapper</b> — the
      * check is {@code grep -c "rateLimited(" AllPackets.java} equal to the number of
-     * {@code playToServer} registrations (16 as measured 2026-11-14). The player key is the
+     * {@code playToServer} registrations (16 as measured 2026-11-14, 17 after the console-query batch). The player key is the
      * server-authoritative UUID (never the payload), the type key is the TYPE id's path.
      * Vanilla semantics: bursts allowed, an exhausted bucket rejects (drops), sustained
      * over-limit disconnects (full mechanism and per-type budget table in the
@@ -199,5 +199,13 @@ public class AllPackets {
                 rateLimited(BudgetSetPacket.TYPE, C2SPacketRateGuard.BUDGET_SET, BudgetSetPacket::handle));
         registrar.playToClient(BudgetSyncPacket.TYPE, BudgetSyncPacket.CODEC, BudgetSyncPacket::handle);
         registrar.playToClient(OpenSettingsPacket.TYPE, OpenSettingsPacket.CODEC, OpenSettingsPacket::handle);
+        // C 阶段步骤 5：图内控制台查询(C→S,限流——原始字符串进,文法唯一真相源在服务端
+        // ConsoleProtocol) + 响应(S→C,文本行,发送前经 clampResponse 钳制)
+        // Phase-C step 5: the in-editor console query (C→S, rate-limited — raw string in,
+        // the grammar's single source of truth is server-side ConsoleProtocol) + response
+        // (S→C, text lines, clamped by clampResponse before sending).
+        registrar.playToServer(ConsoleQueryPacket.TYPE, ConsoleQueryPacket.CODEC,
+                rateLimited(ConsoleQueryPacket.TYPE, C2SPacketRateGuard.CONSOLE_QUERY, ConsoleQueryPacket::handle));
+        registrar.playToClient(ConsoleResponsePacket.TYPE, ConsoleResponsePacket.CODEC, ConsoleResponsePacket::handle);
     }
 }

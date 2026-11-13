@@ -501,6 +501,12 @@ public class GraphEditor {
     final GraphViewBookmarks viewBookmarks = new GraphViewBookmarks(this);
     // ── 总线编辑器（commitBusBox / 冲突重评估 / 频段同步，步骤 6d 拆出 / bus editing split into GraphBusEditor, step 6d）──
     final GraphBusEditor bus = new GraphBusEditor(this);
+    // ── 图内 `/` 控制台叠加层（C 阶段步骤 5，规格 §4.1 Q6=A；状态机与命令解析在
+    //    GraphConsole.Core，纯逻辑 headless 可测；本字段只注入三条编辑器侧接线）──
+    // ── The in-editor "/" console overlay (Phase-C step 5, spec §4.1 Q6=A); state machine
+    //    and command parsing live in GraphConsole.Core (pure, headless-testable); this
+    //    field only injects the three editor-side wires. ──
+    public final io.github.y15173334444.create_schematic_compute.client.GraphConsole console;
 
     /** 清除所有临时视角（客户端断开/切换存档时调用，防止跨存档污染）。
      *  Clear all temp views (called on client disconnect/world switch, prevents cross-world pollution). */
@@ -1031,6 +1037,17 @@ public class GraphEditor {
     public GraphEditor(Host host, Screen screen) {
         this.host = host;
         this.renderer = new NodeRenderer(this::c2sX, this::c2sY, screen);
+        // 控制台三条编辑器侧接线：关闭态 `/` 开台门（文本输入面激活时不抢键）/ 开台清焦
+        // （防双焦点，规格 §4.2）/ 查询发送（原始字符串，文法在服务端——规格 §4.4）。
+        // The console's three editor-side wires: the closed-state "/" open-gate (no key
+        // stealing while a text-entry surface is active) / focus clear on open (no double
+        // focus, spec §4.2) / the query sender (raw string — grammar lives server-side, spec §4.4).
+        this.console = new io.github.y15173334444.create_schematic_compute.client.GraphConsole(
+            new io.github.y15173334444.create_schematic_compute.client.GraphConsole.Wiring(
+                this::isTextEntrySurfaceActive,
+                this::clearEditBoxFocusForConsole,
+                line -> io.github.y15173334444.create_schematic_compute.network.ConsoleQueryPacket.send(
+                    host.getBlockPos(), line)));
         // 临时视角恢复（按方块位置，session 内同方块跨编辑器实例恢复）
         // temporary view restore (keyed by block position, cross-instance within session)
         viewBookmarks.restoreTempView();
@@ -4597,6 +4614,14 @@ public class GraphEditor {
         // (e.g. Home) can't linger and eat the next input. The menu-open branch sets
         // it again right after.
         menuOpenedByKey = false;
+        // 控制台：最新/最上层叠加层 → 守卫链链首（规格 §4.2）。打开时吞掉全部按键（模态）
+        // ——含 ESC：只关控制台、绝不落到 Screen 默认 onClose；关闭时仅 `/` 可开台，且无
+        // 文本输入面激活（门序见 isTextEntrySurfaceActive）。
+        // The console: the newest/topmost overlay → guard-chain head (spec §4.2). While
+        // open it swallows every key (modal) — ESC included: it closes only the console,
+        // never reaching Screen's default onClose; while closed only "/" opens it, and only
+        // with no text-entry surface active (gate order in isTextEntrySurfaceActive).
+        if (console.keyPressed(key, sc, mod)) return true;
         var graph = getGraph();
         // 键位绑定查表用的修饰键快照 / modifier snapshot for the binding lookups
         boolean modC = net.minecraft.client.gui.screens.Screen.hasControlDown();
@@ -4656,6 +4681,57 @@ public class GraphEditor {
         // C key: Create comment node around selection（菜单打开时不建——模态 / not while the menu is open — the menu is modal）
         if (tryCreateCommentWrapper(key, graph)) return true;
         return false;
+    }
+
+    /** 控制台关闭态的 `/` 开台门（规格 §4.2 前置）：任一文本输入面激活时不允许 `/` 开台
+     *  ——`/` 必须先喂给菜单搜索框 / 导出·导入对话框 / 取色器 / 注释颜色弹层 / 书签命名
+     *  对话框 / 顶栏名称框 / 节点编辑框（含总线名框）/ 按键绑定捕获。与守卫链既有约定一致：
+     *  聚焦的输入框优先于全局快捷键（keyPressed 链中节点编辑框转发先于 EditorKeys 序列
+     *  引擎）。纯判定，无副作用——headless 锚测语义，实机链首接线见 keyPressed。
+     *  The console's closed-state "/" open-gate (spec §4.2 precondition): no "/" toggle
+     *  while any text-entry surface is active — "/" goes to the menu search box / export·
+     *  import dialogs / color picker / comment-color popup / bookmark name dialog / top-bar
+     *  name box / node edit boxes (incl. the bus-name box) / key-binding capture first. Same
+     *  convention as the guard chain: focused inputs beat global shortcuts (in keyPressed
+     *  the node-edit-box forwarding precedes the EditorKeys sequence engine). Pure predicate,
+     *  no side effects — the headless anchor tests the semantics; the live chain-head wiring
+     *  is in keyPressed. */
+    private boolean isTextEntrySurfaceActive() {
+        if (showMenu || showExportDialog || showImportDialog || colorPicker.isVisible()) return true;
+        if (editingCommentColorNode != null && commentButtons != null) return true;
+        if (viewBookmarks.isNamingDialogActive()) return true;
+        if (topBarNameEdit != null && topBarNameEdit.isFocused()) return true;
+        for (var st : nodeEditStatesById.values()) {
+            if (st.listeningForKey) return true;
+            if (st.busBox != null && st.busBox.isFocused()) return true;
+            for (var f : st.fields) if (f.isFocused()) return true;
+        }
+        return false;
+    }
+
+    /** 开台清焦（规格 §4.2「清掉其他 EditBox 焦点，防双焦点」）：控制台接管键盘前把全部
+     *  EditBox 失焦——顶栏名称框、节点编辑框（含总线名框）与 enterActions 登记框。焦点
+     *  释放后，未聚焦跟随权威值的既有逻辑照常把文本拉回服务端真值。
+     *  Focus clear on console open (spec §4.2's "clear other EditBox focus, no double
+     *  focus"): unfocus every EditBox before the console takes the keyboard — the top-bar
+     *  name box, the node edit boxes (incl. bus-name boxes) and every enterActions box.
+     *  After release, the existing unfocused-follow-authoritative-value logic keeps pulling
+     *  the text back to the server's truth as usual. */
+    private void clearEditBoxFocusForConsole() {
+        if (topBarNameEdit != null) topBarNameEdit.setFocused(false);
+        for (var st : nodeEditStatesById.values()) {
+            if (st.busBox != null) st.busBox.setFocused(false);
+            for (var f : st.fields) f.setFocused(false);
+        }
+        for (var box : enterActions.keySet()) box.setFocused(false);
+    }
+
+    /** 控制台叠加层渲染入口（最上层——由 AbstractGraphScreen.render 在全部 widget 之后
+     *  调用，规格 §4.1 render 钩子；渲染层不测）。
+     *  The console overlay render entry (topmost — called by AbstractGraphScreen.render
+     *  after every widget, spec §4.1's render hook; the render layer is untested). */
+    public void renderConsoleOverlay(GuiGraphics g, int mx, int my) {
+        console.renderConsole(g, mx, my);
     }
 
     /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
@@ -4944,6 +5020,12 @@ public class GraphEditor {
      *  @param mod 修饰键位掩码 / modifier bitmask
      *  @return true 如果事件被消费 / true if consumed */
     public boolean charTyped(char ch, int mod) {
+        // 控制台链首（规格 §4.2）：打开时吞掉全部字符输入；刚以 `/` 开台时吞掉开键字符
+        // （吞没标志，与下方 menuOpenedByKey 同款纪律）。
+        // Console at chain head (spec §4.2): while open it swallows all character input;
+        // right after a "/" open it eats the opening key's character (the swallow flag, the
+        // same discipline as menuOpenedByKey below).
+        if (console.charTyped(ch, mod)) return true;
         // 键序刚打开的菜单吞掉开菜单键的字符（防搜索框吃到一部分输入）。标志只在
         // 紧随其后的本次 charTyped 有效——keyPressed 入口已先行作废旧标志，开菜单
         // 键不产生字符（如 Home）也不会滞留误吞下一个输入。

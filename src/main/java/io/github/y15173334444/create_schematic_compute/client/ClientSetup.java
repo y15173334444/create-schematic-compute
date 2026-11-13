@@ -41,6 +41,13 @@ public class ClientSetup {
             io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket
                 .setClientSink(new GraphAckRouter());
             ScanSableResponsePacket.clientHandler = PortableTerminalScreen::onSableScanResult;
+            // C 阶段步骤 5：控制台响应汇点 —— ConsoleResponsePacket(network) → 打开的图编辑器
+            // 控制台（client）的解耦路由，网络层不 import 编辑器（与上方 ACK 汇点同款手法）。
+            // Phase-C step 5: the console response sink — the decoupled route from
+            // ConsoleResponsePacket (network) to the open graph editor's console (client);
+            // the network layer never imports the editor (the same playbook as the ACK sink above).
+            io.github.y15173334444.create_schematic_compute.network.ConsoleResponsePacket.clientHandler =
+                GraphConsole::deliverToOpenEditor;
             PortableTerminalItem.screenOpener = p -> Minecraft.getInstance().setScreen(new PortableTerminalScreen(p));
             // CNC 齿轮箱 Flywheel 视觉（两端独立旋转体）；Flywheel 不可用时 vanilla renderer 兜底
             dev.engine_room.flywheel.api.visualization.VisualizerRegistry.setVisualizer(
