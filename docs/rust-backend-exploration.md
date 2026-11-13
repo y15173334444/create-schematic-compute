@@ -1,6 +1,6 @@
 # 公式求值 Rust 后端 · 探索线（csc-rust-backend-explore）
 
-> 状态:**✅ 已拍板立项,R1 已落地**(2026-11-14 拍板见 §六;R1 桥对拍 17/17 绿;R2 构建接线、R3 求值接线待开工)
+> 状态:**✅ 已拍板立项,R1/R2 已落地**(2026-11-14 拍板见 §六;R1 桥对拍 17/17 绿;R2 构建接线落地——cargo 23/23 + gradle e2e 4 用例绿;R3 求值接线待开工)
 > 施工面:worktree `C:/Users/Administrator/csc-rust-backend-wt`,分支 `csc-rust-backend-explore`(自 main 5528caa3 分出)
 > 触发:公式节点预算池开到 20ms/tick 时,服务端内存分配率达 1GB/s 级——求值链路的堆分配成为主要代价。
 > 产物:`native/formula-core/`(零分配求值核心,13/13 与 Java 链对拍含弹道真脚本)、`bench/java/`(Java 基线基准)、本文。
@@ -160,7 +160,11 @@
 **实施拆批**(每批独立提交、独立可回退):
 
 - **R1 Tok 编码器:✅ 已落地**(17/17 对拍绿):`src/fdlibm.rs` 移植 + Java 侧 StrictMath 锚定(见 §5.3);Java `FormulaTokEncoder`(AST+RPN→定宽 Tok 字节码,槽位首现序互敦、loop id 前序分配、Fn/Cmp 显式序数表)⇄ Rust `src/bridge.rs` 解码器,格式契约 = bridge.rs 模块头,夹具四脚本(.tokbin+.golden.txt)双端逐位对拍,解码器带 magic/版本/截断/**剩余字节**四重契约检查(编码端首版变宽 payload 即被剩余字节检查当场暴露);carrier 字节序列化往返 + 续算等价测试(与 JNI 形态同构);`native/include/formula_native.h` + Java `FormulaNative` 声明骨架(加载探测 + AVAILABLE 兜底门,不接 FormulaEval)。**待办教训**:assign 互敦漏 RHS 变量(输入钉不进表)= 槽位契约测试当场暴露。
-- **R2 构建接线**:cargo build 挂 gradle task、natives 提取打包进 jar(`natives/<os>-<arch>/`)、`System.load` 加载与能力探测、无 native 自动回退 Java 解释器。
+- **R2 构建接线:✅ 已落地**(2026-11-14;cargo test 23/23 绿 + gradle 全套件 1285 测试 0 失败,无 cargo 机器构建仍绿):
+  - **Rust cdylib + JNI shim**:`src/ffi.rs` 落 formula_native.h 全部 6 个导出(exec/abiVersion/sessionCreate/sessionDestroy/programUpload/programRelease)。纯 Rust `Session`(可单测,不经 JVM):程序槽位表——释放只置 None 保 programId 稳定、后续上传复用空洞;每程序独占 regs/loop_stack 复用缓冲,引擎路径稳态零分配,挂起路径 carrier_to_bytes 一次分配(与 bridge.rs「分配只发生在挂起时刻」同口径)。exec 按契约映射:programId 查已上传 Program → Exec::new/run;sliceNanos>0 → Budget::slice 否则 unlimited;Done 终值写 outputs(短缓冲 lenient、超槽位数 = -3);Suspended 经 carrierOut 回传字节。JNI 纪律:非法输入一律负错误码(·-1 会话 ·-2 程序 id ·-3 缓冲尺寸 ·-4 carrier 解码 ·-5 字节码解码,programUpload 专用),**绝不 panic 跨 FFI**;JVM 数组经 region API 拷入拷出——胶水每次 exec 两个小 Vec 是过渡逐节点形态的固有开销,§4.5 批量入口切 direct ByteBuffer 时消除。
+  - **构建/打包**:`[lib] name = "formula_native"` + `crate-type = ["cdylib","rlib"]`——**lib 名 = 产物名**(formula_native.dll),bin/测试 use 路径同步改名(语义零改动);`jni = "0.21"` 是运行时零原生链接的第二依赖(符号由加载方 JVM 提供)。gradle `buildNative` task:cargo 不在 PATH/CARGO_HOME → warn 跳过绝不 fail 构建;产物复制到 `build/natives/<os>-<arch>/` 并经 processResources 进 jar。os/arch → 目录映射(gradle 与 Java **两端写死一致**,改动必须同步):windows/linux/macos × x86_64(amd64)/aarch64(arm64),库文件名 dll/dylib/so。
+  - **加载路径**:FormulaNative 弃 System.loadLibrary → classpath `natives/<os>-<arch>/` 资源提取到 `java.io.tmpdir/csc-formula-natives/<os>-<arch>/`(**存在且尺寸一致则复用**,零重复解压;临时名+原子 move,进程中断不留半截文件冒充完整库)→ System.load 绝对路径;加载失败/abiVersion 不匹配 → AVAILABLE=false 走 Java 解释器兜底。native 声明改包内可见(FormulaEval R3 与 e2e 测试同包调用);`carrierLength` 按 CSCC 自描述头读回挂起写入字节数(exec 只回状态码,长度必须从头部恢复)。
+  - **e2e 测试**(`FormulaNativeTest`,assumeTrue 无 native 整类跳、套件保持绿):scalarLoop 终值逐位(acc=4999950.0/i=100000.0);弹道真脚本**全槽位**终值与 Java `FormulaInterpreter.exec` 逐位(期望值测试内现跑 Java 链,不硬编码;输入按名查槽——槽位序=源码首现序≠引脚序);2ms slice 反复挂起续算(carrierOut→carrierIn 直到 Done)终值与不限预算逐位;丢弃路径(programRelease 后 exec = -2)+ 非法会话(-1)负码契约。
 - **R3 求值接线**:FormulaEval/FormulaCompute 分流 native/Java、carrier 跨界序列化(字节数组)、deadline 锚点传递(anchor+delta 口径,§4.3)、对拍网扩到全函数表+脚本矩阵(弹道 5 案例 + 预算脚本集全量)。
 - **R4 收尾**:CHANGELOG 行、畸形 RPN(括号不闭合)登记册收编(§5.2)、性能验收(弹道 20ms 预算实测 + GC 压力对比)、文档收口。
 
@@ -176,6 +180,6 @@ java -Xms1g -cp "/tmp/csc-bench-classes;slf4j-api.jar" FormulaAllocBench 800 200
 
 # Rust 原型(工具链:stable-x86_64-pc-windows-gnu,MSVC 机器无 link.exe 时必须)
 cd native/formula-core
-cargo test --release     # 9/9 对拍
+cargo test --release     # 23/23(13 parity + 3 bridge + 1 trig anchor + 6 ffi/session 单测)
 cargo run --release --bin alloc-bench
 ```
