@@ -24,6 +24,28 @@ import java.util.Map;
  * use accessor form — {@link GraphEvaluator.InputSource} is a record whose components
  * are unconditionally private outside the nesting class (Java semantics); the accessor
  * is the only cross-class read. Bit-identical semantics.</p>
+ *
+ * <p><b>口径 A 采集钩子（§3.1/§3.3，issue #26）：</b>PRIVATE_OUT / PRIVATE_IN / BUS_OUT /
+ * BUS_IN 的浮点载体路径分支尾以门控尾随形式挂 {@link TopoStats#noteChannelWrite} /
+ * {@link TopoStats#noteChannelRead}（写入 bump epoch + 槽位值，读取落
+ * {@code (key, epoch, value)} 记录）—— 记录点在求值器分支（§3.3 关键实现选择），不在
+ * 12 个 BE 的 tick 体。门控 {@code csc.topoCollect}（{@link TopoStats#COLLECT_PROPERTY}）
+ * 关闭时每个钩子只有一次布尔读、无任何分配（无行为变更：求值顺序 / 剪线 / 收敛一概不动，
+ * 键规范化经 {@link SignalBusPort#channelKey} 单一入口）。开启时 O(1) 记账；音频 / 向量
+ * 载体不记账（音频由 AudioBands 的 exactly-once 游标门控、向量走 last-write-wins 状态
+ * 语义，均不在 §3.1 的浮点 epoch 模型内）。</p>
+ *
+ * <p><b>Criterion-A collection hooks (§3.1/§3.3, issue #26):</b> the float-carrier paths of
+ * PRIVATE_OUT / PRIVATE_IN / BUS_OUT / BUS_IN carry gated trailing
+ * {@link TopoStats#noteChannelWrite} / {@link TopoStats#noteChannelRead} calls at their branch
+ * tails (writes bump the epoch + slot value; reads drop a {@code (key, epoch, value)} record) —
+ * the record points sit in the evaluator branches (§3.3's key implementation choice), never in
+ * the twelve BE tick bodies. Gated by {@code csc.topoCollect} ({@link TopoStats#COLLECT_PROPERTY}):
+ * disabled, each hook costs one boolean read and zero allocation (no behaviour change —
+ * evaluation order, pruning and convergence untouched; key normalization rides the single
+ * {@link SignalBusPort#channelKey} entry). Enabled, O(1) accounting. Audio / vector carriers are
+ * not accounted (audio is gated by AudioBands' exactly-once cursor, vectors ride last-write-wins
+ * state semantics — both outside §3.1's float epoch model).</p>
  */
 public final class BusEval {
 
@@ -77,6 +99,15 @@ public final class BusEval {
                     payloadRefs.put(EvalContext.payloadKey(node.id, 0), v != null ? v : Vec3f.ZERO);
                 } else {
                     o[0] = signalBus.get(node.signalName);
+                    // 口径 A 读取侧钩子（§3.1，issue #26）：记录 (key, epoch, value) —— 门控
+                    // 关闭时只有一次布尔读；无宿主上下文不落记录（§3.3：客户端本地求值永不
+                    // 设上下文）。键经 SignalBusPort.channelKey 单一入口规范化。
+                    // The criterion-A read-side hook (§3.1, issue #26): record (key, epoch,
+                    // value) — one boolean read while gated off; no record without a host
+                    // context (§3.3: client-local evaluation never sets one). Keys normalize
+                    // through the single SignalBusPort.channelKey entry.
+                    if (TopoStats.collecting())
+                        TopoStats.noteChannelRead(signalBus.channelKey(node.signalName), "", o[0]);
                 }
             }
             case PRIVATE_OUT -> {
@@ -104,8 +135,20 @@ public final class BusEval {
                         signalBus.putVec3(node.signalName, v != null ? v : Vec3f.ZERO);
                     }
                 } else {
-                    if (!node.busConflict && !node.signalName.isEmpty())
+                    if (!node.busConflict && !node.signalName.isEmpty()) {
                         signalBus.put(node.signalName, graph.getInputValue(node.id, 0, outputs));
+                        // 口径 A 写入侧钩子（§3.1，issue #26）：bump(key) —— 冲突节点不写
+                        // 存储，自然不 bump（记账不查瞬时冲突旗标，与普查的结构性口径一致）。
+                        // 值二次读取是纯查表（NodeGraph.getInputValue），行为逐位一致。
+                        // The criterion-A write-side hook (§3.1, issue #26): bump(key) — a
+                        // conflicted node writes no storage and naturally bumps nothing (the
+                        // accounting never checks transient conflict flags, matching the
+                        // census's structural criterion). The value re-read is a pure lookup
+                        // (NodeGraph.getInputValue) — bit-identical behaviour.
+                        if (TopoStats.collecting())
+                            TopoStats.noteChannelWrite(signalBus.channelKey(node.signalName), "",
+                                graph.getInputValue(node.id, 0, outputs));
+                    }
                 }
             }
             case BUS_IN -> {
@@ -159,11 +202,20 @@ public final class BusEval {
                             continue;
                         }
                         o[bi] = chanMap != null ? chanMap.getOrDefault(key, 0f) : 0f;
+                        // 口径 A 读取侧钩子（§3.1）：频段槽位记录 —— ② 的值比较落在读者实际
+                        // 读的那一槽。 / The criterion-A read-side hook (§3.1): the band-slot
+                        // record — ②'s value compare lands on the very slot the reader read.
+                        if (TopoStats.collecting())
+                            TopoStats.noteChannelRead(signalBus.channelKey(node.signalName), key, o[bi]);
                     }
                 } else {
                     if (o.length < 1) { o = new float[1]; node.outputValues = o; ctx.o = o; }
                     var chanMap = signalBus.channelMap(node.signalName);
                     o[0] = (chanMap != null) ? chanMap.getOrDefault("", 0f) : 0;
+                    // 口径 A 读取侧钩子（§3.1）：无频段 BUS 读 = "" 槽位。
+                    // The criterion-A read-side hook (§3.1): a band-less BUS read = the "" slot.
+                    if (TopoStats.collecting())
+                        TopoStats.noteChannelRead(signalBus.channelKey(node.signalName), "", o[0]);
                 }
             }
             case BUS_OUT -> {
@@ -234,6 +286,16 @@ public final class BusEval {
                                     v != null ? v : Vec3f.ZERO);
                             } else {
                                 node.busInternalMap.put(bandName, pinValues.getOrDefault(bandName, 0f));
+                                // 口径 A 写入侧钩子（§3.1）：频段槽位 bump —— 多频段 FLOAT 写
+                                // 逐槽记账（epoch 按调用递增，读者看到的是分支前 / 后两个版本
+                                // 之一，粒度不影响 ① 判定）。
+                                // The criterion-A write-side hook (§3.1): the band-slot bump —
+                                // multi-band FLOAT writes account per slot (the epoch advances
+                                // per call; readers see either the pre-branch or post-branch
+                                // version, so the granularity never affects the ① verdict).
+                                if (TopoStats.collecting())
+                                    TopoStats.noteChannelWrite(signalBus.channelKey(node.signalName),
+                                        bandName, pinValues.getOrDefault(bandName, 0f));
                             }
                         }
                     }

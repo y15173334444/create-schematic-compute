@@ -30,6 +30,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import javax.annotation.Nullable;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -320,7 +321,8 @@ public class GraphHost {
         //    keyspace, so same-named channels in two dimensions can no longer cross-contaminate.
         //    runInDimension restores the scope on every early return; the ChannelHelper server
         //    methods carry the same scope themselves, so nesting restores the previous value.
-        SignalBus.runInDimension(lvl().dimension().location().toString(), () -> {
+        String dimensionId = lvl().dimension().location().toString();
+        SignalBus.runInDimension(dimensionId, () -> {
             h.afterGuard();
 
             // ① BUS 注册（92d0dbf 语义：内含冲突自愈 + issue #15 频段收敛 + 音频标志推送；
@@ -413,13 +415,34 @@ public class GraphHost {
                 //    types actually run; BASIC uses throwaway tables, EMPTY_TABLE seat +
                 //    throwaway tables.
                 float dt = 0.05f;
-                var results = switch (h.evalVariant()) {
-                    case FULL_STATE -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput(),
-                        runtimeState.delayQueues, runtimeState.flipflopStates, runtimeState.pulseTimers);
-                    case BASIC -> evaluator.evaluate(in, runtimeState.pidState, dt);
-                    case EMPTY_TABLE -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput(),
-                        new HashMap<>(), new HashMap<>(), new HashMap<>());
-                };
+                // 口径 A 采集上下文（§3.3，issue #26）：求值记录点的宿主归属依据。仅在采集
+                // 开启时设/清（关闭路径零分配零写入，钩子自身被同一门短路）；try/finally
+                // 保证任何求值异常路径都恢复先前值；ENCAP 子求值器经同一静态天然延续，
+                // 无需改求值重载。本处即 §3.3 的「钩子单点」——12 份宿主 tick 体已收敛于此。
+                // The criterion-A collection context (§3.3, issue #26): the host attribution
+                // of the evaluation record points. Set/cleared only while collecting (the off
+                // path allocates and writes nothing — the hooks are short-circuited by the
+                // same gate); try/finally restores the previous value on every exception path;
+                // ENCAP sub-evaluators continue through the same static, no evaluation
+                // overloads changed. This is §3.3's "single hook point" — the twelve host tick
+                // bodies already converge here.
+                TopoStats.HostId topoPrev = null;
+                boolean topoContext = TopoStats.collecting();
+                if (topoContext)
+                    topoPrev = TopoStats.beginEvalContext(
+                        new TopoStats.HostId(dimensionId, pos().getX(), pos().getY(), pos().getZ()));
+                List<GraphEvaluator.OutputResult> results;
+                try {
+                    results = switch (h.evalVariant()) {
+                        case FULL_STATE -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput(),
+                            runtimeState.delayQueues, runtimeState.flipflopStates, runtimeState.pulseTimers);
+                        case BASIC -> evaluator.evaluate(in, runtimeState.pidState, dt);
+                        case EMPTY_TABLE -> evaluator.evaluate(in, runtimeState.pidState, dt, h.seatInput(),
+                            new HashMap<>(), new HashMap<>(), new HashMap<>());
+                    };
+                } finally {
+                    if (topoContext) TopoStats.endEvalContext(topoPrev);
+                }
                 h.afterEval();
                 // ⑩ 写出红石输出 / write redstone outputs
                 rs.writeOutputs(results);
