@@ -27,9 +27,11 @@ import java.util.List;
  * 挡住远程探测任意方块。命令长度上限在 {@link ConsoleProtocol#respond} 复核（不信任
  * 客户端；codec 层字符串本身受 vanilla 32KB 上界钳制，无「先分配后校验」口子）。</p>
  *
- * <p><b>数据面纪律</b>：本 handler 骨架<b>只产文本行</b>（help 表 / 未接线提示），不读
- * 任何总线或求值状态；后续接线批的 {@code stale} 等数据命令必须走服务端求值快照口径
- * （规格 §3.3 警示：探针「当前值」读数是客户端本地求值，不是真值）。</p>
+ * <p><b>数据面纪律</b>：本 handler 只产文本行，数据真值口径走服务端采集快照与按 tick 缓存的
+ * 依赖图（{@code ConsoleDataPlane} 渲染；规格 §3.3 警示：探针「当前值」读数是客户端本地
+ * 求值，不是真值——绝不复用显示通道）；{@code bus} 的总线表读取由分发处以宿主维度作用域
+ * 包裹（issue #29 硬口径）。目标宿主从全局注册表解析（{@link ConsoleDataPlane#resolveHost}），
+ * 查询点不是登记宿主时数据命令回可诊断回执。</p>
  *
  * <h2>Client→Server: the in-editor console query (Phase-C step 5, spec §4.4's recommended
  * protocol).</h2>
@@ -45,10 +47,14 @@ import java.util.List;
  * {@code ConsoleProtocol.respond} (the client is never trusted; the codec string is already
  * vanilla-clamped at 32KB — no allocate-before-validate seam).</p>
  *
- * <p><b>Data-plane discipline</b>: this handler skeleton produces <b>text lines only</b>
- * (help table / not-wired hints) and reads no bus or evaluation state; the wiring batch's
- * {@code stale}-style data commands must come from the server eval-snapshot plane (spec
- * §3.3 warning: the probe's "current value" readout is client-local evaluation, not truth).</p>
+ * <p><b>Data-plane discipline</b>: this handler produces <b>text lines only</b>; the data-truth
+ * plane rides the server's collection snapshot and the per-tick cached dependency graph
+ * (rendered by {@code ConsoleDataPlane}; spec §3.3's warning — the probe's "current value"
+ * readout is client-local evaluation, not truth, and the display channel is never reused);
+ * {@code bus}'s bus-table reads are wrapped in the host's dimension scope at the dispatch (the
+ * issue #29 hard rule). The target host is resolved from the global registry
+ * ({@link ConsoleDataPlane#resolveHost}); when the query point holds no registered host, the
+ * data commands answer diagnosably.</p>
  */
 public record ConsoleQueryPacket(BlockPos pos, String command) implements CustomPacketPayload {
 
@@ -78,10 +84,17 @@ public record ConsoleQueryPacket(BlockPos pos, String command) implements Custom
             if (!(ctx.player() instanceof ServerPlayer sp)) return;
             if (!(sp.level() instanceof ServerLevel sl)) return;
             if (!SablePacketHelper.isWithinReachableRange(sp, pos, 16384.0)) return;
+            // 目标宿主解析（§4.4：查询落的是宿主 BE 的维度——bus 等命令的维度作用域读取与
+            // 「本 host」视角都从这里出发）；未解析到 = 数据命令回可诊断回执。
+            // Target-host resolution (§4.4: the query lands on the host BE's dimension — the
+            // dimension-scoped reads of bus and the "this host" views all start here); no
+            // resolution = the data commands answer diagnosably.
+            var target = ConsoleDataPlane.resolveHost(sl.dimension().location().toString(),
+                pos.getX(), pos.getY(), pos.getZ());
             // 文法与响应上界都在服务端（§4.4：原始字符串进、文本行出、单次成本有上界）
             // Grammar and response caps are both server-side (§4.4: raw string in, text
             // lines out, per-request cost bounded).
-            List<String> lines = ConsoleProtocol.clampResponse(ConsoleProtocol.respond(command));
+            List<String> lines = ConsoleProtocol.clampResponse(ConsoleProtocol.respond(command, target));
             PacketDistributor.sendToPlayer(sp, new ConsoleResponsePacket(lines));
         });
     }

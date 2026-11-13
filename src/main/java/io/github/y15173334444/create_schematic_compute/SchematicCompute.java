@@ -311,6 +311,12 @@ public class SchematicCompute {
                 // The criterion-A collection's time axis (issue #26): the tick stamp advance
                 // (one boolean read while gated off).
                 io.github.y15173334444.create_schematic_compute.graph.TopoStats.beginCollectTick();
+                // 控制台全局查询的按 tick 脏缓存时间轴（issue #29，§4.4 第 2 层）：tick 推进
+                // 使缓存图失效——每 tick 至多重算一次 O(hosts+边) 构图，查询放大系数消解。
+                // The per-tick dirty-cache time axis of the console's global queries (issue #29,
+                // §4.4 layer 2): the advance invalidates the cached graph — at most one
+                // O(hosts+edges) build per tick, dissolving the query amplification factor.
+                io.github.y15173334444.create_schematic_compute.network.ConsoleQueryCache.advanceTick();
                 io.github.y15173334444.create_schematic_compute.graph.FormulaCompute.beginTick();
                 io.github.y15173334444.create_schematic_compute.graph.CustomNodeCompute.beginTick();
             });
