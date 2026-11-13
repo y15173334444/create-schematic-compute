@@ -1,0 +1,21 @@
+[package]
+name = "formula-core"
+version = "0.1.0"
+edition = "2021"
+
+# 零依赖：std-only，离线可构建（registry 不可达也不影响）。
+# Zero dependencies: std-only, builds offline.
+
+[lib]
+name = "formula_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "alloc-bench"
+path = "src/bin/alloc_bench.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
