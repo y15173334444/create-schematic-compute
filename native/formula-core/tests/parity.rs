@@ -129,7 +129,7 @@ fn suspend_resume_conservation() {
     let prog = compile(src).unwrap();
     let mut regs = Vec::new();
     let mut loops = Vec::new();
-    let mut out = [V::ZERO; 8];
+    let mut out = vec![V::ZERO; prog.names.len()];
     // 不限预算基线
     let ex = Exec::new(&prog, &mut regs, &mut loops, &[], None, Budget::unlimited());
     assert!(matches!(ex.run(&mut out), Outcome::Done));
@@ -155,6 +155,105 @@ fn suspend_resume_conservation() {
     }
     assert!(suspends > 0, "script must have actually suspended at least once");
     assert_eq!(out[idx].as_scalar(), 5000.0, "budgeted run must conserve iterations exactly");
+}
+
+/// 真实重节点工作负载：docs/examples/ballistic_solver.formula（火控弹道反解，
+/// 粗扫 46×400 tick 模拟 + 细扫 17 点 + 割线 ≤10 轮）。5 案例终值与 Java 链
+/// （javac 直跑 BallisticProbe2，解析缓存口径）对齐；快路径自动生效（纯标量脚本）。
+#[test]
+fn ballistic_solver_java_parity() {
+    let src = include_str!("../../../docs/examples/ballistic_solver.formula");
+    let prog = compile(src).expect("ballistic script must compile");
+    assert!(prog.scalar_only, "ballistic script is scalar-only -> fast path");
+    let cases: [(f64, f64, f64, f64, f64, f64); 5] = [
+        (0.0, 80.0, 0.0, 250.0, 82.0, -30.0),
+        (0.0, 80.0, 0.0, 500.0, 70.0, -100.0),
+        (0.0, 200.0, 0.0, 400.0, 20.0, 0.0),
+        (0.0, 80.0, 0.0, 3.0, 190.0, 0.0),
+        (0.0, 80.0, 0.0, 3000.0, 50.0, 0.0),
+    ];
+    // Java 探针实测（Double.toString 最短往返表示，f64 解析精确还原）
+    let golden: [[f64; 6]; 5] = [
+        [83.15722658736907, 7.808572044524522, 1.0, 157.38726603948803, 21.738207535385484, -18.88647192473855],
+        [78.69006752597979, 28.3210790441535, 1.0, 138.11327846592283, 75.9059365520921, -27.622655693184562],
+        [90.0, -11.01004380103375, 1.0, 157.0549952072379, -30.55697106151846, -9.61684485853234e-15],
+        [90.0, 88.399, 1.0, 4.470253633129445, 159.9375404101723, -2.7372409015944007e-16],
+        [90.0, 10.100999999999999, 0.0, 157.52001905563515, 28.06142542196212, -9.645319356905682e-15],
+    ];
+    let names = ["ay", "ap", "hit", "vx0", "vy0", "vz0"];
+    for (ci, (mx, my, mz, tx, ty, tz)) in cases.into_iter().enumerate() {
+        // 槽位按名映射（源码首次出现序 ≠ 引脚序：DT/HIT/P0… 等常量槽在前）
+        let mut slots = vec![V::ZERO; prog.names.len()];
+        for (name, v) in [("mx", mx), ("my", my), ("mz", mz), ("tx", tx), ("ty", ty), ("tz", tz)] {
+            let i = prog.names.iter().position(|n| n == name).expect("input slot");
+            slots[i] = V::S(v);
+        }
+        let mut regs = Vec::new();
+        let mut loops = Vec::new();
+        let mut out = vec![V::ZERO; prog.names.len()];
+        let ex = Exec::new(&prog, &mut regs, &mut loops, &slots, None, Budget::unlimited());
+        assert!(matches!(ex.run(&mut out), Outcome::Done), "case {ci} must complete");
+        for (k, name) in names.iter().enumerate() {
+            let i = prog.names.iter().position(|n| n == name).unwrap_or_else(|| panic!("slot {name}"));
+            let got = out[i].as_scalar();
+            let want = golden[ci][k];
+            if want.abs() < 1e-12 {
+                // 浮点尘埃带：|值| < 1e-12 的输出（如 vz0 ≈ cos(90°) 的尘埃直通）。
+                // windows-gnu 链接的 msvcrt libm 在 π/2 倍数附近用低精度 π 归约：
+                // cos(90°) Java=6.123233995736766e-17 vs msvcrt=6.123031769111886e-17
+                // （相对差 ~3.3e-4，绝对差 ~3e-21，物理为零）。桥接期捆绑 libm crate
+                // （fdlibm 血统 = Java StrictMath 同源）后此带可收紧为逐位。
+                assert!(
+                    (got - want).abs() < 1e-15,
+                    "case {ci} {name} dust-band: got {got}, want {want}"
+                );
+            } else {
+                assert_eq!(got, want, "case {ci} {name}: fast path vs Java bit-exact");
+            }
+        }
+    }
+}
+
+/// 弹道求解的 slice 挂起/续算守恒：2ms slice 反复挂起，终值与不限预算逐位一致。
+#[test]
+fn ballistic_solver_sliced_conservation() {
+    let src = include_str!("../../../docs/examples/ballistic_solver.formula");
+    let prog = compile(src).expect("ballistic script must compile");
+    let mut slots = vec![V::ZERO; prog.names.len()];
+    for (name, v) in [("mx", 0.0), ("my", 80.0), ("mz", 0.0), ("tx", 500.0), ("ty", 70.0), ("tz", -100.0)] {
+        let i = prog.names.iter().position(|n| n == name).expect("input slot");
+        slots[i] = V::S(v);
+    }
+    let run = |slice: Budget| -> Vec<V> {
+        let mut regs = Vec::new();
+        let mut loops = Vec::new();
+        let mut out = vec![V::ZERO; prog.names.len()];
+        let mut resume: Option<formula_core::Carrier> = None;
+        let mut suspends = 0u32;
+        loop {
+            let ex = Exec::new(&prog, &mut regs, &mut loops, &slots, resume.take(), slice);
+            match ex.run(&mut out) {
+                Outcome::Done => break out.to_vec(),
+                Outcome::Suspended(c) => {
+                    suspends += 1;
+                    assert!(suspends < 100_000, "resume loop not converging");
+                    resume = Some(c);
+                }
+                Outcome::Shed => panic!("ballistic solve must not shed"),
+            }
+        }
+    };
+    let full = run(Budget::unlimited());
+    let sliced = run(Budget::slice(Duration::from_millis(2)));
+    for i in 0..prog.names.len() {
+        assert_eq!(
+            full.get(i).copied().unwrap_or(V::ZERO),
+            sliced.get(i).copied().unwrap_or(V::ZERO),
+            "slot {} ({}) diverged under slicing",
+            i,
+            prog.names[i]
+        );
+    }
 }
 
 /// 标量快路径双路对拍：纯标量脚本 fast/full 两路终值逐位一致。
@@ -220,7 +319,7 @@ fn while_suspend_resume() {
     let prog = compile(src).unwrap();
     let mut regs = Vec::new();
     let mut loops = Vec::new();
-    let mut out = [V::ZERO; 8];
+    let mut out = vec![V::ZERO; prog.names.len()];
     let mut resume: Option<formula_core::Carrier> = None;
     let mut suspends = 0u32;
     loop {

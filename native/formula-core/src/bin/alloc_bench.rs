@@ -37,37 +37,54 @@ struct Script {
     name: &'static str,
     src: &'static str,
     iters_per_exec: u64,
-    input_x: f64,
+    inputs: &'static [(&'static str, f64)],
 }
 
 /// 脚本级续行符用 `\\`（Rust 转义后落到脚本文本的是 `\`，与 Java bench 同源）。
-const SCRIPTS: [Script; 3] = [
+const SCRIPTS: [Script; 4] = [
     Script {
         name: "scalarLoop",
         src: "i = 0\nacc = 0\nrepeat 100000 {\n    acc = acc + i * 0.001\n    i = i + 1\n}",
         iters_per_exec: 100_000,
-        input_x: 0.0,
+        inputs: &[("x", 0.0)],
     },
     Script {
         name: "vec3Loop",
         src: "p = vec3(0, 0, 0)\nv = vec3(1, 2, 3)\nrepeat 100000 {\n    p = p + v * 0.01\n    v = v - vec3(0, 0.001, 0)\n}",
         iters_per_exec: 100_000,
-        input_x: 0.0,
+        inputs: &[("x", 0.0)],
     },
     Script {
         name: "closedForm",
         src: "y = sin(x) * cos(2*x) + sqrt(abs(x - 0.5)) + log(1 + x*x) ^ 2 \\\n    + sin(x*3) * 0.5 + floor(x) + min(x, 1) + max(x, 2)",
         iters_per_exec: 1,
-        input_x: 0.5,
+        inputs: &[("x", 0.5)],
+    },
+    // 真实重节点：火控弹道反解（粗扫 46×400 + 细扫 17 + 割线 ≤10）。
+    Script {
+        name: "ballistic",
+        src: include_str!("../../../../docs/examples/ballistic_solver.formula"),
+        iters_per_exec: 1,
+        inputs: &[("mx", 0.0), ("my", 80.0), ("mz", 0.0), ("tx", 500.0), ("ty", 70.0), ("tz", -100.0)],
     },
 ];
 
 fn run_for(script: &Script, prog: &formula_core::Program, ms: u64) -> (u64, Duration) {
-    let inputs = vec![V::S(script.input_x)];
+    // 输入按名映射到槽位（源码首现序 ≠ 引脚序）
+    let inputs: Vec<V> = {
+        let mut v = vec![V::ZERO; prog.names.len()];
+        for (name, x) in script.inputs {
+            // 名不在脚本中（如 scalarLoop 无 x）→ 跳过；基准输入只做预置
+            if let Some(i) = prog.names.iter().position(|n| n == name) {
+                v[i] = V::S(*x);
+            }
+        }
+        v
+    };
     // 桥接形态：缓冲跨 exec 复用（首次分配后稳态零分配）。
     let mut regs = Vec::new();
     let mut loops = Vec::new();
-    let mut out = [V::ZERO; 8];
+    let mut out = vec![V::ZERO; prog.names.len()];
     let end = Instant::now() + Duration::from_millis(ms);
     let mut iters = 0u64;
     let mut ns = Duration::ZERO;

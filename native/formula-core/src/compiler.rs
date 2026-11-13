@@ -96,8 +96,6 @@ impl Compiler {
     }
 
     /// 解析语句序列，直到行耗尽或遇到 `}`（`}` 本身不消费，由块调用方收）。
-    /// 注：块体只支持逐行形态（`if (c) {` 换行）；行内 `{ ... }` 属 Java 前端能力，
-    /// 脚手架不覆盖。
     fn parse_body(&mut self, lines: &[String], pos: &mut usize, depth: usize) -> Result<Vec<Stmt>, String> {
         if depth > MAX_PARSE_DEPTH {
             return Err(format!("script nesting exceeds {MAX_PARSE_DEPTH} levels"));
@@ -108,88 +106,177 @@ impl Compiler {
             if line == "}" {
                 break;
             }
-            out.push(self.parse_stmt(lines, pos, depth)?);
+            if let Some(st) = self.parse_stmt(lines, pos, depth)? {
+                out.push(st);
+            }
         }
         Ok(out)
     }
 
-    fn parse_stmt(&mut self, lines: &[String], pos: &mut usize, depth: usize) -> Result<Stmt, String> {
+    fn parse_stmt(&mut self, lines: &[String], pos: &mut usize, depth: usize) -> Result<Option<Stmt>, String> {
         let line = lines[*pos].trim().to_string();
         *pos += 1;
-        if line == "break" {
-            return Ok(Stmt::Break);
+        self.parse_stmt_text(&line, lines, pos, depth)
+    }
+
+    /// 单条语句（文本形态；行首语句与行内 `;` 分隔块共用）。
+    /// 覆盖：break/continue、@output 声明（lenient 跳过）、repeat/while/if
+    /// （块体 = 行内 `{...}` / 跨行 `{`+行块 / 无花括号单语句）、赋值、表达式。
+    fn parse_stmt_text(
+        &mut self,
+        text: &str,
+        lines: &[String],
+        pos: &mut usize,
+        depth: usize,
+    ) -> Result<Option<Stmt>, String> {
+        if depth > MAX_PARSE_DEPTH {
+            return Err(format!("script nesting exceeds {MAX_PARSE_DEPTH} levels"));
         }
-        if line == "continue" {
-            return Ok(Stmt::Continue);
+        let text = text.trim();
+        if text.is_empty() {
+            return Ok(None);
         }
-        if let Some(rest) = strip_keyword(&line, "repeat") {
-            let (count, rest) = self.take_repeat_count(rest)?;
-            let (body, _rest) = self.take_block(lines, pos, &rest, depth)?;
+        if text == "break" {
+            return Ok(Some(Stmt::Break));
+        }
+        if text == "continue" {
+            return Ok(Some(Stmt::Continue));
+        }
+        if text.starts_with('@') {
+            // @output 等解析期声明：原型 lenient 跳过（输出按名读取）。
+            return Ok(None);
+        }
+        if let Some(rest) = strip_keyword(text, "if") {
+            return Ok(Some(self.parse_if_text(rest, lines, pos, depth)?));
+        }
+        if let Some(rest) = strip_keyword(text, "while") {
+            let (cond, after) = self.compile_cond(rest)?;
+            let (body, _after) = self.take_body_any(&after, lines, pos, depth + 1)?;
             let id = self.next_loop_id;
             self.next_loop_id += 1;
-            self.repeat_counts.push((id, count));
-            return Ok(Stmt::Repeat { id, count, body: body.into_boxed_slice() });
-        }
-        if let Some(rest) = strip_keyword(&line, "while") {
-            let (cond, rest) = self.compile_cond(&rest)?;
-            let (body, _rest) = self.take_block(lines, pos, &rest, depth)?;
-            let id = self.next_loop_id;
-            self.next_loop_id += 1;
-            return Ok(Stmt::While {
+            return Ok(Some(Stmt::While {
                 id,
                 cond: cond.into_boxed_slice(),
                 body: body.into_boxed_slice(),
-            });
+            }));
         }
-        if let Some(rest) = strip_keyword(&line, "if") {
-            let (cond, rest) = self.compile_cond(&rest)?;
-            let (body, _rest) = self.take_block(lines, pos, &rest, depth)?;
-            // else { } / else if：独占一行时解析；行内 else 属 Java 前端能力。
-            let mut els: Vec<Stmt> = Vec::new();
-            if *pos < lines.len() {
-                let next = lines[*pos].trim();
-                if next == "else" || next.starts_with("else ") {
-                    *pos += 1;
-                    let rest = next["else".len()..].trim_start();
-                    if let Some(rest2) = strip_keyword(rest, "if") {
-                        // else if → 递归为 else 体里的单条 If
-                        let inner = self.parse_if(rest2, lines, pos, depth + 1)?;
-                        els.push(inner);
-                    } else {
-                        let (els_body, _r) = self.take_block(lines, pos, rest, depth + 1)?;
-                        els = els_body;
-                    }
-                }
-            }
-            return Ok(Stmt::If {
-                cond: cond.into_boxed_slice(),
-                body: body.into_boxed_slice(),
-                els: els.into_boxed_slice(),
-            });
+        if let Some(rest) = strip_keyword(text, "repeat") {
+            let (count, after) = self.take_repeat_count(rest)?;
+            let (body, _after) = self.take_body_any(&after, lines, pos, depth + 1)?;
+            let id = self.next_loop_id;
+            self.next_loop_id += 1;
+            self.repeat_counts.push((id, count));
+            return Ok(Some(Stmt::Repeat { id, count, body: body.into_boxed_slice() }));
         }
-        if line == "else" || line.starts_with("else ") {
+        if text == "else" || text.starts_with("else ") {
             return Err("else without if".into());
         }
         // 赋值 or 表达式语句
-        if let Some((name, expr)) = split_assign(&line) {
+        if let Some((name, expr)) = split_assign(text) {
             let slot = self.slot(name);
             let rpn = self.compile_expr(expr)?;
-            Ok(Stmt::Assign { slot, rpn: rpn.into_boxed_slice() })
+            Ok(Some(Stmt::Assign { slot, rpn: rpn.into_boxed_slice() }))
         } else {
-            let rpn = self.compile_expr(&line)?;
-            Ok(Stmt::Expr(rpn.into_boxed_slice()))
+            let rpn = self.compile_expr(text)?;
+            Ok(Some(Stmt::Expr(rpn.into_boxed_slice())))
         }
     }
 
-    /// `if (cond) { body }`（else 已由调用方处理）。
-    fn parse_if(&mut self, rest: &str, lines: &[String], pos: &mut usize, depth: usize) -> Result<Stmt, String> {
-        let (cond, rest) = self.compile_cond(rest)?;
-        let (body, _r) = self.take_block(lines, pos, &rest, depth)?;
+    /// `if (cond) <then> [else <else-part>]`。then/else 形态：行内 `{...}`（含 `;`
+    /// 分隔与嵌套）、跨行 `{`+行块、无花括号单语句（`if (still > 20) break`）。
+    fn parse_if_text(
+        &mut self,
+        rest: &str,
+        lines: &[String],
+        pos: &mut usize,
+        depth: usize,
+    ) -> Result<Stmt, String> {
+        let (cond, after) = self.compile_cond(rest)?;
+        let (body, after) = self.take_body_any(&after, lines, pos, depth + 1)?;
+        // else：优先同剩余文本；空则窥探下一行 `else ...`。
+        let mut after = after.trim().to_string();
+        if after.is_empty() && *pos < lines.len() {
+            let next = lines[*pos].trim();
+            if next == "else" || next.starts_with("else ") {
+                *pos += 1;
+                after = next.to_string();
+            }
+        }
+        let mut els: Vec<Stmt> = Vec::new();
+        if !after.is_empty() {
+            if let Some(rest2) = strip_keyword(&after, "else") {
+                let rest2 = rest2.trim();
+                if rest2.is_empty() {
+                    // `else` 独占行尾、块在下一行
+                    if *pos < lines.len() {
+                        let l = lines[*pos].trim().to_string();
+                        *pos += 1;
+                        let (b, _r) = self.take_body_any(&l, lines, pos, depth + 1)?;
+                        els = b;
+                    }
+                } else if let Some(rest3) = strip_keyword(rest2, "if") {
+                    // else if → else 体里的单条 If
+                    let inner = self.parse_if_text(rest3, lines, pos, depth + 1)?;
+                    els.push(inner);
+                } else {
+                    let (b, _r) = self.take_body_any(rest2, lines, pos, depth + 1)?;
+                    els = b;
+                }
+            } else {
+                return Err(format!("dangling text after if-block: {after}"));
+            }
+        }
         Ok(Stmt::If {
             cond: cond.into_boxed_slice(),
             body: body.into_boxed_slice(),
-            els: Box::new([]),
+            els: els.into_boxed_slice(),
         })
+    }
+
+    /// 块体三形态：行内 `{...}`（括号配对在文本内）/ 跨行 `{`+行块 / 无花括号单语句。
+    /// 返回 (体语句, 块后剩余文本)。
+    fn take_body_any(
+        &mut self,
+        after: &str,
+        lines: &[String],
+        pos: &mut usize,
+        depth: usize,
+    ) -> Result<(Vec<Stmt>, String), String> {
+        let after = after.trim_start();
+        if after.starts_with('{') {
+            if let Some(close) = find_matching_brace(after) {
+                let inner = &after[1..close];
+                let body = self.parse_inline_body(inner, lines, pos, depth)?;
+                return Ok((body, after[close + 1..].to_string()));
+            }
+            // `{` 在行尾、体在后续行
+            let (body, _r) = self.take_block(lines, pos, after, depth)?;
+            return Ok((body, String::new()));
+        }
+        if !after.is_empty() {
+            if let Some(st) = self.parse_stmt_text(after, lines, pos, depth)? {
+                return Ok((vec![st], String::new()));
+            }
+            return Ok((Vec::new(), String::new()));
+        }
+        Ok((Vec::new(), String::new()))
+    }
+
+    /// 行内块体：顶层 `;` 分隔（括号深度感知），逐块递归。
+    fn parse_inline_body(
+        &mut self,
+        inner: &str,
+        lines: &[String],
+        pos: &mut usize,
+        depth: usize,
+    ) -> Result<Vec<Stmt>, String> {
+        let mut out = Vec::new();
+        for chunk in split_top_semicolons(inner) {
+            if let Some(st) = self.parse_stmt_text(&chunk, lines, pos, depth)? {
+                out.push(st);
+            }
+        }
+        Ok(out)
     }
 
     fn take_repeat_count(&self, rest: &str) -> Result<(u64, String), String> {
@@ -415,6 +502,49 @@ fn strip_keyword<'a>(line: &'a str, kw: &str) -> Option<&'a str> {
     } else {
         None
     }
+}
+
+/// 文本内首个 `{` 的配对 `}` 下标（无嵌套失衡防护——脚本无字符串字面量）。
+fn find_matching_brace(text: &str) -> Option<usize> {
+    let mut d = 0i32;
+    for (i, ch) in text.char_indices() {
+        match ch {
+            '{' => d += 1,
+            '}' => {
+                d -= 1;
+                if d == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// 顶层 `;` 分隔（花括号深度感知——嵌套行内块的 `;` 不切）。
+fn split_top_semicolons(text: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut cur = String::new();
+    let mut d = 0i32;
+    for ch in text.chars() {
+        match ch {
+            '{' => {
+                d += 1;
+                cur.push(ch);
+            }
+            '}' => {
+                d -= 1;
+                cur.push(ch);
+            }
+            ';' if d == 0 => parts.push(std::mem::take(&mut cur)),
+            _ => cur.push(ch),
+        }
+    }
+    if !cur.trim().is_empty() {
+        parts.push(cur);
+    }
+    parts
 }
 
 /// `name = expr` 切分（首个顶层 '='；==/!=/<=/>= 已由词法切开，此处再兜底跳过）。
