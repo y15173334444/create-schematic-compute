@@ -293,7 +293,149 @@ impl<'p, 'b> Exec<'p, 'b> {
 
     // ───────────────── 表达式栈机（Java evaluateValue 逐字镜像） ─────────────────
 
+    /// 求值分派：纯标量程序走 `f64` 裸栈快路径（每 eval 调用一次分支，非每 token）。
+    /// Dispatch: scalar-only programs take the plain-f64 fast path (one branch per
+    /// eval call, not per token).
+    #[inline]
     fn eval(&mut self, rpn: &[Tok]) -> Result<V, Signal> {
+        if self.prog.scalar_only {
+            Ok(V::S(self.eval_scalar(rpn)?))
+        } else {
+            self.eval_full(rpn)
+        }
+    }
+
+    /// 标量快路径：`f64` 裸栈（8B 搬运、零 tag 检查）。语义与 eval_full 逐位一致——
+    /// 纯标量程序里 V 只能是 S，向量分支/lenient 形态在探测期已排除（`'('` 吃两项
+    /// 得 0、除零 0、容差比较等全部保留）。对拍：tests/parity.rs 双路逐位一致。
+    fn eval_scalar(&mut self, rpn: &[Tok]) -> Result<f64, Signal> {
+        let mut stack = [0.0f64; STACK_MAX];
+        let mut sp = 0usize;
+        let mut ops: u32 = 0; // 调用内局部 K6 计数器（与 eval_full 同口径）
+        for tok in rpn {
+            ops += 1;
+            if ops & 0xFF == 0 && self.over_slice() {
+                return Err(Signal::Deadline);
+            }
+            match *tok {
+                Tok::Const(d) => push_s(&mut stack, &mut sp, d)?,
+                Tok::Var(slot) => {
+                    let v = self.regs[slot as usize].as_scalar();
+                    push_s(&mut stack, &mut sp, v)?;
+                }
+                Tok::Op(op) => {
+                    let b = pop_s(&mut stack, &mut sp)?;
+                    let a = pop_s(&mut stack, &mut sp)?;
+                    let r = match op {
+                        b'+' => a + b,
+                        b'-' => a - b,
+                        b'*' => a * b,
+                        b'/' => {
+                            if b != 0.0 {
+                                a / b
+                            } else {
+                                0.0
+                            }
+                        }
+                        b'%' => {
+                            if b != 0.0 {
+                                a % b
+                            } else {
+                                0.0
+                            }
+                        }
+                        b'^' => a.powf(b),
+                        b'<' => {
+                            if a < b {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        b'>' => {
+                            if a > b {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        _ => 0.0, // 含 '(' 吃两项得 0 的 lenient 形态
+                    };
+                    push_s(&mut stack, &mut sp, r)?;
+                }
+                Tok::Cmp(c) => {
+                    let b = pop_s(&mut stack, &mut sp)?;
+                    let a = pop_s(&mut stack, &mut sp)?;
+                    const EQ_TOL: f64 = 1e-6; // Java EQ_TOLERANCE
+                    let r = match c {
+                        Cmp::Eq => {
+                            if (a - b).abs() < EQ_TOL {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        Cmp::Ne => {
+                            if (a - b).abs() < EQ_TOL {
+                                0.0
+                            } else {
+                                1.0
+                            }
+                        }
+                        Cmp::Le => {
+                            if a <= b {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        Cmp::Ge => {
+                            if a >= b {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        Cmp::And => {
+                            if a != 0.0 && b != 0.0 {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                        Cmp::Or => {
+                            if a != 0.0 || b != 0.0 {
+                                1.0
+                            } else {
+                                0.0
+                            }
+                        }
+                    };
+                    push_s(&mut stack, &mut sp, r)?;
+                }
+                Tok::Not => {
+                    let v = pop_s(&mut stack, &mut sp)?;
+                    push_s(&mut stack, &mut sp, if v != 0.0 { 0.0 } else { 1.0 })?;
+                }
+                Tok::Swz(_) => {
+                    // 探测期已排除；防御性保留口径：基值取分量 → 标量程序恒 0
+                    pop_s(&mut stack, &mut sp)?;
+                    push_s(&mut stack, &mut sp, 0.0)?;
+                }
+                Tok::Fn(f) => {
+                    let arity = f.arity();
+                    let mut args = [0.0f64; 2];
+                    for a in (0..arity).rev() {
+                        args[a] = pop_s(&mut stack, &mut sp)?;
+                    }
+                    push_s(&mut stack, &mut sp, scalar_fn(f, args))?;
+                }
+            }
+        }
+        Ok(if sp == 0 { 0.0 } else { stack[sp - 1] })
+    }
+
+    fn eval_full(&mut self, rpn: &[Tok]) -> Result<V, Signal> {
         let mut stack = [V::ZERO; STACK_MAX];
         let mut sp = 0usize;
         let mut ops: u32 = 0; // 调用内局部 K6 计数器（Java 同款）
@@ -522,6 +664,25 @@ fn push(stack: &mut [V; STACK_MAX], sp: &mut usize, v: V) -> Result<(), Signal> 
 fn pop(stack: &mut [V; STACK_MAX], sp: &mut usize) -> Result<V, Signal> {
     if *sp == 0 {
         return Err(Signal::Underflow); // Java: NoSuchElementException（畸形 RPN）
+    }
+    *sp -= 1;
+    Ok(stack[*sp])
+}
+
+#[inline]
+fn push_s(stack: &mut [f64; STACK_MAX], sp: &mut usize, v: f64) -> Result<(), Signal> {
+    if *sp >= STACK_MAX {
+        return Err(Signal::Underflow); // 与 tag 版同口径
+    }
+    stack[*sp] = v;
+    *sp += 1;
+    Ok(())
+}
+
+#[inline]
+fn pop_s(stack: &mut [f64; STACK_MAX], sp: &mut usize) -> Result<f64, Signal> {
+    if *sp == 0 {
+        return Err(Signal::Underflow);
     }
     *sp -= 1;
     Ok(stack[*sp])

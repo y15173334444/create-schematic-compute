@@ -5,7 +5,7 @@ use crate::tok::Tok;
 
 /// 语句（与 FormulaAst.Stmt 逐字对齐；repeat/while 携带编译期唯一 id，
 /// 供循环栈与 seek 续算按身份命中——对应 Java 的「同次 parse 内 AST 实例身份」）。
-#[derive(Debug)]
+#[derive(Clone)]
 pub enum Stmt {
     /// 赋值:var = expr。 / Assignment: var = expr.
     Assign { slot: u16, rpn: Box<[Tok]> },
@@ -43,14 +43,23 @@ impl Stmt {
     }
 }
 
-/// 编译产物：语句树 + 槽位表 + 进度元数据。
-/// Compiled program: statement tree + slot table + progress metadata.
+/// 编译产物：语句树 + 槽位表 + 进度元数据 + 标量快路径探测。
+/// Compiled program: statement tree + slot table + progress metadata + scalar
+/// fast-path detection.
+#[derive(Clone)]
 pub struct Program {
     pub body: Box<[Stmt]>,
     /// 槽位名（调试/桥接回读用；求值期不查名）。 / Slot names (debug/bridge introspection only).
     pub names: Vec<String>,
     /// repeat id → count（progress 计算用，镜像 Java progressOf 的 ro.count()）。
     pub repeat_counts: Vec<(u16, u64)>,
+    /// 纯标量探测：全程序无向量函数/swizzle token → 求值可走 `f64` 裸栈快路径
+    /// （值域不可能是 vec3：vec3 只能由向量函数产生）。基准/测试会克隆后翻转此位
+    /// 做双路对拍；桥接层不要动它。
+    /// True when no vector function/swizzle token exists anywhere — the eval loop
+    /// may take the plain-`f64` fast path (vec3 can only be produced by vector
+    /// functions). Bench/tests clone and flip this bit for cross-path parity.
+    pub scalar_only: bool,
 }
 
 impl Program {

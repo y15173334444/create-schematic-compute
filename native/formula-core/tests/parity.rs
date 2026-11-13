@@ -157,6 +157,62 @@ fn suspend_resume_conservation() {
     assert_eq!(out[idx].as_scalar(), 5000.0, "budgeted run must conserve iterations exactly");
 }
 
+/// 标量快路径双路对拍：纯标量脚本 fast/full 两路终值逐位一致。
+/// fast = 编译探测；full = 同一 Program 克隆翻转 scalar_only。
+#[test]
+fn scalar_fast_path_dual_parity() {
+    let cases = [
+        ("i = 0\nacc = 0\nrepeat 100000 {\n    acc = acc + i * 0.001\n    i = i + 1\n}", vec![]),
+        ("y = sin(x) * cos(2*x) + sqrt(abs(x - 0.5)) + log(1 + x*x) ^ 2 \\\n    + sin(x*3) * 0.5 + floor(x) + min(x, 1) + max(x, 2)", vec![("x", V::S(0.5))]),
+        ("y = -x + 3", vec![("x", V::S(5.0))]),
+        ("y = min(1,2)", vec![]),
+        ("err = 1\nwhile (err > 0.001) {\n    err = err * 0.5\n    if (err < 0.001) {\n        break\n    }\n}", vec![]),
+        ("n = 0\nrepeat 50 {\n    repeat 100 {\n        n = n + 1\n    }\n}", vec![]),
+    ];
+    for (src, inputs) in cases {
+        let prog = compile(src).expect("compile");
+        assert!(prog.scalar_only, "script should be detected scalar-only: {src}");
+        let mut slots = vec![V::ZERO; prog.names.len()];
+        for (name, v) in &inputs {
+            let i = prog.names.iter().position(|n| n == name).expect("input slot");
+            slots[i] = *v;
+        }
+        // fast
+        let mut regs_f = Vec::new();
+        let mut loops_f = Vec::new();
+        let mut out_f = [V::ZERO; 8];
+        let ex = Exec::new(&prog, &mut regs_f, &mut loops_f, &slots, None, Budget::unlimited());
+        assert!(matches!(ex.run(&mut out_f), Outcome::Done));
+        // full（克隆翻转）
+        let mut full = prog.clone();
+        full.scalar_only = false;
+        let mut regs_b = Vec::new();
+        let mut loops_b = Vec::new();
+        let mut out_b = [V::ZERO; 8];
+        let ex = Exec::new(&full, &mut regs_b, &mut loops_b, &slots, None, Budget::unlimited());
+        assert!(matches!(ex.run(&mut out_b), Outcome::Done));
+        // 全槽位逐位一致
+        for i in 0..prog.names.len() {
+            assert_eq!(
+                out_f.get(i).copied().unwrap_or(V::ZERO),
+                out_b.get(i).copied().unwrap_or(V::ZERO),
+                "slot {} ({}) diverged between fast/full for: {src}",
+                i,
+                prog.names[i]
+            );
+        }
+    }
+}
+
+/// vec3 程序不得被判为纯标量（探测自检）。
+#[test]
+fn vec3_program_not_scalar_only() {
+    let prog = compile("p = vec3(0, 0, 0)\np = p + vec3(1, 2, 3)").unwrap();
+    assert!(!prog.scalar_only);
+    let prog2 = compile("y = v.x").unwrap();
+    assert!(!prog2.scalar_only, "swizzle must disqualify the fast path");
+}
+
 /// while 循环的挂起/续算（k 不推进语义：cond 每轮重评）——干净的续算循环形态。
 #[test]
 fn while_suspend_resume() {

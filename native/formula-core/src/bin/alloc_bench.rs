@@ -82,6 +82,28 @@ fn run_for(script: &Script, prog: &formula_core::Program, ms: u64) -> (u64, Dura
     (iters, ns)
 }
 
+fn bench_one(tag: &str, script: &Script, prog: &formula_core::Program) {
+    run_for(script, prog, 500); // 触页/稳态预热
+    COUNTING.store(true, Ordering::Relaxed);
+    let (iters, ns) = run_for(script, prog, 2000);
+    COUNTING.store(false, Ordering::Relaxed);
+    let allocs = ALLOCS.swap(0, Ordering::Relaxed);
+    let bytes = BYTES.swap(0, Ordering::Relaxed);
+
+    let s = ns.as_secs_f64();
+    println!(
+        "{:<10} {:<5} iter/s={:>12.0}  ns/iter={:>8.1}  alloc/s={:>8.1} MB  alloc/iter={:>6.1} B  ({} allocs, {} B in window)",
+        script.name,
+        tag,
+        iters as f64 / s,
+        ns.as_nanos() as f64 / iters as f64,
+        bytes as f64 / s / 1048576.0,
+        bytes as f64 / iters as f64,
+        allocs,
+        bytes
+    );
+}
+
 fn main() {
     for script in &SCRIPTS {
         let prog = match compile(script.src) {
@@ -91,23 +113,15 @@ fn main() {
                 continue;
             }
         };
-        run_for(script, &prog, 500); // 触页/稳态预热
-        COUNTING.store(true, Ordering::Relaxed);
-        let (iters, ns) = run_for(script, &prog, 2000);
-        COUNTING.store(false, Ordering::Relaxed);
-        let allocs = ALLOCS.swap(0, Ordering::Relaxed);
-        let bytes = BYTES.swap(0, Ordering::Relaxed);
-
-        let s = ns.as_secs_f64();
-        println!(
-            "{:<10} iter/s={:>12.0}  ns/iter={:>8.1}  alloc/s={:>8.1} MB  alloc/iter={:>6.1} B  ({} allocs, {} B in measured window)",
-            script.name,
-            iters as f64 / s,
-            ns.as_nanos() as f64 / iters as f64,
-            bytes as f64 / s / 1048576.0,
-            bytes as f64 / iters as f64,
-            allocs,
-            bytes
-        );
+        // 双跑对量化：fast = 探测结果（纯标量程序）；full = 同一 Program 克隆翻转。
+        // vec3Loop 本身就非纯标量，fast/full 同路，只跑一次。
+        if prog.scalar_only {
+            bench_one("fast", script, &prog);
+            let mut full = prog.clone();
+            full.scalar_only = false;
+            bench_one("full", script, &full);
+        } else {
+            bench_one("full", script, &prog);
+        }
     }
 }
