@@ -112,10 +112,20 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
 
     @Override
     public void render(GuiGraphics g, int mx, int my, float pt) {
+        // PERF-7 帧采样：帧间隔在 render 入口测才是真实帧率（方案 §3.2）；开关关闭时
+        // 只有两次长整型赋值。/ PERF-7 frame sampling: the delta is measured at render()
+        // entry — that is the real frame rate (plan §3.2); while off, the cost is two longs.
+        long perfNow = System.nanoTime();
+        if (perfLastFrameNs != 0)
+            perfFrameNs[perfFrameIdx++ % perfFrameNs.length] = perfNow - perfLastFrameNs;
+        perfLastFrameNs = perfNow;
         this.renderBackground(g, mx, my, pt);     // 背景层 / background layer
+        long perfT0 = perfStatsOn ? System.nanoTime() : 0L;
         renderGraphCanvas(g, mx, my, pt);         // 节点画布 / graph canvas
+        long perfCanvasNs = perfStatsOn ? System.nanoTime() - perfT0 : 0L;
         for (var r : this.renderables)            // EditBox 等 widget 在画布之上（复刻 AbstractContainerScreen 契约）/ widgets above the canvas
             r.render(g, mx, my, pt);
+        if (perfStatsOn) drawPerfStats(g, perfCanvasNs); // 采样 HUD：widget 之上、控制台之下（控制台仍是最上层）/ HUD above widgets, below the console (the console stays topmost)
         // 控制台叠加层：最新/最上层 → 画在全部 widget 之后（规格 §4.1 render 钩子；未打开时零开销）。
         // Console overlay: the newest/topmost layer → drawn after every widget (spec §4.1's
         // render hook; zero cost while closed).
@@ -134,6 +144,53 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
         editor.renderBg(g, mx, my);
     }
 
+    // ── PERF-7 渲染采样叠加层（docs/graph-editor-render-performance-plan.md §3.2）──
+    //    只读测量 + 自绘 HUD：不改渲染路径、不在此做优化决策。F9 切换、F10 生成测量
+    //    场景（GraphPerfScene）。仅开关位 static（跨界面重建存活）；采样缓冲每屏自持。
+    // ── PERF-7 render sampling overlay (plan doc §3.2) ──
+    //    Read-only measurement + self-drawn HUD: the render path is untouched and no
+    //    optimization decision is made here. F9 toggles; F10 builds a measurement scene
+    //    (GraphPerfScene). Only the toggle is static (survives screen rebuilds); the
+    //    sampling buffers are per-screen.
+    /** F9 调试开关 / F9 debug toggle. */
+    private static boolean perfStatsOn = false;
+    private long perfLastFrameNs;
+    private final long[] perfFrameNs = new long[240];
+    private int perfFrameIdx;
+
+    /** 叠加层：FPS / 帧时间 avg·p95·max（240 帧环）/ canvas 耗时 / 节点·连线数 / 缩放。
+     *  落点 TOP_BAR_H+24：让开顶栏（0–22）与顶置工具栏（24–42）。
+     *  Overlay: FPS / frame avg·p95·max (240-frame ring) / canvas cost / node·wire counts /
+     *  zoom. Placed at TOP_BAR_H+24: clears the top bar (0–22) and the top toolbar (24–42). */
+    private void drawPerfStats(GuiGraphics g, long canvasNs) {
+        int n = Math.min(perfFrameIdx, perfFrameNs.length);
+        if (n == 0) return;
+        long[] s = new long[n];
+        long sum = 0, max = 0;
+        for (int i = 0; i < n; i++) {
+            long v = perfFrameNs[i];
+            s[i] = v; sum += v; if (v > max) max = v;
+        }
+        java.util.Arrays.sort(s);
+        // 就近秩法 p95（环形数组乱序无碍——统计量与顺序无关）。/ Nearest-rank p95 (ring
+        // order is irrelevant — the statistic is order-independent).
+        long p95 = s[(int) Math.min(n - 1, (long) Math.ceil(n * 0.95) - 1)];
+        double avgMs = sum / (double) n / 1e6;
+        var font = Minecraft.getInstance().font;
+        var graph = editor.getGraph();
+        String l1 = String.format(java.util.Locale.ROOT,
+            "[CSC Perf] FPS %.1f | frame avg %.2f p95 %.2f max %.2f ms",
+            avgMs > 0 ? 1000.0 / avgMs : 0.0, avgMs, p95 / 1e6, max / 1e6);
+        String l2 = String.format(java.util.Locale.ROOT,
+            "canvas %.2f ms | nodes %d | wires %d | zoom %.2f",
+            canvasNs / 1e6, graph.nodes.size(), graph.connections.size(), editor.zoom);
+        int bw = Math.max(font.width(l1), font.width(l2)) + 8;
+        int by = GraphEditor.TOP_BAR_H + 24;
+        g.fill(0, by, bw, by + 22, 0x90000000);
+        g.drawString(font, l1, 4, by + 3, 0xFFFFFF00, false);
+        g.drawString(font, l2, 4, by + 13, 0xFFFFFF00, false);
+    }
+
     // ── 输入事件委托（所有子类共享）/ input delegation shared by all subclasses ──
 
     @Override public boolean mouseClicked(double mx, double my, int btn) { return editor.mouseClicked(mx, my, btn) || super.mouseClicked(mx, my, btn); }
@@ -142,6 +199,16 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
     @Override public boolean mouseDragged(double mx, double my, int btn, double dx, double dy) { return editor.mouseDragged(mx, my, btn, dx, dy) || super.mouseDragged(mx, my, btn, dx, dy); }
     @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) { return editor.mouseScrolled(mx, my, sx, sy); }
     @Override public boolean keyPressed(int key, int sc, int mod) {
+        // PERF-7 调试键拦在 editor.keyPressed 之前（方案 §3.2：编辑器守卫链先吞键，调试键
+        // 不进 EditorKeys 序列引擎）。控制台打开时让位——模态叠加层优先吞键（规格 §4.2）。
+        // PERF-7 debug keys intercepted BEFORE editor.keyPressed (plan §3.2: the editor guard
+        // chain consumes keys first; debug keys must not enter the EditorKeys sequence
+        // engine). While the console is open it wins — the modal overlay eats keys first
+        // (spec §4.2).
+        if (!editor.console.isOpen()) {
+            if (key == 298) { perfStatsOn = !perfStatsOn; return true; }   // GLFW_KEY_F9
+            if (key == 299) { GraphPerfScene.cycle(editor); return true; } // GLFW_KEY_F10 (300=F11 会被原版全屏抢先)
+        }
         if (editor.keyPressed(key, sc, mod)) return true;
         if (key == 256) { onClose(); return true; } // ESC
         if (key >= 32 && key <= 96) return true;     // 可打印字符交给 charTyped / printable keys go to charTyped
