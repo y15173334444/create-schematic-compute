@@ -1139,3 +1139,27 @@ FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常�
 
 🔶 待办（2026-11-14 Rust 后端 R4 会话登记，前会话实证；另批修复）。
 / Open (registered 2026-11-14 during the Rust-backend R4 session; fix in a separate batch).
+
+---
+
+## 35. native 公式后端无强制禁用开关（AVAILABLE 进程级静态）
+
+### 机制 / Mechanism
+
+`FormulaNative.AVAILABLE` 是进程级静态：cdylib 加载成功后即恒真，没有配置面或调试命令能把某个世界/进程强制回 Java 解释器路径——要验证兜底路径或做对拍排查，只能动 classpath 或改代码重编。
+/ `FormulaNative.AVAILABLE` is a process-static: once the cdylib loads, no config surface or debug command can force the Java-interpreter fallback for a world or the process — fallback verification or parity debugging requires classpath surgery or a rebuild.
+
+### 影响面 / Impact
+
+不影响玩家（兜底本身是真实解释器实现，非伪造兜底，纪律未被违反）；限制的是开发/运维可控性：native 面在实机出问题时没有「一键回 Java」的现场手段。
+/ No player impact (the fallback is the real interpreter, not a fake — the discipline holds); it limits developer/operator control: no one-switch way back to the Java path when the native side misbehaves in the field.
+
+### 修复方向 / Fix direction
+
+未来配置面加 dev 侧禁用开关（系统属性或调试命令强制 AVAILABLE=false）；动工前与「多层 API 兜底层须可禁」纪律对齐（条目 27.3 同款口径）。
+/ Add a dev-side disable switch (system property or debug command forcing AVAILABLE=false) when a config surface lands, aligned with the disableable-fallback discipline (same stance as entry 27.3).
+
+### 状态 / Status
+
+🔶 暂缓（2026-11-14 Rust 后端合并前自查批登记；择机另批）。
+/ Open (registered 2026-11-14 during the Rust-backend pre-merge self-review batch; deferred, separate batch).
