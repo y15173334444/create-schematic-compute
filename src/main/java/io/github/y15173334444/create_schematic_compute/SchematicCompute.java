@@ -238,6 +238,12 @@ public class SchematicCompute {
                 io.github.y15173334444.create_schematic_compute.network.AudioBands.clear();
                 io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry.clearAll();
                 io.github.y15173334444.create_schematic_compute.graph.FormulaCompute.clearAll();
+                // R3 native 会话（§4.7-4）：世界级生命周期在停服撤柄——native 会话与程序
+                // 缓存随世界回收，跨世界零残留（下次使用方懒建新会话）。
+                // The R3 native session (§4.7-4): the world-scoped lifecycle withdraws the
+                // handle at server stop — session + program cache recycle with the world,
+                // nothing ghosts across worlds (the next user lazily creates a fresh one).
+                io.github.y15173334444.create_schematic_compute.graph.FormulaNativeSession.clear();
                 io.github.y15173334444.create_schematic_compute.graph.CustomNodeCompute.clearAll();
                 // 跨 BE 观测设施（issue #25/#26）：生命周期注册表与口径 A 采集态一起撤 ——
                 // 注册表是生命周期态（宿主条目跨存档不得留幽灵），采集态是 tick 态（epoch 表 /

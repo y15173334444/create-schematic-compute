@@ -235,6 +235,13 @@ graph 包对平台/宿主包**零出边**——求值期需要的平台能力经
 - `FormulaInterpreter` — AST 语句解释器：控制流语句级执行、表达式走 `evaluateValue` 栈机；循环边界协作超时（`CHECK_EVERY=16` 墙钟检查）挂起 `SuspendSignal` 携 carrier（循环栈计数 + Env 快照），续算**寻径执行**跳过已快照化前缀；`MAX_ITER=1M` 按 spread 累计 → `ShedSignal`。/ AST statement interpreter with cooperative suspend at loop boundaries and seek-execution resume.
 - `FormulaCompute` — 预算门面（刀1）：`beginTick()`（ServerTickEvent.Pre 单点复位 + 轮转 `N_heavy_prev` + 清 dedup 表）、`sliceNs() = budgetMs / max(1, N_heavy_prev)`、`reportYield()`、tick 级去重缓存；预算来源经 `setBudgetMsSource` 注入（见「求值依赖注入」），graph 不直连 Config。/ Budget facade: per-tick reset/rotate/dedup-clear, adaptive slice, tick-level dedup; the budget source is injected via `setBudgetMsSource` (see "Injected Eval Dependencies") — graph never touches Config directly.
 
+### FormulaNative 家族 · Rust 求值后端（1.3.0 native 线）
+- `FormulaNative` — JNI 门面与加载探测：cargo cdylib（`native/formula-core/`）经 `buildNative` 进 jar `natives/<os>-<arch>/`，运行时提取到临时缓存（尺寸+CRC32 双判）后 `System.load`；`AVAILABLE=false` 全链短路走 Java 解释器兜底（双路径由对拍网锁定同语义）。导出面 = 会话创建/销毁、programUpload、逐节点 exec（过渡面）与 tickBatch（批量面）。/ JNI facade + load probe; when unavailable everything short-circuits to the Java interpreter (parity-locked).
+- `FormulaNativeSession` — 世界级会话柄 + 程序缓存：**懒建**（首次使用，不挂 ServerStarting）+ ServerStoppingEvent 销毁（与 FormulaCompute.clearAll 同块）；程序按脚本文本去重（programId + pinSlots 映射 + 槽数），编码/上传失败走 FAILED 负缓存（warn 一次）；节点态槽位（挂起 carrier 会话内自持不跨界）+ clearNodeSlot 镜像。/ World-scoped lazily-created session handle + program cache; encode/upload failures are warn-once negative-cached.
+- `FormulaTokEncoder` — Tok 二进制编码器（Java 前端唯一）：AST+RPN → 定宽 16B token 字节码；格式契约 = `bridge.rs` 模块头（v3：槽位表 + loop 表 + 语句 + 输出表达式段 + **引脚槽位段**——warm refresh 仅刷引脚的契约面），双端同步 + 夹具重生成纪律（`TokFixtureTest` 唯一权威生成/校验面）。/ Tok binary encoder; the wire contract lives in bridge.rs module docs, fixtures regenerated via TokFixtureTest.
+- `FormulaBatchCoordinator` — 批量段协调器（R3b）：把 FORMULA 逐节点 exec 收敛为「每连续段一次 tickBatch」。段 = 拓扑序连续可入段 FORMULA 节点且与段内成员无图内连线（双向皆查）；段首一次 gather+exec+write 与逐位置求值逐位等价（证明概要见探索稿 §4.7-6）；批内同脚本同输入的后到者骑行 dedup。/ Batch-segment coordinator: one tickBatch per contiguous joinable segment, bit-exact vs per-position evaluation; in-batch dedup riders mirror the cache-hit branch.
+- 契约细节与批次记录：`docs/rust-backend-exploration.md`（§4.7）。/ Contract details and batch records: the exploration doc.
+
 ### OpExecutor
 `GraphOp` 应用执行器。服务端和客户端共享，确保变更逻辑单一定义。
 / Shared `GraphOp` executor used by both server and client — single source of truth for all mutations.

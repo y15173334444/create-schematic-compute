@@ -28,6 +28,13 @@ public final class EvalContext {
     // ── 图与输出表 / Graph & output tables ──
     /** 被求值的图。 / the graph under evaluation. */
     public final NodeGraph graph;
+    /** R3b 批量段协调器（每次 evaluate() 调用换一个实例；null = 协调器缺席防御面）。
+     *  R3b batch-segment coordinator (one instance per evaluate() call; null = the
+     *  defensive absent face). */
+    public FormulaBatchCoordinator formulaBatch = null;
+    /** 本步被段中的 FORMULA 节点（eval() 尾部落表跳过标记；冲刷统一落表）。 / the node
+     *  staged this step (eval()'s tail put is skipped; the flush lands outputs). */
+    public GraphNode batchStaged = null;
     /** 输出表：nodeId → 各引脚值（每 tick 重建）。 / output table: nodeId → per-pin values
      *  (rebuilt each tick). */
     public final Map<Integer, float[]> outputs = new HashMap<>();

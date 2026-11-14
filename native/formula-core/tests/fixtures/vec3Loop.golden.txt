@@ -1,0 +1,6 @@
+# slot table (name -> slot)
+p=0
+v=1
+# finals (name=hexbits)
+p=0
+v=0

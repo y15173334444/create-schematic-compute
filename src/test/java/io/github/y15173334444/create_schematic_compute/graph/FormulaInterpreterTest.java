@@ -166,6 +166,21 @@ class FormulaInterpreterTest {
     }
 
     @Test
+    @DisplayName("illegal vector combos are runtime-lenient zero (validator flags ERROR)")
+    void testIllegalVectorCombosLenientZero() {
+        // 校验期报 ERROR（向量乘向量无良定义），运行期兜底 = 零向量
+        // （FormulaInterpreter「无良定义 → lenient 零」⇔ Rust interp 同表——
+        // §4.7-5「非法组合零向量」的真实所在层；面级被校验拒绝故在两层锁定）。
+        var env = run("u = vec3(1, 2, 3)\nv = vec3(4, 5, 6)\nw = u * v\nz = 1.0 / u\nr = u % 2\nq = v / u", Map.of());
+        for (String name : new String[]{"w", "z", "r", "q"}) {
+            var got = (Value.Vec3Val) env.get(name);
+            assertEquals(0.0, got.x(), 0.0, name + ".x");
+            assertEquals(0.0, got.y(), 0.0, name + ".y");
+            assertEquals(0.0, got.z(), 0.0, name + ".z");
+        }
+    }
+
+    @Test
     @DisplayName("yaw/pitch mirror the DIRECTION node convention")
     void testYawPitchConvention() {
         // 与 GraphEvaluator DIRECTION(GraphEvaluator.java:577-579)同式验证 / verify against the same formulas

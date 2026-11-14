@@ -297,11 +297,25 @@ public class GraphEvaluator {
                                         Map<Integer, Integer> pulseTimers) {
         ctx.outputs.clear();
         ctx.payloadRefs.clear();
+        // R3b 批量段协调器（§4.7-6）：每次 evaluate 调用一个实例；拓扑遍内逐步冲刷闸
+        // （不可入段节点求值前冲刷）+ 遍终点冲刷。被段节点的 outputs 落表统一在段首
+        // 时刻（冲刷内），eval() 尾部落表对被段节点跳过——精确等价证明的写侧。
+        // R3b batch-segment coordinator (§4.7-6): one instance per evaluate() call; a
+        // per-step flush gate (flush before a non-joinable node evaluates) + the
+        // trailing flush. Staged nodes' outputs land at the segment-head flush.
+        var batch = new FormulaBatchCoordinator(ctx);
+        ctx.formulaBatch = batch;
         List<Integer> sorted = ctx.graph.getTopoOrder();
         for (int id : sorted) {
             GraphNode n = ctx.graph.findNode(id);
-            if (n != null) evalExt(n, inputs, pidState, dt, seat, delayQueues, flipflopStates, pulseTimers);
+            if (n != null) {
+                batch.flushBefore(n);
+                evalExt(n, inputs, pidState, dt, seat, delayQueues, flipflopStates, pulseTimers);
+            }
         }
+        batch.flushAll();
+        ctx.formulaBatch = null;
+        ctx.batchStaged = null;
         List<OutputResult> res = new ArrayList<>();
         for (GraphNode n : ctx.graph.nodes) {
             if (n.type == NodeType.REDSTONE_OUT) {
@@ -451,7 +465,13 @@ public class GraphEvaluator {
         // ride along — FORMULA / BUS_IN / ENCAPSULATION's paired
         // o = new float[...]; node.outputValues = o; all complete inside their handlers).
         // Bit-identical to the old outputs.put(node.id, o.clone()).
-        ctx.outputs.put(node.id, ctx.o.clone());
+        // R3b:被段节点的落表由批量冲刷统一执行（段首一次写）——eval() 尾部落表跳过。
+        // R3b: a staged node's put rides the batch flush (one segment-head write).
+        if (ctx.batchStaged == node) {
+            ctx.batchStaged = null;
+        } else {
+            ctx.outputs.put(node.id, ctx.o.clone());
+        }
     }
 
     /** 每节点求值耗时 EMA（观测面，批 E）：键 = 节点 id，值 = 指数滑动平均 ns（首样播种，
