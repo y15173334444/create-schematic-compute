@@ -96,7 +96,24 @@ final class NodeCommentRenderer {
         else if (isPrimary) borderColor = NodeRenderer.ACC();               // gold = primary selection
         else if (selected) borderColor = NodeRenderer.ACC();                // light gold = selected
         else borderColor = n.commentBorderColor;                // custom = normal
-        g.renderOutline(isx, isy, iw, ih, borderColor);
+        // 边框 pose 局部（与普通节点/编辑区分割线同口径）：1 局部像素线随 zoom 等比，
+        // 低缩放自然变细、缩放连续不跳档。/ Pose-local borders (the same rule as regular
+        // nodes and the edit-area divider): 1px local lines scaling with zoom.
+        int cwl = Math.round(n.commentWidth), chl = Math.round(n.commentHeight);
+        var framePose = g.pose();
+        framePose.pushPose();
+        framePose.translate(isx, isy, 0);
+        framePose.scale(zoom, zoom, 1);
+        g.renderOutline(0, 0, cwl, chl, borderColor);
+        if (cwl > 6 && chl > 6) {
+            int ib = n.commentBorderColor;
+            int innerB = (Math.min((ib >> 16) & 0xFF, 248) << 16)
+                       | (Math.min((ib >> 8) & 0xFF, 248) << 8)
+                       | Math.min(ib & 0xFF, 248)
+                       | (ib & 0xFF000000);
+            g.renderOutline(2, 2, cwl - 4, chl - 4, innerB);
+        }
+        framePose.popPose();
         // Remote lock/selection indicator — golden border when another player has this comment selected
         // 远程锁定/选中指示器 — 其他玩家选中此注释时显示金色边框
         if (lockedBy != null && !lockedBy.isEmpty()) {
@@ -131,16 +148,6 @@ final class NodeCommentRenderer {
             drawStr(g, "§e" + editHint, -textW/2, -4, 0xFFFFDD77);
             bannerPose.popPose();
         }
-        // Inner subtle border
-        if (iw > 6 && ih > 6) {
-            int ib = n.commentBorderColor;
-            int innerB = (Math.min((ib >> 16) & 0xFF, 248) << 16)
-                       | (Math.min((ib >> 8) & 0xFF, 248) << 8)
-                       | Math.min(ib & 0xFF, 248)
-                       | (ib & 0xFF000000);
-            g.renderOutline(isx + 2, isy + 2, iw - 4, ih - 4, innerB);
-        }
-
         // Edit button — top-right 14×14 px, highlighted when editing
         int btnBg = editing ? 0x88C0A060 : 0x66000000;
         int btnOutline = editing ? 0xFFC0A060 : 0xFF888888;

@@ -384,12 +384,19 @@ public class NodeRenderer {
         int nodeW = nw(n);
         float sw = nodeW*zoom;
         float contentH = nh(n)*zoom+4;
+        // 编辑区局部几何一次算清：框体底缘 = 编辑区底缘（同口径）。
+        // Edit-area local geometry computed once: the frame's bottom edge is the edit
+        // area's bottom edge, same source.
+        var editSt = editing ? nodeEditStatesById.get(n.id) : null;
+        int editLocalY = (int)(nh(n) + 4/zoom); // nh(n) 含图表区域高度，编辑区在图表之后
+        int editLocalH = editing ? io.github.y15173334444.create_schematic_compute.client.editor.EditPanel.calcRenderHeight(n, zoom, editSt) : 0;
+        int localH = editing ? editLocalY + editLocalH : Math.round(nh(n) + 4f / zoom);
         // 编辑模式：各节点独立计算高度
-        float extraH = editing ? io.github.y15173334444.create_schematic_compute.client.editor.EditPanel.calcRenderHeight(n, zoom,
-            editing ? nodeEditStatesById.get(n.id) : null) * zoom : 0;
+        float extraH = editing ? editLocalH * zoom : 0;
         float nh = contentH + extraH;
-        // 框两缘共用的取整尺寸（左右缘 / 上下缘不再因小数相位各自跳）。
-        // The rounded frame size shared by both edges (no more per-edge 1px hops).
+        // 框两缘共用的取整尺寸（装饰件/羽化肩部用；框体本体走 pose 局部、随 zoom 等比）。
+        // The rounded frame size shared by both edges (for decorations and feather
+        // shoulders; the frame body itself is pose-local and scales with zoom).
         int iw = ScreenTransform.px(sw), ih = ScreenTransform.px(nh);
         // 发布频道冲突警告（BUS_OUT / PRIVATE_OUT 同徽章）— 在节点上方渲染
         if ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && n.busConflict) {
@@ -428,14 +435,21 @@ public class NodeRenderer {
         // Per-node buffer isolation: flush before drawing to ensure this node's
         // fills and text are not interleaved with previous nodes' text batches.
         g.flush();
-        // C=0: 节点体背景（暖钢色）
-        g.fill(sx, sy, sx + iw, sy + ih, CN());
-        // C=1: 节点头部
-        g.fill(sx+2, sy+2, sx+iw-2, sy+ScreenTransform.px(HH*zoom), CH());
         var pose = g.pose();
         pose.pushPose();
         pose.translate(sx,sy,0);
         pose.scale(zoom,zoom,1);
+        // C=0/C=1/C=4 全走 pose 局部——与编辑区分割线同口径：1 局部像素线随 zoom 等比
+        // （低缩放自然变细、缩放连续不跳档，此前屏幕空间整数环有 1px 下限和整数跳档）；
+        // zoom=1 与旧版逐像素一致。
+        // C=0/C=1/C=4 all pose-local — the edit-area divider's own rule: 1px local lines
+        // scale with zoom (thin naturally when zoomed out, continuous through zoom sweeps;
+        // the screen-space integer rings had a 1px floor and integer pops). zoom 1 is
+        // pixel-identical to the old look.
+        // C=0: 节点体背景（暖钢色）
+        g.fill(0, 0, nodeW, localH, CN());
+        // C=1: 节点头部（内缩 2 局部像素 = 边框总厚）
+        g.fill(2, 2, nodeW - 2, HH, CH());
         // C=1: 标题文字（CUSTOM：schema 标题直读，注册表未解析回落哨兵 i18n 键）
         // C=1: the title text (CUSTOM: the schema title verbatim, falling back to the
         // sentinel i18n key while the registry lookup fails)
@@ -493,11 +507,9 @@ public class NodeRenderer {
             String summary = java.text.MessageFormat.format(I18n.get("gui.create_schematic_compute.encap_summary"), n.functionalInputs(), n.outputs());
             drawStr(g, "§8" + summary, 4, HH + PH * Math.max(n.functionalInputs(), n.outputs()) + 4, CD);
         }
-        // C=3: 编辑区
+        // C=3: 编辑区（editLocalY/editLocalH/editSt 已在框体段同源算出）
+        // C=3: edit area (editLocalY/editLocalH/editSt computed at the frame section)
         if (editing) {
-            int editLocalY = (int)(nh(n) + 4/zoom); // nh(n) 含图表区域高度，编辑区在图表之后
-            var editSt = nodeEditStatesById.get(n.id);
-            int editLocalH = io.github.y15173334444.create_schematic_compute.client.editor.EditPanel.calcRenderHeight(n, zoom, editSt);
             g.fill(2, editLocalY - 2, nodeW - 2, editLocalY, CB());
             g.fill(2, editLocalY, nodeW - 2, editLocalY + editLocalH, 0xFF2A2822);
             if (editSt != null) {
@@ -534,11 +546,15 @@ public class NodeRenderer {
         } else if (n.type == NodeType.DEBUG_PROBE) {
             NodeCharts.renderDebugProbeChart(g, n, nodeW);
         }
-        pose.popPose();
-        // C=4: 边框
+        // C=4: 边框（pose 局部 1px：外框 + 内暗线）——屏幕宽度 = zoom 像素，与编辑区分割线
+        // 同比例（用户对照口径 2026-11-14）；缩放过程连续，低缩放自然变细。
+        // C=4: frame (1px pose-local: outer border + inner dark line) — the screen width is
+        // zoom pixels, scaling exactly like the edit-area divider (the user's reference,
+        // 2026-11-14); continuous through zoom sweeps, thin when zoomed out.
         int borderColor = isPrimary ? ACC() : selected ? ACC() : CB();
-        g.renderOutline(sx, sy, iw, ih, borderColor);
-        g.renderOutline(sx+1, sy+1, iw-2, ih-2, 0xFF2A2822);
+        g.renderOutline(0, 0, nodeW, localH, borderColor);
+        g.renderOutline(1, 1, nodeW - 2, localH - 2, 0xFF2A2822);
+        pose.popPose();
         // C=4.3: 手动曲线控制点（边框上方，屏幕空间）/ manual curve control points (above border, screen space)
         if (debugCtrlPoints != null) {
             for (float[] cp : debugCtrlPoints) {
@@ -665,13 +681,12 @@ public class NodeRenderer {
         // C=5.5: 自动补全候选框 — 屏幕空间渲染，支持缩放感知。
         // MLE 在 renderWidget 中存储 anchorX/Y（MLE 相对光标底部位置）。
         if (editing) {
-            var editSt = nodeEditStatesById.get(n.id);
+            // editSt / editLocalY 已在框体段同源算出 / computed at the frame section
             if (editSt != null) {
                 for (var f : editSt.fields) {
                     if (f instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mle) {
                         var popup = mle.getSuggestPopup();
                         if (popup.isVisible()) {
-                            int editLocalY = (int)(nh(n) + 4 / zoom);
                             int screenX = (int)(sx + (28 + popup.anchorX) * zoom);
                             int screenY = (int)(sy + (editLocalY + 4 + popup.anchorY + 18) * zoom);
                             int maxW = Math.min(200, nodeW - 36); // unscaled, pose will scale it
