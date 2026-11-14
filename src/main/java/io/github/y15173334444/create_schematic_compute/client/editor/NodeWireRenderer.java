@@ -47,8 +47,11 @@ final class NodeWireRenderer {
             if ((wx1 < vpLeft && wx2 < vpLeft) || (wx1 > vpRight && wx2 > vpRight)) continue;
             float wy1 = from.y(), wy2 = to.y();
             if ((wy1 < vpTop && wy2 < vpTop) || (wy1 > vpBottom && wy2 > vpBottom)) continue;
-            float x1 = c2sX.apply(wx1), y1 = c2sY.apply(wy1);
-            float x2 = c2sX.apply(wx2), y2 = c2sY.apply(wy2);
+            // 连线根由吸附的节点原点派生（抖动治理 JIT-1）：与引脚圆同点，拖动时锁死不爬。
+            // Wire roots derive from the snapped node origins (jitter fix JIT-1): the same
+            // point as the pin circles, no crawling during drags.
+            float x1 = ScreenTransform.anchorX(c2sX, fn, from, zoom), y1 = ScreenTransform.anchorY(c2sY, fn, from, zoom);
+            float x2 = ScreenTransform.anchorX(c2sX, tn, to, zoom), y2 = ScreenTransform.anchorY(c2sY, tn, to, zoom);
             // 连线按声明载荷类型三态着色（音频青/向量品红/浮点金；两端取音频或向量优先级高的）
             // Wires tint by declared payload type (teal=audio, magenta=vector, gold=float;
             // the higher-priority end wins).
@@ -68,8 +71,9 @@ final class NodeWireRenderer {
         if(fn==null) return;
         // 源端锚点取自 WireGeometry（与渲染/命中同源）/ source anchor from WireGeometry (shared with render/hit-testing)
         var from = WireGeometry.fromAnchor(fn, wireFromPin, zoom);
-        float x1 = c2sX.apply(from.x());
-        float y1 = c2sY.apply(from.y());
+        float x1 = ScreenTransform.anchorX(c2sX, fn, from, zoom);
+        float y1 = ScreenTransform.anchorY(c2sY, fn, from, zoom);
+        // 自由端跟随光标，不吸附 / the free end follows the cursor, unsnapped
         float x2 = c2sX.apply(wireEndX), y2 = c2sY.apply(wireEndY);
         // 拖拽预览按声明载荷类型三态着色：源端声明类型优先（频段源含定义同步值），
         // 悬停目标类型只作源端为浮点时的兜底。

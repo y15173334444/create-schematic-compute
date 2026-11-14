@@ -263,8 +263,11 @@ final class GraphPresenceTracker {
             // 锚点与曲线取点走 WireGeometry（与本地渲染/命中同源）/ anchors and curve
             // sampling via WireGeometry (shared with local render and hit-testing)
             var from = WireGeometry.fromAnchor(fn, p.wireFromPin(), ed.zoom);
-            float fromX = ed.c2sX(from.x());
-            float fromY = ed.c2sY(from.y());
+            // 源端同样由吸附节点原点派生（与本地拖拽预览同口径，抖动治理 JIT-1）
+            // The source end derives from the snapped node origin too (same rule as the local
+            // drag preview, jitter fix JIT-1)
+            float fromX = ScreenTransform.anchorX(ed::c2sX, fn, from, ed.zoom);
+            float fromY = ScreenTransform.anchorY(ed::c2sY, fn, from, ed.zoom);
             float toX = ed.c2sX(p.wireEndX()), toY = ed.c2sY(p.wireEndY());
             float dist = (float)Math.sqrt((toX-fromX)*(toX-fromX)+(toY-fromY)*(toY-fromY));
             int steps = Math.max(10, (int)(dist * 0.15f));

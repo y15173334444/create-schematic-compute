@@ -1761,7 +1761,10 @@ public class GraphEditor {
      *  the ITEM slot row count follows the schema): under the whole edit panel, via the
      *  measured expandedEditHeight. */
     private int[] hotbarPopupRect() {
-        float nsx = c2sX(hotbarNode.x), nsy = c2sY(hotbarNode.y);
+        // 弹窗随节点吸附（JIT-1）：渲染/点击共用本矩形，吸附后弹窗与节点框锁死同步。
+        // The popup snaps with the node (JIT-1): render and click share this rect, so the
+        // popup stays locked to the node frame.
+        float nsx = ScreenTransform.nodeX(this::c2sX, hotbarNode), nsy = ScreenTransform.nodeY(this::c2sY, hotbarNode);
         float nch = (HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()))*zoom+4;
         var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
         int pw = 196, ph = 36;
@@ -2670,12 +2673,15 @@ public class GraphEditor {
             // behind-nodes as occluders.
             if (!isOccluderInHitOrder(n, en)) continue;
             if (n.type == NodeType.COMMENT) continue;
-            float sx = c2sX(n.x), sy = c2sY(n.y);
+            // 遮挡盒与 drawNode 的涂盖框同口径（JIT-1）：吸附原点 + 一次取整的宽。
+            // The occluder box matches drawNode's painted frame (JIT-1): snapped origin plus
+            // one rounded width.
+            float sx = ScreenTransform.nodeX(this::c2sX, n), sy = ScreenTransform.nodeY(this::c2sY, n);
             float sw = NodeRenderer.nw(n) * zoom;
             float nh = NodeRenderer.nh(n) * zoom + 4; // nh() 含图表区域 / includes chart area
             if (expandedNodeIds.contains(n.id))
                 nh += EditPanel.expandedEditHeight(n, nodeEditStatesById.get(n.id)) * zoom;
-            if (mx >= sx && mx <= sx + sw && my >= sy && my <= sy + nh) {
+            if (mx >= sx && mx <= sx + ScreenTransform.px(sw) && my >= sy && my <= sy + ScreenTransform.px(nh)) {
                 occluded = true;
                 break;
             }
@@ -2687,7 +2693,11 @@ public class GraphEditor {
         }
         var st = nodeEditStatesById.get(en.id);
         if (st == null) continue;
-        float nsx = c2sX(en.x), nsy = c2sY(en.y);
+        // 局部鼠标换算与 drawNode 同源（JIT-1）：吸附原点 + 同一截断口径——悬停高亮与点击
+        // 落点逐像素一致。 / Local mouse conversion shares drawNode's source (JIT-1): the
+        // snapped origin plus the same truncation rule — hover highlight and click resolve
+        // to the same pixel.
+        float nsx = ScreenTransform.nodeX(this::c2sX, en), nsy = ScreenTransform.nodeY(this::c2sY, en);
         int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
         int editLocalY = (int)(NodeRenderer.nh(en) + 4/zoom); // 使用 nh() 含图表区域 / use nh() to include chart area
         int numRows = st.fields.size();
@@ -3336,7 +3346,7 @@ public class GraphEditor {
                 if (!expandedNodeIds.contains(en.id)) continue;
                 var st = nodeEditStatesById.get(en.id);
                 if (st == null || !st.listeningForKey) continue;
-                float nsx = c2sX(en.x), nsy = c2sY(en.y);
+                float nsx = ScreenTransform.nodeX(this::c2sX, en), nsy = ScreenTransform.nodeY(this::c2sY, en);
                 int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
                 int editLocalY = (int)(HH + PH*(en.functionalInputs() + en.outputs()) + 4/zoom);
                 int kbLocalY = editLocalY + 4;
@@ -4429,8 +4439,8 @@ public class GraphEditor {
                 if (st != null && !st.fields.isEmpty()) {
                     // MLE coordinates are graph-space; convert mouse to graph-space
                     // MLE 坐标为图空间，将鼠标转换为图空间坐标
-                    float gx = (float)((mx - c2sX(en.x)) / zoom);
-                    float gy = (float)((my - c2sY(en.y)) / zoom);
+                    float gx = (float)((mx - ScreenTransform.nodeX(this::c2sX, en)) / zoom);
+                    float gy = (float)((my - ScreenTransform.nodeY(this::c2sY, en)) / zoom);
                     st.fields.get(0).mouseDragged(gx, gy, 0, 0, 0);
                     return true;
                 }
@@ -4537,7 +4547,7 @@ public class GraphEditor {
             if (!expandedNodeIds.contains(en.id)) continue;
             var st = nodeEditStatesById.get(en.id);
             if (st == null) continue;
-            float sx = c2sX(en.x), sy = c2sY(en.y);
+            float sx = ScreenTransform.nodeX(this::c2sX, en), sy = ScreenTransform.nodeY(this::c2sY, en);
             int lmx = (int)((mx - sx) / zoom);
             int lmy = (int)((my - sy) / zoom);
             for (var b : st.fields) {
@@ -5468,14 +5478,17 @@ public class GraphEditor {
         if (candidates.isEmpty()) return null;
         candidates.sort(GraphEditor::compareHitOrder);
         for (var n : candidates) {
-            float sx=c2sX(n.x), sy=c2sY(n.y), sw=NodeRenderer.nw(n)*zoom;
+            // 命中盒与渲染同源（JIT-1）：吸附原点 + 一次取整的尺寸——点击边界与画框逐像素
+            // 一致。 / Hit box from the same source as rendering (JIT-1): snapped origin plus
+            // one rounded size — the click boundary matches the drawn frame pixel for pixel.
+            float sx=ScreenTransform.nodeX(this::c2sX, n), sy=ScreenTransform.nodeY(this::c2sY, n), sw=NodeRenderer.nw(n)*zoom;
             // 与渲染同源：nh() 含调试图表（DEBUG_SIGNAL_GEN/PROBE 的 XY 图区）
             // Same source as rendering: nh() includes the debug chart area.
             float nh = NodeRenderer.nh(n) * zoom + 4;
             if (n.type == NodeType.COMMENT) nh = n.commentHeight * zoom;
             if (expandedNodeIds.contains(n.id) && n.type != NodeType.COMMENT)
                 nh += EditPanel.expandedEditHeight(n, nodeEditStatesById.get(n.id)) * zoom;
-            if(mx>=sx&&mx<=sx+sw&&my>=sy&&my<=sy+nh) return n;
+            if(mx>=sx&&mx<=sx+ScreenTransform.px(sw)&&my>=sy&&my<=sy+ScreenTransform.px(nh)) return n;
         }
         return null;
     }
@@ -5554,12 +5567,15 @@ public class GraphEditor {
     private boolean coveredByNodeBody(double px, double py) {
         for (var n : getGraph().nodes) {
             if (n.type == NodeType.COMMENT) continue;
-            float sx = c2sX(n.x), sy = c2sY(n.y);
+            // 盒口径与 drawNode 的涂盖范围一致（JIT-1）：吸附原点 + 一次取整的宽高。
+            // The box matches drawNode's paint extent (JIT-1): snapped origin plus one rounded
+            // size.
+            float sx = ScreenTransform.nodeX(this::c2sX, n), sy = ScreenTransform.nodeY(this::c2sY, n);
             float sw = NodeRenderer.nw(n) * zoom;
             float sh = NodeRenderer.nh(n) * zoom + 4;
             if (expandedNodeIds.contains(n.id))
                 sh += EditPanel.calcRenderHeight(n, zoom, nodeEditStatesById.get(n.id)) * zoom;
-            if (px >= sx && px < sx + sw && py >= sy && py < sy + sh) return true;
+            if (px >= sx && px < sx + ScreenTransform.px(sw) && py >= sy && py < sy + ScreenTransform.px(sh)) return true;
         }
         return false;
     }

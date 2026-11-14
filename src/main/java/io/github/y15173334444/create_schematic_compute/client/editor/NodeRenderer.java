@@ -253,11 +253,17 @@ public class NodeRenderer {
 
     public void renderGrid(GuiGraphics g, float camX, float camY, float zoom, int width, int height) {
         g.fill(-10,-10,width+10,height+10,CG());
-        float ox=(camX*zoom)%(GS*zoom), oy=(camY*zoom)%(GS*zoom);
-        for(float x=width/2f+ox; x<width; x+=GS*zoom) { int ix=Math.round(x); g.fill(ix,0,ix+1,height,CGL()); }
-        for(float y=height/2f+oy; y<height; y+=GS*zoom) { int iy=Math.round(y); g.fill(0,iy,width,iy+1,CGL()); }
-        for(float x=width/2f+ox; x>=0; x-=GS*zoom) { int ix=Math.round(x); g.fill(ix,0,ix+1,height,CGL()); }
-        for(float y=height/2f+oy; y>=0; y-=GS*zoom) { int iy=Math.round(y); g.fill(0,iy,width,iy+1,CGL()); }
+        // 抖动治理 JIT-2：原点吸附一次、各线由原点 + round(k·GS·zoom) 推出——平移时整格
+        // 刚性平移（此前每条线各自 Math.round 真实位置，相机滑过 .5 相位时逐线跳格呼吸）。
+        // Jitter fix JIT-2: snap the origin once and derive each line as origin +
+        // round(k·GS·zoom) — the lattice translates rigidly during pans (each line used to
+        // round its true position independently, hopping one by one as the camera slid
+        // across .5 phases).
+        float spacing = GS * zoom;
+        for (int ix : ScreenTransform.gridLattice(width/2f + camX*zoom, spacing, width))
+            g.fill(ix, 0, ix+1, height, CGL());
+        for (int iy : ScreenTransform.gridLattice(height/2f + camY*zoom, spacing, height))
+            g.fill(0, iy, width, iy+1, CGL());
     }
 
     // 编辑区高度（像素，本地坐标空间）
@@ -368,7 +374,12 @@ public class NodeRenderer {
         // COMMENT nodes are rendered entirely at A=1 via renderCommentNodes
         if (n.type == NodeType.COMMENT) return;
         String lockedBy = lockedNodes != null ? lockedNodes.get(n.id) : null;
-        float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
+        // 抖动治理 JIT-1（docs/graph-editor-canvas-jitter-plan.md）：每帧吸附一次节点原点，
+        // 框/内容 pose/引脚/连线根共用；框尺寸一次取整后两缘共用——拖动时框与内容不再互相爬。
+        // Jitter fix JIT-1: snap the node origin once per frame, shared by the frame, the
+        // content pose, the pins and the wire roots; round the frame size once for both edges
+        // — the frame and the contents stop crawling against each other during drags.
+        int sx = ScreenTransform.nodeX(c2sX, n), sy = ScreenTransform.nodeY(c2sY, n);
         int nodeW = nw(n);
         float sw = nodeW*zoom;
         float contentH = nh(n)*zoom+4;
@@ -376,6 +387,9 @@ public class NodeRenderer {
         float extraH = editing ? io.github.y15173334444.create_schematic_compute.client.editor.EditPanel.calcRenderHeight(n, zoom,
             editing ? nodeEditStatesById.get(n.id) : null) * zoom : 0;
         float nh = contentH + extraH;
+        // 框两缘共用的取整尺寸（左右缘 / 上下缘不再因小数相位各自跳）。
+        // The rounded frame size shared by both edges (no more per-edge 1px hops).
+        int iw = ScreenTransform.px(sw), ih = ScreenTransform.px(nh);
         // 发布频道冲突警告（BUS_OUT / PRIVATE_OUT 同徽章）— 在节点上方渲染
         if ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && n.busConflict) {
             String warn = net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.bus_conflict");
@@ -414,9 +428,9 @@ public class NodeRenderer {
         // fills and text are not interleaved with previous nodes' text batches.
         g.flush();
         // C=0: 节点体背景（暖钢色）
-        g.fill((int)sx,(int)sy,(int)(sx+sw),(int)(sy+nh),CN());
+        g.fill(sx, sy, sx + iw, sy + ih, CN());
         // C=1: 节点头部
-        g.fill((int)sx+2,(int)sy+2,(int)(sx+sw-2),(int)(sy+HH*zoom),CH());
+        g.fill(sx+2, sy+2, sx+iw-2, sy+ScreenTransform.px(HH*zoom), CH());
         var pose = g.pose();
         pose.pushPose();
         pose.translate(sx,sy,0);
@@ -522,8 +536,8 @@ public class NodeRenderer {
         pose.popPose();
         // C=4: 边框
         int borderColor = isPrimary ? ACC() : selected ? ACC() : CB();
-        g.renderOutline((int)sx,(int)sy,(int)sw,(int)nh, borderColor);
-        g.renderOutline((int)sx+1,(int)sy+1,(int)sw-2,(int)nh-2, 0xFF2A2822);
+        g.renderOutline(sx, sy, iw, ih, borderColor);
+        g.renderOutline(sx+1, sy+1, iw-2, ih-2, 0xFF2A2822);
         // C=4.3: 手动曲线控制点（边框上方，屏幕空间）/ manual curve control points (above border, screen space)
         if (debugCtrlPoints != null) {
             for (float[] cp : debugCtrlPoints) {
@@ -537,8 +551,8 @@ public class NodeRenderer {
             String occupants = encapOccupants.get(n.id);
             if (occupants != null) {
                 // 金色外框 / gold outer border
-                g.renderOutline((int)sx-2,(int)sy-2,(int)sw+4,(int)nh+4, 0xFFFFD700);
-                g.renderOutline((int)sx-1,(int)sy-1,(int)sw+2,(int)nh+2, 0xFFB8960F);
+                g.renderOutline(sx-2, sy-2, iw+4, ih+4, 0xFFFFD700);
+                g.renderOutline(sx-1, sy-1, iw+2, ih+2, 0xFFB8960F);
                 // 玩家名文本 / player names text
                 var occPose = g.pose();
                 occPose.pushPose();
@@ -631,8 +645,8 @@ public class NodeRenderer {
             int h = lockedBy.hashCode();
             int lockColor = 0xFF000000 | (((h >> 16) & 0xFF) << 16) | (((h >> 8) & 0xFF) << 8) | (h & 0xFF) | 0xFF000000;
             // Thick outer border in player color
-            g.renderOutline((int)sx - 3, (int)sy - 3, (int)sw + 6, (int)(nh + 6), lockColor);
-            g.renderOutline((int)sx - 2, (int)sy - 2, (int)sw + 4, (int)(nh + 4), lockColor);
+            g.renderOutline(sx - 3, sy - 3, iw + 6, ih + 6, lockColor);
+            g.renderOutline(sx - 2, sy - 2, iw + 4, ih + 4, lockColor);
             // Name label above node
             int lw = Minecraft.getInstance().font.width(lockedBy);
             int lx = (int)(sx + (sw - lw * zoom) / 2);
@@ -668,12 +682,12 @@ public class NodeRenderer {
                             if (screenY + screenEstH > panelBottom) {
                                 // Flip above caret
                                 screenY = (int)(sy + (editLocalY + 4 + popup.anchorY) * zoom) - (int)(Minecraft.getInstance().font.lineHeight * zoom) - screenEstH;
-                                if (screenY < (int)sy) screenY = (int)sy;
+                                if (screenY < sy) screenY = sy;
                             }
                             // Horizontal clamp
                             int screenW = (int)((nodeW - 36) * zoom);
-                            if (screenX + screenW > (int)(sx + nodeW * zoom)) screenX = (int)(sx + nodeW * zoom) - screenW;
-                            if (screenX < (int)sx) screenX = (int)sx;
+                            if (screenX + screenW > sx + iw) screenX = sx + iw - screenW;
+                            if (screenX < sx) screenX = sx;
 
                             var popPose = g.pose();
                             popPose.pushPose();

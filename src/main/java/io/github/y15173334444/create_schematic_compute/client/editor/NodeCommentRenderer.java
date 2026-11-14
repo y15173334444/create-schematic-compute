@@ -69,10 +69,16 @@ final class NodeCommentRenderer {
     private void drawCommentNode(GuiGraphics g, GraphNode n, boolean selected, boolean isPrimary,
                                   boolean editing, float camX, float camY, float zoom, int mx, int my,
                                   boolean skipBackground, String lockedBy) {
-        float sx = c2sX.apply(n.x), sy = c2sY.apply(n.y);
+        // 抖动治理 JIT-1（docs/graph-editor-canvas-jitter-plan.md）：与普通节点同口径——
+        // 原点每帧吸附一次，框两缘共用一次取整尺寸，文本/按钮/手柄都从同一原点派生。
+        // Jitter fix JIT-1, same rule as regular nodes: snap the origin once per frame, share
+        // one rounded size between both edges, derive text/buttons/handle from that origin.
+        int isx = ScreenTransform.nodeX(c2sX, n), isy = ScreenTransform.nodeY(c2sY, n);
+        float sx = isx, sy = isy;
         float sw = n.commentWidth * zoom;
         float sh = n.commentHeight * zoom;
-        int isx = (int) sx, isy = (int) sy, isw = (int) (sx + sw), ish = (int) (sy + sh);
+        int iw = ScreenTransform.px(sw), ih = ScreenTransform.px(sh);
+        int isw = isx + iw, ish = isy + ih;
         int headerH = Math.max(6, (int)(12 * zoom)); // drag header bar
 
         // Background — skip when already rendered at A=1
@@ -90,15 +96,15 @@ final class NodeCommentRenderer {
         else if (isPrimary) borderColor = NodeRenderer.ACC();               // gold = primary selection
         else if (selected) borderColor = NodeRenderer.ACC();                // light gold = selected
         else borderColor = n.commentBorderColor;                // custom = normal
-        g.renderOutline(isx, isy, (int) sw, (int) sh, borderColor);
+        g.renderOutline(isx, isy, iw, ih, borderColor);
         // Remote lock/selection indicator — golden border when another player has this comment selected
         // 远程锁定/选中指示器 — 其他玩家选中此注释时显示金色边框
         if (lockedBy != null && !lockedBy.isEmpty()) {
             int lockCol = NodeRenderer.ACC();
-            g.renderOutline(isx - 2, isy - 2, (int) sw + 4, (int) sh + 4, lockCol);
-            g.renderOutline(isx - 3, isy - 3, (int) sw + 6, (int) sh + 6, lockCol);
+            g.renderOutline(isx - 2, isy - 2, iw + 4, ih + 4, lockCol);
+            g.renderOutline(isx - 3, isy - 3, iw + 6, ih + 6, lockCol);
             int lw = Minecraft.getInstance().font.width(lockedBy);
-            int lx = isx + ((int) sw - lw) / 2;
+            int lx = isx + (iw - lw) / 2;
             int ly = isy - (int)(16 * zoom) - 2;
             g.fill(lx - 3, ly - 2, lx + lw + 3, ly + (int)(12 * zoom), 0xCC2A2822);
             var lockPose = g.pose();
@@ -126,13 +132,13 @@ final class NodeCommentRenderer {
             bannerPose.popPose();
         }
         // Inner subtle border
-        if ((int) sw > 6 && (int) sh > 6) {
+        if (iw > 6 && ih > 6) {
             int ib = n.commentBorderColor;
             int innerB = (Math.min((ib >> 16) & 0xFF, 248) << 16)
                        | (Math.min((ib >> 8) & 0xFF, 248) << 8)
                        | Math.min(ib & 0xFF, 248)
                        | (ib & 0xFF000000);
-            g.renderOutline(isx + 2, isy + 2, (int) sw - 4, (int) sh - 4, innerB);
+            g.renderOutline(isx + 2, isy + 2, iw - 4, ih - 4, innerB);
         }
 
         // Edit button — top-right 14×14 px, highlighted when editing
@@ -159,12 +165,12 @@ final class NodeCommentRenderer {
         int hy2 = (int) (sy + sh - handleW);
         // Darker contrasting background corner
         int handleBg = 0x88000000;
-        g.fill(hx2, hy2, (int) (sx + sw), (int) (sy + sh), handleBg);
+        g.fill(hx2, hy2, isw, ish, handleBg);
         // L-shaped corner lines — thick, visible dark gray
         int handleColor = 0xFF777777;
         int lineW = Math.max(1, (int) (3 * zoom));
-        g.fill(hx2, (int) (sy + sh - lineW), (int) (sx + sw), (int) (sy + sh), handleColor);
-        g.fill((int) (sx + sw - lineW), hy2, (int) (sx + sw), (int) (sy + sh), handleColor);
+        g.fill(hx2, (int) (sy + sh - lineW), isw, ish, handleColor);
+        g.fill((int) (sx + sw - lineW), hy2, isw, ish, handleColor);
         // Diagonal grip stripes — 3 short diagonal lines (classic resize grip pattern)
         int gripColor = 0xFFAAAAAA;
         for (int i = 0; i < 3; i++) {
