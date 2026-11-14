@@ -309,7 +309,12 @@ native;字节码与挂起态是可被篡改的边界(存档改写/未来的网�
   - **对拍网(5 测试)**:全函数表(23 Fn×定义域内外 + 全算子/比较/逻辑/swizzle + lenient 全族)+ 控制流矩阵 + 挂起续算面级逐位收敛 + deadline 契约(carrier 有效/免计 yield/输出保持)+ **弹道 5 案例(CBC 金标准同参)经真节点真状态机逐位**。参考链 = 同 parse AST 跑 Java 解释器 + 逐输出 RPN 求值,零硬编码。
   - **顺带收口的两处存量缺陷**:(1) R1 编码器 TAG_NOT 少写 1 字节 payload 破坏 16B 定宽(夹具/存量脚本恰好无 `!`,睡到对拍网 `!0.0` 案例才炸)——补占位 ordinal;(2) native 提取缓存仅按尺寸复用,「重建后尺寸恰好相同」的 dll 会 stale 进测试(实测复现)——复用判定加 CRC32 内容校验。
   - **夹具治理**:.tokbin/.golden.txt 的唯一权威生成/校验面 = `TokFixtureTest`(脚本内联为唯一真相源,默认逐字节校验 + golden 对 Java 链复核,`CSC_REGENERATE_TOK_FIXTURES=1` 显式重生成;环境变量而非系统属性——gradle fork 的测试 JVM 不继承命令行 -D)。
-- **R3b 批量入口(§4.7-6,待开工)**:tickBatch 每连续段一次 + carrier native 自持 + heavy-yield 记账下沉 + Java 直 ByteBuffer 零分配;逐节点 exec 保留为退化形态。
+- **R3b 批量入口:✅ 已落地(R3b,2026-11-14;cargo 29/29 + gradle 1324 测试 0 失败)**:
+  - **Rust 侧**:Session 增逐节点态槽位(`nodes: Vec<Option<NodeState>>`,空洞复用、slotId 稳定)——挂起 carrier **会话内自持不跨界**(§4.5 核心);`batch_exec`(slot 取/存态,其余与 exec 逐语义一致,挂起 carrier_len 恒 0)+ `tickBatch` JNI(一次调用按序求一批:扁平缓冲 + 偏移窗口,逐员状态/进度/耗时回传,个别成员契约错误落成员状态、批继续)+ `allocNodeSlot`/`clearNodeSlot`/`nodeSlotFirstLoopK`(测试/观测视图)。
+  - **Java 协调器**:FormulaBatchCoordinator(每次 evaluate() 一个实例)——**切分规则** = 拓扑序连续可入段 FORMULA 节点且新成员与段内任一成员无图内连线(双向皆查);跳过型节点(冻结/done-skip/编码失败)不产读写、不破段(中性);被段节点的 outputs 落表统一在冲刷侧(eval() 尾部落表对被段节点跳过)。**去重骑行**:批内同脚本同输入(按位)的后到者骑行——冲刷后取首员存储结果(= FORMULA case 去重命中分支镜像);首员未缓存(OutputShed/ExecError)→ 骑手退化独立单员批。
+  - **状态镜像**:native 态自持后 Java 侧挂起性 = 上次批量面状态码 ∈ {1,4};节点增 formulaNativeSlot/formulaNativeStatus,formulaNativeFrozen/Done 保留(跳过逻辑输入),字节 carrier 字段退役。
+  - **诚实校准(与 §4.5 的偏差)**:(1) 批内缓冲仍用普通数组 + 逐员 execIn 组装(每成员每 tick 一次小分配)——direct ByteBuffer 全零分配面放 R4 性能验收后定(逐节点调用开销本身不是瓶颈,先落语义收敛);(2) K6 冻结测试预算按活动引擎校准(monsterBudgetMs():JVM 1μs / native 100ns——引擎更快则同一预算会被判受害者且清 streak,规格「超自身份额 20 tick 冻结」两引擎同判,预算常量是引擎相对旋钮)。
+  - **测试**:FormulaBatchTest 4 例(切分规则入段/拆段、链式拆分跨段读者逐位、去重骑行单命中、多成员挂起续算 native 态跨 tick 收敛逐位);既有对拍网/spread/backstop 全套件经批量面回归(它们走 GraphEvaluator = 即批量面)。
 - **R4 收尾**:CHANGELOG 行、畸形 RPN(括号不闭合)登记册收编(§5.2)、性能验收(弹道 20ms 预算实测 + GC 压力对比)、文档收口。
 
 ## 七、复现手册
