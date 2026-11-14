@@ -113,13 +113,13 @@ final class FormulaFunctions {
             }
             case "yaw" -> {
                 var v = asVec(stack.pop());
-                double yaw = Math.toDegrees(Math.atan2(v.x(), -v.z()));
+                double yaw = Math.toDegrees(StrictMath.atan2(v.x(), -v.z()));
                 yield new Value.Scalar((yaw + 360.0) % 360.0);
             }
             case "pitch" -> {
                 var v = asVec(stack.pop());
                 double h = Math.sqrt(v.x()*v.x() + v.z()*v.z());
-                yield new Value.Scalar(Math.toDegrees(Math.atan2(-v.y(), h)));
+                yield new Value.Scalar(Math.toDegrees(StrictMath.atan2(-v.y(), h)));
             }
             default -> Value.Scalar.ZERO;
         };
@@ -132,35 +132,35 @@ final class FormulaFunctions {
         return switch (name) {
             case "sin" -> {
                 double v = args[0];
-                yield Double.isFinite(v) ? Math.sin(Math.toRadians(v)) : 0;
+                yield Double.isFinite(v) ? StrictMath.sin(Math.toRadians(v)) : 0;
             }
             case "cos" -> {
                 double v = args[0];
-                yield Double.isFinite(v) ? Math.cos(Math.toRadians(v)) : 0;
+                yield Double.isFinite(v) ? StrictMath.cos(Math.toRadians(v)) : 0;
             }
             case "tan" -> {
                 double v = args[0];
-                yield Double.isFinite(v) ? Math.tan(Math.toRadians(v)) : 0;
+                yield Double.isFinite(v) ? StrictMath.tan(Math.toRadians(v)) : 0;
             }
             case "asin" -> {
                 double v = args[0];
-                yield (Double.isFinite(v) && v >= -1 && v <= 1) ? Math.toDegrees(Math.asin(v)) : 0;
+                yield (Double.isFinite(v) && v >= -1 && v <= 1) ? Math.toDegrees(StrictMath.asin(v)) : 0;
             }
             case "acos" -> {
                 double v = args[0];
-                yield (Double.isFinite(v) && v >= -1 && v <= 1) ? Math.toDegrees(Math.acos(v)) : 0;
+                yield (Double.isFinite(v) && v >= -1 && v <= 1) ? Math.toDegrees(StrictMath.acos(v)) : 0;
             }
             case "atan2" -> {
                 double y = args[0], x = args[1];
-                yield (Double.isFinite(y) && Double.isFinite(x)) ? Math.toDegrees(Math.atan2(y, x)) : 0;
+                yield (Double.isFinite(y) && Double.isFinite(x)) ? Math.toDegrees(StrictMath.atan2(y, x)) : 0;
             }
             case "sinh" -> {
                 double v = args[0];
-                yield Double.isFinite(v) ? Math.sinh(v) : 0;
+                yield Double.isFinite(v) ? StrictMath.sinh(v) : 0;
             }
             case "cosh" -> {
                 double v = args[0];
-                yield Double.isFinite(v) ? Math.cosh(v) : 0;
+                yield Double.isFinite(v) ? StrictMath.cosh(v) : 0;
             }
             case "sqrt" -> {
                 double v = args[0];
@@ -168,30 +168,30 @@ final class FormulaFunctions {
             }
             case "ln" -> {
                 double v = args[0];
-                yield Double.isFinite(v) && v > 0 ? Math.log(v) : 0;
+                yield Double.isFinite(v) && v > 0 ? StrictMath.log(v) : 0;
             }
             case "log" -> {
                 double v = args[0];
-                yield Double.isFinite(v) && v > 0 ? Math.log10(v) : 0;
+                yield Double.isFinite(v) && v > 0 ? StrictMath.log10(v) : 0;
             }
             case "exp" -> {
                 double v = args[0];
-                yield Double.isFinite(v) ? Math.exp(v) : 0;
+                yield Double.isFinite(v) ? StrictMath.exp(v) : 0;
             }
             case "sec" -> {
                 double v = args[0];
-                yield (Double.isFinite(v) && Math.abs(Math.cos(Math.toRadians(v))) > 1e-12)
-                    ? 1.0 / Math.cos(Math.toRadians(v)) : 0;
+                yield (Double.isFinite(v) && Math.abs(StrictMath.cos(Math.toRadians(v))) > 1e-12)
+                    ? 1.0 / StrictMath.cos(Math.toRadians(v)) : 0;
             }
             case "csc" -> {
                 double v = args[0];
-                yield (Double.isFinite(v) && Math.abs(Math.sin(Math.toRadians(v))) > 1e-12)
-                    ? 1.0 / Math.sin(Math.toRadians(v)) : 0;
+                yield (Double.isFinite(v) && Math.abs(StrictMath.sin(Math.toRadians(v))) > 1e-12)
+                    ? 1.0 / StrictMath.sin(Math.toRadians(v)) : 0;
             }
             case "cot" -> {
                 double v = args[0];
-                yield (Double.isFinite(v) && Math.abs(Math.tan(Math.toRadians(v))) > 1e-12)
-                    ? 1.0 / Math.tan(Math.toRadians(v)) : 0;
+                yield (Double.isFinite(v) && Math.abs(StrictMath.tan(Math.toRadians(v))) > 1e-12)
+                    ? 1.0 / StrictMath.tan(Math.toRadians(v)) : 0;
             }
             default -> 0;
         };

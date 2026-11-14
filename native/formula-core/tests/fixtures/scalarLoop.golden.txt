@@ -1,0 +1,6 @@
+# slot table (name -> slot)
+i=0
+acc=1
+# finals (name=hexbits)
+i=40f86a0000000000
+acc=415312c380000000

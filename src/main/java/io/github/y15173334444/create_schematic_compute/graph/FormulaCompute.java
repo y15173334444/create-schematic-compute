@@ -111,6 +111,26 @@ public final class FormulaCompute {
         return budgetDeadlineNs > 0 && System.nanoTime() >= budgetDeadlineNs;
     }
 
+    /**
+     * 本 tick 预算剩余纳秒（R3 native 路径供给，§4.7-4）：native exec 的
+     * deadlineInNanos 参数取此值，与 {@link #deadlineExhausted()} 同一判定基准。
+     * 口径：未接线（budgetDeadlineNs == 0）→ 0 = native 不限；已过期 → -1 哨兵
+     * （native 侧译为「首个 256-op 采样即命中」，与 deadlineExhausted() 恒真形态
+     * 同语义）；在限 → 真实剩余（可为负到哨兵截断前的微小负值 → 归 -1）。
+     * This tick's remaining budget in ns (the R3 native-path supply, §4.7-4): the
+     * native exec's deadlineInNanos takes this value, judged on the same basis as
+     * {@link #deadlineExhausted()}. Unwired → 0 (native unlimited); expired → the -1
+     * sentinel (native reads it as "the first 256-op sample fires", matching the
+     * permanently-true deadlineExhausted shape); in-budget → the real remainder.
+     */
+    public static long deadlineRemainingNs() {
+        if (budgetDeadlineNs <= 0) {
+            return 0;
+        }
+        long remaining = budgetDeadlineNs - System.nanoTime();
+        return remaining > 0 ? remaining : -1L;
+    }
+
     // ─────────────────── 去重缓存 / Dedup cache ───────────────────
 
     /**

@@ -1,0 +1,18 @@
+# slot table (name -> slot)
+y=0
+n=1
+min=2
+floor=3
+m=4
+k=5
+abs=6
+x=7
+# finals (name=hexbits)
+y=4000000000000000
+n=4004000000000000
+min=0
+floor=0
+m=4000000000000001
+k=c00c000000000000
+abs=0
+x=3fe0000000000000

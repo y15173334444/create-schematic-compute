@@ -23,6 +23,39 @@ class FormulaBudgetSpreadTest {
      *  Converging test script: v approaches target (0.9^k), @output exports v explicitly. */
     private static final String CONVERGE = "v = 0\nrepeat 100000 { v = v * 0.9 + target * 0.1 }\n@output v";
 
+    // ── 路径感知的挂起态视图（R3 native 分流后,状态载体随 AVAILABLE 二选一:
+    //    Java = Carrier 对象 / native = 字节 carrier + done 旗标。断言走统一视图,
+    //    语义对两条路径同时成立）。 / path-aware suspension-state views: with the
+    //    R3 native dispatch the state carrier follows AVAILABLE (Java = the Carrier
+    //    object / native = the byte carrier + the done flag); assertions ride one view.
+    private static boolean suspended(GraphNode f) {
+        // R3b native 面:carrier 会话内自持,Java 侧以批量面状态码镜像挂起性(1/4)。
+        return FormulaNative.AVAILABLE
+            ? (f.formulaNativeStatus == 1 || f.formulaNativeStatus == 4)
+            : (f.formulaCarrier != null && !f.formulaCarrier.done);
+    }
+
+    private static boolean done(GraphNode f) {
+        return FormulaNative.AVAILABLE
+            ? f.formulaNativeDone
+            : (f.formulaCarrier != null && f.formulaCarrier.done);
+    }
+
+    private static long loopK0(GraphNode f) {
+        return FormulaNative.AVAILABLE
+            ? FormulaNativeSession.firstLoopK(f)
+            : f.formulaCarrier.loopStack.get(0).k;
+    }
+
+    private static void assertNoCarrier(GraphNode f) {
+        if (FormulaNative.AVAILABLE) {
+            // shed/error/done 都丢 native 槽位态;status 2 = MAX_ITER shed 面。
+            org.junit.jupiter.api.Assertions.assertEquals(2, f.formulaNativeStatus, "shed face status");
+        } else {
+            assertNull(f.formulaCarrier);
+        }
+    }
+
     @AfterEach
     void tearDown() {
         FormulaCompute.clearAll();
@@ -71,8 +104,8 @@ class FormulaBudgetSpreadTest {
         for (int i = 0; i < 200; i++) FormulaCompute.reportYield();
         FormulaCompute.beginTick();
         ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-        assertTrue(f.formulaCarrier != null && !f.formulaCarrier.done);
-        long k0 = f.formulaCarrier.loopStack.get(0).k;
+        assertTrue(suspended(f), "should suspend under tiny slice");
+        long k0 = loopK0(f);
 
         // 输入变更 mid-spread(信号发生器式持续变化也允许)/ input change mid-spread (continuous changes allowed)
         c.params[0] = 20f;
@@ -84,9 +117,9 @@ class FormulaBudgetSpreadTest {
             // 每 3 tick 输入再变一次(模拟信号发生器持续变化)/ change the input every 3 ticks (signal-gen-like)
             if (t % 3 == 0) c.params[0] = 15f + 5f * (float) Math.sin(t * 0.5);
             ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-            if (f.formulaCarrier != null) {
-                if (f.formulaCarrier.done) { done = true; break; } // done carrier 的 loopStack 为空 / done carrier has an empty loop stack
-                long k = f.formulaCarrier.loopStack.get(0).k;
+            if (done(f)) { done = true; break; }
+            if (suspended(f)) {
+                long k = loopK0(f);
                 assertTrue(k >= lastK, "warm continue must never reset k (tick " + t + ": " + k + " < " + lastK + ")");
                 lastK = k;
             }
@@ -171,7 +204,7 @@ class FormulaBudgetSpreadTest {
             FormulaCompute.beginTick();
             ev.evaluate(List.of(), Map.of(), 0.05f,
                 new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-            if (f.formulaCarrier != null && f.formulaCarrier.done) return;
+            if (done(f)) return;
         }
         fail("spread did not converge within " + maxTicks + " ticks");
     }
@@ -189,8 +222,7 @@ class FormulaBudgetSpreadTest {
         FormulaCompute.beginTick(); // 轮转:prev=200 → slice=15µs / rotate: slice = 3ms/200
         ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
 
-        assertNotNull(f.formulaCarrier, "carrier should exist after suspend");
-        assertFalse(f.formulaCarrier.done, "should not be done after one tiny-slice tick");
+        assertTrue(suspended(f), "carrier should exist after suspend");
         assertTrue(f.formulaSpreadProgress > 0f, "render progress should be positive");
         assertEquals(0f, ev.getNodeOutput(f.id, 0), 0.0001f); // emit-on-done:输出冻结 / output frozen
 
@@ -205,7 +237,7 @@ class FormulaBudgetSpreadTest {
         // done 跳过:输入未变再推一 tick,输出保持 / done skip: unchanged inputs, outputs hold
         FormulaCompute.beginTick();
         ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-        assertTrue(f.formulaCarrier.done);
+        assertTrue(done(f));
         assertEquals(10f, ev.getNodeOutput(f.id, 0), 0.01f);
     }
 
@@ -221,7 +253,7 @@ class FormulaBudgetSpreadTest {
         for (int i = 0; i < 200; i++) FormulaCompute.reportYield();
         FormulaCompute.beginTick();
         ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-        assertTrue(f.formulaCarrier != null && !f.formulaCarrier.done);
+        assertTrue(suspended(f), "should suspend under tiny slice");
 
         c.params[0] = 20f; // 输入变更 mid-spread / input changes mid-spread
         runUntilDone(ev, f, 50);
@@ -242,7 +274,7 @@ class FormulaBudgetSpreadTest {
         for (int i = 0; i < 200; i++) FormulaCompute.reportYield();
         FormulaCompute.beginTick();
         ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-        assertTrue(f.formulaCarrier != null && !f.formulaCarrier.done);
+        assertTrue(suspended(f), "should suspend under tiny slice");
 
         c.params[0] = 20f;
         runUntilDone(ev, f, 50);
@@ -286,7 +318,7 @@ class FormulaBudgetSpreadTest {
             shed = f.formulaShedWarned;
         }
         assertTrue(shed, "pathological loop should shed at the 1M cap");
-        assertNull(f.formulaCarrier);
+        assertNoCarrier(f);
 
         // shed 冻结:后续 tick 不再执行 / shed freeze: no further execution
         FormulaCompute.beginTick();

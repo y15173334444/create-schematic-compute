@@ -386,7 +386,7 @@ public class FormulaParser {
             stack.push(new Value.Scalar(switch(op){
                 case '+' -> a + b; case '-' -> a - b; case '*' -> a * b;
                 case '/' -> b != 0 ? a / b : 0; case '%' -> b != 0 ? a % b : 0;
-                case '^' -> Math.pow(a, b);
+                case '^' -> StrictMath.pow(a, b);
                 case '<' -> a < b ? 1.0 : 0.0;
                 case '>' -> a > b ? 1.0 : 0.0;
                 default -> 0.0;

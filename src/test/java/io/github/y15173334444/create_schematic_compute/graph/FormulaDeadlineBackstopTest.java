@@ -40,6 +40,23 @@ class FormulaDeadlineBackstopTest {
      *  fits inside its slice. */
     private static final String VICTIM = "1" + "+1".repeat(150);
 
+    /**
+     * 怪物冻结测试的预算校准（引擎相对，规格不变）：K6 判据 = 节点自身墙钟 > 自身
+     * slice。JVM 巨表达式 ~2.5μs/256-op 采样 → 1μs 预算必超；native 引擎 ~0.3μs 即
+     * 采样（引擎更快）→ 同预算落在 slice 之内会被判「受害者」（每 tick 低于阈值还
+     * 会清 streak）→ 预算取 100ns,给 native 侧 ~10x 余量。规格「超自身份额连续
+     * 20 tick 冻结」两条引擎同判。
+     * The monster-freeze tests' budget calibration (engine-relative, spec unchanged):
+     * the K6 criterion is the node's own wall clock vs its slice. The JVM monster
+     * runs ~2.5μs per 256-op sample (1μs budget always exceeded); the native engine
+     * samples at ~0.3μs (faster engine), so the same budget reads as a victim and
+     * even resets the streak on borderline ticks — 100ns gives the native face ~10x
+     * headroom while both engines judge the same spec.
+     */
+    private static double monsterBudgetMs() {
+        return FormulaNative.AVAILABLE ? 0.0001 : 0.001;
+    }
+
     @BeforeEach
     void resetBudget() { FormulaCompute.clearAll(); }
 
@@ -63,7 +80,7 @@ class FormulaDeadlineBackstopTest {
     @Test
     @DisplayName("deadline 已过:表达式栈机 256-op 采样抛 DeadlineShedException")
     void monsterExpressionThrowsAtDeadline() throws InterruptedException {
-        FormulaCompute.setBudgetMsSource(() -> 0.001); // 1μs 预算 / a 1μs budget
+        FormulaCompute.setBudgetMsSource(FormulaDeadlineBackstopTest::monsterBudgetMs); // 1μs 预算 / a 1μs budget
         FormulaCompute.beginTick();
         Thread.sleep(2); // deadline 必然已过 / the deadline has surely passed
         var parsed = FormulaParser.parseScript(MONSTER);
@@ -77,7 +94,7 @@ class FormulaDeadlineBackstopTest {
     @Test
     @DisplayName("解释器把 deadline shed 转为 fromDeadline 挂起,carrier 保住")
     void interpreterConvertsToDeadlineSuspend() throws InterruptedException {
-        FormulaCompute.setBudgetMsSource(() -> 0.001);
+        FormulaCompute.setBudgetMsSource(FormulaDeadlineBackstopTest::monsterBudgetMs);
         FormulaCompute.beginTick();
         Thread.sleep(2);
         var parsed = FormulaParser.parseScript(MONSTER);
@@ -111,7 +128,7 @@ class FormulaDeadlineBackstopTest {
     @DisplayName("公平规则·主动方:自身超份额连续超时 → 20 tick 冻结(输出保持 lastGood)")
     void overSliceMonsterEscalatesToFreeze() {
         OneNode t = oneNode(MONSTER);
-        FormulaCompute.setBudgetMsSource(() -> 0.001); // slice=1μs:巨脚本必超自身份额 / slice=1μs: the monster always outlives its slice
+        FormulaCompute.setBudgetMsSource(FormulaDeadlineBackstopTest::monsterBudgetMs); // slice=1μs:巨脚本必超自身份额 / slice=1μs: the monster always outlives its slice
         for (int i = 0; i < 25 && !t.node().formulaShedWarned; i++) {
             FormulaCompute.beginTick();
             tick(t);
@@ -156,7 +173,7 @@ class FormulaDeadlineBackstopTest {
             "crafted", List.of(), java.util.Set.of(), List.of());
         node.dynamicOutputCount = 2;
         var ev = new GraphEvaluator(graph);
-        FormulaCompute.setBudgetMsSource(() -> 0.001);
+        FormulaCompute.setBudgetMsSource(FormulaDeadlineBackstopTest::monsterBudgetMs);
         FormulaCompute.beginTick();
         Thread.sleep(2);
         ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
@@ -171,7 +188,7 @@ class FormulaDeadlineBackstopTest {
     @DisplayName("预算解冻:冻结后调大预算 → 下一 tick 自动解冻并用新预算值完成")
     void freezeThawsWhenBudgetRaised() {
         OneNode t = oneNode(MONSTER);
-        FormulaCompute.setBudgetMsSource(() -> 0.001); // 1μs:巨脚本必然冻结 / 1μs: the monster inevitably freezes
+        FormulaCompute.setBudgetMsSource(FormulaDeadlineBackstopTest::monsterBudgetMs); // 1μs:巨脚本必然冻结 / 1μs: the monster inevitably freezes
         for (int i = 0; i < 25 && !t.node().formulaShedWarned; i++) {
             FormulaCompute.beginTick();
             tick(t);
@@ -224,7 +241,7 @@ class FormulaDeadlineBackstopTest {
         node.params[4] = 0.5f;
         node.formula = MONSTER; // y=f(x) 单表达式巨形态 / a monster single-expression y=f(x)
         var ev = new GraphEvaluator(graph);
-        FormulaCompute.setBudgetMsSource(() -> 0.001);
+        FormulaCompute.setBudgetMsSource(FormulaDeadlineBackstopTest::monsterBudgetMs);
         for (int i = 0; i < 3; i++) {
             FormulaCompute.beginTick();
             Thread.sleep(2);
