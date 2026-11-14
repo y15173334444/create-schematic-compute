@@ -140,7 +140,8 @@ public final class TopoStats {
      *  元素 = {@code SignalBus.key()} 前缀后的通道键。不可变、有序（TreeSet 归一）。
      *  A host's channel census: the read set (enumerated from BUS_IN / PRIVATE_IN) and the
      *  write set (enumerated from BUS_OUT / PRIVATE_OUT), elements being
-     *  {@code SignalBus.key()}-prefixed channel keys. Immutable and ordered (TreeSet-normalized). */
+     *  {@code SignalBus.key()}-prefixed channel keys. Immutable and ordered
+     *  (TreeSet-normalized). */
     public record ChannelCensus(Set<String> reads, Set<String> writes) {
         /** 归一构造：null 收敛为空集 + 不可变有序副本。 / Normalizing constructor: nulls
          *  collapse to empty sets + immutable ordered copies. */
@@ -647,15 +648,24 @@ public final class TopoStats {
      *  {@code (key, epoch, value)} 记录（epoch = 记录时刻的通道版本）。O(1)（三次表查找）。
      *  <b>无 currentHost 上下文不落记录</b>（§3.3：采集只走服务端求值路径；客户端本地求值
      *  永不设上下文）。
+     *  <p><b>§5.3 切边豁免</b>：被切读者的读由上一 tick 末快照接手——设计内跨 tick，不是
+     *  陈旧读；该读不落记录（{@link ChannelCuts#isSnapshotServed} 判定），①/② 口径只量
+     *  「计划外陈旧」，否则被切通道的计数会按设计永久增长、判读表失真。</p>
      *  <p>The read-side hook (§3.1): rides the tails of the PRIVATE_IN float get / BUS_IN band
      *  float reads — one {@code (key, epoch, value)} record (epoch = the channel version at
      *  read time). O(1) (three map lookups). <b>No record without a currentHost context</b>
      *  (§3.3: collection rides the server evaluation path only; client-local evaluation never
-     *  sets the context).</p> */
+     *  sets the context).</p>
+     *  <p><b>The §5.3 cut exemption</b>: a cut reader's read is served by last tick's
+     *  snapshot — cross-tick <b>by design</b>, not a stale read; it records nothing
+     *  (judged by {@link ChannelCuts#isSnapshotServed}), so the ①/② metric only measures
+     *  "unplanned staleness" — otherwise a cut channel's counts would grow by design forever
+     *  and distort the verdict table.</p> */
     public static void noteChannelRead(String channelKey, String slot, float value) {
         if (!collect) return;
         HostId host = currentHost;
         if (host == null) return;
+        if (ChannelCuts.isSnapshotServed(channelKey)) return;
         PENDING.computeIfAbsent(host, h -> new HashMap<>())
             .computeIfAbsent(channelKey, k -> new HashMap<>())
             .put(slot, new PendingRead(channelKey, slot, epochOf(channelKey), value, COLLECT_TICK.get()));

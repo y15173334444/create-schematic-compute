@@ -302,8 +302,12 @@ public class SchematicCompute {
                 }
             });
 
-        // 每 tick 预算复位 — FORMULA 预算池单点复位(去重表清空 + deadline + yield 计数轮转)
-        // Per-tick budget reset — single-point reset of the FORMULA budget pool (dedup clear + deadline + yield rotation)
+        // 每 tick 戳推进 — Pre 保持纯时间轴面（全局拓扑重排 §5.2 A 后：求值移 Post，
+        // 预算池的「去重清空 + deadline 建立」随求值遍起点走（§5.5 强制连带），Pre 不再复位。
+        // Per-tick stamp advances — Pre stays a pure time-axis face (after the global
+        // topology reordering §5.2 A: evaluation moved to Post, and the budget pools'
+        // "dedup clear + deadline establishment" ride the head of the evaluation pass
+        // (§5.5's mandatory relocation); Pre no longer resets them.
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
             net.neoforged.neoforge.event.tick.ServerTickEvent.Pre.class, event -> {
                 io.github.y15173334444.create_schematic_compute.network.BusTrace.tick();
@@ -317,20 +321,35 @@ public class SchematicCompute {
                 // §4.4 layer 2): the advance invalidates the cached graph — at most one
                 // O(hosts+edges) build per tick, dissolving the query amplification factor.
                 io.github.y15173334444.create_schematic_compute.network.ConsoleQueryCache.advanceTick();
-                io.github.y15173334444.create_schematic_compute.graph.FormulaCompute.beginTick();
-                io.github.y15173334444.create_schematic_compute.graph.CustomNodeCompute.beginTick();
             });
 
         // Periodic BlobRegistry cleanup — expire stale incomplete blobs every 20 ticks
         final int[] blobCleanupTick = {0};
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
             net.neoforged.neoforge.event.tick.ServerTickEvent.Post.class, event -> {
+                // 宿主级拓扑序求值遍（§5.2 A 全局拓扑重排）：求值段从 BE tick 体移到这里，
+                // 按 TopoStats.buildHostGraph 的拓扑序逐宿主求值——无环通道边全部同 tick 收敛
+                // （S2 不动点），0/1 tick 翻转窗口全局关闭。§5.5 强制连带随遍起点走（预算池
+                // deadline/去重复位在 HostEvalPass.runPostPass 开头）。观测设施零破坏的关键
+                // 顺序：求值遍在前、Post 汇总在后——本 tick 记录与本 tick 写入的比对才成立。
+                // The host-level topological evaluation pass (§5.2 A's global topology
+                // reordering): the evaluation segment moved here out of the BE tick bodies,
+                // run per host in the TopoStats.buildHostGraph topological order — every
+                // acyclic channel edge converges same-tick (the S2 fixpoint) and the 0/1-tick
+                // flip window closes globally. The §5.5 mandatory relocation rides the head of
+                // the pass (the pools' deadline/dedup reset inside HostEvalPass.runPostPass).
+                // The order that keeps the observation facility intact: the evaluation pass
+                // first, the Post summary second — only then does this tick's record-vs-write
+                // compare hold.
+                io.github.y15173334444.create_schematic_compute.blocks.HostEvalPass.runPostPass();
                 // 口径 A 的 Post 汇总（§3.4，issue #26）：epoch 对比 + 统计落点 + 受影响闭包
                 // 发布 —— 只读采集态 + 引用换发，不改变求值时序（门控关 = 一次布尔读）。
+                // 排在求值遍之后（§3.4 语义在重排后的正确时点）。
                 // The criterion-A Post summary (§3.4, issue #26): epoch compare + statistics
                 // landing + affected-closure publication — reads the collection state and swaps
                 // the published reference, never touching the evaluation timeline (one boolean
-                // read while gated off).
+                // read while gated off). Ordered after the evaluation pass (the correct
+                // post-reordering moment for §3.4's semantics).
                 io.github.y15173334444.create_schematic_compute.graph.TopoStats.postCollectSummary();
                 blobCleanupTick[0]++;
                 if (blobCleanupTick[0] >= 20) {

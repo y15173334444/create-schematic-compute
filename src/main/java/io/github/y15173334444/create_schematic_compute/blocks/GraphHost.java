@@ -280,32 +280,53 @@ public class GraphHost {
     }
 
     /**
-     * 规范 15 步 tick 编排骨架（K23 收敛）——12 份宿主 tick 体的共同编排收敛于此，
-     * 宿主特有行为经 {@link TickHooks} 缝/策略逐宿主保留（含全部偏差与缺失，行为零变更）。
-     * 步序 = Blueprint 基准口径（矩阵编号 ≠ 执行位：⑮ 紧随 ①，见 P1-8）：
+     * 规范 tick 编排·**前段**（K23 收敛 + 全局拓扑重排 §5.2 A 拆分）——12 份宿主 tick 体的
+     * 共同编排分两面：本方法 = BE tick 内跑的<b>前段</b>（①–⑦ + ⑮ + ②③④⑤ + 世界侧输入
+     * 采样），求值段（⑧–⑬ + ⑭ 尾段）移入 {@link #evalSegment}（Post 求值遍逐宿主调用）。
+     * 宿主特有行为经 {@link TickHooks} 缝/策略逐宿主保留（含全部偏差与缺失）。
+     * 前段步序 = Blueprint 基准口径（矩阵编号 ≠ 执行位：⑮ 紧随 ①，见 P1-8）：
      * ①ensureBusRegistered → ⑮flushPendingFullSync → ②LIT → ③checkGraphChanged →
-     * ④重编译(F/L) → ⑤停止路径 → ⑥refreshInputs(A/H) → ⑦recoverConflictedChannels(遗留挂点) →
-     * ⑧buildInputs → ⑨evaluate(6/4/3/空表) → ⑩writeOutputs → ⑪broadcastEvalSnapshot →
-     * ⑫syncIfBandsChanged → ⑬broadcastFlipflopDiff → ⑭setChanged。
-     * Canonical 15-step tick orchestration (K23 convergence) — the common orchestration
-     * of the twelve host tick bodies lives here; host-specific behaviour rides the
-     * {@link TickHooks} seams/policies with every deviation and gap preserved verbatim
-     * (zero behaviour change). Step order = the Blueprint baseline (the matrix numbers
-     * are labels, not execution order: ⑮ runs right after ①, see P1-8).
+     * ④重编译(F/L) → ⑤停止路径 → ⑥refreshInputs(A/H) → ⑦recoverConflictedChannels(遗留挂点)
+     * → <b>登记 {@link HostEvalPass}（未早退宿主入队）</b>。
+     * The canonical tick orchestration, **prologue face** (K23 convergence + the global
+     * topology reordering's §5.2 A split) — the common orchestration of the twelve host
+     * tick bodies now has two faces: this method is the <b>prologue</b> running inside the
+     * BE tick (①–⑦ + ⑮ + ②③④⑤ + the world-side input sampling), while the evaluation
+     * segment (⑧–⑬ + the ⑭ tail) moved into {@link #evalSegment} (called per host by the
+     * Post evaluation pass). Host-specific behaviour rides the {@link TickHooks}
+     * seams/policies with every deviation and gap preserved verbatim. The prologue step
+     * order = the Blueprint baseline (the matrix numbers are labels, not execution order:
+     * ⑮ runs right after ①, see P1-8).
      *
      * <p>① 语义钉死（92d0dbf，v1.2.6.1 冲突自愈）：ensureBusRegistered 在每个 tick 开头、
      * **先于一切早退**执行——图停止也跑（内含冲突自愈 + issue #15 频段收敛 + 音频标志
-     * 推送），自愈先于收敛。⑤ 的执行位/形态、④ F/L、⑥ A/H、⑨ 三档、⑦ 遗留挂点与 ⑬ 有无
-     * 均按宿主声明保留；位置语义不得动：⑮ 在停机早退之前（P1-8）、⑦ 在 ⑥ 与 ⑧ 之间、
-     * ⑬ 在 ⑨ 之后。⑫ 已为 12 宿主统一在位（275ec03 直呼形态收编，wantsBandSync 开关退役）。
+     * 推送），自愈先于收敛。⑤ 的执行位/形态、④ F/L、⑥ A/H、⑦ 遗留挂点均按宿主声明保留；
+     * 位置语义不得动：⑮ 在停机早退之前（P1-8）、⑦ 在 ⑥ 与（移至 Post 的）⑧ 之间。
+     * ⑥ 的世界读取（红石链接整网扫描）留在 tick 开头采样——与 Post 时点采样同为每 tick
+     * 一次，选 tick 开头是因为它紧邻雷达扫描（缝 1/3，宿主自身 tick 工作）且与求值序解耦
+     * （输入采样按宿主自身时机，通道收敛才按全局拓扑序）。
      * The ① semantics are frozen (92d0dbf, the v1.2.6.1 conflict self-heal):
      * ensureBusRegistered runs at the top of every tick **before every early return** —
      * stopped graphs included (it carries the conflict heal + the issue-15 band
      * convergence + the audio-flag push), the heal ahead of the convergence. The ⑤
-     * slot/shape, ④ F/L, ⑥ A/H, the three ⑨ forms, the ⑦ legacy hook and ⑬ presence
-     * follow the host declarations; the position semantics are frozen: ⑮ before every
-     * stop early-return (P1-8), ⑦ between ⑥ and ⑧, ⑬ after ⑨. ⑫ is wired for all
-     * twelve hosts (the 275ec03 direct-call form absorbed; the wantsBandSync switch retired). */
+     * slot/shape, ④ F/L, ⑥ A/H and the ⑦ legacy hook follow the host declarations; the
+     * position semantics are frozen: ⑮ before every stop early-return (P1-8), ⑦ between ⑥
+     * and (the Post-relocated) ⑧. ⑥'s world read (the whole-network redstone-link scan)
+     * keeps sampling at tick start — the same once-per-tick as Post-time sampling would be;
+     * tick-start wins because it sits next to the radar scan (seams 1/3, the host's own
+     * tick work) and stays decoupled from the evaluation order (input sampling keeps the
+     * host's own timing; only the channel convergence rides the global topological order).
+     *
+     * <p><b>早退与登记的对应（行为面与前状态逐位一致）</b>：② 缺席中止、⑤ 早退口径
+     * （stopEndsTick=true 十宿主）返回时<b>不登记</b>——旧 tick 体在这些路径上同样跳过求值
+     * 段与尾段；⑤ if/else 形态（CncGearbox / PT）落穿到登记——尾段（缝 9/⑭/缝 10）在
+     * Post 遍照跑，与旧共用尾段口径一致。</p>
+     * <p><b>Early returns vs arming (the behaviour face stays bit-identical)</b>: the ②
+     * absent-property abort and the ⑤ early-return shape (ten hosts,
+     * stopEndsTick=true) return <b>without arming</b> — the old tick body skipped the
+     * evaluation segment and the tail on exactly these paths; the ⑤ if/else shape
+     * (CncGearbox / PT) falls through to arming — the tail (seam 9 / ⑭ / seam 10) still
+     * runs in the Post pass, matching the old shared-tail shape.</p> */
     public void tickBody(TickHooks h) {
         // ── 守卫 / guard ──
         if (lvl() == null || lvl().isClientSide()) return;
@@ -391,8 +412,13 @@ public class GraphHost {
 
             if (running) {
                 h.beforeInputs();
-                // ⑥ 刷新红石链路输入（A = Active / H = Hybrid 混合回退）
-                // ⑥ refresh redstone-link inputs (A = Active / H = Hybrid fallback)
+                // ⑥ 刷新红石链路输入（A = Active / H = Hybrid 混合回退）——世界侧输入采样
+                //    留在 tick 开头（红石链接整网扫描 = 本宿主自身的 tick 工作，与雷达扫描
+                //    缝 1/3 同期；采样时点论证见类 javadoc）。
+                // ⑥ refresh redstone-link inputs (A = Active / H = Hybrid fallback) — the
+                //    world-side input sampling stays at tick start (the whole-network
+                //    redstone-link scan is this host's own tick work, alongside the radar
+                //    scan seams 1/3; the sampling-time argument lives in the class javadoc).
                 if (h.activeInputRefresh()) rs.refreshInputsActive();
                 else rs.refreshInputs();
                 // ⑦ 冲突频道自愈的**遗留第二挂点**（六宿主声明在位；主挂点已在 ① 内先行，
@@ -405,6 +431,49 @@ public class GraphHost {
                     pushBlockUpdate();
                 }
                 h.afterRecover();
+            }
+            // 求值段（⑧–⑬ + ⑭ 尾段）已移入 Post 的宿主级拓扑序求值遍（§5.2 A）：本前段
+            // 未早退的宿主在此登记入队。停机且早退口径的宿主（上方 return）不入队——旧
+            // tick 体在这些路径上同样不跑求值段与尾段，行为面逐位一致。
+            // The evaluation segment (⑧–⑬ + the ⑭ tail) moved into the Post host-level
+            // topological evaluation pass (§5.2 A): hosts whose prologue did not early-return
+            // arm here. A stopped host on the early-return shape (the returns above) never
+            // arms — the old tick body skipped the segment and the tail on exactly these
+            // paths, so the behaviour face stays bit-identical.
+            HostEvalPass.arm(new TopoStats.HostId(dimensionId, pos().getX(), pos().getY(), pos().getZ()),
+                this, h, dimensionId);
+        });
+    }
+
+    /**
+     * 规范 tick 编排·**求值段**（§5.2 A 全局拓扑重排）——由 {@link HostEvalPass#runPostPass}
+     * 在 {@code ServerTickEvent.Post} 的宿主级拓扑序遍里逐宿主调用；本 tick 真正走过
+     * {@link #tickBody} 前段的宿主才会被调用。段内步序与拆分前逐位一致：
+     * ⑧buildInputs → 缝5 → ⑨evaluate(6/4/3/空表，口径 A 上下文两端) → 缝6 → ⑩writeOutputs
+     * → 缝7 → ⑪broadcastEvalSnapshot → ⑫syncIfBandsChanged → ⑬broadcastFlipflopDiff
+     * → 缝8 → 尾段：缝9 → ⑭markDirty → 缝10。停机宿主跳过 ⑧–⑬、只跑尾段——与拆分前
+     * {@code if (running)} 的共用尾段口径逐位一致。
+     * The canonical tick orchestration, **evaluation-segment face** (§5.2 A's global
+     * topology reordering) — called per host by {@link HostEvalPass#runPostPass} inside the
+     * host-level topological pass of {@code ServerTickEvent.Post}; only hosts that genuinely
+     * ran their {@link #tickBody} prologue this tick get called. The in-segment step order
+     * is bit-identical to the pre-split body: ⑧ buildInputs → seam 5 → ⑨ evaluate (the
+     * 6/4/3/empty-table forms, the criterion-A context at both ends) → seam 6 → ⑩
+     * writeOutputs → seam 7 → ⑪ broadcastEvalSnapshot → ⑫ syncIfBandsChanged → ⑬
+     * broadcastFlipflopDiff → seam 8 → the tail: seam 9 → ⑭ markDirty → seam 10. A stopped
+     * host skips ⑧–⑬ and runs only the tail — bit-identical to the pre-split
+     * {@code if (running)} shared-tail shape.
+     *
+     * @param h           宿主钩子（缝 5–10 的宿主偏差） / the host hooks (the seam 5–10
+     *                    deviations)
+     * @param dimensionId 前段捕获的维度 id（求值段在宿主自己的维度键空间内跑，与前段同一
+     *                    作用域形态） / the dimension id captured by the prologue (the
+     *                    segment runs inside the host's own dimension keyspace, the same
+     *                    scope shape as the prologue)
+     */
+    public void evalSegment(TickHooks h, String dimensionId) {
+        SignalBus.runInDimension(dimensionId, () -> {
+            if (running) {
                 // ⑧ 按图构建求值输入 / build evaluation inputs from the graph
                 var in = rs.buildInputs(graph);
                 h.beforeEval();
@@ -415,22 +484,31 @@ public class GraphHost {
                 //    types actually run; BASIC uses throwaway tables, EMPTY_TABLE seat +
                 //    throwaway tables.
                 float dt = 0.05f;
-                // 口径 A 采集上下文（§3.3，issue #26）：求值记录点的宿主归属依据。仅在采集
-                // 开启时设/清（关闭路径零分配零写入，钩子自身被同一门短路）；try/finally
-                // 保证任何求值异常路径都恢复先前值；ENCAP 子求值器经同一静态天然延续，
-                // 无需改求值重载。本处即 §3.3 的「钩子单点」——12 份宿主 tick 体已收敛于此。
-                // The criterion-A collection context (§3.3, issue #26): the host attribution
-                // of the evaluation record points. Set/cleared only while collecting (the off
-                // path allocates and writes nothing — the hooks are short-circuited by the
-                // same gate); try/finally restores the previous value on every exception path;
-                // ENCAP sub-evaluators continue through the same static, no evaluation
-                // overloads changed. This is §3.3's "single hook point" — the twelve host tick
-                // bodies already converge here.
-                TopoStats.HostId topoPrev = null;
-                boolean topoContext = TopoStats.collecting();
-                if (topoContext)
-                    topoPrev = TopoStats.beginEvalContext(
-                        new TopoStats.HostId(dimensionId, pos().getX(), pos().getY(), pos().getZ()));
+                // 求值宿主上下文（§3.3 + §5.3 切边路由）：求值记录点的宿主归属依据（口径 A）
+                // 与被切读的读者身份（ChannelCuts 快照路由）共用同一静态。无条件设/清
+                // （切边路由不受采集门控——§5.3 语义必须恒在）；try/finally 保证任何求值
+                // 异常路径都恢复先前值；ENCAP 子求值器经同一静态天然延续，无需改求值重载。
+                // 客户端本地求值永不进入本方法（前段 guard 已挡），§3.3 的采样语义闸门不变。
+                // The evaluation-host context (§3.3 + §5.3's cut routing): the host attribution
+                // of the evaluation record points (criterion A) and the cut reader's identity
+                // (ChannelCuts snapshot routing) share one static. Set/cleared unconditionally
+                // (the cut routing is not gated on collection — §5.3's semantics must always
+                // be in force); try/finally restores the previous value on every exception
+                // path; ENCAP sub-evaluators continue through the same static, no evaluation
+                // overloads changed. Client-local evaluation never enters this method (the
+                // prologue guard blocks it), so §3.3's sampling-semantics gate stands.
+                TopoStats.HostId topoPrev = TopoStats.beginEvalContext(
+                    new TopoStats.HostId(dimensionId, pos().getX(), pos().getY(), pos().getZ()));
+                // §5.3 切边读路由：被切读者的求值端口经快照感知包装（无切边 = 原端口，
+                // 零开销快路）。被切边读上一 tick 末快照、其余实时——S3 的语义在此落地。
+                // §5.3's cut read routing: a cut reader's evaluation port rides the
+                // snapshot-aware wrapper (no cuts = the bare port, the zero-overhead fast
+                // path). A cut edge reads last tick's snapshot, everything else live — S3's
+                // semantics land here.
+                io.github.y15173334444.create_schematic_compute.graph.SignalBusPort port =
+                    io.github.y15173334444.create_schematic_compute.graph.ChannelCuts.wrap(
+                        io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+                evaluator.setSignalBus(port);
                 List<GraphEvaluator.OutputResult> results;
                 try {
                     results = switch (h.evalVariant()) {
@@ -441,7 +519,7 @@ public class GraphHost {
                             new HashMap<>(), new HashMap<>(), new HashMap<>());
                     };
                 } finally {
-                    if (topoContext) TopoStats.endEvalContext(topoPrev);
+                    TopoStats.endEvalContext(topoPrev);
                 }
                 h.afterEval();
                 // ⑩ 写出红石输出 / write redstone outputs
