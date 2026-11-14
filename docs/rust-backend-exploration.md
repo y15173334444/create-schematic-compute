@@ -163,7 +163,104 @@ native;字节码与挂起态是可被篡改的边界(存档改写/未来的网�
 
 调用数 = 公式节点依赖深度(常规构造 1–3 次/tick;病态长链退化为链长,是语义不变下的下界)。若单独拍板接受「跨公式节点输入延迟 1 tick」语义(以 cross-be 0/1-tick 实测为依据),可压到恒 1 次/tick。
 
-诚实校准:逐节点调用开销本身不是瓶颈(50 节点 ≈ 数 µs/tick,对照 20ms 预算可忽略);批量化的实质收益是 ①Java 侧每节点准备/收尾(env 组装、输出拷贝、yield 记账)一并零分配 ②FFI 契约面收敛为一处可审计 ③公平记账下沉。**R3 以批量入口为目标形态;全局拓扑未落地前先用逐节点入口过渡,两者共用同一 session,切换不换契约。**
+诚实校准:逐节点调用开销本身不是瓶颈(50 节点 ≈ 数 µs/tick,对照 20ms 预算可忽略);批量化的实质收益是 ①Java 侧每节点准备/收尾(env 组装、输出拷贝、yield 记账)一并零分配 ②FFI 契约面收敛为一处可审计 ③公平记账下沉。**R3 以批量入口为目标形态;全局拓扑未落地前先用逐节点入口过渡,两者共用同一 session,切换不换契约。**批量段的精确切分规则与等价性证明见 §4.7-6(拓扑批 2026-11-14 落地 main 后,本节的目标形态从「待启用」转为「现势」)。
+
+### 4.7 R3 接线设计(契约 v2 + 分流 + 会话;2026-11-14 定案)
+
+#### 4.7-1 契约 v2(ABI_VERSION 1→2;未发版形态,不写兼容)
+
+- **Program v2**:顶层语句后追加 `u32 output_count + output_count×Rpn`。Java Done 输出语义 =
+  `outputRpns[oi]` 对 env 求值 → `asScalar`(向量 lenient 0)→ `(float)` 截断(截断发生在 Java
+  拷贝侧,跨界缓冲是 f64);`oi ≥ outputRpns.size()` 的输出 = 0(Java `List.of(0.0)` 同口径)。
+- **exec 签名扩参**:`(session, programId, inputs, carrierIn, sliceNanos, deadlineInNanos,
+  applyInputsAfterResume, outputs, carrierOut, progressOut)`:
+  - `deadlineInNanos` = 本 tick 预算剩余纳秒(Java 调用时以 `budgetDeadlineNs - now` 计算;≤0 =
+    已过期,0 = 未接线不限)——**256-op 采样从 slice 改查此值**。这是 R1/R2 的语义偏差修正:
+    Java 表达式机(`evaluateValue` 每 token 局部计数、256 采样)查的是 tick 级
+    `deadlineExhausted()`,Rust 旧版查了 slice——表达式中途的挂起点语义对不齐。
+  - `applyInputsAfterResume` = warm 续算旗标:carrier 回灌**之后**再把 inputs 写进输入槽
+    (warm = 1:续算 + 刷新输入;严格冻结 = 0:inputs 传空,快照自持;全新 = carrierIn 空、
+    inputs 直写零寄存器)。
+  - `progressOut` = f32 出参(挂起两态写入):Java progressOf 镜像——最外层 repeat 主进度 +
+    最内层份额平滑叠加,outermost 是 while 退回最内层 repeat,都没有 = -1。
+- **状态码表**:0 Done / 1 Suspended(carrierOut 有效) / 2 Shed(MAX_ITER) / 3 OutputShed /
+  4 DeadlineSuspended(carrierOut 有效)。3/4 是 v2 新增:3 = 输出阶段撞 deadline(已完成输出
+  新鲜、撞点后短表达式仍可完成、其余保持 lastGood;carrier 整体作废,对齐 Java outputShed
+  逐输出继续求值的口径);4 = fromDeadline 挂起(计进度、免计 yield、走公平规则)。
+- **carrierOut 标准尺寸公式**:`slots×25 + 1332`(24B 头 + 循环栈帽 128×10 + 4B 计数 +
+  slots×25 + 8B 迭代数;循环栈深度 = 语句嵌套帽 128,合法程序必然装下)。
+- carrier(CSCC)格式不变。
+
+#### 4.7-2 会话与程序缓存
+
+- `FormulaNativeSession`(graph 包静态持柄):**懒建**(首次使用 ensure,服务端线程契约内
+  幂等;无 ServerStarting 监听器——省一个挂点且 headless 测试可用)+ **ServerStoppingEvent
+  销毁**(与 FormulaCompute.clearAll 同一监听块)。AVAILABLE=false 时全链短路。
+- 程序缓存按**脚本文本**去重(`sourceFormula` → programId + pinSlots 映射):槽位序 =
+  变量首现序 ≠ 引脚序,upload 时由 Encoded.slotNames 按 `inputVars` 名查一次并缓存 int[]。
+  节点不持 programId(每 eval 一次 HashMap 命中,key 是既有 String,零分配)。
+  不做引用计数:会话级泄漏 = 历史上出现过的不同脚本数(KB 级/个,编辑会话内数百 = MB 级
+  上限),随 ServerStopping 全量回收;批形态(§4.7-6)收口时再评估。
+- `FormulaTokEncoder.encode` 契约外失败(不可达:lexer 只产表内函数名)→ 该节点本 tick 输出
+  保持 + warn 一次,绝不静默漂移也绝不走半态转换。
+
+#### 4.7-3 求值分流
+
+- 分流点 = `FormulaEval.eval` 的 FORMULA case 顶部:`AVAILABLE` 为真即整节点转
+  `execFormulaNative`(早分支),**Java 路径体一字不动**。两路径是同一状态机的两个镜像
+  表示(Carrier 对象 vs 字节 carrier),由对拍网(§4.7-5)锁定;AVAILABLE 是进程级静态,
+  同一节点永不跨路径——对象态与字节态互斥不转换。
+- 节点侧新增三个 transient 字段:`formulaNativeCarrier`(byte[]) / `formulaNativeFrozen`
+  (float[],承担 Java Carrier.frozenInputs 角色)/ `formulaNativeDone`(boolean)。K6/K7/
+  公平规则的全部既有字段(streak/shedWarned/frozenBudgetMs/spreadProgress)两路径共用。
+- 状态码 → 节点态迁移映射(与 Java catch 族逐字对齐):0 Done → done 置位 + 输出全量拷贝 +
+  streak 清零;1 Suspended → 字节 carrier 存节点 + 冻结输入 + spread=progress + reportYield +
+  streak 清零;2 Shed → carrier 清 + spread 0 + 一次告警(MAX_ITER 冻结,frozenBudget=0);
+  3 OutputShed → 输出保持(拷回 seed 过的缓冲)+ carrier 清 + 不进 dedup + 公平规则记账;
+  4 DeadlineSuspended → 同 1 但免计 yield + 公平规则记账。输出缓冲**进出双向 seed**:
+  调用前把节点当前输出值灌入(outputs 是 in/out),3 态原样拷回 = 「已完成位新鲜、余位保持」
+  逐位成立;Done 态全量覆写无歧义。
+- dedup/K7 口径两路径共用(Java 侧查/存):Done 与两类挂起照常缓存,OutputShed 与契约外
+  错误不缓存;MAX_ITER Shed 照 Java 现口径缓存(held 值)。
+
+#### 4.7-4 会话生命周期与 deadline 供给
+
+- sessionCreate:懒建;sessionDestroy:ServerStoppingEvent(挂在 SchematicCompute 既有清理块)。
+  进程单服务端契约下无并发建/销毁面;headless 测试经 ensure 直建。
+- `deadlineInNanos` 供给:HostEvalPass 已把「去重清空 + deadline 建立」迁到求值遍起点(§5.5),
+  FORMULA 求值恒在其后 → `FormulaCompute` 暴露 `deadlineRemainingNs()`(budgetDeadlineNs==0
+  = 未接线 → 返 0 = native 不限),与 Java `deadlineExhausted()` 同一判定基准。
+
+#### 4.7-5 对拍网(R3 验收面)
+
+- **函数表全覆盖**:23 个 Fn 序数逐个成脚本(定义域内值 + 定义域外 lenient 0 两例)、
+  全算子/比较/逻辑/swizzle、向量形态组合(v×s、s×v、v×v、非法组合零向量)。
+- **脚本矩阵**:repeat/while/if/break/continue/嵌套循环、slice 挂起→续算收敛(跨多次
+  exec)、warm 续算、deadline 挂起(超小 deadlineInNanos → 状态 4)、MAX_ITER 硬 shed、
+  输出为表达式(非纯变量)、输出数 < 槽数、错误 RPN lenient、done-skip、去重骑行。
+- **弹道 5 案例**经 `FormulaEval` native 面(真节点 + 真状态机)与 Java 面逐位一致;
+  挂起/续算路径在 500µs slice 下多轮收敛后逐位。
+- 现有 cargo parity(引擎级)保持;新增对拍全部走 JNI 真面(FormulaNativeTest 扩展)。
+
+#### 4.7-6 批量入口精确规则(R3b,同 session 不换契约)
+
+- **批量段定义**:图内拓扑序(`getTopoOrder`)中**连续** FORMULA 节点的极大段,且段内任意
+  两成员之间不存在同 tick 图内边(连线 = 生产者→消费者;被切边是跨 tick 的,不构成约束)。
+  段在首个非 FORMULA 节点或首个与段内成员有边的 FORMULA 节点处断开。
+- **等价性证明概要**(逐位置求值 ⇒ 段首一次 gather+exec+write):段区间 [首员位,末员位]
+  内全是成员(连续性),段外节点全在区间外。读侧:成员的同 tick 输入写者按拓扑序恒在读者
+  之前,又不与成员成边 ⇒ 写者位 < 首员位(区间外),段首 gather 读到的值与逐位置读取逐位
+  相同;成员互读被「段内无边」排除,被切边读跨 tick 快照不受影响。写侧:段首写出的成员
+  输出,对位 < 首员位者两形态下都读不到(旧值),对位 > 末员位者两形态下都读到新值,
+  区间内无外部读者(连续性)⇒ 可见性不变。⑧ 段首建的全图输入在段生命周期内不变。
+- **批内去重骑行**:dedup 键(脚本文本+引脚值)在段内首见者求值,余键相同者骑行——取
+  首员的存储结果(=缓存命中语义:Done 骑手取新鲜、挂起骑手取 held);首员 OutputShed
+  不缓存 → 骑手退化独立求值(与今天逐位置行为一致)。Java 侧逐节点状态迁移(dedup 存储、
+  yield 记账、spread、streak)按批返回的状态数组逐员落账。
+- **JNI 收敛**:tickBatch(session, 程序 id 数组, 扁平输入缓冲, slice/deadline, 复用 direct
+  ByteBuffer 出参) = 状态/进度/输出每节点一段;carrier native 侧自持(会话内按节点槽位
+  常驻),不再跨界;heavy-yield 记账下沉(native 返 elapsed),Java 只收状态数组。
+  逐节点 exec 入口保留(批量段的退化形态 = 段长 1)。
 
 ## 五、语义对齐备忘(探索期实证,增量约束)
 
