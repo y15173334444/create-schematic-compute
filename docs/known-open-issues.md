@@ -48,6 +48,7 @@
 | 31 | 接线批暂缓面（hosts 求值序号列未实现 / bus 双载体与停机视角 / 音频向量载体不入值列） | 接线批已落地（1281 绿），四处诚实边界随批暂缓，详见条目 | 31.1 求值序需新采集面（tickBody 登记序）；31.2 双载体显示 richer 状态方，同名义 PRIVATE 不可见；31.3 停机宿主持有的频道占用不在 bus 列表；31.4 音频/向量观测要扩 epoch 模型（=条目 30.2 同源） | 🔶 暂缓（2026-11-14 接线批登记，步骤 6 实机后定夺） |
 | 32 | 跨 BE 环切边批（§5.3 预案，ring 首跑已报 3 个真实自环） | 步骤 6 实机 `ring` 在遗留世界实测命中 3 个单节点自环（208,81,202 读 CH1344444 / 208,81,207 读 123 / 214,81,207 读 2）——§3.5「无论 ② 如何必须切边」条款命中 | 按 §5.3 切边预案独立排期：SCC 环上剪边/改读快照/环形停更消解；ring 输出即输入数据（`docs/cross-be-step6-verdict.md` §二） | ✅ 已实施（2026-11-15，全局拓扑重排+切边批 `3f4c99ec`+`f137222f`+`7b95b1b8`，1305 绿；§5.2 (A) 求值移 Post 宿主级拓扑序=翻转窗口全局关闭 + **切边纯自动**（自环边优先/全序最小兜底——声明面随拍板拆除，§5.3 注记）；实机验收全过，暂缓面见条目 33） |
 | 33 | 全局拓扑/切边批暂缓面（S5 专项锚未加 / 双环实机未排期 / perf 留守） | 拓扑+切边本体已落地（1305 绿，切边收敛为纯自动后 33.3 失去对象关闭），三处随批暂缓，详见条目 | 33.1 挂起中切边读专项锚（同路由分支低风险）；33.2 双环 SCC 实机装置未排期（残余环 HostId 兜底有锚）；33.4 `perf` 命令接线（§4.3 既定未接） | 🔶 暂缓（2026-11-15 拓扑批登记；33.3 已关闭） |
+| 34 | 畸形 RPN 过解析（括号不闭合 → exec 每 tick 抛异常兜底） | `1 + (2` 类脚本解析通过无任何报错，FORMULA 每 tick 求值抛 NoSuchElementException 被 eval catch 兜住——节点静默失效、输出恒不动 | 解析期 EOF 括号配对校验，未闭合 → ERROR issue（校验期拒绝同模式） | 🔶 待办（2026-11-14 Rust 后端 R4 会话登记，另批修复） |
 
 ---
 
@@ -1104,3 +1105,37 @@ SignalBus 键空间已按维度隔离（`<维度id>\u0001<逻辑名>`，1176 绿
 ### 状态 / Status
 
 🔶 暂缓（2026-11-15 拓扑批登记；33.3 随纯自动拍板失去对象已关闭，其余择机）。
+
+---
+
+## 34. 畸形 RPN 过解析（括号不闭合 → exec 每 tick 抛异常兜底）
+
+### 症状 / Symptom
+
+`1 + (2` 这类括号不闭合脚本**解析通过**（issues 空），编辑器无任何报错；FORMULA 每 tick 求值在 RPN 求值时抛 `NoSuchElementException`，被 eval 的 catch(Exception) 兜住（输出保持）——节点静默失效、输出恒不动，玩家无从得知脚本有错。
+/ Unclosed-paren scripts parse clean (no issues) and every tick's exec throws NoSuchElementException, swallowed by the eval catch — the node silently dead-ends with no editor feedback.
+
+### 机制 / Mechanism
+
+括号配对只在遇到 `)` 弹栈时检查，EOF 处不校验开放 `(` 计数。未闭合的分组 `(` 留在 RPN 内（与探索稿 §5.1「逗号把 `(` 弹进输出」同族形态），求值时 `(` 吃两项而栈上操作数不足 → 栈下溢异常。每 tick 重抛重捕：无日志刷屏，但白烧一次受控异常的构造分配。
+/ Paren pairing is only checked when `)` pops; EOF never validates the open-paren count. The dangling group-`(` survives into the RPN (same family as §5.1's comma-pop quirk) and underflows the eval stack once per tick.
+
+### 触发条件 / Trigger
+
+手写脚本漏闭合括号（高频输入错误，当前无防呆）。
+/ A hand-written script missing a closing paren — a common typo with no guard today.
+
+### 影响面 / Impact
+
+FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常分配开销。
+/ Silent node failure plus a per-tick controlled-exception allocation.
+
+### 修复方向 / Fix direction
+
+解析期收编：parseScript 收尾校验括号配对（开放计数 > 0 → ERROR issue「括号不闭合」），与向量非法组合的校验期拒绝同模式（P1-6 同族）；编辑器即时显示、节点不进求值。回归锚 = 畸形脚本 issues 非空。
+/ Reject at parse time: an EOF open-paren check emitting an ERROR issue, matching the vector-combo validation precedent; editor shows it immediately, the node never evaluates.
+
+### 状态 / Status
+
+🔶 待办（2026-11-14 Rust 后端 R4 会话登记，前会话实证；另批修复）。
+/ Open (registered 2026-11-14 during the Rust-backend R4 session; fix in a separate batch).

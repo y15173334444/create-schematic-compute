@@ -304,18 +304,28 @@ native;字节码与挂起态是可被篡改的边界(存档改写/未来的网�
 - **R3 求值接线:✅ 逐节点面已落地(R3a,2026-11-14;cargo 28/28 + gradle 1320 测试 0 失败)**:
   - **迁移前置**:全局拓扑批(cross-be 3f4c99ec/7b95b1b8)落地 main 后 merge 进本线(零冲突,1314 全绿才动工)——§4.5 的目标形态自此转为现势。
   - **契约 v2(ABI 2)**:Program v2 增输出表达式段(§4.7-1);exec 增 deadlineInNanos(负 = 已过期哨兵)/applyInputsAfterResume(warm)/progressOut 三参;状态码 3 OutputShed / 4 DeadlineSuspended / 5 ExecError 落地。**R1 语义偏差修正**:256-op 采样从 slice 改查 tick deadline(Java deadlineExhausted 同基准);**栈下溢/超深从 Shed 分态为 ExecError**(Java catch(Exception) 同型:输出归零、carrier 作废、不进 dedup——R1 曾并入 Shed=输出保持,对拍网的 vec3() 案例当场抓出)。
-  - **分流与节点态**:FormulaEval FORMULA case 顶部 AVAILABLE 早分支 → `execFormulaNative`(字节 carrier 镜像状态机,Java 路径体一字不动);GraphNode 增 formulaNativeCarrier/Frozen/Done 三 transient(对象态与字节态互斥不转换);输出缓冲进出双向 seed(OutputShed「已完成位新鲜、余位保持」逐位成立)。
+  - **分流与节点态**:FormulaEval FORMULA case 的 AVAILABLE 分流 → `execFormulaNative`(字节 carrier 镜像状态机,Java 路径体一字未动;R4 句面修正:分流点**不在 case 顶部**——实际在 dedup 查找/解析/输入快照之后,共享 dedup 命中面所需);GraphNode 增 formulaNativeCarrier/Frozen/Done 三 transient(对象态与字节态互斥不转换);输出缓冲进出双向 seed(OutputShed「已完成位新鲜、余位保持」逐位成立)。
   - **会话**:FormulaNativeSession 懒建 + ServerStoppingEvent 销毁(§4.7-2);程序缓存按脚本文本(programId + pinSlots 映射,引脚序≠槽位序在 upload 时固化);脚本编辑瞬间的旧 carrier 对新程序 = 寻径不命中整体 Done(与 Java 跨编辑续算同语义)。
   - **对拍网(5 测试)**:全函数表(23 Fn×定义域内外 + 全算子/比较/逻辑/swizzle + lenient 全族)+ 控制流矩阵 + 挂起续算面级逐位收敛 + deadline 契约(carrier 有效/免计 yield/输出保持)+ **弹道 5 案例(CBC 金标准同参)经真节点真状态机逐位**。参考链 = 同 parse AST 跑 Java 解释器 + 逐输出 RPN 求值,零硬编码。
   - **顺带收口的两处存量缺陷**:(1) R1 编码器 TAG_NOT 少写 1 字节 payload 破坏 16B 定宽(夹具/存量脚本恰好无 `!`,睡到对拍网 `!0.0` 案例才炸)——补占位 ordinal;(2) native 提取缓存仅按尺寸复用,「重建后尺寸恰好相同」的 dll 会 stale 进测试(实测复现)——复用判定加 CRC32 内容校验。
   - **夹具治理**:.tokbin/.golden.txt 的唯一权威生成/校验面 = `TokFixtureTest`(脚本内联为唯一真相源,默认逐字节校验 + golden 对 Java 链复核,`CSC_REGENERATE_TOK_FIXTURES=1` 显式重生成;环境变量而非系统属性——gradle fork 的测试 JVM 不继承命令行 -D)。
 - **R3b 批量入口:✅ 已落地(R3b,2026-11-14;cargo 29/29 + gradle 1324 测试 0 失败)**:
   - **Rust 侧**:Session 增逐节点态槽位(`nodes: Vec<Option<NodeState>>`,空洞复用、slotId 稳定)——挂起 carrier **会话内自持不跨界**(§4.5 核心);`batch_exec`(slot 取/存态,其余与 exec 逐语义一致,挂起 carrier_len 恒 0)+ `tickBatch` JNI(一次调用按序求一批:扁平缓冲 + 偏移窗口,逐员状态/进度/耗时回传,个别成员契约错误落成员状态、批继续)+ `allocNodeSlot`/`clearNodeSlot`/`nodeSlotFirstLoopK`(测试/观测视图)。
-  - **Java 协调器**:FormulaBatchCoordinator(每次 evaluate() 一个实例)——**切分规则** = 拓扑序连续可入段 FORMULA 节点且新成员与段内任一成员无图内连线(双向皆查);跳过型节点(冻结/done-skip/编码失败)不产读写、不破段(中性);被段节点的 outputs 落表统一在冲刷侧(eval() 尾部落表对被段节点跳过)。**去重骑行**:批内同脚本同输入(按位)的后到者骑行——冲刷后取首员存储结果(= FORMULA case 去重命中分支镜像);首员未缓存(OutputShed/ExecError)→ 骑手退化独立单员批。
-  - **状态镜像**:native 态自持后 Java 侧挂起性 = 上次批量面状态码 ∈ {1,4};节点增 formulaNativeSlot/formulaNativeStatus,formulaNativeFrozen/Done 保留(跳过逻辑输入),字节 carrier 字段退役。
+  - **Java 协调器**:FormulaBatchCoordinator(每次 evaluate() 一个实例)——**切分规则** = 拓扑序连续可入段 FORMULA 节点且新成员与段内任一成员无图内连线(双向皆查);跳过型节点(冻结/done-skip/编码失败)不产读写;中性判定在 stage 内,而 flushBefore 先按「FORMULA 类型 + 与段内成员有无连线」裁决(R4 句面修正)——带成员连线的跳过型节点先冲刷拆段(保守拆分,逐位等价:不产读写 ⇒ 拆段只影响批量规模、不影响可见性);被段节点的 outputs 落表统一在冲刷侧(eval() 尾部落表对被段节点跳过)。**去重骑行**:批内同脚本同输入(按位)的后到者骑行——冲刷后取首员存储结果(= FORMULA case 去重命中分支镜像);首员未缓存(OutputShed/ExecError)→ 骑手退化独立单员批。
+  - **状态镜像**:native 态自持后 Java 侧挂起性 = 上次批量面状态码 ∈ {1,4};节点增 formulaNativeSlot/formulaNativeStatus,formulaNativeFrozen/Done 保留(跳过逻辑输入),字节 carrier 字段退役。批级 rc!=0(会话/数组校验,理论不可达面)的恢复语义**未定义、记录在案**(R4):native 侧部分成员槽位态可能已改写而 Java 状态镜像滞留旧值——输出保持、无迁移、error 日志。
   - **诚实校准(与 §4.5 的偏差)**:(1) 批内缓冲仍用普通数组 + 逐员 execIn 组装(每成员每 tick 一次小分配)——direct ByteBuffer 全零分配面放 R4 性能验收后定(逐节点调用开销本身不是瓶颈,先落语义收敛);(2) K6 冻结测试预算按活动引擎校准(monsterBudgetMs():JVM 1μs / native 100ns——引擎更快则同一预算会被判受害者且清 streak,规格「超自身份额 20 tick 冻结」两引擎同判,预算常量是引擎相对旋钮)。
   - **测试**:FormulaBatchTest 4 例(切分规则入段/拆段、链式拆分跨段读者逐位、去重骑行单命中、多成员挂起续算 native 态跨 tick 收敛逐位);既有对拍网/spread/backstop 全套件经批量面回归(它们走 GraphEvaluator = 即批量面)。
-- **R4 收尾**:CHANGELOG 行、畸形 RPN(括号不闭合)登记册收编(§5.2)、性能验收(弹道 20ms 预算实测 + GC 压力对比)、文档收口。
+- **R4 收尾:✅ 已落地(R4,2026-11-14;cargo 30/30 + gradle 1329 测试 0 失败)**:
+  - **双轴审查先行**(R3a+R3b Standards+Spec 两子代理——两批此前是会话直施,补 R2 先例的第二双眼睛):契约主体逐项一致(状态码/carrier 尺寸公式/deadline 哨兵/懒建销毁/dedup 清槽/双向 seed/切分双向皆查/monsterBudgetMs 双档),抓出两处行为缺口 + 三处卫生项,全数收口(`60844e43`)。
+  - **warm 刷新分叉(审查最重发现,行为缺口)**:Exec::new 的 refresh 分支把全长 execIn(非引脚槽=0)写回全部寄存器——快照回灌的内部累加器(v/acc)被清零、收敛重启,与 Java warm(`putAll(快照)` 后仅按引脚刷新输入变量,FormulaEval:462-465)数值分叉;且对拍网 face() 不设 warm,无网捕捉。**修复 = 程序流 v3**:流尾新增引脚槽位段(u32/钉;u32::MAX = 声明未引用的缺席钉),解码期校验槽位上界(BadPinSlot——字节码是攻击面,warm refresh 按槽写寄存器,越界即 JNI 内越界写),refresh **仅写引脚槽**;Java 编码器/Rust 解码器/夹具三方同步重生成(golden 终值不变——求值语义未动),ABI 保持 2(JNI 面未变;错配对在 upload 即 BadVersion/Truncated 拒收走兜底)。**逐位锁定面**:warm + 中途改输入面级测试——v 的累加与输入无关 ⇒ 不限预算参考链同时就是 warm 语义金标准,分叉时终值 = (N−k)·x ≠ N 必被抓(单节点图走 tickBatch 退化形态 = 生产路径)。
+  - **exec 面 OutputShed seed(Standards 发现,休眠不一致)**:逐节点 JNI exec 的 out_buf 零初始化、从不读调用方 outputs——「余位保持 seed」契约(头文件注释 + FormulaNative.exec javadoc + 写回处注释三方声明)与实现脱节(生产全走 tickBatch 且无测试触发,故休眠)。补 `get_double_array_region` 播种,与 tickBatch 同口径。
+  - **编码失败 warn-once(§4.7-2 收编)**:programFor 增 FAILED 负缓存(键 = 脚本文本;编码/上传失败对同文本恒确定),warn 一次、此后静默 null(调用方输出保持);脚本编辑换键,clear() 全清。
+  - **卫生项**:FormulaNativeSession.resetForTest / FormulaNative.carrierFirstLoopK 全仓零调用方删除(R3a 字节 carrier 遗留);TokFixtureTest javadoc 英文半边从退役的 -D 系统属性收编为环境变量口径(双语两半此前互相矛盾)。
+  - **对拍网扩充至 §4.7-5 字面**:23 个 Fn 序数**逐个成脚本**(定义域内 + 域外/极点/零向量退化两例——单序数 bug 不再被分组顺序掩盖)+ 表达式输出(末行独立表达式形态)+ warm 逐位锁定面。**向量「非法组合零向量」分层落点诚实修正**:v×v、s÷v 被**校验期拒绝**为 ERROR issue(「向量乘向量无良定义」),面级不可达——运行期 lenient 零向量契约在引擎级(parity.rs `illegal_vector_combos_lenient_zero`)与解释器级(FormulaInterpreterTest)两层锁定;§4.7-5 的面级预期按现实修正(广播 v×s/s×v 与 v+v 留在面级)。
+  - **性能验收(弹道真脚本,67 槽 6 输出;两轮独立运行各三轮中位,轮间差 <4%)**:Java 面 15.2–15.5ms/eval、**52MB/eval**(生产形态:env 重建 + 逐输出求值全计);native 逐节点(R3a 形态)6.44–6.56ms/**552B**;批量单员(R3b)6.24–6.53ms/784B;批量 8 员 6.32–6.38ms/**636B·员**。**20ms 预算口径**:单节点重公式 1.3 evals/tick(Java)→ 3.1–3.2(native),**2.4× 吞吐**;GC 压力 52MB/eval → ~0.5–0.8KB/eval(≈9.4 万×,剩余 = execIn 与批量胶水数组)。基准 = `bench/java/FormulaFaceBench`(脱离 gradle javac 直跑,四面对比;native 面计入生产路径每次求值的 Java 侧胶水分配,节点持缓冲按生产复用)。
+  - **direct ByteBuffer 拍板:不切(实测决策)**:b8 对 b1 时间增益仅 ~3%(读数区间重叠)——求值本体(~6.3ms)碾压调用与组装开销;胶水分配 ~636–784B/员·eval,50 节点公式图 ≈ 40KB/tick 量级,对 20ms 预算与现代 GC 均不可见。direct ByteBuffer 换来的是转换复杂度而非可测收益——维持普通数组 + 偏移窗口,§R3b 诚实校准(1) 就此定案。
+  - **登记册收编**:畸形 RPN(括号不闭合 `1 + (2` 过解析、exec 每 tick 抛 NoSuchElementException 被 eval catch 兜住)→ docs/known-open-issues.md **条目 34**(修复方向 = 解析期 EOF 括号配对校验 → ERROR issue,校验期拒绝同模式;另批修复)。
+  - **CHANGELOG 行**:Unreleased 板块补 Rust 后端整线一行(⚡ 前缀)。
 
 ## 七、复现手册
 
