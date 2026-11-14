@@ -255,14 +255,15 @@ public class NodeRenderer {
         g.fill(-10,-10,width+10,height+10,CG());
         // 抖动治理 JIT-2：原点吸附一次、各线由原点 + round(k·GS·zoom) 推出——平移时整格
         // 刚性平移（此前每条线各自 Math.round 真实位置，相机滑过 .5 相位时逐线跳格呼吸）。
+        // 格线原点走 c2s 的 0 点（量化平移项）——网格与节点/连线严格同相位（治理批 1）。
         // Jitter fix JIT-2: snap the origin once and derive each line as origin +
-        // round(k·GS·zoom) — the lattice translates rigidly during pans (each line used to
-        // round its true position independently, hopping one by one as the camera slid
-        // across .5 phases).
+        // round(k·GS·zoom) — the lattice translates rigidly during pans. The origin is
+        // c2s of world 0 (the quantized translation), so the grid shares the exact phase
+        // of nodes and wires (jitter batch 1).
         float spacing = GS * zoom;
-        for (int ix : ScreenTransform.gridLattice(width/2f + camX*zoom, spacing, width))
+        for (int ix : ScreenTransform.gridLattice(c2sX.apply(0), spacing, width))
             g.fill(ix, 0, ix+1, height, CGL());
-        for (int iy : ScreenTransform.gridLattice(height/2f + camY*zoom, spacing, height))
+        for (int iy : ScreenTransform.gridLattice(c2sY.apply(0), spacing, height))
             g.fill(0, iy, width, iy+1, CGL());
     }
 

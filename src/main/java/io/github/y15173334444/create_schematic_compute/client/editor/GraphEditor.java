@@ -1075,14 +1075,23 @@ public class GraphEditor {
 
     // ── 坐标转换 (Coordinate transforms) ──
     // 图空间 → 屏幕空间 / graph-space → screen-space
+    /** 屏幕平移项（整像素量化，抖动治理批 1，见 docs/blender-shimmer-free-drawing-brief.md
+     *  启示 1）：全场景共享同一取整相位——平移时各元素整体以整像素锁步移动，不再各跳各的
+     *  （相机保持连续、量化只做在翻译项上；渲染与命中共用本组换算，量化两侧天然一致）。
+     *  Quantized screen translation (jitter batch 1, brief implication 1): the whole scene
+     *  shares one rounding phase, so pans move every element in whole-pixel lockstep instead
+     *  of hopping independently (the camera stays continuous; only the translation term
+     *  quantizes; render and hit share these transforms, consistent by construction). */
+    private float transX() { Screen s = host.asScreen(); return Math.round(s.width/2f + camX*zoom); }
+    private float transY() { Screen s = host.asScreen(); return Math.round(s.height/2f + camY*zoom); }
     /** 图空间 X → 屏幕 X / graph-space X → screen-space X */
-    public float c2sX(float cx) { Screen s = host.asScreen(); return s.width/2f+(cx+camX)*zoom; }
+    public float c2sX(float cx) { return cx*zoom + transX(); }
     /** 图空间 Y → 屏幕 Y / graph-space Y → screen-space Y */
-    public float c2sY(float cy) { Screen s = host.asScreen(); return s.height/2f+(cy+camY)*zoom; }
+    public float c2sY(float cy) { return cy*zoom + transY(); }
     /** 屏幕 X → 图空间 X / screen-space X → graph-space X */
-    public float s2cX(double sx) { Screen s = host.asScreen(); return(float)((sx-s.width/2f)/zoom-camX); }
+    public float s2cX(double sx) { return (float)((sx - transX())/zoom); }
     /** 屏幕 Y → 图空间 Y / screen-space Y → graph-space Y */
-    public float s2cY(double sy) { Screen s = host.asScreen(); return(float)((sy-s.height/2f)/zoom-camY); }
+    public float s2cY(double sy) { return (float)((sy - transY())/zoom); }
 
     /** 增加图代数以作废渲染缓存（Phase 2 脏标记框架）。
      *  Bump graph generation to invalidate render caches (Phase 2 dirty flag framework).

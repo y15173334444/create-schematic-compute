@@ -134,7 +134,12 @@ final class NodeWireRenderer {
         float bx = WireGeometry.bezierX(x1, x2, t1), by = WireGeometry.bezierY(y1, y2, t1);
         float dxs = bx - ax, dys = by - ay;
         float chord = (float) Math.sqrt(dxs * dxs + dys * dys);
-        int steps = Math.max(6, Math.min(48, (int) (chord * 0.15f)));
+        // 步数按 16px 弦长桶派生（抖动治理批 1）：端点 1px 步进不改步数，避免拖动中整线
+        // 重采样蠕动（残余的逐点截断蠕动归批 2 边缘羽化）。
+        // Steps come off a 16px-bucketed chord (jitter batch 1): a 1px endpoint step cannot
+        // change the step count, so the wire never re-samples wholesale mid-drag (the
+        // residual per-sample truncation wiggle belongs to batch 2's edge feather).
+        int steps = Math.max(6, Math.min(48, (int) (((int) chord / 16 * 16) * 0.15f)));
         float px = ax, py = ay;
         for (int i = 1; i <= steps; i++) {
             float t = t0 + (t1 - t0) * i / steps;
