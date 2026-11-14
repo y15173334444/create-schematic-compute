@@ -105,6 +105,46 @@ public final class FormulaNativeSession {
     }
 
     /**
+     * 节点态槽位（R3b 批量形态）：懒分配、slotId 稳定（空洞复用）。节点删除的槽位
+     * 随世界销毁回收（§4.7-2 同口径：会话级泄漏 = 每节点一个空槽位骨架，量级可忽略）。
+     * The node-state slot (R3b batch form): lazily allocated, stable id. Deleted
+     * nodes' slots reclaim at world teardown.
+     */
+    static int slotFor(GraphNode node) {
+        if (!FormulaNative.AVAILABLE) {
+            return -1;
+        }
+        if (node.formulaNativeSlot >= 0) {
+            return node.formulaNativeSlot;
+        }
+        synchronized (FormulaNativeSession.class) {
+            if (node.formulaNativeSlot < 0) {
+                node.formulaNativeSlot = FormulaNative.allocNodeSlot(handle());
+            }
+            return node.formulaNativeSlot;
+        }
+    }
+
+    /** 节点槽位挂起态的循环栈首条 k（测试/观测;未分配/无挂起态 = -1）。 */
+    static long firstLoopK(GraphNode node) {
+        if (!FormulaNative.AVAILABLE || node.formulaNativeSlot < 0) {
+            return -1;
+        }
+        return FormulaNative.nodeSlotFirstLoopK(handle(), node.formulaNativeSlot);
+    }
+
+    /**
+     * 清空节点槽位挂起态（dedup 命中/done-skip 的「carrier 清」镜像;幂等,未分配 = 无操作）。
+     * Clear a node slot's suspend state (the dedup-hit/done-skip carrier-clear mirror).
+     */
+    static void clearNodeSlot(GraphNode node) {
+        if (!FormulaNative.AVAILABLE || node.formulaNativeSlot < 0) {
+            return;
+        }
+        FormulaNative.clearNodeSlot(handle(), node.formulaNativeSlot);
+    }
+
+    /**
      * ServerStoppingEvent 清理（跨世界防污染面，与 FormulaCompute.clearAll 同块）。
      * 销毁 native 会话 + 清空程序缓存；之后首个使用方懒建新会话。
      * ServerStoppingEvent cleanup (the cross-world pollution guard, same block as

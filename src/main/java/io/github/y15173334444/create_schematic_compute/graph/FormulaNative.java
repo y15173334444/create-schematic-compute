@@ -204,6 +204,32 @@ public final class FormulaNative {
                            long sliceNanos, long deadlineInNanos, boolean refreshAfterResume,
                            double[] outputs, byte[] carrierOut, float[] progressOut);
 
+    /** 分配节点态槽位（R3b 批量形态；slotId 稳定，空洞复用；会话无效 = -1）。 */
+    static native int allocNodeSlot(long session);
+
+    /**
+     * 批量求值（R3b，§4.7-6）：一次 JNI 调用按序求值一批成员。挂起态会话内自持
+     * （carrier 不跨界——§4.5 的核心目标）；逐成员 slice/deadline 同 exec 口径；
+     * 逐成员状态/进度/耗时回传。扁平缓冲 + 偏移：成员 i 的输入 = inputs[
+     * inputOffsets[i]..inputOffsets[i+1])（按槽位序，warm 刷新同 exec）；输出 =
+     * outputs[outputOffsets[i]..outputOffsets[i+1])（in/out：调用前按成员当前输出
+     * seed，Done 全量覆写、OutputShed 已完成位新鲜 + 余位保持）。
+     * 返回 0 = 全部成员处理完毕（逐员结果在 statuses，个别成员契约错误落成员状态、
+     * 批继续）；负数 = 批级错误（-1 会话无效 -3 数组校验失败）。
+     */
+    static native int tickBatch(long session, int count,
+                                int[] nodeSlots, int[] programIds, int[] refreshFlags,
+                                double[] inputs, int[] inputOffsets,
+                                long sliceNanos, long deadlineInNanos,
+                                double[] outputs, int[] outputOffsets,
+                                int[] statuses, float[] progress, long[] elapsedNs);
+
+    /** 节点槽位挂起态的循环栈首条 k（测试/观测视图;无挂起态 = -1）。 */
+    static native long nodeSlotFirstLoopK(long session, int slot);
+
+    /** 清空节点槽位的挂起态（dedup 命中/done-skip 的「carrier 清」镜像；幂等）。 */
+    static native void clearNodeSlot(long session, int slot);
+
     static native int abiVersion();
 
     /**

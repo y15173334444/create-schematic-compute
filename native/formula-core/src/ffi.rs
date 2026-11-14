@@ -23,12 +23,12 @@
 
 use std::time::Duration;
 
-use jni::objects::{JByteArray, JClass, JDoubleArray, JFloatArray};
+use jni::objects::{JByteArray, JClass, JDoubleArray, JFloatArray, JIntArray, JLongArray};
 use jni::sys::{jbyte, jfloat, jint, jlong};
 use jni::JNIEnv;
 
 use crate::bridge::{carrier_from_bytes, carrier_to_bytes, decode_program, DecodeError};
-use crate::interp::{eval_output, Budget, Exec, LoopEntry, Outcome};
+use crate::interp::{eval_output, Budget, Carrier, Exec, LoopEntry, Outcome};
 use crate::value::V;
 
 /// ABI 版本（与 Java FormulaNative.ABI_VERSION 及 formula_native.h 同步递增）。
@@ -111,14 +111,40 @@ pub enum ExecError {
 pub struct Session {
     /// 程序槽位表：释放只置 None 不收缩 → programId 稳定，后续上传复用空洞。
     programs: Vec<Option<UploadedProgram>>,
+    /// 逐节点 native 态槽位（R3b 批量形态）：挂起 carrier 会话内自持、不跨界。
+    /// 释放只置 None 保 slotId 稳定；节点删除的槽位随世界销毁回收（§4.7-2 同口径）。
+    /// Per-node native state slots (R3b batch form): the suspended carrier lives in
+    /// the session, never crossing the seam. Freed slots keep their ids; deleted
+    /// nodes' slots reclaim at world teardown (same contract as §4.7-2).
+    nodes: Vec<Option<NodeState>>,
     /// exec 内部暂存：inputs 的 V 形态 / Exec.run 终值中转（容量随首次调用到位后稳定）。
     inputs_v: Vec<V>,
     out_v: Vec<V>,
 }
 
+/// 一个节点槽位的 native 自持挂起态。 / one node slot's native-held suspend state.
+#[derive(Default)]
+struct NodeState {
+    carrier: Option<Carrier>,
+}
+
 impl Session {
     pub fn new() -> Session {
-        Session { programs: Vec::new(), inputs_v: Vec::new(), out_v: Vec::new() }
+        Session { programs: Vec::new(), nodes: Vec::new(), inputs_v: Vec::new(), out_v: Vec::new() }
+    }
+
+    /// 分配节点态槽位（空洞优先复用，slotId 稳定）。 / allocate a node-state slot.
+    pub fn alloc_node_slot(&mut self) -> usize {
+        match self.nodes.iter().position(|n| n.is_none()) {
+            Some(free) => {
+                self.nodes[free] = Some(NodeState::default());
+                free
+            }
+            None => {
+                self.nodes.push(Some(NodeState::default()));
+                self.nodes.len() - 1
+            }
+        }
     }
 
     /// 解码并上传 Program 字节码，返回稳定 programId（释放槽位优先复用）。
@@ -256,6 +282,106 @@ impl Session {
             }
             Outcome::Error => Ok(ExecStatus::Error),
             Outcome::Shed => Ok(ExecStatus::Shed),
+        }
+    }
+
+    /// 一次批量成员求值（R3b）：挂起态从节点槽位取/存（**carrier 不跨界**），
+    /// 其余与 exec 逐语义一致（warm 回灌、两维预算、输出段求值、状态分态）。
+    /// 挂起态的 carrier_len 恒 0（无字节跨界；进度仍回传）。
+    /// One batch-member evaluation (R3b): suspend state comes from / returns to the
+    /// node slot (**carrier never crosses the seam**); everything else matches exec
+    /// verbatim (warm refresh, two budget dimensions, output-section evaluation,
+    /// status split). Suspended carrier_len is always 0 (no bytes cross; progress
+    /// still returns).
+    pub fn batch_exec(
+        &mut self,
+        node_slot: usize,
+        id: usize,
+        inputs: &[f64],
+        refresh_after_resume: bool,
+        slice: Option<Duration>,
+        deadline_in: Option<Duration>,
+        out: &mut [f64],
+    ) -> Result<ExecStatus, ExecError> {
+        // 先校验程序与缓冲，再取挂起态——校验失败绝不丢 carrier。
+        // Validate the program and buffers BEFORE taking the suspend state — a failed
+        // check never drops the carrier.
+        let slot_n = self
+            .programs
+            .get(id)
+            .and_then(|p| p.as_ref())
+            .map(|p| p.prog.names.len())
+            .ok_or(ExecError::UnknownProgram)?;
+        if inputs.len() > slot_n {
+            return Err(ExecError::BadBuffer);
+        }
+        let node = self
+            .nodes
+            .get_mut(node_slot)
+            .and_then(|n| n.as_mut())
+            .ok_or(ExecError::UnknownProgram)?;
+        let resume = node.carrier.take();
+        let slot = self
+            .programs
+            .get_mut(id)
+            .and_then(|p| p.as_mut())
+            .ok_or(ExecError::UnknownProgram)?;
+        self.inputs_v.clear();
+        self.inputs_v.extend(inputs.iter().map(|&v| V::S(v)));
+        self.out_v.clear();
+        self.out_v.resize(slot_n, V::ZERO);
+        let budget = Budget::slice_with_deadline(slice, deadline_in);
+        let ex = Exec::new(
+            &slot.prog,
+            &mut slot.regs,
+            &mut slot.loops,
+            &self.inputs_v,
+            resume,
+            refresh_after_resume,
+            budget,
+        );
+        let prog = &slot.prog;
+        let results = ex.run(&mut self.out_v);
+        // 尾态写回：完成/shed/error 丢态（Java 侧状态机同口径清 done/frozen），
+        // 挂起两态回存 carrier。
+        // Tail-state write-back: Done/Shed/Error drop the state (the Java state
+        // machine clears done/frozen the same way), both suspends store the carrier.
+        match results {
+            Outcome::Done => {
+                node.carrier = None;
+                let out_budget =
+                    Budget { start: budget.start, slice: None, deadline_in: budget.deadline_in };
+                let mut shed = false;
+                for (oi, o) in out.iter_mut().enumerate() {
+                    match prog.outputs.get(oi) {
+                        Some(rpn) => match eval_output(rpn, &self.out_v, prog.scalar_only, &out_budget) {
+                            Ok(v) => *o = v,
+                            Err(crate::interp::Signal::Deadline) => shed = true,
+                            Err(_) => *o = 0.0,
+                        },
+                        None => *o = 0.0,
+                    }
+                }
+                Ok(if shed { ExecStatus::OutputShed } else { ExecStatus::Done })
+            }
+            Outcome::Suspended(c) => {
+                let progress = prog.progress_of(&c.loop_stack);
+                node.carrier = Some(c);
+                Ok(ExecStatus::Suspended { carrier_len: 0, progress })
+            }
+            Outcome::DeadlineSuspended(c) => {
+                let progress = prog.progress_of(&c.loop_stack);
+                node.carrier = Some(c);
+                Ok(ExecStatus::DeadlineSuspended { carrier_len: 0, progress })
+            }
+            Outcome::Error => {
+                node.carrier = None;
+                Ok(ExecStatus::Error)
+            }
+            Outcome::Shed => {
+                node.carrier = None;
+                Ok(ExecStatus::Shed)
+            }
         }
     }
 }
@@ -546,6 +672,222 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
     }
 }
 
+/// 批量求值（R3b，§4.7-6）：一次 JNI 调用按序求值一批成员——挂起态会话内自持
+/// （carrier 不跨界）、逐成员 slice/deadline 同 exec 口径、逐成员状态/进度/耗时回传。
+/// 返回 0 = 全部成员处理完毕（逐员结果在 statuses；个别成员的契约错误也落成员状态，
+/// 其余成员继续）；负数 = 批级错误（-1 会话无效 -3 数组校验失败）。
+/// inputs/outputs = 扁平缓冲，inputOffsets/outputOffsets 给出每成员的 [起,止)；
+/// outputs 语义与 exec 相同（in/out：调用前由调用方 seed 保持值）。
+/// Batch evaluation (R3b, §4.7-6): one JNI call evaluates the members in order —
+/// suspend state lives in the session (carrier never crosses), per-member
+/// slice/deadline match exec, and per-member status/progress/elapsed come back.
+/// Returns 0 when all members were processed (per-member results in statuses; a
+/// member's contract error lands in its own status and the rest continue);
+/// negative = batch-level error (-1 invalid session, -3 array validation).
+#[no_mangle]
+pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_tickBatch<
+    'local,
+>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session: jlong,
+    count: jint,
+    node_slots: JIntArray<'local>,
+    program_ids: JIntArray<'local>,
+    refresh_flags: JIntArray<'local>,
+    inputs: JDoubleArray<'local>,
+    input_offsets: JIntArray<'local>,
+    slice_nanos: jlong,
+    deadline_in_nanos: jlong,
+    outputs: JDoubleArray<'local>,
+    output_offsets: JIntArray<'local>,
+    statuses: JIntArray<'local>,
+    progress: JFloatArray<'local>,
+    elapsed_ns: JLongArray<'local>,
+) -> jint {
+    let Some(cell) = session_cell(session) else {
+        return ERR_SESSION;
+    };
+    let n = count as usize;
+    if n == 0 {
+        return 0;
+    }
+    // 校验先于任何搬运（错误码优先）。 / validation precedes any copy.
+    let int_len = |a: &JIntArray<'_>| env.get_array_length(a).map(|l| l as usize).unwrap_or(0);
+    let float_len = |a: &JFloatArray<'_>| env.get_array_length(a).map(|l| l as usize).unwrap_or(0);
+    let long_len = |a: &JLongArray<'_>| env.get_array_length(a).map(|l| l as usize).unwrap_or(0);
+    if int_len(&node_slots) < n
+        || int_len(&program_ids) < n
+        || int_len(&refresh_flags) < n
+        || int_len(&input_offsets) < n + 1
+        || int_len(&output_offsets) < n + 1
+        || int_len(&statuses) < n
+        || (!progress.is_null() && float_len(&progress) < n)
+        || (!elapsed_ns.is_null() && long_len(&elapsed_ns) < n)
+    {
+        return ERR_BUFFER;
+    }
+    let mut slots_buf = vec![0i32; n];
+    let mut prog_buf = vec![0i32; n];
+    let mut refresh_buf = vec![0i32; n];
+    let mut in_off = vec![0i32; n + 1];
+    let mut out_off = vec![0i32; n + 1];
+    if env.get_int_array_region(&node_slots, 0, &mut slots_buf).is_err()
+        || env.get_int_array_region(&program_ids, 0, &mut prog_buf).is_err()
+        || env.get_int_array_region(&refresh_flags, 0, &mut refresh_buf).is_err()
+        || env.get_int_array_region(&input_offsets, 0, &mut in_off).is_err()
+        || env.get_int_array_region(&output_offsets, 0, &mut out_off).is_err()
+    {
+        return ERR_BUFFER;
+    }
+    let in_len = if inputs.is_null() {
+        0
+    } else {
+        match env.get_array_length(&inputs) {
+            Ok(l) => l as usize,
+            Err(_) => return ERR_BUFFER,
+        }
+    };
+    let out_len = if outputs.is_null() {
+        0
+    } else {
+        match env.get_array_length(&outputs) {
+            Ok(l) => l as usize,
+            Err(_) => return ERR_BUFFER,
+        }
+    };
+    // offsets 单调不越界校验。 / offsets must be monotonic and in range.
+    for i in 0..=n {
+        let (io, oo) = (in_off[i] as usize, out_off[i] as usize);
+        if io > in_len || oo > out_len {
+            return ERR_BUFFER;
+        }
+        if i > 0 && (io < in_off[i - 1] as usize || oo < out_off[i - 1] as usize) {
+            return ERR_BUFFER;
+        }
+    }
+    let mut in_flat = vec![0.0f64; in_len];
+    if in_len > 0 && env.get_double_array_region(&inputs, 0, &mut in_flat).is_err() {
+        return ERR_BUFFER;
+    }
+    let mut out_flat = vec![0.0f64; out_len];
+    if out_len > 0 && env.get_double_array_region(&outputs, 0, &mut out_flat).is_err() {
+        return ERR_BUFFER;
+    }
+    let slice =
+        if slice_nanos > 0 { Some(Duration::from_nanos(slice_nanos as u64)) } else { None };
+    let deadline_in = if deadline_in_nanos < 0 {
+        Some(Duration::ZERO)
+    } else if deadline_in_nanos > 0 {
+        Some(Duration::from_nanos(deadline_in_nanos as u64))
+    } else {
+        None
+    };
+    let mut s = lock_session(&cell);
+    let mut status_buf = vec![0i32; n];
+    let mut prog_out_buf = vec![0.0f32; n];
+    let mut elapsed_buf = vec![0i64; n];
+    for i in 0..n {
+        let i0 = in_off[i] as usize;
+        let i1 = in_off[i + 1] as usize;
+        let o0 = out_off[i] as usize;
+        let o1 = out_off[i + 1] as usize;
+        let t0 = std::time::Instant::now();
+        let st = s.batch_exec(
+            slots_buf[i] as usize,
+            prog_buf[i] as usize,
+            &in_flat[i0..i1],
+            refresh_buf[i] != 0,
+            slice,
+            deadline_in,
+            &mut out_flat[o0..o1],
+        );
+        let took = t0.elapsed().as_nanos() as i64;
+        match st {
+            Ok(ExecStatus::Done) => status_buf[i] = OK_DONE,
+            Ok(ExecStatus::OutputShed) => status_buf[i] = OK_OUTPUT_SHED,
+            Ok(ExecStatus::Suspended { carrier_len: _, progress }) => {
+                status_buf[i] = OK_SUSPENDED;
+                prog_out_buf[i] = progress;
+            }
+            Ok(ExecStatus::DeadlineSuspended { carrier_len: _, progress }) => {
+                status_buf[i] = OK_DEADLINE_SUSPENDED;
+                prog_out_buf[i] = progress;
+            }
+            Ok(ExecStatus::Error) => status_buf[i] = OK_EXEC_ERROR,
+            Ok(ExecStatus::Shed) => status_buf[i] = OK_SHED,
+            // 逐员契约错误落成员状态（未知槽位/程序 = -2、缓冲 = -3），批继续。
+            // A member's contract error lands in its own status; the batch continues.
+            Err(ExecError::UnknownProgram) => status_buf[i] = ERR_PROGRAM_ID,
+            Err(ExecError::BadCarrier) => status_buf[i] = ERR_CARRIER,
+            Err(ExecError::BadBuffer) => status_buf[i] = ERR_BUFFER,
+        }
+        elapsed_buf[i] = took;
+    }
+    // outputs 整段写回（Done 全量覆写、OutputShed 已完成位新鲜 + 余位保持 seed 值）。
+    // Write the outputs region back wholesale (Done overwrites; OutputShed keeps the
+    // caller's seeded values beyond the completed prefix).
+    if out_len > 0 && env.set_double_array_region(&outputs, 0, &out_flat).is_err() {
+        return ERR_BUFFER;
+    }
+    if env.set_int_array_region(&statuses, 0, &status_buf).is_err() {
+        return ERR_BUFFER;
+    }
+    if !progress.is_null() && env.set_float_array_region(&progress, 0, &prog_out_buf).is_err() {
+        return ERR_BUFFER;
+    }
+    if !elapsed_ns.is_null() && env.set_long_array_region(&elapsed_ns, 0, &elapsed_buf).is_err() {
+        return ERR_BUFFER;
+    }
+    0
+}
+
+/// 分配节点态槽位（R3b 批量形态；slotId 稳定，空洞复用）。
+/// Allocate a node-state slot (R3b batch form; stable ids, holes reused).
+#[no_mangle]
+pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_allocNodeSlot<
+    'local,
+>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session: jlong,
+) -> jint {
+    let Some(cell) = session_cell(session) else {
+        return ERR_SESSION;
+    };
+    let mut s = lock_session(&cell);
+    s.alloc_node_slot() as jint
+}
+
+/// 节点槽位挂起态的循环栈首条 k（R3b 测试/观测视图——carrier 自持后 Java 侧的
+/// loopStack.get(0).k 镜像;无挂起态/空栈 = -1）。
+/// The node slot's suspend-state first loop-stack k (the R3b test/observability view
+/// mirroring Java's loopStack.get(0).k once the carrier is native-held; -1 when
+/// absent/empty).
+#[no_mangle]
+pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_nodeSlotFirstLoopK<
+    'local,
+>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session: jlong,
+    slot: jint,
+) -> jlong {
+    let Some(cell) = session_cell(session) else {
+        return -1;
+    };
+    let s = lock_session(&cell);
+    match s
+        .nodes
+        .get(slot as usize)
+        .and_then(|n| n.as_ref())
+        .and_then(|n| n.carrier.as_ref())
+    {
+        Some(c) if !c.loop_stack.is_empty() => c.loop_stack[0].k as jlong,
+        _ => -1,
+    }
+}
+
 /// carrierOut 数组长度（前置校验已排除 null）。 / Length of the carrierOut array (null pre-checked).
 fn carrier_out_len(env: &JNIEnv<'_>, arr: &JByteArray<'_>) -> jint {
     env.get_array_length(arr).unwrap_or(0) as jint
@@ -648,6 +990,40 @@ mod tests {
         assert!(!s.release(id));
         assert!(!s.release(99));
         assert_eq!(s.program_slots(id), None);
+    }
+
+    #[test]
+    fn session_batch_exec_native_state() {
+        let bin = scalar_loop_bytes();
+        let mut s = Session::new();
+        let id = s.upload(&bin).expect("upload");
+        let slot = s.alloc_node_slot();
+        // 不限预算基准:Done,o[0] = 输出表达式(acc)终值逐位。
+        let mut out = vec![0.0; 1];
+        assert_eq!(
+            s.batch_exec(slot, id, &[], false, None, None, &mut out).expect("baseline"),
+            ExecStatus::Done
+        );
+        assert_eq!(out[0].to_bits(), 4999950.0f64.to_bits(), "acc bit-exact via batch face");
+        // 500µs slice 反复挂起:状态会话内自持(carrier 不跨界),收敛后与基准逐位。
+        // Repeated suspend with the state held in the session (no carrier crossing):
+        // converges bit-exact against the unbudgeted baseline.
+        let mut sliced = vec![0.0; 1];
+        let mut rounds = 0u32;
+        loop {
+            rounds += 1;
+            assert!(rounds < 200_000, "not converging");
+            match s
+                .batch_exec(slot, id, &[], false, Some(Duration::from_nanos(500_000)), None, &mut sliced)
+                .expect("sliced batch exec")
+            {
+                ExecStatus::Done => break,
+                ExecStatus::Suspended { carrier_len, .. } => assert_eq!(carrier_len, 0, "no bytes cross"),
+                ExecStatus::DeadlineSuspended { .. } => {}
+                other => panic!("unexpected {other:?}"),
+            }
+        }
+        assert_eq!(sliced[0].to_bits(), out[0].to_bits(), "native-held state converges bit-exact");
     }
 
     #[test]

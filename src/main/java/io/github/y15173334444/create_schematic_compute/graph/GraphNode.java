@@ -99,7 +99,8 @@ public class GraphNode {
     // R3 native-path node state (byte-carrier representation; mutually exclusive with
     // the formulaCarrier object state — AVAILABLE is process-static, a node never
     // crosses paths, the two states never convert. §4.7-3).
-    public transient byte[] formulaNativeCarrier = null;   // 挂起态字节(null=全新/done) / suspended-state bytes (null = fresh/done)
+    public transient int formulaNativeSlot = -1;          // native 节点态槽位(-1=未分配) / native node-state slot (-1 = unallocated)
+    public transient int formulaNativeStatus = 0;          // 上次批量面状态码(挂起性镜像:1/4=挂起中) / last batch-face status (1/4 = suspended)
     public transient float[] formulaNativeFrozen = null;   // spread 期间冻结输入快照 / frozen input snapshot during the spread
     public transient boolean formulaNativeDone = false;    // emit-on-done(输入未变整节点跳过) / emit-on-done (skip while inputs unchanged)
     public transient java.util.List<FormulaParser.FormulaIssue> formulaIssues = null; // 客户端校验问题 (client-side validation issues)

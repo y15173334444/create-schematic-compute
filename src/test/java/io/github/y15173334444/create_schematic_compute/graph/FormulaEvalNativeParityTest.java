@@ -203,7 +203,8 @@ class FormulaEvalNativeParityTest {
         for (int i = 0; i < 200; i++) FormulaCompute.reportYield();
         FormulaCompute.beginTick();
         face.ev().evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-        assertTrue(face.node().formulaNativeCarrier != null, "byte carrier must ride the node after suspend");
+        assertTrue(face.node().formulaNativeStatus == 1 || face.node().formulaNativeStatus == 4,
+            "suspend status must ride the node (carrier state is native-held since R3b)");
         assertTrue(face.node().formulaSpreadProgress > 0f, "render progress positive");
         assertEquals(0f, face.ev().getNodeOutput(face.node().id, 0), 0.0001f, "emit-on-done: output frozen");
 
@@ -245,7 +246,7 @@ class FormulaEvalNativeParityTest {
         FormulaCompute.setBudgetMsSource(() -> 0.0005);
         FormulaCompute.beginTick();
         face.ev().evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
-        assertTrue(face.node().formulaNativeCarrier != null, "deadline suspend keeps the carrier");
+        assertTrue(face.node().formulaNativeStatus == 4, "deadline suspend keeps the carrier (status 4)");
         assertTrue(face.node().formulaNativeDone == false, "not done — suspended");
         FormulaCompute.beginTick();
         assertEquals(0, FormulaCompute.heavyYieldCountPrev(),

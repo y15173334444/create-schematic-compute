@@ -61,6 +61,30 @@ Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_exec(
     jlong sliceNanos, jlong deadlineInNanos, jboolean refreshAfterResume,
     jdoubleArray outputs, jbyteArray carrierOut, jfloatArray progressOut);
 
+/* 节点态槽位分配（R3b 批量形态;slotId 稳定,空洞复用;会话无效 = -1）。 */
+JNIEXPORT jint JNICALL
+Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_allocNodeSlot(JNIEnv*, jclass, jlong session);
+
+/* 清空节点槽位挂起态（dedup 命中/done-skip 的 carrier 清镜像;幂等）。 */
+JNIEXPORT void JNICALL
+Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_clearNodeSlot(JNIEnv*, jclass, jlong session, jint slot);
+
+/* 节点槽位挂起态的循环栈首条 k(测试/观测视图;无挂起态/空栈 = -1)。 */
+JNIEXPORT jlong JNICALL
+Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_nodeSlotFirstLoopK(JNIEnv*, jclass, jlong session, jint slot);
+
+/* 批量求值（R3b,§4.7-6）：一次调用按序求值一批成员;挂起态会话内自持(carrier 不跨界);
+ * 扁平缓冲 + 偏移给出每成员的输入/输出窗口;逐成员状态/进度/耗时回传;个别成员契约
+ * 错误落成员状态、批继续。返回 0 = 处理完毕;-1 会话无效 -3 数组校验失败。 */
+JNIEXPORT jint JNICALL
+Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_tickBatch(JNIEnv*, jclass,
+    jlong session, jint count,
+    jintArray nodeSlots, jintArray programIds, jintArray refreshFlags,
+    jdoubleArray inputs, jintArray inputOffsets,
+    jlong sliceNanos, jlong deadlineInNanos,
+    jdoubleArray outputs, jintArray outputOffsets,
+    jintArray statuses, jfloatArray progress, jlongArray elapsedNs);
+
 /* ABI/诊断。 */
 JNIEXPORT jint JNICALL
 Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_abiVersion(JNIEnv*, jclass);

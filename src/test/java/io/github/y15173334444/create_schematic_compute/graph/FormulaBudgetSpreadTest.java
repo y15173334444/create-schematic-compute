@@ -29,8 +29,9 @@ class FormulaBudgetSpreadTest {
     //    R3 native dispatch the state carrier follows AVAILABLE (Java = the Carrier
     //    object / native = the byte carrier + the done flag); assertions ride one view.
     private static boolean suspended(GraphNode f) {
+        // R3b native 面:carrier 会话内自持,Java 侧以批量面状态码镜像挂起性(1/4)。
         return FormulaNative.AVAILABLE
-            ? f.formulaNativeCarrier != null
+            ? (f.formulaNativeStatus == 1 || f.formulaNativeStatus == 4)
             : (f.formulaCarrier != null && !f.formulaCarrier.done);
     }
 
@@ -42,13 +43,14 @@ class FormulaBudgetSpreadTest {
 
     private static long loopK0(GraphNode f) {
         return FormulaNative.AVAILABLE
-            ? FormulaNative.carrierFirstLoopK(f.formulaNativeCarrier)
+            ? FormulaNativeSession.firstLoopK(f)
             : f.formulaCarrier.loopStack.get(0).k;
     }
 
     private static void assertNoCarrier(GraphNode f) {
         if (FormulaNative.AVAILABLE) {
-            assertNull(f.formulaNativeCarrier);
+            // shed/error/done 都丢 native 槽位态;status 2 = MAX_ITER shed 面。
+            org.junit.jupiter.api.Assertions.assertEquals(2, f.formulaNativeStatus, "shed face status");
         } else {
             assertNull(f.formulaCarrier);
         }
