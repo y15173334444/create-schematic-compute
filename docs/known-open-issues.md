@@ -1114,6 +1114,13 @@ SignalBus 键空间已按维度隔离（`<维度id>\u0001<逻辑名>`，1176 绿
 - 修复方向：独立缺陷，按 init 重跑（resize → `Screen.init` → `GraphJoinPacket` 重发 → 全量同步/焦点重建）的会话状态累积取证；与渲染性能线解耦。
 / Session-level render degradation after repeated in-session resizes (3× canvas, steady); clean restart recovers. Independent of the perf line; audit the resize→init→re-join state accumulation.
 
+## 35. CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次）
+
+- 机制：`escalationLadder` 的预热豁免窗与超份额记账耦合墙钟（提供方 `spinOverSlice` 忙等越片自证、豁免窗按真实时间到期）——满载（游戏客户端同机吃 CPU）下豁免窗在调用计数意义上提前到期，梯子提前冻结：`expected: <21> but was: <11>`（CustomNodeEvalTest:252）。单跑与两次全量复跑均绿，仅 2026-11-14 深夜满载一次翻车；纯 graph/eval 域，与渲染改动零交集。
+- 修复方向：预算/豁免窗去墙钟（注入 Clock 或按 tick 计数），断言与机器负载解耦。
+- 状态：**暂缓**（负载敏感波动，非产品缺陷）。
+/ The escalation-ladder test couples its preheat exemption and over-slice accounting to the wall clock (the provider busy-spins past its slice; the exemption window expires in real time) — under heavy same-machine load the window expires earlier in call-count terms and the ladder freezes early (expected 21, got 11). Green standalone and on two full re-runs; one flake under load. Fix direction: inject a clock or count ticks. Deferred (load-sensitive flake, not a product defect).
+
 ### 状态 / Status
 
-🔶 暂缓（2026-11-15 拓扑批登记；33.3 随纯自动拍板失去对象已关闭；**34.1/34.2 于 2026-11-14 渲染性能线登记**，34.1 等机制取证后重设计、34.2 独立取证）。
+🔶 暂缓（2026-11-15 拓扑批登记；33.3 随纯自动拍板失去对象已关闭；**34.1/34.2 于 2026-11-14 渲染性能线登记**，34.1 等机制取证后重设计、34.2 独立取证；**35 于 2026-11-14 渲染性能线登记**，负载敏感测试波动待去墙钟）。
