@@ -154,4 +154,32 @@ class ScreenTransformTest {
             assertEquals(gy, gy2, 1e-2f, "锚点 Y 漂移 / anchor Y drifted");
         }
     }
+
+    @Test
+    @DisplayName("捏合直驱：手指间距比 1:1 映射、无操作 no-op、钳制 / pinch drives directly: 1:1 finger ratio, no-op at 1, clamped")
+    void pinchStepDrivesDirectlyAndClamps() {
+        // 1:1：捏 1.25 倍手指间距 = 放大 1.25 / 1:1 — a 1.25× finger distance zooms 1.25×
+        assertEquals(1.25f, ScreenTransform.pinchStep(1f, 1.25), 1e-6f);
+        assertEquals(0.8f, ScreenTransform.pinchStep(1f, 0.8), 1e-6f);
+        // 比例链乘法性（与帧切分无关）/ multiplicative across frames (frame-split invariant)
+        float z = ScreenTransform.pinchStep(ScreenTransform.pinchStep(1.3f, 1.2), 1.1);
+        assertEquals(1.3f * 1.2f * 1.1f, z, 1e-5f);
+        // no-op 与钳制 / no-op and clamps
+        assertEquals(1.37f, ScreenTransform.pinchStep(1.37f, 1.0), 1e-7f);
+        assertEquals(4f, ScreenTransform.pinchStep(3.9f, 2.0), 1e-6f);
+        assertEquals(0.25f, ScreenTransform.pinchStep(0.26f, 0.2), 1e-6f);
+    }
+
+    @Test
+    @DisplayName("合成滚轮刻度因子：整刻度=底数倍、分数连续、反向对称 / synthesized wheel notch factor: whole notch = the base, fractional continuous, symmetric")
+    void wheelNotchFactorMapsWholeAndFractionalNotches() {
+        assertEquals(1.05, ScreenTransform.wheelNotchFactor(120, 1.05), 1e-9);
+        assertEquals(1.0, ScreenTransform.wheelNotchFactor(0, 1.05), 1e-9);
+        assertEquals(1.0 / 1.05, ScreenTransform.wheelNotchFactor(-120, 1.05), 1e-9);
+        // 半刻度 = 平方根（分数连续）/ half a notch = the square root (fractional continuity)
+        assertEquals(Math.sqrt(1.05), ScreenTransform.wheelNotchFactor(60, 1.05), 1e-9);
+        // 可乘性（与帧切分无关）/ multiplicative (frame-split invariant)
+        double f = ScreenTransform.wheelNotchFactor(37, 1.05) * ScreenTransform.wheelNotchFactor(83, 1.05);
+        assertEquals(ScreenTransform.wheelNotchFactor(120, 1.05), f, 1e-9);
+    }
 }

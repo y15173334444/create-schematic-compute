@@ -1428,6 +1428,11 @@ public class GraphEditor {
      *  @param mx 鼠标 X 坐标（屏幕空间）/ mouse X (screen space)
      *  @param my 鼠标 Y 坐标（屏幕空间）/ mouse Y (screen space) */
     public void renderBg(GuiGraphics g, int mx, int my) {
+        // GZ-2：Win32 手势钩子幂等装挂 + 消化攒下的捏合比例（无手势时近零开销）。
+        // GZ-2: idempotent Win32 gesture-hook install + consume any accumulated pinch
+        // ratio (near-zero cost with no gesture in flight).
+        Win32GestureZoom.ensureInstalled();
+        Win32GestureZoom.drain(this, mx, my);
         viewBookmarks.advanceCameraTransition(); // 每帧推进视角过渡动画 / advance camera transition per frame
         var graph = getGraph();
         // 代际比较必须**绑定同一个图实例**：多实例（主图/子图/重载后的新实例）各有自己的计数器，
@@ -4624,6 +4629,16 @@ public class GraphEditor {
         camX = ScreenTransform.anchorPanX(camX, mx, host.asScreen().width, oz, zoom);
         camY = ScreenTransform.anchorPanY(camY, my, host.asScreen().height, oz, zoom);
         return true;
+    }
+
+    /** GZ-2 捏合缩放（Win32 手势钩子喂入的手指间距比）：1:1 直驱，锚点=捏合中心。
+     *  GZ-2 pinch zoom (the finger-distance ratio fed by the Win32 gesture hook): direct
+     *  1:1 drive, anchored at the pinch centroid. */
+    public void applyGestureZoom(double scale, double cx, double cy) {
+        float oz = zoom;
+        zoom = ScreenTransform.pinchStep(oz, scale);
+        camX = ScreenTransform.anchorPanX(camX, cx, host.asScreen().width, oz, zoom);
+        camY = ScreenTransform.anchorPanY(camY, cy, host.asScreen().height, oz, zoom);
     }
     /** 处理键盘按键——ESC 关闭面板、Enter 提交编辑、Ctrl+Z/Y 撤销重做、
      *  Ctrl+D 复制、X 键删除、Delete 删除、C 键创建注释、TAB 框选模式等。

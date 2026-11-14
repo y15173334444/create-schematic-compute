@@ -70,6 +70,23 @@ final class ScreenTransform {
         return camY + (float) ((my - screenHeight / 2f) * (1.0 / newZoom - 1.0 / oldZoom));
     }
 
+    /** 捏合缩放（GZ-2，docs/graph-editor-gesture-zoom-plan.md）：手指间距比**直驱**（1:1 跟手）
+     *  ——与滚轮的指数映射语义不同，捏合给出的本来就是比例。0.25–4 钳制。
+     *  Pinch zoom (GZ-2): the finger-distance ratio drives zoom directly (1:1 with the
+     *  fingers) — unlike the wheel's exponential map, a pinch already IS a ratio.
+     *  Clamped to 0.25–4. */
+    static float pinchStep(float zoom, double scale) {
+        return Math.max(0.25f, Math.min(4f, zoom * (float) scale));
+    }
+
+    /** 捏合合成滚轮 → 缩放因子（GZ-2 回退通道）：每 120 滚轮单位（一整刻度）= notchBase 倍，
+     *  分数增量连续。 / Synthesized pinch wheel → zoom factor (GZ-2 fallback channel): 120
+     *  wheel units (one whole notch) = one notchBase step, fractional deltas stay
+     *  continuous. */
+    static double wheelNotchFactor(double delta, double notchBase) {
+        return Math.pow(notchBase, delta / 120.0);
+    }
+
     /** 节点屏幕原点 Y（每帧吸附一次）。 / Node screen origin Y, snapped once per frame. */
     static int nodeY(NodeRenderer.CoordMapper c2sY, GraphNode n) {
         return px(c2sY.apply(n.y));
