@@ -3,14 +3,15 @@
 //! 重生成夹具）：
 //!
 //! ```text
-//! Program（小端）:
-//!   "CSCF" magic + u32 version(=1)
+//! Program（小端;v2 —— 输出表达式段进契约,与 Java FormulaTokEncoder 同步）:
+//!   "CSCF" magic + u32 version(=2)
 //!   u32 slot_count;  每 slot: u16 name_len + UTF-8
 //!   u32 repeat_count; 每 项: u16 loop_id + u64 count
 //!   u32 top_stmt_count; Stmt*:
 //!     u8 tag; 0=Assign{u16 slot, Rpn} 1=Expr{Rpn} 2=Repeat{u16 id,u64 count,u32 n,Stmt*}
 //!             3=While{u16 id, Rpn cond, u32 n, Stmt*} 4=If{Rpn,u32 n,Stmt*,u32 m,Stmt*}
 //!             5=Break 6=Continue
+//!   u32 output_count; Rpn*(= Java outputRpns;Done 时对终值寄存器逐条求值)
 //!   Rpn: u32 tok_count; Tok 16B/个: u8 tag + 7B pad + 8B payload(小端)
 //!     tag 0 Const: f64 bits   1 Var: u16 slot   2 Op: u8 char
 //!     3 Cmp: u8(0..5)  4 Not: 0  5 Fn: u8(枚举序)  6 Swz: u8(0..2, 9=lenient 恒零)
@@ -29,7 +30,7 @@ use crate::tok::Tok;
 use crate::value::V;
 
 const PROGRAM_MAGIC: &[u8; 4] = b"CSCF";
-const PROGRAM_VERSION: u32 = 1;
+const PROGRAM_VERSION: u32 = 2;
 const CARRIER_MAGIC: &[u8; 4] = b"CSCC";
 const CARRIER_VERSION: u32 = 1;
 /// 语句嵌套解码深度帽（镜像 Java FormulaParser.MAX_PARSE_DEPTH：合法程序必然
@@ -240,13 +241,25 @@ pub fn decode_program(bytes: &[u8]) -> Result<Program, DecodeError> {
     }
     let top = c.u32v()?;
     let body = decode_stmts(&mut c, top, 0)?;
+    // v2 输出段：u32 条数 + 逐条 Rpn（Java outputRpns；空 @output 脚本 = 0 条，
+    // 调用方输出缓冲按「oi ≥ 条数 = 0」口径收尾——与 Java List.of(0.0) 同语义）。
+    // v2 output section: count + one Rpn each (Java's outputRpns; a script without
+    // @output encodes zero entries — the caller's buffer fills 0 for oi ≥ count,
+    // the same semantics as Java's List.of(0.0) fallback).
+    let out_count = c.u32v()? as usize;
+    let mut outputs = Vec::with_capacity(out_count.min(4096));
+    for _ in 0..out_count {
+        outputs.push(decode_rpn(&mut c)?);
+    }
     if c.p != bytes.len() {
         return Err(DecodeError::TrailingBytes(c.p));
     }
-    // scalar_only 由 native 侧按同一规则自测（与编码器解耦）
+    // scalar_only 由 native 侧按同一规则自测（与编码器解耦；输出段共判——
+    // 输出里藏向量函数/swizzle 会让快路径漏判 vec3 值域）。
     let body = body.into_boxed_slice();
-    let scalar_only = crate::ast::scan_scalar_only(&body);
-    Ok(Program { body, names, repeat_counts, scalar_only })
+    let scalar_only =
+        crate::ast::scan_scalar_only_with_outputs(&body, &outputs);
+    Ok(Program { body, names, repeat_counts, outputs: outputs.into_boxed_slice(), scalar_only })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

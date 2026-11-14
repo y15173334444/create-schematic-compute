@@ -23,28 +23,40 @@
 
 use std::time::Duration;
 
-use jni::objects::{JByteArray, JClass, JDoubleArray};
-use jni::sys::{jbyte, jint, jlong};
+use jni::objects::{JByteArray, JClass, JDoubleArray, JFloatArray};
+use jni::sys::{jbyte, jfloat, jint, jlong};
 use jni::JNIEnv;
 
 use crate::bridge::{carrier_from_bytes, carrier_to_bytes, decode_program, DecodeError};
-use crate::interp::{Budget, Exec, LoopEntry, Outcome};
+use crate::interp::{eval_output, Budget, Exec, LoopEntry, Outcome};
 use crate::value::V;
 
 /// ABI 版本（与 Java FormulaNative.ABI_VERSION 及 formula_native.h 同步递增）。
 /// ABI version, kept in lockstep with FormulaNative.ABI_VERSION and the header.
-pub(crate) const ABI_VERSION: jint = 1;
+pub(crate) const ABI_VERSION: jint = 2;
 
 // exec 返回码（契约 = formula_native.h）。 / exec return codes (contract = the header).
 const OK_DONE: jint = 0;
 const OK_SUSPENDED: jint = 1;
 const OK_SHED: jint = 2;
+/// 3 = 输出阶段撞 K6 deadline（已完成输出新鲜、撞线者与其后超帽者保持、carrier
+/// 作废——Java outputShed 口径）。 / deadline hit in the output phase.
+const OK_OUTPUT_SHED: jint = 3;
+/// 4 = fromDeadline 挂起（carrierOut 有效；免计 yield，Java 走公平规则）。
+/// / fromDeadline suspend (carrierOut valid; no yield count, Java fairness rule).
+const OK_DEADLINE_SUSPENDED: jint = 4;
+/// 5 = 受控求值错误（栈下溢/嵌套超深——Java catch(Exception) 同型:输出归零、carrier
+/// 作废、不进 dedup）。 / controlled eval error (underflow/depth — Java
+/// catch(Exception) shape: outputs zeroed, carrier dropped, no dedup).
+const OK_EXEC_ERROR: jint = 5;
 /// -1 会话无效（null 哨兵/过期句柄/敌意句柄）。 / invalid session (null/stale/forged).
 const ERR_SESSION: jint = -1;
 /// -2 程序 id 无效（未上传或已释放）。 / unknown or released program id.
 const ERR_PROGRAM_ID: jint = -2;
-/// -3 输入/输出缓冲尺寸不符（超槽位数为契约外形态；未给满按 lenient 0）。
-/// / buffer size mismatch (oversized = contract violation; short = lenient zero fill).
+/// -3 输入缓冲尺寸不符（超槽位数为契约外形态；未给满按 lenient 0；输出缓冲按
+/// o 语义无槽位上界——v2 起 outputs = 输出引脚值，不再对齐槽数）。
+/// / input buffer size mismatch (outputs lose the slot bound in v2 — they carry
+/// output-pin values, not slot finals).
 const ERR_BUFFER: jint = -3;
 /// -4 carrier 解码失败或超尺寸帽。 / carrier decode failure or over the size cap.
 const ERR_CARRIER: jint = -4;
@@ -62,14 +74,24 @@ struct UploadedProgram {
     loops: Vec<LoopEntry>,
 }
 
-/// exec 终态（JNI 层映射回 jint）。挂起时携带本次写入 carrier 字节数。
-/// Terminal exec status (mapped to jint by the JNI layer); carries the written
-/// carrier length on suspension.
+/// exec 终态（JNI 层映射回 jint）。挂起态携带本次写入 carrier 字节数 + spread 进度
+/// （Java progressOf 镜像，来自 prog.repeat_counts 与挂起循环栈）。
+/// Terminal exec status (mapped to jint by the JNI layer); suspension carries the
+/// written carrier length plus the spread progress (Java progressOf mirror).
 #[derive(Debug, PartialEq)]
 pub enum ExecStatus {
+    /// Done：输出表达式已逐条求值写入 `out`（无 OutputShed）。
+    /// Done with every output evaluated and written into `out`.
     Done,
-    Suspended { carrier_len: usize },
+    Suspended { carrier_len: usize, progress: f32 },
     Shed,
+    /// 输出阶段撞 deadline：已完成输出已写入 `out`，撞线者保持（未写）。
+    /// Deadline in the output phase: completed outputs written, the hit one holds.
+    OutputShed,
+    DeadlineSuspended { carrier_len: usize, progress: f32 },
+    /// 受控求值错误（栈下溢/嵌套超深——Java catch(Exception) 同型）。
+    /// Controlled eval error (underflow / depth overflow — the Java catch(Exception) shape).
+    Error,
 }
 
 /// Session 编排层错误（JNI 层映射：UnknownProgram→-2 BadCarrier→-4 BadBuffer→-3）。
@@ -133,19 +155,26 @@ impl Session {
         self.programs.get(id).and_then(|p| p.as_ref()).map(|p| p.prog.names.len())
     }
 
-    /// 一次求值。`inputs` 按槽位序（可短于槽位数，其余 lenient 0；超长 = 契约外）；
-    /// `resume` = 上次挂起的 carrier 字节（None = 全新求值）；`slice` = None 不限预算；
-    /// `out` 按槽位序收终值（可短于槽位数）；`carrier_out` = Suspended 时收 carrier
-    /// 字节（None = 挂起即丢态）。
-    /// One evaluation. inputs are slot-ordered (short is lenient-zero, over-length is a
-    /// contract violation); resume carries the suspended carrier bytes; Done copies finals
-    /// into out; a suspension serializes into carrier_out (None drops the state).
+    /// 一次求值（v2）。`inputs` 按槽位序（可短于槽位数，其余 lenient 0；超长 = 契约外）；
+    /// `resume` = 上次挂起的 carrier 字节（None = 全新求值）；`refresh_inputs_after_resume`
+    /// = warm 续算（回灌后再写 inputs）；`slice`/`deadline_in` = 两维预算（None 不限）；
+    /// `out` = 输出引脚值（o 语义：Done/OutputShed 逐条写输出表达式值，长度任意 ≤
+    /// 调用方口径——v2 起不再对齐槽数）；`carrier_out` = 挂起时收 carrier 字节
+    /// （None = 挂起即丢态）。
+    /// One evaluation (v2). inputs are slot-ordered (short is lenient-zero, over-length
+    /// is a contract violation); resume carries the suspended carrier bytes;
+    /// refresh_inputs_after_resume = warm resume (inputs land after the snapshot);
+    /// slice/deadline_in are the two budget dimensions (None = unlimited); `out`
+    /// carries output-pin values (the o semantics — evaluated per output expression,
+    /// no slot bound since v2); a suspension serializes into carrier_out.
     pub fn exec(
         &mut self,
         id: usize,
         inputs: &[f64],
         resume: Option<&[u8]>,
+        refresh_inputs_after_resume: bool,
         slice: Option<Duration>,
+        deadline_in: Option<Duration>,
         out: &mut [f64],
         mut carrier_out: Option<&mut Vec<u8>>,
     ) -> Result<ExecStatus, ExecError> {
@@ -155,21 +184,20 @@ impl Session {
             .and_then(|p| p.as_mut())
             .ok_or(ExecError::UnknownProgram)?;
         let slot_n = slot.prog.names.len();
-        if inputs.len() > slot_n || out.len() > slot_n {
+        if inputs.len() > slot_n {
             return Err(ExecError::BadBuffer);
         }
         let resume_carrier =
             resume.map(carrier_from_bytes).transpose().map_err(|_| ExecError::BadCarrier)?;
         // 暂存缓冲：容量到位后 clear/extend 不再分配（引擎路径稳态零分配的前提）。
-        // Scratch buffers: after the first calls clear/extend never allocate again.
+        // 终值缓冲按全槽位（输出表达式求值要对任意变量回读）。
+        // Scratch buffers: after the first calls clear/extend never allocate again;
+        // the finals buffer spans all slots (output expressions read any variable).
         self.inputs_v.clear();
         self.inputs_v.extend(inputs.iter().map(|&v| V::S(v)));
         self.out_v.clear();
-        self.out_v.resize(out.len(), V::ZERO);
-        let budget = match slice {
-            Some(d) => Budget::slice(d),
-            None => Budget::unlimited(),
-        };
+        self.out_v.resize(slot_n, V::ZERO);
+        let budget = Budget::slice_with_deadline(slice, deadline_in);
         // 字段级拆借：Program 只读，regs/loops 独占可变（Exec 契约：调用方缓冲跨 exec 复用）。
         // Field-split borrows: Program read-only, regs/loops exclusively mutable.
         let ex = Exec::new(
@@ -178,23 +206,55 @@ impl Session {
             &mut slot.loops,
             &self.inputs_v,
             resume_carrier,
+            refresh_inputs_after_resume,
             budget,
         );
         match ex.run(&mut self.out_v) {
             Outcome::Done => {
-                for (o, v) in out.iter_mut().zip(self.out_v.iter()) {
-                    *o = v.as_scalar();
+                // v2 输出段：对终值寄存器逐条求值输出表达式（Java outputRpns 镜像）。
+                // 输出阶段预算 = 同锚 + 仅 deadline 维度（slice None：Java 输出阶段
+                // 不查 slice、不推 MAX_ITER）；撞 deadline 的输出保持（不写），畸形
+                // RPN lenient 0，`oi ≥ 输出条数` 恒 0（Java List.of(0.0) 同口径）。
+                // v2 output section: evaluate each output expression against the final
+                // registers. The output phase rides the same anchor with only the
+                // deadline dimension (Java's output phase checks no slice, pushes no
+                // MAX_ITER); a deadline hit holds that output (no write), malformed
+                // RPNs read lenient 0, and oi ≥ output-count reads 0.
+                let out_budget =
+                    Budget { start: budget.start, slice: None, deadline_in: budget.deadline_in };
+                let scalar_only = slot.prog.scalar_only;
+                let mut shed = false;
+                for (oi, o) in out.iter_mut().enumerate() {
+                    match slot.prog.outputs.get(oi) {
+                        Some(rpn) => match eval_output(rpn, &self.out_v, scalar_only, &out_budget) {
+                            Ok(v) => *o = v,
+                            Err(crate::interp::Signal::Deadline) => shed = true,
+                            Err(_) => *o = 0.0,
+                        },
+                        None => *o = 0.0,
+                    }
                 }
-                Ok(ExecStatus::Done)
+                Ok(if shed { ExecStatus::OutputShed } else { ExecStatus::Done })
             }
             Outcome::Suspended(c) => {
+                let progress = slot.prog.progress_of(&c.loop_stack);
                 let bytes = carrier_to_bytes(&c);
                 if let Some(buf) = carrier_out.as_deref_mut() {
                     buf.clear();
                     buf.extend_from_slice(&bytes);
                 }
-                Ok(ExecStatus::Suspended { carrier_len: bytes.len() })
+                Ok(ExecStatus::Suspended { carrier_len: bytes.len(), progress })
             }
+            Outcome::DeadlineSuspended(c) => {
+                let progress = slot.prog.progress_of(&c.loop_stack);
+                let bytes = carrier_to_bytes(&c);
+                if let Some(buf) = carrier_out.as_deref_mut() {
+                    buf.clear();
+                    buf.extend_from_slice(&bytes);
+                }
+                Ok(ExecStatus::DeadlineSuspended { carrier_len: bytes.len(), progress })
+            }
+            Outcome::Error => Ok(ExecStatus::Error),
             Outcome::Shed => Ok(ExecStatus::Shed),
         }
     }
@@ -330,8 +390,11 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
     inputs: JDoubleArray<'local>,
     carrier_in: JByteArray<'local>,
     slice_nanos: jlong,
+    deadline_in_nanos: jlong,
+    refresh_after_resume: jint,
     outputs: JDoubleArray<'local>,
     carrier_out: JByteArray<'local>,
+    progress_out: JFloatArray<'local>,
 ) -> jint {
     let Some(cell) = session_cell(session) else {
         return ERR_SESSION;
@@ -355,12 +418,14 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
             Err(_) => return ERR_BUFFER,
         }
     };
-    // 槽位数校验先于任何数组搬运（错误码优先，杜绝半途丢弃的半写状态）。
-    // Validate against the slot count before touching any array (errors precede partial writes).
+    // 槽位数校验先于任何数组搬运（错误码优先，杜绝半途丢弃的半写状态）；v2 起
+    // 只有 inputs 受槽位上界约束——outputs 承载输出引脚值（o 语义），长度按调用方。
+    // Slot validation precedes any array copy (errors precede partial writes); since
+    // v2 only inputs are slot-bounded — outputs carry output-pin values (o semantics).
     let Some(slot_n) = s.program_slots(program_id as usize) else {
         return ERR_PROGRAM_ID;
     };
-    if in_len > slot_n || out_len > slot_n {
+    if in_len > slot_n {
         return ERR_BUFFER;
     }
     // ① carrierIn 尺寸帽 + 解码（resume 路径；坏字节 = -4）。帽在拷贝之前。
@@ -388,12 +453,29 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
     }
     let mut out_buf = vec![0.0f64; out_len];
     let mut carrier_buf: Vec<u8> = Vec::new();
-    let slice = if slice_nanos > 0 { Some(Duration::from_nanos(slice_nanos as u64)) } else { None };
+    // 两维预算：slice = 本节点配额（0 不限）；deadline_in = tick 预算剩余（负 = 已
+    // 过期哨兵 → Some(ZERO)：首个 256-op 采样即命中，与 Java deadlineExhausted()
+    // 恒真形态同语义；0 = 未接线不限）。
+    // Two budget dimensions: slice = per-node quota (0 unlimited); deadline_in = the
+    // tick's remaining budget (negative = expired sentinel → Some(ZERO): the first
+    // 256-op sample fires, matching Java's permanently-true deadlineExhausted shape;
+    // 0 = unwired, unlimited).
+    let slice =
+        if slice_nanos > 0 { Some(Duration::from_nanos(slice_nanos as u64)) } else { None };
+    let deadline_in = if deadline_in_nanos < 0 {
+        Some(Duration::ZERO)
+    } else if deadline_in_nanos > 0 {
+        Some(Duration::from_nanos(deadline_in_nanos as u64))
+    } else {
+        None
+    };
     let status = match s.exec(
         program_id as usize,
         &in_buf,
         resume.as_deref(),
+        refresh_after_resume != 0,
         slice,
+        deadline_in,
         &mut out_buf,
         Some(&mut carrier_buf),
     ) {
@@ -402,6 +484,12 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
         Err(ExecError::BadCarrier) => return ERR_CARRIER,
         Err(ExecError::BadBuffer) => return ERR_BUFFER,
     };
+    // 进度出参（挂起两态写入；null = 调用方不关心）。
+    // Progress out-param (written on both suspend statuses; null = caller opts out).
+    let write_progress = |env: &JNIEnv<'local>, progress: f32| -> bool {
+        progress_out.is_null()
+            || env.set_float_array_region(&progress_out, 0, &[progress as jfloat]).is_ok()
+    };
     match status {
         ExecStatus::Done => {
             if out_len > 0 && env.set_double_array_region(outputs, 0, &out_buf).is_err() {
@@ -409,7 +497,17 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
             }
             OK_DONE
         }
-        ExecStatus::Suspended { carrier_len } => {
+        // OutputShed：已完成输出（新鲜）+ 撞线者（缓冲原值 = Java seed 的保持值）
+        // 整段写回——「已完成位新鲜、余位保持」逐位成立。
+        // OutputShed: completed outputs (fresh) + held ones (the caller's seeded
+        // values) written back wholesale — "completed fresh, the rest hold" bit-exact.
+        ExecStatus::OutputShed => {
+            if out_len > 0 && env.set_double_array_region(outputs, 0, &out_buf).is_err() {
+                return ERR_BUFFER;
+            }
+            OK_OUTPUT_SHED
+        }
+        ExecStatus::Suspended { carrier_len, progress } => {
             // 可空出参：null = 挂起即丢态（Java 侧自知）。给了但装不下 = 缓冲契约外。
             // Nullable out param: null drops the state; undersized = contract violation.
             if !carrier_out.is_null() {
@@ -422,8 +520,28 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
                     return ERR_BUFFER;
                 }
             }
+            if !write_progress(&env, progress) {
+                return ERR_BUFFER;
+            }
             OK_SUSPENDED
         }
+        ExecStatus::DeadlineSuspended { carrier_len, progress } => {
+            if !carrier_out.is_null() {
+                if (carrier_out_len(&env, &carrier_out) as usize) < carrier_len {
+                    return ERR_BUFFER;
+                }
+                let jbytes: Vec<jbyte> =
+                    carrier_buf[..carrier_len].iter().map(|&b| b as jbyte).collect();
+                if env.set_byte_array_region(carrier_out, 0, &jbytes).is_err() {
+                    return ERR_BUFFER;
+                }
+            }
+            if !write_progress(&env, progress) {
+                return ERR_BUFFER;
+            }
+            OK_DEADLINE_SUSPENDED
+        }
+        ExecStatus::Error => OK_EXEC_ERROR,
         ExecStatus::Shed => OK_SHED,
     }
 }
@@ -456,41 +574,36 @@ mod tests {
         std::fs::read(p).expect("scalarLoop fixture")
     }
 
-    fn scalar_loop_slots() -> (usize, usize) {
-        let prog = decode_program(&scalar_loop_bytes()).expect("decode");
-        let acc = prog.names.iter().position(|n| n == "acc").expect("acc slot");
-        let i = prog.names.iter().position(|n| n == "i").expect("i slot");
-        (acc, i)
-    }
-
     #[test]
     fn session_upload_exec_done_bit_exact() {
         let bin = scalar_loop_bytes();
-        let (acc_slot, i_slot) = scalar_loop_slots();
         let mut s = Session::new();
         let id = s.upload(&bin).expect("upload");
         assert_eq!(id, 0);
-        let mut out = vec![0.0; s.program_slots(id).unwrap()];
-        let st = s.exec(id, &[], None, None, &mut out, None).expect("exec");
+        // v2：outputs = 输出引脚值（夹具末行独立表达式 acc）——o[0] 携 acc 终值逐位；
+        // 终值(全槽位)面由引擎级对拍(parity.rs / bridge_cross.rs)锁。
+        // v2: outputs carry output-pin values (the fixture's trailing standalone
+        // expression `acc`) — o[0] holds acc bit-exact; all-slot finals stay locked at
+        // the engine level (parity.rs / bridge_cross.rs).
+        let mut out = vec![0.0; 1];
+        let st = s.exec(id, &[], None, false, None, None, &mut out, None).expect("exec");
         assert_eq!(st, ExecStatus::Done);
-        assert_eq!(out[acc_slot].to_bits(), 4999950.0f64.to_bits(), "acc bit-exact");
-        assert_eq!(out[i_slot].to_bits(), 100000.0f64.to_bits(), "i bit-exact");
+        assert_eq!(out[0].to_bits(), 4999950.0f64.to_bits(), "acc bit-exact via output");
         // 重复 exec（同会话复用缓冲）：幂等且终值不变。
         // / Re-exec on the same session (reused buffers): idempotent, same finals.
-        let st2 = s.exec(id, &[], None, None, &mut out, None).expect("re-exec");
+        let st2 = s.exec(id, &[], None, false, None, None, &mut out, None).expect("re-exec");
         assert_eq!(st2, ExecStatus::Done);
-        assert_eq!(out[acc_slot].to_bits(), 4999950.0f64.to_bits());
+        assert_eq!(out[0].to_bits(), 4999950.0f64.to_bits());
     }
 
     #[test]
     fn session_slice_suspend_resume_converges() {
         let bin = scalar_loop_bytes();
-        let (acc_slot, i_slot) = scalar_loop_slots();
         let mut s = Session::new();
         let id = s.upload(&bin).expect("upload");
-        let mut out = vec![0.0; s.program_slots(id).unwrap()];
+        let mut out = vec![0.0; 1];
         // 不限预算基准。 / unbudgeted baseline.
-        s.exec(id, &[], None, None, &mut out, None).expect("baseline");
+        s.exec(id, &[], None, false, None, None, &mut out, None).expect("baseline");
         let want = out.clone();
         // 500µs slice 反复挂起/续算（carrier 字节跨界，与 JNI 形态同构）到 Done。
         // / Repeated suspend/resume with 500µs slices, carrier bytes crossing the seam.
@@ -505,9 +618,13 @@ mod tests {
             // previous slice into a separate input buffer before writing the next one.
             let resume_bytes = carrier.clone();
             let resume = if resume_bytes.is_empty() { None } else { Some(&resume_bytes[..]) };
-            match s.exec(id, &[], resume, Some(Duration::from_nanos(500_000)), &mut out, Some(&mut carrier)).expect("sliced exec") {
+            match s.exec(id, &[], resume, false, Some(Duration::from_nanos(500_000)), None, &mut out, Some(&mut carrier)).expect("sliced exec") {
                 ExecStatus::Done => break,
-                ExecStatus::Suspended { carrier_len } => {
+                ExecStatus::OutputShed => panic!("output phase cannot shed with no deadline wired"),
+                // deadline 未接线 → 不可能；穷举臂兜底。 / deadline unwired — exhaustive arm.
+                ExecStatus::DeadlineSuspended { .. } => panic!("deadline unwired — unreachable"),
+                ExecStatus::Error => panic!("no error path in this script"),
+                ExecStatus::Suspended { carrier_len, .. } => {
                     assert!(carrier_len <= carrier.len());
                     assert_eq!(carrier_len, carrier.len(), "exec writes exactly carrier_len bytes");
                     // 写回前缀必须是合法 carrier（自描述头可解码）。/ prefix must decode.
@@ -516,8 +633,7 @@ mod tests {
                 ExecStatus::Shed => panic!("must not shed"),
             }
         }
-        assert_eq!(out[acc_slot].to_bits(), want[acc_slot].to_bits(), "acc converges bit-exact");
-        assert_eq!(out[i_slot].to_bits(), want[i_slot].to_bits(), "i converges bit-exact");
+        assert_eq!(out[0].to_bits(), want[0].to_bits(), "acc converges bit-exact via output");
     }
 
     #[test]
@@ -526,8 +642,8 @@ mod tests {
         let mut s = Session::new();
         let id = s.upload(&bin).expect("upload");
         assert!(s.release(id));
-        let mut out = vec![0.0; 2];
-        assert_eq!(s.exec(id, &[], None, None, &mut out, None), Err(ExecError::UnknownProgram));
+        let mut out = vec![0.0; 1];
+        assert_eq!(s.exec(id, &[], None, false, None, None, &mut out, None), Err(ExecError::UnknownProgram));
         // 已释放槽再释放 / 未知 id 同口径。 / double release and unknown id are both invalid.
         assert!(!s.release(id));
         assert!(!s.release(99));
@@ -557,26 +673,32 @@ mod tests {
     #[test]
     fn session_buffer_contract() {
         let bin = scalar_loop_bytes();
-        let (acc_slot, _) = scalar_loop_slots();
         let mut s = Session::new();
         let id = s.upload(&bin).expect("upload");
         let slot_n = s.program_slots(id).unwrap();
-        // 超槽位数 = 契约外（-3）；短缓冲 lenient 收尾值。 / over-length rejected; short is fine.
-        let mut out = vec![0.0; slot_n + 1];
-        assert_eq!(s.exec(id, &[], None, None, &mut out, None), Err(ExecError::BadBuffer));
+        // 超槽位数 inputs = 契约外；v2 起 outputs 是输出引脚值——不再受槽位上界。
+        // over-slot inputs are contract-out; since v2 outputs are pin values, unbounded.
         let in_over = vec![0.0; slot_n + 1];
-        let mut out_ok = vec![0.0; slot_n];
+        let mut out_ok = vec![0.0; 1];
         assert_eq!(
-            s.exec(id, &in_over, None, None, &mut out_ok, None),
+            s.exec(id, &in_over, None, false, None, None, &mut out_ok, None),
             Err(ExecError::BadBuffer)
         );
-        // 短 outputs 只收前缀（acc 在槽 1，lenient 0 语义下仍可全量对拍——这里只验长度口径）。
-        let mut short_out = vec![0.0; acc_slot];
-        assert_eq!(s.exec(id, &[], None, None, &mut short_out, None), Ok(ExecStatus::Done));
-        // 坏 carrier = -4。 / bad carrier = -4.
-        let mut out_full = vec![0.0; slot_n];
+        // 超长 outputs 合法：oi ≥ 输出条数的位收 0（Java List.of(0.0) 同口径）。
+        // over-long outputs are legal: oi ≥ output-count fills 0.
+        let mut out_long = vec![-1.0; slot_n + 3];
         assert_eq!(
-            s.exec(id, &[], Some(b"CSCC\x99"), None, &mut out_full, None),
+            s.exec(id, &[], None, false, None, None, &mut out_long, None),
+            Ok(ExecStatus::Done)
+        );
+        assert_eq!(out_long[0].to_bits(), 4999950.0f64.to_bits(), "o[0] = acc");
+        for v in &out_long[1..] {
+            assert_eq!(*v, 0.0, "oi beyond output-count reads 0");
+        }
+        // 坏 carrier = -4。 / bad carrier = -4.
+        let mut out_full = vec![0.0; 1];
+        assert_eq!(
+            s.exec(id, &[], Some(b"CSCC\x99"), false, None, None, &mut out_full, None),
             Err(ExecError::BadCarrier)
         );
     }

@@ -27,6 +27,22 @@ pub fn scan_scalar_only(body: &[Stmt]) -> bool {
     stmts_scalar(body)
 }
 
+/// v2 形态：输出表达式与语句体共用同一快路径判定（输出里藏向量函数/swizzle 会
+/// 让标量快路径漏判 vec3 值域）。mini 编译器（无输出段）走空表重载。
+/// v2 shape: output expressions share the fast-path scan with the body (a vector
+/// function/swizzle hiding in an output would let the scalar fast path miss vec3
+/// values). The mini compiler (no output section) rides the empty-slice overload.
+pub fn scan_scalar_only_with_outputs(body: &[Stmt], outputs: &[Box<[Tok]>]) -> bool {
+    fn out_scalar(rpn: &[Tok]) -> bool {
+        rpn.iter().all(|t| match t {
+            Tok::Fn(f) => !f.is_vector_fn(),
+            Tok::Swz(_) => false,
+            _ => true,
+        })
+    }
+    scan_scalar_only(body) && outputs.iter().all(|rpn| out_scalar(rpn))
+}
+
 /// 语句（与 FormulaAst.Stmt 逐字对齐；repeat/while 携带编译期唯一 id，
 /// 供循环栈与 seek 续算按身份命中——对应 Java 的「同次 parse 内 AST 实例身份」）。
 #[derive(Clone)]
@@ -77,6 +93,12 @@ pub struct Program {
     pub names: Vec<String>,
     /// repeat id → count（progress 计算用，镜像 Java progressOf 的 ro.count()）。
     pub repeat_counts: Vec<(u16, u64)>,
+    /// 输出表达式（v2 契约：Done 时对最终寄存器逐条求值 → 调用方输出缓冲，Java
+    /// `outputRpns` 对 env 求值 → asScalar 的镜像；`oi ≥ len` 的输出 = 0）。
+    /// Output expressions (v2 contract): evaluated against the final registers on
+    /// Done into the caller's output buffer — the mirror of Java's outputRpns-vs-env
+    /// evaluation; outputs beyond the list read as 0.
+    pub outputs: Box<[Box<[Tok]>]>,
     /// 纯标量探测：全程序无向量函数/swizzle token → 求值可走 `f64` 裸栈快路径
     /// （值域不可能是 vec3：vec3 只能由向量函数产生）。基准/测试会克隆后翻转此位
     /// 做双路对拍；桥接层不要动它。

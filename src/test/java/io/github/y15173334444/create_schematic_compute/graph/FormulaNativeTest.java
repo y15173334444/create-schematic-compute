@@ -65,26 +65,26 @@ class FormulaNativeTest {
     }
 
     @Test
-    @DisplayName("scalarLoop: 100k 迭代终值与 Java 链逐位一致(acc=4999950.0, i=100000.0)")
+    @DisplayName("scalarLoop: 100k 迭代终值与 Java 链逐位一致(v2 输出面 o[0]=acc=4999950.0)")
     void scalarLoopNativeBitExact() {
         assumeNative();
-        String src = "i = 0\nacc = 0\nrepeat 100000 {\n    acc = acc + i * 0.001\n    i = i + 1\n}";
+        // v2：末行独立表达式 = 默认输出 → o[0] 携 acc 终值（全槽位终值面由引擎级对拍锁）。
+        // v2: the trailing standalone expression is the default output — o[0] carries acc;
+        // all-slot finals stay locked at the engine level.
+        String src = "i = 0\nacc = 0\nrepeat 100000 {\n    acc = acc + i * 0.001\n    i = i + 1\n}\nacc";
         var parsed = FormulaParser.parseScript(src);
         var enc = FormulaTokEncoder.encode(parsed);
         long session = FormulaNative.sessionCreate();
         try {
             int pid = FormulaNative.programUpload(session, enc.bytes());
             assertTrue(pid >= 0, "programUpload failed: " + pid);
-            double[] outputs = new double[enc.slotNames().size()];
-            int rc = FormulaNative.exec(session, pid, new double[0], null, 0L, outputs, null);
+            double[] outputs = new double[Math.max(1, parsed.outputRpns.size())];
+            int rc = FormulaNative.exec(session, pid, new double[0], null, 0L, 0L, false,
+                outputs, null, new float[1]);
             assertEquals(0, rc, "unbudgeted exec must be Done");
-            int acc = enc.slotNames().indexOf("acc");
-            int i = enc.slotNames().indexOf("i");
-            assertEquals(4999950.0, outputs[acc], "acc final");
-            assertEquals(100000.0, outputs[i], "i final");
-            // 位模式复核(逐位口径的显式形态)。 / bit-pattern re-check (the explicit bit-exact form).
-            assertEquals(Double.doubleToLongBits(4999950.0), Double.doubleToLongBits(outputs[acc]), "acc bits");
-            assertEquals(Double.doubleToLongBits(100000.0), Double.doubleToLongBits(outputs[i]), "i bits");
+            assertEquals(1, parsed.outputRpns.size(), "default output = trailing standalone");
+            assertEquals(4999950.0, outputs[0], "acc final via output");
+            assertEquals(Double.doubleToLongBits(4999950.0), Double.doubleToLongBits(outputs[0]), "acc bits");
         } finally {
             FormulaNative.sessionDestroy(session);
         }
@@ -110,14 +110,20 @@ class FormulaNativeTest {
             int pid = FormulaNative.programUpload(session, enc.bytes());
             assertTrue(pid >= 0, "programUpload failed: " + pid);
             List<String> slots = enc.slotNames();
-            double[] outputs = new double[slots.size()];
-            int rc = FormulaNative.exec(session, pid, inputsBySlot(slots, ballisticPins()), null, 0L, outputs, null);
+            // v2：outputs = 输出引脚值（o 语义）——逐输出对 Java outputRpn 求值链逐位；
+            // 全槽位终值面由引擎级对拍（cargo parity/bridge_cross）锁。
+            // v2: outputs carry output-pin values — per-output bit-exact against the Java
+            // outputRpn chain; all-slot finals stay locked at the engine level.
+            int nOut = Math.max(1, parsed.outputRpns.size());
+            double[] outputs = new double[nOut];
+            int rc = FormulaNative.exec(session, pid, inputsBySlot(slots, ballisticPins()), null,
+                0L, 0L, false, outputs, null, new float[1]);
             assertEquals(0, rc, "unbudgeted exec must be Done");
-            for (int s = 0; s < slots.size(); s++) {
-                // 未赋值/未运行的槽:env 缺项 asScalar(null)=0.0,与 native lenient 0 同口径。
-                double want = FormulaParser.asScalar(env.get(slots.get(s)));
-                assertEquals(Double.doubleToLongBits(want), Double.doubleToLongBits(outputs[s]),
-                    "slot " + s + " (" + slots.get(s) + ") bit-exact vs Java chain");
+            for (int oi = 0; oi < nOut; oi++) {
+                double want = FormulaParser.asScalar(FormulaParser.evaluateValue(
+                    oi < parsed.outputRpns.size() ? parsed.outputRpns.get(oi) : java.util.List.of(0.0), env));
+                assertEquals(Double.doubleToLongBits(want), Double.doubleToLongBits(outputs[oi]),
+                    "output " + oi + " bit-exact vs Java chain");
             }
         } finally {
             FormulaNative.sessionDestroy(session);
@@ -138,32 +144,35 @@ class FormulaNativeTest {
             int pid = FormulaNative.programUpload(session, enc.bytes());
             assertTrue(pid >= 0, "programUpload failed: " + pid);
             // 不限预算基准。 / unbudgeted baseline.
-            double[] base = new double[slots.size()];
-            assertEquals(0, FormulaNative.exec(session, pid, inputs, null, 0L, base, null), "baseline exec");
-            // 2ms slice 反复:每次把 carrierOut 头部读出的有效字节传回 carrierIn 直到 Done。
-            // exec 只回状态码,写入长度自描述于 CSCC 头(carrierLength);缓冲按最坏形态给足。
-            double[] sliced = new double[slots.size()];
-            byte[] carrierBuf = new byte[slots.size() * 32 + 4096];
+            int nOut = Math.max(1, parsed.outputRpns.size());
+            double[] base = new double[nOut];
+            assertEquals(0, FormulaNative.exec(session, pid, inputs, null, 0L, 0L, false,
+                base, null, new float[1]), "baseline exec");
+            // 2ms slice 反复:每次把 carrierOut 头部读出的有效字节传回 carrierIn 直到 Done;
+            // carrierOut 按标准尺寸公式(§4.7-1)给足。 / carrierOut per the standard formula.
+            double[] sliced = new double[nOut];
+            byte[] carrierBuf = new byte[FormulaNative.carrierBufferFor(slots.size())];
             byte[] carrierIn = null;
             int rounds = 0;
             int rc;
             do {
                 rounds++;
                 assertTrue(rounds < 100_000, "resume not converging");
-                rc = FormulaNative.exec(session, pid, inputs, carrierIn, 2_000_000L, sliced, carrierBuf);
-                if (rc == 1) {
+                rc = FormulaNative.exec(session, pid, inputs, carrierIn, 2_000_000L, 0L, false,
+                    sliced, carrierBuf, new float[1]);
+                if (rc == 1 || rc == 4) {
                     int len = FormulaNative.carrierLength(carrierBuf);
                     assertTrue(len > 0, "suspended carrier header must decode");
                     carrierIn = Arrays.copyOf(carrierBuf, len);
                 } else {
                     carrierIn = null;
                 }
-            } while (rc == 1);
+            } while (rc == 1 || rc == 4);
             assertEquals(0, rc, "sliced exec must eventually be Done");
             assertTrue(rounds > 1, "ballistic under 2ms slices must suspend at least once");
-            for (int s = 0; s < slots.size(); s++) {
-                assertEquals(Double.doubleToLongBits(base[s]), Double.doubleToLongBits(sliced[s]),
-                    "slot " + s + " (" + slots.get(s) + ") converges bit-exact through resume");
+            for (int oi = 0; oi < nOut; oi++) {
+                assertEquals(Double.doubleToLongBits(base[oi]), Double.doubleToLongBits(sliced[oi]),
+                    "output " + oi + " converges bit-exact through resume");
             }
         } finally {
             FormulaNative.sessionDestroy(session);
@@ -177,9 +186,10 @@ class FormulaNativeTest {
         assertEquals(FormulaNative.ABI_VERSION, FormulaNative.abiVersion(), "abi lockstep");
         var parsed = FormulaParser.parseScript("i = 0\nacc = 0\nrepeat 100000 {\n    acc = acc + i * 0.001\n    i = i + 1\n}");
         var enc = FormulaTokEncoder.encode(parsed);
-        double[] outputs = new double[enc.slotNames().size()];
+        double[] outputs = new double[Math.max(1, parsed.outputRpns.size())];
         // 会话无效 = -1(头文件契约)。 / invalid session = -1.
-        assertEquals(-1, FormulaNative.exec(0L, 0, new double[0], null, 0L, outputs, null), "exec session 0");
+        assertEquals(-1, FormulaNative.exec(0L, 0, new double[0], null, 0L, 0L, false,
+            outputs, null, new float[1]), "exec session 0");
         assertEquals(-1, FormulaNative.programUpload(0L, enc.bytes()), "upload session 0");
         assertEquals(-1, FormulaNative.programRelease(0L, 0), "release session 0");
         // sessionDestroy(0) = 无操作不炸。 / destroy of a null session is a no-op.
@@ -191,10 +201,12 @@ class FormulaNativeTest {
             assertTrue(pid >= 0, "programUpload failed: " + pid);
             // 丢弃路径:release 后 exec 必须负错误码(-2 程序 id 无效)。 / released → negative rc.
             assertEquals(0, FormulaNative.programRelease(session, pid), "release must succeed");
-            int rc = FormulaNative.exec(session, pid, new double[0], null, 0L, outputs, null);
+            int rc = FormulaNative.exec(session, pid, new double[0], null, 0L, 0L, false,
+                outputs, null, new float[1]);
             assertEquals(-2, rc, "exec after programRelease must be -2");
             // 未知 id 同口径。 / unknown id, same contract.
-            assertEquals(-2, FormulaNative.exec(session, 999, new double[0], null, 0L, outputs, null), "exec unknown id");
+            assertEquals(-2, FormulaNative.exec(session, 999, new double[0], null, 0L, 0L, false,
+                outputs, null, new float[1]), "exec unknown id");
         } finally {
             FormulaNative.sessionDestroy(session);
         }

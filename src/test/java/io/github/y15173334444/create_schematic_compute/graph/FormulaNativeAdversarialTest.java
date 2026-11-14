@@ -43,7 +43,7 @@ class FormulaNativeAdversarialTest {
         byte[] program = FormulaTokEncoder.encode(FormulaParser.parseScript(SCALAR_LOOP)).bytes();
         double[] outputs = new double[2];
         for (long h : HOSTILE_SESSIONS) {
-            assertEquals(-1, FormulaNative.exec(h, 0, new double[0], null, 0L, outputs, null),
+            assertEquals(-1, FormulaNative.exec(h, 0, new double[0], null, 0L, 0L, false, outputs, null, new float[1]),
                 "exec hostile session " + h);
             assertEquals(-1, FormulaNative.programUpload(h, program), "upload hostile " + h);
             assertEquals(-1, FormulaNative.programRelease(h, 0), "release hostile " + h);
@@ -68,8 +68,8 @@ class FormulaNativeAdversarialTest {
         // / Every op on a destroyed handle = -1 (handles are table keys, no UAF).
         byte[] program = FormulaTokEncoder.encode(FormulaParser.parseScript(SCALAR_LOOP)).bytes();
         assertEquals(-1, FormulaNative.programUpload(session, program), "upload after destroy");
-        assertEquals(-1, FormulaNative.exec(session, 0, new double[0], null, 0L,
-            new double[2], null), "exec after destroy");
+        assertEquals(-1, FormulaNative.exec(session, 0, new double[0], null, 0L, 0L, false,
+            new double[2], null, new float[1]), "exec after destroy");
         // 新会话不复用已销毁 id。 / fresh sessions never reuse destroyed ids.
         long fresh = FormulaNative.sessionCreate();
         try {
@@ -129,16 +129,16 @@ class FormulaNativeAdversarialTest {
                 bomb[1] = 'S';
                 bomb[2] = 'C';
                 bomb[3] = 'C'; // 头合法化,强制走深度解析路径
-                int rc = FormulaNative.exec(session, pid, new double[0], bomb, 0L,
-                    new double[enc.slotNames().size()], null);
+                int rc = FormulaNative.exec(session, pid, new double[0], bomb, 0L, 0L, false,
+                    new double[enc.slotNames().size()], null, new float[1]);
                 assertTrue(rc == -4 || rc == 0 || rc == 1,
                     "carrier bomb round " + round + " gave " + rc);
             }
             // 纯垃圾头 = -4。 / garbage header = -4.
             byte[] garbage = new byte[64];
             new Random(7).nextBytes(garbage);
-            assertEquals(-4, FormulaNative.exec(session, pid, new double[0], garbage, 0L,
-                new double[enc.slotNames().size()], null), "garbage carrier");
+            assertEquals(-4, FormulaNative.exec(session, pid, new double[0], garbage, 0L, 0L, false,
+                new double[enc.slotNames().size()], null, new float[1]), "garbage carrier");
         } finally {
             FormulaNative.sessionDestroy(session);
         }

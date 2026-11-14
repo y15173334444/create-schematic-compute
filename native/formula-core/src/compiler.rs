@@ -50,7 +50,7 @@ pub fn compile(src: &str) -> Result<Program, String> {
     let body = c.parse_body(&lines, &mut 0, 0)?;
     let body = body.into_boxed_slice();
     let scalar_only = crate::ast::scan_scalar_only(&body);
-    Ok(Program { body, names: c.names, repeat_counts: c.repeat_counts, scalar_only })
+    Ok(Program { body, names: c.names, repeat_counts: c.repeat_counts, outputs: Box::new([]), scalar_only })
 }
 
 struct Compiler {

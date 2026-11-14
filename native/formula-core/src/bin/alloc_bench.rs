@@ -90,7 +90,7 @@ fn run_for(script: &Script, prog: &formula_native::Program, ms: u64) -> (u64, Du
     let mut ns = Duration::ZERO;
     while Instant::now() < end {
         let t0 = Instant::now();
-        let ex = Exec::new(prog, &mut regs, &mut loops, &inputs, None, Budget::unlimited());
+        let ex = Exec::new(prog, &mut regs, &mut loops, &inputs, None, false, Budget::unlimited());
         // 求值结果丢弃（分配率测量不关心终值；对拍在测试里做）
         let _ = ex.run(&mut out);
         ns += t0.elapsed();

@@ -92,10 +92,19 @@ public final class FormulaTokEncoder {
         Encoder enc = new Encoder();
         Out out = new Out();
         out.writeBytes("CSCF".getBytes(StandardCharsets.US_ASCII));
-        out.writeU32(1); // version
-        // 槽位表：全 AST 首现序互敦（先于语句编码，表必须先完整）
+        out.writeU32(2); // v2：输出表达式段进契约（bridge.rs 模块头） / v2: output section joins the contract
+        // 槽位表：全 AST 首现序互敦（先于语句编码，表必须先完整）。输出 RPN 的变量
+        // 同批互敦——仅输出引用的变量（合法形态）漏 intern 会让线上的槽位表与
+        // encodeRpn 写出的索引错位。
+        // Slot table: first-appearance interning over the whole AST (the table must be
+        // complete before any encoding). Output-RPN variables intern in the same pass —
+        // a variable referenced only by an output is legal, and missing it would put
+        // the on-wire slot table out of sync with the indices encodeRpn writes.
         for (FormulaAst.Stmt s : parsed.ast) {
             enc.internStmt(s);
+        }
+        for (List<Object> rpn : parsed.outputRpns) {
+            enc.internRpn(rpn);
         }
         out.writeU32(enc.interner.names.size());
         for (String name : enc.interner.names) {
@@ -118,6 +127,19 @@ public final class FormulaTokEncoder {
         out.writeU32(parsed.ast.size());
         for (FormulaAst.Stmt s : parsed.ast) {
             enc.encodeStmt(out, s);
+        }
+        // v2 输出段（契约 = bridge.rs 模块头；Done 时 native 对终值寄存器逐条求值——
+        // Java outputRpns 对 env 求值 → asScalar 的镜像）。无 @output 且无末行独立
+        // 表达式的脚本 = 0 条（native 按「oi ≥ 条数 = 0」收尾，与 Java List.of(0.0)
+        // 回退同语义）。
+        // v2 output section (contract = bridge.rs module docs): the native side
+        // evaluates each output against the final registers — the mirror of Java's
+        // outputRpns-vs-env evaluation. A script with no @output and no trailing
+        // standalone expression encodes zero entries (the native side fills 0 for
+        // oi ≥ count, same semantics as Java's List.of(0.0) fallback).
+        out.writeU32(parsed.outputRpns.size());
+        for (List<Object> rpn : parsed.outputRpns) {
+            enc.encodeRpn(out, rpn);
         }
         return new Encoded(out.bytes(), List.copyOf(enc.interner.names));
     }
@@ -287,6 +309,13 @@ public final class FormulaTokEncoder {
                 case FormulaParser.OpToken ot -> {
                     if (!ot.op().equals("!")) {
                         out.writeU8(cmpOrdinal(ot.op()));
+                    } else {
+                        // TAG_NOT 的占位 ordinal——解码器不读 payload，但 16B 定宽契约
+                        // 少这 1 字节会让其后所有 token 错位（R3 对拍网抓出的 R1 漏网）。
+                        // NOT's placeholder ordinal — the decoder ignores the payload,
+                        // but missing this byte shifts every later token (the R1 bug
+                        // the R3 parity net caught).
+                        out.writeU8(0);
                     }
                     for (int i = 0; i < 7; i++) {
                         out.writeU8(0);

@@ -56,7 +56,8 @@ public final class FormulaEval {
         }
     }
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(FormulaEval.class);
+    /** 包内可见（FormulaNativeSession 的告警同面复用）。 / package-visible (FormulaNativeSession's warnings share this face). */
+    static final Logger LOGGER = LoggerFactory.getLogger(FormulaEval.class);
 
     /**
      * K6 deadline 兜底冻结阈值：节点**自身**超份额（本次执行墙钟 > slice）连续达到该 tick 数
@@ -378,6 +379,17 @@ public final class FormulaEval {
                 // suspend-lite + emit-on-done; non-control-flow scripts promoted along,
                 // the flat-RPN eval loop is gone.
                 if (script.ast != null) {
+                    // R3 native 分流（§4.7-3）：AVAILABLE 即整节点转字节-carrier 镜像，
+                    // Java 路径体一字不动；两镜像由对拍网锁定同语义，AVAILABLE 进程级
+                    // 静态 ⇒ 同一节点永不跨路径（对象态与字节态互斥、不转换）。
+                    // R3 native dispatch (§4.7-3): when AVAILABLE the whole node turns to
+                    // the byte-carrier mirror and the Java body below stays untouched; the
+                    // two mirrors are parity-locked, and a node never crosses paths
+                    // (object state vs byte state, mutually exclusive, never converted).
+                    if (FormulaNative.AVAILABLE) {
+                        execFormulaNative(node, o, script, pinInputs, nOut);
+                        break;
+                    }
                     if (node.formulaShedWarned) {
                         // K6 预算解冻:deadline 冻结与**冻结时的预算值**绑定——预算被调大(当前值 >
                         // 记录值)则下一 tick 自动解冻、用新预算值重试(装得下就完成,装不下再走
@@ -553,5 +565,176 @@ public final class FormulaEval {
             }
         }
         ctx.o = o;
+    }
+
+    // ─────────────────── R3 native 路径（§4.7-3/§4.7-4） ───────────────────
+
+    /** 输出出参 scratch（服务端单线程复用；不足即扩）。 / output scratch (server-thread reuse; grown on demand). */
+    private static double[] NATIVE_OUT_SCRATCH = new double[0];
+    /** carrier 出参 scratch（服务端单线程复用；按程序槽数取标准尺寸公式）。 / carrier scratch (server-thread reuse). */
+    private static byte[] NATIVE_CARRIER_SCRATCH = new byte[0];
+    /** 进度出参（f32[1]）。 / progress out-param (f32[1]). */
+    private static final float[] NATIVE_PROGRESS_OUT = new float[1];
+
+    /**
+     * R3 native 求值路径：FORMULA case 的字节-carrier 镜像。状态机与 Java 路径逐语义
+     * 对齐（done-skip / 温启动 / 严格冻结 / 冷复位 / K6 解冻 / MAX_ITER 冻结 / dedup
+     * K7 口径 / 公平规则），执行面换 native exec（状态码 0-4 → 节点态迁移）。输出缓冲
+     * 进出双向 seed：调用前灌入节点当前输出，OutputShed 原样拷回 =「已完成位新鲜、
+     * 余位保持」逐位成立。脚本编辑瞬间的旧 carrier 对新程序 = 寻径不命中 → 整体 Done
+     * （快照终值），与 Java 跨编辑续算的「前缀跳过」形态逐语义一致。
+     * The R3 native evaluation path: the FORMULA case's byte-carrier mirror. The state
+     * machine aligns semantically with the Java path (done-skip / warm / strict freeze /
+     * cold reset / K6 thaw / MAX_ITER freeze / the K7 dedup contract / the fairness
+     * rule) while execution rides the native exec (status 0-4 → node transitions). The
+     * output buffer is seeded both ways: seeded from the node's current outputs before
+     * the call, copied back on OutputShed — "completed fresh, the rest hold" bit-exact.
+     * An old carrier meeting a re-edited program seek-misses into a whole-body Done on
+     * the snapshot — the same semantics as Java's prefix-skip resume across edits.
+     */
+    private static void execFormulaNative(GraphNode node, float[] o,
+                                          FormulaParser.ScriptParseResult script,
+                                          float[] pinInputs, int nOut) {
+        if (node.formulaShedWarned) {
+            // K6 预算解冻 / MAX_ITER 冻结：与 Java 路径同一字段同一判定。
+            // K6 budget thaw / MAX_ITER freeze: same fields, same judgement as Java.
+            if (node.formulaFrozenBudgetMs > 0 && FormulaCompute.budgetMs() > node.formulaFrozenBudgetMs) {
+                node.formulaShedWarned = false;
+                node.formulaDeadlineStreak = 0;
+                node.formulaFrozenBudgetMs = 0.0;
+            } else {
+                node.formulaSpreadProgress = 0f;
+                return;
+            }
+        }
+        var prog = FormulaNativeSession.programFor(script);
+        if (prog == null) {
+            return; // 编码/上传失败（契约外）：输出保持，无状态迁移 / contract-impossible: hold, no transition
+        }
+        // 输入态机（与 Java env/carrier 机同语义，载体 = 字节）。
+        // The input state machine (same semantics as Java's env/carrier machine, byte carrier).
+        boolean warm = node.params.length > 0 && node.params[0] > 0.5f;
+        byte[] carrierIn = node.formulaNativeCarrier;
+        boolean refresh = false;
+        float[] frozenRef;
+        if (carrierIn != null) {
+            if (EvalContext.inputsUnchanged(node.formulaNativeFrozen, pinInputs)) {
+                frozenRef = node.formulaNativeFrozen;             // 严格冻结:续旧快照 / strict: old snapshot
+            } else if (warm) {
+                refresh = true;                                   // 温启动:续算+刷新输入 / warm: resume+refresh
+                frozenRef = pinInputs.clone();
+            } else {
+                frozenRef = node.formulaNativeFrozen;             // 严格冻结(默认) / strict (default)
+            }
+        } else if (node.formulaNativeDone) {
+            if (EvalContext.inputsUnchanged(node.formulaNativeFrozen, pinInputs)) {
+                node.formulaSpreadProgress = 0f;                  // done 且输入未变:整节点跳过 / done-skip
+                return;
+            }
+            carrierIn = null;                                     // done 冷复位(决策 §五) / cold reset
+            frozenRef = pinInputs.clone();
+        } else {
+            frozenRef = pinInputs.clone();                        // 全新执行 / fresh
+        }
+        // 输入按 pinSlots 映射进槽位序（引脚序 ≠ 槽位序——契约坑点在 upload 时已固化映射）。
+        // Inputs mapped into slot order via pinSlots (pin order ≠ slot order).
+        int[] pinSlots = prog.pinSlots();
+        double[] execIn = new double[prog.slotCount()];
+        for (int vi = 0; vi < pinSlots.length && vi < pinInputs.length; vi++) {
+            int s = pinSlots[vi];
+            if (s >= 0 && s < execIn.length) {
+                execIn[s] = pinInputs[vi];
+            }
+        }
+        // 出参 scratch + 双向 seed（OutputShed 的保持语义底座）。
+        // Output scratch + the two-way seed (the base of OutputShed's hold semantics).
+        if (NATIVE_OUT_SCRATCH.length < nOut) {
+            NATIVE_OUT_SCRATCH = new double[nOut];
+        }
+        double[] outBuf = NATIVE_OUT_SCRATCH;
+        for (int i = 0; i < nOut; i++) {
+            outBuf[i] = o[i];
+        }
+        int cap = FormulaNative.carrierBufferFor(prog.slotCount());
+        if (NATIVE_CARRIER_SCRATCH.length < cap) {
+            NATIVE_CARRIER_SCRATCH = new byte[cap];
+        }
+        byte[] carrierBuf = NATIVE_CARRIER_SCRATCH;
+        final long execStartNs = System.nanoTime(); // K6 公平规则计时 / fairness-rule clock
+        int rc = FormulaNative.exec(FormulaNativeSession.handle(), prog.programId(),
+            execIn, carrierIn, FormulaCompute.sliceNs(), FormulaCompute.deadlineRemainingNs(),
+            refresh, outBuf, carrierBuf, NATIVE_PROGRESS_OUT);
+        boolean dedupCacheable = true;
+        switch (rc) {
+            case 0 -> { // Done
+                node.formulaNativeCarrier = null;
+                node.formulaNativeDone = true;
+                node.formulaNativeFrozen = frozenRef;
+                node.formulaSpreadProgress = 0f;
+                node.formulaDeadlineStreak = 0; // 完成即有救,清连续超时 / completing resets the streak
+                for (int i = 0; i < nOut; i++) {
+                    o[i] = (float) outBuf[i];
+                }
+            }
+            case 1 -> { // Suspended
+                node.formulaNativeCarrier = takeCarrier(carrierBuf);
+                node.formulaNativeDone = false;
+                node.formulaNativeFrozen = frozenRef;
+                node.formulaSpreadProgress = NATIVE_PROGRESS_OUT[0];
+                FormulaCompute.reportYield();
+                node.formulaDeadlineStreak = 0;
+            }
+            case 2 -> { // Shed (MAX_ITER)
+                node.formulaNativeCarrier = null;
+                node.formulaNativeDone = false;
+                node.formulaSpreadProgress = 0f;
+                if (!node.formulaShedWarned) {
+                    node.formulaShedWarned = true;
+                    node.formulaFrozenBudgetMs = 0.0; // MAX_ITER 冻结按迭代数裁定,与预算无关
+                    LOGGER.warn("FORMULA node {} exceeded MAX_ITER — pathological script, shed to lastGood", node.id);
+                }
+            }
+            case 3 -> { // OutputShed（输出阶段撞 deadline）
+                node.formulaNativeCarrier = null;
+                node.formulaNativeDone = false;
+                dedupCacheable = false; // 部分输出不毒化同脚本兄弟 / partial outputs never poison siblings
+                for (int i = 0; i < nOut; i++) {
+                    o[i] = (float) outBuf[i]; // 已完成位新鲜 + 余位保持(seed)
+                }
+                LOGGER.debug("FORMULA native output idx suspended by budget deadline (node {})", node.id);
+                noteDeadlineShed(node, System.nanoTime() - execStartNs);
+            }
+            case 4 -> { // DeadlineSuspended（fromDeadline:免计 yield,走公平规则）
+                node.formulaNativeCarrier = takeCarrier(carrierBuf);
+                node.formulaNativeDone = false;
+                node.formulaNativeFrozen = frozenRef;
+                node.formulaSpreadProgress = NATIVE_PROGRESS_OUT[0];
+                noteDeadlineShed(node, System.nanoTime() - execStartNs);
+            }
+            case 5 -> { // ExecError(栈下溢/超深——Java catch(Exception) 同型:输出归零)
+                java.util.Arrays.fill(o, 0f);
+                node.formulaNativeCarrier = null;
+                node.formulaNativeDone = false;
+                node.formulaSpreadProgress = 0f;
+                dedupCacheable = false; // 异常结果不进缓存 / error results never enter the cache
+            }
+            default -> {
+                // 契约外负码（缓冲/会话错误——调用方口径已保证不发生）：输出保持、不迁移、不进 dedup。
+                // Contract-out negative (never happens through this face): hold, no transition, no dedup.
+                LOGGER.error("FORMULA native exec contract error rc={} (node {}) — outputs hold", rc, node.id);
+                dedupCacheable = false;
+            }
+        }
+        if (dedupCacheable) {
+            FormulaCompute.storeDedup(script.sourceFormula, pinInputs, o);
+        }
+    }
+
+    /** 从共享 scratch 提取本次挂起字节（自描述头读长度；畸形 = 丢态下 tick 重试）。
+     *  Extract this suspension's bytes from the shared scratch (self-describing header;
+     *  malformed = drop the state, retry next tick). */
+    private static byte[] takeCarrier(byte[] carrierBuf) {
+        int len = FormulaNative.carrierLength(carrierBuf);
+        return len > 0 ? java.util.Arrays.copyOf(carrierBuf, len) : null;
     }
 }

@@ -30,14 +30,18 @@ fn run_all(src: &str, inputs: &[(&str, V)]) -> (formula_native::Program, Vec<V>)
     }
     let mut rt = Rt::new();
     loop {
-        let ex = Exec::new(&prog, &mut rt.regs, &mut rt.loops, &slots, None, Budget::unlimited());
+        let ex = Exec::new(&prog, &mut rt.regs, &mut rt.loops, &slots, None, false, Budget::unlimited());
         match ex.run(&mut rt.out) {
             Outcome::Done => return (prog, rt.out.to_vec()),
+            Outcome::DeadlineSuspended(_) => unreachable!("deadline unwired"),
+            Outcome::Error => unreachable!("no error path in these scripts"),
             Outcome::Suspended(c) => {
-                let ex = Exec::new(&prog, &mut rt.regs, &mut rt.loops, &[], Some(c), Budget::unlimited());
+                let ex = Exec::new(&prog, &mut rt.regs, &mut rt.loops, &[], Some(c), false, Budget::unlimited());
                 match ex.run(&mut rt.out) {
                     Outcome::Done => return (prog, rt.out.to_vec()),
                     Outcome::Suspended(_) => unreachable!("loop must alternate"),
+                    Outcome::DeadlineSuspended(_) => unreachable!("deadline unwired"),
+                    Outcome::Error => unreachable!("no error path in these scripts"),
                     Outcome::Shed => panic!("unbudgeted run must not shed"),
                 }
             }
@@ -116,7 +120,7 @@ fn max_iter_shed() {
     let src = "n = 0\nrepeat 2000000 {\n    n = n + 1\n}";
     let prog = compile(src).unwrap();
     let mut rt = Rt::new();
-    let ex = Exec::new(&prog, &mut rt.regs, &mut rt.loops, &[], None, Budget::unlimited());
+    let ex = Exec::new(&prog, &mut rt.regs, &mut rt.loops, &[], None, false, Budget::unlimited());
     let out = ex.run(&mut rt.out);
     assert!(matches!(out, Outcome::Shed), "repeat 2M must hard-shed at 1M iterations");
 }
@@ -131,7 +135,7 @@ fn suspend_resume_conservation() {
     let mut loops = Vec::new();
     let mut out = vec![V::ZERO; prog.names.len()];
     // 不限预算基线
-    let ex = Exec::new(&prog, &mut regs, &mut loops, &[], None, Budget::unlimited());
+    let ex = Exec::new(&prog, &mut regs, &mut loops, &[], None, false, Budget::unlimited());
     assert!(matches!(ex.run(&mut out), Outcome::Done));
     let idx = prog.names.iter().position(|p| p == "n").unwrap();
     assert_eq!(out[idx].as_scalar(), 5000.0);
@@ -142,9 +146,11 @@ fn suspend_resume_conservation() {
     let mut resume: Option<formula_native::Carrier> = None;
     let mut suspends = 0u32;
     loop {
-        let ex = Exec::new(&prog, &mut regs, &mut loops, &[], resume.take(), Budget::slice(Duration::from_micros(25)));
+        let ex = Exec::new(&prog, &mut regs, &mut loops, &[], resume.take(), false, Budget::slice(Duration::from_micros(25)));
         match ex.run(&mut out) {
             Outcome::Done => break,
+            Outcome::DeadlineSuspended(_) => unreachable!("deadline unwired"),
+            Outcome::Error => unreachable!("no error path in these scripts"),
             Outcome::Suspended(c) => {
                 suspends += 1;
                 assert!(suspends < 10_000, "resume loop not converging");
@@ -191,7 +197,7 @@ fn ballistic_solver_java_parity() {
         let mut regs = Vec::new();
         let mut loops = Vec::new();
         let mut out = vec![V::ZERO; prog.names.len()];
-        let ex = Exec::new(&prog, &mut regs, &mut loops, &slots, None, Budget::unlimited());
+        let ex = Exec::new(&prog, &mut regs, &mut loops, &slots, None, false, Budget::unlimited());
         assert!(matches!(ex.run(&mut out), Outcome::Done), "case {ci} must complete");
         for (k, name) in names.iter().enumerate() {
             let i = prog.names.iter().position(|n| n == name).unwrap_or_else(|| panic!("slot {name}"));
@@ -221,10 +227,12 @@ fn ballistic_solver_sliced_conservation() {
         let mut resume: Option<formula_native::Carrier> = None;
         let mut suspends = 0u32;
         loop {
-            let ex = Exec::new(&prog, &mut regs, &mut loops, &slots, resume.take(), slice);
+            let ex = Exec::new(&prog, &mut regs, &mut loops, &slots, resume.take(), false, slice);
             match ex.run(&mut out) {
                 Outcome::Done => break out.to_vec(),
-                Outcome::Suspended(c) => {
+                Outcome::DeadlineSuspended(_) => unreachable!("deadline unwired"),
+            Outcome::Error => unreachable!("no error path in these scripts"),
+            Outcome::Suspended(c) => {
                     suspends += 1;
                     assert!(suspends < 100_000, "resume loop not converging");
                     resume = Some(c);
@@ -270,7 +278,7 @@ fn scalar_fast_path_dual_parity() {
         let mut regs_f = Vec::new();
         let mut loops_f = Vec::new();
         let mut out_f = [V::ZERO; 8];
-        let ex = Exec::new(&prog, &mut regs_f, &mut loops_f, &slots, None, Budget::unlimited());
+        let ex = Exec::new(&prog, &mut regs_f, &mut loops_f, &slots, None, false, Budget::unlimited());
         assert!(matches!(ex.run(&mut out_f), Outcome::Done));
         // full（克隆翻转）
         let mut full = prog.clone();
@@ -278,7 +286,7 @@ fn scalar_fast_path_dual_parity() {
         let mut regs_b = Vec::new();
         let mut loops_b = Vec::new();
         let mut out_b = [V::ZERO; 8];
-        let ex = Exec::new(&full, &mut regs_b, &mut loops_b, &slots, None, Budget::unlimited());
+        let ex = Exec::new(&full, &mut regs_b, &mut loops_b, &slots, None, false, Budget::unlimited());
         assert!(matches!(ex.run(&mut out_b), Outcome::Done));
         // 全槽位逐位一致
         for i in 0..prog.names.len() {
@@ -313,9 +321,11 @@ fn while_suspend_resume() {
     let mut resume: Option<formula_native::Carrier> = None;
     let mut suspends = 0u32;
     loop {
-        let ex = Exec::new(&prog, &mut regs, &mut loops, &[], resume.take(), Budget::slice(Duration::from_micros(30)));
+        let ex = Exec::new(&prog, &mut regs, &mut loops, &[], resume.take(), false, Budget::slice(Duration::from_micros(30)));
         match ex.run(&mut out) {
             Outcome::Done => break,
+            Outcome::DeadlineSuspended(_) => unreachable!("deadline unwired"),
+            Outcome::Error => unreachable!("no error path in these scripts"),
             Outcome::Suspended(c) => {
                 suspends += 1;
                 assert!(suspends < 10_000, "resume loop not converging");

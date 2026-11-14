@@ -38,19 +38,34 @@ pub struct Carrier {
 }
 
 /// 求值预算（对应 Java Ctx 的 sliceNs + nodeStartNs：**每次 exec 调用独立**，
-/// 续算不继承上一段的墙钟——Java 的 Ctx 每次 exec 新建）。
+/// 续算不继承上一段的墙钟——Java 的 Ctx 每次 exec 新建）。`deadline_in` = 本 tick
+/// 预算剩余纳秒（Java 调用时以 `budgetDeadlineNs - now` 计算；Java 表达式机的
+/// 256-op 采样查的是这个 tick 级 deadline，**不是** slice——v2 修正了 R1/R2 把
+/// 采样错挂在 slice 上的偏差）。
+/// Evaluation budget (mirrors Java Ctx's sliceNs + nodeStartNs — per exec call,
+/// resumes never inherit wall clock). `deadline_in` = this tick's remaining budget
+/// nanos (computed Java-side as budgetDeadlineNs − now); the expression machine's
+/// 256-op sample checks this tick-level deadline, **not** the slice — v2 fixes the
+/// R1/R2 divergence that wired the sample to the slice.
 #[derive(Clone, Copy)]
 pub struct Budget {
     pub start: Instant,
     pub slice: Option<Duration>,
+    pub deadline_in: Option<Duration>,
 }
 
 impl Budget {
     pub fn unlimited() -> Budget {
-        Budget { start: Instant::now(), slice: None }
+        Budget { start: Instant::now(), slice: None, deadline_in: None }
     }
     pub fn slice(d: Duration) -> Budget {
-        Budget { start: Instant::now(), slice: Some(d) }
+        Budget { start: Instant::now(), slice: Some(d), deadline_in: None }
+    }
+    /// 带两维预算（R3 接线形态：slice 管循环边界、deadline_in 管表达式采样）。
+    /// Both dimensions wired (the R3 wiring shape: slice drives loop boundaries,
+    /// deadline_in drives the expression-machine samples).
+    pub fn slice_with_deadline(slice: Option<Duration>, deadline_in: Option<Duration>) -> Budget {
+        Budget { start: Instant::now(), slice, deadline_in }
     }
 }
 
@@ -71,11 +86,21 @@ pub enum Signal {
     Suspend(Carrier),
 }
 
-/// 单趟结果。Done 时终值已拷入调用方输出缓冲；Suspended 带 carrier 供下 tick
-/// 续算；Shed 无终值（上层输出保持 lastGood，与 Java 同口径）。
+/// 单趟结果。Done 时终值已拷入调用方输出缓冲；Suspended（slice 常规挂起）与
+/// DeadlineSuspended（K6 兜底转挂起，Java fromDeadline 同旗标）带 carrier 供下
+/// tick 续算；Shed 无终值（上层输出保持 lastGood，与 Java 同口径）。
 pub enum Outcome {
     Done,
     Suspended(Carrier),
+    /// K6 deadline 兜底（表达式机采样命中）→ fromDeadline 挂起：carrier 有效，
+    /// Java 侧免计 yield、走公平规则。
+    /// K6 deadline backstop → fromDeadline suspend: valid carrier, no yield count,
+    /// Java applies the fairness rule.
+    DeadlineSuspended(Carrier),
+    /// 受控求值错误（Java catch(Exception) 同型:栈下溢/嵌套超深——输出归零、carrier
+    /// 作废、不进 dedup）。 / controlled eval error (Java catch(Exception) shape:
+    /// underflow / nesting overflow — outputs zeroed, carrier dropped, no dedup).
+    Error,
     Shed,
 }
 
@@ -101,19 +126,19 @@ impl<'p, 'b> Exec<'p, 'b> {
     /// 持一对缓冲 → 稳态零堆分配；`Vec` 只在首次/扩容时分配）。`inputs`: 槽位 →
     /// 初值（长度可小于槽位数，其余 lenient 0）。`resume`: 上一个 carrier
     /// （Some = 寻径续算；快照回灌后循环栈接管所有权、寄存器拷贝）。
+    /// `refresh_inputs_after_resume` = warm 续算（v2）：回灌**之后**再写 inputs——
+    /// Java 的「env.putAll(快照) 后按引脚刷新输入变量」同序；严格冻结传空 inputs。
     pub fn new(
         prog: &'p Program,
         regs: &'b mut Vec<V>,
         loop_stack: &'b mut Vec<LoopEntry>,
         inputs: &[V],
         resume: Option<Carrier>,
+        refresh_inputs_after_resume: bool,
         budget: Budget,
     ) -> Exec<'p, 'b> {
         regs.clear();
         regs.resize(prog.names.len().max(inputs.len()), V::ZERO);
-        for (i, v) in inputs.iter().enumerate() {
-            regs[i] = *v;
-        }
         match resume {
             Some(c) => {
                 // 快照回灌：寄存器拷贝（输入钉若需更新由调用方直接改 c.regs 后再传入）、
@@ -123,11 +148,23 @@ impl<'p, 'b> Exec<'p, 'b> {
                         regs[i] = *v;
                     }
                 }
+                if refresh_inputs_after_resume {
+                    for (i, v) in inputs.iter().enumerate() {
+                        if i < regs.len() {
+                            regs[i] = *v;
+                        }
+                    }
+                }
                 let total = c.total_iterations;
                 *loop_stack = c.loop_stack;
                 Exec { prog, regs, loop_stack, budget, iters: 0, total }
             }
-            None => Exec { prog, regs, loop_stack, budget, iters: 0, total: 0 },
+            None => {
+                for (i, v) in inputs.iter().enumerate() {
+                    regs[i] = *v;
+                }
+                Exec { prog, regs, loop_stack, budget, iters: 0, total: 0 }
+            }
         }
     }
 
@@ -151,12 +188,14 @@ impl<'p, 'b> Exec<'p, 'b> {
             Err(e) => {
                 // TooDeep / Underflow / Deadline 在 Java 里是异常族、由 eval 分支
                 // 捕获（输出归零/保持）；Deadline 在 Java 由 exec() 包装转
-                // fromDeadline 挂起。此处 Deadline 也转挂起，其余上抛给调用方按
-                // 「输出保持」处置。
-                if matches!(e, Signal::Deadline) {
-                    Outcome::Suspended(self.snapshot())
-                } else {
-                    Outcome::Shed
+                // fromDeadline 挂起。此处 Deadline 转 DeadlineSuspended（与常规
+                // slice 挂起分态——Java 按旗标免计 yield），其余按「输出保持」处置。
+                match e {
+                    Signal::Deadline => Outcome::DeadlineSuspended(self.snapshot()),
+                    // Underflow/TooDeep 与 Java 的 catch(Exception) 同出口（输出归零）,
+                    // 绝不并入 Shed(MAX_ITER 冻结形态:输出保持)。
+                    Signal::Underflow | Signal::TooDeep => Outcome::Error,
+                    _ => Outcome::Shed,
                 }
             }
         }
@@ -195,6 +234,11 @@ impl<'p, 'b> Exec<'p, 'b> {
             None => false,
         }
     }
+    // K6 deadline 采样住在 TokenEval（表达式机唯一采样点）——语句边界只查 slice，
+    // 与 Java boundaryCheck/deadlineExhausted 的分工逐字一致。
+    // The K6 deadline sample lives in TokenEval (the expression machine's only
+    // sample point) — statement boundaries check the slice only, verbatim-matching
+    // Java's boundaryCheck vs deadlineExhausted split.
 
     /// 语句体执行；resume 模式（depth < loop_stack.len()）走寻径执行——跳过已
     /// 快照化的前缀语句直达挂起循环（Java runBody seek 逐字对齐）。
@@ -298,10 +342,32 @@ impl<'p, 'b> Exec<'p, 'b> {
     /// eval call, not per token).
     #[inline]
     fn eval(&mut self, rpn: &[Tok]) -> Result<V, Signal> {
+        let mut te = TokenEval { regs: self.regs, budget: self.budget };
         if self.prog.scalar_only {
-            Ok(V::S(self.eval_scalar(rpn)?))
+            Ok(V::S(te.eval_scalar(rpn)?))
         } else {
-            self.eval_full(rpn)
+            te.eval_full(rpn)
+        }
+    }
+}
+
+/// 表达式栈机宿主：寄存器只读 + 两维预算（256-op 采样挂 tick deadline）。
+/// 语句解释器与输出阶段（v2）共用同一台机器——语义权威只有一份。
+/// Token-machine host: read-only registers + the two-dimension budget (256-op
+/// samples ride the tick deadline). The statement interpreter and the v2 output
+/// phase share this one machine — a single semantics authority.
+pub(crate) struct TokenEval<'a> {
+    regs: &'a [V],
+    budget: Budget,
+}
+
+impl<'a> TokenEval<'a> {
+    /// K6 deadline（Java `deadlineExhausted()` 镜像）。 / K6 deadline mirror.
+    #[inline]
+    fn over_deadline(&self) -> bool {
+        match self.budget.deadline_in {
+            Some(d) => self.budget.start.elapsed() >= d,
+            None => false,
         }
     }
 
@@ -314,7 +380,7 @@ impl<'p, 'b> Exec<'p, 'b> {
         let mut ops: u32 = 0; // 调用内局部 K6 计数器（与 eval_full 同口径）
         for tok in rpn {
             ops += 1;
-            if ops & 0xFF == 0 && self.over_slice() {
+            if ops & 0xFF == 0 && self.over_deadline() {
                 return Err(Signal::Deadline);
             }
             match *tok {
@@ -441,7 +507,7 @@ impl<'p, 'b> Exec<'p, 'b> {
         let mut ops: u32 = 0; // 调用内局部 K6 计数器（Java 同款）
         for tok in rpn {
             ops += 1;
-            if ops & 0xFF == 0 && self.over_slice() {
+            if ops & 0xFF == 0 && self.over_deadline() {
                 return Err(Signal::Deadline);
             }
             match tok {
@@ -647,6 +713,25 @@ impl<'p, 'b> Exec<'p, 'b> {
         } else {
             Ok(stack[sp - 1])
         }
+    }
+}
+
+/// 输出阶段求值（v2；Java 的 outputRpns 对 env 求值 → asScalar 镜像）。预算锚 =
+/// exec 进入点（Session 传入与语句阶段同一 Budget——slice 置 None：Java 输出阶段
+/// 不查 slice、不推 MAX_ITER，只有 256-op 的 tick deadline 采样，首个撞线的输出
+/// 保持、其后短表达式仍可完成——调用方按 OutputShed 口径处置）。
+/// Output-phase evaluation (v2; the mirror of Java's outputRpns-vs-env evaluation
+/// into asScalar). Budget anchor = the exec entry Instant (Session passes the same
+/// Budget with slice = None: Java's output phase checks no slice and pushes no
+/// MAX_ITER — only the 256-op tick-deadline sample; the first output that hits it
+/// holds while later short expressions may still complete — the caller applies the
+/// OutputShed disposition).
+pub fn eval_output(rpn: &[Tok], regs: &[V], scalar_only: bool, budget: &Budget) -> Result<f64, Signal> {
+    let mut te = TokenEval { regs, budget: *budget };
+    if scalar_only {
+        te.eval_scalar(rpn)
+    } else {
+        te.eval_full(rpn).map(|v| v.as_scalar())
     }
 }
 
