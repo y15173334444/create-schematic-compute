@@ -454,6 +454,7 @@
   "gui.create_schematic_compute.edit.not_inverted": "未反转",
   "gui.create_schematic_compute.edit.forward": "正转",
   "gui.create_schematic_compute.edit.reverse": "反转",
+  "gui.create_schematic_compute.edit.feedback": "跨tick（反馈）",
   "gui.create_schematic_compute.edit.abs_mode": "绝对值",
   "gui.create_schematic_compute.edit.warm_on": "温启动",
   "gui.create_schematic_compute.edit.warm_off": "严格冻结",

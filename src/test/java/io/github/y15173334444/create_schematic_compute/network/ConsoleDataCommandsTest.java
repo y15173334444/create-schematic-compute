@@ -113,6 +113,11 @@ class ConsoleDataCommandsTest {
         TopoStats.clearRegistry();
         SignalBus.clear();
         ConsoleQueryCache.reset();
+        // §5.3 切边计划面复位（空方案 = 无标记；graph 包的锚负责有切边的语义面）。
+        // §5.3's cut-plan face reset (the empty plan = no marks; the graph package's anchors
+        // own the with-cuts semantics).
+        io.github.y15173334444.create_schematic_compute.graph.ChannelCuts
+            .beginPass(io.github.y15173334444.create_schematic_compute.graph.CutEdgePlanner.CutPlan.EMPTY);
     }
 
     // ── 夹具 / fixtures ──────────────────────────────────────────────────────────────
@@ -507,7 +512,7 @@ class ConsoleDataCommandsTest {
         var snap = snapshot(555L, byHost, Map.of());
         var hosts = new TreeMap<HostId, TopoStats.CensusProvider>();
         hosts.put(A, () -> ChannelCensus.EMPTY);
-        List<String> lines = ConsoleDataPlane.renderHosts(hosts, TopoStats.buildHostGraph(Map.of()), true, snap);
+        List<String> lines = ConsoleDataPlane.renderHosts(hosts, TopoStats.buildHostGraph(Map.of()), true, snap, Map.of());
         String row = lines.get(1);
         assertTrue(row.contains("①=7") && row.contains("②=2") && row.contains("同=5") && row.contains("跨=2"),
             "计数列 = byHost 累计 / the count column = the byHost cumulative: " + row);
@@ -515,7 +520,7 @@ class ConsoleDataCommandsTest {
         // 快照无记录的宿主 = 全零（不「—」——采集开着零就是零）/ a host without records = zeros
         // (not "—" — with the gate on, zero means zero)
         var snap2 = snapshot(556L, Map.of(), Map.of());
-        String row2 = ConsoleDataPlane.renderHosts(hosts, TopoStats.buildHostGraph(Map.of()), true, snap2).get(1);
+        String row2 = ConsoleDataPlane.renderHosts(hosts, TopoStats.buildHostGraph(Map.of()), true, snap2, Map.of()).get(1);
         assertTrue(row2.contains("①=0") && row2.contains("②=0"), "无记录 = 全零 / no records = all zeros: " + row2);
     }
 
@@ -524,6 +529,82 @@ class ConsoleDataCommandsTest {
     void hostsEmptyRegistrySaysSo() {
         List<String> lines = ConsoleProtocol.respond("hosts");
         assertTrue(lines.get(1).contains("注册表为空"), "空表明说 / an empty registry says so: " + lines.get(1));
+    }
+
+    // ══════════ 6b. §5.3 被切边的展示面（ring / bus 标记） ══════════
+
+    @Test
+    @DisplayName("ring 标记被切通道：被切边通道旁注「跨tick」，环内其余通道不带标记")
+    void ringAnnotatesCutChannels() {
+        var gA = graph(g -> { channel(g, NodeType.BUS_OUT, "x"); channel(g, NodeType.BUS_IN, "y"); });
+        var gB = graph(g -> { channel(g, NodeType.BUS_OUT, "y"); channel(g, NodeType.BUS_IN, "x"); });
+        TopoStats.hostLoaded(A, () -> censusOf(gA, DIM));
+        TopoStats.hostLoaded(B, () -> censusOf(gB, DIM));
+        ConsoleQueryCache.reset();
+        // 兜底全序最小 = x 的 A→B 边 → 读者 B 对 x 的读被切。
+        // The fallback total-order minimum = x's A→B edge → reader B's read of x is cut.
+        var plan = io.github.y15173334444.create_schematic_compute.graph.CutEdgePlanner
+            .plan(ConsoleQueryCache.hostGraph());
+        io.github.y15173334444.create_schematic_compute.graph.ChannelCuts.beginPass(plan);
+
+        List<String> lines = ConsoleProtocol.respond("ring");
+        String chans = lines.stream().filter(l -> l.contains("环上通道")).findFirst().orElseThrow();
+        assertTrue(chans.contains("x〔跨tick / cross-tick〕"), "被切通道带标记 / the cut channel carries the mark: " + chans);
+        assertFalse(chans.contains("y〔跨tick"), "未切通道不带标记 / the uncut channel carries none: " + chans);
+        // 空方案复位后标记消失（展示面跟随当前计划）。/ After resetting to the empty plan the
+        // marks vanish (the display face follows the current plan).
+        io.github.y15173334444.create_schematic_compute.graph.ChannelCuts
+            .beginPass(io.github.y15173334444.create_schematic_compute.graph.CutEdgePlanner.CutPlan.EMPTY);
+        String chansPlain = ConsoleProtocol.respond("ring").stream()
+            .filter(l -> l.contains("环上通道")).findFirst().orElseThrow();
+        assertFalse(chansPlain.contains("跨tick"), "无切边 = 无标记 / no cuts = no marks: " + chansPlain);
+    }
+
+    @Test
+    @DisplayName("bus 标记被切行：被切读者的行带「跨tick」，写者/其余行不带")
+    void busMarksCutRowsOnlyForTheCutReader() {
+        var gA = graph(g -> { channel(g, NodeType.BUS_OUT, "x"); channel(g, NodeType.BUS_IN, "y"); });
+        var gB = graph(g -> { channel(g, NodeType.BUS_OUT, "y"); channel(g, NodeType.BUS_IN, "x"); });
+        TopoStats.hostLoaded(A, () -> censusOf(gA, DIM));
+        TopoStats.hostLoaded(B, () -> censusOf(gB, DIM));
+        ConsoleQueryCache.reset();
+        var plan = io.github.y15173334444.create_schematic_compute.graph.CutEdgePlanner
+            .plan(ConsoleQueryCache.hostGraph());
+        io.github.y15173334444.create_schematic_compute.graph.ChannelCuts.beginPass(plan);
+
+        // B 读 x，且 (x, A, B) 是被切边 → B 的 bus 行带标记；A 的行（写者视角）不带。
+        // B reads x and (x, A, B) is the cut edge → B's bus row carries the mark; A's rows
+        // (the writer's view) carry none.
+        for (String row : ConsoleProtocol.respond("bus", B)) {
+            if (row.contains("[BUS] x")) assertTrue(row.contains("〔跨tick / cross-tick〕"),
+                "被切读者的行带标记 / the cut reader's row carries the mark: " + row);
+        }
+        for (String row : ConsoleProtocol.respond("bus", A)) {
+            assertFalse(row.contains("跨tick"), "写者/其余行不带标记 / the writer's rows carry none: " + row);
+        }
+    }
+
+    @Test
+    @DisplayName("hosts 求值序号列：已完成遍的真实序号，遍内未求值者诚实显示「—」（条目 31.1）")
+    void hostsEvalOrdinalColumnRidesThePassOrdinals() {
+        var hosts = new TreeMap<HostId, TopoStats.CensusProvider>();
+        hosts.put(A, () -> ChannelCensus.EMPTY);
+        hosts.put(B, () -> ChannelCensus.EMPTY);
+        // A=3、B=7 的求值序号（上一已完成遍）。/ Evaluation ordinals A=3, B=7 (the last
+        // completed pass).
+        var ordinals = new TreeMap<HostId, Integer>();
+        ordinals.put(A, 3);
+        ordinals.put(B, 7);
+        List<String> lines = ConsoleDataPlane.renderHosts(hosts, TopoStats.buildHostGraph(Map.of()),
+            false, TopoStats.CollectSnapshot.EMPTY, ordinals);
+        assertTrue(lines.get(1).contains("序=3"), "A 的真实求值序号 / A's real evaluation ordinal: " + lines.get(1));
+        assertTrue(lines.get(2).contains("序=7"), "B 的真实求值序号 / B's real evaluation ordinal: " + lines.get(2));
+        // 无序号（本遍未求值：未走过前段 / 停机早退）= 诚实「—」，不伪造。
+        // No ordinal (not evaluated this pass: the prologue never ran, or the stopped
+        // early-return) = an honest "—", nothing fabricated.
+        List<String> plain = ConsoleDataPlane.renderHosts(hosts, TopoStats.buildHostGraph(Map.of()),
+            false, TopoStats.CollectSnapshot.EMPTY, Map.of());
+        assertTrue(plain.get(1).contains("序=—"), "无序号 = 「—」 / no ordinal = \"—\": " + plain.get(1));
     }
 
     // ══════════ 7. 帮助表标注随接线更新 / the help-table annotations follow the wiring ══════════

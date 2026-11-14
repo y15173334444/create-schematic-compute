@@ -536,6 +536,23 @@ public final class OpExecutor {
                 yield n;
             }
 
+            case SET_FEEDBACK -> {
+                // §5.3 (c) 显式反馈声明切换（自反，TOGGLE_BOOL 同款）：仅发布节点生效
+                // （fail-closed——非 BUS_OUT/PRIVATE_OUT 一律拒收不翻转），翻转即 bump
+                // （声明参与普查 → 切边规划 → 求值序，必须随代际传播）。
+                // §5.3 (c) explicit feedback-declaration toggle (self-inverse, the TOGGLE_BOOL
+                // shape): effective on publisher nodes only (fail-closed — anything but
+                // BUS_OUT/PRIVATE_OUT is refused without flipping), and a flip bumps the
+                // generation (the declaration feeds the census → the cut planning → the
+                // evaluation order, so it must ride the generation).
+                var n = graph.findNode(op.targetNodeId());
+                if (n != null && (n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT)) {
+                    n.feedbackOut = !n.feedbackOut;
+                    graph.bumpGeneration();
+                }
+                yield n;
+            }
+
             case SET_BLOCK_NAME -> {
                 // 图级 op：名称挂在 NodeGraph 上（随图序列化/同步），不属于任何节点。
                 // 纯视觉 op —— 名称不参与求值，不 bump（与 SET_ZORDER 同理），避免无谓重编译。

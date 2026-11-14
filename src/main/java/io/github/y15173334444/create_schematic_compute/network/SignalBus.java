@@ -664,6 +664,48 @@ public class SignalBus {
         return VEC3_VALUES.get(key(logical));
     }
 
+    // ── §5.3 切边 prev 快照采样 / §5.3 cut-edge prev-snapshot sampling ─────────────────
+
+    /**
+     * 按前缀键采样一个通道的双载体现值（§5.3 被切边的「上一 tick 末提交值」捕获面；
+     * 求值遍终点对被监视通道逐条调用）。<b>前缀格式的全部知识留在本类</b>：维度段与逻辑名
+     * 的拆分走 {@link #key}/{@link #logicalName} 同源形态（内部解析、零复刻），采样在键自带
+     * 的维度作用域内读 PRIVATE 载体（SIGNALS 浮点）与 BUS 载体（CHANNELS 频段映射的
+     * 不可变副本）——两载体并存时各自如实返回（读侧按调用的方法取用）。采样值类型 =
+     * {@code ChannelCuts.CutSample}（graph 侧快照面的同一条目形态，单源不复制）。
+     * <p>Sample one channel's dual-carrier current values by its prefixed key (§5.3's
+     * "last tick's committed value" capture face for cut edges; called per watched channel
+     * at the evaluation pass tail). <b>All prefix-format knowledge stays in this class</b>:
+     * the dimension/logical split rides the same shape as {@link #key}/{@link #logicalName}
+     * (parsed internally, zero replication), and the sampling reads the PRIVATE carrier (the
+     * SIGNALS float) and the BUS carrier (an immutable copy of the CHANNELS band map) inside
+     * the key's own dimension scope — coexisting carriers each return honestly (the read
+     * side picks by the method it called). The sample type = {@code ChannelCuts.CutSample}
+     * (the graph-side snapshot face's same entry shape — one source, no copy).</p>
+     *
+     * @param prefixedKey 前缀形态通道键（普查/切边方案的同一身份） / the prefixed channel
+     *                    key (the same identity as the census/cut plan)
+     * @return 双载体采样（无提交值 = 对应位 null） / the dual-carrier sample (no committed
+     *         value = a null slot)
+     */
+    public static io.github.y15173334444.create_schematic_compute.graph.ChannelCuts.CutSample
+        sampleForSnapshot(String prefixedKey) {
+        String dimension = "";
+        String key = prefixedKey != null ? prefixedKey : "";
+        int i = key.indexOf(SCOPE_SEPARATOR);
+        if (i >= 0) {
+            dimension = key.substring(0, i);
+            key = key.substring(i + 1);
+        }
+        final String fDimension = dimension, fLogical = key;
+        return runInDimension(fDimension, () -> {
+            Float pv = signalValue(fLogical);
+            ChannelEntry e = getChannel(fLogical);
+            java.util.Map<String, Float> busMap = e != null ? Map.copyOf(e.internalMap) : null;
+            return new io.github.y15173334444.create_schematic_compute.graph.ChannelCuts.CutSample(pv, busMap);
+        });
+    }
+
     /** Clear all signals, channel registrations, and band registries (called on server shutdown) / 清除所有信号、频道注册和频段注册表（服务器关闭时调用） */
     public static void clear() {
         SIGNALS.clear();
