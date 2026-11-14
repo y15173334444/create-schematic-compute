@@ -15,7 +15,9 @@ import java.util.Map;
  * （native/formula-core/tests/fixtures/*.tokbin）。
  *
  * <p>要点：槽位表 = 变量名首现序互敦（**引脚序 ≠ 槽位序**，输入钉按名查槽）；
- * loop id = 前序遍历顺序编号；Fn/Cmp 序数与 Rust 枚举声明序显式对应（bridge.rs 映射表）；
+ * v3 追加引脚槽位段（warm 续算按引脚刷新的契约面，R4 审查修复——v2 流无引脚信息，
+ * native warm refresh 曾误写全长输入清掉内部累加器）；loop id = 前序遍历顺序编号；
+ * Fn/Cmp 序数与 Rust 枚举声明序显式对应（bridge.rs 映射表）；
  * 未知函数名不该出现在 FunctionToken（lexer 只认表内名），遇到即抛——编辑期暴露优于
  * 静默漂移。编码纯确定性：同脚本字节恒等（夹具逐字节对拍依据）。
  * 单次 encode 的全部可变状态收在 {@link Encoder} 实例里，无线程共享。
@@ -92,7 +94,7 @@ public final class FormulaTokEncoder {
         Encoder enc = new Encoder();
         Out out = new Out();
         out.writeBytes("CSCF".getBytes(StandardCharsets.US_ASCII));
-        out.writeU32(2); // v2：输出表达式段进契约（bridge.rs 模块头） / v2: output section joins the contract
+        out.writeU32(3); // v3：输出段 + 引脚槽位段（bridge.rs 模块头） / v3: output + pin-slot sections
         // 槽位表：全 AST 首现序互敦（先于语句编码，表必须先完整）。输出 RPN 的变量
         // 同批互敦——仅输出引用的变量（合法形态）漏 intern 会让线上的槽位表与
         // encodeRpn 写出的索引错位。
@@ -140,6 +142,18 @@ public final class FormulaTokEncoder {
         out.writeU32(parsed.outputRpns.size());
         for (List<Object> rpn : parsed.outputRpns) {
             enc.encodeRpn(out, rpn);
+        }
+        // v3 引脚槽位段（契约 = bridge.rs 模块头；warm 续算「按引脚刷新」的契约面）：
+        // 逐钉 u32 槽位索引，声明未引用（查表缺席）= 0xFFFFFFFF 哨兵。查表只读不
+        // intern——声明未引用的钉本就不在槽位表里，intern 会错位整张表。
+        // v3 pin-slot section (contract = bridge.rs module docs; the warm-refresh
+        // "refresh by pin" contract face): one u32 slot index per pin; a declared-
+        // but-unreferenced pin (lookup miss) = 0xFFFFFFFF sentinel. Lookup only,
+        // never intern — interning would shift the whole slot table.
+        out.writeU32(parsed.inputVars.size());
+        for (String var : parsed.inputVars) {
+            Integer s = enc.interner.map.get(var);
+            out.writeU32(s == null ? -1 : s);
         }
         return new Encoded(out.bytes(), List.copyOf(enc.interner.names));
     }

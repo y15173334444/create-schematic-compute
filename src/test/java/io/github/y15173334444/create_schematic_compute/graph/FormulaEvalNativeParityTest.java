@@ -29,7 +29,9 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  *
  * <p>挂起/续算、warm/freeze、done-skip 的 spread 行为面由
  * {@link FormulaBudgetSpreadTest}（R3 起 native 分流后即在 native 面上跑）覆盖；
- * MAX_ITER shed 面由其 testShedFreezeUntilFormulaEdit 覆盖——本类不重复。</p>
+ * MAX_ITER shed 面由其 testShedFreezeUntilFormulaEdit 覆盖。R4 起本类补 warm
+ * 续算的**语义逐位**锁定面（warm 中途改输入、内部累加器存活——审查发现的
+ * R3a 全长刷新分叉的回归锁），以及 23 个 Fn 序数逐个成脚本与向量形态组合。</p>
  *
  * <p>The R3 parity net (§4.7-5): bit-exact comparison of the FormulaEval native face
  * (real nodes, real state machine, real JNI) against the Java interpreter chain. The
@@ -284,5 +286,122 @@ class FormulaEvalNativeParityTest {
             }
             assertFaceBitExact(script, pins);
         }
+    }
+
+    // ── 6. 23 个 Fn 序数逐个成脚本（§4.7-5；分组脚本之外的第二半） ──
+    // 每序数独立脚本：单序数 bug 不再被分组顺序掩盖。第二例 = 域外 lenient 0 /
+    // 极点 / 零向量退化——两链各自求值后逐位对拍，不预设 lenient 值本身；
+    // null = 全域函数无第二例。
+    private static final String[][] FN_CASES = {
+        {"vec3", "vec3(1.0, 2.0, 3.0)", null},
+        {"length", "length(vec3(3.0, 4.0, 0.0))", null},
+        {"normalize", "normalize(vec3(3.0, 4.0, 0.0))", "normalize(vec3(0.0, 0.0, 0.0))"},
+        {"dot", "dot(vec3(1.0, 2.0, 3.0), vec3(4.0, 5.0, 6.0))", null},
+        {"cross", "cross(vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0))", null},
+        {"dist", "dist(vec3(3.0, 0.0, 0.0), vec3(0.0, 4.0, 0.0))", null},
+        {"yaw", "yaw(vec3(1.0, 0.0, 1.0))", "yaw(vec3(0.0, 0.0, 0.0))"},
+        {"pitch", "pitch(vec3(1.0, 1.0, 0.0))", "pitch(vec3(0.0, 0.0, 0.0))"},
+        {"sin", "sin(30.0)", null},
+        {"cos", "cos(60.0)", null},
+        {"tan", "tan(45.0)", null},
+        {"asin", "asin(0.5)", "asin(2.0)"},
+        {"acos", "acos(0.5)", "acos(2.0)"},
+        {"atan2", "atan2(1.0, 2.0)", "atan2(0.0, 0.0)"},
+        {"sinh", "sinh(1.0)", null},
+        {"cosh", "cosh(1.0)", null},
+        {"sqrt", "sqrt(9.0)", "sqrt(-4.0)"},
+        {"ln", "ln(10.0)", "ln(0.0)"},
+        {"log", "log(100.0)", "log(-5.0)"},
+        {"exp", "exp(1.0)", null},
+        {"sec", "sec(45.0)", "sec(90.0)"},
+        {"csc", "csc(30.0)", "csc(180.0)"},
+        {"cot", "cot(45.0)", "cot(0.0)"},
+    };
+
+    @Test
+    @DisplayName("23 fn ordinals individually: in-domain + degenerate/out-of-domain, bit-exact")
+    void fnOrdinalsIndividuallyFaceParity() {
+        assumeNative();
+        for (String[] c : FN_CASES) {
+            assertFaceBitExact("a = " + c[1] + "\n@output a", Map.of());
+            if (c[2] != null) {
+                assertFaceBitExact("a = " + c[2] + "\n@output a", Map.of());
+            }
+        }
+    }
+
+    // ── 7. 向量形态组合（§4.7-5）：广播/加法走面级逐位 ──
+    // v×v、s÷v 等「非法组合」被校验期拒绝为 ERROR issue（向量乘向量无良定义），
+    // 面级不可达；运行期 lenient 零向量语义在引擎级（parity.rs illegal_vector_
+    // combos_lenient_zero）与解释器级（FormulaInterpreterTest）锁定。
+
+    @Test
+    @DisplayName("vector shape combos: v×s / s×v broadcast + v+v, face bit-exact")
+    void vectorShapeCombosFaceParity() {
+        assumeNative();
+        String v = "v = vec3(1.0, -2.0, 3.0)\n";
+        assertFaceBitExact(v + "w = v * 2.0\n@output w", Map.of());
+        assertFaceBitExact(v + "w = 2.0 * v\n@output w", Map.of());
+        assertFaceBitExact(v + "u = vec3(4.0, 5.0, 6.0)\nw = v + u\n@output w", Map.of());
+    }
+
+    // ── 8. 输出为表达式（非纯变量）——末行独立表达式形态（§4.7-5 脚本矩阵项） ──
+
+    @Test
+    @DisplayName("trailing-expression output (no @output) face parity")
+    void trailingExpressionOutputFaceParity() {
+        assumeNative();
+        assertFaceBitExact("a = 2.0\nb = 3.0\na + b * 2.0", Map.of());
+    }
+
+    // ── 9. warm 续算 + 中途改输入：内部累加器存活（R4 审查修复的逐位锁定面） ──
+    // v 的累加与 x 无关 ⇒ 不限预算参考链（终态 v=N、y=N*x）同时就是 warm 语义的
+    // 金标准；warm refresh 若误清内部寄存器（R3a 全长刷新分叉），终值 = (N-k)*x
+    // ≠ N（k = 中途挂起点），分叉必被抓。单节点图 → 走 tickBatch 退化形态（生产路径）。
+
+    @Test
+    @DisplayName("warm mid-spread input change: internal accumulator survives, bit-exact")
+    void warmMidSpreadInputChangeBitExact() {
+        assumeNative();
+        int n = 200_000; // < MAX_ITER(1M)；float 恰整（< 2^24）
+        String script = "v = 0.0\nrepeat " + n + " { v = v + 1.0 }\ny = v * x\n@output y";
+        var parsed = FormulaParser.parseScript(script);
+        assertNotNull(parsed.ast, "script must parse to AST mode");
+        // 参考链 = 不限预算 + 终态输入 x=1.0（累加与 x 无关 ⇒ 与 warm 续算终值同）。
+        int[] want = referenceBits(parsed, Map.of("x", 1.0));
+
+        var graph = new NodeGraph();
+        var f = graph.addNode(NodeType.FORMULA, 500, 0);
+        f.formula = script;
+        f.ensureScriptParsed();
+        f.params[0] = 1.0f; // warm 档（resolveNativeExec 的 params[0] > 0.5 口径）
+        var c = graph.addNode(NodeType.CONST, 200, 200);
+        c.params[0] = 0.0f;
+        graph.addConnection(c.id, 0, f.id, 0);
+        var ev = new GraphEvaluator(graph);
+
+        // tick 1：x=0 冷启动，yield 压力缩 slice（既有挂起测试同款实证模式）——
+        // 首个 256-op 采样前已完成 ≥32 迭代 ⇒ v ≥ 32，分叉判据成立。
+        for (int i = 0; i < 200; i++) {
+            FormulaCompute.reportYield();
+        }
+        FormulaCompute.beginTick();
+        ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+        assertTrue(f.formulaNativeStatus == 1 || f.formulaNativeStatus == 4,
+            "tick 1 must suspend mid-loop (status 1/4), got " + f.formulaNativeStatus);
+
+        // 改输入 → 下个 tick 走 warm refresh（只刷 x 的引脚槽位，v 保持累加进度）。
+        c.params[0] = 1.0f;
+        boolean done = false;
+        for (int t = 0; t < 400 && !done; t++) {
+            FormulaCompute.beginTick();
+            ev.evaluate(List.of(), Map.of(), 0.05f, new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
+            done = f.formulaNativeDone;
+        }
+        assertTrue(done, "warm spread must converge");
+        assertEquals(want[0], Float.floatToIntBits(ev.getNodeOutput(f.id, 0)),
+            "warm-continued output must equal the unbudgeted chain (accumulator preserved): "
+                + String.format("%n  want=%08x got=%08x", want[0],
+                    Float.floatToIntBits(ev.getNodeOutput(f.id, 0))));
     }
 }

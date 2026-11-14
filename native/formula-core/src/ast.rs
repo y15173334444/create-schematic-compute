@@ -99,6 +99,15 @@ pub struct Program {
     /// Done into the caller's output buffer — the mirror of Java's outputRpns-vs-env
     /// evaluation; outputs beyond the list read as 0.
     pub outputs: Box<[Box<[Tok]>]>,
+    /// 输入引脚槽位（v3 契约：按引脚声明序；`u32::MAX` = 声明未引用的缺席钉）。
+    /// warm 续算的 refresh 只写这些槽位——内部累加器等非引脚寄存器保持快照回灌
+    /// 值，与 Java「env.putAll(快照) 后仅按引脚刷新输入变量」逐位同构。
+    /// Input-pin slots (v3 contract, in pin declaration order; `u32::MAX` = a
+    /// declared pin the script never references). Warm refresh writes ONLY these
+    /// slots — non-pin registers (internal accumulators etc.) keep the restored
+    /// snapshot, bit-identical to Java's "env.putAll(snapshot), then refresh the
+    /// input vars by pin".
+    pub pin_slots: Vec<u32>,
     /// 纯标量探测：全程序无向量函数/swizzle token → 求值可走 `f64` 裸栈快路径
     /// （值域不可能是 vec3：vec3 只能由向量函数产生）。基准/测试会克隆后翻转此位
     /// 做双路对拍；桥接层不要动它。

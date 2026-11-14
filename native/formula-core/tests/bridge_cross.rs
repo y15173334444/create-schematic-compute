@@ -302,7 +302,7 @@ fn adversarial_deep_nesting_is_rejected_not_crashed() {
     // Repeat{ id, count=1, body=[ 同构嵌套 ... , Assign ] }，前序 id 递增。
     let mut bytes: Vec<u8> = Vec::new();
     bytes.extend_from_slice(b"CSCF");
-    bytes.extend_from_slice(&2u32.to_le_bytes());
+    bytes.extend_from_slice(&3u32.to_le_bytes()); // v3（TooDeep 在语句段命中,无需尾段）
     bytes.extend_from_slice(&0u32.to_le_bytes()); // 0 slots
     bytes.extend_from_slice(&0u32.to_le_bytes()); // 0 repeats（表与语句流的 id 各自独立——本构造用语句内 id 即可）
     bytes.extend_from_slice(&1u32.to_le_bytes()); // 1 top stmt
@@ -331,7 +331,7 @@ fn adversarial_deep_nesting_is_rejected_not_crashed() {
     // 这里直接重造一份 100 层的合法程序验证帽不误伤。
     let mut shallow: Vec<u8> = Vec::new();
     shallow.extend_from_slice(b"CSCF");
-    shallow.extend_from_slice(&2u32.to_le_bytes());
+    shallow.extend_from_slice(&3u32.to_le_bytes());
     shallow.extend_from_slice(&1u32.to_le_bytes()); // 1 slot（叶子 Assign slot0 的名字省略不可——补全）
     // 槽位表要真实：1 个名字 "v"
     shallow.truncate(8);
@@ -353,7 +353,8 @@ fn adversarial_deep_nesting_is_rejected_not_crashed() {
     shallow.push(0);
     shallow.extend_from_slice(&[0u8; 7]);
     shallow.extend_from_slice(&1.0f64.to_bits().to_le_bytes());
-    shallow.extend_from_slice(&0u32.to_le_bytes()); // v2 输出段：0 条
+    shallow.extend_from_slice(&0u32.to_le_bytes()); // 输出段：0 条
+    shallow.extend_from_slice(&0u32.to_le_bytes()); // v3 引脚槽位段：0 钉
     let prog = decode_program(&shallow).expect("100-deep nesting must decode (cap is 128)");
     assert_eq!(prog.names, vec!["v"]);
 }

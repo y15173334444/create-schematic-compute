@@ -32,11 +32,13 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
  *
  * <p>The single authoritative generate/verify face for the tok fixtures (since
  * contract v2): fixture scripts live here (the one source of truth), the encoder is
- * deterministic, so the same script is byte-identical. Default (no system property)
- * = verify: re-encode all four scripts and compare byte-for-byte with the checked-in
- * fixtures, golden finals re-checked bit-exact against the Java StrictMath chain.
- * {@code -Dcsc.regenerateTokFixtures=true} = regenerate (the explicit action after a
- * contract change).</p>
+ * deterministic, so the same script is byte-identical. Default (no environment
+ * variable) = verify: re-encode all four scripts and compare byte-for-byte with the
+ * checked-in fixtures, golden finals re-checked bit-exact against the Java
+ * StrictMath chain. Environment variable {@code CSC_REGENERATE_TOK_FIXTURES=1} =
+ * regenerate (the explicit action after a contract change) — an environment variable
+ * rather than a system property, because the gradle-forked test JVM does not inherit
+ * command-line -D flags but does inherit the parent environment.</p>
  */
 class TokFixtureTest {
 

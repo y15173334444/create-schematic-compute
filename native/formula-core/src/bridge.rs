@@ -3,8 +3,8 @@
 //! 重生成夹具）：
 //!
 //! ```text
-//! Program（小端;v2 —— 输出表达式段进契约,与 Java FormulaTokEncoder 同步）:
-//!   "CSCF" magic + u32 version(=2)
+//! Program（小端;v3 —— v2 输出段 + 引脚槽位段,warm refresh 的契约面）:
+//!   "CSCF" magic + u32 version(=3)
 //!   u32 slot_count;  每 slot: u16 name_len + UTF-8
 //!   u32 repeat_count; 每 项: u16 loop_id + u64 count
 //!   u32 top_stmt_count; Stmt*:
@@ -12,6 +12,7 @@
 //!             3=While{u16 id, Rpn cond, u32 n, Stmt*} 4=If{Rpn,u32 n,Stmt*,u32 m,Stmt*}
 //!             5=Break 6=Continue
 //!   u32 output_count; Rpn*(= Java outputRpns;Done 时对终值寄存器逐条求值)
+//!   u32 pin_count(= Java inputVars.size()); 每 钉: u32 slot(u32::MAX = 声明未引用)
 //!   Rpn: u32 tok_count; Tok 16B/个: u8 tag + 7B pad + 8B payload(小端)
 //!     tag 0 Const: f64 bits   1 Var: u16 slot   2 Op: u8 char
 //!     3 Cmp: u8(0..5)  4 Not: 0  5 Fn: u8(枚举序)  6 Swz: u8(0..2, 9=lenient 恒零)
@@ -30,7 +31,7 @@ use crate::tok::Tok;
 use crate::value::V;
 
 const PROGRAM_MAGIC: &[u8; 4] = b"CSCF";
-const PROGRAM_VERSION: u32 = 2;
+const PROGRAM_VERSION: u32 = 3;
 const CARRIER_MAGIC: &[u8; 4] = b"CSCC";
 const CARRIER_VERSION: u32 = 1;
 /// 语句嵌套解码深度帽（镜像 Java FormulaParser.MAX_PARSE_DEPTH：合法程序必然
@@ -59,6 +60,10 @@ pub enum DecodeError {
     /// saves / reflective native calls) — mirrors Java MAX_PARSE_DEPTH to keep a
     /// crafted deep tree from overflowing the native stack inside a JNI call.
     TooDeep,
+    /// 引脚槽位越界（字节码攻击面：越界槽位会在 warm refresh 写寄存器时越界）。
+    /// Pin slot out of range (bytecode attack surface: an out-of-range slot would
+    /// write out of bounds at warm refresh).
+    BadPinSlot(u32),
 }
 
 struct Cursor<'a> {
@@ -251,6 +256,28 @@ pub fn decode_program(bytes: &[u8]) -> Result<Program, DecodeError> {
     for _ in 0..out_count {
         outputs.push(decode_rpn(&mut c)?);
     }
+    // v3 引脚槽位段（warm refresh 的契约面）：u32 条数 = Java inputVars.size()，
+    // 逐钉 u32 槽位索引（u32::MAX = 声明未引用的缺席钉——槽位表只收脚本引用过的
+    // 变量，缺席钉在 refresh 里按跳过处理，与 Java「env.put 无读者」同观测）。
+    // v3 pin-slot section (the warm-refresh contract face): u32 count = Java's
+    // inputVars.size(), then one u32 slot index per pin (u32::MAX = a declared
+    // pin the script never references — the slot table only interns referenced
+    // variables; refresh skips absent pins, observationally identical to Java's
+    // reader-less env.put).
+    let pin_count = c.u32v()? as usize;
+    let mut pin_slots = Vec::with_capacity(pin_count.min(4096));
+    for _ in 0..pin_count {
+        let s = c.u32v()?;
+        // 越界槽位拒绝于解码期（u32::MAX = 缺席钉放行）——warm refresh 会按槽位
+        // 写寄存器，越界即 JNI 内越界写，攻击面在桥接层收口。
+        // Reject out-of-range slots at decode (u32::MAX = absent pin passes) —
+        // warm refresh writes registers by slot; an out-of-range slot would be an
+        // out-of-bounds write inside JNI. The attack surface ends at the bridge.
+        if s != u32::MAX && s as usize >= slot_count {
+            return Err(DecodeError::BadPinSlot(s));
+        }
+        pin_slots.push(s);
+    }
     if c.p != bytes.len() {
         return Err(DecodeError::TrailingBytes(c.p));
     }
@@ -259,7 +286,14 @@ pub fn decode_program(bytes: &[u8]) -> Result<Program, DecodeError> {
     let body = body.into_boxed_slice();
     let scalar_only =
         crate::ast::scan_scalar_only_with_outputs(&body, &outputs);
-    Ok(Program { body, names, repeat_counts, outputs: outputs.into_boxed_slice(), scalar_only })
+    Ok(Program {
+        body,
+        names,
+        repeat_counts,
+        outputs: outputs.into_boxed_slice(),
+        pin_slots,
+        scalar_only,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

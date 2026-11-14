@@ -2,6 +2,7 @@ package io.github.y15173334444.create_schematic_compute.graph;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -42,6 +43,11 @@ public final class FormulaNativeSession {
     /** 程序缓存：脚本文本 → programId + 引脚→槽位映射 + 槽数。 / program cache keyed by script text. */
     private static final Map<String, CachedProgram> PROGRAMS = new ConcurrentHashMap<>();
 
+    /** 编码/上传失败的负缓存（键 = 脚本文本）：warn 一次（§4.7-2），坏脚本不再每
+     *  tick 重编码 + 重告警。键确定性 = 同文本恒失败；脚本编辑换文本 = 新键；
+     *  {@link #clear()} 全清（世界销毁后允许重试）。 */
+    private static final Set<String> FAILED = ConcurrentHashMap.newKeySet();
+
     /** 一份已上传程序。 / one uploaded program. */
     record CachedProgram(int programId, int[] pinSlots, int slotCount) {}
 
@@ -66,11 +72,12 @@ public final class FormulaNativeSession {
 
     /**
      * 查/传程序：缓存命中直接返回；未命中编码 + 上传（槽位映射按 inputVars 名查）。
-     * 编码失败（契约外：lexer 只产表内函数名）返回 null——调用方按「输出保持」处置，
-     * 绝不静默漂移。
+     * 编码/上传失败走 FAILED 负缓存——warn 一次（§4.7-2），此后静默返回 null（调用方
+     * 按「输出保持」处置）。失败对同一脚本文本恒确定，编辑换文本即换键。
      * Look up or upload a program: cache hit returns directly; a miss encodes + uploads
-     * (the pin→slot map resolved by inputVars names). Encode failure (contract-
-     * impossible) returns null — the caller holds outputs, never drifting silently.
+     * (the pin→slot map resolved by inputVars names). Encode/upload failures enter the
+     * FAILED negative cache — warn ONCE (§4.7-2), then silently return null (the caller
+     * holds outputs). Failure is deterministic per script text; editing changes the key.
      */
     static CachedProgram programFor(FormulaParser.ScriptParseResult script) {
         if (!FormulaNative.AVAILABLE) {
@@ -84,14 +91,18 @@ public final class FormulaNativeSession {
         try {
             enc = FormulaTokEncoder.encode(script);
         } catch (FormulaTokEncoder.EncodeException e) {
-            FormulaEval.LOGGER.warn("FORMULA native encode failed (contract-impossible; holding outputs): {}",
-                e.getMessage());
+            if (FAILED.add(script.sourceFormula)) {
+                FormulaEval.LOGGER.warn("FORMULA native encode failed (contract-impossible; holding outputs): {}",
+                    e.getMessage());
+            }
             return null;
         }
         long h = handle();
         int id = FormulaNative.programUpload(h, enc.bytes());
         if (id < 0) {
-            FormulaEval.LOGGER.warn("FORMULA native upload failed (rc={}): holding outputs", id);
+            if (FAILED.add(script.sourceFormula)) {
+                FormulaEval.LOGGER.warn("FORMULA native upload failed (rc={}): holding outputs", id);
+            }
             return null;
         }
         List<String> slots = enc.slotNames();
@@ -155,13 +166,9 @@ public final class FormulaNativeSession {
         long h = handle;
         handle = 0;
         PROGRAMS.clear();
+        FAILED.clear();
         if (h != 0 && FormulaNative.AVAILABLE) {
             FormulaNative.sessionDestroy(h);
         }
-    }
-
-    /** 仅测试用：全量复位（与 HostEvalPass.resetForTest 同口径）。 / test-only reset. */
-    static void resetForTest() {
-        clear();
     }
 }

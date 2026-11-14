@@ -577,7 +577,15 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
     if in_len > 0 && env.get_double_array_region(inputs, 0, &mut in_buf).is_err() {
         return ERR_BUFFER;
     }
+    // outputs 双向 seed：先读调用方当前值（保持底座），OutputShed 撞线者才留得住
+    // seed——契约与 tickBatch 相同（R4 审查修复：此前零初始化，余位恒回 0）。
+    // outputs is in/out: seed from the caller's current values first so OutputShed
+    // holds them — same contract as tickBatch (R4 review fix: it used to zero-init
+    // and the held tail always read 0).
     let mut out_buf = vec![0.0f64; out_len];
+    if out_len > 0 && env.get_double_array_region(&outputs, 0, &mut out_buf).is_err() {
+        return ERR_BUFFER;
+    }
     let mut carrier_buf: Vec<u8> = Vec::new();
     // 两维预算：slice = 本节点配额（0 不限）；deadline_in = tick 预算剩余（负 = 已
     // 过期哨兵 → Some(ZERO)：首个 256-op 采样即命中，与 Java deadlineExhausted()

@@ -126,8 +126,11 @@ impl<'p, 'b> Exec<'p, 'b> {
     /// 持一对缓冲 → 稳态零堆分配；`Vec` 只在首次/扩容时分配）。`inputs`: 槽位 →
     /// 初值（长度可小于槽位数，其余 lenient 0）。`resume`: 上一个 carrier
     /// （Some = 寻径续算；快照回灌后循环栈接管所有权、寄存器拷贝）。
-    /// `refresh_inputs_after_resume` = warm 续算（v2）：回灌**之后**再写 inputs——
-    /// Java 的「env.putAll(快照) 后按引脚刷新输入变量」同序；严格冻结传空 inputs。
+    /// `refresh_inputs_after_resume` = warm 续算（v3）：回灌**之后**只写程序声明的
+    /// 引脚槽位（`prog.pin_slots`；inputs 按槽位序承载引脚新值）——非引脚寄存器
+    /// （内部累加器等）保持回灌值，与 Java「env.putAll(快照) 后仅按引脚刷新输入
+    /// 变量」逐位同构。R3a 版写全长 inputs 会把内部寄存器清零、收敛重启（R4 双轴
+    /// 审查抓出并修复）。refresh=false 时 resume 路径不读 inputs（严格冻结）。
     pub fn new(
         prog: &'p Program,
         regs: &'b mut Vec<V>,
@@ -141,17 +144,20 @@ impl<'p, 'b> Exec<'p, 'b> {
         regs.resize(prog.names.len().max(inputs.len()), V::ZERO);
         match resume {
             Some(c) => {
-                // 快照回灌：寄存器拷贝（输入钉若需更新由调用方直接改 c.regs 后再传入）、
-                // 循环栈整体接管。语义对应 Java 的「恢复 Env 快照 + resume 栈」。
+                // 快照回灌：寄存器拷贝、循环栈整体接管。语义对应 Java 的
+                // 「恢复 Env 快照 + resume 栈」；warm 输入刷新由下方 pin_slots 分支管。
                 for (i, v) in c.regs.iter().enumerate() {
                     if i < regs.len() {
                         regs[i] = *v;
                     }
                 }
                 if refresh_inputs_after_resume {
-                    for (i, v) in inputs.iter().enumerate() {
-                        if i < regs.len() {
-                            regs[i] = *v;
+                    // 解码期已校验 pin < 槽数（或缺席哨兵）；inputs 短于槽位 = 缺席
+                    // 引脚按 0（冷启动同口径）。
+                    for &s in &prog.pin_slots {
+                        if s != u32::MAX {
+                            let idx = s as usize;
+                            regs[idx] = inputs.get(idx).copied().unwrap_or(V::ZERO);
                         }
                     }
                 }

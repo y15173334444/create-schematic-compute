@@ -50,7 +50,18 @@ pub fn compile(src: &str) -> Result<Program, String> {
     let body = c.parse_body(&lines, &mut 0, 0)?;
     let body = body.into_boxed_slice();
     let scalar_only = crate::ast::scan_scalar_only(&body);
-    Ok(Program { body, names: c.names, repeat_counts: c.repeat_counts, outputs: Box::new([]), scalar_only })
+    // compile() 是测试/bin 工具面（无 Java 引脚声明）→ 无引脚信息，warm refresh
+    // 不写任何槽位；契约面 = decode_program（Java 编码器流）。
+    // compile() is the test/bin-tool face (no Java pin declarations) — no pin
+    // info, warm refresh writes nothing; the contract face is decode_program.
+    Ok(Program {
+        body,
+        names: c.names,
+        repeat_counts: c.repeat_counts,
+        outputs: Box::new([]),
+        pin_slots: Vec::new(),
+        scalar_only,
+    })
 }
 
 struct Compiler {

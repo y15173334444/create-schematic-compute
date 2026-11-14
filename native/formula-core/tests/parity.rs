@@ -310,6 +310,23 @@ fn vec3_program_not_scalar_only() {
     assert!(!prog2.scalar_only, "swizzle must disqualify the fast path");
 }
 
+/// 非法向量组合 = 运行期 lenient 零向量（v×v、v÷v、标量÷v、% ^——Java 校验期
+/// 报 ERROR，本路径只被 degraded/crafted 字节码到达；引擎与 Java 解释器
+/// FormulaInterpreter「无良定义 → lenient 零」同表兜底，§4.7-5「非法组合零向量」
+/// 的真实所在层）。
+#[test]
+fn illegal_vector_combos_lenient_zero() {
+    let (prog, regs) = run_all(
+        "u = vec3(1, 2, 3)\nv = vec3(4, 5, 6)\nw = u * v\nz = 1.0 / u\nr = u % 2\nq = v / u",
+        &[],
+    );
+    let at = |name: &str| regs[prog.names.iter().position(|n| n == name).unwrap()].as_vec();
+    assert_eq!(at("w"), [0.0, 0.0, 0.0]); // v×v
+    assert_eq!(at("z"), [0.0, 0.0, 0.0]); // 标量÷v
+    assert_eq!(at("r"), [0.0, 0.0, 0.0]); // % 向量
+    assert_eq!(at("q"), [0.0, 0.0, 0.0]); // v÷v
+}
+
 /// while 循环的挂起/续算（k 不推进语义：cond 每轮重评）——干净的续算循环形态。
 #[test]
 fn while_suspend_resume() {

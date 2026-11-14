@@ -282,30 +282,4 @@ public final class FormulaNative {
         return (b[off] & 0xFFL) | ((b[off + 1] & 0xFFL) << 8)
             | ((b[off + 2] & 0xFFL) << 16) | ((b[off + 3] & 0xFFL) << 24);
     }
-
-    /**
-     * 挂起 carrier 循环栈首条的 k（native 路径的测试/观测视图——Java 路径的
-     * {@code formulaCarrier.loopStack.get(0).k} 镜像）。畸形/空循环栈 = -1。
-     * 头部布局（bridge.rs carrier 契约）：magic4 + version4 + loop_count4，条目 =
-     * u16 id + u64 k 紧排无对齐填充 → 首条 k 在 [14, 22)。
-     * The suspended carrier's first loop-stack k (the native-path test/observability
-     * view mirroring Java's formulaCarrier.loopStack.get(0).k); -1 on malformed/empty.
-     */
-    static long carrierFirstLoopK(byte[] buf) {
-        if (buf == null || buf.length < 22) {
-            return -1;
-        }
-        if ((buf[0] & 0xFF) != 'C' || (buf[1] & 0xFF) != 'S'
-                || (buf[2] & 0xFF) != 'C' || (buf[3] & 0xFF) != 'C') {
-            return -1;
-        }
-        if (readU32(buf, 8) < 1) {
-            return -1;
-        }
-        long k = 0;
-        for (int i = 0; i < 8; i++) {
-            k |= (buf[14 + i] & 0xFFL) << (8 * i);
-        }
-        return k;
-    }
 }
