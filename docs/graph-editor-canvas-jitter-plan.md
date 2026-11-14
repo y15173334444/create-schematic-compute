@@ -11,6 +11,8 @@
 > **交叉引用 / Cross-refs**：
 > [`graph-editor-interaction-render-layering-plan.md`](graph-editor-interaction-render-layering-plan.md)（P2 控件几何单一真源）、
 > [`graph-editor-render-performance-plan.md`](graph-editor-render-performance-plan.md)（帧率与采样）、
+> [`blender-shimmer-free-drawing-brief.md`](blender-shimmer-free-drawing-brief.md)（Blender 无闪烁绘制机制简报——
+> 残余抖动治理的方法论输入：边缘覆盖率软边、文字像素对齐/档位、相机相位锁定）、
 > [`gui-decomposition-plan.md`](gui-decomposition-plan.md)、[`code-architecture.md`](code-architecture.md)。
 
 ---
