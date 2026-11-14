@@ -36,13 +36,22 @@ import org.slf4j.Logger;
  * The channels dedupe over 300ms (gesture wins). GID_PAN stays unclaimed so two-finger
  * pan keeps feeding GZ-1 as wheel scroll.
  *
- * <p>实现注记：LWJGL 3.3.3 的 User32 绑定没有手势三件套，raw Win32 走 JNA（MC 1.21.1
- * 自带同版 JNA 5.14.0）；GESTUREINFO x64 自然对齐 56B。仅 Windows；非 Windows / 缺 JNA
- * 静默停用；钩子内任何失败都不碰渲染线。带诊断计数（安装结果与通道计数进日志）。
- * Implementation note: LWJGL 3.3.3 lacks the gesture trio, raw Win32 goes through JNA
- * (MC 1.21.1 ships the same JNA 5.14.0); GESTUREINFO is the x64 56-byte layout. Windows
- * only, dormant elsewhere; hook failures never touch the render thread. Diagnostic
- * counters land in the log.</p>
+ * <p>实测语义（本机 Win11 build 26300，与经典文档不同）：WM_GESTURE 的 wParam=手势 ID
+ * （GID_*）、lParam=HGESTUREINFO；GESTUREINFO 56B 但**距离字段在偏移 40**（@32 恒 0）；
+ * ptsLocation=质心屏幕坐标。锚点=pts−窗口原点（GetWindowRect 算术；**窗口查询必须用真
+ * HWND**——`Window.getWindow()` 是 GLFW 指针不是 HWND，拿它查窗必 false）。LWJGL 3.3.3
+ * 的 User32 绑定没有手势三件套，raw Win32 走 JNA（MC 自带同版 5.14.0）。仅 Windows；
+ * 非 Windows / 缺 JNA 静默停用；钩子内任何失败都不碰渲染线。诊断轨迹有界（每会话首几条
+ * + 5s 通道计数），发布前可裁。
+ * Measured semantics on this Win11 build (deviating from classic docs): WM_GESTURE's
+ * wParam is the gesture id (GID_*), lParam is the HGESTUREINFO; GESTUREINFO is 56B but
+ * the finger distance lives at offset 40 (@32 reads zero); ptsLocation is the centroid
+ * in screen coords. The anchor is pts minus the window origin (GetWindowRect arithmetic;
+ * window queries need the real HWND — `Window.getWindow()` is the GLFW pointer, not an
+ * HWND, and querying with it always fails). LWJGL 3.3.3 lacks the gesture trio, raw
+ * Win32 goes through JNA (MC ships the same 5.14.0). Windows only, dormant elsewhere;
+ * hook failures never touch the render thread. Diagnostics are bounded (first few per
+ * session + 5s channel counts) and release-trimmable.</p>
  */
 final class Win32GestureZoom {
 
