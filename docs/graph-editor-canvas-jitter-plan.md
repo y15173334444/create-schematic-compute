@@ -2,7 +2,10 @@
 
 > **状态 / Status**：🟡 **施工中**：JIT-1 核心（统一变换与取整，`ScreenTransform` 作像素对齐唯一入口）与
 > JIT-2（网格整数格）已于 2026-11-14 落地（渲染性能线 `csc-render-perf`），锚 `ScreenTransformTest`；
-> JIT-3 / JIT-4 / JIT-5 / JIT-6 未动。
+> 同日按 [`blender-shimmer-free-drawing-brief.md`](blender-shimmer-free-drawing-brief.md) 启示 1 落地
+> **残余治理批 1**（平移相位锁定：平移项整像素量化 + 网格原点收编 c2s(0)；连线采样步数 16px 分桶），
+> 锚 `GraphCameraPhaseTest`；批 2=边缘覆盖率软边、批 3=文字像素对齐/字号档位（收编 JIT-3），待拍板。
+> JIT-4 / JIT-5 / JIT-6 未动。
 > 起草于 2026-10-24，基线 `718d38b`（`main`）。
 > **问题 / Problem**：平移/缩放时节点框、文字、网格出现 1px 级抖动（shimmer）；命中位置与画面偶发错位。
 > 这是**视觉稳定性**问题，与 `graph-editor-render-performance-plan.md` 的帧率问题相互独立。
