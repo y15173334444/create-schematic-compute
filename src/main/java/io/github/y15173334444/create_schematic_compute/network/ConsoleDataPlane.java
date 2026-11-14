@@ -1,5 +1,6 @@
 package io.github.y15173334444.create_schematic_compute.network;
 
+import io.github.y15173334444.create_schematic_compute.graph.ChannelCuts;
 import io.github.y15173334444.create_schematic_compute.graph.TopoStats;
 
 import java.util.ArrayList;
@@ -228,14 +229,18 @@ public final class ConsoleDataPlane {
     //    of edge cutting, §4.3/§5.3) ──────────────────────────────
 
     /**
-     * {@code ring} 渲染：全局 SCC 真环列表（成员 + 环上通道名 = 两端都在本分量内的边的通道）。
-     * 无环图明确回「无环（DAG）」行而非空行（可诊断性硬口径）；表头始终带入图宿主数与边数，
-     * 空图也自洽（宿主 0 / 边 0 的无环）。
+     * {@code ring} 渲染：全局 SCC 真环列表（成员 + 环上通道名 = 两端都在本分量内的边的通道；
+     * 被切边通道旁注「跨tick」标记——§5.3 切边方案的展示面，标记取
+     * {@code ChannelCuts.currentPlan()} 的当前被切边集）。无环图明确回「无环（DAG）」行而
+     * 非空行（可诊断性硬口径）；表头始终带入图宿主数与边数，空图也自洽（宿主 0 / 边 0 的
+     * 无环）。
      * <p>The {@code ring} renderer: the global list of genuine cyclic SCCs (members + the
-     * channels on the ring = the channels of edges with both ends inside the component). An
-     * acyclic graph explicitly answers the "acyclic (DAG)" line, never an empty reply (the
-     * diagnosability hard rule); the header always carries the in-graph host and edge counts,
-     * self-consistent even for an empty graph (0 hosts / 0 edges, acyclic).</p>
+     * channels on the ring = the channels of edges with both ends inside the component; cut
+     * channels carry the "cross-tick" annotation — §5.3's display face of the cut plan,
+     * read from {@code ChannelCuts.currentPlan()}'s current cut-edge set). An acyclic graph
+     * explicitly answers the "acyclic (DAG)" line, never an empty reply (the diagnosability
+     * hard rule); the header always carries the in-graph host and edge counts, self-consistent
+     * even for an empty graph (0 hosts / 0 edges, acyclic).</p>
      *
      * @param g 缓存依赖图 / the cached dependency graph
      * @return 文本行 / the text lines
@@ -249,17 +254,26 @@ public final class ConsoleDataPlane {
             out.add("  无环（DAG）——无需切边 / acyclic (DAG) — no edge cutting needed");
             return out;
         }
+        var cutEdges = ChannelCuts.currentPlan().cutEdges();
         int k = 1;
         for (var scc : cycles) {
             var members = new ArrayList<String>();
             for (var h : scc) members.add(h.toString());
             out.add("  环" + k + " (" + scc.size() + "): " + String.join("；", members));
             var channels = new TreeSet<String>();
-            for (var e : g.edges())
-                if (scc.contains(e.writer()) && scc.contains(e.reader()))
-                    channels.add(SignalBus.logicalName(e.channel()));
+            var cutChannels = new TreeSet<String>();
+            for (var e : g.edges()) {
+                if (!scc.contains(e.writer()) || !scc.contains(e.reader())) continue;
+                String logical = SignalBus.logicalName(e.channel());
+                channels.add(logical);
+                if (cutEdges.contains(e)) cutChannels.add(logical);
+            }
+            var marked = new ArrayList<String>();
+            for (var ch : channels)
+                marked.add(cutChannels.contains(ch)
+                    ? ch + "〔跨tick / cross-tick〕" : ch);
             out.add("    环上通道 (" + channels.size() + ") / on-ring channels: "
-                + String.join("，", channels));
+                + String.join("，", marked));
             k++;
         }
         return out;
@@ -280,7 +294,15 @@ public final class ConsoleDataPlane {
      *  carriers coexist under one name the BUS carrier is displayed (the richer state), an
      *  honest record in this javadoc.</p> */
     record BusChannelRow(String channel, String carrier, String value, String owner,
-                         int subscribers, boolean conflict) { }
+                         int subscribers, boolean conflict, boolean crossTick) {
+        /** 既有六参形态（跨 tick 标记 = 否）：存量构造点/测试零改动。
+         *  The legacy six-component shape (the cross-tick mark = false): existing
+         *  construction sites and tests stay unchanged. */
+        BusChannelRow(String channel, String carrier, String value, String owner,
+                      int subscribers, boolean conflict) {
+            this(channel, carrier, value, owner, subscribers, conflict, false);
+        }
+    }
 
     /** 每通道 band 值的最多显示数（超出以 {@code …(+N)} 收尾；整行不至于被字节钳制整行丢弃）。
      *  The maximum band values shown per channel (beyond it the line ends {@code …(+N)}; keeps
@@ -314,16 +336,21 @@ public final class ConsoleDataPlane {
         for (String ch : channels) {
             String logical = SignalBus.logicalName(ch);
             int subscribers = subscriberCount(g, ch);
+            // §5.3 (c) 被切边标记：查询目标宿主对该通道的读是否被切（读上 tick 末快照）。
+            // §5.3 (c) the cut-edge mark: whether the queried host's read of this channel is
+            // cut (reads last tick's committed snapshot).
+            boolean crossTick = ChannelCuts.isReaderCut(target, ch);
             var entry = SignalBus.getChannel(logical);
             if (entry != null) {
                 var bands = new TreeMap<>(entry.internalMap);
                 rows.add(new BusChannelRow(logical, "BUS", bandSummary(bands),
-                    ownerString(entry.owner), subscribers, !SignalBus.claimants(logical).isEmpty()));
+                    ownerString(entry.owner), subscribers, !SignalBus.claimants(logical).isEmpty(),
+                    crossTick));
             } else {
                 Float v = SignalBus.signalValue(logical);
                 rows.add(new BusChannelRow(logical, "PRIVATE",
                     v != null ? Float.toString(v) : "—",
-                    ownerString(SignalBus.getPrivateOwner(logical)), subscribers, false));
+                    ownerString(SignalBus.getPrivateOwner(logical)), subscribers, false, crossTick));
             }
         }
         return rows;
@@ -390,6 +417,7 @@ public final class ConsoleDataPlane {
         }
         for (var r : rows) {
             out.add("  [" + r.carrier() + "] " + r.channel()
+                + (r.crossTick() ? "〔跨tick / cross-tick〕" : "")
                 + "  值: " + r.value()
                 + "  owner: " + r.owner()
                 + "  订阅: " + r.subscribers()

@@ -115,29 +115,39 @@ public final class HostChannelCensus {
     public static TopoStats.ChannelCensus census(NodeGraph root, String dimensionId) {
         var reads = new TreeSet<String>();
         var writes = new TreeSet<String>();
+        var feedback = new TreeSet<String>();
         if (root != null) {
-            SignalBus.runInDimension(dimensionId, () -> collect(root, reads, writes, new HashSet<>()));
+            SignalBus.runInDimension(dimensionId, () -> collect(root, reads, writes, feedback, new HashSet<>()));
         }
-        return new TopoStats.ChannelCensus(reads, writes);
+        return new TopoStats.ChannelCensus(reads, writes, feedback);
     }
 
     /** 递归收集体：通道节点按类型入读/写集（键经 {@link SignalBus#key}），ENCAPSULATION
-     *  下钻子图（{@code visited} 以图对象身份截断理论上的嵌套引用环）。
+     *  下钻子图（{@code visited} 以图对象身份截断理论上的嵌套引用环）。发布节点携带
+     *  §5.3 (c) 显式反馈声明（{@code GraphNode.feedbackOut}）时同名通道再入声明子集
+     *  （⊆ 写集——切边规划的声明边来源）。
      *  The recursive collector: channel nodes join the read/write sets by type (keys via
      *  {@link SignalBus#key}); ENCAPSULATION drills into its sub-graph ({@code visited} cuts
-     *  the theoretical nested-reference cycle by graph-object identity). */
+     *  the theoretical nested-reference cycle by graph-object identity). A publisher node
+     *  carrying the §5.3 (c) explicit feedback declaration ({@code GraphNode.feedbackOut})
+     *  adds its channel to the declared subset as well (⊆ the write set — the declared-edge
+     *  source of the cut planning). */
     private static void collect(NodeGraph g, Set<String> reads, Set<String> writes,
-                                Set<NodeGraph> visited) {
+                                Set<String> feedback, Set<NodeGraph> visited) {
         if (g == null || !visited.add(g)) return;
         for (var n : g.nodes) {
             if (n.type == NodeType.ENCAPSULATION) {
-                collect(n.subGraph, reads, writes, visited);
+                collect(n.subGraph, reads, writes, feedback, visited);
                 continue;
             }
             if (n.signalName == null || n.signalName.isEmpty()) continue;
             switch (n.type) {
                 case BUS_IN, PRIVATE_IN -> reads.add(SignalBus.key(n.signalName));
-                case BUS_OUT, PRIVATE_OUT -> writes.add(SignalBus.key(n.signalName));
+                case BUS_OUT, PRIVATE_OUT -> {
+                    String k = SignalBus.key(n.signalName);
+                    writes.add(k);
+                    if (n.feedbackOut) feedback.add(k);
+                }
                 default -> { }
             }
         }

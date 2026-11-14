@@ -2734,6 +2734,28 @@ public class GraphEditor {
                 host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
             sendOp(tOp); recordOp(tOp, 0, 0, 0, null);
             return true; }}
+        // §5.3 (c) 反馈声明开关行点击（仅发布节点 BUS_OUT / PRIVATE_OUT）：几何与
+        // EditPanel 绘制、SpatialIndex 行高账本三方一致——BUS_OUT 在 +/- 行后一行
+        // （fields numRows = 1 + 频段数 → 反馈行 = numRows+1），PRIVATE_OUT 在类型片行后
+        // 一行（fields numRows = 1 → 反馈行 = numRows+1）。点击 = 本地镜像 + SET_FEEDBACK
+        // 自反 op（TOGGLE_BOOL 同款管线：sendOp 上行 + recordOp 入撤销栈）。
+        // §5.3 (c) feedback-declaration toggle row clicks (publisher nodes only — BUS_OUT /
+        // PRIVATE_OUT): the geometry is three-way consistent with the EditPanel draw and the
+        // SpatialIndex height ledger — BUS_OUT one row after +/- (numRows = 1 + bands → the
+        // feedback row = numRows+1), PRIVATE_OUT one row after the type chip (numRows = 1 →
+        // the feedback row = numRows+1). A click = the local mirror + the self-inverse
+        // SET_FEEDBACK op (the TOGGLE_BOOL pipeline: sendOp upstream + recordOp into undo).
+        if (en.type == NodeType.BUS_OUT || en.type == NodeType.PRIVATE_OUT) {
+            int fbLocalY = editLocalY + 4 + (numRows + 1) * 18;
+            if (lmx >= 4 && lmx <= NW - 4 && lmy >= fbLocalY && lmy <= fbLocalY + 16) {
+                en.feedbackOut = !en.feedbackOut;
+                var fOp = new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
+                    io.github.y15173334444.create_schematic_compute.graph.OpType.SET_FEEDBACK,
+                    host.getBlockPos(), ownerNodeId(), en.id, host.getPlayerUUID());
+                sendOp(fOp); recordOp(fOp, 0, 0, 0, null);
+                return true;
+            }
+        }
         // CUSTOM BOOL 控件行点击（公开 API 波 1 批 C）：几何与 EditPanel 绘制、
         // SpatialIndex.editHeight 同一账本（字段行后的连续 16px 行）；paramIndex 承载
         // 目标控件序位（执行器按 schema 校验 kind==BOOL）。

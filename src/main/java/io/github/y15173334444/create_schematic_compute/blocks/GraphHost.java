@@ -484,25 +484,31 @@ public class GraphHost {
                 //    types actually run; BASIC uses throwaway tables, EMPTY_TABLE seat +
                 //    throwaway tables.
                 float dt = 0.05f;
-                // 口径 A 采集上下文（§3.3，issue #26）：求值记录点的宿主归属依据。仅在采集
-                // 开启时设/清（关闭路径零分配零写入，钩子自身被同一门短路）；try/finally
-                // 保证任何求值异常路径都恢复先前值；ENCAP 子求值器经同一静态天然延续，
-                // 无需改求值重载。求值移 Post 后本上下文由求值遍逐宿主设/清——随求值移
-                // Post 后记录点自动落在正确的时点（§5.2 A 观测设施零破坏）。
-                // The criterion-A collection context (§3.3, issue #26): the host attribution
-                // of the evaluation record points. Set/cleared only while collecting (the off
-                // path allocates and writes nothing — the hooks are short-circuited by the
-                // same gate); try/finally restores the previous value on every exception path;
-                // ENCAP sub-evaluators continue through the same static, no evaluation
-                // overloads changed. With evaluation moved to Post this context is set/cleared
-                // per host by the pass — riding evaluation into Post automatically puts the
-                // record points at the right moment (§5.2 A keeps the observation facility
-                // intact).
-                TopoStats.HostId topoPrev = null;
-                boolean topoContext = TopoStats.collecting();
-                if (topoContext)
-                    topoPrev = TopoStats.beginEvalContext(
-                        new TopoStats.HostId(dimensionId, pos().getX(), pos().getY(), pos().getZ()));
+                // 求值宿主上下文（§3.3 + §5.3 切边路由）：求值记录点的宿主归属依据（口径 A）
+                // 与被切读的读者身份（ChannelCuts 快照路由）共用同一静态。无条件设/清
+                // （切边路由不受采集门控——§5.3 语义必须恒在）；try/finally 保证任何求值
+                // 异常路径都恢复先前值；ENCAP 子求值器经同一静态天然延续，无需改求值重载。
+                // 客户端本地求值永不进入本方法（前段 guard 已挡），§3.3 的采样语义闸门不变。
+                // The evaluation-host context (§3.3 + §5.3's cut routing): the host attribution
+                // of the evaluation record points (criterion A) and the cut reader's identity
+                // (ChannelCuts snapshot routing) share one static. Set/cleared unconditionally
+                // (the cut routing is not gated on collection — §5.3's semantics must always
+                // be in force); try/finally restores the previous value on every exception
+                // path; ENCAP sub-evaluators continue through the same static, no evaluation
+                // overloads changed. Client-local evaluation never enters this method (the
+                // prologue guard blocks it), so §3.3's sampling-semantics gate stands.
+                TopoStats.HostId topoPrev = TopoStats.beginEvalContext(
+                    new TopoStats.HostId(dimensionId, pos().getX(), pos().getY(), pos().getZ()));
+                // §5.3 切边读路由：被切读者的求值端口经快照感知包装（无切边 = 原端口，
+                // 零开销快路）。被切边读上一 tick 末快照、其余实时——S3 的语义在此落地。
+                // §5.3's cut read routing: a cut reader's evaluation port rides the
+                // snapshot-aware wrapper (no cuts = the bare port, the zero-overhead fast
+                // path). A cut edge reads last tick's snapshot, everything else live — S3's
+                // semantics land here.
+                io.github.y15173334444.create_schematic_compute.graph.SignalBusPort port =
+                    io.github.y15173334444.create_schematic_compute.graph.ChannelCuts.wrap(
+                        io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
+                evaluator.setSignalBus(port);
                 List<GraphEvaluator.OutputResult> results;
                 try {
                     results = switch (h.evalVariant()) {
@@ -513,7 +519,7 @@ public class GraphHost {
                             new HashMap<>(), new HashMap<>(), new HashMap<>());
                     };
                 } finally {
-                    if (topoContext) TopoStats.endEvalContext(topoPrev);
+                    TopoStats.endEvalContext(topoPrev);
                 }
                 h.afterEval();
                 // ⑩ 写出红石输出 / write redstone outputs

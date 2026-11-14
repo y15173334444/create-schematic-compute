@@ -1,5 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
+import io.github.y15173334444.create_schematic_compute.graph.ChannelCuts;
+import io.github.y15173334444.create_schematic_compute.graph.CutEdgePlanner;
 import io.github.y15173334444.create_schematic_compute.graph.CustomNodeCompute;
 import io.github.y15173334444.create_schematic_compute.graph.FormulaCompute;
 import io.github.y15173334444.create_schematic_compute.graph.HostEvalOrder;
@@ -189,7 +191,17 @@ public final class HostEvalPass {
         // reused — console queries and this pass share one build (at most one per tick,
         // O(hosts + edges)).
         var g = ConsoleQueryCache.hostGraph();
-        List<TopoStats.HostId> order = HostEvalOrder.evaluationOrder(g, Set.of());
+        // §5.3 切边规划（本批）：每真环分量恰切一条（声明优先 + 全序最小兜底），被切边
+        // 不进序约束（恒跨 tick），读侧改读上一 tick 末快照（遍终点捕获）。无环图 = 空方案，
+        // 全链零开销。
+        // §5.3 cut-edge planning (this batch): exactly one cut per genuine cyclic component
+        // (declared first, the total-order-minimum fallback), the cut edge leaves the order
+        // constraints (permanently cross-tick), and its reads switch to last tick's snapshot
+        // (captured at the pass tail). An acyclic graph = the empty plan, the whole chain
+        // costs nothing.
+        var cutPlan = CutEdgePlanner.plan(g);
+        ChannelCuts.beginPass(cutPlan);
+        List<TopoStats.HostId> order = HostEvalOrder.evaluationOrder(g, cutPlan.cutEdges());
 
         // 图外已登记宿主（空普查——不读不写通道，序位置无语义）按 HostId 全序追加队尾。
         // Armed hosts outside the graph (empty census — neither reading nor writing channels;
@@ -210,6 +222,20 @@ public final class HostEvalPass {
             a.host.evalSegment(a.hooks, a.dimensionId);
         }
         evalOrdinals = Collections.unmodifiableSortedMap(ordinals);
+        // §5.3 遍终点 prev 快照（「上一 tick 末提交值」= 全部求值 + broadcast 完之后的值）：
+        // 对被监视通道逐条双载体采样（SignalBus.sampleForSnapshot——前缀格式知识全在
+        // SignalBus），整体换发进 ChannelCuts；下一 tick 的被切读从这里取值。
+        // §5.3's pass-tail prev snapshot ("last tick's committed value" = the value after all
+        // evaluation + broadcast): sample each watched channel's dual carrier one by one
+        // (SignalBus.sampleForSnapshot — all prefix-format knowledge lives in SignalBus) and
+        // swap wholesale into ChannelCuts; next tick's cut reads take their values from here.
+        if (!cutPlan.isEmpty()) {
+            var snap = new java.util.TreeMap<String, ChannelCuts.CutSample>();
+            for (TopoStats.ChannelEdge e : cutPlan.cutEdges())
+                snap.putIfAbsent(e.channel(),
+                    io.github.y15173334444.create_schematic_compute.network.SignalBus.sampleForSnapshot(e.channel()));
+            ChannelCuts.installSnapshot(snap);
+        }
         ARMED.clear();
     }
 }

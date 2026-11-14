@@ -113,6 +113,11 @@ class ConsoleDataCommandsTest {
         TopoStats.clearRegistry();
         SignalBus.clear();
         ConsoleQueryCache.reset();
+        // §5.3 切边计划面复位（空方案 = 无标记；graph 包的锚负责有切边的语义面）。
+        // §5.3's cut-plan face reset (the empty plan = no marks; the graph package's anchors
+        // own the with-cuts semantics).
+        io.github.y15173334444.create_schematic_compute.graph.ChannelCuts
+            .beginPass(io.github.y15173334444.create_schematic_compute.graph.CutEdgePlanner.CutPlan.EMPTY);
     }
 
     // ── 夹具 / fixtures ──────────────────────────────────────────────────────────────
@@ -524,6 +529,59 @@ class ConsoleDataCommandsTest {
     void hostsEmptyRegistrySaysSo() {
         List<String> lines = ConsoleProtocol.respond("hosts");
         assertTrue(lines.get(1).contains("注册表为空"), "空表明说 / an empty registry says so: " + lines.get(1));
+    }
+
+    // ══════════ 6b. §5.3 被切边的展示面（ring / bus 标记） ══════════
+
+    @Test
+    @DisplayName("ring 标记被切通道：被切边通道旁注「跨tick」，环内其余通道不带标记")
+    void ringAnnotatesCutChannels() {
+        var gA = graph(g -> { channel(g, NodeType.BUS_OUT, "x"); channel(g, NodeType.BUS_IN, "y"); });
+        var gB = graph(g -> { channel(g, NodeType.BUS_OUT, "y"); channel(g, NodeType.BUS_IN, "x"); });
+        TopoStats.hostLoaded(A, () -> censusOf(gA, DIM));
+        TopoStats.hostLoaded(B, () -> censusOf(gB, DIM));
+        ConsoleQueryCache.reset();
+        // 兜底全序最小 = x 的 A→B 边 → 读者 B 对 x 的读被切。
+        // The fallback total-order minimum = x's A→B edge → reader B's read of x is cut.
+        var plan = io.github.y15173334444.create_schematic_compute.graph.CutEdgePlanner
+            .plan(ConsoleQueryCache.hostGraph());
+        io.github.y15173334444.create_schematic_compute.graph.ChannelCuts.beginPass(plan);
+
+        List<String> lines = ConsoleProtocol.respond("ring");
+        String chans = lines.stream().filter(l -> l.contains("环上通道")).findFirst().orElseThrow();
+        assertTrue(chans.contains("x〔跨tick / cross-tick〕"), "被切通道带标记 / the cut channel carries the mark: " + chans);
+        assertFalse(chans.contains("y〔跨tick"), "未切通道不带标记 / the uncut channel carries none: " + chans);
+        // 空方案复位后标记消失（展示面跟随当前计划）。/ After resetting to the empty plan the
+        // marks vanish (the display face follows the current plan).
+        io.github.y15173334444.create_schematic_compute.graph.ChannelCuts
+            .beginPass(io.github.y15173334444.create_schematic_compute.graph.CutEdgePlanner.CutPlan.EMPTY);
+        String chansPlain = ConsoleProtocol.respond("ring").stream()
+            .filter(l -> l.contains("环上通道")).findFirst().orElseThrow();
+        assertFalse(chansPlain.contains("跨tick"), "无切边 = 无标记 / no cuts = no marks: " + chansPlain);
+    }
+
+    @Test
+    @DisplayName("bus 标记被切行：被切读者的行带「跨tick」，写者/其余行不带")
+    void busMarksCutRowsOnlyForTheCutReader() {
+        var gA = graph(g -> { channel(g, NodeType.BUS_OUT, "x"); channel(g, NodeType.BUS_IN, "y"); });
+        var gB = graph(g -> { channel(g, NodeType.BUS_OUT, "y"); channel(g, NodeType.BUS_IN, "x"); });
+        TopoStats.hostLoaded(A, () -> censusOf(gA, DIM));
+        TopoStats.hostLoaded(B, () -> censusOf(gB, DIM));
+        ConsoleQueryCache.reset();
+        var plan = io.github.y15173334444.create_schematic_compute.graph.CutEdgePlanner
+            .plan(ConsoleQueryCache.hostGraph());
+        io.github.y15173334444.create_schematic_compute.graph.ChannelCuts.beginPass(plan);
+
+        // B 读 x，且 (x, A, B) 是被切边 → B 的 bus 行带标记；A 的行（写者视角）不带。
+        // B reads x and (x, A, B) is the cut edge → B's bus row carries the mark; A's rows
+        // (the writer's view) carry none.
+        for (String row : ConsoleProtocol.respond("bus", B)) {
+            if (row.contains("[BUS] x")) assertTrue(row.contains("〔跨tick / cross-tick〕"),
+                "被切读者的行带标记 / the cut reader's row carries the mark: " + row);
+        }
+        for (String row : ConsoleProtocol.respond("bus", A)) {
+            assertFalse(row.contains("跨tick"), "写者/其余行不带标记 / the writer's rows carry none: " + row);
+        }
     }
 
     @Test
