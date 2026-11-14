@@ -184,9 +184,11 @@ native;字节码与挂起态是可被篡改的边界(存档改写/未来的网�
   - `progressOut` = f32 出参(挂起两态写入):Java progressOf 镜像——最外层 repeat 主进度 +
     最内层份额平滑叠加,outermost 是 while 退回最内层 repeat,都没有 = -1。
 - **状态码表**:0 Done / 1 Suspended(carrierOut 有效) / 2 Shed(MAX_ITER) / 3 OutputShed /
-  4 DeadlineSuspended(carrierOut 有效)。3/4 是 v2 新增:3 = 输出阶段撞 deadline(已完成输出
-  新鲜、撞点后短表达式仍可完成、其余保持 lastGood;carrier 整体作废,对齐 Java outputShed
-  逐输出继续求值的口径);4 = fromDeadline 挂起(计进度、免计 yield、走公平规则)。
+  4 DeadlineSuspended(carrierOut 有效) / 5 ExecError。3/4/5 是 v2 新增:3 = 输出阶段撞
+  deadline(已完成输出新鲜、撞点后短表达式仍可完成、其余保持 lastGood;carrier 整体作废,
+  对齐 Java outputShed 逐输出继续求值的口径);4 = fromDeadline 挂起(计进度、免计 yield、
+  走公平规则);5 = 受控求值错误(栈下溢/嵌套超深——Java catch(Exception) 同型:输出归零、
+  carrier 作废、不进 dedup;R1/R2 曾把栈下溢并入 Shed=输出保持,对拍网抓出后分态)。
 - **carrierOut 标准尺寸公式**:`slots×25 + 1332`(24B 头 + 循环栈帽 128×10 + 4B 计数 +
   slots×25 + 8B 迭代数;循环栈深度 = 语句嵌套帽 128,合法程序必然装下)。
 - carrier(CSCC)格式不变。
@@ -217,7 +219,8 @@ native;字节码与挂起态是可被篡改的边界(存档改写/未来的网�
   streak 清零;1 Suspended → 字节 carrier 存节点 + 冻结输入 + spread=progress + reportYield +
   streak 清零;2 Shed → carrier 清 + spread 0 + 一次告警(MAX_ITER 冻结,frozenBudget=0);
   3 OutputShed → 输出保持(拷回 seed 过的缓冲)+ carrier 清 + 不进 dedup + 公平规则记账;
-  4 DeadlineSuspended → 同 1 但免计 yield + 公平规则记账。输出缓冲**进出双向 seed**:
+  4 DeadlineSuspended → 同 1 但免计 yield + 公平规则记账;5 ExecError → 输出**归零** +
+  carrier 清 + 不进 dedup(catch(Exception) 同型)。输出缓冲**进出双向 seed**:
   调用前把节点当前输出值灌入(outputs 是 in/out),3 态原样拷回 = 「已完成位新鲜、余位保持」
   逐位成立;Done 态全量覆写无歧义。
 - dedup/K7 口径两路径共用(Java 侧查/存):Done 与两类挂起照常缓存,OutputShed 与契约外
@@ -298,7 +301,15 @@ native;字节码与挂起态是可被篡改的边界(存档改写/未来的网�
   - **构建/打包**:`[lib] name = "formula_native"` + `crate-type = ["cdylib","rlib"]`——**lib 名 = 产物名**(formula_native.dll),bin/测试 use 路径同步改名(语义零改动);`jni = "0.21"` 是运行时零原生链接的第二依赖(符号由加载方 JVM 提供)。gradle `buildNative` task:cargo 不在 PATH/CARGO_HOME → warn 跳过绝不 fail 构建;产物复制到 `build/natives/<os>-<arch>/` 并经 processResources 进 jar。os/arch → 目录映射(gradle 与 Java **两端写死一致**,改动必须同步):windows/linux/macos × x86_64(amd64)/aarch64(arm64),库文件名 dll/dylib/so。
   - **加载路径**:FormulaNative 弃 System.loadLibrary → classpath `natives/<os>-<arch>/` 资源提取到 `java.io.tmpdir/csc-formula-natives/<os>-<arch>/`(**存在且尺寸一致则复用**,零重复解压;临时名+原子 move,进程中断不留半截文件冒充完整库)→ System.load 绝对路径;加载失败/abiVersion 不匹配 → AVAILABLE=false 走 Java 解释器兜底。native 声明改包内可见(FormulaEval R3 与 e2e 测试同包调用);`carrierLength` 按 CSCC 自描述头读回挂起写入字节数(exec 只回状态码,长度必须从头部恢复)。
   - **e2e 测试**(`FormulaNativeTest`,assumeTrue 无 native 整类跳、套件保持绿):scalarLoop 终值逐位(acc=4999950.0/i=100000.0);弹道真脚本**全槽位**终值与 Java `FormulaInterpreter.exec` 逐位(期望值测试内现跑 Java 链,不硬编码;输入按名查槽——槽位序=源码首现序≠引脚序);2ms slice 反复挂起续算(carrierOut→carrierIn 直到 Done)终值与不限预算逐位;丢弃路径(programRelease 后 exec = -2)+ 非法会话(-1)负码契约。
-- **R3 求值接线**:FormulaEval/FormulaCompute 分流 native/Java、carrier 跨界序列化(字节数组)、deadline 锚点传递(anchor+delta 口径,§4.3)、对拍网扩到全函数表+脚本矩阵(弹道 5 案例 + 预算脚本集全量)。
+- **R3 求值接线:✅ 逐节点面已落地(R3a,2026-11-14;cargo 28/28 + gradle 1320 测试 0 失败)**:
+  - **迁移前置**:全局拓扑批(cross-be 3f4c99ec/7b95b1b8)落地 main 后 merge 进本线(零冲突,1314 全绿才动工)——§4.5 的目标形态自此转为现势。
+  - **契约 v2(ABI 2)**:Program v2 增输出表达式段(§4.7-1);exec 增 deadlineInNanos(负 = 已过期哨兵)/applyInputsAfterResume(warm)/progressOut 三参;状态码 3 OutputShed / 4 DeadlineSuspended / 5 ExecError 落地。**R1 语义偏差修正**:256-op 采样从 slice 改查 tick deadline(Java deadlineExhausted 同基准);**栈下溢/超深从 Shed 分态为 ExecError**(Java catch(Exception) 同型:输出归零、carrier 作废、不进 dedup——R1 曾并入 Shed=输出保持,对拍网的 vec3() 案例当场抓出)。
+  - **分流与节点态**:FormulaEval FORMULA case 顶部 AVAILABLE 早分支 → `execFormulaNative`(字节 carrier 镜像状态机,Java 路径体一字不动);GraphNode 增 formulaNativeCarrier/Frozen/Done 三 transient(对象态与字节态互斥不转换);输出缓冲进出双向 seed(OutputShed「已完成位新鲜、余位保持」逐位成立)。
+  - **会话**:FormulaNativeSession 懒建 + ServerStoppingEvent 销毁(§4.7-2);程序缓存按脚本文本(programId + pinSlots 映射,引脚序≠槽位序在 upload 时固化);脚本编辑瞬间的旧 carrier 对新程序 = 寻径不命中整体 Done(与 Java 跨编辑续算同语义)。
+  - **对拍网(5 测试)**:全函数表(23 Fn×定义域内外 + 全算子/比较/逻辑/swizzle + lenient 全族)+ 控制流矩阵 + 挂起续算面级逐位收敛 + deadline 契约(carrier 有效/免计 yield/输出保持)+ **弹道 5 案例(CBC 金标准同参)经真节点真状态机逐位**。参考链 = 同 parse AST 跑 Java 解释器 + 逐输出 RPN 求值,零硬编码。
+  - **顺带收口的两处存量缺陷**:(1) R1 编码器 TAG_NOT 少写 1 字节 payload 破坏 16B 定宽(夹具/存量脚本恰好无 `!`,睡到对拍网 `!0.0` 案例才炸)——补占位 ordinal;(2) native 提取缓存仅按尺寸复用,「重建后尺寸恰好相同」的 dll 会 stale 进测试(实测复现)——复用判定加 CRC32 内容校验。
+  - **夹具治理**:.tokbin/.golden.txt 的唯一权威生成/校验面 = `TokFixtureTest`(脚本内联为唯一真相源,默认逐字节校验 + golden 对 Java 链复核,`CSC_REGENERATE_TOK_FIXTURES=1` 显式重生成;环境变量而非系统属性——gradle fork 的测试 JVM 不继承命令行 -D)。
+- **R3b 批量入口(§4.7-6,待开工)**:tickBatch 每连续段一次 + carrier native 自持 + heavy-yield 记账下沉 + Java 直 ByteBuffer 零分配;逐节点 exec 保留为退化形态。
 - **R4 收尾**:CHANGELOG 行、畸形 RPN(括号不闭合)登记册收编(§5.2)、性能验收(弹道 20ms 预算实测 + GC 压力对比)、文档收口。
 
 ## 七、复现手册
@@ -313,6 +324,6 @@ java -Xms1g -cp "/tmp/csc-bench-classes;slf4j-api.jar" FormulaAllocBench 800 200
 
 # Rust 原型(工具链:stable-x86_64-pc-windows-gnu,MSVC 机器无 link.exe 时必须)
 cd native/formula-core
-cargo test --release     # 23/23(13 parity + 3 bridge + 1 trig anchor + 6 ffi/session 单测)
+cargo test --release     # 28/28(13 parity + 7 bridge + 1 trig anchor + 7 ffi/session 单测)
 cargo run --release --bin alloc-bench
 ```
