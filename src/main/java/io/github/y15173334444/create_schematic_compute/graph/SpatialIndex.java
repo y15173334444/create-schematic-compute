@@ -210,26 +210,13 @@ public class SpatialIndex {
         if ((n.type == NodeType.GATE || n.type == NodeType.T_FLIPFLOP || n.type == NodeType.LATCH) && n.params.length > 1) h += 16; // 当前状态一行（旧「初始状态」行已随 1.3.0 退役）/ one current-state row (the old initial-state row retired in 1.3.0)
         if (n.type == NodeType.REDSTONE_IN || n.type == NodeType.REDSTONE_OUT) h += 32;
         // 私有编辑区两行 = 频道行 22 + 类型片行 18（与 EditPanel 绘制同账本——缺行会让
-        // 类型片行戳出面板底，实测穿模）。PRIVATE_OUT 另有 §5.3 (c) 反馈声明开关行
-        // （+18；读者侧 PRIVATE_IN 无此行）。
-        // The private edit panel draws two rows — channel row 22 + type-chip row 18 (the same
-        // ledger as the EditPanel draw — a missing row lets the chip row clip out of the
-        // panel, seen in-game as bleed-through). PRIVATE_OUT carries the §5.3 (c) feedback
-        // declaration toggle row as well (+18; the reader-side PRIVATE_IN has none).
-        if (n.type == NodeType.PRIVATE_IN) h += 40;
-        if (n.type == NodeType.PRIVATE_OUT) h += 58;
-        if (n.type == NodeType.BUS_IN) {
+        // 类型片行戳出面板底，实测穿模）。/ The private edit panel draws two rows — channel
+        // row 22 + type-chip row 18 (the same ledger as the EditPanel draw — a missing row
+        // lets the chip row clip out of the panel, seen in-game as bleed-through).
+        if (n.type == NodeType.PRIVATE_IN || n.type == NodeType.PRIVATE_OUT) h += 40;
+        if (n.type == NodeType.BUS_IN || n.type == NodeType.BUS_OUT) {
             int bands = n.signalBands != null ? n.signalBands.size() : 0;
             h += 22 + bands * 18 + 20;
-        }
-        // BUS_OUT 的 +/- 行之下另有 §5.3 (c) 反馈声明开关行（+18，与 EditPanel 绘制、
-        // GraphEditor 点击段同一账本——e26bf73 全链清点纪律）。
-        // BUS_OUT carries the §5.3 (c) feedback declaration toggle row under its +/- row
-        // (+18; one ledger with the EditPanel draw and the GraphEditor click segment — the
-        // e26bf73 full-chain sweep discipline).
-        if (n.type == NodeType.BUS_OUT) {
-            int bands = n.signalBands != null ? n.signalBands.size() : 0;
-            h += 22 + bands * 18 + 20 + 18;
         }
         if (n.type == NodeType.COMMENT) {
             h += Math.round(n.commentHeight) - 12;

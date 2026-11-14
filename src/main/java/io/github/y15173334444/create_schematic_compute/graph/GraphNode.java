@@ -70,21 +70,6 @@ public class GraphNode {
      *  owner (registerChannel / registerPrivateChannel returned false) — a conflicted node
      *  writes no values and defines nothing. */
     public boolean busConflict;
-    /** §5.3 切边预案 (c) 的<b>显式反馈声明</b>（仅 BUS_OUT / PRIVATE_OUT 有意义）：用户在编辑器
-     *  编辑区声明「本节点写的通道是跨 tick（反馈）边」——切边规划（{@code CutEdgePlanner}）
-     *  优先把该通道在环内的边选为被切边（每个环分量恰切一条），被切边恒定读上一 tick 末快照
-     *  （P1：切在火控非关键路径的语义断点由用户拍板，兜底全序最小边仅作未声明时的自动切）。
-     *  持久化走 NBT 键 {@code fb}（写 true 才落键——缺键 = 未声明，未发版形态不写迁移）。
-     *  <p>The §5.3 edge-cutting plan (c)'s <b>explicit feedback declaration</b> (meaningful on
-     *  BUS_OUT / PRIVATE_OUT only): the user declares in the editor's edit area that "the
-     *  channel this node writes is a cross-tick (feedback) edge" — the cut planning
-     *  ({@code CutEdgePlanner}) prefers the in-ring edges of that channel as the cut edge
-     *  (exactly one cut per ring component), and a cut edge permanently reads last tick's
-     *  committed snapshot (P1: the semantic breakpoint on the fire-control non-critical path
-     *  is the user's ruling; the total-order-minimal fallback only auto-cuts when nothing is
-     *  declared). Persistence rides the NBT key {@code fb} (written only when true — absent
-     *  = undeclared; the unreleased shape writes no migration).</p> */
-    public boolean feedbackOut;
     /** 冲突持续 tick 数，用于 recoverConflictedChannels 的超时机制。
      *  Number of ticks this node has been in conflict, used by recoverConflictedChannels timeout. */
     public int busConflictTicks = 0;
@@ -961,10 +946,6 @@ public class GraphNode {
         if (sortB != 0) tag.putInt("zb", sortB);
         if (expanded) tag.putBoolean("expanded", true);
         if (busConflict) tag.putBoolean("busConflict", true);
-        // §5.3 (c) 显式反馈声明（仅 BUS_OUT/PRIVATE_OUT 会置位；缺键 = 未声明，无迁移面）。
-        // §5.3 (c) explicit feedback declaration (only BUS_OUT/PRIVATE_OUT ever set it;
-        // absent key = undeclared, no migration face).
-        if (feedbackOut) tag.putBoolean("fb", true);
         if (subGraph != null) tag.put("subGraph", subGraph.save(registries));
         return tag;
     }
@@ -1129,12 +1110,6 @@ public class GraphNode {
         if (tag.contains("zb")) node.sortB = tag.getInt("zb");
         node.expanded = tag.getBoolean("expanded");
         node.busConflict = tag.getBoolean("busConflict");
-        // §5.3 (c) 显式反馈声明：缺键 = false（未声明；类型不限——非发布节点置位无语义，
-        // 普查只枚举 BUS_OUT/PRIVATE_OUT 的声明）。
-        // §5.3 (c) explicit feedback declaration: absent key = false (undeclared; the type is
-        // unrestricted — a set flag on a non-publisher is inert, the census only enumerates
-        // declarations of BUS_OUT/PRIVATE_OUT).
-        if (tag.contains("fb")) node.feedbackOut = tag.getBoolean("fb");
         if (tag.contains("subGraph")) node.subGraph = NodeGraph.load(tag.getCompound("subGraph"), registries);
         // 迁移保护：ipx/帧数组长度与 W×H 不符时按最小长度重排（兼容旧档/异常数据）
         // Migration guard: re-fit pixel arrays whose length disagrees with W×H (legacy saves)

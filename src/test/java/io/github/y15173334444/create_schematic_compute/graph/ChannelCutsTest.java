@@ -74,7 +74,7 @@ class ChannelCutsTest {
     }
 
     private static ChannelCensus rw(Set<String> reads, Set<String> writes) {
-        return new ChannelCensus(reads, writes, Set.of());
+        return new ChannelCensus(reads, writes);
     }
 
     /** A↔B 环 + 环外读者 C 的普查图。 / The census graph of the A↔B ring + the outside

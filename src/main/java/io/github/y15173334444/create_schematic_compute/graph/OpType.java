@@ -85,16 +85,5 @@ public enum OpType {
     // paramIndex = the pin/band slot (always 0 for PRIVATE_*). A band retype rebinds the
     // pinId type segment (mismatched peers prune); a private retype does the same.
     // Append-only as above.
-    SET_PIN_TYPE,
-
-    // §5.3 (c) 显式反馈声明切换（自反 op，TOGGLE_BOOL 同款）：仅 BUS_OUT / PRIVATE_OUT
-    // 生效（执行器 fail-closed），翻转 GraphNode.feedbackOut —— 用户在编辑器编辑区声明
-    // 「本发布通道是跨 tick（反馈）边」，切边规划据此优先选边。追加令同上（线上按序号
-    // 编码，只加尾部）。
-    // §5.3 (c) explicit feedback-declaration toggle (a self-inverse op, the TOGGLE_BOOL
-    // shape): effective on BUS_OUT / PRIVATE_OUT only (the executor fails closed), flipping
-    // GraphNode.feedbackOut — the user declares in the editor's edit area that "this publish
-    // channel is a cross-tick (feedback) edge", and the cut planning prefers it. Append-only
-    // as above (the wire encodes by ordinal, append at the tail only).
-    SET_FEEDBACK
+    SET_PIN_TYPE
 }
