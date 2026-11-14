@@ -67,6 +67,15 @@ impl Budget {
     pub fn slice_with_deadline(slice: Option<Duration>, deadline_in: Option<Duration>) -> Budget {
         Budget { start: Instant::now(), slice, deadline_in }
     }
+
+    /// K6 deadline（Java `deadlineExhausted()` 镜像）。/ K6 deadline mirror.
+    #[inline]
+    pub(crate) fn over_deadline(&self) -> bool {
+        match self.deadline_in {
+            Some(d) => self.start.elapsed() >= d,
+            None => false,
+        }
+    }
 }
 
 /// 控制流信号（Java 的 BreakSignal/ContinueSignal/ShedSignal/DeadlineShedException
@@ -116,9 +125,39 @@ pub struct Exec<'p, 'b> {
     prog: &'p Program,
     regs: &'b mut Vec<V>,
     loop_stack: &'b mut Vec<LoopEntry>,
+    /// 表达式栈机的复用缓冲（按 scalar_only 二选一构造，一次 exec 初始化一次）。
+    /// 语义不变：sp 每次求值归零、写先于读 ⇒ 残留值永不可见；收益 = 消除
+    /// 「每语句求值清一遍栈」的固定开销（弹道内层体 ~35 eval/迭代，原 512B/2KB
+    /// memset 是 BODY 基准 ~974ns/迭代的主要构成）。优化空间分解见 R4.5 记录。
+    /// The token machine's reusable stack buffer (scalar/full by probe, initialized
+    /// once per exec). Semantics unchanged: sp resets per call and writes precede
+    /// reads, so stale slots are never observed; the win = removing the per-eval
+    /// fixed memset the BODY benchmark showed dominating branch-heavy scripts.
+    stack: TokStack,
     budget: Budget,
     iters: u32,
     total: u64,
+}
+
+/// TokenEval 的表达式栈缓冲：exec 期一次构造、跨语句求值复用。枚举二选一 =
+/// 纯标量程序不付 `[V;64]`（2KB）的初始化，向量程序不付标量栈的两份。
+/// The token machine's stack buffer, built once per exec and shared across
+/// statement evaluations; the enum keeps scalar programs from paying the 2KB
+/// full-stack init (and vice versa).
+enum TokStack {
+    S([f64; STACK_MAX]),
+    F([V; STACK_MAX]),
+}
+
+impl TokStack {
+    #[inline]
+    fn new(scalar_only: bool) -> TokStack {
+        if scalar_only {
+            TokStack::S([0.0; STACK_MAX])
+        } else {
+            TokStack::F([V::ZERO; STACK_MAX])
+        }
+    }
 }
 
 impl<'p, 'b> Exec<'p, 'b> {
@@ -163,13 +202,13 @@ impl<'p, 'b> Exec<'p, 'b> {
                 }
                 let total = c.total_iterations;
                 *loop_stack = c.loop_stack;
-                Exec { prog, regs, loop_stack, budget, iters: 0, total }
+                Exec { prog, regs, loop_stack, stack: TokStack::new(prog.scalar_only), budget, iters: 0, total }
             }
             None => {
                 for (i, v) in inputs.iter().enumerate() {
                     regs[i] = *v;
                 }
-                Exec { prog, regs, loop_stack, budget, iters: 0, total: 0 }
+                Exec { prog, regs, loop_stack, stack: TokStack::new(prog.scalar_only), budget, iters: 0, total: 0 }
             }
         }
     }
@@ -348,7 +387,11 @@ impl<'p, 'b> Exec<'p, 'b> {
     /// eval call, not per token).
     #[inline]
     fn eval(&mut self, rpn: &[Tok]) -> Result<V, Signal> {
-        let mut te = TokenEval { regs: self.regs, budget: self.budget };
+        let mut te = TokenEval {
+            regs: &*self.regs,
+            budget: self.budget,
+            stack: &mut self.stack,
+        };
         if self.prog.scalar_only {
             Ok(V::S(te.eval_scalar(rpn)?))
         } else {
@@ -365,39 +408,40 @@ impl<'p, 'b> Exec<'p, 'b> {
 pub(crate) struct TokenEval<'a> {
     regs: &'a [V],
     budget: Budget,
+    /// 复用缓冲（Exec 持有、跨语句求值共享；输出段独立构造）。/ reusable buffer
+    /// (Exec-owned, shared across statement evals; the output phase builds its own).
+    stack: &'a mut TokStack,
 }
 
 impl<'a> TokenEval<'a> {
-    /// K6 deadline（Java `deadlineExhausted()` 镜像）。 / K6 deadline mirror.
-    #[inline]
-    fn over_deadline(&self) -> bool {
-        match self.budget.deadline_in {
-            Some(d) => self.budget.start.elapsed() >= d,
-            None => false,
-        }
-    }
 
     /// 标量快路径：`f64` 裸栈（8B 搬运、零 tag 检查）。语义与 eval_full 逐位一致——
     /// 纯标量程序里 V 只能是 S，向量分支/lenient 形态在探测期已排除（`'('` 吃两项
     /// 得 0、除零 0、容差比较等全部保留）。对拍：tests/parity.rs 双路逐位一致。
     fn eval_scalar(&mut self, rpn: &[Tok]) -> Result<f64, Signal> {
-        let mut stack = [0.0f64; STACK_MAX];
+        let TokStack::S(stack) = &mut self.stack else {
+            unreachable!("scalar-only programs never take the full stack (scan_scalar_only)");
+        };
+        // 寄存器/预算按值拷出（&[V] 与 Budget 都 Copy）——循环体内不再借 *self，
+        // 与 stack 的可变借用互不相交。
+        let regs = self.regs;
+        let budget = self.budget;
         let mut sp = 0usize;
         let mut ops: u32 = 0; // 调用内局部 K6 计数器（与 eval_full 同口径）
         for tok in rpn {
             ops += 1;
-            if ops & 0xFF == 0 && self.over_deadline() {
+            if ops & 0xFF == 0 && budget.over_deadline() {
                 return Err(Signal::Deadline);
             }
             match *tok {
-                Tok::Const(d) => push_s(&mut stack, &mut sp, d)?,
+                Tok::Const(d) => push_s(stack, &mut sp, d)?,
                 Tok::Var(slot) => {
-                    let v = self.regs[slot as usize].as_scalar();
-                    push_s(&mut stack, &mut sp, v)?;
+                    let v = regs[slot as usize].as_scalar();
+                    push_s(stack, &mut sp, v)?;
                 }
                 Tok::Op(op) => {
-                    let b = pop_s(&mut stack, &mut sp)?;
-                    let a = pop_s(&mut stack, &mut sp)?;
+                    let b = pop_s(stack, &mut sp)?;
+                    let a = pop_s(stack, &mut sp)?;
                     let r = match op {
                         b'+' => a + b,
                         b'-' => a - b,
@@ -433,11 +477,11 @@ impl<'a> TokenEval<'a> {
                         }
                         _ => 0.0, // 含 '(' 吃两项得 0 的 lenient 形态
                     };
-                    push_s(&mut stack, &mut sp, r)?;
+                    push_s(stack, &mut sp, r)?;
                 }
                 Tok::Cmp(c) => {
-                    let b = pop_s(&mut stack, &mut sp)?;
-                    let a = pop_s(&mut stack, &mut sp)?;
+                    let b = pop_s(stack, &mut sp)?;
+                    let a = pop_s(stack, &mut sp)?;
                     const EQ_TOL: f64 = 1e-6; // Java EQ_TOLERANCE
                     let r = match c {
                         Cmp::Eq => {
@@ -483,24 +527,24 @@ impl<'a> TokenEval<'a> {
                             }
                         }
                     };
-                    push_s(&mut stack, &mut sp, r)?;
+                    push_s(stack, &mut sp, r)?;
                 }
                 Tok::Not => {
-                    let v = pop_s(&mut stack, &mut sp)?;
-                    push_s(&mut stack, &mut sp, if v != 0.0 { 0.0 } else { 1.0 })?;
+                    let v = pop_s(stack, &mut sp)?;
+                    push_s(stack, &mut sp, if v != 0.0 { 0.0 } else { 1.0 })?;
                 }
                 Tok::Swz(_) => {
                     // 探测期已排除；防御性保留口径：基值取分量 → 标量程序恒 0
-                    pop_s(&mut stack, &mut sp)?;
-                    push_s(&mut stack, &mut sp, 0.0)?;
+                    pop_s(stack, &mut sp)?;
+                    push_s(stack, &mut sp, 0.0)?;
                 }
                 Tok::Fn(f) => {
                     let arity = f.arity();
                     let mut args = [0.0f64; 2];
                     for a in (0..arity).rev() {
-                        args[a] = pop_s(&mut stack, &mut sp)?;
+                        args[a] = pop_s(stack, &mut sp)?;
                     }
-                    push_s(&mut stack, &mut sp, scalar_fn(f, args))?;
+                    push_s(stack, &mut sp, scalar_fn(f, args))?;
                 }
             }
         }
@@ -508,27 +552,31 @@ impl<'a> TokenEval<'a> {
     }
 
     fn eval_full(&mut self, rpn: &[Tok]) -> Result<V, Signal> {
-        let mut stack = [V::ZERO; STACK_MAX];
+        let TokStack::F(stack) = &mut self.stack else {
+            unreachable!("non-scalar program carries the full stack (TokStack::new)");
+        };
+        let regs = self.regs;
+        let budget = self.budget;
         let mut sp = 0usize;
         let mut ops: u32 = 0; // 调用内局部 K6 计数器（Java 同款）
         for tok in rpn {
             ops += 1;
-            if ops & 0xFF == 0 && self.over_deadline() {
+            if ops & 0xFF == 0 && budget.over_deadline() {
                 return Err(Signal::Deadline);
             }
             match tok {
                 Tok::Const(d) => {
-                    push(&mut stack, &mut sp, V::S(*d))?;
+                    push(stack, &mut sp, V::S(*d))?;
                 }
                 Tok::Var(slot) => {
-                    let v = self.regs[*slot as usize];
-                    push(&mut stack, &mut sp, v)?;
+                    let v = regs[*slot as usize];
+                    push(stack, &mut sp, v)?;
                 }
                 Tok::Op(op) => {
-                    let b = pop(&mut stack, &mut sp)?;
-                    let a = pop(&mut stack, &mut sp)?;
+                    let b = pop(stack, &mut sp)?;
+                    let a = pop(stack, &mut sp)?;
                     if matches!(a, V::V3(_)) || matches!(b, V::V3(_)) {
-                        push(&mut stack, &mut sp, vector_op(*op, a, b))?;
+                        push(stack, &mut sp, vector_op(*op, a, b))?;
                         continue;
                     }
                     let b = b.as_scalar();
@@ -568,14 +616,14 @@ impl<'a> TokenEval<'a> {
                         }
                         _ => 0.0,
                     };
-                    push(&mut stack, &mut sp, V::S(r))?;
+                    push(stack, &mut sp, V::S(r))?;
                 }
                 Tok::Cmp(c) => {
-                    let b = pop(&mut stack, &mut sp)?;
-                    let a = pop(&mut stack, &mut sp)?;
+                    let b = pop(stack, &mut sp)?;
+                    let a = pop(stack, &mut sp)?;
                     // 向量不可比较 → lenient 0（运行期；校验期报错）。
                     if matches!(a, V::V3(_)) || matches!(b, V::V3(_)) {
-                        push(&mut stack, &mut sp, V::ZERO)?;
+                        push(stack, &mut sp, V::ZERO)?;
                         continue;
                     }
                     let b = b.as_scalar();
@@ -625,39 +673,39 @@ impl<'a> TokenEval<'a> {
                             }
                         }
                     };
-                    push(&mut stack, &mut sp, V::S(r))?;
+                    push(stack, &mut sp, V::S(r))?;
                 }
                 Tok::Not => {
-                    let v = pop(&mut stack, &mut sp)?;
-                    push(&mut stack, &mut sp, V::S(if v.as_scalar() != 0.0 { 0.0 } else { 1.0 }))?;
+                    let v = pop(stack, &mut sp)?;
+                    push(stack, &mut sp, V::S(if v.as_scalar() != 0.0 { 0.0 } else { 1.0 }))?;
                 }
                 Tok::Swz(c) => {
-                    let base = pop(&mut stack, &mut sp)?;
+                    let base = pop(stack, &mut sp)?;
                     let r = match (base, *c) {
                         (V::V3(a), 0..=2) => V::S(a[*c as usize]),
                         _ => V::ZERO, // 标量取分量/多分量 → lenient 零
                     };
-                    push(&mut stack, &mut sp, r)?;
+                    push(stack, &mut sp, r)?;
                 }
                 Tok::Fn(f) => {
                     if f.is_vector_fn() {
                         // 向量函数按参数形态分派（Java applyVectorFunction）。
                         match f {
                             Fn::Vec3 => {
-                                let z = pop(&mut stack, &mut sp)?.as_scalar();
-                                let y = pop(&mut stack, &mut sp)?.as_scalar();
-                                let x = pop(&mut stack, &mut sp)?.as_scalar();
-                                push(&mut stack, &mut sp, V::V3([x, y, z]))?;
+                                let z = pop(stack, &mut sp)?.as_scalar();
+                                let y = pop(stack, &mut sp)?.as_scalar();
+                                let x = pop(stack, &mut sp)?.as_scalar();
+                                push(stack, &mut sp, V::V3([x, y, z]))?;
                             }
                             Fn::Length => {
-                                let v = pop(&mut stack, &mut sp)?.as_vec();
-                                push(&mut stack, &mut sp, V::S(norm(v)))?;
+                                let v = pop(stack, &mut sp)?.as_vec();
+                                push(stack, &mut sp, V::S(norm(v)))?;
                             }
                             Fn::Normalize => {
-                                let v = pop(&mut stack, &mut sp)?.as_vec();
+                                let v = pop(stack, &mut sp)?.as_vec();
                                 let l = norm(v);
                                 push(
-                                    &mut stack,
+                                    stack,
                                     &mut sp,
                                     if l > 1e-12 {
                                         V::V3([v[0] / l, v[1] / l, v[2] / l])
@@ -667,15 +715,15 @@ impl<'a> TokenEval<'a> {
                                 )?;
                             }
                             Fn::Dot => {
-                                let b = pop(&mut stack, &mut sp)?.as_vec();
-                                let a = pop(&mut stack, &mut sp)?.as_vec();
-                                push(&mut stack, &mut sp, V::S(dot(a, b)))?;
+                                let b = pop(stack, &mut sp)?.as_vec();
+                                let a = pop(stack, &mut sp)?.as_vec();
+                                push(stack, &mut sp, V::S(dot(a, b)))?;
                             }
                             Fn::Cross => {
-                                let b = pop(&mut stack, &mut sp)?.as_vec();
-                                let a = pop(&mut stack, &mut sp)?.as_vec();
+                                let b = pop(stack, &mut sp)?.as_vec();
+                                let a = pop(stack, &mut sp)?.as_vec();
                                 push(
-                                    &mut stack,
+                                    stack,
                                     &mut sp,
                                     V::V3([
                                         a[1] * b[2] - a[2] * b[1],
@@ -685,20 +733,20 @@ impl<'a> TokenEval<'a> {
                                 )?;
                             }
                             Fn::Dist => {
-                                let b = pop(&mut stack, &mut sp)?.as_vec();
-                                let a = pop(&mut stack, &mut sp)?.as_vec();
-                                push(&mut stack, &mut sp, V::S(norm([a[0] - b[0], a[1] - b[1], a[2] - b[2]])))?;
+                                let b = pop(stack, &mut sp)?.as_vec();
+                                let a = pop(stack, &mut sp)?.as_vec();
+                                push(stack, &mut sp, V::S(norm([a[0] - b[0], a[1] - b[1], a[2] - b[2]])))?;
                             }
                             Fn::Yaw => {
                                 // 逐字对齐 DIRECTION 节点（yaw = toDegrees(atan2(x, -z))，+360 % 360）。
-                                let v = pop(&mut stack, &mut sp)?.as_vec();
+                                let v = pop(stack, &mut sp)?.as_vec();
                                 let yaw = (v[0].atan2(-v[2]).to_degrees() + 360.0) % 360.0;
-                                push(&mut stack, &mut sp, V::S(yaw))?;
+                                push(stack, &mut sp, V::S(yaw))?;
                             }
                             Fn::Pitch => {
-                                let v = pop(&mut stack, &mut sp)?.as_vec();
+                                let v = pop(stack, &mut sp)?.as_vec();
                                 let h = (v[0] * v[0] + v[2] * v[2]).sqrt();
-                                push(&mut stack, &mut sp, V::S((-v[1]).atan2(h).to_degrees()))?;
+                                push(stack, &mut sp, V::S((-v[1]).atan2(h).to_degrees()))?;
                             }
                             _ => unreachable!("vector fn set"),
                         }
@@ -707,9 +755,9 @@ impl<'a> TokenEval<'a> {
                         let arity = f.arity();
                         let mut args = [0.0f64; 2];
                         for a in (0..arity).rev() {
-                            args[a] = pop(&mut stack, &mut sp)?.as_scalar();
+                            args[a] = pop(stack, &mut sp)?.as_scalar();
                         }
-                        push(&mut stack, &mut sp, V::S(scalar_fn(*f, args)))?;
+                        push(stack, &mut sp, V::S(scalar_fn(*f, args)))?;
                     }
                 }
             }
@@ -733,7 +781,8 @@ impl<'a> TokenEval<'a> {
 /// holds while later short expressions may still complete — the caller applies the
 /// OutputShed disposition).
 pub fn eval_output(rpn: &[Tok], regs: &[V], scalar_only: bool, budget: &Budget) -> Result<f64, Signal> {
-    let mut te = TokenEval { regs, budget: *budget };
+    let mut stack = TokStack::new(scalar_only);
+    let mut te = TokenEval { regs, budget: *budget, stack: &mut stack };
     if scalar_only {
         te.eval_scalar(rpn)
     } else {
