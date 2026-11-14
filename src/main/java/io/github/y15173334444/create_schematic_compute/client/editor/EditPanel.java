@@ -223,13 +223,6 @@ public class EditPanel {
             st.bandAddBtnW = addBW; st.bandAddBtnH = 14;
             st.bandRemoveBtnX = px + 4 + addBW + 4; st.bandRemoveBtnY = btnY;
             st.bandRemoveBtnW = rmBW; st.bandRemoveBtnH = 14;
-            // §5.3 (c) 跨 tick（反馈）声明开关（BUS_OUT 独有行）：发布侧语义断点声明，
-            // 与 +/- 行同账本顺延一行（点击段在 GraphEditor，行高账本在 SpatialIndex）。
-            // §5.3 (c) cross-tick (feedback) declaration toggle (the BUS_OUT-only row): the
-            // publish-side semantic-breakpoint declaration, one row after +/- in the same
-            // ledger (clicks in GraphEditor, the height ledger in SpatialIndex).
-            row++;
-            drawFeedbackToggle(g, node, st, px, py + 4 + row * 18, pw, mx, my);
         } else {
             st.bandAddBtnW = 0; // 隐藏 +/-
         }
@@ -440,13 +433,6 @@ public class EditPanel {
             st.bandTypeBtnW = chipW; st.bandTypeBtnH = chipH;
             drawTypeChip(g, chipX, chipY, chipW, chipH, pt, mx, my, true);
             row++;
-            // §5.3 (c) 跨 tick（反馈）声明开关（仅 PRIVATE_OUT——BUS_IN/PRIVATE_IN 是读者侧，
-            // 声明只在发布侧）：与类型片行同账本顺延一行。
-            // §5.3 (c) cross-tick (feedback) declaration toggle (PRIVATE_OUT only —
-            // BUS_IN/PRIVATE_IN are reader sides; declarations live on the publish side only):
-            // one row after the type-chip row in the same ledger.
-            if (node.type == NodeType.PRIVATE_OUT)
-                drawFeedbackToggle(g, node, st, px, py + 4 + row * 18, pw, mx, my);
         }
         } // else 块结束
         // Color swatch for TEXT/DATA nodes (replaces old hex EditBox)
@@ -949,33 +935,6 @@ public class EditPanel {
      *  灰=空；悬停高亮，{@code readOnly} 时无悬停高亮）。/ Declared payload-type chip: the
      *  type code's short text on the theme's per-type tint (gold=float / teal=audio /
      *  magenta=vector / grey=empty; hover highlights unless {@code readOnly}). */
-    /** §5.3 (c) 跨 tick（反馈）声明开关行（BUS_OUT / PRIVATE_OUT 编辑区独有）：16px 全宽
-     *  按钮（BOOL 行同款几何），开态绿底 ✓、关态灰底；悬停描边提示可点——点击在
-     *  GraphEditor 走 SET_FEEDBACK 自反 op。发布通道被声明后，切边规划（CutEdgePlanner）
-     *  在含该通道的环分量里优先选它作被切边（读上 tick 末快照）；`ring`/`bus` 输出同步
-     *  标记。行高账本：SpatialIndex.editHeight 的 BUS_OUT +18 / PRIVATE_OUT +18。
-     *  §5.3 (c) cross-tick (feedback) declaration toggle row (BUS_OUT / PRIVATE_OUT edit
-     *  areas only): a 16px full-width button (the BOOL row geometry), green ✓ when on, grey
-     *  when off; the hover outline advertises clickability — clicks go through the
-     *  self-inverse SET_FEEDBACK op in GraphEditor. Once a publish channel is declared, the
-     *  cut planning (CutEdgePlanner) prefers it as the cut edge in any ring component
-     *  carrying that channel (its reads take last tick's snapshot); the `ring`/`bus` outputs
-     *  mark it in step. Height ledger: SpatialIndex.editHeight's BUS_OUT +18 /
-     *  PRIVATE_OUT +18. */
-    private static void drawFeedbackToggle(GuiGraphics g, GraphNode node,
-                                           io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor.EditState st,
-                                           int x, int y, int pw, int mx, int my) {
-        var font = Minecraft.getInstance().font;
-        int w = pw - 8, h = 16;
-        boolean on = node.feedbackOut;
-        boolean hover = mx >= x + 4 && mx <= x + 4 + w && my >= y && my <= y + h;
-        g.fill(x + 4, y, x + 4 + w, y + h, on ? 0xFF3A5A2A : 0xFF2A2A2A);
-        g.renderOutline(x + 4, y, w, h, hover ? NodeRenderer.ACC() : NodeRenderer.CSB());
-        g.renderOutline(x + 5, y + 1, w - 2, h - 2, 0xFF1A1814);
-        g.drawString(font, (on ? "§a✔ " : "§7") + I18n.get("gui.create_schematic_compute.edit.feedback"),
-            x + 8, y + 2, 0xFFFFFFFF, false);
-    }
-
     private static void drawTypeChip(GuiGraphics g, int x, int y, int w, int h, PinType t,
                                      int mx, int my, boolean readOnly) {
         int bg = switch (t) {

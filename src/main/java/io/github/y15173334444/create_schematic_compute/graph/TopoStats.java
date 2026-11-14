@@ -138,20 +138,11 @@ public final class TopoStats {
 
     /** 宿主的通道普查：读集（BUS_IN / PRIVATE_IN 枚举）与写集（BUS_OUT / PRIVATE_OUT 枚举），
      *  元素 = {@code SignalBus.key()} 前缀后的通道键。不可变、有序（TreeSet 归一）。
-     *  <p>{@code feedbackWrites} ⊆ 写集：宿主经<b>显式声明反馈</b>（§5.3 切边预案 (c)，
-     *  {@code GraphNode.feedbackOut}）写出的通道子集——切边规划
-     *  （{@code CutEdgePlanner}）的声明边来源，是「用户语义断点」的结构性投影。
-     *  既有二参构造保留（声明面 = 空），普查的既有消费面零感知。</p>
      *  A host's channel census: the read set (enumerated from BUS_IN / PRIVATE_IN) and the
      *  write set (enumerated from BUS_OUT / PRIVATE_OUT), elements being
-     *  {@code SignalBus.key()}-prefixed channel keys. Immutable and ordered (TreeSet-normalized).
-     *  <p>{@code feedbackWrites} ⊆ the write set: the subset of channels the host writes
-     *  through an <b>explicit feedback declaration</b> (§5.3's edge-cutting plan (c),
-     *  {@code GraphNode.feedbackOut}) — the source of declared edges for the cut planning
-     *  ({@code CutEdgePlanner}), the structural projection of "the user's semantic
-     *  breakpoint". The legacy two-arg constructor stays (the declaration face = empty), so
-     *  every existing census consumer stays untouched.</p> */
-    public record ChannelCensus(Set<String> reads, Set<String> writes, Set<String> feedbackWrites) {
+     *  {@code SignalBus.key()}-prefixed channel keys. Immutable and ordered
+     *  (TreeSet-normalized). */
+    public record ChannelCensus(Set<String> reads, Set<String> writes) {
         /** 归一构造：null 收敛为空集 + 不可变有序副本。 / Normalizing constructor: nulls
          *  collapse to empty sets + immutable ordered copies. */
         public ChannelCensus {
@@ -159,14 +150,6 @@ public final class TopoStats {
                 new TreeSet<>(reads != null ? reads : Set.<String>of()));
             writes = Collections.unmodifiableSortedSet(
                 new TreeSet<>(writes != null ? writes : Set.<String>of()));
-            feedbackWrites = Collections.unmodifiableSortedSet(
-                new TreeSet<>(feedbackWrites != null ? feedbackWrites : Set.<String>of()));
-        }
-        /** 既有二参形态（声明面 = 空）：普查的存量构造点/测试零改动。
-         *  The legacy two-arg shape (the declaration face = empty): existing census
-         *  construction sites and tests stay unchanged. */
-        public ChannelCensus(Set<String> reads, Set<String> writes) {
-            this(reads, writes, Set.<String>of());
         }
         /** 空普查常量：停机宿主（§3.2 口径）与测试占位用。 / The empty census: stopped hosts
          *  (the §3.2 criterion) and test placeholders. */

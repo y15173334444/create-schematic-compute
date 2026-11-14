@@ -454,7 +454,6 @@
   "gui.create_schematic_compute.edit.not_inverted": "Not Inverted",
   "gui.create_schematic_compute.edit.forward": "Forward",
   "gui.create_schematic_compute.edit.reverse": "Reverse",
-  "gui.create_schematic_compute.edit.feedback": "Cross-tick (feedback)",
   "gui.create_schematic_compute.edit.abs_mode": "Absolute",
   "gui.create_schematic_compute.edit.warm_on": "Warm Restart",
   "gui.create_schematic_compute.edit.warm_off": "Strict Freeze",

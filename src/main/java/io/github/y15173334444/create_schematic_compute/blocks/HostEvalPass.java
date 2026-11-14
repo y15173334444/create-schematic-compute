@@ -191,14 +191,14 @@ public final class HostEvalPass {
         // reused — console queries and this pass share one build (at most one per tick,
         // O(hosts + edges)).
         var g = ConsoleQueryCache.hostGraph();
-        // §5.3 切边规划（本批）：每真环分量恰切一条（声明优先 + 全序最小兜底），被切边
+        // §5.3 切边规划：每真环分量恰切一条（自环边优先 + 全序最小兜底），被切边
         // 不进序约束（恒跨 tick），读侧改读上一 tick 末快照（遍终点捕获）。无环图 = 空方案，
         // 全链零开销。
-        // §5.3 cut-edge planning (this batch): exactly one cut per genuine cyclic component
-        // (declared first, the total-order-minimum fallback), the cut edge leaves the order
-        // constraints (permanently cross-tick), and its reads switch to last tick's snapshot
-        // (captured at the pass tail). An acyclic graph = the empty plan, the whole chain
-        // costs nothing.
+        // §5.3 cut-edge planning: exactly one cut per genuine cyclic component
+        // (self-loop edges first, the total-order-minimum fallback), the cut edge leaves the
+        // order constraints (permanently cross-tick), and its reads switch to last tick's
+        // snapshot (captured at the pass tail). An acyclic graph = the empty plan, the whole
+        // chain costs nothing.
         var cutPlan = CutEdgePlanner.plan(g);
         ChannelCuts.beginPass(cutPlan);
         List<TopoStats.HostId> order = HostEvalOrder.evaluationOrder(g, cutPlan.cutEdges());
