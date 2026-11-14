@@ -168,7 +168,8 @@ public final class ConsoleProtocol {
                         () -> ConsoleDataPlane.renderBus(target, ConsoleDataPlane.collectBusRows(g, target)));
             }
             case "hosts" -> ConsoleDataPlane.renderHosts(TopoStats.hostsSnapshot(),
-                    ConsoleQueryCache.hostGraph(), TopoStats.collecting(), TopoStats.collectionSnapshot());
+                    ConsoleQueryCache.hostGraph(), TopoStats.collecting(), TopoStats.collectionSnapshot(),
+                    io.github.y15173334444.create_schematic_compute.blocks.HostEvalPass.evalOrdinals());
             // 已发布但未接线的命令：明确说「尚未接线」，不给假数据、不静默（规格 §4.3 服务端表
             // 含未接线名；接线批逐条替换——本批已接 stale/topo/ring/bus/hosts，perf 留待后续批）。
             // Published-but-unwired commands: say so explicitly — no fake data, no silence

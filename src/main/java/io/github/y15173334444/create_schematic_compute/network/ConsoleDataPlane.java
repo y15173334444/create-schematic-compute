@@ -37,9 +37,9 @@ import java.util.TreeSet;
  * 计数；采集关时该列诚实显示「—」）。</li>
  * </ul>
  *
- * <p><b>诚实记录（暂缓项）</b>：§4.3 的 {@code hosts} 行还列了「本 tick 求值序号」——设施
- * 目前没有这个真值（求值顺序由 vanilla 的 BE tick 顺序决定，本模组未登记、采集快照也无
- * 此字段），故输出用确定性的注册表清单序号代替，不伪造求值序号；补登记册见提交说明。</p>
+ * <p><b>诚实记录（条目 31.1 已接线）</b>：§4.3 的 {@code hosts} 行「本 tick 求值序号」——
+ * 全局拓扑重排（§5.2 A）后求值遍（{@code HostEvalPass.runPostPass}）按求值顺序逐宿主登记
+ * 1..N 序号，渲染面取最近已完成遍的真实序号（遍内未求值者诚实显示「—」，不伪造）。</p>
  *
  * <p><b>输出纪律</b>：全部键有序（通道键 / HostId 自然序）+ SCC 按最小成员序——同一数据
  * 任意次重跑输出全同（诊断可复现）；行数/字节上界由调用方 {@link ConsoleProtocol#clampResponse}
@@ -79,12 +79,11 @@ import java.util.TreeSet;
  * off).</li>
  * </ul>
  *
- * <p><b>Honest record (deferred item)</b>: §4.3's {@code hosts} row also lists the "this-tick
- * evaluation ordinal" — the facility has no such truth today (the evaluation order is vanilla's
- * BE tick order, which this mod neither registers nor records, and the collection snapshot
- * carries no such field either), so the output substitutes the deterministic registry listing
- * ordinal instead of fabricating an evaluation ordinal; the register entry rides the commit
- * message.</p>
+ * <p><b>Honest record (register entry 31.1 wired)</b>: §4.3's {@code hosts} row's "this-tick
+ * evaluation ordinal" — after the global topology reordering (§5.2 A) the evaluation pass
+ * ({@code HostEvalPass.runPostPass}) stamps each host 1..N in evaluation order; the renderer
+ * takes the real ordinals of the most recently completed pass (a host the pass did not
+ * evaluate honestly shows "—" — nothing fabricated).</p>
  *
  * <p><b>Output discipline</b>: every key is ordered (channel-key / HostId natural order, SCCs
  * by smallest member) — the same data replays identically on every run (reproducible
@@ -403,30 +402,38 @@ public final class ConsoleDataPlane {
     // ── hosts（全局 host 清单，§4.3） / hosts (the global host list, §4.3) ─────────────
 
     /**
-     * {@code hosts} 渲染：登记宿主逐行（清单序号 / 坐标 / running / 陈旧计数）。
-     * running = 普查非空即入图（§3.2 口径，经缓存图节点集判定）；陈旧计数取采集快照的
+     * {@code hosts} 渲染：登记宿主逐行（清单序号 / 坐标 / running / 本遍求值序号 / 陈旧计数）。
+     * running = 普查非空即入图（§3.2 口径，经缓存图节点集判定）；求值序号取最近一次已完成
+     * 求值遍（§5.2 A 的 Post 拓扑遍，{@code HostEvalPass.evalOrdinals}）的真实序号——
+     * 遍内未求值（本 tick 未走过前段 / 停机早退）的宿主该列诚实显示「—」（登记册条目 31.1
+     * 的接线形态；查询包处理于 tick 前段，读到的总是上一已完成遍）；陈旧计数取采集快照的
      * 按 host 累计（无记录 = 全 0）；采集关闭时该列诚实显示「—」并在表头说明（可诊断性，
-     * 不回退成空数据）。「本 tick 求值序号」无真值（见类注记的暂缓项），以确定性清单序号
-     * 代替、不伪造。
+     * 不回退成空数据）。
      * <p>The {@code hosts} renderer: one line per registered host (listing ordinal /
-     * coordinates / running / stale counts). running = census non-empty = in the graph (the
-     * §3.2 criterion, judged over the cached graph's node set); stale counts ride the
+     * coordinates / running / this-pass evaluation ordinal / stale counts). running = census
+     * non-empty = in the graph (the §3.2 criterion, judged over the cached graph's node
+     * set); the evaluation ordinal rides the most recently completed evaluation pass (§5.2
+     * A's Post topological pass, {@code HostEvalPass.evalOrdinals}) — a host the pass did
+     * not evaluate (its prologue never ran this tick, or the stopped early-return) honestly
+     * shows "—" (the wiring form of register entry 31.1; query packets are processed in the
+     * tick prologue, so readers always see the last completed pass); stale counts ride the
      * collection snapshot's per-host cumulative tallies (no record = all zeros); with
-     * collection off the column honestly shows "—" and the header says so (diagnosability, no
-     * regression to empty data). The "this-tick evaluation ordinal" has no truth (the deferred
-     * item in the class javadoc) — the deterministic listing ordinal substitutes it, nothing
-     * fabricated.</p>
+     * collection off the column honestly shows "—" and the header says so (diagnosability,
+     * no regression to empty data).</p>
      *
-     * @param hosts      注册表快照（HostId 有序） / the registry snapshot (HostId-ordered)
-     * @param g          缓存依赖图（running 判定） / the cached dependency graph (the running
-     *                   judgement)
-     * @param collecting 采集门 / the collection gate
-     * @param snap       最新采集快照 / the latest collection snapshot
+     * @param hosts        注册表快照（HostId 有序） / the registry snapshot (HostId-ordered)
+     * @param g            缓存依赖图（running 判定） / the cached dependency graph (the
+     *                     running judgement)
+     * @param collecting   采集门 / the collection gate
+     * @param snap         最新采集快照 / the latest collection snapshot
+     * @param evalOrdinals 最近已完成求值遍的逐宿主序号 / the last completed pass's per-host
+     *                     ordinals
      * @return 文本行 / the text lines
      */
     static List<String> renderHosts(Map<TopoStats.HostId, TopoStats.CensusProvider> hosts,
                                     TopoStats.HostGraph g, boolean collecting,
-                                    TopoStats.CollectSnapshot snap) {
+                                    TopoStats.CollectSnapshot snap,
+                                    Map<TopoStats.HostId, Integer> evalOrdinals) {
         var out = new ArrayList<String>();
         out.add("hosts — 登记宿主 " + hosts.size() + " / registered hosts（running=普查非空即入图/"
             + "running = census non-empty = in graph"
@@ -452,8 +459,9 @@ public final class ConsoleDataPlane {
             } else {
                 counts = "①=— ②=— 同=— 跨=—";
             }
+            Integer ord = evalOrdinals.get(id);
             out.add("  " + i + ". " + id + " running=" + (inGraph.contains(id) ? "yes" : "no")
-                + "  " + counts);
+                + "  序=" + (ord != null ? ord : "—") + "  " + counts);
             i++;
         }
         return out;

@@ -507,7 +507,7 @@ class ConsoleDataCommandsTest {
         var snap = snapshot(555L, byHost, Map.of());
         var hosts = new TreeMap<HostId, TopoStats.CensusProvider>();
         hosts.put(A, () -> ChannelCensus.EMPTY);
-        List<String> lines = ConsoleDataPlane.renderHosts(hosts, TopoStats.buildHostGraph(Map.of()), true, snap);
+        List<String> lines = ConsoleDataPlane.renderHosts(hosts, TopoStats.buildHostGraph(Map.of()), true, snap, Map.of());
         String row = lines.get(1);
         assertTrue(row.contains("①=7") && row.contains("②=2") && row.contains("同=5") && row.contains("跨=2"),
             "计数列 = byHost 累计 / the count column = the byHost cumulative: " + row);
@@ -515,7 +515,7 @@ class ConsoleDataCommandsTest {
         // 快照无记录的宿主 = 全零（不「—」——采集开着零就是零）/ a host without records = zeros
         // (not "—" — with the gate on, zero means zero)
         var snap2 = snapshot(556L, Map.of(), Map.of());
-        String row2 = ConsoleDataPlane.renderHosts(hosts, TopoStats.buildHostGraph(Map.of()), true, snap2).get(1);
+        String row2 = ConsoleDataPlane.renderHosts(hosts, TopoStats.buildHostGraph(Map.of()), true, snap2, Map.of()).get(1);
         assertTrue(row2.contains("①=0") && row2.contains("②=0"), "无记录 = 全零 / no records = all zeros: " + row2);
     }
 
@@ -524,6 +524,29 @@ class ConsoleDataCommandsTest {
     void hostsEmptyRegistrySaysSo() {
         List<String> lines = ConsoleProtocol.respond("hosts");
         assertTrue(lines.get(1).contains("注册表为空"), "空表明说 / an empty registry says so: " + lines.get(1));
+    }
+
+    @Test
+    @DisplayName("hosts 求值序号列：已完成遍的真实序号，遍内未求值者诚实显示「—」（条目 31.1）")
+    void hostsEvalOrdinalColumnRidesThePassOrdinals() {
+        var hosts = new TreeMap<HostId, TopoStats.CensusProvider>();
+        hosts.put(A, () -> ChannelCensus.EMPTY);
+        hosts.put(B, () -> ChannelCensus.EMPTY);
+        // A=3、B=7 的求值序号（上一已完成遍）。/ Evaluation ordinals A=3, B=7 (the last
+        // completed pass).
+        var ordinals = new TreeMap<HostId, Integer>();
+        ordinals.put(A, 3);
+        ordinals.put(B, 7);
+        List<String> lines = ConsoleDataPlane.renderHosts(hosts, TopoStats.buildHostGraph(Map.of()),
+            false, TopoStats.CollectSnapshot.EMPTY, ordinals);
+        assertTrue(lines.get(1).contains("序=3"), "A 的真实求值序号 / A's real evaluation ordinal: " + lines.get(1));
+        assertTrue(lines.get(2).contains("序=7"), "B 的真实求值序号 / B's real evaluation ordinal: " + lines.get(2));
+        // 无序号（本遍未求值：未走过前段 / 停机早退）= 诚实「—」，不伪造。
+        // No ordinal (not evaluated this pass: the prologue never ran, or the stopped
+        // early-return) = an honest "—", nothing fabricated.
+        List<String> plain = ConsoleDataPlane.renderHosts(hosts, TopoStats.buildHostGraph(Map.of()),
+            false, TopoStats.CollectSnapshot.EMPTY, Map.of());
+        assertTrue(plain.get(1).contains("序=—"), "无序号 = 「—」 / no ordinal = \"—\": " + plain.get(1));
     }
 
     // ══════════ 7. 帮助表标注随接线更新 / the help-table annotations follow the wiring ══════════
