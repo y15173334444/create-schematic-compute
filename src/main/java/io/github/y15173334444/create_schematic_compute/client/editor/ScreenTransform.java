@@ -45,6 +45,31 @@ final class ScreenTransform {
         return px(c2sX.apply(n.x));
     }
 
+    /** 连续缩放映射（GZ-1，docs/graph-editor-gesture-zoom-plan.md）：每 1.0 增量 = 12%
+     *  （经典滚轮 ±1 刻度手感不变），高精度触摸板/旋钮/数位板/高分辨率滚轮的分数增量连续
+     *  跟手、不再被量化成整刻度；0.25–4 钳制，零增量 no-op。
+     *  Continuous zoom mapping (GZ-1): one delta unit = 12% (classic wheel notches
+     *  unchanged), fractional deltas from high-precision trackpads/dials/tablets/high-res
+     *  wheels stay continuous instead of being quantized to whole notches; clamped to
+     *  0.25–4, zero delta is a no-op. */
+    static float zoomStep(float zoom, double delta) {
+        float nz = zoom * (float) Math.pow(1.12, delta);
+        return Math.max(0.25f, Math.min(4f, nz));
+    }
+
+    /** 缩放锚点 X（GZ-1）：增量式平移修正，保持屏幕点 (mx,·) 下的图点不动（连续缩放序列下
+     *  逐次成立）。 / Zoom anchor X (GZ-1): the incremental pan correction holding the graph
+     *  point under the screen point (mx,·) fixed (valid step by step along any continuous
+     *  zoom sequence). */
+    static float anchorPanX(float camX, double mx, float screenWidth, float oldZoom, float newZoom) {
+        return camX + (float) ((mx - screenWidth / 2f) * (1.0 / newZoom - 1.0 / oldZoom));
+    }
+
+    /** 缩放锚点 Y（GZ-1，口径同 {@link #anchorPanX}）。 / Zoom anchor Y (GZ-1), same rule. */
+    static float anchorPanY(float camY, double my, float screenHeight, float oldZoom, float newZoom) {
+        return camY + (float) ((my - screenHeight / 2f) * (1.0 / newZoom - 1.0 / oldZoom));
+    }
+
     /** 节点屏幕原点 Y（每帧吸附一次）。 / Node screen origin Y, snapped once per frame. */
     static int nodeY(NodeRenderer.CoordMapper c2sY, GraphNode n) {
         return px(c2sY.apply(n.y));

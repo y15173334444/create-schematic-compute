@@ -4612,8 +4612,18 @@ public class GraphEditor {
                 }
             }
         }
-        float oz=zoom; zoom*=(sy>0)?1.12f:(1f/1.12f); zoom=Math.max(0.25f,Math.min(4f,zoom));
-        camX+=(mx-host.asScreen().width/2f)*(1f/zoom-1f/oz); camY+=(my-host.asScreen().height/2f)*(1f/zoom-1f/oz); return true;
+        // GZ-1 高精度手势缩放（docs/graph-editor-gesture-zoom-plan.md）：按原始分数增量做连续
+        // 指数映射——高精度触摸板/旋钮/数位板/高分辨率滚轮不再被量化成整刻度，经典 ±1 刻度
+        // 手感不变；锚点增量式换算，光标下图点不动。
+        // GZ-1 high-precision gesture zoom: continuous exponential mapping of the raw
+        // fractional delta — trackpads/dials/tablets/high-res wheels keep their fractional
+        // motion instead of being quantized to whole notches; classic ±1 notches unchanged.
+        // The incremental anchor keeps the graph point under the cursor fixed.
+        float oz = zoom;
+        zoom = ScreenTransform.zoomStep(oz, sy);
+        camX = ScreenTransform.anchorPanX(camX, mx, host.asScreen().width, oz, zoom);
+        camY = ScreenTransform.anchorPanY(camY, my, host.asScreen().height, oz, zoom);
+        return true;
     }
     /** 处理键盘按键——ESC 关闭面板、Enter 提交编辑、Ctrl+Z/Y 撤销重做、
      *  Ctrl+D 复制、X 键删除、Delete 删除、C 键创建注释、TAB 框选模式等。

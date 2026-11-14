@@ -105,4 +105,53 @@ class ScreenTransformTest {
         assertEquals(0, ScreenTransform.gridLattice(0f, 0f, 100).length);
         assertEquals(0, ScreenTransform.gridLattice(0f, -3f, 100).length);
     }
+
+    // ── GZ-1 高精度手势缩放 / high-precision gesture zoom ──────────────────────
+
+    @Test
+    @DisplayName("经典刻度手感不变：±1 增量 = ×1.12 / ÷1.12（容差内） / classic notch feel unchanged: ±1 delta = ×1.12 / ÷1.12")
+    void zoomStepKeepsClassicNotchFeel() {
+        assertEquals(1.12f, ScreenTransform.zoomStep(1f, 1), 1e-6f);
+        assertEquals(1f / 1.12f, ScreenTransform.zoomStep(1f, -1), 1e-6f);
+        assertEquals(1.12f * 1.12f, ScreenTransform.zoomStep(1.12f, 1), 1e-6f);
+    }
+
+    @Test
+    @DisplayName("分数增量连续单调、零增量 no-op、越界钳制 / fractional deltas are continuous and monotone, zero is a no-op, clamps hold")
+    void zoomStepIsContinuousAndClamped() {
+        // 连续单调 / continuous + monotone
+        float z = 1f;
+        float prev = z;
+        for (double d : new double[]{0.05, 0.1, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0}) {
+            float nz = ScreenTransform.zoomStep(z, d);
+            assertTrue(nz > prev, "增量 " + d + " 必须严格放大 / delta must strictly zoom in");
+            prev = nz;
+        }
+        // 零增量 no-op / zero delta is a no-op
+        assertEquals(1.37f, ScreenTransform.zoomStep(1.37f, 0), 1e-7f);
+        // 钳制 / clamps
+        assertEquals(4f, ScreenTransform.zoomStep(3.9f, 100), 1e-6f);
+        assertEquals(0.25f, ScreenTransform.zoomStep(0.26f, -100), 1e-6f);
+    }
+
+    @Test
+    @DisplayName("缩放锚点不动点：连续缩放序列下光标下图点恒定 / the zoom anchor holds the graph point under the cursor across a continuous sequence")
+    void zoomAnchorHoldsGraphPointFixed() {
+        // 独立复述 GraphEditor 的 s2c 口径：graph = (screen − 中心)/zoom − cam
+        // Independent restatement of GraphEditor's s2c convention
+        double mx = 313.7, my = 187.2;
+        float sw = 800f, sh = 600f;
+        float camX = -42.5f, camY = 17.25f, z = 1f;
+        float gx = (float) ((mx - sw / 2) / z - camX), gy = (float) ((my - sh / 2) / z - camY);
+        // 一段连续缩放序列（含分数增量）/ a continuous zoom sequence (fractional deltas included)
+        for (double d : new double[]{0.37, -0.61, 1.0, -1.0, 0.25, -0.25}) {
+            float nz = ScreenTransform.zoomStep(z, d);
+            camX = ScreenTransform.anchorPanX(camX, mx, sw, z, nz);
+            camY = ScreenTransform.anchorPanY(camY, my, sh, z, nz);
+            z = nz;
+            float gx2 = (float) ((mx - sw / 2) / z - camX), gy2 = (float) ((my - sh / 2) / z - camY);
+            assertEquals(gx, gx2, 1e-2f, "锚点 X 漂移 / anchor X drifted");
+            assertEquals(gy, gy2, 1e-2f, "锚点 Y 漂移 / anchor Y drifted");
+        }
+    }
 }
