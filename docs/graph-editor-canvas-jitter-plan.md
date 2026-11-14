@@ -1,6 +1,9 @@
-# 虚拟画布与视觉抖动治理 / Graph Canvas & Visual Jitter — 🔶 待实施 / Proposed
+# 虚拟画布与视觉抖动治理 / Graph Canvas & Visual Jitter — 🟡 施工中 / In progress
 
-> **状态 / Status**：🔶 **待实施（方案）**。起草于 2026-10-24，基线 `718d38b`（`main`）。
+> **状态 / Status**：🟡 **施工中**：JIT-1 核心（统一变换与取整，`ScreenTransform` 作像素对齐唯一入口）与
+> JIT-2（网格整数格）已于 2026-11-14 落地（渲染性能线 `csc-render-perf`），锚 `ScreenTransformTest`；
+> JIT-3 / JIT-4 / JIT-5 / JIT-6 未动。
+> 起草于 2026-10-24，基线 `718d38b`（`main`）。
 > **问题 / Problem**：平移/缩放时节点框、文字、网格出现 1px 级抖动（shimmer）；命中位置与画面偶发错位。
 > 这是**视觉稳定性**问题，与 `graph-editor-render-performance-plan.md` 的帧率问题相互独立。
 > **目标 / Goal**：所有几何共用一个变换、一套取整规则；平移/缩放时画面元素不互相爬动；点击位置与绘制位置一致。
@@ -79,6 +82,11 @@
 
 ### JIT-1 · 统一变换与取整（P0，最高性价比）
 
+> **✅ 2026-11-14 落地**：节点每帧吸附一次原点（框/内容 pose/引脚/连线根/成对命中换算共用），框两缘
+> 共用一次取整尺寸；`ScreenTransform` 承担唯一取整入口与「吸附原点 + 局部偏移×zoom」的锚点派生。
+> 尚余：装饰件内部偏移的裸 `(int)`（吸附后为常量偏移，不参与拖动爬移）、`ScreenTransform` 持相机态的
+> 纯函数化、以及与 JIT-5 合并的命中几何单一真源。
+
 - 所有节点内部绘制放进**同一个 pose**：框、文字、引脚都在 `translate(sx,sy) + scale(zoom)` 内，
   用节点局部整数坐标绘制。
 - 禁止在 render / hit 路径使用裸 `(int)`；只保留文字原点 `Math.round`。
@@ -96,6 +104,9 @@ final class ScreenTransform {
 - 验收：慢速平移录屏逐帧对比，节点框与内部元素不再相对跳动。
 
 ### JIT-2 · 网格整数化
+
+> **✅ 2026-11-14 落地**：原点吸附 + 逐线 `round(k·GS·zoom)`（整格刚性平移、单线与真实世界线偏差
+> ≤1px）；未走纹理工装。
 
 - 每帧计算一次 `int spacing = Math.max(1, Math.round(GS * zoom))`、
   `int offset = Math.round(camOffset) % spacing`，所有线由整数推出；
