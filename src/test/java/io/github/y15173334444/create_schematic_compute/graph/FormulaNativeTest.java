@@ -180,7 +180,7 @@ class FormulaNativeTest {
     }
 
     @Test
-    @DisplayName("contract: abiVersion=1;programRelease 后 exec 返回负错误码;非法会话/未知 id 均负码")
+    @DisplayName("contract: abiVersion=2;programRelease 后 exec 返回负错误码;非法会话/未知 id 均负码")
     void nativeContractNegativePaths() {
         assumeNative();
         assertEquals(FormulaNative.ABI_VERSION, FormulaNative.abiVersion(), "abi lockstep");

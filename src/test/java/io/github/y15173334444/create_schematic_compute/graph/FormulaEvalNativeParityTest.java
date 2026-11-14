@@ -354,6 +354,22 @@ class FormulaEvalNativeParityTest {
         assertFaceBitExact("a = 2.0\nb = 3.0\na + b * 2.0", Map.of());
     }
 
+    // ── 输出数 < 寄存器槽数（§4.7-5 矩阵项显式化；弹道 6 输出/67 槽为同族大形态） ──
+    // 输出缓冲按输出表达式数取尺寸、carrier/寄存器按槽数——两者混淆时本形态必炸。
+    // Output buffer sizes by output-expression count while carrier/registers size by
+    // slot count — conflating the two breaks exactly this shape.
+
+    @Test
+    @DisplayName("fewer outputs than register slots (1 out / 15 slots): face bit-exact")
+    void fewerOutputsThanSlotsFaceParity() {
+        assumeNative();
+        String script = "a1 = x + 1.0\na2 = a1 * 2.0\na3 = a2 + w\na4 = a3 - 0.5\n"
+            + "a5 = a4 * a1\na6 = a5 + a2\na7 = a6 - a3\na8 = a7 * 1.25\n"
+            + "a9 = a8 + a4\na10 = a9 - a5\na11 = a10 * a6\na12 = a11 + a7\n"
+            + "y = a12 - a8\n@output y";
+        assertFaceBitExact(script, Map.of("x", 3.0, "w", 1.5));
+    }
+
     // ── 9. warm 续算 + 中途改输入：内部累加器存活（R4 审查修复的逐位锁定面） ──
     // v 的累加与 x 无关 ⇒ 不限预算参考链（终态 v=N、y=N*x）同时就是 warm 语义的
     // 金标准；warm refresh 若误清内部寄存器（R3a 全长刷新分叉），终值 = (N-k)*x
