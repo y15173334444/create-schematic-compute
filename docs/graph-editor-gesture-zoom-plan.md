@@ -1,7 +1,7 @@
 # 图编辑器高精度手势缩放 / Graph Editor High-Precision Gesture Zoom — 🔶 施工中 / In progress
 
-> **状态 / Status**：GZ-1（连续映射核心）施工中；GZ-2（捏合通道）待输入协议简报定夺；
-> GZ-3（动量）默认关（精度优先，留开关）。
+> **状态 / Status**：GZ-1（连续映射核心）与 GZ-2（捏合直驱，Win32 手势钩子）已落地并
+> **实机验收通过**（2026-11-15：1:1 无极捏合、两指中心锚点）；GZ-3（动量）默认关（精度优先，留开关）。
 > **问题 / Problem**：滚轮缩放按「每事件 ±1 刻度 ×1.12」量化（`GraphEditor.mouseScrolled`），
 > `sy` 的大小被无视——高精度触摸板/数位板/旋钮/高分辨率滚轮的**分数增量全部被压成整刻度**，
 > 手势缩放既不连续也不跟手。
@@ -39,13 +39,43 @@
 - **锚点与相位**：缩放后平移翻译项仍走整像素量化（抖动治理批 1 的 `transX/transY`）——
   缩放不引入新的相位漂移；`sy=0` 事件退化为 no-op（顺带修正旧代码 sy=0 反向缩小的边角病）。
 
-### GZ-2 · 捏合/触屏通道（待输入协议简报定夺）
+### GZ-2 · 捏合/触屏通道（已定案并验收：Win32 手势钩子，双通道）
 
-- 候选 a：系统合成的 Ctrl+滚轮即捏合（若确证 Windows 对不处理手势的窗口合成之）——现有
-  Ctrl+滚轮=注释文本滚动仅在「悬停于可滚注释」时拦截，其余落到缩放，天然兼容；
-- 候选 b：Win32 手势钩子（`SetGestureConfig` + WndProc hook）——需要 `lwjgl-windows`/JNA 依赖
-  （当前运行时未捆绑 lwjgl-windows），属重依赖决策；
-- 候选 c：拿不到就登记暂缓（触屏捏合等 MC/GLFW 上游手势支持），本批先吃满滚轮通道。
+- **实测语义（Win11 build 26300，与经典文档有出入）**：WM_GESTURE 的 wParam=手势 ID（GID_*）、
+  lParam=HGESTUREINFO；GESTUREINFO 56B 但**距离字段在偏移 40**（@32 恒 0）；ptsLocation=质心
+  屏幕坐标。锚点 = pts − 窗口原点（GetWindowRect 算术，**窗口查询必须用真 HWND**——
+  `Window.getWindow()` 返回 GLFW 指针不是 HWND，拿它查窗恒 false，此前一切锚点怪相皆此根因）。
+  **2026-11-15 实机验收通过**：1:1 无极捏合、两指中心锚点；诊断轨迹有界（每会话首几条 + 5s
+  通道计数），发布前可裁。
+
+- **实测裁定（2026-11-15 两轮探针 + 输入协议简报）**：Windows 把捏合**降级成滚轮刻度**投给
+  不处理手势的窗口——简报确证机制：未处理的 WM_GESTURE 冒泡到 DefWindowProc 后由系统映射成
+  **WM_MOUSEWHEEL + MK_CONTROL**（官方 Legacy Support 表），另有驱动层直接注入滚轮、不走
+  WM_GESTURE 的路径；钩子单通道实测仍滚轮级（GetGestureInfo 失败会 fallthrough 到合成路径，
+  或消息根本没到钩子）。
+- **实现（v2 双通道）**：
+  ① **主通道**：JNA 钩 WndProc + `SetGestureConfig` 申领 GID_ZOOM，相邻手势帧的**手指间距比**
+  1:1 直驱（`ScreenTransform.pinchStep`）；GID_PAN 不申领，两指平移继续走滚轮合成给 GZ-1；
+  申领失败时不消化手势流（防吞两指平移）。GESTUREINFO 读取按 cbSize 候选表探测
+  （56/64/52/48/72/80，读通即缓存——cbSize 与系统 sizeof 不匹配时 API 直接 FALSE 且不写缓冲，
+  实测 100% 读不出即此因）。
+  ② **稳健回退**：捏合合成滚轮的认定 = **消息级 MK_CONTROL**（官方 Legacy 形态）**或**
+  手势流后 400ms 内的滚轮（实测合成滚轮不带 MK_CONTROL——按关联性认定；GID_PAN 未申领，
+  两指平移不产生 WM_GESTURE，真滚动不误吞），物理 Ctrl 未按时按细刻度连续映射
+  （`ScreenTransform.wheelNotchFactor`，1.05/整刻度）。
+  两通道 300ms 去重（手势优先）。锚点 = 捏合中心（桌面坐标 → ScreenToClient → MC GUI 缩放
+  坐标，口径同 `MouseHandler.onScroll`）；窗口句柄变化（全屏切换重建窗口）自动重挂；
+  非 Windows / 缺 JNA 静默停用，钩子内任何失败不碰渲染线；诊断计数（安装结果/通道计数/
+  GetGestureInfo 失败）每 5s 进日志。
+- **依赖注记**：LWJGL 3.3.3 的 User32 绑定**没有手势三件套**（GetGestureInfo /
+  SetGestureConfig / GESTUREINFO 结构体），「lwjgl-windows」构件并不存在（Windows 绑定住在
+  lwjgl core 里）——raw Win32 调用走 **JNA**（`net.java.dev.jna:jna:5.14.0`，单 jar 自带
+  natives）。发布打包需把 jna 打进发布 jar（jarJar）；与 Sable/Flywheel 的外置 mod 依赖不同，
+  JNA 无 mod 身份、不能走 mods.toml。
+- **x64 ABI**：GESTUREINFO 按 Win32 自然对齐手写（56 字节）；32 位客户端不支持（无人跑）。
+- **MC 辅助功能陷阱**：`discreteMouseScroll`（辅助功能→鼠标滚轮离散化）开着时，MC 在
+  MouseHandler 里把一切滚轮增量 `signum` 成 ±1 再投给界面——触摸板的连续性会被它吃掉，
+  GZ-1 拿到的已经是刻度。连续手势缩放要求该选项**关闭**。
 
 ### GZ-3 · 动量/惯性（默认关）
 

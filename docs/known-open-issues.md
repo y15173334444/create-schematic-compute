@@ -1118,8 +1118,9 @@ SignalBus 键空间已按维度隔离（`<维度id>\u0001<逻辑名>`，1176 绿
 
 - 机制：`escalationLadder` 的预热豁免窗与超份额记账耦合墙钟（提供方 `spinOverSlice` 忙等越片自证、豁免窗按真实时间到期）——满载（游戏客户端同机吃 CPU）下豁免窗在调用计数意义上提前到期，梯子提前冻结：`expected: <21> but was: <11>`（CustomNodeEvalTest:252）。单跑与两次全量复跑均绿，仅 2026-11-14 深夜满载一次翻车；纯 graph/eval 域，与渲染改动零交集。
 - 修复方向：预算/豁免窗去墙钟（注入 Clock 或按 tick 计数），断言与机器负载解耦。
-- 状态：**暂缓**（负载敏感波动，非产品缺陷）。
-/ The escalation-ladder test couples its preheat exemption and over-slice accounting to the wall clock (the provider busy-spins past its slice; the exemption window expires in real time) — under heavy same-machine load the window expires earlier in call-count terms and the ladder freezes early (expected 21, got 11). Green standalone and on two full re-runs; one flake under load. Fix direction: inject a clock or count ticks. Deferred (load-sensitive flake, not a product defect).
+- **第二实例（2026-11-15）**：`AudioMixerShapingPerfTest` 整形内环成本断言（渲染耗时 ≤35% 实时时长）满载翻车一次（30.9ms/80ms 超限），单跑与全量复跑均绿——同族（计时预算断言 × 客户端同机负载），修复方向同上。
+- 状态：**暂缓**（负载敏感波动族，非产品缺陷）。
+/ The escalation-ladder test couples its preheat exemption and over-slice accounting to the wall clock (the provider busy-spins past its slice; the exemption window expires in real time) — under heavy same-machine load the window expires earlier in call-count terms and the ladder freezes early (expected 21, got 11). Green standalone and on two full re-runs; one flake under load. Fix direction: inject a clock or count ticks. Deferred (load-sensitive flake, not a product defect). Second instance (2026-11-15): AudioMixerShapingPerfTest's shaping-cost budget (render time ≤35% of real time) flaked once under load and passes standalone — same family.
 
 ### 状态 / Status
 
