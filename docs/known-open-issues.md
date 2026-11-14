@@ -1101,6 +1101,19 @@ SignalBus 键空间已按维度隔离（`<维度id>\u0001<逻辑名>`，1176 绿
 - 修复方向：维持既有暂缓口径（条目 29 同族）。
 / Unchanged standing deferral.
 
+### 34.1 PERF-8 提交收敛：试验-实证-回滚（待重新设计）
+
+- 机制：`FlushGate` 重叠门控（节点与未提交并集屏幕相交才提前 flush，层末收口）在网格场景把每帧 ~2048 次 flush 压到层末 1 次，干净态 canvas 21.87→19.0ms；**但拖拽重叠实机捕获单帧破绽**——被拖节点压到相邻节点上时，下层的输入引脚标签（font buffer）浮在上层节点体（gui buffer）之上（rig q04 截图；吸附后稳态正确，q05）。gui/font 两 buffer 的 started/endBatch 语义存在一层未吃透的帧级窗口（怀疑与 remote-lerp 移动中的判定/提交时序错位有关），headless 锚测覆盖不了批序。
+- 修复方向：先做 1.21.1 `MultiBufferSource.BufferSource` 的 gui()/font 批序机制取证（startedBuffers 顺序、asOptional fixed 语义、切换时机），再重新设计隔离粒度（候选：文字统一后置 + 被遮文字剔除；或 RenderType 合并）；门控纯逻辑（FlushGateTest）可复用。
+- 状态：**已回滚**（NodeRenderer/NodeCommentRenderer 逐字回到连线批形态；FlushGate/Test 随批删除）。
+/ PERF-8 trial rolled back: the overlap gate won ~10% canvas on clean state, but a live drag-overlap frame showed the covered node's pin label floating above the covering node's body — one frame-level window of the gui/font batch semantics is not understood. Redesign after a mechanism audit of BufferSource; the gate's pure logic is reusable.
+
+### 34.2 编辑器多次 resize 后的会话级渲染劣化
+
+- 机制：同一次会话内多次窗口 resize（MoveWindow/全屏切换路径）后，1024@0.25 场景 canvas 从 ~19.8ms 劣化到 ~54.8ms（3×，稳态、非尖峰；jstack 显示 fill 调用内每次 gui/font 切换都 endBatch）。干净重启即恢复——会话态劣化，非本批代码回归；zoom 还会随 resize 被插值回书签值（测量环境怪癖）。
+- 修复方向：独立缺陷，按 init 重跑（resize → `Screen.init` → `GraphJoinPacket` 重发 → 全量同步/焦点重建）的会话状态累积取证；与渲染性能线解耦。
+/ Session-level render degradation after repeated in-session resizes (3× canvas, steady); clean restart recovers. Independent of the perf line; audit the resize→init→re-join state accumulation.
+
 ### 状态 / Status
 
-🔶 暂缓（2026-11-15 拓扑批登记；33.3 随纯自动拍板失去对象已关闭，其余择机）。
+🔶 暂缓（2026-11-15 拓扑批登记；33.3 随纯自动拍板失去对象已关闭；**34.1/34.2 于 2026-11-14 渲染性能线登记**，34.1 等机制取证后重设计、34.2 独立取证）。
