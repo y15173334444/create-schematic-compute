@@ -117,6 +117,22 @@ dependencies {
     compileOnly createDep
     runtimeOnly createDep
 
+    // GZ-2 Win32 手势钩子（触屏/触摸板捏合，docs/graph-editor-gesture-zoom-plan.md）：
+    // GLFW 不转发 WM_GESTURE，Windows 对不处理手势的窗口把捏合降级成滚轮刻度（实测）；
+    // 要 1:1 手指间距比必须直读 GID_ZOOM。LWJGL 3.3.3 的 User32 绑定没有手势三件套
+    // （GetGestureInfo/SetGestureConfig/结构体），故走 JNA 做 raw Win32 调用（单 jar 自带
+    // natives）；非 Windows 平台钩子类不触碰 User32、整体静默停用。发布打包需把 jna 打进
+    // 发布 jar——见方案文档 GZ-2 的发布注记。
+    // GZ-2 Win32 gesture hook (touch/trackpad pinch): GLFW never forwards WM_GESTURE and
+    // Windows degrades pinch to wheel notches for windows that do not handle gestures
+    // (measured); a 1:1 finger-distance ratio needs GID_ZOOM read directly. LWJGL 3.3.3's
+    // User32 bindings lack the gesture trio (GetGestureInfo/SetGestureConfig/structs), so
+    // raw Win32 calls go through JNA (single self-contained jar); off Windows the hook
+    // class never touches User32 and stays dormant. Release packaging must bundle jna —
+    // see the plan doc's GZ-2 release note.
+    compileOnly "net.java.dev.jna:jna:5.14.0"
+    runtimeOnly "net.java.dev.jna:jna:5.14.0"
+
     // 其余本地 JAR 依赖（Flywheel / Ponder / Sable 等），仍需在编译期可见。
     // Remaining local JARs (Flywheel / Ponder / Sable, ...) still needed at compile time.
     // 注意：Sable 的依赖声明只存在于 neoforge.mods.toml（optional，运行期元数据），

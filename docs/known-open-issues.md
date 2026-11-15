@@ -49,6 +49,10 @@
 | 32 | 跨 BE 环切边批（§5.3 预案，ring 首跑已报 3 个真实自环） | 步骤 6 实机 `ring` 在遗留世界实测命中 3 个单节点自环（208,81,202 读 CH1344444 / 208,81,207 读 123 / 214,81,207 读 2）——§3.5「无论 ② 如何必须切边」条款命中 | 按 §5.3 切边预案独立排期：SCC 环上剪边/改读快照/环形停更消解；ring 输出即输入数据（`docs/cross-be-step6-verdict.md` §二） | ✅ 已实施（2026-11-15，全局拓扑重排+切边批 `3f4c99ec`+`f137222f`+`7b95b1b8`，1305 绿；§5.2 (A) 求值移 Post 宿主级拓扑序=翻转窗口全局关闭 + **切边纯自动**（自环边优先/全序最小兜底——声明面随拍板拆除，§5.3 注记）；实机验收全过，暂缓面见条目 33） |
 | 33 | 全局拓扑/切边批暂缓面（S5 专项锚未加 / 双环实机未排期 / perf 留守） | 拓扑+切边本体已落地（1305 绿，切边收敛为纯自动后 33.3 失去对象关闭），三处随批暂缓，详见条目 | 33.1 挂起中切边读专项锚（同路由分支低风险）；33.2 双环 SCC 实机装置未排期（残余环 HostId 兜底有锚）；33.4 `perf` 命令接线（§4.3 既定未接） | 🔶 暂缓（2026-11-15 拓扑批登记；33.3 已关闭） |
 | 34 | 畸形 RPN 过解析（括号不闭合 → exec 每 tick 抛异常兜底） | `1 + (2` 类脚本解析通过无任何报错，FORMULA 每 tick 求值抛 NoSuchElementException 被 eval catch 兜住——节点静默失效、输出恒不动 | 解析期 EOF 括号配对校验，未闭合 → ERROR issue（校验期拒绝同模式） | 🔶 待办（2026-11-14 Rust 后端 R4 会话登记，另批修复） |
+| 35 | native 公式后端无强制禁用开关（AVAILABLE 进程级静态） | `FormulaNative.AVAILABLE` 加载成功即恒真，无配置面/调试命令能强制回 Java 解释器路径——兜底验证与对拍排查只能动 classpath 或重编 | 配置面落地时加 dev 侧禁用开关（系统属性或调试命令强制 AVAILABLE=false），对齐「多层 API 兜底层须可禁」纪律（条目 27.3 同款口径） | 🔶 暂缓（2026-11-14 Rust 后端合并前自查批登记，择机另批） |
+| 36 | PERF-8 提交收敛：试验-实证-回滚（待重新设计） | FlushGate 重叠门控干净态 canvas 21.87→19.0ms，但拖拽重叠实机捕获单帧 z 序破绽（下层引脚标签浮在上层节点体上），gui/font 批语义存在未吃透的帧级窗口 | 先做 MultiBufferSource.BufferSource 批序机制取证再重设计隔离粒度；门控纯逻辑（FlushGateTest）可复用 | 🔶 已回滚（2026-11-14 渲染性能线登记，原 34.1；等机制取证后重设计） |
+| 37 | 编辑器多次 resize 后的会话级渲染劣化 | 同会话多次窗口 resize 后 1024@0.25 场景 canvas 从约 19.8ms 劣化到约 54.8ms（3× 稳态），干净重启即恢复——会话态累积，非代码回归 | 按 resize → Screen.init → GraphJoinPacket 重发的会话状态累积独立取证；与渲染性能线解耦 | 🔶 暂缓（2026-11-14 渲染性能线登记，原 34.2，独立取证） |
+| 38 | CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次） | 预热豁免窗与超份额记账耦合墙钟，满载下提前到期、梯子冻结（expected 21 got 11）；第二实例 AudioMixerShapingPerfTest 计时预算断言同族翻车 | 预算/豁免窗去墙钟（注入 Clock 或按 tick 计数），断言与机器负载解耦 | 🔶 暂缓（2026-11-14 渲染性能线登记，原 35，负载敏感波动族非产品缺陷） |
 
 ---
 
@@ -1104,7 +1108,7 @@ SignalBus 键空间已按维度隔离（`<维度id>\u0001<逻辑名>`，1176 绿
 
 ### 状态 / Status
 
-🔶 暂缓（2026-11-15 拓扑批登记；33.3 随纯自动拍板失去对象已关闭，其余择机）。
+🔶 暂缓（2026-11-15 拓扑批登记；33.3 随纯自动拍板失去对象已关闭；**36/37 于 2026-11-14 渲染性能线登记**，36 等机制取证后重设计、37 独立取证；**38 于 2026-11-14 渲染性能线登记**，负载敏感测试波动待去墙钟）。
 
 ---
 
@@ -1163,3 +1167,26 @@ FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常�
 
 🔶 暂缓（2026-11-14 Rust 后端合并前自查批登记；择机另批）。
 / Open (registered 2026-11-14 during the Rust-backend pre-merge self-review batch; deferred, separate batch).
+
+---
+
+## 36. PERF-8 提交收敛：试验-实证-回滚（待重新设计）
+
+- 机制：`FlushGate` 重叠门控（节点与未提交并集屏幕相交才提前 flush，层末收口）在网格场景把每帧 ~2048 次 flush 压到层末 1 次，干净态 canvas 21.87→19.0ms；**但拖拽重叠实机捕获单帧破绽**——被拖节点压到相邻节点上时，下层的输入引脚标签（font buffer）浮在上层节点体（gui buffer）之上（rig q04 截图；吸附后稳态正确，q05）。gui/font 两 buffer 的 started/endBatch 语义存在一层未吃透的帧级窗口（怀疑与 remote-lerp 移动中的判定/提交时序错位有关），headless 锚测覆盖不了批序。
+- 修复方向：先做 1.21.1 `MultiBufferSource.BufferSource` 的 gui()/font 批序机制取证（startedBuffers 顺序、asOptional fixed 语义、切换时机），再重新设计隔离粒度（候选：文字统一后置 + 被遮文字剔除；或 RenderType 合并）；门控纯逻辑（FlushGateTest）可复用。
+- 状态：**已回滚**（NodeRenderer/NodeCommentRenderer 逐字回到连线批形态；FlushGate/Test 随批删除）。
+/ PERF-8 trial rolled back: the overlap gate won ~10% canvas on clean state, but a live drag-overlap frame showed the covered node's pin label floating above the covering node's body — one frame-level window of the gui/font batch semantics is not understood. Redesign after a mechanism audit of BufferSource; the gate's pure logic is reusable.
+
+## 37. 编辑器多次 resize 后的会话级渲染劣化
+
+- 机制：同一次会话内多次窗口 resize（MoveWindow/全屏切换路径）后，1024@0.25 场景 canvas 从 ~19.8ms 劣化到 ~54.8ms（3×，稳态、非尖峰；jstack 显示 fill 调用内每次 gui/font 切换都 endBatch）。干净重启即恢复——会话态劣化，非本批代码回归；zoom 还会随 resize 被插值回书签值（测量环境怪癖）。
+- 修复方向：独立缺陷，按 init 重跑（resize → `Screen.init` → `GraphJoinPacket` 重发 → 全量同步/焦点重建）的会话状态累积取证；与渲染性能线解耦。
+/ Session-level render degradation after repeated in-session resizes (3× canvas, steady); clean restart recovers. Independent of the perf line; audit the resize→init→re-join state accumulation.
+
+## 38. CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次）
+
+- 机制：`escalationLadder` 的预热豁免窗与超份额记账耦合墙钟（提供方 `spinOverSlice` 忙等越片自证、豁免窗按真实时间到期）——满载（游戏客户端同机吃 CPU）下豁免窗在调用计数意义上提前到期，梯子提前冻结：`expected: <21> but was: <11>`（CustomNodeEvalTest:252）。单跑与两次全量复跑均绿，仅 2026-11-14 深夜满载一次翻车；纯 graph/eval 域，与渲染改动零交集。
+- 修复方向：预算/豁免窗去墙钟（注入 Clock 或按 tick 计数），断言与机器负载解耦。
+- **第二实例（2026-11-15）**：`AudioMixerShapingPerfTest` 整形内环成本断言（渲染耗时 ≤35% 实时时长）满载翻车一次（30.9ms/80ms 超限），单跑与全量复跑均绿——同族（计时预算断言 × 客户端同机负载），修复方向同上。
+- 状态：**暂缓**（负载敏感波动族，非产品缺陷）。
+/ The escalation-ladder test couples its preheat exemption and over-slice accounting to the wall clock (the provider busy-spins past its slice; the exemption window expires in real time) — under heavy same-machine load the window expires earlier in call-count terms and the ladder freezes early (expected 21, got 11). Green standalone and on two full re-runs; one flake under load. Fix direction: inject a clock or count ticks. Deferred (load-sensitive flake, not a product defect). Second instance (2026-11-15): AudioMixerShapingPerfTest's shaping-cost budget (render time ≤35% of real time) flaked once under load and passes standalone — same family.

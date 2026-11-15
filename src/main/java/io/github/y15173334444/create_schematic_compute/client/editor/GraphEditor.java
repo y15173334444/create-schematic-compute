@@ -1075,14 +1075,23 @@ public class GraphEditor {
 
     // ── 坐标转换 (Coordinate transforms) ──
     // 图空间 → 屏幕空间 / graph-space → screen-space
+    /** 屏幕平移项（整像素量化，抖动治理批 1，见 docs/blender-shimmer-free-drawing-brief.md
+     *  启示 1）：全场景共享同一取整相位——平移时各元素整体以整像素锁步移动，不再各跳各的
+     *  （相机保持连续、量化只做在翻译项上；渲染与命中共用本组换算，量化两侧天然一致）。
+     *  Quantized screen translation (jitter batch 1, brief implication 1): the whole scene
+     *  shares one rounding phase, so pans move every element in whole-pixel lockstep instead
+     *  of hopping independently (the camera stays continuous; only the translation term
+     *  quantizes; render and hit share these transforms, consistent by construction). */
+    private float transX() { Screen s = host.asScreen(); return Math.round(s.width/2f + camX*zoom); }
+    private float transY() { Screen s = host.asScreen(); return Math.round(s.height/2f + camY*zoom); }
     /** 图空间 X → 屏幕 X / graph-space X → screen-space X */
-    public float c2sX(float cx) { Screen s = host.asScreen(); return s.width/2f+(cx+camX)*zoom; }
+    public float c2sX(float cx) { return cx*zoom + transX(); }
     /** 图空间 Y → 屏幕 Y / graph-space Y → screen-space Y */
-    public float c2sY(float cy) { Screen s = host.asScreen(); return s.height/2f+(cy+camY)*zoom; }
+    public float c2sY(float cy) { return cy*zoom + transY(); }
     /** 屏幕 X → 图空间 X / screen-space X → graph-space X */
-    public float s2cX(double sx) { Screen s = host.asScreen(); return(float)((sx-s.width/2f)/zoom-camX); }
+    public float s2cX(double sx) { return (float)((sx - transX())/zoom); }
     /** 屏幕 Y → 图空间 Y / screen-space Y → graph-space Y */
-    public float s2cY(double sy) { Screen s = host.asScreen(); return(float)((sy-s.height/2f)/zoom-camY); }
+    public float s2cY(double sy) { return (float)((sy - transY())/zoom); }
 
     /** 增加图代数以作废渲染缓存（Phase 2 脏标记框架）。
      *  Bump graph generation to invalidate render caches (Phase 2 dirty flag framework).
@@ -1419,6 +1428,11 @@ public class GraphEditor {
      *  @param mx 鼠标 X 坐标（屏幕空间）/ mouse X (screen space)
      *  @param my 鼠标 Y 坐标（屏幕空间）/ mouse Y (screen space) */
     public void renderBg(GuiGraphics g, int mx, int my) {
+        // GZ-2：Win32 手势钩子幂等装挂 + 消化攒下的捏合比例（无手势时近零开销）。
+        // GZ-2: idempotent Win32 gesture-hook install + consume any accumulated pinch
+        // ratio (near-zero cost with no gesture in flight).
+        Win32GestureZoom.ensureInstalled();
+        Win32GestureZoom.drain(this, mx, my);
         viewBookmarks.advanceCameraTransition(); // 每帧推进视角过渡动画 / advance camera transition per frame
         var graph = getGraph();
         // 代际比较必须**绑定同一个图实例**：多实例（主图/子图/重载后的新实例）各有自己的计数器，
@@ -1761,7 +1775,10 @@ public class GraphEditor {
      *  the ITEM slot row count follows the schema): under the whole edit panel, via the
      *  measured expandedEditHeight. */
     private int[] hotbarPopupRect() {
-        float nsx = c2sX(hotbarNode.x), nsy = c2sY(hotbarNode.y);
+        // 弹窗随节点吸附（JIT-1）：渲染/点击共用本矩形，吸附后弹窗与节点框锁死同步。
+        // The popup snaps with the node (JIT-1): render and click share this rect, so the
+        // popup stays locked to the node frame.
+        float nsx = ScreenTransform.nodeX(this::c2sX, hotbarNode), nsy = ScreenTransform.nodeY(this::c2sY, hotbarNode);
         float nch = (HH + PH*(hotbarNode.functionalInputs() + hotbarNode.outputs()))*zoom+4;
         var st = hotbarNode != null ? nodeEditStatesById.get(hotbarNode.id) : null;
         int pw = 196, ph = 36;
@@ -2670,12 +2687,15 @@ public class GraphEditor {
             // behind-nodes as occluders.
             if (!isOccluderInHitOrder(n, en)) continue;
             if (n.type == NodeType.COMMENT) continue;
-            float sx = c2sX(n.x), sy = c2sY(n.y);
+            // 遮挡盒与 drawNode 的涂盖框同口径（JIT-1）：吸附原点 + 一次取整的宽。
+            // The occluder box matches drawNode's painted frame (JIT-1): snapped origin plus
+            // one rounded width.
+            float sx = ScreenTransform.nodeX(this::c2sX, n), sy = ScreenTransform.nodeY(this::c2sY, n);
             float sw = NodeRenderer.nw(n) * zoom;
             float nh = NodeRenderer.nh(n) * zoom + 4; // nh() 含图表区域 / includes chart area
             if (expandedNodeIds.contains(n.id))
                 nh += EditPanel.expandedEditHeight(n, nodeEditStatesById.get(n.id)) * zoom;
-            if (mx >= sx && mx <= sx + sw && my >= sy && my <= sy + nh) {
+            if (mx >= sx && mx <= sx + ScreenTransform.px(sw) && my >= sy && my <= sy + ScreenTransform.px(nh)) {
                 occluded = true;
                 break;
             }
@@ -2687,7 +2707,11 @@ public class GraphEditor {
         }
         var st = nodeEditStatesById.get(en.id);
         if (st == null) continue;
-        float nsx = c2sX(en.x), nsy = c2sY(en.y);
+        // 局部鼠标换算与 drawNode 同源（JIT-1）：吸附原点 + 同一截断口径——悬停高亮与点击
+        // 落点逐像素一致。 / Local mouse conversion shares drawNode's source (JIT-1): the
+        // snapped origin plus the same truncation rule — hover highlight and click resolve
+        // to the same pixel.
+        float nsx = ScreenTransform.nodeX(this::c2sX, en), nsy = ScreenTransform.nodeY(this::c2sY, en);
         int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
         int editLocalY = (int)(NodeRenderer.nh(en) + 4/zoom); // 使用 nh() 含图表区域 / use nh() to include chart area
         int numRows = st.fields.size();
@@ -3336,7 +3360,7 @@ public class GraphEditor {
                 if (!expandedNodeIds.contains(en.id)) continue;
                 var st = nodeEditStatesById.get(en.id);
                 if (st == null || !st.listeningForKey) continue;
-                float nsx = c2sX(en.x), nsy = c2sY(en.y);
+                float nsx = ScreenTransform.nodeX(this::c2sX, en), nsy = ScreenTransform.nodeY(this::c2sY, en);
                 int lmx = (int)((mx - nsx) / zoom), lmy = (int)((my - nsy) / zoom);
                 int editLocalY = (int)(HH + PH*(en.functionalInputs() + en.outputs()) + 4/zoom);
                 int kbLocalY = editLocalY + 4;
@@ -4429,8 +4453,8 @@ public class GraphEditor {
                 if (st != null && !st.fields.isEmpty()) {
                     // MLE coordinates are graph-space; convert mouse to graph-space
                     // MLE 坐标为图空间，将鼠标转换为图空间坐标
-                    float gx = (float)((mx - c2sX(en.x)) / zoom);
-                    float gy = (float)((my - c2sY(en.y)) / zoom);
+                    float gx = (float)((mx - ScreenTransform.nodeX(this::c2sX, en)) / zoom);
+                    float gy = (float)((my - ScreenTransform.nodeY(this::c2sY, en)) / zoom);
                     st.fields.get(0).mouseDragged(gx, gy, 0, 0, 0);
                     return true;
                 }
@@ -4537,7 +4561,7 @@ public class GraphEditor {
             if (!expandedNodeIds.contains(en.id)) continue;
             var st = nodeEditStatesById.get(en.id);
             if (st == null) continue;
-            float sx = c2sX(en.x), sy = c2sY(en.y);
+            float sx = ScreenTransform.nodeX(this::c2sX, en), sy = ScreenTransform.nodeY(this::c2sY, en);
             int lmx = (int)((mx - sx) / zoom);
             int lmy = (int)((my - sy) / zoom);
             for (var b : st.fields) {
@@ -4593,8 +4617,28 @@ public class GraphEditor {
                 }
             }
         }
-        float oz=zoom; zoom*=(sy>0)?1.12f:(1f/1.12f); zoom=Math.max(0.25f,Math.min(4f,zoom));
-        camX+=(mx-host.asScreen().width/2f)*(1f/zoom-1f/oz); camY+=(my-host.asScreen().height/2f)*(1f/zoom-1f/oz); return true;
+        // GZ-1 高精度手势缩放（docs/graph-editor-gesture-zoom-plan.md）：按原始分数增量做连续
+        // 指数映射——高精度触摸板/旋钮/数位板/高分辨率滚轮不再被量化成整刻度，经典 ±1 刻度
+        // 手感不变；锚点增量式换算，光标下图点不动。
+        // GZ-1 high-precision gesture zoom: continuous exponential mapping of the raw
+        // fractional delta — trackpads/dials/tablets/high-res wheels keep their fractional
+        // motion instead of being quantized to whole notches; classic ±1 notches unchanged.
+        // The incremental anchor keeps the graph point under the cursor fixed.
+        float oz = zoom;
+        zoom = ScreenTransform.zoomStep(oz, sy);
+        camX = ScreenTransform.anchorPanX(camX, mx, host.asScreen().width, oz, zoom);
+        camY = ScreenTransform.anchorPanY(camY, my, host.asScreen().height, oz, zoom);
+        return true;
+    }
+
+    /** GZ-2 捏合缩放（Win32 手势钩子喂入的手指间距比）：1:1 直驱，锚点=捏合中心。
+     *  GZ-2 pinch zoom (the finger-distance ratio fed by the Win32 gesture hook): direct
+     *  1:1 drive, anchored at the pinch centroid. */
+    public void applyGestureZoom(double scale, double cx, double cy) {
+        float oz = zoom;
+        zoom = ScreenTransform.pinchStep(oz, scale);
+        camX = ScreenTransform.anchorPanX(camX, cx, host.asScreen().width, oz, zoom);
+        camY = ScreenTransform.anchorPanY(camY, cy, host.asScreen().height, oz, zoom);
     }
     /** 处理键盘按键——ESC 关闭面板、Enter 提交编辑、Ctrl+Z/Y 撤销重做、
      *  Ctrl+D 复制、X 键删除、Delete 删除、C 键创建注释、TAB 框选模式等。
@@ -5468,14 +5512,17 @@ public class GraphEditor {
         if (candidates.isEmpty()) return null;
         candidates.sort(GraphEditor::compareHitOrder);
         for (var n : candidates) {
-            float sx=c2sX(n.x), sy=c2sY(n.y), sw=NodeRenderer.nw(n)*zoom;
+            // 命中盒与渲染同源（JIT-1）：吸附原点 + 一次取整的尺寸——点击边界与画框逐像素
+            // 一致。 / Hit box from the same source as rendering (JIT-1): snapped origin plus
+            // one rounded size — the click boundary matches the drawn frame pixel for pixel.
+            float sx=ScreenTransform.nodeX(this::c2sX, n), sy=ScreenTransform.nodeY(this::c2sY, n), sw=NodeRenderer.nw(n)*zoom;
             // 与渲染同源：nh() 含调试图表（DEBUG_SIGNAL_GEN/PROBE 的 XY 图区）
             // Same source as rendering: nh() includes the debug chart area.
             float nh = NodeRenderer.nh(n) * zoom + 4;
             if (n.type == NodeType.COMMENT) nh = n.commentHeight * zoom;
             if (expandedNodeIds.contains(n.id) && n.type != NodeType.COMMENT)
                 nh += EditPanel.expandedEditHeight(n, nodeEditStatesById.get(n.id)) * zoom;
-            if(mx>=sx&&mx<=sx+sw&&my>=sy&&my<=sy+nh) return n;
+            if(mx>=sx&&mx<=sx+ScreenTransform.px(sw)&&my>=sy&&my<=sy+ScreenTransform.px(nh)) return n;
         }
         return null;
     }
@@ -5554,12 +5601,15 @@ public class GraphEditor {
     private boolean coveredByNodeBody(double px, double py) {
         for (var n : getGraph().nodes) {
             if (n.type == NodeType.COMMENT) continue;
-            float sx = c2sX(n.x), sy = c2sY(n.y);
+            // 盒口径与 drawNode 的涂盖范围一致（JIT-1）：吸附原点 + 一次取整的宽高。
+            // The box matches drawNode's paint extent (JIT-1): snapped origin plus one rounded
+            // size.
+            float sx = ScreenTransform.nodeX(this::c2sX, n), sy = ScreenTransform.nodeY(this::c2sY, n);
             float sw = NodeRenderer.nw(n) * zoom;
             float sh = NodeRenderer.nh(n) * zoom + 4;
             if (expandedNodeIds.contains(n.id))
                 sh += EditPanel.calcRenderHeight(n, zoom, nodeEditStatesById.get(n.id)) * zoom;
-            if (px >= sx && px < sx + sw && py >= sy && py < sy + sh) return true;
+            if (px >= sx && px < sx + ScreenTransform.px(sw) && py >= sy && py < sy + ScreenTransform.px(sh)) return true;
         }
         return false;
     }
