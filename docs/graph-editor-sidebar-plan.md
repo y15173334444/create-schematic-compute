@@ -29,17 +29,31 @@ canvas to fill the rest; the three high-frequency buttons **[X] close · [compil
    the encapsulation-mode indicator move into the sidebar's "Graph" section; the
    [X][compile][run] buttons hug the top-left corner (ruling 1's three-key carve-out
    stands).
+4. **（第三轮）工具板块解散**：网格吸附 / 工具栏置底 / 封装导入导出 三选项改为图标条
+   **直控图标**（一键切换，不再开面板）；图标条改**自制像素图标**（不用字形/符号），
+   最上方常驻**展开/收起按钮**。
+   *(Round 3) The Tools section is dissolved*: grid snap / bottom toolbar / encap IO
+   become **direct toggle icons on the rail** (one click, no panel); the rail switches
+   to **self-drawn pixel icons** (no glyphs or symbols) with a permanent
+   **expand/collapse button at the very top**.
 
 ## 三、布局机制 / Layout mechanics
 
-- **图标条（收起态）**：右缘常驻竖条，宽约 22px，竖排图标 = 板块入口。
-  *Icon rail (collapsed)*: a permanent vertical strip on the right edge, ~22px wide,
-  stacked icons = section entries.
-- **展开**：点图标 → 面板自图标条向左展开（宽约 200px）；同屏只开一个板块；
-  点面板关闭钮或再点同一图标收起。宽度本轮固定，不拖宽。
-  *Expand*: clicking an icon opens the panel leftward from the rail (~200px); one
-  section at a time; the close button or a second click on the same icon collapses it.
-  Width is fixed this round — no drag-resize.
+- **图标条（常驻）**：右缘竖条，宽约 22px，**自制像素图标**（16×16 程序化绘制 +
+  悬停提示，不用字形/符号）。自上而下：展开/收起钮、节点库、图、书签、
+  网格吸附、工具栏置底、封装导入导出（蓝图机专属），设置沉底。
+  *Icon rail (permanent)*: a vertical strip on the right edge, ~22px wide, with
+  **self-drawn pixel icons** (procedural 16×16 + hover tips; no glyphs or symbols).
+  Top to bottom: expand/collapse, node library, graph, bookmarks, grid snap,
+  bottom toolbar, encap IO (blueprint only); settings docked at the bottom.
+- **展开**：最上方按钮开/关面板；面板自图标条向左展开（宽约 200px），同屏只开一个
+  板块（节点库 / 图）；再点同一板块图标或收起钮关闭。宽度固定，不拖宽。
+  *Expand*: the top button opens/closes the panel leftward from the rail (~200px);
+  one section at a time (node library / graph); the same section icon or the top
+  button closes it. Width fixed — no drag-resize.
+- **直控图标**：网格吸附、工具栏置底、封装导入导出直接在图标条上切换/触发，
+  状态用图标点亮表示。*Direct icons*: grid snap, bottom toolbar and encap IO toggle
+  or fire straight from the rail; state shows as the icon lighting up.
 - **顶置工具栏**：缩为 [X][编译][运行] 三键，贴左上角（y=2），不再有整条顶栏。
   *Top toolbar*: just the three kept buttons, hugging the top-left corner (y=2) —
   no full-width top bar anymore.
@@ -56,9 +70,9 @@ canvas to fill the rest; the three high-frequency buttons **[X] close · [compil
 |---|---|---|
 | 节点库 Node library | 分类列表 + 搜索 + 滚动（在面板体内渲染） | `NodeAddMenu`（锚点改面板矩形） |
 | 图 Graph | 图名编辑（主图）/ 模式标识 + 返回（子图）；进子图时自动展开 | 原顶栏整条 |
-| 书签 Bookmarks | 视角书签面板 | `GraphViewBookmarks`（角标按钮退役） |
-| 工具 Tools | 网格吸附、工具栏置底、封装导入/导出（蓝图机专属） | 原工具栏/右下角逐个搬入 |
+| 书签 Bookmarks | 视角书签面板（图标条单动作，面板体沿用自身几何） | `GraphViewBookmarks` |
 | 设置 Settings | 单动作：打开设置整屏 | 原顶栏设置按钮 |
+| 直控 Rail toggles | 网格吸附、工具栏置底、封装导入/导出（蓝图机专属）——原「工具」板块解散 | 原工具栏/右下角逐个搬入 |
 
 - 添加节点的右键弹出路径**保留**（CONTEXT_MENU 弹窗照旧）；侧边栏只是常驻新家。
   The right-click add-menu popup stays as-is; the sidebar is its new permanent home.
