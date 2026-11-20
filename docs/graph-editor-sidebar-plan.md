@@ -23,6 +23,12 @@ canvas to fill the rest; the three high-frequency buttons **[X] close · [compil
 2. **设置去向**：设置入口进侧边栏，指南/颜色/键位/预算四 tab 面板**保留整屏**。
    *Settings*: the entry moves into the sidebar; the four-tab panel screen stays a
    full screen.
+3. **（第二轮）顶栏整条收起**：图名编辑、子图返回、封装模式标识全部收进侧边栏「图」板块；
+   [X][编译][运行] 贴左上角留外面（拍板 1 的高频三键口径不变）。
+   *(Round 2) The top bar goes away entirely*: the graph-name edit, sub-graph Back and
+   the encapsulation-mode indicator move into the sidebar's "Graph" section; the
+   [X][compile][run] buttons hug the top-left corner (ruling 1's three-key carve-out
+   stands).
 
 ## 三、布局机制 / Layout mechanics
 
@@ -34,17 +40,22 @@ canvas to fill the rest; the three high-frequency buttons **[X] close · [compil
   *Expand*: clicking an icon opens the panel leftward from the rail (~200px); one
   section at a time; the close button or a second click on the same icon collapses it.
   Width is fixed this round — no drag-resize.
-- **顶置工具栏**：缩为 [X][编译][运行] 三键，其余按钮退役出栏。
-  *Top toolbar*: shrinks to the three kept buttons; every other button moves out.
-- **顶栏**：保留图名编辑与子图返回；设置按钮迁往侧边栏。
-  *Top bar*: keeps the graph-name edit and sub-graph Back; its settings button moves
-  to the sidebar.
+- **顶置工具栏**：缩为 [X][编译][运行] 三键，贴左上角（y=2），不再有整条顶栏。
+  *Top toolbar*: just the three kept buttons, hugging the top-left corner (y=2) —
+  no full-width top bar anymore.
+- **顶栏**：已整条退役；图名/子图返回/模式标识住进侧边栏「图」板块，22px 高度归还画布。
+  `TOP_BAR_H` 常量保留给监视器显示模式等自带顶条的表面，图编辑器自身不再引用它排版。
+  *Top bar*: retired outright; name / Back / mode indicator live in the sidebar's
+  "Graph" section and the 22px returns to the canvas. The `TOP_BAR_H` constant stays
+  for surfaces with their own top strip (monitor display mode); the graph editor no
+  longer lays itself out against it.
 
 ## 四、板块 / Sections
 
 | 板块 Section | 内容 Contents | 来源 Source |
 |---|---|---|
 | 节点库 Node library | 分类列表 + 搜索 + 滚动（在面板体内渲染） | `NodeAddMenu`（锚点改面板矩形） |
+| 图 Graph | 图名编辑（主图）/ 模式标识 + 返回（子图）；进子图时自动展开 | 原顶栏整条 |
 | 书签 Bookmarks | 视角书签面板 | `GraphViewBookmarks`（角标按钮退役） |
 | 工具 Tools | 网格吸附、工具栏置底、封装导入/导出（蓝图机专属） | 原工具栏/右下角逐个搬入 |
 | 设置 Settings | 单动作：打开设置整屏 | 原顶栏设置按钮 |
@@ -73,8 +84,6 @@ canvas to fill the rest; the three high-frequency buttons **[X] close · [compil
 - 设置四 tab 内容入栏；监视器图层/设置面板、雷达工具栏等宿主专属面板入栏。
   Settings tabs into the rail; host-specific panels (monitor layers/settings, radar
   toolbar) into the rail.
-- 顶栏与工具栏两排合并为一排（三键并入图名行）。
-  Merging the top bar and the button row into one strip.
 
 ## 七、开放项 / Open items
 
@@ -84,5 +93,3 @@ canvas to fill the rest; the three high-frequency buttons **[X] close · [compil
 - 图标纹样与竖排标签样式（草图竖排板块名的字形以用户原话为准）。
   Icon glyphs and vertical label styling (the sketch's vertical section names follow
   the user's own wording).
-- [X][编译][运行] 是否并入顶栏一排。
-  Whether the three kept buttons merge into the top-bar row.
