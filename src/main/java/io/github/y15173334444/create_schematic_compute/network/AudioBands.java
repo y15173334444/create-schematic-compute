@@ -15,8 +15,11 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li><b>band</b>（频段名）= 路由（如「舞池」）。全局静态与 {@link SignalBus} 同款惯例
  *       （跨维度共享是既有信号设计的性质）；发布即覆盖写。</li>
  *   <li><b>新鲜度门控</b>：每条引用带发布时的 game-time 戳，读取方只接受
- *       {@code 戳 ≥ 当前刻 − 1} 的引用（容忍跨 BE 的先后 tick 顺序，即 1 刻跨方块延迟口径）。
- *       发布方停机/卸载后陈旧引用自然失效——消费端自愈，不依赖任何人清理（旧「机关枪卡音」根因）。</li>
+ *       {@code 戳 ≥ 当前刻 − 1} 的引用。窗口双职责（2026-11-20 口径改判）：发布方停机/卸载
+ *       后陈旧引用自然失效——消费端自愈，不依赖任何人清理（旧「机关枪卡音」根因）；以及
+ *       <b>切边环的跨 tick 读</b>——被切音频边恒读上一刻末值，窗口 ≥1 是它的合法宽度
+ *       （初建时的「容忍跨 BE 先后 tick 顺序」职责已由全局拓扑接管——音频面入普查/拓扑序
+ *       后顺序翻转结构性不可能，宽度 1 不再为翻转服务）。</li>
  *   <li><b>owner 与冲突纪律</b>（R1-2，与 SignalBus 同款）：发布带 owner（宿主坐标+节点 id），
  *       同名不同 owner 且前发布方仍在新鲜窗内 → 冲突——<b>冲突双方都不拥有频道，消费读取一律静默</b>；
  *       节点旗标由求值器按发布返回值落到 {@code GraphNode.audioConflict}。一方停发越窗即自愈，
@@ -46,7 +49,8 @@ public final class AudioBands {
     /** 冲突取证限频（毫秒）。 */
     private static long lastConflictLogMs;
 
-    /** 容忍的陈旧宽度（刻）：1 = 只认本刻与上一刻发布的引用（跨 BE tick 顺序口径）。 */
+    /** 陈旧宽度（刻）：1 = 只认本刻与上一刻发布的引用（切边环跨 tick 读的合法宽度 +
+     *  骤停自愈窗；顺序容忍职责已由全局拓扑接管，见类注新鲜度条目）。 */
     private static final long FRESH_WINDOW_TICKS = 1;
 
     private AudioBands() {}
@@ -133,12 +137,28 @@ public final class AudioBands {
     /**
      * 按<b>消费者游标</b>去重读取：每个 (consumer, band) 只认比上次更新的 stamp——
      * <b>exactly-once</b>，既不重播也不丢音。
-     * <p>背景（cross-BE tick 顺序依赖）：BE tick 顺序随区块重载翻转；顺序翻转时同一批发布
-     * 会被连续两次读到（stamp 仍在新鲜窗内）——同批音符相隔 1 tick 响两遍 = 听感「糊/挤
-     * 在一起，然后恢复」。新鲜窗本身无法区分「迟到的首读」与「重播」，游标可以。
+     * <p>双职责来历（2026-11-20 改判）。初建时挡「跨 BE tick 顺序翻转重播」：BE tick 顺序随
+     * 区块重载翻转时，同一批发布被连续两 tick 读到（stamp 仍在新鲜窗内）——同批音符相隔
+     * 1 tick 响两遍（v1.2.6 音频链实测「糊/挤在一起」）。该形态已被全局拓扑收口（音频面
+     * 入普查/拓扑序，2026-11-20，§9.1-5 平台级正解）——顺序翻转结构性不可能，REPLAY 拒读
+     * 在稳态下永不触发。<b>留任职责 = 事件批载荷的 exactly-once 服务语义</b>：发布方骤停/
+     * 卸载后 stamp 冻结，新鲜窗（恒 ≥1 刻，切边环跨 tick 读所必需）会把上一批原样重发
+     * 一遍——游标拒收同 stamp 重读，把「骤停重发」收敛为干净失声。顺序语义表达不了这份
+     * 保护（保护按消费者记忆成立，不按次序成立），故游标留任而非随拓扑退役。
      * <p>Consumer-cursor read: each (consumer, band) accepts only stamps newer than its last
-     * read — exactly-once, no replay and no drop. The freshness window alone cannot tell a
-     * late first read from a replay; the cursor can.</p>
+     * read — exactly-once, no replay and no drop.
+     * <p>Dual-role history (re-judged 2026-11-20). Built to block cross-BE tick-order flip
+     * replays: a chunk-reload order flip re-served one publish on two consecutive ticks (the
+     * stamp still inside the freshness window) — the measured v1.2.6 "mushed double-hit".
+     * That shape is closed by the global topology (audio faces joined the census/topo order,
+     * 2026-11-20 — the §9.1-5 platform-level fix), making order flips structurally impossible;
+     * the REPLAY refusal never fires in steady state. <b>The surviving role = exactly-once
+     * serving semantics for event-batch payloads</b>: after a publisher's abrupt stop/unload
+     * the stamp freezes, and the freshness window (permanently ≥1 tick, required for
+     * cross-tick reads on cut cycles) would re-serve the last batch once — the cursor refuses
+     * the same-stamp re-read, collapsing the abrupt-stop re-serve into clean silence. Order
+     * semantics cannot express this protection (it holds by per-consumer memory, not by
+     * ordering), so the cursor stays instead of retiring with the topology.</p>
      */
     public static AudioRef get(String consumer, String band, long nowTick) {
         if (band == null || band.isEmpty() || consumer == null) return AudioRef.EMPTY;
@@ -150,7 +170,7 @@ public final class AudioBands {
             long now = System.currentTimeMillis();
             if (now - lastReplayLogMs > 2000) {
                 lastReplayLogMs = now;
-                LOG.warn("[AudioBands] REPLAY-Blocked consumer={} band={} stamp={} (tick-order replay refused)",
+                LOG.warn("[AudioBands] REPLAY-Blocked consumer={} band={} stamp={} (same-stamp re-serve refused)",
                     consumer, band, stamp);
             }
             return AudioRef.EMPTY;

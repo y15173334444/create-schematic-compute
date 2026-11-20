@@ -18,8 +18,11 @@ public interface AudioBandsPort {
      *  publish lost to a conflict. */
     boolean publish(String bandKey, AudioRef ref, long gameTick, String owner);
 
-    /** 按消费者游标读取（exactly-once + 新鲜度门控在实现侧）；缺席/陈旧 = 空音源。
-     *  Cursor read per consumer (exactly-once + freshness gate live in the impl);
-     *  absent/stale yields the empty source. */
+    /** 按消费者游标读取（exactly-once 服务语义 + 新鲜度门控在实现侧——游标的翻转防线职责
+     *  已由全局拓扑接管，留任职责见 {@code network.AudioBands} 类注）；缺席/陈旧 = 空音源。
+     *  Cursor read per consumer (exactly-once serving semantics + freshness gate live in the
+     *  impl — the cursor's flip-defense duty is now owned by the global topology; the
+     *  surviving role is documented in {@code network.AudioBands}'s class doc); absent/stale
+     *  yields the empty source. */
     AudioRef get(String consumer, String bandKey, long nowTick);
 }

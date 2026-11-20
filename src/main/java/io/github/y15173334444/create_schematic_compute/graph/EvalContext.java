@@ -193,10 +193,13 @@ public final class EvalContext {
         this.customHostPos = src.customHostPos;
     }
 
-    /** 音频频段消费者身份（宿主坐标 + 节点 id）：AudioBands 的 exactly-once 游标按它去重
-     *  （跨 BE tick 顺序翻转时同批发布防重播）。
-     *  Audio-band consumer identity (host position + node id): AudioBands' exactly-once
-     *  cursor dedups by it (prevents same-batch replays across BE tick-order flips). */
+    /** 音频频段消费者身份（宿主坐标 + 节点 id）：发布侧 = AudioBands 的 owner 冲突纪律键
+     *  （R1-2），读取侧 = exactly-once 游标的去重键（按消费者记忆挡同 stamp 重发——发布方
+     *  骤停/卸载后的单刻重发；顺序翻转职责已由全局拓扑接管，见 AudioBands 类注）。
+     *  Audio-band consumer identity (host position + node id): on the publish side it is the
+     *  AudioBands owner/conflict key (R1-2); on the read side it is the exactly-once cursor's
+     *  dedup key (blocks same-stamp re-serves after a publisher's abrupt stop/unload; the
+     *  order-flip duty is now owned by the global topology — see AudioBands' class doc). */
     public String consumerKey(GraphNode node) {
         return (audioHostPos != null ? audioHostPos.asLong() : 0L) + "#" + node.id;
     }

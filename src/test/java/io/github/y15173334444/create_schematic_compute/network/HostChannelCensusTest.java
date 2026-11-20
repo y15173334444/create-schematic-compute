@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.network;
 import io.github.y15173334444.create_schematic_compute.graph.GraphNode;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import io.github.y15173334444.create_schematic_compute.graph.NodeType;
+import io.github.y15173334444.create_schematic_compute.graph.PinType;
 import io.github.y15173334444.create_schematic_compute.graph.TopoStats.ChannelCensus;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,8 +27,9 @@ import static org.junit.jupiter.api.Assertions.*;
  *       同一通道，读/写集交集非空；嵌套引用环（损坏 NBT 理论形态）被 identity 访问集
  *       截断，枚举必然终止。</li>
  *   <li>范围边界（诚实记录）：空 {@code signalName} 不入集（P2-5 幽灵口径）；频段值键
- *       （{@code channel\0band}）不入集——通道身份 = 频道名；AUDIO_OUT 音频发布面不入集；
- *       非通道节点（CONST/ADD/ENCAP_INPUT/ENCAP_OUTPUT 等）不入集。</li>
+ *       （{@code channel\0band}）不以通道身份入集——通道身份 = 频道名；音频面以<b>音频身份键</b>
+ *       入集（{@code audio\u0002<表键>}，维度无关——AUDIO_OUT 发布面与 AUDIO 载体引脚），
+ *       纯浮点载体不出身份；非通道节点（CONST/ADD/ENCAP_INPUT/ENCAP_OUTPUT 等）不入集。</li>
  *   <li>作用域自含与只读性：普查自带 {@code runInDimension}（嵌套安全，外层作用域原样
  *       恢复）；普查不写总线任何表。</li>
  * </ul>
@@ -52,8 +54,10 @@ import static org.junit.jupiter.api.Assertions.*;
  *       nesting (corrupt-NBT theoretical shape) is cut by the identity visited set and the
  *       enumeration provably terminates.</li>
  *   <li>Scope boundary (honest record): empty {@code signalName} stays out (the P2-5 ghost
- *       rule); band value keys ({@code channel\0band}) stay out — the channel identity is the
- *       channel name; the AUDIO_OUT audio-publish face stays out; non-channel nodes
+ *       rule); band value keys ({@code channel\0band}) stay out as channel identities — the
+ *       channel identity is the channel name; the audio plane joins via <b>audio-identity
+ *       keys</b> ({@code audio\u0002<table key>}, dimension-agnostic — AUDIO_OUT's publish
+ *       face and AUDIO-carrier pins), pure float carriers emit none; non-channel nodes
  *       (CONST/ADD/ENCAP_INPUT/ENCAP_OUTPUT etc.) stay out.</li>
  *   <li>Scope self-containment and read-only-ness: the census carries its own
  *       {@code runInDimension} (nesting-safe, the outer scope restored verbatim); the census
@@ -195,22 +199,69 @@ class HostChannelCensusTest {
     }
 
     @Test
-    @DisplayName("通道粒度：频段值键（channel\\0band）不入集；AUDIO_OUT 音频发布面不入集")
-    void censusIsChannelGrainedAndAudioPublishStaysOut() {
+    @DisplayName("通道粒度（浮点载体）：频段值键（channel\\0band）不入集，纯浮点频段不出音频身份")
+    void censusStaysChannelGrainedForFloatCarriers() {
         var g = new NodeGraph();
         var busOut = channelNode(g, NodeType.BUS_OUT, "bus");
-        busOut.signalBands = new java.util.ArrayList<>(java.util.List.of("b0", "b1"));  // 频段载体
-        channelNode(g, NodeType.AUDIO_OUT, "music");          // 音频发布面（范围表外）
-        channelNode(g, NodeType.BUS_IN, "bus");               // BUS 读者（跨 host 音频频段的通道粒度读）
+        busOut.signalBands = new java.util.ArrayList<>(java.util.List.of("b0", "b1"));
+        busOut.bandTypes = new java.util.ArrayList<>(java.util.List.of(PinType.FLOAT, PinType.FLOAT));
+        channelNode(g, NodeType.BUS_IN, "bus");
 
         ChannelCensus c = HostChannelCensus.census(g, DIM_A);
         String busKey = SignalBus.runInDimension(DIM_A, () -> SignalBus.key("bus"));
         assertEquals(Set.of(busKey), c.writes(), "写集只有频道名——频段是同通道的值载体划分（epoch 按通道 bump）");
+        assertEquals(Set.of(busKey), c.reads(), "BUS_IN 的通道粒度读在集");
         assertTrue(c.writes().stream().noneMatch(k -> k.contains("b0") || k.contains("b1")),
             "channel\\0band 值键绝不入集");
-        assertTrue(c.writes().stream().noneMatch(k -> k.contains("music")),
-            "AUDIO_OUT 不入集（§3.2 范围表只纳 BUS/PRIVATE；音频新鲜度走 AudioBands 游标门控）");
-        assertEquals(Set.of(busKey), c.reads(), "BUS_IN 的通道粒度读在集");
+        assertTrue(c.writes().stream().noneMatch(k -> k.startsWith("audio"))
+                && c.reads().stream().noneMatch(k -> k.startsWith("audio")),
+            "纯浮点载体不产音频身份键");
+    }
+
+    @Test
+    @DisplayName("音频身份键（维度无关）：AUDIO_OUT 发布面入集，字面形态 audio\\u0002<名>\\0<名>；两维度同名同身份")
+    void audioPublishFaceJoinsAsDimensionAgnosticIdentity() {
+        var g = new NodeGraph();
+        channelNode(g, NodeType.AUDIO_OUT, "music");
+
+        String expect = HostChannelCensus.audioCensusKey(AudioBands.bandKey("music", "music"));
+        var cA = HostChannelCensus.census(g, DIM_A);
+        var cB = HostChannelCensus.census(g, DIM_B);
+        assertEquals(Set.of(expect), cA.writes(), "AUDIO_OUT 发布面 = 音频身份写项（AudioEval 的 bandKey(名,名) 同源）");
+        assertTrue(cA.reads().isEmpty(), "AUDIO_OUT 不产生读项");
+        assertEquals(cA.writes(), cB.writes(), "音频身份维度无关——AudioBands 全局表口径，跨维度音频对进同一依赖图");
+        // 结构性不撞：身份键带 audio\u0002 前缀，绝不等于同名的维度前缀通道键
+        String channelKey = SignalBus.runInDimension(DIM_A, () -> SignalBus.key("music"));
+        assertNotEquals(channelKey, expect, "audio\\u0002 前缀使身份键与通道键结构性互斥");
+    }
+
+    @Test
+    @DisplayName("音频载体引脚逐声明入身份：BUS 逐频段、PRIVATE 单引脚（原样名）；FLOAT 频段不出身份")
+    void audioBandPinsJoinPerDeclaredCarrier() {
+        var g = new NodeGraph();
+        var out = channelNode(g, NodeType.BUS_OUT, "ch");
+        out.signalBands = new java.util.ArrayList<>(java.util.List.of("kick", "snare"));
+        out.bandTypes = new java.util.ArrayList<>(java.util.List.of(PinType.AUDIO, PinType.FLOAT));
+        var in = channelNode(g, NodeType.BUS_IN, "ch");
+        in.signalBands = new java.util.ArrayList<>(java.util.List.of("kick", "snare"));
+        in.bandTypes = new java.util.ArrayList<>(java.util.List.of(PinType.AUDIO, PinType.FLOAT));
+        var pOut = channelNode(g, NodeType.PRIVATE_OUT, "sig");
+        pOut.bandTypes = new java.util.ArrayList<>(java.util.List.of(PinType.AUDIO));
+        var pIn = channelNode(g, NodeType.PRIVATE_IN, "sig2");
+        pIn.bandTypes = new java.util.ArrayList<>(java.util.List.of(PinType.AUDIO));
+
+        ChannelCensus c = HostChannelCensus.census(g, DIM_A);
+        String ch = SignalBus.runInDimension(DIM_A, () -> SignalBus.key("ch"));
+        String sig = SignalBus.runInDimension(DIM_A, () -> SignalBus.key("sig"));
+        String sig2 = SignalBus.runInDimension(DIM_A, () -> SignalBus.key("sig2"));
+        assertEquals(Set.of(ch, sig,
+                            HostChannelCensus.audioCensusKey(AudioBands.bandKey("ch", "kick")),
+                            HostChannelCensus.audioCensusKey("sig")),
+            c.writes(), "BUS_OUT 音频频段（kick）+ PRIVATE_OUT AUDIO 各得身份；FLOAT 频段（snare）不出身份");
+        assertEquals(Set.of(ch, sig2,
+                            HostChannelCensus.audioCensusKey(AudioBands.bandKey("ch", "kick")),
+                            HostChannelCensus.audioCensusKey("sig2")),
+            c.reads(), "BUS_IN 音频频段 + PRIVATE_IN AUDIO 的读侧身份（PRIVATE 表键 = 原样逻辑名）");
     }
 
     // ══════════ 4. 作用域自含 + 只读性 ══════════
