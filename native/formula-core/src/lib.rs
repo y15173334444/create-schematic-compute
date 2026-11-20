@@ -32,8 +32,9 @@ mod interp;
 mod tok;
 mod value;
 
-pub use ast::{Program, Stmt};
-pub use interp::{Budget, Carrier, Exec, LoopEntry, Outcome, Signal};
+pub use ast::{Program, Rpn, Stmt};
+pub use interp::{eval_output, Budget, Carrier, Exec, LoopEntry, Outcome, Signal};
+pub use tok::{Cmp, Fn, Tok};
 pub use value::V;
 
 /// 解析 + 编译（bench 脚手架；正式形态由 Java 前端产出 Program）。
