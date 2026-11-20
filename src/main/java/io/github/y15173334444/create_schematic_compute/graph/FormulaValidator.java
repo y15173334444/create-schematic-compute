@@ -77,34 +77,8 @@ final class FormulaValidator {
         var tokens = tokenize(s);
         if (tokens.isEmpty()) return issues;
 
-        // ── 1) Bracket matching ──
-        // FUNCTION tokens implicitly open a call context (tokenize() consumes
-        // their '(' and never emits a standalone LPAREN), so both LPAREN and
-        // FUNCTION are pushed onto the stack.  RPAREN closes whichever is on top.
-        var parenStack = new ArrayDeque<Integer>(); // token indices
-        for (int ti = 0; ti < tokens.size(); ti++) {
-            Token t = tokens.get(ti);
-            if (t.type() == TokType.LPAREN || t.type() == TokType.FUNCTION) {
-                parenStack.push(ti);
-            } else if (t.type() == TokType.RPAREN) {
-                if (parenStack.isEmpty()) {
-                    int[] lc = lineCol(s, t.start());
-                    issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
-                        "多余的右括号"));
-                } else { parenStack.pop(); }
-            }
-        }
-        for (int ti : parenStack) {
-            Token t = tokens.get(ti);
-            int[] lc = lineCol(s, t.start());
-            if (t.type() == TokType.FUNCTION) {
-                issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
-                    "未闭合的函数调用 '" + t.text() + "()'"));
-            } else {
-                issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
-                    "未闭合的左括号"));
-            }
-        }
+        // ── 1) Bracket matching ──（单一真相源：parseScript 的畸形脚本降级预检复用同一 helper）
+        issues.addAll(parenIssues(s, tokens));
 
         // ── 2) UNKNOWN tokens ──
         for (Token t : tokens) {
@@ -325,6 +299,47 @@ final class FormulaValidator {
             }
         }
         return hasContent ? commas + 1 : 0;
+    }
+
+    /** 括号配对检查（单一真相源）：validate 组 1 与 parseScript 的畸形脚本降级预检共用。
+     *  FUNCTION token 隐式开调用上下文（tokenize 吃掉其 '('、不发独立 LPAREN），故 LPAREN
+     *  与 FUNCTION 都入栈、RPAREN 弹栈顶；EOF 时栈内剩余即未闭合（条目 34 的缺口——
+     *  旧实现只在遇 ')' 时检查、EOF 不校验，未闭合的 '(' 留进 RPN 每 tick 栈下溢）。
+     *  Bracket pairing (single source): shared by validate group 1 and parseScript's
+     *  malformed-script degradation pre-check. FUNCTION tokens implicitly open a call
+     *  context (tokenize eats their '('), so both LPAREN and FUNCTION push; a leftover
+     *  stack at EOF is unclosed (entry 34's gap — the old code only checked on ')').
+     *
+     * @param s       sanitized source (full-width parens already folded) / 归一后的源
+     * @param tokens  tokenized {@code s} / 该源的 token 流
+     */
+    static List<FormulaIssue> parenIssues(String s, List<Token> tokens) {
+        var issues = new ArrayList<FormulaIssue>();
+        var parenStack = new ArrayDeque<Integer>(); // token indices
+        for (int ti = 0; ti < tokens.size(); ti++) {
+            Token t = tokens.get(ti);
+            if (t.type() == TokType.LPAREN || t.type() == TokType.FUNCTION) {
+                parenStack.push(ti);
+            } else if (t.type() == TokType.RPAREN) {
+                if (parenStack.isEmpty()) {
+                    int[] lc = lineCol(s, t.start());
+                    issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
+                        "多余的右括号"));
+                } else { parenStack.pop(); }
+            }
+        }
+        for (int ti : parenStack) {
+            Token t = tokens.get(ti);
+            int[] lc = lineCol(s, t.start());
+            if (t.type() == TokType.FUNCTION) {
+                issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
+                    "未闭合的函数调用 '" + t.text() + "()'"));
+            } else {
+                issues.add(new FormulaIssue(lc[0], lc[1], t.end() - t.start(), Severity.ERROR,
+                    "未闭合的左括号"));
+            }
+        }
+        return issues;
     }
 
     /** Convert a character offset into (line, col) — both 0-based. */

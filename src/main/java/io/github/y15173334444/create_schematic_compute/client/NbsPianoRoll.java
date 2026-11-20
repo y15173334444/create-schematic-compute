@@ -252,6 +252,10 @@ public final class NbsPianoRoll {
         } else {
             return false;
         }
+        // 条目 5：开组责任在落点之前——首格与拖过格进同一批，一次笔划 = 一条撤销。
+        // 曾由屏幕层在 mouseDown 返回后才 beginBatch，首格落点已独立入栈（一笔两条撤销）。
+        // 空组由屏幕 mouseReleased 的 endBatch 丢弃（单条直入、空组不记）。
+        kernel.beginBatch();
         strokeVisited.clear();
         int tick = (int) Math.floor(tickAt(areaX, mx));
         if (btn == 0) {

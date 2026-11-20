@@ -1519,6 +1519,11 @@ public class GraphEditor {
         updateEncapOccupants();
         renderer.renderNodes(g, graph, sortedByB, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
             camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
+        // 条目 26：在场层（远端光标/拖线预览）画在节点之上、chrome 之下——
+        // 尾段绘制会压住工具条/顶栏/弹窗/加节点菜单。数据面 keep-alive 仍在尾段。
+        // Presence overlay sits above nodes but below chrome; drawing it at the tail
+        // covered the toolbar / top bar / popups / add-node menu.
+        renderPresenceOverlay(g);
         if (!isInSubGraph()) {
             renderer.showBookmarkPanel = viewBookmarks.panelVisible();
             renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width, host.asScreen().height);
@@ -1559,7 +1564,8 @@ public class GraphEditor {
         pollGamepadBindings();
         // ── P2 Presence ──
         sendPresenceIfNeeded(); // periodic keep-alive even without mouse movement
-        renderPresenceOverlay(g);
+        // 渲染已在 A=3 节点之后完成（见上）；此处只做数据面心跳。
+        // Rendering happens right after A=3 nodes above; only the data-plane heartbeat remains here.
     }
 
     /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。

@@ -2,7 +2,7 @@
 > 更新日期 / Updated：2026-11-08
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 共 24 项（✅ 已实施 10 项〔6/8/9/10/11/12/13/14/16/17〕；已拍板待实施 1 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件〕；待办 13 项〔其中条目 1 待立项、条目 18 半收口（② 回执形态发版后另批）、条目 19 宿主套件波前承接、条目 20 待用户拍板、条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）、条目 24 迁移端点声明类型校验缺口（另批会话修复）〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 共 24 项（✅ 已实施 14 项〔5/6/8/9/10/11/12/13/14/16/17/24/26/34〕；已拍板待实施 1 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件〕；待办 9 项〔其中条目 1 待立项、条目 18 半收口（② 回执形态发版后另批）、条目 19 宿主套件波前承接、条目 20 待用户拍板、条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）、条目 38 半收口（① 梯子墙钟耦合已实施、② 音频计时断言评估后暂缓）〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -19,7 +19,7 @@
 | 2 | 频道释放依赖快照路径（含别名死守卫） | 删除/改名的频道释放靠重编译快照兜底，旧图 diff 双守卫恒空转 | 消除别名死守卫 + 收窄释放窗口（撤销/重做语义随做） | 🔶 待办（机制已修正 2026-10-10，影响面降级） |
 | 3 | 打字途中面板重建（补全弹窗被吞 · 输入框每击键换血） | 公式脚本框打字时补全候选框闪现即失，每次击键整个输入框被换实例 | 三处一批：指纹剔公式文本 + SET_FORMULA 远端定点刷新 + 草稿策略 | 🔶 待办（幽灵选区本体已修 2026-10-11） |
 | 4 | 功放开盖模型越出方块背面 0.75px | `lit=true` 时盖子最外上角到 Z16.75，紧邻方块背面可见穿模 | 铰链前移 1px / 盖子做矮到 8px / 接受现状 | 🔶 待办（建模决定） |
-| 5 | NBS 笔划分组漏掉按下格（一次笔划 = 两条撤销） | 一次涂抹/擦除笔划要撤销两次：拖过格并成一条、按下格独立一条 | beginBatch 提到落点之前 + 一条回归测试 | 🔶 待办 |
+| 5 | NBS 笔划分组漏掉按下格（一次笔划 = 两条撤销） | 一次涂抹/擦除笔划要撤销两次：拖过格并成一条、按下格独立一条 | beginBatch 提到落点之前 + 一条回归测试 | ✅ 已实施（2026-11-20，开组责任下放 roll/lane 的 mouseDown，首格与拖过格同批；NbsStrokeBatchTest 双视图负例锚，1331 绿） |
 | 6 | 像素编辑器配色半收编（static final 捕获 + 硬编码按钮/悬停） | 与 NBS 收编前同款病：panel_bg/panel_border 类加载时捕获、按钮/悬停写死，换主题不跟 | 照 NBS 收编的同款映射一次搬 | ✅ 已实施（2026-10-31，1012 绿；三件套四色映射 insetBg/hover/accent/error + 帧选中/拖拽高亮，画布内容色按口径保持内置，回潮锚 PixelEditorThemeAdoptionTest） |
 | 7 | 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理） | 主图/子图节点 id 撞号时 owner 门失真；syncBusBands/空表 clearBus 靠旗标或镜像语义门控 | ChannelOwner 加图域全链带上 + 两处清理改 owner 门控 | 🔶 待办 |
 | 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（行为变更） | 🔶 待办（2026-10-25 更新：eval 分派化已落地 main，怪癖按决策 §三-4 原样保留并收敛到单一事实源；**2026-10-31 拍板：档位合一**，✅ 已实施（2026-10-31 档位合一批 0e9cc29）） |
@@ -38,9 +38,9 @@
 | 21 | 自定义节点引脚类型化（公开 API 开放设计点） | CustomNodeType 引脚仍只有 FLOAT 域；schema 加 pinTypes 的形态未定（API 未冻结，锁早了返工） | 附属开发阶段 API 定型后：schema 引脚声明携带 PinType（缺省 FLOAT），Eval 按声明读写载荷旁路 | 🔶 开放（API 未冻结，附属开发阶段一起定） |
 | 22 | ENCAP 子图边界引脚类型化（音频/向量过封装边界） | ENCAP 输入/输出引脚恒 FLOAT，音频与向量载荷过不了封装边界；声明模型与子图载荷穿越都未设计 | ENCAP_INPUT/OUTPUT 子节点加声明类型（同 PRIVATE 单元素口径），EncapEval 按类型穿越载荷；先与条目 21 对齐 | 🔶 另批 |
 | 23 | FORMULA 内建向量运算（向量进公式脚本） | 公式语言的 vec3 是标量展开语义，无真正 VEC3 载荷引脚，与向量节点域互操作要靠 JOIN/SPLIT 绕 | FORMULA 输出标签支持 VEC3 声明（如 `@output v:vec3`）；先与条目 21/22 对齐类型声明口径 | 🔶 另批 |
-| 24 | 迁移回填不校验连线两端声明类型（混接旧档残留类型非法连线） | V8→V9 迁移按拓扑冻结回填 `bandTypes`（按引脚粒度、任一音频对端→AUDIO）后带段化重写 pinId，但不校验回填后连线两端类型是否严格相等——≤v1.2.6.x 旧档同一频段同时喂音频与浮点消费端时，回填 AUDIO 后留下 `audio:频段`→`float:引脚` 的类型非法连线静默存活 | 迁移尾部（回填+带段化后）对每条连线跑一次端点声明类型严格相等校验，不等按剪线纪律剪除；PinTypeMigrationTest 加混接旧档锚 | 🔶 待办（2026-11-08 复审登记，另批会话修复） |
+| 24 | 迁移回填不校验连线两端声明类型（混接旧档残留类型非法连线） | V8→V9 迁移按拓扑冻结回填 `bandTypes`（按引脚粒度、任一音频对端→AUDIO）后带段化重写 pinId，但不校验回填后连线两端类型是否严格相等——≤v1.2.6.x 旧档同一频段同时喂音频与浮点消费端时，回填 AUDIO 后留下 `audio:频段`→`float:引脚` 的类型非法连线静默存活 | 迁移尾部（回填+带段化后）对每条连线跑一次端点声明类型严格相等校验，不等按剪线纪律剪除；PinTypeMigrationTest 加混接旧档锚 | ✅ 已实施（2026-11-20，带段化后补端点声明类型严格相等校验，不等按「解析不到即剪」剪除；PinTypeMigrationTest 加混接旧档锚，1328 绿） |
 | 25 | 频段手动声明不跨存档（芯片声明=会话内激活器） | 手动声明不接线可放行下游连接，但存档重载后槽位一律回灰、下游线按类型合法性剪除 | 声明来源标记（NBT 旁路一列 + 随声明表同步）——后随类型片只读化拍板整体退役 | ✅ 已拍板（2026-11-08：类型片改只读指示器、手动声明退役，来源标记不再需要） |
-| 26 | 协作在场层渲染层级（远端光标/拖线预览盖住 chrome） | 远端光标标签与拖线预览画在渲染尾段，多人协作时压住工具条/顶栏/弹窗与加节点菜单 | `renderPresenceOverlay(g)` 从渲染尾段移到画布层（`renderNodes` 之后、chrome 之前） | 🔶 待办（2026-11-08 登记，另批） |
+| 26 | 协作在场层渲染层级（远端光标/拖线预览盖住 chrome） | 远端光标标签与拖线预览画在渲染尾段，多人协作时压住工具条/顶栏/弹窗与加节点菜单 | `renderPresenceOverlay(g)` 从渲染尾段移到画布层（`renderNodes` 之后、chrome 之前） | ✅ 已实施（2026-11-20，调用移到 `renderNodes` 之后、`renderButtons`/顶栏之前，`sendPresenceIfNeeded` 心跳留尾段；PresenceOverlayLayerTest 源码锚，1332 绿） |
 | 27 | C→S 限流批暂缓面（接入守护测试 / 突发丢弃致歧 / 预算未接 Config / 事件未进观测口径） | 限流本体已落地（16 条 C→S 全接、1176 绿），四项随批暂缓，详见条目 | 27.1 源码解析守护测试；27.2 客户端补偿（挂步骤 5 控制台批）；27.3 配置面（对齐「可禁兜底」纪律）；27.4 限流事件计入口径（挂步骤 4 / issue #26） | 🔶 暂缓（2026-11-14 限流批登记） |
 | 28 | 维度前缀批暂缓面（AudioBands 同构串值未修 + 停机不清频段向量值） | SignalBus 键空间已按维度隔离（1176 绿），但音频频段五表仍进程级共享、停机也不清频段向量值，详见条目 | 28.1 AudioBands 隔离需独立拍板（其 javadoc 声明跨维度共享是设计性质）；28.2 并入条目 7『频道清理残余豁口』家族或步骤 4 批顺手收口 | 🔶 暂缓（2026-11-14 维度前缀批登记） |
 | 29 | 控制台壳批暂缓面（等待响应无超时提示 / 输出区无滚轮与粘贴 / help 未走 I18n） | 控制台壳已落地（1237 绿），三处体验项随批暂缓，详见条目 | 29.1 超时/拒绝提示形态；29.2 滚轮滚动 + Ctrl+V；29.3 help 文案 I18n 化（服务端文法与 lang 体系关系随接线批统一） | 🔶 暂缓（2026-11-14 控制台壳批登记，接线批/后续批承接） |
@@ -48,11 +48,11 @@
 | 31 | 接线批暂缓面（hosts 求值序号列未实现 / bus 双载体与停机视角 / 音频向量载体不入值列） | 接线批已落地（1281 绿），四处诚实边界随批暂缓，详见条目 | 31.1 求值序需新采集面（tickBody 登记序）；31.2 双载体显示 richer 状态方，同名义 PRIVATE 不可见；31.3 停机宿主持有的频道占用不在 bus 列表；31.4 音频/向量观测要扩 epoch 模型（=条目 30.2 同源） | 🔶 暂缓（2026-11-14 接线批登记，步骤 6 实机后定夺） |
 | 32 | 跨 BE 环切边批（§5.3 预案，ring 首跑已报 3 个真实自环） | 步骤 6 实机 `ring` 在遗留世界实测命中 3 个单节点自环（208,81,202 读 CH1344444 / 208,81,207 读 123 / 214,81,207 读 2）——§3.5「无论 ② 如何必须切边」条款命中 | 按 §5.3 切边预案独立排期：SCC 环上剪边/改读快照/环形停更消解；ring 输出即输入数据（`docs/cross-be-step6-verdict.md` §二） | ✅ 已实施（2026-11-15，全局拓扑重排+切边批 `3f4c99ec`+`f137222f`+`7b95b1b8`，1305 绿；§5.2 (A) 求值移 Post 宿主级拓扑序=翻转窗口全局关闭 + **切边纯自动**（自环边优先/全序最小兜底——声明面随拍板拆除，§5.3 注记）；实机验收全过，暂缓面见条目 33） |
 | 33 | 全局拓扑/切边批暂缓面（S5 专项锚未加 / 双环实机未排期 / perf 留守） | 拓扑+切边本体已落地（1305 绿，切边收敛为纯自动后 33.3 失去对象关闭），三处随批暂缓，详见条目 | 33.1 挂起中切边读专项锚（同路由分支低风险）；33.2 双环 SCC 实机装置未排期（残余环 HostId 兜底有锚）；33.4 `perf` 命令接线（§4.3 既定未接） | 🔶 暂缓（2026-11-15 拓扑批登记；33.3 已关闭） |
-| 34 | 畸形 RPN 过解析（括号不闭合 → exec 每 tick 抛异常兜底） | `1 + (2` 类脚本解析通过无任何报错，FORMULA 每 tick 求值抛 NoSuchElementException 被 eval catch 兜住——节点静默失效、输出恒不动 | 解析期 EOF 括号配对校验，未闭合 → ERROR issue（校验期拒绝同模式） | 🔶 待办（2026-11-14 Rust 后端 R4 会话登记，另批修复） |
+| 34 | 畸形 RPN 过解析（括号不闭合 → exec 每 tick 抛异常兜底） | `1 + (2` 类脚本解析通过无任何报错，FORMULA 每 tick 求值抛 NoSuchElementException 被 eval catch 兜住——节点静默失效、输出恒不动 | 解析期 EOF 括号配对校验，未闭合 → ERROR issue（校验期拒绝同模式） | ✅ 已实施（2026-11-20，括号配对检查抽共享 helper，parseScript 预检未闭合/多余括号→恒 0 + ERROR issue 降级；FormulaParserSyntaxTest 负例锚，1329 绿） |
 | 35 | native 公式后端无强制禁用开关（AVAILABLE 进程级静态） | `FormulaNative.AVAILABLE` 加载成功即恒真，无配置面/调试命令能强制回 Java 解释器路径——兜底验证与对拍排查只能动 classpath 或重编 | 配置面落地时加 dev 侧禁用开关（系统属性或调试命令强制 AVAILABLE=false），对齐「多层 API 兜底层须可禁」纪律（条目 27.3 同款口径） | 🔶 暂缓（2026-11-14 Rust 后端合并前自查批登记，择机另批） |
 | 36 | PERF-8 提交收敛：试验-实证-回滚（待重新设计） | FlushGate 重叠门控干净态 canvas 21.87→19.0ms，但拖拽重叠实机捕获单帧 z 序破绽（下层引脚标签浮在上层节点体上），gui/font 批语义存在未吃透的帧级窗口 | 先做 MultiBufferSource.BufferSource 批序机制取证再重设计隔离粒度；门控纯逻辑（FlushGateTest）可复用 | 🔶 已回滚（2026-11-14 渲染性能线登记，原 34.1；等机制取证后重设计） |
 | 37 | 编辑器多次 resize 后的会话级渲染劣化 | 同会话多次窗口 resize 后 1024@0.25 场景 canvas 从约 19.8ms 劣化到约 54.8ms（3× 稳态），干净重启即恢复——会话态累积，非代码回归 | 按 resize → Screen.init → GraphJoinPacket 重发的会话状态累积独立取证；与渲染性能线解耦 | 🔶 暂缓（2026-11-14 渲染性能线登记，原 34.2，独立取证） |
-| 38 | CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次） | 预热豁免窗与超份额记账耦合墙钟，满载下提前到期、梯子冻结（expected 21 got 11）；第二实例 AudioMixerShapingPerfTest 计时预算断言同族翻车 | 预算/豁免窗去墙钟（注入 Clock 或按 tick 计数），断言与机器负载解耦 | 🔶 暂缓（2026-11-14 渲染性能线登记，原 35，负载敏感波动族非产品缺陷） |
+| 38 | CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次） | ① 渐进台面 prev=100/budget=5ms 开着破约快车道，「不熔断」靠 spin 200µs<5ms 墙钟假设，满载撑过即提前熔断（expected 21 got 11）；② AudioMixerShapingPerfTest 计时预算断言同族翻车 | ① 台面改 prev=1/budget=0.05ms 关闭快车道 + 墙钟膨胀负例锚（保守方案，不动生产）；② 评估后不动（已自校准，放宽削弱牙口） | 🔶 ① 已实施（2026-11-20，1333 绿）；② 暂缓（2026-11-14 登记，负载敏感波动族非产品缺陷） |
 
 ---
 
@@ -248,7 +248,7 @@
 
 ### 状态 / Status
 
-**🔶 待办。** 随「卷帘同列第二笔挪走第一笔」诊断（2026-10-18）发现并登记，本批未动。
+✅ 已实施（2026-11-20）。开组责任下放到 `NbsPianoRoll.mouseDown` / `NbsLaneGrid.mouseDown`：命中落点前 `kernel.beginBatch()`，首格与拖过格同批；屏幕层两处事后 `beginBatch` 删除，收口仍由 `mouseReleased` 的 `endBatch`（`isPainting/isErasing` 时）配对。lane 左键单击无拖动笔划，mouseDown 内开合立即收口。批次可重入（与 `toggleCell` 增层时的嵌套开组兼容），空组 `endBatch` 丢弃、单条直入。`NbsStrokeBatchTest` 双视图负例锚（卷帘涂抹 / 层序擦除各「一笔=一撤销」），修复前红、修复后绿；`NbsPianoRollTest` 的直驱用例按新契约补 `endBatch` 收口。全量 1331 绿（headless 离线链路）。
 
 ---
 
@@ -881,7 +881,7 @@ AMP.audio 与浮点消费端，断言浮点线被剪、音频线保留）。
 
 ### 状态 / Status
 
-🔶 待办（2026-11-08 复审登记；修复在另批会话进行）。
+✅ 已实施（2026-11-20）。`migrateV8toV9` 在 ② 带段化改写后补一条端点声明类型严格相等校验（带段 pinId 的类型段即声明类型，直取 `PinId.typeOf` 比对），不等按「解析不到即剪」同款剪除；`PinTypeMigrationTest.mixedBandPrunesIllegalTypedWire` 锚混接旧档（→AMP 的 audio 线保留、→ADD 的 float 线剪除），该锚在修复前红、修复后绿。全量 1328 绿（headless 离线链路）。
 
 ## 25. 频段手动声明不跨存档（芯片声明=会话内激活器）
 
@@ -926,7 +926,7 @@ only wire-derived slots. Cost: one more persisted and synced column.
 
 ### 状态 / Status
 
-🔶 待办（2026-11-08 登记；修复不进 pin-type PR——范围裁定，另批处理）。
+✅ 已实施（2026-11-20）。`GraphEditor.render` 把 `renderPresenceOverlay(g)` 从尾段（`sendPresenceIfNeeded` 之后、顶栏/菜单/框选之后）移到 `renderer.renderNodes` 之后、`renderButtons`/顶栏之前——远端光标可见于节点之上、chrome 之下；数据面心跳 `sendPresenceIfNeeded()` 留尾段不动。GUI 绘制顺序无法 headless 观测，按项目 GUI 源码锚惯例加 `PresenceOverlayLayerTest`：钉住裸调用（区别于方法体内委托）须在 `renderNodes` 之后、`renderTopBar`/`renderAddNodeMenu`/`renderBoxSelectRect` 之前；临时还原旧顺序验证该锚确实红、正确顺序绿（非恒真断言）。全量 1332 绿（headless 离线链路）。
 
 ## 27. C→S 限流批暂缓面（接入守护测试 / 突发丢弃致歧 / 预算未接 Config / 事件未进观测口径）
 
@@ -1141,8 +1141,10 @@ FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常�
 
 ### 状态 / Status
 
-🔶 待办（2026-11-14 Rust 后端 R4 会话登记，前会话实证；另批修复）。
-/ Open (registered 2026-11-14 during the Rust-backend R4 session; fix in a separate batch).
+✅ 已实施（2026-11-20）。`FormulaValidator` 的括号配对检查（含 EOF 栈余量）抽为共享 helper `parenIssues(s, tokens)`，validate 组 1 与 `FormulaParser.parseScript` 预检共用（单一真相源，无重复实现）。`parseScript` 在逐行预处理前对整源 token 流跑该检查，有未闭合/多余括号即按深度守卫（P1-6）同款降级：恒 0 输出 + ERROR issue；求值/op/世界加载三路径都经 parseScript，一处兜住。`FormulaParserSyntaxTest.unclosedParenDegradesParse` 锚未闭合降级 + 闭合同类脚本不降级（负例对照），修复前红、修复后绿。全量 1329 绿（headless 离线链路）。
+
+> 实施注记：条目登记于"RPN 前端"时代；实际落地时双前端已退役（条目 10，2026-10-31），表达式叶子仍是共享 Value 栈机 RPN，故裸 `(` 留进 RPN 的机制逐字成立，修复点从"旧 RPN parseScript 收尾"平移到"统一前端门面 parseScript 预检"。
+> 已知小瑕疵（范围外未改）：`validate` 组 1 与组 13（合并 parseScript issues）现在会对同一畸形括号各报一条 ERROR，编辑器徽章看到两条同文案 issue；无功能影响，去重属另批 UX 整理。
 
 ---
 
@@ -1185,11 +1187,11 @@ FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常�
 
 ## 38. CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次）
 
-- 机制：`escalationLadder` 的预热豁免窗与超份额记账耦合墙钟（提供方 `spinOverSlice` 忙等越片自证、豁免窗按真实时间到期）——满载（游戏客户端同机吃 CPU）下豁免窗在调用计数意义上提前到期，梯子提前冻结：`expected: <21> but was: <11>`（CustomNodeEvalTest:252）。单跑与两次全量复跑均绿，仅 2026-11-14 深夜满载一次翻车；纯 graph/eval 域，与渲染改动零交集。
-- 修复方向：预算/豁免窗去墙钟（注入 Clock 或按 tick 计数），断言与机器负载解耦。
+- 机制（**2026-11-20 代码核实修正**）：登记初版「豁免窗按真实时间到期、梯子提前冻结」**不成立**——首调豁免是 `if (run.measuredCalls++ == 0) return;`，按调用计数，非墙钟。真因是 `gradualLadderStage` 的台面 `budget=5ms/prev=100` 让**破约快车道开着**（prev≥2 且 elapsed≥budget → 立即熔断），「不熔断」全靠 `spinOverSlice` 忙等 200µs 的墙钟耗时 <5ms 这条假设；满载抢占把 elapsed 撑过 5ms 就提前熔断、调用计数冻结在 11（期望 21）。单跑与两次全量复跑均绿，仅 2026-11-14 深夜满载一次翻车；纯 graph/eval 域，与渲染改动零交集。
+- 修复方向（原登记）：预算/豁免窗去墙钟（注入 Clock 或按 tick 计数），断言与机器负载解耦。**实际采纳保守方案**：只改测试台面，不动生产热路径。
 - **第二实例（2026-11-15）**：`AudioMixerShapingPerfTest` 整形内环成本断言（渲染耗时 ≤35% 实时时长）满载翻车一次（30.9ms/80ms 超限），单跑与全量复跑均绿——同族（计时预算断言 × 客户端同机负载），修复方向同上。
-- 状态：**暂缓**（负载敏感波动族，非产品缺陷）。
-/ The escalation-ladder test couples its preheat exemption and over-slice accounting to the wall clock (the provider busy-spins past its slice; the exemption window expires in real time) — under heavy same-machine load the window expires earlier in call-count terms and the ladder freezes early (expected 21, got 11). Green standalone and on two full re-runs; one flake under load. Fix direction: inject a clock or count ticks. Deferred (load-sensitive flake, not a product defect). Second instance (2026-11-15): AudioMixerShapingPerfTest's shaping-cost budget (render time ≤35% of real time) flaked once under load and passes standalone — same family.
+- 状态：🔶 **① 已实施（2026-11-20，保守方案）；② 暂缓（评估后不动）**。① `gradualLadderStage` 台面从 `budget=5ms/prev=100` 改为 `budget=0.05ms/prev=1`：slice 仍 50µs、渐进阈值 75µs 不变，但 prev≤1 域**无破约快车道**——elapsed 再大也只记渐进超份额、不跳熔断，彻底移除「spin 墙钟 <5ms」假设。破约快车道与首调豁免各有独立锚（本测试不再隐含测它们）。新增 `gradualStageIgnoresWallClockInflation`：第二次调用忙等 6ms 模拟满载抢占，断言不熔断、只记一次渐进超份额；旧台面下该锚红、新台面绿（负例对照）。全量 1333 绿（headless 离线链路）。② `AudioMixerShapingPerfTest` 已是 `Math.max(80×0.35, plain×2.0)` 自校准 + 比值帽 + 三轮交错中位，再放宽会削弱 3× 回归信号牙口（测试自身注释「钉子变空气」警告），评估后不动。
+/ Status: (1) implemented 2026-11-20 (conservative): gradualLadderStage stage moved from budget=5ms/prev=100 to budget=0.05ms/prev=1 — slice stays 50µs / 75µs gradual threshold, but the prev<=1 domain has no breach fast lane, so any elapsed only feeds the gradual streak. The "spin wall clock <5ms" assumption is gone. Fast lane and first-call exemption each keep their own anchors. New gradualStageIgnoresWallClockInflation anchor busy-spins 6ms on the 2nd call to simulate a loaded runner: red on the old stage, green on the new. (2) deferred after review: AudioMixerShapingPerfTest already self-calibrates via max(80*0.35, plain*2.0) + ratio pin + interleaved median; loosening further would blunt the 3x regression teeth.
 
 ## 39. Tok 字节码 16B 布局未收窄（常量池化实测未达门,判定关闭）
 

@@ -43,21 +43,35 @@ class CustomNodeEvalTest {
                 .toList());
     }
 
-    /** 自旋约 200µs（确定性超份额：预算 5ms/prev=100 → slice=50µs；elapsed 落在
-     *  slice 与整池之间 —— 渐进梯子路径，不触发破约快车道）。
-     *  Spins ~200µs (deterministic overstay: budget 5ms with prev=100 → a 50µs slice;
-     *  elapsed lands between slice and the whole pool — the gradual ladder path, never
-     *  the breach fast lane). */
+    /** 自旋约 200µs（确定性超份额：预算 0.05ms/prev=1 → slice=50µs；prev≤1 域无破约
+     *  快车道，elapsed 再大也只记渐进超份额）。
+     *  Spins ~200µs (deterministic overstay: budget 0.05ms with prev=1 → a 50µs slice;
+     *  the prev≤1 domain has no breach fast lane, so any elapsed only feeds the gradual
+     *  streak). */
     private static void spinOverSlice() {
         long deadline = System.nanoTime() + 200_000L;
         while (System.nanoTime() < deadline) { /* 故意耗时 */ }
     }
 
-    /** 渐进梯子的确定性预算台面：整池 5ms、prev=100 → slice=50µs。
-     *  The gradual-ladder budget stage: a 5ms pool with prev=100 → a 50µs slice. */
+    /** 渐进梯子的确定性预算台面：整池 0.05ms、prev=1 → slice=50µs（条目 38 去墙钟耦合）。
+     *  <p>prev=100（原值）会让破约快车道开着（prev≥2 且 elapsed≥budget 立即熔断），
+     *  于是「不熔断」全靠 spin 200µs 的墙钟耗时 < 5ms 这条假设——满载抢占把 elapsed
+     *  撑过 5ms 就提前熔断、调用计数冻结在 11（期望 21）。改 prev=1 关掉快车道
+     *  （prev≤1 域没有快车道），budget 相应降到 0.05ms 让 slice 仍为 50µs、渐进阈值
+     *  75µs 不变；此域下 elapsed 再大也只记渐进超份额，不跳熔断。破约快车道与首调
+     *  豁免各有独立锚（fenceBreachFastLanes / firstCallExemptThenBreachFuses），本台面
+     *  不再隐含测它们。</p>
+     *  <p>The gradual-ladder budget stage: a 0.05ms pool with prev=1 → a 50µs slice.
+     *  prev=100 used to leave the fence-breach fast lane armed (prev≥2 && elapsed≥budget
+     *  → instant fuse), so "don't fuse" rode on the wall-clock assumption that the 200µs
+     *  spin stays under 5ms — a loaded runner inflated elapsed past 5ms and fused early
+     *  (calls froze at 11, expected 21). prev=1 disables the fast lane (no fast lane in
+     *  the prev≤1 domain) and budget drops to keep the 50µs slice / 75µs gradual threshold;
+     *  any elapsed now only feeds the gradual streak, never a fuse. The fast lane and the
+     *  first-call exemption each have their own anchors; this stage no longer tests them.</p> */
     private static void gradualLadderStage() {
-        CustomNodeCompute.setBudgetMsSource(() -> 5.0);
-        CustomNodeCompute.forceHeavyYieldCountPrevForTests(100);
+        CustomNodeCompute.setBudgetMsSource(() -> 0.05);
+        CustomNodeCompute.forceHeavyYieldCountPrevForTests(1);
     }
 
     @AfterEach
@@ -285,6 +299,33 @@ class CustomNodeEvalTest {
         return rig.node.customRun;
     }
 
+    @Test
+    @DisplayName("条目 38：渐进台面下墙钟虚高不误触发快车道熔断 / wall-clock inflation cannot trip the fast-lane fuse on the gradual stage")
+    void gradualStageIgnoresWallClockInflation() {
+        AtomicInteger calls = new AtomicInteger();
+        Rig rig = rig(ctx -> {
+            calls.incrementAndGet();
+            // 第一次走常规 200µs；第二次模拟满载抢占——忙等远超旧台面整池 5ms。
+            // prev=1 域无快车道：elapsed 再大也只记渐进超份额，不跳熔断。
+            long spin = calls.get() == 1 ? 200_000L : 6_000_000L;
+            long deadline = System.nanoTime() + spin;
+            while (System.nanoTime() < deadline) { /* 可控墙钟膨胀 */ }
+            return CustomNodeResult.done(1f, 2f);
+        });
+        gradualLadderStage();
+        var seat = new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
+        var no = java.util.List.<GraphEvaluator.InputSource>of(); var nom = java.util.Map.<Integer, Float>of();
+
+        rig.evaluator.evaluate(no, nom, 0.05f, seat); // 首调豁免
+        rig.evaluator.evaluate(no, nom, 0.05f, seat); // 墙钟膨胀 6ms —— 旧台面(prev=100/budget=5ms)会熔断
+
+        assertFalse(nodeRun(rig).fused,
+            "墙钟虚高不得走破约快车道 / inflated wall clock must not trip the fast lane");
+        assertEquals(1, nodeRun(rig).overSliceStreak,
+            "只记一次渐进超份额 / exactly one gradual over-slice mark");
+        assertEquals(2, calls.get(), "两次都调用了提供方 / both calls reached the provider");
+    }
+
     // ── 审查批修复锚（2026-10-31）────────────────────────────────────
 
     @Test
@@ -334,7 +375,7 @@ class CustomNodeEvalTest {
             spinOverSlice(); // 超份额对象（瞬时返回永不进梯子）
             return CustomNodeResult.done(1f, 2f);
         });
-        // 走完整梯子到熔断（渐进台面：整池 5ms/prev=100 → slice=50µs，行为自旋 200µs）
+        // 走完整梯子到熔断（渐进台面：整池 0.05ms/prev=1 → slice=50µs，行为自旋 200µs）
         gradualLadderStage();
         var seat = new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
         var no = java.util.List.<GraphEvaluator.InputSource>of();

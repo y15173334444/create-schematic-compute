@@ -1409,11 +1409,14 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                 selection.clear();
             }
             if (overGrid && (editLocked() || scrollGuarded())) return true;
-            boolean consumed = view == View.ROLL
-                ? roll.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel, currentLayer, currentInstrument)
-                : laneGrid.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel,
+            // 开组责任已下放给 roll/laneGrid 的 mouseDown（首格落点之前开组）——
+            // 屏幕层不再事后 beginBatch，否则首格独立入栈、一笔两条撤销（条目 5）。
+            if (view == View.ROLL) {
+                roll.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel, currentLayer, currentInstrument);
+            } else {
+                laneGrid.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel,
                     currentInstrument, toolKey, layerScroll, layerRowH());
-            if (consumed) kernel.beginBatch();
+            }
             return true;
         }
 
@@ -1456,8 +1459,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
                     return true;
                 }
             }
+            // 开组责任在 roll.mouseDown 内部（条目 5）；此处不事后开组。
             if (roll.mouseDown(rollX(), rollY(), gridW(), gridH(), mx, my, btn, kernel, currentLayer, currentInstrument)) {
-                kernel.beginBatch();
                 return true;
             }
             return super.mouseClicked(mx, my, btn);

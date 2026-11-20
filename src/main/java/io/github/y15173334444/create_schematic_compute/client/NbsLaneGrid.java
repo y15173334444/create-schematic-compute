@@ -205,14 +205,20 @@ public final class NbsLaneGrid {
         if (layer < 0 || tick < 0) return true;
         if (btn == 0) {
             // 左键单击 = 落点/覆盖（屏幕把单击延到松手判定后调本方法；左键拖 = 框选，
-            // 由屏幕的选择手势接管）。
+            // 由屏幕的选择手势接管）。无拖动笔划，开组合立即收口（单条直入）。
             // LMB click places / overwrites (the screen defers the click here until
             // release; LMB drag is box-select, owned by the screen's select gesture).
+            // No drag stroke — open and close the batch immediately (single unwrapped).
+            kernel.beginBatch();
             kernel.placeNote(tick, layer, toolInstrument, toolKey, 100, 100, 0);
+            kernel.endBatch();
             if (audition != null) audition.accept(new NbsSong.Note(tick, layer, toolInstrument, toolKey, 100, 100, 0));
             return true;
         }
         if (btn == 1) {
+            // 条目 5：开组责任在落点之前——首格与拖过格进同一批，一次擦除 = 一条撤销。
+            // 收口由屏幕 mouseReleased 的 endBatch（isErasing 时）配对。
+            kernel.beginBatch();
             erasing = true;
             strokeVisited.clear();
             if (strokeVisited.add(pack(tick, layer))) kernel.eraseNote(tick, layer);

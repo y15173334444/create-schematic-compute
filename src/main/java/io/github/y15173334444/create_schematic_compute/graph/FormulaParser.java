@@ -518,6 +518,22 @@ public class FormulaParser {
                 List.of(), List.of(""), List.of(), originalFormula,
                 null, Set.of(), List.of());
         }
+        // 条目 34：括号配对预检（与 validate 组 1 同源 helper）。未闭合/多余括号曾让裸 '('
+        // 留进 RPN，求值每 tick 栈下溢抛 NoSuchElementException 被 catch 兜住 —— 节点静默
+        // 失效且无 ERROR 徽章。此处按深度守卫（P1-6）同款降级：恒 0 输出 + ERROR issue，
+        // 三条暴露路径（求值/op/世界加载）都经 parseScript，一处兜住全部。
+        // Entry 34: bracket-pairing pre-check (same helper as validate group 1). An unclosed
+        // '(' used to survive into the RPN and underflow the eval stack every tick, swallowed
+        // by eval's catch — a silently dead node with no ERROR badge. Degrade like the depth
+        // guard (P1-6): pinned-0 output + ERROR issue; all three exposure paths (eval / op /
+        // world load) go through parseScript, so this backstops every one.
+        String parenSrc = formula.replace('（', '(').replace('）', ')');
+        var parenIssues = FormulaValidator.parenIssues(parenSrc, FormulaLexer.tokenize(parenSrc));
+        if (!parenIssues.isEmpty()) {
+            return new ScriptParseResult(
+                List.of(), List.of(""), List.of(java.util.List.of(0.0)), originalFormula,
+                null, Set.of(), parenIssues);
+        }
         // 逐行预处理：续行合并 + 注释过滤（供统一 AST 前端消费）。
         // Line preprocessing: continuation joining + comment filtering (feeds the unified
         // AST frontend).

@@ -653,6 +653,17 @@ public final class GraphMigration {
             String t = retagPinId(toNode, false,
                 c.contains("tPinId") ? c.getString("tPinId") : null, c.getInt("tPin"));
             if (f == null || t == null) continue;
+            // ②' 端点声明类型严格相等校验（回填+带段化后）。回填按「任一 AUDIO 对端→整段
+            //    AUDIO」取或，混接旧档的同一频段会同时喂 AUDIO 与 FLOAT 消费端：段声明为
+            //    AUDIO 后，→FLOAT 端的带段 pinId 成 audio:段 → float:脚，两端声明类型不等。
+            //    与新建连线的类型合法性纪律对齐，不等按「解析不到即剪」同款剪除。
+            //    带段 pinId 的类型段即端点声明类型（PinId.format 的输入），故可直取比对。
+            // ②' strict endpoint declared-type check (after backfill + retag). Backfill ORs
+            //    "any AUDIO peer → whole band AUDIO"; a mixed legacy band feeds both AUDIO
+            //    and FLOAT consumers, so after retag the FLOAT leg reads audio:band → float:pin
+            //    with mismatched declared types. Match the new-wire legality discipline: prune
+            //    on mismatch, same as "unresolvable → prune".
+            if (!java.util.Objects.equals(PinId.typeOf(f), PinId.typeOf(t))) continue;
             c.putString("fPinId", f);
             c.putString("tPinId", t);
             migratedConns.add(c);
