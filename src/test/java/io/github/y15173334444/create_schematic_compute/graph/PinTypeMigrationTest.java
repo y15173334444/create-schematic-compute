@@ -239,4 +239,35 @@ class PinTypeMigrationTest {
         assertEquals(1, types.size(), "private channels declare a single type");
         assertEquals("audio", types.getString(0));
     }
+
+    @Test
+    @DisplayName("混接旧档：回填 AUDIO 后浮点消费端的非法线被剪，音频线保留 / mixed legacy band: prune the float-consumer wire after AUDIO backfill, keep the audio wire")
+    void mixedBandPrunesIllegalTypedWire() {
+        CompoundTag g = new CompoundTag();
+        ListTag nodes = new ListTag();
+        CompoundTag busIn = node(1, "bus_in", 0, 0);
+        busIn.putString("sig", "ch");
+        ListTag bands = new ListTag();
+        bands.add(net.minecraft.nbt.StringTag.valueOf("band_0"));
+        busIn.put("bands", bands);
+        nodes.add(busIn);
+        nodes.add(node(2, "amp", 0, 0));        // in0 = AUDIO
+        nodes.add(node(3, "add", 0, 0));        // in0 = FLOAT
+        g.put("nodes", nodes);
+
+        ListTag conns = new ListTag();
+        // 同一频段同时喂 AUDIO 与 FLOAT 消费端：回填 band_0=AUDIO 后，
+        // → AMP 的线两端 audio/audio 合法；→ ADD 的线 audio/float 类型非法。
+        conns.add(conn(1, "band_0", 2, "0"));   // BUS_IN.band_0 → AMP.audio (legal)
+        conns.add(conn(1, "band_0", 3, "0"));   // BUS_IN.band_0 → ADD.in0  (mixed → prune)
+        g.put("conns", conns);
+        g.putInt(NbtVersions.VERSION_KEY, 8);
+
+        CompoundTag out = GraphMigration.migrate(g, null);
+        ListTag oc = out.getList("conns", Tag.TAG_COMPOUND);
+        assertEquals(1, oc.size(), "类型非法线必须剪除 / the audio:→float: wire must be pruned");
+        assertEquals("audio:band_0", oc.getCompound(0).getString("fPinId"));
+        assertEquals("audio:0", oc.getCompound(0).getString("tPinId"),
+            "存活的必须是 audio/audio 线 / the surviving wire must be the audio one");
+    }
 }
