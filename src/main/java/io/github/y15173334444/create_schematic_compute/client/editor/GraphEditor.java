@@ -705,7 +705,15 @@ public class GraphEditor {
 
     // ── P2 Presence（已拆至 GraphPresenceTracker，下方保留门面委托 / split into GraphPresenceTracker; thin facade delegates below）──
     final GraphPresenceTracker presence = new GraphPresenceTracker(this);
-    // 拖拽 op 限频（非 presence——供拖拽路径的 sendOp 节流） (Drag op-send throttle, not presence — used by the drag paths)
+    // 拖动临场流（docs/packet-flood-rate-limit-plan.md §三，批 1）：拖拽中的位置/尺寸更新
+    // 出站 + 远端覆盖层帧影——拖拽期间不再逐节点发编辑 op（多选拖 20N 包/s 拖空 EDIT_OP 桶
+    // 的洪水源头），松手时由 finish* 路径发持久 op（松手即提交）。
+    // Drag presence stream (plan doc §3, batch 1): outbound transient drag geometry + the
+    // remote overlay frame shadow — drags no longer emit per-node edit ops (the 20N-packets/s
+    // EDIT_OP-bucket-draining flood source); the release finish* paths still send durable ops
+    // (commit on release).
+    final GraphDragStreamTracker dragStream = new GraphDragStreamTracker(this);
+    // 拖拽 op 限频（非 presence——供拖拽路径的 submit 入流节流） (Drag send throttle, not presence — gates the drag paths' stream submissions)
     private long lastDragSendTime = 0;
     private static final long DRAG_SEND_INTERVAL_MS = 50;
 
@@ -740,8 +748,12 @@ public class GraphEditor {
      *  包处理器入口（实现见 GraphPresenceTracker）。 */
     public void storeRemotePresence(io.github.y15173334444.create_schematic_compute.network.GraphPresencePacket pkt) { presence.storeRemotePresence(pkt); }
 
+    /** 存一包远端拖动临场条目。包处理器入口（实现见 GraphDragStreamTracker）。
+     *  Store one relayed drag-stream packet. Packet-handler entry (see GraphDragStreamTracker). */
+    public void storeRemoteDragOverlay(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket pkt) { dragStream.storeRemoteDrag(pkt); }
+
     /** Clear all remote presences (called when editor closes). 编辑器关闭时清空。 */
-    public void clearRemotePresences() { presence.clearRemotePresences(); }
+    public void clearRemotePresences() { presence.clearRemotePresences(); dragStream.clear(); }
 
     /** 远端临场数据访问器（显示器布局界面的协作叠加层用）。
      *  Accessor for remote presences (used by the monitor screen's display-mode overlay). */
@@ -1477,72 +1489,87 @@ public class GraphEditor {
         var lockedNodes = buildLockedNodesMap();
 
 
-        // ── A=1: Complete COMMENT nodes (bg, border, text) — container mats behind connections ──
-        Map<Integer, Boolean> flipflopStates = isInSubGraph()
-            ? getSubFlipflopStates()
-            : host.getFlipflopStates();
-        renderer.renderCommentNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds,
-            nodeEditStatesById, camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
+        // ── 拖动临场覆盖层帧影（批 1，docs/packet-flood-rate-limit-plan.md §3.4）：渲染几何段
+        //    之前把同作用域的新鲜临场覆盖写进节点字段（smoothstep 平滑），finally 中还原图
+        //    权威值——渲染器几何代码零改动（JIT-1 涂盖/遮挡口径不受扰动）；命中测试发生在
+        //    帧间，看到的永远是图真值；临场流静默 500ms 后覆盖自然失效，无残留可清扫。
+        //    Drag-overlay frame shadow (batch 1, plan doc §3.4): before the render-geometry
+        //    segment, same-scope fresh overlays are written into node fields (smoothstep) and
+        //    restored to graph truth in a finally — the renderer's geometry code stays
+        //    untouched (JIT-1 calipers undisturbed); hit-testing happens between frames and
+        //    always sees graph truth; after 500 ms of stream silence the overlay expires
+        //    naturally, with no residue to sweep.
+        dragStream.beginFrame(graph, ownerNodeId());
+        try {
+            // ── A=1: Complete COMMENT nodes (bg, border, text) — container mats behind connections ──
+            Map<Integer, Boolean> flipflopStates = isInSubGraph()
+                ? getSubFlipflopStates()
+                : host.getFlipflopStates();
+            renderer.renderCommentNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds,
+                nodeEditStatesById, camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
 
-        // ── 子图 Back 按钮：已合并进顶栏（renderTopBar 子图分支）──
-        // Sub-graph Back button: merged into the top bar (renderTopBar sub branch).
+            // ── 子图 Back 按钮：已合并进顶栏（renderTopBar 子图分支）──
+            // Sub-graph Back button: merged into the top bar (renderTopBar sub branch).
 
-        // BUS_IN 的频段**不再**在这里按全局注册表同步（issue #11）。这段代码每帧运行，
-        // 会把每个 BUS_IN 的频段改回**本端**注册表那一份并剪掉多余的连线——于是各端注册表
-        // 一旦分叉，分岔就会被每帧重新坐实，连服务端下发的权威值也会被它立刻覆盖掉。
-        // 现在 BUS_IN 的频段是服务端权威数据：改名时由服务端解析并以 SET_BANDS 下发，
-        // 其余时刻随图同步（打开编辑器会拉取权威图）。
-        // BUS_IN bands are no longer synced from the global registry here (issue #11). This ran
-        // every frame and rewrote each BUS_IN's bands from the **local** registry (pruning the
-        // surplus connections), so once registries diverged the divergence was re-asserted every
-        // frame — even overwriting the server's authoritative value. A BUS_IN's bands are now
-        // authoritative server data: resolved and pushed as SET_BANDS on rename, and otherwise
-        // delivered with the graph (opening the editor pulls the authoritative graph).
-        // BUS_IN/OUT 展开面板刷新：比较 band 数量 + 内容是否与 EditState 一致 (BUS_IN/OUT expand panel refresh: compare band count + content against EditState)
-        refreshBusBandEditStates(graph);
-        // ── Ensure FORMULA scripts are parsed before connection rendering ──
-        //    Pin counts must be up-to-date before A=2 so connections are drawn
-        //    at the correct Y positions. / 在连线渲染前确保 FORMULA 脚本已解析，
-        //    引脚计数必须在 A=2 之前更新，确保连线画在正确的 Y 位置。
-        for (var n : graph.nodes) n.ensureScriptParsed();
+            // BUS_IN 的频段**不再**在这里按全局注册表同步（issue #11）。这段代码每帧运行，
+            // 会把每个 BUS_IN 的频段改回**本端**注册表那一份并剪掉多余的连线——于是各端注册表
+            // 一旦分叉，分岔就会被每帧重新坐实，连服务端下发的权威值也会被它立刻覆盖掉。
+            // 现在 BUS_IN 的频段是服务端权威数据：改名时由服务端解析并以 SET_BANDS 下发，
+            // 其余时刻随图同步（打开编辑器会拉取权威图）。
+            // BUS_IN bands are no longer synced from the global registry here (issue #11). This ran
+            // every frame and rewrote each BUS_IN's bands from the **local** registry (pruning the
+            // surplus connections), so once registries diverged the divergence was re-asserted every
+            // frame — even overwriting the server's authoritative value. A BUS_IN's bands are now
+            // authoritative server data: resolved and pushed as SET_BANDS on rename, and otherwise
+            // delivered with the graph (opening the editor pulls the authoritative graph).
+            // BUS_IN/OUT 展开面板刷新：比较 band 数量 + 内容是否与 EditState 一致 (BUS_IN/OUT expand panel refresh: compare band count + content against EditState)
+            refreshBusBandEditStates(graph);
+            // ── Ensure FORMULA scripts are parsed before connection rendering ──
+            //    Pin counts must be up-to-date before A=2 so connections are drawn
+            //    at the correct Y positions. / 在连线渲染前确保 FORMULA 脚本已解析，
+            //    引脚计数必须在 A=2 之前更新，确保连线画在正确的 Y 位置。
+            for (var n : graph.nodes) n.ensureScriptParsed();
 
-        // ── A=2: Connections (bezier curves) ──
-        renderer.renderConnections(g, graph, camX, camY, zoom);
-        if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom, dragTargetType(mx, my));
+            // ── A=2: Connections (bezier curves) ──
+            renderer.renderConnections(g, graph, camX, camY, zoom);
+            if(draggingWire) renderer.renderDraggingWire(g, graph, wireFromNode, wireFromPin, wireEndX, wireEndY, camX, camY, zoom, dragTargetType(mx, my));
 
-        // ── A=3: Regular node bodies (sorted by B ascending, comments excluded — rendered at A=1) ──
-        renderer.evalSnapshot = host.getCachedEvalSnapshot();
-        if (renderer.evalSnapshot == null) renderer.evalSnapshot = io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY;
-        renderer.currentEncapId = isInSubGraph() ? encapsulationParent.id : -1;
-        // 构建封装占用者表（主图中哪些封装节点内有玩家在编辑）
-        // Build encapsulation occupant map (which encap nodes have players editing inside)
-        updateEncapOccupants();
-        renderer.renderNodes(g, graph, sortedByB, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
-            camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
-        // 条目 26：在场层（远端光标/拖线预览）画在节点之上、chrome 之下——
-        // 尾段绘制会压住工具条/顶栏/弹窗/加节点菜单。数据面 keep-alive 仍在尾段。
-        // Presence overlay sits above nodes but below chrome; drawing it at the tail
-        // covered the toolbar / top bar / popups / add-node menu.
-        renderPresenceOverlay(g);
-        if (!isInSubGraph()) {
-            renderer.showBookmarkPanel = viewBookmarks.panelVisible();
-            renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width, host.asScreen().height);
-            // 导入/导出封装节点按钮（仅蓝图计算机显示） (Import/export encapsulation node buttons, Blueprint computer only)
-            renderEncapImportExportButtons(g);
+            // ── A=3: Regular node bodies (sorted by B ascending, comments excluded — rendered at A=1) ──
+            renderer.evalSnapshot = host.getCachedEvalSnapshot();
+            if (renderer.evalSnapshot == null) renderer.evalSnapshot = io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY;
+            renderer.currentEncapId = isInSubGraph() ? encapsulationParent.id : -1;
+            // 构建封装占用者表（主图中哪些封装节点内有玩家在编辑）
+            // Build encapsulation occupant map (which encap nodes have players editing inside)
+            updateEncapOccupants();
+            renderer.renderNodes(g, graph, sortedByB, selectedNodes, selectedNode, expandedNodeIds, nodeEditStatesById,
+                camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
+            // 条目 26：在场层（远端光标/拖线预览）画在节点之上、chrome 之下——
+            // 尾段绘制会压住工具条/顶栏/弹窗/加节点菜单。数据面 keep-alive 仍在尾段。
+            // Presence overlay sits above nodes but below chrome; drawing it at the tail
+            // covered the toolbar / top bar / popups / add-node menu.
+            renderPresenceOverlay(g);
+            if (!isInSubGraph()) {
+                renderer.showBookmarkPanel = viewBookmarks.panelVisible();
+                renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width, host.asScreen().height);
+                // 导入/导出封装节点按钮（仅蓝图计算机显示） (Import/export encapsulation node buttons, Blueprint computer only)
+                renderEncapImportExportButtons(g);
+            }
+            // 封装模式标识已合并进顶栏（renderTopBar 子图分支）——不再在这里画压在顶栏上的横条。
+            // The encapsulation-mode indicator is merged into the top bar (renderTopBar sub
+            // branch) — no more separate strip drawn over it here.
+            // 导入/导出反馈文字 (Import/export feedback text)
+            renderImportFeedback(g);
+            // 导出封装节点对话框 (Export encapsulation node dialog)
+            renderExportDialog(g);
+            // 书签列表面板 + 命名对话框（已拆至 GraphViewBookmarks，逐字搬迁 / split into GraphViewBookmarks, bodies moved verbatim）
+            viewBookmarks.render(g, mx, my);
+            // 导入封装节点对话框 (Import encapsulation node dialog)
+            renderImportDialog(g, mx, my);
+            // 热栏弹出（点击频率槽后在节点下方显示） (Hotbar popup, shown below node after clicking frequency slot)
+            renderHotbarPopup(g);
+        } finally {
+            dragStream.endFrame(graph);
         }
-        // 封装模式标识已合并进顶栏（renderTopBar 子图分支）——不再在这里画压在顶栏上的横条。
-        // The encapsulation-mode indicator is merged into the top bar (renderTopBar sub
-        // branch) — no more separate strip drawn over it here.
-        // 导入/导出反馈文字 (Import/export feedback text)
-        renderImportFeedback(g);
-        // 导出封装节点对话框 (Export encapsulation node dialog)
-        renderExportDialog(g);
-        // 书签列表面板 + 命名对话框（已拆至 GraphViewBookmarks，逐字搬迁 / split into GraphViewBookmarks, bodies moved verbatim）
-        viewBookmarks.render(g, mx, my);
-        // 导入封装节点对话框 (Import encapsulation node dialog)
-        renderImportDialog(g, mx, my);
-        // 热栏弹出（点击频率槽后在节点下方显示） (Hotbar popup, shown below node after clicking frequency slot)
-        renderHotbarPopup(g);
         // ── A=5: Tooltips（公式报错报告框等延迟覆盖层——A/B/C 分层的工具提示层，节点与 A=4 覆盖层均无法遮挡）
         // ── A=5: Tooltips (deferred overlay such as the formula error report box — the layered-system
         //     tooltip tier; no node body or A=4 overlay can cover it)
@@ -4342,12 +4369,16 @@ public class GraphEditor {
         }
         resizingComment.commentWidth = newW;
         resizingComment.commentHeight = newH;
-        // Real-time size sync (throttled) for collaboration
+        // 实时尺寸协作改走拖动临场流（批 1）：拖动中不再逐窗口发 SET_COMMENT_SIZE op，
+        // 松手时 finishCommentResize 仍发持久 op（松手即提交）。
+        // Live size collaboration now rides the drag presence stream (batch 1): no
+        // per-window SET_COMMENT_SIZE op while resizing — finishCommentResize still sends
+        // the durable op on release (commit on release).
         long nowRs = System.currentTimeMillis();
         if (nowRs - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
             lastDragSendTime = nowRs;
-            sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
-                host.getBlockPos(), ownerNodeId(), resizingComment.id, newW, newH, host.getPlayerUUID()));
+            dragStream.submit(java.util.List.of(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.commentSize(
+                resizingComment.id, newW, newH)));
         }
         markDirty();
         return true;
@@ -4427,18 +4458,22 @@ public class GraphEditor {
                 pn.y = Math.round(pn.y / NodeRenderer.GS) * NodeRenderer.GS;
             }
         }
-        // Real-time drag sync (throttled) — include contained + pushed nodes
+        // 实时拖动协作改走拖动临场流（批 1）：注释框 + 框内 + 被撞开节点整批一包，拖动中
+        // 不再逐节点发 MOVE op；松手时 finishNodeDrop 仍发持久 op（松手即提交）。
+        // Live drag collaboration now rides the drag presence stream (batch 1): the comment
+        // box + contained + pushed-aside nodes go as one packet; no per-node MOVE ops while
+        // dragging — finishNodeDrop still sends the durable ops on release (commit on release).
         long now3 = System.currentTimeMillis();
         if (now3 - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
             lastDragSendTime = now3;
-            sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                host.getBlockPos(), ownerNodeId(), draggingNode.id, nx, ny, host.getPlayerUUID()));
+            var es = new java.util.ArrayList<io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry>(
+                1 + containedDragNodes.size() + pushedDragNodes.size());
+            es.add(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.pos(draggingNode.id, nx, ny));
             for (var cn : containedDragNodes)
-                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                    host.getBlockPos(), ownerNodeId(), cn.id, cn.x, cn.y, host.getPlayerUUID()));
+                es.add(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.pos(cn.id, cn.x, cn.y));
             for (var pn : pushedDragNodes)
-                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                    host.getBlockPos(), ownerNodeId(), pn.id, pn.x, pn.y, host.getPlayerUUID()));
+                es.add(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.pos(pn.id, pn.x, pn.y));
+            dragStream.submit(es);
         }
         // 不在此处 markDirty()：拖拽中每帧 bump 代际会触发 renderBg 重建全部展开节点的
         // 编辑区（20Hz 全量刷新）。注释移动是纯视觉操作——松手时的 op 已负责持久化与协作同步。
@@ -4483,14 +4518,19 @@ public class GraphEditor {
                 sn.x=nx; sn.y=ny;
             }
         }
-        // Real-time sync for multiplayer / 多人实时同步
+        // 实时协作改走拖动临场流（批 1）：多选集合整批一包（塌缩点——此前每节点 1 个 op），
+        // 拖动中不再逐节点发 MOVE op；松手时 finishMultiDrag 仍发持久 op（松手即提交）。
+        // Live collaboration now rides the drag presence stream (batch 1): the whole
+        // multi-select set goes as one packet (the collapse — previously one op per node);
+        // no per-node MOVE ops while dragging — finishMultiDrag still sends the durable ops
+        // on release (commit on release).
         long nowMulti = System.currentTimeMillis();
         if (nowMulti - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
             lastDragSendTime = nowMulti;
-            for (var sn : selectedNodes) {
-                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                    host.getBlockPos(), ownerNodeId(), sn.id, sn.x, sn.y, host.getPlayerUUID()));
-            }
+            var es = new java.util.ArrayList<io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry>(selectedNodes.size());
+            for (var sn : selectedNodes)
+                es.add(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.pos(sn.id, sn.x, sn.y));
+            dragStream.submit(es);
         }
         return true;
     }
@@ -4528,12 +4568,16 @@ public class GraphEditor {
             if(gridSnapEnabled){nx=Math.round(nx/NodeRenderer.GS)*NodeRenderer.GS;ny=Math.round(ny/NodeRenderer.GS)*NodeRenderer.GS;}
             float dx=nx-draggingNode.x, dy=ny-draggingNode.y;
             draggingNode.x=nx;draggingNode.y=ny;
-            // Real-time drag sync (throttled)
+            // 实时拖动协作改走拖动临场流（批 1）：拖动中不再发 MOVE op；松手时 finishNodeDrop
+            // 仍发持久 op（松手即提交）。
+            // Live drag collaboration now rides the drag presence stream (batch 1): no MOVE op
+            // while dragging — finishNodeDrop still sends the durable op on release (commit on
+            // release).
             long now2 = System.currentTimeMillis();
             if (now2 - lastDragSendTime >= DRAG_SEND_INTERVAL_MS) {
                 lastDragSendTime = now2;
-                sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
-                    host.getBlockPos(), ownerNodeId(), draggingNode.id, nx, ny, host.getPlayerUUID()));
+                dragStream.submit(java.util.List.of(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.pos(
+                    draggingNode.id, nx, ny)));
             }
         }
     }

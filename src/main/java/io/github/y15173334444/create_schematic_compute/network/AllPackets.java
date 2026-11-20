@@ -33,7 +33,7 @@ public class AllPackets {
      * {@link C2SPacketRateGuard} 检查，再决定放行进原 handler、丢弃还是断开。
      * <p>注册纪律：<b>新增 C→S 包必须走本包装器</b>——检查方式 =
      * {@code grep -c "rateLimited(" AllPackets.java} 应等于 {@code playToServer} 的注册数
-     * （2026-11-14 实测 16 个，控制台查询批后 17 个）。玩家键取服务端权威 UUID（不信任包载荷），类型键取 TYPE
+     * （2026-11-14 实测 16 个，控制台查询批后 17 个，拖动临场流批后 18 个）。玩家键取服务端权威 UUID（不信任包载荷），类型键取 TYPE
      * id 的 path。断开语义照原版：允许突发、桶耗尽拒绝（丢弃）、持续超限断开
      * （{@link C2SPacketRateGuard} 类注有完整机制说明与逐包预算表）。</p>
      * <p>The single rate-limit wrapper over the C→S registration face: every
@@ -41,7 +41,7 @@ public class AllPackets {
      * either lets the packet through to the original handler, drops it, or disconnects.
      * Registration discipline: <b>a new C→S packet must go through this wrapper</b> — the
      * check is {@code grep -c "rateLimited(" AllPackets.java} equal to the number of
-     * {@code playToServer} registrations (16 as measured 2026-11-14, 17 after the console-query batch). The player key is the
+     * {@code playToServer} registrations (16 as measured 2026-11-14, 17 after the console-query batch, 18 after the drag-stream batch). The player key is the
      * server-authoritative UUID (never the payload), the type key is the TYPE id's path.
      * Vanilla semantics: bursts allowed, an exhausted bucket rejects (drops), sustained
      * over-limit disconnects (full mechanism and per-type budget table in the
@@ -175,6 +175,13 @@ public class AllPackets {
         registrar.playToServer(GraphPresencePacket.TYPE, GraphPresencePacket.CODEC,
                 rateLimited(GraphPresencePacket.TYPE, C2SPacketRateGuard.PRESENCE, GraphPresencePacket::handleServer));
         registrar.playToClient(GraphPresenceSyncPacket.TYPE, GraphPresenceSyncPacket.CODEC, GraphPresenceSyncPacket::handle);
+        // 1.3.0 批 1（docs/packet-flood-rate-limit-plan.md §三）：拖动临场流——拖拽中的位置/尺寸
+        // 更新离开 EDIT_OP 通道（服务端只中继不落图，松手即提交）。
+        // 1.3.0 batch 1 (plan doc §3): the drag presence stream — transient drag position/size
+        // updates leave the EDIT_OP channel (relay-only server, commit on release).
+        registrar.playToServer(GraphDragStreamPacket.TYPE, GraphDragStreamPacket.CODEC,
+                rateLimited(GraphDragStreamPacket.TYPE, C2SPacketRateGuard.DRAG_STREAM, GraphDragStreamPacket::handleServer));
+        registrar.playToClient(GraphDragStreamSyncPacket.TYPE, GraphDragStreamSyncPacket.CODEC, GraphDragStreamSyncPacket::handle);
         registrar.playToServer(GraphJoinPacket.TYPE, GraphJoinPacket.CODEC,
                 rateLimited(GraphJoinPacket.TYPE, C2SPacketRateGuard.JOIN, GraphJoinPacket::handle));
         registrar.playToServer(GraphLeavePacket.TYPE, GraphLeavePacket.CODEC,
