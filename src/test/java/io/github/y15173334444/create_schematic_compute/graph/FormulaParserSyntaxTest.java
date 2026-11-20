@@ -251,4 +251,23 @@ class FormulaParserSyntaxTest {
             }
         }
     }
+
+    @Test
+    @DisplayName("未闭合括号：parseScript 降级为恒 0 + ERROR issue，闭合脚本不降级 / unclosed paren: parseScript degrades to pinned-0 + ERROR, balanced script untouched")
+    void unclosedParenDegradesParse() {
+        var bad = FormulaParser.parseScript("1 + (2");
+        assertFalse(bad.issues.isEmpty(),
+            "未闭合括号必须在解析期报 ERROR / unclosed paren must surface a parse-time ERROR");
+        assertTrue(bad.issues.stream().anyMatch(i -> i.severity() == FormulaParser.Severity.ERROR),
+            "issue 必须是 ERROR（编辑器徽章可见）/ the issue must be ERROR (visible editor badge)");
+        assertNull(bad.ast, "降级解析不带语句树 / a degraded parse carries no statement tree");
+        assertEquals(List.of(List.of((Object) 0.0)), bad.outputRpns,
+            "降级输出恒 0，杜绝每 tick 栈下溢 / degraded output pinned to 0, no per-tick stack underflow");
+
+        // 负例对照：闭合的同类脚本照常解析，不被误降级 / negative control: the balanced twin parses normally
+        var good = FormulaParser.parseScript("1 + (2)");
+        assertTrue(good.issues.isEmpty(), "balanced script must not be flagged");
+        assertNotNull(good.ast, "balanced script keeps its statement tree");
+        assertEquals(1.0, ((Number) good.outputRpns.get(0).get(0)).doubleValue());
+    }
 }
