@@ -12,7 +12,7 @@
 //! Mini compiler (bench scaffolding). Mirrors compileTokens' lenient rules verbatim
 //! (probe-verified); the Java parser remains the single frontend in the real bridge.
 
-use crate::ast::{Program, Stmt};
+use crate::ast::{Program, Rpn, Stmt};
 use crate::tok::{Cmp, Fn, Tok};
 
 /// 语句嵌套上限（镜像 MAX_PARSE_DEPTH）。
@@ -71,6 +71,15 @@ struct Compiler {
 }
 
 impl Compiler {
+    /// Rpn 包装 + 认证。槽位计数取当前名表长度（此后只会增长,构造期槽位
+    /// 必然在界内——mini 前端槽位即名表下标,按构造成立）。
+    /// Rpn wrap + certify. Slot count = current name-table length (it only grows
+    /// afterwards, so construction-time slots are always in range — the mini
+    /// frontend's slots ARE name-table indices, true by construction).
+    fn wrap_rpn(&self, toks: Vec<Tok>) -> Rpn {
+        Rpn::from_toks(toks.into_boxed_slice(), self.names.len() as u32)
+    }
+
     fn slot(&mut self, name: &str) -> u16 {
         if let Some(i) = self.names.iter().position(|n| n == name) {
             i as u16
@@ -141,7 +150,7 @@ impl Compiler {
             self.next_loop_id += 1;
             return Ok(Some(Stmt::While {
                 id,
-                cond: cond.into_boxed_slice(),
+                cond: self.wrap_rpn(cond),
                 body: body.into_boxed_slice(),
             }));
         }
@@ -160,10 +169,10 @@ impl Compiler {
         if let Some((name, expr)) = split_assign(text) {
             let slot = self.slot(name);
             let rpn = self.compile_expr(expr)?;
-            Ok(Some(Stmt::Assign { slot, rpn: rpn.into_boxed_slice() }))
+            Ok(Some(Stmt::Assign { slot, rpn: self.wrap_rpn(rpn) }))
         } else {
             let rpn = self.compile_expr(text)?;
-            Ok(Some(Stmt::Expr(rpn.into_boxed_slice())))
+            Ok(Some(Stmt::Expr(self.wrap_rpn(rpn))))
         }
     }
 
@@ -212,7 +221,7 @@ impl Compiler {
             }
         }
         Ok(Stmt::If {
-            cond: cond.into_boxed_slice(),
+            cond: self.wrap_rpn(cond),
             body: body.into_boxed_slice(),
             els: els.into_boxed_slice(),
         })

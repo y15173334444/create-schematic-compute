@@ -1,7 +1,15 @@
-//! 紧凑字节码 token：Java `List<Object>` RPN 的固定宽度形态（16B/项 → 8B/项），
+//! 紧凑字节码 token：Java `List<Object>` RPN 的定宽形态（**16B/项**——实测口径,
+//! `Const(f64)` 撑大整枚举,`size_of::<Tok>() == 16`）。历史注释宣称的「8B 定宽」
+//! 从未兑现;常量池化（`Const(u32 索引)` + 池挂 Rpn → 8B）2026-11-21 实测未达
+//! 判定门、已整体回退（分布与判定见 docs/rust-backend-optimization.md §五.3）。
 //! 求值零分支开销、可整块下沉到 native。
-//! Compact bytecode token: fixed-width form of the Java `List<Object>` RPN,
-//! dispatchable without per-token boxing.
+//! Compact bytecode token: fixed-width form of the Java `List<Object>` RPN
+//! (16B per item — measured; `Const(f64)` inflates the enum,
+//! `size_of::<Tok>() == 16`). The historical "8B fixed-width" claim never
+//! materialized; constant pooling (`Const(u32 index)` + a pool on Rpn → 8B) was
+//! measured on 2026-11-21, missed its decision gate and was reverted whole (the
+//! distributions and verdict live in docs/rust-backend-optimization.md §5.3).
+//! Dispatchable without per-token boxing.
 
 /// 标量/向量内建函数（表与 Java FormulaFunctions 逐字对齐；未知函数在编译期
 /// 按 Java 的 lenient 规则降级为「名字当变量、括号消失、结果=栈顶」）。
@@ -52,6 +60,24 @@ impl Fn {
         )
     }
 
+    /// 求值期实际弹栈数（栈效应认证用；与 eval_full 各分支逐字一致）。
+    /// vec3 三元、atan2/dot/cross/dist 二元、其余一元。注意 `arity()` 是 Java
+    /// FUNCTIONS 表口径（vec3 记 1），与这里的**求值弹栈数**不是一回事——证书
+    /// 必须按弹栈数算,否则 vec3 程序会被误认证。
+    /// Actual pop count at eval time (stack-effect certification; mirrors each
+    /// eval_full branch verbatim). vec3 pops three, atan2/dot/cross/dist two, the
+    /// rest one. Note `arity()` is the Java FUNCTIONS-table arity (vec3 reads 1)
+    /// and is NOT the eval pop count — certification must use this number or
+    /// vec3 programs get mis-certified.
+    #[inline]
+    pub const fn consumed(self) -> usize {
+        match self {
+            Fn::Vec3 => 3,
+            Fn::Atan2 | Fn::Dot | Fn::Cross | Fn::Dist => 2,
+            _ => 1,
+        }
+    }
+
     pub fn from_name(name: &str) -> Option<Fn> {
         Some(match name {
             "vec3" => Fn::Vec3,
@@ -94,7 +120,8 @@ pub enum Cmp {
     Or,
 }
 
-/// 单个 RPN token。定宽枚举（8B）：Const/Var 携带 f64/u16，其余为判别。
+/// 单个 RPN token。定宽枚举（16B——`Const(f64)` 撑大,见模块头）：Const/Var 携带
+/// f64/u16，其余为判别。
 /// Java 侧的 SwizzleToken 在此收敛为 `Swz(0..3)`；多分量/标量取分量的
 /// lenient 归零在求值期复刻（base 非向量或分量越界 → 0）。
 #[derive(Clone, Copy, Debug, PartialEq)]

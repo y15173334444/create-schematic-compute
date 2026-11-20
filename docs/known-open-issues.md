@@ -1190,3 +1190,10 @@ FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常�
 - **第二实例（2026-11-15）**：`AudioMixerShapingPerfTest` 整形内环成本断言（渲染耗时 ≤35% 实时时长）满载翻车一次（30.9ms/80ms 超限），单跑与全量复跑均绿——同族（计时预算断言 × 客户端同机负载），修复方向同上。
 - 状态：**暂缓**（负载敏感波动族，非产品缺陷）。
 / The escalation-ladder test couples its preheat exemption and over-slice accounting to the wall clock (the provider busy-spins past its slice; the exemption window expires in real time) — under heavy same-machine load the window expires earlier in call-count terms and the ladder freezes early (expected 21, got 11). Green standalone and on two full re-runs; one flake under load. Fix direction: inject a clock or count ticks. Deferred (load-sensitive flake, not a product defect). Second instance (2026-11-15): AudioMixerShapingPerfTest's shaping-cost budget (render time ≤35% of real time) flaked once under load and passes standalone — same family.
+
+## 39. Tok 字节码 16B 布局未收窄（常量池化实测未达门,判定关闭）
+
+- 机制：`Tok` 枚举实测 **16B**（`Const(f64)` 撑大整枚举;tok.rs 模块头「8B 定宽」宣称从未兑现）——token 流缓存足迹两倍于设计意图。常量池化形态（`Const(u32 索引)` + Rpn 级常量池,wire format 不动,解码器边解边入池）已实施实测、未达门回退（见状态行）。
+- 测量约束：本负载跨二进制 A/B 有 ±25% 布局噪声（见 `rust-backend-optimization.md` §五.0「测量方法学的重要发现」——同二进制探针是唯一可靠口径）,收益判定必须用该口径,单次 A/B 不可归因;**2026-11-21 补强:跨测量窗的序列 A/B 同样不可归因（负载漂移可伪造全线 ±30%）,判定以同窗交错对照为准（§五.3）**。
+- 状态：**判定关闭**（2026-11-21 csc-rust-perf 线实测:同窗抖动分布 7 线无一达 +3% 判定门、3 线中位回退 >3%（弹道 full −11.5%）,池化整体回退、代码零落地;实施形态与两轮分布见 `rust-backend-optimization.md` §五.3。tok.rs 模块头注释已改真实描述——16B 是当前与可预见形态,8B 宣称注销）。
+/ Tok is 16B in memory (the module header's 8B claim never materialized; Const(f64) inflates the enum). Const-pooling (u32 index + an Rpn-level pool, wire format unchanged) was implemented and measured on 2026-11-21, missed its 3% gate and was reverted whole — judged closed (0/7 lines reached the gate, 3 regressed beyond 3%, worst ballistic/full −11.5%; same-window jitter distribution, see rust-backend-optimization.md §5.3). The measurement also strengthened §5.0: sequential cross-window A/B is as unattributable as cross-binary (load drift faked a uniform +20-34% win in the first pass). The tok.rs module header now describes the true 16B shape; the 8B claim is retired.

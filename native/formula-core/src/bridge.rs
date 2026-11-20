@@ -25,7 +25,7 @@
 //! engine: Program decode + carrier serialization. The format above is the
 //! two-sided contract — changes must be synced and fixtures regenerated.
 
-use crate::ast::{Program, Stmt};
+use crate::ast::{Program, Rpn, Stmt};
 use crate::interp::LoopEntry;
 use crate::tok::Tok;
 use crate::value::V;
@@ -64,6 +64,12 @@ pub enum DecodeError {
     /// Pin slot out of range (bytecode attack surface: an out-of-range slot would
     /// write out of bounds at warm refresh).
     BadPinSlot(u32),
+    /// Var/Assign 槽位越界（字节码攻击面：exec 期寄存器读写按槽索引,越界即
+    /// 越界读写——解码期拒绝,与 BadPinSlot 同口径）。
+    /// Var/Assign slot out of range (bytecode attack surface: exec indexes
+    /// registers by slot — out of range would be an out-of-bounds read/write;
+    /// rejected at decode, same disposition as BadPinSlot).
+    BadSlot(u32),
 }
 
 struct Cursor<'a> {
@@ -168,16 +174,24 @@ fn decode_tok(c: &mut Cursor) -> Result<Tok, DecodeError> {
     })
 }
 
-fn decode_rpn(c: &mut Cursor) -> Result<Box<[Tok]>, DecodeError> {
+fn decode_rpn(c: &mut Cursor, slot_count: u32) -> Result<Rpn, DecodeError> {
     let n = c.u32v()? as usize;
     let mut v = Vec::with_capacity(n.min(4096));
     for _ in 0..n {
-        v.push(decode_tok(c)?);
+        let t = decode_tok(c)?;
+        // Var 槽位上界在解码期拒绝（exec 期 regs 读按槽索引;与 BadPinSlot 同
+        // 口径——攻击面收口在桥接层,认证快路径的前提由此成立）。
+        if let Tok::Var(s) = t {
+            if s as u32 >= slot_count {
+                return Err(DecodeError::BadSlot(s as u32));
+            }
+        }
+        v.push(t);
     }
-    Ok(v.into_boxed_slice())
+    Ok(Rpn::from_toks(v.into_boxed_slice(), slot_count))
 }
 
-fn decode_stmts(c: &mut Cursor, n: u32, depth: usize) -> Result<Vec<Stmt>, DecodeError> {
+fn decode_stmts(c: &mut Cursor, n: u32, depth: usize, slot_count: u32) -> Result<Vec<Stmt>, DecodeError> {
     if depth > MAX_DECODE_DEPTH {
         return Err(DecodeError::TooDeep);
     }
@@ -186,30 +200,34 @@ fn decode_stmts(c: &mut Cursor, n: u32, depth: usize) -> Result<Vec<Stmt>, Decod
         out.push(match c.u8()? {
             0 => {
                 let slot = c.u16()?;
-                let rpn = decode_rpn(c)?;
+                // Assign 槽位同 Var:exec 期写寄存器,越界即越界写。
+                if slot as u32 >= slot_count {
+                    return Err(DecodeError::BadSlot(slot as u32));
+                }
+                let rpn = decode_rpn(c, slot_count)?;
                 Stmt::Assign { slot, rpn }
             }
-            1 => Stmt::Expr(decode_rpn(c)?),
+            1 => Stmt::Expr(decode_rpn(c, slot_count)?),
             2 => {
                 let id = c.u16()?;
                 let count = c.u64v()?;
                 let n = c.u32v()?;
-                let body = decode_stmts(c, n, depth + 1)?;
+                let body = decode_stmts(c, n, depth + 1, slot_count)?;
                 Stmt::Repeat { id, count, body: body.into_boxed_slice() }
             }
             3 => {
                 let id = c.u16()?;
-                let cond = decode_rpn(c)?;
+                let cond = decode_rpn(c, slot_count)?;
                 let n = c.u32v()?;
-                let body = decode_stmts(c, n, depth + 1)?;
+                let body = decode_stmts(c, n, depth + 1, slot_count)?;
                 Stmt::While { id, cond, body: body.into_boxed_slice() }
             }
             4 => {
-                let cond = decode_rpn(c)?;
+                let cond = decode_rpn(c, slot_count)?;
                 let n = c.u32v()?;
-                let body = decode_stmts(c, n, depth + 1)?;
+                let body = decode_stmts(c, n, depth + 1, slot_count)?;
                 let en = c.u32v()?;
-                let els = decode_stmts(c, en, depth + 1)?;
+                let els = decode_stmts(c, en, depth + 1, slot_count)?;
                 Stmt::If { cond, body: body.into_boxed_slice(), els: els.into_boxed_slice() }
             }
             5 => Stmt::Break,
@@ -245,7 +263,7 @@ pub fn decode_program(bytes: &[u8]) -> Result<Program, DecodeError> {
         repeat_counts.push((id, count));
     }
     let top = c.u32v()?;
-    let body = decode_stmts(&mut c, top, 0)?;
+    let body = decode_stmts(&mut c, top, 0, slot_count as u32)?;
     // v2 输出段：u32 条数 + 逐条 Rpn（Java outputRpns；空 @output 脚本 = 0 条，
     // 调用方输出缓冲按「oi ≥ 条数 = 0」口径收尾——与 Java List.of(0.0) 同语义）。
     // v2 output section: count + one Rpn each (Java's outputRpns; a script without
@@ -254,7 +272,7 @@ pub fn decode_program(bytes: &[u8]) -> Result<Program, DecodeError> {
     let out_count = c.u32v()? as usize;
     let mut outputs = Vec::with_capacity(out_count.min(4096));
     for _ in 0..out_count {
-        outputs.push(decode_rpn(&mut c)?);
+        outputs.push(decode_rpn(&mut c, slot_count as u32)?);
     }
     // v3 引脚槽位段（warm refresh 的契约面）：u32 条数 = Java inputVars.size()，
     // 逐钉 u32 槽位索引（u32::MAX = 声明未引用的缺席钉——槽位表只收脚本引用过的
