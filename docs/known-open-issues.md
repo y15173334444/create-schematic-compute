@@ -1190,3 +1190,10 @@ FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常�
 - **第二实例（2026-11-15）**：`AudioMixerShapingPerfTest` 整形内环成本断言（渲染耗时 ≤35% 实时时长）满载翻车一次（30.9ms/80ms 超限），单跑与全量复跑均绿——同族（计时预算断言 × 客户端同机负载），修复方向同上。
 - 状态：**暂缓**（负载敏感波动族，非产品缺陷）。
 / The escalation-ladder test couples its preheat exemption and over-slice accounting to the wall clock (the provider busy-spins past its slice; the exemption window expires in real time) — under heavy same-machine load the window expires earlier in call-count terms and the ladder freezes early (expected 21, got 11). Green standalone and on two full re-runs; one flake under load. Fix direction: inject a clock or count ticks. Deferred (load-sensitive flake, not a product defect). Second instance (2026-11-15): AudioMixerShapingPerfTest's shaping-cost budget (render time ≤35% of real time) flaked once under load and passes standalone — same family.
+
+## 39. Tok 字节码 16B 布局未收窄（常量池化顺延,待拍板排期）
+
+- 机制：`Tok` 枚举实测 **16B**（`Const(f64)` 撑大整枚举;tok.rs 模块头「8B 定宽」宣称从未兑现）——token 流缓存足迹两倍于设计意图。常量池化形态（`Const(u32 索引)` + Program 级常量池,wire format 不动,解码器边解边入池）已预研未实施。
+- 测量约束：本负载跨二进制 A/B 有 ±25% 布局噪声（见 `rust-backend-optimization.md` §五.0「测量方法学的重要发现」——同二进制探针是唯一可靠口径）,收益判定必须用该口径,单次 A/B 不可归因。
+- 状态：**顺延**（csc-rust-perf 线实测记录在案,待拍板排期）。
+/ Tok is 16B in memory (the module header's 8B claim never materialized; Const(f64) inflates the enum). Const-pooling (u32 index + a program-level pool, wire format unchanged) is researched but unimplemented — deferred pending scheduling; measurement must use the same-binary probe per rust-backend-optimization.md §五.0 (cross-binary A/B carries ±25% layout noise).
