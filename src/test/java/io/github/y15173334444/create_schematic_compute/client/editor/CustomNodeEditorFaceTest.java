@@ -73,8 +73,8 @@ class CustomNodeEditorFaceTest {
             "CUSTOM BOOL 点击的 op 必须携带 paramIndex=bi");
         assertTrue(t.contains("addNodeRequest(\n                        host.getBlockPos(), ownerNodeId(), added.id,\n                        selectedMenuType, customMenuId"),
             "CUSTOM 建点 op 必须携带 customMenuId");
-        assertTrue(t.contains("graph.addNode(selectedMenuType, customMenuId, s2cX(mx), s2cY(my))"),
-            "本地建点走带 id 重载");
+        assertTrue(t.contains("graph.addNode(selectedMenuType, customMenuId, s2cX(pmx), s2cY(pmy))"),
+            "本地建点走带 id 重载（侧边栏钉住落位后坐标为 pmx/pmy）");
     }
 
     @Test

@@ -414,6 +414,8 @@ final class NodeAddMenu {
     void scrollMenu(float delta) { setMenuScrollOff((int)(menuScrollOff + delta)); }
     /** 菜单是否有滚动条。 / Whether the menu has a scrollbar. */
     boolean menuHasScrollbar() { return menuTotalH > menuMaxH && menuMaxH > 0; }
+    /** 当前菜单宽（侧边栏钉住锚点用；首帧前为 0）。/ Current menu width (sidebar pin anchor; 0 pre-first-render). */
+    int menuWidth() { return (int) menuW; }
     /** 滚动条轨道区（屏幕坐标）。 / Scrollbar track area (screen coords). */
     int[] menuScrollbarTrack() {
         return new int[]{(int)(menuRX + menuW - SCROLLBAR_W - 2), (int)(menuRY + TOP_H),

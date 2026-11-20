@@ -277,7 +277,6 @@ public class NodeRenderer {
     /** 封装占用者表（encapId → "Player1, Player2"）。主图中哪些封装节点内有玩家在编辑。
      *  Encapsulation occupant map (encapId → "Player1, Player2"). Which encap nodes have players editing inside. */
     public java.util.Map<Integer, String> encapOccupants = java.util.Collections.emptyMap();
-    public boolean showBookmarkPanel = false;
 
     /** 某个节点是否在选中集里（**按 id** 判定）。
      *  历史上这里用对象相等（selectedNodes.contains(n)），一旦整图同步/重载替换了节点实例，
@@ -832,9 +831,12 @@ public class NodeRenderer {
     public boolean isMenuSearchFocused() { return addMenu.isMenuSearchFocused(); }
     public void setMenuSearchFocused(boolean f) { addMenu.setMenuSearchFocused(f); }
     public void setMenuSearchText(String t) { addMenu.setMenuSearchText(t); }
+    /** 菜单当前宽（侧边栏钉住锚点用；首帧未渲染时为 0，调用方回退估值）。
+     *  Current menu width (sidebar pin anchor; 0 before the first render — callers fall back). */
+    public int menuWidth() { return addMenu.menuWidth(); }
 
     public void renderButtons(GuiGraphics g, boolean compiled, boolean running, String cycleWarning,
-                               long saveFeedbackUntil, boolean gridSnap, int themeIdx, int width, int height) {
+                               long saveFeedbackUntil, int width, int height) {
         long now = System.currentTimeMillis();
         boolean fb = now < saveFeedbackUntil;
         int btnH = 18;
@@ -862,25 +864,9 @@ public class NodeRenderer {
         g.renderOutline(cX3, btnY, cW3, btnH, CSB());
         g.renderOutline(cX3+1, btnY+1, cW3-2, btnH-2, 0xFF2A2822);
         drawStr(g, running ? "§a" + I18n.get("gui.create_schematic_compute.stop") : "§e" + I18n.get("gui.create_schematic_compute.run"), cX3+4, btnY+4, CT);
-        // 网格吸附按钮
-        int cX4 = 134, cW4 = 58;
-        g.fill(cX4, btnY, cX4+cW4, btnY+btnH, gridSnap ? 0xFF3A5A2A : 0xFF3A3428);
-        g.renderOutline(cX4, btnY, cW4, btnH, CSB());
-        g.renderOutline(cX4+1, btnY+1, cW4-2, btnH-2, 0xFF2A2822);
-        drawStr(g, (gridSnap ? "§a" : "§7") + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.grid"), cX4+6, btnY+4, CT);
-
-        // 右下角书签按钮 / bottom-right bookmark button
-        int bmX = width - 22, bmY = height - 44, bmW = 18, bmH = 18;
-        boolean bmOpen = showBookmarkPanel;
-        g.fill(bmX, bmY, bmX+bmW, bmY+bmH, bmOpen ? 0xFF4A4A2A : 0xFF3A3832);
-        g.renderOutline(bmX, bmY, bmW, bmH, bmOpen ? ACC() : CSB());
-        drawStr(g, bmOpen ? "§e★" : "§7☆", bmX+2, bmY+2, CT);
-
-        // 右下角工具栏位置切换按钮
-        int tX = width - 22, tY = height - 22, tW = 18, tH = 18;
-        g.fill(tX, tY, tX+tW, tY+tH, 0xFF3A3832);
-        g.renderOutline(tX, tY, tW, tH, CSB());
-        drawStr(g, toolbarBottom ? "§7▲" : "§7▼", tX+5, tY+3, CT);
+        // 网格吸附 / 书签 / 工具栏位置 三键已迁往右缘侧边栏（docs/graph-editor-sidebar-plan.md）。
+        // Grid-snap / bookmark / toolbar-position moved into the right-edge sidebar
+        // (docs/graph-editor-sidebar-plan.md).
 
         // 环警告
         int warnY = toolbarBottom ? btnY - 24 : btnY + btnH + 6;
