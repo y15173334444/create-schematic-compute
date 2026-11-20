@@ -33,6 +33,7 @@ class NbsPianoRollTest {
         NbsPianoRoll roll = new NbsPianoRoll();
 
         assertTrue(roll.mouseDown(0, 0, AREA_W, AREA_H, MX, MY, 1, k, 0, 0));
+        k.endBatch(); // 开组责任在 mouseDown；测试直驱需自行收口（生产由 Screen.mouseReleased）
         assertEquals(0, song.noteCount(), "RMB on a blank cell places nothing");
         assertFalse(k.canUndo(), "and records nothing");
     }
@@ -46,13 +47,16 @@ class NbsPianoRollTest {
         // 同 tick 另一键高（空格）：擦除作用域 = 本层该 tick（层是单声部）
         // Blank key height in the same tick: erase scope = the layer's tick (monophonic).
         assertTrue(roll.mouseDown(0, 0, AREA_W, AREA_H, 75, 52.5, 1, k, 0, 0));
+        k.endBatch();
         assertNull(song.getNote(4, 0), "RMB erases the note at that tick");
         assertTrue(k.performUndo(), "the erase is undoable");
         assertNotNull(song.getNote(4, 0));
 
         // 直接点在音符上同样只擦不放 / pressing on the note itself only erases
         roll.mouseUp();
+        k.endBatch();
         roll.mouseDown(0, 0, AREA_W, AREA_H, MX, MY, 1, k, 0, 0);
+        k.endBatch();
         assertNull(song.getNote(4, 0));
         assertEquals(0, song.noteCount(), "still nothing placed");
     }
@@ -65,12 +69,14 @@ class NbsPianoRollTest {
 
         // 左键 = 点放（原语义不变）/ LMB places (unchanged)
         assertTrue(roll.mouseDown(0, 0, AREA_W, AREA_H, MX, MY, 0, k, 0, 0));
+        k.endBatch();
         assertNotNull(song.getNote(4, 0), "LMB on blank places a note");
         assertTrue(roll.isPainting());
         roll.mouseUp();
 
         // 右键拖 = 擦除笔划（每 tick 一次）/ RMB drag erases once per tick
         assertTrue(roll.mouseDown(0, 0, AREA_W, AREA_H, MX, MY, 1, k, 0, 0));
+        k.endBatch();
         assertTrue(roll.isPainting(), "the erase stroke is armed");
         assertNull(song.getNote(4, 0));
     }
@@ -102,10 +108,12 @@ class NbsPianoRollTest {
         NbsPianoRoll roll = new NbsPianoRoll();
 
         roll.mouseDown(0, 0, AREA_W, AREA_H, MX, MY, 0, k, 0, 0);   // (tick 4, key 45)
+        k.endBatch();
         roll.mouseUp();
         assertNotNull(song.getNote(4, 0));
 
         roll.mouseDown(0, 0, AREA_W, AREA_H, MX, 97.5, 0, k, 0, 0); // 同列 key 50 / same column
+        k.endBatch();
         roll.mouseUp();
         assertEquals(2, song.noteCount(), "both strokes survive");
         assertEquals(45, song.getNote(4, 0).key, "the first note keeps its key");
@@ -124,6 +132,7 @@ class NbsPianoRollTest {
 
         roll.mouseDown(0, 0, AREA_W, AREA_H, MX, MY, 0, k, 0, 0);    // (4, 45)
         roll.mouseDrag(0, 0, MX, 97.5, k, 0, 0);                     // (4, 50)
+        k.endBatch();
         roll.mouseUp();
         assertEquals(2, song.noteCount(), "the drag paints two chord tones");
         assertEquals(45, song.getNote(4, 0).key);
