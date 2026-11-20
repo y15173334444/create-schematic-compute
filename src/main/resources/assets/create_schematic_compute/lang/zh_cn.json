@@ -59,6 +59,7 @@
   "gui.create_schematic_compute.grid_on": "网格",
   "gui.create_schematic_compute.topbar.name": "名称",
   "gui.create_schematic_compute.sidebar.nodes": "节点库",
+  "gui.create_schematic_compute.sidebar.graph": "图",
   "gui.create_schematic_compute.sidebar.tools": "工具",
   "gui.create_schematic_compute.sidebar.bookmark": "书签",
   "gui.create_schematic_compute.sidebar.toolbar_bottom": "工具栏置底",

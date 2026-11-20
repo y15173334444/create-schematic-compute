@@ -159,9 +159,9 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
     private int perfFrameIdx;
 
     /** 叠加层：FPS / 帧时间 avg·p95·max（240 帧环）/ canvas 耗时 / 节点·连线数 / 缩放。
-     *  落点 TOP_BAR_H+24：让开顶栏（0–22）与顶置工具栏（24–42）。
+     *  落点 24：让开左上角三键簇（2–20）。
      *  Overlay: FPS / frame avg·p95·max (240-frame ring) / canvas cost / node·wire counts /
-     *  zoom. Placed at TOP_BAR_H+24: clears the top bar (0–22) and the top toolbar (24–42). */
+     *  zoom. Placed at 24: clears the corner button cluster (2–20). */
     private void drawPerfStats(GuiGraphics g, long canvasNs) {
         int n = Math.min(perfFrameIdx, perfFrameNs.length);
         if (n == 0) return;
@@ -185,7 +185,7 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
             "canvas %.2f ms | nodes %d | wires %d | zoom %.2f",
             canvasNs / 1e6, graph.nodes.size(), graph.connections.size(), editor.zoom);
         int bw = Math.max(font.width(l1), font.width(l2)) + 8;
-        int by = GraphEditor.TOP_BAR_H + 24;
+        int by = 24;
         g.fill(0, by, bw, by + 22, 0x90000000);
         g.drawString(font, l1, 4, by + 3, 0xFFFFFF00, false);
         g.drawString(font, l2, 4, by + 13, 0xFFFFFF00, false);

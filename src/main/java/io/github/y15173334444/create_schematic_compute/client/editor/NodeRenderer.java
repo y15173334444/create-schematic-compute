@@ -163,6 +163,8 @@ public class NodeRenderer {
     private static boolean toolbarBottom = false;
     static { toolbarBottom = loadToolbarBottom(); }
     public static boolean isToolbarBottom() { return toolbarBottom; }
+    /** 工具栏按钮行 Y（渲染与命中单源）。/ Toolbar button-row Y (single source for render + hit). */
+    public static int toolbarBtnY(int height) { return toolbarBottom ? height - 22 : 2; }
 
     public static void toggleToolbarBottom() { toolbarBottom = !toolbarBottom; saveToolbarBottom(); }
 
@@ -840,12 +842,10 @@ public class NodeRenderer {
         long now = System.currentTimeMillis();
         boolean fb = now < saveFeedbackUntil;
         int btnH = 18;
-        // 工具栏位置：顶部(默认)或底部。顶置时必须让开编辑器顶栏（GraphEditor.TOP_BAR_H），
-        // 否则顶栏（最后渲染）会把工具栏整个盖住，且与命中区（TOP_BAR_H+2 起）错位。
-        // Toolbar position: top (default) or bottom. The top position must clear the
-        // editor's top bar (GraphEditor.TOP_BAR_H) — the top bar renders last and would
-        // cover a toolbar drawn at y=4, and the hit area starts at TOP_BAR_H+2.
-        int btnY = toolbarBottom ? height - btnH - 4 : GraphEditor.TOP_BAR_H + 2;
+        // 工具栏位置：顶部(默认，贴左上角)或底部。顶栏退役后三键直接贴 y=2。
+        // Toolbar position: top (default, hugging the corner) or bottom. The top bar is
+        // retired, so the three buttons sit at y=2 directly.
+        int btnY = toolbarBtnY(height);
         // 关闭按钮（最左）
         int cX = 4, cW = 18;
         g.fill(cX, btnY, cX+cW, btnY+btnH, 0xFF4A3028);
