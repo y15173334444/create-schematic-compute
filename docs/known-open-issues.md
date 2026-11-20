@@ -2,7 +2,7 @@
 > 更新日期 / Updated：2026-11-08
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 共 24 项（✅ 已实施 14 项〔5/6/8/9/10/11/12/13/14/16/17/24/26/34〕；已拍板待实施 1 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件〕；待办 9 项〔其中条目 1 待立项、条目 18 半收口（② 回执形态发版后另批）、条目 19 宿主套件波前承接、条目 20 待用户拍板、条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 共 24 项（✅ 已实施 14 项〔5/6/8/9/10/11/12/13/14/16/17/24/26/34〕；已拍板待实施 1 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件〕；待办 9 项〔其中条目 1 待立项、条目 18 半收口（② 回执形态发版后另批）、条目 19 宿主套件波前承接、条目 20 待用户拍板、条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）、条目 38 半收口（① 梯子墙钟耦合已实施、② 音频计时断言评估后暂缓）〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -52,7 +52,7 @@
 | 35 | native 公式后端无强制禁用开关（AVAILABLE 进程级静态） | `FormulaNative.AVAILABLE` 加载成功即恒真，无配置面/调试命令能强制回 Java 解释器路径——兜底验证与对拍排查只能动 classpath 或重编 | 配置面落地时加 dev 侧禁用开关（系统属性或调试命令强制 AVAILABLE=false），对齐「多层 API 兜底层须可禁」纪律（条目 27.3 同款口径） | 🔶 暂缓（2026-11-14 Rust 后端合并前自查批登记，择机另批） |
 | 36 | PERF-8 提交收敛：试验-实证-回滚（待重新设计） | FlushGate 重叠门控干净态 canvas 21.87→19.0ms，但拖拽重叠实机捕获单帧 z 序破绽（下层引脚标签浮在上层节点体上），gui/font 批语义存在未吃透的帧级窗口 | 先做 MultiBufferSource.BufferSource 批序机制取证再重设计隔离粒度；门控纯逻辑（FlushGateTest）可复用 | 🔶 已回滚（2026-11-14 渲染性能线登记，原 34.1；等机制取证后重设计） |
 | 37 | 编辑器多次 resize 后的会话级渲染劣化 | 同会话多次窗口 resize 后 1024@0.25 场景 canvas 从约 19.8ms 劣化到约 54.8ms（3× 稳态），干净重启即恢复——会话态累积，非代码回归 | 按 resize → Screen.init → GraphJoinPacket 重发的会话状态累积独立取证；与渲染性能线解耦 | 🔶 暂缓（2026-11-14 渲染性能线登记，原 34.2，独立取证） |
-| 38 | CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次） | 预热豁免窗与超份额记账耦合墙钟，满载下提前到期、梯子冻结（expected 21 got 11）；第二实例 AudioMixerShapingPerfTest 计时预算断言同族翻车 | 预算/豁免窗去墙钟（注入 Clock 或按 tick 计数），断言与机器负载解耦 | 🔶 暂缓（2026-11-14 渲染性能线登记，原 35，负载敏感波动族非产品缺陷） |
+| 38 | CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次） | ① 渐进台面 prev=100/budget=5ms 开着破约快车道，「不熔断」靠 spin 200µs<5ms 墙钟假设，满载撑过即提前熔断（expected 21 got 11）；② AudioMixerShapingPerfTest 计时预算断言同族翻车 | ① 台面改 prev=1/budget=0.05ms 关闭快车道 + 墙钟膨胀负例锚（保守方案，不动生产）；② 评估后不动（已自校准，放宽削弱牙口） | 🔶 ① 已实施（2026-11-20，1333 绿）；② 暂缓（2026-11-14 登记，负载敏感波动族非产品缺陷） |
 
 ---
 
@@ -1187,8 +1187,8 @@ FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常�
 
 ## 38. CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次）
 
-- 机制：`escalationLadder` 的预热豁免窗与超份额记账耦合墙钟（提供方 `spinOverSlice` 忙等越片自证、豁免窗按真实时间到期）——满载（游戏客户端同机吃 CPU）下豁免窗在调用计数意义上提前到期，梯子提前冻结：`expected: <21> but was: <11>`（CustomNodeEvalTest:252）。单跑与两次全量复跑均绿，仅 2026-11-14 深夜满载一次翻车；纯 graph/eval 域，与渲染改动零交集。
-- 修复方向：预算/豁免窗去墙钟（注入 Clock 或按 tick 计数），断言与机器负载解耦。
+- 机制（**2026-11-20 代码核实修正**）：登记初版「豁免窗按真实时间到期、梯子提前冻结」**不成立**——首调豁免是 `if (run.measuredCalls++ == 0) return;`，按调用计数，非墙钟。真因是 `gradualLadderStage` 的台面 `budget=5ms/prev=100` 让**破约快车道开着**（prev≥2 且 elapsed≥budget → 立即熔断），「不熔断」全靠 `spinOverSlice` 忙等 200µs 的墙钟耗时 <5ms 这条假设；满载抢占把 elapsed 撑过 5ms 就提前熔断、调用计数冻结在 11（期望 21）。单跑与两次全量复跑均绿，仅 2026-11-14 深夜满载一次翻车；纯 graph/eval 域，与渲染改动零交集。
+- 修复方向（原登记）：预算/豁免窗去墙钟（注入 Clock 或按 tick 计数），断言与机器负载解耦。**实际采纳保守方案**：只改测试台面，不动生产热路径。
 - **第二实例（2026-11-15）**：`AudioMixerShapingPerfTest` 整形内环成本断言（渲染耗时 ≤35% 实时时长）满载翻车一次（30.9ms/80ms 超限），单跑与全量复跑均绿——同族（计时预算断言 × 客户端同机负载），修复方向同上。
-- 状态：**暂缓**（负载敏感波动族，非产品缺陷）。
-/ The escalation-ladder test couples its preheat exemption and over-slice accounting to the wall clock (the provider busy-spins past its slice; the exemption window expires in real time) — under heavy same-machine load the window expires earlier in call-count terms and the ladder freezes early (expected 21, got 11). Green standalone and on two full re-runs; one flake under load. Fix direction: inject a clock or count ticks. Deferred (load-sensitive flake, not a product defect). Second instance (2026-11-15): AudioMixerShapingPerfTest's shaping-cost budget (render time ≤35% of real time) flaked once under load and passes standalone — same family.
+- 状态：🔶 **① 已实施（2026-11-20，保守方案）；② 暂缓（评估后不动）**。① `gradualLadderStage` 台面从 `budget=5ms/prev=100` 改为 `budget=0.05ms/prev=1`：slice 仍 50µs、渐进阈值 75µs 不变，但 prev≤1 域**无破约快车道**——elapsed 再大也只记渐进超份额、不跳熔断，彻底移除「spin 墙钟 <5ms」假设。破约快车道与首调豁免各有独立锚（本测试不再隐含测它们）。新增 `gradualStageIgnoresWallClockInflation`：第二次调用忙等 6ms 模拟满载抢占，断言不熔断、只记一次渐进超份额；旧台面下该锚红、新台面绿（负例对照）。全量 1333 绿（headless 离线链路）。② `AudioMixerShapingPerfTest` 已是 `Math.max(80×0.35, plain×2.0)` 自校准 + 比值帽 + 三轮交错中位，再放宽会削弱 3× 回归信号牙口（测试自身注释「钉子变空气」警告），评估后不动。
+/ Status: (1) implemented 2026-11-20 (conservative): gradualLadderStage stage moved from budget=5ms/prev=100 to budget=0.05ms/prev=1 — slice stays 50µs / 75µs gradual threshold, but the prev<=1 domain has no breach fast lane, so any elapsed only feeds the gradual streak. The "spin wall clock <5ms" assumption is gone. Fast lane and first-call exemption each keep their own anchors. New gradualStageIgnoresWallClockInflation anchor busy-spins 6ms on the 2nd call to simulate a loaded runner: red on the old stage, green on the new. (2) deferred after review: AudioMixerShapingPerfTest already self-calibrates via max(80*0.35, plain*2.0) + ratio pin + interleaved median; loosening further would blunt the 3x regression teeth.
