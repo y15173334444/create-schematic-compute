@@ -1,6 +1,6 @@
 # 公式求值 Rust 后端 · 性能优化线（csc-rust-perf）
 
-> 状态:**探索中**（2026-11-20 开线）
+> 状态:**收口**（2026-11-20 开线同日收口:L1 落地 + 对抗缺口收口,L2 顺延,L3 工具链关闭;测量方法学发现见 §五.0——跨二进制读数 ±25% 布局噪声,同二进制探针为唯一可靠口径）
 > 施工面:worktree `C:/Users/Administrator/csc-rust-perf-wt`,分支 `csc-rust-perf`（自 main 757e550 分出）
 > 触发:用户指令「开一条RUST后端优化分支看看还能不能优化一下性能」;承接 `rust-backend-exploration.md` R4.5 记录在案的剩余头寸（分支/比较派发 ~2× 纯算术成本,估 20–40%,当时判不立项）。
 > 方法:**测量驱动**——每根杠杆先 hack 测上限,达判定门才落正式形态;读数取三轮中位;逐位对拍网是语义不变的唯一验收面。
@@ -23,22 +23,22 @@
 ## 二、解剖发现（开线即得）
 
 1. **Tok 内存布局 16B,「8B 定宽」注释从未兑现**。`Const(f64)` 撑大整枚举（`size_of::<Tok>() == 16` 实测）;tok.rs 模块头宣称的 8B 形态不存在。探索线 §3.2 当年把「16B token 步长」列为第一版慢因之一,后续只修了值搬运（TokStack）,token 步长原样。→ 杠杆 **L2**。
-2. **解码期槽位认证缺口（对抗面,新发现）**。`Tok::Var` 与 `Stmt::Assign` 的槽位索引无上界校验（v3 pin_slots 有,Var/Assign 没有）;位翻转字节码只要解码通过,exec 时 `regs[slot]` 越界 = slice 索引 panic,release profile `panic = "abort"` ⇒ JNI 调用内进程崩——违反 R2.5「敌意输入绝不 JVM 崩溃/挂死」口径。既有轰炸测试只断言上传 rc ∈ {-5, ≥0},从不 exec 合法化的变异体,缺口未被测试网覆盖。→ 收口与杠杆 **L1** 同机制（解码期认证）。
+2. **解码期槽位认证缺口（对抗面,新发现;✅ 已收口,见 §五.2）**。`Tok::Var` 与 `Stmt::Assign` 的槽位索引无上界校验（v3 pin_slots 有,Var/Assign 没有）;位翻转字节码只要解码通过,exec 时 `regs[slot]` 越界 = slice 索引 panic,release profile `panic = "abort"` ⇒ JNI 调用内进程崩——违反 R2.5「敌意输入绝不 JVM 崩溃/挂死」口径。既有轰炸测试只断言上传 rc ∈ {-5, ≥0},从不 exec 合法化的变异体,缺口未被测试网覆盖。→ 收口与杠杆 **L1** 同机制（解码期认证）。
 
 ## 三、候选杠杆与判定门
 
 **L1 每 op 动态开销**（栈 push/pop 逐次边界/下溢检查 + 逐 token deadline 计数 + 寄存器读边界检查）。
 机理:R4.5 分解显示分支/比较派发 ~2× 纯算术成本;当前每个二元 op 付 3 次栈界检查 + 2 次下溢分支,每 token 付计数器增/测/跳,每 Var 读付一次槽位界检查。
-形态:**解码期静态认证**。表达式 RPN 是直线流（无控制流）,每 token 栈效应恒定（Op/Cmp −2+1、Not/Swz −1+1、Fn −arity+1、Const/Var +1）⇒ 最大栈深与下溢点在解码期可精确算出;槽位上界同场校验。认证通过的表达式走 unchecked 快路径,认证失败走现 checked 兜底（语义逐位同）。顺带收口 §二.2 对抗缺口。
-判定门:hack 上限 ≥10% 才落正式形态。
+形态:**解码期静态认证**。表达式 RPN 是直线流（无控制流）,每 token 栈效应恒定 ⇒ 最大栈深与下溢点在解码期可精确算出;槽位上界同场校验。认证通过的表达式走 unchecked 快路径,认证失败走现 checked 兜底（语义逐位同）。顺带收口 §二.2 对抗缺口。
+判定门:hack 上限 ≥10% 才落正式形态。→ **✅ 已落地**（同二进制实测 full 路 +10~11%,形态与测量口径见 §五.1/§五.0）。
 
 **L2 Tok 16B→8B**（常量池化）。`Const(f64)` → `Const(u32 索引)` + Program 级常量池;Tok 枚举缩至 8B,token 流缓存足迹减半。**线格式（wire format）不动**——池化是 native 内存形态,解码器边解边入池。
-判定门:≥3% 才保留。
+判定门:≥3% 才保留。→ **⏸ 顺延未测**（事实已确认 16B;测量方法学见 §五.3）。
 
 **L3 PGO**（两遍构建:profile-generate 训练 → profile-use）。无语义风险、无代码改动;先本地测量,收益可观再谈 buildNative 接线。
-判定门:≥3%。
+判定门:≥3%。→ **❌ 关闭**（工具链无 profiler_builtins,见 §五.0）。
 
-**L4 扁平化语句派发 / threaded code**（R4.5 记录的结构性杠杆,估 20–40%）。仅当 L1–L3 落地后 BODY 型差距仍显著时立项;工程量大、收益不确定,判定门到点再拍板。
+**L4 扁平化语句派发 / threaded code**（R4.5 记录的结构性杠杆,估 20–40%）。仅当 L1–L3 落地后 BODY 型差距仍显著时立项;工程量大、收益不确定,判定门到点再拍板。→ 现状:检查价已实测 10~11%（非 2×）,R4.5 的「派发 2×」归因被 §五.0 修正——L4 的预期收益基础变弱,维持不立项。
 
 **已关闭杠杆不重开**（均有实测否决记录）:target-cpu=x86-64-v3（劣化）、常量折叠（上限 3.2%）、fdlibm 微成本（非瓶颈）、direct ByteBuffer（~3%）、引用计数程序缓存（MB 级上界）。
 
@@ -49,7 +49,37 @@
 - **未发版形态不写兼容**:wire format v3、ABI 2、错误码表不动;优化只动 native 内存/求值形态。
 - **unsafe 纪律**:仅限认证后的栈/槽位访问;逐处注释认证依据;认证函数本身零 unsafe。
 
-## 五、实验记录（随批追加）
+## 五、实验记录（2026-11-20 收口）
+
+### 0. 测量方法学的重要发现(先读,决定一切读数的可信度)
+
+- **跨二进制对比在本负载上被布局彩票淹没**。同一份标量求值代码,仅因 binary 里 eval_full 的 monomorph 形态不同(dual / 恒 checked / 恒 unchecked),JNI 面标量负载(弹道)实测摆幅 **±25%**:b4x 对照二进制的标量路代码与 b4f 逐字节同构,面读数 5.0ms → 6.4ms;alloc-bench 同样 ±10–20%(EXP-A/B/D 三个语义近同形态散在 30.8–37.9ns)。**任何 ≤20% 的 A/B 二进制差异不可归因**——此前的「标量面 −5%/−7%」读数全部作废,不得引用。
+- **可靠口径 = 同二进制内对照**:同一 binary 同一进程,认证流(走 unchecked 机)与摘证流(走 checked 机)交替计时。此口径下:
+  - **逐 op 检查在 tagged full 路的真实代价 = +10~11%**(vec3Loop +11.0%、scalarLoop-full +10.4%,探针交替三轮)。
+  - E1 hack 当时读到的 26–46% 是跨二进制假象,**收回**。
+- PGO 本是对布局彩票的对症药,但本机工具链不可用:stable-x86_64-pc-windows-gnu 无 `profiler_builtins`(E0463),MSVC 目标无 link.exe。**L3 关闭**(工具链级约束;换工具链可重开)。
+- 生产口径基准 = `FormulaFaceBench`(JNI 四面);同窗 java 面是漂移对照。弹道是纯标量脚本 → 生产标量路,full 路收益(向量/混排脚本)在引擎级口径测。
+
+### 1. L1 落地形态:解码期认证 + unchecked full 双态(已落地,38/38 cargo 绿)
+
+- **Rpn 认证书**(`ast::Rpn::from_toks`,构造期一次走查):每 token 栈效应 Const/Var +1、Op/Cmp −2+1(含 `'('` lenient 吃两项)、Not/Swz −1+1、Fn −consumed+1——**`consumed()` 与 `arity()` 不是一回事:vec3 求值弹 3 个而 arity() 表口径记 1,证书按弹栈数算,否则 vec3 程序误认证**。certified = 全流无下溢 ∧ 峰值深 ≤ 64 ∧ 全部 Var 槽位在界。
+- **求值双态**:`eval_full::<CHECKED>` 双 monomorph 共享同一 match 体;认证流走 unchecked(表达式栈 push/pop 与 Var 读零边界检查),未认证流走 checked 兜底(出错 token 时点与 Java 逐字一致,含 deadline 采样竞争面)。标量路恒 checked 单态(f64 栈检查近零成本,语义全保真)。未认证流含 hand-built 短 regs 错配 → checked 机 `.get()` 受控 Underflow,绝不 panic/UB。
+- **同二进制实测收益:full 路 +10~11%**。生产含义 = vec3/混排脚本受益;纯标量脚本(弹道类重节点)走 checked 标量机,收益 0。跨二进制的标量面差异不可测(§五.0)。
+- 语义验收:双路逐位对拍(certified vs decertified 全值位一致,含 vec3 槽)+ 路由 parity + parity/bridge/trig 既有网全绿;wire format v3 / ABI 2 / 错误码表零改动。
+
+### 2. 对抗缺口收口(顺带发现,已落地)
+
+- `Tok::Var` / `Stmt::Assign` 槽位**解码期拒绝**(`DecodeError::BadSlot` → programUpload −5),与 BadPinSlot 同口径;对抗测试补「位翻转字节码 → BadSlot 受控拒绝,绝不 panic」exec 面。
+- 原缺口:位翻转字节码解码通过后,exec 的 `regs[slot]` 越界 = slice 索引 panic,release `panic = "abort"` ⇒ JNI 调用内进程崩——违反 R2.5「敌意输入绝不 JVM 崩溃」。轰炸测试只断言上传 rc ∈ {−5, ≥0}、从不 exec 合法化变异体,缺口未被测试网覆盖。此发现与 L1 的槽位认证同源,一并收口。
+
+### 3. L2(Tok 16B→8B 常量池化)——顺延未测
+
+- 事实已确认:Tok 内存布局实测 **16B**(tok.rs 模块头「8B 定宽」的宣称从未兑现;`Const(f64)` 撑大整枚举)。
+- 未实施。下批方法学:布局噪声下需用 §五.0 的同二进制口径或抽签分布法,不能靠单次 A/B。实施形态预研:常量池化(`Const(u32 索引)` + Program 级池,wire format 不动)。
+
+### 4. 维持关闭的杠杆(R4.5 判决不重开)
+
+target-cpu=x86-64-v3(劣化)、常量折叠(上限 3.2%)、fdlibm 微成本(非瓶颈)、direct ByteBuffer(~3%)、程序缓存引用计数(MB 级上界)。
 
 ## 六、复现手册
 
