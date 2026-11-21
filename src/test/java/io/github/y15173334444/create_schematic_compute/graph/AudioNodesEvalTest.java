@@ -577,4 +577,68 @@ class AudioNodesEvalTest {
         assertEquals(2, stops.size(), "stop wins the same-tick play+stop race (existing edge order)");
         assertEquals(1, played.size(), "the transport ends up stopped: no new notes");
     }
+
+    @Test
+    @DisplayName("从头播放重激活（播放中）：停止标记+新音符同引用到达 sink（先撤后发），旧队列不再夹带")
+    void fromHeadRestartWhilePlayingShipsMarkerThenFreshNotes() {
+        // 实测 2026-11-21：上升沿激活 + 从头播放，不给停止信号，下一个上升沿的播放夹带上一轮
+        // 已下发的预播——重激活经 seek(0) 置硬脉冲（播放中），标记与新音符同引用共存，sink
+        // 先撤后发，旧位置的队列整批撤销。
+        // Measured 2026-11-21: rising-edge activation + from-head, no stop signal — the next
+        // rising edge's playback carried the previous round's dispatched preroll. The
+        // re-activation rides seek(0) which sets the hard pulse while playing; the marker and
+        // the fresh notes share one ref, and the sink cancels first, plays second — the old
+        // position's queue is cancelled wholesale.
+        NodeGraph g = new NodeGraph();
+        GraphNode constPlay = g.addNode(NodeType.CONST, 0, 0);
+        GraphNode music = g.addNode(NodeType.MUSIC, 100, 0);
+        music.song = song(60, 62, 64, 65, 67, 69, 71, 72, 74, 76);   // 长曲:重激活落在播放中
+        music.params[1] = 0f;   // level=0：上升沿激活（拉低不停，传输继续）
+        music.params[2] = 1f;   // fromHead=1：每次激活回曲首
+        GraphNode amp = g.addNode(NodeType.AMP, 200, 0);
+        amp.params[0] = 1f;
+        GraphNode audioOut = g.addNode(NodeType.AUDIO_OUT, 300, 0);
+        audioOut.signalName = "B";
+        GraphNode play = g.addNode(NodeType.SPEAKER_PLAY, 400, 0);
+        assertTrue(g.addConnection(constPlay.id, 0, music.id, 0));
+        assertTrue(g.addConnection(music.id, 0, amp.id, 0));
+        assertTrue(g.addConnection(amp.id, 0, audioOut.id, 0));
+        assertTrue(g.addConnection(amp.id, 0, play.id, 0));
+
+        Map<Integer, MusicTransport> transports = new HashMap<>();
+        GraphEvaluator ev = new GraphEvaluator(g);
+        ev.setSignalBus(SignalBus.PORT);
+        ev.setAudioBands(AudioBands.PORT);
+        ev.restoreSubState(new RuntimeState());
+        ev.setAudioTransports(transports);
+        ev.setAudioHostPos(new BlockPos(0, 0, 0));
+        List<String> journal = new ArrayList<>();
+        List<NoteEvent> played = new ArrayList<>();
+        ev.setSpeakerSink(new SpeakerSink() {
+            @Override public void play(List<NoteEvent> events, float gain) {
+                played.addAll(events);
+                journal.add("play:" + events.size());
+            }
+            @Override public void stopPlayback() { journal.add("stop"); }
+        });
+        var seat = new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0);
+
+        // 第一次激活：上升沿起播，音符到 sink，无标记
+        constPlay.params[0] = 1f;
+        ev.evaluate(List.of(), Map.of(), DT, seat);
+        assertTrue(played.size() > 0, "the first batch reaches the sink");
+        assertFalse(journal.contains("stop"), "first activation: no cancel");
+
+        // 拉低（level=0 不停，传输继续推进）→ 再上升沿：重激活回曲首
+        constPlay.params[0] = 0f;
+        ev.evaluate(List.of(), Map.of(), DT, seat);
+        constPlay.params[0] = 1f;
+        ev.evaluate(List.of(), Map.of(), DT, seat);
+
+        long cancels = journal.stream().filter("stop"::equals).count();
+        assertEquals(1, cancels, "exactly one cancel on the mid-song re-activation");
+        assertEquals("stop", journal.get(journal.size() - 2), "the cancel precedes the fresh dispatch");
+        assertTrue(journal.get(journal.size() - 1).startsWith("play:"),
+            "the restarted batch dispatches after the cancel");
+    }
 }

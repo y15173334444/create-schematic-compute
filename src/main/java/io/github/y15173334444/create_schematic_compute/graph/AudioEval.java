@@ -87,12 +87,25 @@ public final class AudioEval {
                 List<NoteEvent> events = (song != null)
                     ? tr.advance(song, dt, MusicTransport.PREROLL_SECONDS) : List.of();
                 boolean done = tr.consumeFinishedPulse();
-                // 停止/跳转沿（且未同 tick 续播）→ 一次性停止标记穿透管线到 sink：
+                // 停止沿（未同 tick 续播）或播放中跳转沿 → 一次性停止标记穿透管线到 sink：
                 // 客户端清除该音响预播窗口内已下发未播的声部，加宽窗口才不会留尾巴。
-                // Stop/seek edge (no same-tick resume) → a one-shot stop marker rides the
-                // pipeline to the sink: the client cancels this speaker's dispatched-but-
-                // unplayed voices, so a widened pre-roll leaves no tail after a stop.
-                boolean flush = tr.consumeFlushPulse() && !tr.isPlaying();
+                // 跳转沿无条件发（hardPulse）：「从头播放」重激活 / 播放中 seek 的新位置与
+                // 旧队列无关，标记与新音符同引用共存（sink 先撤后发，包序=客户端先清队列
+                // 再调度新声部）；同 tick 保留播放头的续播（stop 后 playFromHead）队列仍
+                // 有效，照旧吞标记。两脉冲每 tick 都读——短路漏读会把位拖到下一 tick。
+                // A stop edge (no same-tick resume) OR a while-playing seek edge → a one-shot
+                // stop marker rides the pipeline to the sink: the client cancels this
+                // speaker's dispatched-but-unplayed voices, so a widened pre-roll leaves no
+                // tail. The seek edge ships unconditionally (hardPulse): a from-head
+                // re-activation / a seek during playback has nothing to do with the old
+                // queue — the marker and the fresh notes share one ref (the sink cancels
+                // first, plays second; packet order = cancel before the fresh voices
+                // schedule). A same-tick preserve-head resume (stop then playFromHead) keeps
+                // its queue valid and still swallows the marker. Both pulses are read every
+                // tick — a short-circuit missed read would drag a bit into the next tick.
+                boolean flushEdge = tr.consumeFlushPulse();
+                boolean hardEdge = tr.consumeHardPulse();
+                boolean flush = (flushEdge && !tr.isPlaying()) || hardEdge;
                 payloadRefs.put(EvalContext.payloadKey(node.id, 0), new AudioRef(events, 1f, flush));
                 o[0] = 0; // 音频引脚经 payloadRefs（类型化载荷，非浮点）
                 o[1] = tr.isPlaying() ? 1f : 0f;
@@ -196,8 +209,17 @@ public final class AudioEval {
                 // audio, so a consumer-side re-pick is a responsibility leak).
                 AudioRef in = graph.getInputAudio(node.id, 0, payloadRefs);
                 if (in != null && speakerSink != null) {
+                    // 停止标记与音符可同引用共存（重激活/播放中跳转沿 = 撤旧队列 + 发新音符）：
+                    // 先撤后发——两个包同连接同 tick 按序到达，客户端先清队列再调度新声部，
+                    // 新位置的音符不会被自己的标记清掉。纯标记（事件空）只撤；纯音符照旧。
+                    // A stop marker and events may share one ref (the re-activation / seek
+                    // edge = cancel the old queue + dispatch the fresh notes): stop first,
+                    // play second — both packets arrive in order on the same connection, so
+                    // the client clears the queue before scheduling the new voices and the
+                    // new position's notes are never cancelled by their own marker. A pure
+                    // marker (empty events) only cancels; pure notes play as before.
                     if (in.stopSignal()) speakerSink.stopPlayback();
-                    else speakerSink.play(in.events(), in.gain(), in.waveCurves());
+                    if (!in.events().isEmpty()) speakerSink.play(in.events(), in.gain(), in.waveCurves());
                 }
             }
         }

@@ -124,4 +124,32 @@ class ChannelLayoutTest {
         AudioRef in = new AudioRef(List.of(note(0, 45, 100)), 1f);
         assertSame(in.events(), ChannelLayout.channelRef(in, "??", true).events());
     }
+
+    @Test
+    @DisplayName("标记与音符混载的引用按声道正常拆分（各声道只拿自己的音符 + 标记）；纯标记原样穿透")
+    void markerWithEventsSplitsPerChannelAndPureMarkerPassesThrough() {
+        // 重激活/播放中跳转沿的引用形态 = 音符 + stopSignal 共存：整引用穿透会把全部音符发
+        // 给每个声道（跨频段重复发声）；拆分分支保留 stopSignal，各声道只拿自己的音符。
+        // The re-activation / seek-edge ref shape = notes + stopSignal coexisting: a
+        // whole-ref passthrough would hand every band ALL the notes (cross-band
+        // double-booking); the split preserves stopSignal and each band takes only its own
+        // notes.
+        AudioRef mixed = new AudioRef(List.of(note(0, 45, 0), note(0, 45, 200)), 1f, true);
+        // 极左(pan 0)/极右(pan 200)音符:等功率口径下各归己声道;正中音符会同时进 l/r,
+        // 不适合做「只拿自己音符」的断言。/ Far-left / far-right notes: each lands in its own
+        // channel under the equal-power law (a centre note feeds BOTH l and r — unfit for the
+        // own-notes-only assertion).
+        AudioRef left = ChannelLayout.channelRef(mixed, "l", false);
+        assertTrue(left.stopSignal(), "the split preserves the marker");
+        assertEquals(1, left.events().size(), "l takes only its own notes");
+        assertEquals(0, left.events().get(0).panning());
+        AudioRef right = ChannelLayout.channelRef(mixed, "r", false);
+        assertTrue(right.stopSignal(), "the split preserves the marker on r too");
+        assertEquals(1, right.events().size(), "r takes only its own notes");
+        assertEquals(200, right.events().get(0).panning());
+        // 纯标记（事件恒空）原样穿透
+        AudioRef pure = new AudioRef(List.of(), 1f, true);
+        assertSame(pure, ChannelLayout.channelRef(pure, "l", false),
+            "the pure marker passes unchanged");
+    }
 }

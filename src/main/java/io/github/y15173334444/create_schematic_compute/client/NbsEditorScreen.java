@@ -305,6 +305,13 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     @Override
     public void onClose() {
+        // 退出即停试听（NBS_STOP 同款惯用法）：预播窗内已调度未播的试听音符一并撤销——
+        // 不撤则退出后余音继续响完（实测「直接退出编辑器留尾音」）。BE 消失分支同样先撤。
+        // Exiting stops the preview (the NBS_STOP idiom): already-dispatched unplayed
+        // preview voices are cancelled — otherwise they ring out after the screen is gone
+        // (the measured "exit leaves a tail"). The BE-gone branch cancels first too.
+        preview.stop();
+        CscAudioEngine.cancelListenerFuture();
         // BE 已消失（方块被拆/区块卸载）：目标会话不存在——跳过同步（op 必被服务端 REJECT）、
         // 不回旧实例（tick 的存活守卫同口径）。
         // The BE is gone (block broken / chunk unloaded): the target session no longer
