@@ -104,9 +104,12 @@ class HostGraphSuiteTest {
         assertNotNull(handle, "a valid bind returns the engine handle");
         assertTrue(CustomNodeRoster.declaredHostKeys().contains("mod_a:electric"),
             "bind means declare — the key is observable");
-        assertThrows(IllegalStateException.class,
-            () -> HostGraphs.bind(be(), spec("mod_a:electric"), behavior),
-            "binding the same key twice is a provider bug — fail fast");
+        HostGraphHandle second = HostGraphs.bind(be(), spec("mod_a:electric"), behavior);
+        assertNotNull(second, "a second BE of the same host type binds fine (keys are per-type,"
+            + " binds per-instance; the declaration is idempotent)");
+        assertThrows(IllegalStateException.class, () -> CustomNodeRoster.declareHostKey(
+            BlockNodeAllowances.BLUEPRINT.hostKey()),
+            "a CSC allowlist key still cannot be declared by the suite path");
     }
 
     @Test

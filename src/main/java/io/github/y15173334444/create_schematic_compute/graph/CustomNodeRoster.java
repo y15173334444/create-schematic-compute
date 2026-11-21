@@ -63,19 +63,23 @@ public final class CustomNodeRoster {
 
     /**
      * 登记第三方宿主自声明的可登记键（宿主套件 bind 路径，波 2）。键强制
-     * {@code modid:name} 形态；重复声明抛 {@link IllegalStateException}（与波 1 重复
-     * 注册同款启动即炸）。本方法公开仅为门面委托边服务——第三方只见 api 包。
+     * {@code modid:name} 形态；重复声明<b>幂等</b>——键属于宿主<b>类型</b>而 bind 属于
+     * 宿主<b>实例</b>（同类型多个方块实体各自 bind 一次，同键重登是常态而非 bug）；
+     * 与 CSC 显式白名单撞键仍抛 {@link IllegalStateException}（第三方不得伪装本模组
+     * 键族）。本方法公开仅为门面委托边服务——第三方只见 api 包。
      * <p>Registers a third-party host's self-declared enrolable key (the host-suite
-     * bind path, wave 2). Keys must be {@code modid:name}; a duplicate declaration
-     * throws {@link IllegalStateException} (the same fail-fast as wave 1's duplicate
-     * registration). Public only to serve the facade's delegate edge — providers see
+     * bind path, wave 2). Keys must be {@code modid:name}; duplicate declaration is
+     * <b>idempotent</b> — a key belongs to the host <b>type</b> while bind belongs to
+     * the host <b>instance</b> (every block entity of the type binds once, so re-declaring
+     * the same key is the norm, not a bug); a collision with the CSC explicit allowlist
+     * still throws {@link IllegalStateException} (third parties must not pose as this
+     * mod's key family). Public only to serve the facade's delegate edge — providers see
      * the api package only.</p>
      *
      * @throws IllegalArgumentException 键空或非 {@code modid:name} 形态 / the key is
      *                                  blank or not {@code modid:name}
-     * @throws IllegalStateException    键已声明（含与 CSC 显式白名单撞键） / the key is
-     *                                  already declared (including a collision with the
-     *                                  CSC explicit allowlist)
+     * @throws IllegalStateException    键与 CSC 显式白名单撞键 / the key collides with
+     *                                  the CSC explicit allowlist
      */
     public static void declareHostKey(String hostKey) {
         if (hostKey == null || hostKey.isBlank())
@@ -83,8 +87,9 @@ public final class CustomNodeRoster {
         int colon = hostKey.indexOf(':');
         if (colon <= 0 || colon == hostKey.length() - 1)
             throw new IllegalArgumentException("declared host key must be modid:name: " + hostKey);
-        if (CSC_ENROLABLE_KEYS.contains(hostKey) || !DECLARED_HOST_KEYS.add(hostKey))
-            throw new IllegalStateException("host key already declared: " + hostKey);
+        if (CSC_ENROLABLE_KEYS.contains(hostKey))
+            throw new IllegalStateException("host key collides with the CSC allowlist: " + hostKey);
+        DECLARED_HOST_KEYS.add(hostKey);
     }
 
     /** 已声明的第三方宿主键快照（bind 重复校验用）。 / Snapshot of the declared

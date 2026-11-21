@@ -88,8 +88,9 @@ class CustomNodeRosterTest {
 
         String key = "hostmod:electric";
         CustomNodeRoster.declareHostKey(key);
-        assertThrows(IllegalStateException.class, () -> CustomNodeRoster.declareHostKey(key),
-            "duplicate declaration is a provider bug — fail fast");
+        CustomNodeRoster.declareHostKey(key);
+        assertEquals(1, CustomNodeRoster.declaredHostKeys().size(),
+            "duplicate declaration is idempotent (keys are per-type; binds are per-instance)");
         var snapshot = CustomNodeRoster.declaredHostKeys();
         assertTrue(snapshot.contains(key), "the declared key is observable");
         assertThrows(UnsupportedOperationException.class, () -> snapshot.add("hostmod:other"),

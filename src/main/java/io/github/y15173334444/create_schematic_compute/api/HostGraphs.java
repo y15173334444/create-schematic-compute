@@ -26,12 +26,13 @@ import java.util.function.Consumer;
  * <p><b>bind 即键声明</b>：{@code hostKey} 强制 {@code modid:name} 形态（与波 1 节点 id
  * 同约定），命名空间不得用本模组保留段（{@code csc} / {@code create_schematic_compute}）；
  * 声明后该键进入 {@code CustomNodes.admitToHost} 的归属两路放行（声明者收自己命名空间
- * 的节点）。重复 bind 同键抛 {@link IllegalStateException}（启动即炸口径）。</p>
+ * 的节点）。同类型宿主的多个方块实体各 bind 一次、键声明幂等。</p>
  * <p><b>bind means declare</b>: {@code hostKey} must be {@code modid:name} (the wave-1
  * node-id convention) and its namespace must not be one of this mod's reserved segments
  * ({@code csc} / {@code create_schematic_compute}); once declared the key joins
  * {@code CustomNodes.admitToHost}'s two-path ownership (the declarer enrols nodes in its
- * own namespace). Binding the same key twice throws {@link IllegalStateException}.</p>
+ * own namespace). Multiple block entities of one host type each bind; key
+ * declaration is idempotent.</p>
  */
 public final class HostGraphs {
 
@@ -65,8 +66,9 @@ public final class HostGraphs {
      * @throws IllegalArgumentException 键非 {@code modid:name} 形态，或命名空间落在保留段
      *                                  / the key is not {@code modid:name}, or its namespace
      *                                  is reserved
-     * @throws IllegalStateException    键已被声明过（重复 bind / 撞已有键） / the key is
-     *                                  already declared (a duplicate bind / key collision)
+     * @throws IllegalStateException    键与 CSC 显式白名单撞键（经声明口） / the key
+     *                                  collides with the CSC allowlist (via the
+     *                                  declaration point)
      */
     public static HostGraphHandle bind(BlockEntity owner, HostGraphType spec, HostGraphBehavior behavior) {
         java.util.Objects.requireNonNull(owner, "bind owner");
@@ -79,8 +81,11 @@ public final class HostGraphs {
         String ns = key.substring(0, colon);
         if (RESERVED_NAMESPACES.contains(ns))
             throw new IllegalArgumentException("host key namespace is reserved for this mod's own hosts: " + key);
-        if (CustomNodeRoster.declaredHostKeys().contains(key))
-            throw new IllegalStateException("host key already declared: " + key);
+        // 键声明幂等：键属于宿主类型、bind 属于实例——同类型多个 BE 各 bind 一次，
+        // 同键重登是常态（实例专属状态住适配器登记表，按 BE 实例分键）。
+        // Key declaration is idempotent: the key belongs to the host type, bind to the
+        // instance — multiple BEs of one type each bind, re-declaring the same key is the
+        // norm (per-instance state lives in the adapter registry, keyed by BE instance).
         HostGraphAdapter adapter = new HostGraphAdapter(owner, spec, behavior);
         CustomNodeRoster.declareHostKey(key);
         return adapter.handle();
