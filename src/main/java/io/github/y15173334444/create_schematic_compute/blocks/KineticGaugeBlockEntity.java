@@ -99,7 +99,7 @@ public class KineticGaugeBlockEntity extends KineticBlockEntity
 
     @Override public java.util.Set<String> loadTimeCustomIds() { return host.loadTimeCustomIds(); }
 
-    @Override public GraphEvaluator evaluatorView() { return host.evaluator; }
+    @Override public io.github.y15173334444.create_schematic_compute.graph.NodePerfView evaluatorView() { return host.evaluator; }
 
     // ── 读数同步 / readout sync ──
 

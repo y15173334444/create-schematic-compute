@@ -208,7 +208,7 @@ public class CncGearboxBlockEntity extends SplitShaftBlockEntity
 
     @Override public java.util.Set<String> loadTimeCustomIds() { return host.loadTimeCustomIds(); }
 
-    @Override public GraphEvaluator evaluatorView() { return host.evaluator; }
+    @Override public io.github.y15173334444.create_schematic_compute.graph.NodePerfView evaluatorView() { return host.evaluator; }
 
     /** 缝 8（⑬ 后）：完成节点清理 + 指令栈推进（产出本 tick 离合意图）。
      *  Seam 8 (after ⑬): completed-node cleanup + command-stack advance (produces this

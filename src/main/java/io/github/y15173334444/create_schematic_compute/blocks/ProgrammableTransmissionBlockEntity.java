@@ -345,7 +345,7 @@ public class ProgrammableTransmissionBlockEntity extends KineticBlockEntity
 
     @Override public java.util.Set<String> loadTimeCustomIds() { return host.loadTimeCustomIds(); }
 
-    @Override public GraphEvaluator evaluatorView() { return host.evaluator; }
+    @Override public io.github.y15173334444.create_schematic_compute.graph.NodePerfView evaluatorView() { return host.evaluator; }
 
     /** 缝 8（⑬ 后）：控制来源与代理态判定。 / Seam 8 (after ⑬): control-source + proxy
      *  decision. */

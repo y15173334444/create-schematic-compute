@@ -109,26 +109,49 @@ public final class SchematicComputeCommands {
 
     /** /cscperf 汇总格式化（纯函数，headless 可锚）：per-node EMA 降序 top-N，行式
      *  「{@code #i  node <id> (<type|customId>)  <µs> µs avg}」。CUSTOM 节点带 modid+节点 id
-     *  （验收②的可观测底座：第三方耗时一眼可辨）。
+     *  （验收②的可观测底座：第三方耗时一眼可辨）。入参走 {@link NodePerfView} 只读窄
+     *  视图（条目 19①：不再收活求值器）。
      *  The /cscperf summary formatter (a pure function, anchorable headless): per-node
      *  EMA descending top-N, lines like "#1 node 12 (cscexample:widget) 123.4 µs avg".
-     *  CUSTOM nodes carry modid + node id (the observability base of acceptance 2). */
+     *  CUSTOM nodes carry modid + node id (the observability base of acceptance 2). The
+     *  input is the {@link NodePerfView} read-only narrow view (entry 19 ①: the live
+     *  evaluator is no longer taken). */
     public static java.util.List<String> formatPerfSummary(
-            io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator ev,
+            io.github.y15173334444.create_schematic_compute.graph.NodePerfView ev,
             io.github.y15173334444.create_schematic_compute.graph.NodeGraph graph, int topN) {
-        var costs = ev.nodeCostNsView();
-        var sorted = new java.util.ArrayList<>(costs.entrySet());
-        sorted.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
+        int[] ids = ev.nodeIds();
+        // 拷贝后按耗时降序插入排序（无装箱；耗时读数每 id 只探一次表，排序比较零查表）。
+        // Copy then insertion-sort by cost descending (no boxing; each id probes the
+        // table once, the sort itself compares cached values only).
+        var order = new int[ids.length];
+        long[] costs = new long[ids.length];
+        for (int i = 0; i < ids.length; i++) {
+            order[i] = ids[i];
+            costs[i] = ev.nodeCostNs(ids[i]);
+        }
+        for (int i = 1; i < order.length; i++) {
+            long c = costs[i];
+            int id = order[i];
+            int j = i - 1;
+            while (j >= 0 && costs[j] < c) {
+                costs[j + 1] = costs[j];
+                order[j + 1] = order[j];
+                j--;
+            }
+            costs[j + 1] = c;
+            order[j + 1] = id;
+        }
         var out = new java.util.ArrayList<String>();
         int rank = 0;
-        for (var e : sorted) {
+        for (int k = 0; k < order.length; k++) {
             if (rank >= topN) break;
-            var node = graph.findNode(e.getKey());
+            int id = order[k];
+            var node = graph.findNode(id);
             String label = node == null ? "?"
                 : (node.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.CUSTOM
                     ? node.customId : node.type.id);
-            out.add(String.format("#%d  node %d (%s)  %.1f µs avg", rank + 1, e.getKey(),
-                label, e.getValue() / 1000.0));
+            out.add(String.format("#%d  node %d (%s)  %.1f µs avg", rank + 1, id,
+                label, costs[k] / 1000.0));
             rank++;
         }
         return out;

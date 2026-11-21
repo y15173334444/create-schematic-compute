@@ -20,7 +20,7 @@ import java.util.Map;
  * Client code must never instantiate this class — use {@code be.cachedEvalSnapshot}
  * to read evaluation outputs for rendering.</p>
  */
-public class GraphEvaluator {
+public class GraphEvaluator implements NodePerfView {
 
     /** 求值状态（图与输出表、子图机械、运行时、各端口、每调用/每节点槽）住在
      *  {@link EvalContext}（决策文档 §四）——本类保留 setter/getter 门面，写穿 ctx。
@@ -474,27 +474,115 @@ public class GraphEvaluator {
         }
     }
 
-    /** 每节点求值耗时 EMA（观测面，批 E）：键 = 节点 id，值 = 指数滑动平均 ns（首样播种，
+    /** 每节点求值耗时 EMA（观测面，批 E）：节点 id → 指数滑动平均 ns（首样播种，
      *  之后 7/8 旧 + 1/8 新）。随求值器生命周期存亡——图编辑触发重建时整表换血（含已删
      *  节点的陈旧键），无持久化无跨 tick 泄漏面。封装子求值器各持己表（/cscperf v1 只读
-     *  顶层图）。/ Per-node evaluation-cost EMA (the observability face, batch E): keyed
-     *  by node id, an exponential moving average in ns (first sample seeds; afterwards
-     *  7/8 old + 1/8 new). Lives and dies with the evaluator — a graph edit rebuilds it
-     *  wholesale (stale keys of deleted nodes go with it), nothing persists and nothing
-     *  leaks across ticks. Encapsulation sub-evaluators keep their own tables (/cscperf
-     *  v1 reads the top-level graph only). */
-    private final java.util.HashMap<Integer, Long> nodeCostNs = new java.util.HashMap<>();
+     *  顶层图）。存储 = 原始类型开放寻址表（条目 19②）：每 tick 每节点零装箱——旧
+     *  {@code HashMap<Integer,Long>} 会为键与值各造一个短命对象（EMA 值远超 Long 缓存
+     *  区间，节点 id 超 127 时键同样装箱）。真实节点 id 从 1 起（{@code NodeGraph
+     *  .nextNodeId}），空槽哨兵取 {@link Integer#MIN_VALUE} 与任何合法 id 零冲突。
+     *  / Per-node evaluation-cost EMA (the observability face, batch E): node id to an
+     *  exponential moving average in ns (first sample seeds; afterwards 7/8 old + 1/8
+     *  new). Lives and dies with the evaluator — a graph edit rebuilds it wholesale
+     *  (stale keys of deleted nodes go with it), nothing persists and nothing leaks
+     *  across ticks. Encapsulation sub-evaluators keep their own tables (/cscperf v1
+     *  reads the top-level graph only). Storage is a primitive open-addressed table
+     *  (entry 19 ②): zero boxing per node per tick — the old {@code HashMap<Integer,
+     *  Long>} allocated a short-lived object for the value every tick (EMA values far
+     *  exceed the Long cache) and for the key once ids pass 127. Real node ids start
+     *  at 1 ({@code NodeGraph.nextNodeId}); the empty-slot sentinel {@link
+     *  Integer#MIN_VALUE} cannot collide with any legal id. */
+    private static final int COST_EMPTY = Integer.MIN_VALUE;
+    private int[] costKeys = new int[0];
+    private long[] costVals = new long[0];
+    private int costCount;
 
     private void recordNodeCost(int nodeId, long ns) {
-        long prev = nodeCostNs.getOrDefault(nodeId, 0L);
-        nodeCostNs.put(nodeId, prev == 0 ? ns : (prev * 7 + ns) / 8);
+        if (costCount * 2 >= costKeys.length) {
+            growCostTable(costKeys.length == 0 ? 16 : costKeys.length * 2);
+        }
+        int mask = costKeys.length - 1;
+        int idx = scramble(nodeId) & mask;
+        while (costKeys[idx] != COST_EMPTY && costKeys[idx] != nodeId) {
+            idx = (idx + 1) & mask;
+        }
+        if (costKeys[idx] == COST_EMPTY) {
+            costKeys[idx] = nodeId;
+            costCount++;
+            costVals[idx] = ns;
+        } else {
+            long prev = costVals[idx];
+            costVals[idx] = prev == 0 ? ns : (prev * 7 + ns) / 8;
+        }
     }
 
-    /** 耗时表只读视图（/cscperf 消费面；调用方可据此经图反查节点类型/自定义 id）。
-     *  <p>A read-only view of the cost table (the /cscperf consumer; callers resolve node
-     *  type / custom id through the graph themselves).</p> */
-    public java.util.Map<Integer, Long> nodeCostNsView() {
-        return java.util.Collections.unmodifiableMap(nodeCostNs);
+    /** 探测节点槽位；无记录返回 -1（求值表只增不删，图重建即整表换新）。
+     *  Probes the node's slot; -1 when unrecorded (the table only grows, and a graph
+     *  rebuild swaps in a fresh one). */
+    private int costSlot(int nodeId) {
+        if (costKeys.length == 0) return -1;
+        int mask = costKeys.length - 1;
+        int idx = scramble(nodeId) & mask;
+        while (costKeys[idx] != COST_EMPTY) {
+            if (costKeys[idx] == nodeId) return idx;
+            idx = (idx + 1) & mask;
+        }
+        return -1;
+    }
+
+    /** 整数散列（乘法混淆）：真实 id 近乎连续，直接取模会连续堆叠，混淆后均匀分布。
+     *  Integer scramble (multiplicative): real ids are near-sequential and a plain
+     *  modulo would stack them contiguously. */
+    private static int scramble(int key) {
+        return key * -1640531527;
+    }
+
+    private void growCostTable(int newCapacity) {
+        int[] oldKeys = costKeys;
+        long[] oldVals = costVals;
+        costKeys = new int[newCapacity];
+        costVals = new long[newCapacity];
+        java.util.Arrays.fill(costKeys, COST_EMPTY);
+        costCount = 0;
+        for (int i = 0; i < oldKeys.length; i++) {
+            if (oldKeys[i] != COST_EMPTY) {
+                putCostFresh(oldKeys[i], oldVals[i]);
+            }
+        }
+    }
+
+    /** 重散列专用：容量已备好，直接落位不查增长。 / Rehash-only: capacity is ready, place
+     *  without growth checks. */
+    private void putCostFresh(int nodeId, long ns) {
+        int mask = costKeys.length - 1;
+        int idx = scramble(nodeId) & mask;
+        while (costKeys[idx] != COST_EMPTY) {
+            idx = (idx + 1) & mask;
+        }
+        costKeys[idx] = nodeId;
+        costVals[idx] = ns;
+        costCount++;
+    }
+
+    @Override
+    public boolean hasCosts() {
+        return costCount > 0;
+    }
+
+    @Override
+    public int[] nodeIds() {
+        int[] out = new int[costCount];
+        int w = 0;
+        for (int i = 0; i < costKeys.length; i++) {
+            if (costKeys[i] != COST_EMPTY) out[w++] = costKeys[i];
+        }
+        return out;
+    }
+
+    @Override
+    public long nodeCostNs(int nodeId) {
+        int slot = costSlot(nodeId);
+        return slot < 0 ? 0L : costVals[slot];
     }
 
     public record InputSource(long freqKey, int signal) {}
