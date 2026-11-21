@@ -72,7 +72,6 @@
   "gui.create_schematic_compute.sidebar.export_graph": "导出",
   "gui.create_schematic_compute.sidebar.monitor": "性能监视器",
   "gui.create_schematic_compute.sidebar.terminal": "终端",
-  "gui.create_schematic_compute.terminal.disconnected": "未连接（无法发送）",
   "gui.create_schematic_compute.perfmon.fps": "帧率",
   "gui.create_schematic_compute.perfmon.trend": "帧率走势",
   "gui.create_schematic_compute.perfmon.trend_cap": "满格 %s FPS",

@@ -1095,14 +1095,13 @@ public class GraphEditor {
     public GraphEditor(Host host, Screen screen) {
         this.host = host;
         this.renderer = new NodeRenderer(this::c2sX, this::c2sY, screen);
-        // 控制台三条编辑器侧接线：关闭态 `/` 开台门（文本输入面激活时不抢键）/ 开台清焦
-        // （防双焦点，规格 §4.2）/ 查询发送（原始字符串，文法在服务端——规格 §4.4）。
-        // The console's three editor-side wires: the closed-state "/" open-gate (no key
-        // stealing while a text-entry surface is active) / focus clear on open (no double
-        // focus, spec §4.2) / the query sender (raw string — grammar lives server-side, spec §4.4).
+        // 控制台两根编辑器侧接线：聚焦清焦（防双焦点）/ 查询发送（原始字符串，文法在服务端
+        // ——规格 §4.4）。第十二轮起控制台住在侧栏「终端」面板，`/` 开台键已退役。
+        // The console's two editor-side wires: focus clear (no double focus) / the query
+        // sender (raw string — grammar lives server-side, spec §4.4). Since round 12 the
+        // console lives in the sidebar terminal panel; the "/" opener is retired.
         this.console = new io.github.y15173334444.create_schematic_compute.client.GraphConsole(
             new io.github.y15173334444.create_schematic_compute.client.GraphConsole.Wiring(
-                this::isTextEntrySurfaceActive,
                 this::clearEditBoxFocusForConsole,
                 line -> io.github.y15173334444.create_schematic_compute.network.ConsoleQueryPacket.send(
                     host.getBlockPos(), line)));
@@ -2081,11 +2080,11 @@ public class GraphEditor {
             return true;
         }
         if (sidebar.mouseClicked(mx, my, btn)) return true;
-        // 图名框失焦跟随点击（原 tryTopBarClick 尾部语义）；终端输入行同样。
+        // 图名框失焦跟随点击（原 tryTopBarClick 尾部语义）；终端输入行同样（点画布即失焦）。
         // The name box loses focus on any click that gets this far (former tryTopBarClick
-        // tail); so does the console input.
+        // tail); so does the terminal input row (a canvas click blurs it).
         if (topBarNameEdit != null && topBarNameEdit.isFocused()) topBarNameEdit.setFocused(false);
-        sidebar.unfocusConsoleInput();
+        sidebar.unfocusTerminal();
         // 命名对话框：确认/取消按钮、框内点击消费（模态）、点击外部取消（已拆至 GraphViewBookmarks）
         // Name dialog: Confirm/Cancel buttons, in-dialog clicks consumed (modal), outside click cancels
         if (viewBookmarks.handleNameDialogClick(mx, my)) return true;
@@ -3865,13 +3864,6 @@ public class GraphEditor {
         if (topBarNameEdit != null) topBarNameEdit.setFocused(false);
     }
 
-    /** 所有文本编辑框一起交出焦点（终端输入行夺焦时用）。
-     *  All text edit boxes yield focus at once (used when the console input takes over). */
-    void unfocusAllEdits() {
-        unfocusNameEdit();
-        for (var st : nodeEditStatesById.values()) for (var f : st.fields) f.setFocused(false);
-    }
-
     /** 侧边栏钉住的节点库渲染入口（锚点由 GraphSidebar 给出；visualDx = 弹出动画的本帧
      *  平移量，在菜单屏幕钳制之后施加）。
      *  Render entry for the sidebar-pinned node library (anchor supplied by GraphSidebar;
@@ -4852,14 +4844,12 @@ public class GraphEditor {
         // (e.g. Home) can't linger and eat the next input. The menu-open branch sets
         // it again right after.
         menuOpenedByKey = false;
-        // 控制台：最新/最上层叠加层 → 守卫链链首（规格 §4.2）。打开时吞掉全部按键（模态）
-        // ——含 ESC：只关控制台、绝不落到 Screen 默认 onClose；关闭时仅 `/` 可开台，且无
-        // 文本输入面激活（门序见 isTextEntrySurfaceActive）。
-        // The console: the newest/topmost overlay → guard-chain head (spec §4.2). While
-        // open it swallows every key (modal) — ESC included: it closes only the console,
-        // never reaching Screen's default onClose; while closed only "/" opens it, and only
-        // with no text-entry surface active (gate order in isTextEntrySurfaceActive).
-        if (console.keyPressed(key, sc, mod)) return true;
+        // 侧栏终端输入行聚焦时：键全归控制台核心（Esc 失焦、Enter 提交、编辑/历史）；
+        // 聚焦输入框优先于其它守卫（含 Screen 的 ESC 关屏）。失焦时一律放行。
+        // While the sidebar terminal input row has focus, every key belongs to the console
+        // core (Esc blurs, Enter submits, editing/history); a focused input beats the rest of
+        // the guard chain (Screen's ESC close included). Blurred keys pass straight through.
+        if (console.core.isFocused()) return console.core.keyPressed(key, sc, mod);
         var graph = getGraph();
         // 键位绑定查表用的修饰键快照 / modifier snapshot for the binding lookups
         boolean modC = net.minecraft.client.gui.screens.Screen.hasControlDown();
@@ -4890,9 +4880,6 @@ public class GraphEditor {
         // 顶栏名称框键盘（Esc/Enter 提交并失焦，其余交给 EditBox）
         // Top-bar name box keyboard (Esc/Enter commit + unfocus, the rest to the EditBox).
         if (topBarNameEdit != null && topBarNameEdit.isFocused()) return topBarNameKey(key, sc, mod);
-        // 终端输入行键盘（Esc 失焦 / Enter 发送，其余交给 EditBox）
-        // Console input keyboard (Esc blurs / Enter sends, the rest to the EditBox).
-        if (sidebar.consoleInputFocused()) return sidebar.consoleKey(key, sc, mod);
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.keyPressed(key, sc, mod);
         // 键盘动作序列引擎（画布交互态 —— 输入框聚焦已在前转发 return）：
         // 完整命中 → 分发执行；前缀推进 → 消费等待；无关键 → 落到后续硬编码键处理。
@@ -4924,40 +4911,14 @@ public class GraphEditor {
         return false;
     }
 
-    /** 控制台关闭态的 `/` 开台门（规格 §4.2 前置）：任一文本输入面激活时不允许 `/` 开台
-     *  ——`/` 必须先喂给菜单搜索框 / 导出·导入对话框 / 取色器 / 注释颜色弹层 / 书签命名
-     *  对话框 / 顶栏名称框 / 节点编辑框（含总线名框）/ 按键绑定捕获。与守卫链既有约定一致：
-     *  聚焦的输入框优先于全局快捷键（keyPressed 链中节点编辑框转发先于 EditorKeys 序列
-     *  引擎）。纯判定，无副作用——headless 锚测语义，实机链首接线见 keyPressed。
-     *  The console's closed-state "/" open-gate (spec §4.2 precondition): no "/" toggle
-     *  while any text-entry surface is active — "/" goes to the menu search box / export·
-     *  import dialogs / color picker / comment-color popup / bookmark name dialog / top-bar
-     *  name box / node edit boxes (incl. the bus-name box) / key-binding capture first. Same
-     *  convention as the guard chain: focused inputs beat global shortcuts (in keyPressed
-     *  the node-edit-box forwarding precedes the EditorKeys sequence engine). Pure predicate,
-     *  no side effects — the headless anchor tests the semantics; the live chain-head wiring
-     *  is in keyPressed. */
-    private boolean isTextEntrySurfaceActive() {
-        if (showMenu || showExportDialog || showImportDialog || colorPicker.isVisible()) return true;
-        if (editingCommentColorNode != null && commentButtons != null) return true;
-        if (viewBookmarks.isNamingDialogActive()) return true;
-        if (topBarNameEdit != null && topBarNameEdit.isFocused()) return true;
-        for (var st : nodeEditStatesById.values()) {
-            if (st.listeningForKey) return true;
-            if (st.busBox != null && st.busBox.isFocused()) return true;
-            for (var f : st.fields) if (f.isFocused()) return true;
-        }
-        return false;
-    }
-
-    /** 开台清焦（规格 §4.2「清掉其他 EditBox 焦点，防双焦点」）：控制台接管键盘前把全部
-     *  EditBox 失焦——顶栏名称框、节点编辑框（含总线名框）与 enterActions 登记框。焦点
-     *  释放后，未聚焦跟随权威值的既有逻辑照常把文本拉回服务端真值。
-     *  Focus clear on console open (spec §4.2's "clear other EditBox focus, no double
-     *  focus"): unfocus every EditBox before the console takes the keyboard — the top-bar
-     *  name box, the node edit boxes (incl. bus-name boxes) and every enterActions box.
-     *  After release, the existing unfocused-follow-authoritative-value logic keeps pulling
-     *  the text back to the server's truth as usual. */
+    /** 聚焦清焦：终端输入行接管键盘前把全部 EditBox 失焦——顶栏名称框、节点编辑框（含总线
+     *  名框）与 enterActions 登记框（防双焦点）。焦点释放后，未聚焦跟随权威值的既有逻辑
+     *  照常把文本拉回服务端真值。
+     *  Focus clear: before the terminal input row takes the keyboard, unfocus every EditBox —
+     *  the top-bar name box, the node edit boxes (incl. bus-name boxes) and every
+     *  enterActions box (no double focus). After release, the existing
+     *  unfocused-follow-authoritative-value logic keeps pulling the text back to the server's
+     *  truth as usual. */
     private void clearEditBoxFocusForConsole() {
         if (topBarNameEdit != null) topBarNameEdit.setFocused(false);
         for (var st : nodeEditStatesById.values()) {
@@ -4965,14 +4926,6 @@ public class GraphEditor {
             for (var f : st.fields) f.setFocused(false);
         }
         for (var box : enterActions.keySet()) box.setFocused(false);
-    }
-
-    /** 控制台叠加层渲染入口（最上层——由 AbstractGraphScreen.render 在全部 widget 之后
-     *  调用，规格 §4.1 render 钩子；渲染层不测）。
-     *  The console overlay render entry (topmost — called by AbstractGraphScreen.render
-     *  after every widget, spec §4.1's render hook; the render layer is untested). */
-    public void renderConsoleOverlay(GuiGraphics g, int mx, int my) {
-        console.renderConsole(g, mx, my);
     }
 
     /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
@@ -5265,12 +5218,10 @@ public class GraphEditor {
      *  @param mod 修饰键位掩码 / modifier bitmask
      *  @return true 如果事件被消费 / true if consumed */
     public boolean charTyped(char ch, int mod) {
-        // 控制台链首（规格 §4.2）：打开时吞掉全部字符输入；刚以 `/` 开台时吞掉开键字符
-        // （吞没标志，与下方 menuOpenedByKey 同款纪律）。
-        // Console at chain head (spec §4.2): while open it swallows all character input;
-        // right after a "/" open it eats the opening key's character (the swallow flag, the
-        // same discipline as menuOpenedByKey below).
-        if (console.charTyped(ch, mod)) return true;
+        // 侧栏终端输入行聚焦时字符全归控制台核心；失焦放行。
+        // While the sidebar terminal input row has focus every character belongs to the
+        // console core; blurred characters pass through.
+        if (console.core.isFocused()) return console.core.charTyped(ch, mod);
         // 键序刚打开的菜单吞掉开菜单键的字符（防搜索框吃到一部分输入）。标志只在
         // 紧随其后的本次 charTyped 有效——keyPressed 入口已先行作废旧标志，开菜单
         // 键不产生字符（如 Home）也不会滞留误吞下一个输入。
@@ -5299,7 +5250,6 @@ public class GraphEditor {
         if (colorPicker.isVisible()) return colorPicker.charTyped(ch, mod);
         if (showExportDialog && exportNameEdit != null) return exportNameEdit.charTyped(ch, mod);
         if (topBarNameEdit != null && topBarNameEdit.isFocused()) return topBarNameEdit.charTyped(ch, mod);
-        if (sidebar.consoleInputFocused()) return sidebar.consoleChar(ch, mod);
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.charTyped(ch, mod);
         return false;
     }

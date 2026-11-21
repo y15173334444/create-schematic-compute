@@ -74,7 +74,6 @@
   "gui.create_schematic_compute.sidebar.export_graph": "Export",
   "gui.create_schematic_compute.sidebar.monitor": "Performance",
   "gui.create_schematic_compute.sidebar.terminal": "Console",
-  "gui.create_schematic_compute.terminal.disconnected": "Not connected (cannot send)",
   "gui.create_schematic_compute.perfmon.fps": "FPS",
   "gui.create_schematic_compute.perfmon.trend": "FPS trend",
   "gui.create_schematic_compute.perfmon.trend_cap": "full scale %s FPS",

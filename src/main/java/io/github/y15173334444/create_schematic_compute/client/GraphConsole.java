@@ -1,92 +1,71 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
 import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
-import io.github.y15173334444.create_schematic_compute.client.editor.NodeRenderer;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiGraphics;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 /**
- * 图内 {@code /} 控制台叠加层（C 阶段步骤 5，规格 §4.1 落地形态 Q6=A）。
+ * 图内 CSC 控制台的逻辑核心 + S→C 汇点（侧栏「终端」面板的数据面）。
  *
- * <p><b>逻辑层与渲染层分开</b>：命令解析、开关状态机、输入守卫语义全部在嵌套的
- * {@link Core}（纯 JDK，零 MC 依赖，headless JUnit 可起——MC/Screen/GuiGraphics 类
- * 在 headless 下起不来）；外层 {@link GraphConsole} 只是把核心接到编辑器/网络上并
- * 画那一层薄壳（渲染层不测）。三根编辑器侧接线经 {@link Wiring} 注入：</p>
- * <ul>
- * <li>{@code textInputActive} —— 关闭态 {@code /} 开台的门（规格 §4.2 与守卫链既有约定
- * 一致：聚焦的输入框优先于全局快捷键）。</li>
- * <li>{@code onOpen} —— 开台清焦（规格 §4.2「清掉其他 EditBox 焦点，防双焦点」）。</li>
- * <li>{@code querySender} —— 发送原始命令字符串（规格 §4.4：客户端零文法，服务端唯一
- * 真相源；{@link io.github.y15173334444.create_schematic_compute.network.ConsoleQueryPacket}）。</li>
- * </ul>
+ * <p><b>位置改判（第十二轮）</b>：控制台原先是以 {@code /} 开台的独立叠加层（模态、吞掉
+ * 全部按键）；现整块搬进右缘侧栏的「终端」面板——{@code /} 开台键与叠加层一起退役，面板
+ * 只从图标条终端图标开，开面板即聚焦输入行。面板不再是模态层：只有输入行聚焦时吃键
+ * （编辑器快捷键与画布手势照常），Esc / 点画布失焦。</p>
  *
- * <p><b>数据面纪律（规格 §3.3 采样语义警示）</b>：本类是纯客户端 UI——<b>不读
- * {@code SignalBus}、不读任何本地求值状态</b>；将来任何数据展示（{@code stale}/探针类）
- * 必须走服务端求值快照口径，经 {@link io.github.y15173334444.create_schematic_compute.network.ConsoleResponsePacket}
- * 的文本行回到这里。核心里没有给「直读本地总线」留任何口子：输出行的唯一来源是
- * {@link #deliverToOpenEditor}（S→C）与本地回显。</p>
+ * <p><b>逻辑层与渲染层分开</b>：输入行编辑与历史、提交门、输出环形缓冲全部在嵌套的
+ * {@link Core}（纯 JDK，零 MC 依赖，headless JUnit 可起——MC/Screen/GuiGraphics 类在
+ * headless 下起不来）；面板渲染在 {@code GraphSidebar}（渲染层不测）。两根编辑器侧接线经
+ * {@link Wiring} 注入：聚焦时清其它输入框焦点（防双焦点）、原始命令发送。</p>
  *
- * <h2>In-editor "/" console overlay (Phase-C step 5, spec §4.1 placement Q6=A).</h2>
+ * <p><b>数据面纪律</b>：本类是纯客户端 UI——<b>不读 {@code SignalBus}、不读任何本地求值
+ * 状态</b>；输出行的唯一来源是服务端响应（{@link #deliverToOpenEditor}，
+ * {@code ConsoleResponsePacket}）与本地回显。客户端零文法：输入行 trim 后<b>原样</b>发出
+ * （{@code ConsoleQueryPacket}），命令表与语义都在服务端（{@code ConsoleProtocol}）。</p>
  *
- * <p><b>Logic and rendering are separated</b>: command parsing, the open/close state
- * machine and the input-guard semantics all live in the nested {@link Core} (pure JDK,
- * zero MC imports, boots in headless JUnit — the MC/Screen/GuiGraphics classes cannot
- * start headless); the outer {@link GraphConsole} only bridges the core to the editor /
- * network and paints the thin shell (the render layer is untested). Three editor-side
- * wires are injected via {@link Wiring}: the closed-state "/" open-gate, the focus-clear
- * on open, and the raw-command sender. The client holds <b>zero grammar</b> (spec §4.4:
- * the server is the single source of truth for the command table).</p>
+ * <h2>The CSC console's logic core + the S→C sink (the data plane behind the sidebar's
+ * "terminal" panel).</h2>
  *
- * <p><b>Data-plane discipline (spec §3.3 sampling-semantics warning)</b>: this class is a
- * pure client-side UI — it never reads {@code SignalBus} or any locally evaluated state;
- * every future data display (stale / probe-like) must come from the server eval-snapshot
- * plane as text lines via {@code ConsoleResponsePacket}. The core leaves no seam for
- * "reading the local bus directly": output lines originate only from
- * {@link #deliverToOpenEditor} (S→C) and the local echo.</p>
+ * <p><b>Placement (round 12).</b> The console used to be a modal "/"-opened overlay that ate
+ * every key; it now lives in the right-edge sidebar's terminal panel — the "/" opener and the
+ * overlay are retired, the panel opens only from the rail's terminal icon, and opening it
+ * focuses the input row. The panel is not modal: keys are swallowed only while the input row
+ * has focus (editor shortcuts and canvas gestures keep working), and Esc / a canvas click
+ * blurs it.</p>
+ *
+ * <p><b>Logic and rendering are separated</b>: line editing, history, the submit gate and the
+ * output ring live in the nested {@link Core} (pure JDK, headless-testable); the panel renders
+ * in {@code GraphSidebar} (the render layer is untested). Two editor-side wires arrive via
+ * {@link Wiring}: focus clear on taking focus (no double focus) and the raw command sender.</p>
+ *
+ * <p><b>Data-plane discipline</b>: this class is pure client-side UI — it never reads
+ * {@code SignalBus} or any locally evaluated state; output lines originate only from the
+ * server response ({@link #deliverToOpenEditor}) and the local echo. The client holds zero
+ * grammar: the trimmed input goes out <b>verbatim</b>; the command table and semantics live
+ * server-side.</p>
  */
 public class GraphConsole {
 
-    /** 嵌入式逻辑核心（见类注：纯 JDK，headless 可测）。 / The embedded logic core (see
-     *  the class doc: pure JDK, headless-testable). */
+    /** 嵌入式逻辑核心（见类注：纯 JDK，headless 可测）。 / The embedded logic core (see the
+     *  class doc: pure JDK, headless-testable). */
     public final Core core;
 
-    /** 编辑器侧接线三元组（见类注）。 / The editor-side wiring triple (see the class doc). */
-    public record Wiring(BooleanSupplier textInputActive, Runnable onOpen, Consumer<String> querySender) { }
+    /** 编辑器侧接线二元组（见类注）。 / The editor-side wiring pair (see the class doc). */
+    public record Wiring(Runnable onFocus, Consumer<String> querySender) { }
 
-    /** @param wiring 三根编辑器侧接线 / the three editor-side wires */
+    /** @param wiring 两根编辑器侧接线 / the two editor-side wires */
     public GraphConsole(Wiring wiring) {
         this.core = new Core(wiring);
     }
 
-    /** 按键转发（编辑器守卫链链首调用，规格 §4.2）。 / Key forwarding (called at the head
-     *  of the editor's guard chain, spec §4.2). */
-    public boolean keyPressed(int key, int sc, int mod) {
-        return core.keyPressed(key, sc, mod);
-    }
-
-    /** 字符转发（编辑器守卫链链首调用，规格 §4.2）。 / Character forwarding (called at the
-     *  head of the editor's guard chain, spec §4.2). */
-    public boolean charTyped(char ch, int mod) {
-        return core.charTyped(ch, mod);
-    }
-
-    /** 控制台是否打开。 / Whether the console is open. */
-    public boolean isOpen() {
-        return core.isOpen();
-    }
-
-    /** S→C 响应汇点：路由到「当前打开的图编辑器」的控制台（无打开的编辑器则静默丢弃——
-     *  响应是请求者私有，本就不该有人等它）。经 {@link GraphEditor#getActiveHost()} 解析
+    /** S→C 响应汇点：路由到「当前打开的图编辑器」的控制台输出环（无打开的编辑器则静默丢弃
+     *  ——响应是请求者私有，本就不该有人等它）。经 {@link GraphEditor#getActiveHost()} 解析
      *  （含便携终端包裹屏的解包），网络层不 import 编辑器（E2 汇点纪律）。
-     *  S→C response sink: routes to the console of the currently open graph editor (silently
-     *  dropped when none is open — a response is private to its requester and nobody else
-     *  is waiting for it). Resolved via {@link GraphEditor#getActiveHost()} (unwraps the
-     *  portable-terminal wrapper too); the network layer never imports the editor (the E2
+     *  S→C response sink: routes into the console output ring of the currently open graph
+     *  editor (silently dropped when none is open — a response is private to its requester and
+     *  nobody else is waiting for it). Resolved via {@link GraphEditor#getActiveHost()} (unwraps
+     *  the portable-terminal wrapper too); the network layer never imports the editor (the E2
      *  sink discipline). */
     public static void deliverToOpenEditor(List<String> lines) {
         GraphEditor.Host host = GraphEditor.getActiveHost();
@@ -95,130 +74,40 @@ public class GraphConsole {
         if (ed != null) ed.console.core.receiveServerLines(lines);
     }
 
-    // ── 渲染层薄壳（不测 / the thin render shell, untested） ──────────────────────────
-
-    /** 叠加层渲染：底部左侧半透明面板 = 输出尾行 + 输入行（含光标闪烁与等待标记）。
-     *  由 {@code AbstractGraphScreen.render} 在全部 widget 之后调用（最上层）。
-     *  Overlay render: a bottom-left translucent panel = output tail + input row (with a
-     *  blinking caret and an awaiting marker). Called by {@code AbstractGraphScreen.render}
-     *  after every widget (topmost). */
-    public void renderConsole(GuiGraphics g, int mx, int my) {
-        if (!core.isOpen()) return;
-        var mc = Minecraft.getInstance();
-        var theme = EditorTheme.get();
-        int sw = mc.getWindow().getGuiScaledWidth();
-        int sh = mc.getWindow().getGuiScaledHeight();
-        int w = Math.min(sw - 16, CONSOLE_W);
-        int h = OUTPUT_ROWS * LINE_H + LINE_H + 10;
-        int x0 = 8, y1 = sh - 8, y0 = y1 - h;
-        g.fill(x0, y0, x0 + w, y1, NodeRenderer.withAlpha(theme.panelBg(), 0xE8));
-        g.renderOutline(x0, y0, w, h, theme.sysBorder());
-        // 输出尾行（环形截断后的可见窗口）
-        // Output tail (the visible window over the trimmed ring).
-        List<String> lines = core.outputSnapshot();
-        int start = Math.max(0, lines.size() - OUTPUT_ROWS);
-        int ty = y0 + 5;
-        for (int i = start; i < lines.size(); i++) {
-            g.drawString(mc.font, lines.get(i), x0 + 6, ty, theme.menuText(), false);
-            ty += LINE_H;
-        }
-        // 输入行 + 光标（插入符在 caret 索引处，半秒闪烁）
-        // Input row + caret (insertion point at the caret index, half-second blink).
-        String in = core.inputLine();
-        int caret = core.caretIndex();
-        int iy = y1 - LINE_H - 4;
-        String prompt = "> " + in;
-        g.drawString(mc.font, prompt, x0 + 6, iy, theme.accent(), false);
-        if ((System.currentTimeMillis() / 500) % 2 == 0) {
-            int cx = x0 + 6 + mc.font.width(in.substring(0, Math.min(caret, in.length()))) + mc.font.width("> ");
-            g.fill(cx, iy - 1, cx + 1, iy + 9, theme.menuText());
-        }
-        if (core.isAwaitingResponse()) {
-            String wait = "…";
-            g.drawString(mc.font, wait, x0 + w - 6 - mc.font.width(wait), iy, theme.menuText(), false);
-        }
-    }
-
-    /** 面板宽度上限（gui 缩放像素）。 / Panel width cap (gui-scaled pixels). */
-    private static final int CONSOLE_W = 460;
-    /** 行高（vanilla 字体行 9px + 1px 间距）。 / Line height (vanilla font 9px + 1px gap). */
-    private static final int LINE_H = 10;
-    /** 输出可见行数。 / Visible output rows. */
-    private static final int OUTPUT_ROWS = 9;
-
     // ═══════════════════════════════════════════════════════════════════════════════
-    //  逻辑核心：状态机 + 输入守卫语义 + 命令行编辑（纯 JDK，headless 可测）
-    //  Logic core: state machine + input-guard semantics + command-line editing
+    //  逻辑核心：聚焦态 + 命令行编辑与历史 + 输出环形缓冲（纯 JDK，headless 可测）
+    //  Logic core: focus state + command-line editing and history + the output ring
     //  (pure JDK, headless-testable)
     // ═══════════════════════════════════════════════════════════════════════════════
 
     /**
-     * 控制台核心：{@code /} 开关状态机、模态输入守卫语义、命令行编辑与历史、输出环形缓冲。
-     * 零 MC 依赖——键码用 int 常量（照守卫链既有口径：ESC=256 / Enter=257 / Backspace=259），
-     * 不 import GLFW（其类静态初始化在 headless 下不可靠）。
+     * 控制台核心：输入行聚焦态、命令行编辑与历史、提交门、输出环形缓冲。零 MC 依赖——键码
+     * 用 int 常量（照守卫链既有口径：ESC=256 / Enter=257 / Backspace=259），不 import GLFW
+     * （其类静态初始化在 headless 下不可靠）。
      *
-     * <p><b>开关状态机</b>：关闭态只有 {@code /} 能开台，且仅在 {@link Wiring#textInputActive}
-     * 为 false 时（菜单搜索框 / 导出命名框 / 取色器 / 节点编辑框 / 书签命名 / 按键绑定捕获
-     * 激活时 {@code /} 必须先喂给那些输入面——照守卫链「聚焦输入框优先于全局快捷键」的既有
-     * 约定）；打开态吞掉<b>全部</b>按键（模态）——ESC 只关控制台（规格 §4.2 链首拦截，绝不
-     * 落到 Screen 默认 onClose）。</p>
+     * <p><b>聚焦态</b>：{@link #focus()} 由侧栏面板打开/点击输入区触发，顺带
+     * {@link Wiring#onFocus()} 清其它 EditBox 焦点（防双焦点）；{@link #blur()} 由 Esc 或
+     * 面板外的点击触发。聚焦时<b>全部按键被吞</b>（与聚焦 EditBox 同口径：编辑器快捷键、
+     * 画布手势、Screen 的 ESC 关屏都不触发）；失焦时按键与字符一律放行。</p>
      *
-     * <p><b>开键字符吞没（menuOpenedByKey 同款纪律）</b>：{@code /} 开台后紧随的 charTyped
-     * 是开台键自己的字符，吞掉不清进输入行；标志只在紧随其后的本次 charTyped 有效且只匹配
-     * {@link #TOGGLE_CHAR}——开台键不产生字符的布局下，紧随的第一个真实输入照常插入（标志
-     * 一并消费），任何后续按键事件也先作废——不产生字符的键不会滞留误吞下一个输入。</p>
+     * <p><b>提交面</b>：trim、空行拒绝、长度上限；提交 = 本地回显 {@code > cmd} + 历史 +
+     * 原样发送，<b>不解释命令名</b>（文法唯一真相源在服务端）。</p>
      *
-     * <p><b>The opening-char swallow (the menuOpenedByKey discipline)</b>: the charTyped that
-     * follows a "/" open is the opening key's own character — it is eaten, not inserted; the
-     * flag is valid only for the charTyped immediately following and only matches
-     * {@link #TOGGLE_CHAR} — on char-less-opener layouts the first real input still inserts
-     * (consuming the flag), and any later key event voids the flag first, so nothing lingers
-     * to eat the next input.</p>
+     * <h2>The console core: the input row's focus state, command-line editing and history,
+     * the submit gate and the output ring. Zero MC dependencies — key codes are plain int
+     * constants and GLFW is not imported (its static init is unreliable headless).</h2>
      *
-     * <p><b>命令解析面（客户端侧）</b>：规格 §4.4——客户端把<b>原始字符串</b>发给服务端，
-     * 服务端解析（文法唯一真相源在服务端，见 ConsoleProtocol）。本核心只做提交门：trim、
-     * 空行拒绝、长度上限；提交动作 = 本地回显 {@code > cmd} + 历史 + 原样发送，<b>不解释
-     * 命令名</b>。</p>
+     * <p><b>Focus state</b>: {@link #focus()} fires when the sidebar panel opens or its input
+     * area is clicked, clearing other edit-box focus via {@link Wiring#onFocus()} (no double
+     * focus); {@link #blur()} fires on Esc or a click outside the panel. While focused
+     * <b>every</b> key is swallowed (the focused-EditBox convention: no editor shortcuts, no
+     * canvas gestures, no Screen ESC close); while blurred keys and characters pass through.</p>
      *
-     * <h2>The console core: the "/" toggle state machine, modal input-guard semantics,
-     * command-line editing and history, and the output ring. Zero MC dependencies — key
-     * codes are plain int constants (the guard chain's existing convention: ESC=256 /
-     * Enter=257 / Backspace=259) and GLFW is not imported (its class static-init is
-     * unreliable headless).</h2>
-     *
-     * <p><b>Toggle state machine</b>: while closed only "/" opens, and only when
-     * {@link Wiring#textInputActive} is false (the menu search box / export name box / color
-     * picker / node edit boxes / bookmark name dialog / key-binding capture own "/" first —
-     * the guard chain's existing "focused inputs beat global shortcuts" convention); while
-     * open <b>every</b> key is swallowed (modal) — ESC closes only the console (spec §4.2
-     * chain-head interception, never falling through to Screen's default onClose).</p>
-     *
-     * <p><b>Opening-char swallow (the menuOpenedByKey discipline)</b>: the charTyped that
-     * follows a "/" open is the opening key's own character — it is eaten, not inserted;
-     * the flag is valid only for the charTyped immediately following, and any later key
-     * event voids it first (a char-less key can't linger and eat the next input).</p>
-     *
-     * <p><b>Client-side parse face</b> (spec §4.4): the client sends the <b>raw string</b>
-     * to the server and the server parses (the grammar's single source of truth lives in
-     * ConsoleProtocol). This core only gates the submit: trim, blank rejection, length cap;
-     * submitting = local echo {@code > cmd} + history + verbatim send, <b>never
-     * interpreting the command name</b>.</p>
+     * <p><b>The submit face</b>: trim, blank rejection, length cap; submitting = local echo
+     * {@code > cmd} + history + verbatim send, <b>never interpreting the command name</b> (the
+     * grammar's single source of truth is server-side).</p>
      */
     public static final class Core {
-        /** 开台键 = {@code /}（GLFW_KEY_SLASH 的数值；全仓无编辑器级绑定——规格 §4.1 前提，
-         *  实查仅 EditPanel 的节点绑定映射与座椅按键表提及，均非编辑器快捷键）。
-         *  The toggle key = "/" (GLFW_KEY_SLASH's value; no editor-level binding anywhere —
-         *  spec §4.1's premise; only EditPanel's per-node binding map and the seat key list
-         *  mention it, neither is an editor shortcut). */
-        public static final int TOGGLE_KEY = 47;
-
-        /** 开台键的字符形态（GLFW_KEY_SLASH=47 的可打印字符本身）。吞没标志只匹配它——
-         *  开台键不产生字符的键盘布局下，标志不会误吞紧随的第一个输入（见 charTyped）。
-         *  The toggle key's character form (GLFW_KEY_SLASH=47's printable char itself). The
-         *  swallow flag only matches it — on layouts where the opener produces no character,
-         *  the flag cannot eat the first real input (see charTyped). */
-        static final char TOGGLE_CHAR = (char) TOGGLE_KEY;
-
         /** 键码常量（守卫链既有口径，int 字面量）。 / Key-code constants (the guard chain's
          *  existing convention, plain ints). */
         static final int KEY_ESC = 256, KEY_ENTER = 257, KEY_BACKSPACE = 259, KEY_DELETE = 261,
@@ -233,11 +122,7 @@ public class GraphConsole {
         public static final int MAX_OUTPUT_LINES = 400;
 
         private final Wiring wiring;
-        private boolean open = false;
-        /** 开台键字符吞没标志（见类注：只在紧随其后的 charTyped 有效）。
-         *  The opening-char swallow flag (see the class doc: valid only for the immediately
-         *  following charTyped). */
-        private boolean swallowNextChar = false;
+        private boolean focused = false;
         private final StringBuilder input = new StringBuilder();
         private int caret = 0;
         private final ArrayList<String> history = new ArrayList<>();
@@ -256,62 +141,51 @@ public class GraphConsole {
         private boolean awaitingResponse = false;
         private boolean hintShown = false;
 
-        /** @param wiring 三根编辑器侧接线 / the three editor-side wires */
+        /** @param wiring 两根编辑器侧接线 / the two editor-side wires */
         public Core(Wiring wiring) {
             this.wiring = wiring;
         }
 
-        // ── 开关状态机 / toggle state machine ─────────────────────────────────────
+        // ── 聚焦态 / focus state ─────────────────────────────────────────────────
 
-        /** 控制台是否打开。 / Whether the console is open. */
-        public boolean isOpen() {
-            return open;
+        /** 输入行是否聚焦（聚焦时吃全部键）。 / Whether the input row has focus (every key
+         *  is swallowed while it does). */
+        public boolean isFocused() {
+            return focused;
         }
 
-        /** 打开控制台（清焦 + 吞没开键字符 + 首开提示）。 / Opens the console (focus clear +
-         *  opening-char swallow + first-open hint). */
-        void open() {
-            open = true;
-            swallowNextChar = true;
-            wiring.onOpen().run();
+        /** 取得焦点（清其它 EditBox 焦点 + 首次打开提示）。 / Takes focus (clears other
+         *  edit-box focus + the first-open hint). */
+        public void focus() {
+            if (focused) return;
+            focused = true;
+            wiring.onFocus().run();
             if (!hintShown) {
                 hintShown = true;
                 addOutput("console — 输入 help 查看命令表（文法由服务端定义）/ type help for the command list (grammar is server-defined)");
             }
         }
 
-        /** 关闭控制台（吞没标志一并清除，杜绝滞留误吞）。 / Closes the console (also clears
-         *  the swallow flag so nothing lingers to eat the next input). */
-        void close() {
-            open = false;
-            swallowNextChar = false;
+        /** 释放焦点（输入行草稿保留）。 / Releases focus (the input draft survives). */
+        public void blur() {
+            focused = false;
         }
 
-        // ── 输入守卫语义 / input-guard semantics ──────────────────────────────────
+        // ── 输入 / input ─────────────────────────────────────────────────────────
 
         /**
-         * 按键处理（编辑器守卫链链首调用）。关闭态：仅 {@code /} 在无文本输入面激活时开台
-         * （返回 true = 已消费），其余放行（false）。打开态：模态吞掉全部键——ESC 关台、
-         * Enter 提交、Backspace/Delete/方向键/Home/End 编辑、↑/↓ 历史，其余消费不动。
-         * <p>入口先作废吞没标志（menuOpenedByKey 同款纪律）。</p>
-         * <p>Key handling (called at the head of the editor's guard chain). While closed:
-         * only "/" opens — and only with no text-entry surface active — returning true
-         * (consumed); everything else passes (false). While open: modal — every key is
-         * swallowed; ESC closes, Enter submits, Backspace/Delete/arrows/Home/End edit,
-         * ↑/↓ history, the rest are consumed untouched. The entry voids the swallow flag
-         * first (the menuOpenedByKey discipline).</p>
+         * 按键处理（聚焦时由编辑器守卫链链首调用）。聚焦态：Esc 失焦、Enter 提交、
+         * Backspace/Delete/方向键/Home/End 编辑、↑/↓ 历史，其余键一并消费（聚焦输入框优先于
+         * 全局快捷键，也拦住 Screen 的 ESC 关屏）。失焦态一律放行。
+         * <p>Key handling (called at the head of the editor's guard chain while focused).
+         * Focused: Esc blurs, Enter submits, Backspace/Delete/arrows/Home/End edit, ↑/↓
+         * history, and every other key is consumed too (a focused input beats global
+         * shortcuts and Screen's ESC close). While blurred everything passes.</p>
          */
         public boolean keyPressed(int key, int sc, int mod) {
-            swallowNextChar = false;
-            if (!open) {
-                if (key == TOGGLE_KEY && !wiring.textInputActive().getAsBoolean()) {
-                    open();
-                    return true;
-                }
-                return false;
-            }
+            if (!focused) return false;
             switch (key) {
-                case KEY_ESC -> close();
+                case KEY_ESC -> blur();
                 case KEY_ENTER -> submit();
                 case KEY_BACKSPACE -> deleteBefore();
                 case KEY_DELETE -> deleteAfter();
@@ -327,28 +201,18 @@ public class GraphConsole {
                 case KEY_DOWN -> historyDown();
                 default -> { }
             }
-            return true; // 模态：全部消费（规格 §4.2 链首拦截）/ modal: consume everything (spec §4.2 chain head)
+            return true; // 聚焦：全部消费 / focused: consume everything
         }
 
         /**
-         * 字符处理（编辑器守卫链链首调用）。关闭态：放行（false——字符属于下方守卫链）。
-         * 打开态：吞没标志有效时只吞掉开台键自己的字符（{@link #TOGGLE_CHAR}）——开台键
-         * 未产生字符的布局下紧随的第一个输入照常插入（标志一并消费，不滞留）；可打印字符
-         * 插入光标处（上限 {@link #MAX_INPUT}），其余消费不动。
-         * <p>Character handling (called at the head of the editor's guard chain). While
-         * closed: pass through (false — the character belongs to the guard chain below).
-         * While open: a valid swallow flag eats only the toggle key's own character
-         * ({@link #TOGGLE_CHAR}) — on layouts where the opener produces no character, the
-         * first real input still inserts (and consumes the flag, nothing lingers); printable
-         * characters insert at the caret (capped at {@link #MAX_INPUT}); the rest are
-         * consumed untouched.</p>
+         * 字符处理（聚焦时由编辑器守卫链链首调用）。聚焦态：可打印字符插入光标处（上限
+         * {@link #MAX_INPUT}），其余消费不动；失焦态放行。
+         * <p>Character handling (called at the head of the editor's guard chain while
+         * focused). Focused: printable characters insert at the caret (capped at
+         * {@link #MAX_INPUT}), the rest are consumed untouched; blurred: pass through.</p>
          */
         public boolean charTyped(char ch, int mod) {
-            if (!open) return false;
-            if (swallowNextChar) {
-                swallowNextChar = false;
-                if (ch == TOGGLE_CHAR) return true; // 开台键自己的字符吞掉 / the opener's own char is eaten
-            }
+            if (!focused) return false;
             if (ch >= 32 && ch != 127 && input.length() < MAX_INPUT) {
                 input.insert(caret, ch);
                 caret++;
@@ -356,12 +220,10 @@ public class GraphConsole {
             return true;
         }
 
-        // ── 命令提交（客户端解析面 / the client-side parse face） ─────────────────
-
-        /** 提交：trim、空行拒绝、原样发送（不解释命令名——规格 §4.4 服务端唯一真相源）；
-         *  本地回显 + 历史 + 等待标记。 / Submit: trim, blank rejection, verbatim send (the
-         *  command name is never interpreted — spec §4.4 server-side single source of
-         *  truth); plus local echo, history and the awaiting marker. */
+        /** 提交：trim、空行拒绝、原样发送（不解释命令名——服务端唯一真相源）；本地回显 +
+         *  历史 + 等待标记。 / Submit: trim, blank rejection, verbatim send (the command name
+         *  is never interpreted — the server is the single source of truth); plus local echo,
+         *  history and the awaiting marker. */
         private void submit() {
             String raw = input.toString().trim();
             if (raw.isEmpty()) return;
@@ -375,11 +237,11 @@ public class GraphConsole {
             wiring.querySender().accept(raw);
         }
 
-        /** 服务端响应回填（S→C，经 {@link #deliverToOpenEditor} 路由）：追加文本行并解除
-         *  等待标记。行内容<b>原样展示</b>——文法与语义都在服务端（规格 §4.4）。
-         *  Server-response backfill (S→C, routed via {@link #deliverToOpenEditor}): appends
-         *  the text lines and clears the awaiting marker. Lines are displayed <b>verbatim</b>
-         *  — grammar and semantics both live server-side (spec §4.4). */
+        /** 服务端响应回填（S→C，经 {@link #deliverToOpenEditor} 路由）：追加文本行并解除等待
+         *  标记。行内容<b>原样展示</b>——文法与语义都在服务端。
+         *  Server-response backfill (S→C, routed via {@link #deliverToOpenEditor}): appends the
+         *  text lines and clears the awaiting marker. Lines are displayed <b>verbatim</b> —
+         *  grammar and semantics both live server-side. */
         public void receiveServerLines(List<String> lines) {
             awaitingResponse = false;
             if (lines == null) return;

@@ -3,9 +3,7 @@ package io.github.y15173334444.create_schematic_compute.client.editor;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.resources.language.I18n;
-import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,8 +14,8 @@ import java.util.List;
  * **图标条宽度开关**：收起态 22px 竖排「展开侧栏」，展开态向左延伸、每个图标右侧露出文字
  * （CJK 竖排，其他语言整行转 90°）；网格吸附、
  * 工具栏置底、封装导入导出是图标条上的直控（原「工具」板块解散）。书签与设置是单动作
- * 图标；性能监视器是只读浮窗（帧率/内存/图规模），终端控制台是聊天/系统消息镜像 +
- * 命令输入行。设计与拍板见 docs/graph-editor-sidebar-plan.md。
+ * 图标；性能监视器是只读浮窗（帧率/内存/图规模），终端面板是 CSC 控制台（服务端命令回执 +
+ * 输入行，原 ` / ` 叠加层整体搬入）。设计与拍板见 docs/graph-editor-sidebar-plan.md。
  * The graph editor's right-edge sidebar: a permanent icon rail plus a section panel
  * (graph / node library). The rail uses **self-drawn pixel icons** (hand-authored
  * 16×16 bitmaps with hover tips; no glyphs or symbols); the top row is the rail's
@@ -80,7 +78,7 @@ final class GraphSidebar {
 
     private void setSection(Section s) {
         if (open == Section.GRAPH && s != Section.GRAPH) ed.unfocusNameEdit();
-        if (open == Section.TERMINAL && s != Section.TERMINAL) unfocusConsoleInput();
+        if (open == Section.TERMINAL && s != Section.TERMINAL) unfocusTerminal();
         open = s;
         if (s != Section.NONE) flyoutOpenedAt = System.currentTimeMillis(); // 弹出动画 / pop animation
     }
@@ -803,10 +801,11 @@ final class GraphSidebar {
 
     // ── 终端控制台面板 / terminal console panel ──
 
-    /** 终端输入框（懒建；位置每帧从 inputRowRect 取）+ 输出区滚动偏移（0 = 贴底跟新行）。
-     *  The console input (lazy; positioned per frame from inputRowRect) + the output
-     *  scroll offset (0 = pinned to the bottom, following new lines). */
-    private EditBox consoleInput;
+    /** 输出区滚动偏移（0 = 贴底跟新行）。输入行与输出环都住在
+     *  {@code ed.console.core}（第十二轮：控制台整块搬进侧栏，`/` 叠加层退役）。
+     *  The output scroll offset (0 = pinned to the bottom, following new lines). The input
+     *  row and the output ring live in {@code ed.console.core} (round 12: the console moved
+     *  into the sidebar, the "/" overlay retired). */
     private int consoleScroll = 0;
 
     /** 终端输入行矩形（渲染与命中同源，挂在面板底部）。/ The input-row rect (render + hit
@@ -816,42 +815,28 @@ final class GraphSidebar {
         return new int[]{p[0] + 8, p[1] + p[3] - 22, p[2] - 16, 16};
     }
 
-    boolean consoleInputFocused() { return consoleInput != null && consoleInput.isFocused(); }
+    /** 终端输入行是否聚焦（聚焦时编辑器守卫链把键交给控制台核心）。
+     *  Whether the terminal input row has focus (the editor guard chain hands keys to the
+     *  console core while it does). */
+    boolean terminalFocused() { return ed.console.core.isFocused(); }
 
-    void unfocusConsoleInput() { if (consoleInput != null) consoleInput.setFocused(false); }
+    /** 聚焦终端输入行（控制台核心清其它编辑框焦点 + 首次提示）。
+     *  Focus the terminal input row (the console core clears other edit boxes + first hint). */
+    void focusTerminal() { ed.console.core.focus(); }
 
-    /** 终端键盘：Esc 失焦、Enter 提交（发送 + 回显），其余交给 EditBox。
-     *  Console keyboard: Esc blurs, Enter submits (send + echo), the rest to the EditBox. */
-    boolean consoleKey(int key, int sc, int mod) {
-        if (key == 256) { unfocusConsoleInput(); return true; }
-        if (key == 257 || key == 335) { submitConsole(); return true; }
-        return consoleInput.keyPressed(key, sc, mod);
-    }
-
-    boolean consoleChar(char ch, int mod) { return consoleInput.charTyped(ch, mod); }
-
-    /** 提交输入行：命令（/ 开头）本地回显后 sendChat（原版语义：无 / 的文本作为聊天发出；
-     *  命令反馈经系统消息回流到输出区）。/ Submit the input: commands ("/"-prefixed) echo
-     *  locally then go out via sendChat (vanilla semantics: text without "/" is sent as
-     *  chat; command feedback flows back as system messages). */
-    private void submitConsole() {
-        String text = consoleInput.getValue().strip();
-        if (text.isEmpty()) return;
-        var mc = Minecraft.getInstance();
-        if (text.startsWith("/")) SidebarConsoleFeed.append("§8> §7" + text);
-        if (mc.player != null && mc.player.connection != null) {
-            mc.player.connection.sendChat(text);
-        } else {
-            SidebarConsoleFeed.append(I18n.get("gui.create_schematic_compute.terminal.disconnected"));
-        }
-        consoleInput.setValue("");
-    }
+    /** 释放终端输入行焦点（面板收起 / 画布点击时调用）。 / Release the terminal input focus
+     *  (called when the panel closes / the canvas is clicked). */
+    void unfocusTerminal() { ed.console.core.blur(); }
 
     /** 「终端」面板：标题 + 输出区（新行沉底、滚轮翻历史、超宽截断）+ 底部输入行。
+     *  输出 = CSC 命令回执（本地回显 + 服务端行），输入行走服务端命令（客户端零文法）。
      *  "Terminal" panel: title + output area (newest at bottom, wheel through history,
-     *  overlong lines truncated) + the input row at the bottom. */
+     *  overlong lines truncated) + the input row at the bottom. Output = CSC command replies
+     *  (local echo + server lines); the input row speaks the server-defined command grammar
+     *  (zero grammar client-side). */
     private void renderTerminalPanel(GuiGraphics g, int mx, int my) {
         var mc = Minecraft.getInstance();
+        var core = ed.console.core;
         int[] p = panelRect();
         g.fill(p[0], p[1], p[0] + p[2], p[1] + p[3], NodeRenderer.withAlpha(NodeRenderer.PBG(), 0xEE));
         g.renderOutline(p[0], p[1], p[2], p[3], NodeRenderer.CSB());
@@ -861,7 +846,7 @@ final class GraphSidebar {
         int[] ir = inputRowRect();
         int top = p[1] + 26, bottom = ir[1] - 6, rowH = 10;
         int rows = Math.max(0, (bottom - top) / rowH);
-        var lines = SidebarConsoleFeed.snapshot();
+        var lines = core.outputSnapshot();
         int maxScroll = Math.max(0, lines.size() - rows);
         if (consoleScroll > maxScroll) consoleScroll = maxScroll;
         if (consoleScroll < 0) consoleScroll = 0;
@@ -872,16 +857,21 @@ final class GraphSidebar {
             g.drawString(mc.font, mc.font.plainSubstrByWidth(s, ir[2]), p[0] + 8, top + i * rowH, 0xFFCCCCCC, false);
         }
         g.fill(ir[0], ir[1], ir[0] + ir[2], ir[1] + ir[3], 0xFF1A1814);
-        g.renderOutline(ir[0], ir[1], ir[2], ir[3], consoleInputFocused() ? NodeRenderer.ACC() : 0xFF5A4D3A);
-        if (consoleInput == null) {
-            consoleInput = new EditBox(mc.font, 0, 0, ir[2] - 8, 12, Component.literal(""));
-            consoleInput.setMaxLength(256);
-            consoleInput.setBordered(false);
+        g.renderOutline(ir[0], ir[1], ir[2], ir[3], core.isFocused() ? NodeRenderer.ACC() : 0xFF5A4D3A);
+        // 输入行 + 插入符（聚焦时半秒闪烁；超宽按可见宽度截断，插入符越界不画）。
+        // Input row + caret (half-second blink while focused; overlong text truncates to the
+        // visible width and an off-panel caret is not drawn).
+        String in = core.inputLine();
+        int caret = core.caretIndex();
+        g.drawString(mc.font, mc.font.plainSubstrByWidth("> " + in, ir[2] - 8), ir[0] + 4, ir[1] + 4, 0xFFCCCCCC, false);
+        if (core.isFocused() && (System.currentTimeMillis() / 500) % 2 == 0) {
+            int cx = ir[0] + 4 + mc.font.width(in.substring(0, Math.min(caret, in.length()))) + mc.font.width("> ");
+            if (cx < ir[0] + ir[2] - 3) g.fill(cx, ir[1] + 4, cx + 1, ir[1] + 12, 0xFFCCCCCC);
         }
-        consoleInput.setX(ir[0] + 4);
-        consoleInput.setY(ir[1] + 3);
-        consoleInput.setWidth(ir[2] - 8);
-        consoleInput.render(g, 0, 0, 0);
+        if (core.isAwaitingResponse()) {
+            String wait = "…";
+            g.drawString(mc.font, wait, ir[0] + ir[2] - 4 - mc.font.width(wait), ir[1] + 4, 0xFFCCCCCC, false);
+        }
     }
 
     // ── 输入 / input ──
@@ -926,7 +916,11 @@ final class GraphSidebar {
                     }
                     case TERMINAL -> {
                         closeBookmarksFlyout();
-                        setSection(open == Section.TERMINAL ? Section.NONE : Section.TERMINAL);
+                        boolean opening = open != Section.TERMINAL;
+                        setSection(opening ? Section.TERMINAL : Section.NONE);
+                        // 开面板即聚焦输入行（终端式）；收起时释放焦点。
+                        // Opening focuses the input row (terminal-style); closing blurs it.
+                        if (opening) focusTerminal();
                     }
                     case SETTINGS -> ed.openSettingsFromChrome();
                 }
@@ -958,12 +952,10 @@ final class GraphSidebar {
         if (open == Section.TERMINAL) {
             int[] p = panelRect();
             if (mx >= p[0] && mx <= p[0] + p[2] && my >= p[1] && my <= p[1] + p[3]) {
-                int[] ir = inputRowRect();
-                if (consoleInput != null && mx >= ir[0] && mx <= ir[0] + ir[2] && my >= ir[1] && my <= ir[1] + ir[3]) {
-                    ed.unfocusAllEdits(); // 夺焦：其余编辑框让位 / take focus; other boxes yield
-                    consoleInput.setFocused(true);
-                    consoleInput.mouseClicked(mx, my, btn);
-                }
+                // 点面板任意位置都聚焦输入行（终端式：输出区点击也直接可打字）。
+                // Any click inside the panel focuses the input row (terminal-style: clicking
+                // the output area starts typing too).
+                focusTerminal();
                 return true;
             }
         }

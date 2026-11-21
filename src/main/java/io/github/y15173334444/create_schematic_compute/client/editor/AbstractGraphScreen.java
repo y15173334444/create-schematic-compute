@@ -125,11 +125,7 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
         long perfCanvasNs = perfStatsOn ? System.nanoTime() - perfT0 : 0L;
         for (var r : this.renderables)            // EditBox 等 widget 在画布之上（复刻 AbstractContainerScreen 契约）/ widgets above the canvas
             r.render(g, mx, my, pt);
-        if (perfStatsOn) drawPerfStats(g, perfCanvasNs); // 采样 HUD：widget 之上、控制台之下（控制台仍是最上层）/ HUD above widgets, below the console (the console stays topmost)
-        // 控制台叠加层：最新/最上层 → 画在全部 widget 之后（规格 §4.1 render 钩子；未打开时零开销）。
-        // Console overlay: the newest/topmost layer → drawn after every widget (spec §4.1's
-        // render hook; zero cost while closed).
-        editor.renderConsoleOverlay(g, mx, my);
+        if (perfStatsOn) drawPerfStats(g, perfCanvasNs); // 采样 HUD：widget 之上（侧栏里的终端是普通面板，不再是叠加层）/ HUD above widgets (the sidebar terminal is a normal panel now, not an overlay)
         // tooltip 由 GraphEditor/NodeRenderer 自行绘制（AbstractContainerScreen.renderTooltip 仅画槽位提示，无槽位界面下为空操作）
         // tooltips are drawn by GraphEditor/NodeRenderer themselves; AbstractContainerScreen.renderTooltip only draws slot tips (no-op without slots)
     }
@@ -221,15 +217,13 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
     @Override public boolean mouseScrolled(double mx, double my, double sx, double sy) { return editor.mouseScrolled(mx, my, sx, sy); }
     @Override public boolean keyPressed(int key, int sc, int mod) {
         // PERF-7 调试键拦在 editor.keyPressed 之前（方案 §3.2：编辑器守卫链先吞键，调试键
-        // 不进 EditorKeys 序列引擎）。控制台打开时让位——模态叠加层优先吞键（规格 §4.2）。
+        // 不进 EditorKeys 序列引擎）。终端输入行聚焦时也照旧——F9/F10 不是可输入字符。
         // PERF-7 debug keys intercepted BEFORE editor.keyPressed (plan §3.2: the editor guard
         // chain consumes keys first; debug keys must not enter the EditorKeys sequence
-        // engine). While the console is open it wins — the modal overlay eats keys first
-        // (spec §4.2).
-        if (!editor.console.isOpen()) {
-            if (key == 298) { perfStatsOn = !perfStatsOn; return true; }   // GLFW_KEY_F9
-            if (key == 299) { GraphPerfScene.cycle(editor); return true; } // GLFW_KEY_F10 (300=F11 会被原版全屏抢先)
-        }
+        // engine). They keep working while the terminal input row has focus — F9/F10 are not
+        // typable characters.
+        if (key == 298) { perfStatsOn = !perfStatsOn; return true; }   // GLFW_KEY_F9
+        if (key == 299) { GraphPerfScene.cycle(editor); return true; } // GLFW_KEY_F10 (300=F11 会被原版全屏抢先)
         if (editor.keyPressed(key, sc, mod)) return true;
         if (key == 256) { onClose(); return true; } // ESC
         if (key >= 32 && key <= 96) return true;     // 可打印字符交给 charTyped / printable keys go to charTyped
