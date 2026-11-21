@@ -34,7 +34,7 @@ public record ApiVersion(int major, int minor, int patch) implements Comparable<
     /** 当前 API 版本（唯一权威单源：升版只改此处，CHANGELOG 同批明示）。
      *  The current API version (the single source of truth: bump only here, and
      *  call it out in the CHANGELOG in the same change). */
-    public static final ApiVersion CURRENT = new ApiVersion(0, 1, 0);
+    public static final ApiVersion CURRENT = new ApiVersion(0, 2, 0);
 
     /**
      * 解析 x.y.z 形态的版本串（三段、每段为非负十进制整数，如 {@code "0.1.0"}）。

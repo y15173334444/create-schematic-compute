@@ -109,12 +109,12 @@ public final class SchematicComputeCommands {
 
     /** /cscperf 汇总格式化（纯函数，headless 可锚）：per-node EMA 降序 top-N，行式
      *  「{@code #i  node <id> (<type|customId>)  <µs> µs avg}」。CUSTOM 节点带 modid+节点 id
-     *  （验收②的可观测底座：第三方耗时一眼可辨）。入参走 {@link NodePerfView} 只读窄
+     *  （验收②的可观测底座：第三方耗时一眼可辨）。入参走 {@link io.github.y15173334444.create_schematic_compute.graph.NodePerfView} 只读窄
      *  视图（条目 19①：不再收活求值器）。
      *  The /cscperf summary formatter (a pure function, anchorable headless): per-node
      *  EMA descending top-N, lines like "#1 node 12 (cscexample:widget) 123.4 µs avg".
      *  CUSTOM nodes carry modid + node id (the observability base of acceptance 2). The
-     *  input is the {@link NodePerfView} read-only narrow view (entry 19 ①: the live
+     *  input is the {@link io.github.y15173334444.create_schematic_compute.graph.NodePerfView} read-only narrow view (entry 19 ①: the live
      *  evaluator is no longer taken). */
     public static java.util.List<String> formatPerfSummary(
             io.github.y15173334444.create_schematic_compute.graph.NodePerfView ev,

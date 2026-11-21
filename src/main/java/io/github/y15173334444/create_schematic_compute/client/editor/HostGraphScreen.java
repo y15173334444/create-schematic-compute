@@ -14,8 +14,8 @@ import java.util.Map;
 /**
  * 泛用图宿主屏（宿主套件波 2）：第三方宿主的图编辑器 —— 经
  * {@code api.HostGraphs.openEditor} 的 client-only 钩子打开。图数据、运行态、快照、
- * 名单全部经 {@link GraphBlockEntities#resolve} 解析出的宿主视图（套件适配器）读取，
- * 不点名任何具体宿主类型；CSC 自有宿主的专属屏不受影响（各宿主仍用自己的屏）。
+ * 名单全部经 graph 域 resolver 解析出的 {@link HostGraphView} 窄视图（套件适配器）
+ * 读取，不点名任何具体宿主类型；CSC 自有宿主的专属屏不受影响（各宿主仍用自己的屏）。
  * The generic graph-host screen (host suite, wave 2): the graph editor for third-party
  * hosts, opened through the {@code api.HostGraphs.openEditor} client-only hook. Graph
  * data, running state, snapshots and the allowance all read through the {@link

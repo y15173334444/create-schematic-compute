@@ -29,6 +29,18 @@ import net.minecraft.world.level.block.state.properties.BooleanProperty;
  * <p>An immutable record; every field is validated at construction (nulls throw).
  * Signatures use MC public types ({@link BooleanProperty}) and api-owned types only —
  * zero graph-domain types.</p>
+ *
+ * @param hostKey              宿主键（{@code modid:name}）/ the host key ({@code modid:name})
+ * @param admission            准入偏好 / the admission preference
+ * @param evalVariant          ⑨ 求值档 / the evaluate variant (step ⑨)
+ * @param stopSlot             ⑤ 停机检查位 / the stop-check slot (step ⑤)
+ * @param lightRecompile       ④ true = L 档轻量重编译 / step ④: the Light recompile tier
+ * @param litAbsentAbortsTick  ② true = LIT 属性缺席即中止 / step ②: abort on an absent LIT property
+ * @param stopEndsTick         ⑤ true = 停机即结束本 tick / step ⑤: end the tick on stop
+ * @param activeInputRefresh   ⑥ true = 主动输入刷新档 / step ⑥: the active input-refresh tier
+ * @param wantsStep7Recover    ⑦ 遗留第二自愈挂点 / step ⑦: the legacy second self-heal hook
+ * @param wantsFlipflopDiff    ⑬ 触发器差分广播 / step ⑬: the flipflop-diff broadcast
+ * @param litProperty          ② LIT 属性（null = 无步 ②）/ step ②: the LIT property (null = no step ②)
  */
 public record HostGraphType(String hostKey,
                             HostAdmission admission,

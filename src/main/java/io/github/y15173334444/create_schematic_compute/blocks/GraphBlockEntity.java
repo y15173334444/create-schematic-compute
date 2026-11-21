@@ -56,12 +56,12 @@ public interface GraphBlockEntity
     /** 暴露节点图供 packet handler 使用 / Expose the node graph for packet handlers. */
     default NodeGraph getNodeGraph() { return null; }
 
-    /** 观测面（批 E /cscperf）：求值器耗时表的真只读窄视图（{@link NodePerfView}，
+    /** 观测面（批 E /cscperf）：求值器耗时表的真只读窄视图（{@link io.github.y15173334444.create_schematic_compute.graph.NodePerfView}，
      *  条目 19① 收敛——旧口径返回活求值器，「只读」只是消费约定，宿主套件波对第三方
      *  开放后约定守不住）。null = 宿主未实现该视图或求值器未建（诊断面缺数据不是错误，
      *  default 开——与准入问题不同族，那是 fail-closed 的安全面）。
      *  Observability face (batch E /cscperf): a genuinely read-only narrow view of the
-     *  evaluator cost table ({@link NodePerfView}; the entry-19 ① convergence — the old
+     *  evaluator cost table ({@link io.github.y15173334444.create_schematic_compute.graph.NodePerfView}; the entry-19 ① convergence — the old
      *  shape returned the live evaluator whose read-only nature was just a consumer
      *  convention, which cannot guard anything once the host suite exposes this face to
      *  third parties). null = the host does not expose the view or has no evaluator yet
