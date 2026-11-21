@@ -432,9 +432,12 @@ public class NodeRenderer {
             drawStr(g, "§c" + warn, 0, 0, ERR());
             warnPose.popPose();
         }
-        // Per-node buffer isolation: flush before drawing to ensure this node's
-        // fills and text are not interleaved with previous nodes' text batches.
-        g.flush();
+        // 不做 per-node flush：1.21.1 GuiGraphics 逐图元自动 flush（Screen 全程 unmanaged，
+        // 绘制序=提交序，docs/graph-editor-render-performance-plan.md §3.8）——此处缓冲恒空，
+        // flush 只剩空 endBatch + GL 状态翻转的纯开销。旧「两段式落盘」依据已随取证注销。
+        // No per-node flush: 1.21.1 GuiGraphics flushes per primitive (screens never run
+        // managed; draw order = emission order, plan §3.8) — the buffer is empty here and a
+        // flush would be a bare endBatch + GL state churn. The old two-pass rationale is retired.
         var pose = g.pose();
         pose.pushPose();
         pose.translate(sx,sy,0);
@@ -744,18 +747,20 @@ public class NodeRenderer {
                 int tx = mx, ty = my + 8;
                 if (tx + tw > Minecraft.getInstance().getWindow().getGuiScaledWidth()) tx = Minecraft.getInstance().getWindow().getGuiScaledWidth() - tw;
                 if (tx < 0) tx = 0;
-                // 存入延迟覆盖层:节点循环内不直接绘制——本节点先画、z 序更高的节点后画会盖住报告框。
+                // 存入延迟覆盖层:节点循环内不直接绘制——本节点先画、z 序更高的节点后画会盖住报告框
+                // （这是绘制序问题，与批语义无关：1.21.1 逐图元落盘，后画者恒在上）。
                 // Store into the deferred overlay: don't draw inside the node loop — nodes drawn later
-                // (higher z) would cover the report box. GraphEditor flushes it above all nodes.
+                // (higher z) would cover the report box. That is a draw-order fact, not batch
+                // semantics: in 1.21.1 every primitive lands immediately, so later draws are always on top.
                 pendingOverlayLines = lines;
                 pendingOverlayX = tx; pendingOverlayY = ty; pendingOverlayW = tw; pendingOverlayH = th;
                 pendingOverlayBg = 0xDD1A0000; pendingOverlayBorder = ERR(); pendingOverlayText = ERR();
             }
         }
-        // Flush per-node to prevent text (font buffer) from later nodes'
-        // fills covering earlier nodes' text due to Minecraft's two-pass
-        // buffer flush (all fills before all text).
-        g.flush();
+        // 不做 per-node flush：同 drawNode 开头（1.21.1 逐图元自动 flush，缓冲恒空，
+        // flush 只剩空 endBatch 开销；方案 §3.8）。报告框的遮挡正确性由 A=5 层级保证。
+        // No per-node flush: same as the top of drawNode (per-primitive auto-flush in 1.21.1,
+        // buffer always empty; plan §3.8). Report-box occlusion is guaranteed by the A=5 tier.
     }
 
     // ── A=5 工具提示层:延迟渲染覆盖层(报告框等)/ A=5 tooltip tier: deferred overlay (report box etc.) ──
