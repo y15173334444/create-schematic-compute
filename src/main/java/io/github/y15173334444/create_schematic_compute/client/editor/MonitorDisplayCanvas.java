@@ -55,10 +55,24 @@ final class MonitorDisplayCanvas {
     // ── Dragging state (display mode) ──
     /** 拖拽中的元素（共享：编辑器路由/接缝读写 → 留编辑器；此处经 ed.draggedDisplayNode）。 */
     private float dragOffX, dragOffY;
-    // 显示布局拖拽的实时协作：节流流式发送 SET_DISPLAY_LAYOUT（与节点图 MOVE_NODE 同思路）
-    // Live collaboration for display-layout drags: throttle-stream SET_DISPLAY_LAYOUT
+    // 显示布局拖拽的实时协作：节流流式发送 SET_DISPLAY_LAYOUT（与节点图 MOVE_NODE 同思路）。
+    // 间隔取 150ms（6.7 包/s）：这些 op 走 EDIT_OP 桶（burst 1100 / refill 8/s）——100ms 时
+    // 10/s > 8/s 持续净耗 2/s，连续拖 ~9 分钟即拖空触发拒绝流（批 1 后节点拖拽已离开 op 通道，
+    // 这是 op 通道里最后的高频持续源）；150ms 低于回填速率，桶恒不拖空、合法拖拽零拒绝。
+    // 旁观端由 layoutLerp 平滑（DisplayLayoutLerp 同款），6.7Hz 足够顺滑。停手保活不需要：
+    // 显示布局无过期机制，静默期间远端钉在最后位置 = 恰好正确。
+    // Live collaboration for display-layout drags: throttle-stream SET_DISPLAY_LAYOUT (the
+    // node-graph MOVE_NODE idea). The interval is 150 ms (6.7 pkt/s): these ops ride the
+    // EDIT_OP bucket (burst 1100 / refill 8/s) — at 100 ms the 10/s sustained drain (2/s net)
+    // empties the bucket after ~9 minutes of continuous dragging and starts the rejection
+    // stream (after batch 1 the node drags left the op channel; this is the last sustained
+    // high-frequency source in it). 150 ms is below the refill rate, so the bucket never
+    // drains and a legitimate dragger is never rejected. Watchers smooth via layoutLerp
+    // (same as DisplayLayoutLerp), 6.7 Hz is plenty. No hold-still keep-alive needed: the
+    // display layout has no expiry, so remote views pin at the last position while silent —
+    // exactly right.
     private long lastDisplayDragSendTime = 0;
-    private static final long DISPLAY_DRAG_SEND_INTERVAL_MS = 100;
+    private static final long DISPLAY_DRAG_SEND_INTERVAL_MS = 150;
 
     // ── Phase 2: Display area render cache ──
     private int lastDisplayGen = -1;
