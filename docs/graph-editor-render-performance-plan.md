@@ -292,8 +292,8 @@ delete the three dead flushes (provably zero ordering risk); the A=5 pending-ove
 | **PERF-2** | **连线三刀（实测第一优先）**：bbox 裁剪 + 视口内分段截取（单调贝塞尔二分反解 t）+ `steps = clamp(可见弦长×0.15, 6, 48)`；进一步可自定义 `RenderType` 批提交 | 连线 fill 3–5×+ | 中（外观简化已拍板，§八 Q3） | **2026-11-14 前三刀已落地**（`NodeWireRenderer.bezier` 重写 + `crossT` 锚测）；命中侧 `WireGeometry` 自采样不受影响；复测验证 |
 | **PERF-7** | 调试统计（§3.2） | —（使能项） | 低 | **已落地**（F9 HUD + F10 场景生成器，§3.6） |
 | **PERF-8** | ~~提交收敛~~ **死 flush 清除（PERF-8′，2026-11-21 取证后改判，§3.8）**：删除 `drawNode()` / `drawCommentNode()` 三处空 `g.flush()`（1.21.1 逐图元语义下零作用）；注释归真 | 同试验实测 −2.87ms（其全部来源即删空 flush，§3.8 改判 ①） | 低——绘制序=提交序可证，零 z 序风险 | ~~按层提交 / 文本层后置~~ **永久弃案**：q04 破绽根因即文本后置（§3.8 改判 ②③），FlushGate 不再重设计 |
-| **PERF-1** | 文字 LOD：`zoom < 0.5` 只画标题等 | 上限 ~10%（实测修正，非 2–4×） | 低（视觉） | 大分辨率收益更大；与 PERF-4 协同 |
-| **PERF-4** | 文字缓存：`I18n.get` / `FormattedCharSequence` / `EvalSnapshot` 代际 | 与 PERF-1 合计 ~15% | 低 | 排在连线批复测之后 |
+| **PERF-1** | 文字 LOD：`zoom < 0.5` 跳过次要文字（引脚标签 + encap 摘要，标签计算一并省——I18n 查表 / `privateBandPinLabel` 分配 / 输出侧 `font.width` 测量）；标题 / 警告 / 锁名 / 在场者行恒画；展开编辑节点不降档 | 上限 ~10%（实测修正，非 2–4×） | 低（视觉） | **2026-11-21 已落地**（`NodeRenderer.detailText` 纯逻辑 + `NodeRendererTextLodTest` 锚：边界含等号 / 低于跳过 / 展开不降档）；阈值取 §八 Q2 候选 **0.5 先行**（0.75 备选，拍板改一处常量）；注释节点正文（内容而非 chrome）不降档 |
+| **PERF-4** | 文字缓存：`I18n.get` / `FormattedCharSequence` / `EvalSnapshot` 代际 | 与 PERF-1 合计 ~15% | 低 | 维持原序「排在连线批复测之后」——PERF-1 落地后低缩放场景的文字查表已大头消减，剩余形态与「语言切换失效」风险（§七）值不值，**按复测数据再定** |
 | **PERF-3** | 每帧派生数据缓存（排序/索引/锁表/选中集按 `graphGeneration` 失效） | 消除卡顿尖峰（非帧时主项，实测 1/24） | 低 | 维持；不改变画面 |
 | **PERF-9** | 布局单遍化（宽高/展开高度/引脚坐标每帧一次） | 尖峰项（原 10–20% 系高估） | 低-中 | 维持「与命中侧同源」约束 |
 | **PERF-10** | 网格 LOD | 小（实测 0 节点 canvas 0.61→0.73ms @0.25，480p 可忽略） | 低 | 大分辨率再评估 |
