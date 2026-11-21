@@ -66,6 +66,17 @@ final class GraphBusEditor {
         return false;
     }
 
+    /** 草稿基线是否已失效：权威名在草稿存活期间被挪动（回声/收敛/另一端提交）→ 本端的
+     *  过期草稿不得提交（否则旧名写回服务端，实测回弹乒乓）。base 为 null = 无基线的
+     *  旧形态，放行（向后兼容）。
+     *  Whether the draft baseline has gone stale: the authoritative name moved while the
+     *  draft was alive (an echo / convergence / a peer commit) → this client's stale draft
+     *  must not commit (it would write the old name back — the measured bounce ping-pong).
+     *  A null base = the legacy no-baseline shape, allowed (backwards compatible). */
+    static boolean draftBaseMoved(String base, String liveName) {
+        return base != null && liveName != null && !base.equals(liveName);
+    }
+
     /** EditBox 响应器的脏标记：仅非 suppress（用户敲键）置 true；suppress 时保持原值。
      *  Dirty flag from the EditBox responder: only a non-suppressed (user keystroke) call
      *  sets true; suppressed programmatic setValue leaves the flag unchanged. */
@@ -93,9 +104,28 @@ final class GraphBusEditor {
         if (node == null || (node.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN
             && node.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT)) return;
         String oldName = node.signalName;
+        // 草稿基线门（双探针实测的回弹闭环）：权威名在草稿存活期间被挪动（回声/收敛/
+        // 另一端提交抢先落库）→ 本端盒子里的文本已是过期草稿，静默重载权威名并复位基线，
+        // 绝不提交（提交会把旧名写回服务端，两端乒乓）。重载与 #10 的拒绝重载同款抑制。
+        // The draft-baseline gate (the bounce loop measured by the dual probes): the
+        // authoritative name moved while the draft was alive (an echo / convergence / a
+        // peer commit landed first) → the box text is a stale draft — silently reload the
+        // authoritative name and reset the baseline, never commit (committing would write
+        // the old name back, the two-client ping-pong). The reload rides the same
+        // suppression as the #10 reject path.
+        if (draftBaseMoved(st.busNameDraftBase, oldName)) {
+            ed.suppressEditBoxResponder = true;
+            st.busBox.setValue(oldName);
+            ed.suppressEditBoxResponder = false;
+            st.busNameUserDirty = false;
+            st.busNameDraftBase = oldName;
+            st.busEditIdleTicks = 0;
+            return;
+        }
         String t = st.busBox.getValue();
         if (t.equals(oldName)) {
             st.busNameUserDirty = false;
+            st.busNameDraftBase = oldName; // 盒子已对齐权威名，基线随行 / the box matches the authoritative name; the baseline follows
             return;
         }
         if (!shouldCommitBusName(st.busNameUserDirty, t, oldName)) {
@@ -105,6 +135,7 @@ final class GraphBusEditor {
             st.busBox.setValue(oldName);
             ed.suppressEditBoxResponder = false;
             st.busNameUserDirty = false;
+            st.busNameDraftBase = oldName;
             st.busEditIdleTicks = 0;
             var p = net.minecraft.client.Minecraft.getInstance().player;
             if (p != null) {
@@ -114,6 +145,7 @@ final class GraphBusEditor {
             return;
         }
         st.busNameUserDirty = false;
+        st.busNameDraftBase = t; // 提交后基线随新名走 / the baseline rides the new name after the commit
         node.signalName = t;
         ed.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
             io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,

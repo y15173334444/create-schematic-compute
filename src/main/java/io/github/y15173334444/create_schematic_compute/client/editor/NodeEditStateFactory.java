@@ -330,6 +330,11 @@ final class NodeEditStateFactory {
                 busBox.setFocused(true);
             }
             s.busNameUserDirty = GraphBusEditor.dirtyAfterProgrammaticLoad();
+            // 草稿基线 = 本次装载的权威名（known-open-issues 条目「全量同步后 stale EditState
+            // 绑定」回弹闭环的提交门，见 GraphBusEditor.draftBaseMoved）。
+            // The draft baseline = the authoritative name at this load (the commit gate of
+            // the bounce loop, see GraphBusEditor.draftBaseMoved).
+            s.busNameDraftBase = node.signalName;
             s.busBox = busBox;
             s.fields.add(busBox);
             s.fieldParamIndices.add(-1);

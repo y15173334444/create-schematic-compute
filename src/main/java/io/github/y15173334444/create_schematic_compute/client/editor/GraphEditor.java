@@ -636,6 +636,17 @@ public class GraphEditor {
          *  Ticks elapsed since an unsynced bus-name / band-name edit was noticed, for
          *  the debounced auto-commit. */
         public int busEditIdleTicks = 0;
+        /** busBox 草稿的**基线权威名**（草稿装载时的 signalName）：提交判定除了 #10 的
+         *  dirty 门，还要求权威名未在草稿存活期间被挪动——回声/收敛/另一端提交把权威名
+         *  挪走后，本端的过期草稿若照常提交会把旧名写回服务端（实测回弹乒乓）。基线在
+         *  每次 programmatic 装载/重建/回弹重载时刷新。
+         *  The busBox draft's **baseline authoritative name** (the signalName at draft
+         *  load): the commit gate requires — on top of the #10 dirty flag — that the
+         *  authoritative name has not moved while the draft was alive; an echo/convergence/
+         *  peer-commit that moved it would otherwise see this client's stale draft commit
+         *  the old name back (the measured bounce ping-pong). The baseline refreshes at
+         *  every programmatic load / rebuild / bounce reload. */
+        public String busNameDraftBase = null;
         /** ColorPickerButton for TEXT/DATA node color editing */
         public ColorPickerButton colorButton;
         /** Mode toggle pending confirmation state (DEBUG_SIGNAL_GEN) */
