@@ -1,10 +1,12 @@
-# 图编辑器侧边栏计划 / Graph Editor Sidebar Plan — 探索中 / Exploring
+# 图编辑器侧边栏计划 / Graph Editor Sidebar Plan — 已并入 main / Merged into main
 
-> **状态**：探索线草案（分支 `csc-gui-sandbox`），起草于 2026-11-20。
-> 设计以用户手绘草图 + 两问拍板为准；本文只做机制级记录，行号不作锚点。
-> **Status**: exploration draft (branch `csc-gui-sandbox`), drafted 2026-11-20. The design
-> follows the user's hand-drawn sketch plus two rulings; this note is mechanism-level
-> only — line numbers are never anchors here.
+> **状态**：第十二轮起在 main 上推进（2026-11-22 由 `csc-gui-sandbox` 合入，起点 7b994f10），
+> 主图实际施工轮次以本文件拍板条目为准；起草于 2026-11-20。
+> 设计以用户手绘草图 + 逐轮拍板为准；本文只做机制级记录，行号不作锚点。
+> **Status**: landing on main since round 12 (merged from `csc-gui-sandbox` on 2026-11-22 at
+> 7b994f10); the rulings below are the record of what shipped. Drafted 2026-11-20. The design
+> follows the user's hand-drawn sketch plus the round-by-round rulings; this note is
+> mechanism-level only — line numbers are never anchors here.
 
 ---
 
