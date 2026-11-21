@@ -82,7 +82,16 @@ final class GraphBusEditor {
      *  discarded with a hint — never written back over the authoritative name.</p> */
     void commitBusBox(GraphEditor.EditState st) {
         if (st == null || st.busBox == null || st.busNode == null) return;
-        var node = st.busNode;
+        // 按 id 从**当前图**重取活节点：整图替换（全量同步）后 st.busNode 挂在旧图的死对象
+        // 上，signalName 比较与写入必须落在活节点——图节点响应器的 id 重取纪律同款。
+        // Re-fetch the live node by id from the **current** graph: after a wholesale
+        // replacement (full sync) st.busNode hangs off the old graph's dead object — the
+        // signalName compare and write must land on the live node (the same id-refetch
+        // discipline as the node-body responders).
+        var g = ed.getGraph();
+        var node = (g != null) ? g.findNode(st.busNode.id) : null;
+        if (node == null || (node.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN
+            && node.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT)) return;
         String oldName = node.signalName;
         String t = st.busBox.getValue();
         if (t.equals(oldName)) {
