@@ -208,6 +208,17 @@ impl<'p, 'b> Exec<'p, 'b> {
                 Exec { prog, regs, loop_stack, stack: TokStack::new(prog.scalar_only), budget, iters: 0, total }
             }
             None => {
+                // 冷启动 = 空循环栈：缓冲跨 exec 复用，上一次挂起留下的路径会让
+                // run_body 误入「寻径续算」分支（depth < loop_stack.len()）——同程序的
+                // 另一节点/清槽重跑会继承别人的挂起路径（2026-11-22 clearNodeSlot
+                // 单测实证：acc 停在中途值）。Java 侧冷启动 Env 恒配空 resume 栈。
+                // Cold start = an empty loop stack: the buffer is reused across execs,
+                // and a previous suspend's path would make run_body take the resume
+                // walk (depth < loop_stack.len()) — another node on the same program or
+                // a cleared slot would inherit that path (proven by the clearNodeSlot
+                // unit test: acc stopped mid-way). Java's cold start always pairs a
+                // fresh Env with an empty resume stack.
+                loop_stack.clear();
                 for (i, v) in inputs.iter().enumerate() {
                     regs[i] = *v;
                 }

@@ -147,6 +147,15 @@ impl Session {
         }
     }
 
+    /// 清空节点槽位挂起态（槽位本身保留，槽号稳定；越界/未分配 = 无操作）。
+    /// Clear a node slot's suspend state (the slot itself stays allocated — ids stay
+    /// stable; out of range/unallocated = no-op).
+    pub fn clear_node_slot(&mut self, slot: usize) {
+        if let Some(Some(state)) = self.nodes.get_mut(slot) {
+            state.carrier = None;
+        }
+    }
+
     /// 解码并上传 Program 字节码，返回稳定 programId（释放槽位优先复用）。
     /// Decode + upload; returns a stable program id (freed slots are reused first).
     pub fn upload(&mut self, bytes: &[u8]) -> Result<usize, DecodeError> {
@@ -867,6 +876,29 @@ pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_gr
     s.alloc_node_slot() as jint
 }
 
+/// 清空节点槽位挂起态（R3b；dedup 命中/done-skip 的 carrier 清镜像，幂等；
+/// 未分配/越界 = 无操作）。
+/// Clear a node slot's suspend state (R3b; the dedup-hit/done-skip carrier-clear
+/// mirror, idempotent; unallocated/out of range = no-op).
+#[no_mangle]
+pub extern "system" fn Java_io_github_y15173334444_create_1schematic_1compute_graph_FormulaNative_clearNodeSlot<
+    'local,
+>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session: jlong,
+    slot: jint,
+) {
+    let Some(cell) = session_cell(session) else {
+        return;
+    };
+    if slot < 0 {
+        return;
+    }
+    let mut s = lock_session(&cell);
+    s.clear_node_slot(slot as usize);
+}
+
 /// 节点槽位挂起态的循环栈首条 k（R3b 测试/观测视图——carrier 自持后 Java 侧的
 /// loopStack.get(0).k 镜像;无挂起态/空栈 = -1）。
 /// The node slot's suspend-state first loop-stack k (the R3b test/observability view
@@ -1085,6 +1117,52 @@ mod tests {
             s.exec(id, &[], Some(b"CSCC\x99"), false, None, None, &mut out_full, None),
             Err(ExecError::BadCarrier)
         );
+    }
+
+    /// clearNodeSlot：dedup 命中/done-skip 的 carrier 清镜像——丢挂起态但保留槽位，
+    /// 再跑从零开始并逐位收敛；同程序另一节点冷启动同样不受挂起路径污染（共享程序
+    /// 缓冲的循环栈在同口径冷启动时清空）；越界调用是无操作（幂等）。
+    /// clearNodeSlot (the dedup-hit/done-skip carrier-clear mirror): drops the suspend
+    /// state but keeps the slot allocated, a re-run starts from scratch and converges
+    /// bit-exact; a sibling node cold-starting on the same program is likewise clean
+    /// (the shared program scratch's loop stack clears on cold start); an out-of-range
+    /// call is a no-op (idempotent).
+    #[test]
+    fn clear_node_slot_drops_carrier_keeps_slot() {
+        let bin = scalar_loop_bytes();
+        let mut s = Session::new();
+        let id = s.upload(&bin).expect("upload");
+        let slot = s.alloc_node_slot();
+        let mut out = vec![0.0; 1];
+        let st = s
+            .batch_exec(slot, id, &[], false, Some(Duration::from_nanos(500_000)), None, &mut out)
+            .expect("sliced batch");
+        assert!(matches!(st, ExecStatus::Suspended { .. } | ExecStatus::DeadlineSuspended { .. }));
+        assert!(s.nodes[slot].as_ref().expect("allocated").carrier.is_some(), "carrier held");
+        // 挂起态还在时，同程序的另一节点冷启动：从头开始、逐位对齐基准
+        // （共享程序缓冲的循环栈必须清空，否则误入寻径续算）。
+        // With the carrier still held, a sibling slot cold-starting on the same program
+        // starts from scratch and lands bit-exact (the shared scratch loop stack must
+        // clear, or run_body takes the resume walk).
+        let sibling = s.alloc_node_slot();
+        let mut out_sib = vec![0.0; 1];
+        assert_eq!(
+            s.batch_exec(sibling, id, &[], false, None, None, &mut out_sib).expect("sibling"),
+            ExecStatus::Done
+        );
+        assert_eq!(out_sib[0].to_bits(), 4999950.0f64.to_bits(), "sibling cold start, bit-exact");
+        s.clear_node_slot(slot);
+        assert!(s.nodes[slot].as_ref().expect("slot stays allocated").carrier.is_none());
+        // 越界/未分配 = 无操作。 / out of range / unallocated = no-op.
+        s.clear_node_slot(99);
+        s.clear_node_slot(slot + 7);
+        // 清空后再求值：从头开始，与不限预算基准逐位一致。
+        let mut out2 = vec![0.0; 1];
+        assert_eq!(
+            s.batch_exec(slot, id, &[], false, None, None, &mut out2).expect("re-run"),
+            ExecStatus::Done
+        );
+        assert_eq!(out2[0].to_bits(), 4999950.0f64.to_bits(), "restarts from scratch, bit-exact");
     }
 }
 
