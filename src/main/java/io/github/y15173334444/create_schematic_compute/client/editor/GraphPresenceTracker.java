@@ -326,7 +326,7 @@ final class GraphPresenceTracker {
         int maxW = 0;
         for (var name : players) maxW = Math.max(maxW, mc.font.width(name));
         // 右缘让开侧边栏图标条；顶栏退役后贴 24 起 / clears the sidebar rail; starts at 24 now
-        int right = sw - GraphSidebar.RAIL_W - 4;
+        int right = sw - ed.sidebar.width() - 4;
         int lx = right - maxW - 8, ly = 24;
         g.fill(lx, ly, right, ly + 2 + players.size() * 12, 0xAA222222);
         for (int i = 0; i < players.size(); i++) {

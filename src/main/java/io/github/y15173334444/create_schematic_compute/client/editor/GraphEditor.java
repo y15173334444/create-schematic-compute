@@ -1914,9 +1914,11 @@ public class GraphEditor {
             return true;
         }
         if (sidebar.mouseClicked(mx, my, btn)) return true;
-        // 图名框失焦跟随点击（原 tryTopBarClick 尾部语义）。
-        // The name box loses focus on any click that gets this far (former tryTopBarClick tail).
+        // 图名框失焦跟随点击（原 tryTopBarClick 尾部语义）；终端输入行同样。
+        // The name box loses focus on any click that gets this far (former tryTopBarClick
+        // tail); so does the console input.
         if (topBarNameEdit != null && topBarNameEdit.isFocused()) topBarNameEdit.setFocused(false);
+        sidebar.unfocusConsoleInput();
         // 命名对话框：确认/取消按钮、框内点击消费（模态）、点击外部取消（已拆至 GraphViewBookmarks）
         // Name dialog: Confirm/Cancel buttons, in-dialog clicks consumed (modal), outside click cancels
         if (viewBookmarks.handleNameDialogClick(mx, my)) return true;
@@ -3432,8 +3434,9 @@ public class GraphEditor {
                 String customMenuId = selectedMenuType == io.github.y15173334444.create_schematic_compute.graph.NodeType.CUSTOM
                     ? renderer.lastCustomMenuId() : null;
                 double pmx = mx, pmy = my;
-                // 钉住模式：节点落在最近画布瞄准点（菜单体占着屏幕右侧，不能落在菜单底下）。
-                // Pinned mode: place at the last canvas aim (the menu body owns the right side).
+                // 钉住模式：节点落在可见画布中心（菜单体占着屏幕右侧，落点要避开它）。
+                // Pinned mode: place at the centre of the visible canvas (the menu body owns
+                // the right side, so the drop point must stay clear of it).
                 if (!showMenu && sidebar.isNodesOpen()) { var a = sidebar.canvasAim(); pmx = a[0]; pmy = a[1]; }
                 var added = customMenuId != null
                     ? graph.addNode(selectedMenuType, customMenuId, s2cX(pmx), s2cY(pmy))
@@ -3688,10 +3691,19 @@ public class GraphEditor {
         if (topBarNameEdit != null) topBarNameEdit.setFocused(false);
     }
 
-    /** 侧边栏钉住的节点库渲染入口（锚点由 GraphSidebar 给出）。
-     *  Render entry for the sidebar-pinned node library (anchor supplied by GraphSidebar). */
-    void renderPinnedNodeMenu(GuiGraphics g, float ax, float ay, int mx, int my) {
-        selectedMenuType = renderer.renderAddNodeMenu(g, ax, ay, mx, my, nodeFilter);
+    /** 所有文本编辑框一起交出焦点（终端输入行夺焦时用）。
+     *  All text edit boxes yield focus at once (used when the console input takes over). */
+    void unfocusAllEdits() {
+        unfocusNameEdit();
+        for (var st : nodeEditStatesById.values()) for (var f : st.fields) f.setFocused(false);
+    }
+
+    /** 侧边栏钉住的节点库渲染入口（锚点由 GraphSidebar 给出；visualDx = 弹出动画的本帧
+     *  平移量，在菜单屏幕钳制之后施加）。
+     *  Render entry for the sidebar-pinned node library (anchor supplied by GraphSidebar;
+     *  visualDx = this frame's pop-animation offset, applied after the menu's screen clamp). */
+    void renderPinnedNodeMenu(GuiGraphics g, float ax, float ay, int mx, int my, float visualDx) {
+        selectedMenuType = renderer.renderAddNodeMenu(g, ax, ay, mx, my, nodeFilter, visualDx);
     }
 
     /** 侧边栏「图」板块的点击：子图 = 返回按钮；主图 = 图名框。返回 true 表示已消费。
@@ -4288,7 +4300,6 @@ public class GraphEditor {
      *  @param mx 鼠标 X（屏幕坐标）/ mouse X (screen coords)
      *  @param my 鼠标 Y（屏幕坐标）/ mouse Y (screen coords) */
     public void mouseMoved(double mx, double my) {
-        sidebar.trackAim(mx, my); // 画布瞄准点跟踪（钉住菜单建点落位）/ canvas-aim tracking (pinned-menu placement)
         lastMouseX = mx; lastMouseY = my;
         sendPresenceIfNeeded();
         // Comment resize
@@ -4688,6 +4699,9 @@ public class GraphEditor {
         // 顶栏名称框键盘（Esc/Enter 提交并失焦，其余交给 EditBox）
         // Top-bar name box keyboard (Esc/Enter commit + unfocus, the rest to the EditBox).
         if (topBarNameEdit != null && topBarNameEdit.isFocused()) return topBarNameKey(key, sc, mod);
+        // 终端输入行键盘（Esc 失焦 / Enter 发送，其余交给 EditBox）
+        // Console input keyboard (Esc blurs / Enter sends, the rest to the EditBox).
+        if (sidebar.consoleInputFocused()) return sidebar.consoleKey(key, sc, mod);
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.keyPressed(key, sc, mod);
         // 键盘动作序列引擎（画布交互态 —— 输入框聚焦已在前转发 return）：
         // 完整命中 → 分发执行；前缀推进 → 消费等待；无关键 → 落到后续硬编码键处理。
@@ -5094,6 +5108,7 @@ public class GraphEditor {
         if (colorPicker.isVisible()) return colorPicker.charTyped(ch, mod);
         if (showExportDialog && exportNameEdit != null) return exportNameEdit.charTyped(ch, mod);
         if (topBarNameEdit != null && topBarNameEdit.isFocused()) return topBarNameEdit.charTyped(ch, mod);
+        if (sidebar.consoleInputFocused()) return sidebar.consoleChar(ch, mod);
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.charTyped(ch, mod);
         return false;
     }

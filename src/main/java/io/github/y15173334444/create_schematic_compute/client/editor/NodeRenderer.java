@@ -809,6 +809,12 @@ public class NodeRenderer {
     public NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my, java.util.function.Predicate<NodeType> filter) {
         return addMenu.renderAddNodeMenu(g, menuX, menuY, mx, my, filter);
     }
+    /** 带弹出动画偏移的渲染（visualDx 在屏幕钳制之后施加，画、裁剪、命中一起动）。
+     *  Render with a pop-animation offset (visualDx is applied after the screen clamp;
+     *  draw, scissor and hit-testing move together). */
+    public NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my, java.util.function.Predicate<NodeType> filter, float visualDx) {
+        return addMenu.renderAddNodeMenu(g, menuX, menuY, mx, my, filter, visualDx);
+    }
     /** Handle category expand/collapse click + search box focus. Returns true if consumed. */
     public boolean handleCategoryClick(int mx, int my) { return addMenu.handleCategoryClick(mx, my); }
     /** 点击是否落在添加节点菜单面板内 / whether the click is on the add-node menu panel */
