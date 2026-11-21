@@ -2,7 +2,7 @@
 > 更新日期 / Updated：2026-11-21
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 共 26 项（✅ 已实施 20 项〔5/6/8/9/10/11/12/13/14/16/17/24/26/34 + 2026-11-21 批：19/2/7/3 + 实测回归批：40/41〕；已拍板销账 1 项〔4 功放越界，2026-11-21 拍板接受现状、不动模型〕；已拍板待实施 2 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件；20 观测面 = 独立指令面板形态、后续再合并（2026-11-21 拍板）〕；待办 3 项〔条目 1 待立项；条目 18 半收口（② 回执形态发版后另批）；条目 38 半收口（② 音频计时断言评估后暂缓）；条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）；暂缓面 27/29/30/31/33/35/36/37 与条目 28 半收口（28.2 已随条目 7 收口批实施、28.1 需独立拍板）详见汇总表〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 共 26 项（✅ 已实施 21 项〔5/6/8/9/10/11/12/13/14/16/17/24/26/34 + 2026-11-21 批：19/2/7/3/36 + 实测回归批：40/41〕；已拍板销账 1 项〔4 功放越界，2026-11-21 拍板接受现状、不动模型〕；已拍板待实施 2 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件；20 观测面 = 独立指令面板形态、后续再合并（2026-11-21 拍板）〕；待办 3 项〔条目 1 待立项；条目 18 半收口（② 回执形态发版后另批）；条目 38 半收口（② 音频计时断言评估后暂缓）；条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）；暂缓面 27/29/30/31/33/35/37 与条目 28 半收口（28.2 已随条目 7 收口批实施、28.1 需独立拍板）详见汇总表〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -50,7 +50,7 @@
 | 33 | 全局拓扑/切边批暂缓面（S5 专项锚未加 / 双环实机未排期 / perf 留守） | 拓扑+切边本体已落地（1305 绿，切边收敛为纯自动后 33.3 失去对象关闭），三处随批暂缓，详见条目 | 33.1 挂起中切边读专项锚（同路由分支低风险）；33.2 双环 SCC 实机装置未排期（残余环 HostId 兜底有锚）；33.4 `perf` 命令接线（§4.3 既定未接） | 🔶 暂缓（2026-11-15 拓扑批登记；33.3 已关闭） |
 | 34 | 畸形 RPN 过解析（括号不闭合 → exec 每 tick 抛异常兜底） | `1 + (2` 类脚本解析通过无任何报错，FORMULA 每 tick 求值抛 NoSuchElementException 被 eval catch 兜住——节点静默失效、输出恒不动 | 解析期 EOF 括号配对校验，未闭合 → ERROR issue（校验期拒绝同模式） | ✅ 已实施（2026-11-20，括号配对检查抽共享 helper，parseScript 预检未闭合/多余括号→恒 0 + ERROR issue 降级；FormulaParserSyntaxTest 负例锚，1329 绿） |
 | 35 | native 公式后端无强制禁用开关（AVAILABLE 进程级静态） | `FormulaNative.AVAILABLE` 加载成功即恒真，无配置面/调试命令能强制回 Java 解释器路径——兜底验证与对拍排查只能动 classpath 或重编 | 配置面落地时加 dev 侧禁用开关（系统属性或调试命令强制 AVAILABLE=false），对齐「多层 API 兜底层须可禁」纪律（条目 27.3 同款口径） | 🔶 暂缓（2026-11-14 Rust 后端合并前自查批登记，择机另批） |
-| 36 | PERF-8 提交收敛：试验-实证-回滚（待重新设计） | FlushGate 重叠门控干净态 canvas 21.87→19.0ms，但拖拽重叠实机捕获单帧 z 序破绽（下层引脚标签浮在上层节点体上），gui/font 批语义存在未吃透的帧级窗口 | 先做 MultiBufferSource.BufferSource 批序机制取证再重设计隔离粒度；门控纯逻辑（FlushGateTest）可复用 | 🔶 已回滚（2026-11-14 渲染性能线登记，原 34.1；等机制取证后重设计） |
+| 36 | PERF-8 提交收敛：试验-实证-回滚 → **批语义取证改判（PERF-8′ 死 flush 清除）** | 1.21.1 运行时反编译实证（§方案 3.8）：Screen 渲染逐图元自动 flush、绘制序=提交序，「fill 全落再 text 全落」两段式不存在——三处 per-node flush 是空 flush（−2.87ms÷2048≈1.4µs/次），q04 z 序破绽来自试验的「文本层后置」发射序改动，flush 时序无罪；文本后置纯负收益永久弃案 | PERF-8′＝删除三处死 flush + 注释归真（零 z 序风险，收益同试验实测）；不做任何批门控重设计 | ✅ 取证改判 + PERF-8′ 已实施（2026-11-21，`f4279271`，1399 绿；实机视觉回归随显示性能线批 4） |
 | 37 | 编辑器多次 resize 后的会话级渲染劣化 | 同会话多次窗口 resize 后 1024@0.25 场景 canvas 从约 19.8ms 劣化到约 54.8ms（3× 稳态），干净重启即恢复——会话态累积，非代码回归 | 按 resize → Screen.init → GraphJoinPacket 重发的会话状态累积独立取证；与渲染性能线解耦 | 🔶 暂缓（2026-11-14 渲染性能线登记，原 34.2，独立取证） |
 | 38 | CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次） | ① 渐进台面 prev=100/budget=5ms 开着破约快车道，「不熔断」靠 spin 200µs<5ms 墙钟假设，满载撑过即提前熔断（expected 21 got 11）；② AudioMixerShapingPerfTest 计时预算断言同族翻车 | ① 台面改 prev=1/budget=0.05ms 关闭快车道 + 墙钟膨胀负例锚（保守方案，不动生产）；② 评估后不动（已自校准，放宽削弱牙口） | 🔶 ① 已实施（2026-11-20，1333 绿）；② 暂缓（2026-11-14 登记，负载敏感波动族非产品缺陷） |
 | 39 | Tok 字节码 16B 布局未收窄（常量池化实测未达门，判定关闭） | Tok 枚举实测 16B，常量池化形态实测未达 +3% 判定门、整体回退，代码零落地 | 同窗抖动分布为唯一可靠判定口径（§五.3）；16B 为当前与可预见形态 | 判定关闭（2026-11-21，csc-rust-perf 线实测；39 号此前漏挂汇总行，本次补记） |
@@ -1119,7 +1119,7 @@ SignalBus 键空间已按维度隔离（`<维度id>\u0001<逻辑名>`，1176 绿
 
 ### 状态 / Status
 
-🔶 暂缓（2026-11-15 拓扑批登记；33.3 随纯自动拍板失去对象已关闭；**36/37 于 2026-11-14 渲染性能线登记**，36 等机制取证后重设计、37 独立取证；**38 于 2026-11-14 渲染性能线登记**，负载敏感测试波动待去墙钟）。
+🔶 暂缓（2026-11-15 拓扑批登记；33.3 随纯自动拍板失去对象已关闭；**36/37 于 2026-11-14 渲染性能线登记**，36 已于 2026-11-21 批语义取证改判（PERF-8′ 死 flush 清除已实施，`f4279271`）、37 独立取证；**38 于 2026-11-14 渲染性能线登记**，负载敏感测试波动待去墙钟）。
 
 ---
 
@@ -1183,12 +1183,12 @@ FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常�
 
 ---
 
-## 36. PERF-8 提交收敛：试验-实证-回滚（待重新设计）
+## 36. PERF-8 提交收敛：试验-实证-回滚 → 批语义取证改判（PERF-8′ 死 flush 清除）
 
-- 机制：`FlushGate` 重叠门控（节点与未提交并集屏幕相交才提前 flush，层末收口）在网格场景把每帧 ~2048 次 flush 压到层末 1 次，干净态 canvas 21.87→19.0ms；**但拖拽重叠实机捕获单帧破绽**——被拖节点压到相邻节点上时，下层的输入引脚标签（font buffer）浮在上层节点体（gui buffer）之上（rig q04 截图；吸附后稳态正确，q05）。gui/font 两 buffer 的 started/endBatch 语义存在一层未吃透的帧级窗口（怀疑与 remote-lerp 移动中的判定/提交时序错位有关），headless 锚测覆盖不了批序。
-- 修复方向：先做 1.21.1 `MultiBufferSource.BufferSource` 的 gui()/font 批序机制取证（startedBuffers 顺序、asOptional fixed 语义、切换时机），再重新设计隔离粒度（候选：文字统一后置 + 被遮文字剔除；或 RenderType 合并）；门控纯逻辑（FlushGateTest）可复用。
-- 状态：**已回滚**（NodeRenderer/NodeCommentRenderer 逐字回到连线批形态；FlushGate/Test 随批删除）。
-/ PERF-8 trial rolled back: the overlap gate won ~10% canvas on clean state, but a live drag-overlap frame showed the covered node's pin label floating above the covering node's body — one frame-level window of the gui/font batch semantics is not understood. Redesign after a mechanism audit of BufferSource; the gate's pure logic is reusable.
+- 机制（**2026-11-21 取证改判**，证据链见 `graph-editor-render-performance-plan.md` §3.8）：对 NeoForge 21.1.233（MC 1.21.1）**运行时 jar** 反编译实证——Screen 渲染的 `GuiGraphics` 为**逐图元自动 flush**（`fill`/`drawString` 末端 `flushIfUnmanaged()`，Screen 全程 `managed=false`，fixed 表无 font 类型），**绘制序=提交序，「fill 全落再 text 全落」的两段式不存在**（那是逐图元 flush 引入前的旧语义，per-node flush 注释正属旧口径）。由此三点改判：① 三处 per-node `g.flush()` 是**空 flush**（缓冲已空），成本签名 ≈1.4µs/次，FlushGate 实测 −2.87ms÷2048 次与其吻合——**收益全部来自删空 flush**；② 逐图元语义下 flush 时序对 z 序零影响，q04 破绽来自试验并行的「文本层后置」**发射序改动**（延迟文本统一画，低层节点文字浮上高层节点体）——原怀疑的 remote-lerp 判定/提交时序错位与「批语义帧级窗口」均不成立，**不存在窗口**；③ 文本后置不减少 flush 次数、只损失遮挡序，纯负收益。
+- 修复方向：**PERF-8′＝删除 `drawNode()`/`drawCommentNode()` 三处空 flush + 注释归真**（绘制序=提交序可证，零 z 序风险，收益同试验实测）；`pendingOverlay`（A=5 报告框）保留——那是绘制序层级设计而非批语义；不做任何批门控/文本后置重设计，`FlushGate` 不复活。
+- 状态：✅ **取证改判 + PERF-8′ 已实施（2026-11-21，`f4279271`）**——三处死 flush 删除 + 注释归真，1399 绿；实机视觉回归（拖拽重叠 / 报告框 / 编辑区）随显示性能线批 4 收口（原 2026-11-14 试验回滚记录见 §方案 3.7）。
+/ Audit re-judgment plus PERF-8' landed (f4279271): the three dead flushes are gone with comments corrected (1399 green); the live visual regression (drag overlap / report box / edit area) rides the display-performance line's batch 4.
 
 ## 37. 编辑器多次 resize 后的会话级渲染劣化
 

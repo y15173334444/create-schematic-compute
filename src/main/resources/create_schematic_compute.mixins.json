@@ -5,7 +5,9 @@
     "client": [
         "LocalPlayerMixin",
         "SoundManagerAccessor",
-        "SoundEngineAccessor"
+        "SoundEngineAccessor",
+        "GameRendererMixin",
+        "GuiMixin"
     ],
     "mixins": [
         "RotationPropagatorMixin"

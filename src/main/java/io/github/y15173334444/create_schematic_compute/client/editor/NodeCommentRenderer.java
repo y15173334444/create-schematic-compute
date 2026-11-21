@@ -285,7 +285,8 @@ final class NodeCommentRenderer {
             }
             g.disableScissor();
         }
-        g.flush(); // per-node flush for buffer ordering (see drawNode)
+        // 不做 per-node flush：同 drawNode（1.21.1 逐图元自动 flush，方案 §3.8）。
+        // No per-node flush: same as drawNode (per-primitive auto-flush in 1.21.1, plan §3.8).
     }
 
     private static String getEditStateText(GraphNode n) {

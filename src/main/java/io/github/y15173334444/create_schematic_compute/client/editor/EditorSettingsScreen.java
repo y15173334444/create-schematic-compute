@@ -54,9 +54,13 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
     private final EditorSettingsKeysTab keysTab = new EditorSettingsKeysTab(this);
     /** 公式预算 tab 视图（K6 交互面：服务端权威值显示 + OP 步进调整）。 / the formula-budget tab (the K6 interaction surface: server-authoritative value + OP-adjustable). */
     private final EditorSettingsBudgetTab budgetTab = new EditorSettingsBudgetTab(this);
+    /** 性能 tab 视图（三项性能开关：文字 LOD / 剔除世界 / 剔除第一人称）。 / the performance tab (three switches: text LOD / cull world / cull first-person). */
+    private final EditorSettingsPerfTab perfTab = new EditorSettingsPerfTab(this);
 
     /** 选项卡索引:预算 tab(K6)。 / tab index: the budget tab (K6). */
     public static final int TAB_BUDGET = 3;
+    /** 选项卡索引:性能 tab。 / tab index: the performance tab. */
+    public static final int TAB_PERF = 4;
 
     // ── 颜色调整状态 / color-adjustment state ──
 
@@ -152,7 +156,8 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
             I18n.get("gui.create_schematic_compute.settings.tab.colors"),
             I18n.get("gui.create_schematic_compute.settings.tab.keys"),
             I18n.get("gui.create_schematic_compute.settings.tab.guide"),
-            I18n.get("gui.create_schematic_compute.settings.tab.budget")};
+            I18n.get("gui.create_schematic_compute.settings.tab.budget"),
+            I18n.get("gui.create_schematic_compute.settings.tab.perf")};
         for (int i = 0; i < tabs.length; i++) {
             int tx = 10 - shift, ty = 36 + i * 30;
             boolean active = i == tab;
@@ -186,10 +191,15 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
             // Node guide: generated from NodeType metadata — names from the existing
             // lang keys, pins/params from the enum fields; long copy from guide.* keys.
             guideTab.renderGuideTab(g, mx, my, cx, contentBottom);
-        } else {
+        } else if (tab == 3) {
             // 公式预算 tab（K6）:服务端权威值 + OP 输入框/步进调整,无滚动/展开区。
             // The formula-budget tab (K6): server-authoritative value + the OP value box/steppers, no scroll or expansion.
             budgetTab.renderBudgetTab(g, mx, my, cx, cy, contentRight, pt);
+        } else {
+            // 性能 tab：三项开关行（文字 LOD / 剔除世界 / 剔除第一人称），点击即切换落盘。
+            // The performance tab: three switch rows (text LOD / cull world / cull first-person);
+            // a click toggles and persists instantly.
+            perfTab.renderPerfTab(g, mx, my, cx, cy, contentRight, contentBottom);
         }
     }
 
@@ -377,6 +387,13 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
             budgetTab.handleClick(mx, my);
             return true;
         }
+        // ── 性能 tab：选项卡列 / 开关行 ──
+        //    Performance tab: tab column / the switch rows.
+        if (tab == TAB_PERF) {
+            if (mx < TAB_W - shift) { tabColumnClick(my); return true; }
+            perfTab.handleClick(mx, my);
+            return true;
+        }
         // 左侧选项卡列（列内空白也消费 —— 全屏界面不穿透）；末尾返回项关闭界面。
         // Left tab column (blank areas included — the full-screen GUI never falls
         // through); the trailing back entry closes the screen.
@@ -389,8 +406,8 @@ public class EditorSettingsScreen extends Screen implements EditorSettingsHost {
      *  its expansion; switching tabs collapses first. */
     @Override public void tabColumnClick(double my) {
         int idx = (int) ((my - 36) / 30);
-        if (idx < 0 || idx > 4) return;
-        if (idx == 4) { onClose(); return; } // 返回项 / back entry
+        if (idx < 0 || idx > 5) return;
+        if (idx == 5) { onClose(); return; } // 返回项 / back entry
         if (expanded) collapseExpanded();
         if (tab == 0 && idx != 0) colorsTab.setStagingInited(false); // 离开颜色 tab 丢弃未应用暂存 / leaving colors discards unapplied staging
         tab = idx; lastTab = idx;

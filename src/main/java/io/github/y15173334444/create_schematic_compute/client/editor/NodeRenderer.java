@@ -368,12 +368,35 @@ public class NodeRenderer {
         return type.paramNames.length > 0 || EXPAND_INDICATOR_TYPES.contains(type);
     }
 
+    /** PERF-1 文字 LOD 判定（纯逻辑面，headless 锚测）：zoom 达阈值或该节点展开编辑中
+     *  才画「次要文字」（引脚标签 / encap 摘要）——阈值下 9px 标签渲染过小不可读，
+     *  跳过即省逐 pin 的 I18n 查表与 {@code font.width} 测量。标题 / 警告 / 锁名 /
+     *  在场者行恒画；展开节点不降档（编辑面需要引脚名）。
+     *  阈值 **0.25**（2026-11-21 实测拍板：初值 0.5 过早——「0.5 时节点还清晰可见」，
+     *  标签必须跟到节点仍可读的缩放段；缩放范围下限同日扩到 0.125，0.25 = 下限 2 倍、
+     *  恰为「节点已不可读」的边界）。拍板调整改这里一处。
+     *  PERF-1 text-LOD decision (the pure, headless-testable face): secondary text
+     *  (pin labels / encap summary) draws only at or above the zoom threshold, or when the
+     *  node is expanded for editing. Titles / warnings / lock names / occupant lines always
+     *  draw; an expanded node never degrades. Threshold **0.25** (live-ruled 2026-11-21:
+     *  the initial 0.5 fired too early — "nodes are still clearly visible at 0.5", so labels
+     *  must survive until nodes actually become unreadable; the zoom floor moved to 0.125
+     *  the same day, making 0.25 = 2× the floor, exactly the unreadable boundary). One
+     *  constant to re-rule. */
+    static boolean detailText(float zoom, boolean editing) {
+        return zoom >= 0.25f || editing;
+    }
+
     private void drawNode(GuiGraphics g, GraphNode n, NodeGraph graph, boolean selected, boolean isPrimary, boolean editing,
                            float camX, float camY, float zoom, int mx, int my,
                            Map<Integer, Boolean> flipflopStates,
                            Map<Integer, String> lockedNodes) {
         // COMMENT nodes are rendered entirely at A=1 via renderCommentNodes
         if (n.type == NodeType.COMMENT) return;
+        // 设置页「性能」tab 的文字 LOD 开关：关 = 次要文字任何缩放都画（判定仍走纯函数）。
+        // The Performance tab's text-LOD switch: off = secondary text draws at any zoom
+        // (the decision itself stays in the pure function).
+        boolean detailText = detailText(zoom, editing) || !EditorPerfSettings.textLod();
         String lockedBy = lockedNodes != null ? lockedNodes.get(n.id) : null;
         // 抖动治理 JIT-1（docs/graph-editor-canvas-jitter-plan.md）：每帧吸附一次节点原点，
         // 框/内容 pose/引脚/连线根共用；框尺寸一次取整后两缘共用——拖动时框与内容不再互相爬。
@@ -432,9 +455,12 @@ public class NodeRenderer {
             drawStr(g, "§c" + warn, 0, 0, ERR());
             warnPose.popPose();
         }
-        // Per-node buffer isolation: flush before drawing to ensure this node's
-        // fills and text are not interleaved with previous nodes' text batches.
-        g.flush();
+        // 不做 per-node flush：1.21.1 GuiGraphics 逐图元自动 flush（Screen 全程 unmanaged，
+        // 绘制序=提交序，docs/graph-editor-render-performance-plan.md §3.8）——此处缓冲恒空，
+        // flush 只剩空 endBatch + GL 状态翻转的纯开销。旧「两段式落盘」依据已随取证注销。
+        // No per-node flush: 1.21.1 GuiGraphics flushes per primitive (screens never run
+        // managed; draw order = emission order, plan §3.8) — the buffer is empty here and a
+        // flush would be a bare endBatch + GL state churn. The old two-pass rationale is retired.
         var pose = g.pose();
         pose.pushPose();
         pose.translate(sx,sy,0);
@@ -502,8 +528,10 @@ public class NodeRenderer {
         if (hasExpandIndicator(n.type)) {
             drawStr(g, editing ? (n.type == NodeType.ENCAPSULATION ? "§b▶▶" : "§6▼") : (n.type == NodeType.ENCAPSULATION ? "§b▶" : "§7▶"), nodeW - 18, 4, CT);
         }
-        // C=2: 封装节点体部摘要
-        if (n.type == NodeType.ENCAPSULATION && !editing) {
+        // C=2: 封装节点体部摘要（detailText 门控：MessageFormat.format 每帧分配，低缩放不可读）
+        // C=2: encap body summary (detailText gate — MessageFormat.format allocates per frame,
+        // and the line is unreadable at low zoom anyway)
+        if (n.type == NodeType.ENCAPSULATION && !editing && detailText) {
             String summary = java.text.MessageFormat.format(I18n.get("gui.create_schematic_compute.encap_summary"), n.functionalInputs(), n.outputs());
             drawStr(g, "§8" + summary, 4, HH + PH * Math.max(n.functionalInputs(), n.outputs()) + 4, CD);
         }
@@ -608,15 +636,22 @@ public class NodeRenderer {
             g.fill(-r, (int)(py - r), r, (int)(py + r),
                 inType == PinType.AUDIO ? CAP() : inType == PinType.VEC3 ? CVP()
                     : inType == PinType.EMPTY ? CPE() : CPI());
-            String inlbl = n.inputLabel(i);
-            // 私有信号输出：输入引脚文本随声明类型切换（判定与上方着色同源 inType）——
-            // 音频显「音频」、向量显「向量」、浮点维持「值」。BUS_OUT 不经此（其文本 = 频段名）。
-            // Private signal output: the input pin text switches with the declared type
-            // (same source as the tint above, inType) — audio shows Audio, vector shows Vec,
-            // float keeps Val. BUS_OUT never goes through here (its text = the band name).
-            if (n.type == NodeType.PRIVATE_OUT)
-                inlbl = privateBandPinLabel(inlbl, inType);
-            drawStr(g, (n.type == NodeType.BUS_OUT || n.type == NodeType.FORMULA || n.type == NodeType.ENCAPSULATION) ? inlbl : I18n.get(inlbl), 10, py-3, CD);
+            // 引脚标签属「次要文字」（PERF-1）：低缩放跳过标签计算 + 绘制（I18n 查表 /
+            // privateBandPinLabel 分配一并省掉），引脚圆本体照画。/ Pin labels are
+            // secondary text (PERF-1): skipped below the zoom threshold (label computation
+            // included — the I18n lookup and privateBandPinLabel allocation go with it);
+            // the pin circle itself always draws.
+            if (detailText) {
+                String inlbl = n.inputLabel(i);
+                // 私有信号输出：输入引脚文本随声明类型切换（判定与上方着色同源 inType）——
+                // 音频显「音频」、向量显「向量」、浮点维持「值」。BUS_OUT 不经此（其文本 = 频段名）。
+                // Private signal output: the input pin text switches with the declared type
+                // (same source as the tint above, inType) — audio shows Audio, vector shows Vec,
+                // float keeps Val. BUS_OUT never goes through here (its text = the band name).
+                if (n.type == NodeType.PRIVATE_OUT)
+                    inlbl = privateBandPinLabel(inlbl, inType);
+                drawStr(g, (n.type == NodeType.BUS_OUT || n.type == NodeType.FORMULA || n.type == NodeType.ENCAPSULATION) ? inlbl : I18n.get(inlbl), 10, py-3, CD);
+            }
         }
         for(int i=0; i<n.outputs() && n.type != NodeType.SPEED_CTRL && n.type != NodeType.DEBUG_PROBE; i++) {
             float py = HH+PH*(funcInputs + i)+PH/2f;
@@ -644,17 +679,22 @@ public class NodeRenderer {
             g.fill(nodeW - r, (int)(py - r), nodeW + r, (int)(py + r),
                 outType == PinType.AUDIO ? CAP() : outType == PinType.VEC3 ? CVP()
                     : outType == PinType.EMPTY ? CPE() : CPO());
-            String rawOutLbl = n.outputLabel(i);
-            // 私有信号输入：引脚文本随声明类型切换（判定与上方着色同源）——音频显「音频」、
-            // 向量显「向量」、浮点维持「值」。BUS_IN 不经此（其文本 = 频段名，有信息量）。
-            // Private signal input: the pin text switches with the declared type (same
-            // source as the tint above) — audio shows Audio, vector shows Vec, float keeps
-            // Val. BUS_IN never goes through here (its text = the band name).
-            if (n.type == NodeType.PRIVATE_IN)
-                rawOutLbl = privateBandPinLabel(rawOutLbl, outType);
-            String outlbl = (n.type == NodeType.BUS_IN || n.type == NodeType.ENCAPSULATION) ? rawOutLbl : I18n.get(rawOutLbl);
-            int olw = Minecraft.getInstance().font.width(outlbl);
-            drawStr(g, outlbl, nodeW - olw - 6, py-3, CD);
+            // 引脚标签属「次要文字」（PERF-1）：低缩放跳过——输出侧连 font.width 右对齐
+            // 测量一并省掉。/ Pin labels are secondary text (PERF-1): skipped below the
+            // zoom threshold — the output side also skips its font.width right-align measure.
+            if (detailText) {
+                String rawOutLbl = n.outputLabel(i);
+                // 私有信号输入：引脚文本随声明类型切换（判定与上方着色同源）——音频显「音频」、
+                // 向量显「向量」、浮点维持「值」。BUS_IN 不经此（其文本 = 频段名，有信息量）。
+                // Private signal input: the pin text switches with the declared type (same
+                // source as the tint above) — audio shows Audio, vector shows Vec, float keeps
+                // Val. BUS_IN never goes through here (its text = the band name).
+                if (n.type == NodeType.PRIVATE_IN)
+                    rawOutLbl = privateBandPinLabel(rawOutLbl, outType);
+                String outlbl = (n.type == NodeType.BUS_IN || n.type == NodeType.ENCAPSULATION) ? rawOutLbl : I18n.get(rawOutLbl);
+                int olw = Minecraft.getInstance().font.width(outlbl);
+                drawStr(g, outlbl, nodeW - olw - 6, py-3, CD);
+            }
         }
         pinPose.popPose();
         // Soft lock: colored border + name label (no overlay)
@@ -744,18 +784,20 @@ public class NodeRenderer {
                 int tx = mx, ty = my + 8;
                 if (tx + tw > Minecraft.getInstance().getWindow().getGuiScaledWidth()) tx = Minecraft.getInstance().getWindow().getGuiScaledWidth() - tw;
                 if (tx < 0) tx = 0;
-                // 存入延迟覆盖层:节点循环内不直接绘制——本节点先画、z 序更高的节点后画会盖住报告框。
+                // 存入延迟覆盖层:节点循环内不直接绘制——本节点先画、z 序更高的节点后画会盖住报告框
+                // （这是绘制序问题，与批语义无关：1.21.1 逐图元落盘，后画者恒在上）。
                 // Store into the deferred overlay: don't draw inside the node loop — nodes drawn later
-                // (higher z) would cover the report box. GraphEditor flushes it above all nodes.
+                // (higher z) would cover the report box. That is a draw-order fact, not batch
+                // semantics: in 1.21.1 every primitive lands immediately, so later draws are always on top.
                 pendingOverlayLines = lines;
                 pendingOverlayX = tx; pendingOverlayY = ty; pendingOverlayW = tw; pendingOverlayH = th;
                 pendingOverlayBg = 0xDD1A0000; pendingOverlayBorder = ERR(); pendingOverlayText = ERR();
             }
         }
-        // Flush per-node to prevent text (font buffer) from later nodes'
-        // fills covering earlier nodes' text due to Minecraft's two-pass
-        // buffer flush (all fills before all text).
-        g.flush();
+        // 不做 per-node flush：同 drawNode 开头（1.21.1 逐图元自动 flush，缓冲恒空，
+        // flush 只剩空 endBatch 开销；方案 §3.8）。报告框的遮挡正确性由 A=5 层级保证。
+        // No per-node flush: same as the top of drawNode (per-primitive auto-flush in 1.21.1,
+        // buffer always empty; plan §3.8). Report-box occlusion is guaranteed by the A=5 tier.
     }
 
     // ── A=5 工具提示层:延迟渲染覆盖层(报告框等)/ A=5 tooltip tier: deferred overlay (report box etc.) ──
