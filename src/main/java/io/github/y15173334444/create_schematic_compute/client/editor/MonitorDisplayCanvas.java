@@ -55,24 +55,13 @@ final class MonitorDisplayCanvas {
     // ── Dragging state (display mode) ──
     /** 拖拽中的元素（共享：编辑器路由/接缝读写 → 留编辑器；此处经 ed.draggedDisplayNode）。 */
     private float dragOffX, dragOffY;
-    // 显示布局拖拽的实时协作：节流流式发送 SET_DISPLAY_LAYOUT（与节点图 MOVE_NODE 同思路）。
-    // 间隔取 150ms（6.7 包/s）：这些 op 走 EDIT_OP 桶（burst 1100 / refill 8/s）——100ms 时
-    // 10/s > 8/s 持续净耗 2/s，连续拖 ~9 分钟即拖空触发拒绝流（批 1 后节点拖拽已离开 op 通道，
-    // 这是 op 通道里最后的高频持续源）；150ms 低于回填速率，桶恒不拖空、合法拖拽零拒绝。
-    // 旁观端由 layoutLerp 平滑（DisplayLayoutLerp 同款），6.7Hz 足够顺滑。停手保活不需要：
-    // 显示布局无过期机制，静默期间远端钉在最后位置 = 恰好正确。
-    // Live collaboration for display-layout drags: throttle-stream SET_DISPLAY_LAYOUT (the
-    // node-graph MOVE_NODE idea). The interval is 150 ms (6.7 pkt/s): these ops ride the
-    // EDIT_OP bucket (burst 1100 / refill 8/s) — at 100 ms the 10/s sustained drain (2/s net)
-    // empties the bucket after ~9 minutes of continuous dragging and starts the rejection
-    // stream (after batch 1 the node drags left the op channel; this is the last sustained
-    // high-frequency source in it). 150 ms is below the refill rate, so the bucket never
-    // drains and a legitimate dragger is never rejected. Watchers smooth via layoutLerp
-    // (same as DisplayLayoutLerp), 6.7 Hz is plenty. No hold-still keep-alive needed: the
-    // display layout has no expiry, so remote views pin at the last position while silent —
-    // exactly right.
-    private long lastDisplayDragSendTime = 0;
-    private static final long DISPLAY_DRAG_SEND_INTERVAL_MS = 150;
+    // 显示布局拖拽的实时协作已并入拖动临场流（批 3，docs/packet-flood-rate-limit-plan.md）：
+    // 拖拽期间零 op（EDIT_OP 只吃松手收口 op），节流与预算由 GraphDragStreamTracker 统一承担
+    // （10 包/s 恒满零拒绝）；旁观端由帧影覆盖层平滑跟随，拖拽期间不再有全量同步打断插值。
+    // Display-drag live collaboration joined the drag presence stream (batch 3): zero ops
+    // while dragging (EDIT_OP only sees release commits); pacing and budget live in
+    // GraphDragStreamTracker (10 pkt/s, bucket stays full). Watchers follow via the frame
+    // shadow, with no full-sync punctures mid-drag.
 
     // ── Phase 2: Display area render cache ──
     private int lastDisplayGen = -1;
@@ -113,16 +102,27 @@ final class MonitorDisplayCanvas {
         // Collect and render display elements (cached when graph is static — Phase 2)
         // When running, output values change each tick so we must rebuild.
         boolean layoutLerpActive = advanceLayoutLerp(graph);
+        // 拖动临场帧影（批 3）：缓存重建前把新鲜覆盖写进 layoutX/Y——重建快照即携带影子位置，
+        // 重建后立即还原图权威值（缓存已持有快照，帧间输入路径恒见真值）。stash 若因异常滞留，
+        // 下一帧 computeIfAbsent 命中旧幕布原值自愈（不覆盖）。
+        // Drag-overlay frame shadow (batch 3): fresh overlays are written into layoutX/Y
+        // before the cache rebuild — the rebuilt snapshot carries the shadowed positions and
+        // graph truth is restored right after (the cache holds the snapshot; input paths
+        // between frames always see truth). A stash leaked by an exception self-heals: the
+        // next frame's computeIfAbsent hits the old originals instead of overwriting them.
+        boolean dragShadowActive = host.editor().dragStream.hasFreshOverlay(host.editor().ownerNodeId());
+        if (dragShadowActive) host.editor().dragStream.beginFrame(graph, host.editor().ownerNodeId());
         boolean isRunning = host.be() != null && host.be().isRunning();
         float efsw = getEffectiveScreenW(), efsl = getEffectiveScreenL();
         int curGen = graph.graphGeneration;
         boolean displayChanged = curGen != lastDisplayGen || efsw != lastDisplaySW || efsl != lastDisplaySL
-            || isRunning || ed.draggedDisplayNode != null || layoutLerpActive;
+            || isRunning || ed.draggedDisplayNode != null || layoutLerpActive || dragShadowActive;
         if (displayChanged || cachedDisplayElements == null) {
             lastDisplayGen = curGen; lastDisplaySW = efsw; lastDisplaySL = efsl;
             cachedDisplayElements = collectDisplayElements(graph, evalOutputs);
             cachedDisplayArea = da;
         }
+        if (dragShadowActive) host.editor().dragStream.endFrame(graph);
         var elements = cachedDisplayElements;
         var daCached = cachedDisplayArea != null ? cachedDisplayArea : da;
         // Dynamic guiScale: match world proportions
@@ -393,7 +393,6 @@ final class MonitorDisplayCanvas {
                     float[] bb2 = elemRotAABB(sx, sy, hw * s2, hh * s2, selElem.rotation());
                     if (mx >= bb2[0] && mx <= bb2[2] && my >= bb2[1] && my <= bb2[3]) {
                         ed.draggedDisplayNode = selNode;
-                        lastDisplayDragSendTime = 0;
                         dragOffX = (float)(mx - sx);
                         dragOffY = (float)(my - sy);
                         return true;
@@ -434,7 +433,6 @@ final class MonitorDisplayCanvas {
                     if (hitNode != null) {
                         ed.selectedDisplayNode = hitNode;
                         ed.draggedDisplayNode = hitNode;
-                        lastDisplayDragSendTime = 0;
                         dragOffX = (float)(mx - ex);
                         dragOffY = (float)(my - ey);
                         return true;
@@ -474,7 +472,6 @@ final class MonitorDisplayCanvas {
                     var aabb = elemRotAABB(ex, ey, hw2 * s2, hh2 * s2, selElem.rotation());
                     if (mx >= aabb[0] && mx <= aabb[2] && my >= aabb[1] && my <= aabb[3]) {
                         ed.draggedDisplayNode = selNode;
-                        lastDisplayDragSendTime = 0;
                         dragOffX = (float)(mx - ex);
                         dragOffY = (float)(my - ey);
                         return true;
@@ -526,15 +523,16 @@ final class MonitorDisplayCanvas {
         // Live collaboration: throttle-stream the layout op so remote clients see the
         // drag in real time (release sends the final op). Also keeps pendingLocalOps > 0
         // during the drag as a second line of defense for the full-sync guard.
-        long nowMs = System.currentTimeMillis();
-        if (nowMs - lastDisplayDragSendTime >= DISPLAY_DRAG_SEND_INTERVAL_MS) {
-            lastDisplayDragSendTime = nowMs;
-            sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
-                host.blockPos(), -1, ed.draggedDisplayNode.id,
-                ed.draggedDisplayNode.layoutX, ed.draggedDisplayNode.layoutY,
-                ed.draggedDisplayNode.displayScale, ed.draggedDisplayNode.displayRotation,
-                ed.draggedDisplayNode.moveScale,
-                host.playerUUID()));
-        }
+        // 实时协作改走拖动临场流（批 3）：拖动中不再发 SET_DISPLAY_LAYOUT op——op 通道里最后
+        // 一个高频持续源移出（EDIT_OP 只吃松手收口），且拖拽期间不再触发全量同步（此前每
+        // ~2 秒的整图替换会打断旁观端插值）。节流由 tracker 的 100ms 统一管（10 包/s 恒满）。
+        // Live collaboration now rides the drag presence stream (batch 3): no
+        // SET_DISPLAY_LAYOUT ops while dragging — the last sustained high-frequency source
+        // leaves the op channel (EDIT_OP only sees the release commit), and drags no longer
+        // trigger full syncs (the old ~2 s graph replacements punctured the watcher's lerp).
+        // Pacing is the tracker's 100 ms throttle (10 pkt/s, bucket stays full).
+        host.editor().dragStream.submit(java.util.List.of(
+            io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.displayLayout(
+                ed.draggedDisplayNode.id, ed.draggedDisplayNode.layoutX, ed.draggedDisplayNode.layoutY)));
     }
 }

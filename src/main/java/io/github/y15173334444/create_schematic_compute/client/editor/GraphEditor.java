@@ -1245,6 +1245,24 @@ public class GraphEditor {
         // no drag active this costs nothing. A true stall/death stops the keep-alive,
         // preserving the expiry fallback.
         var keepAliveEntries = buildCurrentDragEntries();
+        if (keepAliveEntries == null) {
+            // 显示布局拖拽的保活（批 3）：显示拖拽不设 draggingNode/multiDragging（节点图状态
+            // 源覆盖不到），经 presence 的模式感知字段取拖拽元素 id，再从图上取当前布局坐标。
+            // Display-layout drag keep-alive (batch 3): a display drag sets none of the
+            // node-graph state source (draggingNode/multiDragging), so the dragged element id
+            // comes from the presence mode-aware fields and the live layout coords from the
+            // graph.
+            if (host.getPresenceMode() == 1) {
+                int dragId = host.getPresenceDraggedNodeId();
+                if (dragId >= 0) {
+                    var dn = getGraph().findNode(dragId);
+                    if (dn != null)
+                        keepAliveEntries = java.util.List.of(
+                            io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.displayLayout(
+                                dragId, dn.layoutX, dn.layoutY));
+                }
+            }
+        }
         if (keepAliveEntries != null) dragStream.submit(keepAliveEntries);
         var snap = host.getCachedEvalSnapshot();
         if (snap == null || snap == io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY) return;

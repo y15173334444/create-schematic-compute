@@ -79,12 +79,16 @@ final class GraphDragStreamTracker {
     // ── 接收侧状态 / receive-side state ──
     /** nodeId → 最新临场条目（含作用域与时间戳）。 / nodeId → latest overlay entry (scope + timestamp). */
     private final Map<Integer, Live> overlays = new HashMap<>();
-    /** nodeId → {x, y, w, h} 本帧改动前的图权威值（帧末还原，帧间即清）。 /
-     *  nodeId → {x, y, w, h} graph truth before this frame's shadow (restored at frame end). */
+    /** nodeId → {x, y, w, h, layoutX, layoutY} 本帧改动前的图权威值（帧末还原，帧间即清）。 /
+     *  nodeId → {x, y, w, h, layoutX, layoutY} graph truth before this frame's shadow
+     *  (restored at frame end). */
     private final Map<Integer, float[]> stash = new HashMap<>();
     /** nodeId → {curX, fromX, tgtX, curY, fromY, tgtY, t} 位置平滑状态。 /
      *  nodeId → {curX, fromX, tgtX, curY, fromY, tgtY, t} position smoothing state. */
     private final Map<Integer, float[]> posShadow = new HashMap<>();
+    /** nodeId → {curX, fromX, tgtX, curY, fromY, tgtY, t} 显示器布局平滑状态（批 3）。 /
+     *  nodeId → {curX, fromX, tgtX, curY, fromY, tgtY, t} display-layout smoothing state (batch 3). */
+    private final Map<Integer, float[]> layoutShadow = new HashMap<>();
     /** nodeId → {curW, fromW, tgtW, curH, fromH, tgtH, t} 尺寸平滑状态。 /
      *  nodeId → {curW, fromW, tgtW, curH, fromH, tgtH, t} size smoothing state. */
     private final Map<Integer, float[]> sizeShadow = new HashMap<>();
@@ -180,7 +184,19 @@ final class GraphDragStreamTracker {
             overlays.put(id, new Live(owner, GraphDragStreamPacket.Entry.pos(id, op.x(), op.y()), now));
         } else if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_SIZE) {
             overlays.put(id, new Live(owner, GraphDragStreamPacket.Entry.commentSize(id, op.x(), op.y()), now));
+        } else if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_LAYOUT) {
+            overlays.put(id, new Live(owner, GraphDragStreamPacket.Entry.displayLayout(id, op.x(), op.y()), now));
         }
+    }
+
+    /** 该作用域当前是否仍有新鲜覆盖（调用方据此决定是否强制重建渲染缓存——拖拽插值不 bump
+     *  代际，缓存不重建会把影子吞掉）。 / Whether fresh overlays still exist for the scope —
+     *  callers force a render-cache rebuild on this (a drag lerp doesn't bump the generation,
+     *  so without the rebuild the cache would swallow the shadow). */
+    boolean hasFreshOverlay(int owner) {
+        for (var live : overlays.values())
+            if (live.owner() == owner) return true;
+        return false;
     }
 
     /** 清空全部覆盖状态（编辑器关闭时与 presence 一起走）。 / Clear everything (editor close,
@@ -190,6 +206,7 @@ final class GraphDragStreamTracker {
         stash.clear();
         posShadow.clear();
         sizeShadow.clear();
+        layoutShadow.clear();
         pending = List.of();
     }
 
@@ -211,13 +228,19 @@ final class GraphDragStreamTracker {
             // Frame originals: re-taken from graph truth every frame (endFrame has restored,
             // so this is always the authoritative value).
             float[] st = stash.computeIfAbsent(e.nodeId(),
-                k -> new float[]{n.x, n.y, n.commentWidth, n.commentHeight});
+                k -> new float[]{n.x, n.y, n.commentWidth, n.commentHeight, n.layoutX, n.layoutY});
             if (e.kind() == GraphDragStreamPacket.KIND_COMMENT_SIZE) {
                 float[] sh = sizeShadow.computeIfAbsent(e.nodeId(),
                     k -> new float[]{st[2], st[2], e.w(), st[3], st[3], e.h(), 0f});
                 advance(sh, e.w(), e.h());
                 n.commentWidth = sh[0];
                 n.commentHeight = sh[3];
+            } else if (e.kind() == GraphDragStreamPacket.KIND_DISPLAY_LAYOUT) {
+                float[] sh = layoutShadow.computeIfAbsent(e.nodeId(),
+                    k -> new float[]{st[4], st[4], e.x(), st[5], st[5], e.y(), 0f});
+                advance(sh, e.x(), e.y());
+                n.layoutX = sh[0];
+                n.layoutY = sh[3];
             } else {
                 float[] sh = posShadow.computeIfAbsent(e.nodeId(),
                     k -> new float[]{st[0], st[0], e.x(), st[1], st[1], e.y(), 0f});
@@ -261,6 +284,8 @@ final class GraphDragStreamTracker {
             n.y = st[1];
             n.commentWidth = st[2];
             n.commentHeight = st[3];
+            n.layoutX = st[4];
+            n.layoutY = st[5];
         }
         stash.clear();
     }
@@ -274,6 +299,7 @@ final class GraphDragStreamTracker {
             if (now - en.getValue().ts() > OVERLAY_TIMEOUT_MS) {
                 posShadow.remove(en.getKey());
                 sizeShadow.remove(en.getKey());
+                layoutShadow.remove(en.getKey());
                 it.remove();
             }
         }

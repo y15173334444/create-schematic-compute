@@ -306,6 +306,41 @@ class GraphDragStreamTrackerTest {
         assertEquals(comment.id, resize.get(0).nodeId());
     }
 
+    @Test
+    @DisplayName("显示器布局条目走 layout 影子：推进 layoutX/Y、帧末还原 / display-layout entries drive layoutX/Y via the shadow, restored at frame end")
+    void displayLayoutShadowAndRestore() {
+        var g = new NodeGraph();
+        GraphNode n = g.addNode(NodeType.TEXT, 0, 0);
+        n.layoutX = 0.2f; n.layoutY = 0.3f;
+        var tr = newTracker();
+        tr.storeRemoteDrag(pkt(-1, Entry.displayLayout(n.id, 0.8f, 0.9f)));
+        tr.beginFrame(g, -1);
+        assertTrue(n.layoutX > 0.2f && n.layoutX < 0.8f, "layout shadow advances toward the overlay");
+        tr.endFrame(g);
+        assertEquals(0.2f, n.layoutX, 0f, "layout truth restored");
+        assertEquals(0.3f, n.layoutY, 0f, "layout truth restored");
+        assertEquals(0f, n.x, 0f, "graph-space x untouched by a layout shadow");
+    }
+
+    @Test
+    @DisplayName("权威 SET_DISPLAY_LAYOUT 落地接管覆盖层 / an authoritative SET_DISPLAY_LAYOUT adopts too")
+    void authoritativeDisplayLayoutAdopted() {
+        var g = new NodeGraph();
+        GraphNode n = g.addNode(NodeType.TEXT, 0, 0);
+        n.layoutX = 0.2f; n.layoutY = 0.2f;
+        var tr = newTracker();
+        tr.storeRemoteDrag(pkt(-1, Entry.displayLayout(n.id, 0.3f, 0.3f)));
+        tr.adoptAuthoritative(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
+            BlockPos.ZERO, -1, n.id, 0.9f, 0.9f, 1f, 0f, 1f, SENDER));
+        float lx = 0f;
+        for (int i = 0; i < 12; i++) {
+            tr.beginFrame(g, -1);
+            lx = n.layoutX;   // 帧内取值——endFrame 会还原 / captured in-frame; endFrame restores
+            tr.endFrame(g);
+        }
+        assertEquals(0.9f, lx, 0.0001f, "converges onto the authoritative final");
+    }
+
     // ── helpers ──
 
     private static GraphDragStreamTracker newTracker() {

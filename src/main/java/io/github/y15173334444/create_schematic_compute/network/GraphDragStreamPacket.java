@@ -69,6 +69,9 @@ public record GraphDragStreamPacket(
     public static final byte KIND_NODE_POS = 0;
     /** 条目种类：注释框尺寸（w/h 有效）。 / Entry kind: comment-box size (w/h meaningful). */
     public static final byte KIND_COMMENT_SIZE = 1;
+    /** 条目种类：显示器布局位置（x/y 有效，0..1 归一化坐标）。 / Entry kind: display-layout
+     *  position (x/y meaningful, normalized 0..1). */
+    public static final byte KIND_DISPLAY_LAYOUT = 2;
 
     /** 独立 logger：不引用 (root) 包的 @Mod 类——其静态初始化依赖 MC 注册表，headless/JUnit
      *  下起不来。 / Same-name standalone logger: never references the @Mod class — its static
@@ -101,6 +104,11 @@ public record GraphDragStreamPacket(
         /** 注释尺寸条目。 / Comment-size entry. */
         public static Entry commentSize(int nodeId, float w, float h) {
             return new Entry(nodeId, KIND_COMMENT_SIZE, 0f, 0f, w, h);
+        }
+        /** 显示器布局位置条目（x/y = 归一化布局坐标）。 / Display-layout position entry
+         *  (x/y = normalized layout coordinates). */
+        public static Entry displayLayout(int nodeId, float x, float y) {
+            return new Entry(nodeId, KIND_DISPLAY_LAYOUT, x, y, 0f, 0f);
         }
     }
 
