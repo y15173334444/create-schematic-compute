@@ -1,0 +1,14 @@
+# 逐字 checkout：全仓禁 EOL 转换（Windows autocrlf 环境不转化、不重归一化）。
+# 库内内容恒 LF（历史一直如此）；多行源码锚测试（如 CustomNodeEditorFaceTest）与
+# golden 夹具按字节依赖 checkout 形态——任何转换面都会打破（CI windows runner
+# 实证：autocrlf=true 把夹具与源码 CRLF 化，TokFixtureTest 的 parseInt 与源码锚
+# 双双炸掉）。-text 只停转换、不动索引内容：零重归一化、零 diff 噪声。
+# Verbatim checkout: EOL conversion disabled repo-wide (no autocrlf rewriting on
+# Windows environments, no renormalization). Committed content stays LF as it
+# always has; multi-line source-anchor tests (e.g. CustomNodeEditorFaceTest) and
+# the golden fixtures depend on the checkout form byte-for-byte - any conversion
+# surface breaks them (proven on the CI windows runner: autocrlf=true CRLF'd both,
+# failing TokFixtureTest's parseInt and the source anchors at once). -text only
+# stops conversion and never touches index content: zero renormalization, zero
+# diff noise.
+* -text
