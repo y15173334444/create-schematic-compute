@@ -36,6 +36,18 @@ public class HostGraphScreen extends AbstractGraphScreen {
 
     public HostGraphScreen(BlockPos pos) {
         super(Component.translatable("container." + SchematicCompute.MOD_ID + ".host_graph"), pos);
+        // 名单接线在 init()——构造期 Screen.minecraft 尚未注入（init(Minecraft,...) 才赋值），
+        // beResolved() 恒 null，名单（含 CUSTOM 段 rosterHost）会静默缺席（实机实证：
+        // 泛用屏菜单无自定义节点、内置分类也不过滤）。
+        // The allowance wiring lives in init(): Screen.minecraft is not injected at
+        // construction time (init(Minecraft,...) assigns it), so beResolved() is always
+        // null there and the allowance (the CUSTOM section's rosterHost included) would
+        // silently go missing (live-verified: the generic screen's menu showed no custom
+        // nodes and no category filtering).
+    }
+
+    @Override protected void init() {
+        super.init();
         // 名单与宿主键同源：适配器的 nodeAllowance() 由 bind 时的 HostAdmission 换算而来
         // —— 客户端菜单过滤与服务端准入门同源（P2-7 口径）。
         // Allowance and host key share the source: the adapter's nodeAllowance() converts
