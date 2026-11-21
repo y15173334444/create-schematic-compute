@@ -132,6 +132,27 @@ canvas to fill the rest; the three high-frequency buttons **[X] close · [compil
     system messages, text without "/" goes out as chat), Esc blurs, clicking the canvas
     blurs. The pop animation and the one-flyout discipline match the other sections.
 
+13. **（第十二轮）`/` 控制台整体搬进终端面板、`/` 开台键退役**：终端面板＝CSC 控制台——
+    输出区只显示 CSC 命令回执（本地回显 `> cmd` + 服务端响应行，400 行环、滚轮翻历史、
+    超宽截断），输入行 trim 后**原样**发服务端（`ConsoleQueryPacket`，客户端零文法；
+    `help`/`stale`/`topo`/`ring`/`bus`/`hosts`）；原聊天/系统消息镜像（`SidebarConsoleFeed`）
+    与原版 `sendChat` 玩家输入一并退役。原以 `/` 开台的独立模态叠加层退役：面板只从图标条
+    终端图标开，开面板即聚焦输入行（点面板任意位置也聚焦），Esc / 点画布失焦；聚焦态吞掉
+    全部按键（聚焦输入框优先，含拦住 Screen 的 ESC 关屏），失焦态一律放行；首次聚焦出一次
+    `help` 提示，提交后等待标记照旧。
+    *(Round 12) The "/" console moves wholly into the terminal panel; the "/" opener retires*:
+    the terminal panel **is** the CSC console — the output area shows CSC command replies only
+    (local echo `> cmd` + server response lines, a 400-line ring, wheel through history,
+    overlong lines truncated), and the input row sends the trimmed text **verbatim** to the
+    server (`ConsoleQueryPacket`, zero grammar client-side; `help`/`stale`/`topo`/`ring`/`bus`/
+    `hosts`). The chat/system mirror (`SidebarConsoleFeed`) and the vanilla `sendChat` player
+    input both retire. The modal "/"-opened overlay retires too: the panel opens only from the
+    rail's terminal icon, opening it focuses the input row (any click inside the panel focuses
+    it as well), Esc / a canvas click blurs; while focused every key is swallowed (a focused
+    input beats the rest of the guard chain, Screen's ESC close included) and while blurred
+    everything passes; the first focus prints the `help` hint once and the awaiting marker
+    stays as before.
+
 ## 三、布局机制 / Layout mechanics
 
 - **图标条（常驻）**：右缘竖条，宽约 22px，**自制像素图标**（16×16 手绘位图 +
@@ -188,9 +209,10 @@ canvas to fill the rest; the three high-frequency buttons **[X] close · [compil
   Nodes added from the library land at the **centre of the visible canvas** (midway of the
   free gap left of the flyout, half height) instead of the last aim point, which often sat
   under the flyout. The right-click popup path still drops at the cursor.
-- 控制台（`/` 键）、热栏选物品、颜色拾取等**上下文弹层**不是「东西」，本轮不动。
-  Context popups (the `/` console, per-node hotbar picker, colour picker) are not
-  "things" — untouched this round.
+- 热栏选物品、颜色拾取等**上下文弹层**不是「东西」，本轮不动（`/` 控制台已搬进侧栏终端
+  面板，见第十二轮）。
+  Context popups (the per-node hotbar picker, colour picker) are not "things" — untouched
+  this round (the `/` console already moved into the sidebar terminal panel, round 12).
 
 ## 五、几何与路由约束 / Geometry & routing constraints
 
