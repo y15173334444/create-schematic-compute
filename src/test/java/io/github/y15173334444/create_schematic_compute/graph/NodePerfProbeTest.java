@@ -84,14 +84,84 @@ class NodePerfProbeTest {
                 new GraphEvaluator.SeatInputState(0, 0, 0, 0, 0));
 
         var lines = io.github.y15173334444.create_schematic_compute.SchematicComputeCommands
-            .formatPerfSummary(evaluator, g, 20);
+            .formatPerfSummary(evaluator, 20);
         assertEquals(3, lines.size(), "all three nodes listed");
         assertTrue(lines.stream().anyMatch(l -> l.contains("(" + cid + ")")),
             "the CUSTOM line carries modid + node id");
         assertTrue(lines.stream().anyMatch(l -> l.contains("(const)")), "built-ins carry the type id");
         assertTrue(lines.stream().allMatch(l -> l.contains("µs avg")), "the µs unit rides every line");
         var one = io.github.y15173334444.create_schematic_compute.SchematicComputeCommands
-            .formatPerfSummary(evaluator, g, 1);
+            .formatPerfSummary(evaluator, 1);
         assertEquals(1, one.size(), "topN caps the output");
+    }
+
+    /** 观测面窄口（条目『观测面 evaluatorView 交出活求值器 + 探针每 tick 装箱』①）：
+     *  接口恰两成员（快照 + 标签）、evaluatorView 静态返回类型收敛为视图、标签解析口径
+     *  （内建 = 类型 id / CUSTOM = customId / 陈旧键与未知 id = "?"）。
+     *  The narrow observation port (register entry part 1): exactly two members
+     *  (snapshot + label), evaluatorView's static return type narrowed to the view, and
+     *  the label contract (built-ins = type id / CUSTOM = customId / stale keys and
+     *  unknown ids = "?"). */
+    @Test
+    @DisplayName("窄口：两成员接口 + evaluatorView 返回类型收敛 + 标签解析含陈旧键")
+    void observationViewIsNarrow() throws Exception {
+        var declared = EvaluatorObservationView.class.getDeclaredMethods();
+        assertEquals(2, declared.length, "the narrow view exposes exactly snapshot + label");
+        assertEquals(EvaluatorObservationView.class,
+            io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity.class
+                .getMethod("evaluatorView").getReturnType(),
+            "evaluatorView hands out the narrow view, not the evaluator");
+
+        NodeGraph g = new NodeGraph();
+        GraphNode c = g.addNode(NodeType.CONST, 0f, 0f);
+        String cid = "perfmod:labeled";
+        CustomNodeRegistry.register(new io.github.y15173334444.create_schematic_compute.api.CustomNodeType(
+            cid, "Labeled", List.of(), List.of(), List.of()));
+        GraphNode custom = g.addNode(NodeType.CUSTOM, cid, 3f, 0f);
+        var evaluator = new GraphEvaluator(g);
+        assertEquals("const", evaluator.nodeLabel(c.id), "built-ins carry the type id");
+        assertEquals(cid, evaluator.nodeLabel(custom.id), "CUSTOM carries modid + node id");
+        assertEquals("?", evaluator.nodeLabel(9999), "unknown ids resolve to ?");
+        g.removeNode(custom.id);
+        assertEquals("?", evaluator.nodeLabel(custom.id), "stale keys (deleted nodes) resolve to ?");
+    }
+
+    /** 原始表行为锚（同条目 ②）：id 超 127 与跨初始容量 rehash 后取值/覆盖/快照正确
+     *  ——去装箱改的是存储，不是语义。
+     *  Primitive-table behaviour anchor (part 2 of the same entry): ids above 127 and
+     *  rehash past the initial capacity read back, overwrite and snapshot correctly —
+     *  de-boxing changes the storage, not the semantics. */
+    @Test
+    @DisplayName("原始表：大 id + rehash 后取值正确；快照物化覆盖全条目")
+    void primitiveTableSurvivesGrowAndBigIds() {
+        var t = new GraphEvaluator.NodeCostTable();
+        for (int id = 1; id <= 300; id++) t.put(id, id * 1000L);
+        assertEquals(300, t.size());
+        for (int id = 1; id <= 300; id++) assertEquals(id * 1000L, t.get(id), "id=" + id);
+        assertEquals(0L, t.get(301), "absent ids read zero");
+        t.put(200, 7L);
+        assertEquals(7L, t.get(200), "update overwrites in place");
+        var snapshot = new java.util.HashMap<Integer, Long>();
+        t.collect(snapshot);
+        assertEquals(300, snapshot.size(), "the snapshot covers every entry");
+        assertEquals(7L, snapshot.get(200), "the snapshot carries the updated value");
+    }
+
+    /** 源码锚（PixelEditorThemeAdoptionTest 同款防回潮）：每 tick 热路径耗时表不得
+     *  回潮为装箱 Map——开放寻址原始表在场。
+     *  Source anchor (the PixelEditorThemeAdoptionTest anti-regression pattern): the
+     *  per-tick hot-path cost table must not regress to a boxed map — the primitive
+     *  open-addressed table stays in place. */
+    @Test
+    @DisplayName("源码锚：耗时表保持原始类型开放寻址表，无装箱容器回潮")
+    void costTableStaysPrimitive() throws Exception {
+        String t = java.nio.file.Files.readString(java.nio.file.Path.of(
+            "src/main/java/io/github/y15173334444/create_schematic_compute/graph/GraphEvaluator.java"));
+        assertFalse(t.contains("HashMap<Integer, Long> nodeCostNs"),
+            "the per-tick cost table must not regress to a boxed map field");
+        assertTrue(t.contains("NodeCostTable nodeCostNs"),
+            "the primitive open-addressed table stays in place");
+        assertTrue(t.contains("implements EvaluatorObservationView"),
+            "the evaluator keeps implementing the narrow observation view");
     }
 }

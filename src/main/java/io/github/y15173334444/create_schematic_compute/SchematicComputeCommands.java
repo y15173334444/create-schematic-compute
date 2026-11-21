@@ -93,7 +93,7 @@ public final class SchematicComputeCommands {
                         "commands.create_schematic_compute.cscperf.no_target"));
                     return 0;
                 }
-                var lines = formatPerfSummary(gbe.evaluatorView(), gbe.getNodeGraph(), 20);
+                var lines = formatPerfSummary(gbe.evaluatorView(), 20);
                 if (lines.isEmpty()) {
                     ctx.getSource().sendSuccess(() -> Component.translatable(
                         "commands.create_schematic_compute.cscperf.empty"), false);
@@ -109,13 +109,17 @@ public final class SchematicComputeCommands {
 
     /** /cscperf 汇总格式化（纯函数，headless 可锚）：per-node EMA 降序 top-N，行式
      *  「{@code #i  node <id> (<type|customId>)  <µs> µs avg}」。CUSTOM 节点带 modid+节点 id
-     *  （验收②的可观测底座：第三方耗时一眼可辨）。
+     *  （验收②的可观测底座：第三方耗时一眼可辨）。入参 = 观测面窄口（条目『观测面
+     *  evaluatorView 交出活求值器 + 探针每 tick 装箱』①）——标签解析经
+     *  {@link io.github.y15173334444.create_schematic_compute.graph.EvaluatorObservationView#nodeLabel(int)}，不再持图反查。
      *  The /cscperf summary formatter (a pure function, anchorable headless): per-node
      *  EMA descending top-N, lines like "#1 node 12 (cscexample:widget) 123.4 µs avg".
-     *  CUSTOM nodes carry modid + node id (the observability base of acceptance 2). */
+     *  CUSTOM nodes carry modid + node id (the observability base of acceptance 2). The
+     *  input is the narrow observation view (register entry "evaluatorView hands out the
+     *  live evaluator + per-tick probe boxing", part 1) — labels resolve via
+     *  {@link io.github.y15173334444.create_schematic_compute.graph.EvaluatorObservationView#nodeLabel(int)} instead of a graph lookback. */
     public static java.util.List<String> formatPerfSummary(
-            io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator ev,
-            io.github.y15173334444.create_schematic_compute.graph.NodeGraph graph, int topN) {
+            io.github.y15173334444.create_schematic_compute.graph.EvaluatorObservationView ev, int topN) {
         var costs = ev.nodeCostNsView();
         var sorted = new java.util.ArrayList<>(costs.entrySet());
         sorted.sort((a, b) -> Long.compare(b.getValue(), a.getValue()));
@@ -123,12 +127,8 @@ public final class SchematicComputeCommands {
         int rank = 0;
         for (var e : sorted) {
             if (rank >= topN) break;
-            var node = graph.findNode(e.getKey());
-            String label = node == null ? "?"
-                : (node.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.CUSTOM
-                    ? node.customId : node.type.id);
             out.add(String.format("#%d  node %d (%s)  %.1f µs avg", rank + 1, e.getKey(),
-                label, e.getValue() / 1000.0));
+                ev.nodeLabel(e.getKey()), e.getValue() / 1000.0));
             rank++;
         }
         return out;

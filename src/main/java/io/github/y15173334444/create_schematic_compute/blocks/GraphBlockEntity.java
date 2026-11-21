@@ -1,7 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.blocks;
 
 import io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot;
-import io.github.y15173334444.create_schematic_compute.graph.GraphEvaluator;
+import io.github.y15173334444.create_schematic_compute.graph.EvaluatorObservationView;
 import io.github.y15173334444.create_schematic_compute.graph.NodeGraph;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
@@ -57,14 +57,21 @@ public interface GraphBlockEntity
     /** 暴露节点图供 packet handler 使用 / Expose the node graph for packet handlers. */
     default NodeGraph getNodeGraph() { return null; }
 
-    /** 观测面（批 E /cscperf）：求值器只读视图（耗时刻度表挂在求值器上）。null = 宿主
-     *  未实现该视图或求值器未建（诊断面缺数据不是错误，default 开——与准入问题不同族，
-     *  那是 fail-closed 的安全面）。/ Observability face (batch E /cscperf): a read-only
-     *  view of the evaluator (the cost table hangs off it). null = the host does not
-     *  expose the view or has no evaluator yet (missing diagnostics data is not an
-     *  error, hence the default — unlike the admission questions, which are a fail-closed
-     *  safety face). */
-    default GraphEvaluator evaluatorView() { return null; }
+    /** 观测面（批 E /cscperf）：求值器观测的**真只读视图**（条目『观测面 evaluatorView
+     *  交出活求值器 + 探针每 tick 装箱』①收敛——原返回活 {@code GraphEvaluator}，其
+     *  public 面含 evaluate() 重入与端口注入改写口；现只交出耗时快照与节点标识解析，
+     *  宿主套件波后第三方拿到的静态类型即此窄口）。null = 宿主未实现该视图或求值器未建
+     *  （诊断面缺数据不是错误，default 开——与准入问题不同族，那是 fail-closed 的安全面）。
+     *  / Observability face (batch E /cscperf): the **true read-only view** of the
+     *  evaluator (narrowed per register entry "evaluatorView hands out the live
+     *  evaluator + per-tick probe boxing", part 1 — the old live {@code GraphEvaluator}
+     *  carried evaluate() re-entry and port-injection mutators on its public face; only
+     *  the cost snapshot and node-identity resolution are handed out now, and after the
+     *  host-suite wave this narrow type is what third parties see statically). null = the
+     *  host does not expose the view or has no evaluator yet (missing diagnostics data is
+     *  not an error, hence the default — unlike the admission questions, which are a
+     *  fail-closed safety face). */
+    default EvaluatorObservationView evaluatorView() { return null; }
 
     /** 本图玩家可见名称（编辑器顶栏可编辑，便携终端按此查找；空 = 回退到方块类型名）。
      *  名称挂在 NodeGraph 上，随图走既有同步链路，故此只读视图即足够。
