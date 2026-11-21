@@ -393,7 +393,10 @@ public class NodeRenderer {
                            Map<Integer, String> lockedNodes) {
         // COMMENT nodes are rendered entirely at A=1 via renderCommentNodes
         if (n.type == NodeType.COMMENT) return;
-        boolean detailText = detailText(zoom, editing);
+        // 设置页「性能」tab 的文字 LOD 开关：关 = 次要文字任何缩放都画（判定仍走纯函数）。
+        // The Performance tab's text-LOD switch: off = secondary text draws at any zoom
+        // (the decision itself stays in the pure function).
+        boolean detailText = detailText(zoom, editing) || !EditorPerfSettings.textLod();
         String lockedBy = lockedNodes != null ? lockedNodes.get(n.id) : null;
         // 抖动治理 JIT-1（docs/graph-editor-canvas-jitter-plan.md）：每帧吸附一次节点原点，
         // 框/内容 pose/引脚/连线根共用；框尺寸一次取整后两缘共用——拖动时框与内容不再互相爬。

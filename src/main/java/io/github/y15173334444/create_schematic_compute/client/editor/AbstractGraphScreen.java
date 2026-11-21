@@ -144,6 +144,27 @@ public abstract class AbstractGraphScreen extends Screen implements GraphEditor.
         editor.renderBg(g, mx, my);
     }
 
+    /**
+     * 剔除世界生效时的背板接管：不透明主题底替代 vanilla 的「世界模糊后处理 + in-world
+     * 菜单渐变」——renderLevel 已被 mixin 整段取消（GameRendererMixin），模糊再处理陈旧帧
+     * 只是纯开销且残影可见，这里一并跳过。主题色强制不透明（透明底是「看世界」的口径，
+     * 与剔除世界互斥）。
+     * The backdrop takeover while world-culling is active: an opaque theme base replaces the
+     * vanilla "blurred world + in-world menu gradient" — renderLevel is already cancelled by
+     * the mixin (GameRendererMixin), so re-processing the stale frame is pure cost with a
+     * visible ghost; the blur is skipped here too. The theme colour is forced opaque (the
+     * transparent backdrop is the "watch the world" stance and is mutually exclusive with
+     * world culling).
+     */
+    @Override
+    public void renderBackground(GuiGraphics g, int mx, int my, float pt) {
+        if (EditorPerfSettings.cullWorldActive()) {
+            g.fill(0, 0, this.width, this.height, NodeRenderer.PBG() | 0xFF000000);
+            return;
+        }
+        super.renderBackground(g, mx, my, pt);
+    }
+
     // ── PERF-7 渲染采样叠加层（docs/graph-editor-render-performance-plan.md §3.2）──
     //    只读测量 + 自绘 HUD：不改渲染路径、不在此做优化决策。F9 切换、F10 生成测量
     //    场景（GraphPerfScene）。仅开关位 static（跨界面重建存活）；采样缓冲每屏自持。
