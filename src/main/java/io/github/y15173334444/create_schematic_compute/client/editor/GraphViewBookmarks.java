@@ -113,7 +113,22 @@ final class GraphViewBookmarks {
     private int draggingBookmarkIdx = -1; // 书签拖拽排序 / bookmark drag reorder
     private float bookmarkDragY = 0;       // 拖拽时的鼠标 Y / mouse Y during drag
 
-    /** 面板可见性（渲染镜像到 NodeRenderer 用）。 / Panel visibility (mirrored to NodeRenderer for rendering). */
+    /** 面板可见性（渲染镜像到 NodeRenderer 用）。 / Panel visibility (sidebar bookmark icon highlight). */
+    // —— 面板几何单源：渲染与命中同用，且右缘让开侧边栏图标条（命中几何漂移教训）。
+    // —— Panel geometry single source: shared by render and hit-testing, shifted left of
+    //    the sidebar rail (the wire-hit geometry-drift lesson).
+    private static final int PANEL_W = 180, ROW_H = 16, MAX_ROWS = 5, TITLE_H = 16, BTN_ROW_H = 18;
+    /** 面板 x（弹出动画期间加上从图标条底滑出的偏移；渲染与命中同源一起动）。
+     *  Panel x (during the pop animation it carries the slide-out offset from under the
+     *  rail; the single source moves render and hit-testing together). */
+    private int panelX() { return ed.host.asScreen().width - PANEL_W - 4 - ed.sidebar.width()
+        + ed.sidebar.flyoutDx(PANEL_W + 4); }
+    private int panelH(int totalRows) { return TITLE_H + BTN_ROW_H + 6 + Math.max(Math.min(totalRows, MAX_ROWS), 1) * ROW_H + 10; }
+    /** 面板贴顶（侧栏浮窗默认从顶部排起，不再挂在右下角）。
+     *  The panel hugs the top (sidebar flyouts start from the top now, not the old
+     *  bottom-right corner). */
+    private int panelY() { return 4; }
+
     boolean panelVisible() { return showBookmarkPanel; }
 
     /** 渲染书签列表面板与命名对话框（renderBg A=4 层调用）。
@@ -123,16 +138,16 @@ final class GraphViewBookmarks {
         if (showBookmarkPanel) {
             var mc = Minecraft.getInstance();
             var bks = ed.getGraph().bookmarks;
-            int panelW = 180;
-            int rowH = 16;
-            int maxRows = 5;
-            int titleH = 16;
-            int btnRowH = 18;
+            int panelW = PANEL_W;
+            int rowH = ROW_H;
+            int maxRows = MAX_ROWS;
+            int titleH = TITLE_H;
+            int btnRowH = BTN_ROW_H;
             int totalRows = bks.size();
             int visibleRows = Math.min(totalRows, maxRows);
-            int panelH = titleH + btnRowH + 6 + Math.max(visibleRows, 1) * rowH + 10;
-            int panelX = ed.host.asScreen().width - panelW - 4;
-            int panelY = ed.host.asScreen().height - 44 - panelH; // 在 ★ 按钮上方
+            int panelH = panelH(totalRows);
+            int panelX = panelX();
+            int panelY = panelY(); // 贴顶 / hugs the top
             // 限制滚动偏移 / clamp scroll offset
             if (bookmarkScrollOff < 0) bookmarkScrollOff = 0;
             if (bookmarkScrollOff > Math.max(0, totalRows - maxRows)) bookmarkScrollOff = Math.max(0, totalRows - maxRows);
@@ -312,13 +327,13 @@ final class GraphViewBookmarks {
     boolean handlePanelClick(double mx, double my, int btn) {
         var graph = ed.getGraph();
         if (showBookmarkPanel && !editingBookmarkName && !ed.showExportDialog && !ed.showImportDialog && !ed.colorPicker.isVisible() && ed.editingCommentColorNode == null) {
-            int panelW = 180, rowH = 16, maxRows = 5, titleH = 16, btnRowH = 18;
+            int panelW = PANEL_W, rowH = ROW_H, maxRows = MAX_ROWS, titleH = TITLE_H, btnRowH = BTN_ROW_H;
             var bks = graph.bookmarks;
             int totalRows = bks.size();
             int visibleRows = Math.min(totalRows, maxRows);
-            int panelX = ed.host.asScreen().width - panelW - 4;
-            int panelY = ed.host.asScreen().height - 44 - (titleH + btnRowH + 6 + Math.max(visibleRows, 1) * rowH + 10) - 4;
-            int panelH = titleH + btnRowH + 6 + Math.max(visibleRows, 1) * rowH + 10;
+            int panelX = panelX();
+            int panelY = panelY();
+            int panelH = panelH(totalRows);
             int listTopY = panelY + titleH + btnRowH + 4;
             // [+ 保存] [↺ 重置] 按钮行
             if (btn == 0 && my >= panelY + titleH && my < listTopY) {
@@ -373,17 +388,18 @@ final class GraphViewBookmarks {
         return false;
     }
 
-    /** 右下角书签按钮（在三角形上方）。返回 true 表示已消费。
-     *  Bottom-right bookmark button, above the triangle. Returns true if consumed. */
-    boolean handleBookmarkButtonToggle(double mx, double my) {
-        { int w = ed.host.asScreen().width, h = ed.host.asScreen().height;
-          if(mx>=w-22&&mx<=w-4&&my>=h-44&&my<=h-26){
-            showBookmarkPanel = !showBookmarkPanel;
-            bookmarkScrollOff = 0;
-            if (showBookmarkPanel) { ed.colorPicker.close(); ed.showExportDialog = false; ed.showImportDialog = false; }
-            return true;
-          } }
-        return false;
+    /** 侧边栏书签图标动作：开/关书签面板（原右下角角标按钮已退役）。
+     *  Sidebar bookmark icon action: toggles the bookmark panel (the old corner button retired). */
+    void togglePanel() {
+        showBookmarkPanel = !showBookmarkPanel;
+        bookmarkScrollOff = 0;
+        if (showBookmarkPanel) { ed.colorPicker.close(); ed.showExportDialog = false; ed.showImportDialog = false; }
+    }
+
+    /** 关闭书签面板（侧栏单浮窗口径调用：不带 toggle 的开合翻转）。
+     *  Close the bookmark panel (called by the sidebar's single-flyout discipline; no toggle flip). */
+    void closePanel() {
+        showBookmarkPanel = false;
     }
 
     /** 书签拖拽排序中的鼠标 Y 更新（mouseDragged 早期检查）。返回 true 表示已消费。
@@ -397,7 +413,7 @@ final class GraphViewBookmarks {
      *  Bookmark scrollbar drag (mouseDragged, after the menu scrollbar). Returns true if consumed. */
     boolean handleScrollbarDrag(double my) {
         if (scrollingBookmark) {
-            int panelW = 180, rowH = 16, maxRows = 5;
+            int panelW = PANEL_W, rowH = ROW_H, maxRows = MAX_ROWS;
             var bks = ed.getGraph().bookmarks;
             int totalRows = bks.size();
             if (totalRows > maxRows) {
@@ -421,8 +437,8 @@ final class GraphViewBookmarks {
         if (draggingBookmarkIdx >= 0) {
             var bks = ed.getGraph().bookmarks;
             if (draggingBookmarkIdx < bks.size() && showBookmarkPanel) {
-                int panelW = 180, rowH = 16, maxRows = 5, titleH = 16, btnRowH = 18;
-                int panelY = ed.host.asScreen().height - 44 - (titleH + btnRowH + 6 + Math.max(Math.min(bks.size(), maxRows), 1) * rowH + 10) - 4;
+                int panelW = PANEL_W, rowH = ROW_H, maxRows = MAX_ROWS, titleH = TITLE_H, btnRowH = BTN_ROW_H;
+                int panelY = panelY();
                 int listTopY = panelY + titleH + btnRowH + 4;
                 int toRow = (int)((my - listTopY) / rowH);
                 int toIdx = toRow + bookmarkScrollOff;
@@ -449,8 +465,8 @@ final class GraphViewBookmarks {
      *  Bookmark panel scroll (mouseScrolled; consumed only when shown and the pointer is over the panel column). */
     boolean handleScroll(double mx, double sy) {
         if (showBookmarkPanel) {
-            int panelW = 180, maxRows = 5;
-            int panelX = ed.host.asScreen().width - panelW - 4;
+            int panelW = PANEL_W, maxRows = MAX_ROWS;
+            int panelX = panelX();
             if (mx >= panelX && mx < panelX + panelW) {
                 var bks = ed.getGraph().bookmarks;
                 int totalRows = bks.size();

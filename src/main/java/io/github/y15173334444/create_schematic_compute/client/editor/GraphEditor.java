@@ -503,6 +503,9 @@ public class GraphEditor {
     final GraphViewBookmarks viewBookmarks = new GraphViewBookmarks(this);
     // ── 总线编辑器（commitBusBox / 冲突重评估 / 频段同步，步骤 6d 拆出 / bus editing split into GraphBusEditor, step 6d）──
     final GraphBusEditor bus = new GraphBusEditor(this);
+    // ── 右缘侧边栏（节点库/工具/书签/设置；docs/graph-editor-sidebar-plan.md）──
+    // ── Right-edge sidebar (node library / tools / bookmarks / settings) ──
+    final GraphSidebar sidebar = new GraphSidebar(this);
     // ── 图内 `/` 控制台叠加层（C 阶段步骤 5，规格 §4.1 Q6=A；状态机与命令解析在
     //    GraphConsole.Core，纯逻辑 headless 可测；本字段只注入三条编辑器侧接线）──
     // ── The in-editor "/" console overlay (Phase-C step 5, spec §4.1 Q6=A); state machine
@@ -658,11 +661,15 @@ public class GraphEditor {
     /** 节点 ID → 编辑状态 的映射 / node ID → EditState mapping */
     public final java.util.Map<Integer, EditState> nodeEditStatesById = new java.util.HashMap<>();
 
-    // ── 顶栏（名称 + 设置） / top bar (name + settings) ─────────────────
+    // ── 顶条高度常量（顶栏已退役；供监视器显示模式等自带顶条的表面共用）──
+    // ── Top-strip height constant (the top bar is retired; shared by surfaces with
+    //    their own top strip, e.g. the monitor display mode) ──
 
-    /** 顶栏高度。工具栏与其余覆盖层在其下排布（顶/底两种工具栏位置都要让开它）。
-     *  Top-bar height. The toolbar and every other overlay must clear it in both
-     *  toolbar positions (top and bottom). */
+    /** 顶条高度。图编辑器自身已不按它排版（三键贴角、图名住侧边栏）；
+     *  监视器显示模式等表面仍以它为自家顶条高度。
+     *  Top-strip height. The graph editor no longer lays itself out against it (the
+     *  buttons hug the corner, the name lives in the sidebar); monitor display mode
+     *  and friends still use it for their own strips. */
     public static final int TOP_BAR_H = 22;
 
     /** 顶栏名称输入框：值提交到 {@code graph.customName}（SET_BLOCK_NAME op，逐字符同步
@@ -1638,8 +1645,9 @@ public class GraphEditor {
             renderer.renderCommentNodes(g, sortedByB, selectedNodes, selectedNode, expandedNodeIds,
                 nodeEditStatesById, camX, camY, zoom, mx, my, flipflopStates, lockedNodes);
 
-            // ── 子图 Back 按钮：已合并进顶栏（renderTopBar 子图分支）──
-            // Sub-graph Back button: merged into the top bar (renderTopBar sub branch).
+            // ── 子图 Back 按钮：住进侧边栏「图」板块（GraphSidebar.backRect）──
+            // Sub-graph Back button: lives in the sidebar "Graph" section (GraphSidebar.backRect).
+
 
             // BUS_IN 的频段**不再**在这里按全局注册表同步（issue #11）。这段代码每帧运行，
             // 会把每个 BUS_IN 的频段改回**本端**注册表那一份并剪掉多余的连线——于是各端注册表
@@ -1679,14 +1687,14 @@ public class GraphEditor {
             // covered the toolbar / top bar / popups / add-node menu.
             renderPresenceOverlay(g);
             if (!isInSubGraph()) {
-                renderer.showBookmarkPanel = viewBookmarks.panelVisible();
-                renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, gridSnapEnabled, 0, host.asScreen().width, host.asScreen().height);
-                // 导入/导出封装节点按钮（仅蓝图计算机显示） (Import/export encapsulation node buttons, Blueprint computer only)
-                renderEncapImportExportButtons(g);
+                renderer.renderButtons(g, true, host.isRunning(), cycleWarning, saveFeedbackUntil, host.asScreen().width, host.asScreen().height);
+                // 网格吸附/书签/工具栏位置三键已迁往图标条；封装导入/导出按钮已迁往侧边栏「文件」面板。
+                // Grid snap / bookmarks / toolbar position moved into the rail; the encap
+                // import/export buttons moved into the sidebar Files panel.
             }
-            // 封装模式标识已合并进顶栏（renderTopBar 子图分支）——不再在这里画压在顶栏上的横条。
-            // The encapsulation-mode indicator is merged into the top bar (renderTopBar sub
-            // branch) — no more separate strip drawn over it here.
+            // 封装模式标识住进侧边栏「图」板块（renderGraphPanelBody 子图分支）。
+            // The encapsulation-mode indicator lives in the sidebar "Graph" section
+            // (renderGraphPanelBody's sub-graph branch).
             // 导入/导出反馈文字 (Import/export feedback text)
             renderImportFeedback(g);
             // 导出封装节点对话框 (Export encapsulation node dialog)
@@ -1700,6 +1708,7 @@ public class GraphEditor {
         } finally {
             dragStream.endFrame(graph);
         }
+
         // ── A=5: Tooltips（公式报错报告框等延迟覆盖层——A/B/C 分层的工具提示层，节点与 A=4 覆盖层均无法遮挡）
         // ── A=5: Tooltips (deferred overlay such as the formula error report box — the layered-system
         //     tooltip tier; no node body or A=4 overlay can cover it)
@@ -1710,7 +1719,9 @@ public class GraphEditor {
         if (colorPicker.isVisible()) colorPicker.render(g, mx, my);
         // 顶栏（名称 + 设置）固定在节点/工具栏之上。
         // Top bar (name + settings) sits above nodes and the toolbar.
-        renderTopBar(g, mx, my);
+        // 右缘侧边栏（顶栏已退役）：弹出菜单之下（命中顺序一致）。
+        // Right-edge sidebar (the top bar is retired): below the popup menu (same hit order).
+        sidebar.render(g, mx, my);
         // 添加节点菜单最后画在顶栏之上：菜单是最高优先级浮层（命中顺序与此一致）。
         // Add-node menu draws last, above the top bar: it is the topmost overlay
         // (hit-testing follows the same order).
@@ -1822,28 +1833,6 @@ public class GraphEditor {
             renderer.encapOccupants = occ.isEmpty() ? java.util.Collections.emptyMap() : occ;
         } else {
             renderer.encapOccupants = java.util.Collections.emptyMap();
-        }
-    }
-
-    /** 6f 后半拆出：原 renderBg 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
-     *  6f second-half extraction: a verbatim inline block of the former renderBg. */
-    private void renderEncapImportExportButtons(GuiGraphics g) {
-        if (!host.supportsEncapImportExport()) return;
-        var mc = Minecraft.getInstance();
-        int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : TOP_BAR_H + 2;
-        int impX = 196, impW = 72, btnH = 18;
-        // 仅选中单个封装节点时显示导出，否则显示导入 (Show export when single encapsulation node selected, otherwise show import)
-        boolean hasSingleEncap = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
-        if (hasSingleEncap) {
-            g.fill(impX, btnY, impX + impW, btnY + btnH, 0xFF2A3A1A);
-            g.renderOutline(impX, btnY, impW, btnH, EditorTheme.get().sysBorder());
-            g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
-            g.drawString(mc.font, "§a" + I18n.get("gui.create_schematic_compute.encap_export"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
-        } else {
-            g.fill(impX, btnY, impX + impW, btnY + btnH, EditorTheme.get().panelBg());
-            g.renderOutline(impX, btnY, impW, btnH, EditorTheme.get().sysBorder());
-            g.renderOutline(impX + 1, btnY + 1, impW - 2, btnH - 2, 0xFF2A2822);
-            g.drawString(mc.font, "§b" + I18n.get("gui.create_schematic_compute.encap_import"), impX + 4, btnY + 4, 0xFFFFFFFF, false);
         }
     }
 
@@ -2066,8 +2055,13 @@ public class GraphEditor {
      *  Screen would crash a dedicated server, hence the @OnlyIn method; session
      *  semantics are documented on EditorSettingsScreen). */
     @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
-    private void openSettingsScreen() {
-                Minecraft.getInstance().setScreen(new EditorSettingsScreen(host.asScreen()));
+    void openSettingsFromChrome() {
+        // 收起其下所有浮层；setScreen 只触发本屏 removed()（不发 LeavePacket），编辑会话保持。
+        // Collapse every floating panel; setScreen only fires this screen's removed()
+        // (no LeavePacket) — the edit session survives.
+        showMenu = false;
+        colorPicker.close();
+        Minecraft.getInstance().setScreen(new EditorSettingsScreen(host.asScreen()));
     }
 
     public boolean mouseClicked(double mx, double my, int btn) {
@@ -2086,7 +2080,12 @@ public class GraphEditor {
             tryAddMenuClick(mx, my, btn, graph);
             return true;
         }
-        if (tryTopBarClick(mx, my, btn)) return true;
+        if (sidebar.mouseClicked(mx, my, btn)) return true;
+        // 图名框失焦跟随点击（原 tryTopBarClick 尾部语义）；终端输入行同样。
+        // The name box loses focus on any click that gets this far (former tryTopBarClick
+        // tail); so does the console input.
+        if (topBarNameEdit != null && topBarNameEdit.isFocused()) topBarNameEdit.setFocused(false);
+        sidebar.unfocusConsoleInput();
         // 命名对话框：确认/取消按钮、框内点击消费（模态）、点击外部取消（已拆至 GraphViewBookmarks）
         // Name dialog: Confirm/Cancel buttons, in-dialog clicks consumed (modal), outside click cancels
         if (viewBookmarks.handleNameDialogClick(mx, my)) return true;
@@ -2138,7 +2137,7 @@ public class GraphEditor {
             // the sub-graph Back button or the bottom-right corner buttons.
             if (panOnlyClick) {
                 int scrW = host.asScreen().width, scrH = host.asScreen().height;
-                int toolY = NodeRenderer.isToolbarBottom() ? scrH - 22 : TOP_BAR_H + 2;
+                int toolY = NodeRenderer.toolbarBtnY(scrH);
                 boolean overToolbar = !isInSubGraph() && my >= toolY && my <= toolY + 18 && mx >= 4
                     && mx <= host.toolbarWidth();
                 boolean overBack = isInSubGraph() && mx >= scrW - 52 && mx <= scrW - 6
@@ -3581,8 +3580,8 @@ public class GraphEditor {
 
     /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
      *  6f extraction: a verbatim inline block of the former mouseClicked. */
-    private boolean tryAddMenuClick(double mx, double my, int btn, NodeGraph graph) {
-    if(showMenu&&btn==0){
+    boolean tryAddMenuClick(double mx, double my, int btn, NodeGraph graph) {
+    if((showMenu || sidebar.isNodesOpen())&&btn==0){
         // 菜单滚动条拖拽优先（参考书签UI实现）/ menu scrollbar drag first (matching bookmark UI pattern)
         if (renderer.menuHasScrollbar()) {
             int[] track = renderer.menuScrollbarTrack();
@@ -3608,17 +3607,22 @@ public class GraphEditor {
                 // validates against the registry.
                 String customMenuId = selectedMenuType == io.github.y15173334444.create_schematic_compute.graph.NodeType.CUSTOM
                     ? renderer.lastCustomMenuId() : null;
+                double pmx = mx, pmy = my;
+                // 钉住模式：节点落在可见画布中心（菜单体占着屏幕右侧，落点要避开它）。
+                // Pinned mode: place at the centre of the visible canvas (the menu body owns
+                // the right side, so the drop point must stay clear of it).
+                if (!showMenu && sidebar.isNodesOpen()) { var a = sidebar.canvasAim(); pmx = a[0]; pmy = a[1]; }
                 var added = customMenuId != null
-                    ? graph.addNode(selectedMenuType, customMenuId, s2cX(mx), s2cY(my))
-                    : graph.addNode(selectedMenuType, s2cX(mx), s2cY(my));
+                    ? graph.addNode(selectedMenuType, customMenuId, s2cX(pmx), s2cY(pmy))
+                    : graph.addNode(selectedMenuType, s2cX(pmx), s2cY(pmy));
                 rebuildParentCacheIfInSubGraph(); // rebuild parent ENCAP pin mapping
                 var addOp = customMenuId != null
                     ? io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(
                         host.getBlockPos(), ownerNodeId(), added.id,
-                        selectedMenuType, customMenuId, s2cX(mx), s2cY(my), host.getPlayerUUID())
+                        selectedMenuType, customMenuId, s2cX(pmx), s2cY(pmy), host.getPlayerUUID())
                     : io.github.y15173334444.create_schematic_compute.graph.GraphOp.addNodeRequest(
                         host.getBlockPos(), ownerNodeId(), added.id,
-                        selectedMenuType, s2cX(mx), s2cY(my), host.getPlayerUUID());
+                        selectedMenuType, s2cX(pmx), s2cY(pmy), host.getPlayerUUID());
                 sendOp(addOp);
                 recordOp(addOp, 0, 0, added.id, null); // oldVal=localId for pre-ACK undo
             }
@@ -3630,12 +3634,11 @@ public class GraphEditor {
      *  6f extraction: a verbatim inline block of the former mouseClicked. */
     private boolean tryChromeClick(double mx, double my, int btn, NodeGraph graph) {
     if(btn==0){
-        // 子图 Back 点击已合并进顶栏（tryTopBarClick 子图分支，几何与渲染一致）。
-        // Sub-graph Back click lives in the top bar now (tryTopBarClick sub branch,
-        // geometry matches the rendering).
+        // 子图 Back 点击住进侧边栏「图」板块（GraphSidebar.backRect，几何与渲染一致）。
+        // Sub-graph Back click lives in the sidebar "Graph" section (GraphSidebar.backRect).
         // 工具栏按钮（子图模式下隐藏） (Toolbar buttons, hidden in sub-graph mode)
         if (!isInSubGraph()) {
-            int btnY = NodeRenderer.isToolbarBottom() ? host.asScreen().height - 22 : TOP_BAR_H + 2;
+            int btnY = NodeRenderer.toolbarBtnY(host.asScreen().height);
             if(mx>=4&&mx<=22&&my>=btnY&&my<=btnY+18){host.asScreen().onClose();return true;}
             if(mx>=26&&mx<=78&&my>=btnY&&my<=btnY+18){recompile(graph);return true;}
             if(mx>=82&&mx<=130&&my>=btnY&&my<=btnY+18){
@@ -3645,42 +3648,39 @@ public class GraphEditor {
                 host.toggleRunning(ws);
                 return true;
             }
-            if(mx>=134&&mx<=192&&my>=btnY&&my<=btnY+18){gridSnapEnabled=!gridSnapEnabled;NodeRenderer.saveGridSnap(gridSnapEnabled);return true;}
-            // 导入/导出封装节点按钮（仅蓝图计算机） (Import/export encapsulation node button, Blueprint computer only)
-            if (host.supportsEncapImportExport() && mx >= 196 && mx <= 268 && my >= btnY && my <= btnY + 18) {
-                boolean hasEncapSelected = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
-                if (hasEncapSelected) {
-                    showExportDialog = true;
-                    String defName = selectedNode.displayText.isEmpty() ? "encap" : selectedNode.displayText;
-                    exportNameEdit = new EditBox(Minecraft.getInstance().font, host.asScreen().width / 2 - 80, host.asScreen().height / 2 - 10, 160, 20, Component.literal(defName));
-                    exportNameEdit.setValue(defName);
-                    exportNameEdit.setFocused(true);
-                } else {
-                    showImportDialog = true;
-                    importScrollOff = 0;
-                    try {
-                        var dir = getExportPath().getParent();
-                        if (Files.exists(dir)) {
-                            try (var s = Files.list(dir)) {
-                                importFiles = s.filter(p -> p.toString().endsWith(".nbt")).sorted().toList();
-                            }
-                        } else importFiles = java.util.Collections.emptyList();
-                    } catch (Exception e) { LOGGER.warn("Failed to list import files: {}", e.getMessage()); importFiles = java.util.Collections.emptyList(); }
-                }
-                return true;
-            }
+            // 网格吸附 / 封装导入导出 / 书签角标 / 工具栏位置 四处命中已迁往右缘侧边栏
+            // (grid-snap / encap IO / bookmark corner / toolbar-position hits moved to the sidebar)
         }
-        // 右下角书签按钮（在三角形上方；已拆至 GraphViewBookmarks / split into GraphViewBookmarks）
-        if (viewBookmarks.handleBookmarkButtonToggle(mx, my)) return true;
-        // 右下角工具栏位置切换按钮（始终可见） (Bottom-right toolbar position toggle, always visible)
-        { int w = host.asScreen().width, h = host.asScreen().height;
-          if(mx>=w-22&&mx<=w-4&&my>=h-22&&my<=h-4){NodeRenderer.toggleToolbarBottom();return true;} }
     }
         return false;
     }
 
     /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
      *  6f extraction: a verbatim inline block of the former mouseClicked. */
+    /** 侧边栏工具板块的封装导入/导出动作（原工具栏按钮逻辑逐字搬迁）。
+     *  Encapsulation import/export action for the sidebar tools section (verbatim from the old toolbar button). */
+    void openEncapImportExport() {
+        boolean hasEncapSelected = selectedNode != null && selectedNode.type == NodeType.ENCAPSULATION && selectedNodes.size() == 1;
+        if (hasEncapSelected) {
+            showExportDialog = true;
+            String defName = selectedNode.displayText.isEmpty() ? "encap" : selectedNode.displayText;
+            exportNameEdit = new EditBox(Minecraft.getInstance().font, host.asScreen().width / 2 - 80, host.asScreen().height / 2 - 10, 160, 20, Component.literal(defName));
+            exportNameEdit.setValue(defName);
+            exportNameEdit.setFocused(true);
+        } else {
+            showImportDialog = true;
+            importScrollOff = 0;
+            try {
+                var dir = getExportPath().getParent();
+                if (Files.exists(dir)) {
+                    try (var s = Files.list(dir)) {
+                        importFiles = s.filter(p -> p.toString().endsWith(".nbt")).sorted().toList();
+                    }
+                } else importFiles = java.util.Collections.emptyList();
+            } catch (Exception e) { LOGGER.warn("Failed to list import files: {}", e.getMessage()); importFiles = java.util.Collections.emptyList(); }
+        }
+    }
+
     private void commitFocusedEnterActions() {
     // 失焦提交：enterActions（频段 EditBox 等通过 enterActions 注册的控件） (Focus-lost commit via enterActions for band EditBoxes etc. registered via enterActions)
     boolean committed = false;
@@ -3859,46 +3859,52 @@ public class GraphEditor {
 
     /** 6f 拆出：原 mouseClicked 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f）。
      *  6f extraction: a verbatim inline block of the former mouseClicked. */
-    private boolean tryTopBarClick(double mx, double my, int btn) {
-    // ── 顶栏（最上层，先于一切命中检测）──
-    //    Top bar (topmost layer — hit-tested before everything else).
-    // 子图：Back 占用设置按钮的同一槽位（与 renderTopBar 的子图分支几何一致）；
-    // 其余顶栏点击整体吞掉，图名框不参与（子图顶栏没有名称框）。
-    // Sub-graph: Back occupies the settings slot (geometry matches renderTopBar's sub
-    // branch); all other top-bar clicks are consumed and the name box takes no part.
-    if (isInSubGraph() && my < TOP_BAR_H) {
-        int sbX = host.asScreen().width - 52;
-        if (mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19) {
-            exitSubGraph();
-        }
-        return true;
+    /** 图名框交出焦点（离开「图」板块 / 点击画布时）。
+     *  Drop the name-box focus (leaving the "Graph" section / clicking the canvas). */
+    void unfocusNameEdit() {
+        if (topBarNameEdit != null) topBarNameEdit.setFocused(false);
     }
-    if (topBarNameEdit != null && my < TOP_BAR_H) {
-        int sbX = host.asScreen().width - 52;
-        if (mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19) {
-            // 打开独立全屏设置界面。收起其下所有浮层；setScreen 只触发本屏
-            // removed()（不发 LeavePacket），编辑会话保持，返回时 init 幂等重 join。
-            // Open the standalone full-screen settings GUI. Collapse every floating
-            // panel; setScreen only fires this screen's removed() (no LeavePacket),
-            // so the edit session survives and returning re-joins idempotently.
-            showMenu = false;
-            colorPicker.close();
-            openSettingsScreen();
+
+    /** 所有文本编辑框一起交出焦点（终端输入行夺焦时用）。
+     *  All text edit boxes yield focus at once (used when the console input takes over). */
+    void unfocusAllEdits() {
+        unfocusNameEdit();
+        for (var st : nodeEditStatesById.values()) for (var f : st.fields) f.setFocused(false);
+    }
+
+    /** 侧边栏钉住的节点库渲染入口（锚点由 GraphSidebar 给出；visualDx = 弹出动画的本帧
+     *  平移量，在菜单屏幕钳制之后施加）。
+     *  Render entry for the sidebar-pinned node library (anchor supplied by GraphSidebar;
+     *  visualDx = this frame's pop-animation offset, applied after the menu's screen clamp). */
+    void renderPinnedNodeMenu(GuiGraphics g, float ax, float ay, int mx, int my, float visualDx) {
+        selectedMenuType = renderer.renderAddNodeMenu(g, ax, ay, mx, my, nodeFilter, visualDx);
+    }
+
+    /** 侧边栏「图」板块的点击：子图 = 返回按钮；主图 = 图名框。返回 true 表示已消费。
+     *  Click handling for the sidebar "Graph" section: sub-graph = Back button;
+     *  main graph = the name box. Returns true if consumed. */
+    boolean clickGraphPanelBody(double mx, double my, int btn) {
+        if (isInSubGraph()) {
+            int[] r = sidebar.backRect();
+            if (mx >= r[0] && mx <= r[0] + r[2] && my >= r[1] && my <= r[1] + r[3]) {
+                exitSubGraph();
+            }
             return true;
         }
-        for (var st : nodeEditStatesById.values()) for (var f : st.fields) f.setFocused(false);
-        // 方块名被他人软锁时不夺取焦点（renderTopBar 的强制只读也会在下一帧交出焦点，
-        // 这里直接不进入，避免一帧闪烁）。
-        // While the block name is soft-locked by someone else, don't steal focus here (the
-        // read-only enforcement in renderTopBar would drop it next frame anyway) — avoids a
-        // one-frame flicker.
-        if (!presence.isGraphNameLocked()) {
-            topBarNameEdit.setFocused(true);
-            topBarNameEdit.mouseClicked(mx, my, btn);
+        if (topBarNameEdit == null) return false;
+        int[] r = sidebar.nameRowRect();
+        if (mx >= r[0] && mx <= r[0] + r[2] && my >= r[1] && my <= r[1] + r[3]) {
+            for (var st : nodeEditStatesById.values()) for (var f : st.fields) f.setFocused(false);
+            // 方块名被他人软锁时不夺取焦点（renderGraphPanelBody 的强制只读也会在下一帧交出焦点，
+            // 这里直接不进入，避免一帧闪烁）。
+            // While the name is soft-locked by someone else, don't steal focus here (the
+            // read-only enforcement in renderGraphPanelBody would drop it next frame anyway).
+            if (!presence.isGraphNameLocked()) {
+                topBarNameEdit.setFocused(true);
+                topBarNameEdit.mouseClicked(mx, my, btn);
+            }
+            return true;
         }
-        return true;
-    }
-    if (topBarNameEdit != null && topBarNameEdit.isFocused()) topBarNameEdit.setFocused(false);
         return false;
     }
 
@@ -4770,6 +4776,7 @@ public class GraphEditor {
     public boolean mouseScrolled(double mx, double my, double sx, double sy) {
         if (colorPicker.isVisible() && colorPicker.mouseScrolled(mx, my, sy)) return true;
         if (showMenu) { renderer.scrollMenu((float)(-sy * 14)); return true; }
+        if (sidebar.mouseScrolled(mx, my, sy)) return true;
         if (showImportDialog) { importScrollOff += (sy > 0) ? -1 : 1; if (importScrollOff < 0) importScrollOff = 0; return true; }
         if (showExportDialog) return true;
         // 书签面板滚动 / bookmark panel scroll（已拆至 GraphViewBookmarks / split into GraphViewBookmarks）
@@ -4883,6 +4890,9 @@ public class GraphEditor {
         // 顶栏名称框键盘（Esc/Enter 提交并失焦，其余交给 EditBox）
         // Top-bar name box keyboard (Esc/Enter commit + unfocus, the rest to the EditBox).
         if (topBarNameEdit != null && topBarNameEdit.isFocused()) return topBarNameKey(key, sc, mod);
+        // 终端输入行键盘（Esc 失焦 / Enter 发送，其余交给 EditBox）
+        // Console input keyboard (Esc blurs / Enter sends, the rest to the EditBox).
+        if (sidebar.consoleInputFocused()) return sidebar.consoleKey(key, sc, mod);
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.keyPressed(key, sc, mod);
         // 键盘动作序列引擎（画布交互态 —— 输入框聚焦已在前转发 return）：
         // 完整命中 → 分发执行；前缀推进 → 消费等待；无关键 → 落到后续硬编码键处理。
@@ -4968,12 +4978,16 @@ public class GraphEditor {
     /** 6f 后半拆出：原 keyPressed 内联块，逐字搬迁（docs/gui-decomposition-plan.md 步骤 6f 后半）。
      *  6f second-half extraction: a verbatim inline block of the former keyPressed. */
     private boolean tryMenuKey(int key) {
-        if (!showMenu) return false;
+        boolean pinned = sidebar.isNodesOpen();
+        if (!showMenu && !pinned) return false;
         if (renderer.isMenuSearchFocused()) {
             if (key == 256) { renderer.setMenuSearchFocused(false); return true; } // Esc unfocus
             if (key == 259) { renderer.menuSearchBackspace(); return true; }       // Backspace
         } else {
-            if (key == 256) { showMenu = false; return true; } // Esc close menu
+            if (key == 256) { // Esc close menu
+                if (showMenu) showMenu = false; else sidebar.close();
+                return true;
+            }
         }
         return false;
     }
@@ -5275,64 +5289,54 @@ public class GraphEditor {
                 return true;
             }
         }
+        // 钉住菜单非模态：仅搜索框已聚焦时收字（点击搜索框聚焦）。
+        // The pinned menu is non-modal: it only takes text while its search box is focused.
+        if (sidebar.isNodesOpen() && renderer.isMenuSearchFocused()) {
+            renderer.appendMenuSearch(ch);
+            return true;
+        }
         if (viewBookmarks.handleChar(ch)) return true;
         if (colorPicker.isVisible()) return colorPicker.charTyped(ch, mod);
         if (showExportDialog && exportNameEdit != null) return exportNameEdit.charTyped(ch, mod);
         if (topBarNameEdit != null && topBarNameEdit.isFocused()) return topBarNameEdit.charTyped(ch, mod);
+        if (sidebar.consoleInputFocused()) return sidebar.consoleChar(ch, mod);
         for (var st : nodeEditStatesById.values()) for (var f : st.fields) if (f.isFocused()) return f.charTyped(ch, mod);
         return false;
     }
 
-    /** 顶栏：固定在编辑器最上层的条 —— 左侧本图名称输入框（便携终端按此查找），
-     *  右侧设置按钮。在 renderBg 的所有覆盖层之后调用，保证不被遮挡；工具栏顶/底
-     *  两种位置都必须让开 {@link #TOP_BAR_H}。
-     *  Top bar: a fixed strip at the very top of the editor — the graph-name box on
-     *  the left (the portable terminal looks devices up by it), the settings button
-     *  on the right. Called after every other overlay in renderBg so nothing covers
-     *  it; both toolbar positions (top and bottom) must clear {@link #TOP_BAR_H}. */
-    /** 合并顶栏：主图 = 名称 + 设置；封装子图 = 模式标识 + Back。两作用域共用同一根顶栏
-     *  （同底色、同高度、右侧同一按钮槽位），子图不再另画压在顶栏上的模式横条。
-     *  Merged top bar: main graph = name + settings; encapsulation sub-graph = mode indicator
-     *  + Back. Both scopes share the one bar (same background, height and right-hand button
-     *  slot); the sub-graph no longer draws a separate strip over it. */
-    private void renderTopBar(GuiGraphics g, int mx, int my) {
+    /** 侧边栏「图」板块体（原顶栏整条搬入）：主图 = 图名编辑；子图 = 模式标识 + 返回。
+     *  行矩形单源在 {@link GraphSidebar}（nameRowRect / backRect），渲染与命中同用。
+     *  Body of the sidebar "Graph" section (the former top bar in full): main graph =
+     *  the name edit; sub-graph = mode indicator + Back. Row rects are single-sourced
+     *  in {@link GraphSidebar} (nameRowRect / backRect) for both render and hit. */
+    void renderGraphPanelBody(GuiGraphics g, int mx, int my) {
         var mc = Minecraft.getInstance();
-        int sw = host.asScreen().width;
-        int sbX = sw - 52;
-        // 子图分支：模式标识（含节点数/超限）+ Back。Back 占用主图设置按钮的同一槽位，
-        // 几何与命中（tryTopBarClick）一致 —— 旧实现画在 y=4 但命中在 TOP_BAR_H+2，两处脱节。
-        // Sub-graph branch: mode indicator (node count / over-limit) + Back. Back takes the
-        // settings button's slot with matching geometry — the old code drew it at y=4 but
-        // hit-tested it at TOP_BAR_H+2.
+        int[] r = sidebar.backRect();
         if (isInSubGraph()) {
-            g.fill(0, 0, sw, TOP_BAR_H, NodeRenderer.withAlpha(EditorTheme.get().panelBg(), 0xEE));
-            g.fill(0, TOP_BAR_H - 1, sw, TOP_BAR_H, EditorTheme.get().sysBorder());
             int nodeCount = getGraph().nodes.size();
             boolean overLimit = nodeCount > MAX_NODES;
             String countStr = " (" + nodeCount + "/" + MAX_NODES + ")" + (overLimit ? " §c⚠" : "");
             String modeText = "◈ " + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.encap_mode") + " ◈" + countStr;
-            g.drawString(mc.font, modeText, 6, 8, overLimit ? 0xFFFF6666 : 0xFFFFCC88, false);
+            g.drawString(mc.font, modeText, r[0], r[1] - 22, overLimit ? 0xFFFF6666 : 0xFFFFCC88, false);
             if (overLimit) {
-                // 完整超限提示在 Back 左侧放得下才画；放不下时左侧的红色 ⚠ 兜底。
-                // Full over-limit text only when it fits left of Back; otherwise the red ⚠ stands.
                 String warn = net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.encap_node_limit");
-                int wx = 6 + mc.font.width(modeText) + 12;
-                if (wx + mc.font.width(warn) < sbX - 6)
-                    g.drawString(mc.font, warn, wx, 8, 0xFFFF4444, false);
+                g.drawString(mc.font, warn, r[0], r[1] - 11, 0xFFFF4444, false);
             }
-            boolean hovBack = mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19;
-            g.fill(sbX, 3, sbX + 46, 19, hovBack ? EditorTheme.get().hover() : EditorTheme.get().panelBg());
-            g.renderOutline(sbX, 3, 46, 16, EditorTheme.get().sysBorder());
+            boolean hovBack = mx >= r[0] && mx <= r[0] + r[2] && my >= r[1] && my <= r[1] + r[3];
+            g.fill(r[0], r[1], r[0] + r[2], r[1] + r[3], hovBack ? EditorTheme.get().hover() : EditorTheme.get().panelBg());
+            g.renderOutline(r[0], r[1], r[2], r[3], EditorTheme.get().sysBorder());
             String backLabel = "← " + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.back");
             int btw = mc.font.width(backLabel);
-            g.drawString(mc.font, backLabel, sbX + (46 - btw) / 2, 7, 0xFFCCCCCC, false);
+            g.drawString(mc.font, backLabel, r[0] + (r[2] - btw) / 2, r[1] + 6, 0xFFCCCCCC, false);
             return;
         }
+        // —— 主图：图名编辑（生命周期块自原 renderTopBar 逐字搬入）——
+        // —— main graph: the name edit (lifecycle block verbatim from the old renderTopBar) ——
         if (topBarNameEdit == null) {
             topBarNameEdit = new EditBox(mc.font, 0, 0, 140, 16, Component.literal(""));
             topBarNameEdit.setMaxLength(32);
-            // 透明背景：顶栏自身就是底色，去掉 EditBox 自带的黑底与边框
-            // Transparent background: the top bar is the backing — drop the EditBox's
+            // 透明背景：面板自身就是底色，去掉 EditBox 自带的黑底与边框
+            // Transparent background: the panel is the backing — drop the EditBox's
             // built-in black fill and border.
             topBarNameEdit.setBordered(false);
             topBarNameEdit.setValue(getGraph().customName);
@@ -5370,35 +5374,26 @@ public class GraphEditor {
         if (!topBarNameEdit.isFocused() && !topBarNameEdit.getValue().equals(getGraph().customName))
             topBarNameEdit.setValue(getGraph().customName);
 
-        g.fill(0, 0, sw, TOP_BAR_H, NodeRenderer.withAlpha(EditorTheme.get().panelBg(), 0xEE));
-        g.fill(0, TOP_BAR_H - 1, sw, TOP_BAR_H, EditorTheme.get().sysBorder());
+        int[] nr = sidebar.nameRowRect();
         String label = I18n.get("gui.create_schematic_compute.topbar.name");
-        g.drawString(mc.font, label, 6, 8, 0xFF888888, false);
-        int bx = 10 + mc.font.width(label);
-        int bw = Math.min(160, Math.max(80, sw / 4));
+        g.drawString(mc.font, label, nr[0], nr[1] + 6, 0xFF888888, false);
+        int bx = nr[0] + 4 + mc.font.width(label);
+        int bw = nr[0] + nr[2] - bx;
         topBarNameEdit.setX(bx);
-        topBarNameEdit.setY(3);
+        topBarNameEdit.setY(nr[1] + 2);
         topBarNameEdit.setWidth(bw);
         topBarNameEdit.render(g, 0, 0, 0);
         // 透明背景下，聚焦时补一条细底边作为「可编辑」提示 / with the transparent background,
         // a thin underline marks the editable region while focused
         if (topBarNameEdit.isFocused())
-            g.fill(bx, 20, bx + bw, 21, EditorTheme.get().sysBorder());
-        // 设置按钮（右侧，子图作用域该槽位为 Back） / settings button (right; Back takes
-        // this slot in the sub-graph scope)
-        boolean hov = mx >= sbX && mx <= sbX + 46 && my >= 3 && my <= 19;
-        g.fill(sbX, 3, sbX + 46, 19, hov ? EditorTheme.get().hover() : EditorTheme.get().panelBg());
-        g.renderOutline(sbX, 3, 46, 16, EditorTheme.get().sysBorder());
-        g.drawString(mc.font, I18n.get("gui.create_schematic_compute.topbar.settings"), sbX + 8, 7, EditorTheme.get().accent(), false);
-        // 方块名软锁提示：他人改名中 → 名字框金色描边 + 编辑者名字（右侧放得下才画）。
+            g.fill(bx, nr[1] + 18, bx + bw, nr[1] + 19, EditorTheme.get().sysBorder());
+        // 方块名软锁提示：他人改名中 → 名字框金色描边 + 编辑者名字。
         // Graph-name soft-lock hint: someone else is renaming — golden outline around the name
-        // box plus the editor's name (drawn only when it fits before the settings button).
+        // box plus the editor's name.
         if (nameLocked) {
-            g.renderOutline(bx - 1, 2, bw + 2, 18, 0xFFFFCC44);
+            g.renderOutline(bx - 1, nr[1] + 1, bw + 2, 18, 0xFFFFCC44);
             String who = "✎ " + presence.graphNameEditingBy();
-            int wx = bx + bw + 6;
-            if (wx + mc.font.width(who) < sbX - 4)
-                g.drawString(mc.font, who, wx, 7, 0xFFFFCC44, false);
+            g.drawString(mc.font, who, nr[0], nr[1] + 22, 0xFFFFCC44, false);
         }
     }
 

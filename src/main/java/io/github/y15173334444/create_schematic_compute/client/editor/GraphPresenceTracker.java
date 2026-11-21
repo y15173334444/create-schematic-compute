@@ -307,8 +307,10 @@ final class GraphPresenceTracker {
         for (var p : remotePresences.values()) players.add(p.playerName());
         int maxW = 0;
         for (var name : players) maxW = Math.max(maxW, mc.font.width(name));
-        int lx = sw - maxW - 14, ly = GraphEditor.TOP_BAR_H + 24;
-        g.fill(lx, ly, sw - 6, ly + 2 + players.size() * 12, 0xAA222222);
+        // 右缘让开侧边栏图标条；顶栏退役后贴 24 起 / clears the sidebar rail; starts at 24 now
+        int right = sw - ed.sidebar.width() - 4;
+        int lx = right - maxW - 8, ly = 24;
+        g.fill(lx, ly, right, ly + 2 + players.size() * 12, 0xAA222222);
         for (int i = 0; i < players.size(); i++) {
             int color = i == 0 ? 0xFFFFFF88 : 0xFFCCCCCC;
             g.drawString(mc.font, players.get(i), lx + 4, ly + 2 + i * 12, color);

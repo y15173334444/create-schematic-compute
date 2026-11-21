@@ -71,6 +71,10 @@ final class NodeAddMenu {
         return renderAddNodeMenu(g, menuX, menuY, mx, my, null);
     }
 
+    NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my, java.util.function.Predicate<NodeType> filter) {
+        return renderAddNodeMenu(g, menuX, menuY, mx, my, filter, 0f);
+    }
+
     /** 计算分类中可见节点数（CUSTOM 类按注册表展开：一个已注册 id = 一个条目）。
      *  Visible count per category (the CUSTOM category expands through the registry:
      *  one registered id = one entry). */
@@ -143,7 +147,10 @@ final class NodeAddMenu {
      *  Effective column count: two columns for every category while the manual toggle is on, otherwise one. */
     private int effectiveCols() { return menuTwoColumns ? 2 : 1; }
 
-    NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my, java.util.function.Predicate<NodeType> filter) {
+    /** 弹出动画入口：visualDx 在屏幕钳制之后施加到 menuRX（画、裁剪、命中一起动）。
+     *  Pop-animation entry: visualDx is applied to menuRX after the screen clamp (draw,
+     *  scissor and hit-testing move together). */
+    NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my, java.util.function.Predicate<NodeType> filter, float visualDx) {
         // D: 组合外部 filter + 搜索文本 / combine external filter + search text
         java.util.function.Predicate<NodeType> combined = nt -> {
             if (filter != null && !filter.test(nt)) return false;
@@ -197,6 +204,10 @@ final class NodeAddMenu {
         menuScrollOff = Math.max(0, Math.min(menuScrollOff, totalH - maxH));
         menuRX = Math.max(0, Math.min(menuX, screen.width - menuW));
         menuRY = Math.max(0, Math.min(menuY, screen.height - maxH));
+        // 弹出动画偏移：钳制之后施加（钳制不会吃掉滑出），画、裁剪、命中一起动。
+        // Pop-animation offset: applied after the clamp (so the clamp doesn't eat the
+        // slide); draw, scissor and hit-testing move together.
+        menuRX += visualDx;
 
         // 面板框（固定 maxH 高）/ panel frame (fixed maxH height)
         g.fill((int)menuRX, (int)menuRY, (int)(menuRX + menuW), (int)(menuRY + maxH), 0xFF2A2822);
@@ -414,6 +425,8 @@ final class NodeAddMenu {
     void scrollMenu(float delta) { setMenuScrollOff((int)(menuScrollOff + delta)); }
     /** 菜单是否有滚动条。 / Whether the menu has a scrollbar. */
     boolean menuHasScrollbar() { return menuTotalH > menuMaxH && menuMaxH > 0; }
+    /** 当前菜单宽（侧边栏钉住锚点用；首帧前为 0）。/ Current menu width (sidebar pin anchor; 0 pre-first-render). */
+    int menuWidth() { return (int) menuW; }
     /** 滚动条轨道区（屏幕坐标）。 / Scrollbar track area (screen coords). */
     int[] menuScrollbarTrack() {
         return new int[]{(int)(menuRX + menuW - SCROLLBAR_W - 2), (int)(menuRY + TOP_H),

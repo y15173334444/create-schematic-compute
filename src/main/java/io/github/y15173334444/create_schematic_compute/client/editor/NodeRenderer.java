@@ -163,6 +163,8 @@ public class NodeRenderer {
     private static boolean toolbarBottom = false;
     static { toolbarBottom = loadToolbarBottom(); }
     public static boolean isToolbarBottom() { return toolbarBottom; }
+    /** 工具栏按钮行 Y（渲染与命中单源）。/ Toolbar button-row Y (single source for render + hit). */
+    public static int toolbarBtnY(int height) { return toolbarBottom ? height - 22 : 2; }
 
     public static void toggleToolbarBottom() { toolbarBottom = !toolbarBottom; saveToolbarBottom(); }
 
@@ -277,7 +279,6 @@ public class NodeRenderer {
     /** 封装占用者表（encapId → "Player1, Player2"）。主图中哪些封装节点内有玩家在编辑。
      *  Encapsulation occupant map (encapId → "Player1, Player2"). Which encap nodes have players editing inside. */
     public java.util.Map<Integer, String> encapOccupants = java.util.Collections.emptyMap();
-    public boolean showBookmarkPanel = false;
 
     /** 某个节点是否在选中集里（**按 id** 判定）。
      *  历史上这里用对象相等（selectedNodes.contains(n)），一旦整图同步/重载替换了节点实例，
@@ -850,6 +851,12 @@ public class NodeRenderer {
     public NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my, java.util.function.Predicate<NodeType> filter) {
         return addMenu.renderAddNodeMenu(g, menuX, menuY, mx, my, filter);
     }
+    /** 带弹出动画偏移的渲染（visualDx 在屏幕钳制之后施加，画、裁剪、命中一起动）。
+     *  Render with a pop-animation offset (visualDx is applied after the screen clamp;
+     *  draw, scissor and hit-testing move together). */
+    public NodeType renderAddNodeMenu(GuiGraphics g, float menuX, float menuY, int mx, int my, java.util.function.Predicate<NodeType> filter, float visualDx) {
+        return addMenu.renderAddNodeMenu(g, menuX, menuY, mx, my, filter, visualDx);
+    }
     /** Handle category expand/collapse click + search box focus. Returns true if consumed. */
     public boolean handleCategoryClick(int mx, int my) { return addMenu.handleCategoryClick(mx, my); }
     /** 点击是否落在添加节点菜单面板内 / whether the click is on the add-node menu panel */
@@ -874,18 +881,19 @@ public class NodeRenderer {
     public boolean isMenuSearchFocused() { return addMenu.isMenuSearchFocused(); }
     public void setMenuSearchFocused(boolean f) { addMenu.setMenuSearchFocused(f); }
     public void setMenuSearchText(String t) { addMenu.setMenuSearchText(t); }
+    /** 菜单当前宽（侧边栏钉住锚点用；首帧未渲染时为 0，调用方回退估值）。
+     *  Current menu width (sidebar pin anchor; 0 before the first render — callers fall back). */
+    public int menuWidth() { return addMenu.menuWidth(); }
 
     public void renderButtons(GuiGraphics g, boolean compiled, boolean running, String cycleWarning,
-                               long saveFeedbackUntil, boolean gridSnap, int themeIdx, int width, int height) {
+                               long saveFeedbackUntil, int width, int height) {
         long now = System.currentTimeMillis();
         boolean fb = now < saveFeedbackUntil;
         int btnH = 18;
-        // 工具栏位置：顶部(默认)或底部。顶置时必须让开编辑器顶栏（GraphEditor.TOP_BAR_H），
-        // 否则顶栏（最后渲染）会把工具栏整个盖住，且与命中区（TOP_BAR_H+2 起）错位。
-        // Toolbar position: top (default) or bottom. The top position must clear the
-        // editor's top bar (GraphEditor.TOP_BAR_H) — the top bar renders last and would
-        // cover a toolbar drawn at y=4, and the hit area starts at TOP_BAR_H+2.
-        int btnY = toolbarBottom ? height - btnH - 4 : GraphEditor.TOP_BAR_H + 2;
+        // 工具栏位置：顶部(默认，贴左上角)或底部。顶栏退役后三键直接贴 y=2。
+        // Toolbar position: top (default, hugging the corner) or bottom. The top bar is
+        // retired, so the three buttons sit at y=2 directly.
+        int btnY = toolbarBtnY(height);
         // 关闭按钮（最左）
         int cX = 4, cW = 18;
         g.fill(cX, btnY, cX+cW, btnY+btnH, 0xFF4A3028);
@@ -904,25 +912,9 @@ public class NodeRenderer {
         g.renderOutline(cX3, btnY, cW3, btnH, CSB());
         g.renderOutline(cX3+1, btnY+1, cW3-2, btnH-2, 0xFF2A2822);
         drawStr(g, running ? "§a" + I18n.get("gui.create_schematic_compute.stop") : "§e" + I18n.get("gui.create_schematic_compute.run"), cX3+4, btnY+4, CT);
-        // 网格吸附按钮
-        int cX4 = 134, cW4 = 58;
-        g.fill(cX4, btnY, cX4+cW4, btnY+btnH, gridSnap ? 0xFF3A5A2A : 0xFF3A3428);
-        g.renderOutline(cX4, btnY, cW4, btnH, CSB());
-        g.renderOutline(cX4+1, btnY+1, cW4-2, btnH-2, 0xFF2A2822);
-        drawStr(g, (gridSnap ? "§a" : "§7") + net.minecraft.client.resources.language.I18n.get("gui.create_schematic_compute.grid"), cX4+6, btnY+4, CT);
-
-        // 右下角书签按钮 / bottom-right bookmark button
-        int bmX = width - 22, bmY = height - 44, bmW = 18, bmH = 18;
-        boolean bmOpen = showBookmarkPanel;
-        g.fill(bmX, bmY, bmX+bmW, bmY+bmH, bmOpen ? 0xFF4A4A2A : 0xFF3A3832);
-        g.renderOutline(bmX, bmY, bmW, bmH, bmOpen ? ACC() : CSB());
-        drawStr(g, bmOpen ? "§e★" : "§7☆", bmX+2, bmY+2, CT);
-
-        // 右下角工具栏位置切换按钮
-        int tX = width - 22, tY = height - 22, tW = 18, tH = 18;
-        g.fill(tX, tY, tX+tW, tY+tH, 0xFF3A3832);
-        g.renderOutline(tX, tY, tW, tH, CSB());
-        drawStr(g, toolbarBottom ? "§7▲" : "§7▼", tX+5, tY+3, CT);
+        // 网格吸附 / 书签 / 工具栏位置 三键已迁往右缘侧边栏（docs/graph-editor-sidebar-plan.md）。
+        // Grid-snap / bookmark / toolbar-position moved into the right-edge sidebar
+        // (docs/graph-editor-sidebar-plan.md).
 
         // 环警告
         int warnY = toolbarBottom ? btnY - 24 : btnY + btnH + 6;
