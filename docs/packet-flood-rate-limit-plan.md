@@ -5,8 +5,11 @@
 > **Goal**: make "multi-node drag / frequent ops → rate-limit disconnect" mechanically
 > impossible, and turn silent rate-limit drops into visible, state-converging receipts.
 >
-> **状态**：📋 待拍板（决策点见 §六；本文档先于实现入库）。
-> **Status**: pending sign-off (decision points in §6; this doc lands before any code).
+> **状态**：✅ 批 1（§三拖动临场流）+ 批 1.1/1.2（实机回归修复）已落地并双人实机验证通过
+> （2026-11-21）；批 2（§四丢弃回执）未动工。落地注记见 §七。
+> **Status**: batch 1 (§3 drag presence stream) plus batches 1.1/1.2 (live-regression fixes)
+> landed and two-player verified (2026-11-21); batch 2 (§4 drop receipts) not started.
+> See §7 for landing notes.
 >
 > **基线**：`csc-packet-flood` 分支（基于 main @ acf0f5ee），诊断期 2026-11-21。
 > **Baseline**: branch `csc-packet-flood` (off main @ acf0f5ee), diagnosed 2026-11-21.
@@ -237,3 +240,47 @@ discrete actions enter the op channel.
 | 2 | 编辑者侧应用方式 / how remote editors apply it | 渲染覆盖层（presence 同款）/ render overlay, presence-style | 直接改写本地图 / mutate local graphs (needs end-sweep) |
 | 3 | 流条目范围 / stream entry scope | 拖动中发送的四条路径全部入流 / all four drag paths | 仅位置，注释尺寸另调间隔 / positions only, resize interval-tuned |
 | 4 | 批次顺序 / batch order | 先 A 后 D / A first, D second | 先 D（更小）后 A / D first (smaller) |
+
+---
+
+## 七、落地注记 / Landing notes
+
+（§六四个决策点均按本文取值落地；2026-11-21 双人实机验证通过。/ All four §6 decision
+points landed as written here; two-player live-verified on 2026-11-21.）
+
+- **批 1**（`d10e2856`）：§三全量——payload×2、预算行 `DRAG_STREAM=(20, 10.0)`、四条拖拽
+  路径入流（100ms 节流 + 512 上限旋转续传）、服务端只中继不落图、编辑者侧**帧影覆盖层**
+  （渲染几何段前把新鲜覆盖写进节点字段、`finally` 还原图真值——渲染器几何代码零改动，
+  帧间命中测试恒见图真值；流静默 500ms 过期回落）。
+  / Batch 1: the §3 mechanism in full — two payloads, the DRAG_STREAM budget row, the four
+  drag paths feeding a 100 ms-paced stream with 512-cap rotating continuation, a relay-only
+  server, and the editor-side frame-shadow overlay.
+- **批 1.1**（`a8c290d0`，实机「跟随一格一格」）：影子 smoothstep 0.25/帧（4 帧收敛）短于
+  100ms 流窗口——每窗滑完即驻停，视觉上步进。改 **0.12/帧**（与远端 op 平滑
+  `advanceRemoteMoveLerp` 同节奏：滑行时长超过发包间隔，窗口重叠成连续运动）。另加**权威
+  接管**：`MOVE_NODE`/`SET_COMMENT_SIZE` 落地时（`GraphRemoteApplier` 主应用后，REJECT 已
+  提前返回）把仍新鲜覆盖层的目标接管为权威终值——松手尾巴 ≤100ms 的位移只存在于松手 op，
+  无接管则影子冻结在流末位、过期时跳变。
+  / Batch 1.1 ("steppy following"): the shadow converged in 4 frames, shorter than the
+  100 ms window, so each window held still after gliding — retimed to 0.12/frame (the
+  remote-op lerp's cadence); plus authoritative adoption so the shadow glides into the
+  release-op final instead of freezing and jumping on expiry.
+- **批 1.2**（`b1478085`，实机「按住不动未松手，旁观端节点回原位」）：流只由 mouseMoved
+  驱动——停手即静默，覆盖层 500ms 过期回落图真值。修法 = 拖拽进行中 clientTick **保活补发**
+  当前几何（拖拽状态 → 条目为纯函数 `buildDragEntries`，优先级照分发序：尺寸调整 &gt;
+  注释框拖动 &gt; 多选 &gt; 单节点；tracker 的 100ms 节流统一管速）。真卡死/掉线时保活自然停
+  ——过期回落的安全性质保留。
+  / Batch 1.2 ("snap-back while holding still"): the stream was mouseMoved-driven, so a
+  held-still drag went silent and the overlay expired; clientTick now keeps the stream
+  alive while a drag is live (pure drag-state-to-entries mapping, dispatch-ordered), and a
+  true stall still stops the keep-alive, preserving the expiry fallback.
+- **实测结论**：拖动跟随连续顺滑；按住不动旁观端钉住不回位；松手平滑落位无跳变；多选拖
+  不再触发限流断开。
+  / Live verdict: fluid following, a held-still drag pins the watcher's view, release lands
+  smoothly, and the rate-limit disconnect no longer reproduces.
+- **未动 / open**：批 2（§四丢弃回执）；残留 = 显示器布局拖拽（`MonitorDisplayCanvas`）仍
+  流式发 `SET_DISPLAY_LAYOUT` op——同 20Hz 持续暴露面（约 92 秒拖空 EDIT_OP 桶），建议后续
+  并入临场流或同款保活/节流治理。
+  / Open: batch 2 (§4); residual = display-layout drags still stream SET_DISPLAY_LAYOUT ops
+  (the same 20 Hz sustained exposure) — fold them into the stream or apply the same
+  keep-alive/throttle treatment later.
