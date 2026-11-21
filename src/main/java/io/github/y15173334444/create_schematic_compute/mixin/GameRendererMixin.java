@@ -37,7 +37,7 @@ public class GameRendererMixin {
         if (EditorPerfSettings.cullWorldActive()) ci.cancel();
     }
 
-    @Inject(method = "renderItemInHand(Lnet/minecraft/client/renderer/Camera;FLorg/joml/Matrix4f;)V",
+    @Inject(method = "renderItemInHand(Lnet/minecraft/client/Camera;FLorg/joml/Matrix4f;)V",
         at = @At("HEAD"), cancellable = true, remap = false)
     private void csc$cullFirstPersonHand(Camera camera, float partialTick, Matrix4f pose, CallbackInfo ci) {
         if (EditorPerfSettings.cullFpActive()) ci.cancel();
