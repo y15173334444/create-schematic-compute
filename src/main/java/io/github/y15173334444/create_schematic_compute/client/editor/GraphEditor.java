@@ -1456,6 +1456,22 @@ public class GraphEditor {
             lastInitGraph = graph;
             lastInitGeneration = -1;
             editStatesNeedRebuild = true;
+            // 图实例被整体替换（全量同步 / 存档重载）→ 清指纹强制全部展开节点重建：同 id
+            // 的签名值恒等，仅凭签名比对会**保留**旧 state——其输入框/响应器/bindings 全部
+            // 挂在旧图的老节点对象上（st.busNode 写死对象、busBox 显示旧名），用户后续
+            // 编辑落在死对象上、显示与服务端权威态分歧（实测：改名后回车提交回弹 +
+            // 双端输入框不一致）。只清指纹不清 state——createEditState 以旧 state 为
+            // oldStRef，草稿/焦点保留路径照常工作。
+            // The graph instance was replaced wholesale (full sync / save reload) → clear the
+            // fingerprints so every expanded node rebuilds: same-id signatures compare equal,
+            // so signature-only comparison would **keep** the old state — whose boxes,
+            // responders and bindings all hang off the OLD graph's node objects (st.busNode
+            // writes a dead object, the busBox shows a stale name), so later edits land on
+            // the dead object and the display diverges from the authoritative state (measured
+            // live: Enter commits bounced back after a rename + the two editors disagreed).
+            // Clear only the fingerprints, not the states — createEditState consumes the old
+            // state as oldStRef, so the draft/focus preservation paths keep working.
+            editStateSignatures.clear();
         } else if (lastInitGeneration != graph.graphGeneration) {
             editStatesNeedRebuild = true;
         }
