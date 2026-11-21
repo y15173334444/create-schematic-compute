@@ -102,16 +102,14 @@ final class MonitorDisplayCanvas {
         // Collect and render display elements (cached when graph is static — Phase 2)
         // When running, output values change each tick so we must rebuild.
         boolean layoutLerpActive = advanceLayoutLerp(graph);
-        // 拖动临场帧影（批 3）：缓存重建前把新鲜覆盖写进 layoutX/Y——重建快照即携带影子位置，
-        // 重建后立即还原图权威值（缓存已持有快照，帧间输入路径恒见真值）。stash 若因异常滞留，
-        // 下一帧 computeIfAbsent 命中旧幕布原值自愈（不覆盖）。
-        // Drag-overlay frame shadow (batch 3): fresh overlays are written into layoutX/Y
-        // before the cache rebuild — the rebuilt snapshot carries the shadowed positions and
-        // graph truth is restored right after (the cache holds the snapshot; input paths
-        // between frames always see truth). A stash leaked by an exception self-heals: the
-        // next frame's computeIfAbsent hits the old originals instead of overwriting them.
+        // 拖动临场帧影的 begin/end 在整帧入口（MonitorDisplayEditor.render）——窗口罩住缓存
+        // 重建与协作叠加层（软锁框按 layoutX 现值定位）；此处只需感知「影子活跃」来强制重建
+        // 缓存（拖拽插值不 bump 代际）。
+        // The shadow's begin/end live in the frame entry (MonitorDisplayEditor.render) — the
+        // window covers the cache rebuild and the collaboration overlay (the soft-lock frame
+        // positions itself from the live layoutX); this site only senses "shadow active" to
+        // force the cache rebuild (a drag lerp doesn't bump the generation).
         boolean dragShadowActive = host.editor().dragStream.hasFreshOverlay(host.editor().ownerNodeId());
-        if (dragShadowActive) host.editor().dragStream.beginFrame(graph, host.editor().ownerNodeId());
         boolean isRunning = host.be() != null && host.be().isRunning();
         float efsw = getEffectiveScreenW(), efsl = getEffectiveScreenL();
         int curGen = graph.graphGeneration;
@@ -122,7 +120,6 @@ final class MonitorDisplayCanvas {
             cachedDisplayElements = collectDisplayElements(graph, evalOutputs);
             cachedDisplayArea = da;
         }
-        if (dragShadowActive) host.editor().dragStream.endFrame(graph);
         var elements = cachedDisplayElements;
         var daCached = cachedDisplayArea != null ? cachedDisplayArea : da;
         // Dynamic guiScale: match world proportions

@@ -131,11 +131,24 @@ public final class MonitorDisplayEditor {
         // 显示模式也持续发送存在包（节点图模式的 renderBg 不会在此运行）
         // Keep presence flowing in display mode (the graph-mode renderBg does not run here)
         host.editor().sendPresenceIfNeeded();
+        // 拖动临场帧影窗口上移到整帧（批 3 后续）：缓存重建与协作叠加层（软锁框按 layoutX
+        // 现值定位）都要在窗口内读影子位置——窗口只罩画布时，软锁框会钉在图真值上、直到松手
+        // op 才同步位置（实机报告）。帧末还原，帧间输入路径恒见图真值。
+        // The drag-shadow window moves up to cover the whole frame (batch 3 follow-up): both
+        // the cache rebuild AND the collaboration overlay (the soft-lock frame positions
+        // itself from the live layoutX) must read shadowed positions inside the window —
+        // with the window around the canvas only, the frame pinned at graph truth until the
+        // release op synced it (live report). Restored at frame end; input paths between
+        // frames always see graph truth.
+        int owner = host.editor().ownerNodeId();
+        boolean shadowActive = host.editor().dragStream.hasFreshOverlay(owner);
+        if (shadowActive) host.editor().dragStream.beginFrame(host.editor().getGraph(), owner);
         canvas.renderDisplayArea(g, mx, my);
         layers.renderLayerPanel(g, mx, my);
         // 显示模式绘制显示区协作叠加层（队友光标 + 拖拽描边），不再绘制节点图光标
         // Display mode draws the display-area collaboration overlay instead of the graph overlay
         renderDisplayPresence(g);
+        if (shadowActive) host.editor().dragStream.endFrame(host.editor().getGraph());
     }
 
     /** 设置面板浮层（显示模式与节点图模式都要画）/ settings overlay. */
