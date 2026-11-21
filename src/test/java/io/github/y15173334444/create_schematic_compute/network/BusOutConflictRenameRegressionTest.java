@@ -51,7 +51,7 @@ class BusOutConflictRenameRegressionTest {
     /** 建一个带频段的 BUS_OUT 并走真实命名路径（SET_DISPLAY_TEXT + 迁移）。 */
     private static GraphNode nameBusOut(NodeGraph graph, BlockPos pos, GraphNode n, String from, String to) {
         applyRename(graph, n, to);
-        BusChannelHelper.applyBusOutRename(graph, pos, n, from, null);
+        BusChannelHelper.applyBusOutRename(graph, pos, n, from, -1, null);
         return n;
     }
 

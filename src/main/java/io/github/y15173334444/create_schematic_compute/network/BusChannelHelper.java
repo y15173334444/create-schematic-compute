@@ -65,13 +65,24 @@ public final class BusChannelHelper {
      *  registration and the BUS_OUT rename migration; idempotent — a same-owner same-map
      *  re-registration is a no-op. Returns the band broadcasts and conflict-flag changes. */
     static ChannelRegistration registerGraphChannels(NodeGraph graph, BlockPos pos) {
+        return registerGraphChannels(graph, pos, -1);
+    }
+
+    /** 注册内核的图域形参版：主图遍历传 -1（二参重载的同义形态），封装子图传承载它的
+     *  ENCAP 节点 id——owner 键带图域后，主图/子图 id 撞号不再被误判为同 owner 重注册
+     *  （known-open-issues 条目『频道清理残余豁口』①）。
+     *  The graph-domain form of the registration core: main-graph walks pass -1 (the 2-arg
+     *  overload's synonym), an encapsulation sub-graph passes the hosting ENC node's id —
+     *  with the graph domain on the owner key, main/sub id collisions no longer pose as
+     *  same-owner re-registrations (register entry "residual channel cleanup gaps", part 1). */
+    static ChannelRegistration registerGraphChannels(NodeGraph graph, BlockPos pos, int ownerNodeId) {
         boolean anyConflict = false;
         var broadcasts = new java.util.ArrayList<String>();
         for (var n : graph.nodes) {
             if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
                 if (n.busInternalMap == null) n.busInternalMap = new HashMap<>();
                 boolean ok = SignalBus.registerChannel(n.signalName, n.busInternalMap,
-                    new ChannelOwner(pos, n.id));
+                    new ChannelOwner(pos, ownerNodeId, n.id));
                 // 注：此处不做"过时 owner 强制清理"——注册失败只标冲突，所有权保持
                 // "首个注册者获胜"稳定语义。残留 owner 回收由 recoverConflictedChannels
                 // 的 chunk-loaded 超时机制处理（见下方），避免误杀其他方块存活的同名牌。
@@ -110,12 +121,41 @@ public final class BusChannelHelper {
                 // Private channel occupancy (BUS discipline): first registrant wins; a name held
                 // by another owner flags the node — a conflicted node writes nothing and defines
                 // nothing.
-                boolean ok = SignalBus.registerPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
+                boolean ok = SignalBus.registerPrivateChannel(n.signalName, new ChannelOwner(pos, ownerNodeId, n.id));
                 if (n.busConflict != !ok) anyConflict = true;
                 n.busConflict = !ok;
             }
         }
         return new ChannelRegistration(anyConflict, broadcasts);
+    }
+
+    /** 宿主停机路径的 BUS 频段**向量值**撤值（28.2 收口，§9.1-2 同款注册内核形态）：对本图
+     *  每个 VEC3 频段的 BUS_OUT，频道 owner 门控通过（本节点确实持有该频道）才撤
+     *  {@code channel\0band} 的向量值——FLOAT 半边由 onStopRunning 清各节点
+     *  {@code busInternalMap} 完成，VEC3 半边此前残留到频道注销才清（known-open-issues
+     *  条目『维度前缀批暂缓面』28.2）。冲突节点（名被对端持有）不撤对端的向量值；键格式
+     *  单一事实源 = {@link AudioBands#bandKey}。键访问落在调用方的维度作用域内。
+     *  The host-stop withdrawal of BUS band **vector values** (the 28.2 close, same kernel
+     *  shape as §9.1-2): for every BUS_OUT carrying VEC3 bands, the {@code channel\0band}
+     *  vector value is withdrawn only when the channel's owner gate passes (this node really
+     *  holds the channel) — the FLOAT half is onStopRunning clearing each node's
+     *  {@code busInternalMap}, while the VEC3 half used to linger until the channel
+     *  unregistered (register entry "dimension-prefix batch deferred face", 28.2). A
+     *  conflicted node (name held by the peer) never withdraws the peer's vectors; the key
+     *  format's single source = {@link AudioBands#bandKey}. Key access lands in the caller's
+     *  dimension scope. */
+    public static void clearBusVec3Values(NodeGraph graph, BlockPos pos) {
+        if (graph == null) return;
+        for (var n : graph.nodes) {
+            if (n.type != NodeType.BUS_OUT || n.signalName.isEmpty()) continue;
+            var entry = SignalBus.getChannel(n.signalName);
+            if (entry == null || !entry.owner.equals(new ChannelOwner(pos, n.id))) continue;
+            int bc = n.bandCount();
+            for (int bi = 0; bi < bc; bi++) {
+                if (n.inputType(bi) == io.github.y15173334444.create_schematic_compute.graph.PinType.VEC3)
+                    SignalBus.putVec3(AudioBands.bandKey(n.signalName, n.signalBands.get(bi)), null);
+            }
+        }
     }
 
     /**
@@ -159,8 +199,15 @@ public final class BusChannelHelper {
      * @return 注册结果（调用方按需广播频段定义 / registration result for the caller to broadcast)
      */
     public static ChannelRegistration applyBusOutRename(NodeGraph graph, BlockPos pos, GraphNode renamed,
-                                                        String oldName, @Nullable Level level) {
+                                                        String oldName, int ownerNodeId, @Nullable Level level) {
         if (graph == null || renamed == null) return new ChannelRegistration(false, java.util.List.of());
+        // ownerNodeId = 图域（known-open-issues 条目『频道清理残余豁口』①）：主图 -1、封装
+        // 子图 = 承载它的 ENCAP 节点 id（op 既有语义）——释放与重注册的 owner 键都带图域，
+        // 主图/子图 id 撞号不再误匹配 owner。/ ownerNodeId = the graph domain (register entry
+        // "residual channel cleanup gaps", part 1): -1 for the main graph, the hosting ENC
+        // node's id for a sub-graph (the op's existing semantics) — both the release and the
+        // re-registration owner keys carry the domain, so main/sub id collisions no longer
+        // false-match an owner.
         // 服务端在宿主维度作用域内动键（§6.4 步骤 2）；客户端编辑器（level=null）按设计走
         // 无作用域的本地键空间（P1-9 乐观本地值）。/ Server-side key access runs in the host's
         // dimension scope (§6.4 step 2); a client editor (level=null) rides the unscoped local
@@ -177,14 +224,14 @@ public final class BusChannelHelper {
                 // drop the entry by owner and retire the definition when the name is left unowned.
                 // A same-graph BUS_IN reference no longer blocks retirement — dead-name cleanup
                 // reaches same-graph subscribers too; a foreign entry/definition is never touched.
-                SignalBus.releaseChannel(oldName, new ChannelOwner(pos, renamed.id));
+                SignalBus.releaseChannel(oldName, new ChannelOwner(pos, ownerNodeId, renamed.id));
             }
             // 重跑图内注册（幂等）：新名条目 + 频段定义 + 冲突旗标随名字落地。
             // "" → 新名 也走这里（新建 BUS_OUT 后首次命名同样丢频道 —— 同一根因）。
             // Re-run the graph registration (idempotent): the new-name entry, band definitions and
             // the conflict flag land with the name. "" → new goes through here too (naming a freshly
             // added BUS_OUT loses the channel the same way — same root cause).
-            var reg = registerGraphChannels(graph, pos);
+            var reg = registerGraphChannels(graph, pos, ownerNodeId);
             renamed.bandsDirty = true; // 评估器下轮重算音频标志 / evaluator recomputes audio flags next tick
             if (level instanceof ServerLevel sl) broadcastBandDefinitions(sl, pos, reg.bandBroadcasts());
             return reg;

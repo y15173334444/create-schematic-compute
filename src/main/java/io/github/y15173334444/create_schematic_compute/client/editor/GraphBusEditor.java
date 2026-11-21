@@ -126,7 +126,11 @@ final class GraphBusEditor {
             // (idempotent). Old-name cleanup happens inside the migration with the same rule; do
             // NOT call releaseOldBusName (it wipes signalBands and cuts old-band wires).
             io.github.y15173334444.create_schematic_compute.network.BusChannelHelper
-                .applyBusOutRename(ed.getGraph(), ed.host.getBlockPos(), node, oldName, null);
+                // ownerNodeId = 编辑器当前图域（主图 -1 / 子图 = 承载 ENC 节点 id）——迁移的
+                // owner 键带图域（known-open-issues 条目『频道清理残余豁口』①）。
+                // ownerNodeId = the editor's current graph domain (main -1 / a sub-graph = the
+                // hosting ENC node's id) — the migration's owner key carries the domain.
+                .applyBusOutRename(ed.getGraph(), ed.host.getBlockPos(), node, oldName, ed.ownerNodeId(), null);
         } else if (!oldName.isEmpty()
             && node.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN) {
             // BUS_IN 是订阅方，从不拥有频道 —— 它改名**不许**碰发布方的全局数据：旧实现的
@@ -194,7 +198,8 @@ final class GraphBusEditor {
         // or definition, and the unowned-residue cleanup is arbitrated by releaseChannel
         // too — a live owner's data is never wiped on a local guess.
         io.github.y15173334444.create_schematic_compute.network.SignalBus.releaseChannel(oldName,
-            new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(ed.host.getBlockPos(), n.id));
+            new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(
+                ed.host.getBlockPos(), ed.ownerNodeId(), n.id));
         // 在清空前捕获旧频段名和数量，用于连线清理 (Capture old band names and count before clearing)
         java.util.List<String> oldBands = n.signalBands != null
             ? new java.util.ArrayList<>(n.signalBands) : java.util.List.of();
@@ -259,7 +264,8 @@ final class GraphBusEditor {
             // server's band broadcast.
             boolean wrote = io.github.y15173334444.create_schematic_compute.network.SignalBus.registerBandsIfNotForeign(
                 src.signalName, bands,
-                new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(ed.host.getBlockPos(), src.id));
+                new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(
+                    ed.host.getBlockPos(), ed.ownerNodeId(), src.id));
             // 注册即定义（客户端乐观写入路径）：声明类型随频段定义一并落地，与服务端
             // 注册点/BUS_EVAL 发布同源（GraphNode.bandTypeMap）。
             // Register-time definition (the client's optimistic write path): declared types

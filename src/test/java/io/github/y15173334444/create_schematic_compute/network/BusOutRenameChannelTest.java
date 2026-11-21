@@ -65,7 +65,7 @@ class BusOutRenameChannelTest {
         assertNotNull(SignalBus.getChannel("abc"), "夹具前提：旧名已注册");
 
         applyRename(graph, out, "def");                                    // 用户改名（服务端应用）
-        var reg = BusChannelHelper.applyBusOutRename(graph, POS, out, "abc", null); // 服务端改名处理（修复点）
+        var reg = BusChannelHelper.applyBusOutRename(graph, POS, out, "abc", -1, null); // 服务端改名处理（修复点）
 
         var entry = SignalBus.getChannel("def");
         assertNotNull(entry, "改名后新名查不到（BUS_IN 查找不到的根因）");
@@ -90,7 +90,7 @@ class BusOutRenameChannelTest {
         BusChannelHelper.registerGraphChannels(graph, POS);
 
         applyRename(graph, out, "def");
-        BusChannelHelper.applyBusOutRename(graph, POS, out, "abc", null);
+        BusChannelHelper.applyBusOutRename(graph, POS, out, "abc", -1, null);
 
         assertTrue(out.busConflict, "撞名必须标冲突旗标");
         assertSame(foreignMap, SignalBus.getChannel("def").internalMap, "不得抢走他人的频道");
@@ -107,8 +107,8 @@ class BusOutRenameChannelTest {
         BusChannelHelper.registerGraphChannels(graph, POS);
 
         applyRename(graph, out, "def");
-        BusChannelHelper.applyBusOutRename(graph, POS, out, "abc", null);
-        BusChannelHelper.applyBusOutRename(graph, POS, out, "abc", null); // 第二次（如单机共享表）
+        BusChannelHelper.applyBusOutRename(graph, POS, out, "abc", -1, null);
+        BusChannelHelper.applyBusOutRename(graph, POS, out, "abc", -1, null); // 第二次（如单机共享表）
 
         var entry = SignalBus.getChannel("def");
         assertNotNull(entry);
@@ -124,7 +124,7 @@ class BusOutRenameChannelTest {
     /** 建一个带频段的 BUS_OUT 并走真实命名路径（SET_DISPLAY_TEXT + 迁移）。 */
     private static GraphNode nameBusOut(NodeGraph graph, BlockPos pos, GraphNode n, String from, String to) {
         applyRename(graph, n, to);
-        BusChannelHelper.applyBusOutRename(graph, pos, n, from, null);
+        BusChannelHelper.applyBusOutRename(graph, pos, n, from, -1, null);
         return n;
     }
 
@@ -143,7 +143,7 @@ class BusOutRenameChannelTest {
         sub.signalBands = new ArrayList<>(List.of("x", "y", "z")); // 旧图 / stale list
 
         applyRename(pubGraph, pub, "def");
-        BusChannelHelper.applyBusOutRename(pubGraph, POS, pub, "abc", null);
+        BusChannelHelper.applyBusOutRename(pubGraph, POS, pub, "abc", -1, null);
         // 服务端每 tick 收敛（BUS_IN 的图应跟着频道定义走）
         var converged = BusChannelHelper.convergeBusInBands(subGraph);
         assertNotNull(converged);
@@ -166,7 +166,7 @@ class BusOutRenameChannelTest {
         sub.signalBands = new ArrayList<>(List.of("x"));
 
         applyRename(pubGraph, pub, "def");
-        BusChannelHelper.applyBusOutRename(pubGraph, POS, pub, "abc", null);
+        BusChannelHelper.applyBusOutRename(pubGraph, POS, pub, "abc", -1, null);
         BusChannelHelper.convergeBusInBands(subGraph);
         assertEquals(List.of("b0", "b1"), sub.signalBands,
             "改名落地后新名 BUS_IN 必须收敛到发布方的频段（不得留旧图）");
@@ -182,14 +182,14 @@ class BusOutRenameChannelTest {
         BusChannelHelper.registerGraphChannels(graphA, POS);
 
         applyRename(graphA, a, "def");
-        BusChannelHelper.applyBusOutRename(graphA, POS, a, "abc", null);
+        BusChannelHelper.applyBusOutRename(graphA, POS, a, "abc", -1, null);
 
         // 新建 BUS_OUT 改回旧名 / a fresh BUS_OUT renamed back to the old name
         var graphB = new NodeGraph();
         var b = graphB.addNode(NodeType.BUS_OUT, 0, 0);
         var posB = new BlockPos(9, 9, 9);
         applyRename(graphB, b, "abc");
-        BusChannelHelper.applyBusOutRename(graphB, posB, b, "", null);
+        BusChannelHelper.applyBusOutRename(graphB, posB, b, "", -1, null);
 
         assertFalse(b.busConflict, "旧名已随改名释放，新发布方不得被误标冲突");
         var entry = SignalBus.getChannel("abc");
@@ -219,7 +219,7 @@ class BusOutRenameChannelTest {
         BusChannelHelper.registerGraphChannels(graphY, POS);
         assertTrue(c.busConflict, "夹具前提：c 与 owner1 撞名");
         applyRename(graphY, c, "zzz");
-        BusChannelHelper.applyBusOutRename(graphY, POS, c, "abc", null);
+        BusChannelHelper.applyBusOutRename(graphY, POS, c, "abc", -1, null);
 
         assertEquals(List.of("b0", "b1"), SignalBus.getBands("abc"),
             "冲突节点改名不得清掉真正 owner 的频段定义");

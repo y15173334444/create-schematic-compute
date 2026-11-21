@@ -926,8 +926,15 @@ public class GraphHost {
         // self-contained — any caller lands in the right keyspace (nesting restores the
         // previous value).
         if (lvl() instanceof net.minecraft.server.level.ServerLevel sl) {
-            SignalBus.runInDimension(sl.dimension().location().toString(),
-                () -> BusChannelHelper.clearPrivateSignalValues(graph, pos()));
+            SignalBus.runInDimension(sl.dimension().location().toString(), () -> {
+                BusChannelHelper.clearPrivateSignalValues(graph, pos());
+                // BUS 频段向量值随停机撤值（28.2 收口）：FLOAT 半边由上面的 busInternalMap
+                // 清空完成，VEC3 半边此前残留到频道注销才清——owner 门控下补齐对称半边。
+                // BUS band vector values withdraw with the stop (the 28.2 close): the FLOAT
+                // half is the busInternalMap clear above, the VEC3 half used to linger until
+                // the channel unregistered — the symmetric half lands under the owner gate.
+                BusChannelHelper.clearBusVec3Values(graph, pos());
+            });
         }
         rs.writeOutputs(java.util.Collections.emptyList());
     }

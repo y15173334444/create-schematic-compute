@@ -2524,7 +2524,12 @@ public class GraphEditor {
                 // with the deleted node.
                 io.github.y15173334444.create_schematic_compute.network.SignalBus.releaseChannel(
                     n.signalName, new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(
-                        host.getBlockPos(), n.id));
+                        // ownerNodeId = 编辑器当前图域——子图内删除时 owner 键带 ENC 域，
+                        // 不误匹配主图同号节点（known-open-issues 条目『频道清理残余豁口』①）。
+                        // ownerNodeId = the editor's current graph domain — a deletion inside a
+                        // sub-graph keys the owner to the ENC domain, never false-matching a
+                        // same-numbered main-graph node.
+                        host.getBlockPos(), ownerNodeId(), n.id));
             }
             var savedX = n.x; var savedY = n.y; var savedType = n.type.ordinal();
             var savedNbt = saveNodeNbt(n); // 撤销恢复用快照 / snapshot for undo restore
