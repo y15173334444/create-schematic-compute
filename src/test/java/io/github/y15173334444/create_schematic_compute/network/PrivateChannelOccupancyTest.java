@@ -45,7 +45,7 @@ class PrivateChannelOccupancyTest {
         assertEquals(PinType.AUDIO, SignalBus.privateType("p"));
         assertTrue(SignalBus.unregisterPrivateChannel("p", A));
         assertEquals(0f, SignalBus.get("p"), "the channel dies with its publisher");
-        assertEquals(PinType.FLOAT, SignalBus.privateType("p"), "definition goes with the publisher");
+        assertEquals(PinType.EMPTY, SignalBus.privateType("p"), "definition goes with the publisher — undefined is EMPTY, not f32");
         assertNull(SignalBus.getPrivateOwner("p"));
     }
 
@@ -67,8 +67,26 @@ class PrivateChannelOccupancyTest {
         SignalBus.clearSignal("p");
         assertNull(SignalBus.getPrivateOwner("p"));
         assertEquals(0f, SignalBus.get("p"));
-        assertEquals(PinType.FLOAT, SignalBus.privateType("p"));
+        assertEquals(PinType.EMPTY, SignalBus.privateType("p"), "no definition left behind — EMPTY, not f32");
         assertTrue(SignalBus.registerPrivateChannel("p", B), "the freed name is claimable");
+    }
+
+    @Test
+    @DisplayName("无定义 = EMPTY 未声明（不是 f32）：空态可达，合并后显灰 / undefined yields EMPTY (not f32) so the grey state is reachable")
+    void undefinedChannelIsEmptyNotFloat() {
+        // 负例对照：修复前 privateType 无定义返回 FLOAT，本断言失败——空态被吞成 f32。
+        // Negative control: before the fix this returned FLOAT (failing here) — the empty
+        // state was collapsed into f32, so a fresh PRIVATE_IN could never show grey.
+        assertEquals(PinType.EMPTY, SignalBus.privateType("never-declared"));
+
+        // 展示面合并：本地 EMPTY + synced EMPTY → EMPTY（灰）；synced 变 FLOAT → FLOAT（有定义）
+        // Display-face merge: local EMPTY + synced EMPTY → grey; a FLOAT synced → f32.
+        PinType local = PinType.EMPTY; // 新建 PRIVATE_IN 的本地声明 / a fresh PRIVATE_IN's local declaration
+        assertEquals(PinType.EMPTY, PinType.effective(local, SignalBus.privateType("never-declared")),
+            "频道无定义 → 显灰，不是 f32");
+        SignalBus.setPrivateType("never-declared", PinType.FLOAT);
+        assertEquals(PinType.FLOAT, PinType.effective(local, SignalBus.privateType("never-declared")),
+            "频道显式定义 float → 才显 f32");
     }
 
     @Test
