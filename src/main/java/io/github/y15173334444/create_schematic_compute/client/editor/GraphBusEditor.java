@@ -66,6 +66,17 @@ final class GraphBusEditor {
         return false;
     }
 
+    /** 草稿基线是否已失效：权威名在草稿存活期间被挪动（回声/收敛/另一端提交）→ 本端的
+     *  过期草稿不得提交（否则旧名写回服务端，实测回弹乒乓）。base 为 null = 无基线的
+     *  旧形态，放行（向后兼容）。
+     *  Whether the draft baseline has gone stale: the authoritative name moved while the
+     *  draft was alive (an echo / convergence / a peer commit) → this client's stale draft
+     *  must not commit (it would write the old name back — the measured bounce ping-pong).
+     *  A null base = the legacy no-baseline shape, allowed (backwards compatible). */
+    static boolean draftBaseMoved(String base, String liveName) {
+        return base != null && liveName != null && !base.equals(liveName);
+    }
+
     /** EditBox 响应器的脏标记：仅非 suppress（用户敲键）置 true；suppress 时保持原值。
      *  Dirty flag from the EditBox responder: only a non-suppressed (user keystroke) call
      *  sets true; suppressed programmatic setValue leaves the flag unchanged. */
@@ -82,11 +93,39 @@ final class GraphBusEditor {
      *  discarded with a hint — never written back over the authoritative name.</p> */
     void commitBusBox(GraphEditor.EditState st) {
         if (st == null || st.busBox == null || st.busNode == null) return;
-        var node = st.busNode;
+        // 按 id 从**当前图**重取活节点：整图替换（全量同步）后 st.busNode 挂在旧图的死对象
+        // 上，signalName 比较与写入必须落在活节点——图节点响应器的 id 重取纪律同款。
+        // Re-fetch the live node by id from the **current** graph: after a wholesale
+        // replacement (full sync) st.busNode hangs off the old graph's dead object — the
+        // signalName compare and write must land on the live node (the same id-refetch
+        // discipline as the node-body responders).
+        var g = ed.getGraph();
+        var node = (g != null) ? g.findNode(st.busNode.id) : null;
+        if (node == null || (node.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN
+            && node.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT)) return;
         String oldName = node.signalName;
+        // 草稿基线门（双探针实测的回弹闭环）：权威名在草稿存活期间被挪动（回声/收敛/
+        // 另一端提交抢先落库）→ 本端盒子里的文本已是过期草稿，静默重载权威名并复位基线，
+        // 绝不提交（提交会把旧名写回服务端，两端乒乓）。重载与 #10 的拒绝重载同款抑制。
+        // The draft-baseline gate (the bounce loop measured by the dual probes): the
+        // authoritative name moved while the draft was alive (an echo / convergence / a
+        // peer commit landed first) → the box text is a stale draft — silently reload the
+        // authoritative name and reset the baseline, never commit (committing would write
+        // the old name back, the two-client ping-pong). The reload rides the same
+        // suppression as the #10 reject path.
+        if (draftBaseMoved(st.busNameDraftBase, oldName)) {
+            ed.suppressEditBoxResponder = true;
+            st.busBox.setValue(oldName);
+            ed.suppressEditBoxResponder = false;
+            st.busNameUserDirty = false;
+            st.busNameDraftBase = oldName;
+            st.busEditIdleTicks = 0;
+            return;
+        }
         String t = st.busBox.getValue();
         if (t.equals(oldName)) {
             st.busNameUserDirty = false;
+            st.busNameDraftBase = oldName; // 盒子已对齐权威名，基线随行 / the box matches the authoritative name; the baseline follows
             return;
         }
         if (!shouldCommitBusName(st.busNameUserDirty, t, oldName)) {
@@ -96,6 +135,7 @@ final class GraphBusEditor {
             st.busBox.setValue(oldName);
             ed.suppressEditBoxResponder = false;
             st.busNameUserDirty = false;
+            st.busNameDraftBase = oldName;
             st.busEditIdleTicks = 0;
             var p = net.minecraft.client.Minecraft.getInstance().player;
             if (p != null) {
@@ -105,6 +145,7 @@ final class GraphBusEditor {
             return;
         }
         st.busNameUserDirty = false;
+        st.busNameDraftBase = t; // 提交后基线随新名走 / the baseline rides the new name after the commit
         node.signalName = t;
         ed.sendOp(new io.github.y15173334444.create_schematic_compute.graph.GraphOp(
             io.github.y15173334444.create_schematic_compute.graph.OpType.SET_DISPLAY_TEXT,
@@ -126,7 +167,11 @@ final class GraphBusEditor {
             // (idempotent). Old-name cleanup happens inside the migration with the same rule; do
             // NOT call releaseOldBusName (it wipes signalBands and cuts old-band wires).
             io.github.y15173334444.create_schematic_compute.network.BusChannelHelper
-                .applyBusOutRename(ed.getGraph(), ed.host.getBlockPos(), node, oldName, null);
+                // ownerNodeId = 编辑器当前图域（主图 -1 / 子图 = 承载 ENC 节点 id）——迁移的
+                // owner 键带图域（known-open-issues 条目『频道清理残余豁口』①）。
+                // ownerNodeId = the editor's current graph domain (main -1 / a sub-graph = the
+                // hosting ENC node's id) — the migration's owner key carries the domain.
+                .applyBusOutRename(ed.getGraph(), ed.host.getBlockPos(), node, oldName, ed.ownerNodeId(), null);
         } else if (!oldName.isEmpty()
             && node.type != io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_IN) {
             // BUS_IN 是订阅方，从不拥有频道 —— 它改名**不许**碰发布方的全局数据：旧实现的
@@ -194,7 +239,8 @@ final class GraphBusEditor {
         // or definition, and the unowned-residue cleanup is arbitrated by releaseChannel
         // too — a live owner's data is never wiped on a local guess.
         io.github.y15173334444.create_schematic_compute.network.SignalBus.releaseChannel(oldName,
-            new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(ed.host.getBlockPos(), n.id));
+            new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(
+                ed.host.getBlockPos(), ed.ownerNodeId(), n.id));
         // 在清空前捕获旧频段名和数量，用于连线清理 (Capture old band names and count before clearing)
         java.util.List<String> oldBands = n.signalBands != null
             ? new java.util.ArrayList<>(n.signalBands) : java.util.List.of();
@@ -259,7 +305,8 @@ final class GraphBusEditor {
             // server's band broadcast.
             boolean wrote = io.github.y15173334444.create_schematic_compute.network.SignalBus.registerBandsIfNotForeign(
                 src.signalName, bands,
-                new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(ed.host.getBlockPos(), src.id));
+                new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(
+                    ed.host.getBlockPos(), ed.ownerNodeId(), src.id));
             // 注册即定义（客户端乐观写入路径）：声明类型随频段定义一并落地，与服务端
             // 注册点/BUS_EVAL 发布同源（GraphNode.bandTypeMap）。
             // Register-time definition (the client's optimistic write path): declared types

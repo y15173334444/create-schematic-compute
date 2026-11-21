@@ -332,10 +332,19 @@ public class SignalBus {
         return true;
     }
 
-    /** 私有频道声明载荷类型（无定义 = FLOAT）/ The private channel's declared payload type
-     *  (FLOAT when undefined). */
+    /** 私有频道声明载荷类型（无定义 = EMPTY 未声明）/ The private channel's declared payload
+     *  type (EMPTY = undeclared when undefined).
+     *  <p>无定义必须返回 EMPTY 而非 FLOAT：展示面走 {@code effective(本地声明, privateType)}，
+     *  FLOAT 默认值会把「频道没定义」吞成「定义了 float」，令 EMPTY 空态在私有频道上不可达
+     *  （新建 PRIVATE_IN 恒显 f32 且不跟随频道定义，2026-11-21 诊断）。求值侧对 EMPTY 仍按
+     *  FLOAT 行为处理，不断档。</p>
+     *  <p>Undefined must yield EMPTY, not FLOAT: the display face merges via
+     *  {@code effective(local, privateType)}, and a FLOAT default collapses "undefined" into
+     *  "declared float", making the EMPTY state unreachable on private channels (a fresh
+     *  PRIVATE_IN always showed f32 and ignored the channel definition — 2026-11-21 diagnosis).
+     *  Evaluation still treats EMPTY as FLOAT, so nothing breaks.</p> */
     public static io.github.y15173334444.create_schematic_compute.graph.PinType privateType(String channel) {
-        return PRIVATE_TYPES.getOrDefault(key(channel), io.github.y15173334444.create_schematic_compute.graph.PinType.FLOAT);
+        return PRIVATE_TYPES.getOrDefault(key(channel), io.github.y15173334444.create_schematic_compute.graph.PinType.EMPTY);
     }
 
     /** 私有频道定义版本号（无定义 0）/ The private channel's definition version stamp (0 when none). */

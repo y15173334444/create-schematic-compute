@@ -1,8 +1,8 @@
 # 遗留问题登记 / Known Open Issues
-> 更新日期 / Updated：2026-11-08
+> 更新日期 / Updated：2026-11-21
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 共 24 项（✅ 已实施 14 项〔5/6/8/9/10/11/12/13/14/16/17/24/26/34〕；已拍板待实施 1 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件〕；待办 9 项〔其中条目 1 待立项、条目 18 半收口（② 回执形态发版后另批）、条目 19 宿主套件波前承接、条目 20 待用户拍板、条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）、条目 38 半收口（① 梯子墙钟耦合已实施、② 音频计时断言评估后暂缓）〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 共 26 项（✅ 已实施 20 项〔5/6/8/9/10/11/12/13/14/16/17/24/26/34 + 2026-11-21 批：19/2/7/3 + 实测回归批：40/41〕；已拍板销账 1 项〔4 功放越界，2026-11-21 拍板接受现状、不动模型〕；已拍板待实施 2 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件；20 观测面 = 独立指令面板形态、后续再合并（2026-11-21 拍板）〕；待办 3 项〔条目 1 待立项；条目 18 半收口（② 回执形态发版后另批）；条目 38 半收口（② 音频计时断言评估后暂缓）；条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）；暂缓面 27/29/30/31/33/35/36/37 与条目 28 半收口（28.2 已随条目 7 收口批实施、28.1 需独立拍板）详见汇总表〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -16,12 +16,12 @@
 | # | 标题 / Title | 症状一句话 / One-line symptom | 修复建议 / Fix direction | 状态 / Status |
 |---|--------------|------------------------------|--------------------------|---------------|
 | 1 | temp-id 挂起队列随关屏丢弃 | 加点后立刻输入、一个 RTT 内关界面 → 重开回到默认值 | op 日志回放（另立项） | 待立项 |
-| 2 | 频道释放依赖快照路径（含别名死守卫） | 删除/改名的频道释放靠重编译快照兜底，旧图 diff 双守卫恒空转 | 消除别名死守卫 + 收窄释放窗口（撤销/重做语义随做） | 🔶 待办（机制已修正 2026-10-10，影响面降级） |
-| 3 | 打字途中面板重建（补全弹窗被吞 · 输入框每击键换血） | 公式脚本框打字时补全候选框闪现即失，每次击键整个输入框被换实例 | 三处一批：指纹剔公式文本 + SET_FORMULA 远端定点刷新 + 草稿策略 | 🔶 待办（幽灵选区本体已修 2026-10-11） |
-| 4 | 功放开盖模型越出方块背面 0.75px | `lit=true` 时盖子最外上角到 Z16.75，紧邻方块背面可见穿模 | 铰链前移 1px / 盖子做矮到 8px / 接受现状 | 🔶 待办（建模决定） |
+| 2 | 频道释放依赖快照路径（含别名死守卫） | 删除/改名的频道释放靠重编译快照兜底，旧图 diff 双守卫恒空转 | 消除别名死守卫 + 收窄释放窗口（撤销/重做语义随做） | ✅ 已实施（2026-11-21：释放统一走不别名键集差集 + 注册即快照 + 撤销恢复原 owner 重注册；`lastEvaluatedGraph` 字段退役；ChannelSnapshotDiffTest 5 锚，1379 绿） |
+| 3 | 打字途中面板重建（补全弹窗被吞 · 输入框每击键换血） | 公式脚本框打字时补全候选框闪现即失，每次击键整个输入框被换实例 | 三处一批：指纹剔公式文本 + SET_FORMULA 远端定点刷新 + 草稿策略 | ✅ 已实施（2026-11-21 三处一批：指纹剔公式文本 + SET_FORMULA 定点刷新（草稿策略拍板 = 跳过保草稿）+ 回声抑制；FormulaEchoRefreshTest 4 源码锚先红后绿，1388 绿） |
+| 4 | 功放开盖模型越出方块背面 0.75px | `lit=true` 时盖子最外上角到 Z16.75，紧邻方块背面可见穿模 | 铰链前移 1px / 盖子做矮到 8px / 接受现状 | ✅ 已拍板销账（2026-11-21：接受现状，不动模型） |
 | 5 | NBS 笔划分组漏掉按下格（一次笔划 = 两条撤销） | 一次涂抹/擦除笔划要撤销两次：拖过格并成一条、按下格独立一条 | beginBatch 提到落点之前 + 一条回归测试 | ✅ 已实施（2026-11-20，开组责任下放 roll/lane 的 mouseDown，首格与拖过格同批；NbsStrokeBatchTest 双视图负例锚，1331 绿） |
 | 6 | 像素编辑器配色半收编（static final 捕获 + 硬编码按钮/悬停） | 与 NBS 收编前同款病：panel_bg/panel_border 类加载时捕获、按钮/悬停写死，换主题不跟 | 照 NBS 收编的同款映射一次搬 | ✅ 已实施（2026-10-31，1012 绿；三件套四色映射 insetBg/hover/accent/error + 帧选中/拖拽高亮，画布内容色按口径保持内置，回潮锚 PixelEditorThemeAdoptionTest） |
-| 7 | 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理） | 主图/子图节点 id 撞号时 owner 门失真；syncBusBands/空表 clearBus 靠旗标或镜像语义门控 | ChannelOwner 加图域全链带上 + 两处清理改 owner 门控 | 🔶 待办 |
+| 7 | 频道清理残余豁口（ChannelOwner 无图域 + 客户端旗标/镜像清理） | 主图/子图节点 id 撞号时 owner 门失真；syncBusBands/空表 clearBus 靠旗标或镜像语义门控 | ChannelOwner 加图域全链带上 + 两处清理改 owner 门控 | ✅ 已实施（2026-11-21① ChannelOwner 加 ownerNodeId 图域全链带上；② syncBusBands owner 门控经 P1-9 `registerBandsIfNotForeign` 已在位（登记后落地，本批核实保留）；附带 28.2 停机撤向量值；ChannelOwnerGraphDomainTest 5 锚，1384 绿） |
 | 8 | 时序/逻辑节点在 SeatInput 档宿主静默空转（op 注入/旧档形态） | Sensor/ControlSeat 的 4 参 evaluate() 对七类时序/状态节点无 case，输出逐拍冻结 | 档位合一或档外显式拒绝（行为变更） | 🔶 待办（2026-10-25 更新：eval 分派化已落地 main，怪癖按决策 §三-4 原样保留并收敛到单一事实源；**2026-10-31 拍板：档位合一**，✅ 已实施（2026-10-31 档位合一批 0e9cc29）） |
 | 9 | 节点准入名单仅客户端把守（改包客户端可任意 ADD_NODE） | 服务端 op 链不校验 `BlockNodeAllowances`，改包客户端可把任意类型塞进任意宿主 | 服务端 op 链按准入名单校验，超名单 REJECT（与 K10 服务端化同批） | ✅ 已实施（2026-10-31 准入服务端化批：`graph.NodeAdmission` 准入门 + 装载普查旧档兼容口径，K10 数量上限同批收口；1027 绿） |
 | 10 | AST 与 RPN 双前端并行（旧表示退役时间点未定） | 同一份公式有两套可执行表示并存于 FORMULA 求值（`script.ast` 空 → 旧扁平 RPN 循环；非空 → 刀3 解释器），维护面翻倍 | 单批删除旧路径 | 🔶 待办（拓扑 P5 拆分已把两前端物理分离，退役不再受阻；**2026-10-31 拍板：1.3.0 内退役**——无控制流脚本统一升格 AST，旧扁平 RPN 前端随批删除，✅ 已实施（2026-10-31 双前端退役批）） |
@@ -33,8 +33,8 @@
 | 17 | 公开 API 批 D 承接：ITEM 编辑 UI 与 SET_CUSTOM_TEXT 文本帽 | ITEM 控件存储/op/K15 全通但无点击设置 UI；TEXT 写入服务端无显式帽（wire 32KB 全局帽在，但 32 控件×32KB 按节点聚合 + 撤销快照携带不受限） | 批 D：ITEM 编辑 UI 走 REDSTONE 槽位同款交互；TEXT 帽比照批 B blob 32KB 纪律（执行器拒收+节流告警） | ✅ 已实施（2026-11-01 批 D：`d42762a`+`cba36bf`，1108 绿） |
 | 18 | TEXT 聚合帽静默无回执 + legacy 多键超帽节点编辑锁死 | 执行器聚合帽拒收无回执（客户端乐观 TEXT 悬至下次代同步才收敛——K15 纵深防御有意形态，但与包层 REJECT 不一致）；旧档节点文本总量已在帽上时任何单键替换都过不了帽（替换记账需先降总）→ TEXT 永久改不动 | 批 E：①「降总也放行」逃生门（新总量 ≤ 旧总量的替换写放行，一行条件）；②回执形态另议（op 层带节点上下文的预检或新回执类型） | 🔶 ① 已实施（`5b97c18` 逃生门）；② 待办（回执形态，发版后按需另批） |
 | 16 | ADD_NODE 快照恢复路径不校验内容（K15 钳制可被绕过） | 撤销恢复的 NBT 快照由客户端手工构造且无对账——改包客户端可借合法类型 + 手工快照绕过 op 级钳制 | 恢复路径补同款钳制 + 快照类型与 op.nodeType 一致（2026-10-31 拍板 = 方向①内容卫生 + 深度预扫描） | ✅ 已实施（2026-10-31，1055 绿；三道门 + 常量同源，11 锚 AddNodeSnapshotSanitizeTest；②opLog 对账经勘察否定，见条目实施记录） |
-| 19 | 观测面 evaluatorView 交出活求值器 + 探针每 tick 装箱 | `GraphBlockEntity.evaluatorView()` 名为只读视图、实返活 `GraphEvaluator`（public 面含 `evaluate()` 重入与端口注入等改写口，仅 `nodeCostNsView()` 不可变）——宿主套件波后第三方将拿到此接口；探针每节点每 tick 向耗时表 `put` 新 `Long` 装箱（条目 14 同族分配纪律，量级小） | 宿主套件波前：① evaluatorView 收敛为真只读视图类型（只暴露耗时快照与节点标识解析的窄接口，不交出求值器本体）；② 耗时表改原始类型存储（id → long 开放寻址表，随求值器存亡语义不变），消除装箱 | 🔶 待办（2026-11-01 批 E 审查登记，宿主套件波前承接） |
-| 20 | 观测面板形态待定（规格「观测面板」现以 `/cscperf` 指令交付） | 探索稿 §9 收尾行写「观测面板（per-node 耗时进 perf/debug 设施）」，批 E 交付的是 OP 指令 `/cscperf`（看向宿主打印 top-20），未做 HUD/面板；耗时数据只在服务端求值器，任何面板形态都要新增服务端→客户端同步包与客户端 UI | 三选一待用户拍板：① 维持指令，§9 措辞收口为「观测面 = /cscperf」；② 设置面板「公式预算」页加本宿主 top-N 列表（编辑器内打开时宿主确定，请求/响应包按需取快照）；③ 编辑器内节点耗时角标（持续同步包 + 渲染 + 开关，回归面最大） | 🔶 待用户拍板（2026-11-01 批 E 收尾登记） |
+| 19 | 观测面 evaluatorView 交出活求值器 + 探针每 tick 装箱 | `GraphBlockEntity.evaluatorView()` 名为只读视图、实返活 `GraphEvaluator`（public 面含 `evaluate()` 重入与端口注入等改写口，仅 `nodeCostNsView()` 不可变）——宿主套件波后第三方将拿到此接口；探针每节点每 tick 向耗时表 `put` 新 `Long` 装箱（条目 14 同族分配纪律，量级小） | 宿主套件波前：① evaluatorView 收敛为真只读视图类型（只暴露耗时快照与节点标识解析的窄接口，不交出求值器本体）；② 耗时表改原始类型存储（id → long 开放寻址表，随求值器存亡语义不变），消除装箱 | ✅ 已实施（2026-11-21① 收敛 `EvaluatorObservationView` 真只读窄口② 原始类型开放寻址表去装箱；NodePerfProbeTest +3，1374 绿） |
+| 20 | 观测面板形态待定（规格「观测面板」现以 `/cscperf` 指令交付） | 探索稿 §9 收尾行写「观测面板（per-node 耗时进 perf/debug 设施）」，批 E 交付的是 OP 指令 `/cscperf`（看向宿主打印 top-20），未做 HUD/面板；耗时数据只在服务端求值器，任何面板形态都要新增服务端→客户端同步包与客户端 UI | 三选一待用户拍板：① 维持指令，§9 措辞收口为「观测面 = /cscperf」；② 设置面板「公式预算」页加本宿主 top-N 列表（编辑器内打开时宿主确定，请求/响应包按需取快照）；③ 编辑器内节点耗时角标（持续同步包 + 渲染 + 开关，回归面最大） | ✅ 已拍板（2026-11-21：独立指令面板形态、后续再合并，实施另批） |
 | 21 | 自定义节点引脚类型化（公开 API 开放设计点） | CustomNodeType 引脚仍只有 FLOAT 域；schema 加 pinTypes 的形态未定（API 未冻结，锁早了返工） | 附属开发阶段 API 定型后：schema 引脚声明携带 PinType（缺省 FLOAT），Eval 按声明读写载荷旁路 | 🔶 开放（API 未冻结，附属开发阶段一起定） |
 | 22 | ENCAP 子图边界引脚类型化（音频/向量过封装边界） | ENCAP 输入/输出引脚恒 FLOAT，音频与向量载荷过不了封装边界；声明模型与子图载荷穿越都未设计 | ENCAP_INPUT/OUTPUT 子节点加声明类型（同 PRIVATE 单元素口径），EncapEval 按类型穿越载荷；先与条目 21 对齐 | 🔶 另批 |
 | 23 | FORMULA 内建向量运算（向量进公式脚本） | 公式语言的 vec3 是标量展开语义，无真正 VEC3 载荷引脚，与向量节点域互操作要靠 JOIN/SPLIT 绕 | FORMULA 输出标签支持 VEC3 声明（如 `@output v:vec3`）；先与条目 21/22 对齐类型声明口径 | 🔶 另批 |
@@ -42,7 +42,7 @@
 | 25 | 频段手动声明不跨存档（芯片声明=会话内激活器） | 手动声明不接线可放行下游连接，但存档重载后槽位一律回灰、下游线按类型合法性剪除 | 声明来源标记（NBT 旁路一列 + 随声明表同步）——后随类型片只读化拍板整体退役 | ✅ 已拍板（2026-11-08：类型片改只读指示器、手动声明退役，来源标记不再需要） |
 | 26 | 协作在场层渲染层级（远端光标/拖线预览盖住 chrome） | 远端光标标签与拖线预览画在渲染尾段，多人协作时压住工具条/顶栏/弹窗与加节点菜单 | `renderPresenceOverlay(g)` 从渲染尾段移到画布层（`renderNodes` 之后、chrome 之前） | ✅ 已实施（2026-11-20，调用移到 `renderNodes` 之后、`renderButtons`/顶栏之前，`sendPresenceIfNeeded` 心跳留尾段；PresenceOverlayLayerTest 源码锚，1332 绿） |
 | 27 | C→S 限流批暂缓面（接入守护测试 / 突发丢弃致歧 / 预算未接 Config / 事件未进观测口径） | 限流本体已落地（16 条 C→S 全接、1176 绿），四项随批暂缓，详见条目 | 27.1 源码解析守护测试；27.2 客户端补偿（挂步骤 5 控制台批）；27.3 配置面（对齐「可禁兜底」纪律）；27.4 限流事件计入口径（挂步骤 4 / issue #26） | 🔶 暂缓（2026-11-14 限流批登记） |
-| 28 | 维度前缀批暂缓面（AudioBands 同构串值未修 + 停机不清频段向量值） | SignalBus 键空间已按维度隔离（1176 绿），但音频频段五表仍进程级共享、停机也不清频段向量值，详见条目 | 28.1 AudioBands 隔离需独立拍板（其 javadoc 声明跨维度共享是设计性质）；28.2 并入条目 7『频道清理残余豁口』家族或步骤 4 批顺手收口 | 🔶 暂缓（2026-11-14 维度前缀批登记） |
+| 28 | 维度前缀批暂缓面（AudioBands 同构串值未修 + 停机不清频段向量值） | SignalBus 键空间已按维度隔离（1176 绿），但音频频段五表仍进程级共享、停机也不清频段向量值，详见条目 | 28.1 AudioBands 隔离需独立拍板（其 javadoc 声明跨维度共享是设计性质）；28.2 并入条目 7『频道清理残余豁口』家族或步骤 4 批顺手收口 | 🔶 半收口（28.2 已随条目 7 收口批实施 2026-11-21：停机 owner 门控撤 BUS 频段向量值；28.1 需独立拍板） |
 | 29 | 控制台壳批暂缓面（等待响应无超时提示 / 输出区无滚轮与粘贴 / help 未走 I18n） | 控制台壳已落地（1237 绿），三处体验项随批暂缓，详见条目 | 29.1 超时/拒绝提示形态；29.2 滚轮滚动 + Ctrl+V；29.3 help 文案 I18n 化（服务端文法与 lang 体系关系随接线批统一） | 🔶 暂缓（2026-11-14 控制台壳批登记，接线批/后续批承接） |
 | 30 | 口径 A 采集批暂缓面（闭包面每 Post 现算 / VEC3 未记账 / 全通道布尔门） | 采集本体已落地（1257 绿），三处观测期成本/覆盖项随批暂缓，详见条目 | 30.1 有种子的 Post 每趟现算普查，观测期成本实测后再议缓存；30.2 VEC3 记账按步骤 6 实机需求一行面扩大；30.3 per-channel 过滤按实机日志/内存量加一处面 | 🔶 暂缓（2026-11-14 采集批登记，步骤 6 实机后定夺） |
 | 31 | 接线批暂缓面（hosts 求值序号列未实现 / bus 双载体与停机视角 / 音频向量载体不入值列） | 接线批已落地（1281 绿），四处诚实边界随批暂缓，详见条目 | 31.1 求值序需新采集面（tickBody 登记序）；31.2 双载体显示 richer 状态方，同名义 PRIVATE 不可见；31.3 停机宿主持有的频道占用不在 bus 列表；31.4 音频/向量观测要扩 epoch 模型（=条目 30.2 同源） | 🔶 暂缓（2026-11-14 接线批登记，步骤 6 实机后定夺） |
@@ -53,6 +53,9 @@
 | 36 | PERF-8 提交收敛：试验-实证-回滚 → **批语义取证改判（PERF-8′ 死 flush 清除）** | 1.21.1 运行时反编译实证（§方案 3.8）：Screen 渲染逐图元自动 flush、绘制序=提交序，「fill 全落再 text 全落」两段式不存在——三处 per-node flush 是空 flush（−2.87ms÷2048≈1.4µs/次），q04 z 序破绽来自试验的「文本层后置」发射序改动，flush 时序无罪；文本后置纯负收益永久弃案 | PERF-8′＝删除三处死 flush + 注释归真（零 z 序风险，收益同试验实测）；不做任何批门控重设计 | ✅ 取证改判 + PERF-8′ 已实施（2026-11-21，`f4279271`，1399 绿；实机视觉回归随显示性能线批 4） |
 | 37 | 编辑器多次 resize 后的会话级渲染劣化 | 同会话多次窗口 resize 后 1024@0.25 场景 canvas 从约 19.8ms 劣化到约 54.8ms（3× 稳态），干净重启即恢复——会话态累积，非代码回归 | 按 resize → Screen.init → GraphJoinPacket 重发的会话状态累积独立取证；与渲染性能线解耦 | 🔶 暂缓（2026-11-14 渲染性能线登记，原 34.2，独立取证） |
 | 38 | CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次） | ① 渐进台面 prev=100/budget=5ms 开着破约快车道，「不熔断」靠 spin 200µs<5ms 墙钟假设，满载撑过即提前熔断（expected 21 got 11）；② AudioMixerShapingPerfTest 计时预算断言同族翻车 | ① 台面改 prev=1/budget=0.05ms 关闭快车道 + 墙钟膨胀负例锚（保守方案，不动生产）；② 评估后不动（已自校准，放宽削弱牙口） | 🔶 ① 已实施（2026-11-20，1333 绿）；② 暂缓（2026-11-14 登记，负载敏感波动族非产品缺陷） |
+| 39 | Tok 字节码 16B 布局未收窄（常量池化实测未达门，判定关闭） | Tok 枚举实测 16B，常量池化形态实测未达 +3% 判定门、整体回退，代码零落地 | 同窗抖动分布为唯一可靠判定口径（§五.3）；16B 为当前与可预见形态 | 判定关闭（2026-11-21，csc-rust-perf 线实测；39 号此前漏挂汇总行，本次补记） |
+| 40 | 空公式 NBT 往返丢键（全量同步/存档重载把空公式重置回默认 A+B） | save 把空串/0 值当「默认值」跳键（formula、din）——任何 NBT 往返后空公式弹回 "A+B"、face 弹回 2 | FORMULA 节点恒写 formula 键与 din（含空串与 0） | ✅ 已实施（2026-11-21，`dd2b9deb`；FormulaEmptyRoundTripTest 3 锚，1392 绿） |
+| 41 | 全量同步图实例替换后 stale EditState 绑定（改名回车提交回弹 + 双端输入框不一致） | 同 id 签名恒等 → 旧 EditState 被保留，输入框/响应器/busNode 挂在旧图老节点对象上——编辑落死对象、提交撞 issue #10 守卫回弹；**批 7 补层：#10 dirty 门不追踪权威名挪动，过期草稿跨端提交乒乓** | busNode 提交判定按 id 重取活节点（`liveBusNode` 五路 + commitBusBox）；整图替换保持静默；**busBox 草稿基线门（`draftBaseMoved`）——权威名挪动即静默重载、绝不提交** | ✅ 已实施（2026-11-21，`dd2b9deb`→`85c71210`→`1fe9dd7c` 三层；GraphReplacementQuietTest + GraphBusNameDraftGuardTest，1395 绿；双人实机验证通过） |
 
 ---
 
@@ -130,7 +133,9 @@
 
 ### 状态 / Status
 
-🔶 待办。已落地部分：改名迁移（`applyBusOutRename`，服务端/客户端幂等双跑）与 REJECT 化的 op 静默丢弃修复；回归参照 `BusOutRenameChannelTest`。初版登记的「同名重建被误标占用」症状保留为窄窗形态。
+🔶 待办。已落地部分：改名迁移（`applyBusOutRename`，服务端/客户端幂等双跑）与 REJECT 化的 op 静默丢弃修复；回归参照 `BusOutRenameChannelTest`。
+
+**✅ 2026-11-21 实施完毕 / Implemented（死守卫根除批）**：释放统一改吃**不别名键集差集**——`GraphHost.unregisterRemovedBusOutNodes` 成为**唯一释放点**，键集 = `lastBusOutKeys`（上次重编译的发布者键快照，独立拷贝、与图对象无别名、diff 恒真）；`reRegisterChannels` 改吃快照键集（新/存量区分也按快照，旧 Step-1 图级 diff 释放随 `lastEvaluatedGraph` 字段退役并入释放点）；`syncDeletedBusNames` 改吃推导的已删名集（`deletedBusNames`：同名仍被另一节点续发时不推送清空，私有键不入列）；`registerBusChannels` **注册即快照**，封掉「首 tick 注册 → 首个重编译快照」的无快照窄窗（窗内删除会因空快照被跳过而泄漏 CHANNELS 条目、旧名客户端残留无人清）；键格式单一事实源迁入 `BusChannelHelper.publisherKey`。**撤销语义随批落地**：删除的撤销恢复经同一条诚实路径以原 owner 重新注册——快删快撤同周期（快照仍含键）走 existing → updateChannel 落空 → registerChannel 兜底；隔轮撤销（快照已无键）走新节点注册；撞上新占主按先注册者胜标冲突、不抢频道。别名根因 `lastEvaluatedGraph` 字段整体退役（源码锚禁复活）。锚 = `ChannelSnapshotDiffTest` 5（不别名差集含改名/已删名推导含空名/撤销恢复重注册含撞占主/主图域同判/GraphHost 接线源码锚）；既有频道族回归（BusOutRenameChannelTest/BusOutConflictRenameRegressionTest 改吃新签名同参仿真）全绿，1379 绿。初版登记的「同名重建被误标占用」症状保留为窄窗形态。
 
 > 🔧 2026-10-11 补注（评审轮）：「确证离开 → 退役定义」规则已统一到 `SignalBus.releaseChannel`
 > 一处，覆盖改名 / 删除 / 显式清空三条产生路径（本批补上了删除路径与空上传的 owner 门控，
@@ -186,6 +191,8 @@
 
 **🔶 待办。** 幽灵选区本体已修（2026-10-11，v1.2.6 WIP）；本条按「三处一批」另批立项，落地后改 ✅ 并注明版本。
 
+**✅ 2026-11-21 实施完毕 / Implemented（三处一批，缺一无效）**：① 指纹剔除 `formula.hashCode`——公式文本是脚本框的「值」，与「参数数值不进指纹」同款例外入契约注记；结构效应由 `inputs()/outputs()/bandCount` 覆盖（改引脚数仍触发重建），派生显示核实不依赖重建（错误边框走响应器实时 `setHasError`）。② `GraphRemoteApplier` 的 SET_FORMULA 改**定点刷新**——独立分支（先于整框重建 else-if）：非聚焦且文本变化时 `setValue` 收敛远端文本 + 一次 `validate` 刷徽章；本地自己的回声与框内文本一致、`setValue` 跳过（每击键零额外解析，§13 去重不回潮）；整框重建分支对 SET_FORMULA 不再可达。③ 草稿策略拍板（2026-11-21）= **跳过保草稿**（与 SET_PARAM/busBox 同口径）——本端聚焦时不覆盖；定点 `setValue` 抑制 MLE 响应器回声（`suppressEditBoxResponder` 守卫上到公式响应器顶部，面板重建的 setValue 在挂响应器之前、天然不经过守卫），否则远端回声会经响应器回环重发 op。GUI 绘制/焦点语义无法 headless 观测，源码锚 `FormulaEchoRefreshTest` 4 条先红后绿验证非恒真；全量 1388 绿。
+
 ---
 
 ## 4. 功放开盖模型越出方块背面 0.75px
@@ -218,7 +225,7 @@
 
 ### 状态 / Status
 
-**🔶 待办（等建模决定）。** 相关的碰撞箱口径已落地：`AmplifierComputerBlock` 碰撞 = `Block.box(0,0,0,16,4,16)`、轮廓 = 整机包络 `Block.box(0,0,0,16,13.25,16.75)`；`SpeakerBlock` 碰撞与轮廓 = 模型本体 `Block.box(3,0,3,13,14,13)`。
+**✅ 已拍板销账（2026-11-21：接受现状）。** 0.75px 在 1/16 网格下肉眼几乎不可见、仅紧邻方块背面时穿模，不动模型，本条以拍板销账收口。相关的碰撞箱口径已落地：`AmplifierComputerBlock` 碰撞 = `Block.box(0,0,0,16,4,16)`、轮廓 = 整机包络 `Block.box(0,0,0,16,13.25,16.75)`；`SpeakerBlock` 碰撞与轮廓 = 模型本体 `Block.box(3,0,3,13,14,13)`。
 
 ---
 
@@ -325,7 +332,9 @@
 
 ### 状态 / Status
 
-🔶 待办。
+**✅ 2026-11-21 实施完毕 / Implemented（① 图域批）**：`ChannelOwner` 增图域 `ownerNodeId`（主图 -1、封装子图 = 承载它的 ENCAP 节点 id——op 既有语义，子图 op 本就携带 `ownerNodeId`；二参兼容构造 = 显式主图域，主图 walk 注册/释放/快照/自愈天然住主图域）。op 改名迁移（服务端 `EditSessionRegistry` 按 `op.ownerNodeId()`）与客户端四写（改名迁移 / 释放旧名 / 频段上传 / 删除释放，按编辑器 `ownerNodeId()`）全链带上；撞号注册改判冲突、不抢 `internalMap`，撞号释放不再误匹配对方条目。② `syncBusBands` 的 owner 门控经 **P1-9 `registerBandsIfNotForeign`** 已在位（本条登记后、本批前落地，类 javadoc 已声明三写收编——本批核实保留，无代码改动）。**残留（不在本批）**：服务端重编译注册/释放 walk 仅覆盖主图——子图发布节点的频道条目只在 op 改名迁移时创建、其服务端删除释放无路径（单人共享静态表由客户端删除释放覆盖；专用服残留到宿主卸载）——随子图频道覆盖面独立拍板另批。锚 = `ChannelOwnerGraphDomainTest` 5（撞号不劫持 internalMap/撞号不误释放/主图域逐位同判/28.2 owner 门撤值/接线源码锚），1384 绿。
+
+**✅ 附带 28.2 收口（同批）**：宿主停机撤 BUS 频段向量值——FLOAT 半边既有 `busInternalMap` 清空，VEC3 半边（`VEC3_VALUES` 下 `channel\0band`）此前残留到频道注销；现 `clearBusVec3Values` 在 owner 门控下（频道条目 owner = 本节点）撤值，冲突者停机不清对端的值；键格式单源 `AudioBands.bandKey`，撤值落在停机路径既有的维度作用域内。
 
 ---
 
@@ -775,7 +784,7 @@ javadoc 称只读视图，实际返回活 `GraphEvaluator` 引用——其 publi
 
 ### 状态 / Status
 
-🔶 待办（2026-11-01 批 E 审查登记；宿主套件波前承接）。
+**✅ 2026-11-21 实施完毕 / Implemented（①② 同批）**：① `GraphBlockEntity.evaluatorView()` 收敛为真只读窄口 **`EvaluatorObservationView`**（`graph/` 复制域，跨加载器教训同款）——恰两成员：`nodeCostNsView()`（按需物化的只读快照）+ `nodeLabel(int)`（节点标识解析：CUSTOM = customId、内建 = 类型 id、陈旧键 = "?"，与旧 formatPerfSummary 标签口径逐字一致）；求值器实现该接口，四个宿主 BE 覆写返回类型随收窄，`/cscperf` 格式化吃窄口不再持图反查。② 耗时表改**原始类型开放寻址表**（线性探查、乘法混合散布、装载 ≤1/2、无删除——陈旧键随求值器整表换血语义原样；节点 id 自 1 起，0 为空槽哨兵）——每节点每 tick 的 `Long` 装箱归零，装箱只在快照物化时发生（指令/UI 频率）。锚 = `NodePerfProbeTest` +3（窄口两成员 + evaluatorView 返回类型反射收敛 + 标签解析含陈旧键；原始表大 id/rehash/快照物化；源码锚禁装箱回潮），1374 绿。
 
 ## 20. 观测面板形态待定（规格「观测面板」现以 `/cscperf` 指令交付）
 
@@ -798,7 +807,9 @@ javadoc 称只读视图，实际返回活 `GraphEvaluator` 引用——其 publi
 
 ### 状态 / Status
 
-🔶 待用户拍板（2026-11-01 批 E 收尾登记；拍板前不动代码与规格措辞）。
+**✅ 已拍板（2026-11-21）。** 形态 = **独立指令面板**——观测数据先以独立面板形态承载（入口保持指令唤起），后续再并入统一面板体系；实施另批。2026-11-01 批 E 收尾登记的「拍板前不动代码与规格措辞」口径随拍板解除，本批仅落拍板记录。
+
+**🎯 2026-11-21 拍板 / Ruling（仅登记，实施待排期）**：独立指令面板，后续再合并——不做设置面板内嵌（②）、不做节点角标（③），先做独立的指令唤起面板承载 per-node 耗时观测，面板体系的合并随后续批次统一规划。/ Standalone command-invoked panel first, merged into the unified panel system later; neither the settings-page embedding nor the per-node badges.
 
 ## 21. 自定义节点引脚类型化（公开 API 开放设计点）
 
@@ -982,7 +993,7 @@ SignalBus 键空间已按维度隔离（`<维度id>\u0001<逻辑名>`，1176 绿
 
 ### 状态 / Status
 
-🔶 暂缓（2026-11-14 维度前缀批登记；28.1 需独立拍板、28.2 归条目 7 家族）。
+🔶 半收口（2026-11-14 维度前缀批登记；**28.2 已随条目 7 收口批实施（2026-11-21）**：宿主停机在 owner 门控下撤 `VEC3_VALUES` 的 `channel\0band` 向量值（`clearBusVec3Values`，冲突者停机不清对端的值）——28.2 关闭；28.1 需独立拍板）。
 
 ## 29. 控制台壳批暂缓面（等待响应无超时提示 / 输出区无滚轮与粘贴 / help 未走 I18n）
 
@@ -1199,3 +1210,24 @@ FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常�
 - 测量约束：本负载跨二进制 A/B 有 ±25% 布局噪声（见 `rust-backend-optimization.md` §五.0「测量方法学的重要发现」——同二进制探针是唯一可靠口径）,收益判定必须用该口径,单次 A/B 不可归因;**2026-11-21 补强:跨测量窗的序列 A/B 同样不可归因（负载漂移可伪造全线 ±30%）,判定以同窗交错对照为准（§五.3）**。
 - 状态：**判定关闭**（2026-11-21 csc-rust-perf 线实测:同窗抖动分布 7 线无一达 +3% 判定门、3 线中位回退 >3%（弹道 full −11.5%）,池化整体回退、代码零落地;实施形态与两轮分布见 `rust-backend-optimization.md` §五.3。tok.rs 模块头注释已改真实描述——16B 是当前与可预见形态,8B 宣称注销）。
 / Tok is 16B in memory (the module header's 8B claim never materialized; Const(f64) inflates the enum). Const-pooling (u32 index + an Rpn-level pool, wire format unchanged) was implemented and measured on 2026-11-21, missed its 3% gate and was reverted whole — judged closed (0/7 lines reached the gate, 3 regressed beyond 3%, worst ballistic/full −11.5%; same-window jitter distribution, see rust-backend-optimization.md §5.3). The measurement also strengthened §5.0: sequential cross-window A/B is as unattributable as cross-binary (load drift faked a uniform +20-34% win in the first pass). The tok.rs module header now describes the true 16B shape; the 8B claim is retired.
+
+## 40. 空公式 NBT 往返丢键（全量同步/存档重载把空公式重置回默认 A+B）
+
+- 机制：`GraphNode.save` 按 `!formula.isEmpty()` 跳写 formula 键、`din` 按 `>0` 跳写——**空串与 0 值都被当成「默认值」丢键**；load 侧 `contains(...)` 不命中 → 回构造默认（formula="A+B"、din=2）。实测形态：空公式节点在**任何 NBT 往返**后文本弹回 "A+B"、face 弹回 2，与如实落盘的 dout=1 错位。触发链 = 存档重载或**全量同步**（改名迁移的冲突旗标变化会 `requestFullSync`，实测正是这条链把重置带出来的；症状表现为「动其他节点的输入框后被重置」，实为同图上的改名批测试触发了全量同步）。2026-11-21 双人实机测出。
+- 修复方向：FORMULA 节点**恒写** formula 键（含空串）与 din（含 0）；dout 无需同款（缺省 1 = FORMULA 合法最小值 1，跳过即还原）；非公式节点保持原守卫。
+- 状态：✅ 已实施（2026-11-21，`dd2b9deb`）。`FormulaEmptyRoundTripTest` 3 锚（空公式往返保持 ""/非空往返形状不变/非公式节点不写键）。全量 1392 绿（headless 离线链路）。
+/ The formula key (and din=0) were skipped as "defaults" on save, so any NBT round-trip — save reload or a full sync, which a rename's conflict-flag change requests — restored the constructor default "A+B" with the face snapping back to 2. FORMULA nodes now always write the formula key and din. Anchors in FormulaEmptyRoundTripTest (3); 1392 green.
+
+## 41. 全量同步图实例替换后 stale EditState 绑定（改名回车提交回弹 + 双端输入框不一致）
+
+- 机制：全量同步整体替换图实例后，`renderBg` 的重建走签名比对——同 id 的签名值恒等（指纹不编码对象身份）→ 旧 EditState 被**保留**，其输入框/响应器/`st.busNode` 全部挂在**旧图的老节点对象**上。后果链：后续编辑落在死对象上（本地看不见、op 按 id 仍能到服务端）→ 显示与服务端权威态分歧；改名批测试里高频回车的提交在重建后的盒子上带着「保留草稿 + 非敲键」形态撞上 issue #10 守卫 → **回弹 + 「已丢弃未确认的频道名草稿」提示刷屏 + 双端输入框显示不一致**。2026-11-21 双人实机测出（与条目 40 同会话：改名触发全量同步是共同触发链）。
+- 修复方向：图实例替换分支（`lastInitGraph != graph`）清 `editStateSignatures` 强制全部展开节点重建——**只清指纹不清 state**：`createEditState` 以旧 state 为 `oldStRef`，草稿/焦点保留路径照常工作，新 state 以新图节点为绑定。
+- 状态：✅ 已实施（2026-11-21，`dd2b9deb`；**实施形态当日被 `85c71210` 取代，见下**）。源码锚 `GraphInstanceReplacementResetTest`（已随之退役）。
+/ After a wholesale graph-instance replacement, same-id signatures compared equal, keeping EditStates bound to the OLD graph's node objects — later edits landed on dead objects and Enter commits bounced back with both editors disagreeing. First landed as a fingerprint clear on replacement; superseded the same day (see below).
+
+**↻ 实施形态取代（2026-11-21，`85c71210`，双探针实测定性）**：清指纹形态在双人实机上把「静默换壳」变成「每次替换全面板齐闪」——全量同步按 **40 tick 合并窗周期性到达**（SET_BANDS/改名路径的 `requestFullSync`，实测恰 2.0s 一轮，探针日志「sig null → X」三连铁证），每次都整体替换图实例，清指纹 = 每轮三面板齐闪。撤销清指纹（内容相同的替换走签名快速路径、零重建），stale 绑定改为**源头修**：`busNode` 的五处提交判定（差异检测/频段待同步/频段写回/防抖/失焦提交）+ `commitBusBox` 本体一律按 id 从当前图重取活节点（`liveBusNode` 助手，图节点响应器同款纪律），旧对象上的闭合写随 op 回声自愈。锚 = `GraphReplacementQuietTest`（替换分支双不清 + 五路重取 + commitBusBox findNode）。全量 1393 绿。附带定性：2.0s 全量同步循环本身是 SET_BANDS/改名送非编辑者的**设计形态**（40 tick 合并），非缺陷。
+/ Superseded the same day (dual-probe verdict): the fingerprint clear turned the silent wholesale replacement into an all-panel flash per wave — full syncs arrive on the 40-tick coalescing window (exactly 2.0s measured, the "sig null → X" triples being the proof). The clear is reverted (content-identical replacements ride the signature fast path silently) and stale bindings are fixed at the source: all five busNode commit faces plus commitBusBox re-fetch the live node by id (the liveBusNode helper). Anchors in GraphReplacementQuietTest; 1393 green. The 2.0s full-sync loop itself is the designed coalesced delivery to non-editors, not a defect.
+
+**✚ 回弹乒乓闭环补层（2026-11-21，`1fe9dd7c`，三探针实测定性，双人实机验证通过）**：batch-6 后回弹仍复现——服务端 op 轨迹显示旧名被当作新 op 反复提交（'111111'→'111'→'11'→'1' 轮转，初始频段 [band_0, band_1] 随旧名一起回来），client 提交日志实锤 `COMMIT box='11' live='111111'`——**#10 的 dirty 标记只回答「用户敲过键没有」，不追踪权威名在草稿存活期间被挪动没有**；op 回声/收敛/另一端提交挪走权威名后，本端过期草稿照常过门提交，两端 busBox 打乒乓（懒刷新闪帧即此乒乓驱动的面板震荡）。修法 = **草稿基线门**：`EditState.busNameDraftBase` 在面板创建时播种权威名，提交判定（`GraphBusEditor.draftBaseMoved`）在 #10 dirty 之外还要求权威名未挪动——挪动即静默重载权威名并复位基线，绝不提交；基线随提交/拒绝/对齐/门重载四路径刷新。锚 = `GraphBusNameDraftGuardTest`（裁决判定 + 布线源码锚）。全量 1395 绿；双人实机复测回弹/⚠ 刷屏消失，用户确认无问题。
+
+> **条目 7 实测修正（2026-11-21，双人实机）**：封装子图的节点菜单只有 ENCAP_INPUT/OUTPUT——正常玩法在子图里**造不出** BUS_OUT/PRIVATE_OUT，撞号场景菜单不可达。图域修法的现实价值 = **op 注入面加固**：准入门对子图目标按宿主方块的名单作答（BUS_OUT 仍在名单内），改包客户端仍可把发布节点注入子图——owner 键带图域后这条注入路径不再劫持主图同号节点。

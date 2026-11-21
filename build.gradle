@@ -289,7 +289,14 @@ if (nativeDirName != null) {
         dependsOn tasks.named('buildNative')
         from(nativesStagingRoot) {
             into 'natives'
-            include "${nativeDirName}/${nativeLibFileName}"
+            // staging 根下任何 os-arch 目录里的 cdylib 全部打包（原口径只装本机一份）：
+            // 本机构建 staging 恒只有 host 一份 → 行为不变；CI 矩阵（native-matrix.yml）
+            // 把六平台产物先铺进 build/natives/ 再打 jar → 同一处接线服务两条产线。
+            // Package every cdylib staged under any os-arch dir (was: the host copy
+            // only): local builds always stage exactly the host copy so behaviour is
+            // unchanged, while the CI matrix (native-matrix.yml) pre-stages all six
+            // into build/natives/ before the jar task — one wiring serves both.
+            include '*/*.dll', '*/*.so', '*/*.dylib'
         }
     }
 }

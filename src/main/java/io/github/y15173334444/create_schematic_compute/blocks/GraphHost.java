@@ -72,8 +72,6 @@ public class GraphHost {
     protected final RedstoneLinkHelper rs;
     /** 每 tick 求值器；图变更时重建。 / Per-tick evaluator; rebuilt on graph change. */
     public GraphEvaluator evaluator = null;
-    /** 当前求值器所基于的图引用（代数比对用）。 / Graph ref backing current evaluator (generation compare). */
-    protected NodeGraph lastEvaluatedGraph = null;
     /** 上次构建求值器时的图代数。 / Graph generation at last evaluator build. */
     protected int lastGraphGeneration = -1;
     /** 上次求值的 BUS 哈希缓存。 / BUS hash cache from last evaluation. */
@@ -82,7 +80,11 @@ public class GraphHost {
     protected boolean needsFullSync = true;
     /** 上次全量同步时间。 / Last full-sync game time. */
     private long lastFullSyncGameTime = 0;
-    /** 上次重编译的 BUS_OUT 键快照（删除检测）。 / BUS_OUT key snapshot from last recompile (removal detection). */
+    /** 上次重编译的发布者键快照（删除/改名检测与释放的**唯一基线**；不别名——键集是独立
+     *  拷贝，与图对象无别名关系，diff 恒真）。/ Publisher-key snapshot from the last
+     *  recompile (the **sole baseline** for delete/rename detection and release; non-aliased —
+     *  the key set is an independent copy holding no alias to the graph object, so the diff
+     *  is always true). */
     private final Set<String> lastBusOutKeys = new HashSet<>();
     /** 服务端权威求值快照（客户端渲染读取）。 / Server-authoritative eval snapshot (client rendering). */
     public volatile EvalSnapshot cachedEvalSnapshot = EvalSnapshot.EMPTY;
@@ -651,6 +653,17 @@ public class GraphHost {
             markDirty();
             pushBlockUpdate();
         }
+        // 注册即快照（known-open-issues 条目『频道释放依赖快照路径（含别名死守卫）』窄窗
+        // 收口）：首 tick 注册与首个重编译快照之间不再存在「无快照」窗口——该窗口内删除
+        // 发布节点会因 lastBusOutKeys 为空被跳过而泄漏 CHANNELS 条目，旧名的客户端
+        // BAND_REGISTRY 残留也无人清。快照恒重建（小集合、幂等）。
+        // Snapshot right after registration (the narrow-window close of register entry
+        // "channel release rode the snapshot path (with the aliased dead guard)"): no
+        // snapshot-less window remains between the first-tick registration and the first
+        // recompile snapshot — a deletion inside that window used to leak the CHANNELS entry
+        // (the empty-snapshot guard skipped it) and leave the client's old-name BAND_REGISTRY
+        // residue uncleaned. The snapshot rebuilds wholesale (a small set, idempotent).
+        snapshotBusOutKeys();
     }
 
     /** 清理客户端 BUS band 缓存（卸载/移除时）。 / Clear client BUS band caches (unload/remove). */
@@ -701,9 +714,18 @@ public class GraphHost {
         // and wiping nodeEdge misjudges a held-high trigger as a NEW rising edge,
         // re-enqueueing commands forever ("command never stops").
         Map<Integer, Boolean> savedNodeEdge = null;
-        NodeGraph oldGraph = lastEvaluatedGraph;
-        if (oldGraph != null) {
-            BusChannelHelper.syncDeletedBusNames(oldGraph, graph, pos(), lvl());
+        // 发布者清理改吃不别名键集差集（known-open-issues 条目『频道释放依赖快照路径
+        // （含别名死守卫）』）：lastBusOutKeys 与图对象无别名、diff 恒真；旧
+        // lastEvaluatedGraph 别名 diff（oldGraph 与 graph 同对象、守卫恒空转）随字段退役。
+        // Publisher cleanup rides the non-aliased key-set diff (register entry "channel
+        // release rode the snapshot path (with the aliased dead guard)"): lastBusOutKeys holds
+        // no alias to the graph object and the diff is always true; the old lastEvaluatedGraph
+        // aliased diff (oldGraph === graph, the guard spun forever) retires with the field.
+        var removedPublishers = BusChannelHelper.removedPublisherKeys(graph, lastBusOutKeys);
+        var deletedNames = BusChannelHelper.deletedBusNames(graph, removedPublishers);
+        if (!deletedNames.isEmpty()) BusChannelHelper.syncDeletedBusNames(deletedNames, pos(), lvl());
+        unregisterRemovedBusOutNodes(removedPublishers);
+        if (evaluator != null) {
             savedPid = new HashMap<>(runtimeState.pidState);
             savedDelay = new HashMap<>(runtimeState.delayQueues);
             savedFf = new HashMap<>(runtimeState.flipflopStates);
@@ -713,7 +735,6 @@ public class GraphHost {
             savedNodeEdge = new HashMap<>(runtimeState.nodeEdge);
             runtimeState.clear();
         }
-        unregisterRemovedBusOutNodes();
         evaluator = new GraphEvaluator(graph);
         evaluator.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
         evaluator.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
@@ -743,10 +764,9 @@ public class GraphHost {
             evaluator.restoreDebugTimes(savedDebugTime);
         }
         pruneRuntimeStateToAlive();
-        lastEvaluatedGraph = graph;
         lastGraphGeneration = graph.graphGeneration;
         if (evaluatorCustomizer != null) evaluatorCustomizer.accept(evaluator);
-        if (BusChannelHelper.reRegisterChannels(graph, oldGraph, pos(), lvl())) {
+        if (BusChannelHelper.reRegisterChannels(graph, lastBusOutKeys, pos(), lvl())) {
             needsFullSync = true;
             markDirty();
             pushBlockUpdate();
@@ -779,12 +799,13 @@ public class GraphHost {
     public void recompileEvaluatorLight() {
         // 销毁旧求值器前保存 debugTime / save debugTime before destroying the old evaluator
         if (evaluator != null) evaluator.saveDebugTimes(runtimeState);
-        NodeGraph oldGraph = lastEvaluatedGraph;
-        if (oldGraph != null) {
-            BusChannelHelper.syncDeletedBusNames(oldGraph, graph, pos(), lvl());
-        }
+        // 发布者清理改吃不别名键集差集（同 Full 路径口径）。
+        // Publisher cleanup rides the non-aliased key-set diff (same discipline as Full).
+        var removedPublishers = BusChannelHelper.removedPublisherKeys(graph, lastBusOutKeys);
+        var deletedNames = BusChannelHelper.deletedBusNames(graph, removedPublishers);
+        if (!deletedNames.isEmpty()) BusChannelHelper.syncDeletedBusNames(deletedNames, pos(), lvl());
         // 注销自上次重编译以来已删除的 BUS_OUT 节点 / unregister BUS_OUT nodes removed since last recompile
-        unregisterRemovedBusOutNodes();
+        unregisterRemovedBusOutNodes(removedPublishers);
         evaluator = new GraphEvaluator(graph);
         evaluator.setSignalBus(io.github.y15173334444.create_schematic_compute.network.SignalBus.PORT);
         evaluator.setAudioBands(io.github.y15173334444.create_schematic_compute.network.AudioBands.PORT);
@@ -801,13 +822,12 @@ public class GraphHost {
         if (evaluatorCustomizer != null) evaluatorCustomizer.accept(evaluator);
         // 从 RuntimeState 恢复 debugTime，使频率模式相位保持 / restore debugTime so the phase persists
         if (!runtimeState.debugTime.isEmpty()) evaluator.restoreDebugTimes(runtimeState.debugTime);
-        lastEvaluatedGraph = graph;
         lastGraphGeneration = graph.graphGeneration;
         // 保留积分状态（PID/ACCUMULATOR/INTEGRATOR），仅剪除已删除节点——编辑不再清空积分
         // Preserve integral state, prune only removed nodes — edits no longer wipe integrals.
         pruneRuntimeStateToAlive();
-        // 基于差异的重新注册以保留频道所有权 / diff-based re-registration to keep channel ownership
-        if (BusChannelHelper.reRegisterChannels(graph, oldGraph, pos(), lvl())) {
+        // 基于快照键的重新注册以保留频道所有权 / snapshot-key-based re-registration keeps channel ownership
+        if (BusChannelHelper.reRegisterChannels(graph, lastBusOutKeys, pos(), lvl())) {
             needsFullSync = true;
             markDirty();
             pushBlockUpdate();
@@ -817,46 +837,42 @@ public class GraphHost {
     }
 
     /** 注销上次重编译后已删除节点的 BUS_OUT / 私有发布节点（改名 = 旧名移除，占用与值随之释放）。
+     *  释放键集由调用方经 {@link BusChannelHelper#removedPublisherKeys} 的不别名差集喂入
+     *  （known-open-issues 条目『频道释放依赖快照路径（含别名死守卫）』——本方法是**唯一
+     *  释放点**，reRegisterChannels 的旧 Step-1 图级 diff 释放已并入此处）。
      *  Unregister BUS_OUT / private publishers removed since last recompile (a rename counts
-     *  as removing the old name, releasing its occupancy and value). */
-    private void unregisterRemovedBusOutNodes() {
-        if (lvl() == null || lvl().isClientSide() || lastBusOutKeys.isEmpty()) return;
-        Set<String> currentKeys = new HashSet<>();
-        for (var n : graph.nodes)
-            if ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && !n.signalName.isEmpty())
-                currentKeys.add(snapshotKey(n));
-        for (var key : lastBusOutKeys) {
-            if (!currentKeys.contains(key)) {
-                boolean priv = key.startsWith("P:");
-                String rest = key.substring(2);
-                int at = rest.lastIndexOf('@');
-                if (at > 0) {
-                    String name = rest.substring(0, at);
-                    int nodeId = Integer.parseInt(rest.substring(at + 1));
-                    var owner = new ChannelOwner(pos(), nodeId);
-                    if (priv) SignalBus.unregisterPrivateChannel(name, owner);
-                    // 删除 = 确证离开：统一释放（owner 门控 + 死名退役），旧名 BUS_IN 得以清旧图
-                    // Delete = provable departure: unified release (owner-gated + dead-name
-                    // retirement) so old-name BUS_INs drop their stale lists.
-                    else SignalBus.releaseChannel(name, owner);
-                }
+     *  as removing the old name, releasing its occupancy and value). The released key set is
+     *  fed by the caller via the non-aliased diff of
+     *  {@link BusChannelHelper#removedPublisherKeys} (register entry "channel release rode
+     *  the snapshot path (with the aliased dead guard)" — this is the **single release
+     *  point**; reRegisterChannels' old Step-1 graph-diff release folded in here). */
+    private void unregisterRemovedBusOutNodes(Set<String> removed) {
+        if (lvl() == null || lvl().isClientSide() || removed.isEmpty()) return;
+        for (var key : removed) {
+            boolean priv = key.startsWith("P:");
+            String rest = key.substring(2);
+            int at = rest.lastIndexOf('@');
+            if (at > 0) {
+                String name = rest.substring(0, at);
+                int nodeId = Integer.parseInt(rest.substring(at + 1));
+                var owner = new ChannelOwner(pos(), nodeId);
+                if (priv) SignalBus.unregisterPrivateChannel(name, owner);
+                // 删除 = 确证离开：统一释放（owner 门控 + 死名退役），旧名 BUS_IN 得以清旧图
+                // Delete = provable departure: unified release (owner-gated + dead-name
+                // retirement) so old-name BUS_INs drop their stale lists.
+                else SignalBus.releaseChannel(name, owner);
             }
         }
     }
 
-    /** 发布节点快照键：类型前缀 + 名@id——节点移除后类型无从查起，键集必须自带表别
-     * （BUS 与私有分表，同名互不冲突）。/ Publisher snapshot key: type tag + name@id —
-     * the node type is unrecoverable once the node is gone, so the key carries the table. */
-    private static String snapshotKey(GraphNode n) {
-        return (n.type == NodeType.PRIVATE_OUT ? "P:" : "B:") + n.signalName + "@" + n.id;
-    }
-
-    /** 快照当前发布节点（BUS_OUT / 私有）键集。 / Snapshot current publisher key set. */
+    /** 快照当前发布节点（BUS_OUT / 私有）键集；键格式单一事实源 =
+     *  {@link BusChannelHelper#publisherKey}。/ Snapshot the current publisher (BUS_OUT /
+     *  private) key set; the key format's single source = {@link BusChannelHelper#publisherKey}. */
     private void snapshotBusOutKeys() {
         lastBusOutKeys.clear();
         for (var n : graph.nodes)
             if ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && !n.signalName.isEmpty())
-                lastBusOutKeys.add(snapshotKey(n));
+                lastBusOutKeys.add(BusChannelHelper.publisherKey(n));
     }
 
     // ── 引擎间接管（继承线合并用）/ inter-engine adoption (inheritance-line merge) ──
@@ -910,8 +926,15 @@ public class GraphHost {
         // self-contained — any caller lands in the right keyspace (nesting restores the
         // previous value).
         if (lvl() instanceof net.minecraft.server.level.ServerLevel sl) {
-            SignalBus.runInDimension(sl.dimension().location().toString(),
-                () -> BusChannelHelper.clearPrivateSignalValues(graph, pos()));
+            SignalBus.runInDimension(sl.dimension().location().toString(), () -> {
+                BusChannelHelper.clearPrivateSignalValues(graph, pos());
+                // BUS 频段向量值随停机撤值（28.2 收口）：FLOAT 半边由上面的 busInternalMap
+                // 清空完成，VEC3 半边此前残留到频道注销才清——owner 门控下补齐对称半边。
+                // BUS band vector values withdraw with the stop (the 28.2 close): the FLOAT
+                // half is the busInternalMap clear above, the VEC3 half used to linger until
+                // the channel unregistered — the symmetric half lands under the owner gate.
+                BusChannelHelper.clearBusVec3Values(graph, pos());
+            });
         }
         rs.writeOutputs(java.util.Collections.emptyList());
     }

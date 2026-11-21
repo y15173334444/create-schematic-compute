@@ -216,6 +216,44 @@ final class GraphRemoteApplier {
                     ed.nodeEditStatesById.put(n.id, NodeEditStateFactory.create(ed, n));
                     ed.suppressEditBoxResponder = false;
                 }
+            } else if (st != null && op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_FORMULA) {
+                // 定点刷新（known-open-issues 条目『打字途中面板重建』三处一批之二）：远端
+                // 回声不再落「整 EditState 重建」分支（每击键换实例 → 补全弹窗被吞、视觉行
+                // 缓存清零）。草稿策略（2026-11-21 拍板）= **跳过保草稿**：本端正聚焦输入时
+                // 不覆盖（与 SET_PARAM/busBox 同口径）；非聚焦且文本确实变化时收敛远端文本
+                // + 一次校验刷徽章。本地自己的回声与框内文本一致 → setValue 跳过、零额外
+                // 解析（§13 去重纪律不回潮）。
+                // Targeted refresh (register entry "mid-typing panel rebuild", part 2 of the
+                // three-part batch): the remote echo no longer falls into the whole-EditState
+                // rebuild branch (a fresh instance per keystroke swallowed the completion
+                // popup and reset the visual-line cache). Draft policy (ruled 2026-11-21) =
+                // skip and keep the draft: a focused local box is never overwritten (the same
+                // discipline as SET_PARAM/busBox); an unfocused box converges to the remote
+                // text plus one validation for the badge. The local player's own echo already
+                // matches the box text → setValue skipped, zero extra parses (no §13
+                // dedup regression).
+                var fn = graph.findNode(op.targetNodeId());
+                if (fn != null) {
+                    for (var f : st.fields) {
+                        if (!(f instanceof io.github.y15173334444.create_schematic_compute.client.MultiLineEditBox mle)) continue;
+                        String txt = op.stringValue() != null ? op.stringValue()
+                            : (fn.formula != null ? fn.formula : "");
+                        if (!mle.isFocused() && !mle.getValue().equals(txt)) {
+                            ed.suppressEditBoxResponder = true;
+                            mle.setValue(txt);
+                            ed.suppressEditBoxResponder = false;
+                            // 徽章独立刷新（op 应用路径已更新 n.formula/cachedScript，此处
+                            // 按 op 文本补一次校验；与响应器同一 validate 单源）。
+                            // The badge refreshes separately (the op apply already updated
+                            // n.formula/cachedScript; validate the op text once here — the
+                            // same validate source as the responder).
+                            mle.setHasError(NodeEditStateFactory.hasErrors(
+                                io.github.y15173334444.create_schematic_compute.graph.FormulaParser.validate(
+                                    txt, io.github.y15173334444.create_schematic_compute.graph.FormulaParser.parseScript(txt))));
+                        }
+                        break;
+                    }
+                }
             } else if (st == null || op.type() != io.github.y15173334444.create_schematic_compute.graph.OpType.SET_PARAM) {
                 // Recreate entire EditState for non-param ops or if expanded.
                 var n = graph.findNode(op.targetNodeId());

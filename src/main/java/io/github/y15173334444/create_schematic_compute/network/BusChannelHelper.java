@@ -65,13 +65,24 @@ public final class BusChannelHelper {
      *  registration and the BUS_OUT rename migration; idempotent — a same-owner same-map
      *  re-registration is a no-op. Returns the band broadcasts and conflict-flag changes. */
     static ChannelRegistration registerGraphChannels(NodeGraph graph, BlockPos pos) {
+        return registerGraphChannels(graph, pos, -1);
+    }
+
+    /** 注册内核的图域形参版：主图遍历传 -1（二参重载的同义形态），封装子图传承载它的
+     *  ENCAP 节点 id——owner 键带图域后，主图/子图 id 撞号不再被误判为同 owner 重注册
+     *  （known-open-issues 条目『频道清理残余豁口』①）。
+     *  The graph-domain form of the registration core: main-graph walks pass -1 (the 2-arg
+     *  overload's synonym), an encapsulation sub-graph passes the hosting ENC node's id —
+     *  with the graph domain on the owner key, main/sub id collisions no longer pose as
+     *  same-owner re-registrations (register entry "residual channel cleanup gaps", part 1). */
+    static ChannelRegistration registerGraphChannels(NodeGraph graph, BlockPos pos, int ownerNodeId) {
         boolean anyConflict = false;
         var broadcasts = new java.util.ArrayList<String>();
         for (var n : graph.nodes) {
             if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) {
                 if (n.busInternalMap == null) n.busInternalMap = new HashMap<>();
                 boolean ok = SignalBus.registerChannel(n.signalName, n.busInternalMap,
-                    new ChannelOwner(pos, n.id));
+                    new ChannelOwner(pos, ownerNodeId, n.id));
                 // 注：此处不做"过时 owner 强制清理"——注册失败只标冲突，所有权保持
                 // "首个注册者获胜"稳定语义。残留 owner 回收由 recoverConflictedChannels
                 // 的 chunk-loaded 超时机制处理（见下方），避免误杀其他方块存活的同名牌。
@@ -110,12 +121,41 @@ public final class BusChannelHelper {
                 // Private channel occupancy (BUS discipline): first registrant wins; a name held
                 // by another owner flags the node — a conflicted node writes nothing and defines
                 // nothing.
-                boolean ok = SignalBus.registerPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
+                boolean ok = SignalBus.registerPrivateChannel(n.signalName, new ChannelOwner(pos, ownerNodeId, n.id));
                 if (n.busConflict != !ok) anyConflict = true;
                 n.busConflict = !ok;
             }
         }
         return new ChannelRegistration(anyConflict, broadcasts);
+    }
+
+    /** 宿主停机路径的 BUS 频段**向量值**撤值（28.2 收口，§9.1-2 同款注册内核形态）：对本图
+     *  每个 VEC3 频段的 BUS_OUT，频道 owner 门控通过（本节点确实持有该频道）才撤
+     *  {@code channel\0band} 的向量值——FLOAT 半边由 onStopRunning 清各节点
+     *  {@code busInternalMap} 完成，VEC3 半边此前残留到频道注销才清（known-open-issues
+     *  条目『维度前缀批暂缓面』28.2）。冲突节点（名被对端持有）不撤对端的向量值；键格式
+     *  单一事实源 = {@link AudioBands#bandKey}。键访问落在调用方的维度作用域内。
+     *  The host-stop withdrawal of BUS band **vector values** (the 28.2 close, same kernel
+     *  shape as §9.1-2): for every BUS_OUT carrying VEC3 bands, the {@code channel\0band}
+     *  vector value is withdrawn only when the channel's owner gate passes (this node really
+     *  holds the channel) — the FLOAT half is onStopRunning clearing each node's
+     *  {@code busInternalMap}, while the VEC3 half used to linger until the channel
+     *  unregistered (register entry "dimension-prefix batch deferred face", 28.2). A
+     *  conflicted node (name held by the peer) never withdraws the peer's vectors; the key
+     *  format's single source = {@link AudioBands#bandKey}. Key access lands in the caller's
+     *  dimension scope. */
+    public static void clearBusVec3Values(NodeGraph graph, BlockPos pos) {
+        if (graph == null) return;
+        for (var n : graph.nodes) {
+            if (n.type != NodeType.BUS_OUT || n.signalName.isEmpty()) continue;
+            var entry = SignalBus.getChannel(n.signalName);
+            if (entry == null || !entry.owner.equals(new ChannelOwner(pos, n.id))) continue;
+            int bc = n.bandCount();
+            for (int bi = 0; bi < bc; bi++) {
+                if (n.inputType(bi) == io.github.y15173334444.create_schematic_compute.graph.PinType.VEC3)
+                    SignalBus.putVec3(AudioBands.bandKey(n.signalName, n.signalBands.get(bi)), null);
+            }
+        }
     }
 
     /**
@@ -159,8 +199,15 @@ public final class BusChannelHelper {
      * @return 注册结果（调用方按需广播频段定义 / registration result for the caller to broadcast)
      */
     public static ChannelRegistration applyBusOutRename(NodeGraph graph, BlockPos pos, GraphNode renamed,
-                                                        String oldName, @Nullable Level level) {
+                                                        String oldName, int ownerNodeId, @Nullable Level level) {
         if (graph == null || renamed == null) return new ChannelRegistration(false, java.util.List.of());
+        // ownerNodeId = 图域（known-open-issues 条目『频道清理残余豁口』①）：主图 -1、封装
+        // 子图 = 承载它的 ENCAP 节点 id（op 既有语义）——释放与重注册的 owner 键都带图域，
+        // 主图/子图 id 撞号不再误匹配 owner。/ ownerNodeId = the graph domain (register entry
+        // "residual channel cleanup gaps", part 1): -1 for the main graph, the hosting ENC
+        // node's id for a sub-graph (the op's existing semantics) — both the release and the
+        // re-registration owner keys carry the domain, so main/sub id collisions no longer
+        // false-match an owner.
         // 服务端在宿主维度作用域内动键（§6.4 步骤 2）；客户端编辑器（level=null）按设计走
         // 无作用域的本地键空间（P1-9 乐观本地值）。/ Server-side key access runs in the host's
         // dimension scope (§6.4 step 2); a client editor (level=null) rides the unscoped local
@@ -177,14 +224,14 @@ public final class BusChannelHelper {
                 // drop the entry by owner and retire the definition when the name is left unowned.
                 // A same-graph BUS_IN reference no longer blocks retirement — dead-name cleanup
                 // reaches same-graph subscribers too; a foreign entry/definition is never touched.
-                SignalBus.releaseChannel(oldName, new ChannelOwner(pos, renamed.id));
+                SignalBus.releaseChannel(oldName, new ChannelOwner(pos, ownerNodeId, renamed.id));
             }
             // 重跑图内注册（幂等）：新名条目 + 频段定义 + 冲突旗标随名字落地。
             // "" → 新名 也走这里（新建 BUS_OUT 后首次命名同样丢频道 —— 同一根因）。
             // Re-run the graph registration (idempotent): the new-name entry, band definitions and
             // the conflict flag land with the name. "" → new goes through here too (naming a freshly
             // added BUS_OUT loses the channel the same way — same root cause).
-            var reg = registerGraphChannels(graph, pos);
+            var reg = registerGraphChannels(graph, pos, ownerNodeId);
             renamed.bandsDirty = true; // 评估器下轮重算音频标志 / evaluator recomputes audio flags next tick
             if (level instanceof ServerLevel sl) broadcastBandDefinitions(sl, pos, reg.bandBroadcasts());
             return reg;
@@ -265,30 +312,27 @@ public final class BusChannelHelper {
         }
     }
 
-    /** For every BUS_OUT name present in {@code oldGraph} but absent in {@code newGraph},
+    /** For every deleted BUS channel name in {@code deletedBusNames} (the caller derives it
+     *  from the non-aliased publisher-key snapshot diff —
+     *  {@link #removedPublisherKeys(NodeGraph, Set)} + {@link #deletedBusNames(NodeGraph, Set)}),
      *  send an empty {@link BusBandSyncPacket} so clients drop the stale band list.
-     *  对于存在于 oldGraph 但不在 newGraph 中的每个 BUS_OUT 名称，发送空 BusBandSyncPacket 使客户端丢弃过期的频段列表。 */
-    public static void syncDeletedBusNames(NodeGraph oldGraph, @Nullable NodeGraph newGraph,
+     *  对 {@code deletedBusNames} 中的每个已删 BUS 频道名（调用方从不别名发布键快照差集推导——
+     *  {@link #removedPublisherKeys(NodeGraph, Set)} + {@link #deletedBusNames(NodeGraph, Set)}），
+     *  发送空 BusBandSyncPacket 使客户端丢弃过期的频段列表。
+     *  <p>known-open-issues 条目『频道释放依赖快照路径（含别名死守卫）』：旧形参
+     *  {@code (oldGraph, newGraph)} 拿的是同一图对象（图被原地修改），diff 恒空转、
+     *  客户端旧名残留无人清——现由键集差集喂真值。/ Register entry "channel release rode the
+     *  snapshot path (with the aliased dead guard)": the old {@code (oldGraph, newGraph)} shape
+     *  received the same graph object twice (the graph is mutated in place), the diff spun
+     *  forever, and the client's old-name residue went uncleaned — real values now come from
+     *  the key-set diff.</p> */
+    public static void syncDeletedBusNames(Set<String> deletedBusNames,
                                             BlockPos pos, @Nullable Level level) {
-        if (!(level instanceof ServerLevel sl) || oldGraph == null) return;
-        var oldBusNames = new HashSet<String>();
-        for (var n : oldGraph.nodes)
-            if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) oldBusNames.add(n.signalName);
-        if (oldBusNames.isEmpty()) return;
-        for (var name : oldBusNames) {
-            boolean stillExists = false;
-            if (newGraph != null) {
-                for (var n : newGraph.nodes) {
-                    if (n.type == NodeType.BUS_OUT && n.signalName.equals(name)) {
-                        stillExists = true; break;
-                    }
-                }
-            }
-            if (!stillExists) {
-                PacketDistributor.sendToPlayersTrackingChunk(sl,
-                    new ChunkPos(pos),
-                    new BusBandSyncPacket(pos, name, Collections.emptyList()));
-            }
+        if (!(level instanceof ServerLevel sl) || deletedBusNames == null || deletedBusNames.isEmpty()) return;
+        for (var name : deletedBusNames) {
+            PacketDistributor.sendToPlayersTrackingChunk(sl,
+                new ChunkPos(pos),
+                new BusBandSyncPacket(pos, name, Collections.emptyList()));
         }
     }
 
@@ -647,48 +691,124 @@ public final class BusChannelHelper {
     // ── Diff-based re-registration (preserves channel ownership across recompiles) ──
     // ── 基于差异的重新注册（在重编译期间保留频道所有权） ──
 
+    // ── Publisher key snapshot diff (the non-aliased release baseline) ──────────
+    // ── 发布者键快照差集（不别名的释放基线） ────────────────────────────────────
+
+    /** 发布者快照键（{@code GraphHost.snapshotKey} 的单一事实源迁入本类：类型前缀 + 名@id
+     *  ——节点移除后类型无从查起，键集必须自带表别，BUS 与私有分表、同名互不冲突）。
+     *  <p>The publisher snapshot key ({@code GraphHost.snapshotKey}'s single source of truth
+     *  moved here: type tag + name@id — the node type is unrecoverable once the node is gone,
+     *  so the key carries the table; BUS and private split tables, same names never clash).</p> */
+    public static String publisherKey(GraphNode n) {
+        return (n.type == NodeType.PRIVATE_OUT ? "P:" : "B:") + n.signalName + "@" + n.id;
+    }
+
+    /** 发布者键差集：{@code lastBusOutKeys}（上次重编译的发布者键快照）中当前图已不含的键。
+     *  这是「上次重编译以来被删除/改名」的发布者全集——键集是独立的快照拷贝，与图对象
+     *  **无别名关系**，diff 恒真。
+     *  <p>The publisher-key diff: keys of {@code lastBusOutKeys} (the publisher-key snapshot
+     *  taken at the last recompile) the current graph no longer contains — exactly the
+     *  publishers deleted/renamed since. The key set is an independent snapshot copy, holding
+     *  <b>no alias</b> to the graph object, so the diff is always true.</p>
+     *
+     * <p>known-open-issues 条目『频道释放依赖快照路径（含别名死守卫）』：旧守卫拿
+     * {@code oldGraph = lastEvaluatedGraph} 与当前 {@code graph} 做图级 diff——图被原地修改，
+     * 两参**同一对象**，diff 在编辑会话中从不生效（CLAUDE.md「死守卫」警示的形态）。
+     * 键集差集与 {@code lastBusOutKeys} 同源、不别名，是该死守卫的收口替代。
+     * / Register entry "channel release rode the snapshot path (with the aliased dead guard)":
+     * the old guard diffed {@code oldGraph = lastEvaluatedGraph} against the live
+     * {@code graph} — the graph mutates in place, so both arguments are the <b>same object</b>
+     * and the diff never fired in an editing session (the "dead guard" shape CLAUDE.md warns
+     * about). The key-set diff shares its source with {@code lastBusOutKeys} and holds no
+     * alias — the dead guard's honest replacement.</p> */
+    public static Set<String> removedPublisherKeys(@Nullable NodeGraph currentGraph, Set<String> lastBusOutKeys) {
+        var current = new HashSet<String>();
+        if (currentGraph != null)
+            for (var n : currentGraph.nodes)
+                if ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && !n.signalName.isEmpty())
+                    current.add(publisherKey(n));
+        var removed = new HashSet<String>();
+        for (var key : lastBusOutKeys)
+            if (!current.contains(key)) removed.add(key);
+        return removed;
+    }
+
+    /** 已删 BUS 频道名（{@link #syncDeletedBusNames} 的输入）：{@code removedKeys} 中的
+     *  BUS 键名，且当前图不再有任何同名 BUS_OUT 发布方——同名由另一节点续发时不推送清空。
+     *  <p>Deleted BUS channel names (the input to {@link #syncDeletedBusNames}): BUS names
+     *  among {@code removedKeys} with no same-name BUS_OUT publisher left in the current
+     *  graph — a name still published by another node gets no empty push.</p> */
+    public static Set<String> deletedBusNames(@Nullable NodeGraph currentGraph, Set<String> removedKeys) {
+        var live = new HashSet<String>();
+        if (currentGraph != null)
+            for (var n : currentGraph.nodes)
+                if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()) live.add(n.signalName);
+        var deleted = new HashSet<String>();
+        for (var key : removedKeys) {
+            if (!key.startsWith("B:")) continue;
+            String rest = key.substring(2);
+            int at = rest.lastIndexOf('@');
+            if (at <= 0) continue;
+            String name = rest.substring(0, at);
+            if (!live.contains(name)) deleted.add(name);
+        }
+        return deleted;
+    }
+
     /**
-     * Re-register BUS channels after a graph change, preserving existing ownership.
-     * <p>图变更后重新注册 BUS 频道，保留现有所有权。</p>
+     * Re-register BUS channels after a graph change, preserving existing ownership. The
+     * release of removed publishers is <b>not</b> part of this method anymore — it lives in
+     * the caller's snapshot-diff release pass ({@code GraphHost.unregisterRemovedBusOutNodes},
+     * the single release point), fed by {@link #removedPublisherKeys(NodeGraph, Set)}.
+     * <p>图变更后重新注册 BUS 频道，保留现有所有权。已移除发布者的释放**不再属于本方法**
+     * ——它住在调用方的快照差集释放趟（{@code GraphHost.unregisterRemovedBusOutNodes}，唯一
+     * 释放点），由 {@link #removedPublisherKeys(NodeGraph, Set)} 喂真差集。</p>
      * <p>Unlike the naive unregister-all-then-register-all pattern, this method:
      * <ul>
-     *   <li>Unregisters only BUS_OUT nodes that were <b>removed</b> from the graph</li>
-     *   <li>Updates the internalMap reference for nodes that <b>remain</b> in the graph
-     *       (without changing ref-count, so ownership is never lost)</li>
-     *   <li>Registers <b>new</b> BUS_OUT nodes normally (first-registrant-wins)</li>
+     *   <li>Updates the {@code internalMap} reference for publishers that <b>remained</b> in
+     *       the graph (key present in {@code lastBusOutKeys}) without changing ref-count, so
+     *       ownership is never lost</li>
+     *   <li>Registers <b>new</b> BUS_OUT nodes normally (first-registrant-wins; the undo of a
+     *       node deletion restores through this same path — the snapshot lacks the restored
+     *       key, so the node registers fresh with its original owner identity)</li>
      * </ul>
      * This prevents a newly-added BUS_OUT with the same signalName from stealing
      * the channel during the brief window when all channels are unregistered.
      * 与简单的"先全部取消注册再全部注册"模式不同，此方法：
      * <ul>
-     *   <li>仅取消注册从图中<b>移除</b>的 BUS_OUT 节点</li>
-     *   <li>更新<b>保留</b>在图中节点的 internalMap 引用（不改变引用计数，因此所有权永不丢失）</li>
-     *   <li>正常注册<b>新增</b>的 BUS_OUT 节点（先注册者胜）</li>
+     *   <li>更新<b>保留</b>在图中发布节点的 {@code internalMap} 引用（键在
+     *       {@code lastBusOutKeys} 中，不影响引用计数，因此所有权永不丢失）</li>
+     *   <li>正常注册<b>新增</b>的 BUS_OUT 节点（先注册者胜；节点删除的撤销恢复也走同一路——
+     *       快照缺恢复键，节点以原 owner 身份全新注册）</li>
      * </ul>
      * <p>这防止了新添加的同名 BUS_OUT 在所有频道被取消注册的短暂窗口期间窃取频道。</p>
      *
      * @param newGraph the graph after the change / 变更后的图
-     * @param oldGraph the graph before the change (may be null, treated as all-new) / 变更前的图（可为 null，视为全新）
+     * @param lastBusOutKeys the publisher-key snapshot from the last recompile (may be null,
+     *                       treated as all-new) / 上次重编译的发布者键快照（可为 null，视为全新）
      * @param pos      the block position for owner identification / 用于所有者识别的方块坐标
      * @param level    the server level / 服务端世界
      * @return true if at least one node changed conflict state / 若至少一个节点的冲突状态变化则返回 true
      */
-    public static boolean reRegisterChannels(NodeGraph newGraph, @Nullable NodeGraph oldGraph,
+    public static boolean reRegisterChannels(NodeGraph newGraph, @Nullable Set<String> lastBusOutKeys,
                                               BlockPos pos, @Nullable Level level) {
         if (level == null || level.isClientSide() || newGraph == null) return false;
         // 键访问在宿主维度作用域内（§6.4 步骤 2）。/ Key access in the host's dimension scope
         // (§6.4 step 2).
         String prev = SignalBus.beginDimensionScope(level.dimension().location().toString());
         try {
-            return reRegisterChannelsScoped(newGraph, oldGraph, pos, level);
+            return reRegisterChannelsScoped(newGraph, lastBusOutKeys, pos, level);
         } finally {
             SignalBus.endDimensionScope(prev);
         }
     }
 
-    /** 作用域内的重注册内核（{@link #reRegisterChannels} 的主体原样）。/ The scoped re-registration
-     *  kernel ({@link #reRegisterChannels}'s body verbatim). */
-    private static boolean reRegisterChannelsScoped(NodeGraph newGraph, @Nullable NodeGraph oldGraph,
+    /** 作用域内的重注册内核（{@link #reRegisterChannels} 的主体原样；包内可见 = headless
+     *  测试直驱缝，{@code level} 仅用于 ServerLevel 判定的频段包推送，null = 不发包）。
+     *  / The scoped re-registration kernel ({@link #reRegisterChannels}'s body verbatim;
+     *  package-visible as the headless test seam — {@code level} only feeds the ServerLevel
+     *  band-push guard, null = no packets). */
+    static boolean reRegisterChannelsScoped(NodeGraph newGraph, @Nullable Set<String> lastBusOutKeys,
                                                     BlockPos pos, @Nullable Level level) {
         boolean anyConflict = false;
 
@@ -699,31 +819,15 @@ public final class BusChannelHelper {
             if ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && !n.signalName.isEmpty())
                 newKeys.add(n.signalName + "@" + n.id);
 
-        // Step 1: Unregister only REMOVED nodes (in oldGraph but not in newGraph)
-        // 步骤1：仅取消注册已移除的节点（在 oldGraph 中但不在 newGraph 中）——改名即
-        //「旧名节点移除」，旧名的占用/值/定义由此释放，同名竞争者可接管。
-        if (oldGraph != null) {
-            for (var n : oldGraph.nodes) {
-                if (n.type == NodeType.BUS_OUT && !n.signalName.isEmpty()
-                    && !newKeys.contains(n.signalName + "@" + n.id)) {
-                    // 移除 = 确证离开：统一释放（含死名退役）/ removal = provable departure
-                    SignalBus.releaseChannel(n.signalName, new ChannelOwner(pos, n.id));
-                } else if (n.type == NodeType.PRIVATE_OUT && !n.signalName.isEmpty()
-                    && !newKeys.contains(n.signalName + "@" + n.id)) {
-                    SignalBus.unregisterPrivateChannel(n.signalName, new ChannelOwner(pos, n.id));
-                }
-            }
-        }
-
-        // Step 2: Register NEW nodes and update EXISTING nodes
-        // 步骤2：注册新节点并更新现有节点
-        // Build a set of keys that existed in the old graph (for distinguishing new vs existing)
-        // 构建旧图中存在的键集合（用于区分新增与现有）
+        // Build a set of keys that existed at the last recompile (for distinguishing new vs
+        // existing) — the non-aliased publisher snapshot, prefix-stripped to the same
+        // name@id key space as {@code newKeys}.
+        // 构建上次重编译时已存在的键集合（用于区分新增与现有）——不别名的发布者快照，
+        // 剥去前缀对齐 {@code newKeys} 的 名@id 键空间。
         var oldKeys = new HashSet<String>();
-        if (oldGraph != null) {
-            for (var n : oldGraph.nodes)
-                if ((n.type == NodeType.BUS_OUT || n.type == NodeType.PRIVATE_OUT) && !n.signalName.isEmpty())
-                    oldKeys.add(n.signalName + "@" + n.id);
+        if (lastBusOutKeys != null) {
+            for (var key : lastBusOutKeys)
+                if (key.length() > 2) oldKeys.add(key.substring(2));
         }
 
         for (var n : newGraph.nodes) {
