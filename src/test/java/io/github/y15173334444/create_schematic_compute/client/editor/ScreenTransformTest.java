@@ -129,9 +129,11 @@ class ScreenTransformTest {
         }
         // 零增量 no-op / zero delta is a no-op
         assertEquals(1.37f, ScreenTransform.zoomStep(1.37f, 0), 1e-7f);
-        // 钳制 / clamps
-        assertEquals(4f, ScreenTransform.zoomStep(3.9f, 100), 1e-6f);
-        assertEquals(0.25f, ScreenTransform.zoomStep(0.26f, -100), 1e-6f);
+        // 钳制（0.125–2，2026-11-21 拍板）/ clamps (0.125–2, ruled 2026-11-21)
+        assertEquals(2f, ScreenTransform.zoomStep(1.9f, 100), 1e-6f);
+        assertEquals(0.125f, ScreenTransform.zoomStep(0.13f, -100), 1e-6f);
+        assertEquals(2f, ScreenTransform.pinchStep(1.9f, 100), 1e-6f);
+        assertEquals(0.125f, ScreenTransform.pinchStep(0.13f, 0.001), 1e-6f);
     }
 
     @Test
@@ -164,10 +166,10 @@ class ScreenTransformTest {
         // 比例链乘法性（与帧切分无关）/ multiplicative across frames (frame-split invariant)
         float z = ScreenTransform.pinchStep(ScreenTransform.pinchStep(1.3f, 1.2), 1.1);
         assertEquals(1.3f * 1.2f * 1.1f, z, 1e-5f);
-        // no-op 与钳制 / no-op and clamps
+        // no-op 与钳制（0.125–2，2026-11-21 拍板）/ no-op and clamps (0.125–2, ruled 2026-11-21)
         assertEquals(1.37f, ScreenTransform.pinchStep(1.37f, 1.0), 1e-7f);
-        assertEquals(4f, ScreenTransform.pinchStep(3.9f, 2.0), 1e-6f);
-        assertEquals(0.25f, ScreenTransform.pinchStep(0.26f, 0.2), 1e-6f);
+        assertEquals(2f, ScreenTransform.pinchStep(1.9f, 2.0), 1e-6f);
+        assertEquals(0.125f, ScreenTransform.pinchStep(0.13f, 0.2), 1e-6f);
     }
 
     @Test

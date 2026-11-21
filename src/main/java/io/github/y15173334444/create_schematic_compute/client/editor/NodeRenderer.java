@@ -369,17 +369,22 @@ public class NodeRenderer {
     }
 
     /** PERF-1 文字 LOD 判定（纯逻辑面，headless 锚测）：zoom 达阈值或该节点展开编辑中
-     *  才画「次要文字」（引脚标签 / encap 摘要）——阈值 0.5 下 9px 标签渲染 ≤4.5px 本就
-     *  不可读，跳过即省逐 pin 的 I18n 查表与 {@code font.width} 测量。标题 / 警告 / 锁名 /
-     *  在场者行恒画；展开节点不降档（编辑面需要引脚名）。阈值取方案 §八 Q2 候选 0.5
-     *  （0.75 备选），拍板改这里一处。
+     *  才画「次要文字」（引脚标签 / encap 摘要）——阈值下 9px 标签渲染过小不可读，
+     *  跳过即省逐 pin 的 I18n 查表与 {@code font.width} 测量。标题 / 警告 / 锁名 /
+     *  在场者行恒画；展开节点不降档（编辑面需要引脚名）。
+     *  阈值 **0.25**（2026-11-21 实测拍板：初值 0.5 过早——「0.5 时节点还清晰可见」，
+     *  标签必须跟到节点仍可读的缩放段；缩放范围下限同日扩到 0.125，0.25 = 下限 2 倍、
+     *  恰为「节点已不可读」的边界）。拍板调整改这里一处。
      *  PERF-1 text-LOD decision (the pure, headless-testable face): secondary text
      *  (pin labels / encap summary) draws only at or above the zoom threshold, or when the
      *  node is expanded for editing. Titles / warnings / lock names / occupant lines always
-     *  draw; an expanded node never degrades. The 0.5 threshold is plan Q2's leading
-     *  candidate (0.75 the alternative) — a single constant to change once ruled on. */
+     *  draw; an expanded node never degrades. Threshold **0.25** (live-ruled 2026-11-21:
+     *  the initial 0.5 fired too early — "nodes are still clearly visible at 0.5", so labels
+     *  must survive until nodes actually become unreadable; the zoom floor moved to 0.125
+     *  the same day, making 0.25 = 2× the floor, exactly the unreadable boundary). One
+     *  constant to re-rule. */
     static boolean detailText(float zoom, boolean editing) {
-        return zoom >= 0.5f || editing;
+        return zoom >= 0.25f || editing;
     }
 
     private void drawNode(GuiGraphics g, GraphNode n, NodeGraph graph, boolean selected, boolean isPrimary, boolean editing,

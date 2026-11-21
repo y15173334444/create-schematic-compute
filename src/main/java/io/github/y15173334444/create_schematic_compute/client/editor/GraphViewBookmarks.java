@@ -50,10 +50,14 @@ final class GraphViewBookmarks {
     /** 视角过渡持续时间（毫秒）/ camera transition duration in milliseconds */
     private static final long TRANSITION_MS = 200;
 
-    /** 启动视角过渡动画。 / Start a camera transition animation. */
+    /** 启动视角过渡动画。目标 zoom 过 {@link ScreenTransform#clampZoom}——书签可能存有
+     *  旧范围（0.25–4 时代）的值，恢复必须落回现行范围（单源钳制）。
+     *  Start a camera transition animation. The target zoom passes
+     *  {@link ScreenTransform#clampZoom} — bookmarks may hold values saved under the old
+     *  range (0.25–4 era), so restores must land inside the current range (single-source clamp). */
     void startTransition(float toX, float toY, float toZoom) {
         transFromX = ed.camX; transFromY = ed.camY; transFromZoom = ed.zoom;
-        transToX = toX; transToY = toY; transToZoom = toZoom;
+        transToX = toX; transToY = toY; transToZoom = ScreenTransform.clampZoom(toZoom);
         transStartMs = System.currentTimeMillis();
     }
 
@@ -77,12 +81,16 @@ final class GraphViewBookmarks {
     /** 清空所有临时视角（session 级）。 / Clear all temp views (session level). */
     public static void clearTempView() { tempViewByPos.clear(); }
 
-    /** 编辑器构造时按方块位置恢复相机。 / Restore camera by block position on editor construction. */
+    /** 编辑器构造时按方块位置恢复相机。zoom 过 {@link ScreenTransform#clampZoom}——
+     *  会话级暂存可能来自旧范围（同 {@link #startTransition} 口径）。
+     *  Restore camera by block position on editor construction. zoom passes
+     *  {@link ScreenTransform#clampZoom} — the session-temp stash may come from the old
+     *  range (same rule as {@link #startTransition}). */
     void restoreTempView() {
         var bp = ed.host.getBlockPos();
         if (bp != null) {
             float[] saved = tempViewByPos.get(bp);
-            if (saved != null) { ed.camX = saved[0]; ed.camY = saved[1]; ed.zoom = saved[2]; }
+            if (saved != null) { ed.camX = saved[0]; ed.camY = saved[1]; ed.zoom = ScreenTransform.clampZoom(saved[2]); }
         }
     }
 

@@ -45,16 +45,27 @@ final class ScreenTransform {
         return px(c2sX.apply(n.x));
     }
 
+    /** 缩放范围（2026-11-21 实测拍板 2~0.125）：放大上限 2（原 4 深于任何阅读所需），
+     *  缩小下限 0.125（原 0.25 装不下大图）——滚轮/捏合/书签恢复共用本钳制（单源）。
+     *  Zoom range (live-ruled 2026-11-21, 2..0.125): zoom-in cap 2 (4 was deeper than any
+     *  reading gain needs), zoom-out floor 0.125 (0.25 could not fit large graphs) — wheel,
+     *  pinch and bookmark restores all share this clamp (single source). */
+    static final float MIN_ZOOM = 0.125f, MAX_ZOOM = 2f;
+
+    static float clampZoom(float zoom) {
+        return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+    }
+
     /** 连续缩放映射（GZ-1，docs/graph-editor-gesture-zoom-plan.md）：每 1.0 增量 = 12%
      *  （经典滚轮 ±1 刻度手感不变），高精度触摸板/旋钮/数位板/高分辨率滚轮的分数增量连续
-     *  跟手、不再被量化成整刻度；0.25–4 钳制，零增量 no-op。
+     *  跟手、不再被量化成整刻度；{@link #clampZoom} 钳制（0.125–2），零增量 no-op。
      *  Continuous zoom mapping (GZ-1): one delta unit = 12% (classic wheel notches
      *  unchanged), fractional deltas from high-precision trackpads/dials/tablets/high-res
-     *  wheels stay continuous instead of being quantized to whole notches; clamped to
-     *  0.25–4, zero delta is a no-op. */
+     *  wheels stay continuous instead of being quantized to whole notches; clamped by
+     *  {@link #clampZoom} (0.125–2), zero delta is a no-op. */
     static float zoomStep(float zoom, double delta) {
         float nz = zoom * (float) Math.pow(1.12, delta);
-        return Math.max(0.25f, Math.min(4f, nz));
+        return clampZoom(nz);
     }
 
     /** 缩放锚点 X（GZ-1）：增量式平移修正，保持屏幕点 (mx,·) 下的图点不动（连续缩放序列下
@@ -71,12 +82,12 @@ final class ScreenTransform {
     }
 
     /** 捏合缩放（GZ-2，docs/graph-editor-gesture-zoom-plan.md）：手指间距比**直驱**（1:1 跟手）
-     *  ——与滚轮的指数映射语义不同，捏合给出的本来就是比例。0.25–4 钳制。
+     *  ——与滚轮的指数映射语义不同，捏合给出的本来就是比例。{@link #clampZoom} 钳制（0.125–2）。
      *  Pinch zoom (GZ-2): the finger-distance ratio drives zoom directly (1:1 with the
      *  fingers) — unlike the wheel's exponential map, a pinch already IS a ratio.
-     *  Clamped to 0.25–4. */
+     *  Clamped by {@link #clampZoom} (0.125–2). */
     static float pinchStep(float zoom, double scale) {
-        return Math.max(0.25f, Math.min(4f, zoom * (float) scale));
+        return clampZoom(zoom * (float) scale);
     }
 
     /** 捏合合成滚轮 → 缩放因子（GZ-2 回退通道）：每 120 滚轮单位（一整刻度）= notchBase 倍，
