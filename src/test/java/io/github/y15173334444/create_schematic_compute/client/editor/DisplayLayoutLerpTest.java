@@ -60,4 +60,27 @@ class DisplayLayoutLerpTest {
     void emptyGraphIsIdle() {
         assertFalse(MonitorDisplayEditor.advanceLayoutLerp(new NodeGraph()));
     }
+
+    @Test
+    @DisplayName("显示光标插值：目标变化起新段、单调逼近、精确收敛 / display cursor lerp: restarts on target change, monotonic, exact convergence")
+    void cursorLerpConvergesExactly() {
+        float[] cl = {0f, 0f, 0f, 0f, 0f, 0f, 1f};
+        float prevX = -1f;
+        for (int i = 0; i < 12; i++) {
+            MonitorDisplayEditor.advanceCursorLerp(cl, 100f, 200f);
+            assertTrue(cl[0] >= prevX, "cursor advances monotonically toward the target");
+            prevX = cl[0];
+        }
+        assertEquals(100f, prevX, 0.0001f, "x converges exactly onto the target");
+        assertEquals(200f, cl[3], 0.0001f, "y converges exactly onto the target");
+    }
+
+    @Test
+    @DisplayName("显示光标插值：目标不变时不再移动 / cursor lerp holds still when the target is unchanged")
+    void cursorLerpHoldsOnSameTarget() {
+        float[] cl = {50f, 50f, 50f, 60f, 60f, 60f, 1f};
+        MonitorDisplayEditor.advanceCursorLerp(cl, 50f, 60f);
+        assertEquals(50f, cl[0], 0f, "same target → untouched");
+        assertEquals(60f, cl[3], 0f, "same target → untouched");
+    }
 }

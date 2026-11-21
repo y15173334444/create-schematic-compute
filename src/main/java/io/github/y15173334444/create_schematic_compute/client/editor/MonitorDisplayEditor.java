@@ -352,10 +352,40 @@ public final class MonitorDisplayEditor {
         return active;
     }
 
+    /** 远端光标平滑状态（显示模式，按玩家 UUID）：{curX, fromX, tgtX, curY, fromY, tgtY, t}。
+     *  节点模式的 cursorLerp 存的是图空间换算值（对显示画布坐标是错的），故显示模式独立一份。
+     *  Display-mode remote cursor smoothing (per player UUID). The node mode's cursorLerp
+     *  stores graph-transformed coords (wrong space for the display canvas), so display keeps
+     *  its own. */
+    private final java.util.Map<java.util.UUID, float[]> displayCursorLerp = new java.util.HashMap<>();
+
+    /** 显示光标 smoothstep 每帧推进量（与 advanceLayoutLerp 同节奏）。 / The display cursor
+     *  smoothstep advance per frame (the advanceLayoutLerp cadence). */
+    static final float CURSOR_LERP_STEP = 0.12f;
+
+    /** 远端光标平滑一步（纯函数，headless 可测）：目标变了就从当前显示位起新段，否则继续
+     *  逼近。{@code cl = {curX, fromX, tgtX, curY, fromY, tgtY, t}}。
+     *  One cursor-smoothing step (pure, headless-testable): a changed target restarts the
+     *  segment from the current display position, otherwise keeps approaching. */
+    static void advanceCursorLerp(float[] cl, float sx, float sy) {
+        if (cl[2] != sx || cl[5] != sy) {
+            cl[1] = cl[0]; cl[2] = sx;
+            cl[4] = cl[3]; cl[5] = sy;
+            cl[6] = 0f;
+        }
+        if (cl[6] < 1f) {
+            cl[6] = Math.min(1f, cl[6] + CURSOR_LERP_STEP);
+            float t2 = cl[6] * cl[6] * (3f - 2f * cl[6]);
+            cl[0] = cl[1] + (cl[2] - cl[1]) * t2;
+            cl[3] = cl[4] + (cl[5] - cl[4]) * t2;
+        }
+    }
+
     private void renderDisplayPresence(GuiGraphics g) {
         host.editor().cleanupStalePresences();
         var presences = host.editor().getRemotePresences();
-        if (presences.isEmpty()) return;
+        if (presences.isEmpty()) { displayCursorLerp.clear(); return; }
+        displayCursorLerp.keySet().retainAll(presences.keySet());
         var mc = Minecraft.getInstance();
         var graph = host.be() != null ? host.be().getNodeGraph() : null;
         if (graph == null) return;
@@ -366,9 +396,18 @@ public final class MonitorDisplayEditor {
             int h = p.player().hashCode();
             int color = 0xFF000000 | (((h >> 16) & 0xFF) << 16) | (((h >> 8) & 0xFF) << 8) | (h & 0xFF);
             float sx = p.cursorX(), sy = p.cursorY();
-            g.fill((int)sx - 6, (int)sy - 1, (int)sx + 7, (int)sy, color);
-            g.fill((int)sx - 1, (int)sy - 6, (int)sx, (int)sy + 7, color);
-            g.drawString(mc.font, p.playerName(), (int)sx + 8, (int)sy - 4, color);
+            // 远端光标平滑（批 3 后续）：presence 8.3Hz 直画是阶跃，经画布空间的 smoothstep
+            // 连续化——此前显示模式直接画原始坐标（节点模式的 lerp 未移植且空间不同）。
+            // Remote cursor smoothing (batch 3 follow-up): presence at ~8.3 Hz drawn raw is
+            // stepped; smooth it in canvas space — display mode used to draw raw coords (the
+            // node mode's lerp was never ported and lives in a different space anyway).
+            var cl = displayCursorLerp.computeIfAbsent(p.player(),
+                k -> new float[]{sx, sx, sx, sy, sy, sy, 0f});
+            advanceCursorLerp(cl, sx, sy);
+            float lx = cl[0], ly = cl[3];
+            g.fill((int)lx - 6, (int)ly - 1, (int)lx + 7, (int)ly, color);
+            g.fill((int)lx - 1, (int)ly - 6, (int)lx, (int)ly + 7, color);
+            g.drawString(mc.font, p.playerName(), (int)lx + 8, (int)ly - 4, color);
             // 队友正在拖拽**或选中**的元素：彩色描边（软锁视觉）+ 名字标注。
             // 可视化与 isDisplayNodeLocked 的判定保持一致（锁跟随选择）——只画拖拽会让
             // 「选中占锁」在队友屏幕上不可见，看起来像无锁可抢。
