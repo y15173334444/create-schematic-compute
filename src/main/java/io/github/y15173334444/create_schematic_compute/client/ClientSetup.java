@@ -49,6 +49,14 @@ public class ClientSetup {
             io.github.y15173334444.create_schematic_compute.network.ConsoleResponsePacket.clientHandler =
                 GraphConsole::deliverToOpenEditor;
             PortableTerminalItem.screenOpener = p -> Minecraft.getInstance().setScreen(new PortableTerminalScreen(p));
+            // 宿主套件（波 2）：把泛用屏开启实现注册进 api 门面的 client-only 钩子
+            // （专用服务器上钩子恒空，openEditor 在服务端抛 ISE）——api 包不 import
+            // client 类件的纪律由这条委托边维持。
+            // Host suite (wave 2): register the generic-screen opener into the api
+            // facade's client-only hook (empty on dedicated servers, openEditor throws
+            // there); the api-never-imports-client discipline rides this delegate edge.
+            io.github.y15173334444.create_schematic_compute.api.HostGraphs.registerEditorOpener(
+                io.github.y15173334444.create_schematic_compute.client.editor.HostGraphScreens::open);
             // CNC 齿轮箱 Flywheel 视觉（两端独立旋转体）；Flywheel 不可用时 vanilla renderer 兜底
             dev.engine_room.flywheel.api.visualization.VisualizerRegistry.setVisualizer(
                 SchematicCompute.CNC_GEARBOX_BE.get(),

@@ -2,6 +2,7 @@
   "itemGroup.create_schematic_compute": "机械动力：蓝图计算机",
   "block.create_schematic_compute.blueprint": "蓝图计算机",
   "container.create_schematic_compute.blueprint": "蓝图编辑器",
+  "container.create_schematic_compute.host_graph": "图宿主编辑器",
   "gui.create_schematic_compute.blueprint.add_node": "添加节点",
   "node.create_schematic_compute.const": "常量",
   "node.create_schematic_compute.redstone_in": "红石输入",

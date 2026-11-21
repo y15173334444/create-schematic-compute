@@ -36,12 +36,15 @@ import java.util.Set;
  * engine, answering the existing network/client.editor consumers through the adapter.
  *
  * <p>public 仅为 {@code api.HostGraphs} 的委托边服务（波 1 {@code CustomNodeRoster}
- * 同款护栏）；本模组内部宿主不经本类。</p>
+ * 同款护栏）；本模组内部宿主不经本类。适配器同时实现 client/editor 的
+ * {@code HostGraphView} 窄口（泛用屏消费面，blocks→client.editor 与
+ * {@code GraphBlockEntity extends EditStateView} 同向）。</p>
  * <p>Public only to serve the {@code api.HostGraphs} delegate edge (the wave-1
  * {@code CustomNodeRoster} guardrail family); this mod's own hosts never ride this
  * class.</p>
  */
-public final class HostGraphAdapter implements GraphBlockEntity, GraphHost.TickHooks {
+public final class HostGraphAdapter implements GraphBlockEntity, GraphHost.TickHooks,
+        io.github.y15173334444.create_schematic_compute.client.editor.HostGraphView {
 
     private final BlockEntity owner;
     private final HostGraphType spec;
