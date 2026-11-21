@@ -55,7 +55,7 @@
 | 38 | CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次） | ① 渐进台面 prev=100/budget=5ms 开着破约快车道，「不熔断」靠 spin 200µs<5ms 墙钟假设，满载撑过即提前熔断（expected 21 got 11）；② AudioMixerShapingPerfTest 计时预算断言同族翻车 | ① 台面改 prev=1/budget=0.05ms 关闭快车道 + 墙钟膨胀负例锚（保守方案，不动生产）；② 评估后不动（已自校准，放宽削弱牙口） | 🔶 ① 已实施（2026-11-20，1333 绿）；② 暂缓（2026-11-14 登记，负载敏感波动族非产品缺陷） |
 | 39 | Tok 字节码 16B 布局未收窄（常量池化实测未达门，判定关闭） | Tok 枚举实测 16B，常量池化形态实测未达 +3% 判定门、整体回退，代码零落地 | 同窗抖动分布为唯一可靠判定口径（§五.3）；16B 为当前与可预见形态 | 判定关闭（2026-11-21，csc-rust-perf 线实测；39 号此前漏挂汇总行，本次补记） |
 | 40 | 空公式 NBT 往返丢键（全量同步/存档重载把空公式重置回默认 A+B） | save 把空串/0 值当「默认值」跳键（formula、din）——任何 NBT 往返后空公式弹回 "A+B"、face 弹回 2 | FORMULA 节点恒写 formula 键与 din（含空串与 0） | ✅ 已实施（2026-11-21，`dd2b9deb`；FormulaEmptyRoundTripTest 3 锚，1392 绿） |
-| 41 | 全量同步图实例替换后 stale EditState 绑定（改名回车提交回弹 + 双端输入框不一致） | 同 id 签名恒等 → 旧 EditState 被保留，输入框/响应器/busNode 挂在旧图老节点对象上——编辑落死对象、提交撞 issue #10 守卫回弹 | 图实例替换分支清 `editStateSignatures` 强制重建（只清指纹不清 state，草稿/焦点保留照常） | ✅ 已实施（2026-11-21，`dd2b9deb`；GraphInstanceReplacementResetTest 源码锚，1392 绿） |
+| 41 | 全量同步图实例替换后 stale EditState 绑定（改名回车提交回弹 + 双端输入框不一致） | 同 id 签名恒等 → 旧 EditState 被保留，输入框/响应器/busNode 挂在旧图老节点对象上——编辑落死对象、提交撞 issue #10 守卫回弹 | busNode 提交判定按 id 重取活节点（`liveBusNode` 五路 + commitBusBox）；整图替换保持静默（40 tick 合并窗的全量同步不清指纹） | ✅ 已实施（2026-11-21，`dd2b9deb` 清指纹形态当日被 `85c71210` 取代；GraphReplacementQuietTest 源码锚，1393 绿） |
 
 ---
 
@@ -1222,7 +1222,10 @@ FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常�
 
 - 机制：全量同步整体替换图实例后，`renderBg` 的重建走签名比对——同 id 的签名值恒等（指纹不编码对象身份）→ 旧 EditState 被**保留**，其输入框/响应器/`st.busNode` 全部挂在**旧图的老节点对象**上。后果链：后续编辑落在死对象上（本地看不见、op 按 id 仍能到服务端）→ 显示与服务端权威态分歧；改名批测试里高频回车的提交在重建后的盒子上带着「保留草稿 + 非敲键」形态撞上 issue #10 守卫 → **回弹 + 「已丢弃未确认的频道名草稿」提示刷屏 + 双端输入框显示不一致**。2026-11-21 双人实机测出（与条目 40 同会话：改名触发全量同步是共同触发链）。
 - 修复方向：图实例替换分支（`lastInitGraph != graph`）清 `editStateSignatures` 强制全部展开节点重建——**只清指纹不清 state**：`createEditState` 以旧 state 为 `oldStRef`，草稿/焦点保留路径照常工作，新 state 以新图节点为绑定。
-- 状态：✅ 已实施（2026-11-21，`dd2b9deb`）。源码锚 `GraphInstanceReplacementResetTest`（替换分支清指纹、不清 state）。issue #10 的「非敲键草稿拒绝提交」纪律本身不动（防把别人/旧名顶回去的设计行为）。全量 1392 绿。
-/ After a wholesale graph-instance replacement, same-id signatures compared equal, keeping EditStates bound to the OLD graph's node objects — later edits landed on dead objects and Enter commits bounced back with both editors disagreeing. The replacement branch now clears the fingerprints (states survive so draft/focus preservation keeps working); the issue #10 keystroke-only commit discipline stays. Source anchor GraphInstanceReplacementResetTest; 1392 green.
+- 状态：✅ 已实施（2026-11-21，`dd2b9deb`；**实施形态当日被 `85c71210` 取代，见下**）。源码锚 `GraphInstanceReplacementResetTest`（已随之退役）。
+/ After a wholesale graph-instance replacement, same-id signatures compared equal, keeping EditStates bound to the OLD graph's node objects — later edits landed on dead objects and Enter commits bounced back with both editors disagreeing. First landed as a fingerprint clear on replacement; superseded the same day (see below).
+
+**↻ 实施形态取代（2026-11-21，`85c71210`，双探针实测定性）**：清指纹形态在双人实机上把「静默换壳」变成「每次替换全面板齐闪」——全量同步按 **40 tick 合并窗周期性到达**（SET_BANDS/改名路径的 `requestFullSync`，实测恰 2.0s 一轮，探针日志「sig null → X」三连铁证），每次都整体替换图实例，清指纹 = 每轮三面板齐闪。撤销清指纹（内容相同的替换走签名快速路径、零重建），stale 绑定改为**源头修**：`busNode` 的五处提交判定（差异检测/频段待同步/频段写回/防抖/失焦提交）+ `commitBusBox` 本体一律按 id 从当前图重取活节点（`liveBusNode` 助手，图节点响应器同款纪律），旧对象上的闭合写随 op 回声自愈。锚 = `GraphReplacementQuietTest`（替换分支双不清 + 五路重取 + commitBusBox findNode）。全量 1393 绿。附带定性：2.0s 全量同步循环本身是 SET_BANDS/改名送非编辑者的**设计形态**（40 tick 合并），非缺陷。
+/ Superseded the same day (dual-probe verdict): the fingerprint clear turned the silent wholesale replacement into an all-panel flash per wave — full syncs arrive on the 40-tick coalescing window (exactly 2.0s measured, the "sig null → X" triples being the proof). The clear is reverted (content-identical replacements ride the signature fast path silently) and stale bindings are fixed at the source: all five busNode commit faces plus commitBusBox re-fetch the live node by id (the liveBusNode helper). Anchors in GraphReplacementQuietTest; 1393 green. The 2.0s full-sync loop itself is the designed coalesced delivery to non-editors, not a defect.
 
 > **条目 7 实测修正（2026-11-21，双人实机）**：封装子图的节点菜单只有 ENCAP_INPUT/OUTPUT——正常玩法在子图里**造不出** BUS_OUT/PRIVATE_OUT，撞号场景菜单不可达。图域修法的现实价值 = **op 注入面加固**：准入门对子图目标按宿主方块的名单作答（BUS_OUT 仍在名单内），改包客户端仍可把发布节点注入子图——owner 键带图域后这条注入路径不再劫持主图同号节点。
