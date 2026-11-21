@@ -1,8 +1,9 @@
-# GraphEditor 渲染性能方案 / GraphEditor Render Performance Plan — 🔶 PERF-8′（死 flush 清除）与 PERF-1/4 待实施 / PERF-8′ + PERF-1/4 pending
+# GraphEditor 渲染性能方案 / GraphEditor Render Performance Plan — 🔶 PERF-8′/PERF-1 已落地，余复测 + PERF-4 再评估 / PERF-8' + PERF-1 landed; re-measure, then PERF-4
 
 > **状态 / Status**：🔶 **连线批已落地并复测（2026-11-14，§3.7）——canvas −49%（低缩放）/−83%（zoom 1.0）；
 > PERF-8 批语义取证完成（2026-11-21，§3.8）——q04 破绽根因=试验的「文本层后置」、flush 时序无罪，
-> 该形态永久弃案，改判为 PERF-8′（死 flush 清除）；PERF-1/4 文字两项待做**。
+> 该形态永久弃案；PERF-8′（死 flush 清除）与 PERF-1（文字 LOD，阈值 0.5 待拍板）已落地（1399/1402 绿）；
+> 余：实机复测（1024@0.25 场景）→ 达标收线或 PERF-4 按数据定形态**。
 > 起草于 2026-10-24，基线 `718d38b`（`main`）；2026-11-14 复核，基线 `8b0203d`（新增 PERF-8/9/10、
 > §5.4 外部参照与复核补充）；同日实机测量（PERF-7 工具 + jstack）——**连线 78–83% 为首恶，
 > §一/§四/§五.3/§六 已按实测重排**；2026-11-21 取证新增 §3.8。
