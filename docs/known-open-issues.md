@@ -2,7 +2,7 @@
 > 更新日期 / Updated：2026-11-08
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 共 24 项（✅ 已实施 14 项〔5/6/8/9/10/11/12/13/14/16/17/24/26/34〕；已拍板待实施 1 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件〕；待办 9 项〔其中条目 1 待立项、条目 18 半收口（② 回执形态发版后另批）、条目 19 宿主套件波前承接、条目 20 待用户拍板、条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）、条目 38 半收口（① 梯子墙钟耦合已实施、② 音频计时断言评估后暂缓）〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 共 25 项（✅ 已实施 16 项〔5/6/8/9/10/11/12/13/14/16/17/24/26/34/15/19〕；待办 9 项〔其中条目 1 待立项、条目 18 半收口（② 回执形态发版后另批）、条目 20 待用户拍板、条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）、条目 38 半收口（① 梯子墙钟耦合已实施、② 音频计时断言评估后暂缓）、条目 40 宿主套件批 E 退场留档（组合线样板收编择机另批）〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -29,11 +29,11 @@
 | 12 | 预算兜底未接线（deadline 兑底承诺未兑现） | `deadlineExhausted()` 全仓零调用点，FormulaCompute javadoc 却写着「deadline 仅作兜底（闭式巨脚本的紧急 shed）」——注释替未实现机制背书 | 接线；设置面板新增选项卡 + 两条指令（指令打开设置面板 / 指令直接调整），调整均需 OP，作用域 = 当前世界设置 | ✅ 已实施（2026-10-31，`e8a5ce4` 接线 + `01fcac3` 交互面，1010 绿；shed 语义=保持+升级冻结经追问拍板；审查修正 = 公平计数每 tick 一次 / 编辑清 streak / 控制台可调预算） |
 | 13 | validate 双份 parseScript（同一脚本解析两遍） | `FormulaValidator.validate` 内部完整重跑 `parseScript`，校验路径重复解析 | 去重复用解析产物，单独立批（行为批口径） | ✅ 已实施（2026-10-31，1044 绿；validate 增复用预解析产物重载，三调用点接线，每次击键两次解析降为一次） |
 | 14 | 显示器/HUD 每帧分配（图像墙 GC 抖动） | 3D 每像素 quad 无缓存、HUD 每不透明像素 `new float[8]`、恒渲染不进视锥剔除——图像墙场景顶点与分配线性叠加（复审 P1-4） | 只修分配（3D 按图代际缓存 mesh + HUD 像素四边形数组复用），**不碰恒渲染语义** | ✅ 已实施（2026-10-31，`d9c745a`，1044 绿；mesh 代际缓存 + 像素版本钩子 + HUD 复用缓冲，恒渲染语义原样） |
-| 15 | 1.3.0 公开 API 暴露面（外部模组高精度联动） | 对外联动只有红石兜底 0–15 与动力网邻接两条精路；进程内总线与一批 public static 设施"恰好可达"但无契约 | **两大件**：自定义节点（完全自定义求值 + 可恢复契约与独立预算池 + 名单制准入）+ 宿主套件；节点直连提供者方块，外部频道层砍掉；排期 = 先清 4 小批 → P2-7 并入节点波 → 宿主套件波 | 🔶 待办（**2026-10-31 拍板落定 D1–D8**，决策记录见探索稿 §8，实施按探索稿 §9 波次） |
+| 15 | 1.3.0 公开 API 暴露面（外部模组高精度联动） | 对外联动只有红石兜底 0–15 与动力网邻接两条精路；进程内总线与一批 public static 设施"恰好可达"但无契约 | **两大件**：自定义节点（完全自定义求值 + 可恢复契约与独立预算池 + 名单制准入）+ 宿主套件；节点直连提供者方块，外部频道层砍掉 | ✅ 已实施（波 1 批 A–E 2026-11-01；波 2 宿主套件 2026-11-21，D9/D10 决策记录见探索稿 §8，API 版本独立 0.2.0） |
 | 17 | 公开 API 批 D 承接：ITEM 编辑 UI 与 SET_CUSTOM_TEXT 文本帽 | ITEM 控件存储/op/K15 全通但无点击设置 UI；TEXT 写入服务端无显式帽（wire 32KB 全局帽在，但 32 控件×32KB 按节点聚合 + 撤销快照携带不受限） | 批 D：ITEM 编辑 UI 走 REDSTONE 槽位同款交互；TEXT 帽比照批 B blob 32KB 纪律（执行器拒收+节流告警） | ✅ 已实施（2026-11-01 批 D：`d42762a`+`cba36bf`，1108 绿） |
 | 18 | TEXT 聚合帽静默无回执 + legacy 多键超帽节点编辑锁死 | 执行器聚合帽拒收无回执（客户端乐观 TEXT 悬至下次代同步才收敛——K15 纵深防御有意形态，但与包层 REJECT 不一致）；旧档节点文本总量已在帽上时任何单键替换都过不了帽（替换记账需先降总）→ TEXT 永久改不动 | 批 E：①「降总也放行」逃生门（新总量 ≤ 旧总量的替换写放行，一行条件）；②回执形态另议（op 层带节点上下文的预检或新回执类型） | 🔶 ① 已实施（`5b97c18` 逃生门）；② 待办（回执形态，发版后按需另批） |
 | 16 | ADD_NODE 快照恢复路径不校验内容（K15 钳制可被绕过） | 撤销恢复的 NBT 快照由客户端手工构造且无对账——改包客户端可借合法类型 + 手工快照绕过 op 级钳制 | 恢复路径补同款钳制 + 快照类型与 op.nodeType 一致（2026-10-31 拍板 = 方向①内容卫生 + 深度预扫描） | ✅ 已实施（2026-10-31，1055 绿；三道门 + 常量同源，11 锚 AddNodeSnapshotSanitizeTest；②opLog 对账经勘察否定，见条目实施记录） |
-| 19 | 观测面 evaluatorView 交出活求值器 + 探针每 tick 装箱 | `GraphBlockEntity.evaluatorView()` 名为只读视图、实返活 `GraphEvaluator`（public 面含 `evaluate()` 重入与端口注入等改写口，仅 `nodeCostNsView()` 不可变）——宿主套件波后第三方将拿到此接口；探针每节点每 tick 向耗时表 `put` 新 `Long` 装箱（条目 14 同族分配纪律，量级小） | 宿主套件波前：① evaluatorView 收敛为真只读视图类型（只暴露耗时快照与节点标识解析的窄接口，不交出求值器本体）；② 耗时表改原始类型存储（id → long 开放寻址表，随求值器存亡语义不变），消除装箱 | 🔶 待办（2026-11-01 批 E 审查登记，宿主套件波前承接） |
+| 19 | 观测面 evaluatorView 交出活求值器 + 探针每 tick 装箱 | `GraphBlockEntity.evaluatorView()` 名为只读视图、实返活 `GraphEvaluator`（public 面含 `evaluate()` 重入与端口注入等改写口）——宿主套件波后第三方将拿到此接口；探针每节点每 tick 向耗时表 `put` 新 `Long` 装箱 | 宿主套件波前：① evaluatorView 收敛为真只读视图类型；② 耗时表改原始类型存储 | ✅ 已解决（2026-11-21 宿主套件波批 A：`NodePerfView` 窄口 + 原始类型开放寻址表，四处实现与 /cscperf 同步换口） |
 | 20 | 观测面板形态待定（规格「观测面板」现以 `/cscperf` 指令交付） | 探索稿 §9 收尾行写「观测面板（per-node 耗时进 perf/debug 设施）」，批 E 交付的是 OP 指令 `/cscperf`（看向宿主打印 top-20），未做 HUD/面板；耗时数据只在服务端求值器，任何面板形态都要新增服务端→客户端同步包与客户端 UI | 三选一待用户拍板：① 维持指令，§9 措辞收口为「观测面 = /cscperf」；② 设置面板「公式预算」页加本宿主 top-N 列表（编辑器内打开时宿主确定，请求/响应包按需取快照）；③ 编辑器内节点耗时角标（持续同步包 + 渲染 + 开关，回归面最大） | 🔶 待用户拍板（2026-11-01 批 E 收尾登记） |
 | 21 | 自定义节点引脚类型化（公开 API 开放设计点） | CustomNodeType 引脚仍只有 FLOAT 域；schema 加 pinTypes 的形态未定（API 未冻结，锁早了返工） | 附属开发阶段 API 定型后：schema 引脚声明携带 PinType（缺省 FLOAT），Eval 按声明读写载荷旁路 | 🔶 开放（API 未冻结，附属开发阶段一起定） |
 | 22 | ENCAP 子图边界引脚类型化（音频/向量过封装边界） | ENCAP 输入/输出引脚恒 FLOAT，音频与向量载荷过不了封装边界；声明模型与子图载荷穿越都未设计 | ENCAP_INPUT/OUTPUT 子节点加声明类型（同 PRIVATE 单元素口径），EncapEval 按类型穿越载荷；先与条目 21 对齐 | 🔶 另批 |
@@ -775,7 +775,10 @@ javadoc 称只读视图，实际返回活 `GraphEvaluator` 引用——其 publi
 
 ### 状态 / Status
 
-🔶 待办（2026-11-01 批 E 审查登记；宿主套件波前承接）。
+✅ 已解决（2026-11-21 宿主套件波批 A：`graph/NodePerfView` 真只读窄口——`hasCosts`/
+`nodeIds`/`nodeCostNs` 三方法、签名全原始类型，不交出求值器本体；`GraphEvaluator`
+耗时表换原始类型开放寻址表，EMA 语义与整表换血语义不变；四处实现与 `/cscperf`
+格式化同步换口。宿主套件波各批 1412–1416 绿）。
 
 ## 20. 观测面板形态待定（规格「观测面板」现以 `/cscperf` 指令交付）
 
@@ -1199,3 +1202,26 @@ FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常�
 - 测量约束：本负载跨二进制 A/B 有 ±25% 布局噪声（见 `rust-backend-optimization.md` §五.0「测量方法学的重要发现」——同二进制探针是唯一可靠口径）,收益判定必须用该口径,单次 A/B 不可归因;**2026-11-21 补强:跨测量窗的序列 A/B 同样不可归因（负载漂移可伪造全线 ±30%）,判定以同窗交错对照为准（§五.3）**。
 - 状态：**判定关闭**（2026-11-21 csc-rust-perf 线实测:同窗抖动分布 7 线无一达 +3% 判定门、3 线中位回退 >3%（弹道 full −11.5%）,池化整体回退、代码零落地;实施形态与两轮分布见 `rust-backend-optimization.md` §五.3。tok.rs 模块头注释已改真实描述——16B 是当前与可预见形态,8B 宣称注销）。
 / Tok is 16B in memory (the module header's 8B claim never materialized; Const(f64) inflates the enum). Const-pooling (u32 index + an Rpn-level pool, wire format unchanged) was implemented and measured on 2026-11-21, missed its 3% gate and was reverted whole — judged closed (0/7 lines reached the gate, 3 regressed beyond 3%, worst ballistic/full −11.5%; same-window jitter distribution, see rust-backend-optimization.md §5.3). The measurement also strengthened §5.0: sequential cross-window A/B is as unattributable as cross-binary (load drift faked a uniform +20-34% win in the first pass). The tok.rs module header now describes the true 16B shape; the 8B claim is retired.
+
+## 40. 组合线宿主样板收编（宿主套件批 E 退场留档）
+
+范围 / Scope：`blocks/KineticGaugeBlockEntity`、`blocks/CncGearboxBlockEntity`、
+`blocks/ProgrammableTransmissionBlockEntity`（组合线三宿主的契约转发样板）
+
+### 机制 / Mechanism
+
+波 2 适配器（`blocks/HostGraphAdapter`）把组合线先例的形态通用化了——契约转发、
+生命周期三转发、NBT 门控、`nodeAllowance()` 答名单。三宿主各自仍手写约 40 行同款
+样板；收编 = 把它们从「原生 `GraphBlockEntity` 实现」改绑「套件适配器宿主」
+（BE 本体不再实现图契约，识别走 resolver 登记表）。
+
+### 拍板 / Ruling
+
+退场（2026-11-21 宿主套件波批 E）：收编属纯去重（~40 行/宿主），但要动现役动力
+宿主的宿主形态——回归面覆盖 K23 tick 编排、Create `sendData` 互作与读数推送链，
+且套件形态本就逐行提炼自该先例（批 G 电推迁移已证套件对附属形态成立）。随债务
+清理线择机另批，不挡波 2 收口。
+
+### 状态 / Status
+
+🔶 暂缓（2026-11-21 波 2 批 E 拍板退场留档）。
