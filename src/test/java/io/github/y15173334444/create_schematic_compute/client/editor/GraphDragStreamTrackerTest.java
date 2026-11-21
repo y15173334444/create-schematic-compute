@@ -271,6 +271,41 @@ class GraphDragStreamTrackerTest {
         tr.endFrame(g);
     }
 
+    @Test
+    @DisplayName("保活条目构建：空闲 null；优先级照分发序（尺寸>注释框>多选>单节点）/ keep-alive entry builder: idle null, dispatch-ordered priority")
+    void buildDragEntriesPriorityAndShape() {
+        var g = new NodeGraph();
+        GraphNode comment = g.addNode(NodeType.COMMENT, 0, 0);
+        GraphNode a = g.addNode(NodeType.TEXT, 10, 10);
+        GraphNode b = g.addNode(NodeType.TEXT, 20, 20);
+        var contained = java.util.List.of(a);
+        var pushed = java.util.List.of(b);
+        var selection = java.util.List.of(a, comment);
+
+        assertNull(GraphEditor.buildDragEntries(null, null, contained, pushed, false, selection),
+            "idle drag → no entries");
+
+        var nodeDrag = GraphEditor.buildDragEntries(null, a, contained, pushed, false, selection);
+        assertEquals(1, nodeDrag.size(), "plain node drag = one position entry");
+        assertEquals(Entry.pos(a.id, a.x, a.y), nodeDrag.get(0));
+
+        var multi = GraphEditor.buildDragEntries(null, null, contained, pushed, true, selection);
+        assertEquals(2, multi.size(), "multi drag = one entry per selected node");
+        assertEquals(a.id, multi.get(0).nodeId());
+        assertEquals(comment.id, multi.get(1).nodeId());
+
+        var commentMove = GraphEditor.buildDragEntries(null, comment, contained, pushed, true, selection);
+        assertEquals(3, commentMove.size(), "comment move carries the box + contained + pushed");
+        assertEquals(comment.id, commentMove.get(0).nodeId());
+        assertEquals(a.id, commentMove.get(1).nodeId());
+        assertEquals(b.id, commentMove.get(2).nodeId());
+
+        var resize = GraphEditor.buildDragEntries(comment, a, contained, pushed, true, selection);
+        assertEquals(1, resize.size(), "resize outranks everything (dispatch order)");
+        assertEquals(GraphDragStreamPacket.KIND_COMMENT_SIZE, resize.get(0).kind());
+        assertEquals(comment.id, resize.get(0).nodeId());
+    }
+
     // ── helpers ──
 
     private static GraphDragStreamTracker newTracker() {

@@ -1233,6 +1233,19 @@ public class GraphEditor {
         // Must sit before the snap null-check early return: bus names must sync even
         // when the graph isn't running (empty snapshot).
         tickDebouncedBusEdits();
+        // 拖动保活（批 1.2）：流只由 mouseMoved 驱动——按住不动时发包静默，旁观端覆盖层
+        // 500ms 过期、节点回落图真值（用户实测：拖动中停住未松手即「回原位」）。拖拽进行中
+        // 按同节拍补发当前几何；tracker 的 100ms 节流统一管速（≤10/s，DRAG_STREAM 桶恒满），
+        // 无拖拽时零成本。真卡死/掉线时保活自然停 → 过期回落的安全性质保留。
+        // Drag keep-alive (batch 1.2): the stream is mouseMoved-driven — holding the mouse
+        // still silences it, and after 500 ms the watcher's overlay expires and the node
+        // falls back to graph truth (user-reported snap-back while still holding). While a
+        // drag is live, re-submit the current geometry on the same cadence; the tracker's
+        // 100 ms throttle governs the pace (≤10/s, DRAG_STREAM bucket stays full), and with
+        // no drag active this costs nothing. A true stall/death stops the keep-alive,
+        // preserving the expiry fallback.
+        var keepAliveEntries = buildCurrentDragEntries();
+        if (keepAliveEntries != null) dragStream.submit(keepAliveEntries);
         var snap = host.getCachedEvalSnapshot();
         if (snap == null || snap == io.github.y15173334444.create_schematic_compute.graph.EvalSnapshot.EMPTY) return;
         var graph = getGraph();
@@ -1246,6 +1259,50 @@ public class GraphEditor {
             n.probeHead = (n.probeHead + 1) % n.probeHistory.length;
             if (n.probeCount < n.probeHistory.length) n.probeCount++;
         }
+    }
+
+    /** 当前活动拖拽的临场条目（无拖拽为 null）——实例包装，与四条 mouseMoved 路径读同一份
+     *  拖拽状态源。 / Entries of the currently active drag (null when idle) — instance
+     *  wrapper reading the same drag-state source as the four mouseMoved paths. */
+    private java.util.List<io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry> buildCurrentDragEntries() {
+        return buildDragEntries(resizingComment, draggingNode, containedDragNodes, pushedDragNodes,
+            multiDragging, selectedNodes);
+    }
+
+    /** 拖拽状态 → 临场条目（纯函数，headless 可测）：优先级照 mouseMoved 的分发序（尺寸
+     *  调整 &gt; 注释框拖动 &gt; 多选拖动 &gt; 单节点拖动）；注释框拖动携带框内+被撞开节点；
+     *  位置一律取当前字段值——保活补发与增量发送同源同值。
+     *  Drag state → stream entries (pure function, headless-testable): priority mirrors the
+     *  mouseMoved dispatch (resize &gt; comment move &gt; multi drag &gt; node drag); a
+     *  comment move carries contained + pushed-aside nodes; positions always read the live
+     *  fields — the keep-alive resend shares one source with incremental sends. */
+    static java.util.List<io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry> buildDragEntries(
+            GraphNode resizingComment, GraphNode draggingNode,
+            java.util.Collection<GraphNode> containedDragNodes, java.util.Collection<GraphNode> pushedDragNodes,
+            boolean multiDragging, java.util.Collection<GraphNode> selectedNodes) {
+        if (resizingComment != null)
+            return java.util.List.of(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.commentSize(
+                resizingComment.id, resizingComment.commentWidth, resizingComment.commentHeight));
+        if (draggingNode != null && draggingNode.type == NodeType.COMMENT) {
+            var es = new java.util.ArrayList<io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry>(
+                1 + containedDragNodes.size() + pushedDragNodes.size());
+            es.add(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.pos(draggingNode.id, draggingNode.x, draggingNode.y));
+            for (var cn : containedDragNodes)
+                es.add(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.pos(cn.id, cn.x, cn.y));
+            for (var pn : pushedDragNodes)
+                es.add(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.pos(pn.id, pn.x, pn.y));
+            return es;
+        }
+        if (multiDragging) {
+            var es = new java.util.ArrayList<io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry>(selectedNodes.size());
+            for (var sn : selectedNodes)
+                es.add(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.pos(sn.id, sn.x, sn.y));
+            return es;
+        }
+        if (draggingNode != null)
+            return java.util.List.of(io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.pos(
+                draggingNode.id, draggingNode.x, draggingNode.y));
+        return null;
     }
 
     /** 服务端 ACK 到达后，发送复制节点的所有数据 op 和连接。
