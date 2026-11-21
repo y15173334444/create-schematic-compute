@@ -271,29 +271,11 @@ final class GraphPresenceTracker {
             float toX = ed.c2sX(p.wireEndX()), toY = ed.c2sY(p.wireEndY());
             float dist = (float)Math.sqrt((toX-fromX)*(toX-fromX)+(toY-fromY)*(toY-fromY));
             int steps = Math.max(10, (int)(dist * 0.15f));
-            float px = fromX, py = fromY;
-            for (int i = 1; i <= steps; i++) {
-                float t = i / (float)steps;
-                float nx = WireGeometry.bezierX(fromX, toX, t);
-                float ny = WireGeometry.bezierY(fromY, toY, t);
-                int sdx = (int)nx - (int)px, sdy = (int)ny - (int)py;
-                int segLen = Math.max(Math.abs(sdx), Math.abs(sdy));
-                if (segLen == 0) g.fill((int)px, (int)py, (int)px + 1, (int)py + 1, color);
-                else {
-                    int runStart = (int)px, runY = (int)py;
-                    for (int j = 1; j <= segLen; j++) {
-                        int cx2 = (int)px + sdx * j / segLen;
-                        int cy2 = (int)py + sdy * j / segLen;
-                        if (cy2 != runY || j == segLen) {
-                            int endX = j == segLen ? (int)nx : (int)px + sdx * (j - 1) / segLen;
-                            int x1 = Math.min(runStart, endX), x2 = Math.max(runStart, endX);
-                            g.fill(x1, runY, x2 + 1, runY + 1, color);
-                            runStart = cx2; runY = cy2;
-                        }
-                    }
-                }
-                px = nx; py = ny;
-            }
+            // 画线走共享的连线发射（旋转四边形 + pose 局部宽，与本地拖拽预览同观感；
+            // NodeWireRenderer.drawWire 一批一收）。
+            // The preview rides the shared wire emission (rotated quads + pose-local width,
+            // same look as the local drag preview; NodeWireRenderer.drawWire = one batch).
+            NodeWireRenderer.drawWire(g, fromX, fromY, toX, toY, ed.zoom, steps, color);
         }
         // Render remote cursors (same scope only; skip display-layout presences — the monitor
         // screen renders those on its own display-area overlay)
