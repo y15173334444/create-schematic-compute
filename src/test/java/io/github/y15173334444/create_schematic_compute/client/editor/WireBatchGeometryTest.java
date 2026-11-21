@@ -110,14 +110,16 @@ class WireBatchGeometryTest {
     }
 
     @Test
-    @DisplayName("屏幕宽契约:2×half == max(zoom, 0.5 下限) / screen-width contract: 2×half == max(zoom, 0.5 floor)")
+    @DisplayName("屏幕宽契约:2×half == max(2×zoom, 0.75 下限) / screen-width contract: 2×half == max(2×zoom, 0.75 floor)")
     void halfWidthMatchesPoseLocalRule() {
-        assertEquals(0.5f, NodeWireRenderer.wireHalfWidth(1.0f), EPS);
-        assertEquals(1.0f, NodeWireRenderer.wireHalfWidth(2.0f), EPS);
-        // 下限边界:zoom 0.5 恰好 = 下限 / the floor boundary: zoom 0.5 exactly meets it
-        assertEquals(0.25f, NodeWireRenderer.wireHalfWidth(0.5f), EPS);
-        // 下限生效域:低缩放保底 0.5 屏幕像素(实测「有点细」拍板) / the floor domain: low zoom keeps 0.5 screen px
-        assertEquals(0.25f, NodeWireRenderer.wireHalfWidth(0.25f), EPS);
-        assertEquals(0.25f, NodeWireRenderer.wireHalfWidth(0f), EPS);
+        // 基宽 2 局部像素(二轮拍板「整体变宽」) / base 2 local pixels (2nd-round ruling "wider overall")
+        assertEquals(1.0f, NodeWireRenderer.wireHalfWidth(1.0f), EPS);
+        assertEquals(2.0f, NodeWireRenderer.wireHalfWidth(2.0f), EPS);
+        assertEquals(0.5f, NodeWireRenderer.wireHalfWidth(0.5f), EPS);
+        // 下限生效域:低缩放保底 0.75 屏幕像素 / the floor domain: low zoom keeps 0.75 screen px
+        assertEquals(0.375f, NodeWireRenderer.wireHalfWidth(0.25f), EPS);
+        assertEquals(0.375f, NodeWireRenderer.wireHalfWidth(0f), EPS);
+        // 下限边界:zoom 0.375 恰好 = 下限 / the floor boundary: zoom 0.375 exactly meets it
+        assertEquals(0.375f, NodeWireRenderer.wireHalfWidth(0.375f), EPS);
     }
 }

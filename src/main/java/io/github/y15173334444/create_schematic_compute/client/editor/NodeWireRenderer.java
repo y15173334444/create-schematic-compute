@@ -126,11 +126,11 @@ final class NodeWireRenderer {
      * <li><b>步数封顶</b>：步数按可见弦长分配、clamp(·, 6, 48)——折线感可接受
      *     （PERF-2 拍板 2026-11-14）；</li>
      * <li><b>批提交 + pose 局部宽</b>：每步一段旋转四边形攒进调用方的 {@link Batch}
-     *     （A=2 全段一次 endBatch，替代逐 fill 自动 endBatch）；线宽 = max(1 局部像素 × zoom,
-     *     0.5 屏幕像素)——pose 局部口径沿边框批 2，另带 0.5px 屏幕下限防低缩放亚像素断线
-     *     （2026-11-21 实测拍板）。
+     *     （A=2 全段一次 endBatch，替代逐 fill 自动 endBatch）；线宽 = max(2 局部像素 × zoom,
+     *     0.75 屏幕像素)——随 zoom 等比、基宽 2 局部像素（2026-11-21 实测二轮拍板「整体变宽」），
+     *     0.75px 屏幕下限防低缩放亚像素断线。
      *     旋转四边形是 pose 局部宽的必要形态——逐行 DDA 打点表达不了亚像素宽，
-     *     zoom 1 下的斜线观感从「行阶梯增厚」变为精确 1px。</li>
+     *     zoom 1 下的斜线观感从「行阶梯增厚」变为精确描边。</li>
      * </ol>
      */
     private void bezier(Batch batch, float zoom, float x1, float y1, float x2, float y2, int c) {
@@ -205,20 +205,18 @@ final class NodeWireRenderer {
     }
 
     /**
-     * 连线半宽（屏幕宽 = max(1 局部像素 × zoom, 0.5 屏幕像素) 的对半）——pose 局部口径
-     * 沿节点边框批 2（zoom 1 恰为 1px），但带 0.5px **屏幕下限**：纯 pose 局部在低缩放
-     * 退化到亚像素、像素覆盖间歇命中读作断线（2026-11-21 实测拍板「有点细」）——
-     * 下限让低缩放线保底半像素（覆盖 ~50%，连续感恢复），zoom ≥ 0.5 观感不变。
-     * 下限值拍板调整只改这一个常量。
-     * Wire half width (screen width = max(1 local pixel × zoom, 0.5 screen pixels), halved)
-     * — the pose-local rule follows the node border (exactly 1px at zoom 1) with a 0.5px
-     * screen floor: pure pose-local degrades below half a pixel at low zoom where pixel
-     * coverage hits intermittently and reads as broken lines (live-tested 2026-11-21,
-     * "a bit thin"). The floor keeps low-zoom wires at half a pixel (~50% coverage,
-     * continuous again); zoom ≥ 0.5 is unchanged. Rulings adjust this one constant.
+     * 连线半宽（屏幕宽 = max(2 局部像素 × zoom, 0.75 屏幕像素) 的对半）——基宽
+     * **2 局部像素**（2026-11-21 实测二轮拍板「整体变宽」：非低缩放专项调整，全缩放段
+     * 随 zoom 等比加粗，zoom 1 = 2px / 0.5 = 1px），另带 0.75px **屏幕下限**托底防
+     * 低缩放亚像素断续（0.25 缩放 = 0.75px）。两处拍板调整各只改本函数一个常量。
+     * Wire half width (screen width = max(2 local pixels × zoom, 0.75 screen pixels),
+     * halved) — base width **2 local pixels** (live-ruled 2026-11-21, second round:
+     * "wider overall", not a low-zoom-only tweak — proportional at every zoom, zoom 1 = 2px,
+     * 0.5 = 1px) with a 0.75px screen floor against sub-pixel fragmentation at low zoom
+     * (zoom 0.25 = 0.75px). Each ruling adjusts one constant here.
      */
     static float wireHalfWidth(float zoom) {
-        return Math.max(zoom, 0.5f) * 0.5f;
+        return Math.max(zoom * 2f, 0.75f) * 0.5f;
     }
 
     /**
