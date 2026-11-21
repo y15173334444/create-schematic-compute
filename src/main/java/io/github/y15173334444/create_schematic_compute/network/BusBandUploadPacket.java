@@ -2,6 +2,7 @@ package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntities;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
@@ -75,7 +76,8 @@ public record BusBandUploadPacket(BlockPos pos, String busName, List<String> ban
             if (!io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry.getEditors(serverLevel, pos).contains(sp.getUUID()))
                 return;
             var be = ctx.player().level().getBlockEntity(pos);
-            if (be instanceof GraphBlockEntity gbe) {
+            var gbe = GraphBlockEntities.resolve(be);
+            if (gbe != null) {
                 var graph = gbe.getNodeGraph();
                 if (graph != null) {
                     // 结构/定义两层语义在 applyBandUpload / structure vs definition split there

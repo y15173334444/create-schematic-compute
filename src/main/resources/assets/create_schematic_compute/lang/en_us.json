@@ -2,6 +2,7 @@
   "itemGroup.create_schematic_compute": "Create: Schematic Compute",
   "block.create_schematic_compute.blueprint": "Blueprint Computer",
   "container.create_schematic_compute.blueprint": "Blueprint Editor",
+  "container.create_schematic_compute.host_graph": "Graph Host Editor",
   "gui.create_schematic_compute.blueprint.add_node": "Add Node",
   "node.create_schematic_compute.const": "Constant",
   "node.create_schematic_compute.redstone_in": "Redstone Input",

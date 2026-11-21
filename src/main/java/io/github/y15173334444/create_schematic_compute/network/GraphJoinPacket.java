@@ -10,7 +10,6 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
-import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
 
 /**
  * Client→Server: player opened the edit UI for a graph.
@@ -68,14 +67,19 @@ public record GraphJoinPacket(BlockPos pos) implements CustomPacketPayload {
             // 2. Verify target is one of the 7 graph block entities BEFORE joining session
             //    在加入编辑会话之前，验证目标是7种图方块实体之一，防止非法方块被注入编辑状态
             var be = sp.level().getBlockEntity(pkt.pos);
-            if (!(be instanceof GraphBlockEntity)) return;
+            var gbe = GraphBlockEntities.resolve(be);
+            if (gbe == null) return;
             // 3. Safe to join — register player into the edit session and trigger full sync
             //    安全检查通过，将玩家注册到编辑会话中，并触发对应方块实体的全量同步
-            // （flagFullSync 走 GraphBlockEntity 接口，继承线与组合线宿主统一处理）
+            // （flagFullSync 走 GraphBlockEntity 接口，继承线与套件宿主统一处理；转型对象
+            //   必须是 resolver 的返回值——套件宿主的 BE 本体不是 GraphBlockEntity，其适配器
+            //   才是，转原始 BE 会 CCE（实机实证：电推 join 即炸））
             // (flagFullSync goes through the GraphBlockEntity interface — handles both
-            //  inheritance-line and composition-line hosts uniformly)
+            //  inheritance-line and suite hosts uniformly; the cast target must be the
+            //  resolver's return value - a suite host's BE is not itself a GraphBlockEntity,
+            //  its adapter is; casting the raw BE throws CCE (live-verified: electric push join))
             EditSessionRegistry.join(sp.serverLevel(), pkt.pos, sp.getUUID());
-            ((GraphBlockEntity) be).flagFullSync();
+            gbe.flagFullSync();
             // Send the initial update packet to the joining player so their UI reflects current state
             // 向加入的玩家发送初始更新数据包，使其UI反映当前方块状态
             var update = be.getUpdatePacket();

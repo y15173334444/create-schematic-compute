@@ -474,7 +474,7 @@ public class GraphEvaluator implements EvaluatorObservationView {
         }
     }
 
-    /** 每节点求值耗时 EMA（观测面，批 E）：键 = 节点 id，值 = 指数滑动平均 ns（首样播种，
+    /** 每节点求值耗时 EMA（观测面，批 E）：节点 id → 指数滑动平均 ns（首样播种，
      *  之后 7/8 旧 + 1/8 新）。随求值器生命周期存亡——图编辑触发重建时整表换血（含已删
      *  节点的陈旧键），无持久化无跨 tick 泄漏面。封装子求值器各持己表（/cscperf v1 只读
      *  顶层图）。存储 = 节点 id → long 的原始类型开放寻址表（条目『观测面 evaluatorView

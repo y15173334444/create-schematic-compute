@@ -62,4 +62,53 @@ class CustomNodeRosterTest {
         CustomNodeRoster.clearForTests();
         assertEquals(Set.of(), CustomNodeRoster.forHost(key), "clearForTests empties the roster");
     }
+
+    /** 波 2 自声明键（宿主套件）：形态校验、CSC 白名单键不可声明、重复声明 ISE、
+     *  归属两路放行——自声明键收自己命名空间的节点、他人命名空间与未声明键照拒。
+     *  Wave-2 self-declared keys (host suite): shape validation, CSC allowlist keys
+     *  cannot be declared, duplicate declaration throws ISE, and the two-path ownership
+     *  — a self-declared key admits its own namespace's nodes while other namespaces
+     *  and undeclared keys are still refused. */
+    @Test
+    @DisplayName("自声明键：形态/重复纪律 + 命名空间归属两路放行")
+    void declaredKeyOwnership() {
+        assertThrows(IllegalArgumentException.class, () -> CustomNodeRoster.declareHostKey(null),
+            "null keys are refused");
+        assertThrows(IllegalArgumentException.class, () -> CustomNodeRoster.declareHostKey(" "),
+            "blank keys are refused");
+        assertThrows(IllegalArgumentException.class, () -> CustomNodeRoster.declareHostKey("nokey"),
+            "keys without a namespace are refused");
+        assertThrows(IllegalArgumentException.class, () -> CustomNodeRoster.declareHostKey(":lonely"),
+            "empty namespaces are refused");
+        assertThrows(IllegalArgumentException.class, () -> CustomNodeRoster.declareHostKey("hostmod:"),
+            "empty key names are refused");
+        assertThrows(IllegalStateException.class,
+            () -> CustomNodeRoster.declareHostKey(BlockNodeAllowances.BLUEPRINT.hostKey()),
+            "a CSC allowlist key cannot be re-declared by third parties");
+
+        String key = "hostmod:electric";
+        CustomNodeRoster.declareHostKey(key);
+        CustomNodeRoster.declareHostKey(key);
+        assertEquals(1, CustomNodeRoster.declaredHostKeys().size(),
+            "duplicate declaration is idempotent (keys are per-type; binds are per-instance)");
+        var snapshot = CustomNodeRoster.declaredHostKeys();
+        assertTrue(snapshot.contains(key), "the declared key is observable");
+        assertThrows(UnsupportedOperationException.class, () -> snapshot.add("hostmod:other"),
+            "the declared-key snapshot is read-only");
+
+        CustomNodeRegistry.register(new CustomNodeType("hostmod:socket", "R socket",
+            List.of(), List.of(), List.of()));
+        CustomNodeRoster.admit(key, "hostmod:socket");
+        assertEquals(1, CustomNodeRoster.forHost(key).size(),
+            "a self-declared key admits its own namespace's nodes");
+        assertThrows(IllegalArgumentException.class,
+            () -> CustomNodeRoster.admit(key, "otherns:socket"),
+            "another namespace's node is refused even on a declared key");
+        assertThrows(IllegalArgumentException.class,
+            () -> CustomNodeRoster.admit("undeclared-host:whatever", "hostmod:socket"),
+            "an undeclared key is still refused");
+        CustomNodeRoster.clearForTests();
+        assertEquals(Set.of(), CustomNodeRoster.declaredHostKeys(),
+            "clearForTests empties the declared keys too");
+    }
 }

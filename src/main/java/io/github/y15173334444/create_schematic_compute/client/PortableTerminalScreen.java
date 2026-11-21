@@ -19,6 +19,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import java.util.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import io.github.y15173334444.create_schematic_compute.client.editor.HostGraphScreen;
 import io.github.y15173334444.create_schematic_compute.client.editor.NodeRenderer;
 
 /**
@@ -324,7 +325,8 @@ public class PortableTerminalScreen extends Screen {
                     BlockEntity be = e.getValue();
                     // Only GraphBlockEntity subclasses participate in the terminal ecosystem
                     // 只有 GraphBlockEntity 子类参与终端生态系统
-                    if (be instanceof GraphBlockEntity gbe) {
+                    var gbe = GraphBlockEntities.resolve(be);
+            if (gbe != null) {
                         // 类型名恒显示（其他玩家据此知道设备原本是什么方块），
                         // 自定义名（编辑器顶栏设置）跟在后面；类型名去掉格式化代码（§.）。
                         // 格式必须与服务端 Sable 扫描（SablePacketHelper.deviceDisplayName）一致。
@@ -777,8 +779,9 @@ public class PortableTerminalScreen extends Screen {
         // `default` branch never runs (crash report 2026-09-13 — clicking the kinetic gauge in the
         // terminal: it implements GraphBlockEntity so it is listed, but had no route key yet).
         String key = routeKey(editingBeClass.getSimpleName());
-        if (key == null) return;
-        Screen inner = switch (key) {
+        Screen inner = null;
+        if (key != null) {
+        inner = switch (key) {
             case "Monitor"    -> new MonitorScreen(editingPos);
             case "Radar"      -> new RadarScreen(editingPos);
             case "Blueprint"  -> new BlueprintScreen(editingPos);
@@ -791,6 +794,26 @@ public class PortableTerminalScreen extends Screen {
             case "KineticGauge" -> new KineticGaugeScreen(editingPos);
             default -> null;
         };
+        } else {
+            // 宿主套件（波 2）默认路由：未进路由表、但经 resolver 解析到套件适配器的
+            // 第三方宿主 → 泛用图屏。封掉「列表在、点开静默无效」事故族（2026-09-13
+            // 动力传感器 NPE 同族）；判定 = BE 本体不是 GraphBlockEntity 而解析命中
+            // 适配器（本模组自有宿主全在路由表内，命中不了路由键的自有宿主维持静默
+            // 放弃——先专后泛不变）。
+            // Host-suite (wave 2) default route: a third-party host with no route-key
+            // entry that still resolves to a suite adapter opens the generic graph
+            // screen. This seals the "listed but silently does nothing" accident family
+            // (the 2026-09-13 kinetic-gauge NPE family); the discriminator is a raw BE
+            // that is NOT a GraphBlockEntity yet resolves to an adapter (this mod's own
+            // hosts all have routes; an unrouteable own host keeps the silent give-up —
+            // specific before generic, unchanged).
+            var raw = mc.level != null && editingPos != null
+                ? mc.level.getBlockEntity(editingPos) : null;
+            if (raw != null && !(raw instanceof GraphBlockEntity)
+                && GraphBlockEntities.resolve(raw) != null) {
+                inner = new HostGraphScreen(editingPos);
+            }
+        }
         if (inner == null) return;
 
         // Store reference for re-opening terminal after the inner screen closes

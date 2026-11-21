@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.client;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.client.editor.EditorKeys;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntities;
 import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
 import io.github.y15173334444.create_schematic_compute.client.editor.NodeRenderer;
 import io.github.y15173334444.create_schematic_compute.client.audio.CscAudioEngine;
@@ -259,7 +260,8 @@ public class NbsEditorScreen extends Screen implements GraphEditor.Host {
 
     private GraphBlockEntity getBE() {
         if (minecraft != null && minecraft.level != null) {
-            if (minecraft.level.getBlockEntity(blockPos) instanceof GraphBlockEntity be) return be;
+            var be = GraphBlockEntities.resolve(minecraft.level.getBlockEntity(blockPos));
+            if (be != null) return be;
         }
         return null;
     }

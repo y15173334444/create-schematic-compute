@@ -964,8 +964,7 @@ public final class BusChannelHelper {
             n.busConflictTicks++;
             return n.busConflictTicks > 200;
         }
-        boolean ownerBeAlive = sl.getBlockEntity(ownerPos)
-            instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+        boolean ownerBeAlive = io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntities.resolve(sl.getBlockEntity(ownerPos)) != null;
         if (ownerBeAlive) {
             n.busConflictTicks = 0;
             return false;

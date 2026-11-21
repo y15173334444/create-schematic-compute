@@ -2,6 +2,7 @@ package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntities;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.FriendlyByteBuf;
@@ -94,7 +95,8 @@ public record BusBandSyncPacket(BlockPos pos, String busName, List<String> bands
                 // still converge below via syncBusBandsFromServer with the authoritative value.
                 if (SignalBus.getChannel(busName) == null) SignalBus.clearBus(busName);
             }
-            if (be instanceof GraphBlockEntity gbe) {
+            var gbe = GraphBlockEntities.resolve(be);
+            if (gbe != null) {
                 var emptyBands = java.util.Collections.<String>emptyList();
                 gbe.syncBusBandsFromServer(busName,
                     bands != null && !bands.isEmpty() ? bands : emptyBands);

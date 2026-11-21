@@ -2,6 +2,7 @@ package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntities;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -40,7 +41,8 @@ public record BlueprintTogglePacket(BlockPos pos, boolean start, boolean isSable
                 if (sl != null) level = sl;
                 else return;
             }
-            if (level.getBlockEntity(pos) instanceof GraphBlockEntity gbe) {
+            var gbe = GraphBlockEntities.resolve(level.getBlockEntity(pos));
+            if (gbe != null) {
                 if (start && gbe.graphHasCycles()) {
                     ctx.player().sendSystemMessage(
                             net.minecraft.network.chat.Component.literal("§c⚠ Cycle detected! Cannot start: the graph contains a feedback loop."));
