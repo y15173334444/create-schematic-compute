@@ -31,28 +31,34 @@ class WireBatchGeometryTest {
     @DisplayName("水平段:宽 2h、两端各外扩 h / horizontal segment: width 2h, extended by h at both ends")
     void horizontalSegment() {
         float[] q = quad(10, 10, 30, 10, 0.5f);
-        // y 覆盖 [9.5, 10.5]; x 覆盖 [9.5, 30.5]（外扩） / y spans [9.5,10.5]; x spans [9.5,30.5] (extended)
-        assertEquals(9.5f, q[1], EPS);
-        assertEquals(9.5f, q[3], EPS);
-        assertEquals(10.5f, q[5], EPS);
-        assertEquals(10.5f, q[7], EPS);
+        // 环序约定 c1..c4 = a−ext+perp → b+ext+perp → b+ext−perp → a−ext−perp,perp=(−uy,ux)·h:
+        // 左→右水平段的 perp=+y,c1/c2 在 y=10.5、c3/c4 在 y=9.5;覆盖 x∈[9.5,30.5](外扩)、y∈[9.5,10.5]。
+        // Ring convention c1..c4 = a−ext+perp → b+ext+perp → b+ext−perp → a−ext−perp, perp=(−uy,ux)·h:
+        // a left→right horizontal segment has perp=+y, c1/c2 at y=10.5, c3/c4 at y=9.5;
+        // coverage x∈[9.5,30.5] (extended), y∈[9.5,10.5].
         assertEquals(9.5f, q[0], EPS);
+        assertEquals(10.5f, q[1], EPS);
         assertEquals(30.5f, q[2], EPS);
+        assertEquals(10.5f, q[3], EPS);
         assertEquals(30.5f, q[4], EPS);
+        assertEquals(9.5f, q[5], EPS);
         assertEquals(9.5f, q[6], EPS);
+        assertEquals(9.5f, q[7], EPS);
     }
 
     @Test
     @DisplayName("垂直段:宽 2h / vertical segment: width 2h")
     void verticalSegment() {
         float[] q = quad(10, 10, 10, 30, 0.5f);
+        // 上→下垂直段的 perp=−x:c1/c2 在 x=9.5、c3/c4 在 x=10.5 / a top→down vertical segment
+        // has perp=−x: c1/c2 at x=9.5, c3/c4 at x=10.5
         assertEquals(9.5f, q[0], EPS);
-        assertEquals(10.5f, q[2], EPS);
-        assertEquals(10.5f, q[4], EPS);
-        assertEquals(9.5f, q[6], EPS);
         assertEquals(9.5f, q[1], EPS);
+        assertEquals(9.5f, q[2], EPS);
         assertEquals(30.5f, q[3], EPS);
+        assertEquals(10.5f, q[4], EPS);
         assertEquals(30.5f, q[5], EPS);
+        assertEquals(10.5f, q[6], EPS);
         assertEquals(9.5f, q[7], EPS);
     }
 
@@ -77,13 +83,15 @@ class WireBatchGeometryTest {
     @DisplayName("零长段退化为边长 2h 的方点 / zero-length segment degenerates to a 2h dot")
     void degenerateDot() {
         float[] q = quad(7, 7, 7, 7, 0.125f);
+        // 方点环序 (min,min)→(max,min)→(max,max)→(min,max) / dot ring (min,min)→(max,min)→(max,max)→(min,max)
         assertEquals(6.875f, q[0], EPS);
         assertEquals(6.875f, q[1], EPS);
         assertEquals(7.125f, q[2], EPS);
+        assertEquals(6.875f, q[3], EPS);
         assertEquals(7.125f, q[4], EPS);
         assertEquals(7.125f, q[5], EPS);
         assertEquals(6.875f, q[6], EPS);
-        assertEquals(6.875f, q[7], EPS);
+        assertEquals(7.125f, q[7], EPS);
     }
 
     @Test
@@ -102,11 +110,14 @@ class WireBatchGeometryTest {
     }
 
     @Test
-    @DisplayName("屏幕宽契约:2×half == zoom / screen-width contract: 2×half == zoom")
+    @DisplayName("屏幕宽契约:2×half == max(zoom, 0.5 下限) / screen-width contract: 2×half == max(zoom, 0.5 floor)")
     void halfWidthMatchesPoseLocalRule() {
         assertEquals(0.5f, NodeWireRenderer.wireHalfWidth(1.0f), EPS);
-        assertEquals(0.125f, NodeWireRenderer.wireHalfWidth(0.25f), EPS);
         assertEquals(1.0f, NodeWireRenderer.wireHalfWidth(2.0f), EPS);
+        // 下限边界:zoom 0.5 恰好 = 下限 / the floor boundary: zoom 0.5 exactly meets it
         assertEquals(0.25f, NodeWireRenderer.wireHalfWidth(0.5f), EPS);
+        // 下限生效域:低缩放保底 0.5 屏幕像素(实测「有点细」拍板) / the floor domain: low zoom keeps 0.5 screen px
+        assertEquals(0.25f, NodeWireRenderer.wireHalfWidth(0.25f), EPS);
+        assertEquals(0.25f, NodeWireRenderer.wireHalfWidth(0f), EPS);
     }
 }

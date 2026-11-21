@@ -126,8 +126,9 @@ final class NodeWireRenderer {
      * <li><b>步数封顶</b>：步数按可见弦长分配、clamp(·, 6, 48)——折线感可接受
      *     （PERF-2 拍板 2026-11-14）；</li>
      * <li><b>批提交 + pose 局部宽</b>：每步一段旋转四边形攒进调用方的 {@link Batch}
-     *     （A=2 全段一次 endBatch，替代逐 fill 自动 endBatch）；线宽 = 1 局部像素 × zoom，
-     *     与节点边框批 2 的 pose 局部口径一致（低缩放自然变细、zoom 1 时 1px 不变）。
+     *     （A=2 全段一次 endBatch，替代逐 fill 自动 endBatch）；线宽 = max(1 局部像素 × zoom,
+     *     0.5 屏幕像素)——pose 局部口径沿边框批 2，另带 0.5px 屏幕下限防低缩放亚像素断线
+     *     （2026-11-21 实测拍板）。
      *     旋转四边形是 pose 局部宽的必要形态——逐行 DDA 打点表达不了亚像素宽，
      *     zoom 1 下的斜线观感从「行阶梯增厚」变为精确 1px。</li>
      * </ol>
@@ -204,16 +205,20 @@ final class NodeWireRenderer {
     }
 
     /**
-     * 连线半宽 = 0.5 局部像素（屏幕宽 = 1 × zoom）——节点边框批 2 的 pose 局部口径
-     * （1 局部像素线随 zoom 等比、低缩放自然变细、zoom 1 恰为 1px）。zoom 由调用方传入
-     * （连线端点已是屏幕坐标，宽必须自乘 zoom 回局部口径）。
-     * Wire half width = 0.5 local pixels (screen width = 1 × zoom) — the node border's
-     * pose-local rule from jitter batch 2 (1 local pixel scales with zoom, thins naturally
-     * when zoomed out, exactly 1px at zoom 1). zoom comes from the caller (wire endpoints
-     * are already screen coordinates, so the width must multiply zoom back to local scale).
+     * 连线半宽（屏幕宽 = max(1 局部像素 × zoom, 0.5 屏幕像素) 的对半）——pose 局部口径
+     * 沿节点边框批 2（zoom 1 恰为 1px），但带 0.5px **屏幕下限**：纯 pose 局部在低缩放
+     * 退化到亚像素、像素覆盖间歇命中读作断线（2026-11-21 实测拍板「有点细」）——
+     * 下限让低缩放线保底半像素（覆盖 ~50%，连续感恢复），zoom ≥ 0.5 观感不变。
+     * 下限值拍板调整只改这一个常量。
+     * Wire half width (screen width = max(1 local pixel × zoom, 0.5 screen pixels), halved)
+     * — the pose-local rule follows the node border (exactly 1px at zoom 1) with a 0.5px
+     * screen floor: pure pose-local degrades below half a pixel at low zoom where pixel
+     * coverage hits intermittently and reads as broken lines (live-tested 2026-11-21,
+     * "a bit thin"). The floor keeps low-zoom wires at half a pixel (~50% coverage,
+     * continuous again); zoom ≥ 0.5 is unchanged. Rulings adjust this one constant.
      */
     static float wireHalfWidth(float zoom) {
-        return zoom * 0.5f;
+        return Math.max(zoom, 0.5f) * 0.5f;
     }
 
     /**
