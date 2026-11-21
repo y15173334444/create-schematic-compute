@@ -589,7 +589,8 @@ public final class TopoStats {
      *  epoch +1 并把该槽位的最近写入值记为「当前值」。冲突节点不写存储，自然不 bump（记账
      *  不查瞬时冲突旗标，与普查的结构性口径一致：epoch 观测的是<b>实际写</b>，DAG 保留的是
      *  <b>可能依赖</b>）。O(1)：一次表查找 + 一次自增 + 一次槽位写。音频平面不经此路
-     *  （AudioBands 的 exactly-once 游标门控，§3.2 范围注），向量平面亦然（last-write-wins
+     *  （其<b>序</b>已由普查的音频身份边 + 拓扑接管，发布时刻戳走 AudioBands 自己的表——
+     *  2026-11-20 扩面后仅 epoch 记账不纳音频），向量平面亦然（last-write-wins
      *  状态语义，无浮点可比较）——§3.1 的 epoch 模型按浮点载体记账。
      *  <p>The write-side hook (§3.1): rides the tails of the PRIVATE_OUT float put / BUS_OUT
      *  band float writes — epoch +1, and the slot's last-written value becomes the "current
@@ -597,9 +598,11 @@ public final class TopoStats {
      *  never checks transient conflict flags, matching the census's structural criterion: the
      *  epoch observes <b>actual writes</b>, the DAG keeps <b>possible dependencies</b>). O(1):
      *  one table lookup, one increment, one slot write. The audio plane never rides this path
-     *  (AudioBands' exactly-once cursor gates it, the §3.2 scope note), nor does the vector
-     *  plane (last-write-wins state semantics, no float to compare) — the §3.1 epoch model
-     *  accounts on the float carrier.</p> */
+     *  (its <b>order</b> is owned by the census's audio-identity edges + the topology, and its
+     *  publish stamps live in AudioBands' own table — after the 2026-11-20 widening only the
+     *  epoch accounting excludes audio), nor does the vector plane (last-write-wins state
+     *  semantics, no float to compare) — the §3.1 epoch model accounts on the float
+     *  carrier.</p> */
     public static void noteChannelWrite(String channelKey, String slot, float value) {
         if (!collect) return;
         ChannelEpochState st = EPOCHS.computeIfAbsent(channelKey, k -> new ChannelEpochState());

@@ -133,4 +133,45 @@ class ChannelLayoutRewireTest {
             + "ensureChannelBands + rebuildInputCache locally after sendOp - without it the "
             + "origin keeps ghost wires that the next authoritative sync wipes (the v1.2.6.2 revert)");
     }
+
+    @Test
+    @DisplayName("服务端裸建 CHANNEL（ADD_NODE 无快照）首次 pinId 解析自派生：连线落得住、重建不剪")
+    void bareServerChannelDerivesItsPinSetOnFirstPinIdContact() {
+        // 服务端 ADD_NODE 形态：graph.addNode 裸建——signalBands 空表、未经任何 outputs() 读。
+        // v1.3.0 类型段严校验暴露的丢线回归：客户端带 pinId 落线被服务端静默拒（空表解析 -1），
+        // 客户端本地照画，首次权威同步整批消失（实测 2026-11-21「没动它也丢、重开回不来」）。
+        // The server ADD_NODE shape: graph.addNode builds a bare node - empty signalBands,
+        // never read through outputs(). The wire-loss regression exposed by v1.3.0's
+        // type-segment strictness: the client's pinId-bound connect was silently rejected
+        // (an empty table resolves to -1), the client kept drawing its local copy, and the
+        // first authoritative sync wiped it wholesale (measured 2026-11-21: lost untouched,
+        // gone for good after an editor reopen).
+        var g = new NodeGraph();
+        var ch = g.addNode(NodeType.CHANNEL, 0, 0);
+        ch.params[0] = ChannelLayout.STEREO;
+        var sink = g.addNode(NodeType.AUDIO_OUT, 4, 0);
+        assertTrue(ch.signalBands.isEmpty(),
+            "precondition: the bare server node has not derived its band structure yet");
+        assertTrue(g.addConnectionWithPinIds(ch.id, PinId.format(PinType.AUDIO, "l"),
+                sink.id, sink.inputPinId(0)),
+            "the first pinId contact must self-derive the pin set and land the wire");
+        assertEquals(1, g.connections.size(), "the wire lands on the server");
+        assertEquals(PinId.format(PinType.AUDIO, "l"), g.connections.get(0).fromPinId,
+            "stored in the node's fresh (derived) form");
+        g.rebuildInputCache();
+        assertEquals(1, g.connections.size(), "a rebuild must not prune the derived wire");
+        assertEquals(0, ch.outputPinIndex(g.connections.get(0).fromPinId),
+            "the stored pinId still resolves after the derivation");
+    }
+
+    @Test
+    @DisplayName("冷生成同样自派生：裸建 CHANNEL 的 outputPinId 首次调用即产出派生 pinId")
+    void coldPinIdGenerationSelfDerivesToo() {
+        var ch = new NodeGraph().addNode(NodeType.CHANNEL, 0, 0);
+        ch.params[0] = ChannelLayout.STEREO;
+        assertTrue(ch.signalBands.isEmpty(), "precondition: bare node");
+        assertEquals(PinId.format(PinType.AUDIO, "l"), ch.outputPinId(0),
+            "cold outputPinId generation must derive the pin set (ADD_CONN's fill-the-missing-end path)");
+        assertEquals(2, ch.outputs(), "the derived STEREO pin set has two channels");
+    }
 }

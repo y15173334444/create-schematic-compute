@@ -225,10 +225,17 @@ public final class HostEvalPass {
         // §5.3 遍终点 prev 快照（「上一 tick 末提交值」= 全部求值 + broadcast 完之后的值）：
         // 对被监视通道逐条双载体采样（SignalBus.sampleForSnapshot——前缀格式知识全在
         // SignalBus），整体换发进 ChannelCuts；下一 tick 的被切读从这里取值。
+        // 音频身份边被切时此处采样自然为空（音频键不是 SignalBus 通道 → 空槽，无行为）：
+        // 被切音频读不走本快照——AudioBands 表自带「上一发布」语义，读侧零新机制
+        // （2026-11-20 音频面扩面注记）。
         // §5.3's pass-tail prev snapshot ("last tick's committed value" = the value after all
         // evaluation + broadcast): sample each watched channel's dual carrier one by one
         // (SignalBus.sampleForSnapshot — all prefix-format knowledge lives in SignalBus) and
         // swap wholesale into ChannelCuts; next tick's cut reads take their values from here.
+        // A cut audio-identity edge samples empty here (an audio key is no SignalBus channel →
+        // an empty slot, no behaviour): cut audio reads never ride this snapshot — the
+        // AudioBands table carries its own last-publish semantics, zero new machinery on the
+        // read side (the 2026-11-20 audio-plane widening note).
         if (!cutPlan.isEmpty()) {
             var snap = new java.util.TreeMap<String, ChannelCuts.CutSample>();
             for (TopoStats.ChannelEdge e : cutPlan.cutEdges())

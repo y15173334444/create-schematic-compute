@@ -15,8 +15,12 @@ import java.util.concurrent.ConcurrentHashMap;
  *   <li><b>band</b>（频段名）= 路由（如「舞池」）。全局静态与 {@link SignalBus} 同款惯例
  *       （跨维度共享是既有信号设计的性质）；发布即覆盖写。</li>
  *   <li><b>新鲜度门控</b>：每条引用带发布时的 game-time 戳，读取方只接受
- *       {@code 戳 ≥ 当前刻 − 1} 的引用（容忍跨 BE 的先后 tick 顺序，即 1 刻跨方块延迟口径）。
- *       发布方停机/卸载后陈旧引用自然失效——消费端自愈，不依赖任何人清理（旧「机关枪卡音」根因）。</li>
+ *       {@code 戳 ≥ 当前刻 − 1} 的引用。窗口三职责（2026-11-20/21 口径）：发布方停机/卸载
+ *       后陈旧引用自然失效——消费端自愈，不依赖任何人清理（旧「机关枪卡音」根因）；
+ *       <b>切边环的跨 tick 读</b>——被切音频边恒读上一刻末值，窗口 ≥1 是它的合法宽度；
+ *       以及<b>消失判决的下沿</b>——{@code 戳 < 当前刻 − 1}（≥2 刻无人发布）即「发布方
+ *       已不在」的与序无关判据，消失哨兵（真·骤停）据此改发一次性停止标记（见带 consumer
+ *       的 get）。初建时的「容忍跨 BE 先后 tick 顺序」职责已由全局拓扑接管。</li>
  *   <li><b>owner 与冲突纪律</b>（R1-2，与 SignalBus 同款）：发布带 owner（宿主坐标+节点 id），
  *       同名不同 owner 且前发布方仍在新鲜窗内 → 冲突——<b>冲突双方都不拥有频道，消费读取一律静默</b>；
  *       节点旗标由求值器按发布返回值落到 {@code GraphNode.audioConflict}。一方停发越窗即自愈，
@@ -33,6 +37,16 @@ public final class AudioBands {
     private static final ConcurrentHashMap<String, Long> STAMPS = new ConcurrentHashMap<>();
     /** (consumer, band) → 该消费者已读的最新 stamp（exactly-once 游标，见带 consumer 的 get）。 */
     private static final ConcurrentHashMap<String, Long> CONSUMED = new ConcurrentHashMap<>();
+    /** (consumer, band) → 该消费者上一读是否新鲜（消失哨兵闩锁：停止标记只沿「新鲜 → 陈旧」
+     *  转换沿发一次，见带 consumer 的 get）。(consumer, band) → whether this consumer's last
+     *  read was fresh (the vanish sentinel's latch: the stop marker rides the fresh→stale
+     *  edge exactly once — see the consumer-aware get). */
+    private static final ConcurrentHashMap<String, Boolean> CONSUMED_FRESH = new ConcurrentHashMap<>();
+    /** 消失停止标记（空事件 + stopSignal）：走既有 SPEAKER_PLAY→sink 管线，客户端撤销预播
+     *  窗口内已下发未播的声部。The vanish stop marker (empty events + stopSignal): rides the
+     *  existing SPEAKER_PLAY→sink pipeline, whose client cancels the voices already
+     *  dispatched inside the preroll window. */
+    private static final AudioRef STOP_MARKER = new AudioRef(java.util.List.of(), 1f, true);
     /** band → 当前 owner（宿主坐标+节点 id 稳定键；仅被「接受的发布」写入）。
      *  Band owner keys — written only by accepted publishes. */
     private static final ConcurrentHashMap<String, String> OWNERS = new ConcurrentHashMap<>();
@@ -43,10 +57,13 @@ public final class AudioBands {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(AudioBands.class);
     /** 重播取证限频（毫秒）。 */
     private static long lastReplayLogMs;
+    /** 消失取证限频（毫秒）。 */
+    private static long lastVanishLogMs;
     /** 冲突取证限频（毫秒）。 */
     private static long lastConflictLogMs;
 
-    /** 容忍的陈旧宽度（刻）：1 = 只认本刻与上一刻发布的引用（跨 BE tick 顺序口径）。 */
+    /** 陈旧宽度（刻）：1 = 只认本刻与上一刻发布的引用（切边环跨 tick 读的合法宽度 +
+     *  骤停自愈窗；顺序容忍职责已由全局拓扑接管，见类注新鲜度条目）。 */
     private static final long FRESH_WINDOW_TICKS = 1;
 
     private AudioBands() {}
@@ -133,12 +150,35 @@ public final class AudioBands {
     /**
      * 按<b>消费者游标</b>去重读取：每个 (consumer, band) 只认比上次更新的 stamp——
      * <b>exactly-once</b>，既不重播也不丢音。
-     * <p>背景（cross-BE tick 顺序依赖）：BE tick 顺序随区块重载翻转；顺序翻转时同一批发布
-     * 会被连续两次读到（stamp 仍在新鲜窗内）——同批音符相隔 1 tick 响两遍 = 听感「糊/挤
-     * 在一起，然后恢复」。新鲜窗本身无法区分「迟到的首读」与「重播」，游标可以。
+     * <p>双职责来历（2026-11-20 改判）。初建时挡「跨 BE tick 顺序翻转重播」：BE tick 顺序随
+     * 区块重载翻转时，同一批发布被连续两 tick 读到（stamp 仍在新鲜窗内）——同批音符相隔
+     * 1 tick 响两遍（v1.2.6 音频链实测「糊/挤在一起」）。该形态已被全局拓扑收口（音频面
+     * 入普查/拓扑序，2026-11-20，§9.1-5 平台级正解）——顺序翻转结构性不可能，REPLAY 拒读
+     * 在稳态下永不触发。<b>留任职责 = 事件批载荷的 exactly-once 服务语义</b>：发布方骤停/
+     * 卸载后 stamp 冻结，新鲜窗（恒 ≥1 刻，切边环跨 tick 读所必需）会把上一批原样重发
+     * 一遍——游标拒收同 stamp 重读，把「骤停重发」收敛为干净失声。顺序语义表达不了这份
+     * 保护（保护按消费者记忆成立，不按次序成立），故游标留任而非随拓扑退役。
      * <p>Consumer-cursor read: each (consumer, band) accepts only stamps newer than its last
-     * read — exactly-once, no replay and no drop. The freshness window alone cannot tell a
-     * late first read from a replay; the cursor can.</p>
+     * read — exactly-once, no replay and no drop.
+     * <p><b>The vanish sentinel (true abrupt stop, ruled 2026-11-21)</b>: a stamp below the
+     * freshness floor on a previously-fresh consumer (the {@code CONSUMED_FRESH} latch)
+     * yields a one-shot stop marker (empty events + stopSignal) — riding the existing
+     * SPEAKER_PLAY→sink pipeline, the client cancels the preroll voices, so the stop is
+     * immediate; exactly once per consumer per vanish, the latch resets on the next fresh
+     * read. The threshold is order-independent: the constant now-1 reads of cut edges and
+     * tail publishers never misfire.
+     * <p>Dual-role history (re-judged 2026-11-20). Built to block cross-BE tick-order flip
+     * replays: a chunk-reload order flip re-served one publish on two consecutive ticks (the
+     * stamp still inside the freshness window) — the measured v1.2.6 "mushed double-hit".
+     * That shape is closed by the global topology (audio faces joined the census/topo order,
+     * 2026-11-20 — the §9.1-5 platform-level fix), making order flips structurally impossible;
+     * the REPLAY refusal never fires in steady state. <b>The surviving role = exactly-once
+     * serving semantics for event-batch payloads</b>: after a publisher's abrupt stop/unload
+     * the stamp freezes, and the freshness window (permanently ≥1 tick, required for
+     * cross-tick reads on cut cycles) would re-serve the last batch once — the cursor refuses
+     * the same-stamp re-read, collapsing the abrupt-stop re-serve into clean silence. Order
+     * semantics cannot express this protection (it holds by per-consumer memory, not by
+     * ordering), so the cursor stays instead of retiring with the topology.</p>
      */
     public static AudioRef get(String consumer, String band, long nowTick) {
         if (band == null || band.isEmpty() || consumer == null) return AudioRef.EMPTY;
@@ -146,17 +186,49 @@ public final class AudioBands {
         if (stamp == null) return AudioRef.EMPTY;
         String key = consumer + "\u0000" + band;
         Long last = CONSUMED.get(key);
+        // 消失哨兵（真·骤停，2026-11-21 拍板=方案A含图停机）：stamp 落到新鲜窗下沿之下
+        // （≥2 刻无人发布——与求值序无关：切边环与遍尾发布方的恒定上一刻读 stamp 恒等于
+        // now-1，永远够不到此阈值，绝不误报）且上一读新鲜 → 发一枚一次性停止标记代替
+        // EMPTY：预播声部即刻撤销，而不是等 2 秒余音自然衰减。图停机（方块在、图不跑）
+        // 的 stamp 冻结同样触发（拍板含停机）；快速接管（≤1 刻缝隙）读者看不到陈旧
+        // stamp，不撤销不打断。闩锁沿新鲜读复位。
+        // The vanish sentinel (true abrupt stop, ruled 2026-11-21 = plan A incl. graph-stop):
+        // a stamp below the freshness floor (no publish for >=2 ticks — order-independent:
+        // the constant now-1 reads of cut edges and tail publishers never reach this
+        // threshold, no false fires) on a previously-fresh consumer yields a one-shot stop
+        // marker instead of EMPTY — preroll voices cancel immediately instead of ringing out
+        // for the preroll window. A stopped graph (block present, not running) freezes its
+        // stamps and triggers identically (stop included per the ruling); a fast takeover
+        // (<=1-tick gap) never shows the reader a stale stamp — no cancel, no interruption.
+        // The latch resets on the next fresh read.
+        if (stamp < nowTick - FRESH_WINDOW_TICKS) {
+            Boolean fresh = CONSUMED_FRESH.get(key);
+            if (fresh != null && fresh) {
+                CONSUMED_FRESH.put(key, Boolean.FALSE);
+                long now = System.currentTimeMillis();
+                if (now - lastVanishLogMs > 2000) {
+                    lastVanishLogMs = now;
+                    LOG.info("[AudioBands] VANISH-Stop consumer={} band={} lastStamp={} (publisher gone, preroll cancelled)",
+                        consumer, band, stamp);
+                }
+                return STOP_MARKER;
+            }
+            return AudioRef.EMPTY;
+        }
         if (last != null && stamp <= last) {
             long now = System.currentTimeMillis();
             if (now - lastReplayLogMs > 2000) {
                 lastReplayLogMs = now;
-                LOG.warn("[AudioBands] REPLAY-Blocked consumer={} band={} stamp={} (tick-order replay refused)",
+                LOG.warn("[AudioBands] REPLAY-Blocked consumer={} band={} stamp={} (same-stamp re-serve refused)",
                     consumer, band, stamp);
             }
             return AudioRef.EMPTY;
         }
         AudioRef ref = get(band, nowTick);
-        if (ref != AudioRef.EMPTY) CONSUMED.put(key, stamp);
+        if (ref != AudioRef.EMPTY) {
+            CONSUMED.put(key, stamp);
+            CONSUMED_FRESH.put(key, Boolean.TRUE);
+        }
         return ref;
     }
 
@@ -175,6 +247,7 @@ public final class AudioBands {
         BANDS.clear();
         STAMPS.clear();
         CONSUMED.clear();
+        CONSUMED_FRESH.clear();
         OWNERS.clear();
         CONFLICTS.clear();
     }

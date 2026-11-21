@@ -75,7 +75,15 @@ public final class ChannelLayout {
      */
     public static AudioRef channelRef(AudioRef in, String channel, boolean hasCenter) {
         if (in == null) return AudioRef.EMPTY;
-        if (in.stopSignal()) return in; // 停止标记原样穿透（事件恒空）/ the stop marker passes unchanged
+        // 纯停止标记（事件恒空）原样穿透；标记与音符混载的引用（重激活/跳转沿 = 撤旧队列
+        // + 发新音符）必须走正常拆分——整引用穿透会把全部音符发给每个声道（跨频段重复
+        // 发声），拆分分支保留 stopSignal，各声道只拿自己的音符 + 标记。
+        // The pure stop marker (events always empty) passes unchanged; a marker carrying
+        // events (the re-activation / seek edge = cancel the old queue + dispatch the fresh
+        // notes) must split normally — a whole-ref passthrough would hand every band ALL the
+        // notes (cross-band double-booking). The split below preserves stopSignal, so each
+        // band gets only its own notes plus the marker.
+        if (in.stopSignal() && in.events().isEmpty()) return in;
         if (in.isEmpty() || channel == null) return AudioRef.EMPTY;
         if ("mix".equals(channel)) return in;
         if (!isKnownChannel(channel)) return in;

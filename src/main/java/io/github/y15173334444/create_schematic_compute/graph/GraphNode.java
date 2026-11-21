@@ -490,6 +490,23 @@ public class GraphNode {
             return -1;
         }
         if ((type == NodeType.BUS_IN || type == NodeType.CHANNEL) && signalBands != null) {
+            // CHANNEL 自派生（FORMULA ensureScriptParsed 同款教义）：服务端裸建节点
+            // （ADD_NODE 不带快照）的 signalBands 是空表，而 CHANNEL 的引脚结构由 params[0]
+            // 布局表唯一决定——首次解析接触即派生，pinId 严校验路径（ADD_CONN / 剪枝）才会在
+            // 服务端与客户端同一引脚集上判定；否则客户端落线、服务端静默拒，首次权威同步
+            // 即「丢输出连线」（v1.3.0 类型段严校验暴露，实测 2026-11-21）。BUS_IN 不在此
+            // 派生：其频段表是频道定义的结构镜像（issue #11 服务端唯一解析），不可本地推导。
+            // CHANNEL self-derives (the FORMULA ensureScriptParsed doctrine): a bare
+            // server-built node (ADD_NODE without a snapshot) carries empty signalBands,
+            // while a CHANNEL's pin structure is solely params[0]-derived — deriving at the
+            // first resolution contact lets the strict pinId paths (ADD_CONN / pruning) judge
+            // on the same pin set as the client; otherwise the client lands the wire, the
+            // server silently rejects it, and the first authoritative sync wipes it (the
+            // "output wires vanish" report, exposed by v1.3.0's type-segment strictness,
+            // measured 2026-11-21). BUS_IN must not derive here: its band list mirrors the
+            // channel definition (issue #11's server-side single resolution) — nothing this
+            // node can derive on its own.
+            if (type == NodeType.CHANNEL) ensureChannelBands();
             for (int i = 0; i < signalBands.size(); i++)
                 if (pinId.equals(outputPinId(i))) return i;
             return rescueByParam(pinId, this::outputPinId, signalBands.size());
@@ -565,6 +582,12 @@ public class GraphNode {
             return null;
         }
         if ((type == NodeType.BUS_IN || type == NodeType.CHANNEL) && signalBands != null) {
+            // 与 outputPinIndex 的 CHANNEL 分支同一自派生口径：裸建节点首次生成 pinId
+            // （如 ADD_CONN 的缺端补全路径）也拿到派生后的引脚集（见彼处注记）。
+            // The same self-derivation criterion as outputPinIndex's CHANNEL branch: a bare
+            // node's first pinId generation (e.g. ADD_CONN's fill-the-missing-end path) also
+            // sees the derived pin set (see the note there).
+            if (type == NodeType.CHANNEL) ensureChannelBands();
             if (index < signalBands.size()) return PinId.format(outputType(index), signalBands.get(index));
             return null;
         }

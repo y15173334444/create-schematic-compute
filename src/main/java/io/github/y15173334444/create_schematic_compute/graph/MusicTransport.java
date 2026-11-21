@@ -39,6 +39,15 @@ public final class MusicTransport {
      *  the pre-roll window are stale; the evaluator stamps a one-shot stop marker onto the
      *  audio ref so the client cancels its queued voices. */
     private boolean flushPulse;
+    /** 跳转沿的无条件清队列位（仅播放中置位）：跳走前已下发的未播队列属于旧位置——即使
+     *  同 tick 续播（「从头播放」重激活、播放中 seek）也要整批撤销；停机态不置位（队列已被
+     *  停止沿的标记清过）。求值器把标记与新音符打进同一引用，sink 先撤后发。
+     *  The seek edge's unconditional queue-flush bit (set only while playing): voices
+     *  dispatched before the jump belong to the old position — cancelled even when playback
+     *  resumes the same tick (the from-head re-activation, a seek during playback); not set
+     *  while stopped (the stop edge's marker already cleared the queue). The evaluator packs
+     *  the marker and the fresh notes into one ref; the sink cancels first, plays second. */
+    private boolean hardPulse;
 
     public MusicTransport() {}
 
@@ -79,12 +88,13 @@ public final class MusicTransport {
         flushPulse = true;
     }
 
-    /** 跳转到 tick（重定位播放头，不展开该 tick 音符）。置 flush 脉冲：跳走前已下发的
-     *  未播音符属于旧位置，客户端要清掉。 */
+    /** 跳转到 tick（重定位播放头，不展开该 tick 音符）。置 flush 脉冲；播放中再置无条件
+     *  清队列位——跳走前已下发的未播队列整批属于旧位置，即使同 tick 续播也要撤。 */
     public void seek(int tick) {
         head = Math.max(0, tick);
         nextFire = (int) Math.ceil(head);
         flushPulse = true;
+        if (playing) hardPulse = true;
     }
 
     /** 本步非循环播到尾则返回 true（一次性，读后清零）。 */
@@ -103,6 +113,20 @@ public final class MusicTransport {
         boolean f = flushPulse;
         flushPulse = false;
         return f;
+    }
+
+    /** 本步是否刚发生「播放中跳转」沿（一次性，读后清零）：无条件清队列的判据，与
+     *  {@link #consumeFlushPulse()} 同点消费、各自独立清零（求值器每 tick 两者都读，
+     *  短路漏读会把位拖到下一 tick 造成伪清队列）。
+     *  Whether a while-playing seek edge happened this step (consumed once): the
+     *  unconditional queue-flush criterion, consumed at the same site as {@link
+     *  #consumeFlushPulse()} with independent clears (the evaluator reads both every tick —
+     *  a short-circuit missed read would drag the bit into the next tick and flush
+     *  spuriously). */
+    public boolean consumeHardPulse() {
+        boolean h = hardPulse;
+        hardPulse = false;
+        return h;
     }
 
     public boolean isPlaying() { return playing; }

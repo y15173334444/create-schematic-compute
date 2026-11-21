@@ -32,8 +32,9 @@ import java.util.Map;
  * 12 个 BE 的 tick 体。门控 {@code csc.topoCollect}（{@link TopoStats#COLLECT_PROPERTY}）
  * 关闭时每个钩子只有一次布尔读、无任何分配（无行为变更：求值顺序 / 剪线 / 收敛一概不动，
  * 键规范化经 {@link SignalBusPort#channelKey} 单一入口）。开启时 O(1) 记账；音频 / 向量
- * 载体不记账（音频由 AudioBands 的 exactly-once 游标门控、向量走 last-write-wins 状态
- * 语义，均不在 §3.1 的浮点 epoch 模型内）。</p>
+ * 载体不记账——音频平面的<b>求值序</b>已由全局拓扑经普查的音频身份边接管（2026-11-20
+ * 扩面），游标只管事件批的 exactly-once 服务、向量走 last-write-wins 状态语义，二者均不在
+ * §3.1 的浮点 epoch 模型内。</p>
  *
  * <p><b>Criterion-A collection hooks (§3.1/§3.3, issue #26):</b> the float-carrier paths of
  * PRIVATE_OUT / PRIVATE_IN / BUS_OUT / BUS_IN carry gated trailing
@@ -44,8 +45,10 @@ import java.util.Map;
  * disabled, each hook costs one boolean read and zero allocation (no behaviour change —
  * evaluation order, pruning and convergence untouched; key normalization rides the single
  * {@link SignalBusPort#channelKey} entry). Enabled, O(1) accounting. Audio / vector carriers are
- * not accounted (audio is gated by AudioBands' exactly-once cursor, vectors ride last-write-wins
- * state semantics — both outside §3.1's float epoch model).</p>
+ * not accounted — the audio plane's <b>evaluation order</b> is owned by the global topology
+ * through the census's audio-identity edges (the 2026-11-20 widening), while the cursor only
+ * serves exactly-once delivery of event batches and vectors ride last-write-wins state
+ * semantics — both outside §3.1's float epoch model.</p>
  */
 public final class BusEval {
 
