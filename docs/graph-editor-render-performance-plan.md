@@ -290,7 +290,7 @@ delete the three dead flushes (provably zero ordering risk); the A=5 pending-ove
 
 | ID | 改动 | 预期收益 | 风险 | 备注 |
 |---|---|---|---|---|
-| **PERF-2** | **连线三刀（实测第一优先）**：bbox 裁剪 + 视口内分段截取（单调贝塞尔二分反解 t）+ `steps = clamp(可见弦长×0.15, 6, 48)`；进一步可自定义 `RenderType` 批提交 | 连线 fill 3–5×+ | 中（外观简化已拍板，§八 Q3） | **2026-11-14 前三刀已落地**（`NodeWireRenderer.bezier` 重写 + `crossT` 锚测）；命中侧 `WireGeometry` 自采样不受影响；复测验证 |
+| **PERF-2** | **连线三刀（实测第一优先）**：bbox 裁剪 + 视口内分段截取（单调贝塞尔二分反解 t）+ `steps = clamp(可见弦长×0.15, 6, 48)`；进一步可自定义 `RenderType` 批提交 | 连线 fill 3–5×+ | 中（外观简化已拍板，§八 Q3） | **2026-11-14 前三刀已落地**（`NodeWireRenderer.bezier` 重写 + `crossT` 锚测）；**2026-11-21 后手落地（§3.8 取证后可行）**：①批提交——A=2 全段攒同一 `RenderType.gui()` 批、段末一次 endBatch（公共 `bufferSource()` 直用，同类型 QUADS 连续请求续攒；免逐 fill 自动 endBatch 万级次/帧），无需注册自定义 RenderType；②pose 局部宽——线宽 = 1 局部像素 × zoom（节点边框批 2 口径），发射从逐行 DDA 改旋转四边形（亚像素宽唯一形态），两端外扩半宽防接头豁口、scratch 复用零分配（条目 14 纪律）；③三条画线路径统一（连接 / 本地拖拽 / 远端临场预览）。命中侧 `WireGeometry` 不受影响；锚 `WireBatchGeometryTest` 6 条 |
 | **PERF-7** | 调试统计（§3.2） | —（使能项） | 低 | **已落地**（F9 HUD + F10 场景生成器，§3.6） |
 | **PERF-8** | ~~提交收敛~~ **死 flush 清除（PERF-8′，2026-11-21 取证后改判，§3.8）**：删除 `drawNode()` / `drawCommentNode()` 三处空 `g.flush()`（1.21.1 逐图元语义下零作用）；注释归真 | 同试验实测 −2.87ms（其全部来源即删空 flush，§3.8 改判 ①） | 低——绘制序=提交序可证，零 z 序风险 | ~~按层提交 / 文本层后置~~ **永久弃案**：q04 破绽根因即文本后置（§3.8 改判 ②③），FlushGate 不再重设计 |
 | **PERF-1** | 文字 LOD：`zoom < 0.5` 跳过次要文字（引脚标签 + encap 摘要，标签计算一并省——I18n 查表 / `privateBandPinLabel` 分配 / 输出侧 `font.width` 测量）；标题 / 警告 / 锁名 / 在场者行恒画；展开编辑节点不降档 | 上限 ~10%（实测修正，非 2–4×） | 低（视觉） | **2026-11-21 已落地**（`NodeRenderer.detailText` 纯逻辑 + `NodeRendererTextLodTest` 锚：边界含等号 / 低于跳过 / 展开不降档）；阈值取 §八 Q2 候选 **0.5 先行**（0.75 备选，拍板改一处常量）；注释节点正文（内容而非 chrome）不降档 |
