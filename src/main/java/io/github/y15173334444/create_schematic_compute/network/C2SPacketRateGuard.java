@@ -238,6 +238,17 @@ public class C2SPacketRateGuard {
      *  for them; the layer-4 reach check is already in the handler. */
     public static final Policy CONSOLE_QUERY = new Policy(8, 1.0);
 
+    /** 拖动临场流（docs/packet-flood-rate-limit-plan.md §三）：拖拽中的位置/尺寸更新离开
+     *  EDIT_OP 通道后走本类型——客户端节流 100ms（10/s 持续），回填 10/s ≥ 发送速率 → 桶恒满，
+     *  合法玩家零拒绝；突发 20 吸收鼠标事件抖动。服务端只中继不落图（每包转发给每位其他
+     *  编辑者，放大系数与 presence 同级）。/ Drag presence stream (plan doc §3): transient
+     *  drag position/size updates ride this type once they leave the EDIT_OP channel — the
+     *  client throttles at 100 ms (10/s sustained) and refill 10/s ≥ the send rate keeps the
+     *  bucket full (zero rejections for a legitimate dragger); burst 20 absorbs mouse-event
+     *  jitter. The server relays without applying (forwarded per other editor — the same
+     *  amplification tier as presence). */
+    public static final Policy DRAG_STREAM = new Policy(20, 10.0);
+
     /** 单 (player × type) 桶的预算：突发容量 + 令牌回填速率。 / Budget for one
      *  (player × type) bucket: burst capacity + token refill rate. */
     public record Policy(int burstTokens, double refillPerSecond) { }

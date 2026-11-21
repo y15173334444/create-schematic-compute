@@ -55,10 +55,13 @@ final class MonitorDisplayCanvas {
     // ── Dragging state (display mode) ──
     /** 拖拽中的元素（共享：编辑器路由/接缝读写 → 留编辑器；此处经 ed.draggedDisplayNode）。 */
     private float dragOffX, dragOffY;
-    // 显示布局拖拽的实时协作：节流流式发送 SET_DISPLAY_LAYOUT（与节点图 MOVE_NODE 同思路）
-    // Live collaboration for display-layout drags: throttle-stream SET_DISPLAY_LAYOUT
-    private long lastDisplayDragSendTime = 0;
-    private static final long DISPLAY_DRAG_SEND_INTERVAL_MS = 100;
+    // 显示布局拖拽的实时协作已并入拖动临场流（批 3，docs/packet-flood-rate-limit-plan.md）：
+    // 拖拽期间零 op（EDIT_OP 只吃松手收口 op），节流与预算由 GraphDragStreamTracker 统一承担
+    // （10 包/s 恒满零拒绝）；旁观端由帧影覆盖层平滑跟随，拖拽期间不再有全量同步打断插值。
+    // Display-drag live collaboration joined the drag presence stream (batch 3): zero ops
+    // while dragging (EDIT_OP only sees release commits); pacing and budget live in
+    // GraphDragStreamTracker (10 pkt/s, bucket stays full). Watchers follow via the frame
+    // shadow, with no full-sync punctures mid-drag.
 
     // ── Phase 2: Display area render cache ──
     private int lastDisplayGen = -1;
@@ -99,11 +102,19 @@ final class MonitorDisplayCanvas {
         // Collect and render display elements (cached when graph is static — Phase 2)
         // When running, output values change each tick so we must rebuild.
         boolean layoutLerpActive = advanceLayoutLerp(graph);
+        // 拖动临场帧影的 begin/end 在整帧入口（MonitorDisplayEditor.render）——窗口罩住缓存
+        // 重建与协作叠加层（软锁框按 layoutX 现值定位）；此处只需感知「影子活跃」来强制重建
+        // 缓存（拖拽插值不 bump 代际）。
+        // The shadow's begin/end live in the frame entry (MonitorDisplayEditor.render) — the
+        // window covers the cache rebuild and the collaboration overlay (the soft-lock frame
+        // positions itself from the live layoutX); this site only senses "shadow active" to
+        // force the cache rebuild (a drag lerp doesn't bump the generation).
+        boolean dragShadowActive = host.editor().dragStream.hasFreshOverlay(host.editor().ownerNodeId());
         boolean isRunning = host.be() != null && host.be().isRunning();
         float efsw = getEffectiveScreenW(), efsl = getEffectiveScreenL();
         int curGen = graph.graphGeneration;
         boolean displayChanged = curGen != lastDisplayGen || efsw != lastDisplaySW || efsl != lastDisplaySL
-            || isRunning || ed.draggedDisplayNode != null || layoutLerpActive;
+            || isRunning || ed.draggedDisplayNode != null || layoutLerpActive || dragShadowActive;
         if (displayChanged || cachedDisplayElements == null) {
             lastDisplayGen = curGen; lastDisplaySW = efsw; lastDisplaySL = efsl;
             cachedDisplayElements = collectDisplayElements(graph, evalOutputs);
@@ -379,7 +390,6 @@ final class MonitorDisplayCanvas {
                     float[] bb2 = elemRotAABB(sx, sy, hw * s2, hh * s2, selElem.rotation());
                     if (mx >= bb2[0] && mx <= bb2[2] && my >= bb2[1] && my <= bb2[3]) {
                         ed.draggedDisplayNode = selNode;
-                        lastDisplayDragSendTime = 0;
                         dragOffX = (float)(mx - sx);
                         dragOffY = (float)(my - sy);
                         return true;
@@ -420,7 +430,6 @@ final class MonitorDisplayCanvas {
                     if (hitNode != null) {
                         ed.selectedDisplayNode = hitNode;
                         ed.draggedDisplayNode = hitNode;
-                        lastDisplayDragSendTime = 0;
                         dragOffX = (float)(mx - ex);
                         dragOffY = (float)(my - ey);
                         return true;
@@ -460,7 +469,6 @@ final class MonitorDisplayCanvas {
                     var aabb = elemRotAABB(ex, ey, hw2 * s2, hh2 * s2, selElem.rotation());
                     if (mx >= aabb[0] && mx <= aabb[2] && my >= aabb[1] && my <= aabb[3]) {
                         ed.draggedDisplayNode = selNode;
-                        lastDisplayDragSendTime = 0;
                         dragOffX = (float)(mx - ex);
                         dragOffY = (float)(my - ey);
                         return true;
@@ -512,15 +520,16 @@ final class MonitorDisplayCanvas {
         // Live collaboration: throttle-stream the layout op so remote clients see the
         // drag in real time (release sends the final op). Also keeps pendingLocalOps > 0
         // during the drag as a second line of defense for the full-sync guard.
-        long nowMs = System.currentTimeMillis();
-        if (nowMs - lastDisplayDragSendTime >= DISPLAY_DRAG_SEND_INTERVAL_MS) {
-            lastDisplayDragSendTime = nowMs;
-            sendOp(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setDisplayLayout(
-                host.blockPos(), -1, ed.draggedDisplayNode.id,
-                ed.draggedDisplayNode.layoutX, ed.draggedDisplayNode.layoutY,
-                ed.draggedDisplayNode.displayScale, ed.draggedDisplayNode.displayRotation,
-                ed.draggedDisplayNode.moveScale,
-                host.playerUUID()));
-        }
+        // 实时协作改走拖动临场流（批 3）：拖动中不再发 SET_DISPLAY_LAYOUT op——op 通道里最后
+        // 一个高频持续源移出（EDIT_OP 只吃松手收口），且拖拽期间不再触发全量同步（此前每
+        // ~2 秒的整图替换会打断旁观端插值）。节流由 tracker 的 100ms 统一管（10 包/s 恒满）。
+        // Live collaboration now rides the drag presence stream (batch 3): no
+        // SET_DISPLAY_LAYOUT ops while dragging — the last sustained high-frequency source
+        // leaves the op channel (EDIT_OP only sees the release commit), and drags no longer
+        // trigger full syncs (the old ~2 s graph replacements punctured the watcher's lerp).
+        // Pacing is the tracker's 100 ms throttle (10 pkt/s, bucket stays full).
+        host.editor().dragStream.submit(java.util.List.of(
+            io.github.y15173334444.create_schematic_compute.network.GraphDragStreamPacket.Entry.displayLayout(
+                ed.draggedDisplayNode.id, ed.draggedDisplayNode.layoutX, ed.draggedDisplayNode.layoutY)));
     }
 }

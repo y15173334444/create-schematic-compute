@@ -324,8 +324,12 @@ public record GraphEditOpPacket(GraphOp op, int unknownWireOrdinal) implements C
      * Squared comparison avoids a {@code Math.sqrt()} call on the hot path.
      * <p>
      * 平方比较避免了热路径上的 {@code Math.sqrt()} 调用。
+     * <p>
+     * 包级可见：拖动临场流（GraphDragStreamPacket）的距离门槛与编辑 op 同源，共用此常量，
+     * 两条门槛永不漂移。 / Package-visible: the drag presence stream's reach gate shares this
+     * constant with the edit ops so the two gates can never drift apart.
      */
-    private static final double MAX_EDIT_DIST_SQ = 128.0 * 128.0;
+    static final double MAX_EDIT_DIST_SQ = 128.0 * 128.0;
 
     /**
      * Server-side handler invoked when a {@link GraphEditOpPacket} arrives from a client.

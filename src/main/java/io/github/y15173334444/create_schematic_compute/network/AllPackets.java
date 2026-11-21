@@ -33,7 +33,7 @@ public class AllPackets {
      * {@link C2SPacketRateGuard} 检查，再决定放行进原 handler、丢弃还是断开。
      * <p>注册纪律：<b>新增 C→S 包必须走本包装器</b>——检查方式 =
      * {@code grep -c "rateLimited(" AllPackets.java} 应等于 {@code playToServer} 的注册数
-     * （2026-11-14 实测 16 个，控制台查询批后 17 个）。玩家键取服务端权威 UUID（不信任包载荷），类型键取 TYPE
+     * （2026-11-14 实测 16 个，控制台查询批后 17 个，拖动临场流批后 18 个）。玩家键取服务端权威 UUID（不信任包载荷），类型键取 TYPE
      * id 的 path。断开语义照原版：允许突发、桶耗尽拒绝（丢弃）、持续超限断开
      * （{@link C2SPacketRateGuard} 类注有完整机制说明与逐包预算表）。</p>
      * <p>The single rate-limit wrapper over the C→S registration face: every
@@ -41,7 +41,7 @@ public class AllPackets {
      * either lets the packet through to the original handler, drops it, or disconnects.
      * Registration discipline: <b>a new C→S packet must go through this wrapper</b> — the
      * check is {@code grep -c "rateLimited(" AllPackets.java} equal to the number of
-     * {@code playToServer} registrations (16 as measured 2026-11-14, 17 after the console-query batch). The player key is the
+     * {@code playToServer} registrations (16 as measured 2026-11-14, 17 after the console-query batch, 18 after the drag-stream batch). The player key is the
      * server-authoritative UUID (never the payload), the type key is the TYPE id's path.
      * Vanilla semantics: bursts allowed, an exhausted bucket rejects (drops), sustained
      * over-limit disconnects (full mechanism and per-type budget table in the
@@ -49,6 +49,29 @@ public class AllPackets {
      */
     private static <T extends CustomPacketPayload> IPayloadHandler<T> rateLimited(
             CustomPacketPayload.Type<T> type, C2SPacketRateGuard.Policy policy, IPayloadHandler<T> inner) {
+        return rateLimited(type, policy, inner, null);
+    }
+
+    /**
+     * 带丢弃回执的变体：桶耗尽拒绝时，若该类型带「被拒 op 提取器」，则以 **REJECT 契约回执**
+     * 发回发起者。限流拒绝与 handler 级拒绝语义同构（op 未被应用），因此复用同一条 REJECT
+     * 契约线——回滚乐观态 / 归还 pendingLocalOps / 终止 temp-id 挂起——客户端零新增状态面，
+     * 也不需要新协议包（批 2，docs/packet-flood-rate-limit-plan.md §四的实现取型：以 REJECT
+     * 同款回执代替专用丢弃包 + 序号登记表，少一个协议面且路径完全收口）。仅编辑 op opt-in
+     * （其余 C→S 类型没有客户端挂起状态）；DISCONNECT 不回执（连接即将终止）。
+     * <p>Variant with a drop receipt: when the bucket rejects and the type carries a refused-op
+     * extractor, a <b>REJECT-contract receipt</b> goes back to the sender. A rate-limit drop is
+     * semantically identical to a handler-level rejection (the op was not applied), so the same
+     * REJECT contract line is reused — optimistic rollback / pendingLocalOps return / temp-id
+     * wait termination — with zero new client state and no new protocol packet (batch 2, the
+     * plan §4 implementation shape: a REJECT-shaped receipt instead of a dedicated drop packet
+     * plus a sequence registry, one fewer protocol face and a fully closed path). Only edit ops
+     * opt in (other C→S types track no client pending state); DISCONNECT sends no receipt (the
+     * connection is terminating anyway).</p>
+     */
+    private static <T extends CustomPacketPayload> IPayloadHandler<T> rateLimited(
+            CustomPacketPayload.Type<T> type, C2SPacketRateGuard.Policy policy, IPayloadHandler<T> inner,
+            @org.jetbrains.annotations.Nullable java.util.function.Function<T, io.github.y15173334444.create_schematic_compute.graph.GraphOp> refusedOpExtractor) {
         return (payload, ctx) -> {
             String playerKey = ctx.player().getUUID().toString();
             C2SPacketRateGuard.Verdict verdict =
@@ -62,6 +85,21 @@ public class AllPackets {
                         LOGGER.debug("Rate limit rejecting packets from {} on {} (sustained flood?); "
                                 + "this line is throttled to one per {} ms",
                             playerKey, type.id(), RATE_DEBUG_INTERVAL_MS);
+                    }
+                    // 丢弃回执（opt-in）：限流拒绝 = op 未应用 = 与 handler 级拒绝同一条 REJECT
+                    // 契约。静默丢弃会让客户端 pendingLocalOps 只增不减、闩死回弹保护（批 2 的
+                    // 病灶），回执让它与普通被拒 op 同路径收敛。
+                    // Drop receipt (opt-in): a rate-limit rejection means "not applied" — the
+                    // same REJECT contract as handler-level refusals. A silent drop leaks the
+                    // client's pendingLocalOps (latching the bounce-back guard — batch 2's
+                    // target); the receipt converges it like any refused op.
+                    if (refusedOpExtractor != null
+                        && ctx.player() instanceof net.minecraft.server.level.ServerPlayer sp) {
+                        var refused = refusedOpExtractor.apply(payload);
+                        if (refused != null) net.neoforged.neoforge.network.PacketDistributor.sendToPlayer(
+                            sp, new GraphEditOpSyncPacket(
+                                io.github.y15173334444.create_schematic_compute.graph.GraphOp.reject(
+                                    refused, sp.getUUID())));
                     }
                 }
                 case DISCONNECT -> {
@@ -167,14 +205,27 @@ public class AllPackets {
                 rateLimited(ScanSablePacket.TYPE, C2SPacketRateGuard.SCAN_SABLE, ScanSablePacket::handle));
         registrar.playToClient(ScanSableResponsePacket.TYPE, ScanSableResponsePacket.CODEC, ScanSableResponsePacket::handle);
         // v1.2.4+: Multiplayer collaboration
+        // 批 2：编辑 op opt-in 丢弃回执——限流拒绝以 REJECT 契约回执发回（堵 pendingLocalOps
+        // 静默泄漏），其余类型无客户端挂起状态、保持静默。
+        // Batch 2: edit ops opt in to the drop receipt — a rate-limit rejection answers with a
+        // REJECT-contract receipt (sealing the silent pendingLocalOps leak); other types track
+        // no client pending state and stay silent.
         registrar.playToServer(GraphEditOpPacket.TYPE, GraphEditOpPacket.CODEC,
-                rateLimited(GraphEditOpPacket.TYPE, C2SPacketRateGuard.EDIT_OP, GraphEditOpPacket::handleServer));
+                rateLimited(GraphEditOpPacket.TYPE, C2SPacketRateGuard.EDIT_OP, GraphEditOpPacket::handleServer,
+                        pkt -> pkt.op()));
         registrar.playToClient(GraphEditOpSyncPacket.TYPE, GraphEditOpSyncPacket.CODEC, GraphEditOpSyncPacket::handle);
         registrar.playToClient(GraphEditAckPacket.TYPE, GraphEditAckPacket.CODEC, GraphEditAckPacket::handle);
         // v1.2.4+: P2 Presence
         registrar.playToServer(GraphPresencePacket.TYPE, GraphPresencePacket.CODEC,
                 rateLimited(GraphPresencePacket.TYPE, C2SPacketRateGuard.PRESENCE, GraphPresencePacket::handleServer));
         registrar.playToClient(GraphPresenceSyncPacket.TYPE, GraphPresenceSyncPacket.CODEC, GraphPresenceSyncPacket::handle);
+        // 1.3.0 批 1（docs/packet-flood-rate-limit-plan.md §三）：拖动临场流——拖拽中的位置/尺寸
+        // 更新离开 EDIT_OP 通道（服务端只中继不落图，松手即提交）。
+        // 1.3.0 batch 1 (plan doc §3): the drag presence stream — transient drag position/size
+        // updates leave the EDIT_OP channel (relay-only server, commit on release).
+        registrar.playToServer(GraphDragStreamPacket.TYPE, GraphDragStreamPacket.CODEC,
+                rateLimited(GraphDragStreamPacket.TYPE, C2SPacketRateGuard.DRAG_STREAM, GraphDragStreamPacket::handleServer));
+        registrar.playToClient(GraphDragStreamSyncPacket.TYPE, GraphDragStreamSyncPacket.CODEC, GraphDragStreamSyncPacket::handle);
         registrar.playToServer(GraphJoinPacket.TYPE, GraphJoinPacket.CODEC,
                 rateLimited(GraphJoinPacket.TYPE, C2SPacketRateGuard.JOIN, GraphJoinPacket::handle));
         registrar.playToServer(GraphLeavePacket.TYPE, GraphLeavePacket.CODEC,

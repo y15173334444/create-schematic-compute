@@ -142,6 +142,17 @@ final class GraphRemoteApplier {
             return;
         }
         io.github.y15173334444.create_schematic_compute.graph.OpExecutor.apply(graph, op, /*animateMoves=*/true);
+        // 批 1.1：权威坐标落地后，把仍新鲜的拖动临场覆盖层目标接管为权威终值——影子平滑滑向
+        // 终值并随之过期，而不是冻结在流末位、过期时跳变。REJECT 分支上方已提前返回，被拒
+        // op 到不了这里。
+        // Batch 1.1: after an authoritative op lands, a still-fresh drag overlay adopts its
+        // final — the shadow glides into it and expires into it instead of freezing at the
+        // last stream position and jumping on expiry. Rejected ops never reach here (the
+        // REJECT branch returned above).
+        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.MOVE_NODE
+            || op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_SIZE) {
+            ed.dragStream.adoptAuthoritative(op);
+        }
         // After a sub-graph edit, rebuild the parent graph's input cache so that
         // external connections on the ENCAPSULATION node follow the correct pin
         // positions (ENCAP_INPUT/OUTPUT ordering may have changed due to MOVE/ADD/REMOVE).
