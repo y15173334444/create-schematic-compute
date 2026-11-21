@@ -187,7 +187,14 @@ jobs:
         run: |
           JAR=$(ls build/libs/*.jar | grep -v -- '-sources.jar' | head -1)
           echo "jar: $JAR"
-          entries=$(jar tf "$JAR" | grep '^natives/' | sort)
+          # jar tf 连目录条目一起列（natives/ 与六个 natives/<dir>/），计数只认文件行；
+          # 两个 Windows 坑：JDK jar 输出 CRLF（先剥 \r），git-bash/MSYS 会改写以 /
+          # 开头的参数（过滤式 '.*/$' 而非 '/$'——后者在本机实证被改写成穿透）。
+          # jar tf lists directory entries too; count file lines only. Two Windows
+          # traps: the JDK jar emits CRLF (strip \r first), and git-bash/MSYS rewrites
+          # arguments starting with '/' (filter as '.*/$', not '/$' - proven mangled
+          # into a no-op on this machine).
+          entries=$(jar tf "$JAR" | tr -d '\r' | grep '^natives/' | grep -v '.*/$' | sort)
           echo "$entries"
           [ "$(echo "$entries" | wc -l)" -eq 6 ]
           for d in windows-x86_64 windows-aarch64 linux-x86_64 linux-aarch64 macos-x86_64 macos-aarch64; do
