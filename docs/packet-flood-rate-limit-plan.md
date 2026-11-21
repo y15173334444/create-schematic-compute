@@ -315,3 +315,28 @@ points landed as written here; two-player live-verified on 2026-11-21.）
   为客户端行为——客户端重启生效。
   / Restart boundary: batch 2 is server-side (the client contract is the existing path);
   the display interval is client-side.
+
+### 7.2 批 3：显示器拖拽并入临场流（2026-11-21）/ Batch 3: display drags join the stream
+
+- **动因 / Trigger**：150ms 停gap后实机反馈「有平滑，但采样少会卡顿」。根因有二：6.7Hz 采样
+  稀疏；且每条拖拽 op 触发合并全量同步（~2 秒节奏），整图替换**打断旁观端插值中段**。
+  / After the 150 ms stopgap, live feedback: smoothing existed but samples were sparse, and
+  each drag op triggered a coalesced full sync (~2 s cadence) whose graph replacement aborted
+  the watcher's lerp mid-flight.
+- **落地**（`24615b4c`）：显示器拖拽**并入拖动临场流**——`KIND_DISPLAY_LAYOUT` 条目（归一化
+  布局坐标）走 tracker 的 100ms 节流（DRAG_STREAM 桶恒满零拒绝）；拖拽期间零 op（EDIT_OP 只
+  吃松手收口，且拖拽中不再有全量同步打断插值）；canvas 渲染接入同款帧影（缓存重建前把新鲜
+  覆盖写进 layoutX/Y、重建后立即还原，缓存持有快照故帧间输入路径恒见真值；异常滞留的 stash
+  由下一帧 computeIfAbsent 命中原值自愈）；clientTick 保活经 presence 的模式感知拖拽 id 延伸
+  到显示拖拽（按住不动旁观端钉住）；权威 `SET_DISPLAY_LAYOUT` 松手 op 接管仍新鲜覆盖层目标
+  （无尾巴跳变）。150ms 停gap间隔与其墙钟闸删除；临时活体探针全部移除。
+  / Batch 3 lands the fold-in: a KIND_DISPLAY_LAYOUT entry rides the tracker's 100 ms pacing
+  (DRAG_STREAM stays full), zero ops while dragging (no mid-drag graph replacements), the
+  canvas renders through the same frame-shadow pattern, the keep-alive extends to display
+  drags via the presence mode-aware drag id, and authoritative release ops adopt fresh
+  overlays. The 150 ms stopgap interval is gone; all temp probes removed.
+- **教训 / Lesson**：停gap治理（调间隔）治不了「op 通道自带的全量同步副作用」——同类残留的
+  正解是并入临场流，让 op 通道回归纯离散动作。
+  / A pacing stopgap cannot fix the op channel's full-sync side effects — the real treatment
+  for this class of residual is folding into the stream, returning the op channel to pure
+  discrete actions.
