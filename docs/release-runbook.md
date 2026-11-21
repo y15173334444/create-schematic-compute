@@ -30,6 +30,23 @@
 
 对产物 jar 记 SHA-256（发布正文用）。/ Record the artifact's SHA-256 (it goes into the release notes).
 
+### 2.1 全平台 natives / All-platform natives
+
+发布 jar 的六平台 natives（windows/linux/macos × x86_64/aarch64）由 CI 工作流
+`native-matrix.yml` 构建：`verify` 矩阵的 `formula-jar-all-natives` 工件六份齐装，
+**发布附件用它（SHA-256 同取该工件）**；本地 `./gradlew build` 只带本机一份（开发
+用）。Windows 侧 CI 产物为 msvc+crt-static（自包含免 VC++ 运行库）；三个换架构
+目标（windows-aarch64 / linux-aarch64 / macos-x86_64）CI 只做构建+架构校验，加载
+验证留实机。细节见 `docs/native-matrix-plan.md`。
+/ The release jar's six-platform natives (windows/linux/macos × x86_64/aarch64)
+are built by the `native-matrix.yml` workflow: the verify matrix's
+`formula-jar-all-natives` artifact carries all six — **attach it to releases
+(and take the SHA-256 from that same artifact)**; a local `./gradlew build` jar
+carries only the host copy (development only). CI's Windows builds are
+msvc+crt-static (self-contained, no VC++ redist); the three swapped-arch targets
+(windows-aarch64 / linux-aarch64 / macos-x86_64) get build + arch checks only,
+loading is verified on real hardware. Details in `docs/native-matrix-plan.md`.
+
 ## 3. 打 tag / Tag
 
 ```bash
