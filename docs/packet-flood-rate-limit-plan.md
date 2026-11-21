@@ -284,3 +284,34 @@ points landed as written here; two-player live-verified on 2026-11-21.）
   / Open: batch 2 (§4); residual = display-layout drags still stream SET_DISPLAY_LAYOUT ops
   (the same 20 Hz sustained exposure) — fold them into the stream or apply the same
   keep-alive/throttle treatment later.
+
+### 7.1 批 2 + 残留治理落地（2026-11-21）/ Batch 2 + residual landing
+
+- **批 2**（`7ae01a5f`）——实现取型**偏离 §四原文，取更简形态**：限流拒绝与 handler 级拒绝
+  语义同构（op 未被应用），故不加专用丢弃包、不加客户端序号登记表、不动任何 codec——
+  `rateLimited` 包装器对编辑 op 类型 opt-in 一个「被拒 op 提取器」，桶耗尽拒绝时以
+  **REJECT 同款回执**（`GraphOp.reject` 全字段被拒 op 经 `GraphEditOpSyncPacket`）发回发起者。
+  客户端零改动走既有 REJECT 契约（乐观态回滚 / pendingLocalOps 归还 / temp-id 挂起了断，
+  契约覆盖 = `RejectReceiptTest`）；零 wire-format 变更；其余 C→S 类型无客户端挂起状态、
+  保持静默；DISCONNECT 不回执。批 1 定性的次生链（静默丢包 → pendingLocalOps 泄漏 →
+  回弹保护闩死 → 重开丢编辑）由此封口。
+  / Batch 2 deviates from §4's letter for a simpler shape: a rate-limit rejection is
+  semantically identical to a handler-level refusal, so the wrapper gains an opt-in
+  refused-op extractor and answers drops with the exact REJECT receipt the handler path
+  already uses — no dedicated packet, no sequence registry, no codec change, zero client
+  changes, contract coverage via RejectReceiptTest. The batch-1-diagnosed secondary chain
+  is thereby sealed.
+- **残留治理**（`03edc0b4`）：显示器布局拖拽实测形态 = 已 100ms 节流、**单元素无乘法**，
+  10 包/s 对 EDIT_OP 回填 8/s 持续净耗 2/s —— 约 9 分钟连续拖才拖空（低烈度）。取最小修：
+  间隔 100ms → **150ms**（6.7 包/s &lt; 回填 8/s，桶恒不拖空、合法拖拽零拒绝）；旁观端由
+  layoutLerp 平滑；停手保活不需要（显示布局无过期机制，静默期远端钉在最后位置恰好正确）。
+  并入临场流的重形态留作后续选项。
+  / Residual treatment: display drags are already 100 ms-throttled and single-element (no
+  multiplication); 10 pkt/s against the 8/s refill drained the bucket after ~9 minutes of
+  continuous dragging. Minimal fix: interval to 150 ms (6.7 pkt/s &lt; refill — the bucket
+  never drains); watchers smooth via layoutLerp; no keep-alive needed (no expiry in display
+  mode). Folding into the stream remains a future option.
+- **重启边界**：批 2 为服务端行为（客户端契约复用既有路径）——服务端重启生效；显示间隔
+  为客户端行为——客户端重启生效。
+  / Restart boundary: batch 2 is server-side (the client contract is the existing path);
+  the display interval is client-side.
