@@ -2,7 +2,7 @@
 > 更新日期 / Updated：2026-11-21
 > 版本 / Version：1.3.0（WIP）
 > 范围 / Scope：本文件登记**已定性、暂缓修复**的缺陷——每条含症状、机制、触发条件、修复方向与状态。新条目追加在汇总表与正文之后。
-> 状态 / Status：🔶 共 24 项（✅ 已实施 18 项〔5/6/8/9/10/11/12/13/14/16/17/24/26/34 + 2026-11-21 批：19/2/7/3〕；已拍板销账 1 项〔4 功放越界，2026-11-21 拍板接受现状、不动模型〕；已拍板待实施 2 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件；20 观测面 = 独立指令面板形态、后续再合并（2026-11-21 拍板）〕；待办 3 项〔条目 1 待立项；条目 18 半收口（② 回执形态发版后另批）；条目 38 半收口（② 音频计时断言评估后暂缓）；条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）；暂缓面 27/29/30/31/33/35/36/37 与条目 28 半收口（28.2 已随条目 7 收口批实施、28.1 需独立拍板）详见汇总表〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
+> 状态 / Status：🔶 共 26 项（✅ 已实施 20 项〔5/6/8/9/10/11/12/13/14/16/17/24/26/34 + 2026-11-21 批：19/2/7/3 + 实测回归批：40/41〕；已拍板销账 1 项〔4 功放越界，2026-11-21 拍板接受现状、不动模型〕；已拍板待实施 2 项〔15 公开 API，波 1 批 A–E 已全部落地、剩波 2 宿主套件；20 观测面 = 独立指令面板形态、后续再合并（2026-11-21 拍板）〕；待办 3 项〔条目 1 待立项；条目 18 半收口（② 回执形态发版后另批）；条目 38 半收口（② 音频计时断言评估后暂缓）；条目 21–23 pinId 类型段开放设计点（21 随附属开发定、22/23 另批）；暂缓面 27/29/30/31/33/35/36/37 与条目 28 半收口（28.2 已随条目 7 收口批实施、28.1 需独立拍板）详见汇总表〕，详见汇总表）；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。；修复落地后把对应条目改为 ✅ 已解决并注明落地版本。
 > ⚠️ 引用约定 / Reference convention：引用本册条目一律用**标题**（如「known-open-issues 条目『频道释放依赖快照路径』」），
 > **不要用 `#N`** —— GitHub 会把 `#N` 自动链接到仓库的真实 issue（`issue #10/#11/#12/#15/#17` 等才是真链接），
 > 本册的 `## 1./## 2.` 只是本地序号。/ Always cite register entries by **title**, never as `#N` —
@@ -53,6 +53,9 @@
 | 36 | PERF-8 提交收敛：试验-实证-回滚（待重新设计） | FlushGate 重叠门控干净态 canvas 21.87→19.0ms，但拖拽重叠实机捕获单帧 z 序破绽（下层引脚标签浮在上层节点体上），gui/font 批语义存在未吃透的帧级窗口 | 先做 MultiBufferSource.BufferSource 批序机制取证再重设计隔离粒度；门控纯逻辑（FlushGateTest）可复用 | 🔶 已回滚（2026-11-14 渲染性能线登记，原 34.1；等机制取证后重设计） |
 | 37 | 编辑器多次 resize 后的会话级渲染劣化 | 同会话多次窗口 resize 后 1024@0.25 场景 canvas 从约 19.8ms 劣化到约 54.8ms（3× 稳态），干净重启即恢复——会话态累积，非代码回归 | 按 resize → Screen.init → GraphJoinPacket 重发的会话状态累积独立取证；与渲染性能线解耦 | 🔶 暂缓（2026-11-14 渲染性能线登记，原 34.2，独立取证） |
 | 38 | CustomNodeEvalTest 梯子测试的墙钟耦合波动（满载翻车一次） | ① 渐进台面 prev=100/budget=5ms 开着破约快车道，「不熔断」靠 spin 200µs<5ms 墙钟假设，满载撑过即提前熔断（expected 21 got 11）；② AudioMixerShapingPerfTest 计时预算断言同族翻车 | ① 台面改 prev=1/budget=0.05ms 关闭快车道 + 墙钟膨胀负例锚（保守方案，不动生产）；② 评估后不动（已自校准，放宽削弱牙口） | 🔶 ① 已实施（2026-11-20，1333 绿）；② 暂缓（2026-11-14 登记，负载敏感波动族非产品缺陷） |
+| 39 | Tok 字节码 16B 布局未收窄（常量池化实测未达门，判定关闭） | Tok 枚举实测 16B，常量池化形态实测未达 +3% 判定门、整体回退，代码零落地 | 同窗抖动分布为唯一可靠判定口径（§五.3）；16B 为当前与可预见形态 | 判定关闭（2026-11-21，csc-rust-perf 线实测；39 号此前漏挂汇总行，本次补记） |
+| 40 | 空公式 NBT 往返丢键（全量同步/存档重载把空公式重置回默认 A+B） | save 把空串/0 值当「默认值」跳键（formula、din）——任何 NBT 往返后空公式弹回 "A+B"、face 弹回 2 | FORMULA 节点恒写 formula 键与 din（含空串与 0） | ✅ 已实施（2026-11-21，`dd2b9deb`；FormulaEmptyRoundTripTest 3 锚，1392 绿） |
+| 41 | 全量同步图实例替换后 stale EditState 绑定（改名回车提交回弹 + 双端输入框不一致） | 同 id 签名恒等 → 旧 EditState 被保留，输入框/响应器/busNode 挂在旧图老节点对象上——编辑落死对象、提交撞 issue #10 守卫回弹 | 图实例替换分支清 `editStateSignatures` 强制重建（只清指纹不清 state，草稿/焦点保留照常） | ✅ 已实施（2026-11-21，`dd2b9deb`；GraphInstanceReplacementResetTest 源码锚，1392 绿） |
 
 ---
 
@@ -1207,3 +1210,19 @@ FORMULA 节点静默失效（无 ERROR 锚点）；每 tick 一次受控异常�
 - 测量约束：本负载跨二进制 A/B 有 ±25% 布局噪声（见 `rust-backend-optimization.md` §五.0「测量方法学的重要发现」——同二进制探针是唯一可靠口径）,收益判定必须用该口径,单次 A/B 不可归因;**2026-11-21 补强:跨测量窗的序列 A/B 同样不可归因（负载漂移可伪造全线 ±30%）,判定以同窗交错对照为准（§五.3）**。
 - 状态：**判定关闭**（2026-11-21 csc-rust-perf 线实测:同窗抖动分布 7 线无一达 +3% 判定门、3 线中位回退 >3%（弹道 full −11.5%）,池化整体回退、代码零落地;实施形态与两轮分布见 `rust-backend-optimization.md` §五.3。tok.rs 模块头注释已改真实描述——16B 是当前与可预见形态,8B 宣称注销）。
 / Tok is 16B in memory (the module header's 8B claim never materialized; Const(f64) inflates the enum). Const-pooling (u32 index + an Rpn-level pool, wire format unchanged) was implemented and measured on 2026-11-21, missed its 3% gate and was reverted whole — judged closed (0/7 lines reached the gate, 3 regressed beyond 3%, worst ballistic/full −11.5%; same-window jitter distribution, see rust-backend-optimization.md §5.3). The measurement also strengthened §5.0: sequential cross-window A/B is as unattributable as cross-binary (load drift faked a uniform +20-34% win in the first pass). The tok.rs module header now describes the true 16B shape; the 8B claim is retired.
+
+## 40. 空公式 NBT 往返丢键（全量同步/存档重载把空公式重置回默认 A+B）
+
+- 机制：`GraphNode.save` 按 `!formula.isEmpty()` 跳写 formula 键、`din` 按 `>0` 跳写——**空串与 0 值都被当成「默认值」丢键**；load 侧 `contains(...)` 不命中 → 回构造默认（formula="A+B"、din=2）。实测形态：空公式节点在**任何 NBT 往返**后文本弹回 "A+B"、face 弹回 2，与如实落盘的 dout=1 错位。触发链 = 存档重载或**全量同步**（改名迁移的冲突旗标变化会 `requestFullSync`，实测正是这条链把重置带出来的；症状表现为「动其他节点的输入框后被重置」，实为同图上的改名批测试触发了全量同步）。2026-11-21 双人实机测出。
+- 修复方向：FORMULA 节点**恒写** formula 键（含空串）与 din（含 0）；dout 无需同款（缺省 1 = FORMULA 合法最小值 1，跳过即还原）；非公式节点保持原守卫。
+- 状态：✅ 已实施（2026-11-21，`dd2b9deb`）。`FormulaEmptyRoundTripTest` 3 锚（空公式往返保持 ""/非空往返形状不变/非公式节点不写键）。全量 1392 绿（headless 离线链路）。
+/ The formula key (and din=0) were skipped as "defaults" on save, so any NBT round-trip — save reload or a full sync, which a rename's conflict-flag change requests — restored the constructor default "A+B" with the face snapping back to 2. FORMULA nodes now always write the formula key and din. Anchors in FormulaEmptyRoundTripTest (3); 1392 green.
+
+## 41. 全量同步图实例替换后 stale EditState 绑定（改名回车提交回弹 + 双端输入框不一致）
+
+- 机制：全量同步整体替换图实例后，`renderBg` 的重建走签名比对——同 id 的签名值恒等（指纹不编码对象身份）→ 旧 EditState 被**保留**，其输入框/响应器/`st.busNode` 全部挂在**旧图的老节点对象**上。后果链：后续编辑落在死对象上（本地看不见、op 按 id 仍能到服务端）→ 显示与服务端权威态分歧；改名批测试里高频回车的提交在重建后的盒子上带着「保留草稿 + 非敲键」形态撞上 issue #10 守卫 → **回弹 + 「已丢弃未确认的频道名草稿」提示刷屏 + 双端输入框显示不一致**。2026-11-21 双人实机测出（与条目 40 同会话：改名触发全量同步是共同触发链）。
+- 修复方向：图实例替换分支（`lastInitGraph != graph`）清 `editStateSignatures` 强制全部展开节点重建——**只清指纹不清 state**：`createEditState` 以旧 state 为 `oldStRef`，草稿/焦点保留路径照常工作，新 state 以新图节点为绑定。
+- 状态：✅ 已实施（2026-11-21，`dd2b9deb`）。源码锚 `GraphInstanceReplacementResetTest`（替换分支清指纹、不清 state）。issue #10 的「非敲键草稿拒绝提交」纪律本身不动（防把别人/旧名顶回去的设计行为）。全量 1392 绿。
+/ After a wholesale graph-instance replacement, same-id signatures compared equal, keeping EditStates bound to the OLD graph's node objects — later edits landed on dead objects and Enter commits bounced back with both editors disagreeing. The replacement branch now clears the fingerprints (states survive so draft/focus preservation keeps working); the issue #10 keystroke-only commit discipline stays. Source anchor GraphInstanceReplacementResetTest; 1392 green.
+
+> **条目 7 实测修正（2026-11-21，双人实机）**：封装子图的节点菜单只有 ENCAP_INPUT/OUTPUT——正常玩法在子图里**造不出** BUS_OUT/PRIVATE_OUT，撞号场景菜单不可达。图域修法的现实价值 = **op 注入面加固**：准入门对子图目标按宿主方块的名单作答（BUS_OUT 仍在名单内），改包客户端仍可把发布节点注入子图——owner 键带图域后这条注入路径不再劫持主图同号节点。
