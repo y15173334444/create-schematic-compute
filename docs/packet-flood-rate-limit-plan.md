@@ -340,3 +340,24 @@ points landed as written here; two-player live-verified on 2026-11-21.）
   / A pacing stopgap cannot fix the op channel's full-sync side effects — the real treatment
   for this class of residual is folding into the stream, returning the op channel to pure
   discrete actions.
+
+### 7.3 批 3 后续两笔实机反馈修复（2026-11-21）/ Batch 3 follow-ups from live feedback
+
+- **软锁框钉旧位**（`e9576fd2`）：协作叠加层在帧影窗口**外**重读 layoutX 真值——窗口原只罩
+  画布缓存重建。帧影 begin/end 上移到 `MonitorDisplayEditor.render` 整帧入口：缓存重建、图
+  层面板、协作叠加层全在窗内读影子位置，帧末还原（帧间输入路径恒见图真值）；画布侧只保留
+  「影子活跃 → 强制重建缓存」的感知。
+  / The soft-lock frame re-read live layoutX outside the shadow window (which only covered
+  the canvas cache rebuild) — begin/end moved up to the frame entry so the rebuild, the
+  layer panel and the overlay all read shadowed positions; truth restored at frame end.
+- **显示模式远端光标无插值**（`3ff826ff`）：`renderDisplayPresence` 直画 presence 原始坐标
+  （8.3Hz 阶跃）——节点模式的 cursorLerp 未移植，且其存值是图空间换算（对显示画布坐标是错
+  空间，接了也不能用）。显示模式补独立逐玩家 smoothstep（`advanceCursorLerp` 纯静态
+  0.12/帧、画布坐标空间、退场 retainAll 清理）。
+  / Display-mode remote cursors were drawn raw at the presence cadence; the node mode's
+  cursorLerp was never portable (its stored values are graph-space transforms). Display now
+  keeps its own per-player canvas-space smoothstep.
+- **实测结论**（2026-11-21）：节点拖拽三件套、显示器拖拽跟随、软锁框实时贴位、远端光标
+  平滑——全部通过，限流断开不再复现。
+  / Live verdict: all collaboration surfaces smooth; the rate-limit disconnect no longer
+  reproduces.
