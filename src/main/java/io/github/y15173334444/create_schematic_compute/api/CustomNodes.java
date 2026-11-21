@@ -66,16 +66,17 @@ public final class CustomNodes {
      * {@link IllegalArgumentException} (a roster entry for a non-existent shape is a
      * provider bug).</p>
      *
-     * <p><b>宿主键归属校验</b>：第三方只可登记进<b>显式白名单</b>内的本模组
-     * 宿主键（现 = {@link #HOST_BLUEPRINT}；后续版本开放更多宿主时扩展）——
-     * 登记进任意其他键（含他人宿主键）抛 {@link IllegalArgumentException}。自有宿主
-     * （宿主套件，后续版本提供）不经本口，随套件自行声明名单。
-     * <b>Host-key ownership</b>: third parties may enrol only into
-     * this mod's host keys on an <b>explicit allowlist</b> (currently
-     * {@link #HOST_BLUEPRINT}; it grows as later releases open more hosts) — enrolling
-     * into any other key (including another mod's) throws
-     * {@link IllegalArgumentException}. Your own hosts (the host suite, a later release)
-     * bypass this facade and declare their rosters with the suite.</p>
+     * <p><b>宿主键归属校验（波 2 两路放行）</b>：① <b>显式白名单</b>内的本模组宿主键
+     * （现 = {@link #HOST_BLUEPRINT}；后续版本开放更多宿主时扩展）；② 第三方<b>自声明</b>
+     * 的宿主套件键（经 {@code HostGraphs.bind} 声明，键命名空间须与本节点 id 命名空间
+     * 一致——声明者收自己的节点）。登记进任意其他键（含他人宿主键）抛
+     * {@link IllegalArgumentException}。
+     * <b>Host-key ownership (two paths since wave 2)</b>: (1) this mod's host keys on an
+     * <b>explicit allowlist</b> (currently {@link #HOST_BLUEPRINT}; it grows as later
+     * releases open more hosts); (2) a host-suite key <b>you declared yourself</b> (via
+     * {@code HostGraphs.bind}, whose namespace must match this node id's namespace — the
+     * declarer enrols its own nodes). Enrolling into any other key (including another
+     * mod's) throws {@link IllegalArgumentException}.</p>
      *
      * <p>装载兼容不经名单：旧档已在场的 id（无论提供方是否在线）由装载普查放行——
      * 撤销恢复与装载同语义（占位壳等提供方回归）。
@@ -84,8 +85,10 @@ public final class CustomNodes {
      * load semantics (a placeholder shell waiting for the provider's return).</p>
      *
      * @param nodeId  已注册的自定义节点 id（{@code "modid:node_id"}）/ the registered id
-     * @param hostKey 可登记白名单内的宿主键（现 = {@link #HOST_BLUEPRINT}）/ an enrolable
-     *                host key (currently {@link #HOST_BLUEPRINT})
+     * @param hostKey 归属两路放行内的宿主键（CSC 白名单如 {@link #HOST_BLUEPRINT}，或
+     *                本模组经 {@code HostGraphs.bind} 自声明的键）/ a host key inside the
+     *                two-path ownership (a CSC allowlist key like {@link #HOST_BLUEPRINT},
+     *                or a key your own mod declared via {@code HostGraphs.bind})
      */
     public static void admitToHost(String nodeId, String hostKey) {
         CustomNodeRoster.admit(hostKey, nodeId);

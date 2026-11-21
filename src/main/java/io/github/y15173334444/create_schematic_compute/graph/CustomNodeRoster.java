@@ -37,17 +37,82 @@ public final class CustomNodeRoster {
     /** hostKey → 该宿主已登记的自定义节点 id / host key → custom node ids admitted for that host. */
     private static final Map<String, Set<String>> BY_HOST = new ConcurrentHashMap<>();
 
-    /** 第三方可登记的宿主键白名单（批 D 审查拍板）：归属校验的口径 = 显式白名单，键
-     *  随持有 CUSTOM 类目的本模组宿主逐个开放（现 = 蓝图机，验收①宿主；波 2 宿主套件
-     *  落地时由宿主自己声明可登记键后在此扩行）。引用名单常量的 hostKey（单一来源，
-     *  禁字面量副本）。
-     *  The allowlist of host keys third parties may enrol into (batch D review ruling):
-     *  ownership = an explicit allowlist, growing per this mod's CUSTOM-bearing hosts
-     *  (currently the blueprint computer, acceptance-1's host; wave-2 host-suite hosts
-     *  declare their own enrolable keys and extend this line). References the allowance
-     *  constant's hostKey (single source, no literal copies). */
-    private static final Set<String> ENROLABLE_HOST_KEYS = Set.of(
+    /** CSC 显式白名单（批 D 审查拍板）：第三方可登记进的本模组宿主键，随持有 CUSTOM
+     *  类目的本模组宿主逐个开放（现 = 蓝图机，验收①宿主）。引用名单常量的 hostKey
+     *  （单一来源，禁字面量副本）。波 2 起归属是两路放行——本白名单之外，第三方
+     *  自声明键（见 {@link #DECLARED_HOST_KEYS}）对自己的命名空间同样开放。
+     *  The explicit CSC allowlist (batch D review ruling): this mod's host keys third
+     *  parties may enrol into, growing per CUSTOM-bearing host (currently the blueprint
+     *  computer, acceptance-1's host). References the allowance constant's hostKey
+     *  (single source, no literal copies). Since wave 2 ownership is two-path — beyond
+     *  this allowlist, third-party self-declared keys (see {@link #DECLARED_HOST_KEYS})
+     *  are open to their own namespace. */
+    private static final Set<String> CSC_ENROLABLE_KEYS = Set.of(
         BlockNodeAllowances.BLUEPRINT.hostKey());
+
+    /** 第三方宿主经宿主套件 {@code HostGraphs.bind} 自声明的可登记键（波 2）：键强制
+     *  {@code modid:name} 形态，归属规则 = 键命名空间等于节点 id 命名空间（声明者收
+     *  自己的节点）。会话期静态（与 {@link CustomNodeRegistry} 同口径），模组构造期
+     *  写入、此后只读。
+     *  Host keys self-declared by third-party hosts via the host suite's {@code
+     *  HostGraphs.bind} (wave 2): keys must be {@code modid:name}; ownership = the key's
+     *  namespace equals the node id's namespace (the declarer enrols its own nodes).
+     *  Session-static (same as {@link CustomNodeRegistry}) — written at mod construction,
+     *  read-only afterwards. */
+    private static final Set<String> DECLARED_HOST_KEYS = ConcurrentHashMap.newKeySet();
+
+    /**
+     * 登记第三方宿主自声明的可登记键（宿主套件 bind 路径，波 2）。键强制
+     * {@code modid:name} 形态；重复声明抛 {@link IllegalStateException}（与波 1 重复
+     * 注册同款启动即炸）。本方法公开仅为门面委托边服务——第三方只见 api 包。
+     * <p>Registers a third-party host's self-declared enrolable key (the host-suite
+     * bind path, wave 2). Keys must be {@code modid:name}; a duplicate declaration
+     * throws {@link IllegalStateException} (the same fail-fast as wave 1's duplicate
+     * registration). Public only to serve the facade's delegate edge — providers see
+     * the api package only.</p>
+     *
+     * @throws IllegalArgumentException 键空或非 {@code modid:name} 形态 / the key is
+     *                                  blank or not {@code modid:name}
+     * @throws IllegalStateException    键已声明（含与 CSC 显式白名单撞键） / the key is
+     *                                  already declared (including a collision with the
+     *                                  CSC explicit allowlist)
+     */
+    public static void declareHostKey(String hostKey) {
+        if (hostKey == null || hostKey.isBlank())
+            throw new IllegalArgumentException("declared host key must be non-blank");
+        int colon = hostKey.indexOf(':');
+        if (colon <= 0 || colon == hostKey.length() - 1)
+            throw new IllegalArgumentException("declared host key must be modid:name: " + hostKey);
+        if (CSC_ENROLABLE_KEYS.contains(hostKey) || !DECLARED_HOST_KEYS.add(hostKey))
+            throw new IllegalStateException("host key already declared: " + hostKey);
+    }
+
+    /** 已声明的第三方宿主键快照（bind 重复校验用）。 / Snapshot of the declared
+     *  third-party host keys (for bind's duplicate check). */
+    public static Set<String> declaredHostKeys() {
+        return Set.copyOf(DECLARED_HOST_KEYS);
+    }
+
+    /** 波 2 归属两路放行：① CSC 显式白名单；② 第三方自声明键且键命名空间 == 节点 id
+     *  命名空间（声明者收自己的节点）。其余（含他人声明的键）一律拒绝。
+     *  The wave-2 two-path ownership: (1) the CSC explicit allowlist; (2) a
+     *  third-party self-declared key whose namespace equals the node id's namespace
+     *  (the declarer enrols its own nodes). Everything else — including keys declared
+     *  by other mods — is refused. */
+    private static boolean isEnrolable(String hostKey, String nodeId) {
+        if (CSC_ENROLABLE_KEYS.contains(hostKey)) return true;
+        if (!DECLARED_HOST_KEYS.contains(hostKey)) return false;
+        String keyNs = namespace(hostKey);
+        return !keyNs.isEmpty() && keyNs.equals(namespace(nodeId));
+    }
+
+    /** {@code modid:name} 的命名空间段；无冒号或空段返回空串（调用方判空拒收）。
+     *  The namespace segment of {@code modid:name}; empty string when no colon or an
+     *  empty segment (callers check and refuse). */
+    private static String namespace(String id) {
+        int colon = id.indexOf(':');
+        return colon <= 0 ? "" : id.substring(0, colon);
+    }
 
     /**
      * 把节点 id 登记进宿主名单（幂等）。生产路径 = {@code api.CustomNodes.admitToHost}
@@ -60,22 +125,22 @@ public final class CustomNodeRoster {
      *
      * @throws IllegalArgumentException id 未注册（防手误：登记一个不存在的形状是提供方
      *                                  bug，启动即炸比静默无效名单诚实），或 hostKey 不在
-     *                                  第三方可登记白名单内（归属校验，批 D 审查拍板）
+     *                                  归属两路放行内（批 D 白名单 / 波 2 自声明键同名
+     *                                  命名空间）
      *                                  / the id is not registered (a typo'd enrolment is a
      *                                  provider bug — fail fast rather than a silently dead
-     *                                  roster entry), or the host key is not on the
-     *                                  third-party enrolable allowlist (ownership check,
-     *                                  batch D review ruling)
+     *                                  roster entry), or the host key fails the two-path
+     *                                  ownership check (batch-D allowlist / a wave-2
+     *                                  self-declared key in the same namespace)
      */
     public static void admit(String hostKey, String nodeId) {
         if (hostKey == null || hostKey.isBlank())
             throw new IllegalArgumentException("roster hostKey must be non-blank");
-        // 归属校验（批 D 审查拍板）：第三方只许登记进白名单宿主键——任意模组把节点
-        // 登记进任意键（含他人键）的旁路在此收口。键族随宿主套件波扩展。
-        // Ownership check (batch D review ruling): third parties enrol only into
-        // allowlisted host keys — the bypass of enrolling into any key (including other
-        // mods' keys) closes here. The key family grows with the host-suite wave.
-        if (!ENROLABLE_HOST_KEYS.contains(hostKey))
+        // 归属两路放行（批 D 白名单 + 波 2 自声明键）：任意模组把节点登记进任意键
+        // （含他人键）的旁路在此收口。
+        // Two-path ownership (batch-D allowlist + wave-2 self-declared keys): the bypass
+        // of enrolling into any key (including other mods' keys) closes here.
+        if (!isEnrolable(hostKey, nodeId))
             throw new IllegalArgumentException("host key is not enrolable by third parties: " + hostKey);
         if (!CustomNodeRegistry.isRegistered(nodeId))
             throw new IllegalArgumentException("roster enrolment of unregistered custom node id: " + nodeId);
@@ -96,8 +161,10 @@ public final class CustomNodeRoster {
         return Set.copyOf(BY_HOST.keySet());
     }
 
-    /** 清空名单（仅测试隔离用）。/ clear everything (test isolation only). */
+    /** 清空名单与声明键（仅测试隔离用）。/ clear rosters and declared keys (test
+     *  isolation only). */
     public static void clearForTests() {
         BY_HOST.clear();
+        DECLARED_HOST_KEYS.clear();
     }
 }
