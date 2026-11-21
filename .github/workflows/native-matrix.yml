@@ -1,0 +1,221 @@
+# Native 矩阵构建 / Native cross-build matrix
+# 六平台 natives（windows/linux/macos × x86_64/aarch64）分 runner 构建后汇总进 jar：
+#   build 矩阵：每个目标在对应 OS runner 上 cargo build --locked --target（宿主或
+#   交叉），上传 cdylib 产物（natives-<os>-<arch>）。
+#   verify 矩阵：三 OS 各自汇总六份产物铺进 build/natives/ → 打 jar → 全量测试 +
+#   jshell 探针正面断言 FormulaNative.AVAILABLE=true（本 OS native 真的加载了；
+#   FormulaNativeTest 在 native 缺席时 assumeTrue 整类跳过、套件照样绿，探针才是
+#   硬证据）。gradle 一律 -x buildNative：GH runner 预装 cargo，不排除会把 host
+#   目录就地重编覆盖矩阵产物，掩盖坏工件。
+#   ubuntu job 另跑 file 架构指纹（六份逐一比对，防错位打包）并上传
+#   formula-jar-all-natives 工件（发布附件用它）。
+# 换架构三件（windows-aarch64 / linux-aarch64 / macos-x86_64）在 x64 runner 上
+# 无法加载——只做构建 + 架构指纹，加载验证留实机（见 docs/native-matrix-plan.md）。
+# Six-platform natives (windows/linux/macos × x86_64/aarch64) are built per-OS
+# then assembled into the jar:
+#   build matrix: each target runs cargo build --locked --target on its matching
+#   OS runner (host or cross) and uploads its cdylib (natives-<os>-<arch>).
+#   verify matrix: three OSes stage all six into build/natives/ → jar → the full
+#   suite + a jshell probe positively asserting FormulaNative.AVAILABLE=true (the
+#   e2e class assumeTrue-skips when natives are missing and the suite stays green,
+#   so the probe is the hard evidence). Gradle always runs -x buildNative: GH
+#   runners preinstall cargo, and an in-place host rebuild would overwrite the
+#   matrix artifact and mask a broken one.
+#   The ubuntu job additionally runs `file` arch fingerprints (one by one,
+#   catching mis-dir'd binaries) and uploads the formula-jar-all-natives artifact
+#   (release attachments use this jar).
+# The three swapped-arch targets (windows-aarch64 / linux-aarch64 / macos-x86_64)
+# cannot load on x64 runners — build + fingerprint only; loading is verified on
+# real hardware (see docs/native-matrix-plan.md).
+name: Native matrix build
+
+on:
+  pull_request:
+    paths:
+      - 'build.gradle'
+      - 'native/**'
+      - '.github/workflows/native-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-native:
+    name: cargo ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # crt-static：dll 自包含 CRT，玩家机器免装 VC++ 运行库（见方案文档）。
+          # crt-static: the dll carries its own CRT - no VC++ redist on players (see plan doc).
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            dir: windows-x86_64
+            lib: formula_native.dll
+            rustflags: -C target-feature=+crt-static
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            dir: windows-aarch64
+            lib: formula_native.dll
+            rustflags: -C target-feature=+crt-static
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            dir: linux-x86_64
+            lib: libformula_native.so
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            dir: linux-aarch64
+            lib: libformula_native.so
+            apt: gcc-aarch64-linux-gnu
+            linker: aarch64-linux-gnu-gcc
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            dir: macos-aarch64
+            lib: libformula_native.dylib
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            dir: macos-x86_64
+            lib: libformula_native.dylib
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: Install cross linker (Linux aarch64)
+        if: matrix.apt != ''
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.apt }}
+
+      - name: cargo build --release
+        shell: bash
+        working-directory: native/formula-core
+        # 空值 env（RUSTFLAGS="" 等）只在本 job 生效且被 cargo 视为无旗标，无碍。
+        # Empty env values (RUSTFLAGS="" etc.) apply to this job only and read as
+        # "no flags" to cargo - harmless.
+        run: |
+          RUSTFLAGS="${{ matrix.rustflags }}" \
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="${{ matrix.linker }}" \
+          cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: Stage cdylib
+        shell: bash
+        run: |
+          mkdir -p stage/${{ matrix.dir }}
+          cp native/formula-core/target/${{ matrix.target }}/release/${{ matrix.lib }} stage/${{ matrix.dir }}/
+          ls -l stage/${{ matrix.dir }}/
+
+      - name: Upload native artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: natives-${{ matrix.dir }}
+          path: stage
+          if-no-files-found: error
+
+  verify:
+    name: verify + test (${{ matrix.os }})
+    needs: build-native
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      # NeoGradle/neoForm 反编译需要较多内存（与 pr-test.yml 同口径）。
+      # neoForm decompilation needs heap (same as pr-test.yml).
+      GRADLE_OPTS: -Xmx4g -Dorg.gradle.daemon=false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all native artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: natives-*
+          path: build/natives
+          merge-multiple: true
+
+      - name: Assert six natives staged
+        shell: bash
+        run: |
+          ls -lR build/natives
+          count=$(ls build/natives | wc -l)
+          echo "staged dirs: $count"
+          [ "$count" -eq 6 ]
+
+      # 架构指纹只在 ubuntu job 跑（六份都在，`file` 必有；一处校验防错位打包）。
+      # Arch fingerprints run on ubuntu only (all six staged, `file` guaranteed):
+      # one place catches any mis-dir'd binary.
+      - name: Assert arch fingerprints
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -e
+          assert() {
+            echo "== $1 =="
+            file "$1"
+            file "$1" | grep -qi "$2"
+          }
+          assert build/natives/linux-x86_64/libformula_native.so     'x86-64'
+          assert build/natives/linux-aarch64/libformula_native.so    'aarch64'
+          assert build/natives/macos-x86_64/libformula_native.dylib  'x86_64'
+          assert build/natives/macos-aarch64/libformula_native.dylib 'arm64'
+          assert build/natives/windows-x86_64/formula_native.dll     'x86-64'
+          assert build/natives/windows-aarch64/formula_native.dll    'aarch64'
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle (caches dependencies / neoForm outputs)
+        uses: gradle/actions/setup-gradle@v4
+
+      # -x buildNative：六份 natives 一律取矩阵产物（见文件头注释）。
+      # -x buildNative: the six natives must come from the matrix artifacts (see header).
+      - name: Jar + full test suite (this OS's native on the classpath)
+        shell: bash
+        run: ./gradlew jar test -x buildNative --console=plain
+
+      - name: Assert jar carries six natives
+        shell: bash
+        run: |
+          JAR=$(ls build/libs/*.jar | grep -v -- '-sources.jar' | head -1)
+          echo "jar: $JAR"
+          entries=$(jar tf "$JAR" | grep '^natives/' | sort)
+          echo "$entries"
+          [ "$(echo "$entries" | wc -l)" -eq 6 ]
+          for d in windows-x86_64 windows-aarch64 linux-x86_64 linux-aarch64 macos-x86_64 macos-aarch64; do
+            echo "$entries" | grep -q "^natives/$d/"
+          done
+
+      # 正面探针：类加载即触发 probe()，AVAILABLE=false 一步红。
+      # Positive probe: class init runs probe(); false = red step.
+      - name: Probe FormulaNative.AVAILABLE
+        shell: bash
+        run: |
+          JAR=$(ls build/libs/*.jar | grep -v -- '-sources.jar' | head -1)
+          out=$(echo 'System.out.println("PROBE_AVAILABLE=" + io.github.y15173334444.create_schematic_compute.graph.FormulaNative.AVAILABLE);' | jshell -q --class-path "$JAR" -)
+          echo "$out"
+          echo "$out" | grep -q 'PROBE_AVAILABLE=true'
+
+      - name: Stage main jar for upload
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir dist
+          cp "$(ls build/libs/*.jar | grep -v -- '-sources.jar' | head -1)" dist/
+          ls -l dist/
+
+      - name: Upload assembled jar (six-platform natives)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: formula-jar-all-natives
+          path: dist
+          if-no-files-found: error
