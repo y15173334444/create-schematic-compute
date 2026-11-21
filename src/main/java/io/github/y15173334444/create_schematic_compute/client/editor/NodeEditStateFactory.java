@@ -534,6 +534,14 @@ final class NodeEditStateFactory {
 
             final int formulaNodeId = node.id; // capture id, re-fetch node each call
             mle.setResponder(t -> {
+                // 远端 SET_FORMULA 定点刷新的 setValue 会经过这里——抑制即跳过（与参数框
+                // 187 行同款守卫），否则回声重发 op 成环。程序装入路径（面板重建）的
+                // setValue 在本Responder 挂上**之前**执行，天然不经过此守卫。
+                // The remote SET_FORMULA targeted refresh's setValue passes through here —
+                // the suppression flag skips it (the same guard as the param box at line 187),
+                // otherwise the echo re-sends the op in a loop. Programmatic loads (panel
+                // rebuild) setValue BEFORE this responder is attached and never hit the guard.
+                if (ed.suppressEditBoxResponder) return;
                 // 全角/中文符号兜底转换(insertText 已实时转换,此处覆盖 setValue/撤销等路径)
                 // Full-width fallback conversion (insertText already converts live; this covers setValue/undo paths)
                 String sanitized = io.github.y15173334444.create_schematic_compute.graph.FormulaParser.sanitizeFullwidth(t);
@@ -645,8 +653,10 @@ final class NodeEditStateFactory {
     }
 
     /** Helper: true if the issue list contains at least one ERROR-level item.
+     *  包内可见 = applier 的 SET_FORMULA 定点刷新复用同一校验单源（可见性放宽先例 =
+     *  SignalBus.key：消费面全住本包，公开面零扩大）。
      *  辅助方法：如果问题列表中至少有一个 ERROR 级别的问题则返回 true。 */
-    private static boolean hasErrors(java.util.List<io.github.y15173334444.create_schematic_compute.graph.FormulaParser.FormulaIssue> issues) {
+    static boolean hasErrors(java.util.List<io.github.y15173334444.create_schematic_compute.graph.FormulaParser.FormulaIssue> issues) {
         if (issues == null) return false;
         for (var iss : issues)
             if (iss.severity() == io.github.y15173334444.create_schematic_compute.graph.FormulaParser.Severity.ERROR)

@@ -921,7 +921,13 @@ public class GraphEditor {
      *  meaning of its edit boxes. Omit a field here and that change stops rebuilding.
      *  <p><b>Contract exception</b>: param <i>values</i> are excluded — a value change
      *  rebuilds the panel and {@code ff3} wipes drafts ({@code "000"}→{@code "0.0"}).
-     *  Value sync rides SET_PARAM drafts + blur normalization instead.</p> */
+     *  Value sync rides SET_PARAM drafts + blur normalization instead.</p>
+     *  <p><b>Contract exception (formula text)</b>: the formula text is the script box's
+     *  「值」 — folding its hash into the fingerprint rebuilt the whole EditState per
+     *  keystroke (fresh instance each key, the completion popup swallowed). Its structural
+     *  effect already rides {@code inputs()}/{@code outputs()}/{@code bandCount()} here;
+     *  text sync rides the SET_FORMULA targeted refresh + the responder's live validation
+     *  (known-open-issues 条目『打字途中面板重建』三处一批之一).</p> */
     private int editStateSignature(GraphNode n) {
         int h = 1;
         h = 31 * h + n.id;
@@ -939,7 +945,14 @@ public class GraphEditor {
         // Value sync rides SET_PARAM's draft string + blur normalization instead.
         h = 31 * h + (n.signalName == null ? 0 : n.signalName.hashCode());
         h = 31 * h + (n.signalBands == null ? 0 : n.signalBands.size());
-        h = 31 * h + (n.formula == null ? 0 : n.formula.hashCode());
+        // **不要**把公式文本编进指纹：文本是脚本框的「值」，每键变化都换血输入框（补全弹窗
+        // 随实例被吞）。结构效应已由 inputs()/outputs()/bandCount 覆盖；文本同步走
+        // SET_FORMULA 定点刷新 + 响应器实时校验（条目『打字途中面板重建』三处一批之一）。
+        // Do NOT fold the formula text into the fingerprint: the text is the script box's
+        // "value", and every keystroke swapped the box instance (the completion popup went
+        // with it). The structural effect rides inputs()/outputs()/bandCount; text sync rides
+        // the SET_FORMULA targeted refresh + the responder's live validation (register entry
+        // "mid-typing panel rebuild", part 1 of the three-part batch).
         h = 31 * h + n.bandCount();
         if (n.subGraph != null) h = 31 * h + n.subGraph.nodes.size();
         // 参数引脚连线会隐藏对应输入框（连线按稳定 pinId 绑定）
