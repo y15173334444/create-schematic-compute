@@ -311,7 +311,8 @@ public final class EditSessionRegistry {
         // 并让"上传失败"无迹可查）。
         // Early-outs are no longer silent: send REJECT so the client returns its pending-ACK
         // count (a silent drop latches the full-sync guard and leaves "upload failed" untraceable).
-        if (!(level.getBlockEntity(pos) instanceof EditSessionTarget gbe)) {
+        var gbe = io.github.y15173334444.create_schematic_compute.graph.EditSessionTargets.resolve(level.getBlockEntity(pos));
+        if (gbe == null) {
             PacketDistributor.sendToPlayer(actor, new GraphEditOpSyncPacket(GraphOp.reject(op, actor.getUUID())));
             return;
         }

@@ -175,7 +175,8 @@ public record ClientboundGraphEvalPacket(BlockPos pos, Map<Integer, float[]> out
             // 面向 GraphBlockEntity 接口写入（支持继承线与组合线两类宿主）
             // Write through the GraphBlockEntity interface (supports both inheritance-line
             // and composition-line hosts).
-            if (be instanceof io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity gbe) {
+            var gbe = io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntities.resolve(be);
+            if (gbe != null) {
                 gbe.setCachedEvalSnapshot(new EvalSnapshot(outputs, debugTimes, subOutputs, subDebugTimes, formulaSpreads));
             }
         });

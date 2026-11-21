@@ -11,6 +11,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntities;
 
 /**
  * Client→Server: player opened the edit UI for a graph.
@@ -68,7 +69,7 @@ public record GraphJoinPacket(BlockPos pos) implements CustomPacketPayload {
             // 2. Verify target is one of the 7 graph block entities BEFORE joining session
             //    在加入编辑会话之前，验证目标是7种图方块实体之一，防止非法方块被注入编辑状态
             var be = sp.level().getBlockEntity(pkt.pos);
-            if (!(be instanceof GraphBlockEntity)) return;
+            if (GraphBlockEntities.resolve(be) == null) return;
             // 3. Safe to join — register player into the edit session and trigger full sync
             //    安全检查通过，将玩家注册到编辑会话中，并触发对应方块实体的全量同步
             // （flagFullSync 走 GraphBlockEntity 接口，继承线与组合线宿主统一处理）

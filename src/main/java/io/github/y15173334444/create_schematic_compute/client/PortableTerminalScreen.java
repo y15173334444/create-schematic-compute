@@ -324,7 +324,8 @@ public class PortableTerminalScreen extends Screen {
                     BlockEntity be = e.getValue();
                     // Only GraphBlockEntity subclasses participate in the terminal ecosystem
                     // 只有 GraphBlockEntity 子类参与终端生态系统
-                    if (be instanceof GraphBlockEntity gbe) {
+                    var gbe = GraphBlockEntities.resolve(be);
+            if (gbe != null) {
                         // 类型名恒显示（其他玩家据此知道设备原本是什么方块），
                         // 自定义名（编辑器顶栏设置）跟在后面；类型名去掉格式化代码（§.）。
                         // 格式必须与服务端 Sable 扫描（SablePacketHelper.deviceDisplayName）一致。

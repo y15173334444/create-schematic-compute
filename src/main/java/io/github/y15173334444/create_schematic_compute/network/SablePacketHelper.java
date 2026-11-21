@@ -5,6 +5,7 @@ import dev.ryanhcode.sable.sublevel.SubLevel;
 import dev.ryanhcode.sable.sublevel.plot.LevelPlot;
 import dev.ryanhcode.sable.sublevel.plot.PlotChunkHolder;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntities;
 import io.github.y15173334444.create_schematic_compute.compat.SableAccess;
 import io.github.y15173334444.create_schematic_compute.compat.SablePoseHelper;
 import net.minecraft.core.BlockPos;
@@ -340,6 +341,18 @@ public class SablePacketHelper {
             String custom = gbe.getCustomName();
             return custom != null ? custom : "";
         }
+        // 宿主套件适配器（波 2）：第三方宿主 BE 本体不实现图契约，经 resolver 查适配器
+        // （同加载器路径；Sable 跨加载器副本仍走下方反射慢速路径）。
+        // Host-suite adapter (wave 2): a third-party host BE itself does not implement the
+        // graph contract — consult the resolver for its adapter (same-loader path; Sable
+        // cross-loader copies keep riding the reflective slow path below).
+        if (be instanceof BlockEntity suiteBe) {
+            var suite = GraphBlockEntities.resolve(suiteBe);
+            if (suite != null) {
+                String custom = suite.getCustomName();
+                return custom != null ? custom : "";
+            }
+        }
         Class<?> iface = findGraphInterface(be.getClass());
         if (iface != null) {
             try {
@@ -377,6 +390,7 @@ public class SablePacketHelper {
         // Fast path: direct instanceof works for same-classloader BEs
         // 快速路径：同 ClassLoader 下的 BE 直接 instanceof 即可
         if (be instanceof GraphBlockEntity) return true;
+        if (be instanceof BlockEntity suiteBe && GraphBlockEntities.resolve(suiteBe) != null) return true;
         // Slow path: check by interface name for cross-classloader BEs
         // 慢速路径：通过接口全限定名比较来匹配跨 ClassLoader 的 BE
         return findGraphInterface(be.getClass()) != null;

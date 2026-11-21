@@ -3,6 +3,7 @@ package io.github.y15173334444.create_schematic_compute.network;
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.network.EditSessionRegistry;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntities;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.codec.StreamCodec;
@@ -51,7 +52,8 @@ public record GraphSaveRequestPacket(BlockPos pos) implements CustomPacketPayloa
             if (!(sp.level() instanceof net.minecraft.server.level.ServerLevel sl)) return;
             if (!SablePacketHelper.isWithinReachableRange(sp, pos, 16384.0)) return;
             if (!EditSessionRegistry.getEditors(sl, pos).contains(sp.getUUID())) return;
-            if (!(sp.level().getBlockEntity(pos) instanceof GraphBlockEntity gbe)) return;
+            var gbe = GraphBlockEntities.resolve(sp.level().getBlockEntity(pos));
+            if (gbe == null) return;
 
             // （旧「编译复位触发器」调用点已随 1.3.0 退役：保存 = 环检测 + 落盘 + 全量同步，
             // 时序状态完全持久——撤销/重做语义随之保真。）

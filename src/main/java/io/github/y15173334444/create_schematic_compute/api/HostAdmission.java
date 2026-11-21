@@ -6,8 +6,8 @@ import java.util.Set;
  * 第三方宿主的准入偏好声明（宿主套件波 2）：类目白名单 + 类内排除。默认拒绝、
  * 显式声明 —— 声明为空的宿主不放任何内置节点进图；第三方自定义节点走
  * {@link #CUSTOM} 类目 + 名单制（{@code CustomNodes.admitToHost}，在其下按字符串 id
- * 细分）。排除项按内置节点 id 字符串声明（如 {@code "csc:add"}）；id 在 bind 时
- * 解析，未知 id 即抛（fail-fast，启动即炸口径）。
+ * 细分）。排除项按节点 id 字符串声明（内置节点为裸 id，如 {@code "add"}；自定义节点为
+ * {@code "modid:node_id"}）；id 在 bind 时解析，未知 id 即抛（fail-fast，启动即炸口径）。
  * A third-party host's admission preference (host suite, wave 2): a category
  * allowlist plus in-category exclusions. Default-deny, explicit declaration — a host
  * with an empty declaration admits no built-in nodes into its graphs; third-party
@@ -40,7 +40,8 @@ public record HostAdmission(Set<HostCategory> categories, Set<String> excludedNo
     }
 
     /** 构造：类目若干 + 类内排除（内置节点 id 字符串，bind 时解析校验）。
-     *  / Categories plus in-category exclusions (built-in node-id strings, resolved and
+     *  / Categories plus in-category exclusions (node-id strings — built-ins are bare ids
+     *  like {@code "add"}, custom nodes are {@code "modid:node_id"} — resolved and
      *  validated at bind time). */
     public static HostAdmission ofExcluding(Set<HostCategory> categories,
                                             String firstExcluded, String... moreExcluded) {

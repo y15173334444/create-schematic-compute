@@ -2,6 +2,7 @@ package io.github.y15173334444.create_schematic_compute.network;
 
 import io.github.y15173334444.create_schematic_compute.SchematicCompute;
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntities;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.codec.ByteBufCodecs;
@@ -34,7 +35,8 @@ public record RuntimeStateSyncPacket(BlockPos pos, Map<Integer, Boolean> flipflo
     public void handle(IPayloadContext ctx) {
         ctx.enqueueWork(() -> {
             var be = ctx.player().level().getBlockEntity(pos);
-            if (be instanceof GraphBlockEntity gbe) {
+            var gbe = GraphBlockEntities.resolve(be);
+            if (gbe != null) {
                 if (flipflopStates != null) gbe.syncFlipflopStates(flipflopStates);
                 if (subFlipflopStates != null) gbe.syncSubFlipflopStates(subFlipflopStates);
             }

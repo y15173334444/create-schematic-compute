@@ -1,6 +1,7 @@
 package io.github.y15173334444.create_schematic_compute.client;
 
 import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntity;
+import io.github.y15173334444.create_schematic_compute.blocks.GraphBlockEntities;
 import io.github.y15173334444.create_schematic_compute.client.editor.GraphEditor;
 import io.github.y15173334444.create_schematic_compute.network.GraphEditAckPacket;
 import net.minecraft.client.Minecraft;
@@ -31,8 +32,10 @@ public final class GraphAckRouter implements GraphEditAckPacket.EditAckSink {
         //    Decrement the pending-ACK counter on the target BE regardless of screen state
         //    (the ack may arrive after the editor closed). Rejected ops are decremented in
         //    GraphEditor.onRemoteOp instead (they never arrive here as an ACK).
-        if (mc.level != null
-            && mc.level.getBlockEntity(pkt.pos()) instanceof GraphBlockEntity gbe) {
+        var gbe = mc.level == null
+            ? null
+            : GraphBlockEntities.resolve(mc.level.getBlockEntity(pkt.pos()));
+        if (gbe != null) {
             gbe.setPendingLocalOps(Math.max(0, gbe.getPendingLocalOps() - 1));
         }
         // 2) 只有同坐标的编辑器屏仍打开时才应用。走 getActiveHost() 而非裸 instanceof——
