@@ -375,8 +375,9 @@ public class GraphEditor {
             syncBandBoxes(st);
             // 有差异就交给 commitBusBox 裁决：dirty 才落库，否则丢弃并提示（#10）
             // Hand any diff to commitBusBox: dirty commits, otherwise discard + hint (#10).
-            if (st.busBox != null && st.busNode != null
-                && !st.busBox.getValue().equals(st.busNode.signalName)) {
+            var liveBus = liveBusNode(st);
+            if (st.busBox != null && liveBus != null
+                && !st.busBox.getValue().equals(liveBus.signalName)) {
                 bus.commitBusBox(st);
             }
         }
@@ -385,7 +386,7 @@ public class GraphEditor {
     /** 频段 EditBox 的值是否与节点 signalBands 不一致（即有待同步的改名）。
      *  True when any band EditBox differs from the node's signalBands. */
     private boolean bandBoxesPending(EditState st) {
-        var node = st.busNode;
+        var node = liveBusNode(st);
         if (node == null || node.type != NodeType.BUS_OUT || st.fields.size() <= 1) return false;
         for (int bi = 1; bi < st.fields.size(); bi++) {
             int sigIdx = bi - 1;
@@ -403,7 +404,7 @@ public class GraphEditor {
      * @return 是否有改动被同步 / whether anything was synced
      */
     private boolean syncBandBoxes(EditState st) {
-        var node = st.busNode;
+        var node = liveBusNode(st);
         if (node == null || node.type != NodeType.BUS_OUT || st.fields.size() <= 1) return false;
         boolean changed = false;
         for (int bi = 1; bi < st.fields.size(); bi++) {
@@ -461,11 +462,12 @@ public class GraphEditor {
     private void tickDebouncedBusEdits() {
         var states = new java.util.ArrayList<>(nodeEditStatesById.values());
         for (var st : states) {
-            if (st.busBox == null || st.busNode == null) continue;
+            var liveBus = liveBusNode(st);
+            if (st.busBox == null || liveBus == null) continue;
             // 只推进用户敲键产生的改名；非 dirty 的差异不进入防抖（#10）
             // Only user-keystroke renames enter the debounce; non-dirty diffs do not (#10).
             boolean namePending = bus.shouldCommitBusName(
-                st.busNameUserDirty, st.busBox.getValue(), st.busNode.signalName);
+                st.busNameUserDirty, st.busBox.getValue(), liveBus.signalName);
             boolean bandsPending = bandBoxesPending(st);
             if (!namePending && !bandsPending) { st.busEditIdleTicks = 0; continue; }
             if (++st.busEditIdleTicks < GraphBusEditor.BUS_EDIT_DEBOUNCE_TICKS) continue;
@@ -634,6 +636,17 @@ public class GraphEditor {
          *  Ticks elapsed since an unsynced bus-name / band-name edit was noticed, for
          *  the debounced auto-commit. */
         public int busEditIdleTicks = 0;
+        /** busBox 草稿的**基线权威名**（草稿装载时的 signalName）：提交判定除了 #10 的
+         *  dirty 门，还要求权威名未在草稿存活期间被挪动——回声/收敛/另一端提交把权威名
+         *  挪走后，本端的过期草稿若照常提交会把旧名写回服务端（实测回弹乒乓）。基线在
+         *  每次 programmatic 装载/重建/回弹重载时刷新。
+         *  The busBox draft's **baseline authoritative name** (the signalName at draft
+         *  load): the commit gate requires — on top of the #10 dirty flag — that the
+         *  authoritative name has not moved while the draft was alive; an echo/convergence/
+         *  peer-commit that moved it would otherwise see this client's stale draft commit
+         *  the old name back (the measured bounce ping-pong). The baseline refreshes at
+         *  every programmatic load / rebuild / bounce reload. */
+        public String busNameDraftBase = null;
         /** ColorPickerButton for TEXT/DATA node color editing */
         public ColorPickerButton colorButton;
         /** Mode toggle pending confirmation state (DEBUG_SIGNAL_GEN) */
@@ -933,7 +946,13 @@ public class GraphEditor {
      *  meaning of its edit boxes. Omit a field here and that change stops rebuilding.
      *  <p><b>Contract exception</b>: param <i>values</i> are excluded — a value change
      *  rebuilds the panel and {@code ff3} wipes drafts ({@code "000"}→{@code "0.0"}).
-     *  Value sync rides SET_PARAM drafts + blur normalization instead.</p> */
+     *  Value sync rides SET_PARAM drafts + blur normalization instead.</p>
+     *  <p><b>Contract exception (formula text)</b>: the formula text is the script box's
+     *  「值」 — folding its hash into the fingerprint rebuilt the whole EditState per
+     *  keystroke (fresh instance each key, the completion popup swallowed). Its structural
+     *  effect already rides {@code inputs()}/{@code outputs()}/{@code bandCount()} here;
+     *  text sync rides the SET_FORMULA targeted refresh + the responder's live validation
+     *  (known-open-issues 条目『打字途中面板重建』三处一批之一).</p> */
     private int editStateSignature(GraphNode n) {
         int h = 1;
         h = 31 * h + n.id;
@@ -951,7 +970,14 @@ public class GraphEditor {
         // Value sync rides SET_PARAM's draft string + blur normalization instead.
         h = 31 * h + (n.signalName == null ? 0 : n.signalName.hashCode());
         h = 31 * h + (n.signalBands == null ? 0 : n.signalBands.size());
-        h = 31 * h + (n.formula == null ? 0 : n.formula.hashCode());
+        // **不要**把公式文本编进指纹：文本是脚本框的「值」，每键变化都换血输入框（补全弹窗
+        // 随实例被吞）。结构效应已由 inputs()/outputs()/bandCount 覆盖；文本同步走
+        // SET_FORMULA 定点刷新 + 响应器实时校验（条目『打字途中面板重建』三处一批之一）。
+        // Do NOT fold the formula text into the fingerprint: the text is the script box's
+        // "value", and every keystroke swapped the box instance (the completion popup went
+        // with it). The structural effect rides inputs()/outputs()/bandCount; text sync rides
+        // the SET_FORMULA targeted refresh + the responder's live validation (register entry
+        // "mid-typing panel rebuild", part 1 of the three-part batch).
         h = 31 * h + n.bandCount();
         if (n.subGraph != null) h = 31 * h + n.subGraph.nodes.size();
         // 参数引脚连线会隐藏对应输入框（连线按稳定 pinId 绑定）
@@ -1002,6 +1028,19 @@ public class GraphEditor {
         for (var n : graph.nodes) liveIds.add(n.id);
         editStateSignatures.keySet().retainAll(liveIds);
         return culled;
+    }
+
+    /** 按 id 从**当前图**重取 bus 节点：整图替换（全量同步）后 {@code st.busNode} 挂在旧图
+     *  的死对象上，提交判定（signalName 比较）必须读活节点——与图节点响应器的 id 重取纪律
+     *  同款。null = 节点已离开当前图。
+     *  <p>Re-fetch the bus node by id from the **current** graph: after a wholesale replacement
+     *  (full sync) {@code st.busNode} hangs off the old graph's dead object, and commit
+     *  decisions (signalName compares) must read the live node — the same id-refetch
+     *  discipline as the node-body responders. null = the node left the current graph.</p> */
+    private GraphNode liveBusNode(EditState st) {
+        if (st == null || st.busNode == null) return null;
+        var g = getGraph();
+        return g == null ? null : g.findNode(st.busNode.id);
     }
 
     /** 创建节点的编辑状态（实现拆至 NodeEditStateFactory，docs/gui-decomposition-plan.md 步骤 6a）。
@@ -1530,6 +1569,22 @@ public class GraphEditor {
             lastInitGraph = graph;
             lastInitGeneration = -1;
             editStatesNeedRebuild = true;
+            // 图实例被整体替换（全量同步 / 存档重载）→ **保留** states 与指纹：签名按值
+            // 比较，内容相同的替换（同 id 同字段值）命中快速路径、零重建——全量同步按
+            // 40 tick 合并窗周期性到达（SET_BANDS/改名路径的 requestFullSync，实测 2.0s 一轮），
+            // 清指纹会让每次替换把全部展开面板齐闪一遍（实测「sig null → X」三连）。
+            // stale 绑定在**源头**修：busNode 的提交判定一律经 liveBusNode 按 id 重取活节点
+            // （图节点响应器同款纪律），旧对象上的闭合写随 op 回声自愈。
+            // The graph instance was replaced wholesale (full sync / save reload) → **keep**
+            // the states and fingerprints: signatures compare by value, so a content-identical
+            // replacement (same ids, same field values) hits the fast path with zero rebuilds —
+            // full syncs arrive periodically on the 40-tick coalescing window (the
+            // SET_BANDS/rename paths' requestFullSync, measured at exactly 2.0s per wave), and
+            // clearing the fingerprints flashed every expanded panel per replacement (the
+            // measured "sig null → X" triples). Stale bindings are fixed at the source instead:
+            // busNode commit decisions always re-fetch the live node by id via liveBusNode (the
+            // same discipline as the node-body responders); closure writes onto old objects
+            // self-heal with the op echo.
         } else if (lastInitGeneration != graph.graphGeneration) {
             editStatesNeedRebuild = true;
         }
@@ -2108,7 +2163,9 @@ public class GraphEditor {
         // busBox 失焦提交（在按钮处理之后，避免 createEditState 冲掉频段编辑） (busBox focus-lost commit, after button handling to avoid createEditState overwriting band edits)
         // 注：已提交的 busBox 不再 isFocused，此循环无副作用；保留以防其他路径需要。
         for (var st : nodeEditStatesById.values()) {
-            if (st.busBox != null && st.busBox.isFocused() && !st.busBox.getValue().equals(st.busNode.signalName))
+            var liveBus = liveBusNode(st);
+            if (st.busBox != null && liveBus != null && st.busBox.isFocused()
+                && !st.busBox.getValue().equals(liveBus.signalName))
                 { bus.commitBusBox(st); break; }
         }
         return false;
@@ -2626,7 +2683,12 @@ public class GraphEditor {
                 // with the deleted node.
                 io.github.y15173334444.create_schematic_compute.network.SignalBus.releaseChannel(
                     n.signalName, new io.github.y15173334444.create_schematic_compute.network.ChannelOwner(
-                        host.getBlockPos(), n.id));
+                        // ownerNodeId = 编辑器当前图域——子图内删除时 owner 键带 ENC 域，
+                        // 不误匹配主图同号节点（known-open-issues 条目『频道清理残余豁口』①）。
+                        // ownerNodeId = the editor's current graph domain — a deletion inside a
+                        // sub-graph keys the owner to the ENC domain, never false-matching a
+                        // same-numbered main-graph node.
+                        host.getBlockPos(), ownerNodeId(), n.id));
             }
             var savedX = n.x; var savedY = n.y; var savedType = n.type.ordinal();
             var savedNbt = saveNodeNbt(n); // 撤销恢复用快照 / snapshot for undo restore

@@ -478,7 +478,12 @@ public final class EditSessionRegistry {
         if (renameTarget != null && renameTarget.type == io.github.y15173334444.create_schematic_compute.graph.NodeType.BUS_OUT
             && preRenameName != null && !preRenameName.equals(renameTarget.signalName)) {
             var reg = io.github.y15173334444.create_schematic_compute.network.BusChannelHelper
-                .applyBusOutRename(targetGraph, pos, renameTarget, preRenameName, level);
+                // ownerNodeId = op 既有图域语义（主图 -1 / 子图 = 承载 ENC 节点 id）——
+                // 迁移的释放与重注册 owner 键带图域（known-open-issues 条目『频道清理残余豁口』①）。
+                // ownerNodeId = the op's existing graph-domain semantics (main graph -1 / a
+                // sub-graph = the hosting ENC node's id) — the migration's release and
+                // re-registration owner keys carry the domain.
+                .applyBusOutRename(targetGraph, pos, renameTarget, preRenameName, op.ownerNodeId(), level);
             if (reg.anyConflictChanged()) gbe.requestFullSync();
         }
         // Assign version AFTER applying — the op is already committed to graph

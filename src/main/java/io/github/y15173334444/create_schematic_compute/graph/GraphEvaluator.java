@@ -20,7 +20,7 @@ import java.util.Map;
  * Client code must never instantiate this class — use {@code be.cachedEvalSnapshot}
  * to read evaluation outputs for rendering.</p>
  */
-public class GraphEvaluator {
+public class GraphEvaluator implements EvaluatorObservationView {
 
     /** 求值状态（图与输出表、子图机械、运行时、各端口、每调用/每节点槽）住在
      *  {@link EvalContext}（决策文档 §四）——本类保留 setter/getter 门面，写穿 ctx。
@@ -477,24 +477,111 @@ public class GraphEvaluator {
     /** 每节点求值耗时 EMA（观测面，批 E）：键 = 节点 id，值 = 指数滑动平均 ns（首样播种，
      *  之后 7/8 旧 + 1/8 新）。随求值器生命周期存亡——图编辑触发重建时整表换血（含已删
      *  节点的陈旧键），无持久化无跨 tick 泄漏面。封装子求值器各持己表（/cscperf v1 只读
-     *  顶层图）。/ Per-node evaluation-cost EMA (the observability face, batch E): keyed
-     *  by node id, an exponential moving average in ns (first sample seeds; afterwards
-     *  7/8 old + 1/8 new). Lives and dies with the evaluator — a graph edit rebuilds it
+     *  顶层图）。存储 = 节点 id → long 的原始类型开放寻址表（条目『观测面 evaluatorView
+     *  交出活求值器 + 探针每 tick 装箱』②：原 HashMap&lt;Integer,Long&gt; 每节点每 tick 装箱
+     *  一个新 Long——EMA 纳秒值远超 Long 缓存区间、id 超 127 时键同样装箱；原始表消掉
+     *  每 tick 分配，装箱只在只读快照物化时发生、频率是指令/UI 面）。
+     *  / Per-node evaluation-cost EMA (the observability face, batch E): keyed by node
+     *  id, an exponential moving average in ns (first sample seeds; afterwards 7/8 old
+     *  + 1/8 new). Lives and dies with the evaluator — a graph edit rebuilds it
      *  wholesale (stale keys of deleted nodes go with it), nothing persists and nothing
      *  leaks across ticks. Encapsulation sub-evaluators keep their own tables (/cscperf
-     *  v1 reads the top-level graph only). */
-    private final java.util.HashMap<Integer, Long> nodeCostNs = new java.util.HashMap<>();
+     *  v1 reads the top-level graph only). Storage = a primitive open-addressed
+     *  id → long table (register entry "evaluatorView hands out the live evaluator +
+     *  per-tick probe boxing", part 2: the old HashMap&lt;Integer,Long&gt; boxed a fresh Long
+     *  per node per tick — EMA ns values far exceed the Long cache range, and ids above
+     *  127 box the key too; the primitive table removes the per-tick allocation, boxing
+     *  happens only when the read-only snapshot materializes at command/UI frequency). */
+    private final NodeCostTable nodeCostNs = new NodeCostTable();
 
     private void recordNodeCost(int nodeId, long ns) {
-        long prev = nodeCostNs.getOrDefault(nodeId, 0L);
+        long prev = nodeCostNs.get(nodeId);
         nodeCostNs.put(nodeId, prev == 0 ? ns : (prev * 7 + ns) / 8);
     }
 
-    /** 耗时表只读视图（/cscperf 消费面；调用方可据此经图反查节点类型/自定义 id）。
-     *  <p>A read-only view of the cost table (the /cscperf consumer; callers resolve node
-     *  type / custom id through the graph themselves).</p> */
-    public java.util.Map<Integer, Long> nodeCostNsView() {
-        return java.util.Collections.unmodifiableMap(nodeCostNs);
+    /** 耗时表只读快照（观测面消费口；标签解析走 {@link #nodeLabel(int)}）。按需物化
+     *  ——装箱成本落在指令/UI 调用频率上，不在每 tick 热路径。
+     *  <p>A read-only snapshot of the cost table (the observation consumer; label
+     *  resolution goes through {@link #nodeLabel(int)}). Materialized on demand — the
+     *  boxing cost lands on command/UI frequency, not the per-tick hot path.</p> */
+    @Override
+    public Map<Integer, Long> nodeCostNsView() {
+        var snapshot = new HashMap<Integer, Long>(Math.max(4, nodeCostNs.size() * 2));
+        nodeCostNs.collect(snapshot);
+        return java.util.Collections.unmodifiableMap(snapshot);
+    }
+
+    /** 节点标识解析（观测面窄口）：CUSTOM 节点 = customId（modid:节点 id），内建节点 =
+     *  类型 id；解析不到（图里已删的陈旧键）= "?"。与旧 formatPerfSummary 的
+     *  graph.findNode 标签口径逐字一致。
+     *  <p>Node identity resolution (the narrow observation port): CUSTOM nodes carry
+     *  their customId (modid:node id), built-ins the type id; unresolvable ids (stale
+     *  keys of deleted nodes) resolve to "?". Verbatim the old formatPerfSummary's
+     *  graph.findNode label contract.</p> */
+    @Override
+    public String nodeLabel(int nodeId) {
+        GraphNode node = ctx.graph.findNode(nodeId);
+        if (node == null) return "?";
+        return node.type == NodeType.CUSTOM ? node.customId : node.type.id;
+    }
+
+    /** 节点 id → EMA ns 的原始类型开放寻址表：线性探查、装载因子 ≤ 1/2、无删除
+     *  （陈旧键随求值器整表换血一并丢弃，与旧 HashMap 语义一致）。节点 id 自 1 起
+     *  （{@code NodeGraph.nextNodeId = 1}），0 即空槽哨兵，无需占用位图。
+     *  <p>The primitive open-addressed id → EMA-ns table: linear probing, load factor
+     *  ≤ 1/2, no removal (stale keys ride until the evaluator's wholesale rebuild —
+     *  the old HashMap's semantics verbatim). Node ids start at 1
+     *  ({@code NodeGraph.nextNodeId = 1}), so 0 is the empty-slot sentinel and no
+     *  occupancy bitmap is needed.</p> */
+    static final class NodeCostTable {
+        private int[] keys = new int[16];
+        private long[] vals = new long[16];
+        private int size;
+
+        int size() { return size; }
+
+        long get(int id) {
+            int mask = keys.length - 1;
+            int i = index(id, mask);
+            while (keys[i] != 0) {
+                if (keys[i] == id) return vals[i];
+                i = (i + 1) & mask;
+            }
+            return 0L;
+        }
+
+        void put(int id, long v) {
+            if ((size + 1) * 2 > keys.length) grow();
+            int mask = keys.length - 1;
+            int i = index(id, mask);
+            while (keys[i] != 0 && keys[i] != id) i = (i + 1) & mask;
+            if (keys[i] == 0) { keys[i] = id; size++; }
+            vals[i] = v;
+        }
+
+        /** 物化装箱快照（观测面调用频率）。/ Materialize the boxed snapshot (observation-face frequency). */
+        void collect(Map<Integer, Long> out) {
+            for (int i = 0; i < keys.length; i++)
+                if (keys[i] != 0) out.put(keys[i], vals[i]);
+        }
+
+        private void grow() {
+            int[] ok = keys;
+            long[] ov = vals;
+            keys = new int[ok.length * 2];
+            vals = new long[ov.length * 2];
+            size = 0;
+            for (int i = 0; i < ok.length; i++)
+                if (ok[i] != 0) put(ok[i], ov[i]);
+        }
+
+        /** 乘法混合散布（顺序 id 直接取模会在表内连成长簇、拉长探查跑）。
+         *  <p>Multiplicative mixing (sequential ids modulo the capacity form one long
+         *  cluster and stretch the probe runs).</p> */
+        private static int index(int id, int mask) {
+            int h = id * 0x9E3779B9;
+            return (h ^ (h >>> 15)) & mask;
+        }
     }
 
     public record InputSource(long freqKey, int signal) {}

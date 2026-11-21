@@ -924,7 +924,17 @@ public class GraphNode {
                 busData.putFloat(e.getKey(), e.getValue());
             tag.put("busData", busData);
         }
-        if (!formula.isEmpty()) tag.putString("formula", formula);
+        // FORMULA 节点**恒写** formula 键（含空串）：空串曾按 isEmpty 跳键，load 侧
+        // `contains("formula")` 不命中 → 回构造默认 "A+B"（din/dout 已如实落盘、与被顶回的
+        // 文本错位，首 parse 后 face 弹回 2）——实测：全量同步 / 存档重载把空公式重置回默认。
+        // 非公式节点保持 isEmpty 守卫（formula 恒空、无键）。
+        // FORMULA nodes **always** write the formula key (empty string included): the empty
+        // string used to be skipped, so load's `contains("formula")` missed and the
+        // constructor default "A+B" came back (din/dout saved faithfully but mismatched the
+        // reverted text; the face snapped back to 2 on the first parse) — measured live: a
+        // full sync / save reload reset an emptied formula to the default. Non-formula nodes
+        // keep the isEmpty guard (formula is always "" there, no key).
+        if (type == NodeType.FORMULA || !formula.isEmpty()) tag.putString("formula", formula);
         // 控制点持久化（曲线节点：DEBUG 手动曲线 / AMP 力度曲线 / WSHAPE 整形曲线）
         // Control point persistence (curve nodes: DEBUG manual / AMP dynamics / WSHAPE shape)
         if (isCurveNode() && curveX != null && curveY != null) {
@@ -935,7 +945,15 @@ public class GraphNode {
             tag.putIntArray("dcx", dcx);
             tag.putIntArray("dcy", dcy);
         }
-        if (dynamicInputCount > 0) tag.putInt("din", dynamicInputCount);
+        // FORMULA 节点恒写 din（含 0）：空公式的 din=0 曾按 >0 守卫跳键，load 回构造默认
+        // 2——与已恒写的空 formula 键错位（face 弹回 2）。dout 不需要同款：缺省 1 与
+        // FORMULA 的合法最小值 1 同值，跳过即还原。非公式节点保持原守卫。
+        // FORMULA nodes always write din (0 included): an empty formula's din=0 used to skip
+        // the >0 guard and load came back as the constructor default 2 — mismatched with the
+        // now-always-written empty formula key (the face snapped back to 2). dout needs no
+        // twin: the default 1 equals FORMULA's legitimate minimum 1, so skipping restores it.
+        // Non-formula nodes keep the original guard.
+        if (type == NodeType.FORMULA || dynamicInputCount > 0) tag.putInt("din", dynamicInputCount);
         if (type == NodeType.FORMULA && dynamicOutputCount > 1) tag.putInt("dout", dynamicOutputCount);
         if (type == NodeType.FORMULA && outputLabels != null && !outputLabels.isEmpty()) {
             ListTag lbls = new ListTag();

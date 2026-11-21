@@ -90,7 +90,7 @@ class BandUploadOwnershipTest {
         OpExecutor.apply(serverGraph, new GraphOp(OpType.SET_DISPLAY_TEXT, POS, -1, c.id, 0,
             null, 0f, 0f, 0, 0, 0, 0, 0, 0f, "def", 0, 0, 0, 0, null, 0, 0, 0,
             null, 0L, java.util.UUID.randomUUID(), 0, null));
-        BusChannelHelper.applyBusOutRename(serverGraph, POS, c, "abc", null);
+        BusChannelHelper.applyBusOutRename(serverGraph, POS, c, "abc", -1, null);
         assertFalse(c.busConflict, "改名到自由名后不再冲突");
 
         // 定义侧必须携带用户的编辑 / the definition must carry the user's edits
@@ -157,7 +157,7 @@ class BandUploadOwnershipTest {
         OpExecutor.apply(graph, new GraphOp(OpType.SET_DISPLAY_TEXT, POS, -1, pub.id, 0,
             null, 0f, 0f, 0, 0, 0, 0, 0, 0f, "def", 0, 0, 0, 0, null, 0, 0, 0,
             null, 0L, java.util.UUID.randomUUID(), 0, null));
-        BusChannelHelper.applyBusOutRename(graph, POS, pub, "abc", null);
+        BusChannelHelper.applyBusOutRename(graph, POS, pub, "abc", -1, null);
         BusChannelHelper.convergeBusInBands(graph);
         assertEquals(List.of(), sub.signalBands,
             "同图订阅者也要清掉死名旧图（统一规则：确证离开 → retire）");
