@@ -112,10 +112,10 @@ class BusOutConflictRenameRegressionTest {
         nameBusOut(graph, POS, b, "abc", "zzz");
 
         // GraphHost 重编译期接线的忠实仿真：lastBusOutKeys 快照差集（unregisterRemovedBusOutNodes
-        // 的同款逻辑：消失的 B:name@id 键按 owner 释放）+ reRegisterChannels（同参）。
+        // 的同款逻辑：消失的 B:name@id 键按 owner 释放）+ 不别名键快照的重注册内核（同参）。
         // Faithful emulation of GraphHost's recompile wiring: the lastBusOutKeys snapshot diff
         // (unregisterRemovedBusOutNodes' exact rule: vanished B:name@id keys release by owner)
-        // + reRegisterChannels (same arguments).
+        // + the snapshot-key re-registration core (same arguments).
         var lastBusOutKeys = new java.util.HashSet<String>(List.of("B:abc@" + a.id, "B:abc@" + b.id));
         var currentKeys = new java.util.HashSet<String>();
         for (var n : graph.nodes)
@@ -130,7 +130,9 @@ class BusOutConflictRenameRegressionTest {
                 SignalBus.releaseChannel(name, new ChannelOwner(POS, nodeId));
             }
         }
-        BusChannelHelper.reRegisterChannels(graph, graph, POS, null); // oldGraph 同对象别名（GraphHost 现状）
+        // 不别名键快照（条目『频道释放依赖快照路径（含别名死守卫）』收口后的真实接线）。
+        // The non-aliased key snapshot (the wiring after the aliased-dead-guard close).
+        BusChannelHelper.reRegisterChannelsScoped(graph, lastBusOutKeys, POS, null);
 
         var entry = SignalBus.getChannel("abc");
         assertNotNull(entry, "重编译周期不得清掉 A 的频道");
