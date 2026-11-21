@@ -215,6 +215,62 @@ class GraphDragStreamTrackerTest {
         assertFalse(tr.hasStash(), "stash gone");
     }
 
+    @Test
+    @DisplayName("权威 MOVE 落地接管覆盖层目标：影子滑向终值而非冻结在流末位 / an authoritative MOVE adopts a fresh overlay's target")
+    void authoritativeMoveAdoptedIntoOverlay() {
+        var g = new NodeGraph();
+        GraphNode n = g.addNode(NodeType.TEXT, 10f, 20f);
+        var tr = newTracker();
+        tr.storeRemoteDrag(pkt(-1, Entry.pos(n.id, 100f, 200f)));
+        // 松手 op：权威终值 (300, 400)。 / The release op: authoritative final (300, 400).
+        tr.adoptAuthoritative(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+            BlockPos.ZERO, -1, n.id, 300f, 400f, SENDER));
+
+        float prevX = -1f, prevY = -1f;
+        for (int i = 0; i < 12; i++) {
+            tr.beginFrame(g, -1);
+            assertTrue(n.x >= prevX, "display advances monotonically toward the adopted final");
+            prevX = n.x;
+            prevY = n.y;   // 帧内取值——endFrame 会还原图真值 / captured in-frame; endFrame restores truth
+            tr.endFrame(g);
+        }
+        assertEquals(300f, prevX, 0.0001f, "shadow converges onto the authoritative final, not the last stream position");
+        assertEquals(400f, prevY, 0.0001f, "y converges onto the authoritative final");
+    }
+
+    @Test
+    @DisplayName("权威 SET_COMMENT_SIZE 同样接管 / an authoritative SET_COMMENT_SIZE adopts too")
+    void authoritativeCommentSizeAdopted() {
+        var g = new NodeGraph();
+        GraphNode c = g.addNode(NodeType.COMMENT, 0f, 0f);
+        var tr = newTracker();
+        tr.storeRemoteDrag(pkt(-1, Entry.commentSize(c.id, 100f, 80f)));
+        tr.adoptAuthoritative(io.github.y15173334444.create_schematic_compute.graph.GraphOp.setCommentSize(
+            BlockPos.ZERO, -1, c.id, 400f, 300f, SENDER));
+        float w = 0f, h = 0f;
+        for (int i = 0; i < 12; i++) {
+            tr.beginFrame(g, -1);
+            w = c.commentWidth;
+            h = c.commentHeight;   // 帧内取值 / captured in-frame
+            tr.endFrame(g);
+        }
+        assertEquals(400f, w, 0.0001f, "width converges onto the authoritative final");
+        assertEquals(300f, h, 0.0001f, "height converges onto the authoritative final");
+    }
+
+    @Test
+    @DisplayName("跨作用域或无覆盖的 op 接管是空操作 / adoption is a no-op without a same-scope overlay")
+    void adoptionWithoutOverlayIsNoOp() {
+        var g = new NodeGraph();
+        GraphNode n = g.addNode(NodeType.TEXT, 7f, 8f);
+        var tr = newTracker();
+        tr.adoptAuthoritative(io.github.y15173334444.create_schematic_compute.graph.GraphOp.moveNode(
+            BlockPos.ZERO, -1, n.id, 500f, 500f, SENDER));
+        tr.beginFrame(g, -1);
+        assertEquals(7f, n.x, 0f, "no overlay entry → untouched");
+        tr.endFrame(g);
+    }
+
     // ── helpers ──
 
     private static GraphDragStreamTracker newTracker() {

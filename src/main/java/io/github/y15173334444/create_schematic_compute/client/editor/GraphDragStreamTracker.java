@@ -55,10 +55,14 @@ final class GraphDragStreamTracker {
      *  tolerates ~4 lost windows; expiry falls back to graph truth. */
     static final long OVERLAY_TIMEOUT_MS = 500;
 
-    /** smoothstep 每帧推进量（4 帧 ≈ 66ms@60fps 收敛；100ms 流窗口内平滑追赶上目标）。
-     *  Smoothstep advance per frame (4 frames ≈ 66 ms @60 fps; smoothly chases each 100 ms
-     *  stream window's new target). */
-    static final float SMOOTHSTEP_STEP = 0.25f;
+    /** smoothstep 每帧推进量——与远端 op 的 {@code advanceRemoteMoveLerp} 同节奏（0.12/帧，
+     *  8-9 帧 ≈ 140ms@60fps 收敛）。滑行时长必须超过 100ms 发包间隔：否则每个窗口内先滑完
+     *  再驻停，视觉上就是「一格一格」（批 1.1 用户实测报告，0.25 时驻停 ~34ms/窗）。
+     *  Smoothstep advance per frame — the same cadence as the remote-op {@code
+     *  advanceRemoteMoveLerp} (0.12/frame, 8-9 frames ≈ 140 ms @60 fps). The glide must
+     *  outlast the 100 ms stream interval; a faster step finishes the glide and then holds
+     *  still inside each window, which reads as stepping (batch 1.1, user-reported). */
+    static final float SMOOTHSTEP_STEP = 0.12f;
 
     private final LongSupplier clockMs;
     /** 出站包构造接缝：生产端从编辑器取 pos/actor/作用域；测试注入固定工厂（headless 不必起
@@ -151,6 +155,31 @@ final class GraphDragStreamTracker {
         int owner = pkt.ownerNodeId();
         for (var e : pkt.entries()) {
             overlays.put(e.nodeId(), new Live(owner, e, now));
+        }
+    }
+
+    /** 权威 op 接管（批 1.1）：仍新鲜的覆盖层条目把目标更新为 op 携带的权威终值并续期——
+     *  影子随之平滑滑向终值，过期时真值已收敛，无跳变。松手尾巴（最后一次流冲刷与松手之间
+     *  ≤100ms 的位移）只存在于松手 op 里，没有这条接管就会冻结在流末位、过期时跳变。
+     *  仅 MOVE_NODE / SET_COMMENT_SIZE 携带相关几何（宽高走 op.x/op.y，同 OpExecutor 口径）；
+     *  REJECT 分支在 GraphRemoteApplier 已提前返回，被拒 op 到不了这里。
+     *  <p>Authoritative adoption (batch 1.1): a still-fresh overlay entry adopts the op's
+     *  authoritative final as its target and is refreshed — the shadow glides into the final
+     *  and expires into it with no jump. The release tail (≤100 ms of travel between the last
+     *  stream flush and the release) exists only in the release ops; without adoption the
+     *  shadow freezes at the last stream position and jumps on expiry. Only MOVE_NODE /
+     *  SET_COMMENT_SIZE carry relevant geometry (w/h ride op.x/op.y, matching OpExecutor);
+     *  rejected ops never reach here (the REJECT branch returns early in GraphRemoteApplier).</p> */
+    void adoptAuthoritative(io.github.y15173334444.create_schematic_compute.graph.GraphOp op) {
+        int owner = op.ownerNodeId();
+        int id = op.targetNodeId();
+        var live = overlays.get(id);
+        if (live == null || live.owner() != owner) return;   // 无覆盖或跨作用域 → 不管 / no overlay or scope mismatch
+        long now = clockMs.getAsLong();
+        if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.MOVE_NODE) {
+            overlays.put(id, new Live(owner, GraphDragStreamPacket.Entry.pos(id, op.x(), op.y()), now));
+        } else if (op.type() == io.github.y15173334444.create_schematic_compute.graph.OpType.SET_COMMENT_SIZE) {
+            overlays.put(id, new Live(owner, GraphDragStreamPacket.Entry.commentSize(id, op.x(), op.y()), now));
         }
     }
 
